@@ -1,263 +1,73 @@
 # MEGA65 C Compiler Suite — Docker Setup
 
-This Dockerfile encapsulates the complete MEGA65 C Compiler Suite toolchain, allowing you to use the compiler and related tools via Docker with volume mounts for local source files.
+The repository has two Dockerfiles:
 
-## Building the Docker Image
+| File | Base | Used by | Notes |
+|------|------|---------|-------|
+| `Dockerfile` (project root) | Ubuntu 22.04, two-stage | `docker build .` | Recommended. Tools on `PATH`, libraries and headers in the install layout. |
+| `src/Docker/Dockerfile` | Alpine 3.20, two-stage | `make docker` | Currently broken — see [Alpine image](#alpine-image-make-docker). |
 
-Build the Alpine Linux-based image (optimized for minimal size while maintaining full functionality):
+Image sizes are not given here; check them with `docker images` after building.
 
-```bash
-docker build -t mega65-cc45 .
-```
+## Root Dockerfile (Ubuntu)
 
-Or with a specific version tag:
-
-```bash
-docker build -t mega65-cc45:v1.0.1 .
-```
-
-**Image Size:** 29.4 MB | **All 8 tools included and fully functional**
-
-### Building from Source
-
-From the project root, use the Makefile:
+### Build
 
 ```bash
-make docker
+docker build -t cc45 .
+docker build -t cc45:vX.Y.Z .      # with a version tag
 ```
 
-This builds the image and exports it to `bin/mega65-cc45.tar`.
+The builder stage runs `make clean && make all && make -C lib` (with FUSE3, SQLite and zlib, so `disk45 mount` and the catalog are available). The runtime image contains:
 
-### Or, Load Pre-built Image from GitHub
+| Path | Contents |
+|------|----------|
+| `/usr/local/bin/` | everything in `bin/`: `cc45`, `cp45`, `ca45`, `ln45`, `ar45`, `nm45`, `objdump45`, `disk45`, `cvt_asm`, `basic45` (plus the C++ test binaries) |
+| `/usr/local/lib/cc45/` | `lib/build/`: `c45.lib` (ZP convention), `c45_zp.lib` (copy), `c45_stack.lib` (stack convention) and the `.o45` members |
+| `/usr/local/include/cc45/` | `lib/include/` (including `sys/`) |
+| `/opt/cc45/` | the full source tree (working directory) |
 
-Pre-built Docker images are available in GitHub releases. Download and load without building:
+Environment: `CC45_INCLUDE=/usr/local/include/cc45` (header search path for `cc45`/`ca45`) and `CC45_LIB=/usr/local/lib/cc45` (library search path for `ln45`). A one-step `cc45 file.c -o file.prg` finds the right library itself (`bin/../lib/cc45/`). `VOLUME /catalog` is declared for the `disk45` catalog database. There is no entrypoint; the default command is `cc45 --version`, so name the tool explicitly:
 
 ```bash
-# Download the Docker image archive (example for v1.0.1)
-wget https://github.com/MEGA65/m65compiler/releases/download/v1.0.1/bin/mega65-cc45.tar
-
-# Load it into Docker
-docker load -i mega65-cc45.tar
-
-# Verify it's loaded
-docker images mega65-cc45
+docker run --rm cc45 cc45 --version
+docker run --rm -v $(pwd):/work cc45 cc45 /work/hello.c -o /work/hello.prg      # compile + link
+docker run --rm -v $(pwd):/work cc45 cc45 -S /work/hello.c -o /work/hello.s45   # assembly only
+docker run --rm -v $(pwd):/work cc45 cc45 -c /work/main.c -o /work/main.o45     # object only
+docker run --rm -v $(pwd):/work cc45 ln45 -basic /work/main.o45 /work/util.o45 -l c45.lib -o /work/game.prg
+docker run --rm -v $(pwd):/work cc45 disk45 create /work/game.d81
+docker run --rm -v $(pwd):/work cc45 disk45 list /work/game.d81
+docker run --rm -v $(pwd):/work -v catalog:/catalog cc45 \
+    disk45 catalog build /work --db /catalog/disk45.db
 ```
 
-**Or use curl:**
+Paths are inside the container, so pass `/work/...` (the working directory is `/opt/cc45`, not `/work`). Use `-l c45_stack.lib` for objects compiled with `-fno-zpcall`.
+
+Files written into `/work` are owned by root; add `--user $(id -u):$(id -g)` to keep your own ownership.
+
+For an interactive shell:
 
 ```bash
-curl -L https://github.com/MEGA65/m65compiler/releases/download/v1.0.1/bin/mega65-cc45.tar -o mega65-cc45.tar
-docker load -i mega65-cc45.tar
+docker run --rm -it -v $(pwd):/work cc45 bash
 ```
 
-**Or load directly without saving to disk:**
+`make test` can be run inside the container (`docker run --rm cc45 make test`), but the image has no `xemu-xmega65`, so it stops at the xemu runtime tests.
 
-```bash
-curl -L https://github.com/MEGA65/m65compiler/releases/download/v1.0.1/bin/mega65-cc45.tar | docker load
-```
+## Alpine Image (`make docker`)
 
-This is faster than building from source and requires no build dependencies. Replace `v1.0.1` with the desired release version.
+`make docker` runs `docker build -f src/Docker/Dockerfile -t mega65-cc45:latest .` and then `docker save` to `bin/mega65-cc45.tar`, which can be loaded elsewhere with `docker load -i mega65-cc45.tar`.
 
-## Quick Start with Aliases
+As written, this Dockerfile does not build: it copies `lib/crt*.s`, but the startup files are `lib/crt*.s45`, so the `COPY` matches nothing and fails. Even with that fixed, the layout does not match what the tools look for:
 
-For the easiest experience, source the provided alias script:
+- headers go to `/app/lib/cc45/include/` (and `lib/include/*` flattens `sys/types.h` to `types.h`), but `cc45` in `/app/bin` searches `/app/lib/include`, and the image sets no `CC45_INCLUDE`;
+- it sets `CC45_LIB_PATH`, which no tool reads (`ln45` reads `CC45_LIB`);
+- `basic45` and `cvt_asm` are not copied.
 
-```bash
-source docker-aliases.sh
-```
+The libraries are copied to `/app/lib/cc45/`, which is where a one-step `cc45 ... -o x.prg` looks, and the entrypoint is `/app/bin/cc45` (other tools via `--entrypoint`). `src/Docker/docker-aliases.sh` defines shell aliases (`cc45`, `ca45`, `cp45`, `nm45`, `ln45`, `ar45`, `objdump45`, `disk45`) that run this `mega65-cc45:latest` image with the current directory mounted at `/work`.
 
-This creates convenient command aliases so you can use tools naturally:
-
-```bash
-cc45 hello.c -o hello.s45     # Compile C to assembly
-ca45 hello.s45 -o hello.prg   # Assemble to binary
-ln45 *.o45 -o output.prg      # Link object files
-disk45 create game.d81        # Create disk image
-nm45 object.o45               # Inspect symbols
-```
-
-## Usage Without Aliases
-
-### Default Tool: cc45 (C Compiler)
-
-The default entry point is `cc45`, so you can compile C code directly:
-
-```bash
-docker run -v $(pwd):/work mega65-cc45:latest hello.c -o hello.prg
-docker run -v $(pwd):/work mega65-cc45:latest -S hello.c -o hello.s45  # Assembly output
-docker run -v $(pwd):/work mega65-cc45:latest -c hello.c -o hello.o45  # Object file
-```
-
-### Using Other Tools
-
-To invoke other tools, use the `--entrypoint` flag:
-
-#### Assembler (ca45)
-```bash
-docker run -v $(pwd):/work --entrypoint ca45 mega65-cc45:latest program.s45 -o program.prg
-```
-
-#### Preprocessor (cp45)
-```bash
-docker run -v $(pwd):/work --entrypoint cp45 mega65-cc45:latest -E input.c -o output.i
-```
-
-#### Linker (ln45)
-```bash
-docker run -v $(pwd):/work --entrypoint ln45 mega65-cc45:latest object1.o45 object2.o45 -o output.prg
-```
-
-#### Symbol Inspector (nm45)
-```bash
-docker run -v $(pwd):/work --entrypoint nm45 mega65-cc45:latest object.o45
-```
-
-#### Object Disassembler (objdump45)
-```bash
-docker run -v $(pwd):/work --entrypoint objdump45 mega65-cc45:latest -d object.o45
-docker run -v $(pwd):/work --entrypoint objdump45 mega65-cc45:latest -r object.o45  # Show relocations
-```
-
-#### Archiver (ar45)
-```bash
-docker run -v $(pwd):/work --entrypoint ar45 mega65-cc45:latest c mylib.lib object1.o45 object2.o45
-docker run -v $(pwd):/work --entrypoint ar45 mega65-cc45:latest t mylib.lib          # List archive contents
-docker run -v $(pwd):/work --entrypoint ar45 mega65-cc45:latest s mylib.lib          # Show symbol table
-```
-
-#### Disk Image Utility (disk45)
-```bash
-docker run -v $(pwd):/work --entrypoint disk45 mega65-cc45:latest create game.d81 -n "MY GAME"
-docker run -v $(pwd):/work --entrypoint disk45 mega65-cc45:latest add game.d81 hello.prg "HELLO"
-docker run -v $(pwd):/work --entrypoint disk45 mega65-cc45:latest list game.d81
-docker run -v $(pwd):/work --entrypoint disk45 mega65-cc45:latest info game.d81
-```
-
-## Complete Compilation Workflow Example
-
-```bash
-# Compile C files to object files
-docker run -v $(pwd):/work mega65-cc45:latest main.c -c -o main.o45
-docker run -v $(pwd):/work mega65-cc45:latest utils.c -c -o utils.o45
-
-# Link objects into executable (if using aliases)
-ln45 main.o45 utils.o45 -o final.prg
-
-# Or without aliases:
-docker run -v $(pwd):/work --entrypoint ln45 mega65-cc45:latest main.o45 utils.o45 -o final.prg
-
-# Create a disk image
-disk45 create output.d81 -n "MYGAME"
-disk45 add output.d81 final.prg "FINAL"
-
-# Inspect the executable
-nm45 main.o45
-objdump45 -d main.o45
-```
-
-## Container Environment
-
-### Volume Mount
-- Local directory is mounted to `/work` inside the container
-- The container's working directory is `/work`
-
-### Library Path
-- Headers are located at `/app/lib/cc45/include/`
-- Standard library archives: `/app/lib/cc45/c45.lib` (stack convention) and `/app/lib/cc45/c45_zp.lib` (ZP convention)
-- Startup files: `/app/lib/cc45/crt*.s45`
-
-### Available Tools (in `/app/bin/`)
-- `cc45` — C compiler (default)
-- `ca45` — 45GS02 assembler
-- `cp45` — C preprocessor
-- `nm45` — Symbol inspector
-- `ln45` — Linker
-- `ar45` — Archiver
-- `objdump45` — Object disassembler
-- `disk45` — Disk image utility
-
-## Environment Variables
-
-Inside the container:
-- `CC45_LIB_PATH=/app/lib/cc45` — Path to compiler libraries
-- `PATH` includes `/app/bin` with all tools
-
-## Tips
-
-### Using an Interactive Shell
-
-For debugging or running multiple commands:
-
-```bash
-docker run -it -v $(pwd):/work mega65-cc45:latest /bin/bash
-# Now inside the container:
-cd /work
-cc45 hello.c -c -o hello.o45
-nm45 hello.o45
-objdump45 -d hello.o45
-```
-
-### File Permissions
-
-If compiled files are owned by root, adjust permissions after:
-
-```bash
-docker run -v $(pwd):/work --user $(id -u):$(id -g) mega65-cc45:latest cc45 hello.c -o hello.prg
-```
-
-Or use the `--rm` flag (already in alias script) to clean up containers.
-
-### Setting Include Paths
-
-Pass include paths to the compiler:
-
-```bash
-cc45 -I/path/to/headers hello.c -o hello.s45
-```
-
-### Linking with Standard Library
-
-To link successfully, you'll need to link with the standard library:
-
-```bash
-ln45 main.o45 -l /app/lib/cc45/c45.lib -o main.prg
-```
-
-## Troubleshooting
-
-### Include path resolution
-
-The compiler automatically locates standard headers relative to its binary path (at `/app/lib/cc45/include` inside the container). If you have custom headers, specify their path with `-I`:
-
-```bash
-docker run -v $(pwd):/work mega65-cc45:latest -I/work/headers hello.c -c -o hello.o45
-```
-
-### Linker: undefined symbol errors
-
-Link with the standard library:
-
-```bash
-ln45 your_object.o45 /app/lib/cc45/c45.lib -o output.prg
-```
-
-### Docker permission issues
-
-If you encounter permission errors, you may need to use:
-
-```bash
-docker run --user $(id -u):$(id -g) -v $(pwd):/work mega65-cc45:latest cc45 hello.c
-```
-
-### Image size is large
-
-The Docker image is ~250-300 MB, which includes the full compilation toolchain. To reduce size, you can:
-- Remove documentation and example files from `.dockerignore`
-- Use a smaller base image (though this may require additional compatibility work)
-- Use multi-stage builds to extract only binaries
+Use the root Dockerfile until the Alpine one is fixed.
 
 ## References
 
-- **Project Documentation**: See `CLAUDE.md` for architecture and feature details
-- **Compiler Flags**: Run `cc45 -?` inside the container for all options
-- **Toolchain Documentation**: See `doc/` directory in the source repository
+- [../bin/cc45.md](../bin/cc45.md), [../bin/ln45.md](../bin/ln45.md), [../bin/disk45.md](../bin/disk45.md) — tool options
+- [stdlib.md](stdlib.md) — which library goes with which calling convention

@@ -380,7 +380,7 @@ ln45 (Link: Combine .o45 objects + libraries → PRG/Binary)
   - Variable-size data in pointer fields stored separately (safe, zero-copy access to fixed prefix)
 
 - **Pragmas**: `#pragma cc45 no_striped` disables optimization for a specific array
-- **Documentation**: Complete specification and examples in `doc/architecture/striped-arrays.md`, `doc/architecture/phase93-striped-3d-arrays.md`, `doc/architecture/phase94-striped-struct-arrays.md`, `doc/architecture/phase96-extended-striped-arrays.md`
+- **Documentation**: `doc/architecture/striped-arrays.md` (note: the live compiler parses `__striped` but does not change the layout yet)
 
 ### Extended Striped Arrays (v1.0.9 - Phase 96 Complete)
 

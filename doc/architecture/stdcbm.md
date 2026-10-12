@@ -1,8 +1,10 @@
 # cbm.h — Commodore KERNAL Interface for MEGA65
 
-`<cbm.h>` provides inline C wrappers for the standard Commodore KERNAL jump table, plus PETSCII control codes and device number constants. All functions use `__asm__` to call KERNAL routines directly, with zero overhead beyond the register setup and `JSR`.
+`<cbm.h>` provides small C wrappers for the standard Commodore KERNAL jump table, plus PETSCII control codes, device numbers and the jump-table addresses. Each wrapper is a `static` function in the header whose body is inline assembly: it loads the registers, brackets the `JSR` with `jsr __bp_rom` / `jsr __bp_prog` (crt0 helpers that switch the base page to the ROM's page 0 and back to the program's relocated zero page) and converts the result.
 
-Compatible with C64, C128, and MEGA65 KERNAL.
+The header needs no library module of its own, but `__bp_rom`/`__bp_prog` come from the CRT in `c45.lib`/`c45_stack.lib`, so programs must be linked with the library (a one-step `cc45 prog.c -o prog.prg` does this).
+
+Compatible with C64, C128 and MEGA65 KERNAL jump tables.
 
 ## Usage
 
@@ -21,28 +23,30 @@ int main() {
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `cbm_chrout` | `void cbm_chrout(char c)` | Output character to current channel (KERNAL `$FFD2`) |
-| `cbm_chrin` | `int cbm_chrin(void)` | Read character from current input channel (KERNAL `$FFCF`) |
-| `cbm_getin` | `int cbm_getin(void)` | Get character from keyboard queue, non-blocking (KERNAL `$FFE4`). Returns 0 if queue is empty |
+| `cbm_chrout` | `void cbm_chrout(char c)` | Output character to the current output channel (KERNAL `$FFD2`) |
+| `cbm_chrin` | `int cbm_chrin(void)` | Read character from the current input channel (KERNAL `$FFCF`) |
+| `cbm_getin` | `int cbm_getin(void)` | Get character from the keyboard queue, non-blocking (KERNAL `$FFE4`). Returns 0 if the queue is empty |
 
 ## I/O Status
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `cbm_readst` | `int cbm_readst(void)` | Read I/O status byte (KERNAL `$FFB7`). Bit meanings depend on device |
+| `cbm_readst` | `int cbm_readst(void)` | Read the I/O status byte (KERNAL `$FFB7`). Bit meanings depend on the device |
 
 ## File I/O
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `cbm_setlfs` | `void cbm_setlfs(char lfn, char device, char sa)` | Set logical file number, device, and secondary address (KERNAL `$FFBA`) |
-| `cbm_setnam` | `void cbm_setnam(char *name, char len)` | Set filename for next OPEN/LOAD/SAVE (KERNAL `$FFBD`) |
-| `cbm_open` | `int cbm_open(void)` | Open logical file (call `cbm_setlfs`/`cbm_setnam` first). Returns 0 on success, 1 on error |
+| `cbm_setlfs` | `void cbm_setlfs(char lfn, char device, char sa)` | Set logical file number, device and secondary address (KERNAL `$FFBA`) |
+| `cbm_setnam` | `void cbm_setnam(char *name, char len)` | Set filename for the next OPEN/LOAD/SAVE (KERNAL `$FFBD`) |
+| `cbm_open` | `int cbm_open(void)` | Open the logical file set up by `cbm_setlfs`/`cbm_setnam` (KERNAL `$FFC0`). Returns 0 on success, 1 on error |
 | `cbm_close` | `void cbm_close(char lfn)` | Close a logical file (KERNAL `$FFC3`) |
 | `cbm_chkin` | `int cbm_chkin(char lfn)` | Set input channel. Returns 0 on success, 1 on error (KERNAL `$FFC6`) |
 | `cbm_chkout` | `int cbm_chkout(char lfn)` | Set output channel. Returns 0 on success, 1 on error (KERNAL `$FFC9`) |
 | `cbm_clrchn` | `void cbm_clrchn(void)` | Restore default I/O channels (KERNAL `$FFCC`) |
 | `cbm_clall` | `void cbm_clall(void)` | Close all open files (KERNAL `$FFE7`) |
+
+`stdio.h` declares a different, library-implemented `cbm_open(device, filename, type)` and `cbm_close(fd)` (cc65 style, see [stdlib.md](stdlib.md#cbm-file-api)). Do not include both headers in one source file if you need the `stdio.h` versions: the `static` definitions in `cbm.h` take over without a diagnostic.
 
 ### File I/O Example
 
@@ -75,15 +79,15 @@ void read_file(void) {
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `cbm_stop` | `int cbm_stop(void)` | Check if STOP key is pressed. Returns non-zero if pressed (KERNAL `$FFE1`) |
+| `cbm_stop` | `int cbm_stop(void)` | Check the STOP key (KERNAL `$FFE1`). Returns 1 if pressed, 0 otherwise |
 
 ## Screen
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `cbm_gotoxy` | `void cbm_gotoxy(char col, char row)` | Set cursor position (0-based). Uses KERNAL PLOT (`$FFF0`) with carry clear |
-| `cbm_wherexy` | `int cbm_wherexy(void)` | Get cursor position. Returns col in low byte, row in high byte |
-| `cbm_screen` | `int cbm_screen(void)` | Get screen size. Returns cols in low byte, rows in high byte (KERNAL `$FFED`) |
+| `cbm_gotoxy` | `void cbm_gotoxy(char col, char row)` | Set cursor position (0-based). KERNAL PLOT (`$FFF0`) with carry clear |
+| `cbm_wherexy` | `int cbm_wherexy(void)` | Get cursor position (PLOT with carry set). Returns col in the low byte, row in the high byte |
+| `cbm_screen` | `int cbm_screen(void)` | Get screen size (KERNAL `$FFED`). Returns columns in the low byte, rows in the high byte |
 
 ### Screen Example
 
@@ -103,20 +107,20 @@ void print_at(char col, char row, char *msg) {
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `cbm_rdtim` | `int cbm_rdtim(void)` | Read jiffy clock (1/60s ticks). Returns low 16 bits of the 24-bit clock (KERNAL `$FFDE`) |
+| `cbm_rdtim` | `int cbm_rdtim(void)` | Read the jiffy clock (1/60 s ticks, KERNAL `$FFDE`). Returns the low 16 bits of the 24-bit clock |
 
 ## Serial Bus (IEC)
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `cbm_listen` | `void cbm_listen(char device)` | Send LISTEN command to device (KERNAL `$FFB1`) |
+| `cbm_listen` | `void cbm_listen(char device)` | Send LISTEN to a device (KERNAL `$FFB1`) |
 | `cbm_unlisten` | `void cbm_unlisten(void)` | Send UNLISTEN (KERNAL `$FFAE`) |
-| `cbm_talk` | `void cbm_talk(char device)` | Send TALK command to device (KERNAL `$FFB4`) |
+| `cbm_talk` | `void cbm_talk(char device)` | Send TALK to a device (KERNAL `$FFB4`) |
 | `cbm_untalk` | `void cbm_untalk(void)` | Send UNTALK (KERNAL `$FFAB`) |
 | `cbm_second` | `void cbm_second(char sa)` | Send secondary address after LISTEN (KERNAL `$FF93`) |
 | `cbm_tksa` | `void cbm_tksa(char sa)` | Send secondary address after TALK (KERNAL `$FF96`) |
-| `cbm_ciout` | `void cbm_ciout(char data)` | Send byte to serial bus (KERNAL `$FFA8`) |
-| `cbm_acptr` | `int cbm_acptr(void)` | Get byte from serial bus (KERNAL `$FF13`) |
+| `cbm_ciout` | `void cbm_ciout(char data)` | Send a byte on the serial bus (KERNAL `$FFA8`) |
+| `cbm_acptr` | `int cbm_acptr(void)` | Get a byte from the serial bus (KERNAL `$FF13`) |
 
 ## PETSCII Control Codes
 
@@ -124,7 +128,7 @@ void print_at(char col, char row, char *msg) {
 |----------|-------|-------------|
 | `CH_RETURN` | `$0D` | Carriage return |
 | `CH_DELETE` | `$14` | Delete character |
-| `CH_INSERT` | `$94` | Insert mode |
+| `CH_INSERT` | `$94` | Insert |
 | `CH_CLEAR` | `$93` | Clear screen |
 | `CH_HOME` | `$13` | Cursor home |
 | `CH_CURSOR_UP` | `$91` | Cursor up |
@@ -206,15 +210,13 @@ All addresses are available as `#define` constants with the `KERNAL_` prefix:
 
 ## Implementation Notes
 
-All functions are declared `static` in the header and use `__asm__` inline assembly. This means:
-
-- No separate `.o45` module is needed — functions are inlined at each call site.
-- Only functions you actually call generate code (dead code elimination by the compiler).
-- The KERNAL addresses are hardcoded — these are stable across C64/C128/MEGA65 ROMs.
-- Functions that return values leave the result in A (low) and X (high), matching `cc45`'s return convention.
-- Error-returning functions use the KERNAL carry convention: carry set = error, converted to 0/1 return value.
+- The functions are `static`, so each source file that uses one gets its own copy (named `_cbm_<name>__<file>`); functions a file does not call are removed. They are called with `JSR` like other functions, not inlined.
+- Parameters are read with frame-relative `lda.sp @_p_<name>` / `ldxy @_p_name, sp`, which cc45 maps onto whichever calling convention is in use.
+- The KERNAL addresses are hardcoded — they are the same on C64, C128 and MEGA65 ROMs.
+- Values are returned in A (low) and X (high), cc45's return convention.
+- Functions that can fail convert the KERNAL carry flag into the return value: carry set = 1 (error), clear = 0.
 
 ## See Also
 
-- [stdlib.md](stdlib.md) — Standard C library overview
+- [stdlib.md](stdlib.md) — standard C library (including the `stdio.h` CBM file API)
 - [../bin/cc45.md](../bin/cc45.md) — C compiler (inline assembly, calling conventions)

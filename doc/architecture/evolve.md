@@ -1,11 +1,12 @@
 # Evolution of the MEGA65 C Compiler Suite: A LLM-Assisted Development History
 
-**Project**: MEGA65 C Compiler Suite (cc45, ca45, ln45, ar45, disk45, and supporting tools)  
-**Period**: 2026-05-31 to 2026-08-23 (90 days of active development)  
+**Project**: MEGA65 C Compiler Suite (cc45, ca45, ln45, ar45, nm45, objdump45, disk45, basic45, cvt_asm; cp45 is cc45 under another name)  
+**Period covered**: 2026-05-31 to 2026-08-23 (the narrative ends there; development continued afterwards)  
 **LLM**: Claude (Haiku 4.5, Opus 5, Sonnet 5)  
-**Final Status**: v1.0.10 - Production Ready  
-**Total Commits**: 65+ organized phases  
-**Documentation**: 40,000+ lines across 10 tool documents
+**Status when written**: "v1.0.10" in `CLAUDE.md`; the tools' version string (`include/Version.hpp`) is `1.0.4`  
+**Documentation (2026-10-11)**: ~38,000 lines of Markdown under `doc/`, of which ~7,300 in the 11 tool manuals in `doc/bin/`
+
+This is a narrative of how the project was developed with LLM assistance. The prompt patterns and lessons are the author's account and are not verifiable from the source tree; the facts about the toolchain itself (tools, features, sizes) were checked against the code on 2026-10-11 and corrected where needed.
 
 ---
 
@@ -188,7 +189,7 @@ This structure enabled:
 3. Validation (testing & verification)
 4. Integration (rest of system)
 
-### Phases 51-80: Optimization Passes (24 optimizations across 9 levels)
+### Phases 51-80: Optimization Passes (named passes, levels -O0 to -O9)
 
 **Prompt Pattern #6: Optimization Template**
 ```
@@ -243,7 +244,7 @@ This was a complex multi-phase feature that exemplified how Claude excels at arc
    - Result: Generalized infrastructure
 
 5. **Phase 95-96**: "Add performance analysis and special cases (unions, pointers, FAM)"
-   - Result: Production-ready feature with 35-50% code reduction
+   - Result: the `__striped` feature (the 35-50% code reduction figure is the design estimate from that phase; it has not been re-measured)
 
 **Key Prompt Pattern Used**:
 ```
@@ -681,7 +682,7 @@ The project used a memory system (MEMORY.md + session files) to maintain context
 - Architecture summaries
 - References to external documentation
 
-**Impact**: Enabled 65+ commits across 90 days without losing context. Each session could load prior work and continue from where it left off.
+**Impact**: Enabled work across many sessions over 90 days without losing context. Each session could load prior work and continue from where it left off.
 
 **Lesson**: For long-term LLM-assisted projects, maintain:
 1. **Session log**: What was done when, by whom
@@ -947,17 +948,20 @@ This collaboration model is what scaled the MEGA65 compiler from 0 to production
 
 ### By The Numbers
 
+Measured on the source tree on 2026-10-11 (`wc -l`, `ls`, timing with `/usr/bin/time`); the development-time rows are the author's account.
+
 | Metric | Value |
 |--------|-------|
-| Total commits | 65+ |
-| Phases completed | 5.5+ major phases × 10-30 sub-phases = 100+ |
-| Lines of code | 40,000+ (compiler, assembler, linker) |
-| Lines of documentation | 40,000+ (10 tools × 4,000 lines avg) |
-| Development time | 90 days |
-| Days of Claude work | ~20-25 actual working days |
-| Compilation time (typical program) | <1 second |
-| Code size reduction (optimizations) | 35-50% for optimized programs |
-| Test coverage | 468 unit tests, all passing |
+| C++ source (`src/main/`, `include/`) | ~120,700 lines |
+| C library (`lib/stdlib/*.c`, `lib/stdlib_asm/*.s45`, CRT `lib/*.s45`) | ~11,500 lines |
+| Documentation (`doc/**/*.md`) | ~38,000 lines (~7,300 in `doc/bin/`) |
+| Test resources (`src/test-resources/`) | ~720 files |
+| Exported C-level library symbols (`ar45 s lib/build/c45.lib`) | ~330 |
+| Compile + link time, small stdlib program | 0.26 s |
+| Development time (to the end of this narrative) | 90 days |
+| Days of Claude work | ~20-25 actual working days (author's estimate) |
+
+Code-size effects of the optimizations are measured per program; see [PERFORMANCE_VALIDATION.md](PERFORMANCE_VALIDATION.md) (for example, static allocation saves 163 of 497 bytes on a small Fibonacci program, while the `-O` level made no difference there).
 
 ### What Made It Successful
 
@@ -987,7 +991,7 @@ This collaboration model is what scaled the MEGA65 compiler from 0 to production
 
 A complete C compiler toolchain for the MEGA65:
 
-1. **cc45**: C99 compiler with multiple calling conventions, 24 optimizations, 9 optimization levels
+1. **cc45**: C compiler (C99 subset plus GNU and C++-style extensions) with three calling conventions, named optimization passes and levels -O0 to -O9
 2. **ca45**: 45GS02 assembler with peephole optimization and relocatable objects
 3. **ln45**: Linker for object files and libraries, with thunk generation
 4. **ar45**: Archiver for creating static libraries
@@ -995,7 +999,8 @@ A complete C compiler toolchain for the MEGA65:
 6. **objdump45**: Disassembler with symbolic annotation
 7. **disk45**: Disk image utility (25 formats supported)
 8. **basic45**: BASIC program generator with preprocessing
-9. **cp45**: C preprocessor
+9. **cp45**: C preprocessor (the cc45 binary run as `cp45`)
+10. **cvt_asm**: converter between 6502 assembler source formats
 
 ### Capabilities Delivered
 
@@ -1008,12 +1013,12 @@ A complete C compiler toolchain for the MEGA65:
 
 ### Performance Achieved
 
-- **Code Size**: 35-50% reduction on optimized programs
-- **Compilation Speed**: <1 second for typical programs
-- **Runtime**: 45GS02 instructions optimized for 1-2 MHz CPU
-- **Library**: 100+ standard library functions
+- **Code Size**: measured per program, see [PERFORMANCE_VALIDATION.md](PERFORMANCE_VALIDATION.md); static allocation and the ZP convention are the largest factors
+- **Compilation Speed**: well under a second for small programs (0.26 s compile + link for a small stdlib test program)
+- **Runtime**: 45GS02 code; the CRT switches the CPU to 40 MHz at startup
+- **Library**: ~330 exported C-level functions and objects in `c45.lib` (see [stdlib.md](stdlib.md))
 
-### Future Directions (Post-v1.0.10)
+### Future Directions
 
 Potential enhancements documented in project roadmap:
 
@@ -1088,9 +1093,8 @@ This is not a story of LLM-generated software. It's a story of how humans and LL
 
 ---
 
-**Document Date**: 2026-08-23  
-**Project Status**: v1.0.10 - Production Ready  
-**Last Updated**: Phase 5.5 Complete  
+**Document Date**: 2026-08-23 (facts about the toolchain re-checked 2026-10-11)  
+**Project Status when written**: "v1.0.10" in `CLAUDE.md` (tool version string 1.0.4)  
 **Maintainer**: Craig Taylor (CTalkobt)
 
 ---
@@ -1099,6 +1103,6 @@ This is not a story of LLM-generated software. It's a story of how humans and LL
 
 - **CLAUDE.md** - Complete project specification and status
 - **doc/architecture/** - Detailed architecture documents
-- **.plan/todo.md** - Future work and optimization roadmap
-- **MEMORY.md** - Session history and decision log
+- **ROADMAP.md**, **.plan/** - Future work and planning notes
+- **MEMORY.md** - Session history and decision log (kept in the assistant's memory directory, not in this repository)
 - Individual tool documentation in **doc/bin/**

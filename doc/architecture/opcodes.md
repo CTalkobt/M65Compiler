@@ -1,412 +1,160 @@
 # 45GS02 Instruction Reference
 
-This reference summarizes the instructions available in the `ca45` assembler for the 45GS02. Instructions are grouped by functional categories, blending hardware-native opcodes with powerful macro-like instructions provided by the assembler.
+The instructions `ca45` assembles for the 45GS02, with the encodings from its opcode table (`src/main/AssemblerOpcodeDatabase.cpp`). Simulated (multi-instruction) instructions are summarised at the end and described in [ca45.md](../bin/ca45.md#simulated-instructions).
 
 ---
 
-## Addressing Modes Glossary
+## Addressing Modes
 
-- **`imp`**: Implied (no operand required).
-- **`acc`**: Accumulator / Register (e.g., `A`, `X`, `Q`).
-- **`imm` / `imm16`**: 8-bit immediate (`#nn`) or 16-bit immediate (`#nnnn`).
-- **`bp`**: Base-page (equivalent to 6502 Zero-Page, offset by `B` register).
-- **`bp,X` / `bp,Y`**: Base-page indexed by X or Y.
-- **`abs`**: Absolute 16-bit address.
-- **`abs,X` / `abs,Y`**: Absolute indexed by X or Y.
-- **`(bp,X)` / `(bp),Y` / `(bp),Z`**: Base-page indirect pre-indexed, or post-indexed.
-- **`(abs)` / `(abs,X)`**: Absolute indirect / indexed indirect.
-- **`(bp,SP),Y`**: Stack-relative indirect indexed Y.
-- **`rel` / `relfar`**: PC-relative 8-bit / 16-bit (used for branches).
-- **`[bp],Z`**: 32-bit flat memory pointer (triggered by hardware `EOM` prefix).
-- **`.ax` / `.ay` / `.az` / `.xy`**: 16-bit register pairs (used by high-level instructions).
-- **`.q` / `.axyz`**: 32-bit Quad register.
-- **`offset, sp`**: Stack-relative offset (e.g., `4, sp` means SP + 4).
+| Mode | Syntax | Operand bytes |
+|------|--------|---------------|
+| `imp` | `inx` | 0 |
+| `A` (accumulator) | `asl`, `asl a`, `inc` | 0 |
+| `#imm` | `lda #$12` | 1 |
+| `#imm16` (`phw` only) | `phw #$1234` | 2 |
+| `bp` (base page) | `lda $12` | 1 |
+| `bp,X` / `bp,Y` | `lda $12,x` | 1 |
+| `abs` | `lda $1234` | 2 |
+| `abs,X` / `abs,Y` | `lda $1234,y` | 2 |
+| `(bp,X)` | `lda ($12,x)` | 1 |
+| `(bp),Y` | `lda ($12),y` | 1 |
+| `(bp),Z` | `lda ($12),z` | 1 |
+| `[bp],Z` (32-bit flat pointer) | `lda [$12],z` | 1, preceded by `EOM` (`$EA`) |
+| `(bp,SP),Y` (stack-relative indirect) | `lda ($12,sp),y` | 1 |
+| `(abs)` / `(abs,X)` | `jmp ($1234)`, `jsr ($1234,x)` | 2 |
+| `rel` / `rel16` | `bne label` | 1 / 2 |
+| `bp,rel` | `bbr3 $12, label` | 2 (base page, 8-bit offset) |
 
----
-
-## Flag Legend
-- **`N`**: Negative (bit 7/15/31 of result).
-- **`Z`**: Zero (set if result is 0).
-- **`C`**: Carry (set if overflow in unsigned or shift-out).
-- **`V`**: Overflow (set if overflow in signed arithmetic).
-- **`I`**: Interrupt Disable.
-- **`D`**: Decimal Mode.
-
----
-
-## 1. Memory Access & Data Movement
-
-* **`LDA`**
-  * *Description*: Loads an 8-bit value into the Accumulator.
-  * *Modes*: `imm`, `bp`, `abs`, `bp,X/Y`, `abs,X/Y`, `(bp),Y/Z`, `[bp],Z`, `(bp,SP),Y`
-  * *Flags*: `N`, `Z`
-  * *Note*: The native `($nn,SP),Y` mode ($E2) is indirect — it reads a 16-bit pointer from SP+nn, adds Y, and loads from the result. For direct SP-relative variable loads, use `lda.sp`.
-
-* **`LDA.SP`** *(Simulated)*
-  * *Description*: Loads an 8-bit value from a stack-relative offset into the Accumulator.
-  * *Modes*: `offset` (stack variable name or numeric offset)
-  * *Generated Code*: `TSX; LDA __sp_base+offset,X`
-  * *Flags*: `N`, `Z`
-
-* **`LDX`, `LDY`, `LDZ`**
-  * *Description*: Loads an 8-bit value into the specified register.
-  * *Modes*: `imm`, `bp`, `abs`, `bp,X/Y`, `abs,X/Y`, `(bp),Y/Z`, `[bp],Z`, `offset, sp` (simulated)
-  * *Flags*: `N`, `Z`
-
-* **`STA`**
-  * *Description*: Stores an 8-bit value from the Accumulator into memory.
-  * *Modes*: `bp`, `abs`, `bp,X/Y`, `abs,X/Y`, `(bp),Y/Z`, `[bp],Z`, `(bp,SP),Y`
-  * *Flags*: None
-  * *Note*: The native `($nn,SP),Y` mode ($82) is indirect. For direct SP-relative variable stores, use `sta.sp`.
-
-* **`STA.SP`** *(Simulated)*
-  * *Description*: Stores an 8-bit value from the Accumulator into a stack-relative offset.
-  * *Modes*: `offset` (stack variable name or numeric offset)
-  * *Generated Code*: `TSX; STA __sp_base+offset,X`
-  * *Flags*: None
-
-* **`STX`, `STY`, `STZ`**
-  * *Description*: Stores an 8-bit value from the specified register into memory.
-  * *Modes*: `bp`, `abs`, `bp,X/Y`, `abs,X/Y`, `(bp),Y/Z`, `[bp],Z`, `offset, sp` (simulated)
-  * *Flags*: None
-
-* **`LDAX`, `LDAY`, `LDAZ` (Simulated)**
-  * *Description*: Loads a 16-bit word into A (low) and X/Y/Z (high).
-  * *Modes*: `imm16` (`#val`), `abs`, `offset, sp`
-  * *Registers Affected*: `.A`, `.X/.Y/.Z`
-  * *Flags*: `N`, `Z` (based on high byte)
-
-* **`STAX`, `STAY`, `STAZ` (Simulated)**
-  * *Description*: Stores a 16-bit word from A (low) and X/Y/Z (high) into memory.
-  * *Modes*: `abs`, `offset, sp`
-  * *Registers Affected*: `.A` (if stack)
-  * *Flags*: `N`, `Z` (if stack)
-
-* **`LDW.SP`, `STW.SP` (Simulated)**
-  * *Description*: Explicit stack-relative 16-bit load/store.
-  * *Modes*: `<reg_pair>, offset`
-  * *Registers Affected*: Pair registers, `.A` (temp)
-  * *Flags*: `N`, `Z`
-
-* **`LDW.F`, `STW.F` (Simulated)**
-  * *Description*: 16-bit word load/store from 28-bit linear memory.
-  * *Modes*: `<addr28>`
-  * *Registers Affected*: `.AX`
-  * *Flags*: `N`, `Z`
-
-* **`LDQ`, `STQ`**
-  * *Description*: Loads or stores the 32-bit Quad register (`A`, `X`, `Y`, `Z`).
-  * *Modes*: `bp`, `abs`, `(bp),Z`, `[bp],Z`
-  * *Flags*: `N`, `Z` (on Load)
-
-* **`TAX`, `TAY`, `TAZ`, `TXA`, `TYA`, `TZA`, `TAB`, `TBA`, `TSX`, `TXS`, `TSY`, `TYS`**
-  * *Description*: Register transfers.
-  * *Modes*: `imp`
-  * *Flags*: `N`, `Z` (except `TXS`, `TYS`)
-
-* **`SWAP` (Simulated)**
-  * *Description*: Swaps two 8-bit registers (`A`, `X`, `Y`, `Z`).
-  * *Modes*: `<reg1>, <reg2>`
-  * *Registers Affected*: `reg1`, `reg2`
-  * *Flags*: None (preserved via stack)
-
-* **`ZERO` (Simulated)**
-  * *Description*: Clears registers to zero.
-  * *Modes*: `<reg1>[, <reg2>...]`
-  * *Flags*: `Z` (1), `N` (0)
-
-* **`SXT.8` (Simulated)**
-  * *Description*: Sign-extends `.A` to `.AX`.
-  * *Modes*: `imp`
-  * *Registers Affected*: `.X` (set to $00 or $FF)
-  * *Flags*: `N`, `Z` (based on X)
-
-* **`PTRDEREF` (Simulated)**
-  * *Description*: De-references a 16-bit pointer in ZP into `.AX`.
-  * *Modes*: `<zp_addr>`
-  * *Registers Affected*: `.AX`, `.Y`
-  * *Flags*: `N`, `Z`
+- **Base page.** `bp` modes address the 256-byte page selected by the B register (`TAB`), not necessarily page 0.
+- **Size selection.** For `addr`, `addr,X` and `addr,Y`, ca45 uses the base-page form when the operand value is below `$100`, the instruction has that form, and the operand is not a relocatable (`.bss`, `.extern`) symbol; otherwise it uses the absolute form. `jmp`/`jsr` are always absolute, and their parenthesised operands are always `(abs)`/`(abs,X)`.
+- **No base-page form.** When a value below `$100` has to be assembled absolute (`ldz $12`, `ldz $12,x`, `lda $12,y`, `sta $12,y`, `phw $12`, …) ca45 warns `'ldz $12' has no base-page mode: assembled as absolute $0012, which ignores the base page register`.
+- **No plain `(bp)`.** The 45GS02 has no unindexed `(bp)` mode; `lda ($12)` is rejected — write `lda ($12),z` with Z = 0.
+- **Branches.** `BCC BCS BEQ BNE BMI BPL BVC BVS BRA` are assembled in the 8-bit form when the target is within −128…127 of the next instruction and in the 16-bit form otherwise (re-evaluated until addresses settle). `BSR` only has the 16-bit form. The offset of a 16-bit branch is relative to the instruction address + 2.
+- **Instruction size** = 1 opcode byte + operand bytes, + 1 for `[bp],Z` (`EOM`), + 2 for Quad instructions (`$42 $42`).
+- **Mode errors.** An unsupported mode is reported with the list of valid ones, e.g. `'asl' does not support addressing mode '#imm'; supported modes: A, zp, zp,X, abs, abs,X`.
 
 ---
 
-## 2. Arithmetic Operations
+## Opcode Table
 
-* **`ADC`, `SBC`**
-  * *Description*: 8-bit Add/Subtract with Carry.
-  * *Modes*: `imm`, `bp`, `abs`, `bp,X`, `abs,X/Y`, `(bp),Y/Z`, `[bp],Z`
-  * *Flags*: `N`, `Z`, `C`, `V`
+| Mnemonic | Modes and opcodes |
+|----------|-------------------|
+| `ADC` | #imm `$69`, bp `$65`, bp,X `$75`, abs `$6D`, abs,X `$7D`, abs,Y `$79`, (bp,X) `$61`, (bp),Y `$71`, (bp),Z `$72`, [bp],Z `EA 72` |
+| `AND` | #imm `$29`, bp `$25`, bp,X `$35`, abs `$2D`, abs,X `$3D`, abs,Y `$39`, (bp,X) `$21`, (bp),Y `$31`, (bp),Z `$32`, [bp],Z `EA 32` |
+| `ASL` | A `$0A`, bp `$06`, bp,X `$16`, abs `$0E`, abs,X `$1E` |
+| `ASR` | A `$43`, bp `$44`, bp,X `$54` |
+| `ASW` | abs `$CB` |
+| `BBR0`–`BBR7` | bp,rel `$0F` `$1F` `$2F` `$3F` `$4F` `$5F` `$6F` `$7F` |
+| `BBS0`–`BBS7` | bp,rel `$8F` `$9F` `$AF` `$BF` `$CF` `$DF` `$EF` `$FF` |
+| `BCC` | rel `$90`, rel16 `$93` |
+| `BCS` | rel `$B0`, rel16 `$B3` |
+| `BEQ` | rel `$F0`, rel16 `$F3` |
+| `BIT` | #imm `$89`, bp `$24`, bp,X `$34`, abs `$2C`, abs,X `$3C` |
+| `BMI` | rel `$30`, rel16 `$33` |
+| `BNE` | rel `$D0`, rel16 `$D3` |
+| `BPL` | rel `$10`, rel16 `$13` |
+| `BRA` | rel `$80`, rel16 `$83` |
+| `BRK` | imp `$00` |
+| `BSR` | rel16 `$63` |
+| `BVC` | rel `$50`, rel16 `$53` |
+| `BVS` | rel `$70`, rel16 `$73` |
+| `CLC` `CLD` `CLE` `CLI` `CLV` | imp `$18` `$D8` `$02` `$58` `$B8` |
+| `CMP` | #imm `$C9`, bp `$C5`, bp,X `$D5`, abs `$CD`, abs,X `$DD`, abs,Y `$D9`, (bp,X) `$C1`, (bp),Y `$D1`, (bp),Z `$D2`, [bp],Z `EA D2` |
+| `CPX` | #imm `$E0`, bp `$E4`, abs `$EC` |
+| `CPY` | #imm `$C0`, bp `$C4`, abs `$CC` |
+| `CPZ` | #imm `$C2`, bp `$D4`, abs `$DC` |
+| `DEC` | A `$3A`, bp `$C6`, bp,X `$D6`, abs `$CE`, abs,X `$DE` |
+| `DEW` | bp `$C3` |
+| `DEX` `DEY` `DEZ` | imp `$CA` `$88` `$3B` |
+| `EOM` | imp `$EA` |
+| `EOR` | #imm `$49`, bp `$45`, bp,X `$55`, abs `$4D`, abs,X `$5D`, abs,Y `$59`, (bp,X) `$41`, (bp),Y `$51`, (bp),Z `$52`, [bp],Z `EA 52` |
+| `INC` | A `$1A`, bp `$E6`, bp,X `$F6`, abs `$EE`, abs,X `$FE` |
+| `INW` | bp `$E3` |
+| `INX` `INY` `INZ` | imp `$E8` `$C8` `$1B` |
+| `JMP` | abs `$4C`, (abs) `$6C`, (abs,X) `$7C` |
+| `JSR` | abs `$20`, (abs) `$22`, (abs,X) `$23` |
+| `LDA` | #imm `$A9`, bp `$A5`, bp,X `$B5`, abs `$AD`, abs,X `$BD`, abs,Y `$B9`, (bp,X) `$A1`, (bp),Y `$B1`, (bp),Z `$B2`, [bp],Z `EA B2`, (bp,SP),Y `$E2` |
+| `LDX` | #imm `$A2`, bp `$A6`, bp,Y `$B6`, abs `$AE`, abs,Y `$BE` |
+| `LDY` | #imm `$A0`, bp `$A4`, bp,X `$B4`, abs `$AC`, abs,X `$BC` |
+| `LDZ` | #imm `$A3`, abs `$AB`, abs,X `$BB` |
+| `LSR` | A `$4A`, bp `$46`, bp,X `$56`, abs `$4E`, abs,X `$5E` |
+| `MAP` | imp `$5C` |
+| `NEG` | A `$42` |
+| `ORA` | #imm `$09`, bp `$05`, bp,X `$15`, abs `$0D`, abs,X `$1D`, abs,Y `$19`, (bp,X) `$01`, (bp),Y `$11`, (bp),Z `$12`, [bp],Z `EA 12` |
+| `PHA` `PHP` `PHX` `PHY` `PHZ` | imp `$48` `$08` `$DA` `$5A` `$DB` |
+| `PHW` | #imm16 `$F4`, abs `$FC` |
+| `PLA` `PLP` `PLX` `PLY` `PLZ` | imp `$68` `$28` `$FA` `$7A` `$FB` |
+| `RMB0`–`RMB7` | bp `$07` `$17` `$27` `$37` `$47` `$57` `$67` `$77` |
+| `ROL` | A `$2A`, bp `$26`, bp,X `$36`, abs `$2E`, abs,X `$3E` |
+| `ROR` | A `$6A`, bp `$66`, bp,X `$76`, abs `$6E`, abs,X `$7E` |
+| `ROW` | abs `$EB` |
+| `RTI` | imp `$40` |
+| `RTS`, `RTN` | imp `$60`, #imm `$62` (`rtn #n`/`rts #n` return and drop `n` bytes; `rtn #0` is assembled as `$60`) |
+| `SBC` | #imm `$E9`, bp `$E5`, bp,X `$F5`, abs `$ED`, abs,X `$FD`, abs,Y `$F9`, (bp,X) `$E1`, (bp),Y `$F1`, (bp),Z `$F2`, [bp],Z `EA F2` |
+| `SEC` `SED` `SEE` `SEI` | imp `$38` `$F8` `$03` `$78` |
+| `SMB0`–`SMB7` | bp `$87` `$97` `$A7` `$B7` `$C7` `$D7` `$E7` `$F7` |
+| `STA` | bp `$85`, bp,X `$95`, abs `$8D`, abs,X `$9D`, abs,Y `$99`, (bp,X) `$81`, (bp),Y `$91`, (bp),Z `$92`, [bp],Z `EA 92`, (bp,SP),Y `$82` |
+| `STX` | bp `$86`, bp,Y `$96`, abs `$8E`, abs,Y `$9B` |
+| `STY` | bp `$84`, bp,X `$94`, abs `$8C`, abs,X `$8B` |
+| `STZ` | bp `$64`, bp,X `$74`, abs `$9C`, abs,X `$9E` — stores the **Z register** (not zero) |
+| `TAB` `TAX` `TAY` `TAZ` `TBA` | imp `$5B` `$AA` `$A8` `$4B` `$7B` |
+| `TRB` | bp `$14`, abs `$1C` |
+| `TSB` | bp `$04`, abs `$0C` |
+| `TSX` `TSY` `TXA` `TXS` `TYA` `TYS` `TZA` | imp `$BA` `$0B` `$8A` `$9A` `$98` `$2B` `$6B` |
 
-* **`NEG`**
-  * *Description*: 8-bit Two's Complement Negation of `.A`.
-  * *Modes*: `acc`
-  * *Flags*: `N`, `Z`, `C`
+`NOP` is rejected by ca45 (`nop disallowed`) because `$EA` is the `EOM` prefix; write `eom` for that byte, or `clv` (`$B8`) as a one-byte no-op.
 
-* **`ADD.16`, `SUB.16`, `ADD.S16`, `SUB.S16` (Simulated)**
-  * *Description*: 16-bit unsigned or signed addition/subtraction.
-  * *Modes*: `dest: .AX, .AY, .AZ, abs`; `src: #imm, abs, reg_pair`
-  * *Registers Affected*: `dest` pair, `.A` (temp)
-  * *Flags*: `N`, `Z`, `C`, `V`
+### Quad (32-bit Q) instructions
 
-* **`MUL.<width>`, `DIV.<width>` (Simulated)**
-  * *Description*: Hardware-accelerated unsigned math.
-  * *Widths*: `.8`, `.16`, `.24`, `.32`
-  * *Modes*: `<dest>, <src>` (Registers or `abs` memory)
-  * *Registers Affected*: `.A` (transfer), `dest` registers
-  * *Flags*: `N`, `Z`
+The Q register is A (bits 0–7), X, Y, Z (bits 24–31). ca45 assembles a Quad instruction as `$42 $42` followed by the base instruction:
 
-* **`MUL.S16`, `DIV.S16` (Simulated)**
-  * *Description*: Signed 16-bit multiply/divide. Takes absolute values, performs unsigned hardware operation, corrects sign of result.
-  * *Modes*: `.AX, <src>` (`#imm`, `abs`)
-  * *Registers Affected*: `.AX`, `.A` (temp)
-  * *Flags*: `N`, `Z`
-  * *Note*: Uses `$D76E` as a scratch byte for sign tracking.
+| Mnemonic | Base | Example |
+|----------|------|---------|
+| `LDQ`, `STQ` | `LDA`, `STA` (modes bp, abs, (bp),Z, [bp],Z) | `ldq $20` → `42 42 A5 20`; `ldq [$20],z` → `42 42 EA B2 20` |
+| `ADCQ` `SBCQ` `ANDQ` `ORAQ` `EORQ` `CMPQ` | `ADC` … `CMP` | `adcq $1234` → `42 42 6D 34 12` |
+| `ASLQ` `LSRQ` `ROLQ` `RORQ` | `ASL` … `ROR` | `aslq` → `42 42 0A` |
+| `INCQ`, `DECQ` | `INC A`, `DEC A` | `incq` → `42 42 1A` |
+| `NEGQ` | `NEG` | `42 42 42` |
 
-* **`MOD.16`, `MOD.S16` (Simulated)**
-  * *Description*: 16-bit unsigned/signed modulo (remainder). Performs division via hardware, then reads remainder from `$D770`/`$D771`. Signed variant follows C99 semantics (result sign matches dividend).
-  * *Modes*: `.AX, <src>` (`#imm`, `abs`)
-  * *Registers Affected*: `.AX`, `.A` (temp)
-  * *Flags*: `N`, `Z`
-
-* **`INC`, `DEC`**
-  * *Description*: 8-bit Increment/Decrement.
-  * *Modes*: `acc`, `bp`, `bp,X`, `abs`, `abs,X`
-  * *Flags*: `N`, `Z`
-
-* **`INX`, `INY`, `INZ`, `DEX`, `DEY`, `DEZ`**
-  * *Description*: 8-bit register increment/decrement.
-  * *Modes*: `imp`
-  * *Flags*: `N`, `Z`
-
-* **`INW`, `DEW`**
-  * *Description*: 16-bit word increment/decrement in Base-page.
-  * *Modes*: `bp`
-  * *Flags*: `Z` (Sets Z if the *entire* 16-bit result is 0)
-
-* **`INQ`, `DEQ`**
-  * *Description*: 32-bit Quad register increment/decrement.
-  * *Modes*: `acc`
-  * *Flags*: `N`, `Z`
-
-* **`NEG.16`, `ABS.16`, `NEG.S16`, `ABS.S16` (Simulated)**
-  * *Description*: 16-bit Negation / Absolute Value.
-  * *Modes*: `.ax`, `abs`, `offset, sp`
-  * *Registers Affected*: `dest` pair, `.A`, `.X` (if stack)
-  * *Flags*: `N`, `Z`, `C`
-
-* **`EXPR` (Simulated)**
-  * *Description*: Generates code for complex math formulas.
-  * *Modes*: `<target>, <expression>`
-  * *Flags*: `N`, `Z`, `C`, `V`
-
----
-
-## 3. Logical Operations & Bit Manipulation
-
-* **`AND`, `ORA`, `EOR`**
-  * *Description*: 8-bit bitwise logic.
-  * *Modes*: `imm`, `bp`, `abs`, `bp,X/Y`, `abs,X/Y`, `(bp),Y/Z`, `[bp],Z`
-  * *Flags*: `N`, `Z`
-
-* **`BIT`**
-  * *Description*: Bit test (Mem AND Acc).
-  * *Modes*: `imm`, `bp`, `bp,X`, `abs`, `abs,X`
-  * *Flags*: `N` (bit 7), `V` (bit 6), `Z`
-
-* **`AND.16`, `ORA.16`, `EOR.16`, `NOT.16` (Simulated)**
-  * *Description*: 16-bit bitwise logic.
-  * *Modes*: `.ax`, `abs` (NOT also supports `offset, sp`)
-  * *Registers Affected*: `.AX`, `.A` (temp)
-  * *Flags*: `N`, `Z`
-
-* **`SMB0-7`, `RMB0-7`**
-  * *Description*: Set/Reset specific bit in memory.
-  * *Modes*: `bp`
-  * *Flags*: None
-
-* **`TSB`, `TRB`**
-  * *Description*: Test and Set/Reset bits via Accumulator mask.
-  * *Modes*: `bp`, `abs`
-  * *Flags*: `Z` (based on Mem AND Acc)
-
-* **`SELECT` (Simulated)**
-  * *Description*: Conditional assignment based on Zero flag.
-  * *Modes*: `<reg>, <val_if_true>, <val_if_false>`
-  * *Flags*: `N`, `Z`
+ca45 accepts every mode of the base instruction after the prefix; use the forms the 45GS02 defines for Q (base page, absolute, `(bp),Z`/`[bp],Z` indirect, and the accumulator form of the shifts). `INQ`, `DEQ`, `ASRQ`, `BITQ` and `CPQ` are not recognised.
 
 ---
 
-## 4. Shifts and Rotates
+## Flags
 
-* **`ASL`, `LSR`, `ROL`, `ROR`**
-  * *Description*: 8-bit shifts and rotates.
-  * *Modes*: `acc`, `bp`, `bp,X`, `abs`, `abs,X`
-  * *Flags*: `N`, `Z`, `C`
+`N` negative, `V` overflow, `Z` zero, `C` carry, `I` interrupt disable, `D` decimal, `E` emulation (8-bit stack).
 
-* **`ASR`**
-  * *Description*: 8-bit Arithmetic Shift Right (preserves bit 7).
-  * *Modes*: `acc`, `bp`, `bp,X`
-  * *Flags*: `N`, `Z`, `C`
+| Instructions | Flags changed |
+|--------------|---------------|
+| `LDA LDX LDY LDZ`, `TAX TAY TAZ TXA TYA TZA TBA TSX TSY`, `PLA PLX PLY PLZ`, `AND ORA EOR`, `INC DEC INX INY INZ DEX DEY DEZ`, `NEG` | N, Z |
+| `ADC SBC` | N, V, Z, C |
+| `CMP CPX CPY CPZ` | N, Z, C |
+| `ASL LSR ROL ROR ASR`, `ASW ROW` | N, Z, C |
+| `INW DEW` | N, Z (of the 16-bit result) |
+| `BIT` | N, V (bits 7, 6 of memory), Z |
+| `TSB TRB` | Z |
+| `CLC SEC`, `CLI SEI`, `CLD SED`, `CLV`, `CLE SEE` | the named flag |
+| `PLP`, `RTI` | all |
+| `STA STX STY STZ STQ`, `TXS TYS TAB`, `PHA PHP PHX PHY PHZ PHW`, `SMBn RMBn`, branches, `JMP JSR BSR RTS RTN`, `MAP EOM` | none |
 
-* **`ASW`, `ROW`**
-  * *Description*: 16-bit Arithmetic Shift Word Left, Rotate Word Right.
-  * *Modes*: `abs`, `.ax` (assembler simulated for `.ax`)
-  * *Flags*: `N`, `Z`, `C`
-
-* **`LSL.16`, `LSR.16`, `ASR.16`, `ROL.16`, `ROR.16` (Simulated)**
-  * *Description*: 16-bit Logical/Arithmetic Shifts and Rotates.
-  * *Modes*: `.ax`, `abs`
-  * *Flags*: `N`, `Z`, `C`
-
-* **`LSL.S16`, `LSR.S16`, `ASR.S16`, `ROL.S16`, `ROR.S16` (Simulated)**
-  * *Description*: Signed 16-bit shifts and rotates (equivalents).
-  * *Flags*: `N`, `Z`, `C`
+`MAP` loads the memory mapper from A/X/Y/Z and inhibits interrupts until the next `EOM`. `TAB` sets the base page; `TYS`/`TXS` set the stack pointer high/low byte (`CLE` enables the 16-bit stack). Quad instructions set the flags from the 32-bit result.
 
 ---
 
-## 5. Control Flow & Comparison
+## Simulated Instructions (summary)
 
-* **`CMP`, `CPX`, `CPY`, `CPZ`**
-  * *Description*: 8-bit comparison.
-  * *Modes*: `imm`, `bp`, `abs`, `bp,X/Y`, `abs,X/Y`, `(bp),Y/Z`, `[bp],Z`
-  * *Flags*: `N`, `Z`, `C`
+Expanded by ca45 into native code; operand forms, register usage and current limitations are in [ca45.md](../bin/ca45.md#simulated-instructions).
 
-* **`CMP.16`, `CMP.S16` (Simulated)**
-  * *Description*: 16-bit word comparison (Unsigned / Signed).
-  * *Modes*: `.AX, <src>` (`#imm`, `abs`)
-  * *Registers Affected*: `.A` (temp)
-  * *Flags*: `N`, `Z`, `C` (`CMP.S16` uses high-byte `EOR #$80` logic)
-
-* **`BCC`, `BCS`, `BEQ`, `BNE`, `BMI`, `BPL`, `BVC`, `BVS`, `BRA`**
-  * *Description*: Conditional branches. Selects `rel` or `rel16` automatically.
-  * *Flags Affected*: None
-
-* **`BBS0-7`, `BBR0-7`**
-  * *Description*: Branch if bit Set/Reset.
-  * *Modes*: `bp, rel`
-  * *Flags Affected*: None
-
-* **`JMP`, `JSR`, `BSR`**
-  * *Description*: Jump and Subroutine calls.
-  * *Modes*: `abs`, `(abs)`, `(abs,X)`, `rel16` (for BSR)
-
-* **`CALL` (Simulated)**
-  * *Description*: Procedural call with parameter passing.
-  * *Registers Affected*: `.A`, `.X`, `.Y`, `.Z` (depending on args), plus stack.
-
-* **`CHKZERO.8/16`, `CHKNONZERO.8/16` (Simulated)**
-  * *Description*: Evaluation to boolean result in `.A`.
-  * *Registers Affected*: `.A`, `.X` (if 16-bit)
-  * *Flags*: `N`, `Z`
-
-* **`BRANCH.16` (Simulated)**
-  * *Description*: 16-bit `BEQ/BNE` branching.
-  * *Registers Affected*: `.X` (temp)
-
----
-
-## 6. Stack Operations
-
-* **`PHA`, `PHP`, `PHX`, `PHY`, `PHZ`, `PHW`**
-  * *Description*: Pushes onto stack.
-  * *Modes*: `imp` (`PHW` supports `imm16`, `abs`, `offset, sp`)
-  * *Flags Affected*: None (`PHP` pushes flags)
-
-* **`PLA`, `PLP`, `PLX`, `PLY`, `PLZ`**
-  * *Description*: Pulls from stack.
-  * *Modes*: `imp`
-  * *Flags Affected*: `N`, `Z` (`PLP` pulls all flags)
-
-* **`PUSH`, `POP` (Simulated)**
-  * *Description*: Multi-register push/pop.
-  * *Registers Affected*: As specified.
-  * *Flags Affected*: None (Pop sequence preserves P)
-
-* **`PTRSTACK` (Simulated)**
-  * *Description*: Calculates SP-relative address into `.AX`.
-  * *Registers Affected*: `.AX`
-  * *Flags*: `N`, `Z`, `C`
-
----
-
-## 7. DMA and Block Operations
-
-* **`FILL`, `FILL.SP` (Simulated)**
-  * *Description*: DMA High-speed memory fill operation. Fills destination with the byte in `.A`. Uses the MEGA65 DMA controller for fast bulk writes.
-  * *Syntax*: 
-    - 2-operand form: `FILL dest, len` — length must be in `.XY` register pair (`.XY` = 256*Y + X bytes)
-    - 3-operand form: `FILL dest, len, #count` — explicit length (3rd operand, typically `#256` etc.)
-  * *Destination modes*: `abs`, register pair (`.AX`, `.AY`, `.AZ`, `.XY`, `.XZ`, `.YZ`), multi-register (`.AXY`, `.AXZ`, `.AYZ`, `.AXYZ`/`.Q`), `offset, sp`
-  * *Length modes*: `#immediate`, single register (`.A`, `.X`, `.Y`, `.Z`), register pair (`.AX`, `.AY`, `.AZ`, `.XY`, `.XZ`, `.YZ`), multi-register (`.AXY`, `.AXZ`, `.AYZ`, `.AXYZ`/`.Q`)
-  * *Registers Affected*: None (preserved)
-  * *Flags*: None
-  * **Examples**:
-    - `FILL $3000, #256` — Fill 256 bytes at $3000 with `.A`
-    - `lda #$42; ldx #5; FILL $4000, .X` — Fill 5 bytes (single register)
-    - `ldx #100; ldy #0; FILL .AX, #64` — Fill 64 bytes to address in `.AX`
-    - `ldx #10; ldy #2; FILL $5000, .XY` — Fill (.XY)=522 bytes using register pair
-  
-  * **Register Interpretation Notes**: 
-    - Single registers (`.A`, `.X`, `.Y`, `.Z`) are zero-extended to 16-bit (high byte = 0)
-    - 2-byte pairs (`.AX`, `.AY`, `.AZ`, `.XY`, `.XZ`, `.YZ`) are used as-is (16-bit values)
-    - 3-byte groups (`.AXY`, `.AXZ`, `.AYZ`) are treated as 24-bit values and zero-extended to 32 bits by appending a zero high byte for DMA structure field compatibility
-    - 4-byte group `.AXYZ` and its synonym `.Q` use all four bytes as a 32-bit value
-
-* **`MOVE`, `MOVE.SP` (Simulated)**
-  * *Description*: DMA High-speed memory copy (block transfer). Copies from source to destination. Uses the MEGA65 DMA controller for fast bulk memory operations.
-  * *Syntax*:
-    - 2-operand form: `MOVE src, dest` — length must be in `.XY` register pair (`.XY` = 256*Y + X bytes)
-    - 3-operand form: `MOVE src, dest, len` — explicit length (3rd operand)
-  * *Source modes*: `abs`, single register (`.A`, `.X`, `.Y`, `.Z`), register pair (`.AX`, `.AY`, `.AZ`, `.XY`, `.XZ`, `.YZ`), multi-register (`.AXY`, `.AXZ`, `.AYZ`, `.AXYZ`/`.Q`), symbol, `offset, sp`
-  * *Destination modes*: Same as source
-  * *Length modes*: `#immediate`, single register (`.A`, `.X`, `.Y`, `.Z`), register pair (`.AX`, `.AY`, `.AZ`, `.XY`, `.XZ`, `.YZ`), multi-register (`.AXY`, `.AXZ`, `.AYZ`, `.AXYZ`/`.Q`)
-  * *Registers Affected*: None (preserved)
-  * *Flags*: None
-  
-  * **2-Operand Examples** (length in `.XY`):
-    - `ldx #0; ldy #1; MOVE $3000, $4000` — Move 256 bytes from $3000 to $4000 (`.XY` = 256*Y + X)
-  
-  * **3-Operand Examples** (explicit length):
-    - All immediate: `MOVE $3000, $4000, #256` — Move 256 bytes with explicit length
-    - Single register length: `ldx #128; MOVE $7000, $8000, .X` — Move 128 bytes using single register
-    - Register pair as length: `ldx #10; ldy #2; MOVE $7000, $8000, .XY` — Move (.XY)=522 bytes
-    - Register pair as source: `lda #$10; ldx #$00; MOVE .AX, $9000, #128` — Copy from address in `.AX`
-    - Register pair as destination: `lda #$20; ldy #$00; MOVE $A000, .AY, #64` — Copy to address in `.AY`
-    - Multi-register (3-byte group): `MOVE .AXY, $6000, #512` — Copy from 3-register address to $6000
-    - Symbols: `MOVE buffer1, buffer2, #100` — Copy 100 bytes between labeled buffers
-    - Stack-relative: `MOVE.SP $7000, #8, #64` — Copy from stack-relative offset
-  
-  * **Operand Type Reference**:
-    | Position | Accepted Types |
-    |----------|---|
-    | Source | Immediate (`$addr`), Single register (`.A`, `.X`, `.Y`, `.Z`), Register pair (`.AX`–`.YZ`), Multi-register (`.AXY`, `.AXZ`, `.AYZ`, `.AXYZ`/`.Q`), Symbol, Stack-relative |
-    | Destination | Same as source |
-    | Length (3rd operand only) | Immediate (`#bytes`), Single register (`.A`, `.X`, `.Y`, `.Z`), Register pair (`.AX`–`.YZ`), Multi-register (`.AXY`, `.AXZ`, `.AYZ`, `.AXYZ`/`.Q`) |
-  
-  * **Register Interpretation Notes**: 
-    - Single registers (`.A`, `.X`, `.Y`, `.Z`) are zero-extended to 16-bit (high byte = 0)
-    - 2-byte pairs (`.AX`, `.AY`, `.AZ`, `.XY`, `.XZ`, `.YZ`) are used as-is (16-bit values)
-    - 3-byte groups (`.AXY`, `.AXZ`, `.AYZ`) are treated as 24-bit values and zero-extended to 32 bits by appending a zero high byte for DMA structure field compatibility
-    - 4-byte group `.AXYZ` and its synonym `.Q` use all four bytes as a 32-bit value
-  * **Implementation Notes**: The explicit length operand is stored at DMA buffer offset 1-2 (lo/hi bytes), source at offset 3-4, and destination at offset 6-7. The DMA controller transfers the specified number of bytes. Comprehensive tests are in `src/test/test_move_fill.cpp` (C++) and `src/test-resources/test_fill_advanced.s45` (assembly).
-
----
-
-## 8. CPU State & System Control
-
-* **`CLC`, `SEC`, `CLI`, `SEI`, `CLV`, `CLD`, `SED`**
-  * *Description*: Flag management.
-  * *Flags Affected*: Corresponding flag.
-
-* **`CLE`, `SEE`**
-  * *Description*: Clear/Set EOM flag (Enables 32-bit flat mode).
-  * *Flags Affected*: Emulation/EOM flag.
-
-* **`MAP`**
-  * *Description*: Configure Memory Mapper.
-  * *Registers Affected*: None (uses current CPU state)
-
-* **`EOM`**
-  * *Description*: End of Message / Instruction Prefix ($EA).
-  * *Flags Affected*: None
-
-> **Note**: The literal `NOP` mnemonic is disallowed in `ca45`. Use `EOM` for the $EA byte, or `CLV` ($B8) as a safe 1-byte alternative.
+| Group | Instructions |
+|-------|--------------|
+| 16-bit loads/stores | `ldax lday ldaz ldxy`, `stax stay staz stxy`, `ldw`/`ldw.sp`, `stw`/`stw.sp` |
+| Frame access (`offset, sp`, via the frame pointer `$FD/$FE`) | `lda ldx ldy ldz sta stx sty stz offset, sp`, `lda.sp`, `sta.sp`, `inc dec inw dew offset, sp`, `phw.sp`, `ptrstack` |
+| Frame/parameter access (compiler) | `lda.fp sta.fp ldax.fp stax.fp lday.fp stay.fp ldaz.fp staz.fp ldaxyz.fp staxyz.fp move.fp`, `inc.16f dec.16f`, `ld*/st*/leax .param` and `.local`, `struct_elem` |
+| 16-bit arithmetic/logic | `add.16 sub.16 add.s16 sub.s16`, `and.16 ora.16 eor.16`, `cmp.16`/`cpw`, `cmp.s16`, `neg.16 not.16 neg.s16`, `abs.16 abs.s16`, `lsl.16 lsr.16 asr.16 rol.16 ror.16` (+ `.s16`), `asw`/`row .ax` |
+| 32-bit | `add.32 sub.32` (+`.s32`), `and.32 ora.32 eor.32`, `cmp.32 cmp.s32`, `neg.32 not.32 abs.32` (+`.s32`), `lsl.32 lsr.32 asr.32 rol.32 ror.32` (+`.s32`), `sxt.16` |
+| Hardware math (`$D768`–`$D77F`) | `mul`/`div` `.8 .16 .24 .32`, `mul.s16 div.s16 mod.16 mod.s16`, `mul.s32 div.s32 mod.32 mod.s32` |
+| Bit fields | `bfext bfext16 bfext32`, `bfins bfins16 bfins32` and their `.sp`/`.ind` forms |
+| Registers | `swap`, `push`, `pop`, `zero`, `sxt.8`, `chkzero.8/16`, `chknonzero.8/16`, `select`, `ptrderef` |
+| Expressions | `expr target, expression` |
+| Procedures | `proc`, `endproc`, `call` |
+| Not functional at present | `fill`/`fill.sp`, `move`/`move.sp` (DMA), `ldw.f stw.f inc.f dec.f`, `branch.16` |

@@ -1,406 +1,74 @@
-# Standard Library Optimization Framework
+# Standard Library Implementation Notes (Performance)
 
-## Overview
+How the performance-relevant parts of the C library are implemented, their known limits, and open work. For the API see [stdlib.md](stdlib.md).
 
-The MEGA65 C Standard Library has been systematically optimized for performance-critical paths using:
-- **Compiler optimization pragmas** (v1.0.5+ `#pragma cc45 optimize(...)`)
-- **Inline function hints** (`__attribute__((always_inline))`)
-- **Algorithmic enhancements** (median-of-three pivot, insertion sort hybrids)
-- **Loop unrolling** and register caching strategies
+No cycle counts are given: none have been measured on hardware or xemu for the current library. `src/test-resources/bench_stdlib_critical.c` contains micro-benchmarks for these functions, but it is not built by any target and times with a byte read from `$D711`, which is not a jiffy counter; it needs a real timer (CIA timer or `clock()`) before its numbers mean anything.
 
-Status: **Phase 102 Complete** — All Tier 1 & 2 critical paths optimized
+## Assembly Routines (`lib/stdlib_asm/`, ZP convention)
 
----
+### malloc / free / calloc / realloc — `malloc.s45` (704 lines)
 
-## Tier 1: Ultra-Hot Functions (Used in Tight Loops)
+- Sorted singly-linked free list, first fit, block splitting, coalescing with both neighbours on `free`.
+- Header: 2-byte size with bit 0 = allocated; free blocks also hold a 2-byte next pointer.
+- Lazy initialization on the first `malloc`; bounds from `__heap_start`/`__heap_end` (0 = automatic, see [stdlib.md](stdlib.md#4-general-utilities-stdlibh)).
+- `calloc` = `malloc` + `memset`; `realloc` always allocates, copies and frees (it never grows in place).
+- Cost of `malloc` grows with the length of the free list (linear search).
 
-### malloc/calloc/realloc/free
+### memcpy / memset / memmove / memcmp
 
-**Current Implementation**: `lib/stdlib/malloc.s45` (721 lines)
+Byte loops over `(zp),y` with a 16-bit count; the pointer high bytes are incremented every 256 bytes. `memmove` copies backwards when `dest > src`. No unrolling and no DMA: for large blocks, `dma_copy`/`dma_fill` (`dma.h`, inline F018B jobs) are much faster.
 
-**Optimizations Applied**:
-- Singly-linked sorted free list with eager coalescing
-- Register caching of ZP pointers ($02/$03) for minimal spills
-- Efficient block header encoding (size + allocated bit)
-- O(n) search acceptable for typical embedded heaps
+### strlen, strcpy, strcmp, strcat, strchr, …
 
-**Performance Characteristics**:
-- `malloc()`: 80-500 cycles (best to worst case)
-- `free()`: 100-150 cycles (consistent)
-- `calloc()`: malloc + memset (O(n) in size)
-- `realloc()`: malloc + memcpy + free (O(n) in data)
+Byte loops with an 8-bit `Y` index. `strlen` (and `puts`) stop when `Y` wraps, so they only handle strings shorter than 256 bytes — `strlen` of a 256-byte string returns 0.
 
-**Future Optimization Opportunities** (v1.1+):
-- Tier 1 opt: Fast-path small allocations (< 16 bytes) with bucket
-- Tier 2 opt: Multi-bucket allocator for common sizes
-- See: `lib/stdlib/malloc_opt_hints.md`
+### rand
 
----
+Two reads of the hardware RNG (`$D7EF`), each after waiting for `$D7FE` bit 7 to clear; bit 15 is cleared. `srand` is a no-op.
 
-### memcpy/memset/memmove
+### itoa / ltoa / utoa
 
-**Current Implementation**: `lib/stdlib/memcpy.s45`, `lib/stdlib/memset.s45`
+Repeated division with the MEGA65 hardware divider (`$D770`…), digits pushed on the stack and popped in order.
 
-**Optimizations Applied**:
-- Hand-tuned assembly with ZP register caching
-- Efficient Y-relative indexed addressing
-- Minimal register save/restore overhead
-- Byte-by-byte loop (opportunity for unrolling in v1.1)
+## C Routines (`lib/stdlib/`)
 
-**Performance Characteristics**:
-- **memcpy**: ≈1-2 cycles/byte on contiguous data
-- **memset**: ≈1-2 cycles/byte
-- **memmove**: Safe overlapping copy, same performance as memcpy
+### qsort — `qsort.c`
 
-**New: Fast-Path Variant** (optional):
-- `lib/stdlib/memcpy_fast.c` provides loop-unrolled alternative
-- Detects 4-byte alignment for fast path
-- Falls back to standard memcpy for unaligned data
-- Estimated 10-15% speedup on typical aligned copies
+- Median-of-three pivot, insertion sort for partitions of ≤ 8 elements, recursion into both partitions (smaller first).
+- `swap`, `do_cmp`, `cmp_positive` are `always_inline` helpers; `swap` is a byte loop for every element size.
+- Comparator and element size are kept in globals (`qs_cmp`, `qs_size`), so `qsort` is not reentrant.
+- `qs_impl` is recursive, so it uses a stack frame rather than static allocation.
+- The `#pragma cc45 optimize(...)` lines inside the functions name passes (`constant-folding`, `dead-code-elimination`, `branch-inversion`, `cross-function-inlining`, `tail-call-optimization`, `cse`); they enable those passes for the function but do not change the algorithm. In `-O2` output cc45 does not turn tail calls into jumps (see [../ref/V1_1_OPTIMIZATION_ROADMAP.md](../ref/V1_1_OPTIMIZATION_ROADMAP.md)), so both recursive calls are real calls.
 
-**Compiler Hints**:
-```c
-#pragma cc45 optimize(loop-unrolling, strength-reduction)
-```
+### bsearch — `bsearch.c`
 
----
+Iterative binary search with `mid = lo + (hi - lo) / 2`, early return on a match, comparator through an `always_inline` wrapper and a global (`bs_cmp`).
 
-### strlen
+### memcpy_optimized — `memcpy_fast.c`
 
-**Current Implementation**: `lib/stdlib/strlen.s45` (39 lines)
+Exported as `memcpy_optimized` (not declared in any header). For `n > 4` with both pointers 4-byte aligned it runs a C loop copying 4 bytes per iteration, otherwise it calls `memcpy`. It is not used by anything in the library, and no measurement shows it beating the assembly `memcpy`.
 
-**Optimizations Applied**:
-- Minimal register save/restore
-- Y-relative direct addressing
-- Early exit on NUL terminator
-- No arithmetic in loop (zero-overhead counter)
+### strtol / strtoul / strtof — `strtol.c`, `strtoul.c`, `strtof.c`
 
-**Performance Characteristics**:
-- ≈1 cycle/byte + 30-40 cycles overhead
-- Limited to 255-byte strings (Y register is 8-bit)
+Straightforward digit loops (`result = result * base + digit` on `unsigned long`); no unrolling or base-specific fast paths. `strtol` delegates to `strtoul`.
 
-**Status**: Already highly optimized; further work deferred to v1.1 (16-bit length support)
+### Float math — `float_rom_fns.c`, `floatmath.c`, `src/float_rom.s45`
 
----
+- `sinf`, `cosf`, `tanf`, `atanf`, `logf`, `expf`, `sqrtf`, `fabsf` copy the argument into `__float_a` and call the BASIC 65 ROM routine through `float_rom.s45` (which switches to base page 0 around the ROM call); there are no tables or series in the library.
+- `powf` = `expf(y * logf(|x|))`; `log10f`/`log2f` scale `logf`; `ldexpf` multiplies by 2 in a loop (|n| iterations); `frexpf` halves/doubles in a loop; `truncf` goes through `long` for |x| < 2^31.
+- Speed is bounded by the ROM routines.
 
-### rand()
+### printf family — `__vformat.c`
 
-**Current Implementation**: `lib/stdlib/rand.s45` (35 lines)
+One formatter for all `printf`/`sprintf`/`snprintf`/`fprintf` variants, writing through a per-call `put` callback. Float formatting (`printf_float.c`/`sprintf_float.c`) is only linked when a float is passed to a variadic call, so integer-only programs do not carry it.
 
-**Optimizations Applied**:
-- Direct access to MEGA65 hardware RNG ($D7EF)
-- Status polling on $D7FE for stability
-- No PRNG overhead (true random, not pseudo-random)
-- Two-byte read for 16-bit value with bit 15 cleared
+## Open Work
 
-**Performance Characteristics**:
-- 50-100 cycles per call (includes HW RNG polling)
-- Returns: 0-32767 (16-bit unsigned, RAND_MAX = 32767)
-
-**Status**: Optimal for given HW constraints
-
----
-
-## Tier 2: Hot Functions (Used Frequently)
-
-### qsort() — Quicksort
-
-**Current Implementation**: `lib/stdlib/qsort.c` (95 lines, optimized)
-
-**Optimizations Applied v1.0.11**:
-1. **Median-of-three pivot selection** (reduces O(n²) worst-case)
-   - Prevents pathological performance on pre-sorted data
-   - Adds 3 comparisons per partition, huge payoff on worst case
-
-2. **Hybrid algorithm**:
-   - Insertion sort for partitions ≤ 8 elements
-   - Avoids recursion overhead on small subarrays
-   - ~40% faster on typical data
-
-3. **Compiler pragmas**:
-   ```c
-   #pragma cc45 optimize(constant-folding, dead-code-elimination)
-   #pragma cc45 optimize(cross-function-inlining, tail-call-optimization)
-   ```
-
-4. **Inline hints**:
-   - `swap()` marked `__attribute__((always_inline))`
-   - Comparison wrappers inlined for constant folding
-   - Reduces function call overhead
-
-5. **Register-resident variables**:
-   - Loop indices (i, j) stay in registers
-   - Pivot pointer cached in X/Y
-   - Minimal ZP spill/reload
-
-**Compiler Optimizations That Apply**:
-- **Tail-call optimization**: Second recursive call becomes iteration
-- **Constant folding**: Pivot comparisons evaluated at compile-time for small arrays
-- **Branch inversion**: Partition loop condition simplified
-- **CSE** (Common Subexpression Elimination): Repeated multiplications folded
-
-**Performance Characteristics**:
-- Small arrays (≤8 elements): ~200-300 cycles (insertion sort)
-- Medium (32 elements, sorted): ~2000-3000 cycles
-- Large (256 elements, random): ~30000-50000 cycles
-- Worst-case (reverse-sorted): Same (median-of-three prevents pathological case)
-
-**Comparison to cc65 libc qsort**:
-- MEGA65 version: Hybrid insertion/quick (better for small arrays)
-- cc65 version: Pure quicksort (can be slower on small partitions)
-- Trade-off: +100-200 bytes code for +20-30% speed on typical data
-
----
-
-### bsearch() — Binary Search
-
-**Current Implementation**: `lib/stdlib/bsearch.c` (45 lines, optimized)
-
-**Optimizations Applied v1.0.11**:
-1. **Inline comparison wrapper**:
-   ```c
-   static inline signed int do_cmp(const void *a, const void *b)
-       __attribute__((always_inline)) { ... }
-   ```
-   - Eliminates function call overhead in tight loop
-   - Compiler can constant-fold if appropriate
-
-2. **Compiler pragmas**:
-   ```c
-   #pragma cc45 optimize(constant-folding, branch-inversion)
-   #pragma cc45 optimize(redundant-load-elimination)
-   ```
-
-3. **Overflow-safe midpoint calculation**:
-   ```c
-   signed int mid = lo + (hi - lo) / 2;  /* Not (lo + hi) / 2 */
-   ```
-   - Prevents overflow on large arrays
-   - Compiler recognizes safe pattern, no extra code
-
-4. **Branch-friendly structure**:
-   - Early-exit on match (avoids redundant comparisons)
-   - Clear branch pattern enables compiler branch prediction hints
-
-**Performance Characteristics**:
-- 64-element array: ≈150-250 cycles (6-7 comparisons)
-- 256-element array: ≈250-350 cycles (8-9 comparisons)
-- Hit vs miss: Same performance (always O(log n))
-
-**Comparison to simple linear search**:
-- Linear: O(n) = 64 comparisons on 64-element array
-- Binary: O(log n) = 6 comparisons on 64-element array
-- Speed advantage: 10-20x faster for large sorted data
-
----
-
-### strcmp() — String Comparison
-
-**Current Implementation**: `lib/stdlib/strcmp.s45` (72 lines)
-
-**Optimizations Applied**:
-- Byte-by-byte comparison with early exit
-- Inline comparison result to avoid redundant CMP
-- Minimal register save/restore
-
-**Performance Characteristics**:
-- Equal strings: 50-80 cycles + 1 cycle/byte
-- Different at byte k: 50-80 cycles + k cycles
-
-**Status**: Already well-optimized in assembly
-
----
-
-### strcpy() — String Copy
-
-**Current Implementation**: `lib/stdlib/strcpy.s45`
-
-**Optimizations Applied**:
-- Byte-by-byte with early NUL exit
-- Register caching of pointers
-- Minimal overhead
-
-**Performance Characteristics**:
-- ≈1 cycle/byte + 30-40 cycles overhead
-
----
-
-## Tier 3: Warm Functions (Used Regularly)
-
-### strtol/strtof — String Parsing
-
-**Current Implementation**: `lib/stdlib/strtol.c`, `lib/stdlib/strtof.c`
-
-**Optimizations Applied**:
-- Loop unrolling in digit accumulation
-- Early exit on non-digit
-- Base-specific fast paths (base-10, base-16)
-
-**Status**: Reasonably optimized; further improvement deferred to v1.1
-
----
-
-### Math Functions (sinf, cosf, powf, etc.)
-
-**Current Implementation**: `lib/stdlib/floatmath.c` (hand-tuned)
-
-**Optimizations Applied**:
-- Direct ROM routine access via JSRFAR
-- Table-based approximation (Taylor series)
-- Inline assembly for critical sections
-
-**Status**: Performance-critical; limited by floating-point unit speed
-
----
-
-## Compiler Optimization Pragmas
-
-### Available Optimizations (v1.0.5+)
-
-Used in stdlib optimizations:
-
-| Pragma | Purpose | Where Used |
-|--------|---------|-----------|
-| `constant-folding` | Evaluate constant expressions at compile-time | qsort, bsearch |
-| `dead-code-elimination` | Remove unreachable code | qsort |
-| `cross-function-inlining` | Inline small functions across functions | qsort (swap, cmp) |
-| `tail-call-optimization` | Convert tail calls to jumps | qsort (recursion) |
-| `loop-unrolling` | Unroll small loops | memcpy_fast |
-| `strength-reduction` | Replace multiply/divide with bit shifts | memcpy_fast |
-| `branch-folding` | Eliminate redundant branches | bsearch |
-| `branch-inversion` | Simplify branch conditions | bsearch |
-| `redundant-load-elimination` | Avoid reloading cached values | bsearch |
-| `cse` | Common Subexpression Elimination | qsort |
-
-### Usage Pattern
-
-```c
-#pragma cc45 optimize(constant-folding, dead-code-elimination)
-static void hot_function(void) { ... }
-```
-
----
-
-## Performance Benchmarks
-
-See: `src/test-resources/bench_stdlib_critical.c`
-
-Measures:
-1. malloc/free rapid allocation cycles
-2. memcpy/memset throughput (bytes/cycle)
-3. strlen on various lengths
-4. strcmp on equal/different strings
-5. qsort on small/medium/large arrays
-6. bsearch on hit/miss cases
-7. rand() generation cycles
-
-**Expected Results (MEGA65 @ 40 MHz)**:
-- memcpy: 1-2 cycles/byte
-- memset: 1-2 cycles/byte
-- strlen: 1 cycle/byte + 30-40 overhead
-- strcmp: 50-100 cycles (varies by string length)
-- qsort(8): 200-300 cycles
-- qsort(256): 30-50K cycles
-- bsearch(64): 150-250 cycles
-- rand(): 50-100 cycles
-
----
-
-## Integration with Compiler Optimization Pipeline
-
-### Phase 91: Cross-Module Optimization (IPO)
-
-- Identifies frequently-called stdlib functions
-- Suggests inlining for tiny functions (strlen, swap, etc.)
-- Generates specialization hints for size-specific variants
-
-### Phase 99: Address Space Analysis
-
-- Tracks allocations across modules
-- Feeds into malloc bucket size recommendations
-- Generates cache-aware memory layout suggestions
-
-### Phase 100: Link-Time Optimization Coordination
-
-- Applies IPO inlining hints
-- Coordinated with bank assignment for cache-friendly layouts
-- Generates cross-module memcpy specializations
-
----
-
-## Optimization Levels and Recommendations
-
-### -O0 (No Optimization)
-- **Result**: Original unoptimized qsort/bsearch
-- **Use**: Debugging, validation
-
-### -O1 (Basic)
-- **Result**: Pragmas applied, inline hints active
-- **Use**: Development, reasonable speed
-
-### -O2 (Recommended)
-- **Result**: Full optimization suite, loop unrolling enabled
-- **Use**: Production code (balanced code size/speed)
-
-### -O3+ (Aggressive)
-- **Result**: All optimizations, including IPO hints
-- **Use**: Performance-critical binaries
-
----
-
-## Known Limitations
-
-1. **strlen limited to 255 bytes** (8-bit Y counter)
-   - Deferred to v1.1 with 16-bit length support
-
-2. **malloc no small-allocation bucket** (yet)
-   - Single linked list for all sizes
-   - Still fast enough for typical use, ~100-150 cycles
-   - Tier 1 optimization for v1.1
-
-3. **memcpy byte-by-byte only**
-   - Fast-path variant available but not integrated
-   - Could unroll to 4-byte copies for 10-15% gain
-
-4. **qsort swap not optimized for small sizes**
-   - Currently byte-by-byte for any element size
-   - Could special-case 2-byte and 4-byte swaps
-
----
-
-## Recommendations for Future Work (v1.1+)
-
-| Priority | Task | Est. Benefit | Est. Effort |
-|----------|------|--------|---------|
-| **P0** | Profiling benchmarks (measure before/after) | Baseline | 2 hrs |
-| **P1** | Small-allocation bucket (8, 16, 32 byte fast paths) | +20-30% malloc speed | 3 hrs |
-| **P2** | Unrolled memcpy/memset | +10-15% throughput | 2 hrs |
-| **P3** | Size-specific qsort swap (2/4-byte fast cases) | +5-10% qsort speed | 1 hr |
-| **P4** | strlen with 16-bit length support | Unbounded lengths | 2 hrs |
-| **P5** | srand() seed masking | Better randomness | 30 min |
-
----
-
-## Summary
-
-The MEGA65 C Standard Library is **production-optimized** for Tier 1 & 2 critical paths:
-
-✅ **malloc/free**: Register-cached free list with eager coalescing  
-✅ **memcpy/memset**: Hand-tuned assembly with minimal overhead  
-✅ **strlen/strcmp**: Optimized byte-by-byte with early exits  
-✅ **qsort**: Hybrid median-3 quicksort + insertion sort  
-✅ **bsearch**: Inlined binary search with reduced function calls  
-✅ **rand**: Direct MEGA65 hardware RNG access  
-
-**Performance vs. cc65**: 15-25% faster on typical workloads due to algorithmic enhancements and compiler hints.
-
-**Code Quality**: Well-documented with clear optimization intent; future maintainers can extend without breaking existing optimizations.
-
----
-
-## References
-
-- CLAUDE.md — Phase 100+ optimization framework
-- doc/architecture/calling-conventions.md — Stack/ZP/SAC conventions (affects malloc/free)
-- lib/stdlib/malloc_opt_hints.md — Detailed malloc optimization strategy
-- src/test-resources/bench_stdlib_critical.c — Performance benchmark suite
+| Item | Notes |
+|------|-------|
+| Benchmarks | Fix `bench_stdlib_critical.c` timing and add a target that runs it on xemu |
+| `strlen`/`puts` length | Use a 16-bit index (current limit: < 256 bytes) |
+| `memcpy`/`memset` | Unroll, or use DMA above a size threshold |
+| `malloc` | Size-class free lists for small blocks; in-place `realloc` growth |
+| `qsort` | Word/long fast paths in `swap`; iterate on the larger partition |
+| Heap init | `_heap_init` overwrites the size's high byte (held in `Y`) with `ldy #0` before storing it, so the initial free block is recorded as `$01xx` bytes rather than the whole heap; until fixed, the usable heap is under 512 bytes |

@@ -1,690 +1,361 @@
-# Minimal C Standard Library (stdlib) for MEGA65/45GS02
+# C Standard Library (stdlib) for MEGA65/45GS02
 
-This document describes the minimal C standard library (`stdlib`) for the `cc45` compiler targeting the MEGA65 (45GS02). All phases are implemented. The library ships as pre-built `.lib` archives in both stack and ZP calling conventions.
+This document describes the C library shipped with `cc45`: the headers in `lib/include/`, the runtime archives built from `lib/`, and what each function actually does on the MEGA65.
 
-## 1. Core Headers & Types
+## 1. Libraries, Building and Linking
 
-These files define the fundamental types and constants required for C compliance and consistent memory layout.
+### Archives
 
-- **`<stdint.h>`**: Fixed-width integer types (`uint8_t`, `int8_t`, `uint16_t`, `int16_t`, `uint32_t`, `int32_t`). Maps to `cc45`'s `char` (8-bit), `int` (16-bit), and `long` (32-bit) types.
-- **`<stddef.h>`**: Common definitions: `size_t` (typedef to `unsigned int`, 16-bit), `ptrdiff_t`, and `NULL` (`((void *)0)`).
-- **`<stdbool.h>`**: Boolean type support. Defines `bool` as `_Bool` (a native 1-byte type that normalizes any non-zero value to `1`), `true` as `1`, `false` as `0`, and `__bool_true_false_are_defined` as `1`.
-- **`<limits.h>`**: Implementation-defined limits (`CHAR_BIT=8`, `INT_MAX=65535`, `INT_MIN=0` for unsigned; `SCHAR_MIN=-128`, `SCHAR_MAX=127` for signed char; `LONG_MAX`, `LONG_MIN`, etc. for 32-bit).
-- **`<float.h>`**: Floating-point limits and characteristics for Commodore 40-bit MFLUT float format (`FLT_MANT_DIG=32`, `FLT_DIG=9`, `FLT_MIN_EXP=-127`, `FLT_MAX_EXP=127`, `FLT_MIN=2.9387359e-39`, `FLT_MAX=1.7014118e38`, `FLT_EPSILON=4.6566129e-10`).
-- **`<stdarg.h>`**: Variadic function support. Defines `va_list` (typedef to `unsigned int` — a 16-bit stack offset into the caller's arguments), `va_start`, `va_arg`, and `va_end` as macros wrapping `__builtin_va_start`, `__builtin_va_arg`, and `__builtin_va_end`. Variadic functions always use stack-based argument passing, even when compiled with `-fzpcall`. See "Variadic Functions" in [../bin/cc45.md](../bin/cc45.md#variadic-functions) for comprehensive details.
+`make` at the project root (or `make -C lib`) builds three archives in `lib/build/`:
 
-### Implementation Notes for Core Headers
+| Archive | Calling convention | Built from |
+|---------|--------------------|------------|
+| `c45.lib` | ZP (`-fzpcall`, cc45's default) | `crt0_zp.s45`, `crt0_mega65_zp.s45`, `crt_heap_zp.s45`, `crt_bssinit_zp.s45`, `sac_debug.s45`; `stdlib/*.c` compiled with `-fzpcall`; `stdlib_asm/*.s45`; `src/float_rom.s45` |
+| `c45_zp.lib` | ZP | a copy of `c45.lib` under its earlier name |
+| `c45_stack.lib` | stack (`-fno-zpcall`) | `crt0.s45`, `crt0_mega65.s45`, `crt_heap.s45`, `crt_bssinit.s45`, `sac_debug.s45`; `stdlib/*.c` compiled with `-fno-zpcall`; the same `stdlib_asm/*.s45` and `src/float_rom.s45` objects |
 
-Since `cc45` supports `typedef`, `#define`, and `signed`/`unsigned` qualifiers, all core headers can be implemented as pure header files using the preprocessor:
+Details (`lib/Makefile`):
 
-```c
-// Example: stdint.h
-typedef unsigned int uint16_t;
-typedef signed int   int16_t;
-typedef unsigned char uint8_t;
-typedef signed char   int8_t;
-typedef uint16_t     size_t;
+- The library C sources are compiled with `-fimplicit-function-declaration -fsigned-default -funsigned-char`: they are written as standard C (signed `int`/`long`), unlike cc45's unsigned-by-default user code.
+- The hand-written assembly in `lib/stdlib_asm/*.s45` uses the ZP convention and goes into both archives; stack-convention callers reach it through ln45's stack→ZP bridge thunks. A `stdlib/X.c` that has a `stdlib_asm/X.s45` is not compiled.
+- Only `.s45` files are assembled. The `.s` files in `lib/stdlib/` and `lib/stdlib_asm/` (`strcspn`, `strdup`, `strlcpy`, `strnlen`, `strpbrk`, `strspn`, `strstr`, `uart`) are not built; those functions come from the C versions — except `uart`, which has no built implementation (see [§12](#12-other-library-backed-headers)).
+- `lib/src/*.c` (graphics, sprites, audio, conio/hardware helpers, …) is **not** part of any archive. Headers for those modules exist in `lib/include/`, but their functions are not in the library (see [§14](#14-headers-without-a-library-implementation)).
+
+Linking is selective: only the archive members that resolve a referenced symbol are pulled in.
+
+### Using the library
+
+`cc45` searches `<dir of cc45>/../lib/include` for `<...>` headers (in the build tree that is `lib/include/`), then `CC45_INCLUDE` (colon-separated) and `-I` paths. A one-step build links the right archive automatically — `c45.lib` or, with `-fno-zpcall`, `c45_stack.lib` — from `<dir of cc45>/../lib/build/` or `<dir of cc45>/../lib/cc45/`:
+
+```bash
+cc45 prog.c -o prog.prg                 # compile, assemble, link with c45.lib
+cc45 -fno-zpcall prog.c -o prog.prg     # ... with c45_stack.lib
 ```
 
-## 2. Memory Management (`stdlib.h`)
+Linking by hand:
 
-Dynamic memory allocation using a sorted free-list allocator. Enabled via `#pragma cc45 heap`. All functions are hand-written 45GS02 assembly in `lib/stdlib/malloc.s45`.
-
-- **`malloc(size_t size)`**: First-fit allocation from sorted free list. Block splitting when remainder >= 4 bytes. Returns NULL for `malloc(0)`. Auto-initializes heap on first call. **Implemented.**
-- **`free(void *ptr)`**: Returns block to sorted free list. Coalesces adjacent free blocks (both forward and backward). `free(NULL)` is a no-op. **Implemented.**
-- **`calloc(size_t nmemb, size_t size)`**: Allocates `nmemb * size` bytes via `malloc`, then zeros with `memset`. **Implemented.**
-- **`realloc(void *ptr, size_t size)`**: Allocates new block, copies `min(old_size, new_size)` bytes via `memcpy`, frees old block. `realloc(NULL, n)` = `malloc(n)`, `realloc(p, 0)` = `free(p)`. **Implemented.**
-
-### Implementation Details
-
-- **Block header**: 4 bytes — 2-byte size (bit 0 = allocated flag), 2-byte next-free pointer.
-- **Minimum allocation**: 4 bytes (2-byte header + 2-byte minimum payload), 2-byte aligned.
-- **Heap region**: `__heap_start` (default: `__bss_end`) to `__heap_end` (default: `$D000`). Both are weak symbols, overridable at link time.
-- **Initialization**: `_heap_init` creates a single free block spanning the entire heap. Called automatically by `crt_heap.o45` during CRT startup, or lazily on first `malloc` call.
-- **CRT integration**: `#pragma cc45 heap` links `crt_heap.o45` from `c45.lib`, which calls `_init_heap_crt` → `_heap_init` during the startup sequence (after BSS init, before `_init_features`).
-
-## 3. String & Memory Operations (`string.h`)
-
-All string and memory functions are implemented in hand-written 45GS02 assembly (`lib/stdlib/*.s45`) and archived in `c45.lib`. Validated via mmemu emulator tests.
-
-**String functions:**
-- **`strlen(char *s)`**: Calculate string length. **Implemented.**
-- **`strcpy(char *dest, char *src)`**: Copy string including NUL. **Implemented.**
-- **`strncpy(char *dest, char *src, int n)`**: Copy with length limit, NUL-pad remainder. **Implemented.**
-- **`strcmp(char *s1, char *s2)`**: Compare strings, returns -1/0/1. **Implemented.**
-- **`strncmp(char *s1, char *s2, int n)`**: Compare with length limit. **Implemented.**
-- **`strcat(char *dest, char *src)`**: Append src to end of dest. **Implemented.**
-- **`strncat(char *dest, char *src, int n)`**: Append at most `n` characters from src to dest, NUL-terminated. **Implemented.**
-- **`strchr(char *s, int c)`**: Find first occurrence of char. **Implemented.**
-- **`strrchr(char *s, int c)`**: Find last occurrence of char. **Implemented.**
-- **`strstr(char *haystack, char *needle)`**: Find first occurrence of substring. Returns pointer to match or NULL. **Implemented.**
-- **`strpbrk(char *s, char *accept)`**: Find first character in `s` that matches any character in `accept`. **Implemented.**
-- **`strspn(char *s, char *accept)`**: Count leading characters in `s` that are in `accept`. **Implemented.**
-- **`strcspn(char *s, char *reject)`**: Count leading characters in `s` that are NOT in `reject`. **Implemented.**
-- **`strtok(char *s, char *delim)`**: Tokenize string by delimiters. Uses internal static state for subsequent calls with `s=NULL`. **Implemented.**
-
-**Memory functions:**
-- **`memcpy(void *dest, void *src, int n)`**: Copy memory area (no overlap). **Implemented.**
-- **`memmove(void *dest, void *src, int n)`**: Copy memory area (overlap-safe, copies backwards when dest > src). **Implemented.**
-- **`memset(void *s, int c, int n)`**: Fill memory with a constant byte. **Implemented.**
-- **`memcmp(void *s1, void *s2, int n)`**: Compare memory areas, returns -1/0/1. **Implemented.**
-
-## 4. Character Utilities (`ctype.h`)
-
-All character classification and conversion functions are implemented in hand-written 45GS02 assembly (`lib/stdlib/*.s45`) and archived in `c45.lib`. They operate on **PETSCII** character codes (the MEGA65's native character set).
-
-**PETSCII character ranges:**
-- Digits `'0'`–`'9'` = `$30`–`$39`
-- Lowercase `'a'`–`'z'` = `$41`–`$5A` (PETSCII unshifted / default)
-- Uppercase `'A'`–`'Z'` = `$C1`–`$DA` (PETSCII shifted)
-- Space = `$20`, CR = `$0D`, Tab = `$09`
-- Printable: `$20`–`$7E` and `$A0`–`$FF`
-
-**Classification functions:**
-- **`isdigit(int c)`**: Returns 1 if `$30`–`$39`. **Implemented.**
-- **`isalpha(int c)`**: Returns 1 if `$41`–`$5A` or `$C1`–`$DA`. **Implemented.**
-- **`isalnum(int c)`**: Returns 1 if digit or letter. **Implemented.**
-- **`isspace(int c)`**: Returns 1 if `$20` (space) or `$09`–`$0D` (tab, LF, VT, FF, CR). **Implemented.**
-- **`isprint(int c)`**: Returns 1 if `$20`–`$7E` or `$A0`–`$FF`. **Implemented.**
-- **`isupper(int c)`**: Returns 1 if uppercase letter (`$C1`–`$DA`). **Implemented.**
-- **`islower(int c)`**: Returns 1 if lowercase letter (`$41`–`$5A`). **Implemented.**
-- **`isxdigit(int c)`**: Returns 1 if hex digit (`0`–`9`, `a`–`f`, `A`–`F` in PETSCII). **Implemented.**
-- **`ispunct(int c)`**: Returns 1 if printable, non-alphanumeric, non-space. **Implemented.**
-- **`isblank(int c)`**: Returns 1 if space (`$20`) or tab (`$09`). **Implemented.**
-- **`iscntrl(int c)`**: Returns 1 if control character (`$00`–`$1F` or `$7F`–`$9F`). **Implemented.**
-
-**Conversion functions:**
-- **`toupper(int c)`**: If lowercase (`$41`–`$5A`), returns uppercase (`$C1`–`$DA`) via `ORA #$80`. Otherwise returns `c` unchanged. **Implemented.**
-- **`tolower(int c)`**: If uppercase (`$C1`–`$DA`), returns lowercase (`$41`–`$5A`) via `AND #$7F`. Otherwise returns `c` unchanged. **Implemented.**
-
-## 5. General Utilities (`stdlib.h`)
-
-- **`abs(int j)`**: Absolute value. Returns `|j|` via two's complement negation if negative. Default is an inline macro; define `__NOMACRO_ABS` to use the function version. **Implemented.**
-- **`labs(long j)`**: Long absolute value. Returns `|j|` for 32-bit signed long. Default is an inline macro; define `__NOMACRO_LABS` to use the function version. **Implemented.**
-- **`atoi(const char *nptr)`**: Convert string to integer. Handles optional leading sign and decimal digits. **Implemented.**
-- **`itoa(int value, char *str, int base)`**: Convert 16-bit integer to string in given base (2-36). Handles negative values for base 10. Uses MEGA65 hardware divider. **Implemented.**
-- **`ltoa(long value, char *str, int base)`**: Convert 32-bit long to string in given base (2-36). Handles negative values for base 10. Uses MEGA65 hardware divider's full 32-bit dividend/divisor. **Implemented.**
-- **`rand()`**: Returns pseudo-random int (0-32767). Reads two bytes from MEGA65 hardware RNG at `$D7EF`, busy-waiting on `$D7FE` bit 7 for stabilization. Bit 15 cleared to match C standard positive range. **Implemented.**
-- **`srand(unsigned int seed)`**: No-op stub for C compatibility (MEGA65 hardware RNG is autonomous). **Implemented.**
-- **`strtol(char *nptr, char **endptr, int base)`**: Convert string to signed `long` (32-bit). Handles optional leading sign. Delegates to `strtoul` for digit parsing. **Implemented.**
-- **`strtoul(char *nptr, char **endptr, int base)`**: Convert string to unsigned `long` (32-bit). Supports base 0 (auto-detect from prefix), 8, 10, 16. Handles `0x`/`0X` hex prefix and PETSCII letter ranges for bases > 10. **Implemented.**
-- **`strtof(const char *nptr, char **endptr)`**: Convert string to 40-bit float. Handles leading whitespace, sign, decimal point, and exponent notation (`e`/`E`). **Implemented.**
-- **`atof(const char *nptr)`**: Convert string to float (wrapper for `strtof(nptr, NULL)`). **Implemented.**
-- **`exit(int status)`**: Terminate program execution. Loads the status code into `.AX` and jumps to the `__exit` label emitted by the CRT startup. The exit behavior depends on the `#pragma cc45 exit_*` mode: `exit_rts` (default) restores the caller's SP and returns, `exit_halt` enters an infinite loop, `exit_brk` triggers a BRK. **Implemented.**
-
-## 5b. Math Library (`math.h`)
-
-Includes `stdlib.h` and provides integer and floating-point math operations. Floating-point functions leverage Commodore BASIC 65 ROM primitives and C runtime routines for 40-bit MFLUT calculations.
-
-**Integer functions:**
-- **`abs(int j)`**: Absolute value (re-exported from `stdlib.h`). **Implemented.**
-- **`labs(long j)`**: Long absolute value (re-exported from `stdlib.h`). **Implemented.**
-- **`div(int numer, int denom)`**: Integer division returning `div_t { int quot; int rem; }`. Uses MEGA65 hardware divider. **Implemented.**
-- **`ldiv(long numer, long denom)`**: Long division returning `ldiv_t { long quot; long rem; }`. Uses MEGA65 hardware divider. **Implemented.**
-- **`min(int a, int b)`**: Returns the smaller of two integers. **Implemented.**
-- **`max(int a, int b)`**: Returns the larger of two integers. **Implemented.**
-- **`gcd(int a, int b)`**: Greatest common divisor via Euclidean algorithm. Handles negative inputs. **Implemented.**
-- **`lcm(int a, int b)`**: Least common multiple. Computed as `|a / gcd(a,b) * b|` to avoid overflow. **Implemented.**
-
-**Floating-point functions & macros:**
-- **Transcendental & Power**: `sinf(x)`, `cosf(x)`, `tanf(x)`, `atanf(x)`, `atan2f(y, x)`, `logf(x)`, `log10f(x)`, `log2f(x)`, `expf(x)`, `powf(x, y)`, `sqrtf(x)`, `fabsf(x)`, `fmodf(x, y)`. Standard `sin`, `cos`, `pow`, etc. are defined as macros mapping to their float equivalents. **Implemented.**
-- **Rounding & Manipulation**: `ceilf(x)`, `floorf(x)`, `roundf(x)`, `truncf(x)`, `ldexpf(x, n)`, `frexpf(x, exp)`, `modff(x, iptr)`, `copysignf(x, y)`, `fmaxf(x, y)`, `fminf(x, y)`, `fdimf(x, y)`. **Implemented.**
-- **Classification & Constants**: `isnan(x)`, `isinf(x)`, `isfinite(x)`, and constants (`M_PI`, `M_E`, `M_LN2`, `M_SQRT2`, `INFINITY`, `HUGE_VALF`). **Implemented.**
-
-## 6. I/O (`stdio.h`)
-
-Character I/O, string output, and formatted printing.
-
-- **`putchar(int c)`**: Output a single character via KERNAL `CHROUT` ($FFD2). **Implemented.**
-- **`getchar()`**: Input a single character via KERNAL `GETIN` ($FFE4). Busy-waits until a key is pressed. **Implemented.**
-- **`puts(const char *s)`**: Output a string followed by a newline. **Implemented.**
-- **`sprintf(char *buf, char *fmt, ...)`**: Formatted string output. **Implemented.**
-- **`printf(char *fmt, ...)`**: Formatted output to screen via `putchar`. **Implemented.**
-- **`sscanf(char *str, char *fmt, ...)`**: Formatted string input parsing. **Implemented.**
-
-### Format Specifiers
-
-| Specifier | Description |
-|-----------|-------------|
-| `%d` | Signed decimal (16-bit `int`) |
-| `%u` | Unsigned decimal (16-bit) |
-| `%x` | Hexadecimal (16-bit) |
-| `%o` | Octal (16-bit) |
-| `%b` | Binary (16-bit, `sprintf` only) |
-| `%s` | NUL-terminated string |
-| `%c` | Single character |
-| `%p` | Pointer (hex with `$` prefix) |
-| `%%` | Literal `%` |
-| `%ld` | Signed decimal (32-bit `long`) |
-| `%lu` | Unsigned decimal (32-bit) |
-| `%lx` | Hexadecimal (32-bit) |
-| `%lo` | Octal (32-bit) |
-| `%lb` | Binary (32-bit, `sprintf` only) |
-| `%f`  | Floating point (40-bit float, formatted via `printf_float.c` / `sprintf_float.c`) |
-
-The `l` length modifier causes 4 bytes to be read from the variadic argument list and converted via `ltoa` instead of `itoa`.
-
-### `sscanf` Format Specifiers
-
-`sscanf` supports the same specifier letters as `sprintf`/`printf` for input parsing:
-
-| Specifier | Description | Destination type |
-|-----------|-------------|-----------------|
-| `%d` | Signed decimal | `int *` |
-| `%u` | Unsigned decimal | `unsigned int *` |
-| `%x` | Hexadecimal (accepts `$` or `0x` prefix) | `int *` |
-| `%o` | Octal | `int *` |
-| `%c` | Single character (no whitespace skip) | `char *` |
-| `%s` | Whitespace-delimited string (NUL-terminated) | `char *` |
-| `%%` | Literal `%` (matched, not assigned) | — |
-| `%ld` | Signed decimal long | `long *` |
-| `%lu` | Unsigned decimal long | `unsigned long *` |
-| `%lx` | Hexadecimal long | `long *` |
-| `%lo` | Octal long | `long *` |
-| `%f`  | Floating point | `float *` |
-
-Returns the number of items successfully matched and assigned. Whitespace in the format string matches any amount of whitespace in the input. Compiled as a separate `.o45` object — only linked when referenced.
-
-### Implementation Strategy
-
-These are thin wrappers around KERNAL calls. Since `cc45` supports `__asm__` inline assembly, these can be implemented as C functions with inline assembly for the JSR to KERNAL:
-
-```c
-int putchar(int c) {
-    __asm__("lda.sp _p_c");
-    __asm__("jsr $FFD2");
-    return c;
-}
+```bash
+cc45 -c main.c -o main.o45
+ln45 -basic main.o45 -l lib/build/c45.lib -o program.prg       # BASIC SYS stub at $2001
+ln45 -prg main.o45 -L lib/build -l c45.lib -o program.prg      # plain PRG (-L or CC45_LIB give search dirs)
 ```
 
-Alternatively, these can be pure assembly (`.s45` files) assembled with `ca45`.
+`make install` copies the archives to `PREFIX/lib/cc45` and the headers to `PREFIX/include/cc45`. An installed `cc45` finds the archives there, but it looks for headers in `PREFIX/lib/include`, so set `CC45_INCLUDE=PREFIX/include/cc45` or pass `-I`. (`lib/include/sys/` is not installed.)
 
-## 7. Error Handling (`errno.h`)
+## 2. Header Overview
 
-Global error number set by library functions on failure.
+| Header | Contents | Implementation |
+|--------|----------|----------------|
+| `stddef.h`, `stdint.h`, `stdbool.h`, `limits.h`, `float.h`, `stdarg.h`, `sys/types.h` | types and limits | header only |
+| `stdlib.h` | conversions, `rand`, heap, `exit`/`abort`/`atexit`, `qsort`/`bsearch` | library |
+| `string.h` | string and memory functions | library (mostly assembly) |
+| `ctype.h` | PETSCII character classes | `static inline` in the header |
+| `math.h` | integer helpers, float math | library |
+| `stdio.h` | console output, `printf` family, `FILE` streams, CBM file API | library |
+| `errno.h` | `errno`, `_errnoc`, error codes | library |
+| `setjmp.h`, `assert.h`, `alloca.h` | non-local jumps, assertions, stack allocation | library / compiler |
+| `time.h` | jiffy clock, MEGA65 RTC | library |
+| `cbm.h` | KERNAL wrappers ([stdcbm.md](stdcbm.md)) | `static` functions in the header |
+| `mega65.h` | hardware register overlays | header (+ `key_pressed` in the library) |
+| `dma.h` | `dma_copy`/`dma_fill` | compiler builtins |
+| `conio.h`, `far_ptr.h`, `far_ops.h`, `dma_controller.h`, `audio_digi.h`, `audio_midi.h`, `audio_sid.h`, `intwide.h`, `complex.h` | see [§12](#12-other-library-backed-headers) | library / compiler |
+| `uart.h` and the graphics, sprite, hardware-helper and game-framework headers | see [§14](#14-headers-without-a-library-implementation) | **no library implementation** |
 
-- **`extern int errno`**: Global error variable. Set by `strtol`, `strtoul`, `malloc`, etc. on error. Not cleared on success — only meaningful immediately after a function that documents setting it. **Implemented.**
-- **`extern char _errnoc`**: CBM KERNAL status byte (`$90`). Reflects the most recent KERNAL I/O operation (serial bus, tape, RS-232). Library routines wrapping KERNAL calls may propagate `_errnoc` into `errno`. **Implemented.**
+## 3. Core Headers & Types
 
-| Constant | Value | Description |
-|----------|-------|-------------|
-| `ERANGE` | 1 | Result out of range (`strtol`/`strtoul` overflow) |
-| `ENOMEM` | 2 | Not enough memory (`malloc` failure) |
-| `EINVAL` | 3 | Invalid argument |
-| `EDOM` | 4 | Math argument out of domain (reserved for future math functions) |
+- **`<stddef.h>`**: `NULL` (`0`), `size_t` (`unsigned int`, 16-bit), `ptrdiff_t` (`signed int`), `wchar_t` (`unsigned int`, 16-bit — `L"..."`/`L'x'`), `offsetof(type, member)`.
+- **`<stdint.h>`**: `int8_t`/`uint8_t` (`char`), `int16_t`/`uint16_t` (`int`), `int32_t`/`uint32_t` (`long`), the `least`/`fast` variants, `intptr_t`/`uintptr_t` (16-bit), `intmax_t`/`uintmax_t` (32-bit), limits and `INTn_C` macros. `int64_t`, `uint64_t` and the 64-bit `least`/`fast` types are `struct __int64` (see `intwide.h`), which cc45 adds to a unit that names a 64-bit type. The signed types are declared `signed`, so they are signed in cc45's default (unsigned) mode.
+- **`<stdbool.h>`**: `bool` (`_Bool`, 1 byte, normalizes non-zero to 1), `true` (1), `false` (0), `__bool_true_false_are_defined` (1).
+- **`<limits.h>`**: `CHAR_BIT` 8; `SCHAR_MIN`/`SCHAR_MAX` −128/127; `UCHAR_MAX` 255; `CHAR_MIN`/`CHAR_MAX` 0/255; `SHRT_MIN`/`SHRT_MAX`/`USHRT_MAX` and `INT_MIN`/`INT_MAX`/`UINT_MAX` −32768/32767/65535; `LONG_MIN`/`LONG_MAX`/`ULONG_MAX` for 32 bits; `MB_LEN_MAX` 1. The signed limits describe `signed` types; plain `int`/`long` are unsigned in cc45's default mode.
+- **`<float.h>`**: CBM 40-bit float (1 exponent byte, 4 mantissa bytes): `FLT_RADIX` 2, `FLT_MANT_DIG` 32, `FLT_DIG` 9, `FLT_MIN_EXP` −127, `FLT_MAX_EXP` 127, `FLT_MIN_10_EXP` −38, `FLT_MAX_10_EXP` 38, `FLT_ROUNDS` 1, `FLT_MAX` 1.7014118e38, `FLT_MIN` 2.9387359e-39, `FLT_EPSILON` 4.6566129e-10; `DBL_*` and `LDBL_*` are the same (`double` and `long double` are the same format).
+- **`<stdarg.h>`**: `va_list` (`unsigned int`), `va_start`, `va_arg`, `va_end` (wrapping `__builtin_va_*`) and `va_copy`. Variadic functions always take their arguments on the stack, also under `-fzpcall`. See [../bin/cc45.md](../bin/cc45.md#variadic-functions).
+- **`<sys/types.h>`**: `ssize_t`, `mode_t`, `pid_t`, `uid_t`, `gid_t`, `off_t`, `time_t`.
 
-## 8. Non-Local Jumps (`setjmp.h`)
+## 4. General Utilities (`stdlib.h`)
 
-Save and restore execution context for non-local control flow (error recovery, co-routines).
+**Conversions**
+- **`int atoi(char *s)`**: decimal, optional sign, 16-bit result (assembly). It skips leading spaces only (not tabs/newlines).
+- **`long atol(char *s)`**: `strtol(s, NULL, 10)`.
+- **`char *itoa(int value, char *str, int base)`** / **`char *utoa(unsigned value, char *str, int base)`** / **`char *ltoa(long value, char *str, int base)`**: number to string in base 2–36, using the MEGA65 hardware divider. `itoa`/`ltoa` print a `-` for negative values in base 10 only. Digits above 9 are PETSCII `$41`… (`a`… in the default character set). Return `str`.
+- **`atos(s)`**, **`stoa(value, str, base)`**: macros for `(short)atoi(s)` and `itoa((int)value, str, base)`.
+- **`long strtol(char *nptr, char **endptr, int base)`** / **`unsigned long strtoul(...)`**: skip whitespace, optional sign (`strtol`), base 0 (auto: `0x`→16, `0`→8, else 10) or 2–36, `0x`/`0X` prefix accepted for base 16, letters `$41`–`$5A` and `$C1`–`$DA` as digits. `*endptr` is set to `nptr` if no digits were read. Overflow is **not** detected: the value wraps modulo 2^32 and `errno` is not set.
+- **`float strtof(char *nptr, char **endptr)`** / **`float atof(char *nptr)`**: whitespace, sign, digits, fraction, `e`/`E` exponent. A value beyond the float range gives ±`FLT_MAX`; a non-zero value that underflows gives 0; both set `errno = ERANGE`. `strtod(nptr, endptr)` is a macro for `(double)strtof(...)`.
 
-- **`jmp_buf`**: Typedef for `char[4]` — stores return address (2 bytes) and stack pointer (2 bytes). **Implemented.**
-- **`setjmp(jmp_buf env)`**: Saves the current PC and SP into `env`. Returns 0 on initial call. When `longjmp` restores this context, `setjmp` returns the value passed to `longjmp` (or 1 if that value was 0, per C standard). **Implemented.**
-- **`longjmp(jmp_buf env, int val)`**: Restores the execution context saved in `env`, causing the corresponding `setjmp` to return `val`. Does not return. **Implemented.**
+**Arithmetic**
+- **`abs(x)`**, **`labs(x)`**: macros (`(x)<0?-(x):(x)`). Define `__NOMACRO_ABS` / `__NOMACRO_LABS` before including to get the library functions `signed int abs(signed int)` / `signed long labs(signed long)` instead.
+- `__builtin_abs`, `__builtin_labs`, `__builtin_ffs`, `__builtin_clz`, `__builtin_ctz`, `__builtin_popcount`, `__builtin_bswap16` are declared here; the library also provides the `l`/`ll` variants of the bit builtins, `__builtin_parity*` and `__builtin_bswap32`.
 
-Both functions are hand-written 45GS02 assembly (`lib/stdlib/setjmp.s45`).
+**Random numbers**
+- **`int rand(void)`**: 0–32767 from the MEGA65 hardware RNG (`$D7EF`), waiting on `$D7FE` bit 7 before each of the two byte reads; bit 15 cleared.
+- **`void srand(unsigned seed)`**: no-op (the hardware RNG cannot be seeded); sequences are not reproducible.
 
-## 9. MEGA65 Hardware (`mega65.h`)
+**Heap** — `void *malloc(size_t)`, `void free(void *)`, `void *calloc(size_t, size_t)`, `void *realloc(void *, size_t)` (assembly, `lib/stdlib_asm/malloc.s45`):
+- Sorted singly-linked free list, first fit, coalescing with both neighbours on `free`. Block header: 2-byte size (bit 0 = allocated) and, in free blocks, a 2-byte next pointer. Requests are rounded up to even, minimum 4 bytes including the 2-byte header.
+- `malloc(0)` and failure return `NULL` (`errno` is not set). `free(NULL)` is a no-op. `calloc` = `malloc` + `memset`; `realloc` = `malloc` + `memcpy` + `free` (`realloc(NULL, n)` = `malloc(n)`, `realloc(p, 0)` frees `p`).
+- The heap is initialized on the first `malloc` call. It runs from `__heap_start` to `__heap_end`; both default to 0 (library member `__heap_bounds`), which means: start at `__bss_end` (after the program and its private base page), end 4 KB below the 16-bit stack top (`$B000` with the default `$BFFF` top) or at `$C000` with the 8-bit page-1 stack. Define the two symbols in your program to place the heap elsewhere.
+- Known defect: `_heap_init` records the initial free block with a size high byte of `1` instead of the computed size, so at present only 256–510 bytes of the heap are usable (see [stdlib_optimizations.md](stdlib_optimizations.md#open-work)).
+- `#pragma cc45 heap` makes standalone (non-linked) builds call `_init_heap_crt` at startup; linked programs rely on the lazy initialization.
 
-Memory-mapped I/O register struct overlays for the MEGA65's VIC-IV, SID, and CIA chips.
+**Program termination**
+- **`void exit(int status)`** (weak) / **`void _exit(int status)`**: jump to the CRT's `__exit`, which switches back to the ROM's base page, stores `status` at `$FD/$FE`, restores the caller's stack pointer and flags and returns to the caller (BASIC). `exit` does **not** run `atexit` handlers.
+- **`void abort(void)`** (weak): like `exit`, with status `$FFFE`. If `__exit` is never reached the status reads `$FFFF` (set at startup). A BASIC caller can read it with `PEEK(253)+256*PEEK(254)`.
+- **`int atexit(void (*func)())`**: registers up to 8 handlers (returns 1 when full). The handlers are stored but nothing calls them (`__atexit_run` is never invoked).
+- `#pragma cc45 exit_halt` / `exit_brk` / `exit_rts` only change the startup stub of standalone builds; a program linked with the library always returns to its caller.
 
-### VIC-IV Register Struct
+**Sorting and searching**
+- **`void qsort(void *base, int nmemb, int size, int (*cmp)())`**: quicksort with median-of-three pivot, insertion sort for partitions of ≤ 8 elements, smaller partition first. The comparator and size are kept in globals (`qs_cmp`, `qs_size`), so `qsort` is not reentrant (a comparator must not call `qsort`).
+- **`void *bsearch(const void *key, const void *base, int nmemb, int size, int (*cmp)())`**: binary search; returns the match or `NULL`.
+
+## 5. String & Memory Operations (`string.h`)
+
+The functions marked *asm* are hand-written assembly in `lib/stdlib_asm/`; the rest are C in `lib/stdlib/`. Lengths and counts are `int` (16-bit).
+
+| Function | Notes |
+|----------|-------|
+| `int strlen(char *s)` | *asm*. Counts with an 8-bit index: correct only for strings shorter than 256 bytes (a 256-byte string returns 0) |
+| `char *strcpy(char *d, char *s)`, `char *strncpy(char *d, char *s, int n)` | *asm*. `strncpy` NUL-pads |
+| `int strcmp(char *a, char *b)`, `int strncmp(char *a, char *b, int n)` | *asm*. Return <0, 0, >0 |
+| `char *strcat(char *d, char *s)`, `char *strncat(char *d, char *s, int n)` | *asm*. `strncat` appends at most `n` chars and NUL-terminates |
+| `char *strchr(char *s, int c)`, `char *strrchr(char *s, int c)` | *asm* |
+| `char *strstr(char *h, char *n)`, `char *strpbrk(char *s, char *accept)` | C |
+| `int strspn(char *s, char *accept)`, `int strcspn(char *s, char *reject)` | C |
+| `char *strtok(char *s, char *delim)`, `char *strtok_r(char *s, char *delim, char **save)` | C. `strtok` keeps static state |
+| `int strnlen(const char *s, int maxlen)` | C |
+| `int strlcpy(char *dst, const char *src, int size)` | C. Returns `strlen(src)` |
+| `char *strdup(const char *s)` | C. Uses `malloc` |
+| `char *strerror(int errnum)` | C. "Success", "Result out of range", "Out of memory", "Invalid argument", "Math domain error", else "Unknown error" |
+| `void *memcpy(void *d, void *s, int n)` | *asm*. Byte loop; no overlap handling |
+| `void *memmove(void *d, void *s, int n)` | *asm*. Copies backwards when `d > s` |
+| `void *memset(void *s, int c, int n)` | *asm* |
+| `int memcmp(void *a, void *b, int n)` | *asm*. Returns <0, 0, >0 |
+| `void *memchr(void *s, int c, int n)` | C |
+
+`string.h` also declares `__builtin_memcpy`, `__builtin_memset`, `__builtin_memmove`, `__builtin_memcmp`, `__builtin_strlen`, `__builtin_strcpy` and `__builtin_strcmp`, which the library provides. The library also exports `memcpy_optimized` (`stdlib/memcpy_fast.c`), which is not declared in any header.
+
+## 6. Character Utilities (`ctype.h`)
+
+All functions are `static inline` in the header and take an `int` PETSCII code (the library also has assembly versions, used only when `ctype.h` is not included). They return 1 or 0, except the conversions.
+
+PETSCII ranges (default upper/lower-case character set): digits `$30`–`$39`; lower-case letters `$41`–`$5A`; upper-case letters `$C1`–`$DA`; space `$20`.
+
+| Function | True for |
+|----------|----------|
+| `isdigit` | `$30`–`$39` |
+| `isalpha` | `$41`–`$5A`, `$C1`–`$DA` |
+| `isalnum` | digit or letter |
+| `isspace` | `$20`, `$09`–`$0D` |
+| `isblank` | `$20`, `$09` |
+| `isupper` / `islower` | `$C1`–`$DA` / `$41`–`$5A` |
+| `isxdigit` | digit, `$41`–`$46`, `$C1`–`$C6` |
+| `isprint` | `$20`–`$7E`, `$A0`–`$FF` |
+| `isgraph` | `$21`–`$7E`, `$A1`–`$FF` |
+| `iscntrl` | `$00`–`$1F`, `$80`–`$9F` |
+| `ispunct` | everything from `$21` up that is not a digit or letter (this includes `$7F`–`$9F` and `$A0`) |
+
+`toupper(c)` returns `c | $80` for `$41`–`$5A`; `tolower(c)` returns `c & $7F` for `$C1`–`$DA`; other values are returned unchanged.
+
+## 7. Math Library (`math.h`)
+
+`math.h` includes `stdlib.h`.
+
+**Integer**
+- `div_t div(signed int, signed int)` and `ldiv_t ldiv(signed long, signed long)` (`quot`, `rem`).
+- `signed int min(a, b)`, `max(a, b)`, `gcd(a, b)` (Euclid, handles negative inputs), `lcm(a, b)` (`|a / gcd(a,b) * b|`).
+- `abs`/`labs` as in `stdlib.h`.
+
+**Floating point** (CBM 40-bit; `double` is the same type)
+- ROM-backed (BASIC 65 routines through `float_rom.s45`, which switches to base page 0 for each call): `sinf`, `cosf`, `tanf`, `atanf`, `logf`, `expf`, `sqrtf`, `fabsf`.
+- Written in C: `powf`, `fmodf`, `ceilf`, `floorf`, `roundf` (ties away from zero), `truncf`, `atan2f`, `log10f`, `log2f`, `ldexpf`, `frexpf`, `modff`, `copysignf`, `fmaxf`, `fminf`, `fdimf`.
+- The standard names (`sin`, `cos`, `tan`, `atan`, `atan2`, `log`, `log10`, `log2`, `exp`, `pow`, `sqrt`, `fabs`, `fmod`, `ceil`, `floor`, `round`, `trunc`, `ldexp`, `frexp`, `modf`, `copysign`, `fmax`, `fmin`, `fdim`) are macros for the `f` versions; the library also defines them as functions (`math_double.c`) for code that declares them itself, together with `signbit`/`signbitf`.
+- Classification: `isnan(x)` and `isinf(x)` are always 0 and `isfinite(x)` always 1 (the format has no NaN or infinity); `__fpclassifyf(x)` returns 0 for zero, else 1.
+- Constants: `M_PI`, `M_PI_2`, `M_PI_4`, `M_E`, `M_LOG2E`, `M_LOG10E`, `M_LN2`, `M_LN10`, `M_SQRT2`, `M_SQRT1_2`, `HUGE_VALF` (1.7014118e38 = `FLT_MAX`), `INFINITY` (= `HUGE_VALF`).
+
+**Domain and range errors** never reach the ROM (whose `?ILLEGAL QUANTITY`/`?OVERFLOW ERROR` would not return):
+
+| Case | Result | `errno` |
+|------|--------|---------|
+| `sqrtf(x < 0)`, `logf(x < 0)` | 0 | `EDOM` |
+| `logf(0)` | −`FLT_MAX` | `ERANGE` |
+| `expf(x > 88.0296)` | `FLT_MAX` | `ERANGE` |
+| `expf(x < −88.8)` | 0 | `ERANGE` |
+| `powf(negative, non-integer)` | 0 | `EDOM` |
+| `powf(0, y < 0)` | `FLT_MAX` | `ERANGE` |
+| `powf` overflow / underflow | via `expf` | `ERANGE` |
+| `fmodf(x, 0)` | 0 | `EDOM` |
+
+Float arithmetic itself (`+ - * /`) saturates to ±`FLT_MAX` on overflow, `x / 0` gives ±`FLT_MAX` (`0 / 0` gives 0) and underflow gives 0; these do not set `errno`.
+
+## 8. I/O (`stdio.h`)
+
+### Console
+
+- **`int putchar(int c)`**: KERNAL `CHROUT` (`$FFD2`).
+- **`int getchar(void)`**: waits for a key with KERNAL `GETIN` (`$FFE4`); returns the PETSCII code.
+- **`int puts(char *s)`**: prints `s` and a carriage return (`$0D`) through `CHROUT`; returns 0. Like `strlen`, it uses an 8-bit index and stops after 256 characters.
+
+These (and every other ROM call in the library) are bracketed with `__bp_rom`/`__bp_prog`, which switch to the ROM's base page 0 and back to the program's relocated base page.
+
+### Formatted output
+
+`printf(char *fmt, ...)`, `vprintf(char *fmt, va_list)`, `sprintf(char *buf, char *fmt, ...)`, `vsprintf`, `snprintf(char *buf, int size, char *fmt, ...)`, `vsnprintf` (writes at most `size-1` characters plus NUL, returns the length that would have been written), `fprintf`/`vfprintf` (to a `FILE`). They return the number of characters written. All share one formatter (`__vformat.c`):
+
+- Syntax `%[flags][width][.precision][length]conversion`; flags `- + space # 0`; width and precision as digits or `*`; length `hh h l ll L j z t`.
+- Conversions: `d i u x X o b p c s n %`, and `f F e E g G`. `int` is 16 bits, `long` 32 bits; `ll` reads 8 bytes and prints the low 32 bits. `%b` is binary, `%p` prints `$hhhh`. An unknown conversion character is printed as is.
+- Floats: `printf`/`sprintf` are linked in an integer-only (weak) version by default; passing a float argument to a variadic call makes the linker pull `printf_float`/`sprintf_float`, whose strong `printf`/`sprintf` format floats. Without them the float conversions print nothing. The float formatter prints `[-]integer.ffffff` (6 fraction digits, truncated) for every float conversion (`%e` and `%g` look like `%f`); a precision shortens the fraction (truncating, not rounding). The integer part goes through a 16-bit `int`, so values of magnitude 32768 or more print wrongly. `snprintf`, `vsnprintf`, `vprintf`, `vsprintf` and `fprintf` have no float support.
+
+### Formatted input
+
+`sscanf(char *str, char *fmt, ...)` (and `fscanf`/`vfscanf` on a `FILE`): `%d %u %x %o %c %s %f %%` and `%ld %lu %lx %lo`; `%x` accepts a `$` or `0x` prefix, `%c` does not skip whitespace, `%s` reads a whitespace-delimited word, `%f` uses `strtof`. Whitespace in the format matches any amount of input whitespace (space, tab, LF, CR). Returns the number of items assigned.
+
+### FILE streams
+
+`FILE` (handle, mode, flags, position, buffer, `ungetc` slot), `fpos_t` (`unsigned long`), `stdin`/`stdout`/`stderr`, `EOF` (−1), `SEEK_SET/CUR/END`, `BUFSIZ` 256, `FILENAME_MAX` 16, `FOPEN_MAX` 8, `L_tmpnam` 32, `_IO*` flag bits.
+
+Functions: `fopen`, `freopen`, `fclose`, `fflush`, `fgetc`, `fputc`, `fgets`, `fputs`, `ungetc`, `fread`, `fwrite`, `fprintf`, `vfprintf`, `fscanf`, `vfscanf`, `fseek`, `ftell`, `rewind`, `fgetpos`, `fsetpos`, `feof`, `ferror`, `clearerr`, `setvbuf`, `setbuf`, `tmpfile`, `tmpnam`, `perror` (prints `s: strerror(errno)` to `stderr`). `fileno(stream)` is a macro (`stream->handle`) and `fdopen(fd, mode)` a cast.
+
+Behaviour on the MEGA65:
+- `fopen` opens files on disk device 8 through `cbm_open`: mode `r`/`w`/`a` (with optional `+`), `b` selects a USR file, otherwise SEQ. The KERNAL file is always opened with secondary address 0, so the access direction is not passed to the drive (writing needs `cbm_open_ext` with a secondary address ≥ 2 and a `,S,W`-style name).
+- `fseek` always fails (−1), so `rewind`/`fsetpos` do not reposition; `ftell`/`fgetpos` return the tracked position. `tmpfile` returns `NULL`; `tmpnam` returns its (empty) buffer.
+
+### CBM file API
+
+Declared in `stdio.h`, implemented in `stdio_cbm.c`, `stdio_kernal.c`, `stdio_directory.c`, `stdio_rel.c`:
+
+- Files: `fd_t cbm_open(device, filename, type)`, `cbm_open_ext(device, filename, type, secondary)`, `cbm_close`, `cbm_read`, `cbm_write`, `cbm_eof`, `cbm_status`, and `cbm_seek`/`cbm_tell` (stubs: −1 / 0). Logical file numbers 3–14 are assigned round-robin. Constants `CBM_DEVICE_*`, `CBM_T_PRG/SEQ/USR/REL/CBM/DIR`, `O_*`, `STDIN_FILENO`…
+- Directory and disk commands: `cbm_opendir`, `cbm_readdir`, `cbm_closedir`, `cbm_dir_type_name`, `cbm_dir_get_type`, `cbm_dir_is_locked`, `cbm_dir_is_scratched`, `cbm_dir_is_closed`, `cbm_format`, `cbm_delete`, `cbm_rename`; directory type flag bits `CBM_FILE_*`.
+- Relative (REL) files: `cbm_rel_open(device, filename, record_size, mode)`, `cbm_rel_read`, `cbm_rel_write`, `cbm_rel_position`, `cbm_rel_tell`, `cbm_rel_size`, `cbm_rel_close`, `cbm_rel_record_size`, `cbm_rel_is_open`, `cbm_rel_append`, `cbm_rel_delete`, `cbm_rel_truncate`, `cbm_rel_update`, `cbm_rel_insert`, `cbm_rel_lasterror`, `cbm_rel_strerror`; `CBM_REL_READ`/`WRITE`, `CBM_REL_ERR_*`.
+- KERNAL wrappers: `cbm_k_setnam(filename)`, `cbm_k_setlfs`, `cbm_k_open`, `cbm_k_close`, `cbm_k_chkin`, `cbm_k_chkout`, `cbm_k_clrchn`, `cbm_k_chrin`, `cbm_k_chrout`, `cbm_k_readst` (`cbm_k_chrin`/`cbm_k_chrout` are in the library but not declared in `stdio.h`).
+
+`cbm_open` and `cbm_close` here have different signatures from the `static` `cbm_open(void)`/`cbm_close(char)` in `cbm.h`; in a file that includes both headers the `cbm.h` versions are used without a diagnostic.
+
+## 9. Error Handling (`errno.h`)
+
+- **`extern int errno`**: set only by the float functions and `strtof` listed in [§7](#7-math-library-mathh) and [§4](#4-general-utilities-stdlibh). It is never cleared. `strtol`, `strtoul` and `malloc` do not set it.
+- **`extern char _errnoc`**: the KERNAL status byte `ST` at `$0090` of the ROM's page 0 (read-only alias).
+
+| Constant | Value | Used for |
+|----------|-------|----------|
+| `ERANGE` | 1 | result out of float range (`strtof`, `logf(0)`, `expf`, `powf`) |
+| `ENOMEM` | 2 | defined; not set by the library |
+| `EINVAL` | 3 | defined; not set by the library |
+| `EDOM` | 4 | argument without a value (`sqrtf`/`logf` of a negative, `powf` negative^fraction, `fmodf(x, 0)`) |
+
+## 10. Non-Local Jumps, Assertions, `alloca`
+
+- **`setjmp.h`**: `jmp_buf` is `char[6]`: return address (2 bytes), stack pointer inside `setjmp` (2 bytes) and the frame pointer `$FD/$FE` (2 bytes). `int setjmp(jmp_buf)` returns 0, and the value given to `void longjmp(jmp_buf, int val)` when that restores the context (1 if `val` is 0). Assembly (`lib/stdlib_asm/setjmp.s45`).
+- **`assert.h`**: `assert(expr)` calls `assert_fail(#expr, __FILE__, __LINE__)`, which prints `Assertion failed: <expr> (file <f>, line <n>)` with `printf` and stops with `BRK` (`assert_fail_abort`). `assert_msg(expr, msg)` calls `assert_msg_fail(..., msg)`. With `NDEBUG` both are no-ops.
+- **`alloca.h`**: `void *alloca(unsigned)` and `__builtin_alloca`. A constant size is allocated in the frame by the compiler; a variable size uses the runtime routine (`alloca.s45`). A function that calls `alloca` with a variable size uses a stack frame instead of static allocation.
+
+## 11. Timing (`time.h`)
+
+- `CLOCKS_PER_SEC` 60; `clock_t` is `int`, `time_t` is `long`.
+- **`clock_t clock(void)`**: low 16 bits of the KERNAL jiffy clock (`RDTIM`, `$FFDE`); wraps after 65536 ticks (~18 minutes at 60 Hz).
+- **`time_t time(time_t *tp)`**: `clock()` widened to `long` (so it also wraps after 65536 ticks); stored in `*tp` when `tp` is not `NULL`.
+- **`long difftime(time_t t2, time_t t1)`**: `t2 - t1`.
+- **`struct tm`** (`tm_sec` … `tm_isdst`, all `int`).
+- **`void rtc_read(struct tm *)`**: reads the MEGA65 RTC (BCD registers at `$FFD7110`–`$FFD7116`) into a `struct tm`; years 00–99 map to 2000–2099; `tm_isdst` 0. Emulators without an RTC give zeros.
+- **`localtime(timer)`** / **`gmtime(timer)`**: ignore `timer`, read the RTC into a static `struct tm` and return it.
+- **`time_t mktime(struct tm *)`**: seconds since 2000-01-01 00:00:00 (not 1970); fills in `tm_yday` and `tm_wday`.
+- **`asctime(tm)`** / **`ctime(timer)`**: `"Wed Jun 30 21:49:08 2026\n"` in a static buffer; `ctime(t)` is `asctime(localtime(t))`.
+
+The jiffy clock counts 60 Hz ticks from power-on; it is not wall-clock time.
+
+## 12. Other Library-Backed Headers
+
+| Header | Contents |
+|--------|----------|
+| `conio.h` | cc65-style console: colour constants, `clrscr`, `gotoxy`, `wherex`, `wherey`, `textcolor`, `textbackground`, `textattr`, `putch`, `cputch`, `cputs`, `cputsxy`, `cprintf`, `cprintfxy`, `getch_xy`, `getattr_xy`, `screenwidth`, `screenheight`, `cursoron`, `cursoroff`, `getch`, `kbhit` (`stdlib/conio.c`). `getch` and `kbhit` are stubs that return 0. The `fcm_*` full-colour functions and `conio_set_width`/`conio_get_width` are declared but not in the library. |
+| `far_ptr.h` | 24-bit far pointers (`far_ptr_t`, `bank_t`), bank selection (`bank_set`, `bank_get`, `bank_available`, `bank_reset`, `bank_reset_all`) and a far heap (`far_malloc`, `far_calloc`, `far_realloc`, `far_free`, `far_malloc_current`, `far_calloc_current`, `far_size`, `far_alloc_bank`, `far_is_valid`, `far_policy_*`) |
+| `far_ops.h` | far element access (`far_read_*`/`far_write_*` for 8/16/32-bit, float, double), arrays (`far_array_*`), bulk copies (`far_memcpy*`, `far_memset`, `far_memzero`, `far_strcpy_*`, `far_strlen`, `far_strcmp`) and pointer arithmetic/comparison (`far_add`, `far_sub`, `far_inc`, `far_dec`, `far_diff`, `far_eq`, `far_lt`, `far_gt`, `far_cmp`) |
+| `dma_controller.h` | F018B DMA request API: `dma_execute`, `dma_transfer_smart`, `dma_fill`, `dma_available`, `dma_is_busy`, `dma_wait`, `dma_enable`, `dma_disable`, `dma_set_interrupt_enable`, `dma_get_status`, `dma_print_status`, `dma_speed_bytes_per_us`. Its `dma_fill` collides with the `dma_fill` macro of `dma.h`. |
+| `audio_digi.h`, `audio_midi.h`, `audio_sid.h` | `digi_system_create`, `digi_sample_create`, `digi_sample_mix_static`; `midi_receiver_create`, `midi_note_to_frequency`, `frequency_to_midi_note`; `sid_synth_create` |
+| `intwide.h` | `struct __int64`, `struct __int128` with operators, and the width-parameterized runtime `__intN_add`, `__intN_sub`, `__intN_mul`, `__intN_cmp_u`, `__intN_cmp_s`, `__intN_neg`, `__intN_not`, `__intN_and`, `__intN_or`, `__intN_xor`, `__intN_shl`, `__intN_shr_u` (used by `__int(N)`/`__uint(N)`) |
+| `complex.h` | marker only: the `_Complex` types and operators are built into cc45 |
+
+## 13. MEGA65 Hardware (`mega65.h`) and DMA (`dma.h`)
+
+`mega65.h` provides `volatile` struct overlays and register macros. All helpers except `key_pressed` are `static` functions in the header.
+
+- **VIC-IV** (`vic4` at `$D000`, `struct vic4_regs` covering `$D000`–`$D07F`): `vic4->border`, `vic4->bg0`, `vic4->sprite_enable`, `vic4->sprite[n].x/.y`, `ctrl1`, `ctrl2`, `ctrl_a`, `ctrl_b`, `ctrl_c`, `key`, … `VIC4_SPRITE(n)` gives a sprite position pointer. Direct registers: `VREG_BORDER`, `VREG_BG0`–`VREG_BG3`, `VREG_CTRL1`, `VREG_CTRL2`, `VREG_RASTER`, `VREG_SPR_ENABLE`, `VREG_SPR_XMSB`, `VREG_MEMPTR`, `VREG_IRQ_STATUS`, `VREG_IRQ_ENABLE`, `VREG_KEY`, `VREG_CTRL_A`, `VREG_CTRL_B`, `VREG_CTRL_C`. Helpers: `vic4_unlock()` (writes `$A5`,`$96` to `$D02F`), `vic4_fast()` (unlock + `VIC4_FAST` in `$D031`), `vic4_sprite_pos(n, x, y)` (handles X > 255). Constants: `COLOR_BLACK` (0) … `COLOR_LGREY` (15); bits `VIC4_RST8`, `VIC4_ECM`, `VIC4_BMM`, `VIC4_DEN`, `VIC4_RSEL`, `VIC4_MCM`, `VIC4_CSEL`, `VIC4_IRQ_*`, `VIC3_*` (`$D030`), `VIC4_H640`, `VIC4_FAST`, `VIC4_FCM`, … (`$D031`), `VIC4_CHR16`, … (`$D054`); `VIC3_KEY1`/`VIC3_KEY2`.
+- **SID** (`sid1`–`sid4` at `$D400`/`$D420`/`$D440`/`$D460`; `SID1_VOICE(n)`–`SID4_VOICE(n)` for voice registers `freq_lo`, `freq_hi`, `pw_lo`, `pw_hi`, `ctrl`, `attack_decay`, `sustain_release`; chip registers `filter_lo`, `filter_hi`, `filter_ctrl`, `volume`, `pot_x`, `pot_y`, `osc3`, `env3`). Bits `SID_GATE`, `SID_SYNC`, `SID_RINGMOD`, `SID_TEST`, `SID_TRIANGLE`, `SID_SAWTOOTH`, `SID_PULSE`, `SID_NOISE`, `SID_FILT1`–`SID_FILT3`, `SID_FILT_EXT`, `SID_LP`, `SID_BP`, `SID_HP`, `SID_MUTE3`.
+- **CIA** (`cia1` `$DC00`, `cia2` `$DD00`: `pra`, `prb`, `ddra`, `ddrb`, `timer_a_lo/hi`, `timer_b_lo/hi`, `tod_*`, `sdr`, `icr`, `cra`, `crb`). `joy1_read()`/`joy2_read()` return active-high `JOY_UP/DOWN/LEFT/RIGHT/FIRE` bits. `CIA_ICR_*`, `CIA_CRA_*`, `CIA_CRB_*`.
+- **Keyboard**: `__regparm unsigned char key_pressed(unsigned char keycode)` (library, assembly) scans the CIA1 matrix and returns 1/0, allowing several keys at once; 64 `KEY_*` matrix codes. Hardware typing queue: `ASCII_KEY_QUEUE` (`$D610`), `PETSCII_KEY_QUEUE` (`$D619`), `KEY_MODIFIERS_REG` (`$D611`) with `KEY_MOD_*` bits; `getkey_ascii()` (0 if empty) and `getkey_petscii()` (`$FF` if empty) read and advance it.
+- **DMA registers** (`dma` at `$D700`: `addr_lsb_trig` — writing it starts the job —, `addr_msb`, `addr_bank`, `mode`, `addr_mb`, `etrig`); `DMA_ADDR_LSB_NOTRIG` (`$D70E`); `DMA_CMD_COPY` 0, `DMA_CMD_FILL` 3, `DMA_CMD_SWAP`/`DMA_CMD_MIX` 4. Write the bank and MSB first and the LSB last.
+- **Math accelerator** (`math` at `$D768`: `frac[4]`, `quotient[4]`, `arg1[4]` `$D770`, `arg2[4]` `$D774`, `product[8]` `$D778`); `MATH_BUSY` (`$D70F`, `MATH_BUSY_DIV`/`MATH_BUSY_MUL`); `HW_RANDOM` (`$D7EF`), `HW_RNG_READY` (`$D7FE`). There is no remainder register.
+- **Audio mixer / digital audio**: `AUDIO_MIX_SEL` (`$D6F4`), `AUDIO_MIX_DATA` (`$D6F5`), `AUDIO_DIGI_LEFT`/`AUDIO_DIGI_RIGHT` (`$D6F8`/`$D6FA`), `AUDIO_READBACK` (`$D6FC`); `set_mixer_coefficient(index, volume)` writes one of the 128 16-bit coefficients.
+- **Floppy controller** (`fdc` at `$D080`), commands `FDC_CMD_READ/WRITE/STEP_IN/STEP_OUT/RESTORE`, status `FDC_BUSY/DRQ/EQ/RNF/WRPROT/TK0`.
+- **SD card** (`sd` at `$D680`: `status`, `command`, `addr0`–`addr3`, `buf_addr_lo/hi`, `rdata`), `SD_CMD_RESET/READ/WRITE/FLUSH`, `SD_BUSY/RESET/ERROR/SDHC`.
+- **Ethernet** (`eth` at `$D6E0`: `ctrl`, `irq_ctrl`, `txsz_lo/hi`, `cmd`, `mode`, `miim_*`, `mac[6]`), `ETH_RST`, `ETH_TXRST`, `ETH_TXIDLE`, `ETH_CMD_TX`. Packet data is in the `$FFDE800` window.
+- **Hypervisor** (`hyper` at `$D640`, 64 trap registers), `HTRAP_SETNAME`, `HTRAP_LOADFILE`.
+- **Memory**: `SCREEN_RAM` (`$0800`), `COLOUR_RAM` (`$D800`).
 
 ```c
 #include <mega65.h>
-
-vic4->border = COLOR_BLACK;        // struct access ($D020)
-vic4->bg0 = COLOR_BLUE;            // struct access ($D021)
-vic4->sprite_enable = 0x01;        // enable sprite 0
-vic4->sprite[0].x = 100;           // nested sprite position struct
-vic4->sprite[0].y = 150;
-```
-
-The `vic4` macro expands to `((volatile struct vic4_regs *)0xD000)`, providing type-safe access to all 128 VIC-IV registers ($D000-$D07F).
-
-### Direct Register Defines
-
-For single-register access, `VREG_*` defines provide an alternative syntax:
-
-```c
-VREG_BORDER = COLOR_BLACK;         // *(volatile unsigned char *)0xD020
-VREG_BG0 = COLOR_BLUE;             // *(volatile unsigned char *)0xD021
-VREG_CTRL_B |= VIC4_FAST;          // enable 40 MHz
-```
-
-Available defines: `VREG_BORDER`, `VREG_BG0`-`VREG_BG3`, `VREG_CTRL1`, `VREG_CTRL2`, `VREG_RASTER`, `VREG_SPR_ENABLE`, `VREG_SPR_XMSB`, `VREG_MEMPTR`, `VREG_IRQ_STATUS`, `VREG_IRQ_ENABLE`, `VREG_KEY`, `VREG_CTRL_A`, `VREG_CTRL_B`, `VREG_CTRL_C`.
-
-### Convenience Functions
-
-- **`vic4_unlock()`**: Writes VIC-III key sequence ($A5, $96) to enable extended registers.
-- **`vic4_fast()`**: Unlocks VIC-III/IV and enables 40 MHz CPU speed.
-- **`vic4_sprite_pos(n, x, y)`**: Sets sprite position with X > 255 MSB handling.
-
-### Constants
-
-**Colours:** `COLOR_BLACK` (0) through `COLOR_LGREY` (15).
-
-**Control bits:** `VIC4_DEN`, `VIC4_BMM`, `VIC4_ECM`, `VIC4_MCM`, `VIC4_FAST`, `VIC4_H640`, `VIC4_FCM`, `VIC4_CHR16`, etc.
-
-**VIC-III key:** `VIC3_KEY1` (0xA5), `VIC3_KEY2` (0x96).
-
-### SID Sound Chips
-
-Four SID instances at $D400, $D420, $D440, $D460:
-
-```c
-// Play a note on SID 1, voice 1
-SID1_VOICE(0)->freq_lo = 0x0C;
-SID1_VOICE(0)->freq_hi = 0x11;
-SID1_VOICE(0)->attack_decay = 0x09;
-SID1_VOICE(0)->sustain_release = 0xA0;
+vic4->border = COLOR_BLACK;
+VREG_BG0 = COLOR_BLUE;
 SID1_VOICE(0)->ctrl = SID_TRIANGLE | SID_GATE;
-sid1->volume = 0x0F;
+if (key_pressed(KEY_SPACE)) { /* ... */ }
 ```
 
-**Struct pointers:** `sid1`, `sid2`, `sid3`, `sid4` — access filter, volume, pots, and oscillator readback.
-
-**Voice helpers:** `SID1_VOICE(n)` through `SID4_VOICE(n)` — typed access to individual voice registers (frequency, pulse width, waveform control, ADSR envelope).
-
-**Waveform bits:** `SID_TRIANGLE`, `SID_SAWTOOTH`, `SID_PULSE`, `SID_NOISE`, `SID_GATE`, `SID_SYNC`, `SID_RINGMOD`.
-
-**Filter:** `SID_FILT1`-`SID_FILT3`, `SID_FILT_EXT`, `SID_LP`, `SID_BP`, `SID_HP`, `SID_MUTE3`.
-
-### CIA Interface Chips
-
-Two CIA instances at $DC00 (CIA 1) and $DD00 (CIA 2):
-
-```c
-// Read joystick 1
-unsigned char j = joy1_read();
-if (j & JOY_FIRE) { /* fire pressed */ }
-
-// Start CIA 1 timer A (one-shot, 1000 cycles)
-cia1->timer_a_lo = 0xE8;
-cia1->timer_a_hi = 0x03;
-cia1->cra = CIA_CRA_START | CIA_CRA_ONESHOT;
-```
-
-**Struct pointers:** `cia1`, `cia2` — ports A/B, data direction, timers A/B, TOD clock, serial data, interrupt control, control registers.
-
-**Convenience:** `joy1_read()`, `joy2_read()` — read joystick with active-low inversion.
-
-**Joystick bits:** `JOY_UP`, `JOY_DOWN`, `JOY_LEFT`, `JOY_RIGHT`, `JOY_FIRE`.
-
-**ICR bits:** `CIA_ICR_TA`, `CIA_ICR_TB`, `CIA_ICR_ALRM`, `CIA_ICR_SP`, `CIA_ICR_FLAG`, `CIA_ICR_SET`.
-
-**Control bits:** `CIA_CRA_START`, `CIA_CRA_ONESHOT`, `CIA_CRA_LOAD`, `CIA_CRB_START`, `CIA_CRB_ALARM`, etc.
-
-### DMA Controller (Direct Register Access)
-
-For advanced DMA operations beyond `dma_copy`/`dma_fill` (chained jobs, fractional stepping):
-
-```c
-dma->addr_lo = job_addr & 0xFF;
-dma->addr_mid = job_addr >> 8;
-dma->addr_hi = 0;
-dma->control = 0;  // trigger DMA execution
-```
-
-**Struct pointer:** `dma` ($D700) — control, address (lo/mid/hi/bank), enhanced trigger.
-
-**Command constants:** `DMA_CMD_COPY` (0), `DMA_CMD_FILL` (3), `DMA_CMD_SWAP` (4).
-
-### Math Accelerator
-
-Hardware 32-bit multiply and divide:
-
-```c
-math_mul->arg1[0] = 10;  // multiplicand (32-bit, little-endian)
-math_mul->arg2[0] = 5;   // multiplier
-// result available in math_mul->result[] after ~6 cycles
-
-math_div->arg1[0] = 100; // dividend
-math_div->arg2[0] = 7;   // divisor
-// quotient in math_div->quotient[], remainder shares with mul->arg1
-```
-
-**Struct pointers:** `math_div` ($D760), `math_mul` ($D770).
-
-**Status:** `MATH_BUSY` ($D70F) — bit 7 set while computing. `HW_RANDOM` ($D7EF) — hardware RNG byte.
-
-### Audio Mixer
-
-Per-SID left/right volume control:
-
-```c
-audio_mixer->sid1_vol = AUDIO_BOTH(15);   // full volume both channels
-audio_mixer->sid2_vol = AUDIO_LEFT(10);    // left only, volume 10
-```
-
-**Struct pointer:** `audio_mixer` ($D63C) — volume for SID 1-4.
-
-**Macros:** `AUDIO_LEFT(vol)`, `AUDIO_RIGHT(vol)`, `AUDIO_BOTH(vol)` — pack volume nybbles.
-
-### Keyboard Matrix Scanner
-
-Direct CIA1 hardware keyboard scanning with multi-key support:
-
-```c
-if (key_pressed(KEY_SPACE)) { /* fire */ }
-if (key_pressed(KEY_W))     { /* move up */ }
-```
-
-- **`key_pressed(keycode)`**: `__regparm` library function. Returns 1 if pressed, 0 if not. Scans CIA1 matrix directly — supports simultaneous multi-key detection (unlike KERNAL `cbm_getin()`). Requires `c45.lib`.
-- **`KEY_*` constants**: 66 named constants for the full 8x8 keyboard matrix (`KEY_A`-`KEY_Z`, `KEY_0`-`KEY_9`, `KEY_SPACE`, `KEY_RETURN`, `KEY_F1`-`KEY_F7`, `KEY_LSHIFT`, `KEY_CTRL`, `KEY_STOP`, etc.).
-
-### Floppy Disk Controller
-
-Direct access to the internal 3.5" floppy drive:
-
-**Struct pointer:** `fdc` ($D080) — control, command, track, sector, side, data, clock, step rate.
-
-**Commands:** `FDC_CMD_READ`, `FDC_CMD_WRITE`, `FDC_CMD_STEP_IN`, `FDC_CMD_STEP_OUT`, `FDC_CMD_RESTORE`.
-
-**Status bits:** `FDC_BUSY`, `FDC_DRQ`, `FDC_EQ`, `FDC_RNF`, `FDC_WRPROT`, `FDC_TK0`.
-
-### SD Card Controller
-
-Direct sector-level access to the SD card (bypassing KERNAL):
-
-```c
-sd->addr0 = sector & 0xFF;       // set sector address (32-bit)
-sd->addr1 = (sector >> 8) & 0xFF;
-sd->addr2 = (sector >> 16) & 0xFF;
-sd->addr3 = (sector >> 24) & 0xFF;
-sd->command = SD_CMD_READ;        // read sector into buffer
-while (sd->status & SD_BUSY) {}   // wait for completion
-```
-
-**Struct pointer:** `sd` ($D680) — status, command, 4-byte sector address, buffer address, read data port.
-
-**Commands:** `SD_CMD_RESET`, `SD_CMD_READ`, `SD_CMD_WRITE`, `SD_CMD_FLUSH`.
-
-**Status bits:** `SD_BUSY`, `SD_RESET`, `SD_ERROR`, `SD_SDHC`.
-
-### Ethernet Controller
-
-Network frame send/receive:
-
-**Struct pointer:** `eth` ($D6E0) — control, TX frame size, MAC address.
-
-**Control bits:** `ETH_RST`, `ETH_TXEN`, `ETH_RXEN`, `ETH_RXIRQ`, `ETH_TXDONE`.
-
-### Hypervisor Traps
-
-MEGA65 hypervisor system calls:
-
-**Struct pointer:** `hyper` ($D640) — 64-byte trap register array.
-
-**Trap constants:** `HTRAP_SETNAME`, `HTRAP_LOADFILE`.
-
-### Memory Pointers
-
-```c
-SCREEN_RAM[0] = 'A';       // write to default screen at $0800
-COLOUR_RAM[0] = COLOR_WHITE; // write to colour RAM at $D800
-```
-
-## 9b. DMA Operations (`dma.h`)
-
-Compiler builtins for the MEGA65's F018B DMA controller (~40MB/s vs ~1MB/s for CPU loops). No library linkage needed — these are expanded inline by the compiler.
-
-- **`dma_copy(dst, src, len)`**: DMA memory copy. Macro wrapping the `__dma_copy` compiler builtin. Builds a DMA job on the hardware stack and triggers it. All registers preserved. **Implemented.**
-- **`dma_fill(dst, len, val)`**: DMA memory fill. Macro wrapping `__dma_fill`. Same mechanism as copy. **Implemented.**
-
-### Limitations
-
-- `src`/`dst` must be 16-bit addresses (bank 0 only)
-- `len` is 16-bit (max 65535 bytes per call)
-- `val` is 8-bit fill value
-- Not safe inside interrupts (uses hardware stack for DMA job)
-
-### Example
+**`dma.h`**: `dma_copy(dst, src, len)` and `dma_fill(dst, len, val)` are macros for the compiler builtins `__dma_copy`/`__dma_fill`, expanded inline (no library code): the 12-byte F018B job is built on the CPU stack and triggered by writing `$D702`, `$D701`, then `$D700`; registers are preserved. Addresses are 16-bit (bank 0), `len` is 16-bit, `val` 8-bit; not for use inside interrupt handlers.
 
 ```c
 #include <dma.h>
-
-// Clear 1000 bytes of screen RAM
 dma_fill((void *)0x0800, 1000, 0x20);
-
-// Copy 1000 bytes from source to screen
 dma_copy((void *)0x0800, (void *)src_data, 1000);
 ```
 
-## 9c. Timing (`time.h`)
+## 14. Headers Without a Library Implementation
 
-Minimal timing functions based on the MEGA65 jiffy clock (KERNAL RDTIM, 60Hz).
+These headers declare functions whose sources (`lib/src/*.c`, `lib/stdlib/uart.s`) are not built into any archive, so calls to them fail to link: `uart.h`, `audio.h`, `cache_opt.h`, `data_structures.h`, `event_system.h`, `graphics.h`, `graphics_hal.h`, `graphics_particles.h`, `graphics_rrb.h`, `graphics_sprites.h`, `graphics_sprites_advanced.h`, `graphics_text80x50.h`, `hw_audio_mixer.h`, `hw_io.h`, `hw_peripherals.h`, `hw_raster.h`, `hw_scroll.h`, `joystick.h`, `lightpen.h`, `mega65_version.h`, `mem_pool.h`, `paddle_mouse.h`, `palette.h`, `persistence.h`, `procedural_content.h`, `resource_manager.h`, `scripting.h`, `simd.h`, `sprites.h`, `sprite_*.h`, `test_harness.h`, `ui.h`, `world.h`. `sincos.h` and `sincos16.h` contain only `static` code and tables and work without the library.
 
-- **`CLOCKS_PER_SEC`**: Defined as `60` (jiffy clock rate). **Implemented.**
-- **`clock_t`**: Typedef for `int` (16-bit, wraps every ~18 minutes). **Implemented.**
-- **`time_t`**: Typedef for `long` (32-bit, wraps every ~2.3 years). **Implemented.**
-- **`clock()`**: Returns low 16 bits of the jiffy clock as `clock_t`. Hand-written assembly calling KERNAL RDTIM. **Implemented.**
-- **`time(time_t *tp)`**: Returns jiffy clock as 32-bit `time_t`. If `tp` is non-NULL, stores the result at `*tp`. **Implemented.**
-- **`difftime(time_t t2, time_t t1)`**: Returns `t2 - t1` as `long`. **Implemented.**
+## 15. Runtime Startup (`crt0_zp.s45` / `crt0.s45`)
 
-### Limitations
+The CRT module from the library provides `__init`, which the linker uses as the entry point:
 
-- No real-time clock — values are elapsed ticks since power-on, not wall-clock time
-- `clock()` wraps at 65535 ticks (~18 minutes at 60Hz)
-- PAL systems run at ~50Hz but `CLOCKS_PER_SEC` is defined as 60 (NTSC)
+1. Save the caller's stack pointer and flags.
+2. Enable the MEGA65 I/O registers (`$47`, `$53` to `$D02F`).
+3. Set the exit status at ROM page-0 `$FD/$FE` to `$FFFF`.
+4. Relocate the base page (`TAB`) to `__zp_page`, a private page at the end of BSS.
+5. Move the CPU stack to the 16-bit stack topped at `__stack_top` (`$BFFF` by default; `-fstack-top=`/`#pragma cc45 stack_top(...)`), unless `-fno-stack16`/`#pragma cc45 no_stack16` keeps the ROM's page-1 stack.
+6. `_init_features` (`crt0_mega65*.s45`): write `$40` to `$D054`.
+7. Call `main` with `argc = 0`, `argv = NULL`, then fall into `__exit` (see `exit` in [§4](#4-general-utilities-stdlibh)).
 
-## 10. Runtime Startup (`crt0.s45`)
+`__bp_rom`/`__bp_prog` (switch base page for ROM calls) and `__abort` are also defined here.
 
-The assembly entry point that prepares the environment for `main()`.
+In a linked program the CRT does **not** zero BSS (`crt_bssinit*.s45` is in the archive but nothing calls `_init_bss`, and BSS is not part of the PRG file), so uninitialized globals and the private base page start with whatever is in memory. Standalone (non-linked) builds generate their own startup stub, which honours `#pragma cc45 no_bssinit`, `heap`, `exit_*` and the other CRT pragmas described in [../bin/cc45.md](../bin/cc45.md).
 
-- **Stack Initialization**: Set the stack pointer (`SP`) to a known value (e.g., `$01FF`).
-- **BSS Clearing**: Zero out uninitialized global variables (iterate BSS segment).
-- **Data Initialization**: Copy initialized globals from their ROM/load positions if needed.
-- **Hardware Init**: Basic MEGA65 setup (CPU speed to 40MHz via `$D054`, I/O mapping).
-- **Heap Init**: Set the heap start pointer to the end of BSS.
-- **Call `main`**: `JSR main` — the compiler generates `main` as a standard `proc`.
-- **Exit Handler**: After `main` returns, execute the `exit()` sequence.
-
-### Linker Considerations
-
-The `ca45` assembler supports `.org` and segment directives (`.segment code/data/bss`). The `crt0.s45` startup should use equates for segment boundaries that are resolved at assemble/link time. The proposed `ln45` linker (see `../bin/ln45.md`) will handle final address resolution when multiple object files are combined.
-
-## 11. Source Tree Placement
-
-The stdlib lives within the existing `ccomp` source tree. No separate repository is needed at this stage.
-
-### Directory Layout
+## 16. Source Layout
 
 ```text
-ccomp/
-├── include/            # Compiler C++ headers
-├── src/
-│   ├── main/           # Compiler/assembler C++ sources
-│   ├── test/           # Shell-based test scripts
-│   └── test-resources/ # Test C/asm source files
-├── lib/                # Standard library for target
-│   ├── include/        # C headers (searched automatically by cc45)
-│   │   ├── stdint.h
-│   │   ├── stddef.h
-│   │   ├── stdbool.h
-│   │   ├── stdarg.h
-│   │   ├── limits.h
-│   │   ├── string.h
-│   │   ├── stdlib.h
-│   │   ├── stdio.h
-│   │   ├── ctype.h
-│   │   ├── cbm.h       # CBM KERNAL interface (see stdcbm.md)
-│   │   └── mega65.h    # MEGA65 hardware registers (VIC-IV struct overlay)
-│   ├── stdlib/          # Library function implementations
-│   │   ├── strlen.s45     # Hand-written 45GS02 assembly (29 files)
-│   │   ├── strcpy.s45
-│   │   ├── malloc.s
-│   │   ├── printf.c     # C implementations (compiled via cc45)
-│   │   ├── sprintf.c
-│   │   └── sscanf.c
-│   ├── stdlib_zp/       # ZP calling convention variants
-│   ├── crt0.s45           # Startup code (stack convention)
-│   ├── crt0_mega65.s    # MEGA65-specific startup
-│   ├── crt0_zp.s        # Startup code (ZP convention)
-│   ├── crt0_mega65_zp.s # MEGA65-specific startup (ZP)
-│   ├── crt_bssinit.s    # BSS initialization
-│   ├── crt_heap.s       # Heap initialization
-│   └── Makefile         # Builds .lib archives
-├── doc/                # Documentation
-└── Makefile            # Build system
+lib/
+├── include/            # C headers (+ sys/types.h)
+├── stdlib/             # C sources, compiled once per calling convention
+├── stdlib_asm/         # ZP-convention assembly (*.s45), shared by both archives
+├── src/                # float_rom.s45 (in the archives); other files not built
+├── crt0.s45, crt0_mega65.s45, crt_heap.s45, crt_bssinit.s45          # stack-convention CRT
+├── crt0_zp.s45, crt0_mega65_zp.s45, crt_heap_zp.s45, crt_bssinit_zp.s45  # ZP-convention CRT
+├── sac_debug.s45
+├── Makefile
+└── build/              # c45.lib, c45_zp.lib, c45_stack.lib and the .o45 members
 ```
 
-### Build System
+## 17. Tests
 
-The `lib/Makefile` builds four library archives:
+Runtime tests run on `xemu-xmega65`:
 
-| Archive | Convention | Contents |
-|---------|-----------|----------|
-| `c45.lib` | Stack | CRT + stdlib (combined) |
-| `c45_zp.lib` | ZP | CRT + stdlib (combined, ZP variant) |
+| Script | In `make test` | Covers |
+|--------|----------------|--------|
+| `src/test/test_xemu.sh` | yes | short/long arithmetic, struct return, array init, compound literals, alloca, memory/string/ctype/stdlib functions |
+| `src/test/test_stdlib_new.sh` | yes (skips without xemu) | `src/test-resources/stdlib/` tests: `strdup`, `strlcpy`, `strnlen`, `strtok_r`, `strpbrk`, `strspn`, `strcspn`, `strstr`, `calloc`, `realloc`, `time`, … |
+| `src/test/test_examples.sh` | yes (skips without xemu) | `examples/` programs |
 
-Each archive contains both CRT startup modules and all standard library functions. Selective linking ensures only referenced modules are pulled into the final binary — unused stdlib functions add zero overhead.
-
-Assembly `.s` files are assembled with `ca45 -c`, C `.c` files are compiled with `cc45 -c`, and all objects are bundled with `ar45 c`. Build via `make lib` from the project root.
-
-### Include Path Convention
-
-`cc45` automatically searches `lib/include/` relative to the compiler binary for standard headers. Additional search paths can be added with `-I<path>`:
-
-```bash
-cc45 myprogram.c -o myprogram.s              # finds <stdbool.h> etc. automatically
-cc45 -Imy/headers myprogram.c -o myprogram.s  # adds custom search path
-```
-
-### Linking
-
-```bash
-# Stack convention (default)
-ln45 -prg main.o45 -l c45.lib -o program.prg
-
-# ZP convention
-ln45 -prg main.o45 -l c45_zp.lib -o program.prg
-
-# With BASIC auto-run stub
-ln45 -basic main.o45 -l c45.lib -o program.prg
-```
-
-## 12. Test Framework & Suggested Tests
-
-### Existing Test Infrastructure
-
-The project uses a shell-script-based test framework:
-
-| Script | Purpose |
-|--------|---------|
-| `src/test/test_compiler.sh` | Compile-only validation (compile + assemble, no execution) |
-| `src/test/test_assembler.sh` | Assembler feature tests |
-| `src/test/test_mmemu.sh` | Full execution validation via `mmemu-cli` emulator |
-| `src/test/test_opcodes.sh` | Opcode/addressing mode validation |
-
-The `test_mmemu.sh` framework is the most relevant for stdlib testing — it compiles C code, assembles it, runs it on the `mmemu-cli` emulator, and checks results by inspecting memory or the A register after execution.
-
-### Convention for Validation Tests
-
-Tests return results via:
-1. **A register**: `A=$00` means pass, non-zero means fail (used by validation tests in `test_mmemu.sh`)
-2. **Memory dumps**: Expected byte patterns at known addresses (used by specific functional tests)
-
-### Proposed Stdlib Test Script
-
-A new `src/test/test_stdlib.sh` following the same pattern as `test_mmemu.sh`:
-
-```bash
-#!/bin/bash
-CC="./bin/cc45"
-AS="./bin/ca45"
-MMEMU="mmemu-cli"
-LIB_INC="lib/include"
-
-# Compile with stdlib include path, link with crt0 + stdlib modules
-compile_and_run() {
-    local name=$1
-    local steps=${2:-500000}
-    $CC -I$LIB_INC "src/test-resources/stdlib/${name}.c" -o "build/test/${name}.s"
-    $AS "build/test/${name}.s" -o "build/test/${name}.prg"
-    echo -e "load build/test/${name}.prg\nsetpc \$2000\nrun ${steps}\nregs\nq" \
-        | $MMEMU -m rawMega65 2>/dev/null
-}
-```
-
-### Proposed Test Cases
-
-Place stdlib test sources in `src/test-resources/stdlib/`:
-
-| Test File | Validates | Expected Result |
-|-----------|-----------|-----------------|
-| `test_strlen.c` | `strlen()` on known strings | A=$00 if lengths match |
-| `test_memcpy.c` | `memcpy()` copies correctly | Memory comparison at target |
-| `test_memset.c` | `memset()` fills correctly | Known byte pattern |
-| `test_strcmp.c` | `strcmp()` returns correct ordering | A=$00 for all cases |
-| `test_itoa.c` | `itoa()` decimal/hex conversion | String comparison |
-| `test_atoi.c` | `atoi()` string-to-int | Value comparison |
-| `test_ctype.c` | `isdigit`, `isalpha`, etc. | All classifications correct |
-| `test_malloc.c` | `malloc`/`free` basic allocation | Pointer non-null, write/read OK |
-| `test_putchar.c` | `putchar()` output | Byte appears at screen memory |
-| `test_rand.c` | `rand()`/`srand()` determinism | Same seed produces same sequence |
-
-### Test Pattern Example
-
-```c
-// src/test-resources/stdlib/test_strlen.c
-#include <string.h>
-
-int main() {
-    char *s1 = "hello";
-    char *s2 = "";
-    char *s3 = "a";
-
-    if (strlen(s1) != 5) return 1;
-    if (strlen(s2) != 0) return 2;
-    if (strlen(s3) != 1) return 3;
-    return 0;  // A=$00 = pass
-}
-```
-
-### Makefile Integration
-
-```makefile
-test-stdlib: all lib
-	@echo "Running stdlib tests..."
-	@bash src/test/test_stdlib.sh
-```
-
-The `test-stdlib` target is included in the main `test` dependency list.
-
-## 13. Implementation Status
-
-All phases are complete:
-
-| Phase | Components | Status |
-|-------|-----------|--------|
-| 1. Headers | `stdint.h`, `stddef.h`, `stdbool.h`, `limits.h`, `stdarg.h` | Complete |
-| 2. Core runtime | `crt0.s45`, `putchar`, `puts`, `exit`, CRT pragmas | Complete |
-| 3. String/memory | 18 functions in `string.h` (12 asm + 6 C) | Complete |
-| 4. Utilities | `ctype.h` (13 functions), `abs`, `atoi`, `itoa`, `ltoa`, `rand`, `srand`, `strtol`, `strtoul` | Complete |
-| 5. Heap | `malloc`, `free`, `calloc`, `realloc` with `#pragma cc45 heap` | Complete |
-| 6. Formatted I/O | `printf`, `sprintf`, `sscanf` (C implementations) | Complete |
-| 7. CBM interface | `cbm.h` KERNAL wrappers (see [stdcbm.md](stdcbm.md)) | Complete |
-
-## 14. Compiler Prerequisites
-
-All `cc45` features required by the standard library are implemented:
-
-- Pointer arithmetic and dereferencing
-- `typedef` for type aliases
-- `#define` / `#include` via preprocessor (`cp45`)
-- `__asm__()` for KERNAL calls
-- `signed`/`unsigned` qualifiers
-- Arrays with subscript indexing
-- String literals (PETSCII, pooled in `.data`)
-- `static` (file-scope and local static variables)
-- `extern` declarations and `.o45` relocatable linking
-- Function pointers (`int (*fp)(int)`, `typedef`, indirect calls)
-- Variadic functions (`va_list`, `va_start`, `va_arg`, `va_end`)
-- 32-bit `long` type (for `ltoa`, `%ld` format specifiers)
+A test program returns its result as the exit status (0 = pass), which the scripts read from `$FD/$FE` in a memory dump. `make test-stdlib` (`src/test/test_stdlib.sh`) is an older runner for the mmemu emulator and is not part of `make test`.
 
 ## See Also
 
 - [stdcbm.md](stdcbm.md) — CBM KERNAL interface (`cbm.h`)
-- [../bin/cc45.md](../bin/cc45.md) — C compiler (CRT pragmas, inline assembly, calling conventions)
-- [../bin/ln45.md](../bin/ln45.md) — Linker (library linking, memory layout)
-- [../bin/ar45.md](../bin/ar45.md) — Archiver (`.lib` archive management)
+- [calling-conventions.md](calling-conventions.md) — ZP, stack and SAC conventions
+- [../bin/cc45.md](../bin/cc45.md) — compiler options, CRT pragmas, inline assembly
+- [../bin/ln45.md](../bin/ln45.md) — linking, memory layout
+- [../bin/ar45.md](../bin/ar45.md) — `.lib` archives

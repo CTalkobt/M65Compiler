@@ -1,3 +1,5 @@
+> **Historical design document** — kept for reference; not maintained. Status as of 2026-10-11: Partially implemented: the palette API exists in lib/include/palette.h and lib/src/palette.c (compiles and links with cc45/ln45) but is not built into c45.lib, and the "15 tests" are host-side mocks not run by any test target. See the reference docs in doc/bin/ and doc/architecture/ for current behaviour.
+
 # Phase 32: Palette Management API
 
 **Status**: Complete and tested  

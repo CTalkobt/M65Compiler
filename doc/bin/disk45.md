@@ -3,14 +3,18 @@
 ## Synopsis
 
 ```
-disk45 <command> [options]
+disk45 <command> [arguments] [options]
+disk45 batch <scriptfile>
+disk45 -a2p | -p2a
 ```
 
 ## Description
 
-**disk45** creates, reads, and manipulates Commodore disk images, tape images, and archive files. It supports 25 formats spanning C64, C128, PET, MEGA65, and CMD devices. Features include FUSE filesystem mounting, SQLite-based collection cataloging, format conversion, batch scripting, and full PETSCII handling.
+**disk45** creates, reads and manipulates Commodore disk images, tape images and archive files. It handles 25 container formats spanning C64, C128, PET, MEGA65 and CMD devices (read/write support varies, see [Supported Formats](#supported-formats)). It also offers FUSE mounting, an SQLite catalog of image collections, format conversion, batch scripts and PETSCII conversion.
 
-All formats are auto-detected from the file extension. GZ compression is transparent — append `.gz` to any format (e.g., `.d81.gz`).
+The format is chosen from the file extension; an unrecognised extension is treated as D81. GZ compression is transparent: append `.gz` to any format (e.g. `.d81.gz`) and the image is decompressed on load and compressed on save.
+
+Running `disk45` with no arguments or an unknown command prints the usage summary (exit status 1). `disk45 --version` (or `-v`) prints the version.
 
 ## Commands
 
@@ -22,172 +26,107 @@ All formats are auto-detected from the file extension. GZ compression is transpa
 disk45 create <image> [-n name] [-i id] [-t tracks]
 ```
 
-Create a new, empty disk image or archive.
+Create a new, empty image or archive. An existing file is overwritten.
 
 | Option | Description |
 |--------|-------------|
-| `-n name` | Disk name (default varies by format) |
-| `-i id` | 2-character disk ID (default: "CC") |
-| `-t tracks` | Track count (for extended D64: 36-40, SpeedDOS/DolphinDOS) |
+| `-n name` | Disk name (default `CC45 DISK` for disk images; archives use a fixed name such as `ARK ARCHIVE`) |
+| `-i id` | 2-character disk ID (default `CC`) |
+| `-t tracks` | Track count larger than the format default (e.g. 36-40 for an extended D64). The image is padded with the extra tracks, but the BAM is not extended, so files are not allocated there. |
 
 **Examples:**
 ```bash
-# Standard MEGA65 disk (recommended)
+# Standard MEGA65 disk
 disk45 create game.d81 -n "MY GAME" -i "MG"
 
-# 40-track C64 disk (standard capacity is 35 tracks)
+# 40-track C64 image (standard is 35 tracks)
 disk45 create extended.d64 -n "SPEEDDOS" -t 40
 
-# Compressed disk (adds .gz transparently)
+# Compressed image
 disk45 create backup.d64.gz -n "BACKUP"
 
-# Multi-disk project setup
-for i in 1 2 3; do
-  disk45 create project_$i.d81 -n "PROJECT $i" -i "P$i"
-done
-
-# Large capacity MEGA65 disk
+# MEGA65 native double-size disk
 disk45 create large.d65 -n "ARCHIVE" -i "AR"
 ```
-
-**Common Use Cases:**
-- Create blank disk for archiving project files
-- Create bootable disk with game code and assets
-- Create data disk for large collections
-- Create multi-disk set for complex projects
 
 #### list / ls / dir
 
 ```
 disk45 list <image> [pattern]
-disk45 list <image> SUBDIR/              # list subdirectory
-disk45 list <image> SUBDIR/pattern       # filter within subdirectory
+disk45 list <image> SUBDIR/              # list a subdirectory
+disk45 list <image> SUBDIR/pattern       # filter within a subdirectory
 ```
 
-Display directory. Supports wildcard patterns (`*`, `?`) and subdirectory navigation.
+Display the directory. Patterns use `*` and `?` and match the CBM file name (case-insensitive); they do not match the file type.
 
-Splat (unclosed) files show `*` before the type: `*PRG`. Locked files show `<` after.
+Unclosed (splat) files show `*` before the type (`*PRG`); locked files show `<` after it (`PRG<`). Columns are tab-separated:
 
 ```
 0 "MY GAME" MG
-42   "GAME"        PRG
-3    "SPRITES"     SEQ
-1    "UTILS"       CBM
-15   "OLD"         *PRG
-3140 blocks free.
+1	"ASSETS"	CBM
+12	"GAME"	PRG<
+1	"README"	SEQ
+12	"LEVEL1"	*PRG
+3145 blocks free.
 ```
 
 **Examples:**
 ```bash
-# List entire disk
 disk45 list game.d81
-
-# List with wildcard pattern
-disk45 list game.d81 "LEVEL*"      # All files starting with LEVEL
-disk45 list game.d81 "*.prg"       # Files with PRG extension (if named that way)
-
-# List subdirectory
-disk45 list game.d81 "ASSETS/"
-disk45 list game.d81 "ASSETS/*.seq"
-
-# Check for locked files
-disk45 list game.d81 | grep "<"    # Find locked files
-
-# Count files
-disk45 list game.d81 | grep -c "PRG"
+disk45 list game.d81 "LEVEL*"        # names starting with LEVEL
+disk45 list game.d81 ASSETS/         # contents of subdirectory ASSETS
+disk45 list game.d81 "ASSETS/S*"
+disk45 list game.d81 | grep "<"      # locked files
 ```
-
-**File Status Indicators:**
-- `*PRG` — Splat (unclosed) PRG file
-- `<` suffix — Locked file (protected)
-- `.` prefix — Deleted (partial, should be purged)
 
 #### add / write
 
 ```
-disk45 add <image> <host_file> [cbm_name] [-p]
+disk45 add <image> <host_file> [cbm_name] [-p|--petscii]
 ```
 
-Add a file. Type auto-detected from extension (`.prg`→PRG, `.seq`→SEQ, `.usr`→USR). `-p` converts ASCII→PETSCII for SEQ content.
+Add a host file. The CBM type comes from the host file's extension: `.prg`→PRG, `.seq`→SEQ, `.usr`→USR, anything else→PRG. The CBM name defaults to the host file name without directory and extension; names are upper-cased and truncated to 16 characters. Adding fails if the name already exists or the image is full.
+
+`-p` converts ASCII→PETSCII, but only when the file is added as SEQ (host extension `.seq`).
+
+Files are always added to the root directory: a name such as `ASSETS/SPRITES` creates a root entry with a `/` in its name, not a file inside subdirectory `ASSETS`.
 
 **Examples:**
 ```bash
-# Add compiled program
 disk45 add game.d81 build/main.prg GAME
-
-# Add with custom name (defaults to filename without path)
-disk45 add game.d81 /src/utils.prg UTILS
-
-# Add text file, converting ASCII to PETSCII
-disk45 add game.d81 readme.txt README -p
-
-# Add multiple files in batch
-for f in build/*.prg; do
-  disk45 add game.d81 "$f"
-done
-
-# Add binary/data file
+disk45 add game.d81 build/main.prg          # CBM name "MAIN"
+disk45 add game.d81 readme.seq README -p    # SEQ file, ASCII → PETSCII
 disk45 add game.d81 assets/sprites.bin SPRITES
 
-# Add with subdirectory
-disk45 mkdir game.d81 ASSETS/
-disk45 add game.d81 sprites.bin ASSETS/SPRITES
+for f in build/*.prg; do disk45 add game.d81 "$f"; done
 ```
 
 #### extract / read
 
 ```
-disk45 extract <image> <cbm_name> <host_file> [-p]
+disk45 extract <image> <cbm_name> <host_file> [-p|--petscii]
 ```
 
-Extract a file. `-p` converts PETSCII→ASCII.
+Extract a file (name lookup is case-insensitive). `-p` converts PETSCII→ASCII (applied whatever the file type). The host file name is required; there is no stdout mode.
 
-**Examples:**
 ```bash
-# Extract program to host
 disk45 extract game.d81 GAME recovered.prg
-
-# Extract text file, converting PETSCII to ASCII
 disk45 extract game.d81 README readme.txt -p
-
-# Extract to stdout (no file specified)
-disk45 extract game.d81 DATA_FILE | hexdump -C
-
-# Extract with subdirectory
-disk45 extract game.d81 ASSETS/SPRITES sprites.bin
-
-# Quick examination of file
-disk45 extract game.d81 MYFILE /tmp/temp.bin && hexdump -C /tmp/temp.bin
 ```
 
-#### extract-all
+#### extract-all / extractall
 
 ```
-disk45 extract-all <image> [output_dir] [pattern] [-p]
+disk45 extract-all <image> [output_dir] [pattern] [-p|--petscii]
 ```
 
-Extract all files (or matching pattern) to a directory. Files get type extensions (`.prg`, `.seq`). Handles name collisions with numeric suffixes.
+Extract all files (or those matching `pattern`, default `*`) into `output_dir` (default `.`, created if missing). Host names get a type extension (`.prg`, `.seq`, `.usr`, `.rel`, `.del`); characters not allowed in host names become `_`. An existing host file is not overwritten: a numeric suffix is added (`GAME_1.prg`). `-p` converts PETSCII→ASCII for SEQ files only.
 
-**Examples:**
 ```bash
-# Extract entire disk to current directory
-disk45 extract-all backup.d81
-
-# Extract to specific directory
+disk45 extract-all backup.d81                    # into the current directory
 disk45 extract-all backup.d81 ./recovered/
-
-# Extract only PRG files
-disk45 extract-all backup.d81 ./prgs/ "*.prg"
-
-# Extract with pattern matching
 disk45 extract-all backup.d81 ./levels/ "LEVEL*"
-
-# Extract and convert PETSCII text files
-disk45 extract-all backup.d81 ./text/ "*.txt" -p
-
-# Backup entire disk
-mkdir backup_contents
-disk45 extract-all old_disk.d64 backup_contents/ ""
+disk45 extract-all backup.d81 ./text/ "*" -p
 ```
 
 #### copy / cp
@@ -196,36 +135,15 @@ disk45 extract-all old_disk.d64 backup_contents/ ""
 disk45 copy <src_image> <pattern> <dst_image>
 ```
 
-Copy files between images (cross-format). Preserves file types.
+Copy files matching `pattern` between images of any formats, keeping the file type. The destination must already exist (create it first). Files whose name already exists in the destination are skipped with a warning.
 
-**Examples:**
 ```bash
-# Copy all files D64 → D81
+disk45 create new.d81
 disk45 copy old.d64 "*" new.d81
-
-# Copy matching files between formats
 disk45 copy games.d81 "LEVEL*" backup.d64
-
-# Copy specific file type
-disk45 copy project.d81 "*.prg" archive.d81
-
-# Copy from subdirectory
-disk45 copy game.d81 "ASSETS/*" backup.d81
-
-# Multi-disk consolidation
-disk45 copy disk1.d64 "*" archive.d81
-disk45 copy disk2.d64 "*" archive.d81
-disk45 copy disk3.d64 "*" archive.d81
-
-# Copy with rename (manual per-file)
-disk45 copy old.d64 "OLDNAME" work.d81
-disk45 rename work.d81 "OLDNAME" "NEWNAME"
 ```
 
-**Cross-format Compatibility:**
-- D64 → D81: 170KB → 800KB (lossless)
-- D81 → D64: 800KB → 170KB (fails if files exceed capacity)
-- D64 ↔ D71 ↔ ARK: All compatible (verify with `disk45 info` before copying)
+Only the root directory is copied; with `*`, a subdirectory entry is copied as an empty `CBM` entry.
 
 #### convert
 
@@ -233,40 +151,17 @@ disk45 rename work.d81 "OLDNAME" "NEWNAME"
 disk45 convert <source> <target>
 ```
 
-Convert between formats, copying all files. For single-file sources (`.prg`, `.cvt`), creates a blank target image and adds the file.
+Create `target` (format from its extension) and copy every root-directory file of `source` into it, keeping the disk name and ID. Subdirectory entries are skipped; files that do not fit produce a warning.
 
-**Examples:**
+If `source` is a single file (`.prg`, `.seq`, `.usr` or `.cvt`), a blank target named `CONVERTED` (ID `CV`) is created and the file is added under its upper-cased base name (a `.cvt` file is stored as-is, as a PRG).
+
 ```bash
-# Standard format conversion
-disk45 convert game.d64 game.d81     # D64 → D81 (C64 → MEGA65)
-disk45 convert game.d81 game.d64     # D81 → D64 (if content fits)
-
-# PRG to disk
-disk45 convert game.prg release.d81  # Single PRG → bootable disk
-disk45 convert main.prg project.d81 -n "MY PROJECT"  # With disk name
-
-# Archive conversion
-disk45 convert archive.ark disk.d64  # ARK archive → D64 disk
-disk45 convert games.d64 archive.ark # D64 → ARK archive (compact)
-
-# Batch conversion with loop
-for f in *.d64; do
-  disk45 convert "$f" "${f%.d64}.d81"
-done
-
-# Upgrade to newer format
-disk45 convert old.d64 new.d81        # C64 disk → MEGA65 disk
-disk45 convert old.d81 new.d65        # D81 → native MEGA65 format
-
-# Create bootable disk from compiled program
-cc45 -o main.prg main.c
-disk45 convert main.prg bootable.d81 -n "GAME"
+disk45 convert game.d64 game.d81
+disk45 convert game.d81 game.d64          # files that don't fit are skipped
+disk45 convert main.prg release.d81       # one PRG → new disk
+disk45 convert games.d64 archive.ark
+for f in *.d64; do disk45 convert "$f" "${f%.d64}.d81"; done
 ```
-
-**Format Compatibility Matrix:**
-- D64, D71, D81, D65: Full read/write, lossless if capacity allows
-- ARK, T64: Archive formats (consolidation, distribution)
-- G64, NIB, TAP: Read-only formats (GCR-encoded, raw)
 
 #### remove / delete / rm
 
@@ -274,13 +169,15 @@ disk45 convert main.prg bootable.d81 -n "GAME"
 disk45 remove <image> <cbm_name>
 ```
 
+Delete one file (exact name, no wildcards).
+
 #### rename / mv
 
 ```
 disk45 rename <image> <old_name> <new_name>
 ```
 
-Works for both files and CBM subdirectory entries.
+Works for files and for CBM subdirectory entries in the root directory.
 
 #### lock / unlock
 
@@ -289,7 +186,7 @@ disk45 lock <image> <cbm_name>
 disk45 unlock <image> <cbm_name>
 ```
 
-Toggle the locked flag (bit 6 of file type).
+Set or clear the locked flag (bit 6 of the file type; shown as `<`). disk45's own `remove` does not check this flag.
 
 #### splat / unsplat
 
@@ -298,7 +195,7 @@ disk45 splat <image> <cbm_name>
 disk45 unsplat <image> <cbm_name>
 ```
 
-Toggle the closed/splat flag (bit 7 of file type). Splat files show `*PRG` in listings.
+Clear or set the closed flag (bit 7 of the file type). Splat files show `*PRG` in listings. Sector-based images only.
 
 #### label
 
@@ -306,7 +203,7 @@ Toggle the closed/splat flag (bit 7 of file type). Splat files show `*PRG` in li
 disk45 label <image> [-n name] [-i id]
 ```
 
-Change disk name and/or ID.
+Change the disk name and/or ID (at least one option is required).
 
 ### Disk Operations
 
@@ -316,7 +213,7 @@ Change disk name and/or ID.
 disk45 info <image>
 ```
 
-Show format-specific metadata. Detects TAP (version, platform), GEOS CVT (type, structure, description), and standard disk info.
+Show metadata. TAP images show version, platform, data size and file count; GEOS CVT files show GEOS name, type, structure (VLIR/sequential, record count) and description; other images show format, name, ID, tracks, total/free sectors, image size and file count.
 
 #### validate / check
 
@@ -324,7 +221,7 @@ Show format-specific metadata. Detects TAP (version, platform), GEOS CVT (type, 
 disk45 validate <image>
 ```
 
-Check BAM consistency. Reports cross-linked sectors, orphaned sectors, and broken chains.
+Check BAM consistency of a sector-based image: files found, sectors used by files, sectors marked used, free sectors, and counts of cross-linked sectors, orphaned sectors and broken chains. Exit status 1 if errors are found (archives always report "Validation not supported").
 
 #### bam / map
 
@@ -332,9 +229,11 @@ Check BAM consistency. Reports cross-linked sectors, orphaned sectors, and broke
 disk45 bam <image>
 ```
 
-Visual sector allocation map (`.` = free, `#` = allocated).
+Visual sector allocation map per track (`.` = free, `#` = allocated) with free/total counts. Sector-based images only.
 
 ### Block-Level Operations
+
+These work on sector-based images. Track, sector and offset are decimal; byte values (`bpoke`, `bfill`) accept decimal, `0x` hex or leading-`0` octal (not `$`).
 
 #### dump / hex
 
@@ -342,7 +241,7 @@ Visual sector allocation map (`.` = free, `#` = allocated).
 disk45 dump <image> [track] [sector]
 ```
 
-Hex dump with ASCII display.
+Hex dump with ASCII. No arguments: the header/BAM sector (track 18 or 40, sector 0). A track only: every sector of that track.
 
 #### bread
 
@@ -350,7 +249,7 @@ Hex dump with ASCII display.
 disk45 bread <image> <track> <sector> [output_file]
 ```
 
-Read a raw 256-byte sector. Outputs hex if no file specified.
+Read a raw 256-byte sector into a file, or hex-dump it if no file is given.
 
 #### bwrite
 
@@ -358,7 +257,7 @@ Read a raw 256-byte sector. Outputs hex if no file specified.
 disk45 bwrite <image> <track> <sector> <input_file>
 ```
 
-Write a raw sector from file.
+Write a raw sector from the first 256 bytes of a file.
 
 #### bpeek
 
@@ -366,7 +265,7 @@ Write a raw sector from file.
 disk45 bpeek <image> <track> <sector> <offset> [count]
 ```
 
-Read byte(s) at a specific offset within a sector.
+Print `count` (default 1) bytes as hex, starting at `offset`.
 
 #### bpoke
 
@@ -374,7 +273,7 @@ Read byte(s) at a specific offset within a sector.
 disk45 bpoke <image> <track> <sector> <offset> <value> [value...]
 ```
 
-Write byte(s) at a specific offset.
+Write byte(s) starting at `offset`.
 
 #### bfill
 
@@ -382,7 +281,7 @@ Write byte(s) at a specific offset.
 disk45 bfill <image> <track> <sector> <value>
 ```
 
-Fill entire sector with a byte value.
+Fill a sector with one byte value.
 
 #### chain
 
@@ -390,15 +289,18 @@ Fill entire sector with a byte value.
 disk45 chain <image> <filename>
 ```
 
-Display a file's sector chain with byte counts.
+Display a file's sector chain (root directory files) with sector and byte counts.
 
 ```
-File "GAME" chain:
-  17/0 → 17/10 → 17/20 → 18/1 → 18/4
-  5 sector(s), 1270 bytes
+File "LEVEL1" chain:
+  19/0 → 19/1 → 19/2 → 19/3 → 19/4 → 19/5 → 19/6 → 19/7 → 19/8 → 19/9
+   → 19/10 → 19/11
+  12 sector(s), 3000 bytes
 ```
 
 ### REL File Operations
+
+REL commands look for the directory at track 18/sector 1, so they only work on D64/D71 images (on a D81/D65 that sector is part of the BAM, and `rel-create` corrupts it).
 
 #### rel-create
 
@@ -406,7 +308,7 @@ File "GAME" chain:
 disk45 rel-create <image> <name> <record_len> [num_records]
 ```
 
-Create a REL (relative/record-based) file with fixed-length records and side-sector chain.
+Create a REL file with fixed-length records (1-254 bytes, default 10 records), zero-filled, with a side-sector chain.
 
 #### rel-read
 
@@ -414,7 +316,7 @@ Create a REL (relative/record-based) file with fixed-length records and side-sec
 disk45 rel-read <image> <name> <record_num>
 ```
 
-Read a specific record (1-based). Shows hex and text.
+Print a record (1-based) as hex and as text.
 
 #### rel-write
 
@@ -422,7 +324,7 @@ Read a specific record (1-based). Shows hex and text.
 disk45 rel-write <image> <name> <record_num> <data...>
 ```
 
-Write data to a record. Accepts hex values or quoted strings.
+Write a record. Each data argument is a number (decimal, `0x` hex) or a string in literal double quotes (pass `'"HELLO"'` from the shell). Data is zero-padded or truncated to the record length.
 
 #### rel-list
 
@@ -430,9 +332,18 @@ Write data to a record. Accepts hex values or quoted strings.
 disk45 rel-list <image> <name>
 ```
 
-List all non-empty records.
+Show the record count and all non-empty records.
 
-### Subdirectory Operations (D71/D81)
+```bash
+disk45 rel-create data.d64 SCORES 20 30
+disk45 rel-write data.d64 SCORES 3 '"HELLO"'
+disk45 rel-read data.d64 SCORES 3
+disk45 rel-list data.d64 SCORES
+```
+
+### Subdirectory Operations
+
+CBM subdirectories (file type `CBM`) work on all sector-based images (D64, D71, D81, D65, ...). Paths use `/`.
 
 #### mkdir
 
@@ -441,7 +352,7 @@ disk45 mkdir <image> <dirname>
 disk45 mkdir <image> PARENT/NEWDIR       # nested
 ```
 
-Create a CBM subdirectory (file type CBM/$85). Directory auto-expands when full.
+Create a subdirectory. The parent directory chain is extended by a sector when it is full.
 
 #### rmdir
 
@@ -449,7 +360,7 @@ Create a CBM subdirectory (file type CBM/$85). Directory auto-expands when full.
 disk45 rmdir <image> <dirname>
 ```
 
-Remove an empty subdirectory. Frees sectors and shrinks parent directory chain.
+Remove an empty subdirectory (`PARENT/DIR` for nested ones), free its sectors, and trim empty trailing sectors of the parent directory.
 
 #### tree
 
@@ -457,15 +368,14 @@ Remove an empty subdirectory. Frees sectors and shrinks parent directory chain.
 disk45 tree <image>
 ```
 
-Display recursive directory tree.
+Display the directory tree recursively.
 
 ```
-MY DISK/
-  GAME (PRG, 42 blocks)
-  UTILS/
-    EDITOR (PRG, 15 blocks)
-  DATA/
-    LEVELS/
+MY GAME/
+  ASSETS/
+    SPRITES/
+  GAME (PRG, 12 blocks)
+  README (SEQ, 1 blocks)
 ```
 
 #### dir-shrink
@@ -474,7 +384,7 @@ MY DISK/
 disk45 dir-shrink <image> [path]
 ```
 
-Reclaim trailing empty directory sectors.
+Free empty trailing sectors of a directory chain (root, or the subdirectory `path`).
 
 #### dir-ensure
 
@@ -482,39 +392,43 @@ Reclaim trailing empty directory sectors.
 disk45 dir-ensure <image> <min_free_slots> [path]
 ```
 
-Ensure a directory has at least N free entry slots, allocating new sectors as needed.
+Make sure a directory has at least N free entry slots, adding sectors (8 slots each) as needed.
 
 ### FUSE Filesystem Mount
 
 ```
-disk45 mount <image> <mountpoint> [-ro]
+disk45 mount <image> <mountpoint> [-ro|--readonly] [fuse options...]
 ```
 
-Mount a disk image as a Linux directory using FUSE3. Files appear with type extensions (`.prg`, `.seq`). Full read/write support.
+Mount an image as a Linux directory using FUSE3. Only available when disk45 was built with libfuse3 (the Makefile detects it with `pkg-config fuse3`; the command then appears in the usage text). disk45 stays in the foreground until unmounted; extra arguments are passed to FUSE.
+
+- Only the root directory is shown. Files appear with type extensions (`GAME.prg`, `README.seq`); subdirectory entries appear as directories but cannot be listed.
+- Read/write: create, write, truncate, rename and delete files; the image is saved after every change. A new file's type comes from its extension (`.prg`, `.seq`, `.usr`, `.rel`; others become PRG); names are limited to 16 characters.
+- Images with no tracks (TAP, T64, ARK, ARC/SDA, LNX, CVT, P00) are always mounted read-only.
+- `df` reports image blocks.
 
 ```bash
-disk45 mount game.d81 /mnt/cbm &
-ls /mnt/cbm/                    # GAME.prg  SPRITES.seq
-cat /mnt/cbm/GAME.prg           # read file contents
-cp newfile.prg /mnt/cbm/        # add file to image
-rm /mnt/cbm/OLD.prg             # remove file
-df /mnt/cbm/                    # show free space
-fusermount -u /mnt/cbm          # unmount
+mkdir /tmp/cbm
+disk45 mount game.d81 /tmp/cbm &
+ls /tmp/cbm/                    # GAME.prg  README.seq
+cp newfile.prg /tmp/cbm/        # add file to image
+rm /tmp/cbm/OLD.prg             # remove file
+fusermount -u /tmp/cbm          # unmount
 ```
-
-Requires `libfuse3-dev` at build time (auto-detected). Read-only for TAP/G64/CVT/NIB.
 
 ### Catalog (Collection Indexing)
 
-SQLite-based indexing with CRC32 content hashing for large collections.
+SQLite index of image collections with a CRC32 of each file's contents. disk45 is always linked with SQLite. Every subcommand accepts `--db <file>`; the default database is `~/.disk45-catalog.db`. Running `disk45 catalog` alone prints the subcommand list.
 
-#### catalog build
+Indexed formats: `.d64 .d71 .d81 .d65 .d80 .d82 .ark .arc .sda .lnx .tap .t64 .g64 .g71 .cvt` (also with `.gz`).
+
+#### catalog build / update
 
 ```
-disk45 catalog build <dir1> [dir2...] [--db file]
+disk45 catalog build <dir|image> [more...] [--db file]
 ```
 
-Scan directories recursively, index all disk/tape/archive images. Incremental: skips unchanged files (by mtime).
+Scan directories recursively (or index single image files). Incremental: images whose modification time is unchanged are skipped; changed ones are re-indexed. `update` is a synonym.
 
 #### catalog search
 
@@ -522,11 +436,11 @@ Scan directories recursively, index all disk/tape/archive images. Incremental: s
 disk45 catalog search <pattern> [--db file]
 ```
 
-Search indexed files by name. Supports `*` and `?` wildcards.
+Search file names (case-insensitive, `*` and `?` wildcards). Shows name, type, blocks, CRC32 and image path.
 
 ```
-  BOULDER DASH      PRG    42 blk  51C4CE0B  /collections/games.d64
-  BOULDER DASH      PRG    42 blk  51C4CE0B  /collections/demo.d64
+  LEVEL1            PRG     12 blk  99466F4E  coll/c.d64
+  LEVEL1            PRG     12 blk  99466F4E  coll/g.d81
 2 result(s)
 ```
 
@@ -536,7 +450,7 @@ Search indexed files by name. Supports `*` and `?` wildcards.
 disk45 catalog list [--db file]
 ```
 
-Summary of all indexed images.
+One line per indexed image: path, format, disk name, file count.
 
 #### catalog duplicates
 
@@ -544,7 +458,7 @@ Summary of all indexed images.
 disk45 catalog duplicates [--db file]
 ```
 
-Find duplicate files by CRC32 hash.
+Group files with identical CRC32 (empty files are ignored).
 
 #### catalog stats
 
@@ -552,7 +466,7 @@ Find duplicate files by CRC32 hash.
 disk45 catalog stats [--db file]
 ```
 
-Collection statistics: image count, file count, format and type breakdown.
+Image and file counts with format and file-type breakdowns.
 
 #### catalog prune
 
@@ -560,38 +474,36 @@ Collection statistics: image count, file count, format and type breakdown.
 disk45 catalog prune [--db file]
 ```
 
-Remove entries for images that no longer exist on disk.
-
-Default database: `~/.disk45-catalog.db`. Override with `--db path`.
+Remove entries for images that no longer exist.
 
 ### Encoding Filters
 
 ```
-disk45 -a2p    # ASCII → PETSCII (stdin → stdout)
-disk45 -p2a    # PETSCII → ASCII (stdin → stdout)
+disk45 -a2p    # or --ascii-to-petscii: ASCII → PETSCII (stdin → stdout)
+disk45 -p2a    # or --petscii-to-ascii: PETSCII → ASCII (stdin → stdout)
 ```
 
-Pipe filters for use with FUSE mounts and shell pipelines:
+These use the same conversion as `-p` (see [PETSCII Content](#petscii-content--p)).
 
 ```bash
-cat commodore_file | disk45 -p2a              # read PETSCII as ASCII
-echo "HELLO" | disk45 -a2p > file.seq         # write ASCII as PETSCII
+disk45 -p2a < commodore_file > text.txt
+echo "HELLO" | disk45 -a2p > hello.seq
 ```
 
 ### Batch Scripting
 
 ```
-disk45 batch <scriptfile>
+disk45 batch <scriptfile>        # or: disk45 --batch <scriptfile>
 ```
 
-Execute commands from a file. One command per line, `#` for comments, quoted arguments supported.
+Run one disk45 command per line (without the `disk45` prefix). Blank lines and lines starting with `#` or `;` are ignored. Arguments are split on spaces; double quotes group words and are removed. A failing line is reported (`(script line N failed)`) and execution continues; the exit status is 1 if any line failed. `batch` cannot be nested.
 
-**Basic Example:**
 ```bash
 # build_disk.script
 create game.d81 -n "MY GAME" -i "MG"
 add game.d81 build/main.prg GAME
 add game.d81 assets/sprites.bin SPRITES
+mkdir game.d81 ASSETS
 validate game.d81
 ```
 
@@ -599,369 +511,154 @@ validate game.d81
 disk45 batch build_disk.script
 ```
 
-**Advanced Examples:**
-
-**Multi-disk project build:**
-```bash
-# project_build.script
-# Create main disk
-create project.d81 -n "PROJECT" -i "P1"
-mkdir project.d81 ASSETS/
-mkdir project.d81 DATA/
-
-# Add compiled files
-add project.d81 build/main.prg MAIN
-add project.d81 build/kernel.prg KERNEL
-
-# Add data in subdirectories
-add project.d81 assets/sprites.bin ASSETS/SPRITES
-add project.d81 assets/music.sid ASSETS/MUSIC
-add project.d81 data/levels.dat DATA/LEVELS
-
-# Validate and finish
-validate project.d81
-info project.d81
-```
-
-**Disk backup with directory structure:**
-```bash
-# backup.script
-create backup.d81 -n "BACKUP" -i "BK"
-mkdir backup.d81 SRC/
-mkdir backup.d81 BUILD/
-mkdir backup.d81 DOC/
-
-add backup.d81 src/main.c SRC/MAIN.C
-add backup.d81 src/util.c SRC/UTIL.C
-add backup.d81 build/main.prg BUILD/MAIN.PRG
-add backup.d81 doc/readme.txt DOC/README
-
-validate backup.d81
-```
-
-**Deployment script:**
-```bash
-# deploy.script
-# Copy to multiple distributions
-copy project.d81 "*" dist_v1.d81
-copy project.d81 "*" dist_v2.d81
-copy project.d81 "*" dist_v3.d81
-
-# Verify all copies
-validate dist_v1.d81
-validate dist_v2.d81
-validate dist_v3.d81
-```
-
 ## Common Use Cases
 
-### Game Development Workflow
-
-**Scenario:** Develop a game with code, sprites, and audio assets.
+### Game Disk
 
 ```bash
-# 1. Create blank game disk
 disk45 create game.d81 -n "MY GAME" -i "MG"
-
-# 2. Create asset directories
-disk45 mkdir game.d81 ASSETS/
-disk45 mkdir game.d81 ASSETS/SPRITES/
-disk45 mkdir game.d81 ASSETS/AUDIO/
-
-# 3. Compile and add code
 cc45 -O2 src/main.c -o build/main.prg
 disk45 add game.d81 build/main.prg GAME
-
-# 4. Add compiled assets
-disk45 add game.d81 assets/sprites.bin ASSETS/SPRITES/DATA
-disk45 add game.d81 assets/music.sid ASSETS/AUDIO/MUSIC
-
-# 5. Verify disk integrity
+disk45 add game.d81 assets/sprites.bin SPRITES
+disk45 add game.d81 assets/music.bin MUSIC
 disk45 validate game.d81
-disk45 info game.d81
-
-# 6. Create backups
-disk45 copy game.d81 "*" backup.d81
+disk45 create backup.d81 && disk45 copy game.d81 "*" backup.d81
 ```
 
-### Data Archival & Recovery
-
-**Scenario:** Archive old C64 disks, recover files, create distributions.
+### Archival and Recovery
 
 ```bash
-# 1. Analyze original disk
 disk45 info old_disk.d64
-disk45 list old_disk.d64
 disk45 validate old_disk.d64
-
-# 2. Convert to modern format
 disk45 convert old_disk.d64 archive.d81
-
-# 3. Extract and recover files
-mkdir recovered/
-disk45 extract-all archive.d81 recovered/ ""
-
-# 4. Check for duplicates across collection
-disk45 catalog build ./disk_collection/
-disk45 catalog duplicates
-
-# 5. Create distribution copies
-disk45 copy archive.d81 "*" dist1.d81
-disk45 copy archive.d81 "*" dist2.d81
-```
-
-### Build Automation
-
-**Scenario:** Automatically build game disk from source files.
-
-Create `build_game.sh`:
-```bash
-#!/bin/bash
-set -e
-
-# Compile
-cc45 -O2 src/main.c -o build/main.prg
-cc45 -O2 src/utils.c -o build/utils.o45
-
-# Assemble data
-ca45 assets/data.s45 -o build/data.o45
-
-# Create disk
-disk45 create game.d81 -n "GAME" -i "GM"
-disk45 mkdir game.d81 ASSETS/
-
-# Add files
-disk45 add game.d81 build/main.prg MAIN
-disk45 add game.d81 build/utils.o45 UTILS
-disk45 add game.d81 assets/sprites.bin ASSETS/SPRITES
-
-# Verify
-disk45 validate game.d81
-disk45 info game.d81
-
-echo "Build complete: game.d81"
-```
-
-### FUSE Mount Workflow
-
-**Scenario:** Edit files on disk image like a normal filesystem.
-
-```bash
-# Mount disk
-mkdir /tmp/disk_mount
-disk45 mount game.d81 /tmp/disk_mount &
-
-# Edit files normally
-echo "PRINT \"HELLO WORLD\"" > /tmp/disk_mount/hello.bas
-
-# Copy files from CLI
-cp build/main.prg /tmp/disk_mount/
-
-# Remove files
-rm /tmp/disk_mount/old_file.prg
-
-# Unmount
-fusermount -u /tmp/disk_mount
-
-# Verify changes
-disk45 list game.d81
-```
-
-### Catalog Management
-
-**Scenario:** Manage large collection of game disks, find duplicates.
-
-```bash
-# Build catalog of all games
-mkdir ~/my_collection
-# ... copy/download disks to ~/my_collection ...
-
-# Index the collection
-disk45 catalog build ~/my_collection/ --db games.db
-
-# Find all Boulder Dash copies
-disk45 catalog search "BOULDER DASH" --db games.db
-
-# Find duplicates (by CRC32)
+disk45 extract-all archive.d81 recovered/
+disk45 catalog build ./disk_collection/ --db games.db
 disk45 catalog duplicates --db games.db
-
-# Get statistics
-disk45 catalog stats --db games.db
-
-# Clean up missing images
-disk45 catalog prune --db games.db
 ```
 
-### Format Conversion Pipeline
+### Makefile Integration
 
-**Scenario:** Convert mixed-format collection to standard D81.
-
-```bash
-#!/bin/bash
-# Convert all disks in directory to D81
-
-for f in *.d64 *.d71 *.ark *.t64; do
-  [ -f "$f" ] || continue
-  echo "Converting $f..."
-  
-  # Remove extension, add .d81
-  base="${f%.*}"
-  disk45 convert "$f" "$base.d81"
-done
-
-# Verify all conversions
-for d in *.d81; do
-  disk45 validate "$d"
-done
-
-echo "Conversion complete"
+```makefile
+game.d81: build/main.prg build/sprites.bin
+	disk45 create $@ -n "MY GAME" -i "MG"
+	disk45 add $@ build/main.prg GAME
+	disk45 add $@ build/sprites.bin SPRITES
+	disk45 validate $@
 ```
 
-### Batch File Processing
+## Supported Formats
 
-**Scenario:** Add multiple programs from build directory to disk.
-
-```bash
-# Create disk
-disk45 create tools.d81 -n "TOOLS" -i "TL"
-
-# Add all PRG files with their source names
-for f in build/*.prg; do
-  name=$(basename "$f" .prg)
-  disk45 add tools.d81 "$f" "$name"
-done
-
-# Verify
-disk45 list tools.d81
-```
-
-## Supported Formats (25)
+R/W means `create`, `add`, `remove` etc. work and the image is written back in its own format. R means the format can be read (list, info, extract, copy/convert from).
 
 ### Commodore Floppy Disks
 
-| Extension | Format | R/W | Capacity | Description |
-|-----------|--------|-----|----------|-------------|
-| `.d64` | 1541 | R/W | 170 KB | C64 standard. 35 tracks (extendable to 40). |
-| `.d71` | 1571 | R/W | 340 KB | C128 double-sided. |
-| `.d81` | 1581 | R/W | 800 KB | C65/MEGA65. **Recommended.** |
-| `.d65` | MEGA65 | R/W | 1.6 MB | MEGA65 native extended. |
-| `.d80` | 8050 | R/W | 533 KB | CBM PET 8050. |
-| `.d82` | 8250 | R/W | 1 MB | CBM PET 8250. |
+| Extension | Format | R/W | Size | Notes |
+|-----------|--------|-----|------|-------|
+| `.d64` | 1541 | R/W | 170 KB, 35 tracks | C64 standard. `-t` pads to 36-40 tracks. |
+| `.d71` | 1571 | R/W | 340 KB, 70 tracks | C128 double-sided. |
+| `.d81` | 1581 | R/W | 800 KB, 80 tracks | C65/MEGA65. **Recommended.** |
+| `.d65` | MEGA65 | R/W | 1.6 MB, 162 tracks | MEGA65 native extended. |
+| `.d80` | 8050 | R/W | 533 KB, 77 tracks | CBM PET 8050. |
+| `.d82` | 8250 | R/W | 1 MB, 154 tracks | CBM PET 8250. Free-block count and allocation cover only the first 77 tracks. |
+| `.x64` | Extended D64 | R/W | D64 + 64-byte header | |
 
 ### Hard Drives & CMD Devices
 
-| Extension | Format | R/W | Capacity | Description |
-|-----------|--------|-----|----------|-------------|
-| `.d90` | D9090 | R/W | 7.5 MB | CBM hard drive (6-head). |
-| `.d60` | D9060 | R/W | 5 MB | CBM hard drive (4-head). |
-| `.d1m` | FD-2000 DD | R/W | 207 KB | CMD FD-2000 double density. |
-| `.d2m` | FD-2000 HD | R/W | 414 KB | CMD FD-2000 high density. |
-| `.d4m` | FD-4000 ED | R/W | 829 KB | CMD FD-4000 extra density. |
-| `.dnp` | Native | R/W | ≤16 MB | CMD Native Partition. |
+| Extension | Format | R/W | Size | Notes |
+|-----------|--------|-----|------|-------|
+| `.d90` | D9090 | R | 7.5 MB | CBM hard drive (6 heads). |
+| `.d60` | D9060 | R | 5 MB | CBM hard drive (4 heads). |
+| `.d1m` | FD-2000 DD | R | 207 KB | CMD FD-2000 double density. |
+| `.d2m` | FD-2000 HD | R | 414 KB | CMD FD-2000 high density. |
+| `.d4m` | FD-4000 ED | R | 829 KB | CMD FD-4000 extra density. |
+| `.dnp` | CMD Native | R | ≤ 16 MB | CMD Native Partition. |
 
-### Raw/GCR Formats
+`create` on these extensions produces a blank formatted image, but files added to it are not read back correctly; treat them as read-only.
 
-| Extension | Format | R/W | Description |
-|-----------|--------|-----|-------------|
-| `.g64` | GCR-1541 | R | GCR-encoded 1541 (decoded to D64). |
-| `.g71` | GCR-1571 | R | GCR-encoded 1571 (decoded to D71). |
-| `.x64` | Extended | R/W | D64 with 64-byte header. |
-| `.nib` | Nibble | R | Raw nibble dump (decoded to D64). |
+### Raw/GCR Formats (read-only)
+
+| Extension | Format | Notes |
+|-----------|--------|-------|
+| `.g64` | GCR-1541 | Decoded to D64 sectors on load. |
+| `.g71` | GCR-1571 | Decoded to D71 sectors on load. |
+| `.nib`, `.nbz` | Nibble dump | Decoded to D64 sectors on load. |
+| `1!name` | Zipcode | 4-file RLE pack; give the `1!` file, `2!`-`4!` are found automatically. |
+
+There is no encoder: `create` writes plain D64 data that cannot be loaded back, and a modifying command (`add`, `remove`, ...) overwrites the file with plain D64 data, destroying the original encoding. Convert to `.d64`/`.d71` before changing anything.
 
 ### Tape Formats
 
-| Extension | Format | R/W | Description |
-|-----------|--------|-----|-------------|
-| `.tap` | TAP | R | Raw tape pulses (CBM ROM decoding). |
-| `.t64` | T64 | R/W | Tape container (file-level). |
+| Extension | Format | R/W | Notes |
+|-----------|--------|-----|-------|
+| `.tap` | TAP | R | Raw tape pulses, decoded with CBM ROM loader rules. |
+| `.t64` | T64 | R/W | Tape container. |
 
 ### Archives & Containers
 
-| Extension | Format | R/W | Description |
-|-----------|--------|-----|-------------|
+| Extension | Format | R/W | Notes |
+|-----------|--------|-----|-------|
 | `.ark` | Arkive | R/W | Uncompressed archive. |
-| `.arc`/`.sda` | ARC | R | Compressed (RLE/Huffman/LZW). |
+| `.arc` / `.sda` | ARC | R/W | Reads stored/RLE/Huffman/LZW members. |
 | `.lnx` | Lynx | R/W | Block-aligned archive. |
-| `.cvt` | GEOS | R | GEOS Convert (info/list/extract). |
-| `.p00` | PC64 | R/W | PC64 single-file container (.s00/.u00/.r00). |
-| `1!name` | Zipcode | R | 4-pack RLE (auto-finds 2!-4!). |
+| `.cvt` | GEOS Convert | R | `info`, `list`, `extract`. |
+| `.p00` | PC64 | R/W | Single-file container; also `.s00`/`.u00`/`.r00` and `.p01`-`.p99` etc. |
 
 ### Compression
 
 | Extension | Description |
 |-----------|-------------|
-| `.gz` | Transparent GZ on all formats. |
+| `.gz` | Transparent gzip on any format (e.g. `.d81.gz`). |
 
 ## Filename Handling
 
-### Input Convention
+- CBM names are matched case-insensitively and stored upper-case, at most 16 characters.
+- `rename`, `splat`/`unsplat`, `chain`, `mkdir`/`rmdir`, `dir-shrink`/`dir-ensure` and the `rel-*` commands also accept `@"NAME"` (explicit ASCII, same as plain) and `p"NAME"` (raw PETSCII, no case conversion).
+- Wildcards (`*`, `?`) are accepted by `list`, `extract-all`, `copy` and `catalog search`.
 
-- `NAME` — ASCII, auto-converted to uppercase PETSCII
-- `@"NAME"` — explicit ASCII (same as default)
-- `p"NAME"` — raw PETSCII, no conversion
-- Case-insensitive lookups throughout
-
-### PETSCII Content (-p flag)
+### PETSCII Content (-p)
 
 | Direction | Conversion |
 |-----------|------------|
-| ASCII→PETSCII (`-p` on add) | `a-z`→`$41-$5A`, `A-Z`→`$C1-$DA`, LF→CR |
-| PETSCII→ASCII (`-p` on extract) | `$41-$5A`→`A-Z`, `$C1-$DA`→`A-Z`, CR→LF |
+| ASCII→PETSCII (`add -p`, `-a2p`) | `a-z`→`$41-$5A`, `A-Z`→`$C1-$DA`, LF→CR, CR dropped, `~`→`$A8`, `\|`→`$7D`, `\`→`$5C` |
+| PETSCII→ASCII (`extract -p`, `extract-all -p`, `-p2a`) | `$41-$5A`→`a-z`, `$C1-$DA`→`A-Z`, CR→LF, `$A8`→`~`, a `$00` byte ends the output |
 
 ## Docker Usage
 
+The repository `Dockerfile` builds an image containing all tools (with FUSE and SQLite):
+
 ```bash
-# Compile
-docker run --rm -v $(pwd):/work cc45 cc45 -c /work/main.c -o /work/main.o45
-
-# Disk operations
+docker build -t cc45 .
 docker run --rm -v $(pwd):/work cc45 disk45 list /work/game.d81
-
-# Catalog with persistent database
 docker run --rm -v $(pwd):/work -v catalog:/catalog cc45 \
   disk45 catalog build /work --db /catalog/disk45.db
 ```
 
-## Build Integration
-
-```makefile
-game.d81: build/main.prg build/sprites.bin
-	disk45 create $@ -n "MY GAME" -i "MG"
-	disk45 add $@ build/main.prg "GAME"
-	disk45 add $@ build/sprites.bin "SPRITES"
-	disk45 validate $@
-```
-
-Or using batch scripts:
-
-```bash
-disk45 batch build_disk.script
-```
-
 ## Library API
+
+The image classes live in `lib45-tools.a` (headers in `include/`):
 
 ```cpp
 #include "DiskImage.hpp"
 
-auto img = DiskImage::create(DiskFormat::D81);
+auto img = DiskImage::create(DiskFormat::D81);   // D64, D71, D81, D65
 img->format("MY DISK", "MD");
 img->addFile("GAME", CbmFileType::PRG, data);
 img->saveToFile("game.d81.gz");
 
-auto disk = DiskImage::load("game.d81.gz");
+auto disk = DiskImage::load("game.d81.gz");      // any format, by extension
 auto files = disk->listFiles();
 auto prg = disk->readFile("GAME");
 ```
 
-### Supported Classes
+`DiskImage::createFromExtension(path)` returns an empty image of the class matching an extension.
 
 | Class | Header | Formats |
 |-------|--------|---------|
-| `D64Image` | `D64Image.hpp` | D64 (35-40 tracks) |
+| `D64Image` | `D64Image.hpp` | D64 |
 | `D71Image` | `D71Image.hpp` | D71 |
 | `D81Image` | `D81Image.hpp` | D81 |
 | `D65Image` | `D65Image.hpp` | D65 |
-| `D80Image` | `D80Image.hpp` | D80, D82 |
+| `D80Image`, `D82Image` | `D80Image.hpp` | D80, D82 |
 | `D90Image` | `D90Image.hpp` | D90, D60 |
 | `CmdImage` | `CmdImage.hpp` | D1M, D2M, D4M, DNP |
 | `G64Image` | `G64Image.hpp` | G64, G71 |
@@ -980,44 +677,37 @@ auto prg = disk->readFile("GAME");
 
 | Command | Aliases | Description |
 |---------|---------|-------------|
-| `create` | — | Create disk image (`-n`, `-i`, `-t`) |
+| `create` | — | Create image (`-n`, `-i`, `-t`) |
 | `list` | `ls`, `dir` | List directory (wildcards, subdirs) |
 | `info` | — | Show disk/tape/GEOS metadata |
-| `add` | `write` | Add file (`-p` for PETSCII) |
-| `extract` | `read` | Extract file (`-p` for PETSCII) |
-| `extract-all` | `extractall` | Extract all files to directory |
-| `copy` | `cp` | Copy files between images |
+| `add` | `write` | Add file (`-p` for SEQ) |
+| `extract` | `read` | Extract file (`-p`) |
+| `extract-all` | `extractall` | Extract all files to a directory (`-p`) |
+| `copy` | `cp` | Copy files between existing images |
 | `convert` | — | Convert between formats |
 | `remove` | `delete`, `rm` | Delete file |
 | `rename` | `mv` | Rename file or directory |
-| `lock` | — | Lock file |
-| `unlock` | — | Unlock file |
-| `splat` | — | Mark file as unclosed |
-| `unsplat` | — | Mark file as closed |
+| `lock` / `unlock` | — | Set/clear locked flag |
+| `splat` / `unsplat` | — | Mark file unclosed/closed |
 | `label` | — | Change disk name/ID |
 | `validate` | `check` | Check BAM consistency |
 | `bam` | `map` | Visual sector map |
 | `dump` | `hex` | Hex dump sector(s) |
-| `bread` | — | Read raw sector |
-| `bwrite` | — | Write raw sector |
-| `bpeek` | — | Read byte(s) from sector |
-| `bpoke` | — | Write byte(s) to sector |
+| `bread` / `bwrite` | — | Read/write raw sector |
+| `bpeek` / `bpoke` | — | Read/write byte(s) in a sector |
 | `bfill` | — | Fill sector |
 | `chain` | — | Show file sector chain |
-| `rel-create` | — | Create REL file |
-| `rel-read` | — | Read REL record |
-| `rel-write` | — | Write REL record |
-| `rel-list` | — | List REL records |
-| `mkdir` | — | Create subdirectory |
-| `rmdir` | — | Remove subdirectory |
+| `rel-create` / `rel-read` / `rel-write` / `rel-list` | — | REL files (D64/D71) |
+| `mkdir` / `rmdir` | — | Create/remove subdirectory |
 | `tree` | — | Directory tree |
-| `dir-shrink` | — | Reclaim empty dir sectors |
-| `dir-ensure` | — | Ensure min free dir slots |
-| `mount` | — | FUSE mount (if libfuse3) |
-| `catalog` | — | Collection indexing (SQLite) |
-| `batch` | — | Run commands from file |
-| `-a2p` | — | ASCII→PETSCII filter |
-| `-p2a` | — | PETSCII→ASCII filter |
+| `dir-shrink` | — | Reclaim empty directory sectors |
+| `dir-ensure` | — | Ensure min free directory slots |
+| `mount` | — | FUSE mount (when built with libfuse3) |
+| `catalog` | — | Collection index: `build`/`update`, `search`, `list`, `duplicates`, `stats`, `prune` |
+| `batch` | `--batch` | Run commands from a file |
+| `-a2p` | `--ascii-to-petscii` | ASCII→PETSCII filter |
+| `-p2a` | `--petscii-to-ascii` | PETSCII→ASCII filter |
+| `--version` | `-v` | Print version |
 
 ## See Also
 
