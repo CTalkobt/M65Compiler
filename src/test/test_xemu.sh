@@ -415,6 +415,30 @@ else
     failed=$((failed + 1))
 fi
 
+# Test: basic45 -- a BASIC 65 program (operators, labels, ON GOTO, DATA,
+# escapes) built as is and with --minify, run by BASIC on xemu; and the
+# validator's undefined-label error
+for bsmode in "plain|" "minify|--minify"; do
+    IFS='|' read -r bsname bsflags <<< "$bsmode"
+    echo "Testing test_basic45_xemu.bas ($bsname)..."
+    if ./bin/basic45 --strict $bsflags src/test-resources/test_basic45_xemu.bas \
+           -o "build/test/test_basic45_${bsname}_xemu.prg" >/dev/null 2>&1; then
+        run_xemu_test "test_basic45_$bsname" "build/test/test_basic45_${bsname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_basic45_xemu.bas $bsname (basic45 failed)"
+        failed=$((failed + 1))
+    fi
+done
+printf 'top: print\n  goto nowhere\n' > build/test/basic45_undef.bas
+if ./bin/basic45 build/test/basic45_undef.bas -o build/test/basic45_undef.prg 2>&1 | \
+       grep -q "basic45_undef.bas:2:1: error: Undefined label: NOWHERE"; then
+    echo "PASS: basic45 reports an undefined label at its line"
+    passed=$((passed + 1))
+else
+    echo "FAIL: basic45 should report 'Undefined label: NOWHERE' at line 2"
+    failed=$((failed + 1))
+fi
+
 # Test: continue <value> / continue default in a switch, stack and ZP conventions
 for scmode in "stack|-fno-zpcall" "zp|"; do
     IFS='|' read -r scname scflags <<< "$scmode"

@@ -23,7 +23,7 @@ dependencies (SQLite and FUSE only for disk45):
 - **ar45** — archiver for `.lib` static libraries
 - **nm45** — symbol/attribute/relocation inspector for `.o45` and `.lib`
 - **objdump45** — object/PRG/binary inspector and disassembler (also BASIC listing with `-bas`)
-- **basic45** — BASIC program generator (PETSCII tokenizer with a preprocessor) — **see its Known Problems; most generated programs don't run yet**
+- **basic45** — BASIC 65 program generator (label-based source, PETSCII tokenizer, preprocessor)
 - **disk45** — CBM disk/tape/archive image utility (25 formats, FUSE mount, SQLite catalog)
 - **cvt_asm** — assembler source converter between 7 dialects
 
@@ -275,7 +275,9 @@ overlays, `dma.h`. Many other headers (graphics, sprites, hw_*, uart, conio
   `#include`, `.org` expressions, the simulated ops (`test_ca45_simops_xemu.s45`).
 - **cc45**: none known (2026-10-12).
 - **ln45**: none known (2026-10-12).
-- **basic45**: line links off by 2, labels not resolved, operators not tokenized.
+- **basic45**: fixed (2026-10-12): line links, numbering, labels, operator tokens,
+  escapes, `--minify` (`test_basic45_xemu.bas`); see its Known Problems for
+  the placeholder options.
 - **disk45**: adding to D90/CMD images doesn't update the BAM; `rel-create`
   corrupts D81; modifying G64/NIB/Zipcode overwrites them with D64 data.
 

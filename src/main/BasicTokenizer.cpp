@@ -44,8 +44,10 @@ void BasicTokenizer::initializeKeywords() {
         {"CLOSE", 0xA0},
         {"GET", 0xA1},
         {"NEW", 0xA2},
+        {"TAB(", 0xA3},
         {"TO", 0xA4},
         {"FN", 0xA5},
+        {"SPC(", 0xA6},
         {"THEN", 0xA7},
         {"NOT", 0xA8},
         {"STEP", 0xA9},
@@ -280,14 +282,63 @@ std::vector<BasicToken> BasicTokenizer::tokenize(const std::string& source) {
             sep.value = ":";
             tokens.push_back(sep);
             pos++;
+        } else if (c == '?') {
+            // ? is PRINT
+            hasNonWhitespace = true;
+            lineStart = false;
+            BasicToken kw;
+            kw.type = BasicToken::KEYWORD;
+            kw.value = "PRINT";
+            kw.tokenByte = getKeywordToken("PRINT");
+            tokens.push_back(kw);
+            pos++;
         } else {
             hasNonWhitespace = true;
             lineStart = false;
             BasicToken op;
             op.type = BasicToken::OPERATOR;
             op.value = c;
+            // the arithmetic and comparison operators are tokens in BASIC
+            switch (c) {
+                case '+': op.tokenByte = 0xAA; break;
+                case '-': op.tokenByte = 0xAB; break;
+                case '*': op.tokenByte = 0xAC; break;
+                case '/': op.tokenByte = 0xAD; break;
+                case '^': op.tokenByte = 0xAE; break;
+                case '>': op.tokenByte = 0xB1; break;
+                case '=': op.tokenByte = 0xB2; break;
+                case '<': op.tokenByte = 0xB3; break;
+                default: break;
+            }
             tokens.push_back(op);
             pos++;
+        }
+
+        // REM: the rest of the line is text. DATA: the items up to the next
+        // ':' outside quotes are text (BASIC does not crunch them)
+        if (!tokens.empty() && tokens.back().type == BasicToken::KEYWORD &&
+            (tokens.back().value == "REM" || tokens.back().value == "DATA")) {
+            bool isRem = tokens.back().value == "REM";
+            BasicToken raw;
+            raw.type = BasicToken::RAW;
+            bool inQuote = false;
+            while (pos < source.length() && source[pos] != '\n') {
+                char d = source[pos];
+                if (d == '"') inQuote = !inQuote;
+                if (!isRem && !inQuote && d == ':') break;
+                raw.value += d;
+                pos++;
+            }
+            // REM keeps its text as typed; DATA drops the blanks around it
+            if (!isRem) {
+                size_t b = raw.value.find_first_not_of(' ');
+                size_t e = raw.value.find_last_not_of(" \t\r");
+                raw.value = b == std::string::npos ? "" : raw.value.substr(b, e - b + 1);
+            } else {
+                size_t e = raw.value.find_last_not_of(" \t\r");
+                raw.value = e == std::string::npos ? "" : raw.value.substr(0, e + 1);
+            }
+            if (!raw.value.empty()) tokens.push_back(raw);
         }
     }
 
@@ -344,6 +395,11 @@ BasicToken BasicTokenizer::parseIdentifier(const std::string& source, size_t& po
 
     std::string upper = word;
     std::transform(upper.begin(), upper.end(), upper.begin(), ::toupper);
+    // TAB( and SPC( are tokens that include the parenthesis
+    if ((upper == "TAB" || upper == "SPC") && pos < source.length() && source[pos] == '(') {
+        upper += '(';
+        pos++;
+    }
 
     BasicToken token;
     if (isKeyword(upper)) {

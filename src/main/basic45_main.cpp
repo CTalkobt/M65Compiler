@@ -24,7 +24,7 @@ struct Options {
     std::string labelTableFile;
     std::string docsFile;
     std::string includePath;
-    uint16_t loadAddress = 0x0801;
+    uint16_t loadAddress = 0x2001;
     uint16_t lineIncrement = 10;
     bool verbose = false;
     bool showVersion = false;
@@ -135,7 +135,7 @@ static void printUsage(const char* progName) {
     std::cout << "Options:" << std::endl;
     std::cout << "  -o <file>           Output file (default: output.prg)" << std::endl;
     std::cout << "  --symbols <f>       Load symbol table from file (cc45 -E output)" << std::endl;
-    std::cout << "  --load <addr>       Load address in hex (default: 0x0801)" << std::endl;
+    std::cout << "  --load <addr>       Load address in hex (default: 0x2001, MEGA65 BASIC 65)" << std::endl;
     std::cout << "  --increment <n>     Auto line number increment (default: 10)" << std::endl;
     std::cout << "  --label-table <f>   Output label→line number mapping to file" << std::endl;
     std::cout << "  --docs <f>          Generate markdown documentation to file" << std::endl;
@@ -359,7 +359,7 @@ int main(int argc, char* argv[]) {
     // Validation pass (Feature #1: Compile-Time Validation & Safety)
     // Now label-based: auto-assigns line numbers and validates labels
     BasicValidator validator(opts.inputFile);
-    validator.analyze(sourceCode);
+    validator.analyze(sourceCode, opts.lineIncrement);
 
     if (validator.hasErrors()) {
         validator.printErrors();

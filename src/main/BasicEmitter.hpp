@@ -15,7 +15,7 @@ struct BasicLine {
 
 class BasicEmitter {
 public:
-    BasicEmitter(uint16_t loadAddr = 0x0801, uint16_t lineIncrement = 10);
+    BasicEmitter(uint16_t loadAddr = 0x2001, uint16_t lineIncrement = 10);
 
     std::vector<uint8_t> emit(const std::vector<BasicLine>& lines);
     std::vector<uint8_t> emitBinary(const std::string& sourceCode, bool useLabels = false);
@@ -31,7 +31,8 @@ private:
     uint16_t loadAddress;
     uint16_t lineIncrement;
     bool preserveSpaces = false;
-    std::map<std::string, uint16_t> labelMap;
+    std::map<std::string, uint16_t> labelMap;      // label (as written) -> line number
+    std::map<uint16_t, uint16_t> lineAddress;       // line number -> address of the line
 
     std::vector<uint8_t> emitLoadAddress();
     std::vector<uint8_t> emitLine(const BasicLine& line, uint16_t nextLineAddr);

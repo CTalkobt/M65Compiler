@@ -13,6 +13,7 @@ struct BasicToken {
         IDENTIFIER,
         OPERATOR,
         LABEL,
+        RAW,        // text stored as typed: the rest of a REM, a DATA item list
         EOL,
         END_OF_FILE
     };

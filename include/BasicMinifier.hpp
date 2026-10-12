@@ -35,6 +35,7 @@ private:
 
     // Remove REM statements and inline comments
     std::string removeRemComments(const std::string& line);
+    bool hasWordOutsideStrings(const std::string& text, const std::string& word) const;
 
     // Strip unnecessary whitespace while preserving strings
     std::string stripWhitespaceInLine(const std::string& line);

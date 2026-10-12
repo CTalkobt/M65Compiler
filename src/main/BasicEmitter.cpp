@@ -7,6 +7,7 @@
 #include <fstream>
 #include <iomanip>
 #include <map>
+#include <algorithm>
 #include <iostream>
 
 BasicEmitter::BasicEmitter(uint16_t loadAddr, uint16_t lineInc)
@@ -87,18 +88,22 @@ std::vector<uint8_t> BasicEmitter::emit(const std::vector<BasicLine>& lines) {
         lineDataList.push_back(lineData);
     }
 
-    // Calculate actual line addresses
+    // Line addresses: the first line is at the load address (the PRG's
+    // 2-byte header is not loaded); each link points at the next line, the
+    // last one at the $00 $00 that ends the program
     std::vector<uint16_t> lineAddrs;
-    uint16_t currentAddr = loadAddress + 2;  // Start after load address
+    uint16_t currentAddr = loadAddress;
+    lineAddress.clear();
     for (size_t i = 0; i < lines.size(); i++) {
         lineAddrs.push_back(currentAddr);
+        lineAddress[lines[i].lineNumber] = currentAddr;
         currentAddr += lineDataList[i].size();
     }
 
     // Second pass: emit lines with correct addresses
     std::vector<uint8_t> programData;
     for (size_t i = 0; i < lines.size(); i++) {
-        uint16_t nextLineAddr = (i + 1 < lines.size()) ? lineAddrs[i + 1] : 0;
+        uint16_t nextLineAddr = (i + 1 < lines.size()) ? lineAddrs[i + 1] : currentAddr;
         auto lineData = emitLineWithSpaces(lines[i], nextLineAddr);
         programData.insert(programData.end(), lineData.begin(), lineData.end());
     }
@@ -173,8 +178,16 @@ std::vector<uint8_t> BasicEmitter::emitToken(const BasicToken& token) {
             break;
         }
 
+        case BasicToken::RAW: {
+            auto encoded = petscii.encode(token.value);
+            result.insert(result.end(), encoded.begin(), encoded.end());
+            break;
+        }
+
         case BasicToken::OPERATOR: {
-            if (token.value == ":") {
+            if (token.tokenByte != 0) {
+                result.push_back(token.tokenByte);   // + - * / ^ > = <
+            } else if (token.value == ":") {
                 result.push_back(0x3A);
             } else {
                 auto encoded = petscii.encode(token.value);
@@ -212,7 +225,12 @@ std::vector<uint8_t> BasicEmitter::emitLineWithSpaces(const BasicLine& line, uin
         // Add space after keywords when followed by identifier, number, or variable
         if (token.type == BasicToken::KEYWORD && i + 1 < line.tokens.size()) {
             const auto& nextToken = line.tokens[i + 1];
-            if (nextToken.type == BasicToken::IDENTIFIER ||
+            if (token.value.back() == '(') {
+                // TAB( SPC(: the parenthesis is part of the token
+            } else if (nextToken.type == BasicToken::RAW) {
+                // REM text keeps its own spacing; DATA items follow a space
+                if (token.value == "DATA") result.push_back(0x20);
+            } else if (nextToken.type == BasicToken::IDENTIFIER ||
                 nextToken.type == BasicToken::NUMBER ||
                 nextToken.type == BasicToken::OPERATOR) {
                 // Don't add space before certain operators like (),:
@@ -309,62 +327,63 @@ void BasicEmitter::outputLabelTable(const std::string& filename) const {
     }
 
     file << "Label\tLine Number\tMemory Address\n";
-    uint16_t memAddr = loadAddress + 2;
-
-    if (labelMap.empty()) {
-        // No labels to output
-        return;
-    }
-
-    for (const auto& [label, lineNum] : labelMap) {
+    // in line order
+    std::vector<std::pair<uint16_t, std::string>> rows;
+    for (const auto& [label, lineNum] : labelMap) rows.push_back({lineNum, label});
+    std::sort(rows.begin(), rows.end());
+    for (const auto& [lineNum, label] : rows) {
+        auto it = lineAddress.find(lineNum);
+        uint16_t memAddr = it != lineAddress.end() ? it->second : 0;
         file << label << "\t" << lineNum << "\t0x" << std::hex << std::setw(4)
              << std::setfill('0') << memAddr << std::dec << "\n";
-        // Estimate address (simplified - actual calculation requires line sizes)
-        memAddr += 50;  // Rough estimate
     }
 }
 
 std::vector<uint8_t> BasicEmitter::emitFromLabels(const LabelBasedSourceParser& parser) {
-    // Convert parsed label-based source to line-numbered BASIC
+    // Each source line with code is one BASIC line, numbered by the parser
+    // (assignLineNumbers); label references become line numbers
     BasicTokenizer tokenizer;
     std::vector<BasicLine> lines;
 
-    const auto& labelMap = parser.getLabelMap();
-    const auto& sourceLines = parser.getSourceLines();
+    const auto& labels = parser.getLabelMap();   // upper-case label -> line number
+    auto isLabel = [&](const std::string& n) { return labels.count(n) > 0; };
+    labelMap.clear();
 
-    // Convert each source line to a BasicLine with auto-assigned line number
-    for (const auto& srcLine : sourceLines) {
-        uint16_t lineNum = 10;  // Start line number
-
-        // If label exists, get its assigned line number
-        if (!srcLine.label.empty() && labelMap.find(srcLine.label) != labelMap.end()) {
-            lineNum = labelMap.at(srcLine.label);
+    for (const auto& srcLine : parser.getSourceLines()) {
+        if (!srcLine.label.empty()) {
+            auto it = labels.find(LabelBasedSourceParser::upper(srcLine.label));
+            if (it != labels.end()) labelMap[srcLine.label] = it->second;
         }
+        if (srcLine.code.empty()) continue;
 
-        // Tokenize the code
-        std::string fullLine = std::to_string(lineNum) + " " + srcLine.code;
-        auto tokens = tokenizer.tokenize(fullLine);
+        auto tokens = tokenizer.tokenize(srcLine.code);
+        LabelBasedSourceParser::forEachLabelRef(tokens, isLabel,
+            [&](size_t idx, const std::string& name) {
+                auto it = labels.find(name);
+                if (it == labels.end()) return;   // undefined: the validator reports it
+                tokens[idx].type = BasicToken::NUMBER;
+                tokens[idx].value = std::to_string(it->second);
+            });
 
-        // Create BasicLine
         BasicLine line;
-        line.lineNumber = lineNum;
-        line.tokens.clear();
-
-        // Skip line number token, collect the rest
-        bool seenLineNum = false;
+        line.lineNumber = srcLine.basicLineNum;
         for (const auto& token : tokens) {
-            if (!seenLineNum && token.type == BasicToken::NUMBER) {
-                seenLineNum = true;
-                continue;
-            }
-            if (token.type != BasicToken::EOL && token.type != BasicToken::END_OF_FILE) {
+            if (token.type != BasicToken::EOL && token.type != BasicToken::END_OF_FILE &&
+                token.type != BasicToken::LABEL)
                 line.tokens.push_back(token);
-            }
         }
+        if (!line.tokens.empty()) lines.push_back(line);
+    }
 
-        if (!line.tokens.empty()) {
-            lines.push_back(line);
-        }
+    // Labels after the last line of code name a line of their own (":")
+    if (parser.getTrailingLineNum() != 0) {
+        BasicLine line;
+        line.lineNumber = parser.getTrailingLineNum();
+        BasicToken colon;
+        colon.type = BasicToken::OPERATOR;
+        colon.value = ":";
+        line.tokens.push_back(colon);
+        lines.push_back(line);
     }
 
     // Emit the lines

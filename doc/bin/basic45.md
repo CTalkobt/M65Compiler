@@ -13,7 +13,7 @@
 - **Validation** — undefined/duplicate labels, unresolved `{...}`, program-size estimate
 - **Markdown documentation** of labeled sections (`--docs`)
 
-See [Known Problems](#known-problems) before relying on the generated program.
+See [Known Problems](#known-problems) for the options that are still placeholders.
 
 ## Syntax
 
@@ -29,12 +29,12 @@ Without `-o` the output is the input name with its extension replaced by `.prg`.
 |--------|-------------|
 | `-o <file>` | Output file (default: `<input>.prg`) |
 | `--symbols <file>` | Load a symbol file for `{...}` substitution |
-| `--load <addr>` | Load address, hex (`0801`, `0x2001`; default `0801`) |
-| `--increment <n>` | Line number increment. Accepted, but has no effect on the generated numbers (always 10) |
-| `--label-table <file>` | Write a label→line table. Currently only the header line is written |
+| `--load <addr>` | Load address, hex (`2001`, `0x2001`; default `2001`, where BASIC 65 programs start; `0801` is the C64's) |
+| `--increment <n>` | Line numbering: the first line is `n`, then `2n`, `3n`, ... (default 10). Numbers end at 63999 (an error past that) |
+| `--label-table <file>` | Write a tab-separated label table: label, line number, address of the line |
 | `--docs <file>` | Write markdown documentation of labeled sections |
 | `-I <path>` | Include search path for `#include` (one path; a later `-I` replaces an earlier one) |
-| `--minify` | Remove `REM` comments and whitespace and join the lines between labels into one line |
+| `--minify` | Remove `REM` comments and whitespace, and join lines into the line before them: never across a label (a jump target starts its own line), never onto a line containing `IF` (statements after `THEN` run only when the condition holds), at most 160 characters per line |
 | `--preserve-spaces` | Accepted; no effect |
 | `--validate` | Run the preprocessor and validation only; write nothing |
 | `--strict` | Treat validation warnings as errors (exit status 1) |
@@ -68,8 +68,9 @@ loop: print "x"
 ```
 
 - A line beginning with `identifier:` (letters, digits, `_`; not starting with a digit) defines a label; the rest of the line is the code.
-- Labeled lines are numbered 10, 20, 30, ... by their position among all emitted lines (labeled or not).
-- A label with no code on its line (`main_loop:` alone) produces no BASIC line.
+- Every line with code is one BASIC line, numbered 10, 20, 30, ... (`--increment`).
+- A label with no code on its line (`main_loop:` alone) names the next line with code (or, at the end of the source, an extra line holding `:`).
+- A label is used by name after `GOTO`, `GOSUB`, `GO TO` (also each item of `ON x GOTO a, b, c`), `THEN`, `ELSE`, `RESTORE`, `TRAP`, `RESUME` and `RUN`, and becomes that line's number. Labels are matched without regard to case (`goto Loop` finds `loop:`). A label may be named like a keyword (`loop:`) when it is used after `GOTO`/`GOSUB`; after `THEN`/`ELSE` a keyword stays a keyword (`then end`).
 - Lines starting with `'` or upper-case `REM` are dropped. Lines starting with `#` that are not preprocessor directives are dropped by the preprocessor, so `#` works as a comment.
 - Leading/trailing whitespace is removed; blank lines are ignored.
 
@@ -79,9 +80,10 @@ Validation messages have the form `file:line:col: error|warning: message`.
 
 | Check | Severity |
 |-------|----------|
-| `GOTO`/`GOSUB`/`THEN` followed by a name that is not a defined label (upper-case keywords only) | error |
-| Label defined more than once | error |
-| A `{...}` left in the source after symbol substitution (this includes PETSCII escapes such as `{clear}`) | warning |
+| A name used as a label (see above) that is not defined, at the line using it | error |
+| Label defined more than once (in any case) | error |
+| More lines than line numbers up to 63999 allow | error |
+| A `{...}` left in the source after symbol substitution that is not a PETSCII escape (`{clear}` is fine) | warning |
 | Estimated program size above ~28 KB | warning |
 
 Errors stop compilation (exit status 1); warnings do too with `--strict`. `--validate` only reports.
@@ -90,7 +92,7 @@ Errors stop compilation (exit status 1); warnings do too with `--strict`. `--val
 
 Keywords are recognised case-insensitively as whole words: `print`, `PRINT` and `Print` all tokenize, `printx` does not. A word may contain `$` and `#`, so `PRINT#1` is one (unknown) word; write `PRINT# 1`. Run `basic45 --list-tokens` for the table (115 single-byte tokens `$80`-`$FD`, 73 two-byte tokens `$FE xx` such as `BANK`, `SPRITE`, `DMA`, `FAST`, `PALETTE`).
 
-Variable names and other text outside strings are converted to PETSCII upper case. A space is inserted after a keyword that is followed by a name, number or operator.
+The operators `+ - * / ^ > = <` are tokens (`$AA`-`$B3`), as BASIC stores them; `?` is `PRINT`, and `TAB(` / `SPC(` are tokens. After `REM` the rest of the line, and after `DATA` the items up to the next `:` outside quotes, are stored as text (not tokenized). The operators `+ - * / ^ > = <` are tokens (`$AA`-`$B3`), as BASIC stores them; `?` is `PRINT`, and `TAB(` / `SPC(` are tokens. After `REM` the rest of the line, and after `DATA` the items up to the next `:` outside quotes, are stored as text (not tokenized). Variable names and other text outside strings are converted to PETSCII upper case. A space is inserted after a keyword that is followed by a name, number or operator.
 
 ### Strings and Escape Sequences
 
@@ -101,15 +103,19 @@ String letters are stored as PETSCII `$41`-`$5A` whatever their case. `{name}` e
 | `{black}` | `$90` | `{home}` | `$13` |
 | `{white}` | `$05` | `{clear}` | `$93` |
 | `{red}` | `$1C` | `{reverse}`, `{rev}` | `$12` |
-| `{cyan}` | `$9F` | `{off}` | `$81` |
-| `{magenta}`, `{purple}` | `$9C` | `{under}`, `{underline}` | `$82` |
+| `{cyan}` | `$9F` | `{off}`, `{rvs-off}`, `{reverse-off}` | `$92` |
+| `{magenta}`, `{purple}` | `$9C` | `{under}`, `{underline}` / `{under-off}` | `$02` / `$82` |
 | `{green}` | `$1E` | `{insert}`, `{ins}` | `$94` |
-| `{blue}` | `$1F` | `{delete}`, `{del}` | `$14` |
-| `{yellow}` | `$9E` | `{back}` | `$08` |
-| `{up}`, `{crsr-up}` | `$91` | `{bell}` | `$07` |
-| `{down}`, `{crsr-down}` | `$0A` | `{tab}` | `$09` |
-| `{left}`, `{crsr-left}` | `$9D` | `{esc}` | `$27` |
-| `{right}`, `{crsr-right}` | `$1D` | `{f1}`-`{f8}`, `{shift-f1}`-`{shift-f8}` | `$85`-`$8C` |
+| `{blue}` | `$1F` | `{delete}`, `{del}`, `{back}` | `$14` |
+| `{yellow}` | `$9E` | `{bell}` | `$07` |
+| `{orange}` | `$81` | `{tab}` | `$09` |
+| `{brown}` | `$95` | `{esc}` | `$1B` |
+| `{light-red}`, `{lred}` | `$96` | `{up}`, `{crsr-up}` | `$91` |
+| `{dark-gray}`, `{dark-grey}`, `{dgray}` | `$97` | `{down}`, `{crsr-down}` | `$11` |
+| `{gray}`, `{grey}` | `$98` | `{left}`, `{crsr-left}` | `$9D` |
+| `{light-green}`, `{lgreen}` | `$99` | `{right}`, `{crsr-right}` | `$1D` |
+| `{light-blue}`, `{lblue}` | `$9A` | `{f1}` `{f3}` `{f5}` `{f7}` | `$85` `$86` `$87` `$88` |
+| `{light-gray}`, `{light-grey}`, `{lgray}` | `$9B` | `{f2}` `{f4}` `{f6}` `{f8}` (also `{shift-f1}` `{shift-f3}` `{shift-f5}` `{shift-f7}`) | `$89` `$8A` `$8B` `$8C` |
 
 An unknown `{name}` is kept as text, with each brace stored as a space.
 
@@ -184,20 +190,17 @@ A label is recognised when `name:` is followed by a space or the end of the line
 
 ## Output Format
 
-1. Load address (2 bytes, little-endian; default `$0801`)
-2. One record per line: link to next line (2 bytes), line number (2 bytes), tokens, `$00`
+1. Load address (2 bytes, little-endian; default `$2001`)
+2. One record per line, the first at the load address: link to the next line's address (2 bytes; the last line's link points at the end marker), line number (2 bytes), tokens, `$00`
 3. Program end `$00 $00`
 
 ## Known Problems
 
-The current implementation has defects that make most generated programs unusable on real BASIC:
+- `--preserve-spaces`, `--watch` and `--source-map` (the map's `"mappings"` is empty) do not do what their names say.
+- Keywords are recognised only as whole words, unlike BASIC's own crunching: `PRINT#1` must be written `PRINT# 1`.
+- The `--docs` section descriptions are always `*No description*` (the preprocessor removes the `#` comments they would come from).
 
-- **Line links** are 2 bytes too high (computed from load address + 2), and the last line's link is `$0000`, so BASIC drops that line.
-- **Unlabeled lines are all numbered 10**; only labeled lines get distinct numbers.
-- **Label references are not resolved**: `goto loop` is emitted as the text/keyword `LOOP`, not a line number. `--increment` and `--label-table` have no effect beyond what is listed above.
-- **Operators** (`+ - * / = < > ^`) are stored as characters instead of BASIC operator tokens.
-- `--minify` merges/cuts statements incorrectly (a labeled line with code can be lost).
-- Some escape codes are wrong for PETSCII: `{esc}` gives `$27`, `{down}`/`{crsr-down}` give `$0A` (cursor down is `$11`).
+`test_basic45_xemu.bas` is run by BASIC 65 on xemu (as is and with `--minify`).
 
 ## See Also
 

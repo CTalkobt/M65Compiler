@@ -10,7 +10,7 @@ A modern development toolchain for the MEGA65 (45GS02) home computer. It consist
 - **objdump45** — Object file inspector and 45GS02 disassembler
 - **cp45** — C preprocessor (standalone)
 - **disk45** — CBM disk, tape and archive image utility (D64/D71/D81/D65 and 20 more formats)
-- **basic45** — BASIC 65 program generator (label-based source to a tokenized `.prg`; see its Known Problems)
+- **basic45** — BASIC 65 program generator (label-based source to a tokenized `.prg`)
 - **cvt_asm** — Assembly source converter between assembler dialects
 
 

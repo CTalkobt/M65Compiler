@@ -17,6 +17,14 @@ void PETSCIIEncoder::initializeColorCodes() {
         {"green", 0x1E},
         {"blue", 0x1F},
         {"yellow", 0x9E},
+        {"orange", 0x81},
+        {"brown", 0x95},
+        {"light-red", 0x96}, {"lred", 0x96},
+        {"dark-gray", 0x97}, {"dark-grey", 0x97}, {"dgray", 0x97},
+        {"gray", 0x98}, {"grey", 0x98},
+        {"light-green", 0x99}, {"lgreen", 0x99},
+        {"light-blue", 0x9A}, {"lblue", 0x9A},
+        {"light-gray", 0x9B}, {"light-grey", 0x9B}, {"lgray", 0x9B},
     };
 }
 
@@ -24,25 +32,28 @@ void PETSCIIEncoder::initializeControlCodes() {
     controlCodes = {
         {"home", 0x13},
         {"clear", 0x93},
-        {"esc", 0x27},
-        {"back", 0x08},
+        {"esc", 0x1B},
+        {"back", 0x14},
         {"delete", 0x14},
         {"del", 0x14},
         {"insert", 0x94},
         {"ins", 0x94},
         {"reverse", 0x12},
         {"rev", 0x12},
-        {"under", 0x82},
-        {"underline", 0x82},
-        {"off", 0x81},
+        {"under", 0x02},
+        {"underline", 0x02},
+        {"under-off", 0x82},
+        {"off", 0x92},
+        {"rvs-off", 0x92},
+        {"reverse-off", 0x92},
         {"bell", 0x07},
         {"up", 0x91},
-        {"down", 0x0A},
+        {"down", 0x11},
         {"left", 0x9D},
         {"right", 0x1D},
         {"tab", 0x09},
         {"crsr-up", 0x91},
-        {"crsr-down", 0x0A},
+        {"crsr-down", 0x11},
         {"crsr-left", 0x9D},
         {"crsr-right", 0x1D},
         {"f1", 0x85},
@@ -53,14 +64,10 @@ void PETSCIIEncoder::initializeControlCodes() {
         {"f6", 0x8B},
         {"f7", 0x88},
         {"f8", 0x8C},
-        {"shift-f1", 0x85},
-        {"shift-f2", 0x89},
-        {"shift-f3", 0x86},
-        {"shift-f4", 0x8A},
-        {"shift-f5", 0x87},
-        {"shift-f6", 0x8B},
-        {"shift-f7", 0x88},
-        {"shift-f8", 0x8C},
+        {"shift-f1", 0x89},
+        {"shift-f3", 0x8A},
+        {"shift-f5", 0x8B},
+        {"shift-f7", 0x8C},
     };
 }
 
@@ -159,7 +166,7 @@ uint8_t PETSCIIEncoder::charToPetscii(char c) {
     } else if (c == '?') {
         return 0x3F;
     } else if (c == '@') {
-        return 0x00;
+        return 0x40;
     } else if (c == '[') {
         return 0x5B;
     } else if (c == '\\') {

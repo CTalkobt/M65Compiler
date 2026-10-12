@@ -1,21 +1,21 @@
 #include "BasicValidator.hpp"
+#include "PETSCIIEncoder.hpp"
 #include <iostream>
 #include <sstream>
 #include <regex>
 
-void BasicValidator::analyze(const std::string& sourceCode) {
+void BasicValidator::analyze(const std::string& sourceCode, uint16_t lineIncrement) {
     // Parse label-based source code
     parser.parse(sourceCode);
 
-    // Assign auto-incrementing line numbers (10, 20, 30, ...)
-    parser.assignLineNumbers(10, 10);
+    // Number the lines: lineIncrement, 2 * lineIncrement, ... (--increment)
+    if (lineIncrement == 0) lineIncrement = 10;
+    parser.assignLineNumbers(lineIncrement, lineIncrement);
 
     // Validate label references
-    std::vector<std::string> parseErrors;
+    std::vector<std::pair<int, std::string>> parseErrors;
     if (!parser.validate(parseErrors)) {
-        for (size_t i = 0; i < parseErrors.size(); i++) {
-            addError(1, 1, parseErrors[i]);
-        }
+        for (const auto& [at, msg] : parseErrors) addError(at > 0 ? at : 1, 1, msg);
     }
 
     // Detect unresolved symbols
@@ -30,6 +30,7 @@ void BasicValidator::validateLabelReferences() {
 }
 
 void BasicValidator::detectUnresolvedSymbols(const std::string& sourceCode) {
+    PETSCIIEncoder petscii;
     // Pattern: {symbol_name}
     std::regex symbolPattern(R"(\{([^}]+)\})");
 
@@ -45,7 +46,9 @@ void BasicValidator::detectUnresolvedSymbols(const std::string& sourceCode) {
 
         while (std::regex_search(searchStart, line.cend(), match, symbolPattern)) {
             int col = std::distance(line.cbegin(), match[0].first) + 1;
-            addError(lineNum, col, "Unresolved symbol: " + match[1].str(), true);
+            // a PETSCII escape ({clear}, {red}, ...) is not a symbol
+            if (petscii.getColorCode(match[1].str()) == 0 && petscii.getControlCode(match[1].str()) == 0)
+                addError(lineNum, col, "Unresolved symbol: " + match[1].str(), true);
             searchStart = match.suffix().first;
         }
     }

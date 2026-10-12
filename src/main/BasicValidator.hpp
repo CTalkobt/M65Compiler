@@ -19,7 +19,8 @@ public:
     BasicValidator(const std::string& filename) : sourceFile(filename) {}
 
     // Parse and validate label-based source code
-    void analyze(const std::string& sourceCode);
+    // lineIncrement: the BASIC line numbering (first line and step)
+    void analyze(const std::string& sourceCode, uint16_t lineIncrement = 10);
 
     // Get all collected errors/warnings
     const std::vector<ValidationError>& getErrors() const { return errors; }
