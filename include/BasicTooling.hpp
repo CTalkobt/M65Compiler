@@ -63,6 +63,9 @@ public:
     // Add a mapping entry
     void addMapping(const SourceMapping& mapping);
 
+    // The program file the map describes ("file" in the JSON)
+    void setFile(const std::string& f) { file = f; }
+
     // Generate source map in JSON format
     std::string generateJSON() const;
 
@@ -74,6 +77,7 @@ public:
 
 private:
     std::vector<SourceMapping> mappings;
+    std::string file = "compiled.prg";
 };
 
 // Emulator launcher: run a program in xemu (xemu-xmega65), the MEGA65

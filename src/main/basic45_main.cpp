@@ -979,6 +979,7 @@ int main(int argc, char* argv[]) {
     // Source map: each BASIC line and the source line it came from
     if (opts.generateSourceMap && !opts.sourceMapFile.empty()) {
         SourceMapGenerator mapGen;
+        mapGen.setFile(opts.outputFile);
         for (const auto& el : result.emitter->getEmittedLines()) {
             if (!el.sourceLine) continue;
             auto o = originOf(result, el.sourceLine);

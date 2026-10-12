@@ -4,6 +4,7 @@
 #include <sstream>
 #include <filesystem>
 #include <cstdlib>
+#include <cstdio>
 #include <unistd.h>
 #include <thread>
 
@@ -115,11 +116,24 @@ void SourceMapGenerator::addMapping(const SourceMapping& mapping) {
     mappings.push_back(mapping);
 }
 
+// A JSON string's contents: quotes, backslashes and control characters escaped
+static std::string jsonEscape(const std::string& s) {
+    std::string out;
+    for (unsigned char c : s) {
+        if (c == '"' || c == '\\') { out += '\\'; out += (char)c; }
+        else if (c == '\n') out += "\\n";
+        else if (c == '\t') out += "\\t";
+        else if (c < 0x20) { char b[8]; snprintf(b, sizeof b, "\\u%04x", c); out += b; }
+        else out += (char)c;
+    }
+    return out;
+}
+
 std::string SourceMapGenerator::generateJSON() const {
     std::ostringstream json;
     json << "{\n";
     json << "  \"version\": 3,\n";
-    json << "  \"file\": \"compiled.prg\",\n";
+    json << "  \"file\": \"" << jsonEscape(file) << "\",\n";
     json << "  \"mappings\": [\n";
 
     for (size_t i = 0; i < mappings.size(); i++) {
@@ -127,8 +141,8 @@ std::string SourceMapGenerator::generateJSON() const {
         json << "    {\n";
         json << "      \"compiledLine\": " << m.compiledLineNum << ",\n";
         json << "      \"sourceLine\": " << m.sourceLineNum << ",\n";
-        json << "      \"sourceFile\": \"" << m.sourceFile << "\",\n";
-        json << "      \"sourceCode\": \"" << m.sourceLine << "\"\n";
+        json << "      \"sourceFile\": \"" << jsonEscape(m.sourceFile) << "\",\n";
+        json << "      \"sourceCode\": \"" << jsonEscape(m.sourceLine) << "\"\n";
         json << "    }";
         if (i < mappings.size() - 1) json << ",";
         json << "\n";
