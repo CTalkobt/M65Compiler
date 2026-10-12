@@ -168,7 +168,8 @@ all: $(CC_TARGET) $(CA_TARGET) $(CP_TARGET) $(NM_TARGET) $(LN_TARGET) \
 stdlib: $(CC_TARGET) $(CA_TARGET) $(AR_TARGET)
 	$(MAKE) -C lib
 
-man: $(MAN_DIR)/cc45.1 $(MAN_DIR)/ca45.1 $(MAN_DIR)/cp45.1 $(MAN_DIR)/ln45.1 $(MAN_DIR)/nm45.1 $(MAN_DIR)/ar45.1 $(MAN_DIR)/objdump45.1
+man: $(MAN_DIR)/cc45.1 $(MAN_DIR)/ca45.1 $(MAN_DIR)/cp45.1 $(MAN_DIR)/ln45.1 $(MAN_DIR)/nm45.1 $(MAN_DIR)/ar45.1 $(MAN_DIR)/objdump45.1 \
+     $(MAN_DIR)/disk45.1 $(MAN_DIR)/basic45.1 $(MAN_DIR)/cvt_asm.1
 
 $(MAN_DIR)/%.1: doc/bin/%.md
 	@mkdir -p $(MAN_DIR)

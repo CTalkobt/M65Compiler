@@ -9,6 +9,9 @@ A modern development toolchain for the MEGA65 (45GS02) home computer. It consist
 - **nm45** — Symbol lister for `.o45` / `.o65` object files
 - **objdump45** — Object file inspector and 45GS02 disassembler
 - **cp45** — C preprocessor (standalone)
+- **disk45** — CBM disk, tape and archive image utility (D64/D71/D81/D65 and 20 more formats)
+- **basic45** — BASIC 65 program generator (label-based source to a tokenized `.prg`; see its Known Problems)
+- **cvt_asm** — Assembly source converter between assembler dialects
 
 
 ## Project Intent
@@ -97,12 +100,12 @@ The install targets build everything (including `lib`) automatically. Installed 
 After `make install_local`, ensure `~/.local/bin` is on your `PATH`.
 
 ## Documentation
-In addition to the Markdown files in the `doc/` directory, you can generate and view standard Unix man pages for both tools:
+In addition to the Markdown files in the `doc/` directory (index: [doc/README.md](doc/README.md)), you can generate and view standard Unix man pages for every tool:
 
 ```bash
 make man
 man ./man/cc45.1
-man ./man/ca45.1
+man ./man/basic45.1
 ```
 
 Note: This requires `pandoc` to be installed on your system.
@@ -112,9 +115,15 @@ The suite includes a set of automated tests to verify the compiler and assembler
 ```bash
 make test
 ```
-This compiles C source files from `src/test-resources/`, assembles them, and execution-validates them on a 45GS02 emulator. Outputs are stored in the `build/test/` directory.
+This runs the compiler, assembler and linker unit tests, the validation units and the examples (no emulator). Outputs are stored in the `build/test/` directory.
 
-**Prerequisite:** The emulator-based tests (`make test-mmemu`) require [mmemu-cli](https://github.com/CTalkobt/mmsim) to be installed and available on your `PATH`.
+The runtime tests run on the [xemu](https://github.com/lgblgblgb/xemu) MEGA65 emulator (`xemu-xmega65` on your `PATH`):
+
+```bash
+bash src/test/test_xemu.sh          # runtime tests, both calling conventions
+bash src/test/run_gte_all.sh        # GCC torture tests
+bash src/test/test_cc_interop.sh    # calling-convention interop
+```
 
 For detailed information on each tool, refer to:
 - [doc/bin/cc45.md](doc/bin/cc45.md) — Compiler Usage and Features
@@ -126,3 +135,7 @@ For detailed information on each tool, refer to:
 - [doc/architecture/lib45.md](doc/architecture/lib45.md) — `.o45` Relocatable Object Format Specification
 - [doc/bin/ln45.md](doc/bin/ln45.md) — Linker Usage and Reference
 - [doc/bin/ar45.md](doc/bin/ar45.md) — Archiver Usage and Reference
+- [doc/bin/disk45.md](doc/bin/disk45.md) — Disk/Tape/Archive Image Utility
+- [doc/bin/basic45.md](doc/bin/basic45.md) — BASIC 65 Program Generator
+- [doc/bin/cvt_asm.md](doc/bin/cvt_asm.md) — Assembly Dialect Converter
+- [doc/bin/CONFIGURATION.md](doc/bin/CONFIGURATION.md) — Configuration Files and Environment
