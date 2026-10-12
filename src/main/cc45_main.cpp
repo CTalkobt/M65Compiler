@@ -489,6 +489,8 @@ int main(int argc, char** argv) {
                 std::cout << "  -fno-zpcall    Stack parameter calling convention" << std::endl;
                 std::cout << "  -fno-stack16   Keep the ROM's 8-bit CPU stack on page 1 (default: 16-bit stack topped at $BFFF)" << std::endl;
                 std::cout << "  -fstack-top=ADDR  Top byte of the 16-bit CPU stack (e.g. 0x9FFF or $9FFF)" << std::endl;
+                std::cout << "  -fbss-fill=V   Byte crt0 fills BSS with at startup (default $00; e.g. $FF to find" << std::endl;
+                std::cout << "                 code that relies on uninitialized data)" << std::endl;
                 std::cout << "  -fstaticalloc  Use static allocation (default)" << std::endl;
                 std::cout << "  -finline-functions  Inline small functions" << std::endl;
                 std::cout << "  -fmax-inline-ir-size=N  Max IR instructions for an inlined function (default 11)" << std::endl;
@@ -531,6 +533,15 @@ int main(int argc, char** argv) {
             else if (v.size() > 2 && v[0] == '0' && (v[1] == 'x' || v[1] == 'X')) { v = v.substr(2); base = 16; }
             try { config.stackTop = (int)(std::stoul(v, nullptr, base) & 0xFFFF); }
             catch (...) { std::cerr << "cc45: error: invalid -fstack-top value '" << arg.substr(12) << "'" << std::endl; return 1; }
+        } else if (arg.rfind("-fbss-fill=", 0) == 0) {
+            std::string v = arg.substr(11);
+            int base = 10;
+            if (!v.empty() && v[0] == '$') { v = v.substr(1); base = 16; }
+            else if (v.size() > 2 && v[0] == '0' && (v[1] == 'x' || v[1] == 'X')) { v = v.substr(2); base = 16; }
+            unsigned long fv = 0;
+            try { size_t used = 0; fv = std::stoul(v, &used, base); if (used != v.size() || fv > 255) throw 0; }
+            catch (...) { std::cerr << "cc45: error: invalid -fbss-fill value '" << arg.substr(11) << "' (a byte: 0-255, $FF, 0xFF)" << std::endl; return 1; }
+            config.bssFill = (int)fv;
         } else if (arg == "-fstaticalloc") {
             config.staticAllocMode = true;
         } else if (arg == "-fno-staticalloc") {

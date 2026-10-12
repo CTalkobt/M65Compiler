@@ -24,6 +24,7 @@ static void printUsage(const char* progName) {
     std::cout << "  -m             Print linker map (symbol addresses) after linking" << std::endl;
     std::cout << "  -M <file>      Write detailed linker map file (segments, objects, symbols)" << std::endl;
     std::cout << "  --no-thunks    Error on calling convention mismatches (no thunk generation)" << std::endl;
+    std::cout << "  --bss-fill=V   Byte crt0 fills BSS with at startup (default $00; $FF, 0xFF or decimal)" << std::endl;
     std::cout << "  -Wthunk        Warn (but still generate thunks) on convention mismatches" << std::endl;
     std::cout << "  -?             Display this help message" << std::endl;
 }
@@ -38,6 +39,7 @@ int main(int argc, char** argv) {
     bool isPrg = false;
     bool isBasic = false;
     bool printMap = false;
+    int bssFill = -1;
     std::string mapFile;
     uint32_t textBase = 0x2000; // sensible MEGA65 default
     bool textBaseSet = false;
@@ -76,6 +78,16 @@ int main(int argc, char** argv) {
         else if (arg == "-b" && i + 1 < argc) { bssBase = parseAddr(argv[++i]); bssBaseSet = true; }
         else if (arg == "-z" && i + 1 < argc) { zpBase = parseAddr(argv[++i]); zpBaseSet = true; }
         else if (arg == "--no-thunks") { thunkMode = O45Linker::THUNK_ERROR; }
+        else if (arg.rfind("--bss-fill=", 0) == 0) {
+            std::string v = arg.substr(11);
+            int base = 10;
+            if (!v.empty() && v[0] == '$') { v = v.substr(1); base = 16; }
+            else if (v.size() > 2 && v[0] == '0' && (v[1] == 'x' || v[1] == 'X')) { v = v.substr(2); base = 16; }
+            unsigned long fv = 0;
+            try { size_t used = 0; fv = std::stoul(v, &used, base); if (used != v.size() || fv > 255) throw 0; }
+            catch (...) { std::cerr << "ln45: error: invalid --bss-fill value '" << arg.substr(11) << "' (a byte: 0-255, $FF, 0xFF)" << std::endl; return 1; }
+            bssFill = (int)fv;
+        }
         else if (arg == "-Wthunk") { thunkMode = O45Linker::THUNK_WARN; }
         else if (arg.length() > 4 && arg.substr(arg.length() - 4) == ".lib") { libFiles.push_back(arg); }
         else inputFiles.push_back(arg);
@@ -111,6 +123,7 @@ int main(int argc, char** argv) {
     if (bssBaseSet)  linker.setBssBase(bssBase);
     if (zpBaseSet)   linker.setZpBase(zpBase);
     linker.setThunkMode(thunkMode);
+    if (bssFill >= 0) linker.setBssFill((uint8_t)bssFill);
 
     for (const auto& filename : inputFiles) {
         std::ifstream in(filename, std::ios::binary);

@@ -170,7 +170,8 @@ explicit `-O<n>` in ad-hoc test commands too.
 - **xemu runs**: `timeout 15 xemu-xmega65 -headless -besure -sleepless -prgmode 65 -prgexit -dumpmem out.mem -prg file.prg`.
   xemu exits at BASIC's `READY.`; the exit status is at `$FD/$FE` in the dump
   (0 = pass; `$FFFE` after `abort()`; `$FFFF` = `__exit` never reached).
-  xemu's RAM is zero at boot, which hides missing BSS initialization.
+  xemu's RAM is zero at boot: `test_bss_fill_xemu.c` uses `-fbss-fill=$FF`
+  to show the BSS fill runs.
 
 ## Configuration
 
@@ -226,14 +227,16 @@ ln45, ar45, nm45, objdump45 and disk45 have no config files. Environment:
   (only `-S`). Accepted without effect: `exit_rts`/`exit_halt`/`exit_brk`,
   `no_bssinit`, `heap`, `stdio`, `no_0100_stack`, `unroll`, `no_static_alloc`
   (use `recurse`), `no_striped`.
-- **Not implemented** (parsed, no effect): `__striped` (layout unchanged),
-  `__far` (plain 16-bit access). `__attribute__((weak))` is ignored (use `#pragma weak`).
+- **Reserved keywords** (parsed, no effect yet; kept for future expansion):
+  `__striped` (layout unchanged), `__far` (plain 16-bit access).
+  `__attribute__((weak))` is ignored (use `#pragma weak`).
 
 ## Program Startup and Exit (crt0)
 
 1. Save the caller's SP and flags; enable MEGA65 I/O (`$47 $53` → `$D02F`).
 2. Exit status at ROM `$FD/$FE` := `$FFFF`.
-3. Base page → `__zp_page`; 16-bit stack at `__stack_top` (unless disabled).
+3. Base page → `__zp_page`; 16-bit stack at `__stack_top` (unless disabled);
+   BSS filled with `__bss_fill` (DMA).
 4. `jsr _init_features` (weak `rts`), then `main(argc, argv)`: crt0's weak
    `__mainargs` gives 0/NULL; when `main` takes parameters cc45 links
    `stdlib_asm/mainargs.s45`, which parses the BASIC line at `$0200`
@@ -242,8 +245,10 @@ ln45, ar45, nm45, objdump45 and disk45 have no config files. Environment:
    (`$FFFE` after `abort()`), restore the caller's stack and flags, `rts`.
    A BASIC caller reads `PEEK(253)+256*PEEK(254)`.
 
-crt0 does **not** clear BSS (`_init_bss` is never called) and `exit()` does
-not run `atexit` handlers. Heap: `__bss_end` to `$B000` by default
+crt0 fills BSS (with the private base page) with `__bss_fill` by a DMA fill
+job after the stack setup: 0, or cc45 `-fbss-fill=V` / ln45 `--bss-fill=V`
+(`$FF` finds code relying on zeroed globals). `exit()` does not run `atexit`
+handlers. Heap: `__bss_end` to `$B000` by default
 (`__heap_start`/`__heap_end` override), initialized on the first `malloc`.
 
 ## Standard Library (details: `doc/architecture/stdlib.md`)

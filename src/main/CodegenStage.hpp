@@ -55,6 +55,7 @@ public:
 
     void setSourceFile(const std::string& f) { sourceFile_ = f; }
     void setStackTop(int top) { stackTop_ = top; }
+    void setBssFill(int v) { bssFill_ = v; }
     // -f<opt>/-fno-<opt> (catalog name -> on/off), --future, -Roptir
     void setOptOverrides(const std::map<std::string, bool>& o) { optOverrides_ = o; }
     void setFutureWarnings(bool f) { futureWarnings_ = f; }
@@ -72,6 +73,7 @@ private:
     int maxInlineIRSize_ = 11;
     int maxUnrollBytes_ = 128;
     int stackTop_ = -1;
+    int bssFill_ = -1;
     bool staticAlloc_;
     bool zpCallMode_;
     bool saveTemps_;

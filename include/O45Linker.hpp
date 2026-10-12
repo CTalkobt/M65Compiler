@@ -335,6 +335,8 @@ public:
     // Calling convention thunk mode
     enum ThunkMode { THUNK_AUTO, THUNK_WARN, THUNK_ERROR };
     void setThunkMode(ThunkMode m) { thunkMode_ = m; }
+    // Byte crt0 fills BSS with (__bss_fill, unless an object defines it)
+    void setBssFill(uint8_t v) { bssFill_ = v; }
 
     // Write a detailed linker map to a stream. Call after link().
     void writeMap(std::ostream& out) const;
@@ -431,6 +433,7 @@ private:
 
     // Thunk mode and generated thunks
     ThunkMode thunkMode_ = THUNK_AUTO;
+    uint8_t bssFill_ = 0;
     // Maps callee name → thunk address (for mismatched call sites)
     std::map<std::string, uint32_t> thunkAddresses_;
     // Per-call-site override: (objectIdx, relocIdx) → thunk target address

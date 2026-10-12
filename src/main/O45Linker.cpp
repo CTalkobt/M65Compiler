@@ -433,6 +433,13 @@ bool O45Linker::resolveSymbols(std::string& errorMsg) {
         symbolSource_["__bss_end"] = "<linker>";
         symbolWeak_["__bss_end"] = false;
     }
+    // The byte crt0 fills BSS with: --bss-fill (default 0), unless an object
+    // defines it (cc45 -fbss-fill=V in the module defining main)
+    if (!globalSymbols_.count("__bss_fill")) {
+        globalSymbols_["__bss_fill"] = bssFill_;
+        symbolSource_["__bss_fill"] = "<linker>";
+        symbolWeak_["__bss_fill"] = false;
+    }
 
     // Check that all imports are satisfied
     std::set<std::string> importedSymbols;

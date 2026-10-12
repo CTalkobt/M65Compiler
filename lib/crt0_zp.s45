@@ -13,6 +13,9 @@
 .extern __zp_page_isr
 .global __isr_depth
 .extern __stack_top
+.extern __bss_start
+.extern __bss_end
+.extern __bss_fill
 .weak _init_features
 .weak ___mainargs
 .extern _main
@@ -68,6 +71,60 @@ __init:
     bne @stack8
     cli
 @stack8:
+
+    ; Fill BSS (__bss_start..__bss_end, which includes the private base
+    ; page) with __bss_fill: 0, or ln45 --bss-fill=V / cc45 -fbss-fill=V.
+    ; A DMA fill job, built on the stack (any page: SP+1 is computed in 16
+    ; bits); nothing crt0 keeps is in BSS.
+    sec
+    lda #<__bss_end
+    sbc #<__bss_start
+    tax                 ; X = size low
+    lda #>__bss_end
+    sbc #>__bss_start
+    tay                 ; Y = size high
+    bne @bss_fill
+    txa
+    beq @bss_done       ; no BSS
+@bss_fill:
+    lda #0
+    pha                 ; modulo high
+    pha                 ; modulo low
+    pha                 ; command high
+    pha                 ; destination bank
+    lda #>__bss_start
+    pha
+    lda #<__bss_start
+    pha                 ; destination
+    lda #0
+    pha                 ; source bank
+    pha                 ; source high
+    lda #<__bss_fill
+    pha                 ; fill value (source low)
+    tya
+    pha                 ; count high
+    txa
+    pha                 ; count low
+    lda #$03
+    pha                 ; command: fill
+    lda #0
+    sta $D702           ; list bank
+    tsx
+    tsy
+    txa
+    clc
+    adc #1
+    tax
+    tya
+    adc #0
+    sta $D701           ; list address high
+    stx $D700           ; list address low: starts the job
+    ldx #12
+@bss_drop:
+    pla
+    dex
+    bne @bss_drop
+@bss_done:
 
     jsr _init_features
     ; main(argc, argv): __mainargs returns a pointer to { int argc; char

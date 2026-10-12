@@ -317,13 +317,13 @@ The CRT module from the library provides `__init`, which the linker uses as the 
 2. Enable the MEGA65 I/O registers (`$47`, `$53` to `$D02F`).
 3. Set the exit status at ROM page-0 `$FD/$FE` to `$FFFF`.
 4. Relocate the base page (`TAB`) to `__zp_page`, a private page at the end of BSS.
-5. Move the CPU stack to the 16-bit stack topped at `__stack_top` (`$BFFF` by default; `-fstack-top=`/`#pragma cc45 stack_top(...)`), unless `-fno-stack16`/`#pragma cc45 no_stack16` keeps the ROM's page-1 stack.
+5. Move the CPU stack to the 16-bit stack topped at `__stack_top` (`$BFFF` by default; `-fstack-top=`/`#pragma cc45 stack_top(...)`), unless `-fno-stack16`/`#pragma cc45 no_stack16` keeps the ROM's page-1 stack; then fill BSS with `__bss_fill` (DMA).
 6. `_init_features` (`crt0_mega65*.s45`): write `$40` to `$D054`.
 7. Call `__mainargs` and pass the `argc`/`argv` it returns to `main` (in the ZP parameter block and on the stack), then fall into `__exit` (see `exit` in [§4](#4-general-utilities-stdlibh)). crt0's weak `__mainargs` returns `argc = 0`, `argv = NULL`; `stdlib_asm/mainargs.s45` replaces it when `main` is defined with parameters (cc45 then references `__mainargs_link`) and parses the BASIC line at `$0200` (`RUN ["NAME"] : [REM] a, b, ...`; see *Startup* in [cc45.md](../bin/cc45.md)).
 
 `__bp_rom`/`__bp_prog` (switch base page for ROM calls) and `__abort` are also defined here.
 
-In a linked program the CRT does **not** zero BSS (`crt_bssinit*.s45` is in the archive but nothing calls `_init_bss`, and BSS is not part of the PRG file), so uninitialized globals and the private base page start with whatever is in memory. Standalone (non-linked) builds generate their own startup stub, which honours `#pragma cc45 no_bssinit`, `heap`, `exit_*` and the other CRT pragmas described in [../bin/cc45.md](../bin/cc45.md).
+In a linked program crt0 fills BSS (`__bss_start` to `__bss_end`, including the private base page) with `__bss_fill` (0; cc45 `-fbss-fill=`, ln45 `--bss-fill=`) by a DMA fill job, right after setting up the stack. (`crt_bssinit*.s45`, a byte-at-a-time `_init_bss`, is not used.) Standalone (non-linked) builds generate their own startup stub, which honours `#pragma cc45 no_bssinit`, `heap`, `exit_*` and the other CRT pragmas described in [../bin/cc45.md](../bin/cc45.md).
 
 ## 16. Source Layout
 

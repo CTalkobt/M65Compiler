@@ -1,6 +1,6 @@
 # Striped Arrays (`__striped`)
 
-**Status (current toolchain): accepted by the parser, ignored by code generation.**
+**Status: a reserved keyword for possible future expansion — accepted by the parser, ignored by code generation.**
 A `__striped` array has exactly the layout, initializer data, `sizeof` and
 indexing code of the same array declared without the keyword. There is no
 striped layout, no reordered initializer and no indexing optimization in cc45

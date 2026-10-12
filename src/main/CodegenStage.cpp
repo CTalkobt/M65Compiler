@@ -110,6 +110,7 @@ void CodegenStage::generateIR() {
     irModule_ = std::make_unique<ir::Module>(builder.getModule());
     // A #pragma cc45 no_stack16 / stack_top in the source wins over the flag
     if (irModule_->stackTop < 0) irModule_->stackTop = stackTop_;
+    if (irModule_->bssFill < 0) irModule_->bssFill = bssFill_;
 
     if (verboseLevel_ >= 2) {
         std::cout << "    IR generated successfully" << std::endl;

@@ -407,6 +407,27 @@ for rpmode in "stack|-fno-zpcall|$STDLIB_STACK" "stack_nosac|-fno-zpcall -fno-st
     fi
 done
 
+# Test: crt0 fills BSS: 0 by default, $FF with -fbss-fill=$FF (xemu's RAM is
+# zero at boot, so only the $FF build shows the fill runs); both conventions
+for bfmode in "stack|-fno-zpcall" "zp|"; do
+    IFS='|' read -r bfname bfflags <<< "$bfmode"
+    echo "Testing test_bss_fill_xemu.c ($bfname)..."
+    compile_link_test "src/test-resources/test_bss_fill_xemu.c" "build/test/test_bss_fill_${bfname}_xemu.prg" "$bfflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_bss_fill_$bfname" "build/test/test_bss_fill_${bfname}_xemu.prg" "C0C0" 7 "00 00 00 00 01 01 AA"
+    else
+        echo "FAIL: test_bss_fill_xemu.c $bfname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+    compile_link_test "src/test-resources/test_bss_fill_xemu.c" "build/test/test_bss_fill_ff_${bfname}_xemu.prg" "$bfflags -fbss-fill=\$FF"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_bss_fill_ff_$bfname" "build/test/test_bss_fill_ff_${bfname}_xemu.prg" "C0C0" 7 "FF FF FF FF 01 01 AA"
+    else
+        echo "FAIL: test_bss_fill_xemu.c -fbss-fill=\$FF $bfname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: a program's own init_features() (weak in crt0) runs before main
 for ifmode in "stack|-fno-zpcall" "zp|"; do
     IFS='|' read -r ifname ifflags <<< "$ifmode"

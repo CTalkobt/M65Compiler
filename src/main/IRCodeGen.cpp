@@ -1001,6 +1001,16 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
                 break;
             }
         }
+        // -fbss-fill=V: the module defining main sets the byte crt0 fills
+        // BSS with (otherwise ln45's --bss-fill, default 0)
+        if (mod.bssFill >= 0) {
+            for (const auto& fn : mod.functions) {
+                if (fn.name != "_main") continue;
+                emit(".global __bss_fill");
+                emit("__bss_fill = $" + hex8((uint8_t)mod.bssFill));
+                break;
+            }
+        }
 
         // SAC __ar symbols are linker-computed overlay addresses
         // Don't export them — they will be defined by the linker's overlay allocation pass

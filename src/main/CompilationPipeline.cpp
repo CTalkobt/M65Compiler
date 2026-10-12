@@ -155,6 +155,7 @@ CompilationResult CompilationPipeline::compile() {
         codegenStage.setMaxUnrollBytes(config_.maxUnrollBytes);
         codegenStage.setSourceFile(config_.inputFile);
         codegenStage.setStackTop(config_.stackTop);
+        codegenStage.setBssFill(config_.bssFill);
         codegenStage.setOptOverrides(config_.optOverrides);
         codegenStage.setFutureWarnings(config_.futureWarnings);
         codegenStage.setTraceIROpt(config_.traceIROpt);
