@@ -26,6 +26,7 @@ static void printUsage(const char* progName) {
     std::cout << "  -m             Print linker map (symbol addresses) after linking" << std::endl;
     std::cout << "  -M <file>      Write detailed linker map file (segments, objects, symbols)" << std::endl;
     std::cout << "  --no-thunks    Error on calling convention mismatches (no thunk generation)" << std::endl;
+    std::cout << "  --no-sac-overlay  Give every static-allocation function its own storage" << std::endl;
     std::cout << "  --bss-fill=V   Byte crt0 fills BSS with at startup (default $00; $FF, 0xFF or decimal)" << std::endl;
     std::cout << "  -Wthunk        Warn (but still generate thunks) on convention mismatches" << std::endl;
     std::cout << "  -v             Also print the cross-module analysis and informational warnings" << std::endl;
@@ -55,6 +56,7 @@ int main(int argc, char** argv) {
     std::vector<std::string> libFiles;
     std::vector<std::string> libSearchPaths;
     O45Linker::ThunkMode thunkMode = O45Linker::THUNK_AUTO;
+    bool sacOverlay = true;
 
     // Add paths from CC45_LIB environment variable
     if (const char* envLib = std::getenv("CC45_LIB")) {
@@ -83,6 +85,7 @@ int main(int argc, char** argv) {
         else if (arg == "-b" && i + 1 < argc) { bssBase = parseAddr(argv[++i]); bssBaseSet = true; }
         else if (arg == "-z" && i + 1 < argc) { zpBase = parseAddr(argv[++i]); zpBaseSet = true; }
         else if (arg == "--no-thunks") { thunkMode = O45Linker::THUNK_ERROR; }
+        else if (arg == "--no-sac-overlay") { sacOverlay = false; }
         else if (arg == "-v") { g_ln45Verbosity = std::max(g_ln45Verbosity, 1); }
         else if (arg == "-vv") { g_ln45Verbosity = 2; }
         else if (arg.rfind("--bss-fill=", 0) == 0) {
@@ -130,6 +133,7 @@ int main(int argc, char** argv) {
     if (bssBaseSet)  linker.setBssBase(bssBase);
     if (zpBaseSet)   linker.setZpBase(zpBase);
     linker.setThunkMode(thunkMode);
+    linker.setSacOverlay(sacOverlay);
     if (bssFill >= 0) linker.setBssFill((uint8_t)bssFill);
 
     for (const auto& filename : inputFiles) {

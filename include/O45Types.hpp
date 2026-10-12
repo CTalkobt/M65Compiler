@@ -63,9 +63,15 @@ enum O45RelocType : uint8_t {
     R_WORD        = 0x80, // full 16-bit address (2 bytes)
     R_LINEAR32    = 0xA0, // 32-bit linear address (4 bytes) [ext]
     R_SEGADR      = 0xC0, // segment address (bank:addr, 3 bytes)
+    R_LOWX        = 0xE0, // low byte; the extra byte holds the high byte of the full value [ext]
     R_IMM8        = 0x00, // SMC: 8-bit immediate value in instruction [Phase 78]
     R_IMM16       = 0x01, // SMC: 16-bit immediate value in instruction [Phase 78]
 };
+
+// R_HIGH and R_LOWX records carry an extra byte (the other byte of the value)
+constexpr bool o45RelocHasExtra(uint8_t rtype) {
+    return (rtype & 0xE0) == 0x40 || (rtype & 0xE0) == 0xE0;
+}
 
 // Masks for splitting the type/seg byte
 constexpr uint8_t  O45_RTYPE_MASK    = 0xE0; // bits 7-5
@@ -163,6 +169,7 @@ constexpr int o45RelocPatchSize(uint8_t rtype) {
     switch (rtype & O45_RTYPE_MASK) {
         case R_LOW:       return 1;
         case R_HIGH:      return 1;
+        case R_LOWX:      return 1;
         case R_WORD:      return 2;
         case R_LINEAR24:  return 3;
         case R_SEGADR:    return 3;

@@ -178,7 +178,8 @@ Each table is a stream of entries terminated by `$00`:
 ```
 offset_delta   1 byte (or $FF escapes, 3.1)
 type_and_seg   1 byte: type (bits 7-5) | segment (bits 4-0)
-[extra]        1 byte, R_HIGH only: low byte of the full target value
+[extra]        1 byte, R_HIGH: low byte of the full target value;
+                       R_LOWX: high byte of the full target value
 [symbol_id]    4 bytes LE (2 without SIZE32), external references only
 ```
 
@@ -217,7 +218,7 @@ A relocation at segment offset 0 cannot be encoded (the writer drops it).
 | `110`    | `$C0`  | `R_SEGADR`    | 3 | 24-bit address (patched like `R_LINEAR24`) |
 | `000`    | `$00`  | `R_IMM8`      | 1 | **(ext)** 8-bit immediate operand (self-modifying-code parameters) |
 | —        | `$01`  | `R_IMM16`     | 2 | **(ext)** 16-bit immediate. Its value lies in the segment bits, so it cannot be represented in this encoding |
-| `111`    | `$E0`  | —             |   | Unused |
+| `111`    | `$E0`  | `R_LOWX`      | 1 | **(ext)** Low byte; the extra byte holds the high byte so the full value can be rebuilt. ca45 writes it for `#<sym` and its simulated ops (`R_LOW` is still read: the linker needs the full value only to move SAC storage, see [ln45](../bin/ln45.md#sac-overlay)) |
 
 ### 3.4 Patch Values
 
@@ -237,7 +238,7 @@ $03 $00 $00 $00     ; import #3
 `lda #<msg` / `ldx #>msg` / `jmp print` (ca45 output, `msg` in DATA at offset 0, `print` external):
 
 ```
-$01 $23             ; offset 1: R_LOW  | SEG_DATA
+$01 $E3 $00         ; offset 1: R_LOWX | SEG_DATA, high byte $00
 $02 $43 $00         ; offset 3: R_HIGH | SEG_DATA, low byte $00
 $02 $80 $00 $00 $00 $00   ; offset 5: R_WORD | SEG_EXTERNAL, import #0
 $00                 ; end

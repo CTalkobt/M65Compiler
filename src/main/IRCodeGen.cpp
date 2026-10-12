@@ -142,6 +142,11 @@ const ir::Inst* IRCodeGen::peekNextInst() const {
 }
 
 void IRCodeGen::emit(const std::string& line, const std::string& reason) {
+    if (line.rfind(".segment", 0) == 0)
+        inBss_ = line.find("\"bss\"") != std::string::npos;
+    else if (inBss_ && !line.empty() && line[0] != ';' &&
+             line.rfind(".global", 0) != 0 && line.rfind(".local", 0) != 0)
+        bssBoundaryClean_ = false;
     out_ << "    " << line;
     if (emitReasons_ && !reason.empty()) {
         out_ << "  ; [" << reason << "]";
@@ -219,6 +224,7 @@ bool IRCodeGen::vregUsedOutside(uint32_t id, const ir::Inst* a, const ir::Inst* 
 }
 
 void IRCodeGen::emitLabel(const std::string& label) {
+    if (inBss_) bssBoundaryClean_ = false;
     out_ << label << ":\n";
 }
 
@@ -2117,6 +2123,38 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         // Switch to BSS segment for SAC storage
         emit(".segment \"bss\"");
 
+        // <fn>__ar marks the start of the block and cc45.sacsize.<fn> its
+        // size: ln45 moves the block into the SAC overlay area, where
+        // functions that are never active at the same time share storage.
+        // A block holding aligned variables keeps its place (no size marker).
+        // ln45 sees only offsets: a pointer just past the variable before
+        // the block, or just past the block's last variable, must not be an
+        // offset of another piece. A pad byte before the block (unless a
+        // block's trailing pad is already there) and one ending the block
+        // keep them apart.
+        int sacBlockSize = 0;
+        bool sacBlockAligned = false;
+        bool sacMovable = false;
+        {
+            bool hasStorage = false;
+            for (size_t i = 0; i < fn.paramTypes.size(); i++)
+                if (!(sacConstParams_.count(fn.name) && sacConstParams_[fn.name].count((int)i) &&
+                      sacConstParams_[fn.name].at((int)i).isConstant))
+                    hasStorage = true;
+            bool aligned = false;
+            for (const auto& [vregId, offset] : vregOffset_) {
+                (void)offset;
+                if (alloc_.getAlloc(vregId).loc != VRegAllocator::IN_FRAME) continue;
+                hasStorage = true;
+                auto ait = fn.vregAlign.find(vregId);
+                if (ait != fn.vregAlign.end() && ait->second > 1) aligned = true;
+            }
+            sacMovable = hasStorage && !aligned;
+        }
+        if (sacMovable && !bssBoundaryClean_) emit(".res 1", "SAC block lead pad");
+        emit(".global " + fn.name + "__ar");
+        emitLabel(fn.name + "__ar");
+
         // Emit storage for parameters
         // Use parameter names for documentation, fall back to indices if unavailable
         // Make symbols globally visible so caller and function can both reference them
@@ -2158,6 +2196,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             } else {
                 emitLabel(paramSymbol);
                 emit(".res " + std::to_string(ps));
+                sacBlockSize += ps;
             }
         }
 
@@ -2181,10 +2220,19 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 if (ait != fn.vregAlign.end() && ait->second > 1) {
                     emit(".align " + std::to_string(ait->second));
                     bssAlign_ = std::max(bssAlign_, ait->second);
+                    sacBlockAligned = true;
                 }
                 emitLabel(localSymbol);
                 emit(".res " + std::to_string(varSize));
+                sacBlockSize += varSize;
             }
+        }
+        if (sacMovable && !sacBlockAligned && sacBlockSize > 0) {
+            emit(".res 1", "SAC block trailing pad");
+            sacBlockSize += 1;
+            emit(".global cc45.sacsize." + fn.name);
+            emit("cc45.sacsize." + fn.name + " = " + std::to_string(sacBlockSize));
+            bssBoundaryClean_ = true;
         }
 
         // Switch back to code segment

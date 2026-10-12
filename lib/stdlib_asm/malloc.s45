@@ -684,12 +684,14 @@ _heap_init:
     lda $13
     sbc $11
     sta $15         ; size high
+    bcc @no_heap    ; the end is below the start (the program reaches past it)
 
     ; Ensure size >= 4
     bne @init_ok
     lda $14
     cmp #4
     bcs @init_ok
+@no_heap:
     rts             ; Fail to init
 
 @init_ok:

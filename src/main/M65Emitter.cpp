@@ -409,9 +409,12 @@ void M65Emitter::recordSymbolReloc(const std::string& name) {
     }
 }
 
-void M65Emitter::recordSymbolRelocLo(const std::string& name) {
+void M65Emitter::recordSymbolRelocLo(const std::string& name, int highByte) {
     if (mode == Mode::BINARY) {
-        symbolRelocs_.push_back({currentAddress + 1, name, 0x20, 0, relocScope_, relocLocalScope_}); // R_LOW
+        if (highByte >= 0)
+            symbolRelocs_.push_back({currentAddress + 1, name, 0xE0, (uint8_t)highByte, relocScope_, relocLocalScope_}); // R_LOWX
+        else
+            symbolRelocs_.push_back({currentAddress + 1, name, 0x20, 0, relocScope_, relocLocalScope_}); // R_LOW
     }
 }
 

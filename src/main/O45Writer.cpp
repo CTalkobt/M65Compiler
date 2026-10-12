@@ -17,7 +17,8 @@ static std::vector<uint8_t> serializeIPOHints(const O45IPOHints& hints);
 //     Multiple $FF bytes chain for large gaps.
 //   - Delta byte $00: end of table (not emitted here — O45Writer appends it).
 //   - After the delta: one type/seg byte (type in bits 7-5, segment in bits 4-0).
-//   - If type == R_HIGH: one extra byte follows (low byte for underflow).
+//   - If type == R_HIGH: one extra byte follows (low byte for underflow);
+//     R_LOWX: one extra byte follows (the high byte of the full value).
 //   - If segment == SEG_EXTERNAL: 4-byte LE symbol index follows (SIZE32 mode).
 //
 // NOTE: Delta $00 means end-of-table, so relocations at segment offset 0 are
@@ -53,7 +54,7 @@ std::vector<uint8_t> O45RelocEncoder::encode(const std::vector<O45Reloc>& relocs
         out.push_back(typeSeg);
 
         // R_HIGH extra byte (low byte for borrow/underflow correction)
-        if (r.type == R_HIGH) {
+        if (o45RelocHasExtra(r.type)) {
             out.push_back(r.extra);
         }
 

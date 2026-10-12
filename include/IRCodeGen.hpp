@@ -100,6 +100,11 @@ private:
 
     // Codegen reasoning trace (enabled by -Rcodegen)
     bool emitReasons_ = false;
+    // BSS adjacency for SAC blocks (ln45 moves them): inBss_ while the
+    // current segment is bss; bssBoundaryClean_ while nothing but a SAC
+    // block's trailing pad (or nothing at all) precedes the next BSS item
+    bool inBss_ = false;
+    bool bssBoundaryClean_ = true;
 
     // Module-level emission
     void emitStartupStub(const ir::Module& mod);

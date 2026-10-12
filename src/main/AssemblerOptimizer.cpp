@@ -295,7 +295,7 @@ bool AssemblerOptimizer::optimizeInternal(
                     s->instr.operandTokenIndex < (int)parser->tokens.size())
                     operand = parser->tokens[s->instr.operandTokenIndex].value;
                 bool isReloc = parser->isRelocatableSymbol(operand) ||
-                               parser->isRelocatableSymbol(s->scopePrefix + operand);
+                               parser->isRelocatableSymbolIn(operand, s->scopePrefix);
                 // A numeric target is a fixed address (e.g. the jmp $0000 of a
                 // computed goto, patched at run time): never a relative branch
                 bool numeric = operand.empty() || operand[0] == '$' || operand[0] == '%' ||
@@ -320,8 +320,11 @@ bool AssemblerOptimizer::optimizeInternal(
                     if (operand.empty() || operand[0] == '$' || operand[0] == '%' ||
                         (operand[0] >= '0' && operand[0] <= '9'))
                         canBSR = false;
+                    // a relocatable target keeps its JSR and relocation: the
+                    // label may be in another proc's scope (f__sac), and ln45's
+                    // call graph (SAC overlay, thunks) sees calls by their relocations
                     if (canBSR && (parser->isRelocatableSymbol(operand) ||
-                        parser->isRelocatableSymbol(s->scopePrefix + operand)))
+                        parser->isRelocatableSymbolIn(operand, s->scopePrefix)))
                         canBSR = false;
                 }
                 if (canBSR) {
@@ -448,9 +451,24 @@ bool AssemblerOptimizer::optimizeInternal(
             bool isImm = (mode == AddressingMode::IMMEDIATE);
             bool isZP = (mode == AddressingMode::BASE_PAGE);
             bool isAbs = (mode == AddressingMode::ABSOLUTE);
+            // An absolute operand naming a relocatable symbol: its value is a
+            // placeholder (a BSS offset can be below 256), never a ZP address
+            auto relocOperand = [&]() -> bool {
+                if (!isAbs || hasNumVal) return false;
+                std::string name = op;
+                if (name.empty() && s->instr.operandTokenIndex >= 0 &&
+                    s->instr.operandTokenIndex < (int)parser->tokens.size())
+                    name = parser->tokens[s->instr.operandTokenIndex].value;
+                size_t end = name.find_first_of("+-*/ ,()");
+                if (end != std::string::npos) name = name.substr(0, end);
+                if (name.empty()) return false;
+                return parser->isRelocatableSymbol(name) ||
+                       parser->isRelocatableSymbolIn(name, s->scopePrefix);
+            };
             // Forget what is known about the memory a write (store or RMW) touches
             auto memWritten = [&](int bytes) {
                 int64_t addr = -1;
+                if (relocOperand()) { ms.clobberAbsMem(); return; }
                 if ((isZP || isAbs) && hasNumVal) addr = numVal & 0xFFFF;
                 else if ((isZP || isAbs) && s->instr.operandTokenIndex >= 0) {
                     try { addr = parser->evaluateExpressionAt(s->instr.operandTokenIndex, s->scopePrefix); }
@@ -755,7 +773,7 @@ bool AssemblerOptimizer::optimizeInternal(
                 } else if (isZP || isAbs) {
                     // Symbol or expression operand ("$28+1", "__zp_scratch4+3")
                     bool known = false;
-                    if (s->instr.operandTokenIndex >= 0) {
+                    if (s->instr.operandTokenIndex >= 0 && !relocOperand()) {
                         try {
                             uint32_t addr = parser->evaluateExpressionAt(s->instr.operandTokenIndex, s->scopePrefix);
                             if (addr < 256) { ms.storeZP((uint8_t)addr, r); known = true; }

@@ -335,6 +335,7 @@ public:
     // Calling convention thunk mode
     enum ThunkMode { THUNK_AUTO, THUNK_WARN, THUNK_ERROR };
     void setThunkMode(ThunkMode m) { thunkMode_ = m; }
+    void setSacOverlay(bool on) { sacOverlayOn_ = on; }
     // Byte crt0 fills BSS with (__bss_fill, unless an object defines it)
     void setBssFill(uint8_t v) { bssFill_ = v; }
 
@@ -381,6 +382,25 @@ private:
             }
             // No remap — use simple textOffset (single-segment object)
             return textOffset + origOff;
+        }
+
+        // BSS placement: [srcOffset, srcOffset+srcLen) of this object's BSS
+        // → destOffset in the merged BSS. Empty: the BSS is one piece at
+        // bssOffset. SAC blocks moved into the overlay area are pieces of
+        // their own; bssKeptLen is what stays at bssOffset.
+        struct BssPiece { uint32_t srcOffset, srcLen, destOffset; bool sac; };
+        std::vector<BssPiece> bssRemaps;
+        uint32_t bssKeptLen = 0;
+
+        uint32_t remapBssOffset(uint32_t origOff) const {
+            for (const auto& r : bssRemaps)
+                if (origOff >= r.srcOffset && origOff < r.srcOffset + r.srcLen)
+                    return r.destOffset + (origOff - r.srcOffset);
+            // the end of a piece (a pointer just past a variable)
+            for (const auto& r : bssRemaps)
+                if (!r.sac && origOff == r.srcOffset + r.srcLen)
+                    return r.destOffset + r.srcLen;
+            return bssOffset + origOff;
         }
     };
 
@@ -439,11 +459,14 @@ private:
     // Per-call-site override: (objectIdx, relocIdx) → thunk target address
     std::map<std::pair<int,int>, uint32_t> callSiteOverrides_;
 
-    // Phase 2: Static allocation register (AR) base addresses
-    // Maps SAC function name → final BSS-relative AR base address
-    std::map<std::string, uint32_t> arBaseAddresses_;
-    // Tracks which functions are address-taken (can't be colored/overlapped)
-    std::set<std::string> addressTakenFunctions_;
+    // SAC overlay: per object, the SAC blocks moved into the overlay area
+    // (object BSS offset, size, offset in the overlay area)
+    struct SacMove { uint32_t srcOffset, len, overlayOffset; std::string func; };
+    std::map<int, std::vector<SacMove>> sacMoves_;
+    uint32_t sacOverlayLen_ = 0;      // size of the overlay area
+    uint32_t sacOverlayOffset_ = 0;   // its offset in the merged BSS
+    uint32_t sacOverlaySaved_ = 0;    // bytes saved by sharing
+    bool sacOverlayOn_ = true;        // --no-sac-overlay clears it
 
     // Phase 4: Parameter specialization
     // Maps function name → parameter index → (is_constant, constant_value)
@@ -550,8 +573,8 @@ private:
     void verifyStaticAllocSafety();  // Verify SAC (static allocation convention) constraints
     void validateSACParameters();     // Phase 3: Validate SAC parameter metadata
     void validateImmediateRelocations(); // Phase 78.4: Validate immediate relocation symbols
-    void colorStaticAllocRegisters();  // Phase 2: Assign overlapping AR addresses via graph coloring
-    void patchStaticAllocAddresses();  // Phase 3: Apply computed AR addresses to symbol table
+    void computeSacOverlay();          // place SAC blocks so inactive functions share storage
+    void layoutBss();                  // BSS layout (objects, then the SAC overlay area)
     void generateThunks();
     void mergeLineMaps();
 

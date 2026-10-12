@@ -46,6 +46,7 @@ static const char* relocTypeName(uint8_t rtype) {
     switch (rtype & O45_RTYPE_MASK) {
         case R_LOW:      return "R_LOW";
         case R_HIGH:     return "R_HIGH";
+        case R_LOWX:     return "R_LOWX";
         case R_WORD:     return "R_WORD";
         case R_LINEAR24: return "R_LINEAR24";
         case R_LINEAR32: return "R_LINEAR32";
@@ -176,7 +177,7 @@ static void printRelocs(const std::vector<uint8_t>& raw, const O45File& obj,
                 printf("  [index %u]", r.symbolIndex);
             }
         }
-        if (r.type == R_HIGH) {
+        if (o45RelocHasExtra(r.type)) {
             printf("  extra=$%02X", r.extra);
         }
         std::cout << std::endl;

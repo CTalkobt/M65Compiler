@@ -209,14 +209,22 @@ A function uses SAC unless one of these applies:
 
 What a SAC function looks like:
 
-- **Storage.** Each SAC function gets BSS labels:
+- **Storage.** Each SAC function gets one BSS block:
+  - `<fn>__ar` (global) marks its start, and the absolute export
+    `cc45.sacsize.<fn>` gives its size;
   - `<fn>__param_<name>` for each parameter (global symbols);
   - `<fn>__local_<n>` for each local or temporary.
 
-  The BSS is zeroed by crt0 unless `#pragma cc45 no_bssinit` is given. Each
-  function has its own storage: storage is **not** overlaid between
-  functions (ln45's call-graph colouring pass does not take effect; see the
-  link note).
+  The block ends with a pad byte (counted in the size), and a pad byte
+  precedes it unless another block's pad does: ln45 sees only offsets, and
+  a pointer just past an array must not land in a different piece of BSS
+  when the block moves. A block holding an aligned local (`_Alignas`) has no
+  size marker. Constant
+  parameters (below) are in the data segment, outside the block. crt0 fills
+  BSS with `__bss_fill` (default 0) at startup.
+- **Overlay.** ln45 lets SAC functions that are never active at the same time
+  share storage (see [ln45](../bin/ln45.md#sac-overlay)): the values of a SAC
+  function's locals do not survive from one call to the next.
 - **Two entry points.**
   - `<fn>` is the entry for ordinary callers. Its thunk copies the parameters
     from the ZP block (ZP mode) or from the stack (stack mode) into
@@ -245,6 +253,8 @@ ln45 checks over the whole program:
 - A SAC function reachable from an `__interrupt` handler is an error:
   `'f' uses static allocation but is reachable from ISR handler`. Mark such
   functions `#pragma cc45 recurse`.
+- SAC storage of functions that cannot be active together is overlaid
+  (`test_sac_overlay_xemu.c`).
 
 ## 6. Zero page, base page and interrupts
 

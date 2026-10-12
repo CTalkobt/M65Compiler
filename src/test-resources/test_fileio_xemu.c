@@ -16,6 +16,9 @@
 #include <string.h>
 #define OUT ((volatile unsigned char *)0xC0C0)
 
+/* Linked with test_fileio_heap_xemu.s45: three open files need about 800
+   bytes of heap, more than the default leaves in stack mode */
+
 static char buf[64];
 
 static int read_all(const char *name, char *dst, int max) {

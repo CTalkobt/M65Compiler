@@ -951,7 +951,7 @@ void AssemblerSimulatedOps::emitCallCode(AssemblerParser* parser, M65Emitter& e,
         } else if (!rel.empty() && kind != "B#") {
             e.recordSymbolRelocHi(rel, v & 0xFF);
             e.emitInstruction("lda", AddressingMode::IMMEDIATE, v >> 8, true); e.pha();
-            e.recordSymbolRelocLo(rel);
+            e.recordSymbolRelocLo(rel, (v >> 8) & 0xFF);
             e.emitInstruction("lda", AddressingMode::IMMEDIATE, v & 0xFF, true); e.pha();
         } else {
             e.emitInstruction("phw", AddressingMode::IMMEDIATE16, ((v & 0xFF) << 8) | (v >> 8), true);
@@ -1022,7 +1022,7 @@ static void emitSpBaseAddrCalc(AssemblerParser* parser, M65Emitter& e, uint8_t a
     bool spExtern = parser->isExternSymbol("__sp_base");
     e.tsx(); e.txa(); e.clc();
     if (spExtern) {
-        e.recordSymbolRelocLo("__sp_base");
+        e.recordSymbolRelocLo("__sp_base", (addend >> 8) & 0xFF);
         e.adc_imm(addend);
     } else {
         uint16_t total = e.spBase() + addend;
@@ -1203,7 +1203,7 @@ void AssemblerSimulatedOps::emitDmaCode(AssemblerParser* parser, M65Emitter& e, 
             e.lda_imm((o.value >> 16) & 0x0F); e.pha();
             if (!o.sym.empty()) e.recordSymbolRelocHi(o.sym, o.value & 0xFF);
             e.lda_imm((o.value >> 8) & 0xFF); e.pha();
-            if (!o.sym.empty()) e.recordSymbolRelocLo(o.sym);
+            if (!o.sym.empty()) e.recordSymbolRelocLo(o.sym, (o.value >> 8) & 0xFF);
             e.lda_imm(o.value & 0xFF); e.pha();
         } else if (o.kind == Opnd::PTR) {
             e.lda_imm(0); e.pha();
@@ -2948,7 +2948,7 @@ void AssemblerSimulatedOps::emitSpBaseAddrCalc16(AssemblerParser* parser, M65Emi
     bool spExtern = parser->isExternSymbol("__sp_base");
     e.tsx(); e.txa(); e.clc();
     if (spExtern) {
-        e.recordSymbolRelocLo("__sp_base");
+        e.recordSymbolRelocLo("__sp_base", (addend >> 8) & 0xFF);
         e.adc_imm(addend & 0xFF);
     } else {
         uint16_t total = e.spBase() + addend;
@@ -3085,7 +3085,7 @@ void AssemblerSimulatedOps::emitLoadAddrConst(AssemblerParser* parser, M65Emitte
     uint32_t total = baseVal + offset;
     
     if (isReloc) {
-        e.recordSymbolRelocLo(name);
+        e.recordSymbolRelocLo(name, (total >> 8) & 0xFF);
     }
     e.lda_imm(total & 0xFF);
     

@@ -94,15 +94,23 @@ compile_link_test() {
     local src="$1"
     local prg_out="$2"
     local flags="${3:-}"
+    local extra="${4:-}"     # more objects to link (assembled from .s45 sources)
     local o_file="${prg_out%.prg}.o45"
 
     $CC -c $flags "$src" -o "$o_file" 2>/dev/null
     if [ $? -ne 0 ]; then return 1; fi
 
+    local extra_o=""
+    for s in $extra; do
+        local eo="${prg_out%.prg}_$(basename "${s%.s45}").o45"
+        $AS -c "$s" -o "$eo" >/dev/null 2>&1 || return 1
+        extra_o="$extra_o $eo"
+    done
+
     if [[ "$flags" == *"-fno-zpcall"* ]]; then
-        $LD -basic -o "$prg_out" $CRT0 "$o_file" $STDLIB_STACK 2>/dev/null
+        $LD -basic -o "$prg_out" $CRT0 "$o_file" $extra_o $STDLIB_STACK 2>/dev/null
     else
-        $LD -basic -o "$prg_out" $CRT0 "$o_file" $STDLIB 2>/dev/null
+        $LD -basic -o "$prg_out" $CRT0 "$o_file" $extra_o $STDLIB 2>/dev/null
     fi
     if [ $? -ne 0 ]; then return 2; fi
 
@@ -390,6 +398,19 @@ for scmode in "stack|-fno-zpcall" "zp|"; do
     fi
 done
 
+# Test: ln45's SAC overlay (functions never active together share storage), both conventions
+for somode in "stack|-fno-zpcall" "zp|"; do
+    IFS='|' read -r soname soflags <<< "$somode"
+    echo "Testing test_sac_overlay_xemu.c ($soname)..."
+    compile_link_test "src/test-resources/test_sac_overlay_xemu.c" "build/test/test_sac_overlay_${soname}_xemu.prg" "$soflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_sac_overlay_$soname" "build/test/test_sac_overlay_${soname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_sac_overlay_xemu.c $soname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: __regparm (first argument in A / A:X), two modules, both conventions
 # with and without static allocation
 for rpmode in "stack|-fno-zpcall|$STDLIB_STACK" "stack_nosac|-fno-zpcall -fno-staticalloc|$STDLIB_STACK" \
@@ -412,7 +433,8 @@ done
 for fimode in "stack|-fno-zpcall" "zp|"; do
     IFS='|' read -r finame fiflags <<< "$fimode"
     echo "Testing test_fileio_xemu.c ($finame)..."
-    compile_link_test "src/test-resources/test_fileio_xemu.c" "build/test/test_fileio_${finame}_xemu.prg" "$fiflags"
+    compile_link_test "src/test-resources/test_fileio_xemu.c" "build/test/test_fileio_${finame}_xemu.prg" "$fiflags" \
+        "src/test-resources/test_fileio_heap_xemu.s45"
     if [ $? -eq 0 ] && rm -f "build/test/test_fileio_${finame}.d81" &&
        ./bin/disk45 create "build/test/test_fileio_${finame}.d81" -n "FILEIO" >/dev/null 2>&1; then
         run_xemu_test "test_fileio_$finame" "build/test/test_fileio_${finame}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA" \

@@ -50,8 +50,8 @@ std::vector<O45Reloc> O45RelocDecoder::decode(const std::vector<uint8_t>& raw) {
         r.type = (O45RelocType)(typeSeg & O45_RTYPE_MASK);
         r.segment = (O45Segment)(typeSeg & O45_RSEG_MASK);
 
-        // R_HIGH has an extra byte
-        if (r.type == R_HIGH) {
+        // R_HIGH and R_LOWX have an extra byte
+        if (o45RelocHasExtra(r.type)) {
             if (pos >= raw.size()) break;
             r.extra = raw[pos++];
         }
@@ -143,6 +143,57 @@ bool O45Linker::resolveLibraries(std::string& errorMsg) {
 
     (void)errorMsg;
     return true;
+}
+
+// Largest alignment an object asks for in a segment (cc45.align.data / .bss)
+static uint32_t objAlign(const O45File& o, const char* marker) {
+    uint32_t a = 1;
+    for (const auto& exp : o.exports)
+        if (exp.name == marker && exp.offset > a) a = exp.offset;
+    return a;
+}
+
+// BSS: each object's part in order (on its cc45.align.bss boundary), less
+// the SAC blocks computeSacOverlay moved, then the SAC overlay area
+void O45Linker::layoutBss() {
+    mergedBssLen_ = 0;
+    bssLenBeforeZpPage_ = -1;
+    for (int idx = 0; idx < (int)objects_.size(); idx++) {
+        auto& input = objects_[idx];
+        uint32_t ba = objAlign(input.obj, "cc45.align.bss");
+        mergedBssLen_ = (mergedBssLen_ + ba - 1) / ba * ba;
+        input.bssOffset = mergedBssLen_;
+        input.bssRemaps.clear();
+        auto it = sacMoves_.find(idx);
+        if (it == sacMoves_.end()) {
+            input.bssKeptLen = input.obj.blen;
+            mergedBssLen_ += input.obj.blen;
+            continue;
+        }
+        auto moves = it->second;
+        std::sort(moves.begin(), moves.end(),
+                  [](const SacMove& a, const SacMove& b) { return a.srcOffset < b.srcOffset; });
+        uint32_t cursor = 0, dest = input.bssOffset;
+        for (const auto& m : moves) {
+            if (m.srcOffset > cursor) {
+                input.bssRemaps.push_back({cursor, m.srcOffset - cursor, dest, false});
+                dest += m.srcOffset - cursor;
+            }
+            cursor = m.srcOffset + m.len;
+        }
+        if (input.obj.blen > cursor) {
+            input.bssRemaps.push_back({cursor, input.obj.blen - cursor, dest, false});
+            dest += input.obj.blen - cursor;
+        }
+        input.bssKeptLen = dest - input.bssOffset;
+        mergedBssLen_ = dest;
+    }
+    sacOverlayOffset_ = mergedBssLen_;
+    mergedBssLen_ += sacOverlayLen_;
+    for (auto& [idx, moves] : sacMoves_)
+        for (const auto& m : moves)
+            objects_[idx].bssRemaps.push_back(
+                {m.srcOffset, m.len, sacOverlayOffset_ + m.overlayOffset, true});
 }
 
 uint32_t O45Linker::segmentBase(O45Segment seg) const {
@@ -281,12 +332,6 @@ bool O45Linker::layoutSegments(std::string& errorMsg) {
     // variables (_Alignas, __attribute__((aligned))) exports cc45.align.data /
     // cc45.align.bss: its part starts on that boundary, and the segment bases
     // are aligned to the largest such value.
-    auto objAlign = [](const O45File& o, const char* marker) -> uint32_t {
-        uint32_t a = 1;
-        for (const auto& exp : o.exports)
-            if (exp.name == marker && exp.offset > a) a = exp.offset;
-        return a;
-    };
     dataAlign_ = bssAlign_ = 1;
     for (auto& input : objects_) {
         uint32_t da = objAlign(input.obj, "cc45.align.data");
@@ -298,13 +343,10 @@ bool O45Linker::layoutSegments(std::string& errorMsg) {
         mergedData_.insert(mergedData_.end(),
                            input.obj.dataBody.begin(), input.obj.dataBody.end());
 
-        mergedBssLen_ = (mergedBssLen_ + ba - 1) / ba * ba;
-        input.bssOffset = mergedBssLen_;
-        mergedBssLen_ += input.obj.blen;
-
         input.zpOffset = mergedZpLen_;
         mergedZpLen_ += input.obj.zlen;
     }
+    layoutBss();
 
     // Auto-place data right after text if not explicitly set
     auto alignUp = [](uint32_t v, uint32_t a) { return (v + a - 1) / a * a; };
@@ -352,6 +394,8 @@ bool O45Linker::resolveSymbols(std::string& errorMsg) {
                 // Symbol offset is within the object's original text body;
                 // remap to position in the merged text body.
                 finalAddr = base + input.remapTextOffset(exp.offset);
+            } else if (segId == SEG_BSS) {
+                finalAddr = base + input.remapBssOffset(exp.offset);
             } else {
                 finalAddr = base + objOffset + exp.offset;
             }
@@ -491,6 +535,8 @@ bool O45Linker::resolveSymbols(std::string& errorMsg) {
             (void)addr;
             if (name != "_main" &&
                 !(name.size() >= 2 && name[0] == '_' && name[1] == '_') &&
+                name.rfind("cc45.", 0) != 0 &&
+                !(name.size() > 4 && name.compare(name.size() - 4, 4, "__ar") == 0) &&
                 importedSymbols.find(name) == importedSymbols.end() &&
                 symbolSource_[name] != "<linker>") {
                 // informational (most are library internals and C globals
@@ -541,6 +587,12 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
         //              << " at offset 0x" << std::hex << r.offset << " (patch pos 0x" << patchPos << ")"
         //              << " type=" << (int)r.type << " seg=" << (int)r.segment << std::dec << std::endl;
         //}
+
+        if ((uint8_t)r.segment > SEG_ZP) {
+            errorMsg = "unknown relocation segment " + std::to_string((int)r.segment) +
+                       " in " + input.filename;
+            return false;
+        }
 
         if (patchPos >= body.size()) {
             errorMsg = "relocation offset " + std::to_string(patchPos) +
@@ -602,6 +654,10 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
                     uint8_t lo = r.extra;
                     uint16_t w = (hi << 8) | lo;
                     addend = (uint32_t)(int32_t)(int16_t)w; // sign-extend 16-bit addend
+                } else if (r.type == R_LOWX) {
+                    // low byte at the patch site, high byte in extra
+                    uint16_t w = (uint16_t)((r.extra << 8) | body[patchPos]);
+                    addend = (uint32_t)(int32_t)(int16_t)w;
                 } else {
                     int pSize = o45RelocPatchSize((uint8_t)r.type);
                     for (int i = 0; i < pSize && (patchPos + i) < body.size(); i++) {
@@ -654,6 +710,9 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
                 uint8_t hi = body[patchPos];
                 uint8_t lo = r.extra;
                 existingVal = (hi << 8) | lo;
+            } else if (r.type == R_LOWX) {
+                // patch site = low byte, extra = original high byte
+                existingVal = (r.extra << 8) | body[patchPos];
             } else {
                 int patchSize = o45RelocPatchSize((uint8_t)r.type);
                 for (int i = 0; i < patchSize && (patchPos + i) < body.size(); i++) {
@@ -675,6 +734,8 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
 
             if (r.segment == SEG_TEXT && !input.textRemaps.empty() && input.textRemaps.size() > 1) {
                 targetAddr = segBase + input.remapTextOffset(segRelOff);
+            } else if (r.segment == SEG_BSS) {
+                targetAddr = segBase + input.remapBssOffset(segRelOff);
             } else {
                 targetAddr = segBase + segObjOff + segRelOff;
             }
@@ -739,6 +800,7 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
                 body[patchPos + 1] = (uint8_t)((targetAddr >> 8) & 0xFF);
                 break;
             case R_LOW:
+            case R_LOWX:
                 body[patchPos] = (uint8_t)(targetAddr & 0xFF);
                 break;
             case R_HIGH:
@@ -872,11 +934,13 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
         return {};
     }
 
-    // Phase 2: Assign overlapping AR addresses via call-graph coloring
-    colorStaticAllocRegisters();
-
-    // Phase 3: Patch static allocation symbol addresses in global symbol table
-    patchStaticAllocAddresses();
+    // SAC storage of functions never active at the same time is shared:
+    // the blocks move into the overlay area at the end of BSS
+    computeSacOverlay();
+    if (!sacMoves_.empty()) {
+        layoutBss();
+        if (!resolveSymbols(errorMsg)) return {};
+    }
 
     // Generate thunks for convention mismatches (appends to mergedText_)
     generateThunks();
@@ -891,8 +955,6 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
                 bssBase_ = (dataBase_ + (uint32_t)mergedData_.size() + bssAlign_ - 1) / bssAlign_ * bssAlign_;
             if (!resolveSymbols(errorMsg)) return {};
             for (const auto& [name, addr] : thunkAddresses_) globalSymbols_[name] = addr;
-            colorStaticAllocRegisters();
-            patchStaticAllocAddresses();
         }
     }
 
@@ -2825,220 +2887,210 @@ void O45Linker::validateImmediateRelocations() {
     }
 }
 
-// 3.4 — Phase 2: Color static allocation registers (call-graph based AR overlay)
-// Assigns overlapping BSS addresses to non-conflicting SAC functions
-// Stream D refinement: Track ISR-only reachability for fine-grained coloring
-void O45Linker::colorStaticAllocRegisters() {
-    // Collect all SAC functions and their frame sizes
-    std::vector<std::string> sacFuncs;
-    std::map<std::string, uint32_t> frameSizes;
+// SAC overlay. A static-allocation (SAC) function keeps its parameters and
+// locals in a BSS block (cc45: <f>__ar, size cc45.sacsize.<f>). Two SAC
+// functions can share storage when neither can be active while the other
+// is: neither reaches the other through calls. The blocks of such
+// functions are placed first-fit in one overlay area at the end of BSS.
+//
+// Calls are JSR and JMP references to a function. Any other reference
+// (an address loaded or stored in data) makes the function callable
+// indirectly from anywhere: it and everything it reaches keep their own
+// storage. In objects not made by cc45 (assembly), exported labels are
+// not function boundaries: a label's code can fall through to or branch to
+// another, so all labels of such an object are treated as one function.
+void O45Linker::computeSacOverlay() {
+    sacMoves_.clear();
+    sacOverlayLen_ = 0;
+    sacOverlaySaved_ = 0;
+    if (!sacOverlayOn_) return;
 
-    for (const auto& [name, attr] : funcAttrs_) {
-        if ((attr.flags & FUNC_FLAG_STATIC_ALLOC) != 0) {
-            sacFuncs.push_back(name);
-            frameSizes[name] = attr.frameSize;
+    bool anySac = false;
+    for (const auto& [name, attr] : funcAttrs_)
+        if (attr.flags & FUNC_FLAG_STATIC_ALLOC) anySac = true;
+    if (!anySac) return;
+
+    auto sacBase = [this](std::string n) {
+        if (n.size() > 5 && n.compare(n.size() - 5, 5, "__sac") == 0 &&
+            funcAttrs_.count(n.substr(0, n.size() - 5)))
+            n.resize(n.size() - 5);
+        return n;
+    };
+
+    std::map<std::string, std::set<std::string>> graph = callGraph_;
+    std::set<std::string> addrTaken;
+
+    for (const auto& input : objects_) {
+        bool isCc45 = false;
+        for (const auto& exp : input.obj.exports)
+            if (exp.name == "cc45.mode_zp" || exp.name == "cc45.mode_stack") isCc45 = true;
+
+        // text labels by offset in the object's text body
+        std::map<uint32_t, std::vector<std::string>> labels;
+        for (const auto& exp : input.obj.exports)
+            if (exp.segmentId() == SEG_TEXT) labels[exp.offset].push_back(sacBase(exp.name));
+
+        if (!isCc45 && labels.size() > 1) {
+            for (auto it = labels.begin(); std::next(it) != labels.end(); ++it)
+                for (const auto& a : it->second)
+                    for (const auto& b : std::next(it)->second)
+                        graph[a].insert(b);
         }
-    }
-    if (sacFuncs.empty()) return;  // No SAC functions to color
 
-    // Stream D: Identify ISR-only reachable functions for refined coloring
-    // Functions reachable only from ISRs (not from mainline) can use separate AR zone
-    std::set<std::string> isrReachable, mainlineReachable, isrOnlyReachable;
+        auto owners = [&](uint32_t off) -> const std::vector<std::string>* {
+            auto it = labels.upper_bound(off);
+            if (it == labels.begin()) return nullptr;
+            return &std::prev(it)->second;
+        };
 
-    // Find functions reachable from ISR handlers
-    for (const auto& [name, attr] : funcAttrs_) {
-        if ((attr.flags & FUNC_FLAG_ISR) != 0) {
-            std::set<std::string> visited;
-            std::queue<std::string> q;
-            q.push(name);
-            visited.insert(name);
-            while (!q.empty()) {
-                auto curr = q.front(); q.pop();
-                isrReachable.insert(curr);
-                auto it = callGraph_.find(curr);
-                if (it != callGraph_.end()) {
-                    for (const auto& callee : it->second) {
-                        if (!visited.count(callee)) {
-                            visited.insert(callee);
-                            q.push(callee);
-                        }
-                    }
-                }
+        // the function names a relocation refers to
+        auto targets = [&](const O45Reloc& r, const std::vector<uint8_t>& body,
+                           std::vector<std::string>& out) {
+            out.clear();
+            if (r.segment == SEG_EXTERNAL) {
+                if (r.symbolIndex < input.obj.imports.size())
+                    out.push_back(sacBase(input.obj.imports[r.symbolIndex].name));
+                return;
             }
-        }
-    }
-
-    // Find functions reachable from common entry points (main, startup code)
-    for (const auto& [name, _] : callGraph_) {
-        // Treat functions called from nothing (no incoming edges) as entry points
-        bool hasIncomingEdge = false;
-        for (const auto& [caller, callees] : callGraph_) {
-            if (callees.count(name)) {
-                hasIncomingEdge = true;
-                break;
-            }
-        }
-        if (!hasIncomingEdge) {
-            // Entry point found; mark all reachable as mainline-reachable
-            std::set<std::string> visited;
-            std::queue<std::string> q;
-            q.push(name);
-            visited.insert(name);
-            while (!q.empty()) {
-                auto curr = q.front(); q.pop();
-                mainlineReachable.insert(curr);
-                auto it = callGraph_.find(curr);
-                if (it != callGraph_.end()) {
-                    for (const auto& callee : it->second) {
-                        if (!visited.count(callee)) {
-                            visited.insert(callee);
-                            q.push(callee);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // Functions reachable only from ISRs (not from mainline)
-    for (const auto& func : isrReachable) {
-        if (!mainlineReachable.count(func)) {
-            isrOnlyReachable.insert(func);
-        }
-    }
-
-    // Build conflict graph: two functions conflict if one is reachable from the other
-    // Stream D refinement: ISR-only functions don't conflict with mainline-only functions
-    // Non-conflicting functions can share the same AR addresses (overlapped)
-    std::map<std::string, std::set<std::string>> conflicts;
-    for (const auto& func : sacFuncs) {
-        conflicts[func] = std::set<std::string>();
-        // Mark as conflicting any function reachable FROM this function
-        std::set<std::string> reachable;
-        std::queue<std::string> q;
-        q.push(func);
-        while (!q.empty()) {
-            auto curr = q.front(); q.pop();
-            auto it = callGraph_.find(curr);
-            if (it != callGraph_.end()) {
-                for (const auto& callee : it->second) {
-                    if (!reachable.count(callee)) {
-                        reachable.insert(callee);
-                        q.push(callee);
-                    }
-                }
-            }
-        }
-        // Also mark as conflicting any function that can reach this function
-        for (const auto& other : sacFuncs) {
-            if (other == func) continue;
-
-            // Stream D: Skip conflict if one is ISR-only and other is mainline-only
-            // They can never execute concurrently on the call stack
-            bool funcIsISROnly = isrOnlyReachable.count(func) && !mainlineReachable.count(func);
-            bool otherIsISROnly = isrOnlyReachable.count(other) && !mainlineReachable.count(other);
-            bool funcIsMainlineOnly = mainlineReachable.count(func) && !isrReachable.count(func);
-            bool otherIsMainlineOnly = mainlineReachable.count(other) && !isrReachable.count(other);
-
-            if ((funcIsISROnly && otherIsMainlineOnly) || (funcIsMainlineOnly && otherIsISROnly)) {
-                continue;  // No conflict: different execution contexts
-            }
-
-            auto it = callGraph_.find(other);
-            if (it != callGraph_.end()) {
-                for (const auto& callee : it->second) {
-                    if (callee == func) {
-                        conflicts[func].insert(other);
-                        break;
-                    }
-                }
-            }
-            if (reachable.count(other)) {
-                conflicts[func].insert(other);
-            }
-        }
-    }
-
-    // Greedy graph coloring: assign each function to an AR slot
-    // Color = AR slot ID; functions with same color share AR space (overlay)
-    std::map<std::string, uint32_t> arColor;
-    std::vector<std::vector<std::string>> usedFuncsPerColor;
-
-    for (const auto& func : sacFuncs) {
-        // Find smallest color (AR slot) that doesn't conflict
-        uint32_t color = 0;
-        bool found = false;
-        while (!found) {
-            bool canUse = true;
-            // Check if any function with this color conflicts with 'func'
-            if (color < usedFuncsPerColor.size()) {
-                for (const auto& other : usedFuncsPerColor[color]) {
-                    if (conflicts[func].count(other) || conflicts[other].count(func)) {
-                        canUse = false;
-                        break;
-                    }
-                }
-            }
-            if (canUse) {
-                arColor[func] = color;
-                if (color >= usedFuncsPerColor.size()) {
-                    usedFuncsPerColor.resize(color + 1);
-                }
-                usedFuncsPerColor[color].push_back(func);
-                found = true;
+            if (r.segment != SEG_TEXT) return;
+            uint32_t v;
+            if (r.type == R_WORD) {
+                if (r.offset + 1 >= body.size()) return;
+                v = body[r.offset] | (body[r.offset + 1] << 8);
+            } else if (r.type == R_HIGH) {
+                if (r.offset >= body.size()) return;
+                v = (body[r.offset] << 8) | r.extra;
+            } else if (r.type == R_LOWX) {
+                if (r.offset >= body.size()) return;
+                v = (r.extra << 8) | body[r.offset];
             } else {
-                color++;
+                return;   // R_LOW: its R_HIGH partner names the target
+            }
+            auto it = labels.find((v - input.obj.tbase) & 0xFFFF);
+            if (it != labels.end()) out = it->second;
+        };
+
+        std::vector<std::string> tgt;
+        for (const auto& r : O45RelocDecoder::decode(input.obj.textRelocs)) {
+            targets(r, input.obj.textBody, tgt);
+            if (tgt.empty()) continue;
+            uint8_t op = (r.offset > 0 && r.offset - 1 < input.obj.textBody.size())
+                         ? input.obj.textBody[r.offset - 1] : 0;
+            if (r.type == R_WORD && (op == 0x20 || op == 0x4C)) {   // JSR / JMP
+                if (const auto* own = owners(r.offset))
+                    for (const auto& o : *own)
+                        for (const auto& t : tgt) graph[o].insert(t);
+            } else {
+                addrTaken.insert(tgt.begin(), tgt.end());
             }
         }
-    }
-
-    // Compute final BSS-relative AR base addresses
-    // Each color (slot) gets contiguous BSS space; functions with same color overlay
-    uint32_t currentBssOffset = 0;
-    std::vector<uint32_t> colorToBssBase;
-
-    for (size_t color = 0; color < usedFuncsPerColor.size(); color++) {
-        colorToBssBase.push_back(currentBssOffset);
-        // Compute max frame size for this color (all functions sharing this slot)
-        uint32_t maxFrameSize = 0;
-        for (const auto& func : usedFuncsPerColor[color]) {
-            maxFrameSize = std::max(maxFrameSize, frameSizes[func]);
-        }
-        currentBssOffset += maxFrameSize;
-    }
-
-    // Populate arBaseAddresses_ map with final BSS-relative addresses
-    for (const auto& [func, color] : arColor) {
-        uint32_t bssBase = bssBase_;
-        arBaseAddresses_[func] = bssBase + colorToBssBase[color];
-    }
-}
-
-// 3.4b — Phase 3: Patch static allocation symbol addresses
-// Apply computed AR base addresses to global symbol table
-void O45Linker::patchStaticAllocAddresses() {
-    if (arBaseAddresses_.empty()) return;  // No SAC functions to patch
-
-    // For each computed AR base address, update the global symbol map
-    // This replaces the placeholder BSS address with the final overlay address
-    for (const auto& [funcName, arBaseAddr] : arBaseAddresses_) {
-        // Symbol name pattern: <func>__ar (e.g., "main__ar")
-        std::string arSymbolName = funcName + "__ar";
-
-        // Check if symbol exists in global symbol table
-        auto it = globalSymbols_.find(arSymbolName);
-        if (it != globalSymbols_.end()) {
-            // Update address to computed overlay address
-            globalSymbols_[arSymbolName] = arBaseAddr;
-        } else {
-            // Symbol should exist if function was compiled with SAC
-            // This is a warning-level issue, not an error (symbol may not be exported)
-            if (warnStream_) {
-                ln45info() << "warning: SAC function '" << funcName
-                            << "' has no __ar symbol in global symbol table\n";
-            }
+        for (const auto& r : O45RelocDecoder::decode(input.obj.dataRelocs)) {
+            targets(r, input.obj.dataBody, tgt);
+            addrTaken.insert(tgt.begin(), tgt.end());
         }
     }
+
+    auto reachFrom = [&](const std::string& start) {
+        std::set<std::string> seen;
+        std::vector<std::string> todo{start};
+        while (!todo.empty()) {
+            std::string n = todo.back();
+            todo.pop_back();
+            auto it = graph.find(n);
+            if (it == graph.end()) continue;
+            for (const auto& c : it->second)
+                if (seen.insert(c).second) todo.push_back(c);
+        }
+        return seen;
+    };
+
+    std::set<std::string> unsafe;
+    for (const auto& f : addrTaken) {
+        unsafe.insert(f);
+        auto r = reachFrom(f);
+        unsafe.insert(r.begin(), r.end());
+    }
+
+    // the blocks that can move: the definition the link uses, in an object
+    // without aligned BSS
+    struct Block { std::string func; int obj; uint32_t off, len; };
+    std::vector<Block> blocks;
+    for (int idx = 0; idx < (int)objects_.size(); idx++) {
+        const auto& input = objects_[idx];
+        if (objAlign(input.obj, "cc45.align.bss") > 1) continue;
+        // a plain R_LOW into BSS has only the low byte of its target: the
+        // linker cannot tell which variable it is (older objects; ca45
+        // writes R_LOWX), so nothing of this object's BSS moves
+        bool lowOnly = false;
+        for (const auto* tbl : {&input.obj.textRelocs, &input.obj.dataRelocs})
+            for (const auto& r : O45RelocDecoder::decode(*tbl))
+                if (r.type == R_LOW && r.segment == SEG_BSS) lowOnly = true;
+        if (lowOnly) continue;
+        std::map<std::string, uint32_t> sizes;
+        for (const auto& exp : input.obj.exports)
+            if (exp.name.rfind("cc45.sacsize.", 0) == 0) sizes[exp.name.substr(13)] = exp.offset;
+        for (const auto& exp : input.obj.exports) {
+            if (exp.segmentId() != SEG_BSS) continue;
+            if (exp.name.size() <= 4 || exp.name.compare(exp.name.size() - 4, 4, "__ar") != 0) continue;
+            std::string fn = exp.name.substr(0, exp.name.size() - 4);
+            auto sz = sizes.find(fn);
+            if (sz == sizes.end() || sz->second == 0) continue;
+            auto fa = funcAttrs_.find(fn);
+            if (fa == funcAttrs_.end() || !(fa->second.flags & FUNC_FLAG_STATIC_ALLOC)) continue;
+            if (unsafe.count(fn)) continue;
+            if (symbolSource_[fn] != input.filename) continue;
+            bool defined = false;   // this object's definition is the one in use
+            for (const auto& e2 : input.obj.exports)
+                if (e2.name == fn && e2.segmentId() == SEG_TEXT &&
+                    globalSymbols_[fn] == textBase_ + input.remapTextOffset(e2.offset))
+                    defined = true;
+            if (!defined) continue;
+            if (exp.offset + sz->second > input.obj.blen) continue;
+            blocks.push_back({fn, idx, exp.offset, sz->second});
+        }
+    }
+    for (const auto& f : addrTaken) ln45debug() << "SAC overlay: address taken " << f << "\n";
+    for (const auto& f : unsafe) ln45debug() << "SAC overlay: unsafe " << f << "\n";
+    for (const auto& b : blocks) ln45debug() << "SAC overlay: block " << b.func << " " << b.len << "\n";
+    if (blocks.size() < 2) return;
+
+    std::map<std::string, std::set<std::string>> reach;
+    for (const auto& b : blocks) reach[b.func] = reachFrom(b.func);
+    auto conflict = [&](const std::string& a, const std::string& b) {
+        return reach[a].count(b) || reach[b].count(a);
+    };
+
+    // first fit, largest blocks first
+    std::sort(blocks.begin(), blocks.end(), [](const Block& a, const Block& b) {
+        return a.len != b.len ? a.len > b.len : a.func < b.func;
+    });
+    struct Placed { const Block* b; uint32_t at; };
+    std::vector<Placed> placed;
+    uint32_t total = 0;
+    for (const auto& b : blocks) {
+        std::vector<std::pair<uint32_t, uint32_t>> busy;
+        for (const auto& p : placed)
+            if (conflict(b.func, p.b->func)) busy.push_back({p.at, p.at + p.b->len});
+        std::sort(busy.begin(), busy.end());
+        uint32_t at = 0;
+        for (const auto& [lo, hi] : busy) {
+            if (at + b.len <= lo) break;
+            at = std::max(at, hi);
+        }
+        placed.push_back({&b, at});
+        sacOverlayLen_ = std::max(sacOverlayLen_, at + b.len);
+        total += b.len;
+    }
+    if (sacOverlayLen_ >= total) { sacOverlayLen_ = 0; return; }   // nothing shared
+
+    sacOverlaySaved_ = total - sacOverlayLen_;
+    for (const auto& p : placed) {
+        sacMoves_[p.b->obj].push_back({p.b->off, p.b->len, p.at, p.b->func});
+        ln45debug() << "SAC overlay: place " << p.b->func << " at " << p.at << " len " << p.b->len << "\n";
+    }
+    ln45info() << "SAC overlay: " << placed.size() << " functions, " << total
+               << " bytes of storage in " << sacOverlayLen_ << " (" << sacOverlaySaved_
+               << " saved)\n";
 }
 
 // 3.5 — Generate convention bridge thunks.
@@ -3258,6 +3310,13 @@ void O45Linker::writeMap(std::ostream& out) const {
     printSeg("TEXT", textBase_, (uint32_t)mergedText_.size());
     printSeg("DATA", dataBase_, (uint32_t)mergedData_.size());
     printSeg("BSS", bssBase_, mergedBssLen_);
+    if (sacOverlayLen_ > 0) {
+        char buf[100];
+        snprintf(buf, sizeof(buf), "  (SAC overlay $%04X - $%04X, %u bytes; %u saved by sharing)\n",
+                 bssBase_ + sacOverlayOffset_, bssBase_ + sacOverlayOffset_ + sacOverlayLen_ - 1,
+                 sacOverlayLen_, sacOverlaySaved_);
+        out << buf;
+    }
     printSeg("ZP", zpBase_, mergedZpLen_);
     out << "\n";
 
@@ -3279,10 +3338,10 @@ void O45Linker::writeMap(std::ostream& out) const {
                      start, start + input.obj.dlen - 1, input.obj.dlen);
             out << buf;
         }
-        if (input.obj.blen > 0) {
+        if (input.bssKeptLen > 0) {
             uint32_t start = bssBase_ + input.bssOffset;
             snprintf(buf, sizeof(buf), "    BSS   $%04X - $%04X  (%u bytes)\n",
-                     start, start + input.obj.blen - 1, input.obj.blen);
+                     start, start + input.bssKeptLen - 1, input.bssKeptLen);
             out << buf;
         }
         if (input.obj.zlen > 0) {

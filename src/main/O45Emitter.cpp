@@ -416,9 +416,14 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
             }
             segRelocs[srcSeg].push_back(reloc);
         } else if (isLow) {
+            // R_LOWX: the extra byte is the high byte of the whole value the
+            // low byte is taken from, so the linker can rebuild it
+            uint8_t highByte = (uint8_t)((sym->value >> 8) & 0xFF);
+            try { highByte = (uint8_t)((parser.evaluateExpressionAt(idx, stmt->scopePrefix) >> 8) & 0xFF); } catch (...) {}
             O45Reloc reloc;
             reloc.offset = patchOff;
-            reloc.type = R_LOW;
+            reloc.type = R_LOWX;
+            reloc.extra = highByte;
             if (isExtern) {
                 reloc.segment = SEG_EXTERNAL;
                 reloc.symbolIndex = syms.getImportIndex(symName);

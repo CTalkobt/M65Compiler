@@ -69,7 +69,9 @@ writes a standalone assembly form with its own startup stub.
   a call cycle within the file, `__interrupt`, variadic and runtime-`alloca`
   functions get stack frames; `#pragma cc45 recurse` forces a frame for the
   next function. ln45 rejects SAC functions on a cross-module call cycle and
-  SAC functions reachable from an `__interrupt` handler.
+  SAC functions reachable from an `__interrupt` handler, and overlays the
+  storage (`_f__ar` blocks) of SAC functions never active at the same time
+  (address-taken functions and their callees keep their own).
 - **Returns**: `char` A; `int`/pointer A/X; `long` A/X/Y/Z (Q). Structs,
   unions, floats and `long long` are returned through a hidden first parameter
   `__sret` that points into the caller's storage; the callee copies the value
@@ -271,8 +273,7 @@ overlays, `dma.h`. Many other headers (graphics, sprites, hw_*, uart, conio
 - **ca45**: fixed (2026-10-12): expressions/literals, data directives,
   `#include`, `.org` expressions, the simulated ops (`test_ca45_simops_xemu.s45`).
 - **cc45**: none known (2026-10-12).
-- **ln45**: SAC
-  overlay never applied ("no __ar symbol" warnings).
+- **ln45**: `-d` below the end of text gives a wrong image.
 - **basic45**: line links off by 2, labels not resolved, operators not tokenized.
 - **disk45**: adding to D90/CMD images doesn't update the BAM; `rel-create`
   corrupts D81; modifying G64/NIB/Zipcode overwrites them with D64 data.

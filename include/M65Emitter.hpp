@@ -348,7 +348,9 @@ public:
     const std::vector<SymbolReloc>& symbolRelocs() const { return symbolRelocs_; }
     void emitWordReloc(const std::string& symbolName, uint16_t value = 0);
     void recordSymbolReloc(const std::string& name);
-    void recordSymbolRelocLo(const std::string& name);
+    // highByte >= 0: R_LOWX carrying the high byte of the full value (sym+n),
+    // so the linker can rebuild it; otherwise a plain R_LOW
+    void recordSymbolRelocLo(const std::string& name, int highByte = -1);
     void recordSymbolRelocHi(const std::string& name, uint8_t lowByte);
     void recordSymbolReloc32Bit(const std::string& name);
 

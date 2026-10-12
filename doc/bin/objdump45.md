@@ -85,7 +85,7 @@ Imports, then exports in file order. Letters as in [nm45](nm45.md): `U`, `T`, `D
 ```
 RELOCATION RECORDS FOR [TEXT] (amain.o45):
 OFFSET     TYPE         SEGMENT  SYMBOL
-00000001   R_LOW        DATA
+00000001   R_LOWX       DATA      extra=$00
 00000003   R_HIGH       DATA      extra=$00
 00000005   R_WORD       EXTERN   print
 ```
