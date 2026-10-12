@@ -1183,23 +1183,16 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     // Auto-emit float runtime externs if any float ops are used
     if (relocMode) {
         bool hasFloat = false;
-        bool hasFloatArg = false;
-        bool hasFloatSprintf = false;
+        // Only a float in the "..." of a variadic call (or an unprototyped
+        // call) needs the %f-aware printf: a float passed to a prototyped
+        // parameter (__vformat's own ffmt call) does not
+        bool hasFloatArg = mod.floatVarArg;
+        bool hasFloatSprintf = mod.floatSprintfArg;
         for (const auto& fn : mod.functions) {
             for (const auto& blk : fn.blocks) {
                 for (const auto& inst : blk.insts) {
                     if (inst.op >= ir::Op::FADD && inst.op <= ir::Op::FCONST) {
                         hasFloat = true;
-                    }
-                    if (inst.op == ir::Op::CALL || inst.op == ir::Op::CALL_INDIRECT || inst.op == ir::Op::CALL_VOID) {
-                        for (const auto& arg : inst.args) {
-                            if (arg.type == ir::Type::F32) {
-                                hasFloatArg = true;
-                                if (inst.src1.kind == ir::OperandKind::GLOBAL && inst.src1.name == "_sprintf")
-                                    hasFloatSprintf = true;
-                                break;
-                            }
-                        }
                     }
                 }
             }

@@ -433,8 +433,7 @@ done
 for fimode in "stack|-fno-zpcall" "zp|"; do
     IFS='|' read -r finame fiflags <<< "$fimode"
     echo "Testing test_fileio_xemu.c ($finame)..."
-    compile_link_test "src/test-resources/test_fileio_xemu.c" "build/test/test_fileio_${finame}_xemu.prg" "$fiflags" \
-        "src/test-resources/test_fileio_heap_xemu.s45"
+    compile_link_test "src/test-resources/test_fileio_xemu.c" "build/test/test_fileio_${finame}_xemu.prg" "$fiflags"
     if [ $? -eq 0 ] && rm -f "build/test/test_fileio_${finame}.d81" &&
        ./bin/disk45 create "build/test/test_fileio_${finame}.d81" -n "FILEIO" >/dev/null 2>&1; then
         run_xemu_test "test_fileio_$finame" "build/test/test_fileio_${finame}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA" \

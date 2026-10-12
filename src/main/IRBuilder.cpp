@@ -6428,6 +6428,11 @@ normal_call:
             // (Unprototyped calls are left as they are: a callee defined
             // with char parameters packs them in one byte each.)
             size_t ai = i - (isSret ? 1 : 0);
+            if (args[i].type == ir::Type::F32) {
+                module_.floatVarArg = true;
+                if (!fpSig && (node.name == "sprintf" || node.name == "_sprintf"))
+                    module_.floatSprintfArg = true;
+            }
             if (args[i].type == ir::Type::I8 && !fpSig && variadicFunctions_.count(node.name) &&
                 ai < node.arguments.size()) {
                 bool sig = getExprTypeInfo(node.arguments[ai].get()).isSigned;
