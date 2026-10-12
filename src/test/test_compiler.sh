@@ -132,12 +132,18 @@ for f in "${TEST_FILES[@]}"; do
         continue
     fi
     
-    # 2. Assemble
-    $AS "$s_file" -o "$bin_file"
-    if [ $? -ne 0 ]; then
-        echo "FAIL: Assembly failed for $f"
-        failed=$((failed + 1))
-        continue
+    # 2. Assemble: a flat binary; a program that calls the library cannot be
+    # one (ca45 rejects the unresolved .extern), so it is assembled as an object
+    if ! $AS "$s_file" -o "$bin_file" > build/test/as_flat.log 2>&1; then
+        if grep -q "is .extern but no linker resolves it" build/test/as_flat.log &&
+           $AS -c "$s_file" -o "${bin_file%.bin}.o45" >/dev/null 2>&1; then
+            :
+        else
+            cat build/test/as_flat.log
+            echo "FAIL: Assembly failed for $f"
+            failed=$((failed + 1))
+            continue
+        fi
     fi
     
     echo "SUCCESS: $f"
@@ -150,7 +156,8 @@ if [ $? -ne 0 ]; then
     echo "FAIL: -I lib/include (space) failed"
     failed=$((failed + 1))
 else
-    $AS build/test/test_include_flag.s45 -o build/test/test_include_flag.bin
+    # (it calls the library: an object, not a flat binary)
+    $AS -c build/test/test_include_flag.s45 -o build/test/test_include_flag.o45
     if [ $? -ne 0 ]; then
         echo "FAIL: Assembly failed for test_include_flag.s45 (-I space)"
         failed=$((failed + 1))

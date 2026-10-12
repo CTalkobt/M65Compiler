@@ -48,7 +48,6 @@ AS_TEST_FILES=(
     "src/test-resources/test_addr_helpers.s45"
     "src/test-resources/test_shifts_16.s45"
     "src/test-resources/test_new_16bit_ops.s45"
-    "src/test-resources/test_global_extern.s45"
     "src/test-resources/test_array.s45"
     "src/test-resources/test_expressions.s45"
 )
@@ -123,6 +122,31 @@ if [ -f build/test_zp_shift.bin ] && echo "$ACTUAL_ZP" | grep -q "85 10"; then
 else
     echo "FAIL: -Dcc45.zeroPageStart did not shift ZP addresses correctly."
     echo "Actual bytes: $ACTUAL_ZP"
+    failed=$((failed + 1))
+fi
+
+echo "Testing .global / .extern in an object (test_global_extern.s45)..."
+if $AS -c src/test-resources/test_global_extern.s45 -o build/test/test_global_extern.o45 >/dev/null 2>&1 &&
+   ./bin/nm45 build/test/test_global_extern.o45 | grep -q " U _printf" &&
+   ./bin/nm45 build/test/test_global_extern.o45 | grep -q " T _main" &&
+   ./bin/nm45 build/test/test_global_extern.o45 | grep -q " D _count"; then
+    echo "SUCCESS: .global exports and .extern imports in the object"
+else
+    echo "FAIL: test_global_extern.s45 as an object"
+    failed=$((failed + 1))
+fi
+
+echo "Testing a used .extern in a flat program..."
+# no linker resolves it: an error (it would be $0000); declared but unused is fine,
+# and -c keeps it as an import
+printf '.extern _used, _unused\n* = $2000\n    jsr _used\n    rts\n' > build/test_flat_extern.s45
+if $AS build/test_flat_extern.s45 -o build/test_flat_extern.bin 2>&1 | grep -q "'_used' is .extern but no linker resolves it" &&
+   ! $AS build/test_flat_extern.s45 -o build/test_flat_extern.bin >/dev/null 2>&1 &&
+   ! $AS build/test_flat_extern.s45 -o build/test_flat_extern.bin 2>&1 | grep -q "_unused" &&
+   $AS -c build/test_flat_extern.s45 -o build/test_flat_extern.o45 >/dev/null 2>&1; then
+    echo "SUCCESS: a used .extern in a flat program is an error"
+else
+    echo "FAIL: a used .extern in a flat program should be an error (and only that one)"
     failed=$((failed + 1))
 fi
 

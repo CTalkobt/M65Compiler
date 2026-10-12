@@ -80,6 +80,8 @@ public:
     const std::vector<std::string>& getExternSymbols() const { return externSymbols; }
     bool isGlobalSymbol(const std::string& name) const { return globalSymbols.count(name) > 0; }
     bool isExternSymbol(const std::string& name) const { return externIndex.count(name) > 0; }
+    // The text of token i ("" if out of range)
+    std::string tokenText(int i) const { return (i >= 0 && i < (int)tokens.size()) ? tokens[i].value : ""; }
     // Returns true if the symbol's final address is not yet known (extern or in a non-org'd segment like BSS)
     bool isRelocatableSymbol(const std::string& name) const;
     bool isRelocatableSymbolIn(const std::string& name, const std::string& scopePrefix);

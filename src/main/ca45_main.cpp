@@ -1,4 +1,6 @@
 #include <iostream>
+#include <set>
+#include <regex>
 #include <string>
 #include <vector>
 #include <cstdlib>
@@ -718,6 +720,41 @@ int main(int argc, char** argv) {
                 isPrg = true;
             }
             auto binary = parser.pass2(isPrg);
+            // A flat program is not linked: a .extern symbol it uses (and
+            // does not define) would stay $0000 — a jsr $0000 that crashes
+            {
+                const auto& symtab = parser.getSymbolTable();
+                std::regex ident(R"([A-Za-z_][A-Za-z0-9_.]*)");
+                std::set<std::string> reported;
+                int unresolved = 0;
+                auto check = [&](const std::string& text, const AssemblerParser::Statement* st) {
+                    for (auto it = std::sregex_iterator(text.begin(), text.end(), ident);
+                         it != std::sregex_iterator(); ++it) {
+                        std::string name = it->str();
+                        if (!parser.isExternSymbol(name) || reported.count(name)) continue;
+                        auto sy = symtab.find(name);
+                        if (sy != symtab.end() && sy->second.segment != "__extern__") continue;   // defined here
+                        reported.insert(name);
+                        unresolved++;
+                        std::cerr << (st->sourceFile.empty() ? input_file : st->sourceFile) << ":"
+                                  << (st->sourceLine ? st->sourceLine : st->line)
+                                  << ": error: '" << name << "' is .extern but no linker resolves it in a flat "
+                                  << "program (it would be $0000): assemble with -c and link with ln45" << std::endl;
+                    }
+                };
+                for (const auto& st : parser.statements) {
+                    if (st->deleted) continue;
+                    if (st->type == AssemblerParser::Statement::INSTRUCTION) {
+                        std::string op = st->instr.operand;
+                        if (op.empty()) op = parser.tokenText(st->instr.operandTokenIndex);
+                        check(op, st.get());
+                    } else if (st->type == AssemblerParser::Statement::DIRECTIVE) {
+                        if (st->dir.name == "extern" || st->dir.name == "global" || st->dir.name == "weak") continue;
+                        for (const auto& a : st->dir.arguments) if (a.empty() || a[0] != '"') check(a, st.get());
+                    }
+                }
+                if (unresolved) return 1;
+            }
             if (!binary.empty()) {
                 std::ofstream out(output_file, std::ios::binary);
                 out.write(reinterpret_cast<const char*>(binary.data()), binary.size());
