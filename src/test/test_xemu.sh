@@ -349,6 +349,20 @@ for cpmode in "stack|-fno-zpcall|$STDLIB_STACK" "zp||$STDLIB"; do
     fi
 done
 
+# Test: virtual dispatch (every __vt set: locals, globals, statics, arrays,
+# nested members), stack and ZP conventions
+for vtmode in "stack|-fno-zpcall" "zp|"; do
+    IFS='|' read -r vtname vtflags <<< "$vtmode"
+    echo "Testing test_virtual_xemu.c ($vtname)..."
+    compile_link_test "src/test-resources/test_virtual_xemu.c" "build/test/test_virtual_${vtname}_xemu.prg" "$vtflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_virtual_$vtname" "build/test/test_virtual_${vtname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_virtual_xemu.c $vtname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: pointer differences (element counts, signed), stack and ZP conventions
 for pdmode in "stack|-fno-zpcall" "zp|"; do
     IFS='|' read -r pdname pdflags <<< "$pdmode"

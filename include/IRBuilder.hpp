@@ -215,6 +215,12 @@ private:
     // Constant initializer of an aggregate/array global laid out as bytes
     // (struct layout, nested braces, brace elision, designators); false if
     // some element isn't a link-time constant
+    // Every __vt member (struct objects with virtual methods, also in arrays
+    // and nested members) of an object of this type: (offset, vtable symbol)
+    void collectVtableSlots(const std::string& type, int ptrLevel, const std::vector<int>& dims, int base,
+                            std::vector<std::pair<int, std::string>>& out);
+    // A global/static object: put its __vt pointers in the initial image
+    void addVtableWords(ir::Module::GlobalVar& gv, const std::string& type, int ptrLevel, const std::vector<int>& dims);
     bool buildInitImage(ir::Module::GlobalVar& gv, const std::string& type, int ptrLevel,
                         const std::vector<int>& dims, Expression* init);
     struct InitImageCtx;

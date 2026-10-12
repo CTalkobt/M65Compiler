@@ -2369,8 +2369,10 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
 
     // Phase 3: If this struct has virtual methods, insert __vt pointer as first member
     if (def->hasVirtual || (!def->parentStruct.empty() && structs.count(def->parentStruct) && structs[def->parentStruct]->hasVirtual)) {
-        // Check if __vt already exists (inherited from parent)
-        bool hasVt = false;
+        // Check if __vt already exists: a parent with virtual methods has it
+        // at offset 0 (the parent's members are laid out first)
+        bool hasVt = !def->parentStruct.empty() && structs.count(def->parentStruct) &&
+                     structs[def->parentStruct]->hasVirtual;
         for (const auto& m : def->members) { if (m.name == "__vt") { hasVt = true; break; } }
         if (!hasVt) {
             StructMember vtMember;

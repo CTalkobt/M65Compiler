@@ -1551,7 +1551,8 @@ void IRBuilder::visit(FunctionDeclaration& node) {
 
     // Check for unused local variables and parameters
     for (const auto& [name, vregOp] : locals_) {
-        if (name != "__sret" && usedVregs_.find(vregOp.vregId) == usedVregs_.end() &&
+        // (__sret and a method's __this are hidden parameters)
+        if (name != "__sret" && name != "__this" && usedVregs_.find(vregOp.vregId) == usedVregs_.end() &&
             externalUsedVars_.find(name) == externalUsedVars_.end()) {
             ir::SourceLoc sl = localDeclLocs_[name];
             int line = sl.valid() ? sl.line : node.line;
@@ -2072,6 +2073,42 @@ int IRBuilder::objectSize(const std::string& type, int ptr, const std::vector<in
     int n = getTypeSize(type, ptr);
     for (int d : dims) n *= d;
     return n;
+}
+
+void IRBuilder::collectVtableSlots(const std::string& type, int ptrLevel, const std::vector<int>& dims, int base,
+                                   std::vector<std::pair<int, std::string>>& out) {
+    if (ptrLevel > 0) return;
+    const IRStructInfo* si = structOf(type);
+    if (!si || si->isUnion) return;
+    int count = 1;
+    for (int d : dims) count *= d;
+    for (int k = 0; k < count; k++) {
+        int off = base + k * si->totalSize;
+        auto vt = si->members.find("__vt");
+        if (vt != si->members.end()) out.push_back({off + vt->second.offset, "_" + si->name + "_vtable"});
+        for (const auto& mn : si->memberOrder) {
+            if (mn == "__vt") continue;
+            auto mit = si->members.find(mn);
+            if (mit != si->members.end() && mit->second.bitWidth == 0)
+                collectVtableSlots(mit->second.type, mit->second.pointerLevel, mit->second.arrayDims, off + mit->second.offset, out);
+        }
+    }
+}
+
+void IRBuilder::addVtableWords(ir::Module::GlobalVar& gv, const std::string& type, int ptrLevel, const std::vector<int>& dims) {
+    std::vector<std::pair<int, std::string>> slots;
+    collectVtableSlots(type, ptrLevel, dims, 0, slots);
+    if (slots.empty()) return;
+    if (!gv.hasImage) {
+        // no (laid-out) initializer: a zero object with the __vt words
+        if (gv.hasInitValue && (gv.initValue != 0 || !gv.initList.empty() || !gv.initLabels.empty())) return;
+        gv.initBytes.assign((size_t)std::max(0, objectSize(type, ptrLevel, dims)), 0);
+        gv.initWords.clear();
+        gv.initStrings.clear();
+        gv.hasImage = true;
+        gv.hasInitValue = true;
+    }
+    for (const auto& [off, sym] : slots) gv.initWords[off] = sym;
 }
 
 bool IRBuilder::buildInitImage(ir::Module::GlobalVar& gv, const std::string& type, int ptrLevel,
@@ -3478,6 +3515,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
             }
         }
         recordGlobalType();
+        addVtableWords(gv, node.type, node.pointerLevel, node.arrayDims);
         module_.globals.push_back(gv);
         return;
     }
@@ -3528,6 +3566,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
             gv.initValue = 0;
         }
 
+        addVtableWords(gv, node.type, node.pointerLevel, node.arrayDims);
         module_.globals.push_back(gv);
 
         // Store mapping for scope lookup
@@ -3633,42 +3672,6 @@ void IRBuilder::visit(VariableDeclaration& node) {
     if (currentFunc_) {
         sourceTracker_.trackVariableDecl(node.name, node.line, node.column,
                                         resolvedVarTypeName, vreg.vregId, false);
-    }
-
-    // Phase 3: Auto-initialize __vt pointer for structs with virtual methods
-    if (node.pointerLevel == 0 && currentFunc_) {
-        std::string sName = getAggregateName(node.type);
-        auto sit = structs_.find(sName);
-        if (sit != structs_.end() && sit->second.members.count("__vt")) {
-            // Find vtable global name
-            std::string vtableName = sName + "_vtable"; // ADDR_GLOBAL adds _ prefix
-            // Store vtable address to __vt member (offset 0)
-            auto baseAddr = allocVreg(ir::Type::PTR);
-            ir::Inst addr;
-            addr.op = ir::Op::ADDR_LOCAL;
-            addr.dest = baseAddr;
-            addr.resultType = ir::Type::PTR;
-            addr.src1 = vreg;
-            addr.loc = loc(node);
-            emit(addr);
-
-            auto vtAddr = allocVreg(ir::Type::PTR);
-            ir::Inst loadVt;
-            loadVt.op = ir::Op::ADDR_GLOBAL;
-            loadVt.dest = vtAddr;
-            loadVt.resultType = ir::Type::PTR;
-            loadVt.src1 = ir::Operand::global(vtableName);
-            loadVt.loc = loc(node);
-            emit(loadVt);
-
-            ir::Inst storeVt;
-            storeVt.op = ir::Op::STORE;
-            storeVt.resultType = ir::Type::I16;
-            storeVt.src1 = vtAddr;
-            storeVt.src2 = baseAddr;
-            storeVt.loc = loc(node);
-            emit(storeVt);
-        }
     }
 
     // Emit initializer (skip for local statics - they're initialized at startup in DATA segment)
@@ -3817,6 +3820,53 @@ void IRBuilder::visit(VariableDeclaration& node) {
             store.src2 = vreg;
             store.loc = loc(node);
             emit(store);
+        }
+    }
+
+    // Virtual methods: point every __vt of the object (also in arrays and
+    // nested members) at its struct's vtable -- after the initializer, which
+    // may zero or copy the whole object. (Static locals get theirs in DATA.)
+    if (currentFunc_ && !node.isStatic) {
+        std::vector<std::pair<int, std::string>> slots;
+        collectVtableSlots(node.type, node.pointerLevel, node.arrayDims, 0, slots);
+        if (!slots.empty()) {
+            auto baseAddr = allocVreg(ir::Type::PTR);
+            ir::Inst addr;
+            addr.op = ir::Op::ADDR_LOCAL;
+            addr.dest = baseAddr;
+            addr.resultType = ir::Type::PTR;
+            addr.src1 = vreg;
+            addr.loc = loc(node);
+            emit(addr);
+            for (const auto& [off, sym] : slots) {
+                ir::Operand dst = baseAddr;
+                if (off != 0) {
+                    dst = allocVreg(ir::Type::PTR);
+                    ir::Inst add;
+                    add.op = ir::Op::ADD;
+                    add.dest = dst;
+                    add.resultType = ir::Type::PTR;
+                    add.src1 = baseAddr;
+                    add.src2 = ir::Operand::imm(off, ir::Type::I16);
+                    add.loc = loc(node);
+                    emit(add);
+                }
+                auto vtAddr = allocVreg(ir::Type::PTR);
+                ir::Inst loadVt;
+                loadVt.op = ir::Op::ADDR_GLOBAL;
+                loadVt.dest = vtAddr;
+                loadVt.resultType = ir::Type::PTR;
+                loadVt.src1 = ir::Operand::global(sym);
+                loadVt.loc = loc(node);
+                emit(loadVt);
+                ir::Inst storeVt;
+                storeVt.op = ir::Op::STORE;
+                storeVt.resultType = ir::Type::I16;
+                storeVt.src1 = vtAddr;
+                storeVt.src2 = dst;
+                storeVt.loc = loc(node);
+                emit(storeVt);
+            }
         }
     }
 }
@@ -5457,6 +5507,7 @@ void IRBuilder::visit(UnaryOperation& node) {
                 return;
             }
             auto it = locals_.find(vr->name);
+            if (it != locals_.end()) usedVregs_.insert(it->second.vregId);  // &x uses x
             if (it != locals_.end() && aggCopyParams_.count(vr->name)) {
                 // A by-value struct parameter holds its copy's address
                 lastValue_ = it->second;
@@ -7315,6 +7366,7 @@ void IRBuilder::visit(ArrayAccess& node) {
             // Local array — compute address via ADDR_LOCAL (a local static
             // array is a global: its operand is the address)
             auto it = locals_.find(ref->name);
+            if (it != locals_.end()) usedVregs_.insert(it->second.vregId);  // a[i] uses a
             if (it != locals_.end() && it->second.kind == ir::OperandKind::GLOBAL) {
                 lastValue_ = it->second;
             } else if (it != locals_.end()) {

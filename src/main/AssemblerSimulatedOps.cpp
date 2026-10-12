@@ -576,8 +576,25 @@ void AssemblerSimulatedOps::emitLDWCode(AssemblerParser* parser, M65Emitter& e, 
                 int symIdx = tokenIndex;
                 if (symIdx < (int)parser->tokens.size() && parser->tokens[symIdx].type == AssemblerTokenType::HASH) symIdx++;
                 std::string srcName = (symIdx < (int)parser->tokens.size()) ? parser->tokens[symIdx].value : "";
-                // Use emitLoadAddrConst which handles symbol relocations
-                emitLoadAddrConst(parser, e, srcName, 0, reg2, scopePrefix);
+                bool firstIsSym = symIdx < (int)parser->tokens.size() && parser->tokens[symIdx].type == AssemblerTokenType::IDENTIFIER;
+                if (idx == symIdx + 1) {
+                    // #sym or #number: emitLoadAddrConst handles symbol relocations
+                    emitLoadAddrConst(parser, e, srcName, 0, reg2, scopePrefix);
+                } else {
+                    // An expression (#<lbl, #$12+1, #lbl+2): its value; "sym +/- n"
+                    // of a relocatable symbol keeps the relocation
+                    uint32_t v = parser->evaluateExpressionAt(symIdx, scopePrefix);
+                    Symbol* sym = firstIsSym ? parser->resolveSymbol(srcName, scopePrefix) : nullptr;
+                    bool symPlusN = firstIsSym && idx == symIdx + 3 &&
+                        (parser->tokens[symIdx + 1].type == AssemblerTokenType::PLUS ||
+                         parser->tokens[symIdx + 1].type == AssemblerTokenType::MINUS);
+                    if (symPlusN && parser->isRelocatableSymbolIn(srcName, scopePrefix))
+                        emitLoadAddrConst(parser, e, srcName, (uint16_t)(v - (sym ? sym->value : 0)), reg2, scopePrefix);
+                    else {
+                        char b[16]; snprintf(b, sizeof b, "$%04X", (unsigned)(v & 0xFFFF));
+                        emitLoadAddrConst(parser, e, b, 0, reg2, scopePrefix);
+                    }
+                }
             } else {
                 uint32_t addr = 0;
                 try {
@@ -3051,7 +3068,13 @@ void AssemblerSimulatedOps::emitLoadAddrConst(AssemblerParser* parser, M65Emitte
     if (sym) {
         baseVal = sym->value;
     } else {
-        try { baseVal = parseNumericLiteral(name); } catch (...) { baseVal = 0; }
+        try { baseVal = parseNumericLiteral(name); } catch (...) {
+            // an unknown name: a forward reference in pass 1, else an error
+            // (it would silently be 0, with no relocation)
+            if (!parser->isPass1_ && !isReloc)
+                throw std::runtime_error("undefined symbol '" + name + "' (not defined here or declared .extern)");
+            baseVal = 0;
+        }
     }
     uint32_t total = baseVal + offset;
     

@@ -605,6 +605,17 @@ public:
         auto sInfo = std::make_shared<TypeInfo::StructInfo>();
         sInfo->name = node.name;
 
+        // struct D : B { ... }: B's members come first, at their own offsets
+        // (as IRBuilder lays it out)
+        if (!node.parentStruct.empty()) {
+            auto pit = structs.find(node.parentStruct);
+            if (pit != structs.end() && pit->second) {
+                sInfo->members = pit->second->members;
+                currentOffset = pit->second->totalSize;
+                maxAlignment = std::max(maxAlignment, pit->second->alignment);
+            }
+        }
+
         for (auto& m : node.members) {
             auto alignmentExpr = m.alignmentExpr ? fold(std::move(m.alignmentExpr)) : nullptr;
             // __attribute__((aligned)) arrives as m.alignment, _Alignas as an expression
