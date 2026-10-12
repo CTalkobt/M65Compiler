@@ -202,10 +202,11 @@ bool AssemblerParser::match(AssemblerTokenType type) {
 
 
 // True when every identifier in the expression at `index` (to the end of the
-// line) is already defined
+// line or a comma) is already defined
 bool AssemblerParser::exprSymbolsDefined(int index, const std::string& scopePrefix) const {
     for (size_t k = (size_t)index; k < tokens.size() && tokens[k].type != AssemblerTokenType::NEWLINE &&
-                                   tokens[k].type != AssemblerTokenType::END_OF_FILE; k++) {
+                                   tokens[k].type != AssemblerTokenType::END_OF_FILE &&
+                                   tokens[k].type != AssemblerTokenType::COMMA; k++) {
         if (tokens[k].type == AssemblerTokenType::IDENTIFIER &&
             !symbolTable.count(scopePrefix + tokens[k].value) && !symbolTable.count(tokens[k].value))
             return false;
@@ -1951,7 +1952,9 @@ int AssemblerParser::calculateInstructionSize(const Instruction& instr, uint32_t
             // base-page mode (LDZ, LDA zp,Y, ...) is assembled as absolute
             // $00xx, which ignores the base page register (B).
             auto warnNoBP = [&](const char* idx) {
-                if (!fitsIn8 || forceAbs || !zpYWarned_.insert(instr.operandTokenIndex).second) return;
+                // (a forward reference evaluates to 0 until it is defined)
+                if (!fitsIn8 || forceAbs || !exprSymbolsDefined(instr.operandTokenIndex, scopePrefix) ||
+                    !zpYWarned_.insert(instr.operandTokenIndex).second) return;
                 const auto& tok = tokens[instr.operandTokenIndex];
                 char buf[192];
                 std::snprintf(buf, sizeof(buf),

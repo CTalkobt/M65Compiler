@@ -319,7 +319,7 @@ The CRT module from the library provides `__init`, which the linker uses as the 
 4. Relocate the base page (`TAB`) to `__zp_page`, a private page at the end of BSS.
 5. Move the CPU stack to the 16-bit stack topped at `__stack_top` (`$BFFF` by default; `-fstack-top=`/`#pragma cc45 stack_top(...)`), unless `-fno-stack16`/`#pragma cc45 no_stack16` keeps the ROM's page-1 stack.
 6. `_init_features` (`crt0_mega65*.s45`): write `$40` to `$D054`.
-7. Call `main` with `argc = 0`, `argv = NULL`, then fall into `__exit` (see `exit` in [§4](#4-general-utilities-stdlibh)).
+7. Call `__mainargs` and pass the `argc`/`argv` it returns to `main` (in the ZP parameter block and on the stack), then fall into `__exit` (see `exit` in [§4](#4-general-utilities-stdlibh)). crt0's weak `__mainargs` returns `argc = 0`, `argv = NULL`; `stdlib_asm/mainargs.s45` replaces it when `main` is defined with parameters (cc45 then references `__mainargs_link`) and parses the BASIC line at `$0200` (`RUN ["NAME"] : [REM] a, b, ...`; see *Startup* in [cc45.md](../bin/cc45.md)).
 
 `__bp_rom`/`__bp_prog` (switch base page for ROM calls) and `__abort` are also defined here.
 

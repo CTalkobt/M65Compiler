@@ -1,0 +1,5 @@
+; test_mainargs_nop.s45 — a do-nothing PRG for xemu -prg, so -prgtest can
+; type RUN "ARGS" (test_mainargs_xemu.c loaded from a disk image)
+        * = $2001
+        .basicUpstart main
+main:   rts

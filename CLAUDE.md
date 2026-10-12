@@ -234,7 +234,10 @@ ln45, ar45, nm45, objdump45 and disk45 have no config files. Environment:
 1. Save the caller's SP and flags; enable MEGA65 I/O (`$47 $53` → `$D02F`).
 2. Exit status at ROM `$FD/$FE` := `$FFFF`.
 3. Base page → `__zp_page`; 16-bit stack at `__stack_top` (unless disabled).
-4. `jsr _init_features` (weak `rts`), then `main(0, NULL)`.
+4. `jsr _init_features` (weak `rts`), then `main(argc, argv)`: crt0's weak
+   `__mainargs` gives 0/NULL; when `main` takes parameters cc45 links
+   `stdlib_asm/mainargs.s45`, which parses the BASIC line at `$0200`
+   (`RUN ["NAME"] : [REM] a, b`; keywords need `:REM`).
 5. `__exit` (from `main`'s return or `exit()`): B = 0, status → `$FD/$FE`
    (`$FFFE` after `abort()`), restore the caller's stack and flags, `rts`.
    A BASIC caller reads `PEEK(253)+256*PEEK(254)`.

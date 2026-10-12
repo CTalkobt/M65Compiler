@@ -1136,6 +1136,13 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
         }
     }
 
+    // main(argc, argv): link the library's __mainargs (mainargs.c), which
+    // replaces crt0's weak argc 0 / argv NULL with the BASIC line's arguments
+    if (relocMode) {
+        for (const auto& fn : mod.functions)
+            if (fn.name == "_main" && !fn.paramTypes.empty()) { emit(".extern ___mainargs_link"); break; }
+    }
+
     // Auto-emit float runtime externs if any float ops are used
     if (relocMode) {
         bool hasFloat = false;

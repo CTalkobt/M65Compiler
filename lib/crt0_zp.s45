@@ -14,6 +14,7 @@
 .global __isr_depth
 .extern __stack_top
 .weak _init_features
+.weak ___mainargs
 .extern _main
 
 .segment "init"
@@ -69,16 +70,34 @@ __init:
 @stack8:
 
     jsr _init_features
-    ; main(argc, argv) gets argc = 0, argv = NULL under either calling
-    ; convention: the ZP parameter block and two stacked words (__exit
-    ; restores the caller's stack pointer, so they are never popped)
-    lda #0
+    ; main(argc, argv): __mainargs returns a pointer to { int argc; char
+    ; **argv; } -- the weak default below gives argc 0, argv NULL; the
+    ; library's (mainargs.c, linked when main takes parameters) parses the
+    ; BASIC line. They go in the ZP parameter block and, for the stack
+    ; convention, on the stack as two words (__exit restores the caller's
+    ; stack pointer, so they are never popped)
+    jsr ___mainargs
+    sta $08
+    stx $09
+    ldy #0              ; (base-page stores: the block is in __zp_page)
+    lda ($08),y
     sta $10
+    iny
+    lda ($08),y
     sta $11
+    iny
+    lda ($08),y
     sta $12
+    iny
+    lda ($08),y
     sta $13
-    phw #0
-    phw #0
+    pha                 ; argv, then argc: low bytes at the lower address
+    lda $12
+    pha
+    lda $11
+    pha
+    lda $10
+    pha
     jsr _main
 
     ; Fall through to __exit
@@ -108,6 +127,15 @@ __saved_p:
 ; Default init_features — does nothing. Override with a strong definition.
 _init_features:
     rts
+
+; Default __mainargs: no arguments (argc 0, argv NULL). mainargs.c in the
+; library replaces it when main is defined with parameters.
+___mainargs:
+    lda #<__noargs
+    ldx #>__noargs
+    rts
+__noargs:
+    .word 0, 0
 
 ; __abort — abnormal termination. Non-overridable core implementation.
 ; abort() (weak) calls this.

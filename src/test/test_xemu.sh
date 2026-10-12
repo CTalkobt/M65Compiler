@@ -40,13 +40,15 @@ run_xemu_test() {
     local mem_addr="$3"
     local num_bytes="$4"
     local expected="$5"
+    shift 5   # any further arguments go to xemu (e.g. -prgtest "RUN : A")
 
     local dump_file="build/test/${name}_memdump.bin"
 
     # Run in headless mode with -prgexit (auto-SYS and exit on READY)
     # -prgmode 65 forces MEGA65 mode without dialog
     # -prgexit auto-runs BASIC programs and exits on next READY prompt
-    timeout 15 $XEMU -headless -besure -sleepless -prgmode 65 -prgexit -dumpmem "$dump_file" -prg "$prg_file" </dev/null >/dev/null 2>&1
+    rm -f "$dump_file"
+    timeout 15 $XEMU -headless -besure -sleepless -prgmode 65 -prgexit "$@" -dumpmem "$dump_file" -prg "$prg_file" </dev/null >/dev/null 2>&1
     local exit_code=$?
     # Accept exit 0 (clean) or 124 (timeout — program may halt instead of returning)
     if [ $exit_code -ne 0 ] && [ $exit_code -ne 124 ]; then
@@ -384,6 +386,50 @@ for scmode in "stack|-fno-zpcall" "zp|"; do
         run_xemu_test "test_switch_continue_$scname" "build/test/test_switch_continue_${scname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
     else
         echo "FAIL: test_switch_continue_xemu.c $scname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: a program's own init_features() (weak in crt0) runs before main
+for ifmode in "stack|-fno-zpcall" "zp|"; do
+    IFS='|' read -r ifname ifflags <<< "$ifmode"
+    echo "Testing test_init_features_xemu.c ($ifname)..."
+    compile_link_test "src/test-resources/test_init_features_xemu.c" "build/test/test_init_features_${ifname}_xemu.prg" "$ifflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_init_features_$ifname" "build/test/test_init_features_${ifname}_xemu.prg" "C0C0" 2 "01 AA"
+    else
+        echo "FAIL: test_init_features_xemu.c $ifname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: main(argc, argv) from the BASIC line (RUN ["NAME"] : [REM] a, b, ...),
+# typed by xemu's -prgtest; stack and ZP conventions
+for mamode in "stack|-fno-zpcall|$STDLIB_STACK" "zp||$STDLIB"; do
+    IFS='|' read -r maname maflags malib <<< "$mamode"
+    echo "Testing test_mainargs_xemu.c ($maname)..."
+    compile_link_test "src/test-resources/test_mainargs_xemu.c" "build/test/test_mainargs_${maname}_xemu.prg" "$maflags"
+    if [ $? -eq 0 ]; then
+        # plain RUN: argc 1, argv[0] ""
+        run_xemu_test "test_mainargs_run_$maname" "build/test/test_mainargs_${maname}_xemu.prg" "C100" 4 "01 7C 4E 00"
+        # :REM keeps keywords as text; quotes group; empty arguments; trimmed
+        run_xemu_test "test_mainargs_rem_$maname" "build/test/test_mainargs_${maname}_xemu.prg" "C100" 22 \
+            "06 7C 48 45 4C 4C 4F 7C 41 2C 20 42 7C 54 4F 20 37 7C 7C 58 7C 4E" \
+            -prgtest 'RUN:REM HELLO, "A, B" ,  TO 7 , , X'
+        # RUN "NAME" from a disk: argv[0] is the name
+        rm -f build/test/test_mainargs.d81
+        if ./bin/disk45 create build/test/test_mainargs.d81 -n "ARGS" >/dev/null 2>&1 &&
+           ./bin/disk45 write build/test/test_mainargs.d81 "build/test/test_mainargs_${maname}_xemu.prg" ARGS >/dev/null 2>&1 &&
+           $AS src/test-resources/test_mainargs_nop.s45 -o build/test/test_mainargs_nop.prg >/dev/null 2>&1; then
+            run_xemu_test "test_mainargs_disk_$maname" "build/test/test_mainargs_nop.prg" "C100" 10 \
+                "02 41 52 47 53 7C 58 59 7C 4E" \
+                -8 "$PWD/build/test/test_mainargs.d81" -prgtest 'RUN "ARGS" : XY'
+        else
+            echo "FAIL: test_mainargs disk image ($maname)"
+            failed=$((failed + 1))
+        fi
+    else
+        echo "FAIL: test_mainargs_xemu.c $maname (compilation/linking failed)"
         failed=$((failed + 1))
     fi
 done

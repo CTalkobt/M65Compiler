@@ -324,7 +324,24 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         reloc.offset = patchOffset;
         reloc.type = R_WORD; // 16-bit absolute address
 
-        if (isExtern) {
+        // A .weak symbol is referenced by name (an import), even when this
+        // object defines it: the linker binds it to a strong definition
+        // from another object if there is one (crt0's jsr _init_features,
+        // jsr ___mainargs)
+        bool byName = isExtern || parser.isWeakSymbol(symName);
+        if (byName) {
+            if (!isExtern) {
+                syms.addImport(symName);
+                // An import's operand bytes hold only the addend (the linker
+                // adds the symbol): take this object's value of it out
+                auto& body = segBodies[srcSeg].bytes;
+                if (patchOffset + 1 < body.size()) {
+                    uint16_t w = (uint16_t)(body[patchOffset] | (body[patchOffset + 1] << 8));
+                    w = (uint16_t)(w - sym->value);
+                    body[patchOffset] = (uint8_t)(w & 0xFF);
+                    body[patchOffset + 1] = (uint8_t)(w >> 8);
+                }
+            }
             reloc.segment = SEG_EXTERNAL;
             reloc.symbolIndex = syms.getImportIndex(symName);
         } else {
