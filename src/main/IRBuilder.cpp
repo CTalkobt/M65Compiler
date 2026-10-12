@@ -1557,10 +1557,14 @@ void IRBuilder::visit(FunctionDeclaration& node) {
             // A function can be lowered more than once (e.g. constant-argument specialization)
             bool isParam = std::any_of(node.parameters.begin(), node.parameters.end(),
                                        [&](const Parameter& p) { return p.name == name; });
-            const char* kind = isParam ? "unused parameter '" : "unused variable '";
+            // assigned but never read (as GCC: the value of (c = f()) != 0
+            // is the assignment's, not a read of c)
+            bool isSet = setVregs_.count(vregOp.vregId) > 0;
+            std::string msg = isSet ? std::string(isParam ? "parameter '" : "variable '") + name + "' set but not used"
+                                    : std::string(isParam ? "unused parameter '" : "unused variable '") + name + "'";
             std::string key = file + ":" + std::to_string(line) + ":" + std::to_string(col) + ":" + name;
             if (reportedUnused_.insert(key).second)
-                warnings_.push_back(formatDiagnostic(file, line, col, Severity::Warning, kind + name + "'"));
+                warnings_.push_back(formatDiagnostic(file, line, col, Severity::Warning, msg));
         }
     }
 
@@ -3121,6 +3125,7 @@ void IRBuilder::resetFunctionLocalState() {
     paramVlaDims_.clear();
     vlaSizeVars_.clear();
     usedVregs_.clear();
+    setVregs_.clear();
     localDeclLocs_.clear();
 }
 
@@ -4155,6 +4160,10 @@ void IRBuilder::visit(VariableReference& node) {
 }
 
 void IRBuilder::visit(Assignment& node) {
+    if (auto* vr = dynamic_cast<VariableReference*>(node.target.get())) {
+        auto it = locals_.find(vr->name);
+        if (it != locals_.end()) setVregs_.insert(it->second.vregId);
+    }
     // An integer target of a wide integer value: its low bytes
     if (node.op == "=" && wideKindOf(node.target.get()).empty()) {
         IRTypeInfo tt = getExprTypeInfo(node.target.get());

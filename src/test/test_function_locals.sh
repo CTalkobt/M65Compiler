@@ -49,6 +49,19 @@ else
     fail "each unused name reported once"
 fi
 
+# Assigned but never read: "set but not used" (the value of (c = g()) != 0
+# is the assignment's, not a read of c)
+cat > "$TEMP_C" <<'END'
+int g(void);
+int main(void) { int c, n = 0; while ((c = g()) != 0) n++; return n; }
+END
+$CC -S -O1 "$TEMP_C" -o "$TEMP_S" 2>"$TEMP_E"
+if grep -q "warning: variable 'c' set but not used" "$TEMP_E" && ! grep -q "unused variable 'c'" "$TEMP_E"; then
+    pass "assigned-only local reported as set but not used"
+else
+    fail "assigned-only local reported as set but not used"
+fi
+
 rm -f "$TEMP_C" "$TEMP_S" "$TEMP_E"
 
 echo ""

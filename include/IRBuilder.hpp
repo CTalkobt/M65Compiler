@@ -164,6 +164,7 @@ private:
 
     // Unused variable tracking
     std::set<uint32_t> usedVregs_;
+    std::set<uint32_t> setVregs_;   // locals assigned to (x = ..., x op= ...): "set but not used"
     std::map<std::string, ir::SourceLoc> localDeclLocs_;
     void resetFunctionLocalState();
     // Struct/union and float returns use a caller-allocated result buffer passed
