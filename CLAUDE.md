@@ -88,8 +88,13 @@ writes a standalone assembly form with its own startup stub.
   256-byte block ln45 places at the end of BSS, so the program never touches
   the ROM's page 0. `__exit` sets B back to 0.
 - **ROM calls** expect B=0: call sites bracket them with `jsr __bp_rom` /
-  `jsr __bp_prog` (crt0). Used by `putchar`, `getchar`, `puts`, `clock`, `cbm.h`
-  and the float runtime (`float_rom.s45`).
+  `jsr __bp_prog` (crt0). Used by `putchar`, `getchar`, `puts`, `clock`
+  and the float runtime (`float_rom.s45`). The KERNAL's **disk** code also
+  needs the page-1 stack: `<cbm.h>` wrappers (and so `fopen`/`cbm_*` file
+  I/O) call through crt0's `__rom_call`, which switches base page and stack.
+- **Inline asm can't name a parameter portably**: `@_p_x` is a ZP slot in the
+  ZP convention, `lda.sp @_p_x` only works for stack frames. `<cbm.h>` passes
+  arguments through the `__cbm_a/x/y/p` bytes instead.
 - **Interrupts**: the ROM IRQ handler saves B and sets it to 0. A C
   `__interrupt` handler saves B and switches to `__zp_page_isr` (allocated only
   when the program has an `__interrupt` function) and increments
@@ -269,7 +274,6 @@ overlays, `dma.h`. Many other headers (graphics, sprites, hw_*, uart, conio
 - **ln45**: SAC
   overlay never applied ("no __ar symbol" warnings); `c45_stack.lib` has
   internal convention mismatches (`--no-thunks` rejects printf users).
-- **Library**: `fopen` uses secondary address 0 (no writes).
 - **basic45**: line links off by 2, labels not resolved, operators not tokenized.
 - **disk45**: adding to D90/CMD images doesn't update the BAM; `rel-create`
   corrupts D81; modifying G64/NIB/Zipcode overwrites them with D64 data.

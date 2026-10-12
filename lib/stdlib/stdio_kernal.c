@@ -5,6 +5,9 @@
  * call with __bp_rom/__bp_prog. Status results are 0 on success.
  */
 
+/* Written for standard C signedness (int results compared with < 0) */
+#pragma cc45 signed_default
+
 #include <cbm.h>
 
 /* SETNAM keeps a pointer to the name: it must stay valid until OPEN */

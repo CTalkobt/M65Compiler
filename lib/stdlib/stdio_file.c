@@ -4,6 +4,9 @@
  * Phase 1 of FILE I/O implementation
  */
 
+/* Written for standard C signedness (int results compared with < 0) */
+#pragma cc45 signed_default
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -99,53 +102,15 @@ static FILE *_alloc_file(void) {
  * Parse mode string and set FILE flags
  * Returns flags on success, 0 on error
  */
-static unsigned char _parse_mode(const char *mode, unsigned char *cbm_type) {
-    unsigned char flags = 0;
-    int has_plus = 0;
-    int is_binary = 0;
-
-    if (!mode || !mode[0]) return 0;
-
-    /* Check for binary mode suffix */
-    for (int i = 0; mode[i]; i++) {
-        if (mode[i] == 'b') {
-            is_binary = 1;
-        } else if (mode[i] == '+') {
-            has_plus = 1;
-        }
-    }
-
-    /* Parse primary mode */
-    switch (mode[0]) {
-        case 'r':
-            flags = _IOREAD;
-            *cbm_type = is_binary ? CBM_T_USR : CBM_T_SEQ;
-            if (has_plus) flags |= _IOWRITE;
-            break;
-
-        case 'w':
-            flags = _IOWRITE | _IOTRUNC;
-            *cbm_type = is_binary ? CBM_T_USR : CBM_T_SEQ;
-            if (has_plus) flags |= _IOREAD;
-            break;
-
-        case 'a':
-            flags = _IOWRITE | _IOAPPEND;
-            *cbm_type = is_binary ? CBM_T_USR : CBM_T_SEQ;
-            if (has_plus) flags |= _IOREAD;
-            break;
-
-        default:
-            return 0;
-    }
-
-    if (is_binary) flags |= _IOBINARY;
-
-    return flags;
-}
+/* lib/stdlib_asm/cbm_parse_mode.s45 */
+unsigned char __cbm_parse_mode(const char *mode, unsigned char *cbm_type);
+#define _parse_mode __cbm_parse_mode
 
 /* Forward declarations from stdio_cbm.c */
-extern fd_t cbm_open(unsigned char device, const char *filename, unsigned char type);
+extern fd_t cbm_open_ext(unsigned char device, const char *filename, unsigned char type, unsigned char secondary);
+extern int cbm_drive_status(unsigned char device);
+/* lib/stdlib_asm/cbm_dos_name.s45 */
+void __cbm_dos_name(char *dst, const char *name, unsigned char flags, unsigned char cbm_type);
 extern int cbm_read(fd_t fd, void *buffer, unsigned int length);
 extern int cbm_write(fd_t fd, const void *buffer, unsigned int length);
 extern int cbm_close(fd_t fd);
@@ -157,11 +122,26 @@ extern int cbm_close(fd_t fd);
 static int _kernal_open(const char *filename, unsigned char cbm_type, unsigned char flags) {
     /* Determine device number (default: disk) */
     unsigned char device = CBM_DEVICE_DISK;
+    /* The DOS takes the type and direction from the name: "NAME,S,R",
+     * "@0:NAME,S,W" (the @ replaces an existing file, as C's "w" truncates),
+     * "NAME,S,A"; U for a USR ("b") file. A name with a ',' is passed as is
+     * (lib/stdlib_asm/cbm_dos_name.s45). */
+    static char name[48];
+    __cbm_dos_name(name, filename, flags, cbm_type);
 
-    /* Open file using cbm_open */
-    fd_t fd = cbm_open(device, filename, cbm_type);
+    /* Each open file on its own drive channel (secondary address = its
+     * logical file number) */
+    fd_t fd = cbm_open_ext(device, name, cbm_type, 0xFF);
+    if (fd < 0) return -1;
 
-    return (fd < 0) ? -1 : (int)fd;
+    /* OPEN succeeds even for a missing file: the drive reports errors
+     * (62 FILE NOT FOUND, ...) on its command channel */
+    signed int st = cbm_drive_status(device);
+    if (st >= 20) {
+        cbm_close(fd);
+        return -1;
+    }
+    return (int)fd;
 }
 
 /**
@@ -253,7 +233,8 @@ FILE *fopen(const char *filename, const char *mode) {
     /* Initialize FILE structure */
     fp->handle = handle;
     fp->mode = flags;
-    fp->flags = 0;
+    /* the access bits: every read/write function checks flags */
+    fp->flags = flags & (_IOREAD | _IOWRITE | _IOAPPEND | _IOBINARY);
     fp->position = 0;
     fp->file_size = 0;
     fp->backend = CBM_DEVICE_KERNAL;
@@ -327,10 +308,11 @@ FILE *freopen(const char *filename, const char *mode, FILE *stream) {
         return NULL;
     }
 
-    /* Close existing file */
+    /* Close existing file (writing out what is still buffered) */
     if (stream->handle != STDIN_FILENO &&
         stream->handle != STDOUT_FILENO &&
         stream->handle != STDERR_FILENO) {
+        if (stream->flags & _IOWRITE) _flush_write_buffer(stream);
         cbm_close(stream->handle);
     }
 
@@ -350,7 +332,7 @@ FILE *freopen(const char *filename, const char *mode, FILE *stream) {
     /* Reset FILE structure */
     stream->handle = handle;
     stream->mode = flags;
-    stream->flags = 0;
+    stream->flags = (stream->flags & _IOMYBUF) | (flags & (_IOREAD | _IOWRITE | _IOAPPEND | _IOBINARY));
     stream->position = 0;
     stream->file_size = 0;
     stream->buf_pos = 0;

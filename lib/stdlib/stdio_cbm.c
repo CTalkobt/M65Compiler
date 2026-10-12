@@ -6,6 +6,9 @@
  * Phase 1: Low-Level File I/O
  */
 
+/* Written for standard C signedness (int results compared with < 0) */
+#pragma cc45 signed_default
+
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -56,88 +59,60 @@ extern unsigned char cbm_k_close(unsigned char fd);
  * 5. Return file descriptor or error
  */
 
-fd_t cbm_open(unsigned char device, const char *filename, unsigned char type) {
-    if (!filename || device == 0) {
+/* Logical file numbers 3-14 in use (15 is used for the drive's command
+ * channel), and whether a file's read reached its end */
+static unsigned char lfn_used[15];
+static unsigned char lfn_eof[15];
+
+static int alloc_lfn(void) {
+    unsigned char i;
+    for (i = 3; i <= 14; i++) {
+        if (!lfn_used[i]) { lfn_used[i] = 1; lfn_eof[i] = 0; return i; }
+    }
+    return -1;
+}
+
+/* OPEN logical file lfn on device with secondary address sa */
+static fd_t open_lfn(unsigned char device, const char *filename, unsigned char sa) {
+    int fd;
+    if (!filename || device == 0) return -1;
+    fd = alloc_lfn();
+    if (fd < 0) return -1;
+    if (sa == 0xFF) sa = (unsigned char)fd;
+    cbm_k_setnam(filename);
+    cbm_k_setlfs((unsigned char)fd, device, sa);
+    if (cbm_k_open() != 0) {
+        lfn_used[fd] = 0;
         return -1;
     }
-
-    /* Find free logical file number */
-    static unsigned char next_fd = 3;
-    unsigned char fd = next_fd;
-
-    if (fd > 14) {
-        fd = 3;  /* Wrap around */
-        next_fd = 3;
-    }
-
-    /* Determine secondary address from file type */
-    unsigned char secondary = 0;  /* Read mode */
-    if (type == CBM_T_CBM) {
-        secondary = 0;  /* Directory listing */
-    } else {
-        secondary = 0;  /* Default to read */
-    }
-
-    /* Set filename */
-    if (cbm_k_setnam(filename) != 0) {
-        return -1;
-    }
-
-    /* Set file parameters */
-    if (cbm_k_setlfs(fd, device, secondary) != 0) {
-        return -1;
-    }
-
-    /* Open the file */
-    unsigned char status = cbm_k_open();
-    if (status != 0) {
-        return -1;
-    }
-
-    /* Increment for next open */
-    next_fd = (fd + 1 > 14) ? 3 : (fd + 1);
-
     return fd;
+}
+
+/* type is not used: the DOS takes the file type and direction from the
+ * name ("NAME,S,W"); secondary address 0 reads (a directory "$" as a
+ * BASIC listing) */
+fd_t cbm_open(unsigned char device, const char *filename, unsigned char type) {
+    (void)type;
+    return open_lfn(device, filename, 0);
 }
 
 /**
- * cbm_open_ext - Extended file open with explicit secondary address
+ * cbm_open_ext - open with an explicit secondary address; $FF uses the
+ * logical file number (3-14), which gives each open file its own channel
  */
-
 fd_t cbm_open_ext(unsigned char device, const char *filename, unsigned char type, unsigned char secondary) {
-    if (!filename || device == 0) {
-        return -1;
-    }
-
-    /* Find free logical file number */
-    static unsigned char next_fd_ext = 3;
-    unsigned char fd = next_fd_ext;
-
-    if (fd > 14) {
-        fd = 3;
-        next_fd_ext = 3;
-    }
-
-    /* Set filename */
-    if (cbm_k_setnam(filename) != 0) {
-        return -1;
-    }
-
-    /* Set file parameters with explicit secondary address */
-    if (cbm_k_setlfs(fd, device, secondary) != 0) {
-        return -1;
-    }
-
-    /* Open the file */
-    unsigned char status = cbm_k_open();
-    if (status != 0) {
-        return -1;
-    }
-
-    next_fd_ext = (fd + 1 > 14) ? 3 : (fd + 1);
-
-    return fd;
+    (void)type;
+    return open_lfn(device, filename, secondary);
 }
+
+/**
+ * cbm_drive_status - the number of the drive's status message (command
+ * channel 15): 0 = OK, >= 20 an error; -1 if the channel can't be opened
+ */
+/* The device the drive's command channel (logical file 15) is open on, 0 =
+ * none (lib/stdlib_asm/cbm_drive_status.s45 opens it on first use and keeps
+ * it open: closing it makes the drive close every file it has open) */
+extern unsigned char __cbm_cmd_device;
 
 /**
  * cbm_close - Close a file
@@ -149,6 +124,13 @@ int cbm_close(fd_t fd) {
     }
 
     unsigned char status = cbm_k_close((unsigned char)fd);
+    unsigned char i;
+    lfn_used[fd] = 0;
+    /* the last file closed: the command channel too */
+    if (__cbm_cmd_device) {
+        for (i = 3; i <= 14 && !lfn_used[i]; i++) ;
+        if (i > 14) { cbm_k_close(15); __cbm_cmd_device = 0; }
+    }
     return (status == 0) ? 0 : -1;
 }
 
@@ -183,6 +165,9 @@ int cbm_read(fd_t fd, void *buffer, unsigned int length) {
     unsigned char *buf = (unsigned char *)buffer;
     unsigned int bytes_read = 0;
 
+    /* The end was reached by an earlier read */
+    if (lfn_eof[fd]) return 0;
+
     /* Redirect input from file */
     if (cbm_k_chkin((unsigned char)fd) != 0) {
         return -1;
@@ -196,21 +181,20 @@ int cbm_read(fd_t fd, void *buffer, unsigned int length) {
         /* Check status */
         unsigned char status = cbm_k_readst();
 
-        if (status & STATUS_EOF) {
-            /* EOF reached */
-            cbm_k_clrchn();
-            return bytes_read;
-        }
-
-        if (status & (STATUS_ERROR | STATUS_DEVICE | STATUS_NOTFND)) {
+        if (status & (STATUS_ERROR | STATUS_DEVICE)) {
             /* Error occurred */
             cbm_k_clrchn();
-            return -1;
+            return bytes_read ? (int)bytes_read : -1;
         }
 
-        /* Store byte and continue */
+        /* Store byte; the EOF status comes with the last byte, which is
+           data */
         buf[i] = c;
         bytes_read++;
+        if (status & STATUS_EOF) {
+            lfn_eof[fd] = 1;
+            break;
+        }
     }
 
     /* Restore input and return */

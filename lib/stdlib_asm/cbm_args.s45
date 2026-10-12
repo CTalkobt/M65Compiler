@@ -1,0 +1,14 @@
+; cbm_args.s45 — the register arguments of the <cbm.h> KERNAL wrappers
+;
+; A wrapper stores its parameters here with C assignments (which work in
+; every calling convention) and its inline assembly loads A/X/Y from them:
+; inline assembly has no single way to reach a parameter in all modes.
+
+.global ___cbm_a, ___cbm_x, ___cbm_y, ___cbm_p, ___cbm_target
+
+.segment "bss"
+___cbm_a: .res 1
+___cbm_x: .res 1
+___cbm_y: .res 1
+___cbm_p: .res 2
+___cbm_target: .res 2   ; the KERNAL routine crt0's __rom_call calls

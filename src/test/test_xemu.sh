@@ -407,6 +407,22 @@ for rpmode in "stack|-fno-zpcall|$STDLIB_STACK" "stack_nosac|-fno-zpcall -fno-st
     fi
 done
 
+# Test: file I/O on a disk (an empty D81 as drive 8): fopen w/r/a/wb/rb,
+# replace, missing file, EOF, two open files; both conventions
+for fimode in "stack|-fno-zpcall" "zp|"; do
+    IFS='|' read -r finame fiflags <<< "$fimode"
+    echo "Testing test_fileio_xemu.c ($finame)..."
+    compile_link_test "src/test-resources/test_fileio_xemu.c" "build/test/test_fileio_${finame}_xemu.prg" "$fiflags"
+    if [ $? -eq 0 ] && rm -f "build/test/test_fileio_${finame}.d81" &&
+       ./bin/disk45 create "build/test/test_fileio_${finame}.d81" -n "FILEIO" >/dev/null 2>&1; then
+        run_xemu_test "test_fileio_$finame" "build/test/test_fileio_${finame}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA" \
+            -8 "$PWD/build/test/test_fileio_${finame}.d81"
+    else
+        echo "FAIL: test_fileio_xemu.c $finame (build failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: the string functions on strings longer than 255 bytes (strlen, puts
 # and the rest), strcmp's sign; both conventions
 for lsmode in "stack|-fno-zpcall" "zp|"; do

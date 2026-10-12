@@ -993,6 +993,7 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
         // crt0 helpers that inline asm (cbm.h) calls around ROM routines
         emit(".extern __bp_rom");
         emit(".extern __bp_prog");
+        emit(".extern __rom_call");
 
         // The module defining main chooses the CPU stack: crt0's weak
         // __stack_top ($BFFF, 16-bit stack) is overridden here; 0 keeps the

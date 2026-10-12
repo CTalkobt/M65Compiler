@@ -1,8 +1,8 @@
 # cbm.h — Commodore KERNAL Interface for MEGA65
 
-`<cbm.h>` provides small C wrappers for the standard Commodore KERNAL jump table, plus PETSCII control codes, device numbers and the jump-table addresses. Each wrapper is a `static` function in the header whose body is inline assembly: it loads the registers, brackets the `JSR` with `jsr __bp_rom` / `jsr __bp_prog` (crt0 helpers that switch the base page to the ROM's page 0 and back to the program's relocated zero page) and converts the result.
+`<cbm.h>` provides small C wrappers for the standard Commodore KERNAL jump table, plus PETSCII control codes, device numbers and the jump-table addresses. Each wrapper is a `static` function in the header: it stores its arguments in `__cbm_a`/`__cbm_x`/`__cbm_y`/`__cbm_p` (C assignments, which work in every calling convention; `lib/stdlib_asm/cbm_args.s45`) and the KERNAL routine's address in `__cbm_target`, loads the registers from them in inline assembly and calls crt0's `__rom_call`. That calls the routine on the ROM's base page 0 **and on the ROM's page-1 stack** (the caller's 8-bit stack, saved at startup): the KERNAL's disk code crashes on the program's 16-bit stack. Registers and flags pass through both ways, as for a direct `JSR`.
 
-The header needs no library module of its own, but `__bp_rom`/`__bp_prog` come from the CRT in `c45.lib`/`c45_stack.lib`, so programs must be linked with the library (a one-step `cc45 prog.c -o prog.prg` does this).
+`__rom_call` comes from the CRT and the argument bytes from `c45.lib`/`c45_stack.lib`, so programs must be linked with the library (a one-step `cc45 prog.c -o prog.prg` does this).
 
 Compatible with C64, C128 and MEGA65 KERNAL jump tables.
 
@@ -211,7 +211,7 @@ All addresses are available as `#define` constants with the `KERNAL_` prefix:
 ## Implementation Notes
 
 - The functions are `static`, so each source file that uses one gets its own copy (named `_cbm_<name>__<file>`); functions a file does not call are removed. They are called with `JSR` like other functions, not inlined.
-- Parameters are read with frame-relative `lda.sp @_p_<name>` / `ldxy @_p_name, sp`, which cc45 maps onto whichever calling convention is in use.
+- Parameters reach the inline assembly through the `__cbm_*` bytes: inline assembly has no single way to name a parameter in every calling convention (`lda.sp @_p_x` is only right for a stack frame).
 - The KERNAL addresses are hardcoded — they are the same on C64, C128 and MEGA65 ROMs.
 - Values are returned in A (low) and X (high), cc45's return convention.
 - Functions that can fail convert the KERNAL carry flag into the return value: carry set = 1 (error), clear = 0.

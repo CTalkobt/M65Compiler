@@ -129,7 +129,7 @@ void setbuf(FILE *stream, char *buffer);
  * resources. Can be used alongside FILE operations.
  */
 
-typedef int fd_t;                    /* File descriptor (Commodore device/channel) */
+typedef signed int fd_t;             /* File descriptor (logical file number 3-14; -1 = error) */
 
 /* Standard file descriptors */
 #define STDIN_FILENO    0            /* Standard input (keyboard/serial) */
@@ -169,9 +169,13 @@ typedef int fd_t;                    /* File descriptor (Commodore device/channe
 /* File handle operations */
 fd_t cbm_open(unsigned char device, const char *filename, unsigned char type);
 fd_t cbm_open_ext(unsigned char device, const char *filename, unsigned char type, unsigned char secondary);
-int cbm_close(fd_t fd);
-int cbm_read(fd_t fd, void *buffer, unsigned int length);
-int cbm_write(fd_t fd, const void *buffer, unsigned int length);
+signed int cbm_close(fd_t fd);
+/* The drive's status number (its command channel 15): 0 OK, 1 files
+ * scratched, >= 20 an error (62 file not found, 63 file exists, ...); -1 if
+ * the channel can't be opened */
+int cbm_drive_status(unsigned char device);
+signed int cbm_read(fd_t fd, void *buffer, unsigned int length);
+signed int cbm_write(fd_t fd, const void *buffer, unsigned int length);
 int cbm_seek(fd_t fd, unsigned long position);
 unsigned long cbm_tell(fd_t fd);
 int cbm_eof(fd_t fd);
