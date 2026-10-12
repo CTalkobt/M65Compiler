@@ -21,6 +21,7 @@ struct Instruction {
     int operandTokenIndex = -1;
     std::string bitBranchTarget;
     std::vector<std::string> callArgs;
+    std::vector<int> callArgTokens;   // token index of each call argument's expression
     int procParamSize = 0;
     bool forceMode = false;
 };
@@ -32,6 +33,7 @@ struct Directive {
     enum VarType { NONE, ASSIGN, INC, DEC } varType = NONE;
     int tokenIndex = -1;
     std::vector<int> argTokenIndices;  // token position of each argument (generic directives)
+    int valueTokenIndex = -1;          // token after the first top-level comma (.fill/.res/.space value)
 };
 
 class AssemblerParser {
@@ -207,7 +209,7 @@ public:
     struct Statement {
         enum Type { NONE, INSTRUCTION, DIRECTIVE, EXPR, BASIC_UPSTART, MUL, DIV, STACK_INC, STACK_DEC, STACK_INC8, STACK_DEC8,
                     ADD16, SUB16, AND16, ORA16, EOR16, CMP16, LDW, STW, SWAP, ZERO,
-                    NEG16, NOT16, CHKZERO8, CHKZERO16, CHKNONZERO8, CHKNONZERO16, BRANCH16, SELECT,
+                    NEG16, NOT16, CHKZERO8, CHKZERO16, CHKNONZERO8, CHKNONZERO16, BRANCH16, SELECT, CALL,
                     PTRSTACK, PTRDEREF, LDWF, STWF, INCF, DECF, PHW_STACK, ASW, ROW, ASR16, LSL16, LSR16, ROL16, ROR16, ABS16,
                     ADDS16, SUBS16, CMP_S16, NEG_S16, ABS_S16, ASR_S16, LSL_S16, LSR_S16, ROL_S16, ROR_S16, SXT8,
                     LDA_STACK, STA_STACK,
@@ -241,6 +243,8 @@ public:
 
         // BASIC_UPSTART specific
         int basicUpstartTokenIndex = -1;
+        bool operandIsExpr = false;   // simulated-op operand is an expression (instr.operand is set to its value before emitting)
+        int basicUpstartDigits = 4;   // decimal digits of the SYS address (the stub is 8 + digits bytes)
 
         // MUL specific
         int mulWidth = 8;
@@ -296,6 +300,9 @@ private:
     int calculateDirectiveSize(const Directive& dir, uint32_t currentAddr = 0, const Statement* stmt = nullptr);
     int calculateExprSize(int tokenIndex, const std::string& scopePrefix = "");
     uint32_t evaluateExpressionAt(int index, const std::string& scopePrefix = "");
+    bool exprSymbolsDefined(int index, const std::string& scopePrefix) const;
+    void resolveExprOperand(Statement* s);
+    uint32_t orgAddress(Statement* s);
     void emitExpressionCode(std::vector<uint8_t>& binary, const std::string& target, int tokenIndex, const std::string& scopePrefix = "");
     void emitMulCode(std::vector<uint8_t>& binary, int width, const std::string& dest, int tokenIndex, const std::string& scopePrefix = "");
     void emitDivCode(std::vector<uint8_t>& binary, int width, const std::string& dest, int tokenIndex, const std::string& scopePrefix = "");

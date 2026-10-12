@@ -30,6 +30,7 @@ public:
     static void dispatch_ABS16(AssemblerParser* p, M65Emitter& e, Stmt* s);
     static void dispatch_ChkZero(AssemblerParser* p, M65Emitter& e, Stmt* s);
     static void dispatch_Branch16(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_Call(AssemblerParser* p, M65Emitter& e, Stmt* s);
     static void dispatch_Select(AssemblerParser* p, M65Emitter& e, Stmt* s);
     static void dispatch_PtrStack(AssemblerParser* p, M65Emitter& e, Stmt* s);
     static void dispatch_PtrDeref(AssemblerParser* p, M65Emitter& e, Stmt* s);
@@ -145,11 +146,13 @@ public:
     static void emitABS16Code(AssemblerParser* parser, M65Emitter& e, const std::string& dest, int tokenIndex, const std::string& scopePrefix);
     static void emitChkZeroCode(AssemblerParser* parser, M65Emitter& e, bool is16, bool isInverse, int tokenIndex, const std::string& scopePrefix);
     static void emitBranch16Code(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix);
+    static void emitCallCode(AssemblerParser* parser, M65Emitter& e, Stmt* s);
     static void emitSelectCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix);
     static void emitPtrStackCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix);
     static void emitPtrDerefCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix);
     static void emitFillCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix, bool forceStack = false);
     static void emitMoveCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix, bool forceStack = false);
+    static void emitDmaCode(AssemblerParser* parser, M65Emitter& e, bool isFill, int tokenIndex, const std::string& scopePrefix, bool forceStack);
     static void emitFlatMemoryCode(AssemblerParser* parser, M65Emitter& e, const std::string& mnemonic, int tokenIndex, const std::string& scopePrefix);
     static void emitPHWStackCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix);
     static void emitASWCode(AssemblerParser* parser, M65Emitter& e, const std::string& dest, int tokenIndex, const std::string& scopePrefix);

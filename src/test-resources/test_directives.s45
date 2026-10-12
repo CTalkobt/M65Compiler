@@ -1,0 +1,17 @@
+; test_directives.s45 — directive values and expressions (exact bytes in
+; test_assembler.sh)
+base = $2000
+* = base                        ; origin from a symbol
+        .fill 3, $EA            ; fill value
+        .space 2, $55
+        .res 2, ($10+1)         ; value expression
+        .var cnt = 1
+        .var cnt++              ; once, not once per pass
+        .byte cnt, 9
+        .align 4, $FF
+        .fillto $2010, 2*3      ; value expression
+* = base + $10 + 2              ; origin expression
+        lda.abs $12             ; forced absolute
+        lda.abs $12,x           ; forced absolute, indexed
+        lda.zp $12
+lbl:    .word lbl

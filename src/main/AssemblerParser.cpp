@@ -81,7 +81,7 @@ void AssemblerParser::checkImmediateOverflow(uint32_t value, int line, int col) 
 
     // Check if value exceeds 8-bit unsigned (for immediate mode)
     if (value > 0xFF) {
-        char buf[32];
+        char buf[128];
         std::snprintf(buf, sizeof(buf), "Immediate value $%X exceeds 8-bit limit (truncated to $%X)",
                      value, value & 0xFF);
         addWarning(formatDiagnostic(currentSourceFile_, line, col, Severity::Warning, buf));
@@ -105,7 +105,7 @@ void AssemblerParser::checkAddressOverflow(uint32_t address, AddressingMode mode
         case AddressingMode::BASE_PAGE_INDIRECT_SP_Y:
         case AddressingMode::STACK_RELATIVE:
             if (address > 0xFF) {
-                char buf[64];
+                char buf[128];
                 std::snprintf(buf, sizeof(buf), "Zero page address $%X exceeds 8-bit limit (truncated to $%X)",
                              address, address & 0xFF);
                 msg = buf;
@@ -120,8 +120,9 @@ void AssemblerParser::checkAddressOverflow(uint32_t address, AddressingMode mode
         case AddressingMode::ABSOLUTE_X_INDIRECT:
         case AddressingMode::IMMEDIATE16:
             if (address > 0xFFFF) {
-                char buf[64];
-                std::snprintf(buf, sizeof(buf), "Absolute address $%X exceeds 16-bit limit (truncated to $%X)",
+                char buf[128];
+                std::snprintf(buf, sizeof(buf), "%s $%X exceeds 16-bit limit (truncated to $%X)",
+                             mode == AddressingMode::IMMEDIATE16 ? "Immediate value" : "Absolute address",
                              address, address & 0xFFFF);
                 msg = buf;
                 isOverflow = true;
@@ -143,7 +144,7 @@ void AssemblerParser::checkImmediateUnderflow(int32_t value, int line, int col) 
 
     // Check if value is negative (underflow for unsigned immediate mode)
     if (value < 0) {
-        char buf[64];
+        char buf[128];
         uint8_t truncated = static_cast<uint8_t>(value);
         std::snprintf(buf, sizeof(buf), "Immediate value %d is negative (interpreted as $%02X when used as unsigned)",
                      value, truncated);
@@ -156,7 +157,7 @@ void AssemblerParser::checkAddressUnderflow(int32_t address, int line, int col) 
 
     // Check if address is negative (underflow for unsigned address)
     if (address < 0) {
-        char buf[96];
+        char buf[128];
         uint16_t truncated16 = static_cast<uint16_t>(address);
         uint32_t truncated32 = static_cast<uint32_t>(address);
         std::snprintf(buf, sizeof(buf), "Address %d is negative (interpreted as $%04X or $%08X when used as unsigned)",
@@ -197,6 +198,40 @@ bool AssemblerParser::match(AssemblerTokenType type) {
         return true;
     }
     return false;
+}
+
+
+// True when every identifier in the expression at `index` (to the end of the
+// line) is already defined
+bool AssemblerParser::exprSymbolsDefined(int index, const std::string& scopePrefix) const {
+    for (size_t k = (size_t)index; k < tokens.size() && tokens[k].type != AssemblerTokenType::NEWLINE &&
+                                   tokens[k].type != AssemblerTokenType::END_OF_FILE; k++) {
+        if (tokens[k].type == AssemblerTokenType::IDENTIFIER &&
+            !symbolTable.count(scopePrefix + tokens[k].value) && !symbolTable.count(tokens[k].value))
+            return false;
+    }
+    return true;
+}
+
+// A simulated op's memory operand given as an expression ($3000, base+2):
+// its current value, as a literal the emitters resolve
+void AssemblerParser::resolveExprOperand(Statement* s) {
+    if (!s->operandIsExpr || s->instr.operandTokenIndex < 0) return;
+    uint32_t v = 0;
+    try { v = evaluateExpressionAt(s->instr.operandTokenIndex, s->scopePrefix); } catch (...) {}
+    char b[16]; snprintf(b, sizeof b, "$%04X", (unsigned)(v & 0xFFFF));
+    s->instr.operand = b;
+}
+
+// The address of `* = expr` / `.org expr`: any constant expression of symbols
+// defined before it
+uint32_t AssemblerParser::orgAddress(Statement* s) {
+    if (s->dir.arguments.size() == 1) {
+        try { return parseNumericLiteral(s->dir.arguments[0]); } catch (...) {}
+    }
+    if (!exprSymbolsDefined(s->dir.tokenIndex, s->scopePrefix))
+        throw std::runtime_error("origin address uses a symbol that is not defined yet");
+    return evaluateExpressionAt(s->dir.tokenIndex, s->scopePrefix);
 }
 
 uint32_t AssemblerParser::evaluateExpressionAt(int index, const std::string& scopePrefix) {
@@ -310,6 +345,14 @@ bool AssemblerParser::isStackRelativeOperand(int tokenIndex, uint32_t& offset, c
     int idx = tokenIndex;
     try {
         auto ast = parseExprAST(tokens, idx, symbolTable, scopePrefix);
+        // a literal "n,sp" is parsed into a stack-relative __stack_n symbol
+        if (auto* v = dynamic_cast<VariableNode*>(ast.get())) {
+            auto it = symbolTable.find(v->name);
+            if (v->name.rfind("__stack_", 0) == 0 && it != symbolTable.end() && it->second.isStackRelative) {
+                offset = (uint32_t)it->second.stackOffset;
+                return true;
+            }
+        }
         if (ast && idx + 1 < (int)tokens.size() &&
             tokens[idx].type == AssemblerTokenType::COMMA &&
             (tokens[idx+1].value == "sp" || tokens[idx+1].value == "SP")) {
@@ -870,7 +913,10 @@ void AssemblerParser::pass1() {
                         if (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) {
                             std::string paramIdxStr = advance().value;
                             if (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) {
-                                std::string valueStr = advance().value;
+                                // ('-' is its own token: "-1" is MINUS, 1)
+                                std::string valueStr;
+                                if (peek().type == AssemblerTokenType::MINUS) { advance(); valueStr = "-"; }
+                                valueStr += advance().value;
                                 try {
                                     int paramIdx = std::stoi(paramIdxStr);
                                     int64_t value = std::stoll(valueStr);
@@ -1031,17 +1077,31 @@ void AssemblerParser::pass1() {
                 }
                 stmt->type = Statement::BASIC_UPSTART;
                 stmt->basicUpstartTokenIndex = (int)pos;
+                // SYS <address>: as many digits as the address has when it is
+                // known now; a label defined later is assumed below 10000 (the
+                // generator checks)
+                stmt->basicUpstartDigits = 4;
+                if (exprSymbolsDefined((int)pos, stmt->scopePrefix)) {
+                    try {
+                        uint32_t a = evaluateExpressionAt((int)pos, stmt->scopePrefix);
+                        stmt->basicUpstartDigits = (int)std::to_string(a & 0xFFFF).size();
+                    } catch (...) {}
+                }
                 while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
-                stmt->size = 12;
+                stmt->size = 8 + stmt->basicUpstartDigits;
             }
             else {
                 stmt->dir.tokenIndex = (int)pos;
-                if (stmt->dir.name == "word") {
-                    // Each comma-separated argument is one expression (lbl+1)
+                if (stmt->dir.name == "word" || stmt->dir.name == "byte" ||
+                    stmt->dir.name == "dword" || stmt->dir.name == "long" || stmt->dir.name == "float") {
+                    // Each comma-separated argument is one expression (lbl+1, 5-1, -1;
+                    // for .float the text of -1.5 or 1.0e20)
                     std::string cur;
-                    int first = -1;
+                    int first = -1, depth = 0;
                     while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) {
-                        if (peek().type == AssemblerTokenType::COMMA) {
+                        if (peek().type == AssemblerTokenType::OPEN_PAREN) depth++;
+                        if (peek().type == AssemblerTokenType::CLOSE_PAREN && depth > 0) depth--;
+                        if (peek().type == AssemblerTokenType::COMMA && depth == 0) {
                             if (first >= 0) { stmt->dir.argTokenIndices.push_back(first); stmt->dir.arguments.push_back(cur); }
                             cur.clear(); first = -1;
                             advance();
@@ -1052,13 +1112,20 @@ void AssemblerParser::pass1() {
                     }
                     if (first >= 0) { stmt->dir.argTokenIndices.push_back(first); stmt->dir.arguments.push_back(cur); }
                 }
+                int depth = 0;
                 while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) {
-                    if (peek().type == AssemblerTokenType::COMMA) { advance(); continue; }
+                    if (peek().type == AssemblerTokenType::OPEN_PAREN) depth++;
+                    else if (peek().type == AssemblerTokenType::CLOSE_PAREN) depth--;
+                    if (peek().type == AssemblerTokenType::COMMA) {
+                        advance();
+                        if (depth == 0 && stmt->dir.valueTokenIndex < 0) stmt->dir.valueTokenIndex = (int)pos;
+                        continue;
+                    }
                     stmt->dir.argTokenIndices.push_back((int)pos);
                     stmt->dir.arguments.push_back(advance().value);
                 }
                 if (stmt->dir.name == "org") {
-                    if (!stmt->dir.arguments.empty()) pc = parseNumericLiteral(stmt->dir.arguments[0]);
+                    if (!stmt->dir.arguments.empty()) pc = orgAddress(stmt.get());
                     if (firstOrgAddress == 0xFFFFFFFF) firstOrgAddress = pc;
                     currentSegment->hasOrg = true;
                     stmt->address = pc;
@@ -1072,8 +1139,11 @@ void AssemblerParser::pass1() {
             advance(); advance();
             stmt->type = Statement::DIRECTIVE;
             stmt->dir.name = "org";
-            stmt->dir.arguments.push_back(advance().value);
-            if (!stmt->dir.arguments.empty()) pc = parseNumericLiteral(stmt->dir.arguments[0]);
+            stmt->dir.tokenIndex = (int)pos;
+            while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE)
+                stmt->dir.arguments.push_back(advance().value);
+            if (stmt->dir.arguments.empty()) throw std::runtime_error("'* =' needs an address");
+            pc = orgAddress(stmt.get());
             if (firstOrgAddress == 0xFFFFFFFF) firstOrgAddress = pc;
             currentSegment->hasOrg = true;
             stmt->address = pc;
@@ -1350,7 +1420,7 @@ void AssemblerParser::pass1() {
                                 auto ast = parseExprAST(tokens, idx, symbolTable, stmt->scopePrefix);
                                 if (ast) {
                                     if (auto* v = dynamic_cast<VariableNode*>(ast.get())) stmt->instr.operand = v->name;
-                                    else stmt->instr.operand = "EXPR";
+                                    else { stmt->instr.operand = "EXPR"; stmt->operandIsExpr = true; }
                                 }
                                 pos = idx;
                             }
@@ -1375,6 +1445,7 @@ void AssemblerParser::pass1() {
                 if (stmt->emitFn) {
                     std::vector<uint8_t> d;
                     M65Emitter sizer(d, getZPStart()); sizer.setSpBase(getSpBase()); sizer.setScratchZP(getScratchZP());
+                    resolveExprOperand(stmt.get());
                     stmt->emitFn(this, sizer, stmt.get());
                     stmt->size = d.size();
                 }
@@ -1463,16 +1534,34 @@ void AssemblerParser::pass1() {
                     stmt->size = 1;
                 }
                 else if (stmt->instr.mnemonic == "call") {
+                    // call name[, arg, ...]: each arg is #expr / W#expr (a word),
+                    // B#expr (a byte, in a word slot) or an address (the word there)
+                    stmt->type = Statement::CALL; stmt->emitFn = AssemblerSimulatedOps::dispatch_Call;
+                    stmt->instr.operandTokenIndex = (int)pos;
                     stmt->instr.operand = advance().value;
                     while (match(AssemblerTokenType::COMMA)) {
-                        if (match(AssemblerTokenType::HASH)) stmt->instr.callArgs.push_back(std::string("#") + advance().value);
-                        else if (peek().type == AssemblerTokenType::IDENTIFIER && (peek().value == "B" || peek().value == "W")) {
-                            std::string p = advance().value; match(AssemblerTokenType::HASH);
-                            stmt->instr.callArgs.push_back(p + "#" + advance().value);
+                        std::string kind;
+                        if (match(AssemblerTokenType::HASH)) kind = "#";
+                        else if (peek().type == AssemblerTokenType::IDENTIFIER && (peek().value == "B" || peek().value == "W") &&
+                                 pos + 1 < tokens.size() && tokens[pos + 1].type == AssemblerTokenType::HASH) {
+                            kind = advance().value + "#"; advance();
                         }
-                        else stmt->instr.callArgs.push_back(advance().value);
+                        stmt->instr.callArgs.push_back(kind);
+                        stmt->instr.callArgTokens.push_back((int)pos);
+                        int depth = 0;
+                        while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE &&
+                               !(depth == 0 && peek().type == AssemblerTokenType::COMMA)) {
+                            if (peek().type == AssemblerTokenType::OPEN_PAREN) depth++;
+                            else if (peek().type == AssemblerTokenType::CLOSE_PAREN) depth--;
+                            advance();
+                        }
                     }
-                    stmt->size = calculateInstructionSize(stmt->instr, pc, stmt->scopePrefix, stmt.get());
+                    {
+                        std::vector<uint8_t> d;
+                        M65Emitter sizer(d, getZPStart()); sizer.setSpBase(getSpBase()); sizer.setScratchZP(getScratchZP());
+                        stmt->emitFn(this, sizer, stmt.get());
+                        stmt->size = (int)d.size();
+                    }
                 }
                 else if (stmt->instr.mnemonic == "zero") {
                     stmt->type = Statement::ZERO; stmt->emitFn = AssemblerSimulatedOps::dispatch_Zero; stmt->instr.operandTokenIndex = (int)pos;
@@ -1545,7 +1634,14 @@ void AssemblerParser::pass1() {
                         stmt->instr.operand = o;
                         if (peek().type == AssemblerTokenType::COMMA) {
                             advance(); std::string r = advance().value;
-                            if (!stmt->instr.forceMode) {
+                            if (stmt->instr.forceMode) {
+                                // lda.abs $12,x / lda.zp $12,y: the forced size, indexed
+                                bool isX = (r == "X" || r == "x"), isY = (r == "Y" || r == "y");
+                                AddressingMode fm = stmt->instr.mode;
+                                if (fm == AddressingMode::ABSOLUTE && (isX || isY)) stmt->instr.mode = isX ? AddressingMode::ABSOLUTE_X : AddressingMode::ABSOLUTE_Y;
+                                else if (fm == AddressingMode::BASE_PAGE && (isX || isY)) stmt->instr.mode = isX ? AddressingMode::BASE_PAGE_X : AddressingMode::BASE_PAGE_Y;
+                                else throwAt(stmt->line, 1, "'" + stmt->instr.mnemonic + "' with a forced addressing mode can't take ', " + r + "'");
+                            } else {
                                 if (r == "X" || r == "x") stmt->instr.mode = AddressingMode::ABSOLUTE_X;
                                 else if (r == "Y" || r == "y") stmt->instr.mode = AddressingMode::ABSOLUTE_Y;
                                 else if (r == "SP" || r == "sp") stmt->instr.mode = AddressingMode::STACK_RELATIVE;
@@ -1823,6 +1919,7 @@ int AssemblerParser::calculateInstructionSize(const Instruction& instr, uint32_t
         std::vector<uint8_t> d;
         M65Emitter sizer(d, getZPStart()); sizer.setSpBase(getSpBase()); sizer.setScratchZP(getScratchZP());
         sizer.setFramePointerZP(framePointerZP);  // Important: use current frame pointer state!
+        resolveExprOperand(const_cast<Statement*>(stmt));
         stmt->emitFn(this, sizer, const_cast<Statement*>(stmt));
         return (int)d.size();
     }
@@ -1907,20 +2004,6 @@ int AssemblerParser::calculateInstructionSize(const Instruction& instr, uint32_t
     }
 
     if (instr.mnemonic == "bsr") return 3;
-
-    if (instr.mnemonic == "call") {
-        int s = 0;
-        for (const auto& arg : instr.callArgs) {
-            bool isB = (arg.size() >= 2 && arg.substr(0, 2) == "B#");
-            if (isB) s += 2;
-            else {
-                Symbol* sym = resolveSymbol(arg[0] == '#' ? arg.substr(1) : arg, scopePrefix);
-                if (sym && sym->size == 1) s += 2;
-                else s += 3;
-            }
-        }
-        return s + 3;
-    }
 
     if (instr.mnemonic == "rtn") {
         // rtn #0 optimizes to just RTS (1 byte); rtn #N is RTS + immediate (2 bytes)
@@ -2057,6 +2140,7 @@ int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t curre
         }
     }
     if (dir.name == "fillto") {
+        auto hex4 = [](uint32_t v) { char b[16]; snprintf(b, sizeof b, "%04X", (unsigned)v); return std::string(b); };
         if (dir.arguments.empty()) {
             if (stmt) {
                 addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
@@ -2071,11 +2155,11 @@ int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t curre
             if (target < currentAddr) {
                 if (stmt) {
                     addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
-                        "Directive .fillto: target address 0x" + std::to_string(target) +
-                        " is before current PC 0x" + std::to_string(currentAddr)));
+                        "Directive .fillto: target address $" + hex4(target) +
+                        " is before current PC $" + hex4(currentAddr)));
                 } else {
-                    addError("Directive .fillto: target address 0x" + std::to_string(target) +
-                        " is before current PC 0x" + std::to_string(currentAddr));
+                    addError("Directive .fillto: target address $" + hex4(target) +
+                        " is before current PC $" + hex4(currentAddr));
                 }
                 return 0;
             }
@@ -2208,7 +2292,7 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
             }
             if (s->type == Statement::DIRECTIVE && s->dir.name == "org") {
                 if (!s->dir.arguments.empty()) {
-                    cP = parseNumericLiteral(s->dir.arguments[0]);
+                    cP = orgAddress(s.get());
                     if (segments[activeSegment]->startAddress == 0xFFFFFFFF) segments[activeSegment]->startAddress = cP;
                 }
             }
@@ -2224,7 +2308,7 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
                 }
             }
             if (s->type == Statement::DIRECTIVE && s->dir.name == "org") {
-                if (!s->dir.arguments.empty()) cP = parseNumericLiteral(s->dir.arguments[0]);
+                if (!s->dir.arguments.empty()) cP = orgAddress(s.get());
                 s->address = cP;
             }
             int oS = s->size;
@@ -2236,46 +2320,18 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
             else {
                 if (s->type == Statement::INSTRUCTION) s->size = calculateInstructionSize(s->instr, cP, s->scopePrefix, s.get());
                 else if (s->isSimulatedOp()) {
-                    // DMA buffer allocation for FILL/COPY (must happen before sizing)
-                    if (s->type == Statement::FILL && fillDmaFirstFillAddr_ == 0xFFFFFFFF) {
-                        fillDmaFirstFillAddr_ = cP;
-                        if (segments.find("bss") == segments.end()) segments["bss"] = std::make_shared<Segment>();
-                        if (segments["bss"]->startAddress == 0xFFFFFFFF) segments["bss"]->startAddress = 0x1000;
-                        uint32_t bssCurrentSize = 0;
-                        for (const auto& stmt : statements) if (stmt && stmt->segmentName == "bss" && !stmt->deleted) bssCurrentSize += stmt->size;
-                        fillDmaListAddr_ = segments["bss"]->startAddress + bssCurrentSize;
-                        symbolTable["__fill_dma_buf"] = {fillDmaListAddr_, true, 2, false, false, fillDmaListAddr_, false, 0, false, 0, "bss"};
-                    }
-                    if (s->type == Statement::COPY && moveDmaFirstCopyAddr_ == 0xFFFFFFFF) {
-                        moveDmaFirstCopyAddr_ = cP;
-                        if (segments.find("bss") == segments.end()) segments["bss"] = std::make_shared<Segment>();
-                        if (segments["bss"]->startAddress == 0xFFFFFFFF) segments["bss"]->startAddress = 0x1000;
-                        uint32_t bssCurrentSize = 0;
-                        for (const auto& stmt : statements) if (stmt && stmt->segmentName == "bss" && !stmt->deleted) bssCurrentSize += stmt->size;
-                        moveDmaListAddr_ = segments["bss"]->startAddress + bssCurrentSize;
-                        symbolTable["__move_dma_buf"] = {moveDmaListAddr_, true, 2, false, false, moveDmaListAddr_, false, 0, false, 0, "bss"};
-                    }
                     // Unified sizing via emitFn dispatch
                     std::vector<uint8_t> d;
                     M65Emitter sizer(d, getZPStart()); sizer.setSpBase(getSpBase()); sizer.setScratchZP(getScratchZP());
+                    resolveExprOperand(s.get());
                     s->emitFn(this, sizer, s.get());
                     s->size = (int)d.size();
                 }
                 else if (s->type == Statement::DIRECTIVE) {
-                    if (s->dir.name == "var" || s->dir.name == "local") {
-                        if (s->dir.varType == Directive::ASSIGN) {
-                            uint32_t oldVal = symbolTable[s->dir.varName].value;
-                            uint32_t newVal = evaluateExpressionAt(s->dir.tokenIndex, s->scopePrefix);
-                            if (oldVal != newVal) {
-                                symbolTable[s->dir.varName].value = newVal;
-                            }
-                        }
-                        else if (s->dir.varType == Directive::INC) { symbolTable[s->dir.varName].value++; }
-                        else if (s->dir.varType == Directive::DEC) { symbolTable[s->dir.varName].value--; }
-                    }
+                    // (.var/.local were applied at the top of this loop)
                     s->size = calculateDirectiveSize(s->dir, cP, s.get());
                 }
-                else if (s->type == Statement::BASIC_UPSTART) s->size = 12;
+                else if (s->type == Statement::BASIC_UPSTART) s->size = 8 + s->basicUpstartDigits;
             }
             if (s->size != oS) {
                 addressRecalculationMadeChanges = true;

@@ -1,0 +1,16 @@
+; test_expr_minus.s45 — subtraction, unary minus, 0x/0b literals and
+; expressions in data directives (test_assembler.sh compares the bytes)
+* = $2000
+x = 7
+    lda #5-1            ; a9 04  (was 5: "-1" lexed as a number)
+    lda #x-1            ; a9 06
+    lda #(5-1)          ; a9 04
+    lda #10-2-3         ; a9 05  (left to right)
+    lda #-1+2           ; a9 01  (unary minus binds to the operand)
+    lda #0x10           ; a9 10
+    lda #0b101          ; a9 05
+    lda #-1             ; a9 ff  (no overflow warning)
+    .byte 4-1, -2, 'A'-'A'+1   ; 03 fe 01
+    .word 1+2, x-1, -1  ; 03 00 06 00 ff ff
+    .dword 1000000-1    ; 3f 42 0f 00
+    .float -1.0, 1.0e20 ; 81 80 00 00 00  c3 2d 78 eb c6

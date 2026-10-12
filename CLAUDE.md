@@ -255,15 +255,12 @@ overlays, `dma.h`. Many other headers (graphics, sprites, hw_*, uart, conio
 
 ## Known Bugs (found in the 2026-10-11 doc audit; not yet fixed unless noted)
 
-- **ca45**: `x-1`/`5-1` lexes `-1` as a literal, dropping the subtraction;
-  `0x10` becomes 0; `.word 1+2` gives 1; value options (`-o`, `-L`, `-l`…) read
-  the wrong argument when a config file or `CA45_*` adds arguments (can
-  overwrite the input); `#include` fails; `mod.16`, `abs.16`, `neg.16` (memory),
-  `fill`/`move`, `stw #imm`, `ldw.f`/`stw.f` simulated ops are wrong.
+- **ca45**: fixed (2026-10-12): expressions/literals, data directives,
+  `#include`, `.org` expressions, the simulated ops (`test_ca45_simops_xemu.s45`).
 - **cc45**: `-fno-zpcall`
   constant-parameter specialization ignores calls from other modules
-  (miscompile); virtual dispatch uses the wrong vtable symbol; `__dma_fill`
-  fills 0; `continue <value>` does nothing; `__regparm` with `char` or
+  (miscompile); virtual dispatch uses the wrong vtable symbol;
+  `continue <value>` does nothing; `__regparm` with `char` or
   `-fno-staticalloc`; `char` varargs high byte.
 - **ln45**: DEBUG/INFO output on every link; `-basic -t ADDR` broken; SAC
   overlay never applied ("no __ar symbol" warnings); `c45_stack.lib` has

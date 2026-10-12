@@ -6193,8 +6193,8 @@ void IRBuilder::visit(FunctionCall& node) {
         emitAsm("lda $05");   emitAsm("pha");    // dest addr hi
         emitAsm("lda $04");   emitAsm("pha");    // dest addr lo
         emitAsm("lda #0");    emitAsm("pha");    // src bank (ignored for fill)
-        emitAsm("lda $02");   emitAsm("pha");    // fill value (in src addr lo)
-        emitAsm("lda #0");    emitAsm("pha");    // fill value hi (ignored)
+        emitAsm("lda #0");    emitAsm("pha");    // src addr hi (unused by fill)
+        emitAsm("lda $02");   emitAsm("pha");    // fill value (src addr lo)
         emitAsm("lda $07");   emitAsm("pha");    // length hi
         emitAsm("lda $06");   emitAsm("pha");    // length lo
         emitAsm("lda #$03");  emitAsm("pha");    // command: fill=0x03

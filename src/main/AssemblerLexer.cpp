@@ -1,3 +1,4 @@
+#include <cstring>
 #include "AssemblerLexer.hpp"
 #include <cctype>
 #include <set>
@@ -76,6 +77,17 @@ AssemblerToken AssemblerLexer::nextToken() {
         return {AssemblerTokenType::END_OF_FILE, "", line, column};
     }
 
+    // #line N "file" from the preprocessor (#include): the next line is
+    // line N; the marker itself is skipped
+    if (c == '#' && (pos == 0 || source[pos - 1] == '\n') && source.compare(pos, 6, "#line ") == 0) {
+        size_t p = pos + 6;
+        int n = 0;
+        while (p < source.length() && std::isdigit((unsigned char)source[p])) n = n * 10 + (source[p++] - '0');
+        while (peek() != '\n' && peek() != '\0') get();
+        line = n - 1;   // the NEWLINE that follows makes it n
+        return nextToken();
+    }
+
     if (c == '\n') {
         int startLine = line;
         int startCol = column;
@@ -97,12 +109,15 @@ AssemblerToken AssemblerLexer::nextToken() {
         }
         std::string upper = name;
         std::transform(upper.begin(), upper.end(), upper.begin(), ::toupper);
-        static const std::set<std::string> regs = {"A", "X", "Y", "Z", "SP", "PC", "AX", "AY", "AZ", "XY", "Q", "AXYZ"};
+        static const std::set<std::string> regs = {"A", "X", "Y", "Z", "SP", "PC", "AX", "AY", "AZ", "XY", "Q", "AXY", "AXZ", "AYZ", "AXYZ"};
         if (regs.count(upper)) return {AssemblerTokenType::REGISTER, upper, startLine, startCol};
         return {AssemblerTokenType::DIRECTIVE, name, startLine, startCol};
     }
 
-    if (c == 'P' && pos < source.length() && source[pos] == '.') {
+    // P.C P.Z P.I P.D P.V P.N: a processor flag (expr / FlagNode)
+    if (c == 'P' && pos + 2 < source.length() && source[pos + 1] == '.' &&
+        std::strchr("CZIDVNczidvn", source[pos + 2]) &&
+        !(pos + 3 < source.length() && (std::isalnum((unsigned char)source[pos + 3]) || source[pos + 3] == '_'))) {
         int startLine = line;
         int startCol = column;
         get(); // consume P
@@ -111,8 +126,9 @@ AssemblerToken AssemblerLexer::nextToken() {
         return {AssemblerTokenType::FLAG, std::string(1, flag), startLine, startCol};
     }
 
-    if (std::isdigit(c) || c == '$' || c == '%' || c == '.' || 
-        (c == '-' && pos + 1 < source.length() && (std::isdigit(source[pos + 1]) || source[pos + 1] == '.'))) {
+    // ('-' is always the MINUS operator: "5-1" is a subtraction, "-1" a unary
+    //  minus; lexing "-1" as a number turned "5-1" into the two numbers 5 and -1)
+    if (std::isdigit(c) || c == '$' || c == '%' || c == '.') {
         if (c == '.' && (pos >= source.length() || !std::isdigit(source[pos]))) {
             // directive handled later
         } else {
@@ -235,6 +251,15 @@ AssemblerToken AssemblerLexer::lexIdentifierOrInstruction() {
     if (instructions.count(upperValue)) {
         return {AssemblerTokenType::INSTRUCTION, upperValue, startLine, startCol};
     }
+    // An addressing-mode suffix on a native mnemonic: lda.abs $12 (forces
+    // absolute), lda.zp, .imm, .ind, .xind, .indy, .indz, .accum/.a
+    {
+        size_t dot = upperValue.rfind('.');
+        static const std::set<std::string> suffixes = {"IMM", "ZP", "ABS", "IND", "XIND", "INDY", "INDZ", "ACCUM", "A"};
+        if (dot != std::string::npos && dot > 0 && suffixes.count(upperValue.substr(dot + 1)) &&
+            upperValue.find('.') == dot && instructions.count(upperValue.substr(0, dot)))
+            return {AssemblerTokenType::INSTRUCTION, upperValue, startLine, startCol};
+    }
 
     // Encoding prefixes for char/string literals: s'A' p'A' s"ABC" p"ABC"
     if ((value == "s" || value == "S" || value == "p" || value == "P") &&
@@ -268,6 +293,22 @@ AssemblerToken AssemblerLexer::lexNumber() {
     }
     
     if (prefix == '%') {
+        while (peek() == '0' || peek() == '1') value += get();
+        return {AssemblerTokenType::BINARY_LITERAL, value, startLine, startCol};
+    }
+
+    // 0x1F / 0b101: C-style hex and binary, as $1F / %101
+    if (prefix == '0' && (peek() == 'x' || peek() == 'X') && pos + 1 < source.length() &&
+        std::isxdigit((unsigned char)source[pos + 1])) {
+        get();
+        value = "$";
+        while (std::isxdigit(peek())) value += get();
+        return {AssemblerTokenType::HEX_LITERAL, value, startLine, startCol};
+    }
+    if (prefix == '0' && (peek() == 'b' || peek() == 'B') && pos + 1 < source.length() &&
+        (source[pos + 1] == '0' || source[pos + 1] == '1')) {
+        get();
+        value = "%";
         while (peek() == '0' || peek() == '1') value += get();
         return {AssemblerTokenType::BINARY_LITERAL, value, startLine, startCol};
     }

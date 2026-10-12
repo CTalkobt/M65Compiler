@@ -142,7 +142,7 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
 
             // Unified simulated op emission via emitFn dispatch
             if (stmt->isSimulatedOp()) {
-                if (!isDeadCode) stmt->emitFn(parser, e, stmt.get());
+                if (!isDeadCode) { parser->resolveExprOperand(stmt.get()); stmt->emitFn(parser, e, stmt.get()); }
                 if (binaryPtr) stmt->bytes.assign(binaryPtr->begin() + binaryStartIdx, binaryPtr->end());
                 continue;
             }
@@ -150,10 +150,17 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
             if (stmt->type == AssemblerParser::Statement::BASIC_UPSTART) {
                 if (!isDeadCode) {
                     uint32_t addr = parser->evaluateExpressionAt(stmt->basicUpstartTokenIndex, stmt->scopePrefix);
-                    std::string aS = std::to_string(addr);
-                    while (aS.length() < 4) aS = " " + aS;
-                    if (aS.length() > 4) aS = aS.substr(aS.length() - 4);
-                    e.emitByte(0x0b); e.emitByte(0x08); e.emitByte(0x0a); e.emitByte(0x00);
+                    std::string aS = std::to_string(addr & 0xFFFF);
+                    int digits = stmt->basicUpstartDigits;
+                    if ((int)aS.length() > digits)
+                        throw std::runtime_error(".basicUpstart: SYS " + aS + " needs " + std::to_string(aS.length()) +
+                            " digits; give the address as a number, or define the label before .basicUpstart");
+                    while ((int)aS.length() < digits) aS = " " + aS;
+                    // 10 SYS <addr>: the link points at the end-of-program
+                    // marker after this line (stub address + 6 + digits)
+                    uint32_t link = stmt->address + 6 + (uint32_t)digits;
+                    e.emitByte((uint8_t)(link & 0xFF)); e.emitByte((uint8_t)(link >> 8));
+                    e.emitByte(0x0a); e.emitByte(0x00);
                     e.emitByte(0x9e); // SYS
                     for (char c : aS) e.emitByte(toPetscii(c));
                     e.emitByte(0x00); e.emitByte(0x00); e.emitByte(0x00);
@@ -178,21 +185,6 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                     if (!pass2ProcStack.empty()) pass2ProcStack.pop_back();
                     isDeadCode = false;
                     continue;
-                } else if (stmt->instr.mnemonic == "call") {
-                    if (!isDeadCode) {
-                        for (const auto& arg : stmt->instr.callArgs) {
-                            bool isB = (arg.size() >= 2 && arg.substr(0, 2) == "B#");
-                            std::string v = isB ? arg.substr(2) : ( (arg.size() >= 2 && arg.substr(0, 2) == "W#") ? arg.substr(2) : (arg[0] == '#' ? arg.substr(1) : arg));
-                            uint32_t val;
-                            Symbol* sym = parser->resolveSymbol(v, stmt->scopePrefix);
-                            if (sym) val = sym->value; else val = parseNumericLiteral(v);
-                            if (!isB && !arg.empty() && arg[0] != '#' && arg.size() >= 2 && arg.substr(0,2) != "W#" && sym) isB = (sym->size == 1);
-                            if (isB) { e.lda_imm(val & 0xFF); e.pha(); } else { e.emitInstruction("phw", AddressingMode::IMMEDIATE16, val & 0xFFFF, true); }
-                        }
-                        Symbol* sym = parser->resolveSymbol(stmt->instr.operand, stmt->scopePrefix);
-                        uint32_t target = sym ? sym->value : 0;
-                        e.emitInstruction("jsr", AddressingMode::ABSOLUTE, target, true);
-                    }
                 } else { // Handle all other instructions
                     if (!isDeadCode) {
                         AddressingMode resolvedMode = stmt->instr.mode;
@@ -277,8 +269,8 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                                     val = parser->evaluateExpressionAt(stmt->instr.operandTokenIndex, stmt->scopePrefix);
                                     hasValue = true;
 
-                                    // Overflow check for 8-bit modes
-                                    if (val > 0xFF) {
+                                    // Overflow check for 8-bit modes (-128..-1 is a byte too: #-1 is $FF)
+                                    if (val > 0xFF && !((int32_t)val < 0 && (int32_t)val >= -128)) {
                                         bool is8BitMode = (resolvedMode == AddressingMode::IMMEDIATE || 
                                                            resolvedMode == AddressingMode::BASE_PAGE || 
                                                            resolvedMode == AddressingMode::BASE_PAGE_X || 
@@ -292,6 +284,17 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                                                            resolvedMode == AddressingMode::FLAT_INDIRECT_Z);
                                         if (is8BitMode) {
                                             parser->addWarning("line " + std::to_string(stmt->line) + ": warning: 8-bit operand overflow (value " + std::to_string(val) + " truncated to " + std::to_string(val & 0xFF) + ")");
+                                        }
+                                    }
+                                    // -Woverflow / -Wunderflow (off by default)
+                                    if (parser->warnOverflow || parser->warnUnderflow) {
+                                        parser->currentSourceFile_ = stmt->sourceFile;
+                                        bool isImm = (resolvedMode == AddressingMode::IMMEDIATE || resolvedMode == AddressingMode::IMMEDIATE16);
+                                        if ((int32_t)val < 0) {
+                                            if (isImm) parser->checkImmediateUnderflow((int32_t)val, stmt->line, 1);
+                                            else parser->checkAddressUnderflow((int32_t)val, stmt->line, 1);
+                                        } else if (!isImm || resolvedMode == AddressingMode::IMMEDIATE16) {
+                                            parser->checkAddressOverflow(val, resolvedMode, stmt->line, 1);
                                         }
                                     }
                                 }
@@ -537,12 +540,16 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                         e.setSACMode(true);
                     }
                     else if (stmt->dir.name == "byte") {
+                        // a number, or any expression ('A', 5-1, <label, -1)
                         for (size_t ai = 0; ai < stmt->dir.arguments.size(); ++ai) {
                             int ti = ai < stmt->dir.argTokenIndices.size() ? stmt->dir.argTokenIndices[ai] : -1;
-                            if (ti >= 0 && parser->tokens[ti].type == AssemblerTokenType::CHAR_LITERAL)
-                                e.emitByte((uint8_t)parser->evaluateExpressionAt(ti, stmt->scopePrefix));  // 'A', s'A', p'A'
-                            else
-                                e.emitByte((uint8_t)parseNumericLiteral(stmt->dir.arguments[ai]));
+                            uint32_t v;
+                            try { v = parseNumericLiteral(stmt->dir.arguments[ai]); }
+                            catch (...) {
+                                if (ti < 0) throw;
+                                v = parser->evaluateExpressionAt(ti, stmt->scopePrefix);
+                            }
+                            e.emitByte((uint8_t)v);
                         }
                     }
                     else if (stmt->dir.name == "word") {
@@ -550,14 +557,30 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                             const auto& a = stmt->dir.arguments[ai];
                             // Try numeric first, otherwise the whole expression
                             // (lbl, lbl+1, lbl-2); a symbol gets a relocation
+                            int ti0 = ai < stmt->dir.argTokenIndices.size() ? stmt->dir.argTokenIndices[ai] : -1;
+                            // an expression that does not start with a symbol (1+2, -1, (5-1)*2)
+                            // is a constant
+                            if (ti0 >= 0 && parser->tokens[ti0].type != AssemblerTokenType::IDENTIFIER) {
+                                uint32_t v;
+                                try { v = parseNumericLiteral(a); }
+                                catch (...) { v = parser->evaluateExpressionAt(ti0, stmt->scopePrefix); }
+                                e.emitWord((uint16_t)v);
+                                continue;
+                            }
                             try {
                                 e.emitWord((uint16_t)parseNumericLiteral(a));
                             } catch (...) {
-                                int ti = ai < stmt->dir.argTokenIndices.size() ? stmt->dir.argTokenIndices[ai] : -1;
-                                std::string name = a.substr(0, a.find_first_of("+-", 1));
+                                int ti = ti0;
+                                std::string name = ti0 >= 0 ? parser->tokens[ti0].value : a.substr(0, a.find_first_of("+-", 1));
                                 Symbol* sym = parser->resolveSymbol(name, stmt->scopePrefix);
                                 if (!sym && !parser->isExternSymbol(name))
                                     throw std::runtime_error("undefined symbol '" + name + "' in .word");
+                                // a constant (equate, or a label in an .org'd segment):
+                                // any expression (K*2, K<<8 | 1)
+                                if (ti0 >= 0 && !parser->isRelocatableSymbolIn(name, stmt->scopePrefix)) {
+                                    e.emitWord((uint16_t)parser->evaluateExpressionAt(ti0, stmt->scopePrefix));
+                                    continue;
+                                }
                                 // symbol + addend ("+1", "-2"); anything more
                                 // complex goes through the expression evaluator
                                 std::string rest = a.substr(name.size());
@@ -584,7 +607,18 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                             }
                         }
                     }
-                    else if (stmt->dir.name == "dword" || stmt->dir.name == "long") for (const auto& a : stmt->dir.arguments) { uint32_t v = parseNumericLiteral(a); e.emitWord(v & 0xFFFF); e.emitWord(v >> 16); }
+                    else if (stmt->dir.name == "dword" || stmt->dir.name == "long") {
+                        for (size_t ai = 0; ai < stmt->dir.arguments.size(); ++ai) {
+                            int ti = ai < stmt->dir.argTokenIndices.size() ? stmt->dir.argTokenIndices[ai] : -1;
+                            uint32_t v;
+                            try { v = parseNumericLiteral(stmt->dir.arguments[ai]); }
+                            catch (...) {
+                                if (ti < 0) throw;
+                                v = parser->evaluateExpressionAt(ti, stmt->scopePrefix);
+                            }
+                            e.emitWord(v & 0xFFFF); e.emitWord(v >> 16);
+                        }
+                    }
                     else if (stmt->dir.name == "float") for (const auto& a : stmt->dir.arguments) { double v = std::stod(a); std::vector<uint8_t> enc = encodeFloat(v); for (uint8_t eb : enc) e.emitByte(eb); }
                     else if (stmt->dir.name == "text" || stmt->dir.name == "ascii" || stmt->dir.name == "screencode") {
                         if (!stmt->dir.arguments.empty()) {
@@ -608,10 +642,11 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                             }
                         }
                     }
-                    else if (stmt->dir.name == "res") {
+                    else if (stmt->dir.name == "res" || stmt->dir.name == "fill" || stmt->dir.name == "space") {
                         uint32_t count = parser->evaluateExpressionAt(stmt->dir.tokenIndex, stmt->scopePrefix);
                         uint8_t fill = 0;
-                        if (stmt->dir.arguments.size() > 1) fill = (uint8_t)parseNumericLiteral(stmt->dir.arguments[1]);
+                        if (stmt->dir.valueTokenIndex >= 0)
+                            fill = (uint8_t)parser->evaluateExpressionAt(stmt->dir.valueTokenIndex, stmt->scopePrefix);
                         for (uint32_t i = 0; i < count; ++i) e.emitByte(fill);
                     }
                     else if (stmt->dir.name == "array") {
@@ -620,12 +655,14 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                     }
                     else if (stmt->dir.name == "align" || stmt->dir.name == "balign") {
                         uint8_t fill = 0;
-                        if (stmt->dir.arguments.size() > 1) fill = (uint8_t)parseNumericLiteral(stmt->dir.arguments[1]);
+                        if (stmt->dir.valueTokenIndex >= 0)
+                            fill = (uint8_t)parser->evaluateExpressionAt(stmt->dir.valueTokenIndex, stmt->scopePrefix);
                         for (int i = 0; i < stmt->size; ++i) e.emitByte(fill);
                     }
                     else if (stmt->dir.name == "fillto") {
                         uint8_t fill = 0;
-                        if (stmt->dir.arguments.size() > 1) fill = (uint8_t)parseNumericLiteral(stmt->dir.arguments[1]);
+                        if (stmt->dir.valueTokenIndex >= 0)
+                            fill = (uint8_t)parser->evaluateExpressionAt(stmt->dir.valueTokenIndex, stmt->scopePrefix);
                         for (int i = 0; i < stmt->size; ++i) e.emitByte(fill);
                     }
                     else if (stmt->dir.name == "import" || stmt->dir.name == "incbin") {

@@ -63,7 +63,7 @@ run_xemu_test() {
 
     # Extract bytes from raw binary dump using xxd
     local addr_dec=$((16#$mem_addr))
-    actual=$(xxd -s $addr_dec -l $num_bytes -p "$dump_file" 2>/dev/null | \
+    actual=$(xxd -s $addr_dec -l $num_bytes -p -c 256 "$dump_file" 2>/dev/null | \
              sed 's/\(..\)/\1 /g' | sed 's/ $//' | tr '[:lower:]' '[:upper:]')
 
     if [ -z "$actual" ]; then
@@ -772,6 +772,26 @@ if [ $? -eq 0 ]; then
     run_xemu_test "test_logical_value" "build/test/test_logical_value_xemu.prg" "C0A0" 9 "01 00 01 00 01 00 01 01 AA"
 else
     echo "FAIL: test_logical_value_xemu.c (compilation/linking failed)"
+    failed=$((failed + 1))
+fi
+
+# Test: dma_fill / dma_copy (the fill value goes in the list's source low byte)
+echo "Testing test_dma_xemu.c (DMA fill and copy)..."
+compile_link_test "src/test-resources/test_dma_xemu.c" "build/test/test_dma_xemu.prg"
+if [ $? -eq 0 ]; then
+    run_xemu_test "test_dma" "build/test/test_dma_xemu.prg" "C0C0" 3 "01 01 AA"
+else
+    echo "FAIL: test_dma_xemu.c (compilation/linking failed)"
+    failed=$((failed + 1))
+fi
+
+# Test: ca45 simulated instructions (assembled directly with ca45, no linker)
+echo "Testing test_ca45_simops_xemu.s45 (ca45 simulated instructions)..."
+if ./bin/ca45 src/test-resources/test_ca45_simops_xemu.s45 -o build/test/test_ca45_simops_xemu.prg >/dev/null 2>&1; then
+    run_xemu_test "test_ca45_simops" "build/test/test_ca45_simops_xemu.prg" "C0C0" 39 \
+        "04 00 FE FF 2C 01 FB FF 05 00 00 12 FB FF 06 FF 12 34 12 42 00 99 35 12 32 01 34 56 CD AB 5A 5A 77 66 05 5C 03 01 AA"
+else
+    echo "FAIL: test_ca45_simops_xemu.s45 (assembly failed)"
     failed=$((failed + 1))
 fi
 

@@ -1,3 +1,4 @@
+#include <functional>
 #include "AssemblerExpression.hpp"
 #include "AssemblerParser.hpp"
 #include "M65Emitter.hpp"
@@ -80,23 +81,21 @@ uint32_t FlagNode::getValue(AssemblerParser*) const { return 0; }
 bool FlagNode::isConstant(AssemblerParser*) const { return false; }
 bool FlagNode::is16Bit(AssemblerParser*) const { return false; }
 void FlagNode::emit(M65Emitter& e, AssemblerParser* parser, int width, const std::string&) {
+    // A = 1 when the flag is set, else 0 (P is read with PHP; PLA)
     if (!parser) return;
     if (flag == 'C') { e.lda_imm(0); e.adc_imm(0); }
     else {
-        int8_t branchOp = 0;
+        uint8_t mask = 0;
         switch (flag) {
-            case 'Z': branchOp = 0xD0; break;
-            case 'V': branchOp = 0x50; break;
-            case 'N': branchOp = 0x10; break;
+            case 'Z': mask = 0x02; break; case 'I': mask = 0x04; break;
+            case 'D': mask = 0x08; break; case 'B': mask = 0x10; break;
+            case 'V': mask = 0x40; break; case 'N': mask = 0x80; break;
         }
-        if (branchOp != 0) { e.lda_imm(0); e.bne(0x02); e.lda_imm(1); }
+        if (mask == 0) e.lda_imm(0);
         else {
-            uint8_t mask = 0;
-            if (flag == 'I') mask = 0x04;
-            else if (flag == 'D') mask = 0x08;
-            else if (flag == 'B') mask = 0x10;
-            if (mask != 0) { e.pha(); e.pla(); e.and_imm(mask); e.beq(0x02); e.lda_imm(1); }
-            else e.lda_imm(0);
+            e.emitInstruction("php", AddressingMode::IMPLIED); e.pla();
+            e.and_imm(mask); e.beq(0x02); e.lda_imm(1);
+            e.machineState().invalidateAll();
         }
     }
     if (width >= 16) e.ldx_imm(0);
@@ -774,7 +773,8 @@ void ArrayIndexNode::emit(M65Emitter& e, AssemblerParser* parser, int width, con
 
 std::unique_ptr<ExprAST> parseExprAST(const std::vector<AssemblerToken>& tokens, int& idx, std::map<std::string, Symbol>& symbolTable, const std::string& scopePrefix) {
     int exprStartIdx = idx;
-    auto parsePrimary = [&]() -> std::unique_ptr<ExprAST> {
+    std::function<std::unique_ptr<ExprAST>()> parsePrimary;
+    parsePrimary = [&]() -> std::unique_ptr<ExprAST> {
         if (idx >= (int)tokens.size()) return nullptr;
         const auto& t = tokens[idx++];
         if (t.type == AssemblerTokenType::DECIMAL_LITERAL || t.type == AssemblerTokenType::HEX_LITERAL) {
@@ -913,7 +913,15 @@ std::unique_ptr<ExprAST> parseExprAST(const std::vector<AssemblerToken>& tokens,
             if (idx < (int)tokens.size() && tokens[idx].type == AssemblerTokenType::CLOSE_BRACKET) idx++;
             return std::make_unique<DereferenceNode>(std::move(addr), true);
         }
-        if (t.type == AssemblerTokenType::BANG || t.type == AssemblerTokenType::TILDE || t.type == AssemblerTokenType::LESS_THAN || t.type == AssemblerTokenType::GREATER_THAN || (t.type == AssemblerTokenType::MINUS && idx < (int)tokens.size() && tokens[idx].type != AssemblerTokenType::DECIMAL_LITERAL)) {
+        // -x, ~x, !x apply to the next operand (-1+2 is 1, as in C);
+        // <x, >x (low / high byte) to the whole rest of the expression
+        // (#<label+1 is the low byte of label+1, the usual 6502 convention)
+        if (t.type == AssemblerTokenType::BANG || t.type == AssemblerTokenType::TILDE ||
+            t.type == AssemblerTokenType::MINUS) {
+            std::string op = t.value;
+            return std::make_unique<UnaryExpr>(op, parsePrimary());
+        }
+        if (t.type == AssemblerTokenType::LESS_THAN || t.type == AssemblerTokenType::GREATER_THAN) {
             std::string op = t.value;
             return std::make_unique<UnaryExpr>(op, parseExprAST(tokens, idx, symbolTable, scopePrefix));
         }

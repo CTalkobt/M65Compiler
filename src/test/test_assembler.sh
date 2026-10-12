@@ -26,6 +26,7 @@ test_file() {
 AS_TEST_FILES=(
     "src/test-resources/test_basic_upstart.s45"
     "src/test-resources/test_data_types.s45"
+    "src/test-resources/test_expr_minus.s45"
     "src/test-resources/test_mul.s45"
     "src/test-resources/test_div.s45"
     "src/test-resources/test_expr.s45"
@@ -68,6 +69,46 @@ else
     echo "FAIL: .basicUpstart output mismatch."
     echo "  Expected start: $EXPECTED"
     echo "  Actual:         $ACTUAL"
+    failed=$((failed + 1))
+fi
+
+# Expressions: subtraction, unary minus, 0x/0b, data directive expressions
+echo "Verifying directive bytes (test_directives.s45)..."
+$AS src/test-resources/test_directives.s45 -o build/test/test_directives.bin >/dev/null 2>&1
+ACTUAL=$(hexdump -v -e '1/1 "%02x "' build/test/test_directives.bin | xargs)
+EXPECTED="ea ea ea 55 55 11 11 02 09 ff ff ff 06 06 06 06 00 00 ad 12 00 bd 12 00 a5 12 1a 20"
+if [ "$ACTUAL" == "$EXPECTED" ]; then
+    echo "SUCCESS: directive bytes match."
+else
+    echo "FAIL: directive bytes mismatch."
+    echo "  Expected: $EXPECTED"
+    echo "  Actual:   $ACTUAL"
+    failed=$((failed + 1))
+fi
+# .basicUpstart: 5-digit SYS for an address of 10000 or more
+printf '.basicUpstart 10000\n* = 10000\n rts\n' > build/test/test_bu5.s45
+$AS build/test/test_bu5.s45 -o build/test/test_bu5.prg >/dev/null 2>&1
+ACTUAL=$(hexdump -v -n 15 -e '1/1 "%02x "' build/test/test_bu5.prg | xargs)
+if [ "$ACTUAL" == "01 20 0c 20 0a 00 9e 31 30 30 30 30 00 00 00" ]; then
+    echo "SUCCESS: .basicUpstart 10000 stub."
+else
+    echo "FAIL: .basicUpstart 10000 stub: $ACTUAL"
+    failed=$((failed + 1))
+fi
+
+echo "Verifying expression bytes (test_expr_minus.s45)..."
+ACTUAL=$(hexdump -v -e '1/1 "%02x "' build/test/test_expr_minus.bin | xargs)
+EXPECTED="a9 04 a9 06 a9 04 a9 05 a9 01 a9 10 a9 05 a9 ff 03 fe 01 03 00 06 00 ff ff 3f 42 0f 00 81 80 00 00 00 c3 2d 78 eb c6"
+if [ "$ACTUAL" == "$EXPECTED" ]; then
+    echo "SUCCESS: expression bytes match."
+else
+    echo "FAIL: expression bytes mismatch."
+    echo "  Expected: $EXPECTED"
+    echo "  Actual:   $ACTUAL"
+    failed=$((failed + 1))
+fi
+if $AS src/test-resources/test_expr_minus.s45 -o build/test/test_expr_minus.bin 2>&1 | grep -q "overflow"; then
+    echo "FAIL: #-1 warns about an 8-bit overflow"
     failed=$((failed + 1))
 fi
 
