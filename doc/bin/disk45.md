@@ -300,7 +300,7 @@ File "LEVEL1" chain:
 
 ### REL File Operations
 
-REL files work on the sector-based images (D64, D71, D81, D65, D80, D82), laid out as CBM DOS does: the records packed one after another across the data sectors (254 data bytes each; a record can span two), an empty record being `$FF` and `$00`s, side sectors listing the data sectors (6 per group, 120 data sectors each), and on D81/D65 the 1581's super side sector in front of the groups. `rel-create` on a D81 gives the same sectors as BASIC 65's DOS creating the file, and BASIC 65 reads, writes and extends a REL file disk45 made (`test_disk45_rel_xemu.bas` on xemu). The D64/D71 layout follows the 1541/1571 format; D80/D82 use it too (not checked against an 8050/8250).
+REL files work on the sector-based images (D64, D71, D81, D65, D80, D82), laid out as CBM DOS does: the records packed one after another across the data sectors (254 data bytes each; a record can span two), an empty record being `$FF` and `$00`s, side sectors listing the data sectors (6 per group, 120 data sectors each), and on D81/D65 the 1581's super side sector in front of the groups. `rel-create` on a D81 gives the same sectors as BASIC 65's DOS creating the file, and BASIC 65 reads, writes and extends a REL file disk45 made (`test_disk45_rel_xemu.bas` on xemu). The D64/D71 layout follows the 1541/1571 format; D80/D82 use it too (the REL layout is not checked against an 8050/8250).
 
 #### rel-create
 
@@ -558,8 +558,8 @@ R/W means `create`, `add`, `remove` etc. work and the image is written back in i
 | `.d71` | 1571 | R/W | 340 KB, 70 tracks | C128 double-sided. |
 | `.d81` | 1581 | R/W | 800 KB, 80 tracks | C65/MEGA65. **Recommended.** |
 | `.d65` | MEGA65 | R/W | 1.6 MB, 162 tracks | MEGA65 native extended. |
-| `.d80` | 8050 | R/W | 533 KB, 77 tracks | CBM PET 8050. |
-| `.d82` | 8250 | R/W | 1 MB, 154 tracks | CBM PET 8250. Free-block count and allocation cover only the first 77 tracks. |
+| `.d80` | 8050 | R/W | 533 KB, 77 tracks | CBM PET 8050. Header 39/0 → BAM 38/0, 38/3 → directory 39/1 ([D80-D82.TXT](https://ist.uwaterloo.ca/~schepers/formats/D80-D82.TXT)). |
+| `.d82` | 8250 | R/W | 1 MB, 154 tracks | CBM PET 8250. BAM 38/0, 38/3, 38/6, 38/9 (50 tracks each); all 154 tracks are used. |
 | `.x64` | Extended D64 | R/W | D64 + 64-byte header | |
 
 ### Hard Drives & CMD Devices
@@ -718,7 +718,7 @@ auto prg = disk->readFile("GAME");
 
 ## References
 
-- [Peter Schepers' File Format Specifications](https://ist.uwaterloo.ca/~schepers/formats.html)
+- [Peter Schepers' File Format Specifications](https://ist.uwaterloo.ca/~schepers/formats.html) — the reference for the CBM disk layouts disk45 writes: [D64](https://ist.uwaterloo.ca/~schepers/formats/D64.TXT), [D71](https://ist.uwaterloo.ca/~schepers/formats/D71.TXT), [D81](https://ist.uwaterloo.ca/~schepers/formats/D81.TXT) (also the 1581 super side sector), [D80/D82](https://ist.uwaterloo.ca/~schepers/formats/D80-D82.TXT) (header → BAM 38/0, 38/3, 38/6, 38/9 → directory 39/1; `test_disk45.sh` checks these bytes), [REL files](https://ist.uwaterloo.ca/~schepers/formats/REL.TXT), [G64](https://ist.uwaterloo.ca/~schepers/formats/G64.TXT), [D2M-DNP](https://ist.uwaterloo.ca/~schepers/formats/D2M-DNP.TXT), [T64](https://ist.uwaterloo.ca/~schepers/formats/T64.TXT), [X64](https://ist.uwaterloo.ca/~schepers/formats/X64.TXT)
 - [VICE c1541 Manual](https://vice-emu.sourceforge.io/vice_14.html)
 - [DirMaster](https://style64.org/dirmaster)
 - [cc1541](https://manpages.ubuntu.com/manpages/noble/man1/cc1541.1.html)

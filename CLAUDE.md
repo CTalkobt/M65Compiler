@@ -315,7 +315,8 @@ CC45_DUMP_IR=1 ./bin/cc45 -c input.c     # optimized IR on stderr
 
 ## Disk Image Utility (disk45)
 
-25 formats chosen by extension (`doc/bin/disk45.md`): read/write D64, D71,
+25 formats chosen by extension (`doc/bin/disk45.md`; layouts per
+https://ist.uwaterloo.ca/~schepers/formats.html): read/write D64, D71,
 D81 (recommended), D65, D80, D82, X64, T64, ARK, ARC/SDA, LNX, P00 and
 transparent `.gz`; read-only D90/D60, CMD (D1M/D2M/D4M/DNP), G64/G71, NIB,
 Zipcode, TAP, CVT. FUSE mount (root directory only), SQLite catalog, batch
@@ -324,5 +325,9 @@ scripts, PETSCII/ASCII filters (`-a2p`, `-p2a`).
 ## References
 
 - MEGA65 hardware: https://github.com/MEGA65/mega65-core
+- CBM file and disk formats (D64, D71, D81, D80/D82, REL, G64, T64...):
+  https://ist.uwaterloo.ca/~schepers/formats.html — the layouts disk45 writes
+- The MEGA65 Book (BASIC 65, DOS, PETSCII/escape codes; a local copy is in
+  `../refs/mega65-book.txt`, outside the repository)
 - `doc/architecture/calling-conventions.md`, `lib45.md`, `ir.md`, `optimizations.md`, `opcodes.md`, `stdlib.md`
 - CHANGELOG.md, ROADMAP.md

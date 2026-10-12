@@ -171,6 +171,27 @@ for ext in d64 d71 d81 d80 d82 d65; do
 done
 
 # ============================================================================
+echo "=== D80/D82 layout ==="
+
+# As https://ist.uwaterloo.ca/~schepers/formats/D80-D82.TXT gives it: the
+# header links to the BAM 38/0, the BAM sectors chain to the directory 39/1,
+# BLOCKS FREE excludes track 39, a D82 uses its second side
+$DISK45 create "$TMPDIR/l.d80" -n SAMPLE >/dev/null 2>&1
+H=$(dd if="$TMPDIR/l.d80" bs=256 skip=$((38*29)) count=1 2>/dev/null | xxd -p | head -c 6)
+B=$(dd if="$TMPDIR/l.d80" bs=256 skip=$((37*29)) count=1 2>/dev/null | xxd -p | head -c 22)
+B3=$(dd if="$TMPDIR/l.d80" bs=256 skip=$((37*29+3)) count=1 2>/dev/null | xxd -p | head -c 12)
+[ "$H" = "260043" ] && [ "$B" = "2603430001331dffffff1f" ] && [ "$B3" = "27014300334e" ] &&
+    $DISK45 list "$TMPDIR/l.d80" | grep -q '^2052 blocks free' &&
+    pass "D80 header and BAM" || fail "D80 header and BAM ($H $B $B3)"
+$DISK45 create "$TMPDIR/l.d82" -n SAMPLE >/dev/null 2>&1
+head -c 61440 /dev/urandom > "$TMPDIR/big.prg"
+for i in $(seq 1 16); do $DISK45 add "$TMPDIR/l.d82" "$TMPDIR/big.prg" BIG$i >/dev/null 2>&1; done
+$DISK45 extract "$TMPDIR/l.d82" BIG16 "$TMPDIR/big16.prg" >/dev/null 2>&1
+$DISK45 list "$TMPDIR/l.d82" | grep -q '^261 blocks free' && cmp -s "$TMPDIR/big16.prg" "$TMPDIR/big.prg" &&
+    $DISK45 validate "$TMPDIR/l.d82" 2>&1 | grep -q 'Status: OK' &&
+    pass "D82 second side" || fail "D82 second side"
+
+# ============================================================================
 echo "=== Read-only formats ==="
 
 # D90/D60/CMD: create gives a blank image; changing it is refused and leaves it

@@ -99,6 +99,11 @@ public:
     // Directory access for commands that build entries themselves (REL files)
     DirEntry findEntry(const std::string& name) const { return findFile(name); }
     TrackSector addEntry(DirEntry& entry) { return allocDirectoryEntry(entry); }
+    // The first directory sector: the header sector's link (directory track,
+    // sector 0); D80/D82 override (their header links to the BAM)
+    virtual TrackSector firstDirectorySector() const;
+    // The track of the header sector (sector 0) and the directory
+    int headerTrack() const { return directoryTrack(); }
     // REL files use a 1581 super side sector (D81, D65)
     virtual bool superSideSectors() const { return false; }
 

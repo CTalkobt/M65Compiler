@@ -277,10 +277,7 @@ static TrackSector findSubdir(DiskImage* img, TrackSector dirStart, const std::s
 // Returns the root directory start if path is empty.
 static TrackSector resolveDir(DiskImage* img, const std::vector<std::string>& pathParts) {
     // Root directory start
-    int dirTrack = img->totalTracks() > 40 ? 40 : 18;
-    const uint8_t* hdr = img->sectorData(dirTrack, 0);
-    if (!hdr) return {0, 0};
-    TrackSector current = {hdr[0], hdr[1]};
+    TrackSector current = img->firstDirectorySector();
 
     for (const auto& part : pathParts) {
         TrackSector sub = findSubdir(img, current, part);
@@ -412,10 +409,7 @@ static int ensureDirCapacity(DiskImage* img, TrackSector dirStart, int minFreeSl
 
 // Get root directory start T/S for an image
 static TrackSector getRootDirStart(DiskImage* img) {
-    int dirTrack = img->totalTracks() > 40 ? 40 : 18;
-    const uint8_t* hdr = img->sectorData(dirTrack, 0);
-    if (!hdr) return {0, 0};
-    return {hdr[0], hdr[1]};
+    return img->firstDirectorySector();
 }
 
 // --- Wildcard pattern matching (case-insensitive) ---
@@ -1041,7 +1035,7 @@ static int cmdDump(int argc, char** argv) {
         }
     } else {
         // No track/sector: dump BAM/header (directory track, sector 0)
-        int dirT = img->totalTracks() > 40 ? 40 : 18; // D81/D65 vs D64/D71
+        int dirT = img->headerTrack();
         const uint8_t* data = img->sectorData(dirT, 0);
         if (data) {
             std::cout << "BAM / Header:\n";
@@ -1324,12 +1318,8 @@ static int cmdChain(int argc, char** argv) {
 
     // Walk directory to find the DirEntry with firstDataTS
     // Use the raw directory traversal approach
-    int dirTrack = img->totalTracks() > 40 ? 40 : 18;
-    const uint8_t* bam = img->sectorData(dirTrack, 0);
-    if (!bam) { std::cerr << "Error: cannot read directory\n"; return 1; }
-
     TrackSector firstTS = {0, 0};
-    TrackSector ts = {bam[0], bam[1]};
+    TrackSector ts = img->firstDirectorySector();
     while (ts.track != 0) {
         const uint8_t* sec = img->sectorData(ts.track, ts.sector);
         if (!sec) break;
@@ -1744,10 +1734,7 @@ static int cmdMkdir(int argc, char** argv) {
 
     TrackSector parentDir;
     if (parentPath.empty()) {
-        int dirTrack = img->totalTracks() > 40 ? 40 : 18;
-        const uint8_t* hdr = img->sectorData(dirTrack, 0);
-        if (!hdr) { std::cerr << "Error: cannot read directory\n"; return 1; }
-        parentDir = {hdr[0], hdr[1]};
+        parentDir = img->firstDirectorySector();
     } else {
         parentDir = resolveDir(img.get(), parentPath);
         if (parentDir.isNull()) { std::cerr << "Error: parent directory not found\n"; return 1; }
@@ -1836,10 +1823,7 @@ static int cmdRmdir(int argc, char** argv) {
 
     TrackSector parentDir;
     if (parentPath.empty()) {
-        int dirTrack = img->totalTracks() > 40 ? 40 : 18;
-        const uint8_t* hdr = img->sectorData(dirTrack, 0);
-        if (!hdr) { std::cerr << "Error: cannot read directory\n"; return 1; }
-        parentDir = {hdr[0], hdr[1]};
+        parentDir = img->firstDirectorySector();
     } else {
         parentDir = resolveDir(img.get(), parentPath);
         if (parentDir.isNull()) { std::cerr << "Error: parent not found\n"; return 1; }
@@ -1926,10 +1910,7 @@ static int cmdTree(int argc, char** argv) {
 
     std::cout << img->diskName() << "/\n";
 
-    int dirTrack = img->totalTracks() > 40 ? 40 : 18;
-    const uint8_t* hdr = img->sectorData(dirTrack, 0);
-    if (!hdr) { std::cerr << "Error: cannot read directory\n"; return 1; }
-    TrackSector rootDir = {hdr[0], hdr[1]};
+    TrackSector rootDir = img->firstDirectorySector();
 
     printTree(img.get(), rootDir, 1);
     return 0;

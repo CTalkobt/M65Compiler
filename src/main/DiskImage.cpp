@@ -190,6 +190,12 @@ bool DiskImage::saveToFile(const std::string& path) const {
 // Common directory operations
 // ============================================================================
 
+TrackSector DiskImage::firstDirectorySector() const {
+    const uint8_t* hdr = sectorData(directoryTrack(), 0);
+    if (!hdr) return {0, 0};
+    return {hdr[0], hdr[1]};
+}
+
 DirEntry DiskImage::findFile(const std::string& name) const {
     TrackSector ts;
     int idx;
@@ -208,13 +214,9 @@ bool DiskImage::findFileEntry(const std::string& name, TrackSector& dirTS, int& 
 
     int dirTrack = directoryTrack();
     // Start from directory first sector (sector 1 on D64/D71, sector 3 on D81)
-    const uint8_t* bam = sectorData(dirTrack, 0);
-    if (!bam) return false;
-
-    // Follow directory chain from BAM's link
-    TrackSector ts;
-    ts.track = bam[0];
-    ts.sector = bam[1];
+    (void)dirTrack;
+    // Follow the directory chain from its first sector
+    TrackSector ts = firstDirectorySector();
 
     while (ts.track != 0) {
         const uint8_t* sec = sectorData(ts.track, ts.sector);
@@ -260,12 +262,7 @@ std::vector<TrackSector> DiskImage::getFileChain(TrackSector start) const {
 
 TrackSector DiskImage::allocDirectoryEntry(DirEntry& entry) {
     int dirTrack = directoryTrack();
-    const uint8_t* bam = sectorData(dirTrack, 0);
-    if (!bam) return {0, 0};
-
-    TrackSector ts;
-    ts.track = bam[0];
-    ts.sector = bam[1];
+    TrackSector ts = firstDirectorySector();
     TrackSector prevTS = {0, 0};
 
     while (ts.track != 0) {
@@ -386,7 +383,7 @@ DiskImage::ValidateResult DiskImage::validate() const {
     }
 
     // Walk directory and trace all file chains
-    TrackSector ts = {hdr[0], hdr[1]};
+    TrackSector ts = firstDirectorySector();
     while (ts.track != 0) {
         usageCount[key(ts.track, ts.sector)]++; // directory sector itself
         const uint8_t* sec = sectorData(ts.track, ts.sector);
