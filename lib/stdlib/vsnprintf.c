@@ -9,7 +9,7 @@
 #include <stdarg.h>
 
 int __vformat(void (*put)(int c, void *ctx), void *ctx, char *fmt, va_list ap,
-              int (*ffmt)(char *, float));
+              int (*ffmt)(char *, float, int, int, int));
 
 struct __vsn_ctx { char *p; int room; };
 

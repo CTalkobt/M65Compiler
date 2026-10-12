@@ -30,6 +30,7 @@ BASIC_BANK  = $03      ; BASIC ROM bank (C65 bank 3)
 ; BASIC 65 jump table addresses
 BJT_AYINT   = $7F00
 BJT_GIVAYF  = $7F03
+BJT_FOUT    = $7F06      ; FAC -> text at $0100 (as STR$/PRINT); returns A/Y = end of text
 BJT_FADDT   = $7F1B
 BJT_FSUBT   = $7F15
 BJT_FMULTT  = $7F21
@@ -714,6 +715,36 @@ __float_abs:
     jmp __bp_prog
 
 ; ===========================================================================
+; Float to text: BASIC's own number formatting (FOUT, as PRINT/STR$)
+; __float_a -> __float_str, zero-terminated, e.g. " 3.25", "-1234567",
+; " 1E30", " 0.000123" (a leading space for positive values, up to 9-10
+; significant digits, E notation for large/small values). Used by printf's
+; %f/%e/%g (printf_float.c). FOUT builds the text at $0100 (page 1, unused
+; with the 16-bit CPU stack) and returns A/Y pointing at its terminating zero.
+; ===========================================================================
+.global __float_fout
+__float_fout:
+    jsr __bp_rom
+    lda #<__float_a
+    ldx #>__float_a
+    jsr __float_load_fac
+    lda #<BJT_FOUT
+    ldx #>BJT_FOUT
+    jsr __jsrfar_basic
+    ldx #0
+@copy:
+    lda $0100,x
+    sta __float_str,x
+    beq @done
+    inx
+    cpx #23
+    bne @copy
+    lda #0
+    sta __float_str,x
+@done:
+    jmp __bp_prog
+
+; ===========================================================================
 ; Shared data buffers
 ; ===========================================================================
 .segment "bss"
@@ -722,5 +753,8 @@ __float_a: .res 5
 
 .global __float_b
 __float_b: .res 5
+
+.global __float_str
+__float_str: .res 24        ; __float_fout's text
 
 __float_k: .res 1           ; exponent scale (see __float_scale_*)

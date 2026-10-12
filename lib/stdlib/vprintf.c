@@ -10,7 +10,7 @@
 
 int putchar(int c);
 int __vformat(void (*put)(int c, void *ctx), void *ctx, char *fmt, va_list ap,
-              int (*ffmt)(char *, float));
+              int (*ffmt)(char *, float, int, int, int));
 
 /* Prints a character (the context is unused) */
 void __vformat_con_put(int c, void *ctx) {

@@ -3,6 +3,7 @@
 #include "AssemblerParser.hpp"
 #include "M65Emitter.hpp"
 #include "AssemblerOpcodeDatabase.hpp"
+#include "CBMFloat.hpp"
 #include "AssemblerSimulatedOps.hpp"
 #include "StringUtil.hpp"
 #include <algorithm>
@@ -29,17 +30,10 @@ static uint8_t toScreencode(char c) {
     return u;                               // space, digits, punctuation unchanged
 }
 
+// .float: the CBM 40-bit format, rounded to nearest (as cc45's constants)
 static std::vector<uint8_t> encodeFloat(double val) {
     std::vector<uint8_t> result(5);
-    if (val == 0.0) { std::fill(result.begin(), result.end(), 0); return result; }
-    int exponent;
-    double mantissa = std::frexp(std::abs(val), &exponent);
-    result[0] = (uint8_t)(exponent + 0x80);
-    uint32_t mVal = (uint32_t)(mantissa * 4294967296.0);
-    result[1] = (uint8_t)((mVal >> 24) & 0x7F) | (val < 0 ? 0x80 : 0x00);
-    result[2] = (uint8_t)(mVal >> 16);
-    result[3] = (uint8_t)(mVal >> 8);
-    result[4] = (uint8_t)mVal;
+    doubleToCBM40(val, result.data());
     return result;
 }
 

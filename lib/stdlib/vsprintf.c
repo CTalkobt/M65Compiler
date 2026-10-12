@@ -10,7 +10,7 @@
 #include <stdarg.h>
 
 int __vformat(void (*put)(int c, void *ctx), void *ctx, char *fmt, va_list ap,
-              int (*ffmt)(char *, float));
+              int (*ffmt)(char *, float, int, int, int));
 
 /* Appends a character at *(char **)ctx */
 void __vformat_buf_put(int c, void *ctx) {

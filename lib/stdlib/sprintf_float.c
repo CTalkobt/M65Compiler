@@ -13,7 +13,7 @@ int printf_float(char *buf, float val);
 void sprintf_float(void) {}
 
 int __vformat(void (*put)(int c, void *ctx), void *ctx, char *fmt, va_list ap,
-              int (*ffmt)(char *, float));
+              int (*ffmt)(char *, float, int, int, int));
 void __vformat_buf_put(int c, void *ctx);
 
 int sprintf(char *buf, char *fmt, ...) {

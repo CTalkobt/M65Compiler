@@ -245,7 +245,8 @@ not run `atexit` handlers. Heap: `__bss_end` to `$B000` by default
 
 ## Standard Library (details: `doc/architecture/stdlib.md`)
 
-stdio (printf family with `%f` via the weak/strong float printf), stdlib,
+stdio (printf family; `%f`/`%e`/`%g` through the weak/strong float printf, digits from the
+BASIC 65 ROM's FOUT, full float range), stdlib,
 string, ctype, math (ROM-backed float functions; domain/range errors set
 `errno` instead of reaching the ROM), time (jiffy clock), errno, setjmp,
 assert, alloca, conio, CBM file I/O, `intwide.h`, `mega65.h` register
@@ -268,7 +269,7 @@ overlays, `dma.h`. Many other headers (graphics, sprites, hw_*, uart, conio
   overlay never applied ("no __ar symbol" warnings); `c45_stack.lib` has
   internal convention mismatches (`--no-thunks` rejects printf users).
 - **Library**: `strlen`/`puts` break at 256 bytes;
-  `printf %f` breaks at |x| ≥ 32768; `fopen` uses secondary address 0 (no writes).
+  `fopen` uses secondary address 0 (no writes).
 - **basic45**: line links off by 2, labels not resolved, operators not tokenized.
 - **disk45**: adding to D90/CMD images doesn't update the BAM; `rel-create`
   corrupts D81; modifying G64/NIB/Zipcode overwrites them with D64 data.

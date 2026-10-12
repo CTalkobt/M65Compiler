@@ -1,7 +1,8 @@
 /* __vformat.c — Formatting core of the printf family for cc45 / MEGA65
  *
  * int __vformat(void (*put)(int c, void *ctx), void *ctx, char *fmt,
- *               va_list ap, int (*ffmt)(char *buf, float val));
+ *               va_list ap, int (*ffmt)(char *buf, float val,
+ *                                       int conv, int prec, int alt));
  *
  * Writes each output character through put() and returns the count.
  * %[flags][width][.precision][length]conversion with
@@ -23,9 +24,9 @@ static void vf_rep(__fmt_put put, void *ctx, int c, int n) {
     while (n > 0) { put(c, ctx); n = n - 1; }
 }
 
-int __vformat(__fmt_put put, void *ctx, char *fmt, va_list ap, int (*ffmt)(char *, float)) {
+int __vformat(__fmt_put put, void *ctx, char *fmt, va_list ap, int (*ffmt)(char *, float, int, int, int)) {
     int count = 0;
-    char buf[34];
+    char buf[64];   /* a float with %f: up to 39 digits, '.', 20 decimals */
 
     while (*fmt) {
         int c = *fmt;
@@ -162,19 +163,12 @@ int __vformat(__fmt_put put, void *ctx, char *fmt, va_list ap, int (*ffmt)(char 
         } else if (c == 'f' || c == 'F' || c == 'e' || c == 'E' || c == 'g' || c == 'G') {
             float fv = va_arg(ap, float);
             if (!ffmt) continue;
-            len = ffmt(buf, fv);
+            /* the conversion, precision and # flag are ffmt's (it rounds) */
+            len = ffmt(buf, fv, c, prec, alt);
             s = buf;
             if (*s == '-') { pfx = "-"; pfxLen = 1; s = s + 1; len = len - 1; }
             else if (plus) { pfx = "+"; pfxLen = 1; }
             else if (space) { pfx = " "; pfxLen = 1; }
-            /* Precision: the number of fraction digits (truncated) */
-            int dot = 0;
-            while (dot < len && s[dot] != '.') dot = dot + 1;
-            if (prec >= 0 && dot < len) {
-                int keep = dot + 1 + prec;
-                if (prec == 0 && !alt) keep = dot;
-                if (keep < len) len = keep;
-            }
             if (zero && !left && width > pfxLen + len) zeros = width - pfxLen - len;
         } else if (c == '%') {
             buf[0] = '%';
