@@ -272,21 +272,25 @@ int main(int argc, char** argv) {
             prgData.push_back(0x00); // end of BASIC line
             prgData.push_back(0x00); prgData.push_back(0x00); // end of BASIC program
 
-            // The code is linked for textBase ($200D, right after the stub,
-            // unless -t moves it): pad the file up to it so it loads there
+            // The image is linked for its addresses (the code at textBase,
+            // $200D right after the stub unless -t moves it; data below it
+            // with -d): pad the file up to its start so it loads there
             uint32_t stubEnd = basicBase + (uint32_t)(prgData.size() - 2);
-            if (textBase < stubEnd) {
-                std::cerr << "ln45: error: -t $" << std::hex << std::uppercase << textBase
+            uint32_t imageBase = linker.imageBase();
+            if (imageBase < stubEnd) {
+                std::cerr << "ln45: error: " << (imageBase < textBase ? "-d $" : "-t $")
+                          << std::hex << std::uppercase << imageBase
                           << " overlaps the BASIC stub at $2001-$" << (stubEnd - 1) << std::dec
-                          << " (with -basic the code must start at or after $" << std::hex << stubEnd
+                          << " (with -basic the program must start at or after $" << std::hex << stubEnd
                           << std::dec << ")" << std::endl;
                 return 1;
             }
-            prgData.insert(prgData.end(), textBase - stubEnd, 0x00);
+            prgData.insert(prgData.end(), imageBase - stubEnd, 0x00);
         } else {
-            // Plain PRG: just 2-byte load address header, no BASIC stub
-            prgData.push_back((uint8_t)(textBase & 0xFF));
-            prgData.push_back((uint8_t)(textBase >> 8));
+            // Plain PRG: just 2-byte load address header (the image's
+            // start), no BASIC stub
+            prgData.push_back((uint8_t)(linker.imageBase() & 0xFF));
+            prgData.push_back((uint8_t)(linker.imageBase() >> 8));
         }
 
         // Append the linked binary

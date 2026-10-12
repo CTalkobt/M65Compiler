@@ -51,6 +51,9 @@ public:
     // If not set, text starts at 0x0000.
     void setTextBase(uint32_t addr) { textBase_ = addr; }
     void setDataBase(uint32_t addr) { dataBase_ = addr; dataBaseSet_ = true; }
+    // Address of the image's first byte: the text base, or the data base
+    // when -d puts the data below the text
+    uint32_t imageBase() const { return imageBase_; }
     void setBssBase(uint32_t addr)  { bssBase_ = addr; bssBaseSet_ = true; }
     void setZpBase(uint32_t addr)   { zpBase_ = addr; zpBaseSet_ = true; }
 
@@ -414,6 +417,7 @@ private:
 
     uint32_t textBase_ = 0x0000;
     uint32_t dataBase_ = 0;  bool dataBaseSet_ = false;
+    uint32_t imageBase_ = 0;
     uint32_t bssBase_ = 0;   bool bssBaseSet_ = false;
     uint32_t dataAlign_ = 1, bssAlign_ = 1;  // largest cc45.align.data/.bss of any object
     uint32_t zpBase_ = 0;    bool zpBaseSet_ = false;

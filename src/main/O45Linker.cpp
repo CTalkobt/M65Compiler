@@ -354,7 +354,9 @@ bool O45Linker::layoutSegments(std::string& errorMsg) {
         dataBase_ = alignUp(textBase_ + (uint32_t)mergedText_.size(), dataAlign_);
     }
     if (!bssBaseSet_) {
-        bssBase_ = alignUp(dataBase_ + (uint32_t)mergedData_.size(), bssAlign_);
+        // after the data, or after the text when -d put the data below it
+        bssBase_ = alignUp(std::max(dataBase_ + (uint32_t)mergedData_.size(),
+                                    textBase_ + (uint32_t)mergedText_.size()), bssAlign_);
     }
     if (!zpBaseSet_) {
         zpBase_ = 0x02; // default ZP start
@@ -946,13 +948,20 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
     generateThunks();
 
     // Thunks were appended to the text after data/BSS were placed: if they now
-    // overlap automatically placed data, move data and BSS up and re-resolve.
+    // overlap automatically placed data or BSS, move them up and re-resolve.
     {
         uint32_t textEnd = textBase_ + (uint32_t)mergedText_.size();
+        bool moved = false;
         if (!dataBaseSet_ && dataBase_ < textEnd) {
             dataBase_ = (textEnd + dataAlign_ - 1) / dataAlign_ * dataAlign_;
-            if (!bssBaseSet_)
-                bssBase_ = (dataBase_ + (uint32_t)mergedData_.size() + bssAlign_ - 1) / bssAlign_ * bssAlign_;
+            moved = true;
+        }
+        uint32_t after = std::max(textEnd, dataBase_ + (uint32_t)mergedData_.size());
+        if (!bssBaseSet_ && bssBase_ < after) {
+            bssBase_ = (after + bssAlign_ - 1) / bssAlign_ * bssAlign_;
+            moved = true;
+        }
+        if (moved) {
             if (!resolveSymbols(errorMsg)) return {};
             for (const auto& [name, addr] : thunkAddresses_) globalSymbols_[name] = addr;
         }
@@ -963,23 +972,38 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
     // Build the output binary: text + data (BSS is not emitted)
     std::vector<uint8_t> binary;
 
-    if (isPrg) {
-        // 2-byte load address header (little-endian)
-        binary.push_back((uint8_t)(textBase_ & 0xFF));
-        binary.push_back((uint8_t)((textBase_ >> 8) & 0xFF));
+    // The image holds text and data at their addresses, the gap between
+    // them filled with zeros: data after the text (the default, or -d above
+    // it), or below it (-d under the text base: the image then starts at
+    // the data base, imageBase_). Data overlapping the text is an error.
+    uint32_t textEnd = textBase_ + (uint32_t)mergedText_.size();
+    uint32_t dataEnd = dataBase_ + (uint32_t)mergedData_.size();
+    imageBase_ = textBase_;
+    auto hex4 = [](uint32_t v) {
+        char b[8]; snprintf(b, sizeof b, "$%04X", (unsigned)v); return std::string(b);
+    };
+    if (!mergedData_.empty() && dataBase_ < textEnd && dataEnd > textBase_) {
+        errorMsg = "data segment " + hex4(dataBase_) + "-" + hex4(dataEnd - 1) +
+                   " overlaps the text segment " + hex4(textBase_) + "-" + hex4(textEnd - 1);
+        return {};
+    }
+    if (!mergedData_.empty() && dataBase_ < textBase_) {
+        imageBase_ = dataBase_;
+        binary.insert(binary.end(), mergedData_.begin(), mergedData_.end());
+        binary.insert(binary.end(), textBase_ - dataEnd, 0x00);
+        binary.insert(binary.end(), mergedText_.begin(), mergedText_.end());
+    } else {
+        binary.insert(binary.end(), mergedText_.begin(), mergedText_.end());
+        if (!mergedData_.empty()) {
+            binary.insert(binary.end(), dataBase_ - textEnd, 0x00);
+            binary.insert(binary.end(), mergedData_.begin(), mergedData_.end());
+        }
     }
 
-    binary.insert(binary.end(), mergedText_.begin(), mergedText_.end());
-
-    // If data follows text contiguously, append it directly.
-    // If there's a gap, fill with zeros.
-    uint32_t textEnd = textBase_ + (uint32_t)mergedText_.size();
-    if (!mergedData_.empty()) {
-        if (dataBase_ > textEnd) {
-            // Fill gap between text and data
-            binary.insert(binary.end(), dataBase_ - textEnd, 0x00);
-        }
-        binary.insert(binary.end(), mergedData_.begin(), mergedData_.end());
+    if (isPrg) {
+        // 2-byte load address header (little-endian): where the image starts
+        binary.insert(binary.begin(), (uint8_t)((imageBase_ >> 8) & 0xFF));
+        binary.insert(binary.begin(), (uint8_t)(imageBase_ & 0xFF));
     }
 
     return binary;

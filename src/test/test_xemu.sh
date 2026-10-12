@@ -385,6 +385,36 @@ else
     failed=$((failed + 1))
 fi
 
+# Test: ln45 -d above and below the text; data overlapping the text or the
+# BASIC stub is an error
+if $CC -c src/test-resources/test_ln45_layout_xemu.c -o build/test/test_ln45_layout.o45 >/dev/null 2>&1; then
+    for lymode in "above|-d 8000" "below|-t 3000 -d 2100"; do
+        IFS='|' read -r lyname lyflags <<< "$lymode"
+        echo "Testing test_ln45_layout_xemu.c (data $lyname the text)..."
+        if $LD -basic $lyflags -o "build/test/test_ln45_layout_${lyname}_xemu.prg" $CRT0 \
+               build/test/test_ln45_layout.o45 $STDLIB >/dev/null 2>&1; then
+            run_xemu_test "test_ln45_layout_$lyname" "build/test/test_ln45_layout_${lyname}_xemu.prg" "C0C0" 3 "01 01 AA"
+        else
+            echo "FAIL: test_ln45_layout_xemu.c $lyname (link failed)"
+            failed=$((failed + 1))
+        fi
+    done
+    for lymode in "overlaps the text segment|-d 2100" "overlaps the BASIC stub|-d 1000"; do
+        IFS='|' read -r lymsg lyflags <<< "$lymode"
+        if $LD -basic $lyflags -o build/test/test_ln45_layout_err.prg $CRT0 \
+               build/test/test_ln45_layout.o45 $STDLIB 2>&1 | grep -q "$lymsg"; then
+            echo "PASS: ln45 -basic $lyflags: $lymsg"
+            passed=$((passed + 1))
+        else
+            echo "FAIL: ln45 -basic $lyflags should fail with '$lymsg'"
+            failed=$((failed + 1))
+        fi
+    done
+else
+    echo "FAIL: test_ln45_layout_xemu.c (compile failed)"
+    failed=$((failed + 1))
+fi
+
 # Test: continue <value> / continue default in a switch, stack and ZP conventions
 for scmode in "stack|-fno-zpcall" "zp|"; do
     IFS='|' read -r scname scflags <<< "$scmode"

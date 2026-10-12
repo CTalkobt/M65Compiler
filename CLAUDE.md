@@ -274,7 +274,7 @@ overlays, `dma.h`. Many other headers (graphics, sprites, hw_*, uart, conio
 - **ca45**: fixed (2026-10-12): expressions/literals, data directives,
   `#include`, `.org` expressions, the simulated ops (`test_ca45_simops_xemu.s45`).
 - **cc45**: none known (2026-10-12).
-- **ln45**: `-d` below the end of text gives a wrong image.
+- **ln45**: none known (2026-10-12).
 - **basic45**: line links off by 2, labels not resolved, operators not tokenized.
 - **disk45**: adding to D90/CMD images doesn't update the BAM; `rel-create`
   corrupts D81; modifying G64/NIB/Zipcode overwrites them with D64 data.
