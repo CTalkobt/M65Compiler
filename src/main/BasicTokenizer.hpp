@@ -26,6 +26,12 @@ struct BasicToken {
     char prefix = 0;         // STRING: 'p' PETSCII, 's' screen codes, 'a' ASCII (p"..", s"..", a"..", @".."), 0 none
 };
 
+// A disk command parameter: in a statement of a BASIC 65 disk command
+// (DOPEN, DLOAD, BLOAD, RECORD, ...), a letter and digits like D0, U8, L20,
+// P8192 (drive, unit, record length, address) is not a variable.
+// statementStart: the index of the statement's first token
+bool isDiskParameter(const std::vector<BasicToken>& tokens, size_t statementStart, size_t index);
+
 class BasicTokenizer {
 public:
     BasicTokenizer();

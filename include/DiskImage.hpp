@@ -88,6 +88,20 @@ public:
     virtual bool loadFromFile(const std::string& path);
     virtual bool saveToFile(const std::string& path) const;
 
+    // Whether disk45 can write this format back. G64/G71, NIB, Zipcode
+    // (decoded to D64 sectors on load) and D90/D60/CMD (no correct BAM
+    // writer) are read-only: saveToFile refuses them. A blank image from
+    // create is still written for the formats that allow it (canCreateBlank)
+    virtual bool writable() const { return true; }
+    virtual bool canCreateBlank() const { return writable(); }
+    void markBlank() { blank_ = true; }
+
+    // Directory access for commands that build entries themselves (REL files)
+    DirEntry findEntry(const std::string& name) const { return findFile(name); }
+    TrackSector addEntry(DirEntry& entry) { return allocDirectoryEntry(entry); }
+    // REL files use a 1581 super side sector (D81, D65)
+    virtual bool superSideSectors() const { return false; }
+
     // --- File operations ---
     virtual std::vector<FileInfo> listFiles() const = 0;
     virtual bool addFile(const std::string& name, CbmFileType type,
@@ -136,6 +150,7 @@ public:
 
 protected:
     std::vector<uint8_t> image_;  // raw disk image bytes
+    bool blank_ = false;          // freshly formatted by create (markBlank)
 
     // Subclasses implement: convert (track,sector) to byte offset in image_
     virtual int sectorOffset(int track, int sector) const = 0;

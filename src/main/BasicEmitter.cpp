@@ -380,6 +380,7 @@ void BasicEmitter::checkVariables(const std::vector<std::vector<BasicToken>>& li
                 if (tok.type == BasicToken::OPERATOR && tok.value == "," && depth == 0 && listAssign) expectTarget = true;
                 if (tok.type != BasicToken::IDENTIFIER) continue;
                 if (!std::isalpha((unsigned char)tok.value[0])) continue;
+                if (isDiskParameter(t, s, k)) continue;   // DOPEN ..., L20, U8
                 if (k > s && t[k - 1].type == BasicToken::OPERATOR && (t[k - 1].value == "$" || t[k - 1].value == "%"))
                     continue;   // $FF
                 if (k > s && t[k - 1].type == BasicToken::KEYWORD && t[k - 1].value == "FN") continue;   // FN name

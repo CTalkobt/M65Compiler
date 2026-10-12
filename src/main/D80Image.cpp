@@ -359,9 +359,6 @@ bool D80Image::addFile(const std::string& name, CbmFileType type,
         newEntry.sizeInSectors = 1;
     }
 
-    // Write directory entry
-    newEntry.toSector(sectorData(dirTS.track, dirTS.sector),
-                      -1); // need to find the slot again
     // Re-write using allocDirectoryEntry's slot
     // The entry was written by allocDirectoryEntry, update it with firstDataTS
     {
@@ -399,10 +396,9 @@ bool D80Image::removeFile(const std::string& name) {
         freeSector(ts.track, ts.sector);
     }
 
-    // Clear directory entry
-    uint8_t* sec = sectorData(dirTS.track, dirTS.sector);
-    uint8_t* p = sec + 2 + entryIdx * 32;
-    p[2] = 0; // clear file type (marks as deleted)
+    // Clear the entry's file type (marks it deleted)
+    entry.fileType = 0;
+    entry.toSector(sectorData(dirTS.track, dirTS.sector), entryIdx);
 
     return true;
 }

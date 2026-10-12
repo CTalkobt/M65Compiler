@@ -20,6 +20,8 @@
 
 class G64Image : public D64Image {
 public:
+    bool writable() const override { return false; }
+    bool canCreateBlank() const override { return false; }
     // Override loadFromFile to decode GCR → D64 sectors
     bool loadFromFile(const std::string& path);
 

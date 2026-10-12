@@ -279,7 +279,7 @@ int disk45_fuse_main(const std::string& imagePath, const std::string& mountpoint
     }
 
     // Detect read-only formats
-    if (g_img->totalTracks() == 0) g_readonly = true;
+    if (g_img->totalTracks() == 0 || !g_img->writable()) g_readonly = true;
 
     init_cbm_ops();
 

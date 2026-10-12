@@ -12,6 +12,7 @@
 
 class D65Image : public DiskImage {
 public:
+    bool superSideSectors() const override { return true; }
     static constexpr int TRACKS_PER_SIDE = 81;
     static constexpr int SIDES = 2;
     static constexpr int TRACKS = TRACKS_PER_SIDE * SIDES; // 162

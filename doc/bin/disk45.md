@@ -300,7 +300,7 @@ File "LEVEL1" chain:
 
 ### REL File Operations
 
-REL commands look for the directory at track 18/sector 1, so they only work on D64/D71 images (on a D81/D65 that sector is part of the BAM, and `rel-create` corrupts it).
+REL files work on the sector-based images (D64, D71, D81, D65, D80, D82), laid out as CBM DOS does: the records packed one after another across the data sectors (254 data bytes each; a record can span two), an empty record being `$FF` and `$00`s, side sectors listing the data sectors (6 per group, 120 data sectors each), and on D81/D65 the 1581's super side sector in front of the groups. `rel-create` on a D81 gives the same sectors as BASIC 65's DOS creating the file, and BASIC 65 reads, writes and extends a REL file disk45 made (`test_disk45_rel_xemu.bas` on xemu). The D64/D71 layout follows the 1541/1571 format; D80/D82 use it too (not checked against an 8050/8250).
 
 #### rel-create
 
@@ -308,7 +308,7 @@ REL commands look for the directory at track 18/sector 1, so they only work on D
 disk45 rel-create <image> <name> <record_len> [num_records]
 ```
 
-Create a REL file with fixed-length records (1-254 bytes, default 10 records), zero-filled, with a side-sector chain.
+Create a REL file with fixed-length records (1-254 bytes, default 10 records). As DOS does, the file fills its last data sector, so it can hold more records than asked (`rel-create x 20 30` makes 38); all of them are empty. Without a super side sector (D64, D71, D80, D82) a REL file holds at most 720 data sectors.
 
 #### rel-read
 
@@ -324,7 +324,7 @@ Print a record (1-based) as hex and as text.
 disk45 rel-write <image> <name> <record_num> <data...>
 ```
 
-Write a record. Each data argument is a number (decimal, `0x` hex) or a string in literal double quotes (pass `'"HELLO"'` from the shell). Data is zero-padded or truncated to the record length.
+Write a record. Each data argument is a number (decimal, `0x` hex) or a string in literal double quotes (pass `'"HELLO"'` from the shell). Data is zero-padded to the record length; more data than the record holds is an error, as is a record past the end (DOS extends a REL file when a program writes past it; `rel-write` does not).
 
 #### rel-list
 
@@ -332,7 +332,7 @@ Write a record. Each data argument is a number (decimal, `0x` hex) or a string i
 disk45 rel-list <image> <name>
 ```
 
-Show the record count and all non-empty records.
+Show the record count and the records that are not empty.
 
 ```bash
 disk45 rel-create data.d64 SCORES 20 30
@@ -573,7 +573,7 @@ R/W means `create`, `add`, `remove` etc. work and the image is written back in i
 | `.d4m` | FD-4000 ED | R | 829 KB | CMD FD-4000 extra density. |
 | `.dnp` | CMD Native | R | ≤ 16 MB | CMD Native Partition. |
 
-`create` on these extensions produces a blank formatted image, but files added to it are not read back correctly; treat them as read-only.
+`create` on these extensions produces a blank formatted image. disk45 does not write their BAM correctly, so every command that changes such an image (`add`, `remove`, `rename`, `bwrite`, a FUSE mount, ...) is refused with an error and the image stays as it was.
 
 ### Raw/GCR Formats (read-only)
 
@@ -584,7 +584,7 @@ R/W means `create`, `add`, `remove` etc. work and the image is written back in i
 | `.nib`, `.nbz` | Nibble dump | Decoded to D64 sectors on load. |
 | `1!name` | Zipcode | 4-file RLE pack; give the `1!` file, `2!`-`4!` are found automatically. |
 
-There is no encoder: `create` writes plain D64 data that cannot be loaded back, and a modifying command (`add`, `remove`, ...) overwrites the file with plain D64 data, destroying the original encoding. Convert to `.d64`/`.d71` before changing anything.
+There is no encoder: `create` refuses these extensions, and every command that changes such an image is refused with an error (it used to save plain D64 data over the file, destroying its encoding); FUSE mounts them read-only. Convert to `.d64`/`.d71` (`disk45 convert disk.g64 disk.d64`) and change the copy.
 
 ### Tape Formats
 

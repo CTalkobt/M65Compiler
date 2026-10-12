@@ -140,6 +140,51 @@ echo "$RELREAD" | grep -q '41 42 43' && pass "REL write+read" || fail "REL write
 RELLIST=$($DISK45 rel-list "$TMPDIR/rel.d64" MYREL 2>&1)
 echo "$RELLIST" | grep -q '#  1' && pass "REL list" || fail "REL list"
 
+# REL on a D71 (directory on track 18) and a D81 (super side sector): the
+# records DOS lays out (the last data sector filled), validate clean
+for ext in d71 d81; do
+    $DISK45 create "$TMPDIR/rel.$ext" -n "REL" >/dev/null 2>&1
+    $DISK45 rel-create "$TMPDIR/rel.$ext" SCORES 20 30 2>&1 | grep -q '38 records' &&
+    $DISK45 rel-write "$TMPDIR/rel.$ext" SCORES 30 '"LAST"' >/dev/null 2>&1 &&
+    $DISK45 rel-read "$TMPDIR/rel.$ext" SCORES 30 2>&1 | grep -q 'Text: "LAST' &&
+    $DISK45 validate "$TMPDIR/rel.$ext" 2>&1 | grep -q 'Status: OK' &&
+    ! $DISK45 validate "$TMPDIR/rel.$ext" 2>&1 | grep -q 'Cross' &&
+        pass "REL on $ext" || fail "REL on $ext"
+done
+
+# ============================================================================
+echo "=== Directory slots ==="
+
+# A file added into the first slot of a directory sector (after the file
+# there was removed) must not cut the directory chain; D80/D82 remove
+for ext in d64 d71 d81 d80 d82 d65; do
+    $DISK45 create "$TMPDIR/slots.$ext" -n "SLOTS" >/dev/null 2>&1
+    for i in 1 2 3 4 5 6 7 8 9 10 11 12; do $DISK45 add "$TMPDIR/slots.$ext" "$TMPDIR/d1.prg" F$i >/dev/null 2>&1; done
+    $DISK45 remove "$TMPDIR/slots.$ext" F1 >/dev/null 2>&1
+    $DISK45 add "$TMPDIR/slots.$ext" "$TMPDIR/d1.prg" NEW >/dev/null 2>&1
+    N=$($DISK45 list "$TMPDIR/slots.$ext" 2>&1 | grep -c PRG)
+    $DISK45 extract "$TMPDIR/slots.$ext" F12 "$TMPDIR/f12.prg" >/dev/null 2>&1
+    [ "$N" = 12 ] && cmp -s "$TMPDIR/f12.prg" "$TMPDIR/d1.prg" &&
+        $DISK45 validate "$TMPDIR/slots.$ext" 2>&1 | grep -q 'Status: OK' &&
+        ! $DISK45 validate "$TMPDIR/slots.$ext" 2>&1 | grep -q 'Cross' &&
+        pass "Directory slot 0 reuse ($ext)" || fail "Directory slot 0 reuse ($ext): $N files"
+done
+
+# ============================================================================
+echo "=== Read-only formats ==="
+
+# D90/D60/CMD: create gives a blank image; changing it is refused and leaves it
+# unchanged. G64/NIB/Zipcode cannot be created
+for ext in d90 d1m; do
+    $DISK45 create "$TMPDIR/ro.$ext" -n "RO" >/dev/null 2>&1
+    SUM=$(md5sum < "$TMPDIR/ro.$ext")
+    ! $DISK45 add "$TMPDIR/ro.$ext" "$TMPDIR/d1.prg" X >/dev/null 2>&1 &&
+        [ "$(md5sum < "$TMPDIR/ro.$ext")" = "$SUM" ] &&
+        pass "Read-only $ext: add refused" || fail "Read-only $ext: add refused"
+done
+! $DISK45 create "$TMPDIR/ro.g64" >/dev/null 2>&1 && [ ! -f "$TMPDIR/ro.g64" ] &&
+    pass "G64 create refused" || fail "G64 create refused"
+
 # ============================================================================
 echo "=== Subdirectories ==="
 

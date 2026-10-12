@@ -12,6 +12,8 @@
 
 class CmdImage : public DiskImage {
 public:
+    bool writable() const override { return false; }
+    bool canCreateBlank() const override { return true; }   // create: a blank image
     enum CmdFormat { FD_1M, FD_2M, FD_4M, NATIVE };
 
     CmdImage(CmdFormat fmt = FD_2M) : fmt_(fmt) {}

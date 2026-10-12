@@ -75,8 +75,15 @@ void BasicVarRenamer::rename(std::vector<std::vector<BasicToken>>& lines) {
     // two-character rule; they are renamed with the same table
     std::map<std::string, std::string> baseMap;   // long base -> short base
     for (auto& toks : lines) {
+        size_t stmt = 0;   // the current statement's first token
         for (size_t i = 0; i < toks.size(); i++) {
+            if (toks[i].type == BasicToken::OPERATOR && toks[i].value == ":") { stmt = i + 1; continue; }
+            if (toks[i].type == BasicToken::KEYWORD && (toks[i].value == "THEN" || toks[i].value == "ELSE")) {
+                stmt = i + 1;
+                continue;
+            }
             if (!isVariable(toks, i)) continue;
+            if (isDiskParameter(toks, stmt, i)) continue;   // BLOAD "x", P8192
             std::string v = toks[i].value;
             std::string base = upper(baseOf(v));
             if (base.size() <= 2) continue;

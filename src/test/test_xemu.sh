@@ -611,6 +611,30 @@ for fimode in "stack|-fno-zpcall" "zp|"; do
     fi
 done
 
+# Test: a REL file made by disk45 on a D81, used by BASIC 65's DOS (and the
+# records BASIC wrote read back by disk45)
+echo "Testing test_disk45_rel_xemu.bas..."
+rm -f build/test/test_disk45_rel.d81
+if ./bin/disk45 create build/test/test_disk45_rel.d81 -n RELTEST >/dev/null 2>&1 &&
+   ./bin/disk45 rel-create build/test/test_disk45_rel.d81 scores 20 30 >/dev/null 2>&1 &&
+   ./bin/disk45 rel-write build/test/test_disk45_rel.d81 scores 5 '"HELLO"' >/dev/null 2>&1 &&
+   ./bin/basic45 --strict src/test-resources/test_disk45_rel_xemu.bas -o build/test/test_disk45_rel_xemu.prg >/dev/null 2>&1; then
+    run_xemu_test "test_disk45_rel" "build/test/test_disk45_rel_xemu.prg" "C0C0" 4 "01 01 01 AA" \
+        -8 "$PWD/build/test/test_disk45_rel.d81"
+    if ./bin/disk45 rel-read build/test/test_disk45_rel.d81 scores 7 2>&1 | grep -q 'Text: "BASIC' &&
+       ./bin/disk45 rel-read build/test/test_disk45_rel.d81 scores 40 2>&1 | grep -q 'Text: "FAR' &&
+       ./bin/disk45 validate build/test/test_disk45_rel.d81 2>&1 | grep -q 'Status: OK'; then
+        echo "PASS: disk45 reads the records BASIC wrote"
+        passed=$((passed + 1))
+    else
+        echo "FAIL: disk45 reading the REL records BASIC wrote"
+        failed=$((failed + 1))
+    fi
+else
+    echo "FAIL: test_disk45_rel_xemu.bas (build failed)"
+    failed=$((failed + 1))
+fi
+
 # Test: the string functions on strings longer than 255 bytes (strlen, puts
 # and the rest), strcmp's sign; both conventions
 for lsmode in "stack|-fno-zpcall" "zp|"; do

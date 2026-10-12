@@ -1,4 +1,5 @@
 #include "DiskImage.hpp"
+#include <iostream>
 #include "GzipHelper.hpp"
 #include <fstream>
 #include <algorithm>
@@ -93,8 +94,13 @@ DirEntry DirEntry::fromSector(const uint8_t* data, int index) {
 
 void DirEntry::toSector(uint8_t* data, int index) const {
     uint8_t* p = data + (index * 32);
-    p[0] = next.track;
-    p[1] = next.sector;
+    // In slot 0, bytes 0-1 are the directory sector's link to the next one:
+    // an entry never overwrites them (a new entry has next 0/0, which cut
+    // the directory after the sector)
+    if (index != 0) {
+        p[0] = next.track;
+        p[1] = next.sector;
+    }
     p[2] = fileType;
     p[3] = firstDataTS.track;
     p[4] = firstDataTS.sector;
@@ -160,6 +166,11 @@ bool DiskImage::loadFromFile(const std::string& path) {
 }
 
 bool DiskImage::saveToFile(const std::string& path) const {
+    if (!writable() && !(blank_ && canCreateBlank())) {
+        std::cerr << "Error: " << path << ": disk45 cannot write this format (read-only: convert it, "
+                     "e.g. disk45 convert <image> copy.d64, and change the copy)\n";
+        return false;
+    }
     // Transparent gzip compression if path ends in .gz
     if (gzip::hasGzExtension(path)) {
         auto compressed = gzip::compress(image_);
@@ -391,6 +402,21 @@ DiskImage::ValidateResult DiskImage::validate() const {
             r.filesFound++;
 
             auto chain = getFileChain(e.firstDataTS);
+            if (e.type() == CbmFileType::REL && e.sideTS.track != 0) {
+                // a REL file's side sectors (and the 1581 super side sector)
+                TrackSector ss = e.sideTS;
+                if (superSideSectors()) {
+                    const uint8_t* super = sectorData(ss.track, ss.sector);
+                    chain.push_back(ss);
+                    ss = super ? TrackSector{super[0], super[1]} : TrackSector{0, 0};
+                }
+                for (int guard = 0; ss.track != 0 && guard < 126 * 6; guard++) {
+                    const uint8_t* side = sectorData(ss.track, ss.sector);
+                    if (!side) break;
+                    chain.push_back(ss);
+                    ss = {side[0], side[1]};
+                }
+            }
             for (auto& cs : chain) {
                 r.sectorsUsedByFiles++;
                 auto k = key(cs.track, cs.sector);

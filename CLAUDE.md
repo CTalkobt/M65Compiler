@@ -167,7 +167,7 @@ not change what is tested; a test's own later `-O` still wins. Use an
 explicit `-O<n>` in ad-hoc test commands too.
 
 - `make test` — unit tests (no emulator).
-- `bash src/test/test_xemu.sh` — runtime tests on xemu (151 pass): each
+- `bash src/test/test_xemu.sh` — runtime tests on xemu (153 pass): each
   `*_xemu.c` writes results to `$C0C0` (01 = pass, `$AA` sentinel), built in
   both conventions. New runtime tests follow this pattern and are registered
   in `test_xemu.sh`.
@@ -284,8 +284,9 @@ overlays, `dma.h`. Many other headers (graphics, sprites, hw_*, uart, conio
 - **basic45**: fixed (2026-10-12): line links, numbering, labels, operator tokens,
   escapes, `--minify` (`test_basic45_xemu.bas`); see its Known Problems for
   the placeholder options.
-- **disk45**: adding to D90/CMD images doesn't update the BAM; `rel-create`
-  corrupts D81; modifying G64/NIB/Zipcode overwrites them with D64 data.
+- **disk45**: fixed (2026-10-12): REL files on D81/D65 (super side sector) and
+  D71, a new entry in a directory sector's first slot cut the directory, D80
+  remove; G64/NIB/Zipcode and D90/D60/CMD are read-only (changes refused).
 
 ## Development Guidelines
 

@@ -207,7 +207,7 @@ bool G64Image::loadFromFile(const std::string& path) {
 }
 
 bool G64Image::saveToFile(const std::string& path) const {
-    // Save as D64 (decoded), not as G64
-    // The GCR-encoded format is read-only
+    // Read-only: the decoded D64 sectors would overwrite the GCR file
+    // (DiskImage::saveToFile refuses); disk45 convert writes a D64
     return DiskImage::saveToFile(path);
 }

@@ -9,6 +9,7 @@
 
 class D81Image : public DiskImage {
 public:
+    bool superSideSectors() const override { return true; }
     static constexpr int TRACKS = 80;
     static constexpr int SECTORS_PER_TRACK = 40;
     static constexpr int IMAGE_SIZE = TRACKS * SECTORS_PER_TRACK * 256; // 819200

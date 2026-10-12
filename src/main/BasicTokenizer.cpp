@@ -508,3 +508,20 @@ const std::unordered_map<std::string, uint8_t>& BasicTokenizer::getKeywords() co
 const std::unordered_map<std::string, uint8_t>& BasicTokenizer::getEscapeKeywords() const {
     return escapeKeywords;
 }
+
+bool isDiskParameter(const std::vector<BasicToken>& t, size_t s, size_t i) {
+    static const char* commands[] = {
+        "DOPEN", "DCLOSE", "APPEND", "DLOAD", "DSAVE", "DVERIFY", "BLOAD", "BSAVE", "BVERIFY", "BOOT",
+        "DIRECTORY", "DIR", "CATALOG", "HEADER", "SCRATCH", "DELETE", "COLLECT", "COPY", "CONCAT",
+        "RENAME", "BACKUP", "RECORD", "DCLEAR", "DISK", "MKDIR", "CHDIR", "DMODE", "IMPORT", "MERGE",
+    };
+    if (s >= t.size() || t[s].type != BasicToken::KEYWORD) return false;
+    bool isCommand = false;
+    for (const char* c : commands) if (t[s].value == c) { isCommand = true; break; }
+    if (!isCommand || i >= t.size() || t[i].type != BasicToken::IDENTIFIER) return false;
+    const std::string& v = t[i].value;
+    char c = (char)std::toupper((unsigned char)v[0]);
+    if (std::string("DUBPLWIR").find(c) == std::string::npos) return false;
+    for (size_t k = 1; k < v.size(); k++) if (!std::isdigit((unsigned char)v[k])) return false;
+    return true;
+}
