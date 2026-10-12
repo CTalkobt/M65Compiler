@@ -14,7 +14,7 @@ std::string upper(std::string s) {
 bool isVariable(const std::vector<BasicToken>& toks, size_t i) {
     if (toks[i].type != BasicToken::IDENTIFIER) return false;
     if (i > 0 && toks[i - 1].type == BasicToken::OPERATOR &&
-        (toks[i - 1].value == "$" || toks[i - 1].value == "%"))
+        (toks[i - 1].value == "$" || toks[i - 1].value == "%" || toks[i - 1].value == "&"))
         return false;   // $FF, %1010
     const std::string& v = toks[i].value;
     return !v.empty() && std::isalpha((unsigned char)v[0]);
@@ -82,8 +82,8 @@ void BasicVarRenamer::rename(std::vector<std::vector<BasicToken>>& lines) {
             if (base.size() <= 2) continue;
             std::string suffix = v.back() == '$' ? "$" : "";
             if (suffix.empty() && i + 1 < toks.size() && toks[i + 1].type == BasicToken::OPERATOR &&
-                toks[i + 1].value == "%")
-                suffix = "%";
+                (toks[i + 1].value == "%" || toks[i + 1].value == "&"))
+                suffix = toks[i + 1].value;   // integer %, byte &
             auto it = baseMap.find(base);
             if (it == baseMap.end()) {
                 std::string s = allocate(base);

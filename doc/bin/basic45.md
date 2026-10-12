@@ -7,15 +7,17 @@
 `basic45` converts BASIC source text into a tokenized MEGA65 BASIC 65 program file (`.prg`). Source lines carry no line numbers: lines are given labels, and basic45 assigns the numbers. It provides:
 
 - **Keyword tokenization** — BASIC 65 single-byte tokens and `$FE`-prefixed two-byte tokens (`--list-tokens`)
-- **PETSCII strings** — `{name}` escapes for colours and control codes
+- **Strings** — PETSCII, mixed case (`p"…"`), screen codes (`s"…"`) or ASCII (`@"…"`); `{name}` escapes for colours, control codes, MEGA65 ESC sequences and PETSCII graphics
 - **Preprocessor** — `#define`, `#undef`, `#ifdef`/`#ifndef`/`#elif`/`#else`/`#endif`, `#include`, predefined macros
 - **Symbol substitution** — `{symbol}` or `{symbol+expr}` replaced by addresses from a symbol file
-- **Validation** — undefined/duplicate labels, unresolved `{...}`, program-size estimate
+- **Validation** — undefined/duplicate labels, unresolved `{...}`, typo warnings (variables read but never assigned), unreachable code, unused procs, over-long lines; `--report` for memory use
 - **Long variable names** — renamed to unique two-character BASIC names ([Variable Names](#variable-names))
-- **Block IF and procedures** — `if ... then` / `else` / `endif`, `proc` / `endproc` / `call` ([Block IF and Procedures](#block-if-and-procedures))
+- **Block IF, select and procedures** — `if ... then` / `else` / `endif`, `select` / `case`, `proc name(params)` / `call`, local `.labels` ([Block IF and Procedures](#block-if-and-procedures))
+- **Assembly and binary data** — `asm` … `endasm`, `incbin`, `datainc` ([Assembly and Binary Data](#assembly-and-binary-data))
 - **Calling C** — `--link file.c`: C functions called with `SYS {name}` ([Calling C Functions](#calling-c-functions-link))
 - **Listing, source map, decompiler** — `--list`, `--source-map`, `--decompile` ([Listing, Source Map and Decompiling](#listing-source-map-and-decompiling))
-- **Disk image and emulator** — `--disk`, `--emulator` (xemu)
+- **Disk image, emulator, hardware** — `--disk`, `--emulator` (xemu), `--send` (a MEGA65), `--watch`
+- **Formatting** — `--format` ([Formatting](#formatting))
 - **Markdown documentation** of labeled sections (`--docs`)
 
 See [Known Problems](#known-problems) for the options that are still placeholders.
@@ -45,7 +47,7 @@ Without `-o` the output is the input name with its extension replaced by `.prg` 
 | `--validate` | Run the preprocessor and validation only; write nothing |
 | `--strict` | Treat validation warnings as errors (exit status 1) |
 | `--dry-run` | Compile, but only report what would be written |
-| `--watch` | Accepted; no effect |
+| `--watch` | Build, then rebuild whenever the source, an `#include`d file, a `--link` file, the `--symbols` file or `incbin`/`datainc` data changes (polled every half second; Ctrl-C stops). With `--emulator` xemu is restarted after each good build, with `--send` the program is sent again |
 | `--source-map <file>` | Write a JSON map from each BASIC line number to its source file, line and text |
 | `--list` | Print each BASIC line's number and address next to its source file, line and text, and the variable renames |
 | `--keep-names` | Do not rename variables longer than two characters ([Variable Names](#variable-names)) |
@@ -53,6 +55,11 @@ Without `-o` the output is the input name with its extension replaced by `.prg` 
 | `--disk-name <name>` | The program's name on the disk (default: the output file name without its extension; at most 16 characters) |
 | `--emulator` | After writing the output, run it in xemu (`xemu-xmega65 -prgmode 65 -prg`), with the `--disk` image as drive 8 |
 | `--emulator-path <file>` | The xemu binary (default: `xemu-xmega65` found on `PATH`) |
+| `--send` | Send the program to a MEGA65 and run it: `etherload -r <prg>` (mega65-tools, over Ethernet) when `etherload` is on `PATH`, else `m65 -F -r <prg>` (serial/JTAG). These defaults are not tested here (no MEGA65 attached); `--send-cmd` sets the command |
+| `--send-cmd <command>` | The command for `--send`, `{prg}` standing for the program file (e.g. `--send-cmd "etherload -i 192.168.1.65 -r {prg}"`) |
+| `--encoding <e>` | Encoding of strings without a prefix: `upper` (default), `petscii`, `screencode`, `ascii` ([Strings and Escape Sequences](#strings-and-escape-sequences)) |
+| `--report` | Print the memory use: the BASIC program's range and size, the linked code, the free program space up to `$F6FF`, the longest line, the number of scalar variables (of 256) and arrays |
+| `--format` | Print the source re-laid out (to standard output, or to the `-o` file) and build nothing ([Formatting](#formatting)) |
 | `--link <file>` | Link a C (`.c`, compiled with `cc45 -c -O2`), assembly (`.s45`) or object (`.o45`) file after the program; repeatable ([Calling C Functions](#calling-c-functions-link)) |
 | `--lib <file>` | The library for `--link` (default: `c45.lib` next to the tools, else `ln45`'s `CC45_LIB` search) |
 | `--decompile` | Turn a tokenized BASIC `.prg` into basic45 source ([Listing, Source Map and Decompiling](#listing-source-map-and-decompiling)) |
@@ -100,6 +107,14 @@ Validation messages have the form `file:line:col: error|warning: message`.
 | More lines than line numbers up to 63999 allow | error |
 | A `{...}` left in the source after symbol substitution that is not a PETSCII escape (`{clear}` is fine) | warning |
 | Estimated program size above ~28 KB | warning |
+| A variable read but never assigned (a typo?) | warning |
+| A variable assigned with `=` but never read (not `FOR`, `INPUT`, `READ`, `GET`, `RREG` targets) | warning |
+| A line that can never run: no label, after an unconditional `GOTO`/`END`/`RETURN`/`STOP`/`RUN` | warning |
+| A `proc` that is never called | warning |
+| A line that lists longer than 160 characters (BASIC's input line: it cannot be edited on the MEGA65) | warning |
+| More than 256 scalar variables (BASIC 65 keeps them at `$F700`-`$FEFF`) | warning |
+| A string with the byte `$00` or `$22` (`s"@"` is screen code 0) — it would end the line or the string | error |
+| A label that is not used | note, with `-v` |
 
 Errors stop compilation (exit status 1); warnings do too with `--strict`. `--validate` only reports.
 
@@ -111,7 +126,19 @@ The operators `+ - * / ^ > = <` are tokens (`$AA`-`$B3`), as BASIC stores them; 
 
 ### Strings and Escape Sequences
 
-String letters are stored as PETSCII `$41`-`$5A` whatever their case. `{name}` escapes (lower-case names only) insert control codes:
+A string's encoding is chosen by a prefix touching its opening quote, as in ca45 (`p"…"`, `s"…"`) and cc45 (`@"…"`):
+
+| String | Encoding | `"Hello"` is stored as |
+|--------|----------|------------------------|
+| `"…"` | the default (`upper`, or `--encoding` / `#pragma encoding`) | |
+| `p"…"` | PETSCII as ca45 and cc45 map it: `a`-`z` → `$41`-`$5A`, `A`-`Z` → `$61`-`$7A` — mixed case, for the lower-case character set | `$68 $45 $4C $4C $4F` |
+| `s"…"` | screen codes (ca45's `s"…"`): letters `$01`-`$1A`, `@` `$00` | `$08 $05 $0C $0C $0F` |
+| `a"…"`, `@"…"` | ASCII, as typed | `$48 $65 $6C $6C $6F` |
+| `upper` (default) | PETSCII with letters folded: either case → `$41`-`$5A` (upper case on the default screen) | `$48 $45 $4C $4C $4F` |
+
+`#pragma encoding upper|petscii|screencode|ascii` on a line of its own sets the encoding of the strings that follow (until the next one); `--encoding` sets it for the start of the program. A one-letter variable in front of a string needs a space or a `;` (`print a "x"`, `print a;"x"`): `a"x"` is an ASCII string. A string cannot hold `$00` (it ends the BASIC line; screen code 0 is `@`) or `$22` (it ends the string): basic45 reports them as errors.
+
+`{name}` escapes (lower-case names only) give the same bytes in every encoding:
 
 | Escape | Code | Escape | Code |
 |--------|------|--------|------|
@@ -153,7 +180,9 @@ MEGA65 escape sequences are ESC (`$1B`) followed by a key; `{esc-k}` writes ESC 
 | `{bell-on}` / `{bell-off}` | `G` / `H` | `{scroll-up}` / `{scroll-down}` | `V` / `W` |
 | `{40-80}`, `{40col}`, `{80col}` | `X` toggle 40/80 columns (clears) | `{tabs-default}` / `{tabs-clear}` | `Y` / `Z` |
 
-`{$xx}` writes the byte `xx` (hex), for any code without a name (e.g. a shifted letter `{$c1}`). An unknown `{name}` is kept as text, with each brace stored as a space.
+PETSCII graphics: `{shift-a}`-`{shift-z}` are the shifted letters `$C1`-`$DA`, `{cbm-a}`-`{cbm-z}` the C= key graphics (as printed on the keyboard: `{cbm-a}` `$B0`, `{cbm-z}` `$AD`), and `{pound}` `$5C`, `{arrow-up}` `$5E`, `{arrow-left}` `$5F`, `{pi}` `$DE`, `{space}` `$20`, `{shift-space}` `$A0`.
+
+`{$xx}` writes the byte `xx` (hex), for any code without a name. `{name*n}` repeats an escape `n` times (1-255): `{down*5}`, `{$a0*40}`. An unknown `{name}` is kept as text, with each brace stored as a space.
 
 ```basic
 start: print "{clear}{white}hello{yellow} world"
@@ -167,7 +196,7 @@ BASIC 65 tells variables apart by their first two characters (with the `$` / `%`
 - is not a reserved variable (`ST`, `TI`, `DS`, `ER`, `EL`),
 - is not a keyword of one or two characters (`TO`, `IF`, `ON`, `OR`, `GO`, `FN`, `DO`, ...), which would be read as the keyword when the line is listed and entered again,
 
-preferring the name's first two letters. The `$` and `%` suffixes, arrays and `FN` function names follow along (`def fn double(x)` becomes `DEF FN DU(X)`). A name after `$` or `%` (`$FF`, `%1010`) is a number, not a variable. `--list` and `-v` print the renames (`SCORE->SR STORE->SO`); `--keep-names` turns renaming off.
+preferring the name's first two letters. The `$`, `%` and `&` (byte) suffixes, arrays and `FN` function names follow along (`def fn double(x)` becomes `DEF FN DU(X)`). A name after `$` or `%` (`$FF`, `%1010`) is a number, not a variable. `--list` and `-v` print the renames (`SCORE->SR STORE->SO`); `--keep-names` turns renaming off.
 
 ## Block IF and Procedures
 
@@ -188,11 +217,52 @@ endproc                        ' return
 | `if <cond> then` (nothing after `THEN`) | `IF (<cond>)=0 THEN <else>` — `=0` is "false" for any value (BASIC's `NOT` is bitwise) |
 | `else` | `GOTO <endif>`, and the else part's label |
 | `endif` (or `end if`) | the label after the block |
-| `proc name` | `GOTO <after>` and the label `name` |
+| `proc name` or `proc name(a, b$, ...)` | `GOTO <after>` and the label `name` |
 | `endproc` | `RETURN` and the label after it |
 | `call name` | `GOSUB name` |
+| `call name(x, y$, ...)` | `A = x : B$ = y$ : GOSUB name` — the arguments are assigned to the parameters left to right (they are ordinary, global variables) |
+| `select <expr>` | `ZSELn = <expr>` (`ZSELn$` when the expression is a string; renamed like any long name) |
+| `case 1, 2` / `case 3 to 5` / `case is > 10` | `IF (ZSELn=1 OR ZSELn=2)=0 THEN <next case>`; a range is `>=` and `<=`, `is` takes `= <> < > <= >=`; several items are or-ed |
+| `case else` | the code when no case matched |
+| `endselect` (or `end select`) | the label after the block |
+| `.name` | a label local to its `proc` (or to the code outside procs): `.loop:` defines it, `goto .loop` uses it; two procs can each have a `.loop` |
 
-Blocks nest; the generated labels are `__else<n>`, `__endif<n>`, `__endproc<n>`. A single-line `IF ... THEN ... ELSE ...` is BASIC's own and stays as it is (BASIC 65's `IF ... THEN BEGIN ... BEND` and `DO ... LOOP` work too). An `else`, `endif` or `endproc` without its block, and a block left open, are errors at their source line.
+```basic
+  select key$
+  case "a" to "z"
+    print "a letter"
+  case " ", "{down}"
+    call move(1, 0)
+  case else
+    print "?"
+  endselect
+proc move(dx, dy)
+.step: px = px + dx : py = py + dy
+  if blocked then .step
+endproc
+```
+
+Blocks nest; the generated labels are `__else<n>`, `__endif<n>`, `__endproc<n>`, `__case<n>_<k>`, `__endsel<n>`, `__l<scope>_<name>`. A `call` with the wrong number of arguments is an error. A single-line `IF ... THEN ... ELSE ...` is BASIC's own and stays as it is (BASIC 65's `IF ... THEN BEGIN ... BEND` and `DO ... LOOP` work too). An `else`, `endif`, `case`, `endselect` or `endproc` without its block, and a block left open, are errors at their source line.
+
+## Assembly and Binary Data
+
+```basic
+  sys {flash_border}                   ' an asm label: called directly
+  bank 0 : first = peek({sprite}) : bank 128
+  restore spritedata : read a, b, c
+asm
+flash_border:
+    inc $d020
+    rts
+endasm
+incbin "sprite.bin" as sprite          ' the bytes after the program
+datainc "sprite.bin", 8 as spritedata  ' the bytes as DATA lines, 8 per line
+```
+
+- `asm` … `endasm`: assembly (ca45 syntax) assembled with `ca45 -c` and linked after the program, like `--link` code. A label at the start of a line is made global; `SYS {label}` calls it directly (no C thunk: the routine runs with BASIC's zero page and stack, registers from the SYS as usual).
+- `incbin "file" as name`: the file's bytes after the program. `{name}` is their address, `{name_size}` their size.
+- `datainc "file"[, n] [as label]`: `DATA` lines with the file's bytes in decimal, `n` per line (default 16); `as label` (or a label on the line) names the first `DATA` line, for `RESTORE label`.
+- File names are relative to the file containing the line (so `#include`d files work), else to the current directory.
 
 ## Calling C Functions (`--link`)
 
@@ -212,6 +282,10 @@ basic45 --link routines.c menu.bas -o menu.prg
 
 `examples/basic/c_routines` is a complete example; `test_basic45_link_xemu.bas` with `test_basic45_link_xemu.c` is run by BASIC 65 on xemu.
 
+## Formatting
+
+`basic45 --format prog.bas` prints the source with keywords in lower case, one space between words outside strings, code indented two spaces plus two per open block (`if … then`/`else`/`endif`, `proc`/`endproc`, `select`/`case`/`endselect`, `for`/`next`, `do`/`loop`) and labels in column 0. Strings, `REM` and `DATA` text, `#` lines, `'` comments (re-indented) and `asm` blocks are kept as written. With `-o` the result goes to a file. The formatted source builds to the same program, and formatting it again changes nothing.
+
 ## Listing, Source Map and Decompiling
 
 `--list` prints, for each BASIC line, its number, address, source file and line, and the source text:
@@ -223,7 +297,7 @@ basic45 --link routines.c menu.bas -o menu.prg
 
 `--source-map <file>` writes the same mapping as JSON (`compiledLine`, `sourceLine`, `sourceFile`, `sourceCode` per line), to find the source of `?SYNTAX ERROR IN 230`.
 
-`--decompile` (or a `.prg` input) turns a tokenized BASIC program back into basic45 source: keywords and names in lower case, strings with `{name}` escapes, and labels `l<number>` on the lines that `GOTO`, `GOSUB`, `ON ... GOTO`, `THEN`, `ELSE`, `RESTORE`, `TRAP`, `RESUME` or `RUN` refer to. Building the result with basic45 gives the same program (with `--keep-names` if the original's names were long).
+`--decompile` (or a `.prg` input) turns a tokenized BASIC program back into basic45 source: keywords and names in lower case, strings with `{name}` escapes (`{name*n}` for runs, `{$xx}` for a byte without a name), and labels `l<number>` on the lines that `GOTO`, `GOSUB`, `ON ... GOTO`, `THEN`, `ELSE`, `RESTORE`, `TRAP`, `RESUME` or `RUN` refer to. Building the result with basic45 gives the same program (with `--keep-names` if the original's names were long).
 
 ## Preprocessor
 
@@ -298,10 +372,11 @@ A label is recognised when `name:` is followed by a space or the end of the line
 
 ## Known Problems
 
-- `--preserve-spaces` and `--watch` are accepted and do nothing.
+- `--preserve-spaces` is accepted and does nothing.
 - `--link` uses the ZP calling convention and `c45.lib`; for stack-convention C, declare the called functions `__fastcall__`.
+- `--send`'s default commands (`etherload -r`, `m65 -F -r`) are untested; use `--send-cmd` with the options your tools need.
 
-`test_basic45_xemu.bas`, `test_basic45_features_xemu.bas` (as is, and decompiled and rebuilt) and `test_basic45_link_xemu.bas` are run by BASIC 65 on xemu.
+`test_basic45_xemu.bas`, `test_basic45_features_xemu.bas` (as is, decompiled and rebuilt, and formatted) and `test_basic45_link_xemu.bas` (C, asm, incbin, datainc) are run by BASIC 65 on xemu.
 
 ## See Also
 

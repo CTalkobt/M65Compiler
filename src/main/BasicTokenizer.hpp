@@ -22,6 +22,7 @@ struct BasicToken {
     std::string value;
     uint8_t tokenByte = 0;   // For keywords (or 0xFE for escape keywords)
     uint8_t escapeByte = 0;  // For two-byte escape keywords
+    char prefix = 0;         // STRING: 'p' PETSCII, 's' screen codes, 'a' ASCII (p"..", s"..", a"..", @".."), 0 none
 };
 
 class BasicTokenizer {

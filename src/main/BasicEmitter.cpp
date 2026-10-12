@@ -161,7 +161,7 @@ std::vector<uint8_t> BasicEmitter::emitToken(const BasicToken& token) {
 
         case BasicToken::STRING: {
             result.push_back(0x22);
-            auto encoded = petscii.encode(token.value);
+            auto encoded = petscii.encodeAs(token.value, token.prefix);
             result.insert(result.end(), encoded.begin(), encoded.end());
             result.push_back(0x22);
             break;
@@ -316,6 +316,164 @@ std::vector<BasicLine> BasicEmitter::processLabels(std::vector<BasicLine>& lines
     return processedLines;
 }
 
+size_t BasicEmitter::listedLength(const std::vector<uint8_t>& d) const {
+    static const std::map<uint8_t, size_t> kw = [] {
+        std::map<uint8_t, size_t> m;
+        BasicTokenizer t;
+        for (const auto& [name, tok] : t.getKeywords()) m[tok] = name.size();
+        for (uint8_t op = 0xAA; op <= 0xB3; op++) m[op] = 1;
+        return m;
+    }();
+    static const std::map<uint8_t, size_t> kwEsc = [] {
+        std::map<uint8_t, size_t> m;
+        BasicTokenizer t;
+        for (const auto& [name, tok] : t.getEscapeKeywords()) m[tok] = name.size();
+        return m;
+    }();
+    size_t n = 0;
+    bool inString = false;
+    for (size_t i = 0; i < d.size(); i++) {
+        uint8_t b = d[i];
+        if (b == 0x22) inString = !inString;
+        if (inString || b < 0x80) { n++; continue; }
+        if (b == 0xFE && i + 1 < d.size()) {
+            auto it = kwEsc.find(d[++i]);
+            n += it != kwEsc.end() ? it->second : 2;
+            continue;
+        }
+        auto it = kw.find(b);
+        n += it != kw.end() ? it->second : 1;
+    }
+    return n;
+}
+
+void BasicEmitter::checkVariables(const std::vector<std::vector<BasicToken>>& lines,
+                                  const std::vector<int>& sourceOf) {
+    struct Use { int firstLine = 0; bool assigned = false, read = false, exempt = false, dimmed = false; };
+    std::map<std::string, Use> vars;   // NAME[$|%][(]
+    static const std::set<std::string> reserved = {"ST", "TI", "TI$", "DS", "DS$", "ER", "EL"};
+    auto up = [](std::string s) { std::transform(s.begin(), s.end(), s.begin(), ::toupper); return s; };
+
+    for (size_t li = 0; li < lines.size(); li++) {
+        const auto& t = lines[li];
+        size_t i = 0;
+        // one statement at a time: a new one after ':' / THEN / ELSE
+        while (i < t.size()) {
+            size_t end = i;
+            while (end < t.size() && !(t[end].type == BasicToken::OPERATOR && t[end].value == ":") &&
+                   !(end > i && t[end].type == BasicToken::KEYWORD && (t[end].value == "THEN" || t[end].value == "ELSE")))
+                end++;
+            size_t s = i;
+            if (s < end && t[s].type == BasicToken::KEYWORD && (t[s].value == "THEN" || t[s].value == "ELSE")) s++;
+            if (s < end && t[s].type == BasicToken::KEYWORD && t[s].value == "LET") s++;
+            std::string kw = (s < end && t[s].type == BasicToken::KEYWORD) ? t[s].value : "";
+            bool listAssign = kw == "INPUT" || kw == "INPUT#" || kw == "READ" || kw == "GET" || kw == "RREG";
+            int depth = 0;
+            bool expectTarget = listAssign;   // the next name at depth 0 is assigned
+            for (size_t k = s; k < end; k++) {
+                const auto& tok = t[k];
+                if (tok.type == BasicToken::OPERATOR && tok.value == "(") depth++;
+                if (tok.type == BasicToken::OPERATOR && tok.value == ")") depth--;
+                if (tok.type == BasicToken::OPERATOR && tok.value == "," && depth == 0 && listAssign) expectTarget = true;
+                if (tok.type != BasicToken::IDENTIFIER) continue;
+                if (!std::isalpha((unsigned char)tok.value[0])) continue;
+                if (k > s && t[k - 1].type == BasicToken::OPERATOR && (t[k - 1].value == "$" || t[k - 1].value == "%"))
+                    continue;   // $FF
+                if (k > s && t[k - 1].type == BasicToken::KEYWORD && t[k - 1].value == "FN") continue;   // FN name
+                std::string name = up(tok.value);
+                if (k + 1 < end && t[k + 1].type == BasicToken::OPERATOR &&
+                    (t[k + 1].value == "%" || t[k + 1].value == "&"))
+                    name += t[k + 1].value;   // integer %, byte &
+                size_t after = k + 1 + ((name.back() == '%' || name.back() == '&') ? 1 : 0);
+                bool isArray = after < end && t[after].type == BasicToken::OPERATOR && t[after].value == "(";
+                std::string key = name + (isArray ? "(" : "");
+                Use& u = vars[key];
+                if (!u.firstLine) u.firstLine = sourceOf[li];
+                if (reserved.count(name)) u.exempt = true;
+                bool first = k == s;
+                if (kw == "DIM" && depth == 0) { u.dimmed = true; continue; }
+                if (kw == "FOR" && k == s + 1) { u.assigned = true; u.exempt = true; continue; }
+                if (kw == "DEF") { u.exempt = true; continue; }   // DEF FN parameter
+                if (listAssign && depth == 0 && expectTarget) {
+                    u.assigned = true; u.exempt = true; expectTarget = false; continue;
+                }
+                if (first && !isArray) {
+                    size_t eq = after;
+                    if (eq < end && t[eq].type == BasicToken::OPERATOR && t[eq].value == "=") { u.assigned = true; continue; }
+                }
+                if (first && isArray) {
+                    // A(i) = ...: the matching ')' then '='
+                    int d = 0;
+                    size_t q = after;
+                    for (; q < end; q++) {
+                        if (t[q].type == BasicToken::OPERATOR && t[q].value == "(") d++;
+                        if (t[q].type == BasicToken::OPERATOR && t[q].value == ")" && --d == 0) break;
+                    }
+                    if (q + 1 < end && t[q + 1].type == BasicToken::OPERATOR && t[q + 1].value == "=") {
+                        u.assigned = true;
+                        continue;
+                    }
+                }
+                u.read = true;
+            }
+            i = end;
+            if (i < t.size() && t[i].type == BasicToken::OPERATOR && t[i].value == ":") i++;
+        }
+    }
+    scalarCount = arrayCount = 0;
+    for (const auto& [key, u] : vars) (key.back() == '(' ? arrayCount : scalarCount)++;
+    if (scalarCount > 256)
+        diagnostics.push_back({sourceOf.empty() ? 0 : sourceOf[0], std::to_string(scalarCount) +
+            " scalar variables: BASIC 65 holds 256 ($F700-$FEFF)", false});
+    for (const auto& [key, u] : vars) {
+        if (u.exempt) continue;
+        std::string shown = key.back() == '(' ? key + ")" : key;
+        if (u.read && !u.assigned && !u.dimmed)
+            diagnostics.push_back({u.firstLine, "variable " + shown + " is read but never assigned (a typo?)", false});
+        else if (u.assigned && !u.read)
+            diagnostics.push_back({u.firstLine, "variable " + shown + " is assigned but never read", false});
+    }
+}
+
+void BasicEmitter::checkReachable(const std::vector<BasicLine>& lines, const std::vector<int>& sourceOf,
+                                  const std::set<uint16_t>& targets) {
+    auto isLoneJump = [](const BasicLine& l) {
+        const auto& t = l.tokens;
+        return !t.empty() && t[0].type == BasicToken::KEYWORD &&
+               ((t[0].value == "RETURN" && t.size() == 1) || (t[0].value == "GOTO" && t.size() == 2));
+    };
+    for (size_t i = 0; i + 1 < lines.size(); i++) {
+        const auto& t = lines[i].tokens;
+        // the last statement of the line, and whether an IF/ON comes first
+        bool conditional = false;
+        size_t lastStart = 0;
+        for (size_t k = 0; k < t.size(); k++) {
+            if (t[k].type == BasicToken::KEYWORD && (t[k].value == "IF" || t[k].value == "ON")) conditional = true;
+            if (t[k].type == BasicToken::OPERATOR && t[k].value == ":") lastStart = k + 1;
+        }
+        if (conditional || lastStart >= t.size() || t[lastStart].type != BasicToken::KEYWORD) continue;
+        const std::string& kw = t[lastStart].value;
+        bool jump = kw == "GOTO" || kw == "END" || kw == "RETURN" || kw == "STOP" || kw == "RUN" ||
+                    (kw == "GO" && lastStart + 1 < t.size() && t[lastStart + 1].value == "TO");
+        if (!jump) continue;
+        const BasicLine& next = lines[i + 1];
+        if (targets.count(next.lineNumber) || next.tokens.empty() || isLoneJump(next)) continue;
+        const std::string& first = next.tokens[0].value;
+        if (next.tokens[0].type == BasicToken::KEYWORD && (first == "DATA" || first == "REM")) continue;
+        if (next.tokens[0].type == BasicToken::OPERATOR && first == ":") continue;
+        diagnostics.push_back({sourceOf[i + 1], "line " + std::to_string(next.lineNumber) +
+            " can never run (no label, after an unconditional " + kw + ")", false});
+    }
+}
+
+char BasicEmitter::encodingFromName(const std::string& n) {
+    if (n == "upper" || n == "default") return 'u';
+    if (n == "petscii" || n == "mixed") return 'p';
+    if (n == "screencode" || n == "screen") return 's';
+    if (n == "ascii") return 'a';
+    return 0;
+}
+
 const std::map<std::string, uint16_t>& BasicEmitter::getLabelMap() const {
     return labelMap;
 }
@@ -352,9 +510,28 @@ std::vector<uint8_t> BasicEmitter::emitFromLabels(const LabelBasedSourceParser& 
     labelMap.clear();
     variableMap.clear();
     emittedLines.clear();
+    diagnostics.clear();
+    longestLine = 0;
+    longestLineNumber = 0;
+    char encoding = defaultEncoding;
+    PETSCIIEncoder petscii;
 
     std::vector<std::vector<BasicToken>> tokenLines;
     for (const auto& srcLine : parser.getSourceLines()) {
+        if (!srcLine.pragma.empty()) {
+            std::istringstream ps(srcLine.pragma);
+            std::string what, value;
+            ps >> what >> value;
+            if (what == "encoding") {
+                char e = encodingFromName(value);
+                if (e) encoding = e;
+                else diagnostics.push_back({srcLine.sourceLineNum, "unknown encoding '" + value +
+                                            "' (upper, petscii, screencode, ascii)", true});
+            } else {
+                diagnostics.push_back({srcLine.sourceLineNum, "unknown #pragma '" + what + "' ignored", false});
+            }
+            continue;
+        }
         if (!srcLine.label.empty()) {
             auto it = labels.find(LabelBasedSourceParser::upper(srcLine.label));
             if (it != labels.end()) labelMap[srcLine.label] = it->second;
@@ -370,10 +547,22 @@ std::vector<uint8_t> BasicEmitter::emitFromLabels(const LabelBasedSourceParser& 
                 tokens[idx].value = std::to_string(it->second);
             });
         std::vector<BasicToken> kept;
-        for (const auto& token : tokens) {
-            if (token.type != BasicToken::EOL && token.type != BasicToken::END_OF_FILE &&
-                token.type != BasicToken::LABEL)
-                kept.push_back(token);
+        for (auto token : tokens) {
+            if (token.type == BasicToken::EOL || token.type == BasicToken::END_OF_FILE ||
+                token.type == BasicToken::LABEL)
+                continue;
+            if (token.type == BasicToken::STRING) {
+                if (!token.prefix) token.prefix = encoding;
+                // a BASIC line cannot hold $00 (it ends the line) or a quote
+                for (uint8_t b : petscii.encodeAs(token.value, token.prefix)) {
+                    if (b == 0x00 || b == 0x22) {
+                        diagnostics.push_back({srcLine.sourceLineNum, std::string("a string cannot hold the byte ") +
+                            (b ? "$22 (a quote ends it)" : "$00 (it ends the BASIC line; screen code 0 is '@')"), true});
+                        break;
+                    }
+                }
+            }
+            kept.push_back(token);
         }
         if (kept.empty()) continue;
         tokenLines.push_back(kept);
@@ -381,6 +570,17 @@ std::vector<uint8_t> BasicEmitter::emitFromLabels(const LabelBasedSourceParser& 
         line.lineNumber = srcLine.basicLineNum;
         lines.push_back(line);
         sourceOf.push_back(srcLine.sourceLineNum);
+    }
+
+    checkVariables(tokenLines, sourceOf);
+    {
+        std::set<uint16_t> targets;
+        for (const auto& [l, n] : labels) targets.insert(n);
+        checkReachable(lines.empty() ? lines : [&] {
+            std::vector<BasicLine> withTokens = lines;
+            for (size_t i = 0; i < withTokens.size(); i++) withTokens[i].tokens = tokenLines[i];
+            return withTokens;
+        }(), sourceOf, targets);
     }
 
     if (renameVariables) {
@@ -404,6 +604,23 @@ std::vector<uint8_t> BasicEmitter::emitFromLabels(const LabelBasedSourceParser& 
 
     // Emit the lines
     auto bytes = emit(lines);
+    // A line BASIC lists longer than its 160-character input buffer cannot
+    // be edited on the machine
+    {
+        size_t pos = 2;
+        for (size_t i = 0; i < lines.size() && pos + 4 <= bytes.size(); i++) {
+            size_t end = pos + 4;
+            while (end < bytes.size() && bytes[end] != 0) end++;
+            std::vector<uint8_t> body(bytes.begin() + pos + 4, bytes.begin() + end);
+            size_t len = std::to_string(lines[i].lineNumber).size() + 1 + listedLength(body);
+            if (len > longestLine) { longestLine = len; longestLineNumber = lines[i].lineNumber; }
+            if (len > 160)
+                diagnostics.push_back({sourceOf[i], "line " + std::to_string(lines[i].lineNumber) + " lists as " +
+                    std::to_string(len) + " characters: longer than BASIC's 160-character input line, it cannot be "
+                    "edited on the MEGA65", false});
+            pos = end + 1;
+        }
+    }
     for (size_t i = 0; i < lines.size(); i++)
         emittedLines.push_back({lines[i].lineNumber, sourceOf[i], lineAddress[lines[i].lineNumber]});
     return bytes;

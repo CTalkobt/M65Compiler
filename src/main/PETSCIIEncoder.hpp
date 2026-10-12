@@ -10,6 +10,11 @@ public:
     PETSCIIEncoder();
 
     std::vector<uint8_t> encode(const std::string& text);
+    // A string in an encoding: 'u' PETSCII with letters folded to $41-$5A
+    // (basic45's default), 'p' PETSCII as ca45/cc45 map it (a-z $41-$5A,
+    // A-Z $61-$7A: mixed case), 's' screen codes (ca45's s".."), 'a' ASCII.
+    // {name} escapes give the same bytes in every encoding
+    std::vector<uint8_t> encodeAs(const std::string& text, char encoding);
     std::string decode(const std::vector<uint8_t>& bytes);
     uint8_t getColorCode(const std::string& colorName) const;
     uint8_t getControlCode(const std::string& controlName) const;

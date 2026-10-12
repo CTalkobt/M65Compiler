@@ -49,8 +49,9 @@ std::string BasicMinifier::minify(const std::string& source) {
 
         for (size_t i = 0; i < minifiedLines.size(); i++) {
             const auto& stmt = minifiedLines[i];
-            bool isLabel = std::regex_search(stmt, labelLine);
-            bool canJoin = !isLabel && !currentGroup.empty() && !hasWordOutsideStrings(currentGroup, "IF") &&
+            bool isLabel = std::regex_search(stmt, labelLine) || stmt[0] == '#';   // #pragma: its own line
+            bool canJoin = !isLabel && !currentGroup.empty() && currentGroup[0] != '#' &&
+                           !hasWordOutsideStrings(currentGroup, "IF") &&
                            currentGroup.size() + 1 + stmt.size() <= maxMergedLength;
             if (canJoin) {
                 // a label alone ("done:") already ends with its colon

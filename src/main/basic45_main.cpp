@@ -18,11 +18,14 @@
 #include "Version.hpp"
 #include "BasicStructured.hpp"
 #include "BasicDecompiler.hpp"
+#include "BasicFormatter.hpp"
 #include <filesystem>
 #include <map>
 #include <memory>
 #include <regex>
+#include <set>
 #include <sys/wait.h>
+#include <csignal>
 #include <unistd.h>
 
 namespace fs = std::filesystem;
@@ -58,6 +61,12 @@ struct Options {
     std::string diskName;         // --disk-name: its name there
     std::vector<std::string> linkFiles;   // --link: C / asm / .o45 to link in
     std::string linkLib;                  // --lib: the C library for --link
+    char encoding = 'u';                  // --encoding: strings without a prefix
+    bool report = false;                  // --report: memory use
+    bool send = false;                    // --send: to a MEGA65 (etherload / m65)
+    std::string sendCmd;                  // --send-cmd: the command, {prg} = the program
+    bool format = false;                  // --format: rewrite the source, do not build
+    bool outputGiven = false;             // -o was given
 };
 
 class SymbolTable {
@@ -167,6 +176,13 @@ static void printUsage(const char* progName) {
     std::cout << "  --label-table <f>   Write label, line number and address to file" << std::endl;
     std::cout << "  --list              Print the BASIC lines next to their source lines" << std::endl;
     std::cout << "  --keep-names        Do not rename variables longer than two characters" << std::endl;
+    std::cout << "  --report            Print the memory use (program, linked code, variables)" << std::endl;
+    std::cout << "  --watch             Rebuild when a source file changes (and restart --emulator)" << std::endl;
+    std::cout << "  --send              Send the program to a MEGA65 and run it (etherload or m65)" << std::endl;
+    std::cout << "  --send-cmd <cmd>    The command for --send; {prg} is the program file" << std::endl;
+    std::cout << "  --format            Print the source re-indented, keywords in lower case (-o: to a file)" << std::endl;
+    std::cout << "  --encoding <e>      Strings without a prefix: upper (default), petscii (mixed" << std::endl;
+    std::cout << "                      case), screencode, ascii; p\"..\" s\"..\" a\"..\" choose per string" << std::endl;
     std::cout << "  --docs <f>          Generate markdown documentation to file" << std::endl;
     std::cout << "  -I <path>           Add include search path for #include" << std::endl;
     std::cout << "  --minify            Minify output (remove comments, join lines)" << std::endl;
@@ -196,6 +212,7 @@ static Options parseArgs(int argc, char* argv[]) {
 
         if (arg == "-o" && i + 1 < argc) {
             opts.outputFile = argv[++i];
+            opts.outputGiven = true;
         } else if (arg == "--symbols" && i + 1 < argc) {
             opts.symbolFile = argv[++i];
         } else if (arg == "--load" && i + 1 < argc) {
@@ -246,6 +263,22 @@ static Options parseArgs(int argc, char* argv[]) {
             opts.linkFiles.push_back(argv[++i]);
         } else if (arg == "--lib" && i + 1 < argc) {
             opts.linkLib = argv[++i];
+        } else if (arg == "--send") {
+            opts.send = true;
+        } else if (arg == "--send-cmd" && i + 1 < argc) {
+            opts.send = true;
+            opts.sendCmd = argv[++i];
+        } else if (arg == "--format") {
+            opts.format = true;
+        } else if (arg == "--report") {
+            opts.report = true;
+        } else if (arg == "--encoding" && i + 1 < argc) {
+            std::string e = argv[++i];
+            opts.encoding = BasicEmitter::encodingFromName(e);
+            if (!opts.encoding) {
+                std::cerr << "basic45: unknown encoding '" << e << "' (upper, petscii, screencode, ascii)" << std::endl;
+                exit(1);
+            }
         } else if (arg == "--list-tokens") {
             opts.listTokens = true;
         } else if (arg == "--version") {
@@ -414,6 +447,88 @@ int main(int argc, char* argv[]) {
         return opts.showHelp ? 0 : 1;
     }
 
+    // --watch: rebuild (this program again, without --watch) whenever the
+    // source, an included file, a linked file or incbin/datainc data changes
+    if (opts.watchMode) {
+        std::vector<std::string> args;
+        for (int i = 1; i < argc; i++) {
+            std::string a = argv[i];
+            if (a == "--watch" || a == "--emulator" || a == "--send") continue;
+            if (a == "--send-cmd" || a == "--emulator-path") { i++; continue; }
+            args.push_back(a);
+        }
+        std::error_code ec;
+        std::string self = fs::read_symlink("/proc/self/exe", ec).string();
+        if (ec) self = argv[0];
+        std::string cmd = shellQuote(self);
+        for (const auto& a : args) cmd += " " + shellQuote(a);
+        auto watched = [&]() {
+            std::set<std::string> files = {opts.inputFile};
+            for (const auto& f : opts.linkFiles) files.insert(f);
+            if (!opts.symbolFile.empty()) files.insert(opts.symbolFile);
+            try {
+                BasicPreprocessor pp;
+                if (!opts.includePath.empty()) pp.addIncludePath(opts.includePath);
+                std::string text = pp.preprocess(readFile(opts.inputFile), opts.inputFile);
+                for (const auto& f : pp.getIncludedFiles()) files.insert(f);
+                std::regex data(R"re(^\s*(?:[A-Za-z_]\w*\s*:\s*)?(?:incbin|datainc)\s+"([^"]+)")re", std::regex::icase);
+                std::istringstream in(text);
+                std::string l;
+                std::smatch dm;
+                while (std::getline(in, l))
+                    if (std::regex_search(l, dm, data))
+                        files.insert((fs::path(opts.inputFile).parent_path() / dm[1].str()).string());
+            } catch (...) {}
+            return files;
+        };
+        auto stamp = [](const std::set<std::string>& files) {
+            std::map<std::string, fs::file_time_type> t;
+            for (const auto& f : files) {
+                std::error_code e;
+                t[f] = fs::last_write_time(f, e);
+            }
+            return t;
+        };
+        int xemuPid = -1;
+        while (true) {
+            auto files = watched();
+            auto before = stamp(files);
+            std::cout << "--- building " << opts.inputFile << std::endl;
+            int rc = system(cmd.c_str());
+            bool ok = WIFEXITED(rc) && WEXITSTATUS(rc) == 0;
+            if (ok && opts.launchEmulator) {
+                if (xemuPid > 0) { kill(xemuPid, SIGTERM); waitpid(xemuPid, nullptr, 0); }
+                xemuPid = EmulatorLauncher::launchAsync(opts.outputFile, opts.emulatorPath, opts.diskImage);
+            }
+            if (ok && opts.send) {
+                std::string sc = opts.sendCmd;
+                std::vector<std::string> sendArgs = {"--send"};
+                if (!sc.empty()) sendArgs = {"--send-cmd", sc};
+                std::string c2 = cmd;
+                for (const auto& a : sendArgs) c2 += " " + shellQuote(a);
+                rc = system(c2.c_str());
+            }
+            std::cout << "--- watching " << files.size() << " file(s); Ctrl-C to stop" << std::endl;
+            while (stamp(watched()) == before) {
+                if (xemuPid > 0 && waitpid(xemuPid, nullptr, WNOHANG) == xemuPid) xemuPid = -1;
+                usleep(500000);
+            }
+        }
+    }
+
+    // --format: the source re-laid out (standard output, or -o)
+    if (opts.format) {
+        std::string formatted = formatBasic(readFile(opts.inputFile));
+        if (!opts.outputGiven || opts.outputFile == "-") {
+            std::cout << formatted;
+        } else {
+            std::ofstream out(opts.outputFile);
+            if (!out) { std::cerr << "Error: Could not write " << opts.outputFile << std::endl; return 1; }
+            out << formatted;
+        }
+        return 0;
+    }
+
     // --decompile: a tokenized program back to basic45 source
     if (opts.decompile) {
         auto r = decompileBasic(readBinary(opts.inputFile));
@@ -461,7 +576,10 @@ int main(int argc, char* argv[]) {
     }
 
     // Block IF / proc / call (BasicStructured)
-    BasicStructuredResult lowered = lowerBasicStructured(sourceCode);
+    BasicStructuredResult lowered = lowerBasicStructured(sourceCode, [&](int line) {
+        auto o = preprocessor.getLineOrigin(line);
+        return o.first.empty() ? opts.inputFile : o.first;
+    });
     auto preOrigin = [&](int loweredLine) -> std::pair<std::string, int> {
         if (loweredLine < 1 || loweredLine > (int)lowered.origin.size()) return {"", 0};
         auto o = preprocessor.getLineOrigin(lowered.origin[loweredLine - 1]);
@@ -487,9 +605,25 @@ int main(int argc, char* argv[]) {
 
     // --link: SYS {name} calls the C (or asm) function name through a thunk
     // (__bas_name, which enters crt0's __basic_call)
+    // Labels SYS calls directly (no C thunk): the asm blocks' and the labels
+    // of linked assembly files
+    std::set<std::string> directLabels = lowered.asmLabels;
+    directLabels.insert(lowered.dataLabels.begin(), lowered.dataLabels.end());
+    for (const auto& f : opts.linkFiles) {
+        std::string ext = fs::path(f).extension().string();
+        if (ext != ".s45" && ext != ".s" && ext != ".asm") continue;
+        std::ifstream in(f);
+        std::string l;
+        std::regex lab(R"(^\s*([A-Za-z_]\w*):)");
+        std::smatch lm;
+        while (std::getline(in, l))
+            if (std::regex_search(l, lm, lab)) directLabels.insert(lm[1].str());
+    }
+    const bool linking = !opts.linkFiles.empty() || !lowered.asmText.empty();
+
     std::vector<std::string> sysTargets;
     std::string programText = lowered.text;
-    if (!opts.linkFiles.empty()) {
+    if (linking) {
         std::regex sysRef(R"((\bsys\s*)\{([A-Za-z_]\w*)\})", std::regex::icase);
         std::string out;
         auto begin = std::sregex_iterator(programText.begin(), programText.end(), sysRef);
@@ -505,6 +639,7 @@ int main(int argc, char* argv[]) {
                 continue;
             if (std::count(before.begin(), before.end(), '"') % 2) continue;
             std::string name = m[2].str();
+            if (directLabels.count(name)) continue;   // assembly: SYS {label} calls it directly
             if (std::find(sysTargets.begin(), sysTargets.end(), name) == sysTargets.end())
                 sysTargets.push_back(name);
             out += programText.substr(last, m.position(0) - last);
@@ -515,7 +650,8 @@ int main(int argc, char* argv[]) {
         programText = out;
     }
 
-    auto build = [&](const SymbolTable& syms) -> Build {
+    // quiet: no messages (the second build of --link repeats the first's)
+    auto build = [&](const SymbolTable& syms, bool quiet = false) -> Build {
         Build b;
         std::string text = syms.empty() ? programText : syms.substitute(programText);
         if (opts.minify) {
@@ -533,19 +669,58 @@ int main(int argc, char* argv[]) {
         });
         b.validator->analyze(text, opts.lineIncrement);
         if (b.validator->hasErrors()) {
-            b.validator->printErrors();
+            if (!quiet) b.validator->printErrors();
             int errorCount = b.validator->getErrorCount();
             int warningCount = b.validator->getWarningCount();
             if (errorCount > 0 || (opts.strictValidation && warningCount > 0)) {
-                std::cerr << "Compilation failed: " << errorCount << " error(s), "
-                          << warningCount << " warning(s)" << std::endl;
+                if (!quiet) std::cerr << "Compilation failed: " << errorCount << " error(s), "
+                                      << warningCount << " warning(s)" << std::endl;
                 return b;
             }
         }
         b.emitter = std::make_unique<BasicEmitter>(opts.loadAddress, opts.lineIncrement);
         b.emitter->setRenameVariables(!opts.keepNames);
+        b.emitter->setEncoding(opts.encoding);
         if (opts.preserveSpaces) b.emitter->setPreserveSpaces(true);
         b.binary = b.emitter->emitFromLabels(b.validator->getParser());
+        int errors = 0, warnings = 0;
+        for (const auto& d : b.emitter->getDiagnostics()) {
+            int l = d.sourceLine;
+            if (!b.minOrigin.empty()) l = (l >= 1 && l <= (int)b.minOrigin.size()) ? b.minOrigin[l - 1] : 0;
+            auto o = preOrigin(l);
+            if (!quiet) std::cerr << (o.first.empty() ? opts.inputFile : o.first) << ":" << (o.second ? o.second : 1)
+                      << ":1: " << (d.error ? "error" : "warning") << ": " << d.message << std::endl;
+            (d.error ? errors : warnings)++;
+        }
+        // procs never called; labels never used (a note, with -v)
+        {
+            const auto& refs = b.validator->getParser().getReferencedLabels();
+            std::set<std::string> procNames;
+            for (const auto& [name, line] : lowered.procs) {
+                procNames.insert(LabelBasedSourceParser::upper(name));
+                if (!refs.count(LabelBasedSourceParser::upper(name))) {
+                    auto o = preprocessor.getLineOrigin(line);
+                    if (!quiet) std::cerr << (o.first.empty() ? opts.inputFile : o.first) << ":" << (o.second ? o.second : line)
+                              << ":1: warning: proc " << name << " is never called" << std::endl;
+                    warnings++;
+                }
+            }
+            if (opts.verbose && !quiet)
+                for (const auto& sl : b.validator->getParser().getSourceLines()) {
+                    if (sl.label.empty() || sl.label.compare(0, 2, "__") == 0) continue;
+                    std::string u = LabelBasedSourceParser::upper(sl.label);
+                    if (refs.count(u) || procNames.count(u)) continue;
+                    int l = sl.sourceLineNum;
+                    if (!b.minOrigin.empty()) l = (l >= 1 && l <= (int)b.minOrigin.size()) ? b.minOrigin[l - 1] : 0;
+                    auto o = preOrigin(l);
+                    std::cerr << (o.first.empty() ? opts.inputFile : o.first) << ":" << (o.second ? o.second : 1)
+                              << ":1: note: label " << sl.label << " is not used" << std::endl;
+                }
+        }
+        if (errors > 0 || (opts.strictValidation && warnings > 0)) {
+            if (!quiet) std::cerr << "Compilation failed: " << errors << " error(s), " << warnings << " warning(s)" << std::endl;
+            return b;
+        }
         b.ok = true;
         return b;
     };
@@ -558,7 +733,7 @@ int main(int argc, char* argv[]) {
     };
 
     if (opts.validateOnly) {
-        if (opts.linkFiles.empty()) {
+        if (!linking) {
             Build b = build(symbols);
             if (!b.ok) return 1;
         }
@@ -568,7 +743,8 @@ int main(int argc, char* argv[]) {
 
     Build result;
     std::vector<uint8_t> binary;
-    if (opts.linkFiles.empty()) {
+    uint32_t codeStart = 0, codeEnd = 0;   // the linked code (and data), if any
+    if (!linking) {
         result = build(symbols);
         if (!result.ok) return 1;
         binary = result.binary;
@@ -627,6 +803,16 @@ int main(int argc, char* argv[]) {
                   " -o " + shellQuote((tmp / "thunks.o45").string()), "assembling the thunks"))
             return 1;
         objects.push_back((tmp / "thunks.o45").string());
+        if (!lowered.asmText.empty()) {
+            // asm blocks and incbin data
+            std::ofstream as(tmp / "inline.s45");
+            as << "; basic45: the program's asm blocks and incbin data\n" << lowered.asmText;
+            as.close();
+            if (!step(shellQuote(tools + "/ca45") + " -c " + shellQuote((tmp / "inline.s45").string()) +
+                      " -o " + shellQuote((tmp / "inline.o45").string()), "assembling the asm blocks"))
+                return 1;
+            objects.push_back((tmp / "inline.o45").string());
+        }
         for (size_t i = 0; i < opts.linkFiles.size(); i++) {
             const std::string& f = opts.linkFiles[i];
             std::string ext = fs::path(f).extension().string();
@@ -678,8 +864,8 @@ int main(int argc, char* argv[]) {
         uint32_t imageBase = code[0] | (code[1] << 8);
 
         // Pass 2: the real addresses; the program can only get shorter
-        result = build(linked);
-        if (!result.ok) return 1;
+        result = build(linked, true);
+        if (!result.ok) { build(linked); return 1; }
         binary = result.binary;
         uint32_t end = opts.loadAddress + (uint32_t)binary.size() - 2;
         if (end > imageBase) {
@@ -689,6 +875,8 @@ int main(int argc, char* argv[]) {
         }
         binary.insert(binary.end(), imageBase - end, 0x00);
         binary.insert(binary.end(), code.begin() + 2, code.end());
+        codeStart = imageBase;
+        codeEnd = imageBase + (uint32_t)code.size() - 2;
         if (opts.verbose) {
             std::cout << "Linked code at $" << std::hex << imageBase << "-$"
                       << imageBase + code.size() - 3 << std::dec << std::endl;
@@ -735,6 +923,23 @@ int main(int argc, char* argv[]) {
         size_t b = s.find_first_not_of(" \t");
         return b == std::string::npos ? "" : s.substr(b);
     };
+
+    // --report: memory use (BASIC 65: program text in bank 0 up to $F6FF,
+    // scalar variables at $F700-$FEFF (256), arrays and strings in bank 1)
+    if (opts.report) {
+        size_t basicBytes = result.binary.size() - 2;
+        uint32_t basicEnd = opts.loadAddress + (uint32_t)basicBytes;
+        uint32_t end = codeEnd ? codeEnd : basicEnd;
+        printf("BASIC program   $%04X-$%04X  %5zu bytes, %zu lines\n", opts.loadAddress, basicEnd - 1, basicBytes,
+               result.emitter->getEmittedLines().size());
+        if (codeEnd)
+            printf("Linked code     $%04X-$%04X  %5u bytes (C, asm, incbin)\n", codeStart, codeEnd - 1, codeEnd - codeStart);
+        printf("Free to $F6FF                %5d bytes\n", (int)0xF700 - (int)end);
+        printf("Longest line    %u: %zu characters listed (160 can be edited)\n",
+               result.emitter->getLongestLineNumber(), result.emitter->getLongestLine());
+        printf("Variables       %zu scalar (of 256, bank 0 $F700-$FEFF), %zu arrays (bank 1)\n",
+               result.emitter->getScalarCount(), result.emitter->getArrayCount());
+    }
 
     // The variables renamed to short names
     const auto& vars = result.emitter->getVariableMap();
@@ -813,6 +1018,28 @@ int main(int argc, char* argv[]) {
             return 1;
         }
         if (opts.verbose) std::cout << "Added \"" << name << "\" to " << opts.diskImage << std::endl;
+    }
+
+    // --send: to a MEGA65 (mega65-tools etherload over Ethernet, or m65 over
+    // the serial/JTAG link), or the --send-cmd command
+    if (opts.send) {
+        std::string cmd = opts.sendCmd;
+        if (cmd.empty()) {
+            if (!EmulatorLauncher::findOnPath("etherload").empty()) cmd = "etherload -r {prg}";
+            else if (!EmulatorLauncher::findOnPath("m65").empty()) cmd = "m65 -F -r {prg}";
+        }
+        if (cmd.empty()) {
+            std::cerr << "basic45: --send: no etherload or m65 on PATH (--send-cmd \"<command> {prg}\")" << std::endl;
+            return 1;
+        }
+        size_t at;
+        while ((at = cmd.find("{prg}")) != std::string::npos) cmd.replace(at, 5, shellQuote(opts.outputFile));
+        std::cout << "Sending: " << cmd << std::endl;
+        int rc = system(cmd.c_str());
+        if (!(WIFEXITED(rc) && WEXITSTATUS(rc) == 0)) {
+            std::cerr << "basic45: --send failed" << std::endl;
+            return 1;
+        }
     }
 
     // Run it in xemu

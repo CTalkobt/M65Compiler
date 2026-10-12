@@ -119,7 +119,40 @@ static const std::unordered_map<std::string, char>& escTable() {
     return t;
 }
 
-bool PETSCIIEncoder::escapeBytes(const std::string& name, std::vector<uint8_t>& out) const {
+bool PETSCIIEncoder::escapeBytes(const std::string& fullName, std::vector<uint8_t>& out) const {
+    // {name*n}: the escape n times (1-255)
+    size_t star = fullName.rfind('*');
+    if (star != std::string::npos && star > 0 && star + 1 < fullName.size()) {
+        std::string count = fullName.substr(star + 1);
+        if (count.find_first_not_of("0123456789") == std::string::npos && count.size() <= 3) {
+            int n = std::stoi(count);
+            std::vector<uint8_t> one;
+            if (n < 1 || n > 255 || !escapeBytes(fullName.substr(0, star), one)) return false;
+            for (int k = 0; k < n; k++) out.insert(out.end(), one.begin(), one.end());
+            return true;
+        }
+    }
+    const std::string& name = fullName;
+    // PETSCII graphics: {shift-x} (the shifted letter, $C1-$DA) and {cbm-x}
+    // (the C= key graphic), as on the keyboard
+    if (name.size() == 7 && name.compare(0, 6, "shift-") == 0 && std::isalpha((unsigned char)name[6])) {
+        out.push_back((uint8_t)(0xC1 + (std::tolower((unsigned char)name[6]) - 'a')));
+        return true;
+    }
+    if (name.size() == 5 && name.compare(0, 4, "cbm-") == 0 && std::isalpha((unsigned char)name[4])) {
+        static const uint8_t cbm[26] = {
+            0xB0, 0xBF, 0xBC, 0xAC, 0xB1, 0xBB, 0xA5, 0xB4, 0xA2, 0xB5, 0xA1, 0xB6, 0xA7,   // A-M
+            0xAA, 0xB9, 0xAF, 0xAB, 0xB2, 0xAE, 0xA3, 0xB8, 0xBE, 0xB3, 0xBD, 0xB7, 0xAD,   // N-Z
+        };
+        out.push_back(cbm[std::tolower((unsigned char)name[4]) - 'a']);
+        return true;
+    }
+    static const std::unordered_map<std::string, uint8_t> symbols = {
+        {"pound", 0x5C}, {"arrow-up", 0x5E}, {"arrow-left", 0x5F}, {"pi", 0xDE},
+        {"space", 0x20}, {"shift-space", 0xA0},
+    };
+    auto sy = symbols.find(name);
+    if (sy != symbols.end()) { out.push_back(sy->second); return true; }
     // {$xx}: the byte xx (hex)
     if (name.size() == 3 && name[0] == '$' && std::isxdigit((unsigned char)name[1]) &&
         std::isxdigit((unsigned char)name[2])) {
@@ -142,6 +175,32 @@ bool PETSCIIEncoder::escapeBytes(const std::string& name, std::vector<uint8_t>& 
         return true;
     }
     return false;
+}
+
+std::vector<uint8_t> PETSCIIEncoder::encodeAs(const std::string& text, char encoding) {
+    if (encoding == 0 || encoding == 'u') return encode(text);
+    std::vector<uint8_t> result;
+    for (size_t i = 0; i < text.length(); i++) {
+        if (text[i] == '{') {
+            size_t end = text.find('}', i);
+            if (end != std::string::npos && escapeBytes(text.substr(i + 1, end - i - 1), result)) {
+                i = end;
+                continue;
+            }
+        }
+        uint8_t c = (uint8_t)text[i];
+        if (encoding == 'p') {                 // ca45 toPetscii
+            if (c >= 'a' && c <= 'z') c -= 32;
+            else if (c >= 'A' && c <= 'Z') c += 32;
+        } else if (encoding == 's') {          // ca45 toScreencode
+            if (c == 0x40) c = 0;
+            else if (c >= 0x41 && c <= 0x5A) c -= 0x40;
+            else if (c >= 0x5B && c <= 0x5F) c -= 0x40;
+            else if (c >= 0x61 && c <= 0x7A) c -= 0x60;
+        }
+        result.push_back(c);
+    }
+    return result;
 }
 
 std::vector<uint8_t> PETSCIIEncoder::encode(const std::string& text) {

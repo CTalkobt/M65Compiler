@@ -240,10 +240,23 @@ std::vector<BasicToken> BasicTokenizer::tokenize(const std::string& source) {
                 hasNonWhitespace = false;
             }
             pos++;
-        } else if (c == '"') {
+        } else if (c == '"' ||
+                   ((c == 'p' || c == 'P' || c == 's' || c == 'S' || c == 'a' || c == 'A' || c == '@') &&
+                    pos + 1 < source.length() && source[pos + 1] == '"' &&
+                    (pos == 0 || !(std::isalnum((unsigned char)source[pos - 1]) || source[pos - 1] == '_' ||
+                                   source[pos - 1] == '$')))) {
+            // a string; p"..", s"..", a".." and @".." choose its encoding (the
+            // letter touching the quote: print a "x" is still the variable A)
             hasNonWhitespace = true;
             lineStart = false;
-            tokens.push_back(parseString(source, pos));
+            char prefix = 0;
+            if (c != '"') {
+                prefix = c == '@' ? 'a' : (char)std::tolower((unsigned char)c);
+                pos++;
+            }
+            BasicToken str = parseString(source, pos);
+            str.prefix = prefix;
+            tokens.push_back(str);
         } else if (std::isdigit(c)) {
             hasNonWhitespace = true;
             lineStart = false;

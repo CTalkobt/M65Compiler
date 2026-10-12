@@ -44,6 +44,16 @@ std::string textChar(uint8_t b, bool inString) {
     if (inString) {
         auto it = escapeNames().find(b);
         if (it != escapeNames().end()) return "{" + it->second + "}";
+        if (b >= 0xC1 && b <= 0xDA) return std::string("{shift-") + (char)('a' + b - 0xC1) + "}";
+        static const uint8_t cbmCode[26] = {
+            0xB0, 0xBF, 0xBC, 0xAC, 0xB1, 0xBB, 0xA5, 0xB4, 0xA2, 0xB5, 0xA1, 0xB6, 0xA7,
+            0xAA, 0xB9, 0xAF, 0xAB, 0xB2, 0xAE, 0xA3, 0xB8, 0xBE, 0xB3, 0xBD, 0xB7, 0xAD,
+        };
+        for (int k = 0; k < 26; k++)
+            if (cbmCode[k] == b) return std::string("{cbm-") + (char)('a' + k) + "}";
+        if (b == 0x5C) return "{pound}";
+        if (b == 0xDE) return "{pi}";
+        if (b == 0xA0) return "{shift-space}";
     }
     return hexEscape(b);
 }
@@ -199,6 +209,28 @@ BasicDecompileResult decompileBasic(const std::vector<uint8_t>& prg) {
         for (const char* pair : {"< >", "< =", "> ="}) {
             size_t at;
             while ((at = tidy.find(pair)) != std::string::npos) tidy.erase(at + 1, 1);
+        }
+        // a run of three or more of the same escape: {name*n}
+        {
+            std::string packed;
+            size_t i = 0;
+            while (i < tidy.size()) {
+                if (tidy[i] == '{') {
+                    size_t e = tidy.find('}', i);
+                    if (e != std::string::npos) {
+                        std::string esc = tidy.substr(i, e - i + 1);
+                        size_t n = 1, j = e + 1;
+                        while (tidy.compare(j, esc.size(), esc) == 0) { n++; j += esc.size(); }
+                        if (n >= 3 && esc.find('*') == std::string::npos) {
+                            packed += esc.substr(0, esc.size() - 1) + "*" + std::to_string(n) + "}";
+                            i = j;
+                            continue;
+                        }
+                    }
+                }
+                packed += tidy[i++];
+            }
+            tidy = packed;
         }
         if (targets.count(l.num)) out << "l" << l.num << ": " << tidy << "\n";
         else out << "  " << tidy << "\n";

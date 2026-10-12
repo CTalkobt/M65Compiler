@@ -37,6 +37,11 @@ void LabelBasedSourceParser::parse(const std::string& sourceCode) {
 
         SourceLine sl;
         sl.sourceLineNum = lineNum;
+        if (trimmed.compare(0, 7, "#pragma") == 0) {
+            sl.pragma = trim(trimmed.substr(7));
+            sourceLines.push_back(sl);
+            continue;
+        }
         std::string labelName, code;
         if (isLabelDefinition(trimmed, labelName, code)) {
             sl.label = labelName;

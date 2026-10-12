@@ -88,6 +88,11 @@ public:
 
     // xemu-xmega65 on PATH, or "" if there is none
     static std::string findXemu();
+    // A program on PATH, or ""
+    static std::string findOnPath(const std::string& name);
+    // Start xemu without waiting (--watch); the process id, or -1
+    static int launchAsync(const std::string& programFile, const std::string& emulatorPath = "",
+                           const std::string& diskImage = "");
 };
 
 #endif  // BASICTOOLING_HPP

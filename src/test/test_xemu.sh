@@ -435,7 +435,7 @@ echo "Testing test_basic45_features_xemu.bas..."
 if ./bin/basic45 --strict src/test-resources/test_basic45_features_xemu.bas \
        -o build/test/test_basic45_features_xemu.prg --source-map build/test/basic45_features.map \
        --disk build/test/basic45_features.d81 --disk-name features --list > build/test/basic45_features.lst 2>&1; then
-    run_xemu_test "test_basic45_features" "build/test/test_basic45_features_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+    run_xemu_test "test_basic45_features" "build/test/test_basic45_features_xemu.prg" "C0C0" 9 "01 01 01 01 01 01 01 01 AA"
     if ./bin/basic45 --decompile build/test/test_basic45_features_xemu.prg -o build/test/basic45_features_rt.bas &&
        ./bin/basic45 --strict build/test/basic45_features_rt.bas -o build/test/basic45_features_rt.prg &&
        cmp -s build/test/test_basic45_features_xemu.prg build/test/basic45_features_rt.prg; then
@@ -445,7 +445,7 @@ if ./bin/basic45 --strict src/test-resources/test_basic45_features_xemu.bas \
         echo "FAIL: basic45 --decompile round trip"
         failed=$((failed + 1))
     fi
-    if grep -q "test_basic45_features_xemu.bas:12 " build/test/basic45_features.lst &&
+    if grep -q "test_basic45_features_xemu.bas:[0-9]* *start: score = 10" build/test/basic45_features.lst &&
        grep -q '"FEATURES"' <(./bin/disk45 list build/test/basic45_features.d81 2>&1) &&
        grep -q "test_basic45_features_xemu.bas" build/test/basic45_features.map; then
         echo "PASS: basic45 --list, --source-map and --disk"
@@ -475,11 +475,47 @@ fi
 echo "Testing test_basic45_link_xemu.bas..."
 if ./bin/basic45 --strict --link src/test-resources/test_basic45_link_xemu.c \
        src/test-resources/test_basic45_link_xemu.bas -o build/test/test_basic45_link_xemu.prg >/dev/null 2>&1; then
-    run_xemu_test "test_basic45_link" "build/test/test_basic45_link_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+    run_xemu_test "test_basic45_link" "build/test/test_basic45_link_xemu.prg" "C0C0" 9 "01 01 01 01 01 01 01 01 AA"
 else
     echo "FAIL: test_basic45_link_xemu.bas (basic45 --link failed)"
     failed=$((failed + 1))
 fi
+# basic45 warnings: a variable read but never assigned (a typo), assigned but
+# never read, a line that can never run, a proc never called
+printf 'top: score = 1 : print scroe : unused = 5\n  goto top\n  print "never"\nproc lonely\nendproc\n' \
+    > build/test/basic45_warn.bas
+./bin/basic45 build/test/basic45_warn.bas -o build/test/basic45_warn.prg > build/test/basic45_warn.log 2>&1
+if grep -q "variable SCROE is read but never assigned" build/test/basic45_warn.log &&
+   grep -q "variable UNUSED is assigned but never read" build/test/basic45_warn.log &&
+   grep -q "basic45_warn.bas:3:1: warning: line 30 can never run" build/test/basic45_warn.log &&
+   grep -q "proc lonely is never called" build/test/basic45_warn.log &&
+   ! ./bin/basic45 --strict build/test/basic45_warn.bas -o build/test/basic45_warn.prg >/dev/null 2>&1; then
+    echo "PASS: basic45 warnings"
+    passed=$((passed + 1))
+else
+    echo "FAIL: basic45 warnings"
+    failed=$((failed + 1))
+fi
+
+# basic45 --format: the same program, and formatting again changes nothing;
+# --report; --send-cmd
+./bin/basic45 --format src/test-resources/test_basic45_features_xemu.bas -o build/test/basic45_fmt.bas
+./bin/basic45 --format build/test/basic45_fmt.bas -o build/test/basic45_fmt2.bas
+if ./bin/basic45 build/test/basic45_fmt.bas -o build/test/basic45_fmt.prg >/dev/null 2>&1 &&
+   cmp -s build/test/basic45_fmt.prg build/test/test_basic45_features_xemu.prg &&
+   cmp -s build/test/basic45_fmt.bas build/test/basic45_fmt2.bas &&
+   ./bin/basic45 --report src/test-resources/test_basic45_features_xemu.bas -o build/test/basic45_rep.prg |
+       grep -q "^Variables .* scalar (of 256" &&
+   ./bin/basic45 src/test-resources/test_basic45_features_xemu.bas -o build/test/basic45_rep.prg \
+       --send-cmd "cp {prg} build/test/basic45_sent.prg" >/dev/null &&
+   cmp -s build/test/basic45_rep.prg build/test/basic45_sent.prg; then
+    echo "PASS: basic45 --format, --report, --send-cmd"
+    passed=$((passed + 1))
+else
+    echo "FAIL: basic45 --format, --report or --send-cmd"
+    failed=$((failed + 1))
+fi
+
 printf 'top: print\n  goto nowhere\n' > build/test/basic45_undef.bas
 if ./bin/basic45 build/test/basic45_undef.bas -o build/test/basic45_undef.prg 2>&1 | \
        grep -q "basic45_undef.bas:2:1: error: Undefined label: NOWHERE"; then

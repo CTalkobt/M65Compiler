@@ -201,6 +201,12 @@ std::string BasicPreprocessor::preprocessInternal(const std::string& source, con
                 }
 
                 conditionalStack.pop_back();
+            } else if (cmd == "pragma") {
+                // #pragma lines go on to the compiler (#pragma encoding ...)
+                if (isConditionalActive()) {
+                    result << trimmedLine << "\n";
+                    lineOrigins.push_back({file, lineNum});
+                }
             } else if (cmd == "undef") {
                 if (!isConditionalActive()) continue;
 

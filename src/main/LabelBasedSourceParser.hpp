@@ -13,6 +13,7 @@ struct BasicToken;
 struct SourceLine {
     std::string label;          // "" if no label
     std::string code;           // BASIC code for this line ("" for a label alone)
+    std::string pragma;         // a #pragma line ("encoding petscii"), no code
     int sourceLineNum;          // Original line number in source
     uint16_t basicLineNum = 0;  // its BASIC line number (0: no line of its own)
 };

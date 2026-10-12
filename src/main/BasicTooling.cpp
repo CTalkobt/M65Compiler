@@ -4,6 +4,7 @@
 #include <sstream>
 #include <filesystem>
 #include <cstdlib>
+#include <unistd.h>
 #include <thread>
 
 namespace fs = std::filesystem;
@@ -154,7 +155,28 @@ std::string SourceMapGenerator::generateText() const {
 
 // ==================== EmulatorLauncher ====================
 
-std::string EmulatorLauncher::findXemu() {
+std::string EmulatorLauncher::findXemu() { return findOnPath("xemu-xmega65"); }
+
+int EmulatorLauncher::launchAsync(const std::string& programFile, const std::string& emulatorPath,
+                                  const std::string& diskImage) {
+    std::string xemu = emulatorPath.empty() ? findXemu() : emulatorPath;
+    if (xemu.empty()) {
+        std::cerr << "Emulator: xemu-xmega65 not found on PATH (--emulator-path <file>)" << std::endl;
+        return -1;
+    }
+    std::string prg = fs::absolute(programFile).string(), disk = diskImage.empty() ? "" : fs::absolute(diskImage).string();
+    pid_t pid = fork();
+    if (pid == 0) {
+        if (disk.empty())
+            execl(xemu.c_str(), xemu.c_str(), "-prgmode", "65", "-prg", prg.c_str(), (char*)nullptr);
+        else
+            execl(xemu.c_str(), xemu.c_str(), "-prgmode", "65", "-prg", prg.c_str(), "-8", disk.c_str(), (char*)nullptr);
+        _exit(127);
+    }
+    return pid;
+}
+
+std::string EmulatorLauncher::findOnPath(const std::string& name) {
     const char* path = getenv("PATH");
     std::string p = path ? path : "/usr/local/bin:/usr/bin";
     size_t start = 0;
@@ -163,7 +185,7 @@ std::string EmulatorLauncher::findXemu() {
         if (end == std::string::npos) end = p.size();
         std::string dir = p.substr(start, end - start);
         if (dir.empty()) dir = ".";
-        fs::path cand = fs::path(dir) / "xemu-xmega65";
+        fs::path cand = fs::path(dir) / name;
         if (fs::exists(cand)) return cand.string();
         start = end + 1;
     }
