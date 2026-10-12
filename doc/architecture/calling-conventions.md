@@ -368,6 +368,16 @@ crt0 (`lib/crt0.s45`) runs these steps:
 - restores the caller's 8-bit stack and flags;
 - returns with `rts`.
 
+`__basic_call` (crt0) runs a single C function for a BASIC `SYS` (the thunks
+`basic45 --link` makes store the function's address in `___bc_target` and
+jump to it). It does steps 1-5 like `__init` (the BSS fill only on the first
+call, so globals keep their values between calls; `_init_features` then
+too), puts the SYS's A, X and Y in the first three parameter slots (`$10`,
+`$12`, `$14`, high bytes 0; they also stay in A, X, Y), calls the function,
+and returns to BASIC like `__exit` (B = 0, BASIC's stack and flags) with the
+function's A, X, Y, which BASIC reads with `RREG`. The function uses the ZP
+convention (`__fastcall__` in a stack-mode object).
+
 ## 9. Registers and clobbers
 
 Registers:

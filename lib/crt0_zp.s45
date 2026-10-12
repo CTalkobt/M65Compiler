@@ -4,6 +4,8 @@
 ; Same as crt0.s — main takes no parameters via ZP.
 
 .global __init
+.global __basic_call
+.global ___bc_target
 .global __exit
 .global __abort
 .global __sp_base
@@ -33,6 +35,9 @@ __sp_base = $0101
 __exit_status = $FD
 
 __init:
+    lda #0
+    sta __bc_mode       ; started as a program (not by __basic_call)
+__start:
     ; Save caller's stack pointer for clean return
     tsx
     stx __saved_spl + 1
@@ -73,6 +78,14 @@ __init:
     bne @stack8
     cli
 @stack8:
+
+    ; __basic_call fills BSS on its first call only (globals keep their
+    ; values from one SYS to the next)
+    lda __bc_mode
+    beq @do_fill
+    lda __bc_done
+    bne @bss_done
+@do_fill:
 
     ; Fill BSS (__bss_start..__bss_end, which includes the private base
     ; page) with __bss_fill: 0, or ln45 --bss-fill=V / cc45 -fbss-fill=V.
@@ -128,6 +141,8 @@ __init:
     bne @bss_drop
 @bss_done:
 
+    lda __bc_mode
+    bne __bc_run
     jsr _init_features
     ; main(argc, argv): __mainargs returns a pointer to { int argc; char
     ; **argv; } -- the weak default below gives argc 0, argv NULL; the
@@ -186,6 +201,79 @@ __saved_p:
 ; Default init_features — does nothing. Override with a strong definition.
 _init_features:
     rts
+
+; __basic_call — run a C function from a BASIC SYS (basic45 --link makes
+; a thunk per function: it sets ___bc_target and jumps here). The SYS's
+; A, X and Y are the first three parameters ($10, $12, $14 of the program's
+; base page, high bytes 0; they also stay in A, X, Y): f(unsigned char a,
+; unsigned char x, unsigned char y), or unsigned int. The function runs with the program's
+; base page and stack, as main would; its A, X, Y come back to BASIC
+; (RREG). The first call fills BSS and calls _init_features, later calls
+; keep the globals.
+__basic_call:
+    sta __bc_a
+    stx __bc_x
+    sty __bc_y
+    lda #1
+    sta __bc_mode
+    jmp __start
+
+__bc_run:
+    lda __bc_done
+    bne @ready
+    lda #1
+    sta __bc_done
+    jsr _init_features
+@ready:
+    ; the first three parameter slots (2 bytes each, as for a char or int
+    ; parameter): A, X, Y with high bytes 0 (base-page stores: the
+    ; parameter block is in __zp_page)
+    lda #0
+    sta $11
+    sta $13
+    sta $15
+    lda __bc_a
+    sta $10
+    lda __bc_x
+    sta $12
+    lda __bc_y
+    sta $14
+    lda ___bc_target
+    sta __bc_jsr + 1
+    lda ___bc_target + 1
+    sta __bc_jsr + 2
+    lda __bc_a
+    ldx __bc_x
+    ldy __bc_y
+__bc_jsr:
+    jsr $FFFF           ; (patched above)
+    sta __bc_a
+    stx __bc_x
+    sty __bc_y
+    ; back to BASIC: base page 0, its 8-bit stack and flags
+    lda #0
+    tab
+    sei
+    see
+    ldx __saved_spl + 1
+    txs
+    ldy __saved_sph + 1
+    tys
+    lda __saved_p + 1
+    pha
+    lda __bc_a
+    ldx __bc_x
+    ldy __bc_y
+    plp
+    rts
+
+; (in the init code, which is RAM)
+__bc_mode:  .byte 0
+__bc_done:  .byte 0
+__bc_a:     .byte 0
+__bc_x:     .byte 0
+__bc_y:     .byte 0
+___bc_target: .word 0
 
 ; Default __mainargs: no arguments (argc 0, argv NULL). mainargs.c in the
 ; library replaces it when main is defined with parameters.
