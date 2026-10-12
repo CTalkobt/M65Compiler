@@ -398,6 +398,19 @@ for scmode in "stack|-fno-zpcall" "zp|"; do
     fi
 done
 
+# Test: file-scope asm("...") (data, a function, an equate), both conventions
+for famode in "stack|-fno-zpcall" "zp|"; do
+    IFS='|' read -r faname faflags <<< "$famode"
+    echo "Testing test_file_asm_xemu.c ($faname)..."
+    compile_link_test "src/test-resources/test_file_asm_xemu.c" "build/test/test_file_asm_${faname}_xemu.prg" "$faflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_file_asm_$faname" "build/test/test_file_asm_${faname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
+    else
+        echo "FAIL: test_file_asm_xemu.c $faname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: ln45's SAC overlay (functions never active together share storage), both conventions
 for somode in "stack|-fno-zpcall" "zp|"; do
     IFS='|' read -r soname soflags <<< "$somode"

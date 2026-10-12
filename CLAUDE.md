@@ -209,7 +209,8 @@ ln45, ar45, nm45, objdump45 and disk45 have no config files. Environment:
 - **Extensions**: struct methods, single inheritance, `virtual`/`final`,
   operator overloading, GCC nested functions (static chain, trampolines),
   statement expressions, computed goto, case ranges, `continue <value>` in a switch, `repeat(N)`, `__cpu`/`__flags`,
-  `__dma_copy`/`__dma_fill`, `__interrupt`, `__naked`, `__regparm`, string encodings
+  `__dma_copy`/`__dma_fill`, `__interrupt`, `__naked`, `__regparm`, file-scope
+  `asm("...")` (module-level assembly), string encodings
   (`@"…"`, `#pragma encoding`), GCC vector extension (`-fmax-unroll-bytes`, default 128).
 - **Optimization** (`doc/architecture/optimizations.md`): `-O1`+ runs the eight
   IR passes of `IROptimizer.cpp` (strength reduction, algebraic simplification,

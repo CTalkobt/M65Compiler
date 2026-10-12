@@ -8519,6 +8519,13 @@ void IRBuilder::visit(AsmStatement& node) {
         currentStringEncoding_ = StringEncoding::SCREENCODE;
         return;
     }
+    // asm("...") at file scope: assembler text for the module (cc45's own
+    // pragma directives were handled above; the accepted-without-effect
+    // .crt_* ones are dropped)
+    if (!currentFunc_) {
+        if (node.code.rfind(".crt_", 0) != 0) module_.fileAsm.push_back(node.code);
+        return;
+    }
     // Scan inline asm for parameter/local references (@_p_name, @_l_name)
     // to suppress unused-variable warnings
     for (const auto& [name, vregOp] : locals_) {

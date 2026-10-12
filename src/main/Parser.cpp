@@ -55,11 +55,13 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
             continue;
         }
         if (peek().type == TokenType::ASM) {
+            size_t asmTok = pos;
             advance();
             match(TokenType::VOLATILE); // optional volatile
             if (peek().type == TokenType::IDENTIFIER && peek().value == "goto") advance();
             expect(TokenType::OPEN_PAREN, "Expected '(' after asm");
             std::string code = expect(TokenType::STRING_LITERAL, "Expected string literal for asm code").value;
+            while (peek().type == TokenType::STRING_LITERAL) code += advance().value;  // "a" "b"
             // Skip extended asm constraint sections
             for (int section = 0; section < 3 && match(TokenType::COLON); section++) {
                 if (peek().type == TokenType::CLOSE_PAREN || peek().type == TokenType::COLON) continue;
@@ -78,7 +80,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                 continue;
             }
             flushPending(*unit);
-            unit->topLevelDecls.push_back(setPos(std::make_unique<AsmStatement>(code), tokens[pos-5]));
+            unit->topLevelDecls.push_back(setPos(std::make_unique<AsmStatement>(code), tokens[asmTok]));
             continue;
         }
         if (peek().type == TokenType::STATIC_ASSERT) {
@@ -1524,6 +1526,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
         if (peek().type == TokenType::IDENTIFIER && peek().value == "goto") advance();
         expect(TokenType::OPEN_PAREN, "Expected '(' after asm");
         std::string code = expect(TokenType::STRING_LITERAL, "Expected string literal for asm code").value;
+        while (peek().type == TokenType::STRING_LITERAL) code += advance().value;  // "a" "b"
         // Extended asm: "template" : outputs : inputs : clobbers [: labels]
         // The template is emitted as is (no %N substitution). The operands
         // keep their meaning around it: inputs are evaluated, an output tied

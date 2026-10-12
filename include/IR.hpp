@@ -270,6 +270,9 @@ struct Module {
     // %f-aware printf (_printf_float), and sprintf (_sprintf_float)
     bool floatVarArg = false;
     bool floatSprintfArg = false;
+    // asm("...") statements at file scope, in source order: passed to the
+    // assembler at module level
+    std::vector<std::string> fileAsm;
     int setBP = -1;  // -1 = don't emit; 0-255 = emit LDA #N; TAB in startup
     // CPU stack: -1 = crt0 default (16-bit stack topped at $BFFF), 0 = keep
     // the ROM's 8-bit page-1 stack (-fno-stack16), else the stack's top byte

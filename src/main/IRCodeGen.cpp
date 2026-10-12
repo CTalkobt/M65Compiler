@@ -1134,6 +1134,16 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     auto definedHere = [&](const std::string& sym) {
         for (const auto& g : mod.globals) if (g.name == sym) return true;
         for (const auto& f : mod.functions) if (f.name == sym && !f.blocks.empty()) return true;
+        // a label or equate in file-scope asm ("sym:" / "sym =")
+        for (const auto& text : mod.fileAsm) {
+            size_t p = 0;
+            while ((p = text.find(sym, p)) != std::string::npos) {
+                bool startOk = p == 0 || text[p - 1] == '\n' || text[p - 1] == ' ' || text[p - 1] == '\t';
+                size_t e = text.find_first_not_of(" \t", p + sym.size());
+                if (startOk && e != std::string::npos && (text[e] == ':' || text[e] == '=')) return true;
+                p += sym.size();
+            }
+        }
         return false;
     };
     if (relocMode) {
@@ -1220,6 +1230,34 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
         if (hasFloatSprintf) {
             emit(".extern _sprintf_float");
         }
+    }
+
+    // File-scope asm("..."): module-level assembler text, then back to the
+    // code segment the functions are emitted in
+    if (!mod.fileAsm.empty()) {
+        emitComment("file-scope asm");
+        for (const auto& text : mod.fileAsm) {
+            std::stringstream lines(text);
+            std::string line;
+            while (std::getline(lines, line)) {
+                size_t b = line.find_first_not_of(" \t");
+                if (b == std::string::npos) continue;
+                line = line.substr(b);
+                // a label at the start of a line stays in column 0
+                size_t colon = line.find(':');
+                bool isLabel = colon != std::string::npos && line[0] != '.' && line[0] != ';' &&
+                               line.find_first_of(" \t=") > colon;
+                if (isLabel) {
+                    emitLabel(line.substr(0, colon));
+                    std::string rest = line.substr(colon + 1);
+                    size_t rb = rest.find_first_not_of(" \t");
+                    if (rb != std::string::npos) emit(rest.substr(rb));
+                } else {
+                    emit(line);
+                }
+            }
+        }
+        emit(".segment \"code\"");
     }
 
     // __interrupt handlers reload the base page from __zp_page (linker-provided;
