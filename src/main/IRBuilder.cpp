@@ -1,3 +1,4 @@
+#include "CompilerLog.hpp"
 #include "IRBuilder.hpp"
 #include "OptimizationCatalog.hpp"
 #include "CBMFloat.hpp"
@@ -79,15 +80,6 @@ void IRBuilder::generate(TranslationUnit& unit) {
                 }
             }
 
-            // DEBUG: Verify DCE inputs for small test cases
-            if (module_.functions.size() <= 3) {
-                std::cerr << "\n[DCE] Functions: ";
-                for (const auto& fn : module_.functions) std::cerr << fn.name << " ";
-                std::cerr << "| used: ";
-                for (const auto& f : usedFuncs) std::cerr << f << " ";
-                std::cerr << "\n" << std::flush;
-            }
-
             // Remove unused functions (static, inlined, or unreachable)
             auto it = std::remove_if(module_.functions.begin(), module_.functions.end(),
                 [&usedFuncs](const ir::Function& fn) {
@@ -167,7 +159,7 @@ void IRBuilder::generate(TranslationUnit& unit) {
                     }
                 }
             }
-            if (devirtCount > 0) {
+            if (devirtCount > 0 && g_cc45Verbosity >= 1) {
                 warnings_.push_back(formatDiagnostic(module_.sourceFile, 0, 0, Severity::Note,
                     "devirtualized " + std::to_string(devirtCount) + " virtual call(s)"));
             }

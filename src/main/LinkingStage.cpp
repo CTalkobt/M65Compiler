@@ -51,6 +51,9 @@ int LinkingStage::invokeLinker() {
     if (verboseLevel_ >= 3) {
         std::cout << "    Command: " << cmd << std::endl;
     }
+    // ln45's stdout is its "Linked ..." summary; errors and warnings go to
+    // stderr and are always shown
+    if (verboseLevel_ < 1) cmd += " >/dev/null";
 
     // Execute linker
     int exitCode = system(cmd.c_str());

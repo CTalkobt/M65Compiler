@@ -66,6 +66,7 @@ struct CompilationResult {
     bool success = false;
     int exitCode = 0;
     std::string error;
+    bool errorPrinted = false;   // the stage already printed its diagnostics
     std::string outputFile;
 };
 

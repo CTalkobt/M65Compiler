@@ -165,6 +165,7 @@ CompilationResult CompilationPipeline::compile() {
             result.success = false;
             result.exitCode = codegenResult.exitCode;
             result.error = codegenResult.error;
+            result.errorPrinted = codegenStage.errorsPrinted();
             remove(tempAsmFile.c_str());
             return result;
         }

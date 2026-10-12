@@ -103,6 +103,7 @@ void CodegenStage::generateIR() {
         for (const auto& err : builder.getErrors()) {
             std::cerr << err << std::endl;
         }
+        errorsPrinted_ = true;
         throw std::runtime_error(builder.getErrors().front());
     }
 

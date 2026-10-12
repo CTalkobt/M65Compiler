@@ -1,3 +1,4 @@
+#include "CompilerLog.hpp"
 #include <iostream>
 #include <string>
 #include <vector>
@@ -659,11 +660,12 @@ int main(int argc, char** argv) {
     config.symbols = symbols;
 
     // Use CompilationPipeline to compile
+    g_cc45Verbosity = config.verboseLevel;
     CompilationPipeline pipeline(config);
     CompilationResult result = pipeline.compile();
 
     if (!result.success) {
-        std::cerr << "Compilation error: " << result.error << std::endl;
+        if (!result.errorPrinted) std::cerr << "Compilation error: " << result.error << std::endl;
         return result.exitCode;
     }
 

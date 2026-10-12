@@ -89,6 +89,9 @@ int AssemblyStage::invokeAssembler() {
     if (verboseLevel_ >= 3) {
         std::cout << "    Command: " << cmd << std::endl;
     }
+    // ca45's stdout is its "Object file: ..." summary; errors and warnings
+    // go to stderr and are always shown
+    if (verboseLevel_ < 1) cmd += " >/dev/null";
 
     // Execute assembler
     int exitCode = system(cmd.c_str());
