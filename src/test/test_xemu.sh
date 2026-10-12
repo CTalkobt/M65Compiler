@@ -407,6 +407,19 @@ for rpmode in "stack|-fno-zpcall|$STDLIB_STACK" "stack_nosac|-fno-zpcall -fno-st
     fi
 done
 
+# Test: char arguments through "..." are promoted to int, both conventions
+for vcmode in "stack|-fno-zpcall" "zp|"; do
+    IFS='|' read -r vcname vcflags <<< "$vcmode"
+    echo "Testing test_varargs_char_xemu.c ($vcname)..."
+    compile_link_test "src/test-resources/test_varargs_char_xemu.c" "build/test/test_varargs_char_${vcname}_xemu.prg" "$vcflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_varargs_char_$vcname" "build/test/test_varargs_char_${vcname}_xemu.prg" "C0C0" 4 "01 01 01 AA"
+    else
+        echo "FAIL: test_varargs_char_xemu.c $vcname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: crt0 fills BSS: 0 by default, $FF with -fbss-fill=$FF (xemu's RAM is
 # zero at boot, so only the $FF build shows the fill runs); both conventions
 for bfmode in "stack|-fno-zpcall" "zp|"; do

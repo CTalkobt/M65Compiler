@@ -6423,9 +6423,20 @@ normal_call:
                 sig = getExprTypeInfo(node.arguments[ai].get()).isSigned;
             castArgs.push_back(emitCast(args[i], pTypes[i], sig));
         } else {
-            // Variadic or extra arguments: use default promotions?
-            // For now just pass as is.
-            castArgs.push_back(args[i]);
+            // The variadic arguments of a function declared with "...": the
+            // default argument promotions -- a char/_Bool becomes an int,
+            // zero- or sign-extended by its own type (the callee reads
+            // va_arg(ap, int); pushing only A left X's stale high byte).
+            // (Unprototyped calls are left as they are: a callee defined
+            // with char parameters packs them in one byte each.)
+            size_t ai = i - (isSret ? 1 : 0);
+            if (args[i].type == ir::Type::I8 && !fpSig && variadicFunctions_.count(node.name) &&
+                ai < node.arguments.size()) {
+                bool sig = getExprTypeInfo(node.arguments[ai].get()).isSigned;
+                castArgs.push_back(emitCast(args[i], ir::Type::I16, sig));
+            } else {
+                castArgs.push_back(args[i]);
+            }
         }
     }
     // Handle nested function static link
