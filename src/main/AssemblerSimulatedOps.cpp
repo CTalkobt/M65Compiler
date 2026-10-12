@@ -591,6 +591,12 @@ void AssemblerSimulatedOps::emitLDWCode(AssemblerParser* parser, M65Emitter& e, 
                     if (symPlusN && parser->isRelocatableSymbolIn(srcName, scopePrefix))
                         emitLoadAddrConst(parser, e, srcName, (uint16_t)(v - (sym ? sym->value : 0)), reg2, scopePrefix);
                     else {
+                        // any other expression of a relocatable symbol has no relocation
+                        for (int k = symIdx; k < idx; k++)
+                            if (parser->tokens[k].type == AssemblerTokenType::IDENTIFIER &&
+                                parser->isRelocatableSymbolIn(parser->tokens[k].value, scopePrefix))
+                                throw std::runtime_error("'#" + parser->tokens[k].value + "' in this expression can't be relocated; "
+                                                         "use #sym or #sym+n (or lda #<sym / ldx #>sym)");
                         char b[16]; snprintf(b, sizeof b, "$%04X", (unsigned)(v & 0xFFFF));
                         emitLoadAddrConst(parser, e, b, 0, reg2, scopePrefix);
                     }

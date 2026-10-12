@@ -363,6 +363,18 @@ for vtmode in "stack|-fno-zpcall" "zp|"; do
     fi
 done
 
+# Test: R_HIGH relocations of "symbol + n" keep the low byte for the carry
+echo "Testing test_reloc_carry_xemu.c (high-byte relocation carry)..."
+if $CC -c src/test-resources/test_reloc_carry_xemu.c -o build/test/test_reloc_carry.o45 >/dev/null 2>&1 &&
+   $AS -c src/test-resources/test_reloc_carry_asm_xemu.s45 -o build/test/test_reloc_carry_asm.o45 >/dev/null 2>&1 &&
+   $LD -basic -o build/test/test_reloc_carry_xemu.prg $CRT0 build/test/test_reloc_carry.o45 \
+       build/test/test_reloc_carry_asm.o45 $STDLIB >/dev/null 2>&1; then
+    run_xemu_test "test_reloc_carry" "build/test/test_reloc_carry_xemu.prg" "C0C0" 4 "01 01 01 AA"
+else
+    echo "FAIL: test_reloc_carry_xemu.c (build failed)"
+    failed=$((failed + 1))
+fi
+
 # Test: pointer differences (element counts, signed), stack and ZP conventions
 for pdmode in "stack|-fno-zpcall" "zp|"; do
     IFS='|' read -r pdname pdflags <<< "$pdmode"

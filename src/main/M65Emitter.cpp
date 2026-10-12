@@ -68,7 +68,7 @@ void M65Emitter::emitWord(uint16_t w) {
 
 void M65Emitter::emitWordReloc(const std::string& symbolName, uint16_t value) {
     if (mode == Mode::BINARY) {
-        symbolRelocs_.push_back({currentAddress, symbolName, 0x80, 0}); // R_WORD at current pos
+        symbolRelocs_.push_back({currentAddress, symbolName, 0x80, 0, relocScope_, relocLocalScope_}); // R_WORD at current pos
         binary->push_back(value & 0xFF);
         binary->push_back(value >> 8);
         currentAddress += 2;
@@ -405,25 +405,25 @@ void M65Emitter::recordSymbolReloc(const std::string& name) {
     // In BINARY mode, record the address of the upcoming 16-bit operand
     // as a symbol relocation site (for simulated ops referencing global symbols).
     if (mode == Mode::BINARY) {
-        symbolRelocs_.push_back({currentAddress + 1, name, 0x80, 0}); // R_WORD
+        symbolRelocs_.push_back({currentAddress + 1, name, 0x80, 0, relocScope_, relocLocalScope_}); // R_WORD
     }
 }
 
 void M65Emitter::recordSymbolRelocLo(const std::string& name) {
     if (mode == Mode::BINARY) {
-        symbolRelocs_.push_back({currentAddress + 1, name, 0x20, 0}); // R_LOW
+        symbolRelocs_.push_back({currentAddress + 1, name, 0x20, 0, relocScope_, relocLocalScope_}); // R_LOW
     }
 }
 
 void M65Emitter::recordSymbolRelocHi(const std::string& name, uint8_t lowByte) {
     if (mode == Mode::BINARY) {
-        symbolRelocs_.push_back({currentAddress + 1, name, 0x40, lowByte}); // R_HIGH
+        symbolRelocs_.push_back({currentAddress + 1, name, 0x40, lowByte, relocScope_, relocLocalScope_}); // R_HIGH
     }
 }
 
 void M65Emitter::recordSymbolReloc32Bit(const std::string& name) {
     if (mode == Mode::BINARY) {
-        symbolRelocs_.push_back({currentAddress + 1, name, 0xA0, 0}); // R_LINEAR32
+        symbolRelocs_.push_back({currentAddress + 1, name, 0xA0, 0, relocScope_, relocLocalScope_}); // R_LINEAR32
     }
 }
 

@@ -334,62 +334,8 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         segRelocs[srcSeg].push_back(reloc);
     }
 
-    // Scan simulated LDW (ldax #<label) for immediate address loads
-    // These emit LDA #lo; LDX #hi (4 bytes) — need R_LOW at +1, R_HIGH at +3
-    for (const auto& stmt : parser.statements) {
-        if (stmt->deleted || stmt->size == 0) continue;
-        if (stmt->type != AssemblerParser::Statement::LDW) continue;
-        parser.currentLocalScope_ = stmt->localLabelScope;
-
-        // Check if operand is immediate (#) by looking at the token stream
-        int idx = stmt->exprTokenIndex;
-        if (idx < 0 || idx >= (int)parser.tokens.size()) continue;
-        if (parser.tokens[idx].type != AssemblerTokenType::HASH) continue;
-        idx++; // skip #
-
-        // Check for < prefix (address-of operator from compiler)
-        if (idx < (int)parser.tokens.size() && parser.tokens[idx].value == "<") {
-            idx++;
-        }
-
-        if (idx >= (int)parser.tokens.size()) continue;
-        std::string symName = parser.tokens[idx].value;
-
-        // Try to resolve as a symbol
-        Symbol* sym = parser.resolveSymbol(symName, stmt->scopePrefix);
-        if (!sym || !sym->isAddress) continue;
-
-        bool isExtern = parser.isExternSymbol(symName);
-        std::string targetSeg;
-        if (!isExtern) {
-            targetSeg = sym->segment;
-            if (targetSeg.empty()) continue;
-        }
-
-        std::string srcSeg = stmt->segmentName;
-        uint32_t srcBase = globalBase;
-        if (parser.segments.count(srcSeg)) {
-            srcBase = parser.segments.at(srcSeg)->startAddress;
-            if (srcBase == 0xFFFFFFFF) srcBase = 0;
-        }
-
-        // LDA #lo is at stmt->address + 0, operand byte at +1
-        // LDX #hi is at stmt->address + 2, operand byte at +3
-        uint32_t baseOff = stmt->address - srcBase;
-
-        // The R_HIGH extra byte carries the low byte for carry correction
-        uint8_t lowByte = (uint8_t)(sym->value & 0xFF);
-
-        if (isExtern) {
-            uint32_t symIdx = syms.getImportIndex(symName);
-            segRelocs[srcSeg].push_back({baseOff + 1, R_LOW, SEG_EXTERNAL, symIdx, 0});
-            segRelocs[srcSeg].push_back({baseOff + 3, R_HIGH, SEG_EXTERNAL, symIdx, lowByte});
-        } else {
-            O45Segment segId = segIdFromName(targetSeg);
-            segRelocs[srcSeg].push_back({baseOff + 1, R_LOW, segId, 0, 0});
-            segRelocs[srcSeg].push_back({baseOff + 3, R_HIGH, segId, 0, lowByte});
-        }
-    }
+    // (ldax/lday/ldaz #sym[+n]: the emitter records their R_LOW/R_HIGH,
+    // with the operand's low byte, in allSymbolRelocs below)
 
     // Scan immediate instructions with <symbol or >symbol for lo/hi byte relocs,
     // and PHW #symbol (IMMEDIATE16) for full word relocs.
@@ -464,7 +410,11 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
             }
             segRelocs[srcSeg].push_back(reloc);
         } else { // isHigh
+            // The extra byte is the low byte of the whole value the high
+            // byte is taken from ('>' applies to everything after it:
+            // #>buf+2 is the high byte of buf+2), for the linker's carry
             uint8_t lowByte = (uint8_t)(sym->value & 0xFF);
+            try { lowByte = (uint8_t)(parser.evaluateExpressionAt(idx, stmt->scopePrefix) & 0xFF); } catch (...) {}
             O45Reloc reloc;
             reloc.offset = patchOff;
             reloc.type = R_HIGH;
@@ -576,7 +526,9 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
     for (size_t sri = 0; sri < allSymbolRelocs.size(); sri++) {
         const auto& sr = allSymbolRelocs[sri];
         std::string symName = sr.symbolName;
-        Symbol* sym = parser.resolveSymbol(symName, "");
+        // resolved in the emitting statement's scope (an @label in a proc)
+        parser.currentLocalScope_ = sr.localScope;
+        Symbol* sym = parser.resolveSymbol(symName, sr.scope);
         if (!sym) continue;
 
         bool isExtern = parser.isExternSymbol(symName);

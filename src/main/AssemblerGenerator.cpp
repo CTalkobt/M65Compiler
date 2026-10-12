@@ -109,6 +109,7 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
 
             parser->pc = stmt->address; // Update parser pc for .PC evaluations
             parser->currentLocalScope_ = stmt->localLabelScope; // Restore auto-scope for @ labels
+            e.setRelocScope(stmt->scopePrefix, stmt->localLabelScope);  // for recorded symbol relocs
             if (stmt->deleted) continue; 
             
             std::vector<uint8_t>* binaryPtr = e.getBinary();

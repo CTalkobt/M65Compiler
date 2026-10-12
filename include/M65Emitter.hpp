@@ -338,7 +338,13 @@ public:
         std::string symbolName;
         uint8_t relocType = 0x80; // R_WORD default; can be R_LOW (0x20) or R_HIGH (0x40)
         uint8_t extra = 0;        // low byte for R_HIGH carry correction
+        std::string scope;        // scope prefix and @-label scope of the statement,
+        std::string localScope;   // to resolve symbolName the way its operand was
     };
+    // Scope that recorded symbol relocations are resolved in (set per statement)
+    void setRelocScope(const std::string& scope, const std::string& localScope) {
+        relocScope_ = scope; relocLocalScope_ = localScope;
+    }
     const std::vector<SymbolReloc>& symbolRelocs() const { return symbolRelocs_; }
     void emitWordReloc(const std::string& symbolName, uint16_t value = 0);
     void recordSymbolReloc(const std::string& name);
@@ -364,6 +370,7 @@ private:
     Mode mode;
     uint32_t zeroPageStart;
     uint16_t spBase_ = 0x0101;
+    std::string relocScope_, relocLocalScope_;
     uint8_t scratchZP_ = 0x02;
     uint8_t scratchZP2_ = 0x04;
     uint8_t scratchZP3_ = 0x06;
