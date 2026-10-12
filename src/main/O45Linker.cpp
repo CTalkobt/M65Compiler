@@ -6,6 +6,20 @@
 #include <queue>
 #include <sstream>
 #include <cstring>
+#include "LinkerLog.hpp"
+#include <iostream>
+#include <streambuf>
+
+// ln45's verbosity (-v, -vv); see LinkerLog.hpp
+int g_ln45Verbosity = 0;
+namespace {
+struct NullBuf : std::streambuf { int overflow(int c) override { return c; } };
+NullBuf g_nullBuf;
+std::ostream g_nullStream(&g_nullBuf);
+}
+std::ostream& ln45info() { return g_ln45Verbosity >= 1 ? std::cerr : g_nullStream; }
+std::ostream& ln45debug() { return g_ln45Verbosity >= 2 ? std::cerr : g_nullStream; }
+
 
 // =============================================================================
 // O45RelocDecoder — inverse of O45RelocEncoder
@@ -479,7 +493,10 @@ bool O45Linker::resolveSymbols(std::string& errorMsg) {
                 !(name.size() >= 2 && name[0] == '_' && name[1] == '_') &&
                 importedSymbols.find(name) == importedSymbols.end() &&
                 symbolSource_[name] != "<linker>") {
-                *warnStream_ << "ln45: warning: unused global symbol '" << name << "' (defined in " << symbolSource_[name] << ")" << std::endl;
+                // informational (most are library internals and C globals
+                // used only in their own object): only with -v
+                if (g_ln45Verbosity >= 1 && warnStream_)
+                    *warnStream_ << "ln45: warning: unused global symbol '" << name << "' (defined in " << symbolSource_[name] << ")" << std::endl;
             }
         }
     }
@@ -563,7 +580,7 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
                 errorMsg = "undefined symbol '" + symName + "' in " + input.filename;
                 return false;
             }
-            std::cerr << "DEBUG [External Reloc]: Symbol '" << symName << "' = 0x" << std::hex << it->second << std::dec << std::endl;
+            ln45debug() << "DEBUG [External Reloc]: Symbol '" << symName << "' = 0x" << std::hex << it->second << std::dec << std::endl;
 
             // If AR offset was parsed from symbol name, use it as the addend.
             // Otherwise, read the addend from the patch site.
@@ -601,7 +618,7 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
             targetAddr = it->second + addend;
 
             if (arOffset > 0) {
-                std::cerr << "DEBUG [AR Reloc]: Symbol '" << symName << "' base=0x" << std::hex << it->second
+                ln45debug() << "DEBUG [AR Reloc]: Symbol '" << symName << "' base=0x" << std::hex << it->second
                          << " arOffset=" << std::dec << arOffset << " targetAddr=0x" << std::hex << targetAddr << std::dec << std::endl;
             }
 
@@ -665,35 +682,35 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
             // DEBUG: Log ALL DATA relocations
             if (r.segment == SEG_DATA) {
                 // Log all DATA relocations with detailed information
-                std::cerr << "\n=== DEBUG: DATA relocation at offset 0x" << std::hex << patchPos << std::dec << " ===" << std::endl;
-                std::cerr << "  RelType: " << (int)r.type << " (32=R_LOW, 64=R_HIGH, 128=R_WORD)" << std::endl;
-                std::cerr << "  Extra: 0x" << std::hex << (int)r.extra << std::dec << std::endl;
-                std::cerr << "  PatchPos: 0x" << std::hex << patchPos << std::dec << std::endl;
-                std::cerr << "  ExistingVal: 0x" << std::hex << existingVal << std::dec << std::endl;
-                std::cerr << "  SegBase (dataBase_): 0x" << std::hex << segBase << std::dec << std::endl;
-                std::cerr << "  SegObjOff (dataOffset): 0x" << std::hex << segObjOff << std::dec << std::endl;
-                std::cerr << "  OrigBase (dbase): 0x" << std::hex << origBase << std::dec << std::endl;
-                std::cerr << "  SegRelOff (existingVal - origBase): 0x" << std::hex << segRelOff << std::dec << std::endl;
-                std::cerr << "  TargetAddr (segBase + segObjOff + segRelOff): 0x" << std::hex << targetAddr << std::dec << std::endl;
+                ln45debug() << "\n=== DEBUG: DATA relocation at offset 0x" << std::hex << patchPos << std::dec << " ===" << std::endl;
+                ln45debug() << "  RelType: " << (int)r.type << " (32=R_LOW, 64=R_HIGH, 128=R_WORD)" << std::endl;
+                ln45debug() << "  Extra: 0x" << std::hex << (int)r.extra << std::dec << std::endl;
+                ln45debug() << "  PatchPos: 0x" << std::hex << patchPos << std::dec << std::endl;
+                ln45debug() << "  ExistingVal: 0x" << std::hex << existingVal << std::dec << std::endl;
+                ln45debug() << "  SegBase (dataBase_): 0x" << std::hex << segBase << std::dec << std::endl;
+                ln45debug() << "  SegObjOff (dataOffset): 0x" << std::hex << segObjOff << std::dec << std::endl;
+                ln45debug() << "  OrigBase (dbase): 0x" << std::hex << origBase << std::dec << std::endl;
+                ln45debug() << "  SegRelOff (existingVal - origBase): 0x" << std::hex << segRelOff << std::dec << std::endl;
+                ln45debug() << "  TargetAddr (segBase + segObjOff + segRelOff): 0x" << std::hex << targetAddr << std::dec << std::endl;
 
                 // Show context: what's before this patch in the body (likely code)
-                std::cerr << "  Context (bytes -2 to +3 around patch): ";
+                ln45debug() << "  Context (bytes -2 to +3 around patch): ";
                 for (int i = -2; i <= 3; i++) {
                     int pos = (int)patchPos + i;
                     if (pos >= 0 && pos < (int)body.size()) {
-                        if (i == 0) std::cerr << "[";
-                        std::cerr << std::hex << (int)body[pos] << " ";
-                        if (i == o45RelocPatchSize((uint8_t)r.type) - 1) std::cerr << "]";
+                        if (i == 0) ln45debug() << "[";
+                        ln45debug() << std::hex << (int)body[pos] << " ";
+                        if (i == o45RelocPatchSize((uint8_t)r.type) - 1) ln45debug() << "]";
                     }
                 }
-                std::cerr << std::dec << std::endl;
+                ln45debug() << std::dec << std::endl;
 
-                std::cerr << "  Bytes before patch: 0x" << std::hex;
+                ln45debug() << "  Bytes before patch: 0x" << std::hex;
                 int patchSize = o45RelocPatchSize((uint8_t)r.type);
                 for (int i = 0; i < patchSize && (patchPos + i) < body.size(); i++) {
-                    std::cerr << (int)body[patchPos + i] << " ";
+                    ln45debug() << (int)body[patchPos + i] << " ";
                 }
-                std::cerr << std::dec << std::endl;
+                ln45debug() << std::dec << std::endl;
             }
         }
 
@@ -708,12 +725,12 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
         bool shouldLogPatch = false;
         if (r.segment == SEG_DATA) {
             shouldLogPatch = true;
-            std::cerr << "DEBUG [DATA Patch]: at 0x" << std::hex << patchPos << " type=" << (int)r.type << " targetAddr=0x" << targetAddr << std::dec << "\n";
-            std::cerr << "  Bytes BEFORE patch: 0x" << std::hex;
+            ln45debug() << "DEBUG [DATA Patch]: at 0x" << std::hex << patchPos << " type=" << (int)r.type << " targetAddr=0x" << targetAddr << std::dec << "\n";
+            ln45debug() << "  Bytes BEFORE patch: 0x" << std::hex;
             for (int i = 0; i < patchSize && (patchPos + i) < body.size(); i++) {
-                std::cerr << std::setw(2) << std::setfill('0') << (int)body[patchPos + i] << " ";
+                ln45debug() << std::setw(2) << std::setfill('0') << (int)body[patchPos + i] << " ";
             }
-            std::cerr << std::dec << std::endl;
+            ln45debug() << std::dec << std::endl;
         }
 
         switch (r.type) {
@@ -761,10 +778,10 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
         // DEBUG: Complete logging for DATA relocations
         if (shouldLogPatch) {
             for (int i = 0; i < patchSize && (patchPos + i) < body.size(); i++) {
-                std::cerr << (int)body[patchPos + i] << " ";
+                ln45debug() << (int)body[patchPos + i] << " ";
             }
-            std::cerr << std::dec << std::endl;
-            std::cerr << "==================================================\n" << std::endl;
+            ln45debug() << std::dec << std::endl;
+            ln45debug() << "==================================================\n" << std::endl;
         }
 
         // DEBUG: Log TEXT relocations patch result (disabled for production)
@@ -1121,7 +1138,7 @@ void O45Linker::analyzeIPOHints() {
     }
 
     if (warnStream_) {
-        *warnStream_ << "DEBUG: IPO Hints: Aggregated " << aggregatedIPOHints_.functions.size()
+        ln45debug() << "DEBUG: IPO Hints: Aggregated " << aggregatedIPOHints_.functions.size()
                      << " functions from " << objects_.size() << " objects" << std::endl;
     }
 }
@@ -1139,7 +1156,7 @@ void O45Linker::applyIPOHints() {
             ipoLeafFunctions_.insert(funcHints.functionName);
 
             if (warnStream_) {
-                *warnStream_ << "DEBUG: IPO leaf function: " << funcHints.functionName << std::endl;
+                ln45debug() << "DEBUG: IPO leaf function: " << funcHints.functionName << std::endl;
             }
         }
 
@@ -1149,7 +1166,7 @@ void O45Linker::applyIPOHints() {
             ipoOptimizationCandidates_[funcHints.functionName] = true;
 
             if (warnStream_) {
-                *warnStream_ << "INFO: IPO optimization candidate: " << funcHints.functionName
+                ln45info() << "INFO: IPO optimization candidate: " << funcHints.functionName
                             << " (calls=" << funcHints.callCount << ", size="
                             << funcHints.estimatedCodeSize << " bytes)" << std::endl;
             }
@@ -1159,7 +1176,7 @@ void O45Linker::applyIPOHints() {
         // These require dispatcher generation for cross-module dispatch
         if (funcHints.externalCallCount > 0) {
             if (warnStream_) {
-                *warnStream_ << "INFO: IPO external dispatcher needed: " << funcHints.functionName
+                ln45info() << "INFO: IPO external dispatcher needed: " << funcHints.functionName
                             << " (" << (int)funcHints.externalCallCount << " external calls)" << std::endl;
             }
         }
@@ -1167,7 +1184,7 @@ void O45Linker::applyIPOHints() {
         // Log specialization patterns if present
         if (!funcHints.specializations.empty()) {
             if (warnStream_) {
-                *warnStream_ << "DEBUG: IPO specialization patterns for " << funcHints.functionName
+                ln45debug() << "DEBUG: IPO specialization patterns for " << funcHints.functionName
                             << ": " << funcHints.specializations.size() << " patterns" << std::endl;
             }
         }
@@ -1196,7 +1213,7 @@ void O45Linker::applyIPOHints() {
 
                 if (symbolIsLeaf != ipoSaysLeaf) {
                     if (warnStream_) {
-                        *warnStream_ << "DEBUG: IPO hint leaf flag mismatch: " << funcHints.functionName
+                        ln45debug() << "DEBUG: IPO hint leaf flag mismatch: " << funcHints.functionName
                                     << " (symbol=" << symbolIsLeaf << ", ipo=" << ipoSaysLeaf << ")" << std::endl;
                     }
                 }
@@ -1205,7 +1222,7 @@ void O45Linker::applyIPOHints() {
     }
 
     if (warnStream_) {
-        *warnStream_ << "INFO: IPO Hints Applied: " << ipoOptimizationCandidates_.size()
+        ln45info() << "INFO: IPO Hints Applied: " << ipoOptimizationCandidates_.size()
                      << " candidates, " << ipoLeafFunctions_.size() << " leaf functions, "
                      << validated << " validated, " << mismatches << " mismatches" << std::endl;
     }
@@ -1215,13 +1232,13 @@ void O45Linker::applyIPOHints() {
 // Finds parameters that are ALWAYS constant across all call sites
 void O45Linker::analyzeConstantParameters() {
     if (warnStream_) {
-        *warnStream_ << "DEBUG: Analyzing constant parameters. funcAttrs_.size()=" << funcAttrs_.size() << std::endl;
+        ln45debug() << "DEBUG: Analyzing constant parameters. funcAttrs_.size()=" << funcAttrs_.size() << std::endl;
     }
 
     // For each function with SAC metadata
     for (auto& [funcName, attr] : funcAttrs_) {
         if (warnStream_) {
-            *warnStream_ << "DEBUG: Function " << funcName << " flags=0x" << std::hex << (int)attr.flags
+            ln45debug() << "DEBUG: Function " << funcName << " flags=0x" << std::hex << (int)attr.flags
                          << " SAC params=" << attr.sacMetadata.parameters.size() << std::dec << std::endl;
         }
 
@@ -1238,7 +1255,7 @@ void O45Linker::analyzeConstantParameters() {
 
                 // Debug output
                 if (warnStream_) {
-                    *warnStream_ << "INFO: Parameter " << funcName << "[" << paramIdx
+                    ln45info() << "INFO: Parameter " << funcName << "[" << paramIdx
                                  << "] is constant: " << param.constantValue << std::endl;
                 }
             }
@@ -1249,7 +1266,7 @@ void O45Linker::analyzeConstantParameters() {
     // For each specialized function with constant parameters
     for (const auto& [funcName, paramMap] : specializedParams_) {
         if (warnStream_) {
-            *warnStream_ << "OPTIMIZE: Function " << funcName << " has " << paramMap.size()
+            ln45info() << "OPTIMIZE: Function " << funcName << " has " << paramMap.size()
                         << " constant parameter(s)" << std::endl;
         }
     }
@@ -1267,7 +1284,7 @@ void O45Linker::analyzeIRMetadata() {
         }
 
         if (warnStream_) {
-            *warnStream_ << "DEBUG: Object " << obj.filename << " has IR metadata (v"
+            ln45debug() << "DEBUG: Object " << obj.filename << " has IR metadata (v"
                         << (int)obj.obj.irMajorVersion << "." << (int)obj.obj.irMinorVersion << ")"
                         << " with " << obj.obj.irMetadata.functions.size() << " functions" << std::endl;
         }
@@ -1304,7 +1321,7 @@ void O45Linker::analyzeIRMetadata() {
     // Analyze merged IR to detect constant parameters
     for (auto& [funcName, irFunc] : mergedIRFunctions_) {
         if (warnStream_) {
-            *warnStream_ << "DEBUG: Analyzing IR for function " << funcName
+            ln45debug() << "DEBUG: Analyzing IR for function " << funcName
                         << " with " << irFunc.parameters.size() << " params and "
                         << irFunc.callSites.size() << " call sites" << std::endl;
         }
@@ -1348,7 +1365,7 @@ void O45Linker::analyzeIRMetadata() {
                 specializedParams_[funcName][paramIdx] = {true, constantValue};
 
                 if (warnStream_) {
-                    *warnStream_ << "INFO: IR Analysis - Parameter " << funcName << "[" << paramIdx
+                    ln45info() << "INFO: IR Analysis - Parameter " << funcName << "[" << paramIdx
                                 << "] is constant across all " << irFunc.callSites.size()
                                 << " call sites: " << constantValue << std::endl;
                 }
@@ -1419,7 +1436,7 @@ void O45Linker::analyzeSpecializations() {
         }
 
         if (warnStream_ && analysis.isProfitable) {
-            *warnStream_ << "INFO: Function " << funcName << " has " << analysis.patterns.size()
+            ln45info() << "INFO: Function " << funcName << " has " << analysis.patterns.size()
                         << " specialization pattern(s), " << analysis.totalCalls << " total calls"
                         << " (top frequency: " << (analysis.topPatternFrequency * 100.0f) << "%)" << std::endl;
         }
@@ -1564,7 +1581,7 @@ void O45Linker::analyzeCallRouting() {
         }
 
         if (warnStream_) {
-            *warnStream_ << "INFO: Call routing for " << funcName << ": "
+            ln45info() << "INFO: Call routing for " << funcName << ": "
                         << routableCount << "/" << routing.totalCalls << " routable ("
                         << routing.routablePercentage << "%)" << std::endl;
         }
@@ -1658,7 +1675,7 @@ void O45Linker::analyzeInlining() {
 
         if (!inlineAnalysis.candidates.empty()) {
             if (warnStream_) {
-                *warnStream_ << "INFO: Inlining analysis for calls in " << funcName << ": "
+                ln45info() << "INFO: Inlining analysis for calls in " << funcName << ": "
                             << inlineAnalysis.selectableCount << " candidates, "
                             << inlineAnalysis.totalSavingsPotential << " bytes potential savings"
                             << std::endl;
@@ -1808,7 +1825,7 @@ void O45Linker::integrateDispatcherAssembly() {
     // If no dispatcher assembly generated, nothing to do
     if (dispatcherAssemblyOutput_.empty()) {
         if (warnStream_) {
-            *warnStream_ << "ln45: No dispatcher assembly to integrate\n";
+            ln45info() << "ln45: No dispatcher assembly to integrate\n";
         }
         return;
     }
@@ -1822,9 +1839,9 @@ void O45Linker::integrateDispatcherAssembly() {
     }
 
     if (warnStream_) {
-        *warnStream_ << "ln45: Integrating " << dispatcherCount
+        ln45info() << "ln45: Integrating " << dispatcherCount
                     << " dispatcher stubs into link output\n";
-        *warnStream_ << "ln45: Dispatcher assembly size: "
+        ln45info() << "ln45: Dispatcher assembly size: "
                     << dispatcherAssemblyOutput_.size() << " bytes (source)\n";
     }
 
@@ -1847,10 +1864,10 @@ void O45Linker::integrateDispatcherAssembly() {
 
     // Log dispatcher function names for verification
     if (warnStream_) {
-        *warnStream_ << "ln45: Integrated dispatchers for:\n";
+        ln45info() << "ln45: Integrated dispatchers for:\n";
         for (const auto& [funcName, analysis] : dispatcherAnalysis_) {
             for (const auto& dispatcher : analysis.dispatchers) {
-                *warnStream_ << "  - " << dispatcher.dispatcherName << "\n";
+                ln45info() << "  - " << dispatcher.dispatcherName << "\n";
             }
         }
     }
@@ -1864,7 +1881,7 @@ void O45Linker::emitDispatcherAssemblyOutput() {
     // If no dispatcher assembly, nothing to emit
     if (dispatcherAssemblyOutput_.empty()) {
         if (warnStream_) {
-            *warnStream_ << "ln45: No dispatcher assembly to emit\n";
+            ln45info() << "ln45: No dispatcher assembly to emit\n";
         }
         return;
     }
@@ -1875,7 +1892,7 @@ void O45Linker::emitDispatcherAssemblyOutput() {
     }
 
     if (warnStream_) {
-        *warnStream_ << "ln45: Emitting " << dispatcherStubsEmitted_
+        ln45info() << "ln45: Emitting " << dispatcherStubsEmitted_
                     << " dispatcher stubs to output\n";
     }
 
@@ -1907,16 +1924,16 @@ void O45Linker::emitDispatcherAssemblyOutput() {
 
     // Log dispatcher details
     if (warnStream_) {
-        *warnStream_ << "ln45: Dispatcher assembly size: "
+        ln45info() << "ln45: Dispatcher assembly size: "
                     << dispatcherAssemblyOutput_.size() << " bytes (source)\n";
-        *warnStream_ << "ln45: Dispatcher stubs emitted:\n";
+        ln45info() << "ln45: Dispatcher stubs emitted:\n";
 
         // List each dispatcher being emitted
         int count = 0;
         for (const auto& [funcName, analysis] : dispatcherAnalysis_) {
             for (const auto& dispatcher : analysis.dispatchers) {
                 if (count < 20) {  // Limit output to first 20
-                    *warnStream_ << "  [" << (count + 1) << "] " << dispatcher.dispatcherName
+                    ln45info() << "  [" << (count + 1) << "] " << dispatcher.dispatcherName
                                 << " (" << (int)dispatcher.estimatedCodeSize << " bytes)\n";
                 }
                 count++;
@@ -1924,13 +1941,13 @@ void O45Linker::emitDispatcherAssemblyOutput() {
         }
 
         if (count > 20) {
-            *warnStream_ << "  ... and " << (count - 20) << " more\n";
+            ln45info() << "  ... and " << (count - 20) << " more\n";
         }
     }
 
     // Mark as emitted
     if (warnStream_) {
-        *warnStream_ << "ln45: Dispatcher assembly ready for output\n";
+        ln45info() << "ln45: Dispatcher assembly ready for output\n";
     }
 
     // Future implementation note:
@@ -1955,7 +1972,7 @@ bool O45Linker::writeDispatcherAssemblyFile(const std::string& filepath, std::st
     // If no dispatcher assembly, nothing to write
     if (dispatcherAssemblyOutput_.empty()) {
         if (warnStream_) {
-            *warnStream_ << "ln45: No dispatcher assembly to write\n";
+            ln45info() << "ln45: No dispatcher assembly to write\n";
         }
         return true;  // Not an error - just no dispatcher code
     }
@@ -1967,7 +1984,7 @@ bool O45Linker::writeDispatcherAssemblyFile(const std::string& filepath, std::st
     }
 
     if (warnStream_) {
-        *warnStream_ << "ln45: Writing dispatcher assembly to '" << outputFile << "'\n";
+        ln45info() << "ln45: Writing dispatcher assembly to '" << outputFile << "'\n";
     }
 
     // Open file for writing
@@ -1999,10 +2016,10 @@ bool O45Linker::writeDispatcherAssemblyFile(const std::string& filepath, std::st
     dispatcherAssemblyFilePath_ = outputFile;
 
     if (warnStream_) {
-        *warnStream_ << "ln45: Wrote " << dispatcherAssemblyOutput_.size()
+        ln45info() << "ln45: Wrote " << dispatcherAssemblyOutput_.size()
                     << " bytes to dispatcher assembly file\n";
-        *warnStream_ << "ln45: Dispatcher assembly ready for ca45 assembler\n";
-        *warnStream_ << "ln45: Next: ca45 " << outputFile
+        ln45info() << "ln45: Dispatcher assembly ready for ca45 assembler\n";
+        ln45info() << "ln45: Next: ca45 " << outputFile
                     << " -o dispatcher.o45\n";
     }
 
@@ -2018,7 +2035,7 @@ bool O45Linker::assembleDispatcherFile(const std::string& ca45Path, std::string&
     // Check if dispatcher assembly file was written
     if (dispatcherAssemblyFilePath_.empty()) {
         if (warnStream_) {
-            *warnStream_ << "ln45: No dispatcher assembly file to assemble\n";
+            ln45info() << "ln45: No dispatcher assembly file to assemble\n";
         }
         return true;  // Not an error - just no dispatcher code
     }
@@ -2033,16 +2050,16 @@ bool O45Linker::assembleDispatcherFile(const std::string& ca45Path, std::string&
     }
 
     if (warnStream_) {
-        *warnStream_ << "ln45: Assembling dispatcher code with ca45\n";
-        *warnStream_ << "ln45: Input:  " << dispatcherAssemblyFilePath_ << "\n";
-        *warnStream_ << "ln45: Output: " << objectFile << "\n";
+        ln45info() << "ln45: Assembling dispatcher code with ca45\n";
+        ln45info() << "ln45: Input:  " << dispatcherAssemblyFilePath_ << "\n";
+        ln45info() << "ln45: Output: " << objectFile << "\n";
     }
 
     // Build ca45 command
     std::string command = ca45Path + " \"" + dispatcherAssemblyFilePath_ + "\" -o \"" + objectFile + "\"";
 
     if (warnStream_) {
-        *warnStream_ << "ln45: Executing: " << command << "\n";
+        ln45info() << "ln45: Executing: " << command << "\n";
     }
 
     // Execute ca45 assembler
@@ -2072,10 +2089,10 @@ bool O45Linker::assembleDispatcherFile(const std::string& ca45Path, std::string&
     dispatchersAssembled_ = dispatcherStubsEmitted_;
 
     if (warnStream_) {
-        *warnStream_ << "ln45: Dispatcher object file created successfully\n";
-        *warnStream_ << "ln45: Assembled " << dispatchersAssembled_
+        ln45info() << "ln45: Dispatcher object file created successfully\n";
+        ln45info() << "ln45: Assembled " << dispatchersAssembled_
                     << " dispatcher stubs\n";
-        *warnStream_ << "ln45: Next: Link dispatcher object into final binary\n";
+        ln45info() << "ln45: Next: Link dispatcher object into final binary\n";
     }
 
     return true;
@@ -2086,14 +2103,14 @@ bool O45Linker::relinkWithDispatcher(std::string& errorMsg, bool isPrg) {
     // Check if dispatcher object file is available
     if (dispatcherObjectFilePath_.empty()) {
         if (warnStream_) {
-            *warnStream_ << "ln45: No dispatcher object file to link\n";
+            ln45info() << "ln45: No dispatcher object file to link\n";
         }
         return true;  // Not an error - just no dispatcher code
     }
 
     if (warnStream_) {
-        *warnStream_ << "ln45: Re-linking with dispatcher object\n";
-        *warnStream_ << "ln45: Loading dispatcher object: " << dispatcherObjectFilePath_ << "\n";
+        ln45info() << "ln45: Re-linking with dispatcher object\n";
+        ln45info() << "ln45: Loading dispatcher object: " << dispatcherObjectFilePath_ << "\n";
     }
 
     // Read dispatcher object file
@@ -2119,9 +2136,9 @@ bool O45Linker::relinkWithDispatcher(std::string& errorMsg, bool isPrg) {
     }
 
     if (warnStream_) {
-        *warnStream_ << "ln45: Loaded dispatcher object (" << objData.size()
+        ln45info() << "ln45: Loaded dispatcher object (" << objData.size()
                     << " bytes)\n";
-        *warnStream_ << "ln45: Adding dispatcher object to linker\n";
+        ln45info() << "ln45: Adding dispatcher object to linker\n";
     }
 
     // Parse dispatcher object file
@@ -2137,8 +2154,8 @@ bool O45Linker::relinkWithDispatcher(std::string& errorMsg, bool isPrg) {
     }
 
     if (warnStream_) {
-        *warnStream_ << "ln45: Dispatcher object parsed successfully\n";
-        *warnStream_ << "ln45: Re-linking all objects with dispatcher\n";
+        ln45info() << "ln45: Dispatcher object parsed successfully\n";
+        ln45info() << "ln45: Re-linking all objects with dispatcher\n";
     }
 
     // Add dispatcher object to linker
@@ -2158,10 +2175,10 @@ bool O45Linker::relinkWithDispatcher(std::string& errorMsg, bool isPrg) {
     dispatcherLinked_ = true;
 
     if (warnStream_) {
-        *warnStream_ << "ln45: Re-linking successful\n";
-        *warnStream_ << "ln45: Final binary size with dispatcher: " << dispatcherBinary_.size()
+        ln45info() << "ln45: Re-linking successful\n";
+        ln45info() << "ln45: Final binary size with dispatcher: " << dispatcherBinary_.size()
                     << " bytes\n";
-        *warnStream_ << "ln45: Dispatcher successfully integrated into final binary\n";
+        ln45info() << "ln45: Dispatcher successfully integrated into final binary\n";
     }
 
     return true;
@@ -2177,13 +2194,13 @@ bool O45Linker::verifyDispatcherSymbols(std::string& report) {
     if (!dispatcherLinked_) {
         report = "Dispatcher not linked - verification skipped";
         if (warnStream_) {
-            *warnStream_ << "ln45: " << report << "\n";
+            ln45info() << "ln45: " << report << "\n";
         }
         return true;  // Not an error
     }
 
     if (warnStream_) {
-        *warnStream_ << "ln45: Verifying dispatcher symbol resolution\n";
+        ln45info() << "ln45: Verifying dispatcher symbol resolution\n";
     }
 
     // Count dispatcher-related symbols from dispatcherAnalysis
@@ -2200,13 +2217,13 @@ bool O45Linker::verifyDispatcherSymbols(std::string& report) {
     if (expectedDispatcherSymbols == 0) {
         report = "No dispatcher symbols to verify";
         if (warnStream_) {
-            *warnStream_ << "ln45: " << report << "\n";
+            ln45info() << "ln45: " << report << "\n";
         }
         return true;
     }
 
     if (warnStream_) {
-        *warnStream_ << "ln45: Expected dispatcher symbols: " << expectedDispatcherSymbols << "\n";
+        ln45info() << "ln45: Expected dispatcher symbols: " << expectedDispatcherSymbols << "\n";
     }
 
     // Check global symbol table for dispatcher symbols
@@ -2222,13 +2239,13 @@ bool O45Linker::verifyDispatcherSymbols(std::string& report) {
             if (symAddr != 0 || symName.find("__dispatch_fallback") != std::string::npos) {
                 resolvedCount++;
                 if (warnStream_) {
-                    *warnStream_ << "ln45:   [OK] " << symName
+                    ln45info() << "ln45:   [OK] " << symName
                                 << " @ 0x" << std::hex << symAddr << std::dec << "\n";
                 }
             } else {
                 unresolved++;
                 if (warnStream_) {
-                    *warnStream_ << "ln45:   [UNRESOLVED] " << symName << "\n";
+                    ln45info() << "ln45:   [UNRESOLVED] " << symName << "\n";
                 }
             }
         }
@@ -2245,9 +2262,9 @@ bool O45Linker::verifyDispatcherSymbols(std::string& report) {
     report += allDispatcherSymbolsResolved_ ? "  Status: ALL RESOLVED\n" : "  Status: SOME UNRESOLVED\n";
 
     if (warnStream_) {
-        *warnStream_ << "ln45: " << report;
+        ln45info() << "ln45: " << report;
         if (allDispatcherSymbolsResolved_) {
-            *warnStream_ << "ln45: Dispatcher symbols verified successfully\n";
+            ln45info() << "ln45: Dispatcher symbols verified successfully\n";
         } else {
             *warnStream_ << "ln45: WARNING: Some dispatcher symbols unresolved\n";
         }
@@ -2434,7 +2451,7 @@ void O45Linker::generateDispatchers() {
             // High call frequency makes dispatcher ROI better
             ipoRecommendsDispatcher = true;
             if (warnStream_) {
-                *warnStream_ << "INFO: Dispatcher for " << funcName
+                ln45info() << "INFO: Dispatcher for " << funcName
                             << " recommended by IPO hints (calls=" << ipoCallCount << ")" << std::endl;
             }
         }
@@ -2463,7 +2480,7 @@ void O45Linker::generateDispatchers() {
             analysis.totalDispatchCodeSize += (int)dispatcher.estimatedCodeSize;
 
             if (warnStream_) {
-                *warnStream_ << "INFO: Dispatcher for " << funcName << ": "
+                ln45info() << "INFO: Dispatcher for " << funcName << ": "
                             << dispatcher.routes.size() << " routes, "
                             << dispatcher.dynamicCalls << " dynamic calls, "
                             << (int)dispatcher.estimatedCodeSize << " bytes estimated"
@@ -2789,11 +2806,11 @@ void O45Linker::validateImmediateRelocations() {
 
     // Log diagnostics if any immediate relocations were found
     if (immediatRelocCount > 0 && warnStream_) {
-        *warnStream_ << "Phase 78: Found " << immediatRelocCount << " immediate relocations";
+        ln45info() << "Phase 78: Found " << immediatRelocCount << " immediate relocations";
         if (validationErrors > 0) {
-            *warnStream_ << " (" << validationErrors << " validation errors)";
+            ln45info() << " (" << validationErrors << " validation errors)";
         }
-        *warnStream_ << std::endl;
+        ln45info() << std::endl;
     }
 }
 
@@ -3006,7 +3023,7 @@ void O45Linker::patchStaticAllocAddresses() {
             // Symbol should exist if function was compiled with SAC
             // This is a warning-level issue, not an error (symbol may not be exported)
             if (warnStream_) {
-                *warnStream_ << "warning: SAC function '" << funcName
+                ln45info() << "warning: SAC function '" << funcName
                             << "' has no __ar symbol in global symbol table\n";
             }
         }

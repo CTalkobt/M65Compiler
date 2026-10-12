@@ -1,3 +1,5 @@
+#include "LinkerLog.hpp"
+#include <algorithm>
 #include <iostream>
 #include <cstdlib>
 #include <fstream>
@@ -26,6 +28,9 @@ static void printUsage(const char* progName) {
     std::cout << "  --no-thunks    Error on calling convention mismatches (no thunk generation)" << std::endl;
     std::cout << "  --bss-fill=V   Byte crt0 fills BSS with at startup (default $00; $FF, 0xFF or decimal)" << std::endl;
     std::cout << "  -Wthunk        Warn (but still generate thunks) on convention mismatches" << std::endl;
+    std::cout << "  -v             Also print the cross-module analysis and informational warnings" << std::endl;
+    std::cout << "                 (unused global symbols, SAC overlay)" << std::endl;
+    std::cout << "  -vv            As -v, plus a trace of every relocation" << std::endl;
     std::cout << "  -?             Display this help message" << std::endl;
 }
 
@@ -78,6 +83,8 @@ int main(int argc, char** argv) {
         else if (arg == "-b" && i + 1 < argc) { bssBase = parseAddr(argv[++i]); bssBaseSet = true; }
         else if (arg == "-z" && i + 1 < argc) { zpBase = parseAddr(argv[++i]); zpBaseSet = true; }
         else if (arg == "--no-thunks") { thunkMode = O45Linker::THUNK_ERROR; }
+        else if (arg == "-v") { g_ln45Verbosity = std::max(g_ln45Verbosity, 1); }
+        else if (arg == "-vv") { g_ln45Verbosity = 2; }
         else if (arg.rfind("--bss-fill=", 0) == 0) {
             std::string v = arg.substr(11);
             int base = 10;
