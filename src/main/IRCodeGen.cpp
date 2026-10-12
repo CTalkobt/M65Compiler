@@ -5682,8 +5682,45 @@ void IRCodeGen::analyzeConstantParameters(const ir::Module& mod) {
         }
     }
 
+    // Only a function whose every caller is in this file may have constant
+    // parameters: a static function whose address is never taken. Another
+    // module (or an indirect call) enters through the normal entry, which
+    // writes the parameter storage; later calls from here would skip the
+    // store and read that value.
+    std::set<std::string> referenced;  // names used other than as a direct call target
+    auto noteOperand = [&](const ir::Operand& o) {
+        if (!o.name.empty()) referenced.insert(o.name);
+    };
+    for (const auto& fn : mod.functions) {
+        for (const auto& block : fn.blocks) {
+            for (const auto& inst : block.insts) {
+                bool isCall = inst.op == ir::Op::CALL || inst.op == ir::Op::CALL_VOID;
+                if (!isCall) noteOperand(inst.src1);
+                noteOperand(inst.src2);
+                noteOperand(inst.dest);
+                for (const auto& a : inst.args) noteOperand(a);
+                if (!inst.asmText.empty()) {
+                    for (const auto& f2 : mod.functions)
+                        if (inst.asmText.find(f2.name) != std::string::npos) referenced.insert(f2.name);
+                }
+            }
+        }
+    }
+    for (const auto& g : mod.globals) {
+        for (const auto& l : g.initLabels) referenced.insert(l);
+        for (const auto& m : g.vtableMethodNames) referenced.insert(m);
+        for (const auto& [off, w] : g.initWords) referenced.insert(w.substr(0, w.find_first_of("+-", 1)));
+    }
+    auto allCallersVisible = [&](const std::string& funcName) {
+        for (const auto& fn : mod.functions)
+            if (fn.name == funcName)
+                return fn.isStatic && !fn.isWeak && !referenced.count(funcName);
+        return false;
+    };
+
     // Third pass: for each SAC function, check if each parameter always gets the same constant
     for (const auto& [funcName, paramFreqs] : paramValueFreq) {
+        if (!allCallersVisible(funcName)) continue;
         for (size_t paramIdx = 0; paramIdx < paramFreqs.size(); paramIdx++) {
             const auto& freqMap = paramFreqs[paramIdx];
 

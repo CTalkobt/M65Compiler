@@ -257,9 +257,7 @@ overlays, `dma.h`. Many other headers (graphics, sprites, hw_*, uart, conio
 
 - **ca45**: fixed (2026-10-12): expressions/literals, data directives,
   `#include`, `.org` expressions, the simulated ops (`test_ca45_simops_xemu.s45`).
-- **cc45**: `-fno-zpcall`
-  constant-parameter specialization ignores calls from other modules
-  (miscompile); virtual dispatch uses the wrong vtable symbol;
+- **cc45**: virtual dispatch uses the wrong vtable symbol;
   `continue <value>` does nothing; `__regparm` with `char` or
   `-fno-staticalloc`; `char` varargs high byte.
 - **ln45**: DEBUG/INFO output on every link; `-basic -t ADDR` broken; SAC

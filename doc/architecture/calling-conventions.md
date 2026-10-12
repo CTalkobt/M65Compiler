@@ -225,15 +225,13 @@ What a SAC function looks like:
   the arguments straight into `<callee>__param_<name>` and does
   `jsr <callee>__sac`. Nothing is pushed or popped. In ZP mode, callers
   always use the ZP block and the normal entry.
-- **Constant parameters.** If every call in the file passes the same
-  constant for a parameter, that parameter's storage is initialised in the
-  data segment (for example `_add3__param_a: .word 1`). SAC callers in stack
-  mode then skip the store. **Known issue:** the check covers only the
-  calls inside the defining file, even for exported functions. With
-  `-fno-zpcall`, if another module calls the function with a different value
-  (through the normal entry), later calls from the defining file read that
-  stale value. Verified: `f(9)` from another module followed by `callf()`
-  (which does `return f(1);`) returns 9.
+- **Constant parameters.** For a `static` function whose address is never
+  taken (so every call is in the file), a parameter that gets the same
+  constant from every call has its storage initialised in the data segment
+  (for example `_add3__param_a: .word 1`), and SAC callers in stack mode skip
+  the store. An exported, weak or address-taken function is never treated
+  this way: another module or an indirect call enters through the normal
+  entry, which overwrites the storage (`test_constparam_xemu.c`).
 - **Object metadata.** The function carries
   `.func_flags zp_call|stack_call, static_alloc`, plus `.param_sizes` and
   `.frame_size`.

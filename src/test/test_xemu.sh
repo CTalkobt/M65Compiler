@@ -333,6 +333,22 @@ for gaimode in "stack|-fno-zpcall" "zp|"; do
     fi
 done
 
+# Test: constant-parameter specialization only for functions every caller of
+# which is in the file (two modules), stack and ZP conventions
+for cpmode in "stack|-fno-zpcall|$STDLIB_STACK" "zp||$STDLIB"; do
+    IFS='|' read -r cpname cpflags cplib <<< "$cpmode"
+    echo "Testing test_constparam_xemu.c ($cpname)..."
+    if $CC -c $cpflags src/test-resources/test_constparam_xemu.c -o build/test/test_constparam_${cpname}.o45 >/dev/null 2>&1 &&
+       $CC -c $cpflags src/test-resources/test_constparam_lib_xemu.c -o build/test/test_constparam_lib_${cpname}.o45 >/dev/null 2>&1 &&
+       $LD -basic -o build/test/test_constparam_${cpname}_xemu.prg $CRT0 build/test/test_constparam_${cpname}.o45 \
+           build/test/test_constparam_lib_${cpname}.o45 $cplib >/dev/null 2>&1; then
+        run_xemu_test "test_constparam_$cpname" "build/test/test_constparam_${cpname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
+    else
+        echo "FAIL: test_constparam_xemu.c $cpname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: pointer differences (element counts, signed), stack and ZP conventions
 for pdmode in "stack|-fno-zpcall" "zp|"; do
     IFS='|' read -r pdname pdflags <<< "$pdmode"
