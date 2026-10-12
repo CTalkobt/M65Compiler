@@ -390,6 +390,23 @@ for scmode in "stack|-fno-zpcall" "zp|"; do
     fi
 done
 
+# Test: __regparm (first argument in A / A:X), two modules, both conventions
+# with and without static allocation
+for rpmode in "stack|-fno-zpcall|$STDLIB_STACK" "stack_nosac|-fno-zpcall -fno-staticalloc|$STDLIB_STACK" \
+              "zp||$STDLIB" "zp_nosac|-fno-staticalloc|$STDLIB"; do
+    IFS='|' read -r rpname rpflags rplib <<< "$rpmode"
+    echo "Testing test_regparm_xemu.c ($rpname)..."
+    if $CC -c $rpflags src/test-resources/test_regparm_xemu.c -o build/test/test_regparm_${rpname}.o45 >/dev/null 2>&1 &&
+       $CC -c $rpflags src/test-resources/test_regparm_lib_xemu.c -o build/test/test_regparm_lib_${rpname}.o45 >/dev/null 2>&1 &&
+       $LD -basic -o build/test/test_regparm_${rpname}_xemu.prg $CRT0 build/test/test_regparm_${rpname}.o45 \
+           build/test/test_regparm_lib_${rpname}.o45 $rplib >/dev/null 2>&1; then
+        run_xemu_test "test_regparm_$rpname" "build/test/test_regparm_${rpname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_regparm_xemu.c $rpname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: a program's own init_features() (weak in crt0) runs before main
 for ifmode in "stack|-fno-zpcall" "zp|"; do
     IFS='|' read -r ifname ifflags <<< "$ifmode"

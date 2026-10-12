@@ -2188,6 +2188,30 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     }
     emit(procLine);
 
+    // __regparm: the first argument arrives in A (char) or A:X. Before any
+    // other code (a prologue or the return-address capture use A/X), put it
+    // where the normal convention would have it: the first ZP parameter slot
+    // ($10; the caller leaves it free), its SAC storage (stack convention:
+    // _f__sac, which same-file callers use after storing it there, follows),
+    // or $10 for a stack frame to pick up after its prologue.
+    const bool regparmArg = fn.isRegparm && !fn.paramTypes.empty();
+    const bool regparmWide = regparmArg && ir::typeSize(fn.paramTypes[0]) >= 2;
+    const std::string regparmZp = "$" + hex8((uint8_t)(zeroPageStart_ + 8));
+    const std::string regparmZp1 = "$" + hex8((uint8_t)(zeroPageStart_ + 9));
+    if (regparmArg) {
+        if (!fnZp && currentFunctionUseSAC_) {
+            if (!isZeroAllocLeaf(fn.name, fn)) {
+                std::string p0 = fn.name + "__param_" +
+                    ((!fn.paramNames.empty() && !fn.paramNames[0].empty()) ? fn.paramNames[0] : std::string("0"));
+                emit("sta " + p0);
+                if (regparmWide) emit("stx " + p0 + "+1");
+            }
+        } else {
+            emit("sta " + regparmZp);
+            if (regparmWide) emit("stx " + regparmZp1);
+        }
+    }
+
     // __builtin_return_address(0): copy the return address (the stacked JSR
     // address + 1) to __zp_scratch3 before anything is pushed
     auto emitRetAddrCapture = [&]() {
@@ -2216,7 +2240,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // SAC thunk prologue: load params from stack into SAC param symbols.
     // This allows cross-unit callers (which push to stack) to call SAC functions.
     // Same-unit SAC callers call _func__sac directly (skipping the thunk).
-    if (currentFunctionUseSAC_ && !fn.paramTypes.empty() && !fn.isRegparm) {
+    if (currentFunctionUseSAC_ && !fn.paramTypes.empty() && !(fn.isRegparm && fn.paramTypes.size() == 1 && !fnZp)) {
         bool isZeroAlloc = isZeroAllocLeaf(fn.name, fn);
         if (!isZeroAlloc) {
             fprintf(stderr, "info: SAC thunk generated for %s (%zu params)\n",
@@ -2249,6 +2273,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             }
             int stackOff = 2; // past return address
             for (size_t i = 0; i < fn.paramTypes.size(); i++) {
+                if (fn.isRegparm && i == 0) continue;  // in A/A:X, stored above
                 std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
                     ? fn.paramNames[i] : std::to_string(i);
                 std::string sym = fn.name + "__param_" + pName;
@@ -2333,12 +2358,10 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // Push $FD then $FE through A: "phw $00FD" is absolute and would read the
     // ROM's page 0 rather than the program's relocated base page.
     if (savedCallerFP_) {
-        if (fn.isRegparm) emit("sta __zp_scratch");
         emit("lda $FD");
         emit("pha");
         emit("lda $FE");
         emit("pha");
-        if (fn.isRegparm) emit("lda __zp_scratch");
     }
 
     // Push stack frame only for non-SAC functions
@@ -2468,6 +2491,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         // In non-SAC mode, offset is 2 + frame size
         int pOff = useSAC ? 2 : (localFrameSize + 2 + (savedCallerFP_ ? 2 : 0));
         for (size_t i = 0; i < fn.paramTypes.size(); i++) {
+            if (fn.isRegparm && i == 0) continue;  // in A/A:X, not on the stack
             int ps = ir::typeSize(fn.paramTypes[i]);
             if (ps < 2) ps = 2;
             std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
@@ -2500,6 +2524,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         // In non-SAC mode, offset is 2 + frame size
         int pOff = useSAC ? 2 : (localFrameSize + 2 + (savedCallerFP_ ? 2 : 0));
         for (size_t i = 0; i < fn.paramTypes.size(); i++) {
+            if (fn.isRegparm && i == 0) continue;  // in A/A:X, not on the stack
             int ps = ir::typeSize(fn.paramTypes[i]);
             if (ps < 2) ps = 2;
             std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
@@ -2538,14 +2563,20 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             // Do NOT emit "load from stack" code - it would overwrite caller's storage!
         } else {
             // Stack convention: params are on the stack, copy to vregs
-            for (size_t i = 0; i < fn.paramTypes.size(); i++) {
+            // (a __regparm first parameter last: loading the others goes
+            // through A/X, where its value may be kept)
+            const size_t np = fn.paramTypes.size();
+            for (size_t k = 0; k < np; k++) {
+                size_t i = fn.isRegparm ? (k + 1) % np : k;
                 uint32_t vid = (uint32_t)i;
                 if (fn.isNested && i == fn.paramTypes.size() - 1 && fn.staticLinkVreg != -1) {
                     // vid = (uint32_t)fn.staticLinkVreg; // Wait! No more hidden param!
                 }
 
                 if (fn.isRegparm && i == 0) {
-                    // First param already in A (I8) or AX (I16) — just store
+                    // The register argument, saved in $10 at the entry
+                    emit("lda " + regparmZp);
+                    if (regparmWide) emit("ldx " + regparmZp1);
                     storeVreg(vid);
                     continue;
                 }
@@ -2571,11 +2602,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         // to their vregs (calls made by this function reuse the block)
         for (size_t i = 0; i < fn.paramTypes.size(); i++) {
             uint32_t vid = (uint32_t)i;
-            if (fn.isRegparm && i == 0) {
-                // First param already in A (I8) or AX (I16) — just store
-                storeVreg(vid);
-                continue;
-            }
+            // (a __regparm first argument was stored into its slot at the entry)
             std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
                 ? fn.paramNames[i] : std::to_string(i);
             std::string p = "@_p_" + pName;
@@ -4771,8 +4798,8 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     int ps = ir::typeSize(arg.type);
                     int slot = ps < 2 ? 2 : ps;
                     if (inst.isRegparm && argIdx == 0) {
-                        // First param: leave in A/AX, skip ZP store
-                        loadOperand(arg);
+                        // First param: in A/AX, loaded after the others
+                        // (loading them goes through A/X); its slot stays free
                         zpOff += slot;
                         continue;
                     }
@@ -4793,6 +4820,8 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     }
                     zpOff += slot;
                 }
+                // __regparm: the first argument goes in A (char) or A:X last
+                if (inst.isRegparm && !inst.args.empty()) loadOperand(inst.args[0]);
             } else {
                 // STACK convention: Push arguments right-to-left (C convention).
                 //
