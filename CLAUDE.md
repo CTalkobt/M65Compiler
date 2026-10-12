@@ -212,8 +212,7 @@ ln45, ar45, nm45, objdump45 and disk45 have no config files. Environment:
   `no_bssinit`, `heap`, `stdio`, `no_0100_stack`, `unroll`, `no_static_alloc`
   (use `recurse`), `no_striped`.
 - **Not implemented** (parsed, no effect): `__striped` (layout unchanged),
-  `__far` (plain 16-bit access); `__zp` variables break the build
-  (`sta.zp` rejected by ca45). `__attribute__((weak))` is ignored (use `#pragma weak`).
+  `__far` (plain 16-bit access). `__attribute__((weak))` is ignored (use `#pragma weak`).
 
 ## Program Startup and Exit (crt0)
 
