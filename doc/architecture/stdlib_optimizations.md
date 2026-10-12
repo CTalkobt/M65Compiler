@@ -6,7 +6,7 @@ No cycle counts are given: none have been measured on hardware or xemu for the c
 
 ## Assembly Routines (`lib/stdlib_asm/`, ZP convention)
 
-### malloc / free / calloc / realloc — `malloc.s45` (704 lines)
+### malloc / free / calloc / realloc — `malloc.s45` (718 lines)
 
 - Sorted singly-linked free list, first fit, block splitting, coalescing with both neighbours on `free`.
 - Header: 2-byte size with bit 0 = allocated; free blocks also hold a 2-byte next pointer.
@@ -71,4 +71,3 @@ One formatter for all `printf`/`sprintf`/`snprintf`/`fprintf` variants, writing 
 | `memcpy`/`memset` | Unroll, or use DMA above a size threshold |
 | `malloc` | Size-class free lists for small blocks; in-place `realloc` growth |
 | `qsort` | Word/long fast paths in `swap`; iterate on the larger partition |
-| Heap init | `_heap_init` overwrites the size's high byte (held in `Y`) with `ldy #0` before storing it, so the initial free block is recorded as `$01xx` bytes rather than the whole heap; until fixed, the usable heap is under 512 bytes |

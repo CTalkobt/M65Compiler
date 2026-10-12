@@ -624,6 +624,19 @@ for vcmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: malloc / free / calloc / realloc on the default heap
+for mlmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r mlname mlflags <<< "$mlmode"
+    echo "Testing test_malloc_xemu.c ($mlname)..."
+    compile_link_test "src/test-resources/test_malloc_xemu.c" "build/test/test_malloc_${mlname}_xemu.prg" "$mlflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_malloc_$mlname" "build/test/test_malloc_${mlname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_malloc_xemu.c $mlname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: one-step build (cc45 file.c -o file.prg: cc45 runs ca45 and ln45 with
 # the standard library of the calling convention)
 for osmode in "zp|" "stack|-fno-zpcall"; do

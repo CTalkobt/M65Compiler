@@ -93,7 +93,7 @@ ln45 -prg main.o45 -L lib/build -l c45.lib -o program.prg      # plain PRG (-L o
 - Sorted singly-linked free list, first fit, coalescing with both neighbours on `free`. Block header: 2-byte size (bit 0 = allocated) and, in free blocks, a 2-byte next pointer. Requests are rounded up to even, minimum 4 bytes including the 2-byte header.
 - `malloc(0)` and failure return `NULL` (`errno` is not set). `free(NULL)` is a no-op. `calloc` = `malloc` + `memset`; `realloc` = `malloc` + `memcpy` + `free` (`realloc(NULL, n)` = `malloc(n)`, `realloc(p, 0)` frees `p`).
 - The heap is initialized on the first `malloc` call. It runs from `__heap_start` to `__heap_end`; both default to 0 (library member `__heap_bounds`), which means: start at `__bss_end` (after the program and its private base page), end 4 KB below the 16-bit stack top (`$B000` with the default `$BFFF` top) or at `$C000` with the 8-bit page-1 stack. Define the two symbols in your program to place the heap elsewhere.
-- Known defect: `_heap_init` records the initial free block with a size high byte of `1` instead of the computed size, so at present only 256–510 bytes of the heap are usable (see [stdlib_optimizations.md](stdlib_optimizations.md#open-work)).
+- `realloc` keeps the old block when the new allocation fails. Overflow of `nmemb * size` in `calloc` is not detected.
 - `#pragma cc45 heap` makes standalone (non-linked) builds call `_init_heap_crt` at startup; linked programs rely on the lazy initialization.
 
 **Program termination**

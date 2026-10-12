@@ -49,10 +49,11 @@ proc _malloc
     jmp @fail
 
 @non_zero:
-    ; Adjust: add 2-byte header, align to 2 bytes, min 4
+    ; Adjust: add the 2-byte header, round up to 2 bytes (bit 0 of a
+    ; block's size is the allocated flag), min 4: (size + 3) & ~1
     lda $16
     clc
-    adc #2
+    adc #3
     tax
     lda $17
     adc #0
@@ -206,13 +207,15 @@ proc _malloc
     lda $17
     sta ($10),y
 
-    ; Return curr + 2
+    ; Return curr + 2: A = low, X = high
     lda $10
     clc
     adc #2
-    tax
+    pha
     lda $11
     adc #0
+    tax
+    pla
     rts
 
 @next:
@@ -346,10 +349,11 @@ proc _free
     lda $10
     clc
     adc $16
-    cmp $14
-    bne @coalesce_prev
+    tax
     lda $11
     adc $17
+    cpx $14
+    bne @coalesce_prev
     cmp $15
     bne @coalesce_prev
 
@@ -394,10 +398,11 @@ proc _free
     txa
     clc
     adc $12
-    cmp $10
-    bne @done
+    tax
     tya
     adc $13
+    cpx $10
+    bne @done
     cmp $11
     bne @done
 
@@ -436,38 +441,40 @@ proc _calloc
     .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z
 
-    ; total = nmemb * size
+    ; total = nmemb * size (malloc clobbers $12-$17: keep it on the stack)
     ldax $10
     mul.16 .ax, $12
-    stax $16            ; save total in $16/$17
-
-    ; malloc(total)
-    sta $10
+    sta $10             ; malloc(total)
     stx $11
+    pha                 ; total lo
+    txa
+    pha                 ; total hi
     jsr _malloc
-    sta $14             ; save result lo
-    stx $15             ; save result hi
-    ora $15
+    sta $16             ; result (memset clobbers $10-$15 only)
+    stx $17
+    ora $17
     beq @fail
 
     ; memset(result, 0, total)
-    lda $14
+    lda $16
     sta $10
-    lda $15
+    lda $17
     sta $11             ; dest = result
     lda #0              ; c = 0
     sta $12
     sta $13
-    lda $16
-    sta $14
-    lda $17
-    sta $15             ; n = total
+    pla
+    sta $15             ; n hi
+    pla
+    sta $14             ; n lo
     jsr _memset
 
-    lda $10             ; memset returns dest
-    ldx $11
+    lda $16
+    ldx $17
     rts
 @fail:
+    pla
+    pla
     lda #0
     tax
     rts
@@ -485,48 +492,54 @@ proc _realloc
     .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z
 
-    ; Save params
-    lda $10
-    sta $16             ; ptr lo
-    lda $11
-    sta $17             ; ptr hi
-    lda $12
-    sta $14             ; size lo
-    lda $13
-    sta $15             ; size hi
-
     ; If ptr is NULL, realloc is malloc
-    lda $16
-    ora $17
+    lda $10
+    ora $11
     bne @not_null
-    lda $14
+    lda $12
     sta $10
-    lda $15
+    lda $13
     sta $11
     jmp _malloc
 
 @not_null:
-    ; If size is 0, realloc is free
-    lda $14
-    ora $15
+    ; If size is 0, realloc is free (ptr is already in $10/$11) and returns NULL
+    lda $12
+    ora $13
     bne @do_realloc
-    lda $16
-    sta $10
-    lda $17
-    sta $11
-    jmp _free
+    jsr _free
+    lda #0
+    tax
+    rts
 
 @do_realloc:
-    ; malloc(size)
-    lda $14
+    ; malloc clobbers $12-$17: keep ptr and size on the stack
+    lda $10
+    pha                 ; ptr lo
+    lda $11
+    pha                 ; ptr hi
+    lda $12
+    pha                 ; size lo
+    lda $13
+    pha                 ; size hi
+    lda $12
     sta $10
-    lda $15
+    lda $13
     sta $11
-    jsr _malloc
+    jsr _malloc         ; malloc(size)
     sta $12             ; new_ptr lo (reuse $12/$13 for new ptr)
     stx $13
+    pla
+    sta $15             ; size hi
+    pla
+    sta $14             ; size lo
+    pla
+    sta $17             ; ptr hi
+    pla
+    sta $16             ; ptr lo
+    lda $12
     ora $13
-    beq @fail
+    beq @fail           ; out of memory: the old block is kept
 
     ; Get old block size: read header at (ptr - 2)
     lda $16
@@ -666,15 +679,16 @@ _heap_init:
     lda $12
     sec
     sbc $10
-    tax             ; size low
+    and #$FE        ; even: bit 0 of a block's size is the allocated flag
+    sta $14         ; size low
     lda $13
     sbc $11
-    tay             ; size high
+    sta $15         ; size high
 
     ; Ensure size >= 4
-    tya
     bne @init_ok
-    cpx #4
+    lda $14
+    cmp #4
     bcs @init_ok
     rts             ; Fail to init
 
@@ -685,12 +699,12 @@ _heap_init:
     lda $11
     sta __heap_ptr+1
 
-    ; head->size = (Y:X)
+    ; head->size = size
     ldy #0
-    txa
+    lda $14
     sta ($10),y
     iny
-    tya
+    lda $15
     sta ($10),y
 
     ; head->next = 0
