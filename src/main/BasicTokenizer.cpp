@@ -212,8 +212,10 @@ std::vector<BasicToken> BasicTokenizer::tokenize(const std::string& source) {
     bool lineStart = true;
     bool hasNonWhitespace = false;
 
+    size_t blanks = 0;              // blanks since the last token (spaceBefore)
     while (pos < source.length()) {
         char c = source[pos];
+        size_t before = tokens.size();
 
         // Skip # comments (entire line)
         if (lineStart && c == '#') {
@@ -238,8 +240,12 @@ std::vector<BasicToken> BasicTokenizer::tokenize(const std::string& source) {
                 }
                 lineStart = true;
                 hasNonWhitespace = false;
+                blanks = 0;
+            } else {
+                blanks++;
             }
             pos++;
+            continue;
         } else if (c == '"' ||
                    ((c == 'p' || c == 'P' || c == 's' || c == 'S' || c == 'a' || c == 'A' || c == '@') &&
                     pos + 1 < source.length() && source[pos + 1] == '"' &&
@@ -334,6 +340,7 @@ std::vector<BasicToken> BasicTokenizer::tokenize(const std::string& source) {
             bool isRem = tokens.back().value == "REM";
             BasicToken raw;
             raw.type = BasicToken::RAW;
+            size_t rawStart = pos;
             bool inQuote = false;
             while (pos < source.length() && source[pos] != '\n') {
                 char d = source[pos];
@@ -351,7 +358,21 @@ std::vector<BasicToken> BasicTokenizer::tokenize(const std::string& source) {
                 size_t e = raw.value.find_last_not_of(" \t\r");
                 raw.value = e == std::string::npos ? "" : raw.value.substr(0, e + 1);
             }
-            if (!raw.value.empty()) tokens.push_back(raw);
+            if (!raw.value.empty()) {
+                // REM keeps its text as typed (its blanks included); DATA's
+                // leading blanks go to spaceBefore
+                if (!isRem) {
+                    size_t lead = 0;
+                    std::string typed;
+                    for (size_t k = rawStart; k < pos && (source[k] == ' ' || source[k] == '\t'); k++) lead++;
+                    raw.spaceBefore = (uint8_t)std::min<size_t>(lead, 255);
+                }
+                tokens.push_back(raw);
+            }
+        }
+        if (tokens.size() > before) {
+            tokens[before].spaceBefore = std::max<uint8_t>(tokens[before].spaceBefore, (uint8_t)std::min<size_t>(blanks, 255));
+            blanks = 0;
         }
     }
 

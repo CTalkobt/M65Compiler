@@ -20,7 +20,7 @@
 - **Formatting** — `--format` ([Formatting](#formatting))
 - **Markdown documentation** of labeled sections (`--docs`)
 
-See [Known Problems](#known-problems) for the options that are still placeholders.
+See [Known Problems](#known-problems) for the remaining limits.
 
 ## Syntax
 
@@ -43,7 +43,7 @@ Without `-o` the output is the input name with its extension replaced by `.prg` 
 | `--docs <file>` | Write markdown documentation of labeled sections |
 | `-I <path>` | Include search path for `#include` (one path; a later `-I` replaces an earlier one) |
 | `--minify` | Remove `REM` comments and whitespace, and join lines into the line before them: never across a label (a jump target starts its own line), never onto a line containing `IF` (statements after `THEN` run only when the condition holds), at most 160 characters per line |
-| `--preserve-spaces` | Accepted; no effect |
+| `--preserve-spaces` | Keep the blanks the source has between tokens (outside strings) instead of basic45's spacing (one space after a keyword before a name, number or operator), so the program lists as it was typed. Not the indentation: BASIC lists one space after the line number |
 | `--validate` | Run the preprocessor and validation only; write nothing |
 | `--strict` | Treat validation warnings as errors (exit status 1) |
 | `--dry-run` | Compile, but only report what would be written |
@@ -372,11 +372,10 @@ A label is recognised when `name:` is followed by a space or the end of the line
 
 ## Known Problems
 
-- `--preserve-spaces` is accepted and does nothing.
 - `--link` uses the ZP calling convention and `c45.lib`; for stack-convention C, declare the called functions `__fastcall__`.
 - `--send`'s default commands (`etherload -r`, `m65 -F -r`) are untested; use `--send-cmd` with the options your tools need.
 
-`test_basic45_xemu.bas`, `test_basic45_features_xemu.bas` (as is, decompiled and rebuilt, and formatted) and `test_basic45_link_xemu.bas` (C, asm, incbin, datainc) are run by BASIC 65 on xemu.
+`test_basic45_xemu.bas` (as is, `--minify` and `--preserve-spaces`), `test_basic45_features_xemu.bas` (as is, decompiled and rebuilt, and formatted) and `test_basic45_link_xemu.bas` (C, asm, incbin, datainc) are run by BASIC 65 on xemu.
 
 ## See Also
 

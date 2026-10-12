@@ -220,11 +220,14 @@ std::vector<uint8_t> BasicEmitter::emitLineWithSpaces(const BasicLine& line, uin
 
     for (size_t i = 0; i < line.tokens.size(); i++) {
         const auto& token = line.tokens[i];
+        // --preserve-spaces: the blanks the source had before the token
+        // (not before the first: BASIC lists a space after the line number)
+        if (preserveSpaces && i > 0) result.insert(result.end(), token.spaceBefore, 0x20);
         auto tokenData = emitToken(token);
         result.insert(result.end(), tokenData.begin(), tokenData.end());
 
         // Add space after keywords when followed by identifier, number, or variable
-        if (token.type == BasicToken::KEYWORD && i + 1 < line.tokens.size()) {
+        if (!preserveSpaces && token.type == BasicToken::KEYWORD && i + 1 < line.tokens.size()) {
             const auto& nextToken = line.tokens[i + 1];
             if (token.value.back() == '(') {
                 // TAB( SPC(: the parenthesis is part of the token

@@ -418,7 +418,7 @@ fi
 # Test: basic45 -- a BASIC 65 program (operators, labels, ON GOTO, DATA,
 # escapes) built as is and with --minify, run by BASIC on xemu; and the
 # validator's undefined-label error
-for bsmode in "plain|" "minify|--minify"; do
+for bsmode in "plain|" "minify|--minify" "spaces|--preserve-spaces"; do
     IFS='|' read -r bsname bsflags <<< "$bsmode"
     echo "Testing test_basic45_xemu.bas ($bsname)..."
     if ./bin/basic45 --strict $bsflags src/test-resources/test_basic45_xemu.bas \
@@ -459,6 +459,19 @@ else
     failed=$((failed + 1))
 fi
 rm -f build/test/basic45_features.d81
+
+# basic45 --preserve-spaces: the source's blanks between tokens
+printf 'top: print  a ;  "x" : goto   top\n' > build/test/basic45_spaces.bas
+if ./bin/basic45 --preserve-spaces build/test/basic45_spaces.bas -o build/test/basic45_spaces.prg 2>/dev/null &&
+   xxd -p build/test/basic45_spaces.prg | tr -d '\n' | grep -q "99202041203b2020225822203a208920202031" &&
+   ./bin/basic45 build/test/basic45_spaces.bas -o build/test/basic45_spaces.prg 2>/dev/null &&
+   xxd -p build/test/basic45_spaces.prg | tr -d '\n' | grep -q "9920413b2258223a892031"; then
+    echo "PASS: basic45 --preserve-spaces"
+    passed=$((passed + 1))
+else
+    echo "FAIL: basic45 --preserve-spaces"
+    failed=$((failed + 1))
+fi
 
 # basic45 string escapes, MEGA65 control codes and ESC sequences included
 printf 'print "{flash}{esc-x}{clear-eos}{$c1}{down}{esc}{lower}{orange}"\n' > build/test/basic45_escapes.bas
