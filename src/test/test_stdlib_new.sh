@@ -2,7 +2,7 @@
 # test_stdlib_new.sh — Test new stdlib functions (memchr, isgraph, strerror, qsort, bsearch, array_decay)
 # Uses xemu-xmega65 for runtime validation
 
-CC=bin/cc45
+CC="bin/cc45 -O2"
 LN=bin/ln45
 CRT0=lib/build/crt0.o45
 LIB=lib/build/c45.lib

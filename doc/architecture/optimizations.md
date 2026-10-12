@@ -37,14 +37,15 @@ with `./bin/cc45` (see [Checking it yourself](#checking-it-yourself)).
 | IR passes (`IROptimizer.cpp`) | See [IR passes](#ir-passes) | `-O1`+; `-f[no-]<pass>`; `#pragma cc45 optimize(...)` |
 | Parameter narrowing advisory | For `static` functions: `note: parameter N of 'f' could be 'unsigned char' (all call sites pass 0-255)` (or `unsigned int`). Advisory only, code is not changed | Always on |
 | Vector-extension unrolling | Element-wise vector operations are unrolled when the size estimate fits the limit, otherwise a loop is emitted | `-fmax-unroll-bytes=N` / `#pragma cc45 max_unroll_bytes(N)` |
+| Loop unrolling (`IROptimizer.cpp`) | Counted `for` loops fully unrolled ([Loop unrolling](#loop-unrolling)) | `-O4`+, `-f[no-]loop-unrolling`, the same size limit |
 | `repeat(N) { ... }` | Body is emitted N times | Always unrolled (language construct) |
 | Static Allocation Convention (SAC) | Locals/params of non-recursive functions in static BSS records instead of a stack frame | `-fstaticalloc` (default) / `-fno-staticalloc`; see `calling-conventions.md` |
 | ZP calling convention | Parameters in ZP `$10-$2F` | `-fzpcall` (default) / `-fno-zpcall` |
 | Code generation (`IRCodeGen`) | Store-fused 16-bit add/sub, single-bit `AND` + branch → `BBS`/`BBR`, fused compare-and-branch, CONST suppression, constant-address direct stores, per-function `.reg_clobbers`/`.flag_clobbers`/`leaf` metadata | Always on, not tied to `-O` |
 | Assembler peephole (`ca45`) | Branch inversion, JMP→BRA, redundant loads, tail calls, … (table below) | ca45 `-O`/`-P` options; from cc45, five of them through `-f[no-]<name>` |
 
-Ordinary `for`/`while` loops are never unrolled or interchanged (LICM hoists
-invariant computations out of them). The "loop optimization" and
+From `-O4`, counted `for` loops are unrolled and suitable nests interchanged;
+LICM hoists invariant computations out of loops from `-O1`. The "loop optimization" and
 "cross-module optimization" steps in `OptimizeStage` and `CodegenStage`
 (`performLoopOptimizations`, `performCrossModuleOptimization`,
 `applyIPOSpecialization`, `applyInlining`, `eliminateDeadCode`) only count
@@ -58,8 +59,9 @@ every function for which the pass is on (`-O1` and up, unless switched off).
 
 | Pass (`-f` name) | Tag | What it does |
 |---|---|---|
+| `loop-unrolling` (from `-O4`) | `unroll` | See [Loop unrolling](#loop-unrolling). Runs first, so the other passes fold its constants |
 | `strength-reduction` | `strength` | `x * 2^n` → shift, unsigned `x / 2^n` → shift, unsigned `x % 2^n` → `AND`, `x * 1` → copy (signed division is left alone: it rounds toward zero) |
-| `algebraic-simplify` | `algebraic` | `x + 0`, `x - 0`, `x * 1`, `x | 0`, `x ^ 0`, `x << 0`, `x & -1` → `x`; `x * 0`, `x & 0` → 0; `x - x` → 0 |
+| `algebraic-simplify` | `algebraic` | `x + 0`, `x - 0`, `x * 1`, `x | 0`, `x ^ 0`, `x << 0`, `x & -1` → `x`; `x * 0`, `x & 0` → 0; `x - x` → 0; an element address with a constant index on a global or pointer base → base + constant |
 | `type-narrowing` | `narrow` | An `ADD`/`MUL`/`AND`/`OR`/`XOR`/`SHL`/`NOT` whose result is only used through a truncation to 8 bits is computed in 8 bits |
 | `branch-folding` | `branch` | Removes instructions after a block's terminator, folds branches on constants, threads jumps to blocks that only jump, removes unreachable blocks |
 | `cse` | `cse` | Within a block, a repeated pure expression reuses the earlier result; copy propagation of temporaries. Forgets an expression when an operand is reassigned, and on stores through pointers, calls and inline asm |
@@ -67,9 +69,80 @@ every function for which the pass is on (`-O1` and up, unless switched off).
 | `copy-propagation` | `copy` | Replaces uses of a copy of a temporary by the original and removes the dead copies (temporaries defined once only; never variables) |
 | `addr-elem-fusion` | `fusion` | An array element address used once, by the next 1/2-byte (or 4-byte load) access of an integer or pointer, is computed inside that load/store (no pointer temporary) |
 
+After the passes, pure instructions whose temporary result nothing uses are
+removed (`removeDeadTemps`; part of dead-code elimination, always on).
+
 The IR is not in SSA form (a variable's slot is assigned by `STORE`; a
 temporary can be defined on two paths, as in `a && b`), so every pass treats
 a value as constant or fixed only when it has exactly one definition.
+
+## Loop unrolling
+
+`-floop-unrolling` (on from `-O4`) fully unrolls a `for` loop whose variable
+starts at a constant, is compared with a constant and changes by a constant
+(`i++`, `i--`, `i += 3`, …), when the trip count is at most 255 and the
+unrolled code is estimated (about 4 bytes per IR instruction) to fit
+`-fmax-unroll-bytes` (default 128; `#pragma cc45 max_unroll_bytes(N)`, the
+last one in the file). Inner loops are unrolled first.
+
+Each copy of the body reads the loop variable's value for that iteration as
+a constant, so indexes and conditions fold (`a[i]` becomes a fixed element
+address); `continue` goes to the next copy and `break` to the end, and the
+variable has its final value after the loop (and, when the body can break
+out, in each copy). For a 4-iteration `a[i] = a[i] + k` loop run 60000 times
+the run time on xemu dropped from 0.38 s to 0.20 s (startup subtracted;
+2026-10-11), and the program grew from 345 to 434 bytes.
+
+Not unrolled: loops whose body assigns the variable or takes its address,
+contains inline asm, computed-goto labels or labels jumped to from outside;
+variables that are volatile or address-taken; values that would cross the
+sign bit or wrap; bounds that are not constants. `#pragma cc45
+optimize(no-loop-unrolling)` turns it off for a function. `-Roptir` reports
+`[unroll] _f: loop at for_condN unrolled K times`; `test_unroll_xemu.c`
+checks the results.
+
+## Loop interchange
+
+`-floop-interchange` (on from `-O4`; `src/main/LoopInterchange.cpp`, run by
+`OptimizeStage` on the AST before IR generation) swaps a perfectly nested pair
+of `for` loops when the array subscripts put the inner loop's variable in an
+earlier dimension than the outer one's, as in
+
+```c
+for (int i = 0; i < C; i++)
+    for (int j = 0; j < R; j++)
+        b[j][i] = a[j][i] + 1;      /* becomes: j outer, i inner */
+```
+
+The 45GS02 has no cache; the gain is that after the swap the row address
+`a[j]` does not change in the inner loop, so LICM computes it once per row.
+For a 16×16 `int` copy like the one above the loop ran about 35% faster on
+xemu (3000 repetitions: about 1.5 s against 2.3 s, startup subtracted;
+measured 2026-10-11). Only the two loop headers are exchanged; the body is
+not copied, so the code size does not change.
+
+It is done only when it cannot change behaviour (checked by name, conservatively):
+
+- a perfect nest (the outer body is the inner `for` alone) with rectangular,
+  side-effect-free headers: each loop's initializer, condition and `++`/`--`/`+=`/`-=`
+  increment use its own variable and names the nest does not assign;
+- a body without `break`, `continue`, `goto`, `return`, labels, `switch`,
+  `asm`, `repeat`, inner loops, calls, `&`, volatile objects, or declarations
+  that shadow a variable of the nest;
+- stores only to elements of declared (non-pointer, non-parameter) arrays whose
+  every access in the body uses the same subscripts, which mention both loop
+  variables; scalars only as integer `+=`, `-=`, `^=`, `|=`, `&=` reductions
+  not otherwise used, or as temporaries declared in the body; and, when
+  anything is stored, no reads through pointers;
+- loop variables declared by their `for` statements, or not used elsewhere
+  in the function (their values after the nest would differ).
+
+`#pragma cc45 optimize(no-loop-interchange)` turns it off for the function
+it is in (or, at file scope, for the functions after it), and
+`optimize(loop-interchange)` turns it on below `-O4`. `-Roptir` reports each
+swap as `[interchange] _f (line N): loops over i and j interchanged`.
+`test_interchange_xemu.c` checks the results of nests it swaps and of nests
+it must leave alone.
 
 ## Optimization levels (cc45)
 
@@ -80,7 +153,8 @@ Each catalog optimization has a level from which it is on
 |---|---|---|
 | `-O0` | 0 | No IR passes, no automatic inlining |
 | `-O1` | 1 | The eight IR passes |
-| `-O2` … `-O9` (default `-O2`) | 2–9 | IR passes and automatic inlining of small functions. Identical output for all of them (the catalog entries for higher levels are not implemented) |
+| `-O2`, `-O3` (default `-O2`) | 2, 3 | IR passes and automatic inlining of small functions. Identical output |
+| `-O4` … `-O9` | 4–9 | Adds loop interchange and loop unrolling. Identical output for all of them (the catalog entries for higher levels are not implemented) |
 | `-Osize` | 2 | Same as `-O2` |
 | `-Ospeed` | 3 | Same as `-O2` |
 | `-Os`, `-O` (no digit), any other `-O<text>` | 0 | **Same as `-O0`** (not `-O2`) |
@@ -99,6 +173,16 @@ pointer, takes no aggregate by value, and one of these is true:
 - it is declared `inline` (or `__inline`, `__inline__`),
 - it has `__attribute__((always_inline))` / `__forceinline`,
 - it is a struct method with at most 3 statements.
+
+Unless it is `always_inline`, a function is never inlined when its body
+contains inline asm (which may name the parameters, `@_p_x`), labels or
+`goto`, nested function definitions, `static` locals or variable-length
+arrays, when a parameter is a variable-length array (`int a[2][n]`), or when
+it takes the address of a parameter (`&x`): each of these needs the
+function's own frame, symbols or a single copy. The inlined `return` value
+has the inlined function's return type, the inlined body sees its own
+parameters and locals and the globals (never the caller's locals), and a
+parameter the body assigns becomes a local variable of the caller.
 
 It also needs at most 20 body statements (`INLINE_MAX_STMTS`) and, after IR
 generation, at most `max_inline_ir_size` IR instructions (default **11**).
@@ -200,7 +284,9 @@ implemented:
 | `devirtualization` | IRBuilder | `-O0` |
 | `tail-call-optimization`, `branch-inversion`, `jump-optimization`, `redundant-load-elimination`, `dead-store-elimination` | ca45 pass: cc45 passes `-P<x>` / `-PNo<x>` (`TailCall`, `BranchInvert`, `JmpBra`, `RedundantLoad`, `DeadStore`) to ca45; file-wide only | ca45's default (always) |
 | `constant-folding`, `dead-code-elimination`, `frame-pointer-optimization` | Part of code generation, always on: `-fno-` warns *"cannot be disabled"* | always |
-| `loop-unrolling`, `loop-interchange`, `cross-function-inlining`, `co-optimization`, `procedure-inlining`, `interprocedural-optimization` | **Not implemented**: accepted and ignored; with `--future` cc45 warns *"optimization 'loop-unrolling' is not implemented yet; -floop-unrolling has no effect"* | — |
+| `loop-interchange` | AST pass before IR generation ([Loop interchange](#loop-interchange)); also per function by pragma | `-O4` |
+| `loop-unrolling` | IR pass ([Loop unrolling](#loop-unrolling)); also per function by pragma | `-O4` |
+| `cross-function-inlining`, `co-optimization`, `procedure-inlining`, `interprocedural-optimization` | **Not implemented**: accepted and ignored; with `--future` cc45 warns *"optimization 'procedure-inlining' is not implemented yet; -fprocedure-inlining has no effect"* | — |
 
 `#pragma cc45 optimize(no-licm)` (or `optimize(cse, no-copy_propagation)`,
 `optimize cse`) overrides the command line for the IR passes it names. Inside

@@ -13,7 +13,7 @@
 # The runtime check of the passes is test_iropt_xemu.c in test_xemu.sh.
 
 cd "$(dirname "$0")/../.." || exit 1
-CC=./bin/cc45
+CC="./bin/cc45 -O2"
 SRC=src/test-resources/test_iropt_xemu.c
 T=build/test/opt
 mkdir -p $T
@@ -65,6 +65,27 @@ echo "$out" | grep -q "^\[licm\] _f2" && pass || fail "optimize(no-licm) inside 
 printf '#pragma cc45 optimize(no-tail-call-optimization)\nint main(void) { return 0; }\n' > $T/fw.c
 $CC -S $T/fw.c -o $T/fw.s 2>&1 | grep -q "applies to the whole file" && pass || fail "optimize(no-<ca45 pass>) does not warn"
 
+# Loop interchange (AST pass, -O4): exactly the nests it may swap
+LI=src/test-resources/test_interchange_xemu.c
+li() { $CC -S -Roptir "$@" $LI -o $T/li.s 2>&1 >/dev/null | grep "^\[interchange\]" | sed -E 's/^\[interchange\] _([a-z_]+) .*/\1/' | tr '\n' ' '; }
+[ "$(li -floop-interchange)" = "colcopy colsum " ] && pass || fail "-floop-interchange swapped: '$(li -floop-interchange)' (expected colcopy colsum)"
+[ -z "$(li)" ] && pass || fail "loop interchange runs at the default -O2"
+[ "$(li -O4)" = "colcopy colsum " ] && pass || fail "loop interchange does not run at -O4"
+[ -z "$(li -O4 -fno-loop-interchange)" ] && pass || fail "-fno-loop-interchange does not stop it"
+printf 'int a[4][5];\n#pragma cc45 optimize(no-loop-interchange)\nvoid f(void) { for (int i = 0; i < 5; i++) for (int j = 0; j < 4; j++) a[j][i] = 1; }\n' > $T/li2.c
+$CC -S -Roptir -floop-interchange $T/li2.c -o $T/li2.s 2>&1 | grep -q "^\[interchange\]" && fail "#pragma cc45 optimize(no-loop-interchange) does not stop it" || pass
+
+# Loop unrolling (IR pass, -O4): exactly these loops, the 300-iteration one is not
+UN=src/test-resources/test_unroll_xemu.c
+un() { $CC -S -Roptir "$@" $UN -o $T/un.s 2>&1 >/dev/null | grep "^\[unroll\]" | sed -E 's/^\[unroll\] _([a-z_]+)__test_unroll_xemu: .* unrolled ([0-9]+) times/\1x\2/' | tr '\n' ' '; }
+want="simplex8 simplex4 cont_breakx6 cont_breakx6 nested_down_stepx4 nested_down_stepx4 nested_down_stepx5 nested_down_stepx4 char_ifx5 zero_callsx0 zero_callsx3 "
+[ "$(un -floop-unrolling)" = "$want" ] && pass || fail "-floop-unrolling unrolled: '$(un -floop-unrolling)'"
+[ -z "$(un)" ] && pass || fail "loop unrolling runs at the default -O2"
+[ "$(un -O4)" = "$want" ] && pass || fail "loop unrolling does not run at -O4"
+[ -z "$(un -O4 -fno-loop-unrolling)" ] && pass || fail "-fno-loop-unrolling does not stop it"
+printf 'int a[4];\nvoid f(void) {\n#pragma cc45 optimize(no-loop-unrolling)\n    for (int i = 0; i < 4; i++) a[i] = i; }\n' > $T/un2.c
+$CC -S -Roptir -floop-unrolling $T/un2.c -o $T/un2.s 2>&1 | grep -q "^\[unroll\]" && fail "#pragma cc45 optimize(no-loop-unrolling) does not stop it" || pass
+
 # ca45 pass: tail calls (JSR + RTS -> JMP)
 printf 'void g(void);\nvoid f(void) { g(); }\n' > $T/tail.c
 $CC -c $T/tail.c -o $T/tail.o45 >/dev/null 2>&1
@@ -90,13 +111,13 @@ $CC -S -fno-devirtualization $T/dv.c -o $T/dv.s >/dev/null 2>&1
 grep -q "jsr _A__get" $T/dv.s && fail "-fno-devirtualization still calls directly" || pass
 
 # Diagnostics
-out=$($CC -S --future -floop-unrolling $SRC -o $T/t.s 2>&1)
-echo "$out" | grep -q "optimization 'loop-unrolling' is not implemented yet" && pass || fail "--future does not warn for -floop-unrolling"
-out=$($CC -S -floop-unrolling $SRC -o $T/t.s 2>&1)
+out=$($CC -S --future -fprocedure-inlining $SRC -o $T/t.s 2>&1)
+echo "$out" | grep -q "optimization 'procedure-inlining' is not implemented yet" && pass || fail "--future does not warn for -fprocedure-inlining"
+out=$($CC -S -fprocedure-inlining $SRC -o $T/t.s 2>&1)
 echo "$out" | grep -q "not implemented" && fail "unimplemented optimization warns without --future" || pass
-printf '#pragma cc45 optimize(loop-interchange)\nint main(void) { return 0; }\n' > $T/fut.c
+printf '#pragma cc45 optimize(cross-function-inlining)\nint main(void) { return 0; }\n' > $T/fut.c
 out=$($CC -S --future $T/fut.c -o $T/fut.s 2>&1)
-echo "$out" | grep -q "optimization 'loop-interchange' is not implemented yet" && pass || fail "--future does not warn for the pragma"
+echo "$out" | grep -q "optimization 'cross-function-inlining' is not implemented yet" && pass || fail "--future does not warn for the pragma"
 out=$($CC -S -fno-constant-folding $SRC -o $T/t.s 2>&1)
 echo "$out" | grep -q "cannot be disabled" && pass || fail "-fno-constant-folding does not warn"
 out=$($CC -S -fbogus-option $SRC -o $T/t.s 2>&1); rc=$?

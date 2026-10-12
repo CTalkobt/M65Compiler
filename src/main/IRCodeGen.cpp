@@ -2914,9 +2914,12 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             // store directly to the local's ZP address without round-tripping through temp.
             if (inst.dest.isVreg() && (inst.resultType == ir::Type::I16 || inst.resultType == ir::Type::I8)) {
                 auto* nextInst = peekNextInst();
+                // (only when the store is the CONST's one use: the value is not
+                // put in the CONST's own register)
                 if (nextInst && nextInst->op == ir::Op::STORE &&
                     nextInst->src1.isVreg() && nextInst->src1.vregId == inst.dest.vregId &&
-                    nextInst->src2.isVreg() && localSlotVregs_.count(nextInst->src2.vregId)) {
+                    nextInst->src2.isVreg() && localSlotVregs_.count(nextInst->src2.vregId) &&
+                    !vregUsedOutside(inst.dest.vregId, &inst, nextInst)) {
                     auto destAlloc = alloc_.getAlloc(nextInst->src2.vregId);
                     if (destAlloc.loc == VRegAllocator::IN_ZP) {
                         std::string r = irDesc("val=" + std::to_string(val) + " → direct store");

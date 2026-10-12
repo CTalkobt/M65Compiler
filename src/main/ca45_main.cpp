@@ -94,7 +94,7 @@ static void printHelpGeneral() {
     std::cout << "  Format:  One option per line, comments start with #\n\n";
     std::cout << "Environment variables (Phase 4.3):\n";
     std::cout << "  CA45_OPTIMIZE=<level>  Set optimization level (0, 1, 2, 3)\n";
-    std::cout << "  CA45_WARNINGS=<list>   Comma-separated warning flags (overflow:underflow)\n";
+    std::cout << "  CA45_WARNINGS=<list>   Warning flags separated by commas or colons (overflow,underflow)\n";
     std::cout << "  CC45_INCLUDE=<paths>   Colon-separated include search paths\n\n";
     std::cout << "Use --help=<section> for detailed help. Example: ca45 --help=input-output\n";
     std::cout << "Available sections: input-output, optimization, debugging, preprocessor, diagnostics\n";
@@ -417,7 +417,7 @@ int main(int argc, char** argv) {
     if (const char* envWarnings = std::getenv("CA45_WARNINGS")) {
         std::string warnings(envWarnings);
         size_t pos = 0, found;
-        while ((found = warnings.find(':', pos)) != std::string::npos) {
+        while ((found = warnings.find_first_of(",:", pos)) != std::string::npos) {   // "overflow,underflow" or "overflow:underflow"
             if (found > pos) {
                 std::string warning = warnings.substr(pos, found - pos);
                 envArgs.push_back("-W" + warning);
@@ -474,13 +474,13 @@ int main(int argc, char** argv) {
             return 0;
         } else if (arg == "-c") {
             relocMode = true;
-        } else if (arg == "-o" && i + 1 < argc) {
-            output_file = argv[++i];
+        } else if (arg == "-o" && i + 1 < (int)allArgs.size()) {
+            output_file = allArgs[++i];
             outputSet = true;
-        } else if (arg == "-L" && i + 1 < argc) {
-            listing_file = argv[++i];
-        } else if (arg == "-l" && i + 1 < argc) {
-            listingLevel = std::stoi(argv[++i]);
+        } else if (arg == "-L" && i + 1 < (int)allArgs.size()) {
+            listing_file = allArgs[++i];
+        } else if (arg == "-l" && i + 1 < (int)allArgs.size()) {
+            listingLevel = std::stoi(allArgs[++i]);
         } else if (arg == "-Roptimizer") {
             verboseOptimizer = true;
         } else if (arg == "-Rmachstate") {
@@ -533,12 +533,12 @@ int main(int argc, char** argv) {
             warnUnderflow = true;  // Phase 1.3: enable underflow warnings
         } else if (arg == "--dry-run") {
             dryRun = true;  // Phase 3.1: validate without generating output
-        } else if (arg == "--source-map" && i + 1 < argc) {
-            sourceMapFile = argv[++i];  // Phase 3.2: generate source map
+        } else if (arg == "--source-map" && i + 1 < (int)allArgs.size()) {
+            sourceMapFile = allArgs[++i];  // Phase 3.2: generate source map
         } else if (arg == "--emulator") {
             launchEmulator = true;  // Phase 3.3: launch emulator after assembly
-        } else if (arg == "--emulator-path" && i + 1 < argc) {
-            emulatorPath = argv[++i];  // Phase 3.3: custom emulator path
+        } else if (arg == "--emulator-path" && i + 1 < (int)allArgs.size()) {
+            emulatorPath = allArgs[++i];  // Phase 3.3: custom emulator path
         } else if (arg == "--watch") {
             watchMode = true;  // Phase 3.4: watch file for changes
         } else if (arg == "-vv") {

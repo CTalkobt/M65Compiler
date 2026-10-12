@@ -1,7 +1,7 @@
 #!/bin/bash
 # Test for C99 restrict qualifier in compiler
 
-CC="./bin/cc45"
+CC="./bin/cc45 -O2"
 AS="./bin/ca45"
 TEMP_C="test_restrict_tmp.c"
 TEMP_S="test_restrict_tmp.s45"

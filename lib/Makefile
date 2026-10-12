@@ -39,7 +39,7 @@ STDLIB_ZP_OBJECTS = $(patsubst stdlib/%.c,$(BUILD)/zp_%.o45,$(STDLIB_C_SOURCES))
 
 # Library C sources are written as standard C (signed int/long) with unsigned
 # char for PETSCII; cc45's own default makes int/long unsigned too.
-LIB_CFLAGS = -fimplicit-function-declaration -fsigned-default -funsigned-char
+LIB_CFLAGS = -O2 -fimplicit-function-declaration -fsigned-default -funsigned-char
 
 # Rebuild objects when the tools or library headers change
 C_TOOL_DEPS = $(CC45) $(CA45) $(wildcard include/*.h)

@@ -6,7 +6,7 @@
 # Tests are compiled with cc45 -c, linked with ln45 + c45.lib,
 # and executed in mmemu-cli.
 
-CC="./bin/cc45"
+CC="./bin/cc45 -O2"
 LD="./bin/ln45"
 MMEMU="mmemu-cli"
 LIB="lib/build/c45.lib"

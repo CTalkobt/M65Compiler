@@ -270,6 +270,7 @@ struct Module {
     // CPU stack: -1 = crt0 default (16-bit stack topped at $BFFF), 0 = keep
     // the ROM's 8-bit page-1 stack (-fno-stack16), else the stack's top byte
     int stackTop = -1;
+    int maxUnrollBytes = -1;   // #pragma cc45 max_unroll_bytes (last one in the file); -1 = -fmax-unroll-bytes
     std::list<Function> functions;
     std::vector<std::string> externs;
 

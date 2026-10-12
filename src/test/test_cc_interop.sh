@@ -11,7 +11,7 @@
 #   7. Variadic calls from ZP functions
 #   8. .func_flags records from hand-written assembly
 
-CC="./bin/cc45 -fno-zpcall"  # interop tests mark ZP functions __fastcall__; the rest is stack
+CC="./bin/cc45 -O2 -fno-zpcall"  # interop tests mark ZP functions __fastcall__; the rest is stack
 AS="./bin/ca45"
 LD="./bin/ln45"
 XEMU="xemu-xmega65"
@@ -71,8 +71,8 @@ echo ""
 echo "=== Test 2: ZP → Stack calls (linker thunk; --no-thunks rejects) ==="
 
 ZS=build/test/test_cc_zp_to_stack
-if ./bin/cc45 -c -fzpcall src/test-resources/test_cc_zp_to_stack.c -o $ZS.o45 >/dev/null 2>$ZS.err &&
-   ./bin/cc45 -c -fno-zpcall src/test-resources/test_cc_zp_to_stack_callee.c -o ${ZS}_callee.o45 >/dev/null 2>>$ZS.err; then
+if ./bin/cc45 -O2 -c -fzpcall src/test-resources/test_cc_zp_to_stack.c -o $ZS.o45 >/dev/null 2>$ZS.err &&
+   ./bin/cc45 -O2 -c -fno-zpcall src/test-resources/test_cc_zp_to_stack_callee.c -o ${ZS}_callee.o45 >/dev/null 2>>$ZS.err; then
     if $LD --no-thunks -basic -o $ZS.prg "$CRT0" $ZS.o45 ${ZS}_callee.o45 "$LIB" >/dev/null 2>$ZS.lderr; then
         fail "ZP→Stack --no-thunks" "Linker should have rejected the zp_call -> stack_call calls, but succeeded"
     elif grep -q "calling convention mismatch: '_main' calls '_stack_add' (zp_call -> stack_call)" $ZS.lderr; then

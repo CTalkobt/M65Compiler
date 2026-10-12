@@ -2,7 +2,7 @@
 # Inline control: -fmax-inline-ir-size, #pragma cc45 max_inline_ir_size,
 # __attribute__((always_inline)), __forceinline, __attribute__((noinline))
 
-CC="./bin/cc45"
+CC="./bin/cc45 -O2"
 TEMP_C="test_inline_control_tmp.c"
 TEMP_S="test_inline_control_tmp.s45"
 TEMP_E="test_inline_control_tmp.err"

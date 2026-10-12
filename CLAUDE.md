@@ -153,6 +153,11 @@ Known install problem: an installed cc45 looks for headers in
 
 ## Testing
 
+Every test script and the library build pass an explicit `-O2` (cc45's
+default level), so a personal `~/.config/m65/cc45.conf` (e.g. `-O1`) does
+not change what is tested; a test's own later `-O` still wins. Use an
+explicit `-O<n>` in ad-hoc test commands too.
+
 - `make test` — unit tests (no emulator).
 - `bash src/test/test_xemu.sh` — runtime tests on xemu (77 pass): each
   `*_xemu.c` writes results to `$C0C0` (01 = pass, `$AA` sentinel), built in
@@ -202,7 +207,9 @@ ln45, ar45, nm45, objdump45 and disk45 have no config files. Environment:
   IR passes of `IROptimizer.cpp` (strength reduction, algebraic simplification,
   type narrowing, branch folding, CSE, LICM, copy propagation, address fusion;
   `CodegenStage::optimizeIR`); `-O2`+ adds automatic inlining
-  (`-fmax-inline-ir-size`, default 11). Every entry of `OptimizationCatalog`
+  (`-fmax-inline-ir-size`, default 11); `-O4`+ adds loop interchange (an AST
+  pass, `LoopInterchange.cpp`, run by `OptimizeStage`) and loop unrolling
+  (`optimizeLoopUnroll`, limited by `-fmax-unroll-bytes`). Every entry of `OptimizationCatalog`
   has `-f<name>`/`-fno-<name>`: IR passes (also per function with
   `#pragma cc45 optimize(...)`), IRBuilder switches (inline-small-functions,
   devirtualization), ca45 passes forwarded as `-P` (tail calls, branch

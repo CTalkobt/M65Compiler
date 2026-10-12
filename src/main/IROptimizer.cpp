@@ -84,6 +84,24 @@ void propagateOperand(Operand& op, const std::map<uint32_t, Operand>& copies) {
     }
 }
 
+
+// Vregs that are constants: defined once, by a CONST, never stored to and not
+// a variable's slot (vregs are not SSA: a && b's result is CONST 0 on one path)
+std::map<uint32_t, int64_t> singleDefConsts(const Function& fn) {
+    std::map<uint32_t, int64_t> consts;
+    std::map<uint32_t, int> defs;
+    for (const auto& b : fn.blocks)
+        for (const auto& i : b.insts) {
+            if (i.dest.isVreg()) defs[i.dest.vregId]++;
+            if ((i.op == Op::STORE || i.op == Op::STORE_ZP) && i.src2.isVreg()) defs[i.src2.vregId] += 2;
+            if (i.op == Op::CONST && i.dest.isVreg() && i.src1.isImm()) consts[i.dest.vregId] = i.src1.immVal;
+        }
+    for (auto it = consts.begin(); it != consts.end();) {
+        if (defs[it->first] != 1 || fn.localSlotVregs.count(it->first)) it = consts.erase(it);
+        else ++it;
+    }
+    return consts;
+}
 } // namespace
 
 void optimizeCSE(Module& mod) {
@@ -211,14 +229,7 @@ void optimizeStrengthReduction(Module& mod) {
         if (!runOn(fn, "StrengthReduction")) continue;
         // Build constant value map: vreg → immediate value
         // (for looking up CONST operands of MUL/DIV/MOD)
-        std::map<uint32_t, int64_t> constVals;
-        for (auto& block : fn.blocks) {
-            for (auto& inst : block.insts) {
-                if (inst.op == Op::CONST && inst.dest.isVreg() && inst.src1.isImm()) {
-                    constVals[inst.dest.vregId] = inst.src1.immVal;
-                }
-            }
-        }
+        std::map<uint32_t, int64_t> constVals = singleDefConsts(fn);
 
         // Rewrite instructions
         for (auto& block : fn.blocks) {
@@ -317,12 +328,30 @@ void optimizeAlgebraic(Module& mod) {
     for (auto& fn : mod.functions) {
         if (!runOn(fn, "AlgebraicSimplify")) continue;
         // Build constant value map
-        std::map<uint32_t, int64_t> constVals;
+        std::map<uint32_t, int64_t> constVals = singleDefConsts(fn);
+
+        // An element address with a constant index (after loop unrolling,
+        // for example) on a global or pointer base: base + index * stride,
+        // which the codegen folds into an absolute address. (A local array's
+        // slot as the base means the variable's address: left alone.)
         for (auto& block : fn.blocks) {
             for (auto& inst : block.insts) {
-                if (inst.op == Op::CONST && inst.dest.isVreg() && inst.src1.isImm()) {
-                    constVals[inst.dest.vregId] = inst.src1.immVal;
-                }
+                if (inst.op != Op::ADDR_ELEM || inst.args.empty() || !inst.args[0].isImm()) continue;
+                int64_t idx;
+                if (inst.src2.isImm()) idx = inst.src2.immVal;
+                else if (inst.src2.isVreg() && constVals.count(inst.src2.vregId)) idx = constVals[inst.src2.vregId];
+                else continue;
+                bool baseOk = inst.src1.kind == OperandKind::GLOBAL ||
+                    (inst.src1.isVreg() && !fn.localSlotVregs.count(inst.src1.vregId) &&
+                     !fn.memoryVregs.count(inst.src1.vregId));
+                if (!baseOk) continue;
+                int64_t off = idx * inst.args[0].immVal;
+                trace("algebraic", fn.name, "v" + std::to_string(inst.dest.vregId) +
+                      " = ADDR_ELEM [const " + std::to_string(idx) + "] → ADD +" + std::to_string(off), inst.loc);
+                inst.op = Op::ADD;
+                inst.resultType = Type::PTR;
+                inst.src2 = Operand::imm(off & 0xFFFF, Type::I16);
+                inst.args.clear();
             }
         }
 
@@ -1399,6 +1428,446 @@ void optimizeLICM(Module& mod) {
                 break; // Indices shifted — restart CFG analysis
             }
         } // while (restart)
+    }
+}
+
+
+// ============================================================================
+// Loop unrolling (-floop-unrolling)
+// ============================================================================
+//
+// Fully unrolls a counted for loop when the unrolled code is estimated to fit
+// unrollMaxBytes. IRBuilder lowers `for (init; cond; inc) body` to
+//
+//   <pred>:        ... store <const>, %v ; br @for_condN
+//   @for_condN:    <v compared with a constant> ; br_cond %c, @for_bodyN, @for_endN
+//   @for_bodyN ... (the body's blocks)
+//   @for_incN:     %x = deref %v ; %y = add/sub %x, <const> ; store %y, %v ; br @for_condN
+//   @for_endN:
+//
+// with %v the loop variable's slot. The trip count is simulated from the
+// constants. Each copy of the body gets its own labels and reads the
+// variable's value for that iteration from a fresh CONST temp (so the other
+// passes can fold indexes and conditions with it); `continue` jumps to the
+// next copy, `break` to @for_endN. The variable gets its final value after
+// the last copy (and, when the body can break out, at the start of each copy).
+//
+// Not unrolled: a body that assigns the variable, takes its address, contains
+// asm, address-taken labels or labels reached from outside the loop; a
+// variable in memory (volatile, address-taken); values that would wrap or
+// cross the sign bit; more than 255 iterations.
+
+int unrollMaxBytes = 128;
+
+namespace {
+
+struct ForLoop {
+    size_t cond, body, inc, end;   // block indexes
+    uint32_t var;                  // the loop variable's slot vreg
+    std::vector<int64_t> values;   // the variable's value in each iteration
+    int64_t finalValue;
+    Type varType;
+};
+
+bool isConstOperand(const Function& fn, const Operand& o, int64_t& v,
+                    const std::map<uint32_t, int>& defCount) {
+    if (o.isImm()) { v = o.immVal; return true; }
+    if (!o.isVreg()) return false;
+    auto dc = defCount.find(o.vregId);
+    if (dc == defCount.end() || dc->second != 1) return false;
+    for (const auto& b : fn.blocks)
+        for (const auto& i : b.insts)
+            if (i.dest.isVreg() && i.dest.vregId == o.vregId) {
+                if (i.op == Op::CONST && i.src1.isImm()) { v = i.src1.immVal; return true; }
+                // an extension of a constant (the callers only accept small
+                // non-negative bounds, for which zext/sext/copy keep the value)
+                if (i.op == Op::ZEXT || i.op == Op::SEXT || i.op == Op::COPY)
+                    return isConstOperand(fn, i.src1, v, defCount);
+                return false;
+            }
+    return false;
+}
+
+bool matchForLoop(const Function& fn, size_t condIdx, const std::map<uint32_t, int>& defCount, ForLoop& L) {
+    const std::string& cl = fn.blocks[condIdx].label;
+    if (cl.compare(0, 8, "for_cond") != 0) return false;
+    // (the labels share one counter: for_cond0, for_body1, for_inc2, for_end3)
+    const Block& cb = fn.blocks[condIdx];
+    if (cb.insts.empty() || cb.insts.back().op != Op::BR_COND) return false;
+    const Inst& br = cb.insts.back();
+    L.cond = condIdx;
+    L.body = L.inc = L.end = SIZE_MAX;
+    for (size_t k = condIdx + 1; k < fn.blocks.size(); k++) {
+        if (fn.blocks[k].label == br.dest.name && L.body == SIZE_MAX) L.body = k;
+        if (fn.blocks[k].label == br.src2.name) { L.end = k; break; }
+    }
+    if (L.body != condIdx + 1 || L.end == SIZE_MAX || L.end < L.body + 2) return false;
+    L.inc = L.end - 1;
+    if (fn.blocks[L.body].label.compare(0, 8, "for_body") != 0 ||
+        fn.blocks[L.inc].label.compare(0, 7, "for_inc") != 0) return false;
+
+    // Condition block: v (through deref/copy/zext/sext) compared with a constant
+    std::map<uint32_t, uint32_t> fromVar;   // vreg -> the slot it reads
+    const Inst* cmp = nullptr;
+    for (size_t k = 0; k + 1 < cb.insts.size(); k++) {
+        const Inst& i = cb.insts[k];
+        if (i.op == Op::CONST) continue;
+        if ((i.op == Op::DEREF || i.op == Op::COPY || i.op == Op::ZEXT || i.op == Op::SEXT) &&
+            i.src1.isVreg() && i.dest.isVreg()) {
+            uint32_t s = i.src1.vregId;
+            int64_t cv;
+            if (fn.localSlotVregs.count(s)) fromVar[i.dest.vregId] = s;
+            else if (fromVar.count(s)) fromVar[i.dest.vregId] = fromVar[s];
+            else if (!isConstOperand(fn, i.src1, cv, defCount)) return false;   // (zext of the bound)
+            continue;
+        }
+        if (i.op >= Op::CMP_EQ && i.op <= Op::CMP_GEU && i.dest.isVreg() && br.src1.isVreg() &&
+            i.dest.vregId == br.src1.vregId && !cmp) { cmp = &i; continue; }
+        return false;
+    }
+    if (!cmp) return false;
+    int64_t bound;
+    uint32_t var;
+    if (cmp->src1.isVreg() && fn.localSlotVregs.count(cmp->src1.vregId)) var = cmp->src1.vregId;
+    else if (cmp->src1.isVreg() && fromVar.count(cmp->src1.vregId)) var = fromVar[cmp->src1.vregId];
+    else return false;
+    if (!isConstOperand(fn, cmp->src2, bound, defCount)) return false;
+    if (fn.memoryVregs.count(var)) return false;
+    L.var = var;
+
+    // Increment block: v = v +/- step
+    const Block& ib = fn.blocks[L.inc];
+    if (ib.insts.empty() || ib.insts.back().op != Op::BR || ib.insts.back().src1.name != cl) return false;
+    std::map<uint32_t, int64_t> varPlus;    // vreg -> v + offset
+    int64_t step = 0;
+    bool stored = false;
+    for (size_t k = 0; k + 1 < ib.insts.size(); k++) {
+        const Inst& i = ib.insts[k];
+        if (i.op == Op::CONST) continue;
+        if ((i.op == Op::DEREF || i.op == Op::COPY) && i.src1.isVreg() && i.src1.vregId == var && i.dest.isVreg()) {
+            varPlus[i.dest.vregId] = 0; continue;
+        }
+        // widening/narrowing of v + offset (c++ on a char): the values are
+        // checked below to stay in range, so the offset is unchanged
+        if ((i.op == Op::ZEXT || i.op == Op::SEXT || i.op == Op::TRUNC || i.op == Op::COPY) &&
+            i.src1.isVreg() && varPlus.count(i.src1.vregId) && i.dest.isVreg()) {
+            varPlus[i.dest.vregId] = varPlus[i.src1.vregId]; continue;
+        }
+        if ((i.op == Op::ADD || i.op == Op::SUB) && i.dest.isVreg()) {
+            int64_t c;
+            int64_t base;
+            if (i.src1.isVreg() && i.src1.vregId == var) base = 0;
+            else if (i.src1.isVreg() && varPlus.count(i.src1.vregId)) base = varPlus[i.src1.vregId];
+            else return false;
+            if (!isConstOperand(fn, i.src2, c, defCount)) return false;
+            varPlus[i.dest.vregId] = base + (i.op == Op::ADD ? c : -c);
+            continue;
+        }
+        if (i.op == Op::STORE && i.src2.isVreg() && i.src2.vregId == var && i.src1.isVreg() &&
+            varPlus.count(i.src1.vregId) && !stored) {
+            step = varPlus[i.src1.vregId]; stored = true; continue;
+        }
+        return false;
+    }
+    if (!stored || step == 0) return false;
+
+    // Initial value: the block before the condition stores a constant into v
+    if (condIdx == 0) return false;
+    const Block& pb = fn.blocks[condIdx - 1];
+    if (pb.insts.empty() || pb.insts.back().op != Op::BR || pb.insts.back().src1.name != cl) return false;
+    int64_t init = 0;
+    bool haveInit = false;
+    for (size_t k = pb.insts.size() - 1; k-- > 0;) {
+        const Inst& i = pb.insts[k];
+        if (i.op == Op::STORE && i.src2.isVreg() && i.src2.vregId == var) {
+            haveInit = isConstOperand(fn, i.src1, init, defCount);
+            break;
+        }
+        if (i.op == Op::CALL || i.op == Op::CALL_VOID || i.op == Op::CALL_INDIRECT || i.op == Op::ASM_INLINE) break;
+    }
+    if (!haveInit) return false;
+    // The only other edges into the condition: the increment (and the pred)
+    for (size_t b = 0; b < fn.blocks.size(); b++) {
+        if (b == condIdx - 1 || b == L.inc) continue;
+        for (const auto& i : fn.blocks[b].insts) {
+            if ((i.op == Op::BR && i.src1.name == cl) ||
+                (i.op == Op::BR_COND && (i.dest.name == cl || i.src2.name == cl))) return false;
+        }
+    }
+
+    // Trip count: every value non-negative and below the sign bit of its type
+    auto vt = fn.vregTypes.find(var);
+    L.varType = vt != fn.vregTypes.end() ? vt->second : Type::I16;
+    int bits = L.varType == Type::I8 ? 8 : L.varType == Type::I32 ? 32 : 16;
+    int64_t limit = (int64_t)1 << (bits - 1);
+    if (bound < 0 || bound >= limit) return false;
+    int64_t v = init;
+    L.values.clear();
+    for (;;) {
+        if (v < -limit || v >= limit) return false;
+        bool go;
+        switch (cmp->op) {
+            case Op::CMP_LT: case Op::CMP_LTU: go = v < bound; break;
+            case Op::CMP_LE: case Op::CMP_LEU: go = v <= bound; break;
+            case Op::CMP_GT: case Op::CMP_GTU: go = v > bound; break;
+            case Op::CMP_GE: case Op::CMP_GEU: go = v >= bound; break;
+            case Op::CMP_NE: go = v != bound; break;
+            case Op::CMP_EQ: go = v == bound; break;
+            default: return false;
+        }
+        if (!go) break;
+        if (v < 0) return false;                 // a negative value of a (maybe) unsigned variable
+        L.values.push_back(v);
+        if (L.values.size() > 255) return false;
+        v += step;
+    }
+    // An unsigned comparison of a final value below zero would have wrapped
+    if (v < 0 && cmp->op >= Op::CMP_LTU) return false;
+    L.finalValue = v;
+    return true;
+}
+
+} // namespace
+
+void optimizeLoopUnroll(Module& mod) {
+    for (auto& fn : mod.functions) {
+        if (!runOn(fn, "LoopUnrolling")) continue;
+        bool changed = true;
+        int guard = 64;
+        while (changed && --guard > 0) {
+            changed = false;
+            std::map<uint32_t, int> defCount;
+            for (const auto& b : fn.blocks)
+                for (const auto& i : b.insts) {
+                    if (i.dest.isVreg()) defCount[i.dest.vregId]++;
+                    if ((i.op == Op::STORE || i.op == Op::STORE_ZP) && i.src2.isVreg()) defCount[i.src2.vregId] += 2;
+                }
+            for (size_t c = 0; c < fn.blocks.size() && !changed; c++) {
+                ForLoop L;
+                if (!matchForLoop(fn, c, defCount, L)) continue;
+                // Innermost first: no other loop condition inside the body
+                bool inner = false;
+                for (size_t b = L.body; b < L.inc; b++)
+                    if (fn.blocks[b].label.compare(0, 8, "for_cond") == 0 ||
+                        fn.blocks[b].label.compare(0, 10, "while_cond") == 0 ||
+                        fn.blocks[b].label.compare(0, 7, "do_body") == 0) inner = true;
+                if (inner) continue;
+
+                // The body: no asm, no assignment / address of the variable,
+                // labels only reached from inside the loop
+                std::set<std::string> bodyLabels;
+                for (size_t b = L.body; b < L.inc; b++) bodyLabels.insert(fn.blocks[b].label);
+                bool ok = true, breaks = false;
+                int size = 0;
+                for (size_t b = L.body; b < L.inc && ok; b++) {
+                    if (fn.addressTakenLabels.count(fn.blocks[b].label)) ok = false;
+                    for (const auto& i : fn.blocks[b].insts) {
+                        if (i.op == Op::NOP) continue;
+                        size++;
+                        if (i.op == Op::ASM_INLINE || i.op == Op::ADDR_LABEL || i.op == Op::BR_INDIRECT) ok = false;
+                        if ((i.op == Op::STORE || i.op == Op::STORE_ZP) && i.src2.isVreg() && i.src2.vregId == L.var) ok = false;
+                        if (i.op == Op::ADDR_LOCAL && i.src1.isVreg() && i.src1.vregId == L.var) ok = false;
+                        if (i.dest.isVreg() && i.dest.vregId == L.var) ok = false;
+                        auto target = [&](const std::string& t) {
+                            if (t == fn.blocks[L.end].label) breaks = true;
+                        };
+                        if (i.op == Op::BR) target(i.src1.name);
+                        if (i.op == Op::BR_COND) { target(i.dest.name); target(i.src2.name); }
+                    }
+                }
+                for (size_t b = 0; b < fn.blocks.size() && ok; b++) {
+                    if (b >= L.body && b < L.inc) continue;
+                    for (const auto& i : fn.blocks[b].insts) {
+                        auto into = [&](const std::string& t) { if (bodyLabels.count(t) && t != fn.blocks[L.body].label) ok = false; };
+                        if (i.op == Op::BR) into(i.src1.name);
+                        if (i.op == Op::BR_COND) { into(i.dest.name); into(i.src2.name); }
+                        if (i.op == Op::SWITCH) { into(i.src2.name); for (const auto& sc : i.switchCases) into(sc.second); }
+                    }
+                }
+                if (!ok) continue;
+                // Estimate: about 4 bytes per IR instruction (and 2 per copy for a CONST/store)
+                int64_t bytes = (int64_t)L.values.size() * (size * 4 + (breaks ? 6 : 2));
+                if (bytes > unrollMaxBytes) continue;
+
+                // Temporaries the body defines get fresh vregs in each copy, so
+                // the unrolled code has one definition per temp, like straight
+                // code (the register allocator's live ranges expect that)
+                std::set<uint32_t> bodyTemps;
+                for (size_t b = L.body; b < L.inc; b++)
+                    for (const auto& i : fn.blocks[b].insts)
+                        if (i.dest.isVreg() && !fn.localSlotVregs.count(i.dest.vregId) &&
+                            !fn.memoryVregs.count(i.dest.vregId))
+                            bodyTemps.insert(i.dest.vregId);
+                // ... unless one is also used outside the body
+                for (size_t b = 0; b < fn.blocks.size(); b++) {
+                    if (b >= L.body && b < L.inc) continue;
+                    for (const auto& i : fn.blocks[b].insts) {
+                        auto out = [&](const Operand& o) { if (o.isVreg()) bodyTemps.erase(o.vregId); };
+                        out(i.dest); out(i.src1); out(i.src2);
+                        for (const auto& a : i.args) out(a);
+                    }
+                }
+
+                // Build the copies
+                std::string incLabel = fn.blocks[L.inc].label, endLabel = fn.blocks[L.end].label;
+                std::vector<Block> out;
+                size_t n = L.values.size();
+                auto copyLabel = [&](const std::string& l, size_t k) { return l + "_u" + std::to_string(k); };
+                for (size_t k = 0; k < n; k++) {
+                    uint32_t t = fn.allocVreg();
+                    fn.vregTypes[t] = L.varType;
+                    std::map<uint32_t, uint32_t> fresh;
+                    for (uint32_t v : bodyTemps) {
+                        uint32_t nv = fn.allocVreg();
+                        fresh[v] = nv;
+                        auto ti = fn.vregTypes.find(v);
+                        if (ti != fn.vregTypes.end()) fn.vregTypes[nv] = ti->second;
+                        auto si = fn.vregSizes.find(v);
+                        if (si != fn.vregSizes.end()) fn.vregSizes[nv] = si->second;
+                        auto ai = fn.vregAlign.find(v);
+                        if (ai != fn.vregAlign.end()) fn.vregAlign[nv] = ai->second;
+                        if (fn.registerVregs.count(v)) fn.registerVregs.insert(nv);
+                    }
+                    auto renameTemp = [&](Operand& o) {
+                        if (o.isVreg()) { auto f = fresh.find(o.vregId); if (f != fresh.end()) o.vregId = f->second; }
+                    };
+                    std::string next = (k + 1 < n) ? copyLabel(fn.blocks[L.body].label, k + 1) : incLabel;
+                    for (size_t b = L.body; b < L.inc; b++) {
+                        Block nb = fn.blocks[b];
+                        nb.label = copyLabel(nb.label, k);
+                        if (b == L.body) {
+                            Inst ci;
+                            ci.op = Op::CONST;
+                            ci.dest = Operand::vreg(t, L.varType);
+                            ci.src1 = Operand::imm(L.values[k], L.varType);
+                            ci.resultType = L.varType;
+                            std::vector<Inst> pre{ci};
+                            if (breaks) {
+                                Inst st;
+                                st.op = Op::STORE;
+                                st.resultType = L.varType;
+                                st.src1 = Operand::vreg(t, L.varType);
+                                st.src2 = Operand::vreg(L.var, L.varType);
+                                pre.push_back(st);
+                            }
+                            nb.insts.insert(nb.insts.begin(), pre.begin(), pre.end());
+                        }
+                        auto relabel = [&](std::string& l) {
+                            if (bodyLabels.count(l)) l = copyLabel(l, k);
+                            else if (l == incLabel) l = next;
+                        };
+                        for (auto& i : nb.insts) {
+                            if (i.op == Op::BR) relabel(i.src1.name);
+                            if (i.op == Op::BR_COND) { relabel(i.dest.name); relabel(i.src2.name); }
+                            if (i.op == Op::SWITCH) { relabel(i.src2.name); for (auto& sc : i.switchCases) relabel(sc.second); }
+                            // The variable's value in this iteration
+                            if (i.op == Op::CONST && i.dest.isVreg() && i.dest.vregId == t) continue;
+                            if (i.op == Op::STORE && i.src2.isVreg() && i.src2.vregId == L.var) continue;
+                            if ((i.op == Op::DEREF || i.op == Op::LOAD) && i.src1.isVreg() && i.src1.vregId == L.var) {
+                                i.op = Op::COPY;
+                                i.src1 = Operand::vreg(t, L.varType);
+                                continue;
+                            }
+                            auto sub = [&](Operand& o) { if (o.isVreg() && o.vregId == L.var) o.vregId = t; };
+                            sub(i.src1); sub(i.src2);
+                            for (auto& a : i.args) sub(a);
+                        }
+                        for (auto& i : nb.insts) {
+                            renameTemp(i.dest); renameTemp(i.src1); renameTemp(i.src2);
+                            for (auto& a : i.args) renameTemp(a);
+                            for (auto& ph : i.phiIncoming) renameTemp(ph.first);
+                        }
+                        out.push_back(std::move(nb));
+                    }
+                }
+                // The increment block becomes: v = final value
+                Block fin;
+                fin.label = incLabel;
+                {
+                    uint32_t t = fn.allocVreg();
+                    fn.vregTypes[t] = L.varType;
+                    Inst ci;
+                    ci.op = Op::CONST;
+                    ci.dest = Operand::vreg(t, L.varType);
+                    ci.src1 = Operand::imm(L.finalValue, L.varType);
+                    ci.resultType = L.varType;
+                    Inst st;
+                    st.op = Op::STORE;
+                    st.resultType = L.varType;
+                    st.src1 = Operand::vreg(t, L.varType);
+                    st.src2 = Operand::vreg(L.var, L.varType);
+                    fin.insts = {ci, st};
+                }
+                out.push_back(std::move(fin));
+
+                // The condition block jumps straight into the first copy
+                Block& cb = fn.blocks[L.cond];
+                cb.insts.clear();
+                Inst jb;
+                jb.op = Op::BR;
+                jb.src1 = Operand::label(n ? copyLabel(fn.blocks[L.body].label, 0) : incLabel);
+                cb.insts.push_back(jb);
+
+                trace("unroll", fn.name, "loop at " + fn.blocks[L.cond].label + " unrolled " +
+                      std::to_string(n) + " times");
+                fn.blocks.erase(fn.blocks.begin() + L.body, fn.blocks.begin() + L.inc + 1);
+                fn.blocks.insert(fn.blocks.begin() + L.body, out.begin(), out.end());
+                changed = true;
+            }
+        }
+    }
+}
+
+
+// ============================================================================
+// Dead temporaries
+// ============================================================================
+
+// Removes pure instructions whose temporary result is never used (left by
+// the other passes: a loop unroll's per-copy constant that every use folded
+// away, a copy whose users were redirected). Loads (maybe volatile),
+// variables' slots and memory-pinned vregs are never removed.
+void removeDeadTemps(Module& mod) {
+    auto pure = [](Op op) {
+        switch (op) {
+            case Op::CONST: case Op::FCONST: case Op::COPY:
+            case Op::ADD: case Op::SUB: case Op::MUL: case Op::MUL_U:
+            case Op::AND: case Op::OR: case Op::XOR:
+            case Op::LSL: case Op::LSR: case Op::ASR: case Op::SHL: case Op::SHR:
+            case Op::NEG: case Op::NOT:
+            case Op::CMP_EQ: case Op::CMP_NE: case Op::CMP_LT: case Op::CMP_LE:
+            case Op::CMP_GT: case Op::CMP_GE: case Op::CMP_LTU: case Op::CMP_LEU:
+            case Op::CMP_GTU: case Op::CMP_GEU:
+            case Op::SEXT: case Op::ZEXT: case Op::TRUNC:
+            case Op::ADDR_GLOBAL: case Op::ADDR_LOCAL: case Op::ADDR_LABEL: case Op::ADDR_ELEM:
+                return true;
+            default:
+                return false;
+        }
+    };
+    for (auto& fn : mod.functions) {
+        bool changed = true;
+        while (changed) {
+            changed = false;
+            std::set<uint32_t> used;
+            for (const auto& b : fn.blocks)
+                for (const auto& i : b.insts) {
+                    if (i.src1.isVreg()) used.insert(i.src1.vregId);
+                    if (i.src2.isVreg()) used.insert(i.src2.vregId);
+                    for (const auto& a : i.args) if (a.isVreg()) used.insert(a.vregId);
+                    for (const auto& p : i.phiIncoming) if (p.first.isVreg()) used.insert(p.first.vregId);
+                }
+            for (auto& b : fn.blocks)
+                for (auto& i : b.insts) {
+                    if (!pure(i.op) || !i.dest.isVreg()) continue;
+                    uint32_t d = i.dest.vregId;
+                    if (used.count(d) || fn.localSlotVregs.count(d) || fn.memoryVregs.count(d)) continue;
+                    if ((int)d == fn.staticLinkVreg || (int)d == fn.retAddrSlot) continue;
+                    i = Inst();
+                    i.op = Op::NOP;
+                    changed = true;
+                }
+        }
     }
 }
 

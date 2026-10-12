@@ -2,7 +2,7 @@
 
 # Simple test script for cc45 compiler
 
-CC="./bin/cc45"
+CC="./bin/cc45 -O2"
 AS="./bin/ca45"
 
 TEST_FILES=(

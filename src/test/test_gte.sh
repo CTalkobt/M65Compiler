@@ -4,7 +4,7 @@
 # 581 total tests, 560 passing (96.4%), 21 failing
 # This script identifies which specific tests fail and categorizes the failures
 
-CC="./bin/cc45"
+CC="./bin/cc45 -O2"
 AS="./bin/ca45"
 LD="./bin/ln45"
 mkdir -p build/test

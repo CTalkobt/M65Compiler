@@ -3,7 +3,7 @@
 # Test script for xemu-xmega65 validation with ca45 and cc45
 # Alternative to mmemu-cli with better MEGA65 hardware emulation
 
-CC="./bin/cc45"
+CC="./bin/cc45 -O2"
 AS="./bin/ca45"
 LD="./bin/ln45"
 CRT0="lib/build/crt0.o45"
@@ -633,6 +633,45 @@ for iomode in "zp|" "stack|-fno-zpcall" "O0|-O0"; do
         run_xemu_test "test_iropt_$ioname" "build/test/test_iropt_${ioname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
     else
         echo "FAIL: test_iropt_xemu.c $ioname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: loop interchange keeps results (nests it swaps and nests it must not)
+for limode in "plain|" "zp|-floop-interchange" "stack|-floop-interchange -fno-zpcall"; do
+    IFS='|' read -r liname liflags <<< "$limode"
+    echo "Testing test_interchange_xemu.c ($liname)..."
+    compile_link_test "src/test-resources/test_interchange_xemu.c" "build/test/test_interchange_${liname}_xemu.prg" "$liflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_interchange_$liname" "build/test/test_interchange_${liname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_interchange_xemu.c $liname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: automatic inlining (-O2) keeps results; -O0 for comparison
+for inmode in "zp|-O2" "stack|-O2 -fno-zpcall" "O0|-O0"; do
+    IFS='|' read -r inname inflags <<< "$inmode"
+    echo "Testing test_inline_xemu.c ($inname)..."
+    compile_link_test "src/test-resources/test_inline_xemu.c" "build/test/test_inline_${inname}_xemu.prg" "$inflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_inline_$inname" "build/test/test_inline_${inname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_inline_xemu.c $inname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: loop unrolling keeps results (continue, break, nesting, char, zero trips)
+for unmode in "plain|" "zp|-floop-unrolling" "stack|-floop-unrolling -fno-zpcall"; do
+    IFS='|' read -r unname unflags <<< "$unmode"
+    echo "Testing test_unroll_xemu.c ($unname)..."
+    compile_link_test "src/test-resources/test_unroll_xemu.c" "build/test/test_unroll_${unname}_xemu.prg" "$unflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_unroll_$unname" "build/test/test_unroll_${unname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_unroll_xemu.c $unname (compilation/linking failed)"
         failed=$((failed + 1))
     fi
 done

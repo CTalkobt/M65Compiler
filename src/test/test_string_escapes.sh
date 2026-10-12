@@ -1,7 +1,7 @@
 #!/bin/bash
 # String/char escapes and encodings in ca45 and cc45 (\n is the PETSCII newline $0D)
 
-CC="./bin/cc45"
+CC="./bin/cc45 -O2"
 AS="./bin/ca45"
 T="test_string_escapes_tmp"
 

@@ -10,7 +10,7 @@
 #
 # Usage: run_gte_all.sh [-j N] [-l names.txt]   (default: all tests, one job per CPU)
 
-CC="./bin/cc45"
+CC="./bin/cc45 -O2"
 LD="./bin/ln45"
 CRT0="lib/build/crt0.o45"
 LIB="lib/build/c45.lib"
@@ -59,7 +59,7 @@ run_one() {
             ;;
     esac
 
-    if ! $CC -c $GTE_CFLAGS -I"$GTE_DIR" "$f" -o "$obj" > "$BUILD_DIR/$name.compile.log" 2>&1; then
+    if ! $CC -c -O2 $GTE_CFLAGS -I"$GTE_DIR" "$f" -o "$obj" > "$BUILD_DIR/$name.compile.log" 2>&1; then
         echo "COMPILE FAIL: $name"; return
     fi
     if ! $LD -basic -o "$prg" "$CRT0" "$obj" "$LIB" > "$BUILD_DIR/$name.link.log" 2>&1; then

@@ -33,6 +33,14 @@ namespace ir {
     // Branch folding and dead block elimination
     void optimizeBranchFold(Module& mod);
 
+    // Loop unrolling: fully unroll counted for loops whose unrolled code is
+    // estimated to fit unrollMaxBytes (-fmax-unroll-bytes)
+    extern int unrollMaxBytes;
+    void optimizeLoopUnroll(Module& mod);
+
+    // Remove pure instructions whose temporary result is never used
+    void removeDeadTemps(Module& mod);
+
     // Strength reduction: replace expensive ops with cheaper equivalents
     // (MUL by power-of-2 → LSL, DIV_U by power-of-2 → LSR, MOD_U by power-of-2 → AND)
     void optimizeStrengthReduction(Module& mod);

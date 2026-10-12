@@ -10,7 +10,7 @@
 # Each test returns 0 (A=$00) on success when executed.
 # Compile+link validation catches codegen, assembler, and linker regressions.
 
-CC="./bin/cc45"
+CC="./bin/cc45 -O2"
 LD="./bin/ln45"
 LIB="lib/build/c45.lib"
 SRCDIR="src/test-resources/regression"

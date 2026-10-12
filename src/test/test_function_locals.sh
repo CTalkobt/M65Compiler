@@ -1,7 +1,7 @@
 #!/bin/bash
 # Per-function local state must not leak from one top-level function to the next
 
-CC="./bin/cc45"
+CC="./bin/cc45 -O2"
 TEMP_C="test_function_locals_tmp.c"
 TEMP_S="test_function_locals_tmp.s45"
 TEMP_E="test_function_locals_tmp.err"

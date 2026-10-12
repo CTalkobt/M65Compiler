@@ -7,7 +7,7 @@
 #   3. Compiler output diff: -fzpcall vs -fno-zpcall produce correct results
 #   4. Examples build
 
-CC="./bin/cc45"
+CC="./bin/cc45 -O2"
 AS="./bin/ca45"
 MMEMU="mmemu-cli"
 NM="./bin/nm45"

@@ -1,6 +1,8 @@
 #include "OptimizeStage.hpp"
 #include "AST.hpp"
 #include "ConstantFolder.hpp"
+#include "LoopInterchange.hpp"
+#include "OptimizationCatalog.hpp"
 #include "FunctionAnalyzer.hpp"
 #include <iostream>
 #include <algorithm>
@@ -31,6 +33,9 @@ Stage::Result OptimizeStage::execute() {
         if (optimizationLevel_ >= 3) {
             performLoopOptimizations();
         }
+
+        // -floop-interchange (also per function by #pragma cc45 optimize)
+        performLoopInterchange();
 
         if (verboseLevel_ >= 1) {
             std::cout << "AST optimization complete." << std::endl;
@@ -184,4 +189,20 @@ void OptimizeStage::performLoopOptimizations() {
     if (verboseLevel_ >= 3) {
         std::cout << "    Loop optimization hints marked for IR phase." << std::endl;
     }
+}
+
+void OptimizeStage::performLoopInterchange() {
+    if (!ast_) return;
+    auto it = optOverrides_.find("LoopInterchange");
+    bool on = it != optOverrides_.end() ? it->second
+                                        : OptimizationCatalog::isEnabledAtLevel("LoopInterchange", optimizationLevel_);
+    LoopInterchange li;
+    if (traceIROpt_) {
+        li.trace = [](const std::string& fn, int line, const std::string& msg) {
+            std::cerr << "[interchange] _" << fn << " (line " << line << "): " << msg << std::endl;
+        };
+    }
+    // Runs even when off: #pragma cc45 optimize(loop-interchange) can turn it on per function
+    int n = li.optimizeTranslationUnit(*ast_, on);
+    if (verboseLevel_ >= 2 && n > 0) std::cout << "    Interchanged " << n << " loop nest(s)." << std::endl;
 }

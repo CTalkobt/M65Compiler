@@ -37,5 +37,4 @@ void main() {
     // Sentinel
     results[4] = 0xFF;
 
-    __asm__("brk");
 }

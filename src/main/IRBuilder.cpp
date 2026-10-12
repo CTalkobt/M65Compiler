@@ -1221,6 +1221,87 @@ void IRBuilder::visit(FunctionDeclaration& node) {
             shouldInline = true;
         }
         if (noInlineNames_.count(node.name)) shouldInline = false;
+        // A body that names its own symbols or must exist once is not copied
+        // into callers (always_inline still forces it): inline asm (it may
+        // name the parameters, @_p_x), labels and goto (a second copy in the
+        // same caller duplicates them), nested functions, static locals
+        if (!forced && shouldInline) {
+            std::function<bool(Statement*)> blocks = [&](Statement* st) -> bool {
+                if (!st) return false;
+                if (dynamic_cast<AsmStatement*>(st) || dynamic_cast<LabelledStatement*>(st) ||
+                    dynamic_cast<GotoStatement*>(st) || dynamic_cast<FunctionDeclaration*>(st)) return true;
+                if (auto* d = dynamic_cast<VariableDeclaration*>(st)) return d->isStatic || !d->vlaDimExprs.empty();
+                if (auto* c = dynamic_cast<CompoundStatement*>(st)) {
+                    for (auto& x : c->statements) if (blocks(x.get())) return true;
+                    return false;
+                }
+                if (auto* i = dynamic_cast<IfStatement*>(st)) return blocks(i->thenBranch.get()) || blocks(i->elseBranch.get());
+                if (auto* w = dynamic_cast<WhileStatement*>(st)) return blocks(w->body.get());
+                if (auto* w = dynamic_cast<DoWhileStatement*>(st)) return blocks(w->body.get());
+                if (auto* f = dynamic_cast<ForStatement*>(st)) return blocks(f->initializer.get()) || blocks(f->body.get());
+                if (auto* w = dynamic_cast<SwitchStatement*>(st)) return blocks(w->body.get());
+                if (auto* r = dynamic_cast<RepeatStatement*>(st)) return blocks(r->body.get());
+                return false;
+            };
+            if (blocks(node.body.get())) shouldInline = false;
+            // &param: the inliner binds a parameter to the argument's value
+            // (often a constant temp), which has no address
+            std::set<std::string> params;
+            for (const auto& p : node.parameters) params.insert(p.name);
+            std::function<bool(Expression*)> addrOfParam = [&](Expression* e) -> bool {
+                if (!e) return false;
+                if (auto* u = dynamic_cast<UnaryOperation*>(e)) {
+                    if (u->op == "&") {
+                        Expression* x = u->operand.get();
+                        while (auto* m = dynamic_cast<MemberAccess*>(x)) { if (m->isArrow) break; x = m->structExpr.get(); }
+                        while (auto* a = dynamic_cast<ArrayAccess*>(x)) x = a->arrayExpr.get();
+                        if (auto* v = dynamic_cast<VariableReference*>(x); v && params.count(v->name)) return true;
+                    }
+                    return addrOfParam(u->operand.get());
+                }
+                if (auto* b = dynamic_cast<BinaryOperation*>(e)) return addrOfParam(b->left.get()) || addrOfParam(b->right.get());
+                if (auto* a = dynamic_cast<Assignment*>(e)) return addrOfParam(a->target.get()) || addrOfParam(a->expression.get());
+                if (auto* c = dynamic_cast<ConditionalExpression*>(e))
+                    return addrOfParam(c->condition.get()) || addrOfParam(c->thenExpr.get()) || addrOfParam(c->elseExpr.get());
+                if (auto* c = dynamic_cast<CastExpression*>(e)) return addrOfParam(c->expression.get());
+                if (auto* a = dynamic_cast<ArrayAccess*>(e)) return addrOfParam(a->arrayExpr.get()) || addrOfParam(a->indexExpr.get());
+                if (auto* m = dynamic_cast<MemberAccess*>(e)) return addrOfParam(m->structExpr.get());
+                if (auto* f = dynamic_cast<FunctionCall*>(e)) {
+                    for (auto& a : f->arguments) if (addrOfParam(a.get())) return true;
+                    return addrOfParam(f->callExpr.get());
+                }
+                if (dynamic_cast<StatementExpression*>(e) || dynamic_cast<CompoundLiteral*>(e) ||
+                    dynamic_cast<InitializerList*>(e)) return true;   // not looked into: be safe
+                return false;
+            };
+            std::function<bool(Statement*)> stmtAddr = [&](Statement* st) -> bool {
+                if (!st) return false;
+                if (auto* es = dynamic_cast<ExpressionStatement*>(st)) return addrOfParam(es->expression.get());
+                if (auto* r = dynamic_cast<ReturnStatement*>(st)) return addrOfParam(r->expression.get());
+                if (auto* d = dynamic_cast<VariableDeclaration*>(st)) return addrOfParam(d->initializer.get());
+                if (auto* c = dynamic_cast<CompoundStatement*>(st)) {
+                    for (auto& x : c->statements) if (stmtAddr(x.get())) return true;
+                    return false;
+                }
+                if (auto* i = dynamic_cast<IfStatement*>(st))
+                    return addrOfParam(i->condition.get()) || stmtAddr(i->thenBranch.get()) || stmtAddr(i->elseBranch.get());
+                if (auto* w = dynamic_cast<WhileStatement*>(st)) return addrOfParam(w->condition.get()) || stmtAddr(w->body.get());
+                if (auto* w = dynamic_cast<DoWhileStatement*>(st)) return addrOfParam(w->condition.get()) || stmtAddr(w->body.get());
+                if (auto* f = dynamic_cast<ForStatement*>(st))
+                    return stmtAddr(f->initializer.get()) || addrOfParam(f->condition.get()) ||
+                           addrOfParam(f->increment.get()) || stmtAddr(f->body.get());
+                if (auto* w = dynamic_cast<SwitchStatement*>(st)) return addrOfParam(w->expression.get()) || stmtAddr(w->body.get());
+                if (auto* r = dynamic_cast<RepeatStatement*>(st)) return stmtAddr(r->body.get());
+                return false;
+            };
+            if (!params.empty() && stmtAddr(node.body.get())) shouldInline = false;
+            // Variable-length array parameters: their sizes are evaluated on
+            // entry and give the parameter its run-time stride
+            for (const auto& p : node.parameters) {
+                if (p.vlaSizeExpr) shouldInline = false;
+                for (const auto& e : p.innerDimExprs) if (e) shouldInline = false;
+            }
+        }
         if (sretSize_.count(node.name)) shouldInline = false;  // result goes through __sret
         for (int agg : paramAggSizes_[node.name]) if (agg) shouldInline = false;  // by-copy aggregate param
         if (shouldInline && (forced || stmtCount <= INLINE_MAX_STMTS)) {
@@ -2505,6 +2586,53 @@ void IRBuilder::toWide(std::unique_ptr<Expression>& e, const std::string& kind, 
     auto cl = std::make_unique<CompoundLiteral>("struct " + kind, 0, false, std::move(list));
     cl->line = line; cl->column = col; cl->sourceFile = file;
     e = std::move(cl);
+}
+
+
+// Does the body assign the variable `name` (=, op=, ++, --)? Conservative:
+// an expression kind not looked into counts as an assignment.
+bool IRBuilder::inlineParamAssigned(Statement* body, const std::string& name) {
+    std::function<bool(Expression*)> ex = [&](Expression* e) -> bool {
+        if (!e) return false;
+        auto isName = [&](Expression* t) {
+            auto* v = dynamic_cast<VariableReference*>(t);
+            return v && v->name == name;
+        };
+        if (auto* a = dynamic_cast<Assignment*>(e)) return isName(a->target.get()) || ex(a->target.get()) || ex(a->expression.get());
+        if (auto* u = dynamic_cast<UnaryOperation*>(e)) {
+            if ((u->op == "++" || u->op == "--" || u->op == "++_POST" || u->op == "--_POST") && isName(u->operand.get())) return true;
+            return ex(u->operand.get());
+        }
+        if (auto* b = dynamic_cast<BinaryOperation*>(e)) return ex(b->left.get()) || ex(b->right.get());
+        if (auto* c = dynamic_cast<ConditionalExpression*>(e)) return ex(c->condition.get()) || ex(c->thenExpr.get()) || ex(c->elseExpr.get());
+        if (auto* c = dynamic_cast<CastExpression*>(e)) return ex(c->expression.get());
+        if (auto* a = dynamic_cast<ArrayAccess*>(e)) return ex(a->arrayExpr.get()) || ex(a->indexExpr.get());
+        if (auto* m = dynamic_cast<MemberAccess*>(e)) return ex(m->structExpr.get());
+        if (auto* f = dynamic_cast<FunctionCall*>(e)) {
+            for (auto& a : f->arguments) if (ex(a.get())) return true;
+            return ex(f->callExpr.get());
+        }
+        if (dynamic_cast<StatementExpression*>(e) || dynamic_cast<BuiltinVaArg*>(e) || dynamic_cast<BuiltinVaStart*>(e))
+            return true;
+        return false;
+    };
+    std::function<bool(Statement*)> st = [&](Statement* s) -> bool {
+        if (!s) return false;
+        if (auto* es = dynamic_cast<ExpressionStatement*>(s)) return ex(es->expression.get());
+        if (auto* r = dynamic_cast<ReturnStatement*>(s)) return ex(r->expression.get());
+        if (auto* d = dynamic_cast<VariableDeclaration*>(s)) return d->name == name || ex(d->initializer.get());
+        if (auto* c = dynamic_cast<CompoundStatement*>(s)) { for (auto& x : c->statements) if (st(x.get())) return true; return false; }
+        if (auto* i = dynamic_cast<IfStatement*>(s)) return ex(i->condition.get()) || st(i->thenBranch.get()) || st(i->elseBranch.get());
+        if (auto* w = dynamic_cast<WhileStatement*>(s)) return ex(w->condition.get()) || st(w->body.get());
+        if (auto* w = dynamic_cast<DoWhileStatement*>(s)) return ex(w->condition.get()) || st(w->body.get());
+        if (auto* f = dynamic_cast<ForStatement*>(s)) return st(f->initializer.get()) || ex(f->condition.get()) || ex(f->increment.get()) || st(f->body.get());
+        if (auto* w = dynamic_cast<SwitchStatement*>(s)) return ex(w->expression.get()) || st(w->body.get());
+        if (auto* r = dynamic_cast<RepeatStatement*>(s)) return st(r->body.get());
+        if (auto* c = dynamic_cast<CaseStatement*>(s)) { (void)c; return false; }
+        if (auto* l = dynamic_cast<LabelledStatement*>(s)) return st(l->statement.get());
+        return false;
+    };
+    return st(body);
 }
 
 // Does the function being built return a struct/union (by value)?
@@ -6386,6 +6514,34 @@ normal_call:
             auto savedLocalTypeNames = localTypeNames_;
             auto savedLocalPointsToConst = localPointsToConst_;
             auto savedLocalPointedToType = localPointedToType_;
+            auto savedLocalRegister = localRegister_;
+            auto savedLocalPointedToTypeName = localPointedToTypeName_;
+            auto savedLocalConstPtrValue = localConstPtrValue_;
+            auto savedLocalArrayDims = localArrayDims_;
+            auto savedLocalPtrLevel = localPtrLevel_;
+            auto savedParamArrayDims = paramArrayDims_;
+            auto savedParamVlaDims = paramVlaDims_;
+            // The inlined body sees its own parameters and locals and the
+            // globals, never the caller's locals (a caller's array `C` must
+            // not change what the callee's pointer parameter `C` means, and a
+            // caller's local must not hide a global the callee uses). A nested
+            // function is inlined into its parent, whose locals it does use.
+            if (!inlineFunc->isNested) {
+            locals_.clear();
+            localTypes_.clear();
+            localSigned_.clear();
+            localConst_.clear();
+            localTypeNames_.clear();
+            localPointsToConst_.clear();
+            localPointedToType_.clear();
+            localRegister_.clear();
+            localPointedToTypeName_.clear();
+            localConstPtrValue_.clear();
+            localArrayDims_.clear();
+            localPtrLevel_.clear();
+            paramArrayDims_.clear();
+            paramVlaDims_.clear();
+            }
 
             // Map parameters to argument vregs
             for (size_t i = 0; i < inlineFunc->parameters.size() && i < args.size(); i++) {
@@ -6393,15 +6549,30 @@ normal_call:
                 ir::Type pt = mapType(p.type, p.pointerLevel);
                 auto argOp = (i < castArgs.size()) ? castArgs[i] : args[i];
 
-                // Create a local vreg for the parameter and copy the arg into it
+                // Create a local vreg for the parameter and copy the arg into it.
+                // A parameter the body assigns (n = n - 1, n++) is a local
+                // variable: a slot (a STORE to a slot assigns it; to a plain
+                // temp it would be a store through a pointer)
                 auto paramVreg = allocVreg(pt);
-                ir::Inst copy;
-                copy.op = ir::Op::COPY;
-                copy.dest = paramVreg;
-                copy.src1 = argOp;
-                copy.resultType = pt;
-                copy.loc = loc(node);
-                emit(copy);
+                if (inlineParamAssigned(inlineFunc->body.get(), p.name)) {
+                    currentFunc_->localSlotVregs.insert(paramVreg.vregId);
+                    if (p.isVolatile) currentFunc_->memoryVregs.insert(paramVreg.vregId);
+                    ir::Inst st;
+                    st.op = ir::Op::STORE;
+                    st.resultType = pt;
+                    st.src1 = argOp;
+                    st.src2 = paramVreg;
+                    st.loc = loc(node);
+                    emit(st);
+                } else {
+                    ir::Inst copy;
+                    copy.op = ir::Op::COPY;
+                    copy.dest = paramVreg;
+                    copy.src1 = argOp;
+                    copy.resultType = pt;
+                    copy.loc = loc(node);
+                    emit(copy);
+                }
 
                 locals_[p.name] = paramVreg;
                 localTypes_[p.name] = pt;
@@ -6482,6 +6653,13 @@ normal_call:
             localTypeNames_ = savedLocalTypeNames;
             localPointsToConst_ = savedLocalPointsToConst;
             localPointedToType_ = savedLocalPointedToType;
+            localRegister_ = savedLocalRegister;
+            localPointedToTypeName_ = savedLocalPointedToTypeName;
+            localConstPtrValue_ = savedLocalConstPtrValue;
+            localArrayDims_ = savedLocalArrayDims;
+            localPtrLevel_ = savedLocalPtrLevel;
+            paramArrayDims_ = savedParamArrayDims;
+            paramVlaDims_ = savedParamVlaDims;
 
             inlineExpansionStack_.erase(node.name);
 
@@ -6604,15 +6782,15 @@ void IRBuilder::visit(ExpressionStatement& node) {
 // ============================================================================
 
 void IRBuilder::visit(ReturnStatement& node) {
-    if (currentFunc_ && !currentFuncReturnsStruct()) narrowWide(node.expression, currentFunc_->returnType);
-    // Inline expansion: return stores to inline result vreg and branches to merge
+    // Inline expansion: return stores to inline result vreg and branches to merge.
+    // The value has the inlined function's return type (the result vreg's),
+    // not that of the function it is inlined into (currentFunc_)
     if (!inlineReturnLabel_.empty()) {
         if (node.expression) {
+            ir::Type retType = inlineReturnTarget_.type;
+            narrowWide(node.expression, retType);
             node.expression->accept(*this);
             auto val = lastValue_;
-
-            ir::Type retType = ir::Type::I16;
-            if (currentFunc_) retType = currentFunc_->returnType;
 
             IRTypeInfo info = getExprTypeInfo(node.expression.get());
             auto castVal = emitCast(val, retType, info.isSigned);
@@ -6634,6 +6812,7 @@ void IRBuilder::visit(ReturnStatement& node) {
         startBlock(newLabel("inline_after_ret"));
         return;
     }
+    if (currentFunc_ && !currentFuncReturnsStruct()) narrowWide(node.expression, currentFunc_->returnType);
 
     // Struct/union/float result: copy into the caller's buffer (*__sret), return the pointer
     if (currentFunc_) {
@@ -8167,6 +8346,8 @@ void IRBuilder::visit(AsmStatement& node) {
                 emitWarning(where + "warning: unknown optimization '" + name + "' in #pragma cc45 optimize");
             } else if (o->impl == OptimizationImpl::IR_PASS) {
                 target[o->name] = on;
+            } else if (o->impl == OptimizationImpl::AST_PASS) {
+                // done before IR generation (the AST pass reads the pragma itself)
             } else if (o->impl == OptimizationImpl::NONE) {
                 if (futureWarnings)
                     emitWarning(where + "warning: optimization '" + o->kebabName() + "' is not implemented yet; #pragma cc45 optimize(" + item + ") has no effect");
@@ -8183,6 +8364,7 @@ void IRBuilder::visit(AsmStatement& node) {
     }
     if (node.code.rfind(".max_unroll_bytes ", 0) == 0) {
         maxUnrollBytes = std::stoi(node.code.substr(18));
+        module_.maxUnrollBytes = maxUnrollBytes;
         return;
     }
     if (node.code.rfind(".max_inline_ir_size ", 0) == 0) {

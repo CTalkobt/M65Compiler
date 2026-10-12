@@ -182,6 +182,7 @@ void CodegenStage::optimizeIR() {
 
     struct Pass { const char* name; void (*run)(ir::Module&); };
     static const Pass passes[] = {
+        {"LoopUnrolling",     ir::optimizeLoopUnroll},   // first: its constants feed the others
         {"StrengthReduction", ir::optimizeStrengthReduction},
         {"AlgebraicSimplify", ir::optimizeAlgebraic},
         {"TypeNarrowing",     ir::optimizeTypeNarrowing},
@@ -193,11 +194,13 @@ void CodegenStage::optimizeIR() {
     };
 
     ir::optTrace = traceIROpt_ ? &std::cerr : nullptr;
+    ir::unrollMaxBytes = irModule_->maxUnrollBytes >= 0 ? irModule_->maxUnrollBytes : maxUnrollBytes_;
     ir::passEnabled = [this](const ir::Function& fn, const char* name) {
         auto it = fn.optOverrides.find(name);
         if (it != fn.optOverrides.end()) return it->second;
         return optOn(name);
     };
+    bool ranAny = false;
     for (const auto& p : passes) {
         bool any = optOn(p.name);
         for (const auto& fn : irModule_->functions) {
@@ -207,7 +210,10 @@ void CodegenStage::optimizeIR() {
         if (!any) continue;
         if (verboseLevel_ >= 2) std::cout << "    " << p.name << std::endl;
         p.run(*irModule_);
+        ranAny = true;
     }
+    // What the passes left unused (part of dead-code elimination, always on)
+    if (ranAny) ir::removeDeadTemps(*irModule_);
     ir::passEnabled = nullptr;
     ir::optTrace = nullptr;
 }

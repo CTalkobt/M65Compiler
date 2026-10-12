@@ -108,13 +108,13 @@ void OptimizationCatalog::initializeCatalog() {
     // Level 4: Loop optimizations
     catalog_.push_back({
         "LoopUnrolling", "Loop Unrolling",
-        "Unroll small loops (20-1000 iterations) to reduce branch overhead",
+        "Fully unroll counted for loops whose unrolled code fits -fmax-unroll-bytes",
         OptimizationCategory::SPEED, 4, -1, "-floop-unrolling", true, 5
     });
 
     catalog_.push_back({
         "LoopInterchange", "Loop Interchange",
-        "Reorder nested loops for better cache locality",
+        "Swap nested loops so the row address of a[j][i] is computed once per row",
         OptimizationCategory::SPEED, 4, -1, "-floop-interchange", true, 4
     });
 
@@ -235,6 +235,8 @@ void OptimizationCatalog::initializeCatalog() {
         {"LICM",                 OptimizationImpl::IR_PASS,   "", 1},
         {"CopyPropagation",      OptimizationImpl::IR_PASS,   "", 1},
         {"AddrElemFusion",       OptimizationImpl::IR_PASS,   "", 1},
+        {"LoopInterchange",      OptimizationImpl::AST_PASS,  "", 4},
+        {"LoopUnrolling",        OptimizationImpl::IR_PASS,   "", 4},
         // ca45 runs these at its default level whatever cc45's -O level
         {"TailCallOptimization", OptimizationImpl::ASM_PASS, "TailCall", 0},
         {"BranchInversion",      OptimizationImpl::ASM_PASS, "BranchInvert", 0},

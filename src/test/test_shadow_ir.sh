@@ -9,7 +9,7 @@
 # (Originally compared the legacy CodeGenerator with the IR path; the legacy
 # path no longer exists, so the host compiler is the reference.)
 
-CC=./bin/cc45
+CC="./bin/cc45 -O2"
 LD=./bin/ln45
 CRT0=lib/build/crt0.o45
 LIB=lib/build/c45.lib

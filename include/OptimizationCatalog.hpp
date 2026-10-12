@@ -20,6 +20,7 @@ enum class OptimizationImpl {
     IR_PASS,    // an IR pass (IROptimizer.cpp), run by cc45 after IR generation
     ASM_PASS,   // a ca45 peephole pass; cc45 forwards -P<asmFlag>/-PNo<asmFlag>
     BUILDER,    // done while the IR is built (IRBuilder switch)
+    AST_PASS,   // an AST pass before IR generation (OptimizeStage); reads its own pragmas
     ALWAYS_ON,  // part of code generation; cannot be disabled
 };
 

@@ -2,7 +2,7 @@
 # cc45 integer signedness: char, int and long are unsigned unless declared signed.
 # The generated modulo instruction (mod.16 vs mod.s16) shows which rule was applied.
 
-CC="./bin/cc45"
+CC="./bin/cc45 -O2"
 T="test_signedness_tmp"
 
 passed=0

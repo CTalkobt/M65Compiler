@@ -2,7 +2,7 @@
 # Integration tests: full cc45 -c → ca45 -c → ln45 → mmemu pipeline
 # These test the separate compilation flow that unit tests don't cover.
 
-CC="./bin/cc45"
+CC="./bin/cc45 -O2"
 AS="./bin/ca45"
 LD="./bin/ln45"
 MMEMU="mmemu-cli"

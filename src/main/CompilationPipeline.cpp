@@ -128,6 +128,8 @@ CompilationResult CompilationPipeline::compile() {
         // Stage 3: Optimize
         OptimizeStage optimizeStage(ast, config_.optimizationLevel,
                                    config_.verboseLevel, config_.inlineSmallFunctions);
+        optimizeStage.setOptOverrides(config_.optOverrides);
+        optimizeStage.setTraceIROpt(config_.traceIROpt);
         auto optimizeResult = runStage(optimizeStage);
         if (!optimizeResult.success) {
             result.success = false;

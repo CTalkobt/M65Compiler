@@ -25,6 +25,8 @@ static int bump(void) { return ++side; }
 
 static void *ra(void) __attribute__((noinline));
 static void *ra(void) { return __builtin_return_address(0); }
+/* one call site for ra(): not inlined into its callers */
+static void *call_ra(void) __attribute__((noinline));
 static void *call_ra(void) { return ra(); }
 
 static int fmt_ok(const char *want, const char *fmt, long v) {

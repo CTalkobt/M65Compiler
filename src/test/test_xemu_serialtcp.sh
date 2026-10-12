@@ -4,7 +4,7 @@
 # Validates UART serial output via TCP instead of mmemu memory dumps
 # ~4-12x faster than mmemu memory dump validation
 
-CC="./bin/cc45"
+CC="./bin/cc45 -O2"
 AS="./bin/ca45"
 LD="./bin/ln45"
 XEMU="xemu-xmega65"

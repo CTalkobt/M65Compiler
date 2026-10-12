@@ -2,7 +2,7 @@
 # Comprehensive validation tests for CodeGenerator removal
 # Tests all edge cases for const-correctness, flexible arrays, etc.
 
-CC="./bin/cc45"
+CC="./bin/cc45 -O2"
 TEMP_C="/tmp/test_comp_$$.c"
 TEMP_S="/tmp/test_comp_$$.s"
 

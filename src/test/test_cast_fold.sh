@@ -3,7 +3,7 @@
 # CastExpression to IntegerLiteral preserves type info (long, pointer, etc.)
 
 # Cast fold tests
-CC="./bin/cc45"
+CC="./bin/cc45 -O2"
 TEMP_C="test_cast_fold_tmp.c"
 TEMP_S="test_cast_fold_tmp.s45"
 
