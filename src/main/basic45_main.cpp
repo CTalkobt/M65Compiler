@@ -15,6 +15,7 @@
 #include "SymbolExpressionEvaluator.hpp"
 #include "BasicMinifier.hpp"
 #include "BasicTooling.hpp"
+#include "Version.hpp"
 
 struct Options {
     std::string inputFile;
@@ -302,7 +303,7 @@ int main(int argc, char* argv[]) {
     }
 
     if (opts.showVersion) {
-        std::cout << "basic45 v1.0" << std::endl;
+        std::cout << suiteVersionString("basic45") << std::endl;
         return 0;
     }
 

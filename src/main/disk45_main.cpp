@@ -1,3 +1,4 @@
+#include "Version.hpp"
 #include "DiskImage.hpp"
 #include "D64Image.hpp"
 #include "D71Image.hpp"
@@ -11,7 +12,7 @@
 #include <cstring>
 #include <algorithm>
 
-static const char* VERSION = "1.0.5";
+static const char* VERSION = SUITE_VERSION;
 
 // Forward declaration for FUSE mount (in disk45_fuse.cpp)
 #ifdef HAVE_FUSE3
@@ -2305,7 +2306,7 @@ static int processCommand(int argc, char** argv) {
     if (cmd == "bfill")   return cmdBfill(subArgc, subArgv);
     if (cmd == "chain")   return cmdChain(subArgc, subArgv);
     if (cmd == "--version" || cmd == "-v") {
-        std::cout << "disk45 v" << VERSION << "\n";
+        std::cout << suiteVersionString("disk45") << "\n";
         return 0;
     }
 

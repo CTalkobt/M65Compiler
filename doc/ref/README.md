@@ -24,4 +24,4 @@ Checklist for preparing and publishing a release: version bump, clean build, `ma
 
 ## Status
 
-The suite version is `SUITE_VERSION` in `include/Version.hpp` (currently `1.0.4`; `cc45 --version` prints it with the git hash).
+The suite version is `SUITE_VERSION` in `include/Version.hpp` (currently `1.0.5`; `cc45 --version` prints it with the git hash).
