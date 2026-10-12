@@ -375,6 +375,19 @@ else
     failed=$((failed + 1))
 fi
 
+# Test: continue <value> / continue default in a switch, stack and ZP conventions
+for scmode in "stack|-fno-zpcall" "zp|"; do
+    IFS='|' read -r scname scflags <<< "$scmode"
+    echo "Testing test_switch_continue_xemu.c ($scname)..."
+    compile_link_test "src/test-resources/test_switch_continue_xemu.c" "build/test/test_switch_continue_${scname}_xemu.prg" "$scflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_switch_continue_$scname" "build/test/test_switch_continue_${scname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_switch_continue_xemu.c $scname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: pointer differences (element counts, signed), stack and ZP conventions
 for pdmode in "stack|-fno-zpcall" "zp|"; do
     IFS='|' read -r pdname pdflags <<< "$pdmode"

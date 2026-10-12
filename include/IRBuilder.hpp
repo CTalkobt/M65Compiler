@@ -312,6 +312,12 @@ private:
         };
         std::vector<CaseEntry> cases;
         bool hasDefault = false;
+        // continue <value> / continue default in the body: the selector is a
+        // slot the statement stores a new value into before jumping back to
+        // the dispatch (dispatchLabel)
+        bool hasSwitchContinue = false;
+        ir::Operand selSlot;
+        std::string dispatchLabel;
     };
     std::vector<SwitchCtx> switchStack_;
 

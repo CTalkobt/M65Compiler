@@ -200,7 +200,7 @@ ln45, ar45, nm45, objdump45 and disk45 have no config files. Environment:
   emitted weak so several units can include the same struct.
 - **Extensions**: struct methods, single inheritance, `virtual`/`final`,
   operator overloading, GCC nested functions (static chain, trampolines),
-  statement expressions, computed goto, case ranges, `repeat(N)`, `__cpu`/`__flags`,
+  statement expressions, computed goto, case ranges, `continue <value>` in a switch, `repeat(N)`, `__cpu`/`__flags`,
   `__dma_copy`/`__dma_fill`, `__interrupt`, `__naked`, `__regparm`, string encodings
   (`@"…"`, `#pragma encoding`), GCC vector extension (`-fmax-unroll-bytes`, default 128).
 - **Optimization** (`doc/architecture/optimizations.md`): `-O1`+ runs the eight
@@ -257,7 +257,7 @@ overlays, `dma.h`. Many other headers (graphics, sprites, hw_*, uart, conio
 
 - **ca45**: fixed (2026-10-12): expressions/literals, data directives,
   `#include`, `.org` expressions, the simulated ops (`test_ca45_simops_xemu.s45`).
-- **cc45**: `continue <value>` does nothing; `__regparm` with `char` or
+- **cc45**: `__regparm` with `char` or
   `-fno-staticalloc`; `char` varargs high byte.
 - **ln45**: DEBUG/INFO output on every link; `-basic -t ADDR` broken; SAC
   overlay never applied ("no __ar symbol" warnings); `c45_stack.lib` has

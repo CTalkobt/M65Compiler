@@ -8143,7 +8143,7 @@ public:
     void visit(ReturnStatement& node) override { if (node.expression) node.expression->accept(*this); }
     void visit(BreakStatement&) override {}
     void visit(ContinueStatement&) override {}
-    void visit(SwitchContinueStatement& node) override { if (node.target) node.target->accept(*this); }
+    void visit(SwitchContinueStatement& node) override { ctx.hasSwitchContinue = true; if (node.target) node.target->accept(*this); }
     void visit(GotoStatement&) override {}
     void visit(LabelledStatement& node) override { if (node.statement) node.statement->accept(*this); }
     void visit(ExpressionStatement& node) override { if (node.expression) node.expression->accept(*this); }
@@ -8213,6 +8213,29 @@ void IRBuilder::visit(SwitchStatement& node) {
     // First pass: collect all cases and default labels
     CaseCollector collector(ctx, *this);
     node.body->accept(collector);
+
+    // continue <value> re-runs the dispatch with a new selector: keep the
+    // selector in a slot (assigned by store) and give the dispatch a label
+    if (ctx.hasSwitchContinue && currentFunc_) {
+        ir::Type st = expr.type == ir::Type::VOID ? ir::Type::I16 : expr.type;
+        ctx.selSlot = allocVreg(st);
+        currentFunc_->localSlotVregs.insert(ctx.selSlot.vregId);
+        ir::Inst stSel;
+        stSel.op = ir::Op::STORE;
+        stSel.resultType = st;
+        stSel.src1 = expr;
+        stSel.src2 = ctx.selSlot;
+        stSel.loc = loc(node);
+        emit(stSel);
+        ctx.dispatchLabel = newLabel("switch_dispatch");
+        ir::Inst brDisp;
+        brDisp.op = ir::Op::BR;
+        brDisp.src1 = ir::Operand::label(ctx.dispatchLabel);
+        emit(brDisp);
+        startBlock(ctx.dispatchLabel);
+        expr = ctx.selSlot;
+        ctx.expr = expr;
+    }
 
     // Emit comparison dispatch logic
     for (auto const& c : ctx.cases) {
@@ -8344,8 +8367,35 @@ void IRBuilder::visit(ContinueStatement&) {
     emit(br);
 }
 
-void IRBuilder::visit(SwitchContinueStatement&) {
-    // Non-standard extension — skip for now
+// continue <value>: jump to the case of the innermost switch that <value>
+// selects (the dispatch runs again with it); continue default: to default
+// (past the switch when there is none)
+void IRBuilder::visit(SwitchContinueStatement& node) {
+    if (switchStack_.empty()) {
+        errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column, Severity::Error,
+            "Compile Error: 'continue " + std::string(node.target ? "<value>" : "default") + "' outside a switch"));
+        return;
+    }
+    const SwitchCtx& sc = switchStack_.back();
+    releaseVlasForJump();
+    ir::Inst br;
+    br.op = ir::Op::BR;
+    if (!node.target) {
+        br.src1 = ir::Operand::label(sc.defaultLabel);
+    } else {
+        node.target->accept(*this);
+        ir::Operand v = emitCast(lastValue_, sc.selSlot.type, getExprTypeInfo(node.target.get()).isSigned);
+        ir::Inst st;
+        st.op = ir::Op::STORE;
+        st.resultType = sc.selSlot.type;
+        st.src1 = v;
+        st.src2 = sc.selSlot;
+        st.loc = loc(node);
+        emit(st);
+        br.src1 = ir::Operand::label(sc.dispatchLabel);
+    }
+    br.loc = loc(node);
+    emit(br);
 }
 
 void IRBuilder::visit(GotoStatement& node) {
