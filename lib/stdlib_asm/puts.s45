@@ -41,6 +41,8 @@ proc _puts
     plz
     iny
     bne @loop
+    inc $FC             ; next page of the string
+    bra @loop
 @done:
     lda #$0D
     phz

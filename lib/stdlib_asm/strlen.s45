@@ -2,7 +2,7 @@
 ;
 ; int strlen(char *s);
 ;   Returns the number of bytes before the NUL terminator.
-;   Limited to 255 (single-byte Y counter).
+;   Any length up to 65535 (Y walks a page, X counts the pages).
 
 .global _strlen
 
@@ -17,14 +17,17 @@ proc _strlen
 
     ; s is already at $10/$11
     ldy #0
+    ldx #0              ; X: length high byte (pages walked)
 @loop:
     lda ($10),y
     beq @done
     iny
     bne @loop
+    inc $11             ; next page of the string
+    inx
+    bra @loop
 @done:
     tya
-    ldx #0
     rts
     .func_flags zp_call
     endproc

@@ -269,8 +269,7 @@ overlays, `dma.h`. Many other headers (graphics, sprites, hw_*, uart, conio
 - **ln45**: SAC
   overlay never applied ("no __ar symbol" warnings); `c45_stack.lib` has
   internal convention mismatches (`--no-thunks` rejects printf users).
-- **Library**: `strlen`/`puts` break at 256 bytes;
-  `fopen` uses secondary address 0 (no writes).
+- **Library**: `fopen` uses secondary address 0 (no writes).
 - **basic45**: line links off by 2, labels not resolved, operators not tokenized.
 - **disk45**: adding to D90/CMD images doesn't update the BAM; `rel-create`
   corrupts D81; modifying G64/NIB/Zipcode overwrites them with D64 data.

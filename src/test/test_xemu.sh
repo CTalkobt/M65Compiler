@@ -407,6 +407,20 @@ for rpmode in "stack|-fno-zpcall|$STDLIB_STACK" "stack_nosac|-fno-zpcall -fno-st
     fi
 done
 
+# Test: the string functions on strings longer than 255 bytes (strlen, puts
+# and the rest), strcmp's sign; both conventions
+for lsmode in "stack|-fno-zpcall" "zp|"; do
+    IFS='|' read -r lsname lsflags <<< "$lsmode"
+    echo "Testing test_long_strings_xemu.c ($lsname)..."
+    compile_link_test "src/test-resources/test_long_strings_xemu.c" "build/test/test_long_strings_${lsname}_xemu.prg" "$lsflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_long_strings_$lsname" "build/test/test_long_strings_${lsname}_xemu.prg" "C0C0" 12 "01 01 01 01 01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_long_strings_xemu.c $lsname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: char arguments through "..." are promoted to int, both conventions
 for vcmode in "stack|-fno-zpcall" "zp|"; do
     IFS='|' read -r vcname vcflags <<< "$vcmode"

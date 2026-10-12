@@ -112,9 +112,9 @@ The functions marked *asm* are hand-written assembly in `lib/stdlib_asm/`; the r
 
 | Function | Notes |
 |----------|-------|
-| `int strlen(char *s)` | *asm*. Counts with an 8-bit index: correct only for strings shorter than 256 bytes (a 256-byte string returns 0) |
+| `int strlen(char *s)` | *asm*. Any length up to 65535 (Y walks a page, X counts the pages) |
 | `char *strcpy(char *d, char *s)`, `char *strncpy(char *d, char *s, int n)` | *asm*. `strncpy` NUL-pads |
-| `int strcmp(char *a, char *b)`, `int strncmp(char *a, char *b, int n)` | *asm*. Return <0, 0, >0 |
+| `signed int strcmp(char *a, char *b)`, `signed int strncmp(char *a, char *b, int n)` | *asm*. Return <0, 0, >0 (declared `signed`: a plain `int` is unsigned in cc45, which made `strcmp(a, b) < 0` always false) |
 | `char *strcat(char *d, char *s)`, `char *strncat(char *d, char *s, int n)` | *asm*. `strncat` appends at most `n` chars and NUL-terminates |
 | `char *strchr(char *s, int c)`, `char *strrchr(char *s, int c)` | *asm* |
 | `char *strstr(char *h, char *n)`, `char *strpbrk(char *s, char *accept)` | C |
@@ -127,7 +127,7 @@ The functions marked *asm* are hand-written assembly in `lib/stdlib_asm/`; the r
 | `void *memcpy(void *d, void *s, int n)` | *asm*. Byte loop; no overlap handling |
 | `void *memmove(void *d, void *s, int n)` | *asm*. Copies backwards when `d > s` |
 | `void *memset(void *s, int c, int n)` | *asm* |
-| `int memcmp(void *a, void *b, int n)` | *asm*. Returns <0, 0, >0 |
+| `signed int memcmp(void *a, void *b, int n)` | *asm*. Returns <0, 0, >0 |
 | `void *memchr(void *s, int c, int n)` | C |
 
 `string.h` also declares `__builtin_memcpy`, `__builtin_memset`, `__builtin_memmove`, `__builtin_memcmp`, `__builtin_strlen`, `__builtin_strcpy` and `__builtin_strcmp`, which the library provides. The library also exports `memcpy_optimized` (`stdlib/memcpy_fast.c`), which is not declared in any header.
@@ -191,7 +191,7 @@ Float arithmetic itself (`+ - * /`) saturates to ±`FLT_MAX` on overflow, `x / 0
 
 - **`int putchar(int c)`**: KERNAL `CHROUT` (`$FFD2`).
 - **`int getchar(void)`**: waits for a key with KERNAL `GETIN` (`$FFE4`); returns the PETSCII code.
-- **`int puts(char *s)`**: prints `s` and a carriage return (`$0D`) through `CHROUT`; returns 0. Like `strlen`, it uses an 8-bit index and stops after 256 characters.
+- **`int puts(char *s)`**: prints `s` (any length) and a carriage return (`$0D`) through `CHROUT`; returns 0.
 
 These (and every other ROM call in the library) are bracketed with `__bp_rom`/`__bp_prog`, which switch to the ROM's base page 0 and back to the program's relocated base page.
 
