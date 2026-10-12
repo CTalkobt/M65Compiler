@@ -441,6 +441,19 @@ for bfmode in "stack|-fno-zpcall" "zp|"; do
     fi
 done
 
+# Test: ln45 -basic -t ADDR: the code is linked and stored at ADDR (the PRG is
+# padded after the SYS stub); 4- and 5-digit SYS addresses
+for btaddr in 3000 2710; do
+    echo "Testing ln45 -basic -t $btaddr..."
+    if $CC -c src/test-resources/test_virtual_xemu.c -o build/test/test_basic_t.o45 >/dev/null 2>&1 &&
+       $LD -basic -t $btaddr -o build/test/test_basic_t_${btaddr}.prg $CRT0 build/test/test_basic_t.o45 $STDLIB >/dev/null 2>&1; then
+        run_xemu_test "test_basic_t_$btaddr" "build/test/test_basic_t_${btaddr}.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: ln45 -basic -t $btaddr (build failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: a program's own init_features() (weak in crt0) runs before main
 for ifmode in "stack|-fno-zpcall" "zp|"; do
     IFS='|' read -r ifname ifflags <<< "$ifmode"

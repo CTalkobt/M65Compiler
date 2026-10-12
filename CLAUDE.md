@@ -266,7 +266,7 @@ overlays, `dma.h`. Many other headers (graphics, sprites, hw_*, uart, conio
 - **ca45**: fixed (2026-10-12): expressions/literals, data directives,
   `#include`, `.org` expressions, the simulated ops (`test_ca45_simops_xemu.s45`).
 - **cc45**: none known (2026-10-12).
-- **ln45**: `-basic -t ADDR` broken; SAC
+- **ln45**: SAC
   overlay never applied ("no __ar symbol" warnings); `c45_stack.lib` has
   internal convention mismatches (`--no-thunks` rejects printf users).
 - **Library**: `strlen`/`puts` break at 256 bytes;
