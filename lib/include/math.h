@@ -20,10 +20,10 @@ typedef struct {
 
 /* abs/labs are declared in stdlib.h per C standard; re-declared here */
 #ifdef __NOMACRO_ABS
-signed int abs(signed int value);
+__fastcall__ signed int abs(signed int value);
 #endif
 #ifdef __NOMACRO_LABS
-signed long labs(signed long value);
+__fastcall__ signed long labs(signed long value);
 #endif
 
 div_t div(signed int numer, signed int denom);

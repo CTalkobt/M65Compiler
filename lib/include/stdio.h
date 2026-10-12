@@ -13,9 +13,9 @@
  * CHARACTER & STRING I/O (KERNAL-based)
  * ============================================================================ */
 
-int getchar(void);
-int putchar(int c);
-int puts(char *s);
+__fastcall__ int getchar(void);
+__fastcall__ int putchar(int c);
+__fastcall__ int puts(char *s);
 int sprintf(char *buf, char *fmt, ...);
 int snprintf(char *buf, int size, char *fmt, ...);
 int printf(char *fmt, ...);
@@ -173,7 +173,7 @@ signed int cbm_close(fd_t fd);
 /* The drive's status number (its command channel 15): 0 OK, 1 files
  * scratched, >= 20 an error (62 file not found, 63 file exists, ...); -1 if
  * the channel can't be opened */
-int cbm_drive_status(unsigned char device);
+__fastcall__ int cbm_drive_status(unsigned char device);
 signed int cbm_read(fd_t fd, void *buffer, unsigned int length);
 signed int cbm_write(fd_t fd, const void *buffer, unsigned int length);
 int cbm_seek(fd_t fd, unsigned long position);

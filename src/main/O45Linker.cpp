@@ -931,6 +931,7 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
 void O45Linker::buildFuncAttrs() {
     // Compilation mode of each object (cc45.mode_zp / cc45.mode_stack marker)
     funcObjMode_.clear();
+    funcZpCalls_.clear();
     for (const auto& input : objects_) {
         int mode = -1;
         for (const auto& exp : input.obj.exports) {
@@ -938,8 +939,14 @@ void O45Linker::buildFuncAttrs() {
             else if (exp.name == "cc45.mode_stack") mode = 0;
         }
         if (mode < 0) continue;
+        std::set<std::string> zpCalls;   // cc45.zpcall.<callee>: __fastcall__ calls of a stack-mode object
         for (const auto& exp : input.obj.exports)
-            if (exp.segmentId() == SEG_TEXT) funcObjMode_[exp.name] = mode;
+            if (exp.name.rfind("cc45.zpcall.", 0) == 0) zpCalls.insert(exp.name.substr(12));
+        for (const auto& exp : input.obj.exports) {
+            if (exp.segmentId() != SEG_TEXT) continue;
+            funcObjMode_[exp.name] = mode;
+            if (!zpCalls.empty()) funcZpCalls_[exp.name] = zpCalls;
+        }
     }
 
     funcAttrs_.clear();
@@ -2563,6 +2570,10 @@ bool O45Linker::callNeedsThunk(const std::string& callerName, const std::string&
     if ((callerIt == funcAttrs_.end() && callerMode < 0) || calleeIt == funcAttrs_.end()) return false;
     bool calleeIsZp = (calleeIt->second.flags & FUNC_FLAG_ZP_CONV) != 0;
     int calleeMode = funcMode(callee);
+    // a __fastcall__ call from a stack-mode object (cc45.zpcall.<callee>)
+    auto zc = funcZpCalls_.find(caller);
+    if (zc == funcZpCalls_.end()) zc = funcZpCalls_.find(callerName);
+    if (zc != funcZpCalls_.end() && zc->second.count(callee)) { callerIsZp = true; return !calleeIsZp; }
     if (callerMode < 0) callerIsZp = (callerIt->second.flags & FUNC_FLAG_ZP_CONV) != 0;
     else if (calleeMode == callerMode) callerIsZp = calleeIsZp;
     else callerIsZp = callerMode == 1;

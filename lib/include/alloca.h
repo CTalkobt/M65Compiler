@@ -21,7 +21,7 @@
 #ifndef _ALLOCA_H
 #define _ALLOCA_H
 
-void *alloca(unsigned int size);
+__fastcall__ void *alloca(unsigned int size);
 void *__builtin_alloca(unsigned int size);
 
 #endif /* _ALLOCA_H */

@@ -990,6 +990,24 @@ else
     failed=$((failed + 1))
 fi
 
+# Test: c45_stack.lib needs no calling-convention thunks: stack-convention
+# programs using stdio, file I/O, strings, struct copies and wide integers
+# link with ln45 --no-thunks (the library's asm functions are __fastcall__)
+for nt in test_printf_float_xemu test_fileio_xemu test_long_strings_xemu test_int64_xemu test_builtins_xemu; do
+    [ -f "src/test-resources/$nt.c" ] || continue
+    echo "Testing ln45 --no-thunks with $nt.c (stack)..."
+    if $CC -c -fno-zpcall "src/test-resources/$nt.c" -o "build/test/${nt}_nothunks.o45" >/dev/null 2>&1 &&
+       $LD --no-thunks -basic -o "build/test/${nt}_nothunks.prg" $CRT0 "build/test/${nt}_nothunks.o45" $STDLIB_STACK \
+           > "build/test/${nt}_nothunks.log" 2>&1; then
+        echo "SUCCESS: ${nt}_nothunks"
+        passed=$((passed + 1))
+    else
+        echo "FAIL: ${nt}_nothunks (ln45 --no-thunks):"
+        grep -i "mismatch\|error" "build/test/${nt}_nothunks.log" | head -3
+        failed=$((failed + 1))
+    fi
+done
+
 echo ""
 echo "======================================================"
 echo "Xemu Test Results: $passed passed, $failed failed"

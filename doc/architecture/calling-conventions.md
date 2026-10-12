@@ -120,14 +120,15 @@ These are keywords written before the return type, for example
 `__fastcall__ int f(int a, int b)`:
 
 - `__fastcall__`: this function uses the ZP convention even in a
-  `-fno-zpcall` module. Callers in the same file call it the ZP way.
+  `-fno-zpcall` module. Callers that see the declaration call it the ZP way;
+  in a stack-mode object those calls are marked `cc45.zpcall.<callee>` (a
+  weak absolute symbol) so ln45 does not bridge them. The library's headers
+  declare its assembly functions `__fastcall__`, so `c45_stack.lib` and
+  stack-mode programs call them without thunks.
 - `__regparm`: the first argument is passed in A (8-bit) or A:X (16-bit), and
-  the rest use the module's convention. **Known issue:** a `__regparm`
-  function that needs a stack frame (always the case with `-fno-staticalloc`)
-  loses X. Its frame-pointer setup (`tsy`/`tsx`) runs before A:X is saved. In
-  stack mode the remaining parameter offsets are also 2 bytes too high.
-  `__regparm int rp(int a,int b)` returns wrong values under
-  `-fno-staticalloc`. It works with the default SAC.
+  the rest use the module's convention (its ZP slot stays free; under the
+  stack convention it is not pushed). The callee stores it where the normal
+  convention would have it before any other code runs.
 - `__interrupt`: see §6.
 - `__naked`: no prologue or epilogue at all.
 

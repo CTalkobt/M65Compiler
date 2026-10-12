@@ -1011,10 +1011,14 @@ void IRBuilder::declareBuiltinPrototypes() {
         builtinProtoNames_.insert("__overflow");
         builtinProtos_.push_back(std::move(fd));
     }
+    // the ones the library implements in (ZP) asm
+    static const std::set<std::string> asmBuiltins = {
+        "__builtin_bswap32", "__builtin_clz", "__builtin_ctz", "__builtin_ffs", "__builtin_popcount"};
     for (const auto& p : iprotos) {
         auto fd = std::make_unique<FunctionDeclaration>(p.name, p.ret);
         fd->isPrototype = true;
         fd->isSigned = p.retSigned;
+        fd->isFastcall = asmBuiltins.count(p.name) > 0;
         Parameter prm;
         prm.type = p.param;
         prm.pointerLevel = 0;
@@ -2153,7 +2157,7 @@ bool IRBuilder::initLocalAggregate(const ir::Operand& vreg, const std::string& t
     call.resultType = ir::Type::VOID;
     call.src1 = ir::Operand::global("_memset");
     call.args = {base, ir::Operand::imm(0, ir::Type::I16), ir::Operand::imm(size, ir::Type::I16)};
-    call.callConv = zpCallMode ? ir::CallConv::ZP : ir::CallConv::STACK;
+    call.callConv = ir::CallConv::ZP;   // the library's memset is ZP asm (both libraries)
     call.loc = sl;
     emit(call);
     calledFunctions_.insert("_memset");
@@ -2871,7 +2875,7 @@ void IRBuilder::emitBlockCopy(const ir::Operand& dst, const ir::Operand& src, in
         call.resultType = ir::Type::VOID;
         call.src1 = ir::Operand::global("_memcpy");
         call.args = {dst, src, vmCopySize_};
-        call.callConv = zpCallMode ? ir::CallConv::ZP : ir::CallConv::STACK;
+        call.callConv = ir::CallConv::ZP;   // the library's memcpy is ZP asm (both libraries)
         call.loc = sl;
         emit(call);
         calledFunctions_.insert("_memcpy");
@@ -2906,7 +2910,7 @@ void IRBuilder::emitBlockCopy(const ir::Operand& dst, const ir::Operand& src, in
     call.resultType = ir::Type::VOID;
     call.src1 = ir::Operand::global("_memcpy");
     call.args = {dst, src, ir::Operand::imm(size, ir::Type::I16)};
-    call.callConv = zpCallMode ? ir::CallConv::ZP : ir::CallConv::STACK;
+    call.callConv = ir::CallConv::ZP;   // the library's memcpy is ZP asm (both libraries)
     call.loc = sl;
     emit(call);
     calledFunctions_.insert("_memcpy");
@@ -3219,6 +3223,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
                 auto proto = std::make_unique<FunctionDeclaration>("alloca", "void");
                 proto->returnPointerLevel = 1;
                 proto->isPrototype = true;
+                proto->isFastcall = true;   // the library's alloca is ZP asm
                 Parameter prm;
                 prm.type = "int";
                 prm.pointerLevel = 0;
@@ -3294,6 +3299,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
             auto proto = std::make_unique<FunctionDeclaration>("alloca", "void");
             proto->returnPointerLevel = 1;
             proto->isPrototype = true;
+            proto->isFastcall = true;   // the library's alloca is ZP asm
             Parameter prm;
             prm.type = "int";
             prm.pointerLevel = 0;

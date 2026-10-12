@@ -7,15 +7,15 @@
 #endif
 
 /* String operations */
-int strlen(char *s);
-char *strcpy(char *dest, char *src);
-char *strncpy(char *dest, char *src, int n);
-signed int strcmp(char *s1, char *s2);
-signed int strncmp(char *s1, char *s2, int n);
-char *strcat(char *dest, char *src);
-char *strncat(char *dest, char *src, int n);
-char *strchr(char *s, int c);
-char *strrchr(char *s, int c);
+__fastcall__ int strlen(char *s);
+__fastcall__ char *strcpy(char *dest, char *src);
+__fastcall__ char *strncpy(char *dest, char *src, int n);
+__fastcall__ signed int strcmp(char *s1, char *s2);
+__fastcall__ signed int strncmp(char *s1, char *s2, int n);
+__fastcall__ char *strcat(char *dest, char *src);
+__fastcall__ char *strncat(char *dest, char *src, int n);
+__fastcall__ char *strchr(char *s, int c);
+__fastcall__ char *strrchr(char *s, int c);
 char *strstr(char *haystack, char *needle);
 char *strpbrk(char *s, char *accept);
 int strspn(char *s, char *accept);
@@ -27,10 +27,10 @@ int strlcpy(char *dst, const char *src, int size);
 char *strdup(const char *s);
 
 /* Memory operations */
-void *memcpy(void *dest, void *src, int n);
-void *memmove(void *dest, void *src, int n);
-void *memset(void *s, int c, int n);
-signed int memcmp(void *s1, void *s2, int n);
+__fastcall__ void *memcpy(void *dest, void *src, int n);
+__fastcall__ void *memmove(void *dest, void *src, int n);
+__fastcall__ void *memset(void *s, int c, int n);
+__fastcall__ signed int memcmp(void *s1, void *s2, int n);
 void *memchr(void *s, int c, int n);
 char *strerror(int errnum);
 

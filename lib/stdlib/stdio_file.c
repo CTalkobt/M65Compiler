@@ -103,14 +103,14 @@ static FILE *_alloc_file(void) {
  * Returns flags on success, 0 on error
  */
 /* lib/stdlib_asm/cbm_parse_mode.s45 */
-unsigned char __cbm_parse_mode(const char *mode, unsigned char *cbm_type);
+__fastcall__ unsigned char __cbm_parse_mode(const char *mode, unsigned char *cbm_type);
 #define _parse_mode __cbm_parse_mode
 
 /* Forward declarations from stdio_cbm.c */
 extern fd_t cbm_open_ext(unsigned char device, const char *filename, unsigned char type, unsigned char secondary);
-extern int cbm_drive_status(unsigned char device);
+__fastcall__ int cbm_drive_status(unsigned char device);
 /* lib/stdlib_asm/cbm_dos_name.s45 */
-void __cbm_dos_name(char *dst, const char *name, unsigned char flags, unsigned char cbm_type);
+__fastcall__ void __cbm_dos_name(char *dst, const char *name, unsigned char flags, unsigned char cbm_type);
 extern int cbm_read(fd_t fd, void *buffer, unsigned int length);
 extern int cbm_write(fd_t fd, const void *buffer, unsigned int length);
 extern int cbm_close(fd_t fd);

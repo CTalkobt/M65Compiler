@@ -5,7 +5,7 @@
  */
 #include <stdio.h>
 
-extern void assert_fail_abort(void);
+__fastcall__ void assert_fail_abort(void);
 
 void assert_fail(const char *expr, const char *file, int line) {
     printf("Assertion failed: %s (file %s, line %d)\n", expr, file, line);

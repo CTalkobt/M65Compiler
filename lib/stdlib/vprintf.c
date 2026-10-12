@@ -8,7 +8,7 @@
 
 #include <stdarg.h>
 
-int putchar(int c);
+__fastcall__ int putchar(int c);
 int __vformat(void (*put)(int c, void *ctx), void *ctx, char *fmt, va_list ap,
               int (*ffmt)(char *, float, int, int, int));
 

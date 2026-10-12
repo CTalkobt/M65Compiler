@@ -11,9 +11,9 @@
 
 #include <stdarg.h>
 
-int itoa(int value, char *str, int base);
-char *ltoa(long value, char *str, int base);
-int putchar(int c);
+__fastcall__ int itoa(int value, char *str, int base);
+__fastcall__ char *ltoa(long value, char *str, int base);
+__fastcall__ int putchar(int c);
 
 static int emit_buf(char *buf, int skip_minus) {
     int i = 0; int c = 0;

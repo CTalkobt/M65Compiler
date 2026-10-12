@@ -1,6 +1,6 @@
 /* lcm.c — Least common multiple for cc45 / MEGA65 */
 
-int abs(int value);
+__fastcall__ int abs(int value);
 int gcd(int a, int b);
 
 int lcm(int a, int b) {

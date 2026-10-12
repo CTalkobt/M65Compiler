@@ -4,9 +4,9 @@
 
 #include <stddef.h>
 
-_Noreturn void exit(int status);
+__fastcall__ _Noreturn void exit(int status);
 _Noreturn void _exit(int status);
-_Noreturn void abort(void);
+__fastcall__ _Noreturn void abort(void);
 _Noreturn void __builtin_trap(void);
 _Noreturn void __builtin_unreachable(void);
 int __builtin_abs(int x);
@@ -17,11 +17,11 @@ int __builtin_ctz(unsigned int x);
 int __builtin_popcount(unsigned int x);
 unsigned int __builtin_bswap16(unsigned int x);
 
-signed int atoi(char *s);
+__fastcall__ signed int atoi(char *s);
 signed long atol(char *s);
-char *itoa(signed int value, char *str, int base);
-char *utoa(unsigned int value, char *str, int base);
-char *ltoa(signed long value, char *str, int base);
+__fastcall__ char *itoa(signed int value, char *str, int base);
+__fastcall__ char *utoa(unsigned int value, char *str, int base);
+__fastcall__ char *ltoa(signed long value, char *str, int base);
 
 /* short aliases — cast through atoi/itoa (short == int on this target) */
 #define atos(s) ((short)atoi(s))
@@ -36,22 +36,22 @@ float atof(char *nptr);
 #ifndef __NOMACRO_ABS
 #define abs(x) ((x)<0?-(x):(x))
 #else
-signed int abs(signed int value);
+__fastcall__ signed int abs(signed int value);
 #endif
 #ifndef __NOMACRO_LABS
 #define labs(x) ((long)((x)<0?-(x):(x)))
 #else
-signed long labs(signed long value);
+__fastcall__ signed long labs(signed long value);
 #endif
-int rand(void);
-void srand(unsigned int seed);
+__fastcall__ int rand(void);
+__fastcall__ void srand(unsigned int seed);
 
 int atexit(void (*func)());
 
-void *malloc(size_t size);
-void free(void *ptr);
-void *calloc(size_t nmemb, size_t size);
-void *realloc(void *ptr, size_t size);
+__fastcall__ void *malloc(size_t size);
+__fastcall__ void free(void *ptr);
+__fastcall__ void *calloc(size_t nmemb, size_t size);
+__fastcall__ void *realloc(void *ptr, size_t size);
 
 /* Sorting and searching */
 void qsort(void *base, int nmemb, int size, int (*cmpfunc)());

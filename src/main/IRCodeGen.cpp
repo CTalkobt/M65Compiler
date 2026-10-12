@@ -1104,6 +1104,22 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
         std::string modeSym = zpCallMode_ ? "cc45.mode_zp" : "cc45.mode_stack";
         emit(".weak " + modeSym);
         emit(modeSym + " = 1");
+        // A stack-mode module's ZP-convention calls (to __fastcall__
+        // functions): cc45.zpcall.<callee> tells the linker those calls
+        // already follow the callee's convention
+        if (!zpCallMode_) {
+            std::set<std::string> zpCallees;
+            for (const auto& fn : mod.functions)
+                for (const auto& blk : fn.blocks)
+                    for (const auto& inst : blk.insts)
+                        if ((inst.op == ir::Op::CALL || inst.op == ir::Op::CALL_VOID) &&
+                            inst.callConv == ir::CallConv::ZP && inst.src1.kind == ir::OperandKind::GLOBAL)
+                            zpCallees.insert(inst.src1.name);
+            for (const auto& c : zpCallees) {
+                emit(".weak cc45.zpcall." + c);
+                emit("cc45.zpcall." + c + " = 1");
+            }
+        }
     }
     emitBlank();
 
