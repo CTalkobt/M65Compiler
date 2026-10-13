@@ -57,7 +57,9 @@ __sac_debug_exit:
 
     .data
 sac_enter_fmt:
-    .asciiz "SAC ENTER: AR=$%04X size=%d\n"
+    .ascii "SAC ENTER: AR=$%04X size=%d\n"
+    .byte $00
 
 sac_exit_fmt:
-    .asciiz "SAC EXIT\n"
+    .ascii "SAC EXIT\n"
+    .byte $00

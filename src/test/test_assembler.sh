@@ -150,6 +150,30 @@ else
     failed=$((failed + 1))
 fi
 
+# Unknown directives are ignored with a warning (once per line); a known one
+# in upper case, #include, conditional assembly and .asciiz get a hint
+cat > build/test_unknown_dir.s45 << 'EOF'
+    .org $2000
+    .bogus 1
+    .BYTE 1
+    .if 1
+    .asciiz "x"
+    .byte 2
+EOF
+OUT=$($AS build/test_unknown_dir.s45 -o build/test_unknown_dir.bin 2>&1)
+if echo "$OUT" | grep -q "2:5: warning: unknown directive '.bogus' is ignored" &&
+   echo "$OUT" | grep -q "directives are lower case: '.byte'" &&
+   echo "$OUT" | grep -q "ca45 has no conditional assembly" &&
+   echo "$OUT" | grep -q "use .ascii" &&
+   [ "$(echo "$OUT" | grep -c 'unknown directive')" = "4" ] &&
+   [ "$(xxd -p build/test_unknown_dir.bin)" = "02" ]; then
+    echo "SUCCESS: unknown directives warn and are ignored"
+    passed=$((passed + 1))
+else
+    echo "FAIL: unknown directive warnings ($OUT)"
+    failed=$((failed + 1))
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All assembler feature tests passed!"
     exit 0

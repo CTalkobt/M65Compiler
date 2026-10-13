@@ -984,7 +984,6 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     }
 
     if (relocMode) {
-        emit(".o45");
         // Emit .org for standalone assembly generation
         // The linker ignores this for .o45 files, but ca45 uses it for PRG generation
         std::stringstream ss;

@@ -300,6 +300,8 @@ private:
 
     int calculateInstructionSize(const Instruction& instr, uint32_t currentAddr = 0, const std::string& scopePrefix = "", const Statement* stmt = nullptr);
     int calculateDirectiveSize(const Directive& dir, uint32_t currentAddr = 0, const Statement* stmt = nullptr);
+    void warnUnknownDirective(const AssemblerToken& tok);
+    std::set<std::string> warnedDirectives_;
     int calculateExprSize(int tokenIndex, const std::string& scopePrefix = "");
     uint32_t evaluateExpressionAt(int index, const std::string& scopePrefix = "");
     bool exprSymbolsDefined(int index, const std::string& scopePrefix) const;

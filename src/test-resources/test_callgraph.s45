@@ -1,4 +1,3 @@
-    .o45
     .org $2000
     .weak __sp_base
     __sp_base = $0101

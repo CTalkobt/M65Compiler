@@ -14,6 +14,7 @@
 #include <fstream>
 #include <cstdio>
 #include <algorithm>
+#include <set>
 #include <memory>
 #include <cmath>
 
@@ -640,6 +641,7 @@ void AssemblerParser::pass1() {
         else if (match(AssemblerTokenType::DIRECTIVE)) {
             stmt->type = Statement::DIRECTIVE;
             stmt->dir.name = tokens[pos-1].value;
+            warnUnknownDirective(tokens[pos-1]);
 
             // .repeat N / .endrepeat — compile-time loop unrolling
             if (stmt->dir.name == "repeat") {
@@ -2038,6 +2040,31 @@ int AssemblerParser::calculateInstructionSize(const Instruction& instr, uint32_t
         case AddressingMode::FLAT_INDIRECT_Z: return size + 1;
         default: return size + 2;
     }
+}
+
+// The directives ca45 knows (doc/bin/ca45.md); any other ".name" is ignored
+// with a warning, once per name and line
+void AssemblerParser::warnUnknownDirective(const AssemblerToken& tok) {
+    static const std::set<std::string> known = {
+        "align", "array", "array_dims", "ascii", "balign", "basicUpstart", "bss", "byte", "cleanup", "code", "const",
+        "cpu", "data", "dword", "endrepeat", "extern", "field_class", "field_count", "fill", "fillto",
+        "fixed_prefix_size", "flag_clobbers", "float", "frame_size", "frameptr_zp", "func_flags",
+        "global", "import", "incbin", "init", "loc", "local", "long", "noopt_start", "org",
+        "param_const", "param_sizes", "reg_clobbers", "repeat", "res", "sac", "screencode", "segment",
+        "segmentOrder", "space", "text", "var", "var_field_array", "vtable_entry", "weak", "word", "zp", "zp_clobbers",
+        "zp_release", "zp_uses"};
+    if (known.count(tok.value)) return;
+    if (!warnedDirectives_.insert(tok.value + ":" + std::to_string(tok.line)).second) return;
+    std::string lower = tok.value;
+    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+    std::string msg = "unknown directive '." + tok.value + "' is ignored";
+    if (lower != tok.value && known.count(lower)) msg += " (directives are lower case: '." + lower + "')";
+    else if (tok.value == "include") msg += " (use #include \"file\")";
+    else if (tok.value == "if" || tok.value == "ifdef" || tok.value == "ifndef" || tok.value == "else" ||
+             tok.value == "endif")
+        msg += " (ca45 has no conditional assembly)";
+    else if (tok.value == "asciiz") msg += " (use .ascii \"...\" and .byte $00)";
+    addWarning(formatDiagnostic(currentSourceFile_, tok.line, tok.column, Severity::Warning, msg));
 }
 
 int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t currentAddr, const Statement* stmt) {
