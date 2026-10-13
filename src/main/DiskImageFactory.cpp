@@ -49,7 +49,7 @@ std::unique_ptr<DiskImage> DiskImage::createFromExtension(const std::string& pat
     if (ext == ".tap") return std::make_unique<TapImage>();
     if (ext == ".t64") return std::make_unique<T64Image>();
     if (ext == ".g64") return std::make_unique<G64Image>();
-    if (ext == ".g71") return std::make_unique<G64Image>();
+    if (ext == ".g71") return std::make_unique<G71Image>();
     if (ext == ".d80") return std::make_unique<D80Image>();
     if (ext == ".d82") return std::make_unique<D82Image>();
     if (ext == ".cvt") return std::make_unique<GeosCvtImage>();

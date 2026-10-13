@@ -195,7 +195,7 @@ $DISK45 list "$TMPDIR/l.d82" | grep -q '^261 blocks free' && cmp -s "$TMPDIR/big
 echo "=== Read-only formats ==="
 
 # D90/D60/CMD: create gives a blank image; changing it is refused and leaves it
-# unchanged. G64/NIB/Zipcode cannot be created
+# unchanged. NIB/Zipcode cannot be created
 for ext in d90 d1m; do
     $DISK45 create "$TMPDIR/ro.$ext" -n "RO" >/dev/null 2>&1
     SUM=$(md5sum < "$TMPDIR/ro.$ext")
@@ -203,8 +203,8 @@ for ext in d90 d1m; do
         [ "$(md5sum < "$TMPDIR/ro.$ext")" = "$SUM" ] &&
         pass "Read-only $ext: add refused" || fail "Read-only $ext: add refused"
 done
-! $DISK45 create "$TMPDIR/ro.g64" >/dev/null 2>&1 && [ ! -f "$TMPDIR/ro.g64" ] &&
-    pass "G64 create refused" || fail "G64 create refused"
+! $DISK45 create "$TMPDIR/ro.nib" >/dev/null 2>&1 && [ ! -f "$TMPDIR/ro.nib" ] &&
+    pass "NIB create refused" || fail "NIB create refused"
 
 # ============================================================================
 echo "=== Subdirectories ==="
@@ -360,6 +360,63 @@ $DISK45 info "$TMPDIR/vlir.cvt" | grep -q 'VLIR records: 5' &&
     [ "$(stat -c %s "$TMPDIR/r5.bin")" = "5000" ] &&
     [ "$(tail -c 5000 "$TMPDIR/vlir.cvt" | md5sum)" = "$(md5sum < "$TMPDIR/r5.bin")" ] &&
     pass "CVT reader: records, class" || fail "CVT reader"
+
+# ============================================================================
+echo "=== GCR images (G64, G71, NIB, NBZ) ==="
+
+# src/test/mkgcr.py encodes a D64 independently (G64.TXT, MNIB track sizes;
+# nibtools' NIB with 8 KB reads that start anywhere and are not byte-aligned;
+# the NIB compressed with lz.c's LZ77 as .nbz)
+$DISK45 create "$TMPDIR/gcr.d64" -n "GCR TEST" -i G1 >/dev/null 2>&1
+head -c 40000 /dev/urandom > "$TMPDIR/gcra.prg"
+head -c 3000 /dev/urandom > "$TMPDIR/gcrb.prg"
+$DISK45 add "$TMPDIR/gcr.d64" "$TMPDIR/gcra.prg" A >/dev/null 2>&1
+$DISK45 add "$TMPDIR/gcr.d64" "$TMPDIR/gcrb.prg" B >/dev/null 2>&1
+python3 src/test/mkgcr.py g64 "$TMPDIR/gcr.d64" "$TMPDIR/py.g64"
+python3 src/test/mkgcr.py nib "$TMPDIR/gcr.d64" "$TMPDIR/py.nib"
+python3 src/test/mkgcr.py nbz "$TMPDIR/gcr.d64" "$TMPDIR/py.nbz"
+rm -f "$TMPDIR/dk.g64"
+$DISK45 convert "$TMPDIR/gcr.d64" "$TMPDIR/dk.g64" >/dev/null 2>&1 && cmp -s "$TMPDIR/dk.g64" "$TMPDIR/py.g64" &&
+    pass "G64 writer: standard tracks (as an independent encoder)" || fail "G64 writer"
+for f in py.g64 py.nib py.nbz; do
+    rm -f "$TMPDIR/back.d64"
+    $DISK45 convert "$TMPDIR/$f" "$TMPDIR/back.d64" >/dev/null 2>&1 && cmp -s "$TMPDIR/back.d64" "$TMPDIR/gcr.d64" &&
+        pass "decode $f (every sector)" || fail "decode $f"
+done
+# a byte in track 30's tail gap (never decoded) survives adding a file
+python3 - "$TMPDIR/py.g64" "$TMPDIR/mark.g64" <<'PY'
+import sys
+d = bytearray(open(sys.argv[1], 'rb').read())
+e = (30 - 1) * 2
+off = int.from_bytes(d[12 + e * 4:16 + e * 4], 'little')
+ln = int.from_bytes(d[off:off + 2], 'little')
+d[off + 2 + ln - 1] = 0x56
+open(sys.argv[2], 'wb').write(d)
+PY
+$DISK45 add "$TMPDIR/mark.g64" "$TMPDIR/gcrb.prg" C >/dev/null 2>&1 &&
+    $DISK45 extract "$TMPDIR/mark.g64" C "$TMPDIR/gcrc.prg" >/dev/null 2>&1 && cmp -s "$TMPDIR/gcrc.prg" "$TMPDIR/gcrb.prg" &&
+    python3 - "$TMPDIR/mark.g64" <<'PY' && pass "G64 write keeps unchanged tracks' GCR" || fail "G64 keeps unchanged tracks"
+import sys
+d = open(sys.argv[1], 'rb').read()
+e = (30 - 1) * 2
+off = int.from_bytes(d[12 + e * 4:16 + e * 4], 'little')
+ln = int.from_bytes(d[off:off + 2], 'little')
+sys.exit(0 if d[off + 2 + ln - 1] == 0x56 else 1)
+PY
+$DISK45 create "$TMPDIR/gcr.d71" -n G71TEST >/dev/null 2>&1
+head -c 300000 /dev/urandom > "$TMPDIR/gcrbig.prg"
+$DISK45 add "$TMPDIR/gcr.d71" "$TMPDIR/gcrbig.prg" BIG >/dev/null 2>&1
+rm -f "$TMPDIR/gcr.g71" "$TMPDIR/back.d71"
+$DISK45 convert "$TMPDIR/gcr.d71" "$TMPDIR/gcr.g71" >/dev/null 2>&1 &&
+    $DISK45 convert "$TMPDIR/gcr.g71" "$TMPDIR/back.d71" >/dev/null 2>&1 && cmp -s "$TMPDIR/back.d71" "$TMPDIR/gcr.d71" &&
+    [ "$(head -c 10 "$TMPDIR/gcr.g71" | tail -c 2 | xxd -p)" = "00a8" ] &&
+    pass "G71 (168 entries, side 2) round trip" || fail "G71 round trip"
+rm -f "$TMPDIR/new.g64.gz"
+$DISK45 create "$TMPDIR/new.g64.gz" -n NEW >/dev/null 2>&1 && $DISK45 add "$TMPDIR/new.g64.gz" "$TMPDIR/gcrb.prg" X >/dev/null 2>&1 &&
+    $DISK45 list "$TMPDIR/new.g64.gz" | grep -q '"X"' &&
+    pass "create and change a .g64.gz" || fail "create .g64.gz"
+! $DISK45 add "$TMPDIR/py.nib" "$TMPDIR/gcrb.prg" X >/dev/null 2>&1 &&
+    pass "NIB stays read-only" || fail "NIB read-only"
 
 # ============================================================================
 echo ""

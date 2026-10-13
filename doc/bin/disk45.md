@@ -661,16 +661,20 @@ R/W means `create`, `add`, `remove` etc. work and the image is written back in i
 
 `create` on these extensions produces a blank formatted image. disk45 does not write their BAM correctly, so every command that changes such an image (`add`, `remove`, `rename`, `bwrite`, a FUSE mount, ...) is refused with an error and the image stays as it was.
 
-### Raw/GCR Formats (read-only)
+### GCR Formats
 
-| Extension | Format | Notes |
-|-----------|--------|-------|
-| `.g64` | GCR-1541 | Decoded to D64 sectors on load. |
-| `.g71` | GCR-1571 | Decoded to D71 sectors on load. |
-| `.nib`, `.nbz` | Nibble dump | Decoded to D64 sectors on load. |
-| `1!name` | Zipcode | 4-file RLE pack; give the `1!` file, `2!`-`4!` are found automatically. |
+| Extension | Format | R/W | Notes |
+|-----------|--------|-----|-------|
+| `.g64` | GCR-1541 | R/W | Decoded to D64 sectors; written back as GCR. |
+| `.g71` | GCR-1571 | R/W | The same for the 1571 (168 track entries, side 2 = tracks 36-70). |
+| `.nib`, `.nbz` | nibtools read | R | Decoded to D64 sectors; `.nbz` is the `.nib` compressed with LZ77 (Geelnard's lz.c). |
+| `1!name` | Zipcode | R | 4-file RLE pack; give the `1!` file, `2!`-`4!` are found automatically. |
 
-There is no encoder: `create` refuses these extensions, and every command that changes such an image is refused with an error (it used to save plain D64 data over the file, destroying its encoding); FUSE mounts them read-only. Convert to `.d64`/`.d71` (`disk45 convert disk.g64 disk.d64`) and change the copy.
+**Decoding** reads a track as a bit stream ([G64.TXT](https://ist.uwaterloo.ca/~schepers/formats/G64.TXT)): a sync is 10 or more 1 bits and what follows need not be byte-aligned, a G64 track wraps around (a sector may cross its end), and a sector counts only when its header ($08, checksum, sector, track, ID) and data block ($07, 256 bytes, checksum) checksums are right. A NIB holds one 8 KB read per listed half track after a 256-byte header (`MNIB-1541-RAW`, then half-track/density pairs from $10); a headerless file of 84 reads is accepted too. Half tracks and tracks past 35 (G64) are not decoded but are kept.
+
+**Writing a G64/G71** (any change, `create`, `convert` to `.g64`/`.g71`): a track whose sectors are unchanged since loading keeps its original GCR (copy protection, extra syncs, odd gaps, its speed zone or speed block); a changed or new track is encoded as a standard 1541 track: sectors 0..n-1, 5-byte syncs, the header with the format ID found on the disk (or the BAM's disk ID), a 9-byte header gap, the data block, gaps spread evenly to MNIB's track lengths (7692/7142/6666/6250 bytes for speed zones 3-0), every track slot 7928 bytes padded with $FF. A G64 disk45 writes from a D64 is byte for byte what `src/test/mkgcr.py`, an independent encoder, writes; `test_disk45.sh` also checks that a byte in an untouched track survives adding a file.
+
+NIB, NBZ and Zipcode are read-only: `create` refuses them and changes are refused (convert to `.d64` or `.g64`).
 
 ### Tape Formats
 
@@ -747,7 +751,7 @@ auto prg = disk->readFile("GAME");
 | `D80Image`, `D82Image` | `D80Image.hpp` | D80, D82 |
 | `D90Image` | `D90Image.hpp` | D90, D60 |
 | `CmdImage` | `CmdImage.hpp` | D1M, D2M, D4M, DNP |
-| `G64Image` | `G64Image.hpp` | G64, G71 |
+| `G64Image`, `G71Image` | `G64Image.hpp` (`GcrTracks.hpp`, `Gcr.hpp`) | G64, G71 |
 | `X64Image` | `X64Image.hpp` | X64 |
 | `NibImage` | `NibImage.hpp` | NIB |
 | `TapImage` | `TapImage.hpp` | TAP |
