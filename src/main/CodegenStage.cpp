@@ -23,11 +23,6 @@ Stage::Result CodegenStage::execute() {
         // Phase 2: Generate IR from AST
         generateIR();
 
-        // Phase 3: Apply cross-module optimizations (specialization)
-        if (optimizationLevel_ >= 2) {
-            applyIPOSpecialization();
-        }
-
         // Phase 4: IR-level optimizations (8 passes)
         optimizeIR();
 
@@ -116,55 +111,6 @@ void CodegenStage::generateIR() {
     if (verboseLevel_ >= 2) {
         std::cout << "    IR generated successfully" << std::endl;
     }
-}
-
-void CodegenStage::applyIPOSpecialization() {
-    if (verboseLevel_ >= 2) {
-        std::cout << "  Applying cross-module optimization..." << std::endl;
-    }
-
-    if (!irModule_ || !analyzer_) return;
-
-    // Phase 91: Cross-module optimization (IPO) with specialization
-    // This includes:
-    //  - Function specialization for constant argument patterns
-    //  - Dead code elimination across module boundaries
-    //  - Devirtualization of virtual function calls
-    //  - Co-optimization hints for link time
-
-    const auto& characteristics = analyzer_->getAllCharacteristics();
-
-    // Count optimization candidates based on function characteristics
-    int leafFunctions = 0;
-    int smallFunctions = 0;
-    int recursiveFunctions = 0;
-
-    for (const auto& [funcName, chars] : characteristics) {
-        // Leaf functions are candidates for aggressive optimization
-        if (chars.isLeaf) {
-            leafFunctions++;
-        }
-        // Small functions are candidates for inlining/specialization
-        if (chars.estimatedCodeSize < 20) {
-            smallFunctions++;
-        }
-        // Track recursive functions (cannot use SAC)
-        if (chars.isRecursive) {
-            recursiveFunctions++;
-        }
-    }
-
-    if (verboseLevel_ >= 2) {
-        if (leafFunctions > 0) {
-            std::cout << "    Found " << leafFunctions << " leaf functions for optimization." << std::endl;
-        }
-        if (smallFunctions > 0) {
-            std::cout << "    Found " << smallFunctions << " small functions for specialization." << std::endl;
-        }
-    }
-
-    // Mark optimization candidates in IR
-    // This will be expanded in Phase 91.3+ for full specialization support
 }
 
 bool CodegenStage::optOn(const std::string& name) const {

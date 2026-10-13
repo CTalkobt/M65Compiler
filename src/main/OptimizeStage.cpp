@@ -24,11 +24,6 @@ Stage::Result OptimizeStage::execute() {
             performInlineSelection();
         }
 
-        // Phase 4: Cross-module optimization (IPO, devirtualization, etc.)
-        if (optimizationLevel_ >= 2) {
-            performCrossModuleOptimization();
-        }
-
         // Phase 5: Loop optimizations (interchange, unrolling, invariant hoisting)
         if (optimizationLevel_ >= 3) {
             performLoopOptimizations();
@@ -124,52 +119,6 @@ void OptimizeStage::performInlineSelection() {
     if (verboseLevel_ >= 2 && inlineCandidates > 0) {
         std::cout << "    Found " << inlineCandidates << " inline candidates." << std::endl;
     }
-}
-
-void OptimizeStage::performCrossModuleOptimization() {
-    if (verboseLevel_ >= 2) {
-        std::cout << "  Cross-module optimization..." << std::endl;
-    }
-
-    if (!analyzer_) return;
-
-    // Phase 91: Cross-module optimization (IPO)
-    // This includes:
-    //  - Dead code elimination across modules
-    //  - Function specialization for constant argument patterns
-    //  - Call graph analysis for devirtualization
-    //  - Co-optimization hints
-
-    const auto& characteristics = analyzer_->getAllCharacteristics();
-
-    // Count functions eligible for optimization
-    int leafFunctions = 0;
-    int smallFunctions = 0;
-    for (const auto& [funcName, chars] : characteristics) {
-        // Leaf functions are candidates for aggressive optimization
-        if (chars.isLeaf && funcName != "main" && funcName != "_main") {
-            leafFunctions++;
-        }
-        // Small functions can be inlined or specialized
-        if (chars.estimatedCodeSize < 20 && funcName != "main" && funcName != "_main") {
-            smallFunctions++;
-        }
-    }
-
-    if (verboseLevel_ >= 2) {
-        if (leafFunctions > 0) {
-            std::cout << "    Found " << leafFunctions << " leaf functions for optimization." << std::endl;
-        }
-        if (smallFunctions > 0) {
-            std::cout << "    Found " << smallFunctions << " small functions for specialization." << std::endl;
-        }
-    }
-
-    // Additional cross-module optimizations:
-    //  - Devirtualization (single virtual implementation → direct call)
-    //  - Function specialization for hot call paths
-    //  - Co-location hints for frequently-accessed globals
-    // These are marked as hints in the IR and applied at link time (Phase 100)
 }
 
 void OptimizeStage::performLoopOptimizations() {

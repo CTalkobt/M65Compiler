@@ -39,16 +39,14 @@ MANDIR ?= $(PREFIX)/share/man/man1
 
 # lib45-common: Object format, symbols, config, utilities, diagnostics, debug info, source tracking
 $(LIB_DIR)/lib45-common.a: $(addprefix $(OBJ_DIR)/, \
-    O45Reader.o O45Writer.o O45DebugSections.o O45DwarfSerialization.o O45IRSerializer.o O45Emitter.o O45Archive.o \
-    O45Linker.o AssemblerOpcodeDatabase.o ConfigLoader.o EnhancedDiagnostic.o \
-    DebugInfoBuilder.o DIEBuilder.o SourceLocationTracker.o LineNumberProgram.o)
+    O45Reader.o O45Writer.o O45DebugSections.o O45Emitter.o O45Archive.o \
+    O45Linker.o AssemblerOpcodeDatabase.o ConfigLoader.o)
 	@mkdir -p $(LIB_DIR)
 	$(AR) rcs $@ $^
 
 # lib45-c-compile: C compiler frontend (Lexer, Parser, AST, Validator)
 $(LIB_DIR)/lib45-c-compile.a: $(addprefix $(OBJ_DIR)/, \
-    Lexer.o Parser.o AST.o Preprocessor.o TypeSystem.o ScopeManager.o \
-    TypeInfo.o M65Emitter.o)
+    Lexer.o Parser.o AST.o TypeSystem.o TypeInfo.o)
 	@mkdir -p $(LIB_DIR)
 	$(AR) rcs $@ $^
 
@@ -60,43 +58,8 @@ $(LIB_DIR)/lib45-ir.a: $(addprefix $(OBJ_DIR)/, \
 
 # lib45-opt: Optimization passes + code generation
 $(LIB_DIR)/lib45-opt.a: $(addprefix $(OBJ_DIR)/, \
-    IRCodeGen.o CodeGenerator.o CodeGeneratorDWARF.o \
-    ConstantFolder.o LoopOptimizer.o LoopIdiomRegistry.o \
-    LoopInterchange.o StrengthReduction.o AlgebraicSimplification.o \
-    RedundantLoadElimination.o DeadStoreElimination.o \
-    CommonSubexpressionElimination.o LoopInvariantCodeMotion.o \
-    CopyPropagation.o BranchOptimization.o GlobalValueNumbering.o \
-    EscapeAnalysis.o OptimizationSelector.o InlineSelector.o \
-    CallGraphAnalyzer.o DevirtualizationDetector.o FunctionAnalyzer.o \
-    CoOptimizationSelector.o DevirtualizationHints.o CoOptimizationApplier.o \
-    OptimizationCatalog.o OptimizationController.o \
-    GlobalFunctionDatabase.o CallPatternAnalyzer.o IPOAnalyzer.o IPOProfiler.o \
-    SpecializationCodeGenerator.o SpecializationOptimizer.o \
-    IRSpecializationGenerator.o StructFieldStriper.o FieldStripedOffsetCalc.o \
-    AddressSpaceValidator.o GlobalPointerFieldDatabase.o \
-    InterTUPatternDetector.o FieldCachingAnalyzer.o \
-    FieldCachingLinkerIntegration.o FarAddressMemorySupport.o \
-    FarAddressCodeGenerator.o CrossModuleVariableDatabase.o \
-    MemoryBankAssigner.o BankLayoutGenerator.o BankSetupOptimizer.o \
-    BankAwareCodeGenerator.o OptimizationHintCollector.o \
-    OptimizationConstraintResolver.o LinkTimeOptimizationCoordinator.o \
-    OptimizationDependencyAnalyzer.o LinkTimeOptimizationCodeGenerator.o \
-    LinkTimeOptimizationValidator.o CompilationProfiler.o HotSpotProfiler.o \
-    ComparativePerformanceAnalyzer.o PatternRecognitionEngine.o \
-    PatternBasedOptimizationSelector.o CrossModuleEnhancer.o \
-    DependencyTracker.o BenchmarkingSuite.o BenchmarkCompilerIntegration.o \
-    BenchmarkExecutor.o BenchmarkMetricsCollector.o \
-    BenchmarkComparativeAnalyzer.o BenchmarkReportGenerator.o \
-    IterationManager.o OptimizationLearner.o FeedbackCoordinator.o \
-    OnlineLearner.o TuningHooks.o CompilationSignalCollector.o \
-    CompilerHookIntegrator.o HookIntegration.o CompilerDecisionLogic.o \
-    OptimizationEffectivenessCollector.o OptimizationProfileDatabase.o \
-    AdaptiveThresholdAdjuster.o OptimizationPatternAnalyzer.o \
-    LearnerBasedOptimizationSelector.o AdaptiveLearnerIntegration.o \
-    TemplateOptimizationPass.o TemplateRegistry.o TemplateOptimizationSystem.o \
-    MathLibraryOptimization.o RegisterResidentLoops.o TableDrivenDispatch.o \
-    PeepholeOptimization.o LearnerFeedbackRecorder.o AddressTemplates.o \
-    AddressTemplateDetector.o)
+    IRCodeGen.o ConstantFolder.o LoopInterchange.o FunctionAnalyzer.o \
+    OptimizationCatalog.o AddressTemplateDetector.o)
 	@mkdir -p $(LIB_DIR)
 	$(AR) rcs $@ $^
 
@@ -108,9 +71,53 @@ $(LIB_DIR)/lib45-codegen.a: $(addprefix $(OBJ_DIR)/, \
 	@mkdir -p $(LIB_DIR)
 	$(AR) rcs $@ $^
 
-# lib45-linker: Linking and relocation
-$(LIB_DIR)/lib45-linker.a: $(addprefix $(OBJ_DIR)/, \
-    CrossModuleOptimizer.o)
+# lib45-phases: code of earlier development phases that no tool links (IPO,
+# bank assignment, link-time optimization coordination, benchmarking, learning
+# and tuning hooks, DWARF output, the AST-level CodeGenerator and its
+# optimizers, field striping, templates; O45Linker's analysis passes, see
+# doc/architecture/cross-module-optimization.md). Built so it keeps compiling;
+# a static library adds nothing to a program that does not use it.
+$(LIB_DIR)/lib45-phases.a: $(addprefix $(OBJ_DIR)/, \
+    AdaptiveLearnerIntegration.o AdaptiveThresholdAdjuster.o \
+    AddressSpaceValidator.o AddressTemplates.o AlgebraicSimplification.o \
+    BankAwareCodeGenerator.o BankLayoutGenerator.o BankSetupOptimizer.o \
+    BenchmarkComparativeAnalyzer.o BenchmarkCompilerIntegration.o \
+    BenchmarkExecutor.o BenchmarkMetricsCollector.o \
+    BenchmarkReportGenerator.o BenchmarkingSuite.o BranchOptimization.o \
+    CallGraphAnalyzer.o CallPatternAnalyzer.o CoOptimizationApplier.o \
+    CoOptimizationSelector.o CodeGenerator.o CodeGeneratorDWARF.o \
+    CommonSubexpressionElimination.o ComparativePerformanceAnalyzer.o \
+    CompilationProfiler.o CompilationSignalCollector.o \
+    CompilerDecisionLogic.o CompilerHookIntegrator.o CopyPropagation.o \
+    CrossModuleEnhancer.o CrossModuleVariableDatabase.o DIEBuilder.o \
+    DeadStoreElimination.o DebugInfoBuilder.o DependencyTracker.o \
+    DevirtualizationDetector.o DevirtualizationHints.o EnhancedDiagnostic.o \
+    EscapeAnalysis.o FarAddressCodeGenerator.o FarAddressMemorySupport.o \
+    FeedbackCoordinator.o FieldCachingAnalyzer.o \
+    FieldCachingLinkerIntegration.o FieldStripedOffsetCalc.o \
+    GlobalFunctionDatabase.o GlobalPointerFieldDatabase.o \
+    GlobalValueNumbering.o HookIntegration.o HotSpotProfiler.o IPOAnalyzer.o \
+    IPOProfiler.o IRSpecializationGenerator.o InlineSelector.o \
+    InterTUPatternDetector.o IterationManager.o \
+    LearnerBasedOptimizationSelector.o LearnerFeedbackRecorder.o \
+    LineNumberProgram.o LinkTimeOptimizationCodeGenerator.o \
+    LinkTimeOptimizationCoordinator.o LinkTimeOptimizationValidator.o \
+    LoopIdiomRegistry.o LoopInvariantCodeMotion.o LoopOptimizer.o \
+    MathLibraryOptimization.o MemoryBankAssigner.o O45DwarfSerialization.o \
+    O45IRSerializer.o OnlineLearner.o OptimizationConstraintResolver.o \
+    OptimizationController.o OptimizationDependencyAnalyzer.o \
+    OptimizationEffectivenessCollector.o OptimizationHintCollector.o \
+    OptimizationLearner.o OptimizationPatternAnalyzer.o \
+    OptimizationProfileDatabase.o OptimizationSelector.o \
+    PatternBasedOptimizationSelector.o PatternRecognitionEngine.o \
+    PeepholeOptimization.o RedundantLoadElimination.o \
+    RegisterResidentLoops.o ScopeManager.o SourceLocationTracker.o \
+    SpecializationCodeGenerator.o SpecializationOptimizer.o \
+    StrengthReduction.o StructFieldStriper.o TableDrivenDispatch.o \
+    TemplateOptimizationPass.o TemplateOptimizationSystem.o \
+    TemplateRegistry.o TuningHooks.o CrossModuleOptimizer.o \
+    O45LinkerPhases.o O45WriterPhases.o IRCodeGenPhases.o \
+    OptimizeStagePhases.o CodegenStagePhases.o)
 	@mkdir -p $(LIB_DIR)
 	$(AR) rcs $@ $^
 
@@ -164,7 +171,7 @@ $(LIB_DIR)/lib45-tools.a: $(LIB45_TOOLS_OBJS)
 # ============================================================================
 
 all: $(CC_TARGET) $(CA_TARGET) $(CP_TARGET) $(NM_TARGET) $(LN_TARGET) \
-     $(AR_TARGET) $(OD_TARGET) $(DISK_TARGET) $(CVT_ASM_TARGET) $(BASIC_TARGET) stdlib | $(LIB_DIR)/lib45-audio.a
+     $(AR_TARGET) $(OD_TARGET) $(DISK_TARGET) $(CVT_ASM_TARGET) $(BASIC_TARGET) stdlib | $(LIB_DIR)/lib45-audio.a $(LIB_DIR)/lib45-phases.a
 
 # Rebuild stdlib whenever cc45 or ca45 changes
 stdlib: $(CC_TARGET) $(CA_TARGET) $(AR_TARGET)
@@ -214,9 +221,9 @@ $(NM_TARGET): $(LIB_DIR)/lib45-common.a
 
 # Linker (ln45) - uses linker + opt + common
 $(LN_TARGET): $(OBJ_DIR)/ln45_main.o | $(LIB_DIR)
-$(LN_TARGET): $(LIB_DIR)/lib45-linker.a $(LIB_DIR)/lib45-opt.a $(LIB_DIR)/lib45-common.a
+$(LN_TARGET): $(LIB_DIR)/lib45-common.a
 	@mkdir -p $(BIN_DIR)
-	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/ln45_main.o $(LIB_DIR)/lib45-linker.a $(LIB_DIR)/lib45-opt.a $(LIB_DIR)/lib45-common.a
+	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/ln45_main.o $(LIB_DIR)/lib45-common.a
 
 # Archiver (ar45) - uses common
 $(AR_TARGET): $(OBJ_DIR)/ar45_main.o | $(LIB_DIR)
@@ -239,9 +246,9 @@ $(DISK_TARGET): $(LIB_DIR)/lib45-tools.a $(LIB_DIR)/lib45-common.a
 # Assembly Format Converter (cvt_asm) - uses tools, codegen, opt + common
 $(CVT_ASM_TARGET): $(OBJ_DIR)/cvt_asm_main.o | $(LIB_DIR)
 $(CVT_ASM_TARGET): $(LIB_DIR)/lib45-tools.a $(LIB_DIR)/lib45-codegen.a \
-                   $(LIB_DIR)/lib45-opt.a $(LIB_DIR)/lib45-common.a
+                   $(LIB_DIR)/lib45-common.a
 	@mkdir -p $(BIN_DIR)
-	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/cvt_asm_main.o $(LIB_DIR)/lib45-tools.a $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-opt.a $(LIB_DIR)/lib45-common.a
+	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/cvt_asm_main.o $(LIB_DIR)/lib45-tools.a $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-common.a
 
 # BASIC Compiler (basic45) - uses basic + tools + common
 $(BASIC_TARGET): $(OBJ_DIR)/basic45_main.o | $(LIB_DIR)
@@ -402,7 +409,7 @@ $(LIB_DIR):
 # Build all lib45 libraries
 lib45-libraries: $(LIB_DIR)/lib45-common.a $(LIB_DIR)/lib45-c-compile.a \
                 $(LIB_DIR)/lib45-ir.a $(LIB_DIR)/lib45-opt.a \
-                $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-linker.a \
+                $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-phases.a \
                 $(LIB_DIR)/lib45-basic.a $(LIB_DIR)/lib45-tools.a \
                 $(LIB_DIR)/lib45-audio.a
 
@@ -414,7 +421,7 @@ show-lib-deps:
 	@echo "lib45-ir.a            : Intermediate representation → lib45-common"
 	@echo "lib45-opt.a           : Optimization passes → lib45-ir lib45-common"
 	@echo "lib45-codegen.a       : Code generation, assembly → lib45-common"
-	@echo "lib45-linker.a        : Linker, relocation → lib45-opt lib45-common"
+	@echo "lib45-phases.a        : earlier phases' code no tool links (IPO, banks, LTO, DWARF, ...)"
 	@echo "lib45-basic.a         : BASIC language features → lib45-tools lib45-common"
 	@echo "lib45-tools.a         : Disk utilities, converters → lib45-common"
 	@echo ""
@@ -422,7 +429,7 @@ show-lib-deps:
 	@echo "cc45      : lib45-opt lib45-codegen lib45-ir lib45-c-compile lib45-common"
 	@echo "ca45      : lib45-codegen lib45-common"
 	@echo "cp45      : symlink to cc45"
-	@echo "ln45      : lib45-linker lib45-opt lib45-common"
+	@echo "ln45      : lib45-common"
 	@echo "nm45      : lib45-common"
 	@echo "ar45      : lib45-common"
 	@echo "objdump45 : lib45-codegen lib45-common"

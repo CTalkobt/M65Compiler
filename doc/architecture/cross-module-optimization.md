@@ -9,11 +9,15 @@ cross-module far-variable bank assignment (Phase 99) and link-time
 optimization coordination (Phase 100). **None of it changes the code that
 cc45 or ln45 produces.**
 
-- Most of these classes are compiled into `lib45-opt.a` but nothing references
-  them, so the static linker leaves them out of every binary
-  (`nm -C bin/cc45 bin/ln45 | grep IPOAnalyzer` prints nothing).
-- The parts that do run (function profiling in cc45, analysis passes in ln45)
-  only collect data or print messages.
+- All of it is in `lib45-phases.a`, which no tool links: the phase classes,
+  and the phase code that used to sit in live files (O45Linker's analysis
+  passes in `O45LinkerPhases.cpp`, `IRCodeGenPhases.cpp`,
+  `O45WriterPhases.cpp`, `OptimizeStagePhases.cpp`, `CodegenStagePhases.cpp`).
+  `make all` still builds it, so it keeps compiling.
+- What used to run (function profiling in cc45, the analysis passes and
+  `CrossModuleOptimizer` in ln45) only collected data nobody read or printed
+  messages; those calls were removed (2026-10-12), which took 0.4 MB off cc45
+  and 0.8 MB off ln45 and objdump45.
 - The environment variables `CC45_IPO`, `CC45_BANK_ANALYSIS`, `CC45_LTCO`,
   `CC45_LTCO_STRATEGY` are not read anywhere.
 - The pragmas `#pragma cc45 no_ipo`, `no_bank_opt`, `no_ltco` are dropped by
@@ -28,21 +32,23 @@ calling-convention bridge thunks and SAC safety checks (see
 
 ## Component status
 
-| Component | Files | In a binary? | Effect on output |
+| Component | Files | Linked? (before 2026-10-12) | Effect on output |
 |---|---|---|---|
-| `IPOProfiler` | `IPOProfiler.cpp/.hpp` | cc45 | Runs; data is discarded (below) |
-| `GlobalFunctionDatabase` | `GlobalFunctionDatabase.cpp/.hpp` | cc45 (filled by `IPOProfiler`) | None — nothing reads it |
+| `IPOProfiler` | `IPOProfiler.cpp/.hpp` | No (cc45) | Ran; data was discarded (below) |
+| `GlobalFunctionDatabase` | `GlobalFunctionDatabase.cpp/.hpp` | No (cc45, filled by `IPOProfiler`) | None — nothing read it |
 | `IPOAnalyzer` | `IPOAnalyzer.cpp/.hpp` | No | None |
 | `SpecializationCodeGenerator`, `SpecializationOptimizer`, `IRSpecializationGenerator` | same names | No | None |
-| `IRCodeGen::collectIPOHints()` / `O45Writer::setIPOHints()` | `IRCodeGen.cpp`, `O45Writer.*` | cc45 | Never called; `.o45` files carry no IPO hints section |
+| `IRCodeGen::collectIPOHints()`, the IPO hints option of `O45Writer` | `IRCodeGenPhases.cpp`, `O45WriterPhases.cpp` | No (cc45) | Never called; `.o45` files carry no IPO hints section |
 | `IRCodeGen::setDeadCodeFunctions` / inline-only set | `IRCodeGen.hpp` | cc45 | Never called; the sets are always empty |
-| `OptimizeStage::performCrossModuleOptimization`, `CodegenStage::applyIPOSpecialization` | `OptimizeStage.cpp`, `CodegenStage.cpp` | cc45 (at `-O2`+) | Count leaf/small functions and print them with `-vv`; nothing else |
-| `O45Linker` analysis passes: `analyzeIPOHints`, `applyIPOHints`, `analyzeConstantParameters`, `analyzeIRMetadata`, `analyzeSpecializations`, `analyzeCallRouting`, `analyzeInlining`, `generateDispatchers`, `integrateDispatcherAssembly`, `emitDispatcherAssemblyOutput` | `O45Linker.cpp` | ln45 | Analysis and log lines only; no code is added, removed or redirected |
-| `CrossModuleOptimizer` (Phase 91.4) | `CrossModuleOptimizer.cpp/.hpp` | ln45 | Runs in `ln45_main.cpp` **after** `linker.link()` has produced the binary, on a copy of the linker; only prints `[Phase 91.4] ...` lines to stderr |
+| `OptimizeStage::performCrossModuleOptimization`, `CodegenStage::applyIPOSpecialization` | `OptimizeStagePhases.cpp`, `CodegenStagePhases.cpp` | No (cc45 at `-O2`+) | Counted leaf/small functions and printed them with `-vv`; nothing else |
+| `O45Linker` analysis passes: `analyzeIPOHints`, `applyIPOHints`, `analyzeConstantParameters`, `analyzeIRMetadata`, `analyzeSpecializations`, `analyzeCallRouting`, `analyzeInlining`, `generateDispatchers`, `integrateDispatcherAssembly`, `emitDispatcherAssemblyOutput`, and the 46 report/benchmark/regression/tuning/profile functions only they reached | `O45LinkerPhases.cpp` | No (ln45, objdump45) | Analysis and log lines only; no code was added, removed or redirected |
+| `CrossModuleOptimizer` (Phase 91.4) | `CrossModuleOptimizer.cpp/.hpp` | No (ln45) | Ran in `ln45_main.cpp` **after** `linker.link()` had produced the binary, on a copy of the linker; only printed `[Phase 91.4] ...` lines to stderr |
 | Phase 99: `CrossModuleVariableDatabase`, `MemoryBankAssigner`, `BankLayoutGenerator`, `BankSetupOptimizer`, `BankAwareCodeGenerator` | `src/main/*.cpp/.hpp` | No | None |
 | Phase 100: `OptimizationHintCollector`, `OptimizationConstraintResolver`, `LinkTimeOptimizationCoordinator`, `OptimizationDependencyAnalyzer`, `LinkTimeOptimizationCodeGenerator`, `LinkTimeOptimizationValidator` | `src/main/*.cpp/.hpp` | No | None |
 
-## What runs, in detail
+## What used to run, in detail
+
+The following describes the code as it was linked before 2026-10-12; the calls are gone, the code is in `lib45-phases.a`.
 
 ### cc45: function profiling
 
@@ -78,7 +84,7 @@ of the linker). The reports (`getSpecializationReport`,
 `getCallRoutingReport`) are behind `if (false)`. The output file is written
 from the binary returned by `link()` before any of this.
 
-These messages appear on stderr on every link, including cc45's one-step build:
+These messages appeared on stderr on every link, including cc45's one-step build (no longer):
 
 ```
 DEBUG: IPO Hints: Aggregated 0 functions from 3 objects
@@ -106,9 +112,9 @@ ln45: No dispatcher assembly to emit
 Scratch files below are in any empty directory.
 
 ```bash
-# None of the analysis classes are in the binaries
-nm -C bin/cc45 bin/ln45 bin/ca45 | grep -E 'IPOAnalyzer|MemoryBankAssigner|LinkTimeOptimizationCoordinator'
-# (prints nothing; IPOProfiler/GlobalFunctionDatabase are in cc45, CrossModuleOptimizer in ln45)
+# None of the phase code is in the binaries
+nm -C bin/cc45 bin/ln45 bin/ca45 | grep -E 'IPOAnalyzer|IPOProfiler|CrossModuleOptimizer|generateDispatchers|MemoryBankAssigner'
+# (prints nothing; ar t lib45/lib45-phases.a lists it)
 
 # The env vars and pragmas are not read
 grep -rn 'CC45_IPO\|CC45_LTCO\|CC45_BANK_ANALYSIS\|no_ipo\|no_ltco\|no_bank_opt' src/main include

@@ -264,9 +264,6 @@ void IRBuilder::generate(TranslationUnit& unit) {
             module_.externs.push_back(name);
         }
     }
-
-    // Finalize function profiling for cross-module optimization
-    profiler_.finalizeProfiles();
 }
 
 
@@ -1397,17 +1394,6 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         warnRecursiveForcedInline(node.name, node);
         inlineCandidates_.erase(node.name);
     }
-
-    // Record function definition for cross-module optimization profiling
-    // This is done before body processing so we can track local variables as they're encountered
-    profiler_.recordFunctionDefinition(
-        node.name,
-        static_cast<int>(node.parameters.size()),
-        0,  // localVarCount will be updated as we process the body
-        fnPtr->originalIsLeaf,  // hasNoCalls based on original AST
-        fnPtr->originalIsLeaf,  // isLeafCandidate
-        ""  // moduleName (will be set during finalization)
-    );
 
     // Save current scope if we are nesting
     if (currentFunc_) {
@@ -6578,15 +6564,6 @@ normal_call:
             lastValueSigned_ = rs;
         }
     } else {
-        // Record function call for cross-module optimization profiling
-        if (currentFunc_) {
-            profiler_.recordFunctionCall(
-                currentFunc_->name,  // Keep '_' prefix for consistency with build states
-                "_" + node.name,     // Add '_' prefix to match build state keys
-                static_cast<int>(node.arguments.size()),
-                false  // hasConstantArgs will be determined later if needed
-            );
-        }
 
         // Check for inline expansion
         auto inlineIt = inlineCandidates_.find(node.name);

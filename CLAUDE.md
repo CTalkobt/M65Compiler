@@ -43,11 +43,14 @@ C source
 ```
 
 The live compiler path is **IRBuilder → IRCodeGen**. The older AST
-`CodeGenerator` (and everything wired only into it) is not used. Several
-classes from earlier "phases" (cross-module IPO specialization, field
-caching, bank assignment, link-time coordination, compiler hooks, adaptive
-tuning, DWARF output) are built into lib45 but nothing in cc45/ln45 calls
-them — see `doc/architecture/cross-module-optimization.md`.
+`CodeGenerator` (and everything wired only into it) is not used. Code from
+earlier "phases" (cross-module IPO specialization, field caching, bank
+assignment, link-time coordination, compiler hooks, adaptive tuning,
+benchmarking, DWARF output, O45Linker's analysis passes) is in
+`lib45-phases.a`, which `make all` builds but no tool links — see
+`doc/architecture/cross-module-optimization.md`. Code nothing calls belongs
+there (a `*Phases.cpp` file for a live class's dead methods), not in the
+archives the tools link.
 
 `cc45 file.c -o file.prg` builds in one step: relocatable code, `ca45 -c`,
 then `ln45 -basic` with the standard library of the calling convention

@@ -18,7 +18,7 @@ today.
 
 Leftover implementation work exists only in code cc45 does not run:
 `src/main/CodeGenerator.cpp` (the legacy AST → asm generator, built into
-`lib45-opt.a` but never instantiated by the cc45 pipeline) has `emitStripedArrayAccess` for 2D `int` arrays and
+`lib45-phases.a`, which no tool links) has `emitStripedArrayAccess` for 2D `int` arrays and
 struct/union striping hooks using `FieldStripedOffsetCalc`;
 `StructFieldStriper.cpp` and `ExtendedStripedArrayValidator.cpp` are not
 referenced by anything.
