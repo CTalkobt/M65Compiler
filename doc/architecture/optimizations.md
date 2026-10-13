@@ -74,6 +74,26 @@ every function for which the pass is on (`-O1` and up, unless switched off).
 After the passes, pure instructions whose temporary result nothing uses are
 removed (`removeDeadTemps`; part of dead-code elimination, always on).
 
+### Pointers in zero page (leaf functions)
+
+A pointer dereference needs the pointer in zero page (`lda ($zp),y`); a
+pointer kept in static or stack storage is copied to scratch first on every
+access. In a **leaf function** (no `CALL`/`CALL_VOID`/`CALL_INDIRECT`, no
+inline asm), so nothing can clobber the register pool between uses:
+
+- `IRCodeGen` allocates named pointer locals (not arrays, not address-taken,
+  not `__cpu` registers) in the ZP register pool like `register` variables.
+- `leafPointerParamsToZp` (`IROptimizer.cpp`, after the passes and
+  `removeDeadTemps`; tag `zp`) gives a pointer parameter used twice or more
+  a new register local, stored from the parameter at the start of the entry
+  block, and points every other use at it. Both entries of a SAC function
+  (`_f` and `_f__sac`) reach that store. A function with a branch to its entry
+  block is skipped (the copy must run once), as are address-taken and
+  `register` parameters and `__naked` functions.
+
+It is not a `-f` switch: `CC45_NO_ZP_POINTERS=1` turns both parts off (for
+comparing code). Validation: `test_zp_pointers_xemu.c`.
+
 The IR is not in SSA form (a variable's slot is assigned by `STORE`; a
 temporary can be defined on two paths, as in `a && b`), so every pass treats
 a value as constant or fixed only when it has exactly one definition.

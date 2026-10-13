@@ -185,6 +185,7 @@ private:
     std::string currentFunctionName_;  // name of function being emitted
     bool currentFunctionUseSAC_ = false;  // whether current function uses SAC
     bool relocMode_ = false;
+    std::set<uint32_t> regVregs_;   // the function's register variables (declared, and a leaf's pointer locals)
     // -ffunction-sections: each variable, string and SAC block is a .split
     // section too (ca45 makes each function one), so ln45 can drop them
     bool functionSections_ = false;

@@ -39,7 +39,10 @@ namespace ir {
     void optimizeLoopUnroll(Module& mod);
 
     // Remove pure instructions whose temporary result is never used
-    void removeDeadTemps(Module& mod);
+    // A leaf function's pointer parameters used twice or more: a register
+// variable (ZP) copy, so dereferences use the pointer in place
+void leafPointerParamsToZp(Module& mod);
+void removeDeadTemps(Module& mod);
 
     // Strength reduction: replace expensive ops with cheaper equivalents
     // (MUL by power-of-2 → LSL, DIV_U by power-of-2 → LSR, MOD_U by power-of-2 → AND)

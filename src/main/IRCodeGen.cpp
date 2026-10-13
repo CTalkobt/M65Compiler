@@ -2004,8 +2004,29 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // Instead, we allocate based on allocator decisions below.
     // prescanFunction(fn);  // REMOVED
 
-    // Run register allocator
-    alloc_.setRegisterVregs(fn.registerVregs);
+    // Run register allocator. In a leaf function (no calls, no inline asm)
+    // nothing can clobber the ZP register pool while it runs: its pointer
+    // locals live there like register variables, so a dereference uses the
+    // pointer in place instead of copying it to ZP first.
+    regVregs_ = fn.registerVregs;
+    {
+        bool leaf = true;
+        for (const auto& blk : fn.blocks)
+            for (const auto& in : blk.insts)
+                if (in.op == ir::Op::CALL || in.op == ir::Op::CALL_VOID || in.op == ir::Op::CALL_INDIRECT ||
+                    in.op == ir::Op::ASM_INLINE)
+                    leaf = false;
+        if (leaf && !getenv("CC45_NO_ZP_POINTERS")) {
+            uint32_t paramCount = (uint32_t)fn.paramTypes.size();
+            for (const auto& [name, vid] : fn.localNames) {
+                if (vid < paramCount || fn.memoryVregs.count(vid) || fn.vregSizes.count(vid)) continue;
+                if (fn.registerXVregs.count(vid) || fn.registerYVregs.count(vid) || fn.registerZVregs.count(vid)) continue;
+                auto t = fn.vregTypes.find(vid);
+                if (t != fn.vregTypes.end() && t->second == ir::Type::PTR) regVregs_.insert(vid);
+            }
+        }
+    }
+    alloc_.setRegisterVregs(regVregs_);
     alloc_.setRegisterXVregs(fn.registerXVregs);
     alloc_.setRegisterYVregs(fn.registerYVregs);
     alloc_.setRegisterZVregs(fn.registerZVregs);
@@ -2080,7 +2101,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 if (!ok) continue;
                 // A temporary base lives (for the allocator) only up to the
                 // ADD: then only one access right after it can use it
-                if ((!fn.localSlotVregs.count(base) || fn.registerVregs.count(base)) &&
+                if ((!fn.localSlotVregs.count(base) || regVregs_.count(base)) &&
                     (uit->second.size() != 1 || uit->second[0].idx != i + 1)) continue;
                 // The base keeps its value up to the last use
                 for (size_t j = i + 1; j <= last && ok; j++) {

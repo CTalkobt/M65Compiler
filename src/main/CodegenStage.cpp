@@ -163,6 +163,8 @@ void CodegenStage::optimizeIR() {
     }
     // What the passes left unused (part of dead-code elimination, always on)
     if (ranAny) ir::removeDeadTemps(*irModule_);
+    // a leaf function's pointer parameters in ZP registers (allocation, always on)
+    ir::leafPointerParamsToZp(*irModule_);
     ir::passEnabled = nullptr;
     ir::optTrace = nullptr;
 }

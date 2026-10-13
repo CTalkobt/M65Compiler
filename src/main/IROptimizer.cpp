@@ -2029,6 +2029,76 @@ void optimizeLoopUnroll(Module& mod) {
 // the other passes: a loop unroll's per-copy constant that every use folded
 // away, a copy whose users were redirected). Loads (maybe volatile),
 // variables' slots and memory-pinned vregs are never removed.
+// A leaf function (no calls, no inline asm) keeps its pointer locals in the
+// ZP register pool (IRCodeGen: like register variables). Its pointer
+// parameters arrive in their own storage (static allocation: _f__param_p,
+// which same-file callers fill before entering at _f__sac; or a stack frame):
+// one used twice or more is stored at the start of the body into a new local,
+// a register variable, that every other use refers to.
+void leafPointerParamsToZp(Module& mod) {
+    if (getenv("CC45_NO_ZP_POINTERS")) return;
+    for (auto& fn : mod.functions) {
+        if (fn.blocks.empty() || fn.isNaked) continue;
+        bool leaf = true;
+        for (const auto& blk : fn.blocks)
+            for (const auto& in : blk.insts)
+                if (in.op == Op::CALL || in.op == Op::CALL_VOID || in.op == Op::CALL_INDIRECT || in.op == Op::ASM_INLINE)
+                    leaf = false;
+        if (!leaf) continue;
+        // the copy must run once: no branch (or label address) to the entry block
+        const std::string& entryLabel = fn.blocks[0].label;
+        bool reentered = false;
+        for (const auto& blk : fn.blocks)
+            for (const auto& in : blk.insts) {
+                for (const Operand* o : {&in.src1, &in.src2, &in.dest})
+                    if (o->kind == OperandKind::LABEL && o->name == entryLabel) reentered = true;
+                for (const auto& a : in.args)
+                    if (a.kind == OperandKind::LABEL && a.name == entryLabel) reentered = true;
+                for (const auto& c : in.switchCases) if (c.second == entryLabel) reentered = true;
+            }
+        if (reentered) continue;
+        for (uint32_t p = 0; p < fn.paramTypes.size(); p++) {
+            if (fn.paramTypes[p] != Type::PTR || fn.memoryVregs.count(p) || fn.registerVregs.count(p)) continue;
+            auto uses = [&](const Operand& o) { return o.isVreg() && o.vregId == p; };
+            int n = 0;
+            for (const auto& blk : fn.blocks)
+                for (const auto& in : blk.insts) {
+                    if (uses(in.src1)) n++;
+                    if (uses(in.src2)) n++;
+                    if (uses(in.dest)) n++;
+                    for (const auto& a : in.args) if (uses(a)) n++;
+                    for (const auto& ph : in.phiIncoming) if (uses(ph.first)) n++;
+                }
+            if (n < 2) continue;
+            uint32_t v = fn.allocVreg();
+            for (auto& blk : fn.blocks)
+                for (auto& in : blk.insts) {
+                    if (uses(in.src1)) in.src1.vregId = v;
+                    if (uses(in.src2)) in.src2.vregId = v;
+                    if (uses(in.dest)) in.dest.vregId = v;
+                    for (auto& a : in.args) if (uses(a)) a.vregId = v;
+                    for (auto& ph : in.phiIncoming) if (uses(ph.first)) ph.first.vregId = v;
+                }
+            Inst st;
+            st.op = Op::STORE;
+            st.resultType = Type::PTR;
+            st.src1 = Operand::vreg(p, Type::PTR);
+            st.src2 = Operand::vreg(v, Type::PTR);
+            auto& entry = fn.blocks[0].insts;
+            if (!entry.empty()) st.loc = entry[0].loc;
+            entry.insert(entry.begin(), st);
+            fn.localSlotVregs.insert(v);
+            fn.registerVregs.insert(v);
+            fn.vregTypes[v] = Type::PTR;
+            std::string name = "__zp_" + (p < fn.paramNames.size() && !fn.paramNames[p].empty()
+                                          ? fn.paramNames[p] : std::to_string(p));
+            fn.localNames[name] = v;
+            fn.localNamesOrder.push_back(name);
+            trace("zp", fn.name, "pointer parameter " + name.substr(5) + " in a ZP register (leaf)", st.loc);
+        }
+    }
+}
+
 void removeDeadTemps(Module& mod) {
     auto pure = [](Op op) {
         switch (op) {
