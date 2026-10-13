@@ -1194,6 +1194,13 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                         output << "__asm__(\".no_zp_save\");\n";
                     } else if (cc45Arg == "no_stack16") {
                         output << "__asm__(\".no_stack16\");\n";
+                    } else if (cc45Arg.rfind("stack_size", 0) == 0) {
+                        // Accepts "stack_size N" and "stack_size(N)"
+                        std::string rest = cc45Arg.substr(10), tail;
+                        while (ss >> tail) rest += tail;
+                        std::string n;
+                        for (char ch : rest) if (std::isxdigit((unsigned char)ch) || ch == '$' || ch == 'x' || ch == 'X') n += ch;
+                        output << (n.empty() ? std::string("\n") : "__asm__(\".stack_size " + n + "\");\n");
                     } else if (cc45Arg.rfind("stack_top", 0) == 0) {
                         // Accepts "stack_top ADDR" and "stack_top(ADDR)"
                         std::string rest = cc45Arg.substr(9), tail;
@@ -1328,6 +1335,13 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                         else if (cc45Arg == "stdio") output << "__asm__(\".crt_stdio\");\n";
                         else if (cc45Arg == "no_zp_save") output << "__asm__(\".no_zp_save\");\n";
                         else if (cc45Arg == "no_stack16") output << "__asm__(\".no_stack16\");\n";
+                        else if (cc45Arg.rfind("stack_size", 0) == 0) {
+                            std::string rest = cc45Arg.substr(10), tail;
+                            while (ps >> tail) rest += tail;
+                            std::string n;
+                            for (char ch : rest) if (std::isxdigit((unsigned char)ch) || ch == '$' || ch == 'x' || ch == 'X') n += ch;
+                            output << (n.empty() ? std::string("\n") : "__asm__(\".stack_size " + n + "\");\n");
+                        }
                         else if (cc45Arg.rfind("stack_top", 0) == 0) {
                             std::string rest = cc45Arg.substr(9), tail;
                             while (ps >> tail) rest += tail;

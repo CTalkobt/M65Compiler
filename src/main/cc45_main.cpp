@@ -542,6 +542,15 @@ int main(int argc, char** argv) {
             else if (v.size() > 2 && v[0] == '0' && (v[1] == 'x' || v[1] == 'X')) { v = v.substr(2); base = 16; }
             try { config.stackTop = (int)(std::stoul(v, nullptr, base) & 0xFFFF); }
             catch (...) { std::cerr << "cc45: error: invalid -fstack-top value '" << arg.substr(12) << "'" << std::endl; return 1; }
+        } else if (arg.rfind("-fstack-size=", 0) == 0) {
+            std::string v = arg.substr(13);
+            int base = 10;
+            if (!v.empty() && v[0] == '$') { v = v.substr(1); base = 16; }
+            else if (v.size() > 2 && v[0] == '0' && (v[1] == 'x' || v[1] == 'X')) { v = v.substr(2); base = 16; }
+            unsigned long sv = 0;
+            try { size_t used = 0; sv = std::stoul(v, &used, base); if (used != v.size() || sv > 0xFFFF) throw 0; }
+            catch (...) { std::cerr << "cc45: error: invalid -fstack-size value '" << arg.substr(13) << "' (0-65535, $1000, 0x1000)" << std::endl; return 1; }
+            config.stackSize = (int)sv;
         } else if (arg.rfind("-fbss-fill=", 0) == 0) {
             std::string v = arg.substr(11);
             int base = 10;

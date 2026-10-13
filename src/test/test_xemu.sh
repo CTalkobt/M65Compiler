@@ -938,6 +938,29 @@ for ucmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: the heap of a program ending above $B000 (#pragma cc45 stack_size);
+# without the pragma ln45 warns that there is no heap
+for hlmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r hlname hlflags <<< "$hlmode"
+    echo "Testing test_heap_layout_xemu.c ($hlname)..."
+    compile_link_test "src/test-resources/test_heap_layout_xemu.c" "build/test/test_heap_layout_${hlname}_xemu.prg" "$hlflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_heap_layout_$hlname" "build/test/test_heap_layout_${hlname}_xemu.prg" "C0C0" 4 "01 01 01 AA"
+    else
+        echo "FAIL: test_heap_layout_xemu.c $hlname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+grep -v 'pragma cc45 stack_size' src/test-resources/test_heap_layout_xemu.c > build/test/test_heap_layout_nopragma.c
+if $CC build/test/test_heap_layout_nopragma.c -o build/test/test_heap_layout_nopragma.prg 2>&1 |
+   grep -q "ln45: warning: no heap: the program ends at"; then
+    echo "SUCCESS: ln45 warns when a program using malloc leaves no room for the heap"
+    passed=$((passed + 1))
+else
+    echo "FAIL: ln45 'no heap' warning"
+    failed=$((failed + 1))
+fi
+
 # Test: GCC statement expressions ({ stmt; ...; expr; })
 for semode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r sename seflags <<< "$semode"

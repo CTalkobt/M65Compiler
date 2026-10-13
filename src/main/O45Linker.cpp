@@ -492,6 +492,14 @@ bool O45Linker::resolveSymbols(std::string& errorMsg) {
         symbolSource_["__bss_end"] = "<linker>";
         symbolWeak_["__bss_end"] = false;
     }
+    // The stack's share below __stack_top (malloc's heap ends there):
+    // --stack-size (default 4096), unless an object defines it (cc45
+    // -fstack-size=N in the module defining main)
+    if (!globalSymbols_.count("__stack_size")) {
+        globalSymbols_["__stack_size"] = stackSize_;
+        symbolSource_["__stack_size"] = "<linker>";
+        symbolWeak_["__stack_size"] = false;
+    }
     // The byte crt0 fills BSS with: --bss-fill (default 0), unless an object
     // defines it (cc45 -fbss-fill=V in the module defining main)
     if (!globalSymbols_.count("__bss_fill")) {

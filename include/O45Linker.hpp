@@ -341,6 +341,9 @@ public:
     void setSacOverlay(bool on) { sacOverlayOn_ = on; }
     // Byte crt0 fills BSS with (__bss_fill, unless an object defines it)
     void setBssFill(uint8_t v) { bssFill_ = v; }
+    // The CPU stack's share below __stack_top: the heap ends there
+    // (__stack_size, unless an object defines it)
+    void setStackSize(uint16_t v) { stackSize_ = v; }
 
     // Write a detailed linker map to a stream. Call after link().
     void writeMap(std::ostream& out) const;
@@ -458,6 +461,7 @@ private:
     // Thunk mode and generated thunks
     ThunkMode thunkMode_ = THUNK_AUTO;
     uint8_t bssFill_ = 0;
+    uint16_t stackSize_ = 0x1000;
     // Maps callee name → thunk address (for mismatched call sites)
     std::map<std::string, uint32_t> thunkAddresses_;
     // Per-call-site override: (objectIdx, relocIdx) → thunk target address

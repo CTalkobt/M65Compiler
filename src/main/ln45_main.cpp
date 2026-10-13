@@ -28,6 +28,8 @@ static void printUsage(const char* progName) {
     std::cout << "  --no-thunks    Error on calling convention mismatches (no thunk generation)" << std::endl;
     std::cout << "  --no-sac-overlay  Give every static-allocation function its own storage" << std::endl;
     std::cout << "  --bss-fill=V   Byte crt0 fills BSS with at startup (default $00; $FF, 0xFF or decimal)" << std::endl;
+    std::cout << "  --stack-size=N The CPU stack's share below __stack_top; malloc's heap ends there" << std::endl;
+    std::cout << "                 (default 4096; $1000, 0x1000 or decimal)" << std::endl;
     std::cout << "  -Wthunk        Warn (but still generate thunks) on convention mismatches" << std::endl;
     std::cout << "  -v             Also print the cross-module analysis and informational warnings" << std::endl;
     std::cout << "                 (unused global symbols, SAC overlay)" << std::endl;
@@ -46,6 +48,7 @@ int main(int argc, char** argv) {
     bool isBasic = false;
     bool printMap = false;
     int bssFill = -1;
+    int stackSize = -1;
     std::string mapFile;
     uint32_t textBase = 0x2000; // sensible MEGA65 default
     bool textBaseSet = false;
@@ -88,6 +91,16 @@ int main(int argc, char** argv) {
         else if (arg == "--no-sac-overlay") { sacOverlay = false; }
         else if (arg == "-v") { g_ln45Verbosity = std::max(g_ln45Verbosity, 1); }
         else if (arg == "-vv") { g_ln45Verbosity = 2; }
+        else if (arg.rfind("--stack-size=", 0) == 0) {
+            std::string v = arg.substr(13);
+            int base = 10;
+            if (!v.empty() && v[0] == '$') { v = v.substr(1); base = 16; }
+            else if (v.size() > 2 && v[0] == '0' && (v[1] == 'x' || v[1] == 'X')) { v = v.substr(2); base = 16; }
+            unsigned long sv = 0;
+            try { size_t used = 0; sv = std::stoul(v, &used, base); if (used != v.size() || sv > 0xFFFF) throw 0; }
+            catch (...) { std::cerr << "ln45: error: invalid --stack-size value '" << arg.substr(13) << "' (0-65535, $1000, 0x1000)" << std::endl; return 1; }
+            stackSize = (int)sv;
+        }
         else if (arg.rfind("--bss-fill=", 0) == 0) {
             std::string v = arg.substr(11);
             int base = 10;
@@ -135,6 +148,7 @@ int main(int argc, char** argv) {
     linker.setThunkMode(thunkMode);
     linker.setSacOverlay(sacOverlay);
     if (bssFill >= 0) linker.setBssFill((uint8_t)bssFill);
+    if (stackSize >= 0) linker.setStackSize((uint16_t)stackSize);
 
     for (const auto& filename : inputFiles) {
         std::ifstream in(filename, std::ios::binary);
@@ -242,6 +256,34 @@ int main(int argc, char** argv) {
                           << " bytes left for the CPU stack between the program end ($"
                           << std::hex << std::uppercase << end << ") and $" << st->second
                           << std::dec << std::endl;
+            }
+        }
+        // malloc's automatic heap runs from the program end to __stack_size
+        // below __stack_top ($C000 with the 8-bit stack): say when a program
+        // that uses it leaves (almost) nothing for it
+        auto hp = syms.find("__heap_ptr");
+        auto hs = syms.find("__heap_start"), he = syms.find("__heap_end");
+        bool autoHeap = (hs == syms.end() || hs->second == 0) && (he == syms.end() || he->second == 0);
+        if (hp != syms.end() && autoHeap) {
+            uint32_t top = st != syms.end() ? st->second : 0;
+            auto ss = syms.find("__stack_size");
+            uint32_t size = ss != syms.end() ? ss->second : 0x1000;
+            uint32_t heapEnd = top ? (top + 1 > size ? top + 1 - size : 0) : 0xC000;
+            uint32_t end = 0;
+            auto be = syms.find("__bss_end");
+            if (be != syms.end()) end = be->second;
+            auto zp = syms.find("__zp_page");
+            if (zp != syms.end() && zp->second + 0x100 > end) end = zp->second + 0x100;
+            end = (end + 1) & ~1u;
+            if (end + 4 > heapEnd) {
+                std::cerr << "ln45: warning: no heap: the program ends at $" << std::hex << std::uppercase << end
+                          << ", at or above the heap's end $" << heapEnd << std::dec;
+                if (top) std::cerr << " (" << size << " bytes below the CPU stack top for the stack)";
+                std::cerr << "; malloc returns NULL. A smaller stack share (--stack-size, cc45 -fstack-size)"
+                             " or a heap elsewhere (__heap_start/__heap_end) makes room" << std::endl;
+            } else if (heapEnd - end < 0x400) {
+                std::cerr << "ln45: warning: only " << (heapEnd - end) << " bytes for the heap between the program end ($"
+                          << std::hex << std::uppercase << end << ") and $" << heapEnd << std::dec << std::endl;
             }
         }
     }

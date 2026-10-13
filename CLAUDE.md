@@ -173,7 +173,7 @@ not change what is tested; a test's own later `-O` still wins. Use an
 explicit `-O<n>` in ad-hoc test commands too.
 
 - `make test` — unit tests (no emulator).
-- `bash src/test/test_xemu.sh` — runtime tests on xemu (170 pass): each
+- `bash src/test/test_xemu.sh` — runtime tests on xemu (173 pass): each
   `*_xemu.c` writes results to `$C0C0` (01 = pass, `$AA` sentinel), built in
   both conventions. New runtime tests follow this pattern and are registered
   in `test_xemu.sh`.
@@ -237,7 +237,7 @@ ln45, ar45, nm45, objdump45 and disk45 have no config files. Environment:
   `test_iropt_xemu.c` (xemu) and `src/test/test_optimizations.sh` (`make test`).
   The `CC45_IPO`/`CC45_LTCO`/`CC45_BANK_ANALYSIS` variables do not exist.
 - **Working pragmas**: `once`, `push_macro`/`pop_macro`, `weak`, `cc45 recurse`,
-  `signed_default`/`unsigned_default`, `no_stack16`, `stack_top`,
+  `signed_default`/`unsigned_default`, `no_stack16`, `stack_top`, `stack_size`,
   `max_inline_ir_size`, `max_unroll_bytes`, `optimize(...)`, `encoding`; `no_zp_save`/`set_bp`
   (only `-S`). Accepted without effect: `exit_rts`/`exit_halt`/`exit_brk`,
   `no_bssinit`, `heap`, `stdio`, `no_0100_stack`, `unroll`, `no_static_alloc`
@@ -268,8 +268,11 @@ BASIC (`RREG`); BSS is filled on the first call only.
 crt0 fills BSS (with the private base page) with `__bss_fill` by a DMA fill
 job after the stack setup: 0, or cc45 `-fbss-fill=V` / ln45 `--bss-fill=V`
 (`$FF` finds code relying on zeroed globals). `exit()` does not run `atexit`
-handlers. Heap: `__bss_end` to `$B000` by default
-(`__heap_start`/`__heap_end` override), initialized on the first `malloc`.
+handlers. Heap: `__bss_end` to `__stack_size` bytes below the stack top
+(default 4096, so `$B000`; cc45 `-fstack-size=N` / `#pragma cc45 stack_size(N)`,
+ln45 `--stack-size=N`; `__heap_start`/`__heap_end` override), initialized on
+the first `malloc`. ln45 warns when a program using `malloc` leaves no room
+for it (a program ending above `$B000` needs a smaller stack share).
 
 ## Standard Library (details: `doc/architecture/stdlib.md`)
 

@@ -57,6 +57,7 @@ public:
     void setStackTop(int top) { stackTop_ = top; }
     bool errorsPrinted() const { return errorsPrinted_; }
     void setBssFill(int v) { bssFill_ = v; }
+    void setStackSize(int v) { stackSize_ = v; }
     // -f<opt>/-fno-<opt> (catalog name -> on/off), --future, -Roptir
     void setOptOverrides(const std::map<std::string, bool>& o) { optOverrides_ = o; }
     void setFutureWarnings(bool f) { futureWarnings_ = f; }
@@ -76,6 +77,7 @@ private:
     int stackTop_ = -1;
     bool errorsPrinted_ = false;
     int bssFill_ = -1;
+    int stackSize_ = -1;
     bool staticAlloc_;
     bool zpCallMode_;
     bool saveTemps_;

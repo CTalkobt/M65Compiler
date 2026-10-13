@@ -1198,6 +1198,16 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
         }
         // -fbss-fill=V: the module defining main sets the byte crt0 fills
         // BSS with (otherwise ln45's --bss-fill, default 0)
+        // -fstack-size=N: the CPU stack's share below __stack_top (the heap
+        // ends there; otherwise ln45's --stack-size, default 4096)
+        if (mod.stackSize >= 0) {
+            for (const auto& fn : mod.functions) {
+                if (fn.name != "_main") continue;
+                emit(".global __stack_size");
+                emit("__stack_size = $" + hex16((uint16_t)mod.stackSize));
+                break;
+            }
+        }
         if (mod.bssFill >= 0) {
             for (const auto& fn : mod.functions) {
                 if (fn.name != "_main") continue;

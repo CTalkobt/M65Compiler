@@ -8502,6 +8502,14 @@ void IRBuilder::visit(AsmStatement& node) {
         module_.stackTop = 0;
         return;
     }
+    if (node.code.rfind(".stack_size ", 0) == 0) {
+        std::string v = node.code.substr(12);
+        int base = 10;
+        if (!v.empty() && v[0] == '$') { v = v.substr(1); base = 16; }
+        else if (v.size() > 2 && v[0] == '0' && (v[1] == 'x' || v[1] == 'X')) { v = v.substr(2); base = 16; }
+        try { module_.stackSize = (int)(std::stoul(v, nullptr, base) & 0xFFFF); } catch (...) {}
+        return;
+    }
     if (node.code.rfind(".stack_top ", 0) == 0) {
         std::string v = node.code.substr(11);
         int base = 10;

@@ -156,6 +156,7 @@ CompilationResult CompilationPipeline::compile() {
         codegenStage.setSourceFile(config_.inputFile);
         codegenStage.setStackTop(config_.stackTop);
         codegenStage.setBssFill(config_.bssFill);
+        codegenStage.setStackSize(config_.stackSize);
         codegenStage.setOptOverrides(config_.optOverrides);
         codegenStage.setFutureWarnings(config_.futureWarnings);
         codegenStage.setTraceIROpt(config_.traceIROpt);

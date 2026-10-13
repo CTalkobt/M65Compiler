@@ -17,6 +17,7 @@
 .extern __stack_top
 .extern __heap_start
 .extern __heap_end
+.extern __stack_size
 .extern _memcpy
 .extern _memset
 
@@ -627,9 +628,10 @@ proc _realloc
 ; Internal: heap initialization
 ; -----------------------------------------------------------------------------
 ; The heap runs from __heap_start (0: the end of the program, __bss_end, which
-; includes the private base page) to __heap_end (0: 4KB below the 16-bit CPU
-; stack's top, or $C000 with the 8-bit page-1 stack; bank 0 $C000-$CFFF reads
-; as ROM). The defaults come from the __heap_bounds library member; these
+; includes the private base page) to __heap_end (0: __stack_size bytes below
+; the 16-bit CPU stack's top -- ln45 --stack-size / cc45 -fstack-size, default
+; 4096 -- or $C000 with the 8-bit page-1 stack; bank 0 $C000-$CFFF reads as
+; ROM). The defaults come from the __heap_bounds library member; these
 ; symbols are externs so the linker's values are used (a weak equate defined
 ; here would be folded at assembly time).
 _heap_init:
@@ -663,16 +665,31 @@ _heap_init:
     lda $12
     ora $13
     bne @calc_size
-    lda #$00
-    sta $12
     lda #>__stack_top
     beq @stack8
-    sec                 ; leave 4KB for the 16-bit stack: (top_hi + 1 - $10) << 8
-    sbc #$0F
-    bra @set_end
+    lda #<__stack_top   ; __stack_top + 1 - __stack_size: the stack's share
+    clc
+    adc #1
+    sta $12
+    lda #>__stack_top
+    adc #0
+    sta $13
+    lda $12
+    sec
+    sbc #<__stack_size
+    sta $12
+    lda $13
+    sbc #>__stack_size
+    sta $13
+    bcs @calc_size
+    lda #0              ; a share above the stack top: no heap
+    sta $12
+    sta $13
+    bra @calc_size
 @stack8:
+    lda #$00
+    sta $12
     lda #$C0
-@set_end:
     sta $13
 
 @calc_size:
