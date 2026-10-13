@@ -284,8 +284,7 @@ bool D64Image::removeFile(const std::string& name) {
     uint8_t* dirSec = sectorData(dirTS.track, dirTS.sector);
     if (!dirSec) return false;
     DirEntry e = DirEntry::fromSector(dirSec, entryIdx);
-    auto chain = getFileChain(e.firstDataTS);
-    for (auto& ts : chain) freeSector(ts.track, ts.sector);
+    for (auto& ts : fileSectors(e)) freeSector(ts.track, ts.sector);
     e.fileType = 0;
     e.toSector(dirSec, entryIdx);
     return true;

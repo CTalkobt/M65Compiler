@@ -4,6 +4,7 @@
 #include <fstream>
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
 #include <cstring>
 #include <map>
 #include <stdexcept>
@@ -225,7 +226,14 @@ bool DiskImage::findFileEntry(const std::string& name, TrackSector& dirTS, int& 
         for (int i = 0; i < 8; i++) {
             DirEntry entry = DirEntry::fromSector(sec, i);
             if (entry.isValid() && entry.isClosed()) {
-                if (std::memcmp(entry.filename, petName, 16) == 0) {
+                // GEOS names hold lower-case ASCII ($61-$7A): compare them
+                // folded, as the name is (listings show them as stored)
+                char stored[16];
+                for (int k = 0; k < 16; k++) {
+                    unsigned char c = (unsigned char)entry.filename[k];
+                    stored[k] = (char)(c >= 0x61 && c <= 0x7A ? c - 0x20 : c);
+                }
+                if (std::memcmp(stored, petName, 16) == 0) {
                     dirTS = ts;
                     entryIdx = i;
                     return true;
@@ -398,22 +406,7 @@ DiskImage::ValidateResult DiskImage::validate() const {
             if (!e.isValid()) continue;
             r.filesFound++;
 
-            auto chain = getFileChain(e.firstDataTS);
-            if (e.type() == CbmFileType::REL && e.sideTS.track != 0) {
-                // a REL file's side sectors (and the 1581 super side sector)
-                TrackSector ss = e.sideTS;
-                if (superSideSectors()) {
-                    const uint8_t* super = sectorData(ss.track, ss.sector);
-                    chain.push_back(ss);
-                    ss = super ? TrackSector{super[0], super[1]} : TrackSector{0, 0};
-                }
-                for (int guard = 0; ss.track != 0 && guard < 126 * 6; guard++) {
-                    const uint8_t* side = sectorData(ss.track, ss.sector);
-                    if (!side) break;
-                    chain.push_back(ss);
-                    ss = {side[0], side[1]};
-                }
-            }
+            auto chain = fileSectors(e);
             for (auto& cs : chain) {
                 r.sectorsUsedByFiles++;
                 auto k = key(cs.track, cs.sector);
@@ -442,6 +435,8 @@ DiskImage::ValidateResult DiskImage::validate() const {
 
     // Also count BAM/header sector itself
     usageCount[key(dirTrack_, 0)]++;
+    // and a GEOS disk's border sector
+    if (!geosSignature().empty() && hdr[0xAB] != 0) usageCount[key(hdr[0xAB], hdr[0xAC])]++;
 
     // Compare BAM vs actual usage
     r.freeSectorsInBAM = freeSectors();
@@ -473,3 +468,283 @@ DiskImage::ValidateResult DiskImage::validate() const {
 
 // These are defined after the subclass headers are included.
 // See DiskImageFactory.cpp or the individual format .cpp files.
+
+// ============================================================================
+// GEOS files (Schepers' GEOS.TXT and CVT.TXT; the CVT layout as cbmconvert
+// reads and writes it)
+// ============================================================================
+
+namespace {
+const char CVT_SIGNATURE[] = "PRG formatted GEOS file V1.0";
+}
+
+bool DiskImage::isGeos(const DirEntry& e) const {
+    // a DEL/SEQ/PRG/USR entry with a GEOS file type and structure 0 or 1,
+    // and an info block that starts 00 FF 03 15 BF... (the ID bytes may
+    // differ, so only the link is checked)
+    if ((e.fileType & 0x07) >= 4 || e.unused[0] == 0 || e.recordLen > 1) return false;
+    const uint8_t* info = sectorData(e.sideTS.track, e.sideTS.sector);
+    return info && info[0] == 0x00 && info[1] == 0xFF;
+}
+
+std::string DiskImage::geosTypeName(uint8_t type) {
+    static const char* names[] = {"Non-GEOS", "BASIC", "Assembler", "Data", "System", "Desk Accessory",
+                                  "Application", "Application Data", "Font", "Printer Driver",
+                                  "Input Driver", "Disk Driver", "System Boot", "Temporary",
+                                  "Auto-Execute", "Input 128"};
+    if (type < sizeof(names) / sizeof(names[0])) return names[type];
+    char b[16];
+    std::snprintf(b, sizeof b, "type $%02X", type);
+    return b;
+}
+
+std::string DiskImage::geosSignature() const {
+    const uint8_t* hdr = sectorData(headerTrack(), 0);
+    if (!hdr || std::memcmp(hdr + 0xAD, "GEOS format", 11) != 0) return "";
+    std::string s((const char*)hdr + 0xAD, 16);
+    return s.substr(0, s.find('\0'));
+}
+
+std::vector<uint8_t> DiskImage::chainBytes(TrackSector start, bool* ok) const {
+    std::vector<uint8_t> out;
+    if (ok) *ok = true;
+    auto chain = getFileChain(start);
+    for (size_t i = 0; i < chain.size(); i++) {
+        const uint8_t* sec = sectorData(chain[i].track, chain[i].sector);
+        if (!sec) { if (ok) *ok = false; break; }
+        if (i + 1 == chain.size()) {
+            if (sec[0] != 0) { if (ok) *ok = false; }  // broken link
+            int last = sec[1];
+            if (last >= 2) out.insert(out.end(), sec + 2, sec + last + 1);
+        } else {
+            out.insert(out.end(), sec + 2, sec + 256);
+        }
+    }
+    return out;
+}
+
+std::vector<TrackSector> DiskImage::fileSectors(const DirEntry& e) const {
+    std::vector<TrackSector> all;
+    if (isGeos(e)) {
+        all.push_back(e.sideTS);  // info block
+        if (e.recordLen == 1) {
+            // VLIR: the record block, then each record's chain
+            const uint8_t* rec = sectorData(e.firstDataTS.track, e.firstDataTS.sector);
+            all.push_back(e.firstDataTS);
+            if (rec)
+                for (int i = 0; i < 127; i++)
+                    if (rec[2 + 2 * i] != 0) {
+                        auto c = getFileChain({rec[2 + 2 * i], rec[3 + 2 * i]});
+                        all.insert(all.end(), c.begin(), c.end());
+                    }
+            return all;
+        }
+    }
+    auto chain = getFileChain(e.firstDataTS);
+    all.insert(all.end(), chain.begin(), chain.end());
+    if (e.type() == CbmFileType::REL && e.sideTS.track != 0) {
+        // the side sectors (and the 1581 super side sector)
+        TrackSector ss = e.sideTS;
+        if (superSideSectors()) {
+            const uint8_t* super = sectorData(ss.track, ss.sector);
+            all.push_back(ss);
+            ss = super ? TrackSector{super[0], super[1]} : TrackSector{0, 0};
+        }
+        for (int guard = 0; ss.track != 0 && guard < 126 * 6; guard++) {
+            const uint8_t* side = sectorData(ss.track, ss.sector);
+            if (!side) break;
+            all.push_back(ss);
+            ss = {side[0], side[1]};
+        }
+    }
+    return all;
+}
+
+bool DiskImage::readGeosCvt(const DirEntry& e, std::vector<uint8_t>& cvt, std::string& err) const {
+    if (!isGeos(e)) { err = "not a GEOS file"; return false; }
+    const uint8_t* info = sectorData(e.sideTS.track, e.sideTS.sector);
+    bool vlir = e.recordLen == 1;
+    const uint8_t* rec = vlir ? sectorData(e.firstDataTS.track, e.firstDataTS.sector) : nullptr;
+    if (vlir && (!rec || rec[0] != 0 || rec[1] != 0xFF)) { err = "bad VLIR record block"; return false; }
+
+    cvt.assign((2 + vlir) * 254, 0);
+    // signature block: the directory entry without its first two bytes,
+    // the T/S fields cleared, then the signature
+    uint8_t ent[64] = {};
+    e.toSector(ent, 1);  // slot 1: bytes 32-63
+    std::memcpy(cvt.data(), ent + 32 + 2, 30);
+    cvt[1] = cvt[2] = cvt[0x13] = cvt[0x14] = 0;
+    std::memcpy(cvt.data() + 30, CVT_SIGNATURE, sizeof CVT_SIGNATURE);
+    std::memcpy(cvt.data() + 254, info + 2, 254);
+    if (!vlir) {
+        bool ok;
+        auto data = chainBytes(e.firstDataTS, &ok);
+        if (!ok) { err = "broken data chain"; return false; }
+        cvt.insert(cvt.end(), data.begin(), data.end());
+        return true;
+    }
+    // VLIR: the record block holds each record's block count and last-byte
+    // index; the records follow, each padded to whole 254-byte blocks
+    std::memcpy(cvt.data() + 2 * 254, rec + 2, 254);
+    size_t length = 3 * 254;
+    for (int i = 0; i < 127; i++) {
+        uint8_t t = rec[2 + 2 * i], s = rec[3 + 2 * i];
+        if (t == 0) continue;  // 00/00 end, 00/FF absent: as stored
+        bool ok;
+        auto data = chainBytes({t, s}, &ok);
+        if (!ok) { err = "broken chain for VLIR record " + std::to_string(i); return false; }
+        length = 254 * ((length + 253) / 254);
+        cvt.resize(length);
+        cvt.insert(cvt.end(), data.begin(), data.end());
+        length += data.size();
+        // an empty record still takes its block (cbmconvert's writer skips
+        // 254 bytes per block)
+        if (data.empty()) { length += 254; cvt.resize(length); }
+        size_t blocks = (data.size() + 253) / 254;
+        if (blocks == 0) blocks = 1;  // an empty record is one sector holding 0 bytes
+        cvt[2 * 254 + 2 * i] = (uint8_t)blocks;
+        cvt[2 * 254 + 2 * i + 1] = data.empty() ? 1 : (data.size() % 254 ? data.size() % 254 + 1 : 0xFF);
+    }
+    return true;
+}
+
+bool DiskImage::isCvt(const std::vector<uint8_t>& data) {
+    return data.size() > 2 * 254 && std::memcmp(data.data() + 33, " formatted GEOS file ", 21) == 0;
+}
+
+std::string DiskImage::cvtName(const std::vector<uint8_t>& cvt) {
+    std::string n((const char*)cvt.data() + 3, 16);
+    while (!n.empty() && (uint8_t)n.back() == 0xA0) n.pop_back();
+    return n;
+}
+
+TrackSector DiskImage::writeChainBytes(const uint8_t* data, size_t len) {
+    // as the formats' addFile: sectors from allocateNextFree, the last one
+    // linked 00 / index of its last byte
+    size_t n = len ? (len + 253) / 254 : 1;
+    std::vector<TrackSector> chain;
+    for (size_t i = 0; i < n; i++) {
+        TrackSector ts = allocateNextFree(directoryTrack());
+        if (ts.isNull()) {
+            for (auto& c : chain) freeSector(c.track, c.sector);
+            return {0, 0};
+        }
+        chain.push_back(ts);
+    }
+    for (size_t i = 0; i < n; i++) {
+        uint8_t* sec = sectorData(chain[i].track, chain[i].sector);
+        std::memset(sec, 0, 256);
+        size_t off = i * 254, cnt = std::min<size_t>(254, len - std::min(len, off));
+        if (cnt) std::memcpy(sec + 2, data + off, cnt);
+        if (i + 1 < n) { sec[0] = chain[i + 1].track; sec[1] = chain[i + 1].sector; }
+        else { sec[0] = 0; sec[1] = (uint8_t)(cnt + 1); }
+    }
+    return chain[0];
+}
+
+bool DiskImage::addGeosCvt(const std::vector<uint8_t>& cvt, const std::string& name, std::string& err) {
+    if (!isCvt(cvt)) { err = "not a GEOS Convert (CVT) file"; return false; }
+    const uint8_t* hdr = cvt.data();
+    uint8_t structure = hdr[0x15], geosType = hdr[0x16];
+    if ((hdr[0] & 0x07) >= 4 || geosType == 0 || structure > 1) { err = "the CVT holds no valid GEOS file"; return false; }
+    bool vlir = structure == 1;
+    if (vlir && cvt.size() < 3 * 254) { err = "the CVT is too short for its record block"; return false; }
+
+    // sectors needed: info (+ record block) + the data
+    size_t need = 1 + vlir;
+    if (vlir) {
+        const uint8_t* src = cvt.data() + 2 * 254;
+        size_t pos = 3 * 254;
+        for (int i = 0; i < 127; i++) {
+            uint8_t blocks = src[2 * i], last = src[2 * i + 1];
+            if (!blocks) continue;
+            if (last < 1) { err = "bad VLIR record size"; return false; }
+            size_t len = 254 * (blocks - 1) + last - 1;
+            if (pos + len > cvt.size()) { err = "the CVT is shorter than its records"; return false; }
+            need += blocks;
+            pos += 254 * blocks;
+        }
+    } else {
+        size_t len = cvt.size() - 2 * 254;
+        need += len ? (len + 253) / 254 : 1;
+    }
+    if ((int)need > freeSectors()) { err = "disk full"; return false; }
+
+    std::string n = name.empty() ? cvtName(cvt) : name;
+    if (fileExists(n)) { err = "\"" + n + "\" already exists"; return false; }
+
+    // info block
+    TrackSector infoTS = allocateNextFree(directoryTrack());
+    if (infoTS.isNull()) { err = "disk full"; return false; }
+    uint8_t* info = sectorData(infoTS.track, infoTS.sector);
+    info[0] = 0x00;
+    info[1] = 0xFF;
+    std::memcpy(info + 2, cvt.data() + 254, 254);
+
+    TrackSector first;
+    if (vlir) {
+        uint8_t rec[256] = {};
+        rec[0] = 0x00;
+        rec[1] = 0xFF;
+        const uint8_t* src = cvt.data() + 2 * 254;
+        std::memcpy(rec + 2, src, 254);
+        size_t pos = 3 * 254;
+        for (int i = 0; i < 127; i++) {
+            uint8_t blocks = src[2 * i], last = src[2 * i + 1];
+            if (!blocks) continue;
+            size_t len = 254 * (blocks - 1) + last - 1;
+            TrackSector ts = writeChainBytes(cvt.data() + pos, len);
+            if (ts.isNull()) { err = "disk full"; return false; }
+            rec[2 + 2 * i] = ts.track;
+            rec[3 + 2 * i] = ts.sector;
+            pos += 254 * blocks;
+        }
+        first = allocateNextFree(directoryTrack());
+        if (first.isNull()) { err = "disk full"; return false; }
+        std::memcpy(sectorData(first.track, first.sector), rec, 256);
+    } else {
+        first = writeChainBytes(cvt.data() + 2 * 254, cvt.size() - 2 * 254);
+        if (first.isNull()) { err = "disk full"; return false; }
+    }
+
+    // the directory entry from the CVT, with the new T/S and size
+    uint8_t ent[32] = {};
+    std::memcpy(ent + 2, hdr, 30);
+    DirEntry e = DirEntry::fromSector(ent, 0);
+    e.next = {0, 0};
+    e.fileType = hdr[0] | 0x80;
+    e.firstDataTS = first;
+    e.sideTS = infoTS;
+    if (!name.empty()) padPetsciiName(e.filename, name);
+    e.sizeInSectors = (uint16_t)need;
+    if (allocDirectoryEntry(e).isNull()) { err = "directory full"; return false; }
+    return true;
+}
+
+bool DiskImage::makeGeosDisk(std::string& err) {
+    // GEOS.TXT: on a 1541/1571 disk the BAM sector 18/0 holds the border
+    // sector's T/S at $AB and "GEOS format V1.0" at $AD; the border sector
+    // (an empty directory sector) is searched upwards from 19/0, then from 1/0
+    if (directoryTrack() != 18 || totalTracks() > 70) {
+        err = "GEOS formatting is supported on D64 and D71 images";
+        return false;
+    }
+    uint8_t* bam = sectorData(18, 0);
+    if (!bam) { err = "no BAM sector"; return false; }
+    if (!geosSignature().empty()) return true;
+    TrackSector border{0, 0};
+    for (int pass = 0; pass < 2 && border.isNull(); pass++)
+        for (int t = pass ? 1 : 19; t <= totalTracks() && border.isNull(); t++) {
+            if (t == 18 || (t == 53 && totalTracks() > 35)) continue;  // directory tracks
+            for (int s = 0; s < sectorsOnTrack(t); s++)
+                if (isSectorFree(t, s)) { border = {(uint8_t)t, (uint8_t)s}; break; }
+        }
+    if (border.isNull() || !allocateSector(border.track, border.sector)) { err = "disk full"; return false; }
+    uint8_t* b = sectorData(border.track, border.sector);
+    std::memset(b, 0, 256);
+    b[1] = 0xFF;
+    bam[0xAB] = border.track;
+    bam[0xAC] = border.sector;
+    std::memcpy(bam + 0xAD, "GEOS format V1.0", 16);
+    return true;
+}

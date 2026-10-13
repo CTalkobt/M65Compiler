@@ -371,8 +371,8 @@ bool D80Image::removeFile(const std::string& name) {
 
     DirEntry entry = DirEntry::fromSector(sectorData(dirTS.track, dirTS.sector), entryIdx);
 
-    // Free all file sectors
-    auto chain = getFileChain(entry.firstDataTS);
+    // Free all its sectors (side sectors, GEOS info and records too)
+    auto chain = fileSectors(entry);
     for (auto& ts : chain) {
         freeSector(ts.track, ts.sector);
     }

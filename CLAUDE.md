@@ -320,7 +320,9 @@ https://ist.uwaterloo.ca/~schepers/formats.html): read/write D64, D71,
 D81 (recommended), D65, D80, D82, X64, T64, ARK, ARC/SDA, LNX, P00 and
 transparent `.gz`; read-only D90/D60, CMD (D1M/D2M/D4M/DNP), G64/G71, NIB,
 Zipcode, TAP, CVT. FUSE mount (root directory only), SQLite catalog, batch
-scripts, PETSCII/ASCII filters (`-a2p`, `-p2a`).
+scripts, PETSCII/ASCII filters (`-a2p`, `-p2a`). GEOS files (VLIR and
+sequential) on disk images: `extract` writes and `add` takes the Convert
+(CVT) form, `copy`/`convert` keep them, `create --geos`.
 
 `disk45 sd` handles MEGA65 SD card images (`SdCardImage`): `create` lays out
 MBR + FAT32 + system partition ($41) as the MEGA65's FDISK does; files are

@@ -306,6 +306,61 @@ SUM=$(md5sum < "$SD")
     $DISK45 list "$SD" 2>&1 | grep -q 'is a MEGA65 SD card image' &&
     pass "disk image commands refuse an SD card image" || fail "disk image commands on an SD card image"
 
+for ext in d64 d81; do
+    $DISK45 create "$TMPDIR/relrm.$ext" >/dev/null 2>&1
+    F0=$($DISK45 list "$TMPDIR/relrm.$ext" | tail -1)
+    $DISK45 rel-create "$TMPDIR/relrm.$ext" big 50 400 >/dev/null 2>&1 &&
+        $DISK45 remove "$TMPDIR/relrm.$ext" big >/dev/null 2>&1 &&
+        [ "$($DISK45 list "$TMPDIR/relrm.$ext" | tail -1)" = "$F0" ] &&
+        $DISK45 validate "$TMPDIR/relrm.$ext" 2>&1 | grep -q 'Status: OK' &&
+        pass "remove frees a REL file's side sectors ($ext)" || fail "remove REL side sectors ($ext)"
+done
+
+# ============================================================================
+echo "=== GEOS files ==="
+
+# GEOS Convert files made by mkcvt.py (Schepers' CVT.TXT / cbmconvert's
+# layout): a VLIR application (records of 700, 254, absent, empty, 1 and
+# 5000 bytes) and a sequential data file with a lower-case name
+python3 src/test/mkcvt.py "$TMPDIR"
+$DISK45 create "$TMPDIR/geos.d64" -n GEOSDISK --geos >/dev/null 2>&1
+FREE0=$($DISK45 list "$TMPDIR/geos.d64" | tail -1)
+$DISK45 info "$TMPDIR/geos.d64" | grep -q 'GEOS: *GEOS format V1.0' &&
+    [ "$(dd if="$TMPDIR/geos.d64" bs=1 skip=$((357*256+0xAD)) count=16 2>/dev/null)" = "GEOS format V1.0" ] &&
+    $DISK45 validate "$TMPDIR/geos.d64" 2>&1 | grep -q 'Status: OK' &&
+    pass "create --geos: signature, border sector" || fail "create --geos"
+$DISK45 add "$TMPDIR/geos.d64" "$TMPDIR/vlir.cvt" >/dev/null 2>&1 &&
+    $DISK45 add "$TMPDIR/geos.d64" "$TMPDIR/seq.cvt" >/dev/null 2>&1 &&
+    $DISK45 list "$TMPDIR/geos.d64" | grep -q '"GeoTest App".*GEOS Application, VLIR' &&
+    $DISK45 list "$TMPDIR/geos.d64" | grep -q '"a seq file".*GEOS Application Data' &&
+    $DISK45 validate "$TMPDIR/geos.d64" 2>&1 | grep -q 'Status: OK' &&
+    pass "add a CVT: a GEOS file (VLIR, sequential)" || fail "add a CVT"
+$DISK45 extract "$TMPDIR/geos.d64" "geotest app" "$TMPDIR/g1.cvt" >/dev/null 2>&1 &&
+    $DISK45 extract "$TMPDIR/geos.d64" "A SEQ FILE" "$TMPDIR/g2.cvt" >/dev/null 2>&1 &&
+    cmp -s "$TMPDIR/g1.cvt" "$TMPDIR/vlir.cvt" && cmp -s "$TMPDIR/g2.cvt" "$TMPDIR/seq.cvt" &&
+    pass "extract a GEOS file as its CVT (byte for byte)" || fail "extract GEOS as CVT"
+$DISK45 create "$TMPDIR/geos.d81" >/dev/null 2>&1
+rm -f "$TMPDIR/geos.d71"
+$DISK45 copy "$TMPDIR/geos.d64" '*' "$TMPDIR/geos.d81" >/dev/null 2>&1 &&
+    $DISK45 convert "$TMPDIR/geos.d64" "$TMPDIR/geos.d71" >/dev/null 2>&1 &&
+    $DISK45 extract "$TMPDIR/geos.d81" "GeoTest App" "$TMPDIR/g3.cvt" >/dev/null 2>&1 &&
+    $DISK45 extract "$TMPDIR/geos.d71" "a seq file" "$TMPDIR/g4.cvt" >/dev/null 2>&1 &&
+    cmp -s "$TMPDIR/g3.cvt" "$TMPDIR/vlir.cvt" && cmp -s "$TMPDIR/g4.cvt" "$TMPDIR/seq.cvt" &&
+    $DISK45 info "$TMPDIR/geos.d71" | grep -q 'GEOS format' &&
+    $DISK45 validate "$TMPDIR/geos.d81" 2>&1 | grep -q 'Status: OK' &&
+    pass "copy/convert keep GEOS files (D64 → D81, D71)" || fail "copy/convert GEOS"
+$DISK45 remove "$TMPDIR/geos.d64" "GeoTest App" >/dev/null 2>&1 &&
+    $DISK45 remove "$TMPDIR/geos.d64" "a seq file" >/dev/null 2>&1 &&
+    [ "$($DISK45 list "$TMPDIR/geos.d64" | tail -1)" = "$FREE0" ] &&
+    $DISK45 validate "$TMPDIR/geos.d64" 2>&1 | grep -q 'Status: OK' &&
+    pass "remove frees a GEOS file's info block and records" || fail "remove GEOS"
+$DISK45 info "$TMPDIR/vlir.cvt" | grep -q 'VLIR records: 5' &&
+    $DISK45 info "$TMPDIR/vlir.cvt" | grep -q 'Class: *Test V1.0' &&
+    $DISK45 extract "$TMPDIR/vlir.cvt" RECORD_5 "$TMPDIR/r5.bin" >/dev/null 2>&1 &&
+    [ "$(stat -c %s "$TMPDIR/r5.bin")" = "5000" ] &&
+    [ "$(tail -c 5000 "$TMPDIR/vlir.cvt" | md5sum)" = "$(md5sum < "$TMPDIR/r5.bin")" ] &&
+    pass "CVT reader: records, class" || fail "CVT reader"
+
 # ============================================================================
 echo ""
 echo "disk45 tests: $passed passed, $failed failed"

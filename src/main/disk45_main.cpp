@@ -37,7 +37,7 @@ extern int disk45_catalog(int argc, char** argv);
 static void usage() {
     std::cerr << "disk45 — CBM Disk Image Utility v" << VERSION << "\n"
               << "Usage:\n"
-              << "  disk45 create <image> [-n name] [-i id] [-t tracks]  Create disk image\n"
+              << "  disk45 create <image> [-n name] [-i id] [-t tracks] [--geos]  Create disk image\n"
               << "  disk45 list <image>                       List directory\n"
               << "  disk45 info <image>                       Show disk info\n"
               << "  disk45 add <image> <file> [cbm_name] [-p]  Add file to image\n"
@@ -491,16 +491,49 @@ static std::string baseName(const std::string& path) {
 // Commands
 // ============================================================================
 
+// GEOS files go through their Convert (CVT) form: extract writes the CVT,
+// copy/convert between disk images rebuild the GEOS file (info block, VLIR
+// records), other targets get the CVT as a PRG (as cbmconvert does)
+static bool trackImage(DiskImage* img) {
+    return img->totalTracks() > 0 && !dynamic_cast<GeosCvtImage*>(img);
+}
+
+static bool geosEntry(DiskImage* img, const std::string& name, DirEntry& e) {
+    if (!trackImage(img)) return false;
+    e = img->findEntry(name);
+    return e.isValid() && img->isGeos(e);
+}
+
+// Copy one file between images; bytes gets its size
+static bool copyImageFile(DiskImage* src, DiskImage* dst, const FileInfo& f, std::string& err, size_t& bytes) {
+    DirEntry e;
+    if (geosEntry(src, f.name, e)) {
+        std::vector<uint8_t> cvt;
+        if (!src->readGeosCvt(e, cvt, err)) return false;
+        bytes = cvt.size();
+        if (trackImage(dst)) return dst->addGeosCvt(cvt, "", err);
+        if (!dst->addFile(f.name, CbmFileType::PRG, cvt)) { err = "disk full?"; return false; }
+        return true;
+    }
+    auto data = src->readFile(f.name);
+    if (data.empty() && !src->fileExists(f.name)) { err = "could not read it"; return false; }
+    bytes = data.size();
+    if (!dst->addFile(f.name, f.type, data)) { err = "disk full?"; return false; }
+    return true;
+}
+
 static int cmdCreate(int argc, char** argv) {
     if (argc < 1) { usage(); return 1; }
     std::string imagePath = argv[0];
     std::string diskName, diskId;
     int tracks = 0; // 0 = use format default
+    bool geos = false;
 
     for (int i = 1; i < argc; i++) {
         if (std::string(argv[i]) == "-n" && i + 1 < argc) diskName = argv[++i];
         else if (std::string(argv[i]) == "-i" && i + 1 < argc) diskId = argv[++i];
         else if (std::string(argv[i]) == "-t" && i + 1 < argc) tracks = std::stoi(argv[++i]);
+        else if (std::string(argv[i]) == "--geos") geos = true;
     }
 
     auto img = DiskImage::createFromExtension(imagePath);
@@ -550,11 +583,15 @@ static int cmdCreate(int argc, char** argv) {
         }
     }
 
+    if (geos) {
+        std::string err;
+        if (!img->makeGeosDisk(err)) { std::cerr << "Error: " << err << "\n"; return 1; }
+    }
     if (!img->saveToFile(imagePath)) {
         std::cerr << "Error: failed to write " << imagePath << "\n";
         return 1;
     }
-    std::cout << "Created " << formatStr(img->diskFormat()) << " image: "
+    std::cout << "Created " << formatStr(img->diskFormat()) << (geos ? " (GEOS)" : "") << " image: "
               << imagePath << " (" << img->totalTracks() << " tracks, "
               << img->totalBytes() << " bytes)\n";
     return 0;
@@ -598,6 +635,9 @@ static int cmdList(int argc, char** argv) {
         if (!f.closed) std::cout << "*"; // splat indicator
         std::cout << fileTypeStr(f.type);
         if (f.locked) std::cout << "<";
+        DirEntry e;
+        if (pathParts.size() <= 1 && geosEntry(img.get(), f.name, e))
+            std::cout << "\tGEOS " << DiskImage::geosTypeName(e.unused[0]) << (e.recordLen ? ", VLIR" : "");
         std::cout << "\n";
     }
     std::cout << img->freeSectors() << " blocks free.\n";
@@ -623,6 +663,8 @@ static int cmdInfo(int argc, char** argv) {
                   << "GEOS name:    " << cvt->geosFileName() << "\n"
                   << "GEOS type:    " << cvt->geosFileTypeName() << "\n"
                   << "Structure:    " << (cvt->isVlir() ? "VLIR" : "Sequential") << "\n";
+        if (!cvt->geosClassName().empty()) std::cout << "Class:        " << cvt->geosClassName() << "\n";
+        if (!cvt->geosAuthor().empty()) std::cout << "Author:       " << cvt->geosAuthor() << "\n";
         if (cvt->isVlir())
             std::cout << "VLIR records: " << cvt->vlirRecordCount() << "\n";
         std::string desc = cvt->geosDescription();
@@ -638,6 +680,8 @@ static int cmdInfo(int argc, char** argv) {
                   << "Free sectors: " << img->freeSectors() << "\n"
                   << "Image size:   " << img->totalBytes() << " bytes\n"
                   << "Files:        " << img->listFiles().size() << "\n";
+        if (trackImage(img.get()) && !img->geosSignature().empty())
+            std::cout << "GEOS:         " << img->geosSignature() << "\n";
     }
     return 0;
 }
@@ -659,6 +703,24 @@ static int cmdAdd(int argc, char** argv) {
     f.seekg(0);
     std::vector<uint8_t> data((size_t)size);
     f.read(reinterpret_cast<char*>(data.data()), size);
+
+    // A GEOS Convert file becomes a GEOS file (info block, VLIR records);
+    // its name comes from the CVT unless one is given
+    if (DiskImage::isCvt(data) && trackImage(img.get())) {
+        std::string err;
+        std::string name = argc >= 3 ? argv[2] : "";
+        if (!img->addGeosCvt(data, name, err)) {
+            std::cerr << "Error: failed to add the GEOS file: " << err << "\n";
+            return 1;
+        }
+        if (!img->saveToFile(imagePath)) {
+            std::cerr << "Error: failed to write " << imagePath << "\n";
+            return 1;
+        }
+        std::cout << "Added GEOS file \"" << (name.empty() ? DiskImage::cvtName(data) : name) << "\" (from "
+                  << hostFile << ")\n";
+        return 0;
+    }
 
     CbmFileType ftype = typeFromExtension(hostFile);
 
@@ -690,6 +752,18 @@ static int cmdExtract(int argc, char** argv) {
 
     auto img = DiskImage::load(imagePath);
     if (!img) { std::cerr << "Error: failed to load " << imagePath << "\n"; return 1; }
+
+    DirEntry ge;
+    if (geosEntry(img.get(), cbmName, ge)) {
+        std::vector<uint8_t> cvt;
+        std::string err;
+        if (!img->readGeosCvt(ge, cvt, err)) { std::cerr << "Error: " << err << "\n"; return 1; }
+        std::ofstream f(hostFile, std::ios::binary);
+        if (!f) { std::cerr << "Error: cannot write " << hostFile << "\n"; return 1; }
+        f.write(reinterpret_cast<const char*>(cvt.data()), cvt.size());
+        std::cout << "Extracted GEOS file \"" << cbmName << "\" as Convert (CVT) (" << cvt.size() << " bytes)\n";
+        return 0;
+    }
 
     auto data = img->readFile(cbmName);
     if (data.empty() && !img->fileExists(cbmName)) {
@@ -1073,20 +1147,17 @@ static int cmdCopy(int argc, char** argv) {
 
     int copied = 0;
     for (auto& f : files) {
-        auto data = src->readFile(f.name);
-        if (data.empty() && !src->fileExists(f.name)) {
-            std::cerr << "Warning: could not read \"" << f.name << "\", skipping\n";
-            continue;
-        }
         if (dst->fileExists(f.name)) {
             std::cerr << "Warning: \"" << f.name << "\" already exists in destination, skipping\n";
             continue;
         }
-        if (!dst->addFile(f.name, f.type, data)) {
-            std::cerr << "Error: failed to add \"" << f.name << "\" to destination (disk full?)\n";
+        std::string err;
+        size_t bytes = 0;
+        if (!copyImageFile(src.get(), dst.get(), f, err, bytes)) {
+            std::cerr << "Error: failed to copy \"" << f.name << "\": " << err << "\n";
             continue;
         }
-        std::cout << "  " << f.name << " (" << data.size() << " bytes, " << fileTypeStr(f.type) << ")\n";
+        std::cout << "  " << f.name << " (" << bytes << " bytes, " << fileTypeStr(f.type) << ")\n";
         copied++;
     }
 
@@ -1127,24 +1198,35 @@ static int cmdExtractAll(int argc, char** argv) {
     auto files = filterFiles(img->listFiles(), pattern);
     int extracted = 0;
     for (auto& f : files) {
-        auto data = img->readFile(f.name);
-        if (data.empty() && !img->fileExists(f.name)) {
-            std::cerr << "Warning: could not read \"" << f.name << "\", skipping\n";
-            continue;
+        DirEntry ge;
+        bool geos = geosEntry(img.get(), f.name, ge);
+        std::vector<uint8_t> data;
+        if (geos) {
+            std::string err;
+            if (!img->readGeosCvt(ge, data, err)) {
+                std::cerr << "Warning: \"" << f.name << "\": " << err << ", skipping\n";
+                continue;
+            }
+        } else {
+            data = img->readFile(f.name);
+            if (data.empty() && !img->fileExists(f.name)) {
+                std::cerr << "Warning: could not read \"" << f.name << "\", skipping\n";
+                continue;
+            }
         }
 
-        if (petscii && f.type == CbmFileType::SEQ) {
+        if (petscii && f.type == CbmFileType::SEQ && !geos) {
             data = petsciiToAsciiContent(data);
         }
 
-        std::string hostName = sanitizeFilename(f.name) + typeExtension(f.type);
+        std::string ext = geos ? std::string(".cvt") : typeExtension(f.type);
+        std::string hostName = sanitizeFilename(f.name) + ext;
         std::string fullPath = outDir + "/" + hostName;
 
         // Handle name collisions
         if (std::ifstream(fullPath).good()) {
             int suffix = 1;
             std::string base = sanitizeFilename(f.name);
-            std::string ext = typeExtension(f.type);
             do {
                 fullPath = outDir + "/" + base + "_" + std::to_string(suffix++) + ext;
             } while (std::ifstream(fullPath).good());
@@ -2027,6 +2109,16 @@ static int cmdConvert(int argc, char** argv) {
         std::transform(cbmName.begin(), cbmName.end(), cbmName.begin(), ::toupper);
         CbmFileType ftype = typeFromExtension(srcPath);
 
+        if (DiskImage::isCvt(data) && trackImage(dst.get())) {
+            std::string err;
+            if (!dst->addGeosCvt(data, "", err) || !dst->saveToFile(dstPath)) {
+                std::cerr << "Error: " << (err.empty() ? "failed to write " + dstPath : err) << "\n";
+                return 1;
+            }
+            std::cout << "Converted " << srcPath << " → " << dstPath << " (GEOS file \""
+                      << DiskImage::cvtName(data) << "\")\n";
+            return 0;
+        }
         if (!dst->addFile(cbmName, ftype, data)) {
             std::cerr << "Error: failed to add file to target image\n";
             return 1;
@@ -2048,15 +2140,19 @@ static int cmdConvert(int argc, char** argv) {
     std::string name = src->diskName();
     std::string id = src->diskId();
     dst->format(name, id);
+    if (trackImage(src.get()) && !src->geosSignature().empty() && trackImage(dst.get())) {
+        std::string err;
+        if (!dst->makeGeosDisk(err)) std::cerr << "Note: the target is not GEOS-formatted (" << err << ")\n";
+    }
 
     auto files = src->listFiles();
     int copied = 0;
     for (auto& f : files) {
         if (f.type == CbmFileType::CBM) continue; // skip subdirectory entries
-        auto data = src->readFile(f.name);
-        if (data.empty() && !src->fileExists(f.name)) continue;
-        if (!dst->addFile(f.name, f.type, data)) {
-            std::cerr << "Warning: failed to add \"" << f.name << "\" (disk full?)\n";
+        std::string err;
+        size_t bytes = 0;
+        if (!copyImageFile(src.get(), dst.get(), f, err, bytes)) {
+            std::cerr << "Warning: failed to add \"" << f.name << "\" (" << err << ")\n";
             continue;
         }
         copied++;

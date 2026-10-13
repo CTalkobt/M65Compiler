@@ -26,7 +26,7 @@ Running `disk45` with no arguments or an unknown command prints the usage summar
 #### create
 
 ```
-disk45 create <image> [-n name] [-i id] [-t tracks]
+disk45 create <image> [-n name] [-i id] [-t tracks] [--geos]
 ```
 
 Create a new, empty image or archive. An existing file is overwritten.
@@ -35,6 +35,7 @@ Create a new, empty image or archive. An existing file is overwritten.
 |--------|-------------|
 | `-n name` | Disk name (default `CC45 DISK` for disk images; archives use a fixed name such as `ARK ARCHIVE`) |
 | `-i id` | 2-character disk ID (default `CC`) |
+| `--geos` | Format for GEOS (D64/D71): `GEOS format V1.0` at `$AD` of the BAM sector and a border sector (searched from 19/0 upwards, then from 1/0), as [GEOS.TXT](https://ist.uwaterloo.ca/~schepers/formats/GEOS.TXT) describes. |
 | `-t tracks` | Track count larger than the format default (e.g. 36-40 for an extended D64). The image is padded with the extra tracks, but the BAM is not extended, so files are not allocated there. |
 
 **Examples:**
@@ -92,6 +93,8 @@ Add a host file. The CBM type comes from the host file's extension: `.prg`→PRG
 
 `-p` converts ASCII→PETSCII, but only when the file is added as SEQ (host extension `.seq`).
 
+A **GEOS Convert file** (a `.cvt`, recognised by its signature whatever its extension) is added as a GEOS file: its info block, the record block and the record chains of a VLIR file, or the data chain of a sequential one, with the directory entry from the CVT (GEOS type, structure, date). The name is the one in the CVT unless `cbm_name` is given. See [GEOS Files](#geos-files).
+
 Files are always added to the root directory: a name such as `ASSETS/SPRITES` creates a root entry with a `/` in its name, not a file inside subdirectory `ASSETS`.
 
 **Examples:**
@@ -110,7 +113,7 @@ for f in build/*.prg; do disk45 add game.d81 "$f"; done
 disk45 extract <image> <cbm_name> <host_file> [-p|--petscii]
 ```
 
-Extract a file (name lookup is case-insensitive). `-p` converts PETSCII→ASCII (applied whatever the file type). The host file name is required; there is no stdout mode.
+Extract a file (name lookup is case-insensitive). `-p` converts PETSCII→ASCII (applied whatever the file type). The host file name is required; there is no stdout mode. A GEOS file is written as its Convert (CVT) form, the only form that keeps its info block and VLIR records; `extract-all` names GEOS files `<name>.cvt`.
 
 ```bash
 disk45 extract game.d81 GAME recovered.prg
@@ -156,7 +159,7 @@ disk45 convert <source> <target>
 
 Create `target` (format from its extension) and copy every root-directory file of `source` into it, keeping the disk name and ID. Subdirectory entries are skipped; files that do not fit produce a warning.
 
-If `source` is a single file (`.prg`, `.seq`, `.usr` or `.cvt`), a blank target named `CONVERTED` (ID `CV`) is created and the file is added under its upper-cased base name (a `.cvt` file is stored as-is, as a PRG).
+If `source` is a single file (`.prg`, `.seq`, `.usr` or `.cvt`), a blank target named `CONVERTED` (ID `CV`) is created and the file is added under its upper-cased base name (a `.cvt` file becomes a GEOS file on a disk image target, and is stored as-is, as a PRG, elsewhere). Between disk images, GEOS files are rebuilt as GEOS files and a GEOS disk's signature is kept (D64/D71 targets).
 
 ```bash
 disk45 convert game.d64 game.d81
@@ -216,7 +219,7 @@ Change the disk name and/or ID (at least one option is required).
 disk45 info <image>
 ```
 
-Show metadata. TAP images show version, platform, data size and file count; GEOS CVT files show GEOS name, type, structure (VLIR/sequential, record count) and description; other images show format, name, ID, tracks, total/free sectors, image size and file count.
+Show metadata. TAP images show version, platform, data size and file count; GEOS CVT files show GEOS name, type, structure (VLIR/sequential, record count), class, author and description; disk images formatted for GEOS also show the `GEOS format` signature; other images show format, name, ID, tracks, total/free sectors, image size and file count.
 
 #### validate / check
 
@@ -488,6 +491,17 @@ disk45 sd extract card.img MEGA65.D81 saved.d81 && disk45 list saved.d81
 
 xemu mounts its own external default D81 instead of the card's `MEGA65.D81` unless it is given `-defd81fromsd`. `test_xemu.sh` boots a disk45 card this way (`test_disk45_sd_xemu.bas`): BASIC reads a file disk45 put on the card's D81 and writes one, which disk45 then finds. `test_disk45.sh` checks the layout bytes, the file operations and the configuration, and runs `fsck.vfat` when it is installed.
 
+### GEOS Files
+
+GEOS files on D64, D71, D81, D65 and D80/D82 images ([GEOS.TXT](https://ist.uwaterloo.ca/~schepers/formats/GEOS.TXT)) use directory bytes `$15`-`$1D`: the info block's T/S, the structure (`0` sequential, `1` VLIR), the GEOS file type and a time stamp. A VLIR file's first T/S is its record block: up to 127 sector chains (`00/00` ends the list, `00/FF` is an absent record).
+
+- `list` marks them (`GEOS Application, VLIR`); names keep their mixed-case ASCII and are matched case-insensitively.
+- `extract` writes the [CVT](https://ist.uwaterloo.ca/~schepers/formats/CVT.TXT) form, `add` takes one; `copy`/`convert` move GEOS files between disk images as GEOS files. The CVT layout is the one cbmconvert reads and writes: the directory entry and `PRG formatted GEOS file V1.0`, the info block, for VLIR the record block (block count and last-byte index per record) and the records padded to 254-byte blocks. An empty record takes one block, as cbmconvert's writer places it.
+- `remove` and `validate` count a GEOS file's info block, record block and records (and a REL file's side sectors), and `validate` the border sector of a GEOS disk.
+- `create --geos` formats a D64/D71 for GEOS; `info` shows the signature.
+
+`test_disk45.sh` builds CVT files with `src/test/mkcvt.py` and checks that they survive add/extract, copy to a D81 and convert to a D71 byte for byte. The FUSE mount shows GEOS files but reads them as plain chains.
+
 ### Catalog (Collection Indexing)
 
 SQLite index of image collections with a CRC32 of each file's contents. disk45 is always linked with SQLite. Every subcommand accepts `--db <file>`; the default database is `~/.disk45-catalog.db`. Running `disk45 catalog` alone prints the subcommand list.
@@ -672,7 +686,7 @@ There is no encoder: `create` refuses these extensions, and every command that c
 | `.ark` | Arkive | R/W | Uncompressed archive. |
 | `.arc` / `.sda` | ARC | R/W | Reads stored/RLE/Huffman/LZW members. |
 | `.lnx` | Lynx | R/W | Block-aligned archive. |
-| `.cvt` | GEOS Convert | R | `info`, `list`, `extract`. |
+| `.cvt` | GEOS Convert | R | One GEOS file: `info`, `list` (the file, or a VLIR file's records `RECORD_n`), `extract`; `add`/`convert` put it on a disk image. |
 | `.p00` | PC64 | R/W | Single-file container; also `.s00`/`.u00`/`.r00` and `.p01`-`.p99` etc. |
 
 ### Compression

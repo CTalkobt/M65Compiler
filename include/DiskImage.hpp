@@ -143,6 +143,26 @@ public:
     };
     virtual ValidateResult validate() const;
 
+    // --- GEOS files (Schepers' GEOS.TXT / CVT.TXT) ---
+    // A GEOS file has an info block (directory bytes $15/$16) and, when VLIR
+    // (structure byte $17 = 1), a record block of up to 127 sector chains.
+    // On a host it is kept as a Convert (CVT) file, as cbmconvert writes it
+    bool isGeos(const DirEntry& e) const;
+    bool readGeosCvt(const DirEntry& e, std::vector<uint8_t>& cvt, std::string& err) const;
+    bool addGeosCvt(const std::vector<uint8_t>& cvt, const std::string& name, std::string& err);
+    static bool isCvt(const std::vector<uint8_t>& data);
+    static std::string cvtName(const std::vector<uint8_t>& cvt);
+    static std::string geosTypeName(uint8_t type);
+    // "GEOS format V1.x" at $AD of the header sector, or ""
+    std::string geosSignature() const;
+    // Make a D64/D71 a GEOS disk: the signature and a border sector
+    bool makeGeosDisk(std::string& err);
+    // Every sector a file occupies: its chain, a REL file's side sectors,
+    // a GEOS file's info block, record block and records
+    std::vector<TrackSector> fileSectors(const DirEntry& e) const;
+    // The bytes of a sector chain (the last sector's link byte gives its length)
+    std::vector<uint8_t> chainBytes(TrackSector start, bool* ok = nullptr) const;
+
     // --- Raw sector access ---
     uint8_t* sectorData(int track, int sector);
     const uint8_t* sectorData(int track, int sector) const;
@@ -173,6 +193,8 @@ protected:
     bool findFileEntry(const std::string& name, TrackSector& dirTS, int& entryIdx) const;
     std::vector<TrackSector> getFileChain(TrackSector start) const;
     TrackSector allocDirectoryEntry(DirEntry& entry);
+    // Write bytes as a new sector chain; returns its first sector (0/0: full)
+    TrackSector writeChainBytes(const uint8_t* data, size_t len);
 
     // Directory track (subclass provides)
     virtual int directoryTrack() const = 0;
