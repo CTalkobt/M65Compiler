@@ -7,6 +7,7 @@
 #include <iostream>
 
 Parser::Parser(const std::vector<Token>& tokens) : tokens(tokens), pos(0) {
+    this->tokens.reserve(tokens.size() * 2 + 1024);  // room for insertTokens
     // Built-in type aliases for wide integers
     typedefs["__int128"] = {"struct __int128", 0, false, false, {}, {}};
     typedefs["__int128_t"] = {"struct __int128", 0, false, false, {}, {}};
@@ -658,8 +659,28 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
     return unit;
 }
 
+void Parser::insertTokens(size_t at, const std::vector<Token>& v) {
+    if (tokens.size() + v.size() > tokens.capacity())
+        throw std::runtime_error(formatDiagnostic(tokens[at].sourceFile, tokens[at].line, tokens[at].column, Severity::Error,
+            "too many declarations with several declarators in this file; declare these functions separately"));
+    tokens.insert(tokens.begin() + at, v.begin(), v.end());
+}
+
 std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     const Token& startToken = peek();
+    // Start of the declaration's specifiers: the caller has consumed the
+    // storage class and qualifiers already (static, extern, signed, ...)
+    size_t declStart = pos;
+    while (declStart > 0) {
+        TokenType t = tokens[declStart - 1].type;
+        if (t != TokenType::STATIC && t != TokenType::EXTERN && t != TokenType::INLINE &&
+            t != TokenType::SIGNED && t != TokenType::UNSIGNED && t != TokenType::CONST &&
+            t != TokenType::VOLATILE && t != TokenType::RESTRICT && t != TokenType::NORETURN &&
+            t != TokenType::FASTCALL && t != TokenType::INTERRUPT && t != TokenType::NAKED &&
+            t != TokenType::REGPARM && t != TokenType::EXTENSION && t != TokenType::REGISTER &&
+            t != TokenType::AUTO && t != TokenType::ZP && t != TokenType::ABS && t != TokenType::FAR) break;
+        declStart--;
+    }
     bool isNR = match(TokenType::NORETURN);
     bool isFC = match(TokenType::FASTCALL);
     bool isInterrupt = match(TokenType::INTERRUPT);
@@ -692,6 +713,9 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     }
     // Skip qualifiers after the type keyword (e.g., int volatile func())
     while (match(TokenType::INLINE) || match(TokenType::STATIC)) {}
+    // The specifiers shared by every declarator of the declaration
+    size_t specEnd = pos;
+    while (specEnd > declStart && tokens[specEnd - 1].type == TokenType::STAR) specEnd--;
 
     int returnPtrLevel = basePtrLevel;
     while (true) {
@@ -1020,7 +1044,10 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
 
     // Check for prototype
     bool isInline = isInlineFunc;
-    if (match(TokenType::SEMICOLON)) {
+    // int f(void), g(void); — a prototype followed by more declarators
+    bool moreDeclarators = peek().type == TokenType::COMMA;
+    if (moreDeclarators || match(TokenType::SEMICOLON)) {
+        if (moreDeclarators) advance();
         auto func = setPos(std::make_unique<FunctionDeclaration>(name, returnType), startToken);
         func->returnPointerLevel = returnPtrLevel;
         func->isSigned = isSigned;
@@ -1037,6 +1064,12 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
         applyAlias(func->name);
         func->isNoInline = pendingNoInline_;
         pendingAlwaysInline_ = pendingNoInline_ = false;
+        // The next declarator is parsed as a declaration of its own: repeat
+        // the specifiers in front of it (startToken is not used after this)
+        if (moreDeclarators) {
+            std::vector<Token> spec(tokens.begin() + declStart, tokens.begin() + specEnd);
+            insertTokens(pos, spec);
+        }
         return func;
     }
 
@@ -1641,6 +1674,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
     }
 
     const Token& typeToken = peek();
+    size_t specStart = pos;
     std::string type;
     bool isSigned = false;
     int basePtrLevel = 0;
@@ -1965,7 +1999,32 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
         compound->isDeclGroup = true;
         compound->statements.push_back(std::move(decl));
 
-        while (match(TokenType::COMMA)) {
+        while (peek().type == TokenType::COMMA) {
+            // int x, f(void); — a function declarator ends this declaration:
+            // the rest becomes a declaration of its own with the same specifiers
+            {
+                size_t j = pos + 1;
+                while (j < tokens.size() && (tokens[j].type == TokenType::STAR || tokens[j].type == TokenType::CONST ||
+                       tokens[j].type == TokenType::VOLATILE || tokens[j].type == TokenType::RESTRICT)) j++;
+                if (j + 1 < tokens.size() && tokens[j].type == TokenType::IDENTIFIER &&
+                    tokens[j + 1].type == TokenType::OPEN_PAREN) {
+                    std::vector<Token> spec;
+                    auto kw = [&](TokenType t, const char* v) { Token k = tokens[pos]; k.type = t; k.value = v; spec.push_back(k); };
+                    if (isStatic) kw(TokenType::STATIC, "static");
+                    if (isConst) kw(TokenType::CONST, "const");
+                    if (isVolatile) kw(TokenType::VOLATILE, "volatile");
+                    for (size_t k = specStart; k < tokens.size() && k < pos; k++) {
+                        if (tokens[k].type == TokenType::STAR ||
+                            (tokens[k].type == TokenType::IDENTIFIER && tokens[k].value == name)) break;
+                        spec.push_back(tokens[k]);
+                    }
+                    tokens[pos].type = TokenType::SEMICOLON;
+                    tokens[pos].value = ";";
+                    insertTokens(pos + 1, spec);
+                    break;
+                }
+            }
+            advance();
             // Parse additional declarators reusing the same base type
             int extraPtr = basePtrLevel;
             while (match(TokenType::STAR)) extraPtr++;

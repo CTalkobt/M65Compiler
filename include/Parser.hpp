@@ -37,6 +37,10 @@ public:
 
 private:
     std::vector<Token> tokens;
+    // Insert tokens at 'at' (a declaration split in two: int f(void), g(void);).
+    // tokens has spare capacity reserved by the constructor, so references to
+    // tokens held by callers stay valid; beyond it this is an error.
+    void insertTokens(size_t at, const std::vector<Token>& v);
     size_t pos;
 
     const Token& peek() const;

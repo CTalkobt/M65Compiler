@@ -899,6 +899,19 @@ for cxmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: function declarators in declaration lists (int f(void), g(void); int x, f(void);)
+for dlmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r dlname dlflags <<< "$dlmode"
+    echo "Testing test_decl_lists_xemu.c ($dlname)..."
+    compile_link_test "src/test-resources/test_decl_lists_xemu.c" "build/test/test_decl_lists_${dlname}_xemu.prg" "$dlflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_decl_lists_$dlname" "build/test/test_decl_lists_${dlname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
+    else
+        echo "FAIL: test_decl_lists_xemu.c $dlname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: GCC statement expressions ({ stmt; ...; expr; })
 for semode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r sename seflags <<< "$semode"
