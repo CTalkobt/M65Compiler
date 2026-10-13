@@ -27,6 +27,9 @@ static void printUsage(const char* progName) {
     std::cout << "  -M <file>      Write detailed linker map file (segments, objects, symbols)" << std::endl;
     std::cout << "  --no-thunks    Error on calling convention mismatches (no thunk generation)" << std::endl;
     std::cout << "  --no-sac-overlay  Give every static-allocation function its own storage" << std::endl;
+    std::cout << "  --no-gc        Keep every library member pulled in, also those only dropped code" << std::endl;
+    std::cout << "                 needed or whose weak definition lost (default: drop them)" << std::endl;
+    std::cout << "  --print-gc     List the library members dropped" << std::endl;
     std::cout << "  --bss-fill=V   Byte crt0 fills BSS with at startup (default $00; $FF, 0xFF or decimal)" << std::endl;
     std::cout << "  --stack-size=N The CPU stack's share below __stack_top; malloc's heap ends there" << std::endl;
     std::cout << "                 (default 4096; $1000, 0x1000 or decimal)" << std::endl;
@@ -49,6 +52,7 @@ int main(int argc, char** argv) {
     bool printMap = false;
     int bssFill = -1;
     int stackSize = -1;
+    bool gcObjects = true, printGc = false;
     std::string mapFile;
     uint32_t textBase = 0x2000; // sensible MEGA65 default
     bool textBaseSet = false;
@@ -89,6 +93,8 @@ int main(int argc, char** argv) {
         else if (arg == "-z" && i + 1 < argc) { zpBase = parseAddr(argv[++i]); zpBaseSet = true; }
         else if (arg == "--no-thunks") { thunkMode = O45Linker::THUNK_ERROR; }
         else if (arg == "--no-sac-overlay") { sacOverlay = false; }
+        else if (arg == "--no-gc") { gcObjects = false; }
+        else if (arg == "--print-gc") { printGc = true; }
         else if (arg == "-v") { g_ln45Verbosity = std::max(g_ln45Verbosity, 1); }
         else if (arg == "-vv") { g_ln45Verbosity = 2; }
         else if (arg.rfind("--stack-size=", 0) == 0) {
@@ -147,6 +153,7 @@ int main(int argc, char** argv) {
     if (zpBaseSet)   linker.setZpBase(zpBase);
     linker.setThunkMode(thunkMode);
     linker.setSacOverlay(sacOverlay);
+    linker.setGcObjects(gcObjects);
     if (bssFill >= 0) linker.setBssFill((uint8_t)bssFill);
     if (stackSize >= 0) linker.setStackSize((uint16_t)stackSize);
 
@@ -233,6 +240,10 @@ int main(int argc, char** argv) {
         std::cerr << "ln45: link error: " << linkErr << std::endl;
         return 1;
     }
+
+    if (printGc || g_ln45Verbosity >= 1)
+        for (const auto& n : linker.discardedObjects())
+            std::cerr << "ln45: dropped " << n << " (nothing live references it)" << std::endl;
 
     // The 16-bit CPU stack grows down from __stack_top towards the end of the
     // program (BSS and the private base page): make sure there is room

@@ -339,6 +339,9 @@ public:
     enum ThunkMode { THUNK_AUTO, THUNK_WARN, THUNK_ERROR };
     void setThunkMode(ThunkMode m) { thunkMode_ = m; }
     void setSacOverlay(bool on) { sacOverlayOn_ = on; }
+    // Drop pulled library members nothing live references (default on)
+    void setGcObjects(bool on) { gcObjectsOn_ = on; }
+    const std::vector<std::string>& discardedObjects() const { return discardedObjects_; }
     // Byte crt0 fills BSS with (__bss_fill, unless an object defines it)
     void setBssFill(uint8_t v) { bssFill_ = v; }
     // The CPU stack's share below __stack_top: the heap ends there
@@ -461,6 +464,9 @@ private:
     // Thunk mode and generated thunks
     ThunkMode thunkMode_ = THUNK_AUTO;
     uint8_t bssFill_ = 0;
+    bool gcObjectsOn_ = true;
+    std::vector<std::string> discardedObjects_;  // library members dropped by gcObjects
+    void gcObjects(size_t numRoots);
     uint16_t stackSize_ = 0x1000;
     // Maps callee name → thunk address (for mismatched call sites)
     std::map<std::string, uint32_t> thunkAddresses_;

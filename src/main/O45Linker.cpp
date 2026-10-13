@@ -144,6 +144,57 @@ bool O45Linker::resolveLibraries(std::string& errorMsg) {
     return true;
 }
 
+// Object-level dead code removal. resolveLibraries pulls a member for every
+// undefined name, also names only a member pulled earlier needs, and keeps a
+// member whose weak definition loses to a strong one elsewhere. Keep the
+// objects reachable from the roots -- the command-line objects and the
+// startup code (an "init" sub-segment) -- through their imports, each bound
+// to the definition the link uses (the first strong one, else the first
+// weak one, as resolveSymbols binds it); drop the rest. A reference to a
+// static-allocation block (X__ar, X__ar_N) reaches the object defining X.
+void O45Linker::gcObjects(size_t numRoots) {
+    std::map<std::string, size_t> strongDef, weakDef;
+    for (size_t i = 0; i < objects_.size(); i++)
+        for (const auto& exp : objects_[i].obj.exports) {
+            auto& m = exp.isWeak() ? weakDef : strongDef;
+            m.emplace(exp.name, i);   // the first one
+        }
+    auto definer = [&](const std::string& name) -> long {
+        auto it = strongDef.find(name);
+        if (it != strongDef.end()) return (long)it->second;
+        it = weakDef.find(name);
+        if (it != weakDef.end()) return (long)it->second;
+        return -1;
+    };
+    std::vector<bool> live(objects_.size(), false);
+    std::vector<size_t> work;
+    auto mark = [&](size_t i) { if (!live[i]) { live[i] = true; work.push_back(i); } };
+    for (size_t i = 0; i < objects_.size(); i++) {
+        bool root = i < numRoots;
+        for (const auto& sa : objects_[i].obj.segAttrs)
+            if (sa.name == "init") root = true;
+        if (root) mark(i);
+    }
+    while (!work.empty()) {
+        size_t i = work.back();
+        work.pop_back();
+        for (const auto& imp : objects_[i].obj.imports) {
+            long d = definer(imp.name);
+            if (d < 0) {
+                size_t ar = imp.name.rfind("__ar");
+                if (ar != std::string::npos) d = definer(imp.name.substr(0, ar));
+            }
+            if (d >= 0) mark((size_t)d);
+        }
+    }
+    std::vector<InputObject> kept;
+    for (size_t i = 0; i < objects_.size(); i++) {
+        if (live[i]) kept.push_back(std::move(objects_[i]));
+        else discardedObjects_.push_back(objects_[i].filename);
+    }
+    objects_ = std::move(kept);
+}
+
 // Largest alignment an object asks for in a segment (cc45.align.data / .bss)
 static uint32_t objAlign(const O45File& o, const char* marker) {
     uint32_t a = 1;
@@ -909,8 +960,11 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
         return {};
     }
 
-    // Selectively pull library members to resolve undefined symbols
+    // Selectively pull library members to resolve undefined symbols, then
+    // drop the members only dead code needed
+    size_t numCommandLine = objects_.size();
     if (!resolveLibraries(errorMsg)) return {};
+    if (gcObjectsOn_) gcObjects(numCommandLine);
 
     if (!layoutSegments(errorMsg)) return {};
     if (!resolveSymbols(errorMsg)) return {};
@@ -1898,6 +1952,13 @@ void O45Linker::writeMap(std::ostream& out) const {
     }
     printSeg("ZP", zpBase_, mergedZpLen_);
     out << "\n";
+
+    if (!discardedObjects_.empty()) {
+        out << "Discarded Library Members (nothing live references them)\n";
+        out << "--------------------------\n";
+        for (const auto& n : discardedObjects_) out << "  " << n << "\n";
+        out << "\n";
+    }
 
     // --- Per-object contributions ---
     out << "Object Files\n";

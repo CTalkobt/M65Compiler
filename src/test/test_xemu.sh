@@ -397,6 +397,21 @@ else
     failed=$((failed + 1))
 fi
 
+# Test: ln45 drops library members nothing live references (a weak printf
+# that lost to the float one, sprintf pulled only by it); --no-gc keeps them
+echo "Testing ln45 dropping unreferenced library members..."
+if $CC -c src/test-resources/test_printf_float_xemu.c -o build/test/test_gc_objects.o45 >/dev/null 2>&1 &&
+   $LD -basic --print-gc -o build/test/test_gc_objects_xemu.prg $CRT0 build/test/test_gc_objects.o45 $STDLIB \
+       > build/test/test_gc_objects.log 2>&1 &&
+   $LD -basic --no-gc -o build/test/test_gc_objects_nogc.prg $CRT0 build/test/test_gc_objects.o45 $STDLIB >/dev/null 2>&1 &&
+   grep -q "dropped .*(zp_sprintf.o45)" build/test/test_gc_objects.log &&
+   [ "$(stat -c %s build/test/test_gc_objects_xemu.prg)" -lt "$(stat -c %s build/test/test_gc_objects_nogc.prg)" ]; then
+    run_xemu_test "test_gc_objects" "build/test/test_gc_objects_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+else
+    echo "FAIL: ln45 dropping unreferenced members ($(cat build/test/test_gc_objects.log 2>/dev/null | head -3))"
+    failed=$((failed + 1))
+fi
+
 # Test: ln45 -d above and below the text; data overlapping the text or the
 # BASIC stub is an error
 if $CC -c src/test-resources/test_ln45_layout_xemu.c -o build/test/test_ln45_layout.o45 >/dev/null 2>&1; then
