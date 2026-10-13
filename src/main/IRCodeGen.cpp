@@ -542,6 +542,21 @@ std::string IRCodeGen::vregDesc(uint32_t vregId) {
 void IRCodeGen::loadVreg(uint32_t vregId) {
     auto alloc = alloc_.getAlloc(vregId);
     std::string r = "loadVreg " + vregDesc(vregId);
+    if (suppressedVregs_.count(vregId) && vregConstVal_.count(vregId) && !localSlotVregs_.count(vregId)) {
+        // a constant that was not materialized
+        int64_t v = vregConstVal_[vregId];
+        emit("lda #" + std::to_string((int)(v & 0xFF)), r);
+        if (alloc.type == ir::Type::I32) {
+            emit("ldx #" + std::to_string((int)((v >> 8) & 0xFF)));
+            emit("ldy #" + std::to_string((int)((v >> 16) & 0xFF)));
+            emit("ldz #" + std::to_string((int)((v >> 24) & 0xFF)));
+        } else if (alloc.type != ir::Type::I8) {
+            emit("ldx #" + std::to_string((int)((v >> 8) & 0xFF)));
+        } else {
+            emit("ldx #0");
+        }
+        return;
+    }
     switch (alloc.loc) {
         case VRegAllocator::IN_AX:
             // Already in A:X — check if it's still there
@@ -631,6 +646,12 @@ void IRCodeGen::loadVreg(uint32_t vregId) {
 }
 
 void IRCodeGen::loadVregA(uint32_t vregId) {
+    auto ta = truncAlias_.find(vregId);
+    if (ta != truncAlias_.end()) { emit("lda " + directByte(ta->second, 0), "low byte"); return; }
+    if (suppressedVregs_.count(vregId) && vregConstVal_.count(vregId) && !localSlotVregs_.count(vregId)) {
+        emit("lda #" + std::to_string((int)(vregConstVal_[vregId] & 0xFF)), "constant");
+        return;
+    }
     auto alloc = alloc_.getAlloc(vregId);
     if (alloc.type != ir::Type::I8) { loadVreg(vregId); return; }
     std::string r = "loadVregA " + vregDesc(vregId);
@@ -2081,9 +2102,12 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             const auto& insts = blocks[b]->insts;
             for (size_t i = 0; i < insts.size(); i++) {
                 const auto& in = insts[i];
-                if (in.op != ir::Op::ADD || in.resultType != ir::Type::PTR || !in.dest.isVreg() ||
-                    !in.src2.isImm() || in.src2.immVal < 0 || in.src2.immVal > 250 || !in.src1.isVreg())
+                // (a COPY of a pointer: offset 0)
+                bool isCopy = in.op == ir::Op::COPY && in.resultType == ir::Type::PTR;
+                if (!isCopy && (in.op != ir::Op::ADD || in.resultType != ir::Type::PTR ||
+                    !in.src2.isImm() || in.src2.immVal < 0 || in.src2.immVal > 250))
                     continue;
+                if (!in.dest.isVreg() || !in.src1.isVreg()) continue;
                 uint32_t d = in.dest.vregId, base = in.src1.vregId;
                 if (fn.localSlotVregs.count(d) || fn.memoryVregs.count(d)) continue;
                 // A base kept only in registers may be gone by the access
@@ -2110,7 +2134,65 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                     if (x.op == ir::Op::STORE && x.src2.isVreg() && x.src2.vregId == base) ok = false;
                 }
                 if (!ok) continue;
-                foldedAddrs_[d] = {base, (int)in.src2.immVal};
+                foldedAddrs_[d] = {base, isCopy ? 0 : (int)in.src2.immVal};
+            }
+        }
+        // A byte TRUNC whose one use is a byte STORE (through a pointer or to
+        // a global) later in the block, with only folded addresses between:
+        // not emitted; the STORE loads the source's low byte where it lives
+        truncAlias_.clear();
+        std::map<uint32_t, int> defs;
+        for (const auto& blk : fn.blocks)
+            for (const auto& in : blk.insts) if (in.dest.isVreg()) defs[in.dest.vregId]++;
+        for (size_t b = 0; b < blocks.size(); b++) {
+            const auto& insts = blocks[b]->insts;
+            for (size_t i = 0; i < insts.size(); i++) {
+                const auto& in = insts[i];
+                if (in.op != ir::Op::TRUNC || in.resultType != ir::Type::I8 || !in.dest.isVreg() ||
+                    !in.src1.isVreg() || in.src1.vregId == in.dest.vregId) continue;
+                uint32_t d = in.dest.vregId;
+                // (a variable: a temporary's register can be reused before the STORE)
+                if (defs[d] != 1 || fn.localSlotVregs.count(d) || !fn.localSlotVregs.count(in.src1.vregId)) continue;
+                // (a direct address: checked when the TRUNC is emitted, once SAC is known)
+                auto sl = alloc_.getAlloc(in.src1.vregId).loc;
+                if (sl != VRegAllocator::IN_ZP && sl != VRegAllocator::IN_FRAME) continue;
+                auto uit = uses.find(d);
+                if (uit == uses.end() || uit->second.size() != 1 || uit->second[0].blk != b) continue;
+                size_t j = uit->second[0].idx;
+                if (j <= i) continue;
+                const auto& st = insts[j];
+                if (st.op != ir::Op::STORE || st.resultType != ir::Type::I8 || !st.args.empty() ||
+                    !st.src1.isVreg() || st.src1.vregId != d) continue;
+                if (!(st.src2.kind == ir::OperandKind::GLOBAL ||
+                      (st.src2.isVreg() && st.src2.vregId != d && !fn.localSlotVregs.count(st.src2.vregId))))
+                    continue;
+                // (uses lists src1/src2/args: also no PHI or STORE-dest use)
+                bool ok = true;
+                for (const auto& blk2 : fn.blocks)
+                    for (const auto& x : blk2.insts) {
+                        for (const auto& ph : x.phiIncoming)
+                            if (ph.first.isVreg() && ph.first.vregId == d) ok = false;
+                        if (&x != &in && x.dest.isVreg() && x.dest.vregId == d) ok = false;
+                    }
+                // the source keeps its value up to the STORE (which computes
+                // its address before it loads the value)
+                uint32_t sv = in.src1.vregId;
+                for (size_t k = i + 1; k < j && ok; k++) {
+                    const auto& x = insts[k];
+                    if ((x.dest.isVreg() && x.dest.vregId == sv) ||
+                        (x.op == ir::Op::STORE && x.src2.isVreg() && x.src2.vregId == sv) ||
+                        x.op == ir::Op::CALL || x.op == ir::Op::CALL_VOID || x.op == ir::Op::CALL_INDIRECT ||
+                        x.op == ir::Op::ASM_INLINE)
+                        ok = false;
+                    // (memory it shares with pointers: only instructions that write no memory)
+                    if (fn.memoryVregs.count(sv) &&
+                        !(x.op == ir::Op::CONST || x.op == ir::Op::COPY || x.op == ir::Op::ADD ||
+                          x.op == ir::Op::SUB || x.op == ir::Op::TRUNC || x.op == ir::Op::ZEXT ||
+                          x.op == ir::Op::SEXT || x.op == ir::Op::DEREF || x.op == ir::Op::NOP ||
+                          (x.op == ir::Op::LOAD && x.args.empty())))
+                        ok = false;
+                }
+                if (ok) truncAlias_[d] = in.src1;
             }
         }
     }
@@ -2185,7 +2267,14 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                     if (!canSuppress) break;
                     // Check src1
                     if (inst.src1.isVreg() && inst.src1.vregId == vid) {
-                        if (inst.op == ir::Op::STORE && inst.src2.isVreg()) {
+                        if (inst.op == ir::Op::STORE && inst.resultType != ir::Type::F32 &&
+                            inst.src2.kind == ir::OperandKind::GLOBAL) {
+                            hasUse = true; // value of a global store (loaded as an immediate)
+                        } else if (inst.op == ir::Op::STORE && inst.resultType != ir::Type::F32 &&
+                                   inst.src2.isVreg() && !fn.localSlotVregs.count(inst.src2.vregId) &&
+                                   inst.src2.vregId != vid) {
+                            hasUse = true; // value of a store through a pointer
+                        } else if (inst.op == ir::Op::STORE && inst.src2.isVreg()) {
                             if (constDefs.count(inst.src2.vregId) &&
                                 !fn.localSlotVregs.count(inst.src2.vregId)) {
                                 hasUse = true; // value of const-addr store
@@ -4422,7 +4511,9 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             }
             if (inst.src2.kind == ir::OperandKind::GLOBAL) {
                 // Store directly to global address
-                if (inst.resultType == ir::Type::I8 && inst.src1.isVreg()) {
+                if (inst.resultType == ir::Type::I8 && inst.src1.isVreg() && (truncAlias_.count(inst.src1.vregId) || suppressedVregs_.count(inst.src1.vregId))) {
+                    loadVregA(inst.src1.vregId);
+                } else if (inst.resultType == ir::Type::I8 && inst.src1.isVreg()) {
                     // I8: only need A, skip ldx #0
                     auto valAlloc = alloc_.getAlloc(inst.src1.vregId);
                     if (valAlloc.loc == VRegAllocator::IN_ZP) {
@@ -4571,6 +4662,8 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                         // 8-bit store: only need A, skip X load
                         if (inst.src1.isImm()) {
                             emit("lda #" + std::to_string((int)(inst.src1.immVal & 0xFF)));
+                        } else if (inst.src1.isVreg() && (truncAlias_.count(inst.src1.vregId) || suppressedVregs_.count(inst.src1.vregId))) {
+                            loadVregA(inst.src1.vregId);
                         } else if (inst.src1.isVreg()) {
                             auto valAlloc = alloc_.getAlloc(inst.src1.vregId);
                             if (valAlloc.loc == VRegAllocator::IN_ZP) {
@@ -5017,6 +5110,8 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         }
 
         case ir::Op::COPY: {
+            // a pointer copy folded into its loads/stores
+            if (inst.dest.isVreg() && foldedAddrs_.count(inst.dest.vregId)) break;
             // Check for struct copy: src1 is PTR (address returned from struct function),
             // src2 has struct size, dest is destination vreg
             if (inst.src1.type == ir::Type::PTR && inst.src2.kind == ir::OperandKind::IMM &&
@@ -5700,6 +5795,10 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         }
 
         case ir::Op::TRUNC: {
+            if (inst.dest.isVreg() && truncAlias_.count(inst.dest.vregId)) {
+                if (!directByte(inst.src1, 0).empty()) break;   // read by its STORE
+                truncAlias_.erase(inst.dest.vregId);            // (a stack frame)
+            }
             loadOperand(inst.src1);
             // Truncation: just keep the low byte(s) — already in A
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);

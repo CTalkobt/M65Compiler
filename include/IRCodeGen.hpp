@@ -240,6 +240,7 @@ private:
     std::set<uint32_t> multiDefVregs_;  // vregs with more than one definition (never constants)
     struct FoldedAddr { uint32_t base; int offset; };
     std::map<uint32_t, FoldedAddr> foldedAddrs_;  // vreg = base + offset, used only as load/store address
+    std::map<uint32_t, ir::Operand> truncAlias_;  // byte TRUNC stored as is: the STORE reads its source's low byte
     std::string foldedPtr(uint32_t addrVreg, const std::string& scratch, int& yOff);
 
     // Track which functions use SAC (Static Allocation Convention)
