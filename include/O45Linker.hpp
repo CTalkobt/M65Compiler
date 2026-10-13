@@ -341,6 +341,10 @@ public:
     void setSacOverlay(bool on) { sacOverlayOn_ = on; }
     // Drop pulled library members nothing live references (default on)
     void setGcObjects(bool on) { gcObjectsOn_ = on; }
+    // --gc-inputs: the input objects are trimmed too (roots: the startup
+    // code, .keep sections, -u symbols)
+    void setGcInputs(bool on) { gcInputs_ = on; }
+    void addKeepSymbol(const std::string& s) { keepSymbols_.push_back(s); }
     const std::vector<std::string>& discardedObjects() const { return discardedObjects_; }
     const std::vector<std::string>& discardedSectionNames() const { return discardedSectionNames_; }
     // Byte crt0 fills BSS with (__bss_fill, unless an object defines it)
@@ -466,6 +470,8 @@ private:
     ThunkMode thunkMode_ = THUNK_AUTO;
     uint8_t bssFill_ = 0;
     bool gcObjectsOn_ = true;
+    bool gcInputs_ = false;
+    std::vector<std::string> keepSymbols_;
     std::vector<std::string> discardedObjects_;  // library members dropped by gcSections
     struct DiscardedSections { std::string object; size_t count; uint32_t bytes; };
     std::vector<DiscardedSections> discardedSections_;   // per trimmed object

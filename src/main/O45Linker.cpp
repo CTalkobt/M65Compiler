@@ -282,6 +282,18 @@ void O45Linker::gcSections(size_t numRoots) {
         int res = maps[i].residual;
         if (!live[i][res]) { live[i][res] = true; work.push_back({i, res}); }   // the residual comes along
     };
+    // --gc-inputs: the input objects are not roots themselves -- when there
+    // is startup code to reach them from (else they stay whole)
+    if (gcInputs_) {
+        bool hasInit = false;
+        for (size_t i = 0; i < n; i++)
+            for (const auto& sa : objects_[i].obj.segAttrs) if (sa.name == "init") hasInit = true;
+        if (hasInit) numRoots = 0;
+    }
+    for (const auto& name : keepSymbols_) {   // -u
+        std::pair<size_t, size_t> d;
+        if (definer(name, d)) mark(d.first, exportUnit(d.first, d.second));
+    }
     for (size_t i = 0; i < n; i++) {
         bool root = i < numRoots;
         for (const auto& sa : objects_[i].obj.segAttrs) if (sa.name == "init") root = true;

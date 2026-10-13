@@ -235,6 +235,7 @@ CompilationResult CompilationPipeline::compile() {
         LinkingStage linkStage(objectFile, config_.outputFile, config_.verboseLevel,
                               config_.prgBaseSet ? std::string(prgBaseHex) : std::string(),
                               config_.libraryPaths, config_.toolDir, config_.zpCallMode);
+        linkStage.setGcInputs(config_.functionSections);
         auto linkResult = runStage(linkStage);
         remove(objectFile.c_str());
 

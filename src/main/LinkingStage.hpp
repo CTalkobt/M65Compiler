@@ -27,7 +27,10 @@ public:
     // Get path to generated executable
     std::string getExecutable() const { return outputFile_; }
 
+    // -ffunction-sections: ln45 also drops the program's own unused sections
+    void setGcInputs(bool on) { gcInputs_ = on; }
 private:
+    bool gcInputs_ = false;
     std::string objectFile_;
     std::string outputFile_;
     int verboseLevel_;

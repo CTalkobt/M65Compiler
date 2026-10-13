@@ -30,6 +30,9 @@ static void printUsage(const char* progName) {
     std::cout << "  --no-gc        Keep every library member pulled in, also those only dropped code" << std::endl;
     std::cout << "                 needed or whose weak definition lost (default: drop them)" << std::endl;
     std::cout << "  --print-gc     List the library members dropped" << std::endl;
+    std::cout << "  --gc-inputs    Drop the unreached sections of the input objects too (roots: the" << std::endl;
+    std::cout << "                 startup code, .keep sections, -u symbols; cc45 -ffunction-sections)" << std::endl;
+    std::cout << "  -u <sym>       Keep <sym> and what it reaches" << std::endl;
     std::cout << "  --bss-fill=V   Byte crt0 fills BSS with at startup (default $00; $FF, 0xFF or decimal)" << std::endl;
     std::cout << "  --stack-size=N The CPU stack's share below __stack_top; malloc's heap ends there" << std::endl;
     std::cout << "                 (default 4096; $1000, 0x1000 or decimal)" << std::endl;
@@ -52,7 +55,8 @@ int main(int argc, char** argv) {
     bool printMap = false;
     int bssFill = -1;
     int stackSize = -1;
-    bool gcObjects = true, printGc = false;
+    bool gcObjects = true, printGc = false, gcInputs = false;
+    std::vector<std::string> keepSyms;
     std::string mapFile;
     uint32_t textBase = 0x2000; // sensible MEGA65 default
     bool textBaseSet = false;
@@ -94,6 +98,8 @@ int main(int argc, char** argv) {
         else if (arg == "--no-thunks") { thunkMode = O45Linker::THUNK_ERROR; }
         else if (arg == "--no-sac-overlay") { sacOverlay = false; }
         else if (arg == "--no-gc") { gcObjects = false; }
+        else if (arg == "--gc-inputs") { gcInputs = true; }
+        else if (arg == "-u" && i + 1 < argc) { keepSyms.push_back(argv[++i]); }
         else if (arg == "--print-gc") { printGc = true; }
         else if (arg == "-v") { g_ln45Verbosity = std::max(g_ln45Verbosity, 1); }
         else if (arg == "-vv") { g_ln45Verbosity = 2; }
@@ -154,6 +160,8 @@ int main(int argc, char** argv) {
     linker.setThunkMode(thunkMode);
     linker.setSacOverlay(sacOverlay);
     linker.setGcObjects(gcObjects);
+    linker.setGcInputs(gcInputs);
+    for (const auto& k : keepSyms) linker.addKeepSymbol(k);
     if (bssFill >= 0) linker.setBssFill((uint8_t)bssFill);
     if (stackSize >= 0) linker.setStackSize((uint16_t)stackSize);
 

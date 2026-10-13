@@ -44,6 +44,7 @@ int LinkingStage::invokeLinker() {
     std::string cmd = toolDir_ + "ln45";
     if (prgBase_.empty()) cmd += " -basic";
     else cmd += " -prg -t 0x" + prgBase_;
+    if (gcInputs_) cmd += " --gc-inputs";
     cmd += " -o " + outputFile_ + " " + objectFile_;
     for (const auto& libPath : libraryPaths_) cmd += " " + libPath;
     cmd += " " + standardLibrary();

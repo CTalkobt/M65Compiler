@@ -957,7 +957,9 @@ bool AssemblerOptimizer::optimizeInternal(
     // Re-scans after each pass because earlier optimizations may:
     // - Enable new deduplication opportunities
     // - Change branch sizes, affecting which sequences are worth extracting
-    {
+    // Not with sections (.function_sections): a tail shared with another
+    // function would tie the two (ln45 could drop neither alone)
+    if (!parser->functionSections) {
         bool tailDedupChanged = true;
         int dedupPass = 0;
         const int MAX_DEDUP_PASSES = 10;
