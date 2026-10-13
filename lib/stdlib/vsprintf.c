@@ -9,11 +9,12 @@
 
 #include <stdarg.h>
 
-int __vformat(void (*put)(int c, void *ctx), void *ctx, char *fmt, va_list ap,
+/* __vformat (stdlib_asm/__vformat.s45) and its callbacks use the ZP convention */
+__fastcall__ int __vformat(void (*put)(int c, void *ctx), void *ctx, char *fmt, va_list ap,
               int (*ffmt)(char *, float, int, int, int));
 
 /* Appends a character at *(char **)ctx */
-void __vformat_buf_put(int c, void *ctx) {
+__fastcall__ void __vformat_buf_put(int c, void *ctx) {
     char **out = (char **)ctx;
     **out = (char)c;
     *out = *out + 1;

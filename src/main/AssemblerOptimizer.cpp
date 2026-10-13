@@ -450,6 +450,12 @@ bool AssemblerOptimizer::optimizeInternal(
             // Parse operand to numeric value
             int64_t numVal = 0;
             bool hasNumVal = parseNum(op, numVal);
+            // a character literal ('0') is stored without its quotes: not the number
+            if (hasNumVal && s->instr.operandTokenIndex >= 0) {
+                for (int t = s->instr.operandTokenIndex; t <= s->instr.operandTokenIndex + 1 &&
+                     t < (int)parser->tokens.size(); t++)
+                    if (parser->tokens[t].type == AssemblerTokenType::CHAR_LITERAL) hasNumVal = false;
+            }
             bool isImm = (mode == AddressingMode::IMMEDIATE);
             bool isZP = (mode == AddressingMode::BASE_PAGE);
             bool isAbs = (mode == AddressingMode::ABSOLUTE);

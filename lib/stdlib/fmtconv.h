@@ -4,7 +4,8 @@
  * hook for the digits: __fmt_utoa (int and char arguments) or __fmt_ultoa
  * (long, long long). A hook writes the digits of v in base (2..16)
  * backwards, ending before end, each digits[remainder], and returns their
- * number (at least 1). __vformat has weak stubs that write none, and asks
+ * number (at least 1). __vformat (stdlib_asm/__vformat.s45) has weak stubs
+ * that write none, and asks
  * __fmt_ultoa for an int argument when __fmt_utoa writes none, so linking
  * __fmt_ultoa alone covers both. stdlib_asm/fmt_utoa.s45 / fmt_ultoa.s45
  * define the real ones with a marker (__fmt_int_linked / __fmt_long_linked)

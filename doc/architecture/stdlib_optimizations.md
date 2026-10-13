@@ -58,9 +58,9 @@ Straightforward digit loops (`result = result * base + digit` on `unsigned long`
 - `powf` = `expf(y * logf(|x|))`; `log10f`/`log2f` scale `logf`; `ldexpf` multiplies by 2 in a loop (|n| iterations); `frexpf` halves/doubles in a loop; `truncf` goes through `long` for |x| < 2^31.
 - Speed is bounded by the ROM routines.
 
-### printf family — `__vformat.c`
+### printf family — `stdlib_asm/__vformat.s45`
 
-One formatter for all `printf`/`sprintf`/`snprintf`/`fprintf` variants, writing through a per-call `put` callback. Float formatting (`printf_float.c`/`sprintf_float.c`) is only linked when a float is passed to a variadic call, so integer-only programs do not carry it.
+One formatter for all `printf`/`sprintf`/`snprintf`/`fprintf` variants, writing through a per-call `put` callback (`__fastcall__`). It is hand-written assembly (1.8 KB; the C version compiled to 5.5 KB) with its state in BSS. Integer digits come from the `__fmt_utoa`/`__fmt_ultoa` hooks, linked only as the program's format strings need them; float formatting (`printf_float.c`/`sprintf_float.c`) is only linked when a float is passed to a variadic call. A `sprintf` of `%d` links about 3.3 KB instead of 7 KB.
 
 ## Open Work
 

@@ -6,15 +6,16 @@
 
 #include <stdarg.h>
 
-int printf_float(char *buf, float val);
+__fastcall__ int printf_float(char *buf, float val, int conv, int prec, int alt);
 
 /* Referenced by cc45 when sprintf is called with a float argument, so this
  * member (and its strong sprintf) is linked instead of the integer-only one */
 void sprintf_float(void) {}
 
-int __vformat(void (*put)(int c, void *ctx), void *ctx, char *fmt, va_list ap,
+/* __vformat (stdlib_asm/__vformat.s45) and its callbacks use the ZP convention */
+__fastcall__ int __vformat(void (*put)(int c, void *ctx), void *ctx, char *fmt, va_list ap,
               int (*ffmt)(char *, float, int, int, int));
-void __vformat_buf_put(int c, void *ctx);
+__fastcall__ void __vformat_buf_put(int c, void *ctx);
 
 int sprintf(char *buf, char *fmt, ...) {
     va_list ap;

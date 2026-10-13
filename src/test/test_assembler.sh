@@ -370,6 +370,18 @@ else
     failed=$((failed + 1))
 fi
 
+# A compare with a character literal ('0' is $30) after a load is not the
+# "cmp #0" the optimiser drops
+printf '    .org $2000\n    lda $10\n    cmp #'"'"'0'"'"'\n    beq done\n    lda #1\ndone:\n    rts\n' > build/test_cmp_char.s45
+$AS build/test_cmp_char.s45 -o build/test_cmp_char.bin >/dev/null 2>&1
+if [ "$(xxd -p build/test_cmp_char.bin | head -c 12)" = "a510c930f002" ]; then
+    echo "SUCCESS: cmp #'0' after a load is kept"
+    passed=$((passed + 1))
+else
+    echo "FAIL: cmp #'0' after a load ($(xxd -p build/test_cmp_char.bin))"
+    failed=$((failed + 1))
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All assembler feature tests passed!"
     exit 0

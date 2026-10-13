@@ -104,7 +104,7 @@ static char pf_digit(signed int i) {
  * prec: digits after the point (%f %e) or significant digits (%g); < 0 = 6.
  * alt: the # flag (keep the point, keep %g's trailing zeros).
  * Returns the length. buf needs 1 + 39 + 1 + PF_MAXPREC + 1 bytes. */
-int printf_float(char *buf, float val, int conv, int prec, int alt) {
+__fastcall__ int printf_float(char *buf, float val, int conv, int prec, int alt) {
     char *out = buf;
     signed int i, e, P;
     /* (letters compared, not case arithmetic: strings are PETSCII) */
@@ -164,9 +164,10 @@ int printf_float(char *buf, float val, int conv, int prec, int alt) {
 
 /* --- printf with %f support (strong, overrides weak integer-only version) --- */
 
-int __vformat(void (*put)(int c, void *ctx), void *ctx, char *fmt, va_list ap,
+/* __vformat (stdlib_asm/__vformat.s45) and its callbacks use the ZP convention */
+__fastcall__ int __vformat(void (*put)(int c, void *ctx), void *ctx, char *fmt, va_list ap,
               int (*ffmt)(char *, float, int, int, int));
-void __vformat_con_put(int c, void *ctx);
+__fastcall__ void __vformat_con_put(int c, void *ctx);
 
 int printf(char *fmt, ...) {
     va_list ap;

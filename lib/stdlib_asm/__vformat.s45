@@ -1,0 +1,1027 @@
+; __vformat.s — Formatting core of the printf family (ZP calling convention)
+;
+; int __vformat(void (*put)(int c, void *ctx), void *ctx, char *fmt,
+;               va_list ap, int (*ffmt)(char *buf, float val,
+;                                       int conv, int prec, int alt));
+;
+; Writes each output character through put() and returns the count.
+; %[flags][width][.precision][length]conversion with
+;   flags      - + space # 0
+;   width      digits or *
+;   precision  .digits or .*
+;   length     hh h l ll L j z t
+;   conversion d i u x X o b p c s n % and f F e E g G (through ffmt; a
+;              program that prints no floats passes 0 and they are skipped)
+; int is 16 bits and long 32; long long (8 bytes) prints its low 32 bits.
+; %p prints $hhhh. An unknown conversion character is printed as is.
+;
+; The digits of the integer conversions come from hooks (lib/stdlib/
+; fmtconv.h: __fmt_utoa, __fmt_ultoa) linked only when a format string of
+; the program needs them; the weak stubs here write none (the conversion
+; then prints no digits but still takes its argument).
+;
+; put and ffmt are called in the ZP convention (__fastcall__ in C):
+; put: c at $10, ctx at $12; ffmt: buf $10, val $12-$16, conv $17, prec
+; $19, alt $1B. The state is in BSS: put may change any base-page byte
+; below the register pool. Not reentrant (as the C version was not).
+; Character constants are PETSCII, as the C strings of the format are.
+
+.global ___vformat
+.weak ___fmt_utoa
+.weak ___fmt_ultoa
+
+F_LEFT  = 1
+F_PLUS  = 2
+F_SPACE = 4
+F_ALT   = 8
+F_ZERO  = 16
+
+.segment "bss"
+vf_ctx:    .res 2
+vf_fmt:    .res 2
+vf_ap:     .res 2
+vf_ffmt:   .res 2
+vf_count:  .res 2
+vf_flags:  .res 1
+vf_width:  .res 2
+vf_prec:   .res 2      ; $FFFF: none
+vf_size:   .res 1
+vf_conv:   .res 1
+vf_s:      .res 2      ; the text
+vf_len:    .res 2
+vf_pfx:    .res 2      ; the sign or base prefix
+vf_pfxlen: .res 1
+vf_zeros:  .res 2
+vf_neg:    .res 1
+vf_val:    .res 4
+vf_tmp:    .res 2
+vf_padc:   .res 1
+vf_buf:    .res 64
+vf_bufend:
+
+.segment "data"
+vf_lower:  .text "0123456789abcdef"
+vf_upper:  .text "0123456789ABCDEF"
+vf_null:   .text "(null)"
+vf_minus:  .text "-"
+vf_plus:   .text "+"
+vf_space:  .text " "
+vf_dollar: .text "$"
+vf_0x:     .text "0x"
+vf_0xu:    .text "0X"
+vf_0b:     .text "0b"
+
+.segment "code"
+
+; The digit hooks when they are not linked (weak): no digits
+___fmt_utoa:
+___fmt_ultoa:
+    lda #0
+    tax
+    rts
+
+proc ___vformat, W#@p_put, W#@p_ctx, W#@p_fmt, W#@p_ap, W#@p_ffmt
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
+    ; itself and the callbacks: the scratch bytes and the parameter block
+    .zp_clobbers $08, $09, $0A, $0B, $0C, $0D, $0E, $0F, $10, $11, $12, $13, $14, $15, $16, $17
+    .zp_clobbers $18, $19, $1A, $1B, $1C, $1D, $1E, $1F, $20, $21, $22
+    .zp_release $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+
+    lda $10                 ; put -> the operand of the jsr in @put
+    sta @putcall+1
+    lda $11
+    sta @putcall+2
+    ldx #7                  ; ctx, fmt, ap, ffmt
+@copy:
+    lda $12,x
+    sta vf_ctx,x
+    dex
+    bpl @copy
+    lda #0
+    sta vf_count
+    sta vf_count+1
+
+@loop:
+    jsr @get
+    beq @done
+    cmp #'%'
+    beq @spec
+    jsr @put
+    bra @loop
+@done:
+    lda vf_count
+    ldx vf_count+1
+    rts
+
+; --- a conversion ---
+@spec:
+    lda #0
+    sta vf_flags
+    sta vf_width
+    sta vf_width+1
+    sta vf_pfxlen
+    sta vf_zeros
+    sta vf_zeros+1
+    sta vf_len
+    sta vf_len+1
+    sta vf_neg
+    lda #$FF
+    sta vf_prec
+    sta vf_prec+1
+    lda #2
+    sta vf_size
+    lda #<vf_buf
+    sta vf_s
+    lda #>vf_buf
+    sta vf_s+1
+    ; flags
+@flag:
+    jsr @peek
+    ldx #F_LEFT
+    cmp #'-'
+    beq @setflag
+    ldx #F_PLUS
+    cmp #'+'
+    beq @setflag
+    ldx #F_SPACE
+    cmp #' '
+    beq @setflag
+    ldx #F_ALT
+    cmp #'#'
+    beq @setflag
+    ldx #F_ZERO
+    cmp #'0'
+    bne @width
+@setflag:
+    txa
+    ora vf_flags
+    sta vf_flags
+    jsr @advance
+    bra @flag
+    ; width
+@width:
+    cmp #'*'
+    bne @wdigits
+    jsr @advance
+    jsr @vaint              ; A/X
+    cpx #$80
+    bcc @wpos
+    pha                     ; negative: left-justified, its magnitude
+    lda vf_flags
+    ora #F_LEFT
+    sta vf_flags
+    pla
+    jsr @negax
+@wpos:
+    sta vf_width
+    stx vf_width+1
+    jsr @peek
+    bra @precision
+@wdigits:
+    ldx #vf_width - vf_ctx  ; parse digits into vf_width
+    jsr @number
+@precision:
+    cmp #'.'
+    bne @length
+    jsr @advance
+    lda #0
+    sta vf_prec
+    sta vf_prec+1
+    jsr @peek
+    cmp #'*'
+    bne @pdigits
+    jsr @advance
+    jsr @vaint
+    sta vf_prec
+    stx vf_prec+1
+    cpx #$80
+    bcc @plen
+    lda #$FF                ; negative: as if none
+    sta vf_prec
+    sta vf_prec+1
+@plen:
+    jsr @peek
+    bra @length
+@pdigits:
+    ldx #vf_prec - vf_ctx
+    jsr @number
+    ; length
+@length:
+    cmp #'h'
+    bne @lenl
+    jsr @advance
+    jsr @peek
+    cmp #'h'
+    bne @conv
+    lda #1
+    sta vf_size
+    jsr @advance
+    bra @conv
+@lenl:
+    cmp #'l'
+    beq @long
+    cmp #'L'
+    beq @long
+    cmp #'j'
+    bne @lenz
+@long:
+    lda #4
+    sta vf_size
+    jsr @advance
+    jsr @peek
+    cmp #'l'
+    bne @conv
+    lda #8
+    sta vf_size
+    jsr @advance
+    bra @conv
+@lenz:
+    cmp #'z'
+    beq @skip1
+    cmp #'t'
+    bne @conv
+@skip1:
+    jsr @advance
+@conv:
+    jsr @peek
+    bne @convok
+    jmp @done               ; the format ends inside the conversion
+@convok:
+    sta vf_conv
+    jsr @advance
+    lda vf_conv
+    ldx #@intconvs_end - @intconvs - 1
+@isint:
+    cmp @intconvs,x
+    beq @int
+    dex
+    bpl @isint
+    cmp #'c'
+    beq @char
+    cmp #'s'
+    bne @notstr
+    jmp @string
+@notstr:
+    cmp #'n'
+    bne @notn
+    jmp @count
+@notn:
+    ldx #@fltconvs_end - @fltconvs - 1
+@isflt:
+    cmp @fltconvs,x
+    bne @nextflt
+    jmp @float
+@nextflt:
+    dex
+    bpl @isflt
+    ; % and any other character: printed as is
+@char1:
+    sta vf_buf
+    lda #1
+    sta vf_len
+    jmp @emit
+@char:
+    jsr @vaint
+    jmp @char1
+
+; --- integers ---
+@int:
+    lda vf_size
+    cmp #4
+    bcc @int16
+    lda vf_conv
+    cmp #'p'
+    beq @int16
+    ldy #4                  ; long (long long: its low 32 bits)
+    jsr @vabytes
+    lda vf_size
+    cmp #8
+    bne @lsign
+    lda vf_ap               ; skip the high 32 bits
+    clc
+    adc #4
+    sta vf_ap
+    bcc @lsign
+    inc vf_ap+1
+@lsign:
+    jsr @signed
+    bne @digits
+    lda vf_val+3
+    bpl @digits
+    inc vf_neg              ; negative: its magnitude
+    ldx #0
+    ldy #4
+    sec
+@neg32:
+    lda #0
+    sbc vf_val,x
+    sta vf_val,x
+    inx
+    dey
+    bne @neg32
+    bra @digits
+@int16:
+    jsr @vaint
+    sta vf_val
+    stx vf_val+1
+    lda #0
+    sta vf_val+2
+    sta vf_val+3
+    lda vf_conv
+    cmp #'p'
+    bne @i16size
+    lda #<vf_dollar
+    sta vf_pfx
+    lda #>vf_dollar
+    sta vf_pfx+1
+    lda #1
+    sta vf_pfxlen
+    bit vf_prec+1
+    bpl @digits
+    lda #4
+    sta vf_prec
+    lda #0
+    sta vf_prec+1
+    bra @digits
+@i16size:
+    lda vf_size
+    cmp #1
+    bne @i16sign
+    lda #0                  ; char: its low byte
+    sta vf_val+1
+    jsr @signed
+    bne @digits
+    lda vf_val
+    bpl @digits
+    inc vf_neg
+    eor #$FF
+    clc
+    adc #1
+    sta vf_val
+    bra @digits
+@i16sign:
+    jsr @signed
+    bne @digits
+    ldx vf_val+1
+    bpl @digits
+    inc vf_neg
+    lda vf_val
+    jsr @negax
+    sta vf_val
+    stx vf_val+1
+
+@digits:
+    ; base and digit table
+    lda #<vf_lower
+    sta $16
+    lda #>vf_lower
+    sta $17
+    lda vf_conv
+    ldy #16
+    cmp #'x'
+    beq @base
+    cmp #'p'
+    beq @base
+    cmp #'X'
+    bne @oct
+    lda #<vf_upper
+    sta $16
+    lda #>vf_upper
+    sta $17
+    bra @base
+@oct:
+    ldy #8
+    cmp #'o'
+    beq @base
+    ldy #2
+    cmp #'b'
+    beq @base
+    ldy #10
+@base:
+    sty vf_tmp
+    lda #<vf_bufend
+    sta vf_s
+    lda #>vf_bufend
+    sta vf_s+1
+    ; no digits for a 0 with precision 0
+    lda vf_val
+    ora vf_val+1
+    ora vf_val+2
+    ora vf_val+3
+    bne @todigits
+    lda vf_prec
+    ora vf_prec+1
+    beq @intpost
+@todigits:
+    lda vf_size
+    cmp #4
+    bcc @utoa
+    lda vf_conv
+    cmp #'p'
+    bne @ultoa
+@utoa:
+    lda vf_val
+    sta $10
+    lda vf_val+1
+    sta $11
+    lda vf_tmp
+    sta $12
+    lda #0
+    sta $13
+    lda #<vf_bufend
+    sta $14
+    lda #>vf_bufend
+    sta $15
+    jsr ___fmt_utoa         ; ($16/$17: the digit table)
+    sta vf_len
+    cmp #0
+    bne @gotdigits
+@ultoa:
+    ldx #3
+@ultoa_v:
+    lda vf_val,x
+    sta $10,x
+    dex
+    bpl @ultoa_v
+    lda $16                 ; the digit table -> $18
+    sta $18
+    lda $17
+    sta $19
+    lda vf_tmp
+    sta $14
+    lda #0
+    sta $15
+    lda #<vf_bufend
+    sta $16
+    lda #>vf_bufend
+    sta $17
+    jsr ___fmt_ultoa
+    sta vf_len
+@gotdigits:
+    lda vf_s                ; s = the end - len
+    sec
+    sbc vf_len
+    sta vf_s
+    bcs @intpost
+    dec vf_s+1
+@intpost:
+    ; precision: zeros up to it
+    bit vf_prec+1
+    bmi @isign
+    lda vf_prec
+    sec
+    sbc vf_len
+    sta vf_tmp
+    lda vf_prec+1
+    sbc vf_len+1
+    bmi @isign
+    sta vf_zeros+1
+    lda vf_tmp
+    sta vf_zeros
+@isign:
+    jsr @signed
+    bne @ialt
+    lda vf_neg
+    beq @iplus
+    ldx #<vf_minus
+    ldy #>vf_minus
+    jmp @pfx1
+@iplus:
+    lda vf_flags
+    and #F_PLUS
+    beq @ispace
+    ldx #<vf_plus
+    ldy #>vf_plus
+    jmp @pfx1
+@ispace:
+    lda vf_flags
+    and #F_SPACE
+    beq @izero
+    ldx #<vf_space
+    ldy #>vf_space
+    jmp @pfx1
+@ialt:
+    lda vf_flags
+    and #F_ALT
+    beq @izero
+    jsr @firstzero          ; C set: no digits or the first is not a 0
+    php
+    lda vf_conv
+    cmp #'o'
+    bne @altx
+    plp
+    bcc @izero              ; o: the first digit is a 0
+    lda vf_zeros
+    ora vf_zeros+1
+    bne @izero
+    lda #1
+    sta vf_zeros
+    bra @izero
+@altx:
+    plp
+    bcc @izero
+    lda vf_len
+    beq @izero
+    lda vf_conv
+    ldx #<vf_0x
+    ldy #>vf_0x
+    cmp #'x'
+    beq @pfx2
+    ldx #<vf_0xu
+    ldy #>vf_0xu
+    cmp #'X'
+    beq @pfx2
+    ldx #<vf_0b
+    ldy #>vf_0b
+    cmp #'b'
+    bne @izero
+@pfx2:
+    lda #2
+    bra @setpfx
+@pfx1:
+    lda #1
+@setpfx:
+    stx vf_pfx
+    sty vf_pfx+1
+    sta vf_pfxlen
+@izero:
+    bit vf_prec+1           ; the 0 flag only without a precision
+    bpl @emit
+    jsr @zeropad
+    jmp @emit
+
+; --- strings ---
+@string:
+    jsr @vaint
+    sta vf_s
+    stx vf_s+1
+    ora vf_s+1
+    bne @strlen
+    lda #<vf_null
+    sta vf_s
+    lda #>vf_null
+    sta vf_s+1
+@strlen:
+    lda vf_s
+    sta $08
+    lda vf_s+1
+    sta $09
+@slen:
+    lda vf_len              ; up to the precision
+    cmp vf_prec
+    bne @snext
+    lda vf_len+1
+    cmp vf_prec+1
+    beq @sdone
+@snext:
+    ldy #0
+    lda ($08),y
+    beq @sdone
+    inw $08
+    inc vf_len
+    bne @slen
+    inc vf_len+1
+    bra @slen
+@sdone:
+    jmp @emit
+
+; --- %n: the count so far ---
+@count:
+    jsr @vaint
+    sta $08
+    stx $09
+    ldy #0
+    lda vf_count
+    sta ($08),y
+    lda vf_size
+    cmp #2
+    bcc @countdone
+    iny
+    lda vf_count+1
+    sta ($08),y
+    lda vf_size
+    cmp #4
+    bcc @countdone
+    lda vf_count+1          ; the sign of the count
+    asl a
+    lda #0
+    sbc #0
+    eor #$FF
+    iny
+    sta ($08),y
+    iny
+    sta ($08),y
+@countdone:
+    jmp @loop
+
+; --- floats: through ffmt (none linked: the argument is skipped) ---
+@float:
+    ldy #5
+    jsr @vabytes            ; -> vf_val..vf_val+3, the 5th byte in A
+    pha
+    lda vf_ffmt
+    ora vf_ffmt+1
+    bne @ffmt
+    pla
+    jmp @loop
+@ffmt:
+    pla
+    sta $16
+    ldx #3
+@fval:
+    lda vf_val,x
+    sta $12,x
+    dex
+    bpl @fval
+    lda #<vf_buf
+    sta $10
+    lda #>vf_buf
+    sta $11
+    lda vf_conv
+    sta $17
+    lda #0
+    sta $18
+    lda vf_prec
+    sta $19
+    lda vf_prec+1
+    sta $1A
+    lda vf_flags
+    and #F_ALT
+    beq @falt
+    lda #1
+@falt:
+    sta $1B
+    lda #0
+    sta $1C
+    lda vf_ffmt
+    sta @ffmtcall+1
+    lda vf_ffmt+1
+    sta @ffmtcall+2
+@ffmtcall:
+    jsr $0000
+    sta vf_len
+    stx vf_len+1
+    lda vf_buf              ; a leading - becomes the prefix
+    cmp #'-'
+    bne @fplus
+    inc vf_s
+    bne @fs1
+    inc vf_s+1
+@fs1:
+    lda vf_len
+    bne @fdec
+    dec vf_len+1
+@fdec:
+    dec vf_len
+    ldx #<vf_minus
+    ldy #>vf_minus
+    bra @fpfx
+@fplus:
+    lda vf_flags
+    and #F_PLUS
+    beq @fspace
+    ldx #<vf_plus
+    ldy #>vf_plus
+    bra @fpfx
+@fspace:
+    lda vf_flags
+    and #F_SPACE
+    beq @fzero
+    ldx #<vf_space
+    ldy #>vf_space
+@fpfx:
+    stx vf_pfx
+    sty vf_pfx+1
+    lda #1
+    sta vf_pfxlen
+@fzero:
+    jsr @zeropad
+
+; --- output: [spaces] prefix zeros text [spaces] ---
+@emit:
+    ; vf_tmp = width - (prefix + zeros + text): the padding
+    lda vf_width
+    sec
+    sbc vf_pfxlen
+    sta vf_tmp
+    lda vf_width+1
+    sbc #0
+    sta vf_tmp+1
+    lda vf_tmp
+    sec
+    sbc vf_zeros
+    sta vf_tmp
+    lda vf_tmp+1
+    sbc vf_zeros+1
+    sta vf_tmp+1
+    lda vf_tmp
+    sec
+    sbc vf_len
+    sta vf_tmp
+    lda vf_tmp+1
+    sbc vf_len+1
+    sta vf_tmp+1
+    lda vf_flags
+    and #F_LEFT
+    bne @eprefix
+    jsr @spaces
+@eprefix:
+    ldx #0
+@epfx:
+    cpx vf_pfxlen
+    beq @ezeros
+    phx
+    lda vf_pfx
+    sta $08
+    lda vf_pfx+1
+    sta $09
+    txa
+    tay
+    lda ($08),y
+    jsr @put
+    plx
+    inx
+    bra @epfx
+@ezeros:
+    lda vf_zeros
+    ora vf_zeros+1
+    beq @etext
+    lda #'0'
+    jsr @put
+    lda vf_zeros
+    bne @ez1
+    dec vf_zeros+1
+@ez1:
+    dec vf_zeros
+    bra @ezeros
+@etext:
+    lda vf_len
+    ora vf_len+1
+    beq @eright
+    lda vf_s
+    sta $08
+    lda vf_s+1
+    sta $09
+    ldy #0
+    lda ($08),y
+    jsr @put
+    inc vf_s
+    bne @et0
+    inc vf_s+1
+@et0:
+    lda vf_len
+    bne @et1
+    dec vf_len+1
+@et1:
+    dec vf_len
+    bra @etext
+@eright:
+    lda vf_flags
+    and #F_LEFT
+    beq @edone
+    jsr @spaces
+@edone:
+    jmp @loop
+
+; --- helpers ---
+
+; A = *fmt (Z flag set at its end)
+@peek:
+    lda vf_fmt
+    sta $08
+    lda vf_fmt+1
+    sta $09
+    ldy #0
+    lda ($08),y
+    rts
+
+; A = *fmt++
+@get:
+    jsr @peek
+    pha
+    jsr @advance
+    pla
+    rts
+
+@advance:
+    inc vf_fmt
+    bne @adv1
+    inc vf_fmt+1
+@adv1:
+    rts
+
+; a decimal number from the format into the word at vf_ctx+X; A = the
+; character after it (peeked)
+@number:
+@numloop:
+    jsr @peek
+    cmp #'0'
+    bcc @numend
+    cmp #'9'+1
+    bcs @numend
+    sec
+    sbc #'0'
+    pha
+    lda vf_ctx,x            ; t = word * 2
+    asl a
+    sta vf_tmp
+    lda vf_ctx+1,x
+    rol a
+    sta vf_tmp+1
+    lda vf_tmp              ; u = t * 4 (word * 8)
+    asl a
+    sta vf_val
+    lda vf_tmp+1
+    rol a
+    sta vf_val+1
+    asl vf_val
+    rol vf_val+1
+    lda vf_tmp              ; word = t + u + the digit
+    clc
+    adc vf_val
+    sta vf_ctx,x
+    lda vf_tmp+1
+    adc vf_val+1
+    sta vf_ctx+1,x
+    pla
+    clc
+    adc vf_ctx,x
+    sta vf_ctx,x
+    bcc @num1
+    inc vf_ctx+1,x
+@num1:
+    jsr @advance
+    bra @numloop
+@numend:
+    rts
+
+; A/X = the next int argument
+@vaint:
+    lda vf_ap
+    sta $08
+    lda vf_ap+1
+    sta $09
+    ldy #1
+    lda ($08),y
+    tax
+    dey
+    lda ($08),y
+    pha
+    lda vf_ap
+    clc
+    adc #2
+    sta vf_ap
+    bcc @vai1
+    inc vf_ap+1
+@vai1:
+    pla
+    rts
+
+; the next Y (4 or 5) argument bytes: vf_val..vf_val+3, a 5th in A
+@vabytes:
+    sty vf_tmp
+    lda vf_ap
+    sta $08
+    lda vf_ap+1
+    sta $09
+    ldy #0
+@vab:
+    lda ($08),y
+    cpy #4
+    bcs @vab5
+    sta vf_val,y
+@vab5:
+    iny
+    cpy vf_tmp
+    bne @vab
+    pha
+    lda vf_ap
+    clc
+    adc vf_tmp
+    sta vf_ap
+    bcc @vab1
+    inc vf_ap+1
+@vab1:
+    pla
+    rts
+
+; Z set for d and i
+@signed:
+    lda vf_conv
+    cmp #'d'
+    beq @sgn
+    cmp #'i'
+@sgn:
+    rts
+
+; A/X = -A/X
+@negax:
+    eor #$FF
+    clc
+    adc #1
+    pha
+    txa
+    eor #$FF
+    adc #0
+    tax
+    pla
+    rts
+
+; C clear when the text starts with a 0 digit (and is not empty)
+@firstzero:
+    sec
+    lda vf_len
+    ora vf_len+1
+    beq @fz1
+    lda vf_s
+    sta $08
+    lda vf_s+1
+    sta $09
+    ldy #0
+    lda ($08),y
+    cmp #'0'
+    beq @fz0
+    sec
+    rts
+@fz0:
+    clc
+@fz1:
+    rts
+
+; the 0 flag (not left-justified): zeros = width - prefix - text when positive
+@zeropad:
+    lda vf_flags
+    and #F_ZERO
+    beq @zp0
+    lda vf_flags
+    and #F_LEFT
+    bne @zp0
+    lda vf_width
+    sec
+    sbc vf_pfxlen
+    sta vf_tmp
+    lda vf_width+1
+    sbc #0
+    sta vf_tmp+1
+    lda vf_tmp
+    sec
+    sbc vf_len
+    sta vf_tmp
+    lda vf_tmp+1
+    sbc vf_len+1
+    bmi @zp0
+    sta vf_tmp+1
+    ora vf_tmp
+    beq @zp0
+    lda vf_tmp+1
+    sta vf_zeros+1
+    lda vf_tmp
+    sta vf_zeros
+@zp0:
+    rts
+
+; vf_tmp spaces when positive
+@spaces:
+    lda vf_tmp+1
+    bmi @sp0
+    ora vf_tmp
+    beq @sp0
+    lda #' '
+    jsr @put
+    lda vf_tmp
+    bne @sp1
+    dec vf_tmp+1
+@sp1:
+    dec vf_tmp
+    bra @spaces
+@sp0:
+    rts
+
+; put(A, ctx); the count + 1
+@put:
+    sta $10
+    lda #0
+    sta $11
+    lda vf_ctx
+    sta $12
+    lda vf_ctx+1
+    sta $13
+@putcall:
+    jsr $0000
+    inc vf_count
+    bne @put1
+    inc vf_count+1
+@put1:
+    rts
+
+@intconvs:
+    .text "diuxXobp"
+@intconvs_end:
+@fltconvs:
+    .text "fFeEgG"
+@fltconvs_end:
+
+    .func_flags zp_call
+    endproc

@@ -31,11 +31,12 @@ extern int vfscanf(FILE *stream, const char *format, va_list ap);
  *
  * Returns: number of characters written, or -1 on error
  */
-int __vformat(void (*put)(int c, void *ctx), void *ctx, char *fmt, va_list ap,
+/* __vformat (stdlib_asm/__vformat.s45) and its callbacks use the ZP convention */
+__fastcall__ int __vformat(void (*put)(int c, void *ctx), void *ctx, char *fmt, va_list ap,
               int (*ffmt)(char *, float, int, int, int));
 
 /* Writes a character to the FILE given as the context */
-static void vf_file_put(int c, void *ctx) {
+static __fastcall__ void vf_file_put(int c, void *ctx) {
     fputc(c, (FILE *)ctx);
 }
 

@@ -8,12 +8,13 @@
 
 #include <stdarg.h>
 
-int __vformat(void (*put)(int c, void *ctx), void *ctx, char *fmt, va_list ap,
+/* __vformat (stdlib_asm/__vformat.s45) and its callbacks use the ZP convention */
+__fastcall__ int __vformat(void (*put)(int c, void *ctx), void *ctx, char *fmt, va_list ap,
               int (*ffmt)(char *, float, int, int, int));
 
 struct __vsn_ctx { char *p; int room; };
 
-static void vsn_put(int c, void *ctx) {
+static __fastcall__ void vsn_put(int c, void *ctx) {
     struct __vsn_ctx *k = (struct __vsn_ctx *)ctx;
     if (k->room > 1) {
         *k->p = (char)c;

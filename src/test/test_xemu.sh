@@ -1078,6 +1078,19 @@ else
     failed=$((failed + 1))
 fi
 
+# Test: the printf formatter's flags, width, precision, %n, snprintf
+for pfmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r pfname pfflags <<< "$pfmode"
+    echo "Testing test_printf_format_xemu.c ($pfname)..."
+    compile_link_test "src/test-resources/test_printf_format_xemu.c" "build/test/test_printf_format_${pfname}_xemu.prg" "$pfflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_printf_format_$pfname" "build/test/test_printf_format_${pfname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_printf_format_xemu.c $pfname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: GCC statement expressions ({ stmt; ...; expr; })
 for semode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r sename seflags <<< "$semode"
