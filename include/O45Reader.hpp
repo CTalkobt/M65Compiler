@@ -40,6 +40,10 @@ struct O45File {
     };
     std::vector<SegAttr> segAttrs;
 
+    // Sections (OPT_SECTIONS / OPT_SECTREF): empty for an unsectioned object
+    std::vector<O45Section> sections;
+    std::vector<O45SectRef> sectRefs;
+
     // Symbol tables
     struct Import {
         std::string name;

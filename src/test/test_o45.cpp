@@ -34,7 +34,7 @@ void test_empty_object() {
 
     // Magic
     CHECK(blob[2] == 0x6F, "magic o");
-    CHECK(blob[3] == 0x36, "magic 6");
+    CHECK(blob[3] == 0x34, "magic 4");
     CHECK(blob[4] == 0x35, "magic 5");
 
     // Version
@@ -736,6 +736,114 @@ static O45File makeObjWithFunc(const std::string& name, uint32_t offset,
     return obj;
 }
 
+// --- Section table (OPT_SECTIONS / OPT_SECTREF) ---
+
+static O45Writer sectionedWriter(const std::vector<O45Section>& secs, const std::vector<O45SectRef>& refs) {
+    O45Writer w;
+    w.setTextSegment(0, std::vector<uint8_t>(300, 0x60));
+    w.setDataSegment(0, std::vector<uint8_t>(40, 0x00));
+    w.setBssSegment(0, 16);
+    w.addExport("_f", SEG_TEXT, 0);
+    w.addExport("_g", SEG_TEXT, 100);
+    w.addSections(secs);
+    w.addSectRefs(refs);
+    return w;
+}
+
+void test_sections_roundtrip() {
+    // 40 sections with long names: several OPT_SECTIONS records
+    std::vector<O45Section> secs;
+    for (int i = 0; i < 30; i++) {
+        O45Section sc;
+        sc.segId = SEG_TEXT; sc.offset = i * 10; sc.length = 10;
+        sc.alignLog2 = (uint8_t)(i % 3); sc.keep = (i == 7);
+        sc.name = "_function_with_a_rather_long_name_" + std::to_string(i);
+        secs.push_back(sc);
+    }
+    for (int i = 0; i < 4; i++) {
+        O45Section sc; sc.segId = SEG_DATA; sc.offset = i * 10; sc.length = 10; sc.name = "__str_" + std::to_string(i);
+        secs.push_back(sc);
+    }
+    { O45Section sc; sc.segId = SEG_BSS; sc.offset = 4; sc.length = 12; secs.push_back(sc); }
+    std::vector<O45SectRef> refs;
+    for (int i = 0; i < 50; i++) refs.push_back({O45_SECTREF_TEXT_RELOC, (uint32_t)(i * 6 + 1), (uint16_t)(i % 30)});
+    refs.push_back({O45_SECTREF_DATA_RELOC, 3, O45_SECT_RESIDUAL});
+    refs.push_back({O45_SECTREF_EXPORT, 1, 10});
+
+    auto blob = sectionedWriter(secs, refs).emit();
+    int secRecords = 0, refRecords = 0;
+    {
+        O45File raw; std::string e;
+        CHECK(O45Reader::read(blob, raw, e), "sections roundtrip: read");
+        for (const auto& o : raw.options) {
+            if (o.type == OPT_SECTIONS) { secRecords++; CHECK(o.data.size() <= O45_OPT_PAYLOAD_MAX, "sections: record fits"); }
+            if (o.type == OPT_SECTREF) { refRecords++; CHECK(o.data.size() <= O45_OPT_PAYLOAD_MAX, "sectref: record fits"); }
+        }
+        CHECK(secRecords > 1, "sections roundtrip: split over several records");
+        CHECK(refRecords > 1, "sectref roundtrip: split over several records");
+        CHECK(raw.sections.size() == secs.size(), "sections roundtrip: count");
+        bool same = raw.sections.size() == secs.size();
+        for (size_t i = 0; same && i < secs.size(); i++)
+            same = raw.sections[i].segId == secs[i].segId && raw.sections[i].offset == secs[i].offset &&
+                   raw.sections[i].length == secs[i].length && raw.sections[i].alignLog2 == secs[i].alignLog2 &&
+                   raw.sections[i].keep == secs[i].keep && raw.sections[i].name == secs[i].name;
+        CHECK(same, "sections roundtrip: every field");
+        bool refsSame = raw.sectRefs.size() == refs.size();
+        for (size_t i = 0; refsSame && i < refs.size(); i++)
+            refsSame = raw.sectRefs[i].kind == refs[i].kind && raw.sectRefs[i].key == refs[i].key &&
+                       raw.sectRefs[i].section == refs[i].section;
+        CHECK(refsSame, "sectref roundtrip: every field");
+    }
+}
+
+void test_sections_rejected() {
+    auto bad = [](const std::vector<O45Section>& secs, const std::vector<O45SectRef>& refs) {
+        auto blob = sectionedWriter(secs, refs).emit();
+        O45File o; std::string e;
+        return !O45Reader::read(blob, o, e) && !e.empty();
+    };
+    O45Section a; a.segId = SEG_TEXT; a.offset = 0; a.length = 100; a.name = "_f";
+    O45Section b = a; b.offset = 50; b.name = "_g";                  // overlaps a
+    CHECK(bad({a, b}, {}), "sections: overlap rejected");
+    O45Section c = a; c.offset = 250; c.length = 51;                 // past the 300-byte text
+    CHECK(bad({c}, {}), "sections: outside the segment rejected");
+    O45Section d = a; d.segId = SEG_BSS; d.offset = 10; d.length = 7; // past the 16-byte BSS
+    CHECK(bad({d}, {}), "sections: outside BSS rejected");
+    CHECK(bad({a}, {{O45_SECTREF_TEXT_RELOC, 1, 5}}), "sectref: missing section rejected");
+    CHECK(bad({a}, {{O45_SECTREF_EXPORT, 9, 0}}), "sectref: missing export rejected");
+    CHECK(bad({}, {{O45_SECTREF_TEXT_RELOC, 1, 0}}), "sectref: without a section table rejected");
+    O45Section e2 = a; e2.offset = 100; e2.length = 200; e2.name = "_g";
+    auto okBlob = sectionedWriter({a, e2}, {{O45_SECTREF_EXPORT, 1, 1}}).emit();
+    O45File o; std::string err;
+    CHECK(O45Reader::read(okBlob, o, err), "sections: adjacent sections accepted");
+    // a truncated OPT_SECTIONS payload
+    O45Writer w;
+    w.setTextSegment(0, {0x60});
+    w.addOptionRaw(OPT_SECTIONS, {1, SEG_TEXT, 0, 0, 0});
+    auto trunc = w.emit();
+    O45File t; std::string te;
+    CHECK(!O45Reader::read(trunc, t, te), "sections: truncated record rejected");
+}
+
+void test_sections_link_unchanged() {
+    // Until ln45 uses sections, a sectioned object links exactly as without them
+    auto plain = makeObjWithFunc("_main", 0, {0xA9, 0x01, 0x60});
+    auto sectioned = plain;
+    O45Section sc; sc.segId = SEG_TEXT; sc.offset = 0; sc.length = 3; sc.name = "_main";
+    sectioned.sections.push_back(sc);
+    std::vector<uint8_t> out[2];
+    for (int k = 0; k < 2; k++) {
+        O45Linker linker;
+        linker.setTextBase(0x2000);
+        linker.setWarningStream(nullptr);
+        linker.addObject("m.o45", k ? sectioned : plain);
+        std::string err;
+        out[k] = linker.link(err);
+        CHECK(!out[k].empty(), "sections link: links");
+    }
+    CHECK(out[0] == out[1], "sections link: same image as without sections");
+}
+
 void test_linker_funcattr_basic() {
     // Two objects: _main (no attrs) and _add (with attrs)
     O45FuncAttr addAttr;
@@ -975,6 +1083,11 @@ int main() {
 
     // Segment mapping tests
     test_segment_mapping();
+
+    // Section table (per-function linking)
+    test_sections_roundtrip();
+    test_sections_rejected();
+    test_sections_link_unchanged();
 
     // Linker function attribute integration tests (Phase 3)
     test_linker_funcattr_basic();

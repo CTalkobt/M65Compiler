@@ -20,7 +20,7 @@ At least one display option (`-f`, `-h`, `-t`, `-r`, `-s`, `-d`, `-a` or `-bas`)
 | Flag | Description |
 |------|-------------|
 | `-f` | File header (format, CPU, mode flags, options; for PRG/binaries the base address and size) |
-| `-h` | Section headers (name, size, VMA, type, relocation count) |
+| `-h` | Section headers (name, size, VMA, type, relocation count); for a sectioned object also its link sections (segment, offset, size, alignment, name) |
 | `-t` | Symbol table (imports and exports, with function attributes) |
 | `-r` | Relocation entries per section |
 | `-s` | Full contents of all sections (hex dump) |

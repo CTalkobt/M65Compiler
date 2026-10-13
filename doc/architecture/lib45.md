@@ -88,6 +88,8 @@ option_data   (option_length - 2 bytes)   ; at most 253 bytes
 | `$11`  | `OPT_LINEINFO`     | yes, with `.loc` info | ln45, objdump45 | Source line table (1.7) |
 | `$12`  | `OPT_DEBUG_SYMBOLS`| yes, for `proc`s | displayed | Procedure parameter names/offsets (1.8) |
 | `$13`  | `OPT_SAC_PARAMS`   | no | no | Reserved for SAC parameter metadata |
+| `$14`  | `OPT_SECTIONS`     | not yet | reader (checked), nm45 `-S`, objdump45 `-h` | Section table for per-function linking (1.10) |
+| `$15`  | `OPT_SECTREF`      | not yet | reader (checked), nm45 `-S` | Section of a relocation target or an export (1.10) |
 | `$50`  | `OPT_IPO_HINTS`    | no | ln45 | Cross-module optimisation hints (1.9) |
 
 Unknown options are skipped. `OPT_IPO_HINTS`, when a writer has hints, is written before the other options.
@@ -157,6 +159,35 @@ per function:
 Defined in the writer API and parsed by ln45; no tool currently writes it.
 
 ---
+
+### 1.10 Sections (`OPT_SECTIONS`, `OPT_SECTREF`)
+
+A sectioned object divides its segment bodies into **sections** — a function, a variable, a string literal, a static-allocation block — that the linker can keep or drop as a whole (per-function linking; ln45 does not use them yet: a sectioned object links exactly like an unsectioned one). Bytes no section covers are the segment's **residual**, kept whenever anything of the object is kept. An object without these records is unsectioned: it is kept or dropped as a whole (`ln45` drops whole library members nothing live references).
+
+`OPT_SECTIONS` payload — `count (1)` followed by `count` entries:
+
+```
+segflags   (1 byte)   ; bits 0-4: segment ($02 TEXT, $03 DATA, $04 BSS, $05 ZP)
+                      ; bit 7: KEEP (always kept: a root); bits 5-6: 0
+offset     (4 bytes)  ; LE start within the segment body
+length     (4 bytes)  ; LE byte count
+align_log2 (1 byte)   ; required start alignment: 1 << align_log2
+name       (N+1)      ; NUL-terminated (function or symbol name; may be empty)
+```
+
+Sections are numbered 0..n-1 in entry order over all `OPT_SECTIONS` records (a record's payload is at most 253 bytes, so a table spans several). Within a segment, sections are sorted by offset and do not overlap; each lies inside its segment. A text section lies inside one sub-segment (1.6).
+
+`OPT_SECTREF` payload — 7-byte entries:
+
+```
+kind     (1 byte)   ; 0: text relocation, 1: data relocation, 2: export
+key      (4 bytes)  ; LE: the relocation's site offset (kinds 0/1), or the export index (kind 2)
+section  (2 bytes)  ; LE: the section; $FFFF = the residual of the target segment
+```
+
+An internal relocation's target section is the one containing the value stored at its site (less the segment base) — except where an `OPT_SECTREF` entry says otherwise: a pointer one past the end of a section, an address with a negative addend, a low byte (`R_LOW`) whose full value is not stored. An export at a section boundary that belongs to the earlier section gets an entry too.
+
+The reader rejects a malformed record, a section outside its segment, overlapping or unsorted sections, and references to a missing section or export, or references without a section table.
 
 ## 2. Segment Bodies
 

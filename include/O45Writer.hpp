@@ -78,6 +78,15 @@ public:
     // Add a raw-byte option. For OPT_OS and other binary payloads.
     void addOptionRaw(uint8_t type, const std::vector<uint8_t>& data);
 
+    // Section table and section references (OPT_SECTIONS / OPT_SECTREF),
+    // split over as many option records as needed
+    void addSections(const std::vector<O45Section>& sections) {
+        for (auto& rec : o45EncodeSections(sections)) addOptionRaw(OPT_SECTIONS, rec);
+    }
+    void addSectRefs(const std::vector<O45SectRef>& refs) {
+        for (auto& rec : o45EncodeSectRefs(refs)) addOptionRaw(OPT_SECTREF, rec);
+    }
+
     // Add the recommended default .o45 options (OPT_OS=MEGA65, OPT_ASM=ca45).
     void addDefaultOptions(const std::string& asmVersion = "ca45");
 

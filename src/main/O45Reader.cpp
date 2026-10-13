@@ -120,6 +120,15 @@ bool O45Reader::read(const std::vector<uint8_t>& data, O45File& out, std::string
         opt.data.assign(data.begin() + off + 2, data.begin() + off + len);
         out.options.push_back(opt);
 
+        if (opt.type == OPT_SECTIONS && !o45DecodeSections(opt.data, out.sections)) {
+            errorMsg = "malformed section table (OPT_SECTIONS)";
+            return false;
+        }
+        if (opt.type == OPT_SECTREF && !o45DecodeSectRefs(opt.data, out.sectRefs)) {
+            errorMsg = "malformed section reference record (OPT_SECTREF)";
+            return false;
+        }
+
         // Parse OPT_SEGATTR into structured segAttrs
         if (opt.type == OPT_SEGATTR && opt.data.size() >= 10) {
             O45File::SegAttr sa;
@@ -324,6 +333,46 @@ bool O45Reader::read(const std::vector<uint8_t>& data, O45File& out, std::string
         }
 
         out.exports.push_back(exp);
+    }
+
+    // Sections: inside their segment, sorted and disjoint per segment;
+    // references name an existing section (or the residual)
+    if (!out.sections.empty()) {
+        auto segLen = [&](uint8_t seg) -> int64_t {
+            switch (seg) {
+                case SEG_TEXT: return out.tlen;
+                case SEG_DATA: return out.dlen;
+                case SEG_BSS:  return out.blen;
+                case SEG_ZP:   return out.zlen;
+                default:       return -1;
+            }
+        };
+        std::map<uint8_t, uint32_t> segEnd;   // end of the previous section per segment
+        for (size_t i = 0; i < out.sections.size(); i++) {
+            const auto& s = out.sections[i];
+            int64_t len = segLen(s.segId);
+            if (len < 0 || (int64_t)s.offset + s.length > len) {
+                errorMsg = "section " + std::to_string(i) + " ('" + s.name + "') is outside its segment";
+                return false;
+            }
+            auto it = segEnd.find(s.segId);
+            if (it != segEnd.end() && s.offset < it->second) {
+                errorMsg = "section " + std::to_string(i) + " ('" + s.name + "') overlaps or precedes the one before it";
+                return false;
+            }
+            segEnd[s.segId] = s.offset + s.length;
+        }
+        for (const auto& r : out.sectRefs) {
+            if (r.kind > O45_SECTREF_EXPORT ||
+                (r.section != O45_SECT_RESIDUAL && r.section >= out.sections.size()) ||
+                (r.kind == O45_SECTREF_EXPORT && r.key >= out.exports.size())) {
+                errorMsg = "section reference to a missing section or export";
+                return false;
+            }
+        }
+    } else if (!out.sectRefs.empty()) {
+        errorMsg = "section references without a section table";
+        return false;
     }
 
     return true;

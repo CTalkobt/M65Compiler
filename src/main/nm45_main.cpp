@@ -80,10 +80,40 @@ static void printUsage(const char* progName) {
     std::cout << "  -h       Display file header (mode, CPU, segment bases/lengths)" << std::endl;
     std::cout << "  -x       Hex dump of segment bodies" << std::endl;
     std::cout << "  -r       Display relocation table entries" << std::endl;
+    std::cout << "  -S       Display the section table (per-function sections ln45 can drop)" << std::endl;
     std::cout << "  -s       Display segment sizes summary" << std::endl;
     std::cout << "  -f       Display function attributes (ZP calling convention)" << std::endl;
     std::cout << "  -a       Display all (header + relocations + symbols + func attrs)" << std::endl;
     std::cout << "  -?       Display this help message" << std::endl;
+}
+
+// The section table (OPT_SECTIONS) and section references (OPT_SECTREF)
+static void printSections(const O45File& obj) {
+    if (obj.sections.empty()) {
+        std::cout << "No sections (the object is kept or dropped as a whole)" << std::endl;
+        return;
+    }
+    static const char* segName[] = {"?", "?", "TEXT", "DATA", "BSS", "ZP"};
+    std::cout << "Sections (" << obj.sections.size() << "):" << std::endl;
+    printf("  %4s  %-4s  %8s  %8s  %5s  %s\n", "idx", "seg", "offset", "length", "align", "name");
+    for (size_t i = 0; i < obj.sections.size(); i++) {
+        const auto& s = obj.sections[i];
+        printf("  %4zu  %-4s  %08X  %8u  %5u  %s%s\n", i, s.segId <= 5 ? segName[s.segId] : "?",
+               s.offset, s.length, 1u << s.alignLog2, s.name.c_str(), s.keep ? "  [keep]" : "");
+    }
+    if (!obj.sectRefs.empty()) {
+        std::cout << "Section references (" << obj.sectRefs.size() << "):" << std::endl;
+        for (const auto& r : obj.sectRefs) {
+            const char* kind = r.kind == O45_SECTREF_TEXT_RELOC ? "text reloc at" :
+                               r.kind == O45_SECTREF_DATA_RELOC ? "data reloc at" : "export";
+            std::string target = r.section == O45_SECT_RESIDUAL ? std::string("residual")
+                : "section " + std::to_string(r.section) + " " + obj.sections[r.section].name;
+            if (r.kind == O45_SECTREF_EXPORT && r.key < obj.exports.size())
+                printf("  %s %s -> %s\n", kind, obj.exports[r.key].name.c_str(), target.c_str());
+            else
+                printf("  %s %08X -> %s\n", kind, r.key, target.c_str());
+        }
+    }
 }
 
 static void printHeader(const O45File& obj, const std::string& filename) {
@@ -203,6 +233,7 @@ int main(int argc, char** argv) {
     bool showHex = false;
     bool showAll = false;
     bool showFuncAttrs = false;
+    bool showSections = false;
     bool showSymbols = true; // default behavior
     std::vector<std::string> files;
 
@@ -221,7 +252,8 @@ int main(int argc, char** argv) {
         else if (arg == "-s") { showSizes = true; showSymbols = false; }
         else if (arg == "-x") { showHex = true; showSymbols = false; }
         else if (arg == "-f") { showFuncAttrs = true; }
-        else if (arg == "-a") { showAll = true; showHeader = true; showRelocs = true; showHex = true; showSymbols = true; showFuncAttrs = true; }
+        else if (arg == "-S") { showSections = true; showSymbols = false; }
+        else if (arg == "-a") { showAll = true; showHeader = true; showRelocs = true; showHex = true; showSymbols = true; showFuncAttrs = true; showSections = true; }
         else files.push_back(arg);
     }
 
@@ -281,6 +313,11 @@ int main(int argc, char** argv) {
         // Header
         if (showHeader) {
             printHeader(obj, filename);
+            std::cout << std::endl;
+        }
+
+        if (showSections) {
+            printSections(obj);
             std::cout << std::endl;
         }
 

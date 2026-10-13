@@ -328,6 +328,17 @@ static void printSectionHeaders(const O45File& obj, const std::string& filename)
         printf("%3d %-8s %08X   %08X   %-10s %d\n",
                idx++, "ZP", obj.zlen, obj.zbase, "NOBITS", 0);
     }
+    // Per-function/data sections (OPT_SECTIONS) ln45 keeps or drops as a whole
+    if (!obj.sections.empty()) {
+        static const char* segName[] = {"?", "?", "TEXT", "DATA", "BSS", "ZP"};
+        std::cout << "Link sections (" << obj.sections.size() << "; the rest of each segment is kept with any of them):" << std::endl;
+        printf("Idx %-5s %-10s %-10s %-5s %s\n", "Seg", "Offset", "Size", "Align", "Name");
+        for (size_t i = 0; i < obj.sections.size(); i++) {
+            const auto& sc = obj.sections[i];
+            printf("%3zu %-5s %08X   %08X   %-5u %s%s\n", i, sc.segId <= 5 ? segName[sc.segId] : "?",
+                   sc.offset, sc.length, 1u << sc.alignLog2, sc.name.c_str(), sc.keep ? " [keep]" : "");
+        }
+    }
 }
 
 static void printSymbolTable(const O45File& obj, const std::string& filename) {

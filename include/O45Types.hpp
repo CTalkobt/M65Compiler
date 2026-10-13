@@ -95,6 +95,8 @@ constexpr uint8_t  OPT_SEGATTR       = 0x10; // sub-segment attribute (see below
 constexpr uint8_t  OPT_LINEINFO      = 0x11; // debug line info table
 constexpr uint8_t  OPT_DEBUG_SYMBOLS = 0x12; // variable/function debug metadata
 constexpr uint8_t  OPT_SAC_PARAMS    = 0x13; // SAC parameter metadata (see below)
+constexpr uint8_t  OPT_SECTIONS      = 0x14; // section table: per-function/data pieces (see below)
+constexpr uint8_t  OPT_SECTREF       = 0x15; // section of a relocation target / export (see below)
 
 // Phase 4: Inter-TU Optimization Hints
 constexpr uint8_t  OPT_IPO_HINTS     = 0x50; // Cross-module optimization hints (see below)
@@ -106,6 +108,115 @@ constexpr uint8_t  OPT_OS_MEGA65     = 0x05;
 // Describes a named sub-segment within a segment body (e.g., "init" within text).
 // Payload: seg_id(1) + offset(4 LE) + length(4 LE) + name(NUL-terminated)
 // The linker uses these to order sub-segments (e.g., "init" before "code").
+
+// --- Section table (OPT_SECTIONS) and section references (OPT_SECTREF) ---
+// A sectioned object divides its segment bodies into sections (a function,
+// a variable, a string) that ln45 keeps or drops as a whole; bytes no
+// section covers are the segment's residual, kept whenever anything of the
+// object is. Sections are numbered 0..n-1 in the order of their entries over
+// all OPT_SECTIONS records.
+// OPT_SECTIONS payload: count(1), then count entries of
+//   segflags(1): bits 0-4 the segment (SEG_TEXT..SEG_ZP), bit 7 KEEP (a root)
+//   offset(4 LE), length(4 LE) within the segment body; align_log2(1)
+//   name (NUL-terminated; may be empty)
+// OPT_SECTREF payload: entries of kind(1) key(4 LE) section(2 LE): the
+// section an internal relocation (kind 0 text, 1 data; key = its site
+// offset) points into, or an export (kind 2; key = export index) belongs
+// to, where its value alone does not say (one past the end of a section,
+// a low byte); section $FFFF = the residual.
+// Every record's payload is at most 253 bytes (option length byte = +2).
+constexpr uint8_t  O45_SECT_KEEP     = 0x80;
+constexpr uint16_t O45_SECT_RESIDUAL = 0xFFFF;
+constexpr uint8_t  O45_SECTREF_TEXT_RELOC = 0;
+constexpr uint8_t  O45_SECTREF_DATA_RELOC = 1;
+constexpr uint8_t  O45_SECTREF_EXPORT     = 2;
+constexpr size_t   O45_OPT_PAYLOAD_MAX = 253;
+
+struct O45Section {
+    uint8_t segId = 0;        // SEG_TEXT, SEG_DATA, SEG_BSS, SEG_ZP
+    bool keep = false;        // always kept (a root)
+    uint32_t offset = 0;      // within the segment body
+    uint32_t length = 0;
+    uint8_t alignLog2 = 0;    // required start alignment (0: none)
+    std::string name;         // for the map; may be empty
+};
+
+struct O45SectRef {
+    uint8_t kind = 0;         // O45_SECTREF_*
+    uint32_t key = 0;         // relocation site offset, or export index
+    uint16_t section = O45_SECT_RESIDUAL;
+};
+
+// The OPT_SECTIONS payloads for a section table (as many records as needed)
+inline std::vector<std::vector<uint8_t>> o45EncodeSections(const std::vector<O45Section>& secs) {
+    std::vector<std::vector<uint8_t>> out;
+    std::vector<uint8_t> cur{0};
+    for (const auto& s : secs) {
+        std::string name = s.name.substr(0, 200);
+        std::vector<uint8_t> e;
+        e.push_back((uint8_t)((s.segId & 0x1F) | (s.keep ? O45_SECT_KEEP : 0)));
+        for (int i = 0; i < 4; i++) e.push_back((uint8_t)(s.offset >> (8 * i)));
+        for (int i = 0; i < 4; i++) e.push_back((uint8_t)(s.length >> (8 * i)));
+        e.push_back(s.alignLog2);
+        e.insert(e.end(), name.begin(), name.end());
+        e.push_back(0);
+        if (cur.size() + e.size() > O45_OPT_PAYLOAD_MAX || cur[0] == 255) { out.push_back(cur); cur = {0}; }
+        cur.insert(cur.end(), e.begin(), e.end());
+        cur[0]++;
+    }
+    if (cur[0]) out.push_back(cur);
+    return out;
+}
+
+// Append the entries of one OPT_SECTIONS payload; false if malformed
+inline bool o45DecodeSections(const std::vector<uint8_t>& d, std::vector<O45Section>& out) {
+    if (d.empty()) return false;
+    size_t p = 1;
+    for (unsigned n = 0; n < d[0]; n++) {
+        if (p + 11 > d.size()) return false;
+        O45Section s;
+        s.segId = d[p] & 0x1F;
+        s.keep = (d[p] & O45_SECT_KEEP) != 0;
+        s.offset = d[p+1] | (d[p+2] << 8) | (d[p+3] << 16) | ((uint32_t)d[p+4] << 24);
+        s.length = d[p+5] | (d[p+6] << 8) | (d[p+7] << 16) | ((uint32_t)d[p+8] << 24);
+        s.alignLog2 = d[p+9];
+        p += 10;
+        size_t e = p;
+        while (e < d.size() && d[e]) e++;
+        if (e >= d.size()) return false;
+        s.name.assign(d.begin() + p, d.begin() + e);
+        p = e + 1;
+        out.push_back(s);
+    }
+    return p == d.size();
+}
+
+// The OPT_SECTREF payloads for a list of references
+inline std::vector<std::vector<uint8_t>> o45EncodeSectRefs(const std::vector<O45SectRef>& refs) {
+    std::vector<std::vector<uint8_t>> out;
+    std::vector<uint8_t> cur;
+    for (const auto& r : refs) {
+        if (cur.size() + 7 > O45_OPT_PAYLOAD_MAX) { out.push_back(cur); cur.clear(); }
+        cur.push_back(r.kind);
+        for (int i = 0; i < 4; i++) cur.push_back((uint8_t)(r.key >> (8 * i)));
+        cur.push_back((uint8_t)(r.section & 0xFF));
+        cur.push_back((uint8_t)(r.section >> 8));
+    }
+    if (!cur.empty()) out.push_back(cur);
+    return out;
+}
+
+inline bool o45DecodeSectRefs(const std::vector<uint8_t>& d, std::vector<O45SectRef>& out) {
+    if (d.size() % 7) return false;
+    for (size_t p = 0; p < d.size(); p += 7) {
+        O45SectRef r;
+        r.kind = d[p];
+        r.key = d[p+1] | (d[p+2] << 8) | (d[p+3] << 16) | ((uint32_t)d[p+4] << 24);
+        r.section = (uint16_t)(d[p+5] | (d[p+6] << 8));
+        out.push_back(r);
+    }
+    return true;
+}
 
 // --- SAC parameter metadata record (OPT_SAC_PARAMS) ---
 // Describes parameters for a SAC (Static Allocation Convention) function.
