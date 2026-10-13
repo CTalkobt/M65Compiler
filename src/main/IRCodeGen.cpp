@@ -236,6 +236,88 @@ void IRCodeGen::emitOptimized(const std::string& line, const std::string& reason
 
 // Is vreg id read by any instruction of the current function other than
 // a and b? (the inc/dec peephole leaves the incremented value unloaded)
+bool IRCodeGen::tryFusedRMW(const ir::Inst& load, const std::string& zpPair, int yOff) {
+    if (!currentFn_ || !load.dest.isVreg() || !load.src1.isVreg()) return false;
+    ir::Type T = load.resultType;
+    int nb = T == ir::Type::I8 ? 1 : (T == ir::Type::I16 || T == ir::Type::PTR) ? 2 : T == ir::Type::I32 ? 4 : 0;
+    if (!nb || multiDefVregs_.count(load.dest.vregId) || localSlotVregs_.count(load.dest.vregId)) return false;
+    const auto& insts = currentFn_->blocks[currentBlockIdx_].insts;
+    size_t i = currentInstInBlock_ + 1;
+    auto skipNops = [&]() { while (i < insts.size() && insts[i].op == ir::Op::NOP) i++; };
+    auto onlyUsedBy = [&](uint32_t v, const ir::Inst* user) { return !vregUsedOutside(v, &load, user); };
+    // the address of the STORE: the same vreg, or a copy of the same pointer
+    auto copySource = [&](uint32_t v) -> int64_t {
+        for (const auto& in : insts)
+            if (in.op == ir::Op::COPY && in.dest.isVreg() && in.dest.vregId == v && in.src1.isVreg() &&
+                !multiDefVregs_.count(v))
+                return in.src1.vregId;
+        return -1;
+    };
+    uint32_t val = load.dest.vregId;
+    skipNops();
+    // optional zero-extension / truncation of the loaded value
+    if (i < insts.size() && (insts[i].op == ir::Op::ZEXT || insts[i].op == ir::Op::TRUNC) &&
+        insts[i].src1.isVreg() && insts[i].src1.vregId == val && insts[i].dest.isVreg() &&
+        onlyUsedBy(val, &insts[i])) {
+        val = insts[i].dest.vregId;
+        i++;
+        skipNops();
+    }
+    if (i >= insts.size()) return false;
+    const ir::Inst& op = insts[i];
+    if ((op.op != ir::Op::ADD && op.op != ir::Op::SUB) || op.resultType != T || !op.dest.isVreg() ||
+        foldedAddrs_.count(op.dest.vregId) || multiDefVregs_.count(op.dest.vregId)) return false;
+    const ir::Operand* other = nullptr;
+    if (op.src1.isVreg() && op.src1.vregId == val) other = &op.src2;
+    else if (op.op == ir::Op::ADD && op.src2.isVreg() && op.src2.vregId == val) other = &op.src1;
+    if (!other || (other->isVreg() && other->vregId == val)) return false;
+    for (int k = 0; k < nb; k++) if (directByte(*other, k).empty()) return false;
+    if (!onlyUsedBy(val, &op)) return false;
+    i++;
+    skipNops();
+    // optional copies of the pointer for the STORE (used by it only)
+    std::set<uint32_t> storeAddrs = {load.src1.vregId};
+    int64_t base = copySource(load.src1.vregId);
+    size_t firstCopy = i;
+    while (i < insts.size() && insts[i].op == ir::Op::COPY && insts[i].dest.isVreg() && insts[i].src1.isVreg() &&
+           base >= 0 && insts[i].src1.vregId == (uint32_t)base) {
+        storeAddrs.insert(insts[i].dest.vregId);
+        i++;
+        skipNops();
+    }
+    if (i >= insts.size()) return false;
+    const ir::Inst& st = insts[i];
+    if (st.op != ir::Op::STORE || st.resultType != T || !st.args.empty() || !st.src1.isVreg() ||
+        st.src1.vregId != op.dest.vregId || !st.src2.isVreg() || !storeAddrs.count(st.src2.vregId) ||
+        localSlotVregs_.count(st.src2.vregId) || !onlyUsedBy(op.dest.vregId, &st)) return false;
+    for (size_t c = firstCopy; c < i; c++)
+        if (insts[c].op == ir::Op::COPY && insts[c].dest.vregId != st.src2.vregId) return false;
+    if (st.src2.vregId != load.src1.vregId && !onlyUsedBy(st.src2.vregId, &st)) return false;
+
+    bool add = op.op == ir::Op::ADD;
+    std::string r = add ? "add in place" : "sub in place";
+    ms_.invalidateAll();
+    storeCache_.vreg = UINT32_MAX;
+    emit("ldy #" + std::to_string(yOff), r);
+    std::string b0 = directByte(*other, 0);
+    if (nb == 1 && (b0 == "#1" || (b0 == "#255" && add))) {
+        emit("lda (" + zpPair + "),y");
+        emit(((b0 == "#1") == add) ? "inc a" : "dec a");
+        emit("sta (" + zpPair + "),y");
+    } else {
+        emit(add ? "clc" : "sec");
+        for (int k = 0; k < nb; k++) {
+            if (k) emit("iny");
+            emit("lda (" + zpPair + "),y");
+            emit((add ? "adc " : "sbc ") + directByte(*other, k));
+            emit("sta (" + zpPair + "),y");
+        }
+    }
+    resultInAX_ = -1;
+    skipThrough_ = &st;
+    return true;
+}
+
 bool IRCodeGen::vregUsedOutside(uint32_t id, const ir::Inst* a, const ir::Inst* b) const {
     if (!currentFn_) return true;
     auto uses = [&](const ir::Operand& o) { return o.isVreg() && o.vregId == id; };
@@ -3071,6 +3153,10 @@ bool IRCodeGen::frameAddrUsedAfterCall() const {
 }
 
 void IRCodeGen::emitInst(const ir::Inst& inst) {
+    if (skipThrough_) {
+        if (&inst == skipThrough_) skipThrough_ = nullptr;
+        return;
+    }
     // Reset value-role tracking for each new instruction
     clearValueRoles();
 
@@ -4186,6 +4272,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     zpPair = "__zp_scratch";
                 }
                 
+                if (tryFusedRMW(inst, zpPair, yOff)) break;
                 ms_.invalidateAll();
                 if (inst.resultType == ir::Type::I8) {
                     emit("ldy #" + std::to_string(yOff));

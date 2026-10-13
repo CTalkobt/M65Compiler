@@ -445,6 +445,12 @@ private:
     const ir::Function* currentFn_ = nullptr;
     const ir::Module* currentModule_ = nullptr;
     bool vregUsedOutside(uint32_t id, const ir::Inst* a, const ir::Inst* b) const;
+    // Instructions consumed by a fused sequence: emitInst skips them up to
+    // and including this one
+    const ir::Inst* skipThrough_ = nullptr;
+    // LOAD t = [p]; t2 = t +/- v; STORE t2 -> [p] done in place through the
+    // pointer already set up (zpPair, yOff): true when emitted
+    bool tryFusedRMW(const ir::Inst& load, const std::string& zpPair, int yOff);
     size_t currentBlockIdx_ = 0;
     size_t currentInstInBlock_ = 0; // index within current block's inst vector
 

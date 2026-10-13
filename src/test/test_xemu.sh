@@ -912,6 +912,19 @@ for dlmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: read-modify-write through a pointer done in place (p->f += v, p->f++)
+for rmmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r rmname rmflags <<< "$rmmode"
+    echo "Testing test_rmw_ptr_xemu.c ($rmname)..."
+    compile_link_test "src/test-resources/test_rmw_ptr_xemu.c" "build/test/test_rmw_ptr_${rmname}_xemu.prg" "$rmflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_rmw_ptr_$rmname" "build/test/test_rmw_ptr_${rmname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_rmw_ptr_xemu.c $rmname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: GCC statement expressions ({ stmt; ...; expr; })
 for semode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r sename seflags <<< "$semode"
