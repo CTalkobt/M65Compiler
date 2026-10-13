@@ -810,7 +810,11 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
             if (stmt->type == AssemblerParser::Statement::DIRECTIVE) {
                 const std::string& d = stmt->dir.name;
                 if (d == "split") {
-                    openSec(seg, stmt->address, stmt->dir.arguments.empty() ? std::string() : stmt->dir.arguments[0], 0);
+                    uint8_t al = 0;
+                    auto pa = pendingAlign.find(seg);
+                    if (pa != pendingAlign.end()) { while ((1u << al) < pa->second && al < 15) al++; }
+                    pendingAlign.erase(seg);
+                    openSec(seg, stmt->address, stmt->dir.arguments.empty() ? std::string() : stmt->dir.arguments[0], al);
                     continue;
                 }
                 if (d == "nosplit") { closeAt(seg, stmt->address); continue; }

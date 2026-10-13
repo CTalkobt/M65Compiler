@@ -68,6 +68,7 @@ public:
     std::string generateSpecializationName(const std::string& funcName, const SpecializationPattern& pattern) const;
 
     // Phase 91.3: Set functions to skip during code generation (dead code elimination)
+    void setFunctionSections(bool on) { functionSections_ = on; }
     void setDeadCodeFunctions(const std::set<std::string>& deadFuncs) {
         deadCodeFunctions_ = deadFuncs;
     }
@@ -184,6 +185,12 @@ private:
     std::string currentFunctionName_;  // name of function being emitted
     bool currentFunctionUseSAC_ = false;  // whether current function uses SAC
     bool relocMode_ = false;
+    // -ffunction-sections: each variable, string and SAC block is a .split
+    // section too (ca45 makes each function one), so ln45 can drop them
+    bool functionSections_ = false;
+    void emitSplit(const std::string& name) {
+        if (functionSections_ && relocMode_) emit(".split \"" + name + "\"");
+    }
     bool zpCallMode_ = false;
     bool staticAllocMode_ = false;  // -fstaticalloc (SAC)
     bool sacDebugMode_ = false;  // -fsac-debug (emit runtime debug output for SAC)

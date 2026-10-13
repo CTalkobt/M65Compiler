@@ -310,6 +310,20 @@ proc _b
 endproc
 EOF
 sec_check into "Sections (1)" "00000003         1      1  _b"
+cat > $SD/dalign.s45 << 'EOF'
+        .function_sections
+        .data
+        .byte 0
+        .split "a"
+_a:     .byte 1
+        .align 16
+        .split "v"
+_v:     .word 2
+        .bss
+        .split "b"
+_b:     .res 3
+EOF
+sec_check dalign "Sections (3)" "DATA  00000001        15      1  a" "DATA  00000010         2     16  v" "BSS   00000000         3      1  b"
 # -ffunction-sections does the same as the directive; a sectioned object
 # links to the same program as without sections (ln45 does not drop yet)
 grep -v function_sections $SD/ref.s45 > $SD/ref_plain.s45

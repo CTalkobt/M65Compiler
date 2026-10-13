@@ -55,6 +55,7 @@ public:
 
     void setSourceFile(const std::string& f) { sourceFile_ = f; }
     void setStackTop(int top) { stackTop_ = top; }
+    void setFunctionSections(bool on) { functionSections_ = on; }
     bool errorsPrinted() const { return errorsPrinted_; }
     void setBssFill(int v) { bssFill_ = v; }
     void setStackSize(int v) { stackSize_ = v; }
@@ -75,6 +76,7 @@ private:
     int maxInlineIRSize_ = 11;
     int maxUnrollBytes_ = 128;
     int stackTop_ = -1;
+    bool functionSections_ = false;
     bool errorsPrinted_ = false;
     int bssFill_ = -1;
     int stackSize_ = -1;

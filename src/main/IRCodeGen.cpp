@@ -1569,6 +1569,7 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
                 if (relocMode) emit(".segment \"zp\"");
                 hasZp = true;
             }
+            emitSplit(g.name);
             emitLabel(g.name);
             // Emit debug metadata for global variable
             emitDebugVariable("@global", g.name, 0, g.type, "global");
@@ -1608,6 +1609,7 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
                 emit(".align " + std::to_string(g.align));
                 dataAlign_ = std::max(dataAlign_, g.align);
             }
+            emitSplit(g.name);   // (after the .align: it becomes the section's alignment)
             emitLabel(g.name);
             // Emit debug metadata for global variable
             emitDebugVariable("@global", g.name, 0, g.type, "global");
@@ -1700,6 +1702,7 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
                 emit(".align " + std::to_string(g.align));
                 bssAlign_ = std::max(bssAlign_, g.align);
             }
+            emitSplit(g.name);
             emitLabel(g.name);
             // Emit debug metadata for global variable
             emitDebugVariable("@global", g.name, 0, g.type, "global");
@@ -1720,6 +1723,7 @@ void IRCodeGen::emitStrings(const ir::Module& mod) {
     emitBlank();
     if (relocMode_) emit(".segment \"data\"");
     for (const auto& sl : mod.strings) {
+        emitSplit(sl.label);
         emitLabel(sl.label);
         if (sl.wide) {
             // L"...": each character in a 16-bit unit (low byte first)
@@ -2376,6 +2380,12 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             }
             sacMovable = hasStorage && !aligned;
         }
+        // a section of its own, unless it holds aligned locals (their
+        // alignment inside the block is not recorded): then residual
+        if (functionSections_ && relocMode_) {
+            if (sacMovable) emitSplit(fn.name + "__ar");
+            else emit(".nosplit");
+        }
         if (sacMovable && !bssBoundaryClean_) emit(".res 1", "SAC block lead pad");
         emit(".global " + fn.name + "__ar");
         emitLabel(fn.name + "__ar");
@@ -2407,6 +2417,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             if (isConstParam) {
                 // Constant params go in data segment (initialized)
                 emit(".segment \"data\"");
+                emitSplit(paramSymbol);
                 if (ps == 2) {
                     emit(paramSymbol + ": .word " + std::to_string((int)(constValue & 0xFFFF)));
                 } else if (ps == 4) {

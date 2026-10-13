@@ -423,6 +423,7 @@ if $CC -fzpcall -fimplicit-function-declaration -fsigned-default -funsigned-char
    $LD -basic --print-gc -o build/test/test_gc_sections_xemu.prg lib/build/crt0_zp.o45 build/test/test_gc_sections.o45 \
        build/test/test_gc_conio.lib $STDLIB > build/test/test_gc_sections.log 2>&1 &&
    grep -q "dropped section .*_cprintf " build/test/test_gc_sections.log &&
+   grep -q "dropped section .*_clrscr__ar " build/test/test_gc_sections.log &&
    ! grep -q "dropped section .*_gotoxy " build/test/test_gc_sections.log &&
    [ "$(stat -c %s build/test/test_gc_sections_xemu.prg)" -lt 3000 ]; then
     run_xemu_test "test_gc_sections" "build/test/test_gc_sections_xemu.prg" "C0C0" 3 "01 01 AA"

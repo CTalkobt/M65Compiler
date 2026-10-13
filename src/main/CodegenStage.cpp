@@ -225,6 +225,7 @@ void CodegenStage::generateAssembly() {
     // Generate assembly from IR using IRCodeGen
     std::ostringstream ss;
     IRCodeGen codegen(ss);
+    codegen.setFunctionSections(functionSections_);
 
     // Generate assembly text for the module
     // Parameters: module, zpStart, relocMode, zpCallMode, emitReasons, staticAllocMode, sacDebugMode, prgBase
