@@ -482,7 +482,7 @@ echo "--- Test: -m map file with PRG ---"
 cat > "$BUILD/objdump_map_a.s45" << 'EOF'
 .global _main
 .extern _helper
-.s45egment "code"
+.segment "code"
 _main:
     jsr _helper
     rts

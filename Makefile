@@ -487,6 +487,8 @@ test: all lib
 	@bash src/test/test_shadow_ir.sh
 	@echo "Running clobber tracking tests..."
 	@bash src/test/test_clobber.sh
+	@echo "Running library call convention tests..."
+	@bash src/test/test_libcall_conv.sh
 	@echo "Running xemu runtime tests..."
 	@bash src/test/test_xemu.sh
 	@echo "Running parser syntax error validation tests..."

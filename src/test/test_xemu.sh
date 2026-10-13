@@ -1250,6 +1250,32 @@ else
     failed=$((failed + 1))
 fi
 
+# Test: calls to the library's ZP assembly routines without a declaration
+# (__builtin_alloca/setjmp/longjmp/abs/labs, implicit alloca/strlen) use the
+# ZP convention in a stack-convention unit too: the stack build links with
+# ln45 --no-thunks (each stack-mode GTE alloca/setjmp test needed a thunk)
+for lcmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r lcname lcflags <<< "$lcmode"
+    echo "Testing test_libcall_conv_xemu.c ($lcname)..."
+    compile_link_test "src/test-resources/test_libcall_conv_xemu.c" "build/test/test_libcall_conv_${lcname}_xemu.prg" \
+        "$lcflags -fimplicit-function-declaration"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_libcall_conv_$lcname" "build/test/test_libcall_conv_${lcname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_libcall_conv_xemu.c $lcname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+if $LD --no-thunks -basic -o build/test/test_libcall_conv_nothunks.prg $CRT0 build/test/test_libcall_conv_stack_xemu.o45 $STDLIB_STACK \
+       > build/test/test_libcall_conv_nothunks.log 2>&1; then
+    echo "SUCCESS: test_libcall_conv_nothunks"
+    passed=$((passed + 1))
+else
+    echo "FAIL: test_libcall_conv_nothunks (ln45 --no-thunks):"
+    grep -i "mismatch\|error" build/test/test_libcall_conv_nothunks.log | head -3
+    failed=$((failed + 1))
+fi
+
 # Test: c45_stack.lib needs no calling-convention thunks: stack-convention
 # programs using stdio, file I/O, strings, struct copies and wide integers
 # link with ln45 --no-thunks (the library's asm functions are __fastcall__)

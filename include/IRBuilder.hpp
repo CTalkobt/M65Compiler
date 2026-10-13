@@ -183,6 +183,12 @@ private:
     static int zpParamBytes(const std::vector<ir::Type>& types);
     bool usesZpConv(const std::string& fname);
     bool usesZpConvSig(const FuncPtrSignature& sig);
+    // Functions the unit declares or defines at file scope (a call without a
+    // prototype to one of the library's ZP assembly routines uses the ZP
+    // convention only when the unit has no function of that name)
+    std::set<std::string> unitFunctionNames_;
+    std::set<std::string> stackCalledFunctions_;  // stack-mode: callees called with the stack convention
+    static bool isLibraryZpRoutine(const std::string& fname);
     std::map<std::string, std::string> staticRenames_;  // static function -> module-unique symbol
     std::string staticFunctionName(const std::string& name);
     std::string resolvedFunctionName(const std::string& name) const;

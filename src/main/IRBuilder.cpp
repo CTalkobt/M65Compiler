@@ -275,6 +275,9 @@ std::string IRBuilder::newLabel(const std::string& prefix) {
 }
 
 void IRBuilder::emit(ir::Inst inst) {
+    if (!zpCallMode && (inst.op == ir::Op::CALL || inst.op == ir::Op::CALL_VOID) &&
+        inst.callConv == ir::CallConv::STACK && inst.src1.kind == ir::OperandKind::GLOBAL)
+        stackCalledFunctions_.insert(inst.src1.name);
     if (currentBlock_) currentBlock_->insts.push_back(std::move(inst));
 }
 
@@ -1035,6 +1038,8 @@ void IRBuilder::visit(TranslationUnit& node) {
     // #pragma encoding (asm(".encoding ...")) takes effect where it appears:
     // literals before the first one are PETSCII
     currentStringEncoding_ = StringEncoding::PETSCII;
+    for (auto& decl : node.topLevelDecls)
+        if (auto* fd = dynamic_cast<FunctionDeclaration*>(decl.get())) unitFunctionNames_.insert(fd->name);
     declareBuiltinPrototypes();
     // Now visit all declarations
     for (auto& decl : node.topLevelDecls) {
@@ -1166,6 +1171,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
             psigned.push_back(p.isSigned);
         }
         paramAggSizes_[node.name] = aggSizes;
+        bool wasZp = usesZpConv(node.name);
         if (node.isFastcall) fastcallFunctions_.insert(node.name);
         funcParamInfo_[node.name] = pinfo;
         functionParamTypes_[node.name] = ptypes;
@@ -1174,6 +1180,14 @@ void IRBuilder::visit(FunctionDeclaration& node) {
                                                                       : mapType(node.returnType, node.returnPointerLevel);
         functionReturnSigned_[node.name] = node.isSigned;
         if (node.isVariadic) variadicFunctions_.insert(node.name);
+        // ln45 learns per object (cc45.zpcall.<name>), not per call, that a
+        // stack-mode object calls a function the ZP way: stack calls made
+        // before a __fastcall__ declaration would not be bridged
+        if (node.isFastcall && !zpCallMode && !wasZp && usesZpConv(node.name) &&
+            stackCalledFunctions_.count("_" + node.name))
+            errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column, Severity::Error,
+                "'" + node.name + "' declared __fastcall__ after it was called with the stack convention; "
+                "declare it __fastcall__ before the first call"));
         if (node.isRegparm) regparmFunctions_.insert(node.name);
         allFunctions_[node.name] = &node;
         if (builtinProtos_.empty() || builtinProtos_.back().get() != &node) builtinProtoNames_.erase(node.name);
@@ -2925,9 +2939,28 @@ int IRBuilder::zpParamBytes(const std::vector<ir::Type>& types) {
 
 bool IRBuilder::usesZpConv(const std::string& fname) {
     if (variadicFunctions_.count(fname)) return false;
-    if (!zpCallMode && !fastcallFunctions_.count(fname)) return false;
+    if (!zpCallMode && !fastcallFunctions_.count(fname) &&
+        !(isLibraryZpRoutine(fname) && !unitFunctionNames_.count(fname))) return false;
     auto it = functionParamTypes_.find(fname);
     return it == functionParamTypes_.end() || zpParamBytes(it->second) <= ZP_PARAM_BYTES;
+}
+
+// The library's hand-written assembly routines (lib/stdlib_asm/*.s45): they use
+// the ZP convention in both c45.lib and c45_stack.lib. Their headers declare
+// them __fastcall__; a call without any declaration (an implicit declaration,
+// or __builtin_alloca/__builtin_setjmp/__builtin_abs..., which name the
+// library function) calls them with the ZP convention as well, so a
+// stack-convention program needs no bridge thunk.
+// src/test/test_libcall_conv.sh checks this list against the library.
+bool IRBuilder::isLibraryZpRoutine(const std::string& fname) {
+    static const std::set<std::string> routines = {
+        "abs", "alloca", "atoi", "calloc", "cbm_drive_status", "clock", "exit", "free",
+        "getchar", "isalnum", "isalpha", "isblank", "iscntrl", "isdigit", "isgraph", "islower",
+        "isprint", "ispunct", "isspace", "isupper", "isxdigit", "itoa", "labs", "longjmp", "ltoa",
+        "malloc", "memcmp", "memcpy", "memmove", "memset", "putchar", "puts", "rand", "realloc",
+        "setjmp", "srand", "strcat", "strchr", "strcmp", "strcpy", "strlen", "strncat", "strncmp",
+        "strncpy", "strrchr", "tolower", "toupper", "utoa"};
+    return routines.count(fname) > 0;
 }
 
 bool IRBuilder::usesZpConvSig(const FuncPtrSignature& sig) {
@@ -6385,7 +6418,8 @@ normal_call:
     else {
         std::vector<ir::Type> at;
         for (auto& a : args) at.push_back(a.type);
-        calleeZp = zpCallMode && zpParamBytes(at) <= ZP_PARAM_BYTES;
+        bool libZp = isLibraryZpRoutine(calleeName) && !unitFunctionNames_.count(calleeName);
+        calleeZp = (zpCallMode || libZp) && zpParamBytes(at) <= ZP_PARAM_BYTES;
     }
     inst.callConv = calleeZp ? ir::CallConv::ZP : ir::CallConv::STACK;
     inst.isRegparm = regparmFunctions_.count(node.name) > 0;

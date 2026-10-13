@@ -124,7 +124,19 @@ These are keywords written before the return type, for example
   in a stack-mode object those calls are marked `cc45.zpcall.<callee>` (a
   weak absolute symbol) so ln45 does not bridge them. The library's headers
   declare its assembly functions `__fastcall__`, so `c45_stack.lib` and
-  stack-mode programs call them without thunks.
+  stack-mode programs call them without thunks. A call to one of those
+  assembly routines (`lib/stdlib_asm/*.s45`: `alloca`, `setjmp`, `longjmp`,
+  `abs`, `labs`, `mem*`, `str*`, `malloc`... — the list is
+  `IRBuilder::isLibraryZpRoutine`) that sees no declaration at all — an
+  implicit declaration, or `__builtin_alloca`, `__builtin_setjmp`,
+  `__builtin_longjmp`, `__builtin_abs`..., which name the library function —
+  also uses the ZP convention, unless the file declares or defines a function
+  of that name itself (then the file's declaration decides).
+  `src/test/test_libcall_conv.sh` (`make test`) checks the list against the
+  library. A `__fastcall__` declaration that follows a stack-convention call
+  to the same function in a `-fno-zpcall` file is an error: ln45 learns per
+  object, not per call, that the object calls it the ZP way, so it could not
+  bridge the earlier call.
 - `__regparm`: the first argument is passed in A (8-bit) or A:X (16-bit), and
   the rest use the module's convention (its ZP slot stays free; under the
   stack convention it is not pushed). The callee stores it where the normal
@@ -329,13 +341,24 @@ Linker options:
 
 | ln45 option | Behaviour |
 |---|---|
-| (default) | generate thunks silently |
-| `-Wthunk` | generate thunks and warn: `calling convention mismatch: '_main' calls '_sub2' (zp_call -> stack_call) (generating thunk)` |
+| (default) | generate thunks and warn: `calling convention mismatch: '_main' calls '_sub2' (zp_call -> stack_call) (generating thunk)` |
+| `-Wthunk` | the same (accepted for compatibility) |
 | `--no-thunks` | link error for each mismatch |
+
+A program built entirely in one convention with its own library needs no
+thunks: every GCC torture test links without a mismatch in both conventions.
+(The 18 stack-mode mismatches the GTE runs used to report were calls to
+`alloca`, `setjmp`, `longjmp` and `abs` through `__builtin_*` names or
+implicit declarations, which cc45 made with the stack convention; the
+`s2z` thunks were correct — the thunk `JMP`s to the callee, so `setjmp`
+still records the caller's return address and stack pointer — but needless.)
 
 Limitations:
 
-- Only direct `JSR` relocations are redirected. A function pointer taken in
+- Only direct `JSR` relocations are redirected.
+- ln45 decides per object, not per call site, whether a stack-mode object
+  calls a function the ZP way (`cc45.zpcall.<callee>`); cc45 therefore rejects
+  a `__fastcall__` declaration after a stack-convention call to it (§3.4). A function pointer taken in
   one mode and called from code built in the other mode is **not** bridged.
   Build all such code in one mode.
 - Hand-written `.s45` functions get checked only if they carry a
