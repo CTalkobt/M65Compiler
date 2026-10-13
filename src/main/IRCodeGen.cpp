@@ -945,6 +945,21 @@ void IRCodeGen::emitArrayElemAddr(const std::string& baseStr, const ir::Operand&
         emit("mul.16 .AX, #" + std::to_string(stride));  // A:X = index * stride
     }
 
+    // Step 3 with a destination: the scaled index (in A:X) plus the base,
+    // byte by byte into it (no scratch, no pha/pla)
+    if (!destZP.empty()) {
+        std::string lo = baseStr, hi = baseStr + "+1";
+        if (baseStr[0] == '#') { lo = "#<" + baseStr.substr(1); hi = "#>" + baseStr.substr(1); }
+        emit("clc", "index + base into " + destZP);
+        emit("adc " + lo);
+        emit("sta " + destZP);
+        emit("txa");
+        emit("adc " + hi);
+        emit("sta " + destZP + "+1");
+        ms_.invalidateAll();   // (A holds the high byte)
+        return;
+    }
+
     // Step 3: Load base address and add the scaled index
     // Save scaled index first
     emit("sta __zp_scratch3");           // Save low byte of scaled index
@@ -3866,15 +3881,37 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 emit("stz " + hex8(safeZP + 3));
                 loadOperand(inst.src1);
                 emit(mn + " " + reg + ", " + hex8(safeZP));
-            } else if (inst.op == ir::Op::ADD && src2InFrame && !src1InFrame) {
-                // Swap: load src2 into AX, use src1 as memory operand
-                std::string src1mem = src2MemOperand(inst.src1);
-                loadOperand(inst.src2);
-                emit(mn + " " + reg + ", " + src1mem);
             } else {
-                std::string src2mem = src2MemOperand(inst.src2);
-                loadOperand(inst.src1);
-                emit(mn + " " + reg + ", " + src2mem);
+                // Swap for an ADD: load src2 into AX, use src1 as memory operand
+                bool swap = inst.op == ir::Op::ADD && src2InFrame && !src1InFrame;
+                std::string mem = src2MemOperand(swap ? inst.src1 : inst.src2);
+                loadOperand(swap ? inst.src2 : inst.src1);
+                // 16 bits into a destination in ZP or static storage: computed
+                // into it, without add.16's pha/pla (A/X do not keep the result)
+                std::string dbase = inst.dest.isVreg() ? directBase(inst.dest.vregId) : "";
+                if (inst.resultType != ir::Type::I32 && !dbase.empty() && !mem.empty()) {
+                    std::string lo = mem, hi = mem + "+1";
+                    if (mem[0] == '#') {
+                        long v = std::stol(mem.substr(1));
+                        lo = "#" + std::to_string(v & 0xFF);
+                        hi = "#" + std::to_string((v >> 8) & 0xFF);
+                    }
+                    std::string d0 = dbase;
+                    std::string d1 = dbase[0] == '$' ? "$" + hex8((uint8_t)(std::stoi(dbase.substr(1), nullptr, 16) + 1))
+                                                     : dbase + "+1";
+                    bool add = inst.op == ir::Op::ADD;
+                    emit(add ? "clc" : "sec", irDesc(add ? "add into the destination" : "sub into the destination"));
+                    emit((add ? "adc " : "sbc ") + lo);
+                    emit("sta " + d0);
+                    emit("txa");
+                    emit((add ? "adc " : "sbc ") + hi);
+                    emit("sta " + d1);
+                    ms_.invalidateAll();
+                    storeCache_.vreg = UINT32_MAX;
+                    resultInAX_ = -1;
+                    break;
+                }
+                emit(mn + " " + reg + ", " + mem);
             }
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             // stax.fp clobbers X via TSX — don't claim result is in AX after frame store
