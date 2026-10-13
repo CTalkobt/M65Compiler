@@ -5,6 +5,7 @@
 #include <fstream>
 #include <vector>
 #include <string>
+#include <unistd.h>
 #include "O45Reader.hpp"
 #include "O45Linker.hpp"
 #include "O45Archive.hpp"
@@ -156,9 +157,27 @@ int main(int argc, char** argv) {
         linker.addObject(filename, obj);
     }
 
+    // Last, the standard library directories next to this executable: the
+    // build tree's bin/../lib/build, an installed tree's bin/../lib/cc45
+    {
+        char buf[4096];
+        ssize_t len = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+        if (len > 0) {
+            buf[len] = '\0';
+            std::string self(buf);
+            size_t sep = self.find_last_of('/');
+            if (sep != std::string::npos) {
+                std::string base = self.substr(0, sep + 1);
+                libSearchPaths.push_back(base + "../lib/build");
+                libSearchPaths.push_back(base + "../lib/cc45");
+            }
+        }
+    }
+
     // Load libraries
     for (const auto& libname : libFiles) {
-        // Try the path as given first, then search CC45_LIB / -L directories
+        // Try the path as given first, then search CC45_LIB, -L and the
+        // standard library directories
         std::string resolvedLib = libname;
         {
             std::ifstream test(resolvedLib, std::ios::binary);

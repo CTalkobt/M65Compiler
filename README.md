@@ -117,11 +117,19 @@ The install targets build everything (including `lib`) automatically. Installed 
 | Component | Path |
 |-----------|------|
 | Binaries | `$(PREFIX)/bin/` |
-| Libraries (`c45.lib`, `c45_zp.lib`, `c45_stack.lib`) | `$(PREFIX)/lib/cc45/` |
+| Libraries (`c45.lib`, `c45_zp.lib`, `c45_stack.lib`, `crt0*.o45`) | `$(PREFIX)/lib/cc45/` |
 | C headers | `$(PREFIX)/include/cc45/` |
 | Man pages | `$(PREFIX)/share/man/man1/` |
 
 After `make install_local`, ensure `~/.local/bin` is on your `PATH`.
+
+The tools find these relative to their own location, so no environment
+variables are needed: cc45/cp45 take the standard headers from
+`bin/../lib/include` (the build tree) or `bin/../include/cc45` (installed),
+and cc45 and ln45 take the libraries from `bin/../lib/build` or
+`bin/../lib/cc45`. `CC45_INCLUDE` and `CC45_LIB` add directories in front of
+these. Keep the default `BINDIR`/`LIBDIR`/`INCDIR` (relative to `PREFIX`);
+with others, set `CC45_INCLUDE` and `CC45_LIB`.
 
 ## Documentation
 In addition to the Markdown files in the `doc/` directory (index: [doc/README.md](doc/README.md)), you can generate and view standard Unix man pages for every tool:

@@ -456,7 +456,15 @@ int main(int argc, char** argv) {
         }
         size_t sep = exePath.find_last_of("/\\");
         std::string baseDir = (sep != std::string::npos) ? exePath.substr(0, sep + 1) : "";
-        includePaths.push_back(baseDir + "../lib/include");
+        // The system headers, after CC45_INCLUDE: the build tree's
+        // bin/../lib/include, else an installed tree's bin/../include/cc45
+        // (make install's PREFIX/include/cc45 next to PREFIX/bin)
+        std::string sysInc = baseDir + "../lib/include";
+        for (const char* rel : {"../lib/include", "../include/cc45"}) {
+            std::string dir = baseDir + rel;
+            if (access((dir + "/stdio.h").c_str(), R_OK) == 0) { sysInc = dir; break; }
+        }
+        includePaths.push_back(sysInc);
         config.toolDir = baseDir;
     }
 

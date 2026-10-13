@@ -156,8 +156,11 @@ doc/architecture/    reference docs; doc/archive and doc/architecture/bug are hi
 - `make coverage`, `make test-o45`, `make docker` (the Alpine `src/Docker/Dockerfile` is currently broken; the root `Dockerfile` works)
 - Some targets (`test-mmemu`, `test-stdlib`, `bench-optimizer`) still use mmemu — **runtime tests are run on xemu-xmega65, never mmemu**.
 
-Known install problem: an installed cc45 looks for headers in
-`bin/../lib/include`, but `make install` puts them in `PREFIX/include/cc45`.
+The tools find headers and libraries relative to their own location, in the
+build tree and in an installed one: headers `CC45_INCLUDE`, then
+`bin/../lib/include` or `bin/../include/cc45`; libraries (cc45, ln45 `-l`)
+`bin/../lib/build` or `bin/../lib/cc45` (ln45 after `CC45_LIB` and `-L`).
+`src/test/test_install.sh` (`make test`) installs into `build/tmp` and builds with it.
 
 ## Testing
 

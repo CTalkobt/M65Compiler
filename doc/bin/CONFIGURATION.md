@@ -84,7 +84,7 @@ See [cvt_asm](cvt_asm.md#configuration-file-cvtasmrc). `cvt_asm --init-config` w
 
 | Variable | Tools | Description |
 |----------|-------|-------------|
-| `CC45_INCLUDE` | cc45, cp45, ca45 | Colon-separated include directories, searched before cc45's built-in `<bin>/../lib/include` |
+| `CC45_INCLUDE` | cc45, cp45, ca45 | Colon-separated include directories, searched before cc45's standard headers (`<bin>/../lib/include`, or `<bin>/../include/cc45` when installed) |
 | `CC45_LIB` | ln45 | Colon-separated library directories (see [ln45](ln45.md#environment-variables)) |
 | `CA45_OPTIMIZE` | ca45 | Adds `-O<value>` (after the config files, before the command line) |
 | `CA45_WARNINGS` | ca45 | Colon-separated warning names, each added as `-W<name>` (e.g. `overflow:underflow`) |

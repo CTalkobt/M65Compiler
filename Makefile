@@ -481,6 +481,8 @@ test: all lib
 	@bash src/test/test_string_escapes.sh
 	@echo "Running signedness tests..."
 	@bash src/test/test_signedness.sh
+	@echo "Running installed toolchain tests..."
+	@bash src/test/test_install.sh
 	@echo "Running shadow execution tests (cc45 vs host gcc)..."
 	@bash src/test/test_shadow_ir.sh
 	@echo "Running clobber tracking tests..."
@@ -882,8 +884,10 @@ install: all lib
 	ln -sf cc45 $(DESTDIR)$(BINDIR)/cp45
 	install -d $(DESTDIR)$(LIBDIR)
 	install -m 644 lib/build/c45.lib lib/build/c45_zp.lib lib/build/c45_stack.lib $(DESTDIR)$(LIBDIR)
-	install -d $(DESTDIR)$(INCDIR)
+	install -m 644 lib/build/crt0*.o45 $(DESTDIR)$(LIBDIR)
+	install -d $(DESTDIR)$(INCDIR) $(DESTDIR)$(INCDIR)/sys
 	install -m 644 lib/include/*.h $(DESTDIR)$(INCDIR)
+	install -m 644 lib/include/sys/*.h $(DESTDIR)$(INCDIR)/sys
 	install -d $(DESTDIR)$(MANDIR)
 	if [ -d $(MAN_DIR) ] && ls $(MAN_DIR)/*.1 >/dev/null 2>&1; then \
 		install -m 644 $(MAN_DIR)/*.1 $(DESTDIR)$(MANDIR); \
@@ -1005,4 +1009,5 @@ uninstall:
 	rm -rf $(DESTDIR)$(INCDIR)
 	rm -f $(DESTDIR)$(MANDIR)/cc45.1 $(DESTDIR)$(MANDIR)/ca45.1 $(DESTDIR)$(MANDIR)/cp45.1
 	rm -f $(DESTDIR)$(MANDIR)/ln45.1 $(DESTDIR)$(MANDIR)/nm45.1 $(DESTDIR)$(MANDIR)/ar45.1
-	rm -f $(DESTDIR)$(MANDIR)/objdump45.1
+	rm -f $(DESTDIR)$(MANDIR)/objdump45.1 $(DESTDIR)$(MANDIR)/disk45.1
+	rm -f $(DESTDIR)$(MANDIR)/basic45.1 $(DESTDIR)$(MANDIR)/cvt_asm.1

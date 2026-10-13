@@ -481,6 +481,7 @@ echo "--- Test: -m map file with PRG ---"
 # Build a linked PRG with a map file
 cat > "$BUILD/objdump_map_a.s45" << 'EOF'
 .global _main
+.extern _helper
 .s45egment "code"
 _main:
     jsr _helper
