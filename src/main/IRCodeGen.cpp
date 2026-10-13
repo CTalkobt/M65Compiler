@@ -2890,8 +2890,21 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         if (localFrameSize > 0) {
             emitComment("frame: " + std::to_string(localFrameSize) + " bytes (frame-allocated vRegs only)");
             // Push frame in 2-byte chunks; if odd size, push final byte separately
-            for (int i = 0; i < localFrameSize - 1; i += 2) {
-                emit("phw #0");
+            // (a large frame in a loop: Z is free at the entry)
+            int words = localFrameSize / 2;
+            if (words >= 4) {
+                for (int done = 0; done < words; ) {
+                    int n = std::min(words - done, 255);
+                    std::string lbl = "@__fpush_" + std::to_string(labelCounter_++);
+                    emit("ldz #" + std::to_string(n));
+                    emitLabel(lbl);
+                    emit("phw #0");
+                    emit("dez");
+                    emit("bne " + lbl);
+                    done += n;
+                }
+            } else {
+                for (int i = 0; i < words; i++) emit("phw #0");
             }
             if (localFrameSize % 2 == 1) {
                 emit("lda #0");
@@ -3181,25 +3194,29 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             // Drop the frame and restore the caller's FP using only A (saved in
             // scratch), so X/Y/Z of the return value are preserved
             emit("sta __zp_scratch");
-            if (usesAlloca) {
-                // alloca moved SP: reset it to just below the frame (FP - 1).
-                // SP rises, so SPL is written first (an interrupt between the
-                // writes pushes below the frame). X/Y of the result are kept.
+            if (usesAlloca || localFrameSize >= 8) {
+                // alloca moved SP, or a large frame: set SP to just below the
+                // saved FP (FP + size - 1: the frame starts at FP) instead of
+                // pulling the frame byte by byte. SP rises, so SPL is written
+                // first (an interrupt between the writes pushes below the
+                // frame). X/Y of the result are kept.
+                int off = localFrameSize - 1;
                 emit("stx __zp_scratch+1");
                 emit("sty __zp_scratch+2");
                 emit("lda $FD");
-                emit("sec");
-                emit("sbc #1");
+                emit("clc");
+                emit("adc #" + std::to_string(off & 0xFF));
                 emit("tax");
                 emit("lda $FE");
-                emit("sbc #0");
+                emit("adc #" + std::to_string((off >> 8) & 0xFF));
                 emit("tay");
                 emit("txs");
                 emit("tys");
                 emit("ldx __zp_scratch+1");
                 emit("ldy __zp_scratch+2");
+            } else {
+                for (int i = 0; i < localFrameSize; i++) emit("pla");
             }
-            for (int i = 0; i < localFrameSize; i++) emit("pla");
             emit("pla");
             emit("sta $FE");   // prologue pushed $FD then $FE
             emit("pla");
