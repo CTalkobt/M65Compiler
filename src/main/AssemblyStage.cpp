@@ -45,8 +45,9 @@ Stage::Result AssemblyStage::execute() {
         // Invoke ca45 assembler
         int exitCode = invokeAssembler();
 
-        // Clean up temporary file
-        remove(tempAsmFile.c_str());
+        // Clean up temporary file (kept with --save-temps)
+        if (keepTemp_) std::cerr << "cc45: kept " << tempAsmFile << std::endl;
+        else remove(tempAsmFile.c_str());
 
         if (exitCode != 0) {
             return {false, "Assembler failed with exit code " + std::to_string(exitCode), exitCode};

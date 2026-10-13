@@ -193,6 +193,127 @@ else
     failed=$((failed + 1))
 fi
 
+# Sections (.function_sections / -ffunction-sections): one per proc and
+# .split; merged when tied without a relocation; references where a
+# relocation's value does not say which section it targets
+SD=build/test_sections
+mkdir -p $SD
+sec_check() {   # sec_check <name> <expected nm45 -S lines (grep -F patterns)>... ; reads $SD/<name>.s45
+    local n=$1; shift
+    local out
+    if ! out=$($AS -c $SD/$n.s45 -o $SD/$n.o45 2>&1 && ./bin/nm45 -S $SD/$n.o45 2>&1); then
+        echo "FAIL: sections $n ($out)"; failed=$((failed + 1)); return
+    fi
+    for p in "$@"; do
+        if ! grep -qF -- "$p" <<< "$out"; then
+            echo "FAIL: sections $n: missing '$p'"; echo "$out" | sed 's/^/    /'; failed=$((failed + 1)); return
+        fi
+    done
+    echo "SUCCESS: sections $n"; passed=$((passed + 1))
+}
+printf '        .code\nproc _a\n        lda #1\nendproc\n' > $SD/none.s45
+sec_check none "No sections"
+cat > $SD/base.s45 << 'EOF'
+        .function_sections
+        .code
+proc _a
+        lda #1
+endproc
+proc _b
+        lda #2
+endproc
+        .align 256
+proc _c
+        .keep
+        lda #3
+endproc
+EOF
+sec_check base "Sections (3)" "00000000         3      1  _a" "00000003         3      1  _b" "00000100         3    256  _c  [keep]"
+cat > $SD/branch.s45 << 'EOF'
+        .function_sections
+        .code
+proc _a
+        lda #1
+        beq _b
+        bne *+3
+endproc
+proc _b
+        lda #2
+endproc
+proc _c
+        lda #3
+endproc
+EOF
+sec_check branch "Sections (2)" "00000000        10      1  _a" "_c"
+cat > $SD/fall.s45 << 'EOF'
+        .function_sections
+        .code
+        .split "x"
+_x:     lda #1
+        .split "y"
+_y:     lda #2
+        rts
+        .split "z"
+_z:     rts
+EOF
+sec_check fall "Sections (2)" "00000000         5      1  x" "00000005         1      1  z"
+cat > $SD/diff.s45 << 'EOF'
+        .function_sections
+        .code
+        .split "a"
+_a:     lda #1
+_a_end: rts
+        .split "b"
+_b:     rts
+        .split "c"
+_c:     rts
+        .data
+len:    .word _a_end - _b
+EOF
+sec_check diff "Sections (2)" "00000000         4      1  a" "00000004         1      1  c"
+cat > $SD/ref.s45 << 'EOF'
+        .function_sections
+        .global _main
+        .code
+proc _main
+        lda _t1+3
+        lda _t2
+endproc
+        .data
+        .split "t1"
+_t1:    .byte 1, 2, 3
+        .split "t2"
+_t2:    .byte 4
+EOF
+sec_check ref "Sections (3)" "DATA  00000000         3      1  t1" "DATA  00000003         1      1  t2" "text reloc at 00000001 -> section 1 t1"
+cat > $SD/resid.s45 << 'EOF'
+        .function_sections
+        .code
+helper: rts
+proc _a
+        bra helper
+endproc
+proc _b
+        rts
+endproc
+EOF
+sec_check resid "Sections (1)" "00000004         1      1  _b"
+# -ffunction-sections does the same as the directive; a sectioned object
+# links to the same program as without sections (ln45 does not drop yet)
+grep -v function_sections $SD/ref.s45 > $SD/ref_plain.s45
+if $AS -c -ffunction-sections $SD/ref_plain.s45 -o $SD/ref_flag.o45 >/dev/null 2>&1 &&
+   cmp -s $SD/ref.o45 $SD/ref_flag.o45 &&
+   $AS -c $SD/ref_plain.s45 -o $SD/ref_plain.o45 >/dev/null 2>&1 &&
+   ./bin/ln45 -prg -t 2000 -o $SD/ref.prg $SD/ref.o45 >/dev/null 2>&1 &&
+   ./bin/ln45 -prg -t 2000 -o $SD/ref_plain.prg $SD/ref_plain.o45 >/dev/null 2>&1 &&
+   cmp -s $SD/ref.prg $SD/ref_plain.prg; then
+    echo "SUCCESS: -ffunction-sections as the directive; sectioned objects link unchanged"
+    passed=$((passed + 1))
+else
+    echo "FAIL: -ffunction-sections / linking a sectioned object"
+    failed=$((failed + 1))
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All assembler feature tests passed!"
     exit 0

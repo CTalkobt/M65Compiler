@@ -4,9 +4,12 @@
 #include "AssemblerParser.hpp"
 #include "AssemblerGenerator.hpp"
 #include "M65Emitter.hpp"
+#include "StringUtil.hpp"
 #include <iostream>
 #include <iomanip>
 #include <algorithm>
+#include <functional>
+#include <set>
 
 // Map ca45 segment names to O45 segment IDs.
 // Offset of an instruction's 16-bit operand: after the opcode, or after the
@@ -351,7 +354,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
             reloc.segment = SEG_EXTERNAL;
             reloc.symbolIndex = syms.getImportIndex(symName);
         } else {
-            reloc.segment = segIdFromName(targetSeg);
+            reloc.segment = segIdFromName(targetSeg); reloc.baseSeg = targetSeg; reloc.baseAddr = sym->value;
         }
 
         segRelocs[srcSeg].push_back(reloc);
@@ -418,7 +421,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
                 reloc.segment = SEG_EXTERNAL;
                 reloc.symbolIndex = syms.getImportIndex(symName);
             } else {
-                reloc.segment = segIdFromName(targetSeg);
+                reloc.segment = segIdFromName(targetSeg); reloc.baseSeg = targetSeg; reloc.baseAddr = sym->value;
             }
             segRelocs[srcSeg].push_back(reloc);
         } else if (isLow) {
@@ -434,7 +437,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
                 reloc.segment = SEG_EXTERNAL;
                 reloc.symbolIndex = syms.getImportIndex(symName);
             } else {
-                reloc.segment = segIdFromName(targetSeg);
+                reloc.segment = segIdFromName(targetSeg); reloc.baseSeg = targetSeg; reloc.baseAddr = sym->value;
             }
             segRelocs[srcSeg].push_back(reloc);
         } else { // isHigh
@@ -451,7 +454,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
                 reloc.segment = SEG_EXTERNAL;
                 reloc.symbolIndex = syms.getImportIndex(symName);
             } else {
-                reloc.segment = segIdFromName(targetSeg);
+                reloc.segment = segIdFromName(targetSeg); reloc.baseSeg = targetSeg; reloc.baseAddr = sym->value;
             }
             segRelocs[srcSeg].push_back(reloc);
         }
@@ -506,7 +509,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
                 reloc.segment = SEG_EXTERNAL;
                 reloc.symbolIndex = syms.getImportIndex(arg);
             } else {
-                reloc.segment = segIdFromName(targetSeg);
+                reloc.segment = segIdFromName(targetSeg); reloc.baseSeg = targetSeg; reloc.baseAddr = sym->value;
             }
 
             segRelocs[srcSeg].push_back(reloc);
@@ -579,7 +582,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
                     reloc.segment = SEG_EXTERNAL;
                     reloc.symbolIndex = syms.getImportIndex(symName);
                 } else {
-                    reloc.segment = segIdFromName(targetSeg);
+                    reloc.segment = segIdFromName(targetSeg); reloc.baseSeg = targetSeg; reloc.baseAddr = sym->value;
                 }
                 segRelocs[segName].push_back(reloc);
                 break;
@@ -614,7 +617,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
                     reloc.segment = SEG_EXTERNAL;
                     reloc.symbolIndex = syms.getImportIndex(symName);
                 } else {
-                    reloc.segment = segIdFromName(targetSeg);
+                    reloc.segment = segIdFromName(targetSeg); reloc.baseSeg = targetSeg; reloc.baseAddr = sym->value;
                 }
                 segRelocs[segName].push_back(reloc);
                 break;
@@ -755,6 +758,288 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
     {
         auto it = segRelocs.find("data");
         writer.setDataRelocations(it != segRelocs.end() ? O45RelocEncoder::encode(it->second) : std::vector<uint8_t>{});
+    }
+
+    // --- Step 3b: section table (.function_sections / ca45 -ffunction-sections) ---
+    // A section per proc ... endproc in a text segment, and per .split
+    // (ended by the next .split/.nosplit of its segment or the segment end):
+    // ln45 keeps or drops each as a whole. Sections tied together without a
+    // relocation -- a relative branch between them, code falling through from
+    // one into the next, a label difference -- are merged; a section tied to
+    // bytes outside any section (the residual) becomes residual, and so does
+    // a group spanning segments.
+    if (parser.functionSections) {
+        struct Sec { std::string seg; uint32_t start, end; std::string name; bool keep; uint8_t align; };
+        std::vector<Sec> secs;
+        std::map<std::string, int> open;           // segment -> its open section
+        std::map<std::string, uint32_t> pendingAlign;  // .align right before a proc
+        auto closeAt = [&](const std::string& seg, uint32_t addr) {
+            auto it = open.find(seg);
+            if (it == open.end()) return;
+            secs[it->second].end = std::max(addr, secs[it->second].start);
+            open.erase(it);
+        };
+        auto openSec = [&](const std::string& seg, uint32_t addr, const std::string& name, uint8_t align) {
+            closeAt(seg, addr);
+            secs.push_back({seg, addr, addr, name, false, align});
+            open[seg] = (int)secs.size() - 1;
+        };
+        std::set<int> procSecs;
+        for (const auto& stmt : parser.statements) {
+            if (stmt->deleted) continue;
+            const std::string& seg = stmt->segmentName;
+            if (!parser.segments.count(seg) || parser.segments.at(seg)->startAddress == 0xFFFFFFFF) continue;
+            if (stmt->type == AssemblerParser::Statement::INSTRUCTION && stmt->instr.mnemonic == "proc" &&
+                segIdFromName(seg) == SEG_TEXT) {
+                // the proc's name (the parser keeps it as the statement's label)
+                std::string name = stmt->label;
+                if (!name.empty() && (unsigned char)name[0] < ' ') name.clear();   // an unnamed proc
+                uint8_t al = 0;
+                auto pa = pendingAlign.find(seg);
+                if (pa != pendingAlign.end()) { while ((1u << al) < pa->second && al < 15) al++; }
+                openSec(seg, stmt->address, name, al);
+                procSecs.insert(open[seg]);
+                continue;
+            }
+            if (stmt->type == AssemblerParser::Statement::INSTRUCTION && stmt->instr.mnemonic == "endproc") {
+                auto it = open.find(seg);
+                if (it != open.end() && procSecs.count(it->second)) closeAt(seg, stmt->address + stmt->size);
+                pendingAlign.erase(seg);
+                continue;
+            }
+            if (stmt->type == AssemblerParser::Statement::DIRECTIVE) {
+                const std::string& d = stmt->dir.name;
+                if (d == "split") {
+                    openSec(seg, stmt->address, stmt->dir.arguments.empty() ? std::string() : stmt->dir.arguments[0], 0);
+                    continue;
+                }
+                if (d == "nosplit") { closeAt(seg, stmt->address); continue; }
+                if (d == "keep") { auto it = open.find(seg); if (it != open.end()) secs[it->second].keep = true; continue; }
+                if ((d == "align" || d == "balign") && !stmt->dir.arguments.empty()) {
+                    try { pendingAlign[seg] = (uint32_t)parseNumericLiteral(stmt->dir.arguments[0]); } catch (...) {}
+                    continue;
+                }
+            }
+            if (stmt->size > 0) pendingAlign.erase(seg);
+        }
+        for (auto& [seg, idx] : std::map<std::string, int>(open))
+            closeAt(seg, parser.segments.at(seg)->pc);
+        // drop empty sections
+        secs.erase(std::remove_if(secs.begin(), secs.end(), [](const Sec& s) { return s.end <= s.start; }), secs.end());
+
+        // the section holding an address of a segment (-1: residual)
+        auto find = [&](const std::string& seg, int64_t addr) -> int {
+            for (size_t i = 0; i < secs.size(); i++)
+                if (secs[i].seg == seg && addr >= secs[i].start && addr < secs[i].end) return (int)i;
+            return -1;
+        };
+        // union-find over the sections plus one residual node per segment
+        std::vector<int> parent(secs.size());
+        for (size_t i = 0; i < parent.size(); i++) parent[i] = (int)i;
+        std::map<std::string, int> residualNode;
+        auto node = [&](const std::string& seg, int sec) -> int {
+            if (sec >= 0) return sec;
+            auto it = residualNode.find(seg);
+            if (it != residualNode.end()) return it->second;
+            parent.push_back((int)parent.size());
+            return residualNode[seg] = (int)parent.size() - 1;
+        };
+        std::function<int(int)> root = [&](int x) { return parent[x] == x ? x : parent[x] = root(parent[x]); };
+        auto unite = [&](int a, int b) { a = root(a); b = root(b); if (a != b) parent[a] = b; };
+
+        // endproc assembles to rts
+        static const std::set<std::string> terminal = {"rts", "rti", "jmp", "bra", "rtn", "endproc"};
+        static const std::set<std::string> branchOps = {
+            "beq", "bne", "bra", "bcc", "bcs", "bpl", "bmi", "bvc", "bvs", "bsr",
+            "bbr0", "bbr1", "bbr2", "bbr3", "bbr4", "bbr5", "bbr6", "bbr7",
+            "bbs0", "bbs1", "bbs2", "bbs3", "bbs4", "bbs5", "bbs6", "bbs7"};
+        for (const auto& stmt : parser.statements) {
+            if (stmt->deleted || stmt->type != AssemblerParser::Statement::INSTRUCTION) continue;
+            const std::string& seg = stmt->segmentName;
+            if (!parser.segments.count(seg)) continue;
+            // a relative branch (8 or 16 bits): its target's section stays with its own
+            if (branchOps.count(stmt->instr.mnemonic)) {
+                bool bitBranch = stmt->instr.mnemonic[1] == 'b';
+                parser.currentLocalScope_ = stmt->localLabelScope;
+                parser.pc = stmt->address;   // for * in the operand
+                int64_t target = -1;
+                try {
+                    if (bitBranch) {
+                        Symbol* t = parser.resolveSymbol(stmt->instr.bitBranchTarget, stmt->scopePrefix);
+                        if (t) target = t->value;
+                    } else if (stmt->instr.operandTokenIndex >= 0) {
+                        target = parser.evaluateExpressionAt(stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                    }
+                } catch (...) {}
+                int from = find(seg, stmt->address);
+                if (target < 0) { unite(node(seg, from), node(seg, -1)); continue; }   // unknown: keep with the object
+                int to = find(seg, target);
+                if (from != to) unite(node(seg, from), node(seg, to));
+            }
+        }
+        // falling through: a text section whose last instruction can continue
+        for (size_t i = 0; i < secs.size(); i++) {
+            if (segIdFromName(secs[i].seg) != SEG_TEXT) continue;
+            const AssemblerParser::Statement* last = nullptr;
+            for (const auto& stmt : parser.statements)
+                if (!stmt->deleted && stmt->size > 0 && stmt->segmentName == secs[i].seg &&
+                    stmt->address >= secs[i].start && stmt->address < secs[i].end)
+                    last = stmt.get();
+            bool ends = last && last->type == AssemblerParser::Statement::INSTRUCTION &&
+                        terminal.count(last->instr.mnemonic);
+            uint32_t segEnd = parser.segments.at(secs[i].seg)->pc;
+            if (!ends && secs[i].end < segEnd) unite(node(secs[i].seg, (int)i), node(secs[i].seg, find(secs[i].seg, secs[i].end)));
+        }
+        // label differences (a - b): both labels' sections stay together
+        auto unitePair = [&](const std::vector<std::string>& names, const std::string& scope) {
+            std::vector<int> ns;
+            for (const auto& n : names) {
+                if (!parser.isRelocatableSymbolIn(n, scope)) continue;
+                Symbol* s = parser.resolveSymbol(n, scope);
+                if (!s || s->segment.empty() || s->segment == "__extern__") continue;
+                ns.push_back(node(s->segment, find(s->segment, s->value)));
+            }
+            for (size_t k = 1; k < ns.size(); k++) unite(ns[0], ns[k]);
+        };
+        auto identifiers = [](const std::string& e) {
+            std::vector<std::string> out;
+            for (size_t i = 0; i < e.size();) {
+                if (std::isalpha((unsigned char)e[i]) || e[i] == '_' || e[i] == '@' || e[i] == '.') {
+                    size_t j = i;
+                    while (j < e.size() && (std::isalnum((unsigned char)e[j]) || e[j] == '_' || e[j] == '@' || e[j] == '.' || e[j] == ':')) j++;
+                    out.push_back(e.substr(i, j - i));
+                    i = j;
+                } else if (e[i] == '$' || std::isdigit((unsigned char)e[i])) {
+                    while (i < e.size() && std::isalnum((unsigned char)e[i])) i++;
+                } else i++;
+            }
+            return out;
+        };
+        for (const auto& stmt : parser.statements) {
+            if (stmt->deleted) continue;
+            parser.currentLocalScope_ = stmt->localLabelScope;
+            parser.pc = stmt->address;
+            if (stmt->type == AssemblerParser::Statement::DIRECTIVE) {
+                for (const auto& a : stmt->dir.arguments)
+                    if (a.find('-') != std::string::npos) unitePair(identifiers(a), stmt->scopePrefix);
+            } else if (stmt->type == AssemblerParser::Statement::INSTRUCTION && stmt->instr.operand.find('-') != std::string::npos) {
+                unitePair(identifiers(stmt->instr.operand), stmt->scopePrefix);
+            }
+        }
+
+        // groups -> final sections: a group with a residual node or more than
+        // one segment becomes residual; otherwise its span (absorbing any
+        // section inside it) is one section
+        std::map<int, std::vector<int>> groups;
+        for (size_t i = 0; i < secs.size(); i++) groups[root((int)i)].push_back((int)i);
+        std::set<int> residualRoots;
+        for (const auto& [seg, n] : residualNode) residualRoots.insert(root(n));
+        std::vector<Sec> merged;
+        std::vector<bool> isResidual(secs.size(), false);
+        for (const auto& [r, members] : groups) {
+            bool resid = residualRoots.count(r) > 0;
+            for (int i : members) if (secs[i].seg != secs[members[0]].seg) resid = true;
+            if (resid) { for (int i : members) isResidual[i] = true; continue; }
+            Sec g = secs[members[0]];
+            for (int i : members) {
+                g.start = std::min(g.start, secs[i].start);
+                g.end = std::max(g.end, secs[i].end);
+                g.keep = g.keep || secs[i].keep;
+                if (secs[i].start <= g.start) { g.name = secs[i].name; g.align = secs[i].align; }
+            }
+            merged.push_back(g);
+        }
+        // spans that overlap (a group around another one's section) merge too
+        std::sort(merged.begin(), merged.end(), [](const Sec& a, const Sec& b) {
+            return a.seg != b.seg ? a.seg < b.seg : a.start < b.start; });
+        std::vector<Sec> finalSecs;
+        for (const auto& g : merged) {
+            if (!finalSecs.empty() && finalSecs.back().seg == g.seg && g.start < finalSecs.back().end) {
+                finalSecs.back().end = std::max(finalSecs.back().end, g.end);
+                finalSecs.back().keep = finalSecs.back().keep || g.keep;
+            } else finalSecs.push_back(g);
+        }
+        // a span may now cover a section that became residual: such a span is residual too
+        finalSecs.erase(std::remove_if(finalSecs.begin(), finalSecs.end(), [&](const Sec& g) {
+            for (size_t i = 0; i < secs.size(); i++)
+                if (isResidual[i] && secs[i].seg == g.seg && secs[i].start < g.end && secs[i].end > g.start) return true;
+            return false; }), finalSecs.end());
+
+        // table entries: offsets within the .o45 segment bodies
+        auto segOffset = [&](const std::string& seg) -> int64_t {
+            uint32_t base = parser.segments.at(seg)->startAddress;
+            if (segIdFromName(seg) == SEG_TEXT) {
+                auto it = textSubSegOffset.find(seg);
+                if (it == textSubSegOffset.end()) return -1;
+                return (int64_t)it->second - base;
+            }
+            return -(int64_t)base;
+        };
+        std::vector<O45Section> table;
+        std::vector<std::pair<std::string, std::pair<uint32_t, uint32_t>>> tableSpan;   // seg, [start, end) addresses
+        for (int pass = 0; pass < 4; pass++) {
+            O45Segment want = pass == 0 ? SEG_TEXT : pass == 1 ? SEG_DATA : pass == 2 ? SEG_BSS : SEG_ZP;
+            std::vector<std::pair<int64_t, size_t>> order;
+            for (size_t i = 0; i < finalSecs.size(); i++) {
+                if (segIdFromName(finalSecs[i].seg) != want) continue;
+                int64_t so = segOffset(finalSecs[i].seg);
+                if (so == -1 && want == SEG_TEXT) continue;
+                order.push_back({so + finalSecs[i].start, i});
+            }
+            std::sort(order.begin(), order.end());
+            for (const auto& [off, i] : order) {
+                O45Section sc;
+                sc.segId = (uint8_t)want;
+                sc.keep = finalSecs[i].keep;
+                sc.offset = (uint32_t)off;
+                sc.length = finalSecs[i].end - finalSecs[i].start;
+                sc.alignLog2 = finalSecs[i].align;
+                sc.name = finalSecs[i].name;
+                table.push_back(sc);
+                tableSpan.push_back({finalSecs[i].seg, {finalSecs[i].start, finalSecs[i].end}});
+            }
+        }
+        auto tableIndex = [&](const std::string& seg, int64_t addr) -> int {
+            for (size_t i = 0; i < tableSpan.size(); i++)
+                if (tableSpan[i].first == seg && addr >= tableSpan[i].second.first && addr < tableSpan[i].second.second)
+                    return (int)i;
+            return -1;
+        };
+        // references: an internal relocation whose stored value does not
+        // name its target's section (a low byte, one past the end, ...)
+        std::vector<O45SectRef> refs;
+        for (const auto& [srcSeg, relocs] : segRelocs) {
+            bool text = segIdFromName(srcSeg) == SEG_TEXT;
+            if (!text && srcSeg != "data") continue;
+            int64_t srcOff = text ? segOffset(srcSeg) + (int64_t)parser.segments.at(srcSeg)->startAddress : 0;
+            if (text && srcOff < 0) continue;
+            const auto& body = segBodies[srcSeg].bytes;
+            for (const auto& r : relocs) {
+                if (r.segment == SEG_EXTERNAL || r.baseSeg.empty() || r.baseAddr < 0) continue;
+                bool targetSectioned = false;
+                for (const auto& sp : tableSpan) if (sp.first == r.baseSeg) { targetSectioned = true; break; }
+                if (!targetSectioned) continue;   // all residual: nothing to tell apart
+                int want = tableIndex(r.baseSeg, r.baseAddr);
+                int64_t value = -1;
+                if (r.type == R_WORD && r.offset + 1 < body.size())
+                    value = body[r.offset] | (body[r.offset + 1] << 8);
+                else if (r.type == R_HIGH && r.offset < body.size())
+                    value = (body[r.offset] << 8) | r.extra;
+                else if (r.type == R_LOWX && r.offset < body.size())
+                    value = body[r.offset] | (r.extra << 8);
+                int byValue = value >= 0 ? tableIndex(r.baseSeg, value) : -2;
+                if (byValue == want) continue;
+                O45SectRef ref;
+                ref.kind = text ? O45_SECTREF_TEXT_RELOC : O45_SECTREF_DATA_RELOC;
+                ref.key = (uint32_t)(r.offset + (text ? srcOff : 0));
+                ref.section = want < 0 ? O45_SECT_RESIDUAL : (uint16_t)want;
+                refs.push_back(ref);
+            }
+        }
+        if (!table.empty()) {
+            writer.addSections(table);
+            writer.addSectRefs(refs);
+        }
     }
 
     // Apply symbols

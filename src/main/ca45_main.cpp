@@ -105,6 +105,8 @@ static void printHelpGeneral() {
 static void printHelpInputOutput() {
     std::cout << "Input/Output Options:\n\n";
     std::cout << "  -c                 Produce relocatable .o45 object file instead of binary\n";
+    std::cout << "  -ffunction-sections  With -c: a section per proc (and per .split), so ln45 can\n";
+    std::cout << "                     drop the unused ones (as .function_sections in the source)\n";
     std::cout << "                     Default: produces flat binary (.bin)\n\n";
     std::cout << "  -o <filename>      Specify output filename\n";
     std::cout << "                     Default: out.bin (or out.o45 with -c)\n";
@@ -372,6 +374,7 @@ int main(int argc, char** argv) {
     std::string listing_file;
     bool outputSet = false;
     bool relocMode = false;
+    bool functionSections = false;
     bool verboseOptimizer = false;
     bool traceMachState = false;
     bool enableExperimental = false;
@@ -476,6 +479,8 @@ int main(int argc, char** argv) {
             return 0;
         } else if (arg == "-c") {
             relocMode = true;
+        } else if (arg == "-ffunction-sections") {
+            functionSections = true;
         } else if (arg == "-o" && i + 1 < (int)allArgs.size()) {
             output_file = allArgs[++i];
             outputSet = true;
@@ -623,7 +628,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    AssemblerParser parser(tokens, predefinedSymbols);
+    AssemblerParser parser(tokens, predefinedSymbols); if (functionSections) parser.functionSections = true;
     parser.setSourceFile(input_file);
     parser.verboseOptimizer = verboseOptimizer;
     parser.traceMachState = traceMachState;
@@ -818,7 +823,7 @@ int main(int argc, char** argv) {
                     AssemblerLexer lexer(source);
                     std::vector<AssemblerToken> tokens = lexer.tokenize();
 
-                    AssemblerParser parser(tokens, predefinedSymbols);
+                    AssemblerParser parser(tokens, predefinedSymbols); if (functionSections) parser.functionSections = true;
                     parser.setSourceFile(input_file);
                     parser.verboseOptimizer = verboseOptimizer;
                     parser.traceMachState = traceMachState;

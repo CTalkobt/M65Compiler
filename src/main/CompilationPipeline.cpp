@@ -208,8 +208,9 @@ CompilationResult CompilationPipeline::compile() {
                 asmArgs += std::string(asmArgs.empty() ? "" : " ") + (on ? "-P" : "-PNo") + o->asmFlag;
         }
         asmStage.setExtraArgs(asmArgs);
+        asmStage.setKeepTemp(config_.saveTemps);
         auto asmResult = runStage(asmStage);
-        remove(tempAsmFile.c_str());
+        if (!config_.saveTemps) remove(tempAsmFile.c_str());
 
         if (!asmResult.success) {
             result.success = false;

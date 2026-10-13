@@ -25,6 +25,7 @@ public:
 
     // Extra ca45 arguments (e.g. -PNoTailCall from cc45's -fno-tail-call-optimization)
     void setExtraArgs(const std::string& a) { extraArgs_ = a; }
+    void setKeepTemp(bool k) { keepTemp_ = k; }   // --save-temps: keep the assembly input
 
 private:
     std::string assemblyInput_;
@@ -36,5 +37,6 @@ private:
 
     // Helper methods
     int invokeAssembler();
+    bool keepTemp_ = false;
     std::string extraArgs_;
 };

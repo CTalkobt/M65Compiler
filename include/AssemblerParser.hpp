@@ -51,6 +51,7 @@ public:
     bool traceMachState = false;
     bool enableExperimental = false;
     bool warnOverflow = false;   // Warn on immediate/address value overflows (default: off)
+    bool functionSections = false; // .function_sections / -ffunction-sections: write a section table
     bool warnUnderflow = false;  // Warn on negative values (underflows) (default: off)
     int optimizationLevel = 2;  // 0=none, 1=basic, 2=default, 3=aggressive
     OptimizationFlags optFlags = OptimizationFlags::fromLevel(2);  // Named optimization flags

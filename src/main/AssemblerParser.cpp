@@ -813,6 +813,21 @@ void AssemblerParser::pass1() {
                 sacMode = true;
                 stmt->size = 0;
             }
+            else if (stmt->dir.name == "function_sections") {
+                // .function_sections — the object gets a section table (per-function linking)
+                functionSections = true;
+                stmt->size = 0;
+            }
+            else if (stmt->dir.name == "split") {
+                // .split ["name"] — start a section in the current segment
+                if (peek().type == AssemblerTokenType::STRING_LITERAL || peek().type == AssemblerTokenType::IDENTIFIER)
+                    stmt->dir.arguments.push_back(advance().value);
+                stmt->size = 0;
+            }
+            else if (stmt->dir.name == "nosplit" || stmt->dir.name == "keep") {
+                // .nosplit — end the open section; .keep — always keep the current section
+                stmt->size = 0;
+            }
             else if (stmt->dir.name == "zp_uses" || stmt->dir.name == "zp_clobbers" || stmt->dir.name == "zp_release") {
                 // .zp_uses $03, $04, $05   — ZP slots read as parameters
                 // .zp_clobbers $03, $04    — ZP slots written by this function
@@ -2048,7 +2063,8 @@ void AssemblerParser::warnUnknownDirective(const AssemblerToken& tok) {
     static const std::set<std::string> known = {
         "align", "array", "array_dims", "ascii", "balign", "basicUpstart", "bss", "byte", "cleanup", "code", "const",
         "cpu", "data", "dword", "endrepeat", "extern", "field_class", "field_count", "fill", "fillto",
-        "fixed_prefix_size", "flag_clobbers", "float", "frame_size", "frameptr_zp", "func_flags",
+        "fixed_prefix_size", "flag_clobbers", "float", "frame_size", "frameptr_zp", "func_flags", "function_sections",
+        "keep", "nosplit", "split",
         "global", "import", "incbin", "init", "loc", "local", "long", "noopt_start", "org",
         "param_const", "param_sizes", "reg_clobbers", "repeat", "res", "sac", "screencode", "segment",
         "segmentOrder", "space", "text", "var", "var_field_array", "vtable_entry", "weak", "word", "zp", "zp_clobbers",

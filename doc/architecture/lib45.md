@@ -88,8 +88,8 @@ option_data   (option_length - 2 bytes)   ; at most 253 bytes
 | `$11`  | `OPT_LINEINFO`     | yes, with `.loc` info | ln45, objdump45 | Source line table (1.7) |
 | `$12`  | `OPT_DEBUG_SYMBOLS`| yes, for `proc`s | displayed | Procedure parameter names/offsets (1.8) |
 | `$13`  | `OPT_SAC_PARAMS`   | no | no | Reserved for SAC parameter metadata |
-| `$14`  | `OPT_SECTIONS`     | not yet | reader (checked), nm45 `-S`, objdump45 `-h` | Section table for per-function linking (1.10) |
-| `$15`  | `OPT_SECTREF`      | not yet | reader (checked), nm45 `-S` | Section of a relocation target or an export (1.10) |
+| `$14`  | `OPT_SECTIONS`     | with `.function_sections` / `-ffunction-sections` | reader (checked), nm45 `-S`, objdump45 `-h` | Section table for per-function linking (1.10) |
+| `$15`  | `OPT_SECTREF`      | with `.function_sections` (relocations; not exports yet) | reader (checked), nm45 `-S` | Section of a relocation target or an export (1.10) |
 | `$50`  | `OPT_IPO_HINTS`    | no | ln45 | Cross-module optimisation hints (1.9) |
 
 Unknown options are skipped. `OPT_IPO_HINTS`, when a writer has hints, is written before the other options.
