@@ -39,6 +39,13 @@ for entry in strength-reduction:strength algebraic-simplify:algebraic type-narro
     trace -O0 | grep -q "^\[$tag\]" && fail "$p runs at -O0" || pass
 done
 
+# post-increment-sink (*p++), on a source that has *p++
+ptrace() { $CC -S -Roptir "$@" src/test-resources/test_zp_pointers_xemu.c -o $T/p.s 2>&1 >/dev/null; }
+ptrace | grep -q "^\[postinc\]" && pass || fail "post-increment-sink does not run at the default level"
+ptrace -O0 -fpost-increment-sink | grep -q "^\[postinc\]" && pass || fail "-O0 -fpost-increment-sink does not run it"
+ptrace -fno-post-increment-sink | grep -q "^\[postinc\]" && fail "-fno-post-increment-sink still runs it" || pass
+ptrace -O0 | grep -q "^\[postinc\]" && fail "post-increment-sink runs at -O0" || pass
+
 # #pragma cc45 optimize(no-licm) for the functions that follow
 cat > $T/prag.c <<'EOF'
 int g[4];

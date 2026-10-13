@@ -165,6 +165,11 @@ void CodegenStage::optimizeIR() {
     if (ranAny) ir::removeDeadTemps(*irModule_);
     // a leaf function's pointer parameters in ZP registers (allocation, always on)
     ir::leafPointerParamsToZp(*irModule_);
+    // after it, so *p++ on such a parameter uses its ZP register
+    if (optOn("PostIncrementSink") || std::any_of(irModule_->functions.begin(), irModule_->functions.end(),
+            [](const ir::Function& f) { auto it = f.optOverrides.find("PostIncrementSink");
+                                        return it != f.optOverrides.end() && it->second; }))
+        ir::optimizePostIncrementSink(*irModule_);
     ir::passEnabled = nullptr;
     ir::optTrace = nullptr;
 }

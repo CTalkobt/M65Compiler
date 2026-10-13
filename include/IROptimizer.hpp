@@ -23,6 +23,8 @@ namespace ir {
 
     // ADDR_ELEM fusion: merge single-use ADDR_ELEM into following LOAD/STORE
     void optimizeAddrElemFusion(Module& mod);
+    // *p++: the access uses p, the increment moves after it
+    void optimizePostIncrementSink(Module& mod);
 
     // COPY chain elimination: resolve transitive copies, remove dead COPYs
     void optimizeCopyChains(Module& mod);

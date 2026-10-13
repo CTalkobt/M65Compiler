@@ -2029,6 +2029,84 @@ void optimizeLoopUnroll(Module& mod) {
 // the other passes: a loop unroll's per-copy constant that every use folded
 // away, a copy whose users were redirected). Loads (maybe volatile),
 // variables' slots and memory-pinned vregs are never removed.
+// *p++ / *p-- on a pointer variable S builds
+//     %t = deref S;  %u = add %t, c;  store %u, S;  ... accesses through %t
+// so the access goes through a copy of the old pointer. When nothing between
+// the store and the last use of %t reads or writes S (or calls, or is asm),
+// the increment moves after that use and %t becomes S + 0, which IRCodeGen
+// folds into the accesses ((S),y with S in ZP):
+//     %t = add S, 0;  ... accesses through %t;  %u = add S, c;  store %u, S
+void optimizePostIncrementSink(Module& mod) {
+    auto isTerm = [](Op op) { return op == Op::BR || op == Op::BR_COND || op == Op::SWITCH || op == Op::RET; };
+    for (auto& fn : mod.functions) {
+        if (!runOn(fn, "PostIncrementSink")) continue;
+        std::map<uint32_t, int> defs, useCount;
+        for (const auto& blk : fn.blocks)
+            for (const auto& in : blk.insts) {
+                if (in.dest.isVreg()) defs[in.dest.vregId]++;
+                for (const Operand* o : {&in.src1, &in.src2})
+                    if (o->isVreg()) useCount[o->vregId]++;
+                for (const auto& a : in.args) if (a.isVreg()) useCount[a.vregId]++;
+                for (const auto& ph : in.phiIncoming) if (ph.first.isVreg()) useCount[ph.first.vregId]++;
+            }
+        auto reads = [](const Inst& in, uint32_t v) {
+            auto is = [v](const Operand& o) { return o.isVreg() && o.vregId == v; };
+            if (is(in.src1) || is(in.src2)) return true;
+            for (const auto& a : in.args) if (is(a)) return true;
+            for (const auto& ph : in.phiIncoming) if (is(ph.first)) return true;
+            return false;
+        };
+        for (auto& blk : fn.blocks) {
+            auto& insts = blk.insts;
+            for (size_t i = 0; i + 3 < insts.size(); i++) {
+                Inst& d = insts[i];
+                if (d.op != Op::DEREF || d.resultType != Type::PTR || !d.dest.isVreg() || !d.src1.isVreg()) continue;
+                uint32_t t = d.dest.vregId, S = d.src1.vregId;
+                if (!fn.localSlotVregs.count(S) || fn.memoryVregs.count(S) || fn.localSlotVregs.count(t) ||
+                    defs[t] != 1) continue;
+                Inst& a = insts[i + 1];
+                const Inst& st = insts[i + 2];
+                if ((a.op != Op::ADD && a.op != Op::SUB) || !a.dest.isVreg() || !a.src1.isVreg() ||
+                    a.src1.vregId != t || !a.src2.isImm()) continue;
+                uint32_t u = a.dest.vregId;
+                if (defs[u] != 1 || useCount[u] != 1 || fn.localSlotVregs.count(u)) continue;
+                if (st.op != Op::STORE || !st.src1.isVreg() || st.src1.vregId != u ||
+                    !st.src2.isVreg() || st.src2.vregId != S) continue;
+                // every other use of %t is in this block after the store
+                int found = 0;
+                size_t last = 0;
+                for (size_t j = i + 3; j < insts.size(); j++)
+                    if (reads(insts[j], t)) {
+                        for (const Operand* o : {&insts[j].src1, &insts[j].src2})
+                            if (o->isVreg() && o->vregId == t) found++;
+                        for (const auto& x : insts[j].args) if (x.isVreg() && x.vregId == t) found++;
+                        for (const auto& ph : insts[j].phiIncoming) if (ph.first.isVreg() && ph.first.vregId == t) found++;
+                        last = j;
+                    }
+                if (found == 0 || found != useCount[t] - 1 || isTerm(insts[last].op)) continue;
+                bool ok = true;
+                for (size_t j = i + 3; j <= last && ok; j++) {
+                    const Inst& x = insts[j];
+                    if (x.op == Op::CALL || x.op == Op::CALL_VOID || x.op == Op::CALL_INDIRECT ||
+                        x.op == Op::ASM_INLINE || x.op == Op::PHI || isTerm(x.op)) ok = false;
+                    if ((x.dest.isVreg() && x.dest.vregId == S) || reads(x, S)) ok = false;
+                    if (x.dest.isVreg() && x.dest.vregId == u) ok = false;
+                }
+                if (!ok) continue;
+                d.op = Op::ADD;
+                d.src2 = Operand::imm(0, Type::I16);
+                a.src1 = Operand::vreg(S, Type::PTR);
+                Inst ma = a, ms = st;
+                trace("postinc", fn.name, "access before the increment of the pointer", d.loc);
+                insts.insert(insts.begin() + last + 1, {ma, ms});
+                insts.erase(insts.begin() + i + 1, insts.begin() + i + 3);
+                useCount[t]--;   // (the increment no longer reads %t)
+                useCount[S]++;
+            }
+        }
+    }
+}
+
 // A leaf function (no calls, no inline asm) keeps its pointer locals in the
 // ZP register pool (IRCodeGen: like register variables). Its pointer
 // parameters arrive in their own storage (static allocation: _f__param_p,

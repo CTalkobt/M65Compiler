@@ -12,7 +12,10 @@
  *   [4] a leaf function with a stack frame (#pragma cc45 recurse)
  *   [5] a parameter whose address is taken stays in memory
  *   [6] the same functions called through function pointers
- *   [7] $AA sentinel
+ *   [7] post-increment/decrement (*p++, *p--, int *ip++), where the access
+ *       moves before the increment, and where it must not: p read again
+ *       after p++ in the same expression, a call between
+ *   [8] $AA sentinel
  */
 #define OUT ((volatile unsigned char *)0xC0C0)
 
@@ -49,7 +52,39 @@ static unsigned char via_addr(unsigned char *p) {
     return *p + p[1];
 }
 
+static unsigned char rev_sum(const unsigned char *p, unsigned char n) {
+    unsigned char s = 0;
+    p += n - 1;
+    while (n--) s = s * 2 + *p--;          /* *p-- : dew */
+    return s;
+}
+
+static unsigned isum(const unsigned *ip, unsigned char n) {
+    unsigned s = 0;
+    while (n--) s += *ip++;                /* stride 2 */
+    return s;
+}
+
+static unsigned char pair_diff(const unsigned char *p) {
+    unsigned char x = *p++;                /* then p read again */
+    return (unsigned char)(*p - x);
+}
+
+static unsigned char next_after(const unsigned char *p) {
+    unsigned char x = *p++ + *p;           /* (unsequenced in C: either value of p is fine) */
+    return x;
+}
+
+static unsigned char twice(unsigned char c) { return (unsigned char)(c * 2); }
+
+static unsigned char call_sum(const unsigned char *p, unsigned char n) {
+    unsigned char s = 0;
+    while (n--) s += twice(*p++);          /* not a leaf: p in memory */
+    return s;
+}
+
 static unsigned char a[5] = {1, 2, 3, 4, 250};
+static unsigned w[3] = {1000, 2000, 30000};
 static char buf[16];
 
 int main(void) {
@@ -66,6 +101,12 @@ int main(void) {
     OUT[4] = last(a, 5) == 250 && last(a, 1) == 1;
     OUT[5] = via_addr(a) == 5;
     OUT[6] = fs(a, 3) == 6 && fc("mississippi", 's') == 4;
-    OUT[7] = 0xAA;
+    {
+        unsigned char nx = next_after(a + 1);
+        OUT[7] = rev_sum(a, 4) == ((((4 * 2 + 3) * 2) + 2) * 2 + 1) &&
+                 isum(w, 3) == 33000u && pair_diff(a + 3) == 246 &&
+                 (nx == 5 || nx == 4) && call_sum(a, 4) == 20;
+    }
+    OUT[8] = 0xAA;
     return 0;
 }

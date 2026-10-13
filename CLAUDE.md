@@ -219,9 +219,10 @@ ln45, ar45, nm45, objdump45 and disk45 have no config files. Environment:
   `__dma_copy`/`__dma_fill`, `__interrupt`, `__naked`, `__regparm`, file-scope
   `asm("...")` (module-level assembly), string encodings
   (`@"…"`, `p"…"`, `s"…"`, `a"…"`, `#pragma encoding`), GCC vector extension (`-fmax-unroll-bytes`, default 128).
-- **Optimization** (`doc/architecture/optimizations.md`): `-O1`+ runs the eight
+- **Optimization** (`doc/architecture/optimizations.md`): `-O1`+ runs the nine
   IR passes of `IROptimizer.cpp` (strength reduction, algebraic simplification,
-  type narrowing, branch folding, CSE, LICM, copy propagation, address fusion;
+  type narrowing, branch folding, CSE, LICM, copy propagation, address fusion,
+  post-increment sinking;
   `CodegenStage::optimizeIR`); `-O2`+ adds automatic inlining
   (`-fmax-inline-ir-size`, default 11); `-O4`+ adds loop interchange (an AST
   pass, `LoopInterchange.cpp`, run by `OptimizeStage`) and loop unrolling

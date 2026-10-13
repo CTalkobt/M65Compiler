@@ -219,6 +219,12 @@ void OptimizationCatalog::initializeCatalog() {
         OptimizationCategory::BOTH, 1, -1, "-faddr-elem-fusion", false, 2
     });
 
+    catalog_.push_back({
+        "PostIncrementSink", "Post-increment Sinking",
+        "Access through a pointer variable before its post-increment (*p++), not through a copy",
+        OptimizationCategory::BOTH, 1, -1, "-fpost-increment-sink", false, 2
+    });
+
     // What is implemented, and where
     struct Impl { const char* name; OptimizationImpl impl; const char* asmFlag; int level; };
     static const Impl impls[] = {
@@ -235,6 +241,7 @@ void OptimizationCatalog::initializeCatalog() {
         {"LICM",                 OptimizationImpl::IR_PASS,   "", 1},
         {"CopyPropagation",      OptimizationImpl::IR_PASS,   "", 1},
         {"AddrElemFusion",       OptimizationImpl::IR_PASS,   "", 1},
+        {"PostIncrementSink",    OptimizationImpl::IR_PASS,   "", 1},
         {"LoopInterchange",      OptimizationImpl::AST_PASS,  "", 4},
         {"LoopUnrolling",        OptimizationImpl::IR_PASS,   "", 4},
         // ca45 runs these at its default level whatever cc45's -O level

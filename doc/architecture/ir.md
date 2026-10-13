@@ -22,7 +22,8 @@ assembler, not to this path.
 **IR-level optimization.** `CodegenStage::optimizeIR()` runs the passes of
 `src/main/IROptimizer.cpp` after IR generation (`-O1` and up): `optimizeStrengthReduction`,
 `optimizeAlgebraic`, `optimizeTypeNarrowing`, `optimizeBranchFold`, `optimizeCSE`,
-`optimizeLICM`, `optimizeCopyChains`, `optimizeAddrElemFusion`, each switchable
+`optimizeLICM`, `optimizeCopyChains`, `optimizeAddrElemFusion` and (after the
+leaf-function pointer allocation) `optimizePostIncrementSink`, each switchable
 with `-f[no-]<name>` and per function with `#pragma cc45 optimize(...)`
 (`ir::passEnabled`, `Function::optOverrides`); see
 [optimizations.md](optimizations.md#ir-passes). `-Roptir` traces them.

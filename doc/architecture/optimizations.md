@@ -14,7 +14,8 @@ with `./bin/cc45` (see [Checking it yourself](#checking-it-yourself)).
      removal of unused `static` functions, devirtualization, SAC.
   2. **cc45 IR passes** (`src/main/IROptimizer.cpp`, run by `CodegenStage::optimizeIR`):
      strength reduction, algebraic simplification, type narrowing, branch
-     folding, CSE, loop-invariant code motion, copy propagation, address fusion.
+     folding, CSE, loop-invariant code motion, copy propagation, address fusion,
+     post-increment sinking.
      All on from `-O1`.
   3. **cc45 code generator** (`IRCodeGen`): instruction selection with built-in
      fusions/suppressions. Always on.
@@ -70,6 +71,7 @@ every function for which the pass is on (`-O1` and up, unless switched off).
 | `loop-invariant-code-motion` | `licm` | Moves pure computations whose operands don't change in the loop to a pre-header. A variable whose address is taken counts as changed when the loop calls a function, stores through a pointer or contains asm |
 | `copy-propagation` | `copy` | Replaces uses of a copy of a temporary by the original and removes the dead copies (temporaries defined once only; never variables) |
 | `addr-elem-fusion` | `fusion` | An array element address used once, by the next 1/2-byte (or 4-byte load) access of an integer or pointer, is computed inside that load/store (no pointer temporary) |
+| `post-increment-sink` | `postinc` | `*p++` / `*p--` on a pointer variable: the IR copies the old pointer to a temporary, updates `p`, then accesses through the copy. When nothing between the update and the last use of the copy reads or writes `p` (or calls, or is asm), the update moves after that use and the copy becomes `p + 0`, which the code generator folds into the access: `lda ($p),y` with `p` in ZP, then `inw $p` / `dew $p` for a step of 1. Runs after the other passes and after the leaf-function pointer allocation ([Pointers in zero page](#pointers-in-zero-page-leaf-functions)) |
 
 After the passes, pure instructions whose temporary result nothing uses are
 removed (`removeDeadTemps`; part of dead-code elimination, always on).
@@ -174,7 +176,7 @@ Each catalog optimization has a level from which it is on
 | Option | Level | Effect |
 |---|---|---|
 | `-O0` | 0 | No IR passes, no automatic inlining |
-| `-O1` | 1 | The eight IR passes |
+| `-O1` | 1 | The nine IR passes |
 | `-O2`, `-O3` (default `-O2`) | 2, 3 | IR passes and automatic inlining of small functions. Identical output |
 | `-O4` … `-O9` | 4–9 | Adds loop interchange and loop unrolling. Identical output for all of them (the catalog entries for higher levels are not implemented) |
 | `-Osize` | 2 | Same as `-O2` |
@@ -301,7 +303,7 @@ implemented:
 
 | Name | Implemented as | On from |
 |---|---|---|
-| `strength-reduction`, `algebraic-simplify`, `type-narrowing`, `branch-folding`, `cse`, `loop-invariant-code-motion`, `copy-propagation`, `addr-elem-fusion` | IR pass ([IR passes](#ir-passes)); also per function by pragma | `-O1` |
+| `strength-reduction`, `algebraic-simplify`, `type-narrowing`, `branch-folding`, `cse`, `loop-invariant-code-motion`, `copy-propagation`, `addr-elem-fusion`, `post-increment-sink` | IR pass ([IR passes](#ir-passes)); also per function by pragma | `-O1` |
 | `inline-small-functions` | IRBuilder inlining (`-fno-` also overrides `-finline-functions`) | `-O2` |
 | `devirtualization` | IRBuilder | `-O0` |
 | `tail-call-optimization`, `branch-inversion`, `jump-optimization`, `redundant-load-elimination`, `dead-store-elimination` | ca45 pass: cc45 passes `-P<x>` / `-PNo<x>` (`TailCall`, `BranchInvert`, `JmpBra`, `RedundantLoad`, `DeadStore`) to ca45; file-wide only | ca45's default (always) |

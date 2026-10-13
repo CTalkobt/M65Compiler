@@ -3422,7 +3422,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 auto cit = vregConstVal_.find(inst.src2.vregId);
                 if (cit != vregConstVal_.end() && cit->second == 1) src2IsOne = true;
             }
-            if (inst.resultType == ir::Type::I16 && src2IsOne &&
+            if ((inst.resultType == ir::Type::I16 || inst.resultType == ir::Type::PTR) && src2IsOne &&
                 inst.src1.isVreg() && inst.dest.isVreg()) {
                 auto* nextInst = peekNextInst();
                 if (nextInst && nextInst->op == ir::Op::STORE &&
@@ -3436,16 +3436,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                         lo << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << srcAlloc.offset;
                         hi << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (srcAlloc.offset + 1);
                         std::string r = irDesc(inst.op == ir::Op::ADD ? "inc16 ZP" : "dec16 ZP");
-                        if (inst.op == ir::Op::ADD) {
-                            emit("inc " + lo.str(), r);
-                            emit("bne *+4");
-                            emit("inc " + hi.str());
-                        } else {
-                            emit("lda " + lo.str(), r);
-                            emit("bne *+4");
-                            emit("dec " + hi.str());
-                            emit("dec " + lo.str());
-                        }
+                        emit((inst.op == ir::Op::ADD ? "inw " : "dew ") + lo.str(), r);
                         resultInAX_ = -2;
                         ms_.invalidateAll();
                         break;
