@@ -135,7 +135,9 @@ private:
     //   argument staging, $30-$E9 vreg pool, $EA-$ED 32-bit temp, $EE-$EF
     //   (spare), $F0-$FC library temps, $FD-$FE frame pointer
     static constexpr int ZP_POOL_START = 0x30;
-    static constexpr int ZP_POOL_SLOTS = (0xEA - 0x30) / 2;
+    // $80-$E9: functions' own base-page blocks (.zar), placed by ln45
+    static constexpr int ZAR_START = 0x80, ZAR_END = 0xEA, ZAR_MAX = 16;
+    static constexpr int ZP_POOL_SLOTS = (ZAR_START - 0x30) / 2;
     static constexpr int ZP_TEMP32 = 0xEA;
     uint32_t zeroPageAvail_ = 248;  // Available ZP space (usually $08-$FF)
     int frameAddrZPIndex_ = -1;  // allocated ZP index for frame address (2 bytes), -1 if not allocated
@@ -241,7 +243,9 @@ private:
     struct FoldedAddr { uint32_t base; int offset; };
     std::map<uint32_t, FoldedAddr> foldedAddrs_;  // vreg = base + offset, used only as load/store address
     std::map<uint32_t, ir::Operand> truncAlias_;
-    std::map<uint32_t, int> zpParams_;   // parameters used in the ZP parameter block (a leaf function)  // byte TRUNC stored as is: the STORE reads its source's low byte
+    std::map<uint32_t, int> zpParams_;   // parameters used in the ZP parameter block (a leaf function)
+    std::map<uint32_t, int> zarVregs_;   // variables in the function's own base-page block
+    int zarSize_ = 0;  // byte TRUNC stored as is: the STORE reads its source's low byte
     std::string foldedPtr(uint32_t addrVreg, const std::string& scratch, int& yOff);
 
     // Track which functions use SAC (Static Allocation Convention)

@@ -179,7 +179,6 @@ void M65Emitter::emitInstruction(const std::string& mnemonic, AddressingMode amo
         emitByte(op);
         if (hasValue) {
             switch (amode) {
-                case AddressingMode::IMMEDIATE:
                 case AddressingMode::BASE_PAGE:
                 case AddressingMode::BASE_PAGE_X:
                 case AddressingMode::BASE_PAGE_Y:
@@ -187,9 +186,12 @@ void M65Emitter::emitInstruction(const std::string& mnemonic, AddressingMode amo
                 case AddressingMode::BASE_PAGE_X_INDIRECT:
                 case AddressingMode::BASE_PAGE_INDIRECT_Y:
                 case AddressingMode::BASE_PAGE_INDIRECT_Z:
+                case AddressingMode::FLAT_INDIRECT_Z:
+                    emitByte(zarOperand((uint8_t)value));
+                    break;
+                case AddressingMode::IMMEDIATE:
                 case AddressingMode::BASE_PAGE_INDIRECT_SP_Y:
                 case AddressingMode::STACK_RELATIVE:
-                case AddressingMode::FLAT_INDIRECT_Z:
                 case AddressingMode::RELATIVE:
                     emitByte((uint8_t)value);
                     break;
@@ -407,6 +409,13 @@ void M65Emitter::recordSymbolReloc(const std::string& name) {
     if (mode == Mode::BINARY) {
         symbolRelocs_.push_back({currentAddress + 1, name, 0x80, 0, relocScope_, relocLocalScope_}); // R_WORD
     }
+}
+
+uint8_t M65Emitter::zarOperand(uint8_t value) {
+    if (zarSym_.empty() || value < zarStart_ || value >= zarStart_ + zarLen_) return value;
+    if (mode == Mode::BINARY)   // (the byte is the next one: currentAddress)
+        symbolRelocs_.push_back({currentAddress, zarSym_, 0xE0, 0, relocScope_, relocLocalScope_}); // R_LOWX
+    return (uint8_t)(value - zarStart_);
 }
 
 void M65Emitter::recordSymbolRelocLo(const std::string& name, int highByte) {

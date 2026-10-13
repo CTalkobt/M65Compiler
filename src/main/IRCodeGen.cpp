@@ -2075,7 +2075,52 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             zpOff += ps < 2 ? 2 : ps;
         }
     }
-    alloc_.setFixedZpVregs(zpParams_);
+    // A static-allocation function that makes calls keeps its pointer
+    // variables in a base-page block of its own ($80..., .zar), which ln45
+    // places where no function active at the same time has its block: they
+    // survive the calls, and a dereference uses the pointer in place. In the
+    // ZP convention its pointer parameters go there too (the entry thunk
+    // copies them from the parameter block)
+    zarVregs_.clear();
+    zarSize_ = 0;
+    {
+        bool leaf = true;
+        for (const auto& blk : fn.blocks)
+            for (const auto& in : blk.insts)
+                if (in.op == ir::Op::CALL || in.op == ir::Op::CALL_VOID || in.op == ir::Op::CALL_INDIRECT ||
+                    in.op == ir::Op::ASM_INLINE)
+                    leaf = false;
+        bool willSac = staticAllocMode_ && !fn.isRecurse && !fn.isInterrupt && !fn.isNaked && !fn.isVariadic &&
+                       !callsRuntimeAlloca(fn) && !recursiveFunctions_.count(fn.name);
+        if (!leaf && willSac && relocMode && !getenv("CC45_NO_ZP_LOCALS") && !getenv("CC45_NO_ZP_POINTERS")) {
+            const uint32_t paramCount = (uint32_t)fn.paramTypes.size();
+            bool fnZpConv = fn.conv == ir::CallConv::ZP && !fn.isVariadic;
+            auto isPtr = [&](uint32_t v) {
+                auto t = fn.vregTypes.find(v);
+                return v < paramCount ? fn.paramTypes[v] == ir::Type::PTR
+                                      : t != fn.vregTypes.end() && t->second == ir::Type::PTR;
+            };
+            auto take = [&](uint32_t v) {
+                if (zarSize_ + 2 > ZAR_MAX || !isPtr(v) || fn.memoryVregs.count(v) || fn.vregSizes.count(v) ||
+                    fn.registerVregs.count(v) || fn.registerXVregs.count(v) || fn.registerYVregs.count(v) ||
+                    fn.registerZVregs.count(v) || zarVregs_.count(v))
+                    return;
+                zarVregs_[v] = ZAR_START + zarSize_;
+                zarSize_ += 2;
+            };
+            if (fnZpConv && !fn.isRegparm)
+                for (uint32_t i = 0; i < paramCount; i++) take(i);
+            for (const auto& name : fn.localNamesOrder) {
+                auto it = fn.localNames.find(name);
+                if (it != fn.localNames.end() && it->second >= paramCount) take(it->second);
+            }
+        }
+    }
+    {
+        std::map<uint32_t, int> fixed = zpParams_;
+        fixed.insert(zarVregs_.begin(), zarVregs_.end());
+        alloc_.setFixedZpVregs(fixed);
+    }
     alloc_.setRegisterXVregs(fn.registerXVregs);
     alloc_.setRegisterYVregs(fn.registerYVregs);
     alloc_.setRegisterZVregs(fn.registerZVregs);
@@ -2131,7 +2176,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             for (size_t i = 0; i < insts.size(); i++) {
                 const auto& in = insts[i];
                 // (a COPY of a pointer: offset 0)
-                bool isCopy = in.op == ir::Op::COPY && in.resultType == ir::Type::PTR;
+                bool isCopy = (in.op == ir::Op::COPY || in.op == ir::Op::DEREF) && in.resultType == ir::Type::PTR;
                 if (!isCopy && (in.op != ir::Op::ADD || in.resultType != ir::Type::PTR ||
                     !in.src2.isImm() || in.src2.immVal < 0 || in.src2.immVal > 250))
                     continue;
@@ -2643,7 +2688,14 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             procLine += "#@_p_" + std::to_string(i);
         }
     }
+    if (zarSize_ > 0) {
+        // the base-page block: ln45 defines <fn>__zar and places it
+        emit(".extern " + fn.name + "__zar");
+        emit(".global cc45.zarsize." + fn.name);
+        emit("cc45.zarsize." + fn.name + " = " + std::to_string(zarSize_));
+    }
     emit(procLine);
+    if (zarSize_ > 0) emit(".zar $" + hex8((uint8_t)ZAR_START) + ", " + std::to_string(zarSize_));
     for (const auto& r : fn.asmRefs) emit(".ref " + r);
 
     // __regparm: the first argument arrives in A (char) or A:X. Before any
@@ -2713,9 +2765,12 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                         ? fn.paramNames[i] : std::to_string(i);
                     std::string sym = fn.name + "__param_" + pName;
                     int pSize = ir::typeSize(fn.paramTypes[i]);
-                    // (one used in the block is not copied)
+                    // (one used in the block is not copied; one in the
+                    // function's base-page block is copied there)
+                    auto zv = zarVregs_.find((uint32_t)i);
                     for (int b = 0; b < pSize && !zpParams_.count((uint32_t)i); b++) {
                         emit("lda $" + hex8((uint8_t)(zpOff + b)));
+                        if (zv != zarVregs_.end()) { emit("sta $" + hex8((uint8_t)(zv->second + b))); continue; }
                         emit("sta " + sym + (b ? "+" + std::to_string(b) : std::string()));
                     }
                     zpOff += (pSize < 2) ? 2 : pSize;
@@ -5208,6 +5263,8 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         }
 
         case ir::Op::DEREF: {
+            // a pointer read folded into its loads/stores
+            if (inst.dest.isVreg() && foldedAddrs_.count(inst.dest.vregId)) break;
             loadOperand(inst.src1);
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;

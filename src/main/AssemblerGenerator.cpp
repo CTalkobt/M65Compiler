@@ -250,6 +250,10 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                 if (stmt->instr.mnemonic == "proc") {
                     pass2ProcStack.push_back(currentPass2Proc);
                     currentPass2Proc = stmt->procCtx;
+                    if (currentPass2Proc && currentPass2Proc->zarLen > 0 && e.objectMode())
+                        e.setZar(currentPass2Proc->zarStart, currentPass2Proc->zarLen, currentPass2Proc->name + "__zar");
+                    else
+                        e.setZar(-1, 0, "");
                     // No prologue — frame pointer removed
                     continue;
                 } else if (stmt->instr.mnemonic == "endproc") {
@@ -260,6 +264,10 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                     }
                     currentPass2Proc = pass2ProcStack.empty() ? nullptr : pass2ProcStack.back();
                     if (!pass2ProcStack.empty()) pass2ProcStack.pop_back();
+                    if (currentPass2Proc && currentPass2Proc->zarLen > 0 && e.objectMode())
+                        e.setZar(currentPass2Proc->zarStart, currentPass2Proc->zarLen, currentPass2Proc->name + "__zar");
+                    else
+                        e.setZar(-1, 0, "");
                     isDeadCode = false;
                     continue;
                 } else { // Handle all other instructions
@@ -315,7 +323,7 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                             uint32_t v = sym ? sym->value : parseNumericLiteral(stmt->instr.operand);
                             uint8_t op = AssemblerOpcodeDatabase::getOpcode(stmt->instr.mnemonic, resolvedMode);
                             e.emitByte(op);
-                            e.emitByte((uint8_t)v);
+                            e.emitByte(e.zarOperand((uint8_t)v));
                             int32_t off;
                             if (stmt->hasBranchOffset) {
                                 off = stmt->resolvedBranchOffset;

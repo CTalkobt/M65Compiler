@@ -67,7 +67,7 @@ from an `__interrupt` handler.
 
 ```
 $06-$07 static chain    $08-$0F scratch (__zp_scratch..4)
-$10-$2F ZP parameters   $30-$E9 temporaries    $FD-$FE frame pointer
+$10-$2F ZP parameters   $30-$7F temporaries    $80-$E9 functions' blocks (ln45)    $FD-$FE frame pointer
 ```
 
 - ROM calls are wrapped as `jsr __bp_rom` … `jsr __bp_prog`.

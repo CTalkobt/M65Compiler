@@ -128,6 +128,11 @@ public:
         bool warnedUnnamed = false;
         std::map<int, int64_t> paramConstants;  // parameter index → constant value (.param_const directives)
         std::vector<int> paramSizes;   // parameter index → size in bytes (.param_sizes directive)
+        // .zar start, len: base-page bytes start..start+len-1 are this
+        // function's own (linker-placed): operands there are relocated
+        // against <name>__zar
+        int zarStart = -1;
+        int zarLen = 0;
     };
 
     // Function attribute metadata (for .o45 export)

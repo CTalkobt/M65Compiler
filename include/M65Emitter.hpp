@@ -358,6 +358,15 @@ public:
         relocScope_ = scope; relocLocalScope_ = localScope;
     }
     const std::vector<SymbolReloc>& symbolRelocs() const { return symbolRelocs_; }
+    // .zar: base-page operands in start..start+len-1 belong to the function's
+    // linker-placed block: each becomes an R_LOWX relocation against sym with
+    // the offset in the block as its byte ("" turns it off)
+    void setZar(int start, int len, const std::string& sym) { zarStart_ = start; zarLen_ = len; zarSym_ = sym; }
+    // building a relocatable object (.o45): relocations are kept
+    void setObjectMode(bool on) { objectMode_ = on; }
+    bool objectMode() const { return objectMode_; }
+    // the operand byte of a base-page operand at the next byte (recording its relocation)
+    uint8_t zarOperand(uint8_t value);
     void emitWordReloc(const std::string& symbolName, uint16_t value = 0);
     void recordSymbolReloc(const std::string& name);
     // highByte >= 0: R_LOWX carrying the high byte of the full value (sym+n),
@@ -378,6 +387,9 @@ public:
 private:
     std::vector<SpBaseReloc> spBaseRelocs_;
     std::vector<SymbolReloc> symbolRelocs_;
+    int zarStart_ = -1, zarLen_ = 0;
+    bool objectMode_ = false;
+    std::string zarSym_;
     std::vector<ImmediateReloc> immediateRelocs_;  // Phase 78: SMC immediate relocations
     std::ostream* out = nullptr;
     std::vector<uint8_t>* binary = nullptr;

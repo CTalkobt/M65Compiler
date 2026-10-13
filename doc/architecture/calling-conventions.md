@@ -287,7 +287,8 @@ All of these addresses are offsets in the program's base page:
 | `$06-$07` | `__static_chain` (nested functions) |
 | `$08-$0F` | `__zp_scratch`, `__zp_scratch2`, `__zp_scratch3`, `__zp_scratch4` (2 bytes each) |
 | `$10-$2F` | ZP parameter block |
-| `$30-$E9` | register-allocator pool (temporaries / virtual registers) |
+| `$30-$7F` | register-allocator pool (temporaries / virtual registers) |
+| `$80-$E9` | functions' own base-page blocks (pointer variables of static-allocation functions that make calls), placed by ln45 (`.zar`; ln45 "base-page blocks") |
 | `$FD-$FE` | frame pointer |
 
 ### 6.2 Relocated base page

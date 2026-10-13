@@ -501,6 +501,8 @@ int main(int argc, char** argv) {
                 std::cout << "  -fbss-fill=V   Byte crt0 fills BSS with at startup (default $00; e.g. $FF to find" << std::endl;
                 std::cout << "                 code that relies on uninitialized data)" << std::endl;
                 std::cout << "  -fstaticalloc  Use static allocation (default)" << std::endl;
+                std::cout << "  -fno-zp-locals  No base-page blocks ($80-$E9) for pointer variables of functions" << std::endl;
+                std::cout << "                 that make calls (for call chains that do not fit there)" << std::endl;
                 std::cout << "  -finline-functions  Inline small functions" << std::endl;
                 std::cout << "  -fmax-inline-ir-size=N  Max IR instructions for an inlined function (default 11)" << std::endl;
                 std::cout << "  -fmax-unroll-bytes=N    Max estimated code bytes of an unrolled loop (default 128)" << std::endl;
@@ -568,6 +570,11 @@ int main(int argc, char** argv) {
             config.staticAllocMode = true;
         } else if (arg == "-fno-staticalloc") {
             config.staticAllocMode = false;
+        } else if (arg == "-fno-zp-locals") {
+            // no base-page blocks ($80-$E9) for pointer variables of functions that make calls
+            setenv("CC45_NO_ZP_LOCALS", "1", 1);
+        } else if (arg == "-fzp-locals") {
+            unsetenv("CC45_NO_ZP_LOCALS");
         } else if (arg == "--prg-base" && i + 1 < allArgs.size()) {
             config.prgBase = std::stoul(allArgs[++i], nullptr, 16);
             config.prgBaseSet = true;

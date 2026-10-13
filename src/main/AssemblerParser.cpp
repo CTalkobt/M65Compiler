@@ -992,6 +992,23 @@ void AssemblerParser::pass1() {
                 }
                 stmt->size = 0;
             }
+            else if (stmt->dir.name == "zar") {
+                // .zar start, len — the function's private base-page bytes
+                if (!currentProc) {
+                    errors.push_back("Error: .zar outside proc/endproc block");
+                } else {
+                    try {
+                        int start = (int)parseNumericLiteral(advance().value);
+                        if (peek().type == AssemblerTokenType::COMMA) advance();
+                        int len = (int)parseNumericLiteral(advance().value);
+                        if (start < 0 || len <= 0 || start + len > 0x100)
+                            errors.push_back("Error: .zar range must lie in the base page");
+                        else { currentProc->zarStart = start; currentProc->zarLen = len; }
+                    } catch (...) {
+                        errors.push_back("Error: .zar needs a start address and a length");
+                    }
+                }
+            }
             else if (stmt->dir.name == "frame_size") {
                 // .frame_size N  (Phase 2: frame/activation record size in bytes)
                 if (!currentProc) {
@@ -2079,7 +2096,7 @@ void AssemblerParser::warnUnknownDirective(const AssemblerToken& tok) {
     static const std::set<std::string> known = {
         "align", "array", "array_dims", "ascii", "balign", "basicUpstart", "bss", "byte", "cleanup", "code", "const",
         "cpu", "data", "dword", "endrepeat", "extern", "field_class", "field_count", "fill", "fillto",
-        "fixed_prefix_size", "flag_clobbers", "float", "frame_size", "frameptr_zp", "func_flags", "function_sections",
+        "fixed_prefix_size", "flag_clobbers", "float", "frame_size", "zar", "frameptr_zp", "func_flags", "function_sections",
         "keep", "nosplit", "ref", "split",
         "global", "import", "incbin", "init", "loc", "local", "long", "noopt_start", "org",
         "param_const", "param_sizes", "reg_clobbers", "repeat", "res", "sac", "screencode", "segment",

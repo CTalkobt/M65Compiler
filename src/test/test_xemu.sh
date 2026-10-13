@@ -1143,6 +1143,56 @@ for zqmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: pointer variables in functions' base-page blocks ($80-$E9, placed by
+# ln45), two modules; then a call chain whose blocks do not fit is a link
+# error that -fno-zp-locals avoids
+for zlmode in "zp||lib/build/c45.lib" "stack|-fno-zpcall|lib/build/c45_stack.lib" "off|-fno-zp-locals|lib/build/c45.lib"; do
+    IFS='|' read -r zlname zlflags zllib <<< "$zlmode"
+    echo "Testing test_zp_locals_xemu.c ($zlname)..."
+    zlbase="build/test/test_zp_locals_${zlname}"
+    if $CC $zlflags -c src/test-resources/test_zp_locals_xemu.c -o ${zlbase}_a.o45 2>/dev/null &&
+       $CC $zlflags -c src/test-resources/test_zp_locals_b.c -o ${zlbase}_b.o45 2>/dev/null &&
+       $LD -basic -o ${zlbase}_xemu.prg $CRT0 ${zlbase}_a.o45 ${zlbase}_b.o45 $zllib >/dev/null 2>&1; then
+        run_xemu_test "test_zp_locals_$zlname" "${zlbase}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_zp_locals_xemu.c $zlname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+zlsrc=build/test/zp_locals_overflow.c
+{
+    echo "#define N __attribute__((noinline))"
+    echo "unsigned char g[16];"
+    echo "N static unsigned char f8(unsigned char *a) { return a[0]; }"
+    for lv in 7 6 5 4 3 2 1; do
+        echo "N static unsigned char f$lv(unsigned char *a) {"
+        echo "    unsigned char *p0 = a, *p1 = a + 1, *p2 = a + 2, *p3 = a + 3, *p4 = a + 4, *p5 = a + 5, *p6 = a + 6, *p7 = a + 7;"
+        echo "    unsigned char r = f$((lv + 1))(a);"
+        echo "    return r + *p0 + *p1 + *p2 + *p3 + *p4 + *p5 + *p6 + *p7;"
+        echo "}"
+    done
+    echo "int main(void) { return f1(g); }"
+} > $zlsrc
+$CC -c $zlsrc -o build/test/zp_locals_overflow.o45 2>/dev/null
+if $LD -basic -o build/test/zp_locals_overflow.prg $CRT0 build/test/zp_locals_overflow.o45 $STDLIB 2>build/test/zp_locals_overflow.err >/dev/null; then
+    echo "FAIL: zp_locals_overflow (a chain needing more than \$80-\$E9 linked)"
+    failed=$((failed + 1))
+elif grep -q "base-page storage: .* needs .* -fno-zp-locals" build/test/zp_locals_overflow.err; then
+    echo "SUCCESS: zp_locals_overflow (link error)"
+    passed=$((passed + 1))
+else
+    echo "FAIL: zp_locals_overflow (unexpected error: $(head -1 build/test/zp_locals_overflow.err))"
+    failed=$((failed + 1))
+fi
+if $CC -fno-zp-locals -c $zlsrc -o build/test/zp_locals_overflow.o45 2>/dev/null &&
+   $LD -basic -o build/test/zp_locals_overflow.prg $CRT0 build/test/zp_locals_overflow.o45 $STDLIB >/dev/null 2>&1; then
+    echo "SUCCESS: zp_locals_overflow (-fno-zp-locals links)"
+    passed=$((passed + 1))
+else
+    echo "FAIL: zp_locals_overflow (-fno-zp-locals does not link)"
+    failed=$((failed + 1))
+fi
+
 # Test: GCC statement expressions ({ stmt; ...; expr; })
 for semode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r sename seflags <<< "$semode"

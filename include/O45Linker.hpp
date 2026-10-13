@@ -494,6 +494,9 @@ private:
     struct SacMove { uint32_t srcOffset, len, overlayOffset; std::string func; };
     std::map<int, std::vector<SacMove>> sacMoves_;
     uint32_t sacOverlayLen_ = 0;      // size of the overlay area
+    std::map<std::string, uint32_t> zarOffset_;   // function → its base-page block (.zar)
+    uint32_t zarUsed_ = 0, zarTotal_ = 0;         // bytes of $80-$E9 used / asked for
+    static constexpr uint32_t ZAR_LO = 0x80, ZAR_HI = 0xEA;
     uint32_t sacOverlayOffset_ = 0;   // its offset in the merged BSS
     uint32_t sacOverlaySaved_ = 0;    // bytes saved by sharing
     bool sacOverlayOn_ = true;        // --no-sac-overlay clears it
@@ -604,6 +607,11 @@ private:
     void validateSACParameters();     // Phase 3: Validate SAC parameter metadata
     void validateImmediateRelocations(); // Phase 78.4: Validate immediate relocation symbols
     void computeSacOverlay();          // place SAC blocks so inactive functions share storage
+    // the calls between functions (JSR/JMP) and the functions whose address is used otherwise
+    void buildCallGraph(std::map<std::string, std::set<std::string>>& graph, std::set<std::string>& addrTaken);
+    // place the functions' private base-page blocks (cc45 .zar) in $80-$E9 of
+    // the program's base page, sharing between functions never active together
+    bool computeZarOverlay(std::string& errorMsg);
     void layoutBss();                  // BSS layout (objects, then the SAC overlay area)
     void generateThunks();
     void mergeLineMaps();

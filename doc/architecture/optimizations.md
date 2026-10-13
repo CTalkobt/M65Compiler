@@ -96,6 +96,15 @@ inline asm), so nothing can clobber the register pool between uses:
 It is not a `-f` switch: `CC45_NO_ZP_POINTERS=1` turns both parts off (for
 comparing code). Validation: `test_zp_pointers_xemu.c`.
 
+A static-allocation function that makes calls cannot use the pool across
+them; its pointer variables (and pointer parameters in the ZP convention) go
+in a base-page block of its own, `$80+k`, declared with `.zar $80, N`. ca45
+relocates those operands against `<f>__zar` and ln45 places the blocks in
+`$80`–`$E9` so that functions active together never share bytes
+(`computeZarOverlay`, the SAC overlay's call graph). The register pool ends at
+`$7F`. `-fno-zp-locals` turns it off; validation: `test_zp_locals_xemu.c`
+(two modules) and the overflow link check in `test_xemu.sh`.
+
 A ZP-convention leaf function goes further: its parameters stay in the ZP
 parameter block where the caller put them (`$10`…), with no copy at the entry
 and no `leafPointerParamsToZp` copy ([calling conventions](calling-conventions.md);

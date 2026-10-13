@@ -906,6 +906,22 @@ bool O45Linker::resolveSymbols(std::string& errorMsg) {
         }
     }
 
+    // <f>__zar: function f's private base-page block (cc45 .zar), placed by
+    // computeZarOverlay in $80-$E9 of the program's base page (__zp_page is
+    // page-aligned: the low byte of the address is the base-page address)
+    {
+        uint32_t page = globalSymbols_.count("__zp_page") ? globalSymbols_["__zp_page"] : 0;
+        for (const auto& input : objects_)
+            for (const auto& imp : input.obj.imports) {
+                const std::string& n = imp.name;
+                if (n.size() <= 5 || n.compare(n.size() - 5, 5, "__zar") != 0 || globalSymbols_.count(n)) continue;
+                auto it = zarOffset_.find(n.substr(0, n.size() - 5));
+                globalSymbols_[n] = page + (it != zarOffset_.end() ? it->second : ZAR_LO);
+                symbolSource_[n] = "<linker>";
+                symbolWeak_[n] = false;
+            }
+    }
+
     // Inject linker-defined BSS boundary symbols.
     // These are used by _init_bss in the CRT to zero BSS at startup.
     if (!globalSymbols_.count("__bss_start")) {
@@ -1375,6 +1391,9 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
         layoutBss();
         if (!resolveSymbols(errorMsg)) return {};
     }
+    // and their private base-page blocks
+    if (!computeZarOverlay(errorMsg)) return {};
+    if (!zarOffset_.empty() && !resolveSymbols(errorMsg)) return {};
 
     // Generate thunks for convention mismatches (appends to mergedText_)
     generateThunks();
@@ -1902,29 +1921,8 @@ void O45Linker::validateImmediateRelocations() {
     }
 }
 
-// SAC overlay. A static-allocation (SAC) function keeps its parameters and
-// locals in a BSS block (cc45: <f>__ar, size cc45.sacsize.<f>). Two SAC
-// functions can share storage when neither can be active while the other
-// is: neither reaches the other through calls. The blocks of such
-// functions are placed first-fit in one overlay area at the end of BSS.
-//
-// Calls are JSR and JMP references to a function. Any other reference
-// (an address loaded or stored in data) makes the function callable
-// indirectly from anywhere: it and everything it reaches keep their own
-// storage. In objects not made by cc45 (assembly), exported labels are
-// not function boundaries: a label's code can fall through to or branch to
-// another, so all labels of such an object are treated as one function.
-void O45Linker::computeSacOverlay() {
-    sacMoves_.clear();
-    sacOverlayLen_ = 0;
-    sacOverlaySaved_ = 0;
-    if (!sacOverlayOn_) return;
-
-    bool anySac = false;
-    for (const auto& [name, attr] : funcAttrs_)
-        if (attr.flags & FUNC_FLAG_STATIC_ALLOC) anySac = true;
-    if (!anySac) return;
-
+void O45Linker::buildCallGraph(std::map<std::string, std::set<std::string>>& graph,
+                               std::set<std::string>& addrTaken) {
     auto sacBase = [this](std::string n) {
         if (n.size() > 5 && n.compare(n.size() - 5, 5, "__sac") == 0 &&
             funcAttrs_.count(n.substr(0, n.size() - 5)))
@@ -1932,8 +1930,8 @@ void O45Linker::computeSacOverlay() {
         return n;
     };
 
-    std::map<std::string, std::set<std::string>> graph = callGraph_;
-    std::set<std::string> addrTaken;
+    graph = callGraph_;
+    addrTaken.clear();
 
     for (const auto& input : objects_) {
         bool isCc45 = false;
@@ -2004,6 +2002,120 @@ void O45Linker::computeSacOverlay() {
             addrTaken.insert(tgt.begin(), tgt.end());
         }
     }
+
+}
+
+// Base-page blocks (cc45 .zar, size cc45.zarsize.<f>): a static-allocation
+// function keeps variables (pointers) in base-page bytes of its own, which
+// no callee touches, so they survive calls. The blocks are placed first-fit
+// in $80-$E9 of the program's base page: two functions share bytes when
+// neither reaches the other through calls. A function whose address is used
+// (callable from anywhere) and everything it reaches share with nothing.
+// Unlike SAC storage there is no fallback: a program whose functions active
+// together need more than the area is an error (cc45 -fno-zp-locals).
+bool O45Linker::computeZarOverlay(std::string& errorMsg) {
+    zarOffset_.clear();
+    zarUsed_ = zarTotal_ = 0;
+    std::map<std::string, uint32_t> sizes;
+    for (const auto& input : objects_)
+        for (const auto& exp : input.obj.exports)
+            if (exp.name.rfind("cc45.zarsize.", 0) == 0 && exp.offset > 0) {
+                auto& sz = sizes[exp.name.substr(13)];
+                sz = std::max(sz, (uint32_t)exp.offset);
+            }
+    if (sizes.empty()) return true;
+
+    std::map<std::string, std::set<std::string>> graph;
+    std::set<std::string> addrTaken;
+    buildCallGraph(graph, addrTaken);
+    auto reachFrom = [&](const std::string& start) {
+        std::set<std::string> seen;
+        std::vector<std::string> todo{start};
+        while (!todo.empty()) {
+            std::string n = todo.back();
+            todo.pop_back();
+            auto it = graph.find(n);
+            if (it == graph.end()) continue;
+            for (const auto& c : it->second)
+                if (seen.insert(c).second) todo.push_back(c);
+        }
+        return seen;
+    };
+    std::set<std::string> unsafe;
+    for (const auto& f : addrTaken) {
+        unsafe.insert(f);
+        auto r = reachFrom(f);
+        unsafe.insert(r.begin(), r.end());
+    }
+    std::map<std::string, std::set<std::string>> reach;
+    for (const auto& [f, len] : sizes) reach[f] = reachFrom(f);
+    auto conflict = [&](const std::string& a, const std::string& b) {
+        return unsafe.count(a) || unsafe.count(b) || reach[a].count(b) || reach[b].count(a);
+    };
+
+    std::vector<std::pair<std::string, uint32_t>> blocks(sizes.begin(), sizes.end());
+    std::sort(blocks.begin(), blocks.end(), [](const auto& a, const auto& b) {
+        return a.second != b.second ? a.second > b.second : a.first < b.first;
+    });
+    const uint32_t area = ZAR_HI - ZAR_LO;
+    for (const auto& [f, len] : blocks) {
+        std::vector<std::pair<uint32_t, uint32_t>> busy;
+        for (const auto& [g, at] : zarOffset_)
+            if (conflict(f, g)) busy.push_back({at - ZAR_LO, at - ZAR_LO + sizes[g]});
+        std::sort(busy.begin(), busy.end());
+        uint32_t at = 0;
+        for (const auto& [lo, hi] : busy) {
+            if (at + len <= lo) break;
+            at = std::max(at, hi);
+        }
+        if (at + len > area) {
+            // the functions it is active together with
+            std::string with;
+            int n = 0;
+            for (const auto& [g, gat] : zarOffset_)
+                if (conflict(f, g) && n++ < 6) with += (with.empty() ? "" : ", ") + g;
+            errorMsg = "base-page storage: " + f + " needs " + std::to_string(len) +
+                       " bytes of $80-$E9, which the functions active together with it use (" + with +
+                       (n > 6 ? ", ..." : "") + "); compile with cc45 -fno-zp-locals";
+            return false;
+        }
+        zarOffset_[f] = ZAR_LO + at;
+        zarUsed_ = std::max(zarUsed_, at + len);
+        zarTotal_ += len;
+        ln45debug() << "base-page block: " << f << " at $" << std::hex << (ZAR_LO + at) << std::dec
+                    << " len " << len << "\n";
+    }
+    ln45info() << "base-page blocks: " << blocks.size() << " functions, " << zarTotal_ << " bytes in "
+               << zarUsed_ << "\n";
+    return true;
+}
+
+// SAC overlay. A static-allocation (SAC) function keeps its parameters and
+// locals in a BSS block (cc45: <f>__ar, size cc45.sacsize.<f>). Two SAC
+// functions can share storage when neither can be active while the other
+// is: neither reaches the other through calls. The blocks of such
+// functions are placed first-fit in one overlay area at the end of BSS.
+//
+// Calls are JSR and JMP references to a function. Any other reference
+// (an address loaded or stored in data) makes the function callable
+// indirectly from anywhere: it and everything it reaches keep their own
+// storage. In objects not made by cc45 (assembly), exported labels are
+// not function boundaries: a label's code can fall through to or branch to
+// another, so all labels of such an object are treated as one function.
+void O45Linker::computeSacOverlay() {
+    sacMoves_.clear();
+    sacOverlayLen_ = 0;
+    sacOverlaySaved_ = 0;
+    if (!sacOverlayOn_) return;
+
+    bool anySac = false;
+    for (const auto& [name, attr] : funcAttrs_)
+        if (attr.flags & FUNC_FLAG_STATIC_ALLOC) anySac = true;
+    if (!anySac) return;
+
+    std::map<std::string, std::set<std::string>> graph;
+    std::set<std::string> addrTaken;
+    buildCallGraph(graph, addrTaken);
 
     auto reachFrom = [&](const std::string& start) {
         std::set<std::string> seen;
@@ -2329,6 +2441,12 @@ void O45Linker::writeMap(std::ostream& out) const {
         snprintf(buf, sizeof(buf), "  (SAC overlay $%04X - $%04X, %u bytes; %u saved by sharing)\n",
                  bssBase_ + sacOverlayOffset_, bssBase_ + sacOverlayOffset_ + sacOverlayLen_ - 1,
                  sacOverlayLen_, sacOverlaySaved_);
+        out << buf;
+    }
+    if (zarTotal_ > 0) {
+        char buf[120];
+        snprintf(buf, sizeof(buf), "  (base-page blocks $%02X - $%02X, %u bytes; %u asked for by %zu functions)\n",
+                 ZAR_LO, ZAR_LO + zarUsed_ - 1, zarUsed_, zarTotal_, zarOffset_.size());
         out << buf;
     }
     printSeg("ZP", zpBase_, mergedZpLen_);
