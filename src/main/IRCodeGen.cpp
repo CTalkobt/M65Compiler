@@ -3674,6 +3674,26 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 }
             }
 
+            // I8 local += 1 / -= 1 (++c, c--): inc/dec the byte in place
+            if (inst.resultType == ir::Type::I8 && inst.src1.isVreg() && inst.dest.isVreg() &&
+                inst.src2.isImm()) {
+                int64_t c = inst.src2.immVal;
+                bool up = (inst.op == ir::Op::ADD && (c & 0xFF) == 1) || (inst.op == ir::Op::SUB && (c & 0xFF) == 0xFF);
+                bool down = (inst.op == ir::Op::SUB && (c & 0xFF) == 1) || (inst.op == ir::Op::ADD && (c & 0xFF) == 0xFF);
+                auto* nextInst = peekNextInst();
+                std::string at = directBase(inst.src1.vregId);
+                if ((up || down) && !at.empty() && nextInst && nextInst->op == ir::Op::STORE &&
+                    nextInst->src1.isVreg() && nextInst->src1.vregId == inst.dest.vregId &&
+                    nextInst->src2.isVreg() && nextInst->src2.vregId == inst.src1.vregId &&
+                    localSlotVregs_.count(nextInst->src2.vregId) &&
+                    !vregUsedOutside(inst.dest.vregId, &inst, nextInst)) {
+                    emit((up ? "inc " : "dec ") + at, irDesc(up ? "inc8 in place" : "dec8 in place"));
+                    resultInAX_ = -2;
+                    ms_.invalidateAll();
+                    break;
+                }
+            }
+
             // I8 fast path: use native 8-bit add/sub
             if (inst.resultType == ir::Type::I8) {
                 // Check for inc a / dec a optimization

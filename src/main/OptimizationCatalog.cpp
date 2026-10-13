@@ -221,7 +221,7 @@ void OptimizationCatalog::initializeCatalog() {
 
     catalog_.push_back({
         "PostIncrementSink", "Post-increment Sinking",
-        "Access through a pointer variable before its post-increment (*p++), not through a copy",
+        "*p++ through the pointer itself; ++/-- of variables updated in place",
         OptimizationCategory::BOTH, 1, -1, "-fpost-increment-sink", false, 2
     });
 

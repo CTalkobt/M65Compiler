@@ -2886,6 +2886,8 @@ void AssemblerSimulatedOps::dispatch_INC16_FP(AssemblerParser* p, M65Emitter& e,
     uint16_t yOff = (uint16_t)p->evaluateExpressionAt(s->instr.operandTokenIndex, s->scopePrefix);
     uint16_t off = fpOff + yOff;
     e.inc_stack(off);
+    // Z from the new low byte (still in A): the store's ldy #off set the flags
+    e.emitInstruction("ora", AddressingMode::IMMEDIATE, 0, true);
     auto br = e.emitBranchPlaceholder(0xD0); // bne skip
     e.inc_stack(off + 1);
     e.patchBranchTarget(br);

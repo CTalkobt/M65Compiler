@@ -2036,6 +2036,85 @@ void optimizeLoopUnroll(Module& mod) {
 // the increment moves after that use and %t becomes S + 0, which IRCodeGen
 // folds into the accesses ((S),y with S in ZP):
 //     %t = add S, 0;  ... accesses through %t;  %u = add S, c;  store %u, S
+// ++/-- on an integer (or pointer) variable S, updated in place (codegen:
+// inc/dec/inw/dew on S) instead of through a temporary:
+//   post (n--):  %t = deref S; %u = op %t, c; store %u, S
+//                → %u = op S, c   (S has %t's value there; %t stays for its uses)
+//   pre  (--n):  %u = op S, c; store %u, S; ...uses of %u
+//                → the uses read S (it holds %u until written again), so %u
+//                  is used only by the store
+static void incDecInPlace(Function& fn) {
+    auto isTerm = [](Op op) { return op == Op::BR || op == Op::BR_COND || op == Op::SWITCH || op == Op::RET; };
+    std::map<uint32_t, int> defs;
+    for (const auto& blk : fn.blocks)
+        for (const auto& in : blk.insts) if (in.dest.isVreg()) defs[in.dest.vregId]++;
+    auto isVar = [&](const Operand& o) {
+        return o.isVreg() && fn.localSlotVregs.count(o.vregId) && !fn.memoryVregs.count(o.vregId) &&
+               !fn.vregSizes.count(o.vregId);
+    };
+    for (auto& blk : fn.blocks) {
+        auto& insts = blk.insts;
+        for (size_t i = 0; i + 1 < insts.size(); i++) {
+            Inst& a = insts[i];
+            const Inst& st = insts[i + 1];
+            if ((a.op != Op::ADD && a.op != Op::SUB) || !a.dest.isVreg() || !a.src2.isImm() ||
+                a.resultType == Type::F32 || a.resultType == Type::I32 ||
+                st.op != Op::STORE || !st.src1.isVreg() || st.src1.vregId != a.dest.vregId || !st.src2.isVreg())
+                continue;
+            const Operand S = st.src2;
+            if (!isVar(S) || defs[a.dest.vregId] != 1 || fn.localSlotVregs.count(a.dest.vregId)) continue;
+            uint32_t u = a.dest.vregId;
+            // post: the operand is a copy of S read just before
+            if (a.src1.isVreg() && a.src1.vregId != S.vregId && i > 0) {
+                const Inst& d = insts[i - 1];
+                if ((d.op == Op::DEREF || d.op == Op::COPY) && d.dest.isVreg() && d.dest.vregId == a.src1.vregId &&
+                    d.src1.isVreg() && d.src1.vregId == S.vregId && d.resultType == a.resultType) {
+                    a.src1 = S;
+                    a.src1.type = a.resultType;
+                    trace("incdec", fn.name, "update of a variable in place (post)", a.loc);
+                }
+            }
+            // pre: the uses of %u after the store read S
+            if (!a.src1.isVreg() || a.src1.vregId != S.vregId) continue;
+            std::vector<std::pair<size_t, Operand*>> uses;
+            bool ok = true, sWritten = false;
+            for (size_t j = i + 2; j < insts.size() && ok; j++) {
+                Inst& x = insts[j];
+                auto note = [&](Operand& o, bool valuePos) {
+                    if (!o.isVreg() || o.vregId != u) return;
+                    if (sWritten || !valuePos) ok = false;
+                    else uses.push_back({j, &o});
+                };
+                note(x.src1, true);
+                note(x.src2, !(x.op == Op::STORE));                 // a store's target: no
+                if (x.op == Op::STORE && x.dest.isVreg() && x.dest.vregId == u) ok = false;
+                for (auto& o : x.args) note(o, true);
+                for (auto& ph : x.phiIncoming) if (ph.first.isVreg() && ph.first.vregId == u) ok = false;
+                if (x.op == Op::CALL || x.op == Op::CALL_VOID || x.op == Op::CALL_INDIRECT || x.op == Op::ASM_INLINE)
+                    sWritten = true;   // (not written by a call: S is not address-taken; be careful anyway)
+                if ((x.dest.isVreg() && x.dest.vregId == S.vregId) ||
+                    (x.op == Op::STORE && x.src2.isVreg() && x.src2.vregId == S.vregId))
+                    sWritten = true;
+                (void)isTerm;
+            }
+            if (!ok || uses.empty()) continue;
+            // every use of %u: the store and these (none in other blocks)
+            int total = 0;
+            for (const auto& b2 : fn.blocks)
+                for (const auto& x : b2.insts) {
+                    auto is = [&](const Operand& o) { return o.isVreg() && o.vregId == u; };
+                    if (is(x.src1)) total++;
+                    if (is(x.src2)) total++;
+                    for (const auto& o : x.args) if (is(o)) total++;
+                    for (const auto& ph : x.phiIncoming) if (is(ph.first)) total++;
+                }
+            if (total != (int)uses.size() + 1) continue;
+            for (auto& [j, o] : uses) { Type t = o->type; *o = S; o->type = t; }
+            trace("incdec", fn.name, "update of a variable in place (pre)", a.loc);
+        }
+    }
+}
+
 void optimizePostIncrementSink(Module& mod) {
     auto isTerm = [](Op op) { return op == Op::BR || op == Op::BR_COND || op == Op::SWITCH || op == Op::RET; };
     for (auto& fn : mod.functions) {
@@ -2105,6 +2184,8 @@ void optimizePostIncrementSink(Module& mod) {
             }
         }
     }
+    for (auto& fn : mod.functions)
+        if (runOn(fn, "PostIncrementSink")) incDecInPlace(fn);
 }
 
 // A leaf function (no calls, no inline asm) keeps its pointer locals in the
