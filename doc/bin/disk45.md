@@ -13,7 +13,7 @@ disk45 -a2p | -p2a
 
 **disk45** creates, reads and manipulates Commodore disk images, tape images and archive files. It handles 25 container formats spanning C64, C128, PET, MEGA65 and CMD devices (read/write support varies, see [Supported Formats](#supported-formats)). It also offers FUSE mounting, an SQLite catalog of image collections, format conversion, batch scripts and PETSCII conversion.
 
-The format is chosen from the file extension; an unrecognised extension is treated as D81. GZ compression is transparent: append `.gz` to any format (e.g. `.d81.gz`) and the image is decompressed on load and compressed on save.
+The format is chosen from the file extension; an unrecognised extension is treated as D81. GZ compression is transparent: append `.gz` to any format (e.g. `.d81.gz`) and the image is decompressed on load and compressed on save. A disk image can also live inside a zip (`game.d81.zip`, `archive.zip:disk.d64`, see [Compression](#compression)).
 
 `disk45 sd` works on MEGA65 SD card images (FAT32 with the MEGA65 system partition, see [MEGA65 SD Card Images](#mega65-sd-card-images)).
 
@@ -654,12 +654,14 @@ R/W means `create`, `add`, `remove` etc. work and the image is written back in i
 |-----------|--------|-----|------|-------|
 | `.d90` | D9090 | R | 7.5 MB | CBM hard drive (6 heads). |
 | `.d60` | D9060 | R | 5 MB | CBM hard drive (4 heads). |
-| `.d1m` | FD-2000 DD | R | 207 KB | CMD FD-2000 double density. |
-| `.d2m` | FD-2000 HD | R | 414 KB | CMD FD-2000 high density. |
-| `.d4m` | FD-4000 ED | R | 829 KB | CMD FD-4000 extra density. |
-| `.dnp` | CMD Native | R | ≤ 16 MB | CMD Native Partition. |
+| `.d1m` | FD-2000 DD | R/W | 810 KB | CMD FD-2000 double density (3240 sectors). |
+| `.d2m` | FD-2000 HD | R/W | 1.58 MB | CMD FD-2000 high density (6480 sectors). |
+| `.d4m` | FD-4000 ED | R/W | 3.16 MB | CMD FD-4000 extra density (12960 sectors). |
+| `.dnp` | CMD Native | R/W | ≤ 16 MB | CMD native partition (a hard disk partition); `create -t N` gives N tracks (default 32, 2 MB). |
 
-`create` on these extensions produces a blank formatted image. disk45 does not write their BAM correctly, so every command that changes such an image (`add`, `remove`, `rename`, `bwrite`, a FUSE mount, ...) is refused with an error and the image stays as it was.
+D90/D60 are read-only: `create` produces a blank formatted image, and every command that changes one is refused (disk45 does not write their BAM).
+
+**CMD images** follow [D2M-DNP.TXT](https://ist.uwaterloo.ca/~schepers/formats/D2M-DNP.TXT). A D1M/D2M/D4M has a system partition on its reserved last physical track (the DevBlock at its sector 5, the partition directory in sectors 8-11: up to 31 native or emulated 1541/1571/1581 partitions, offsets and sizes in 512-byte blocks); disk45 works on the first **native** partition and `info` lists them all. A native partition has 256-sector tracks counted from 1: 1/0 the boot block, 1/1 the header (name, ID, `1H`, the directory link), 1/2-1/33 the BAM (from offset `$20` of 1/2, 32 bytes per track, bit 7 = sector 0, 1 = free; byte 8 = the last track), the directory from 1/34. `create` makes a D1M/D2M/D4M with one native partition filling the disk (DevBlock `CMD FD SERIES`) or a DNP; `test_disk45.sh` checks these bytes. Subdirectories (type 6) are listed but not entered, emulated partitions are not opened (extract them with `bread`), and error bytes after the sectors are kept.
 
 ### GCR Formats
 
@@ -698,6 +700,7 @@ NIB, NBZ and Zipcode are read-only: `create` refuses them and changes are refuse
 | Extension | Description |
 |-----------|-------------|
 | `.gz` | Transparent gzip on any format (e.g. `.d81.gz`). |
+| `.zip` | A disk image inside a zip: `game.d81.zip` (the member `game.d81`; `create` makes the zip), `game.zip` (its one disk image), or `archive.zip:member.d64` to name a member (case-insensitive). The member is read and written through a temporary file; a change replaces that member, deflated, and keeps the other members' data as it is. Stored and deflated members are read; ZIP64 and encrypted archives are not. |
 
 ## Filename Handling
 

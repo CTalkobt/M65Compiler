@@ -435,8 +435,13 @@ DiskImage::ValidateResult DiskImage::validate() const {
 
     // Also count BAM/header sector itself
     usageCount[key(dirTrack_, 0)]++;
+    usageCount[key(headerSector().track, headerSector().sector)]++;
+    for (auto& ts : systemSectors()) usageCount[key(ts.track, ts.sector)]++;
     // and a GEOS disk's border sector
-    if (!geosSignature().empty() && hdr[0xAB] != 0) usageCount[key(hdr[0xAB], hdr[0xAC])]++;
+    if (!geosSignature().empty()) {
+        const uint8_t* h = sectorData(headerSector().track, headerSector().sector);
+        if (h && h[0xAB] != 0) usageCount[key(h[0xAB], h[0xAC])]++;
+    }
 
     // Compare BAM vs actual usage
     r.freeSectorsInBAM = freeSectors();
@@ -499,7 +504,8 @@ std::string DiskImage::geosTypeName(uint8_t type) {
 }
 
 std::string DiskImage::geosSignature() const {
-    const uint8_t* hdr = sectorData(headerTrack(), 0);
+    TrackSector h = headerSector();
+    const uint8_t* hdr = sectorData(h.track, h.sector);
     if (!hdr || std::memcmp(hdr + 0xAD, "GEOS format", 11) != 0) return "";
     std::string s((const char*)hdr + 0xAD, 16);
     return s.substr(0, s.find('\0'));

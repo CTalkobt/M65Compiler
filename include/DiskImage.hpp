@@ -88,6 +88,17 @@ public:
     virtual bool loadFromFile(const std::string& path);
     virtual bool saveToFile(const std::string& path) const;
 
+    // --- Images inside a .zip ---
+    // A path "x.d81.zip", "x.zip" (its one disk image, or the member named
+    // like the zip) or "archive.zip:member.d64" names a zip member: load()
+    // reads it through a temporary file, saveImage() writes it back into the
+    // zip (the other members are kept as they are) or creates the zip.
+    // saveImage() saves any other path with saveToFile().
+    bool saveImage(const std::string& path) const;
+    // Split a zip path; false when it is not one
+    static bool zipPath(const std::string& path, std::string& zip, std::string& member);
+    static bool isImageExtension(const std::string& name);
+
     // Whether disk45 can write this format back. G64/G71, NIB, Zipcode
     // (decoded to D64 sectors on load) and D90/D60/CMD (no correct BAM
     // writer) are read-only: saveToFile refuses them. A blank image from
@@ -104,6 +115,12 @@ public:
     virtual TrackSector firstDirectorySector() const;
     // The track of the header sector (sector 0) and the directory
     int headerTrack() const { return directoryTrack(); }
+    // The header sector (disk name, ID, GEOS signature): sector 0 of the
+    // directory track; a CMD native partition's is 1/1
+    virtual TrackSector headerSector() const { return {(uint8_t)directoryTrack(), 0}; }
+    // Sectors the format reserves besides the header and directory (counted
+    // as used by validate): a CMD native partition's boot block and BAM
+    virtual std::vector<TrackSector> systemSectors() const { return {}; }
     // REL files use a 1581 super side sector (D81, D65)
     virtual bool superSideSectors() const { return false; }
 
@@ -174,6 +191,7 @@ public:
     static DiskFormat formatFromExtension(const std::string& path);
 
 protected:
+    std::string zipMember_;       // the member this image was loaded from
     std::vector<uint8_t> image_;  // raw disk image bytes
     bool blank_ = false;          // freshly formatted by create (markBlank)
 

@@ -145,7 +145,7 @@ LIB45_TOOLS_OBJS = $(addprefix $(OBJ_DIR)/, \
     D64Image.o D71Image.o D81Image.o D65Image.o ArkImage.o ArcImage.o \
     LnxImage.o TapImage.o T64Image.o G64Image.o D80Image.o GeosCvtImage.o \
     P00Image.o X64Image.o ZipcodeImage.o D90Image.o CmdImage.o NibImage.o \
-    Gcr.o GcrTracks.o Lz77.o \
+    Gcr.o GcrTracks.o Lz77.o ZipArchive.o \
     GzipHelper.o AsmParser.o AsmWriter.o Ca45Parser.o Ca45Writer.o \
     Ca65Parser.o Ca65Writer.o AcmeParser.o AcmeWriter.o OscarParser.o \
     OscarWriter.o Merlin64Parser.o Merlin64Writer.o X65Parser.o X65Writer.o \

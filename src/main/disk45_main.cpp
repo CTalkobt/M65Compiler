@@ -6,6 +6,8 @@
 #include "D65Image.hpp"
 #include "TapImage.hpp"
 #include "GeosCvtImage.hpp"
+#include "CmdImage.hpp"
+#include "GzipHelper.hpp"
 #include <iostream>
 #include <filesystem>
 #include <fstream>
@@ -536,12 +538,25 @@ static int cmdCreate(int argc, char** argv) {
         else if (std::string(argv[i]) == "--geos") geos = true;
     }
 
+    std::string zipFile, zipMember;
+    if (tracks > 0 && DiskImage::zipPath(imagePath, zipFile, zipMember)) {
+        std::cerr << "Error: -t cannot be used with an image inside a zip\n";
+        return 1;
+    }
     auto img = DiskImage::createFromExtension(imagePath);
     if (!img->canCreateBlank()) {
         std::string ext = std::filesystem::path(imagePath).extension().string();
         std::cerr << "Error: disk45 cannot create " << (ext.empty() ? imagePath : ext)
                   << " images (a read-only format; create a .d64 or .d81)\n";
         return 1;
+    }
+    // a DNP's size is its track count
+    if (auto* cmd = dynamic_cast<CmdImage*>(img.get()); cmd && tracks > 0 &&
+        std::filesystem::path(gzip::hasGzExtension(imagePath) ? gzip::stripGzExtension(imagePath) : imagePath)
+                .extension() == ".dnp") {
+        if (tracks > 255) { std::cerr << "Error: a DNP has at most 255 tracks\n"; return 1; }
+        cmd->setNativeTracks(tracks);
+        tracks = 0;
     }
     img->format(diskName, diskId);
     img->markBlank();
@@ -563,7 +578,7 @@ static int cmdCreate(int argc, char** argv) {
             // Actually, format() sets the image size. For D64 extended tracks,
             // we need to resize after format().
             // Use saveToFile + manual resize approach:
-            img->saveToFile(imagePath);
+            img->saveImage(imagePath);
 
             // Read back raw, extend, write
             std::ifstream f(imagePath, std::ios::binary | std::ios::ate);
@@ -587,7 +602,7 @@ static int cmdCreate(int argc, char** argv) {
         std::string err;
         if (!img->makeGeosDisk(err)) { std::cerr << "Error: " << err << "\n"; return 1; }
     }
-    if (!img->saveToFile(imagePath)) {
+    if (!img->saveImage(imagePath)) {
         std::cerr << "Error: failed to write " << imagePath << "\n";
         return 1;
     }
@@ -672,7 +687,8 @@ static int cmdInfo(int argc, char** argv) {
             std::cout << "Description:  " << desc << "\n";
         std::cout << "Files:        " << img->listFiles().size() << "\n";
     } else {
-        std::cout << "Format:       " << formatStr(img->diskFormat()) << "\n"
+        auto* cmdImg = dynamic_cast<CmdImage*>(img.get());
+        std::cout << "Format:       " << (cmdImg ? cmdImg->formatName() : formatStr(img->diskFormat())) << "\n"
                   << "Disk name:    " << img->diskName() << "\n"
                   << "Disk ID:      " << img->diskId() << "\n"
                   << "Tracks:       " << img->totalTracks() << "\n"
@@ -682,6 +698,15 @@ static int cmdInfo(int argc, char** argv) {
                   << "Files:        " << img->listFiles().size() << "\n";
         if (trackImage(img.get()) && !img->geosSignature().empty())
             std::cout << "GEOS:         " << img->geosSignature() << "\n";
+        if (auto* cmd = dynamic_cast<CmdImage*>(img.get()); cmd && !cmd->partitions().empty()) {
+            std::cout << "Partitions:\n";
+            for (const auto& p : cmd->partitions())
+                std::cout << "  " << std::setw(2) << p.number << "  " << std::left << std::setw(14)
+                          << CmdImage::partitionTypeName(p.type) << std::right << " \"" << p.name << "\"  "
+                          << p.sectors << " sectors at " << p.start
+                          << (cmd->hasNative() && p.start == cmd->nativeStart() && p.type == 1 ? "  (the one disk45 uses)" : "")
+                          << "\n";
+        }
     }
     return 0;
 }
@@ -713,7 +738,7 @@ static int cmdAdd(int argc, char** argv) {
             std::cerr << "Error: failed to add the GEOS file: " << err << "\n";
             return 1;
         }
-        if (!img->saveToFile(imagePath)) {
+        if (!img->saveImage(imagePath)) {
             std::cerr << "Error: failed to write " << imagePath << "\n";
             return 1;
         }
@@ -734,7 +759,7 @@ static int cmdAdd(int argc, char** argv) {
         std::cerr << "Error: failed to add \"" << cbmName << "\" (disk full or duplicate?)\n";
         return 1;
     }
-    if (!img->saveToFile(imagePath)) {
+    if (!img->saveImage(imagePath)) {
         std::cerr << "Error: failed to write " << imagePath << "\n";
         return 1;
     }
@@ -796,7 +821,7 @@ static int cmdRemove(int argc, char** argv) {
         std::cerr << "Error: file \"" << cbmName << "\" not found\n";
         return 1;
     }
-    if (!img->saveToFile(imagePath)) {
+    if (!img->saveImage(imagePath)) {
         std::cerr << "Error: failed to write " << imagePath << "\n";
         return 1;
     }
@@ -816,7 +841,7 @@ static int cmdRename(int argc, char** argv) {
 
     // Try the standard renameFile first (handles regular files)
     if (img->renameFile(oldName, newName)) {
-        if (!img->saveToFile(imagePath)) {
+        if (!img->saveImage(imagePath)) {
             std::cerr << "Error: failed to write " << imagePath << "\n";
             return 1;
         }
@@ -853,7 +878,7 @@ static int cmdRename(int argc, char** argv) {
         std::cerr << "Error: rename failed (entry not found)\n";
         return 1;
     }
-    if (!img->saveToFile(imagePath)) {
+    if (!img->saveImage(imagePath)) {
         std::cerr << "Error: failed to write " << imagePath << "\n";
         return 1;
     }
@@ -907,7 +932,7 @@ static int cmdSplat(int argc, char** argv, bool close) {
         std::cerr << "Error: file \"" << name << "\" not found\n";
         return 1;
     }
-    if (!img->saveToFile(imagePath)) {
+    if (!img->saveImage(imagePath)) {
         std::cerr << "Error: failed to write " << imagePath << "\n";
         return 1;
     }
@@ -928,7 +953,7 @@ static int cmdLock(int argc, char** argv, bool lock) {
         std::cerr << "Error: file \"" << cbmName << "\" not found\n";
         return 1;
     }
-    if (!img->saveToFile(imagePath)) {
+    if (!img->saveImage(imagePath)) {
         std::cerr << "Error: failed to write " << imagePath << "\n";
         return 1;
     }
@@ -963,7 +988,7 @@ static int cmdLabel(int argc, char** argv) {
         std::cerr << "Error: cannot set disk ID (format may not support it)\n";
         return 1;
     }
-    if (!img->saveToFile(imagePath)) {
+    if (!img->saveImage(imagePath)) {
         std::cerr << "Error: failed to write " << imagePath << "\n";
         return 1;
     }
@@ -1162,7 +1187,7 @@ static int cmdCopy(int argc, char** argv) {
     }
 
     if (copied > 0) {
-        if (!dst->saveToFile(dstPath)) {
+        if (!dst->saveImage(dstPath)) {
             std::cerr << "Error: failed to write " << dstPath << "\n";
             return 1;
         }
@@ -1291,7 +1316,7 @@ static int cmdBwrite(int argc, char** argv) {
     if (!f) { std::cerr << "Error: cannot read " << argv[3] << "\n"; return 1; }
     f.read(reinterpret_cast<char*>(data), 256);
 
-    if (!img->saveToFile(argv[0])) { std::cerr << "Error: failed to write image\n"; return 1; }
+    if (!img->saveImage(argv[0])) { std::cerr << "Error: failed to write image\n"; return 1; }
     std::cout << "Wrote sector " << track << "/" << sector << " from " << argv[3] << "\n";
     return 0;
 }
@@ -1340,7 +1365,7 @@ static int cmdBpoke(int argc, char** argv) {
         data[offset++] = (uint8_t)std::stoul(argv[i], nullptr, 0);
     }
 
-    if (!img->saveToFile(argv[0])) { std::cerr << "Error: failed to write image\n"; return 1; }
+    if (!img->saveImage(argv[0])) { std::cerr << "Error: failed to write image\n"; return 1; }
     std::cout << "Poked " << (argc - 4) << " byte(s) at " << track << "/" << sector << "+" << std::stoi(argv[3]) << "\n";
     return 0;
 }
@@ -1360,7 +1385,7 @@ static int cmdBfill(int argc, char** argv) {
     if (!data) { std::cerr << "Error: invalid track/sector\n"; return 1; }
 
     std::memset(data, val, 256);
-    if (!img->saveToFile(argv[0])) { std::cerr << "Error: failed to write image\n"; return 1; }
+    if (!img->saveImage(argv[0])) { std::cerr << "Error: failed to write image\n"; return 1; }
     std::cout << "Filled sector " << track << "/" << sector << " with $"
               << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)val
               << std::dec << "\n";
@@ -1649,7 +1674,7 @@ static int cmdRelCreate(int argc, char** argv) {
     DiskImage::padPetsciiName(entry.filename, name);
     if (img->addEntry(entry).isNull()) { std::cerr << "Error: directory full\n"; return 1; }
 
-    if (!img->saveToFile(imagePath)) {
+    if (!img->saveImage(imagePath)) {
         std::cerr << "Error: failed to write " << imagePath << "\n";
         return 1;
     }
@@ -1745,7 +1770,7 @@ static int cmdRelWrite(int argc, char** argv) {
         if (p) *p = bytes[b];
     }
 
-    if (!img->saveToFile(argv[0])) {
+    if (!img->saveImage(argv[0])) {
         std::cerr << "Error: failed to write " << argv[0] << "\n";
         return 1;
     }
@@ -1881,7 +1906,7 @@ static int cmdMkdir(int argc, char** argv) {
 
     if (!written) { std::cerr << "Error: failed to create directory entry\n"; return 1; }
 
-    if (!img->saveToFile(argv[0])) {
+    if (!img->saveImage(argv[0])) {
         std::cerr << "Error: failed to write " << argv[0] << "\n";
         return 1;
     }
@@ -1959,7 +1984,7 @@ static int cmdRmdir(int argc, char** argv) {
     // Shrink the parent directory chain (remove trailing empty sectors)
     int reclaimed = shrinkDirChain(img.get(), parentDir);
 
-    if (!img->saveToFile(argv[0])) {
+    if (!img->saveImage(argv[0])) {
         std::cerr << "Error: failed to write " << argv[0] << "\n";
         return 1;
     }
@@ -2019,7 +2044,7 @@ static int cmdDirShrink(int argc, char** argv) {
 
     int reclaimed = shrinkDirChain(img.get(), dirTS);
     if (reclaimed > 0) {
-        if (!img->saveToFile(argv[0])) {
+        if (!img->saveImage(argv[0])) {
             std::cerr << "Error: failed to write " << argv[0] << "\n";
             return 1;
         }
@@ -2057,7 +2082,7 @@ static int cmdDirEnsure(int argc, char** argv) {
         return 1;
     }
     if (added > 0) {
-        if (!img->saveToFile(argv[0])) {
+        if (!img->saveImage(argv[0])) {
             std::cerr << "Error: failed to write " << argv[0] << "\n";
             return 1;
         }
@@ -2111,7 +2136,7 @@ static int cmdConvert(int argc, char** argv) {
 
         if (DiskImage::isCvt(data) && trackImage(dst.get())) {
             std::string err;
-            if (!dst->addGeosCvt(data, "", err) || !dst->saveToFile(dstPath)) {
+            if (!dst->addGeosCvt(data, "", err) || !dst->saveImage(dstPath)) {
                 std::cerr << "Error: " << (err.empty() ? "failed to write " + dstPath : err) << "\n";
                 return 1;
             }
@@ -2123,7 +2148,7 @@ static int cmdConvert(int argc, char** argv) {
             std::cerr << "Error: failed to add file to target image\n";
             return 1;
         }
-        if (!dst->saveToFile(dstPath)) {
+        if (!dst->saveImage(dstPath)) {
             std::cerr << "Error: failed to write " << dstPath << "\n";
             return 1;
         }
@@ -2158,7 +2183,7 @@ static int cmdConvert(int argc, char** argv) {
         copied++;
     }
 
-    if (!dst->saveToFile(dstPath)) {
+    if (!dst->saveImage(dstPath)) {
         std::cerr << "Error: failed to write " << dstPath << "\n";
         return 1;
     }

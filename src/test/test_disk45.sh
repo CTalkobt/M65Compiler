@@ -194,9 +194,9 @@ $DISK45 list "$TMPDIR/l.d82" | grep -q '^261 blocks free' && cmp -s "$TMPDIR/big
 # ============================================================================
 echo "=== Read-only formats ==="
 
-# D90/D60/CMD: create gives a blank image; changing it is refused and leaves it
+# D90/D60: create gives a blank image; changing it is refused and leaves it
 # unchanged. NIB/Zipcode cannot be created
-for ext in d90 d1m; do
+for ext in d90; do
     $DISK45 create "$TMPDIR/ro.$ext" -n "RO" >/dev/null 2>&1
     SUM=$(md5sum < "$TMPDIR/ro.$ext")
     ! $DISK45 add "$TMPDIR/ro.$ext" "$TMPDIR/d1.prg" X >/dev/null 2>&1 &&
@@ -417,6 +417,70 @@ $DISK45 create "$TMPDIR/new.g64.gz" -n NEW >/dev/null 2>&1 && $DISK45 add "$TMPD
     pass "create and change a .g64.gz" || fail "create .g64.gz"
 ! $DISK45 add "$TMPDIR/py.nib" "$TMPDIR/gcrb.prg" X >/dev/null 2>&1 &&
     pass "NIB stays read-only" || fail "NIB read-only"
+
+# ============================================================================
+echo "=== Disk images inside a .zip ==="
+
+rm -f "$TMPDIR/game.d81.zip" "$TMPDIR/multi.zip"
+$DISK45 create "$TMPDIR/game.d81.zip" -n ZIPPED >/dev/null 2>&1 &&
+    $DISK45 add "$TMPDIR/game.d81.zip" "$TMPDIR/d1.prg" TOOL >/dev/null 2>&1 &&
+    $DISK45 list "$TMPDIR/game.d81.zip" | grep -q '"TOOL"' &&
+    { ! command -v unzip >/dev/null 2>&1 || unzip -tq "$TMPDIR/game.d81.zip" >/dev/null 2>&1; } &&
+    pass "create/add/list x.d81.zip" || fail "x.d81.zip"
+if command -v zip >/dev/null 2>&1 && command -v unzip >/dev/null 2>&1; then
+    $DISK45 create "$TMPDIR/za.d64" -n AAA >/dev/null 2>&1
+    $DISK45 create "$TMPDIR/zb.d81" -n BBB >/dev/null 2>&1
+    echo hello > "$TMPDIR/zreadme.txt"
+    (cd "$TMPDIR" && zip -q multi.zip za.d64 zb.d81 zreadme.txt)
+    ! $DISK45 list "$TMPDIR/multi.zip" >/dev/null 2>&1 &&
+        $DISK45 list "$TMPDIR/multi.zip:zb.d81" | grep -q '"BBB"' &&
+        $DISK45 add "$TMPDIR/multi.zip:ZA.D64" "$TMPDIR/d1.prg" X >/dev/null 2>&1 &&
+        $DISK45 list "$TMPDIR/multi.zip:za.d64" | grep -q '"X"' &&
+        unzip -tq "$TMPDIR/multi.zip" >/dev/null 2>&1 &&
+        [ "$(cd "$TMPDIR" && unzip -p multi.zip zreadme.txt)" = "hello" ] &&
+        [ "$(cd "$TMPDIR" && unzip -p multi.zip zb.d81 | md5sum)" = "$(md5sum < "$TMPDIR/zb.d81")" ] &&
+        pass "a zip with several members: zip:member, the others kept" || fail "zip:member"
+fi
+
+# ============================================================================
+echo "=== CMD images (D1M/D2M/D4M, DNP) ==="
+
+# D2M-DNP.TXT: the system partition on the last physical track (DevBlock at
+# +5, partition directory at +8..11), a native partition with header 1/1,
+# BAM 1/2-1/33 (sectors 0-34 of track 1 used), directory 1/34
+for f in d1m:829440:3165 d2m:1658880:6365 d4m:3317760:12765 dnp:2097152:8157; do
+    IFS=: read -r ext size free <<< "$f"
+    rm -f "$TMPDIR/c.$ext"
+    $DISK45 create "$TMPDIR/c.$ext" -n "CMD $ext" -i JO >/dev/null 2>&1 &&
+        [ "$(stat -c %s "$TMPDIR/c.$ext")" = "$size" ] &&
+        $DISK45 list "$TMPDIR/c.$ext" | grep -q "^$free blocks free" &&
+        pass "create $ext ($size bytes, $free blocks free)" || fail "create $ext"
+done
+SYS=$(dd if="$TMPDIR/c.d2m" bs=1 skip=$((0x190800)) count=32 2>/dev/null | xxd -p | tr -d '\n')
+P1=$(dd if="$TMPDIR/c.d2m" bs=1 skip=$((0x190820)) count=32 2>/dev/null | xxd -p | tr -d '\n')
+HDR=$(dd if="$TMPDIR/c.d2m" bs=1 skip=$((0x100)) count=34 2>/dev/null | xxd -p | tr -d '\n')
+BAM=$(dd if="$TMPDIR/c.d2m" bs=1 skip=$((0x200)) count=9 2>/dev/null | xxd -p)
+T1=$(dd if="$TMPDIR/c.d2m" bs=1 skip=$((0x220)) count=6 2>/dev/null | xxd -p)
+[ "${SYS:0:30}" = "0101ff000053595354454da0a0a0a0" ] && [ "${P1:4:2}" = "01" ] && [ "${P1:60:4}" = "0c80" ] &&
+    [ "${HDR:0:8}" = "01224800" ] && [ "${HDR:44:10}" = "4a4fa03148" ] && [ "${HDR:64:4}" = "0101" ] &&
+    [ "$BAM" = "000048b74a4fc00019" ] && [ "$T1" = "000000001fff" ] &&
+    [ "$(dd if="$TMPDIR/c.d2m" bs=1 skip=$((0x1905f0)) count=13 2>/dev/null)" = "CMD FD SERIES" ] &&
+    pass "D2M layout: system partition, header, BAM" || fail "D2M layout ($SYS / $P1 / $HDR / $BAM / $T1)"
+head -c 100000 /dev/urandom > "$TMPDIR/cbig.prg"
+$DISK45 add "$TMPDIR/c.d2m" "$TMPDIR/cbig.prg" BIG >/dev/null 2>&1
+for i in $(seq 1 20); do $DISK45 add "$TMPDIR/c.d2m" "$TMPDIR/d1.prg" "F$i" >/dev/null 2>&1; done
+$DISK45 extract "$TMPDIR/c.d2m" BIG "$TMPDIR/cbig2.prg" >/dev/null 2>&1 && cmp -s "$TMPDIR/cbig2.prg" "$TMPDIR/cbig.prg" &&
+    $DISK45 list "$TMPDIR/c.d2m" | grep -q '"F20"' &&
+    $DISK45 validate "$TMPDIR/c.d2m" 2>&1 | grep -q 'Status: OK' &&
+    $DISK45 remove "$TMPDIR/c.d2m" BIG >/dev/null 2>&1 &&
+    $DISK45 validate "$TMPDIR/c.d2m" 2>&1 | grep -q 'Status: OK' &&
+    ! $DISK45 validate "$TMPDIR/c.d2m" 2>&1 | grep -q 'Orphaned' &&
+    pass "D2M: add (directory over two sectors), extract, remove, validate" || fail "D2M files"
+rm -f "$TMPDIR/c100.dnp"
+$DISK45 create "$TMPDIR/c100.dnp" -t 100 >/dev/null 2>&1 && [ "$(stat -c %s "$TMPDIR/c100.dnp")" = "6553600" ] &&
+    [ "$(dd if="$TMPDIR/c100.dnp" bs=1 skip=$((0x208)) count=1 2>/dev/null | xxd -p)" = "64" ] &&
+    $DISK45 list "$TMPDIR/c100.dnp" | grep -q '^25565 blocks free' &&
+    pass "DNP create -t 100" || fail "DNP -t"
 
 # ============================================================================
 echo ""

@@ -175,7 +175,7 @@ static int cbm_write(const char* path, const char* buf, size_t size, off_t offse
     CbmFileType ftype = extToType(path);
     g_img->removeFile(cbmName);
     if (!g_img->addFile(cbmName, ftype, data)) return -ENOSPC;
-    g_img->saveToFile(g_imagePath);
+    g_img->saveImage(g_imagePath);
     return (int)size;
 }
 
@@ -188,7 +188,7 @@ static int cbm_create(const char* path, mode_t, struct fuse_file_info*) {
     CbmFileType ftype = extToType(path);
     std::vector<uint8_t> empty;
     if (!g_img->addFile(cbmName, ftype, empty)) return -ENOSPC;
-    g_img->saveToFile(g_imagePath);
+    g_img->saveImage(g_imagePath);
     return 0;
 }
 
@@ -197,7 +197,7 @@ static int cbm_unlink(const char* path) {
     std::lock_guard<std::mutex> lock(g_mutex);
     std::string cbmName = pathToCbmName(path);
     if (!g_img->removeFile(cbmName)) return -ENOENT;
-    g_img->saveToFile(g_imagePath);
+    g_img->saveImage(g_imagePath);
     return 0;
 }
 
@@ -208,7 +208,7 @@ static int cbm_rename(const char* from, const char* to, unsigned int) {
     std::string newName = pathToCbmName(to);
     if (newName.size() > 16) return -ENAMETOOLONG;
     if (!g_img->renameFile(oldName, newName)) return -ENOENT;
-    g_img->saveToFile(g_imagePath);
+    g_img->saveImage(g_imagePath);
     return 0;
 }
 
@@ -222,7 +222,7 @@ static int cbm_truncate(const char* path, off_t size, struct fuse_file_info*) {
     CbmFileType ftype = extToType(path);
     g_img->removeFile(cbmName);
     if (!g_img->addFile(cbmName, ftype, data)) return -ENOSPC;
-    g_img->saveToFile(g_imagePath);
+    g_img->saveImage(g_imagePath);
     return 0;
 }
 
