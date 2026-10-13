@@ -1631,6 +1631,11 @@ void AssemblerParser::pass1() {
                         }
                     }
                     else if (match(AssemblerTokenType::OPEN_PAREN)) {
+                        if (stmt->instr.forceMode && (stmt->instr.mode == AddressingMode::BASE_PAGE || stmt->instr.mode == AddressingMode::ABSOLUTE ||
+                                                      stmt->instr.mode == AddressingMode::IMMEDIATE || stmt->instr.mode == AddressingMode::ACCUMULATOR ||
+                                                      stmt->instr.mode == AddressingMode::STACK_RELATIVE))
+                            throwAt(stmt->line, 1, "'" + stmt->instr.mnemonic + "' with a forced direct mode can't take an indirect operand; write it without the suffix ("
+                                    + stmt->instr.mnemonic + " (zp),y) or use the indirect suffixes (.indy, .indz, .xind, .ind)");
                         stmt->instr.operandTokenIndex = (int)pos;
                         std::string o; while (peek().type != AssemblerTokenType::CLOSE_PAREN && peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE && peek().type != AssemblerTokenType::COMMA) o += advance().value;
                         stmt->instr.operand = o;
@@ -1669,6 +1674,11 @@ void AssemblerParser::pass1() {
                         }
                     }
                     else if (match(AssemblerTokenType::OPEN_BRACKET)) {
+                        if (stmt->instr.forceMode && (stmt->instr.mode == AddressingMode::BASE_PAGE || stmt->instr.mode == AddressingMode::ABSOLUTE ||
+                                                      stmt->instr.mode == AddressingMode::IMMEDIATE || stmt->instr.mode == AddressingMode::ACCUMULATOR ||
+                                                      stmt->instr.mode == AddressingMode::STACK_RELATIVE))
+                            throwAt(stmt->line, 1, "'" + stmt->instr.mnemonic + "' with a forced direct mode can't take an indirect operand; write it without the suffix ("
+                                    + stmt->instr.mnemonic + " (zp),y) or use the indirect suffixes (.indy, .indz, .xind, .ind)");
                         stmt->instr.operandTokenIndex = (int)pos;
                         std::string o; while (peek().type != AssemblerTokenType::CLOSE_BRACKET && peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE && peek().type != AssemblerTokenType::COMMA) o += advance().value;
                         stmt->instr.operand = o; expect(AssemblerTokenType::CLOSE_BRACKET, "Expected ]");

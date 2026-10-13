@@ -1149,7 +1149,7 @@ for flmode in "zp|" "stack|-fno-zpcall"; do
     echo "Testing test_frame_large_xemu.c ($flname)..."
     compile_link_test "src/test-resources/test_frame_large_xemu.c" "build/test/test_frame_large_${flname}_xemu.prg" "$flflags"
     if [ $? -eq 0 ]; then
-        run_xemu_test "test_frame_large_$flname" "build/test/test_frame_large_${flname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+        run_xemu_test "test_frame_large_$flname" "build/test/test_frame_large_${flname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
     else
         echo "FAIL: test_frame_large_xemu.c $flname (compilation/linking failed)"
         failed=$((failed + 1))

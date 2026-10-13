@@ -382,6 +382,20 @@ else
     failed=$((failed + 1))
 fi
 
+# A forced direct mode with an indirect operand (lda.zp ($10),y) is an error,
+# not a silently different instruction
+printf '    .org $2000\n    lda.zp ($10),y\n    rts\n' > build/test_zp_indirect.s45
+if out=$($AS build/test_zp_indirect.s45 -o build/test_zp_indirect.bin 2>&1); then
+    echo "FAIL: lda.zp (\$10),y assembled"
+    failed=$((failed + 1))
+elif grep -q "can't take an indirect operand" <<< "$out"; then
+    echo "SUCCESS: lda.zp (\$10),y is an error"
+    passed=$((passed + 1))
+else
+    echo "FAIL: lda.zp (\$10),y: unexpected error: $(head -1 <<< "$out")"
+    failed=$((failed + 1))
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All assembler feature tests passed!"
     exit 0

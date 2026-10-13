@@ -8,7 +8,9 @@
  *   [2] a variadic function with a 64-byte buffer
  *   [3] the stack pointer is back where it was after all of them
  *   [4] the return value (long, A/X/Y/Z) survives the frame drop
- *   [5] $AA sentinel
+ *   [5] parameters beyond a 300-byte frame (offsets past 255), read after a
+ *       call, and variadic arguments beyond a 300-byte buffer
+ *   [6] $AA sentinel
  */
 #include <stdarg.h>
 #define OUT ((volatile unsigned char *)0xC0C0)
@@ -53,6 +55,29 @@ static unsigned long lng(unsigned char k) {
 }
 
 
+__attribute__((noinline)) static unsigned id(unsigned x) { return x; }
+
+#pragma cc45 recurse
+static unsigned bigp(unsigned a, unsigned char b, unsigned long c) {
+    unsigned char buf[300];
+    unsigned i, s = 0;
+    for (i = 0; i < 300; i++) buf[i] = (unsigned char)i;
+    for (i = 0; i < 300; i++) s += buf[i];
+    s += id(a) + b + (unsigned)c;
+    return s + buf[299] + buf[0];
+}
+
+static unsigned bigv(unsigned char n, ...) {
+    unsigned char buf[300];
+    unsigned i, s = 0;
+    va_list ap;
+    for (i = 0; i < 300; i++) buf[i] = 1;
+    va_start(ap, n);
+    for (i = 0; i < n; i++) s += va_arg(ap, unsigned);
+    va_end(ap);
+    return s + buf[0] + buf[299];
+}
+
 int main(void) {
     unsigned s0, s1;
     unsigned expect = 0, i;
@@ -68,7 +93,8 @@ int main(void) {
     __asm__("tsx\n stx $C0E0\n tsy\n sty $C0E1");
     OUT[3] = *(volatile unsigned char *)0xC0E0 == spl0 && *(volatile unsigned char *)0xC0E1 == sph0;
     OUT[4] = lng(5) == 0x1234567DUL;
-    (void)s1;
-    OUT[5] = 0xAA;
+    s1 = 0; for (i = 0; i < 300; i++) s1 += (unsigned char)i;
+    OUT[5] = bigp(1000, 7, 0x51234UL) == s1 + 1000 + 7 + 0x1234 + 43 && bigv(3, 100, 200, 300) == 602;
+    OUT[6] = 0xAA;
     return 0;
 }

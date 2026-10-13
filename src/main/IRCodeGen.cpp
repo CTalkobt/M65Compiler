@@ -2897,11 +2897,8 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // Push stack frame only for non-SAC functions
     // SAC functions use static AR buffers instead of stack frames
     if (!useSAC) {
-        if (localFrameSize > 128) {
-            // Frame + params + return addr + dynamic pushes must fit in uint8_t offsets
-            std::cerr << fn.name << ": warning: large frame (" << localFrameSize
-                      << " bytes) may cause incorrect stack-relative addressing\n";
-        }
+        // (frames over 255 bytes are addressed through $FB/$FC = FP + 256*n:
+        // M65Emitter::framePtrFor; test_frame_large_xemu.c)
         if (localFrameSize > 0) {
             emitComment("frame: " + std::to_string(localFrameSize) + " bytes (frame-allocated vRegs only)");
             // Push frame in 2-byte chunks; if odd size, push final byte separately
