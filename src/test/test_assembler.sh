@@ -174,6 +174,25 @@ else
     failed=$((failed + 1))
 fi
 
+# A simulated instruction that can't relocate an address in a relocatable
+# segment is an error with -c, not a wrong address
+cat > build/test_simop_reloc.s45 << 'EOF'
+        .data
+_w:     .word 5
+        .code
+proc _f
+        neg.16 _w
+endproc
+EOF
+OUT=$($AS -c build/test_simop_reloc.s45 -o build/test_simop_reloc.o45 2>&1)
+if [ $? -ne 0 ] && echo "$OUT" | grep -q "'neg.16' can't relocate '_w'"; then
+    echo "SUCCESS: a simulated instruction without a relocation for its operand is an error"
+    passed=$((passed + 1))
+else
+    echo "FAIL: simulated instruction relocation check ($OUT)"
+    failed=$((failed + 1))
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All assembler feature tests passed!"
     exit 0

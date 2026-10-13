@@ -143,7 +143,28 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
 
             // Unified simulated op emission via emitFn dispatch
             if (stmt->isSimulatedOp()) {
-                if (!isDeadCode) { parser->resolveExprOperand(stmt.get()); stmt->emitFn(parser, e, stmt.get()); }
+                if (!isDeadCode) {
+                    parser->resolveExprOperand(stmt.get());
+                    size_t relocsBefore = e.symbolRelocs().size();
+                    stmt->emitFn(parser, e, stmt.get());
+                    // A relocatable symbol in the operand that the expansion
+                    // recorded no relocation for would be assembled at its
+                    // offset in its segment: refuse it
+                    int t = stmt->instr.operandTokenIndex;
+                    if (t < 0 || (stmt->exprTokenIndex >= 0 && stmt->exprTokenIndex < t)) t = stmt->exprTokenIndex;
+                    for (; t >= 0 && t < (int)parser->tokens.size(); ++t) {
+                        const auto& tok = parser->tokens[t];
+                        if (tok.type == AssemblerTokenType::NEWLINE || tok.type == AssemblerTokenType::END_OF_FILE) break;
+                        if (tok.type != AssemblerTokenType::IDENTIFIER ||
+                            !parser->isRelocatableSymbolIn(tok.value, stmt->scopePrefix)) continue;
+                        bool found = false;
+                        for (size_t r = relocsBefore; r < e.symbolRelocs().size() && !found; ++r)
+                            found = e.symbolRelocs()[r].symbolName == tok.value;
+                        if (!found)
+                            throw std::runtime_error("'" + stmt->instr.mnemonic + "' can't relocate '" + tok.value +
+                                "' (an address in a relocatable segment); load or store it with plain instructions");
+                    }
+                }
                 if (binaryPtr) stmt->bytes.assign(binaryPtr->begin() + binaryStartIdx, binaryPtr->end());
                 continue;
             }

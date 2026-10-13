@@ -196,6 +196,12 @@ private:
     // Absolute base (ZP "$xx" or SAC symbol) of an F32 vreg; false if it lives in a stack frame
     bool f32AbsBase(uint32_t vregId, std::string& base);
     std::string sacSymbol(uint32_t vregId) const;
+    // Byte k of an operand as an instruction operand that needs no code
+    // first (#imm, a constant vreg, ZP, a SAC symbol); "" when it has none
+    std::string directByte(const ir::Operand& op, int k) const;
+    // A vreg's own storage as an absolute/ZP base ("$30", "_f__local_3"); ""
+    // for registers and stack frames
+    std::string directBase(uint32_t vregId) const;
     // 5-byte copy between absolute locations as a Y-indexed loop (the assembler
     // optimizer mis-tracks unrolled absolute copies)
     void emitF32CopyAbs(const std::string& src, const std::string& dst);

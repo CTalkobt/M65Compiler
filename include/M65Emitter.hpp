@@ -141,11 +141,23 @@ public:
     // For read-type ops: if MachineState knows the ZP location holds a constant
     // or a relocatable symbol byte, use immediate mode instead.
     // For RELOC_CONST, emit immediate + record the appropriate relocation.
+public:
+    // The next *_addr operand is an address in a relocatable segment (name):
+    // it is emitted absolute with a relocation. An empty name does nothing.
+    M65Emitter& relocNext(const std::string& name) { relocNext_ = name; return *this; }
 private:
+    std::string relocNext_;
+    bool takeRelocNext() {
+        if (relocNext_.empty()) return false;
+        std::string n; n.swap(relocNext_);
+        recordSymbolReloc(n);
+        return true;
+    }
     // Helper: emit an immediate load/ALU with relocation if the value is RELOC_CONST.
     // 'emitImm' is the immediate emitter (e.g., lda_imm), 'emitZP'/'emitAbs' are fallbacks.
     template<typename FnImm, typename FnZP, typename FnAbs>
     void addrReadHelper(uint16_t a, FnImm emitImm, FnZP emitZP, FnAbs emitAbs) {
+        if (takeRelocNext()) { emitAbs(a); return; }
         if (a < 256) {
             const auto& zv = ms_.getZP((uint8_t)a);
             if (zv.isConst()) { emitImm((uint8_t)(zv.constVal & 0xFF)); return; }
@@ -176,17 +188,17 @@ public:
     void cmp_addr(uint16_t a) { addrReadHelper(a, [&](uint8_t v){ cmp_imm(v); }, [&](uint8_t z){ cmp_zp(z); }, [&](uint16_t ab){ cmp_abs(ab); }); }
     void cpx_addr(uint16_t a) { addrReadHelper(a, [&](uint8_t v){ cpx_imm(v); }, [&](uint8_t z){ cpx_zp(z); }, [&](uint16_t ab){ cpx_abs(ab); }); }
     // Store and RMW ops: no forwarding (they write to memory)
-    void sta_addr(uint16_t a) { if (a < 256) sta_zp((uint8_t)a); else sta_abs(a); }
-    void stx_addr(uint16_t a) { if (a < 256) stx_zp((uint8_t)a); else stx_abs(a); }
-    void sty_addr(uint16_t a) { if (a < 256) sty_zp((uint8_t)a); else sty_abs(a); }
-    void stz_addr(uint16_t a) { if (a < 256) stz_zp((uint8_t)a); else stz_abs(a); }
-    void inc_addr(uint16_t a) { if (a < 256) inc_zp((uint8_t)a); else inc_abs(a); }
-    void dec_addr(uint16_t a) { if (a < 256) dec_zp((uint8_t)a); else dec_abs(a); }
-    void asl_addr(uint16_t a) { if (a < 256) asl_zp((uint8_t)a); else asl_abs(a); }
-    void lsr_addr(uint16_t a) { if (a < 256) lsr_zp((uint8_t)a); else lsr_abs(a); }
-    void rol_addr(uint16_t a) { if (a < 256) rol_zp((uint8_t)a); else rol_abs(a); }
-    void ror_addr(uint16_t a) { if (a < 256) ror_zp((uint8_t)a); else ror_abs(a); }
-    void bit_addr(uint16_t a) { if (a < 256) bit_zp((uint8_t)a); else bit_abs(a); }
+    void sta_addr(uint16_t a) { if (takeRelocNext() || a >= 256) sta_abs(a); else sta_zp((uint8_t)a); }
+    void stx_addr(uint16_t a) { if (takeRelocNext() || a >= 256) stx_abs(a); else stx_zp((uint8_t)a); }
+    void sty_addr(uint16_t a) { if (takeRelocNext() || a >= 256) sty_abs(a); else sty_zp((uint8_t)a); }
+    void stz_addr(uint16_t a) { if (takeRelocNext() || a >= 256) stz_abs(a); else stz_zp((uint8_t)a); }
+    void inc_addr(uint16_t a) { if (takeRelocNext() || a >= 256) inc_abs(a); else inc_zp((uint8_t)a); }
+    void dec_addr(uint16_t a) { if (takeRelocNext() || a >= 256) dec_abs(a); else dec_zp((uint8_t)a); }
+    void asl_addr(uint16_t a) { if (takeRelocNext() || a >= 256) asl_abs(a); else asl_zp((uint8_t)a); }
+    void lsr_addr(uint16_t a) { if (takeRelocNext() || a >= 256) lsr_abs(a); else lsr_zp((uint8_t)a); }
+    void rol_addr(uint16_t a) { if (takeRelocNext() || a >= 256) rol_abs(a); else rol_zp((uint8_t)a); }
+    void ror_addr(uint16_t a) { if (takeRelocNext() || a >= 256) ror_abs(a); else ror_zp((uint8_t)a); }
+    void bit_addr(uint16_t a) { if (takeRelocNext() || a >= 256) bit_abs(a); else bit_zp((uint8_t)a); }
 
     // --- Scratchpad (Relative to zeroPageStart) ---
     void lda_s(uint8_t index) { lda_zp(getZP(index)); }

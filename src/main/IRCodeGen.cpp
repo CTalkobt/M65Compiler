@@ -90,6 +90,27 @@ std::string IRCodeGen::sacSymbol(uint32_t vregId) const {
     return currentFunctionName_ + "__local_" + std::to_string(vregId);
 }
 
+std::string IRCodeGen::directBase(uint32_t vregId) const {
+    auto a = alloc_.getAlloc(vregId);
+    if (a.loc == VRegAllocator::IN_ZP) return "$" + hex8((uint8_t)a.offset);
+    if (a.loc == VRegAllocator::IN_FRAME && currentFunctionUseSAC_ && vregOffset_.count(vregId))
+        return sacSymbol(vregId);
+    return "";
+}
+
+std::string IRCodeGen::directByte(const ir::Operand& op, int k) const {
+    auto imm = [k](int64_t v) { return "#" + std::to_string((int)((v >> (8 * k)) & 0xFF)); };
+    if (op.isImm()) return imm(op.immVal);
+    if (!op.isVreg()) return "";
+    auto cit = vregConstVal_.find(op.vregId);
+    if (cit != vregConstVal_.end() && !localSlotVregs_.count(op.vregId)) return imm(cit->second);
+    std::string base = directBase(op.vregId);
+    if (base.empty()) return "";
+    if (k == 0) return base;
+    if (base[0] == '$') return "$" + hex8((uint8_t)(std::stoi(base.substr(1), nullptr, 16) + k));
+    return base + "+" + std::to_string(k);
+}
+
 bool IRCodeGen::f32AbsBase(uint32_t vregId, std::string& base) {
     auto a = alloc_.getAlloc(vregId);
     if (a.loc == VRegAllocator::IN_ZP) { base = "$" + hex8((uint8_t)a.offset); return true; }
@@ -743,6 +764,8 @@ std::string IRCodeGen::src2MemOperand(const ir::Operand& op) {
                 return ss.str();
             }
             case VRegAllocator::IN_FRAME:
+                // SAC storage is addressed directly
+                if (currentFunctionUseSAC_ && vregOffset_.count(op.vregId)) return sacSymbol(op.vregId);
                 // Frame vRegs use ldax.fp which internally uses __zp_scratch.
                 // Spill to __zp_scratch2 to avoid conflict when loadOperand(src1)
                 // also needs __zp_scratch for its own ldax.fp.
@@ -3350,6 +3373,61 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 else
                     resultInAX_ = -1;
                 break;
+            }
+
+            // Operands and destination all in memory (ZP, SAC storage) or
+            // immediate: add byte by byte straight into the destination
+            //   lda a; clc; adc b; sta d; lda a+1; adc b+1; sta d+1
+            // or for 32 bits in memory: clc; ldq a; adcq b; stq d. The
+            // destination is the local slot of a following STORE of the result
+            // (the STORE is skipped) or the result's own storage.
+            if ((inst.resultType == ir::Type::I16 || inst.resultType == ir::Type::PTR ||
+                 inst.resultType == ir::Type::I32) && inst.dest.isVreg()) {
+                int nb = inst.resultType == ir::Type::I32 ? 4 : 2;
+                auto* nextInst = peekNextInst();
+                std::string dst;
+                bool skipStore = false;
+                if (nextInst && nextInst->op == ir::Op::STORE && nextInst->resultType == inst.resultType &&
+                    nextInst->args.empty() &&
+                    nextInst->src1.isVreg() && nextInst->src1.vregId == inst.dest.vregId &&
+                    nextInst->src2.isVreg() && localSlotVregs_.count(nextInst->src2.vregId) &&
+                    !suppressedVregs_.count(nextInst->src2.vregId) &&
+                    !vregConstVal_.count(nextInst->src2.vregId) &&
+                    !vregUsedOutside(inst.dest.vregId, &inst, nextInst)) {
+                    dst = directBase(nextInst->src2.vregId);
+                    skipStore = !dst.empty();
+                }
+                if (dst.empty() && !localSlotVregs_.count(inst.dest.vregId))
+                    dst = directBase(inst.dest.vregId);
+                bool ok = !dst.empty();
+                for (int k = 0; ok && k < nb; k++)
+                    ok = !directByte(inst.src1, k).empty() && !directByte(inst.src2, k).empty();
+                if (ok) {
+                    bool add = inst.op == ir::Op::ADD;
+                    std::string r = irDesc("add/sub into memory");
+                    auto byteOf = [&](const std::string& base, int k) {
+                        if (k == 0) return base;
+                        if (base[0] == '$') return "$" + hex8((uint8_t)(std::stoi(base.substr(1), nullptr, 16) + k));
+                        return base + "+" + std::to_string(k);
+                    };
+                    if (nb == 4 && directByte(inst.src1, 0)[0] != '#' && directByte(inst.src2, 0)[0] != '#') {
+                        emit(add ? "clc" : "sec", r);
+                        emit("ldq " + directByte(inst.src1, 0));
+                        emit((add ? "adcq " : "sbcq ") + directByte(inst.src2, 0));
+                        emit("stq " + dst);
+                    } else {
+                        for (int k = 0; k < nb; k++) {
+                            emit("lda " + directByte(inst.src1, k), k == 0 ? r : "");
+                            if (k == 0) emit(add ? "clc" : "sec");
+                            emit((add ? "adc " : "sbc ") + directByte(inst.src2, k));
+                            emit("sta " + byteOf(dst, k));
+                        }
+                    }
+                    ms_.invalidateAll();
+                    storeCache_.vreg = UINT32_MAX;
+                    resultInAX_ = skipStore ? -2 : -1;
+                    break;
+                }
             }
 
             // For commutative ADD: if src1 is in frame (would clobber scratch),

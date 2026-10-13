@@ -1,0 +1,67 @@
+; test_reloc_simops_asm_xemu.s45 — second module of test_reloc_simops_xemu.c
+; Simulated instructions and 32-bit (Q) instructions whose operand is an
+; address in a relocatable segment: the operand is absolute (never base page,
+; though the offsets in .data are below $100) and carries a relocation.
+        .global _t_cmp16, _t_add16, _t_mul16, _t_muls16, _t_and16, _t_q, _t_cmp32, _t_bf, _res32, _bits
+        .code
+proc _t_cmp16
+        lda #<1000
+        ldx #>1000
+        cmp.16 .AX, _v16a
+        beq @eq
+        lda #0
+        ldx #0
+        rts
+@eq:
+        lda #1
+        ldx #0
+endproc
+proc _t_add16
+        lda #<1000
+        ldx #>1000
+        add.16 .AX, _v16b
+endproc
+proc _t_mul16
+        lda _v16a
+        ldx _v16a+1
+        mul.16 .AX, _v16b
+endproc
+proc _t_muls16
+        lda #<-1000
+        ldx #>-1000
+        mul.s16 .AX, _v16b
+endproc
+proc _t_and16
+        lda #$FF
+        ldx #$FF
+        and.16 .AX, _v16a
+endproc
+proc _t_q
+        clc
+        ldq _v32a
+        adcq _v32b
+        stq _res32
+endproc
+proc _t_cmp32
+        ldq _v32a
+        cmp.32 .AXYZ, _v32a
+        beq @eq
+        lda #0
+        ldx #0
+        rts
+@eq:
+        lda #1
+        ldx #0
+endproc
+proc _t_bf
+        lda #5
+        bfins _bits, #2, #3
+endproc
+        .data
+_pad:   .byte 0
+_v16a:  .word 1000
+_v16b:  .word 7
+_v32a:  .dword 100000
+_v32b:  .dword 5
+_res32: .dword 0
+_bits:  .byte $81

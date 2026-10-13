@@ -9,6 +9,12 @@
 #include <algorithm>
 
 // Map ca45 segment names to O45 segment IDs.
+// Offset of an instruction's 16-bit operand: after the opcode, or after the
+// $42 $42 prefix and opcode of a 32-bit (Q) instruction (5 bytes)
+static uint32_t operandOffset(const AssemblerParser::Statement* stmt) {
+    return stmt->size >= 5 ? (uint32_t)stmt->size - 2 : 1;
+}
+
 static O45Segment segIdFromName(const std::string& name) {
     if (name == "code" || name == "text" || name == "init") return SEG_TEXT;
     if (name == "data") return SEG_DATA;
@@ -270,7 +276,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
                 srcBase = parser.segments.at(srcSeg)->startAddress;
                 if (srcBase == 0xFFFFFFFF) srcBase = 0;
             }
-            uint32_t patchOffset = (stmt->address + 1) - srcBase;
+            uint32_t patchOffset = (stmt->address + operandOffset(stmt.get())) - srcBase;
 
             // Add as import and create external relocation
             syms.addImport(arSymbolWithOffset);
@@ -318,7 +324,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
             srcBase = parser.segments.at(srcSeg)->startAddress;
             if (srcBase == 0xFFFFFFFF) srcBase = 0;
         }
-        uint32_t patchOffset = (stmt->address + 1) - srcBase;
+        uint32_t patchOffset = (stmt->address + operandOffset(stmt.get())) - srcBase;
 
         O45Reloc reloc;
         reloc.offset = patchOffset;
@@ -401,7 +407,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         }
 
         // Operand byte is at stmt->address + 1 (after the opcode)
-        uint32_t patchOff = (stmt->address + 1) - srcBase;
+        uint32_t patchOff = (stmt->address + operandOffset(stmt.get())) - srcBase;
 
         if (isWord) {
             O45Reloc reloc;

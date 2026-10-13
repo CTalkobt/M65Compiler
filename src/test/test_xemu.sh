@@ -385,6 +385,18 @@ else
     failed=$((failed + 1))
 fi
 
+# Test: ca45 simulated instructions and ldq/stq/adcq on relocatable addresses
+echo "Testing test_reloc_simops_xemu.c (relocatable operands of simulated/Q instructions)..."
+if $CC -c src/test-resources/test_reloc_simops_xemu.c -o build/test/test_reloc_simops.o45 >/dev/null 2>&1 &&
+   $AS -c src/test-resources/test_reloc_simops_asm_xemu.s45 -o build/test/test_reloc_simops_asm.o45 >/dev/null 2>&1 &&
+   $LD -basic -o build/test/test_reloc_simops_xemu.prg $CRT0 build/test/test_reloc_simops.o45 \
+       build/test/test_reloc_simops_asm.o45 $STDLIB >/dev/null 2>&1; then
+    run_xemu_test "test_reloc_simops" "build/test/test_reloc_simops_xemu.prg" "C0C0" 9 "01 01 01 01 01 01 01 01 AA"
+else
+    echo "FAIL: test_reloc_simops_xemu.c (build failed)"
+    failed=$((failed + 1))
+fi
+
 # Test: ln45 -d above and below the text; data overlapping the text or the
 # BASIC stub is an error
 if $CC -c src/test-resources/test_ln45_layout_xemu.c -o build/test/test_ln45_layout.o45 >/dev/null 2>&1; then
