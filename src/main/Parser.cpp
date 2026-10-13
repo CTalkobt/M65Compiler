@@ -3079,6 +3079,7 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
                 {"__builtin_printf", "printf"},
                 {"__builtin_sprintf", "sprintf"},
                 {"__builtin_puts", "puts"},
+                {"__builtin_putstr", "putstr"},
                 {"__builtin_putchar", "putchar"},
                 {"__builtin_malloc", "malloc"},
                 {"__builtin_free", "free"},

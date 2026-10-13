@@ -2948,7 +2948,7 @@ bool IRBuilder::isLibraryZpRoutine(const std::string& fname) {
         "isprint", "ispunct", "isspace", "isupper", "isxdigit", "itoa", "labs", "longjmp", "ltoa",
         "malloc", "memcmp", "memcpy", "memmove", "memset", "putchar", "puts", "rand", "realloc",
         "setjmp", "srand", "strcat", "strchr", "strcmp", "strcpy", "strlen", "strncat", "strncmp",
-        "strncpy", "strrchr", "tolower", "toupper", "utoa"};
+        "strncpy", "strrchr", "tolower", "toupper", "utoa", "putstr"};
     return routines.count(fname) > 0;
 }
 
@@ -6856,7 +6856,7 @@ void IRBuilder::visit(ExpressionStatement& node) {
 // printf("text") whose result is unused and whose text has no conversion
 // (%): write the text without the formatter, as GCC does -- puts("text")
 // for "text\n" (in the default encoding, where \n is the $0D puts writes),
-// else __putstr("text"), puts without the newline. The library's printf
+// else putstr("text"), puts without the newline. The library's printf
 // only (not one this unit defines), and only when the replacement is
 // declared (<stdio.h>).
 void IRBuilder::simplifyPrintfCall(FunctionCall& call) {
@@ -6871,8 +6871,8 @@ void IRBuilder::simplifyPrintfCall(FunctionCall& call) {
         sl->value.pop_back();
         sl->escMask.pop_back();
         call.name = "puts";
-    } else if (functionParamTypes_.count("__putstr") && !unitDefinedFunctions_.count("__putstr")) {
-        call.name = "__putstr";
+    } else if (functionParamTypes_.count("putstr") && !unitDefinedFunctions_.count("putstr")) {
+        call.name = "putstr";
     }
 }
 

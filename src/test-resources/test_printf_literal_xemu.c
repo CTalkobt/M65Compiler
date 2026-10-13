@@ -1,5 +1,5 @@
 /* test_printf_literal_xemu.c — printf of text without %: written without the
- * formatter (puts / __putstr); test_xemu.sh compares the screen with the
+ * formatter (puts / putstr); test_xemu.sh compares the screen with the
  * same text printed through %s and checks the program has no formatter */
 #include <stdio.h>
 int main(void) {

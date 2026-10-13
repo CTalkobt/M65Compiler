@@ -3,21 +3,21 @@
 ; int puts(char *s);
 ;   Writes string s to the screen via KERNAL CHROUT, then a newline.
 ;   Returns 0 on success.
-; int __putstr(const char *s);
+; int putstr(const char *s);  (also __builtin_putstr)
 ;   The same without the newline. cc45 turns printf("text") (no % and the
-;   result unused) into __putstr("text"), and printf("text\n") into
+;   result unused) into putstr("text"), and printf("text\n") into
 ;   puts("text"), so such a program does not link the printf formatter.
 ;
 ; Uses ZP $FB/$FC for the string pointer — kernal-safe locations.
 
 .global _puts
-.global ___putstr
+.global _putstr
 .extern __bp_rom
 .extern __bp_prog
 
 .segment "code"
 
-proc ___putstr
+proc _putstr
     .zp_uses $10, $11
     .zp_clobbers $10, $11
     .zp_release $10, $11
@@ -67,7 +67,7 @@ proc _puts
     .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z, V
 
-    jsr ___putstr
+    jsr _putstr
     lda #$0D
     phz
     jsr __bp_rom

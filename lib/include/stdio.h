@@ -16,8 +16,9 @@
 __fastcall__ int getchar(void);
 __fastcall__ int putchar(int c);
 __fastcall__ int puts(char *s);
-/* puts without the newline; cc45 calls it for printf("text") */
-__fastcall__ int __putstr(const char *s);
+/* puts without the newline (also __builtin_putstr); cc45 compiles
+ * printf("text") -- no %, result unused -- as putstr("text") */
+__fastcall__ int putstr(const char *s);
 int sprintf(char *buf, char *fmt, ...);
 int snprintf(char *buf, int size, char *fmt, ...);
 int printf(char *fmt, ...);

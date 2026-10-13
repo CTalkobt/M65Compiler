@@ -977,7 +977,7 @@ else
 fi
 
 # Test: printf("text") without % is written without the formatter (puts /
-# __putstr): the same screen as through "%s", and a program far smaller
+# putstr): the same screen as through "%s", and a program far smaller
 echo "Testing test_printf_literal_xemu.c (printf of plain text)..."
 pl_ok=0
 if $CC src/test-resources/test_printf_literal_xemu.c -o build/test/test_printf_literal_xemu.prg >/dev/null 2>&1 &&
