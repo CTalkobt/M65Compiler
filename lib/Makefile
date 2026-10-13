@@ -53,11 +53,12 @@ all: $(BUILD)/c45.lib $(BUILD)/c45_zp.lib $(BUILD)/c45_stack.lib
 $(BUILD)/%.o45: %.s45 $(CA45) | $(BUILD)
 	$(CA45) -c $< -o $@
 
+# a section per proc / .split: ln45 drops the routines a program does not reach
 $(BUILD)/%.o45: src/%.s45 $(CA45) | $(BUILD)
-	$(CA45) -c $< -o $@
+	$(CA45) -c -ffunction-sections $< -o $@
 
 $(BUILD)/asm_%.o45: stdlib_asm/%.s45 $(CA45) | $(BUILD)
-	$(CA45) -c $< -o $@
+	$(CA45) -c -ffunction-sections $< -o $@
 
 $(BUILD)/%.o45: stdlib/%.c $(C_TOOL_DEPS) | $(BUILD)
 	$(CC45) -c -fno-zpcall $(LIB_CFLAGS) $< -o $@

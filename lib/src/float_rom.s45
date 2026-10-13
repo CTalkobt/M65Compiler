@@ -1,4 +1,7 @@
 ; float_rom.s — CBM 40-bit float runtime via BASIC 65 ROM
+; Each entry starts with .split "<name>": the library is assembled with
+; ca45 -ffunction-sections, so ln45 links only the routines a program
+; reaches (an entry branching into another stays with it).
 ;
 ; Uses JSRFAR ($FF6E) to call BASIC ROM float routines.
 ; JSRFAR handles MAP banking automatically — no overlay conflicts.
@@ -70,6 +73,7 @@ ARG_SI = $6F
 ; Helper: call BASIC ROM routine via JSRFAR
 ; Call with target address in AX (A=low, X=high)
 ; ===========================================================================
+    .split "__jsrfar_basic"
 .global __jsrfar_basic
 __jsrfar_basic:
     sta $04             ; PCL
@@ -91,6 +95,7 @@ __jsrfar_basic:
 ; ===========================================================================
 
 ; Load 5-byte float from memory (AX = pointer) into FAC
+    .split "__float_load_fac"
 .global __float_load_fac
 __float_load_fac:
     sta $02
@@ -117,6 +122,7 @@ __float_load_fac:
     rts
 
 ; Load 5-byte float from memory (AX = pointer) into ARG
+    .split "__float_load_arg"
 .global __float_load_arg
 __float_load_arg:
     sta $02
@@ -141,6 +147,7 @@ __float_load_arg:
     rts
 
 ; Store FAC to memory (AX = destination), rounded
+    .split "__float_store_fac"
 .global __float_store_fac
 __float_store_fac:
     pha
@@ -185,6 +192,7 @@ __float_store_fac:
 ; ===========================================================================
 
 ; Largest float with the sign in bit 7 of A, into __float_a
+    .split "__float_saturate"
 __float_saturate:
     and #$80
     ora #$7F
@@ -197,6 +205,7 @@ __float_saturate:
     rts
 
 ; a * b: exponent ea + eb - 128 (or -129) must stay <= 254
+    .split "__float_scale_mul"
 __float_scale_mul:
     lda #0
     sta __float_k
@@ -225,6 +234,7 @@ __float_scale_mul:
 
 ; a / b: exponent ea - eb + 129 (or +128) must stay <= 254. C set when b
 ; is 0 and the result has been stored.
+    .split "__float_scale_div"
 __float_scale_div:
     lda #0
     sta __float_k
@@ -257,6 +267,7 @@ __float_scale_div:
     rts
 
 ; a +/- b: only an exponent of 254 or 255 can carry out; halve both
+    .split "__float_scale_add"
 __float_scale_add:
     lda #0
     sta __float_k
@@ -280,6 +291,7 @@ __float_scale_add:
     rts
 
 ; Add __float_k back to the result's exponent, saturating on overflow
+    .split "__float_unscale"
 __float_unscale:
     lda __float_k
     beq @us_done
@@ -299,6 +311,7 @@ __float_unscale:
 ; ===========================================================================
 ; Binary: __float_add  (result = a + b)
 ; ===========================================================================
+    .split "__float_add"
 .global __float_add
 __float_add:
     jsr __bp_rom
@@ -321,6 +334,7 @@ __float_add:
 ; ===========================================================================
 ; Binary: __float_sub  (result = a - b)
 ; ===========================================================================
+    .split "__float_sub"
 .global __float_sub
 __float_sub:
     jsr __bp_rom
@@ -343,6 +357,7 @@ __float_sub:
 ; ===========================================================================
 ; Binary: __float_mul  (result = a * b)
 ; ===========================================================================
+    .split "__float_mul"
 .global __float_mul
 __float_mul:
     jsr __bp_rom
@@ -365,6 +380,7 @@ __float_mul:
 ; ===========================================================================
 ; Binary: __float_div  (result = a / b)
 ; ===========================================================================
+    .split "__float_div"
 .global __float_div
 __float_div:
     jsr __bp_rom
@@ -389,6 +405,7 @@ __float_div:
 ; ===========================================================================
 ; Unary: __float_neg  (result = -a)
 ; ===========================================================================
+    .split "__float_neg"
 .global __float_neg
 __float_neg:
     ; Flip the sign bit (bit 7 of the first mantissa byte) of the packed
@@ -401,6 +418,7 @@ __float_neg:
 ; ===========================================================================
 ; Compare: __float_cmp  (a vs b → A = $FF/-1, $00, $01)
 ; ===========================================================================
+    .split "__float_cmp"
 .global __float_cmp
 __float_cmp:
     jsr __bp_rom
@@ -447,6 +465,7 @@ FT_M2 = $F2
 FT_M3 = $F3
 FT_SG = $F4
 
+    .split "__float_ftoi"
 .global __float_ftoi
 .global __float_ftol
 __float_ftoi:
@@ -508,6 +527,7 @@ __float_ftol:
     ldy FT_M2
     rts
 
+    .split "__float_itof"
 .global __float_itof
 __float_itof:
     ; signed 16-bit A/X: sign-extend into Y/Z
@@ -519,12 +539,14 @@ __float_itof:
     ldz #$FF
     bra __float_ltof
 
+    .split "__float_utof"
 .global __float_utof
 __float_utof:
     ldy #0
     ldz #0
     bra __float_ultof
 
+    .split "__float_ltof"
 .global __float_ltof
 .global __float_ultof
 __float_ltof:
@@ -553,6 +575,7 @@ __float_ltof:
     sbc FT_M3
     sta FT_M3
     bra __float_ltof_mag
+    .split "__float_ultof"
 __float_ultof:
     sta FT_M0
     stx FT_M1
@@ -561,6 +584,7 @@ __float_ultof:
     sta FT_M3
     lda #0
     sta FT_SG
+    .split "__float_ltof_mag"
 __float_ltof_mag:
     ; zero?
     lda FT_M0
@@ -602,6 +626,7 @@ __float_ltof_mag:
 ; ===========================================================================
 ; Math: unary float functions
 ; ===========================================================================
+    .split "__float_sin"
 .global __float_sin
 __float_sin:
     jsr __bp_rom
@@ -616,6 +641,7 @@ __float_sin:
     jsr __float_store_fac
     jmp __bp_prog
 
+    .split "__float_cos"
 .global __float_cos
 __float_cos:
     jsr __bp_rom
@@ -630,6 +656,7 @@ __float_cos:
     jsr __float_store_fac
     jmp __bp_prog
 
+    .split "__float_tan"
 .global __float_tan
 __float_tan:
     jsr __bp_rom
@@ -644,6 +671,7 @@ __float_tan:
     jsr __float_store_fac
     jmp __bp_prog
 
+    .split "__float_atn"
 .global __float_atn
 __float_atn:
     jsr __bp_rom
@@ -658,6 +686,7 @@ __float_atn:
     jsr __float_store_fac
     jmp __bp_prog
 
+    .split "__float_log"
 .global __float_log
 __float_log:
     jsr __bp_rom
@@ -672,6 +701,7 @@ __float_log:
     jsr __float_store_fac
     jmp __bp_prog
 
+    .split "__float_exp"
 .global __float_exp
 __float_exp:
     jsr __bp_rom
@@ -686,6 +716,7 @@ __float_exp:
     jsr __float_store_fac
     jmp __bp_prog
 
+    .split "__float_sqr"
 .global __float_sqr
 __float_sqr:
     jsr __bp_rom
@@ -700,6 +731,7 @@ __float_sqr:
     jsr __float_store_fac
     jmp __bp_prog
 
+    .split "__float_abs"
 .global __float_abs
 __float_abs:
     jsr __bp_rom
@@ -722,6 +754,7 @@ __float_abs:
 ; %f/%e/%g (printf_float.c). FOUT builds the text at $0100 (page 1, unused
 ; with the 16-bit CPU stack) and returns A/Y pointing at its terminating zero.
 ; ===========================================================================
+    .split "__float_fout"
 .global __float_fout
 __float_fout:
     jsr __bp_rom
