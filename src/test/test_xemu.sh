@@ -925,6 +925,19 @@ for rmmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: unsigned comparisons with 0 and 1 (folded to tests for zero)
+for ucmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r ucname ucflags <<< "$ucmode"
+    echo "Testing test_ucmp_zero_xemu.c ($ucname)..."
+    compile_link_test "src/test-resources/test_ucmp_zero_xemu.c" "build/test/test_ucmp_zero_${ucname}_xemu.prg" "$ucflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_ucmp_zero_$ucname" "build/test/test_ucmp_zero_${ucname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
+    else
+        echo "FAIL: test_ucmp_zero_xemu.c $ucname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: GCC statement expressions ({ stmt; ...; expr; })
 for semode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r sename seflags <<< "$semode"

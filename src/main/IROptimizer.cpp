@@ -870,9 +870,9 @@ static void forwardNarrowing(Function& fn) {
         for (auto& inst : block.insts) {
             int64_t v;
             if (inst.op == Op::ZEXT && inst.dest.isVreg() && isInt(inst.resultType) && constOf(inst.src1, v) &&
-                inst.src1.type == Type::I8) {
+                (inst.src1.type == Type::I8 || inst.src1.type == Type::I16)) {
                 inst.op = Op::CONST;
-                inst.src1 = Operand::imm(v & 0xFF, inst.resultType);
+                inst.src1 = Operand::imm(v & (inst.src1.type == Type::I8 ? 0xFF : 0xFFFF), inst.resultType);
             }
         }
 
@@ -956,6 +956,52 @@ static void forwardNarrowing(Function& fn) {
             if (inst.src2.isVreg() && constOf(inst.src2, v)) {
                 Type t = inst.src2.type;
                 inst.src2 = Operand::imm(v, t);
+            }
+        }
+    }
+
+    // 4. unsigned comparisons with 0 or 1: an unsigned value is never below 0,
+    // so x > 0 is x != 0 (the Z flag alone, no carry), x >= 0 is true, ...
+    for (auto& block : fn.blocks) {
+        for (auto& inst : block.insts) {
+            if (inst.op != Op::CMP_LTU && inst.op != Op::CMP_LEU &&
+                inst.op != Op::CMP_GTU && inst.op != Op::CMP_GEU) continue;
+            if (!inst.dest.isVreg() || fn.localSlotVregs.count(inst.dest.vregId)) continue;
+            int64_t v;
+            Op op = inst.op;
+            Operand x;
+            if (constOf(inst.src2, v) && !constOf(inst.src1, v)) {
+                constOf(inst.src2, v);
+                x = inst.src1;
+            } else if (constOf(inst.src1, v) && !constOf(inst.src2, v)) {
+                constOf(inst.src1, v);
+                x = inst.src2;
+                // k OP x  ->  x OP' k
+                op = op == Op::CMP_LTU ? Op::CMP_GTU : op == Op::CMP_LEU ? Op::CMP_GEU :
+                     op == Op::CMP_GTU ? Op::CMP_LTU : Op::CMP_LEU;
+            } else continue;
+            int result = -1;          // 0 / 1: always false / true
+            Op eq = Op::NOP;          // or x == 0 / x != 0
+            if (v == 0) {
+                if (op == Op::CMP_GTU) eq = Op::CMP_NE;
+                else if (op == Op::CMP_LEU) eq = Op::CMP_EQ;
+                else if (op == Op::CMP_GEU) result = 1;
+                else result = 0;
+            } else if (v == 1) {
+                if (op == Op::CMP_LTU) eq = Op::CMP_EQ;
+                else if (op == Op::CMP_GEU) eq = Op::CMP_NE;
+                else continue;
+            } else continue;
+            if (result >= 0) {
+                inst.op = Op::CONST;
+                inst.src1 = Operand::imm(result, inst.resultType);
+                inst.src2 = Operand::none();
+                trace("narrow", fn.name, "unsigned compare with 0 is constant", inst.loc);
+            } else {
+                inst.op = eq;
+                inst.src1 = x;
+                inst.src2 = Operand::imm(0, x.type);
+                trace("narrow", fn.name, "unsigned compare with 0/1 is a test for 0", inst.loc);
             }
         }
     }

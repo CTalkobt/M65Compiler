@@ -4001,8 +4001,8 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             {
             // Check if src2 is a vreg holding a known constant — use immediate directly
             std::string src2;
-            bool src2IsConst = false;
-            int64_t src2ConstVal = 0;
+            bool src2IsConst = inst.src2.isImm();
+            int64_t src2ConstVal = inst.src2.isImm() ? inst.src2.immVal : 0;
             if (inst.src2.isVreg() && currentFn_) {
                 for (const auto& blk : currentFn_->blocks) {
                     for (const auto& ii : blk.insts) {
@@ -4025,7 +4025,19 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             // Optimization: CMP_EQ/CMP_NE with 0 → use ORA to test zero
             // For ZP-allocated I16: lda zp_lo; ora zp_hi (3 instructions, 5 bytes)
             // For other I16: loadOperand then stx scratch; ora scratch
-            if (src2IsConst && src2ConstVal == 0 &&
+            int zeroTestBytes = inst.src1.type == ir::Type::I32 ? 4 : inst.src1.type == ir::Type::I8 ? 1 : 2;
+            bool directZeroTest = src2IsConst && src2ConstVal == 0 && zeroTestBytes > 1 &&
+                (inst.op == ir::Op::CMP_EQ || inst.op == ir::Op::CMP_NE) && inst.src1.isVreg() &&
+                !justStored(inst.src1.vregId);
+            for (int k = 0; directZeroTest && k < zeroTestBytes; k++) {
+                std::string b = directByte(inst.src1, k);
+                directZeroTest = !b.empty() && b[0] != '#';
+            }
+            if (directZeroTest) {
+                // a value in memory is 0 when all its bytes OR to 0
+                emit("lda " + directByte(inst.src1, 0));
+                for (int k = 1; k < zeroTestBytes; k++) emit("ora " + directByte(inst.src1, k));
+            } else if (src2IsConst && src2ConstVal == 0 &&
                 (inst.op == ir::Op::CMP_EQ || inst.op == ir::Op::CMP_NE) &&
                 inst.src1.type != ir::Type::I32) {
                 if (inst.src1.type == ir::Type::I8) {
