@@ -483,6 +483,41 @@ $DISK45 create "$TMPDIR/c100.dnp" -t 100 >/dev/null 2>&1 && [ "$(stat -c %s "$TM
     pass "DNP create -t 100" || fail "DNP -t"
 
 # ============================================================================
+echo "=== FUSE mount ==="
+
+# GEOS files appear as <name>.cvt; a .cvt copied in becomes a GEOS file when
+# closed; changes reach the image (a relative image path too)
+if $DISK45 2>&1 | grep -q ' mount ' && command -v fusermount3 >/dev/null 2>&1 && [ -w /dev/fuse ]; then
+    FM="$TMPDIR/fmnt"
+    mkdir -p "$FM"
+    $DISK45 create "$TMPDIR/fuse.d64" --geos >/dev/null 2>&1
+    $DISK45 add "$TMPDIR/fuse.d64" "$TMPDIR/vlir.cvt" >/dev/null 2>&1
+    $DISK45 add "$TMPDIR/fuse.d64" "$TMPDIR/d1.prg" TOOL >/dev/null 2>&1
+    REL=$(realpath --relative-to="$PWD" "$TMPDIR/fuse.d64")
+    $DISK45 mount "$REL" "$FM" >"$TMPDIR/mount.log" 2>&1 &
+    for i in $(seq 1 50); do mountpoint -q "$FM" && break; sleep 0.1; done
+    if mountpoint -q "$FM"; then
+        cmp -s "$FM/GeoTest App.cvt" "$TMPDIR/vlir.cvt" && [ -f "$FM/TOOL.prg" ] &&
+            pass "mount: a GEOS file reads as its CVT" || fail "mount: GEOS read"
+        cp "$TMPDIR/seq.cvt" "$FM/My Data.cvt"
+        mv "$FM/GeoTest App.cvt" "$FM/Renamed App.cvt"
+        echo hello > "$FM/note.seq"
+        (cd / && fusermount3 -u "$FM")
+        for i in $(seq 1 50); do mountpoint -q "$FM" || break; sleep 0.1; done
+        $DISK45 list "$TMPDIR/fuse.d64" | grep -q '"My Data".*GEOS Application Data' &&
+            $DISK45 list "$TMPDIR/fuse.d64" | grep -q '"Renamed App".*GEOS Application, VLIR' &&
+            $DISK45 list "$TMPDIR/fuse.d64" | grep -q '"NOTE".*SEQ' &&
+            $DISK45 validate "$TMPDIR/fuse.d64" 2>&1 | grep -q 'Status: OK' &&
+            pass "mount: a .cvt written becomes a GEOS file; rename, new file saved" ||
+            fail "mount: writes ($(cat "$TMPDIR/mount.log"))"
+    else
+        echo "  SKIP: mount (FUSE mount failed: $(cat "$TMPDIR/mount.log"))"
+    fi
+else
+    echo "  SKIP: mount (no FUSE)"
+fi
+
+# ============================================================================
 echo "=== Catalog ==="
 
 # a collection of formats, a zip of two images, an SD card image with a D81,

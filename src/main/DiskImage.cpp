@@ -327,13 +327,22 @@ bool DiskImage::renameFile(const std::string& oldName, const std::string& newNam
     TrackSector dirTS;
     int entryIdx;
     if (!findFileEntry(oldName, dirTS, entryIdx)) return false;
-    if (fileExists(newName)) return false; // target name already exists
+    TrackSector otherTS;
+    int otherIdx;
+    if (findFileEntry(newName, otherTS, otherIdx) && !(otherTS == dirTS && otherIdx == entryIdx))
+        return false; // target name already exists (a change of case is fine)
 
     uint8_t* sec = sectorData(dirTS.track, dirTS.sector);
     if (!sec) return false;
 
     DirEntry e = DirEntry::fromSector(sec, entryIdx);
-    padPetsciiName(e.filename, newName);
+    if (isGeos(e)) {
+        // a GEOS name is ASCII as typed (mixed case)
+        std::memset(e.filename, 0xA0, 16);
+        std::memcpy(e.filename, newName.data(), std::min<size_t>(16, newName.size()));
+    } else {
+        padPetsciiName(e.filename, newName);
+    }
     e.toSector(sec, entryIdx);
     return true;
 }

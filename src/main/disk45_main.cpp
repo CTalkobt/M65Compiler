@@ -839,6 +839,14 @@ static int cmdRename(int argc, char** argv) {
     auto img = DiskImage::load(imagePath);
     if (!img) { std::cerr << "Error: failed to load " << imagePath << "\n"; return 1; }
 
+    // A GEOS file keeps the case of its new name (GEOS names are ASCII)
+    DirEntry oe;
+    if (geosEntry(img.get(), oldName, oe)) {
+        newName = argv[2];
+        if (newName.size() >= 2 && newName.front() == '"' && newName.back() == '"')
+            newName = newName.substr(1, newName.size() - 2);
+    }
+
     // Try the standard renameFile first (handles regular files)
     if (img->renameFile(oldName, newName)) {
         if (!img->saveImage(imagePath)) {

@@ -410,7 +410,9 @@ Mount an image as a Linux directory using FUSE3. Only available when disk45 was 
 
 - Only the root directory is shown. Files appear with type extensions (`GAME.prg`, `README.seq`); subdirectory entries appear as directories but cannot be listed.
 - Read/write: create, write, truncate, rename and delete files; the image is saved after every change. A new file's type comes from its extension (`.prg`, `.seq`, `.usr`, `.rel`; others become PRG); names are limited to 16 characters.
-- Images with no tracks (TAP, T64, ARK, ARC/SDA, LNX, CVT, P00) are always mounted read-only.
+- Images with no tracks (TAP, T64, ARK, ARC/SDA, LNX, CVT, P00) and read-only formats are always mounted read-only.
+- GEOS files appear as `<name>.cvt`, their Convert (CVT) form (as `extract` writes it). A `.cvt` copied into the mount (or a GEOS file rewritten) is buffered and becomes a GEOS file when it is closed, named after the file (case kept); data that is not a CVT is stored as a USR file. Renaming keeps a GEOS name's case; deleting frees all its sectors.
+- The image path may be relative (it is made absolute; FUSE runs from `/`); a change that cannot be saved fails with an I/O error.
 - `df` reports image blocks.
 
 ```bash
@@ -500,7 +502,7 @@ GEOS files on D64, D71, D81, D65 and D80/D82 images ([GEOS.TXT](https://ist.uwat
 - `remove` and `validate` count a GEOS file's info block, record block and records (and a REL file's side sectors), and `validate` the border sector of a GEOS disk.
 - `create --geos` formats a D64/D71 for GEOS; `info` shows the signature.
 
-`test_disk45.sh` builds CVT files with `src/test/mkcvt.py` and checks that they survive add/extract, copy to a D81 and convert to a D71 byte for byte. The FUSE mount shows GEOS files but reads them as plain chains.
+`test_disk45.sh` builds CVT files with `src/test/mkcvt.py` and checks that they survive add/extract, copy to a D81 and convert to a D71 byte for byte, and (where FUSE works) through a mount, which shows GEOS files as `<name>.cvt`.
 
 ### Catalog (Collection Indexing)
 
