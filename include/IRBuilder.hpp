@@ -284,6 +284,7 @@ private:
         std::vector<int> arrayDims;
         int bitWidth = 0;    // 0 = not a bitfield; >0 = width in bits
         int bitOffset = 0;   // bit offset within storage unit
+        std::shared_ptr<FuncPtrSignature> funcPtrSig;   // a function pointer member's signature
     };
     struct IRStructInfo {
         std::string name;

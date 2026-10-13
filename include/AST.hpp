@@ -17,6 +17,7 @@ struct FuncPtrSignature {
         bool isSigned = false;
     };
     std::vector<Param> params;
+    bool isVariadic = false;   // (..., ...): called in the stack convention
 };
 
 class ASTNode {
@@ -435,6 +436,7 @@ struct StructMember {
     std::vector<std::unique_ptr<Expression>> vlaDimExprs;
     int arraySize() const { if (arrayDims.empty()) return -1; int s=1; for (int d:arrayDims) s*=d; return s; }
     int bitWidth = 0; // 0 = not a bitfield; >0 = bitfield width in bits
+    std::shared_ptr<FuncPtrSignature> funcPtrSig;   // a function pointer member's signature
 };
 
 class EnumDefinition : public Statement {

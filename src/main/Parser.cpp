@@ -2250,6 +2250,7 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
         int basePtrLevel = 0;
         std::vector<int> typedefArrayDims;
         std::vector<std::string> memberTypedefVla;
+        std::shared_ptr<FuncPtrSignature> memberFpSig;   // a typedef'd function pointer type
         if (peek().type == TokenType::ATTRIBUTE) {
             // __attribute__ as member type prefix — skip and retry
             while (tryParseAttribute()) {}
@@ -2265,6 +2266,7 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
             basePtrLevel = ts.pointerLevel;
             typedefArrayDims = ts.arrayDims;
             memberTypedefVla = ts.vlaDimVars;
+            memberFpSig = ts.funcPtrSig;
             if (ts.isConst) mIsConst = true;
         }
         // Skip __attribute__ after type, before pointer/name
@@ -2305,20 +2307,14 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
                 expect(TokenType::CLOSE_SQUARE, "Expected ']'");
             }
             expect(TokenType::CLOSE_PAREN, "Expected ')' after function pointer name");
-            // Skip parameter list
-            if (match(TokenType::OPEN_PAREN)) {
-                int depth = 1;
-                while (depth > 0 && peek().type != TokenType::END_OF_FILE) {
-                    if (match(TokenType::OPEN_PAREN)) depth++;
-                    else if (peek().type == TokenType::CLOSE_PAREN) { depth--; if (depth > 0) advance(); }
-                    else advance();
-                }
-                expect(TokenType::CLOSE_PAREN, "Expected ')' after function pointer params");
-            }
+            // the parameter list: the signature calls through the member use
+            std::shared_ptr<FuncPtrSignature> fpSig;
+            if (peek().type == TokenType::OPEN_PAREN) fpSig = parseFuncPtrParams(type, ptrLevel, mIsSigned);
             while (tryParseAttribute()) {}
             StructMember sm;
             sm.type = "void"; sm.pointerLevel = 1; sm.isSigned = false;
             sm.name = fpName;
+            sm.funcPtrSig = fpSig;
             def->members.push_back(std::move(sm));
             expect(TokenType::SEMICOLON, "Expected ';'");
             continue;
@@ -2386,6 +2382,7 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
         sm.alignmentExpr = std::move(mAlignmentExpr); sm.isAnonymous = false;
         sm.arrayDims = memberArrayDims; sm.bitWidth = memberBitWidth;
         sm.isFlexible = isFlexArray;
+        if (ptrLevel == basePtrLevel && memberArrayDims.empty()) sm.funcPtrSig = memberFpSig;
         if (memberIsVla) {
             memberVlaDims.resize(memberArrayDims.size());
             sm.vlaDimExprs = std::move(memberVlaDims);
@@ -3866,6 +3863,8 @@ std::shared_ptr<FuncPtrSignature> Parser::parseFuncPtrParams(const std::string& 
         advance(); // consume 'void'
     } else if (peek().type != TokenType::CLOSE_PAREN) {
         do {
+            // ... ends a variadic parameter list
+            if (match(TokenType::ELLIPSIS)) { sig->isVariadic = true; break; }
             FuncPtrSignature::Param fp;
             {
                 auto ts = parseTypeSpecifier();

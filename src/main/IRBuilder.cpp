@@ -2955,7 +2955,7 @@ bool IRBuilder::isLibraryZpRoutine(const std::string& fname) {
 }
 
 bool IRBuilder::usesZpConvSig(const FuncPtrSignature& sig) {
-    if (!zpCallMode) return false;
+    if (!zpCallMode || sig.isVariadic) return false;   // a variadic function takes the stack convention
     std::vector<ir::Type> types;
     if (sig.returnPointerLevel == 0 && (mapType(sig.returnType, 0) == ir::Type::F32 ||
                                         structs_.count(getAggregateName(sig.returnType))))
@@ -6363,6 +6363,16 @@ normal_call:
         auto fit = fnPtrSigs_.find(calleeName);
         if (fit != fnPtrSigs_.end()) fpSig = fit->second;
     }
+    // a call through a struct member (s.f(...), p->f(...)): the member's signature
+    if (!fpSig && node.callExpr) {
+        Expression* e = node.callExpr.get();
+        while (auto* u = dynamic_cast<UnaryOperation*>(e)) {
+            if (u->op != "*") break;
+            e = u->operand.get();
+        }
+        if (auto* ma = dynamic_cast<MemberAccess*>(e))
+            if (const IRMemberInfo* mi = arrayMemberOf(ma)) fpSig = mi->funcPtrSig;
+    }
     if (fpSig && fpSig->returnPointerLevel == 0) {
         // Call through a function pointer whose target returns a struct/union/float
         bool retFloat = mapType(fpSig->returnType, 0) == ir::Type::F32;
@@ -6457,7 +6467,7 @@ normal_call:
                 if (!fpSig && (node.name == "sprintf" || node.name == "_sprintf"))
                     module_.floatSprintfArg = true;
             }
-            if (args[i].type == ir::Type::I8 && !fpSig && variadicFunctions_.count(node.name) &&
+            if (args[i].type == ir::Type::I8 && (fpSig ? fpSig->isVariadic : variadicFunctions_.count(node.name) > 0) &&
                 ai < node.arguments.size()) {
                 bool sig = getExprTypeInfo(node.arguments[ai].get()).isSigned;
                 castArgs.push_back(emitCast(args[i], ir::Type::I16, sig));
@@ -8749,6 +8759,7 @@ void IRBuilder::visit(StructDefinition& node) {
         mi.isConst = m.isConst;
         mi.arrayDims = m.arrayDims;
         mi.bitWidth = m.bitWidth;
+        mi.funcPtrSig = m.funcPtrSig;
 
         if (m.bitWidth > 0) {
             // Bitfield member

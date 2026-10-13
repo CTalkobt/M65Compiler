@@ -658,6 +658,7 @@ public:
                 sm.alignmentExpr = std::move(alignmentExpr); sm.isAnonymous = m.isAnonymous;
                 sm.arrayDims = m.arrayDims; sm.bitWidth = m.bitWidth;
                 sm.isFlexible = m.isFlexible;
+                sm.funcPtrSig = m.funcPtrSig;
                 for (auto& d : m.vlaDimExprs) {
                     if (d) vmStructs_.insert(node.name);
                     sm.vlaDimExprs.push_back(d ? fold(std::move(d)) : nullptr);
