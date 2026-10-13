@@ -412,6 +412,25 @@ else
     failed=$((failed + 1))
 fi
 
+# Test: ln45 drops unreachable sections of a sectioned library member
+# (conio compiled with -ffunction-sections into a library of its own)
+echo "Testing test_gc_sections_xemu.c (dropping unused functions)..."
+rm -f build/test/test_gc_conio.lib
+if $CC -fzpcall -fimplicit-function-declaration -fsigned-default -funsigned-char -ffunction-sections -Ilib/include \
+       -c lib/stdlib/conio.c -o build/test/test_gc_conio.o45 >/dev/null 2>&1 &&
+   ./bin/ar45 c build/test/test_gc_conio.lib build/test/test_gc_conio.o45 >/dev/null 2>&1 &&
+   $CC -c src/test-resources/test_gc_sections_xemu.c -o build/test/test_gc_sections.o45 >/dev/null 2>&1 &&
+   $LD -basic --print-gc -o build/test/test_gc_sections_xemu.prg lib/build/crt0_zp.o45 build/test/test_gc_sections.o45 \
+       build/test/test_gc_conio.lib $STDLIB > build/test/test_gc_sections.log 2>&1 &&
+   grep -q "dropped section .*_cprintf " build/test/test_gc_sections.log &&
+   ! grep -q "dropped section .*_gotoxy " build/test/test_gc_sections.log &&
+   [ "$(stat -c %s build/test/test_gc_sections_xemu.prg)" -lt 3000 ]; then
+    run_xemu_test "test_gc_sections" "build/test/test_gc_sections_xemu.prg" "C0C0" 3 "01 01 AA"
+else
+    echo "FAIL: test_gc_sections (build, or what was dropped: $(head -3 build/test/test_gc_sections.log 2>/dev/null))"
+    failed=$((failed + 1))
+fi
+
 # Test: ln45 -d above and below the text; data overlapping the text or the
 # BASIC stub is an error
 if $CC -c src/test-resources/test_ln45_layout_xemu.c -o build/test/test_ln45_layout.o45 >/dev/null 2>&1; then

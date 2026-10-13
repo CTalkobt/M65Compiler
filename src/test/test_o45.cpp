@@ -844,6 +844,127 @@ void test_sections_link_unchanged() {
     CHECK(out[0] == out[1], "sections link: same image as without sections");
 }
 
+// --- Section garbage collection (ln45 drops unreachable sections) ---
+
+static O45File sectionedLib() {
+    // text: _a [0,3) lda #1; rts (dropped)   _b [3,15): lda d1; lda d0+2 (one past d0,
+    //       a section reference to d0); lda #<d1 (R_LOWX) / #>d1 (R_HIGH); rts
+    // data: d0 [0,2) (kept only through the one-past reference), d1 [2,4),
+    //       d2 [4,6) (dropped)
+    O45File o;
+    o.mode = O45_MODE_DEFAULT; o.cpuId = O45_CPU_45GS02;
+    o.textBody = {0xA9, 0x01, 0x60,
+                  0xAD, 0x02, 0x00,   // lda d1
+                  0xAD, 0x02, 0x00,   // lda d0+2 (= d1's address: needs the section reference)
+                  0xA9, 0x02,         // lda #<d1
+                  0xA2, 0x00,         // ldx #>d1
+                  0x60, 0x60};
+    o.tlen = (uint32_t)o.textBody.size();
+    o.dataBody = {0x11, 0x22, 0x33, 0x44, 0x55, 0x66};
+    o.dlen = 6;
+    std::vector<O45Reloc> tr = {
+        {4, R_WORD, SEG_DATA}, {7, R_WORD, SEG_DATA},
+        {10, R_LOWX, SEG_DATA, 0, 0x00}, {12, R_HIGH, SEG_DATA, 0, 0x02}};
+    o.textRelocs = O45RelocEncoder::encode(tr);
+    O45File::Export a{"_a", SEG_TEXT, 0}, b{"_b", SEG_TEXT, 3};
+    o.exports = {a, b};
+    auto sec = [](uint8_t seg, uint32_t off, uint32_t len, const char* name) {
+        O45Section s; s.segId = seg; s.offset = off; s.length = len; s.name = name; return s; };
+    o.sections = {sec(SEG_TEXT, 0, 3, "_a"), sec(SEG_TEXT, 3, 12, "_b"),
+                  sec(SEG_DATA, 0, 2, "d0"), sec(SEG_DATA, 2, 2, "d1"), sec(SEG_DATA, 4, 2, "d2")};
+    o.sectRefs = {{O45_SECTREF_TEXT_RELOC, 7, 2}};
+    return o;
+}
+
+void test_gc_sections() {
+    // main: jsr _b; rts
+    O45File m;
+    m.mode = O45_MODE_DEFAULT; m.cpuId = O45_CPU_45GS02;
+    m.textBody = {0x20, 0x00, 0x00, 0x60};
+    m.tlen = 4;
+    m.imports = {{"_b"}};
+    std::vector<O45Reloc> mr = {{1, R_WORD, SEG_EXTERNAL, 0}};
+    m.textRelocs = O45RelocEncoder::encode(mr);
+    O45File::Export me{"_main", SEG_TEXT, 0};
+    m.exports = {me};
+
+    Ar45Archive lib;   // the sectioned object as a library member
+    {
+        O45Writer w;   // (through the writer and reader, as from a file)
+        auto o = sectionedLib();
+        w.setTextSegment(0, o.textBody);
+        w.setDataSegment(0, o.dataBody);
+        w.setTextRelocations(o.textRelocs);
+        w.addExport("_a", SEG_TEXT, 0);
+        w.addExport("_b", SEG_TEXT, 3);
+        w.addSections(o.sections);
+        w.addSectRefs(o.sectRefs);
+        Ar45Member mem; mem.name = "lib.o45"; mem.data = w.emit();
+        lib.members.push_back(mem);
+        lib.symbols.push_back({"_a", 0});
+        lib.symbols.push_back({"_b", 0});
+    }
+    O45Linker linker;
+    linker.setTextBase(0x2000);
+    linker.setDataBase(0x3000);
+    linker.setWarningStream(nullptr);
+    linker.addObject("main.o45", m);
+    linker.addLibrary("lib.lib", lib);
+    std::string err;
+    auto bin = linker.link(err);
+    CHECK(!bin.empty(), "gc sections: links");
+    if (bin.empty()) { printf("    (%s)\n", err.c_str()); return; }
+    // text: main (4) + _b (12) at $2004; data: d0 (2) + d1 (2) at $3000 (d2 dropped)
+    CHECK(bin.size() == 0x1000 + 4, "gc sections: _a and d2 dropped (text 16 bytes, data 4)");
+    CHECK(bin[1] == 0x04 && bin[2] == 0x20, "gc sections: jsr _b reaches its new address");
+    CHECK(bin[5] == 0x02 && bin[6] == 0x30, "gc sections: lda d1 retargeted");
+    CHECK(bin[8] == 0x02 && bin[9] == 0x30, "gc sections: d0+2 (section reference) kept d0, value moved with it");
+    CHECK(bin[11] == 0x02 && bin[13] == 0x30, "gc sections: R_LOWX / R_HIGH moved together");
+    const auto& dropped = linker.discardedSectionNames();
+    CHECK(dropped.size() == 2, "gc sections: two sections reported dropped");
+}
+
+void test_gc_sections_align() {
+    // a kept section aligned to 256 after a dropped one keeps its offset modulo 256
+    O45File o;
+    o.mode = O45_MODE_DEFAULT; o.cpuId = O45_CPU_45GS02;
+    o.textBody.assign(0x110, 0x60);
+    o.tlen = 0x110;
+    O45File::Export a{"_a", SEG_TEXT, 0}, c{"_c", SEG_TEXT, 0x100};
+    o.exports = {a, c};
+    O45Section s1; s1.segId = SEG_TEXT; s1.offset = 0; s1.length = 0x100; s1.name = "_a";
+    O45Section s2; s2.segId = SEG_TEXT; s2.offset = 0x100; s2.length = 0x10; s2.alignLog2 = 8; s2.name = "_c";
+    o.sections = {s1, s2};
+    O45File m;
+    m.mode = O45_MODE_DEFAULT; m.cpuId = O45_CPU_45GS02;
+    m.textBody.assign(0x100, 0x60);     // 256 bytes so the member starts page-aligned
+    m.textBody[0] = 0x20; m.textBody[1] = 0; m.textBody[2] = 0;
+    m.tlen = 0x100;
+    m.imports = {{"_c"}};
+    std::vector<O45Reloc> mr = {{1, R_WORD, SEG_EXTERNAL, 0}};
+    m.textRelocs = O45RelocEncoder::encode(mr);
+    O45Writer w;
+    w.setTextSegment(0, o.textBody);
+    w.addExport("_a", SEG_TEXT, 0);
+    w.addExport("_c", SEG_TEXT, 0x100);
+    w.addSections(o.sections);
+    Ar45Archive lib;
+    Ar45Member mem; mem.name = "al.o45"; mem.data = w.emit();
+    lib.members.push_back(mem);
+    lib.symbols.push_back({"_c", 0});
+    O45Linker linker;
+    linker.setTextBase(0x2000);
+    linker.setWarningStream(nullptr);
+    linker.addObject("m.o45", m);
+    linker.addLibrary("al.lib", lib);
+    std::string err;
+    auto bin = linker.link(err);
+    CHECK(!bin.empty(), "gc align: links");
+    if (bin.empty()) return;
+    CHECK(bin[1] == 0x00 && bin[2] == 0x21, "gc align: _c lands on a page ($2100)");
+    CHECK(bin.size() == 0x110, "gc align: _a dropped");
+}
+
 void test_linker_funcattr_basic() {
     // Two objects: _main (no attrs) and _add (with attrs)
     O45FuncAttr addAttr;
@@ -1088,6 +1209,8 @@ int main() {
     test_sections_roundtrip();
     test_sections_rejected();
     test_sections_link_unchanged();
+    test_gc_sections();
+    test_gc_sections_align();
 
     // Linker function attribute integration tests (Phase 3)
     test_linker_funcattr_basic();

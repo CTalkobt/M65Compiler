@@ -207,6 +207,9 @@ CompilationResult CompilationPipeline::compile() {
             if (o && o->impl == OptimizationImpl::ASM_PASS)
                 asmArgs += std::string(asmArgs.empty() ? "" : " ") + (on ? "-P" : "-PNo") + o->asmFlag;
         }
+        // -ffunction-sections: a section per function (ln45 drops unused ones)
+        if (config_.functionSections && needRelocatable)
+            asmArgs += std::string(asmArgs.empty() ? "" : " ") + "-ffunction-sections";
         asmStage.setExtraArgs(asmArgs);
         asmStage.setKeepTemp(config_.saveTemps);
         auto asmResult = runStage(asmStage);

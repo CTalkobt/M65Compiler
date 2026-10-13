@@ -88,7 +88,7 @@ option_data   (option_length - 2 bytes)   ; at most 253 bytes
 | `$11`  | `OPT_LINEINFO`     | yes, with `.loc` info | ln45, objdump45 | Source line table (1.7) |
 | `$12`  | `OPT_DEBUG_SYMBOLS`| yes, for `proc`s | displayed | Procedure parameter names/offsets (1.8) |
 | `$13`  | `OPT_SAC_PARAMS`   | no | no | Reserved for SAC parameter metadata |
-| `$14`  | `OPT_SECTIONS`     | with `.function_sections` / `-ffunction-sections` | reader (checked), nm45 `-S`, objdump45 `-h` | Section table for per-function linking (1.10) |
+| `$14`  | `OPT_SECTIONS`     | with `.function_sections` / `-ffunction-sections` | ln45 (drops unreachable sections), nm45 `-S`, objdump45 `-h` | Section table for per-function linking (1.10) |
 | `$15`  | `OPT_SECTREF`      | with `.function_sections` (relocations; not exports yet) | reader (checked), nm45 `-S` | Section of a relocation target or an export (1.10) |
 | `$50`  | `OPT_IPO_HINTS`    | no | ln45 | Cross-module optimisation hints (1.9) |
 
@@ -162,7 +162,7 @@ Defined in the writer API and parsed by ln45; no tool currently writes it.
 
 ### 1.10 Sections (`OPT_SECTIONS`, `OPT_SECTREF`)
 
-A sectioned object divides its segment bodies into **sections** — a function, a variable, a string literal, a static-allocation block — that the linker can keep or drop as a whole (per-function linking; ln45 does not use them yet: a sectioned object links exactly like an unsectioned one). Bytes no section covers are the segment's **residual**, kept whenever anything of the object is kept. An object without these records is unsectioned: it is kept or dropped as a whole (`ln45` drops whole library members nothing live references).
+A sectioned object divides its segment bodies into **sections** — a function, a variable, a string literal, a static-allocation block — that the linker can keep or drop as a whole (per-function linking: ln45 drops the sections of library members nothing live reaches, see [ln45](../bin/ln45.md)). Bytes no section covers are the segment's **residual**, kept whenever anything of the object is kept. An object without these records is unsectioned: it is kept or dropped as a whole (`ln45` drops whole library members nothing live references).
 
 `OPT_SECTIONS` payload — `count (1)` followed by `count` entries:
 

@@ -242,8 +242,12 @@ int main(int argc, char** argv) {
     }
 
     if (printGc || g_ln45Verbosity >= 1)
+    {
         for (const auto& n : linker.discardedObjects())
             std::cerr << "ln45: dropped " << n << " (nothing live references it)" << std::endl;
+        for (const auto& n : linker.discardedSectionNames())
+            std::cerr << "ln45: dropped section " << n << std::endl;
+    }
 
     // The 16-bit CPU stack grows down from __stack_top towards the end of the
     // program (BSS and the private base page): make sure there is room

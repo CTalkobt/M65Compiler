@@ -342,6 +342,7 @@ public:
     // Drop pulled library members nothing live references (default on)
     void setGcObjects(bool on) { gcObjectsOn_ = on; }
     const std::vector<std::string>& discardedObjects() const { return discardedObjects_; }
+    const std::vector<std::string>& discardedSectionNames() const { return discardedSectionNames_; }
     // Byte crt0 fills BSS with (__bss_fill, unless an object defines it)
     void setBssFill(uint8_t v) { bssFill_ = v; }
     // The CPU stack's share below __stack_top: the heap ends there
@@ -465,8 +466,16 @@ private:
     ThunkMode thunkMode_ = THUNK_AUTO;
     uint8_t bssFill_ = 0;
     bool gcObjectsOn_ = true;
-    std::vector<std::string> discardedObjects_;  // library members dropped by gcObjects
-    void gcObjects(size_t numRoots);
+    std::vector<std::string> discardedObjects_;  // library members dropped by gcSections
+    struct DiscardedSections { std::string object; size_t count; uint32_t bytes; };
+    std::vector<DiscardedSections> discardedSections_;   // per trimmed object
+    std::vector<std::string> discardedSectionNames_;     // "object: section (n bytes)"
+    std::vector<std::string> gcErrors_;
+    void gcSections(size_t numRoots);
+    bool compactObject(const O45File& o, const std::vector<bool>& keepSec,
+                       const std::vector<O45Reloc>& textRel, const std::vector<O45Reloc>& dataRel,
+                       const std::map<std::pair<uint8_t, uint32_t>, int>& refUnit,
+                       O45File& out, std::string& err);
     uint16_t stackSize_ = 0x1000;
     // Maps callee name → thunk address (for mismatched call sites)
     std::map<std::string, uint32_t> thunkAddresses_;

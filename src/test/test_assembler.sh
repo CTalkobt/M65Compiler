@@ -298,6 +298,18 @@ proc _b
 endproc
 EOF
 sec_check resid "Sections (1)" "00000004         1      1  _b"
+cat > $SD/into.s45 << 'EOF'
+        .function_sections
+        .code
+        lda #1
+proc _a
+        rts
+endproc
+proc _b
+        rts
+endproc
+EOF
+sec_check into "Sections (1)" "00000003         1      1  _b"
 # -ffunction-sections does the same as the directive; a sectioned object
 # links to the same program as without sections (ln45 does not drop yet)
 grep -v function_sections $SD/ref.s45 > $SD/ref_plain.s45

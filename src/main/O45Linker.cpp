@@ -6,6 +6,7 @@
 #include <queue>
 #include <sstream>
 #include <cstring>
+#include <map>
 #include "LinkerLog.hpp"
 #include <iostream>
 #include <streambuf>
@@ -144,55 +145,394 @@ bool O45Linker::resolveLibraries(std::string& errorMsg) {
     return true;
 }
 
-// Object-level dead code removal. resolveLibraries pulls a member for every
+// Dead code removal before layout. resolveLibraries pulls a member for every
 // undefined name, also names only a member pulled earlier needs, and keeps a
-// member whose weak definition loses to a strong one elsewhere. Keep the
-// objects reachable from the roots -- the command-line objects and the
-// startup code (an "init" sub-segment) -- through their imports, each bound
-// to the definition the link uses (the first strong one, else the first
-// weak one, as resolveSymbols binds it); drop the rest. A reference to a
-// static-allocation block (X__ar, X__ar_N) reaches the object defining X.
-void O45Linker::gcObjects(size_t numRoots) {
-    std::map<std::string, size_t> strongDef, weakDef;
-    for (size_t i = 0; i < objects_.size(); i++)
-        for (const auto& exp : objects_[i].obj.exports) {
-            auto& m = exp.isWeak() ? weakDef : strongDef;
-            m.emplace(exp.name, i);   // the first one
+// member whose weak definitions all lost to strong ones; a member's unused
+// functions come along too. ln45 keeps what is reachable from the roots --
+// the command-line objects (whole), the startup code (an "init"
+// sub-segment) and KEEP sections -- and drops the rest.
+//
+// The units: each section of a sectioned object (OPT_SECTIONS), and per
+// object its residual (the bytes no section covers, live whenever anything
+// of the object is). An unsectioned object is just its residual. A live
+// unit's relocations make their targets live: an import through the
+// definition the link uses (the first strong one, else the first weak one;
+// X__ar / X__ar_N reach X), an internal relocation through its section
+// reference (OPT_SECTREF) or the section its stored value lies in.
+//
+// Objects with nothing live are dropped; a sectioned object with dead
+// sections is rewritten without them (compactObject), so the later stages
+// see ordinary objects.
+namespace {
+struct UnitMap {
+    // sections of one segment, sorted by offset: [offset, end) -> section index
+    std::map<uint8_t, std::vector<std::pair<std::pair<uint32_t, uint32_t>, int>>> bySeg;
+    int residual = 0;   // the residual's unit index (= number of sections)
+    int unitAt(uint8_t seg, uint32_t off) const {
+        auto it = bySeg.find(seg);
+        if (it == bySeg.end()) return residual;
+        for (const auto& [range, idx] : it->second)
+            if (off >= range.first && off < range.second) return idx;
+        return residual;
+    }
+};
+}
+
+static bool compactable(const O45File& o) {
+    if (o.sections.empty()) return false;
+    int textParts = 0;
+    for (const auto& sa : o.segAttrs) if (sa.segId == SEG_TEXT) textParts++;
+    return textParts <= 1;
+}
+
+static UnitMap unitMapOf(const O45File& o) {
+    UnitMap m;
+    if (!compactable(o)) return m;   // residual only (unit 0)
+    for (size_t i = 0; i < o.sections.size(); i++) {
+        const auto& s = o.sections[i];
+        m.bySeg[s.segId].push_back({{s.offset, s.offset + s.length}, (int)i});
+    }
+    for (auto& [seg, v] : m.bySeg) std::sort(v.begin(), v.end());
+    m.residual = (int)o.sections.size();
+    return m;
+}
+
+// An internal relocation's stored value as the linker reads it (applyRelocs)
+static uint32_t storedValue(const O45Reloc& r, const std::vector<uint8_t>& body) {
+    if (r.offset >= body.size()) return 0;
+    if (r.type == R_HIGH) return (uint32_t)(body[r.offset] << 8) | r.extra;
+    if (r.type == R_LOWX) return ((uint32_t)r.extra << 8) | body[r.offset];
+    uint32_t v = 0;
+    int n = o45RelocPatchSize((uint8_t)r.type);
+    for (int i = 0; i < n && r.offset + i < body.size(); i++) v |= (uint32_t)body[r.offset + i] << (8 * i);
+    return v;
+}
+
+static uint32_t segOrigBase(const O45File& o, uint8_t seg) {
+    switch (seg) {
+        case SEG_TEXT: return o.tbase;
+        case SEG_DATA: return o.dbase;
+        case SEG_BSS:  return o.bbase;
+        case SEG_ZP:   return o.zbase;
+        default:       return 0;
+    }
+}
+
+void O45Linker::gcSections(size_t numRoots) {
+    size_t n = objects_.size();
+    std::vector<UnitMap> maps(n);
+    std::vector<std::vector<O45Reloc>> textR(n), dataR(n);
+    std::vector<std::map<std::pair<uint8_t, uint32_t>, int>> refUnit(n);   // (kind, key) -> unit
+    for (size_t i = 0; i < n; i++) {
+        const auto& o = objects_[i].obj;
+        maps[i] = unitMapOf(o);
+        textR[i] = O45RelocDecoder::decode(o.textRelocs);
+        dataR[i] = O45RelocDecoder::decode(o.dataRelocs);
+        if (compactable(o))
+            for (const auto& r : o.sectRefs)
+                refUnit[i][{r.kind, r.key}] = r.section == O45_SECT_RESIDUAL ? maps[i].residual : r.section;
+    }
+    // the definition each name binds to
+    std::map<std::string, std::pair<size_t, size_t>> strongDef, weakDef;   // name -> (object, export)
+    for (size_t i = 0; i < n; i++)
+        for (size_t e = 0; e < objects_[i].obj.exports.size(); e++) {
+            const auto& exp = objects_[i].obj.exports[e];
+            (exp.isWeak() ? weakDef : strongDef).emplace(exp.name, std::make_pair(i, e));
         }
-    auto definer = [&](const std::string& name) -> long {
+    auto definer = [&](const std::string& name, std::pair<size_t, size_t>& out) {
         auto it = strongDef.find(name);
-        if (it != strongDef.end()) return (long)it->second;
-        it = weakDef.find(name);
-        if (it != weakDef.end()) return (long)it->second;
-        return -1;
+        if (it == strongDef.end()) it = weakDef.find(name);
+        if (it == weakDef.end()) return false;
+        out = it->second;
+        return true;
     };
-    std::vector<bool> live(objects_.size(), false);
-    std::vector<size_t> work;
-    auto mark = [&](size_t i) { if (!live[i]) { live[i] = true; work.push_back(i); } };
-    for (size_t i = 0; i < objects_.size(); i++) {
+    auto exportUnit = [&](size_t i, size_t e) {
+        auto r = refUnit[i].find({O45_SECTREF_EXPORT, (uint32_t)e});
+        if (r != refUnit[i].end()) return r->second;
+        const auto& exp = objects_[i].obj.exports[e];
+        uint8_t seg = exp.segmentId();
+        if (seg < SEG_TEXT || seg > SEG_ZP) return maps[i].residual;
+        return maps[i].unitAt(seg, exp.offset);
+    };
+    // the unit an internal relocation (in the text or data table) points into
+    auto internalTarget = [&](size_t i, bool inText, const O45Reloc& r) {
+        auto ref = refUnit[i].find({(uint8_t)(inText ? O45_SECTREF_TEXT_RELOC : O45_SECTREF_DATA_RELOC), r.offset});
+        if (ref != refUnit[i].end()) return ref->second;
+        const auto& o = objects_[i].obj;
+        uint32_t v = storedValue(r, inText ? o.textBody : o.dataBody);
+        return maps[i].unitAt((uint8_t)r.segment, v - segOrigBase(o, (uint8_t)r.segment));
+    };
+
+    std::vector<std::vector<bool>> live(n);
+    for (size_t i = 0; i < n; i++) live[i].assign(maps[i].residual + 1, false);
+    std::vector<std::pair<size_t, int>> work;
+    auto mark = [&](size_t i, int u) {
+        if (live[i][u]) return;
+        live[i][u] = true;
+        work.push_back({i, u});
+        int res = maps[i].residual;
+        if (!live[i][res]) { live[i][res] = true; work.push_back({i, res}); }   // the residual comes along
+    };
+    for (size_t i = 0; i < n; i++) {
         bool root = i < numRoots;
-        for (const auto& sa : objects_[i].obj.segAttrs)
-            if (sa.name == "init") root = true;
-        if (root) mark(i);
+        for (const auto& sa : objects_[i].obj.segAttrs) if (sa.name == "init") root = true;
+        if (root) { for (int u = 0; u <= maps[i].residual; u++) mark(i, u); continue; }
+        if (compactable(objects_[i].obj))
+            for (size_t s = 0; s < objects_[i].obj.sections.size(); s++)
+                if (objects_[i].obj.sections[s].keep) mark(i, (int)s);
     }
     while (!work.empty()) {
-        size_t i = work.back();
+        auto [i, u] = work.back();
         work.pop_back();
-        for (const auto& imp : objects_[i].obj.imports) {
-            long d = definer(imp.name);
-            if (d < 0) {
-                size_t ar = imp.name.rfind("__ar");
-                if (ar != std::string::npos) d = definer(imp.name.substr(0, ar));
+        const auto& o = objects_[i].obj;
+        for (int t = 0; t < 2; t++) {
+            bool inText = t == 0;
+            for (const auto& r : inText ? textR[i] : dataR[i]) {
+                if (maps[i].unitAt(inText ? SEG_TEXT : SEG_DATA, r.offset) != u) continue;
+                if (r.segment == SEG_EXTERNAL) {
+                    if (r.symbolIndex >= o.imports.size()) continue;
+                    std::string name = o.imports[r.symbolIndex].name;
+                    std::pair<size_t, size_t> d;
+                    bool found = definer(name, d);
+                    if (!found) {
+                        size_t ar = name.rfind("__ar");
+                        if (ar != std::string::npos) found = definer(name.substr(0, ar), d);
+                    }
+                    if (found) mark(d.first, exportUnit(d.first, d.second));
+                } else {
+                    mark(i, internalTarget(i, inText, r));
+                }
             }
-            if (d >= 0) mark((size_t)d);
         }
+        // an import no relocation uses (a .extern for its side effect) still pulls its definer
+        if (u == maps[i].residual)
+            for (const auto& imp : o.imports) {
+                std::pair<size_t, size_t> d;
+                bool found = definer(imp.name, d);
+                if (!found) {
+                    size_t ar = imp.name.rfind("__ar");
+                    if (ar != std::string::npos) found = definer(imp.name.substr(0, ar), d);
+                }
+                bool used = false;
+                for (const auto* tab : {&textR[i], &dataR[i]})
+                    for (const auto& r : *tab) if (r.segment == SEG_EXTERNAL && r.symbolIndex < o.imports.size() &&
+                                                   o.imports[r.symbolIndex].name == imp.name) { used = true; break; }
+                if (found && !used) mark(d.first, exportUnit(d.first, d.second));
+            }
     }
+
     std::vector<InputObject> kept;
-    for (size_t i = 0; i < objects_.size(); i++) {
-        if (live[i]) kept.push_back(std::move(objects_[i]));
-        else discardedObjects_.push_back(objects_[i].filename);
+    for (size_t i = 0; i < n; i++) {
+        if (!live[i][maps[i].residual]) { discardedObjects_.push_back(objects_[i].filename); continue; }
+        if (compactable(objects_[i].obj)) {
+            std::vector<bool> keepSec(live[i].begin(), live[i].end() - 1);
+            uint32_t before = objects_[i].obj.tlen + objects_[i].obj.dlen;
+            size_t dropped = std::count(keepSec.begin(), keepSec.end(), false);
+            if (dropped) {
+                std::string err;
+                O45File compacted;
+                if (!compactObject(objects_[i].obj, keepSec, textR[i], dataR[i], refUnit[i], compacted, err)) {
+                    gcErrors_.push_back(objects_[i].filename + ": " + err);
+                } else {
+                    discardedSections_.push_back({objects_[i].filename, dropped,
+                        before - (compacted.tlen + compacted.dlen)});
+                    for (size_t s = 0; s < keepSec.size(); s++)
+                        if (!keepSec[s]) discardedSectionNames_.push_back(objects_[i].filename + ": " +
+                            objects_[i].obj.sections[s].name + " (" + std::to_string(objects_[i].obj.sections[s].length) + " bytes)");
+                    objects_[i].obj = std::move(compacted);
+                }
+            }
+        }
+        kept.push_back(std::move(objects_[i]));
     }
     objects_ = std::move(kept);
+}
+
+// Rewrite a sectioned object without its dead sections: segment bodies and
+// lengths shrink (a kept section keeps its offset modulo its alignment),
+// relocation sites, exports, line info and the text sub-segment move, and the
+// stored values of internal relocations follow their targets
+bool O45Linker::compactObject(const O45File& o, const std::vector<bool>& keepSec,
+                              const std::vector<O45Reloc>& textRel, const std::vector<O45Reloc>& dataRel,
+                              const std::map<std::pair<uint8_t, uint32_t>, int>& refUnit,
+                              O45File& out, std::string& err) {
+    UnitMap m = unitMapOf(o);
+    int residual = m.residual;
+    // pieces per segment: [oldStart, oldEnd) -> newStart, unit
+    struct Piece { uint32_t oldStart, oldEnd, newStart; int unit; };
+    std::map<uint8_t, std::vector<Piece>> pieces;
+    std::map<uint8_t, uint32_t> newLen;
+    auto segLen = [&](uint8_t seg) -> uint32_t {
+        return seg == SEG_TEXT ? o.tlen : seg == SEG_DATA ? o.dlen : seg == SEG_BSS ? o.blen : o.zlen;
+    };
+    for (uint8_t seg : {(uint8_t)SEG_TEXT, (uint8_t)SEG_DATA, (uint8_t)SEG_BSS, (uint8_t)SEG_ZP}) {
+        uint32_t len = segLen(seg), pos = 0, np = 0;
+        auto& v = pieces[seg];
+        const auto& secs = m.bySeg[seg];
+        size_t k = 0;
+        while (pos < len) {
+            if (k < secs.size() && secs[k].first.first == pos) {
+                int s = secs[k].second;
+                uint32_t end = secs[k].first.second;
+                if (keepSec[s]) {
+                    uint32_t a = 1u << o.sections[s].alignLog2;
+                    while (np % a != pos % a) np++;   // the same offset modulo its alignment
+                    v.push_back({pos, end, np, s});
+                    np += end - pos;
+                }
+                pos = end;
+                k++;
+            } else {
+                uint32_t end = k < secs.size() ? secs[k].first.first : len;
+                v.push_back({pos, end, np, residual});
+                np += end - pos;
+                pos = end;
+            }
+        }
+        newLen[seg] = np;
+    }
+    // new offset of an old offset in a unit (an end offset maps to the piece it ends)
+    auto mapOff = [&](uint8_t seg, uint32_t off, int unit, uint32_t& outOff) {
+        const Piece* best = nullptr;
+        for (const auto& p : pieces[seg]) {
+            if (p.unit != unit) continue;
+            if (off >= p.oldStart && off < p.oldEnd) { best = &p; break; }
+            if (off == p.oldEnd && !best) best = &p;
+        }
+        if (!best) {   // an empty residual (or an offset outside every piece)
+            if (unit == residual) { outOff = off; return true; }
+            return false;
+        }
+        outOff = best->newStart + (off - best->oldStart);
+        return true;
+    };
+    auto siteNew = [&](uint8_t seg, uint32_t off, uint32_t& outOff) -> bool {
+        int u = m.unitAt(seg, off);
+        if (u != residual && !keepSec[u]) return false;   // dead
+        return mapOff(seg, off, u, outOff);
+    };
+
+    out = o;
+    out.sections.clear();
+    out.sectRefs.clear();
+    // bodies
+    for (uint8_t seg : {(uint8_t)SEG_TEXT, (uint8_t)SEG_DATA}) {
+        const auto& src = seg == SEG_TEXT ? o.textBody : o.dataBody;
+        std::vector<uint8_t> body(newLen[seg], 0);
+        for (const auto& p : pieces[seg])
+            for (uint32_t b = p.oldStart; b < p.oldEnd && b < src.size(); b++) body[p.newStart + (b - p.oldStart)] = src[b];
+        (seg == SEG_TEXT ? out.textBody : out.dataBody) = std::move(body);
+    }
+    out.tlen = newLen[SEG_TEXT];
+    out.dlen = newLen[SEG_DATA];
+    out.blen = newLen[SEG_BSS];
+    out.zlen = newLen[SEG_ZP];
+    // imports: those only dropped code used go (an import no relocation used
+    // at all stays: it may be there for its definition's sake); renumber
+    std::vector<bool> usedBefore(o.imports.size(), false), usedAfter(o.imports.size(), false);
+    for (int t = 0; t < 2; t++)
+        for (const auto& r : t == 0 ? textRel : dataRel) {
+            if (r.segment != SEG_EXTERNAL || r.symbolIndex >= o.imports.size()) continue;
+            usedBefore[r.symbolIndex] = true;
+            uint32_t ns;
+            if (siteNew(t == 0 ? SEG_TEXT : SEG_DATA, r.offset, ns)) usedAfter[r.symbolIndex] = true;
+        }
+    std::vector<uint32_t> newImportIndex(o.imports.size(), 0);
+    out.imports.clear();
+    for (size_t k = 0; k < o.imports.size(); k++) {
+        if (usedBefore[k] && !usedAfter[k]) continue;
+        newImportIndex[k] = (uint32_t)out.imports.size();
+        out.imports.push_back(o.imports[k]);
+    }
+
+    // relocations: drop dead sites, move live ones, retarget internal values
+    for (int t = 0; t < 2; t++) {
+        bool inText = t == 0;
+        uint8_t siteSeg = inText ? SEG_TEXT : SEG_DATA;
+        const auto& srcBody = inText ? o.textBody : o.dataBody;
+        auto& body = inText ? out.textBody : out.dataBody;
+        std::vector<O45Reloc> kept;
+        for (O45Reloc r : inText ? textRel : dataRel) {
+            uint32_t ns;
+            if (!siteNew(siteSeg, r.offset, ns)) continue;
+            uint32_t oldSite = r.offset;
+            r.offset = ns;
+            if (r.segment == SEG_EXTERNAL && r.symbolIndex < newImportIndex.size())
+                r.symbolIndex = newImportIndex[r.symbolIndex];
+            if (r.segment != SEG_EXTERNAL) {
+                auto ref = refUnit.find({(uint8_t)(inText ? O45_SECTREF_TEXT_RELOC : O45_SECTREF_DATA_RELOC), oldSite});
+                O45Reloc probe = r;
+                probe.offset = oldSite;
+                uint32_t v = storedValue(probe, srcBody);
+                uint32_t base = segOrigBase(o, (uint8_t)r.segment);
+                uint32_t rel = v - base;
+                int unit = ref != refUnit.end() ? ref->second : m.unitAt((uint8_t)r.segment, rel);
+                if (unit != residual && !keepSec[unit]) {
+                    err = "a kept relocation (offset " + std::to_string(oldSite) + ") points into dropped section '" +
+                          o.sections[unit].name + "'";
+                    return false;
+                }
+                // the target section's (or residual piece's) move
+                int64_t delta = 0;
+                if (r.type == R_LOW && ref != refUnit.end()) {
+                    // only the low byte is stored: the section's start moves the value
+                    uint32_t start = unit == residual ? 0 : o.sections[unit].offset, ns2;
+                    if (!mapOff((uint8_t)r.segment, start, unit, ns2)) { err = "unmapped R_LOW target"; return false; }
+                    delta = (int64_t)ns2 - start;
+                } else {
+                    uint32_t nrel;
+                    // a value outside the target unit (one past the end, a negative addend):
+                    // move it with the unit's first piece
+                    if (!mapOff((uint8_t)r.segment, rel, unit, nrel)) {
+                        uint32_t start = unit == residual ? 0 : o.sections[unit].offset;
+                        if (!mapOff((uint8_t)r.segment, start, unit, nrel)) { err = "unmapped relocation target"; return false; }
+                        nrel = nrel + (rel - start);
+                    }
+                    delta = (int64_t)nrel - rel;
+                }
+                uint32_t nv = (uint32_t)((int64_t)v + delta);
+                if (r.type == R_HIGH) {
+                    body[r.offset] = (uint8_t)(nv >> 8);
+                    r.extra = (uint8_t)nv;
+                } else if (r.type == R_LOWX) {
+                    body[r.offset] = (uint8_t)nv;
+                    r.extra = (uint8_t)(nv >> 8);
+                } else {
+                    int sz = o45RelocPatchSize((uint8_t)r.type);
+                    for (int b = 0; b < sz && r.offset + b < body.size(); b++) body[r.offset + b] = (uint8_t)(nv >> (8 * b));
+                }
+            }
+            kept.push_back(r);
+        }
+        std::sort(kept.begin(), kept.end(), [](const O45Reloc& a, const O45Reloc& b) { return a.offset < b.offset; });
+        (inText ? out.textRelocs : out.dataRelocs) = O45RelocEncoder::encode(kept);
+    }
+    // exports
+    out.exports.clear();
+    for (size_t e = 0; e < o.exports.size(); e++) {
+        auto exp = o.exports[e];
+        uint8_t seg = exp.segmentId();
+        if (seg >= SEG_TEXT && seg <= SEG_ZP) {
+            auto ref = refUnit.find({O45_SECTREF_EXPORT, (uint32_t)e});
+            int unit = ref != refUnit.end() ? ref->second : m.unitAt(seg, exp.offset);
+            if (unit != residual && !keepSec[unit]) continue;
+            uint32_t no;
+            if (!mapOff(seg, exp.offset, unit, no)) continue;
+            exp.offset = no;
+        }
+        out.exports.push_back(exp);
+    }
+    // line info and the text sub-segment
+    out.lineInfos.clear();
+    for (auto li : o.lineInfos) {
+        uint32_t no;
+        if (!siteNew(SEG_TEXT, li.textOffset, no)) continue;
+        li.textOffset = no;
+        out.lineInfos.push_back(li);
+    }
+    for (auto& sa : out.segAttrs)
+        if (sa.segId == SEG_TEXT) { sa.offset = 0; sa.length = out.tlen; }
+    return true;
 }
 
 // Largest alignment an object asks for in a segment (cc45.align.data / .bss)
@@ -964,7 +1304,13 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
     // drop the members only dead code needed
     size_t numCommandLine = objects_.size();
     if (!resolveLibraries(errorMsg)) return {};
-    if (gcObjectsOn_) gcObjects(numCommandLine);
+    if (gcObjectsOn_) {
+        gcSections(numCommandLine);
+        if (!gcErrors_.empty()) {
+            errorMsg = "dropping unused sections: " + gcErrors_[0];
+            return {};
+        }
+    }
 
     if (!layoutSegments(errorMsg)) return {};
     if (!resolveSymbols(errorMsg)) return {};
@@ -1957,6 +2303,14 @@ void O45Linker::writeMap(std::ostream& out) const {
         out << "Discarded Library Members (nothing live references them)\n";
         out << "--------------------------\n";
         for (const auto& n : discardedObjects_) out << "  " << n << "\n";
+        out << "\n";
+    }
+    if (!discardedSectionNames_.empty()) {
+        uint32_t total = 0;
+        for (const auto& d : discardedSections_) total += d.bytes;
+        out << "Discarded Sections (" << discardedSectionNames_.size() << ", " << total << " bytes of text and data)\n";
+        out << "------------------\n";
+        for (const auto& n : discardedSectionNames_) out << "  " << n << "\n";
         out << "\n";
     }
 

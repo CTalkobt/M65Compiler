@@ -889,6 +889,16 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
                         terminal.count(last->instr.mnemonic);
             uint32_t segEnd = parser.segments.at(secs[i].seg)->pc;
             if (!ends && secs[i].end < segEnd) unite(node(secs[i].seg, (int)i), node(secs[i].seg, find(secs[i].seg, secs[i].end)));
+            // residual code right before the section that can run on into it
+            const AssemblerParser::Statement* prev = nullptr;
+            for (const auto& stmt : parser.statements)
+                if (!stmt->deleted && stmt->size > 0 && stmt->segmentName == secs[i].seg &&
+                    stmt->address < secs[i].start && (!prev || stmt->address >= prev->address))
+                    prev = stmt.get();
+            // (an instruction: alignment padding and data do not run)
+            if (prev && find(secs[i].seg, prev->address) < 0 &&
+                prev->type == AssemblerParser::Statement::INSTRUCTION && !terminal.count(prev->instr.mnemonic))
+                unite(node(secs[i].seg, (int)i), node(secs[i].seg, -1));
         }
         // label differences (a - b): both labels' sections stay together
         auto unitePair = [&](const std::vector<std::string>& names, const std::string& scope) {
