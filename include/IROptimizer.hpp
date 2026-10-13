@@ -44,6 +44,9 @@ namespace ir {
     // A leaf function's pointer parameters used twice or more: a register
 // variable (ZP) copy, so dereferences use the pointer in place
 void leafPointerParamsToZp(Module& mod);
+// A ZP-convention leaf function keeps its parameters in the ZP parameter
+// block where the caller put them (nothing it runs can overwrite it)
+bool paramsStayInZp(const Function& fn);
 void removeDeadTemps(Module& mod);
 
     // Strength reduction: replace expensive ops with cheaper equivalents

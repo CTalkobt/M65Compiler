@@ -2113,6 +2113,24 @@ void optimizePostIncrementSink(Module& mod) {
 // which same-file callers fill before entering at _f__sac; or a stack frame):
 // one used twice or more is stored at the start of the body into a new local,
 // a register variable, that every other use refers to.
+bool paramsStayInZp(const Function& fn) {
+    if (getenv("CC45_NO_ZP_PARAMS")) return false;
+    if (fn.conv != CallConv::ZP || fn.isVariadic || fn.isRegparm || fn.isNaked || fn.isInterrupt ||
+        fn.isNested || fn.paramTypes.empty() || fn.blocks.empty())
+        return false;
+    for (auto t : fn.paramTypes) if (t == Type::F32) return false;
+    for (const auto& [v, t] : fn.vregTypes) if (t == Type::F32) return false;
+    for (const auto& blk : fn.blocks)
+        for (const auto& in : blk.insts) {
+            // a call or asm can overwrite the block; float operations call the runtime
+            if (in.op == Op::CALL || in.op == Op::CALL_VOID || in.op == Op::CALL_INDIRECT ||
+                in.op == Op::ASM_INLINE || in.resultType == Type::F32 ||
+                in.src1.type == Type::F32 || in.src2.type == Type::F32)
+                return false;
+        }
+    return true;
+}
+
 void leafPointerParamsToZp(Module& mod) {
     if (getenv("CC45_NO_ZP_POINTERS")) return;
     for (auto& fn : mod.functions) {
@@ -2135,6 +2153,8 @@ void leafPointerParamsToZp(Module& mod) {
                 for (const auto& c : in.switchCases) if (c.second == entryLabel) reentered = true;
             }
         if (reentered) continue;
+        // (parameters left in the ZP parameter block are in ZP already)
+        if (paramsStayInZp(fn)) continue;
         for (uint32_t p = 0; p < fn.paramTypes.size(); p++) {
             if (fn.paramTypes[p] != Type::PTR || fn.memoryVregs.count(p) || fn.registerVregs.count(p)) continue;
             auto uses = [&](const Operand& o) { return o.isVreg() && o.vregId == p; };

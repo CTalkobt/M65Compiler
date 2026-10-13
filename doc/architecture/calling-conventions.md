@@ -242,6 +242,14 @@ What a SAC function looks like:
     from the ZP block (ZP mode) or from the stack (stack mode) into
     `__param_` storage.
   - `<fn>__sac` is the entry past that thunk.
+- **Leaf functions in ZP mode keep their parameters in the ZP block.** A
+  ZP-convention function that makes no calls and has no inline asm or float
+  code (`ir::paramsStayInZp`) uses its arguments where the caller put them,
+  `$10`…, which nothing it runs can overwrite: no copy at the entry, and a
+  pointer parameter is dereferenced in place (`lda ($10),y`). The same holds
+  with a stack frame. A parameter whose address is used (`&x`, a vector
+  passed by value) is still copied to its storage. `CC45_NO_ZP_PARAMS=1`
+  turns this off (`test_zp_params_xemu.c`).
 - **SAC-to-SAC calls in stack mode.** A SAC caller in the same file stores
   the arguments straight into `<callee>__param_<name>` and does
   `jsr <callee>__sac`. Nothing is pushed or popped. In ZP mode, callers

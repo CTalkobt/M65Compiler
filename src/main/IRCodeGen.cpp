@@ -1,6 +1,7 @@
 #include "CompilerLog.hpp"
 #include "IRCodeGen.hpp"
 #include "OpEffect.hpp"
+#include "IROptimizer.hpp"
 #include <cmath>
 #include <cstring>
 #include <iomanip>
@@ -2048,6 +2049,33 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         }
     }
     alloc_.setRegisterVregs(regVregs_);
+    // A ZP-convention leaf function uses its parameters where the caller put
+    // them, in the ZP parameter block: no copy into storage at the entry
+    zpParams_.clear();
+    if (ir::paramsStayInZp(fn) && !isZeroAllocLeaf(fn.name, fn)) {
+        // (not one whose address is used: the block has no absolute address)
+        std::set<uint32_t> addressed;
+        for (const auto& blk : fn.blocks)
+            for (const auto& in : blk.insts)
+            {
+                // (an element address of a vector parameter is its address; of a
+                // pointer, its value. Fused into a load/store, args[0] is the base)
+                auto elemBase = [&](const ir::Operand& b) {
+                    if (b.isVreg() && b.vregId < fn.paramTypes.size() && fn.paramTypes[b.vregId] != ir::Type::PTR)
+                        addressed.insert(b.vregId);
+                };
+                if (in.op == ir::Op::ADDR_LOCAL && in.src1.isVreg()) addressed.insert(in.src1.vregId);
+                if (in.op == ir::Op::ADDR_ELEM) elemBase(in.src1);
+                if ((in.op == ir::Op::LOAD || in.op == ir::Op::STORE) && in.args.size() >= 3) elemBase(in.args[0]);
+            }
+        int zpOff = (int)zeroPageStart_ + 8;
+        for (uint32_t i = 0; i < fn.paramTypes.size(); i++) {
+            int ps = ir::typeSize(fn.paramTypes[i]);
+            if (!fn.memoryVregs.count(i) && !fn.vregSizes.count(i) && !addressed.count(i)) zpParams_[i] = zpOff;
+            zpOff += ps < 2 ? 2 : ps;
+        }
+    }
+    alloc_.setFixedZpVregs(zpParams_);
     alloc_.setRegisterXVregs(fn.registerXVregs);
     alloc_.setRegisterYVregs(fn.registerYVregs);
     alloc_.setRegisterZVregs(fn.registerZVregs);
@@ -2685,7 +2713,8 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                         ? fn.paramNames[i] : std::to_string(i);
                     std::string sym = fn.name + "__param_" + pName;
                     int pSize = ir::typeSize(fn.paramTypes[i]);
-                    for (int b = 0; b < pSize; b++) {
+                    // (one used in the block is not copied)
+                    for (int b = 0; b < pSize && !zpParams_.count((uint32_t)i); b++) {
                         emit("lda $" + hex8((uint8_t)(zpOff + b)));
                         emit("sta " + sym + (b ? "+" + std::to_string(b) : std::string()));
                     }
@@ -3033,6 +3062,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         // to their vregs (calls made by this function reuse the block)
         for (size_t i = 0; i < fn.paramTypes.size(); i++) {
             uint32_t vid = (uint32_t)i;
+            if (zpParams_.count(vid)) continue;   // used in the block
             // (a __regparm first argument was stored into its slot at the entry)
             std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
                 ? fn.paramNames[i] : std::to_string(i);

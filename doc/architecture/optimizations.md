@@ -96,6 +96,11 @@ inline asm), so nothing can clobber the register pool between uses:
 It is not a `-f` switch: `CC45_NO_ZP_POINTERS=1` turns both parts off (for
 comparing code). Validation: `test_zp_pointers_xemu.c`.
 
+A ZP-convention leaf function goes further: its parameters stay in the ZP
+parameter block where the caller put them (`$10`…), with no copy at the entry
+and no `leafPointerParamsToZp` copy ([calling conventions](calling-conventions.md);
+`CC45_NO_ZP_PARAMS=1` turns it off, `test_zp_params_xemu.c`).
+
 The IR is not in SSA form (a variable's slot is assigned by `STORE`; a
 temporary can be defined on two paths, as in `a && b`), so every pass treats
 a value as constant or fixed only when it has exactly one definition.

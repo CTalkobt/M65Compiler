@@ -27,6 +27,9 @@ public:
 
     // Set which vregs should be prioritized for ZP allocation (for register keyword)
     void setRegisterVregs(const std::set<uint32_t>& regs) { registerVregs_ = regs; }
+    // vregs kept at a fixed ZP address outside the pool (a leaf function's
+    // parameters in the ZP parameter block)
+    void setFixedZpVregs(const std::map<uint32_t, int>& m) { fixedZpVregs_ = m; }
 
     // Set which vregs should be allocated to X register (for loop counters)
     void setRegisterXVregs(const std::set<uint32_t>& regs) { registerXVregs_ = regs; }
@@ -81,6 +84,7 @@ private:
     int frameSize_ = 0;
     std::vector<std::pair<int,int>> freeFrameSlots_;  // {offset, size} of freed frame slots
     std::map<uint32_t, int> frameSlotSize_;     // frame slot size per vreg (aggregates > 2 bytes)
+    std::map<uint32_t, int> fixedZpVregs_;
     std::set<uint32_t> pinnedFrameVregs_;      // locals/params/address-taken: never share their bytes
 
     void computeLiveRanges(const ir::Function& fn);
