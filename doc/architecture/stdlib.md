@@ -191,7 +191,8 @@ Float arithmetic itself (`+ - * /`) saturates to ±`FLT_MAX` on overflow, `x / 0
 
 - **`int putchar(int c)`**: KERNAL `CHROUT` (`$FFD2`).
 - **`int getchar(void)`**: waits for a key with KERNAL `GETIN` (`$FFE4`); returns the PETSCII code.
-- **`int puts(char *s)`**: prints `s` (any length) and a carriage return (`$0D`) through `CHROUT`; returns 0.
+- **`int puts(char *s)`**: prints `s` (any length) and a carriage return (`$0D`) through `CHROUT`; returns 0. `int __putstr(const char *s)` (same member, `puts.s45`) prints `s` without the carriage return.
+- **`printf` of plain text**: cc45 compiles a `printf("text")` statement whose text has no `%` (and whose result is not used) as `puts("text")` when the text ends in `\n` (default PETSCII encoding), else as `__putstr("text")`, so the program does not link the formatter (`printf("hello\n")`: 6458 → 620 bytes). Not when the unit defines its own `printf`.
 
 These (and every other ROM call in the library) are bracketed with `__bp_rom`/`__bp_prog`, which switch to the ROM's base page 0 and back to the program's relocated base page.
 

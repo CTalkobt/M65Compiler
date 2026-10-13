@@ -961,6 +961,33 @@ else
     failed=$((failed + 1))
 fi
 
+# Test: printf("text") without % is written without the formatter (puts /
+# __putstr): the same screen as through "%s", and a program far smaller
+echo "Testing test_printf_literal_xemu.c (printf of plain text)..."
+pl_ok=0
+if $CC src/test-resources/test_printf_literal_xemu.c -o build/test/test_printf_literal_xemu.prg >/dev/null 2>&1 &&
+   $CC -DFORMATTED src/test-resources/test_printf_literal_xemu.c -o build/test/test_printf_literal_fmt_xemu.prg >/dev/null 2>&1; then
+    for plv in "" "_fmt"; do
+        timeout 15 $XEMU -headless -besure -sleepless -prgmode 65 -prgexit -dumpmem "build/test/test_printf_literal${plv}.bin" \
+            -prg "build/test/test_printf_literal${plv}_xemu.prg" </dev/null >/dev/null 2>&1
+        # the program's output starts on the screen row after the banner ($0800 + 9 * 80)
+        dd if="build/test/test_printf_literal${plv}.bin" bs=1 skip=$((0x800 + 720)) count=400 2>/dev/null \
+            > "build/test/test_printf_literal${plv}.scr"
+    done
+    plsize=$(stat -c %s build/test/test_printf_literal_xemu.prg)
+    if cmp -s build/test/test_printf_literal.scr build/test/test_printf_literal_fmt.scr &&
+       [ "$(head -c 5 build/test/test_printf_literal.scr)" = "HELLO" ] && [ "$plsize" -lt 1500 ]; then
+        pl_ok=1
+    fi
+fi
+if [ $pl_ok -eq 1 ]; then
+    echo "SUCCESS: test_printf_literal (same screen as %s, $plsize bytes)"
+    passed=$((passed + 1))
+else
+    echo "FAIL: test_printf_literal (screen differs from %s, or the formatter was linked)"
+    failed=$((failed + 1))
+fi
+
 # Test: GCC statement expressions ({ stmt; ...; expr; })
 for semode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r sename seflags <<< "$semode"

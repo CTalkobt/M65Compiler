@@ -1036,7 +1036,10 @@ void IRBuilder::visit(TranslationUnit& node) {
     // literals before the first one are PETSCII
     currentStringEncoding_ = StringEncoding::PETSCII;
     for (auto& decl : node.topLevelDecls)
-        if (auto* fd = dynamic_cast<FunctionDeclaration*>(decl.get())) unitFunctionNames_.insert(fd->name);
+        if (auto* fd = dynamic_cast<FunctionDeclaration*>(decl.get())) {
+            unitFunctionNames_.insert(fd->name);
+            if (!fd->isPrototype) unitDefinedFunctions_.insert(fd->name);
+        }
     declareBuiltinPrototypes();
     // Now visit all declarations
     for (auto& decl : node.topLevelDecls) {
@@ -6846,7 +6849,31 @@ normal_call:
 }
 
 void IRBuilder::visit(ExpressionStatement& node) {
+    if (auto* call = dynamic_cast<FunctionCall*>(node.expression.get())) simplifyPrintfCall(*call);
     if (node.expression) node.expression->accept(*this);
+}
+
+// printf("text") whose result is unused and whose text has no conversion
+// (%): write the text without the formatter, as GCC does -- puts("text")
+// for "text\n" (in the default encoding, where \n is the $0D puts writes),
+// else __putstr("text"), puts without the newline. The library's printf
+// only (not one this unit defines), and only when the replacement is
+// declared (<stdio.h>).
+void IRBuilder::simplifyPrintfCall(FunctionCall& call) {
+    if (call.callExpr || call.name != "printf" || call.arguments.size() != 1) return;
+    if (unitDefinedFunctions_.count("printf")) return;
+    auto* sl = dynamic_cast<StringLiteral*>(call.arguments[0].get());
+    if (!sl || sl->isWide || sl->value.find('%') != std::string::npos) return;
+    bool newlineAtEnd = !sl->value.empty() && sl->value.back() == '\n' &&
+                        sl->escMask.size() == sl->value.size() && sl->escMask.back() == 'n';
+    if (newlineAtEnd && stringEncodingOf(*sl) == 0 && functionParamTypes_.count("puts") &&
+        !unitDefinedFunctions_.count("puts")) {
+        sl->value.pop_back();
+        sl->escMask.pop_back();
+        call.name = "puts";
+    } else if (functionParamTypes_.count("__putstr") && !unitDefinedFunctions_.count("__putstr")) {
+        call.name = "__putstr";
+    }
 }
 
 // ============================================================================

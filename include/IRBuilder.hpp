@@ -179,6 +179,9 @@ private:
     // prototype to one of the library's ZP assembly routines uses the ZP
     // convention only when the unit has no function of that name)
     std::set<std::string> unitFunctionNames_;
+    std::set<std::string> unitDefinedFunctions_;  // functions with a body in this unit
+    // printf("text") as a statement -> __putstr / puts (no formatter linked)
+    void simplifyPrintfCall(FunctionCall& call);
     std::set<std::string> stackCalledFunctions_;  // stack-mode: callees called with the stack convention
     static bool isLibraryZpRoutine(const std::string& fname);
     std::map<std::string, std::string> staticRenames_;  // static function -> module-unique symbol
