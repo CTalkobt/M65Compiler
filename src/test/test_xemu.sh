@@ -1282,6 +1282,15 @@ else
 fi
 
 # Test: ca45 simulated instructions (assembled directly with ca45, no linker)
+# Test: ca45 forgets register/base-page knowledge after Q, indexed/indirect and RMW instructions
+echo "Testing test_ca45_tracking_xemu.s45 (ca45 machine-state tracking)..."
+if ./bin/ca45 src/test-resources/test_ca45_tracking_xemu.s45 -o build/test/test_ca45_tracking_xemu.prg >/dev/null 2>&1; then
+    run_xemu_test "test_ca45_tracking" "build/test/test_ca45_tracking_xemu.prg" "C0C0" 6 "33 44 11 03 07 AA"
+else
+    echo "FAIL: test_ca45_tracking_xemu.s45 (assembly failed)"
+    failed=$((failed + 1))
+fi
+
 echo "Testing test_ca45_simops_xemu.s45 (ca45 simulated instructions)..."
 if ./bin/ca45 src/test-resources/test_ca45_simops_xemu.s45 -o build/test/test_ca45_simops_xemu.prg >/dev/null 2>&1; then
     run_xemu_test "test_ca45_simops" "build/test/test_ca45_simops_xemu.prg" "C0C0" 39 \

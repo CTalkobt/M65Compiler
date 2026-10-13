@@ -4079,12 +4079,13 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     ms_.invalidateAll();
                     break;
                 }
-                emit("ldy #0");
-                emit("lda (__zp_scratch),y");
                 if (inst.resultType != ir::Type::I8) {
-                    emit("pha"); emit("iny"); emit("lda (__zp_scratch),y");
-                    emit("tax"); emit("pla");
+                    // high byte first: no pha/pla
+                    emit("ldy #1"); emit("lda (__zp_scratch),y"); emit("tax");
+                    emit("dey");    emit("lda (__zp_scratch),y");
                 } else {
+                    emit("ldy #0");
+                    emit("lda (__zp_scratch),y");
                     emit("ldx #0");
                 }
                 if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
@@ -4185,32 +4186,29 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     zpPair = "__zp_scratch";
                 }
                 
-                emit("ldy #" + std::to_string(yOff));
+                ms_.invalidateAll();
                 if (inst.resultType == ir::Type::I8) {
+                    emit("ldy #" + std::to_string(yOff));
                     emit("lda (" + zpPair + "),y");
                     emit("ldx #0");
+                } else if (inst.resultType == ir::Type::I32 && yOff == 0) {
+                    // Z = 0: (zp),z of LDQ adds Z on the MEGA65 core and xemu
+                    // (the MEGA65 book documents no index): the same either way
+                    emit("ldz #0");
+                    emit("ldq (" + zpPair + "),z");
                 } else if (inst.resultType == ir::Type::I32) {
-                    emit("lda (" + zpPair + "),y"); // byte 0
-                    emit("pha");
-                    emit("iny");
-                    emit("lda (" + zpPair + "),y"); // byte 1
-                    emit("pha");
-                    emit("iny");
-                    emit("lda (" + zpPair + "),y"); // byte 2
-                    emit("pha");
-                    emit("iny");
-                    emit("lda (" + zpPair + "),y"); // byte 3
-                    emit("taz");
+                    // high bytes first; byte 2 waits on the stack while Y indexes
+                    emit("ldy #" + std::to_string(yOff + 3));
+                    emit("lda (" + zpPair + "),y"); emit("taz");
+                    emit("dey"); emit("lda (" + zpPair + "),y"); emit("pha");
+                    emit("dey"); emit("lda (" + zpPair + "),y"); emit("tax");
+                    emit("dey"); emit("lda (" + zpPair + "),y");
                     emit("ply");
-                    emit("plx");
-                    emit("pla");
                 } else {
-                    emit("lda (" + zpPair + "),y"); // lo
-                    emit("pha");
-                    emit("iny");
-                    emit("lda (" + zpPair + "),y"); // hi
-                    emit("tax");
-                    emit("pla");
+                    // high byte first: no pha/pla
+                    emit("ldy #" + std::to_string(yOff + 1));
+                    emit("lda (" + zpPair + "),y"); emit("tax");
+                    emit("dey"); emit("lda (" + zpPair + "),y");
                 }
             }
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
@@ -4408,6 +4406,27 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                         emit("sta __zp_scratch2");
                         emit("stx __zp_scratch2+1");
                         zpPair = "__zp_scratch2";
+                    }
+
+                    // 32-bit value in memory or constant: byte by byte, no
+                    // register shuffling (a repeated constant byte is not reloaded)
+                    bool direct32 = inst.resultType == ir::Type::I32;
+                    if (direct32 && inst.src1.isVreg())
+                        direct32 = ir::typeSize(alloc_.getAlloc(inst.src1.vregId).type) == 4 ||
+                                   vregConstVal_.count(inst.src1.vregId);
+                    for (int k = 0; direct32 && k < 4; k++) direct32 = !directByte(inst.src1, k).empty();
+                    if (direct32) {
+                        ms_.invalidateAll();
+                        emit("ldy #" + std::to_string(yOff));
+                        std::string prev;
+                        for (int k = 0; k < 4; k++) {
+                            std::string b = directByte(inst.src1, k);
+                            if (k) emit("iny");
+                            if (b != prev || b[0] != '#') emit("lda " + b);
+                            prev = b;
+                            emit("sta (" + zpPair + "),y");
+                        }
+                        break;
                     }
 
                     // Now load the VALUE to store

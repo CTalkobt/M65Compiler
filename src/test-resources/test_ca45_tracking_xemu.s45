@@ -1,0 +1,79 @@
+; test_ca45_tracking_xemu.s45 — what ca45 knows about registers and base
+; page bytes after instructions it does not model in detail
+;
+; A simulated instruction reads a base-page operand known to hold a constant
+; as #imm. These instructions change registers or memory and must make ca45
+; forget what it knew (each result used to come out as the old constant):
+;   +0,1  ldq (zp),z sets Y/Z: sty/stz, then add.16 .ax, mem   ($33, $44)
+;   +2    lda (zp),y sets A: sta, then add.16 .ax, mem          ($11)
+;   +3    tsb zp changes the byte                               ($03)
+;   +4    sta (zp),y writes a base-page byte                    ($07)
+;   +5    $AA
+        * = $2001
+        .basicUpstart main
+
+out     = $C0C0
+ptr     = $FB
+t0      = $F7
+t1      = $F9
+
+main:
+        lda #<data
+        sta ptr
+        lda #>data
+        sta ptr+1
+        ; --- ldq (zp),z ---
+        ldy #0
+        ldz #0
+        sty t0
+        sty t0+1
+        ldq (ptr),z             ; A..Z = $11 $22 $33 $44
+        sty t0
+        stz t0+1
+        lda #0
+        ldx #0
+        add.16 .ax, t0
+        sta out+0
+        stx out+1
+        ; --- lda (zp),y ---
+        lda #5
+        sta t0
+        lda #0
+        sta t0+1
+        ldy #0
+        lda (ptr),y             ; $11
+        sta t0
+        lda #0
+        ldx #0
+        add.16 .ax, t0
+        sta out+2
+        ; --- tsb zp ---
+        lda #1
+        sta t0
+        lda #2
+        tsb t0                  ; 3
+        lda #0
+        ldx #0
+        add.16 .ax, t0
+        sta out+3
+        ; --- sta (zp),y into the base page ---
+        lda #9
+        sta t1
+        lda #0
+        sta t1+1
+        lda #<t1
+        sta ptr
+        lda #>t1
+        sta ptr+1
+        lda #7
+        ldy #0
+        sta (ptr),y
+        lda #0
+        ldx #0
+        add.16 .ax, t1
+        sta out+4
+        lda #$AA
+        sta out+5
+        rts
+
+data:   .byte $11, $22, $33, $44

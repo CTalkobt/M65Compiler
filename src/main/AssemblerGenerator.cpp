@@ -8,6 +8,61 @@
 #include "StringUtil.hpp"
 #include <algorithm>
 #include <stdexcept>
+
+// The machine state below feeds the simulated instructions' constant
+// forwarding (a ZP byte known to hold a constant becomes #imm). The tracking
+// after each regular instruction models immediate, base-page, absolute,
+// accumulator and implied forms of the common instructions; this forgets what
+// any other instruction changes: the 32-bit (Q) instructions, indexed and
+// indirect loads/stores, and read-modify-write instructions on memory.
+static void forgetUnmodelledEffects(MachineState& ms, const std::string& mnemonic, bool quad,
+                                    AddressingMode mode, uint32_t val, bool hasValue) {
+    std::string M = mnemonic;
+    std::transform(M.begin(), M.end(), M.begin(), ::toupper);
+    bool regMode = mode == AddressingMode::ACCUMULATOR || mode == AddressingMode::IMPLIED;
+    if (quad) {
+        if (M != "STQ" && M != "CMPQ" && M != "BITQ") {
+            ms.invalidateReg(REG_A); ms.invalidateReg(REG_X);
+            ms.invalidateReg(REG_Y); ms.invalidateReg(REG_Z);
+        }
+        if (M != "STQ") ms.flags.invalidate();
+        if (!regMode && (M == "STQ" || M == "ASLQ" || M == "LSRQ" || M == "ROLQ" || M == "RORQ" ||
+                         M == "ASRQ" || M == "INQ" || M == "DEQ"))
+            ms.invalidateAllMem();
+        return;
+    }
+    bool isStore = M == "STA" || M == "STX" || M == "STY" || M == "STZ";
+    bool isRMW = M == "INC" || M == "DEC" || M == "ASL" || M == "LSR" || M == "ROL" || M == "ROR" ||
+                 M == "ASR" || M == "TSB" || M == "TRB" || M == "INW" || M == "DEW" || M == "ASW" ||
+                 M == "ROW" || (M.size() == 4 && (M.compare(0, 3, "RMB") == 0 || M.compare(0, 3, "SMB") == 0));
+    if (regMode || mode == AddressingMode::IMMEDIATE) return;
+    if (mode == AddressingMode::BASE_PAGE || mode == AddressingMode::ABSOLUTE) {
+        // modelled: loads, ALU, stores to ZP, INC..ROR on ZP; not: stores and
+        // RMW on absolute addresses, the other RMW instructions on ZP
+        if (!hasValue) { if (isStore || isRMW) ms.invalidateAllMem(); return; }
+        bool zp = mode == AddressingMode::BASE_PAGE;
+        bool wideRMW = M == "INW" || M == "DEW" || M == "ASW" || M == "ROW";
+        bool modelledZP = zp && (isStore || M == "INC" || M == "DEC" || M == "ASL" || M == "LSR" ||
+                                 M == "ROL" || M == "ROR");
+        if ((isStore || isRMW) && !modelledZP) {
+            for (uint32_t b = 0; b < (wideRMW ? 2u : 1u); b++) {
+                if (zp) ms.invalidateZP((uint8_t)(val + b));
+                else ms.invalidateAbs((uint16_t)(val + b));
+            }
+            if (isRMW) ms.flags.invalidate();
+        }
+        return;
+    }
+    // indexed and indirect forms
+    if (M == "LDA" || M == "ADC" || M == "SBC" || M == "AND" || M == "ORA" || M == "EOR") {
+        ms.invalidateReg(REG_A); ms.flags.invalidate();
+    } else if (M == "LDX") { ms.invalidateReg(REG_X); ms.flags.invalidate(); }
+    else if (M == "LDY") { ms.invalidateReg(REG_Y); ms.flags.invalidate(); }
+    else if (M == "LDZ") { ms.invalidateReg(REG_Z); ms.flags.invalidate(); }
+    else if (isStore) ms.invalidateAllMem();
+    else if (isRMW) { ms.invalidateAllMem(); ms.flags.invalidate(); }
+    else if (M == "CMP" || M == "CPX" || M == "CPY" || M == "CPZ" || M == "BIT") ms.flags.invalidate();
+}
 #include <cmath>
 #include <iostream>
 #include <fstream>
@@ -321,6 +376,7 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                                     }
                                 }
                                 e.emitInstruction(stmt->instr.mnemonic, resolvedMode, val, hasValue);
+                                forgetUnmodelledEffects(e.machineState(), stmt->instr.mnemonic, isQuad, resolvedMode, val, hasValue);
 
                                 // Update MachineState for regular instructions
                                 // (emitInstruction doesn't go through typed methods)
