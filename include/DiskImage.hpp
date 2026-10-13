@@ -97,6 +97,11 @@ public:
     bool saveImage(const std::string& path) const;
     // Split a zip path; false when it is not one
     static bool zipPath(const std::string& path, std::string& zip, std::string& member);
+    // "card.img:/DIR/X.D81": a file on a MEGA65 SD card image (load/saveImage
+    // read and write it there)
+    static bool cardPath(const std::string& path, std::string& card, std::string& member);
+    // A MEGA65 SD card image (MBR with FAT32 / $41 partitions, 32 MB or more)
+    static bool isSdCard(const std::string& path);
     static bool isImageExtension(const std::string& name);
 
     // Whether disk45 can write this format back. G64/G71, NIB, Zipcode

@@ -506,7 +506,7 @@ GEOS files on D64, D71, D81, D65 and D80/D82 images ([GEOS.TXT](https://ist.uwat
 
 SQLite index of image collections with a CRC32 of each file's contents. disk45 is always linked with SQLite. Every subcommand accepts `--db <file>`; the default database is `~/.disk45-catalog.db`. Running `disk45 catalog` alone prints the subcommand list.
 
-Indexed formats: `.d64 .d71 .d81 .d65 .d80 .d82 .ark .arc .sda .lnx .tap .t64 .g64 .g71 .cvt` (also with `.gz`).
+Indexed: every disk image format disk45 reads (`.d64 .d71 .d81 .d65 .d80 .d82 .d90 .d60 .d1m .d2m .d4m .dnp .x64 .g64 .g71 .nib .nbz .t64 .tap .ark .arc .sda .lnx .p00 .cvt`, also with `.gz`, and Zipcode sets by their `1!` file), and the disk images inside containers: each image in a `.zip` and each disk image file on a MEGA65 SD card image is indexed as its own image, with the path `pack.zip:disk.d64` or `card.img:/GAMES/X.D81` (paths that disk45's other commands open too). A GEOS file's CRC32 and size are those of its Convert (CVT) form (its info block and every VLIR record), and `search` marks it `(GEOS Application, VLIR)`; a catalog made by an older disk45 gains the column on the next build.
 
 #### catalog build / update
 
@@ -514,7 +514,7 @@ Indexed formats: `.d64 .d71 .d81 .d65 .d80 .d82 .ark .arc .sda .lnx .tap .t64 .g
 disk45 catalog build <dir|image> [more...] [--db file]
 ```
 
-Scan directories recursively (or index single image files). Incremental: images whose modification time is unchanged are skipped; changed ones are re-indexed. `update` is a synonym.
+Scan directories recursively (or index single image files and containers). Incremental: images whose modification time is unchanged are skipped (and counted as unchanged); changed ones are re-indexed; a changed container is re-indexed as a whole, so members it lost disappear. `update` is a synonym.
 
 #### catalog search
 
@@ -560,7 +560,7 @@ Image and file counts with format and file-type breakdowns.
 disk45 catalog prune [--db file]
 ```
 
-Remove entries for images that no longer exist.
+Remove entries for images that no longer exist (for a container member: whose container no longer exists).
 
 ### Encoding Filters
 
@@ -700,6 +700,7 @@ NIB, NBZ and Zipcode are read-only: `create` refuses them and changes are refuse
 | Extension | Description |
 |-----------|-------------|
 | `.gz` | Transparent gzip on any format (e.g. `.d81.gz`). |
+| `card.img:/path` | A disk image file on a MEGA65 SD card image (see [MEGA65 SD Card Images](#mega65-sd-card-images)), e.g. `disk45 list card.img:/GAMES/X.D81`; a change writes the file back to the card (contiguously). |
 | `.zip` | A disk image inside a zip: `game.d81.zip` (the member `game.d81`; `create` makes the zip), `game.zip` (its one disk image), or `archive.zip:member.d64` to name a member (case-insensitive). The member is read and written through a temporary file; a change replaces that member, deflated, and keeps the other members' data as it is. Stored and deflated members are read; ZIP64 and encrypted archives are not. |
 
 ## Filename Handling

@@ -6,6 +6,9 @@
 //   files(id, image_id, name, type, size_bytes, size_sectors, crc32)
 
 #include "DiskImage.hpp"
+#include "GeosCvtImage.hpp"
+#include "SdCardImage.hpp"
+#include "ZipArchive.hpp"
 #include <sqlite3.h>
 #include <cstdio>
 #include <cstring>
@@ -58,6 +61,21 @@ static bool db_exec(sqlite3* db, const char* sql) {
     return true;
 }
 
+// files.geos: the GEOS type of a GEOS file ("Application, VLIR"); added to
+// catalogs made before it existed
+static bool ensureGeosColumn(sqlite3* db) {
+    sqlite3_stmt* st;
+    bool has = false;
+    if (sqlite3_prepare_v2(db, "PRAGMA table_info(files)", -1, &st, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(st) == SQLITE_ROW) {
+            const char* col = (const char*)sqlite3_column_text(st, 1);
+            if (col && std::string(col) == "geos") has = true;
+        }
+        sqlite3_finalize(st);
+    }
+    return has || db_exec(db, "ALTER TABLE files ADD COLUMN geos TEXT;");
+}
+
 static bool create_schema(sqlite3* db) {
     return db_exec(db,
         "CREATE TABLE IF NOT EXISTS images ("
@@ -83,7 +101,7 @@ static bool create_schema(sqlite3* db) {
         "CREATE INDEX IF NOT EXISTS idx_files_image ON files(image_id);"
         "CREATE INDEX IF NOT EXISTS idx_files_crc ON files(crc32);"
         "CREATE INDEX IF NOT EXISTS idx_images_path ON images(path);"
-    );
+    ) && ensureGeosColumn(db);
 }
 
 static const char* fileTypeStr(CbmFileType t) {
@@ -115,11 +133,10 @@ static std::string formatFromPath(const std::string& path) {
 // Scan an image and index its files
 // ============================================================================
 
-static bool indexImage(sqlite3* db, const std::string& path, bool verbose) {
-    // Check if already indexed with same mtime
-    auto mtime = fs::last_write_time(path);
-    auto mtimeVal = mtime.time_since_epoch().count();
-    auto fileSize = (int64_t)fs::file_size(path);
+// path may name a member of a container ("x.zip:disk.d64",
+// "card.img:/GAMES/X.D81"); mtimeVal and fileSize are then the container's
+// 1: indexed, 0: unchanged since the last build, -1: not readable
+static int indexImage(sqlite3* db, const std::string& path, bool verbose, int64_t mtimeVal, int64_t fileSize) {
 
     sqlite3_stmt* chk;
     sqlite3_prepare_v2(db, "SELECT id, mtime FROM images WHERE path = ?", -1, &chk, nullptr);
@@ -128,7 +145,7 @@ static bool indexImage(sqlite3* db, const std::string& path, bool verbose) {
         int64_t existingMtime = sqlite3_column_int64(chk, 1);
         if (existingMtime == mtimeVal) {
             sqlite3_finalize(chk);
-            return true; // already up to date
+            return 0; // already up to date
         }
         // Mtime changed — delete old entries and re-index
         int64_t imgId = sqlite3_column_int64(chk, 0);
@@ -147,7 +164,8 @@ static bool indexImage(sqlite3* db, const std::string& path, bool verbose) {
     }
 
     auto img = DiskImage::load(path);
-    if (!img) return false;
+    if (!img) return -1;
+    bool tracks = img->totalTracks() > 0 && !dynamic_cast<GeosCvtImage*>(img.get());
 
     std::string format = formatFromPath(path);
     std::string diskName = img->diskName();
@@ -172,13 +190,23 @@ static bool indexImage(sqlite3* db, const std::string& path, bool verbose) {
     // Index files
     auto files = img->listFiles();
     sqlite3_prepare_v2(db,
-        "INSERT INTO files (image_id, name, type, size_bytes, size_sectors, crc32) VALUES (?,?,?,?,?,?)",
+        "INSERT INTO files (image_id, name, type, size_bytes, size_sectors, crc32, geos) VALUES (?,?,?,?,?,?,?)",
         -1, &ins, nullptr);
 
     int count = 0;
     for (auto& f : files) {
-        // Compute CRC32 of file content
-        auto data = img->readFile(f.name);
+        // CRC32 of the file's contents; a GEOS file's is that of its CVT form
+        // (the info block and every VLIR record)
+        std::vector<uint8_t> data;
+        std::string geos;
+        DirEntry e;
+        if (tracks) e = img->findEntry(f.name);
+        if (tracks && e.isValid() && img->isGeos(e)) {
+            std::string err;
+            if (img->readGeosCvt(e, data, err))
+                geos = DiskImage::geosTypeName(e.unused[0]) + (e.recordLen ? ", VLIR" : "");
+        }
+        if (geos.empty()) data = img->readFile(f.name);
         uint32_t crc = data.empty() ? 0 : compute_crc32(data);
         char crcStr[16];
         snprintf(crcStr, sizeof(crcStr), "%08X", crc);
@@ -186,9 +214,11 @@ static bool indexImage(sqlite3* db, const std::string& path, bool verbose) {
         sqlite3_bind_int64(ins, 1, imgId);
         sqlite3_bind_text(ins, 2, f.name.c_str(), -1, SQLITE_STATIC);
         sqlite3_bind_text(ins, 3, fileTypeStr(f.type), -1, SQLITE_STATIC);
-        sqlite3_bind_int(ins, 4, f.sizeInBytes);
+        sqlite3_bind_int(ins, 4, geos.empty() ? (int)f.sizeInBytes : (int)data.size());
         sqlite3_bind_int(ins, 5, f.sizeInSectors);
         sqlite3_bind_text(ins, 6, crcStr, -1, SQLITE_STATIC);
+        if (geos.empty()) sqlite3_bind_null(ins, 7);
+        else sqlite3_bind_text(ins, 7, geos.c_str(), -1, SQLITE_TRANSIENT);
         sqlite3_step(ins);
         sqlite3_reset(ins);
         count++;
@@ -196,7 +226,7 @@ static bool indexImage(sqlite3* db, const std::string& path, bool verbose) {
     sqlite3_finalize(ins);
 
     if (verbose) std::cout << "  " << path << " (" << count << " files)\n";
-    return true;
+    return 1;
 }
 
 // ============================================================================
@@ -223,27 +253,122 @@ static std::string getDbPath(int& argc, char**& argv) {
     return defaultDbPath();
 }
 
-// Supported image extensions for scanning
+// Files the catalog indexes: every disk image format disk45 reads (and
+// Zipcode sets by their 1! file)
 static bool isSupportedImage(const std::string& path) {
-    std::string lower = path;
-    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-    // Strip .gz
-    if (lower.size() > 3 && lower.substr(lower.size() - 3) == ".gz")
-        lower = lower.substr(0, lower.size() - 3);
-    auto dot = lower.rfind('.');
-    if (dot == std::string::npos) return false;
-    std::string ext = lower.substr(dot);
-    return ext == ".d64" || ext == ".d71" || ext == ".d81" || ext == ".d65" ||
-           ext == ".d80" || ext == ".d82" || ext == ".ark" || ext == ".arc" ||
-           ext == ".sda" || ext == ".lnx" || ext == ".tap" || ext == ".t64" ||
-           ext == ".g64" || ext == ".g71" || ext == ".cvt";
+    std::string name = fs::path(path).filename().string();
+    return DiskImage::isImageExtension(name) || name.rfind("1!", 0) == 0;
+}
+
+// Containers: a .zip (its disk images) and a MEGA65 SD card image (the disk
+// images in its FAT32 file system); each member is indexed as its own image
+// with the path "<container>:<member>"
+static bool isContainer(const std::string& path) {
+    std::string ext = fs::path(path).extension().string();
+    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+    return ext == ".zip" || DiskImage::isSdCard(path);
+}
+
+static void cardImages(SdCardImage& card, const std::string& dir, std::vector<std::string>& out, int depth) {
+    std::vector<SdCardImage::Entry> entries;
+    std::string err;
+    if (depth > 16 || !card.list(dir, entries, err)) return;
+    for (const auto& e : entries) {
+        std::string p = dir + "/" + e.name;
+        if (e.isDir()) cardImages(card, p, out, depth + 1);
+        else if (DiskImage::isImageExtension(e.name)) out.push_back(p);
+    }
+}
+
+static void deleteImages(sqlite3* db, const char* where, const std::string& arg) {
+    std::string sql1 = std::string("DELETE FROM files WHERE image_id IN (SELECT id FROM images WHERE ") + where + ")";
+    std::string sql2 = std::string("DELETE FROM images WHERE ") + where;
+    for (const std::string& sql : {sql1, sql2}) {
+        sqlite3_stmt* st;
+        sqlite3_prepare_v2(db, sql.c_str(), -1, &st, nullptr);
+        sqlite3_bind_text(st, 1, arg.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_step(st);
+        sqlite3_finalize(st);
+    }
+}
+
+// Index a container's disk images; false: not readable. indexed counts them
+static bool indexContainer(sqlite3* db, const std::string& path, int& indexed, int& unchanged, int& errors) {
+    int64_t mtimeVal = fs::last_write_time(path).time_since_epoch().count();
+    int64_t fileSize = (int64_t)fs::file_size(path);
+    std::string prefix = path + ":";
+    // up to date when its members were indexed at this modification time
+    sqlite3_stmt* chk;
+    sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM images WHERE substr(path, 1, ?) = ? AND mtime = ?", -1, &chk, nullptr);
+    sqlite3_bind_int(chk, 1, (int)prefix.size());
+    sqlite3_bind_text(chk, 2, prefix.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(chk, 3, mtimeVal);
+    bool current = sqlite3_step(chk) == SQLITE_ROW && sqlite3_column_int(chk, 0) > 0;
+    sqlite3_finalize(chk);
+    if (current) {
+        sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM images WHERE substr(path, 1, ?) = ?", -1, &chk, nullptr);
+        sqlite3_bind_int(chk, 1, (int)prefix.size());
+        sqlite3_bind_text(chk, 2, prefix.c_str(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(chk) == SQLITE_ROW) unchanged += sqlite3_column_int(chk, 0);
+        sqlite3_finalize(chk);
+        return true;
+    }
+    deleteImages(db, "substr(path, 1, length(?1)) = ?1", prefix);
+
+    std::vector<std::string> members;
+    std::string err;
+    if (DiskImage::isSdCard(path)) {
+        SdCardImage card;
+        if (!card.open(path, false, err)) { std::cerr << "  " << path << ": " << err << "\n"; return false; }
+        cardImages(card, "", members, 0);
+    } else {
+        ZipArchive za;
+        if (!za.load(path, err)) { std::cerr << "  " << path << ": " << err << "\n"; return false; }
+        for (const auto& m : za.members())
+            if (DiskImage::isImageExtension(m.name) && m.name.back() != '/') members.push_back(m.name);
+    }
+    for (const auto& m : members) {
+        try {
+            int r = indexImage(db, prefix + m, true, mtimeVal, fileSize);
+            (r > 0 ? indexed : r == 0 ? unchanged : errors)++;
+        } catch (...) { errors++; }
+    }
+    return true;
+}
+
+// Index one file (an image or a container)
+static void indexPath(sqlite3* db, const std::string& path, int& indexed, int& unchanged, int& errors) {
+    try {
+        if (isContainer(path)) {
+            if (!indexContainer(db, path, indexed, unchanged, errors)) errors++;
+        } else if (isSupportedImage(path)) {
+            int64_t mtimeVal = fs::last_write_time(path).time_since_epoch().count();
+            int r = indexImage(db, path, true, mtimeVal, (int64_t)fs::file_size(path));
+            (r > 0 ? indexed : r == 0 ? unchanged : errors)++;
+        }
+    } catch (...) {
+        errors++;
+    }
+}
+
+// The file a catalog path lives in: the path, or for "<container>:<member>"
+// the container (the longest prefix before a ':' that is a file)
+static std::string containerOf(const std::string& path) {
+    std::error_code ec;
+    if (fs::exists(path, ec)) return path;
+    for (size_t i = path.rfind(':'); i != std::string::npos && i > 0; i = path.rfind(':', i - 1)) {
+        std::string prefix = path.substr(0, i);
+        if (fs::is_regular_file(prefix, ec)) return prefix;
+    }
+    return path;
 }
 
 int disk45_catalog(int argc, char** argv) {
     if (argc < 1) {
         std::cerr << "Usage: disk45 catalog <command> [options]\n"
                   << "Commands:\n"
-                  << "  build <dir> [dir2...] [--db]  Scan directories, index all images\n"
+                  << "  build <dir> [dir2...] [--db]  Scan directories, index all images (also those\n"
+                  << "                                inside .zip files and on MEGA65 SD card images)\n"
                   << "  update <dir> [dir2...] [--db] Incremental update (skip unchanged)\n"
                   << "  search <pattern> [--db file]  Search files by name (* and ? wildcards)\n"
                   << "  list [--db file]             Summary of indexed images\n"
@@ -273,7 +398,7 @@ int disk45_catalog(int argc, char** argv) {
             sqlite3_close(db);
             return 1;
         }
-        int indexed = 0, skipped = 0, errors = 0;
+        int indexed = 0, unchanged = 0, errors = 0;
 
         db_exec(db, "BEGIN TRANSACTION;");
 
@@ -281,33 +406,20 @@ int disk45_catalog(int argc, char** argv) {
         for (int di = 0; di < argc; di++) {
             std::string dir = argv[di];
             if (!fs::is_directory(dir)) {
-                // Single image file
-                if (isSupportedImage(dir) && fs::is_regular_file(dir)) {
-                    try {
-                        if (indexImage(db, dir, true)) indexed++;
-                        else errors++;
-                    } catch (...) { errors++; }
-                }
+                if (fs::is_regular_file(dir)) indexPath(db, dir, indexed, unchanged, errors);
                 continue;
             }
             std::cout << "Scanning " << dir << " ...\n";
             for (auto& entry : fs::recursive_directory_iterator(dir, fs::directory_options::skip_permission_denied)) {
                 if (!entry.is_regular_file()) continue;
-                std::string path = entry.path().string();
-                if (!isSupportedImage(path)) continue;
-
-                try {
-                    if (indexImage(db, path, true)) indexed++;
-                    else errors++;
-                } catch (...) {
-                    errors++;
-                }
+                indexPath(db, entry.path().string(), indexed, unchanged, errors);
             }
         }
 
         db_exec(db, "COMMIT;");
         std::cout << "Indexed " << indexed << " image(s)";
-        if (errors) std::cout << ", " << errors << " error(s)";
+        if (unchanged) std::cout << ", " << unchanged << " unchanged";
+        if (errors) std::cout << ", " << errors << " not readable";
         std::cout << " → " << dbPath << "\n";
 
     } else if (subcmd == "search") {
@@ -329,7 +441,7 @@ int disk45_catalog(int argc, char** argv) {
 
         sqlite3_stmt* stmt;
         sqlite3_prepare_v2(db,
-            "SELECT f.name, f.type, f.size_sectors, f.crc32, i.path, i.name AS disk_name "
+            "SELECT f.name, f.type, f.size_sectors, f.crc32, i.path, i.name AS disk_name, f.geos "
             "FROM files f JOIN images i ON f.image_id = i.id "
             "WHERE UPPER(f.name) LIKE ? "
             "ORDER BY f.name, i.path",
@@ -349,7 +461,10 @@ int disk45_catalog(int argc, char** argv) {
                       << std::setw(5) << (ftype ? ftype : "")
                       << std::right << std::setw(5) << sectors << " blk  "
                       << (crc ? crc : "") << "  "
-                      << (ipath ? ipath : "") << "\n";
+                      << (ipath ? ipath : "");
+            const char* geos = (const char*)sqlite3_column_text(stmt, 6);
+            if (geos) std::cout << "  (GEOS " << geos << ")";
+            std::cout << "\n";
             count++;
         }
         sqlite3_finalize(stmt);
@@ -370,10 +485,10 @@ int disk45_catalog(int argc, char** argv) {
             const char* name = (const char*)sqlite3_column_text(stmt, 2);
             int files = sqlite3_column_int(stmt, 3);
 
-            std::cout << "  " << std::left << std::setw(40) << (path ? path : "")
-                      << std::setw(8) << (fmt ? fmt : "")
-                      << std::setw(18) << (name ? name : "")
-                      << files << " files\n";
+            std::cout << "  " << std::left << std::setw(40) << (path ? path : "") << " "
+                      << std::setw(8) << (fmt ? fmt : "") << " "
+                      << std::setw(18) << (name ? name : "") << " "
+                      << std::right << files << " files\n";
             count++;
         }
         sqlite3_finalize(stmt);
@@ -464,7 +579,7 @@ int disk45_catalog(int argc, char** argv) {
         while (sqlite3_step(stmt) == SQLITE_ROW) {
             int64_t id = sqlite3_column_int64(stmt, 0);
             const char* path = (const char*)sqlite3_column_text(stmt, 1);
-            if (path && !fs::exists(path)) {
+            if (path && !fs::exists(containerOf(path))) {
                 std::cout << "  Pruning: " << path << "\n";
                 stale.push_back(id);
             }

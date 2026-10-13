@@ -336,7 +336,9 @@ stored contiguously (the MEGA65 mounts only unfragmented D81s), with VFAT
 long names. The hypervisor reads its configuration sector from **card sector
 1** (not the system partition, despite `MEGA65_System_Partition.md`);
 `--onboarded` skips the first-boot onboarding. xemu needs `-defd81fromsd` to
-mount the card's `MEGA65.D81`.
+mount the card's `MEGA65.D81`. Any disk45 command opens a disk image on a card as
+`card.img:/DIR/X.D81`; `disk45 catalog build` indexes the disk images in
+zips and on SD card images as `<container>:<member>`.
 
 ## References
 

@@ -483,6 +483,59 @@ $DISK45 create "$TMPDIR/c100.dnp" -t 100 >/dev/null 2>&1 && [ "$(stat -c %s "$TM
     pass "DNP create -t 100" || fail "DNP -t"
 
 # ============================================================================
+echo "=== Catalog ==="
+
+# a collection of formats, a zip of two images, an SD card image with a D81,
+# a GEOS disk; the catalog indexes every disk image (container members as
+# "<container>:<member>")
+CAT="$TMPDIR/coll"
+CDB="$TMPDIR/cat.db"
+mkdir -p "$CAT/sub"
+cp "$TMPDIR/gcr.d64" "$CAT/a.d64"
+cp "$TMPDIR/py.g64" "$CAT/c.g64"
+cp "$TMPDIR/py.nib" "$CAT/d.nib"
+cp "$TMPDIR/c100.dnp" "$CAT/e.dnp"
+cp "$TMPDIR/geos.d71" "$CAT/geos.d71"
+$DISK45 create "$CAT/sub/b.d81" -n BBB >/dev/null 2>&1
+$DISK45 add "$CAT/sub/b.d81" "$TMPDIR/gcra.prg" A >/dev/null 2>&1
+if command -v zip >/dev/null 2>&1; then
+    (cd "$CAT" && zip -q pack.zip a.d64 sub/b.d81)
+fi
+$DISK45 sd create "$CAT/card.img" 64M --onboarded >/dev/null 2>&1
+$DISK45 sd add "$CAT/card.img" "$CAT/sub/b.d81" GAMES.D81 >/dev/null 2>&1
+OUT=$($DISK45 catalog build "$CAT" --db "$CDB" 2>&1)
+$DISK45 catalog list --db "$CDB" > "$TMPDIR/catlist.txt"
+grep -q 'a.d64 ' "$TMPDIR/catlist.txt" && grep -q 'c.g64 ' "$TMPDIR/catlist.txt" &&
+    grep -q 'd.nib ' "$TMPDIR/catlist.txt" && grep -q 'e.dnp ' "$TMPDIR/catlist.txt" &&
+    grep -q 'card.img:/GAMES.D81 ' "$TMPDIR/catlist.txt" &&
+    { ! command -v zip >/dev/null 2>&1 || { grep -q 'pack.zip:a.d64 ' "$TMPDIR/catlist.txt" &&
+                                            grep -q 'pack.zip:sub/b.d81 ' "$TMPDIR/catlist.txt"; }; } &&
+    pass "catalog build: formats, zip members, SD card files" || fail "catalog build ($OUT)"
+ACRC=$(python3 -c "import zlib,sys;print('%08X'%zlib.crc32(open(sys.argv[1],'rb').read()))" "$TMPDIR/gcra.prg")
+GCRC=$(python3 -c "import zlib,sys;print('%08X'%zlib.crc32(open(sys.argv[1],'rb').read()))" "$TMPDIR/vlir.cvt")
+$DISK45 catalog search A --db "$CDB" | grep -q "$ACRC  $CAT/card.img:/GAMES.D81" &&
+    $DISK45 catalog search 'geotest*' --db "$CDB" | grep -q "$GCRC .*(GEOS Application, VLIR)" &&
+    pass "catalog search: CRC of contents, GEOS files by their CVT" || fail "catalog search"
+$DISK45 catalog build "$CAT" --db "$CDB" 2>&1 | grep -q 'Indexed 0 image(s), [0-9]* unchanged' &&
+    pass "catalog build: unchanged images skipped" || fail "catalog rebuild"
+rm "$CAT/d.nib" "$CAT/card.img"
+$DISK45 catalog prune --db "$CDB" | grep -q 'Pruned 2' && ! $DISK45 catalog list --db "$CDB" | grep -q 'card.img' &&
+    pass "catalog prune: deleted images and containers" || fail "catalog prune"
+# a catalog made before the geos column gains it
+python3 - "$TMPDIR/old.db" <<'PY'
+import sqlite3, sys
+c = sqlite3.connect(sys.argv[1])
+c.executescript("""CREATE TABLE images (id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT UNIQUE NOT NULL,
+  format TEXT, name TEXT, disk_id TEXT, mtime INTEGER, size INTEGER);
+CREATE TABLE files (id INTEGER PRIMARY KEY AUTOINCREMENT, image_id INTEGER NOT NULL, name TEXT NOT NULL,
+  type TEXT NOT NULL, size_bytes INTEGER, size_sectors INTEGER, crc32 TEXT);""")
+c.close()
+PY
+$DISK45 catalog build "$CAT/geos.d71" --db "$TMPDIR/old.db" >/dev/null 2>&1 &&
+    $DISK45 catalog search '*' --db "$TMPDIR/old.db" | grep -q 'GEOS' &&
+    pass "catalog: an older database gains the GEOS column" || fail "catalog migration"
+
+# ============================================================================
 echo ""
 echo "disk45 tests: $passed passed, $failed failed"
 [ "$failed" -eq 0 ] || exit 1

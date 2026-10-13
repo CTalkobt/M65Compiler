@@ -19,6 +19,7 @@
 #include "NibImage.hpp"
 #include "GzipHelper.hpp"
 #include "ZipArchive.hpp"
+#include "SdCardImage.hpp"
 #include <cstdio>
 #include <iterator>
 #include <unistd.h>
@@ -94,12 +95,79 @@ static bool looksLikeSdCard(const std::string& path) {
     return false;
 }
 
+// An image held in memory (a zip member, a file on an SD card), loaded
+// through a temporary file with the member's extension
+static std::unique_ptr<DiskImage> loadFromBytes(const std::string& name, const std::vector<uint8_t>& data) {
+    std::string ext = std::filesystem::path(name).extension().string();
+    std::string tmp = (std::filesystem::temp_directory_path() / "disk45-XXXXXX").string() + ext;
+    std::vector<char> tmpl(tmp.begin(), tmp.end());
+    tmpl.push_back('\0');
+    int fd = mkstemps(tmpl.data(), (int)ext.size());
+    if (fd < 0) { std::cerr << "Error: cannot create a temporary file\n"; return nullptr; }
+    bool ok = write(fd, data.data(), data.size()) == (ssize_t)data.size();
+    close(fd);
+    std::string tmpPath(tmpl.data());
+    std::unique_ptr<DiskImage> img = ok ? DiskImage::createFromExtension(tmpPath) : nullptr;
+    if (img && !img->loadFromFile(tmpPath)) img.reset();
+    std::remove(tmpPath.c_str());
+    return img;
+}
+
+// The bytes an image saves as a file named like `name`
+static bool imageBytes(const DiskImage& img, const std::string& name, std::vector<uint8_t>& data) {
+    std::string ext = std::filesystem::path(name).extension().string();
+    std::string tmp = (std::filesystem::temp_directory_path() / "disk45-XXXXXX").string() + ext;
+    std::vector<char> tmpl(tmp.begin(), tmp.end());
+    tmpl.push_back('\0');
+    int fd = mkstemps(tmpl.data(), (int)ext.size());
+    if (fd < 0) { std::cerr << "Error: cannot create a temporary file\n"; return false; }
+    close(fd);
+    std::string tmpPath(tmpl.data());
+    bool ok = img.saveToFile(tmpPath);
+    if (ok) {
+        std::ifstream f(tmpPath, std::ios::binary);
+        data.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+    }
+    std::remove(tmpPath.c_str());
+    return ok;
+}
+
+bool DiskImage::isSdCard(const std::string& path) {
+    return looksLikeSdCard(path);
+}
+
+bool DiskImage::cardPath(const std::string& path, std::string& card, std::string& member) {
+    // "card.img:/DIR/NAME.D81": the part before a ':' is an SD card image
+    for (size_t i = path.find(':'); i != std::string::npos; i = path.find(':', i + 1)) {
+        std::string prefix = path.substr(0, i);
+        std::error_code ec;
+        if (i + 1 < path.size() && std::filesystem::is_regular_file(prefix, ec) && looksLikeSdCard(prefix)) {
+            card = prefix;
+            member = path.substr(i + 1);
+            return true;
+        }
+    }
+    return false;
+}
+
 std::unique_ptr<DiskImage> DiskImage::load(const std::string& path) {
     if (looksLikeSdCard(path)) {
         std::cerr << "Error: " << path << " is a MEGA65 SD card image; use disk45 sd (disk45 sd --help)\n";
         return nullptr;
     }
     std::string zip, member;
+    if (cardPath(path, zip, member)) {
+        SdCardImage card;
+        std::string err;
+        std::vector<uint8_t> data;
+        if (!card.open(zip, false, err) || !card.readFile(member, data, err)) {
+            std::cerr << "Error: " << err << "\n";
+            return nullptr;
+        }
+        auto img = loadFromBytes(member, data);
+        if (img) img->zipMember_ = member;
+        return img;
+    }
     if (zipPath(path, zip, member)) {
         ZipArchive za;
         std::string err;
@@ -131,18 +199,7 @@ std::unique_ptr<DiskImage> DiskImage::load(const std::string& path) {
         std::vector<uint8_t> data;
         if (!za.extract(idx, data, err)) { std::cerr << "Error: " << err << "\n"; return nullptr; }
         std::string name = za.members()[idx].name;
-        std::string ext = std::filesystem::path(name).extension().string();
-        std::string tmp = (std::filesystem::temp_directory_path() / "disk45-XXXXXX").string() + ext;
-        std::vector<char> tmpl(tmp.begin(), tmp.end());
-        tmpl.push_back('\0');
-        int fd = mkstemps(tmpl.data(), (int)ext.size());
-        if (fd < 0) { std::cerr << "Error: cannot create a temporary file\n"; return nullptr; }
-        bool ok = write(fd, data.data(), data.size()) == (ssize_t)data.size();
-        close(fd);
-        std::string tmpPath(tmpl.data());
-        std::unique_ptr<DiskImage> img = ok ? createFromExtension(tmpPath) : nullptr;
-        if (img && !img->loadFromFile(tmpPath)) img.reset();
-        std::remove(tmpPath.c_str());
+        auto img = loadFromBytes(name, data);
         if (img) img->zipMember_ = name;
         return img;
     }
@@ -182,6 +239,17 @@ bool DiskImage::zipPath(const std::string& path, std::string& zip, std::string& 
 
 bool DiskImage::saveImage(const std::string& path) const {
     std::string zip, member;
+    if (cardPath(path, zip, member)) {
+        std::vector<uint8_t> data;
+        SdCardImage card;
+        std::string err;
+        if (!imageBytes(*this, member, data)) return false;
+        if (!card.open(zip, true, err) || !card.writeFile(member, data, true, err) || !card.flush(err)) {
+            std::cerr << "Error: " << err << "\n";
+            return false;
+        }
+        return true;
+    }
     if (!zipPath(path, zip, member)) return saveToFile(path);
     if (member.empty()) member = zipMember_;
     if (member.empty()) member = std::filesystem::path(zip).stem().string();  // game.d81.zip: game.d81
@@ -193,22 +261,8 @@ bool DiskImage::saveImage(const std::string& path) const {
     std::string err;
     std::error_code ec;
     if (std::filesystem::exists(zip, ec) && !za.load(zip, err)) { std::cerr << "Error: " << err << "\n"; return false; }
-    std::string ext = std::filesystem::path(member).extension().string();
-    std::string tmp = (std::filesystem::temp_directory_path() / "disk45-XXXXXX").string() + ext;
-    std::vector<char> tmpl(tmp.begin(), tmp.end());
-    tmpl.push_back('\0');
-    int fd = mkstemps(tmpl.data(), (int)ext.size());
-    if (fd < 0) { std::cerr << "Error: cannot create a temporary file\n"; return false; }
-    close(fd);
-    std::string tmpPath(tmpl.data());
-    bool ok = saveToFile(tmpPath);
     std::vector<uint8_t> data;
-    if (ok) {
-        std::ifstream f(tmpPath, std::ios::binary);
-        data.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
-    }
-    std::remove(tmpPath.c_str());
-    if (!ok) return false;
+    if (!imageBytes(*this, member, data)) return false;
     za.put(member, data);
     if (!za.save(zip, err)) { std::cerr << "Error: " << err << "\n"; return false; }
     return true;
