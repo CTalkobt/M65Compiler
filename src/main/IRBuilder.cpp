@@ -714,6 +714,10 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
         }
     }
 
+    // (p = e), x += e: the value has the type of what is assigned to
+    if (auto* as = dynamic_cast<Assignment*>(expr); as && as->target) {
+        return getExprTypeInfo(as->target.get());
+    }
     if (auto* call = dynamic_cast<FunctionCall*>(expr); call && call->name == "__builtin_shuffle" && !call->arguments.empty()) {
         return getExprTypeInfo(call->arguments[0].get());
     }
@@ -1042,6 +1046,11 @@ void IRBuilder::visit(TranslationUnit& node) {
             unitFunctionNames_.insert(fd->name);
             if (!fd->isPrototype) unitDefinedFunctions_.insert(fd->name);
         }
+    // a name is either a variable or a function at file scope
+    for (auto& decl : node.topLevelDecls)
+        if (auto* vd = dynamic_cast<VariableDeclaration*>(decl.get()); vd && unitFunctionNames_.count(vd->name))
+            errors_.push_back(formatDiagnostic(vd->sourceFile, vd->line, vd->column, Severity::Error,
+                "'" + vd->name + "' redeclared as a different kind of symbol (a variable and a function)"));
     declareBuiltinPrototypes();
     // Now visit all declarations
     for (auto& decl : node.topLevelDecls) {

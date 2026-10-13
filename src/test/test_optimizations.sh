@@ -130,5 +130,10 @@ echo "$out" | grep -q "cannot be disabled" && pass || fail "-fno-constant-foldin
 out=$($CC -S -fbogus-option $SRC -o $T/t.s 2>&1); rc=$?
 echo "$out" | grep -q "unknown option '-fbogus-option'" && [ $rc -eq 0 ] && pass || fail "an unknown -f option is not a warning"
 
+# a name that is both a file-scope variable and a function is an error
+printf 'int x;\nint x(void) { return 1; }\n' > $T/dup.c
+out=$($CC -c $T/dup.c -o $T/dup.o45 2>&1); rc=$?
+echo "$out" | grep -q "'x' redeclared as a different kind of symbol" && [ $rc -ne 0 ] && pass || fail "a variable and a function of the same name are not an error"
+
 echo "Optimization switch tests: $passed passed, $failed failed"
 [ $failed -eq 0 ]

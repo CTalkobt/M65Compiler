@@ -1123,7 +1123,7 @@ for svmode in "zp|" "stack|-fno-zpcall"; do
     echo "Testing test_store_value_xemu.c ($svname)..."
     compile_link_test "src/test-resources/test_store_value_xemu.c" "build/test/test_store_value_${svname}_xemu.prg" "$svflags"
     if [ $? -eq 0 ]; then
-        run_xemu_test "test_store_value_$svname" "build/test/test_store_value_${svname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
+        run_xemu_test "test_store_value_$svname" "build/test/test_store_value_${svname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
     else
         echo "FAIL: test_store_value_xemu.c $svname (compilation/linking failed)"
         failed=$((failed + 1))

@@ -12,7 +12,11 @@
  *   [3] constants to globals, one constant used twice
  *   [4] the same in a function with a stack frame (#pragma cc45 recurse)
  *   [5] a constant both stored and used in arithmetic
- *   [6] $AA sentinel
+ *   [6] a call's result stored into a variable and used again (read from
+ *       the variable): char, int and pointer results, the value of the
+ *       assignment in an expression; a narrowing store (int into char);
+ *       the variable changed after the store; *(p = e) reads one byte
+ *   [7] $AA sentinel
  */
 #define OUT ((volatile unsigned char *)0xC0C0)
 
@@ -64,6 +68,25 @@ __attribute__((noinline)) static unsigned both(unsigned *ip, unsigned x) {
     return x + k;
 }
 
+__attribute__((noinline)) static int ret_i(int v) { return v * 3; }
+__attribute__((noinline)) static unsigned char ret_c(unsigned char v) { return (unsigned char)(v + 200); }
+__attribute__((noinline)) static unsigned char *ret_p(unsigned char *p) { return p + 1; }
+
+__attribute__((noinline)) static unsigned char results(void) {
+    int i; unsigned char c, nc; unsigned char *p; int sum;
+    static unsigned char arr[3] = {5, 6, 7};
+    sum = (i = ret_i(100)) + i;               /* 600 */
+    if ((c = ret_c(100)) != 44 || c + 1 != 45) return 0;
+    if (*(p = ret_p(arr)) != 6 || p[1] != 7) return 0;
+    if (*(p = arr + 2) != 7) return 0;      /* *(p = e): the pointee's width */
+    nc = (unsigned char)ret_i(100);            /* 300 -> 44: narrowing */
+    if (nc != 44) return 0;
+    c = ret_c(1);                              /* 201 */
+    c++;
+    if (c != 202) return 0;
+    return sum == 600;
+}
+
 int main(void) {
     char line[8];
     unsigned char b[4];
@@ -88,6 +111,7 @@ int main(void) {
     OUT[4] = b[0] == 0x99 && b[1] == 0x33 && w[1] == 0xBEEF;
 
     OUT[5] = both(w, 5) == 305 && w[0] == 300;
-    OUT[6] = 0xAA;
+    OUT[6] = results();
+    OUT[7] = 0xAA;
     return 0;
 }

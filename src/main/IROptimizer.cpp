@@ -2057,15 +2057,23 @@ static void incDecInPlace(Function& fn) {
         for (size_t i = 0; i + 1 < insts.size(); i++) {
             Inst& a = insts[i];
             const Inst& st = insts[i + 1];
-            if ((a.op != Op::ADD && a.op != Op::SUB) || !a.dest.isVreg() || !a.src2.isImm() ||
-                a.resultType == Type::F32 || a.resultType == Type::I32 ||
+            // a call's result stored into a variable (c = getc()): its later
+            // uses read the variable too (the result goes from A/X into it only)
+            bool isCall = (a.op == Op::CALL || a.op == Op::CALL_INDIRECT) && a.dest.isVreg();
+            if (!isCall && ((a.op != Op::ADD && a.op != Op::SUB) || !a.dest.isVreg() || !a.src2.isImm()))
+                continue;
+            if (a.resultType == Type::F32 || a.resultType == Type::I32 ||
                 st.op != Op::STORE || !st.src1.isVreg() || st.src1.vregId != a.dest.vregId || !st.src2.isVreg())
                 continue;
             const Operand S = st.src2;
             if (!isVar(S) || defs[a.dest.vregId] != 1 || fn.localSlotVregs.count(a.dest.vregId)) continue;
+            if (isCall) {
+                auto vt = fn.vregTypes.find(S.vregId);
+                if (vt == fn.vregTypes.end() || vt->second != a.resultType || st.resultType != a.resultType) continue;
+            }
             uint32_t u = a.dest.vregId;
             // post: the operand is a copy of S read just before
-            if (a.src1.isVreg() && a.src1.vregId != S.vregId && i > 0) {
+            if (!isCall && a.src1.isVreg() && a.src1.vregId != S.vregId && i > 0) {
                 const Inst& d = insts[i - 1];
                 if ((d.op == Op::DEREF || d.op == Op::COPY) && d.dest.isVreg() && d.dest.vregId == a.src1.vregId &&
                     d.src1.isVreg() && d.src1.vregId == S.vregId && d.resultType == a.resultType) {
@@ -2075,7 +2083,7 @@ static void incDecInPlace(Function& fn) {
                 }
             }
             // pre: the uses of %u after the store read S
-            if (!a.src1.isVreg() || a.src1.vregId != S.vregId) continue;
+            if (!isCall && (!a.src1.isVreg() || a.src1.vregId != S.vregId)) continue;
             std::vector<std::pair<size_t, Operand*>> uses;
             bool ok = true, sWritten = false;
             for (size_t j = i + 2; j < insts.size() && ok; j++) {
@@ -2110,7 +2118,8 @@ static void incDecInPlace(Function& fn) {
                 }
             if (total != (int)uses.size() + 1) continue;
             for (auto& [j, o] : uses) { Type t = o->type; *o = S; o->type = t; }
-            trace("incdec", fn.name, "update of a variable in place (pre)", a.loc);
+            trace("incdec", fn.name, isCall ? "a call's result read from the variable it is stored in"
+                                            : "update of a variable in place (pre)", a.loc);
         }
     }
 }

@@ -5922,6 +5922,20 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 } else {
                     isUsed = true; // conservative: assume used if no function context
                 }
+                // used only by the next instruction, a store into a variable:
+                // the store takes the result from A/X (store forwarding)
+                if (isUsed && (inst.resultType == ir::Type::I8 || inst.resultType == ir::Type::I16 ||
+                               inst.resultType == ir::Type::PTR)) {
+                    const ir::Inst* nx = peekNextInst();
+                    if (nx && nx->op == ir::Op::STORE && nx->src1.isVreg() && nx->src1.vregId == inst.dest.vregId &&
+                        nx->src2.isVreg() && localSlotVregs_.count(nx->src2.vregId) && nx->args.empty() &&
+                        nx->resultType == inst.resultType &&
+                        alloc_.getAlloc(inst.dest.vregId).loc == VRegAllocator::IN_ZP &&
+                        !vregUsedOutside(inst.dest.vregId, &inst, nx)) {
+                        resultInAX_ = (int32_t)inst.dest.vregId;
+                        isUsed = false;
+                    }
+                }
                 if (isUsed) storeVreg(inst.dest.vregId);
             }
             break;
