@@ -1144,8 +1144,7 @@ for zqmode in "zp|" "stack|-fno-zpcall"; do
 done
 
 # Test: pointer variables in functions' base-page blocks ($80-$E9, placed by
-# ln45), two modules; then a call chain whose blocks do not fit is a link
-# error that -fno-zp-locals avoids
+# ln45), two modules
 for zlmode in "zp||lib/build/c45.lib" "stack|-fno-zpcall|lib/build/c45_stack.lib" "off|-fno-zp-locals|lib/build/c45.lib"; do
     IFS='|' read -r zlname zlflags zllib <<< "$zlmode"
     echo "Testing test_zp_locals_xemu.c ($zlname)..."
@@ -1159,39 +1158,46 @@ for zlmode in "zp||lib/build/c45.lib" "stack|-fno-zpcall|lib/build/c45_stack.lib
         failed=$((failed + 1))
     fi
 done
+# A call chain whose blocks do not fit in $80-$E9: ln45 warns, and the
+# functions sharing bytes with others active together are called through
+# save/restore wrappers (f7, wrapped, also through a function pointer)
 zlsrc=build/test/zp_locals_overflow.c
 {
     echo "#define N __attribute__((noinline))"
-    echo "unsigned char g[16];"
-    echo "N static unsigned char f8(unsigned char *a) { return a[0]; }"
-    for lv in 7 6 5 4 3 2 1; do
+    echo "#define OUT ((volatile unsigned char *)0xC0C0)"
+    echo "unsigned char g[24] = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24};"
+    echo "N static unsigned char f10(unsigned char *a) { return a[0]; }"
+    for lv in 9 8 7 6 5 4 3 2 1; do
+        echo "N static unsigned char f$lv(unsigned char *a);"
+    done
+    echo "static unsigned char (*fp7)(unsigned char *) = f7;"
+    for lv in 9 8 7 6 5 4 3 2 1; do
+        call="f$((lv + 1))"; [ $lv = 6 ] && call="fp7"
         echo "N static unsigned char f$lv(unsigned char *a) {"
         echo "    unsigned char *p0 = a, *p1 = a + 1, *p2 = a + 2, *p3 = a + 3, *p4 = a + 4, *p5 = a + 5, *p6 = a + 6, *p7 = a + 7;"
-        echo "    unsigned char r = f$((lv + 1))(a);"
+        echo "    unsigned char r = $call(a + 1);"
         echo "    return r + *p0 + *p1 + *p2 + *p3 + *p4 + *p5 + *p6 + *p7;"
         echo "}"
     done
-    echo "int main(void) { return f1(g); }"
+    echo "int main(void) { OUT[0] = f1(g); OUT[1] = 0xAA; return 0; }"
 } > $zlsrc
-$CC -c $zlsrc -o build/test/zp_locals_overflow.o45 2>/dev/null
-if $LD -basic -o build/test/zp_locals_overflow.prg $CRT0 build/test/zp_locals_overflow.o45 $STDLIB 2>build/test/zp_locals_overflow.err >/dev/null; then
-    echo "FAIL: zp_locals_overflow (a chain needing more than \$80-\$E9 linked)"
-    failed=$((failed + 1))
-elif grep -q "base-page storage: .* needs .* -fno-zp-locals" build/test/zp_locals_overflow.err; then
-    echo "SUCCESS: zp_locals_overflow (link error)"
-    passed=$((passed + 1))
-else
-    echo "FAIL: zp_locals_overflow (unexpected error: $(head -1 build/test/zp_locals_overflow.err))"
-    failed=$((failed + 1))
-fi
-if $CC -fno-zp-locals -c $zlsrc -o build/test/zp_locals_overflow.o45 2>/dev/null &&
-   $LD -basic -o build/test/zp_locals_overflow.prg $CRT0 build/test/zp_locals_overflow.o45 $STDLIB >/dev/null 2>&1; then
-    echo "SUCCESS: zp_locals_overflow (-fno-zp-locals links)"
-    passed=$((passed + 1))
-else
-    echo "FAIL: zp_locals_overflow (-fno-zp-locals does not link)"
-    failed=$((failed + 1))
-fi
+# f(lv, a) = f(lv+1, a+1) + g[a..a+7], f(10, a) = g[a]: f(1, 0) = $6E (mod 256)
+for zomode in "zp||lib/build/c45.lib" "stack|-fno-zpcall|lib/build/c45_stack.lib"; do
+    IFS='|' read -r zoname zoflags zolib <<< "$zomode"
+    zobase=build/test/zp_locals_overflow_$zoname
+    if $CC $zoflags -c $zlsrc -o $zobase.o45 2>/dev/null &&
+       $LD -basic -o ${zobase}_xemu.prg $CRT0 $zobase.o45 $zolib 2>$zobase.err >/dev/null; then
+        if grep -q "base-page storage: .* save and restore" $zobase.err; then
+            run_xemu_test "zp_locals_overflow_$zoname" "${zobase}_xemu.prg" "C0C0" 2 "6E AA"
+        else
+            echo "FAIL: zp_locals_overflow_$zoname (no base-page storage warning)"
+            failed=$((failed + 1))
+        fi
+    else
+        echo "FAIL: zp_locals_overflow_$zoname (compilation/linking failed: $(head -1 $zobase.err))"
+        failed=$((failed + 1))
+    fi
+done
 
 # Test: GCC statement expressions ({ stmt; ...; expr; })
 for semode in "zp|" "stack|-fno-zpcall"; do

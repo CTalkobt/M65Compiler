@@ -495,6 +495,9 @@ private:
     std::map<int, std::vector<SacMove>> sacMoves_;
     uint32_t sacOverlayLen_ = 0;      // size of the overlay area
     std::map<std::string, uint32_t> zarOffset_;   // function → its base-page block (.zar)
+    std::map<std::string, uint32_t> zarSize_;     // function → block size
+    std::set<std::string> zarWrapped_;            // functions reached through a save/restore wrapper
+    std::map<uint32_t, uint32_t> zarWrapAt_;      // entry address → its wrapper
     uint32_t zarUsed_ = 0, zarTotal_ = 0;         // bytes of $80-$E9 used / asked for
     static constexpr uint32_t ZAR_LO = 0x80, ZAR_HI = 0xEA;
     uint32_t sacOverlayOffset_ = 0;   // its offset in the merged BSS
@@ -612,6 +615,9 @@ private:
     // place the functions' private base-page blocks (cc45 .zar) in $80-$E9 of
     // the program's base page, sharing between functions never active together
     bool computeZarOverlay(std::string& errorMsg);
+    // a function whose block shares bytes with a function active together
+    // with it is reached through a wrapper that saves and restores them
+    void generateZarWrappers();
     void layoutBss();                  // BSS layout (objects, then the SAC overlay area)
     void generateThunks();
     void mergeLineMaps();

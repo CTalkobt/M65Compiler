@@ -102,8 +102,11 @@ in a base-page block of its own, `$80+k`, declared with `.zar $80, N`. ca45
 relocates those operands against `<f>__zar` and ln45 places the blocks in
 `$80`–`$E9` so that functions active together never share bytes
 (`computeZarOverlay`, the SAC overlay's call graph). The register pool ends at
-`$7F`. `-fno-zp-locals` turns it off; validation: `test_zp_locals_xemu.c`
-(two modules) and the overflow link check in `test_xemu.sh`.
+`$7F`. Blocks that do not fit share bytes, and ln45 calls the functions on
+the inside of such pairs through save/restore wrappers (a warning).
+`-fno-zp-locals` turns it off; validation: `test_zp_locals_xemu.c` (two
+modules) and the overflow program in `test_xemu.sh` (both conventions, a
+wrapped function also called through a pointer).
 
 A ZP-convention leaf function goes further: its parameters stay in the ZP
 parameter block where the caller put them (`$10`…), with no copy at the entry

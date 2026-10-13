@@ -1226,6 +1226,12 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
             }
         }
 
+        // A reference to a function reached through its base-page wrapper
+        if (!zarWrapAt_.empty() && r.type != R_LOW) {
+            auto w = zarWrapAt_.find(targetAddr & 0xFFFF);
+            if (w != zarWrapAt_.end()) targetAddr = w->second;
+        }
+
         // Patch the bytes at the relocation site
         int patchSize = o45RelocPatchSize((uint8_t)r.type);
         if (patchPos + patchSize > body.size()) {
@@ -1395,6 +1401,8 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
     if (!computeZarOverlay(errorMsg)) return {};
     if (!zarOffset_.empty() && !resolveSymbols(errorMsg)) return {};
 
+    // Wrappers of functions whose base-page blocks are shared (appended to mergedText_)
+    generateZarWrappers();
     // Generate thunks for convention mismatches (appends to mergedText_)
     generateThunks();
 
@@ -2011,10 +2019,16 @@ void O45Linker::buildCallGraph(std::map<std::string, std::set<std::string>>& gra
 // in $80-$E9 of the program's base page: two functions share bytes when
 // neither reaches the other through calls. A function whose address is used
 // (callable from anywhere) and everything it reaches share with nothing.
-// Unlike SAC storage there is no fallback: a program whose functions active
-// together need more than the area is an error (cc45 -fno-zp-locals).
+// When a block does not fit, it goes where it shares the fewest bytes with
+// blocks of functions active together with it, and the function on the
+// inside of each such pair (the callee; both when an address-taken function
+// is involved) is reached through a wrapper that saves and restores its
+// block around the call (generateZarWrappers): a warning, slower calls.
 bool O45Linker::computeZarOverlay(std::string& errorMsg) {
+    (void)errorMsg;   // (no longer an error: see generateZarWrappers)
     zarOffset_.clear();
+    zarWrapped_.clear();
+    zarWrapAt_.clear();
     zarUsed_ = zarTotal_ = 0;
     std::map<std::string, uint32_t> sizes;
     for (const auto& input : objects_)
@@ -2023,6 +2037,7 @@ bool O45Linker::computeZarOverlay(std::string& errorMsg) {
                 auto& sz = sizes[exp.name.substr(13)];
                 sz = std::max(sz, (uint32_t)exp.offset);
             }
+    zarSize_ = sizes;
     if (sizes.empty()) return true;
 
     std::map<std::string, std::set<std::string>> graph;
@@ -2069,15 +2084,30 @@ bool O45Linker::computeZarOverlay(std::string& errorMsg) {
             at = std::max(at, hi);
         }
         if (at + len > area) {
-            // the functions it is active together with
-            std::string with;
-            int n = 0;
-            for (const auto& [g, gat] : zarOffset_)
-                if (conflict(f, g) && n++ < 6) with += (with.empty() ? "" : ", ") + g;
-            errorMsg = "base-page storage: " + f + " needs " + std::to_string(len) +
-                       " bytes of $80-$E9, which the functions active together with it use (" + with +
-                       (n > 6 ? ", ..." : "") + "); compile with cc45 -fno-zp-locals";
-            return false;
+            // fewest bytes shared with conflicting blocks
+            uint32_t best = 0, bestShared = UINT32_MAX;
+            for (uint32_t pos = 0; pos + len <= area; pos++) {
+                uint32_t shared = 0;
+                for (const auto& [lo, hi] : busy)
+                    shared += std::max<int64_t>(0, (int64_t)std::min(hi, pos + len) - (int64_t)std::max(lo, pos));
+                if (shared < bestShared) { bestShared = shared; best = pos; }
+            }
+            at = best;
+            std::string wrapped;
+            for (const auto& [g, gat] : zarOffset_) {
+                uint32_t glo = gat - ZAR_LO, ghi = glo + sizes[g];
+                if (!conflict(f, g) || ghi <= at || glo >= at + len) continue;
+                bool fInside = reach[g].count(f) || unsafe.count(f) || unsafe.count(g);
+                bool gInside = reach[f].count(g) || unsafe.count(f) || unsafe.count(g);
+                if (fInside && zarWrapped_.insert(f).second) wrapped += (wrapped.empty() ? "" : ", ") + f;
+                if (gInside && zarWrapped_.insert(g).second) wrapped += (wrapped.empty() ? "" : ", ") + g;
+            }
+            if (warnStream_)
+                *warnStream_ << "ln45: warning: base-page storage: " << f << " needs " << len
+                             << " bytes of $80-$E9 that functions active together with it use; calls to "
+                             << (wrapped.empty() ? f : wrapped)
+                             << " save and restore the bytes they share (compile with cc45 -fno-zp-locals to avoid this)"
+                             << std::endl;
         }
         zarOffset_[f] = ZAR_LO + at;
         zarUsed_ = std::max(zarUsed_, at + len);
@@ -2088,6 +2118,49 @@ bool O45Linker::computeZarOverlay(std::string& errorMsg) {
     ln45info() << "base-page blocks: " << blocks.size() << " functions, " << zarTotal_ << " bytes in "
                << zarUsed_ << "\n";
     return true;
+}
+
+// The wrapper of a function whose base-page block is shared with a function
+// active together with it: save the block's bytes, take the caller's return
+// address off the stack (stack-convention arguments are then where the
+// function expects them), call it, keep A/X/Y/Z (the result), put the
+// return address back, restore the bytes. One per entry (<f>, <f>__sac),
+// with its save area after its code; a SAC function is not reentrant.
+// applyRelocations sends every reference to the entry (calls, addresses
+// in code and data) to the wrapper.
+void O45Linker::generateZarWrappers() {
+    zarWrapAt_.clear();
+    for (const auto& f : zarWrapped_) {
+        uint32_t base = zarOffset_[f], len = zarSize_[f];
+        for (const std::string& entry : {f, f + "__sac"}) {
+            auto it = globalSymbols_.find(entry);
+            if (it == globalSymbols_.end()) continue;
+            uint32_t wrap = textBase_ + (uint32_t)mergedText_.size();
+            // code size: 5L (save) + 8 + 3 + 12 + 8 + 5L (restore) + 12 + 1
+            uint32_t save = wrap + 10 * len + 44;
+            uint32_t ret = save + len, regs = ret + 2;
+            auto& t = mergedText_;
+            auto abs = [&](uint8_t op, uint32_t a) { t.push_back(op); t.push_back(a & 0xFF); t.push_back((a >> 8) & 0xFF); };
+            for (uint32_t k = 0; k < len; k++) { t.push_back(0xA5); t.push_back((uint8_t)(base + k)); abs(0x8D, save + k); }
+            t.push_back(0x68); abs(0x8D, ret);           // PLA; STA ret      (return address, low first)
+            t.push_back(0x68); abs(0x8D, ret + 1);       // PLA; STA ret+1
+            abs(0x20, it->second);                       // JSR entry
+            abs(0x8D, regs); abs(0x8E, regs + 1);        // STA/STX/STY/STZ regs
+            abs(0x8C, regs + 2); abs(0x9C, regs + 3);
+            abs(0xAD, ret + 1); t.push_back(0x48);       // LDA ret+1; PHA
+            abs(0xAD, ret); t.push_back(0x48);           // LDA ret; PHA
+            for (uint32_t k = 0; k < len; k++) { abs(0xAD, save + k); t.push_back(0x85); t.push_back((uint8_t)(base + k)); }
+            abs(0xAB, regs + 3); abs(0xAC, regs + 2);    // LDZ/LDY/LDX/LDA regs
+            abs(0xAE, regs + 1); abs(0xAD, regs);
+            t.push_back(0x60);                           // RTS
+            if (textBase_ + t.size() != save) {
+                ln45debug() << "base-page wrapper size mismatch for " << entry << "\n";
+            }
+            for (uint32_t k = 0; k < len + 6; k++) t.push_back(0);
+            zarWrapAt_[it->second & 0xFFFF] = wrap;
+            ln45debug() << "base-page wrapper for " << entry << " at $" << std::hex << wrap << std::dec << "\n";
+        }
+    }
 }
 
 // SAC overlay. A static-allocation (SAC) function keeps its parameters and
@@ -2256,6 +2329,8 @@ void O45Linker::generateThunks() {
         auto calleeAddrIt = globalSymbols_.find(need.callee);
         if (calleeAddrIt == globalSymbols_.end()) continue;
         uint16_t calleeAddr = (uint16_t)calleeAddrIt->second;
+        auto wrapIt = zarWrapAt_.find(calleeAddr);   // (its base-page wrapper)
+        if (wrapIt != zarWrapAt_.end()) calleeAddr = (uint16_t)wrapIt->second;
 
         uint32_t thunkAddr = textBase_ + (uint32_t)mergedText_.size();
         thunkAddresses_[thunkName] = thunkAddr;
