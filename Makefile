@@ -490,6 +490,8 @@ test: all lib
 	@bash src/test/test_signedness.sh
 	@echo "Running installed toolchain tests..."
 	@bash src/test/test_install.sh
+	@echo "Running cvt_asm tests..."
+	@bash src/test/test_cvt_asm.sh
 	@echo "Running shadow execution tests (cc45 vs host gcc)..."
 	@bash src/test/test_shadow_ir.sh
 	@echo "Running clobber tracking tests..."

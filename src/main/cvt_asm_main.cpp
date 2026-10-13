@@ -442,13 +442,11 @@ static bool convertFile(const std::string& inputFile,
         return false;
     }
 
+    // Warnings always go to stderr (unknown directives, constructs kept as written)
+    for (const auto& warn : parser->getWarnings()) {
+        std::cerr << inputFile << ": " << warn << "\n";
+    }
     if (verbose) {
-        if (!parser->getWarnings().empty()) {
-            std::cerr << "  Parse warnings:\n";
-            for (const auto& warn : parser->getWarnings()) {
-                std::cerr << "    " << warn << "\n";
-            }
-        }
         std::cerr << "  Parsed " << module.statements.size() << " statements\n";
     }
 
@@ -473,13 +471,8 @@ static bool convertFile(const std::string& inputFile,
         return false;
     }
 
-    if (verbose) {
-        if (!writer->getWarnings().empty()) {
-            std::cerr << "  Write warnings:\n";
-            for (const auto& warn : writer->getWarnings()) {
-                std::cerr << "    " << warn << "\n";
-            }
-        }
+    for (const auto& warn : writer->getWarnings()) {
+        std::cerr << inputFile << ": " << warn << "\n";
     }
 
     // Output result
@@ -1030,6 +1023,8 @@ int main(int argc, char** argv) {
 
             if (inputFiles.size() == 1 && outputDir.empty()) {
                 outputFile = "";
+            } else if (inputFiles.size() == 1 && !std::filesystem::is_directory(outputDir)) {
+                outputFile = outputDir;  // one input: -o names the output file
             } else {
                 outputFile = generateOutputPath(inputFile, targetFormat, outputDir);
             }
@@ -1062,6 +1057,8 @@ int main(int argc, char** argv) {
 
             if (inputFiles.size() == 1 && outputDir.empty()) {
                 outputFile = "";
+            } else if (inputFiles.size() == 1 && !std::filesystem::is_directory(outputDir)) {
+                outputFile = outputDir;  // one input: -o names the output file
             } else {
                 outputFile = generateOutputPath(inputFile, targetFormat, outputDir);
             }
@@ -1091,22 +1088,22 @@ int main(int argc, char** argv) {
 
     // Phase 4: Report performance metrics if enabled or verbose
     if (metricsMode || verbose) {
-        std::cout << "\n=== Performance Metrics ===\n";
-        std::cout << "Processing mode:          " << (parallelMode ? "PARALLEL" : "SEQUENTIAL") << "\n";
+        std::cerr << "\n=== Performance Metrics ===\n";
+        std::cerr << "Processing mode:          " << (parallelMode ? "PARALLEL" : "SEQUENTIAL") << "\n";
         if (parallelMode) {
-            std::cout << "Worker threads:           " << (numThreads > 0 ? std::to_string(numThreads) : "auto-detected") << "\n";
+            std::cerr << "Worker threads:           " << (numThreads > 0 ? std::to_string(numThreads) : "auto-detected") << "\n";
         }
-        std::cout << "Total files processed:    " << inputFiles.size() << "\n";
-        std::cout << "Successful conversions:   " << successCount << "\n";
-        std::cout << "Failed conversions:       " << failureCount << "\n";
-        std::cout << "Total time:               " << batchDuration.count() << " ms\n";
+        std::cerr << "Total files processed:    " << inputFiles.size() << "\n";
+        std::cerr << "Successful conversions:   " << successCount << "\n";
+        std::cerr << "Failed conversions:       " << failureCount << "\n";
+        std::cerr << "Total time:               " << batchDuration.count() << " ms\n";
         if (inputFiles.size() > 0) {
-            std::cout << "Average time per file:    "
+            std::cerr << "Average time per file:    "
                       << (batchDuration.count() / static_cast<double>(inputFiles.size()))
                       << " ms\n";
         }
-        std::cout << "Include cache hits:       " << MacroUtils::getCacheHitCount() << "\n";
-        std::cout << "\n";
+        std::cerr << "Include cache hits:       " << MacroUtils::getCacheHitCount() << "\n";
+        std::cerr << "\n";
     }
 
     return (failureCount > 0) ? 1 : 0;

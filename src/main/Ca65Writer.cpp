@@ -35,12 +35,18 @@ std::string Ca65Writer::write(const AsmIR::Module& module) {
                 break;
 
             case AsmIR::Statement::Type::INSTRUCTION: {
-                out << "    " << formatInstruction(stmt.instr) << "\n";
+                out << "    " << formatInstruction(stmt.instr) << (stmt.comment.empty() ? "" : " ;" + stmt.comment) << "\n";
                 break;
             }
 
             case AsmIR::Statement::Type::DIRECTIVE: {
-                out << formatDirective(stmt.dir) << "\n";
+                // .global/.extern/.weak come from the symbol table
+                if (stmt.dir.type == AsmIR::DirectiveType::GLOBAL ||
+                    stmt.dir.type == AsmIR::DirectiveType::EXTERN ||
+                    stmt.dir.type == AsmIR::DirectiveType::WEAK) {
+                    continue;
+                }
+                out << formatDirective(stmt.dir) << (stmt.comment.empty() ? "" : " ;" + stmt.comment) << "\n";
                 break;
             }
 
@@ -59,6 +65,8 @@ std::string Ca65Writer::write(const AsmIR::Module& module) {
 
 std::string Ca65Writer::formatInstruction(const AsmIR::Instruction& instr) {
     std::stringstream ss;
+    if (instr.mode == AsmIR::AddressingMode::RAW)
+        return instr.operand.text.empty() ? instr.mnemonic : instr.mnemonic + " " + instr.operand.text;
     ss << instr.mnemonic;
 
     if (instr.mode != AsmIR::AddressingMode::IMPLIED) {
@@ -70,11 +78,11 @@ std::string Ca65Writer::formatInstruction(const AsmIR::Instruction& instr) {
 
 std::string Ca65Writer::formatDirective(const AsmIR::Directive& dir) {
     std::stringstream ss;
+    if (dir.type == AsmIR::DirectiveType::CONST && dir.arguments.size() == 2)
+        return dir.arguments[0] + " = " + dir.arguments[1];
     ss << "." << formatDirectiveName(dir.name);
 
-    for (const auto& arg : dir.arguments) {
-        ss << " " << arg;
-    }
+    for (size_t i = 0; i < dir.arguments.size(); i++) ss << (i ? ", " : " ") << dir.arguments[i];
 
     return ss.str();
 }

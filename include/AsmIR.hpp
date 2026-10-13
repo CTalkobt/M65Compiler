@@ -24,7 +24,8 @@ enum class AddressingMode {
     INDIRECT_Y,
     STACK_RELATIVE,
     FRAME_RELATIVE,
-    INDEXED_PAIR  // 45GS02 specific: $addr, XY
+    INDEXED_PAIR, // 45GS02 specific: $addr, XY
+    RAW           // operand as written (45GS02-only syntax, ca45 simulated instructions)
 };
 
 enum class DirectiveType {

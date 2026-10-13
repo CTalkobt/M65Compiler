@@ -33,11 +33,17 @@ std::string OscarWriter::write(const AsmIR::Module& module) {
                 break;
 
             case AsmIR::Statement::Type::INSTRUCTION: {
-                out << "\t" << formatInstruction(stmt.instr) << "\n";
+                out << "\t" << formatInstruction(stmt.instr) << (stmt.comment.empty() ? "" : " ;" + stmt.comment) << "\n";
                 break;
             }
 
             case AsmIR::Statement::Type::DIRECTIVE: {
+                // .global/.extern/.weak come from the symbol table
+                if (stmt.dir.type == AsmIR::DirectiveType::GLOBAL ||
+                    stmt.dir.type == AsmIR::DirectiveType::EXTERN ||
+                    stmt.dir.type == AsmIR::DirectiveType::WEAK) {
+                    continue;
+                }
                 // Skip symbol directives as they're output from module.symbols
                 if (stmt.dir.type == AsmIR::DirectiveType::GLOBAL ||
                     stmt.dir.type == AsmIR::DirectiveType::EXTERN ||
@@ -45,7 +51,7 @@ std::string OscarWriter::write(const AsmIR::Module& module) {
                     continue;
                 }
 
-                out << formatDirective(stmt.dir) << "\n";
+                out << formatDirective(stmt.dir) << (stmt.comment.empty() ? "" : " ;" + stmt.comment) << "\n";
                 break;
             }
 
@@ -64,6 +70,8 @@ std::string OscarWriter::write(const AsmIR::Module& module) {
 
 std::string OscarWriter::formatInstruction(const AsmIR::Instruction& instr) {
     std::stringstream ss;
+    if (instr.mode == AsmIR::AddressingMode::RAW)
+        return instr.operand.text.empty() ? instr.mnemonic : instr.mnemonic + " " + instr.operand.text;
     ss << instr.mnemonic;
 
     if (instr.mode != AsmIR::AddressingMode::IMPLIED) {
@@ -129,11 +137,11 @@ std::string OscarWriter::formatAddressingMode(const AsmIR::Instruction& instr) {
 
 std::string OscarWriter::formatDirective(const AsmIR::Directive& dir) {
     std::stringstream ss;
+    if (dir.type == AsmIR::DirectiveType::CONST && dir.arguments.size() == 2)
+        return dir.arguments[0] + " = " + dir.arguments[1];
     ss << formatDirectiveKeyword(dir.name);
 
-    for (const auto& arg : dir.arguments) {
-        ss << " " << arg;
-    }
+    for (size_t i = 0; i < dir.arguments.size(); i++) ss << (i ? ", " : " ") << dir.arguments[i];
 
     return ss.str();
 }

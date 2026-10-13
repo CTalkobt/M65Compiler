@@ -26,9 +26,9 @@ cvt_asm [options] <input-file> [<input-file> ...]
 |--------|-------------|
 | `-f <format>` | Input format (default: auto-detect, see below). Must be a canonical name from the table |
 | `-t <format>` | Target format (default: `ca45`, or `default_format` from `.cvtasmrc`) |
-| `-o <path>` | Output file for one input; for several inputs a directory (created if needed) receiving `<basename><target extension>` |
+| `-o <path>` | Output file for one input (unless `<path>` is an existing directory); for several inputs a directory (created if needed) receiving `<basename><target extension>` |
 | `-l`, `--list-formats` | List supported formats and exit |
-| `-v` | Verbose: detection, parse/write progress and warnings on stderr, plus a performance summary on stdout |
+| `-v` | Verbose: detection, parse/write progress and a performance summary, all on stderr |
 | `--stats` | Print conversion statistics (source/target counts, losses, preservation %) instead of the output |
 | `--validate` | Convert to the target and back, and report how much was preserved (`LOSSLESS` at ≥95%) instead of the output |
 | `--metrics` | Print the performance summary (time, files, include-cache hits) after converting |
@@ -146,17 +146,16 @@ game.main:
 
 ## Limitations
 
-Known problems of the current version (found while checking this page; ca45 input):
+**ca45 input** is read from the (preprocessed) source as written: labels keep their spelling, operands and directive arguments their expressions and commas, constants (`name = expr`) and comments stay in place, and a label and a statement on one line both survive. ca45's own parse supplies the addressing modes. What only ca45 understands — simulated instructions (`add.16`), `proc`/`endproc`, `.repeat`, `(zp),z`, `[zp],z`, stack-relative operands — is written out as it was, with a warning (`'lda ($20),z' is ca45-specific and kept as written`). `#define` macros are expanded by the preprocessor; their definitions are not reproduced. ca45 → ca45 is lossless: `test_cvt_asm.sh` (in `make test`) converts every test source that ca45 assembles as a flat binary and checks that it assembles to the same bytes.
 
-- A label and an instruction or directive on the same line (`loop: lda counter`, `counter: .byte 0`) keep only the label — the rest of the line is lost.
-- Data directives lose their commas (`.byte 1, 2` → `.byte 1 2`).
-- A label whose name is an opcode in another case (`tab:`) is upper-cased (`TAB:`).
-- `.global`/`.extern` of names: the ca45 writer keeps them, the ACME writer prints bare `!global`/`!extern` without names, the KickAssembler writer swaps them (`!import` for exports, `!export` for imports) and adds bare `!global`/`!extern`, the ca65 writer adds bare `.export`/`.import`.
-- Directives the ca45 parser does not know are passed through unchanged instead of being reported.
-- Macros are expanded by the ca45 parser; the macro definitions are not reproduced in the output.
-- With `-v` the performance summary goes to stdout, mixed with the converted source when that also goes to stdout.
+**Writers**: `.global`/`.extern`/`.weak` are written once, from the symbol table (`.export`/`.import` for ca65 and x65, `GLOBAL`/`EXTERN` for merlin64 and oscar). ACME and KickAssembler assemble one program without a linker, so they get comments (`; global: start`, `; extern: putc (define it before assembling)`). Constants are `name = expr` (`.const name = expr` for KickAssembler); the 45GS02 is `!cpu m65` for ACME and `.cpu _45gs02` for KickAssembler.
 
-Use `--validate` and `--stats` to see how much of a file survives a conversion, and check the result by assembling it.
+Known problems:
+
+- The **other readers** (ca65, ACME, KickAssembler, merlin64, oscar, x65 input) are simple token-based parsers: they keep an indexed operand's `,x`/`,y` and parentheses in the operand text (so the mode is written twice), drop `<`/`>` from immediates, read `name = expr` as an instruction and pass data-list commas as arguments. Converting their output back to ca45 therefore does not reassemble to the same bytes yet.
+- The merlin64 and oscar writers use `BYTE`/`WORD`/`GLOBAL`/`EXTERN`, the keywords their own readers accept, not Merlin's `DFB`/`DW`/`ENT`/`EXT`.
+
+Warnings (unknown directives, constructs kept as written) always go to stderr; `-v`'s and `--metrics`' performance summary goes to stderr too, so it never mixes with converted source on stdout. Use `--validate` and `--stats` to see how much of a file survives a conversion, and check the result by assembling it.
 
 ## Error Handling
 

@@ -1,7 +1,17 @@
 #include "Ca45Parser.hpp"
 #include "Preprocessor.hpp"
 #include "MacroUtils.hpp"
+#include <algorithm>
+#include <cctype>
+#include <map>
+#include <regex>
 #include <sstream>
+
+// ca45 source -> AsmIR. The text is taken from the (preprocessed) source as
+// written: labels keep their spelling, operands and directive arguments their
+// expressions; ca45's own parse supplies the addressing modes. Whatever only
+// ca45 understands (simulated instructions, proc/endproc, .repeat, (zp),z,
+// [zp],z) is kept verbatim (AddressingMode::RAW) with a warning.
 
 AsmIR::Module Ca45Parser::parse(const std::string& source) {
     AsmIR::Module module;
@@ -32,13 +42,9 @@ AsmIR::Module Ca45Parser::parse(const std::string& source) {
         module.cpu = "45GS02";
         module.is_o45 = false;
 
-        // Extract symbols
         extractSymbols(parser, module);
+        extractStatements(parser, module, processed);
 
-        // Extract statements
-        extractStatements(parser, module, source);
-
-        // Extract warnings
         for (const auto& warn : parser.getWarnings()) {
             addWarning(warn);
         }
@@ -53,6 +59,7 @@ AsmIR::Module Ca45Parser::parse(const std::string& source) {
 AsmIR::AddressingMode Ca45Parser::mapAddressingMode(AddressingMode mode) {
     switch (mode) {
         case AddressingMode::IMPLIED: return AsmIR::AddressingMode::IMPLIED;
+        case AddressingMode::ACCUMULATOR: return AsmIR::AddressingMode::IMPLIED;
         case AddressingMode::IMMEDIATE: return AsmIR::AddressingMode::IMMEDIATE;
         case AddressingMode::BASE_PAGE: return AsmIR::AddressingMode::ZERO_PAGE;
         case AddressingMode::BASE_PAGE_X: return AsmIR::AddressingMode::ZERO_PAGE_X;
@@ -61,35 +68,19 @@ AsmIR::AddressingMode Ca45Parser::mapAddressingMode(AddressingMode mode) {
         case AddressingMode::ABSOLUTE_X: return AsmIR::AddressingMode::ABSOLUTE_X;
         case AddressingMode::ABSOLUTE_Y: return AsmIR::AddressingMode::ABSOLUTE_Y;
         case AddressingMode::INDIRECT: return AsmIR::AddressingMode::INDIRECT;
+        case AddressingMode::ABSOLUTE_INDIRECT: return AsmIR::AddressingMode::INDIRECT;
         case AddressingMode::BASE_PAGE_X_INDIRECT: return AsmIR::AddressingMode::INDIRECT_X;
         case AddressingMode::BASE_PAGE_INDIRECT_Y: return AsmIR::AddressingMode::INDIRECT_Y;
-        case AddressingMode::STACK_RELATIVE: return AsmIR::AddressingMode::STACK_RELATIVE;
-        case AddressingMode::LINEAR_ABSOLUTE: return AsmIR::AddressingMode::FRAME_RELATIVE;
-        case AddressingMode::ABSOLUTE_X_INDIRECT: return AsmIR::AddressingMode::INDEXED_PAIR;
-        // Handle other modes by falling back to implied
-        case AddressingMode::ACCUMULATOR:
-        case AddressingMode::IMMEDIATE16:
-        case AddressingMode::BASE_PAGE_INDIRECT_Z:
-        case AddressingMode::BASE_PAGE_INDIRECT_SP_Y:
-        case AddressingMode::ABSOLUTE_INDIRECT:
-        case AddressingMode::RELATIVE:
-        case AddressingMode::RELATIVE16:
-        case AddressingMode::BASE_PAGE_RELATIVE:
-        case AddressingMode::FLAT_INDIRECT_Z:
-        case AddressingMode::QUAD_Q:
-        case AddressingMode::STACK_RELATIVE_INDIRECT_Y:
-        case AddressingMode::LINEAR_ABSOLUTE_X:
-        case AddressingMode::LINEAR_ABSOLUTE_Y:
-        case AddressingMode::NONE:
-            return AsmIR::AddressingMode::IMPLIED;
+        case AddressingMode::RELATIVE: return AsmIR::AddressingMode::ABSOLUTE;
+        case AddressingMode::RELATIVE16: return AsmIR::AddressingMode::ABSOLUTE;
+        default: return AsmIR::AddressingMode::RAW;  // 45GS02-only syntax, as written
     }
-    return AsmIR::AddressingMode::IMPLIED;
 }
 
 AsmIR::DirectiveType Ca45Parser::mapDirectiveType(const std::string& name) {
     if (name == "byte") return AsmIR::DirectiveType::BYTE_DATA;
     if (name == "word") return AsmIR::DirectiveType::WORD_DATA;
-    if (name == "long") return AsmIR::DirectiveType::LONG_DATA;
+    if (name == "long" || name == "dword") return AsmIR::DirectiveType::LONG_DATA;
     if (name == "fill") return AsmIR::DirectiveType::FILL;
     if (name == "align") return AsmIR::DirectiveType::ALIGN;
     if (name == "org") return AsmIR::DirectiveType::ORG;
@@ -123,44 +114,216 @@ void Ca45Parser::extractSymbols(const AssemblerParser& parser, AsmIR::Module& mo
     }
 }
 
+namespace {
+
+std::string trim(const std::string& s) {
+    size_t b = s.find_first_not_of(" \t\r");
+    if (b == std::string::npos) return "";
+    size_t e = s.find_last_not_of(" \t\r");
+    return s.substr(b, e - b + 1);
+}
+
+// The code and the comment of a line (';' outside quotes)
+void splitComment(const std::string& line, std::string& code, std::string& comment) {
+    bool dq = false, sq = false;
+    for (size_t i = 0; i < line.size(); i++) {
+        char c = line[i];
+        if (c == '\\' && (dq || sq)) { i++; continue; }
+        if (c == '"' && !sq) dq = !dq;
+        else if (c == '\'' && !dq) sq = !sq;
+        else if (c == ';' && !dq && !sq) {
+            code = line.substr(0, i);
+            comment = line.substr(i + 1);
+            return;
+        }
+    }
+    code = line;
+    comment.clear();
+}
+
+// Arguments separated by commas outside quotes and parentheses
+std::vector<std::string> splitArgs(const std::string& s) {
+    std::vector<std::string> out;
+    std::string cur;
+    int depth = 0;
+    bool dq = false, sq = false;
+    for (size_t i = 0; i < s.size(); i++) {
+        char c = s[i];
+        if ((dq || sq) && c == '\\' && i + 1 < s.size()) { cur += c; cur += s[++i]; continue; }
+        if (c == '"' && !sq) dq = !dq;
+        else if (c == '\'' && !dq) sq = !sq;
+        else if (!dq && !sq) {
+            if (c == '(' || c == '[') depth++;
+            else if ((c == ')' || c == ']') && depth > 0) depth--;
+            else if (c == ',' && depth == 0) { out.push_back(trim(cur)); cur.clear(); continue; }
+        }
+        cur += c;
+    }
+    if (!trim(cur).empty() || !out.empty()) out.push_back(trim(cur));
+    return out;
+}
+
+std::string lower(std::string s) {
+    std::transform(s.begin(), s.end(), s.begin(), ::tolower);
+    return s;
+}
+
+// Strip the syntax of an addressing mode from an operand: the expression
+bool operandCore(AsmIR::AddressingMode mode, const std::string& op, std::string& core) {
+    std::string t = trim(op);
+    auto endsWithReg = [&](const std::string& s, char reg, std::string& rest) {
+        size_t comma = s.rfind(',');
+        if (comma == std::string::npos) return false;
+        if (lower(trim(s.substr(comma + 1))) != std::string(1, reg)) return false;
+        rest = trim(s.substr(0, comma));
+        return true;
+    };
+    std::string rest;
+    switch (mode) {
+        case AsmIR::AddressingMode::IMPLIED: core = ""; return t.empty() || lower(t) == "a";
+        case AsmIR::AddressingMode::IMMEDIATE:
+            if (t.empty() || t[0] != '#') return false;
+            core = trim(t.substr(1));
+            return true;
+        case AsmIR::AddressingMode::ZERO_PAGE:
+        case AsmIR::AddressingMode::ABSOLUTE:
+            core = t;
+            return !t.empty();
+        case AsmIR::AddressingMode::ZERO_PAGE_X:
+        case AsmIR::AddressingMode::ABSOLUTE_X:
+            return endsWithReg(t, 'x', core);
+        case AsmIR::AddressingMode::ZERO_PAGE_Y:
+        case AsmIR::AddressingMode::ABSOLUTE_Y:
+            return endsWithReg(t, 'y', core);
+        case AsmIR::AddressingMode::INDIRECT:
+            if (t.size() < 2 || t.front() != '(' || t.back() != ')') return false;
+            core = trim(t.substr(1, t.size() - 2));
+            return true;
+        case AsmIR::AddressingMode::INDIRECT_X:
+            if (t.size() < 2 || t.front() != '(' || t.back() != ')') return false;
+            return endsWithReg(t.substr(1, t.size() - 2), 'x', core);
+        case AsmIR::AddressingMode::INDIRECT_Y:
+            if (!endsWithReg(t, 'y', rest) || rest.size() < 2 || rest.front() != '(' || rest.back() != ')') return false;
+            core = trim(rest.substr(1, rest.size() - 2));
+            return true;
+        default:
+            return false;
+    }
+}
+
+}  // namespace
+
 void Ca45Parser::extractStatements(const AssemblerParser& parser, AsmIR::Module& module, const std::string& source) {
-    std::vector<std::string> sourceLines;
+    std::vector<std::string> lines;
     std::stringstream ss(source);
     std::string line;
-    while (std::getline(ss, line)) {
-        sourceLines.push_back(line);
-    }
+    while (std::getline(ss, line)) lines.push_back(line);
 
-    for (const auto& stmt : parser.statements) {
-        if (stmt->deleted) continue;
+    // ca45's parse of each line: the instruction and its addressing mode
+    std::map<int, const AssemblerParser::Statement*> instrAt;
+    for (const auto& stmt : parser.statements)
+        if (stmt->type != AssemblerParser::Statement::Type::NONE &&
+            stmt->type != AssemblerParser::Statement::Type::DIRECTIVE && !instrAt.count(stmt->line))
+            instrAt[stmt->line] = stmt.get();
 
-        AsmIR::Statement irStmt;
-        irStmt.source_line = stmt->line;
+    static const std::regex labelRe(R"(^\s*([A-Za-z_@.][A-Za-z0-9_@.]*)\s*:(.*)$)");
+    static const std::regex constRe(R"(^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$)");
+    static const std::regex orgRe(R"(^\s*\*\s*=\s*(.+)$)");
+    static const std::regex directiveRe(R"(^\s*\.([A-Za-z_][A-Za-z0-9_]*)\b\s*(.*)$)");
+    static const std::regex instrRe(R"(^\s*([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)*)\b\s*(.*)$)");
+    bool warnedRaw = false;
 
-        if (!stmt->label.empty()) {
-            irStmt.type = AsmIR::Statement::Type::LABEL;
-            irStmt.label = stmt->label;
-        } else if (stmt->type == AssemblerParser::Statement::Type::INSTRUCTION) {
-            irStmt.type = AsmIR::Statement::Type::INSTRUCTION;
-            irStmt.instr.mnemonic = stmt->instr.mnemonic;
-            irStmt.instr.mode = mapAddressingMode(stmt->instr.mode);
-            irStmt.instr.operand.text = stmt->instr.operand;
-            irStmt.instr.operand.is_symbolic = (parser.getSymbolTable().count(stmt->instr.operand) > 0);
-            irStmt.instr.label = stmt->label;
-        } else if (stmt->type == AssemblerParser::Statement::Type::DIRECTIVE) {
-            irStmt.type = AsmIR::Statement::Type::DIRECTIVE;
-            irStmt.dir.name = stmt->dir.name;
-            irStmt.dir.type = mapDirectiveType(stmt->dir.name);
-            irStmt.dir.arguments = stmt->dir.arguments;
-            irStmt.label = stmt->label;
-        } else {
+    for (size_t n = 0; n < lines.size(); n++) {
+        int lineNo = (int)n + 1;
+        std::string code, comment;
+        splitComment(lines[n], code, comment);
+        std::smatch m;
+        auto add = [&](AsmIR::Statement st) {
+            st.source_line = lineNo;
+            module.statements.push_back(std::move(st));
+        };
+        if (trim(code).empty()) {
+            AsmIR::Statement st;
+            if (!comment.empty()) {
+                st.type = AsmIR::Statement::Type::COMMENT;
+                st.comment = comment;
+            } else {
+                st.type = AsmIR::Statement::Type::BLANK;
+            }
+            add(st);
             continue;
         }
-
-        if (irStmt.source_line > 0 && irStmt.source_line <= (int)sourceLines.size()) {
-            irStmt.source_file = parser.getLineMap().empty() ? "" : parser.getLineMap()[0].file;
+        // a label, maybe followed by a statement on the same line
+        if (std::regex_match(code, m, labelRe) && !std::regex_match(code, constRe)) {
+            AsmIR::Statement st;
+            st.type = AsmIR::Statement::Type::LABEL;
+            st.label = m[1].str();
+            add(st);
+            code = m[2].str();
+            if (trim(code).empty()) {
+                if (!comment.empty()) {
+                    AsmIR::Statement c;
+                    c.type = AsmIR::Statement::Type::COMMENT;
+                    c.comment = comment;
+                    add(c);
+                }
+                continue;
+            }
         }
-
-        module.statements.push_back(irStmt);
+        AsmIR::Statement st;
+        if (std::regex_match(code, m, orgRe)) {
+            st.type = AsmIR::Statement::Type::DIRECTIVE;
+            st.dir.type = AsmIR::DirectiveType::ORG;
+            st.dir.name = "org";
+            st.dir.arguments = {trim(m[1].str())};
+        } else if (std::regex_match(code, m, constRe)) {
+            st.type = AsmIR::Statement::Type::DIRECTIVE;
+            st.dir.type = AsmIR::DirectiveType::CONST;
+            st.dir.name = "const";
+            st.dir.arguments = {m[1].str(), trim(m[2].str())};
+        } else if (std::regex_match(code, m, directiveRe)) {
+            std::string name = m[1].str();
+            std::string args = trim(m[2].str());
+            st.type = AsmIR::Statement::Type::DIRECTIVE;
+            st.dir.name = name;
+            st.dir.type = mapDirectiveType(name);
+            if (name == "const") {
+                // .const name = value
+                std::smatch c;
+                if (std::regex_match(args, c, constRe)) st.dir.arguments = {c[1].str(), trim(c[2].str())};
+                else st.dir.arguments = splitArgs(args);
+            } else {
+                st.dir.arguments = splitArgs(args);
+            }
+        } else if (std::regex_match(code, m, instrRe)) {
+            std::string mnemonic = lower(m[1].str());
+            std::string operand = trim(m[2].str());
+            st.type = AsmIR::Statement::Type::INSTRUCTION;
+            st.instr.mnemonic = mnemonic;
+            auto it = instrAt.find(lineNo);
+            AsmIR::AddressingMode mode = AsmIR::AddressingMode::RAW;
+            if (it != instrAt.end() && it->second->type == AssemblerParser::Statement::Type::INSTRUCTION &&
+                mnemonic.find('.') == std::string::npos)
+                mode = mapAddressingMode(it->second->instr.mode);
+            std::string core;
+            if (mode != AsmIR::AddressingMode::RAW && operandCore(mode, operand, core)) {
+                st.instr.mode = mode;
+                st.instr.operand.text = core;
+            } else {
+                st.instr.mode = AsmIR::AddressingMode::RAW;
+                st.instr.operand.text = operand;
+                if (!warnedRaw) {
+                    addWarning("line " + std::to_string(lineNo) + ": '" + trim(code) +
+                               "' is ca45-specific and kept as written (other assemblers will not accept it)");
+                    warnedRaw = true;
+                }
+            }
+        } else {
+            st.type = AsmIR::Statement::Type::INSTRUCTION;
+            st.instr.mnemonic = trim(code);
+            st.instr.mode = AsmIR::AddressingMode::RAW;
+        }
+        if (!comment.empty()) st.comment = comment;
+        add(st);
     }
 }

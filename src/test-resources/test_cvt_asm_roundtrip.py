@@ -24,6 +24,10 @@ class AssemblyAnalyzer:
         """Extract labels and symbols from assembly text."""
         for line in self.text.split('\n'):
             line = line.strip()
+            decl = re.match(r'^(;|//)\s*(global|extern|weak):\s*(\w+)', line)
+            if decl:
+                self.symbols.add(decl.group(3).lower())
+                continue
             if not line or line.startswith(';') or line.startswith('*'):
                 continue
 
@@ -42,6 +46,13 @@ class AssemblyAnalyzer:
                     # Check if it's not a mnemonic
                     if not self.is_mnemonic(word):
                         self.labels.add(word.lower())
+
+            # Assemblers without a linker (ACME, KickAssembler) keep declarations
+            # as comments: "; global: name", "// extern: name ..."
+            decl = re.match(r'^(;|//)\s*(global|extern|weak):\s*(\w+)', line)
+            if decl:
+                self.symbols.add(decl.group(3).lower())
+                continue
 
             # Extract symbols (.global, .export, .extern, GLOBAL, EXTERN, etc.)
             if re.match(r'(\.|^)(global|export|extern|weak|GLOBAL|EXPORT|EXTERN|WEAK)\s+', line):

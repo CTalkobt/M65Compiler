@@ -6,18 +6,15 @@
 std::string KickAssemblerWriter::write(const AsmIR::Module& module) {
     std::stringstream out;
 
-    // Emit globals/exports
+    // KickAssembler assembles one program, without a linker: imports and
+    // exports become comments (an imported symbol must be defined first)
+    bool any = false;
     for (const auto& [name, sym] : module.symbols) {
-        if (sym.is_global) {
-            out << "!import " << name << "\n";
-        } else if (sym.is_extern) {
-            out << "!export " << name << "\n";
-        }
+        if (sym.is_extern) { out << "// extern: " << name << " (define it before assembling)\n"; any = true; }
+        else if (sym.is_global) { out << "// global: " << name << "\n"; any = true; }
+        else if (sym.is_weak) { out << "// weak: " << name << "\n"; any = true; }
     }
-
-    if (!module.symbols.empty()) {
-        out << "\n";
-    }
+    if (any) out << "\n";
 
     // Emit statements
     for (const auto& stmt : module.statements) {
@@ -27,17 +24,23 @@ std::string KickAssemblerWriter::write(const AsmIR::Module& module) {
                 break;
 
             case AsmIR::Statement::Type::INSTRUCTION: {
-                out << "    " << formatInstruction(stmt.instr) << "\n";
+                out << "    " << formatInstruction(stmt.instr) << (stmt.comment.empty() ? "" : " //" + stmt.comment) << "\n";
                 break;
             }
 
             case AsmIR::Statement::Type::DIRECTIVE: {
-                out << formatDirective(stmt.dir) << "\n";
+                // .global/.extern/.weak come from the symbol table
+                if (stmt.dir.type == AsmIR::DirectiveType::GLOBAL ||
+                    stmt.dir.type == AsmIR::DirectiveType::EXTERN ||
+                    stmt.dir.type == AsmIR::DirectiveType::WEAK) {
+                    continue;
+                }
+                out << formatDirective(stmt.dir) << (stmt.comment.empty() ? "" : " //" + stmt.comment) << "\n";
                 break;
             }
 
             case AsmIR::Statement::Type::COMMENT:
-                out << "; " << stmt.comment << "\n";
+                out << "//" << stmt.comment << "\n";
                 break;
 
             case AsmIR::Statement::Type::BLANK:
@@ -51,6 +54,8 @@ std::string KickAssemblerWriter::write(const AsmIR::Module& module) {
 
 std::string KickAssemblerWriter::formatInstruction(const AsmIR::Instruction& instr) {
     std::stringstream ss;
+    if (instr.mode == AsmIR::AddressingMode::RAW)
+        return instr.operand.text.empty() ? instr.mnemonic : instr.mnemonic + " " + instr.operand.text;
     ss << instr.mnemonic;
 
     if (instr.mode != AsmIR::AddressingMode::IMPLIED) {
@@ -62,13 +67,22 @@ std::string KickAssemblerWriter::formatInstruction(const AsmIR::Instruction& ins
 
 std::string KickAssemblerWriter::formatDirective(const AsmIR::Directive& dir) {
     std::stringstream ss;
+    // the 45GS02 is "_45gs02" there
+    if (dir.type == AsmIR::DirectiveType::CPU && !dir.arguments.empty() &&
+        (dir.arguments[0] == "45GS02" || dir.arguments[0] == "45gs02"))
+        return std::string(".") + "cpu _45gs02";
+    if (dir.type == AsmIR::DirectiveType::CONST && dir.arguments.size() == 2)
+        return ".const " + dir.arguments[0] + " = " + dir.arguments[1];
 
-    // KickAssembler uses ! prefix for directives
-    ss << "!" << dir.name;
-
-    for (const auto& arg : dir.arguments) {
-        ss << " " << arg;
+    // KickAssembler: *= for the origin, otherwise .name (.byte, .word, ...)
+    if (dir.type == AsmIR::DirectiveType::ORG) {
+        ss << "*=";
+        if (!dir.arguments.empty()) ss << " " << dir.arguments[0];
+        return ss.str();
     }
+    ss << "." << dir.name;
+
+    for (size_t i = 0; i < dir.arguments.size(); i++) ss << (i ? ", " : " ") << dir.arguments[i];
 
     return ss.str();
 }
@@ -145,6 +159,9 @@ std::string KickAssemblerWriter::formatAddressingMode(const AsmIR::Instruction& 
             break;
         case AsmIR::AddressingMode::INDEXED_PAIR:
             ss << instr.operand.text << ",xy";
+            break;
+        case AsmIR::AddressingMode::RAW:
+            ss << instr.operand.text;
             break;
     }
 
