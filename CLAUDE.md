@@ -167,7 +167,7 @@ not change what is tested; a test's own later `-O` still wins. Use an
 explicit `-O<n>` in ad-hoc test commands too.
 
 - `make test` — unit tests (no emulator).
-- `bash src/test/test_xemu.sh` — runtime tests on xemu (155 pass): each
+- `bash src/test/test_xemu.sh` — runtime tests on xemu (157 pass): each
   `*_xemu.c` writes results to `$C0C0` (01 = pass, `$AA` sentinel), built in
   both conventions. New runtime tests follow this pattern and are registered
   in `test_xemu.sh`.
@@ -212,7 +212,7 @@ ln45, ar45, nm45, objdump45 and disk45 have no config files. Environment:
   statement expressions, computed goto, case ranges, `continue <value>` in a switch, `repeat(N)`, `__cpu`/`__flags`,
   `__dma_copy`/`__dma_fill`, `__interrupt`, `__naked`, `__regparm`, file-scope
   `asm("...")` (module-level assembly), string encodings
-  (`@"…"`, `#pragma encoding`), GCC vector extension (`-fmax-unroll-bytes`, default 128).
+  (`@"…"`, `p"…"`, `s"…"`, `a"…"`, `#pragma encoding`), GCC vector extension (`-fmax-unroll-bytes`, default 128).
 - **Optimization** (`doc/architecture/optimizations.md`): `-O1`+ runs the eight
   IR passes of `IROptimizer.cpp` (strength reduction, algebraic simplification,
   type narrowing, branch folding, CSE, LICM, copy propagation, address fusion;

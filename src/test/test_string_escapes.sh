@@ -62,6 +62,32 @@ else
     fail "\\n in inline asm still separates lines"
 fi
 
+# cc45 encoding prefixes p"..." s"..." a"..." (as ca45): the directive chosen
+# and the character constants; .screencode is the mapping s"..." relies on
+asm_bytes '    .screencode "Az@[_ 1"'   "011a001b1f2031"     ".screencode: @ 0, letters 1-26, [\\]^_ 27-31"
+cat > $T.c <<'END'
+int p, s, a;
+char k_p(void) { return p'a'; }
+char k_s(void) { return s'A'; }
+char k_s2(void) { return s'z'; }
+char k_a(void) { return a'a'; }
+char *str_s(void) { return s"Hi"; }
+char *str_a(void) { return a"Ha"; }
+int use(void) { return p + s + a; }
+#pragma encoding ascii
+char *str_p(void) { return p"Hp"; }
+END
+if $CC -O1 -S $T.c -o $T.s45 2>/dev/null; then pass "identifiers p, s, a next to prefixed literals"
+else fail "identifiers p, s, a next to prefixed literals (compile failed)"; fi
+[ "$(lda_of k_p)" = "lda #65" ] && pass "p'a' is \$41" || fail "p'a' is \$41 (got $(lda_of k_p))"
+[ "$(lda_of k_s)" = "lda #1" ] && pass "s'A' is 1" || fail "s'A' is 1 (got $(lda_of k_s))"
+[ "$(lda_of k_s2)" = "lda #26" ] && pass "s'z' is 26" || fail "s'z' is 26 (got $(lda_of k_s2))"
+[ "$(lda_of k_a)" = "lda #97" ] && pass "a'a' is \$61" || fail "a'a' is \$61 (got $(lda_of k_a))"
+grep -qF '.screencode "Hi"' $T.s45 && pass "s\"...\" is .screencode" || fail "s\"...\" is .screencode"
+grep -qF '.ascii "Ha"' $T.s45 && pass "a\"...\" is .ascii" || fail "a\"...\" is .ascii"
+grep -qF '.text "Hp"' $T.s45 && pass "p\"...\" is .text under #pragma encoding ascii" \
+    || fail "p\"...\" is .text under #pragma encoding ascii"
+
 rm -f $T.s45 $T.bin $T.c
 
 echo ""

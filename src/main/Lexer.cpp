@@ -308,6 +308,19 @@ Token Lexer::lexIdentifierOrKeyword() {
         return {it->second, value, startLine, startCol, sourceFile};
     }
 
+    // Encoding prefix touching the quote (as in ca45 and basic45): p"..." /
+    // p'x' PETSCII, s"..." / s'x' screen codes, a"..." / a'x' ASCII (as @).
+    // It overrides #pragma encoding for that literal. With a space between
+    // (p "x") p is an identifier.
+    if ((value == "p" || value == "s" || value == "a") && (peek() == '\'' || peek() == '"')) {
+        bool ascii = value == "a", screen = value == "s";
+        Token t = peek() == '"' ? lexString(ascii) : lexChar(ascii, screen);
+        if (t.type == TokenType::STRING_LITERAL) t.strEncoding = screen ? 2 : 0;
+        t.line = startLine;
+        t.column = startCol;
+        return t;
+    }
+
     // Wide char/string prefix: L'x' or L"str" → downgrade to regular char/string
     if (value == "L" && (peek() == '\'' || peek() == '"')) {
         if (peek() == '"') { Token t = lexString(false); t.wide = true; return t; }
@@ -487,7 +500,16 @@ unsigned char Lexer::lexEscape(char* kind) {
     }
 }
 
-Token Lexer::lexChar(bool ascii) {
+// Screen code of an ASCII character, as ca45's .screencode / s'x': @ 0,
+// A-Z and a-z 1-26, [\]^_ 27-31, every other byte unchanged.
+static uint8_t toScreencode(uint8_t u) {
+    if (u == 0x40) return 0x00;
+    if (u >= 0x41 && u <= 0x5F) return u - 0x40;
+    if (u >= 0x61 && u <= 0x7A) return u - 0x60;
+    return u;
+}
+
+Token Lexer::lexChar(bool ascii, bool screen) {
     int startLine = line;
     int startCol = column;
     get(); // skip opening '
@@ -505,6 +527,9 @@ Token Lexer::lexChar(bool ascii) {
         c = get();
     }
     if (peek() == '\'') get(); // skip closing '
+    if (screen && !escaped) {
+        return {TokenType::INTEGER_LITERAL, std::to_string((int)toScreencode((uint8_t)c)), startLine, startCol, sourceFile};
+    }
     if (!ascii && !escaped) {
         // Convert to PETSCII to match .text string encoding
         uint8_t petscii = (uint8_t)c;

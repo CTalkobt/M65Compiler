@@ -3147,6 +3147,7 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
         std::string concatStr = litToken.value;
         std::string concatMask = litToken.escMask;
         bool wide = litToken.wide;
+        int prefixEncoding = litToken.strEncoding;  // the first literal's encoding wins
         // C string literal concatenation: "hello" " world" → "hello world"
         while (peek().type == TokenType::STRING_LITERAL || peek().type == TokenType::ASCII_STRING_LITERAL) {
             const Token& next = advance();
@@ -3157,6 +3158,7 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
         auto strLit = std::make_unique<StringLiteral>(concatStr, isAscii);
         strLit->escMask = concatMask;
         strLit->isWide = wide;
+        strLit->prefixEncoding = isAscii ? -1 : prefixEncoding;
         expr = setPos(std::move(strLit), litToken);
     } else if (match(TokenType::OPEN_PAREN)) {
         const Token& parenToken = tokens[pos-1];

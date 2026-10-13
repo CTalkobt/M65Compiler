@@ -138,6 +138,10 @@ struct Token {
     // 'r' from \r, 'x' exact byte from another escape. Empty for other tokens.
     std::string escMask;
     bool wide = false;  // L"..." / L'x' (wchar_t, 16 bits)
+    // String literal encoding prefix: 0 p"..." (PETSCII), 2 s"..." (screen
+    // codes); -1 none (the #pragma encoding applies). @"..."/a"..." are
+    // ASCII_STRING_LITERAL tokens.
+    int strEncoding = -1;
 
     std::string typeToString() const {
         switch (type) {

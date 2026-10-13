@@ -261,6 +261,13 @@ private:
     // String encoding pragma support
     enum class StringEncoding { PETSCII = 0, ASCII = 1, SCREENCODE = 2 };
     StringEncoding currentStringEncoding_ = StringEncoding::PETSCII;
+    // A literal's encoding (0 PETSCII, 1 ASCII, 2 screen codes): its @/a/p/s
+    // prefix, else the current #pragma encoding
+    int stringEncodingOf(const StringLiteral& s) const {
+        if (s.isAscii) return 1;
+        if (s.prefixEncoding >= 0) return s.prefixEncoding;
+        return (int)currentStringEncoding_;
+    }
 
     // Struct layout tracking
     struct IRMemberInfo {

@@ -1032,14 +1032,9 @@ void IRBuilder::declareBuiltinPrototypes() {
 }
 
 void IRBuilder::visit(TranslationUnit& node) {
-    // Pre-scan for encoding pragma directives to set state before visiting strings
-    for (auto& decl : node.topLevelDecls) {
-        if (auto* as = dynamic_cast<AsmStatement*>(decl.get())) {
-            if (as->code == ".encoding ascii") currentStringEncoding_ = StringEncoding::ASCII;
-            if (as->code == ".encoding petscii") currentStringEncoding_ = StringEncoding::PETSCII;
-            if (as->code == ".encoding screencode") currentStringEncoding_ = StringEncoding::SCREENCODE;
-        }
-    }
+    // #pragma encoding (asm(".encoding ...")) takes effect where it appears:
+    // literals before the first one are PETSCII
+    currentStringEncoding_ = StringEncoding::PETSCII;
     declareBuiltinPrototypes();
     // Now visit all declarations
     for (auto& decl : node.topLevelDecls) {
@@ -2000,8 +1995,8 @@ bool IRBuilder::constAddress(Expression* e, std::string& label, int& off) {
         sl.label = label;
         sl.value = str->value;
         sl.escMask = str->escMask;
-        sl.isAscii = str->isAscii || (currentStringEncoding_ == StringEncoding::ASCII);
-        sl.encoding = str->isAscii ? 1 : (currentStringEncoding_ == StringEncoding::SCREENCODE ? 2 : 0);
+        sl.encoding = stringEncodingOf(*str);
+        sl.isAscii = sl.encoding == 1;
         module_.strings.push_back(sl);
         off = 0;
         return true;
@@ -2200,8 +2195,7 @@ bool IRBuilder::initObject(InitImageCtx& c, int off, const std::string& type, in
             int n = dims[0] > 0 ? std::min<int>(dims[0], (int)str->value.size()) : (int)str->value.size();
             is.value = str->value.substr(0, n);
             is.escMask = str->escMask.substr(0, std::min(str->escMask.size(), (size_t)n));
-            is.encoding = (str->isAscii || currentStringEncoding_ == StringEncoding::ASCII) ? 1
-                        : (currentStringEncoding_ == StringEncoding::SCREENCODE ? 2 : 0);
+            is.encoding = stringEncodingOf(*str);
             if (c.runtime) {
                 // Copy the text from the string literal (the rest is zeroed)
                 if (n > 0) {
@@ -3467,8 +3461,8 @@ void IRBuilder::visit(VariableDeclaration& node) {
                 sl.label = label;
                 sl.value = slit->value;
                 sl.escMask = slit->escMask;
-                sl.isAscii = slit->isAscii || (currentStringEncoding_ == StringEncoding::ASCII);
-                sl.encoding = slit->isAscii ? 1 : (currentStringEncoding_ == StringEncoding::SCREENCODE ? 2 : 0);
+                sl.encoding = stringEncodingOf(*slit);
+                sl.isAscii = sl.encoding == 1;
                 module_.strings.push_back(sl);
                 gv.hasInitValue = true;
                 gv.initLabels.push_back(label); // symbolic reference
@@ -3502,8 +3496,8 @@ void IRBuilder::visit(VariableDeclaration& node) {
                         sl.label = label;
                         sl.value = slit->value;
                         sl.escMask = slit->escMask;
-                        sl.isAscii = slit->isAscii || (currentStringEncoding_ == StringEncoding::ASCII);
-                        sl.encoding = slit->isAscii ? 1 : (currentStringEncoding_ == StringEncoding::SCREENCODE ? 2 : 0);
+                        sl.encoding = stringEncodingOf(*slit);
+                        sl.isAscii = sl.encoding == 1;
                         module_.strings.push_back(sl);
                         gv.initList.push_back(0);
                         gv.initLabels.push_back(label);
@@ -3919,15 +3913,8 @@ void IRBuilder::visit(FloatLiteral& node) {
 
 void IRBuilder::visit(StringLiteral& node) {
     std::string name = "__str_" + std::to_string(nextLabel_++);
-    // Determine encoding: explicit @"..." forces ASCII, otherwise use pragma state
-    int encoding = 0;  // PETSCII default
-    if (node.isAscii) {
-        encoding = 1;  // ASCII
-    } else if (currentStringEncoding_ == StringEncoding::ASCII) {
-        encoding = 1;  // ASCII via pragma
-    } else if (currentStringEncoding_ == StringEncoding::SCREENCODE) {
-        encoding = 2;  // SCREENCODE via pragma
-    }
+    // Encoding: an @/a/p/s prefix, otherwise the pragma state
+    int encoding = stringEncodingOf(node);
     // Record the string literal in the module for data section emission
     ir::Module::StringLiteral sl;
     sl.label = name;

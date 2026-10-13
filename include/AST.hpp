@@ -55,11 +55,15 @@ public:
     bool isAscii = false;  // @"..." prefix — emit .ascii instead of .text
     std::string escMask;   // per byte: '.', 'n', 'r', 'x' (see Token::escMask)
     bool isWide = false;   // L"...": an array of 16-bit wchar_t
+    // Encoding prefix: 0 p"..." (PETSCII), 2 s"..." (screen codes), -1 none
+    // (isAscii, else #pragma encoding). Overrides the pragma.
+    int prefixEncoding = -1;
     StringLiteral(const std::string& v, bool ascii = false) : value(v), isAscii(ascii) {}
     static std::unique_ptr<StringLiteral> copyOf(const StringLiteral& s) {
         auto c = std::make_unique<StringLiteral>(s.value, s.isAscii);
         c->escMask = s.escMask;
         c->isWide = s.isWide;
+        c->prefixEncoding = s.prefixEncoding;
         return c;
     }
     void accept(ASTVisitor& visitor) override;

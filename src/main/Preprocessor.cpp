@@ -208,9 +208,10 @@ std::string Preprocessor::expandMacros(const std::string& line) {
                 while (i < result.length() && (std::isalnum((unsigned char)result[i]) || result[i] == '_')) i++;
                 std::string ident = result.substr(start, i - start);
 
-                // An encoding prefix (L'1', u"x", U'a', u8"s") is part of the
+                // An encoding prefix (L'1', u"x", U'a', u8"s"; cc45/ca45 p"x", s"x", a"x") is part of the
                 // literal, not a macro name
-                if ((ident == "L" || ident == "u" || ident == "U" || ident == "u8") &&
+                if ((ident == "L" || ident == "u" || ident == "U" || ident == "u8" ||
+                     ident == "p" || ident == "s" || ident == "a") &&
                     i < result.length() && (result[i] == '\'' || result[i] == '"')) {
                     nextResult += ident;
                     continue;
@@ -424,7 +425,8 @@ std::string Preprocessor::expandMacros(const std::string& line) {
                                         bool bAfter = (pos + m.params[p].length() == body.length() || (!std::isalnum((unsigned char)body[pos + m.params[p].length()]) && body[pos + m.params[p].length()] != '_'));
                                         size_t endp = pos + m.params[p].length();
                                         bool litPrefix = (m.params[p] == "L" || m.params[p] == "u" || m.params[p] == "U" ||
-                                                          m.params[p] == "u8") && endp < body.length() &&
+                                                          m.params[p] == "u8" || m.params[p] == "p" || m.params[p] == "s" ||
+                                                          m.params[p] == "a") && endp < body.length() &&
                                                          (body[endp] == '\'' || body[endp] == '"');
                                         if (litPrefix || inLiteral(body, pos)) {
                                             pos = endp;
