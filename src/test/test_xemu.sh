@@ -474,9 +474,10 @@ else
 fi
 
 # basic45 string escapes, MEGA65 control codes and ESC sequences included
-printf 'print "{flash}{esc-x}{clear-eos}{$c1}{down}{esc}{lower}{orange}"\n' > build/test/basic45_escapes.bas
+# (the values as the ROM's screen editor has them: control_vectors, funtab)
+printf 'print "{flash}{esc-x}{clear-eos}{$c1}{down}{esc}{lower}{orange}{f9}{f14}{help}{default}{shift-f7}{off}{under-off}{back}"\n' > build/test/basic45_escapes.bas
 if ./bin/basic45 --strict build/test/basic45_escapes.bas -o build/test/basic45_escapes.prg 2>/dev/null &&
-   xxd -p build/test/basic45_escapes.prg | tr -d '\n' | grep -q "220f1b581b40c1111b0e8122"; then
+   xxd -p build/test/basic45_escapes.prg | tr -d '\n' | grep -q "220f1b581b40c1111b0e81101a84068c92821422"; then
     echo "PASS: basic45 string escapes"
     passed=$((passed + 1))
 else

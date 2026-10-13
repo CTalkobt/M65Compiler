@@ -167,6 +167,10 @@ MEGA65 control codes (The MEGA65 Book, appendix C):
 | `{case-lock}`, `{lock}` / `{case-unlock}`, `{unlock}` | `$0B` / `$0C` (SHIFT+C= case switching off / on) | `{return}` | `$0D` |
 | `{linefeed}`, `{lf}` | `$0A` | `{tab-left}` | `$1A` |
 | `{word-left}` / `{word-right}` | `$15` / `$17` | `{tab-set}` | `$18` (set/clear a tab stop) |
+| `{f9}` `{f10}` `{f11}` `{f12}` `{f13}` `{f14}` | `$10` `$15` `$16` `$17` `$19` `$1A` | `{help}` | `$84` |
+| `{default}` | `$06` (the default colour, CTRL+F) | | |
+
+The codes are checked against the MEGA65 ROM's screen editor (`control_vectors`, `coltab` and the function key table `funtab` in mega65-rom's `system.src`; `code_*` in `b65.src`). F9-F14 share their codes with CTRL keys (F10 is `{word-left}`, F12 `{word-right}`, F14 `{tab-left}`).
 
 MEGA65 escape sequences are ESC (`$1B`) followed by a key; `{esc-k}` writes ESC and the key `k` (a letter, digit or `@`), and these names write the sequences of The Book:
 

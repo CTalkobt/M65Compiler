@@ -84,6 +84,15 @@ void PETSCIIEncoder::initializeControlCodes() {
         {"shift-f3", 0x8A},
         {"shift-f5", 0x8B},
         {"shift-f7", 0x8C},
+        // MEGA65 keys (the ROM's funtab: f9-f14, HELP) and CTRL+F
+        {"f9", 0x10},
+        {"f10", 0x15},
+        {"f11", 0x16},
+        {"f12", 0x17},
+        {"f13", 0x19},
+        {"f14", 0x1A},
+        {"help", 0x84},
+        {"default", 0x06},                            // default (preference) colour
     };
 }
 
