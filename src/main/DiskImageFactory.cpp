@@ -18,6 +18,9 @@
 #include "CmdImage.hpp"
 #include "NibImage.hpp"
 #include "GzipHelper.hpp"
+#include <iostream>
+#include <fstream>
+#include <filesystem>
 #include <algorithm>
 #include <cctype>
 
@@ -67,7 +70,27 @@ std::unique_ptr<DiskImage> DiskImage::createFromExtension(const std::string& pat
     return create(formatFromExtension(path));
 }
 
+// A MEGA65 SD card image (an MBR with a FAT32 or MEGA65 system partition,
+// far larger than any CBM image) is not a disk image: loading it as one (an
+// unknown extension means D81) and saving would destroy the card
+static bool looksLikeSdCard(const std::string& path) {
+    std::error_code ec;
+    if (std::filesystem::file_size(path, ec) < (32u << 20) || ec) return false;
+    std::ifstream f(path, std::ios::binary);
+    unsigned char b[512];
+    if (!f.read((char*)b, 512) || b[510] != 0x55 || b[511] != 0xAA) return false;
+    for (int i = 0; i < 4; i++) {
+        unsigned char t = b[0x1be + 16 * i + 4];
+        if (t == 0x0B || t == 0x0C || t == 0x41) return true;
+    }
+    return false;
+}
+
 std::unique_ptr<DiskImage> DiskImage::load(const std::string& path) {
+    if (looksLikeSdCard(path)) {
+        std::cerr << "Error: " << path << " is a MEGA65 SD card image; use disk45 sd (disk45 sd --help)\n";
+        return nullptr;
+    }
     auto img = createFromExtension(path);
     if (!img->loadFromFile(path)) return nullptr;
     return img;

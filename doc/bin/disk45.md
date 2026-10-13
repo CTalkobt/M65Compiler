@@ -5,6 +5,7 @@
 ```
 disk45 <command> [arguments] [options]
 disk45 batch <scriptfile>
+disk45 sd <command> <card.img> [arguments]
 disk45 -a2p | -p2a
 ```
 
@@ -13,6 +14,8 @@ disk45 -a2p | -p2a
 **disk45** creates, reads and manipulates Commodore disk images, tape images and archive files. It handles 25 container formats spanning C64, C128, PET, MEGA65 and CMD devices (read/write support varies, see [Supported Formats](#supported-formats)). It also offers FUSE mounting, an SQLite catalog of image collections, format conversion, batch scripts and PETSCII conversion.
 
 The format is chosen from the file extension; an unrecognised extension is treated as D81. GZ compression is transparent: append `.gz` to any format (e.g. `.d81.gz`) and the image is decompressed on load and compressed on save.
+
+`disk45 sd` works on MEGA65 SD card images (FAT32 with the MEGA65 system partition, see [MEGA65 SD Card Images](#mega65-sd-card-images)).
 
 Running `disk45` with no arguments or an unknown command prints the usage summary (exit status 1). `disk45 --version` (or `-v`) prints the version.
 
@@ -416,6 +419,75 @@ rm /tmp/cbm/OLD.prg             # remove file
 fusermount -u /tmp/cbm          # unmount
 ```
 
+### MEGA65 SD Card Images
+
+```
+disk45 sd create <card.img> <size> [--label NAME] [--no-syspart] [--syspart SIZE]
+                                   [--onboarded] [config options] [-f]
+disk45 sd info <card.img>
+disk45 sd list <card.img> [dir]
+disk45 sd add <card.img> <file> [card-path] [-f]
+disk45 sd extract <card.img> <card-path> [file]
+disk45 sd rm <card.img> <card-path>
+disk45 sd mkdir <card.img> <dir>
+disk45 sd mv <card.img> <from> <to>
+disk45 sd check <card.img>
+disk45 sd config <card.img> [config options]
+```
+
+An SD card image is what xemu uses (`~/.local/share/xemu-lgb/mega65/mega65.img`, or `-sdimg`) and what `dd` reads from or writes to a real MEGA65 card: an MBR partition table, a FAT32 data partition (type `$0B`/`$0C`) and the MEGA65 system partition (type `$41`). The image is read and written sector by sector, so multi-gigabyte cards are fine. `sd create` makes a sparse file.
+
+**`sd create`** lays the card out as the MEGA65's FDISK utility does (mega65-fdisk; xemu's `sdcontent.c` copies the same algorithm). Apart from card sector 1 (the configuration, which xemu writes during onboarding), xemu's signature block in sector 2 and the backup FS information sector (which xemu's own erase step overwrites), the first 4 MB of a 4 GB disk45 card are identical to xemu's card:
+
+- **MBR**: disk signature `$A6CB7D83`. Partition 1 is FAT32 (`$0C`, LBA) from sector 2048. Partition 2 is the system partition (`$41`) at the end of the card. FDISK makes it half the card, at most 2 GB, in whole MB; `--syspart SIZE` sets the size and `--no-syspart` leaves it out.
+- **FAT32**: FDISK's boot sector ("MEGA65r1", a "MEGA65 HYPPOBOOT" message for PCs), 568 reserved sectors, 2 FATs, 4 KB clusters (as many as fit beside their FATs), the root directory in cluster 2, FS information sector 1 and the backup boot sector 6 (+7). The volume label in the root directory is FDISK's `M.E.G.A.65!`; `--label` changes it. fsck.vfat rejects `.` in labels, and disk45 warns about such characters.
+- **System partition**: the `MEGA65SYS00` header with the freeze and service slot areas (512 KB slots, sized as FDISK does), then 1 MB reserved and the slot directories.
+- **Configuration sector**: written to **card sector 1**, where current hypervisors read it. They moved it out of the system partition so PAL/NTSC can be chosen without one. A copy goes to the system partition's sector 1, which older hypervisors read. FDISK's values: version 1.1, NTSC, audio amplifier on, mono, Amiga mouse as 1351, MAC `41:41:41:41:41:41`, default disk `mega65.d81`, DMAgic F018B. Onboarding is pending, so the MEGA65 (and xemu) run the onboarding utility on the first boot.
+- **`--onboarded`** writes what that utility sets: onboarding done (`$0E` bit 7), long file names on, SID 8580, DMAgic F018B, a random locally administered MAC. Use it for cards that should boot straight to BASIC, for example under xemu.
+
+Cards below 512 MB have fewer than 65525 clusters (FDISK formats them like that too). Tools such as fsck.vfat warn about it, and disk45 prints a note.
+
+**Files.** `sd add` copies a host file onto the card. The default name is the file's own; a card path ending in `/` or naming a directory puts the file inside it; `-f` replaces an existing file. Every file is stored in **one contiguous run of clusters**, because the MEGA65 mounts only unfragmented D81 images. Names that are not valid 8.3 names get a long file name (VFAT) and a `NAME~N.EXT` short name. All-lower-case 8.3 names keep their case through the NT case flags, as Linux does. Names compare case-insensitively against both forms. Paths use `/`. `sd rm` removes files and empty directories. `sd mv` renames and moves (a moved directory's `..` is updated). Changes write both FATs and update the FS information sector's free count.
+
+**`sd check`** walks the directory tree and reports:
+- errors: cross-linked clusters, chains that run into free or bad clusters, chain lengths that don't match file sizes, lost clusters, FAT copies that differ
+- warnings: fragmented files (for D81/D64/D71/D65 also "the MEGA65 cannot mount it"), names longer than the 64 characters the MEGA65 handles, a stale free count
+
+**`sd info`** shows the partition table, the FAT32 volume (label, cluster size, free space, FAT size), the system partition's slots and the configuration.
+
+**`sd config`** shows or changes the configuration sector:
+
+| Option | Byte | Meaning |
+|--------|------|---------|
+| `--pal` / `--ntsc` | `$02` bit 7 | video standard |
+| `--hdmi-audio on\|off` | `$0D` bit 1 | HDMI with digital audio, or pure DVI |
+| `--audio-amp on\|off`, `--swap-stereo`, `--mono`, `--dac pdm\|pwm` | `$03` bits 0, 5, 6, 7 | audio |
+| `--floppy sd\|drive` | `$04` bit 0 | F011 uses SD card disk images or the 3.5" drive |
+| `--amiga-mouse on\|off` | `$05` bit 0 | Amiga mice as 1351 |
+| `--mac XX:XX:XX:XX:XX:XX\|random` | `$06`-`$0B` | Ethernet MAC |
+| `--super-sfx on\|off` | `$0C` | Super SFX cartridge emulation |
+| `--onboarding done\|pending`, `--onboarded` | `$0E` bit 7 | whether onboarding has run |
+| `--lfn on\|off` | `$0F` bit 7 | long file names in the hypervisor |
+| `--default-disk NAME` | `$10`-`$1F` | disk image mounted at boot |
+| `--dmagic old\|new` | `$20` | DMAgic F018A or F018B |
+| `--crt-emulation on\|off`, `--blur on\|off` | `$21` bits 5, 3 | scanlines, horizontal blur |
+| `--sid 6581\|8580` | `$22` | SID type |
+
+The hypervisor applies the sector only if its version is 1.1. A card without one (version 0, for example a card formatted elsewhere) runs onboarding. When the card has no configuration yet, `sd config` starts from the system partition's copy, else from FDISK's values.
+
+```bash
+# a card for xemu: boots straight to BASIC with the card's ROM and D81
+disk45 sd create card.img 1G --onboarded --pal
+disk45 sd add card.img ~/.local/share/xemu-lgb/mega65/MEGA65.ROM
+disk45 sd add card.img game.d81 MEGA65.D81
+xemu-xmega65 -sdimg $PWD/card.img -defd81fromsd -romfromsd
+
+disk45 sd list ~/.local/share/xemu-lgb/mega65/mega65.img        # xemu's own card
+disk45 sd extract card.img MEGA65.D81 saved.d81 && disk45 list saved.d81
+```
+
+xemu mounts its own external default D81 instead of the card's `MEGA65.D81` unless it is given `-defd81fromsd`. `test_xemu.sh` boots a disk45 card this way (`test_disk45_sd_xemu.bas`): BASIC reads a file disk45 put on the card's D81 and writes one, which disk45 then finds. `test_disk45.sh` checks the layout bytes, the file operations and the configuration, and runs `fsck.vfat` when it is installed.
+
 ### Catalog (Collection Indexing)
 
 SQLite index of image collections with a CRC32 of each file's contents. disk45 is always linked with SQLite. Every subcommand accepts `--db <file>`; the default database is `~/.disk45-catalog.db`. Running `disk45 catalog` alone prints the subcommand list.
@@ -670,6 +742,7 @@ auto prg = disk->readFile("GAME");
 | `ArcImage` | `ArcImage.hpp` | ARC, SDA |
 | `LnxImage` | `LnxImage.hpp` | LNX |
 | `GeosCvtImage` | `GeosCvtImage.hpp` | CVT |
+| `SdCardImage` | `SdCardImage.hpp` | MEGA65 SD card (MBR, FAT32, system partition; `disk45 sd`) |
 | `P00Image` | `P00Image.hpp` | P00/S00/U00/R00 |
 | `ZipcodeImage` | `ZipcodeImage.hpp` | Zipcode 4-pack |
 
@@ -719,6 +792,7 @@ auto prg = disk->readFile("GAME");
 ## References
 
 - [Peter Schepers' File Format Specifications](https://ist.uwaterloo.ca/~schepers/formats.html) — the reference for the CBM disk layouts disk45 writes: [D64](https://ist.uwaterloo.ca/~schepers/formats/D64.TXT), [D71](https://ist.uwaterloo.ca/~schepers/formats/D71.TXT), [D81](https://ist.uwaterloo.ca/~schepers/formats/D81.TXT) (also the 1581 super side sector), [D80/D82](https://ist.uwaterloo.ca/~schepers/formats/D80-D82.TXT) (header → BAM 38/0, 38/3, 38/6, 38/9 → directory 39/1; `test_disk45.sh` checks these bytes), [REL files](https://ist.uwaterloo.ca/~schepers/formats/REL.TXT), [G64](https://ist.uwaterloo.ca/~schepers/formats/G64.TXT), [D2M-DNP](https://ist.uwaterloo.ca/~schepers/formats/D2M-DNP.TXT), [T64](https://ist.uwaterloo.ca/~schepers/formats/T64.TXT), [X64](https://ist.uwaterloo.ca/~schepers/formats/X64.TXT)
+- MEGA65 SD card layout: mega65-core's `docs/sdcard-and-floppy-drive.md` and `docs/MEGA65_System_Partition.md` (the system partition; the configuration sector has since moved to card sector 1, see `src/hyppo/syspart.asm`), `src/utilities/onboard.c`, and [mega65-fdisk](https://github.com/MEGA65/mega65-fdisk); xemu's `targets/mega65/sdcontent.c`
 - [VICE c1541 Manual](https://vice-emu.sourceforge.io/vice_14.html)
 - [DirMaster](https://style64.org/dirmaster)
 - [cc1541](https://manpages.ubuntu.com/manpages/noble/man1/cc1541.1.html)

@@ -167,7 +167,7 @@ not change what is tested; a test's own later `-O` still wins. Use an
 explicit `-O<n>` in ad-hoc test commands too.
 
 - `make test` — unit tests (no emulator).
-- `bash src/test/test_xemu.sh` — runtime tests on xemu (153 pass): each
+- `bash src/test/test_xemu.sh` — runtime tests on xemu (155 pass): each
   `*_xemu.c` writes results to `$C0C0` (01 = pass, `$AA` sentinel), built in
   both conventions. New runtime tests follow this pattern and are registered
   in `test_xemu.sh`.
@@ -321,6 +321,14 @@ D81 (recommended), D65, D80, D82, X64, T64, ARK, ARC/SDA, LNX, P00 and
 transparent `.gz`; read-only D90/D60, CMD (D1M/D2M/D4M/DNP), G64/G71, NIB,
 Zipcode, TAP, CVT. FUSE mount (root directory only), SQLite catalog, batch
 scripts, PETSCII/ASCII filters (`-a2p`, `-p2a`).
+
+`disk45 sd` handles MEGA65 SD card images (`SdCardImage`): `create` lays out
+MBR + FAT32 + system partition ($41) as the MEGA65's FDISK does; files are
+stored contiguously (the MEGA65 mounts only unfragmented D81s), with VFAT
+long names. The hypervisor reads its configuration sector from **card sector
+1** (not the system partition, despite `MEGA65_System_Partition.md`);
+`--onboarded` skips the first-boot onboarding. xemu needs `-defd81fromsd` to
+mount the card's `MEGA65.D81`.
 
 ## References
 

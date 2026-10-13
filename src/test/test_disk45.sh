@@ -247,6 +247,66 @@ $DISK45 add "$TMPDIR/test.d64.gz" "$TMPDIR/d1.prg" GZFILE >/dev/null 2>&1
 $DISK45 list "$TMPDIR/test.d64.gz" | grep -q 'GZFILE' && pass "GZ create+add+list" || fail "GZ create+add+list"
 
 # ============================================================================
+echo "=== MEGA65 SD card images ==="
+
+# sd create lays a card out as the MEGA65's FDISK: MBR (FAT32 from sector
+# 2048, system partition $41 at the end), FDISK's boot sector, the system
+# partition header, the configuration sector in card sector 1
+SD="$TMPDIR/card.img"
+$DISK45 sd create "$SD" 64M >/dev/null 2>&1
+MBR=$(dd if="$SD" bs=1 skip=446 count=32 2>/dev/null | xxd -p | tr -d '\n')
+BOOT=$(dd if="$SD" bs=512 skip=2048 count=1 2>/dev/null | xxd -p | tr -d '\n')
+SYS=$(dd if="$SD" bs=512 skip=67584 count=1 2>/dev/null | head -c 11)
+CFG=$(dd if="$SD" bs=512 skip=1 count=1 2>/dev/null | xxd -p | head -c 12)
+echo "$MBR" | grep -q '^000000000c0000000008000000000100000000004100000000080100' &&
+    [ "${BOOT:0:22}" = "eb58904d45474136357231" ] && [ "${BOOT:1020:4}" = "55aa" ] &&
+    [ "$SYS" = "MEGA65SYS00" ] && [ "$CFG" = "010180410001" ] &&
+    pass "sd create: MBR, boot sector, system partition, configuration" ||
+    fail "sd create layout (MBR $MBR, boot ${BOOT:0:22}, sys $SYS, cfg $CFG)"
+
+head -c 819200 /dev/urandom > "$TMPDIR/sd.d81"
+head -c 5000 /dev/urandom > "$TMPDIR/sd.prg"
+$DISK45 sd add "$SD" "$TMPDIR/sd.d81" MEGA65.D81 >/dev/null 2>&1 &&
+    $DISK45 sd add "$SD" "$TMPDIR/sd.prg" "A Long Name.prg" >/dev/null 2>&1 &&
+    $DISK45 sd mkdir "$SD" GAMES >/dev/null 2>&1 &&
+    $DISK45 sd add "$SD" "$TMPDIR/sd.prg" games/ >/dev/null 2>&1 &&
+    $DISK45 sd extract "$SD" "a long name.prg" "$TMPDIR/sd1.prg" >/dev/null 2>&1 &&
+    $DISK45 sd extract "$SD" GAMES/sd.prg "$TMPDIR/sd2.prg" >/dev/null 2>&1 &&
+    $DISK45 sd extract "$SD" mega65.d81 "$TMPDIR/sd1.d81" >/dev/null 2>&1 &&
+    cmp -s "$TMPDIR/sd1.prg" "$TMPDIR/sd.prg" && cmp -s "$TMPDIR/sd2.prg" "$TMPDIR/sd.prg" &&
+    cmp -s "$TMPDIR/sd1.d81" "$TMPDIR/sd.d81" &&
+    pass "sd add/mkdir/extract (long names, subdirectory)" || fail "sd add/mkdir/extract"
+! $DISK45 sd add "$SD" "$TMPDIR/sd.prg" MEGA65.D81 >/dev/null 2>&1 &&
+    $DISK45 sd add "$SD" "$TMPDIR/sd.prg" MEGA65.D81 -f >/dev/null 2>&1 &&
+    $DISK45 sd list "$SD" | grep -q ' 5000  MEGA65.D81' &&
+    pass "sd add refuses to replace without -f" || fail "sd add -f"
+# a directory over several clusters (long names take several entries)
+for i in $(seq 1 60); do $DISK45 sd add "$SD" "$TMPDIR/sd.prg" "GAMES/game number $i with a long name.prg" >/dev/null 2>&1; done
+$DISK45 sd mv "$SD" "GAMES/game number 7 with a long name.prg" seven.prg >/dev/null 2>&1 &&
+    $DISK45 sd rm "$SD" "GAMES/game number 9 with a long name.prg" >/dev/null 2>&1 &&
+    [ "$($DISK45 sd list "$SD" GAMES | grep -c 'game number')" = "58" ] &&
+    ! $DISK45 sd rm "$SD" GAMES >/dev/null 2>&1 &&
+    $DISK45 sd extract "$SD" "GAMES/game number 60 with a long name.prg" "$TMPDIR/sd60.prg" >/dev/null 2>&1 &&
+    cmp -s "$TMPDIR/sd60.prg" "$TMPDIR/sd.prg" && $DISK45 sd check "$SD" 2>&1 | grep -q '^OK' &&
+    pass "sd mv/rm, a directory over several clusters, check" || fail "sd mv/rm/check"
+if command -v fsck.vfat >/dev/null 2>&1; then
+    dd if="$SD" of="$TMPDIR/p1.fs" bs=512 skip=2048 count=65536 2>/dev/null
+    FSCK=$(fsck.vfat -n "$TMPDIR/p1.fs" 2>&1)
+    echo "$FSCK" | grep -q '64 files' && ! echo "$FSCK" | grep -qiE 'differ|lost|cross|truncat|free cluster summary wrong' &&
+        pass "sd: fsck.vfat accepts the file system" || fail "sd: fsck.vfat ($FSCK)"
+fi
+$DISK45 sd config "$SD" --pal --onboarded --mac 02:11:22:33:44:55 --default-disk games.d81 >/dev/null 2>&1
+CFG=$(dd if="$SD" bs=512 skip=1 count=1 2>/dev/null | xxd -p | tr -d '\n')
+CFG2=$(dd if="$SD" bs=512 skip=67585 count=1 2>/dev/null | xxd -p | tr -d '\n')
+[ "${CFG:0:32}" = "01010041000102112233445500008080" ] && [ "$CFG" = "$CFG2" ] &&
+    $DISK45 sd config "$SD" | grep -q 'Default disk: *games.d81' &&
+    pass "sd config (sector 1 and the system partition copy)" || fail "sd config (${CFG:0:32})"
+SUM=$(md5sum < "$SD")
+! $DISK45 add "$SD" "$TMPDIR/sd.prg" X >/dev/null 2>&1 && [ "$(md5sum < "$SD")" = "$SUM" ] &&
+    $DISK45 list "$SD" 2>&1 | grep -q 'is a MEGA65 SD card image' &&
+    pass "disk image commands refuse an SD card image" || fail "disk image commands on an SD card image"
+
+# ============================================================================
 echo ""
 echo "disk45 tests: $passed passed, $failed failed"
 [ "$failed" -eq 0 ] || exit 1

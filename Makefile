@@ -141,7 +141,7 @@ $(LIB_DIR)/lib45-audio.a: $(addprefix $(OBJ_DIR)/, \
 
 # lib45-tools: Disk utilities, format converters (includes optional FUSE3 support)
 LIB45_TOOLS_OBJS = $(addprefix $(OBJ_DIR)/, \
-    disk45_catalog.o DiskImage.o DiskImageFactory.o BAMOperations.o \
+    disk45_catalog.o disk45_sd.o SdCardImage.o DiskImage.o DiskImageFactory.o BAMOperations.o \
     D64Image.o D71Image.o D81Image.o D65Image.o ArkImage.o ArcImage.o \
     LnxImage.o TapImage.o T64Image.o G64Image.o D80Image.o GeosCvtImage.o \
     P00Image.o X64Image.o ZipcodeImage.o D90Image.o CmdImage.o NibImage.o \

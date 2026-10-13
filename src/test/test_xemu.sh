@@ -635,6 +635,40 @@ else
     failed=$((failed + 1))
 fi
 
+# Test: an SD card image made by disk45: xemu boots from it (the ROM from the
+# card), BASIC reads and writes the card's MEGA65.D81; disk45 then finds the
+# file BASIC wrote. Needs xemu's MEGA65.ROM
+XEMU_ROM="$HOME/.local/share/xemu-lgb/mega65/MEGA65.ROM"
+if [ -f "$XEMU_ROM" ]; then
+    echo "Testing test_disk45_sd_xemu.bas..."
+    SDC=build/test/test_disk45_sd.img
+    rm -f "$SDC" build/test/test_disk45_sd.d81 build/test/test_disk45_sd_back.d81
+    printf 'SDCARD\r' > build/test/test_disk45_sd.seq
+    if ./bin/disk45 sd create "$SDC" 64M --onboarded >/dev/null 2>&1 &&
+       ./bin/disk45 sd add "$SDC" "$XEMU_ROM" MEGA65.ROM >/dev/null 2>&1 &&
+       ./bin/disk45 create build/test/test_disk45_sd.d81 -n SDTEST >/dev/null 2>&1 &&
+       ./bin/disk45 add build/test/test_disk45_sd.d81 build/test/test_disk45_sd.seq HELLO -t seq >/dev/null 2>&1 &&
+       ./bin/disk45 sd add "$SDC" build/test/test_disk45_sd.d81 MEGA65.D81 >/dev/null 2>&1 &&
+       ./bin/basic45 --strict src/test-resources/test_disk45_sd_xemu.bas -o build/test/test_disk45_sd_xemu.prg >/dev/null 2>&1; then
+        run_xemu_test "test_disk45_sd" "build/test/test_disk45_sd_xemu.prg" "C0C0" 3 "01 01 AA" \
+            -sdimg "$PWD/$SDC" -defd81fromsd -romfromsd
+        if ./bin/disk45 sd check "$SDC" 2>&1 | grep -q '^OK' &&
+           ./bin/disk45 sd extract "$SDC" MEGA65.D81 build/test/test_disk45_sd_back.d81 >/dev/null 2>&1 &&
+           ./bin/disk45 list build/test/test_disk45_sd_back.d81 2>&1 | grep -q '"BACK"'; then
+            echo "PASS: disk45 finds the file BASIC wrote on the SD card's D81"
+            passed=$((passed + 1))
+        else
+            echo "FAIL: disk45 reading back the SD card's D81"
+            failed=$((failed + 1))
+        fi
+    else
+        echo "FAIL: test_disk45_sd_xemu.bas (build failed)"
+        failed=$((failed + 1))
+    fi
+else
+    echo "SKIP: test_disk45_sd_xemu.bas (no $XEMU_ROM)"
+fi
+
 # Test: the string functions on strings longer than 255 bytes (strlen, puts
 # and the rest), strcmp's sign; both conventions
 for lsmode in "stack|-fno-zpcall" "zp|"; do

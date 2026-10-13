@@ -23,6 +23,7 @@ extern int disk45_fuse_main(const std::string& imagePath, const std::string& mou
 
 // Forward declaration for catalog (in disk45_catalog.cpp)
 extern int disk45_catalog(int argc, char** argv);
+extern int disk45_sd(int argc, char** argv);
 
 // Forward declaration for FUSE mount (in disk45_fuse.cpp)
 #ifdef HAVE_FUSE3
@@ -72,6 +73,7 @@ static void usage() {
               << "  disk45 rel-read <img> <name> <rec#>       Read REL record\n"
               << "  disk45 rel-write <img> <name> <rec#> <d>  Write REL record\n"
               << "  disk45 rel-list <img> <name>              List REL records\n"
+              << "  disk45 sd <command> <card.img> ...      MEGA65 SD card images (disk45 sd --help)\n"
               << "  disk45 catalog build <dir>... [--db file]  Index image collection\n"
               << "  disk45 catalog search <pattern> [--db f]  Search indexed files\n"
               << "  disk45 catalog list [--db file]           List indexed images\n"
@@ -2192,6 +2194,7 @@ static int processCommand(int argc, char** argv) {
     }
 #endif
     if (cmd == "catalog")    return disk45_catalog(subArgc, subArgv);
+    if (cmd == "sd")         return disk45_sd(subArgc, subArgv);
     if (cmd == "convert")    return cmdConvert(subArgc, subArgv);
     if (cmd == "dir-shrink") return cmdDirShrink(subArgc, subArgv);
     if (cmd == "dir-ensure") return cmdDirEnsure(subArgc, subArgv);
