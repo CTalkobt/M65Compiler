@@ -140,6 +140,13 @@ const ir::Inst* IRCodeGen::peekNextInst() const {
 }
 
 void IRCodeGen::emit(const std::string& line, const std::string& reason) {
+    if (staleFlags_ && line.size() >= 3) {
+        std::string m = line.substr(0, 3);
+        std::transform(m.begin(), m.end(), m.begin(), ::tolower);
+        if ((m == "beq" || m == "bne" || m == "bmi" || m == "bpl") &&
+            (line.size() == 3 || line[3] == ' ' || line[3] == '\t'))
+            restoreFlags();
+    }
     if (line.rfind(".segment", 0) == 0)
         inBss_ = line.find("\"bss\"") != std::string::npos;
     else if (inBss_ && !line.empty() && line[0] != ';' &&
@@ -150,6 +157,7 @@ void IRCodeGen::emit(const std::string& line, const std::string& reason) {
         out_ << "  ; [" << reason << "]";
     }
     out_ << "\n";
+    noteEmitted(line);
 
     // Phase 78: Track instruction offset for SMC parameter access recording
     // Estimate instruction size based on addressing mode patterns
@@ -221,9 +229,47 @@ bool IRCodeGen::vregUsedOutside(uint32_t id, const ir::Inst* a, const ir::Inst* 
     return false;
 }
 
+void IRCodeGen::restoreFlags() {
+    char r = staleFlags_;
+    staleFlags_ = 0;
+    if (r == 'A') emit("ora #0", "N/Z of a dropped load");
+    else if (r == 'X') { emit("inx", "N/Z of a dropped load"); emit("dex"); }
+}
+
 void IRCodeGen::emitLabel(const std::string& label) {
+    if (staleFlags_) restoreFlags();  // the fall-through path
     if (inBss_) bssBoundaryClean_ = false;
     out_ << label << ":\n";
+    emitSeq_++;       // a branch target: nothing is known here
+    flagReg_ = 0;
+}
+
+// The store-then-load cache's view of an emitted line: every instruction
+// counts; the N/Z flags follow the native instructions that set them from a
+// register, stores and pushes leave them, anything else (compare, call,
+// simulated instruction, ...) makes them unknown. Directives and comments
+// change nothing.
+void IRCodeGen::noteEmitted(const std::string& line) {
+    if (line.empty() || line[0] == '.' || line[0] == ';') return;
+    size_t sp = line.find_first_of(" \t");
+    std::string m = line.substr(0, sp);
+    std::transform(m.begin(), m.end(), m.begin(), ::tolower);
+    std::string arg = sp == std::string::npos ? "" : line.substr(line.find_first_not_of(" \t", sp));
+    if (!m.empty() && m.back() == ':') { emitSeq_++; flagReg_ = 0; return; }  // a label line
+    emitSeq_++;
+    static const std::set<std::string> setsA = {"lda", "pla", "txa", "tya", "tza", "and", "ora", "eor",
+                                                "adc", "sbc", "neg"};
+    static const std::set<std::string> keeps = {"sta", "stx", "sty", "stz", "pha", "phx", "phy", "phz",
+                                                "clc", "sec", "cli", "sei", "cld", "sed", "clv", "nop"};
+    if (!keeps.count(m)) staleFlags_ = 0;  // the flags are set anew
+    if (setsA.count(m)) flagReg_ = 'A';
+    else if ((m == "asl" || m == "lsr" || m == "rol" || m == "ror" || m == "inc" || m == "dec") &&
+             (arg.empty() || arg == "a"))
+        flagReg_ = 'A';
+    else if (m == "ldx" || m == "tax" || m == "inx" || m == "dex" || m == "plx" || m == "tsx") flagReg_ = 'X';
+    else if (m == "ldy" || m == "tay" || m == "iny" || m == "dey" || m == "ply" || m == "tsy") flagReg_ = 'Y';
+    else if (m == "ldz" || m == "taz" || m == "inz" || m == "dez" || m == "plz") flagReg_ = 'Z';
+    else if (!keeps.count(m)) flagReg_ = 0;
 }
 
 void IRCodeGen::emitComment(const std::string& text) {
@@ -406,14 +452,19 @@ void IRCodeGen::loadVreg(uint32_t vregId) {
             std::stringstream ss;
             ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << alloc.offset;
             std::string zpAddr = ss.str();
+            bool cached = justStored(vregId);  // A (and X) hold it already
             if (alloc.type == ir::Type::I8) {
-                emit("lda " + zpAddr, r);
+                if (!cached) emit("lda " + zpAddr, r);
                 emit("ldx #0", "zext I8→I16");
             } else if (alloc.type == ir::Type::I32) {
                 // LDQ base-page (LDZ has no base-page mode)
                 emit("ldq " + zpAddr, r);
             } else {
-                emit("lda " + zpAddr, r);
+                if (cached && storeCache_.xValid) {
+                    if (flagReg_ != 'X') { staleFlags_ = 'X'; flagReg_ = 'X'; }
+                    break;
+                }
+                if (!cached) emit("lda " + zpAddr, r);
                 ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)(alloc.offset + 1);
                 emit("ldx " + ss.str(), r);
             }
@@ -439,14 +490,23 @@ void IRCodeGen::loadVreg(uint32_t vregId) {
                         recordParameterAccess((int)vregId, ir::typeSize(alloc.type));
                     }
 
+                    bool cached = justStored(vregId);  // A (and X) hold it already
                     if (alloc.type == ir::Type::I32) {
                         emit("lda " + storageSymbol, r);
                         emit("ldx " + storageSymbol + "+1", r);
                         emit("ldy " + storageSymbol + "+2", r);
                         emit("ldz " + storageSymbol + "+3", r);
                     } else if (alloc.type == ir::Type::I8) {
-                        emit("lda " + storageSymbol, r);
+                        if (cached) {
+                            if (flagReg_ != 'A') { staleFlags_ = 'A'; flagReg_ = 'A'; }
+                        } else {
+                            emit("lda " + storageSymbol, r);
+                        }
                     } else {
+                        if (cached) {
+                            if (flagReg_ != 'X') { staleFlags_ = 'X'; flagReg_ = 'X'; }
+                            break;
+                        }
                         emit("lda " + storageSymbol, r);
                         emit("ldx " + storageSymbol + "+1", r);
                     }
@@ -496,6 +556,10 @@ void IRCodeGen::loadVregA(uint32_t vregId) {
             }
             break;
         case VRegAllocator::IN_ZP: {
+            if (justStored(vregId)) {  // A holds it
+                if (flagReg_ != 'A') { staleFlags_ = 'A'; flagReg_ = 'A'; }
+                break;
+            }
             std::stringstream ss;
             ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << alloc.offset;
             emit("lda " + ss.str(), r);
@@ -503,6 +567,10 @@ void IRCodeGen::loadVregA(uint32_t vregId) {
         }
         case VRegAllocator::IN_FRAME:
             if (vregOffset_.count(vregId)) {
+                if (currentFunctionUseSAC_ && justStored(vregId)) {
+                    if (flagReg_ != 'A') { staleFlags_ = 'A'; flagReg_ = 'A'; }
+                    break;
+                }
                 if (currentFunctionUseSAC_) {
                     std::string storageSymbol;
                     if (vregId < currentFn_->paramTypes.size()) {
@@ -527,6 +595,21 @@ void IRCodeGen::loadVregA(uint32_t vregId) {
 }
 
 void IRCodeGen::storeVreg(uint32_t vregId) {
+    // a 16-bit ZP value whose bytes are equal is stored from A twice: X is
+    // then not known to hold the high byte
+    bool xValid = !ms_.regsEqual(REG_A, REG_X);
+    storeVregEmit(vregId);
+    // A (and X) still hold the value for an I8/I16 stored from A/X
+    auto alloc = alloc_.getAlloc(vregId);
+    bool fromAX = alloc.type == ir::Type::I8 ||
+                  (alloc.type != ir::Type::I32 && (alloc.loc == VRegAllocator::IN_ZP ||
+                                                   (alloc.loc == VRegAllocator::IN_FRAME && valueByte_[1] != REG_Z)));
+    if (fromAX && (alloc.loc == VRegAllocator::IN_ZP ||
+                   (alloc.loc == VRegAllocator::IN_FRAME && currentFunctionUseSAC_)))
+        storeCache_ = {vregId, emitSeq_, xValid || alloc.loc != VRegAllocator::IN_ZP};
+}
+
+void IRCodeGen::storeVregEmit(uint32_t vregId) {
     auto alloc = alloc_.getAlloc(vregId);
     std::string r = "storeVreg " + vregDesc(vregId);
     switch (alloc.loc) {

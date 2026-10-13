@@ -486,16 +486,22 @@ bool AssemblerOptimizer::optimizeInternal(
             // --- CMP #0 elimination ---
             if (parser->optFlags.cmpElimination && m == "CMP" && isImm && hasNumVal && numVal == 0) {
                 if (ms.flags.flagsReflect(REG_A)) {
-                    size_t j = i + 1;
-                    while (j < parser->statements.size() && parser->statements[j]->deleted) ++j;
+                    // CMP #0 also sets C: unsafe when the carry is read before
+                    // anything else sets it — by a BCC/BCS anywhere in the run of
+                    // branches that follows, or by the instruction after them
                     bool safeToElim = true;
-                    if (j < parser->statements.size()) {
+                    for (size_t j = i + 1; j < parser->statements.size(); ++j) {
                         auto* next = parser->statements[j].get();
-                        if (next->type == AssemblerParser::Statement::INSTRUCTION) {
-                            std::string nm = next->instr.mnemonic;
-                            std::transform(nm.begin(), nm.end(), nm.begin(), ::toupper);
-                            if (nm == "BCC" || nm == "BCS") safeToElim = false;
-                        }
+                        if (next->deleted) continue;
+                        if (next->type != AssemblerParser::Statement::INSTRUCTION) break;
+                        std::string nm = next->instr.mnemonic;
+                        std::transform(nm.begin(), nm.end(), nm.begin(), ::toupper);
+                        if (nm == "BEQ" || nm == "BNE" || nm == "BMI" || nm == "BPL" ||
+                            nm == "BVS" || nm == "BVC") continue;
+                        static const char* readsC[] = {"BCC", "BCS", "ADC", "SBC", "ROL", "ROR",
+                            "PHP", "ADCQ", "SBCQ", "ROLQ", "RORQ", "ROW"};
+                        for (auto* r : readsC) if (nm == r) safeToElim = false;
+                        break;
                     }
                     if (safeToElim) {
                         report("cmp-elim", s, "CMP #0 eliminated (flags already set from load)");

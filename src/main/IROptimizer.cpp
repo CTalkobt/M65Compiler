@@ -688,6 +688,8 @@ void optimizeCopyChains(Module& mod) {
 // Type Narrowing (I16/I32 → I8)
 // ============================================================================
 
+static void forwardNarrowing(Function& fn);
+
 void optimizeTypeNarrowing(Module& mod) {
     for (auto& fn : mod.functions) {
         if (!runOn(fn, "TypeNarrowing")) continue;
@@ -773,6 +775,10 @@ void optimizeTypeNarrowing(Module& mod) {
             }
         }
 
+        // Pass 1b: operations on zero-extended bytes on the bytes; constant
+        // operands as immediates
+        forwardNarrowing(fn);
+
         // Pass 2: Eliminate redundant ZEXT/SEXT where the extended value is
         // only used in I8 context (TRUNC back to I8)
         for (auto& block : fn.blocks) {
@@ -800,6 +806,156 @@ void optimizeTypeNarrowing(Module& mod) {
                         u.inst->src1.type = Type::I8;
                     }
                 }
+            }
+        }
+    }
+}
+
+// Forward narrowing and constant operands (part of TypeNarrowing).
+//
+// C promotes a byte to int before & | ^ and comparisons, so `flags & 1` or
+// `c == 'a'` arrive as 16-bit operations on zero-extended bytes, with the
+// constant in a vreg of its own. Here:
+// - a ZEXT of a constant becomes a wider constant;
+// - a vreg defined by one CONST becomes an immediate second operand of the
+//   ops IRCodeGen takes immediates for (commutative ops with a constant first
+//   operand are swapped);
+// - AND/OR/XOR of zero-extended bytes (or a byte and a constant) are computed
+//   on the bytes and zero-extended once: %t = op i8 a, b ; %d = zext %t;
+// - comparisons of zero-extended bytes (and constants 0..255) compare the
+//   bytes (unsigned: zero-extended values are never negative);
+// - a branch on a zero-extended byte tests the byte.
+// A vreg counts as fixed only with exactly one definition and no STORE to it
+// (the IR is not SSA).
+static void forwardNarrowing(Function& fn) {
+    std::map<uint32_t, int> defCount;
+    std::set<uint32_t> storedTo;
+    for (auto& block : fn.blocks)
+        for (auto& inst : block.insts) {
+            if (inst.dest.isVreg()) defCount[inst.dest.vregId]++;
+            if ((inst.op == Op::STORE || inst.op == Op::STORE_ZP) && inst.src2.isVreg())
+                storedTo.insert(inst.src2.vregId);
+        }
+    auto single = [&](uint32_t v) {
+        auto it = defCount.find(v);
+        return it != defCount.end() && it->second == 1 && !storedTo.count(v) && !fn.localSlotVregs.count(v);
+    };
+    // the one definition of each single-def vreg
+    std::map<uint32_t, Inst*> def;
+    for (auto& block : fn.blocks)
+        for (auto& inst : block.insts)
+            if (inst.dest.isVreg() && single(inst.dest.vregId)) def[inst.dest.vregId] = &inst;
+    auto constOf = [&](const Operand& o, int64_t& v) -> bool {
+        if (o.isImm()) { v = o.immVal; return true; }
+        if (!o.isVreg()) return false;
+        auto it = def.find(o.vregId);
+        if (it == def.end() || it->second->op != Op::CONST || !it->second->src1.isImm()) return false;
+        v = it->second->src1.immVal;
+        return true;
+    };
+    // a zero-extended byte: the I8 source vreg
+    auto zextByte = [&](const Operand& o, Operand& src) -> bool {
+        if (!o.isVreg()) return false;
+        auto it = def.find(o.vregId);
+        if (it == def.end() || it->second->op != Op::ZEXT) return false;
+        const Operand& s1 = it->second->src1;
+        if (!s1.isVreg() || s1.type != Type::I8) return false;
+        src = s1;
+        return true;
+    };
+    auto isInt = [](Type t) { return t == Type::I8 || t == Type::I16 || t == Type::I32; };
+
+    // 1. ZEXT of a constant: a wider constant
+    for (auto& block : fn.blocks)
+        for (auto& inst : block.insts) {
+            int64_t v;
+            if (inst.op == Op::ZEXT && inst.dest.isVreg() && isInt(inst.resultType) && constOf(inst.src1, v) &&
+                inst.src1.type == Type::I8) {
+                inst.op = Op::CONST;
+                inst.src1 = Operand::imm(v & 0xFF, inst.resultType);
+            }
+        }
+
+    // 2. narrowing of AND/OR/XOR, comparisons, branches
+    for (auto& block : fn.blocks) {
+        for (size_t i = 0; i < block.insts.size(); i++) {
+            Inst& inst = block.insts[i];
+            bool bitwise = inst.op == Op::AND || inst.op == Op::OR || inst.op == Op::XOR;
+            bool cmp = inst.op >= Op::CMP_EQ && inst.op <= Op::CMP_GEU;
+            if (inst.op == Op::BR_COND) {
+                Operand b;
+                if (zextByte(inst.src1, b)) inst.src1 = b;
+                continue;
+            }
+            if (!bitwise && !cmp) continue;
+            if (inst.src1.type != Type::I16 && inst.src1.type != Type::I32) continue;
+            Operand a, b;
+            int64_t k;
+            bool aByte = zextByte(inst.src1, a);
+            bool bByte = zextByte(inst.src2, b);
+            bool bConst = constOf(inst.src2, k);
+            if (!aByte) continue;
+            if (!bByte) {
+                if (!bConst) continue;
+                if (inst.op == Op::AND) k &= 0xFF;          // the high bits of a are 0
+                else if (k < 0 || k > 0xFF) continue;
+                b = Operand::imm(k, Type::I8);
+            }
+            if (cmp) {
+                // zero-extended values compare as unsigned bytes
+                switch (inst.op) {
+                    case Op::CMP_LT: inst.op = Op::CMP_LTU; break;
+                    case Op::CMP_LE: inst.op = Op::CMP_LEU; break;
+                    case Op::CMP_GT: inst.op = Op::CMP_GTU; break;
+                    case Op::CMP_GE: inst.op = Op::CMP_GEU; break;
+                    default: break;
+                }
+                inst.src1 = a;
+                inst.src2 = b;
+                trace("narrow", fn.name, "compare of zero-extended bytes on the bytes", inst.loc);
+                continue;
+            }
+            if (!inst.dest.isVreg() || fn.localSlotVregs.count(inst.dest.vregId)) continue;
+            if (inst.resultType == Type::I8) {
+                // the result is a byte already: only the operands change
+                inst.src1 = a;
+                inst.src2 = b;
+                continue;
+            }
+            // %t = op i8 a, b ; %d = zext %t
+            uint32_t t = fn.allocVreg();
+            Inst narrow = inst;
+            narrow.dest = Operand::vreg(t, Type::I8);
+            narrow.resultType = Type::I8;
+            narrow.src1 = a;
+            narrow.src2 = b;
+            Inst ext;
+            ext.op = Op::ZEXT;
+            ext.dest = inst.dest;
+            ext.resultType = inst.resultType;
+            ext.src1 = Operand::vreg(t, Type::I8);
+            ext.loc = inst.loc;
+            trace("narrow", fn.name, "v" + std::to_string(inst.dest.vregId) + " computed on bytes", inst.loc);
+            block.insts[i] = ext;
+            block.insts.insert(block.insts.begin() + i, narrow);
+            i++;
+        }
+    }
+
+    // 3. constant second operands as immediates
+    for (auto& block : fn.blocks) {
+        for (auto& inst : block.insts) {
+            bool commutative = inst.op == Op::ADD || inst.op == Op::AND || inst.op == Op::OR ||
+                               inst.op == Op::XOR || inst.op == Op::CMP_EQ || inst.op == Op::CMP_NE;
+            bool takesImm = commutative || inst.op == Op::SUB || inst.op == Op::SHL || inst.op == Op::SHR ||
+                            inst.op == Op::ASR || (inst.op >= Op::CMP_EQ && inst.op <= Op::CMP_GEU);
+            if (!takesImm || (!isInt(inst.src1.type) && inst.src1.type != Type::PTR)) continue;
+            int64_t v;
+            if (commutative && !inst.src2.isImm() && constOf(inst.src1, v) && inst.src2.isVreg())
+                std::swap(inst.src1, inst.src2);
+            if (inst.src2.isVreg() && constOf(inst.src2, v)) {
+                Type t = inst.src2.type;
+                inst.src2 = Operand::imm(v, t);
             }
         }
     }

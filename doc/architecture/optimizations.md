@@ -41,7 +41,7 @@ with `./bin/cc45` (see [Checking it yourself](#checking-it-yourself)).
 | `repeat(N) { ... }` | Body is emitted N times | Always unrolled (language construct) |
 | Static Allocation Convention (SAC) | Locals/params of non-recursive functions in static BSS records instead of a stack frame | `-fstaticalloc` (default) / `-fno-staticalloc`; see `calling-conventions.md` |
 | ZP calling convention | Parameters in ZP `$10-$2F` | `-fzpcall` (default) / `-fno-zpcall` |
-| Code generation (`IRCodeGen`) | Store-fused 16-bit add/sub, single-bit `AND` + branch → `BBS`/`BBR`, fused compare-and-branch, CONST suppression, constant-address direct stores, per-function `.reg_clobbers`/`.flag_clobbers`/`leaf` metadata | Always on, not tied to `-O` |
+| Code generation (`IRCodeGen`) | Store-fused 16-bit add/sub, a load of a value right after it was stored is dropped (the registers still hold it; `ora #0`/`inx`+`dex` restores the flags before a branch that needs them; `CC45_NO_STORECACHE=1` turns it off), single-bit `AND` + branch → `BBS`/`BBR`, fused compare-and-branch, CONST suppression, constant-address direct stores, per-function `.reg_clobbers`/`.flag_clobbers`/`leaf` metadata | Always on, not tied to `-O` |
 | Assembler peephole (`ca45`) | Branch inversion, JMP→BRA, redundant loads, tail calls, … (table below) | ca45 `-O`/`-P` options; from cc45, five of them through `-f[no-]<name>` |
 
 From `-O4`, counted `for` loops are unrolled and suitable nests interchanged;
@@ -62,7 +62,7 @@ every function for which the pass is on (`-O1` and up, unless switched off).
 | `loop-unrolling` (from `-O4`) | `unroll` | See [Loop unrolling](#loop-unrolling). Runs first, so the other passes fold its constants |
 | `strength-reduction` | `strength` | `x * 2^n` → shift, unsigned `x / 2^n` → shift, unsigned `x % 2^n` → `AND`, `x * 1` → copy (signed division is left alone: it rounds toward zero) |
 | `algebraic-simplify` | `algebraic` | `x + 0`, `x - 0`, `x * 1`, `x | 0`, `x ^ 0`, `x << 0`, `x & -1` → `x`; `x * 0`, `x & 0` → 0; `x - x` → 0; an element address with a constant index on a global or pointer base → base + constant |
-| `type-narrowing` | `narrow` | An `ADD`/`MUL`/`AND`/`OR`/`XOR`/`SHL`/`NOT` whose result is only used through a truncation to 8 bits is computed in 8 bits |
+| `type-narrowing` | `narrow` | An `ADD`/`MUL`/`AND`/`OR`/`XOR`/`SHL`/`NOT` whose result is only used through a truncation to 8 bits is computed in 8 bits. Forward: a `ZEXT` of a constant becomes the constant; `AND`/`OR`/`XOR` and comparisons of zero-extended bytes (or a byte and a constant that fits) are done in 8 bits; a branch on a zero-extended byte tests the byte; a single-definition constant vreg becomes an immediate operand of `ADD`/`SUB`/`AND`/`OR`/`XOR`/shifts/comparisons |
 | `branch-folding` | `branch` | Removes instructions after a block's terminator, folds branches on constants, threads jumps to blocks that only jump, removes unreachable blocks |
 | `cse` | `cse` | Within a block, a repeated pure expression reuses the earlier result; copy propagation of temporaries. Forgets an expression when an operand is reassigned, and on stores through pointers, calls and inline asm |
 | `loop-invariant-code-motion` | `licm` | Moves pure computations whose operands don't change in the loop to a pre-header. A variable whose address is taken counts as changed when the loop calls a function, stores through a pointer or contains asm |
@@ -246,7 +246,7 @@ order after `-O`). `-Roptimizer` prints every change
 | `JmpBra` | `jmp-bra` | `JMP` → `BRA` when in range |
 | `JSRRelocate` | `jsr-bsr` | `JSR` → `BSR` when the target is a resolved, non-relocatable label within ±32 KB (rare in `-c` objects) |
 | `DeadStore` | `dead-store` | Removes dead `STW.SP` stores |
-| `CmpElimination` | `cmp-elim` | Removes `CMP #0` when flags already reflect the value |
+| `CmpElimination` | `cmp-elim` | Removes `CMP #0` when flags already reflect the value — not when the carry it sets is read (`BCC`/`BCS` in the branches that follow, or `ADC`/`SBC`/`ROL`/`ROR`/`PHP` after them) |
 | `FCmpOpt` | `fcmp-opt` | Float compare result tests (`CMP #$FF` → `BMI`/`BPL`) |
 | `RedundantLoad` | `redundant-load` | Removes `LDA/LDX/LDY/LDZ` when the register already holds the value |
 | `StoreLoadPair` | `store-load-pair` | Store/load pair simplification on ZP |

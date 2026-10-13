@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdlib>
 #include "IR.hpp"
 #include "VRegAllocator.hpp"
 #include "MachineState.hpp"
@@ -380,6 +381,22 @@ private:
     std::map<int, std::pair<std::string, int>> lineToFileMap_; // Maps abs line to (filename, lineOffset)
     std::map<std::string, const ir::Function*> functionMap_;
     MachineState ms_;        // register/flag value tracking for codegen optimizations
+
+    // Store-then-load cache: storeVreg leaves the value in A (and X); a load
+    // of the same vreg emitted right after it (no instruction in between) is
+    // dropped, as far as the registers and the N/Z flags stay as the load
+    // would leave them. emitSeq_ counts emitted instructions and labels;
+    // flagReg_ is the register the N/Z flags reflect ('A', 'X', 'Y', 'Z' or 0).
+    uint64_t emitSeq_ = 0;
+    char flagReg_ = 0;
+    struct StoreCache { uint32_t vreg = UINT32_MAX; uint64_t seq = ~0ULL; bool xValid = true; } storeCache_;  // xValid: X holds the high byte (stored with stx)
+    bool justStored(uint32_t vregId) const { static bool off = getenv("CC45_NO_STORECACHE") != nullptr; return !off && storeCache_.vreg == vregId && storeCache_.seq == emitSeq_; }
+    // A dropped load would have set N/Z from this register ('A' or 'X'): a
+    // conditional branch or a label (fall through) gets ora #0 / inx+dex first
+    char staleFlags_ = 0;
+    void restoreFlags();
+    void noteEmitted(const std::string& line);
+    void storeVregEmit(uint32_t vregId);
 
     // Phase 97.5: Track which symbols are in __zp address space
     // Maps symbol name → addressSpace (1 for __zp, 0 for normal)
