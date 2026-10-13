@@ -8,14 +8,15 @@
  * Phase 2 of FILE I/O implementation
  */
 
+/* Written for standard C signedness (int results compared with < 0) */
+#pragma cc45 signed_default
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
 #include <string.h>
 
 /* Forward declarations - these exist in stdlib */
-extern int vprintf(const char *format, va_list ap);
-extern int vsprintf(char *str, const char *format, va_list ap);
 extern int vfscanf(FILE *stream, const char *format, va_list ap);
 
 /* ============================================================================
@@ -98,25 +99,22 @@ int fputs(const char *s, FILE *stream) {
  *
  * Returns: number of characters written, or -1 on error
  */
+int __vformat(void (*put)(int c, void *ctx), void *ctx, char *fmt, va_list ap,
+              int (*ffmt)(char *, float, int, int, int));
+
+/* Writes a character to the FILE given as the context */
+static void vf_file_put(int c, void *ctx) {
+    fputc(c, (FILE *)ctx);
+}
+
 int vfprintf(FILE *stream, const char *format, va_list ap) {
-    if (!stream || !format) {
+    if (!stream || !format || !(stream->flags & _IOWRITE)) {
         return -1;
     }
-
-    /* Use a stack buffer for formatting (1KB max) */
-    char buffer[1024];
-
-    /* Format into buffer using vsprintf */
-    int n = vsprintf(buffer, format, ap);
-
-    if (n < 0) {
-        return -1;
-    }
-
-    /* Write buffer to stream */
-    int written = fwrite(buffer, 1, n, stream);
-
-    return written;
+    unsigned char err = stream->flags & _IOERR;
+    int n = __vformat(vf_file_put, stream, (char *)format, ap, 0);
+    if (!err && (stream->flags & _IOERR)) return -1;
+    return n;
 }
 
 /**
@@ -188,89 +186,4 @@ int fscanf(FILE *stream, const char *format, ...) {
 /* ============================================================================
  * FILE POSITIONING
  * ============================================================================ */
-
-/**
- * fseek - Seek to position in file
- *
- * Sets the file position indicator for the stream.
- * Limited support on Commodore (sequential files don't support seeking).
- *
- * Returns: 0 on success, -1 on error
- */
-int fseek(FILE *stream, long offset, int whence) {
-    if (!stream) {
-        return -1;
-    }
-
-    /* TODO: Implement seeking via CBM_SEEK
-     * Commodore file seeking is limited:
-     * - Sequential files (.seq) don't support seeking
-     * - Relative files (.rel) support seeking
-     * - Would need device-specific commands
-     */
-
-    return -1;  /* Not supported */
-}
-
-/**
- * ftell - Get current file position
- *
- * Returns the current position in the file.
- * Not reliably supported on Commodore drives.
- *
- * Returns: current position, or -1L on error
- */
-long ftell(FILE *stream) {
-    if (!stream) {
-        return -1L;
-    }
-
-    /* Return tracked position from FILE structure */
-    return (long)stream->position;
-}
-
-/**
- * rewind - Seek to beginning of file
- *
- * Sets position to start of file and clears error/EOF flags.
- */
-void rewind(FILE *stream) {
-    if (!stream) {
-        return;
-    }
-
-    fseek(stream, 0L, SEEK_SET);
-    clearerr(stream);
-}
-
-/**
- * fgetpos - Get current file position
- *
- * Stores current position in fpos_t variable.
- *
- * Returns: 0 on success, -1 on error
- */
-int fgetpos(FILE *stream, fpos_t *pos) {
-    if (!stream || !pos) {
-        return -1;
-    }
-
-    *pos = stream->position;
-    return 0;
-}
-
-/**
- * fsetpos - Set file position
- *
- * Sets position from fpos_t variable.
- *
- * Returns: 0 on success, -1 on error
- */
-int fsetpos(FILE *stream, const fpos_t *pos) {
-    if (!stream || !pos) {
-        return -1;
-    }
-
-    return fseek(stream, (long)*pos, SEEK_SET);
-}
 

@@ -14,6 +14,8 @@
 
 class D90Image : public DiskImage {
 public:
+    bool writable() const override { return false; }
+    bool canCreateBlank() const override { return true; }   // create: a blank image
     D90Image(bool is9090 = true) : is9090_(is9090) {}
 
     void format(const std::string& diskName = "", const std::string& diskId = "CC") override;

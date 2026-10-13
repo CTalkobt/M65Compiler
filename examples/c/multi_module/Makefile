@@ -15,6 +15,7 @@ ROOT = ../../..
 CC45 = $(ROOT)/bin/cc45
 LN45 = $(ROOT)/bin/ln45
 OBJDUMP = $(ROOT)/bin/objdump45
+CRT0 = $(ROOT)/lib/build/crt0.o45
 STDLIB = $(ROOT)/lib/build/c45.lib
 INCLUDES = -I$(ROOT)/lib/include
 
@@ -30,7 +31,7 @@ all: $(TARGET)
 	$(CC45) $(INCLUDES) -c $< -o $@
 
 $(TARGET): $(OBJECTS) $(STDLIB)
-	$(LN45) -basic -o $(TARGET) $(OBJECTS) $(STDLIB)
+	$(LN45) -basic -o $(TARGET) $(CRT0) $(OBJECTS) $(STDLIB)
 
 disasm: $(OBJECTS)
 	@for obj in $(OBJECTS); do \

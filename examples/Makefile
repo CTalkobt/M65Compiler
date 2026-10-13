@@ -10,7 +10,8 @@ SUBDIRS = \
 	c/unit_convert \
 	c/stdlib/string_h \
 	c/stdlib/stdlib_h \
-	c/stdlib/ctype_h
+	c/stdlib/ctype_h \
+	basic/c_routines
 
 
 ##	c/text_scroller \

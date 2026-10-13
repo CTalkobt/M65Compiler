@@ -1,3 +1,4 @@
+#include "LinkerLog.hpp"
 #include "CrossModuleOptimizer.hpp"
 #include <iostream>
 #include <sstream>
@@ -11,14 +12,14 @@ void CrossModuleOptimizer::analyzeSpecializations(const O45Linker& linker) {
     // This phase leverages the linker's existing specialization analysis
     // infrastructure to identify opportunities across module boundaries.
 
-    std::cerr << "[Phase 91.4] Analyzing cross-module specialization opportunities...\n";
+    ln45info() << "[Phase 91.4] Analyzing cross-module specialization opportunities...\n";
 
     // Get linker's analysis results
     const auto& funcAttrs = linker.getFuncAttrs();
     const auto& callGraph = linker.getCallGraph();
     const auto& specializedParams = linker.getSpecializedParams();
 
-    std::cerr << "[Phase 91.4] Linker analysis: "
+    ln45info() << "[Phase 91.4] Linker analysis: "
               << funcAttrs.size() << " functions, "
               << callGraph.size() << " call graph edges\n";
 
@@ -29,7 +30,7 @@ void CrossModuleOptimizer::analyzeSpecializations(const O45Linker& linker) {
     identifyOpportunities(linker);
 
     int totalCandidates = candidates_.size();
-    std::cerr << "[Phase 91.4] Found " << totalCandidates
+    ln45info() << "[Phase 91.4] Found " << totalCandidates
               << " potential specialization candidate(s)\n";
 
     // Update metrics
@@ -44,11 +45,11 @@ void CrossModuleOptimizer::generateCallRouting(const O45Linker& linker) {
     // This determines which calls should be routed to specialized versions
     // and how the routing should be performed (direct call vs dispatcher).
 
-    std::cerr << "[Phase 91.4] Generating cross-module call routing decisions...\n";
+    ln45info() << "[Phase 91.4] Generating cross-module call routing decisions...\n";
 
     generateRoutingDecisions(linker);
 
-    std::cerr << "[Phase 91.4] Generated " << routingDecisions_.size()
+    ln45info() << "[Phase 91.4] Generated " << routingDecisions_.size()
               << " call routing decision(s)\n";
 }
 
@@ -58,7 +59,7 @@ void CrossModuleOptimizer::createDispatchers(O45Linker& linker) {
     // For functions with multiple specialization patterns, generate dispatcher
     // stubs that route to the appropriate specialized variant based on arguments.
 
-    std::cerr << "[Phase 91.4] Creating dispatcher stubs for multi-specialization...\n";
+    ln45info() << "[Phase 91.4] Creating dispatcher stubs for multi-specialization...\n";
 
     // Count functions with multiple specialization patterns
     std::map<std::string, int> specializationCounts;
@@ -74,7 +75,7 @@ void CrossModuleOptimizer::createDispatchers(O45Linker& linker) {
     }
 
     if (dispatchersNeeded > 0) {
-        std::cerr << "[Phase 91.4] Dispatcher stubs needed for " << dispatchersNeeded
+        ln45info() << "[Phase 91.4] Dispatcher stubs needed for " << dispatchersNeeded
                   << " function(s) with multiple specialization patterns\n";
 
         // Note: Full dispatcher generation delegated to linker phase 56
@@ -136,7 +137,7 @@ void CrossModuleOptimizer::analyzeParameterPatterns(const O45Linker& linker) {
         }
     }
 
-    std::cerr << "[Phase 91.4] Analyzed " << parameterPatterns_.size()
+    ln45info() << "[Phase 91.4] Analyzed " << parameterPatterns_.size()
               << " functions with constant parameters\n";
 }
 

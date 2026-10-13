@@ -1,0 +1,106 @@
+; memmove.s — Copy memory area, overlap-safe (ZP calling convention)
+;
+; void *memmove(void *dest, void *src, int n);
+;   Copies n bytes from src to dest. Handles overlapping areas.
+
+.global _memmove
+
+.segment "code"
+
+proc _memmove
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .zp_clobbers $10, $11, $12, $13, $14, $15
+    .zp_release $12, $13, $14, $15
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+
+    ; dest=$10/$11, src=$12/$13, n=$14/$15
+    lda $14
+    ora $15
+    beq @done
+
+    ; Compare dest vs src to decide direction
+    lda $11
+    cmp $13
+    bcc @forward
+    bne @backward
+    lda $10
+    cmp $12
+    bcc @forward
+    beq @done
+
+@backward:
+    ; Point both pointers to last byte: base + n - 1
+    lda $14
+    sec
+    sbc #1
+    tay
+    lda $15
+    sbc #0
+    ; Add (n-1) to dest
+    tya
+    clc
+    adc $10
+    sta $10
+    lda $15
+    adc $11
+    sta $11
+    ; Add (n-1) to src
+    tya
+    clc
+    adc $12
+    sta $12
+    lda $15
+    adc $13
+    sta $13
+    ldy #0
+@back_loop:
+    lda $14
+    ora $15
+    beq @done
+    lda ($12),y
+    sta ($10),y
+    ; Decrement pointers
+    lda $10
+    bne @no_borrow_d
+    dec $11
+@no_borrow_d:
+    dec $10
+    lda $12
+    bne @no_borrow_s
+    dec $13
+@no_borrow_s:
+    dec $12
+    ; Decrement count
+    lda $14
+    bne @dec_back
+    dec $15
+@dec_back:
+    dec $14
+    bra @back_loop
+
+@forward:
+    ldy #0
+@fwd_loop:
+    lda $14
+    ora $15
+    beq @done
+    lda ($12),y
+    sta ($10),y
+    iny
+    bne @no_inc_fwd
+    inc $11
+    inc $13
+@no_inc_fwd:
+    lda $14
+    bne @dec_fwd
+    dec $15
+@dec_fwd:
+    dec $14
+    bra @fwd_loop
+@done:
+    lda $10
+    ldx $11
+    rts
+    .func_flags zp_call
+    endproc

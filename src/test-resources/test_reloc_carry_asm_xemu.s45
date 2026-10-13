@@ -1,0 +1,16 @@
+; test_reloc_carry_asm_xemu.s45 — second module of test_reloc_carry_xemu.c
+        .global _addr_bytes, _addr_ldax, _addr_small, _buf
+        .code
+proc _addr_bytes
+        lda #<_buf+$1FF
+        ldx #>_buf+$1FF
+endproc
+proc _addr_ldax
+        ldax #_buf+$1FF
+endproc
+proc _addr_small
+        lda #<_buf+2
+        ldx #>_buf+2
+endproc
+        .data
+_buf:   .byte 1, 2, 3, 4

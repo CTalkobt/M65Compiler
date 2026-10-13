@@ -1,600 +1,429 @@
 # MEGA65 C Compiler Calling Conventions
 
-**Version:** 1.1  
-**Last Updated:** 2026-07-17  
-**Status:** Documented current implementation + optimization roadmap for v1.1+
+This is the reference for how cc45-generated code passes parameters, returns
+values, lays out stack frames and static activation records, uses the zero
+page, and how ln45 bridges convention mismatches. It describes the toolchain
+as it is now. Every example was compiled with `./bin/cc45 -S`, and every
+runtime claim was checked on xemu.
 
-## Overview
-
-The MEGA65 C Compiler (cc45) supports two calling conventions:
-
-1. **Stack Calling Convention** (default) — Parameters on stack, suitable for variable-argument and complex calling patterns. Supports varargs (`printf`, `va_args`).
-2. **ZP Calling Convention** (`-fzpcall`) — Parameters in fixed zero-page region, faster, suitable for performance-critical code. Fixed parameter count only; no varargs support.
-
-Both conventions use the same register return values (AXYZ for multi-byte results).
+Sources: `src/main/IRBuilder.cpp` (which convention a call uses),
+`src/main/IRCodeGen.cpp` (prologue/epilogue, call sites, SAC),
+`src/main/O45Linker.cpp` (thunks, SAC checks, `__zp_page`), `lib/crt0.s45`,
+`lib/stdlib_asm/__stack_top.s45`.
 
 ---
 
-## Stack Calling Convention
+## 1. Summary
 
-### Register Usage
+| | ZP convention (default) | Stack convention |
+|---|---|---|
+| Select | `-fzpcall` (default) | `-fno-zpcall` |
+| Standard library linked by one-step builds | `c45.lib` | `c45_stack.lib` |
+| Parameters | ZP block `$10-$2F` | pushed on the CPU stack, right to left |
+| Who removes parameters | nothing to remove | the caller (`plz` per byte) |
+| Object marker | `.func_flags zp_call`, `cc45.mode_zp` | `.func_flags stack_call`, `cc45.mode_stack` |
 
-| Register | Purpose | Preserved? |
-|----------|---------|-----------|
-| A | Accumulator, lo-byte of return value or byte 0 (32-bit) | No |
-| X | Index, hi-byte of return value (16-bit) or byte 1 (32-bit) | No |
-| Y | Index, byte 2 of 32-bit return | No |
-| Z | Index, byte 3 of 32-bit return (hi-byte of 32-bit value) | No |
-| S | Stack pointer (8-bit, page $01 or above on MEGA65) | Preserved by convention |
-| $FD/$FE | Frame pointer (dynamic, set up at function entry) | Caller-saved; reserved even if not used* |
+Local storage is chosen separately from the parameter convention:
 
-*Note: Frame pointer setup is currently unconditional (planned optimization: lazy initialization only when needed)
+- **SAC** (Static Allocation Convention, default; `-fno-staticalloc` turns it
+  off): parameters and locals live in static BSS storage.
+- **Stack frame**: used by every function when `-fno-staticalloc` is given,
+  and otherwise only by functions that cannot use SAC (see §5).
 
-### Parameter Passing
+Return values work the same way in every mode (§2).
 
-Parameters are pushed **right-to-left** (rightmost parameter pushed first) onto the stack, 8 bits at a time:
+## 2. Return values
 
-```c
-void func(int a, short b, char c) {
-    // Stack layout (before JSR):
-    // SP+4: a (16-bit, lo-byte at SP+4, hi-byte at SP+5)
-    // SP+2: b (16-bit, lo-byte at SP+2, hi-byte at SP+3)
-    // SP+0: c (8-bit)
-}
-```
+| Return type | Where the value is |
+|---|---|
+| `char`, `_Bool` (8-bit) | A |
+| `short`, `int`, pointers (16-bit) | A = low byte, X = high byte |
+| `long` (32-bit) | Q register: A = byte 0, X = byte 1, Y = byte 2, Z = byte 3 |
+| `float` / `double` / `long double` (5-byte CBM float), `struct`, `union`, `long long` (which is `struct __int64`) | memory, through a hidden result pointer (sret) |
 
-Caller sequence:
-```asm
-lda #c_val
-pha
-lda #b_val_lo
-ldx #b_val_hi
-phx
-pha
-lda #a_val_lo
-ldx #a_val_hi
-phx
-pha
-jsr func
-```
+**Hidden result pointer (sret).** For a float or aggregate return, the caller
+reserves a buffer in its own locals (frame or SAC storage). It passes the
+buffer's address as an extra first parameter named `__sret`: at `$10` under
+the ZP convention, or as the last word pushed under the stack convention. The
+callee writes the value through that pointer and returns the pointer in A:X.
 
-### Return Values
+No struct is returned in registers, whatever its size. There is no shared
+static return temporary.
 
-Return values are placed in hardware registers (no stack return):
+## 3. Parameters
 
-- **8-bit (`char`)**: A register
-- **16-bit (`short`, `int`, pointers)**: A (lo-byte), X (hi-byte)
-- **32-bit (`long`)**: A (byte 0), X (byte 1), Y (byte 2), Z (byte 3)
+### 3.1 Slot sizes (both conventions)
 
-### Stack Frame Layout
+Each argument takes one slot of `max(2, sizeof)` bytes:
 
-Stack frames are allocated, and the frame pointer ($FD/$FE) is set up at function entry.
+- `char` and `_Bool` take 2 bytes; the callee reads only the low byte.
+- `int` and pointers take 2 bytes.
+- `long` takes 4 bytes.
+- `float` takes 5 bytes.
+- A struct or union passed by value is copied by the caller into a temporary.
+  Only the 2-byte address of that copy is passed.
+- `long long` is passed the same way as a struct.
 
-**Current Implementation:** Frame pointer is always set up for all stack-convention functions.  
-**Planned Optimization (v1.1):** Lazy initialization — only set up when:
-1. A function uses frame-relative variable access, OR
-2. A function calls another function that requires a frame pointer
+The slot layout is identical in the ZP block and on the stack. That is why
+ln45's thunks can copy the bytes across one for one.
 
-The frame layout is:
+### 3.2 ZP convention
+
+Arguments are stored left to right into the 32-byte block `$10-$2F`. The first
+argument (or `__sret`) goes at `$10`. Example from `int add3(int a, unsigned
+char b, long c)`:
 
 ```
-[Caller's return address (2 bytes)]
-[Stack parameters (N bytes)]
-← SP before JSR
-← FP after setup (SP + 1, handling page crossing)
-[Frame variables (M bytes)]
-[Vregs (K bytes)]
-← SP during function execution
+.var @_p_a = $10        ; 2 bytes
+.var @_p_b = $12        ; char, 2-byte slot
+.var @_p_c = $14        ; 4 bytes
 ```
 
-**Frame Setup Sequence:**
+A function uses the **stack convention instead, even in a ZP module**, when
+either of these holds:
 
-```asm
-; Push frame space (10 words = 20 bytes in this example)
-phw #0
-phw #0
-phw #0
-phw #0
-phw #0
+- it is variadic, or
+- its slots (including `__sret`) total more than 32 bytes. For example, nine
+  `long` parameters do not fit, but eight do.
 
-; Set up frame pointer with page-boundary handling
-tsy           ; Load Y from stack pointer (high byte)
-tsx           ; Load X from stack pointer (low byte)
-inx           ; Increment X to point to frame start
-bne @no_carry ; If X didn't wrap (no carry), skip INY
-iny           ; If X wrapped, increment Y (page boundary)
-@no_carry:
-stx $FD       ; Store FP low-byte
-sty $FE       ; Store FP high-byte
-.frameptr_zp $FD
+Callers apply the same rule to the prototype they see.
+
+Calls through a function pointer follow the same rule, applied to the
+pointer's type in the caller's mode. There is no per-call thunk for indirect
+calls (see §7).
+
+The parameter block is caller-owned scratch. A callee may overwrite it, and it
+is not preserved across calls.
+
+### 3.3 Stack convention
+
+The caller pushes the slots right to left, so the first parameter ends up at
+the lowest address. On entry the stack looks like this:
+
+```
+SP+1, SP+2   return address
+SP+3 ...     first parameter slot, then the following ones
 ```
 
-The frame pointer is now at $FD/$FE and points to the start of the allocated frame.
+After the call returns, the caller saves the result in `__zp_scratch4`, pops
+the arguments with one `plz` per byte, and reloads the result. Z is therefore
+not preserved across a stack call; a `long` result is restored with
+`ldq __zp_scratch4`.
 
-### Frame-Relative Variable Access
+The stack is reached through a pointer (`tsx`/`tsy` → `$08/$09`, then
+`lda ($08),y`). It is never read as `$0100,x`, because the stack is 16-bit by
+default (§8).
 
-Once the frame pointer is set up, variables are accessed using indirect indexed addressing:
+### 3.4 Function attributes
 
-```asm
-; Load 16-bit variable at frame offset 4
-ldy #4
-lda ($FD),y   ; Load low-byte
-ldx ($FE),y   ; Load high-byte (note: must handle page crossing)
-```
+These are keywords written before the return type, for example
+`__fastcall__ int f(int a, int b)`:
 
-For write operations:
+- `__fastcall__`: this function uses the ZP convention even in a
+  `-fno-zpcall` module. Callers that see the declaration call it the ZP way;
+  in a stack-mode object those calls are marked `cc45.zpcall.<callee>` (a
+  weak absolute symbol) so ln45 does not bridge them. The library's headers
+  declare its assembly functions `__fastcall__`, so `c45_stack.lib` and
+  stack-mode programs call them without thunks. A call to one of those
+  assembly routines (`lib/stdlib_asm/*.s45`: `alloca`, `setjmp`, `longjmp`,
+  `abs`, `labs`, `mem*`, `str*`, `malloc`... — the list is
+  `IRBuilder::isLibraryZpRoutine`) that sees no declaration at all — an
+  implicit declaration, or `__builtin_alloca`, `__builtin_setjmp`,
+  `__builtin_longjmp`, `__builtin_abs`..., which name the library function —
+  also uses the ZP convention, unless the file declares or defines a function
+  of that name itself (then the file's declaration decides).
+  `src/test/test_libcall_conv.sh` (`make test`) checks the list against the
+  library. A `__fastcall__` declaration that follows a stack-convention call
+  to the same function in a `-fno-zpcall` file is an error: ln45 learns per
+  object, not per call, that the object calls it the ZP way, so it could not
+  bridge the earlier call.
+- `__regparm`: the first argument is passed in A (8-bit) or A:X (16-bit), and
+  the rest use the module's convention (its ZP slot stays free; under the
+  stack convention it is not pushed). The callee stores it where the normal
+  convention would have it before any other code runs.
+- `__interrupt`: see §6.
+- `__naked`: no prologue or epilogue at all.
 
-```asm
-; Store 16-bit value to frame offset 4
-ldy #4
-sta ($FD),y   ; Store low-byte
-ldx #hi_val
-sty ($FE),y   ; Store high-byte
-```
+### 3.5 Variadic functions
 
-### Struct Returns (Stack Convention)
+Variadic functions always use the stack convention, and they never use SAC.
 
-**Important:** Structs are NOT returned in registers. Instead:
+- Every argument, fixed and variable, is pushed with the slot sizes in §3.1.
+- `va_list` is an `unsigned int` pointer into the pushed arguments.
+- `va_arg(ap, T)` reads `sizeof(T)` bytes (at least 2) and advances past
+  them.
+- `printf`, `sprintf` and the other variadic library functions work in both
+  modes.
 
-1. Caller allocates static storage for the return struct
-2. Caller passes the address of this storage as a **hidden implicit parameter**
-3. Callee writes the struct to this location
-4. Caller copies from static storage to the actual destination if needed
+## 4. Stack frames
 
-Example:
+A function that is not SAC gets a stack frame only if it has stack-allocated
+temporaries. The size is the bytes the register allocator spilled to the
+frame. A function with nothing in its frame has no prologue at all: no frame
+pointer and no saved `$FD/$FE`.
 
-```c
-struct Point { int x, y; };
-
-struct Point make_point(int x, int y) {
-    struct Point p;
-    p.x = x;
-    p.y = y;
-    return p;  // Compiled as write to __return_struct_temp, return temp address
-}
-
-void caller() {
-    struct Point p = make_point(1, 2);
-    // Internally:
-    // - Static temp location allocated: __return_struct_temp
-    // - JSR make_point (with temp address passed)
-    // - make_point writes to temp
-    // - Caller copies temp to p
-}
-```
-
-**Rationale:** This avoids corrupting return values during frame pointer setup/manipulation in the caller.
-
-### Caller/Callee Responsibilities
-
-**Caller Must:**
-- Push parameters right-to-left
-- Preserve S (stack pointer is caller's responsibility to restore)
-- Not assume any registers are preserved (except S)
-- Handle struct return values (allocate and pass temporary location)
-
-**Callee Must:**
-- Set up frame pointer only if needed
-- Restore/preserve the stack upon return (via `plz` instructions to pop frame space)
-- Return values in A/X/Y/Z as specified
-- Clean up any temporary storage
-
-### Return Sequence
+Prologue (from `int id(int a)` with `-fno-zpcall -fno-staticalloc`):
 
 ```asm
-; Pop frame space (opposite of setup)
-plz
-plz
-plz
-plz
-plz
-; ... (one plz per word of frame space)
-rts
+    lda $FD          ; save caller's frame pointer (callee-saved)
+    pha              ; (through A: "phw $00FD" would be absolute and read
+    lda $FE          ;  the ROM's page 0, not the relocated base page)
+    pha
+    phw #0           ; frame bytes, 2 at a time (odd size: lda #0 / pha)
+    tsy              ; FP = SP + 1, 16-bit
+    tsx
+    inx
+    bne @__fp_no_carry_0
+    iny
+@__fp_no_carry_0:
+    stx $FD
+    sty $FE
+    .frameptr_zp $FD
 ```
 
-### Frame Pointer Recalculation After Function Calls
+Frame-pointer facts:
 
-After each function call (JSR), the frame pointer must be recalculated because:
-- Stack pointer may have changed if arguments were pushed and cleaned up
-- FP must continue pointing to the frame start for subsequent frame-relative access
+- **Callee-saved.** `$FD/$FE` is restored on exit, so the caller's frame
+  pointer stays valid after every call. It is set once per function and
+  never recalculated.
+- **Offsets from FP:** the frame bytes come first (offset 0 up). Then come
+  2 bytes of saved FP, 2 bytes of return address, and then the stack
+  parameters. In `id` above that puts `@_p_a` at offset 6.
+- **Access** is `lda ($FD),y` with the offset in Y; the assembler pseudo-ops
+  are `ldax.local`, `stax.local` and `ldax.param`. Offsets must fit in 8
+  bits, and cc45 warns when a frame is larger than 128 bytes.
+- **ZP parameters** are copied into the frame at entry when a ZP-convention
+  function has a frame.
 
-**Current Implementation:**
-```asm
-jsr _called_function
-; Caller cleans up pushed arguments (if any)
-; Then recalculate FP:
-taz            ; Save A (return value) to Z
-tsx
-txa
-clc
-adc #1
-sta $FD
-lda #$01       ; High byte
-adc #0
-sta $FE
-tza            ; Restore A
+Epilogue: the return value is saved in `__zp_scratch`. Then the frame and the
+saved FP are pulled with `pla` (restoring `$FE`, then `$FD`), A is reloaded,
+and the function returns with `rts`.
+
+A runtime `alloca`/`__builtin_alloca` forces a frame, of at least 1 byte, so
+that SP can be reset on return.
+
+## 5. Static Allocation Convention (SAC)
+
+SAC is on by default and disabled with `-fno-staticalloc`. The predefined
+macro `__CC45_STATIC_ALLOC__` is 1 when SAC is on.
+
+A function uses SAC unless one of these applies:
+
+- it calls itself directly. It falls back to a stack frame with a warning
+  `recursive function uses a stack frame instead of static allocation`. Put
+  `#pragma cc45 recurse` before the function to choose the stack frame
+  silently.
+- it is on a call cycle with other functions in the same file (mutual
+  recursion). This falls back silently.
+- it is `__interrupt`, `__naked`, or variadic.
+- it calls a runtime `alloca`.
+- it follows `#pragma cc45 recurse`, which applies to the next function.
+
+What a SAC function looks like:
+
+- **Storage.** Each SAC function gets one BSS block:
+  - `<fn>__ar` (global) marks its start, and the absolute export
+    `cc45.sacsize.<fn>` gives its size;
+  - `<fn>__param_<name>` for each parameter (global symbols);
+  - `<fn>__local_<n>` for each local or temporary.
+
+  The block ends with a pad byte (counted in the size), and a pad byte
+  precedes it unless another block's pad does: ln45 sees only offsets, and
+  a pointer just past an array must not land in a different piece of BSS
+  when the block moves. A block holding an aligned local (`_Alignas`) has no
+  size marker. Constant
+  parameters (below) are in the data segment, outside the block. crt0 fills
+  BSS with `__bss_fill` (default 0) at startup.
+- **Overlay.** ln45 lets SAC functions that are never active at the same time
+  share storage (see [ln45](../bin/ln45.md#sac-overlay)): the values of a SAC
+  function's locals do not survive from one call to the next.
+- **Two entry points.**
+  - `<fn>` is the entry for ordinary callers. Its thunk copies the parameters
+    from the ZP block (ZP mode) or from the stack (stack mode) into
+    `__param_` storage.
+  - `<fn>__sac` is the entry past that thunk.
+- **SAC-to-SAC calls in stack mode.** A SAC caller in the same file stores
+  the arguments straight into `<callee>__param_<name>` and does
+  `jsr <callee>__sac`. Nothing is pushed or popped. In ZP mode, callers
+  always use the ZP block and the normal entry.
+- **Constant parameters.** For a `static` function whose address is never
+  taken (so every call is in the file), a parameter that gets the same
+  constant from every call has its storage initialised in the data segment
+  (for example `_add3__param_a: .word 1`), and SAC callers in stack mode skip
+  the store. An exported, weak or address-taken function is never treated
+  this way: another module or an indirect call enters through the normal
+  entry, which overwrites the storage (`test_constparam_xemu.c`).
+- **Object metadata.** The function carries
+  `.func_flags zp_call|stack_call, static_alloc`, plus `.param_sizes` and
+  `.frame_size`.
+
+ln45 checks over the whole program:
+
+- A SAC function that can reach itself through the call graph (a
+  cross-module cycle) is an error: `'f' uses static allocation but is
+  recursive`.
+- A SAC function reachable from an `__interrupt` handler is an error:
+  `'f' uses static allocation but is reachable from ISR handler`. Mark such
+  functions `#pragma cc45 recurse`.
+- SAC storage of functions that cannot be active together is overlaid
+  (`test_sac_overlay_xemu.c`).
+
+## 6. Zero page, base page and interrupts
+
+### 6.1 Zero-page map
+
+All of these addresses are offsets in the program's base page:
+
+| Address | Use |
+|---|---|
+| `$06-$07` | `__static_chain` (nested functions) |
+| `$08-$0F` | `__zp_scratch`, `__zp_scratch2`, `__zp_scratch3`, `__zp_scratch4` (2 bytes each) |
+| `$10-$2F` | ZP parameter block |
+| `$30-$E9` | register-allocator pool (temporaries / virtual registers) |
+| `$FD-$FE` | frame pointer |
+
+### 6.2 Relocated base page
+
+crt0 moves the base page register (`lda #>__zp_page / tab`). `__zp_page` is a
+page-aligned 256-byte block that ln45 allocates at the end of BSS, and only
+when something references it. Program ZP accesses therefore never touch the
+ROM's page 0.
+
+KERNAL and BASIC routines expect B=0, so calls to them are bracketed by:
+
+- `jsr __bp_rom`: sets B=0 and preserves A/X/Y/Z.
+- `jsr __bp_prog`: restores the program's page and preserves A/X/Y/Z and
+  the flags.
+
+An instruction that has no base-page addressing mode is assembled absolute and
+ignores B. Examples: `ldz $xx`, `lda $xx,y`, `jmp ($xx)`. Generated code
+therefore uses `ldq`, and saves `$FD/$FE` through A.
+
+Standalone (`-S` + ca45, not linked) programs place `__zp_page` after the
+program. `#pragma cc45 no_zp_save` keeps page 0, and
+`#pragma cc45 set_bp <page>` uses a given page.
+
+### 6.3 `__interrupt`
+
+The prologue is:
+
+```
+pha / phx / phy / phz      save registers
+tba / pha                  save the interrupted base page
+inc __isr_depth            make __bp_prog return to the handler's page
+lda #>__zp_page_isr        switch to the handler base page
+tab
 ```
 
-**Planned Optimization (v1.1):** Skip FP recalculation if no arguments were pushed (zero-argument calls, common in recursion and callbacks). Saves ~11 bytes and ~20 cycles per call.
+`__zp_page_isr` is the page after `__zp_page`. ln45 allocates it only when
+some object has an `__interrupt` function. The epilogue undoes all of this
+and ends in `rti`. The handler never uses SAC.
 
-**Future Enhancement (v1.2):** Leaf function detection — skip FP recalculation entirely for functions that make no outgoing calls.
+## 7. Mixing conventions: ln45 thunks
 
-### Variadic Functions (Varargs)
+cc45 marks each object with `cc45.mode_zp` or `cc45.mode_stack`, and marks each
+function with `.func_flags zp_call` or `.func_flags stack_call`.
 
-**Stack convention supports variadic functions.** Varargs are passed on the stack after fixed parameters.
+- **Same file.** Every call already matches the callee's convention.
+- **Across modules.** ln45 compares the caller's mode with the callee's
+  convention, and bridges a mismatch **in either direction**. It redirects
+  the caller's `JSR` to a generated thunk:
+  - `__thunk_s2z_<fn>`: a stack caller calling a ZP callee. The thunk copies
+    the stacked slots into `$10...` and `JMP`s to the callee.
+  - `__thunk_z2s_<fn>`: a ZP caller calling a stack callee. The thunk pushes
+    `$10...` (highest first), `JSR`s the callee, pulls the bytes off again
+    (A is kept in `$0E`), and returns with `RTS`.
 
-#### Declaration and Usage
+Both directions were verified on xemu (a ZP `main` calling a stack-built
+`int`/`long` callee and the reverse; both exit 0).
 
-```c
-#include <stdarg.h>
+Linker options:
 
-int printf(const char *fmt, ...);  // fmt is fixed parameter, rest are varargs
+| ln45 option | Behaviour |
+|---|---|
+| (default) | generate thunks and warn: `calling convention mismatch: '_main' calls '_sub2' (zp_call -> stack_call) (generating thunk)` |
+| `-Wthunk` | the same (accepted for compatibility) |
+| `--no-thunks` | link error for each mismatch |
 
-int custom_sum(int count, ...) {
-    va_list args;
-    va_start(args, count);     // Start after count
-    int sum = 0;
-    for (int i = 0; i < count; i++) {
-        sum += va_arg(args, int);  // Read next int from stack
-    }
-    va_end(args);
-    return sum;
-}
+A program built entirely in one convention with its own library needs no
+thunks: every GCC torture test links without a mismatch in both conventions.
+(The 18 stack-mode mismatches the GTE runs used to report were calls to
+`alloca`, `setjmp`, `longjmp` and `abs` through `__builtin_*` names or
+implicit declarations, which cc45 made with the stack convention; the
+`s2z` thunks were correct — the thunk `JMP`s to the callee, so `setjmp`
+still records the caller's return address and stack pointer — but needless.)
 
-// Caller:
-int result = custom_sum(3, 10, 20, 30);  // 3 fixed args, then varargs
-```
+Limitations:
 
-#### Stack Layout for Varargs
+- Only direct `JSR` relocations are redirected.
+- ln45 decides per object, not per call site, whether a stack-mode object
+  calls a function the ZP way (`cc45.zpcall.<callee>`); cc45 therefore rejects
+  a `__fastcall__` declaration after a stack-convention call to it (§3.4). A function pointer taken in
+  one mode and called from code built in the other mode is **not** bridged.
+  Build all such code in one mode.
+- Hand-written `.s45` functions get checked only if they carry a
+  `.func_flags` record inside a named `proc <name>`. In an unnamed `proc`,
+  ca45 warns that `.func_flags` is ignored. The parameter count is taken
+  from `.param_sizes`, or from `.zp_uses` for ZP routines.
 
-For `custom_sum(3, 10, 20, 30)`:
+## 8. Program startup and the stack
 
-```
-Stack (from caller's perspective):
-SP+0:  30 (lo-byte, last vararg)
-SP+1:  00 (hi-byte)
-SP+2:  20 (lo-byte, 2nd vararg)
-SP+3:  00 (hi-byte)
-SP+4:  10 (lo-byte, 1st vararg)
-SP+5:  00 (hi-byte)
-SP+6:  03 (lo-byte, count parameter)
-SP+7:  00 (hi-byte)
-```
+crt0 (`lib/crt0.s45`) runs these steps:
 
-The fixed parameter (`count`) is at the lowest stack offset. Variadic arguments follow above it (higher stack addresses).
+1. Saves the caller's SP and flags.
+2. Sends the `GS` knock to `$D02F`.
+3. Sets the exit status at ROM `$FD/$FE` to `$FFFF`.
+4. Relocates the base page.
+5. Switches to a **16-bit stack** whose top byte is `__stack_top`:
+   `sei`, `cle`, then `tys`/`txs` with `__stack_top`, then restores the
+   caller's I flag. `__stack_top` defaults to `$BFFF` (from the library).
+   - `-fstack-top=ADDR` or `#pragma cc45 stack_top(ADDR)` moves the top.
+   - `-fno-stack16` or `#pragma cc45 no_stack16` keeps the ROM's 8-bit
+     page-1 stack: the main module then defines `__stack_top = 0`.
+6. Calls `_init_features`.
+7. Calls `main` with argc = 0 and argv = NULL. These are written to
+   `$10-$13` and also pushed as two words, so both conventions see them.
 
-#### How va_start/va_arg Work
+`__exit` then:
 
-```c
-va_list args;           // Type defined in <stdarg.h>, typically uint16_t (pointer to stack)
-va_start(args, count);  // Initialize args to point to first vararg (above count parameter)
-int val = va_arg(args, int);  // Read 16-bit int, advance args by 2
-va_end(args);           // Cleanup (typically no-op for stack varargs)
-```
+- sets B back to 0;
+- stores A:X as the exit status at `$FD/$FE` (`abort()` stores `$FFFE`);
+- restores the caller's 8-bit stack and flags;
+- returns with `rts`.
 
-**Implementation Details:**
-- `va_start(args, last_fixed)` computes the address of the first vararg (stack offset of `last_fixed` + size of `last_fixed`)
-- `va_arg(args, type)` reads the value at the current args pointer and advances it by `sizeof(type)`
-- Works with frame-relative addressing: args pointer computed relative to frame or stack
+`__basic_call` (crt0) runs a single C function for a BASIC `SYS` (the thunks
+`basic45 --link` makes store the function's address in `___bc_target` and
+jump to it). It does steps 1-5 like `__init` (the BSS fill only on the first
+call, so globals keep their values between calls; `_init_features` then
+too), puts the SYS's A, X and Y in the first three parameter slots (`$10`,
+`$12`, `$14`, high bytes 0; they also stay in A, X, Y), calls the function,
+and returns to BASIC like `__exit` (B = 0, BASIC's stack and flags) with the
+function's A, X, Y, which BASIC reads with `RREG`. The function uses the ZP
+convention (`__fastcall__` in a stack-mode object).
 
-#### Varargs in Variadic Functions
+## 9. Registers and clobbers
 
-When a variadic function is called, the compiler:
-1. Pushes all arguments (fixed + varargs) onto stack in the usual way
-2. Callee uses `va_start` to initialize the varargs list to point past the last fixed parameter
-3. Callee uses `va_arg` to read each vararg in sequence
+Registers:
 
-Example assembly for `custom_sum(3, 10, 20, 30)`:
+- A, X, Y and Z are never preserved across a call.
+- `$FD/$FE` is preserved by every function that changes it.
+- The ZP parameter block and the scratch slots are not preserved.
 
-```asm
-; Caller pushes: 30, 20, 10, 3 (right-to-left)
-lda #30
-ldx #0
-phx
-pha
-lda #20
-ldx #0
-phx
-pha
-lda #10
-ldx #0
-phx
-pha
-lda #3
-ldx #0
-phx
-pha
-jsr custom_sum
+Clobber metadata:
 
-; Callee: va_start(&args, count)
-; Compute: args = SP + offset_of_count + sizeof(count)
-; So: args points to first vararg (the 10)
-ldax.fp @_p_count     ; Load count parameter address
-leax                  ; Get address after count
-stax @_l_args         ; Save to args variable
-```
+- cc45 writes per-function `.reg_clobbers` and `.flag_clobbers`, plus a
+  `leaf` flag, into the object.
+- ca45's optimizer uses these at each `JSR` so it forgets only the registers
+  the callee changes.
+- `nm45 -f file.o45` shows them, for example
+  `_sub2 [stack_call leaf ... regs:AX flags:CNZV]`.
 
-#### Limitations
-
-- **Stack convention only** — Varargs require stack to work (parameter list on stack)
-- **ZP convention incompatible** — ZP uses fixed parameter locations; no varargs support
-- **Type information** — Caller responsible for correct types; `va_arg(args, int)` vs `va_arg(args, short)` changes how many bytes are read
-- **Format string parsing** — Functions like `printf` infer types from format string; custom varargs functions must track arity explicitly
-
-#### Common Varargs Functions
-
-Stack convention stdlib functions supporting varargs:
-
-- `printf(const char *fmt, ...)` — formatted output
-- `sprintf(char *str, const char *fmt, ...)` — format to string
-- `snprintf(char *str, size_t n, const char *fmt, ...)` — bounded format to string
-- `sscanf(const char *str, const char *fmt, ...)` — formatted input from string
-- Custom functions using `<stdarg.h>` macros
-
----
-
-## ZP Calling Convention (`-fzpcall`)
-
-### Overview
-
-The ZP calling convention is an alternative for performance-critical code. It uses fixed zero-page locations for parameter passing and return values, avoiding stack manipulation entirely.
-
-**Compiler Flag:** `-fzpcall`
-
-### Register/ZP Locations
-
-Fixed parameter locations in zero-page:
-
-| ZP Address | Purpose | Notes |
-|-----------|---------|-------|
-| $20-$21 | Parameter 1 (16-bit) | Caller sets; callee reads |
-| $22-$23 | Parameter 2 (16-bit) | Caller sets; callee reads |
-| $24-$25 | Parameter 3 (16-bit) | Caller sets; callee reads |
-| $26-$27 | Parameter 4 (16-bit) | Caller sets; callee reads |
-| $28-$2A | Additional parameters | Variable length |
-
-Return values (same as stack convention):
-- A, X for 16-bit
-- A, X, Y, Z for 32-bit
-
-### Parameter Passing
-
-No stack operations. Caller directly loads parameters into ZP:
-
-```c
-int func(short a, short b);
-```
-
-Caller sequence:
-```asm
-lda #a_val_lo
-sta $20
-lda #a_val_hi
-sta $21
-lda #b_val_lo
-sta $22
-lda #b_val_hi
-sta $23
-jsr func_zpcall
-```
-
-### Advantages
-
-1. **No stack overhead** — Parameters never touch the stack
-2. **Faster** — Direct ZP addressing (3 cycles) vs. stack push/pop (4+ cycles each)
-3. **Smaller code** — No `phx/pha/plx/pla` sequences
-4. **Predictable** — No frame pointer setup needed
-
-### Disadvantages
-
-1. **Limited parameters** — Maximum 4 parameters (8 bytes in ZP)
-2. **No variadic functions** — Fixed parameter count only (cannot use `...`); see [Variadic Functions](#variadic-functions-varargs) section for stack-convention varargs support
-3. **Clobber tracking** — Caller must know which registers are clobbered
-4. **Calling convention mixing** — Requires linker support to prevent mismatched calls
-
-### Clobber Tracking
-
-Each ZP-convention function tracks which registers it clobbers:
-
-```asm
-.func_flags zp_call
-.reg_clobbers A, X, Y
-.flag_clobbers C, N, Z
-```
-
-The linker verifies that ZP callees are only called from ZP callers (one-directional safety):
-- **ZP caller → Stack callee**: ERROR (unsafe; parameters in wrong place)
-- **Stack caller → ZP callee**: OK (caller doesn't assume stack layout; adjusts its call)
-- **ZP caller → ZP callee**: OK (both use ZP convention)
-- **Stack caller → Stack callee**: OK (both use stack convention)
-
-### Struct Returns (ZP Convention)
-
-Same as stack convention: structs use static return location.
-
----
-
-## Calling Convention Selection
-
-### When to Use Stack Convention
-
-- Default for all code
-- Variable-argument functions (`printf`, `va_args`)
-- Functions with more than 4 parameters
-- Complex calling patterns
-- When frame-relative storage is needed
-
-### When to Use ZP Convention
-
-- Performance-critical loops
-- Simple functions with 1-4 parameters
-- Fixed argument count
-- When inlining is not possible but speed is critical
-
-**Compilation:**
+## 10. Inspecting
 
 ```bash
-cc45 file.c                  # Stack convention (default)
-cc45 -fzpcall file.c         # ZP convention for all functions
+mkdir -p build/tmp && cd build/tmp
+../../bin/cc45 -S x.c -o x.s                 # prologues, .func_flags, SAC storage
+../../bin/cc45 -c -fno-zpcall x.c -o x.o45
+../../bin/nm45 -f x.o45                      # convention / leaf / clobbers per function
+../../bin/ln45 -basic -Wthunk -o x.prg main.o45 x.o45 ../../lib/build/c45.lib
 ```
-
-Per-function control via function attributes (future work):
-
-```c
-int __attribute__((zpcall)) fast_add(short a, short b) {
-    return a + b;
-}
-```
-
----
-
-## Implementation Notes
-
-### Frame Pointer Mechanics
-
-The frame pointer ($FD/$FE) is necessary because the MEGA65 stack is not limited to page $01. It can extend into higher memory, requiring a 16-bit address to track the frame base.
-
-The lazy initialization approach ensures:
-- Zero overhead for leaf functions (no frame setup)
-- Minimal overhead for simple functions
-- Correct behavior for complex stack layouts
-
-### Struct Return Storage
-
-Static allocation for struct returns (`__return_struct_temp`) avoids:
-- Return value corruption from frame pointer recalculation
-- Complex register juggling for multi-byte structs
-- Ambiguity about when/where the struct is written
-
-The cost is one extra memory copy (temp → destination), which is negligible compared to the complexity avoided.
-
-### Zero-Page Preservation
-
-In stack convention, $FD/$FE (frame pointer) is caller-saved:
-- Caller must preserve if it needs the frame pointer across nested calls
-- Typically handled automatically by the compiler
-
-In ZP convention, $20-$2A are caller-saved (callee clobbers freely).
-
----
-
-## Implementation Roadmap
-
-### v1.1 — Calling Convention Optimizations (Planned)
-
-**Priority 1: Lazy Frame Pointer Initialization**
-- Only set up FP if function uses frame variables or calls frame-using functions
-- Benefits: Eliminates 11 bytes + ~20 cycles overhead per leaf function
-- Detection: Scan function body for frame-relative access during FrameScanner pass
-- Implementation: Conditional FP setup at function entry based on analysis
-
-**Priority 2: Smart Frame Pointer Recalculation**
-- Skip FP recalculation after calls with zero arguments
-- Benefits: Saves ~10 cycles per zero-argument call (significant in recursion, callbacks)
-- Implementation: Check `argBytes > 0` before emitting setupFramePointer after JSR
-- Common case: Recursive functions, array iteration callbacks
-
-**Priority 3: Leaf Function Detection**
-- Detect functions that make no outgoing calls
-- Skip FP recalculation entirely for leaf functions
-- Benefits: Zero FP-recalc overhead in leaf functions
-- Implementation: Build call graph, mark leaf functions during analysis
-
-### v1.2 — Advanced Calling Convention Features (Planned)
-
-**Priority 4: Hybrid Stack-Register Convention**
-- Use A/X/Y/Z/Q registers for first N parameters, stack for remainder
-- Benefits: Faster parameter passing, smaller code, fewer stack operations
-- Example: `int add(int a, short b, char c, int d)` → first 3 params in regs/ZP, `d` on stack
-- Requirements:
-  - New calling convention marker for linker
-  - Per-function parameter layout specification
-  - Linker enforcement to prevent mismatched calls
-
-**Priority 5: Per-Function Frame Pointer Control**
-- `__attribute__((no_frame_pointer))` — opt out of FP setup entirely
-- `__attribute__((zpcall))` — use ZP convention for single function
-- `__attribute__((regparm(N)))` — hint first N params go in registers
-- Benefits: Fine-grained control for performance-critical functions
-
-**Priority 6: Tail Call Optimization**
-- Detect tail calls (function call as final statement)
-- Reuse frame space instead of allocating new frame
-- Benefits: Eliminates frame setup/teardown for tail-recursive functions
-- Example: `return factorial_helper(n-1, acc * n)` → no new frame
-
-### Future Research
-
-**Variadic ZP Functions**
-- Extend ZP convention to support varargs (e.g., `printf` in ZP mode)
-- Challenge: Fixed ZP layout incompatible with variable-length argument lists
-- Possible solution: Use stack fallback for varargs portion, ZP for fixed params
-- Status: Research required; lower priority than stack convention optimizations
-
-**Struct Return Optimization**
-- Small structs (≤4 bytes) returned in AXYZ instead of static allocation
-- Benefits: Fewer memory accesses, better for inline functions
-- Requirements: Track struct sizes, handle unaligned field packing
-- Current implementation uses static allocation (safe, predictable)
-
-**Call Frame Reuse**
-- Optimize sequences of function calls with different frame sizes
-- Reuse frame space across multiple calls instead of repeated setup/teardown
-- Benefits: Reduced stack pressure, better cache locality
-- Challenge: Complex analysis to ensure correctness
-
-### Optimization Impact Summary
-
-| Optimization | Savings | Complexity | Priority |
-|--------------|---------|-----------|----------|
-| Lazy FP init | 11 bytes/20 cycles per leaf | Low | P1 |
-| Skip FP recalc (0-arg) | 10 cycles per call | Low | P2 |
-| Leaf detection | 20+ cycles per call | Medium | P3 |
-| Hybrid convention | 4-8 bytes per call, 5-10 cycles | High | P4 |
-| Per-function attrs | Variable | Low | P5 |
-| Tail call opt | 30+ bytes per tail call | High | P6 |
-
-## Known Issues / Limitations
-
-1. **Frame-Relative Pointer Dereferencing** — Currently failing mmemu tests (test_short.c)
-   - Pointer to frame-relative variable may compute wrong address
-   - Needs investigation and fix before optimizations proceed
-
-2. **Struct Return Values** — test_struct_return.c returns all zeros
-   - Hidden pointer mechanism may have address computation issue
-   - Verify frame offset calculation in leax.fp and struct assignment
-
-3. **Page Boundary Crossing** — Potential issue in frame pointer arithmetic
-   - TSX/INX/BNE/INY sequence may not correctly handle page wrapping
-   - Needs verification with edge case testing (frame crossing page boundary)
-
-4. **ZP Scratch Space Limitations** — $FD/$FE always reserved
-   - Limits available ZP for high-speed code
-   - Lazy FP init will partially address this
-
----
-
-## References
-
-- **CLAUDE.md** — Compiler feature matrix and architecture overview
-- **lib45.md** — Object file format and relocation details
-- **stdlib.md** — Standard library conventions and signatures
-- **Opcodes** — 45GS02 instruction reference for address modes and stack operations
-- **.plan/todo.md** — Development roadmap and optimization tracking
-
-## Implementation Status
-
-**Current Version (v1.0.4):**
-- ✅ Stack calling convention (non-lazy FP, recalc after every call)
-- ✅ ZP calling convention (fixed parameters)
-- ✅ Struct returns via hidden pointer
-- ✅ Variadic function support
-- ❌ Lazy FP initialization (planned v1.1)
-- ❌ Smart FP recalculation optimization (planned v1.1)
-- ❌ Hybrid register-stack convention (planned v1.2)
-
-**Known Issues:**
-- Frame-relative pointer dereferencing failing in mmemu tests
-- Struct return value corruption in some scenarios
-- Page boundary crossing in FP arithmetic (needs verification)
-

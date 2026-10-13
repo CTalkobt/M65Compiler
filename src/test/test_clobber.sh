@@ -3,7 +3,7 @@
 # Validates that cc45's IR pipeline emits accurate .reg_clobbers / .func_flags
 # directives, and that the assembler optimizer uses them correctly.
 
-CC="./bin/cc45"
+CC="./bin/cc45 -O2"
 AS="./bin/ca45"
 mkdir -p build/test
 

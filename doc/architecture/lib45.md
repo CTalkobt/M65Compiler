@@ -1,14 +1,16 @@
 # `.o45` Relocatable Object Format Specification
 
-The `.o45` format is a 32-bit extension of Andre Fachat's `.o65` relocatable object format for 6502-family systems. It reuses the `.o65` header structure, mode flags, segment IDs, and relocation type encoding, adding 32-bit address support and extensions needed for the MEGA65's 45GS02 CPU and its 28-bit linear address space. The magic bytes identify it as `.o45` rather than `.o65` to clearly distinguish the substantially extended format.
+The `.o45` format is a 32-bit extension of Andre Fachat's `.o65` relocatable object format for 6502-family systems. It reuses the `.o65` header structure, mode flags, segment IDs and relocation encoding, and adds 32-bit address fields, an extended CPU byte, extra relocation types, option records and function attribute records for the MEGA65's 45GS02. The magic bytes are `"o45"` instead of `"o65"`.
+
+Writers: `ca45 -c` / `cc45 -c` (`src/main/O45Emitter.cpp` → `O45Writer`). Readers: `O45Reader` (ln45, nm45, objdump45, ar45). Constants: `include/O45Types.hpp`. Archives (`.lib`) are described in [ar45](../bin/ar45.md#archive-format-lib).
 
 References: [Andre Fachat o65 file format](http://www.6502.org/users/andre/o65/fileformat.html)
 
 ---
 
-## 1. Header [IMPLEMENTED]
+## 1. Header
 
-The header is a direct extension of the `.o65` header. When mode bit 15 (`SIZE32`) is set, all address and length fields widen from 16-bit to 32-bit.
+When mode bit 15 (`SIZE32`) is set, all address and length fields are 32-bit instead of 16-bit. The tools always write `SIZE32`.
 
 ### 1.1 Fixed Header Fields
 
@@ -17,543 +19,363 @@ The header is a direct extension of the `.o65` header. When mode bit 15 (`SIZE32
 | 0      | marker       | 1       | `$01` (non-C64 marker, per `.o65` spec)      |
 | 1      | marker2      | 1       | `$00`                                        |
 | 2-4    | magic        | 3       | `$6F $34 $35` ("o45")                        |
-| 5      | version      | 1       | `$00` (format version 0)                     |
+| 5      | version      | 1       | `$00`                                        |
 | 6-7    | mode         | 2 (LE)  | Mode bit field (see 1.2)                     |
+
+The reader rejects any other magic (including the standard `"o65"`) and any other version. A cc65 object (`"uz\0\0"`) gets a specific error.
 
 ### 1.2 Mode Word (16-bit, little-endian)
 
-Reuses all standard `.o65` mode bits. New bits are marked with **(ext)**.
+| Bit(s) | Name          | Mask        | Meaning |
+|--------|---------------|-------------|---------|
+| 0      | `PAGED`       | `$0001`     | Segments are page-aligned |
+| 1-2    | `OBJ_TYPE`    | `$0006`     | 00 = object, 01 = executable, 10 = library |
+| 3      | `SIMPLE`      | `$0008`     | Simple load |
+| 4      | `CHAIN`       | `$0010`     | Another file follows |
+| 5      | `BSSZERO`     | `$0020`     | BSS must be zeroed |
+| 8-10   | `CPU_BITS`    | `$0700`     | `.o65` CPU class (used only when `CPU_EXT` is clear) |
+| 11     | `CPU_EXT`     | `$0800`     | An extended CPU ID byte follows the address fields |
+| 15     | `SIZE32`      | `$8000`     | Address/length fields, counts and symbol indices are 32-bit |
 
-| Bit(s) | Name          | `.o65` Value | `.o45` Usage                                    |
-|--------|---------------|-------------|--------------------------------------------------|
-| 0      | `PAGED`       | `$0001`     | 1 = segments are page-aligned                    |
-| 1-2    | `OBJ_TYPE`    | `$0006`     | 00 = object, 01 = executable, 10 = library       |
-| 3      | `SIMPLE`      | `$0008`     | 1 = simple load (no undefined refs)              |
-| 4      | `CHAIN`       | `$0010`     | 1 = another file follows in stream               |
-| 5      | `BSSZERO`     | `$0020`     | 1 = BSS segment must be zeroed                   |
-| 6-7    | reserved      |             | Must be 0                                        |
-| 8-10   | `CPU_BITS`    | `$0700`     | CPU class (see 1.3)                              |
-| 11     | `CPU_EXT`     | `$0800`     | 1 = extended CPU ID byte follows header **(used)**|
-| 12-14  | reserved      |             | Must be 0                                        |
-| 15     | `SIZE32`      | `$8000`     | 1 = all address/length fields are 32-bit **(required for .o45)** |
+ca45 writes `$8800` (`SIZE32 | CPU_EXT`, object, `CPU_BITS` = 0). The other bits are displayed by nm45/objdump45 but not acted upon. With `SIZE32` clear the reader uses 16-bit fields, counts and symbol indices (widened internally); no tool writes such files.
 
-**Canonical `.o45` mode value**: `$8800` minimum (SIZE32 + CPU_EXT). Additional bits set as needed (e.g. `$8820` for BSSZERO + SIZE32 + CPU_EXT).
+### 1.3 Extended CPU ID Byte (`CPU_EXT`)
 
-### 1.3 CPU Class (`CPU_BITS`, bits 8-10)
+| Value  | CPU |
+|--------|-----|
+| `$01`  | 6502 |
+| `$02`  | 65C02 |
+| `$03`  | 65CE02 |
+| `$04`  | 65816 |
+| `$45`  | **45GS02 (MEGA65)** — always written by ca45 |
 
-Standard `.o65` values, reused:
+Without `CPU_EXT`, the reader takes the CPU from `CPU_BITS` (the `.o65` classes: 0 = 6502, 1 = 65C02, 2 = 65SC02, 3 = 65CE02, 5 = 65816).
 
-| Value | CPU Family            |
-|-------|-----------------------|
-| 0     | 6502                  |
-| 1     | 65C02                 |
-| 2     | 65SC02                |
-| 3     | 65CE02                |
-| 4     | Reserved (was 6502 undocumented) |
-| 5     | 65816                 |
-| 6     | Reserved              |
-| 7     | Extended (see CPU_EXT) |
+### 1.4 Address / Length Fields (32-bit mode)
 
-When `CPU_BITS = 7` and `CPU_EXT = 1`, the assembler writes one additional byte after the header's address fields (but before options) to identify the exact CPU.
+| Offset | Field     | Size | Description |
+|--------|-----------|------|-------------|
+| 8-11   | `tbase`   | 4    | Text base address used when assembling |
+| 12-15  | `tlen`    | 4    | Text length |
+| 16-19  | `dbase`   | 4    | Data base address |
+| 20-23  | `dlen`    | 4    | Data length |
+| 24-27  | `bbase`   | 4    | BSS base address |
+| 28-31  | `blen`    | 4    | BSS length |
+| 32-35  | `zbase`   | 4    | Zero-page base address |
+| 36-39  | `zlen`    | 4    | Zero-page length |
+| 40     | `cpu_id`  | 1    | `$45` (present because `CPU_EXT` is set) |
 
-### 1.4 Extended CPU ID Byte
+**Total fixed header**: 41 bytes. ca45 writes the segment start addresses of the assembly (normally 0); the linker subtracts them from internal relocation values (Section 3).
 
-| Value  | CPU                    |
-|--------|------------------------|
-| `$01`  | 6502                   |
-| `$02`  | 65C02                  |
-| `$03`  | 65CE02                 |
-| `$04`  | 65816                  |
-| `$45`  | **45GS02 (MEGA65)**    |
+### 1.5 Option Records
 
-`.o45` files MUST set this byte to `$45`.
-
-### 1.5 Address / Length Fields (32-bit mode)
-
-With `SIZE32` set, all segment base addresses and lengths are 4 bytes (little-endian) instead of 2. The header continues after the mode word:
-
-| Offset | Field            | Size | Description                          |
-|--------|------------------|------|--------------------------------------|
-| 8-11   | `tbase`          | 4    | Text segment base address            |
-| 12-15  | `tlen`           | 4    | Text segment length (bytes)          |
-| 16-19  | `dbase`          | 4    | Data segment base address            |
-| 20-23  | `dlen`           | 4    | Data segment length (bytes)          |
-| 24-27  | `bbase`          | 4    | BSS segment base address             |
-| 28-31  | `blen`           | 4    | BSS segment length (bytes)           |
-| 32-35  | `zbase`          | 4    | Zero/Direct Page segment base address|
-| 36-39  | `zlen`           | 4    | Zero/Direct Page segment length      |
-| 40     | `cpu_id`         | 1    | `$45` (extended CPU ID)              |
-
-**Total fixed header**: 41 bytes.
-
-### 1.6 Option Headers
-
-Immediately after the fixed header (and CPU ID byte), zero or more option records appear, terminated by a zero-length byte. This is identical to `.o65`.
+After the header come zero or more option records, terminated by a `$00` byte:
 
 ```
-option_length (1 byte)   ; total length including this byte; 0 = end of options
-option_type   (1 byte)   ; see table below
-option_data   (N bytes)  ; length - 2 bytes of payload
+option_length (1 byte)   ; total length including this byte and the type; 0 = end of options
+option_type   (1 byte)
+option_data   (option_length - 2 bytes)   ; at most 253 bytes
 ```
 
-| Type   | Name         | Description                                          |
-|--------|--------------|------------------------------------------------------|
-| `$00`  | (end)        | Length byte = 0 terminates option list                |
-| `$01`  | `OPT_FNAME`  | Filename (NUL-terminated string)                     |
-| `$02`  | `OPT_OS`     | Target OS identifier                                 |
-| `$03`  | `OPT_ASM`    | Assembler name/version (NUL-terminated)              |
-| `$04`  | `OPT_AUTHOR` | Author string (NUL-terminated)                       |
-| `$05`  | `OPT_CREATED`| Creation timestamp (NUL-terminated)                  |
-| `$10`  | `OPT_SEGATTR`| Sub-segment attribute (see 1.7)                      |
-| `$11`  | `OPT_LINEINFO`| Debug line info table (see 1.8)                      |
-| `$80`+ | user-defined | Available for toolchain-specific extensions           |
+| Type   | Name               | Written by ca45 | Read by | Description |
+|--------|--------------------|-----------------|---------|-------------|
+| `$01`  | `OPT_FNAME`        | no | displayed | File name (NUL-terminated) |
+| `$02`  | `OPT_OS`           | yes, `[$05]` | displayed | Target OS; `$05` = MEGA65/C65 (outside the `.o65` range) |
+| `$03`  | `OPT_ASM`          | yes, `"ca45\0"` | displayed | Assembler name |
+| `$04`  | `OPT_AUTHOR`       | no | displayed | Author (NUL-terminated) |
+| `$05`  | `OPT_CREATED`      | no | displayed | Creation time (NUL-terminated) |
+| `$10`  | `OPT_SEGATTR`      | yes | ln45 | Text sub-segment (1.6) |
+| `$11`  | `OPT_LINEINFO`     | yes, with `.loc` info | ln45, objdump45 | Source line table (1.7) |
+| `$12`  | `OPT_DEBUG_SYMBOLS`| yes, for `proc`s | displayed | Procedure parameter names/offsets (1.8) |
+| `$13`  | `OPT_SAC_PARAMS`   | no | no | Reserved for SAC parameter metadata |
+| `$50`  | `OPT_IPO_HINTS`    | no | ln45 | Cross-module optimisation hints (1.9) |
 
-Recommended `.o45` options:
-- `OPT_ASM` = `"ca45 <version>\0"`
-- `OPT_OS` with byte `$05` = MEGA65/C65 (user-defined OS ID, outside the standard o65 OS range)
+Unknown options are skipped. `OPT_IPO_HINTS`, when a writer has hints, is written before the other options.
 
-### 1.7 Sub-Segment Attributes (OPT_SEGATTR) [IMPLEMENTED]
+### 1.6 Sub-Segment Attributes (`OPT_SEGATTR`)
 
-Describes a named sub-segment within a segment body. Multiple assembler segments that map to the same `.o45` segment (e.g., `"init"` and `"code"` both map to `SEG_TEXT`) are concatenated into one body. `OPT_SEGATTR` records describe each sub-segment's position so the linker can reorder them.
+ca45 maps every assembler segment except `data`, `bss` and `zp` to TEXT, concatenating them into one text body. Each part gets a record so the linker can reorder them:
 
 ```
-option_length  (1 byte)   ; 2 + payload_length
-option_type    (1 byte)   ; $10 (OPT_SEGATTR)
-seg_id         (1 byte)   ; target .o45 segment ID (e.g., $02 = SEG_TEXT)
-offset         (4 bytes)  ; LE offset within the segment body
-length         (4 bytes)  ; LE byte count of this sub-segment
-name           (N+1 bytes); NUL-terminated original assembler segment name
+seg_id   (1 byte)   ; $02 = SEG_TEXT
+offset   (4 bytes)  ; LE offset within the text body
+length   (4 bytes)  ; LE byte count
+name     (N+1)      ; NUL-terminated assembler segment name
 ```
 
-The linker uses the `name` field to determine ordering priority. The built-in priority order for text sub-segments is: `"init"` before `"code"` before any other names. This ensures CRT startup code (in the `"init"` segment) is always placed at the beginning of the text section, regardless of link order.
+Records are written when the text body has more than one part, or one part not named `code`, `text` or `default`. The linker places all `init` parts first (CRT startup), then `code`, then the other names alphabetically. Text not covered by a record, and objects without records, count as `code`.
 
-Objects without `OPT_SEGATTR` records are treated as having a single unnamed sub-segment equivalent to `"code"`. Old tools that do not understand `OPT_SEGATTR` simply ignore it (standard option skip behavior).
+### 1.7 Debug Line Info (`OPT_LINEINFO`)
 
-### 1.8 Debug Line Info (OPT_LINEINFO) [IMPLEMENTED]
+The first record:
 
-Stores debug line information mapping machine code offsets to source code files and line numbers. For large programs, the debug line info may span multiple `OPT_LINEINFO` options.
-
-The first `OPT_LINEINFO` option has the following structure:
 ```
-option_length  (1 byte)   ; 2 + payload_length
-option_type    (1 byte)   ; $11 (OPT_LINEINFO)
-fileCount      (2 bytes)  ; LE number of files in the file table
-fileNames      (V bytes)  ; fileCount NUL-terminated filename strings
-entryCount     (2 bytes)  ; LE number of line info entries in this option
-entries        (N*6 bytes); N line info entries (each 6 bytes)
+fileCount   (2 bytes LE)
+fileNames   fileCount NUL-terminated strings
+entryCount  (2 bytes LE)   ; total entries of all records (readers ignore it)
+entries     N × 6 bytes    ; as many as fit in the record
 ```
 
-Subsequent continuation `OPT_LINEINFO` options contain only entries:
+Further records hold only entries. Each entry:
+
 ```
-option_length  (1 byte)   ; 2 + payload_length
-option_type    (1 byte)   ; $11 (OPT_LINEINFO)
-entries        (M*6 bytes); M continuation line info entries (each 6 bytes)
+textOffset  (2 bytes LE)   ; offset within the text body
+fileIndex   (2 bytes LE)   ; index into fileNames
+line        (2 bytes LE)   ; 1-based line number
 ```
 
-Each 6-byte line info entry is structured as:
+The file table is limited to about 220 bytes; longer paths are shortened to their base name, and files that still do not fit are mapped to entry 0. The linker merges the tables into the `Source Lines` section of its map.
+
+### 1.8 Debug Symbols (`OPT_DEBUG_SYMBOLS`)
+
 ```
-textOffset     (2 bytes)  ; LE offset within the TEXT segment body
-fileIndex      (2 bytes)  ; LE index into the fileNames list
-line           (2 bytes)  ; LE 1-based source code line number
+procCount   (2 bytes LE)   ; number of procedures in the object (repeated in every record)
+records:
+  name      NUL-terminated procedure name
+  count     (1 byte)       ; parameters in this record
+  count × { name NUL-terminated, offset (2 bytes LE, signed frame offset) }
+  $FF
+```
+
+Records are kept under ~240 bytes; a procedure with more parameters than fit is split into several records with the same name.
+
+### 1.9 IPO Hints (`OPT_IPO_HINTS`)
+
+```
+version     (1 byte)  ; $01 (other versions are ignored)
+funcCount   (2 bytes LE)
+per function:
+  name               NUL-terminated
+  callCount          (2 bytes LE)
+  estimatedCodeSize  (2 bytes LE)
+  flags              (1 byte, FUNC_FLAG_*)
+  externalCallCount  (1 byte)
+  specCount          (1 byte)
+  specCount × { argCount (1), argCount × int64 LE, frequency (1, percent) }
+```
+
+Defined in the writer API and parsed by ln45; no tool currently writes it.
+
+---
+
+## 2. Segment Bodies
+
+After the option list, in fixed order:
+
+1. Text body (`tlen` bytes)
+2. Text relocation table (Section 3)
+3. Data body (`dlen` bytes)
+4. Data relocation table
+
+BSS and ZP have no body; only base and length are recorded.
+
+---
+
+## 3. Relocation Tables
+
+Each table is a stream of entries terminated by `$00`:
+
+```
+offset_delta   1 byte (or $FF escapes, 3.1)
+type_and_seg   1 byte: type (bits 7-5) | segment (bits 4-0)
+[extra]        1 byte, R_HIGH: low byte of the full target value;
+                       R_LOWX: high byte of the full target value
+[symbol_id]    4 bytes LE (2 without SIZE32), external references only
+```
+
+### 3.1 Offset Encoding
+
+The offset is a delta from the previous relocation site (the first from segment offset 0):
+
+| Byte Value | Meaning |
+|------------|---------|
+| `$00`      | End of table |
+| `$01-$FE`  | Add this value to the current offset; an entry follows |
+| `$FF`      | Add 254 and read another delta byte |
+
+A relocation at segment offset 0 cannot be encoded (the writer drops it).
+
+### 3.2 Segment IDs (bits 4-0)
+
+| ID   | Constant       | Description |
+|------|----------------|-------------|
+| `0`  | `SEG_EXTERNAL` | Imported symbol; symbol index follows |
+| `1`  | `SEG_ABSOLUTE` | Absolute (no relocation) |
+| `2`  | `SEG_TEXT`     | Text |
+| `3`  | `SEG_DATA`     | Data |
+| `4`  | `SEG_BSS`      | BSS |
+| `5`  | `SEG_ZP`       | Zero page |
+
+### 3.3 Relocation Types (bits 7-5)
+
+| Bits 7-5 | Value  | Constant      | Patch | Description |
+|----------|--------|---------------|-------|-------------|
+| `001`    | `$20`  | `R_LOW`       | 1 | Low byte of the address |
+| `010`    | `$40`  | `R_HIGH`      | 1 | High byte; the extra byte holds the low byte so the full value (addend) can be rebuilt |
+| `011`    | `$60`  | `R_LINEAR24`  | 3 | **(ext)** 24-bit linear address |
+| `100`    | `$80`  | `R_WORD`      | 2 | 16-bit address, little-endian |
+| `101`    | `$A0`  | `R_LINEAR32`  | 4 | **(ext)** 32-bit linear address (`.o65` uses `$A0` for SEG) |
+| `110`    | `$C0`  | `R_SEGADR`    | 3 | 24-bit address (patched like `R_LINEAR24`) |
+| `000`    | `$00`  | `R_IMM8`      | 1 | **(ext)** 8-bit immediate operand (self-modifying-code parameters) |
+| —        | `$01`  | `R_IMM16`     | 2 | **(ext)** 16-bit immediate. Its value lies in the segment bits, so it cannot be represented in this encoding |
+| `111`    | `$E0`  | `R_LOWX`      | 1 | **(ext)** Low byte; the extra byte holds the high byte so the full value can be rebuilt. ca45 writes it for `#<sym` and its simulated ops (`R_LOW` is still read: the linker needs the full value only to move SAC storage, see [ln45](../bin/ln45.md#sac-overlay)) |
+
+### 3.4 Patch Values
+
+- **Internal** (segment 2-5): the bytes at the patch site hold the assembly-time address. The linker subtracts the object's base for that segment (`tbase`/`dbase`/`bbase`/`zbase`) and adds the segment's final address plus the object's offset in the merged segment.
+- **External** (segment 0): the bytes at the patch site are an addend (sign-extended) added to the symbol's address, e.g. `jsr _f+3`. An import named `X__ar_N` resolves to `X__ar` + `N`.
+
+### 3.5 Examples
+
+`JSR external_func` with the address bytes at text offset `$0012`, first relocation:
+
+```
+$12                 ; delta 18
+$80                 ; R_WORD | SEG_EXTERNAL
+$03 $00 $00 $00     ; import #3
+```
+
+`lda #<msg` / `ldx #>msg` / `jmp print` (ca45 output, `msg` in DATA at offset 0, `print` external):
+
+```
+$01 $E3 $00         ; offset 1: R_LOWX | SEG_DATA, high byte $00
+$02 $43 $00         ; offset 3: R_HIGH | SEG_DATA, low byte $00
+$02 $80 $00 $00 $00 $00   ; offset 5: R_WORD | SEG_EXTERNAL, import #0
+$00                 ; end
 ```
 
 ---
 
-## 2. Segment Bodies [IMPLEMENTED]
+## 4. Symbol Tables
 
-After the option list, the segment bodies appear in fixed order:
+After the data relocation table: the import table, then the export table. Each starts with a count (4 bytes LE; 2 without `SIZE32`).
 
-1. **Text body** (`tlen` bytes of machine code)
-2. **Text relocation table** (see Section 3)
-3. **Data body** (`dlen` bytes of initialized data)
-4. **Data relocation table** (see Section 3)
+### 4.1 Import Entry
 
-BSS and ZP segments have no body (they are uninitialized); only their base and length are recorded in the header.
+```
+name $00            ; NUL-terminated
+```
+
+Relocations refer to imports by zero-based index. Imports come from `.extern` (an undefined symbol that is not declared `.extern` is an assembly error).
+
+### 4.2 Export Entry
+
+```
+name $00            ; NUL-terminated
+segment   (1 byte)  ; bits 6-0: SEG_TEXT/DATA/BSS/ZP/ABSOLUTE; bit 7 ($80): weak
+value     (4 bytes LE, 2 without SIZE32)   ; offset within the segment, or the value if absolute
+[function attribute record, 4.3]
+```
+
+Exports come from `.global` and `.weak` (weak bit set).
+
+### 4.3 Function Attribute Record (optional)
+
+Follows an export when the function's `proc` carries metadata (`.func_flags`, `.zp_uses`, `.zp_clobbers`, `.zp_release`, `.reg_clobbers`, `.flag_clobbers`). cc45 emits it for every function.
+
+```
+$FA                         ; marker
+flags         (1 byte)      ; FUNC_FLAG_* below
+regClobbers   (1 byte)      ; bit 0=A, 1=X, 2=Y, 3=Z
+flagClobbers  (1 byte)      ; bit 0=C, 1=N, 2=Z, 3=V
+zpUses        (4 bytes LE)  ; ZP slots read as parameters
+zpClobbers    (4 bytes LE)  ; ZP slots written
+zpRelease     (4 bytes LE)  ; ZP slots consumed (caller need not restore)
+paramSize     (1 byte)      ; parameter bytes (used for thunks)
+frameSize     (2 bytes LE)  ; activation record / frame size
+```
+
+**Total size**: 19 bytes including the marker. ZP masks: bit *n* = address `cc45.zeroPageStart + 1 + n` (`zeroPageStart` defaults to `$02`; cc45 objects define it as `$08`, so bit 0 = `$09`). Addresses at or below `zeroPageStart` cannot be expressed.
+
+| Bit | Constant | Meaning |
+|-----|----------|---------|
+| 0 | `FUNC_FLAG_LEAF` (`$01`) | Makes no calls |
+| 1 | `FUNC_FLAG_REENTRANT` (`$02`) | Re-entrant |
+| 2 | `FUNC_FLAG_ZP_CONV` (`$04`) | ZP calling convention (clear = stack) |
+| 3 | `FUNC_FLAG_STATIC_ALLOC` (`$08`) | Uses a static activation record (SAC) |
+| 4 | `FUNC_FLAG_ISR` (`$10`) | `__interrupt` handler |
+| 5 | `FUNC_FLAG_ZERO_ALLOC` (`$20`) | SAC leaf with no locals and all-constant parameters |
+
+A record means the convention is known; exports without one are never convention-checked by the linker. The linker bridges ZP/stack mismatches in **both** directions with thunks (an error with `ln45 --no-thunks`), and rejects SAC functions that are recursive or reachable from an ISR — see [ln45](../bin/ln45.md#calling-convention-thunks).
+
+The writer API can also put a content-flag record (`$FB`, flags byte; `O45_CONTENT_FLAG_*`) before the attribute record. No tool writes it and the reader does not understand it.
 
 ---
 
-## 3. Relocation Tables [IMPLEMENTED]
-
-Each relocation table (text, data) is a stream of relocation entries terminated by a `$00` byte. The encoding reuses the `.o65` relocation byte format exactly.
-
-### 3.1 Relocation Entry Format
-
-```
-offset_byte(s)    ; 1 byte offset delta, or $FF escape (see 3.2)
-type_and_seg      ; 1 byte: type (bits 7-5) | segment (bits 4-0)
-[extra_byte]      ; present only for certain types (HIGH with underflow, etc.)
-[symbol_id]       ; present only if segment bits = $00 (external reference)
-```
-
-### 3.2 Offset Encoding
-
-The offset byte is a delta from the previous relocation site (starting from the segment base). This is standard `.o65`:
-
-| Byte Value | Meaning                                           |
-|------------|---------------------------------------------------|
-| `$00`      | End of relocation table                           |
-| `$01-$FE` | Add this value to the current offset              |
-| `$FF`      | Add 254 to offset, read next offset byte (escape) |
-
-Multiple `$FF` bytes chain to skip large gaps.
-
-### 3.3 Type/Segment Byte
-
-```
-  7   6   5   4   3   2   1   0
-+---+---+---+---+---+---+---+---+
-| type (3 bits) | segment (5 bits)|
-+---+---+---+---+---+---+---+---+
-```
-
-#### Segment IDs (bits 4-0)
-
-Reused from `.o65` without modification:
-
-| ID   | Name          | Constant              | Description                        |
-|------|---------------|-----------------------|------------------------------------|
-| `0`  | External      | `SEG_EXTERNAL`        | Refers to an imported symbol (symbol ID follows) |
-| `1`  | Absolute      | `SEG_ABSOLUTE`        | Absolute value (no relocation)     |
-| `2`  | Text          | `SEG_TEXT`            | Offset relative to text segment    |
-| `3`  | Data          | `SEG_DATA`            | Offset relative to data segment    |
-| `4`  | BSS           | `SEG_BSS`             | Offset relative to BSS segment     |
-| `5`  | Zero Page     | `SEG_ZP`              | Offset relative to ZP/Direct Page  |
-
-#### Relocation Types (bits 7-5)
-
-Standard `.o65` types are reused. `.o45` extends with two new types using previously undefined encodings.
-
-| Bits 7-5 | Value  | Name             | Constant          | Patch Size | Description                                |
-|----------|--------|------------------|-------------------|------------|--------------------------------------------|
-| `001`    | `$20`  | LOW              | `R_LOW`           | 1 byte     | Low byte of 16-bit address                 |
-| `010`    | `$40`  | HIGH             | `R_HIGH`          | 1 byte     | High byte of 16-bit address (+extra byte for borrow) |
-| `011`    | `$60`  | **LINEAR24**     | `R_LINEAR24`      | 3 bytes    | **(ext)** 24-bit linear address            |
-| `100`    | `$80`  | WORD             | `R_WORD`          | 2 bytes    | Full 16-bit address (little-endian)        |
-| `101`    | `$A0`  | **LINEAR32**     | `R_LINEAR32`      | 4 bytes    | **(ext)** 32-bit linear address            |
-| `110`    | `$C0`  | SEGADR           | `R_SEGADR`        | 3 bytes    | Segment address (bank:addr, o65 standard)  |
-| `111`    | `$E0`  | reserved         |                   |            | Reserved for future use                    |
-| `000`    | `$00`  | (unused/end)     |                   |            | Not a valid type (offset $00 = table end)  |
-
-### 3.4 External Symbol References
-
-When the segment ID is `SEG_EXTERNAL` (`0`), the relocation entry is followed by a symbol index (encoded as a variable-length unsigned integer per `.o65` spec):
-
-- If SIZE32 is set: 4-byte little-endian symbol index
-- Else: 2-byte little-endian symbol index
-
-The symbol index refers to the **Imports table** (see Section 4.2), zero-based.
-
-### 3.5 Relocation Examples
-
-**Example 1**: `JSR external_func` in the text segment at offset +$0012
-
-```
-; offset delta to reach $0012 from previous site
-$12                     ; offset delta = 18
-$80 | $00 = $80         ; type=WORD, segment=EXTERNAL
-$03 $00 $00 $00         ; symbol index 3 (32-bit, SIZE32 mode)
-```
-Linker patches 2 bytes at text+$0012 with the resolved 16-bit address of import #3.
-
-**Example 2**: `LDAL [linear_ptr]` — 24-bit linear relocation to a data symbol at offset +$0030
-
-```
-$1E                     ; offset delta ($0030 - $0012 = $1E)
-$60 | $03 = $63         ; type=LINEAR24, segment=DATA
-```
-Linker patches 3 bytes at text+$0030 with (data_base + stored offset).
-
-**Example 3**: 32-bit pointer in data segment referencing a text label
-
-```
-$08                     ; offset delta
-$A0 | $02 = $A2         ; type=LINEAR32, segment=TEXT
-```
-Linker patches 4 bytes at data+offset with (text_base + stored value).
-
----
-
-## 4. Symbol Tables [IMPLEMENTED]
-
-Two symbol tables appear after the last relocation table, in order:
-
-1. **Imports** (undefined/external references)
-2. **Exports** (globally visible definitions)
-
-### 4.1 Table Structure
-
-Each table begins with a symbol count:
-
-| SIZE32=0 | SIZE32=1 | Description             |
-|----------|----------|-------------------------|
-| 2 bytes  | 4 bytes  | Number of entries (LE)  |
-
-### 4.2 Import Entry
-
-Each import is a NUL-terminated symbol name. Imports are referenced by zero-based index from relocation entries.
-
-```
-name_bytes... $00       ; NUL-terminated ASCII symbol name
-```
-
-The import table corresponds to `.extern` directives in `ca45`.
-
-### 4.3 Export Entry
-
-Each export contains the symbol name, the segment it belongs to, and its offset within that segment.
-
-```
-name_bytes... $00       ; NUL-terminated ASCII symbol name
-segment_id    (1 byte)  ; SEG_TEXT, SEG_DATA, SEG_BSS, SEG_ZP, or SEG_ABSOLUTE
-value         (2 or 4 bytes) ; offset within segment (width depends on SIZE32)
-```
-
-The export table corresponds to `.global` directives in `ca45`.
-
-### 4.4 Function Attribute Record (Optional)
-
-When an export has associated function metadata (calling convention, register clobbers, etc.), an optional function attribute record is appended immediately after the export's value field. The record is identified by the marker byte `$FA`.
-
-```
-$FA               ; marker byte (must be $FA)
-flags             (1 byte)  ; see table below
-regClobbers       (1 byte)  ; bit 0=A, 1=X, 2=Y, 3=Z
-flagClobbers      (1 byte)  ; bit 0=C, 1=N, 2=Z, 3=V
-zpUses            (4 bytes, LE) ; bitmask: which ZP slots are read as parameters
-zpClobbers        (4 bytes, LE) ; bitmask: which ZP slots are written by function
-zpRelease         (4 bytes, LE) ; bitmask: which ZP slots are consumed (caller need not restore)
-paramSize         (1 byte)  ; size of parameter space in bytes (for thunk generation)
-```
-
-**Total size**: 17 bytes (including marker).
-
-#### Flags Byte (offset 0 in attribute record, after marker)
-
-| Bit | Name | Meaning |
-|-----|------|---------|
-| 0 | `FUNC_FLAG_LEAF` | Function makes no calls to other functions |
-| 1 | `FUNC_FLAG_REENTRANT` | Function is re-entrant safe (no global mutable state, stack-only locals) |
-| 2 | `FUNC_FLAG_ZP_CONV` | Function uses ZP calling convention; 0 = stack-based |
-| 3–7 | — | Reserved, must be zero |
-
-**Convention Known**: The presence of the entire funcAttr record (marker $FA) indicates that the calling convention is known. If no record is present, convention is unknown (old object file or hand-written assembly without metadata).
-
-#### Enforcement
-
-The linker enforces that ZP-convention callers (`FUNC_FLAG_ZP_CONV` set) do not call stack-convention callees (`FUNC_FLAG_ZP_CONV` clear, funcAttr present). Violations are linker errors. The reverse direction (stack→ZP) is permitted to allow `__fastcall__` functions to be called from stack-convention code.
-
----
-
-## 5. Complete File Layout (Summary)
+## 5. Complete File Layout
 
 ```
 +-------------------------------+
-| Fixed Header (41 bytes)       |   marker, magic, version, mode,
-|   marker:  $01 $00            |   tbase/tlen, dbase/dlen,
-|   magic:   "o45"              |   bbase/blen, zbase/zlen,
-|   version: $00                |   cpu_id ($45)
-|   mode:    $xx $xx            |
-|   tbase/tlen (4+4)            |
-|   dbase/dlen (4+4)            |
-|   bbase/blen (4+4)            |
-|   zbase/zlen (4+4)            |
-|   cpu_id: $45                 |
+| Fixed header (41 bytes)       |  marker $01 $00, "o45", version $00, mode,
+|                               |  tbase/tlen dbase/dlen bbase/blen zbase/zlen, cpu $45
 +-------------------------------+
-| Option Headers                |   zero or more; terminated by $00
+| Option records                |  terminated by $00
 +-------------------------------+
-| Text Segment Body             |   tlen bytes of machine code
+| Text body                     |  tlen bytes
+| Text relocation table         |  terminated by $00
 +-------------------------------+
-| Text Relocation Table         |   stream terminated by $00
+| Data body                     |  dlen bytes
+| Data relocation table         |  terminated by $00
 +-------------------------------+
-| Data Segment Body             |   dlen bytes of initialized data
+| Import table                  |  count + NUL-terminated names
+| Export table                  |  count + (name, segment, value [, $FA record])
 +-------------------------------+
-| Data Relocation Table         |   stream terminated by $00
-+-------------------------------+
-| Import Table                  |   count + NUL-terminated names
-+-------------------------------+
-| Export Table                  |   count + (name + segment + value)
+| [debug sections]              |  writer API only: .debug_info/.debug_line/.debug_str,
+|                               |  each as size (4 LE, incl. itself) + data; not written
+|                               |  by the tools, ignored by the reader
 +-------------------------------+
 ```
 
 ---
 
-## 6. C++ Constants [IMPLEMENTED]
+## 6. C++ Constants
 
-These constants and enums are defined in `include/O45Types.hpp`. They reuse `.o65` values directly.
-
-```cpp
-#pragma once
-#include <cstdint>
-
-// --- File markers ---
-constexpr uint8_t  O45_MARKER1       = 0x01;
-constexpr uint8_t  O45_MARKER2       = 0x00;
-constexpr uint8_t  O45_MAGIC[3]      = { 0x6F, 0x34, 0x35 }; // "o45"
-constexpr uint8_t  O45_VERSION       = 0x00;
-
-// --- Mode word bits (reused from .o65) ---
-constexpr uint16_t O45_MODE_PAGED    = 0x0001;
-constexpr uint16_t O45_MODE_OBJ      = 0x0000; // bits 1-2 = 00
-constexpr uint16_t O45_MODE_EXE      = 0x0002; // bits 1-2 = 01
-constexpr uint16_t O45_MODE_LIB      = 0x0004; // bits 1-2 = 10
-constexpr uint16_t O45_MODE_SIMPLE   = 0x0008;
-constexpr uint16_t O45_MODE_CHAIN    = 0x0010;
-constexpr uint16_t O45_MODE_BSSZERO  = 0x0020;
-constexpr uint16_t O45_MODE_CPUEXT   = 0x0800;
-constexpr uint16_t O45_MODE_SIZE32   = 0x8000;
-
-// Canonical .o45 mode: 32-bit addresses + extended CPU byte
-constexpr uint16_t O45_MODE_DEFAULT  = O45_MODE_SIZE32 | O45_MODE_CPUEXT;
-
-// --- CPU IDs (extended byte, when MODE_CPUEXT is set) ---
-constexpr uint8_t  O45_CPU_6502      = 0x01;
-constexpr uint8_t  O45_CPU_65C02     = 0x02;
-constexpr uint8_t  O45_CPU_65CE02    = 0x03;
-constexpr uint8_t  O45_CPU_65816     = 0x04;
-constexpr uint8_t  O45_CPU_45GS02    = 0x45;
-
-// --- Segment IDs (bits 4-0 of relocation type/seg byte) ---
-enum O45Segment : uint8_t {
-    SEG_EXTERNAL  = 0,   // external symbol (index follows)
-    SEG_ABSOLUTE  = 1,   // absolute / no relocation
-    SEG_TEXT      = 2,   // .code (text/code segment)
-    SEG_DATA      = 3,   // .data (initialized)
-    SEG_BSS       = 4,   // .bss  (uninitialized)
-    SEG_ZP        = 5,   // .zp   (zero/direct page)
-};
-
-// --- Relocation types (bits 7-5 of relocation type/seg byte) ---
-enum O45RelocType : uint8_t {
-    R_LOW         = 0x20, // low byte of 16-bit address
-    R_HIGH        = 0x40, // high byte of 16-bit address
-    R_LINEAR24    = 0x60, // 24-bit linear address (3 bytes) [.o45 extension]
-    R_WORD        = 0x80, // full 16-bit address (2 bytes)
-    R_LINEAR32    = 0xA0, // 32-bit linear address (4 bytes) [.o45 extension]
-    R_SEGADR      = 0xC0, // segment address (bank:addr, 3 bytes)
-};
-
-// Masks for splitting the type/seg byte
-constexpr uint8_t  O45_RTYPE_MASK    = 0xE0; // bits 7-5
-constexpr uint8_t  O45_RSEG_MASK     = 0x1F; // bits 4-0
-
-// --- Relocation offset encoding ---
-constexpr uint8_t  O45_RELOC_END     = 0x00; // end of relocation table
-constexpr uint8_t  O45_RELOC_ESCAPE  = 0xFF; // add 254, read next byte
-
-// --- Option types (reused from .o65) ---
-constexpr uint8_t  OPT_END           = 0x00;
-constexpr uint8_t  OPT_FNAME         = 0x01;
-constexpr uint8_t  OPT_OS            = 0x02;
-constexpr uint8_t  OPT_ASM           = 0x03;
-constexpr uint8_t  OPT_AUTHOR        = 0x04;
-constexpr uint8_t  OPT_CREATED       = 0x05;
-
-// OS identifier for MEGA65
-constexpr uint8_t  OPT_OS_MEGA65     = 0x05;
-
-// --- Patch sizes per relocation type ---
-inline int o45RelocPatchSize(uint8_t rtype) {
-    switch (rtype & O45_RTYPE_MASK) {
-        case R_LOW:       return 1;
-        case R_HIGH:      return 1;
-        case R_WORD:      return 2;
-        case R_LINEAR24:  return 3;
-        case R_SEGADR:    return 3;
-        case R_LINEAR32:  return 4;
-        default:          return 0;
-    }
-}
-```
+`include/O45Types.hpp` defines the format: file markers (`O45_MARKER1/2`, `O45_MAGIC`, `O45_VERSION`, `O45_HEADER_SIZE` = 41), mode bits (`O45_MODE_*`, `O45_MODE_DEFAULT` = `SIZE32 | CPUEXT`), CPU IDs (`O45_CPU_*`), `O45Segment`, `O45_EXPORT_WEAK`, `O45RelocType` (including `R_IMM8`/`R_IMM16`), `O45_RTYPE_MASK`/`O45_RSEG_MASK`, `O45_RELOC_END`/`ESCAPE`/`SKIP`, option types (`OPT_*`, `OPT_OS_MEGA65`), `O45_FUNCATTR_MARKER`/`O45_FUNCATTR_SIZE` (19), `O45_CONTENTFLAG_MARKER`, `O45FuncAttr` with the `FUNC_FLAG_*` bits, `o45RelocPatchSize()`, and the IPO hint structures. `include/O45Writer.hpp` has `O45Writer`, `O45Reloc` and `O45RelocEncoder`; `include/O45Reader.hpp` has `O45File` and `O45Reader`; `include/O45Linker.hpp` has `O45RelocDecoder`.
 
 ---
 
-## 7. Mapping to Existing Assembler Structures [IMPLEMENTED]
+## 7. Assembler Segments
 
-The `.o45` segments map directly to the `ca45` segment infrastructure already in `AssemblerParser`:
+| ca45 segment | `.o45` segment |
+|--------------|----------------|
+| `code`, `text`, `init`, any other name | `SEG_TEXT` (parts described by `OPT_SEGATTR`) |
+| `data` | `SEG_DATA` |
+| `bss` | `SEG_BSS` |
+| `zp` | `SEG_ZP` |
 
-| `.o45` Segment | `ca45` `.segment` name | `Segment` struct field |
-|----------------|------------------------|------------------------|
-| `SEG_TEXT`     | `"text"`               | `segments["text"]`     |
-| `SEG_DATA`     | `"data"`               | `segments["data"]`     |
-| `SEG_BSS`      | `"bss"`                | `segments["bss"]`      |
-| `SEG_ZP`       | `"zp"`                 | `segments["zp"]`       |
-
-The existing `Symbol` struct in `AssemblerTypes.hpp` already carries `value`, `isAddress`, and `size` — sufficient for populating export entries. Import tracking requires a new list of unresolved `.extern` names, indexed in declaration order (matching the symbol ID used in relocation entries).
+Export offsets are relative to their segment (for TEXT, to the merged text body).
 
 ---
 
-## 8. Symbol Naming Convention (C Linkage) [IMPLEMENTED]
+## 8. Symbol Naming (C Linkage)
 
-The `.o45` format adopts the traditional C symbol naming convention: all C-linkage symbols are stored with a single leading underscore (`_`) prefix. This ensures cross-toolchain compatibility with cc65, ACME, and other 6502-family tools.
+C symbols carry a leading underscore: function `main` → `_main`, global `count` → `_count`. Hand-written assembly symbols are stored as written (`print`), so C code calling them must use the underscored name in the assembly (`_print`).
 
-### 8.1 Convention
+cc45 objects also contain:
 
-| Symbol Kind      | C Source Name   | `.o45` Export/Import Name |
-|------------------|-----------------|---------------------------|
-| Function         | `main`          | `_main`                   |
-| Function         | `printf`        | `_printf`                 |
-| Global variable  | `count`         | `_count`                  |
-| Global array     | `buffer`        | `_buffer`                 |
-
-Local variables and parameters are never exported and have no mandated naming — they remain internal to the assembler.
-
-Assembly-only symbols (not originating from C) that are exported via `.global` are stored **as-is** with no automatic prefix. The `_` prefix is a compiler convention, not a format requirement.
-
-### 8.2 Changes Made in `cc45` (`CodeGenerator.cpp`)
-
-The compiler previously used `_g_` prefix for globals. The following changes were applied:
-
-#### A. Global Variables: `_g_` -> `_`
-
-All `"_g_" + name` patterns changed to `"_" + name` (~15 sites), including:
-- `resolveVarName()` lookup and prefix detection
-- `getExprType()` global variable resolution
-- `emitAddress()` struct member access
-- `visit(VariableDeclaration)` global declaration
-- `visit(Assignment)` global store paths
-- `visit(MemberAccess)` and `visit(SizeofExpression)` lookups
-- `emitData()` label emission (`.data` and `.bss` sections)
-
-#### B. `isGlobal` Detection
-
-Changed from prefix-based (`rName.substr(0,3) == "_g_"`) to lookup-based (`globalVariableTypes.count(rName)`). This is more robust and independent of naming convention. Applied at 5 sites (4x `isGlobal`, 1x `sourceGlobal`).
-
-#### C. Function Labels: bare name -> `_` prefix
-
-- Startup stub: `jsr main` -> `jsr _main`
-- Proc declaration: `"proc " + node.name` -> `"proc _" + node.name`
-- Function calls: `"jsr " + node.name` -> `"jsr _" + node.name`
-
-#### D. Local Variables (`_l_`) and Parameters (`_p_`): No change
-
-These are never exported and remain internal to the assembler.
-
-#### E. `resolveVarName()` Prefix Detection
-
-The early-return check was simplified: only `_p_` and `_l_` are checked (3-char prefixes). The global lookup uses `globalVariableTypes.count()` which naturally handles the `_` prefix.
-
-### 8.3 Changes in `ca45`
-
-No assembler changes needed — the assembler treats labels as opaque strings.
-
-### 8.4 Summary
-
-| Scope     | Old Prefix | New Prefix | Exported? | Status |
-|-----------|-----------|------------|-----------|--------|
-| Global var| `_g_`     | `_`        | Yes       | Done |
-| Function  | (none)    | `_`        | Yes       | Done |
-| Local var | `_l_`     | `_l_`      | No        | Unchanged |
-| Parameter | `_p_`     | `_p_`      | No        | Unchanged |
+| Symbol | Kind | Meaning |
+|--------|------|---------|
+| `_f__sac` | TEXT | Body of SAC function `f` after its parameter copy |
+| `_f__param_x` | BSS | Static parameter slot `x` of SAC function `f` |
+| `cc45.mode_zp` / `cc45.mode_stack` | weak absolute (1) | Calling convention of the object (used by ln45) |
+| `cc45.zeroPageStart` | weak absolute | First ZP address of the code generator (`$08`); base of the ZP masks |
+| `cc45.align.text` / `.data` / `.bss` | weak absolute | Largest alignment in that segment (only when > 1) |
+| `__zp_scratch`..`__zp_scratch4`, `__static_chain`, `__sp_base` | weak absolute | ZP temporaries and stack base used by the code |
 
 ---
 
 ## 9. Differences from Standard `.o65`
 
-| Feature                | `.o65`                  | `.o45`                              |
-|------------------------|-------------------------|-------------------------------------|
-| Address width          | 16-bit (default)        | 32-bit (`SIZE32` always set)        |
-| CPU identification     | `CPU_BITS` only         | `CPU_EXT` byte = `$45`             |
-| `R_LINEAR24`           | Not defined             | `$60` — 24-bit linear patch        |
-| `R_LINEAR32`           | Not defined             | `$A0` — 32-bit linear patch        |
-| Symbol index width     | 2 bytes                 | 4 bytes (due to SIZE32)            |
-| Fixed header size      | 26 bytes (16-bit mode)  | 41 bytes (32-bit + CPU ext byte)   |
+| Feature | `.o65` | `.o45` |
+|---------|--------|--------|
+| Magic | `"o65"` | `"o45"` |
+| Address width | 16-bit (32-bit optional) | 32-bit (`SIZE32` always set) |
+| CPU identification | `CPU_BITS` | `CPU_EXT` byte = `$45` |
+| `R_LINEAR24` | — | `$60` |
+| `R_LINEAR32` | `$A0` is SEG | `$A0` — 32-bit patch |
+| `R_IMM8` | — | type bits `000` |
+| Symbol index / counts | 2 bytes | 4 bytes |
+| Weak exports | — | bit 7 of the export segment byte |
+| Function attributes | — | `$FA` record after an export |
+| Extra options | — | `$10`, `$11`, `$12`, `$50` |
+| Fixed header size | 26 bytes (16-bit mode) | 41 bytes |

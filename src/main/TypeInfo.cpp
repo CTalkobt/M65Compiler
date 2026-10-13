@@ -8,7 +8,9 @@ int TypeInfo::getTypeSize(const std::string& type, int ptrLevel, int arraySize,
     else if (type == "char") size = 1;
     else if (type == "_Bool") size = 1;
     else if (type == "int") size = 2;
+    else if (type == "short") size = 2;
     else if (type == "long") size = 4;
+    else if (type == "float" || type == "double" || type == "long double") size = 5;  // CBM 40-bit
     else if (type.length() >= 5 && type.substr(0, 5) == "enum ") size = 2;
     else if (type.substr(0, 7) == "struct " || type.substr(0, 6) == "union ") {
         std::string sName = type.substr(type.find(' ') + 1);

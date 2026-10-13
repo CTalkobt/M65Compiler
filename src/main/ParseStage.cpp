@@ -2,6 +2,7 @@
 #include "Lexer.hpp"
 #include "Parser.hpp"  // Include full definition for Parser
 #include "Token.hpp"
+#include "ComplexBuiltin.hpp"
 #include <iostream>
 
 void ParseStage::printTokens(const std::vector<Token>& tokens) const {
@@ -38,8 +39,31 @@ Stage::Result ParseStage::execute() {
             std::cout << "Parsing..." << std::endl;
         }
 
+        // _Complex types are structs with overloaded operators; add their
+        // definitions when the unit uses them and doesn't define them itself
+        bool usesComplex = false, definesComplex = false;
+        for (size_t i = 0; i < tokens.size(); i++) {
+            const Token& t = tokens[i];
+            if (t.type == TokenType::COMPLEX || t.type == TokenType::IMAGINARY_LITERAL ||
+                (t.type == TokenType::IDENTIFIER && (t.value == "_Complex_float" || t.value == "_Complex_int")))
+                usesComplex = true;
+            if (t.type == TokenType::STRUCT && i + 2 < tokens.size() &&
+                tokens[i + 1].value == "_Complex_float" && tokens[i + 2].type == TokenType::OPEN_BRACE)
+                definesComplex = true;
+        }
+        if (usesComplex && !definesComplex) {
+            Lexer clex(cc45::complexBuiltinSource());
+            clex.setSourceFile("<complex>");
+            std::vector<Token> ctoks = clex.tokenize();
+            while (!ctoks.empty() && ctoks.back().type == TokenType::END_OF_FILE) ctoks.pop_back();
+            for (auto& t : ctoks) { t.sourceFile = "<complex>"; t.line = 0; }
+            tokens.insert(tokens.begin(), ctoks.begin(), ctoks.end());
+        }
+
         // Parse the tokens into an AST
         Parser parser(tokens);
+        parser.signedDefault = signedDefault_;
+        parser.unsignedChar = unsignedChar_;
         ast_ = parser.parse();
 
         // Phase 102: Extract typedef information from parser for IR generation

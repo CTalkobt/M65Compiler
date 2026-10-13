@@ -1,6 +1,8 @@
 #include "OptimizeStage.hpp"
 #include "AST.hpp"
 #include "ConstantFolder.hpp"
+#include "LoopInterchange.hpp"
+#include "OptimizationCatalog.hpp"
 #include "FunctionAnalyzer.hpp"
 #include <iostream>
 #include <algorithm>
@@ -22,15 +24,13 @@ Stage::Result OptimizeStage::execute() {
             performInlineSelection();
         }
 
-        // Phase 4: Cross-module optimization (IPO, devirtualization, etc.)
-        if (optimizationLevel_ >= 2) {
-            performCrossModuleOptimization();
-        }
-
         // Phase 5: Loop optimizations (interchange, unrolling, invariant hoisting)
         if (optimizationLevel_ >= 3) {
             performLoopOptimizations();
         }
+
+        // -floop-interchange (also per function by #pragma cc45 optimize)
+        performLoopInterchange();
 
         if (verboseLevel_ >= 1) {
             std::cout << "AST optimization complete." << std::endl;
@@ -121,52 +121,6 @@ void OptimizeStage::performInlineSelection() {
     }
 }
 
-void OptimizeStage::performCrossModuleOptimization() {
-    if (verboseLevel_ >= 2) {
-        std::cout << "  Cross-module optimization..." << std::endl;
-    }
-
-    if (!analyzer_) return;
-
-    // Phase 91: Cross-module optimization (IPO)
-    // This includes:
-    //  - Dead code elimination across modules
-    //  - Function specialization for constant argument patterns
-    //  - Call graph analysis for devirtualization
-    //  - Co-optimization hints
-
-    const auto& characteristics = analyzer_->getAllCharacteristics();
-
-    // Count functions eligible for optimization
-    int leafFunctions = 0;
-    int smallFunctions = 0;
-    for (const auto& [funcName, chars] : characteristics) {
-        // Leaf functions are candidates for aggressive optimization
-        if (chars.isLeaf && funcName != "main" && funcName != "_main") {
-            leafFunctions++;
-        }
-        // Small functions can be inlined or specialized
-        if (chars.estimatedCodeSize < 20 && funcName != "main" && funcName != "_main") {
-            smallFunctions++;
-        }
-    }
-
-    if (verboseLevel_ >= 2) {
-        if (leafFunctions > 0) {
-            std::cout << "    Found " << leafFunctions << " leaf functions for optimization." << std::endl;
-        }
-        if (smallFunctions > 0) {
-            std::cout << "    Found " << smallFunctions << " small functions for specialization." << std::endl;
-        }
-    }
-
-    // Additional cross-module optimizations:
-    //  - Devirtualization (single virtual implementation → direct call)
-    //  - Function specialization for hot call paths
-    //  - Co-location hints for frequently-accessed globals
-    // These are marked as hints in the IR and applied at link time (Phase 100)
-}
-
 void OptimizeStage::performLoopOptimizations() {
     if (verboseLevel_ >= 2) {
         std::cout << "  Loop optimizations..." << std::endl;
@@ -184,4 +138,20 @@ void OptimizeStage::performLoopOptimizations() {
     if (verboseLevel_ >= 3) {
         std::cout << "    Loop optimization hints marked for IR phase." << std::endl;
     }
+}
+
+void OptimizeStage::performLoopInterchange() {
+    if (!ast_) return;
+    auto it = optOverrides_.find("LoopInterchange");
+    bool on = it != optOverrides_.end() ? it->second
+                                        : OptimizationCatalog::isEnabledAtLevel("LoopInterchange", optimizationLevel_);
+    LoopInterchange li;
+    if (traceIROpt_) {
+        li.trace = [](const std::string& fn, int line, const std::string& msg) {
+            std::cerr << "[interchange] _" << fn << " (line " << line << "): " << msg << std::endl;
+        };
+    }
+    // Runs even when off: #pragma cc45 optimize(loop-interchange) can turn it on per function
+    int n = li.optimizeTranslationUnit(*ast_, on);
+    if (verboseLevel_ >= 2 && n > 0) std::cout << "    Interchanged " << n << " loop nest(s)." << std::endl;
 }

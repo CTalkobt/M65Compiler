@@ -6,6 +6,7 @@
 #define NULL 0
 
 typedef unsigned int size_t;
+typedef unsigned int wchar_t;   /* L"..." and L'x': 16 bits */
 typedef signed int ptrdiff_t;
 
 /* offsetof(type, member) — byte offset of member within type */

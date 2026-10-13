@@ -12,7 +12,7 @@
 #include <string.h>
 
 /* Standard memcpy from asm for fallback and small blocks */
-extern void *memcpy(void *dest, const void *src, int n);
+__fastcall__ void *memcpy(void *dest, const void *src, int n);
 
 /* Fast unrolled copy for 4-byte aligned blocks (common case) */
 static inline void *memcpy_aligned_4(char *dest, const char *src, signed int n)

@@ -30,6 +30,12 @@ public:
     // Get list of processed files (for dependency tracking)
     const std::vector<std::string>& getIncludedFiles() const { return includedFiles; }
 
+    // Where output line n (1-based) came from: (file, line); ("", 0) if unknown
+    std::pair<std::string, int> getLineOrigin(int outputLine) const {
+        if (outputLine < 1 || outputLine > (int)lineOrigins.size()) return {"", 0};
+        return lineOrigins[outputLine - 1];
+    }
+
     // Get macro definitions
     const std::map<std::string, MacroDefinition>& getMacros() const { return macros; }
 
@@ -56,7 +62,9 @@ private:
     std::string expandPredefinedMacros(const std::string& line);
     std::string findIncludeFile(const std::string& filename, const std::string& currentDir);
     std::string readFile(const std::string& filename);
-    std::string preprocessInternal(const std::string& source, const std::string& baseDir, int depth = 0);
+    std::string preprocessInternal(const std::string& source, const std::string& baseDir, int depth = 0,
+                                   const std::string& file = "");
+    std::vector<std::pair<std::string, int>> lineOrigins;   // per output line
 
     bool isConditionalActive() const;
     std::string getCurrentDate() const;

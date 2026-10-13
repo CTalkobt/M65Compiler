@@ -23,6 +23,9 @@ public:
     // Get path to generated object file
     std::string getObjectFile() const { return objectFile_; }
 
+    // Extra ca45 arguments (e.g. -PNoTailCall from cc45's -fno-tail-call-optimization)
+    void setExtraArgs(const std::string& a) { extraArgs_ = a; }
+
 private:
     std::string assemblyInput_;
     std::string outputFile_;
@@ -33,4 +36,5 @@ private:
 
     // Helper methods
     int invokeAssembler();
+    std::string extraArgs_;
 };

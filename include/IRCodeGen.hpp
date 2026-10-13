@@ -100,6 +100,11 @@ private:
 
     // Codegen reasoning trace (enabled by -Rcodegen)
     bool emitReasons_ = false;
+    // BSS adjacency for SAC blocks (ln45 moves them): inBss_ while the
+    // current segment is bss; bssBoundaryClean_ while nothing but a SAC
+    // block's trailing pad (or nothing at all) precedes the next BSS item
+    bool inBss_ = false;
+    bool bssBoundaryClean_ = true;
 
     // Module-level emission
     void emitStartupStub(const ir::Module& mod);
@@ -113,6 +118,7 @@ private:
 
     // vReg frame slot management (per-function)
     std::map<uint32_t, int> vregOffset_;  // vregId → frame offset
+    std::map<std::string, std::map<uint32_t, int>> frameOffsetsByFn_;  // function -> vreg -> frame offset
     std::map<uint32_t, ir::Type> vregType_; // vregId → type
     int frameSize_ = 0;
     int labelCounter_ = 0;
@@ -122,6 +128,13 @@ private:
     // ZP allocator for frame address tracking
     struct ZPReg { bool inUse = false; };
     std::vector<ZPReg> zpRegs_;
+    // Zero-page layout (the program owns its whole relocated base page):
+    //   $06-$07 static chain, $08-$0F scratch, $10-$2F ZP parameters / stack-call
+    //   argument staging, $30-$E9 vreg pool, $EA-$ED 32-bit temp, $EE-$EF
+    //   (spare), $F0-$FC library temps, $FD-$FE frame pointer
+    static constexpr int ZP_POOL_START = 0x30;
+    static constexpr int ZP_POOL_SLOTS = (0xEA - 0x30) / 2;
+    static constexpr int ZP_TEMP32 = 0xEA;
     uint32_t zeroPageAvail_ = 248;  // Available ZP space (usually $08-$FF)
     int frameAddrZPIndex_ = -1;  // allocated ZP index for frame address (2 bytes), -1 if not allocated
     bool frameAddrCacheValid_ = true;  // Frame pointer cache valid flag (invalidated after function calls)
@@ -177,6 +190,18 @@ private:
 
     // Frame management
     int localFrameSize_ = 0;
+    // Emit `op` (lda/sta) on byte `i` of a 5-byte F32 vreg wherever it lives
+    void emitF32Byte(const std::string& op, uint32_t vregId, int i);
+    // Absolute base (ZP "$xx" or SAC symbol) of an F32 vreg; false if it lives in a stack frame
+    bool f32AbsBase(uint32_t vregId, std::string& base);
+    std::string sacSymbol(uint32_t vregId) const;
+    // 5-byte copy between absolute locations as a Y-indexed loop (the assembler
+    // optimizer mis-tracks unrolled absolute copies)
+    void emitF32CopyAbs(const std::string& src, const std::string& dst);
+    // Copy between an F32 vreg and an absolute location, either direction
+    void emitF32VregToAbs(uint32_t vregId, const std::string& dst);
+    void emitF32AbsToVreg(const std::string& src, uint32_t vregId);
+    bool savedCallerFP_ = false;  // prologue pushed the caller's $FD/$FE
     std::map<uint32_t, int> vregSizes_; // override sizes for array vRegs
 
     // Register allocator
@@ -197,10 +222,18 @@ private:
     std::map<uint32_t, int64_t> vregConstVal_;
     // CONST vregs only used as STORE addresses — skip emission and frame allocation
     std::set<uint32_t> suppressedVregs_;
+    std::set<uint32_t> multiDefVregs_;  // vregs with more than one definition (never constants)
+    struct FoldedAddr { uint32_t base; int offset; };
+    std::map<uint32_t, FoldedAddr> foldedAddrs_;  // vreg = base + offset, used only as load/store address
+    std::string foldedPtr(uint32_t addrVreg, const std::string& scratch, int& yOff);
 
     // Track which functions use SAC (Static Allocation Convention)
     // Used to emit .global declarations for __ar symbols in preamble
     std::set<std::string> sacFunctions_;
+    std::set<std::string> recursiveFunctions_;  // on a call cycle within the module
+    int dataAlign_ = 1, bssAlign_ = 1;  // largest .align emitted in data / bss
+    int textAlign_ = 1;                 // largest function alignment
+    static std::string stringDirective(const std::string& value, const std::string& escMask, int encoding);
 
     // Track parameter names for each function (for SAC naming consistency)
     // Maps function name → vector of parameter names
@@ -387,6 +420,8 @@ private:
 
     // Current function, block, and instruction index for peephole lookahead
     const ir::Function* currentFn_ = nullptr;
+    const ir::Module* currentModule_ = nullptr;
+    bool vregUsedOutside(uint32_t id, const ir::Inst* a, const ir::Inst* b) const;
     size_t currentBlockIdx_ = 0;
     size_t currentInstInBlock_ = 0; // index within current block's inst vector
 

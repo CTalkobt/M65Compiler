@@ -22,10 +22,21 @@ struct CompilationConfig {
     int optimizationLevel = 2;
     bool emitIR = false;        // --emit-ir: write IR text dump
     bool emitReasons = false;   // -Rcodegen: annotate assembly
+    int maxInlineIRSize = 11;   // -fmax-inline-ir-size: max IR instructions for inlining
+    int maxUnrollBytes = 128;   // -fmax-unroll-bytes: largest code an unrolled loop may take
+    bool signedDefault = false; // -fsigned-default: plain char/short/int/long are signed (standard C)
+    bool unsignedChar = false;  // -funsigned-char: plain char stays unsigned even with -fsigned-default
+    // -f<name> / -fno-<name> for the optimizations of OptimizationCatalog:
+    // catalog name -> on/off (overrides the -O level's default)
+    std::map<std::string, bool> optOverrides;
+    bool futureWarnings = false; // --future: warn when an unimplemented optimization is requested
+    bool traceIROpt = false;     // -Roptir: report IR optimizer actions to stderr
 
     // Calling conventions
-    bool zpCallMode = false;
+    bool zpCallMode = true;     // ZP parameter convention (default); -fno-zpcall selects stack parameters
     bool staticAllocMode = true;
+    int stackTop = -1;
+    int bssFill = -1;           // -fbss-fill=V (-1 = not set: ln45's --bss-fill or 0)          // -fno-stack16 (0) / -fstack-top=ADDR; -1 = 16-bit stack at $BFFF
     bool inlineSmallFunctions = false;
 
     // Language conformance
@@ -41,6 +52,7 @@ struct CompilationConfig {
     // Linking
     std::vector<std::string> libraryPaths;
     uint32_t prgBase = 0x2000;
+    bool prgBaseSet = false;    // --prg-base: a plain PRG at prgBase (else a BASIC-startable PRG)
 
     // Pragmas from CLI
     std::vector<std::string> cliPragmas;
@@ -54,6 +66,7 @@ struct CompilationResult {
     bool success = false;
     int exitCode = 0;
     std::string error;
+    bool errorPrinted = false;   // the stage already printed its diagnostics
     std::string outputFile;
 };
 

@@ -1,336 +1,114 @@
 # MEGA65 Toolchain Configuration
 
-This document describes how to configure the MEGA65 C compiler suite using configuration files and command-line options.
+This document describes the configuration files and environment variables the toolchain reads.
 
-## Configuration Files
+## Which Tools Read Configuration
 
-The MEGA65 toolchain supports persistent configuration via files stored in `~/.config/m65/`. Each tool has its own configuration file:
+| Tool | Configuration | Format |
+|------|---------------|--------|
+| `cc45` | `~/.config/m65/cc45.conf` | Command-line arguments, whitespace-separated, quotes allowed |
+| `cp45` | `~/.config/m65/cp45.conf` | Same as cc45 (`cp45` is `cc45` under another name; the file is chosen by the program name) |
+| `ca45` | `~/.config/m65/ca45.conf`, then `./.ca45rc` | One command-line argument per line |
+| `cvt_asm` | `.cvtasmrc` in the current directory or the nearest parent directory | INI sections with `key = value` (see [cvt_asm](cvt_asm.md#configuration-file-cvtasmrc)) |
 
-| Tool | Configuration File | Purpose |
-|------|-------------------|---------|
-| `cc45` | `~/.config/m65/cc45.conf` | C compiler configuration |
-| `ca45` | `~/.config/m65/ca45.conf` | Assembler configuration |
-| `ln45` | `~/.config/m65/ln45.conf` | Linker configuration |
-| `ar45` | `~/.config/m65/ar45.conf` | Archiver configuration |
-| `nm45` | `~/.config/m65/nm45.conf` | Symbol lister configuration |
-| `objdump45` | `~/.config/m65/objdump45.conf` | Object file disassembler configuration |
-| `disk45` | `~/.config/m65/disk45.conf` | Disk utility configuration |
-| `cp45` | `~/.config/m65/cp45.conf` | Preprocessor configuration |
+`ln45`, `ar45`, `nm45`, `objdump45`, `basic45` and `disk45` read no configuration file.
 
-## Configuration File Format
+Configuration arguments are placed in front of the command-line arguments and parsed with them, so for options that set a value (`-O2`, `-fzpcall`/`-fno-zpcall`, ...) the command line wins because it comes later.
 
-Configuration files use a simple line-based format. Each line contains a single command-line argument or option:
+## cc45 / cp45: `~/.config/m65/cc45.conf`
 
-- **Blank lines** are ignored
-- **Comments** start with `#` at the beginning of a line and extend to the end of the line
-- **Each line** is treated as a single argument (as if passed on the command line)
-- **Quotes** are supported for arguments with spaces (e.g., `--pragma "cc45 heap"`)
+- Lines whose first character is `#` are comments; blank lines are ignored.
+- Every other line is split at spaces/tabs into arguments; `"..."` and `'...'` group text containing spaces.
+- `#` later in a line is **not** a comment: `-O0  # debug` adds the arguments `#` and `debug`.
+- An unknown option starting with `-` warns (*"cc45: warning: unknown option '-x' ignored"*). Any other word is taken as the input file name; the file named on the command line comes later and replaces it, so such words are silently ignored.
 
-### Examples
-
-**~/.config/m65/cc45.conf** — C compiler defaults:
-
-```
-# Use standard optimizations by default
--O2
-
-# Disable JSR relocation optimization
--PNoJSRRelocate
-
-# Enable inline functions
--finline-functions
-
-# Add default include path
--I./include
-```
-
-**~/.config/m65/ca45.conf** — Assembler defaults:
-
-```
-# Use standard optimizations
--O2
-
-# Enable optimizer reporting
--Roptimizer
-
-# Verbose mode
--v
-```
-
-**~/.config/m65/ln45.conf** — Linker defaults:
-
-```
-# Search additional library paths
--L./lib
--L./vendor/lib
-```
-
-## Precedence and Override Rules
-
-Configuration file settings and command-line arguments are merged in the following order (highest to lowest precedence):
-
-1. **Command-line arguments** (highest precedence — always win)
-2. **Configuration file arguments** (loaded from `~/.config/m65/<tool>.conf`)
-3. **Built-in defaults** (lowest precedence)
-
-When both a configuration file and command-line arguments specify the same option, the command-line argument takes precedence.
-
-### Example Scenarios
-
-**Scenario 1: Config file specifies `-O0`, CLI specifies `-O2`**
-
-```bash
-$ cat ~/.config/m65/cc45.conf
--O0
-
-$ cc45 -O2 program.c
-# Result: -O2 is used (CLI wins)
-```
-
-**Scenario 2: Config file enables an optimization, CLI disables it**
-
-```bash
-$ cat ~/.config/m65/cc45.conf
--O2
--PTailCall
-
-$ cc45 program.c -PNoTailCall
-# Result: Tail call optimization is disabled (CLI wins)
-```
-
-**Scenario 3: Config file and CLI both enable the same optimization**
-
-```bash
-$ cat ~/.config/m65/cc45.conf
--O2
--PStrengthReduction
-
-$ cc45 program.c -PStrengthReduction
-# Result: -O2 is used with strength reduction enabled (consistent)
-```
-
-## Optimization Configuration
-
-### Optimization Levels
-
-Optimization levels control which optimization passes are enabled by default:
-
-| Level | Enabled Passes | Use Case |
-|-------|-----------------|----------|
-| `-O0` | None | Debugging, fastest compilation |
-| `-O1` | Basic passes | Balances speed and code size |
-| `-O2` | All standard passes (default) | Production code |
-| `-O3` | All standard passes (reserved for future) | Aggressive optimization |
-
-### Per-Pass Control
-
-Individual optimization passes can be controlled independently using `-P<Name>` and `-PNo<Name>` flags. These override the baseline set by the `-O` level:
-
-```bash
-# Start with -O2 baseline, disable one pass
-cc45 -O2 -PNoTailCall program.c
-
-# Start with -O0 baseline, enable one pass
-cc45 -O0 -PStrengthReduction program.c
-
-# Enable multiple specific passes
-cc45 -O0 -PStrengthReduction -PCSE -PConstantFold program.c
-```
-
-### Available Optimizations
-
-#### Compiler (cc45) Optimization Passes
-
-- `StrengthReduction` — Convert expensive operations to faster equivalents
-- `AlgebraicSimplify` — Simplify algebraic expressions
-- `TypeNarrowing` — Reduce type width when possible
-- `BranchFold` — Fold constant conditions into branches
-- `CSE` — Common subexpression elimination
-- `LICM` — Loop-invariant code motion
-- `CopyChains` — Copy chain propagation
-- `AddrElemFusion` — Address element fusion
-
-#### Assembler (ca45) Optimization Passes
-
-- `JSRRelocate` — JSR to BSR conversion
-- `TailCall` — Tail call optimization
-- `BranchInvert` — Branch inversion
-- `JmpBra` — JMP to BRA conversion
-- `NoOpBra` — No-op branch elimination
-- `CmpElimination` — Compare elimination
-- `RedundantLoad` — Redundant load elimination
-- `DeadStore` — Dead store elimination
-- `TailDedup` — Tail deduplication
-- `PreserveXSP` — Preserve XSP optimization
-- `SeqExtract` — Sequence extraction (experimental)
-- `StoreLoadPair` — Store-load pairing
-- `FcmpOpt` — Floating-point compare optimization
-- `TsxRedundant` — TSX redundancy elimination
-
-### Configuration File Examples
-
-**Aggressive optimization for performance-critical code:**
+Example (`$HOME` is read from the environment):
 
 ```
 # ~/.config/m65/cc45.conf
 -O2
--PStrengthReduction
--PCSE
--PLICM
+-fno-zpcall
+-I "/opt/m65 headers"
+-DDEBUG=1
 ```
 
-**Conservative optimization for debugging:**
-
-```
-# ~/.config/m65/cc45.conf
--O0
--PDeadStore
+```bash
+cc45 -c main.c            # uses -O2 -fno-zpcall ...
+cc45 -fzpcall -c main.c   # ZP convention: the later -fzpcall wins
 ```
 
-**Assembler-specific configuration:**
+For the options cc45 accepts see [cc45](cc45.md) (`cc45 -?`). Besides the `-O` level, single optimisations are switched with `-f<name>` / `-fno-<name>` (see [optimizations.md](../architecture/optimizations.md#optimization-switches)), e.g. a `-fno-inline-small-functions` line.
+
+## ca45: `~/.config/m65/ca45.conf` and `.ca45rc`
+
+- Each non-blank line, with leading/trailing whitespace removed, is **one** argument (no splitting, no quotes). Lines starting with `#` are comments.
+- Order of the merged argument list: global file, `./.ca45rc` (project), environment variables (below), command line.
+- `-O<n>` resets all per-pass flags for that level, so a `-P` flag only survives if it comes after the last `-O`. A `-O2` on the command line therefore cancels `-P` lines of a config file.
+- **Known problem:** while any configuration or environment argument is present, options that take a value (`-o FILE`, `-L FILE`, `-l N`, `--source-map FILE`, `--emulator-path PATH`) read the wrong argument (`CA45_OPTIMIZE=2 ca45 -c x.s45 -o x.o45` fails with `Failed to open input file: x.o45`). Keep such options out of the configuration and avoid `.ca45rc`/`CA45_*` when using them.
 
 ```
 # ~/.config/m65/ca45.conf
 -O2
--PNoSeqExtract
--Roptimizer
+-PNoTailCall
+-Woverflow
 ```
 
-## Tool-Specific Configuration
+### ca45 per-pass flags
 
-### cc45 (C Compiler)
+`-P<Name>` enables and `-PNo<Name>` disables an assembler optimisation (names are case-sensitive). `-O0` turns all of them off; `-O1`, `-O2` (default) and `-O3` turn all of them on.
 
-Common configuration options:
+| Name | Pass |
+|------|------|
+| `JSRRelocate` | JSR → BSR where possible |
+| `TailCall` | JSR + RTS → JMP |
+| `BranchInvert` | Inverted branch instead of branch over BRA |
+| `JmpBra` | JMP → BRA |
+| `NoOpBra` | Remove BRA to the next instruction |
+| `CmpElimination` | Remove redundant compares |
+| `RedundantLoad` | Remove loads of values already in a register |
+| `DeadStore` | Remove dead stores |
+| `TailDedup` | Merge identical tails |
+| `PreserveXSP` | Keep X holding SP across instructions |
+| `SeqExtract` | Sequence extraction (only with `--experimental`) |
+| `StoreLoadPair` | Store/load pair optimisation |
+| `FCmpOpt` | Float compare optimisation |
+| `TSXRedundant` | Remove redundant TSX |
 
-```
-# Calling convention
--fzpcall
+ca45 also accepts `StrengthReduction`, `AlgebraicSimplify`, `TypeNarrowing`, `BranchFold`, `CSE`, `LICM`, `CopyChains` and `AddrElemFusion`, but they have no effect in the assembler. Unknown names are ignored silently.
 
-# Inline functions
--finline-functions
+## cvt_asm: `.cvtasmrc`
 
-# Include paths
--I/usr/local/include/m65
--I./include
-
-# Optimization settings
--O2
--PNoJSRRelocate
-
-# Breakpoint setting
--fset-bp=0x2000
-```
-
-### ca45 (Assembler)
-
-Common configuration options:
-
-```
-# Zero page configuration
--Dcc45.zeroPageStart=$20
--D__sp_base=$0101
-
-# Optimization reporting
--Roptimizer
-
-# Verbosity
--vv
-```
-
-### ln45 (Linker)
-
-Common configuration options:
-
-```
-# Library search paths
--L./lib
--L$(PREFIX)/lib/cc45
-
-# Output format
---prg
-```
+See [cvt_asm](cvt_asm.md#configuration-file-cvtasmrc). `cvt_asm --init-config` writes a default file and `--show-config` prints the settings in effect.
 
 ## Environment Variables
 
-Some tools also support environment variables for configuration:
-
 | Variable | Tools | Description |
 |----------|-------|-------------|
-| `CC45_INCLUDE` | cc45, cp45 | Colon-separated include search paths |
-| `M65_CC_FLAGS` | cc45 | Default compiler flags |
-| `M65_ASM_FLAGS` | ca45 | Default assembler flags |
+| `CC45_INCLUDE` | cc45, cp45, ca45 | Colon-separated include directories, searched before cc45's standard headers (`<bin>/../lib/include`, or `<bin>/../include/cc45` when installed) |
+| `CC45_LIB` | ln45 | Colon-separated library directories (see [ln45](ln45.md#environment-variables)) |
+| `CA45_OPTIMIZE` | ca45 | Adds `-O<value>` (after the config files, before the command line) |
+| `CA45_WARNINGS` | ca45 | Colon-separated warning names, each added as `-W<name>` (e.g. `overflow:underflow`) |
+| `CC45_DUMP_IR` | cc45 | Non-empty and not `0`: print the IR module to stderr during code generation |
+| `HOME` | cc45, cp45, ca45 | Locates `~/.config/m65/` (ca45 falls back to the password database) |
 
-Environment variables are checked after configuration files but before built-in defaults.
-
-## Creating a Configuration File
-
-1. Create the configuration directory:
-   ```bash
-   mkdir -p ~/.config/m65
-   ```
-
-2. Create a configuration file for your tool:
-   ```bash
-   cat > ~/.config/m65/cc45.conf << 'EOF'
-   -O2
-   -finline-functions
-   -fzpcall
-   EOF
-   ```
-
-3. Verify the configuration is loaded by running with verbose output:
-   ```bash
-   cc45 -v program.c
-   ```
-
-## Disabling Configuration Files
-
-Configuration files are always loaded automatically. To override all configuration file settings, explicitly specify conflicting options on the command line (which take precedence).
-
-To temporarily disable a configuration file without modifying it, you can use environment variables or rename the file:
+## Creating, Checking and Disabling a Configuration
 
 ```bash
-# Rename configuration file
-mv ~/.config/m65/cc45.conf ~/.config/m65/cc45.conf.bak
-
-# Restore later
-mv ~/.config/m65/cc45.conf.bak ~/.config/m65/cc45.conf
+mkdir -p ~/.config/m65
+printf -- '-O2\n' > ~/.config/m65/cc45.conf
 ```
 
-## Troubleshooting
-
-### Configuration not being applied
-
-1. Verify the file exists and is readable:
-   ```bash
-   ls -la ~/.config/m65/cc45.conf
-   cat ~/.config/m65/cc45.conf
-   ```
-
-2. Check for syntax errors (blank lines and comments are allowed):
-   ```bash
-   # Ensure each line is a valid command-line argument
-   ```
-
-3. Run with verbose output to see what options are being used:
-   ```bash
-   cc45 -v program.c
-   ```
-
-### Conflicting options
-
-If a configuration file and command-line options conflict, the command-line always wins:
+No tool prints the arguments it loaded. To check the effect, compare outputs with and without the file, or run with a different `HOME`:
 
 ```bash
-# Config file has: -O0
-# CLI has: -O2
-# Result: -O2 is used
-cc45 -O2 program.c
+HOME=/tmp/empty cc45 -c main.c      # no cc45.conf/ca45.conf
 ```
+
+To disable a file, rename it (`mv ~/.config/m65/cc45.conf{,.off}`); for ca45 also check for a `.ca45rc` in the current directory.
 
 ## See Also
 
-- [cc45.md](cc45.md) — C compiler documentation
-- [ca45.md](ca45.md) — Assembler documentation
-- [ln45.md](ln45.md) — Linker documentation
-- [CLAUDE.md](../../CLAUDE.md) — Overall toolchain architecture
+- [cc45.md](cc45.md) — C compiler
+- [ca45.md](ca45.md) — Assembler
+- [ln45.md](ln45.md) — Linker
+- [cvt_asm.md](cvt_asm.md) — Assembler format converter

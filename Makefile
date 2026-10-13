@@ -39,16 +39,14 @@ MANDIR ?= $(PREFIX)/share/man/man1
 
 # lib45-common: Object format, symbols, config, utilities, diagnostics, debug info, source tracking
 $(LIB_DIR)/lib45-common.a: $(addprefix $(OBJ_DIR)/, \
-    O45Reader.o O45Writer.o O45DebugSections.o O45DwarfSerialization.o O45IRSerializer.o O45Emitter.o O45Archive.o \
-    O45Linker.o AssemblerOpcodeDatabase.o ConfigLoader.o EnhancedDiagnostic.o \
-    DebugInfoBuilder.o DIEBuilder.o SourceLocationTracker.o LineNumberProgram.o)
+    O45Reader.o O45Writer.o O45DebugSections.o O45Emitter.o O45Archive.o \
+    O45Linker.o AssemblerOpcodeDatabase.o ConfigLoader.o)
 	@mkdir -p $(LIB_DIR)
 	$(AR) rcs $@ $^
 
 # lib45-c-compile: C compiler frontend (Lexer, Parser, AST, Validator)
 $(LIB_DIR)/lib45-c-compile.a: $(addprefix $(OBJ_DIR)/, \
-    Lexer.o Parser.o AST.o Preprocessor.o TypeSystem.o ScopeManager.o \
-    TypeInfo.o M65Emitter.o)
+    Lexer.o Parser.o AST.o TypeSystem.o TypeInfo.o)
 	@mkdir -p $(LIB_DIR)
 	$(AR) rcs $@ $^
 
@@ -60,43 +58,8 @@ $(LIB_DIR)/lib45-ir.a: $(addprefix $(OBJ_DIR)/, \
 
 # lib45-opt: Optimization passes + code generation
 $(LIB_DIR)/lib45-opt.a: $(addprefix $(OBJ_DIR)/, \
-    IRCodeGen.o CodeGenerator.o CodeGeneratorDWARF.o \
-    ConstantFolder.o LoopOptimizer.o LoopIdiomRegistry.o \
-    LoopInterchange.o StrengthReduction.o AlgebraicSimplification.o \
-    RedundantLoadElimination.o DeadStoreElimination.o \
-    CommonSubexpressionElimination.o LoopInvariantCodeMotion.o \
-    CopyPropagation.o BranchOptimization.o GlobalValueNumbering.o \
-    EscapeAnalysis.o OptimizationSelector.o InlineSelector.o \
-    CallGraphAnalyzer.o DevirtualizationDetector.o FunctionAnalyzer.o \
-    CoOptimizationSelector.o DevirtualizationHints.o CoOptimizationApplier.o \
-    OptimizationCatalog.o OptimizationController.o \
-    GlobalFunctionDatabase.o CallPatternAnalyzer.o IPOAnalyzer.o IPOProfiler.o \
-    SpecializationCodeGenerator.o SpecializationOptimizer.o \
-    IRSpecializationGenerator.o StructFieldStriper.o FieldStripedOffsetCalc.o \
-    AddressSpaceValidator.o GlobalPointerFieldDatabase.o \
-    InterTUPatternDetector.o FieldCachingAnalyzer.o \
-    FieldCachingLinkerIntegration.o FarAddressMemorySupport.o \
-    FarAddressCodeGenerator.o CrossModuleVariableDatabase.o \
-    MemoryBankAssigner.o BankLayoutGenerator.o BankSetupOptimizer.o \
-    BankAwareCodeGenerator.o OptimizationHintCollector.o \
-    OptimizationConstraintResolver.o LinkTimeOptimizationCoordinator.o \
-    OptimizationDependencyAnalyzer.o LinkTimeOptimizationCodeGenerator.o \
-    LinkTimeOptimizationValidator.o CompilationProfiler.o HotSpotProfiler.o \
-    ComparativePerformanceAnalyzer.o PatternRecognitionEngine.o \
-    PatternBasedOptimizationSelector.o CrossModuleEnhancer.o \
-    DependencyTracker.o BenchmarkingSuite.o BenchmarkCompilerIntegration.o \
-    BenchmarkExecutor.o BenchmarkMetricsCollector.o \
-    BenchmarkComparativeAnalyzer.o BenchmarkReportGenerator.o \
-    IterationManager.o OptimizationLearner.o FeedbackCoordinator.o \
-    OnlineLearner.o TuningHooks.o CompilationSignalCollector.o \
-    CompilerHookIntegrator.o HookIntegration.o CompilerDecisionLogic.o \
-    OptimizationEffectivenessCollector.o OptimizationProfileDatabase.o \
-    AdaptiveThresholdAdjuster.o OptimizationPatternAnalyzer.o \
-    LearnerBasedOptimizationSelector.o AdaptiveLearnerIntegration.o \
-    TemplateOptimizationPass.o TemplateRegistry.o TemplateOptimizationSystem.o \
-    MathLibraryOptimization.o RegisterResidentLoops.o TableDrivenDispatch.o \
-    PeepholeOptimization.o LearnerFeedbackRecorder.o AddressTemplates.o \
-    AddressTemplateDetector.o)
+    IRCodeGen.o ConstantFolder.o LoopInterchange.o FunctionAnalyzer.o \
+    OptimizationCatalog.o AddressTemplateDetector.o)
 	@mkdir -p $(LIB_DIR)
 	$(AR) rcs $@ $^
 
@@ -108,9 +71,53 @@ $(LIB_DIR)/lib45-codegen.a: $(addprefix $(OBJ_DIR)/, \
 	@mkdir -p $(LIB_DIR)
 	$(AR) rcs $@ $^
 
-# lib45-linker: Linking and relocation
-$(LIB_DIR)/lib45-linker.a: $(addprefix $(OBJ_DIR)/, \
-    CrossModuleOptimizer.o)
+# lib45-phases: code of earlier development phases that no tool links (IPO,
+# bank assignment, link-time optimization coordination, benchmarking, learning
+# and tuning hooks, DWARF output, the AST-level CodeGenerator and its
+# optimizers, field striping, templates; O45Linker's analysis passes, see
+# doc/architecture/cross-module-optimization.md). Built so it keeps compiling;
+# a static library adds nothing to a program that does not use it.
+$(LIB_DIR)/lib45-phases.a: $(addprefix $(OBJ_DIR)/, \
+    AdaptiveLearnerIntegration.o AdaptiveThresholdAdjuster.o \
+    AddressSpaceValidator.o AddressTemplates.o AlgebraicSimplification.o \
+    BankAwareCodeGenerator.o BankLayoutGenerator.o BankSetupOptimizer.o \
+    BenchmarkComparativeAnalyzer.o BenchmarkCompilerIntegration.o \
+    BenchmarkExecutor.o BenchmarkMetricsCollector.o \
+    BenchmarkReportGenerator.o BenchmarkingSuite.o BranchOptimization.o \
+    CallGraphAnalyzer.o CallPatternAnalyzer.o CoOptimizationApplier.o \
+    CoOptimizationSelector.o CodeGenerator.o CodeGeneratorDWARF.o \
+    CommonSubexpressionElimination.o ComparativePerformanceAnalyzer.o \
+    CompilationProfiler.o CompilationSignalCollector.o \
+    CompilerDecisionLogic.o CompilerHookIntegrator.o CopyPropagation.o \
+    CrossModuleEnhancer.o CrossModuleVariableDatabase.o DIEBuilder.o \
+    DeadStoreElimination.o DebugInfoBuilder.o DependencyTracker.o \
+    DevirtualizationDetector.o DevirtualizationHints.o EnhancedDiagnostic.o \
+    EscapeAnalysis.o FarAddressCodeGenerator.o FarAddressMemorySupport.o \
+    FeedbackCoordinator.o FieldCachingAnalyzer.o \
+    FieldCachingLinkerIntegration.o FieldStripedOffsetCalc.o \
+    GlobalFunctionDatabase.o GlobalPointerFieldDatabase.o \
+    GlobalValueNumbering.o HookIntegration.o HotSpotProfiler.o IPOAnalyzer.o \
+    IPOProfiler.o IRSpecializationGenerator.o InlineSelector.o \
+    InterTUPatternDetector.o IterationManager.o \
+    LearnerBasedOptimizationSelector.o LearnerFeedbackRecorder.o \
+    LineNumberProgram.o LinkTimeOptimizationCodeGenerator.o \
+    LinkTimeOptimizationCoordinator.o LinkTimeOptimizationValidator.o \
+    LoopIdiomRegistry.o LoopInvariantCodeMotion.o LoopOptimizer.o \
+    MathLibraryOptimization.o MemoryBankAssigner.o O45DwarfSerialization.o \
+    O45IRSerializer.o OnlineLearner.o OptimizationConstraintResolver.o \
+    OptimizationController.o OptimizationDependencyAnalyzer.o \
+    OptimizationEffectivenessCollector.o OptimizationHintCollector.o \
+    OptimizationLearner.o OptimizationPatternAnalyzer.o \
+    OptimizationProfileDatabase.o OptimizationSelector.o \
+    PatternBasedOptimizationSelector.o PatternRecognitionEngine.o \
+    PeepholeOptimization.o RedundantLoadElimination.o \
+    RegisterResidentLoops.o ScopeManager.o SourceLocationTracker.o \
+    SpecializationCodeGenerator.o SpecializationOptimizer.o \
+    StrengthReduction.o StructFieldStriper.o TableDrivenDispatch.o \
+    TemplateOptimizationPass.o TemplateOptimizationSystem.o \
+    TemplateRegistry.o TuningHooks.o CrossModuleOptimizer.o \
+    O45LinkerPhases.o O45WriterPhases.o IRCodeGenPhases.o \
+    OptimizeStagePhases.o CodegenStagePhases.o)
 	@mkdir -p $(LIB_DIR)
 	$(AR) rcs $@ $^
 
@@ -120,7 +127,8 @@ $(LIB_DIR)/lib45-basic.a: $(addprefix $(OBJ_DIR)/, \
     BasicDocGenerator.o BasicValidator.o LabelBasedSourceParser.o \
     SymbolExpressionEvaluator.o BasicMinifier.o BasicTooling.o \
     BasicCharacterMap.o BasicDocumentationGenerator.o BasicStructures.o \
-    BasicArchiveSupport.o BasicStandardLibrary.o)
+    BasicArchiveSupport.o BasicStandardLibrary.o BasicVarRenamer.o BasicStructured.o \
+    BasicDecompiler.o BasicFormatter.o)
 	@mkdir -p $(LIB_DIR)
 	$(AR) rcs $@ $^
 
@@ -140,10 +148,11 @@ $(LIB_DIR)/lib45-audio.a: $(addprefix $(OBJ_DIR)/, \
 
 # lib45-tools: Disk utilities, format converters (includes optional FUSE3 support)
 LIB45_TOOLS_OBJS = $(addprefix $(OBJ_DIR)/, \
-    disk45_catalog.o DiskImage.o DiskImageFactory.o BAMOperations.o \
+    disk45_catalog.o disk45_sd.o SdCardImage.o DiskImage.o DiskImageFactory.o BAMOperations.o \
     D64Image.o D71Image.o D81Image.o D65Image.o ArkImage.o ArcImage.o \
     LnxImage.o TapImage.o T64Image.o G64Image.o D80Image.o GeosCvtImage.o \
     P00Image.o X64Image.o ZipcodeImage.o D90Image.o CmdImage.o NibImage.o \
+    Gcr.o GcrTracks.o Lz77.o ZipArchive.o \
     GzipHelper.o AsmParser.o AsmWriter.o Ca45Parser.o Ca45Writer.o \
     Ca65Parser.o Ca65Writer.o AcmeParser.o AcmeWriter.o OscarParser.o \
     OscarWriter.o Merlin64Parser.o Merlin64Writer.o X65Parser.o X65Writer.o \
@@ -162,13 +171,14 @@ $(LIB_DIR)/lib45-tools.a: $(LIB45_TOOLS_OBJS)
 # ============================================================================
 
 all: $(CC_TARGET) $(CA_TARGET) $(CP_TARGET) $(NM_TARGET) $(LN_TARGET) \
-     $(AR_TARGET) $(OD_TARGET) $(DISK_TARGET) $(CVT_ASM_TARGET) $(BASIC_TARGET) stdlib | $(LIB_DIR)/lib45-audio.a
+     $(AR_TARGET) $(OD_TARGET) $(DISK_TARGET) $(CVT_ASM_TARGET) $(BASIC_TARGET) stdlib | $(LIB_DIR)/lib45-audio.a $(LIB_DIR)/lib45-phases.a
 
 # Rebuild stdlib whenever cc45 or ca45 changes
 stdlib: $(CC_TARGET) $(CA_TARGET) $(AR_TARGET)
 	$(MAKE) -C lib
 
-man: $(MAN_DIR)/cc45.1 $(MAN_DIR)/ca45.1 $(MAN_DIR)/cp45.1 $(MAN_DIR)/ln45.1 $(MAN_DIR)/nm45.1 $(MAN_DIR)/ar45.1 $(MAN_DIR)/objdump45.1
+man: $(MAN_DIR)/cc45.1 $(MAN_DIR)/ca45.1 $(MAN_DIR)/cp45.1 $(MAN_DIR)/ln45.1 $(MAN_DIR)/nm45.1 $(MAN_DIR)/ar45.1 $(MAN_DIR)/objdump45.1 \
+     $(MAN_DIR)/disk45.1 $(MAN_DIR)/basic45.1 $(MAN_DIR)/cvt_asm.1
 
 $(MAN_DIR)/%.1: doc/bin/%.md
 	@mkdir -p $(MAN_DIR)
@@ -211,9 +221,9 @@ $(NM_TARGET): $(LIB_DIR)/lib45-common.a
 
 # Linker (ln45) - uses linker + opt + common
 $(LN_TARGET): $(OBJ_DIR)/ln45_main.o | $(LIB_DIR)
-$(LN_TARGET): $(LIB_DIR)/lib45-linker.a $(LIB_DIR)/lib45-opt.a $(LIB_DIR)/lib45-common.a
+$(LN_TARGET): $(LIB_DIR)/lib45-common.a
 	@mkdir -p $(BIN_DIR)
-	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/ln45_main.o $(LIB_DIR)/lib45-linker.a $(LIB_DIR)/lib45-opt.a $(LIB_DIR)/lib45-common.a
+	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/ln45_main.o $(LIB_DIR)/lib45-common.a
 
 # Archiver (ar45) - uses common
 $(AR_TARGET): $(OBJ_DIR)/ar45_main.o | $(LIB_DIR)
@@ -236,9 +246,9 @@ $(DISK_TARGET): $(LIB_DIR)/lib45-tools.a $(LIB_DIR)/lib45-common.a
 # Assembly Format Converter (cvt_asm) - uses tools, codegen, opt + common
 $(CVT_ASM_TARGET): $(OBJ_DIR)/cvt_asm_main.o | $(LIB_DIR)
 $(CVT_ASM_TARGET): $(LIB_DIR)/lib45-tools.a $(LIB_DIR)/lib45-codegen.a \
-                   $(LIB_DIR)/lib45-opt.a $(LIB_DIR)/lib45-common.a
+                   $(LIB_DIR)/lib45-common.a
 	@mkdir -p $(BIN_DIR)
-	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/cvt_asm_main.o $(LIB_DIR)/lib45-tools.a $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-opt.a $(LIB_DIR)/lib45-common.a
+	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/cvt_asm_main.o $(LIB_DIR)/lib45-tools.a $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-common.a
 
 # BASIC Compiler (basic45) - uses basic + tools + common
 $(BASIC_TARGET): $(OBJ_DIR)/basic45_main.o | $(LIB_DIR)
@@ -384,22 +394,22 @@ $(LIB_DIR):
 
 .PHONY: lib45-libraries lib45-sizes lib45-clean show-lib-deps parallel-build
 .PHONY: all clean test man test-mmemu test-stdlib test-regression test-zpcall stdlib
-.PHONY: test-integration bench bench-save lib install install_local uninstall
+.PHONY: test-integration lib install install_local uninstall
 .PHONY: uninstall_local cppcheck coverage coverage-build coverage-clean
-.PHONY: coverage-report docker validate_performance test-assembler test-const
+.PHONY: coverage-report docker test-assembler test-const
 .PHONY: test-restrict test-register test-cast-fold test-o45 test-move-fill
 .PHONY: test-validation-parser test-validation-struct test-validation-const
 .PHONY: test-validation-semantic test-validation-preprocessor test-opcodes
 .PHONY: test-validation-linker test-segment-emission test-validation-assembler
 .PHONY: test-validation-simops test-validation-directives test-validation-symbols
 .PHONY: test-validation-segments test-validation-proc test-validation-addressing
-.PHONY: test-validation-simops-extended test-objdump45
+.PHONY: test-validation-simops-extended test-objdump45 test-examples
 .PHONY: test-phase12 test-phase13 test-phase14 test-phase15 test-phase16 test-phase17 test-phase18
 
 # Build all lib45 libraries
 lib45-libraries: $(LIB_DIR)/lib45-common.a $(LIB_DIR)/lib45-c-compile.a \
                 $(LIB_DIR)/lib45-ir.a $(LIB_DIR)/lib45-opt.a \
-                $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-linker.a \
+                $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-phases.a \
                 $(LIB_DIR)/lib45-basic.a $(LIB_DIR)/lib45-tools.a \
                 $(LIB_DIR)/lib45-audio.a
 
@@ -411,7 +421,7 @@ show-lib-deps:
 	@echo "lib45-ir.a            : Intermediate representation → lib45-common"
 	@echo "lib45-opt.a           : Optimization passes → lib45-ir lib45-common"
 	@echo "lib45-codegen.a       : Code generation, assembly → lib45-common"
-	@echo "lib45-linker.a        : Linker, relocation → lib45-opt lib45-common"
+	@echo "lib45-phases.a        : earlier phases' code no tool links (IPO, banks, LTO, DWARF, ...)"
 	@echo "lib45-basic.a         : BASIC language features → lib45-tools lib45-common"
 	@echo "lib45-tools.a         : Disk utilities, converters → lib45-common"
 	@echo ""
@@ -419,7 +429,7 @@ show-lib-deps:
 	@echo "cc45      : lib45-opt lib45-codegen lib45-ir lib45-c-compile lib45-common"
 	@echo "ca45      : lib45-codegen lib45-common"
 	@echo "cp45      : symlink to cc45"
-	@echo "ln45      : lib45-linker lib45-opt lib45-common"
+	@echo "ln45      : lib45-common"
 	@echo "nm45      : lib45-common"
 	@echo "ar45      : lib45-common"
 	@echo "objdump45 : lib45-codegen lib45-common"
@@ -468,10 +478,26 @@ test: all lib
 	@bash src/test/test_register.sh
 	@echo "Running cast fold type preservation tests..."
 	@bash src/test/test_cast_fold.sh
+	@echo "Running inline control tests..."
+	@bash src/test/test_inline_control.sh
+	@echo "Running optimization switch tests..."
+	@bash src/test/test_optimizations.sh
+	@echo "Running function-local state tests..."
+	@bash src/test/test_function_locals.sh
+	@echo "Running string escape tests..."
+	@bash src/test/test_string_escapes.sh
+	@echo "Running signedness tests..."
+	@bash src/test/test_signedness.sh
+	@echo "Running installed toolchain tests..."
+	@bash src/test/test_install.sh
+	@echo "Running shadow execution tests (cc45 vs host gcc)..."
+	@bash src/test/test_shadow_ir.sh
 	@echo "Running clobber tracking tests..."
 	@bash src/test/test_clobber.sh
-	@echo "Validating mmemu-cli integration..."
-	@bash src/test/test_mmemu.sh
+	@echo "Running library call convention tests..."
+	@bash src/test/test_libcall_conv.sh
+	@echo "Running xemu runtime tests..."
+	@bash src/test/test_xemu.sh
 	@echo "Running parser syntax error validation tests..."
 	@$(MAKE) test-validation-parser
 	@echo "Running struct/union semantic error validation tests..."
@@ -511,6 +537,11 @@ test: all lib
 	@bash src/test/test_disk45.sh
 	@echo "Running new stdlib tests..."
 	@bash src/test/test_stdlib_new.sh
+	@echo "Running example tests..."
+	@bash src/test/test_examples.sh
+
+test-examples: all
+	@bash src/test/test_examples.sh
 
 test-assembler: all
 	@bash src/test/test_assembler.sh
@@ -528,6 +559,13 @@ test-register: all
 test-cast-fold: all
 	@bash src/test/test_cast_fold.sh
 
+test-inline: all
+	@bash src/test/test_inline_control.sh
+
+# Temporary: known failing tests being worked down (see src/test/test_failures.sh)
+test-failures: all lib
+	@bash src/test/test_failures.sh
+
 test-integration: all
 	@bash src/test/test_integration.sh
 
@@ -543,16 +581,8 @@ test-regression: all lib
 test-zpcall: all
 	@bash src/test/test_zpcall.sh
 
-bench: all lib
-	@bash src/test/bench.sh
-
 bench-optimizer: all
 	@bash src/test/bench_optimizer.sh
-
-bench-save: all lib
-	@bash src/test/bench.sh
-	@cp build/test/bench_results.json src/test/bench_baseline.json
-	@echo "Baseline saved to src/test/bench_baseline.json"
 
 test-objdump45: all
 	@bash src/test/test_objdump45.sh
@@ -789,7 +819,7 @@ test-validation-preprocessor: $(TEST_VALIDATION_PREPROCESSOR_TARGET) all
 
 # Linker Error Validation unit test
 TEST_VALIDATION_LINKER_TARGET = $(BIN_DIR)/test_validation_linker
-TEST_VALIDATION_LINKER_OBJECTS = $(OBJ_DIR)/test_validation_linker.o $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45IRSerializer.o $(OBJ_DIR)/O45Linker.o $(OBJ_DIR)/O45Archive.o $(OBJ_DIR)/AssemblerOpcodeDatabase.o
+TEST_VALIDATION_LINKER_OBJECTS = $(OBJ_DIR)/test_validation_linker.o $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45DebugSections.o $(OBJ_DIR)/O45IRSerializer.o $(OBJ_DIR)/O45Linker.o $(OBJ_DIR)/O45Archive.o $(OBJ_DIR)/AssemblerOpcodeDatabase.o
 
 $(TEST_VALIDATION_LINKER_TARGET): $(TEST_VALIDATION_LINKER_OBJECTS) $(CA_TARGET)
 	@mkdir -p $(BIN_DIR)
@@ -804,7 +834,7 @@ test-validation-linker: $(TEST_VALIDATION_LINKER_TARGET) all
 
 # Segment emission unit test
 TEST_SEGMENT_EMISSION_TARGET = $(BIN_DIR)/test_segment_emission
-TEST_SEGMENT_EMISSION_OBJECTS = $(OBJ_DIR)/test_segment_emission.o $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45IRSerializer.o $(OBJ_DIR)/O45Linker.o $(OBJ_DIR)/O45Archive.o $(OBJ_DIR)/AssemblerOpcodeDatabase.o
+TEST_SEGMENT_EMISSION_OBJECTS = $(OBJ_DIR)/test_segment_emission.o $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45DebugSections.o $(OBJ_DIR)/O45IRSerializer.o $(OBJ_DIR)/O45Linker.o $(OBJ_DIR)/O45Archive.o $(OBJ_DIR)/AssemblerOpcodeDatabase.o
 
 $(TEST_SEGMENT_EMISSION_TARGET): $(TEST_SEGMENT_EMISSION_OBJECTS) $(CA_TARGET)
 	@mkdir -p $(BIN_DIR)
@@ -862,9 +892,11 @@ install: all lib
 	install -m 755 $(CC_TARGET) $(CA_TARGET) $(NM_TARGET) $(LN_TARGET) $(AR_TARGET) $(OD_TARGET) $(DISK_TARGET) $(CVT_ASM_TARGET) $(BASIC_TARGET) $(DESTDIR)$(BINDIR)
 	ln -sf cc45 $(DESTDIR)$(BINDIR)/cp45
 	install -d $(DESTDIR)$(LIBDIR)
-	install -m 644 lib/build/c45.lib lib/build/c45_zp.lib $(DESTDIR)$(LIBDIR)
-	install -d $(DESTDIR)$(INCDIR)
+	install -m 644 lib/build/c45.lib lib/build/c45_zp.lib lib/build/c45_stack.lib $(DESTDIR)$(LIBDIR)
+	install -m 644 lib/build/crt0*.o45 $(DESTDIR)$(LIBDIR)
+	install -d $(DESTDIR)$(INCDIR) $(DESTDIR)$(INCDIR)/sys
 	install -m 644 lib/include/*.h $(DESTDIR)$(INCDIR)
+	install -m 644 lib/include/sys/*.h $(DESTDIR)$(INCDIR)/sys
 	install -d $(DESTDIR)$(MANDIR)
 	if [ -d $(MAN_DIR) ] && ls $(MAN_DIR)/*.1 >/dev/null 2>&1; then \
 		install -m 644 $(MAN_DIR)/*.1 $(DESTDIR)$(MANDIR); \
@@ -875,10 +907,6 @@ install_local:
 
 uninstall_local:
 	@$(MAKE) uninstall PREFIX=$(HOME)/.local
-
-validate_performance: all
-	@echo "Validating performance with multi-level optimization benchmark..."
-	@bash src/test/validate_performance.sh
 
 # Audio Phase Tests (Phases 12-16)
 TEST_PHASE12_TARGET = $(BIN_DIR)/test_phase12_sequencer
@@ -990,4 +1018,5 @@ uninstall:
 	rm -rf $(DESTDIR)$(INCDIR)
 	rm -f $(DESTDIR)$(MANDIR)/cc45.1 $(DESTDIR)$(MANDIR)/ca45.1 $(DESTDIR)$(MANDIR)/cp45.1
 	rm -f $(DESTDIR)$(MANDIR)/ln45.1 $(DESTDIR)$(MANDIR)/nm45.1 $(DESTDIR)$(MANDIR)/ar45.1
-	rm -f $(DESTDIR)$(MANDIR)/objdump45.1
+	rm -f $(DESTDIR)$(MANDIR)/objdump45.1 $(DESTDIR)$(MANDIR)/disk45.1
+	rm -f $(DESTDIR)$(MANDIR)/basic45.1 $(DESTDIR)$(MANDIR)/cvt_asm.1

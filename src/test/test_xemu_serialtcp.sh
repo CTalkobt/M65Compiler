@@ -4,7 +4,7 @@
 # Validates UART serial output via TCP instead of mmemu memory dumps
 # ~4-12x faster than mmemu memory dump validation
 
-CC="./bin/cc45"
+CC="./bin/cc45 -O2"
 AS="./bin/ca45"
 LD="./bin/ln45"
 XEMU="xemu-xmega65"
@@ -42,8 +42,8 @@ compile_link_test() {
     if [ $? -ne 0 ]; then return 1; fi
 
     # Link with stdlib (stack or zp based on flags)
-    if [[ "$flags" == *"-fzpcall"* ]]; then
-        $LD "$o_file" lib/build/c45_zp.lib -o "$prg_out" 2>/dev/null
+    if [[ "$flags" == *"-fno-zpcall"* ]]; then
+        $LD "$o_file" lib/build/c45_stack.lib -o "$prg_out" 2>/dev/null
     else
         $LD "$o_file" lib/build/c45.lib -o "$prg_out" 2>/dev/null
     fi

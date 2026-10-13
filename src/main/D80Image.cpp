@@ -44,27 +44,17 @@ int D80Image::sectorOffset(int track, int sector) const {
 
 // BAM is on track 38, sectors 0 and 3
 // Sector 0: tracks 1-50, Sector 3: tracks 51-77 (and 78-154 for D82)
+// BAM sector k*3 on track 38 covers tracks 50k+1 .. 50k+50, 5 bytes per
+// track from $06 (free count, then 4 bytes of sector bits, 1 = free)
 int D80Image::bamSectorForTrack(int track) const {
-    int t = track;
-    if (t > 77) t -= 77; // D82 side 2
-    if (t <= 50) return 0;
-    return 3;
+    return ((track - 1) / 50) * 3;
 }
 
 int D80Image::bamOffsetForTrack(int track) const {
-    int t = track;
-    bool side2 = (t > 77);
-    if (side2) t -= 77;
-
-    int bamSec = bamSectorForTrack(track);
-    int baseTrack = (bamSec == 0) ? 1 : 51;
-    int entryIdx = t - baseTrack;
-
-    // Each BAM entry: 5 bytes (1 free count + 4 allocation bitmap)
-    // Entries start at offset $06 in the BAM sector
-    int bamOff = sectorOffset(BAM_TRACK + (side2 ? 77 : 0), bamSec);
+    if (track < 1 || track > tracks_) return -1;
+    int bamOff = sectorOffset(BAM_TRACK, bamSectorForTrack(track));
     if (bamOff < 0) return -1;
-    return bamOff + 0x06 + entryIdx * 5;
+    return bamOff + 0x06 + ((track - 1) % 50) * 5;
 }
 
 bool D80Image::isSectorFree(int track, int sector) const {
@@ -96,14 +86,23 @@ bool D80Image::freeSector(int track, int sector) {
     return true;
 }
 
+// Directory sectors (nearTrack 39) are on track 39 only; file sectors are
+// anywhere else, nearest the middle of the disk first
 TrackSector D80Image::allocateNextFree(int nearTrack) {
-    if (nearTrack < 1) nearTrack = DIR_TRACK;
-    // Search outward from nearTrack
+    if (nearTrack == DIR_TRACK) {
+        for (int s = 0; s < sectorsOnTrack(DIR_TRACK); s++)
+            if (isSectorFree(DIR_TRACK, s)) {
+                allocateSector(DIR_TRACK, s);
+                return {(uint8_t)DIR_TRACK, (uint8_t)s};
+            }
+        return {0, 0};
+    }
+    if (nearTrack < 1) nearTrack = BAM_TRACK;
     for (int delta = 0; delta <= tracks_; delta++) {
         for (int dir = -1; dir <= 1; dir += 2) {
             int t = nearTrack + delta * dir;
-            if (t < 1 || t > tracks_) continue;
-            if (t == BAM_TRACK) continue; // skip BAM track
+            if (t < 1 || t > tracks_ || t == DIR_TRACK) continue;
+            if (delta == 0 && dir == 1) continue;   // (t visited once)
             int ns = sectorsOnTrack(t);
             for (int s = 0; s < ns; s++) {
                 if (isSectorFree(t, s)) {
@@ -119,7 +118,7 @@ TrackSector D80Image::allocateNextFree(int nearTrack) {
 int D80Image::freeSectors() const {
     int free = 0;
     for (int t = 1; t <= tracks_; t++) {
-        if (t == BAM_TRACK) continue;
+        if (t == DIR_TRACK) continue;   // as DOS counts BLOCKS FREE
         int ns = sectorsOnTrack(t);
         for (int s = 0; s < ns; s++) {
             if (isSectorFree(t, s)) free++;
@@ -137,52 +136,34 @@ void D80Image::format(const std::string& diskName, const std::string& diskId) {
     image_.assign(total * 256, 0);
 
     // Initialize BAM sectors (track 38, sectors 0 and 3)
-    auto initBam = [&](int bamSector, int firstTrack, int lastTrack) {
-        uint8_t* bam = sectorData(BAM_TRACK, bamSector);
+    // BAM sectors 38/0, 38/3 (and 38/6, 38/9 on a D82), each covering 50
+    // tracks, linked in order; the last links to the directory 39/1
+    int bamSectors = (tracks_ + 49) / 50;
+    for (int k = 0; k < bamSectors; k++) {
+        uint8_t* bam = sectorData(BAM_TRACK, 3 * k);
         if (!bam) return;
         std::memset(bam, 0, 256);
-        // Link to next BAM sector (or 00/FF for last)
-        if (bamSector == 0) {
-            bam[0] = BAM_TRACK; bam[1] = 3; // next BAM at 38/3
-        } else {
-            bam[0] = 0; bam[1] = 0xFF; // last BAM
-        }
-        bam[2] = 'C'; // DOS version
-        bam[4] = firstTrack;
-        bam[5] = lastTrack + 1;
-
-        // Initialize free sectors for each track
-        for (int t = firstTrack; t <= lastTrack; t++) {
+        if (k + 1 < bamSectors) { bam[0] = BAM_TRACK; bam[1] = (uint8_t)(3 * (k + 1)); }
+        else { bam[0] = DIR_TRACK; bam[1] = 1; }
+        bam[2] = 'C';                        // DOS version
+        int first = 50 * k + 1, last = std::min(50 * k + 50, tracks_);
+        bam[4] = (uint8_t)first;
+        bam[5] = (uint8_t)(last + 1);
+        for (int t = first; t <= last; t++) {
             int ns = sectorsOnTrack(t);
-            int entryOff = 0x06 + (t - firstTrack) * 5;
-            bam[entryOff] = ns; // free count
-            // Set all sector bits to 1 (free)
-            for (int s = 0; s < ns; s++) {
-                bam[entryOff + 1 + s / 8] |= (1 << (s % 8));
-            }
+            int entryOff = 0x06 + (t - first) * 5;
+            bam[entryOff] = (uint8_t)ns;     // free count
+            for (int sct = 0; sct < ns; sct++) bam[entryOff + 1 + sct / 8] |= (1 << (sct % 8));
         }
-    };
-
-    initBam(0, 1, 50);
-    initBam(3, 51, (tracks_ > 77) ? 77 : tracks_);
-
-    // For D82, initialize side 2 BAM
-    if (tracks_ > 77) {
-        // Side 2 BAM would be at track 115 (38+77), but standard D82 uses
-        // additional BAM sectors on track 38: sectors 6 and 9
-        // For simplicity, we follow the standard layout
     }
-
-    // Mark BAM track sectors as used
-    allocateSector(BAM_TRACK, 0);
-    allocateSector(BAM_TRACK, 3);
+    for (int k = 0; k < bamSectors; k++) allocateSector(BAM_TRACK, 3 * k);
 
     // Initialize directory header (track 39, sector 0)
     uint8_t* hdr = sectorData(DIR_TRACK, 0);
     if (hdr) {
         std::memset(hdr, 0, 256);
-        hdr[0] = DIR_TRACK; // first dir sector track
-        hdr[1] = 1;         // first dir sector
+        hdr[0] = BAM_TRACK; // the first BAM sector, 38/0
+        hdr[1] = 0;
         hdr[2] = 'C';       // DOS version
         // Disk name at offset $06, padded with $A0
         std::memset(hdr + 0x06, 0xA0, 16);
@@ -316,7 +297,7 @@ bool D80Image::addFile(const std::string& name, CbmFileType type,
     int pos = 0;
 
     while (bytesLeft > 0) {
-        TrackSector ts = allocateNextFree(DIR_TRACK);
+        TrackSector ts = allocateNextFree(-1);
         if (ts.isNull()) return false;
 
         uint8_t* sec = sectorData(ts.track, ts.sector);
@@ -350,7 +331,7 @@ bool D80Image::addFile(const std::string& name, CbmFileType type,
 
     // Handle empty files
     if (data.empty()) {
-        TrackSector ts = allocateNextFree(DIR_TRACK);
+        TrackSector ts = allocateNextFree(-1);
         if (ts.isNull()) return false;
         uint8_t* sec = sectorData(ts.track, ts.sector);
         std::memset(sec, 0, 256);
@@ -359,9 +340,6 @@ bool D80Image::addFile(const std::string& name, CbmFileType type,
         newEntry.sizeInSectors = 1;
     }
 
-    // Write directory entry
-    newEntry.toSector(sectorData(dirTS.track, dirTS.sector),
-                      -1); // need to find the slot again
     // Re-write using allocDirectoryEntry's slot
     // The entry was written by allocDirectoryEntry, update it with firstDataTS
     {
@@ -393,16 +371,15 @@ bool D80Image::removeFile(const std::string& name) {
 
     DirEntry entry = DirEntry::fromSector(sectorData(dirTS.track, dirTS.sector), entryIdx);
 
-    // Free all file sectors
-    auto chain = getFileChain(entry.firstDataTS);
+    // Free all its sectors (side sectors, GEOS info and records too)
+    auto chain = fileSectors(entry);
     for (auto& ts : chain) {
         freeSector(ts.track, ts.sector);
     }
 
-    // Clear directory entry
-    uint8_t* sec = sectorData(dirTS.track, dirTS.sector);
-    uint8_t* p = sec + 2 + entryIdx * 32;
-    p[2] = 0; // clear file type (marks as deleted)
+    // Clear the entry's file type (marks it deleted)
+    entry.fileType = 0;
+    entry.toSector(sectorData(dirTS.track, dirTS.sector), entryIdx);
 
     return true;
 }

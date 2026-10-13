@@ -11,8 +11,17 @@
 ; ARG (secondary accumulator) at $6A-$6F
 ;
 ; Float values are 5 bytes: exponent (1) + mantissa (4), big-endian.
+;
+; The program runs with its base page relocated (see crt0), but the ROM and
+; the FAC/ARG/JSRFAR locations above are in page 0. Each public __float_*
+; entry switches to page 0 (__bp_rom) and returns through __bp_prog. The
+; internal helpers (__jsrfar_basic, __float_load_*, __float_store_fac) must
+; only be called with the base page already at 0.
 
     .cpu 45gs02
+
+.extern __bp_rom
+.extern __bp_prog
 
 ; KERNAL far-call entry
 JSRFAR      = $FF6E
@@ -21,6 +30,7 @@ BASIC_BANK  = $03      ; BASIC ROM bank (C65 bank 3)
 ; BASIC 65 jump table addresses
 BJT_AYINT   = $7F00
 BJT_GIVAYF  = $7F03
+BJT_FOUT    = $7F06      ; FAC -> text at $0100 (as STR$/PRINT); returns A/Y = end of text
 BJT_FADDT   = $7F1B
 BJT_FSUBT   = $7F15
 BJT_FMULTT  = $7F21
@@ -39,6 +49,7 @@ BJT_COS     = $7F3F
 BJT_TAN     = $7F45
 BJT_ATN     = $7F48
 BJT_ABS     = $7F4E
+BJT_ROUND   = $7F4B
 
 ; FAC/ARG ZP locations
 FAC_EX = $63
@@ -47,7 +58,13 @@ FAC_M2 = $65
 FAC_M3 = $66
 FAC_M4 = $67
 FAC_SI = $68
+FAC_OV = $71
 ARG_EX = $6A
+ARG_M1 = $6B
+ARG_M2 = $6C
+ARG_M3 = $6D
+ARG_M4 = $6E
+ARG_SI = $6F
 
 ; ===========================================================================
 ; Helper: call BASIC ROM routine via JSRFAR
@@ -59,88 +76,224 @@ __jsrfar_basic:
     stx $03             ; PCH
     lda #BASIC_BANK
     sta $02             ; Bank
+    lda #0
+    sta $09             ; Z = 0 on entry: BASIC 65 routines assume it (e.g. tza)
     jsr JSRFAR
     rts
 
 ; ===========================================================================
-; Load 5-byte float from memory (AX = pointer) into FAC
-; Direct ZP access (default). For indirect access via BASIC 65 jump table,
-; see float_rom_indirect.s.
+; Memory format is CBM packed: exponent, then the mantissa MSB first with the
+; sign in bit 7 of the first mantissa byte (the hidden 1 bit is implied).
+; BASIC 65 keeps FAC/ARG unpacked with the mantissa LSB first:
+;   FAC: $63 exp, $64-$67 mantissa (LSB..MSB), $68 sign (bit 7), $71 rounding
+;   ARG: $6A exp, $6B-$6E mantissa (LSB..MSB), $6F sign (bit 7)
+; (Same as the ROM's MOVFM / MOVMF.)
 ; ===========================================================================
+
+; Load 5-byte float from memory (AX = pointer) into FAC
 .global __float_load_fac
 __float_load_fac:
     sta $02
     stx $03
     ldy #0
-    lda ($02),y         ; byte[0] → exponent
+    lda ($02),y
     sta FAC_EX
     iny
-    lda ($02),y         ; byte[1] → M4 (compiler stores mantissa MSB first)
-    ora #$80            ; Set hidden '1' bit (CBM format includes it)
+    lda ($02),y
+    sta FAC_SI          ; sign = bit 7
+    ora #$80            ; hidden 1 bit
     sta FAC_M4
     iny
-    lda ($02),y         ; byte[2] → M3
+    lda ($02),y
     sta FAC_M3
     iny
-    lda ($02),y         ; byte[3] → M2
+    lda ($02),y
     sta FAC_M2
     iny
-    lda ($02),y         ; byte[4] → M1
+    lda ($02),y
     sta FAC_M1
     lda #0
-    sta FAC_SI
+    sta FAC_OV          ; rounding byte
     rts
 
-; ===========================================================================
 ; Load 5-byte float from memory (AX = pointer) into ARG
-; ===========================================================================
 .global __float_load_arg
 __float_load_arg:
     sta $02
     stx $03
     ldy #0
-    lda ($02),y         ; byte[0] → exponent
+    lda ($02),y
     sta ARG_EX
     iny
-    lda ($02),y         ; byte[1] → M4 (mantissa MSB first in memory)
-    ora #$80            ; Set hidden '1' bit
-    sta $6E
+    lda ($02),y
+    sta ARG_SI
+    ora #$80
+    sta ARG_M4
     iny
-    lda ($02),y         ; byte[2] → M3
-    sta $6D
+    lda ($02),y
+    sta ARG_M3
     iny
-    lda ($02),y         ; byte[3] → M2
-    sta $6C
+    lda ($02),y
+    sta ARG_M2
     iny
-    lda ($02),y         ; byte[4] → M1
-    sta $6B
-    lda #0
-    sta $6F
+    lda ($02),y
+    sta ARG_M1
     rts
 
-; ===========================================================================
-; Store FAC to memory (AX = destination, 5 bytes)
-; ===========================================================================
+; Store FAC to memory (AX = destination), rounded
 .global __float_store_fac
 __float_store_fac:
+    pha
+    phx
+    lda #<BJT_ROUND
+    ldx #>BJT_ROUND
+    jsr __jsrfar_basic
+    plx
+    pla
     sta $02
     stx $03
     ldy #0
     lda FAC_EX
-    sta ($02),y          ; byte[0] ← exponent
+    sta ($02),y
     iny
+    lda FAC_SI          ; sign bit replaces the hidden 1 bit of the MSB
+    and #$80
+    sta $04
     lda FAC_M4
-    and #$7F             ; Clear hidden '1' bit (compiler format doesn't include it)
-    sta ($02),y          ; byte[1] ← M4 (mantissa MSB first in memory)
+    and #$7F
+    ora $04
+    sta ($02),y
     iny
     lda FAC_M3
-    sta ($02),y          ; byte[2] ← M3
+    sta ($02),y
     iny
     lda FAC_M2
-    sta ($02),y          ; byte[3] ← M2
+    sta ($02),y
     iny
     lda FAC_M1
-    sta ($02),y          ; byte[4] ← M1
+    sta ($02),y
+    rts
+
+; ===========================================================================
+; Overflow: the ROM reports a result >= 2^127 as ?OVERFLOW ERROR, which never
+; returns to the program. Before a ROM add/sub/mul/div, __float_scale_*
+; lowers the exponent of __float_a (and for add/sub __float_b) by
+; __float_k so the result stays in range; __float_unscale adds it back and
+; saturates to the largest float (sign kept) if it no longer fits. Division
+; by zero gives that saturated value too (0/0 gives 0). Underflow is 0.
+; Called with the base page at 0 (absolute addressing only).
+; ===========================================================================
+
+; Largest float with the sign in bit 7 of A, into __float_a
+__float_saturate:
+    and #$80
+    ora #$7F
+    sta __float_a+1
+    lda #$FF
+    sta __float_a
+    sta __float_a+2
+    sta __float_a+3
+    sta __float_a+4
+    rts
+
+; a * b: exponent ea + eb - 128 (or -129) must stay <= 254
+__float_scale_mul:
+    lda #0
+    sta __float_k
+    lda __float_a
+    beq @sm_done
+    ldx __float_b
+    beq @sm_done
+    clc
+    adc __float_b
+    tax                     ; X = low byte of ea + eb
+    lda #0
+    adc #0                  ; A = high byte
+    beq @sm_done            ; ea + eb <= 255
+    cpx #$7F                ; ea + eb > 382 ($17E)?
+    bcc @sm_done
+    txa
+    sec
+    sbc #$7E                ; k = ea + eb - 382
+    sta __float_k
+    lda __float_a
+    sec
+    sbc __float_k
+    sta __float_a
+@sm_done:
+    rts
+
+; a / b: exponent ea - eb + 129 (or +128) must stay <= 254. C set when b
+; is 0 and the result has been stored.
+__float_scale_div:
+    lda #0
+    sta __float_k
+    lda __float_b
+    bne @sd_nonzero
+    lda __float_a
+    beq @sd_by_zero         ; 0 / 0: 0
+    lda __float_a+1
+    eor __float_b+1
+    jsr __float_saturate
+@sd_by_zero:
+    sec
+    rts
+@sd_nonzero:
+    lda __float_a
+    beq @sd_ok
+    sec
+    sbc __float_b           ; ea - eb
+    bcc @sd_ok              ; negative: in range
+    cmp #126
+    bcc @sd_ok              ; ea - eb <= 125
+    sbc #125                ; k = ea - eb - 125 (C is set)
+    sta __float_k
+    lda __float_a
+    sec
+    sbc __float_k
+    sta __float_a
+@sd_ok:
+    clc
+    rts
+
+; a +/- b: only an exponent of 254 or 255 can carry out; halve both
+__float_scale_add:
+    lda #0
+    sta __float_k
+    lda __float_a
+    cmp __float_b
+    bcs @sa_max
+    lda __float_b
+@sa_max:
+    cmp #254
+    bcc @sa_done
+    lda #1
+    sta __float_k
+    lda __float_a
+    beq @sa_b
+    dec __float_a
+@sa_b:
+    lda __float_b
+    beq @sa_done
+    dec __float_b
+@sa_done:
+    rts
+
+; Add __float_k back to the result's exponent, saturating on overflow
+__float_unscale:
+    lda __float_k
+    beq @us_done
+    lda __float_a
+    beq @us_done            ; zero stays zero
+    clc
+    adc __float_k
+    bcs @us_sat
+    sta __float_a
+    rts
+@us_sat:
+    lda __float_a+1
+    jmp __float_saturate
+@us_done:
     rts
 
 ; ===========================================================================
@@ -148,6 +301,8 @@ __float_store_fac:
 ; ===========================================================================
 .global __float_add
 __float_add:
+    jsr __bp_rom
+    jsr __float_scale_add
     lda #<__float_b
     ldx #>__float_b
     jsr __float_load_fac
@@ -160,13 +315,16 @@ __float_add:
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
-    rts
+    jsr __float_unscale
+    jmp __bp_prog
 
 ; ===========================================================================
 ; Binary: __float_sub  (result = a - b)
 ; ===========================================================================
 .global __float_sub
 __float_sub:
+    jsr __bp_rom
+    jsr __float_scale_add
     lda #<__float_b
     ldx #>__float_b
     jsr __float_load_fac
@@ -179,13 +337,16 @@ __float_sub:
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
-    rts
+    jsr __float_unscale
+    jmp __bp_prog
 
 ; ===========================================================================
 ; Binary: __float_mul  (result = a * b)
 ; ===========================================================================
 .global __float_mul
 __float_mul:
+    jsr __bp_rom
+    jsr __float_scale_mul
     lda #<__float_b
     ldx #>__float_b
     jsr __float_load_fac
@@ -198,13 +359,17 @@ __float_mul:
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
-    rts
+    jsr __float_unscale
+    jmp __bp_prog
 
 ; ===========================================================================
 ; Binary: __float_div  (result = a / b)
 ; ===========================================================================
 .global __float_div
 __float_div:
+    jsr __bp_rom
+    jsr __float_scale_div
+    bcs @div_done           ; divisor 0: result already set
     lda #<__float_b
     ldx #>__float_b
     jsr __float_load_fac
@@ -217,22 +382,20 @@ __float_div:
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
-    rts
+    jsr __float_unscale
+@div_done:
+    jmp __bp_prog
 
 ; ===========================================================================
 ; Unary: __float_neg  (result = -a)
 ; ===========================================================================
 .global __float_neg
 __float_neg:
-    lda #<__float_a
-    ldx #>__float_a
-    jsr __float_load_fac
-    lda #<BJT_NEGOP
-    ldx #>BJT_NEGOP
-    jsr __jsrfar_basic
-    lda #<__float_a
-    ldx #>__float_a
-    jsr __float_store_fac
+    ; Flip the sign bit (bit 7 of the first mantissa byte) of the packed
+    ; value: exact, and -0.0 keeps its sign (BASIC's NEGOP leaves 0 alone)
+    lda __float_a+1
+    eor #$80
+    sta __float_a+1
     rts
 
 ; ===========================================================================
@@ -240,6 +403,7 @@ __float_neg:
 ; ===========================================================================
 .global __float_cmp
 __float_cmp:
+    jsr __bp_rom
     ; Compute a - b via FSUBT, then check sign
     ; FSUBT: FAC = ARG - FAC, so load b→FAC, a→ARG → FAC = a - b
     lda #<__float_b
@@ -254,56 +418,185 @@ __float_cmp:
     ; FAC = a - b. Check sign.
     lda FAC_EX
     beq @zero           ; exponent 0 = value is 0 (equal)
-    lda FAC_SI
-    bne @negative        ; sign byte nonzero = negative
+    bbs7 FAC_SI, @negative  ; sign is bit 7 (the other bits are mantissa leftovers)
     lda #$01            ; positive: a > b
-    rts
+    jmp __bp_prog
 @negative:
     lda #$FF            ; negative: a < b
-    rts
+    jmp __bp_prog
 @zero:
     lda #$00            ; equal
-    rts
+    jmp __bp_prog
 
 ; ===========================================================================
-; Conversion: __float_itof (int AX → float at __float_a)
+; Conversions between integers and floats, done on the packed CBM format
+; (exponent byte, 32-bit mantissa with the sign in bit 7 of its top byte and
+; an implicit leading 1). No ROM calls: BASIC's AYINT floors and only takes
+; -32768..32767, GIVAYF only takes a signed 16-bit value.
+;   __float_ftol: float at __float_a -> 32-bit integer in A/X/Y/Z (low..high),
+;                 truncated toward zero (C conversion semantics)
+;   __float_ftoi: the same, low 16 bits in A/X
+;   __float_ltof: 32-bit signed integer in A/X/Y/Z -> float at __float_a
+;   __float_ultof: 32-bit unsigned integer in A/X/Y/Z -> float at __float_a
+;   __float_itof / __float_utof: signed / unsigned 16-bit A/X -> float
+; Temporaries: $F0-$F4 of the program's zero page (library temps).
 ; ===========================================================================
+FT_M0 = $F0
+FT_M1 = $F1
+FT_M2 = $F2
+FT_M3 = $F3
+FT_SG = $F4
+
+.global __float_ftoi
+.global __float_ftol
+__float_ftoi:
+__float_ftol:
+    lda #0
+    sta FT_M0
+    sta FT_M1
+    sta FT_M2
+    sta FT_M3
+    lda __float_a           ; exponent: value = 0.M * 2^(exp-128)
+    cmp #$81
+    bcc @done               ; |value| < 1 (or 0): 0
+    ; mantissa with the implicit leading 1
+    lda __float_a+1
+    ora #$80
+    sta FT_M3
+    lda __float_a+2
+    sta FT_M2
+    lda __float_a+3
+    sta FT_M1
+    lda __float_a+4
+    sta FT_M0
+    ; shift right by 160 - exp (32 - integer bits); exp >= 160 overflows
+    lda #$A0
+    sec
+    sbc __float_a
+    bcc @sign               ; too large: keep the low 32 bits of 0.M * 2^32
+    tax
+    beq @sign
+@shift:
+    lsr FT_M3
+    ror FT_M2
+    ror FT_M1
+    ror FT_M0
+    dex
+    bne @shift
+@sign:
+    lda __float_a+1
+    bpl @done
+    ; negative: two's complement
+    sec
+    lda #0
+    sbc FT_M0
+    sta FT_M0
+    lda #0
+    sbc FT_M1
+    sta FT_M1
+    lda #0
+    sbc FT_M2
+    sta FT_M2
+    lda #0
+    sbc FT_M3
+    sta FT_M3
+@done:
+    lda FT_M3
+    taz
+    lda FT_M0
+    ldx FT_M1
+    ldy FT_M2
+    rts
+
 .global __float_itof
 __float_itof:
-    ; Input: A=low byte, X=high byte of 16-bit integer
-    ; GIVAYF expects: A=high byte, Y=low byte
-    ; JSRFAR loads: A from $06, Y from $08
-    tay             ; Y = low byte (save temporarily)
-    txa             ; A = high byte
-    sta $06         ; JSRFAR A register = high byte
-    sty $08         ; JSRFAR Y register = low byte
-    lda #BASIC_BANK
-    sta $02
-    lda #>BJT_GIVAYF
-    sta $03
-    lda #<BJT_GIVAYF
-    sta $04
-    jsr JSRFAR
-    ; FAC now has the float value — store to __float_a
-    lda #<__float_a
-    ldx #>__float_a
-    jsr __float_store_fac
-    rts
+    ; signed 16-bit A/X: sign-extend into Y/Z
+    ldy #0
+    ldz #0
+    cpx #$80
+    bcc __float_ltof
+    ldy #$FF
+    ldz #$FF
+    bra __float_ltof
 
-; ===========================================================================
-; Conversion: __float_ftoi (float at __float_a → int AX)
-; ===========================================================================
-.global __float_ftoi
-__float_ftoi:
-    lda #<__float_a
-    ldx #>__float_a
-    jsr __float_load_fac
-    lda #<BJT_AYINT
-    ldx #>BJT_AYINT
-    jsr __jsrfar_basic
-    ; MEGA65 BASIC 65 AYINT: stores 16-bit integer in FAC_M1 (low) and FAC_M2 (high)
-    lda FAC_M1      ; low byte
-    ldx FAC_M2      ; high byte
+.global __float_utof
+__float_utof:
+    ldy #0
+    ldz #0
+    bra __float_ultof
+
+.global __float_ltof
+.global __float_ultof
+__float_ltof:
+    sta FT_M0
+    stx FT_M1
+    sty FT_M2
+    tza
+    sta FT_M3
+    lda #0
+    sta FT_SG
+    bbr7 FT_M3, __float_ltof_mag
+    ; negative: magnitude = -value
+    lda #$80
+    sta FT_SG
+    sec
+    lda #0
+    sbc FT_M0
+    sta FT_M0
+    lda #0
+    sbc FT_M1
+    sta FT_M1
+    lda #0
+    sbc FT_M2
+    sta FT_M2
+    lda #0
+    sbc FT_M3
+    sta FT_M3
+    bra __float_ltof_mag
+__float_ultof:
+    sta FT_M0
+    stx FT_M1
+    sty FT_M2
+    tza
+    sta FT_M3
+    lda #0
+    sta FT_SG
+__float_ltof_mag:
+    ; zero?
+    lda FT_M0
+    ora FT_M1
+    ora FT_M2
+    ora FT_M3
+    bne @norm
+    ldx #4
+@z:
+    sta __float_a,x         ; A = 0
+    dex
+    bpl @z
+    rts
+@norm:
+    ; normalize: shift left until bit 31 is set; exponent = 160 - shifts
+    ldx #$A0
+@nl:
+    bbs7 FT_M3, @pack
+    asl FT_M0
+    rol FT_M1
+    rol FT_M2
+    rol FT_M3
+    dex
+    bra @nl
+@pack:
+    stx __float_a
+    lda FT_M3
+    and #$7F                ; the implicit 1 makes way for the sign
+    ora FT_SG
+    sta __float_a+1
+    lda FT_M2
+    sta __float_a+2
+    lda FT_M1
+    sta __float_a+3
+    lda FT_M0
+    sta __float_a+4
     rts
 
 ; ===========================================================================
@@ -311,6 +604,7 @@ __float_ftoi:
 ; ===========================================================================
 .global __float_sin
 __float_sin:
+    jsr __bp_rom
     lda #<__float_a
     ldx #>__float_a
     jsr __float_load_fac
@@ -320,10 +614,11 @@ __float_sin:
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
-    rts
+    jmp __bp_prog
 
 .global __float_cos
 __float_cos:
+    jsr __bp_rom
     lda #<__float_a
     ldx #>__float_a
     jsr __float_load_fac
@@ -333,10 +628,11 @@ __float_cos:
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
-    rts
+    jmp __bp_prog
 
 .global __float_tan
 __float_tan:
+    jsr __bp_rom
     lda #<__float_a
     ldx #>__float_a
     jsr __float_load_fac
@@ -346,10 +642,11 @@ __float_tan:
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
-    rts
+    jmp __bp_prog
 
 .global __float_atn
 __float_atn:
+    jsr __bp_rom
     lda #<__float_a
     ldx #>__float_a
     jsr __float_load_fac
@@ -359,10 +656,11 @@ __float_atn:
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
-    rts
+    jmp __bp_prog
 
 .global __float_log
 __float_log:
+    jsr __bp_rom
     lda #<__float_a
     ldx #>__float_a
     jsr __float_load_fac
@@ -372,10 +670,11 @@ __float_log:
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
-    rts
+    jmp __bp_prog
 
 .global __float_exp
 __float_exp:
+    jsr __bp_rom
     lda #<__float_a
     ldx #>__float_a
     jsr __float_load_fac
@@ -385,10 +684,11 @@ __float_exp:
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
-    rts
+    jmp __bp_prog
 
 .global __float_sqr
 __float_sqr:
+    jsr __bp_rom
     lda #<__float_a
     ldx #>__float_a
     jsr __float_load_fac
@@ -398,10 +698,11 @@ __float_sqr:
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
-    rts
+    jmp __bp_prog
 
 .global __float_abs
 __float_abs:
+    jsr __bp_rom
     lda #<__float_a
     ldx #>__float_a
     jsr __float_load_fac
@@ -411,7 +712,37 @@ __float_abs:
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
-    rts
+    jmp __bp_prog
+
+; ===========================================================================
+; Float to text: BASIC's own number formatting (FOUT, as PRINT/STR$)
+; __float_a -> __float_str, zero-terminated, e.g. " 3.25", "-1234567",
+; " 1E30", " 0.000123" (a leading space for positive values, up to 9-10
+; significant digits, E notation for large/small values). Used by printf's
+; %f/%e/%g (printf_float.c). FOUT builds the text at $0100 (page 1, unused
+; with the 16-bit CPU stack) and returns A/Y pointing at its terminating zero.
+; ===========================================================================
+.global __float_fout
+__float_fout:
+    jsr __bp_rom
+    lda #<__float_a
+    ldx #>__float_a
+    jsr __float_load_fac
+    lda #<BJT_FOUT
+    ldx #>BJT_FOUT
+    jsr __jsrfar_basic
+    ldx #0
+@copy:
+    lda $0100,x
+    sta __float_str,x
+    beq @done
+    inx
+    cpx #23
+    bne @copy
+    lda #0
+    sta __float_str,x
+@done:
+    jmp __bp_prog
 
 ; ===========================================================================
 ; Shared data buffers
@@ -422,3 +753,8 @@ __float_a: .res 5
 
 .global __float_b
 __float_b: .res 5
+
+.global __float_str
+__float_str: .res 24        ; __float_fout's text
+
+__float_k: .res 1           ; exponent scale (see __float_scale_*)

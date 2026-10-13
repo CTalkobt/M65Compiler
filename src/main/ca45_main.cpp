@@ -1,4 +1,6 @@
 #include <iostream>
+#include <set>
+#include <regex>
 #include <string>
 #include <vector>
 #include <cstdlib>
@@ -94,7 +96,7 @@ static void printHelpGeneral() {
     std::cout << "  Format:  One option per line, comments start with #\n\n";
     std::cout << "Environment variables (Phase 4.3):\n";
     std::cout << "  CA45_OPTIMIZE=<level>  Set optimization level (0, 1, 2, 3)\n";
-    std::cout << "  CA45_WARNINGS=<list>   Comma-separated warning flags (overflow:underflow)\n";
+    std::cout << "  CA45_WARNINGS=<list>   Warning flags separated by commas or colons (overflow,underflow)\n";
     std::cout << "  CC45_INCLUDE=<paths>   Colon-separated include search paths\n\n";
     std::cout << "Use --help=<section> for detailed help. Example: ca45 --help=input-output\n";
     std::cout << "Available sections: input-output, optimization, debugging, preprocessor, diagnostics\n";
@@ -417,7 +419,7 @@ int main(int argc, char** argv) {
     if (const char* envWarnings = std::getenv("CA45_WARNINGS")) {
         std::string warnings(envWarnings);
         size_t pos = 0, found;
-        while ((found = warnings.find(':', pos)) != std::string::npos) {
+        while ((found = warnings.find_first_of(",:", pos)) != std::string::npos) {   // "overflow,underflow" or "overflow:underflow"
             if (found > pos) {
                 std::string warning = warnings.substr(pos, found - pos);
                 envArgs.push_back("-W" + warning);
@@ -474,13 +476,13 @@ int main(int argc, char** argv) {
             return 0;
         } else if (arg == "-c") {
             relocMode = true;
-        } else if (arg == "-o" && i + 1 < argc) {
-            output_file = argv[++i];
+        } else if (arg == "-o" && i + 1 < (int)allArgs.size()) {
+            output_file = allArgs[++i];
             outputSet = true;
-        } else if (arg == "-L" && i + 1 < argc) {
-            listing_file = argv[++i];
-        } else if (arg == "-l" && i + 1 < argc) {
-            listingLevel = std::stoi(argv[++i]);
+        } else if (arg == "-L" && i + 1 < (int)allArgs.size()) {
+            listing_file = allArgs[++i];
+        } else if (arg == "-l" && i + 1 < (int)allArgs.size()) {
+            listingLevel = std::stoi(allArgs[++i]);
         } else if (arg == "-Roptimizer") {
             verboseOptimizer = true;
         } else if (arg == "-Rmachstate") {
@@ -533,12 +535,12 @@ int main(int argc, char** argv) {
             warnUnderflow = true;  // Phase 1.3: enable underflow warnings
         } else if (arg == "--dry-run") {
             dryRun = true;  // Phase 3.1: validate without generating output
-        } else if (arg == "--source-map" && i + 1 < argc) {
-            sourceMapFile = argv[++i];  // Phase 3.2: generate source map
+        } else if (arg == "--source-map" && i + 1 < (int)allArgs.size()) {
+            sourceMapFile = allArgs[++i];  // Phase 3.2: generate source map
         } else if (arg == "--emulator") {
             launchEmulator = true;  // Phase 3.3: launch emulator after assembly
-        } else if (arg == "--emulator-path" && i + 1 < argc) {
-            emulatorPath = argv[++i];  // Phase 3.3: custom emulator path
+        } else if (arg == "--emulator-path" && i + 1 < (int)allArgs.size()) {
+            emulatorPath = allArgs[++i];  // Phase 3.3: custom emulator path
         } else if (arg == "--watch") {
             watchMode = true;  // Phase 3.4: watch file for changes
         } else if (arg == "-vv") {
@@ -662,6 +664,30 @@ int main(int argc, char** argv) {
         if (relocMode) {
             // Relocatable object mode: produce .o45 file
             parser.pass2(false);
+            // A call/jump to a symbol that is neither defined nor .extern would
+            // silently assemble to $0000 (and the optimizer may even turn it into
+            // a branch): report it
+            {
+                int undefinedTargets = 0;
+                for (const auto& st : parser.statements) {
+                    if (st->deleted || st->type != AssemblerParser::Statement::INSTRUCTION) continue;
+                    std::string mn = st->instr.mnemonic;
+                    for (auto& ch : mn) ch = (char)std::tolower((unsigned char)ch);
+                    if (mn != "jsr" && mn != "jmp" && mn != "bsr") continue;
+                    const std::string& op = st->instr.operand;
+                    if (op.empty() || !(std::isalpha((unsigned char)op[0]) || op[0] == '_')) continue;
+                    bool plain = true;
+                    for (char ch : op) if (!(std::isalnum((unsigned char)ch) || ch == '_' || ch == '.')) { plain = false; break; }
+                    if (!plain) continue;
+                    if (parser.isExternSymbol(op) || parser.resolveSymbol(op, st->scopePrefix)) continue;
+                    std::cerr << (st->sourceFile.empty() ? input_file : st->sourceFile) << ":"
+                              << (st->sourceLine ? st->sourceLine : st->line)
+                              << ": error: undefined symbol '" << op << "' (" << mn
+                              << "); declare it .extern if another object defines it" << std::endl;
+                    undefinedTargets++;
+                }
+                if (undefinedTargets) return 1;
+            }
             auto o45 = emitO45(parser);
             if (!o45.empty()) {
                 std::ofstream out(output_file, std::ios::binary);
@@ -694,6 +720,41 @@ int main(int argc, char** argv) {
                 isPrg = true;
             }
             auto binary = parser.pass2(isPrg);
+            // A flat program is not linked: a .extern symbol it uses (and
+            // does not define) would stay $0000 — a jsr $0000 that crashes
+            {
+                const auto& symtab = parser.getSymbolTable();
+                std::regex ident(R"([A-Za-z_][A-Za-z0-9_.]*)");
+                std::set<std::string> reported;
+                int unresolved = 0;
+                auto check = [&](const std::string& text, const AssemblerParser::Statement* st) {
+                    for (auto it = std::sregex_iterator(text.begin(), text.end(), ident);
+                         it != std::sregex_iterator(); ++it) {
+                        std::string name = it->str();
+                        if (!parser.isExternSymbol(name) || reported.count(name)) continue;
+                        auto sy = symtab.find(name);
+                        if (sy != symtab.end() && sy->second.segment != "__extern__") continue;   // defined here
+                        reported.insert(name);
+                        unresolved++;
+                        std::cerr << (st->sourceFile.empty() ? input_file : st->sourceFile) << ":"
+                                  << (st->sourceLine ? st->sourceLine : st->line)
+                                  << ": error: '" << name << "' is .extern but no linker resolves it in a flat "
+                                  << "program (it would be $0000): assemble with -c and link with ln45" << std::endl;
+                    }
+                };
+                for (const auto& st : parser.statements) {
+                    if (st->deleted) continue;
+                    if (st->type == AssemblerParser::Statement::INSTRUCTION) {
+                        std::string op = st->instr.operand;
+                        if (op.empty()) op = parser.tokenText(st->instr.operandTokenIndex);
+                        check(op, st.get());
+                    } else if (st->type == AssemblerParser::Statement::DIRECTIVE) {
+                        if (st->dir.name == "extern" || st->dir.name == "global" || st->dir.name == "weak") continue;
+                        for (const auto& a : st->dir.arguments) if (a.empty() || a[0] != '"') check(a, st.get());
+                    }
+                }
+                if (unresolved) return 1;
+            }
             if (!binary.empty()) {
                 std::ofstream out(output_file, std::ios::binary);
                 out.write(reinterpret_cast<const char*>(binary.data()), binary.size());
@@ -715,6 +776,7 @@ int main(int argc, char** argv) {
                 }
             }
         }
+        for (const auto& w : parser.getWarnings()) std::cerr << w << std::endl;
     } catch (const std::exception& e) {
         std::cerr << input_file << ": " << e.what() << std::endl;
         return 1;

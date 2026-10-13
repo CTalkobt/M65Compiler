@@ -42,40 +42,36 @@ int main(void) {
     // DEBUG: Yellow border = save done, entering fade loop
     *border_color = 7;
 
-    // Oscillating fade loop: 0 → 255 → 0
-    while (1) {
-        // Fade in: 0 → 255
-        *border_color = 3;  // Cyan = fade in starting
-        for (level = 0; level < 255; level++) {
-            apply_fade(level);
-            delay_frame();
-            // Show progress: toggle every 16 levels
-            if (level & 16) {
-                *border_color = 3;  // Cyan
-            } else {
-                *border_color = 14; // Light gray
-            }
-        }
-        apply_fade(255);
+    // Fade cycle: 0 → 255 → 0
+    // Fade in: 0 → 255
+    *border_color = 3;  // Cyan = fade in starting
+    for (level = 0; level < 255; level++) {
+        apply_fade(level);
         delay_frame();
-        *border_color = 3;  // Cyan at peak fade
-
-        // Fade out: 255 → 0
-        *border_color = 4;  // Purple = fade out starting
-        for (level = 255; level > 0; level--) {
-            apply_fade(level);
-            delay_frame();
-            // Show progress: toggle every 16 levels
-            if (level & 16) {
-                *border_color = 4;  // Purple
-            } else {
-                *border_color = 14; // Light gray
-            }
+        if (level & 16) {
+            *border_color = 3;  // Cyan
+        } else {
+            *border_color = 14; // Light gray
         }
-        apply_fade(0);
-        delay_frame();
-        *border_color = 4;  // Purple at minimum fade
     }
+    apply_fade(255);
+    delay_frame();
+    *border_color = 3;  // Cyan at peak fade
+
+    // Fade out: 255 → 0
+    *border_color = 4;  // Purple = fade out starting
+    for (level = 255; level > 0; level--) {
+        apply_fade(level);
+        delay_frame();
+        if (level & 16) {
+            *border_color = 4;  // Purple
+        } else {
+            *border_color = 14; // Light gray
+        }
+    }
+    apply_fade(0);
+    delay_frame();
+    *border_color = 4;  // Purple at minimum fade
 
     return 0;
 }

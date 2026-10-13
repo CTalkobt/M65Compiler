@@ -1,0 +1,64 @@
+; strncpy.s — Copy string with length limit (ZP calling convention)
+;
+; char *strncpy(char *dest, char *src, int n);
+;   Copies at most n bytes from src to dest. Pads with NUL if shorter.
+
+.global _strncpy
+
+.segment "code"
+
+proc _strncpy
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .zp_clobbers $10, $11, $12, $13, $14, $15
+    .zp_release $12, $13, $14, $15
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+
+    ; dest=$10/$11, src=$12/$13, n=$14/$15
+    ldy #0
+@copy:
+    lda $14
+    ora $15
+    beq @done
+    lda ($12),y
+    sta ($10),y
+    beq @pad_start
+    iny
+    bne @no_inc_copy
+    inc $11
+    inc $13
+@no_inc_copy:
+    lda $14
+    bne @dec_lo_copy
+    dec $15
+@dec_lo_copy:
+    dec $14
+    bra @copy
+@pad_start:
+    lda $14
+    bne @dec_lo_pad_first
+    dec $15
+@dec_lo_pad_first:
+    dec $14
+@pad:
+    lda $14
+    ora $15
+    beq @done
+    iny
+    bne @no_inc_pad
+    inc $11
+@no_inc_pad:
+    lda #0
+    sta ($10),y
+    lda $14
+    bne @dec_lo_pad
+    dec $15
+@dec_lo_pad:
+    dec $14
+    bra @pad
+@done:
+    lda $10
+    ldx $11
+    rts
+    .func_flags zp_call
+    endproc

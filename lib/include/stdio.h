@@ -13,9 +13,9 @@
  * CHARACTER & STRING I/O (KERNAL-based)
  * ============================================================================ */
 
-int getchar(void);
-int putchar(int c);
-int puts(char *s);
+__fastcall__ int getchar(void);
+__fastcall__ int putchar(int c);
+__fastcall__ int puts(char *s);
 int sprintf(char *buf, char *fmt, ...);
 int snprintf(char *buf, int size, char *fmt, ...);
 int printf(char *fmt, ...);
@@ -44,6 +44,7 @@ typedef struct {
     unsigned int buf_len;            /* Bytes in buffer */
     unsigned char backend;           /* 0=KERNAL, 1=disk45, 2=memory */
     unsigned char ungetc_char;       /* Character pushed back by ungetc() */
+    unsigned char ungetc_pending;    /* 1 while ungetc_char is pending */
 } FILE;
 
 /* File position type */
@@ -58,7 +59,6 @@ typedef unsigned long fpos_t;
 #define _IOERR      0x20             /* Error occurred */
 #define _IOMYBUF    0x40             /* Buffer allocated by FILE */
 #define _IOTRUNC    0x80             /* Truncate file on open (for write mode) */
-#define _IOUNGETC   0x01             /* Ungetc character pending (reuses as needed) */
 
 /* Standard file pointers */
 extern FILE *stdin;
@@ -129,7 +129,7 @@ void setbuf(FILE *stream, char *buffer);
  * resources. Can be used alongside FILE operations.
  */
 
-typedef int fd_t;                    /* File descriptor (Commodore device/channel) */
+typedef signed int fd_t;             /* File descriptor (logical file number 3-14; -1 = error) */
 
 /* Standard file descriptors */
 #define STDIN_FILENO    0            /* Standard input (keyboard/serial) */
@@ -169,9 +169,13 @@ typedef int fd_t;                    /* File descriptor (Commodore device/channe
 /* File handle operations */
 fd_t cbm_open(unsigned char device, const char *filename, unsigned char type);
 fd_t cbm_open_ext(unsigned char device, const char *filename, unsigned char type, unsigned char secondary);
-int cbm_close(fd_t fd);
-int cbm_read(fd_t fd, void *buffer, unsigned int length);
-int cbm_write(fd_t fd, const void *buffer, unsigned int length);
+signed int cbm_close(fd_t fd);
+/* The drive's status number (its command channel 15): 0 OK, 1 files
+ * scratched, >= 20 an error (62 file not found, 63 file exists, ...); -1 if
+ * the channel can't be opened */
+__fastcall__ int cbm_drive_status(unsigned char device);
+signed int cbm_read(fd_t fd, void *buffer, unsigned int length);
+signed int cbm_write(fd_t fd, const void *buffer, unsigned int length);
 int cbm_seek(fd_t fd, unsigned long position);
 unsigned long cbm_tell(fd_t fd);
 int cbm_eof(fd_t fd);

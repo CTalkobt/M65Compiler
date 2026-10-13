@@ -1,0 +1,230 @@
+; test_ca45_simops_xemu.s45 — ca45 simulated instructions run on xemu
+;
+; Results at $C0C0.. (see test_xemu.sh for the expected bytes):
+;   +0,1   mod.16 .ax, #7 of 256 (4)            +2,3   mod.s16 of -100 by 7 (-2)
+;   +4,5   abs.16 .ax of -300 (300)             +6,7   neg.16 mem of 5 (-5)
+;   +8,9   abs.16 mem (5)                       +10,11 inw/dew 4,sp ($12FF+1 / -1)
+;   +12,13 neg.16 2,sp of 5                     +14    inc 2,sp after abs.16 2,sp (6)
+;   +15,16 phw.sp 4 (pulled lo, hi)             +17,18 lday 6,sp
+;   +19,20 stw #$0042 (high byte 0, not Z)      +21    stz 8,sp (Z)
+;   +22,23 ldw.f after stw.f + inc.f ([bp])     +24    dec.f x2 ([bp]) + x1 (address)
+;   +25    branch.16 taken / not taken marks    +26,27 call: a1, b2
+;   +28,29 call: w3 (word at an address)        +30..33 fill / move / .ax fill / frame fill
+;   +34    P.Z / P.N / P.C flags packed         +35    swap .x,.y keeps A
+;   +36,37 add.16 $nnnn,#5                      +38    $AA
+        * = $2001
+        .basicUpstart main
+
+out     = $C0C0
+buf     = $3000             ; frame for the n,sp tests ($FD/$FE point here)
+mem     = $3100
+
+main:
+        ; --- mod.16 / mod.s16 ---
+        lda #$00
+        ldx #$01
+        mod.16 .ax, #7
+        sta out+0
+        stx out+1
+        lda #<-100
+        ldx #>-100
+        mod.s16 .ax, #7
+        sta out+2
+        stx out+3
+
+        ; --- abs.16 / neg.16 ---
+        lda #<-300
+        ldx #>-300
+        abs.16 .ax
+        sta out+4
+        stx out+5
+        lda #5
+        sta mem
+        lda #0
+        sta mem+1
+        neg.16 mem
+        lda mem
+        sta out+6
+        lda mem+1
+        sta out+7
+        abs.16 mem
+        lda mem
+        sta out+8
+        lda mem+1
+        sta out+9
+
+        ; --- n,sp through the frame pointer ---
+        lda #<buf
+        sta $FD
+        lda #>buf
+        sta $FE
+        lda #$FF
+        sta buf+4
+        lda #$12
+        sta buf+5
+        inw 4,sp
+        lda buf+4
+        sta out+10
+        dew 4,sp
+        lda buf+5
+        sta out+11
+        lda #5
+        ldx #0
+        stax 2,sp
+        neg.16 2,sp
+        lda buf+2
+        sta out+12
+        lda buf+3
+        sta out+13
+        abs.16 2,sp
+        inc 2,sp
+        lda buf+2
+        sta out+14
+        phw.sp 4
+        pla
+        sta out+15
+        pla
+        sta out+16
+        lda #$34
+        sta buf+6
+        lda #$12
+        sta buf+7
+        lday 6,sp
+        sta out+17
+        sty out+18
+        ldz #$77
+        stw #$0042, mem+2
+        lda mem+2
+        sta out+19
+        lda mem+3
+        sta out+20
+        ldz #$99
+        stz 8,sp
+        ldz #0
+        lda buf+8
+        sta out+21
+
+        ; --- flat (28-bit) access through a pointer at $F0 ---
+        lda #<mem+4
+        sta $F0
+        lda #>mem+4
+        sta $F1
+        lda #0
+        sta $F2
+        sta $F3
+        lda #$34
+        ldx #$12
+        stw.f [$F0]
+        inc.f [$F0]
+        ldw.f [$F0]
+        sta out+22
+        stx out+23
+        dec.f [$F0]
+        dec.f [$F0]
+        dec.f mem+4             ; a flat address (scratch pointer)
+        lda mem+4
+        sta out+24
+
+        ; --- branch.16 ---
+        lda #0
+        branch.16 beq, b16a
+        lda #$EE
+        sta out+25
+b16a:   lda #1
+        branch.16 beq, b16b
+        lda #$01
+        sta out+25
+b16b:
+
+        ; --- call / proc ---
+        lda #$CD
+        sta mem+6
+        lda #$AB
+        sta mem+7
+        call sub3, #$1234, B#$56, mem+6
+        pla
+        pla
+        pla
+        pla
+        pla
+        pla
+
+        ; --- fill / move (DMA list on the stack) ---
+        fill $3200, 16, $5A
+        move $3200, $3300, 4
+        lda #<$3400
+        ldx #>$3400
+        ldy #3
+        fill .ax, .y, #$77
+        fill 10, sp, 2, $66
+        lda $320F
+        sta out+30
+        lda $3303
+        sta out+31
+        lda $3402
+        ora $3403
+        sta out+32
+        lda buf+11
+        sta out+33
+
+        ; --- P.x flags: Z set, N clear, C set -> %101 ---
+        sec
+        lda #0
+        expr .a, P.Z
+        sta mem+8
+        lda #1
+        expr .a, P.N
+        asl a
+        ora mem+8
+        sta mem+8
+        sec
+        expr .a, P.C
+        asl a
+        asl a
+        ora mem+8
+        sta out+34
+
+        ; --- swap keeps A ---
+        lda #$5C
+        ldx #1
+        ldy #2
+        swap .x, .y
+        sta out+35
+
+        ; --- add.16 with a numeric destination ---
+        lda #$FE
+        sta $3500
+        lda #$00
+        sta $3501
+        add.16 $3500, #5
+        lda $3500
+        sta out+36
+        lda $3501
+        sta out+37
+
+        lda #$AA
+        sta out+38
+        rts
+
+proc sub3, a1, B#b2, w3
+        tsx                     ; frame pointer = SP + 1 (16 bits)
+        tsy
+        txa
+        clc
+        adc #1
+        sta $FD
+        tya
+        adc #0
+        sta $FE
+        lda a1, sp
+        sta out+26
+        lda b2, sp
+        sta out+27
+        ldax w3, sp
+        sta out+28
+        stx out+29
+        lda #<buf
+        sta $FD
+        lda #>buf
+        sta $FE
+endproc

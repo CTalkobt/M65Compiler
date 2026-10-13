@@ -1,12 +1,14 @@
+#include "LinkerLog.hpp"
+#include <algorithm>
 #include <iostream>
 #include <cstdlib>
 #include <fstream>
 #include <vector>
 #include <string>
+#include <unistd.h>
 #include "O45Reader.hpp"
 #include "O45Linker.hpp"
 #include "O45Archive.hpp"
-#include "CrossModuleOptimizer.hpp"
 #include "Version.hpp"
 
 static void printUsage(const char* progName) {
@@ -24,7 +26,12 @@ static void printUsage(const char* progName) {
     std::cout << "  -m             Print linker map (symbol addresses) after linking" << std::endl;
     std::cout << "  -M <file>      Write detailed linker map file (segments, objects, symbols)" << std::endl;
     std::cout << "  --no-thunks    Error on calling convention mismatches (no thunk generation)" << std::endl;
+    std::cout << "  --no-sac-overlay  Give every static-allocation function its own storage" << std::endl;
+    std::cout << "  --bss-fill=V   Byte crt0 fills BSS with at startup (default $00; $FF, 0xFF or decimal)" << std::endl;
     std::cout << "  -Wthunk        Warn (but still generate thunks) on convention mismatches" << std::endl;
+    std::cout << "  -v             Also print the cross-module analysis and informational warnings" << std::endl;
+    std::cout << "                 (unused global symbols, SAC overlay)" << std::endl;
+    std::cout << "  -vv            As -v, plus a trace of every relocation" << std::endl;
     std::cout << "  -?             Display this help message" << std::endl;
 }
 
@@ -38,6 +45,7 @@ int main(int argc, char** argv) {
     bool isPrg = false;
     bool isBasic = false;
     bool printMap = false;
+    int bssFill = -1;
     std::string mapFile;
     uint32_t textBase = 0x2000; // sensible MEGA65 default
     bool textBaseSet = false;
@@ -48,6 +56,7 @@ int main(int argc, char** argv) {
     std::vector<std::string> libFiles;
     std::vector<std::string> libSearchPaths;
     O45Linker::ThunkMode thunkMode = O45Linker::THUNK_AUTO;
+    bool sacOverlay = true;
 
     // Add paths from CC45_LIB environment variable
     if (const char* envLib = std::getenv("CC45_LIB")) {
@@ -76,6 +85,19 @@ int main(int argc, char** argv) {
         else if (arg == "-b" && i + 1 < argc) { bssBase = parseAddr(argv[++i]); bssBaseSet = true; }
         else if (arg == "-z" && i + 1 < argc) { zpBase = parseAddr(argv[++i]); zpBaseSet = true; }
         else if (arg == "--no-thunks") { thunkMode = O45Linker::THUNK_ERROR; }
+        else if (arg == "--no-sac-overlay") { sacOverlay = false; }
+        else if (arg == "-v") { g_ln45Verbosity = std::max(g_ln45Verbosity, 1); }
+        else if (arg == "-vv") { g_ln45Verbosity = 2; }
+        else if (arg.rfind("--bss-fill=", 0) == 0) {
+            std::string v = arg.substr(11);
+            int base = 10;
+            if (!v.empty() && v[0] == '$') { v = v.substr(1); base = 16; }
+            else if (v.size() > 2 && v[0] == '0' && (v[1] == 'x' || v[1] == 'X')) { v = v.substr(2); base = 16; }
+            unsigned long fv = 0;
+            try { size_t used = 0; fv = std::stoul(v, &used, base); if (used != v.size() || fv > 255) throw 0; }
+            catch (...) { std::cerr << "ln45: error: invalid --bss-fill value '" << arg.substr(11) << "' (a byte: 0-255, $FF, 0xFF)" << std::endl; return 1; }
+            bssFill = (int)fv;
+        }
         else if (arg == "-Wthunk") { thunkMode = O45Linker::THUNK_WARN; }
         else if (arg.length() > 4 && arg.substr(arg.length() - 4) == ".lib") { libFiles.push_back(arg); }
         else inputFiles.push_back(arg);
@@ -111,6 +133,8 @@ int main(int argc, char** argv) {
     if (bssBaseSet)  linker.setBssBase(bssBase);
     if (zpBaseSet)   linker.setZpBase(zpBase);
     linker.setThunkMode(thunkMode);
+    linker.setSacOverlay(sacOverlay);
+    if (bssFill >= 0) linker.setBssFill((uint8_t)bssFill);
 
     for (const auto& filename : inputFiles) {
         std::ifstream in(filename, std::ios::binary);
@@ -132,9 +156,27 @@ int main(int argc, char** argv) {
         linker.addObject(filename, obj);
     }
 
+    // Last, the standard library directories next to this executable: the
+    // build tree's bin/../lib/build, an installed tree's bin/../lib/cc45
+    {
+        char buf[4096];
+        ssize_t len = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+        if (len > 0) {
+            buf[len] = '\0';
+            std::string self(buf);
+            size_t sep = self.find_last_of('/');
+            if (sep != std::string::npos) {
+                std::string base = self.substr(0, sep + 1);
+                libSearchPaths.push_back(base + "../lib/build");
+                libSearchPaths.push_back(base + "../lib/cc45");
+            }
+        }
+    }
+
     // Load libraries
     for (const auto& libname : libFiles) {
-        // Try the path as given first, then search CC45_LIB / -L directories
+        // Try the path as given first, then search CC45_LIB, -L and the
+        // standard library directories
         std::string resolvedLib = libname;
         {
             std::ifstream test(resolvedLib, std::ios::binary);
@@ -178,21 +220,30 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // Phase 91.4: Cross-Module Optimization Analysis
-    // Analyze specialization opportunities across module boundaries
-    CrossModuleOptimizer cmoOptimizer;
-    cmoOptimizer.analyzeSpecializations(linker);
-    cmoOptimizer.generateCallRouting(linker);
-
-    // Create dispatcher stubs if needed for multi-specialization
-    // Note: Full dispatcher implementation delegated to linker phases 56+
-    O45Linker mutableLinker = linker;  // For future dispatcher generation
-    cmoOptimizer.createDispatchers(mutableLinker);
-
-    // Optional: Emit cross-module optimization report (debug only)
-    if (false) {  // Set to true for verbose cross-module analysis
-        std::cerr << cmoOptimizer.getSpecializationReport() << std::endl;
-        std::cerr << cmoOptimizer.getCallRoutingReport() << std::endl;
+    // The 16-bit CPU stack grows down from __stack_top towards the end of the
+    // program (BSS and the private base page): make sure there is room
+    {
+        const auto& syms = linker.getSymbolMap();
+        auto st = syms.find("__stack_top");
+        if (st != syms.end() && st->second != 0) {
+            uint32_t end = 0;
+            auto be = syms.find("__bss_end");
+            if (be != syms.end()) end = be->second;
+            auto zp = syms.find("__zp_page");
+            if (zp != syms.end() && zp->second + 0x100 > end) end = zp->second + 0x100;
+            if (end > 0 && end > st->second) {
+                std::cerr << "ln45: error: program ends at $" << std::hex << std::uppercase << end
+                          << ", above the CPU stack top $" << st->second << std::dec
+                          << " (cc45 -fstack-top=ADDR or -fno-stack16)" << std::endl;
+                return 1;
+            }
+            if (end > 0 && st->second + 1 - end < 0x200) {
+                std::cerr << "ln45: warning: only " << (st->second + 1 - end)
+                          << " bytes left for the CPU stack between the program end ($"
+                          << std::hex << std::uppercase << end << ") and $" << st->second
+                          << std::dec << std::endl;
+            }
+        }
     }
 
     // Prepend PRG load address header and optional BASIC SYS stub
@@ -221,10 +272,26 @@ int main(int argc, char** argv) {
             }
             prgData.push_back(0x00); // end of BASIC line
             prgData.push_back(0x00); prgData.push_back(0x00); // end of BASIC program
+
+            // The image is linked for its addresses (the code at textBase,
+            // $200D right after the stub unless -t moves it; data below it
+            // with -d): pad the file up to its start so it loads there
+            uint32_t stubEnd = basicBase + (uint32_t)(prgData.size() - 2);
+            uint32_t imageBase = linker.imageBase();
+            if (imageBase < stubEnd) {
+                std::cerr << "ln45: error: " << (imageBase < textBase ? "-d $" : "-t $")
+                          << std::hex << std::uppercase << imageBase
+                          << " overlaps the BASIC stub at $2001-$" << (stubEnd - 1) << std::dec
+                          << " (with -basic the program must start at or after $" << std::hex << stubEnd
+                          << std::dec << ")" << std::endl;
+                return 1;
+            }
+            prgData.insert(prgData.end(), imageBase - stubEnd, 0x00);
         } else {
-            // Plain PRG: just 2-byte load address header, no BASIC stub
-            prgData.push_back((uint8_t)(textBase & 0xFF));
-            prgData.push_back((uint8_t)(textBase >> 8));
+            // Plain PRG: just 2-byte load address header (the image's
+            // start), no BASIC stub
+            prgData.push_back((uint8_t)(linker.imageBase() & 0xFF));
+            prgData.push_back((uint8_t)(linker.imageBase() >> 8));
         }
 
         // Append the linked binary

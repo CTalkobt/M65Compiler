@@ -1,0 +1,21 @@
+; __builtin_bswap32.s — Reverse the byte order of a 32-bit value (ZP convention)
+;
+; unsigned long __builtin_bswap32(unsigned long x);   x in $10-$13, result in AXYZ
+
+.global ___builtin_bswap32
+
+.segment "code"
+
+proc ___builtin_bswap32
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers N, Z
+
+    lda $10             ; b0 → Z
+    taz
+    lda $13             ; b3 → A
+    ldx $12             ; b2 → X
+    ldy $11             ; b1 → Y
+    rts
+    .func_flags zp_call
+    endproc

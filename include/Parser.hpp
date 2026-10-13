@@ -17,10 +17,19 @@ public:
         bool isFunctionPointer = false;
         std::shared_ptr<FuncPtrSignature> funcPtrSig;
         std::vector<int> arrayDims;
+        // typedef int T[n] in a function: the hidden variable holding each
+        // run-time dimension ("" for a constant one)
+        std::vector<std::string> vlaDimVars;
     };
 
     Parser(const std::vector<Token>& tokens);
     std::unique_ptr<TranslationUnit> parse();
+
+    // Plain char/short/int/long are signed (standard C) instead of cc45's
+    // unsigned default. Set by -fsigned-default; toggled by #pragma cc45
+    // signed_default / unsigned_default.
+    bool signedDefault = false;
+    bool unsignedChar = false;  // -funsigned-char: plain char unsigned regardless of signedDefault
 
     // Phase 102: Get typedef information for IR generation
     const std::map<std::string, TypeAlias>& getTypedefs() const { return typedefs; }
@@ -43,6 +52,7 @@ private:
         return node;
     }
 
+    int inStructMethod_ = 0;  // >0 while parsing a non-static struct method body
     std::unique_ptr<FunctionDeclaration> parseFunctionDeclaration();
     std::unique_ptr<CompoundStatement> parseCompoundStatement();
     std::unique_ptr<Statement> parseStatement();
@@ -67,7 +77,37 @@ private:
     std::unique_ptr<Expression> parseGenericSelection();
     std::unique_ptr<Expression> parseInitializerList();
     void parseTypedef();
+    // Declarations of the hidden variables of a typedef's run-time dimensions
+    std::vector<std::unique_ptr<Statement>> typedefVlaDecls_;
+    int typedefVlaCounter_ = 0;
     bool tryParseAttribute();  // parse __attribute__((...)), returns true if found
+    bool pendingAlwaysInline_ = false;  // set by always_inline, consumed by next function declaration
+    // __attribute__((aligned(N))): consumed by the declaration it belongs to
+    // (variable, struct member or struct type) as if _Alignas(N) were written
+    int pendingAlign_ = 0;
+    int takePendingAlign() { int a = pendingAlign_; pendingAlign_ = 0; return a; }
+    // __attribute__((alias("target"))): the declared name is another name
+    // for target; later uses of it are read as target
+    // Declared variables' types, for typeof(name)
+    struct DeclType { std::string type; int ptrLevel = 0; bool isSigned = false; };
+    std::map<std::string, DeclType> declTypes_;
+    // typeof(expression): the declared type of a variable name, else int
+    DeclType typeofExpr(Expression* e);
+    std::string pendingAlias_;
+    // __attribute__((vector_size(N))) / ((mode(M))): applied by
+    // applyVectorMode to the declared type
+    int pendingVectorSize_ = 0;
+    std::string pendingMode_;
+    void applyVectorMode(std::string& type, int ptrLevel, bool& isSigned);
+    std::set<std::string> vectorTypes_;
+    std::map<std::string, std::string> aliasNames_;
+    void applyAlias(std::string& declName) {
+        if (pendingAlias_.empty()) return;
+        aliasNames_[declName] = pendingAlias_;
+        declName = pendingAlias_;
+        pendingAlias_.clear();
+    }
+    bool pendingNoInline_ = false;
     std::string resolveComplexType(); // consume type after COMPLEX token, return struct name
     std::string resolveIntNType(bool isSigned); // consume (N) after __int/__uint, return type name
     std::shared_ptr<FuncPtrSignature> parseFuncPtrParams(const std::string& returnType, int returnPtrLevel, bool returnIsSigned);
@@ -81,17 +121,27 @@ private:
         bool isVolatile = false;
         int pointerLevel = 0;
         std::vector<int> arrayDims;  // from typedef
+        std::vector<std::string> vlaDimVars;  // run-time typedef dimensions (see TypeAlias)
         bool isFunctionPointer = false;
         std::shared_ptr<FuncPtrSignature> funcPtrSig;
         bool valid = false;     // true if a type was successfully parsed
+        bool fromTypedef = false; // signedness came from a typedef
         int addressSpace = 0;   // Phase 97: AddressSpace (0=DEFAULT, 1=ZP, 2=ABS, 3=FAR)
     };
     TypeSpec parseTypeSpecifier();    // consume type keywords + qualifiers, return TypeSpec
+    TypeSpec parseTypeSpecifierRaw(); // parseTypeSpecifier without the signedness default
     bool isTypeStartToken() const;   // peek: does current token start a type?
     bool isTypeStartAt(size_t look) const; // lookahead version
 
     std::map<std::string, TypeAlias> typedefs;
     std::map<std::string, int> enumConstants;
+    // Byte sizes of declared variables with known scalar/array types (sizeof var
+    // in constant expressions such as array dimensions)
+    std::map<std::string, long> varByteSizes;
+    // Evaluate an integer constant expression; false if it isn't one
+    bool evalConstInt(Expression* e, long& out);
+    // Size of a scalar/pointer type in bytes; -1 for aggregates and unknowns
+    static int scalarTypeSize(const std::string& type, int ptrLevel);
     std::set<std::string> enumNames;
     bool isTypedef(const std::string& name) const;
 

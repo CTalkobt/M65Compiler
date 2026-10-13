@@ -1,424 +1,350 @@
-# MEGA65 C Compiler: Optimization Guide
-
-## Overview
-
-The MEGA65 C Compiler supports 10 optimization levels (-O0 through -O9) with fine-grained control over individual optimizations using standard `-f` flag conventions. Each optimization is categorized by its effect: **Space** (code size), **Speed** (execution time), or **Both**.
-
-## Optimization Levels
-
-### -O0: No Optimization (Baseline)
-- No optimizations applied
-- Fastest compilation time
-- Largest code size
-- **Use case**: Debugging, testing
-
-### -O1: Basic Optimizations
-- Constant Folding (~5% benefit)
-- Dead Code Elimination (~3% benefit)
-- **Total typical savings**: 5-8%
-- **Use case**: Development with minor size consideration
-
-### -O2: Standard Optimization (Default)
-- Includes all -O1 optimizations, plus:
-- Inline Small Functions (~2% benefit)
-- Tail Call Optimization (~4% benefit)
-- **Total typical savings**: 10-15%
-- **Use case**: General-purpose development
-
-### -O3: Aggressive Basic Optimizations
-- Includes all -O2 optimizations, plus:
-- Strength Reduction (~3% benefit)
-- Algebraic Simplification (~2% benefit)
-- **Total typical savings**: 15-20%
-- **Use case**: Size-critical code
-
-### -O4: Loop Optimizations
-- Includes all -O3 optimizations, plus:
-- Loop Unrolling (~5% benefit)
-- Loop Interchange (~4% benefit)
-- Loop-Invariant Code Motion (~3% benefit)
-- **Total typical savings**: 25-35%
-- **Use case**: Loop-heavy code
-
-### -O5: Cross-Function Optimization
-- Includes all -O4 optimizations, plus:
-- Cross-Function Inlining (~3% benefit)
-- Devirtualization (~2% benefit)
-- **Total typical savings**: 30-40%
-- **Use case**: Multi-function programs with small helper functions
-
-### -O6: Advanced Inlining
-- Includes all -O5 optimizations, plus:
-- Common Subexpression Elimination (~4% benefit)
-- Copy Propagation (~2% benefit)
-- **Total typical savings**: 35-45%
-- **Use case**: Complex expression evaluation
-
-### -O7: Branch Optimization
-- Includes all -O6 optimizations, plus:
-- Branch Inversion (~2% benefit)
-- Branch Folding (~3% benefit)
-- Jump Optimization (~2% benefit)
-- **Total typical savings**: 40-50%
-- **Use case**: Branch-heavy code paths
-
-### -O8: Memory & Register Optimization
-- Includes all -O7 optimizations, plus:
-- Redundant Load Elimination (~3% benefit)
-- Dead Store Elimination (~2% benefit)
-- Frame Pointer Optimization (~2% benefit)
-- **Total typical savings**: 45-55%
-- **Use case**: Memory-intensive operations
-
-### -O9: Maximum Optimization (Aggressive)
-- Includes all -O8 optimizations, plus:
-- Co-Optimization (~3% benefit)
-- Procedure Inlining (~5% benefit)
-- Interprocedural Optimization (~4% benefit)
-- **Total typical savings**: 50-65%
-- **Use case**: Final release builds, performance-critical code
-
-## Individual Optimization Flags
-
-Control optimizations individually using standard `-f` and `-fno-` flags with kebab-case naming:
-
-```bash
-# Enable specific optimization (at current level)
-cc45 input.c -O3 -floop-unrolling
-
-# Disable specific optimization
-cc45 input.c -O6 -fno-redundant-load-elimination
-
-# Combine multiple individual controls
-cc45 input.c -O4 -fconstant-folding -fno-branch-folding
-```
-
-## Optimization Catalog
-
-### Level 1: Basic
-
-**Constant Folding** (-fconstant-folding)
-- Evaluates constant expressions at compile time
-- Reduces runtime work and code size
-- Example: `a = 2 * (3 + 4)` → `a = 14`
-
-**Dead Code Elimination** (-fdead-code-elimination)
-- Removes unreachable code and unused statements
-- Requires: Flow analysis
-- Benefit: ~3% code size reduction
-
-### Level 2: Inlining & Tail Calls
-
-**Inline Small Functions** (-finline-small-functions)
-- Inlines functions < 20 bytes to eliminate call overhead
-- Requires: Function size analysis
-- Benefit: ~2% speedup
-- Trade-off: Can increase code size for large programs
-
-**Tail Call Optimization** (-ftail-call-optimization)
-- Converts `JSR + RTS` (tail calls) to `JMP`
-- Saves 1-2 bytes per tail call
-- Benefit: ~4% code size and speed improvement
-- No stack frame creation
-
-### Level 3: Strength & Algebra
-
-**Strength Reduction** (-fstrength-reduction)
-- Replaces multiply/divide by powers of 2 with bit shifts
-- Example: `a * 4` → `a << 2`, `a / 8` → `a >> 3`
-- Benefit: ~3% speedup
-
-**Algebraic Simplification** (-falgebraic-simplify)
-- Eliminates identity and annihilator patterns
-- Examples: `a * 1 = a`, `a * 0 = 0`, `a + 0 = a`
-- Benefit: ~2% code reduction
-
-### Level 4: Loop Optimizations
-
-**Loop Unrolling** (-floop-unrolling)
-- Unrolls small loops (20-1000 iterations) to reduce branch overhead
-- Dynamic unroll factors (2-8x based on characteristics)
-- Benefit: ~5% speedup for loop-heavy code
-- Trade-off: Code size increase
-
-**Loop Interchange** (-floop-interchange)
-- Reorders nested loops for better cache locality
-- Requires: Loop dependency analysis
-- Benefit: ~4% speedup for nested loops
-
-**Loop-Invariant Code Motion** (-floop-invariant-code-motion)
-- Hoists loop-invariant computations outside loops
-- Example: Loop-invariant multiplications
-- Benefit: ~3% speedup
-
-### Level 5: Cross-Function
-
-**Cross-Function Inlining** (-fcross-function-inlining)
-- Inlines functions with 1-3 call sites (Phase 86-87 analysis)
-- Eliminates call overhead for functions called from specific locations
-- Requires: Call graph analysis
-- Benefit: ~3% code size reduction
-
-**Devirtualization** (-fdevirtualization)
-- Replaces single-implementation virtual calls with direct calls
-- Detects virtual methods with only one known implementation
-- Benefit: ~2% for OOP code
-
-### Level 6: Redundancy Elimination
-
-**Common Subexpression Elimination** (-fcse)
-- Eliminates redundant subexpression computations
-- Example: `a = b + c; d = b + c;` → `a = b + c; d = a;`
-- Requires: Data flow analysis
-- Benefit: ~4% speedup
-
-**Copy Propagation** (-fcopy-propagation)
-- Replaces copies with original values to reduce moves
-- Reduces unnecessary register moves
-- Benefit: ~2% code reduction
-
-### Level 7: Branch Optimization
-
-**Branch Inversion** (-fbranch-inversion)
-- Inverts branch conditions to eliminate jumps
-- Pattern: `BEQ skip / BRA target / skip:` → `BNE target`
-- Benefit: ~2% code size reduction
-
-**Branch Folding** (-fbranch-folding)
-- Eliminates unreachable code via conditional branches
-- Requires: Flow analysis
-- Benefit: ~3% code reduction
-
-**Jump Optimization** (-fjump-optimization)
-- Converts `JMP` to `BRA` for backward branches
-- Eliminates no-op jump instructions
-- Benefit: ~2% code size reduction
-
-### Level 8: Memory & Register
-
-**Redundant Load Elimination** (-fredundant-load-elimination)
-- Eliminates redundant memory loads via reverse store-forwarding
-- Tracks memory state to detect identical loads
-- Requires: Data flow analysis
-- Benefit: ~3% speedup
-
-**Dead Store Elimination** (-fdead-store-elimination)
-- Eliminates stores whose values are never used
-- Requires: Live variable analysis
-- Benefit: ~2% code reduction
-
-**Frame Pointer Optimization** (-fframe-pointer-optimization)
-- Lazy frame pointer initialization (SAC mode)
-- Only initializes FP when needed for variable access
-- Requires: Frame analysis
-- Benefit: ~2% code reduction
-
-### Level 9: Interprocedural
-
-**Co-Optimization** (-fco-optimization)
-- Coordinated optimization of related function groups
-- Applies batch strategies to functions that call each other
-- Requires: Call graph analysis and group identification
-- Benefit: ~3% code reduction
-
-**Procedure Inlining** (-fprocedure-inlining)
-- Aggressive inlining of functions including recursive calls
-- Larger inline thresholds and recursive handling
-- Benefit: ~5% speedup (with code size trade-off)
-
-**Interprocedural Optimization** (-finterprocedural-optimization)
-- Cross-module optimization hints and analysis
-- Prepares data for link-time optimization
-- Requires: Extra compilation passes
-- Benefit: ~4% overall for multi-file projects
-
-## Function-Level Pragma Control
-
-### Group-Level Control
-
-Override optimization settings for individual functions:
-
-```c
-// Disable all optimizations for this function (debugging)
-#pragma cc45 optimize(none)
-void debug_function() { }
-
-// Speed-focused optimization (only speed optimizations)
-#pragma cc45 optimize(speed)
-void fast_path() { }
-
-// Space-focused optimization (only space optimizations)
-#pragma cc45 optimize(space)
-void compressed_code() { }
-
-// Back to default
-#pragma cc45 optimize(default)
-void normal_function() { }
-```
-
-### Individual Optimization Control
-
-Enable or disable specific optimizations on a per-function basis using kebab-case names:
-
-```c
-// Enable specific optimization
-#pragma cc45 optimize(constant-folding)
-void with_const_folding() { }
-
-// Disable specific optimization
-#pragma cc45 optimize(no-loop-unrolling)
-void without_loop_unroll() { }
-
-// Combine multiple individual controls
-#pragma cc45 optimize(loop-unrolling)
-#pragma cc45 optimize(no-branch-inversion)
-void multi_opt() { }
-
-// Mix group and individual controls
-#pragma cc45 optimize(speed)                     // Use speed-focused settings
-#pragma cc45 optimize(no-procedure-inlining)    // But disable this one
-void hybrid_opt() { }
-```
-
-### Pragma Naming Convention
-
-Individual optimizations use kebab-case in pragmas:
-
-- `constant-folding` → Enable/disable constant folding
-- `dead-code-elimination` → Enable/disable dead code elimination
-- `inline-small-functions` → Enable/disable small function inlining
-- `tail-call-optimization` → Enable/disable tail call optimization
-- `strength-reduction` → Enable/disable strength reduction
-- `algebraic-simplify` → Enable/disable algebraic simplification
-- `loop-unrolling` → Enable/disable loop unrolling
-- `loop-interchange` → Enable/disable loop interchange
-- `loop-invariant-code-motion` → Enable/disable loop-invariant code motion
-- `cross-function-inlining` → Enable/disable cross-function inlining
-- `devirtualization` → Enable/disable devirtualization
-- `cse` → Enable/disable CSE
-- `copy-propagation` → Enable/disable copy propagation
-- `branch-inversion` → Enable/disable branch inversion
-- `branch-folding` → Enable/disable branch folding
-- `jump-optimization` → Enable/disable jump optimization
-- `redundant-load-elimination` → Enable/disable redundant load elimination
-- `dead-store-elimination` → Enable/disable dead store elimination
-- `frame-pointer-optimization` → Enable/disable frame pointer optimization
-- `co-optimization` → Enable/disable co-optimization
-- `procedure-inlining` → Enable/disable procedure inlining
-- `interprocedural-optimization` → Enable/disable interprocedural optimization
-
-Prefix with `no-` to disable: `no-constant-folding`, `no-loop-unrolling`, etc.
-
-## Command-Line Examples
-
-Use standard `-f` flags with kebab-case naming for individual optimizations:
-
-```bash
-# Use level 2 (default)
-cc45 input.c
-
-# Maximum optimization
-cc45 input.c -O9
-
-# Level 5 with specific tweaks
-cc45 input.c -O5 -floop-unrolling -fno-redundant-load-elimination
-
-# Start at 0, enable only specific optimizations
-cc45 input.c -O0 -fconstant-folding -ftail-call-optimization
-
-# Speed-focused (enable all, but disable space optimizations)
-cc45 input.c -O8 -fno-dead-store-elimination -fno-branch-inversion
-
-# Space-focused (enable size optimizations only)
-cc45 input.c -O9 -fno-procedure-inlining -fno-loop-unrolling
-
-# Combine multiple tweaks
-cc45 input.c -O6 -floop-unrolling -fno-branch-inversion -fno-copy-propagation
-
-# Inline and branch optimization for reduced code size
-cc45 input.c -O3 -finline-small-functions -fbranch-folding
-
-# Aggressive optimization for speed
-cc45 input.c -O7 -floop-invariant-code-motion -fcse
-```
-
-### Flag Format
-
-Standard C compiler convention:
-- **Enable optimization**: `-f<kebab-case-name>` (e.g., `-floop-unrolling`)
-- **Disable optimization**: `-fno-<kebab-case-name>` (e.g., `-fno-loop-unrolling`)
-- **Optimization levels**: `-O0` through `-O9` (standard -O prefix)
-
-## Configuration File Support
-
-Set defaults in `~/.config/m65/cc45.conf`:
-
-```ini
-# Default optimization level
--O3
-
-# Disable specific optimizations globally
--fno-loop-unrolling
--fno-procedure-inlining
-
-# Enable specific ones
--fconstant-folding
--finline-small-functions
-```
-
-## Performance Trade-offs
-
-### Code Size vs Speed
-
-| Optimization | Space | Speed |
+# cc45 Optimization Guide
+
+This page describes what the toolchain actually optimizes today, which options
+control it, and which documented-looking options have no effect. Everything
+here was checked against the sources (`src/main/cc45_main.cpp`,
+`CompilationPipeline`, `OptimizeStage`, `CodegenStage`, `IRBuilder`,
+`IRCodeGen`, `AssemblerOptimizer`, `ca45_main.cpp`) and by compiling test files
+with `./bin/cc45` (see [Checking it yourself](#checking-it-yourself)).
+
+## Summary
+
+- A C file goes through four places where code is improved:
+  1. **cc45 front end / IR builder**: AST constant folding, function inlining,
+     removal of unused `static` functions, devirtualization, SAC.
+  2. **cc45 IR passes** (`src/main/IROptimizer.cpp`, run by `CodegenStage::optimizeIR`):
+     strength reduction, algebraic simplification, type narrowing, branch
+     folding, CSE, loop-invariant code motion, copy propagation, address fusion.
+     All on from `-O1`.
+  3. **cc45 code generator** (`IRCodeGen`): instruction selection with built-in
+     fusions/suppressions. Always on.
+  4. **ca45 peephole optimizer** (`AssemblerOptimizer`): runs on the generated
+     assembly when cc45 builds a `.o45` or `.prg`, at ca45's default level.
+- Every optimization of the catalog (`src/main/OptimizationCatalog.cpp`) has a
+  `-f<name>` / `-fno-<name>` switch, and the IR passes can be switched per
+  function with `#pragma cc45 optimize(...)`. Names that are not implemented
+  are accepted and ignored; `--future` warns about them
+  (see [Optimization switches](#optimization-switches)).
+
+## Where optimization happens
+
+| Stage | What it does | Controlled by |
 |---|---|---|
-| Constant Folding | - | - |
-| Dead Code Elim | ✓ | - |
-| Inlining | ✗ | ✓ |
-| Loop Unrolling | ✗ | ✓ |
-| CSE | - | ✓ |
-| Dead Store Elim | ✓ | - |
-| Branch Inversion | ✓ | - |
-| Devirtualization | ✓ | ✓ |
+| AST constant folding (`ConstantFolder`) | Folds constant sub-expressions (`2 * 4` → `8`). Variables are never replaced by their initial values | Always on, at every `-O` level (`constant-folding`) |
+| Inlining (`IRBuilder`) | Expands calls to inline candidates at the call site | `-O2`+, `-finline-functions`, `-f[no-]inline-small-functions`, `inline`, attributes, size limit (below) |
+| Unused static function removal (`IRBuilder::generate`) | Removes `static` functions that nothing in the file calls or takes the address of (repeats until stable, so chains go too). Non-static functions are always kept | Always on |
+| Devirtualization (`IRBuilder::generate`) | A virtual call through a vtable slot that has only one implementation **among the vtables of this file** becomes a direct `CALL`; reports `note: devirtualized N virtual call(s)`. A subclass defined in another file that overrides the method is not seen, so its override is bypassed: use `-fno-devirtualization` in a file whose classes are extended elsewhere | On at every level; `-fno-devirtualization` |
+| IR passes (`IROptimizer.cpp`) | See [IR passes](#ir-passes) | `-O1`+; `-f[no-]<pass>`; `#pragma cc45 optimize(...)` |
+| Parameter narrowing advisory | For `static` functions: `note: parameter N of 'f' could be 'unsigned char' (all call sites pass 0-255)` (or `unsigned int`). Advisory only, code is not changed | Always on |
+| Vector-extension unrolling | Element-wise vector operations are unrolled when the size estimate fits the limit, otherwise a loop is emitted | `-fmax-unroll-bytes=N` / `#pragma cc45 max_unroll_bytes(N)` |
+| Loop unrolling (`IROptimizer.cpp`) | Counted `for` loops fully unrolled ([Loop unrolling](#loop-unrolling)) | `-O4`+, `-f[no-]loop-unrolling`, the same size limit |
+| `repeat(N) { ... }` | Body is emitted N times | Always unrolled (language construct) |
+| Static Allocation Convention (SAC) | Locals/params of non-recursive functions in static BSS records instead of a stack frame | `-fstaticalloc` (default) / `-fno-staticalloc`; see `calling-conventions.md` |
+| ZP calling convention | Parameters in ZP `$10-$2F` | `-fzpcall` (default) / `-fno-zpcall` |
+| Code generation (`IRCodeGen`) | Store-fused 16-bit add/sub, single-bit `AND` + branch → `BBS`/`BBR`, fused compare-and-branch, CONST suppression, constant-address direct stores, per-function `.reg_clobbers`/`.flag_clobbers`/`leaf` metadata | Always on, not tied to `-O` |
+| Assembler peephole (`ca45`) | Branch inversion, JMP→BRA, redundant loads, tail calls, … (table below) | ca45 `-O`/`-P` options; from cc45, five of them through `-f[no-]<name>` |
 
-### Compilation Time Impact
+From `-O4`, counted `for` loops are unrolled and suitable nests interchanged;
+LICM hoists invariant computations out of loops from `-O1`. The "loop optimization" and
+"cross-module optimization" steps in `OptimizeStage` and `CodegenStage`
+(`performLoopOptimizations`, `performCrossModuleOptimization`,
+`applyIPOSpecialization`, `applyInlining`, `eliminateDeadCode`) only count
+functions and print messages with `-vv`; they change nothing.
 
-- -O0 to -O3: Minimal impact (< 10% slower)
-- -O4 to -O6: Moderate impact (10-30% slower)
-- -O7 to -O9: Significant impact (30-100% slower)
+## IR passes
 
-Use lower levels for rapid iteration, higher levels for release builds.
+`CodegenStage::optimizeIR` runs these after IR generation, in this order, on
+every function for which the pass is on (`-O1` and up, unless switched off).
+`-Roptir` reports each change on stderr as `[tag] function (file:line): …`.
 
-## Best Practices
+| Pass (`-f` name) | Tag | What it does |
+|---|---|---|
+| `loop-unrolling` (from `-O4`) | `unroll` | See [Loop unrolling](#loop-unrolling). Runs first, so the other passes fold its constants |
+| `strength-reduction` | `strength` | `x * 2^n` → shift, unsigned `x / 2^n` → shift, unsigned `x % 2^n` → `AND`, `x * 1` → copy (signed division is left alone: it rounds toward zero) |
+| `algebraic-simplify` | `algebraic` | `x + 0`, `x - 0`, `x * 1`, `x | 0`, `x ^ 0`, `x << 0`, `x & -1` → `x`; `x * 0`, `x & 0` → 0; `x - x` → 0; an element address with a constant index on a global or pointer base → base + constant |
+| `type-narrowing` | `narrow` | An `ADD`/`MUL`/`AND`/`OR`/`XOR`/`SHL`/`NOT` whose result is only used through a truncation to 8 bits is computed in 8 bits |
+| `branch-folding` | `branch` | Removes instructions after a block's terminator, folds branches on constants, threads jumps to blocks that only jump, removes unreachable blocks |
+| `cse` | `cse` | Within a block, a repeated pure expression reuses the earlier result; copy propagation of temporaries. Forgets an expression when an operand is reassigned, and on stores through pointers, calls and inline asm |
+| `loop-invariant-code-motion` | `licm` | Moves pure computations whose operands don't change in the loop to a pre-header. A variable whose address is taken counts as changed when the loop calls a function, stores through a pointer or contains asm |
+| `copy-propagation` | `copy` | Replaces uses of a copy of a temporary by the original and removes the dead copies (temporaries defined once only; never variables) |
+| `addr-elem-fusion` | `fusion` | An array element address used once, by the next 1/2-byte (or 4-byte load) access of an integer or pointer, is computed inside that load/store (no pointer temporary) |
 
-1. **Development**: Use -O2 (default) for balance
-2. **Debugging**: Use -O0 to disable optimizations
-3. **Testing**: Use -O3 to catch edge cases
-4. **Release**: Use -O8 or -O9 for size/speed
-5. **Critical Paths**: Use pragmas to selectively optimize
-6. **Large Projects**: Start with -O6, tune with individual flags
+After the passes, pure instructions whose temporary result nothing uses are
+removed (`removeDeadTemps`; part of dead-code elimination, always on).
 
-## Troubleshooting
+The IR is not in SSA form (a variable's slot is assigned by `STORE`; a
+temporary can be defined on two paths, as in `a && b`), so every pass treats
+a value as constant or fixed only when it has exactly one definition.
 
-### "Optimization X is not working"
-- Check if enabled at current level: `cc45 --help-optimizations`
-- Verify not explicitly disabled with -fno- flag
-- Use function pragma to override global settings
+## Loop unrolling
 
-### Code size increased with -O9
-- Some optimizations trade size for speed
-- Use -O9 -fno-procedure-inlining for size-focused
-- Try -O7 or -O8 instead
+`-floop-unrolling` (on from `-O4`) fully unrolls a `for` loop whose variable
+starts at a constant, is compared with a constant and changes by a constant
+(`i++`, `i--`, `i += 3`, …), when the trip count is at most 255 and the
+unrolled code is estimated (about 4 bytes per IR instruction) to fit
+`-fmax-unroll-bytes` (default 128; `#pragma cc45 max_unroll_bytes(N)`, the
+last one in the file). Inner loops are unrolled first.
 
-### Compilation too slow
-- Reduce optimization level
-- Disable expensive passes: -fno-cse, -fno-loop-invariant-code-motion
-- Use -O4 or -O5 for reasonable balance
+Each copy of the body reads the loop variable's value for that iteration as
+a constant, so indexes and conditions fold (`a[i]` becomes a fixed element
+address); `continue` goes to the next copy and `break` to the end, and the
+variable has its final value after the loop (and, when the body can break
+out, in each copy). For a 4-iteration `a[i] = a[i] + k` loop run 60000 times
+the run time on xemu dropped from 0.38 s to 0.20 s (startup subtracted;
+2026-10-11), and the program grew from 345 to 434 bytes.
 
-## Reporting Issues
+Not unrolled: loops whose body assigns the variable or takes its address,
+contains inline asm, computed-goto labels or labels jumped to from outside;
+variables that are volatile or address-taken; values that would cross the
+sign bit or wrap; bounds that are not constants. `#pragma cc45
+optimize(no-loop-unrolling)` turns it off for a function. `-Roptir` reports
+`[unroll] _f: loop at for_condN unrolled K times`; `test_unroll_xemu.c`
+checks the results.
 
-When reporting optimization-related bugs, always include:
-- Optimization level (-O<n>)
-- Individual optimization flags used
-- Input source code
-- Expected vs actual output
+## Loop interchange
+
+`-floop-interchange` (on from `-O4`; `src/main/LoopInterchange.cpp`, run by
+`OptimizeStage` on the AST before IR generation) swaps a perfectly nested pair
+of `for` loops when the array subscripts put the inner loop's variable in an
+earlier dimension than the outer one's, as in
+
+```c
+for (int i = 0; i < C; i++)
+    for (int j = 0; j < R; j++)
+        b[j][i] = a[j][i] + 1;      /* becomes: j outer, i inner */
+```
+
+The 45GS02 has no cache; the gain is that after the swap the row address
+`a[j]` does not change in the inner loop, so LICM computes it once per row.
+For a 16×16 `int` copy like the one above the loop ran about 35% faster on
+xemu (3000 repetitions: about 1.5 s against 2.3 s, startup subtracted;
+measured 2026-10-11). Only the two loop headers are exchanged; the body is
+not copied, so the code size does not change.
+
+It is done only when it cannot change behaviour (checked by name, conservatively):
+
+- a perfect nest (the outer body is the inner `for` alone) with rectangular,
+  side-effect-free headers: each loop's initializer, condition and `++`/`--`/`+=`/`-=`
+  increment use its own variable and names the nest does not assign;
+- a body without `break`, `continue`, `goto`, `return`, labels, `switch`,
+  `asm`, `repeat`, inner loops, calls, `&`, volatile objects, or declarations
+  that shadow a variable of the nest;
+- stores only to elements of declared (non-pointer, non-parameter) arrays whose
+  every access in the body uses the same subscripts, which mention both loop
+  variables; scalars only as integer `+=`, `-=`, `^=`, `|=`, `&=` reductions
+  not otherwise used, or as temporaries declared in the body; and, when
+  anything is stored, no reads through pointers;
+- loop variables declared by their `for` statements, or not used elsewhere
+  in the function (their values after the nest would differ).
+
+`#pragma cc45 optimize(no-loop-interchange)` turns it off for the function
+it is in (or, at file scope, for the functions after it), and
+`optimize(loop-interchange)` turns it on below `-O4`. `-Roptir` reports each
+swap as `[interchange] _f (line N): loops over i and j interchanged`.
+`test_interchange_xemu.c` checks the results of nests it swaps and of nests
+it must leave alone.
+
+## Optimization levels (cc45)
+
+Each catalog optimization has a level from which it is on
+(`OptimizationCatalog::isEnabledAtLevel`); `-f`/`-fno-` override it.
+
+| Option | Level | Effect |
+|---|---|---|
+| `-O0` | 0 | No IR passes, no automatic inlining |
+| `-O1` | 1 | The eight IR passes |
+| `-O2`, `-O3` (default `-O2`) | 2, 3 | IR passes and automatic inlining of small functions. Identical output |
+| `-O4` … `-O9` | 4–9 | Adds loop interchange and loop unrolling. Identical output for all of them (the catalog entries for higher levels are not implemented) |
+| `-Osize` | 2 | Same as `-O2` |
+| `-Ospeed` | 3 | Same as `-O2` |
+| `-Os`, `-O` (no digit), any other `-O<text>` | 0 | **Same as `-O0`** (not `-O2`) |
+
+Only the first digit counts (`-O10` is `-O1`). The level is **not** passed on to
+ca45, and does not turn constant folding, dead static removal,
+devirtualization or SAC on or off.
+
+## Inlining
+
+A function is an inline candidate when it is not variadic, `__interrupt` or
+`__naked`, does not return a struct/union/float through the hidden `__sret`
+pointer, takes no aggregate by value, and one of these is true:
+
+- automatic inlining is on (`-O2`+ or `-finline-functions`),
+- it is declared `inline` (or `__inline`, `__inline__`),
+- it has `__attribute__((always_inline))` / `__forceinline`,
+- it is a struct method with at most 3 statements.
+
+Unless it is `always_inline`, a function is never inlined when its body
+contains inline asm (which may name the parameters, `@_p_x`), labels or
+`goto`, nested function definitions, `static` locals or variable-length
+arrays, when a parameter is a variable-length array (`int a[2][n]`), or when
+it takes the address of a parameter (`&x`): each of these needs the
+function's own frame, symbols or a single copy. The inlined `return` value
+has the inlined function's return type, the inlined body sees its own
+parameters and locals and the globals (never the caller's locals), and a
+parameter the body assigns becomes a local variable of the caller.
+
+It also needs at most 20 body statements (`INLINE_MAX_STMTS`) and, after IR
+generation, at most `max_inline_ir_size` IR instructions (default **11**).
+`always_inline` skips both size limits; `__attribute__((noinline))` always
+wins (and with both, cc45 warns and ignores `always_inline`). A recursive
+`always_inline` function warns and is called normally. Once all calls to a
+`static` function are inlined, the function body is removed.
+
+Inlining can make the program larger or smaller. One-step PRG sizes (bytes;
+toolchain of 2026-10-11, `HOME` without a cc45.conf):
+
+| File | `-O0` | `-O1` (IR passes) | `-O2` (IR passes + inlining) |
+|---|---|---|---|
+| `src/test-resources/test_phase91_validation.c` | 526 | 508 | 448 |
+| `src/test-resources/test_phase91_tuning.c` | 1249 | 1231 | 1464 |
+
+Use `-O1`, `-fno-inline-small-functions` or `-fmax-inline-ir-size=0` when
+inlining costs space (`-O2 -fmax-inline-ir-size=0` produced output identical
+to `-O1` for `test_phase91_validation.c`). The limit also applies to `inline`
+functions; only `always_inline` bypasses it.
+
+## Options that control optimization
+
+| Option / pragma | Default | Effect |
+|---|---|---|
+| `-O<n>` | `-O2` | See above |
+| `-f<name>` / `-fno-<name>` | per level | Switch one optimization (see [Optimization switches](#optimization-switches)) |
+| `#pragma cc45 optimize(<name>, no-<name>, …)` | — | Switch IR passes for the functions defined after it |
+| `--future` | off | Warn when an optimization that is not implemented is requested |
+| `-Roptir` | off | Report the IR passes' changes on stderr |
+| `-finline-functions` | off | Automatic inlining even at `-O0`/`-O1` (same as `-finline-small-functions`) |
+| `-fmax-inline-ir-size=N`, `#pragma cc45 max_inline_ir_size(N)` | 11 | Largest inline candidate in IR instructions |
+| `-fmax-unroll-bytes=N`, `#pragma cc45 max_unroll_bytes(N)` | 128 | Largest estimated unrolled code for vector-extension operations |
+| `__attribute__((always_inline))`, `__forceinline` | — | Inline regardless of size limits |
+| `__attribute__((noinline))` | — | Never inline |
+| `-fstaticalloc` / `-fno-staticalloc` | on | SAC on/off |
+| `#pragma cc45 recurse` | — | Next function uses a stack frame instead of SAC |
+| `-fzpcall` / `-fno-zpcall` | ZP | Calling convention |
+| `CC45_DUMP_IR=1` (environment) | — | Prints the final IR to stderr (debugging aid) |
+
+The pragma forms accept `max_inline_ir_size(N)` and `max_inline_ir_size N`
+(same for `max_unroll_bytes`) and apply from that point in the file.
+
+## Assembler optimizer (ca45)
+
+`cc45 -c` and the one-step build write the assembly to a temporary file and run
+`ca45 temp.s45 -c -o out.o45` without any optimization option, so ca45 uses
+`-O2`. `cc45 -S` output is **before** this pass.
+
+ca45 levels: `-O0` disables all passes; `-O1`, `-O2` and `-O3` enable the same
+set (`OptimizationFlags::fromLevel` only distinguishes level 0). Individual
+passes: `-P<Name>` / `-PNo<Name>` (case-sensitive, applied in command-line
+order after `-O`). `-Roptimizer` prints every change
+(`opt: file:line: [tag] ...`).
+
+| `-P` name | Tag in `-Roptimizer` | What it does |
+|---|---|---|
+| `TailCall` | `tail-call` | `JSR x` + `RTS` → `JMP x`. When the `RTS` is a branch target (cc45's `@__return:`) it is kept and only the `JSR` becomes a `JMP` |
+| `NoOpBra` | `no-op-bra` | Removes `BRA` to the next instruction |
+| `BranchInvert` | `branch-invert` | `Bcc skip / BRA target / skip:` → inverted branch |
+| `JmpBra` | `jmp-bra` | `JMP` → `BRA` when in range |
+| `JSRRelocate` | `jsr-bsr` | `JSR` → `BSR` when the target is a resolved, non-relocatable label within ±32 KB (rare in `-c` objects) |
+| `DeadStore` | `dead-store` | Removes dead `STW.SP` stores |
+| `CmpElimination` | `cmp-elim` | Removes `CMP #0` when flags already reflect the value |
+| `FCmpOpt` | `fcmp-opt` | Float compare result tests (`CMP #$FF` → `BMI`/`BPL`) |
+| `RedundantLoad` | `redundant-load` | Removes `LDA/LDX/LDY/LDZ` when the register already holds the value |
+| `StoreLoadPair` | `store-load-pair` | Store/load pair simplification on ZP |
+| `PreserveXSP`, `TSXRedundant` | `preserve-x-sp`, `tsx-redundant` | Avoid reloading X from SP |
+| `TailDedup` | `tail-dedup`, `tail-dedup-suffix` | Merges identical tail sequences |
+| `SeqExtract` | `seq-extract` | Extracts repeated sequences into shared routines; **only with `--experimental`** |
+| `StrengthReduction`, `AlgebraicSimplify`, `TypeNarrowing`, `BranchFold`, `CSE`, `LICM`, `CopyChains`, `AddrElemFusion` | — | Accepted, **no effect** (IR-level flags; ca45 has no IR) |
+
+At `-O2` and above ca45 also runs the field-striped array passes
+(`fieldStripedOpt`, `fieldDeadCode`, `variableSizeOpt`); they have no `-P` names.
+
+There is no working way to change the ca45 level from cc45: `CA45_OPTIMIZE`
+(and any option in `~/.config/m65/ca45.conf` or `.ca45rc`) breaks ca45's `-o`
+handling, so `CA45_OPTIMIZE=0 cc45 -c x.c -o x.o45` fails with
+`Failed to open input file: x.o45`. To assemble with other ca45 options, run
+the steps yourself:
+
+```bash
+cc45 -S -O2 prog.c -o prog.s
+ca45 -O0 -c prog.s -o prog.o45          # or: ca45 -PNoRedundantLoad -c ...
+ln45 -basic -o prog.prg prog.o45 lib/build/c45.lib
+```
+
+## Optimization switches
+
+Every optimization of the catalog has a switch `-f<name>` / `-fno-<name>`; the
+name may also be written with underscores. Later switches win; a switch wins
+over the `-O` level. What a switch does depends on how the optimization is
+implemented:
+
+| Name | Implemented as | On from |
+|---|---|---|
+| `strength-reduction`, `algebraic-simplify`, `type-narrowing`, `branch-folding`, `cse`, `loop-invariant-code-motion`, `copy-propagation`, `addr-elem-fusion` | IR pass ([IR passes](#ir-passes)); also per function by pragma | `-O1` |
+| `inline-small-functions` | IRBuilder inlining (`-fno-` also overrides `-finline-functions`) | `-O2` |
+| `devirtualization` | IRBuilder | `-O0` |
+| `tail-call-optimization`, `branch-inversion`, `jump-optimization`, `redundant-load-elimination`, `dead-store-elimination` | ca45 pass: cc45 passes `-P<x>` / `-PNo<x>` (`TailCall`, `BranchInvert`, `JmpBra`, `RedundantLoad`, `DeadStore`) to ca45; file-wide only | ca45's default (always) |
+| `constant-folding`, `dead-code-elimination`, `frame-pointer-optimization` | Part of code generation, always on: `-fno-` warns *"cannot be disabled"* | always |
+| `loop-interchange` | AST pass before IR generation ([Loop interchange](#loop-interchange)); also per function by pragma | `-O4` |
+| `loop-unrolling` | IR pass ([Loop unrolling](#loop-unrolling)); also per function by pragma | `-O4` |
+| `cross-function-inlining`, `co-optimization`, `procedure-inlining`, `interprocedural-optimization` | **Not implemented**: accepted and ignored; with `--future` cc45 warns *"optimization 'procedure-inlining' is not implemented yet; -fprocedure-inlining has no effect"* | — |
+
+`#pragma cc45 optimize(no-licm)` (or `optimize(cse, no-copy_propagation)`,
+`optimize cse`) overrides the command line for the IR passes it names. Inside
+a function body it applies to that function; at file scope it applies to the
+functions defined after it, until another `optimize` pragma changes the same
+pass. Only IR passes can be switched per function. Naming any other
+implemented optimization is accepted when it asks for it to be on (it is on
+anyway); `no-` of a ca45 or IRBuilder one warns that it applies to the whole
+file, `no-` of an always-on one warns that it cannot be disabled, an unknown
+name warns, and an unimplemented one warns with `--future`.
+
+Any other unknown `-f…` (or other `-…`) option gives *"cc45: warning: unknown
+option '-f…' ignored"*.
+
+## Options that do nothing
+
+| Option | What happens |
+|---|---|
+| `#pragma cc45 unroll [N]`, `#pragma cc45 unroll_default N` | Turned into a directive that only the unused `CodeGenerator` reads; no effect |
+| `--emit-ir`, `-Rcodegen` | Parsed, never used. Use `CC45_DUMP_IR=1` for IR |
+| `--pragma <p>` | Parsed into `cliPragmas`, never used: the pragma is not injected |
+
+## Configuration file
+
+cc45 reads `~/.config/m65/cc45.conf` (`$HOME/.config/m65/<program>.conf`, so
+`cp45` reads `cp45.conf`) and puts its tokens **before** the command-line
+arguments, so the command line wins (`-O0` in the file, `-O2` on the command
+line → `-O2`).
+
+- A line whose **first character** is `#` is a comment; blank lines are skipped.
+- A `#` later in a line is not a comment: `-O0  # note` yields the tokens
+  `-O0`, `#`, `note`. The extra tokens become a (later overwritten) input file
+  name, so they are silently ignored as long as the command line names a source file.
+- Tokens are split on spaces/tabs; `'...'` and `"..."` group.
+- Unknown options starting with `-` warn and are ignored.
+
+Example:
+
+```
+# ~/.config/m65/cc45.conf
+-O1
+-fmax-unroll-bytes=64
+```
+
+## Checking it yourself
+
+```bash
+cc45 -S -Roptir t.c -o t.s                                           # what the IR passes did
+cc45 -S -O1 t.c -o t1.s ; cc45 -S -O2 t.c -o t2.s ; diff t1.s t2.s   # only inlining differs
+cc45 -S -O2 t.c -o a.s ; cc45 -S -O9 t.c -o b.s ; cmp a.s b.s        # identical
+cc45 -c -O2 t.c -o t.o45 ; nm45 -s t.o45                              # segment sizes
+nm45 -f t.o45                                                         # zp_call / leaf / clobbers per function
+objdump45 -d t.o45                                                    # final code after ca45
+cc45 -S t.c -o t.s ; ca45 -c -Roptimizer t.s -o /dev/null             # ca45 peephole report
+CC45_DUMP_IR=1 cc45 -S t.c -o /dev/null                               # IR after the IR passes
+```
+
+A personal `~/.config/m65/cc45.conf` changes the default level; run with
+`HOME=/some/empty/dir` to compare against the built-in defaults. For files with
+at most three functions cc45 currently prints a `[DCE] Functions: ...` debug
+line to stderr; it does not affect the output.

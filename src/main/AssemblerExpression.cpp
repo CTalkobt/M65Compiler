@@ -1,3 +1,4 @@
+#include <functional>
 #include "AssemblerExpression.hpp"
 #include "AssemblerParser.hpp"
 #include "M65Emitter.hpp"
@@ -80,23 +81,21 @@ uint32_t FlagNode::getValue(AssemblerParser*) const { return 0; }
 bool FlagNode::isConstant(AssemblerParser*) const { return false; }
 bool FlagNode::is16Bit(AssemblerParser*) const { return false; }
 void FlagNode::emit(M65Emitter& e, AssemblerParser* parser, int width, const std::string&) {
+    // A = 1 when the flag is set, else 0 (P is read with PHP; PLA)
     if (!parser) return;
     if (flag == 'C') { e.lda_imm(0); e.adc_imm(0); }
     else {
-        int8_t branchOp = 0;
+        uint8_t mask = 0;
         switch (flag) {
-            case 'Z': branchOp = 0xD0; break;
-            case 'V': branchOp = 0x50; break;
-            case 'N': branchOp = 0x10; break;
+            case 'Z': mask = 0x02; break; case 'I': mask = 0x04; break;
+            case 'D': mask = 0x08; break; case 'B': mask = 0x10; break;
+            case 'V': mask = 0x40; break; case 'N': mask = 0x80; break;
         }
-        if (branchOp != 0) { e.lda_imm(0); e.bne(0x02); e.lda_imm(1); }
+        if (mask == 0) e.lda_imm(0);
         else {
-            uint8_t mask = 0;
-            if (flag == 'I') mask = 0x04;
-            else if (flag == 'D') mask = 0x08;
-            else if (flag == 'B') mask = 0x10;
-            if (mask != 0) { e.pha(); e.pla(); e.and_imm(mask); e.beq(0x02); e.lda_imm(1); }
-            else e.lda_imm(0);
+            e.emitInstruction("php", AddressingMode::IMPLIED); e.pla();
+            e.and_imm(mask); e.beq(0x02); e.lda_imm(1);
+            e.machineState().invalidateAll();
         }
     }
     if (width >= 16) e.ldx_imm(0);
@@ -200,9 +199,22 @@ uint32_t VariableNode::getValue(AssemblerParser* parser) const {
             throw std::runtime_error(fullMsg);
         }
 
-        // For global symbols, allow 0 as placeholder (will be resolved by linker)
-        // This handles cases where a symbol like __zp_save_buf is declared .global
-        // but hasn't been seen yet in the assembly
+        // A symbol neither defined nor declared .extern has no relocation:
+        // the operand would silently be 0
+        // Register operands of simulated ops (bfext A, ..., fill A, ...)
+        // reach here as names: they are not symbols
+        std::string up = name;
+        for (auto& ch : up) ch = (char)std::toupper((unsigned char)ch);
+        if (!up.empty() && up[0] == '.') up.erase(0, 1);
+        static const char* regs[] = {"A", "X", "Y", "Z", "Q", "AX", "AY", "AZ", "XY", "XZ", "YZ",
+                                     "AXY", "AXYZ", "SP", "S"};
+        bool isReg = false;
+        for (const char* r : regs) if (up == r) isReg = true;
+        if (!isReg && !parser->isExternSymbol(name)) {
+            std::string fullMsg = "Error: undefined symbol '" + name + "' (not defined here or declared .extern)";
+            parser->addError(fullMsg);
+            throw std::runtime_error(fullMsg);
+        }
         return 0;
     }
 
@@ -275,7 +287,7 @@ void VariableNode::emit(M65Emitter& e, AssemblerParser* parser, int width, const
         if (width >= 16) e.ldx_imm((sym->value >> 8) & 0xFF);
     } else {
         if (sym->isFrameRelative) {
-            Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
+            Symbol* fpSym = parser->resolveFrameVar(scopePrefix);
             uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 1;
             uint8_t yOff = (uint8_t)sym->frameOffset;
             uint8_t totalOff = fpOff + yOff;
@@ -445,7 +457,7 @@ void BinaryExpr::emit(M65Emitter& e, AssemblerParser* parser, int width, const s
             }
         } else if (op == "/") {
             e.bit_abs(m65::MATH_BUSY_STATUS);
-            e.bne(-5);
+            e.bmi(-5);  // DIVBUSY is bit 7 → N
             for (int i = 0; i < bytes; ++i) {
                 e.lda_abs(m65::DIV_RES + i);
                 if (i == 1) e.tax();
@@ -761,7 +773,8 @@ void ArrayIndexNode::emit(M65Emitter& e, AssemblerParser* parser, int width, con
 
 std::unique_ptr<ExprAST> parseExprAST(const std::vector<AssemblerToken>& tokens, int& idx, std::map<std::string, Symbol>& symbolTable, const std::string& scopePrefix) {
     int exprStartIdx = idx;
-    auto parsePrimary = [&]() -> std::unique_ptr<ExprAST> {
+    std::function<std::unique_ptr<ExprAST>()> parsePrimary;
+    parsePrimary = [&]() -> std::unique_ptr<ExprAST> {
         if (idx >= (int)tokens.size()) return nullptr;
         const auto& t = tokens[idx++];
         if (t.type == AssemblerTokenType::DECIMAL_LITERAL || t.type == AssemblerTokenType::HEX_LITERAL) {
@@ -900,7 +913,15 @@ std::unique_ptr<ExprAST> parseExprAST(const std::vector<AssemblerToken>& tokens,
             if (idx < (int)tokens.size() && tokens[idx].type == AssemblerTokenType::CLOSE_BRACKET) idx++;
             return std::make_unique<DereferenceNode>(std::move(addr), true);
         }
-        if (t.type == AssemblerTokenType::BANG || t.type == AssemblerTokenType::TILDE || t.type == AssemblerTokenType::LESS_THAN || t.type == AssemblerTokenType::GREATER_THAN || (t.type == AssemblerTokenType::MINUS && idx < (int)tokens.size() && tokens[idx].type != AssemblerTokenType::DECIMAL_LITERAL)) {
+        // -x, ~x, !x apply to the next operand (-1+2 is 1, as in C);
+        // <x, >x (low / high byte) to the whole rest of the expression
+        // (#<label+1 is the low byte of label+1, the usual 6502 convention)
+        if (t.type == AssemblerTokenType::BANG || t.type == AssemblerTokenType::TILDE ||
+            t.type == AssemblerTokenType::MINUS) {
+            std::string op = t.value;
+            return std::make_unique<UnaryExpr>(op, parsePrimary());
+        }
+        if (t.type == AssemblerTokenType::LESS_THAN || t.type == AssemblerTokenType::GREATER_THAN) {
             std::string op = t.value;
             return std::make_unique<UnaryExpr>(op, parseExprAST(tokens, idx, symbolTable, scopePrefix));
         }

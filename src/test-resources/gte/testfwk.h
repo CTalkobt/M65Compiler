@@ -18,7 +18,7 @@
 // bitfields >16 bits. Define int32_bf as the 32-bit-backed bitfield type.
 #ifdef __cc45__
 typedef long int32_bf;
-typedef void FILE;  // stub — no real FILE on MEGA65
+#include <stdio.h>  // FILE, stdout, printf (as the GCC tests expect)
 #else
 typedef int int32_bf;
 #endif

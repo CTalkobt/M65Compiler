@@ -53,7 +53,19 @@ class StringLiteral : public Expression {
 public:
     std::string value;
     bool isAscii = false;  // @"..." prefix — emit .ascii instead of .text
+    std::string escMask;   // per byte: '.', 'n', 'r', 'x' (see Token::escMask)
+    bool isWide = false;   // L"...": an array of 16-bit wchar_t
+    // Encoding prefix: 0 p"..." (PETSCII), 2 s"..." (screen codes), -1 none
+    // (isAscii, else #pragma encoding). Overrides the pragma.
+    int prefixEncoding = -1;
     StringLiteral(const std::string& v, bool ascii = false) : value(v), isAscii(ascii) {}
+    static std::unique_ptr<StringLiteral> copyOf(const StringLiteral& s) {
+        auto c = std::make_unique<StringLiteral>(s.value, s.isAscii);
+        c->escMask = s.escMask;
+        c->isWide = s.isWide;
+        c->prefixEncoding = s.prefixEncoding;
+        return c;
+    }
     void accept(ASTVisitor& visitor) override;
 };
 
@@ -194,6 +206,7 @@ public:
     std::string typeName;
     int pointerLevel;
     bool isSigned = false;
+    std::unique_ptr<Expression> expression;  // __alignof__(expr) (typeName empty)
     AlignofExpression(const std::string& t, int p = 0) : typeName(t), pointerLevel(p) {}
     void accept(ASTVisitor& visitor) override;
 };
@@ -216,6 +229,10 @@ public:
     std::unique_ptr<Expression> alignmentExpr;
     std::unique_ptr<Expression> initializer;
     std::vector<int> arrayDims; // empty means not an array; e.g. {3,4} for int a[3][4]
+    // A variable-length array (int a[n][4]): the expression of each run-time
+    // dimension (its arrayDims entry is 0); empty otherwise
+    std::vector<std::shared_ptr<Expression>> vlaDimExprs;
+    std::vector<int> ptrArrayDims;   // T (*p)[N][M]: the pointed-to array's dims
     int arraySize() const { if (arrayDims.empty()) return -1; int s=1; for (int d:arrayDims) s*=d; return s; }
     bool isFunctionPointer = false;
     std::shared_ptr<FuncPtrSignature> funcPtrSig; // non-null when isFunctionPointer
@@ -387,6 +404,18 @@ public:
 class CompoundStatement : public Statement {
 public:
     std::vector<std::unique_ptr<Statement>> statements;
+    // The declarators of one declaration (int a, b[n];), not a block
+    bool isDeclGroup = false;
+    void accept(ASTVisitor& visitor) override;
+};
+
+// GCC statement expression ({ stmt; ...; expr; }): the statements run in
+// order, then `result` (null when the block doesn't end in an expression
+// statement) is the value
+class StatementExpression : public Expression {
+public:
+    std::unique_ptr<CompoundStatement> body;
+    std::unique_ptr<Expression> result;
     void accept(ASTVisitor& visitor) override;
 };
 
@@ -400,6 +429,10 @@ struct StructMember {
     std::unique_ptr<Expression> alignmentExpr;
     bool isAnonymous = false;
     std::vector<int> arrayDims; // empty means not an array
+    bool isFlexible = false;    // name[] (a zero-length name[0] is a GNU extension)
+    // Run-time array dimensions (char x[n] in a struct defined in a function):
+    // parallel to arrayDims (whose entry is then 1), null for a constant one
+    std::vector<std::unique_ptr<Expression>> vlaDimExprs;
     int arraySize() const { if (arrayDims.empty()) return -1; int s=1; for (int d:arrayDims) s*=d; return s; }
     int bitWidth = 0; // 0 = not a bitfield; >0 = bitfield width in bits
 };
@@ -422,6 +455,7 @@ public:
     std::string parentStruct;  // Phase 3: single inheritance (empty = no parent)
     bool hasVirtual = false;   // Phase 3: true if any method is virtual
     bool isFinal = false;      // Phase 4: struct cannot be inherited from
+    int alignment = 0;         // __attribute__((aligned(N))) on the struct type
     StructDefinition(const std::string& n, bool isUnion = false) : name(n), isUnion(isUnion) {}
     void accept(ASTVisitor& visitor) override;
 };
@@ -436,6 +470,16 @@ struct Parameter {
     bool isPointerConst = false;
     bool isFunctionPointer = false;
     std::shared_ptr<FuncPtrSignature> funcPtrSig;
+    // int a[n++]: a non-constant array size, evaluated on entry for its side
+    // effects (C11 6.9.1p10); the parameter itself is a pointer
+    std::shared_ptr<Expression> vlaSizeExpr;
+    // int a[][M][N]: the dimensions after the first ({M, N}); a run-time
+    // one (char a[2][n]) is 0 here with its expression in innerDimExprs
+    std::vector<int> innerArrayDims;
+    std::vector<std::shared_ptr<Expression>> innerDimExprs;
+    std::string sourceFile;  // position of the parameter name (0 line = unknown)
+    int line = 0;
+    int column = 0;
 };
 
 class FunctionDeclaration : public Statement {
@@ -455,6 +499,9 @@ public:
     bool isNaked = false;
     bool isRegparm = false;
     bool isInline = false;
+    bool isAlwaysInline = false;  // __attribute__((always_inline)) / __forceinline
+    bool isNoInline = false;      // __attribute__((noinline))
+    int alignment = 0;            // __attribute__((aligned(N))): code address alignment
 
     // Nested function support
     bool isNested = false;
@@ -574,4 +621,6 @@ public:
     virtual void visit(CpuFlagAccess& node) = 0;
     virtual void visit(LabelAddressExpression& node) = 0;
     virtual void visit(TranslationUnit& node) = 0;
+    // Default: visit the statements, then the result
+    virtual void visit(StatementExpression& node);
 };

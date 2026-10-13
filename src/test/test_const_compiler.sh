@@ -1,7 +1,7 @@
 #!/bin/bash
 # Test for const keyword in compiler
 
-CC="./bin/cc45"
+CC="./bin/cc45 -O2"
 TEMP_C="test_const.c"
 TEMP_S="test_const.s45"
 

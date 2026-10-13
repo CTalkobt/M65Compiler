@@ -21,6 +21,7 @@ struct Instruction {
     int operandTokenIndex = -1;
     std::string bitBranchTarget;
     std::vector<std::string> callArgs;
+    std::vector<int> callArgTokens;   // token index of each call argument's expression
     int procParamSize = 0;
     bool forceMode = false;
 };
@@ -31,6 +32,8 @@ struct Directive {
     std::string varName;
     enum VarType { NONE, ASSIGN, INC, DEC } varType = NONE;
     int tokenIndex = -1;
+    std::vector<int> argTokenIndices;  // token position of each argument (generic directives)
+    int valueTokenIndex = -1;          // token after the first top-level comma (.fill/.res/.space value)
 };
 
 class AssemblerParser {
@@ -61,6 +64,9 @@ public:
     bool hasFramePointer() const { return framePointerZP != 0; }
     bool getSACMode() const { return sacMode; }
     Symbol* resolveSymbol(const std::string& name, const std::string& scopePrefix = "");
+    // The proc's frame-pointer variable: cc45 emits ".var cc45.fp" (a name no C
+    // identifier can take); hand-written assembly may use ".var _fp"
+    Symbol* resolveFrameVar(const std::string& scopePrefix);
     bool hasErrors() const { return !errors.empty(); }
     const std::vector<std::string>& getErrors() const { return errors; }
     void addError(const std::string& msg) { errors.push_back(msg); }
@@ -74,8 +80,11 @@ public:
     const std::vector<std::string>& getExternSymbols() const { return externSymbols; }
     bool isGlobalSymbol(const std::string& name) const { return globalSymbols.count(name) > 0; }
     bool isExternSymbol(const std::string& name) const { return externIndex.count(name) > 0; }
+    // The text of token i ("" if out of range)
+    std::string tokenText(int i) const { return (i >= 0 && i < (int)tokens.size()) ? tokens[i].value : ""; }
     // Returns true if the symbol's final address is not yet known (extern or in a non-org'd segment like BSS)
     bool isRelocatableSymbol(const std::string& name) const;
+    bool isRelocatableSymbolIn(const std::string& name, const std::string& scopePrefix);
     uint32_t getExternIndex(const std::string& name) const;
 
     bool isPass1() const { return isPass1_; }
@@ -114,6 +123,8 @@ public:
         uint8_t funcFlags = 0;         // bit 0=leaf, bit 1=interrupt-safe
         uint16_t frameSize = 0;        // activation record / frame size in bytes (Phase 2)
         bool hasFuncAttrs = false;     // true if any .zp_*/reg_*/flag_* directive was used
+        bool unnamed = false;          // bare `proc` (no name): its attributes reach no symbol
+        bool warnedUnnamed = false;
         std::map<int, int64_t> paramConstants;  // parameter index → constant value (.param_const directives)
         std::vector<int> paramSizes;   // parameter index → size in bytes (.param_sizes directive)
     };
@@ -184,6 +195,7 @@ private:
 
     // .global / .extern / .weak tracking
     std::set<std::string> globalSymbols;         // symbols declared with .global
+    std::set<int> zpYWarned_;                    // operand tokens already warned for zp → absolute
     std::set<std::string> weakSymbols;           // symbols declared with .weak
     std::vector<std::string> externSymbols;      // symbols declared with .extern (ordered)
     std::map<std::string, uint32_t> externIndex; // name -> index in externSymbols
@@ -199,7 +211,7 @@ public:
     struct Statement {
         enum Type { NONE, INSTRUCTION, DIRECTIVE, EXPR, BASIC_UPSTART, MUL, DIV, STACK_INC, STACK_DEC, STACK_INC8, STACK_DEC8,
                     ADD16, SUB16, AND16, ORA16, EOR16, CMP16, LDW, STW, SWAP, ZERO,
-                    NEG16, NOT16, CHKZERO8, CHKZERO16, CHKNONZERO8, CHKNONZERO16, BRANCH16, SELECT,
+                    NEG16, NOT16, CHKZERO8, CHKZERO16, CHKNONZERO8, CHKNONZERO16, BRANCH16, SELECT, CALL,
                     PTRSTACK, PTRDEREF, LDWF, STWF, INCF, DECF, PHW_STACK, ASW, ROW, ASR16, LSL16, LSR16, ROL16, ROR16, ABS16,
                     ADDS16, SUBS16, CMP_S16, NEG_S16, ABS_S16, ASR_S16, LSL_S16, LSR_S16, ROL_S16, ROR_S16, SXT8,
                     LDA_STACK, STA_STACK,
@@ -210,7 +222,7 @@ public:
                     LDA_FP, STA_FP, LDAX_FP, STAX_FP, LDAY_FP, STAY_FP, LDAZ_FP, STAZ_FP, LDAXYZ_FP, STAXYZ_FP, LEAX_FP, MOVE_FP, INC_FP, DEC_FP, INC16_FP, DEC16_FP,
                     LDA_PARAM, STA_PARAM, LDX_PARAM, STX_PARAM, LDY_PARAM, STY_PARAM, LDZ_PARAM, STZ_PARAM, LDAX_PARAM, STAX_PARAM, LDAY_PARAM, STAY_PARAM, LDAZ_PARAM, STAZ_PARAM, LDAXYZ_PARAM, STAXYZ_PARAM, LEAX_PARAM,
                     LDA_LOCAL, STA_LOCAL, LDX_LOCAL, STX_LOCAL, LDY_LOCAL, STY_LOCAL, LDZ_LOCAL, STZ_LOCAL, LDAX_LOCAL, STAX_LOCAL, LDAY_LOCAL, STAY_LOCAL, LDAZ_LOCAL, STAZ_LOCAL, LDAXYZ_LOCAL, STAXYZ_LOCAL, LEAX_LOCAL,
-                    BFEXT, BFEXT16, BFEXT32, BFINS, BFINS_SP, BFINS_IND, BFINS16, BFINS16_SP, BFINS16_IND, BFINS32,
+                    BFEXT, BFEXT16, BFEXT32, BFINS, BFINS_SP, BFINS_IND, BFINS16, BFINS16_SP, BFINS16_IND, BFINS32, BFINS32_SP, BFINS32_IND,
                     ADD32, SUB32, AND32, ORA32, EOR32, CMP32, NEG32, NOT32, ABS32,
                     LSL32, LSR32, ROL32, ROR32, ASR32, SXT16,
                     ADDS32, SUBS32, CMP_S32, NEG_S32, ABS_S32,
@@ -233,6 +245,8 @@ public:
 
         // BASIC_UPSTART specific
         int basicUpstartTokenIndex = -1;
+        bool operandIsExpr = false;   // simulated-op operand is an expression (instr.operand is set to its value before emitting)
+        int basicUpstartDigits = 4;   // decimal digits of the SYS address (the stub is 8 + digits bytes)
 
         // MUL specific
         int mulWidth = 8;
@@ -243,6 +257,10 @@ public:
 
         bool deleted = false;
         std::vector<uint8_t> bytes; // Captured machine code for listing
+
+        // Branch offset resolved during pass2 convergence — used by generator
+        int32_t resolvedBranchOffset = 0;
+        bool hasBranchOffset = false;
 
         // Simulated op dispatch: set at parse time, used for both sizing and emission
         using SimOpEmitFn = void(*)(AssemblerParser*, M65Emitter&, Statement*);
@@ -284,6 +302,9 @@ private:
     int calculateDirectiveSize(const Directive& dir, uint32_t currentAddr = 0, const Statement* stmt = nullptr);
     int calculateExprSize(int tokenIndex, const std::string& scopePrefix = "");
     uint32_t evaluateExpressionAt(int index, const std::string& scopePrefix = "");
+    bool exprSymbolsDefined(int index, const std::string& scopePrefix) const;
+    void resolveExprOperand(Statement* s);
+    uint32_t orgAddress(Statement* s);
     void emitExpressionCode(std::vector<uint8_t>& binary, const std::string& target, int tokenIndex, const std::string& scopePrefix = "");
     void emitMulCode(std::vector<uint8_t>& binary, int width, const std::string& dest, int tokenIndex, const std::string& scopePrefix = "");
     void emitDivCode(std::vector<uint8_t>& binary, int width, const std::string& dest, int tokenIndex, const std::string& scopePrefix = "");
@@ -365,8 +386,8 @@ private:
 
     struct FrameAccessInfo {
         bool isFrame = false;
-        uint8_t fpOff = 0;
-        uint8_t yOff = 0;
+        uint16_t fpOff = 0;
+        uint16_t yOff = 0;
     };
     FrameAccessInfo resolveFrameAccess(int tokenIndex, const std::string& scopePrefix);
 

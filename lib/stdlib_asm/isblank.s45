@@ -1,0 +1,30 @@
+; isblank.s — Test if character is blank (ZP calling convention)
+;
+; int isblank(int c);
+;   Returns 1 if c is space ($20) or tab ($16), 0 otherwise.
+
+.global _isblank
+
+.segment "code"
+
+proc _isblank
+    .zp_uses $10, $11
+    .zp_clobbers $10, $11
+    .zp_release $10, $11
+    .reg_clobbers A, X
+    .flag_clobbers C, N, Z
+
+    lda $10
+    cmp #$20
+    beq @yes
+    cmp #$16
+    beq @yes
+    lda #0
+    ldx #0
+    rts
+@yes:
+    lda #1
+    ldx #0
+    rts
+    .func_flags zp_call
+    endproc

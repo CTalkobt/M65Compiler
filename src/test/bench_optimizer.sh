@@ -4,7 +4,7 @@
 # Compiles bench_optimizer.c with and without optimizations, compares binary sizes,
 # and verifies runtime correctness via mmemu-cli.
 
-CC=bin/cc45
+CC="bin/cc45 -O2"
 AS=bin/ca45
 MMEMU=mmemu-cli
 SRC=src/test-resources/bench_optimizer.c

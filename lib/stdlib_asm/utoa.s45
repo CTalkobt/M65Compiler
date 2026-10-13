@@ -1,0 +1,141 @@
+; utoa.s — Convert unsigned integer to string (ZP calling convention)
+;
+; char *utoa(unsigned int value, char *str, int base);
+;   Like itoa but treats value as unsigned (no sign check, no negation).
+;   Returns str.
+;
+;   Uses MEGA65 hardware divider at $D770-$D771.
+;   ZP param layout: value=$10/$11, str=$12/$13, base=$14/$15
+;   Internal scratch: $02 (digit count), $16/$17 (working value)
+
+.global _utoa
+
+.segment "code"
+
+proc _utoa
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .zp_clobbers $10, $11, $12, $13, $14, $15, $16, $17
+    .zp_release $10, $11, $14, $15
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+
+    ; Copy value to working location ($16/$17) so we can modify it
+    lda $10
+    sta $16
+    lda $11
+    sta $17
+
+    lda #0
+    sta $02             ; $02 = digit count (__zp_scratch); STZ would store Z
+    ldy #0              ; Y = write index into output
+
+    ; --- Validate base (2-36) ---
+    lda $15
+    bne @valid
+    lda $14
+    cmp #2
+    bcs @valid
+    ; base < 2: write "0\0" and return
+    lda #$30
+    sta ($12),y
+    iny
+    lda #0
+    sta ($12),y
+    lda $12
+    ldx $13
+    rts
+
+@valid:
+    ; Unsigned: no sign handling
+
+    ; --- Check for zero ---
+    lda $16
+    ora $17
+    bne @extract
+    lda #$30
+    sta ($12),y
+    iny
+    bra @nulterm
+
+    ; --- Extract digits: divide, compute remainder ---
+@extract:
+    ; Save value lo for remainder calculation
+    lda $16
+    pha
+
+    ; Divide value by base using hardware divider
+    lda $16
+    sta $d770
+    lda $17
+    sta $d771
+    lda #0
+    sta $d772
+    sta $d773
+    lda $14
+    sta $d774
+    lda $15
+    sta $d775
+    lda #0
+    sta $d776
+    sta $d777
+
+@waitdiv:
+    bit $D70F
+    bmi @waitdiv
+
+    ; Save quotient BEFORE writing to $D770 for multiplication
+    ; (writing $D770 triggers new division, corrupts $D76C)
+    lda $d76c
+    sta $16                 ; quotient lo → new value lo
+    lda $d76d
+    sta $17                 ; quotient hi → new value hi
+
+    ; Compute remainder = value - quotient * base
+    ; Write quotient to $D770 (MultA), base still in $D774 (MultB)
+    lda $16
+    sta $d770
+    lda $17
+    sta $d771
+    lda #0
+    sta $d772
+    sta $d773
+    ; Product lo at $D778 (combinational)
+    pla                     ; saved value lo
+    sec
+    sbc $d778               ; A = remainder (0-35)
+    cmp #10
+    bcs @hexdig
+    clc
+    adc #$30
+    bra @pushdig
+@hexdig:
+    sec
+    sbc #10
+    clc
+    adc #$41
+@pushdig:
+    pha
+    inc $02
+
+    ; Continue while value != 0
+    lda $17
+    ora $16
+    bne @extract
+
+    ; --- Pop digits into output buffer (correct order) ---
+@poploop:
+    pla
+    sta ($12),y
+    iny
+    dec $02
+    bne @poploop
+
+@nulterm:
+    lda #0
+    sta ($12),y
+
+    lda $12
+    ldx $13
+    rts
+    .func_flags zp_call
+    endproc

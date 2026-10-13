@@ -1,0 +1,12 @@
+; __stack_top.s — default top of the 16-bit CPU stack
+;
+; crt0 moves the CPU stack to a 16-bit stack (E flag clear) whose top byte is
+; __stack_top: the last free byte below $C000 (in C65 mode bank 0
+; $C000-$CFFF reads as ROM). This member is linked only when no object
+; defines __stack_top: cc45 -fno-stack16 makes the module defining main
+; define __stack_top = 0, which keeps the ROM's 8-bit page-1 stack, and
+; -fstack-top=ADDR picks another top.
+
+.global __stack_top
+
+__stack_top = $BFFF

@@ -1,160 +1,52 @@
-# O45 Object Format I/O Coverage Tests
+# O45 Object Format I/O Tests
 
-**Added:** 2026-07-18  
-**Status:** Initial implementation with foundation for full coverage  
-**Goal:** Improve O45 I/O coverage from 40-63% to >70%
+The `.o45` object format code (`O45Reader.cpp`, `O45Writer.cpp`, `O45Linker.cpp`, `O45Archive.cpp`) had the lowest coverage in the 2026-07-17 gcov run (40–60%, see [COVERAGE_ANALYSIS.md](COVERAGE_ANALYSIS.md)). Two test programs target it. **Neither is part of `make test`**, so they do not contribute to `make coverage` unless run separately.
 
-## Purpose
+## `make test-o45` — format unit test
 
-The O45 relocatable object format is critical to the toolchain:
-- **O45Reader.cpp** (52.63%): Parses .o45 files
-- **O45Linker.cpp** (58.81%): Links objects and applies relocations
-- **O45Archive.cpp** (40.57%): Creates/reads static library archives
-- **O45Writer.cpp** (53.64%): Generates .o45 files
-
-Low coverage in these modules risks silent failures in multi-file projects.
-
-## Test Suites
-
-### `test_o45_io_coverage.sh` (Executable Test Script)
-
-Comprehensive test script covering:
-
-#### 1. Round-Trip Tests
-- **Multi-segment objects**: Text, data, BSS, ZP segments
-- **Relocation objects**: With external symbol references
-- **Symbol tables**: Imports and exports
-- **Options**: Tool metadata (OPT_ASM, OPT_CC)
-
-**Current Result:** Creates and verifies objects (2/9 tests passing)
-
-#### 2. Linker Symbol Resolution
-- **Simple linking**: Main → Library linking
-- **Multiple symbols**: Complex symbol tables
-- **Data relocations**: Address fixup in data segments
-- **Import resolution**: Resolving external symbols
-
-**Current Result:** Tests designed, needs linker fixes for directives
-
-#### 3. Edge Cases
-- **Large symbol tables**: 50+ imports
-- **Large code sections**: 10KB+ code
-- **Many relocations**: 500+ relocation entries
-- **Mixed relocation types**: All 8 relocation types
-
-#### 4. Tool Integration
-- **objdump45**: Object inspection
-- **nm45**: Symbol table listing
-- **ca45**: Assembly to object conversion
-- **ln45**: Linking objects
-
-## Running the Tests
+`src/test/test_o45.cpp`, built as `bin/test_o45` and linked directly against `O45Writer`, `O45Reader`, `O45IRSerializer`, `O45Linker` and `O45Archive`. It writes objects in memory and checks the exact bytes and the read-back (header layout, segments, symbol and relocation tables, …).
 
 ```bash
-# Build the compiler
-make all -j 12
+make test-o45
+```
 
-# Run the O45 I/O coverage test suite
+## `src/test/test_o45_io_coverage.sh` — tool round trips
+
+A shell script that drives the built tools (`bin/ca45`, `bin/ln45`, `bin/nm45`, `bin/objdump45`) on generated assembly in `build/test/o45_io_coverage/`. It makes 10 checks:
+
+| Group | Checks |
+|-------|--------|
+| Round trip | assemble a `.o45` with code, data and BSS segments (size check); assemble an object with an external reference and read it back with `objdump45 -f` |
+| Linker | assemble a library object and a main object that imports from it; link them with `ln45` and check the PRG exists; assemble an object with a data-segment relocation |
+| Edge cases | an object with 50+ imported symbols; a 10 KB+ code section |
+| Inspection | `nm45 -n` reads the generated object |
+
+```bash
+make all
 bash src/test/test_o45_io_coverage.sh
-
-# Expected output:
-# === Coverage Improvement Report ===
-# Passed: 2+
-# Failed: (remaining coverage gaps to fix)
 ```
 
-## Coverage Improvement Roadmap
+It prints `Passed:`/`Failed:` counts and exits 1 if any check failed. Results are not recorded here; run it against the current tools. To measure its effect on coverage, run it with a `--coverage` build (`make coverage-build`), then `make coverage-report`.
 
-### Phase 1: Foundation (Completed)
-- ✓ Test framework created
-- ✓ Round-trip write/read infrastructure
-- ✓ Edge case test suite
+## Gaps Not Yet Covered
 
-### Phase 2: Reader Coverage (40-60%)
-- [ ] Parse all relocation types correctly
-- [ ] Handle symbol table edge cases
-- [ ] Test error recovery and malformed files
-- [ ] Large object parsing
+These were planned but are not in either test:
 
-**Target:** O45Reader.cpp 52.63% → 70%
+- reading malformed or truncated `.o45` files and error recovery;
+- every relocation type (`R_LOW`, `R_HIGH`, `R_ADDR16`, `R_ADDR24`, …) applied by the linker, and objects with hundreds of relocations;
+- linker error paths (undefined and duplicate symbols);
+- archive operations through `ar45` (`c`, `t`, `x`, `s`, `a`, `d`) and selective member extraction by `ln45 -l`.
 
-### Phase 3: Linker Coverage (50-70%)
-- [ ] Multi-object symbol resolution
-- [ ] Relocation application for all types
-- [ ] Segment layout and addressing
-- [ ] Error handling (undefined symbols, conflicts)
+## Adding Checks
 
-**Target:** O45Linker.cpp 58.81% → 75%
-
-### Phase 4: Archive Coverage (40-50%)
-- [ ] Create and extract archives
-- [ ] Multiple member handling
-- [ ] Archive metadata
-- [ ] Corruption detection
-
-**Target:** O45Archive.cpp 40.57% → 65%
-
-## Known Limitations
-
-1. **Assembly directive gaps**: Some test directives may need tweaking for the current assembler
-2. **Symbol import/export syntax**: May need adjustment for .import/.global directive behavior
-3. **Relocation testing**: Requires linker implementation adjustments
-
-## How to Extend
-
-### Adding Round-Trip Tests
+Add a block to `test_o45_io_coverage.sh` that calls `test_passed "<description>"` or `test_failed "<description>"`:
 
 ```bash
-cat >> src/test/test_o45_io_coverage.sh << 'EOF'
-# Test your scenario
-if your_test_command ...; then
-    test_passed "Your Test Description"
+if ./bin/ca45 "$TEST_DIR/case.s45" -c -o "$TEST_DIR/case.o45" 2>/dev/null; then
+    test_passed "My case"
 else
-    test_failed "Your Test Description"
+    test_failed "My case"
 fi
-EOF
 ```
 
-### Adding Edge Cases
-
-Focus on:
-- Boundary conditions (max sizes, zero lengths)
-- Error conditions (malformed files, missing symbols)
-- Performance (large file handling)
-- Symbol name edge cases (long names, special characters)
-
-## Related Coverage Analysis
-
-See also:
-- `COVERAGE_ANALYSIS.md` - Full code coverage report (2026-07-17)
-- Coverage before tests: **O45Writer 53.64%, O45Reader 52.63%, O45Linker 58.81%, O45Archive 40.57%**
-- Target after tests: **>70% across all O45 modules**
-
-## Integration with CI
-
-To integrate with CI/CD:
-
-```makefile
-test-o45-io: all
-	@bash src/test/test_o45_io_coverage.sh
-
-# Add to main test target:
-test: ... test-o45-io ...
-```
-
-## Success Criteria
-
-✓ All edge case tests passing  
-✓ Round-trip write→read→verify for all segment types  
-✓ Multi-object linking verified  
-✓ Symbol resolution tested  
-✓ Archive operations verified  
-✓ O45 module coverage > 70%
-
----
-
-**Next Steps:** 
-1. Fix assembly directive syntax for test cases
-2. Implement missing reader/linker test coverage
-3. Add archive operation testing
-4. Run against actual GCC coverage metrics to verify improvements
+To run it with the main suite, add `@bash src/test/test_o45_io_coverage.sh` (and `@$(MAKE) test-o45`) to the `test` target in the top-level `Makefile`.

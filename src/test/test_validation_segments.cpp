@@ -32,6 +32,13 @@ static bool assemblySucceeded(const std::string& asmCode) {
     return ret == 0;
 }
 
+// An object (-c): .extern symbols are imports the linker resolves
+static bool objectSucceeded(const std::string& asmCode) {
+    writeAssemblyFile(asmCode);
+    int ret = system("./bin/ca45 -c build/test_validation_segments_temp.s -o build/test_validation_segments_temp.o45 >/dev/null 2>&1");
+    return ret == 0;
+}
+
 // Test 1: .code segment switching
 void test_code_segment() {
     std::string code = R"(.org 0
@@ -142,7 +149,7 @@ void test_extern_single() {
 .extern external_func
 jsr external_func
 )";
-    bool succeeded = assemblySucceeded(code);
+    bool succeeded = objectSucceeded(code);
     CHECK(succeeded, ".extern single symbol succeeds");
 }
 
@@ -153,7 +160,7 @@ void test_extern_multiple() {
 jsr external_func1
 jsr external_func2
 )";
-    bool succeeded = assemblySucceeded(code);
+    bool succeeded = objectSucceeded(code);
     CHECK(succeeded, ".extern multiple symbols succeeds");
 }
 
@@ -186,8 +193,10 @@ lda #<external_func
 lda #>external_func
 jsr external_func
 )";
-    bool succeeded = assemblySucceeded(code);
+    bool succeeded = objectSucceeded(code);
     CHECK(succeeded, "Reference to extern symbol succeeds");
+    // a flat binary is not linked: the same reference is an error there
+    CHECK(!assemblySucceeded(code), "Reference to extern symbol in a flat binary is an error");
 }
 
 // Test 15: Label references in data section

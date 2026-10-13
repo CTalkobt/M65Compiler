@@ -1,0 +1,62 @@
+; puts.s — Write a NUL-terminated string to screen (ZP calling convention)
+;
+; int puts(char *s);
+;   Writes string s to the screen via KERNAL CHROUT, then a newline.
+;   Returns 0 on success.
+;
+; Uses ZP $FB/$FC for the string pointer — kernal-safe locations.
+
+.global _puts
+.extern __bp_rom
+.extern __bp_prog
+
+.segment "code"
+
+proc _puts
+    .zp_uses $10, $11
+    .zp_clobbers $10, $11
+    .zp_release $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+
+    ; Save $FB/$FC and copy string pointer there
+    lda $FB
+    pha
+    lda $FC
+    pha
+    lda $10
+    sta $FB
+    lda $11
+    sta $FC
+    ldy #0
+@loop:
+    lda ($FB),y
+    beq @done
+    phz
+    phy
+    jsr __bp_rom
+    jsr $FFD2
+    jsr __bp_prog
+    ply
+    plz
+    iny
+    bne @loop
+    inc $FC             ; next page of the string
+    bra @loop
+@done:
+    lda #$0D
+    phz
+    jsr __bp_rom
+    jsr $FFD2
+    jsr __bp_prog
+    plz
+    ; Restore $FB/$FC
+    pla
+    sta $FC
+    pla
+    sta $FB
+    lda #0
+    tax
+    rts
+    .func_flags zp_call
+    endproc

@@ -1,0 +1,110 @@
+; cbm_dos_name.s45 — build the name fopen gives the DOS (ZP convention)
+;
+; void __cbm_dos_name(char *dst, const char *name, unsigned char flags,
+;                     unsigned char cbm_type);
+;   dst = ["@0:"] name ",T,M": T = U (CBM_T_USR), P (CBM_T_PRG) or S;
+;   M = A (flags & _IOAPPEND), W (flags & _IOTRUNC: also "@", and "0:"
+;   unless the name has a ':', which replaces an existing file) or R. A
+;   name that already contains ',' is copied as given. At most 40 name
+;   characters. dst needs 48 bytes.
+; Parameters (2-byte slots): dst $10, name $12, flags $14, cbm_type $16;
+; $18/$19: the type and mode letters, $1A/$1B: has ',' / has ':'.
+
+.global ___cbm_dos_name
+
+.segment "code"
+
+proc ___cbm_dos_name
+    .zp_uses $10, $11, $12, $13, $14, $16
+    .zp_clobbers $18, $19, $1A, $1B
+    .zp_release $10, $11, $12, $13, $14, $16
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+
+    ; the letters (PETSCII: ca45 swaps the case of letter literals)
+    ldx #'s'
+    lda $16
+    cmp #$84                ; CBM_T_USR
+    bne @notusr
+    ldx #'u'
+@notusr:
+    cmp #$82                ; CBM_T_PRG
+    bne @notprg
+    ldx #'p'
+@notprg:
+    stx $18
+    ldx #'r'
+    lda $14
+    bit #$04                ; _IOAPPEND
+    beq @notapp
+    ldx #'a'
+@notapp:
+    bit #$80                ; _IOTRUNC
+    beq @notw
+    ldx #'w'
+@notw:
+    stx $19
+    ldy #0
+    sty $1A
+    sty $1B
+@scan:
+    lda ($12),y
+    beq @scanned
+    cmp #','
+    bne @notcomma
+    sta $1A
+@notcomma:
+    cmp #':'
+    bne @notcolon
+    sta $1B
+@notcolon:
+    iny
+    bne @scan
+@scanned:
+    ldz #0
+    lda $1A
+    bne @copy               ; a ',': the name as given
+    bit $14                 ; _IOTRUNC (bit 7): replace
+    bpl @copy
+    lda #'@'
+    sta ($10),z
+    inz
+    lda $1B
+    bne @copy
+    lda #'0'
+    sta ($10),z
+    inz
+    lda #':'
+    sta ($10),z
+    inz
+@copy:
+    ldy #0
+@char:
+    lda ($12),y
+    beq @copied
+    sta ($10),z
+    inz
+    iny
+    cpy #40
+    bcc @char
+@copied:
+    lda $1A
+    bne @end
+    lda #','
+    sta ($10),z
+    inz
+    lda $18
+    sta ($10),z
+    inz
+    lda #','
+    sta ($10),z
+    inz
+    lda $19
+    sta ($10),z
+    inz
+@end:
+    lda #0
+    sta ($10),z
+    rts
+    .func_flags zp_call
+    endproc

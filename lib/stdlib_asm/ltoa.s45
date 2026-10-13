@@ -1,0 +1,173 @@
+; ltoa.s — Convert 32-bit long to string (ZP calling convention)
+;
+; char *ltoa(long value, char *str, int base);
+;   Converts a 32-bit integer to a NUL-terminated string.
+;   Returns str.
+;
+;   Uses MEGA65 hardware divider at $D770-$D773.
+;   ZP param layout: value=$10-$13, str=$14/$15, base=$16/$17
+;   Internal: $02=digit count, value modified in-place at $10-$13
+
+.global _ltoa
+
+.segment "code"
+
+proc _ltoa
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17
+    .zp_clobbers $10, $11, $12, $13, $14, $15, $16, $17
+    .zp_release $10, $11, $12, $13, $16, $17
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+
+    ; value=$10-$13, str=$14/$15, base=$16/$17
+    ; value is modified in-place during division
+    lda #0
+    sta $02             ; $02 = digit count (__zp_scratch); STZ would store Z
+    ldy #0              ; Y = write index into output
+
+    ; --- Validate base (2-36) ---
+    lda $17
+    bne @valid
+    lda $16
+    cmp #2
+    bcs @valid
+    ; base < 2: write "0\0" and return
+    lda #$30
+    sta ($14),y
+    iny
+    lda #0
+    sta ($14),y
+    lda $14
+    ldx $15
+    rts
+
+@valid:
+    ; --- Handle negative for base 10 only ---
+    lda $16
+    cmp #10
+    bne @poscheck
+    lda $17
+    bne @poscheck
+    ; base == 10: check sign bit (byte 3)
+    lda $13
+    bpl @poscheck
+    ; Negative: write '-' and negate 32-bit value
+    lda #$2d
+    sta ($14),y
+    iny
+    sec
+    lda #0
+    sbc $10
+    sta $10
+    lda #0
+    sbc $11
+    sta $11
+    lda #0
+    sbc $12
+    sta $12
+    lda #0
+    sbc $13
+    sta $13
+@poscheck:
+
+    ; --- Check for zero ---
+    lda $10
+    ora $11
+    ora $12
+    ora $13
+    bne @extract
+    lda #$30
+    sta ($14),y
+    iny
+    bra @nulterm
+
+    ; --- Extract digits: divide 32-bit value by base ---
+@extract:
+    ; Save value lo for remainder
+    lda $10
+    pha
+
+    ; Dividend ($D770-$D773)
+    lda $10
+    sta $d770
+    lda $11
+    sta $d771
+    lda $12
+    sta $d772
+    lda $13
+    sta $d773
+    ; Divisor ($D774-$D777) — base, 16-bit zero-extended
+    lda $16
+    sta $d774
+    lda $17
+    sta $d775
+    lda #0
+    sta $d776
+    sta $d777
+
+@waitdiv:
+    bit $D70F
+    bmi @waitdiv
+
+    ; Quotient becomes the new value — saved before writing $D770 below,
+    ; which starts a new division and changes $D76C-$D76F
+    lda $d76c
+    sta $10
+    lda $d76d
+    sta $11
+    lda $d76e
+    sta $12
+    lda $d76f
+    sta $13
+    ; Compute remainder = value - quotient * base
+    ; Write quotient to $D770, base still in $D774
+    lda $10
+    sta $d770
+    lda $11
+    sta $d771
+    lda $12
+    sta $d772
+    lda $13
+    sta $d773
+    ; Product lo at $D778 (combinational)
+    pla                     ; saved value lo
+    sec
+    sbc $d778               ; A = remainder (0-35)
+    cmp #10
+    bcs @hexdig
+    clc
+    adc #$30
+    bra @pushdig
+@hexdig:
+    sec
+    sbc #10
+    clc
+    adc #$41
+@pushdig:
+    pha
+    inc $02
+
+    ; Continue while value != 0
+    lda $13
+    ora $10
+    ora $11
+    ora $12
+    bne @extract
+
+    ; --- Pop digits into output buffer (correct order) ---
+@poploop:
+    pla
+    sta ($14),y
+    iny
+    dec $02
+    bne @poploop
+
+@nulterm:
+    lda #0
+    sta ($14),y
+
+    lda $14
+    ldx $15
+    rts
+    .func_flags zp_call
+    endproc

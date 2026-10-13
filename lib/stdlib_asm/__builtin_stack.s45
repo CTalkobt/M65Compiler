@@ -1,0 +1,36 @@
+; __builtin_stack.s — Stack introspection builtins
+;
+; void* __builtin_frame_address(unsigned int level);
+; void* __builtin_return_address(unsigned int level);
+
+.global ___builtin_frame_address
+.global ___builtin_return_address
+
+.segment "code"
+
+; --- __builtin_frame_address ---
+; Returns the current value in $FD/$FE (the frame pointer used by cc45)
+
+___builtin_frame_address:
+    lda $FD
+    ldx $FE
+    rts
+
+; --- __builtin_return_address ---
+; Returns the return address of the CALLER (level 0).
+; When we are called via JSR, the RA of the CALLER is on the hardware stack.
+
+___builtin_return_address:
+    ; SP+1 = PCL, SP+2 = PCH of our return address. Read through a pointer
+    ; to SP so the stack may be on any page (16-bit SP).
+    tsx
+    tsy
+    stx $08
+    sty $09
+    ldy #2
+    lda ($08), y            ; PCH
+    tax
+    dey
+    lda ($08), y            ; PCL
+    ; Result in AX (PCL in A, PCH in X)
+    rts

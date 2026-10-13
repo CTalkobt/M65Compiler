@@ -140,6 +140,72 @@ echo "$RELREAD" | grep -q '41 42 43' && pass "REL write+read" || fail "REL write
 RELLIST=$($DISK45 rel-list "$TMPDIR/rel.d64" MYREL 2>&1)
 echo "$RELLIST" | grep -q '#  1' && pass "REL list" || fail "REL list"
 
+# REL on a D71 (directory on track 18) and a D81 (super side sector): the
+# records DOS lays out (the last data sector filled), validate clean
+for ext in d71 d81; do
+    $DISK45 create "$TMPDIR/rel.$ext" -n "REL" >/dev/null 2>&1
+    $DISK45 rel-create "$TMPDIR/rel.$ext" SCORES 20 30 2>&1 | grep -q '38 records' &&
+    $DISK45 rel-write "$TMPDIR/rel.$ext" SCORES 30 '"LAST"' >/dev/null 2>&1 &&
+    $DISK45 rel-read "$TMPDIR/rel.$ext" SCORES 30 2>&1 | grep -q 'Text: "LAST' &&
+    $DISK45 validate "$TMPDIR/rel.$ext" 2>&1 | grep -q 'Status: OK' &&
+    ! $DISK45 validate "$TMPDIR/rel.$ext" 2>&1 | grep -q 'Cross' &&
+        pass "REL on $ext" || fail "REL on $ext"
+done
+
+# ============================================================================
+echo "=== Directory slots ==="
+
+# A file added into the first slot of a directory sector (after the file
+# there was removed) must not cut the directory chain; D80/D82 remove
+for ext in d64 d71 d81 d80 d82 d65; do
+    $DISK45 create "$TMPDIR/slots.$ext" -n "SLOTS" >/dev/null 2>&1
+    for i in 1 2 3 4 5 6 7 8 9 10 11 12; do $DISK45 add "$TMPDIR/slots.$ext" "$TMPDIR/d1.prg" F$i >/dev/null 2>&1; done
+    $DISK45 remove "$TMPDIR/slots.$ext" F1 >/dev/null 2>&1
+    $DISK45 add "$TMPDIR/slots.$ext" "$TMPDIR/d1.prg" NEW >/dev/null 2>&1
+    N=$($DISK45 list "$TMPDIR/slots.$ext" 2>&1 | grep -c PRG)
+    $DISK45 extract "$TMPDIR/slots.$ext" F12 "$TMPDIR/f12.prg" >/dev/null 2>&1
+    [ "$N" = 12 ] && cmp -s "$TMPDIR/f12.prg" "$TMPDIR/d1.prg" &&
+        $DISK45 validate "$TMPDIR/slots.$ext" 2>&1 | grep -q 'Status: OK' &&
+        ! $DISK45 validate "$TMPDIR/slots.$ext" 2>&1 | grep -q 'Cross' &&
+        pass "Directory slot 0 reuse ($ext)" || fail "Directory slot 0 reuse ($ext): $N files"
+done
+
+# ============================================================================
+echo "=== D80/D82 layout ==="
+
+# As https://ist.uwaterloo.ca/~schepers/formats/D80-D82.TXT gives it: the
+# header links to the BAM 38/0, the BAM sectors chain to the directory 39/1,
+# BLOCKS FREE excludes track 39, a D82 uses its second side
+$DISK45 create "$TMPDIR/l.d80" -n SAMPLE >/dev/null 2>&1
+H=$(dd if="$TMPDIR/l.d80" bs=256 skip=$((38*29)) count=1 2>/dev/null | xxd -p | head -c 6)
+B=$(dd if="$TMPDIR/l.d80" bs=256 skip=$((37*29)) count=1 2>/dev/null | xxd -p | head -c 22)
+B3=$(dd if="$TMPDIR/l.d80" bs=256 skip=$((37*29+3)) count=1 2>/dev/null | xxd -p | head -c 12)
+[ "$H" = "260043" ] && [ "$B" = "2603430001331dffffff1f" ] && [ "$B3" = "27014300334e" ] &&
+    $DISK45 list "$TMPDIR/l.d80" | grep -q '^2052 blocks free' &&
+    pass "D80 header and BAM" || fail "D80 header and BAM ($H $B $B3)"
+$DISK45 create "$TMPDIR/l.d82" -n SAMPLE >/dev/null 2>&1
+head -c 61440 /dev/urandom > "$TMPDIR/big.prg"
+for i in $(seq 1 16); do $DISK45 add "$TMPDIR/l.d82" "$TMPDIR/big.prg" BIG$i >/dev/null 2>&1; done
+$DISK45 extract "$TMPDIR/l.d82" BIG16 "$TMPDIR/big16.prg" >/dev/null 2>&1
+$DISK45 list "$TMPDIR/l.d82" | grep -q '^261 blocks free' && cmp -s "$TMPDIR/big16.prg" "$TMPDIR/big.prg" &&
+    $DISK45 validate "$TMPDIR/l.d82" 2>&1 | grep -q 'Status: OK' &&
+    pass "D82 second side" || fail "D82 second side"
+
+# ============================================================================
+echo "=== Read-only formats ==="
+
+# D90/D60: create gives a blank image; changing it is refused and leaves it
+# unchanged. NIB/Zipcode cannot be created
+for ext in d90; do
+    $DISK45 create "$TMPDIR/ro.$ext" -n "RO" >/dev/null 2>&1
+    SUM=$(md5sum < "$TMPDIR/ro.$ext")
+    ! $DISK45 add "$TMPDIR/ro.$ext" "$TMPDIR/d1.prg" X >/dev/null 2>&1 &&
+        [ "$(md5sum < "$TMPDIR/ro.$ext")" = "$SUM" ] &&
+        pass "Read-only $ext: add refused" || fail "Read-only $ext: add refused"
+done
+! $DISK45 create "$TMPDIR/ro.nib" >/dev/null 2>&1 && [ ! -f "$TMPDIR/ro.nib" ] &&
+    pass "NIB create refused" || fail "NIB create refused"
+
 # ============================================================================
 echo "=== Subdirectories ==="
 
@@ -179,6 +245,330 @@ echo "=== GZ compression ==="
 $DISK45 create "$TMPDIR/test.d64.gz" -n "GZIPPED" >/dev/null 2>&1
 $DISK45 add "$TMPDIR/test.d64.gz" "$TMPDIR/d1.prg" GZFILE >/dev/null 2>&1
 $DISK45 list "$TMPDIR/test.d64.gz" | grep -q 'GZFILE' && pass "GZ create+add+list" || fail "GZ create+add+list"
+
+# ============================================================================
+echo "=== MEGA65 SD card images ==="
+
+# sd create lays a card out as the MEGA65's FDISK: MBR (FAT32 from sector
+# 2048, system partition $41 at the end), FDISK's boot sector, the system
+# partition header, the configuration sector in card sector 1
+SD="$TMPDIR/card.img"
+$DISK45 sd create "$SD" 64M >/dev/null 2>&1
+MBR=$(dd if="$SD" bs=1 skip=446 count=32 2>/dev/null | xxd -p | tr -d '\n')
+BOOT=$(dd if="$SD" bs=512 skip=2048 count=1 2>/dev/null | xxd -p | tr -d '\n')
+SYS=$(dd if="$SD" bs=512 skip=67584 count=1 2>/dev/null | head -c 11)
+CFG=$(dd if="$SD" bs=512 skip=1 count=1 2>/dev/null | xxd -p | head -c 12)
+echo "$MBR" | grep -q '^000000000c0000000008000000000100000000004100000000080100' &&
+    [ "${BOOT:0:22}" = "eb58904d45474136357231" ] && [ "${BOOT:1020:4}" = "55aa" ] &&
+    [ "$SYS" = "MEGA65SYS00" ] && [ "$CFG" = "010180410001" ] &&
+    pass "sd create: MBR, boot sector, system partition, configuration" ||
+    fail "sd create layout (MBR $MBR, boot ${BOOT:0:22}, sys $SYS, cfg $CFG)"
+
+head -c 819200 /dev/urandom > "$TMPDIR/sd.d81"
+head -c 5000 /dev/urandom > "$TMPDIR/sd.prg"
+$DISK45 sd add "$SD" "$TMPDIR/sd.d81" MEGA65.D81 >/dev/null 2>&1 &&
+    $DISK45 sd add "$SD" "$TMPDIR/sd.prg" "A Long Name.prg" >/dev/null 2>&1 &&
+    $DISK45 sd mkdir "$SD" GAMES >/dev/null 2>&1 &&
+    $DISK45 sd add "$SD" "$TMPDIR/sd.prg" games/ >/dev/null 2>&1 &&
+    $DISK45 sd extract "$SD" "a long name.prg" "$TMPDIR/sd1.prg" >/dev/null 2>&1 &&
+    $DISK45 sd extract "$SD" GAMES/sd.prg "$TMPDIR/sd2.prg" >/dev/null 2>&1 &&
+    $DISK45 sd extract "$SD" mega65.d81 "$TMPDIR/sd1.d81" >/dev/null 2>&1 &&
+    cmp -s "$TMPDIR/sd1.prg" "$TMPDIR/sd.prg" && cmp -s "$TMPDIR/sd2.prg" "$TMPDIR/sd.prg" &&
+    cmp -s "$TMPDIR/sd1.d81" "$TMPDIR/sd.d81" &&
+    pass "sd add/mkdir/extract (long names, subdirectory)" || fail "sd add/mkdir/extract"
+! $DISK45 sd add "$SD" "$TMPDIR/sd.prg" MEGA65.D81 >/dev/null 2>&1 &&
+    $DISK45 sd add "$SD" "$TMPDIR/sd.prg" MEGA65.D81 -f >/dev/null 2>&1 &&
+    $DISK45 sd list "$SD" | grep -q ' 5000  MEGA65.D81' &&
+    pass "sd add refuses to replace without -f" || fail "sd add -f"
+# a directory over several clusters (long names take several entries)
+for i in $(seq 1 60); do $DISK45 sd add "$SD" "$TMPDIR/sd.prg" "GAMES/game number $i with a long name.prg" >/dev/null 2>&1; done
+$DISK45 sd mv "$SD" "GAMES/game number 7 with a long name.prg" seven.prg >/dev/null 2>&1 &&
+    $DISK45 sd rm "$SD" "GAMES/game number 9 with a long name.prg" >/dev/null 2>&1 &&
+    [ "$($DISK45 sd list "$SD" GAMES | grep -c 'game number')" = "58" ] &&
+    ! $DISK45 sd rm "$SD" GAMES >/dev/null 2>&1 &&
+    $DISK45 sd extract "$SD" "GAMES/game number 60 with a long name.prg" "$TMPDIR/sd60.prg" >/dev/null 2>&1 &&
+    cmp -s "$TMPDIR/sd60.prg" "$TMPDIR/sd.prg" && $DISK45 sd check "$SD" 2>&1 | grep -q '^OK' &&
+    pass "sd mv/rm, a directory over several clusters, check" || fail "sd mv/rm/check"
+if command -v fsck.vfat >/dev/null 2>&1; then
+    dd if="$SD" of="$TMPDIR/p1.fs" bs=512 skip=2048 count=65536 2>/dev/null
+    FSCK=$(fsck.vfat -n "$TMPDIR/p1.fs" 2>&1)
+    echo "$FSCK" | grep -q '64 files' && ! echo "$FSCK" | grep -qiE 'differ|lost|cross|truncat|free cluster summary wrong' &&
+        pass "sd: fsck.vfat accepts the file system" || fail "sd: fsck.vfat ($FSCK)"
+fi
+$DISK45 sd config "$SD" --pal --onboarded --mac 02:11:22:33:44:55 --default-disk games.d81 >/dev/null 2>&1
+CFG=$(dd if="$SD" bs=512 skip=1 count=1 2>/dev/null | xxd -p | tr -d '\n')
+CFG2=$(dd if="$SD" bs=512 skip=67585 count=1 2>/dev/null | xxd -p | tr -d '\n')
+[ "${CFG:0:32}" = "01010041000102112233445500008080" ] && [ "$CFG" = "$CFG2" ] &&
+    $DISK45 sd config "$SD" | grep -q 'Default disk: *games.d81' &&
+    pass "sd config (sector 1 and the system partition copy)" || fail "sd config (${CFG:0:32})"
+SUM=$(md5sum < "$SD")
+! $DISK45 add "$SD" "$TMPDIR/sd.prg" X >/dev/null 2>&1 && [ "$(md5sum < "$SD")" = "$SUM" ] &&
+    $DISK45 list "$SD" 2>&1 | grep -q 'is a MEGA65 SD card image' &&
+    pass "disk image commands refuse an SD card image" || fail "disk image commands on an SD card image"
+
+for ext in d64 d81; do
+    $DISK45 create "$TMPDIR/relrm.$ext" >/dev/null 2>&1
+    F0=$($DISK45 list "$TMPDIR/relrm.$ext" | tail -1)
+    $DISK45 rel-create "$TMPDIR/relrm.$ext" big 50 400 >/dev/null 2>&1 &&
+        $DISK45 remove "$TMPDIR/relrm.$ext" big >/dev/null 2>&1 &&
+        [ "$($DISK45 list "$TMPDIR/relrm.$ext" | tail -1)" = "$F0" ] &&
+        $DISK45 validate "$TMPDIR/relrm.$ext" 2>&1 | grep -q 'Status: OK' &&
+        pass "remove frees a REL file's side sectors ($ext)" || fail "remove REL side sectors ($ext)"
+done
+
+# ============================================================================
+echo "=== GEOS files ==="
+
+# GEOS Convert files made by mkcvt.py (Schepers' CVT.TXT / cbmconvert's
+# layout): a VLIR application (records of 700, 254, absent, empty, 1 and
+# 5000 bytes) and a sequential data file with a lower-case name
+python3 src/test/mkcvt.py "$TMPDIR"
+$DISK45 create "$TMPDIR/geos.d64" -n GEOSDISK --geos >/dev/null 2>&1
+FREE0=$($DISK45 list "$TMPDIR/geos.d64" | tail -1)
+$DISK45 info "$TMPDIR/geos.d64" | grep -q 'GEOS: *GEOS format V1.0' &&
+    [ "$(dd if="$TMPDIR/geos.d64" bs=1 skip=$((357*256+0xAD)) count=16 2>/dev/null)" = "GEOS format V1.0" ] &&
+    $DISK45 validate "$TMPDIR/geos.d64" 2>&1 | grep -q 'Status: OK' &&
+    pass "create --geos: signature, border sector" || fail "create --geos"
+$DISK45 add "$TMPDIR/geos.d64" "$TMPDIR/vlir.cvt" >/dev/null 2>&1 &&
+    $DISK45 add "$TMPDIR/geos.d64" "$TMPDIR/seq.cvt" >/dev/null 2>&1 &&
+    $DISK45 list "$TMPDIR/geos.d64" | grep -q '"GeoTest App".*GEOS Application, VLIR' &&
+    $DISK45 list "$TMPDIR/geos.d64" | grep -q '"a seq file".*GEOS Application Data' &&
+    $DISK45 validate "$TMPDIR/geos.d64" 2>&1 | grep -q 'Status: OK' &&
+    pass "add a CVT: a GEOS file (VLIR, sequential)" || fail "add a CVT"
+$DISK45 extract "$TMPDIR/geos.d64" "geotest app" "$TMPDIR/g1.cvt" >/dev/null 2>&1 &&
+    $DISK45 extract "$TMPDIR/geos.d64" "A SEQ FILE" "$TMPDIR/g2.cvt" >/dev/null 2>&1 &&
+    cmp -s "$TMPDIR/g1.cvt" "$TMPDIR/vlir.cvt" && cmp -s "$TMPDIR/g2.cvt" "$TMPDIR/seq.cvt" &&
+    pass "extract a GEOS file as its CVT (byte for byte)" || fail "extract GEOS as CVT"
+$DISK45 create "$TMPDIR/geos.d81" >/dev/null 2>&1
+rm -f "$TMPDIR/geos.d71"
+$DISK45 copy "$TMPDIR/geos.d64" '*' "$TMPDIR/geos.d81" >/dev/null 2>&1 &&
+    $DISK45 convert "$TMPDIR/geos.d64" "$TMPDIR/geos.d71" >/dev/null 2>&1 &&
+    $DISK45 extract "$TMPDIR/geos.d81" "GeoTest App" "$TMPDIR/g3.cvt" >/dev/null 2>&1 &&
+    $DISK45 extract "$TMPDIR/geos.d71" "a seq file" "$TMPDIR/g4.cvt" >/dev/null 2>&1 &&
+    cmp -s "$TMPDIR/g3.cvt" "$TMPDIR/vlir.cvt" && cmp -s "$TMPDIR/g4.cvt" "$TMPDIR/seq.cvt" &&
+    $DISK45 info "$TMPDIR/geos.d71" | grep -q 'GEOS format' &&
+    $DISK45 validate "$TMPDIR/geos.d81" 2>&1 | grep -q 'Status: OK' &&
+    pass "copy/convert keep GEOS files (D64 → D81, D71)" || fail "copy/convert GEOS"
+$DISK45 remove "$TMPDIR/geos.d64" "GeoTest App" >/dev/null 2>&1 &&
+    $DISK45 remove "$TMPDIR/geos.d64" "a seq file" >/dev/null 2>&1 &&
+    [ "$($DISK45 list "$TMPDIR/geos.d64" | tail -1)" = "$FREE0" ] &&
+    $DISK45 validate "$TMPDIR/geos.d64" 2>&1 | grep -q 'Status: OK' &&
+    pass "remove frees a GEOS file's info block and records" || fail "remove GEOS"
+$DISK45 info "$TMPDIR/vlir.cvt" | grep -q 'VLIR records: 5' &&
+    $DISK45 info "$TMPDIR/vlir.cvt" | grep -q 'Class: *Test V1.0' &&
+    $DISK45 extract "$TMPDIR/vlir.cvt" RECORD_5 "$TMPDIR/r5.bin" >/dev/null 2>&1 &&
+    [ "$(stat -c %s "$TMPDIR/r5.bin")" = "5000" ] &&
+    [ "$(tail -c 5000 "$TMPDIR/vlir.cvt" | md5sum)" = "$(md5sum < "$TMPDIR/r5.bin")" ] &&
+    pass "CVT reader: records, class" || fail "CVT reader"
+
+# ============================================================================
+echo "=== GCR images (G64, G71, NIB, NBZ) ==="
+
+# src/test/mkgcr.py encodes a D64 independently (G64.TXT, MNIB track sizes;
+# nibtools' NIB with 8 KB reads that start anywhere and are not byte-aligned;
+# the NIB compressed with lz.c's LZ77 as .nbz)
+$DISK45 create "$TMPDIR/gcr.d64" -n "GCR TEST" -i G1 >/dev/null 2>&1
+head -c 40000 /dev/urandom > "$TMPDIR/gcra.prg"
+head -c 3000 /dev/urandom > "$TMPDIR/gcrb.prg"
+$DISK45 add "$TMPDIR/gcr.d64" "$TMPDIR/gcra.prg" A >/dev/null 2>&1
+$DISK45 add "$TMPDIR/gcr.d64" "$TMPDIR/gcrb.prg" B >/dev/null 2>&1
+python3 src/test/mkgcr.py g64 "$TMPDIR/gcr.d64" "$TMPDIR/py.g64"
+python3 src/test/mkgcr.py nib "$TMPDIR/gcr.d64" "$TMPDIR/py.nib"
+python3 src/test/mkgcr.py nbz "$TMPDIR/gcr.d64" "$TMPDIR/py.nbz"
+rm -f "$TMPDIR/dk.g64"
+$DISK45 convert "$TMPDIR/gcr.d64" "$TMPDIR/dk.g64" >/dev/null 2>&1 && cmp -s "$TMPDIR/dk.g64" "$TMPDIR/py.g64" &&
+    pass "G64 writer: standard tracks (as an independent encoder)" || fail "G64 writer"
+for f in py.g64 py.nib py.nbz; do
+    rm -f "$TMPDIR/back.d64"
+    $DISK45 convert "$TMPDIR/$f" "$TMPDIR/back.d64" >/dev/null 2>&1 && cmp -s "$TMPDIR/back.d64" "$TMPDIR/gcr.d64" &&
+        pass "decode $f (every sector)" || fail "decode $f"
+done
+# a byte in track 30's tail gap (never decoded) survives adding a file
+python3 - "$TMPDIR/py.g64" "$TMPDIR/mark.g64" <<'PY'
+import sys
+d = bytearray(open(sys.argv[1], 'rb').read())
+e = (30 - 1) * 2
+off = int.from_bytes(d[12 + e * 4:16 + e * 4], 'little')
+ln = int.from_bytes(d[off:off + 2], 'little')
+d[off + 2 + ln - 1] = 0x56
+open(sys.argv[2], 'wb').write(d)
+PY
+$DISK45 add "$TMPDIR/mark.g64" "$TMPDIR/gcrb.prg" C >/dev/null 2>&1 &&
+    $DISK45 extract "$TMPDIR/mark.g64" C "$TMPDIR/gcrc.prg" >/dev/null 2>&1 && cmp -s "$TMPDIR/gcrc.prg" "$TMPDIR/gcrb.prg" &&
+    python3 - "$TMPDIR/mark.g64" <<'PY' && pass "G64 write keeps unchanged tracks' GCR" || fail "G64 keeps unchanged tracks"
+import sys
+d = open(sys.argv[1], 'rb').read()
+e = (30 - 1) * 2
+off = int.from_bytes(d[12 + e * 4:16 + e * 4], 'little')
+ln = int.from_bytes(d[off:off + 2], 'little')
+sys.exit(0 if d[off + 2 + ln - 1] == 0x56 else 1)
+PY
+$DISK45 create "$TMPDIR/gcr.d71" -n G71TEST >/dev/null 2>&1
+head -c 300000 /dev/urandom > "$TMPDIR/gcrbig.prg"
+$DISK45 add "$TMPDIR/gcr.d71" "$TMPDIR/gcrbig.prg" BIG >/dev/null 2>&1
+rm -f "$TMPDIR/gcr.g71" "$TMPDIR/back.d71"
+$DISK45 convert "$TMPDIR/gcr.d71" "$TMPDIR/gcr.g71" >/dev/null 2>&1 &&
+    $DISK45 convert "$TMPDIR/gcr.g71" "$TMPDIR/back.d71" >/dev/null 2>&1 && cmp -s "$TMPDIR/back.d71" "$TMPDIR/gcr.d71" &&
+    [ "$(head -c 10 "$TMPDIR/gcr.g71" | tail -c 2 | xxd -p)" = "00a8" ] &&
+    pass "G71 (168 entries, side 2) round trip" || fail "G71 round trip"
+rm -f "$TMPDIR/new.g64.gz"
+$DISK45 create "$TMPDIR/new.g64.gz" -n NEW >/dev/null 2>&1 && $DISK45 add "$TMPDIR/new.g64.gz" "$TMPDIR/gcrb.prg" X >/dev/null 2>&1 &&
+    $DISK45 list "$TMPDIR/new.g64.gz" | grep -q '"X"' &&
+    pass "create and change a .g64.gz" || fail "create .g64.gz"
+! $DISK45 add "$TMPDIR/py.nib" "$TMPDIR/gcrb.prg" X >/dev/null 2>&1 &&
+    pass "NIB stays read-only" || fail "NIB read-only"
+
+# ============================================================================
+echo "=== Disk images inside a .zip ==="
+
+rm -f "$TMPDIR/game.d81.zip" "$TMPDIR/multi.zip"
+$DISK45 create "$TMPDIR/game.d81.zip" -n ZIPPED >/dev/null 2>&1 &&
+    $DISK45 add "$TMPDIR/game.d81.zip" "$TMPDIR/d1.prg" TOOL >/dev/null 2>&1 &&
+    $DISK45 list "$TMPDIR/game.d81.zip" | grep -q '"TOOL"' &&
+    { ! command -v unzip >/dev/null 2>&1 || unzip -tq "$TMPDIR/game.d81.zip" >/dev/null 2>&1; } &&
+    pass "create/add/list x.d81.zip" || fail "x.d81.zip"
+if command -v zip >/dev/null 2>&1 && command -v unzip >/dev/null 2>&1; then
+    $DISK45 create "$TMPDIR/za.d64" -n AAA >/dev/null 2>&1
+    $DISK45 create "$TMPDIR/zb.d81" -n BBB >/dev/null 2>&1
+    echo hello > "$TMPDIR/zreadme.txt"
+    (cd "$TMPDIR" && zip -q multi.zip za.d64 zb.d81 zreadme.txt)
+    ! $DISK45 list "$TMPDIR/multi.zip" >/dev/null 2>&1 &&
+        $DISK45 list "$TMPDIR/multi.zip:zb.d81" | grep -q '"BBB"' &&
+        $DISK45 add "$TMPDIR/multi.zip:ZA.D64" "$TMPDIR/d1.prg" X >/dev/null 2>&1 &&
+        $DISK45 list "$TMPDIR/multi.zip:za.d64" | grep -q '"X"' &&
+        unzip -tq "$TMPDIR/multi.zip" >/dev/null 2>&1 &&
+        [ "$(cd "$TMPDIR" && unzip -p multi.zip zreadme.txt)" = "hello" ] &&
+        [ "$(cd "$TMPDIR" && unzip -p multi.zip zb.d81 | md5sum)" = "$(md5sum < "$TMPDIR/zb.d81")" ] &&
+        pass "a zip with several members: zip:member, the others kept" || fail "zip:member"
+fi
+
+# ============================================================================
+echo "=== CMD images (D1M/D2M/D4M, DNP) ==="
+
+# D2M-DNP.TXT: the system partition on the last physical track (DevBlock at
+# +5, partition directory at +8..11), a native partition with header 1/1,
+# BAM 1/2-1/33 (sectors 0-34 of track 1 used), directory 1/34
+for f in d1m:829440:3165 d2m:1658880:6365 d4m:3317760:12765 dnp:2097152:8157; do
+    IFS=: read -r ext size free <<< "$f"
+    rm -f "$TMPDIR/c.$ext"
+    $DISK45 create "$TMPDIR/c.$ext" -n "CMD $ext" -i JO >/dev/null 2>&1 &&
+        [ "$(stat -c %s "$TMPDIR/c.$ext")" = "$size" ] &&
+        $DISK45 list "$TMPDIR/c.$ext" | grep -q "^$free blocks free" &&
+        pass "create $ext ($size bytes, $free blocks free)" || fail "create $ext"
+done
+SYS=$(dd if="$TMPDIR/c.d2m" bs=1 skip=$((0x190800)) count=32 2>/dev/null | xxd -p | tr -d '\n')
+P1=$(dd if="$TMPDIR/c.d2m" bs=1 skip=$((0x190820)) count=32 2>/dev/null | xxd -p | tr -d '\n')
+HDR=$(dd if="$TMPDIR/c.d2m" bs=1 skip=$((0x100)) count=34 2>/dev/null | xxd -p | tr -d '\n')
+BAM=$(dd if="$TMPDIR/c.d2m" bs=1 skip=$((0x200)) count=9 2>/dev/null | xxd -p)
+T1=$(dd if="$TMPDIR/c.d2m" bs=1 skip=$((0x220)) count=6 2>/dev/null | xxd -p)
+[ "${SYS:0:30}" = "0101ff000053595354454da0a0a0a0" ] && [ "${P1:4:2}" = "01" ] && [ "${P1:60:4}" = "0c80" ] &&
+    [ "${HDR:0:8}" = "01224800" ] && [ "${HDR:44:10}" = "4a4fa03148" ] && [ "${HDR:64:4}" = "0101" ] &&
+    [ "$BAM" = "000048b74a4fc00019" ] && [ "$T1" = "000000001fff" ] &&
+    [ "$(dd if="$TMPDIR/c.d2m" bs=1 skip=$((0x1905f0)) count=13 2>/dev/null)" = "CMD FD SERIES" ] &&
+    pass "D2M layout: system partition, header, BAM" || fail "D2M layout ($SYS / $P1 / $HDR / $BAM / $T1)"
+head -c 100000 /dev/urandom > "$TMPDIR/cbig.prg"
+$DISK45 add "$TMPDIR/c.d2m" "$TMPDIR/cbig.prg" BIG >/dev/null 2>&1
+for i in $(seq 1 20); do $DISK45 add "$TMPDIR/c.d2m" "$TMPDIR/d1.prg" "F$i" >/dev/null 2>&1; done
+$DISK45 extract "$TMPDIR/c.d2m" BIG "$TMPDIR/cbig2.prg" >/dev/null 2>&1 && cmp -s "$TMPDIR/cbig2.prg" "$TMPDIR/cbig.prg" &&
+    $DISK45 list "$TMPDIR/c.d2m" | grep -q '"F20"' &&
+    $DISK45 validate "$TMPDIR/c.d2m" 2>&1 | grep -q 'Status: OK' &&
+    $DISK45 remove "$TMPDIR/c.d2m" BIG >/dev/null 2>&1 &&
+    $DISK45 validate "$TMPDIR/c.d2m" 2>&1 | grep -q 'Status: OK' &&
+    ! $DISK45 validate "$TMPDIR/c.d2m" 2>&1 | grep -q 'Orphaned' &&
+    pass "D2M: add (directory over two sectors), extract, remove, validate" || fail "D2M files"
+rm -f "$TMPDIR/c100.dnp"
+$DISK45 create "$TMPDIR/c100.dnp" -t 100 >/dev/null 2>&1 && [ "$(stat -c %s "$TMPDIR/c100.dnp")" = "6553600" ] &&
+    [ "$(dd if="$TMPDIR/c100.dnp" bs=1 skip=$((0x208)) count=1 2>/dev/null | xxd -p)" = "64" ] &&
+    $DISK45 list "$TMPDIR/c100.dnp" | grep -q '^25565 blocks free' &&
+    pass "DNP create -t 100" || fail "DNP -t"
+
+# ============================================================================
+echo "=== FUSE mount ==="
+
+# GEOS files appear as <name>.cvt; a .cvt copied in becomes a GEOS file when
+# closed; changes reach the image (a relative image path too)
+if $DISK45 2>&1 | grep -q ' mount ' && command -v fusermount3 >/dev/null 2>&1 && [ -w /dev/fuse ]; then
+    FM="$TMPDIR/fmnt"
+    mkdir -p "$FM"
+    $DISK45 create "$TMPDIR/fuse.d64" --geos >/dev/null 2>&1
+    $DISK45 add "$TMPDIR/fuse.d64" "$TMPDIR/vlir.cvt" >/dev/null 2>&1
+    $DISK45 add "$TMPDIR/fuse.d64" "$TMPDIR/d1.prg" TOOL >/dev/null 2>&1
+    REL=$(realpath --relative-to="$PWD" "$TMPDIR/fuse.d64")
+    $DISK45 mount "$REL" "$FM" >"$TMPDIR/mount.log" 2>&1 &
+    for i in $(seq 1 50); do mountpoint -q "$FM" && break; sleep 0.1; done
+    if mountpoint -q "$FM"; then
+        cmp -s "$FM/GeoTest App.cvt" "$TMPDIR/vlir.cvt" && [ -f "$FM/TOOL.prg" ] &&
+            pass "mount: a GEOS file reads as its CVT" || fail "mount: GEOS read"
+        cp "$TMPDIR/seq.cvt" "$FM/My Data.cvt"
+        mv "$FM/GeoTest App.cvt" "$FM/Renamed App.cvt"
+        echo hello > "$FM/note.seq"
+        (cd / && fusermount3 -u "$FM")
+        for i in $(seq 1 50); do mountpoint -q "$FM" || break; sleep 0.1; done
+        $DISK45 list "$TMPDIR/fuse.d64" | grep -q '"My Data".*GEOS Application Data' &&
+            $DISK45 list "$TMPDIR/fuse.d64" | grep -q '"Renamed App".*GEOS Application, VLIR' &&
+            $DISK45 list "$TMPDIR/fuse.d64" | grep -q '"NOTE".*SEQ' &&
+            $DISK45 validate "$TMPDIR/fuse.d64" 2>&1 | grep -q 'Status: OK' &&
+            pass "mount: a .cvt written becomes a GEOS file; rename, new file saved" ||
+            fail "mount: writes ($(cat "$TMPDIR/mount.log"))"
+    else
+        echo "  SKIP: mount (FUSE mount failed: $(cat "$TMPDIR/mount.log"))"
+    fi
+else
+    echo "  SKIP: mount (no FUSE)"
+fi
+
+# ============================================================================
+echo "=== Catalog ==="
+
+# a collection of formats, a zip of two images, an SD card image with a D81,
+# a GEOS disk; the catalog indexes every disk image (container members as
+# "<container>:<member>")
+CAT="$TMPDIR/coll"
+CDB="$TMPDIR/cat.db"
+mkdir -p "$CAT/sub"
+cp "$TMPDIR/gcr.d64" "$CAT/a.d64"
+cp "$TMPDIR/py.g64" "$CAT/c.g64"
+cp "$TMPDIR/py.nib" "$CAT/d.nib"
+cp "$TMPDIR/c100.dnp" "$CAT/e.dnp"
+cp "$TMPDIR/geos.d71" "$CAT/geos.d71"
+$DISK45 create "$CAT/sub/b.d81" -n BBB >/dev/null 2>&1
+$DISK45 add "$CAT/sub/b.d81" "$TMPDIR/gcra.prg" A >/dev/null 2>&1
+if command -v zip >/dev/null 2>&1; then
+    (cd "$CAT" && zip -q pack.zip a.d64 sub/b.d81)
+fi
+$DISK45 sd create "$CAT/card.img" 64M --onboarded >/dev/null 2>&1
+$DISK45 sd add "$CAT/card.img" "$CAT/sub/b.d81" GAMES.D81 >/dev/null 2>&1
+OUT=$($DISK45 catalog build "$CAT" --db "$CDB" 2>&1)
+$DISK45 catalog list --db "$CDB" > "$TMPDIR/catlist.txt"
+grep -q 'a.d64 ' "$TMPDIR/catlist.txt" && grep -q 'c.g64 ' "$TMPDIR/catlist.txt" &&
+    grep -q 'd.nib ' "$TMPDIR/catlist.txt" && grep -q 'e.dnp ' "$TMPDIR/catlist.txt" &&
+    grep -q 'card.img:/GAMES.D81 ' "$TMPDIR/catlist.txt" &&
+    { ! command -v zip >/dev/null 2>&1 || { grep -q 'pack.zip:a.d64 ' "$TMPDIR/catlist.txt" &&
+                                            grep -q 'pack.zip:sub/b.d81 ' "$TMPDIR/catlist.txt"; }; } &&
+    pass "catalog build: formats, zip members, SD card files" || fail "catalog build ($OUT)"
+ACRC=$(python3 -c "import zlib,sys;print('%08X'%zlib.crc32(open(sys.argv[1],'rb').read()))" "$TMPDIR/gcra.prg")
+GCRC=$(python3 -c "import zlib,sys;print('%08X'%zlib.crc32(open(sys.argv[1],'rb').read()))" "$TMPDIR/vlir.cvt")
+$DISK45 catalog search A --db "$CDB" | grep -q "$ACRC  $CAT/card.img:/GAMES.D81" &&
+    $DISK45 catalog search 'geotest*' --db "$CDB" | grep -q "$GCRC .*(GEOS Application, VLIR)" &&
+    pass "catalog search: CRC of contents, GEOS files by their CVT" || fail "catalog search"
+$DISK45 catalog build "$CAT" --db "$CDB" 2>&1 | grep -q 'Indexed 0 image(s), [0-9]* unchanged' &&
+    pass "catalog build: unchanged images skipped" || fail "catalog rebuild"
+rm "$CAT/d.nib" "$CAT/card.img"
+$DISK45 catalog prune --db "$CDB" | grep -q 'Pruned 2' && ! $DISK45 catalog list --db "$CDB" | grep -q 'card.img' &&
+    pass "catalog prune: deleted images and containers" || fail "catalog prune"
+# a catalog made before the geos column gains it
+python3 - "$TMPDIR/old.db" <<'PY'
+import sqlite3, sys
+c = sqlite3.connect(sys.argv[1])
+c.executescript("""CREATE TABLE images (id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT UNIQUE NOT NULL,
+  format TEXT, name TEXT, disk_id TEXT, mtime INTEGER, size INTEGER);
+CREATE TABLE files (id INTEGER PRIMARY KEY AUTOINCREMENT, image_id INTEGER NOT NULL, name TEXT NOT NULL,
+  type TEXT NOT NULL, size_bytes INTEGER, size_sectors INTEGER, crc32 TEXT);""")
+c.close()
+PY
+$DISK45 catalog build "$CAT/geos.d71" --db "$TMPDIR/old.db" >/dev/null 2>&1 &&
+    $DISK45 catalog search '*' --db "$TMPDIR/old.db" | grep -q 'GEOS' &&
+    pass "catalog: an older database gains the GEOS column" || fail "catalog migration"
 
 # ============================================================================
 echo ""

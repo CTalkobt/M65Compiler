@@ -88,6 +88,47 @@ public:
     virtual bool loadFromFile(const std::string& path);
     virtual bool saveToFile(const std::string& path) const;
 
+    // --- Images inside a .zip ---
+    // A path "x.d81.zip", "x.zip" (its one disk image, or the member named
+    // like the zip) or "archive.zip:member.d64" names a zip member: load()
+    // reads it through a temporary file, saveImage() writes it back into the
+    // zip (the other members are kept as they are) or creates the zip.
+    // saveImage() saves any other path with saveToFile().
+    bool saveImage(const std::string& path) const;
+    // Split a zip path; false when it is not one
+    static bool zipPath(const std::string& path, std::string& zip, std::string& member);
+    // "card.img:/DIR/X.D81": a file on a MEGA65 SD card image (load/saveImage
+    // read and write it there)
+    static bool cardPath(const std::string& path, std::string& card, std::string& member);
+    // A MEGA65 SD card image (MBR with FAT32 / $41 partitions, 32 MB or more)
+    static bool isSdCard(const std::string& path);
+    static bool isImageExtension(const std::string& name);
+
+    // Whether disk45 can write this format back. G64/G71, NIB, Zipcode
+    // (decoded to D64 sectors on load) and D90/D60/CMD (no correct BAM
+    // writer) are read-only: saveToFile refuses them. A blank image from
+    // create is still written for the formats that allow it (canCreateBlank)
+    virtual bool writable() const { return true; }
+    virtual bool canCreateBlank() const { return writable(); }
+    void markBlank() { blank_ = true; }
+
+    // Directory access for commands that build entries themselves (REL files)
+    DirEntry findEntry(const std::string& name) const { return findFile(name); }
+    TrackSector addEntry(DirEntry& entry) { return allocDirectoryEntry(entry); }
+    // The first directory sector: the header sector's link (directory track,
+    // sector 0); D80/D82 override (their header links to the BAM)
+    virtual TrackSector firstDirectorySector() const;
+    // The track of the header sector (sector 0) and the directory
+    int headerTrack() const { return directoryTrack(); }
+    // The header sector (disk name, ID, GEOS signature): sector 0 of the
+    // directory track; a CMD native partition's is 1/1
+    virtual TrackSector headerSector() const { return {(uint8_t)directoryTrack(), 0}; }
+    // Sectors the format reserves besides the header and directory (counted
+    // as used by validate): a CMD native partition's boot block and BAM
+    virtual std::vector<TrackSector> systemSectors() const { return {}; }
+    // REL files use a 1581 super side sector (D81, D65)
+    virtual bool superSideSectors() const { return false; }
+
     // --- File operations ---
     virtual std::vector<FileInfo> listFiles() const = 0;
     virtual bool addFile(const std::string& name, CbmFileType type,
@@ -124,6 +165,26 @@ public:
     };
     virtual ValidateResult validate() const;
 
+    // --- GEOS files (Schepers' GEOS.TXT / CVT.TXT) ---
+    // A GEOS file has an info block (directory bytes $15/$16) and, when VLIR
+    // (structure byte $17 = 1), a record block of up to 127 sector chains.
+    // On a host it is kept as a Convert (CVT) file, as cbmconvert writes it
+    bool isGeos(const DirEntry& e) const;
+    bool readGeosCvt(const DirEntry& e, std::vector<uint8_t>& cvt, std::string& err) const;
+    bool addGeosCvt(const std::vector<uint8_t>& cvt, const std::string& name, std::string& err);
+    static bool isCvt(const std::vector<uint8_t>& data);
+    static std::string cvtName(const std::vector<uint8_t>& cvt);
+    static std::string geosTypeName(uint8_t type);
+    // "GEOS format V1.x" at $AD of the header sector, or ""
+    std::string geosSignature() const;
+    // Make a D64/D71 a GEOS disk: the signature and a border sector
+    bool makeGeosDisk(std::string& err);
+    // Every sector a file occupies: its chain, a REL file's side sectors,
+    // a GEOS file's info block, record block and records
+    std::vector<TrackSector> fileSectors(const DirEntry& e) const;
+    // The bytes of a sector chain (the last sector's link byte gives its length)
+    std::vector<uint8_t> chainBytes(TrackSector start, bool* ok = nullptr) const;
+
     // --- Raw sector access ---
     uint8_t* sectorData(int track, int sector);
     const uint8_t* sectorData(int track, int sector) const;
@@ -135,7 +196,9 @@ public:
     static DiskFormat formatFromExtension(const std::string& path);
 
 protected:
+    std::string zipMember_;       // the member this image was loaded from
     std::vector<uint8_t> image_;  // raw disk image bytes
+    bool blank_ = false;          // freshly formatted by create (markBlank)
 
     // Subclasses implement: convert (track,sector) to byte offset in image_
     virtual int sectorOffset(int track, int sector) const = 0;
@@ -153,6 +216,8 @@ protected:
     bool findFileEntry(const std::string& name, TrackSector& dirTS, int& entryIdx) const;
     std::vector<TrackSector> getFileChain(TrackSector start) const;
     TrackSector allocDirectoryEntry(DirEntry& entry);
+    // Write bytes as a new sector chain; returns its first sector (0/0: full)
+    TrackSector writeChainBytes(const uint8_t* data, size_t len);
 
     // Directory track (subclass provides)
     virtual int directoryTrack() const = 0;

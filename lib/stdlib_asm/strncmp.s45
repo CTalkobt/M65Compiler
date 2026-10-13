@@ -1,0 +1,53 @@
+; strncmp.s — Compare two strings with length limit (ZP calling convention)
+;
+; int strncmp(char *s1, char *s2, int n);
+;   Compares at most n bytes. Returns 0 if equal, <0 or >0 otherwise.
+
+.global _strncmp
+
+.segment "code"
+
+proc _strncmp
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .zp_clobbers $10, $11, $12, $13, $14, $15
+    .zp_release $10, $11, $12, $13, $14, $15
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+
+    ; s1=$10/$11, s2=$12/$13, n=$14/$15
+    ldy #0
+@loop:
+    lda $14
+    ora $15
+    beq @equal
+    lda ($10),y
+    cmp ($12),y
+    bne @diff
+    lda ($10),y
+    beq @equal
+    iny
+    bne @no_inc
+    inc $11
+    inc $13
+@no_inc:
+    lda $14
+    bne @dec_lo
+    dec $15
+@dec_lo:
+    dec $14
+    bra @loop
+@equal:
+    lda #0
+    tax
+    rts
+@diff:
+    bcs @greater
+    lda #$FF
+    tax
+    rts
+@greater:
+    lda #1
+    ldx #0
+    rts
+    .func_flags zp_call
+    endproc

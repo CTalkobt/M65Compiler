@@ -50,6 +50,17 @@ public:
 
     // Phase 102: Set typedef information from parser
     // Map: typedef_name → struct/union base type name
+    void setMaxInlineIRSize(int n) { maxInlineIRSize_ = n; }
+    void setMaxUnrollBytes(int n) { maxUnrollBytes_ = n; }
+
+    void setSourceFile(const std::string& f) { sourceFile_ = f; }
+    void setStackTop(int top) { stackTop_ = top; }
+    bool errorsPrinted() const { return errorsPrinted_; }
+    void setBssFill(int v) { bssFill_ = v; }
+    // -f<opt>/-fno-<opt> (catalog name -> on/off), --future, -Roptir
+    void setOptOverrides(const std::map<std::string, bool>& o) { optOverrides_ = o; }
+    void setFutureWarnings(bool f) { futureWarnings_ = f; }
+    void setTraceIROpt(bool t) { traceIROpt_ = t; }
     void setTypedefMappings(const std::map<std::string, std::string>& typedefMappings) {
         typedefMappings_ = typedefMappings;
     }
@@ -60,6 +71,11 @@ private:
     int optimizationLevel_;
     int verboseLevel_;
     bool inlineFunctions_;
+    int maxInlineIRSize_ = 11;
+    int maxUnrollBytes_ = 128;
+    int stackTop_ = -1;
+    bool errorsPrinted_ = false;
+    int bssFill_ = -1;
     bool staticAlloc_;
     bool zpCallMode_;
     bool saveTemps_;
@@ -71,6 +87,13 @@ private:
 
     // Phase 102: Typedef mappings from parser (typedef_name → baseType)
     std::map<std::string, std::string> typedefMappings_;
+    std::string sourceFile_;  // input file (module name for static symbols)
+    std::map<std::string, bool> optOverrides_;
+    bool futureWarnings_ = false;
+    bool traceIROpt_ = false;
+
+    // Is the catalog optimization `name` on: its -f/-fno- override, else the -O level's default
+    bool optOn(const std::string& name) const;
 
     // Helper methods for codegen phases
     void configureIRBuilder();

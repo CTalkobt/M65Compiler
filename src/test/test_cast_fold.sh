@@ -3,7 +3,7 @@
 # CastExpression to IntegerLiteral preserves type info (long, pointer, etc.)
 
 # Cast fold tests
-CC="./bin/cc45"
+CC="./bin/cc45 -O2"
 TEMP_C="test_cast_fold_tmp.c"
 TEMP_S="test_cast_fold_tmp.s45"
 
@@ -27,13 +27,13 @@ else
 fi
 
 # 2. (long)0 return with -O1 -fzpcall must set all 4 registers to 0
-# Accepts either explicit loads (ldy #0; ldz #0) or transfer instructions (tay; taz)
+# Accepts explicit loads (ldy #0; ldz #0), transfers (tay; taz), or a 4-byte ZP stage + ldq
 cat <<EOF > $TEMP_C
 long get_long_zero(void) { return (long)0; }
 EOF
 $CC -S -O1 -fzpcall $TEMP_C -o $TEMP_S 2>/dev/null
 # Check that we have lda #0 followed by instructions to load Y and Z (either explicit or transfer)
-if grep -q 'lda #0' $TEMP_S && (grep -q 'ldy\|tay' $TEMP_S) && (grep -q 'ldz\|taz' $TEMP_S); then
+if grep -q 'lda #0' $TEMP_S && (grep -q 'ldq' $TEMP_S || ( (grep -q 'ldy\|tay' $TEMP_S) && (grep -q 'ldz\|taz' $TEMP_S) )); then
     pass "(long)0 return sets all 4 registers to 0 with -O1 -fzpcall"
 else
     fail "(long)0 return sets all 4 registers to 0 with -O1 -fzpcall"
@@ -75,7 +75,7 @@ void test(void) { use_long((long)42); }
 EOF
 $CC -S -O1 -fzpcall -fno-staticalloc $TEMP_C -o $TEMP_S 2>/dev/null
 # Should store all 4 bytes to ZP param block ($10-$13)
-if grep -q '\$12' $TEMP_S && grep -q '\$13' $TEMP_S; then
+if grep -q 'stq \$10' $TEMP_S || (grep -q '\$12' $TEMP_S && grep -q '\$13' $TEMP_S); then
     pass "(long)42 argument stores all 4 bytes to ZP"
 else
     fail "(long)42 argument stores all 4 bytes to ZP"
@@ -93,13 +93,13 @@ else
 fi
 
 # 7. (long)-1 folds correctly to 0xFFFFFFFF (all 4 bytes set to 255)
-# Accepts either explicit loads (ldy #255; ldz #255) or transfer instructions (tay; taz)
+# Accepts explicit loads (ldy #255; ldz #255), transfers (tay; taz), or a 4-byte ZP stage + ldq
 cat <<EOF > $TEMP_C
 long get_neg1(void) { return (long)-1; }
 EOF
 $CC -S -O1 -fzpcall $TEMP_C -o $TEMP_S 2>/dev/null
 # Check that we load 255 into A register, then transfer/load to other registers
-if grep -q '#255' $TEMP_S && (grep -q 'ldy\|tay' $TEMP_S) && (grep -q 'ldz\|taz' $TEMP_S); then
+if grep -q '#255' $TEMP_S && (grep -q 'ldq' $TEMP_S || ( (grep -q 'ldy\|tay' $TEMP_S) && (grep -q 'ldz\|taz' $TEMP_S) )); then
     pass "(long)-1 folds to all-FF bytes"
 else
     fail "(long)-1 folds to all-FF bytes"
@@ -139,7 +139,7 @@ void test(void) {
 EOF
 $CC -S -O1 -fzpcall -fno-staticalloc $TEMP_C -o $TEMP_S 2>/dev/null
 # Optimizer may propagate constant directly; either way, all 4 ZP param bytes must be stored
-if grep -q '\$12' $TEMP_S && grep -q '\$13' $TEMP_S; then
+if grep -q 'stq \$10' $TEMP_S || (grep -q '\$12' $TEMP_S && grep -q '\$13' $TEMP_S); then
     pass "long propagated through variable stores 4 bytes to ZP"
 else
     fail "long propagated through variable stores 4 bytes to ZP"

@@ -1,21 +1,22 @@
 #include "BasicValidator.hpp"
+#include "PETSCIIEncoder.hpp"
 #include <iostream>
 #include <sstream>
 #include <regex>
+#include <cctype>
 
-void BasicValidator::analyze(const std::string& sourceCode) {
+void BasicValidator::analyze(const std::string& sourceCode, uint16_t lineIncrement) {
     // Parse label-based source code
     parser.parse(sourceCode);
 
-    // Assign auto-incrementing line numbers (10, 20, 30, ...)
-    parser.assignLineNumbers(10, 10);
+    // Number the lines: lineIncrement, 2 * lineIncrement, ... (--increment)
+    if (lineIncrement == 0) lineIncrement = 10;
+    parser.assignLineNumbers(lineIncrement, lineIncrement);
 
     // Validate label references
-    std::vector<std::string> parseErrors;
+    std::vector<std::pair<int, std::string>> parseErrors;
     if (!parser.validate(parseErrors)) {
-        for (size_t i = 0; i < parseErrors.size(); i++) {
-            addError(1, 1, parseErrors[i]);
-        }
+        for (const auto& [at, msg] : parseErrors) addError(at > 0 ? at : 1, 1, msg);
     }
 
     // Detect unresolved symbols
@@ -30,6 +31,7 @@ void BasicValidator::validateLabelReferences() {
 }
 
 void BasicValidator::detectUnresolvedSymbols(const std::string& sourceCode) {
+    PETSCIIEncoder petscii;
     // Pattern: {symbol_name}
     std::regex symbolPattern(R"(\{([^}]+)\})");
 
@@ -39,13 +41,20 @@ void BasicValidator::detectUnresolvedSymbols(const std::string& sourceCode) {
 
     while (std::getline(iss, line)) {
         lineNum++;
+        // comment lines (' or REM) are not part of the program
+        size_t first = line.find_first_not_of(" \t");
+        if (first != std::string::npos && (line[first] == '\'' || line.compare(first, 3, "REM") == 0))
+            continue;
 
         std::string::const_iterator searchStart(line.cbegin());
         std::smatch match;
 
         while (std::regex_search(searchStart, line.cend(), match, symbolPattern)) {
             int col = std::distance(line.cbegin(), match[0].first) + 1;
-            addError(lineNum, col, "Unresolved symbol: " + match[1].str(), true);
+            // a PETSCII escape ({clear}, {red}, ...) is not a symbol
+            std::vector<uint8_t> bytes;
+            if (!petscii.escapeBytes(match[1].str(), bytes))
+                addError(lineNum, col, "Unresolved symbol: " + match[1].str(), true);
             searchStart = match.suffix().first;
         }
     }
@@ -100,6 +109,10 @@ void BasicValidator::addError(int lineNum, int col, const std::string& msg, bool
     ValidationError err;
     err.filename = sourceFile;
     err.lineNumber = lineNum;
+    if (origin) {
+        auto o = origin(lineNum);
+        if (o.second > 0) { err.filename = o.first; err.lineNumber = o.second; }
+    }
     err.column = col;
     err.message = msg;
     err.isWarning = isWarning;

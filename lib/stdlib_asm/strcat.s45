@@ -1,0 +1,58 @@
+; strcat.s — Concatenate strings (ZP calling convention)
+;
+; char *strcat(char *dest, char *src);
+;   Appends src to the end of dest. Returns dest.
+
+.global _strcat
+
+.segment "code"
+
+proc _strcat
+    .zp_uses $10, $11, $12, $13
+    .zp_clobbers $10, $11, $12, $13
+    .zp_release $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+
+    ; dest=$10/$11, src=$12/$13
+    ; Save original dest for return
+    lda $10
+    pha
+    lda $11
+    pha
+    ; Find end of dest
+    ldy #0
+@find_end:
+    lda ($10),y
+    beq @found
+    iny
+    bne @find_end
+    inc $11
+    bra @find_end
+@found:
+    ; Advance $10/$11 by Y to point at the NUL
+    tya
+    clc
+    adc $10
+    sta $10
+    lda #0
+    adc $11
+    sta $11
+    ; Copy src to dest end
+    ldy #0
+@copy:
+    lda ($12),y
+    sta ($10),y
+    beq @done
+    iny
+    bne @copy
+    inc $11
+    inc $13
+    bra @copy
+@done:
+    pla
+    tax             ; original dest hi
+    pla             ; original dest lo
+    rts
+    .func_flags zp_call
+    endproc

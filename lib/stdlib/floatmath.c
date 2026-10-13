@@ -11,36 +11,57 @@ float logf(float x);
 float expf(float x);
 float sqrtf(float x);
 float fabsf(float x);
+float truncf(float x);
 
-/* powf: x^y = exp(y * log(x)) */
+#include <errno.h>
+
+#define FLOAT_MAX 1.7014118e38
+
+/* powf: x^y = exp(y * log(|x|)). A negative base needs an integer exponent
+ * (otherwise there is no value: 0, EDOM; an odd one keeps the sign);
+ * 0 to a negative power is a pole: FLOAT_MAX, ERANGE. Overflow saturates
+ * in expf (ERANGE). */
 float powf(float x, float y) {
+    float r;
+    int odd = 0;
     if (y == 0.0) return 1.0;
-    if (x == 0.0) return 0.0;
-    if (x < 0.0) {
-        /* Negative base: only works for integer exponents */
-        int iy = (int)y;
-        float r = expf((float)iy * logf(0.0 - x));
-        if (iy % 2 != 0) r = 0.0 - r;
-        return r;
+    if (x == 0.0) {
+        if (y < 0.0) { errno = ERANGE; return FLOAT_MAX; }
+        return 0.0;
     }
-    return expf(y * logf(x));
+    if (x < 0.0) {
+        if (truncf(y) != y) { errno = EDOM; return 0.0; }
+        /* |y| >= 2^31 is even (a float that large has no fraction bits) */
+        if (fabsf(y) < 2147483648.0) odd = ((signed long)y & 1) != 0;
+        x = 0.0 - x;
+    }
+    r = expf(y * logf(x));
+    return odd ? 0.0 - r : r;
 }
 
-/* truncf: truncate toward zero */
+/* truncf: truncate toward zero. |x| >= 2^31 is already an integer (the
+ * exponent byte is $A0 or more); smaller values go through long. The result
+ * keeps x's sign (trunc(-0.5) is -0.0). */
 float truncf(float x) {
-    return (float)((int)x);
+    unsigned char *px = (unsigned char *)&x;
+    float t;
+    unsigned char *pt = (unsigned char *)&t;
+    if (px[0] >= 0xA0) return x;
+    t = (float)(signed long)x;
+    pt[1] = (pt[1] & 0x7F) | (px[1] & 0x80);
+    return t;
 }
 
 /* floorf: largest integer <= x */
 float floorf(float x) {
-    float t = (float)((int)x);
+    float t = truncf(x);
     if (x < 0.0 && t != x) t = t - 1.0;
     return t;
 }
 
 /* ceilf: smallest integer >= x */
 float ceilf(float x) {
-    float t = (float)((int)x);
+    float t = truncf(x);
     if (x > 0.0 && t != x) t = t + 1.0;
     return t;
 }
@@ -53,7 +74,7 @@ float roundf(float x) {
 
 /* fmodf: floating-point remainder */
 float fmodf(float x, float y) {
-    if (y == 0.0) return 0.0;
+    if (y == 0.0) { errno = EDOM; return 0.0; }  /* no value (NaN in IEEE) */
     return x - truncf(x / y) * y;
 }
 
@@ -90,7 +111,7 @@ float log2f(float x) {
 }
 
 /* ldexpf: x * 2^n */
-float ldexpf(float x, int n) {
+float ldexpf(float x, signed int n) {
     float scale = 1.0;
     if (n > 0) {
         while (n > 0) { scale = scale * 2.0; n = n - 1; }
@@ -102,9 +123,9 @@ float ldexpf(float x, int n) {
 
 /* frexpf: split x into normalized fraction [0.5, 1.0) and exponent
  * x = frac * 2^exp */
-float frexpf(float x, int *exp) {
+float frexpf(float x, signed int *exp) {
     if (x == 0.0) { *exp = 0; return 0.0; }
-    int e = 0;
+    signed int e = 0;
     float f = fabsf(x);
     while (f >= 1.0) { f = f * 0.5; e = e + 1; }
     while (f < 0.5) { f = f * 2.0; e = e - 1; }
@@ -115,9 +136,11 @@ float frexpf(float x, int *exp) {
 
 /* copysignf: magnitude of x with sign of y */
 float copysignf(float x, float y) {
-    float ax = fabsf(x);
-    if (y < 0.0) return 0.0 - ax;
-    return ax;
+    /* The sign bit (bit 7 of the first mantissa byte) of y onto x, so that
+       copysignf(1, -0.0) is -1 */
+    unsigned char *px = (unsigned char *)&x;
+    px[1] = (px[1] & 0x7F) | (((unsigned char *)&y)[1] & 0x80);
+    return x;
 }
 
 /* fmaxf / fminf / fdimf */

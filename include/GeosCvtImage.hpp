@@ -1,37 +1,21 @@
 #pragma once
 #include "DiskImage.hpp"
 
-// GEOS CVT (ConVerT) file format
-//
-// CVT is a sequential container for GEOS files, allowing them to be
-// stored outside the GEOS filesystem (as PRG or SEQ on CBM disks).
-//
-// Structure (254-byte blocks, no T/S link bytes):
-//   Block 0: Signature block
-//     $00-$01: PRG load address (if PRG format) or $00/$00 (if SEQ)
-//     $02-$1D: Signature "PRG formatted GEOS file V1.0" or
-//              "SEQ formatted GEOS file V1.0"
-//     $1E-$FD: Zero padding
-//   Block 1: GEOS Info block (254 bytes)
-//     $00-$02: Icon width (bytes), height, format
-//     $03-$3F: Icon bitmap data (up to 63 bytes)
-//     $40: C64/C128 flag ($00=C64, $80=C128)
-//     $41: GEOS file type ($00=non-GEOS, $01=BASIC, $06=application, etc.)
-//     $42: GEOS file structure ($00=sequential, $01=VLIR)
-//     $43-$44: Load address (lo/hi)
-//     $45-$46: End address (lo/hi)
-//     $47-$4C: Date/time (year-1900, month, day, hour, minute, second)
-//     $4D-$5D: Parent application name (zero-padded)
-//     $5E-$BD: Description/info box (up to 96 chars)
-//   Block 2 (VLIR only): Record table (254 bytes)
-//     127 × 2-byte entries: T/S pairs or status markers
-//     $00/$00 = empty record, $00/$FF = record not present
-//     Non-zero T/S = record data follows in data blocks
-//   Block 3+: Data blocks (254 bytes each)
-//     Sequential: all data concatenated
-//     VLIR: records concatenated in order, sizes from record table
-//
-// Read-only: GEOS encoding is complex; write support would need icon/info editing.
+// GEOS CVT (ConVerT) file: one GEOS file as a host file (Schepers' CVT.TXT;
+// the layout cbmconvert reads and writes), 254-byte blocks:
+//   Block 0: the directory entry without its first two bytes ($00-$1D:
+//            CBM type, T/S, name padded with $A0, info T/S, structure
+//            ($15: 0 sequential, 1 VLIR), GEOS type ($16), date, size),
+//            then "PRG formatted GEOS file V1.0" at $1E
+//   Block 1: the info block without its link (icon, types, load address,
+//            class at $4B, author at $5F, description at $9E)
+//   Block 2 (VLIR only): the record block: per record a block count and
+//            the index of the last byte in its last block (00/00 no more
+//            records, 00/FF an absent record)
+//   Then the data: a sequential file's bytes, or the records, each padded
+//   to whole blocks (the last one may be short)
+// listFiles shows the file (sequential) or its records (RECORD_n); disk45
+// add/convert turn a CVT into a GEOS file on a disk image.
 
 class GeosCvtImage : public DiskImage {
 public:
@@ -58,6 +42,7 @@ public:
     uint8_t geosFileStructure() const; // 0=sequential, 1=VLIR
     std::string geosFileTypeName() const;
     std::string geosClassName() const;
+    std::string geosAuthor() const;
     std::string geosDescription() const;
     bool isVlir() const;
     int vlirRecordCount() const;
@@ -78,4 +63,7 @@ private:
     // Access a 254-byte block (no T/S link)
     const uint8_t* block(int n) const;
     int blockCount() const;
+    std::string infoString(int off, int len) const;
+    // A VLIR record's offset and length in the file (false: absent)
+    bool recordSpan(int rec, size_t& off, size_t& len) const;
 };

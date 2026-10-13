@@ -1,3 +1,6 @@
+#include <cstring>
+#include <algorithm>
+#include <map>
 #include "Parser.hpp"
 #include "Diagnostic.hpp"
 #include <stdexcept>
@@ -42,20 +45,23 @@ const Token& Parser::expect(TokenType type, const std::string& message) {
 std::unique_ptr<TranslationUnit> Parser::parse() {
     auto unit = setPos(std::make_unique<TranslationUnit>(), tokens[0]);
     while (peek().type != TokenType::END_OF_FILE) {
+        pendingAlwaysInline_ = pendingNoInline_ = false;
         // Skip __extension__ and __attribute__ at top level (GCC compatibility)
         while (match(TokenType::EXTENSION) || tryParseAttribute()) {}
         // Skip stray semicolons at top level (e.g., }; after function)
         if (match(TokenType::SEMICOLON)) continue;
         if (match(TokenType::TYPEDEF)) {
-            parseTypedef();
+            parseTypedef(); pendingAlign_ = 0;  // aligned on a typedef is not supported
             continue;
         }
         if (peek().type == TokenType::ASM) {
+            size_t asmTok = pos;
             advance();
             match(TokenType::VOLATILE); // optional volatile
             if (peek().type == TokenType::IDENTIFIER && peek().value == "goto") advance();
             expect(TokenType::OPEN_PAREN, "Expected '(' after asm");
             std::string code = expect(TokenType::STRING_LITERAL, "Expected string literal for asm code").value;
+            while (peek().type == TokenType::STRING_LITERAL) code += advance().value;  // "a" "b"
             // Skip extended asm constraint sections
             for (int section = 0; section < 3 && match(TokenType::COLON); section++) {
                 if (peek().type == TokenType::CLOSE_PAREN || peek().type == TokenType::COLON) continue;
@@ -69,8 +75,12 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
             }
             expect(TokenType::CLOSE_PAREN, "Expected ')' after asm code");
             expect(TokenType::SEMICOLON, "Expected ';'");
+            if (code == ".signed_default" || code == ".unsigned_default") {
+                signedDefault = (code == ".signed_default");  // #pragma cc45 signed_default / unsigned_default
+                continue;
+            }
             flushPending(*unit);
-            unit->topLevelDecls.push_back(setPos(std::make_unique<AsmStatement>(code), tokens[pos-5]));
+            unit->topLevelDecls.push_back(setPos(std::make_unique<AsmStatement>(code), tokens[asmTok]));
             continue;
         }
         if (peek().type == TokenType::STATIC_ASSERT) {
@@ -166,6 +176,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     } else {
                         // struct Name { ... } var; — inline definition + variable
                         std::string sType = (isUnion ? "union " : "struct ") + def->name;
+                        flushPending(*unit);  // nested definitions come first
                         unit->topLevelDecls.push_back(std::move(def));
                         // Parse the variable declaration using the struct type
                         int ptrLevel = 0;
@@ -173,6 +184,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                         while (match(TokenType::STAR)) ptrLevel++;
                         std::string vName = expect(TokenType::IDENTIFIER, "Expected variable name after struct definition").value;
                         auto vDecl = std::make_unique<VariableDeclaration>(sType, vName, ptrLevel);
+                        declTypes_[vName] = {sType, ptrLevel, false};
                         vDecl->isGlobal = true;
                         // Array dimensions: struct S { } arr[2];
                         while (match(TokenType::OPEN_SQUARE)) {
@@ -181,7 +193,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                             } else {
                                 auto szExpr = parseExpression();
                                 int sz = 1;
-                                if (auto* lit = dynamic_cast<IntegerLiteral*>(szExpr.get())) sz = (int)lit->value;
+                                { long cv; if (evalConstInt(szExpr.get(), cv)) sz = (int)cv; }
                                 vDecl->arrayDims.push_back(sz);
                                 expect(TokenType::CLOSE_SQUARE, "Expected ']'");
                             }
@@ -202,13 +214,15 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                             while (match(TokenType::STAR)) ep++;
                             std::string en = expect(TokenType::IDENTIFIER, "Expected variable name").value;
                             auto ev = std::make_unique<VariableDeclaration>(sType, en, ep);
+                declTypes_[en] = {sType, ep, false};
+                            declTypes_[en] = {sType, ep, false};
                             ev->isGlobal = true;
                             while (match(TokenType::OPEN_SQUARE)) {
                                 if (match(TokenType::CLOSE_SQUARE)) ev->arrayDims.push_back(0);
                                 else {
                                     auto se = parseExpression();
                                     int ss = 1;
-                                    if (auto* lit = dynamic_cast<IntegerLiteral*>(se.get())) ss = (int)lit->value;
+                                    { long cv; if (evalConstInt(se.get(), cv)) ss = (int)cv; }
                                     ev->arrayDims.push_back(ss);
                                     expect(TokenType::CLOSE_SQUARE, "Expected ']'");
                                 }
@@ -460,13 +474,14 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                 if (auto* vd = dynamic_cast<VariableDeclaration*>(decl.get())) {
                     vd->isGlobal = true;
                     vd->isExtern = isExtern;
-                    vd->isSigned = !isUnsig;
+                    vd->isSigned = isUnsig ? false : (vd->isSigned || isSig);  // cc45: unsigned unless declared signed
                 } else if (auto* cs = dynamic_cast<CompoundStatement*>(decl.get())) {
                     for (auto& s : cs->statements) {
                         if (auto* vd2 = dynamic_cast<VariableDeclaration*>(s.get())) {
                             vd2->isGlobal = true;
                             vd2->isExtern = isExtern;
                             vd2->isStatic = isStatic;
+                            vd2->isSigned = isUnsig ? false : (vd2->isSigned || isSig);
                         }
                     }
                 }
@@ -487,6 +502,8 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                 if (isRegparm) match(TokenType::REGPARM);
                 while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL) || match(TokenType::INTERRUPT) || match(TokenType::NAKED) || match(TokenType::REGPARM) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || tryParseAttribute() || match(TokenType::EXTENSION));
                 auto decl = parseFunctionDeclaration();
+                if (isSig) decl->isSigned = true;  // 'signed'/'unsigned' were consumed with the qualifiers above
+                    if (isUnsig) decl->isSigned = false;
                 decl->isNoreturn = isNR;
                 decl->isFastcall = isFC;
                 decl->isInterrupt = isInterrupt;
@@ -510,6 +527,8 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     if (isRegparm) match(TokenType::REGPARM);
                     while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL) || match(TokenType::INTERRUPT) || match(TokenType::NAKED) || match(TokenType::REGPARM) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || match(TokenType::ZP) || match(TokenType::ABS) || match(TokenType::FAR) || tryParseAttribute() || match(TokenType::EXTENSION));
                     auto decl = parseFunctionDeclaration();
+                    if (isSig) decl->isSigned = true;  // 'signed'/'unsigned' were consumed with the qualifiers above
+                    if (isUnsig) decl->isSigned = false;
                     decl->isNoreturn = isNR;
                     decl->isFastcall = isFC;
                     decl->isInterrupt = isInterrupt;
@@ -534,14 +553,14 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     auto decl = parseVariableDeclaration(isVol, isConst, isStatic, false, isStriped);
                     if (auto* vd = dynamic_cast<VariableDeclaration*>(decl.get())) {
                         vd->isGlobal = true;
-                        vd->isSigned = !isUnsig;
+                        vd->isSigned = isUnsig ? false : (vd->isSigned || isSig);
                         vd->isExtern = isExtern;
                         vd->isStatic = isStatic;
                     } else if (auto* cs = dynamic_cast<CompoundStatement*>(decl.get())) {
                         for (auto& s : cs->statements) {
                             if (auto* vd2 = dynamic_cast<VariableDeclaration*>(s.get())) {
                                 vd2->isGlobal = true;
-                                vd2->isSigned = isSig;
+                                vd2->isSigned = isUnsig ? false : (vd2->isSigned || isSig);
                                 vd2->isExtern = isExtern;
                                 vd2->isStatic = isStatic;
                             }
@@ -558,6 +577,8 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     if (isRegparm) match(TokenType::REGPARM);
                 while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || tryParseAttribute() || match(TokenType::EXTENSION));
                 auto decl = parseFunctionDeclaration();
+                if (isSig) decl->isSigned = true;  // 'signed'/'unsigned' were consumed with the qualifiers above
+                    if (isUnsig) decl->isSigned = false;
                 decl->isNoreturn = isNR;
                 decl->isFastcall = isFC;
                 decl->isInterrupt = isInterrupt;
@@ -590,6 +611,8 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     if (isRegparm) match(TokenType::REGPARM);
                     while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || tryParseAttribute() || match(TokenType::EXTENSION));
                     auto decl = parseFunctionDeclaration();
+                    if (isSig) decl->isSigned = true;  // 'signed'/'unsigned' were consumed with the qualifiers above
+                    if (isUnsig) decl->isSigned = false;
                     decl->isStatic = isStatic;
                     decl->isInline = isInlineFunc;
                     flushPending(*unit);
@@ -603,7 +626,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                 if (auto* vd = dynamic_cast<VariableDeclaration*>(decl.get())) {
                     vd->isGlobal = true;
                     vd->isExtern = isExtern;
-                    vd->isSigned = !isUnsig; // implicit int: signed unless 'unsigned' was explicit
+                    vd->isSigned = isUnsig ? false : (vd->isSigned || isSig || signedDefault); // implicit int follows the active default
                 }
                 flushPending(*unit);
                 unit->topLevelDecls.push_back(std::move(decl));
@@ -619,6 +642,8 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
             if (isInlineFunc) match(TokenType::INLINE);
             while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || tryParseAttribute() || match(TokenType::EXTENSION));
             auto decl = parseFunctionDeclaration();
+            if (isSig) decl->isSigned = true;  // 'signed'/'unsigned' were consumed with the qualifiers above
+                    if (isUnsig) decl->isSigned = false;
             decl->isNoreturn = isNR;
             decl->isFastcall = isFC;
             decl->isInterrupt = isInterrupt;
@@ -770,6 +795,9 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
             advance(); // consume 'void'
         }
         else if (peek().type != TokenType::CLOSE_PAREN) {
+        auto markParamPos = [](Parameter& p, const Token& t) {
+            p.sourceFile = t.sourceFile; p.line = t.line; p.column = t.column;
+        };
         do {
             bool pIsVolatile = false;
             bool pIsConst = false;
@@ -800,6 +828,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
                         p.isConst = pIsConst;
                         p.isFunctionPointer = true;
                         p.funcPtrSig = ts.funcPtrSig;
+                        markParamPos(p, tokens[pos - 1]);
                         params.push_back(p);
                         continue;
                     }
@@ -808,6 +837,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
                     // K&R style: parameter is just a name, type declared after ')'
                     std::string pName = advance().value;
                     params.push_back({"int", 0, false, pName, pIsVolatile, pIsConst, false, false, nullptr});
+                    markParamPos(params.back(), tokens[pos - 1]);
                     continue; // skip the pointer/name parsing below
                 }
                 else {
@@ -818,11 +848,15 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
 
             int pPtrLevel = pBasePtrLevel;
 
-            // Check for function pointer parameter: type (*name)(params)
-            if (peek().type == TokenType::OPEN_PAREN && pos + 1 < tokens.size() && tokens[pos + 1].type == TokenType::STAR) {
-                advance(); // consume '('
+            // Check for function pointer parameter: type (*name)(params), also
+            // with the declarator in extra parentheses: type ((*name)(params))
+            size_t fpParens = 0;
+            while (pos + fpParens < tokens.size() && tokens[pos + fpParens].type == TokenType::OPEN_PAREN) fpParens++;
+            if (fpParens > 0 && pos + fpParens < tokens.size() && tokens[pos + fpParens].type == TokenType::STAR) {
+                for (size_t k = 0; k < fpParens; k++) advance(); // the '('s
                 advance(); // consume '*'
                 std::string pName;
+                const Token& fpNameTok = peek();
                 if (peek().type == TokenType::IDENTIFIER) {
                     pName = advance().value;
                 } else {
@@ -830,6 +864,8 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
                 }
                 expect(TokenType::CLOSE_PAREN, "Expected ')' after function pointer name");
                 auto sig = parseFuncPtrParams(pType, pPtrLevel, pIsSigned);
+                for (size_t k = 1; k < fpParens; k++)
+                    expect(TokenType::CLOSE_PAREN, "Expected ')' after function pointer declarator");
                 Parameter p;
                 p.type = "void";
                 p.pointerLevel = 1;
@@ -839,6 +875,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
                 p.isConst = pIsConst;
                 p.isFunctionPointer = true;
                 p.funcPtrSig = sig;
+                markParamPos(p, fpNameTok);
                 params.push_back(p);
                 continue;
             }
@@ -853,6 +890,10 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
             }
 
             std::string pName;
+            std::shared_ptr<Expression> pVlaSize;  // int a[n++]
+            std::vector<int> pInnerDims;           // int a[][M]
+            std::vector<std::shared_ptr<Expression>> pInnerDimExprs;
+            const Token& pNameTok = peek();
             if (peek().type == TokenType::IDENTIFIER) {
                 pName = advance().value;
             } else {
@@ -868,35 +909,48 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
             if (peek().type == TokenType::OPEN_SQUARE) {
                 pPtrLevel++; // first [] decays to pointer
                 advance(); // consume '['
-                // Skip the dimension expression (may be empty for [])
+                // The dimension (may be empty for []): only a non-constant one
+                // matters, for its side effects (int a[n++])
+                if (match(TokenType::STATIC)) {}  // int a[static 10]
                 if (peek().type != TokenType::CLOSE_SQUARE) {
-                    int depth = 1;
-                    while (depth > 0 && peek().type != TokenType::END_OF_FILE) {
-                        if (peek().type == TokenType::OPEN_SQUARE) depth++;
-                        else if (peek().type == TokenType::CLOSE_SQUARE) { depth--; if (depth > 0) advance(); else break; }
-                        else advance();
-                    }
+                    auto dimExpr = parseExpression();
+                    long cv;
+                    if (dimExpr && !evalConstInt(dimExpr.get(), cv)) pVlaSize = std::move(dimExpr);
                 }
                 expect(TokenType::CLOSE_SQUARE, "Expected ']' in array parameter");
-                // Additional dimensions: int a[][M], int a[2][3]
+                // Additional dimensions: int a[][M], int a[2][3] — kept when
+                // constant (the parameter points to an array of them)
+                bool knownDims = true;
                 while (peek().type == TokenType::OPEN_SQUARE) {
                     advance(); // consume '['
                     if (peek().type != TokenType::CLOSE_SQUARE) {
-                        int depth2 = 1;
-                        while (depth2 > 0 && peek().type != TokenType::END_OF_FILE) {
-                            if (peek().type == TokenType::OPEN_SQUARE) depth2++;
-                            else if (peek().type == TokenType::CLOSE_SQUARE) { depth2--; if (depth2 > 0) advance(); else break; }
-                            else advance();
+                        auto dimExpr = parseExpression();
+                        long cv;
+                        if (dimExpr && evalConstInt(dimExpr.get(), cv) && cv > 0) {
+                            pInnerDims.push_back((int)cv);
+                            pInnerDimExprs.push_back(nullptr);
+                        } else if (dimExpr) {
+                            pInnerDims.push_back(0);  // run-time dimension
+                            pInnerDimExprs.push_back(std::shared_ptr<Expression>(std::move(dimExpr)));
+                        } else {
+                            knownDims = false;
                         }
+                    } else {
+                        knownDims = false;
                     }
                     expect(TokenType::CLOSE_SQUARE, "Expected ']' in array parameter");
                 }
+                if (!knownDims) { pInnerDims.clear(); pInnerDimExprs.clear(); }
             }
 
             // Skip __attribute__ after array params
             while (tryParseAttribute()) {}
 
             params.push_back({pType, pPtrLevel, pIsSigned, pName, pIsVolatile, pIsConst, pIsPointerConst, false, nullptr});
+            params.back().vlaSizeExpr = std::move(pVlaSize);
+            params.back().innerArrayDims = pInnerDims;
+            params.back().innerDimExprs = pInnerDimExprs;
+            markParamPos(params.back(), pNameTok);
         } while (match(TokenType::COMMA) && peek().type != TokenType::ELLIPSIS);
         }
     }
@@ -978,6 +1032,11 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
         func->isRegparm = isRegparm;
         func->isPrototype = true;
         func->isVariadic = isVariadic;
+        func->isAlwaysInline = pendingAlwaysInline_;
+        func->alignment = takePendingAlign();
+        applyAlias(func->name);
+        func->isNoInline = pendingNoInline_;
+        pendingAlwaysInline_ = pendingNoInline_ = false;
         return func;
     }
 
@@ -998,6 +1057,11 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     func->isRegparm = isRegparm;
     func->isVariadic = isVariadic;
     func->isInline = isInline;
+    func->isAlwaysInline = pendingAlwaysInline_;
+    func->alignment = takePendingAlign();
+    applyAlias(func->name);
+    func->isNoInline = pendingNoInline_;
+    pendingAlwaysInline_ = pendingNoInline_ = false;
     func->isStatic = isStatic;
 
     if (currentFunction) {
@@ -1030,7 +1094,22 @@ std::unique_ptr<CompoundStatement> Parser::parseCompoundStatement() {
     const Token& startToken = expect(TokenType::OPEN_BRACE, "Expected '{'");
     auto compound = setPos(std::make_unique<CompoundStatement>(), startToken);
     while (peek().type != TokenType::CLOSE_BRACE && peek().type != TokenType::END_OF_FILE) {
-        compound->statements.push_back(parseStatement());
+        size_t pendingBefore = pendingDefinitions.size();
+        auto stmt = parseStatement();
+        // A struct with run-time member sizes (char x[n]) defined by this
+        // statement stays here, before it: its sizes are evaluated where it is
+        for (size_t i = pendingBefore; i < pendingDefinitions.size();) {
+            auto* sd = dynamic_cast<StructDefinition*>(pendingDefinitions[i].get());
+            bool vm = false;
+            if (sd) for (const auto& m : sd->members) for (const auto& d : m.vlaDimExprs) if (d) vm = true;
+            if (vm) {
+                compound->statements.push_back(std::unique_ptr<Statement>(static_cast<Statement*>(pendingDefinitions[i].release())));
+                pendingDefinitions.erase(pendingDefinitions.begin() + i);
+            } else {
+                i++;
+            }
+        }
+        compound->statements.push_back(std::move(stmt));
     }
     expect(TokenType::CLOSE_BRACE, "Expected '}'");
     return compound;
@@ -1051,8 +1130,13 @@ std::unique_ptr<Statement> Parser::parseStatement() {
     }
 
     if (match(TokenType::TYPEDEF)) {
-        parseTypedef();
-        return setPos(std::make_unique<CompoundStatement>(), tokens[pos-1]); // Dummy empty statement
+        parseTypedef(); pendingAlign_ = 0;  // aligned on a typedef is not supported
+        auto group = setPos(std::make_unique<CompoundStatement>(), tokens[pos-1]);
+        group->isDeclGroup = true;
+        // typedef int T[n]: n evaluated here
+        for (auto& d : typedefVlaDecls_) group->statements.push_back(std::move(d));
+        typedefVlaDecls_.clear();
+        return group;
     }
 
     // GCC __label__ local label declaration: __label__ lbl1, lbl2, ...;
@@ -1163,6 +1247,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
             while (match(TokenType::STAR)) ptrLevel++;
             std::string varName = expect(TokenType::IDENTIFIER, "Expected variable name after struct definition").value;
             auto vDecl = std::make_unique<VariableDeclaration>(sType, varName, ptrLevel);
+            declTypes_[varName] = {sType, ptrLevel, false};
             vDecl->isVolatile = isVolatile;
             vDecl->isConst = isConst;
             vDecl->isStatic = isStatic;
@@ -1174,7 +1259,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
                 } else {
                     auto szExpr = parseExpression();
                     int sz = 1;
-                    if (auto* lit = dynamic_cast<IntegerLiteral*>(szExpr.get())) sz = (int)lit->value;
+                    { long cv; if (evalConstInt(szExpr.get(), cv)) sz = (int)cv; }
                     vDecl->arrayDims.push_back(sz);
                     expect(TokenType::CLOSE_SQUARE, "Expected ']'");
                 }
@@ -1202,7 +1287,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
                     else {
                         auto se = parseExpression();
                         int ss = 1;
-                        if (auto* lit = dynamic_cast<IntegerLiteral*>(se.get())) ss = (int)lit->value;
+                        { long cv; if (evalConstInt(se.get(), cv)) ss = (int)cv; }
                         ev->arrayDims.push_back(ss);
                         expect(TokenType::CLOSE_SQUARE, "Expected ']'");
                     }
@@ -1218,6 +1303,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
                 return vDecl;
             }
             auto compound = std::make_unique<CompoundStatement>();
+            compound->isDeclGroup = true;
             compound->statements.push_back(std::move(vDecl));
             for (auto& ev : extraVars) compound->statements.push_back(std::move(ev));
             return compound;
@@ -1440,40 +1526,85 @@ std::unique_ptr<Statement> Parser::parseStatement() {
         if (peek().type == TokenType::IDENTIFIER && peek().value == "goto") advance();
         expect(TokenType::OPEN_PAREN, "Expected '(' after asm");
         std::string code = expect(TokenType::STRING_LITERAL, "Expected string literal for asm code").value;
-        // Extended asm: "template" : outputs : inputs : clobbers
-        // Parse and discard constraint sections (template is still emitted)
-        for (int section = 0; section < 3 && match(TokenType::COLON); section++) {
-            // Each section is comma-separated: "constraint" (expr) or just "string"
-            if (peek().type == TokenType::CLOSE_PAREN || peek().type == TokenType::COLON)
+        while (peek().type == TokenType::STRING_LITERAL) code += advance().value;  // "a" "b"
+        // Extended asm: "template" : outputs : inputs : clobbers [: labels]
+        // The template is emitted as is (no %N substitution). The operands
+        // keep their meaning around it: inputs are evaluated, an output tied
+        // to an input ("0") receives the input's value, and a "+" output's
+        // lvalue is evaluated once
+        struct AsmOperand { std::string constraint; std::unique_ptr<Expression> expr; };
+        std::vector<AsmOperand> asmOps[2];   // outputs, inputs
+        bool pendingColon = false;           // the second half of a '::' token
+        auto takeColon = [&]() {
+            if (pendingColon) { pendingColon = false; return true; }
+            if (match(TokenType::COLON)) return true;
+            if (match(TokenType::SCOPE_RESOLUTION)) { pendingColon = true; return true; }
+            return false;
+        };
+        for (int section = 0; section < 4 && takeColon(); section++) {
+            if (pendingColon || peek().type == TokenType::CLOSE_PAREN || peek().type == TokenType::COLON ||
+                peek().type == TokenType::SCOPE_RESOLUTION)
                 continue; // empty section
             do {
-                // Skip optional constraint name [name]
-                if (peek().type == TokenType::OPEN_SQUARE) {
-                    advance();
+                // Optional symbolic name [name]
+                if (match(TokenType::OPEN_SQUARE)) {
                     while (peek().type != TokenType::CLOSE_SQUARE && peek().type != TokenType::END_OF_FILE)
                         advance();
                     match(TokenType::CLOSE_SQUARE);
                 }
-                if (peek().type == TokenType::STRING_LITERAL) {
-                    advance(); // constraint string
-                    if (match(TokenType::OPEN_PAREN)) {
-                        // Parse and discard the operand expression
-                        int depth = 1;
-                        while (depth > 0 && peek().type != TokenType::END_OF_FILE) {
-                            if (match(TokenType::OPEN_PAREN)) depth++;
-                            else if (peek().type == TokenType::CLOSE_PAREN) { depth--; if (depth > 0) advance(); }
-                            else advance();
-                        }
-                        match(TokenType::CLOSE_PAREN);
+                if (section == 3) {
+                    // asm goto labels
+                    expect(TokenType::IDENTIFIER, "Expected label in asm goto");
+                } else if (peek().type == TokenType::STRING_LITERAL) {
+                    std::string constraint = advance().value;
+                    while (peek().type == TokenType::STRING_LITERAL) constraint += advance().value;
+                    if (section < 2) {
+                        expect(TokenType::OPEN_PAREN, "Expected '(' before asm operand");
+                        auto e = parseExpression();
+                        expect(TokenType::CLOSE_PAREN, "Expected ')' after asm operand");
+                        asmOps[section].push_back({constraint, std::move(e)});
                     }
                 } else {
-                    break; // not a constraint
+                    break;
                 }
             } while (match(TokenType::COMMA));
         }
         expect(TokenType::CLOSE_PAREN, "Expected ')' after asm");
         expect(TokenType::SEMICOLON, "Expected ';'");
-        return setPos(std::make_unique<AsmStatement>(code), startToken);
+        if (asmOps[0].empty() && asmOps[1].empty())
+            return setPos(std::make_unique<AsmStatement>(code), startToken);
+
+        auto group = setPos(std::make_unique<CompoundStatement>(), startToken);
+        group->isDeclGroup = true;  // not a scope
+        auto isPlain = [](Expression* e) {
+            return dynamic_cast<VariableReference*>(e) || dynamic_cast<IntegerLiteral*>(e) ||
+                   dynamic_cast<StringLiteral*>(e);
+        };
+        // Inputs tied to an output: output index -> input
+        std::map<size_t, std::unique_ptr<Expression>> tied;
+        for (auto& in : asmOps[1]) {
+            const std::string& c = in.constraint;
+            if (!c.empty() && std::all_of(c.begin(), c.end(), ::isdigit)) {
+                size_t n = (size_t)std::stoul(c);
+                if (n < asmOps[0].size()) { tied[n] = std::move(in.expr); continue; }
+            }
+            if (!isPlain(in.expr.get()))
+                group->statements.push_back(setPos(std::make_unique<ExpressionStatement>(std::move(in.expr)), startToken));
+        }
+        group->statements.push_back(setPos(std::make_unique<AsmStatement>(code), startToken));
+        for (size_t i = 0; i < asmOps[0].size(); i++) {
+            auto& out = asmOps[0][i];
+            if (tied.count(i)) {
+                // The output register held the input's value
+                group->statements.push_back(setPos(std::make_unique<ExpressionStatement>(
+                    setPos(std::make_unique<Assignment>(std::move(out.expr), std::move(tied[i])), startToken)), startToken));
+            } else if (!isPlain(out.expr.get())) {
+                // Evaluate the lvalue for its side effects (the value is unchanged)
+                group->statements.push_back(setPos(std::make_unique<ExpressionStatement>(
+                    setPos(std::make_unique<UnaryOperation>("&", std::move(out.expr)), startToken)), startToken));
+            }
+        }
+        return group;
     }
 
     if (peek().type == TokenType::STATIC_ASSERT) {
@@ -1525,9 +1656,12 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
             addressSpace = ts.addressSpace;  // Phase 97: Extract address space
             // skip pointer levels in typeof (already consumed by parseTypeSpecifier)
         } else {
-            // Parse as expression, infer type (default to int)
+            // typeof(expression): a variable's declared type, else int
             auto expr = parseExpression();
-            type = "int"; // conservative: most expressions are int-width
+            DeclType dt = typeofExpr(expr.get());
+            type = dt.type;
+            isSigned = dt.isSigned;
+            basePtrLevel = dt.ptrLevel;
         }
         expect(TokenType::CLOSE_PAREN, "Expected ')' after typeof");
     } else {
@@ -1599,7 +1733,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
                     } else {
                         auto szExpr = parseExpression();
                         int sz = 1;
-                        if (auto* lit = dynamic_cast<IntegerLiteral*>(szExpr.get())) sz = (int)lit->value;
+                        { long cv; if (evalConstInt(szExpr.get(), cv)) sz = (int)cv; }
                         decl->arrayDims.push_back(sz);
                         expect(TokenType::CLOSE_SQUARE, "Expected ']'");
                     }
@@ -1670,7 +1804,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
             } else {
                 auto szExpr = parseExpression();
                 int arrSize = 1;
-                if (auto* lit = dynamic_cast<IntegerLiteral*>(szExpr.get())) arrSize = (int)lit->value;
+                { long cv; if (evalConstInt(szExpr.get(), cv)) arrSize = (int)cv; }
                 fpArrayDims.push_back(arrSize);
                 expect(TokenType::CLOSE_SQUARE, "Expected ']'");
             }
@@ -1690,6 +1824,30 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
         }
 
         expect(TokenType::CLOSE_PAREN, "Expected ')' after function pointer name");
+        // A pointer to an array: T (*name)[N]...
+        if (peek().type == TokenType::OPEN_SQUARE && fpArrayDims.empty()) {
+            auto decl = setPos(std::make_unique<VariableDeclaration>(type, fpName, ptrLevel + 1), typeToken);
+            decl->isSigned = isSigned;
+            decl->isVolatile = isVolatile;
+            decl->isConst = isConst;
+            decl->isStatic = isStatic;
+            decl->isRegister = isRegister;
+            decl->alignmentExpr = std::move(alignmentExpr);
+            while (match(TokenType::OPEN_SQUARE)) {
+                auto szExpr = parseExpression();
+                int arrSize = 1;
+                { long cv; if (evalConstInt(szExpr.get(), cv)) arrSize = (int)cv; }
+                decl->ptrArrayDims.push_back(arrSize);
+                expect(TokenType::CLOSE_SQUARE, "Expected ']'");
+            }
+            while (tryParseAttribute()) {}
+            if (match(TokenType::EQUALS)) {
+                if (peek().type == TokenType::OPEN_BRACE) decl->initializer = parseInitializerList();
+                else decl->initializer = parseExpression();
+            }
+            expect(TokenType::SEMICOLON, "Expected ';'");
+            return decl;
+        }
         auto fpSig = parseFuncPtrParams(type, ptrLevel, isSigned);
         auto decl = setPos(std::make_unique<VariableDeclaration>("void", fpName, 1), typeToken);
         decl->isSigned = false;
@@ -1715,6 +1873,8 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
 
     std::string name = expect(TokenType::IDENTIFIER, "Expected variable name").value;
     std::vector<int> arrayDims;
+    std::vector<std::shared_ptr<Expression>> vlaDimExprs;
+    bool isVla = false;
     bool unsizedArray = false;
     while (match(TokenType::OPEN_SQUARE)) {
         if (peek().type == TokenType::CLOSE_SQUARE) {
@@ -1725,7 +1885,8 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
             auto sizeExpr = parseExpression();
             // Evaluate constant array size: integer literals, sizeof, constant expressions
             int arrSize = 0;
-            if (auto* lit = dynamic_cast<IntegerLiteral*>(sizeExpr.get())) arrSize = (int)lit->value;
+            long cv;
+            if (evalConstInt(sizeExpr.get(), cv)) arrSize = (int)cv;
             else if (auto* szExpr = dynamic_cast<SizeofExpression*>(sizeExpr.get())) {
                 if (szExpr->typeName == "int" || szExpr->typeName == "short") arrSize = 2;
                 else if (szExpr->typeName == "long") arrSize = 4;
@@ -1733,14 +1894,25 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
                 else arrSize = 2; // default
                 for (int _p = 0; _p < szExpr->pointerLevel; _p++) arrSize = 2;
             }
-            else arrSize = 1; // fallback for non-constant expressions
+            else arrSize = 0; // a run-time size: a variable-length array
+            if (arrSize == 0 && !dynamic_cast<SizeofExpression*>(sizeExpr.get())) {
+                isVla = true;
+                vlaDimExprs.push_back(std::shared_ptr<Expression>(std::move(sizeExpr)));
+            } else {
+                vlaDimExprs.push_back(nullptr);
+            }
             arrayDims.push_back(arrSize);
         }
+        if (vlaDimExprs.size() < arrayDims.size()) vlaDimExprs.push_back(nullptr);
         expect(TokenType::CLOSE_SQUARE, "Expected ']' after array size");
     }
     // Append typedef array dimensions
     arrayDims.insert(arrayDims.end(), typedefArrayDims.begin(), typedefArrayDims.end());
     auto decl = setPos(std::make_unique<VariableDeclaration>(type, name, ptrLevel), typeToken);
+    if (isVla) {
+        vlaDimExprs.resize(arrayDims.size());  // typedef dimensions are constant
+        decl->vlaDimExprs = std::move(vlaDimExprs);
+    }
     decl->isSigned = isSigned;
     decl->isVolatile = isVolatile;
     decl->isConst = isConst;
@@ -1751,6 +1923,8 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
     decl->addressSpace = addressSpace;  // Phase 97: Set address space qualifier
     decl->alignmentExpr = std::move(alignmentExpr);
     decl->arrayDims = arrayDims;
+    // int x __attribute__((aligned(8))) = 5;
+    while (tryParseAttribute()) {}
 
     if (match(TokenType::EQUALS)) {
         if (peek().type == TokenType::OPEN_BRACE) {
@@ -1769,12 +1943,26 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
         }
     }
 
+    {
+        int es = scalarTypeSize(type, ptrLevel);
+        if (es > 0) {
+            long n = es;
+            for (int d : decl->arrayDims) n *= d;
+            varByteSizes[name] = n;
+        }
+    }
+
     // Skip __attribute__ after variable declaration: int x __attribute__((unused));
     while (tryParseAttribute()) {}
+    decl->alignment = std::max(decl->alignment, takePendingAlign());
+    applyAlias(decl->name);
+    applyVectorMode(decl->type, decl->pointerLevel, decl->isSigned);
+    declTypes_[decl->name] = {decl->type, decl->pointerLevel, decl->isSigned};
 
     // --- Multi-variable declarations: int a, b = 3, *c, d[4]; ---
     if (peek().type == TokenType::COMMA) {
         auto compound = setPos(std::make_unique<CompoundStatement>(), typeToken);
+        compound->isDeclGroup = true;
         compound->statements.push_back(std::move(decl));
 
         while (match(TokenType::COMMA)) {
@@ -1788,6 +1976,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
                 else if (!match(TokenType::VOLATILE)) match(TokenType::RESTRICT);
             }
             std::string extraName = expect(TokenType::IDENTIFIER, "Expected variable name").value;
+            declTypes_[extraName] = {type, extraPtr, isSigned};
             std::vector<int> extraDims;
             bool extraUnsized = false;
             while (match(TokenType::OPEN_SQUARE)) {
@@ -1797,7 +1986,8 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
                 } else {
                     auto stExpr = parseExpression();
                     int estSize = 0;
-                    if (auto* lit = dynamic_cast<IntegerLiteral*>(stExpr.get())) estSize = (int)lit->value;
+                    long cv;
+                    if (evalConstInt(stExpr.get(), cv)) estSize = (int)cv;
                     else estSize = 1;
                     extraDims.push_back(estSize);
                 }
@@ -1855,6 +2045,7 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
     bool isUnpacked = match(TokenType::UNPACKED);
     // Skip __attribute__ after struct/union keyword: struct __attribute__((packed)) S { }
     while (tryParseAttribute()) {}
+    int structAlign = takePendingAlign();
     std::string name;
     if (peek().type == TokenType::IDENTIFIER) {
         name = advance().value;
@@ -1888,6 +2079,7 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
     def->isUnpacked = isUnpacked;
     def->isFinal = structIsFinal;
     def->parentStruct = parentStruct;
+    def->alignment = structAlign;
 
     // Validate: cannot inherit from a final struct
     if (!parentStruct.empty() && structs.count(parentStruct) && structs[parentStruct]->isFinal) {
@@ -1913,7 +2105,10 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
         }
 
         if (!isUnion && (methodIsVirtual || methodIsStatic || isFunctionDeclaration())) {
+            // 'this' in a non-static method body names the hidden __this parameter
+            if (!methodIsStatic) inStructMethod_++;
             auto method = parseFunctionDeclaration();
+            if (!methodIsStatic) inStructMethod_--;
             method->isVirtual = methodIsVirtual;
             method->isStatic = methodIsStatic;
             // Mangle name: StructName__methodName
@@ -1995,6 +2190,7 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
         bool mIsSigned = false;
         int basePtrLevel = 0;
         std::vector<int> typedefArrayDims;
+        std::vector<std::string> memberTypedefVla;
         if (peek().type == TokenType::ATTRIBUTE) {
             // __attribute__ as member type prefix — skip and retry
             while (tryParseAttribute()) {}
@@ -2009,6 +2205,7 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
             mIsSigned = ts.isSigned;
             basePtrLevel = ts.pointerLevel;
             typedefArrayDims = ts.arrayDims;
+            memberTypedefVla = ts.vlaDimVars;
             if (ts.isConst) mIsConst = true;
         }
         // Skip __attribute__ after type, before pointer/name
@@ -2070,23 +2267,43 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
 
         std::string memberName = expect(TokenType::IDENTIFIER, "Expected member name").value;
         std::vector<int> memberArrayDims;
+        std::vector<std::unique_ptr<Expression>> memberVlaDims;
+        bool memberIsVla = false;
         bool isFlexArray = false;
         while (match(TokenType::OPEN_SQUARE)) {
             if (match(TokenType::CLOSE_SQUARE)) {
                 // Flexible array member: type name[];
                 isFlexArray = true;
                 memberArrayDims.push_back(0);
+                memberVlaDims.push_back(nullptr);
             } else {
                 auto mSizeExpr = parseExpression();
                 int mArrSize = 0;
-                if (auto* lit = dynamic_cast<IntegerLiteral*>(mSizeExpr.get())) mArrSize = (int)lit->value;
-                else mArrSize = 1;
+                long cv;
+                if (evalConstInt(mSizeExpr.get(), cv)) {
+                    mArrSize = (int)cv;
+                    memberVlaDims.push_back(nullptr);
+                } else {
+                    // A run-time size (a struct defined in a function)
+                    mArrSize = 1;
+                    memberVlaDims.push_back(std::move(mSizeExpr));
+                    memberIsVla = true;
+                }
                 memberArrayDims.push_back(mArrSize);
                 expect(TokenType::CLOSE_SQUARE, "Expected ']' after array size");
             }
         }
-        // Append typedef array dimensions
-        memberArrayDims.insert(memberArrayDims.end(), typedefArrayDims.begin(), typedefArrayDims.end());
+        // Append typedef array dimensions (run-time ones read their hidden variable)
+        memberVlaDims.resize(memberArrayDims.size());
+        for (size_t td = 0; td < typedefArrayDims.size(); td++) {
+            memberArrayDims.push_back(typedefArrayDims[td]);
+            if (td < memberTypedefVla.size() && !memberTypedefVla[td].empty()) {
+                memberVlaDims.push_back(std::make_unique<VariableReference>(memberTypedefVla[td]));
+                memberIsVla = true;
+            } else {
+                memberVlaDims.push_back(nullptr);
+            }
+        }
         if (isFlexArray && memberArrayDims.size() > 1)
             throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "Flexible array member '" + memberName + "' cannot be multi-dimensional"));
         int memberBitWidth = 0;
@@ -2106,9 +2323,14 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
         while (tryParseAttribute()) {}
         StructMember sm;
         sm.type = type; sm.pointerLevel = ptrLevel; sm.isSigned = mIsSigned;
-        sm.name = memberName; sm.isConst = mIsConst; sm.alignment = 0;
+        sm.name = memberName; sm.isConst = mIsConst; sm.alignment = takePendingAlign();
         sm.alignmentExpr = std::move(mAlignmentExpr); sm.isAnonymous = false;
         sm.arrayDims = memberArrayDims; sm.bitWidth = memberBitWidth;
+        sm.isFlexible = isFlexArray;
+        if (memberIsVla) {
+            memberVlaDims.resize(memberArrayDims.size());
+            sm.vlaDimExprs = std::move(memberVlaDims);
+        }
         def->members.push_back(std::move(sm));
 
         // Multi-member declarations: long p_x, p_y;
@@ -2117,8 +2339,9 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
             while (match(TokenType::STAR)) extraPtr++;
             std::string extraName = expect(TokenType::IDENTIFIER, "Expected member name").value;
             std::vector<int> extraDims;
+            bool extraFlex = false;
             while (match(TokenType::OPEN_SQUARE)) {
-                if (match(TokenType::CLOSE_SQUARE)) { extraDims.push_back(0); }
+                if (match(TokenType::CLOSE_SQUARE)) { extraDims.push_back(0); extraFlex = true; }
                 else {
                     extraDims.push_back(std::stoi(expect(TokenType::INTEGER_LITERAL, "Expected array size").value));
                     expect(TokenType::CLOSE_SQUARE, "Expected ']'");
@@ -2135,17 +2358,24 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
             esm.type = type; esm.pointerLevel = extraPtr; esm.isSigned = mIsSigned;
             esm.name = extraName; esm.isConst = mIsConst;
             esm.arrayDims = extraDims; esm.bitWidth = extraBitWidth;
+            esm.isFlexible = extraFlex;
+            esm.alignment = takePendingAlign();
             def->members.push_back(std::move(esm));
         }
         while (tryParseAttribute()) {}
         expect(TokenType::SEMICOLON, "Expected ';'");
     }
     expect(TokenType::CLOSE_BRACE, "Expected '}'");
+    // struct S { ... } __attribute__((aligned(N)))
+    while (tryParseAttribute()) {}
+    def->alignment = std::max(def->alignment, takePendingAlign());
 
     // Phase 3: If this struct has virtual methods, insert __vt pointer as first member
     if (def->hasVirtual || (!def->parentStruct.empty() && structs.count(def->parentStruct) && structs[def->parentStruct]->hasVirtual)) {
-        // Check if __vt already exists (inherited from parent)
-        bool hasVt = false;
+        // Check if __vt already exists: a parent with virtual methods has it
+        // at offset 0 (the parent's members are laid out first)
+        bool hasVt = !def->parentStruct.empty() && structs.count(def->parentStruct) &&
+                     structs[def->parentStruct]->hasVirtual;
         for (const auto& m : def->members) { if (m.name == "__vt") { hasVt = true; break; } }
         if (!hasVt) {
             StructMember vtMember;
@@ -2194,7 +2424,8 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
     // Validate flexible array members (C99)
     for (size_t i = 0; i < def->members.size(); i++) {
         auto& m = def->members[i];
-        bool isFAM = (!m.arrayDims.empty() && m.arrayDims[0] == 0 && m.arrayDims.size() == 1);
+        // name[0] (GNU zero-length array) may be anywhere, also alone or in a union
+        bool isFAM = m.isFlexible && m.arrayDims.size() == 1;
         if (isFAM) {
             if (def->isUnion) {
                 throw std::runtime_error(formatDiagnostic(startToken.sourceFile, startToken.line, startToken.column, Severity::Error, "Flexible array member '" + m.name + "' not allowed in union"));
@@ -2412,27 +2643,21 @@ std::unique_ptr<Expression> Parser::parseUnary() {
         const Token& startToken = tokens[pos];
         advance(); // consume '('
         advance(); // consume '{'
-        // Parse statements until we hit '}'
-        // The last expression before '}' is the result value
-        std::unique_ptr<Expression> resultExpr = nullptr;
-        while (peek().type != TokenType::CLOSE_BRACE && peek().type != TokenType::END_OF_FILE) {
-            // Try to parse as a statement
-            auto stmt = parseStatement();
-            // If this is an ExpressionStatement, it might be our result
-            if (auto* exprStmt = dynamic_cast<ExpressionStatement*>(stmt.get())) {
-                // Capture this expression as potential result (will be overwritten if more stmts follow)
-                resultExpr = std::move(exprStmt->expression);
-            }
-        }
+        // Parse statements until '}'; a final expression statement is the value
+        auto stmtExpr = std::make_unique<StatementExpression>();
+        stmtExpr->body = std::make_unique<CompoundStatement>();
+        while (peek().type != TokenType::CLOSE_BRACE && peek().type != TokenType::END_OF_FILE)
+            stmtExpr->body->statements.push_back(parseStatement());
         expect(TokenType::CLOSE_BRACE, "Expected '}' in statement expression");
         expect(TokenType::CLOSE_PAREN, "Expected ')' after statement expression");
-        // Statement expressions yield their last value (or 0 if no expression found)
-        std::unique_ptr<Expression> result;
-        if (resultExpr) {
-            result = setPos(std::move(resultExpr), startToken);
-        } else {
-            result = setPos(std::make_unique<IntegerLiteral>(0), startToken);
+        auto& stmts = stmtExpr->body->statements;
+        if (!stmts.empty()) {
+            if (auto* exprStmt = dynamic_cast<ExpressionStatement*>(stmts.back().get())) {
+                stmtExpr->result = std::move(exprStmt->expression);
+                stmts.pop_back();
+            }
         }
+        std::unique_ptr<Expression> result = setPos(std::move(stmtExpr), startToken);
         // Allow postfix operators: ({...}).member, ({...})[i]
         while (peek().type == TokenType::DOT || peek().type == TokenType::ARROW ||
                peek().type == TokenType::OPEN_SQUARE) {
@@ -2460,6 +2685,7 @@ std::unique_ptr<Expression> Parser::parseUnary() {
         std::string castType;
         bool castSigned = false;
         int castPtrLevel = 0;
+        std::vector<int> castArrayDims;
         bool castVolatile = false, castConst = false;
 
         if (isTypeStartToken()) {
@@ -2470,15 +2696,22 @@ std::unique_ptr<Expression> Parser::parseUnary() {
             castVolatile = ts.isVolatile;
             castConst = ts.isConst;
 
-            // Array cast: (int []) or (int [N]) — array compound literal
+            // Array type: (int []) or (int [N]) — an array compound literal;
+            // a 0 dimension is taken from the initializer
             while (peek().type == TokenType::OPEN_SQUARE) {
                 advance(); // [
-                if (peek().type != TokenType::CLOSE_SQUARE) {
-                    // Skip size expression
+                int dim = 0;
+                if (peek().type == TokenType::INTEGER_LITERAL && pos + 1 < tokens.size() &&
+                    tokens[pos + 1].type == TokenType::CLOSE_SQUARE) {
+                    std::string v = advance().value;
+                    while (!v.empty() && std::strchr("uUlL", v.back())) v.pop_back();
+                    dim = (int)std::stoll(v, nullptr, 0);
+                } else {
+                    // Skip a size expression (taken from the initializer)
                     while (peek().type != TokenType::CLOSE_SQUARE && peek().type != TokenType::END_OF_FILE) advance();
                 }
                 expect(TokenType::CLOSE_SQUARE, "Expected ']' in array cast");
-                castPtrLevel++; // array decays to pointer
+                castArrayDims.push_back(dim);
             }
 
             // Function pointer cast: (return_type (*)(params))
@@ -2515,12 +2748,8 @@ std::unique_ptr<Expression> Parser::parseUnary() {
                 auto initList = parseInitializerList();
                 std::unique_ptr<InitializerList> initListPtr(static_cast<InitializerList*>(initList.release()));
                 auto cl = std::make_unique<CompoundLiteral>(castType, castPtrLevel, castSigned, std::move(initListPtr));
-                // For array compound literals like (int[]){1,2,3}, infer dimension from element count
-                if (castPtrLevel == 0 && !castType.empty() && castType.substr(0, 7) != "struct " && castType.substr(0, 6) != "union ") {
-                    if (cl->initializer && cl->initializer->elements.size() > 1) {
-                        cl->arrayDims.push_back((int)cl->initializer->elements.size());
-                    }
-                }
+                // (T[]){...} / (T[N]){...}: an array (a 0 size comes from the initializer)
+                cl->arrayDims = castArrayDims;
                 std::unique_ptr<Expression> result = setPos(std::move(cl), startToken);
                 // Allow postfix operators on compound literals: (int[]){1,2}[0]
                 while (peek().type == TokenType::OPEN_SQUARE || peek().type == TokenType::DOT ||
@@ -2540,6 +2769,7 @@ std::unique_ptr<Expression> Parser::parseUnary() {
                 return result;
             }
             auto operand = parseUnary();
+            castPtrLevel += (int)castArrayDims.size();  // a cast to an array type decays
             return setPos(std::make_unique<CastExpression>(castType, castPtrLevel, castSigned, std::move(operand)), startToken);
         } else {
             pos = savedPos; // backtrack, let parsePrimary handle it as parenthesized expr
@@ -2583,13 +2813,23 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
         return parseGenericSelection();
     }
     if (match(TokenType::ALIGNOF)) {
+        bool gnuSpelling = tokens[pos-1].value != "_Alignof";  // __alignof__ also takes an expression
         expect(TokenType::OPEN_PAREN, "Expected '(' after '_Alignof'");
         if (isTypeStartToken()) {
             auto ts = parseTypeSpecifier();
             expect(TokenType::CLOSE_PAREN, "Expected ')' after _Alignof type");
             return setPos(std::make_unique<AlignofExpression>(ts.name, ts.pointerLevel), tokens[pos-1]);
-        } else {
+        } else if (!gnuSpelling) {
             throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "Expected type name in _Alignof"));
+        } else {
+            // GCC __alignof__(expression): the alignment of its type, or of
+            // the object or function it names
+            const Token& at = peek();
+            auto e = parseExpression();
+            expect(TokenType::CLOSE_PAREN, "Expected ')' after _Alignof expression");
+            auto ae = setPos(std::make_unique<AlignofExpression>("", 0), at);
+            ae->expression = std::move(e);
+            return ae;
         }
     }
 
@@ -2620,7 +2860,9 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
         expect(TokenType::CLOSE_PAREN, "Expected ')'");
         // Check if the argument is a compile-time constant
         bool isConst = false;
-        if (dynamic_cast<IntegerLiteral*>(arg.get())) isConst = true;
+        long cv0;
+        if (evalConstInt(arg.get(), cv0)) isConst = true;
+        else if (dynamic_cast<IntegerLiteral*>(arg.get())) isConst = true;
         else if (dynamic_cast<StringLiteral*>(arg.get())) isConst = true;
         else if (auto* unary = dynamic_cast<UnaryOperation*>(arg.get())) {
             if (dynamic_cast<IntegerLiteral*>(unary->operand.get())) isConst = true;
@@ -2629,6 +2871,22 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
                 dynamic_cast<IntegerLiteral*>(binop->right.get())) isConst = true;
         }
         expr = setPos(std::make_unique<IntegerLiteral>(isConst ? 1 : 0), bToken);
+    } else if (peek().type == TokenType::IDENTIFIER && peek().value == "__builtin_choose_expr") {
+        // __builtin_choose_expr(c, a, b) → a if the constant c is nonzero, else b
+        // (the other operand is not evaluated)
+        const Token& bToken = advance();
+        expect(TokenType::OPEN_PAREN, "Expected '(' after __builtin_choose_expr");
+        auto cond = parseConditional();
+        expect(TokenType::COMMA, "Expected ',' in __builtin_choose_expr");
+        auto a = parseConditional();
+        expect(TokenType::COMMA, "Expected ',' in __builtin_choose_expr");
+        auto b = parseConditional();
+        expect(TokenType::CLOSE_PAREN, "Expected ')'");
+        long cv;
+        if (!evalConstInt(cond.get(), cv))
+            throw std::runtime_error(formatDiagnostic(bToken.sourceFile, bToken.line, bToken.column, Severity::Error,
+                "first argument to __builtin_choose_expr is not a constant"));
+        expr = cv ? std::move(a) : std::move(b);
     } else if (peek().type == TokenType::IDENTIFIER && peek().value == "__builtin_offsetof") {
         // __builtin_offsetof(type, member) → compile-time offset
         const Token& bToken = advance();
@@ -2644,29 +2902,36 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
             ofType = expect(TokenType::IDENTIFIER, "Expected type name").value;
         }
         expect(TokenType::COMMA, "Expected ',' in __builtin_offsetof");
-        // Parse member (may include array subscripts: member[i][j])
+        // offsetof(T, m[i].n) is (unsigned)&((T *)0)->m[i].n
+        std::unique_ptr<Expression> cur = setPos(std::make_unique<CastExpression>(ofType, 1, false,
+            setPos(std::make_unique<IntegerLiteral>(0), bToken)), bToken);
         std::string memberName = expect(TokenType::IDENTIFIER, "Expected member name").value;
-        // Skip array subscripts if present
-        while (match(TokenType::OPEN_SQUARE)) {
-            while (peek().type != TokenType::CLOSE_SQUARE && peek().type != TokenType::END_OF_FILE) advance();
-            expect(TokenType::CLOSE_SQUARE, "Expected ']'");
-        }
-        // Skip nested member access (.submember)
-        while (match(TokenType::DOT)) {
-            expect(TokenType::IDENTIFIER, "Expected member name");
+        cur = setPos(std::make_unique<MemberAccess>(std::move(cur), memberName, true), bToken);
+        while (true) {
+            if (match(TokenType::OPEN_SQUARE)) {
+                auto idx = parseExpression();
+                expect(TokenType::CLOSE_SQUARE, "Expected ']'");
+                cur = setPos(std::make_unique<ArrayAccess>(std::move(cur), std::move(idx)), bToken);
+            } else if (match(TokenType::DOT)) {
+                std::string sub = expect(TokenType::IDENTIFIER, "Expected member name").value;
+                cur = setPos(std::make_unique<MemberAccess>(std::move(cur), sub, false), bToken);
+            } else {
+                break;
+            }
         }
         expect(TokenType::CLOSE_PAREN, "Expected ')' after __builtin_offsetof");
-        // For now, emit 0 as placeholder — the actual offset would need struct layout info
-        // which the parser doesn't have. The IRBuilder will resolve it.
-        expr = setPos(std::make_unique<IntegerLiteral>(0), bToken);
+        expr = setPos(std::make_unique<CastExpression>("int", 0, false,
+            setPos(std::make_unique<UnaryOperation>("&", std::move(cur)), bToken)), bToken);
     } else if (peek().type == TokenType::IDENTIFIER && peek().value == "__builtin_expect") {
         // __builtin_expect(x, v) → evaluates to x (branch prediction hint, no-op)
         const Token& bToken = advance();
         expect(TokenType::OPEN_PAREN, "Expected '(' after __builtin_expect");
-        expr = parseExpression();
+        auto val = parseExpression();
         expect(TokenType::COMMA, "Expected ',' in __builtin_expect");
-        parseExpression(); // parse and discard expected value
+        auto hint = parseExpression();  // evaluated too (it may have side effects)
         expect(TokenType::CLOSE_PAREN, "Expected ')'");
+        // (hint, val): the value of val, both evaluated
+        expr = setPos(std::make_unique<BinaryOperation>(",", std::move(hint), std::move(val)), bToken);
     } else if (peek().type == TokenType::IDENTIFIER && peek().value == "__builtin_trap") {
         // __builtin_trap() → BRK instruction
         const Token& bToken = advance();
@@ -2700,16 +2965,20 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
         bool vaSigned = false;
         int vaPtrLevel = 0;
         if (match(TokenType::TYPEOF)) {
-            // typeof(expr) in va_arg — resolve to int (best effort)
             expect(TokenType::OPEN_PAREN, "Expected '(' after typeof");
-            int depth = 1;
-            while (depth > 0 && peek().type != TokenType::END_OF_FILE) {
-                if (match(TokenType::OPEN_PAREN)) depth++;
-                else if (peek().type == TokenType::CLOSE_PAREN) { depth--; if (depth > 0) advance(); }
-                else advance();
+            if (isTypeStartToken()) {
+                auto ts = parseTypeSpecifier();
+                vaType = ts.name;
+                vaSigned = ts.isSigned;
+                vaPtrLevel = ts.pointerLevel;
+            } else {
+                auto te = parseExpression();
+                DeclType dt = typeofExpr(te.get());
+                vaType = dt.type;
+                vaSigned = dt.isSigned;
+                vaPtrLevel = dt.ptrLevel;
             }
             expect(TokenType::CLOSE_PAREN, "Expected ')' after typeof");
-            vaType = "int"; // best effort: typeof in va_arg usually resolves to the arg type
         } else {
             auto ts = parseTypeSpecifier();
             if (!ts.valid) {
@@ -2738,13 +3007,11 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
             actualName = nestedFunctionMap.at(name);
         }
 
-        // 'this' keyword in struct methods → hidden '__this' parameter
-        // Don't rename 'this' to '__this' - keep it as is and handle it properly
-        // The struct method's __this parameter should be accessed as __this directly
-        // Regular functions can have 'this' as a normal parameter name
-        // if (actualName == "this") {
-        //     actualName = "__this";
-        // }
+        // 'this' in a struct method → the hidden '__this' parameter.
+        // Elsewhere 'this' is an ordinary identifier (C allows it as a name).
+        if (inStructMethod_ > 0 && actualName == "this") {
+            actualName = "__this";
+        }
 
         // Map __builtin_X → X for known stdlib-equivalent builtins
         if (actualName.rfind("__builtin_", 0) == 0) {
@@ -2773,12 +3040,41 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
                 {"__builtin_labs", "labs"},
                 {"__builtin_exit", "exit"},
                 {"__builtin_alloca", "alloca"},
+                {"__builtin_fabs", "fabs"}, {"__builtin_fabsf", "fabsf"},
+                {"__builtin_floor", "floor"}, {"__builtin_floorf", "floorf"},
+                {"__builtin_ceil", "ceil"}, {"__builtin_ceilf", "ceilf"},
+                {"__builtin_sqrt", "sqrt"}, {"__builtin_sqrtf", "sqrtf"},
+                {"__builtin_trunc", "trunc"}, {"__builtin_truncf", "truncf"},
+                {"__builtin_round", "round"}, {"__builtin_roundf", "roundf"},
+                {"__builtin_fmod", "fmod"}, {"__builtin_fmodf", "fmodf"},
+                {"__builtin_pow", "pow"}, {"__builtin_powf", "powf"},
+                {"__builtin_sin", "sin"}, {"__builtin_sinf", "sinf"},
+                {"__builtin_cos", "cos"}, {"__builtin_cosf", "cosf"},
+                {"__builtin_tan", "tan"}, {"__builtin_tanf", "tanf"},
+                {"__builtin_atan", "atan"}, {"__builtin_atanf", "atanf"},
+                {"__builtin_atan2", "atan2"}, {"__builtin_atan2f", "atan2f"},
+                {"__builtin_log", "log"}, {"__builtin_logf", "logf"},
+                {"__builtin_log10", "log10"}, {"__builtin_log10f", "log10f"},
+                {"__builtin_log2", "log2"}, {"__builtin_log2f", "log2f"},
+                {"__builtin_exp", "exp"}, {"__builtin_expf", "expf"},
+                {"__builtin_ldexp", "ldexp"}, {"__builtin_ldexpf", "ldexpf"},
+                {"__builtin_frexp", "frexp"}, {"__builtin_frexpf", "frexpf"},
+                {"__builtin_modf", "modf"}, {"__builtin_modff", "modff"},
+                {"__builtin_copysign", "copysign"}, {"__builtin_copysignf", "copysignf"},
+                {"__builtin_fmax", "fmax"}, {"__builtin_fmaxf", "fmaxf"},
+                {"__builtin_fmin", "fmin"}, {"__builtin_fminf", "fminf"},
+                {"__builtin_fdim", "fdim"}, {"__builtin_fdimf", "fdimf"},
+                {"__builtin_signbit", "signbit"}, {"__builtin_signbitf", "signbitf"},
+                {"__builtin_setjmp", "setjmp"},
+                {"__builtin_longjmp", "longjmp"},
+                {"__builtin_vprintf", "vprintf"},
             };
             auto it = builtinAliases.find(actualName);
             if (it != builtinAliases.end()) {
                 actualName = it->second;
             }
         }
+        if (auto al = aliasNames_.find(actualName); al != aliasNames_.end()) actualName = al->second;
 
         auto enumIt = enumConstants.find(name);
         if (enumIt != enumConstants.end()) {
@@ -2815,16 +3111,15 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
         std::string valStr = litToken.value;
         bool isLong = false;
         bool isUnsigned = false;
-        if (!valStr.empty() && (valStr.back() == 'L' || valStr.back() == 'l')) {
-            isLong = true;
+        // Suffixes in any order: L, LL, U, UL, LU, ULL, LLU (long long is long here)
+        while (!valStr.empty() && std::strchr("LlUu", valStr.back())) {
+            if (valStr.back() == 'U' || valStr.back() == 'u') isUnsigned = true;
+            else isLong = true;
             valStr.pop_back();
         }
-        if (!valStr.empty() && (valStr.back() == 'U' || valStr.back() == 'u')) {
-            isUnsigned = true;
-            valStr.pop_back();
-        }
-        int64_t val = (int64_t)std::stoll(valStr, nullptr, 0);
+        int64_t val = (int64_t)std::stoull(valStr, nullptr, 0);
         auto lit = std::make_unique<IntegerLiteral>(val);
+        if (isUnsigned && !isLong && (uint64_t)val > 0xFFFF) isLong = true; // 0x80000001U
         if (isLong) {
             lit->castType = "long";
             lit->castIsSigned = !isUnsigned;
@@ -2850,11 +3145,21 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
         bool isAscii = (peek().type == TokenType::ASCII_STRING_LITERAL);
         const Token& litToken = advance();
         std::string concatStr = litToken.value;
+        std::string concatMask = litToken.escMask;
+        bool wide = litToken.wide;
+        int prefixEncoding = litToken.strEncoding;  // the first literal's encoding wins
         // C string literal concatenation: "hello" " world" → "hello world"
         while (peek().type == TokenType::STRING_LITERAL || peek().type == TokenType::ASCII_STRING_LITERAL) {
-            concatStr += advance().value;
+            const Token& next = advance();
+            concatStr += next.value;
+            concatMask += next.escMask;
+            wide = wide || next.wide;
         }
-        expr = setPos(std::make_unique<StringLiteral>(concatStr, isAscii), litToken);
+        auto strLit = std::make_unique<StringLiteral>(concatStr, isAscii);
+        strLit->escMask = concatMask;
+        strLit->isWide = wide;
+        strLit->prefixEncoding = isAscii ? -1 : prefixEncoding;
+        expr = setPos(std::move(strLit), litToken);
     } else if (match(TokenType::OPEN_PAREN)) {
         const Token& parenToken = tokens[pos-1];
         expr = parseExpression();
@@ -2945,43 +3250,48 @@ std::unique_ptr<Expression> Parser::parseInitializerList() {
     bool hasDesignators = false;
     if (peek().type != TokenType::CLOSE_BRACE) {
         do {
-            InitializerList::Designator desig;
-            // Check for designators: .member = , .member.sub = , or [index] =
-            if (peek().type == TokenType::DOT && pos + 1 < tokens.size()
-                && tokens[pos + 1].type == TokenType::IDENTIFIER) {
-                // Consume .member chain (e.g., .f.f9)
-                std::string chain;
-                while (peek().type == TokenType::DOT && pos + 1 < tokens.size()
-                       && tokens[pos + 1].type == TokenType::IDENTIFIER) {
-                    advance(); // consume '.'
-                    if (!chain.empty()) chain += ".";
-                    chain += advance().value; // consume identifier
-                }
-                if (match(TokenType::EQUALS)) {
-                    desig.memberName = chain;
-                    hasDesignators = true;
+            // Designator chain: .member, [index], or several (.a.x, [1].y, [2][0]);
+            // .a.x = v is taken as .a = { .x = v }
+            std::vector<InitializerList::Designator> parts;
+            size_t save = pos;
+            while (true) {
+                if (peek().type == TokenType::DOT && pos + 1 < tokens.size() &&
+                    tokens[pos + 1].type == TokenType::IDENTIFIER) {
+                    advance();
+                    InitializerList::Designator d;
+                    d.memberName = advance().value;
+                    parts.push_back(d);
+                } else if (peek().type == TokenType::OPEN_SQUARE && pos + 2 < tokens.size() &&
+                           tokens[pos + 1].type == TokenType::INTEGER_LITERAL &&
+                           tokens[pos + 2].type == TokenType::CLOSE_SQUARE) {
+                    advance();
+                    InitializerList::Designator d;
+                    std::string v = advance().value;
+                    while (!v.empty() && std::strchr("uUlL", v.back())) v.pop_back();
+                    d.arrayIndex = (int)std::stoll(v, nullptr, 0);
+                    advance();
+                    parts.push_back(d);
                 } else {
-                    // Not a designator — backtrack would be needed, but for simplicity
-                    // treat as designator without '=' (some C99 code uses this)
-                    desig.memberName = chain;
-                    hasDesignators = true;
+                    break;
                 }
-            } else if (peek().type == TokenType::OPEN_SQUARE && pos + 3 < tokens.size()
-                && tokens[pos + 1].type == TokenType::INTEGER_LITERAL
-                && tokens[pos + 2].type == TokenType::CLOSE_SQUARE
-                && tokens[pos + 3].type == TokenType::EQUALS) {
-                advance(); // consume '['
-                desig.arrayIndex = std::stoi(advance().value); // consume integer
-                advance(); // consume ']'
-                advance(); // consume '='
-                hasDesignators = true;
             }
+            if (!parts.empty() && !match(TokenType::EQUALS)) {
+                // .member without '=' (GNU old style) is accepted; [n] needs '='
+                if (parts[0].arrayIndex >= 0) { pos = save; parts.clear(); }
+            }
+            InitializerList::Designator desig;
+            if (!parts.empty()) { desig = parts[0]; hasDesignators = true; }
             initList->designators.push_back(desig);
-            if (peek().type == TokenType::OPEN_BRACE) {
-                initList->elements.push_back(parseInitializerList());
-            } else {
-                initList->elements.push_back(parseConditional());
+            std::unique_ptr<Expression> elem;
+            if (peek().type == TokenType::OPEN_BRACE) elem = parseInitializerList();
+            else elem = parseConditional();
+            for (size_t k = parts.size(); k-- > 1;) {
+                auto inner = setPos(std::make_unique<InitializerList>(), startToken);
+                inner->designators.push_back(parts[k]);
+                inner->elements.push_back(std::move(elem));
+                elem = std::move(inner);
             }
+            initList->elements.push_back(std::move(elem));
         } while (match(TokenType::COMMA) && peek().type != TokenType::CLOSE_BRACE);
     }
     // Strip empty designators if none were used
@@ -3013,6 +3323,15 @@ bool Parser::isTypeStartAt(size_t look) const {
 }
 
 Parser::TypeSpec Parser::parseTypeSpecifier() {
+    TypeSpec ts = parseTypeSpecifierRaw();
+    // Plain integer types follow the active default (cc45: unsigned)
+    if (ts.valid && !ts.fromTypedef && !ts.isSigned && !ts.isUnsigned &&
+        (ts.name == "char" || ts.name == "int" || ts.name == "long"))
+        ts.isSigned = signedDefault && !(unsignedChar && ts.name == "char");
+    return ts;
+}
+
+Parser::TypeSpec Parser::parseTypeSpecifierRaw() {
     TypeSpec ts;
 
     // Consume leading qualifiers (Phase 97: include address space qualifiers)
@@ -3059,6 +3378,7 @@ Parser::TypeSpec Parser::parseTypeSpecifier() {
         else if (match(TokenType::CHAR)) ts.name = "char";
         else if (peek().type == TokenType::IDENTIFIER && isTypedef(peek().value)) {
             ts.name = typedefs[advance().value].baseType;
+            ts.fromTypedef = true;
         }
         else ts.name = "int"; // bare 'unsigned'
     }
@@ -3114,8 +3434,10 @@ Parser::TypeSpec Parser::parseTypeSpecifier() {
         auto& ta = typedefs[alias];
         ts.name = ta.baseType;
         ts.isSigned = ta.isSigned;
+        ts.fromTypedef = true;
         ts.pointerLevel = ta.pointerLevel;
         ts.arrayDims = ta.arrayDims;
+        ts.vlaDimVars = ta.vlaDimVars;
         ts.isFunctionPointer = ta.isFunctionPointer;
         ts.funcPtrSig = ta.funcPtrSig;
     }
@@ -3223,6 +3545,55 @@ bool Parser::tryParseAttribute() {
                 canonical.substr(canonical.size() - 2) == "__")
                 canonical = canonical.substr(2, canonical.size() - 4);
 
+            if (canonical == "always_inline") pendingAlwaysInline_ = true;
+            if (canonical == "noinline") pendingNoInline_ = true;
+
+            // vector_size(N): a GCC vector of N bytes; mode(QI/HI/SI/...): an
+            // integer of that width. Both apply to the declaration's type
+            if (canonical == "vector_size") {
+                expect(TokenType::OPEN_PAREN, "Expected '(' after vector_size");
+                auto e = parseConditional();
+                long v;
+                if (evalConstInt(e.get(), v) && v > 0) pendingVectorSize_ = (int)v;
+                expect(TokenType::CLOSE_PAREN, "Expected ')' after vector_size");
+                match(TokenType::COMMA);
+                continue;
+            }
+            if (canonical == "mode") {
+                expect(TokenType::OPEN_PAREN, "Expected '(' after mode");
+                std::string m = expect(TokenType::IDENTIFIER, "Expected machine mode").value;
+                if (m.size() > 4 && m.compare(0, 2, "__") == 0) m = m.substr(2, m.size() - 4);
+                pendingMode_ = m;
+                expect(TokenType::CLOSE_PAREN, "Expected ')' after mode");
+                match(TokenType::COMMA);
+                continue;
+            }
+
+            if (canonical == "alias") {
+                expect(TokenType::OPEN_PAREN, "Expected '(' after alias");
+                pendingAlias_ = expect(TokenType::STRING_LITERAL, "Expected alias target name").value;
+                expect(TokenType::CLOSE_PAREN, "Expected ')' after alias target");
+                match(TokenType::COMMA);
+                continue;
+            }
+
+            if (canonical == "aligned") {
+                // aligned(N), or plain aligned: the widest natural alignment (2)
+                int a = 2;
+                if (match(TokenType::OPEN_PAREN)) {
+                    auto e = parseConditional();
+                    long v;
+                    if (evalConstInt(e.get(), v) && v > 0) a = (int)v;
+                    else std::cerr << tokens[pos-1].line << ": warning: __attribute__((aligned)) needs a constant; using 2\n";
+                    expect(TokenType::CLOSE_PAREN, "Expected ')' after aligned argument");
+                }
+                if (a & (a - 1))
+                    std::cerr << tokens[pos-1].line << ": warning: alignment " << a << " is not a power of two\n";
+                pendingAlign_ = std::max(pendingAlign_, a);
+                match(TokenType::COMMA);
+                continue;
+            }
+
             // Recognized — silently accept
             if (canonical == "noinline" || canonical == "noclone" || canonical == "packed" ||
                 canonical == "always_inline" || canonical == "gnu_inline" ||
@@ -3245,8 +3616,8 @@ bool Parser::tryParseAttribute() {
                 }
             }
             // Warn-and-skip (#110-#114)
-            else if (canonical == "noipa" || canonical == "aligned" ||
-                     canonical == "mode" || canonical == "vector_size" ||
+            else if (canonical == "noipa" ||
+                     
                      canonical == "may_alias") {
                 std::cerr << tokens[pos-1].line << ": warning: __attribute__(("
                           << attr << ")) ignored\n";
@@ -3330,13 +3701,28 @@ void Parser::parseTypedef() {
 
     std::string newName = expect(TokenType::IDENTIFIER, "Expected alias name in typedef").value;
     std::vector<int> arrayDims = typedefArrayDims;
+    std::vector<std::string> vlaDimVars;
     while (match(TokenType::OPEN_SQUARE)) {
         if (match(TokenType::CLOSE_SQUARE)) {
             arrayDims.push_back(0);
+            vlaDimVars.push_back("");
         } else {
             auto szExpr = parseExpression();
             int arrSize = 1;
-            if (auto* lit = dynamic_cast<IntegerLiteral*>(szExpr.get())) arrSize = (int)lit->value;
+            long cv;
+            if (evalConstInt(szExpr.get(), cv)) {
+                arrSize = (int)cv;
+                vlaDimVars.push_back("");
+            } else if (!currentFunctionName.empty()) {
+                // A run-time dimension: evaluated here, into a hidden variable
+                std::string vn = "__tdv" + std::to_string(typedefVlaCounter_++) + "_" + newName;
+                auto d = std::make_unique<VariableDeclaration>("int", vn, 0);
+                d->initializer = std::move(szExpr);
+                typedefVlaDecls_.push_back(std::move(d));
+                vlaDimVars.push_back(vn);
+            } else {
+                vlaDimVars.push_back("");
+            }
             arrayDims.push_back(arrSize);
             expect(TokenType::CLOSE_SQUARE, "Expected ']'");
         }
@@ -3345,7 +3731,64 @@ void Parser::parseTypedef() {
     while (tryParseAttribute()) {}
     expect(TokenType::SEMICOLON, "Expected ';' after typedef");
 
-    typedefs[newName] = {baseType, ptrLevel, isSigned, false, nullptr, arrayDims};
+    applyVectorMode(baseType, ptrLevel, isSigned);
+    TypeAlias ta{baseType, ptrLevel, isSigned, false, nullptr, arrayDims};
+    bool anyVla = false;
+    for (const auto& v : vlaDimVars) if (!v.empty()) anyVla = true;
+    if (anyVla) {
+        // the typedef's own dimensions come after any it was built from
+        ta.vlaDimVars.assign(typedefArrayDims.size(), "");
+        ta.vlaDimVars.insert(ta.vlaDimVars.end(), vlaDimVars.begin(), vlaDimVars.end());
+    }
+    typedefs[newName] = ta;
+}
+
+// mode(QI/HI/SI/word) picks the integer of that width; vector_size(N) makes
+// the type a GCC vector: struct __vec_<elem>_<n> { T e[n]; } (one definition
+// per element type and count, so equal vector types are the same struct)
+void Parser::applyVectorMode(std::string& type, int ptrLevel, bool& isSigned) {
+    if (!pendingMode_.empty()) {
+        const std::string& m = pendingMode_;
+        if (m == "QI") type = "char";
+        else if (m == "HI" || m == "word" || m == "pointer") type = "int";
+        else if (m == "SI") type = "long";
+        pendingMode_.clear();
+    }
+    if (pendingVectorSize_ > 0 && ptrLevel == 0) {
+        int total = pendingVectorSize_;
+        pendingVectorSize_ = 0;
+        int es = scalarTypeSize(type, 0);
+        if (es <= 0) return;
+        int n = total / es;
+        if (n < 1) n = 1;
+        std::string tag;
+        for (char c : type) tag += std::isalnum((unsigned char)c) ? c : '_';
+        std::string name = "__vec_" + tag + (isSigned ? "_s_" : "_u_") + std::to_string(n);
+        if (!vectorTypes_.count(name)) {
+            vectorTypes_.insert(name);
+            auto def = std::make_unique<StructDefinition>(name, false);
+            StructMember sm;
+            sm.type = type;
+            sm.pointerLevel = 0;
+            sm.isSigned = isSigned;
+            sm.name = "e";
+            sm.arrayDims = {n};
+            def->members.push_back(std::move(sm));
+            structs[name] = def.get();
+            pendingDefinitions.push_back(std::move(def));
+        }
+        type = "struct " + name;
+        isSigned = false;
+    }
+    pendingVectorSize_ = 0;
+}
+
+Parser::DeclType Parser::typeofExpr(Expression* e) {
+    if (auto* vr = dynamic_cast<VariableReference*>(e)) {
+        auto it = declTypes_.find(vr->name);
+        if (it != declTypes_.end()) return it->second;
+    }
+    return {"int", 0, true};
 }
 
 bool Parser::isTypedef(const std::string& name) const {
@@ -3373,6 +3816,21 @@ std::shared_ptr<FuncPtrSignature> Parser::parseFuncPtrParams(const std::string& 
                 fp.isSigned = ts.isSigned;
                 fp.pointerLevel = ts.pointerLevel;
             }
+            // A function or function pointer parameter (void (), int (*)(int),
+            // int (*name)(int)): a pointer; the declarator is skipped
+            if (peek().type == TokenType::OPEN_PAREN) {
+                while (peek().type == TokenType::OPEN_PAREN) {
+                    int depth = 0;
+                    do {
+                        if (peek().type == TokenType::OPEN_PAREN) depth++;
+                        else if (peek().type == TokenType::CLOSE_PAREN) depth--;
+                        advance();
+                    } while (depth > 0 && peek().type != TokenType::END_OF_FILE);
+                }
+                fp.type = "void";
+                fp.pointerLevel = 1;
+                fp.isSigned = false;
+            }
             // Skip optional parameter name
             if (peek().type == TokenType::IDENTIFIER && !isTypedef(peek().value)) advance();
             sig->params.push_back(fp);
@@ -3380,6 +3838,91 @@ std::shared_ptr<FuncPtrSignature> Parser::parseFuncPtrParams(const std::string& 
     }
     expect(TokenType::CLOSE_PAREN, "Expected ')' after function pointer parameter list");
     return sig;
+}
+
+int Parser::scalarTypeSize(const std::string& type, int ptrLevel) {
+    if (ptrLevel > 0) return 2;
+    std::string t = type;
+    for (const char* q : {"unsigned ", "signed ", "const ", "volatile "})
+        for (size_t at; (at = t.find(q)) != std::string::npos; ) t.erase(at, std::strlen(q));
+    if (t == "char" || t == "_Bool" || t == "bool") return 1;
+    if (t == "short" || t == "int" || t == "unsigned" || t == "signed" || t == "short int") return 2;
+    if (t == "long" || t == "long int") return 4;
+    if (t == "long long" || t == "long long int") return 8;
+    if (t == "float" || t == "double" || t == "long double") return 5;
+    return -1;
+}
+
+bool Parser::evalConstInt(Expression* e, long& out) {
+    if (!e) return false;
+    if (auto* lit = dynamic_cast<IntegerLiteral*>(e)) { out = (long)lit->value; return true; }
+    if (auto* v = dynamic_cast<VariableReference*>(e)) {
+        auto it = enumConstants.find(v->name);
+        if (it == enumConstants.end()) return false;
+        out = it->second;
+        return true;
+    }
+    if (auto* c = dynamic_cast<CastExpression*>(e)) return evalConstInt(c->expression.get(), out);
+    if (auto* sz = dynamic_cast<SizeofExpression*>(e)) {
+        if (sz->isType) {
+            int s = scalarTypeSize(sz->typeName, sz->pointerLevel);
+            if (s < 0) return false;
+            long n = s;
+            for (int d : sz->arrayDims) n *= d;
+            out = n;
+            return true;
+        }
+        if (auto* v = dynamic_cast<VariableReference*>(sz->expression.get())) {
+            auto it = varByteSizes.find(v->name);
+            if (it == varByteSizes.end()) return false;
+            out = it->second;
+            return true;
+        }
+        return false;
+    }
+    if (auto* u = dynamic_cast<UnaryOperation*>(e)) {
+        long a;
+        if (!evalConstInt(u->operand.get(), a)) return false;
+        if (u->op == "-") out = -a;
+        else if (u->op == "+") out = a;
+        else if (u->op == "~") out = ~a;
+        else if (u->op == "!") out = !a;
+        else return false;
+        return true;
+    }
+    if (auto* c = dynamic_cast<ConditionalExpression*>(e)) {
+        long k, a, b;
+        if (!evalConstInt(c->condition.get(), k) || !evalConstInt(c->thenExpr.get(), a) ||
+            !evalConstInt(c->elseExpr.get(), b)) return false;
+        out = k ? a : b;
+        return true;
+    }
+    if (auto* b = dynamic_cast<BinaryOperation*>(e)) {
+        long l, r;
+        if (!evalConstInt(b->left.get(), l) || !evalConstInt(b->right.get(), r)) return false;
+        const std::string& op = b->op;
+        if (op == "+") out = l + r;
+        else if (op == "-") out = l - r;
+        else if (op == "*") out = l * r;
+        else if (op == "/") { if (!r) return false; out = l / r; }
+        else if (op == "%") { if (!r) return false; out = l % r; }
+        else if (op == "<<") out = l << r;
+        else if (op == ">>") out = l >> r;
+        else if (op == "&") out = l & r;
+        else if (op == "|") out = l | r;
+        else if (op == "^") out = l ^ r;
+        else if (op == "&&") out = l && r;
+        else if (op == "||") out = l || r;
+        else if (op == "==") out = l == r;
+        else if (op == "!=") out = l != r;
+        else if (op == "<") out = l < r;
+        else if (op == ">") out = l > r;
+        else if (op == "<=") out = l <= r;
+        else if (op == ">=") out = l >= r;
+        else return false;
+        return true;
+    }
+    return false;
 }
 
 std::unique_ptr<EnumDefinition> Parser::parseEnumDefinition() {
@@ -3398,7 +3941,11 @@ std::unique_ptr<EnumDefinition> Parser::parseEnumDefinition() {
             if (match(TokenType::EQUALS)) {
                 // For simplicity, only integer literals for now. 
                 // Full expression evaluation would be better but this covers most cases.
-                currentValue = std::stoi(expect(TokenType::INTEGER_LITERAL, "Expected integer literal for enum value").value);
+                auto valExpr = parseConditional();
+                long cv;
+                if (!evalConstInt(valExpr.get(), cv))
+                    throw std::runtime_error("Expected an integer constant expression for enum value '" + enumName + "'");
+                currentValue = (int)cv;
             }
             enumConstants[enumName] = currentValue;
             def->enumerators.push_back({enumName, currentValue});

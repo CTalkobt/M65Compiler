@@ -1,105 +1,57 @@
-# M65 Compiler Code Coverage Analysis
-**Date:** 2026-07-17  
-**Tool:** GCC gcov instrumentation  
-**Test Suite:** 500+ unit tests (compiler, assembler, linker validation)
+# M65 Compiler Code Coverage
 
-## Coverage by Module
+Line/function coverage of the C++ toolchain sources (`src/main/`) is measured with gcov.
 
-### Core Compiler Pipeline (Parser → IR → Codegen)
+## How to Measure
 
-| Component | Coverage | Lines | Notes |
-|-----------|----------|-------|-------|
-| **Lexer.cpp** | 83.03% | 719 | C tokenization, keywords, literals |
-| **Parser.cpp** | 92.49% | 493 | Expression parsing, statement parsing |
-| **Preprocessor.cpp** | 90.76% | 249 | Macro expansion, conditional compilation |
-| **AST.cpp** | 95.56% | 45 | AST node implementation |
-| **IRBuilder.cpp** | 74.89% | 3285 | Semantic analysis → IR lowering |
-| **IRCodeGen.cpp** | 78.52% | 2616 | 45GS02 assembly emission |
-| **IROptimizer.cpp** | 84.25% | 730 | Dead code, constant propagation, strength reduction |
-| **M65Emitter.cpp** | 86.08% | 158 | Final assembly output |
+```bash
+make coverage
+```
 
-**Assessment:** Core compiler logic **80-95% coverage** — excellent for production.
+The `coverage` target (top-level `Makefile`):
 
----
+1. `coverage-build`: `make clean`, then rebuilds `all lib` with `EXTRA_CXXFLAGS=--coverage`;
+2. runs `make test` with the instrumented binaries (failures do not stop the report);
+3. `coverage-report`: `gcovr --root . --filter 'src/main/' --exclude '.*_main\.cpp'` writes `build/coverage/index.html` (per-file HTML) and `build/coverage/summary.txt`, and prints a summary. Without `gcovr` (`pip install gcovr`) it falls back to raw `gcov` output for the first files.
 
-### Assembler (45GS02 Assembly Processing)
+`make coverage-clean` removes `build/coverage/` and the `.gcda`/`.gcno` files. Note that `make test` includes the xemu runtime tests; without `xemu-xmega65` on the `PATH` those steps fail and the code they exercise shows as uncovered.
 
-| Component | Coverage | Lines | Notes |
-|-----------|----------|-------|-------|
-| **AssemblerLexer.cpp** | 78.87% | 194 | Assembly tokenization |
-| **AssemblerParser.cpp** | 62.72% | 1521 | Assembly syntax parsing |
-| **AssemblerGenerator.cpp** | 85.78% | 415 | Code emission (binary generation) |
-| **AssemblerOptimizer.cpp** | 72.94% | 802 | Peephole optimization, instruction rewriting |
-| **AssemblerExpression.cpp** | 54.84% | 609 | Expression evaluation (complex logic) |
-| **AssemblerSimulatedOps.cpp** | 59.26% | 2543 | MOVE/FILL simulation, addressing mode handling |
-| **AssemblerOpcodeDatabase.cpp** | 14.49% | 207 | Opcode lookup table (sparse coverage) |
+What is and is not measured:
+- only `src/main/` is reported, and the tools' `*_main.cpp` command-line drivers are excluded;
+- the C library (`lib/`) and generated 45GS02 code are not covered by gcov.
 
-**Assessment:** Assembler core **62-85% coverage** — good for parsing/generation; expression evaluation coverage reasonable for complex logic.
+## Historical Snapshot (2026-07-17)
 
----
+The figures below are from a gcov run on 2026-07-17. They have **not** been reproduced against the current tree — the sources have grown considerably since (for example `IRBuilder.cpp` is now ~8,800 lines, `O45Linker.cpp` ~4,650, `IRCodeGen.cpp` ~5,950) — so treat them only as a rough baseline and rerun `make coverage` for current numbers. The "Lines" column is the number of instrumented lines gcov reported at the time.
 
-### Object Format & Linker
+| Component | Line coverage | Lines |
+|-----------|---------------|-------|
+| Lexer.cpp | 83.0% | 719 |
+| Parser.cpp | 92.5% | 493 |
+| Preprocessor.cpp | 90.8% | 249 |
+| AST.cpp | 95.6% | 45 |
+| IRBuilder.cpp | 74.9% | 3285 |
+| IRCodeGen.cpp | 78.5% | 2616 |
+| IROptimizer.cpp | 84.3% | 730 |
+| M65Emitter.cpp | 86.1% | 158 |
+| AssemblerLexer.cpp | 78.9% | 194 |
+| AssemblerParser.cpp | 62.7% | 1521 |
+| AssemblerGenerator.cpp | 85.8% | 415 |
+| AssemblerOptimizer.cpp | 72.9% | 802 |
+| AssemblerExpression.cpp | 54.8% | 609 |
+| AssemblerSimulatedOps.cpp | 59.3% | 2543 |
+| AssemblerOpcodeDatabase.cpp | 14.5% | 207 |
+| O45Emitter.cpp | 62.8% | 374 |
+| O45Reader.cpp | 52.6% | 171 |
+| O45Writer.cpp | 53.6% | 714 |
+| O45Linker.cpp | 58.8% | 2503 |
+| O45Archive.cpp | 40.6% | 663 |
+| TypeInfo.cpp | 91.5% | 201 |
+| ConstantFolder.cpp | 76.0% | 100 |
+| LoopOptimizer.cpp | 90.4% | 73 |
+| VRegAllocator.cpp | 86.1% | 158 |
+| OpEffect.cpp | 93.3% | 15 |
 
-| Component | Coverage | Lines | Notes |
-|-----------|----------|-------|-------|
-| **O45Emitter.cpp** | 62.83% | 374 | .o45 object file writing |
-| **O45Reader.cpp** | 52.63% | 171 | Object file parsing |
-| **O45Writer.cpp** | 53.64% | 714 | Symbol/relocation output |
-| **O45Linker.cpp** | 58.81% | 2503 | Symbol resolution, relocation application |
-| **O45Archive.cpp** | 40.57% | 663 | Static library (.lib) handling |
-| **TypeInfo.cpp** | 91.54% | 201 | Type tracking and validation |
+At that time the weakest areas were the object-file and archive code (`O45Reader`, `O45Writer`, `O45Linker`, `O45Archive`: 40–60%) and the assembler expression/simulated-op code (55–60%). [O45_IO_COVERAGE_TESTS.md](O45_IO_COVERAGE_TESTS.md) describes a test script aimed at the O45 modules.
 
-**Assessment:** Object I/O **40-63% coverage** — reasonable for format handling; some relocation paths under-tested.
-
----
-
-### Optimization & Support
-
-| Component | Coverage | Lines | Notes |
-|-----------|----------|-------|-------|
-| **ConstantFolder.cpp** | 76.00% | 100 | Compile-time constant evaluation |
-| **LoopOptimizer.cpp** | 90.41% | 73 | Loop unrolling and optimization |
-| **VRegAllocator.cpp** | 86.08% | 158 | Virtual register allocation |
-| **OpEffect.cpp** | 93.33% | 15 | Register/flag effect tracking |
-
-**Assessment:** Optimization passes **76-93% coverage** — solid.
-
----
-
-## Test Results Summary
-
-### Unit Tests
-- **Parser tests:** ✓ PASSED (282+ tests)
-- **Assembler validation tests:** ✓ PASSED (176+ tests, Units 1-7)
-- **Compiler semantic tests:** ✓ PASSED (55+ segment emission tests)
-- **Linker object format tests:** ✓ PASSED (test_o45 suite)
-
-### Execution Tests (mmemu simulator)
-- **Frame pointer operations:** ✗ FAILED (1 test)
-- **Struct parameter/return handling:** ✗ FAILED (2 tests)
-- **Bitfield access:** ✗ FAILED (1 test)
-- **Compound literals:** ✗ FAILED (1 test)
-- **Mixed calling conventions:** ✗ FAILED (1 test)
-
-**Summary:** 6 mmemu execution tests failed (known limitations documented in Phase 1 Investigation). Core compiler + assembler validation at 100% pass rate.
-
----
-
-## Analysis & Recommendations
-
-### Strengths ✓
-1. **Core compiler pipeline:** 80-95% coverage across lexer, parser, IR generation, and codegen
-2. **Assembler implementation:** 62-85% coverage on parsing and code generation
-3. **Optimization passes:** 76-93% coverage on strength reduction, constant folding, loop optimization
-4. **Unit test suite comprehensiveness:** 500+ tests covering all major compilation phases
-
-### Production Readiness Assessment
-
-| Area | Status | Confidence |
-|------|--------|-----------|
-| C compiler correctness | ✓ READY | HIGH (90-95% core coverage) |
-| 45GS02 assembler | ✓ READY | HIGH (78% lexer, 85% generator) |
-| Object format & linking | ✓ GOOD | MEDIUM-HIGH (40-63% coverage; functional) |
-| Optimization & codegen | ✓ READY | HIGH (78-84% coverage) |
-
-**Overall Grade: A- (Core Toolchain)** — Production-ready for core compilation workflows.
+The release checklist ([../ref/RELEASE-STEPS.md](../ref/RELEASE-STEPS.md)) runs `make coverage` before a release.

@@ -1,3 +1,4 @@
+#include "Version.hpp"
 #include "DiskImage.hpp"
 #include "D64Image.hpp"
 #include "D71Image.hpp"
@@ -5,13 +6,16 @@
 #include "D65Image.hpp"
 #include "TapImage.hpp"
 #include "GeosCvtImage.hpp"
+#include "CmdImage.hpp"
+#include "GzipHelper.hpp"
 #include <iostream>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <cstring>
 #include <algorithm>
 
-static const char* VERSION = "1.0.5";
+static const char* VERSION = SUITE_VERSION;
 
 // Forward declaration for FUSE mount (in disk45_fuse.cpp)
 #ifdef HAVE_FUSE3
@@ -21,6 +25,7 @@ extern int disk45_fuse_main(const std::string& imagePath, const std::string& mou
 
 // Forward declaration for catalog (in disk45_catalog.cpp)
 extern int disk45_catalog(int argc, char** argv);
+extern int disk45_sd(int argc, char** argv);
 
 // Forward declaration for FUSE mount (in disk45_fuse.cpp)
 #ifdef HAVE_FUSE3
@@ -34,7 +39,7 @@ extern int disk45_catalog(int argc, char** argv);
 static void usage() {
     std::cerr << "disk45 — CBM Disk Image Utility v" << VERSION << "\n"
               << "Usage:\n"
-              << "  disk45 create <image> [-n name] [-i id] [-t tracks]  Create disk image\n"
+              << "  disk45 create <image> [-n name] [-i id] [-t tracks] [--geos]  Create disk image\n"
               << "  disk45 list <image>                       List directory\n"
               << "  disk45 info <image>                       Show disk info\n"
               << "  disk45 add <image> <file> [cbm_name] [-p]  Add file to image\n"
@@ -70,6 +75,7 @@ static void usage() {
               << "  disk45 rel-read <img> <name> <rec#>       Read REL record\n"
               << "  disk45 rel-write <img> <name> <rec#> <d>  Write REL record\n"
               << "  disk45 rel-list <img> <name>              List REL records\n"
+              << "  disk45 sd <command> <card.img> ...      MEGA65 SD card images (disk45 sd --help)\n"
               << "  disk45 catalog build <dir>... [--db file]  Index image collection\n"
               << "  disk45 catalog search <pattern> [--db f]  Search indexed files\n"
               << "  disk45 catalog list [--db file]           List indexed images\n"
@@ -90,8 +96,8 @@ static void usage() {
               << "  .lnx  Lynx archive (block-aligned, uncompressed)\n"
               << "  .tap  TAP tape image (read-only, pulse decoding)\n"
               << "  .t64  T64 tape container (read/write)\n"
-              << "  .g64  G64 GCR-encoded 1541 (read-only, decodes to D64)\n"
-              << "  .g71  G71 GCR-encoded 1571 (read-only, decodes to D71)\n"
+              << "  .g64  G64 GCR-encoded 1541 (unchanged tracks keep their GCR)\n"
+              << "  .g71  G71 GCR-encoded 1571 (unchanged tracks keep their GCR)\n"
               << "  .d80  D80 CBM 8050 (77 tracks, 533KB)\n"
               << "  .d82  D82 CBM 8250 (154 tracks, 1MB)\n"
               << "  .cvt  GEOS Convert (read-only, info/list/extract)\n"
@@ -275,10 +281,7 @@ static TrackSector findSubdir(DiskImage* img, TrackSector dirStart, const std::s
 // Returns the root directory start if path is empty.
 static TrackSector resolveDir(DiskImage* img, const std::vector<std::string>& pathParts) {
     // Root directory start
-    int dirTrack = img->totalTracks() > 40 ? 40 : 18;
-    const uint8_t* hdr = img->sectorData(dirTrack, 0);
-    if (!hdr) return {0, 0};
-    TrackSector current = {hdr[0], hdr[1]};
+    TrackSector current = img->firstDirectorySector();
 
     for (const auto& part : pathParts) {
         TrackSector sub = findSubdir(img, current, part);
@@ -410,10 +413,7 @@ static int ensureDirCapacity(DiskImage* img, TrackSector dirStart, int minFreeSl
 
 // Get root directory start T/S for an image
 static TrackSector getRootDirStart(DiskImage* img) {
-    int dirTrack = img->totalTracks() > 40 ? 40 : 18;
-    const uint8_t* hdr = img->sectorData(dirTrack, 0);
-    if (!hdr) return {0, 0};
-    return {hdr[0], hdr[1]};
+    return img->firstDirectorySector();
 }
 
 // --- Wildcard pattern matching (case-insensitive) ---
@@ -493,20 +493,73 @@ static std::string baseName(const std::string& path) {
 // Commands
 // ============================================================================
 
+// GEOS files go through their Convert (CVT) form: extract writes the CVT,
+// copy/convert between disk images rebuild the GEOS file (info block, VLIR
+// records), other targets get the CVT as a PRG (as cbmconvert does)
+static bool trackImage(DiskImage* img) {
+    return img->totalTracks() > 0 && !dynamic_cast<GeosCvtImage*>(img);
+}
+
+static bool geosEntry(DiskImage* img, const std::string& name, DirEntry& e) {
+    if (!trackImage(img)) return false;
+    e = img->findEntry(name);
+    return e.isValid() && img->isGeos(e);
+}
+
+// Copy one file between images; bytes gets its size
+static bool copyImageFile(DiskImage* src, DiskImage* dst, const FileInfo& f, std::string& err, size_t& bytes) {
+    DirEntry e;
+    if (geosEntry(src, f.name, e)) {
+        std::vector<uint8_t> cvt;
+        if (!src->readGeosCvt(e, cvt, err)) return false;
+        bytes = cvt.size();
+        if (trackImage(dst)) return dst->addGeosCvt(cvt, "", err);
+        if (!dst->addFile(f.name, CbmFileType::PRG, cvt)) { err = "disk full?"; return false; }
+        return true;
+    }
+    auto data = src->readFile(f.name);
+    if (data.empty() && !src->fileExists(f.name)) { err = "could not read it"; return false; }
+    bytes = data.size();
+    if (!dst->addFile(f.name, f.type, data)) { err = "disk full?"; return false; }
+    return true;
+}
+
 static int cmdCreate(int argc, char** argv) {
     if (argc < 1) { usage(); return 1; }
     std::string imagePath = argv[0];
     std::string diskName, diskId;
     int tracks = 0; // 0 = use format default
+    bool geos = false;
 
     for (int i = 1; i < argc; i++) {
         if (std::string(argv[i]) == "-n" && i + 1 < argc) diskName = argv[++i];
         else if (std::string(argv[i]) == "-i" && i + 1 < argc) diskId = argv[++i];
         else if (std::string(argv[i]) == "-t" && i + 1 < argc) tracks = std::stoi(argv[++i]);
+        else if (std::string(argv[i]) == "--geos") geos = true;
     }
 
+    std::string zipFile, zipMember;
+    if (tracks > 0 && DiskImage::zipPath(imagePath, zipFile, zipMember)) {
+        std::cerr << "Error: -t cannot be used with an image inside a zip\n";
+        return 1;
+    }
     auto img = DiskImage::createFromExtension(imagePath);
+    if (!img->canCreateBlank()) {
+        std::string ext = std::filesystem::path(imagePath).extension().string();
+        std::cerr << "Error: disk45 cannot create " << (ext.empty() ? imagePath : ext)
+                  << " images (a read-only format; create a .d64 or .d81)\n";
+        return 1;
+    }
+    // a DNP's size is its track count
+    if (auto* cmd = dynamic_cast<CmdImage*>(img.get()); cmd && tracks > 0 &&
+        std::filesystem::path(gzip::hasGzExtension(imagePath) ? gzip::stripGzExtension(imagePath) : imagePath)
+                .extension() == ".dnp") {
+        if (tracks > 255) { std::cerr << "Error: a DNP has at most 255 tracks\n"; return 1; }
+        cmd->setNativeTracks(tracks);
+        tracks = 0;
+    }
     img->format(diskName, diskId);
+    img->markBlank();
 
     // Extend image for non-default track count (e.g., D64 with 40 tracks)
     if (tracks > 0 && tracks != img->totalTracks()) {
@@ -525,7 +578,7 @@ static int cmdCreate(int argc, char** argv) {
             // Actually, format() sets the image size. For D64 extended tracks,
             // we need to resize after format().
             // Use saveToFile + manual resize approach:
-            img->saveToFile(imagePath);
+            img->saveImage(imagePath);
 
             // Read back raw, extend, write
             std::ifstream f(imagePath, std::ios::binary | std::ios::ate);
@@ -541,14 +594,19 @@ static int cmdCreate(int argc, char** argv) {
 
             // Reload to pick up the new size
             img = DiskImage::load(imagePath);
+            img->markBlank();
         }
     }
 
-    if (!img->saveToFile(imagePath)) {
+    if (geos) {
+        std::string err;
+        if (!img->makeGeosDisk(err)) { std::cerr << "Error: " << err << "\n"; return 1; }
+    }
+    if (!img->saveImage(imagePath)) {
         std::cerr << "Error: failed to write " << imagePath << "\n";
         return 1;
     }
-    std::cout << "Created " << formatStr(img->diskFormat()) << " image: "
+    std::cout << "Created " << formatStr(img->diskFormat()) << (geos ? " (GEOS)" : "") << " image: "
               << imagePath << " (" << img->totalTracks() << " tracks, "
               << img->totalBytes() << " bytes)\n";
     return 0;
@@ -592,6 +650,9 @@ static int cmdList(int argc, char** argv) {
         if (!f.closed) std::cout << "*"; // splat indicator
         std::cout << fileTypeStr(f.type);
         if (f.locked) std::cout << "<";
+        DirEntry e;
+        if (pathParts.size() <= 1 && geosEntry(img.get(), f.name, e))
+            std::cout << "\tGEOS " << DiskImage::geosTypeName(e.unused[0]) << (e.recordLen ? ", VLIR" : "");
         std::cout << "\n";
     }
     std::cout << img->freeSectors() << " blocks free.\n";
@@ -617,6 +678,8 @@ static int cmdInfo(int argc, char** argv) {
                   << "GEOS name:    " << cvt->geosFileName() << "\n"
                   << "GEOS type:    " << cvt->geosFileTypeName() << "\n"
                   << "Structure:    " << (cvt->isVlir() ? "VLIR" : "Sequential") << "\n";
+        if (!cvt->geosClassName().empty()) std::cout << "Class:        " << cvt->geosClassName() << "\n";
+        if (!cvt->geosAuthor().empty()) std::cout << "Author:       " << cvt->geosAuthor() << "\n";
         if (cvt->isVlir())
             std::cout << "VLIR records: " << cvt->vlirRecordCount() << "\n";
         std::string desc = cvt->geosDescription();
@@ -624,7 +687,8 @@ static int cmdInfo(int argc, char** argv) {
             std::cout << "Description:  " << desc << "\n";
         std::cout << "Files:        " << img->listFiles().size() << "\n";
     } else {
-        std::cout << "Format:       " << formatStr(img->diskFormat()) << "\n"
+        auto* cmdImg = dynamic_cast<CmdImage*>(img.get());
+        std::cout << "Format:       " << (cmdImg ? cmdImg->formatName() : formatStr(img->diskFormat())) << "\n"
                   << "Disk name:    " << img->diskName() << "\n"
                   << "Disk ID:      " << img->diskId() << "\n"
                   << "Tracks:       " << img->totalTracks() << "\n"
@@ -632,6 +696,17 @@ static int cmdInfo(int argc, char** argv) {
                   << "Free sectors: " << img->freeSectors() << "\n"
                   << "Image size:   " << img->totalBytes() << " bytes\n"
                   << "Files:        " << img->listFiles().size() << "\n";
+        if (trackImage(img.get()) && !img->geosSignature().empty())
+            std::cout << "GEOS:         " << img->geosSignature() << "\n";
+        if (auto* cmd = dynamic_cast<CmdImage*>(img.get()); cmd && !cmd->partitions().empty()) {
+            std::cout << "Partitions:\n";
+            for (const auto& p : cmd->partitions())
+                std::cout << "  " << std::setw(2) << p.number << "  " << std::left << std::setw(14)
+                          << CmdImage::partitionTypeName(p.type) << std::right << " \"" << p.name << "\"  "
+                          << p.sectors << " sectors at " << p.start
+                          << (cmd->hasNative() && p.start == cmd->nativeStart() && p.type == 1 ? "  (the one disk45 uses)" : "")
+                          << "\n";
+        }
     }
     return 0;
 }
@@ -654,6 +729,24 @@ static int cmdAdd(int argc, char** argv) {
     std::vector<uint8_t> data((size_t)size);
     f.read(reinterpret_cast<char*>(data.data()), size);
 
+    // A GEOS Convert file becomes a GEOS file (info block, VLIR records);
+    // its name comes from the CVT unless one is given
+    if (DiskImage::isCvt(data) && trackImage(img.get())) {
+        std::string err;
+        std::string name = argc >= 3 ? argv[2] : "";
+        if (!img->addGeosCvt(data, name, err)) {
+            std::cerr << "Error: failed to add the GEOS file: " << err << "\n";
+            return 1;
+        }
+        if (!img->saveImage(imagePath)) {
+            std::cerr << "Error: failed to write " << imagePath << "\n";
+            return 1;
+        }
+        std::cout << "Added GEOS file \"" << (name.empty() ? DiskImage::cvtName(data) : name) << "\" (from "
+                  << hostFile << ")\n";
+        return 0;
+    }
+
     CbmFileType ftype = typeFromExtension(hostFile);
 
     // Convert ASCII → PETSCII for SEQ file content
@@ -666,7 +759,7 @@ static int cmdAdd(int argc, char** argv) {
         std::cerr << "Error: failed to add \"" << cbmName << "\" (disk full or duplicate?)\n";
         return 1;
     }
-    if (!img->saveToFile(imagePath)) {
+    if (!img->saveImage(imagePath)) {
         std::cerr << "Error: failed to write " << imagePath << "\n";
         return 1;
     }
@@ -684,6 +777,18 @@ static int cmdExtract(int argc, char** argv) {
 
     auto img = DiskImage::load(imagePath);
     if (!img) { std::cerr << "Error: failed to load " << imagePath << "\n"; return 1; }
+
+    DirEntry ge;
+    if (geosEntry(img.get(), cbmName, ge)) {
+        std::vector<uint8_t> cvt;
+        std::string err;
+        if (!img->readGeosCvt(ge, cvt, err)) { std::cerr << "Error: " << err << "\n"; return 1; }
+        std::ofstream f(hostFile, std::ios::binary);
+        if (!f) { std::cerr << "Error: cannot write " << hostFile << "\n"; return 1; }
+        f.write(reinterpret_cast<const char*>(cvt.data()), cvt.size());
+        std::cout << "Extracted GEOS file \"" << cbmName << "\" as Convert (CVT) (" << cvt.size() << " bytes)\n";
+        return 0;
+    }
 
     auto data = img->readFile(cbmName);
     if (data.empty() && !img->fileExists(cbmName)) {
@@ -716,7 +821,7 @@ static int cmdRemove(int argc, char** argv) {
         std::cerr << "Error: file \"" << cbmName << "\" not found\n";
         return 1;
     }
-    if (!img->saveToFile(imagePath)) {
+    if (!img->saveImage(imagePath)) {
         std::cerr << "Error: failed to write " << imagePath << "\n";
         return 1;
     }
@@ -734,9 +839,17 @@ static int cmdRename(int argc, char** argv) {
     auto img = DiskImage::load(imagePath);
     if (!img) { std::cerr << "Error: failed to load " << imagePath << "\n"; return 1; }
 
+    // A GEOS file keeps the case of its new name (GEOS names are ASCII)
+    DirEntry oe;
+    if (geosEntry(img.get(), oldName, oe)) {
+        newName = argv[2];
+        if (newName.size() >= 2 && newName.front() == '"' && newName.back() == '"')
+            newName = newName.substr(1, newName.size() - 2);
+    }
+
     // Try the standard renameFile first (handles regular files)
     if (img->renameFile(oldName, newName)) {
-        if (!img->saveToFile(imagePath)) {
+        if (!img->saveImage(imagePath)) {
             std::cerr << "Error: failed to write " << imagePath << "\n";
             return 1;
         }
@@ -773,7 +886,7 @@ static int cmdRename(int argc, char** argv) {
         std::cerr << "Error: rename failed (entry not found)\n";
         return 1;
     }
-    if (!img->saveToFile(imagePath)) {
+    if (!img->saveImage(imagePath)) {
         std::cerr << "Error: failed to write " << imagePath << "\n";
         return 1;
     }
@@ -827,7 +940,7 @@ static int cmdSplat(int argc, char** argv, bool close) {
         std::cerr << "Error: file \"" << name << "\" not found\n";
         return 1;
     }
-    if (!img->saveToFile(imagePath)) {
+    if (!img->saveImage(imagePath)) {
         std::cerr << "Error: failed to write " << imagePath << "\n";
         return 1;
     }
@@ -848,7 +961,7 @@ static int cmdLock(int argc, char** argv, bool lock) {
         std::cerr << "Error: file \"" << cbmName << "\" not found\n";
         return 1;
     }
-    if (!img->saveToFile(imagePath)) {
+    if (!img->saveImage(imagePath)) {
         std::cerr << "Error: failed to write " << imagePath << "\n";
         return 1;
     }
@@ -883,7 +996,7 @@ static int cmdLabel(int argc, char** argv) {
         std::cerr << "Error: cannot set disk ID (format may not support it)\n";
         return 1;
     }
-    if (!img->saveToFile(imagePath)) {
+    if (!img->saveImage(imagePath)) {
         std::cerr << "Error: failed to write " << imagePath << "\n";
         return 1;
     }
@@ -1031,7 +1144,7 @@ static int cmdDump(int argc, char** argv) {
         }
     } else {
         // No track/sector: dump BAM/header (directory track, sector 0)
-        int dirT = img->totalTracks() > 40 ? 40 : 18; // D81/D65 vs D64/D71
+        int dirT = img->headerTrack();
         const uint8_t* data = img->sectorData(dirT, 0);
         if (data) {
             std::cout << "BAM / Header:\n";
@@ -1067,25 +1180,22 @@ static int cmdCopy(int argc, char** argv) {
 
     int copied = 0;
     for (auto& f : files) {
-        auto data = src->readFile(f.name);
-        if (data.empty() && !src->fileExists(f.name)) {
-            std::cerr << "Warning: could not read \"" << f.name << "\", skipping\n";
-            continue;
-        }
         if (dst->fileExists(f.name)) {
             std::cerr << "Warning: \"" << f.name << "\" already exists in destination, skipping\n";
             continue;
         }
-        if (!dst->addFile(f.name, f.type, data)) {
-            std::cerr << "Error: failed to add \"" << f.name << "\" to destination (disk full?)\n";
+        std::string err;
+        size_t bytes = 0;
+        if (!copyImageFile(src.get(), dst.get(), f, err, bytes)) {
+            std::cerr << "Error: failed to copy \"" << f.name << "\": " << err << "\n";
             continue;
         }
-        std::cout << "  " << f.name << " (" << data.size() << " bytes, " << fileTypeStr(f.type) << ")\n";
+        std::cout << "  " << f.name << " (" << bytes << " bytes, " << fileTypeStr(f.type) << ")\n";
         copied++;
     }
 
     if (copied > 0) {
-        if (!dst->saveToFile(dstPath)) {
+        if (!dst->saveImage(dstPath)) {
             std::cerr << "Error: failed to write " << dstPath << "\n";
             return 1;
         }
@@ -1121,24 +1231,35 @@ static int cmdExtractAll(int argc, char** argv) {
     auto files = filterFiles(img->listFiles(), pattern);
     int extracted = 0;
     for (auto& f : files) {
-        auto data = img->readFile(f.name);
-        if (data.empty() && !img->fileExists(f.name)) {
-            std::cerr << "Warning: could not read \"" << f.name << "\", skipping\n";
-            continue;
+        DirEntry ge;
+        bool geos = geosEntry(img.get(), f.name, ge);
+        std::vector<uint8_t> data;
+        if (geos) {
+            std::string err;
+            if (!img->readGeosCvt(ge, data, err)) {
+                std::cerr << "Warning: \"" << f.name << "\": " << err << ", skipping\n";
+                continue;
+            }
+        } else {
+            data = img->readFile(f.name);
+            if (data.empty() && !img->fileExists(f.name)) {
+                std::cerr << "Warning: could not read \"" << f.name << "\", skipping\n";
+                continue;
+            }
         }
 
-        if (petscii && f.type == CbmFileType::SEQ) {
+        if (petscii && f.type == CbmFileType::SEQ && !geos) {
             data = petsciiToAsciiContent(data);
         }
 
-        std::string hostName = sanitizeFilename(f.name) + typeExtension(f.type);
+        std::string ext = geos ? std::string(".cvt") : typeExtension(f.type);
+        std::string hostName = sanitizeFilename(f.name) + ext;
         std::string fullPath = outDir + "/" + hostName;
 
         // Handle name collisions
         if (std::ifstream(fullPath).good()) {
             int suffix = 1;
             std::string base = sanitizeFilename(f.name);
-            std::string ext = typeExtension(f.type);
             do {
                 fullPath = outDir + "/" + base + "_" + std::to_string(suffix++) + ext;
             } while (std::ifstream(fullPath).good());
@@ -1203,7 +1324,7 @@ static int cmdBwrite(int argc, char** argv) {
     if (!f) { std::cerr << "Error: cannot read " << argv[3] << "\n"; return 1; }
     f.read(reinterpret_cast<char*>(data), 256);
 
-    if (!img->saveToFile(argv[0])) { std::cerr << "Error: failed to write image\n"; return 1; }
+    if (!img->saveImage(argv[0])) { std::cerr << "Error: failed to write image\n"; return 1; }
     std::cout << "Wrote sector " << track << "/" << sector << " from " << argv[3] << "\n";
     return 0;
 }
@@ -1252,7 +1373,7 @@ static int cmdBpoke(int argc, char** argv) {
         data[offset++] = (uint8_t)std::stoul(argv[i], nullptr, 0);
     }
 
-    if (!img->saveToFile(argv[0])) { std::cerr << "Error: failed to write image\n"; return 1; }
+    if (!img->saveImage(argv[0])) { std::cerr << "Error: failed to write image\n"; return 1; }
     std::cout << "Poked " << (argc - 4) << " byte(s) at " << track << "/" << sector << "+" << std::stoi(argv[3]) << "\n";
     return 0;
 }
@@ -1272,7 +1393,7 @@ static int cmdBfill(int argc, char** argv) {
     if (!data) { std::cerr << "Error: invalid track/sector\n"; return 1; }
 
     std::memset(data, val, 256);
-    if (!img->saveToFile(argv[0])) { std::cerr << "Error: failed to write image\n"; return 1; }
+    if (!img->saveImage(argv[0])) { std::cerr << "Error: failed to write image\n"; return 1; }
     std::cout << "Filled sector " << track << "/" << sector << " with $"
               << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)val
               << std::dec << "\n";
@@ -1314,12 +1435,8 @@ static int cmdChain(int argc, char** argv) {
 
     // Walk directory to find the DirEntry with firstDataTS
     // Use the raw directory traversal approach
-    int dirTrack = img->totalTracks() > 40 ? 40 : 18;
-    const uint8_t* bam = img->sectorData(dirTrack, 0);
-    if (!bam) { std::cerr << "Error: cannot read directory\n"; return 1; }
-
     TrackSector firstTS = {0, 0};
-    TrackSector ts = {bam[0], bam[1]};
+    TrackSector ts = img->firstDirectorySector();
     while (ts.track != 0) {
         const uint8_t* sec = img->sectorData(ts.track, ts.sector);
         if (!sec) break;
@@ -1371,30 +1488,69 @@ static int cmdChain(int argc, char** argv) {
 // ============================================================================
 // REL file operations
 // ============================================================================
+//
+// A REL (relative) file, as CBM DOS lays it out:
+//   data sectors  the records packed one after another, 254 data bytes per
+//                 sector (a record can span two sectors); an empty record is
+//                 $FF and then $00s; the last sector's byte 1 is the offset of
+//                 its last used byte
+//   side sectors  $00-$01 the next side sector, $02 its number in its group
+//                 (0-5), $03 the record length, $04-$0F the group's 6 side
+//                 sectors, $10-$FF up to 120 data sector T/S pairs
+//   1581 (D81, D65): the directory entry points at a super side sector:
+//                 $00-$01 the first side sector, $02 $FE, $03.. the first side
+//                 sector of each group of 6 (up to 126 groups)
 
-// Side sector layout (D64/D71):
-//   $00: Track of next side sector (0 if last)
-//   $01: Sector of next side sector
-//   $02: Side sector number (0-based)
-//   $03: Record length
-//   $04-$0F: T/S pairs for side sector group (up to 6 side sectors)
-//   $10-$FF: 120 T/S pairs pointing to data sectors
-
-// Get the list of data sector T/S pairs from the side-sector chain
-static std::vector<TrackSector> getRelDataSectors(DiskImage* img, TrackSector sideTS) {
+// The data sectors of a REL file, in order
+static std::vector<TrackSector> relDataSectors(const DiskImage* img, const DirEntry& e) {
     std::vector<TrackSector> sectors;
-    TrackSector ss = sideTS;
-    while (ss.track != 0) {
+    TrackSector ss = e.sideTS;
+    if (img->superSideSectors()) {
+        const uint8_t* super = img->sectorData(ss.track, ss.sector);
+        if (!super || super[2] != 0xFE) return sectors;
+        ss = {super[0], super[1]};
+    }
+    int guard = 0;
+    while (ss.track != 0 && guard++ < 126 * 6) {
         const uint8_t* sec = img->sectorData(ss.track, ss.sector);
         if (!sec) break;
-        // Data sector T/S pairs at offsets $10-$FF (120 pairs)
         for (int i = 0x10; i < 0x100; i += 2) {
-            if (sec[i] == 0 && sec[i + 1] == 0) break;
+            if (sec[i] == 0) break;
             sectors.push_back({sec[i], sec[i + 1]});
         }
         ss = {sec[0], sec[1]};
     }
     return sectors;
+}
+
+// The REL file's directory entry, or an error message
+static bool relFind(const DiskImage* img, const std::string& name, DirEntry& out) {
+    out = img->findEntry(name);
+    if (!out.isValid() || out.type() != CbmFileType::REL) {
+        std::cerr << "Error: REL file \"" << name << "\" not found\n";
+        return false;
+    }
+    if (out.recordLen < 1) {
+        std::cerr << "Error: \"" << name << "\" has an invalid record length\n";
+        return false;
+    }
+    return true;
+}
+
+// Bytes in a REL file's data sectors (the last one up to its last used byte)
+static int relDataBytes(const DiskImage* img, const std::vector<TrackSector>& data) {
+    if (data.empty()) return 0;
+    const uint8_t* last = img->sectorData(data.back().track, data.back().sector);
+    int inLast = (last && last[0] == 0 && last[1] >= 1) ? last[1] - 1 : 254;
+    return (int)(data.size() - 1) * 254 + inLast;
+}
+
+// Byte i of the data (0-based): its sector and offset
+static uint8_t* relByte(DiskImage* img, const std::vector<TrackSector>& data, int i) {
+    size_t s = (size_t)(i / 254);
+    if (s >= data.size()) return nullptr;
+    uint8_t* sec = img->sectorData(data[s].track, data[s].sector);
+    return sec ? sec + 2 + i % 254 : nullptr;
 }
 
 static int cmdRelCreate(int argc, char** argv) {
@@ -1411,6 +1567,10 @@ static int cmdRelCreate(int argc, char** argv) {
         std::cerr << "Error: record length must be 1-254\n";
         return 1;
     }
+    if (numRecords < 1) {
+        std::cerr << "Error: at least one record\n";
+        return 1;
+    }
 
     auto img = DiskImage::load(imagePath);
     if (!img) { std::cerr << "Error: failed to load " << imagePath << "\n"; return 1; }
@@ -1423,114 +1583,113 @@ static int cmdRelCreate(int argc, char** argv) {
         return 1;
     }
 
-    // Calculate how many data sectors we need
-    int bytesPerSector = 254; // usable bytes per data sector (minus 2-byte link)
-    int recordsPerSector = bytesPerSector / recordLen;
-    if (recordsPerSector < 1) recordsPerSector = 1;
-    int dataSectors = (numRecords + recordsPerSector - 1) / recordsPerSector;
-
-    // Allocate data sectors
-    std::vector<TrackSector> dataChain;
-    for (int i = 0; i < dataSectors; i++) {
-        TrackSector ts = img->allocateNextFree(-1);
-        if (ts.isNull()) { std::cerr << "Error: disk full\n"; return 1; }
-        dataChain.push_back(ts);
+    const bool super = img->superSideSectors();
+    int dataBytes = numRecords * recordLen;
+    int dataSectors = (dataBytes + 253) / 254;
+    int sideSectors = (dataSectors + 119) / 120;
+    int groups = (sideSectors + 5) / 6;
+    if (!super && sideSectors > 6) {
+        std::cerr << "Error: too many records: a REL file on this disk holds at most 720 data sectors ("
+                  << 720 * 254 / recordLen << " records of " << recordLen << " bytes)\n";
+        return 1;
+    }
+    if (super && groups > 126) {
+        std::cerr << "Error: too many records for a REL file\n";
+        return 1;
+    }
+    if (img->freeSectors() < dataSectors + sideSectors + (super ? 1 : 0)) {
+        std::cerr << "Error: disk full\n";
+        return 1;
     }
 
-    // Initialize data sectors (linked chain, zeroed data)
+    auto alloc = [&](std::vector<TrackSector>& v, int n) {
+        for (int i = 0; i < n; i++) {
+            TrackSector ts = img->allocateNextFree(-1);
+            if (ts.isNull()) return false;
+            v.push_back(ts);
+        }
+        return true;
+    };
+    std::vector<TrackSector> data, side, superSec;
+    if (!alloc(data, dataSectors) || !alloc(side, sideSectors) || (super && !alloc(superSec, 1))) {
+        std::cerr << "Error: disk full\n";
+        return 1;
+    }
+
+    // As DOS does, the file fills its last data sector: as many records as
+    // the sectors hold, an empty-record $FF at every record start in them
+    // (also a last, partial one)
+    int records = dataSectors * 254 / recordLen;
+    dataBytes = records * recordLen;
+
+    // Data: empty records ($FF, then $00s), the sectors linked
     for (int i = 0; i < dataSectors; i++) {
-        uint8_t* sec = img->sectorData(dataChain[i].track, dataChain[i].sector);
+        uint8_t* sec = img->sectorData(data[i].track, data[i].sector);
         std::memset(sec, 0, 256);
-        if (i < dataSectors - 1) {
-            sec[0] = dataChain[i + 1].track;
-            sec[1] = dataChain[i + 1].sector;
+        if (i + 1 < dataSectors) {
+            sec[0] = data[i + 1].track;
+            sec[1] = data[i + 1].sector;
         } else {
             sec[0] = 0;
-            // Last used byte offset: depends on records that fit
-            int recsInLast = numRecords - recordsPerSector * (dataSectors - 1);
-            int lastByte = recsInLast * recordLen + 1;
-            if (lastByte > 255) lastByte = 255;
-            sec[1] = lastByte;
+            sec[1] = (uint8_t)(1 + (dataBytes - 254 * (dataSectors - 1)));   // last used byte
         }
     }
+    for (int at = 0; at < dataSectors * 254; at += recordLen) *relByte(img.get(), data, at) = 0xFF;
 
-    // Allocate side sector(s)
-    // Each side sector holds 120 data sector T/S pairs (at offsets $10-$FF)
-    int sideSectorsNeeded = (dataSectors + 119) / 120;
-    std::vector<TrackSector> sideChain;
-    for (int i = 0; i < sideSectorsNeeded; i++) {
-        TrackSector ts = img->allocateNextFree(-1);
-        if (ts.isNull()) { std::cerr << "Error: disk full\n"; return 1; }
-        sideChain.push_back(ts);
-    }
-
-    // Initialize side sectors
-    int dataIdx = 0;
-    for (int si = 0; si < sideSectorsNeeded; si++) {
-        uint8_t* sec = img->sectorData(sideChain[si].track, sideChain[si].sector);
+    // Side sectors, chained; each lists its group and up to 120 data sectors
+    for (int i = 0; i < sideSectors; i++) {
+        uint8_t* sec = img->sectorData(side[i].track, side[i].sector);
         std::memset(sec, 0, 256);
-        // Link to next side sector
-        if (si < sideSectorsNeeded - 1) {
-            sec[0] = sideChain[si + 1].track;
-            sec[1] = sideChain[si + 1].sector;
+        if (i + 1 < sideSectors) {
+            sec[0] = side[i + 1].track;
+            sec[1] = side[i + 1].sector;
         } else {
-            sec[0] = 0; sec[1] = 0;
+            sec[0] = 0;
+            int pairs = dataSectors - 120 * i;
+            sec[1] = (uint8_t)(0x10 + 2 * pairs - 1);   // last used byte
         }
-        sec[2] = si;           // side sector number
-        sec[3] = recordLen;    // record length
-        // Side sector group T/S pairs at $04-$0F (up to 6)
-        for (int g = 0; g < sideSectorsNeeded && g < 6; g++) {
-            sec[0x04 + g * 2] = sideChain[g].track;
-            sec[0x05 + g * 2] = sideChain[g].sector;
+        sec[2] = (uint8_t)(i % 6);
+        sec[3] = (uint8_t)recordLen;
+        int g0 = (i / 6) * 6;
+        for (int g = 0; g < 6 && g0 + g < sideSectors; g++) {
+            sec[0x04 + 2 * g] = side[g0 + g].track;
+            sec[0x05 + 2 * g] = side[g0 + g].sector;
         }
-        // Data sector T/S pairs at $10-$FF
-        for (int i = 0; i < 120 && dataIdx < dataSectors; i++, dataIdx++) {
-            sec[0x10 + i * 2] = dataChain[dataIdx].track;
-            sec[0x10 + i * 2 + 1] = dataChain[dataIdx].sector;
+        for (int k = 0; k < 120 && 120 * i + k < dataSectors; k++) {
+            sec[0x10 + 2 * k] = data[120 * i + k].track;
+            sec[0x11 + 2 * k] = data[120 * i + k].sector;
+        }
+    }
+    if (super) {
+        uint8_t* sec = img->sectorData(superSec[0].track, superSec[0].sector);
+        std::memset(sec, 0, 256);
+        sec[0] = side[0].track;
+        sec[1] = side[0].sector;
+        sec[2] = 0xFE;
+        for (int g = 0; g < groups; g++) {
+            sec[3 + 2 * g] = side[6 * g].track;
+            sec[4 + 2 * g] = side[6 * g].sector;
         }
     }
 
-    // Create directory entry
     DirEntry entry;
     std::memset(&entry, 0, sizeof(entry));
     entry.fileType = 0x80 | (uint8_t)CbmFileType::REL;
-    entry.firstDataTS = dataChain[0];
-    entry.sideTS = sideChain[0];
-    entry.recordLen = recordLen;
-    entry.sizeInSectors = dataSectors + sideSectorsNeeded;
+    entry.firstDataTS = data[0];
+    entry.sideTS = super ? superSec[0] : side[0];
+    entry.recordLen = (uint8_t)recordLen;
+    entry.sizeInSectors = (uint16_t)(dataSectors + sideSectors + (super ? 1 : 0));
     DiskImage::padPetsciiName(entry.filename, name);
+    if (img->addEntry(entry).isNull()) { std::cerr << "Error: directory full\n"; return 1; }
 
-    // Use the protected allocDirectoryEntry - we need to go through addFile or manual dir write
-    // Manual directory write: find free slot
-    int dirTrack = img->totalTracks() > 40 ? 40 : 18;
-    TrackSector dts = {(uint8_t)dirTrack, 1};
-    bool written = false;
-    while (dts.track != 0 && !written) {
-        uint8_t* sec = img->sectorData(dts.track, dts.sector);
-        if (!sec) break;
-        for (int i = 0; i < 8; i++) {
-            DirEntry e = DirEntry::fromSector(sec, i);
-            if (!e.isValid()) {
-                entry.toSector(sec, i);
-                written = true;
-                break;
-            }
-        }
-        if (!written) {
-            uint8_t nextT = sec[0], nextS = sec[1];
-            if (nextT == 0) break;
-            dts = {nextT, nextS};
-        }
-    }
-
-    if (!written) { std::cerr << "Error: directory full\n"; return 1; }
-
-    if (!img->saveToFile(imagePath)) {
+    if (!img->saveImage(imagePath)) {
         std::cerr << "Error: failed to write " << imagePath << "\n";
         return 1;
     }
     std::cout << "Created REL file \"" << name << "\" (record length=" << recordLen
-              << ", " << numRecords << " records, " << dataSectors << " data sectors)\n";
+              << ", " << records << " records";
+    if (records != numRecords) std::cout << " (" << numRecords << " asked; the last sector is filled)";
+    std::cout << ", " << dataSectors << " data sectors)\n";
     return 0;
 }
 
@@ -1541,79 +1700,32 @@ static int cmdRelRead(int argc, char** argv) {
     }
     auto img = DiskImage::load(argv[0]);
     if (!img) { std::cerr << "Error: failed to load " << argv[0] << "\n"; return 1; }
-
     std::string name = normalizeName(argv[1]);
     int recNum = std::stoi(argv[2]); // 1-based
-
-    // Find the REL file
-    int dirTrack = img->totalTracks() > 40 ? 40 : 18;
-    DirEntry found;
-    bool ok = false;
-    TrackSector dts = {(uint8_t)dirTrack, 1};
-    while (dts.track != 0) {
-        const uint8_t* sec = img->sectorData(dts.track, dts.sector);
-        if (!sec) break;
-        for (int i = 0; i < 8; i++) {
-            DirEntry e = DirEntry::fromSector(sec, i);
-            if (e.isValid() && e.type() == CbmFileType::REL && e.name() == name) {
-                found = e; ok = true; break;
-            }
-        }
-        if (ok) break;
-        uint8_t nextT = sec[0], nextS = sec[1];
-        if (nextT == 0) break;
-        dts = {nextT, nextS};
-    }
-    if (!ok) { std::cerr << "Error: REL file \"" << name << "\" not found\n"; return 1; }
-
-    int recordLen = found.recordLen;
-    if (recordLen < 1) { std::cerr << "Error: invalid record length\n"; return 1; }
-
-    // Get data sectors via side-sector chain
-    auto dataSectors = getRelDataSectors(img.get(), found.sideTS);
-
-    // Calculate which sector and offset the record is in
-    int byteOffset = (recNum - 1) * recordLen;
-    int sectorIdx = byteOffset / 254;
-    int offsetInSector = (byteOffset % 254) + 2; // +2 for link bytes
-
-    if (sectorIdx >= (int)dataSectors.size()) {
-        std::cerr << "Error: record " << recNum << " out of range\n";
+    DirEntry e;
+    if (!relFind(img.get(), name, e)) return 1;
+    int recordLen = e.recordLen;
+    auto data = relDataSectors(img.get(), e);
+    int records = relDataBytes(img.get(), data) / recordLen;
+    if (recNum < 1 || recNum > records) {
+        std::cerr << "Error: record " << recNum << " out of range (1-" << records << ")\n";
         return 1;
     }
 
-    const uint8_t* sec = img->sectorData(dataSectors[sectorIdx].track,
-                                          dataSectors[sectorIdx].sector);
-    if (!sec) { std::cerr << "Error: cannot read data sector\n"; return 1; }
-
-    // Read record (may span sector boundary)
     std::vector<uint8_t> record;
-    int remaining = recordLen;
-    int si = sectorIdx, off = offsetInSector;
-    while (remaining > 0 && si < (int)dataSectors.size()) {
-        sec = img->sectorData(dataSectors[si].track, dataSectors[si].sector);
-        if (!sec) break;
-        int avail = 256 - off;
-        int take = std::min(remaining, avail);
-        record.insert(record.end(), sec + off, sec + off + take);
-        remaining -= take;
-        si++;
-        off = 2; // next sector starts after link
+    for (int b = 0; b < recordLen; b++) {
+        uint8_t* p = relByte(img.get(), data, (recNum - 1) * recordLen + b);
+        record.push_back(p ? *p : 0);
     }
 
-    // Output
     std::cout << "Record " << recNum << " (" << recordLen << " bytes): ";
     std::cout << std::hex << std::uppercase << std::setfill('0');
     for (uint8_t b : record) std::cout << std::setw(2) << (int)b << " ";
     std::cout << std::dec << "\n";
-
-    // Also show as text (printable chars)
     std::cout << "  Text: \"";
     for (uint8_t b : record) {
         if (b >= 0x20 && b < 0x7F) std::cout << (char)b;
-        else if (b >= 0x41 && b <= 0x5A) std::cout << (char)b;
         else if (b >= 0xC1 && b <= 0xDA) std::cout << (char)(b - 0x60);
-        else if (b == 0) std::cout << '.';
         else std::cout << '.';
     }
     std::cout << "\"\n";
@@ -1632,73 +1744,41 @@ static int cmdRelWrite(int argc, char** argv) {
     int recNum = std::stoi(argv[2]);
 
     // Collect data bytes from remaining args (hex or decimal)
-    std::vector<uint8_t> data;
+    std::vector<uint8_t> bytes;
     for (int i = 3; i < argc; i++) {
         std::string arg = argv[i];
         // If it looks like a quoted string, use the bytes directly
         if (arg.size() >= 2 && arg[0] == '"' && arg.back() == '"') {
             for (size_t j = 1; j < arg.size() - 1; j++)
-                data.push_back((uint8_t)arg[j]);
+                bytes.push_back((uint8_t)arg[j]);
         } else {
             // Treat as numeric value
-            data.push_back((uint8_t)std::stoul(arg, nullptr, 0));
+            bytes.push_back((uint8_t)std::stoul(arg, nullptr, 0));
         }
     }
 
-    // Find the REL file
-    int dirTrack = img->totalTracks() > 40 ? 40 : 18;
-    DirEntry found;
-    bool ok = false;
-    TrackSector dts = {(uint8_t)dirTrack, 1};
-    while (dts.track != 0) {
-        const uint8_t* sec = img->sectorData(dts.track, dts.sector);
-        if (!sec) break;
-        for (int i = 0; i < 8; i++) {
-            DirEntry e = DirEntry::fromSector(sec, i);
-            if (e.isValid() && e.type() == CbmFileType::REL && e.name() == name) {
-                found = e; ok = true; break;
-            }
-        }
-        if (ok) break;
-        uint8_t nextT = sec[0], nextS = sec[1];
-        if (nextT == 0) break;
-        dts = {nextT, nextS};
-    }
-    if (!ok) { std::cerr << "Error: REL file \"" << name << "\" not found\n"; return 1; }
-
-    int recordLen = found.recordLen;
-    if (recordLen < 1) { std::cerr << "Error: invalid record length\n"; return 1; }
-
-    // Pad or truncate data to record length
-    data.resize(recordLen, 0);
-
-    auto dataSectors = getRelDataSectors(img.get(), found.sideTS);
-
-    int byteOffset = (recNum - 1) * recordLen;
-    int sectorIdx = byteOffset / 254;
-    int offsetInSector = (byteOffset % 254) + 2;
-
-    if (sectorIdx >= (int)dataSectors.size()) {
-        std::cerr << "Error: record " << recNum << " out of range\n";
+    DirEntry e;
+    if (!relFind(img.get(), name, e)) return 1;
+    int recordLen = e.recordLen;
+    auto data = relDataSectors(img.get(), e);
+    int records = relDataBytes(img.get(), data) / recordLen;
+    if (recNum < 1 || recNum > records) {
+        std::cerr << "Error: record " << recNum << " out of range (1-" << records
+                  << "; rel-create makes the records)\n";
         return 1;
     }
-
-    // Write record (may span sector boundary)
-    int remaining = recordLen;
-    int si = sectorIdx, off = offsetInSector, di = 0;
-    while (remaining > 0 && si < (int)dataSectors.size()) {
-        uint8_t* sec = img->sectorData(dataSectors[si].track, dataSectors[si].sector);
-        if (!sec) break;
-        int avail = 256 - off;
-        int put = std::min(remaining, avail);
-        std::memcpy(sec + off, data.data() + di, put);
-        remaining -= put;
-        di += put;
-        si++;
-        off = 2;
+    if ((int)bytes.size() > recordLen) {
+        std::cerr << "Error: " << bytes.size() << " bytes do not fit a " << recordLen << "-byte record\n";
+        return 1;
+    }
+    // the rest of the record is $00, as DOS writes it
+    bytes.resize(recordLen, 0);
+    for (int b = 0; b < recordLen; b++) {
+        uint8_t* p = relByte(img.get(), data, (recNum - 1) * recordLen + b);
+        if (p) *p = bytes[b];
     }
 
-    if (!img->saveToFile(argv[0])) {
+    if (!img->saveImage(argv[0])) {
         std::cerr << "Error: failed to write " << argv[0] << "\n";
         return 1;
     }
@@ -1713,83 +1793,30 @@ static int cmdRelList(int argc, char** argv) {
     }
     auto img = DiskImage::load(argv[0]);
     if (!img) { std::cerr << "Error: failed to load " << argv[0] << "\n"; return 1; }
-
     std::string name = normalizeName(argv[1]);
-
-    // Find the REL file
-    int dirTrack = img->totalTracks() > 40 ? 40 : 18;
-    DirEntry found;
-    bool ok = false;
-    TrackSector dts = {(uint8_t)dirTrack, 1};
-    while (dts.track != 0) {
-        const uint8_t* sec = img->sectorData(dts.track, dts.sector);
-        if (!sec) break;
-        for (int i = 0; i < 8; i++) {
-            DirEntry e = DirEntry::fromSector(sec, i);
-            if (e.isValid() && e.type() == CbmFileType::REL && e.name() == name) {
-                found = e; ok = true; break;
-            }
-        }
-        if (ok) break;
-        uint8_t nextT = sec[0], nextS = sec[1];
-        if (nextT == 0) break;
-        dts = {nextT, nextS};
-    }
-    if (!ok) { std::cerr << "Error: REL file \"" << name << "\" not found\n"; return 1; }
-
-    int recordLen = found.recordLen;
-    auto dataSectors = getRelDataSectors(img.get(), found.sideTS);
-
-    // Calculate total records
-    int totalBytes = 0;
-    for (size_t i = 0; i < dataSectors.size(); i++) {
-        const uint8_t* sec = img->sectorData(dataSectors[i].track, dataSectors[i].sector);
-        if (!sec) break;
-        if (i == dataSectors.size() - 1) {
-            totalBytes += (sec[1] >= 2) ? sec[1] - 1 : 254;
-        } else {
-            totalBytes += 254;
-        }
-    }
-    int totalRecords = totalBytes / recordLen;
+    DirEntry e;
+    if (!relFind(img.get(), name, e)) return 1;
+    int recordLen = e.recordLen;
+    auto data = relDataSectors(img.get(), e);
+    int totalRecords = relDataBytes(img.get(), data) / recordLen;
 
     std::cout << "REL file \"" << name << "\": " << totalRecords << " records, "
-              << recordLen << " bytes/record, " << dataSectors.size() << " data sectors\n";
+              << recordLen << " bytes/record, " << data.size() << " data sectors\n";
 
-    // Show non-empty records
+    // the records that are not empty ($FF then $00s)
     for (int r = 1; r <= totalRecords; r++) {
-        int byteOff = (r - 1) * recordLen;
-        int si = byteOff / 254;
-        int off = (byteOff % 254) + 2;
-        if (si >= (int)dataSectors.size()) break;
-
-        const uint8_t* sec = img->sectorData(dataSectors[si].track, dataSectors[si].sector);
-        if (!sec) break;
-
-        // Check if record is all zeros (empty)
-        bool empty = true;
-        for (int b = 0; b < recordLen && empty; b++) {
-            int co = off + b;
-            int cs = si;
-            if (co >= 256) { cs++; co = 2 + (co - 256); }
-            if (cs >= (int)dataSectors.size()) break;
-            const uint8_t* s2 = img->sectorData(dataSectors[cs].track, dataSectors[cs].sector);
-            if (s2 && s2[co] != 0) empty = false;
-        }
-        if (empty) continue;
-
-        std::cout << "  #" << std::setw(3) << r << ": ";
+        std::vector<uint8_t> rec;
         for (int b = 0; b < recordLen; b++) {
-            int co = off + b;
-            int cs = si;
-            if (co >= 256) { cs++; co = 2 + (co - 256); }
-            if (cs >= (int)dataSectors.size()) break;
-            const uint8_t* s2 = img->sectorData(dataSectors[cs].track, dataSectors[cs].sector);
-            uint8_t val = s2 ? s2[co] : 0;
+            uint8_t* p = relByte(img.get(), data, (r - 1) * recordLen + b);
+            rec.push_back(p ? *p : 0);
+        }
+        bool empty = rec[0] == 0xFF || rec[0] == 0;
+        for (int b = 1; b < recordLen && empty; b++) if (rec[b] != 0) empty = false;
+        if (empty) continue;
+        std::cout << "  #" << std::setw(3) << r << ": ";
+        for (uint8_t val : rec) {
             if (val >= 0x20 && val < 0x7F) std::cout << (char)val;
-            else if (val >= 0x41 && val <= 0x5A) std::cout << (char)val;
             else if (val >= 0xC1 && val <= 0xDA) std::cout << (char)(val - 0x60);
-            else if (val == 0) std::cout << '.';
             else std::cout << '.';
         }
         std::cout << "\n";
@@ -1824,10 +1851,7 @@ static int cmdMkdir(int argc, char** argv) {
 
     TrackSector parentDir;
     if (parentPath.empty()) {
-        int dirTrack = img->totalTracks() > 40 ? 40 : 18;
-        const uint8_t* hdr = img->sectorData(dirTrack, 0);
-        if (!hdr) { std::cerr << "Error: cannot read directory\n"; return 1; }
-        parentDir = {hdr[0], hdr[1]};
+        parentDir = img->firstDirectorySector();
     } else {
         parentDir = resolveDir(img.get(), parentPath);
         if (parentDir.isNull()) { std::cerr << "Error: parent directory not found\n"; return 1; }
@@ -1890,7 +1914,7 @@ static int cmdMkdir(int argc, char** argv) {
 
     if (!written) { std::cerr << "Error: failed to create directory entry\n"; return 1; }
 
-    if (!img->saveToFile(argv[0])) {
+    if (!img->saveImage(argv[0])) {
         std::cerr << "Error: failed to write " << argv[0] << "\n";
         return 1;
     }
@@ -1916,10 +1940,7 @@ static int cmdRmdir(int argc, char** argv) {
 
     TrackSector parentDir;
     if (parentPath.empty()) {
-        int dirTrack = img->totalTracks() > 40 ? 40 : 18;
-        const uint8_t* hdr = img->sectorData(dirTrack, 0);
-        if (!hdr) { std::cerr << "Error: cannot read directory\n"; return 1; }
-        parentDir = {hdr[0], hdr[1]};
+        parentDir = img->firstDirectorySector();
     } else {
         parentDir = resolveDir(img.get(), parentPath);
         if (parentDir.isNull()) { std::cerr << "Error: parent not found\n"; return 1; }
@@ -1971,7 +1992,7 @@ static int cmdRmdir(int argc, char** argv) {
     // Shrink the parent directory chain (remove trailing empty sectors)
     int reclaimed = shrinkDirChain(img.get(), parentDir);
 
-    if (!img->saveToFile(argv[0])) {
+    if (!img->saveImage(argv[0])) {
         std::cerr << "Error: failed to write " << argv[0] << "\n";
         return 1;
     }
@@ -2006,10 +2027,7 @@ static int cmdTree(int argc, char** argv) {
 
     std::cout << img->diskName() << "/\n";
 
-    int dirTrack = img->totalTracks() > 40 ? 40 : 18;
-    const uint8_t* hdr = img->sectorData(dirTrack, 0);
-    if (!hdr) { std::cerr << "Error: cannot read directory\n"; return 1; }
-    TrackSector rootDir = {hdr[0], hdr[1]};
+    TrackSector rootDir = img->firstDirectorySector();
 
     printTree(img.get(), rootDir, 1);
     return 0;
@@ -2034,7 +2052,7 @@ static int cmdDirShrink(int argc, char** argv) {
 
     int reclaimed = shrinkDirChain(img.get(), dirTS);
     if (reclaimed > 0) {
-        if (!img->saveToFile(argv[0])) {
+        if (!img->saveImage(argv[0])) {
             std::cerr << "Error: failed to write " << argv[0] << "\n";
             return 1;
         }
@@ -2072,7 +2090,7 @@ static int cmdDirEnsure(int argc, char** argv) {
         return 1;
     }
     if (added > 0) {
-        if (!img->saveToFile(argv[0])) {
+        if (!img->saveImage(argv[0])) {
             std::cerr << "Error: failed to write " << argv[0] << "\n";
             return 1;
         }
@@ -2124,11 +2142,21 @@ static int cmdConvert(int argc, char** argv) {
         std::transform(cbmName.begin(), cbmName.end(), cbmName.begin(), ::toupper);
         CbmFileType ftype = typeFromExtension(srcPath);
 
+        if (DiskImage::isCvt(data) && trackImage(dst.get())) {
+            std::string err;
+            if (!dst->addGeosCvt(data, "", err) || !dst->saveImage(dstPath)) {
+                std::cerr << "Error: " << (err.empty() ? "failed to write " + dstPath : err) << "\n";
+                return 1;
+            }
+            std::cout << "Converted " << srcPath << " → " << dstPath << " (GEOS file \""
+                      << DiskImage::cvtName(data) << "\")\n";
+            return 0;
+        }
         if (!dst->addFile(cbmName, ftype, data)) {
             std::cerr << "Error: failed to add file to target image\n";
             return 1;
         }
-        if (!dst->saveToFile(dstPath)) {
+        if (!dst->saveImage(dstPath)) {
             std::cerr << "Error: failed to write " << dstPath << "\n";
             return 1;
         }
@@ -2145,21 +2173,25 @@ static int cmdConvert(int argc, char** argv) {
     std::string name = src->diskName();
     std::string id = src->diskId();
     dst->format(name, id);
+    if (trackImage(src.get()) && !src->geosSignature().empty() && trackImage(dst.get())) {
+        std::string err;
+        if (!dst->makeGeosDisk(err)) std::cerr << "Note: the target is not GEOS-formatted (" << err << ")\n";
+    }
 
     auto files = src->listFiles();
     int copied = 0;
     for (auto& f : files) {
         if (f.type == CbmFileType::CBM) continue; // skip subdirectory entries
-        auto data = src->readFile(f.name);
-        if (data.empty() && !src->fileExists(f.name)) continue;
-        if (!dst->addFile(f.name, f.type, data)) {
-            std::cerr << "Warning: failed to add \"" << f.name << "\" (disk full?)\n";
+        std::string err;
+        size_t bytes = 0;
+        if (!copyImageFile(src.get(), dst.get(), f, err, bytes)) {
+            std::cerr << "Warning: failed to add \"" << f.name << "\" (" << err << ")\n";
             continue;
         }
         copied++;
     }
 
-    if (!dst->saveToFile(dstPath)) {
+    if (!dst->saveImage(dstPath)) {
         std::cerr << "Error: failed to write " << dstPath << "\n";
         return 1;
     }
@@ -2291,6 +2323,7 @@ static int processCommand(int argc, char** argv) {
     }
 #endif
     if (cmd == "catalog")    return disk45_catalog(subArgc, subArgv);
+    if (cmd == "sd")         return disk45_sd(subArgc, subArgv);
     if (cmd == "convert")    return cmdConvert(subArgc, subArgv);
     if (cmd == "dir-shrink") return cmdDirShrink(subArgc, subArgv);
     if (cmd == "dir-ensure") return cmdDirEnsure(subArgc, subArgv);
@@ -2305,7 +2338,7 @@ static int processCommand(int argc, char** argv) {
     if (cmd == "bfill")   return cmdBfill(subArgc, subArgv);
     if (cmd == "chain")   return cmdChain(subArgc, subArgv);
     if (cmd == "--version" || cmd == "-v") {
-        std::cout << "disk45 v" << VERSION << "\n";
+        std::cout << suiteVersionString("disk45") << "\n";
         return 0;
     }
 

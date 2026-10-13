@@ -4,7 +4,8 @@
 //        fusermount -u <mountpoint>
 //
 // Maps CBM files to POSIX filenames with type extensions (.prg, .seq, etc.)
-// Read/write support for sector-based images. Read-only for TAP/G64/CVT.
+// Read/write support for sector-based images. Read-only for TAP/NIB/CVT.
+// GEOS files are shown and written as their Convert (CVT) form, NAME.cvt.
 
 #define FUSE_USE_VERSION 31
 #include <fuse3/fuse.h>
@@ -16,8 +17,10 @@
 #include <map>
 #include <mutex>
 #include <algorithm>
+#include <filesystem>
 
 #include "DiskImage.hpp"
+#include "GeosCvtImage.hpp"
 
 // ============================================================================
 // Global state (FUSE callbacks use global context)
@@ -58,7 +61,7 @@ static CbmFileType extToType(const std::string& path) {
     return CbmFileType::PRG;
 }
 
-// Strip leading / and type extension to get CBM name
+// Strip leading / and type extension to get CBM name (for new files)
 static std::string pathToCbmName(const char* path) {
     std::string p = path;
     if (!p.empty() && p[0] == '/') p = p.substr(1);
@@ -67,7 +70,7 @@ static std::string pathToCbmName(const char* path) {
     if (dot != std::string::npos) {
         std::string ext = p.substr(dot);
         std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-        if (ext == ".prg" || ext == ".seq" || ext == ".usr" || ext == ".rel" || ext == ".del")
+        if (ext == ".prg" || ext == ".seq" || ext == ".usr" || ext == ".rel" || ext == ".del" || ext == ".cvt")
             p = p.substr(0, dot);
     }
     // Uppercase for CBM
@@ -75,13 +78,105 @@ static std::string pathToCbmName(const char* path) {
     return p;
 }
 
-static std::string cbmToPath(const FileInfo& f) {
+static bool isCvtPath(const std::string& path) {
+    if (path.size() < 4) return false;
+    std::string ext = path.substr(path.size() - 4);
+    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+    return ext == ".cvt";
+}
+
+// GEOS files (on disk images) are shown as their Convert (CVT) form,
+// "<name>.cvt": read like `disk45 extract`, and a .cvt written into the
+// mount becomes a GEOS file when it is closed (as `disk45 add`)
+static bool trackImage() {
+    return g_img->totalTracks() > 0 && !dynamic_cast<GeosCvtImage*>(g_img.get());
+}
+
+// A file of the image as mounted
+struct Node {
+    FileInfo info;
+    bool geos = false;
+    DirEntry entry;
+};
+
+static std::string cbmToPath(const FileInfo& f, bool geos) {
     std::string name = f.name;
     // Sanitize for POSIX
     for (auto& c : name) {
         if (c == '/' || c == '\\' || c == ':' || c < 32) c = '_';
     }
-    return name + typeExt(f.type);
+    return name + (geos ? std::string(".cvt") : typeExt(f.type));
+}
+
+static std::vector<Node> nodes() {
+    std::vector<Node> out;
+    bool tracks = trackImage();
+    for (auto& f : g_img->listFiles()) {
+        Node n;
+        n.info = f;
+        if (tracks) {
+            n.entry = g_img->findEntry(f.name);
+            n.geos = n.entry.isValid() && g_img->isGeos(n.entry);
+        }
+        out.push_back(n);
+    }
+    return out;
+}
+
+// The file a path names: its listed name (exact), else ignoring case
+static bool findNode(const char* path, Node& node) {
+    std::string p = path[0] == '/' ? path + 1 : path;
+    auto all = nodes();
+    for (auto& n : all)
+        if (cbmToPath(n.info, n.geos) == p) { node = n; return true; }
+    std::string lp = p;
+    std::transform(lp.begin(), lp.end(), lp.begin(), ::tolower);
+    for (auto& n : all) {
+        std::string q = cbmToPath(n.info, n.geos);
+        std::transform(q.begin(), q.end(), q.begin(), ::tolower);
+        if (q == lp) { node = n; return true; }
+    }
+    return false;
+}
+
+static bool nodeBytes(const Node& n, std::vector<uint8_t>& data) {
+    if (n.geos) {
+        std::string err;
+        return g_img->readGeosCvt(n.entry, data, err);
+    }
+    data = g_img->readFile(n.info.name);
+    return true;
+}
+
+// .cvt files being written: kept here until they are closed
+static std::map<std::string, std::vector<uint8_t>> g_pending;
+
+// A closed .cvt: a GEOS file named as the path (replacing one of that name);
+// data that is not a CVT is stored as a plain USR file
+static int commitPending(const std::string& path) {
+    auto it = g_pending.find(path);
+    if (it == g_pending.end()) return 0;
+    std::vector<uint8_t> data = std::move(it->second);
+    g_pending.erase(it);
+    std::string stem = path.substr(1, path.size() - 5);  // "/name.cvt" -> "name"
+    Node old;
+    if (findNode(path.c_str(), old)) g_img->removeFile(old.info.name);
+    std::string err;
+    if (DiskImage::isCvt(data)) {
+        // the GEOS name is the file's name as written (ASCII, case kept)
+        std::memset(data.data() + 3, 0xA0, 16);
+        std::memcpy(data.data() + 3, stem.data(), std::min<size_t>(16, stem.size()));
+        if (!g_img->addGeosCvt(data, "", err)) {
+            fprintf(stderr, "disk45 mount: %s: %s\n", path.c_str(), err.c_str());
+            return -ENOSPC;
+        }
+    } else {
+        fprintf(stderr, "disk45 mount: %s is not a GEOS Convert file; stored as a USR file\n", path.c_str());
+        std::string name = stem;
+        std::transform(name.begin(), name.end(), name.begin(), ::toupper);
+        if (!g_img->addFile(name, CbmFileType::USR, data)) return -ENOSPC;
+    }
+    return g_img->saveImage(g_imagePath) ? 0 : -EIO;
 }
 
 // ============================================================================
@@ -97,25 +192,26 @@ static int cbm_getattr(const char* path, struct stat* st, struct fuse_file_info*
         st->st_nlink = 2;
         return 0;
     }
-
-    std::string cbmName = pathToCbmName(path);
-    auto files = g_img->listFiles();
-    for (auto& f : files) {
-        if (f.name == cbmName) {
-            if (f.type == CbmFileType::CBM) {
-                st->st_mode = S_IFDIR | 0755;
-                st->st_nlink = 2;
-            } else {
-                st->st_mode = S_IFREG | (g_readonly ? 0444 : 0644);
-                st->st_nlink = 1;
-                // Get actual file size
-                auto data = g_img->readFile(f.name);
-                st->st_size = data.size();
-            }
-            return 0;
-        }
+    auto pend = g_pending.find(path);
+    if (pend != g_pending.end()) {
+        st->st_mode = S_IFREG | 0644;
+        st->st_nlink = 1;
+        st->st_size = pend->second.size();
+        return 0;
     }
-    return -ENOENT;
+    Node n;
+    if (!findNode(path, n)) return -ENOENT;
+    if (n.info.type == CbmFileType::CBM && !n.geos) {
+        st->st_mode = S_IFDIR | 0755;
+        st->st_nlink = 2;
+    } else {
+        st->st_mode = S_IFREG | (g_readonly ? 0444 : 0644);
+        st->st_nlink = 1;
+        std::vector<uint8_t> data;
+        nodeBytes(n, data);
+        st->st_size = data.size();
+    }
+    return 0;
 }
 
 static int cbm_readdir(const char* path, void* buf, fuse_fill_dir_t filler,
@@ -127,28 +223,49 @@ static int cbm_readdir(const char* path, void* buf, fuse_fill_dir_t filler,
 
     if (strcmp(path, "/") != 0) return -ENOENT; // subdirs not yet supported in FUSE
 
-    auto files = g_img->listFiles();
-    for (auto& f : files) {
-        std::string posixName = cbmToPath(f);
+    std::vector<std::string> shown;
+    for (auto& n : nodes()) {
+        std::string posixName = cbmToPath(n.info, n.geos);
+        shown.push_back("/" + posixName);
         filler(buf, posixName.c_str(), NULL, 0, (fuse_fill_dir_flags)0);
     }
+    for (auto& [p, data] : g_pending)
+        if (std::find(shown.begin(), shown.end(), p) == shown.end())
+            filler(buf, p.c_str() + 1, NULL, 0, (fuse_fill_dir_flags)0);
     return 0;
 }
 
 static int cbm_open(const char* path, struct fuse_file_info* fi) {
     std::lock_guard<std::mutex> lock(g_mutex);
-    std::string cbmName = pathToCbmName(path);
-    if (!g_img->fileExists(cbmName)) return -ENOENT;
-    if (g_readonly && (fi->flags & O_ACCMODE) != O_RDONLY) return -EACCES;
+    bool writing = (fi->flags & O_ACCMODE) != O_RDONLY;
+    if (g_pending.count(path)) {
+        if (fi->flags & O_TRUNC) g_pending[path].clear();
+        return 0;
+    }
+    Node n;
+    if (!findNode(path, n)) return -ENOENT;
+    if (g_readonly && writing) return -EACCES;
+    if (writing && n.geos) {
+        // a GEOS file is rewritten as a whole CVT, committed on close
+        std::vector<uint8_t> data;
+        if (!(fi->flags & O_TRUNC)) nodeBytes(n, data);
+        g_pending[path] = data;
+    }
     return 0;
 }
 
 static int cbm_read(const char* path, char* buf, size_t size, off_t offset,
                      struct fuse_file_info*) {
     std::lock_guard<std::mutex> lock(g_mutex);
-    std::string cbmName = pathToCbmName(path);
-    auto data = g_img->readFile(cbmName);
-    if (data.empty() && !g_img->fileExists(cbmName)) return -ENOENT;
+    std::vector<uint8_t> data;
+    auto pend = g_pending.find(path);
+    if (pend != g_pending.end()) {
+        data = pend->second;
+    } else {
+        Node n;
+        if (!findNode(path, n)) return -ENOENT;
+        if (!nodeBytes(n, data)) return -EIO;
+    }
 
     if (offset >= (off_t)data.size()) return 0;
     size_t avail = data.size() - offset;
@@ -161,7 +278,15 @@ static int cbm_write(const char* path, const char* buf, size_t size, off_t offse
                       struct fuse_file_info*) {
     if (g_readonly) return -EACCES;
     std::lock_guard<std::mutex> lock(g_mutex);
-    std::string cbmName = pathToCbmName(path);
+    auto pend = g_pending.find(path);
+    if (pend != g_pending.end()) {
+        auto& data = pend->second;
+        if ((size_t)offset + size > data.size()) data.resize(offset + size, 0);
+        memcpy(data.data() + offset, buf, size);
+        return (int)size;
+    }
+    Node n;
+    std::string cbmName = findNode(path, n) ? n.info.name : pathToCbmName(path);
 
     // Read existing file, modify, rewrite
     auto data = g_img->readFile(cbmName);
@@ -175,7 +300,7 @@ static int cbm_write(const char* path, const char* buf, size_t size, off_t offse
     CbmFileType ftype = extToType(path);
     g_img->removeFile(cbmName);
     if (!g_img->addFile(cbmName, ftype, data)) return -ENOSPC;
-    g_img->saveToFile(g_imagePath);
+    if (!g_img->saveImage(g_imagePath)) return -EIO;
     return (int)size;
 }
 
@@ -185,45 +310,71 @@ static int cbm_create(const char* path, mode_t, struct fuse_file_info*) {
     std::string cbmName = pathToCbmName(path);
     if (cbmName.size() > 16) return -ENAMETOOLONG;
 
+    if (isCvtPath(path)) {
+        if (!trackImage()) return -EACCES;
+        g_pending[path].clear();  // a GEOS file once it is closed
+        return 0;
+    }
     CbmFileType ftype = extToType(path);
     std::vector<uint8_t> empty;
     if (!g_img->addFile(cbmName, ftype, empty)) return -ENOSPC;
-    g_img->saveToFile(g_imagePath);
-    return 0;
+    return g_img->saveImage(g_imagePath) ? 0 : -EIO;
+}
+
+static int cbm_release(const char* path, struct fuse_file_info*) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    return commitPending(path);
 }
 
 static int cbm_unlink(const char* path) {
     if (g_readonly) return -EACCES;
     std::lock_guard<std::mutex> lock(g_mutex);
-    std::string cbmName = pathToCbmName(path);
-    if (!g_img->removeFile(cbmName)) return -ENOENT;
-    g_img->saveToFile(g_imagePath);
-    return 0;
+    bool pending = g_pending.erase(path) > 0;
+    Node n;
+    if (!findNode(path, n)) return pending ? 0 : -ENOENT;
+    if (!g_img->removeFile(n.info.name)) return -ENOENT;  // a GEOS file: all its sectors
+    return g_img->saveImage(g_imagePath) ? 0 : -EIO;
 }
 
 static int cbm_rename(const char* from, const char* to, unsigned int) {
     if (g_readonly) return -EACCES;
     std::lock_guard<std::mutex> lock(g_mutex);
-    std::string oldName = pathToCbmName(from);
+    Node n;
+    if (!findNode(from, n)) return -ENOENT;
     std::string newName = pathToCbmName(to);
+    if (n.geos) {
+        // keep the case of a GEOS name
+        std::string t = to[0] == '/' ? to + 1 : to;
+        newName = isCvtPath(t) ? t.substr(0, t.size() - 4) : t;
+    }
     if (newName.size() > 16) return -ENAMETOOLONG;
-    if (!g_img->renameFile(oldName, newName)) return -ENOENT;
-    g_img->saveToFile(g_imagePath);
-    return 0;
+    if (!g_img->renameFile(n.info.name, newName)) return -ENOENT;
+    return g_img->saveImage(g_imagePath) ? 0 : -EIO;
 }
 
 static int cbm_truncate(const char* path, off_t size, struct fuse_file_info*) {
     if (g_readonly) return -EACCES;
     std::lock_guard<std::mutex> lock(g_mutex);
-    std::string cbmName = pathToCbmName(path);
-    auto data = g_img->readFile(cbmName);
-    if (data.empty() && !g_img->fileExists(cbmName)) return -ENOENT;
+    auto pend = g_pending.find(path);
+    if (pend != g_pending.end()) {
+        pend->second.resize(size, 0);
+        return 0;
+    }
+    Node n;
+    if (!findNode(path, n)) return -ENOENT;
+    if (n.geos) {
+        std::vector<uint8_t> data;
+        nodeBytes(n, data);
+        data.resize(size, 0);
+        g_pending[path] = data;
+        return 0;
+    }
+    auto data = g_img->readFile(n.info.name);
     data.resize(size, 0);
     CbmFileType ftype = extToType(path);
-    g_img->removeFile(cbmName);
-    if (!g_img->addFile(cbmName, ftype, data)) return -ENOSPC;
-    g_img->saveToFile(g_imagePath);
-    return 0;
+    g_img->removeFile(n.info.name);
+    if (!g_img->addFile(n.info.name, ftype, data)) return -ENOSPC;
+    return g_img->saveImage(g_imagePath) ? 0 : -EIO;
 }
 
 static int cbm_utimens(const char*, const struct timespec*, struct fuse_file_info*) {
@@ -261,6 +412,7 @@ static void init_cbm_ops() {
     cbm_ops.readdir  = cbm_readdir;
     cbm_ops.create   = cbm_create;
     cbm_ops.utimens  = cbm_utimens;
+    cbm_ops.release  = cbm_release;
 }
 
 // ============================================================================
@@ -269,7 +421,8 @@ static void init_cbm_ops() {
 
 int disk45_fuse_main(const std::string& imagePath, const std::string& mountpoint,
                       bool readonly, int argc, char** argv) {
-    g_imagePath = imagePath;
+    // FUSE runs the filesystem from / : the image path must not be relative
+    g_imagePath = std::filesystem::absolute(imagePath).string();
     g_readonly = readonly;
 
     g_img = DiskImage::load(imagePath);
@@ -279,7 +432,7 @@ int disk45_fuse_main(const std::string& imagePath, const std::string& mountpoint
     }
 
     // Detect read-only formats
-    if (g_img->totalTracks() == 0) g_readonly = true;
+    if (g_img->totalTracks() == 0 || !g_img->writable()) g_readonly = true;
 
     init_cbm_ops();
 

@@ -279,10 +279,10 @@ static const std::map<std::string, OpEffect>& getTable() {
         {"move.fp",  {E::A|E::X,              true,  true,  false}},
 
         // --- Frame inc/dec ---
-        {"inc.fp",   {E::A|E::X,              true,  true,  false}},
-        {"dec.fp",   {E::A|E::X,              true,  true,  false}},
-        {"inc.16f",  {E::A|E::X,              true,  true,  false}},
-        {"dec.16f",  {E::A|E::X,              true,  true,  false}},
+        {"inc.fp",   {E::A|E::X|E::Y,         true,  true,  false}},
+        {"dec.fp",   {E::A|E::X|E::Y,         true,  true,  false}},
+        {"inc.16f",  {E::A|E::X|E::Y,         true,  true,  false}},
+        {"dec.16f",  {E::A|E::X|E::Y,         true,  true,  false}},
 
         // --- Stack-relative ops ---
         {"inw",      {E::A|E::X,              true,  true,  false}},
@@ -296,9 +296,11 @@ static const std::map<std::string, OpEffect>& getTable() {
         {"bfins.sp", {E::A|E::X,              true,  true,  false}},
         {"bfins.ind",{E::A|E::X|E::Y,         true,  true,  false}},
         {"bfins16",  {E::A|E::X,              true,  true,  false}},
-        {"bfins16.sp",  {E::A|E::X,           true,  true,  false}},
+        {"bfins16.sp",  {E::A|E::X|E::Y,      true,  true,  false}},
         {"bfins16.ind", {E::A|E::X|E::Y,      true,  true,  false}},
         {"bfins32",  {E::A|E::X|E::Y|E::Z,   true,  true,  false}},
+        {"bfins32.sp",  {E::A|E::X|E::Y|E::Z, true,  true,  false}},
+        {"bfins32.ind", {E::A|E::X|E::Y|E::Z, true,  true,  false}},
 
         // --- Proc/endproc (structural, not real ops) ---
         {"proc",     {0,                      false, false, false}},

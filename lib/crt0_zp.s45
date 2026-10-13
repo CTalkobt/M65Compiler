@@ -4,17 +4,40 @@
 ; Same as crt0.s — main takes no parameters via ZP.
 
 .global __init
+.global __basic_call
+.global ___bc_target
 .global __exit
+.global __abort
 .global __sp_base
-.global __zp_save_buf
+.global __bp_rom
+.global __bp_prog
+.global __rom_call
+.extern ___cbm_target
+.extern __zp_page
+.extern __zp_page_isr
+.global __isr_depth
+.extern __stack_top
+.extern __bss_start
+.extern __bss_end
+.extern __bss_fill
 .weak _init_features
+.weak ___mainargs
 .extern _main
 
 .segment "init"
 
 __sp_base = $0101
 
+; Exit status, left in the ROM's zero page at $FD/$FE (BASIC 65 leaves these
+; alone; a BASIC caller can PEEK(253)+256*PEEK(254), test harnesses read it
+; from a memory dump): main's return value / exit()'s argument, $FFFE after
+; abort(), and $FFFF (set at startup) if the program never reached __exit.
+__exit_status = $FD
+
 __init:
+    lda #0
+    sta __bc_mode       ; started as a program (not by __basic_call)
+__start:
     ; Save caller's stack pointer for clean return
     tsx
     stx __saved_spl + 1
@@ -27,43 +50,359 @@ __init:
     lda #$53            ; 'S'
     sta $D02F
 
-    ; Save ZP $08-$FF to BSS buffer
-    ldx #0
-@__zp_save_loop:
-    lda $08,x
-    sta __zp_save_buf,x
-    inx
-    cpx #248
-    bne @__zp_save_loop
+    ; "Never reached __exit" until the program exits (B is still 0 here)
+    lda #$FF
+    sta __exit_status
+    sta __exit_status + 1
 
+    ; Move the base page (zero page) to a private page-aligned block at the
+    ; end of BSS. The program never touches the ROM's zero page, so nothing
+    ; needs saving; ROM calls switch back to page 0 via __bp_rom/__bp_prog.
+    lda #>__zp_page
+    tab
+
+    ; Move the CPU stack to a 16-bit stack at __stack_top (E flag clear).
+    ; Interrupts are masked while SPH/SPL change, then the caller's I flag
+    ; is restored (PLP would also reload E, so it isn't used here).
+    php
+    pla
+    sta __saved_p + 1
+    ldy #>__stack_top
+    beq @stack8
+    sei
+    cle
+    tys
+    ldx #<__stack_top
+    txs
+    and #$04            ; caller's I flag
+    bne @stack8
+    cli
+@stack8:
+
+    ; __basic_call fills BSS on its first call only (globals keep their
+    ; values from one SYS to the next)
+    lda __bc_mode
+    beq @do_fill
+    lda __bc_done
+    bne @bss_done
+@do_fill:
+
+    ; Fill BSS (__bss_start..__bss_end, which includes the private base
+    ; page) with __bss_fill: 0, or ln45 --bss-fill=V / cc45 -fbss-fill=V.
+    ; A DMA fill job, built on the stack (any page: SP+1 is computed in 16
+    ; bits); nothing crt0 keeps is in BSS.
+    sec
+    lda #<__bss_end
+    sbc #<__bss_start
+    tax                 ; X = size low
+    lda #>__bss_end
+    sbc #>__bss_start
+    tay                 ; Y = size high
+    bne @bss_fill
+    txa
+    beq @bss_done       ; no BSS
+@bss_fill:
+    lda #0
+    pha                 ; modulo high
+    pha                 ; modulo low
+    pha                 ; command high
+    pha                 ; destination bank
+    lda #>__bss_start
+    pha
+    lda #<__bss_start
+    pha                 ; destination
+    lda #0
+    pha                 ; source bank
+    pha                 ; source high
+    lda #<__bss_fill
+    pha                 ; fill value (source low)
+    tya
+    pha                 ; count high
+    txa
+    pha                 ; count low
+    lda #$03
+    pha                 ; command: fill
+    lda #0
+    sta $D702           ; list bank
+    tsx
+    tsy
+    txa
+    clc
+    adc #1
+    tax
+    tya
+    adc #0
+    sta $D701           ; list address high
+    stx $D700           ; list address low: starts the job
+    ldx #12
+@bss_drop:
+    pla
+    dex
+    bne @bss_drop
+@bss_done:
+
+    lda __bc_mode
+    bne __bc_run
     jsr _init_features
+    ; main(argc, argv): __mainargs returns a pointer to { int argc; char
+    ; **argv; } -- the weak default below gives argc 0, argv NULL; the
+    ; library's (mainargs.c, linked when main takes parameters) parses the
+    ; BASIC line. They go in the ZP parameter block and, for the stack
+    ; convention, on the stack as two words (__exit restores the caller's
+    ; stack pointer, so they are never popped)
+    jsr ___mainargs
+    sta $08
+    stx $09
+    ldy #0              ; (base-page stores: the block is in __zp_page)
+    lda ($08),y
+    sta $10
+    iny
+    lda ($08),y
+    sta $11
+    iny
+    lda ($08),y
+    sta $12
+    iny
+    lda ($08),y
+    sta $13
+    pha                 ; argv, then argc: low bytes at the lower address
+    lda $12
+    pha
+    lda $11
+    pha
+    lda $10
+    pha
     jsr _main
 
     ; Fall through to __exit
 __exit:
-    ; Restore ZP $08-$FF from BSS buffer
-    ldx #0
-@__zp_restore_loop:
-    lda __zp_save_buf,x
-    sta $08,x
-    inx
-    cpx #248
-    bne @__zp_restore_loop
+    ; Back to the ROM's zero page, then record the exit status (A:X) there
+    tay
+    lda #0
+    tab
+    sty __exit_status
+    stx __exit_status + 1
 
+    ; Back to the caller's 8-bit stack (E set; SPH still selects the page)
+    sei
+    see
 __saved_spl:
     ldx #$FF
     txs
 __saved_sph:
     ldy #$01
     tys
+__saved_p:
+    lda #$00
+    pha
+    plp
     rts
 
 ; Default init_features — does nothing. Override with a strong definition.
 _init_features:
     rts
 
+; __basic_call — run a C function from a BASIC SYS (basic45 --link makes
+; a thunk per function: it sets ___bc_target and jumps here). The SYS's
+; A, X and Y are the first three parameters ($10, $12, $14 of the program's
+; base page, high bytes 0; they also stay in A, X, Y): f(unsigned char a,
+; unsigned char x, unsigned char y), or unsigned int. The function runs with the program's
+; base page and stack, as main would; its A, X, Y come back to BASIC
+; (RREG). The first call fills BSS and calls _init_features, later calls
+; keep the globals.
+__basic_call:
+    sta __bc_a
+    stx __bc_x
+    sty __bc_y
+    lda #1
+    sta __bc_mode
+    jmp __start
 
+__bc_run:
+    lda __bc_done
+    bne @ready
+    lda #1
+    sta __bc_done
+    jsr _init_features
+@ready:
+    ; the first three parameter slots (2 bytes each, as for a char or int
+    ; parameter): A, X, Y with high bytes 0 (base-page stores: the
+    ; parameter block is in __zp_page)
+    lda #0
+    sta $11
+    sta $13
+    sta $15
+    lda __bc_a
+    sta $10
+    lda __bc_x
+    sta $12
+    lda __bc_y
+    sta $14
+    lda ___bc_target
+    sta __bc_jsr + 1
+    lda ___bc_target + 1
+    sta __bc_jsr + 2
+    lda __bc_a
+    ldx __bc_x
+    ldy __bc_y
+__bc_jsr:
+    jsr $FFFF           ; (patched above)
+    sta __bc_a
+    stx __bc_x
+    sty __bc_y
+    ; back to BASIC: base page 0, its 8-bit stack and flags
+    lda #0
+    tab
+    sei
+    see
+    ldx __saved_spl + 1
+    txs
+    ldy __saved_sph + 1
+    tys
+    lda __saved_p + 1
+    pha
+    lda __bc_a
+    ldx __bc_x
+    ldy __bc_y
+    plp
+    rts
 
-.segment "bss"
-__zp_save_buf:
-    .res 248
+; (in the init code, which is RAM)
+__bc_mode:  .byte 0
+__bc_done:  .byte 0
+__bc_a:     .byte 0
+__bc_x:     .byte 0
+__bc_y:     .byte 0
+___bc_target: .word 0
+
+; Default __mainargs: no arguments (argc 0, argv NULL). mainargs.c in the
+; library replaces it when main is defined with parameters.
+___mainargs:
+    lda #<__noargs
+    ldx #>__noargs
+    rts
+__noargs:
+    .word 0, 0
+
+; __abort — abnormal termination. Non-overridable core implementation.
+; abort() (weak) calls this.
+__abort:
+    ; Return to the caller (BASIC's READY. prompt) like exit(), marked as an
+    ; abort, rather than stopping in the monitor with BRK
+    lda #$FE            ; exit status $FFFE
+    ldx #$FF
+    bra __exit
+
+; __bp_rom — switch to the ROM's base page (0) before calling KERNAL/BASIC.
+; Preserves A, X, Y and Z.
+__bp_rom:
+    pha
+    lda #0
+    tab
+    pla
+    rts
+
+; __bp_prog — switch back to the program's base page after a ROM call: the
+; interrupt handlers' page (__zp_page_isr) while an __interrupt handler runs.
+; Preserves A, X, Y, Z and the flags (ROM routines return status in C).
+__bp_prog:
+    php
+    pha
+    lda __isr_depth
+    bne @isr
+    lda #>__zp_page
+    bra @set
+@isr:
+    lda #>__zp_page_isr
+@set:
+    tab
+    pla
+    plp
+    rts
+
+; __rom_call — call the KERNAL routine at ___cbm_target (set by the <cbm.h>
+; wrappers) on the ROM's page-1 stack (the caller's 8-bit stack, saved at
+; startup) and base page 0: the KERNAL's disk code (OPEN/CHKIN/CHKOUT/
+; CHRIN/CHROUT on a drive) crashes on the 16-bit stack. A, X, Y, Z and the
+; flags (C for PLOT) go in, and come back out, as for a direct JSR. Our
+; return address stays on the program's stack. With -fno-stack16 the stack
+; is not moved. Interrupts are off while SP changes.
+__rom_call:
+    php
+    sta __re_a
+    stx __re_x
+    sty __re_y
+    pla
+    sta __re_p              ; the caller's flags
+    lda ___cbm_target
+    sta __rc_jsr + 1
+    lda ___cbm_target + 1
+    sta __rc_jsr + 2
+    lda #>__stack_top
+    beq __rc_call8          ; already on the 8-bit page-1 stack
+    sei
+    tsx                     ; the program's stack pointer
+    stx __re_spl
+    tsy
+    sty __re_sph
+    see                     ; the caller's page-1 stack (8-bit)
+    ldx __saved_spl + 1
+    txs
+    ldy __saved_sph + 1
+    tys
+    lda #0
+    tab
+    lda __re_p
+    ora #$20                ; (PLP loads E: keep the 8-bit stack)
+    pha
+    lda __re_a
+    ldx __re_x
+    ldy __re_y
+    plp                     ; the caller's I and C
+__rc_jsr:
+    jsr $FFFF               ; (patched above)
+    php
+    sta __re_a
+    stx __re_x
+    sty __re_y
+    pla
+    sta __re_p              ; the routine's flags
+    sei
+    cle                     ; back to the program's 16-bit stack
+    ldy __re_sph
+    tys
+    ldx __re_spl
+    txs
+    lda __re_p
+    and #$DF                ; (PLP loads E: keep the 16-bit stack)
+    pha
+    lda __re_a
+    ldx __re_x
+    ldy __re_y
+    plp
+    jmp __bp_prog           ; program base page; returns to our caller
+__rc_call8:
+    lda __re_p
+    pha
+    lda __re_a
+    ldx __re_x
+    ldy __re_y
+    plp
+    jsr __bp_rom
+    jsr __rc_jsr8
+    jmp __bp_prog
+__rc_jsr8:
+    jmp (__rc_jsr + 1)
+
+; (in the init code, which is RAM)
+__re_a:   .byte 0
+__re_x:   .byte 0
+__re_y:   .byte 0
+__re_p:   .byte 0
+__re_spl: .byte 0
+__re_sph: .byte 0
+
+; Nesting depth of running __interrupt handlers (their prologue increments
+; it). Kept in the init code (RAM) so crt0 adds nothing to the data segment.
+__isr_depth:
+    .byte 0

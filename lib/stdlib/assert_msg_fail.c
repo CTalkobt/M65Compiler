@@ -8,7 +8,7 @@
 #include <stdio.h>
 
 /* Declared in assert.h; halts execution */
-extern void assert_fail_abort(void);
+__fastcall__ void assert_fail_abort(void);
 
 void assert_msg_fail(const char *expr, const char *file, int line, const char *msg) {
     printf("Assertion failed: %s (%s:%d)\n", expr, file, line);

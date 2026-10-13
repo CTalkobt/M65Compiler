@@ -9,8 +9,12 @@ std::string BasicMinifier::minify(const std::string& source) {
     std::string line;
     std::ostringstream result;
     std::vector<std::string> minifiedLines;
+    std::vector<int> lineFrom;
+    int inLine = 0;
+    origins_.clear();
 
     while (std::getline(iss, line)) {
+        inLine++;
         // Remove REM comments if enabled
         if (removeComments) {
             line = removeRemComments(line);
@@ -27,52 +31,48 @@ std::string BasicMinifier::minify(const std::string& source) {
         }
 
         minifiedLines.push_back(line);
+        lineFrom.push_back(inLine);
     }
 
     // Merge statements if enabled
     if (mergeStatements && !minifiedLines.empty()) {
-        // Group statements between labels
+        // Join lines into the line before them, up to a labeled line (a jump
+        // target starts a line of its own). Never onto a line with IF: the
+        // statements after THEN on a line run only when the condition holds.
+        // A joined line stays at most maxMergedLength characters.
+        const size_t maxMergedLength = 160;
         std::vector<std::string> merged;
+        std::vector<int> mergedFrom;
         std::string currentGroup;
+        int groupFrom = 0;
+        std::regex labelLine(R"(^[A-Za-z_]\w*\s*:)");
 
         for (size_t i = 0; i < minifiedLines.size(); i++) {
             const auto& stmt = minifiedLines[i];
-
-            // Check if this line starts with a label (contains ':' at start)
-            bool isLabel = false;
-            for (size_t j = 0; j < stmt.length(); j++) {
-                if (stmt[j] == ':') {
-                    isLabel = true;
-                    break;
-                } else if (stmt[j] == ' ' || stmt[j] == '\t') {
-                    break;
-                }
-            }
-
-            if (isLabel) {
-                // Start a new group with this label
-                if (!currentGroup.empty()) {
-                    merged.push_back(currentGroup);
-                }
-                currentGroup = stmt;
+            bool isLabel = std::regex_search(stmt, labelLine) || stmt[0] == '#';   // #pragma: its own line
+            bool canJoin = !isLabel && !currentGroup.empty() && currentGroup[0] != '#' &&
+                           !hasWordOutsideStrings(currentGroup, "IF") &&
+                           currentGroup.size() + 1 + stmt.size() <= maxMergedLength;
+            if (canJoin) {
+                // a label alone ("done:") already ends with its colon
+                currentGroup += (currentGroup.back() == ':') ? stmt : ":" + stmt;
             } else {
-                // Add to current group (colon-separate multiple statements)
-                if (!currentGroup.empty()) {
-                    currentGroup += ": " + stmt;
-                } else {
-                    currentGroup = stmt;
-                }
+                if (!currentGroup.empty()) { merged.push_back(currentGroup); mergedFrom.push_back(groupFrom); }
+                currentGroup = stmt;
+                groupFrom = lineFrom[i];
             }
         }
 
         if (!currentGroup.empty()) {
             merged.push_back(currentGroup);
+            mergedFrom.push_back(groupFrom);
         }
 
         minifiedLines = merged;
+        lineFrom = mergedFrom;
     }
+    origins_ = lineFrom;
 
-    // Output minified lines
     for (const auto& line : minifiedLines) {
         result << line << "\n";
     }
@@ -80,43 +80,53 @@ std::string BasicMinifier::minify(const std::string& source) {
     return result.str();
 }
 
+// Whether word (upper case) appears as a whole word outside strings
+bool BasicMinifier::hasWordOutsideStrings(const std::string& text, const std::string& word) const {
+    bool inString = false;
+    for (size_t i = 0; i < text.size(); i++) {
+        if (text[i] == '"') { inString = !inString; continue; }
+        if (inString) continue;
+        if (i > 0 && (std::isalnum((unsigned char)text[i - 1]) || text[i - 1] == '_' || text[i - 1] == '$')) continue;
+        if (text.size() - i < word.size()) break;
+        bool match = true;
+        for (size_t k = 0; k < word.size(); k++)
+            if (std::toupper((unsigned char)text[i + k]) != word[k]) { match = false; break; }
+        if (!match) continue;
+        size_t e = i + word.size();
+        if (e < text.size() && (std::isalnum((unsigned char)text[e]) || text[e] == '_' || text[e] == '$')) continue;
+        return true;
+    }
+    return false;
+}
+
+// Drop a REM statement and everything after it (outside strings). A label
+// before it ("loop: rem ...") is kept, so the label still names this line.
 std::string BasicMinifier::removeRemComments(const std::string& line) {
-    // Find REM keyword (case-insensitive)
-    size_t pos = 0;
-
-    // First, skip label if present
-    size_t colonPos = line.find(':');
-    if (colonPos != std::string::npos) {
-        pos = colonPos + 1;
-    }
-
-    // Look for REM after the colon/start of line
-    std::string upperLine = line;
-    std::transform(upperLine.begin(), upperLine.end(), upperLine.begin(), ::toupper);
-
-    size_t remPos = upperLine.find("REM", pos);
-
-    if (remPos != std::string::npos) {
-        // Check if REM is preceded by space/colon/start and followed by space or end
-        bool isValidREM = false;
-
-        if (remPos == 0 || upperLine[remPos - 1] == ':' || std::isspace(upperLine[remPos - 1])) {
-            if (remPos + 3 >= upperLine.length() || std::isspace(upperLine[remPos + 3])) {
-                isValidREM = true;
+    bool inString = false;
+    size_t stmtStart = 0;
+    for (size_t i = 0; i <= line.size(); i++) {
+        if (i < line.size() && line[i] == '"') { inString = !inString; continue; }
+        if (inString) continue;
+        if (i == line.size() || line[i] == ':') {
+            std::string stmt = line.substr(stmtStart, i - stmtStart);
+            size_t b = stmt.find_first_not_of(" \t");
+            if (b != std::string::npos) {
+                std::string head = stmt.substr(b, 3);
+                std::transform(head.begin(), head.end(), head.begin(), ::toupper);
+                bool after = b + 3 >= stmt.size() || !std::isalnum((unsigned char)stmt[b + 3]);
+                if (head == "REM" && after) {
+                    std::string kept = line.substr(0, stmtStart);
+                    size_t e = kept.find_last_not_of(" \t");
+                    kept = e == std::string::npos ? "" : kept.substr(0, e + 1);
+                    // "x = 1:" -> "x = 1"; a lone label keeps its colon
+                    static const std::regex lone(R"(^\s*[A-Za-z_]\w*\s*:$)");
+                    if (!kept.empty() && kept.back() == ':' && !std::regex_match(kept, lone)) kept.pop_back();
+                    return kept;
+                }
             }
-        }
-
-        if (isValidREM) {
-            // Remove the REM and everything after it
-            // But keep the label and colon if present
-            if (colonPos != std::string::npos) {
-                return line.substr(0, colonPos + 1);
-            } else {
-                return "";
-            }
+            stmtStart = i + 1;
         }
     }
-
     return line;
 }
 

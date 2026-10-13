@@ -1,282 +1,135 @@
 # cvt_asm — Assembler Format Converter
 
-**Status:** v1.0.5 (Stable)  
-**Purpose:** Convert assembly source code between different 6502 assembler formats.
+`cvt_asm` converts 6502/45GS02 assembly source between assembler syntaxes. Each input format has a parser that builds a common semantic representation (`AsmIR`), and each output format has a writer that prints it.
 
----
+## Formats
 
-## Overview
+| Name (`-f`/`-t`) | Assembler | Auto-detected extensions | Output extension |
+|------------------|-----------|--------------------------|------------------|
+| `ca45` | ca45 (this toolchain) | `.s45`, `.s`, `.asm` | `.s45` |
+| `ca65` | cc65's ca65 | `.s65`, `.c65` | `.s65` |
+| `acme` | ACME | `.a65` | `.a65` |
+| `kickassembler` | KickAssembler | `.ka` | `.ka` |
+| `merlin64` | Merlin 64 | `.m64`, `.m6502` | `.m64` |
+| `oscar` | Oscar (Commodore 6502 assembler) | `.s6502` | `.s6502` |
+| `x65` | x65 | `.x65` | `.x65` |
 
-`cvt_asm` is a format-agnostic assembler converter built on a semantic intermediate representation (IR). It allows conversion between different C64/MEGA65 assembler syntaxes while preserving the intent and structure of the code.
-
-### Design Philosophy
-
-- **Semantic IR**: Normalizes syntax to a common representation (instructions, directives, symbols, segments)
-- **Format-Agnostic**: Each assembler is plugged in via parser/writer implementations
-- **Extensible**: Adding new formats requires only implementing a parser and writer
-- **Lossless (for supported features)**: Converts between assemblers without losing semantic meaning
-
-### Current Status
-
-**Phase 1 (Complete):**
-- Semantic IR for 6502/45GS02 instructions and directives
-- Generic parser/writer registry system
-- ca45 parser and writer (full implementation)
-
-**Phase 2 (Complete):**
-- KickAssembler parser and writer (full implementation)
-- Namespace support (!namespace / !endnamespace)
-- Directive flattening and conversion
-- Bidirectional conversion (ca45 ↔ kickassembler)
-
-**Future Phases:**
-- ca65 parser and writer (CC65 compatible)
-- Other assemblers (Oscar, Merlin, Buddy/Power Assembler, etc.)
-
----
+`cvt_asm -l` (or `--list-formats`) prints the registered parsers and writers. The conversion quality differs a lot between formats — see [Limitations](#limitations).
 
 ## Usage
 
-### Basic Conversion
+```bash
+cvt_asm [options] <input-file> [<input-file> ...]
+```
+
+| Option | Description |
+|--------|-------------|
+| `-f <format>` | Input format (default: auto-detect, see below). Must be a canonical name from the table |
+| `-t <format>` | Target format (default: `ca45`, or `default_format` from `.cvtasmrc`) |
+| `-o <path>` | Output file for one input; for several inputs a directory (created if needed) receiving `<basename><target extension>` |
+| `-l`, `--list-formats` | List supported formats and exit |
+| `-v` | Verbose: detection, parse/write progress and warnings on stderr, plus a performance summary on stdout |
+| `--stats` | Print conversion statistics (source/target counts, losses, preservation %) instead of the output |
+| `--validate` | Convert to the target and back, and report how much was preserved (`LOSSLESS` at ≥95%) instead of the output |
+| `--metrics` | Print the performance summary (time, files, include-cache hits) after converting |
+| `--parallel` | Convert several files in parallel |
+| `--threads <n>` | Worker threads for `--parallel` (0 = number of cores) |
+| `--clear-cache` | Clear the include-file cache before the batch |
+| `--init-config` | Write a default `.cvtasmrc` in the current directory and exit |
+| `--show-config` | Print the configuration in effect and exit |
+| `--help` | Show usage |
+| `--version` | Show version |
+
+With one input and no `-o`, the result goes to stdout. With several inputs and no `-o`, each result is written to `<basename><target extension>` in the current directory. The exit status is 1 if any file failed.
+
+### Input format detection
+
+Without `-f`, cvt_asm looks for an editor modeline in the first or last five lines — `vim: ft=<name>` / `vim: filetype=<name>` or `-*- mode: <name> -*-` — then falls back to the file extension. Modeline names may also be aliases: `45gs02`/`mega65` (ca45), `cc65`/`c65` (ca65), `a65` (acme), `merlin`/`m64`/`m6502` (merlin64), `commodore` (oscar), `kickass`/`ka` (kickassembler).
 
 ```bash
-# Convert ca45 to ca45 (test and normalize)
-cvt_asm input.s45 -o output.s45
-
-# Convert using verbose output
-cvt_asm -v input.s45
-
-# Specify formats explicitly
-cvt_asm -f ca45 -t ca45 input.s45 -o output.s45
+cvt_asm input.s45                       # ca45 -> ca45 (normalise) to stdout
+cvt_asm -t kickassembler input.s45 -o out.ka
+cvt_asm -f ca65 -t acme *.s65           # batch: writes <name>.a65 files
+cvt_asm -t ca65 -o converted/ a.s45 b.s45
+cvt_asm --stats -t acme input.s45
+cvt_asm --validate -t ca65 input.s45
 ```
 
-### Command-Line Options
+## Configuration File (`.cvtasmrc`)
 
-```
-cvt_asm [options] <input-file>
+cvt_asm looks for `.cvtasmrc` in the current directory and then in each parent directory, and uses the first one found. Lines starting with `;` or `#` are comments; settings are `key = value` in sections. Command-line options override them.
 
-Options:
-  -f <format>      Input format (default: ca45)
-  -t <format>      Target format (default: ca45)
-  -o <file>        Output file (default: stdout)
-  -l               List supported formats and exit
-  -v               Verbose output (parse/write diagnostics)
-  --help           Show usage information
-  --version        Show version
-```
+```ini
+[general]
+default_format = ca45          ; default -t
+default_threads = 0            ; --threads (0 = auto)
+output_dir =                   ; default -o
+validate_round_trip = false    ; act as if --validate were given
+clear_cache_per_batch = false  ; --clear-cache
+parallel_default = false       ; --parallel
+metrics_default = false        ; --metrics
 
-### List Available Formats
+[paths]
+library_paths = .:./include:./macros
 
-```bash
-cvt_asm -l
-```
-
-Output:
-```
-Supported input formats:
-  ca45
-  kickassembler
-
-Supported output formats:
-  ca45
-  kickassembler
+[performance]
+enable_profiling = false
+show_timing_breakdown = false
 ```
 
----
+`library_paths`, `enable_profiling` and `show_timing_breakdown` are read and shown by `--show-config` but not used by the conversion.
 
 ## Semantic IR (AsmIR)
 
-The intermediate representation captures the essential structure of assembly code:
+Defined in `include/AsmIR.hpp`.
 
-### Statement Types
+- **Statement types**: `INSTRUCTION`, `DIRECTIVE`, `LABEL`, `COMMENT`, `BLANK`.
+- **Addressing modes**: `IMPLIED`, `IMMEDIATE`, `ZERO_PAGE`, `ZERO_PAGE_X`, `ZERO_PAGE_Y`, `ABSOLUTE`, `ABSOLUTE_X`, `ABSOLUTE_Y`, `INDIRECT`, `INDIRECT_X`, `INDIRECT_Y`, `STACK_RELATIVE`, `FRAME_RELATIVE`, `INDEXED_PAIR` (45GS02 `$addr,XY`).
+- **Directive types**: `BYTE_DATA`, `WORD_DATA`, `LONG_DATA`, `FILL`, `ALIGN`, `ORG`, `SEGMENT`, `GLOBAL`, `EXTERN`, `WEAK`, `CONST`, `CPU`, `FUNCTION`, `ZP_USES`, `ZP_CLOBBERS`, `REG_CLOBBERS`, `FLAG_CLOBBERS`, `LOC`, `OTHER`.
 
-- **INSTRUCTION**: CPU instruction (mnemonic, addressing mode, operand)
-- **DIRECTIVE**: Assembler directive (.byte, .global, .align, etc.)
-- **LABEL**: Symbol definition
-- **COMMENT**: Comment line
-- **BLANK**: Empty line
-
-### Addressing Modes
-
-The IR supports all 6502 and 45GS02 addressing modes:
-
-```
-IMPLIED
-IMMEDIATE
-ZERO_PAGE / BASE_PAGE
-ZERO_PAGE_X / BASE_PAGE_X
-ZERO_PAGE_Y / BASE_PAGE_Y
-ABSOLUTE
-ABSOLUTE_X
-ABSOLUTE_Y
-INDIRECT
-INDIRECT_X / BASE_PAGE_X_INDIRECT
-INDIRECT_Y / BASE_PAGE_INDIRECT_Y
-STACK_RELATIVE
-FRAME_RELATIVE
-INDEXED_PAIR (45GS02)
-```
-
-### Directive Types
-
-```
-BYTE_DATA, WORD_DATA, LONG_DATA
-FILL, ALIGN, ORG
-SEGMENT, GLOBAL, EXTERN, WEAK, CONST
-CPU
-FUNCTION, ZP_USES, ZP_CLOBBERS, REG_CLOBBERS, FLAG_CLOBBERS
-LOC (source location)
-OTHER
-```
-
----
+The ca45 parser runs the real ca45 preprocessor and parser (`Preprocessor`, `AssemblerLexer`, `AssemblerParser::pass1`), so macros and conditionals are expanded and the IR holds the expanded statements. The other parsers are hand-written for their syntax.
 
 ## Architecture
 
-### Parser Registry
-
-Parsers are registered at startup:
+Parsers and writers are registered by name in `registerFormats()` in `src/main/cvt_asm_main.cpp`:
 
 ```cpp
-ParserRegistry::getInstance().registerParser("ca45", 
-    []() -> AsmParser* { return new Ca45Parser(); });
+ParserRegistry::getInstance().registerParser("ca65", []() -> AsmParser* { return new Ca65Parser(); });
+WriterRegistry::getInstance().registerWriter("ca65", []() -> AsmWriter* { return new Ca65Writer(); });
 ```
 
-Each parser:
-- Inherits from `AsmParser` (abstract base)
-- Implements `parse(const std::string& source) -> AsmIR::Module`
-- Collects errors and warnings during parsing
+A parser derives from `AsmParser` (`include/AsmParser.hpp`) and implements `AsmIR::Module parse(const std::string& source)`; a writer derives from `AsmWriter` and implements `std::string write(const AsmIR::Module& module)`. Both collect errors and warnings (`addError`/`addWarning`, `hasErrors`, `getErrors`, `getWarnings`).
 
-### Writer Registry
-
-Writers follow the same pattern:
-
-```cpp
-WriterRegistry::getInstance().registerWriter("ca45",
-    []() -> AsmWriter* { return new Ca45Writer(); });
-```
-
-Each writer:
-- Inherits from `AsmWriter` (abstract base)
-- Implements `write(const AsmIR::Module& module) -> std::string`
-- Formats and emits the IR in the target syntax
-
-### Adding a New Format
-
-To add support for a new assembler format (e.g., ca65):
-
-1. **Create parser header** (`include/Ca65Parser.hpp`):
-   ```cpp
-   class Ca65Parser : public AsmParser {
-       AsmIR::Module parse(const std::string& source) override;
-   private:
-       // Conversion helpers
-   };
-   ```
-
-2. **Implement parser** (`src/main/Ca65Parser.cpp`):
-   - Use ca65's lexer/parser to build the IR
-   - Map ca65 directives to IR types
-   - Preserve operand text for symbols
-
-3. **Create writer header** (`include/Ca65Writer.hpp`):
-   ```cpp
-   class Ca65Writer : public AsmWriter {
-       std::string write(const AsmIR::Module& module) override;
-   private:
-       // Formatting helpers
-   };
-   ```
-
-4. **Implement writer** (`src/main/Ca65Writer.cpp`):
-   - Emit IR statements in ca65 syntax
-   - Handle ca65-specific directives
-   - Format addresses and symbols
-
-5. **Register in main**:
-   ```cpp
-   static void registerFormats() {
-       ParserRegistry::getInstance().registerParser("ca65", 
-           []() -> AsmParser* { return new Ca65Parser(); });
-       WriterRegistry::getInstance().registerWriter("ca65",
-           []() -> AsmWriter* { return new Ca65Writer(); });
-   }
-   ```
-
-6. **Update Makefile**:
-   ```make
-   CVT_ASM_OBJECTS += $(OBJ_DIR)/Ca65Parser.o $(OBJ_DIR)/Ca65Writer.o
-   ```
-
----
+To add a format:
+1. Add `include/XyzParser.hpp`/`src/main/XyzParser.cpp` and `include/XyzWriter.hpp`/`src/main/XyzWriter.cpp`.
+2. Register both in `registerFormats()`.
+3. Add `XyzParser.o XyzWriter.o` to `LIB45_TOOLS_OBJS` in the `Makefile` (cvt_asm links `lib45-tools.a`).
+4. Optionally map its extension and aliases in `src/main/FormatDetection.cpp` and its output extension in `getFormatExtension()`.
 
 ## Conversion Examples
 
-### Simple Instruction Preservation
+Output of the current build.
 
-**Input (ca45):**
+**ca45 → ca45** (normalisation; instructions are re-indented):
+
 ```asm
 main:
     lda #$42
     sta $d020
     rts
 ```
-
-**Output (ca45):**
+becomes
 ```asm
 main:
-    lda #$42
-    sta $d020
-    rts
+  lda #$42
+  sta $d020
+  rts
 ```
 
-Operand text is preserved during the round-trip.
+**ca45 → kickassembler / ca65**: the same lines with four-space indentation. **merlin64 / oscar**: labels without a colon, tab-indented instructions.
 
-### Symbol and Label Handling
+**KickAssembler namespaces** are flattened to dotted labels:
 
-**Input:**
-```asm
-.global counter
-.extern update_screen
-
-loop:
-    lda counter
-    jsr update_screen
-    bne loop
-```
-
-**Parsed IR:**
-- `counter` captured as extern symbol
-- `update_screen` captured as extern symbol
-- `loop` captured as label with references in IR
-
-**Output (ca45):**
-```asm
-.extern counter
-.extern update_screen
-
-loop:
-    lda counter
-    jsr update_screen
-    bne loop
-```
-
-### Directive Normalization
-
-Directives are preserved but normalized to the target format:
-
-| ca45 | IR | KickAssembler |
-|------|----|----|
-| `.byte 1, 2` | BYTE_DATA | `!byte 1, 2` |
-| `.word $1000` | WORD_DATA | `!word $1000` |
-| `.align 256` | ALIGN | `!align 256` |
-| `.global foo` | GLOBAL | `!export foo` |
-
-### KickAssembler Namespace Flattening
-
-KickAssembler namespaces are flattened to dot-notation labels during conversion, enabling use in other assemblers:
-
-**Input (KickAssembler):**
 ```asm
 !namespace game
     main:
@@ -284,112 +137,46 @@ KickAssembler namespaces are flattened to dot-notation labels during conversion,
         rts
 !endnamespace
 ```
-
-**Output (ca45):**
+→ (`cvt_asm n.ka`)
 ```asm
 game.main:
-    lda #$42
-    rts
+  LDA #$42
+  RTS
 ```
-
-**Output (KickAssembler, round-trip):**
-```asm
-game.main:
-    LDA #$42
-    RTS
-```
-
-Labels with dots are preserved during round-trips. Conversions between formats that don't support namespaces use flattened names.
-
----
 
 ## Limitations
 
-### Macro Expansion
+Known problems of the current version (found while checking this page; ca45 input):
 
-Macros in the source are expanded during parsing and stored as individual statements in the IR. When converting to a format that supports macros, the original macro structure is not recovered (it would require additional metadata during parsing).
+- A label and an instruction or directive on the same line (`loop: lda counter`, `counter: .byte 0`) keep only the label — the rest of the line is lost.
+- Data directives lose their commas (`.byte 1, 2` → `.byte 1 2`).
+- A label whose name is an opcode in another case (`tab:`) is upper-cased (`TAB:`).
+- `.global`/`.extern` of names: the ca45 writer keeps them, the ACME writer prints bare `!global`/`!extern` without names, the KickAssembler writer swaps them (`!import` for exports, `!export` for imports) and adds bare `!global`/`!extern`, the ca65 writer adds bare `.export`/`.import`.
+- Directives the ca45 parser does not know are passed through unchanged instead of being reported.
+- Macros are expanded by the ca45 parser; the macro definitions are not reproduced in the output.
+- With `-v` the performance summary goes to stdout, mixed with the converted source when that also goes to stdout.
 
-**Workaround for phase 2:** Store macro definitions separately in IR, allowing lossless conversions between formats that both support macros.
-
-### Format-Specific Features
-
-Some formats have features not representable in the IR:
-
-| Feature | ca45 | ca65 | KickAss |
-|---------|------|------|---------|
-| Macros | ✓ | ✓ | ✓ |
-| Namespaces | ✗ | ✗ | ✓ |
-| Block syntax | ✗ | ✗ | ✓ |
-| Scope blocks | ✗ | ✗ | ✓ |
-
-**Fallback:** When converting a format with unsupported features to one without, cvt_asm flattens the structure and emits a warning.
-
----
+Use `--validate` and `--stats` to see how much of a file survives a conversion, and check the result by assembling it.
 
 ## Error Handling
 
-Parse and write errors are collected and reported:
+Parse errors are printed per file and the file counts as failed:
 
-```bash
+```
 $ cvt_asm bad.s45
-Parse error: Unknown directive: .baddir
-Parse error: Unexpected token at line 5
-
-$ cvt_asm -v bad.s45
-Parsing...
-Parse error: Unknown directive: .baddir
-Parse error: Unexpected token at line 5
+  Parse error: :2:1: error: Error parsing instruction 'lda': :2:11: error: Expected )
 ```
 
-Use `-v` for detailed diagnostics.
+Other errors: `Error: Could not auto-detect input format for 'X'. Specify with -f <format>`, `Error: Unsupported input format 'X'` / `Unsupported target format 'X'`, `Unknown option: X`.
 
----
-
-## Technical Details
-
-### Build
+## Build
 
 ```bash
-make bin/cvt_asm       # Build just cvt_asm
-make -j12 all          # Build all tools including cvt_asm
+make bin/cvt_asm
 ```
-
-### Dependencies
-
-- **Existing ca45 parser**: Leverages AssemblerParser, AssemblerLexer
-- **Preprocessor**: Expands macros and handles directives
-- **C++17**: Semantic IR uses standard library features
-
-### Performance
-
-Typical conversion time for a 1000-line assembly file: <100ms.
-
----
-
-## Future Work
-
-### Phase 2: Cross-Format Conversions
-
-- [ ] ca65 parser and writer
-- [ ] Full compatibility matrix
-- [ ] Format-specific optimizations (e.g., preserve ca65's local label syntax)
-
-### Phase 3: Advanced Features
-
-- [ ] Macro preservation (for macro-aware conversions)
-- [ ] Configurable output formatting
-- [ ] Batch conversion tool
-
-### Phase 4: Integration
-
-- [ ] IDE plugin support
-- [ ] Build system integration
-- [ ] Incremental conversion
-
----
 
 ## See Also
 
-- `ca45.md` — ca45 assembler documentation
-- `.../calling-conventions.md` — MEGA65 calling conventions
-- `../architecture/lib45.md` — .o45 relocatable object format
+- [ca45](ca45.md) — ca45 assembler
+- [CONFIGURATION](CONFIGURATION.md) — configuration files of the toolchain
+- [lib45](../architecture/lib45.md) — `.o45` relocatable object format

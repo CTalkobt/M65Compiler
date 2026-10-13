@@ -1,8 +1,12 @@
+#include <cstdlib>
+#include "IR.hpp"
 #include "CodegenStage.hpp"
 #include "AST.hpp"
 #include "IRBuilder.hpp"
 #include "IRCodeGen.hpp"
 #include "FunctionAnalyzer.hpp"
+#include "IROptimizer.hpp"
+#include "OptimizationCatalog.hpp"
 #include <iostream>
 #include <sstream>
 #include <memory>
@@ -18,11 +22,6 @@ Stage::Result CodegenStage::execute() {
 
         // Phase 2: Generate IR from AST
         generateIR();
-
-        // Phase 3: Apply cross-module optimizations (specialization)
-        if (optimizationLevel_ >= 2) {
-            applyIPOSpecialization();
-        }
 
         // Phase 4: IR-level optimizations (8 passes)
         optimizeIR();
@@ -71,112 +70,100 @@ void CodegenStage::generateIR() {
     // Configure builder for this compilation
     builder.zpCallMode = zpCallMode_;
     builder.staticAllocMode = staticAlloc_;
-    builder.inlineFunctions = inlineFunctions_ || optimizationLevel_ >= 2;
+    // -finline-functions forces inlining; -f[no-]inline-small-functions or the
+    // -O level (2 and up) decide otherwise
+    builder.inlineFunctions = optOverrides_.count("InlineSmallFunctions")
+        ? optOverrides_.at("InlineSmallFunctions")
+        : (inlineFunctions_ || optOn("InlineSmallFunctions"));
+    builder.devirtualize = optOn("Devirtualization");
+    builder.futureWarnings = futureWarnings_;
+    builder.maxInlineIRSize = maxInlineIRSize_;
+    builder.maxUnrollBytes = maxUnrollBytes_;
     builder.allowImplicitFunctionDecl = allowImplicitFuncDecl_;
 
     // Phase 102: Pass typedef mappings from parser
     builder.setTypedefMappings(typedefMappings_);
+    if (!sourceFile_.empty()) builder.setSourceInfo(sourceFile_);
 
     // Generate IR from AST
     builder.generate(*ast_);
 
     // Print warnings
-    for (const auto& warn : builder.getWarnings()) {
-        std::cerr << warn << std::endl;
+    const auto& warnings = builder.getWarnings();
+    for (size_t i = 0; i < warnings.size(); i++) {
+        if (!builder.warningAlreadyPrinted(i)) std::cerr << warnings[i] << std::endl;
     }
 
     if (builder.hasErrors()) {
         for (const auto& err : builder.getErrors()) {
             std::cerr << err << std::endl;
         }
+        errorsPrinted_ = true;
         throw std::runtime_error(builder.getErrors().front());
     }
 
     // Get the generated module
     irModule_ = std::make_unique<ir::Module>(builder.getModule());
+    // A #pragma cc45 no_stack16 / stack_top in the source wins over the flag
+    if (irModule_->stackTop < 0) irModule_->stackTop = stackTop_;
+    if (irModule_->bssFill < 0) irModule_->bssFill = bssFill_;
 
     if (verboseLevel_ >= 2) {
         std::cout << "    IR generated successfully" << std::endl;
     }
 }
 
-void CodegenStage::applyIPOSpecialization() {
-    if (verboseLevel_ >= 2) {
-        std::cout << "  Applying cross-module optimization..." << std::endl;
-    }
-
-    if (!irModule_ || !analyzer_) return;
-
-    // Phase 91: Cross-module optimization (IPO) with specialization
-    // This includes:
-    //  - Function specialization for constant argument patterns
-    //  - Dead code elimination across module boundaries
-    //  - Devirtualization of virtual function calls
-    //  - Co-optimization hints for link time
-
-    const auto& characteristics = analyzer_->getAllCharacteristics();
-
-    // Count optimization candidates based on function characteristics
-    int leafFunctions = 0;
-    int smallFunctions = 0;
-    int recursiveFunctions = 0;
-
-    for (const auto& [funcName, chars] : characteristics) {
-        // Leaf functions are candidates for aggressive optimization
-        if (chars.isLeaf) {
-            leafFunctions++;
-        }
-        // Small functions are candidates for inlining/specialization
-        if (chars.estimatedCodeSize < 20) {
-            smallFunctions++;
-        }
-        // Track recursive functions (cannot use SAC)
-        if (chars.isRecursive) {
-            recursiveFunctions++;
-        }
-    }
-
-    if (verboseLevel_ >= 2) {
-        if (leafFunctions > 0) {
-            std::cout << "    Found " << leafFunctions << " leaf functions for optimization." << std::endl;
-        }
-        if (smallFunctions > 0) {
-            std::cout << "    Found " << smallFunctions << " small functions for specialization." << std::endl;
-        }
-    }
-
-    // Mark optimization candidates in IR
-    // This will be expanded in Phase 91.3+ for full specialization support
+bool CodegenStage::optOn(const std::string& name) const {
+    auto it = optOverrides_.find(name);
+    if (it != optOverrides_.end()) return it->second;
+    return OptimizationCatalog::isEnabledAtLevel(name, optimizationLevel_);
 }
 
+// The IR passes of IROptimizer.cpp, in order. Each runs on a function when its
+// #pragma cc45 optimize(...) override says so, else when -f/-fno-/the -O level
+// enables it (all are on from -O1).
 void CodegenStage::optimizeIR() {
     if (verboseLevel_ >= 2) {
         std::cout << "  Optimizing IR..." << std::endl;
     }
-
     if (!irModule_) return;
 
-    // IR optimization passes are applied based on optimization level:
-    // Level 0: None
-    // Level 1: Basic (constant folding, dead code elimination)
-    // Level 2: Standard (+ strength reduction, copy propagation, CSE)
-    // Level 3+: Aggressive (+ loop optimizations, function inlining)
-    //
-    // Note: Actual IR optimization is performed by specialized passes
-    // (ConstantFolder, LoopOptimizer, etc.) invoked at appropriate stages
-    // during IR generation and code generation.
+    struct Pass { const char* name; void (*run)(ir::Module&); };
+    static const Pass passes[] = {
+        {"LoopUnrolling",     ir::optimizeLoopUnroll},   // first: its constants feed the others
+        {"StrengthReduction", ir::optimizeStrengthReduction},
+        {"AlgebraicSimplify", ir::optimizeAlgebraic},
+        {"TypeNarrowing",     ir::optimizeTypeNarrowing},
+        {"BranchFolding",     ir::optimizeBranchFold},
+        {"CommonSubexprElim", ir::optimizeCSE},
+        {"LICM",              ir::optimizeLICM},
+        {"CopyPropagation",   ir::optimizeCopyChains},
+        {"AddrElemFusion",    ir::optimizeAddrElemFusion},
+    };
 
-    if (verboseLevel_ >= 3) {
-        if (optimizationLevel_ >= 1) {
-            std::cout << "    Level 1: Basic optimization passes" << std::endl;
+    ir::optTrace = traceIROpt_ ? &std::cerr : nullptr;
+    ir::unrollMaxBytes = irModule_->maxUnrollBytes >= 0 ? irModule_->maxUnrollBytes : maxUnrollBytes_;
+    ir::passEnabled = [this](const ir::Function& fn, const char* name) {
+        auto it = fn.optOverrides.find(name);
+        if (it != fn.optOverrides.end()) return it->second;
+        return optOn(name);
+    };
+    bool ranAny = false;
+    for (const auto& p : passes) {
+        bool any = optOn(p.name);
+        for (const auto& fn : irModule_->functions) {
+            auto it = fn.optOverrides.find(p.name);
+            if (it != fn.optOverrides.end() && it->second) any = true;
         }
-        if (optimizationLevel_ >= 2) {
-            std::cout << "    Level 2: Standard optimization passes" << std::endl;
-        }
-        if (optimizationLevel_ >= 3) {
-            std::cout << "    Level 3+: Aggressive optimization passes" << std::endl;
-        }
+        if (!any) continue;
+        if (verboseLevel_ >= 2) std::cout << "    " << p.name << std::endl;
+        p.run(*irModule_);
+        ranAny = true;
     }
+    // What the passes left unused (part of dead-code elimination, always on)
+    if (ranAny) ir::removeDeadTemps(*irModule_);
+    ir::passEnabled = nullptr;
+    ir::optTrace = nullptr;
 }
 
 void CodegenStage::applyInlining() {
@@ -230,6 +217,9 @@ void CodegenStage::generateAssembly() {
     }
 
     if (!irModule_) return;
+
+    // CC45_DUMP_IR=1: print the optimized IR to stderr (debugging aid)
+    if (const char* d = getenv("CC45_DUMP_IR"); d && *d && *d != '0') ir::Printer::print(std::cerr, *irModule_);
 
     // Generate assembly from IR using IRCodeGen
     std::ostringstream ss;

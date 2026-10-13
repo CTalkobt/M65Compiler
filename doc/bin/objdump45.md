@@ -1,12 +1,11 @@
-# objdump45 — Object File Inspector and Disassembler for .o45 / .o65
+# objdump45 — Object File Inspector and Disassembler
 
-`objdump45` displays information from `.o45` and `.o65` relocatable object files, `.prg` executables, and raw binary files, including file headers, section layouts, symbol tables, relocation entries, hex dumps, and full 45GS02 disassembly with symbolic annotations. It follows the conventions of the GNU `objdump` tool.
+`objdump45` displays information from `.o45` relocatable object files, `.prg` executables and raw binaries: file headers, section layouts, symbol tables, relocation entries, hex dumps and 45GS02 disassembly with symbol labels. It also dumps the BASIC lines of a PRG and compares two binaries. Its options follow GNU `objdump`.
 
-Supported input formats:
-- **`.o45`** — 32-bit relocatable objects (produced by `ca45 -c` or `cc45 -c`): full header, symbols, relocations, and disassembly.
-- **`.o65`** — 16-bit relocatable objects (from other 6502 toolchains): same as above.
-- **`.prg`** — PRG executables with 2-byte load address header: auto-detects base address, supports hex dump and disassembly.
-- **`.bin`** — Raw binary files: supports hex dump and disassembly with a user-supplied base address (`-b`).
+Supported inputs:
+- **`.o45`** — relocatable objects (`ca45 -c`, `cc45 -c`): header, sections, symbols, relocations, contents, disassembly.
+- **`.prg`** — 2-byte load address + image: header summary, hex dump, disassembly (BASIC `SYS` stub recognised, `ln45 -M` map used for symbols), BASIC listing.
+- **raw binaries** — `.bin` extension or any file with `-b`: header summary, hex dump, disassembly.
 
 ## Usage
 
@@ -14,293 +13,201 @@ Supported input formats:
 objdump45 [options] <file> [...]
 ```
 
-At least one display option (`-f`, `-h`, `-t`, `-r`, `-s`, `-d`, or `-a`) must be specified.
+At least one display option (`-f`, `-h`, `-t`, `-r`, `-s`, `-d`, `-a` or `-bas`) is required, or `-D` with two files.
 
 ## Options
 
 | Flag | Description |
 |------|-------------|
-| `-f` | Display file header (format, CPU, mode flags, options) |
-| `-h` | Display section headers (name, size, VMA, type, relocation count) |
-| `-t` | Display symbol table (imports and exports) |
-| `-r` | Display relocation entries for each section |
-| `-s` | Display full contents of all sections (hex dump) |
-| `-d` | Disassemble executable sections |
-| `-a` | Display all of the above |
-| `-b ADDR` | Set base address for raw binary files (default: `$0000`). Accepts `$XXXX`, `0xXXXX`, or decimal. Overrides PRG load address when used with `.prg` files. |
-| `-m FILE` | Load symbols and source line mappings from a linker map file (produced by `ln45 -M`) for symbolic disassembly of PRG binaries. |
+| `-f` | File header (format, CPU, mode flags, options; for PRG/binaries the base address and size) |
+| `-h` | Section headers (name, size, VMA, type, relocation count) |
+| `-t` | Symbol table (imports and exports, with function attributes) |
+| `-r` | Relocation entries per section |
+| `-s` | Full contents of all sections (hex dump) |
+| `-d` | Disassemble (an object's TEXT and DATA sections; the code of a PRG/binary) |
+| `-a` | All of `-f -h -t -r -s -d` |
+| `-b ADDR` | Base address for raw binaries (default `$0000`); overrides the load address of a `.prg`. `$C000` and `0xC000` are hex; a plain number is decimal (`2048`), and a leading `0` makes it octal |
+| `-m FILE` | Load symbols and source lines from an `ln45 -M` map file for PRG/binary disassembly. For `foo.prg`, `foo.map` is used automatically when it exists |
+| `-bas` | List the BASIC program of a `.prg` (line numbers, detokenised text) |
+| `-x` | With `-bas`: also show each line's bytes in hex |
+| `-D` | Binary diff of exactly two files (any format, compared byte by byte) |
 | `-V` / `--version` | Display version and exit |
-| `-?` | Display help message |
+| `-?` / `--help` | Display help |
 
-Flags can be combined: `-fdh` is equivalent to `-f -d -h`.
+Single-letter flags can be combined: `-fdh` is `-f -d -h`, `-rt` is `-r -t`.
 
 ## Output Sections
 
 ### File Header (`-f`)
 
-Shows the file format, CPU architecture, mode flags, and any embedded options (filename, OS, assembler, author).
-
 ```
-main.o45:     file format o45-32
+amain.o45:     file format o45-32
 architecture: 45GS02, flags $8800 (SIZE32, CPUEXT)
   option: OS
   option: ASM "ca45"
 ```
 
+Options are named `FNAME`, `OS`, `ASM`, `AUTHOR`, `CREATED`, `LINEINFO` (`$11`), `DEBUG_SYMBOLS` (`$12`); others (e.g. `$10` sub-segment) show as `USER`. For a PRG:
+
+```
+program.prg:     file format prg
+base address: $2001, size: 10590 bytes
+```
+
 ### Section Headers (`-h`)
 
-Lists each section with its index, name, size, virtual memory address, type, and number of relocations.
-
 ```
-main.o45:
+amain.o45:
 Sections:
 Idx Name     Size       VMA        Type       Relocs
-  0 TEXT     00000028   00000000   CODE       3
-  1 DATA     0000000B   00000000   DATA       0
+  0 TEXT     00000007   00000000   CODE       3
+  1 DATA     00000003   00000000   DATA       0
 ```
+
+BSS and ZP sections appear with type `NOBITS`; empty sections are omitted.
 
 ### Symbol Table (`-t`)
 
-Lists imported and exported symbols in the traditional `nm` format.
-
 ```
-SYMBOL TABLE (main.o45):
-         U _printf
-00000000 T _main
-00000028 D _count
+SYMBOL TABLE (math.o45):
+         U __bp_rom
+         U __bp_prog
+00000101 W __sp_base
+...
+00000000 T _add  [zp_call leaf uses:- clobbers:- releases:- regs:AX flags:CNZV]
+00000000 B _add__param_a
 ```
 
-Type letters: `U` (undefined/import), `T` (text), `D` (data), `B` (BSS), `Z` (zero page), `W` (weak).
+Imports, then exports in file order. Letters as in [nm45](nm45.md): `U`, `T`, `D`, `B`, `Z`, `A`, `W` (weak); functions with an attribute record show it in brackets.
 
 ### Relocation Entries (`-r`)
 
-Shows decoded relocation records for each section, including type, target segment, and external symbol references.
-
 ```
-RELOCATION RECORDS FOR [TEXT] (main.o45):
+RELOCATION RECORDS FOR [TEXT] (amain.o45):
 OFFSET     TYPE         SEGMENT  SYMBOL
-00000004   R_WORD       EXTERN   _printf
-0000000A   R_WORD       DATA
+00000001   R_LOWX       DATA      extra=$00
+00000003   R_HIGH       DATA      extra=$00
+00000005   R_WORD       EXTERN   print
 ```
 
 ### Section Contents (`-s`)
 
-Hex dump of section bodies in a standard format with ASCII sidebar.
-
 ```
 Contents of section TEXT:
- 0000 a941208d 0200ae1c 00f003ca 60        .A .........`
+ 0000 a900a200 4c0000                      ....L..
+
+Contents of section DATA:
+ 0000 484900                               HI.
 ```
 
 ### Disassembly (`-d`)
 
-Full disassembly of code sections using the 45GS02 instruction set. Features:
-
-- **Symbol labels**: Export symbols appear as labels at their addresses.
-- **Branch annotations**: Branch and jump targets are annotated with symbol names when known.
-- **Hex bytes**: Raw instruction bytes are shown alongside mnemonics.
-- **All addressing modes**: Full support for 45GS02 modes including `($nn,SP),Y`, `[zp],Z`, 16-bit branches, `PHW #imm16`, `RTS #n`, and more.
+All 45GS02 addressing modes are decoded (including `($nn,SP),Y`, `[zp],Z`, 16-bit branches, `PHW #imm16`). Export symbols become labels, branch targets inside the section are resolved, and `; file:line` comments come from the object's line info (or the map's Source Lines).
 
 ```
-Disassembly of section TEXT (main.o45):
+Disassembly of section TEXT (autil.o45):
 
-00002000 <_main>:
-    2000:	a9 41       	lda	#$41
-    2002:	20 d2 ff    	jsr	$FFD2
-    2005:	ae 28 20    	ldx	$2028
-    2008:	f0 03       	beq	$200D <_done>
-    200a:	ca          	dex
-
-0000200b <_done>:
-    200b:	60          	rts
-
-0000200c <_irq_handler>:
-    200c:	40          	rti
+00000000 <print>:
+    0000:	85 fb       	sta	$fb
+    0002:	86 fc       	stx	$fc
+    0004:	a0 00       	ldy	#$00
+    0006:	b1 fb       	lda	($fb),y
+    0008:	f0 06       	beq	$0010
+    000a:	20 d2 ff    	jsr	$ffd2
+    000d:	c8          	iny
+    000e:	d0 f6       	bne	$0006
+    0010:	60          	rts
 ```
+
+Limitations for objects: addresses are object-relative (the not yet relocated operand bytes are shown, usually `$0000` for external references), the label table mixes the exports of all segments (so a BSS or absolute symbol whose offset matches a code address is shown as a label/annotation in TEXT), and the DATA section is disassembled as if it were code. Disassemble the linked PRG with its map for real addresses and names.
 
 ## Examples
 
-### Quick disassembly of a compiled module
+### Inspect an object
 
 ```bash
-$ objdump45 -d puts.o45
+objdump45 -a main.o45        # everything
+objdump45 -rt main.o45       # relocations and symbols
+objdump45 -d main.o45        # code
+objdump45 -f lib/build/*.o45 # headers of many objects
 ```
 
-### Full dump of an object file
+### Disassemble a linked PRG
 
 ```bash
-$ objdump45 -a main.o45
+ln45 -basic -M program.map -o program.prg main.o45 -l c45.lib
+objdump45 -d program.prg            # program.map is found automatically
+objdump45 -d -m other.map program.prg
 ```
 
-### Check relocations before linking
-
-```bash
-$ objdump45 -rt main.o45
 ```
-
-### Inspect multiple files
-
-```bash
-$ objdump45 -f lib/build/*.o45
-```
-
-### Disassemble a PRG file
-
-The 2-byte load address is read automatically:
-
-```bash
-$ objdump45 -d program.prg
-
-program.prg:     file format prg
-base address: $0810, size: 42 bytes
-
 Disassembly of section PRG (program.prg):
-    0810:	a9 41       	lda	#$41
-    0812:	20 d2 ff    	jsr	$FFD2
+
+00002001 <BASIC stub>:
+    2001:	0b 20 0a 00 9e 38 32 30 35 00 00 00 	; 10 SYS 8205 ($200d)
+
+Disassembly of section code (program.prg):
+
+0000200d <__init>:
+    200d:	ba          	tsx
+    200e:	8e 5d 20    	stx	$205d
     ...
 ```
 
-### Disassemble a raw binary with a custom base address
+With a map, disassembly stops at the end of TEXT (data is not decoded).
+
+### Raw binary
 
 ```bash
-$ objdump45 -d -b '$C000' rom.bin
+ln45 -t 0800 -o prog.bin main.o45 utils.o45
+objdump45 -d -b '$0800' prog.bin
+objdump45 -d -b '$0000' program.prg    # override the PRG load address
 ```
 
-### Override the PRG load address
+### BASIC listing
+
+```
+$ objdump45 -bas program.prg
+
+BASIC Program: program.prg (1 lines)
+─────────────────────────────────
+Format: LineNum [TOKENS...]
+
+   10  SYS 8205
+```
+
+### Compare two builds
+
+```
+$ objdump45 -D old.prg new.prg
+Binary Diff: old.prg vs new.prg
+Size: 10592 bytes vs 10656 bytes
+
+Offset $008C: [61→A1] [62→A2] [63→A3] [64→A4] ...
+
+Total differences: 9939 bytes
+```
+
+Identical files print `Files are identical`; offsets are file offsets (a PRG's load-address bytes included).
+
+### Compare optimisation levels
 
 ```bash
-$ objdump45 -d -b '$0000' program.prg
+cc45 -O0 -c main.c -o main_o0.o45
+cc45 -O2 -c main.c -o main_o2.o45
+objdump45 -h main_o0.o45 main_o2.o45          # section sizes
+objdump45 -d main_o0.o45 > o0.asm; objdump45 -d main_o2.o45 > o2.asm; diff o0.asm o2.asm
 ```
 
-### Analyze multiple object files before linking
+## Format Detection
 
-```bash
-# Check all object files for conflicts and relocations
-$ objdump45 -rt *.o45
-
-# Display headers and symbols for all files
-$ objdump45 -fth *.o45
-```
-
-### Disassemble with linker map (symbolic disassembly)
-
-```bash
-# Generate linker map during linking
-$ ln45 -M program.map -o program.prg main.o45 -l c45.lib
-
-# Disassemble PRG with symbols from map
-$ objdump45 -d -m program.map program.prg
-```
-
-Produces disassembly with function names and global symbols annotated.
-
-## Supported Formats
-
-| Format | Extension | Description |
-|--------|-----------|-------------|
-| `.o45` | `.o45`    | 32-bit MEGA65 relocatable objects (full symbol/reloc/section support) |
-| `.o65` | `.o65`    | 16-bit Andre Fachat 6502 relocatable objects |
-| `.prg` | `.prg`    | PRG executables (2-byte LE load address + code). Base address auto-detected from header. |
-| `.bin` | `.bin`    | Raw binary files. Use `-b ADDR` to set the base address (default `$0000`). |
-
-For `.o45`/`.o65` files, all display modes are available. For `.prg`/`.bin` files, `-f` (header summary), `-s` (hex dump), and `-d` (disassembly) are supported; `-h`, `-t`, and `-r` silently produce no output since raw binaries have no symbol or relocation tables.
-
-Format detection: `objdump45` first attempts to parse the file as `.o45`/`.o65`. If that fails, it falls back to `.prg` (by extension) or raw binary (by `.bin` extension or when `-b` is specified).
-
-## Debugging Workflows
-
-### Verify object file integrity before linking
-
-```bash
-# Full dump of object file (all sections)
-$ objdump45 -a main.o45
-
-# Check for relocation issues
-$ objdump45 -r main.o45 | grep -E "UNDEF|ERROR"
-```
-
-### Inspect generated code
-
-```bash
-# Look at disassembly of a specific function
-$ objdump45 -d main.o45 | grep -A 20 "_main:"
-
-# Find function that uses most code
-$ objdump45 -d main.o45 | grep "^[0-9a-f].*<.*>:" | head -10
-```
-
-### Analyze relocation requirements
-
-```bash
-# See what relocation types are used
-$ objdump45 -r main.o45 | cut -d' ' -f5 | sort | uniq -c
-
-# Check external symbol references
-$ objdump45 -r main.o45 | grep "EXTERN"
-```
-
-### Compare two compiled versions
-
-Useful for understanding optimizer differences:
-
-```bash
-# Compile with different optimization levels
-$ cc45 -O0 -c main.c -o main_o0.o45
-$ cc45 -O2 -c main.c -o main_o2.o45
-
-# Compare code sizes
-$ objdump45 -s main_o0.o45 | grep "section TEXT" -A 1
-$ objdump45 -s main_o2.o45 | grep "section TEXT" -A 1
-
-# Disassemble both to spot differences
-$ objdump45 -d main_o0.o45 > o0.asm
-$ objdump45 -d main_o2.o45 > o2.asm
-$ diff o0.asm o2.asm
-```
-
-### Analyze calling convention metadata
-
-For ZP calling convention objects:
-
-```bash
-# Show function attributes
-$ objdump45 -t main_zp.o45
-
-# Inspect register clobber masks
-# (May be embedded in symbol table for ZP-convention functions)
-```
-
-### Verify PRG binary correctness
-
-```bash
-# Check load address
-$ objdump45 -f program.prg
-
-# Disassemble and verify entry point
-$ objdump45 -d program.prg | head -30
-
-# Compare with expected linker map
-$ objdump45 -d -m program.map program.prg | grep "_main" -A 10
-```
-
-### Extract and save disassembly for analysis
-
-```bash
-# Full disassembly to file
-$ objdump45 -d program.o45 > program.asm
-
-# With symbols
-$ objdump45 -dt program.o45 > program_symbols.asm
-
-# Hex dump for binary analysis
-$ objdump45 -s program.o45 > program.hex
-```
+`objdump45` first tries to read each file as `.o45`. If that fails, a `.prg` extension selects PRG mode, a `.bin` extension or `-b` selects raw-binary mode; otherwise the read error is reported. For PRG/binaries `-h`, `-t` and `-r` print nothing. `.o65` files (magic `"o65"`) are not accepted as objects (see [nm45](nm45.md#supported-formats)).
 
 ## See Also
 
 - [nm45](nm45.md) — Symbol lister for `.o45` object files
-- [ln45](ln45.md) — Linker
+- [ln45](ln45.md) — Linker (map files with `-M`)
 - [ar45](ar45.md) — Archiver for `.lib` archives
 - [ca45](ca45.md) — Assembler (produces `.o45` with `-c`)
 - [cc45](cc45.md) — C compiler (produces `.o45` with `-c`)
-- [../architecture/lib45.md](../architecture/lib45.md) — `.o45` format specification
+- [lib45](../architecture/lib45.md) — `.o45` format specification

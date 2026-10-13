@@ -1,3 +1,4 @@
+#include <cstring>
 #include "Preprocessor.hpp"
 #include <fstream>
 #include <sstream>
@@ -54,6 +55,7 @@ Preprocessor::Preprocessor(bool isCompiler) : isCompiler(isCompiler) {
     macros["__restrict"] = Macro{false, false, {}, "restrict"};
     macros["__restrict__"] = Macro{false, false, {}, "restrict"};
     macros["__inline"] = Macro{false, false, {}, "inline"};
+    macros["__forceinline"] = Macro{false, false, {}, "inline __attribute__((always_inline))"};
     macros["__inline__"] = Macro{false, false, {}, "inline"};
     macros["__signed"] = Macro{false, false, {}, "signed"};
     macros["__signed__"] = Macro{false, false, {}, "signed"};
@@ -86,6 +88,23 @@ Preprocessor::Preprocessor(bool isCompiler) : isCompiler(isCompiler) {
     macros["__SHRT_MAX__"] = Macro{false, false, {}, "32767"};
     macros["__LONG_LONG_MAX__"] = Macro{false, false, {}, "0"}; // not supported
     macros["__ORDER_LITTLE_ENDIAN__"] = Macro{false, false, {}, "1234"};
+    // Floating types: float, double and long double are all the CBM 40-bit
+    // format (32-bit mantissa, exponent range 2^-128 .. 2^127); see <float.h>
+    for (const char* f : {"FLT", "DBL", "LDBL"}) {
+        std::string p = std::string("__") + f;
+        macros[p + "_MAX__"] = Macro{false, false, {}, "1.7014118e38"};
+        macros[p + "_MIN__"] = Macro{false, false, {}, "2.9387359e-39"};
+        macros[p + "_EPSILON__"] = Macro{false, false, {}, "4.6566129e-10"};
+        macros[p + "_MANT_DIG__"] = Macro{false, false, {}, "32"};
+        macros[p + "_DIG__"] = Macro{false, false, {}, "9"};
+        macros[p + "_MIN_EXP__"] = Macro{false, false, {}, "(-127)"};
+        macros[p + "_MAX_EXP__"] = Macro{false, false, {}, "127"};
+        macros[p + "_MIN_10_EXP__"] = Macro{false, false, {}, "(-38)"};
+        macros[p + "_MAX_10_EXP__"] = Macro{false, false, {}, "38"};
+    }
+    macros["__SIZEOF_FLOAT__"] = Macro{false, false, {}, "5"};
+    macros["__SIZEOF_DOUBLE__"] = Macro{false, false, {}, "5"};
+    macros["__SIZEOF_LONG_DOUBLE__"] = Macro{false, false, {}, "5"};
     // GCC type macros — map to cc45 native types
     macros["__SIZE_TYPE__"] = Macro{false, false, {}, "unsigned int"};
     macros["__PTRDIFF_TYPE__"] = Macro{false, false, {}, "int"};
@@ -155,11 +174,48 @@ std::string Preprocessor::expandMacros(const std::string& line) {
                 continue;
             }
 
+            // Character constants ('F', '\'') are not scanned for macros
+            if (result[i] == '\'') {
+                nextResult += result[i++];
+                while (i < result.length() && result[i] != '\'') {
+                    if (result[i] == '\\' && i + 1 < result.length()) nextResult += result[i++];
+                    nextResult += result[i++];
+                }
+                if (i < result.length()) nextResult += result[i++];
+                continue;
+            }
+
+            // A pp-number (1.0F, 0x1fUL, 1e-5) is one token: its letters are
+            // not identifiers (#define F 140 must not touch 1.0F)
+            if (std::isdigit((unsigned char)result[i]) ||
+                (result[i] == '.' && i + 1 < result.length() && std::isdigit((unsigned char)result[i + 1]))) {
+                while (i < result.length()) {
+                    char ch = result[i];
+                    if ((ch == '+' || ch == '-') && i > 0 && std::strchr("eEpP", result[i - 1])) {
+                        nextResult += result[i++];
+                    } else if (std::isalnum((unsigned char)ch) || ch == '_' || ch == '.') {
+                        nextResult += result[i++];
+                    } else {
+                        break;
+                    }
+                }
+                continue;
+            }
+
             // Look for identifiers
             if (std::isalpha((unsigned char)result[i]) || result[i] == '_') {
                 size_t start = i;
                 while (i < result.length() && (std::isalnum((unsigned char)result[i]) || result[i] == '_')) i++;
                 std::string ident = result.substr(start, i - start);
+
+                // An encoding prefix (L'1', u"x", U'a', u8"s"; cc45/ca45 p"x", s"x", a"x") is part of the
+                // literal, not a macro name
+                if ((ident == "L" || ident == "u" || ident == "U" || ident == "u8" ||
+                     ident == "p" || ident == "s" || ident == "a") &&
+                    i < result.length() && (result[i] == '\'' || result[i] == '"')) {
+                    nextResult += ident;
+                    continue;
+                }
 
                 std::string replacement = "";
                 bool found = false;
@@ -211,7 +267,7 @@ std::string Preprocessor::expandMacros(const std::string& line) {
                         if (peek < result.length() && result[peek] == ')') peek++;
                         static const std::set<std::string> knownBuiltins = {
                             "__builtin_va_list", "__builtin_va_start", "__builtin_va_end", "__builtin_va_arg",
-                            "__builtin_constant_p", "__builtin_offsetof", "__builtin_expect", "__builtin_trap",
+                            "__builtin_constant_p", "__builtin_offsetof", "__builtin_expect", "__builtin_trap", "__builtin_choose_expr",
                             "__builtin_unreachable", "__builtin_conjf",
                             "__builtin_printf", "__builtin_sprintf", "__builtin_puts", "__builtin_putchar",
                             "__builtin_malloc", "__builtin_free", "__builtin_calloc", "__builtin_realloc",
@@ -346,7 +402,20 @@ std::string Preprocessor::expandMacros(const std::string& line) {
                                     }
                                 }
 
-                                // 3. Replace parameters
+                                // 3. Replace parameters (not inside string/character
+                                // literals, nor an L/u/U/u8 literal prefix)
+                                auto inLiteral = [](const std::string& b, size_t at) {
+                                    char q = 0;
+                                    for (size_t k = 0; k < at && k < b.size(); k++) {
+                                        if (q) {
+                                            if (b[k] == '\\') k++;
+                                            else if (b[k] == q) q = 0;
+                                        } else if (b[k] == '"' || b[k] == '\'') {
+                                            q = b[k];
+                                        }
+                                    }
+                                    return q != 0;
+                                };
                                 for (size_t p = 0; p < m.params.size(); ++p) {
                                     size_t pos = 0;
                                     while ((pos = body.find(m.params[p], pos)) != std::string::npos) {
@@ -354,7 +423,14 @@ std::string Preprocessor::expandMacros(const std::string& line) {
                                                          (pos + m.params[p].length() + 2 <= body.length() && body.substr(pos + m.params[p].length(), 2) == "##");
                                         bool bBefore = (pos == 0 || (!std::isalnum((unsigned char)body[pos-1]) && body[pos-1] != '_'));
                                         bool bAfter = (pos + m.params[p].length() == body.length() || (!std::isalnum((unsigned char)body[pos + m.params[p].length()]) && body[pos + m.params[p].length()] != '_'));
-                                        if (nextToGlue || (bBefore && bAfter)) {
+                                        size_t endp = pos + m.params[p].length();
+                                        bool litPrefix = (m.params[p] == "L" || m.params[p] == "u" || m.params[p] == "U" ||
+                                                          m.params[p] == "u8" || m.params[p] == "p" || m.params[p] == "s" ||
+                                                          m.params[p] == "a") && endp < body.length() &&
+                                                         (body[endp] == '\'' || body[endp] == '"');
+                                        if (litPrefix || inLiteral(body, pos)) {
+                                            pos = endp;
+                                        } else if (nextToGlue || (bBefore && bAfter)) {
                                             body.replace(pos, m.params[p].length(), args[p]);
                                             pos += args[p].length();
                                         } else {
@@ -427,8 +503,9 @@ struct ExprPath {
             return s.substr(start, pos - start);
         }
         if (std::isdigit((unsigned char)s[pos])) {
+            // A whole pp-number: 0x7fffffff, 100UL
             size_t start = pos;
-            while (pos < s.length() && std::isdigit((unsigned char)s[pos])) pos++;
+            while (pos < s.length() && (std::isalnum((unsigned char)s[pos]) || s[pos] == '_')) pos++;
             return s.substr(start, pos - start);
         }
         if (pos + 1 < s.length()) {
@@ -494,7 +571,10 @@ long Preprocessor::evaluateExpression(const std::string& expr) {
     {
         std::string cleaned;
         for (size_t i = 0; i < e.length(); ) {
-            if (std::isalpha((unsigned char)e[i]) || e[i] == '_') {
+            if (std::isdigit((unsigned char)e[i])) {
+                // Numbers stay as written (0x7fffffff, 10UL)
+                while (i < e.length() && (std::isalnum((unsigned char)e[i]) || e[i] == '_')) cleaned += e[i++];
+            } else if (std::isalpha((unsigned char)e[i]) || e[i] == '_') {
                 size_t start = i;
                 while (i < e.length() && (std::isalnum((unsigned char)e[i]) || e[i] == '_')) i++;
                 std::string ident = e.substr(start, i - start);
@@ -526,7 +606,12 @@ long Preprocessor::evaluateExpression(const std::string& expr) {
             return val;
         }
         if (t.empty()) return 0;
-        if (isdigit((unsigned char)t[0])) return std::stol(t, nullptr, 0);
+        if (isdigit((unsigned char)t[0])) {
+            // Integer constant: decimal, octal or hex, U/L suffixes ignored
+            std::string d = t;
+            while (!d.empty() && std::strchr("uUlL", d.back())) d.pop_back();
+            try { return (long)std::stoull(d, nullptr, 0); } catch (...) { return 0; }
+        }
         // Symbols not in defined() but in #if are treated as 0
         if (macros.count(t)) {
             try { return std::stol(macros[t].body, nullptr, 0); } catch(...) { return 0; }
@@ -594,6 +679,56 @@ long Preprocessor::evaluateExpression(const std::string& expr) {
     return parseOr();
 }
 
+// The source with comments and string/character literals blanked
+static std::string stripCommentsAndStrings(const std::string& s) {
+    std::string r(s);
+    for (size_t i = 0; i < r.size(); i++) {
+        if (r[i] == '/' && i + 1 < r.size() && r[i + 1] == '/') {
+            while (i < r.size() && r[i] != '\n') r[i++] = ' ';
+        } else if (r[i] == '/' && i + 1 < r.size() && r[i + 1] == '*') {
+            r[i] = r[i + 1] = ' ';
+            for (i += 2; i < r.size() && !(r[i] == '*' && i + 1 < r.size() && r[i + 1] == '/'); i++)
+                if (r[i] != '\n') r[i] = ' ';
+            if (i < r.size()) { r[i] = ' '; if (i + 1 < r.size()) r[++i] = ' '; }
+        } else if (r[i] == '"' || r[i] == '\'') {
+            char q = r[i];
+            for (i++; i < r.size() && r[i] != q && r[i] != '\n'; i++) {
+                if (r[i] == '\\' && i + 1 < r.size()) r[i++] = ' ';
+                r[i] = ' ';
+            }
+        }
+    }
+    return r;
+}
+
+// #pragma cc45 optimize(a, no-b) / optimize a,no-b: the directive for
+// IRBuilder (".optimize a,no-b"), or "" when the list is empty. `first` is the
+// word that starts with "optimize"; the rest of the line comes from `in`.
+static std::string optimizeDirective(const std::string& first, std::istream& in) {
+    std::string rest = first.substr(8), tail;
+    while (in >> tail) rest += " " + tail;
+    std::string list;
+    for (char ch : rest) {
+        if (std::isalnum((unsigned char)ch) || ch == '-' || ch == '_') list += ch;
+        else if ((ch == ',' || ch == ' ') && !list.empty() && list.back() != ',') list += ',';
+    }
+    while (!list.empty() && list.back() == ',') list.pop_back();
+    return list.empty() ? std::string() : "__asm__(\".optimize " + list + "\");\n";
+}
+
+// Does the source spell "long long" (struct __int64)?
+static bool hasLongLong(const std::string& s) {
+    for (size_t p = s.find("long"); p != std::string::npos; p = s.find("long", p + 4)) {
+        if (p > 0 && (std::isalnum((unsigned char)s[p - 1]) || s[p - 1] == '_')) continue;
+        size_t q = p + 4;
+        if (q >= s.size() || !std::isspace((unsigned char)s[q])) continue;
+        while (q < s.size() && std::isspace((unsigned char)s[q])) q++;
+        if (s.compare(q, 4, "long") == 0 && (q + 4 >= s.size() || !(std::isalnum((unsigned char)s[q + 4]) || s[q + 4] == '_')))
+            return true;
+    }
+    return false;
+}
+
 std::string Preprocessor::process(const std::string& source,
                                   const std::map<std::string, std::string>& initialSymbols,
                                   const std::vector<std::string>& includePaths,
@@ -615,6 +750,18 @@ std::string Preprocessor::process(const std::string& source,
     // Default initial state: everything is active.
     stateStack.push_back({true, true, false});
     
+    // __int128 / __int(N) / __uint(N) / int64_t are the structs of
+    // <intwide.h>: a unit that uses them without the header gets it (as
+    // _Complex gets its types)
+    // (the code only: a comment or string that names them does not count)
+    std::string code = isCompiler ? stripCommentsAndStrings(source) : std::string();
+    if (isCompiler && source.find("intwide.h") == std::string::npos &&
+        (code.find("__int128") != std::string::npos || code.find("__int(") != std::string::npos ||
+         code.find("__uint(") != std::string::npos || code.find("int64_t") != std::string::npos ||
+         code.find("__int64") != std::string::npos || hasLongLong(code)) &&
+        !findIncludeFile("intwide.h", getDirectory(currentFile)).empty()) {
+        return processInternal("#include <intwide.h>\n#line 1 \"" + currentFile + "\"\n" + source, currentFile, 0);
+    }
     return processInternal(source, currentFile, 0);
 }
 
@@ -742,6 +889,12 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
         // Strip comments (Phase 3)
         std::string currentLine = stripComments(currentLineRaw, inBlockComment);
         std::string trimmed = trim(currentLine);
+        // "# define X": white space may separate '#' from the directive name
+        if (trimmed.size() > 1 && trimmed[0] == '#' && std::isspace((unsigned char)trimmed[1])) {
+            size_t k = 1;
+            while (k < trimmed.size() && std::isspace((unsigned char)trimmed[k])) k++;
+            trimmed = "#" + trimmed.substr(k);
+        }
 
         if (!hasSeenNonWhitespace && !trimmed.empty()) {
             if (trimmed.substr(0, 1) != "#") {
@@ -818,6 +971,24 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                             p = trim(p);
                             if (p == "...") {
                                 m.isVariadic = true;
+                            } else if (p.size() > 3 && p.compare(p.size() - 3, 3, "...") == 0) {
+                                // GNU named variadic parameter (args...): the
+                                // body's uses of the name become __VA_ARGS__
+                                std::string vn = trim(p.substr(0, p.size() - 3));
+                                m.isVariadic = true;
+                                std::string nb;
+                                for (size_t k = 0; k < m.body.size();) {
+                                    bool startOk = k == 0 || !(std::isalnum((unsigned char)m.body[k - 1]) || m.body[k - 1] == '_');
+                                    size_t e = k + vn.size();
+                                    if (startOk && m.body.compare(k, vn.size(), vn) == 0 &&
+                                        (e >= m.body.size() || !(std::isalnum((unsigned char)m.body[e]) || m.body[e] == '_'))) {
+                                        nb += "__VA_ARGS__";
+                                        k = e;
+                                    } else {
+                                        nb += m.body[k++];
+                                    }
+                                }
+                                m.body = nb;
                             } else {
                                 m.params.push_back(p);
                             }
@@ -975,7 +1146,27 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
             } else if (cmd == "#pragma") {
                 std::string pragmaArg;
                 ss >> pragmaArg;
-                if (pragmaArg == "once") {
+                if (pragmaArg.rfind("push_macro", 0) == 0 || pragmaArg.rfind("pop_macro", 0) == 0) {
+                    // #pragma push_macro("NAME") / pop_macro("NAME")
+                    std::string rest;
+                    std::getline(ss, rest);
+                    std::string all = pragmaArg + rest;
+                    size_t q1 = all.find('"'), q2 = q1 == std::string::npos ? q1 : all.find('"', q1 + 1);
+                    if (isConditionTrue() && q2 != std::string::npos) {
+                        std::string mname = all.substr(q1 + 1, q2 - q1 - 1);
+                        auto& stack = pushedMacros_[mname];
+                        if (pragmaArg[1] == 'u') {
+                            auto it = macros.find(mname);
+                            stack.push_back(it != macros.end() ? std::make_pair(true, it->second)
+                                                               : std::make_pair(false, Macro{}));
+                        } else if (!stack.empty()) {
+                            if (stack.back().first) macros[mname] = stack.back().second;
+                            else macros.erase(mname);
+                            stack.pop_back();
+                        }
+                    }
+                    output << "\n";
+                } else if (pragmaArg == "once") {
                     if (!currentFile.empty()) onceFiles.insert(currentFile);
                     output << "\n";
                 } else if (isCompiler && pragmaArg == "weak") {
@@ -1001,6 +1192,15 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                         output << "__asm__(\".crt_stdio\");\n";
                     } else if (cc45Arg == "no_zp_save") {
                         output << "__asm__(\".no_zp_save\");\n";
+                    } else if (cc45Arg == "no_stack16") {
+                        output << "__asm__(\".no_stack16\");\n";
+                    } else if (cc45Arg.rfind("stack_top", 0) == 0) {
+                        // Accepts "stack_top ADDR" and "stack_top(ADDR)"
+                        std::string rest = cc45Arg.substr(9), tail;
+                        while (ss >> tail) rest += tail;
+                        std::string addr;
+                        for (char ch : rest) if (std::isxdigit((unsigned char)ch) || ch == '$' || ch == 'x' || ch == 'X') addr += ch;
+                        output << (addr.empty() ? std::string("\n") : "__asm__(\".stack_top " + addr + "\");\n");
                     } else if (cc45Arg == "set_bp") {
                         std::string bpVal;
                         ss >> bpVal;
@@ -1023,6 +1223,33 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                         } else {
                             output << "\n";
                         }
+                    } else if (cc45Arg == "signed_default") {
+                        output << "__asm__(\".signed_default\");\n";
+                    } else if (cc45Arg == "unsigned_default") {
+                        output << "__asm__(\".unsigned_default\");\n";
+                    } else if (cc45Arg.rfind("max_unroll_bytes", 0) == 0) {
+                        // Accepts "max_unroll_bytes N" and "max_unroll_bytes(N)"
+                        std::string rest = cc45Arg.substr(16), tail;
+                        while (ss >> tail) rest += tail;
+                        std::string digits;
+                        for (char ch : rest) if (std::isdigit((unsigned char)ch)) digits += ch;
+                        if (!digits.empty())
+                            output << "__asm__(\".max_unroll_bytes " + digits + "\");\n";
+                        else
+                            output << "\n";
+                    } else if (cc45Arg.rfind("optimize", 0) == 0) {
+                        std::string d = optimizeDirective(cc45Arg, ss);
+                        output << (d.empty() ? std::string("\n") : d);
+                    } else if (cc45Arg.rfind("max_inline_ir_size", 0) == 0) {
+                        // Accepts "max_inline_ir_size N" and "max_inline_ir_size(N)"
+                        std::string rest = cc45Arg.substr(18), tail;
+                        while (ss >> tail) rest += tail;
+                        std::string digits;
+                        for (char ch : rest) if (std::isdigit((unsigned char)ch)) digits += ch;
+                        if (!digits.empty())
+                            output << "__asm__(\".max_inline_ir_size " + digits + "\");\n";
+                        else
+                            output << "\n";
                     } else {
                         output << "\n";
                     }
@@ -1100,9 +1327,18 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                         else if (cc45Arg == "heap") output << "__asm__(\".crt_heap\");\n";
                         else if (cc45Arg == "stdio") output << "__asm__(\".crt_stdio\");\n";
                         else if (cc45Arg == "no_zp_save") output << "__asm__(\".no_zp_save\");\n";
+                        else if (cc45Arg == "no_stack16") output << "__asm__(\".no_stack16\");\n";
+                        else if (cc45Arg.rfind("stack_top", 0) == 0) {
+                            std::string rest = cc45Arg.substr(9), tail;
+                            while (ps >> tail) rest += tail;
+                            std::string addr;
+                            for (char ch : rest) if (std::isxdigit((unsigned char)ch) || ch == '$' || ch == 'x' || ch == 'X') addr += ch;
+                            output << (addr.empty() ? std::string("\n") : "__asm__(\".stack_top " + addr + "\");\n");
+                        }
                         else if (cc45Arg == "set_bp") { std::string bv; ps >> bv; output << "__asm__(\".set_bp " + bv + "\");\n"; }
                         else if (cc45Arg == "weak") output << "__asm__(\".weak_next\");\n";
                         else if (cc45Arg == "recurse") output << "__asm__(\".recurse_next\");\n";
+                        else if (cc45Arg.rfind("optimize", 0) == 0) output << optimizeDirective(cc45Arg, ps);
                         else if (cc45Arg == "unroll") {
                             std::string countStr;
                             if (ps >> countStr) {

@@ -7,6 +7,7 @@
 #include <set>
 #include <iostream>
 #include <cstdint>
+#include <algorithm>
 
 class ConstantFolder : public ASTVisitor {
 public:
@@ -27,6 +28,7 @@ public:
     std::set<std::string> constPointerVars;  // pointer-const vars (prevents p = ...)
     std::set<std::string> boolVars;
     std::map<std::string, std::shared_ptr<TypeInfo::StructInfo>> structs;
+    std::set<std::string> vmStructs_;  // structs with run-time member sizes
     std::set<std::string> usedVars_;
 
     std::unique_ptr<Expression> fold(std::unique_ptr<Expression> expr) {
@@ -60,7 +62,7 @@ public:
     }
 
     void visit(StringLiteral& node) override {
-        lastExpr = copyPos(std::make_unique<StringLiteral>(node.value), node);
+        lastExpr = copyPos(StringLiteral::copyOf(node), node);
     }
 
     void visit(VariableReference& node) override {
@@ -107,6 +109,31 @@ public:
         lastExpr = copyPos(std::make_unique<Assignment>(std::move(node.target), std::move(expression), node.op), node);
     }
 
+    // Width in bytes / signedness of a (folded) integer literal, matching
+    // IRBuilder::getExprTypeInfo: a plain literal is int (long when out of
+    // 16-bit range), signed while it fits a signed int
+    static int litWidth(const IntegerLiteral& l) {
+        if (l.castPointerLevel > 0) return 2;
+        const std::string& t = l.castType;
+        if (t.empty()) return (l.value > 65535 || l.value < -32768) ? 4 : 2;
+        if (t.find("long") != std::string::npos) return 4;
+        if (t.find("char") != std::string::npos || t == "_Bool") return 1;
+        return 2;
+    }
+    static bool litSigned(const IntegerLiteral& l) {
+        if (l.castPointerLevel > 0) return false;
+        if (l.castType.empty()) return l.value <= 32767;
+        return l.castIsSigned;
+    }
+    static int64_t normalize(int64_t v, int width, bool isSigned) {
+        if (width >= 8) return v;
+        int bits = width * 8;
+        uint64_t m = (uint64_t(1) << bits) - 1;
+        uint64_t u = (uint64_t)v & m;
+        if (isSigned && (u >> (bits - 1))) u |= ~m;
+        return (int64_t)u;
+    }
+
     void visit(BinaryOperation& node) override {
         // Phase 89: Check for address template patterns BEFORE constant folding
         // This preserves patterns that would otherwise be optimized away
@@ -126,54 +153,71 @@ public:
         auto* rightLit = dynamic_cast<IntegerLiteral*>(right.get());
 
         if (leftLit && rightLit) {
-            int result = 0;
-            if (node.op == "+") result = leftLit->value + rightLit->value;
-            else if (node.op == "-") result = leftLit->value - rightLit->value;
-            else if (node.op == "*") result = leftLit->value * rightLit->value;
-            else if (node.op == "/") {
-                if (rightLit->value != 0) {
-                    bool isSignedResult = leftLit->castIsSigned && rightLit->castIsSigned;
-                    if (isSignedResult) result = leftLit->value / rightLit->value;
-                    else result = (int)((uint32_t)leftLit->value / (uint32_t)rightLit->value);
-                } else {
+            // C's usual arithmetic conversions on the two literals: each is
+            // taken at its own width/signedness, then both are converted to
+            // the common type. Comparisons are then signed or unsigned as
+            // that type says ((short)-0x8000 ^ 0U is 0x8000, not -32768).
+            // Two plain literals keep plain 32-bit arithmetic (256 * 256
+            // folds to 65536, as before).
+            bool plain = leftLit->castType.empty() && rightLit->castType.empty() &&
+                         !leftLit->castPointerLevel && !rightLit->castPointerLevel;
+            int wl = litWidth(*leftLit), wr = litWidth(*rightLit);
+            bool sl = litSigned(*leftLit), sr = litSigned(*rightLit);
+            int64_t lv = normalize(leftLit->value, wl, sl), rv = normalize(rightLit->value, wr, sr);
+            if (wl < 2) wl = 2;
+            if (wr < 2) wr = 2;
+            bool isShift = node.op == "<<" || node.op == ">>";
+            int w = isShift ? wl : std::max(wl, wr);
+            bool sg = isShift ? sl : (wl == wr ? (sl && sr) : (wl > wr ? sl : sr));
+            if (plain) { w = 8; sg = true; }
+            lv = normalize(lv, w, sg);
+            if (!isShift) rv = normalize(rv, w, sg);
+            uint64_t ul = (uint64_t)lv, ur = (uint64_t)rv;
+            int64_t result = 0;
+            bool isCompare = false;
+            if (node.op == "+") result = lv + rv;
+            else if (node.op == "-") result = lv - rv;
+            else if (node.op == "*") result = lv * rv;
+            else if (node.op == "/" || node.op == "%") {
+                if (rv == 0) {
                     lastExpr = copyPos(std::make_unique<BinaryOperation>(node.op, std::move(left), std::move(right)), node);
                     return;
                 }
+                if (node.op == "/") result = sg ? lv / rv : (int64_t)(ul / ur);
+                else result = sg ? lv % rv : (int64_t)(ul % ur);
             }
-            else if (node.op == "%") {
-                if (rightLit->value != 0) {
-                    bool isSignedResult = leftLit->castIsSigned && rightLit->castIsSigned;
-                    if (isSignedResult) result = leftLit->value % rightLit->value;
-                    else result = (int)((uint32_t)leftLit->value % (uint32_t)rightLit->value);
-                } else {
-                    lastExpr = copyPos(std::make_unique<BinaryOperation>(node.op, std::move(left), std::move(right)), node);
-                    return;
-                }
-            }
-            else if (node.op == "&") result = leftLit->value & rightLit->value;
-            else if (node.op == "|") result = leftLit->value | rightLit->value;
-            else if (node.op == "^") result = leftLit->value ^ rightLit->value;
-            else if (node.op == "<<") result = leftLit->value << rightLit->value;
-            else if (node.op == ">>") result = leftLit->value >> rightLit->value;
-            else if (node.op == "==") result = leftLit->value == rightLit->value;
-            else if (node.op == "!=") result = leftLit->value != rightLit->value;
-            else if (node.op == "<") result = leftLit->value < rightLit->value;
-            else if (node.op == ">") result = leftLit->value > rightLit->value;
-            else if (node.op == "<=") result = leftLit->value <= rightLit->value;
-            else if (node.op == ">=") result = leftLit->value >= rightLit->value;
-            else if (node.op == "&&") result = leftLit->value && rightLit->value;
-            else if (node.op == "||") result = leftLit->value || rightLit->value;
+            else if (node.op == "&") result = lv & rv;
+            else if (node.op == "|") result = lv | rv;
+            else if (node.op == "^") result = lv ^ rv;
+            else if (node.op == "<<") result = (int64_t)(ul << (rv & 63));
+            else if (node.op == ">>") result = sg ? (lv >> (rv & 63)) : (int64_t)(ul >> (rv & 63));
+            else if (node.op == "&&") { result = lv && rv; isCompare = true; }
+            else if (node.op == "||") { result = lv || rv; isCompare = true; }
             else {
-                lastExpr = copyPos(std::make_unique<BinaryOperation>(node.op, std::move(left), std::move(right)), node);
+                isCompare = true;
+                if (node.op == "==") result = lv == rv;
+                else if (node.op == "!=") result = lv != rv;
+                else if (node.op == "<") result = sg ? lv < rv : ul < ur;
+                else if (node.op == ">") result = sg ? lv > rv : ul > ur;
+                else if (node.op == "<=") result = sg ? lv <= rv : ul <= ur;
+                else if (node.op == ">=") result = sg ? lv >= rv : ul >= ur;
+                else {
+                    lastExpr = copyPos(std::make_unique<BinaryOperation>(node.op, std::move(left), std::move(right)), node);
+                    return;
+                }
+            }
+            if (isCompare) {
+                lastExpr = copyPos(std::make_unique<IntegerLiteral>(result), node);
                 return;
             }
+            result = plain ? (int64_t)(int32_t)result : normalize(result, w, sg);
 
             auto lit = std::make_unique<IntegerLiteral>(result);
             // Type promotion: if either operand is long, the result is long.
             // If either operand is a pointer, the result is the same pointer type (for +/-).
-            if (leftLit->castType == "long" || rightLit->castType == "long") {
+            if (!plain && w == 4 && !leftLit->castPointerLevel && !rightLit->castPointerLevel) {
                 lit->castType = "long";
-                lit->castIsSigned = leftLit->castIsSigned || rightLit->castIsSigned;
+                lit->castIsSigned = sg;
             } else if (leftLit->castPointerLevel > 0) {
                 lit->castType = leftLit->castType;
                 lit->castPointerLevel = leftLit->castPointerLevel;
@@ -306,7 +350,24 @@ public:
 
     void visit(CastExpression& node) override {
         auto operand = fold(std::move(node.expression));
-        if (auto* lit = dynamic_cast<IntegerLiteral*>(operand.get())) {
+        // A cast to a struct/union type (e.g. (_Complex double)2) isn't an integer
+        bool toAggregate = node.pointerLevel == 0 &&
+            (node.targetType.rfind("struct ", 0) == 0 || node.targetType.rfind("union ", 0) == 0);
+        // (double)1: a floating constant (value converted by the literal's
+        // own signedness)
+        bool toFloat = node.pointerLevel == 0 &&
+            (node.targetType == "float" || node.targetType == "double" || node.targetType == "long double");
+        if (auto* lit = dynamic_cast<IntegerLiteral*>(operand.get()); lit && toFloat) {
+            double v = (double)lit->value;
+            if (!lit->castType.empty() && !lit->castIsSigned && !lit->castPointerLevel) {
+                if (lit->castType.find("long") != std::string::npos) v = (double)(uint32_t)lit->value;
+                else if (lit->castType.find("char") != std::string::npos) v = (double)(uint8_t)lit->value;
+                else v = (double)(uint16_t)lit->value;
+            }
+            lastExpr = copyPos(std::make_unique<FloatLiteral>(v), node);
+            return;
+        }
+        if (auto* lit = dynamic_cast<IntegerLiteral*>(operand.get()); lit && !toAggregate) {
             int val = lit->value;
             if (node.pointerLevel == 0 && node.targetType == "_Bool") {
                 val = (val != 0) ? 1 : 0;
@@ -395,6 +456,8 @@ public:
         decl->isStatic = node.isStatic;
         decl->isRegister = node.isRegister;
         decl->arrayDims = node.arrayDims;
+        decl->vlaDimExprs = node.vlaDimExprs;
+        decl->ptrArrayDims = node.ptrArrayDims;
         decl->isFunctionPointer = node.isFunctionPointer;
         decl->funcPtrSig = node.funcPtrSig;
         decl->addressSpace = node.addressSpace;  // Phase 97: Preserve address space qualifier
@@ -431,9 +494,31 @@ public:
         lastStmt = copyPos(std::make_unique<ExpressionStatement>(fold(std::move(node.expression))), node);
     }
 
+    // A statement that can be entered by a jump: it contains a case/default
+    // of the enclosing switch or a goto label
+    static bool hasJumpTarget(Statement* st, bool inNestedSwitch = false) {
+        if (!st) return false;
+        if (dynamic_cast<LabelledStatement*>(st)) return true;
+        if (!inNestedSwitch && (dynamic_cast<CaseStatement*>(st) || dynamic_cast<DefaultStatement*>(st))) return true;
+        if (auto* c = dynamic_cast<CompoundStatement*>(st)) {
+            for (auto& x : c->statements) if (hasJumpTarget(x.get(), inNestedSwitch)) return true;
+            return false;
+        }
+        if (auto* i = dynamic_cast<IfStatement*>(st))
+            return hasJumpTarget(i->thenBranch.get(), inNestedSwitch) || hasJumpTarget(i->elseBranch.get(), inNestedSwitch);
+        if (auto* w = dynamic_cast<WhileStatement*>(st)) return hasJumpTarget(w->body.get(), inNestedSwitch);
+        if (auto* d = dynamic_cast<DoWhileStatement*>(st)) return hasJumpTarget(d->body.get(), inNestedSwitch);
+        if (auto* f = dynamic_cast<ForStatement*>(st)) return hasJumpTarget(f->body.get(), inNestedSwitch);
+        if (auto* r = dynamic_cast<RepeatStatement*>(st)) return hasJumpTarget(r->body.get(), inNestedSwitch);
+        if (auto* sw = dynamic_cast<SwitchStatement*>(st)) return hasJumpTarget(sw->body.get(), true);
+        return false;
+    }
+
     void visit(IfStatement& node) override {
         auto condition = fold(std::move(node.condition));
         auto* lit = dynamic_cast<IntegerLiteral*>(condition.get());
+        // if (0) { ... case 1: ... }: the branch is still reachable by a jump
+        if (lit && (hasJumpTarget(node.thenBranch.get()) || hasJumpTarget(node.elseBranch.get()))) lit = nullptr;
         if (lit) {
             if (lit->value) {
                 lastStmt = fold(std::move(node.thenBranch));
@@ -520,17 +605,38 @@ public:
         auto sInfo = std::make_shared<TypeInfo::StructInfo>();
         sInfo->name = node.name;
 
+        // struct D : B { ... }: B's members come first, at their own offsets
+        // (as IRBuilder lays it out)
+        if (!node.parentStruct.empty()) {
+            auto pit = structs.find(node.parentStruct);
+            if (pit != structs.end() && pit->second) {
+                sInfo->members = pit->second->members;
+                currentOffset = pit->second->totalSize;
+                maxAlignment = std::max(maxAlignment, pit->second->alignment);
+            }
+        }
+
         for (auto& m : node.members) {
             auto alignmentExpr = m.alignmentExpr ? fold(std::move(m.alignmentExpr)) : nullptr;
-            int alignment = 1;
+            // __attribute__((aligned)) arrives as m.alignment, _Alignas as an expression
+            int alignment = m.alignment > 1 ? m.alignment : 1;
             if (alignmentExpr) {
                 if (auto* lit = dynamic_cast<IntegerLiteral*>(alignmentExpr.get())) {
-                    alignment = lit->value;
+                    if (lit->value > alignment) alignment = (int)lit->value;
                 }
             }
 
             int mSize = TypeInfo::getTypeSize(m.type, m.pointerLevel, m.arraySize(), structs);
-            int mAlign = alignment; // Simplification, should ideally check type alignment too
+            int mAlign = alignment;
+            // A member of an aligned struct type takes that struct's alignment
+            if (m.pointerLevel == 0) {
+                std::string tn = m.type;
+                for (const char* kw : {"struct ", "union "})
+                    if (tn.rfind(kw, 0) == 0) tn = tn.substr(std::string(kw).size());
+                auto sit = structs.find(tn);
+                if (sit != structs.end() && sit->second && sit->second->alignment > mAlign)
+                    mAlign = sit->second->alignment;
+            }
             if (mAlign > maxAlignment) maxAlignment = mAlign;
 
             if (!node.isUnion) {
@@ -551,22 +657,38 @@ public:
                 sm.name = m.name; sm.isConst = m.isConst; sm.alignment = alignment;
                 sm.alignmentExpr = std::move(alignmentExpr); sm.isAnonymous = m.isAnonymous;
                 sm.arrayDims = m.arrayDims; sm.bitWidth = m.bitWidth;
+                sm.isFlexible = m.isFlexible;
+                for (auto& d : m.vlaDimExprs) {
+                    if (d) vmStructs_.insert(node.name);
+                    sm.vlaDimExprs.push_back(d ? fold(std::move(d)) : nullptr);
+                }
                 def->members.push_back(std::move(sm));
             }
         }
 
+        if (node.alignment > maxAlignment) maxAlignment = node.alignment;
         if (currentOffset % maxAlignment != 0) currentOffset += maxAlignment - (currentOffset % maxAlignment);
         sInfo->totalSize = currentOffset;
         sInfo->alignment = maxAlignment;
         structs[node.name] = sInfo;
 
-        // Preserve OOP fields
+        // Preserve layout and OOP fields
+        def->isUnpacked = node.isUnpacked;
+        def->alignment = node.alignment;
         def->parentStruct = node.parentStruct;
         def->hasVirtual = node.hasVirtual;
         def->isFinal = node.isFinal;
         for (auto& m : node.methods) def->methods.push_back(std::move(m));
 
         lastStmt = std::move(def);
+    }
+
+    void visit(StatementExpression& node) override {
+        auto r = std::make_unique<StatementExpression>();
+        if (node.body) node.body->accept(*this);  // folded in place
+        r->body = std::move(node.body);
+        r->result = fold(std::move(node.result));
+        lastExpr = copyPos(std::move(r), node);
     }
 
     void visit(CompoundStatement& node) override {

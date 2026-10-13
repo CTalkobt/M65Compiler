@@ -1,0 +1,33 @@
+; strlen.s — Return length of a NUL-terminated string (ZP calling convention)
+;
+; int strlen(char *s);
+;   Returns the number of bytes before the NUL terminator.
+;   Any length up to 65535 (Y walks a page, X counts the pages).
+
+.global _strlen
+
+.segment "code"
+
+proc _strlen
+    .zp_uses $10, $11
+    .zp_clobbers $10, $11
+    .zp_release $10, $11
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+
+    ; s is already at $10/$11
+    ldy #0
+    ldx #0              ; X: length high byte (pages walked)
+@loop:
+    lda ($10),y
+    beq @done
+    iny
+    bne @loop
+    inc $11             ; next page of the string
+    inx
+    bra @loop
+@done:
+    tya
+    rts
+    .func_flags zp_call
+    endproc

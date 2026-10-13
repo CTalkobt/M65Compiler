@@ -1,0 +1,66 @@
+; strncat.s — Concatenate at most n characters (ZP calling convention)
+;
+; char *strncat(char *dest, char *src, int n);
+
+.global _strncat
+
+.segment "code"
+
+proc _strncat
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17
+    .zp_clobbers $10, $11, $12, $13, $14, $15, $16, $17
+    .zp_release $14, $15, $16, $17
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+
+    ; $10/$11 = dest, $12/$13 = src, $14/$15 = n
+    ; Save dest for return
+    lda $10
+    sta $16
+    lda $11
+    sta $17
+    ; Find end of dest
+    ldy #0
+@find_end:
+    lda ($10),y
+    beq @found
+    iny
+    bne @find_end
+    inc $11
+    bra @find_end
+@found:
+    ; Advance $10 by Y
+    tya
+    clc
+    adc $10
+    sta $10
+    lda #0
+    adc $11
+    sta $11
+    ldy #0
+@copy:
+    lda $14
+    ora $15
+    beq @terminate
+    lda ($12),y
+    sta ($10),y
+    beq @done
+    lda $14
+    bne @nodec_hi
+    dec $15
+@nodec_hi:
+    dec $14
+    iny
+    bne @copy
+    inc $11
+    inc $13
+    bra @copy
+@terminate:
+    lda #0
+    sta ($10),y
+@done:
+    lda $16
+    ldx $17
+    rts
+    .func_flags zp_call
+    endproc

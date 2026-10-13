@@ -1,77 +1,65 @@
 #pragma once
 
 #include "AST.hpp"
-#include <memory>
+#include <functional>
+#include <map>
+#include <set>
+#include <string>
 
-class LoopInterchange : public ASTVisitor {
+// Loop interchange (-floop-interchange): swaps a perfectly nested pair of
+// for loops when array subscripts put the inner loop's variable in an earlier
+// (outer) dimension than the outer loop's variable, so that after the swap
+// the row address of `a[j][i]` is invariant in the inner loop (LICM then
+// computes it once per row instead of once per element). There is no cache
+// on the 45GS02; the gain is the hoisted address arithmetic.
+//
+// The swap moves the loop headers (initializer, condition, increment)
+// between the two ForStatements; the body is not touched or copied.
+//
+// It is done only when it cannot change the program's behaviour (all checks
+// are on the AST, by name, and conservative):
+//   - a perfect nest: the outer body is the inner for statement alone
+//   - rectangular, side-effect-free headers: each loop's initializer,
+//     condition and increment use its own variable plus names that the nest
+//     does not assign, and contain no calls, assignments to other variables
+//     or volatile objects
+//   - a simple body: no break/continue/goto/return/labels/switch/asm/repeat,
+//     no calls, no declarations that shadow a loop or bound variable, no
+//     assignment to the loop variables or to names used in the headers
+//   - memory: every store is to an element of a declared (non-parameter,
+//     non-pointer, non-volatile) array whose every access in the body uses the
+//     same subscripts, which mention both loop variables (each iteration owns
+//     its element); scalars may only be integer reductions (+= -= ^= |= &=)
+//     not otherwise used in the body; when the body stores anything, it reads
+//     nothing through a pointer (*p, p->m, p[i] with p not a declared array)
+//   - the loop variables are declared in their for statements, or are not
+//     used elsewhere in the function (their values after the nest differ)
+// #pragma cc45 optimize(no-loop-interchange) (in the AST as the directive
+// ".optimize no-loop-interchange") turns it off for the function it is in,
+// or at file scope for the functions after it.
+class LoopInterchange {
 public:
-    void optimizeTranslationUnit(TranslationUnit& unit);
+    // trace(function, line, message) is called for each interchange (-Roptir)
+    std::function<void(const std::string&, int, const std::string&)> trace;
 
-    void visit(ForStatement& node) override;
-    void visit(WhileStatement& node) override;
-    void visit(DoWhileStatement& node) override;
-    void visit(IfStatement& node) override;
-    void visit(CompoundStatement& node) override;
-    void visit(ExpressionStatement& node) override;
-    void visit(ReturnStatement& node) override;
-    void visit(BreakStatement& node) override;
-    void visit(ContinueStatement& node) override;
-    void visit(SwitchStatement& node) override;
-    void visit(CaseStatement& node) override;
-    void visit(DefaultStatement& node) override;
-    void visit(LabelledStatement& node) override;
-    void visit(GotoStatement& node) override;
-    void visit(SwitchContinueStatement& node) override;
-    void visit(RepeatStatement& node) override;
-    void visit(VariableDeclaration& node) override;
-    void visit(FunctionDeclaration& node) override;
-    void visit(AsmStatement& node) override;
-    void visit(StaticAssert& node) override;
-    void visit(StructDefinition& node) override;
-    void visit(EnumDefinition& node) override;
-    void visit(TranslationUnit& node) override;
-
-    void visit(IntegerLiteral&) override {}
-    void visit(FloatLiteral&) override {}
-    void visit(StringLiteral&) override {}
-    void visit(VariableReference&) override {}
-    void visit(ArrayAccess&) override {}
-    void visit(MemberAccess&) override {}
-    void visit(FunctionCall&) override {}
-    void visit(BinaryOperation&) override {}
-    void visit(UnaryOperation&) override {}
-    void visit(CastExpression&) override {}
-    void visit(SizeofExpression&) override {}
-    void visit(AlignofExpression&) override {}
-    void visit(ConditionalExpression&) override {}
-    void visit(Assignment&) override {}
-    void visit(InitializerList&) override {}
-    void visit(CompoundLiteral&) override {}
-    void visit(GenericSelection&) override {}
-    void visit(BuiltinVaStart&) override {}
-    void visit(BuiltinVaArg&) override {}
-    void visit(CpuRegisterAccess&) override {}
-    void visit(CpuFlagAccess&) override {}
-    void visit(LabelAddressExpression&) override {}
+    // Returns the number of loop nests interchanged
+    int optimizeTranslationUnit(TranslationUnit& unit, bool enabledByDefault);
 
 private:
-    // Pattern detection: check if loop pair is interchangeable
-    struct LoopPair {
-        ForStatement* outer;
-        ForStatement* inner;
-        std::string outerVar;
-        std::string innerVar;
+    struct VarInfo {
+        bool isArray = false;      // declared with array dimensions (not a parameter)
+        bool isVolatile = false;
+        bool isFloat = false;
+        bool isPointer = false;
     };
+    std::map<std::string, VarInfo> globals_;
+    std::map<std::string, VarInfo> locals_;   // current function: parameters and locals
+    std::string function_;
+    FunctionDeclaration* currentFn_ = nullptr;
+    int count_ = 0;
 
-    // Detect perfectly nested for loops safe for interchange
-    bool detectInterchangeable(ForStatement* stmt, LoopPair& pair);
-    
-    // Check if inner loop has data dependency on outer loop variable
-    bool hasDependencyOnOuterLoop(Statement* body, const std::string& outerVar);
-    
-    // Check if expression references outer loop variable
-    bool referencesVariable(Expression* expr, const std::string& varName);
-    
-    // Perform the interchange transformation
-    std::unique_ptr<ForStatement> interchangeLoops(const LoopPair& pair);
+    const VarInfo* lookup(const std::string& name) const;
+    void collectLocals(Statement* s);
+    void walk(std::unique_ptr<Statement>& s, bool& enabled);
+    bool tryInterchange(ForStatement& outer);
 };

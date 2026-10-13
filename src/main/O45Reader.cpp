@@ -87,7 +87,7 @@ bool O45Reader::read(const std::vector<uint8_t>& data, O45File& out, std::string
             uint8_t typeSeg = data[off++];
             relocOut.push_back(typeSeg);
             // R_HIGH has an extra byte
-            if ((typeSeg & O45_RTYPE_MASK) == R_HIGH) {
+            if (o45RelocHasExtra(typeSeg)) {
                 if (off >= data.size()) { errorMsg = "truncated R_HIGH extra byte"; return false; }
                 relocOut.push_back(data[off++]);
             }

@@ -3,7 +3,6 @@
 #include <stdexcept>
 
 // Phase 4.2: Forward declaration of IPO hints serialization
-static std::vector<uint8_t> serializeIPOHints(const O45IPOHints& hints);
 
 // =============================================================================
 // O45RelocEncoder — converts high-level relocation entries into .o65/.o45
@@ -17,7 +16,8 @@ static std::vector<uint8_t> serializeIPOHints(const O45IPOHints& hints);
 //     Multiple $FF bytes chain for large gaps.
 //   - Delta byte $00: end of table (not emitted here — O45Writer appends it).
 //   - After the delta: one type/seg byte (type in bits 7-5, segment in bits 4-0).
-//   - If type == R_HIGH: one extra byte follows (low byte for underflow).
+//   - If type == R_HIGH: one extra byte follows (low byte for underflow);
+//     R_LOWX: one extra byte follows (the high byte of the full value).
 //   - If segment == SEG_EXTERNAL: 4-byte LE symbol index follows (SIZE32 mode).
 //
 // NOTE: Delta $00 means end-of-table, so relocations at segment offset 0 are
@@ -53,7 +53,7 @@ std::vector<uint8_t> O45RelocEncoder::encode(const std::vector<O45Reloc>& relocs
         out.push_back(typeSeg);
 
         // R_HIGH extra byte (low byte for borrow/underflow correction)
-        if (r.type == R_HIGH) {
+        if (o45RelocHasExtra(r.type)) {
             out.push_back(r.extra);
         }
 
@@ -160,16 +160,6 @@ std::vector<uint8_t> O45Writer::emit() const {
     //     }
     // }
 
-    // Phase 4.2: Emit IPO hints as an option if present
-    if (hasIPOHints_) {
-        std::vector<uint8_t> ipoData = serializeIPOHints(ipoHints_);
-        if (ipoData.size() <= 253) {
-            uint8_t len = (uint8_t)(2 + ipoData.size());
-            out.push_back(len);
-            out.push_back(OPT_IPO_HINTS);
-            out.insert(out.end(), ipoData.begin(), ipoData.end());
-        }
-    }
 
     emitOptions(out);
 
@@ -351,65 +341,6 @@ void O45Writer::writeString(std::vector<uint8_t>& out, const std::string& str) {
 // Phase 4.2: IPO Hints Serialization
 // =============================================================================
 
-// Helper function to serialize O45IPOHints to binary format
-static std::vector<uint8_t> serializeIPOHints(const O45IPOHints& hints) {
-    std::vector<uint8_t> data;
-
-    // Version byte
-    data.push_back(hints.version);
-
-    // Function count (2 bytes LE)
-    uint16_t funcCount = (uint16_t)hints.functions.size();
-    data.push_back((uint8_t)(funcCount & 0xFF));
-    data.push_back((uint8_t)(funcCount >> 8));
-
-    // Serialize each function's hints
-    for (const auto& func : hints.functions) {
-        // Function name (NUL-terminated string)
-        for (char c : func.functionName) data.push_back((uint8_t)c);
-        data.push_back(0x00);
-
-        // Call count (2 bytes LE)
-        data.push_back((uint8_t)(func.callCount & 0xFF));
-        data.push_back((uint8_t)(func.callCount >> 8));
-
-        // Estimated code size (2 bytes LE)
-        data.push_back((uint8_t)(func.estimatedCodeSize & 0xFF));
-        data.push_back((uint8_t)(func.estimatedCodeSize >> 8));
-
-        // Flags (1 byte)
-        data.push_back(func.flags);
-
-        // External call count (1 byte)
-        data.push_back(func.externalCallCount);
-
-        // Specialization pattern count (1 byte, max 255)
-        uint8_t specCount = (uint8_t)std::min(size_t(255), func.specializations.size());
-        data.push_back(specCount);
-
-        // Serialize each specialization pattern
-        for (size_t i = 0; i < specCount; i++) {
-            const auto& spec = func.specializations[i];
-
-            // Argument count (1 byte, max 255)
-            uint8_t argCount = (uint8_t)std::min(size_t(255), spec.argumentValues.size());
-            data.push_back(argCount);
-
-            // Argument values (8 bytes LE each for int64_t)
-            for (size_t j = 0; j < argCount; j++) {
-                int64_t val = spec.argumentValues[j];
-                for (int shift = 0; shift < 8; shift++) {
-                    data.push_back((uint8_t)((val >> (shift * 8)) & 0xFF));
-                }
-            }
-
-            // Frequency percentage (1 byte, 0-100)
-            data.push_back(spec.frequency);
-        }
-    }
-
-    return data;
-}
 
 // =============================================================================
 // O45SymbolTable

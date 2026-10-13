@@ -3,12 +3,12 @@
 # Test script for xemu-xmega65 validation with ca45 and cc45
 # Alternative to mmemu-cli with better MEGA65 hardware emulation
 
-CC="./bin/cc45"
+CC="./bin/cc45 -O2"
 AS="./bin/ca45"
 LD="./bin/ln45"
 CRT0="lib/build/crt0.o45"
-STDLIB="lib/build/c45.lib"
-STDLIB_ZP="lib/build/c45_zp.lib"
+STDLIB="lib/build/c45.lib"            # ZP calling convention (cc45 default)
+STDLIB_STACK="lib/build/c45_stack.lib" # -fno-zpcall
 XEMU="xemu-xmega65"
 mkdir -p build/test
 
@@ -40,13 +40,15 @@ run_xemu_test() {
     local mem_addr="$3"
     local num_bytes="$4"
     local expected="$5"
+    shift 5   # any further arguments go to xemu (e.g. -prgtest "RUN : A")
 
     local dump_file="build/test/${name}_memdump.bin"
 
     # Run in headless mode with -prgexit (auto-SYS and exit on READY)
     # -prgmode 65 forces MEGA65 mode without dialog
     # -prgexit auto-runs BASIC programs and exits on next READY prompt
-    timeout 30 $XEMU -headless -besure -prgmode 65 -prgexit -dumpmem "$dump_file" -prg "$prg_file" </dev/null >/dev/null 2>&1
+    rm -f "$dump_file"
+    timeout 15 $XEMU -headless -besure -sleepless -prgmode 65 -prgexit "$@" -dumpmem "$dump_file" -prg "$prg_file" </dev/null >/dev/null 2>&1
     local exit_code=$?
     # Accept exit 0 (clean) or 124 (timeout — program may halt instead of returning)
     if [ $exit_code -ne 0 ] && [ $exit_code -ne 124 ]; then
@@ -63,7 +65,7 @@ run_xemu_test() {
 
     # Extract bytes from raw binary dump using xxd
     local addr_dec=$((16#$mem_addr))
-    actual=$(xxd -s $addr_dec -l $num_bytes -p "$dump_file" 2>/dev/null | \
+    actual=$(xxd -s $addr_dec -l $num_bytes -p -c 256 "$dump_file" 2>/dev/null | \
              sed 's/\(..\)/\1 /g' | sed 's/ $//' | tr '[:lower:]' '[:upper:]')
 
     if [ -z "$actual" ]; then
@@ -92,15 +94,23 @@ compile_link_test() {
     local src="$1"
     local prg_out="$2"
     local flags="${3:-}"
+    local extra="${4:-}"     # more objects to link (assembled from .s45 sources)
     local o_file="${prg_out%.prg}.o45"
 
     $CC -c $flags "$src" -o "$o_file" 2>/dev/null
     if [ $? -ne 0 ]; then return 1; fi
 
-    if [[ "$flags" == *"-fzpcall"* ]]; then
-        $LD -basic -o "$prg_out" $CRT0 "$o_file" $STDLIB_ZP 2>/dev/null
+    local extra_o=""
+    for s in $extra; do
+        local eo="${prg_out%.prg}_$(basename "${s%.s45}").o45"
+        $AS -c "$s" -o "$eo" >/dev/null 2>&1 || return 1
+        extra_o="$extra_o $eo"
+    done
+
+    if [[ "$flags" == *"-fno-zpcall"* ]]; then
+        $LD -basic -o "$prg_out" $CRT0 "$o_file" $extra_o $STDLIB_STACK 2>/dev/null
     else
-        $LD -basic -o "$prg_out" $CRT0 "$o_file" $STDLIB 2>/dev/null
+        $LD -basic -o "$prg_out" $CRT0 "$o_file" $extra_o $STDLIB 2>/dev/null
     fi
     if [ $? -ne 0 ]; then return 2; fi
 
@@ -254,6 +264,1035 @@ else
     echo "FAIL: test_float_xemu.c (compilation/linking failed)"
     failed=$((failed + 1))
 fi
+
+# Test: signed comparisons where the operands have different signs
+echo "Testing test_signed_compare_xemu.c (signed compare)..."
+compile_link_test "src/test-resources/test_signed_compare_xemu.c" "build/test/test_signed_compare_xemu.prg"
+if [ $? -eq 0 ]; then
+    run_xemu_test "test_signed_compare" "build/test/test_signed_compare_xemu.prg" "C0C0" 10 "01 00 01 00 01 01 01 00 00 AA"
+else
+    echo "FAIL: test_signed_compare_xemu.c (compilation/linking failed)"
+    failed=$((failed + 1))
+fi
+
+# Test: library functions returning negative values
+echo "Testing test_stdlib_signed_xemu.c (atoi/min/max/div)..."
+compile_link_test "src/test-resources/test_stdlib_signed_xemu.c" "build/test/test_stdlib_signed_xemu.prg"
+if [ $? -eq 0 ]; then
+    run_xemu_test "test_stdlib_signed" "build/test/test_stdlib_signed_xemu.prg" "C0C0" 11 "85 FF F4 FF 05 00 FD FF FF FF AA"
+else
+    echo "FAIL: test_stdlib_signed_xemu.c (compilation/linking failed)"
+    failed=$((failed + 1))
+fi
+
+# Test: struct copies (assignment / initialisation) of sizes other than 1, 2, 4
+echo "Testing test_struct_copy_xemu.c (struct copy)..."
+compile_link_test "src/test-resources/test_struct_copy_xemu.c" "build/test/test_struct_copy_xemu.prg"
+if [ $? -eq 0 ]; then
+    run_xemu_test "test_struct_copy" "build/test/test_struct_copy_xemu.prg" "C0C0" 10 "07 08 09 0A 03 03 07 0A 08 AA"
+else
+    echo "FAIL: test_struct_copy_xemu.c (compilation/linking failed)"
+    failed=$((failed + 1))
+fi
+
+# Test: struct results via the hidden result pointer, struct arguments by copy
+echo "Testing test_sret_xemu.c (struct results/arguments)..."
+compile_link_test "src/test-resources/test_sret_xemu.c" "build/test/test_sret_xemu.prg"
+if [ $? -eq 0 ]; then
+    run_xemu_test "test_sret" "build/test/test_sret_xemu.prg" "C0C0" 22 "44 11 88 55 07 08 09 07 08 09 0A 14 0B 0D 0F 02 06 05 07 06 07 AA"
+else
+    echo "FAIL: test_sret_xemu.c (compilation/linking failed)"
+    failed=$((failed + 1))
+fi
+
+# Test: float arguments/results, negative values, ROM math functions
+echo "Testing test_float_func_xemu.c (float functions)..."
+compile_link_test "src/test-resources/test_float_func_xemu.c" "build/test/test_float_func_xemu.prg"
+if [ $? -eq 0 ]; then
+    run_xemu_test "test_float_func" "build/test/test_float_func_xemu.prg" "C0C0" 16 "0F 01 01 01 06 07 04 00 0A 1B 03 20 3A 0F F9 AA"
+else
+    echo "FAIL: test_float_func_xemu.c (compilation/linking failed)"
+    failed=$((failed + 1))
+fi
+
+# Test: 16-bit CPU stack (default) and the 8-bit page-1 stack (-fno-stack16),
+# stack and ZP conventions: deep recursion with IRQs, alloca, setjmp, ROM calls
+for s16mode in "stack|-fno-zpcall|BF 00" "zp||BF 00" "stack8|-fno-zpcall -fno-stack16 -DDEPTH=4 -DVA_N=50|01 20" "zp8|-fno-stack16 -DDEPTH=4 -DVA_N=50|01 20"; do
+    IFS='|' read -r s16name s16flags s16sp <<< "$s16mode"
+    echo "Testing test_stack16_xemu.c ($s16name)..."
+    compile_link_test "src/test-resources/test_stack16_xemu.c" "build/test/test_stack16_${s16name}_xemu.prg" "$s16flags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_stack16_$s16name" "build/test/test_stack16_${s16name}_xemu.prg" "C0C0" 9 "$s16sp 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_stack16_xemu.c $s16name (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: globals initialized with addresses (&var, arrays, functions) and
+# pointer compares against relocated addresses, stack and ZP conventions
+for gaimode in "stack|-fno-zpcall" "zp|"; do
+    IFS='|' read -r gainame gaiflags <<< "$gaimode"
+    echo "Testing test_global_addr_init_xemu.c ($gainame)..."
+    compile_link_test "src/test-resources/test_global_addr_init_xemu.c" "build/test/test_global_addr_init_${gainame}_xemu.prg" "$gaiflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_global_addr_init_$gainame" "build/test/test_global_addr_init_${gainame}_xemu.prg" "C0C0" 7 "05 03 07 07 01 01 AA"
+    else
+        echo "FAIL: test_global_addr_init_xemu.c $gainame (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: constant-parameter specialization only for functions every caller of
+# which is in the file (two modules), stack and ZP conventions
+for cpmode in "stack|-fno-zpcall|$STDLIB_STACK" "zp||$STDLIB"; do
+    IFS='|' read -r cpname cpflags cplib <<< "$cpmode"
+    echo "Testing test_constparam_xemu.c ($cpname)..."
+    if $CC -c $cpflags src/test-resources/test_constparam_xemu.c -o build/test/test_constparam_${cpname}.o45 >/dev/null 2>&1 &&
+       $CC -c $cpflags src/test-resources/test_constparam_lib_xemu.c -o build/test/test_constparam_lib_${cpname}.o45 >/dev/null 2>&1 &&
+       $LD -basic -o build/test/test_constparam_${cpname}_xemu.prg $CRT0 build/test/test_constparam_${cpname}.o45 \
+           build/test/test_constparam_lib_${cpname}.o45 $cplib >/dev/null 2>&1; then
+        run_xemu_test "test_constparam_$cpname" "build/test/test_constparam_${cpname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
+    else
+        echo "FAIL: test_constparam_xemu.c $cpname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: virtual dispatch (every __vt set: locals, globals, statics, arrays,
+# nested members), stack and ZP conventions
+for vtmode in "stack|-fno-zpcall" "zp|"; do
+    IFS='|' read -r vtname vtflags <<< "$vtmode"
+    echo "Testing test_virtual_xemu.c ($vtname)..."
+    compile_link_test "src/test-resources/test_virtual_xemu.c" "build/test/test_virtual_${vtname}_xemu.prg" "$vtflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_virtual_$vtname" "build/test/test_virtual_${vtname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_virtual_xemu.c $vtname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: R_HIGH relocations of "symbol + n" keep the low byte for the carry
+echo "Testing test_reloc_carry_xemu.c (high-byte relocation carry)..."
+if $CC -c src/test-resources/test_reloc_carry_xemu.c -o build/test/test_reloc_carry.o45 >/dev/null 2>&1 &&
+   $AS -c src/test-resources/test_reloc_carry_asm_xemu.s45 -o build/test/test_reloc_carry_asm.o45 >/dev/null 2>&1 &&
+   $LD -basic -o build/test/test_reloc_carry_xemu.prg $CRT0 build/test/test_reloc_carry.o45 \
+       build/test/test_reloc_carry_asm.o45 $STDLIB >/dev/null 2>&1; then
+    run_xemu_test "test_reloc_carry" "build/test/test_reloc_carry_xemu.prg" "C0C0" 4 "01 01 01 AA"
+else
+    echo "FAIL: test_reloc_carry_xemu.c (build failed)"
+    failed=$((failed + 1))
+fi
+
+# Test: ln45 -d above and below the text; data overlapping the text or the
+# BASIC stub is an error
+if $CC -c src/test-resources/test_ln45_layout_xemu.c -o build/test/test_ln45_layout.o45 >/dev/null 2>&1; then
+    for lymode in "above|-d 8000" "below|-t 3000 -d 2100"; do
+        IFS='|' read -r lyname lyflags <<< "$lymode"
+        echo "Testing test_ln45_layout_xemu.c (data $lyname the text)..."
+        if $LD -basic $lyflags -o "build/test/test_ln45_layout_${lyname}_xemu.prg" $CRT0 \
+               build/test/test_ln45_layout.o45 $STDLIB >/dev/null 2>&1; then
+            run_xemu_test "test_ln45_layout_$lyname" "build/test/test_ln45_layout_${lyname}_xemu.prg" "C0C0" 3 "01 01 AA"
+        else
+            echo "FAIL: test_ln45_layout_xemu.c $lyname (link failed)"
+            failed=$((failed + 1))
+        fi
+    done
+    for lymode in "overlaps the text segment|-d 2100" "overlaps the BASIC stub|-d 1000"; do
+        IFS='|' read -r lymsg lyflags <<< "$lymode"
+        if $LD -basic $lyflags -o build/test/test_ln45_layout_err.prg $CRT0 \
+               build/test/test_ln45_layout.o45 $STDLIB 2>&1 | grep -q "$lymsg"; then
+            echo "PASS: ln45 -basic $lyflags: $lymsg"
+            passed=$((passed + 1))
+        else
+            echo "FAIL: ln45 -basic $lyflags should fail with '$lymsg'"
+            failed=$((failed + 1))
+        fi
+    done
+else
+    echo "FAIL: test_ln45_layout_xemu.c (compile failed)"
+    failed=$((failed + 1))
+fi
+
+# Test: basic45 -- a BASIC 65 program (operators, labels, ON GOTO, DATA,
+# escapes) built as is and with --minify, run by BASIC on xemu; and the
+# validator's undefined-label error
+for bsmode in "plain|" "minify|--minify" "spaces|--preserve-spaces"; do
+    IFS='|' read -r bsname bsflags <<< "$bsmode"
+    echo "Testing test_basic45_xemu.bas ($bsname)..."
+    if ./bin/basic45 --strict $bsflags src/test-resources/test_basic45_xemu.bas \
+           -o "build/test/test_basic45_${bsname}_xemu.prg" >/dev/null 2>&1; then
+        run_xemu_test "test_basic45_$bsname" "build/test/test_basic45_${bsname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_basic45_xemu.bas $bsname (basic45 failed)"
+        failed=$((failed + 1))
+    fi
+done
+# basic45 extensions: long names, block if, proc/call, FN (run by BASIC);
+# the same program decompiled and rebuilt; --list, --source-map, --disk
+echo "Testing test_basic45_features_xemu.bas..."
+if ./bin/basic45 --strict src/test-resources/test_basic45_features_xemu.bas \
+       -o build/test/test_basic45_features_xemu.prg --source-map build/test/basic45_features.map \
+       --disk build/test/basic45_features.d81 --disk-name features --list > build/test/basic45_features.lst 2>&1; then
+    run_xemu_test "test_basic45_features" "build/test/test_basic45_features_xemu.prg" "C0C0" 9 "01 01 01 01 01 01 01 01 AA"
+    if ./bin/basic45 --decompile build/test/test_basic45_features_xemu.prg -o build/test/basic45_features_rt.bas &&
+       ./bin/basic45 --strict build/test/basic45_features_rt.bas -o build/test/basic45_features_rt.prg &&
+       cmp -s build/test/test_basic45_features_xemu.prg build/test/basic45_features_rt.prg; then
+        echo "PASS: basic45 --decompile round trip gives the same program"
+        passed=$((passed + 1))
+    else
+        echo "FAIL: basic45 --decompile round trip"
+        failed=$((failed + 1))
+    fi
+    if grep -q "test_basic45_features_xemu.bas:[0-9]* *start: score = 10" build/test/basic45_features.lst &&
+       grep -q '"FEATURES"' <(./bin/disk45 list build/test/basic45_features.d81 2>&1) &&
+       grep -q "test_basic45_features_xemu.bas" build/test/basic45_features.map; then
+        echo "PASS: basic45 --list, --source-map and --disk"
+        passed=$((passed + 1))
+    else
+        echo "FAIL: basic45 --list, --source-map or --disk"
+        failed=$((failed + 1))
+    fi
+else
+    echo "FAIL: test_basic45_features_xemu.bas (basic45 failed)"
+    failed=$((failed + 1))
+fi
+rm -f build/test/basic45_features.d81
+
+# basic45 --preserve-spaces: the source's blanks between tokens
+printf 'top: print  a ;  "x" : goto   top\n' > build/test/basic45_spaces.bas
+if ./bin/basic45 --preserve-spaces build/test/basic45_spaces.bas -o build/test/basic45_spaces.prg 2>/dev/null &&
+   xxd -p build/test/basic45_spaces.prg | tr -d '\n' | grep -q "99202041203b2020225822203a208920202031" &&
+   ./bin/basic45 build/test/basic45_spaces.bas -o build/test/basic45_spaces.prg 2>/dev/null &&
+   xxd -p build/test/basic45_spaces.prg | tr -d '\n' | grep -q "9920413b2258223a892031"; then
+    echo "PASS: basic45 --preserve-spaces"
+    passed=$((passed + 1))
+else
+    echo "FAIL: basic45 --preserve-spaces"
+    failed=$((failed + 1))
+fi
+
+# basic45 string escapes, MEGA65 control codes and ESC sequences included
+# (the values as the ROM's screen editor has them: control_vectors, funtab)
+printf 'print "{flash}{esc-x}{clear-eos}{$c1}{down}{esc}{lower}{orange}{f9}{f14}{help}{default}{shift-f7}{off}{under-off}{back}"\n' > build/test/basic45_escapes.bas
+if ./bin/basic45 --strict build/test/basic45_escapes.bas -o build/test/basic45_escapes.prg 2>/dev/null &&
+   xxd -p build/test/basic45_escapes.prg | tr -d '\n' | grep -q "220f1b581b40c1111b0e81101a84068c92821422"; then
+    echo "PASS: basic45 string escapes"
+    passed=$((passed + 1))
+else
+    echo "FAIL: basic45 string escapes"
+    failed=$((failed + 1))
+fi
+
+# basic45 --link: BASIC calling C functions (SYS {name}, a, x, y; RREG)
+echo "Testing test_basic45_link_xemu.bas..."
+if ./bin/basic45 --strict --link src/test-resources/test_basic45_link_xemu.c \
+       src/test-resources/test_basic45_link_xemu.bas -o build/test/test_basic45_link_xemu.prg >/dev/null 2>&1; then
+    run_xemu_test "test_basic45_link" "build/test/test_basic45_link_xemu.prg" "C0C0" 9 "01 01 01 01 01 01 01 01 AA"
+else
+    echo "FAIL: test_basic45_link_xemu.bas (basic45 --link failed)"
+    failed=$((failed + 1))
+fi
+# basic45 warnings: a variable read but never assigned (a typo), assigned but
+# never read, a line that can never run, a proc never called
+printf 'top: score = 1 : print scroe : unused = 5\n  goto top\n  print "never"\nproc lonely\nendproc\n' \
+    > build/test/basic45_warn.bas
+./bin/basic45 build/test/basic45_warn.bas -o build/test/basic45_warn.prg > build/test/basic45_warn.log 2>&1
+if grep -q "variable SCROE is read but never assigned" build/test/basic45_warn.log &&
+   grep -q "variable UNUSED is assigned but never read" build/test/basic45_warn.log &&
+   grep -q "basic45_warn.bas:3:1: warning: line 30 can never run" build/test/basic45_warn.log &&
+   grep -q "proc lonely is never called" build/test/basic45_warn.log &&
+   ! ./bin/basic45 --strict build/test/basic45_warn.bas -o build/test/basic45_warn.prg >/dev/null 2>&1; then
+    echo "PASS: basic45 warnings"
+    passed=$((passed + 1))
+else
+    echo "FAIL: basic45 warnings"
+    failed=$((failed + 1))
+fi
+
+# basic45 --format: the same program, and formatting again changes nothing;
+# --report; --send-cmd
+./bin/basic45 --format src/test-resources/test_basic45_features_xemu.bas -o build/test/basic45_fmt.bas
+./bin/basic45 --format build/test/basic45_fmt.bas -o build/test/basic45_fmt2.bas
+if ./bin/basic45 build/test/basic45_fmt.bas -o build/test/basic45_fmt.prg >/dev/null 2>&1 &&
+   cmp -s build/test/basic45_fmt.prg build/test/test_basic45_features_xemu.prg &&
+   cmp -s build/test/basic45_fmt.bas build/test/basic45_fmt2.bas &&
+   ./bin/basic45 --report src/test-resources/test_basic45_features_xemu.bas -o build/test/basic45_rep.prg |
+       grep -q "^Variables .* scalar (of 256" &&
+   ./bin/basic45 src/test-resources/test_basic45_features_xemu.bas -o build/test/basic45_rep.prg \
+       --send-cmd "cp {prg} build/test/basic45_sent.prg" >/dev/null &&
+   cmp -s build/test/basic45_rep.prg build/test/basic45_sent.prg; then
+    echo "PASS: basic45 --format, --report, --send-cmd"
+    passed=$((passed + 1))
+else
+    echo "FAIL: basic45 --format, --report or --send-cmd"
+    failed=$((failed + 1))
+fi
+
+printf 'top: print\n  goto nowhere\n' > build/test/basic45_undef.bas
+if ./bin/basic45 build/test/basic45_undef.bas -o build/test/basic45_undef.prg 2>&1 | \
+       grep -q "basic45_undef.bas:2:1: error: Undefined label: NOWHERE"; then
+    echo "PASS: basic45 reports an undefined label at its line"
+    passed=$((passed + 1))
+else
+    echo "FAIL: basic45 should report 'Undefined label: NOWHERE' at line 2"
+    failed=$((failed + 1))
+fi
+
+# Test: continue <value> / continue default in a switch, stack and ZP conventions
+for scmode in "stack|-fno-zpcall" "zp|"; do
+    IFS='|' read -r scname scflags <<< "$scmode"
+    echo "Testing test_switch_continue_xemu.c ($scname)..."
+    compile_link_test "src/test-resources/test_switch_continue_xemu.c" "build/test/test_switch_continue_${scname}_xemu.prg" "$scflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_switch_continue_$scname" "build/test/test_switch_continue_${scname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_switch_continue_xemu.c $scname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: file-scope asm("...") (data, a function, an equate), both conventions
+for famode in "stack|-fno-zpcall" "zp|"; do
+    IFS='|' read -r faname faflags <<< "$famode"
+    echo "Testing test_file_asm_xemu.c ($faname)..."
+    compile_link_test "src/test-resources/test_file_asm_xemu.c" "build/test/test_file_asm_${faname}_xemu.prg" "$faflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_file_asm_$faname" "build/test/test_file_asm_${faname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
+    else
+        echo "FAIL: test_file_asm_xemu.c $faname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: ln45's SAC overlay (functions never active together share storage), both conventions
+for somode in "stack|-fno-zpcall" "zp|"; do
+    IFS='|' read -r soname soflags <<< "$somode"
+    echo "Testing test_sac_overlay_xemu.c ($soname)..."
+    compile_link_test "src/test-resources/test_sac_overlay_xemu.c" "build/test/test_sac_overlay_${soname}_xemu.prg" "$soflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_sac_overlay_$soname" "build/test/test_sac_overlay_${soname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_sac_overlay_xemu.c $soname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: __regparm (first argument in A / A:X), two modules, both conventions
+# with and without static allocation
+for rpmode in "stack|-fno-zpcall|$STDLIB_STACK" "stack_nosac|-fno-zpcall -fno-staticalloc|$STDLIB_STACK" \
+              "zp||$STDLIB" "zp_nosac|-fno-staticalloc|$STDLIB"; do
+    IFS='|' read -r rpname rpflags rplib <<< "$rpmode"
+    echo "Testing test_regparm_xemu.c ($rpname)..."
+    if $CC -c $rpflags src/test-resources/test_regparm_xemu.c -o build/test/test_regparm_${rpname}.o45 >/dev/null 2>&1 &&
+       $CC -c $rpflags src/test-resources/test_regparm_lib_xemu.c -o build/test/test_regparm_lib_${rpname}.o45 >/dev/null 2>&1 &&
+       $LD -basic -o build/test/test_regparm_${rpname}_xemu.prg $CRT0 build/test/test_regparm_${rpname}.o45 \
+           build/test/test_regparm_lib_${rpname}.o45 $rplib >/dev/null 2>&1; then
+        run_xemu_test "test_regparm_$rpname" "build/test/test_regparm_${rpname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_regparm_xemu.c $rpname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: file I/O on a disk (an empty D81 as drive 8): fopen w/r/a/wb/rb,
+# replace, missing file, EOF, two open files; both conventions
+for fimode in "stack|-fno-zpcall" "zp|"; do
+    IFS='|' read -r finame fiflags <<< "$fimode"
+    echo "Testing test_fileio_xemu.c ($finame)..."
+    compile_link_test "src/test-resources/test_fileio_xemu.c" "build/test/test_fileio_${finame}_xemu.prg" "$fiflags"
+    if [ $? -eq 0 ] && rm -f "build/test/test_fileio_${finame}.d81" &&
+       ./bin/disk45 create "build/test/test_fileio_${finame}.d81" -n "FILEIO" >/dev/null 2>&1; then
+        run_xemu_test "test_fileio_$finame" "build/test/test_fileio_${finame}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA" \
+            -8 "$PWD/build/test/test_fileio_${finame}.d81"
+    else
+        echo "FAIL: test_fileio_xemu.c $finame (build failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: a REL file made by disk45 on a D81, used by BASIC 65's DOS (and the
+# records BASIC wrote read back by disk45)
+echo "Testing test_disk45_rel_xemu.bas..."
+rm -f build/test/test_disk45_rel.d81
+if ./bin/disk45 create build/test/test_disk45_rel.d81 -n RELTEST >/dev/null 2>&1 &&
+   ./bin/disk45 rel-create build/test/test_disk45_rel.d81 scores 20 30 >/dev/null 2>&1 &&
+   ./bin/disk45 rel-write build/test/test_disk45_rel.d81 scores 5 '"HELLO"' >/dev/null 2>&1 &&
+   ./bin/basic45 --strict src/test-resources/test_disk45_rel_xemu.bas -o build/test/test_disk45_rel_xemu.prg >/dev/null 2>&1; then
+    run_xemu_test "test_disk45_rel" "build/test/test_disk45_rel_xemu.prg" "C0C0" 4 "01 01 01 AA" \
+        -8 "$PWD/build/test/test_disk45_rel.d81"
+    if ./bin/disk45 rel-read build/test/test_disk45_rel.d81 scores 7 2>&1 | grep -q 'Text: "BASIC' &&
+       ./bin/disk45 rel-read build/test/test_disk45_rel.d81 scores 40 2>&1 | grep -q 'Text: "FAR' &&
+       ./bin/disk45 validate build/test/test_disk45_rel.d81 2>&1 | grep -q 'Status: OK'; then
+        echo "PASS: disk45 reads the records BASIC wrote"
+        passed=$((passed + 1))
+    else
+        echo "FAIL: disk45 reading the REL records BASIC wrote"
+        failed=$((failed + 1))
+    fi
+else
+    echo "FAIL: test_disk45_rel_xemu.bas (build failed)"
+    failed=$((failed + 1))
+fi
+
+# Test: an SD card image made by disk45: xemu boots from it (the ROM from the
+# card), BASIC reads and writes the card's MEGA65.D81; disk45 then finds the
+# file BASIC wrote. Needs xemu's MEGA65.ROM
+XEMU_ROM="$HOME/.local/share/xemu-lgb/mega65/MEGA65.ROM"
+if [ -f "$XEMU_ROM" ]; then
+    echo "Testing test_disk45_sd_xemu.bas..."
+    SDC=build/test/test_disk45_sd.img
+    rm -f "$SDC" build/test/test_disk45_sd.d81 build/test/test_disk45_sd_back.d81
+    printf 'SDCARD\r' > build/test/test_disk45_sd.seq
+    if ./bin/disk45 sd create "$SDC" 64M --onboarded >/dev/null 2>&1 &&
+       ./bin/disk45 sd add "$SDC" "$XEMU_ROM" MEGA65.ROM >/dev/null 2>&1 &&
+       ./bin/disk45 create build/test/test_disk45_sd.d81 -n SDTEST >/dev/null 2>&1 &&
+       ./bin/disk45 add build/test/test_disk45_sd.d81 build/test/test_disk45_sd.seq HELLO -t seq >/dev/null 2>&1 &&
+       ./bin/disk45 sd add "$SDC" build/test/test_disk45_sd.d81 MEGA65.D81 >/dev/null 2>&1 &&
+       ./bin/basic45 --strict src/test-resources/test_disk45_sd_xemu.bas -o build/test/test_disk45_sd_xemu.prg >/dev/null 2>&1; then
+        run_xemu_test "test_disk45_sd" "build/test/test_disk45_sd_xemu.prg" "C0C0" 3 "01 01 AA" \
+            -sdimg "$PWD/$SDC" -defd81fromsd -romfromsd
+        if ./bin/disk45 sd check "$SDC" 2>&1 | grep -q '^OK' &&
+           ./bin/disk45 sd extract "$SDC" MEGA65.D81 build/test/test_disk45_sd_back.d81 >/dev/null 2>&1 &&
+           ./bin/disk45 list build/test/test_disk45_sd_back.d81 2>&1 | grep -q '"BACK"'; then
+            echo "PASS: disk45 finds the file BASIC wrote on the SD card's D81"
+            passed=$((passed + 1))
+        else
+            echo "FAIL: disk45 reading back the SD card's D81"
+            failed=$((failed + 1))
+        fi
+    else
+        echo "FAIL: test_disk45_sd_xemu.bas (build failed)"
+        failed=$((failed + 1))
+    fi
+else
+    echo "SKIP: test_disk45_sd_xemu.bas (no $XEMU_ROM)"
+fi
+
+# Test: the string functions on strings longer than 255 bytes (strlen, puts
+# and the rest), strcmp's sign; both conventions
+for lsmode in "stack|-fno-zpcall" "zp|"; do
+    IFS='|' read -r lsname lsflags <<< "$lsmode"
+    echo "Testing test_long_strings_xemu.c ($lsname)..."
+    compile_link_test "src/test-resources/test_long_strings_xemu.c" "build/test/test_long_strings_${lsname}_xemu.prg" "$lsflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_long_strings_$lsname" "build/test/test_long_strings_${lsname}_xemu.prg" "C0C0" 12 "01 01 01 01 01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_long_strings_xemu.c $lsname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: char arguments through "..." are promoted to int, both conventions
+for vcmode in "stack|-fno-zpcall" "zp|"; do
+    IFS='|' read -r vcname vcflags <<< "$vcmode"
+    echo "Testing test_varargs_char_xemu.c ($vcname)..."
+    compile_link_test "src/test-resources/test_varargs_char_xemu.c" "build/test/test_varargs_char_${vcname}_xemu.prg" "$vcflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_varargs_char_$vcname" "build/test/test_varargs_char_${vcname}_xemu.prg" "C0C0" 4 "01 01 01 AA"
+    else
+        echo "FAIL: test_varargs_char_xemu.c $vcname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: crt0 fills BSS: 0 by default, $FF with -fbss-fill=$FF (xemu's RAM is
+# zero at boot, so only the $FF build shows the fill runs); both conventions
+for bfmode in "stack|-fno-zpcall" "zp|"; do
+    IFS='|' read -r bfname bfflags <<< "$bfmode"
+    echo "Testing test_bss_fill_xemu.c ($bfname)..."
+    compile_link_test "src/test-resources/test_bss_fill_xemu.c" "build/test/test_bss_fill_${bfname}_xemu.prg" "$bfflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_bss_fill_$bfname" "build/test/test_bss_fill_${bfname}_xemu.prg" "C0C0" 7 "00 00 00 00 01 01 AA"
+    else
+        echo "FAIL: test_bss_fill_xemu.c $bfname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+    compile_link_test "src/test-resources/test_bss_fill_xemu.c" "build/test/test_bss_fill_ff_${bfname}_xemu.prg" "$bfflags -fbss-fill=\$FF"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_bss_fill_ff_$bfname" "build/test/test_bss_fill_ff_${bfname}_xemu.prg" "C0C0" 7 "FF FF FF FF 01 01 AA"
+    else
+        echo "FAIL: test_bss_fill_xemu.c -fbss-fill=\$FF $bfname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: ln45 -basic -t ADDR: the code is linked and stored at ADDR (the PRG is
+# padded after the SYS stub); 4- and 5-digit SYS addresses
+for btaddr in 3000 2710; do
+    echo "Testing ln45 -basic -t $btaddr..."
+    if $CC -c src/test-resources/test_virtual_xemu.c -o build/test/test_basic_t.o45 >/dev/null 2>&1 &&
+       $LD -basic -t $btaddr -o build/test/test_basic_t_${btaddr}.prg $CRT0 build/test/test_basic_t.o45 $STDLIB >/dev/null 2>&1; then
+        run_xemu_test "test_basic_t_$btaddr" "build/test/test_basic_t_${btaddr}.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: ln45 -basic -t $btaddr (build failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: a program's own init_features() (weak in crt0) runs before main
+for ifmode in "stack|-fno-zpcall" "zp|"; do
+    IFS='|' read -r ifname ifflags <<< "$ifmode"
+    echo "Testing test_init_features_xemu.c ($ifname)..."
+    compile_link_test "src/test-resources/test_init_features_xemu.c" "build/test/test_init_features_${ifname}_xemu.prg" "$ifflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_init_features_$ifname" "build/test/test_init_features_${ifname}_xemu.prg" "C0C0" 2 "01 AA"
+    else
+        echo "FAIL: test_init_features_xemu.c $ifname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: main(argc, argv) from the BASIC line (RUN ["NAME"] : [REM] a, b, ...),
+# typed by xemu's -prgtest; stack and ZP conventions
+for mamode in "stack|-fno-zpcall|$STDLIB_STACK" "zp||$STDLIB"; do
+    IFS='|' read -r maname maflags malib <<< "$mamode"
+    echo "Testing test_mainargs_xemu.c ($maname)..."
+    compile_link_test "src/test-resources/test_mainargs_xemu.c" "build/test/test_mainargs_${maname}_xemu.prg" "$maflags"
+    if [ $? -eq 0 ]; then
+        # plain RUN: argc 1, argv[0] ""
+        run_xemu_test "test_mainargs_run_$maname" "build/test/test_mainargs_${maname}_xemu.prg" "C100" 4 "01 7C 4E 00"
+        # :REM keeps keywords as text; quotes group; empty arguments; trimmed
+        run_xemu_test "test_mainargs_rem_$maname" "build/test/test_mainargs_${maname}_xemu.prg" "C100" 22 \
+            "06 7C 48 45 4C 4C 4F 7C 41 2C 20 42 7C 54 4F 20 37 7C 7C 58 7C 4E" \
+            -prgtest 'RUN:REM HELLO, "A, B" ,  TO 7 , , X'
+        # RUN "NAME" from a disk: argv[0] is the name
+        rm -f build/test/test_mainargs.d81
+        if ./bin/disk45 create build/test/test_mainargs.d81 -n "ARGS" >/dev/null 2>&1 &&
+           ./bin/disk45 write build/test/test_mainargs.d81 "build/test/test_mainargs_${maname}_xemu.prg" ARGS >/dev/null 2>&1 &&
+           $AS src/test-resources/test_mainargs_nop.s45 -o build/test/test_mainargs_nop.prg >/dev/null 2>&1; then
+            run_xemu_test "test_mainargs_disk_$maname" "build/test/test_mainargs_nop.prg" "C100" 10 \
+                "02 41 52 47 53 7C 58 59 7C 4E" \
+                -8 "$PWD/build/test/test_mainargs.d81" -prgtest 'RUN "ARGS" : XY'
+        else
+            echo "FAIL: test_mainargs disk image ($maname)"
+            failed=$((failed + 1))
+        fi
+    else
+        echo "FAIL: test_mainargs_xemu.c $maname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: pointer differences (element counts, signed), stack and ZP conventions
+for pdmode in "stack|-fno-zpcall" "zp|"; do
+    IFS='|' read -r pdname pdflags <<< "$pdmode"
+    echo "Testing test_ptrdiff_xemu.c ($pdname)..."
+    compile_link_test "src/test-resources/test_ptrdiff_xemu.c" "build/test/test_ptrdiff_${pdname}_xemu.prg" "$pdflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_ptrdiff_$pdname" "build/test/test_ptrdiff_${pdname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_ptrdiff_xemu.c $pdname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: __interrupt handlers run on their own base page (__zp_page_isr),
+# including after ROM calls, in both calling conventions
+for isrmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r isrname isrflags <<< "$isrmode"
+    echo "Testing test_isr_page_xemu.c ($isrname)..."
+    compile_link_test "src/test-resources/test_isr_page_xemu.c" "build/test/test_isr_page_${isrname}_xemu.prg" "$isrflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_isr_page_$isrname" "build/test/test_isr_page_${isrname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_isr_page_xemu.c $isrname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: a C global named fp doesn't clash with the frame-pointer variable
+for fpgmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r fpgname fpgflags <<< "$fpgmode"
+    echo "Testing test_fp_global_xemu.c ($fpgname)..."
+    compile_link_test "src/test-resources/test_fp_global_xemu.c" "build/test/test_fp_global_${fpgname}_xemu.prg" "$fpgflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_fp_global_$fpgname" "build/test/test_fp_global_${fpgname}_xemu.prg" "C0C0" 4 "01 01 01 AA"
+    else
+        echo "FAIL: test_fp_global_xemu.c $fpgname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: __attribute__((aligned(N))) / _Alignas on globals, locals, struct
+# members and struct types
+for almode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r alname alflags <<< "$almode"
+    echo "Testing test_aligned_xemu.c ($alname)..."
+    compile_link_test "src/test-resources/test_aligned_xemu.c" "build/test/test_aligned_${alname}_xemu.prg" "$alflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_aligned_$alname" "build/test/test_aligned_${alname}_xemu.prg" "C0C0" 10 "01 01 01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_aligned_xemu.c $alname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: constant initializers of aggregate globals / local statics (struct
+# layout, nested braces, brace elision, designators, unions, bitfields)
+for simode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r siname siflags <<< "$simode"
+    echo "Testing test_struct_init_xemu.c ($siname)..."
+    compile_link_test "src/test-resources/test_struct_init_xemu.c" "build/test/test_struct_init_${siname}_xemu.prg" "$siflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_struct_init_$siname" "build/test/test_struct_init_${siname}_xemu.prg" "C0C0" 13 "01 01 01 01 01 01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_struct_init_xemu.c $siname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: float <-> integer conversions, -0.0, floor/ceil/trunc, float ternary,
+# float global initializers, va_arg after a double parameter
+for fcmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r fcname fcflags <<< "$fcmode"
+    echo "Testing test_float_conv_xemu.c ($fcname)..."
+    compile_link_test "src/test-resources/test_float_conv_xemu.c" "build/test/test_float_conv_${fcname}_xemu.prg" "$fcflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_float_conv_$fcname" "build/test/test_float_conv_${fcname}_xemu.prg" "C0C0" 9 "01 01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_float_conv_xemu.c $fcname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: _Complex without <complex.h> (constant initializers, real/complex
+# mixing, casts, by-value parameters, int <-> float complex, conjugate)
+for cxmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r cxname cxflags <<< "$cxmode"
+    echo "Testing test_complex_xemu.c ($cxname)..."
+    compile_link_test "src/test-resources/test_complex_xemu.c" "build/test/test_complex_${cxname}_xemu.prg" "$cxflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_complex_$cxname" "build/test/test_complex_${cxname}_xemu.prg" "C0C0" 9 "01 01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_complex_xemu.c $cxname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: GCC statement expressions ({ stmt; ...; expr; })
+for semode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r sename seflags <<< "$semode"
+    echo "Testing test_stmt_expr_xemu.c ($sename)..."
+    compile_link_test "src/test-resources/test_stmt_expr_xemu.c" "build/test/test_stmt_expr_${sename}_xemu.prg" "$seflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_stmt_expr_$sename" "build/test/test_stmt_expr_${sename}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_stmt_expr_xemu.c $sename (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: float overflow saturation, float literals, function-pointer argument
+# conversion, byte-indexed access to a float's bytes
+for frmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r frname frflags <<< "$frmode"
+    echo "Testing test_float_range_xemu.c ($frname)..."
+    compile_link_test "src/test-resources/test_float_range_xemu.c" "build/test/test_float_range_${frname}_xemu.prg" "$frflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_float_range_$frname" "build/test/test_float_range_${frname}_xemu.prg" "C0C0" 9 "01 01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_float_range_xemu.c $frname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: structs through '...', 2-D array members, ++/-- on stack-frame
+# locals, signed int -> float conversion
+for vsmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r vsname vsflags <<< "$vsmode"
+    echo "Testing test_varargs_struct_xemu.c ($vsname)..."
+    compile_link_test "src/test-resources/test_varargs_struct_xemu.c" "build/test/test_varargs_struct_${vsname}_xemu.prg" "$vsflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_varargs_struct_$vsname" "build/test/test_varargs_struct_${vsname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_varargs_struct_xemu.c $vsname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: sign extension (signed shifts, int -> long before a 32-bit add),
+# sprintf %f, va_list passed to always_inline functions
+for sxmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r sxname sxflags <<< "$sxmode"
+    echo "Testing test_signext_xemu.c ($sxname)..."
+    compile_link_test "src/test-resources/test_signext_xemu.c" "build/test/test_signext_${sxname}_xemu.prg" "$sxflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_signext_$sxname" "build/test/test_signext_${sxname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_signext_xemu.c $sxname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: local aggregate initializers (nested braces, unions, designators,
+# run-time values), pp-numbers and char constants vs macros, float limits
+for limode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r liname liflags <<< "$limode"
+    echo "Testing test_local_init_xemu.c ($liname)..."
+    compile_link_test "src/test-resources/test_local_init_xemu.c" "build/test/test_local_init_${liname}_xemu.prg" "$liflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_local_init_$liname" "build/test/test_local_init_${liname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_local_init_xemu.c $liname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: math domain/range errors return (no ROM ?ILLEGAL QUANTITY/?OVERFLOW
+# stop) with EDOM/ERANGE in errno; strtof overflow/underflow
+for memode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r mename meflags <<< "$memode"
+    echo "Testing test_math_errors_xemu.c ($mename)..."
+    compile_link_test "src/test-resources/test_math_errors_xemu.c" "build/test/test_math_errors_${mename}_xemu.prg" "$meflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_math_errors_$mename" "build/test/test_math_errors_${mename}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_math_errors_xemu.c $mename (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: bitfield stores (16/32-bit units, signed fields, char units next to
+# other members, unnamed ':0' fields in initializers)
+for bsmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r bsname bsflags <<< "$bsmode"
+    echo "Testing test_bitfield_store_xemu.c ($bsname)..."
+    compile_link_test "src/test-resources/test_bitfield_store_xemu.c" "build/test/test_bitfield_store_${bsname}_xemu.prg" "$bsflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_bitfield_store_$bsname" "build/test/test_bitfield_store_${bsname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_bitfield_store_xemu.c $bsname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: link-time constant initializers (label tables for goto *, string +
+# offset, &a[i][j], arr + n, global char arrays, extern then definition)
+for simode2 in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r sname sflags <<< "$simode2"
+    echo "Testing test_static_init_xemu.c ($sname)..."
+    compile_link_test "src/test-resources/test_static_init_xemu.c" "build/test/test_static_init_${sname}_xemu.prg" "$sflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_static_init_$sname" "build/test/test_static_init_${sname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_static_init_xemu.c $sname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: code generation fixes (variable shifts, sign extension, ++/-- on
+# lvalues, array parameters, variable-length arrays, compound literals,
+# static locals)
+for cgmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r cgname cgflags <<< "$cgmode"
+    echo "Testing test_codegen_fixes_xemu.c ($cgname)..."
+    compile_link_test "src/test-resources/test_codegen_fixes_xemu.c" "build/test/test_codegen_fixes_${cgname}_xemu.prg" "$cgflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_codegen_fixes_$cgname" "build/test/test_codegen_fixes_${cgname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_codegen_fixes_xemu.c $cgname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: GCC builtins (bit ops, offsetof, expect, choose_expr, return
+# address, overflow) and printf formatting
+for bimode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r biname biflags <<< "$bimode"
+    echo "Testing test_builtins_xemu.c ($biname)..."
+    compile_link_test "src/test-resources/test_builtins_xemu.c" "build/test/test_builtins_${biname}_xemu.prg" "$biflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_builtins_$biname" "build/test/test_builtins_${biname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_builtins_xemu.c $biname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: nested struct definitions, zero-length arrays, extended asm
+# operands, written constant SAC parameters
+for samode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r saname saflags <<< "$samode"
+    echo "Testing test_struct_asm_xemu.c ($saname)..."
+    compile_link_test "src/test-resources/test_struct_asm_xemu.c" "build/test/test_struct_asm_${saname}_xemu.prg" "$saflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_struct_asm_$saname" "build/test/test_struct_asm_${saname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_struct_asm_xemu.c $saname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: nested functions (static chain, non-local goto, trampolines),
+# pointers to arrays, alias/aligned attributes, preprocessor forms
+for ndmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r ndname ndflags <<< "$ndmode"
+    echo "Testing test_nested_decl_xemu.c ($ndname)..."
+    compile_link_test "src/test-resources/test_nested_decl_xemu.c" "build/test/test_nested_decl_${ndname}_xemu.prg" "$ndflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_nested_decl_$ndname" "build/test/test_nested_decl_${ndname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_nested_decl_xemu.c $ndname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: structs with run-time member sizes, large stack frames, __int128 from
+# int, wide strings, complex members, label differences, push/pop_macro
+for vmmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r vmname vmflags <<< "$vmmode"
+    echo "Testing test_vmstruct_misc_xemu.c ($vmname)..."
+    compile_link_test "src/test-resources/test_vmstruct_misc_xemu.c" "build/test/test_vmstruct_misc_${vmname}_xemu.prg" "$vmflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_vmstruct_misc_$vmname" "build/test/test_vmstruct_misc_${vmname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_vmstruct_misc_xemu.c $vmname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: GCC vector extension (vector_size) and compound literal initializers
+for vcmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r vcname vcflags <<< "$vcmode"
+    echo "Testing test_vector_xemu.c ($vcname)..."
+    compile_link_test "src/test-resources/test_vector_xemu.c" "build/test/test_vector_${vcname}_xemu.prg" "$vcflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_vector_$vcname" "build/test/test_vector_${vcname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_vector_xemu.c $vcname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: the IR optimizer passes keep results (all on at -O2; all off at -O0)
+for iomode in "zp|" "stack|-fno-zpcall" "O0|-O0"; do
+    IFS='|' read -r ioname ioflags <<< "$iomode"
+    echo "Testing test_iropt_xemu.c ($ioname)..."
+    compile_link_test "src/test-resources/test_iropt_xemu.c" "build/test/test_iropt_${ioname}_xemu.prg" "$ioflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_iropt_$ioname" "build/test/test_iropt_${ioname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_iropt_xemu.c $ioname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: string/character literal encoding prefixes p"..." s"..." a"..." @"..."
+for spmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r spname spflags <<< "$spmode"
+    echo "Testing test_string_prefix_xemu.c ($spname)..."
+    compile_link_test "src/test-resources/test_string_prefix_xemu.c" "build/test/test_string_prefix_${spname}_xemu.prg" "$spflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_string_prefix_$spname" "build/test/test_string_prefix_${spname}_xemu.prg" "C0C0" 9 "01 01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_string_prefix_xemu.c $spname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: loop interchange keeps results (nests it swaps and nests it must not)
+for limode in "plain|" "zp|-floop-interchange" "stack|-floop-interchange -fno-zpcall"; do
+    IFS='|' read -r liname liflags <<< "$limode"
+    echo "Testing test_interchange_xemu.c ($liname)..."
+    compile_link_test "src/test-resources/test_interchange_xemu.c" "build/test/test_interchange_${liname}_xemu.prg" "$liflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_interchange_$liname" "build/test/test_interchange_${liname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_interchange_xemu.c $liname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: printf/sprintf %f %e %g over the whole float range (BASIC 65 ROM digits)
+for pfmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r pfname pfflags <<< "$pfmode"
+    echo "Testing test_printf_float_xemu.c ($pfname)..."
+    compile_link_test "src/test-resources/test_printf_float_xemu.c" "build/test/test_printf_float_${pfname}_xemu.prg" "$pfflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_printf_float_$pfname" "build/test/test_printf_float_${pfname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_printf_float_xemu.c $pfname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: automatic inlining (-O2) keeps results; -O0 for comparison
+for inmode in "zp|-O2" "stack|-O2 -fno-zpcall" "O0|-O0"; do
+    IFS='|' read -r inname inflags <<< "$inmode"
+    echo "Testing test_inline_xemu.c ($inname)..."
+    compile_link_test "src/test-resources/test_inline_xemu.c" "build/test/test_inline_${inname}_xemu.prg" "$inflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_inline_$inname" "build/test/test_inline_${inname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_inline_xemu.c $inname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: loop unrolling keeps results (continue, break, nesting, char, zero trips)
+for unmode in "plain|" "zp|-floop-unrolling" "stack|-floop-unrolling -fno-zpcall"; do
+    IFS='|' read -r unname unflags <<< "$unmode"
+    echo "Testing test_unroll_xemu.c ($unname)..."
+    compile_link_test "src/test-resources/test_unroll_xemu.c" "build/test/test_unroll_${unname}_xemu.prg" "$unflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_unroll_$unname" "build/test/test_unroll_${unname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_unroll_xemu.c $unname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: malloc / free / calloc / realloc on the default heap
+for mlmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r mlname mlflags <<< "$mlmode"
+    echo "Testing test_malloc_xemu.c ($mlname)..."
+    compile_link_test "src/test-resources/test_malloc_xemu.c" "build/test/test_malloc_${mlname}_xemu.prg" "$mlflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_malloc_$mlname" "build/test/test_malloc_${mlname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_malloc_xemu.c $mlname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: one-step build (cc45 file.c -o file.prg: cc45 runs ca45 and ln45 with
+# the standard library of the calling convention)
+for osmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r osname osflags <<< "$osmode"
+    echo "Testing one-step cc45 -o .prg ($osname)..."
+    if $CC $osflags src/test-resources/test_stdint_xemu.c -o "build/test/test_onestep_${osname}_xemu.prg" >/dev/null 2>&1; then
+        run_xemu_test "test_onestep_$osname" "build/test/test_onestep_${osname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: one-step cc45 -o .prg $osname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: <stdint.h> signed exact-width types in the default (unsigned) mode
+for simode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r siname siflags <<< "$simode"
+    echo "Testing test_stdint_xemu.c ($siname)..."
+    compile_link_test "src/test-resources/test_stdint_xemu.c" "build/test/test_stdint_${siname}_xemu.prg" "$siflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_stdint_$siname" "build/test/test_stdint_${siname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_stdint_xemu.c $siname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: int64_t (struct __int64): arithmetic, narrowing, parameters, comparisons
+for i6mode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r i6name i6flags <<< "$i6mode"
+    echo "Testing test_int64_xemu.c ($i6name)..."
+    compile_link_test "src/test-resources/test_int64_xemu.c" "build/test/test_int64_${i6name}_xemu.prg" "$i6flags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_int64_$i6name" "build/test/test_int64_${i6name}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_int64_xemu.c $i6name (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: pointer/float compound assignment, float initializers, nested
+# function static chain, variably modified parameters
+for ammode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r amname amflags <<< "$ammode"
+    echo "Testing test_arith_misc_xemu.c ($amname)..."
+    compile_link_test "src/test-resources/test_arith_misc_xemu.c" "build/test/test_arith_misc_${amname}_xemu.prg" "$amflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_arith_misc_$amname" "build/test/test_arith_misc_${amname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_arith_misc_xemu.c $amname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: stack frames (recursion via SAC fallback, caller FP preserved, long return)
+echo "Testing test_stackframe_xemu.c (stack frames)..."
+compile_link_test "src/test-resources/test_stackframe_xemu.c" "build/test/test_stackframe_xemu.prg"
+if [ $? -eq 0 ]; then
+    run_xemu_test "test_stackframe" "build/test/test_stackframe_xemu.prg" "C0B0" 7 "15 79 00 56 12 34 AA"
+else
+    echo "FAIL: test_stackframe_xemu.c (compilation/linking failed)"
+    failed=$((failed + 1))
+fi
+
+# Test: && / || as values (short-circuit result must be 0/1, not stale)
+echo "Testing test_logical_value_xemu.c (logical operators as values)..."
+compile_link_test "src/test-resources/test_logical_value_xemu.c" "build/test/test_logical_value_xemu.prg"
+if [ $? -eq 0 ]; then
+    run_xemu_test "test_logical_value" "build/test/test_logical_value_xemu.prg" "C0A0" 9 "01 00 01 00 01 00 01 01 AA"
+else
+    echo "FAIL: test_logical_value_xemu.c (compilation/linking failed)"
+    failed=$((failed + 1))
+fi
+
+# Test: dma_fill / dma_copy (the fill value goes in the list's source low byte)
+echo "Testing test_dma_xemu.c (DMA fill and copy)..."
+compile_link_test "src/test-resources/test_dma_xemu.c" "build/test/test_dma_xemu.prg"
+if [ $? -eq 0 ]; then
+    run_xemu_test "test_dma" "build/test/test_dma_xemu.prg" "C0C0" 3 "01 01 AA"
+else
+    echo "FAIL: test_dma_xemu.c (compilation/linking failed)"
+    failed=$((failed + 1))
+fi
+
+# Test: ca45 simulated instructions (assembled directly with ca45, no linker)
+echo "Testing test_ca45_simops_xemu.s45 (ca45 simulated instructions)..."
+if ./bin/ca45 src/test-resources/test_ca45_simops_xemu.s45 -o build/test/test_ca45_simops_xemu.prg >/dev/null 2>&1; then
+    run_xemu_test "test_ca45_simops" "build/test/test_ca45_simops_xemu.prg" "C0C0" 39 \
+        "04 00 FE FF 2C 01 FB FF 05 00 00 12 FB FF 06 FF 12 34 12 42 00 99 35 12 32 01 34 56 CD AB 5A 5A 77 66 05 5C 03 01 AA"
+else
+    echo "FAIL: test_ca45_simops_xemu.s45 (assembly failed)"
+    failed=$((failed + 1))
+fi
+
+# Test: calls to the library's ZP assembly routines without a declaration
+# (__builtin_alloca/setjmp/longjmp/abs/labs, implicit alloca/strlen) use the
+# ZP convention in a stack-convention unit too: the stack build links with
+# ln45 --no-thunks (each stack-mode GTE alloca/setjmp test needed a thunk)
+for lcmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r lcname lcflags <<< "$lcmode"
+    echo "Testing test_libcall_conv_xemu.c ($lcname)..."
+    compile_link_test "src/test-resources/test_libcall_conv_xemu.c" "build/test/test_libcall_conv_${lcname}_xemu.prg" \
+        "$lcflags -fimplicit-function-declaration"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_libcall_conv_$lcname" "build/test/test_libcall_conv_${lcname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_libcall_conv_xemu.c $lcname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+if $LD --no-thunks -basic -o build/test/test_libcall_conv_nothunks.prg $CRT0 build/test/test_libcall_conv_stack_xemu.o45 $STDLIB_STACK \
+       > build/test/test_libcall_conv_nothunks.log 2>&1; then
+    echo "SUCCESS: test_libcall_conv_nothunks"
+    passed=$((passed + 1))
+else
+    echo "FAIL: test_libcall_conv_nothunks (ln45 --no-thunks):"
+    grep -i "mismatch\|error" build/test/test_libcall_conv_nothunks.log | head -3
+    failed=$((failed + 1))
+fi
+
+# Test: c45_stack.lib needs no calling-convention thunks: stack-convention
+# programs using stdio, file I/O, strings, struct copies and wide integers
+# link with ln45 --no-thunks (the library's asm functions are __fastcall__)
+for nt in test_printf_float_xemu test_fileio_xemu test_long_strings_xemu test_int64_xemu test_builtins_xemu; do
+    [ -f "src/test-resources/$nt.c" ] || continue
+    echo "Testing ln45 --no-thunks with $nt.c (stack)..."
+    if $CC -c -fno-zpcall "src/test-resources/$nt.c" -o "build/test/${nt}_nothunks.o45" >/dev/null 2>&1 &&
+       $LD --no-thunks -basic -o "build/test/${nt}_nothunks.prg" $CRT0 "build/test/${nt}_nothunks.o45" $STDLIB_STACK \
+           > "build/test/${nt}_nothunks.log" 2>&1; then
+        echo "SUCCESS: ${nt}_nothunks"
+        passed=$((passed + 1))
+    else
+        echo "FAIL: ${nt}_nothunks (ln45 --no-thunks):"
+        grep -i "mismatch\|error" "build/test/${nt}_nothunks.log" | head -3
+        failed=$((failed + 1))
+    fi
+done
 
 echo ""
 echo "======================================================"

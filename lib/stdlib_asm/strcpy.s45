@@ -1,0 +1,33 @@
+; strcpy.s — Copy string (ZP calling convention)
+;
+; char *strcpy(char *dest, char *src);
+;   Copies src including NUL terminator to dest. Returns dest.
+
+.global _strcpy
+
+.segment "code"
+
+proc _strcpy
+    .zp_uses $10, $11, $12, $13
+    .zp_clobbers $10, $11, $12, $13
+    .zp_release $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+
+    ; dest=$10/$11, src=$12/$13 — use directly as indirect pointers
+    ldy #0
+@loop:
+    lda ($12),y
+    sta ($10),y
+    beq @done
+    iny
+    bne @loop
+    inc $11
+    inc $13
+    bra @loop
+@done:
+    lda $10
+    ldx $11
+    rts
+    .func_flags zp_call
+    endproc

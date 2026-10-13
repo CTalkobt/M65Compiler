@@ -2,6 +2,7 @@
 #define BASICVALIDATOR_HPP
 
 #include <string>
+#include <functional>
 #include <vector>
 #include <unordered_set>
 #include "LabelBasedSourceParser.hpp"
@@ -19,7 +20,8 @@ public:
     BasicValidator(const std::string& filename) : sourceFile(filename) {}
 
     // Parse and validate label-based source code
-    void analyze(const std::string& sourceCode);
+    // lineIncrement: the BASIC line numbering (first line and step)
+    void analyze(const std::string& sourceCode, uint16_t lineIncrement = 10);
 
     // Get all collected errors/warnings
     const std::vector<ValidationError>& getErrors() const { return errors; }
@@ -33,11 +35,16 @@ public:
     const std::unordered_set<std::string>& getReferencedLabels() const;
     const LabelBasedSourceParser& getParser() const { return parser; }
 
+    // Map a line of the analyzed text to its source (file, line) for
+    // messages; without it the file given to the constructor is used
+    void setOrigin(std::function<std::pair<std::string, int>(int)> f) { origin = std::move(f); }
+
     // Print errors in GNU format
     void printErrors() const;
 
 private:
     std::string sourceFile;
+    std::function<std::pair<std::string, int>(int)> origin;
     std::vector<ValidationError> errors;
     LabelBasedSourceParser parser;
 

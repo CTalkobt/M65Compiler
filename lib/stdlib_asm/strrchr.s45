@@ -1,0 +1,47 @@
+; strrchr.s — Locate last occurrence of character in string (ZP calling convention)
+;
+; char *strrchr(char *s, int c);
+;   Returns pointer to last occurrence of (char)c in s, or NULL.
+
+.global _strrchr
+
+.segment "code"
+
+proc _strrchr
+    .zp_uses $10, $11, $12, $13
+    .zp_clobbers $10, $11, $12, $13, $14, $15
+    .zp_release $10, $11, $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+
+    ; s=$10/$11, c=$12 (low byte only)
+    ; result in $14/$15
+    lda #0              ; (STZ stores the Z register, not zero)
+    sta $14
+    sta $15
+    ldy #0
+@loop:
+    lda ($10),y
+    cmp $12
+    bne @skip
+    ; Save current position as result
+    tya
+    clc
+    adc $10
+    sta $14
+    lda #0
+    adc $11
+    sta $15
+@skip:
+    lda ($10),y
+    beq @done
+    iny
+    bne @loop
+    inc $11
+    bra @loop
+@done:
+    lda $14
+    ldx $15
+    rts
+    .func_flags zp_call
+    endproc

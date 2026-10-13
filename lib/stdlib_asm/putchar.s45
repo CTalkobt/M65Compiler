@@ -1,0 +1,30 @@
+; putchar.s — Write a character to screen via KERNAL CHROUT (ZP calling convention)
+;
+; int putchar(int c);
+;   Writes the low byte of c to the screen using KERNAL $FFD2.
+;   Returns c.
+
+.global _putchar
+.extern __bp_rom
+.extern __bp_prog
+
+.segment "code"
+
+proc _putchar
+    .zp_uses $10, $11
+    .zp_clobbers $10, $11
+    .zp_release $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+
+    lda $10
+    phz
+    jsr __bp_rom
+    jsr $FFD2
+    jsr __bp_prog
+    plz
+    lda $10
+    ldx $11
+    rts
+    .func_flags zp_call
+    endproc

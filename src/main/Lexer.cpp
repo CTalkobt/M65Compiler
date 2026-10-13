@@ -1,3 +1,5 @@
+#include <algorithm>
+#include <cstdio>
 #include "Lexer.hpp"
 #include <cctype>
 #include <map>
@@ -306,9 +308,22 @@ Token Lexer::lexIdentifierOrKeyword() {
         return {it->second, value, startLine, startCol, sourceFile};
     }
 
+    // Encoding prefix touching the quote (as in ca45 and basic45): p"..." /
+    // p'x' PETSCII, s"..." / s'x' screen codes, a"..." / a'x' ASCII (as @).
+    // It overrides #pragma encoding for that literal. With a space between
+    // (p "x") p is an identifier.
+    if ((value == "p" || value == "s" || value == "a") && (peek() == '\'' || peek() == '"')) {
+        bool ascii = value == "a", screen = value == "s";
+        Token t = peek() == '"' ? lexString(ascii) : lexChar(ascii, screen);
+        if (t.type == TokenType::STRING_LITERAL) t.strEncoding = screen ? 2 : 0;
+        t.line = startLine;
+        t.column = startCol;
+        return t;
+    }
+
     // Wide char/string prefix: L'x' or L"str" → downgrade to regular char/string
     if (value == "L" && (peek() == '\'' || peek() == '"')) {
-        if (peek() == '"') return lexString(false);
+        if (peek() == '"') { Token t = lexString(false); t.wide = true; return t; }
         else return lexChar(false);
     }
 
@@ -324,19 +339,36 @@ Token Lexer::lexNumber() {
         if (peek() == 'x' || peek() == 'X') {
             value += get();
             while (std::isxdigit(peek())) value += get();
-            uint32_t val = 0;
+            // Hex float: 0x1.8p3, 0x.8p1, 0x1p-2 (binary exponent required)
+            if (peek() == '.' || peek() == 'p' || peek() == 'P') {
+                std::string text = value;
+                if (peek() == '.') { text += get(); while (std::isxdigit(peek())) text += get(); }
+                if (peek() == 'p' || peek() == 'P') {
+                    text += get();
+                    if (peek() == '+' || peek() == '-') text += get();
+                    while (std::isdigit(peek())) text += get();
+                }
+                while (peek() == 'f' || peek() == 'F' || peek() == 'l' || peek() == 'L') get();
+                char buf[40];
+                std::snprintf(buf, sizeof buf, "%.17g", std::strtod(text.c_str(), nullptr));
+                return {TokenType::FLOAT_LITERAL, buf, startLine, startCol, sourceFile};
+            }
+            // Optional L/l/U/u suffixes, kept in the token for the parser
+            std::string suffix;
+            while (peek() == 'L' || peek() == 'l' || peek() == 'U' || peek() == 'u') suffix += get();
+            // an LL literal keeps 64 bits (for int64_t, struct __int64)
+            bool ll = std::count_if(suffix.begin(), suffix.end(), [](char c) { return c == 'l' || c == 'L'; }) >= 2;
+            unsigned long long val = 0;
             try {
                 unsigned long long ull = std::stoull(value.substr(2), nullptr, 16);
-                if (ull > 0xFFFFFFFF) {
+                if (ull > 0xFFFFFFFF && !ll) {
                     std::cerr << startLine << ":" << startCol << ": warning: hex literal " << value << " overflows 32-bit integer" << std::endl;
                 }
-                val = static_cast<uint32_t>(ull);
+                val = ll ? ull : static_cast<uint32_t>(ull);
             } catch (...) {
                 std::cerr << startLine << ":" << startCol << ": warning: hex literal " << value << " overflows integer" << std::endl;
             }
-            // Consume optional L/l/U/u suffixes
-            while (peek() == 'L' || peek() == 'l' || peek() == 'U' || peek() == 'u') get();
-            return {TokenType::INTEGER_LITERAL, std::to_string(val), startLine, startCol, sourceFile};
+            return {TokenType::INTEGER_LITERAL, std::to_string(val) + suffix, startLine, startCol, sourceFile};
         }
     }
     while (std::isdigit(peek())) {
@@ -370,34 +402,25 @@ Token Lexer::lexNumber() {
         }
         return {TokenType::FLOAT_LITERAL, value, startLine, startCol, sourceFile};
     }
-    // Integer with negative exponent is float: 1e-2, 1E-3
-    // Positive exponent (1e2) stays integer unless 'f' suffix
+    // Exponent without a '.': still a floating constant (1e2, 1e-3, 2E5f)
     if ((peek() == 'e' || peek() == 'E') && !value.empty() && std::isdigit(value[0])) {
         size_t savedPos2 = pos;
-        char eCh = get(); // consume e/E
-        bool isNeg = (peek() == '-');
-        bool hasSuffix = false;
         std::string expPart;
-        expPart += eCh;
+        expPart += get(); // consume e/E
         if (peek() == '+' || peek() == '-') expPart += get();
         if (std::isdigit(peek())) {
             while (std::isdigit(peek())) expPart += get();
-            hasSuffix = (peek() == 'f' || peek() == 'F');
-            if (hasSuffix) get();
-            if (isNeg || hasSuffix) {
-                // Negative exponent or explicit 'f' suffix → float
-                value += expPart;
-                return {TokenType::FLOAT_LITERAL, value, startLine, startCol, sourceFile};
-            }
-            // Positive exponent without suffix → integer
             value += expPart;
-            try {
-                double dval = std::stod(value);
-                uint32_t ival = (uint32_t)dval;
-                return {TokenType::INTEGER_LITERAL, std::to_string(ival), startLine, startCol, sourceFile};
-            } catch (...) {
-                return {TokenType::INTEGER_LITERAL, value, startLine, startCol, sourceFile};
+            if (peek() == 'i' || peek() == 'I') {
+                get();
+                if (peek() == 'f' || peek() == 'F' || peek() == 'l' || peek() == 'L') get();
+                return {TokenType::IMAGINARY_LITERAL, value, startLine, startCol, sourceFile};
             }
+            if (peek() == 'f' || peek() == 'F' || peek() == 'l' || peek() == 'L') {
+                get();
+                if (peek() == 'i' || peek() == 'I') { get(); return {TokenType::IMAGINARY_LITERAL, value, startLine, startCol, sourceFile}; }
+            }
+            return {TokenType::FLOAT_LITERAL, value, startLine, startCol, sourceFile};
         }
         // No digits after e — backtrack
         pos = savedPos2;
@@ -411,61 +434,103 @@ Token Lexer::lexNumber() {
     } catch (...) {
         std::cerr << startLine << ":" << startCol << ": warning: decimal literal " << value << " overflows integer" << std::endl;
     }
-    // Consume optional L/l/U/u suffixes
-    while (peek() == 'L' || peek() == 'l' || peek() == 'U' || peek() == 'u') get();
+    // Optional L/l/U/u suffixes, kept in the token for the parser
+    std::string suffix;
+    while (peek() == 'L' || peek() == 'l' || peek() == 'U' || peek() == 'u') suffix += get();
     // Integer imaginary literal: 200i, 1i
     if (peek() == 'i' || peek() == 'I') {
         get();
         if (peek() == 'f' || peek() == 'F') get(); // consume trailing f
         return {TokenType::IMAGINARY_LITERAL, value, startLine, startCol, sourceFile};
     }
-    return {TokenType::INTEGER_LITERAL, value, startLine, startCol, sourceFile};
+    return {TokenType::INTEGER_LITERAL, value + suffix, startLine, startCol, sourceFile};
 }
 
 Token Lexer::lexString(bool ascii) {
     int startLine = line;
     int startCol = column;
     get(); // skip opening quote
-    std::string value;
+    std::string value, mask;
     while (peek() != '"' && peek() != '\0') {
         if (peek() == '\\') {
             get();
-            char next = peek();
-            switch (next) {
-                case 'n': value += '\n'; get(); break;
-                case 'r': value += '\r'; get(); break;
-                case 't': value += '\t'; get(); break;
-                default: value += get(); break;
-            }
+            char kind;
+            value += (char)lexEscape(&kind);
+            mask += kind;
         } else {
             value += get();
+            mask += '.';
         }
     }
     if (peek() == '"') get(); // skip closing quote
-    if (ascii) return {TokenType::ASCII_STRING_LITERAL, value, startLine, startCol, sourceFile};
-    return {TokenType::STRING_LITERAL, value, startLine, startCol, sourceFile};
+    Token tok{ascii ? TokenType::ASCII_STRING_LITERAL : TokenType::STRING_LITERAL, value, startLine, startCol, sourceFile};
+    tok.escMask = mask;
+    return tok;
 }
 
-Token Lexer::lexChar(bool ascii) {
+// Escape sequence after the backslash, returning C's value (\n = $0A).
+// \x and octal escapes give the exact byte. *kind is set to 'n', 'r' or 'x'.
+unsigned char Lexer::lexEscape(char* kind) {
+    char next = get();
+    *kind = 'x';
+    switch (next) {
+        case 'n': *kind = 'n'; return 0x0A;
+        case 'r': *kind = 'r'; return 0x0D;
+        case 't': return 0x09;
+        case 'a': return 0x07;
+        case 'b': return 0x08;
+        case 'f': return 0x0C;
+        case 'v': return 0x0B;
+        case 'x': {
+            int v = 0, digits = 0;
+            while (std::isxdigit((unsigned char)peek())) {
+                char h = get();
+                v = v * 16 + (std::isdigit((unsigned char)h) ? h - '0' : (std::tolower(h) - 'a' + 10));
+                digits++;
+            }
+            return digits ? (uint8_t)v : (uint8_t)'x';
+        }
+        default:
+            if (next >= '0' && next <= '7') {
+                int v = next - '0';
+                for (int i = 0; i < 2 && peek() >= '0' && peek() <= '7'; i++) v = v * 8 + (get() - '0');
+                return (uint8_t)v;
+            }
+            return (uint8_t)next;
+    }
+}
+
+// Screen code of an ASCII character, as ca45's .screencode / s'x': @ 0,
+// A-Z and a-z 1-26, [\]^_ 27-31, every other byte unchanged.
+static uint8_t toScreencode(uint8_t u) {
+    if (u == 0x40) return 0x00;
+    if (u >= 0x41 && u <= 0x5F) return u - 0x40;
+    if (u >= 0x61 && u <= 0x7A) return u - 0x60;
+    return u;
+}
+
+Token Lexer::lexChar(bool ascii, bool screen) {
     int startLine = line;
     int startCol = column;
     get(); // skip opening '
     char c = 0;
+    bool escaped = false;
     if (peek() == '\\') {
         get();
-        char next = get();
-        switch (next) {
-            case 'n': c = '\n'; break;
-            case 'r': c = '\r'; break;
-            case 't': c = '\t'; break;
-            case '0': c = '\0'; break;
-            default: c = next; break;
-        }
+        char kind;
+        c = (char)lexEscape(&kind);
+        // Character literals are data: \n is the PETSCII newline ($0D) unless ascii
+        if (!ascii && kind == 'n') c = 0x0D;
+        else if (!ascii && kind == 'r') c = 0x0A;
+        escaped = true;
     } else {
         c = get();
     }
     if (peek() == '\'') get(); // skip closing '
-    if (!ascii) {
+    if (screen && !escaped) {
+        return {TokenType::INTEGER_LITERAL, std::to_string((int)toScreencode((uint8_t)c)), startLine, startCol, sourceFile};
+    }
+    if (!ascii && !escaped) {
         // Convert to PETSCII to match .text string encoding
         uint8_t petscii = (uint8_t)c;
         if (c >= 'a' && c <= 'z') petscii = c - 32;

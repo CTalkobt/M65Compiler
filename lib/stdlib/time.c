@@ -2,7 +2,7 @@
 
 typedef long time_t;
 
-int clock(void);
+__fastcall__ int clock(void);
 
 time_t time(time_t *tp) {
     time_t t = (time_t)clock();

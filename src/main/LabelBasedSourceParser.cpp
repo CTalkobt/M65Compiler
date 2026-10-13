@@ -1,14 +1,26 @@
 #include "LabelBasedSourceParser.hpp"
+#include "BasicTokenizer.hpp"
 #include <sstream>
 #include <regex>
 #include <algorithm>
 #include <cctype>
 
+std::string LabelBasedSourceParser::upper(const std::string& s) {
+    std::string u = s;
+    std::transform(u.begin(), u.end(), u.begin(), ::toupper);
+    return u;
+}
+
 void LabelBasedSourceParser::parse(const std::string& sourceCode) {
     sourceLines.clear();
     labelToLineNum.clear();
     definedLabels.clear();
+    definedUpper.clear();
     referencedLabels.clear();
+    firstRefLine.clear();
+    labelLine.clear();
+    trailingLineNum = 0;
+    lineNumberOverflow = false;
 
     std::istringstream iss(sourceCode);
     std::string line;
@@ -23,69 +35,142 @@ void LabelBasedSourceParser::parse(const std::string& sourceCode) {
             continue;
         }
 
+        SourceLine sl;
+        sl.sourceLineNum = lineNum;
+        if (trimmed.compare(0, 7, "#pragma") == 0) {
+            sl.pragma = trim(trimmed.substr(7));
+            sourceLines.push_back(sl);
+            continue;
+        }
         std::string labelName, code;
         if (isLabelDefinition(trimmed, labelName, code)) {
-            SourceLine sl;
             sl.label = labelName;
             sl.code = code;
-            sl.sourceLineNum = lineNum;
-            sourceLines.push_back(sl);
             definedLabels.insert(labelName);
+            definedUpper.insert(upper(labelName));
+            labelLine.insert({upper(labelName), lineNum});
         } else {
-            // Line with no label
-            SourceLine sl;
-            sl.label = "";
             sl.code = trimmed;
-            sl.sourceLineNum = lineNum;
-            sourceLines.push_back(sl);
         }
+        sourceLines.push_back(sl);
     }
 
     // Extract all references
     extractLabelsAndReferences();
 }
 
+void LabelBasedSourceParser::forEachLabelRef(const std::vector<BasicToken>& toks,
+        const std::function<bool(const std::string&)>& isLabel,
+        const std::function<void(size_t, const std::string&)>& f) {
+    auto isWord = [&](size_t j) {
+        return j < toks.size() &&
+               (toks[j].type == BasicToken::IDENTIFIER || toks[j].type == BasicToken::KEYWORD);
+    };
+    auto endsStatement = [&](size_t j) {
+        return j >= toks.size() || toks[j].type == BasicToken::EOL ||
+               toks[j].type == BasicToken::END_OF_FILE ||
+               (toks[j].type == BasicToken::OPERATOR && toks[j].value == ":") ||
+               (toks[j].type == BasicToken::KEYWORD && toks[j].value == "ELSE");
+    };
+    for (size_t i = 0; i < toks.size(); i++) {
+        if (toks[i].type != BasicToken::KEYWORD) continue;
+        const std::string& kw = toks[i].value;
+        size_t j = i + 1;
+        bool list = false;   // GOTO/GOSUB: a reference, and maybe a list of them
+        if (kw == "GOTO" || kw == "GOSUB") {
+            list = true;
+        } else if (kw == "GO" && j < toks.size() && toks[j].type == BasicToken::KEYWORD &&
+                   toks[j].value == "TO") {
+            list = true;
+            j++;
+        } else if (kw != "THEN" && kw != "ELSE" && kw != "RESTORE" && kw != "TRAP" &&
+                   kw != "RESUME" && kw != "RUN") {
+            continue;
+        }
+        while (isWord(j)) {
+            std::string name = upper(toks[j].value);
+            // a keyword is a label only after GOTO/GOSUB (IF X THEN END
+            // stays END even with a label "end")
+            bool ref = list ? (isLabel(name) || toks[j].type == BasicToken::IDENTIFIER)
+                            : (toks[j].type == BasicToken::IDENTIFIER &&
+                               (isLabel(name) || endsStatement(j + 1)));
+            if (!ref) break;
+            f(j, name);
+            if (!list || j + 2 >= toks.size() || toks[j + 1].type != BasicToken::OPERATOR ||
+                toks[j + 1].value != ",")
+                break;
+            j += 2;   // ON X GOTO a, b, c
+        }
+    }
+}
+
 void LabelBasedSourceParser::extractLabelsAndReferences() {
+    BasicTokenizer tokenizer;
+    auto isLabel = [this](const std::string& n) { return definedUpper.count(n) > 0; };
     for (const auto& sl : sourceLines) {
-        extractReferencesFromLine(sl.code);
+        if (sl.code.empty()) continue;
+        auto toks = tokenizer.tokenize(sl.code);
+        int at = sl.sourceLineNum;
+        forEachLabelRef(toks, isLabel, [this, at](size_t, const std::string& n) {
+            referencedLabels.insert(n);
+            firstRefLine.insert({n, at});
+        });
     }
 }
 
 void LabelBasedSourceParser::assignLineNumbers(uint16_t startLineNum, uint16_t lineIncrement) {
     labelToLineNum.clear();
-    uint16_t currentLineNum = startLineNum;
+    trailingLineNum = 0;
+    lineNumberOverflow = false;
+    uint32_t current = startLineNum;
+    std::vector<std::string> pending;   // labels waiting for a line with code
 
-    for (const auto& sl : sourceLines) {
-        if (!sl.label.empty()) {
-            labelToLineNum[sl.label] = currentLineNum;
-        }
-        currentLineNum += lineIncrement;
+    for (auto& sl : sourceLines) {
+        if (!sl.label.empty()) pending.push_back(sl.label);
+        if (sl.code.empty()) { sl.basicLineNum = 0; continue; }
+        if (current > 63999) lineNumberOverflow = true;
+        sl.basicLineNum = (uint16_t)std::min<uint32_t>(current, 63999);
+        for (const auto& l : pending) labelToLineNum[upper(l)] = sl.basicLineNum;
+        pending.clear();
+        current += lineIncrement;
+    }
+    if (!pending.empty()) {
+        if (current > 63999) lineNumberOverflow = true;
+        trailingLineNum = (uint16_t)std::min<uint32_t>(current, 63999);
+        for (const auto& l : pending) labelToLineNum[upper(l)] = trailingLineNum;
     }
 }
 
-bool LabelBasedSourceParser::validate(std::vector<std::string>& errors) {
+bool LabelBasedSourceParser::validate(std::vector<std::pair<int, std::string>>& errors) {
     bool isValid = true;
 
     // Check for undefined label references
-    for (const auto& ref : referencedLabels) {
-        if (definedLabels.find(ref) == definedLabels.end()) {
-            errors.push_back("Undefined label: " + ref);
+    std::vector<std::pair<int, std::string>> undefinedRefs;
+    for (const auto& ref : referencedLabels)
+        if (definedUpper.find(ref) == definedUpper.end()) undefinedRefs.push_back({firstRefLine[ref], ref});
+    std::sort(undefinedRefs.begin(), undefinedRefs.end());
+    for (const auto& [at, ref] : undefinedRefs) {
+        errors.push_back({at, "Undefined label: " + ref});
+        isValid = false;
+    }
+
+    // Check for duplicate labels (labels are matched without regard to case)
+    std::unordered_map<std::string, int> labelCount;
+    std::vector<std::string> order;
+    for (const auto& sl : sourceLines) {
+        if (!sl.label.empty() && labelCount[upper(sl.label)]++ == 0) order.push_back(sl.label);
+    }
+    for (const auto& label : order) {
+        int count = labelCount[upper(label)];
+        if (count > 1) {
+            errors.push_back({labelLine[upper(label)], "Duplicate label definition: " + label + " (" + std::to_string(count) + " times)"});
             isValid = false;
         }
     }
 
-    // Check for duplicate labels
-    std::unordered_map<std::string, int> labelCount;
-    for (const auto& sl : sourceLines) {
-        if (!sl.label.empty()) {
-            labelCount[sl.label]++;
-        }
-    }
-    for (const auto& [label, count] : labelCount) {
-        if (count > 1) {
-            errors.push_back("Duplicate label definition: " + label + " (" + std::to_string(count) + " times)");
-            isValid = false;
-        }
+    if (lineNumberOverflow) {
+        errors.push_back({0, "Too many lines: BASIC line numbers end at 63999 (use a smaller --increment)"});
+        isValid = false;
     }
 
     return isValid;
@@ -121,46 +206,4 @@ bool LabelBasedSourceParser::isLabelDefinition(const std::string& line,
     }
 
     return false;
-}
-
-void LabelBasedSourceParser::extractReferencesFromLine(const std::string& code) {
-    // Find all GOTO/GOSUB/THEN references to labels
-    // Need separate patterns because THEN can be followed by GOTO/GOSUB which then has the label
-    std::regex gotoPattern(R"(\b(?:GOTO|GOSUB)\s+([a-zA-Z_]\w*)\b)");
-    std::regex thenGotoPattern(R"(\bTHEN\s+(?:GOTO|GOSUB)\s+([a-zA-Z_]\w*)\b)");
-    std::regex thenLabelPattern(R"(\bTHEN\s+([a-zA-Z_]\w*)\b)");
-
-    std::string::const_iterator searchStart(code.cbegin());
-    std::smatch match;
-
-    // First, try THEN GOTO/GOSUB pattern
-    searchStart = code.cbegin();
-    while (std::regex_search(searchStart, code.cend(), match, thenGotoPattern)) {
-        std::string labelRef = match[1].str();
-        referencedLabels.insert(labelRef);
-        searchStart = match.suffix().first;
-    }
-
-    // Then, try plain GOTO/GOSUB pattern
-    searchStart = code.cbegin();
-    while (std::regex_search(searchStart, code.cend(), match, gotoPattern)) {
-        std::string labelRef = match[1].str();
-        // Skip if this was already matched as part of THEN GOTO
-        if (labelRef != "GOTO" && labelRef != "GOSUB" && labelRef != "THEN") {
-            referencedLabels.insert(labelRef);
-        }
-        searchStart = match.suffix().first;
-    }
-
-    // Finally, try plain THEN label pattern (handles THEN without explicit GOTO)
-    searchStart = code.cbegin();
-    while (std::regex_search(searchStart, code.cend(), match, thenLabelPattern)) {
-        std::string labelRef = match[1].str();
-        // Skip if it's a BASIC keyword (GOTO, GOSUB, etc.)
-        if (labelRef != "GOTO" && labelRef != "GOSUB" && labelRef != "IF" &&
-            labelRef != "THEN" && labelRef != "ELSE" && labelRef != "END") {
-            referencedLabels.insert(labelRef);
-        }
-        searchStart = match.suffix().first;
-    }
 }

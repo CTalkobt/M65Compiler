@@ -1,11 +1,16 @@
 #pragma once
 #include "IR.hpp"
+#include <functional>
 #include <ostream>
 
 namespace ir {
     // Trace stream for IR optimizer logging (-Roptir)
     // When non-null, optimization passes report actions to this stream
     extern std::ostream* optTrace;
+
+    // Per-function switch consulted by every pass: (function, catalog name of
+    // the pass) -> run it on this function? Unset: run on every function.
+    extern std::function<bool(const Function&, const char*)> passEnabled;
 
     // Run Common Subexpression Elimination and Copy Propagation on the IR Module
     void optimizeCSE(Module& mod);
@@ -27,6 +32,14 @@ namespace ir {
 
     // Branch folding and dead block elimination
     void optimizeBranchFold(Module& mod);
+
+    // Loop unrolling: fully unroll counted for loops whose unrolled code is
+    // estimated to fit unrollMaxBytes (-fmax-unroll-bytes)
+    extern int unrollMaxBytes;
+    void optimizeLoopUnroll(Module& mod);
+
+    // Remove pure instructions whose temporary result is never used
+    void removeDeadTemps(Module& mod);
 
     // Strength reduction: replace expensive ops with cheaper equivalents
     // (MUL by power-of-2 → LSL, DIV_U by power-of-2 → LSR, MOD_U by power-of-2 → AND)

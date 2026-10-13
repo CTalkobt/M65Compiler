@@ -1,0 +1,119 @@
+; atoi.s — Convert string to integer (ZP calling convention)
+;
+; int atoi(char *s);
+;   Parses a decimal integer from a NUL-terminated string.
+;   Returns the 16-bit integer value in .AX.
+
+.global _atoi
+
+.segment "code"
+
+proc _atoi
+    .zp_uses $10, $11
+    .zp_clobbers $10, $11, $12, $13, $14, $15, $16
+    .zp_release $10, $11
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+
+    ; s=$10/$11 — use as indirect pointer
+    ldy #0
+
+    ; --- Skip leading whitespace ---
+@skipws:
+    lda ($10),y
+    cmp #$20
+    beq @skipnext
+    cmp #$16
+    bcc @checksign
+    cmp #$0e
+    bcc @skipnext
+    bra @checksign
+@skipnext:
+    iny
+    bne @skipws
+    bra @retzero
+
+    ; --- Check for sign ---
+@checksign:
+    pha
+    lda #0
+    sta $16             ; $16 = sign flag (0=positive); not stz, which stores Z
+    pla
+    cmp #$2d            ; '-'
+    bne @checkplus
+    inc $16
+    iny
+    bra @startnum
+@checkplus:
+    cmp #$2b            ; '+'
+    bne @startnum
+    iny
+@startnum:
+    ; --- Initialize result = 0 ---
+    lda #0              ; $12/$13 = result (lo/hi); STZ would store Z
+    sta $12
+    sta $13
+
+    ; --- Parse digits ---
+@digit:
+    lda ($10),y
+    sec
+    sbc #$30
+    bcc @done
+    cmp #10
+    bcs @done
+    sta $14             ; $14 = current digit
+
+    ; result = result * 10 using hardware multiplier
+    lda $12
+    sta $d770
+    lda $13
+    sta $d771
+    lda #0
+    sta $d772
+    sta $d773
+    lda #10
+    sta $d774
+    lda #0
+    sta $d775
+    sta $d776
+    sta $d777
+    lda $d778
+    sta $12
+    lda $d779
+    sta $13
+
+    ; result += digit
+    lda $12
+    clc
+    adc $14
+    sta $12
+    lda $13
+    adc #0
+    sta $13
+
+    iny
+    bne @digit
+
+@done:
+    lda $16
+    beq @positive
+    ; Negate
+    sec
+    lda #0
+    sbc $12
+    sta $12
+    lda #0
+    sbc $13
+    sta $13
+@positive:
+    lda $12
+    ldx $13
+    rts
+
+@retzero:
+    lda #0
+    ldx #0
+    rts
+    .func_flags zp_call
+    endproc

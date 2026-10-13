@@ -37,21 +37,20 @@ bool AssemblerOptimizer::optimizeInternal(
 
     // Parse a numeric operand string to a value.
     // Handles decimal, $hex, %binary. Returns true if parseable.
+    // A plain number only: an expression such as "$28+1" must not parse as $28
     auto parseNum = [](const std::string& op, int64_t& val) -> bool {
         if (op.empty()) return false;
         try {
+            size_t used = 0;
             if (op[0] == '$') {
-                val = std::stol(op.substr(1), nullptr, 16);
-                return true;
+                val = std::stol(op.substr(1), &used, 16);
+                return used == op.size() - 1;
             } else if (op[0] == '%') {
-                val = std::stol(op.substr(1), nullptr, 2);
-                return true;
-            } else if (op[0] >= '0' && op[0] <= '9') {
-                val = std::stol(op, nullptr, 10);
-                return true;
-            } else if (op[0] == '-' && op.size() > 1) {
-                val = std::stol(op, nullptr, 10);
-                return true;
+                val = std::stol(op.substr(1), &used, 2);
+                return used == op.size() - 1;
+            } else if ((op[0] >= '0' && op[0] <= '9') || (op[0] == '-' && op.size() > 1)) {
+                val = std::stol(op, &used, 10);
+                return used == op.size();
             }
         } catch (...) {}
         return false;
@@ -119,18 +118,32 @@ bool AssemblerOptimizer::optimizeInternal(
             while (j < parser->statements.size() && parser->statements[j]->deleted) ++j;
             if (j >= parser->statements.size()) continue;
 
+            // Step over label-only statements (cc45's "@__return:"): the RTS
+            // after them is a branch target and stays, only the call becomes a jump
+            bool labelled = false;
+            while (j < parser->statements.size() &&
+                   (parser->statements[j]->deleted ||
+                    (parser->statements[j]->type == AssemblerParser::Statement::NONE &&
+                     !parser->statements[j]->label.empty()))) {
+                if (!parser->statements[j]->deleted) labelled = true;
+                ++j;
+            }
+            if (j >= parser->statements.size()) continue;
             auto* next = parser->statements[j].get();
-            if (!next->label.empty()) continue;
             if (next->type != AssemblerParser::Statement::INSTRUCTION) continue;
 
             std::string nm = next->instr.mnemonic;
             std::transform(nm.begin(), nm.end(), nm.begin(), ::toupper);
 
-            if (parser->optFlags.tailCall && (nm == "RTS" || nm == "RTN") && next->instr.mode == AddressingMode::IMPLIED) {
-                report("tail-call", s, "JSR " + s->instr.operand + " + RTS → JMP (saved 1 byte)");
+            if (parser->optFlags.tailCall && nm == "RTS" && next->instr.mode == AddressingMode::IMPLIED) {
+                bool keepRts = labelled || !next->label.empty();
+                report("tail-call", s, "JSR " + s->instr.operand + " + RTS → JMP" +
+                       (keepRts ? " (RTS kept: labelled)" : " (saved 1 byte)"));
                 s->instr.mnemonic = "jmp";
-                next->deleted = true;
-                next->size = 0;
+                if (!keepRts) {
+                    next->deleted = true;
+                    next->size = 0;
+                }
                 changed = true;
             }
         }
@@ -264,6 +277,15 @@ bool AssemblerOptimizer::optimizeInternal(
                 } catch (...) {}
             }
             if (!resolved) continue;
+            // An undefined symbol evaluates to 0: never turn it into a branch
+            {
+                std::string op = s->instr.operand;
+                if (op.empty() && s->instr.operandTokenIndex < (int)parser->tokens.size())
+                    op = parser->tokens[s->instr.operandTokenIndex].value;
+                if (!op.empty() && (std::isalpha((unsigned char)op[0]) || op[0] == '_') &&
+                    !parser->resolveSymbol(op, s->scopePrefix))
+                    continue;
+            }
 
             if (m == "JMP" && parser->optFlags.jmpBra) {
                 // Don't convert JMP to BRA for relocatable/external symbols
@@ -273,8 +295,12 @@ bool AssemblerOptimizer::optimizeInternal(
                     s->instr.operandTokenIndex < (int)parser->tokens.size())
                     operand = parser->tokens[s->instr.operandTokenIndex].value;
                 bool isReloc = parser->isRelocatableSymbol(operand) ||
-                               parser->isRelocatableSymbol(s->scopePrefix + operand);
-                if (!isReloc) {
+                               parser->isRelocatableSymbolIn(operand, s->scopePrefix);
+                // A numeric target is a fixed address (e.g. the jmp $0000 of a
+                // computed goto, patched at run time): never a relative branch
+                bool numeric = operand.empty() || operand[0] == '$' || operand[0] == '%' ||
+                               (operand[0] >= '0' && operand[0] <= '9');
+                if (!isReloc && !numeric) {
                     uint32_t braPC = s->address + 2;
                     int32_t offset = (int32_t)targetAddr - (int32_t)braPC;
                     if (offset >= -128 && offset <= 127) {
@@ -294,8 +320,11 @@ bool AssemblerOptimizer::optimizeInternal(
                     if (operand.empty() || operand[0] == '$' || operand[0] == '%' ||
                         (operand[0] >= '0' && operand[0] <= '9'))
                         canBSR = false;
+                    // a relocatable target keeps its JSR and relocation: the
+                    // label may be in another proc's scope (f__sac), and ln45's
+                    // call graph (SAC overlay, thunks) sees calls by their relocations
                     if (canBSR && (parser->isRelocatableSymbol(operand) ||
-                        parser->isRelocatableSymbol(s->scopePrefix + operand)))
+                        parser->isRelocatableSymbolIn(operand, s->scopePrefix)))
                         canBSR = false;
                 }
                 if (canBSR) {
@@ -422,6 +451,37 @@ bool AssemblerOptimizer::optimizeInternal(
             bool isImm = (mode == AddressingMode::IMMEDIATE);
             bool isZP = (mode == AddressingMode::BASE_PAGE);
             bool isAbs = (mode == AddressingMode::ABSOLUTE);
+            // An absolute operand naming a relocatable symbol: its value is a
+            // placeholder (a BSS offset can be below 256), never a ZP address
+            auto relocOperand = [&]() -> bool {
+                if (!isAbs || hasNumVal) return false;
+                std::string name = op;
+                if (name.empty() && s->instr.operandTokenIndex >= 0 &&
+                    s->instr.operandTokenIndex < (int)parser->tokens.size())
+                    name = parser->tokens[s->instr.operandTokenIndex].value;
+                size_t end = name.find_first_of("+-*/ ,()");
+                if (end != std::string::npos) name = name.substr(0, end);
+                if (name.empty()) return false;
+                return parser->isRelocatableSymbol(name) ||
+                       parser->isRelocatableSymbolIn(name, s->scopePrefix);
+            };
+            // Forget what is known about the memory a write (store or RMW) touches
+            auto memWritten = [&](int bytes) {
+                int64_t addr = -1;
+                if (relocOperand()) { ms.clobberAbsMem(); return; }
+                if ((isZP || isAbs) && hasNumVal) addr = numVal & 0xFFFF;
+                else if ((isZP || isAbs) && s->instr.operandTokenIndex >= 0) {
+                    try { addr = parser->evaluateExpressionAt(s->instr.operandTokenIndex, s->scopePrefix); }
+                    catch (...) {}
+                    if (addr >= 256) { ms.clobberAbsMem(); return; }  // relocatable placeholder
+                }
+                if (addr < 0) { ms.clobberUnknownMem(); return; }
+                for (int b = 0; b < bytes; b++) {
+                    uint32_t a = (uint32_t)addr + b;
+                    if (a < 256) ms.invalidateZP((uint8_t)a);
+                    else ms.invalidateAbs((uint16_t)a);
+                }
+            };
 
             // --- CMP #0 elimination ---
             if (parser->optFlags.cmpElimination && m == "CMP" && isImm && hasNumVal && numVal == 0) {
@@ -710,6 +770,21 @@ bool AssemblerOptimizer::optimizeInternal(
                     uint16_t addr = (uint16_t)(numVal & 0xFFFF);
                     if (addr < 256) ms.storeZP((uint8_t)addr, r);
                     else ms.storeAbs(addr, r);
+                } else if (isZP || isAbs) {
+                    // Symbol or expression operand ("$28+1", "__zp_scratch4+3")
+                    bool known = false;
+                    if (s->instr.operandTokenIndex >= 0 && !relocOperand()) {
+                        try {
+                            uint32_t addr = parser->evaluateExpressionAt(s->instr.operandTokenIndex, s->scopePrefix);
+                            if (addr < 256) { ms.storeZP((uint8_t)addr, r); known = true; }
+                        } catch (...) {}
+                    }
+                    // Relocatable symbols evaluate to placeholders; they can't
+                    // alias ZP, but may alias tracked absolute addresses
+                    if (!known) ms.clobberAbsMem();
+                } else {
+                    // Indexed / indirect / stack-relative: target unknown
+                    ms.clobberUnknownMem();
                 }
                 // Stores don't modify the source register or flags
             }
@@ -721,6 +796,8 @@ bool AssemblerOptimizer::optimizeInternal(
             else if (m == "TYA") { ms.setTransfer(REG_A, REG_Y); }
             else if (m == "TAZ") { ms.setTransfer(REG_Z, REG_A); }
             else if (m == "TZA") { ms.setTransfer(REG_A, REG_Z); }
+            else if (m == "TBA") { ms.invalidateReg(REG_A); ms.flags.invalidate(); }
+            else if (m == "TSY") { ms.invalidateReg(REG_Y); ms.flags.invalidate(); }
             else if (m == "TSX") {
                 // Redundant TSX elimination: skip if X already holds SP
                 if (parser->optFlags.tsxRedundant && ms.xHoldsSP()) {
@@ -767,24 +844,38 @@ bool AssemblerOptimizer::optimizeInternal(
                 ms.invalidateReg(REG_A);
                 ms.flags.invalidate();
             }
-            else if (m == "ASL" || m == "LSR" || m == "ROL" || m == "ROR") {
+            else if (m == "ASL" || m == "LSR" || m == "ROL" || m == "ROR" || m == "ASR" ||
+                     m == "INC" || m == "DEC" || m == "NEG") {
                 if (mode == AddressingMode::ACCUMULATOR || mode == AddressingMode::IMPLIED) {
                     ms.invalidateReg(REG_A);
-                } else if (isZP && hasNumVal) {
-                    ms.invalidateZP((uint8_t)(numVal & 0xFF));
-                } else if (isAbs && hasNumVal) {
-                    ms.invalidateAbs((uint16_t)(numVal & 0xFFFF));
+                } else {
+                    memWritten(1);
                 }
                 ms.flags.invalidate();
             }
-            else if (m == "INC" || m == "DEC") {
-                if (mode == AddressingMode::ACCUMULATOR || mode == AddressingMode::IMPLIED) {
-                    ms.invalidateReg(REG_A);
-                } else if (isZP && hasNumVal) {
-                    ms.invalidateZP((uint8_t)(numVal & 0xFF));
-                } else if (isAbs && hasNumVal) {
-                    ms.invalidateAbs((uint16_t)(numVal & 0xFFFF));
+            // 32-bit (Q = AXYZ) instructions
+            else if (m == "LDQ" || m == "STQ" || m == "ADCQ" || m == "SBCQ" || m == "ANDQ" ||
+                     m == "ORQ" || m == "EORQ" || m == "ASLQ" || m == "LSRQ" || m == "ROLQ" ||
+                     m == "RORQ" || m == "ASRQ" || m == "INQ" || m == "DEQ" || m == "NEGQ" ||
+                     m == "CMPQ" || m == "BITQ") {
+                bool regOnly = (mode == AddressingMode::ACCUMULATOR || mode == AddressingMode::IMPLIED);
+                bool writesMem = !regOnly && m != "LDQ" && m != "ADCQ" && m != "SBCQ" && m != "ANDQ" &&
+                                 m != "ORQ" && m != "EORQ" && m != "CMPQ" && m != "BITQ";
+                if (writesMem) memWritten(4);
+                if (m != "STQ" && m != "CMPQ" && m != "BITQ" && (regOnly || m == "LDQ" || m == "ADCQ" ||
+                    m == "SBCQ" || m == "ANDQ" || m == "ORQ" || m == "EORQ")) {
+                    ms.invalidateReg(REG_A); ms.invalidateReg(REG_X);
+                    ms.invalidateReg(REG_Y); ms.invalidateReg(REG_Z);
                 }
+                if (m != "STQ") ms.flags.invalidate();
+            }
+            // Other read-modify-write instructions on memory
+            else if (m == "TSB" || m == "TRB" || (m.size() == 4 && (m.compare(0, 3, "RMB") == 0 || m.compare(0, 3, "SMB") == 0))) {
+                memWritten(1);
+                if (m == "TSB" || m == "TRB") ms.flags.invalidate();
+            }
+            else if (m == "INW" || m == "DEW" || m == "ASW" || m == "ROW") {
+                memWritten(2);
                 ms.flags.invalidate();
             }
             else if (m == "INX" || m == "DEX") { ms.invalidateReg(REG_X); ms.flags.invalidate(); }
@@ -957,9 +1048,15 @@ bool AssemblerOptimizer::optimizeInternal(
                 if (savedBytes < 2) continue;
 
                 std::string sharedLabel = "__tail_opt_dedup_" + std::to_string(tailCounter++);
-                bool isFirst = true;
 
-                for (auto& tail : tails) {
+                // Rewrite from the highest statement index down so each insertion
+                // leaves the indices of the tails still to be processed valid; the
+                // lowest tail keeps its code and receives the shared label (last).
+                std::sort(tails.begin(), tails.end(),
+                          [](const TailInfo& a, const TailInfo& b) { return a.startIdx > b.startIdx; });
+                for (size_t ti = 0; ti < tails.size(); ++ti) {
+                    auto& tail = tails[ti];
+                    bool isFirst = (ti + 1 == tails.size());
                     if (isFirst) {
                         auto* refStmt = parser->statements[tail.startIdx].get();
                         auto labelStmt = std::make_unique<AssemblerParser::Statement>();
@@ -973,7 +1070,6 @@ bool AssemblerOptimizer::optimizeInternal(
                             parser->statements.begin() + tail.startIdx,
                             std::move(labelStmt)
                         );
-                        isFirst = false;
                     } else {
                         auto* firstInstr = parser->statements[tail.startIdx].get();
                         auto braStmt = std::make_unique<AssemblerParser::Statement>();
@@ -1012,9 +1108,10 @@ bool AssemblerOptimizer::optimizeInternal(
             }
 
             // Suffix matching for function tails: if one tail is a suffix of another,
-            // the shorter one can jump into the middle of the longer one
+            // the shorter one can jump into the middle of the longer one.
+            // (Skipped after an exact-match rewrite: the recorded indices are stale.)
             std::vector<TailInfo> allTails;
-            for (auto& [sig, tailList] : tailsBySignature) {
+            if (!tailDedupChanged) for (auto& [sig, tailList] : tailsBySignature) {
                 for (auto& tail : tailList) {
                     allTails.push_back(tail);
                 }
@@ -1064,8 +1161,11 @@ bool AssemblerOptimizer::optimizeInternal(
                         parser->statements.begin() + insertPos,
                         std::move(labelStmt)
                     );
+                    // The label insertion shifts statements at or after insertPos
+                    std::vector<size_t> shortIdx = allTails[i].instrIndices;
+                    for (auto& idx : shortIdx) if (idx >= insertPos) ++idx;
 
-                    auto* firstInstr = parser->statements[allTails[i].instrIndices.front()].get();
+                    auto* firstInstr = parser->statements[shortIdx.front()].get();
                     auto braStmt = std::make_unique<AssemblerParser::Statement>();
                     braStmt->type = AssemblerParser::Statement::INSTRUCTION;
                     braStmt->instr.mnemonic = "bra";
@@ -1079,13 +1179,13 @@ bool AssemblerOptimizer::optimizeInternal(
                     braStmt->localLabelScope = firstInstr->localLabelScope;
                     braStmt->scopePrefix = firstInstr->scopePrefix;
 
-                    for (size_t idx : allTails[i].instrIndices) {
+                    for (size_t idx : shortIdx) {
                         parser->statements[idx]->deleted = true;
                         parser->statements[idx]->size = 0;
                     }
 
                     parser->statements.insert(
-                        parser->statements.begin() + allTails[i].instrIndices.front(),
+                        parser->statements.begin() + shortIdx.front(),
                         std::move(braStmt)
                     );
 

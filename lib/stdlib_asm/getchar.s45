@@ -1,0 +1,28 @@
+; getchar.s — Read a character from keyboard via KERNAL GETIN (ZP calling convention)
+;
+; int getchar(void);
+;   Waits for a keypress using KERNAL $FFE4 (GETIN).
+;   Returns the PETSCII character code in .AX (hi byte = 0).
+
+.global _getchar
+.extern __bp_rom
+.extern __bp_prog
+
+.segment "code"
+
+proc _getchar
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+
+@wait:
+    phz
+    jsr __bp_rom
+    jsr $FFE4
+    jsr __bp_prog
+    plz
+    cmp #0
+    beq @wait
+    ldx #0
+    rts
+    .func_flags zp_call
+    endproc

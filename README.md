@@ -9,6 +9,9 @@ A modern development toolchain for the MEGA65 (45GS02) home computer. It consist
 - **nm45** — Symbol lister for `.o45` / `.o65` object files
 - **objdump45** — Object file inspector and 45GS02 disassembler
 - **cp45** — C preprocessor (standalone)
+- **disk45** — CBM disk, tape and archive image utility (D64/D71/D81/D65 and 20 more formats)
+- **basic45** — BASIC 65 program generator (label-based source to a tokenized `.prg`)
+- **cvt_asm** — Assembly source converter between assembler dialects
 
 
 ## Project Intent
@@ -41,38 +44,62 @@ The compilation process follows a multi-pass pipeline:
 
 ## General Usage
 
-### Direct to Binary
-Compile C to assembly, then assemble to a PRG:
+### One C file to a program
 ```bash
-./bin/cc45 input.c -o output.s45        # Compile to assembly
-./bin/ca45 output.s45 -o output.prg     # Assemble to PRG binary
+./bin/cc45 hello.c -o hello.prg         # compile, assemble and link in one step
+xemu-xmega65 -prgmode 65 -prg hello.prg # run it (or load it on a MEGA65 and RUN)
+```
+The `.prg` starts with a `10 SYS` BASIC line, so `RUN` starts it. cc45 compiles
+one file per run; it links the standard library (`c45.lib`, whose `crt0` is the
+startup code) found next to the tools. `-O0` to `-O4` set the optimization
+level (`-O2` is the default), `-fno-zpcall` selects the stack calling
+convention (and `c45_stack.lib`).
+
+### Several files: compile, then link
+```bash
+./bin/cc45 -c main.c -o main.o45                            # relocatable objects
+./bin/cc45 -c math.c -o math.o45
+./bin/ca45 -c module.s45 -o module.o45                      # assembly works the same way
+./bin/ln45 -basic -o app.prg main.o45 math.o45 module.o45 lib/build/c45.lib
+
+# Or put modules in a library; ln45 pulls only the members it needs
+./bin/ar45 c math.lib math.o45
+./bin/ln45 -basic -o app.prg main.o45 math.lib lib/build/c45.lib
+```
+`ln45 -basic` writes the BASIC `SYS` line and links `crt0` from the library;
+`-m` prints a symbol map. `CC45_LIB` lets ln45 find libraries named with `-l`.
+
+### Inspecting
+```bash
+./bin/cc45 -S main.c -o main.s45        # the generated assembly (for reading)
+./bin/nm45 -f main.o45                  # symbols and function attributes
+./bin/objdump45 -d main.o45             # disassembly
+./bin/objdump45 -bas app.prg            # the BASIC lines of a .prg
 ```
 
-### Relocatable Objects (multi-file workflow)
-Compile C files to `.o45` relocatable objects for separate compilation and linking:
+### Assembly alone
 ```bash
-./bin/cc45 -c main.c -o main.o45        # Compile to object
-./bin/cc45 -c math.c -o math.o45        # Compile to object
-./bin/nm45 main.o45                     # Inspect symbols
-./bin/objdump45 -d main.o45             # Disassemble
-./bin/ln45 -prg main.o45 math.o45 -o app.prg  # Link into PRG
+./bin/ca45 hello.s45 -o hello.prg       # .basicUpstart in the source writes the SYS line
+```
+A name ending in `.prg` gets a load address (from the first `.org`, or `$2001`
+after `.basicUpstart`); any other name is a flat binary.
 
-# Or create a library and link against it:
-./bin/ar45 c math.lib math.o45               # Create library
-./bin/ln45 -prg main.o45 math.lib -o app.prg # Link with selective pulling
+### BASIC 65 programs
+```bash
+./bin/basic45 game.bas -o game.prg                     # labels instead of line numbers
+./bin/basic45 --link routines.c menu.bas -o menu.prg   # BASIC calling C functions
+./bin/basic45 game.bas --disk games.d81 --emulator     # onto a disk image, run in xemu
 ```
 
-Assembly files can also produce `.o45` objects directly:
+### Disk images
 ```bash
-./bin/ca45 -c module.s45 -o module.o45  # Assemble to object
+./bin/disk45 create work.d81 -n WORK
+./bin/disk45 add work.d81 app.prg app
+./bin/disk45 list work.d81
 ```
 
-For a full list of command-line options, use the `-?` flag:
-```bash
-./bin/cc45 -?
-./bin/ca45 -?
-./bin/nm45 -?
-```
+Every tool prints its options with `-?` (`./bin/cc45 -?`; disk45 when run
+without arguments); the reference pages are in [doc/bin/](doc/bin/).
 
 ## Installation
 
@@ -90,19 +117,27 @@ The install targets build everything (including `lib`) automatically. Installed 
 | Component | Path |
 |-----------|------|
 | Binaries | `$(PREFIX)/bin/` |
-| Libraries (`c45.lib`, `c45_zp.lib`) | `$(PREFIX)/lib/cc45/` |
+| Libraries (`c45.lib`, `c45_zp.lib`, `c45_stack.lib`, `crt0*.o45`) | `$(PREFIX)/lib/cc45/` |
 | C headers | `$(PREFIX)/include/cc45/` |
 | Man pages | `$(PREFIX)/share/man/man1/` |
 
 After `make install_local`, ensure `~/.local/bin` is on your `PATH`.
 
+The tools find these relative to their own location, so no environment
+variables are needed: cc45/cp45 take the standard headers from
+`bin/../lib/include` (the build tree) or `bin/../include/cc45` (installed),
+and cc45 and ln45 take the libraries from `bin/../lib/build` or
+`bin/../lib/cc45`. `CC45_INCLUDE` and `CC45_LIB` add directories in front of
+these. Keep the default `BINDIR`/`LIBDIR`/`INCDIR` (relative to `PREFIX`);
+with others, set `CC45_INCLUDE` and `CC45_LIB`.
+
 ## Documentation
-In addition to the Markdown files in the `doc/` directory, you can generate and view standard Unix man pages for both tools:
+In addition to the Markdown files in the `doc/` directory (index: [doc/README.md](doc/README.md)), you can generate and view standard Unix man pages for every tool:
 
 ```bash
 make man
 man ./man/cc45.1
-man ./man/ca45.1
+man ./man/basic45.1
 ```
 
 Note: This requires `pandoc` to be installed on your system.
@@ -112,9 +147,15 @@ The suite includes a set of automated tests to verify the compiler and assembler
 ```bash
 make test
 ```
-This compiles C source files from `src/test-resources/`, assembles them, and execution-validates them on a 45GS02 emulator. Outputs are stored in the `build/test/` directory.
+This runs the compiler, assembler and linker unit tests, the validation units and the examples (no emulator). Outputs are stored in the `build/test/` directory.
 
-**Prerequisite:** The emulator-based tests (`make test-mmemu`) require [mmemu-cli](https://github.com/CTalkobt/mmsim) to be installed and available on your `PATH`.
+The runtime tests run on the [xemu](https://github.com/lgblgblgb/xemu) MEGA65 emulator (`xemu-xmega65` on your `PATH`):
+
+```bash
+bash src/test/test_xemu.sh          # runtime tests, both calling conventions
+bash src/test/run_gte_all.sh        # GCC torture tests
+bash src/test/test_cc_interop.sh    # calling-convention interop
+```
 
 For detailed information on each tool, refer to:
 - [doc/bin/cc45.md](doc/bin/cc45.md) — Compiler Usage and Features
@@ -126,3 +167,7 @@ For detailed information on each tool, refer to:
 - [doc/architecture/lib45.md](doc/architecture/lib45.md) — `.o45` Relocatable Object Format Specification
 - [doc/bin/ln45.md](doc/bin/ln45.md) — Linker Usage and Reference
 - [doc/bin/ar45.md](doc/bin/ar45.md) — Archiver Usage and Reference
+- [doc/bin/disk45.md](doc/bin/disk45.md) — Disk/Tape/Archive Image Utility
+- [doc/bin/basic45.md](doc/bin/basic45.md) — BASIC 65 Program Generator
+- [doc/bin/cvt_asm.md](doc/bin/cvt_asm.md) — Assembly Dialect Converter
+- [doc/bin/CONFIGURATION.md](doc/bin/CONFIGURATION.md) — Configuration Files and Environment

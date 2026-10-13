@@ -1,0 +1,33 @@
+; isprint.s — Test if character is printable (ZP calling convention)
+;
+; int isprint(int c);
+;   Returns 1 if c is printable PETSCII ($20-$7E or $A0-$FF).
+
+.global _isprint
+
+.segment "code"
+
+proc _isprint
+    .zp_uses $10, $11
+    .zp_clobbers $10, $11
+    .zp_release $10, $11
+    .reg_clobbers A, X
+    .flag_clobbers C, N, Z
+
+    lda $10
+    cmp #$20
+    bcc @no
+    cmp #$7f
+    bcc @yes
+    cmp #$a0
+    bcs @yes
+@no:
+    lda #0
+    ldx #0
+    rts
+@yes:
+    lda #1
+    ldx #0
+    rts
+    .func_flags zp_call
+    endproc

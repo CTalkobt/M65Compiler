@@ -1,0 +1,211 @@
+; mainargs.s45 — argc/argv for main() from the BASIC line that ran the program
+;
+; Linked only when main is defined with parameters: cc45 then references
+; ___mainargs_link, which pulls this module in, and its ___mainargs
+; replaces crt0's weak default (argc 0, argv NULL). crt0 calls it before
+; main and copies the result into main's parameters.
+;
+;   struct { int argc; char **argv; } *__mainargs(void);   (pointer in A/X)
+;
+; BASIC 65 keeps the line typed at the READY. prompt in its input buffer at
+; $0200, tokenized in place and ending with a 0 byte; it is still there
+; when the program starts (also after RUN "NAME" has loaded it). The line
+; is read as
+;
+;     RUN ["NAME"] : [REM] arg1, arg2, ...
+;
+; - argv[0] is NAME, or "" for a plain RUN; argc is at least 1.
+; - The arguments start after the first ':' outside quotes; a REM token
+;   right after it is skipped. Use :REM for arguments containing BASIC
+;   keywords: without it BASIC has turned them into tokens (TOTAL arrives
+;   as the TO token followed by "TAL").
+; - Arguments are separated by commas and trimmed of spaces; quotes group
+;   text (with commas or colons) and are removed: "A, B" is one argument.
+; - They end at the end of the line or a ':' outside quotes; at most 16.
+; - A program not started by RUN gets argc 1 and argv[0] "".
+; - The text is PETSCII, copied here before main runs (the next line of
+;   keyboard input overwrites $0200). argv[argc] is NULL.
+;
+; Uses A, X, Y. BSS is not cleared when this runs: everything is set here.
+
+.global ___mainargs, ___mainargs_link
+
+BASIC_BUF = $0200
+TOK_RUN   = $8A
+TOK_REM   = $8F
+MAX_ARGS  = 16
+QUOTE     = $22
+
+.segment "code"
+
+___mainargs:
+    lda #0
+    sta ma_n
+    ldy #0                  ; Y: index into the BASIC line
+    ldx #0                  ; X: index into ma_text
+    jsr ma_newarg           ; argv[0]
+    jsr ma_skipsp
+    lda BASIC_BUF,y
+    cmp #TOK_RUN
+    bne ma_norun            ; not started by RUN: argv[0] = "", no arguments
+    iny
+    jsr ma_skipsp
+    lda BASIC_BUF,y
+    cmp #QUOTE              ; RUN "NAME": the name is argv[0]
+    bne ma_name_end
+    iny
+ma_name:
+    lda BASIC_BUF,y
+    beq ma_name_end
+    iny
+    cmp #QUOTE
+    beq ma_name_end
+    sta ma_text,x
+    inx
+    bra ma_name
+ma_name_end:
+    lda #0
+    sta ma_text,x
+    inx
+    ; the arguments follow the first ':' outside quotes
+    lda #0
+    sta ma_q
+ma_colon:
+    lda BASIC_BUF,y
+    beq ma_done
+    iny
+    cmp #QUOTE
+    bne ma_colon1
+    lda ma_q
+    eor #1
+    sta ma_q
+    bra ma_colon
+ma_colon1:
+    cmp #':'
+    bne ma_colon
+    lda ma_q
+    bne ma_colon
+    jsr ma_skipsp
+    lda BASIC_BUF,y
+    cmp #TOK_REM
+    bne ma_argloop
+    iny
+ma_argloop:
+    jsr ma_skipsp
+    lda BASIC_BUF,y
+    beq ma_done
+    cmp #':'
+    beq ma_done
+    lda ma_n
+    cmp #MAX_ARGS + 1
+    bcs ma_done
+    jsr ma_newarg
+    lda #0
+    sta ma_q
+    stx ma_keep             ; the end without trailing spaces
+ma_arg:
+    lda BASIC_BUF,y
+    beq ma_arg_end
+    cmp #QUOTE
+    bne ma_arg1
+    iny                     ; a quote groups (and is dropped)
+    lda ma_q
+    eor #1
+    sta ma_q
+    bra ma_arg
+ma_arg1:
+    pha
+    lda ma_q
+    bne ma_arg_keep         ; inside quotes: everything is text
+    pla
+    cmp #','
+    beq ma_arg_end
+    cmp #':'
+    beq ma_arg_end
+    sta ma_text,x
+    inx
+    iny
+    cmp #' '
+    beq ma_arg
+    stx ma_keep
+    bra ma_arg
+ma_arg_keep:
+    pla
+    sta ma_text,x
+    inx
+    iny
+    stx ma_keep
+    bra ma_arg
+ma_arg_end:                 ; A = 0, ',' or ':'
+    pha
+    ldx ma_keep
+    lda #0
+    sta ma_text,x
+    inx
+    pla
+    cmp #','
+    bne ma_done
+    iny
+    bra ma_argloop
+
+ma_norun:
+    lda #0
+    sta ma_text,x
+ma_done:
+    lda ma_n                ; argv[argc] = NULL
+    asl a
+    tax
+    lda #0
+    sta ma_args,x
+    sta ma_args+1,x
+    lda ma_n
+    sta ma_result           ; argc
+    lda #0
+    sta ma_result+1
+    lda #<ma_args
+    sta ma_result+2         ; argv
+    lda #>ma_args
+    sta ma_result+3
+    lda #<ma_result
+    ldx #>ma_result
+    rts
+
+; argv[ma_n] = ma_text + X; ma_n++ (X and Y kept)
+ma_newarg:
+    phy
+    txa
+    clc
+    adc #<ma_text
+    pha
+    lda #>ma_text
+    adc #0
+    pha
+    lda ma_n
+    asl a
+    tay
+    pla
+    sta ma_args+1,y
+    pla
+    sta ma_args,y
+    inc ma_n
+    ply
+    rts
+
+; skip spaces at BASIC_BUF,Y
+ma_skipsp:
+    lda BASIC_BUF,y
+    cmp #' '
+    bne ma_skipsp_end
+    iny
+    bra ma_skipsp
+ma_skipsp_end:
+    rts
+
+.segment "bss"
+___mainargs_link: .res 1    ; referenced by cc45 when main takes parameters
+ma_result: .res 4           ; { int argc; char **argv; }
+ma_args:   .res (MAX_ARGS + 2) * 2
+ma_text:   .res 160 + MAX_ARGS + 2
+ma_n:      .res 1
+ma_q:      .res 1
+ma_keep:   .res 1

@@ -20,6 +20,8 @@
 
 class ZipcodeImage : public D64Image {
 public:
+    bool writable() const override { return false; }
+    bool canCreateBlank() const override { return false; }
     // Load from the "1!" file — automatically finds 2!, 3!, 4!
     bool loadFromFile(const std::string& path) override;
 

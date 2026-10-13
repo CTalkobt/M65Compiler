@@ -1,0 +1,44 @@
+; strchr.s — Locate character in string (ZP calling convention)
+;
+; char *strchr(char *s, int c);
+;   Returns pointer to first occurrence of (char)c in s, or NULL.
+
+.global _strchr
+
+.segment "code"
+
+proc _strchr
+    .zp_uses $10, $11, $12, $13
+    .zp_clobbers $10, $11, $12, $13
+    .zp_release $10, $11, $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+
+    ; s=$10/$11, c=$12 (low byte only)
+    ldy #0
+@loop:
+    lda ($10),y
+    cmp $12
+    beq @found
+    lda ($10),y
+    beq @notfound
+    iny
+    bne @loop
+    inc $11
+    bra @loop
+@found:
+    tya
+    clc
+    adc $10
+    pha
+    lda #0
+    adc $11
+    tax
+    pla
+    rts
+@notfound:
+    lda #0
+    tax
+    rts
+    .func_flags zp_call
+    endproc

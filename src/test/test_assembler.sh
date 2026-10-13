@@ -26,6 +26,7 @@ test_file() {
 AS_TEST_FILES=(
     "src/test-resources/test_basic_upstart.s45"
     "src/test-resources/test_data_types.s45"
+    "src/test-resources/test_expr_minus.s45"
     "src/test-resources/test_mul.s45"
     "src/test-resources/test_div.s45"
     "src/test-resources/test_expr.s45"
@@ -47,7 +48,6 @@ AS_TEST_FILES=(
     "src/test-resources/test_addr_helpers.s45"
     "src/test-resources/test_shifts_16.s45"
     "src/test-resources/test_new_16bit_ops.s45"
-    "src/test-resources/test_global_extern.s45"
     "src/test-resources/test_array.s45"
     "src/test-resources/test_expressions.s45"
 )
@@ -71,6 +71,46 @@ else
     failed=$((failed + 1))
 fi
 
+# Expressions: subtraction, unary minus, 0x/0b, data directive expressions
+echo "Verifying directive bytes (test_directives.s45)..."
+$AS src/test-resources/test_directives.s45 -o build/test/test_directives.bin >/dev/null 2>&1
+ACTUAL=$(hexdump -v -e '1/1 "%02x "' build/test/test_directives.bin | xargs)
+EXPECTED="ea ea ea 55 55 11 11 02 09 ff ff ff 06 06 06 06 00 00 ad 12 00 bd 12 00 a5 12 1a 20"
+if [ "$ACTUAL" == "$EXPECTED" ]; then
+    echo "SUCCESS: directive bytes match."
+else
+    echo "FAIL: directive bytes mismatch."
+    echo "  Expected: $EXPECTED"
+    echo "  Actual:   $ACTUAL"
+    failed=$((failed + 1))
+fi
+# .basicUpstart: 5-digit SYS for an address of 10000 or more
+printf '.basicUpstart 10000\n* = 10000\n rts\n' > build/test/test_bu5.s45
+$AS build/test/test_bu5.s45 -o build/test/test_bu5.prg >/dev/null 2>&1
+ACTUAL=$(hexdump -v -n 15 -e '1/1 "%02x "' build/test/test_bu5.prg | xargs)
+if [ "$ACTUAL" == "01 20 0c 20 0a 00 9e 31 30 30 30 30 00 00 00" ]; then
+    echo "SUCCESS: .basicUpstart 10000 stub."
+else
+    echo "FAIL: .basicUpstart 10000 stub: $ACTUAL"
+    failed=$((failed + 1))
+fi
+
+echo "Verifying expression bytes (test_expr_minus.s45)..."
+ACTUAL=$(hexdump -v -e '1/1 "%02x "' build/test/test_expr_minus.bin | xargs)
+EXPECTED="a9 04 a9 06 a9 04 a9 05 a9 01 a9 10 a9 05 a9 ff 03 fe 01 03 00 06 00 ff ff 3f 42 0f 00 81 80 00 00 00 c3 2d 78 eb c6"
+if [ "$ACTUAL" == "$EXPECTED" ]; then
+    echo "SUCCESS: expression bytes match."
+else
+    echo "FAIL: expression bytes mismatch."
+    echo "  Expected: $EXPECTED"
+    echo "  Actual:   $ACTUAL"
+    failed=$((failed + 1))
+fi
+if $AS src/test-resources/test_expr_minus.s45 -o build/test/test_expr_minus.bin 2>&1 | grep -q "overflow"; then
+    echo "FAIL: #-1 warns about an 8-bit overflow"
+    failed=$((failed + 1))
+fi
+
 echo "Testing -Dcc45.zeroPageStart=\$10..."
 # Use a dereference which is guaranteed to use ZP scratch $02/$03
 echo -e ".var ptr = \$20\nexpr .A, *ptr" > build/test_zp_shift.s45
@@ -82,6 +122,31 @@ if [ -f build/test_zp_shift.bin ] && echo "$ACTUAL_ZP" | grep -q "85 10"; then
 else
     echo "FAIL: -Dcc45.zeroPageStart did not shift ZP addresses correctly."
     echo "Actual bytes: $ACTUAL_ZP"
+    failed=$((failed + 1))
+fi
+
+echo "Testing .global / .extern in an object (test_global_extern.s45)..."
+if $AS -c src/test-resources/test_global_extern.s45 -o build/test/test_global_extern.o45 >/dev/null 2>&1 &&
+   ./bin/nm45 build/test/test_global_extern.o45 | grep -q " U _printf" &&
+   ./bin/nm45 build/test/test_global_extern.o45 | grep -q " T _main" &&
+   ./bin/nm45 build/test/test_global_extern.o45 | grep -q " D _count"; then
+    echo "SUCCESS: .global exports and .extern imports in the object"
+else
+    echo "FAIL: test_global_extern.s45 as an object"
+    failed=$((failed + 1))
+fi
+
+echo "Testing a used .extern in a flat program..."
+# no linker resolves it: an error (it would be $0000); declared but unused is fine,
+# and -c keeps it as an import
+printf '.extern _used, _unused\n* = $2000\n    jsr _used\n    rts\n' > build/test_flat_extern.s45
+if $AS build/test_flat_extern.s45 -o build/test_flat_extern.bin 2>&1 | grep -q "'_used' is .extern but no linker resolves it" &&
+   ! $AS build/test_flat_extern.s45 -o build/test_flat_extern.bin >/dev/null 2>&1 &&
+   ! $AS build/test_flat_extern.s45 -o build/test_flat_extern.bin 2>&1 | grep -q "_unused" &&
+   $AS -c build/test_flat_extern.s45 -o build/test_flat_extern.o45 >/dev/null 2>&1; then
+    echo "SUCCESS: a used .extern in a flat program is an error"
+else
+    echo "FAIL: a used .extern in a flat program should be an error (and only that one)"
     failed=$((failed + 1))
 fi
 

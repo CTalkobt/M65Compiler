@@ -1,0 +1,135 @@
+; cbm_drive_status.s45 — read the drive's status number (ZP convention)
+;
+; int cbm_drive_status(unsigned char device);
+;   The two-digit number of the drive's status message on its command
+;   channel (logical file 15): 0 OK, >= 20 an error (62 FILE NOT FOUND, ...);
+;   -1 if the channel can't be opened or the message is not a number.
+;   The channel is opened on first use and stays open (closing it makes the
+;   drive close every file it has open): cbm_close closes it after the last
+;   file, using ___cbm_cmd_device (the device it is open on, 0 = none).
+; The KERNAL is called through crt0's __rom_call (the routine's address in
+; ___cbm_target), which uses the ROM's page-1 stack the disk code needs.
+
+.global _cbm_drive_status, ___cbm_cmd_device
+.extern __rom_call, ___cbm_target
+
+.segment "code"
+
+proc _cbm_drive_status
+    .zp_uses $10, $11
+    .zp_release $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+
+    lda $10
+    sta ds_device
+    cmp ___cbm_cmd_device
+    beq @chkin
+    lda ___cbm_cmd_device
+    beq @open
+    lda #$C3                ; CLOSE 15 (open on another device)
+    ldx #$FF
+    jsr ds_target
+    lda #15
+    jsr __rom_call
+@open:
+    lda #0
+    sta ___cbm_cmd_device
+    lda #$BD                ; SETNAM: no name
+    ldx #$FF
+    jsr ds_target
+    lda #0
+    tax
+    tay
+    jsr __rom_call
+    lda #$BA                ; SETLFS 15, device, 15
+    ldx #$FF
+    jsr ds_target
+    lda #15
+    ldx ds_device
+    ldy #15
+    jsr __rom_call
+    lda #$C0                ; OPEN
+    ldx #$FF
+    jsr ds_target
+    jsr __rom_call
+    bcs @fail
+    lda ds_device
+    sta ___cbm_cmd_device
+@chkin:
+    lda #$C6                ; CHKIN 15
+    ldx #$FF
+    jsr ds_target
+    ldx #15
+    jsr __rom_call
+    bcs @fail
+    lda #$CF                ; CHRIN: the two digits
+    ldx #$FF
+    jsr ds_target
+    jsr __rom_call
+    sta ds_c1
+    jsr __rom_call
+    sta ds_c2
+    lda #40                 ; the rest of the message, up to its CR
+    sta ds_n
+@rest:
+    lda #$B7                ; READST
+    ldx #$FF
+    jsr ds_target
+    jsr __rom_call
+    and #$40
+    bne @done
+    lda #$CF                ; CHRIN
+    ldx #$FF
+    jsr ds_target
+    jsr __rom_call
+    cmp #13
+    beq @done
+    dec ds_n
+    bne @rest
+@done:
+    lda #$CC                ; CLRCHN
+    ldx #$FF
+    jsr ds_target
+    jsr __rom_call
+    lda ds_c1               ; tens * 10 + units
+    sec
+    sbc #'0'
+    cmp #10
+    bcs @fail
+    asl a
+    sta ds_t                ; 2x
+    asl a
+    asl a                   ; 8x
+    clc
+    adc ds_t
+    sta ds_t                ; 10x
+    lda ds_c2
+    sec
+    sbc #'0'
+    cmp #10
+    bcs @fail
+    clc
+    adc ds_t
+    ldx #0
+    rts
+@fail:
+    lda #$FF
+    tax
+    rts
+    .func_flags zp_call
+    endproc
+
+; ___cbm_target = X:A (the KERNAL routine's address)
+ds_target:
+    sta ___cbm_target
+    stx ___cbm_target + 1
+    rts
+
+.segment "bss"
+___cbm_cmd_device: .res 1
+ds_device: .res 1
+ds_c1:     .res 1
+ds_c2:     .res 1
+ds_n:      .res 1
+ds_t:      .res 1

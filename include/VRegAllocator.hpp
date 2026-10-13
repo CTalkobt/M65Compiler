@@ -80,6 +80,8 @@ private:
 
     int frameSize_ = 0;
     std::vector<std::pair<int,int>> freeFrameSlots_;  // {offset, size} of freed frame slots
+    std::map<uint32_t, int> frameSlotSize_;     // frame slot size per vreg (aggregates > 2 bytes)
+    std::set<uint32_t> pinnedFrameVregs_;      // locals/params/address-taken: never share their bytes
 
     void computeLiveRanges(const ir::Function& fn);
     void extendLiveRangesAcrossLoops(const ir::Function& fn);

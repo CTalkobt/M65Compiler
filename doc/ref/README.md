@@ -1,52 +1,27 @@
 # Reference Documentation
 
-This directory contains active reference materials and planning documents for the MEGA65 C Compiler Suite. Use these documents for current and upcoming development.
+Planning and release documents for the MEGA65 C Compiler Suite.
 
-## Active Planning & Implementation
+## Planning
 
-### v1.1 Optimization Roadmap ⭐
-**File:** `V1_1_OPTIMIZATION_ROADMAP.md`
+### v1.1 Optimization Roadmap
+**File:** [`V1_1_OPTIMIZATION_ROADMAP.md`](V1_1_OPTIMIZATION_ROADMAP.md)
 
-Comprehensive implementation plan for v1.1 with expected 5-15% code size reduction:
-- 5 major optimization opportunities (Lazy FP, Smart FP Recalculation, Frame Allocation, Bitfields, Calling Convention)
-- 4-phase implementation plan (2-3 weeks, 80-120 hours)
-- Risk mitigation strategies and testing plan
-- Success criteria and timeline
+Frame-pointer, frame-layout, bitfield and calling-convention code-size work proposed for v1.1, with the status of each item checked against the current compiler (several are already done or turned out not to apply).
 
-**Start here for the next development sprint.**
+## Release Management
+**File:** [`RELEASE-STEPS.md`](RELEASE-STEPS.md)
 
-### Release Management
-**File:** `RELEASE-STEPS.md`
+Checklist for preparing and publishing a release: version bump, clean build, `make test`, documentation, install smoke test, examples, Docker image, tag and GitHub release.
 
-Checklist for preparing and publishing releases:
-- Pre-release validation steps
-- Tag and changelog procedures
-- Distribution and announcement steps
+## Legacy Script
 
-## Development Tools
-
-### MMemu Test Runner
-**File:** `run_mmemu_test.sh`
-
-Test execution script for validating compiled programs in the MMemu emulator.
+**File:** `run_mmemu_test.sh` — an old runner for the mmemu emulator. It is not used by any Makefile target or test script; runtime tests run on `xemu-xmega65` (`src/test/test_xemu.sh` and the other xemu scripts in `make test`).
 
 ## Historical Work
 
-See `doc/archive/` for:
-- Phase completion reports (PHASE 1-5)
-- Session summaries and investigation notes
-- Bug investigation archives
-- Performance analysis and comparisons
-- Prior optimization work
-
-## How to Use
-
-1. **Starting v1.1 Work:** Read `V1_1_OPTIMIZATION_ROADMAP.md` for the implementation plan
-2. **Preparing a Release:** Use `RELEASE-STEPS.md` as a checklist
-3. **Historical Context:** Check `doc/archive/` for prior investigation methodology and findings
+`doc/archive/` holds phase completion reports, session summaries and investigation notes. They are kept for context and are not maintained.
 
 ## Status
 
-**Current Version:** v1.0.5 (2026-07-19)  
-**Next Version:** v1.1 (planned, implementation roadmap ready)  
-**Last Updated:** 2026-07-19
+The suite version is `SUITE_VERSION` in `include/Version.hpp` (currently `1.0.5`; `cc45 --version` prints it with the git hash).

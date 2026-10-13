@@ -25,6 +25,7 @@ std::string BasicPreprocessor::preprocess(const std::string& source, const std::
     macros.clear();
     conditionalStack.clear();
     processedIncludes.clear();
+    lineOrigins.clear();
     currentFile = filename;
     currentLine = 0;
 
@@ -34,10 +35,11 @@ std::string BasicPreprocessor::preprocess(const std::string& source, const std::
         if (dir.empty()) dir = basePath;
     }
 
-    return preprocessInternal(source, dir);
+    return preprocessInternal(source, dir, 0, filename);
 }
 
-std::string BasicPreprocessor::preprocessInternal(const std::string& source, const std::string& baseDir, int depth) {
+std::string BasicPreprocessor::preprocessInternal(const std::string& source, const std::string& baseDir, int depth,
+                                                  const std::string& file) {
     if (depth > 100) {
         throw std::runtime_error("Preprocessor: Maximum include depth exceeded (circular includes?)");
     }
@@ -57,6 +59,7 @@ std::string BasicPreprocessor::preprocessInternal(const std::string& source, con
             // Empty line
             if (isConditionalActive()) {
                 result << "\n";
+                lineOrigins.push_back({file, lineNum});
             }
             continue;
         }
@@ -94,11 +97,12 @@ std::string BasicPreprocessor::preprocessInternal(const std::string& source, con
                     std::string dir = fs::path(includeFile).parent_path().string();
                     if (dir.empty()) dir = baseDir;
 
-                    std::string processed = preprocessInternal(fileContents, dir, depth + 1);
+                    std::string processed = preprocessInternal(fileContents, dir, depth + 1, includeFile);
                     result << processed;
                     if (!processed.empty() && processed.back() != '\n') {
                         result << "\n";
                     }
+                    currentLine = lineNum;
                 }
             } else if (cmd == "define") {
                 if (!isConditionalActive()) continue;
@@ -197,6 +201,12 @@ std::string BasicPreprocessor::preprocessInternal(const std::string& source, con
                 }
 
                 conditionalStack.pop_back();
+            } else if (cmd == "pragma") {
+                // #pragma lines go on to the compiler (#pragma encoding ...)
+                if (isConditionalActive()) {
+                    result << trimmedLine << "\n";
+                    lineOrigins.push_back({file, lineNum});
+                }
             } else if (cmd == "undef") {
                 if (!isConditionalActive()) continue;
 
@@ -213,6 +223,9 @@ std::string BasicPreprocessor::preprocessInternal(const std::string& source, con
             // Expand macros and output line
             std::string expanded = expandMacros(trimmedLine);
             result << expanded << "\n";
+            // (a macro value holding a newline makes more output lines)
+            size_t n = 1 + std::count(expanded.begin(), expanded.end(), '\n');
+            for (size_t k = 0; k < n; k++) lineOrigins.push_back({file, lineNum});
         }
     }
 

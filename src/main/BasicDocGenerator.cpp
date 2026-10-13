@@ -28,9 +28,18 @@ void BasicDocGenerator::extract(const std::string& source, bool /* useLabels */)
 
         std::string trimmed = line.substr(start);
 
-        // Check for comment
+        // A comment: a ' line, or a # line that is not a preprocessor
+        // directive (#define, #include, ...). Directives are skipped.
         if (trimmed[0] == '#') {
-            // Extract comment text (remove # and leading space)
+            std::string word;
+            for (size_t k = 1; k < trimmed.size() && std::isalpha((unsigned char)trimmed[k]); k++) word += trimmed[k];
+            static const char* directives[] = {"include", "define", "undef", "ifdef", "ifndef",
+                                               "elif", "else", "endif"};
+            if (std::find(std::begin(directives), std::end(directives), word) != std::end(directives))
+                continue;
+        }
+        if (trimmed[0] == '#' || trimmed[0] == '\'') {
+            // Extract comment text (remove the # or ' and a leading space)
             std::string comment = trimmed.substr(1);
             if (!comment.empty() && comment[0] == ' ') {
                 comment = comment.substr(1);
@@ -51,7 +60,10 @@ void BasicDocGenerator::extract(const std::string& source, bool /* useLabels */)
                 DocumentationEntry entry;
                 entry.name = trimmed.substr(0, colonPos);
                 entry.type = "label";
-                entry.lineNumber = lineNum;
+                std::string up = entry.name;
+                std::transform(up.begin(), up.end(), up.begin(), ::toupper);
+                auto ll = labelLines.find(up);
+                entry.lineNumber = ll != labelLines.end() ? ll->second : lineNum;
                 entry.comments = pendingComments;
                 entries.push_back(entry);
                 pendingComments.clear();

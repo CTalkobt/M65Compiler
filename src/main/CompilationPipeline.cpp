@@ -7,6 +7,7 @@
 #include "CodegenStage.hpp"
 #include "AssemblyStage.hpp"
 #include "LinkingStage.hpp"
+#include "OptimizationCatalog.hpp"
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -101,6 +102,8 @@ CompilationResult CompilationPipeline::compile() {
 
         // Stage 2: Parse
         ParseStage parseStage(preprocessedSource, config_.verboseLevel, config_.inputFile);
+        parseStage.setSignedDefault(config_.signedDefault);
+        parseStage.setUnsignedChar(config_.unsignedChar);
         auto parseResult = runStage(parseStage);
         if (!parseResult.success) {
             result.success = false;
@@ -125,6 +128,8 @@ CompilationResult CompilationPipeline::compile() {
         // Stage 3: Optimize
         OptimizeStage optimizeStage(ast, config_.optimizationLevel,
                                    config_.verboseLevel, config_.inlineSmallFunctions);
+        optimizeStage.setOptOverrides(config_.optOverrides);
+        optimizeStage.setTraceIROpt(config_.traceIROpt);
         auto optimizeResult = runStage(optimizeStage);
         if (!optimizeResult.success) {
             result.success = false;
@@ -140,16 +145,27 @@ CompilationResult CompilationPipeline::compile() {
                                  config_.verboseLevel, config_.inlineSmallFunctions,
                                  config_.staticAllocMode, config_.zpCallMode, config_.saveTemps,
                                  config_.allowImplicitFunctionDecl,
-                                 config_.objectOnly, config_.prgBase);
+                                 // relocatable for an object, and for a program (ln45
+                                 // links it with crt0); standalone only for -S
+                                 !config_.assemblyOnly, config_.prgBase);
 
         // Phase 102: Pass typedef mappings to codegen stage
         codegenStage.setTypedefMappings(typedefMappings);
+        codegenStage.setMaxInlineIRSize(config_.maxInlineIRSize);
+        codegenStage.setMaxUnrollBytes(config_.maxUnrollBytes);
+        codegenStage.setSourceFile(config_.inputFile);
+        codegenStage.setStackTop(config_.stackTop);
+        codegenStage.setBssFill(config_.bssFill);
+        codegenStage.setOptOverrides(config_.optOverrides);
+        codegenStage.setFutureWarnings(config_.futureWarnings);
+        codegenStage.setTraceIROpt(config_.traceIROpt);
 
         auto codegenResult = runStage(codegenStage);
         if (!codegenResult.success) {
             result.success = false;
             result.exitCode = codegenResult.exitCode;
             result.error = codegenResult.error;
+            result.errorPrinted = codegenStage.errorsPrinted();
             remove(tempAsmFile.c_str());
             return result;
         }
@@ -161,7 +177,17 @@ CompilationResult CompilationPipeline::compile() {
         asmFile.close();
 
         if (config_.assemblyOnly) {
-            std::rename(tempAsmFile.c_str(), config_.outputFile.c_str());
+            // -S: the assembly is the output. Write it directly (a rename of the
+            // temp file fails across filesystems and for /dev/null)
+            remove(tempAsmFile.c_str());
+            std::ofstream out(config_.outputFile);
+            out << irOutput;
+            if (!out) {
+                result.success = false;
+                result.exitCode = 253;
+                result.error = "Cannot write " + config_.outputFile;
+                return result;
+            }
             result.success = true;
             return result;
         }
@@ -172,7 +198,15 @@ CompilationResult CompilationPipeline::compile() {
         // Always use relocatable mode (-c) when producing .o45 for linker
         bool needRelocatable = config_.objectOnly || !config_.assemblyOnly;
         AssemblyStage asmStage(irOutput, objectFile, config_.verboseLevel,
-                              needRelocatable);
+                              needRelocatable, config_.toolDir);
+        // -f/-fno- of the optimizations ca45 implements: forwarded as -P<name>/-PNo<name>
+        std::string asmArgs;
+        for (const auto& [name, on] : config_.optOverrides) {
+            const OptimizationInfo* o = OptimizationCatalog::getOptimization(name);
+            if (o && o->impl == OptimizationImpl::ASM_PASS)
+                asmArgs += std::string(asmArgs.empty() ? "" : " ") + (on ? "-P" : "-PNo") + o->asmFlag;
+        }
+        asmStage.setExtraArgs(asmArgs);
         auto asmResult = runStage(asmStage);
         remove(tempAsmFile.c_str());
 
@@ -193,7 +227,8 @@ CompilationResult CompilationPipeline::compile() {
         char prgBaseHex[16];
         snprintf(prgBaseHex, sizeof(prgBaseHex), "%x", config_.prgBase);
         LinkingStage linkStage(objectFile, config_.outputFile, config_.verboseLevel,
-                              std::string(prgBaseHex), config_.libraryPaths);
+                              config_.prgBaseSet ? std::string(prgBaseHex) : std::string(),
+                              config_.libraryPaths, config_.toolDir, config_.zpCallMode);
         auto linkResult = runStage(linkStage);
         remove(objectFile.c_str());
 

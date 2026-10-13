@@ -63,6 +63,9 @@ public:
     // Add a mapping entry
     void addMapping(const SourceMapping& mapping);
 
+    // The program file the map describes ("file" in the JSON)
+    void setFile(const std::string& f) { file = f; }
+
     // Generate source map in JSON format
     std::string generateJSON() const;
 
@@ -74,37 +77,26 @@ public:
 
 private:
     std::vector<SourceMapping> mappings;
+    std::string file = "compiled.prg";
 };
 
-// Emulator launcher - execute compiled program in emulator
+// Emulator launcher: run a program in xemu (xemu-xmega65), the MEGA65
+// emulator, optionally with a disk image as drive 8
 class EmulatorLauncher {
 public:
     EmulatorLauncher() = default;
 
-    // Supported emulators
-    enum class Emulator {
-        MMEMU,      // mmemu-cli (M65 emulator)
-        VICE,       // VICE C64 emulator
-        DFPLAYER,   // dfplayer (hypothetical)
-        AUTO        // Auto-detect available emulator
-    };
+    // emulatorPath: the xemu-xmega65 binary ("" searches PATH)
+    bool launch(const std::string& programFile, const std::string& emulatorPath = "",
+                const std::string& diskImage = "");
 
-    // Launch emulator with compiled program
-    bool launch(
-        const std::string& programFile,
-        Emulator emulator = Emulator::AUTO,
-        const std::string& emulatorPath = ""
-    );
-
-    // Check if emulator is available
-    static bool isAvailable(Emulator emulator);
-
-    // Get path to emulator executable
-    static std::string getEmulatorPath(Emulator emulator);
-
-private:
-    bool launchMMemu(const std::string& programFile, const std::string& emulatorPath);
-    bool launchVice(const std::string& programFile, const std::string& emulatorPath);
+    // xemu-xmega65 on PATH, or "" if there is none
+    static std::string findXemu();
+    // A program on PATH, or ""
+    static std::string findOnPath(const std::string& name);
+    // Start xemu without waiting (--watch); the process id, or -1
+    static int launchAsync(const std::string& programFile, const std::string& emulatorPath = "",
+                           const std::string& diskImage = "");
 };
 
 #endif  // BASICTOOLING_HPP

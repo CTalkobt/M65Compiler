@@ -90,14 +90,23 @@ void ConstantFolder::visit(TranslationUnit& node) {
 }
 
 void ConstantFolder::visit(AlignofExpression& node) {
+    if (node.expression) {
+        // __alignof__(expr): resolved by the IR builder (declared alignments)
+        auto copy = copyPos(std::make_unique<AlignofExpression>("", 0), node);
+        copy->expression = std::move(node.expression);
+        lastExpr = std::move(copy);
+        return;
+    }
+    // Scalars and pointers need no alignment on the 6502 (structs are packed
+    // too, so a struct of ints has the alignment of int)
     int alignment = 1;
-    if (node.pointerLevel > 0 || node.typeName == "int") alignment = 2;
-    else if (node.typeName == "char" || node.typeName == "_Bool") alignment = 1;
-    else if (node.typeName.substr(0, 7) == "struct ") {
-        // Struct alignment would need full struct info, but we don't have it here easily
-        // Default to 1 for now, or 2 if we assume they might contain ints.
-        // Actually, let's keep it as 1 for now as a safe default for char-only structs.
-        alignment = 1; 
+    if (node.typeName.rfind("struct ", 0) == 0 || node.typeName.rfind("union ", 0) == 0) {
+        // cc45 packs structs: alignment 1 unless a member or the struct itself
+        // is aligned (_Alignas / __attribute__((aligned)))
+        std::string tn = node.typeName.substr(node.typeName.find(' ') + 1);
+        auto sit = structs.find(tn);
+        alignment = (sit != structs.end() && sit->second && sit->second->alignment > 1)
+                    ? sit->second->alignment : 1;
     }
     lastExpr = copyPos(std::make_unique<IntegerLiteral>(alignment), node);
 }
@@ -140,6 +149,18 @@ void ConstantFolder::visit(GenericSelection& node) {
 }
 
 void ConstantFolder::visit(SizeofExpression& node) {
+    // A struct with run-time member sizes: its size is known at run time
+    if (node.isType && node.pointerLevel == 0) {
+        std::string tn = node.typeName;
+        for (const char* kw : {"struct ", "union "})
+            if (tn.rfind(kw, 0) == 0) tn = tn.substr(std::string(kw).size());
+        if (vmStructs_.count(tn)) {
+            auto copy = copyPos(std::make_unique<SizeofExpression>(node.typeName, node.pointerLevel), node);
+            copy->arrayDims = node.arrayDims;
+            lastExpr = std::move(copy);
+            return;
+        }
+    }
     if (node.isType) {
         int size = TypeInfo::getTypeSize(node.typeName, node.pointerLevel, -1, structs);
         if (node.pointerLevel == 0) {

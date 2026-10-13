@@ -206,21 +206,22 @@ public:
     void cmp_s(uint8_t index) { cmp_zp(getZP(index)); }
 
     // --- Other Addressing Modes ---
-    void lda_stack(uint8_t offset);
+    uint8_t framePtrFor(uint16_t offset);  // (FP),Y or $FB/$FC for offsets > 255
+    void lda_stack(uint16_t offset);
     void lda_stack_noTSX(uint8_t offset); // LDA __sp_base+offset,X without tsx
-    void ldx_stack(uint8_t offset);
-    void ldy_stack(uint8_t offset);
-    void ldz_stack(uint8_t offset);
-    void sta_stack(uint8_t offset);
-    void stx_stack(uint8_t offset);
-    void sty_stack(uint8_t offset);
-    void stz_stack(uint8_t offset);
-    void inc_stack(uint8_t offset);
-    void dec_stack(uint8_t offset);
+    void ldx_stack(uint16_t offset);
+    void ldy_stack(uint16_t offset);
+    void ldz_stack(uint16_t offset);
+    void sta_stack(uint16_t offset);
+    void stx_stack(uint16_t offset);
+    void sty_stack(uint16_t offset);
+    void stz_stack(uint16_t offset);
+    void inc_stack(uint16_t offset);
+    void dec_stack(uint16_t offset);
 
     // Frame-pointer-relative access via ($nn,SP),Y addressing
-    void lda_frame(uint8_t fpOff, uint8_t yOff);
-    void sta_frame(uint8_t fpOff, uint8_t yOff);
+    void lda_frame(uint8_t fpOff, uint16_t yOff);
+    void sta_frame(uint8_t fpOff, uint16_t yOff);
     void lda_ind_z(uint8_t addr, bool flat = false);
     void sta_ind_z(uint8_t addr, bool flat = false);
     void bit_abs(uint16_t addr);
@@ -337,11 +338,19 @@ public:
         std::string symbolName;
         uint8_t relocType = 0x80; // R_WORD default; can be R_LOW (0x20) or R_HIGH (0x40)
         uint8_t extra = 0;        // low byte for R_HIGH carry correction
+        std::string scope;        // scope prefix and @-label scope of the statement,
+        std::string localScope;   // to resolve symbolName the way its operand was
     };
+    // Scope that recorded symbol relocations are resolved in (set per statement)
+    void setRelocScope(const std::string& scope, const std::string& localScope) {
+        relocScope_ = scope; relocLocalScope_ = localScope;
+    }
     const std::vector<SymbolReloc>& symbolRelocs() const { return symbolRelocs_; }
     void emitWordReloc(const std::string& symbolName, uint16_t value = 0);
     void recordSymbolReloc(const std::string& name);
-    void recordSymbolRelocLo(const std::string& name);
+    // highByte >= 0: R_LOWX carrying the high byte of the full value (sym+n),
+    // so the linker can rebuild it; otherwise a plain R_LOW
+    void recordSymbolRelocLo(const std::string& name, int highByte = -1);
     void recordSymbolRelocHi(const std::string& name, uint8_t lowByte);
     void recordSymbolReloc32Bit(const std::string& name);
 
@@ -363,6 +372,7 @@ private:
     Mode mode;
     uint32_t zeroPageStart;
     uint16_t spBase_ = 0x0101;
+    std::string relocScope_, relocLocalScope_;
     uint8_t scratchZP_ = 0x02;
     uint8_t scratchZP2_ = 0x04;
     uint8_t scratchZP3_ = 0x06;

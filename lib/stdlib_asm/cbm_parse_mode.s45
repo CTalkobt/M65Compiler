@@ -1,0 +1,85 @@
+; cbm_parse_mode.s45 — fopen's mode string (ZP convention)
+;
+; unsigned char __cbm_parse_mode(const char *mode, unsigned char *cbm_type);
+;   "r" _IOREAD, "w" _IOWRITE|_IOTRUNC, "a" _IOWRITE|_IOAPPEND; a '+'
+;   anywhere adds the other direction, a 'b' _IOBINARY and a USR file
+;   (*cbm_type = CBM_T_USR, else CBM_T_SEQ). Returns 0 for anything else.
+; Parameters: mode $10/$11, cbm_type $12/$13; $14: '+' seen, $15: 'b' seen.
+
+.global ___cbm_parse_mode
+
+_IOREAD   = $01
+_IOWRITE  = $02
+_IOAPPEND = $04
+_IOBINARY = $08
+_IOTRUNC  = $80
+CBM_T_SEQ = $81
+CBM_T_USR = $84
+
+.segment "code"
+
+proc ___cbm_parse_mode
+    .zp_uses $10, $11, $12, $13
+    .zp_clobbers $14, $15
+    .zp_release $10, $11, $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+
+    ldy #0
+    sty $14
+    sty $15
+@scan:
+    lda ($10),y
+    beq @scanned
+    cmp #'+'
+    bne @notplus
+    sta $14
+@notplus:
+    cmp #'b'
+    bne @notb
+    sta $15
+@notb:
+    iny
+    bne @scan
+@scanned:
+    ldy #0
+    lda ($10),y
+    ldx #_IOREAD            ; X: the flags, A: the other direction for '+'
+    cmp #'r'
+    bne @notr
+    lda #_IOWRITE
+    bra @plus
+@notr:
+    ldx #_IOWRITE | _IOTRUNC
+    cmp #'w'
+    beq @wa
+    ldx #_IOWRITE | _IOAPPEND
+    cmp #'a'
+    beq @wa
+    lda #0                  ; not a mode
+    tax
+    rts
+@wa:
+    lda #_IOREAD
+@plus:
+    ldy $14
+    beq @noplus
+    stx $14
+    ora $14
+    tax
+@noplus:
+    lda #CBM_T_SEQ
+    ldy $15
+    beq @type
+    txa
+    ora #_IOBINARY
+    tax
+    lda #CBM_T_USR
+@type:
+    ldy #0
+    sta ($12),y
+    txa
+    ldx #0
+    rts
+    .func_flags zp_call
+    endproc

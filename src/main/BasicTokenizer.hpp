@@ -13,6 +13,7 @@ struct BasicToken {
         IDENTIFIER,
         OPERATOR,
         LABEL,
+        RAW,        // text stored as typed: the rest of a REM, a DATA item list
         EOL,
         END_OF_FILE
     };
@@ -21,7 +22,15 @@ struct BasicToken {
     std::string value;
     uint8_t tokenByte = 0;   // For keywords (or 0xFE for escape keywords)
     uint8_t escapeByte = 0;  // For two-byte escape keywords
+    uint8_t spaceBefore = 0; // blanks before it in the source (--preserve-spaces)
+    char prefix = 0;         // STRING: 'p' PETSCII, 's' screen codes, 'a' ASCII (p"..", s"..", a"..", @".."), 0 none
 };
+
+// A disk command parameter: in a statement of a BASIC 65 disk command
+// (DOPEN, DLOAD, BLOAD, RECORD, ...), a letter and digits like D0, U8, L20,
+// P8192 (drive, unit, record length, address) is not a variable.
+// statementStart: the index of the statement's first token
+bool isDiskParameter(const std::vector<BasicToken>& tokens, size_t statementStart, size_t index);
 
 class BasicTokenizer {
 public:

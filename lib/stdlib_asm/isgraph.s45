@@ -1,0 +1,43 @@
+; isgraph.s — Test if character is printable and not a space (PETSCII)
+;
+; int isgraph(int c);
+;   c in $10/$11 (ZP calling convention).
+;   Returns 1 if c is a printable, non-space PETSCII character.
+;   Equivalent to: isprint(c) && c != ' '
+
+.global _isgraph
+
+.segment "code"
+
+proc _isgraph
+    .zp_uses $10, $11
+    .reg_clobbers A, X
+    .flag_clobbers C, N, Z
+
+    lda $11
+    bne @no
+    lda $10
+    ; Reject space ($20)
+    cmp #$20
+    beq @no
+    ; Check $21-$7E (printable non-space)
+    cmp #$21
+    bcc @no
+    cmp #$7f
+    bcc @yes
+    ; Check $A0 (non-breaking space) — exclude
+    cmp #$a0
+    beq @no
+    ; Check $A1-$FF (graphic chars, uppercase letters)
+    cmp #$a1
+    bcs @yes
+@no:
+    lda #0
+    ldx #0
+    rts
+@yes:
+    lda #1
+    ldx #0
+    rts
+    .func_flags zp_call
+    endproc

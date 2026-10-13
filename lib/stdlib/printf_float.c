@@ -4,149 +4,174 @@
  * versions. Also exports _printf_float (the sentinel symbol) which triggers
  * the linker to pull this module when float args are passed to variadic calls.
  *
- * Supports all integer format specifiers plus %f for float/double.
- * Float values are 5 bytes (CBM 40-bit) pushed on the stack.
+ * The digits come from the BASIC 65 ROM's own number formatting (FOUT, what
+ * PRINT and STR$ use, via __float_fout in float_rom.s45), so every value of
+ * the CBM 40-bit format (about +-1.7E38, 9-10 significant digits) prints.
+ * They are turned into C's %f, %e and %g (and %F %E %G) with the precision
+ * (default 6), rounding half up, and the # flag.
  */
 
 #include <stdarg.h>
 
-int itoa(int value, char *str, int base);
-char *ltoa(long value, char *str, int base);
-int putchar(int c);
+extern float _float_a;
+extern char _float_str[];
+void _float_fout(void);
 
-/* _printf_float: convert float to decimal string in buf.
- * Returns number of chars written. Default precision = 6.
- * This is also the sentinel symbol that triggers float printf linkage.
- */
-int printf_float(char *buf, float val) {
+#define PF_DIGITS 12   /* significant digits kept from the ROM's text */
+#define PF_MAXPREC 20  /* larger precisions are clamped (buffer size) */
+
+/* The value as 0.d1 d2 d3 ... x 10^exp; nd == 0 for zero */
+static signed char pf_d[PF_DIGITS];
+static signed char pf_nd;
+static signed int pf_exp;
+
+/* Parse the ROM's text: [ -]digits[.digits][E[+-]digits]. nonzero: the
+ * value is not 0 (FOUT rounds 9.99999999...E19 up to the text " 0E19": a
+ * carry it loses; that is 10E19) */
+static signed char pf_parse(signed char nonzero) {
+    char *s = _float_str;
+    signed char neg = 0, seenDot = 0;
+    signed int intDigits = 0, lead = 0;
+    pf_nd = 0;
+    pf_exp = 0;
+    while (*s == ' ') s++;
+    if (*s == '-') { neg = 1; s++; }
+    else if (*s == '+') s++;
+    for (; *s; s++) {
+        char c = *s;
+        if (c == '.') { seenDot = 1; continue; }
+        if (c < '0' || c > '9') break;
+        if (pf_nd == 0 && c == '0') {
+            /* leading zeros: before the point they don't count, after it
+               they move the exponent */
+            if (seenDot) lead--;
+            continue;
+        }
+        if (pf_nd < PF_DIGITS) pf_d[pf_nd++] = (signed char)(c - '0');
+        if (!seenDot) intDigits++;
+    }
+    if (*s == 'E' || *s == 'e') {
+        signed char eneg = 0;
+        signed int e = 0;
+        s++;
+        if (*s == '-') { eneg = 1; s++; }
+        else if (*s == '+') s++;
+        while (*s >= '0' && *s <= '9') { e = e * 10 + (*s - '0'); s++; }
+        pf_exp = eneg ? -e : e;
+    }
+    /* drop trailing zero digits */
+    while (pf_nd > 0 && pf_d[pf_nd - 1] == 0) pf_nd--;
+    if (pf_nd == 0 && nonzero) {
+        /* the lost carry: "0E19" is 10E19 = 0.1 x 10^21 */
+        pf_d[0] = 1;
+        pf_nd = 1;
+        pf_exp = pf_exp + 2;
+        return neg;
+    }
+    pf_exp = pf_exp + (pf_nd ? (intDigits ? intDigits : lead) : 0);
+    return neg;
+}
+
+/* Keep `sig` significant digits, rounding half up (sig may be <= 0) */
+static void pf_round(signed int sig) {
+    signed int k;
+    if (pf_nd == 0 || sig >= pf_nd) return;
+    if (sig < 0) { pf_nd = 0; return; }
+    if (pf_d[sig] < 5) {
+        pf_nd = (signed char)sig;
+    } else {
+        k = sig - 1;
+        while (k >= 0 && pf_d[k] == 9) k--;
+        if (k < 0) {
+            /* 9.99 -> 10.0: one digit more in front */
+            pf_d[0] = 1;
+            pf_nd = 1;
+            pf_exp++;
+            return;
+        }
+        pf_d[k]++;
+        pf_nd = (signed char)(k + 1);
+    }
+    while (pf_nd > 0 && pf_d[pf_nd - 1] == 0) pf_nd--;
+}
+
+/* The digit at position i of 0.d1 d2 ... (0 beyond the end) */
+static char pf_digit(signed int i) {
+    return (char)('0' + ((i >= 0 && i < pf_nd) ? pf_d[i] : 0));
+}
+
+/* buf: the formatted value (sign included). conv: f e g F E G.
+ * prec: digits after the point (%f %e) or significant digits (%g); < 0 = 6.
+ * alt: the # flag (keep the point, keep %g's trailing zeros).
+ * Returns the length. buf needs 1 + 39 + 1 + PF_MAXPREC + 1 bytes. */
+int printf_float(char *buf, float val, int conv, int prec, int alt) {
     char *out = buf;
-    int neg = 0;
+    signed int i, e, P;
+    /* (letters compared, not case arithmetic: strings are PETSCII) */
+    char upper = (conv == 'E' || conv == 'G' || conv == 'F');
+    char c = (conv == 'E' || conv == 'e') ? 'e' : (conv == 'G' || conv == 'g') ? 'g' : 'f';
+    signed char strip = 0;
 
-    /* Handle negative */
-    if (val < 0.0) {
-        neg = 1;
-        val = 0.0 - val;
+    _float_a = val;
+    _float_fout();
+    if (pf_parse(val != 0.0)) *out++ = '-';
+
+    if ((signed int)prec < 0) prec = 6;
+    if ((signed int)prec > PF_MAXPREC) prec = PF_MAXPREC;
+
+    if (c == 'g') {
+        P = prec ? (signed int)prec : 1;
+        pf_round(P);
+        e = pf_nd ? pf_exp - 1 : 0;
+        if (e < -4 || e >= P) { c = 'e'; prec = P - 1; }
+        else { c = 'f'; prec = P - 1 - e; }
+        strip = !alt;
     }
 
-    /* Handle zero */
-    if (val == 0.0) {
-        if (neg) { *out = '-'; out = out + 1; }
-        *out = '0'; out = out + 1;
-        *out = '.'; out = out + 1;
-        *out = '0'; out = out + 1;
-        *out = '0'; out = out + 1;
-        *out = '0'; out = out + 1;
-        *out = '0'; out = out + 1;
-        *out = '0'; out = out + 1;
-        *out = '0'; out = out + 1;
-        *out = 0;
-        return (int)(out - buf);
+    if (c == 'e') {
+        pf_round((signed int)prec + 1);
+        e = pf_nd ? pf_exp - 1 : 0;
+        *out++ = pf_digit(0);
+        if (prec || alt) *out++ = '.';
+        for (i = 1; i <= (signed int)prec; i++) *out++ = pf_digit(i);
+        if (strip && prec) {
+            while (out[-1] == '0') out--;
+            if (out[-1] == '.') out--;
+        }
+        *out++ = upper ? 'E' : 'e';
+        if (e < 0) { *out++ = '-'; e = -e; } else *out++ = '+';
+        if (e >= 10) *out++ = (char)('0' + e / 10);
+        else *out++ = '0';
+        *out++ = (char)('0' + e % 10);
+    } else {
+        /* f: the digits before the point are positions 0 .. exp-1 */
+        pf_round(pf_exp + (signed int)prec);
+        if (pf_nd == 0 || pf_exp <= 0) {
+            *out++ = '0';
+        } else {
+            for (i = 0; i < pf_exp; i++) *out++ = pf_digit(i);
+        }
+        if (prec || alt) *out++ = '.';
+        for (i = 0; i < (signed int)prec; i++) *out++ = pf_digit(pf_exp + i);
+        if (strip && (prec || alt)) {
+            while (out[-1] == '0') out--;
+            if (out[-1] == '.') out--;
+        }
     }
-
-    if (neg) { *out = '-'; out = out + 1; }
-
-    /* Extract integer part */
-    int ipart = (int)val;
-    float frac = val - (float)ipart;
-
-    /* Integer part to string */
-    char itmp[12];
-    itoa(ipart, itmp, 10);
-    int i = 0;
-    while (itmp[i]) {
-        /* skip minus from itoa (we handle sign ourselves) */
-        if (itmp[i] != '-') { *out = itmp[i]; out = out + 1; }
-        i = i + 1;
-    }
-
-    /* Decimal point */
-    *out = '.'; out = out + 1;
-
-    /* Fractional part: 6 digits */
-    int d = 0;
-    while (d < 6) {
-        frac = frac * 10.0;
-        int digit = (int)frac;
-        if (digit > 9) digit = 9;
-        if (digit < 0) digit = 0;
-        *out = (char)(digit + 48);
-        out = out + 1;
-        frac = frac - (float)digit;
-        d = d + 1;
-    }
-
     *out = 0;
     return (int)(out - buf);
 }
 
 /* --- printf with %f support (strong, overrides weak integer-only version) --- */
 
-static int fp_emit_buf(char *buf, int skip_minus) {
-    int i = 0; int c = 0;
-    while (buf[i]) {
-        if (!skip_minus || buf[i] != '-') { putchar(buf[i]); c = c + 1; }
-        i = i + 1;
-    }
-    return c;
-}
-
-static int fp_emit_int(int val, int base, int skip_minus) {
-    char tmp[18];
-    itoa(val, tmp, base);
-    return fp_emit_buf(tmp, skip_minus);
-}
-
-static int fp_emit_long(long val, int base, int skip_minus) {
-    char tmp[34];
-    ltoa(val, tmp, base);
-    return fp_emit_buf(tmp, skip_minus);
-}
+int __vformat(void (*put)(int c, void *ctx), void *ctx, char *fmt, va_list ap,
+              int (*ffmt)(char *, float, int, int, int));
+void __vformat_con_put(int c, void *ctx);
 
 int printf(char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
-
-    int count = 0;
-
-    while (*fmt) {
-        if (*fmt != '%') {
-            putchar(*fmt); count = count + 1; fmt = fmt + 1;
-            continue;
-        }
-        fmt = fmt + 1;
-
-        if (*fmt == '%') {
-            putchar('%'); count = count + 1; fmt = fmt + 1;
-            continue;
-        }
-
-        if (*fmt == 'L' || *fmt == 'l') {
-            fmt = fmt + 1;
-            if (*fmt == 'D' || *fmt == 'd') count = count + fp_emit_long(va_arg(ap, long), 10, 0);
-            else if (*fmt == 'U' || *fmt == 'u') count = count + fp_emit_long(va_arg(ap, long), 10, 1);
-            else if (*fmt == 'X' || *fmt == 'x') count = count + fp_emit_long(va_arg(ap, long), 16, 0);
-            else if (*fmt == 'O' || *fmt == 'o') count = count + fp_emit_long(va_arg(ap, long), 8, 0);
-            fmt = fmt + 1;
-            continue;
-        }
-
-        if (*fmt == 'F' || *fmt == 'f') {
-            char tmp[24];
-            printf_float(tmp, va_arg(ap, float));
-            count = count + fp_emit_buf(tmp, 0);
-        } else if (*fmt == 'D' || *fmt == 'd') count = count + fp_emit_int(va_arg(ap, int), 10, 0);
-        else if (*fmt == 'U' || *fmt == 'u') count = count + fp_emit_int(va_arg(ap, int), 10, 1);
-        else if (*fmt == 'X' || *fmt == 'x') count = count + fp_emit_int(va_arg(ap, int), 16, 0);
-        else if (*fmt == 'O' || *fmt == 'o') count = count + fp_emit_int(va_arg(ap, int), 8, 0);
-        else if (*fmt == 'S' || *fmt == 's') {
-            char *s = (char *)va_arg(ap, int);
-            while (*s) { putchar(*s); count = count + 1; s = s + 1; }
-        } else if (*fmt == 'C' || *fmt == 'c') {
-            putchar(va_arg(ap, int)); count = count + 1;
-        }
-        fmt = fmt + 1;
-    }
-
+    int count = __vformat(__vformat_con_put, 0, fmt, ap, printf_float);
     va_end(ap);
     return count;
 }

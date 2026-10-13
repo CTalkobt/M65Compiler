@@ -5,10 +5,12 @@
 // D82: CBM 8250 disk image — 154 tracks (double-sided 8050), 4166 sectors, 1,066,496 bytes
 //
 // Track zones: 1-39 = 29 sectors, 40-53 = 27, 54-64 = 25, 65-77 = 23
-// D82: side 2 mirrors side 1 at tracks 78-154
-// BAM at track 38 (sectors 0 and 3)
-// Directory header at track 39, sector 0
-// Directory chain starts at track 39, sector 1
+// D82: side 2 is tracks 78-154, with the same zones as tracks 1-77
+// BAM on track 38: 38/0 (tracks 1-50), 38/3 (51-77; D82: 51-100), and on a
+// D82 38/6 (101-150), 38/9 (151-154); the header 39/0 links to 38/0, each
+// BAM sector to the next, the last one to the directory 39/1 (layout:
+// https://ist.uwaterloo.ca/~schepers/formats/D80-D82.TXT)
+// The directory is on track 39 and always starts at 39/1
 
 class D80Image : public DiskImage {
 public:
@@ -32,6 +34,7 @@ public:
     int freeSectors() const override;
 
     static int sectorsForTrack8050(int track);
+    TrackSector firstDirectorySector() const override { return {39, 1}; }
 
 protected:
     int tracks_ = 77; // 77 for D80, 154 for D82

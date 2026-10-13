@@ -1,6 +1,7 @@
 #pragma once
 #include "Stage.hpp"
 #include <memory>
+#include <map>
 #include <string>
 
 class TranslationUnit;
@@ -28,12 +29,18 @@ public:
     // Get function analyzer (needed for downstream codegen stage)
     std::shared_ptr<FunctionAnalyzer> getFunctionAnalyzer() const { return analyzer_; }
 
+    // -f<opt>/-fno-<opt> (catalog name -> on/off) and -Roptir
+    void setOptOverrides(const std::map<std::string, bool>& o) { optOverrides_ = o; }
+    void setTraceIROpt(bool t) { traceIROpt_ = t; }
+
 private:
     std::shared_ptr<TranslationUnit> ast_;
     int optimizationLevel_;
     int verboseLevel_;
     bool inlineFunctions_;
     std::shared_ptr<FunctionAnalyzer> analyzer_;
+    std::map<std::string, bool> optOverrides_;
+    bool traceIROpt_ = false;
 
     // Helper methods for optimization phases
     void performConstantFolding();
@@ -41,4 +48,5 @@ private:
     void performInlineSelection();
     void performCrossModuleOptimization();
     void performLoopOptimizations();
+    void performLoopInterchange();
 };

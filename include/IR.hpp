@@ -97,6 +97,8 @@ enum class Op : uint8_t {
     ASM_INLINE,     // asm("...")
     VA_START,       // %d = va_start(lastParamName) — compute stack addr past last named param
     TRAMPOLINE,     // %d = trampoline <target>, <link>
+    VEC_BIN,        // vec_bin <ptrA>, <ptrB|scalar>: args = ptrR, op (0 + 1 - 2 & 3 | 4 ^),
+                    // element size (1/2), count, B is a scalar, unrolled
     CPU_REG_READ,   // %d = cpu_reg_read <regName>
     CPU_REG_WRITE,  // cpu_reg_write <regName>, <val>
     CPU_FLAG_READ,  // %d = cpu_flag_read <flagName>
@@ -217,6 +219,17 @@ struct Function {
     bool isRegparm = false;
     bool isNested = false;
     bool isRecurse = false;      // opt-out of static allocation (SAC)
+    // #pragma cc45 optimize(...) in effect at the definition: catalog name -> on/off
+    std::map<std::string, bool> optOverrides;
+    // Labels whose address (&&label) is used from data, e.g. a static
+    // table for goto *: their blocks are kept and get a global alias
+    // (labelAlias()) the data can refer to
+    std::set<std::string> addressTakenLabels;
+    std::string labelAlias(const std::string& label) const { return name + "__lbl_" + label; }
+    // __builtin_return_address(0): the entry code copies the return address
+    // to __zp_scratch3, and the first instruction stores it to this slot
+    int retAddrSlot = -1;
+    int align = 1;          // __attribute__((aligned(N))): code address alignment
     int staticLinkVreg = -1; // vreg holding the static link to parent frame
     int declLine = 0;                   // source line of function declaration
 
@@ -226,6 +239,7 @@ struct Function {
     std::map<uint32_t, int> vregOffsets; // vregId -> final frame offset
     std::map<uint32_t, Type> vregTypes;
     std::map<uint32_t, int> vregSizes;
+    std::map<uint32_t, int> vregAlign;  // locals with _Alignas / aligned (> 1)
  // override sizes for array vRegs (bytes)
     std::map<std::string, uint32_t> localNames; // name (without _l_ or _p_ prefix) -> vregId
     std::vector<std::string> localNamesOrder; // preserves declaration order of local variables
@@ -252,7 +266,19 @@ struct Function {
 struct Module {
     std::string sourceFile;
     bool saveZP = true;
+    // A float passed as a variadic (or unprototyped) argument: link the
+    // %f-aware printf (_printf_float), and sprintf (_sprintf_float)
+    bool floatVarArg = false;
+    bool floatSprintfArg = false;
+    // asm("...") statements at file scope, in source order: passed to the
+    // assembler at module level
+    std::vector<std::string> fileAsm;
     int setBP = -1;  // -1 = don't emit; 0-255 = emit LDA #N; TAB in startup
+    // CPU stack: -1 = crt0 default (16-bit stack topped at $BFFF), 0 = keep
+    // the ROM's 8-bit page-1 stack (-fno-stack16), else the stack's top byte
+    int stackTop = -1;
+    int bssFill = -1;       // -fbss-fill=V: crt0 fills BSS with V (-1: ln45's default, 0)
+    int maxUnrollBytes = -1;   // #pragma cc45 max_unroll_bytes (last one in the file); -1 = -fmax-unroll-bytes
     std::list<Function> functions;
     std::vector<std::string> externs;
 
@@ -269,14 +295,25 @@ struct Module {
         std::vector<std::string> initLabels; // symbolic labels for pointer array elements (e.g. string literals)
         std::vector<std::string> vtableMethodNames; // Phase 3: function names for vtable entries
         int addressSpace = 0;   // Phase 97: 0=default(__abs), 1=__zp, 2=__far
+        int align = 1;          // _Alignas / __attribute__((aligned)) / aligned struct type
+        // Constant initializer laid out byte by byte (structs, nested arrays):
+        // initBytes covers the whole object; initWords are 2-byte addresses
+        // (labels) and initStrings string literal text, at their offsets
+        struct ImageString { std::string value, escMask; int encoding = 0; };
+        bool hasImage = false;
+        std::vector<uint8_t> initBytes;
+        std::map<int, std::string> initWords;
+        std::map<int, ImageString> initStrings;
     };
     std::vector<GlobalVar> globals;
 
     struct StringLiteral {
         std::string label;
         std::string value;
+        std::string escMask;  // per byte: '.', 'n', 'r', 'x' (see Token::escMask)
         int encoding = 0;
         bool isAscii = false;
+        bool wide = false;    // 16-bit characters (L"...")
     };
     std::vector<StringLiteral> strings;
 };

@@ -1,4 +1,4 @@
-/* memset_screen — Fill screen with each character 0-255, repeating.
+/* memset_screen — Fill screen with each character 0-255.
  *
  * Demonstrates memset with direct screen RAM writes.
  */
@@ -15,11 +15,9 @@ int main() {
     VREG_BORDER = COLOR_BLUE;
     VREG_BG0 = COLOR_BLACK;
 
-    while (1) {
-        for (ch = 0; ; ch++) {
-            memset(SCREEN, ch, SCRSIZE);
-            if (ch >= 255) break;
-        }
+    for (ch = 0; ; ch++) {
+        memset(SCREEN, ch, SCRSIZE);
+        if (ch >= 255) break;
     }
 
     return 0;

@@ -2,10 +2,9 @@
 #include "AST.hpp"
 #include "IR.hpp"
 #include "TypeSystem.hpp"
-#include "IPOProfiler.hpp"
 #include "SourceLocationTracker.hpp"
-#include "DebugInfoBuilder.hpp"
 #include <map>
+#include <functional>
 #include <set>
 #include <string>
 #include <vector>
@@ -21,19 +20,20 @@ public:
     void setExternalUsedVars(const std::set<std::string>& vars) { externalUsedVars_ = vars; }
     const ir::Module& getModule() const { return module_; }
     ir::Module& getModule() { return module_; }
-    const IPOProfiler& getProfiler() const { return profiler_; }
-    IPOProfiler& getProfiler() { return profiler_; }
     SourceLocationTracker& getSourceTracker() { return sourceTracker_; }
     const SourceLocationTracker& getSourceTracker() const { return sourceTracker_; }
-    DebugInfoBuilder& getDebugBuilder() { return debugBuilder_; }
-    const DebugInfoBuilder& getDebugBuilder() const { return debugBuilder_; }
     bool hasErrors() const { return !errors_.empty(); }
     const std::vector<std::string>& getErrors() const { return errors_; }
     const std::vector<std::string>& getWarnings() const { return warnings_; }
+    bool warningAlreadyPrinted(size_t i) const { return printedWarnings_.count(i) > 0; }
 
     bool zpCallMode = false;
     bool staticAllocMode = false;  // -fstaticalloc (SAC)
     bool inlineFunctions = false;
+    int maxInlineIRSize = 11;  // -fmax-inline-ir-size / #pragma cc45 max_inline_ir_size
+    int maxUnrollBytes = 128;  // -fmax-unroll-bytes / #pragma cc45 max_unroll_bytes: largest unrolled code
+    bool devirtualize = true;    // -f[no-]devirtualization: single-implementation virtual calls -> direct calls
+    bool futureWarnings = false; // --future: warn when #pragma cc45 optimize(...) names an unimplemented optimization
     bool allowImplicitFunctionDecl = false;  // -fimplicit-function-declaration
 
     // ASTVisitor interface
@@ -75,6 +75,7 @@ public:
     void visit(EnumDefinition& node) override;
     void visit(StructDefinition& node) override;
     void visit(CompoundStatement& node) override;
+    void visit(StatementExpression& node) override;
     void visit(FunctionDeclaration& node) override;
     void visit(BuiltinVaStart& node) override;
     void visit(BuiltinVaArg& node) override;
@@ -111,9 +112,7 @@ private:
     std::deque<FunctionScope> functionStack_;
 
     ir::Module module_;
-    IPOProfiler profiler_;  // Collects function profiles for cross-module optimization
     SourceLocationTracker sourceTracker_;  // Phase 113: Tracks source locations for DWARF
-    DebugInfoBuilder debugBuilder_;        // Phase 113: Builds DWARF debug information
     ir::Function* currentFunc_ = nullptr;
     ir::Block* currentBlock_ = nullptr;
 
@@ -121,6 +120,7 @@ private:
     ir::Operand lastValue_;
     bool computeAddressOnly_ = false;
     bool weakNextFunction_ = false;
+    std::map<std::string, bool> optOverrides_;  // #pragma cc45 optimize(...): for the functions that follow
     bool recurseNextFunction_ = false;  // #pragma cc45 recurse
 
     // Variable tracking: name → allocated vReg (address operand for locals)
@@ -142,10 +142,114 @@ private:
     std::map<std::string, std::string> globalPointedToTypeName_; // for global pointers: the type name of *ptr
     std::map<std::string, std::vector<int>> localArrayDims_; // for stride computation
     std::map<std::string, std::vector<int>> globalArrayDims_; // for stride computation
+    std::map<std::string, int> localPtrLevel_;   // declared pointer level (arrays: of the element)
+    std::map<std::string, std::vector<int>> paramArrayDims_;  // int a[][M] parameter: {0, M}
+    std::map<std::string, std::vector<ir::Operand>> paramVlaDims_;  // run-time inner dims (slots)
+    std::map<std::string, std::string> vlaSizeVars_;  // variable-length array -> its size variable
+    std::vector<std::unique_ptr<FunctionDeclaration>> vlaAllocaProtos_;  // kept alive
+    // Blocks with variable-length arrays: the saved SP and the loop depth
+    struct VlaBlock { ir::Operand spSlot; size_t loopDepth; };
+    std::vector<VlaBlock> vlaBlocks_;
+    void restoreVlaStack(const ir::Operand& spSlot);
+    void releaseVlasForJump();
+    std::map<std::string, int> globalPtrLevel_;
 
     // Unused variable tracking
     std::set<uint32_t> usedVregs_;
+    std::set<uint32_t> setVregs_;   // locals assigned to (x = ..., x op= ...): "set but not used"
     std::map<std::string, ir::SourceLoc> localDeclLocs_;
+    void resetFunctionLocalState();
+    // Struct/union and float returns use a caller-allocated result buffer passed
+    // as a hidden first parameter "__sret" (the callee also returns it in AX).
+    ir::Operand sretCallBuffer(const std::string& fname, ir::Operand& buf, const ir::SourceLoc& sl);
+    void sretCallResult(const std::string& fname, const ir::Operand& buf, const ir::Operand& addr, const ir::SourceLoc& sl);
+    void emitMethodCall(const std::string& mangledName, std::vector<ir::Operand> args, const ir::SourceLoc& sl,
+                        const ir::Operand* sretBuf = nullptr, const ir::Operand* sretAddr = nullptr);
+    std::map<std::string, std::shared_ptr<FuncPtrSignature>> fnPtrSigs_;  // function-pointer variables
+    std::map<std::string, std::vector<int>> paramAggSizes_;  // per function: by-copy aggregate param sizes (0 = scalar)
+    std::set<std::string> aggCopyParams_;  // current function's by-copy aggregate params
+    ir::Operand evalArgument(Expression* arg, int aggSize, const ir::SourceLoc& sl);
+    int paramAggSize(const std::string& fname, size_t index);
+    static constexpr int ZP_PARAM_BYTES = 32;  // ZP convention parameter block ($10-$2F)
+    std::set<std::string> fastcallFunctions_;
+    static int zpParamBytes(const std::vector<ir::Type>& types);
+    bool usesZpConv(const std::string& fname);
+    bool usesZpConvSig(const FuncPtrSignature& sig);
+    // Functions the unit declares or defines at file scope (a call without a
+    // prototype to one of the library's ZP assembly routines uses the ZP
+    // convention only when the unit has no function of that name)
+    std::set<std::string> unitFunctionNames_;
+    std::set<std::string> stackCalledFunctions_;  // stack-mode: callees called with the stack convention
+    static bool isLibraryZpRoutine(const std::string& fname);
+    std::map<std::string, std::string> staticRenames_;  // static function -> module-unique symbol
+    std::string staticFunctionName(const std::string& name);
+    std::string resolvedFunctionName(const std::string& name) const;
+    std::string staticAddressLabel(Expression* e);
+    // Link-time constant addresses (label + offset) for static initializers
+    bool constAddress(Expression* e, std::string& label, int& off);
+    bool constLvalue(Expression* e, std::string& label, int& off);
+    bool arrayShape(Expression* e, int& elemSize, std::vector<int>& dims);
+    int pointeeStride(Expression* e);
+    // Compile-time value of a constant arithmetic expression (float or int
+    // literals, unary +/-, + - * /, casts) for static initializers
+    bool evalConstFloat(Expression* e, double& out);
+    // _Complex support (complex types are struct _Complex_float/_Complex_int)
+    std::string complexKindOf(Expression* e);
+    bool isAggCopyParam(Expression* e);
+    int complexTemp_ = 0;
+    std::set<std::string> nestedLabelAddrs_;  // &&label taken inside nested functions
+    std::unique_ptr<Expression> cloneSimpleExpr(Expression* e);
+    void toComplex(std::unique_ptr<Expression>& e, const std::string& kind);
+    std::string wideKindOf(Expression* e);
+    void toWide(std::unique_ptr<Expression>& e, const std::string& kind, bool braced);
+    void narrowWide(std::unique_ptr<Expression>& e, ir::Type t);
+    bool currentFuncReturnsStruct();
+    bool inlineParamAssigned(Statement* body, const std::string& name);
+    bool evalConstComplex(Expression* e, double& re, double& im);
+    // C library math functions known without a prototype (as GCC knows its
+    // builtins): float signatures registered before the translation unit
+    void declareBuiltinPrototypes();
+    std::vector<std::unique_ptr<FunctionDeclaration>> builtinProtos_;
+    std::set<std::string> builtinProtoNames_;  // not yet declared by the program
+    // Constant initializer of an aggregate/array global laid out as bytes
+    // (struct layout, nested braces, brace elision, designators); false if
+    // some element isn't a link-time constant
+    // Every __vt member (struct objects with virtual methods, also in arrays
+    // and nested members) of an object of this type: (offset, vtable symbol)
+    void collectVtableSlots(const std::string& type, int ptrLevel, const std::vector<int>& dims, int base,
+                            std::vector<std::pair<int, std::string>>& out);
+    // A global/static object: put its __vt pointers in the initial image
+    void addVtableWords(ir::Module::GlobalVar& gv, const std::string& type, int ptrLevel, const std::vector<int>& dims);
+    bool buildInitImage(ir::Module::GlobalVar& gv, const std::string& type, int ptrLevel,
+                        const std::vector<int>& dims, Expression* init);
+    struct InitImageCtx;
+    bool initLocalAggregate(const ir::Operand& vreg, const std::string& type, int ptr,
+                            const std::vector<int>& dims, Expression* init, const ir::SourceLoc& sl);
+    bool initObject(InitImageCtx& c, int off, const std::string& type, int ptr, std::vector<int> dims, Expression* e);
+    bool initElement(InitImageCtx& c, int off, const std::string& type, int ptr, std::vector<int> dims,
+                     InitializerList& list, size_t& idx);
+    bool fillAggregate(InitImageCtx& c, int off, const std::string& type, int ptr, std::vector<int> dims,
+                       InitializerList& list, size_t& idx, bool braced);
+    bool initScalar(InitImageCtx& c, int off, const std::string& type, int ptr, int bitWidth, int bitOffset,
+                    Expression* e);
+    int objectSize(const std::string& type, int ptr, const std::vector<int>& dims);
+    std::set<std::string> methodsEmitted_;  // structs whose methods were lowered
+    std::map<std::string, int> sretSize_;      // function name -> result size
+    std::set<std::string> sretFloat_;          // ... of which return float/double
+    ir::Operand sretDest_;                      // destination for the next sret call
+    bool sretDestSet_ = false;
+    // Aggregates (struct/union) whose size is not 1, 2 or 4 bytes are copied
+    // by address rather than as a scalar value; returns that size, else 0.
+    int aggregateBlockSize(const std::string& typeName, int pointerLevel);
+    ir::Operand emitAddressOf(Expression* expr);
+    ir::Operand emitPtrOffset(const ir::Operand& base, int offset, const ir::SourceLoc& sl);
+    void emitBlockCopy(const ir::Operand& dst, const ir::Operand& src, int size, const ir::SourceLoc& sl);
+    // Evaluate an aggregate-valued expression into the memory at dst
+    void emitAggregateInto(Expression* expr, const ir::Operand& dst, int size, const ir::SourceLoc& sl,
+                           bool dstMayAlias = false);
+    std::set<int> boolVregs_;  // results of && / || (already 0/1)
+    bool isBooleanValue(const ir::Operand& v) const;
+    std::set<std::string> reportedUnused_;  // location keys of warnings already issued (unused names, x < 0)
     std::set<std::string> externalUsedVars_;
 
     // Track signedness of last expression result (for comparison op selection)
@@ -155,6 +259,13 @@ private:
     // String encoding pragma support
     enum class StringEncoding { PETSCII = 0, ASCII = 1, SCREENCODE = 2 };
     StringEncoding currentStringEncoding_ = StringEncoding::PETSCII;
+    // A literal's encoding (0 PETSCII, 1 ASCII, 2 screen codes): its @/a/p/s
+    // prefix, else the current #pragma encoding
+    int stringEncodingOf(const StringLiteral& s) const {
+        if (s.isAscii) return 1;
+        if (s.prefixEncoding >= 0) return s.prefixEncoding;
+        return (int)currentStringEncoding_;
+    }
 
     // Struct layout tracking
     struct IRMemberInfo {
@@ -174,8 +285,15 @@ private:
         std::map<std::string, IRMemberInfo> members;
         std::vector<std::string> memberOrder;
         int totalSize = 0;
+        int align = 1;       // largest member / declared alignment (cc45 packs otherwise)
     };
     std::map<std::string, IRStructInfo> structs_;
+    const IRStructInfo* structOf(const std::string& type);  // struct/union or typedef of one
+    const IRMemberInfo* arrayMemberOf(MemberAccess* ma);
+    // Alignment of a type (an aligned struct's alignment; 1 otherwise: cc45 packs)
+    int typeAlign(const std::string& type, int ptrLevel);
+    // Value of an _Alignas / aligned expression (a constant or _Alignof(type))
+    int alignValue(Expression* e);
 
     // Phase 102: Typedef to struct mapping for resolving typedef'd struct types
     std::map<std::string, std::string> typedefToStruct_; // typedef name → struct name (e.g., "digi_system_t" → "struct digi_system")
@@ -200,6 +318,12 @@ private:
         };
         std::vector<CaseEntry> cases;
         bool hasDefault = false;
+        // continue <value> / continue default in the body: the selector is a
+        // slot the statement stores a new value into before jumping back to
+        // the dispatch (dispatchLabel)
+        bool hasSwitchContinue = false;
+        ir::Operand selSlot;
+        std::string dispatchLabel;
     };
     std::vector<SwitchCtx> switchStack_;
 
@@ -221,6 +345,10 @@ private:
 
     // Inline function support: store AST nodes for inline-eligible functions
     std::map<std::string, FunctionDeclaration*> inlineCandidates_;
+    std::set<std::string> alwaysInlineNames_;   // always_inline: bypass size limits
+    std::set<std::string> noInlineNames_;       // noinline: never expand
+    std::set<std::string> warnedRecursiveInline_;
+    void warnRecursiveForcedInline(const std::string& name, ASTNode& at);
     std::map<std::string, FunctionDeclaration*> allFunctions_;
     std::map<std::string, bool> parsedStructIsFinal_; // struct name → isFinal
     std::set<std::string> inlineExpansionStack_;  // recursion guard
@@ -236,6 +364,7 @@ private:
     // Error and warning reporting
     std::vector<std::string> errors_;
     std::vector<std::string> warnings_;
+    std::set<size_t> printedWarnings_;  // indices emitted immediately by emitWarning
 
     friend class CaseCollector;
 
@@ -257,6 +386,46 @@ private:
     };
 
     IRTypeInfo getExprTypeInfo(Expression* expr);
+    void markStaticLinkProvider();
+    // GCC vectors (struct __vec_<T>_<s|u>_<n> { T e[n]; })
+    std::string vecOfType(const std::string& typeName, int ptrLevel);
+    std::string vecOf(Expression* e);
+    void vecElem(const std::string& vn, std::string& type, bool& isSigned, int& count);
+    std::string vecMaskType(const std::string& vn);
+    std::string vecTemp(const ir::Operand& v, ir::Type t, const std::string& typeName, int ptrLevel, bool sg);
+    std::string vecOperand(Expression* e, bool isVec, const std::string& et, bool sg);
+public:
+    using VecIndex = std::function<std::unique_ptr<Expression>()>;  // a fresh element index expression
+private:
+    void vecResult(const std::string& rn, const std::function<std::unique_ptr<Expression>(const VecIndex&)>& elem, ASTNode& at);
+    void emitVectorBinary(BinaryOperation& node);
+    std::string vecResultArray(const std::string& rn, ASTNode& at);
+    void vecResultValue(const std::string& rn, const std::string& res, ASTNode& at);
+    void emitVectorUnary(UnaryOperation& node);
+    void emitVectorShuffle(FunctionCall& node);
+    void vecSubscript(ArrayAccess& node);
+    std::vector<std::unique_ptr<ASTNode>> vecNodes_;  // AST built for vector operations (kept alive)
+    int vecTempCount_ = 0;
+    // Structs with run-time member sizes: hidden locals with each member's
+    // offset and the size; variables of such a type are pointers to alloca'd
+    // storage (vmVars_: variable -> struct name)
+    struct VmStruct {
+        std::string sizeVar;
+        std::map<std::string, std::string> offsetVar;
+        std::map<std::string, std::vector<std::string>> memberDims;  // "" = constant dimension
+    };
+    std::map<std::string, VmStruct> vmStructs_;
+    std::map<std::string, std::string> vmVars_;
+    ir::Operand vmCopySize_;
+    bool inVmVarLoad_ = false;
+    std::string vmStructOf(Expression* e);
+    bool registeringStructs_ = false;  // registerAllStructDefinitions pre-pass
+    int ptrArrayRowSize(Expression* e);
+    std::map<std::string, int> declaredAlign_;  // variable -> declared alignment
+    std::map<std::string, int> funcAlign_;      // function -> __attribute__((aligned))
+    std::map<std::string, std::vector<int>> globalPtrArrayDims_;  // global T (*p)[M] -> {0, M}
+    void keepStaticLink(ir::Function* f);
+    void addUplevelChain(ir::Inst& inst, int levels);
 
     // Helper: map C type to IR type
     ir::Type mapType(const std::string& typeName, int ptrLevel);
@@ -266,6 +435,7 @@ private:
 
     // Helper: source location from AST node
     ir::SourceLoc loc(ASTNode& node);
+    ir::SourceLoc declLoc(ASTNode& node);  // loc() plus the node's own file and column, for diagnostics
 
     // Helper: emit explicit or implicit cast
     ir::Operand emitCast(ir::Operand src, ir::Type targetType, bool isSigned);

@@ -2,7 +2,7 @@
 
 # Test script for mmemu-cli validation with ca45 and cc45
 
-CC="./bin/cc45"
+CC="./bin/cc45 -O2"
 AS="./bin/ca45"
 LD="./bin/ln45"
 MMEMU="mmemu-cli"

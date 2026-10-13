@@ -44,8 +44,10 @@ void BasicTokenizer::initializeKeywords() {
         {"CLOSE", 0xA0},
         {"GET", 0xA1},
         {"NEW", 0xA2},
+        {"TAB(", 0xA3},
         {"TO", 0xA4},
         {"FN", 0xA5},
+        {"SPC(", 0xA6},
         {"THEN", 0xA7},
         {"NOT", 0xA8},
         {"STEP", 0xA9},
@@ -210,8 +212,10 @@ std::vector<BasicToken> BasicTokenizer::tokenize(const std::string& source) {
     bool lineStart = true;
     bool hasNonWhitespace = false;
 
+    size_t blanks = 0;              // blanks since the last token (spaceBefore)
     while (pos < source.length()) {
         char c = source[pos];
+        size_t before = tokens.size();
 
         // Skip # comments (entire line)
         if (lineStart && c == '#') {
@@ -236,12 +240,29 @@ std::vector<BasicToken> BasicTokenizer::tokenize(const std::string& source) {
                 }
                 lineStart = true;
                 hasNonWhitespace = false;
+                blanks = 0;
+            } else {
+                blanks++;
             }
             pos++;
-        } else if (c == '"') {
+            continue;
+        } else if (c == '"' ||
+                   ((c == 'p' || c == 'P' || c == 's' || c == 'S' || c == 'a' || c == 'A' || c == '@') &&
+                    pos + 1 < source.length() && source[pos + 1] == '"' &&
+                    (pos == 0 || !(std::isalnum((unsigned char)source[pos - 1]) || source[pos - 1] == '_' ||
+                                   source[pos - 1] == '$')))) {
+            // a string; p"..", s"..", a".." and @".." choose its encoding (the
+            // letter touching the quote: print a "x" is still the variable A)
             hasNonWhitespace = true;
             lineStart = false;
-            tokens.push_back(parseString(source, pos));
+            char prefix = 0;
+            if (c != '"') {
+                prefix = c == '@' ? 'a' : (char)std::tolower((unsigned char)c);
+                pos++;
+            }
+            BasicToken str = parseString(source, pos);
+            str.prefix = prefix;
+            tokens.push_back(str);
         } else if (std::isdigit(c)) {
             hasNonWhitespace = true;
             lineStart = false;
@@ -280,14 +301,78 @@ std::vector<BasicToken> BasicTokenizer::tokenize(const std::string& source) {
             sep.value = ":";
             tokens.push_back(sep);
             pos++;
+        } else if (c == '?') {
+            // ? is PRINT
+            hasNonWhitespace = true;
+            lineStart = false;
+            BasicToken kw;
+            kw.type = BasicToken::KEYWORD;
+            kw.value = "PRINT";
+            kw.tokenByte = getKeywordToken("PRINT");
+            tokens.push_back(kw);
+            pos++;
         } else {
             hasNonWhitespace = true;
             lineStart = false;
             BasicToken op;
             op.type = BasicToken::OPERATOR;
             op.value = c;
+            // the arithmetic and comparison operators are tokens in BASIC
+            switch (c) {
+                case '+': op.tokenByte = 0xAA; break;
+                case '-': op.tokenByte = 0xAB; break;
+                case '*': op.tokenByte = 0xAC; break;
+                case '/': op.tokenByte = 0xAD; break;
+                case '^': op.tokenByte = 0xAE; break;
+                case '>': op.tokenByte = 0xB1; break;
+                case '=': op.tokenByte = 0xB2; break;
+                case '<': op.tokenByte = 0xB3; break;
+                default: break;
+            }
             tokens.push_back(op);
             pos++;
+        }
+
+        // REM: the rest of the line is text. DATA: the items up to the next
+        // ':' outside quotes are text (BASIC does not crunch them)
+        if (!tokens.empty() && tokens.back().type == BasicToken::KEYWORD &&
+            (tokens.back().value == "REM" || tokens.back().value == "DATA")) {
+            bool isRem = tokens.back().value == "REM";
+            BasicToken raw;
+            raw.type = BasicToken::RAW;
+            size_t rawStart = pos;
+            bool inQuote = false;
+            while (pos < source.length() && source[pos] != '\n') {
+                char d = source[pos];
+                if (d == '"') inQuote = !inQuote;
+                if (!isRem && !inQuote && d == ':') break;
+                raw.value += d;
+                pos++;
+            }
+            // REM keeps its text as typed; DATA drops the blanks around it
+            if (!isRem) {
+                size_t b = raw.value.find_first_not_of(' ');
+                size_t e = raw.value.find_last_not_of(" \t\r");
+                raw.value = b == std::string::npos ? "" : raw.value.substr(b, e - b + 1);
+            } else {
+                size_t e = raw.value.find_last_not_of(" \t\r");
+                raw.value = e == std::string::npos ? "" : raw.value.substr(0, e + 1);
+            }
+            if (!raw.value.empty()) {
+                // REM keeps its text as typed (its blanks included); DATA's
+                // leading blanks go to spaceBefore
+                if (!isRem) {
+                    size_t lead = 0;
+                    std::string typed;
+                    for (size_t k = rawStart; k < pos && (source[k] == ' ' || source[k] == '\t'); k++) lead++;
+                    raw.spaceBefore = (uint8_t)std::min<size_t>(lead, 255);
+                }
+                tokens.push_back(raw);
+            }
+        }
+        if (tokens.size() > before) {
+            tokens[before].spaceBefore = std::max<uint8_t>(tokens[before].spaceBefore, (uint8_t)std::min<size_t>(blanks, 255));
+            blanks = 0;
         }
     }
 
@@ -330,6 +415,17 @@ BasicToken BasicTokenizer::parseNumber(const std::string& source, size_t& pos) {
         token.value += source[pos];
         pos++;
     }
+    // an exponent: 1E5, 2.5E-3
+    if (pos + 1 < source.length() && (source[pos] == 'E' || source[pos] == 'e')) {
+        size_t p = pos + 1;
+        if (p < source.length() && (source[p] == '+' || source[p] == '-')) p++;
+        if (p < source.length() && std::isdigit((unsigned char)source[p])) {
+            token.value += 'E';
+            token.value.append(source, pos + 1, p - pos - 1);
+            pos = p;
+            while (pos < source.length() && std::isdigit((unsigned char)source[pos])) token.value += source[pos++];
+        }
+    }
 
     return token;
 }
@@ -337,13 +433,31 @@ BasicToken BasicTokenizer::parseNumber(const std::string& source, size_t& pos) {
 BasicToken BasicTokenizer::parseIdentifier(const std::string& source, size_t& pos) {
     std::string word;
 
-    while (pos < source.length() && (std::isalnum(source[pos]) || source[pos] == '_' || source[pos] == '$' || source[pos] == '#')) {
+    // A word: letters, digits, _, a $ type suffix. '#' belongs only to
+    // PRINT# and INPUT# (PRINT#1 is PRINT# 1; GET#1 is GET #1)
+    while (pos < source.length() && (std::isalnum(source[pos]) || source[pos] == '_' || source[pos] == '$')) {
         word += source[pos];
         pos++;
+        if (word.back() == '$') break;   // the suffix ends the name (A$B is A$ B)
+    }
+    if (pos < source.length() && source[pos] == '#') {
+        std::string u = word;
+        std::transform(u.begin(), u.end(), u.begin(), ::toupper);
+        if (u == "PRINT" || u == "INPUT") { word += '#'; pos++; }
     }
 
     std::string upper = word;
     std::transform(upper.begin(), upper.end(), upper.begin(), ::toupper);
+    // GETKEY is two tokens, GET KEY (as BASIC's own cruncher stores it)
+    if (upper == "GETKEY") {
+        pos -= 3;
+        upper = "GET";
+    }
+    // TAB( and SPC( are tokens that include the parenthesis
+    if ((upper == "TAB" || upper == "SPC") && pos < source.length() && source[pos] == '(') {
+        upper += '(';
+        pos++;
+    }
 
     BasicToken token;
     if (isKeyword(upper)) {
@@ -393,4 +507,21 @@ const std::unordered_map<std::string, uint8_t>& BasicTokenizer::getKeywords() co
 
 const std::unordered_map<std::string, uint8_t>& BasicTokenizer::getEscapeKeywords() const {
     return escapeKeywords;
+}
+
+bool isDiskParameter(const std::vector<BasicToken>& t, size_t s, size_t i) {
+    static const char* commands[] = {
+        "DOPEN", "DCLOSE", "APPEND", "DLOAD", "DSAVE", "DVERIFY", "BLOAD", "BSAVE", "BVERIFY", "BOOT",
+        "DIRECTORY", "DIR", "CATALOG", "HEADER", "SCRATCH", "DELETE", "COLLECT", "COPY", "CONCAT",
+        "RENAME", "BACKUP", "RECORD", "DCLEAR", "DISK", "MKDIR", "CHDIR", "DMODE", "IMPORT", "MERGE",
+    };
+    if (s >= t.size() || t[s].type != BasicToken::KEYWORD) return false;
+    bool isCommand = false;
+    for (const char* c : commands) if (t[s].value == c) { isCommand = true; break; }
+    if (!isCommand || i >= t.size() || t[i].type != BasicToken::IDENTIFIER) return false;
+    const std::string& v = t[i].value;
+    char c = (char)std::toupper((unsigned char)v[0]);
+    if (std::string("DUBPLWIR").find(c) == std::string::npos) return false;
+    for (size_t k = 1; k < v.size(); k++) if (!std::isdigit((unsigned char)v[k])) return false;
+    return true;
 }

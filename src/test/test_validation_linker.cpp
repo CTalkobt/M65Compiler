@@ -1,3 +1,4 @@
+#include "LinkerLog.hpp"
 #include "O45Writer.hpp"
 #include "O45Reader.hpp"
 #include "O45Linker.hpp"
@@ -265,7 +266,8 @@ void test_relocation_patch_overflow() {
     CHECK(errorMsg.find("relocation patch overflows") != std::string::npos, "error contains 'relocation patch overflows'");
 }
 
-// Test 8: Unknown relocation type — link() returns false with "unknown relocation type" error
+// Test 8: A relocation with an invalid segment ($FF: R_LOWX with segment 31)
+// — link() returns false with "unknown relocation segment"
 void test_unknown_relocation_type() {
     // Create a raw O45File with an invalid relocation type byte
     O45Writer w;
@@ -285,11 +287,8 @@ void test_unknown_relocation_type() {
     file.textRelocs.clear();
     // Manually craft relocation: offset=1 (delta=1 to avoid offset 0 issue), invalid type byte (255)
     file.textRelocs.push_back(1); // offset delta (to get offset 1)
-    file.textRelocs.push_back(255); // Invalid type/segment byte (all bits set)
-    file.textRelocs.push_back(0); // symbol index (4 bytes, external)
-    file.textRelocs.push_back(0);
-    file.textRelocs.push_back(0);
-    file.textRelocs.push_back(0); // symbol index value
+    file.textRelocs.push_back(255); // R_LOWX ($E0) with segment 31 (no such segment)
+    file.textRelocs.push_back(0);   // R_LOWX extra byte
     file.textRelocs.push_back(0); // end marker
 
     // Create matching export
@@ -313,7 +312,7 @@ void test_unknown_relocation_type() {
     auto result = linker.link(errorMsg);
 
     CHECK(result.empty(), "link result empty");
-    CHECK(errorMsg.find("unknown relocation type") != std::string::npos, "error contains 'unknown relocation type'");
+    CHECK(errorMsg.find("unknown relocation segment") != std::string::npos, "error contains 'unknown relocation segment'");
 }
 
 // =============================================================================
@@ -619,10 +618,12 @@ void test_unused_global_warning() {
     std::ostringstream warns;
     linker.setWarningStream(&warns);
     std::string err;
+    g_ln45Verbosity = 1;   // an informational warning: ln45 -v
     linker.link(err, false);
+    g_ln45Verbosity = 0;
 
     std::string w_str = warns.str();
-    CHECK(w_str.find("unused global symbol") != std::string::npos, "unused symbol warning emitted");
+    CHECK(w_str.find("unused global symbol") != std::string::npos, "unused symbol warning emitted (-v)");
     CHECK(w_str.find("_unused") != std::string::npos, "warning names _unused");
 }
 

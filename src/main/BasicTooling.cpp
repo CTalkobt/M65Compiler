@@ -4,6 +4,8 @@
 #include <sstream>
 #include <filesystem>
 #include <cstdlib>
+#include <cstdio>
+#include <unistd.h>
 #include <thread>
 
 namespace fs = std::filesystem;
@@ -114,11 +116,24 @@ void SourceMapGenerator::addMapping(const SourceMapping& mapping) {
     mappings.push_back(mapping);
 }
 
+// A JSON string's contents: quotes, backslashes and control characters escaped
+static std::string jsonEscape(const std::string& s) {
+    std::string out;
+    for (unsigned char c : s) {
+        if (c == '"' || c == '\\') { out += '\\'; out += (char)c; }
+        else if (c == '\n') out += "\\n";
+        else if (c == '\t') out += "\\t";
+        else if (c < 0x20) { char b[8]; snprintf(b, sizeof b, "\\u%04x", c); out += b; }
+        else out += (char)c;
+    }
+    return out;
+}
+
 std::string SourceMapGenerator::generateJSON() const {
     std::ostringstream json;
     json << "{\n";
     json << "  \"version\": 3,\n";
-    json << "  \"file\": \"compiled.prg\",\n";
+    json << "  \"file\": \"" << jsonEscape(file) << "\",\n";
     json << "  \"mappings\": [\n";
 
     for (size_t i = 0; i < mappings.size(); i++) {
@@ -126,8 +141,8 @@ std::string SourceMapGenerator::generateJSON() const {
         json << "    {\n";
         json << "      \"compiledLine\": " << m.compiledLineNum << ",\n";
         json << "      \"sourceLine\": " << m.sourceLineNum << ",\n";
-        json << "      \"sourceFile\": \"" << m.sourceFile << "\",\n";
-        json << "      \"sourceCode\": \"" << m.sourceLine << "\"\n";
+        json << "      \"sourceFile\": \"" << jsonEscape(m.sourceFile) << "\",\n";
+        json << "      \"sourceCode\": \"" << jsonEscape(m.sourceLine) << "\"\n";
         json << "    }";
         if (i < mappings.size() - 1) json << ",";
         json << "\n";
@@ -154,91 +169,63 @@ std::string SourceMapGenerator::generateText() const {
 
 // ==================== EmulatorLauncher ====================
 
-bool EmulatorLauncher::launch(
-    const std::string& programFile,
-    Emulator emulator,
-    const std::string& emulatorPath
-) {
+std::string EmulatorLauncher::findXemu() { return findOnPath("xemu-xmega65"); }
+
+int EmulatorLauncher::launchAsync(const std::string& programFile, const std::string& emulatorPath,
+                                  const std::string& diskImage) {
+    std::string xemu = emulatorPath.empty() ? findXemu() : emulatorPath;
+    if (xemu.empty()) {
+        std::cerr << "Emulator: xemu-xmega65 not found on PATH (--emulator-path <file>)" << std::endl;
+        return -1;
+    }
+    std::string prg = fs::absolute(programFile).string(), disk = diskImage.empty() ? "" : fs::absolute(diskImage).string();
+    pid_t pid = fork();
+    if (pid == 0) {
+        if (disk.empty())
+            execl(xemu.c_str(), xemu.c_str(), "-prgmode", "65", "-prg", prg.c_str(), (char*)nullptr);
+        else
+            execl(xemu.c_str(), xemu.c_str(), "-prgmode", "65", "-prg", prg.c_str(), "-8", disk.c_str(), (char*)nullptr);
+        _exit(127);
+    }
+    return pid;
+}
+
+std::string EmulatorLauncher::findOnPath(const std::string& name) {
+    const char* path = getenv("PATH");
+    std::string p = path ? path : "/usr/local/bin:/usr/bin";
+    size_t start = 0;
+    while (start <= p.size()) {
+        size_t end = p.find(':', start);
+        if (end == std::string::npos) end = p.size();
+        std::string dir = p.substr(start, end - start);
+        if (dir.empty()) dir = ".";
+        fs::path cand = fs::path(dir) / name;
+        if (fs::exists(cand)) return cand.string();
+        start = end + 1;
+    }
+    return "";
+}
+
+bool EmulatorLauncher::launch(const std::string& programFile, const std::string& emulatorPath,
+                              const std::string& diskImage) {
     if (!fs::exists(programFile)) {
         std::cerr << "Emulator: program file not found: " << programFile << std::endl;
         return false;
     }
-
-    // Auto-detect if requested
-    if (emulator == Emulator::AUTO) {
-        if (isAvailable(Emulator::MMEMU)) {
-            emulator = Emulator::MMEMU;
-        } else if (isAvailable(Emulator::VICE)) {
-            emulator = Emulator::VICE;
-        } else {
-            std::cerr << "Emulator: no compatible emulator found" << std::endl;
-            return false;
-        }
-    }
-
-    switch (emulator) {
-        case Emulator::MMEMU:
-            return launchMMemu(programFile, emulatorPath);
-        case Emulator::VICE:
-            return launchVice(programFile, emulatorPath);
-        default:
-            std::cerr << "Emulator: unsupported emulator" << std::endl;
-            return false;
-    }
-}
-
-bool EmulatorLauncher::isAvailable(Emulator emulator) {
-    std::string path = getEmulatorPath(emulator);
-    return !path.empty() && fs::exists(path);
-}
-
-std::string EmulatorLauncher::getEmulatorPath(Emulator emulator) {
-    switch (emulator) {
-        case Emulator::MMEMU:
-            // Check common locations for mmemu-cli
-            if (fs::exists("/usr/local/bin/mmemu-cli")) return "/usr/local/bin/mmemu-cli";
-            if (fs::exists("/usr/bin/mmemu-cli")) return "/usr/bin/mmemu-cli";
-            if (fs::exists("./mmemu-cli")) return "./mmemu-cli";
-            return "";
-
-        case Emulator::VICE:
-            // Check common locations for VICE
-            if (fs::exists("/usr/local/bin/x64")) return "/usr/local/bin/x64";
-            if (fs::exists("/usr/bin/x64")) return "/usr/bin/x64";
-            if (fs::exists("./x64")) return "./x64";
-            return "";
-
-        default:
-            return "";
-    }
-}
-
-bool EmulatorLauncher::launchMMemu(const std::string& programFile, const std::string& emulatorPath) {
-    std::string mmemu = emulatorPath.empty() ? getEmulatorPath(Emulator::MMEMU) : emulatorPath;
-
-    if (mmemu.empty() || !fs::exists(mmemu)) {
-        std::cerr << "Emulator: mmemu-cli not found" << std::endl;
+    std::string xemu = emulatorPath.empty() ? findXemu() : emulatorPath;
+    if (xemu.empty()) {
+        std::cerr << "Emulator: xemu-xmega65 not found on PATH (--emulator-path <file>)" << std::endl;
         return false;
     }
-
-    std::string cmd = mmemu + " " + programFile;
+    auto quote = [](const std::string& s) {
+        std::string q = "'";
+        for (char c : s) { if (c == '\'') q += "'\\''"; else q += c; }
+        return q + "'";
+    };
+    // -prgmode 65: load as a BASIC 65 program (RUN is typed by xemu)
+    std::string cmd = quote(xemu) + " -prgmode 65 -prg " + quote(fs::absolute(programFile).string());
+    if (!diskImage.empty()) cmd += " -8 " + quote(fs::absolute(diskImage).string());
     std::cout << "Launching: " << cmd << std::endl;
-
-    int result = system(cmd.c_str());
-    return result == 0;
-}
-
-bool EmulatorLauncher::launchVice(const std::string& programFile, const std::string& emulatorPath) {
-    std::string vice = emulatorPath.empty() ? getEmulatorPath(Emulator::VICE) : emulatorPath;
-
-    if (vice.empty() || !fs::exists(vice)) {
-        std::cerr << "Emulator: x64 (VICE) not found" << std::endl;
-        return false;
-    }
-
-    std::string cmd = vice + " " + programFile;
-    std::cout << "Launching: " << cmd << std::endl;
-
     int result = system(cmd.c_str());
     return result == 0;
 }

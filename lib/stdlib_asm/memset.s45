@@ -1,0 +1,43 @@
+; memset.s — Fill memory with a byte value (ZP calling convention)
+;
+; void *memset(void *s, int c, int n);
+;   Fills n bytes at address s with byte c. Returns s.
+
+.global _memset
+
+.segment "code"
+
+proc _memset
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .zp_clobbers $10, $11, $12, $13, $14, $15
+    .zp_release $12, $13, $14, $15
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+
+    ; s=$10/$11, c=$12 (low byte), n=$14/$15
+    ldy #0
+    lda $12             ; fill byte
+@loop:
+    ldx $15
+    bne @do
+    ldx $14
+    beq @done
+@do:
+    sta ($10),y
+    iny
+    bne @noinc
+    inc $11
+@noinc:
+    ldx $14
+    bne @declow
+    dec $15
+@declow:
+    dec $14
+    lda $12
+    bra @loop
+@done:
+    lda $10
+    ldx $11
+    rts
+    .func_flags zp_call
+    endproc

@@ -51,6 +51,9 @@ public:
     // If not set, text starts at 0x0000.
     void setTextBase(uint32_t addr) { textBase_ = addr; }
     void setDataBase(uint32_t addr) { dataBase_ = addr; dataBaseSet_ = true; }
+    // Address of the image's first byte: the text base, or the data base
+    // when -d puts the data below the text
+    uint32_t imageBase() const { return imageBase_; }
     void setBssBase(uint32_t addr)  { bssBase_ = addr; bssBaseSet_ = true; }
     void setZpBase(uint32_t addr)   { zpBase_ = addr; zpBaseSet_ = true; }
 
@@ -335,6 +338,9 @@ public:
     // Calling convention thunk mode
     enum ThunkMode { THUNK_AUTO, THUNK_WARN, THUNK_ERROR };
     void setThunkMode(ThunkMode m) { thunkMode_ = m; }
+    void setSacOverlay(bool on) { sacOverlayOn_ = on; }
+    // Byte crt0 fills BSS with (__bss_fill, unless an object defines it)
+    void setBssFill(uint8_t v) { bssFill_ = v; }
 
     // Write a detailed linker map to a stream. Call after link().
     void writeMap(std::ostream& out) const;
@@ -380,6 +386,25 @@ private:
             // No remap — use simple textOffset (single-segment object)
             return textOffset + origOff;
         }
+
+        // BSS placement: [srcOffset, srcOffset+srcLen) of this object's BSS
+        // → destOffset in the merged BSS. Empty: the BSS is one piece at
+        // bssOffset. SAC blocks moved into the overlay area are pieces of
+        // their own; bssKeptLen is what stays at bssOffset.
+        struct BssPiece { uint32_t srcOffset, srcLen, destOffset; bool sac; };
+        std::vector<BssPiece> bssRemaps;
+        uint32_t bssKeptLen = 0;
+
+        uint32_t remapBssOffset(uint32_t origOff) const {
+            for (const auto& r : bssRemaps)
+                if (origOff >= r.srcOffset && origOff < r.srcOffset + r.srcLen)
+                    return r.destOffset + (origOff - r.srcOffset);
+            // the end of a piece (a pointer just past a variable)
+            for (const auto& r : bssRemaps)
+                if (!r.sac && origOff == r.srcOffset + r.srcLen)
+                    return r.destOffset + r.srcLen;
+            return bssOffset + origOff;
+        }
     };
 
     std::vector<InputObject> objects_;
@@ -392,7 +417,9 @@ private:
 
     uint32_t textBase_ = 0x0000;
     uint32_t dataBase_ = 0;  bool dataBaseSet_ = false;
+    uint32_t imageBase_ = 0;
     uint32_t bssBase_ = 0;   bool bssBaseSet_ = false;
+    uint32_t dataAlign_ = 1, bssAlign_ = 1;  // largest cc45.align.data/.bss of any object
     uint32_t zpBase_ = 0;    bool zpBaseSet_ = false;
 
     // Merged segment bodies
@@ -430,16 +457,20 @@ private:
 
     // Thunk mode and generated thunks
     ThunkMode thunkMode_ = THUNK_AUTO;
+    uint8_t bssFill_ = 0;
     // Maps callee name → thunk address (for mismatched call sites)
     std::map<std::string, uint32_t> thunkAddresses_;
     // Per-call-site override: (objectIdx, relocIdx) → thunk target address
     std::map<std::pair<int,int>, uint32_t> callSiteOverrides_;
 
-    // Phase 2: Static allocation register (AR) base addresses
-    // Maps SAC function name → final BSS-relative AR base address
-    std::map<std::string, uint32_t> arBaseAddresses_;
-    // Tracks which functions are address-taken (can't be colored/overlapped)
-    std::set<std::string> addressTakenFunctions_;
+    // SAC overlay: per object, the SAC blocks moved into the overlay area
+    // (object BSS offset, size, offset in the overlay area)
+    struct SacMove { uint32_t srcOffset, len, overlayOffset; std::string func; };
+    std::map<int, std::vector<SacMove>> sacMoves_;
+    uint32_t sacOverlayLen_ = 0;      // size of the overlay area
+    uint32_t sacOverlayOffset_ = 0;   // its offset in the merged BSS
+    uint32_t sacOverlaySaved_ = 0;    // bytes saved by sharing
+    bool sacOverlayOn_ = true;        // --no-sac-overlay clears it
 
     // Phase 4: Parameter specialization
     // Maps function name → parameter index → (is_constant, constant_value)
@@ -537,12 +568,17 @@ private:
     std::string formatOrchestrationReport(const CrossProgramAnalysis& analysis);  // Phase 74: Format orchestration report
     RuntimeProfile collectProfileData(const BenchmarkResult& estimate, int actualSize, int execMs);  // Phase 75: Collect profile
     std::string formatProfileReport(const RuntimeProfile& profile);  // Phase 75: Format profile report
+    int64_t bssLenBeforeZpPage_ = -1;  // BSS length before the __zp_page block was added
+    std::map<std::string, int> funcObjMode_;  // function -> its object's cc45 mode (1 zp, 0 stack)
+    std::map<std::string, std::set<std::string>> funcZpCalls_;  // function -> callees its object calls with the ZP convention (cc45.zpcall.<callee>)
+    int funcMode(const std::string& fn) const;
+    bool callNeedsThunk(const std::string& caller, const std::string& callee, bool& callerIsZp) const;
     void emitDiagnostics();
     void verifyStaticAllocSafety();  // Verify SAC (static allocation convention) constraints
     void validateSACParameters();     // Phase 3: Validate SAC parameter metadata
     void validateImmediateRelocations(); // Phase 78.4: Validate immediate relocation symbols
-    void colorStaticAllocRegisters();  // Phase 2: Assign overlapping AR addresses via graph coloring
-    void patchStaticAllocAddresses();  // Phase 3: Apply computed AR addresses to symbol table
+    void computeSacOverlay();          // place SAC blocks so inactive functions share storage
+    void layoutBss();                  // BSS layout (objects, then the SAC overlay area)
     void generateThunks();
     void mergeLineMaps();
 

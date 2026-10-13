@@ -6,6 +6,9 @@
  * Phase 4 of FILE I/O implementation
  */
 
+/* Written for standard C signedness (int results compared with < 0) */
+#pragma cc45 signed_default
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

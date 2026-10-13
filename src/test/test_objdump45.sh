@@ -244,7 +244,7 @@ if [ -f lib/build/puts.o45 ]; then
     OUT=$($OD -d lib/build/puts.o45 2>&1)
     assert_exit "puts.o45 -d exits 0" $? 0
     assert_contains "puts.o45 has _puts label" "$OUT" "<_puts>"
-    assert_contains "puts.o45 has pha (stack save)" "$OUT" "pha"
+    assert_contains "puts.o45 has tsx (param load)" "$OUT" "tsx"
     assert_contains "puts.o45 has rts" "$OUT" "rts"
 fi
 
@@ -481,7 +481,8 @@ echo "--- Test: -m map file with PRG ---"
 # Build a linked PRG with a map file
 cat > "$BUILD/objdump_map_a.s45" << 'EOF'
 .global _main
-.s45egment "code"
+.extern _helper
+.segment "code"
 _main:
     jsr _helper
     rts
