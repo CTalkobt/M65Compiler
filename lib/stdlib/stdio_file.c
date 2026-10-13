@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 
 /* ============================================================================
  * STATIC STATE
@@ -119,7 +120,7 @@ extern int cbm_close(fd_t fd);
  * Open file via Commodore KERNAL
  * Returns file handle (0-15) on success, -1 on error
  */
-static int _kernal_open(const char *filename, unsigned char cbm_type, unsigned char flags) {
+int _kernal_open(const char *filename, unsigned char cbm_type, unsigned char flags) {
     /* Determine device number (default: disk) */
     unsigned char device = CBM_DEVICE_DISK;
     /* The DOS takes the type and direction from the name: "NAME,S,R",
@@ -171,7 +172,9 @@ int _flush_write_buffer(FILE *stream) {
  * Returns 0 on success, EOF on error or EOF
  */
 int _fill_read_buffer(FILE *stream) {
-    if (!stream || !(stream->flags & _IOREAD)) {
+    /* a memory stream's buffer is the whole file: nothing more to read */
+    if (!stream || !(stream->flags & _IOREAD) || stream->backend == _IOBACKEND_MEMORY) {
+        if (stream) stream->flags |= _IOEOF;
         return EOF;
     }
 
@@ -195,6 +198,110 @@ int _fill_read_buffer(FILE *stream) {
  * PUBLIC API
  * ============================================================================ */
 
+/* A memory stream ('+' modes): grow the buffer to hold at least need bytes */
+int _mem_reserve(FILE *fp, unsigned int need) {
+    if (need <= fp->buf_size) return 0;
+    unsigned int cap = fp->buf_size ? fp->buf_size : 256;
+    while (cap < need) cap = cap > 0x7F80 ? 0xFF00 : cap * 2;
+    unsigned char *nb = (unsigned char *)realloc(fp->buffer, cap);
+    if (!nb) { errno = ENOMEM; return -1; }
+    fp->buffer = nb;
+    fp->buf_size = cap;
+    return 0;
+}
+
+/* Write a memory stream's contents back to its file ("@0:" replaces it) */
+static int _mem_writeback(FILE *fp) {
+    int h = _kernal_open(fp->name, fp->cbm_type, _IOWRITE | _IOTRUNC);
+    if (h < 0) { fp->flags |= _IOERR; return EOF; }
+    unsigned int done = 0;
+    while (done < fp->buf_len) {
+        unsigned int chunk = fp->buf_len - done;
+        if (chunk > 254) chunk = 254;
+        int w = cbm_write(h, fp->buffer + done, chunk);
+        if (w <= 0) { cbm_close(h); fp->flags |= _IOERR; return EOF; }
+        done += (unsigned int)w;
+    }
+    cbm_close(h);
+    fp->dirty = 0;
+    return 0;
+}
+
+/* Open filename into fp (its fields cleared but name/buffer kept free).
+ * '+' modes load the file into memory; "w+" creates it empty at once. */
+static int _open_stream(FILE *fp, const char *filename, const char *mode) {
+    unsigned char cbm_type = CBM_T_SEQ;
+    unsigned char flags = _parse_mode(mode, &cbm_type);
+    if (!flags) { errno = EINVAL; return -1; }
+
+    fp->name = (char *)malloc(strlen(filename) + 1);
+    if (!fp->name) { errno = ENOMEM; return -1; }
+    strcpy(fp->name, filename);
+    fp->cbm_type = cbm_type;
+    fp->mode = flags;
+    fp->flags = flags & (_IOREAD | _IOWRITE | _IOAPPEND | _IOBINARY);
+    fp->position = 0;
+    fp->file_size = 0;
+    fp->buf_pos = 0;
+    fp->buf_len = 0;
+    fp->ungetc_pending = 0;
+    fp->dirty = 0;
+
+    if ((flags & _IOREAD) && (flags & _IOWRITE)) {
+        /* r+, w+, a+: the whole file in memory */
+        fp->backend = _IOBACKEND_MEMORY;
+        fp->buffer = NULL;
+        fp->buf_size = 0;
+        fp->flags |= _IOMYBUF;
+        if (flags & _IOTRUNC) {
+            /* w+: an empty file, created now */
+            fp->dirty = 1;
+            if (_mem_writeback(fp) < 0) return -1;
+            return 0;
+        }
+        int h = _kernal_open(filename, cbm_type, _IOREAD);
+        if (h < 0) {
+            if (!(flags & _IOAPPEND)) return -1;  /* r+: the file must exist */
+            fp->dirty = 1;                        /* a+: created on write back */
+            return 0;
+        }
+        for (;;) {
+            if (fp->buf_len > 0xFF00 - 254 || _mem_reserve(fp, fp->buf_len + 254) < 0) {
+                cbm_close(h);
+                errno = ENOMEM;
+                return -1;
+            }
+            int n = cbm_read(h, fp->buffer + fp->buf_len, 254);
+            if (n <= 0) break;
+            fp->buf_len += (unsigned int)n;
+        }
+        cbm_close(h);
+        return 0;
+    }
+
+    int handle = _kernal_open(filename, cbm_type, flags);
+    if (handle < 0) return -1;
+    fp->handle = (unsigned char)handle;
+    fp->backend = CBM_DEVICE_KERNAL;
+    fp->buffer = (unsigned char *)malloc(BUFSIZ);
+    if (!fp->buffer) {
+        cbm_close(handle);
+        errno = ENOMEM;
+        return -1;
+    }
+    fp->buf_size = BUFSIZ;
+    fp->flags |= _IOMYBUF;  /* Mark buffer as malloc'd */
+    return 0;
+}
+
+/* Release what _open_stream allocated */
+static void _free_stream(FILE *fp) {
+    if ((fp->flags & _IOMYBUF) && fp->buffer) free(fp->buffer);
+    fp->buffer = NULL;
+    if (fp->name) free(fp->name);
+    fp->name = NULL;
+}
+
 /**
  * fopen - Open a file
  */
@@ -215,47 +322,29 @@ FILE *fopen(const char *filename, const char *mode) {
         return NULL;
     }
 
-    /* Parse mode string */
-    unsigned char cbm_type = CBM_T_SEQ;
-    unsigned char flags = _parse_mode(mode, &cbm_type);
-    if (!flags) {
+    if (_open_stream(fp, filename, mode) < 0) {
+        _free_stream(fp);
         free(fp);
         return NULL;
     }
-
-    /* Open file via KERNAL */
-    int handle = _kernal_open(filename, cbm_type, flags);
-    if (handle < 0) {
-        free(fp);
-        return NULL;
-    }
-
-    /* Initialize FILE structure */
-    fp->handle = handle;
-    fp->mode = flags;
-    /* the access bits: every read/write function checks flags */
-    fp->flags = flags & (_IOREAD | _IOWRITE | _IOAPPEND | _IOBINARY);
-    fp->position = 0;
-    fp->file_size = 0;
-    fp->backend = CBM_DEVICE_KERNAL;
-
-    /* Allocate buffer */
-    fp->buffer = (unsigned char *)malloc(BUFSIZ);
-    if (!fp->buffer) {
-        cbm_close(handle);
-        free(fp);
-        return NULL;
-    }
-
-    fp->buf_size = BUFSIZ;
-    fp->buf_pos = 0;
-    fp->buf_len = 0;
-    fp->flags |= _IOMYBUF;  /* Mark buffer as malloc'd */
 
     /* Store in open files table */
     _open_files[slot] = fp;
 
     return fp;
+}
+
+/* Finish a stream: write out what is buffered, close the file */
+static int _close_stream(FILE *stream) {
+    int r = 0;
+    if (stream->backend == _IOBACKEND_MEMORY) {
+        if (stream->dirty && _mem_writeback(stream) < 0) r = EOF;
+    } else {
+        if ((stream->flags & _IOWRITE) && _flush_write_buffer(stream) < 0) r = EOF;
+        cbm_close(stream->handle);
+    }
+    _free_stream(stream);
+    return r;
 }
 
 /**
@@ -271,20 +360,7 @@ int fclose(FILE *stream) {
         return 0;  /* Silently succeed */
     }
 
-    /* Flush write buffer */
-    if (stream->flags & _IOWRITE) {
-        if (_flush_write_buffer(stream) < 0) {
-            /* Continue closing even if flush fails */
-        }
-    }
-
-    /* Close file handle */
-    cbm_close(stream->handle);
-
-    /* Free buffer if malloc'd */
-    if (stream->flags & _IOMYBUF && stream->buffer) {
-        free(stream->buffer);
-    }
+    int r = _close_stream(stream);
 
     /* Remove from open files table */
     for (int i = 0; i < FOPEN_MAX; i++) {
@@ -297,7 +373,7 @@ int fclose(FILE *stream) {
     /* Free FILE structure */
     free(stream);
 
-    return 0;
+    return r;
 }
 
 /**
@@ -309,35 +385,17 @@ FILE *freopen(const char *filename, const char *mode, FILE *stream) {
     }
 
     /* Close existing file (writing out what is still buffered) */
-    if (stream->handle != STDIN_FILENO &&
-        stream->handle != STDOUT_FILENO &&
-        stream->handle != STDERR_FILENO) {
-        if (stream->flags & _IOWRITE) _flush_write_buffer(stream);
-        cbm_close(stream->handle);
+    if (stream != stdin && stream != stdout && stream != stderr) {
+        _close_stream(stream);
     }
+    stream->flags = 0;
+    stream->buffer = NULL;
+    stream->name = NULL;
 
-    /* Parse mode string */
-    unsigned char cbm_type = CBM_T_SEQ;
-    unsigned char flags = _parse_mode(mode, &cbm_type);
-    if (!flags) {
+    if (_open_stream(stream, filename, mode) < 0) {
+        _free_stream(stream);
         return NULL;
     }
-
-    /* Open new file */
-    int handle = _kernal_open(filename, cbm_type, flags);
-    if (handle < 0) {
-        return NULL;
-    }
-
-    /* Reset FILE structure */
-    stream->handle = handle;
-    stream->mode = flags;
-    stream->flags = (stream->flags & _IOMYBUF) | (flags & (_IOREAD | _IOWRITE | _IOAPPEND | _IOBINARY));
-    stream->position = 0;
-    stream->file_size = 0;
-    stream->buf_pos = 0;
-    stream->buf_len = 0;
-
     return stream;
 }
 
@@ -349,7 +407,7 @@ int fflush(FILE *stream) {
         /* Flush all open files */
         for (int i = 0; i < FOPEN_MAX; i++) {
             if (_open_files[i] && (_open_files[i]->flags & _IOWRITE)) {
-                if (_flush_write_buffer(_open_files[i]) < 0) {
+                if (fflush(_open_files[i]) < 0) {
                     return EOF;
                 }
             }
@@ -358,6 +416,9 @@ int fflush(FILE *stream) {
     }
 
     /* Flush specific stream */
+    if (stream->backend == _IOBACKEND_MEMORY) {
+        return stream->dirty ? _mem_writeback(stream) : 0;
+    }
     if (stream->flags & _IOWRITE) {
         return _flush_write_buffer(stream);
     }
@@ -414,50 +475,6 @@ void setbuf(FILE *stream, char *buffer) {
         /* Unbuffered mode - TODO */
         stream->buf_size = 0;
     }
-}
-
-/**
- * fseek - Seek to position in file
- */
-int fseek(FILE *stream, long offset, int whence) {
-    if (!stream) return -1;
-    /* TODO: Implement seeking via cbm_seek */
-    return -1;
-}
-
-/**
- * ftell - Get current position in file
- */
-long ftell(FILE *stream) {
-    if (!stream) return -1L;
-    /* TODO: Implement via cbm_tell */
-    return stream->position;
-}
-
-/**
- * rewind - Seek to beginning of file
- */
-void rewind(FILE *stream) {
-    if (!stream) return;
-    fseek(stream, 0L, SEEK_SET);
-    clearerr(stream);
-}
-
-/**
- * fgetpos - Get current file position
- */
-int fgetpos(FILE *stream, fpos_t *pos) {
-    if (!stream || !pos) return -1;
-    *pos = stream->position;
-    return 0;
-}
-
-/**
- * fsetpos - Set file position
- */
-int fsetpos(FILE *stream, const fpos_t *pos) {
-    if (!stream || !pos) return -1;
-    return fseek(stream, (long)*pos, SEEK_SET);
 }
 
 /**

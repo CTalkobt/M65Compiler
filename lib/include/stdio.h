@@ -45,7 +45,16 @@ typedef struct {
     unsigned char backend;           /* 0=KERNAL, 1=disk45, 2=memory */
     unsigned char ungetc_char;       /* Character pushed back by ungetc() */
     unsigned char ungetc_pending;    /* 1 while ungetc_char is pending */
+    char *name;                      /* the name given to fopen (malloc'd): fseek reopens, r+/w+/a+ write back */
+    unsigned char cbm_type;          /* CBM_T_SEQ or CBM_T_USR ("b") */
+    unsigned char dirty;             /* memory stream: changed since loaded or written back */
 } FILE;
+
+/* FILE.backend: a stream opened with '+' ("r+", "w+", "a+") is held in
+ * memory: the whole file is read into the heap by fopen, reads, writes and
+ * fseek work on that copy, fflush/fclose write it back (Commodore DOS has no
+ * read-write access to a sequential file). Its size is limited by the heap. */
+#define _IOBACKEND_MEMORY 2
 
 /* File position type */
 typedef unsigned long fpos_t;

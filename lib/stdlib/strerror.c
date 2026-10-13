@@ -9,6 +9,7 @@ char *strerror(int errnum) {
         case ENOMEM: return "Out of memory";
         case EINVAL: return "Invalid argument";
         case EDOM:   return "Math domain error";
+        case ESPIPE: return "Illegal seek";
         default:     return "Unknown error";
     }
 }

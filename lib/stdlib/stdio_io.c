@@ -14,6 +14,25 @@
 /* Buffer helpers shared with stdio_file.c */
 int _fill_read_buffer(FILE *stream);
 int _flush_write_buffer(FILE *stream);
+int _mem_reserve(FILE *fp, unsigned int need);
+
+/* A memory stream ('+' modes, stdio_file.c), its position in buf_pos:
+ * write n bytes there ("a+" always at the end); a gap after a seek past the
+ * end becomes zeros */
+static int _mem_put(FILE *stream, const unsigned char *src, unsigned int n) {
+    unsigned int pos = (stream->flags & _IOAPPEND) ? stream->buf_len : stream->buf_pos;
+    unsigned int end = pos + n;
+    if (end < pos || end > 0xFF00 || _mem_reserve(stream, end) < 0) {
+        stream->flags |= _IOERR;
+        return -1;
+    }
+    if (pos > stream->buf_len) memset(stream->buffer + stream->buf_len, 0, pos - stream->buf_len);
+    memcpy(stream->buffer + pos, src, n);
+    stream->buf_pos = end;
+    if (end > stream->buf_len) stream->buf_len = end;
+    stream->dirty = 1;
+    return (int)n;
+}
 
 /* ============================================================================
  * CHARACTER I/O
@@ -30,6 +49,7 @@ int fgetc(FILE *stream) {
     /* Check for pushback character */
     if (stream->ungetc_pending) {
         stream->ungetc_pending = 0;
+        stream->position++;
         return stream->ungetc_char;
     }
 
@@ -37,6 +57,7 @@ int fgetc(FILE *stream) {
     if (stream->flags & _IOEOF) {
         return EOF;
     }
+
 
     /* If buffer is empty, fill it */
     if (stream->buf_pos >= stream->buf_len) {
@@ -72,6 +93,10 @@ int fputc(int c, FILE *stream) {
 
     /* Add character to buffer */
     unsigned char byte = (unsigned char)c;
+
+    if (stream->backend == _IOBACKEND_MEMORY) {
+        return _mem_put(stream, &byte, 1) < 0 ? EOF : (int)byte;
+    }
 
     if (stream->buf_len >= stream->buf_size) {
         /* Buffer full, flush it */
@@ -151,6 +176,7 @@ size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream) {
         }
     }
 
+
     /* Read remaining bytes */
     while (bytes_read < total_bytes) {
         if (stream->buf_pos >= stream->buf_len) {
@@ -205,6 +231,10 @@ size_t fwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream) {
         for (; bytes_written < total_bytes; bytes_written++) putchar(buf[bytes_written]);
         stream->position += total_bytes;
         return nmemb;
+    }
+
+    if (stream->backend == _IOBACKEND_MEMORY) {
+        return _mem_put(stream, buf, (unsigned int)total_bytes) < 0 ? 0 : nmemb;
     }
 
     while (bytes_written < total_bytes) {

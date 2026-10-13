@@ -3,7 +3,8 @@
  * Implements:
  * - fprintf, vfprintf — formatted output to FILE
  * - fscanf, vfscanf — formatted input from FILE
- * - fgets, fputs — line-oriented I/O
+ * (fgets and fputs are in stdio_line.c, so that line I/O does not link
+ *  the printf/scanf machinery)
  *
  * Phase 2 of FILE I/O implementation
  */
@@ -18,75 +19,6 @@
 
 /* Forward declarations - these exist in stdlib */
 extern int vfscanf(FILE *stream, const char *format, va_list ap);
-
-/* ============================================================================
- * LINE-ORIENTED I/O
- * ============================================================================ */
-
-/**
- * fgets - Read a line from file
- *
- * Reads up to (n-1) characters from stream into s, stops at newline.
- * Stores newline in string. Null-terminates.
- *
- * Returns: s on success, NULL on EOF or error
- */
-char *fgets(char *s, int n, FILE *stream) {
-    if (!s || n <= 0 || !stream) {
-        return NULL;
-    }
-
-    int ch;
-    int i = 0;
-
-    /* Read characters until newline or EOF */
-    while (i < n - 1) {
-        ch = fgetc(stream);
-
-        if (ch == EOF) {
-            if (i == 0) {
-                /* EOF with no characters read */
-                return NULL;
-            }
-            /* EOF after reading some characters */
-            break;
-        }
-
-        s[i++] = (char)ch;
-
-        if (ch == '\n') {
-            break;  /* Stop at newline */
-        }
-    }
-
-    s[i] = '\0';  /* Null-terminate */
-    return s;
-}
-
-/**
- * fputs - Write a string to file
- *
- * Writes string s to stream (without the null terminator).
- *
- * Returns: non-negative on success, EOF on error
- */
-int fputs(const char *s, FILE *stream) {
-    if (!s || !stream) {
-        return EOF;
-    }
-
-    int count = 0;
-
-    for (int i = 0; s[i]; i++) {
-        int ch = fputc(s[i], stream);
-        if (ch == EOF) {
-            return EOF;
-        }
-        count++;
-    }
-
-    return count;
-}
 
 /* ============================================================================
  * FORMATTED OUTPUT

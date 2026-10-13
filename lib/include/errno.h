@@ -23,3 +23,4 @@ extern char _errnoc;
    negative number, pow of a negative base to a fraction, fmod by 0),
    ERANGE for a result beyond the float range (exp, pow, log(0), strtof) */
 #define EDOM    4   /* Math argument out of domain */
+#define ESPIPE  5   /* Illegal seek: fseek on a stream written sequentially */

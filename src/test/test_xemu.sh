@@ -612,6 +612,22 @@ for fimode in "stack|-fno-zpcall" "zp|"; do
     fi
 done
 
+# Test: fopen "r+"/"w+"/"a+" (memory streams) and fseek/ftell/rewind on a
+# disk; both conventions
+for fsmode in "stack|-fno-zpcall" "zp|"; do
+    IFS='|' read -r fsname fsflags <<< "$fsmode"
+    echo "Testing test_fileseek_xemu.c ($fsname)..."
+    compile_link_test "src/test-resources/test_fileseek_xemu.c" "build/test/test_fileseek_${fsname}_xemu.prg" "$fsflags"
+    if [ $? -eq 0 ] && rm -f "build/test/test_fileseek_${fsname}.d81" &&
+       ./bin/disk45 create "build/test/test_fileseek_${fsname}.d81" -n "FILESEEK" >/dev/null 2>&1; then
+        run_xemu_test "test_fileseek_$fsname" "build/test/test_fileseek_${fsname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA" \
+            -8 "$PWD/build/test/test_fileseek_${fsname}.d81"
+    else
+        echo "FAIL: test_fileseek_xemu.c $fsname (build failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: a REL file made by disk45 on a D81, used by BASIC 65's DOS (and the
 # records BASIC wrote read back by disk45)
 echo "Testing test_disk45_rel_xemu.bas..."
