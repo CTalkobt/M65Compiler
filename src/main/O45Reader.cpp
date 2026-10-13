@@ -363,9 +363,10 @@ bool O45Reader::read(const std::vector<uint8_t>& data, O45File& out, std::string
             segEnd[s.segId] = s.offset + s.length;
         }
         for (const auto& r : out.sectRefs) {
-            if (r.kind > O45_SECTREF_EXPORT ||
+            if (r.kind > O45_SECTREF_IMPORT ||
                 (r.section != O45_SECT_RESIDUAL && r.section >= out.sections.size()) ||
-                (r.kind == O45_SECTREF_EXPORT && r.key >= out.exports.size())) {
+                (r.kind == O45_SECTREF_EXPORT && r.key >= out.exports.size()) ||
+                (r.kind == O45_SECTREF_IMPORT && r.key >= out.imports.size())) {
                 errorMsg = "section reference to a missing section or export";
                 return false;
             }

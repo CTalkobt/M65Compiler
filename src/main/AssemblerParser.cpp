@@ -824,6 +824,22 @@ void AssemblerParser::pass1() {
                     stmt->dir.arguments.push_back(advance().value);
                 stmt->size = 0;
             }
+            else if (stmt->dir.name == "ref") {
+                // .ref name — this section needs name (an import, no bytes): ln45
+                // links its definition when the section is kept
+                while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) {
+                    if (peek().type == AssemblerTokenType::COMMA) { advance(); continue; }
+                    std::string sym = expect(AssemblerTokenType::IDENTIFIER, "Expected symbol name after .ref").value;
+                    stmt->dir.arguments.push_back(sym);
+                    if (!symbolTable.count(sym) && !externIndex.count(sym)) {
+                        uint32_t idx = (uint32_t)externSymbols.size();
+                        externSymbols.push_back(sym);
+                        externIndex[sym] = idx;
+                        symbolTable[sym] = {0, true, 2, false, false, 0, false, 0, false, 0, "__extern__"};
+                    }
+                }
+                stmt->size = 0;
+            }
             else if (stmt->dir.name == "nosplit" || stmt->dir.name == "keep") {
                 // .nosplit — end the open section; .keep — always keep the current section
                 stmt->size = 0;
@@ -2064,7 +2080,7 @@ void AssemblerParser::warnUnknownDirective(const AssemblerToken& tok) {
         "align", "array", "array_dims", "ascii", "balign", "basicUpstart", "bss", "byte", "cleanup", "code", "const",
         "cpu", "data", "dword", "endrepeat", "extern", "field_class", "field_count", "fill", "fillto",
         "fixed_prefix_size", "flag_clobbers", "float", "frame_size", "frameptr_zp", "func_flags", "function_sections",
-        "keep", "nosplit", "split",
+        "keep", "nosplit", "ref", "split",
         "global", "import", "incbin", "init", "loc", "local", "long", "noopt_start", "org",
         "param_const", "param_sizes", "reg_clobbers", "repeat", "res", "sac", "screencode", "segment",
         "segmentOrder", "space", "text", "var", "var_field_array", "vtable_entry", "weak", "word", "zp", "zp_clobbers",

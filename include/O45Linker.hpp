@@ -475,6 +475,7 @@ private:
     bool compactObject(const O45File& o, const std::vector<bool>& keepSec,
                        const std::vector<O45Reloc>& textRel, const std::vector<O45Reloc>& dataRel,
                        const std::map<std::pair<uint8_t, uint32_t>, int>& refUnit,
+                       const std::vector<std::pair<int, uint32_t>>& importRefs,
                        O45File& out, std::string& err);
     uint16_t stackSize_ = 0x1000;
     // Maps callee name → thunk address (for mismatched call sites)

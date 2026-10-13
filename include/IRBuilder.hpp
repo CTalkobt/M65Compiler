@@ -182,6 +182,9 @@ private:
     std::set<std::string> unitDefinedFunctions_;  // functions with a body in this unit
     // printf("text") as a statement -> putstr / puts (no formatter linked)
     void simplifyPrintfCall(FunctionCall& call);
+    // printf-family calls: the conversion hooks their format strings need
+    void noteFormatNeeds(FunctionCall& call);
+    void needAllFormats();
     std::set<std::string> stackCalledFunctions_;  // stack-mode: callees called with the stack convention
     static bool isLibraryZpRoutine(const std::string& fname);
     std::map<std::string, std::string> staticRenames_;  // static function -> module-unique symbol

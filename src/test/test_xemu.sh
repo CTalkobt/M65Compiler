@@ -1023,6 +1023,38 @@ else
     failed=$((failed + 1))
 fi
 
+# Test: printf's digit hooks (both conventions), linked only as the format
+# strings need them
+for phmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r phname phflags <<< "$phmode"
+    echo "Testing test_printf_hooks_xemu.c ($phname)..."
+    compile_link_test "src/test-resources/test_printf_hooks_xemu.c" "build/test/test_printf_hooks_${phname}_xemu.prg" "$phflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_printf_hooks_$phname" "build/test/test_printf_hooks_${phname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_printf_hooks_xemu.c $phname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+ph_map() {   # ph_map <C body of main> -> the link map
+    printf '#include <stdio.h>\nint main(void) { %s return 0; }\n' "$1" > build/test/ph_map.c
+    $CC -c build/test/ph_map.c -o build/test/ph_map.o45 >/dev/null 2>&1 &&
+        $LD -basic -m -o build/test/ph_map.prg lib/build/crt0_zp.o45 build/test/ph_map.o45 $STDLIB 2>/dev/null
+}
+M1=$(ph_map 'printf("%s\n", "x");')
+M2=$(ph_map 'printf("%d\n", 5);')
+M3=$(ph_map 'void *p = (void *)printf; printf("%s", "x"); if (!p) return 1;')
+# (the markers: the hooks' names are also the core's weak stubs)
+if [ -n "$M1" ] && ! grep -q '___fmt_.*_linked' <<< "$M1" &&
+   grep -q '___fmt_int_linked' <<< "$M2" && ! grep -q '___fmt_long_linked' <<< "$M2" &&
+   grep -q '___fmt_long_linked' <<< "$M3"; then
+    echo "SUCCESS: printf's digit hooks linked as the formats need (%s: none, %d: 16-bit, printf as a value: all)"
+    passed=$((passed + 1))
+else
+    echo "FAIL: printf's digit hooks linked wrongly"
+    failed=$((failed + 1))
+fi
+
 # Test: GCC statement expressions ({ stmt; ...; expr; })
 for semode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r sename seflags <<< "$semode"

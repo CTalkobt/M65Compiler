@@ -1420,6 +1420,7 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
         if (hasFloatArg) {
             emit(".extern _printf_float");
         }
+        for (const auto& r : mod.asmRefs) emit(".ref " + r);
         // sprintf with a float argument: link the %f-aware sprintf
         if (hasFloatSprintf) {
             emit(".extern _sprintf_float");
@@ -1430,6 +1431,9 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     // code segment the functions are emitted in
     if (!mod.fileAsm.empty()) {
         emitComment("file-scope asm");
+        // in the code segment (in the default one, a second text part, the
+        // linker would place it after all objects' code)
+        if (relocMode) emit(".segment \"code\"");
         for (const auto& text : mod.fileAsm) {
             std::stringstream lines(text);
             std::string line;
@@ -2502,6 +2506,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         }
     }
     emit(procLine);
+    for (const auto& r : fn.asmRefs) emit(".ref " + r);
 
     // __regparm: the first argument arrives in A (char) or A:X. Before any
     // other code (a prologue or the return-address capture use A/X), put it

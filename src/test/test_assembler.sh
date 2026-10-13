@@ -324,6 +324,36 @@ _v:     .word 2
 _b:     .res 3
 EOF
 sec_check dalign "Sections (3)" "DATA  00000001        15      1  a" "DATA  00000010         2     16  v" "BSS   00000000         3      1  b"
+# .ref: a section needs a symbol without a relocation; ln45 links the
+# symbol's definition only when the section is kept
+cat > $SD/refuser.s45 << 'EOF'
+        .function_sections
+        .global _a, _b
+        .code
+proc _a
+        .ref _needed
+        rts
+endproc
+proc _b
+        rts
+endproc
+EOF
+sec_check refuser "Sections (2)" "section 0 _a needs _needed"
+printf '        .global _needed\n        .code\n_needed: rts\n' > $SD/needed.s45
+printf '        .global _main\n        .extern %s\n        .code\n_main:  jsr %s\n        rts\n' _a _a > $SD/usea.s45
+printf '        .global _main\n        .extern %s\n        .code\n_main:  jsr %s\n        rts\n' _b _b > $SD/useb.s45
+rm -f $SD/ref.lib
+if $AS -c $SD/needed.s45 -o $SD/needed.o45 >/dev/null 2>&1 &&
+   $AS -c $SD/usea.s45 -o $SD/usea.o45 >/dev/null 2>&1 && $AS -c $SD/useb.s45 -o $SD/useb.o45 >/dev/null 2>&1 &&
+   ./bin/ar45 c $SD/ref.lib $SD/refuser.o45 $SD/needed.o45 >/dev/null 2>&1 &&
+   ./bin/ln45 -prg -t 2000 -m -o $SD/usea.prg $SD/usea.o45 $SD/ref.lib 2>&1 | grep -q '_needed' &&
+   ! ./bin/ln45 -prg -t 2000 -m -o $SD/useb.prg $SD/useb.o45 $SD/ref.lib 2>&1 | grep -q '_needed'; then
+    echo "SUCCESS: .ref links its symbol only with the section that needs it"
+    passed=$((passed + 1))
+else
+    echo "FAIL: .ref"
+    failed=$((failed + 1))
+fi
 # -ffunction-sections does the same as the directive; a sectioned object
 # links to the same program as without sections (ln45 does not drop yet)
 grep -v function_sections $SD/ref.s45 > $SD/ref_plain.s45

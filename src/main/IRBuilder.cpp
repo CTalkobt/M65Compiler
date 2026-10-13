@@ -11,6 +11,8 @@
 #include <iostream>
 #include <sstream>
 
+static const std::map<std::string, size_t>& printfLikeFunctions();
+
 IRBuilder::IRBuilder() {}
 
 void IRBuilder::setSourceInfo(const std::string& filename) {
@@ -3979,6 +3981,8 @@ void IRBuilder::visit(VariableReference& node) {
                    ? allFunctions_.end() : allFunctions_.find(node.name);
     if (fit != allFunctions_.end()) {
         auto* fn = fit->second;
+        // a printf-like function as a value: its calls' formats are unknown
+        if (printfLikeFunctions().count(node.name)) needAllFormats();
         if (fn->isNested) {
             // WE NEED A TRAMPOLINE!
             // 1. Allocate an 11-byte buffer on the frame for the trampoline
@@ -5836,6 +5840,7 @@ void IRBuilder::visit(CastExpression& node) {
 }
 
 void IRBuilder::visit(FunctionCall& node) {
+    noteFormatNeeds(node);
     if (node.name == "__builtin_shuffle" && (node.arguments.size() == 2 || node.arguments.size() == 3) && currentFunc_ &&
         !vecOf(node.arguments[0].get()).empty()) {
         emitVectorShuffle(node);
@@ -6846,6 +6851,67 @@ normal_call:
             }
         }
     }
+}
+
+// The printf family and the position of its format argument
+static const std::map<std::string, size_t>& printfLikeFunctions() {
+    static const std::map<std::string, size_t> m = {
+        {"printf", 0}, {"vprintf", 0}, {"fprintf", 1}, {"vfprintf", 1},
+        {"sprintf", 1}, {"vsprintf", 1}, {"snprintf", 2}, {"vsnprintf", 2},
+        {"cprintf", 0}, {"cprintfxy", 2}, {"fcm_cprintf", 4}};
+    return m;
+}
+
+// The printf formatter links its integer conversions only when a format
+// string needs them (lib/stdlib/fmtconv.h): __fmt_int_linked for an int or
+// char argument, __fmt_long_linked for a long one. A call with a literal
+// format needs what the literal's conversions use; a printf-like function
+// passing its own format parameter on needs nothing (its callers' formats
+// count); any other format -- and a printf-like function used as a value
+// -- needs everything.
+void IRBuilder::needAllFormats() {
+    auto& refs = currentFunc_ ? currentFunc_->asmRefs : module_.asmRefs;
+    refs.erase("___fmt_int_linked");   // the 32-bit digits serve int arguments too
+    refs.insert("___fmt_long_linked");
+}
+
+void IRBuilder::noteFormatNeeds(FunctionCall& call) {
+    if (call.callExpr) return;
+    const auto& table = printfLikeFunctions();
+    auto it = table.find(call.name);
+    if (it == table.end()) return;
+    if (it->second >= call.arguments.size()) return;
+    Expression* fmt = call.arguments[it->second].get();
+    if (auto* sl = dynamic_cast<StringLiteral*>(fmt)) {
+        auto& refs = currentFunc_ ? currentFunc_->asmRefs : module_.asmRefs;
+        const std::string& f = sl->value;
+        for (size_t i = 0; i < f.size(); i++) {
+            if (f[i] != '%') continue;
+            i++;
+            while (i < f.size() && std::strchr("-+ #0", f[i])) i++;
+            while (i < f.size() && (std::isdigit((unsigned char)f[i]) || f[i] == '*')) i++;
+            if (i < f.size() && f[i] == '.') { i++; while (i < f.size() && (std::isdigit((unsigned char)f[i]) || f[i] == '*')) i++; }
+            bool isLong = false;
+            while (i < f.size() && std::strchr("hlLjzt", f[i])) { if (f[i] == 'l' || f[i] == 'L' || f[i] == 'j') isLong = true; i++; }
+            if (i >= f.size()) break;
+            char c = f[i];
+            if (std::strchr("diuxXob", c)) refs.insert(isLong ? "___fmt_long_linked" : "___fmt_int_linked");
+            else if (c == 'p') refs.insert("___fmt_int_linked");
+        }
+        // the 32-bit digits also serve int arguments: one hook is enough
+        if (refs.count("___fmt_long_linked")) refs.erase("___fmt_int_linked");
+        return;
+    }
+    // a printf-like function passing its own format parameter on
+    if (auto* vr = dynamic_cast<VariableReference*>(fmt); vr && currentFunc_) {
+        std::string self = currentFunc_->name;
+        if (!self.empty() && self[0] == '_') self = self.substr(1);
+        auto own = table.find(self);
+        if (own != table.end() && own->second < currentFunc_->paramNames.size() &&
+            currentFunc_->paramNames[own->second] == vr->name)
+            return;
+    }
+    needAllFormats();
 }
 
 void IRBuilder::visit(ExpressionStatement& node) {

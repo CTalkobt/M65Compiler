@@ -876,8 +876,13 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
                     }
                 } catch (...) {}
                 int from = find(seg, stmt->address);
-                if (target < 0) { unite(node(seg, from), node(seg, -1)); continue; }   // unknown: keep with the object
+                if (target < 0) {   // unknown: keep with the object
+                    if (getenv("CA45_DEBUG_SECTIONS")) std::cerr << "branch unknown " << stmt->instr.operand << " at " << stmt->address << std::endl;
+                    unite(node(seg, from), node(seg, -1)); continue; }
                 int to = find(seg, target);
+                if (from != to && getenv("CA45_DEBUG_SECTIONS"))
+                    std::cerr << "branch " << stmt->instr.mnemonic << " " << stmt->instr.operand << " at " << stmt->address
+                              << " sec " << from << " -> " << target << " sec " << to << std::endl;
                 if (from != to) unite(node(seg, from), node(seg, to));
             }
         }
@@ -1047,6 +1052,19 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
                 ref.kind = text ? O45_SECTREF_TEXT_RELOC : O45_SECTREF_DATA_RELOC;
                 ref.key = (uint32_t)(r.offset + (text ? srcOff : 0));
                 ref.section = want < 0 ? O45_SECT_RESIDUAL : (uint16_t)want;
+                refs.push_back(ref);
+            }
+        }
+        // .ref: the section needs an import (no relocation)
+        for (const auto& stmt : parser.statements) {
+            if (stmt->deleted || stmt->type != AssemblerParser::Statement::DIRECTIVE || stmt->dir.name != "ref") continue;
+            int sec = tableIndex(stmt->segmentName, stmt->address);
+            for (const auto& name : stmt->dir.arguments) {
+                if (!syms.isImported(name)) continue;   // defined here: nothing to pull
+                O45SectRef ref;
+                ref.kind = O45_SECTREF_IMPORT;
+                ref.key = syms.getImportIndex(name);
+                ref.section = sec < 0 ? O45_SECT_RESIDUAL : (uint16_t)sec;
                 refs.push_back(ref);
             }
         }

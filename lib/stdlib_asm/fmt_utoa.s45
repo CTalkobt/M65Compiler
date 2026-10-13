@@ -1,0 +1,58 @@
+; fmt_utoa.s — printf's digits of int and char arguments (ZP calling convention)
+;
+; int __fmt_utoa(unsigned int v, unsigned int base, char *end, char *digits);
+;   Writes the digits of v in base (2..16) backwards, ending before end,
+;   each digits[remainder]; returns their number (at least 1).
+;   Linked when a format string of the program has an integer conversion
+;   without l: cc45 references ___fmt_int_linked (lib/stdlib/fmtconv.h).
+
+.global ___fmt_utoa
+.global ___fmt_int_linked
+
+.segment "data"
+___fmt_int_linked:
+    .byte 1
+
+.segment "code"
+
+proc ___fmt_utoa
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17
+    .zp_clobbers $10, $11, $14, $15
+    .zp_release $10, $11, $12, $13, $14, $15, $16, $17
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+
+    ; v at $10/$11, base at $12, end at $14/$15, digits at $16/$17
+    ldz #0              ; the number of digits
+@digit:
+    lda #0              ; v / base: shift-subtract, the remainder in A
+    ldx #16
+@bit:
+    asl $10
+    rol $11
+    rol a
+    cmp $12
+    bcc @no
+    sbc $12
+    inc $10             ; the quotient bit (bit 0 is 0 after the shift)
+@no:
+    dex
+    bne @bit
+    tay
+    lda $14             ; end = end - 1
+    bne @low
+    dec $15
+@low:
+    dec $14
+    lda ($16),y         ; digits[remainder]
+    ldy #0
+    sta ($14),y
+    inz
+    lda $10
+    ora $11
+    bne @digit
+    tza
+    ldx #0
+    rts
+    .func_flags zp_call
+    endproc

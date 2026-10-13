@@ -105,11 +105,14 @@ static void printSections(const O45File& obj) {
         std::cout << "Section references (" << obj.sectRefs.size() << "):" << std::endl;
         for (const auto& r : obj.sectRefs) {
             const char* kind = r.kind == O45_SECTREF_TEXT_RELOC ? "text reloc at" :
-                               r.kind == O45_SECTREF_DATA_RELOC ? "data reloc at" : "export";
+                               r.kind == O45_SECTREF_DATA_RELOC ? "data reloc at" :
+                               r.kind == O45_SECTREF_IMPORT ? "needs" : "export";
             std::string target = r.section == O45_SECT_RESIDUAL ? std::string("residual")
                 : "section " + std::to_string(r.section) + " " + obj.sections[r.section].name;
             if (r.kind == O45_SECTREF_EXPORT && r.key < obj.exports.size())
                 printf("  %s %s -> %s\n", kind, obj.exports[r.key].name.c_str(), target.c_str());
+            else if (r.kind == O45_SECTREF_IMPORT && r.key < obj.imports.size())
+                printf("  %s %s %s\n", target.c_str(), kind, obj.imports[r.key].name.c_str());
             else
                 printf("  %s %08X -> %s\n", kind, r.key, target.c_str());
         }

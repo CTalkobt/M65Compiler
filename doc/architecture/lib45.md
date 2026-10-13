@@ -180,12 +180,14 @@ Sections are numbered 0..n-1 in entry order over all `OPT_SECTIONS` records (a r
 `OPT_SECTREF` payload — 7-byte entries:
 
 ```
-kind     (1 byte)   ; 0: text relocation, 1: data relocation, 2: export
+kind     (1 byte)   ; 0: text relocation, 1: data relocation, 2: export, 3: import needed
 key      (4 bytes)  ; LE: the relocation's site offset (kinds 0/1), or the export index (kind 2)
 section  (2 bytes)  ; LE: the section; $FFFF = the residual of the target segment
 ```
 
 An internal relocation's target section is the one containing the value stored at its site (less the segment base) — except where an `OPT_SECTREF` entry says otherwise: a pointer one past the end of a section, an address with a negative addend, a low byte (`R_LOW`) whose full value is not stored. An export at a section boundary that belongs to the earlier section gets an entry too.
+
+Kind 3 (`key` = an import index; ca45 `.ref`): the section needs that import's definition although no relocation uses it — ln45 links the definition only while the section is kept.
 
 The reader rejects a malformed record, a section outside its segment, overlapping or unsorted sections, and references to a missing section or export, or references without a section table.
 

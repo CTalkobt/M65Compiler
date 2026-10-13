@@ -223,14 +223,23 @@ void O45Linker::gcSections(size_t numRoots) {
     std::vector<UnitMap> maps(n);
     std::vector<std::vector<O45Reloc>> textR(n), dataR(n);
     std::vector<std::map<std::pair<uint8_t, uint32_t>, int>> refUnit(n);   // (kind, key) -> unit
+    std::vector<std::vector<std::pair<int, uint32_t>>> importRefs(n);     // .ref: (unit, import index)
+    std::vector<std::set<uint32_t>> refImports(n);                          // imports with a .ref
     for (size_t i = 0; i < n; i++) {
         const auto& o = objects_[i].obj;
         maps[i] = unitMapOf(o);
         textR[i] = O45RelocDecoder::decode(o.textRelocs);
         dataR[i] = O45RelocDecoder::decode(o.dataRelocs);
         if (compactable(o))
-            for (const auto& r : o.sectRefs)
-                refUnit[i][{r.kind, r.key}] = r.section == O45_SECT_RESIDUAL ? maps[i].residual : r.section;
+            for (const auto& r : o.sectRefs) {
+                int u = r.section == O45_SECT_RESIDUAL ? maps[i].residual : r.section;
+                if (r.kind == O45_SECTREF_IMPORT) {
+                    importRefs[i].push_back({u, r.key});
+                    refImports[i].insert(r.key);
+                } else {
+                    refUnit[i][{r.kind, r.key}] = u;
+                }
+            }
     }
     // the definition each name binds to
     std::map<std::string, std::pair<size_t, size_t>> strongDef, weakDef;   // name -> (object, export)
@@ -304,9 +313,17 @@ void O45Linker::gcSections(size_t numRoots) {
                 }
             }
         }
+        // .ref: the unit needs an import's definition (no relocation)
+        for (const auto& [ru, k] : importRefs[i]) {
+            if (ru != u || k >= o.imports.size()) continue;
+            std::pair<size_t, size_t> d;
+            if (definer(o.imports[k].name, d)) mark(d.first, exportUnit(d.first, d.second));
+        }
         // an import no relocation uses (a .extern for its side effect) still pulls its definer
         if (u == maps[i].residual)
-            for (const auto& imp : o.imports) {
+            for (size_t k = 0; k < o.imports.size(); k++) {
+                const auto& imp = o.imports[k];
+                if (refImports[i].count((uint32_t)k)) continue;   // tied to a section by .ref
                 std::pair<size_t, size_t> d;
                 bool found = definer(imp.name, d);
                 if (!found) {
@@ -331,7 +348,7 @@ void O45Linker::gcSections(size_t numRoots) {
             if (dropped) {
                 std::string err;
                 O45File compacted;
-                if (!compactObject(objects_[i].obj, keepSec, textR[i], dataR[i], refUnit[i], compacted, err)) {
+                if (!compactObject(objects_[i].obj, keepSec, textR[i], dataR[i], refUnit[i], importRefs[i], compacted, err)) {
                     gcErrors_.push_back(objects_[i].filename + ": " + err);
                 } else {
                     discardedSections_.push_back({objects_[i].filename, dropped,
@@ -355,6 +372,7 @@ void O45Linker::gcSections(size_t numRoots) {
 bool O45Linker::compactObject(const O45File& o, const std::vector<bool>& keepSec,
                               const std::vector<O45Reloc>& textRel, const std::vector<O45Reloc>& dataRel,
                               const std::map<std::pair<uint8_t, uint32_t>, int>& refUnit,
+                              const std::vector<std::pair<int, uint32_t>>& importRefs,
                               O45File& out, std::string& err) {
     UnitMap m = unitMapOf(o);
     int residual = m.residual;
@@ -437,6 +455,11 @@ bool O45Linker::compactObject(const O45File& o, const std::vector<bool>& keepSec
             uint32_t ns;
             if (siteNew(t == 0 ? SEG_TEXT : SEG_DATA, r.offset, ns)) usedAfter[r.symbolIndex] = true;
         }
+    for (const auto& [u, k] : importRefs) {   // .ref uses
+        if (k >= o.imports.size()) continue;
+        usedBefore[k] = true;
+        if (u == residual || keepSec[u]) usedAfter[k] = true;
+    }
     std::vector<uint32_t> newImportIndex(o.imports.size(), 0);
     out.imports.clear();
     for (size_t k = 0; k < o.imports.size(); k++) {

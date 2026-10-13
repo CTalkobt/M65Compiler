@@ -123,13 +123,16 @@ constexpr uint8_t  OPT_OS_MEGA65     = 0x05;
 // section an internal relocation (kind 0 text, 1 data; key = its site
 // offset) points into, or an export (kind 2; key = export index) belongs
 // to, where its value alone does not say (one past the end of a section,
-// a low byte); section $FFFF = the residual.
+// a low byte); section $FFFF = the residual. Kind 3 (key = import index):
+// the section needs that import without a relocation (ca45 .ref): ln45
+// pulls its definition when the section is kept.
 // Every record's payload is at most 253 bytes (option length byte = +2).
 constexpr uint8_t  O45_SECT_KEEP     = 0x80;
 constexpr uint16_t O45_SECT_RESIDUAL = 0xFFFF;
 constexpr uint8_t  O45_SECTREF_TEXT_RELOC = 0;
 constexpr uint8_t  O45_SECTREF_DATA_RELOC = 1;
 constexpr uint8_t  O45_SECTREF_EXPORT     = 2;
+constexpr uint8_t  O45_SECTREF_IMPORT     = 3;   // .ref: the section needs import #key (no bytes)
 constexpr size_t   O45_OPT_PAYLOAD_MAX = 253;
 
 struct O45Section {

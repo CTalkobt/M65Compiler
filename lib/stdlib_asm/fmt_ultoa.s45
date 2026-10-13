@@ -1,0 +1,64 @@
+; fmt_ultoa.s — printf's digits of long and long long arguments (ZP calling convention)
+;
+; int __fmt_ultoa(unsigned long v, unsigned int base, char *end, char *digits);
+;   Writes the digits of v in base (2..16) backwards, ending before end,
+;   each digits[remainder]; returns their number (at least 1).
+;   Linked when a format string of the program has an integer conversion
+;   with l (or one that is not a literal): cc45 references ___fmt_long_linked
+;   (lib/stdlib/fmtconv.h). __vformat uses it for int arguments too when
+;   __fmt_utoa is not linked.
+
+.global ___fmt_ultoa
+.global ___fmt_long_linked
+
+.segment "data"
+___fmt_long_linked:
+    .byte 1
+
+.segment "code"
+
+proc ___fmt_ultoa
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
+    .zp_clobbers $10, $11, $12, $13, $16, $17
+    .zp_release $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+
+    ; v at $10..$13, base at $14, end at $16/$17, digits at $18/$19
+    ldz #0              ; the number of digits
+@digit:
+    lda #0              ; v / base: shift-subtract, the remainder in A
+    ldx #32
+@bit:
+    asl $10
+    rol $11
+    rol $12
+    rol $13
+    rol a
+    cmp $14
+    bcc @no
+    sbc $14
+    inc $10             ; the quotient bit (bit 0 is 0 after the shift)
+@no:
+    dex
+    bne @bit
+    tay
+    lda $16             ; end = end - 1
+    bne @low
+    dec $17
+@low:
+    dec $16
+    lda ($18),y         ; digits[remainder]
+    ldy #0
+    sta ($16),y
+    inz
+    lda $10
+    ora $11
+    ora $12
+    ora $13
+    bne @digit
+    tza
+    ldx #0
+    rts
+    .func_flags zp_call
+    endproc

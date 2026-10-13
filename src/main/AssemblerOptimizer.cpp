@@ -300,7 +300,7 @@ bool AssemblerOptimizer::optimizeInternal(
                 // computed goto, patched at run time): never a relative branch
                 bool numeric = operand.empty() || operand[0] == '$' || operand[0] == '%' ||
                                (operand[0] >= '0' && operand[0] <= '9');
-                if (!isReloc && !numeric) {
+                if (!isReloc && !numeric && !parser->isWeakSymbol(operand)) {
                     uint32_t braPC = s->address + 2;
                     int32_t offset = (int32_t)targetAddr - (int32_t)braPC;
                     if (offset >= -128 && offset <= 127) {
@@ -326,6 +326,8 @@ bool AssemblerOptimizer::optimizeInternal(
                     if (canBSR && (parser->isRelocatableSymbol(operand) ||
                         parser->isRelocatableSymbolIn(operand, s->scopePrefix)))
                         canBSR = false;
+                    // a weak target may be replaced by a strong definition at link time
+                    if (canBSR && parser->isWeakSymbol(operand)) canBSR = false;
                 }
                 if (canBSR) {
                     uint32_t bsrPC = s->address + 3;

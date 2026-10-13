@@ -14,9 +14,26 @@
  *              program that prints no floats passes 0 and they are skipped)
  * int is 16 bits and long 32; long long (8 bytes) prints its low 32 bits.
  * %p prints $hhhh.
+ *
+ * The digits of the integer conversions come from hooks (fmtconv.h) that
+ * are linked only when a format string of the program needs them (cc45
+ * references their markers; a format that is not a literal needs all).
+ * Without them a conversion prints no digits but still takes its argument.
  */
 
 #include <stdarg.h>
+#include "fmtconv.h"
+
+/* The digit hooks when they are not linked (weak): no digits. Assembly:
+ * a C function would export static-allocation symbols the real hooks also
+ * define. */
+asm(".weak ___fmt_utoa\n"
+    "___fmt_utoa:\n"
+    ".weak ___fmt_ultoa\n"
+    "___fmt_ultoa:\n"
+    "    lda #0\n"
+    "    tax\n"
+    "    rts\n");
 
 typedef void (*__fmt_put)(int c, void *ctx);
 
@@ -114,6 +131,7 @@ int __vformat(__fmt_put put, void *ctx, char *fmt, va_list ap, int (*ffmt)(char 
                 }
                 v = w;
             }
+
             unsigned int base = 10;
             if (c == 'x' || c == 'X' || c == 'p') base = 16;
             else if (c == 'o') base = 8;
@@ -123,12 +141,12 @@ int __vformat(__fmt_put put, void *ctx, char *fmt, va_list ap, int (*ffmt)(char 
             /* Digits, from the end of the buffer */
             s = buf + sizeof(buf);
             if (v || prec != 0) {
-                do {
-                    s = s - 1;
-                    *s = digits[(int)(v % base)];
-                    v = v / base;
-                    len = len + 1;
-                } while (v);
+                /* a real hook writes at least one digit: 0 from __fmt_utoa means
+                 * only __fmt_ultoa is linked (cc45 links just it when a program
+                 * needs both) */
+                if (size < 4 || c == 'p') len = __fmt_utoa((unsigned int)v, base, s, digits);
+                if (!len) len = __fmt_ultoa(v, base, s, digits);
+                s = s - len;
             }
             if (prec >= 0) { if (prec > len) zeros = prec - len; }
             if (c == 'd' || c == 'i') {

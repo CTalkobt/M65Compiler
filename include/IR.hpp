@@ -218,6 +218,9 @@ struct Function {
     bool isNaked = false;
     bool isRegparm = false;
     bool isNested = false;
+    // symbols this function needs without a relocation (ca45 .ref): the
+    // printf conversion hooks its format strings use
+    std::set<std::string> asmRefs;
     bool isRecurse = false;      // opt-out of static allocation (SAC)
     // #pragma cc45 optimize(...) in effect at the definition: catalog name -> on/off
     std::map<std::string, bool> optOverrides;
@@ -277,6 +280,7 @@ struct Module {
     // CPU stack: -1 = crt0 default (16-bit stack topped at $BFFF), 0 = keep
     // the ROM's 8-bit page-1 stack (-fno-stack16), else the stack's top byte
     int stackTop = -1;
+    std::set<std::string> asmRefs;   // .ref needed outside any function
     int stackSize = -1;     // -fstack-size=N / #pragma cc45 stack_size(N): __stack_size (-1: ln45's default)
     int bssFill = -1;       // -fbss-fill=V: crt0 fills BSS with V (-1: ln45's default, 0)
     int maxUnrollBytes = -1;   // #pragma cc45 max_unroll_bytes (last one in the file); -1 = -fmax-unroll-bytes
