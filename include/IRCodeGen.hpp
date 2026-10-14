@@ -187,6 +187,10 @@ private:
     std::string currentFunctionName_;  // name of function being emitted
     bool currentFunctionUseSAC_ = false;  // whether current function uses SAC
     bool relocMode_ = false;
+    // What __zp_scratch holds after a fused element load: base + offset +
+    // index*stride (the next load of the same array and index reuses it)
+    struct ElemCache { bool valid = false; std::string base; uint32_t index = 0; int stride = 0; int offset = 0; };
+    ElemCache elemCache_;
     // Push a 16-bit value with PHW #, which stores its operand's high byte
     // at SP+1: the bytes swapped, so the stack holds it little-endian (as
     // push .ax); a symbol's address as the opcode and >sym, <sym

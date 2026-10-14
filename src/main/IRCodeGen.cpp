@@ -358,6 +358,7 @@ void IRCodeGen::emitLabel(const std::string& label) {
     if (inBss_) bssBoundaryClean_ = false;
     out_ << label << ":\n";
     emitSeq_++;       // a branch target: nothing is known here
+    elemCache_.valid = false;
     flagReg_ = 0;
 }
 
@@ -3600,6 +3601,9 @@ bool IRCodeGen::frameAddrUsedAfterCall() const {
 }
 
 void IRCodeGen::emitInst(const ir::Inst& inst) {
+    // the element address in __zp_scratch survives only from one fused
+    // element load to the next
+    if (!(inst.op == ir::Op::LOAD && inst.args.size() >= 3) && inst.op != ir::Op::NOP) elemCache_.valid = false;
     if (skipThrough_) {
         if (&inst == skipThrough_) skipThrough_ = nullptr;
         return;
@@ -4721,7 +4725,26 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
 
                 std::string baseStr = (base.kind == ir::OperandKind::GLOBAL) ?
                     globalBase(base, inst.elemOffset) : src2MemOperand(base);
-                emitArrayElemAddr(baseStr, index, stride, "__zp_scratch");
+                // __zp_scratch may already point into the same array at the
+                // same index (a[j] then a[j + 1]): only Y differs
+                int yOff = 0;
+                bool cacheable = base.kind == ir::OperandKind::GLOBAL && index.isVreg() &&
+                                 inst.resultType != ir::Type::I32;
+                int d = inst.elemOffset - elemCache_.offset;
+                if (cacheable && elemCache_.valid && elemCache_.base == base.name &&
+                    elemCache_.index == index.vregId && elemCache_.stride == stride && d >= 0 && d <= 250) {
+                    yOff = d;
+                    emitComment("address in __zp_scratch: " + base.name + " + " + std::to_string(elemCache_.offset) +
+                                " + index*" + std::to_string(stride) + ", Y + " + std::to_string(d));
+                } else {
+                    emitArrayElemAddr(baseStr, index, stride, "__zp_scratch");
+                    elemCache_.valid = cacheable;
+                    elemCache_.base = base.name;
+                    elemCache_.index = index.isVreg() ? index.vregId : 0;
+                    elemCache_.stride = stride;
+                    elemCache_.offset = inst.elemOffset;
+                }
+                if (inst.dest.isVreg() && index.isVreg() && inst.dest.vregId == index.vregId) elemCache_.valid = false;
                 // Now load from (__zp_scratch),Y
                 if (inst.resultType == ir::Type::I32) {
                     // Top byte first, so Y stays the index until the end:
@@ -4737,10 +4760,10 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 }
                 if (inst.resultType != ir::Type::I8) {
                     // high byte first: no pha/pla
-                    emit("ldy #1"); emit("lda (__zp_scratch),y"); emit("tax");
+                    emit("ldy #" + std::to_string(yOff + 1)); emit("lda (__zp_scratch),y"); emit("tax");
                     emit("dey");    emit("lda (__zp_scratch),y");
                 } else {
-                    emit("ldy #0");
+                    emit("ldy #" + std::to_string(yOff));
                     emit("lda (__zp_scratch),y");
                     emit("ldx #0");
                 }

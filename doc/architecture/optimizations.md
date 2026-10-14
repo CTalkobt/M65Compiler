@@ -128,6 +128,13 @@ before the access and `x` is not written in between: the add disappears and
 `a[j]` / `a[j + 1]` scale the same index. It runs last because CSE does not
 compare offsets. Validation: `test_elem_offset_xemu.c`. Benchmark: 904 ms.
 
+A fused element load leaves `__zp_scratch` pointing at base + offset +
+index*stride; the next fused load of the same global array and index
+variable (no other instruction between, no label) reads through it with Y
+moved by the offset difference (`a[j]` then `a[j + 1]`: `ldy #3` instead of
+the address computed again). A load into the index variable itself
+(`i = n[i]`) forgets it. Benchmark: 843 ms.
+
 A static-allocation function that makes calls cannot use the pool across
 them; its most used variables go in a base-page block of its own, `$80+k`,
 declared with `.zar $80, N`: pointers first, then `char`/`int`/`long` variables
