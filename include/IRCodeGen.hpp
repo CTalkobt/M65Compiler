@@ -114,6 +114,7 @@ private:
     void emitStrings(const ir::Module& mod);
     void emitFunction(const ir::Function& fn, bool relocMode, bool isMainWithZPSave = false);
     void emitInst(const ir::Inst& inst);
+    void emitInstBody(const ir::Inst& inst);
 
     // Check if frame-relative addressing is used after the current instruction
     bool frameAddrUsedAfterCall() const;
@@ -192,6 +193,13 @@ private:
     struct ElemCache { bool valid = false; std::string base; uint32_t index = 0; int stride = 0; int offset = 0; };
     ElemCache elemCache_;
     bool elemCacheSurvives(const ir::Inst& inst);
+    int elemAddrFromCache(const ir::Inst& inst);
+    // set by emit() when a line names __zp_scratch or calls: a compare or
+    // branch that emitted none keeps elemCache_
+    bool scratchTouched_ = false;
+    // branch-target references per label of the current function (the
+    // cache carries into a block only from its single conditional branch)
+    std::map<std::string, int> labelRefs_;
     // Push a 16-bit value with PHW #, which stores its operand's high byte
     // at SP+1: the bytes swapped, so the stack holds it little-endian (as
     // push .ax); a symbol's address as the opcode and >sym, <sym

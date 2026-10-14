@@ -34,6 +34,7 @@ static std::string hex16(uint16_t val) {
 // cached index variable
 bool IRCodeGen::elemCacheSurvives(const ir::Inst& inst) {
     if (inst.op == ir::Op::NOP) return true;
+    if (elemAddrFromCache(inst) >= 0) return true;   // reads __zp_scratch only
     bool fused = (inst.op == ir::Op::LOAD || inst.op == ir::Op::STORE) && inst.args.size() >= 3;
     if (fused) return true;
     auto inZp = [&](const ir::Operand& o) {
@@ -51,6 +52,20 @@ bool IRCodeGen::elemCacheSurvives(const ir::Inst& inst) {
         inst.dest.isVreg() && inst.dest.vregId != elemCache_.index && inZp(inst.dest))
         return true;   // *p with p in ZP, into ZP
     return false;
+}
+
+// An element address the cache holds already (&a[j] after a load of a[j]):
+// the offset from the cached one, else -1
+int IRCodeGen::elemAddrFromCache(const ir::Inst& inst) {
+    if (inst.op != ir::Op::ADDR_ELEM || !elemCache_.valid || inst.src1.kind != ir::OperandKind::GLOBAL ||
+        inst.src1.name != elemCache_.base || !inst.src2.isVreg() || inst.src2.vregId != elemCache_.index ||
+        !inst.dest.isVreg() || inst.dest.vregId == elemCache_.index || foldedAddrs_.count(inst.dest.vregId))
+        return -1;
+    int stride = inst.args.size() > 0 ? (int)inst.args[0].immVal : 2;
+    int d = inst.elemOffset - elemCache_.offset;
+    if (stride != elemCache_.stride || d < 0 || d > 255) return -1;
+    if (alloc_.getAlloc(inst.dest.vregId).loc != VRegAllocator::IN_ZP) return -1;
+    return d;
 }
 
 std::string IRCodeGen::globalBase(const ir::Operand& base, int offset) {
@@ -213,6 +228,13 @@ void IRCodeGen::emit(const std::string& line, const std::string& reason) {
     else if (inBss_ && !line.empty() && line[0] != ';' &&
              line.rfind(".global", 0) != 0 && line.rfind(".local", 0) != 0)
         bssBoundaryClean_ = false;
+    if (line.find("__zp_scratch") != std::string::npos || line.rfind("jsr", 0) == 0 ||
+        line.rfind("jmp", 0) == 0)
+        scratchTouched_ = true;
+    else if (line[0] != '.' && line[0] != ';') {   // a simulated instruction may use scratch
+        std::string m = line.substr(0, line.find_first_of(" \t"));
+        if (m.find('.') != std::string::npos && m != "cmp.16") scratchTouched_ = true;
+    }
     out_ << "    " << line;
     if (emitReasons_ && !reason.empty()) {
         out_ << "  ; [" << reason << "]";
@@ -3396,12 +3418,41 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // Emit blocks (with instruction index tracking for allocator queries)
     currentInstIdx_ = 0;
     currentFn_ = &fn;
+    // how often each label is a jump target (inline asm may name any: none
+    // counts as single then)
+    labelRefs_.clear();
+    bool anyAsm = false;
+    for (const auto& b : fn.blocks)
+        for (const auto& in : b.insts) {
+            if (in.op == ir::Op::ASM_INLINE) anyAsm = true;
+            for (const ir::Operand* o : {&in.dest, &in.src1, &in.src2})
+                if (o->kind == ir::OperandKind::LABEL) labelRefs_[o->name]++;
+            for (const auto& o : in.args)
+                if (o.kind == ir::OperandKind::LABEL) labelRefs_[o.name]++;
+            for (const auto& c : in.switchCases) labelRefs_[c.second] += 2;
+            for (const auto& ph : in.phiIncoming) labelRefs_[ph.second] += 2;
+        }
     for (size_t bi = 0; bi < fn.blocks.size(); bi++) {
         const auto& block = fn.blocks[bi];
         currentBlockIdx_ = bi;
         // Track the next block's label for no-op branch elimination
         nextBlockLabel_ = (bi + 1 < fn.blocks.size()) ? fn.blocks[bi + 1].label : "__return";
+        // the element address cache carries into a block reached only by
+        // the conditional branch that ends the block before it
+        ElemCache carried;
+        if (elemCache_.valid && bi > 0 && !anyAsm && !fn.addressTakenLabels.count(block.label) &&
+            labelRefs_[block.label] == 1 && !fn.blocks[bi - 1].insts.empty()) {
+            const auto& last = fn.blocks[bi - 1].insts.back();
+            if (last.op == ir::Op::BR_COND &&
+                ((last.dest.kind == ir::OperandKind::LABEL && last.dest.name == block.label) !=
+                 (last.src2.kind == ir::OperandKind::LABEL && last.src2.name == block.label)))
+                carried = elemCache_;
+        }
         emitLabel("@" + block.label);
+        if (carried.valid) {
+            elemCache_ = carried;
+            emitComment("address of " + carried.base + "[...] still in __zp_scratch (single predecessor)");
+        }
         // A label used from data (static &&label table): a global alias
         if (fn.addressTakenLabels.count(block.label)) {
             ms_.invalidateAll();
@@ -3629,7 +3680,28 @@ bool IRCodeGen::frameAddrUsedAfterCall() const {
 void IRCodeGen::emitInst(const ir::Inst& inst) {
     // the element address in __zp_scratch survives only from one fused
     // element load to the next
-    if (elemCache_.valid && !elemCacheSurvives(inst)) elemCache_.valid = false;
+    if (elemCache_.valid && !elemCacheSurvives(inst)) {
+        // a compare or a conditional branch of bytes / words keeps it when
+        // what it emits does not touch __zp_scratch (checked after)
+        bool cmpLike = (inst.op >= ir::Op::CMP_EQ && inst.op <= ir::Op::CMP_GEU) || inst.op == ir::Op::BR_COND;
+        auto small = [](const ir::Operand& o) {
+            return o.isNone() || o.kind == ir::OperandKind::LABEL || o.type == ir::Type::I8 ||
+                   o.type == ir::Type::I16 || o.type == ir::Type::PTR;
+        };
+        if (cmpLike && small(inst.src1) && small(inst.src2) && inst.args.empty() && !inBss_) {
+            ElemCache saved = elemCache_;
+            elemCache_.valid = false;
+            scratchTouched_ = false;
+            emitInstBody(inst);
+            if (!scratchTouched_) elemCache_ = saved;
+            return;
+        }
+        elemCache_.valid = false;
+    }
+    emitInstBody(inst);
+}
+
+void IRCodeGen::emitInstBody(const ir::Inst& inst) {
     if (skipThrough_) {
         if (&inst == skipThrough_) skipThrough_ = nullptr;
         return;
@@ -5576,6 +5648,18 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         }
 
         case ir::Op::ADDR_ELEM: {
+            int fromCache = elemAddrFromCache(inst);
+            if (fromCache >= 0) {
+                std::string d = "$" + hex8((uint8_t)alloc_.getAlloc(inst.dest.vregId).offset);
+                emitComment("address in __zp_scratch already");
+                emit("lda __zp_scratch");
+                if (fromCache) { emit("clc"); emit("adc #" + std::to_string(fromCache)); }
+                emit("sta " + d);
+                emit("lda __zp_scratch+1");
+                if (fromCache) emit("adc #0");
+                emit("sta " + d + "+1");
+                break;
+            }
             int elemSize = (inst.args.size() > 0) ? (int)inst.args[0].immVal : 2;
             
             auto operandToString = [&](const ir::Operand& op) -> std::string {

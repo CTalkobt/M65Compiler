@@ -137,7 +137,15 @@ the address computed again). A load into the index variable itself
 the instructions that cannot touch `__zp_scratch` or the index: a store of a
 value to a variable in ZP, a load or store through a pointer in ZP (bubble
 sort's swap: `a[j + 1] = t` reuses the address of the `a[j + 1]` load before
-it). Benchmark: 812 ms.
+it). It survives a compare and a conditional branch of bytes and words whose
+code does not use `__zp_scratch` (a simulated instruction other than
+`cmp.16` counts as using it: `cmp.s16` does), and carries into a block whose
+only predecessor is the conditional branch that ends the block before it (no
+inline asm in the function, the label not address-taken). An `addr_elem`
+the cache holds (`&a[j]` kept in ZP for a load and a store) copies it from
+`__zp_scratch` instead of computing it: bubble sort's `if (a[j] > a[j + 1])
+{ t = a[j]; a[j] = a[j + 1]; a[j + 1] = t; }` computes one address per
+iteration. Benchmark: 759 ms.
 
 A static-allocation function that makes calls cannot use the pool across
 them; its most used variables go in a base-page block of its own, `$80+k`,
