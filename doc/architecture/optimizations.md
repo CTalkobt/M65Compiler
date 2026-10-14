@@ -350,7 +350,7 @@ order after `-O`). `-Roptimizer` prints every change
 | `StoreLoadPair` | `store-load-pair` | Store/load pair simplification on ZP |
 | `PreserveXSP`, `TSXRedundant` | `preserve-x-sp`, `tsx-redundant` | Avoid reloading X from SP |
 | `TailDedup` | `tail-dedup`, `tail-dedup-suffix` | Merges identical tail sequences |
-| `SeqExtract` | `seq-extract` | Extracts a 4-instruction run repeated in one proc into a routine before its `endproc` (`BSR` calls); **only with `--experimental`** |
+| `SeqExtract` | `seq-extract` | Extracts a 4-instruction run repeated in one proc into a routine before its `endproc` (`BSR` calls); cc45 `-fno-seq-extract` turns it off (benchmark: 98 bytes smaller, ~0.5% slower) |
 | `StrengthReduction`, `AlgebraicSimplify`, `TypeNarrowing`, `BranchFold`, `CSE`, `LICM`, `CopyChains`, `AddrElemFusion` | — | Accepted, **no effect** (IR-level flags; ca45 has no IR) |
 
 At `-O2` and above ca45 also runs the field-striped array passes
@@ -380,7 +380,7 @@ implemented:
 | `strength-reduction`, `algebraic-simplify`, `type-narrowing`, `branch-folding`, `cse`, `loop-invariant-code-motion`, `copy-propagation`, `addr-elem-fusion`, `post-increment-sink` | IR pass ([IR passes](#ir-passes)); also per function by pragma | `-O1` |
 | `inline-small-functions` | IRBuilder inlining (`-fno-` also overrides `-finline-functions`) | `-O2` |
 | `devirtualization` | IRBuilder | `-O0` |
-| `tail-call-optimization`, `branch-inversion`, `jump-optimization`, `redundant-load-elimination`, `dead-store-elimination` | ca45 pass: cc45 passes `-P<x>` / `-PNo<x>` (`TailCall`, `BranchInvert`, `JmpBra`, `RedundantLoad`, `DeadStore`) to ca45; file-wide only | ca45's default (always) |
+| `tail-call-optimization`, `branch-inversion`, `jump-optimization`, `redundant-load-elimination`, `dead-store-elimination`, `seq-extract` | ca45 pass: cc45 passes `-P<x>` / `-PNo<x>` (`TailCall`, `BranchInvert`, `JmpBra`, `RedundantLoad`, `DeadStore`, `SeqExtract`) to ca45; file-wide only | ca45's default (always) |
 | `constant-folding`, `dead-code-elimination`, `frame-pointer-optimization` | Part of code generation, always on: `-fno-` warns *"cannot be disabled"* | always |
 | `loop-interchange` | AST pass before IR generation ([Loop interchange](#loop-interchange)); also per function by pragma | `-O4` |
 | `loop-unrolling` | IR pass ([Loop unrolling](#loop-unrolling)); also per function by pragma | `-O4` |

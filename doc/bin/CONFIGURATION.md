@@ -69,7 +69,7 @@ For the options cc45 accepts see [cc45](cc45.md) (`cc45 -?`). Besides the `-O` l
 | `DeadStore` | Remove dead stores |
 | `TailDedup` | Merge identical tails |
 | `PreserveXSP` | Keep X holding SP across instructions |
-| `SeqExtract` | Sequence extraction (only with `--experimental`) |
+| `SeqExtract` | Sequence extraction (repeated runs → `BSR` routines) |
 | `StoreLoadPair` | Store/load pair optimisation |
 | `FCmpOpt` | Float compare optimisation |
 | `TSXRedundant` | Remove redundant TSX |

@@ -152,8 +152,7 @@ static void printHelpOptimization() {
     std::cout << "                     Options: RedundantLoad, DeadStore, TailCall, JmpBra,\n";
     std::cout << "                     CmpElimination, BranchInvert, JSRRelocate, etc.\n";
     std::cout << "                     Example: ca45 -O2 -PNoRedundantLoad input.s45\n\n";
-    std::cout << "  --experimental     Enable experimental optimizations\n";
-    std::cout << "                     WARNING: HIGHLY UNSTABLE, likely to break code\n";
+    std::cout << "  --experimental     Enable experimental optimizations (none at present)\n";
 }
 
 static void printHelpDebugging() {

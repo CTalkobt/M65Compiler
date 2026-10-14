@@ -235,7 +235,8 @@ ln45, ar45, nm45, objdump45 and disk45 have no config files. Environment:
   has `-f<name>`/`-fno-<name>`: IR passes (also per function with
   `#pragma cc45 optimize(...)`), IRBuilder switches (inline-small-functions,
   devirtualization), ca45 passes forwarded as `-P` (tail calls, branch
-  inversion, jump optimization, redundant loads, dead stores), always-on ones
+  inversion, jump optimization, redundant loads, dead stores, sequence
+  extraction), always-on ones
   (`-fno-` warns); unimplemented names are ignored, `--future` warns.
   `-Roptir` traces the IR passes. The IR is not SSA (slot vregs are assigned
   by `store`, temps can have several definitions): passes must treat a vreg

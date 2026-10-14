@@ -1,10 +1,10 @@
-; test_ca45_seqextract_xemu.s45 — ca45 --experimental SeqExtract (issue #89)
+; test_ca45_seqextract_xemu.s45 — ca45 SeqExtract (issue #89) and .var by position
 ;
 ; f1 repeats a 10-byte run three times: it becomes a routine at the end of
 ; the proc (after an RTS: f1 falls through to endproc), each run a BSR.
 ; f2 repeats a run that names a .var symbol: not moved (at the routine's
 ; place the symbol would have its last value). test_xemu.sh assembles this
-; with and without --experimental and expects the first one smaller.
+; with and without SeqExtract (-PNoSeqExtract) and expects the first smaller.
 ;
 ; Results at $C0C0:
 ;   +0  $11  f1's run stored                +1  $03  X counted between the runs

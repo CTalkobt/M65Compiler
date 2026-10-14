@@ -1258,7 +1258,7 @@ bool AssemblerOptimizer::optimizeInternal(
     }
         }  // if (parser->optFlags.tailDedup)
 
-    // --- Pass 4: sequence extraction (SeqExtract, only with --experimental) ---
+    // --- Pass 4: sequence extraction (SeqExtract; -PNoSeqExtract disables) ---
     // The same run of 4 instructions (8+ bytes) appearing 2+ times in one
     // proc becomes a routine at the end of that proc, each run a BSR to it.
     // Only what means the same at the routine's place: plain instructions
@@ -1266,7 +1266,7 @@ bool AssemblerOptimizer::optimizeInternal(
     // operands name no @local, .var symbol or *. Each run is replaced in
     // place (the BSR takes its first statement), so no index moves before
     // the routines are inserted, last proc first.
-    if (parser->enableExperimental && parser->optFlags.seqExtract) {
+    if (parser->optFlags.seqExtract) {
         auto& st = parser->statements;
         std::set<std::string> varNames;
         for (const auto& s : st)
