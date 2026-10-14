@@ -513,6 +513,55 @@ if $DISK45 2>&1 | grep -q ' mount ' && command -v fusermount3 >/dev/null 2>&1 &&
     else
         echo "  SKIP: mount (FUSE mount failed: $(cat "$TMPDIR/mount.log"))"
     fi
+
+    # CBM subdirectories list and read; writing into them is refused.
+    # disk45 adds only to the root: the entries of TOOL and NOTE are moved
+    # into SUB and SUB/INNER (D81: sector offset ((t-1)*40+s)*256)
+    $DISK45 create "$TMPDIR/fsub.d81" >/dev/null 2>&1
+    $DISK45 mkdir "$TMPDIR/fsub.d81" SUB >/dev/null 2>&1
+    $DISK45 mkdir "$TMPDIR/fsub.d81" SUB/INNER >/dev/null 2>&1
+    $DISK45 add "$TMPDIR/fsub.d81" "$TMPDIR/d1.prg" TOOL >/dev/null 2>&1
+    printf 'deep text' > "$TMPDIR/note.seq"
+    $DISK45 add "$TMPDIR/fsub.d81" "$TMPDIR/note.seq" NOTE >/dev/null 2>&1
+    python3 - "$TMPDIR/fsub.d81" <<'PY'
+import sys
+p = sys.argv[1]; d = bytearray(open(p, 'rb').read())
+off = lambda t, s: ((t - 1) * 40 + s) * 256
+def entries(t, s):
+    while t:
+        o = off(t, s)
+        for i in range(8):
+            yield o + i * 32
+        t, s = d[o], d[o + 1]
+def find(t, s, name):
+    for e in entries(t, s):
+        if d[e + 2] & 7 and bytes(d[e + 5:e + 21]).rstrip(b'\xa0') == name:
+            return e
+def move(e, t, s):
+    for f in entries(t, s):
+        if not d[f + 2] & 7:
+            d[f + 2:f + 32] = d[e + 2:e + 32]; d[e + 2:e + 32] = bytes(30); return
+sub = find(40, 3, b'SUB'); st, ss = d[sub + 3], d[sub + 4]
+inner = find(st, ss, b'INNER'); it, is_ = d[inner + 3], d[inner + 4]
+move(find(40, 3, b'TOOL'), st, ss)
+move(find(40, 3, b'NOTE'), it, is_)
+open(p, 'wb').write(d)
+PY
+    $DISK45 mount "$TMPDIR/fsub.d81" "$FM" >"$TMPDIR/mount.log" 2>&1 &
+    for i in $(seq 1 50); do mountpoint -q "$FM" && break; sleep 0.1; done
+    if mountpoint -q "$FM"; then
+        [ -d "$FM/SUB" ] && [ -d "$FM/sub/INNER" ] &&
+            [ "$(ls "$FM/SUB" | tr '\n' ' ')" = "INNER TOOL.prg " ] &&
+            cmp -s "$FM/SUB/TOOL.prg" "$TMPDIR/d1.prg" &&
+            cmp -s "$FM/SUB/INNER/NOTE.seq" "$TMPDIR/note.seq" &&
+            pass "mount: subdirectories list and read" ||
+            fail "mount: subdirectories ($(ls -R "$FM" 2>&1 | tr '\n' ' '))"
+        ! echo x 2>/dev/null > "$FM/SUB/NEW.seq" && ! rm "$FM/SUB/TOOL.prg" 2>/dev/null &&
+            [ -f "$FM/SUB/TOOL.prg" ] &&
+            pass "mount: writing in a subdirectory is refused" || fail "mount: subdirectory writes"
+        (cd / && fusermount3 -u "$FM")
+        for i in $(seq 1 50); do mountpoint -q "$FM" || break; sleep 0.1; done
+    fi
 else
     echo "  SKIP: mount (no FUSE)"
 fi

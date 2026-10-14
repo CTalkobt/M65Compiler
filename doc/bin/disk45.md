@@ -408,8 +408,8 @@ disk45 mount <image> <mountpoint> [-ro|--readonly] [fuse options...]
 
 Mount an image as a Linux directory using FUSE3. Only available when disk45 was built with libfuse3 (the Makefile detects it with `pkg-config fuse3`; the command then appears in the usage text). disk45 stays in the foreground until unmounted; extra arguments are passed to FUSE.
 
-- Only the root directory is shown. Files appear with type extensions (`GAME.prg`, `README.seq`); subdirectory entries appear as directories but cannot be listed.
-- Read/write: create, write, truncate, rename and delete files; the image is saved after every change. A new file's type comes from its extension (`.prg`, `.seq`, `.usr`, `.rel`; others become PRG); names are limited to 16 characters.
+- Files appear with type extensions (`GAME.prg`, `README.seq`). CBM subdirectories appear as directories and can be listed and read at any depth (`SUB/INNER/NOTE.seq`); they are read-only (creating, writing, renaming or deleting in them fails with `EROFS`), since disk45 adds files only to the root directory.
+- Read/write (root directory): create, write, truncate, rename and delete files; the image is saved after every change. A new file's type comes from its extension (`.prg`, `.seq`, `.usr`, `.rel`; others become PRG); names are limited to 16 characters.
 - Images with no tracks (TAP, T64, ARK, ARC/SDA, LNX, CVT, P00) and read-only formats are always mounted read-only.
 - GEOS files appear as `<name>.cvt`, their Convert (CVT) form (as `extract` writes it). A `.cvt` copied into the mount (or a GEOS file rewritten) is buffered and becomes a GEOS file when it is closed, named after the file (case kept); data that is not a CVT is stored as a USR file. Renaming keeps a GEOS name's case; deleting frees all its sectors.
 - The image path may be relative (it is made absolute; FUSE runs from `/`); a change that cannot be saved fails with an I/O error.
