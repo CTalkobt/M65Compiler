@@ -105,10 +105,18 @@ SP+1, SP+2   return address
 SP+3 ...     first parameter slot, then the following ones
 ```
 
-After the call returns, the caller saves the result in `__zp_scratch4`, pops
-the arguments with one `plz` per byte, and reloads the result. Z is therefore
-not preserved across a stack call; a `long` result is restored with
-`ldq __zp_scratch4`.
+After the call returns, the caller pops the arguments with one `plz` per
+byte. `plz` changes only Z, so a result in A or A/X needs no saving; a `long`
+result (A/X/Y/Z) is saved with `stq __zp_scratch4` and reloaded with `ldq`. Z
+is not preserved across a stack call.
+
+Pushing: a caller without a stack frame (a SAC function) pushes each
+argument as it loads it; one with a frame first loads every argument into the
+parameter block, then pushes them. A constant or a symbol's address is pushed
+with `phw #`, which leaves its operand's **high** byte at SP+1, so cc45 writes
+the bytes swapped (`phw #$3412` pushes `$1234` little-endian) and a symbol as
+`.byte $F4, >sym, <sym` (ca45 relocates `.byte <sym` / `>sym`). `phw abs`
+reverses a memory word the same way and is not used.
 
 The stack is reached through a pointer (`tsx`/`tsy` → `$08/$09`, then
 `lda ($08),y`). It is never read as `$0100,x`, because the stack is 16-bit by
@@ -245,7 +253,12 @@ What a SAC function looks like:
 - **Two entry points.**
   - `<fn>` is the entry for ordinary callers. Its thunk copies the parameters
     from the ZP block (ZP mode) or from the stack (stack mode) into
-    `__param_` storage.
+    `__param_` storage. In stack mode (in a `.o45`) the thunk is
+    `jsr __sac_args` followed by each parameter's size and storage address
+    (`.byte n`, `.word <fn>__param_<p>`, ..., `.byte 0`; 3 bytes a parameter
+    instead of 7 a byte); `lib/stdlib_asm/sac_args.s45` reads the arguments
+    through SP and returns past the list. A variadic function, and `-S`
+    output, copy them inline.
   - `<fn>__sac` is the entry past that thunk.
 - **Leaf functions in ZP mode keep their parameters in the ZP block.** A
   ZP-convention function that makes no calls and has no inline asm or float

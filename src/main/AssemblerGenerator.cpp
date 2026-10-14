@@ -652,8 +652,29 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                         // a number, or any expression ('A', 5-1, <label, -1)
                         for (size_t ai = 0; ai < stmt->dir.arguments.size(); ++ai) {
                             int ti = ai < stmt->dir.argTokenIndices.size() ? stmt->dir.argTokenIndices[ai] : -1;
+                            const std::string& a = stmt->dir.arguments[ai];
+                            // <sym / >sym of a relocatable or external symbol:
+                            // the byte with a relocation (R_LOWX / R_HIGH)
+                            if (ti >= 0 && !a.empty() && (a[0] == '<' || a[0] == '>') && ti + 1 < (int)parser->tokens.size() &&
+                                parser->tokens[ti + 1].type == AssemblerTokenType::IDENTIFIER) {
+                                std::string name = parser->tokens[ti + 1].value;
+                                bool ext = parser->isExternSymbol(name);
+                                if (ext || parser->isRelocatableSymbolIn(name, stmt->scopePrefix)) {
+                                    uint32_t full = 0;
+                                    try { full = parser->evaluateExpressionAt(ti + 1, stmt->scopePrefix); }
+                                    catch (...) { if (!ext) throw; }
+                                    if (a[0] == '<') {
+                                        e.recordDataRelocLo(name, (uint8_t)(full >> 8));
+                                        e.emitByte((uint8_t)full);
+                                    } else {
+                                        e.recordDataRelocHi(name, (uint8_t)full);
+                                        e.emitByte((uint8_t)(full >> 8));
+                                    }
+                                    continue;
+                                }
+                            }
                             uint32_t v;
-                            try { v = parseNumericLiteral(stmt->dir.arguments[ai]); }
+                            try { v = parseNumericLiteral(a); }
                             catch (...) {
                                 if (ti < 0) throw;
                                 v = parser->evaluateExpressionAt(ti, stmt->scopePrefix);

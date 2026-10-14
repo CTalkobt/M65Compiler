@@ -1,0 +1,91 @@
+; sac_args.s45 — the parameter thunk of a stack-convention SAC function
+;
+; A function with static allocation called through its plain entry (from
+; another unit, or through a pointer) finds its arguments on the stack and
+; copies them into its SAC parameter storage. cc45 emits, instead of a
+; ldy/lda ($08),y/sta per byte (7 bytes each):
+;
+;     jsr __sac_args
+;     .byte size1
+;     .word dest1          ; _f__param_a
+;     .byte size2
+;     .word dest2
+;     ...
+;     .byte 0
+;
+; The arguments follow the function's caller's return address, in order, a
+; char in a 2-byte slot (the stack convention). __sac_args returns after
+; the list. A, X, Y and $08-$0F are clobbered (free at a function's entry);
+; Z is not used.
+
+    .cpu 45gs02
+
+; no calls through pointers here (ln45's call graph, see O45Linker)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+sp_ptr   = $08      ; the stack pointer (the stack may be on any page)
+data     = $0A      ; the list - 1 (the return address)
+dest     = $0C      ; where the current parameter goes
+src      = $0E      ; the next argument byte, from SP
+idx      = $0F      ; the next list byte, from data
+
+    .split "__sac_args"
+.global __sac_args
+__sac_args:
+    tsx
+    tsy
+    stx sp_ptr
+    sty sp_ptr+1
+    ldy #1
+    lda (sp_ptr),y
+    sta data
+    iny
+    lda (sp_ptr),y
+    sta data+1
+    lda #5              ; SP + 1, past this return address and the function's
+    sta src
+    lda #1
+    sta idx
+@param:
+    ldy idx
+    lda (data),y        ; the size (0 ends the list)
+    beq @done
+    pha
+    iny
+    lda (data),y
+    sta dest
+    iny
+    lda (data),y
+    sta dest+1
+    iny
+    sty idx
+    pla
+    tax
+    pha
+@byte:
+    ldy src
+    lda (sp_ptr),y
+    ldy #0
+    sta (dest),y
+    inw dest
+    inc src
+    dex
+    bne @byte
+    pla
+    cmp #1              ; a char's slot is 2 bytes
+    bne @param
+    inc src
+    bra @param
+@done:
+    ; return past the list: the return address + the index of its 0
+    clc
+    lda data
+    adc idx
+    ldy #1
+    sta (sp_ptr),y
+    lda data+1
+    adc #0
+    iny
+    sta (sp_ptr),y
+    rts

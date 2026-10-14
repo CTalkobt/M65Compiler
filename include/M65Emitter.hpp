@@ -374,6 +374,9 @@ public:
     void recordSymbolRelocLo(const std::string& name, int highByte = -1);
     void recordSymbolRelocHi(const std::string& name, uint8_t lowByte);
     void recordSymbolReloc32Bit(const std::string& name);
+    // The same for a data byte at the current address (.byte <sym, >sym)
+    void recordDataRelocLo(const std::string& name, uint8_t highByte);
+    void recordDataRelocHi(const std::string& name, uint8_t lowByte);
 
     // Phase 78: Immediate relocation tracking for SMC parameters
     struct ImmediateReloc {

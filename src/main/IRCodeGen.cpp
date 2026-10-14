@@ -27,6 +27,14 @@ static std::string hex16(uint16_t val) {
     return ss.str();
 }
 
+void IRCodeGen::pushWordConst(int v) {
+    emit("phw #$" + hex16((uint16_t)(((v & 0xFF) << 8) | ((v >> 8) & 0xFF))));
+}
+
+void IRCodeGen::pushWordAddr(const std::string& sym) {
+    emit(".byte $F4, >" + sym + ", <" + sym, "phw #" + sym + " (little-endian on the stack)");
+}
+
 // A runtime alloca (variable size) lowers SP inside the function: it needs a
 // stack frame and FP so the epilogue can reset SP, and can't use SAC.
 static bool callsRuntimeAlloca(const ir::Function& fn) {
@@ -2898,14 +2906,31 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             // Read through a pointer to SP so the stack may be on any page
             bool anyParamBytes = fn.isVariadic;
             for (auto t : fn.paramTypes) if (ir::typeSize(t) > 0) anyParamBytes = true;
-            if (anyParamBytes) {
+            if (anyParamBytes && !fn.isVariadic && relocMode_) {
+                // __sac_args (stdlib_asm/sac_args.s45) copies them, from a
+                // list of the parameters' sizes and storage: 3 bytes each
+                // instead of 7 per byte (-S output, assembled without the
+                // library, copies them inline)
+                emit(".extern __sac_args");
+                emit("jsr __sac_args");
+                for (size_t i = 0; i < fn.paramTypes.size(); i++) {
+                    if (fn.isRegparm && i == 0) continue;  // in A/A:X, stored above
+                    std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
+                        ? fn.paramNames[i] : std::to_string(i);
+                    int pSize = ir::typeSize(fn.paramTypes[i]);
+                    if (pSize <= 0) continue;
+                    emit(".byte " + std::to_string(pSize));
+                    emit(".word " + fn.name + "__param_" + pName);
+                }
+                emit(".byte 0");
+            } else if (anyParamBytes) {
                 emit("tsx");
                 emit("tsy");
                 emit("stx $08");
                 emit("sty $09");
             }
             int stackOff = 2; // past return address
-            for (size_t i = 0; i < fn.paramTypes.size(); i++) {
+            for (size_t i = 0; (fn.isVariadic || !relocMode_) && i < fn.paramTypes.size(); i++) {
                 if (fn.isRegparm && i == 0) continue;  // in A/A:X, stored above
                 std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
                     ? fn.paramNames[i] : std::to_string(i);
@@ -5845,23 +5870,12 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
 
                         if (hasConst && arg.type == ir::Type::I32) {
                             // I32: push high word then low word
-                            int hiWord = (constVal >> 16) & 0xFFFF;
-                            int loWord = constVal & 0xFFFF;
-                            emit("lda #" + std::to_string(hiWord & 0xFF));
-                            emit("ldx #" + std::to_string((hiWord >> 8) & 0xFF));
-                            emit("push .ax");
-                            emit("lda #" + std::to_string(loWord & 0xFF));
-                            emit("ldx #" + std::to_string((loWord >> 8) & 0xFF));
-                            emit("push .ax");
+                            pushWordConst((constVal >> 16) & 0xFFFF);
+                            pushWordConst(constVal & 0xFFFF);
                         } else if (hasConst) {
-                            // Push 16-bit constant via push .ax (little-endian on stack)
-                            emit("lda #" + std::to_string(constVal & 0xFF));
-                            emit("ldx #" + std::to_string((constVal >> 8) & 0xFF));
-                            emit("push .ax");
+                            pushWordConst(constVal & 0xFFFF);
                         } else if (arg.kind == ir::OperandKind::GLOBAL && arg.type != ir::Type::I32) {
-                            // Global symbol
-                            emit("ldax #" + arg.name);
-                            emit("push .ax");
+                            pushWordAddr(arg.name);
                         } else if (arg.type == ir::Type::F32 && arg.isVreg()) {
                             // Float: push 5 bytes (push byte 4 first, byte 0 last)
                             ms_.invalidateAll();
@@ -5893,6 +5907,39 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                             loadOperand(arg0);
                         }
                     }
+                } else if (currentFunctionUseSAC_) {
+                    // No stack frame here (static allocation): the arguments
+                    // are not addressed through SP or FP, so each is pushed
+                    // as it is loaded (no staging in the parameter block)
+                    for (int ai = nArgs - 1; ai >= 0; ai--) {
+                        if (inst.isRegparm && ai == 0) continue;
+                        const auto& arg = inst.args[ai];
+                        int ps = ir::typeSize(arg.type);
+                        if (ps < 2) ps = 2;
+                        bool hasConst = false;
+                        int64_t constVal = 0;
+                        if (arg.isImm()) { hasConst = true; constVal = arg.immVal; }
+                        else if (arg.isVreg() && vregConstVal_.count(arg.vregId)) {
+                            hasConst = true; constVal = vregConstVal_[arg.vregId];
+                        }
+                        if (hasConst && arg.type != ir::Type::F32) {
+                            if (arg.type == ir::Type::I32) pushWordConst((int)((constVal >> 16) & 0xFFFF));
+                            pushWordConst((int)(constVal & 0xFFFF));
+                        } else if (arg.kind == ir::OperandKind::GLOBAL && arg.type != ir::Type::I32) {
+                            pushWordAddr(arg.name);
+                        } else if (arg.type == ir::Type::F32 && arg.isVreg()) {
+                            ms_.invalidateAll();
+                            for (int bi = 4; bi >= 0; bi--) {
+                                emitF32Byte("lda", arg.vregId, bi);
+                                emit("pha");
+                            }
+                        } else {
+                            loadOperand(arg);
+                            emit(arg.type == ir::Type::I32 ? "push .axyz" : "push .ax");
+                        }
+                        argBytes += ps;
+                    }
+                    if (inst.isRegparm && nArgs > 0) loadOperand(inst.args[0]);
                 } else {
                     // Two-phase path: load all args into ZP temp slots BEFORE any pushes,
                     // so frame-relative loads aren't affected by SP/fp changes.
@@ -5987,15 +6034,11 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 // Caller-side stack cleanup: skip for SAC calls (no stack parameters were used)
                 // For non-SAC: save result to ZP scratch, pop parameters, restore result
                 if (argBytes > 0 && !isCallingSAC) {
-                    // Save result to __zp_scratch4 (safe, not clobbered by frame operations)
-                    emit("sta __zp_scratch4");     // Save A (result low byte)
-                    emit("stx __zp_scratch4+1");   // Save X (result high byte)
-
-                    bool needY = (inst.op != ir::Op::CALL_VOID && inst.resultType == ir::Type::I32);
+                    // PLZ changes only Z: a result in A/X needs no saving; a
+                    // long (A/X/Y/Z) is saved and reloaded with LDQ
                     bool needZ = (inst.op != ir::Op::CALL_VOID && inst.resultType == ir::Type::I32);
-
-                    if (needY) emit("sty __zp_scratch4+2");  // Save Y
-                    if (needZ) emit("stz __zp_scratch4+3");  // Save Z
+                    bool needY = false;
+                    if (needZ) emit("stq __zp_scratch4");
 
                     // Pop parameters using PLZ (1 byte per PLZ instruction)
                     for (int i = 0; i < argBytes; i++) {
@@ -6003,13 +6046,8 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     }
 
                     // Restore result from __zp_scratch4 (LDQ: LDZ has no base-page mode)
-                    if (needZ) {
-                        emit("ldq __zp_scratch4");
-                    } else {
-                        emit("lda __zp_scratch4");
-                        emit("ldx __zp_scratch4+1");
-                        if (needY) emit("ldy __zp_scratch4+2");
-                    }
+                    if (needZ) emit("ldq __zp_scratch4");
+                    (void)needY;
                 }
 
                 // NOTE: Do NOT recalculate frame pointer after function calls!

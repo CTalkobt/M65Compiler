@@ -187,6 +187,11 @@ private:
     std::string currentFunctionName_;  // name of function being emitted
     bool currentFunctionUseSAC_ = false;  // whether current function uses SAC
     bool relocMode_ = false;
+    // Push a 16-bit value with PHW #, which stores its operand's high byte
+    // at SP+1: the bytes swapped, so the stack holds it little-endian (as
+    // push .ax); a symbol's address as the opcode and >sym, <sym
+    void pushWordConst(int v);
+    void pushWordAddr(const std::string& sym);
     std::set<uint32_t> regVregs_;   // the function's register variables (declared, and a leaf's pointer locals)
     // -ffunction-sections: each variable, string and SAC block is a .split
     // section too (ca45 makes each function one), so ln45 can drop them
