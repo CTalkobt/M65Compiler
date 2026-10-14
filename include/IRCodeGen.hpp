@@ -136,7 +136,7 @@ private:
     //   (spare), $F0-$FC library temps, $FD-$FE frame pointer
     static constexpr int ZP_POOL_START = 0x30;
     // $80-$E9: functions' own base-page blocks (.zar), placed by ln45
-    static constexpr int ZAR_START = 0x80, ZAR_END = 0xEA, ZAR_MAX = 16;
+    static constexpr int ZAR_START = 0x80, ZAR_END = 0xEA, ZAR_MAX = 8;
     static constexpr int ZP_POOL_SLOTS = (ZAR_START - 0x30) / 2;
     static constexpr int ZP_TEMP32 = 0xEA;
     uint32_t zeroPageAvail_ = 248;  // Available ZP space (usually $08-$FF)

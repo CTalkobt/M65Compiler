@@ -2011,6 +2011,22 @@ void O45Linker::buildCallGraph(std::map<std::string, std::set<std::string>>& gra
         }
     }
 
+    // Calls through pointers: a function that makes them (cc45:
+    // cc45.icall.<f>; any label of an object not made by cc45, which may)
+    // can call every function whose address is used
+    std::set<std::string> icallers;
+    for (const auto& input : objects_) {
+        bool isCc45 = false;
+        for (const auto& exp : input.obj.exports)
+            if (exp.name == "cc45.mode_zp" || exp.name == "cc45.mode_stack") isCc45 = true;
+        for (const auto& exp : input.obj.exports) {
+            if (isCc45 && exp.name.rfind("cc45.icall.", 0) == 0) icallers.insert(exp.name.substr(11));
+            else if (!isCc45 && exp.segmentId() == SEG_TEXT) icallers.insert(exp.name);
+        }
+    }
+    for (const auto& c : icallers)
+        for (const auto& t : addrTaken)
+            if (c != t) graph[c].insert(t);
 }
 
 // Base-page blocks (cc45 .zar, size cc45.zarsize.<f>): a static-allocation
@@ -2056,22 +2072,44 @@ bool O45Linker::computeZarOverlay(std::string& errorMsg) {
         }
         return seen;
     };
+    // (calls through pointers are edges of the graph: buildCallGraph)
     std::set<std::string> unsafe;
-    for (const auto& f : addrTaken) {
-        unsafe.insert(f);
-        auto r = reachFrom(f);
-        unsafe.insert(r.begin(), r.end());
-    }
     std::map<std::string, std::set<std::string>> reach;
     for (const auto& [f, len] : sizes) reach[f] = reachFrom(f);
     auto conflict = [&](const std::string& a, const std::string& b) {
         return unsafe.count(a) || unsafe.count(b) || reach[a].count(b) || reach[b].count(a);
     };
 
+    // Callers before callees (a function then lands just above the blocks of
+    // the functions active when it runs, so the area needed is the heaviest
+    // call path); largest first among unrelated ones and inside cycles
     std::vector<std::pair<std::string, uint32_t>> blocks(sizes.begin(), sizes.end());
     std::sort(blocks.begin(), blocks.end(), [](const auto& a, const auto& b) {
         return a.second != b.second ? a.second > b.second : a.first < b.first;
     });
+    {
+        std::vector<std::pair<std::string, uint32_t>> ordered;
+        std::set<std::string> done;
+        while (ordered.size() < blocks.size()) {
+            bool progress = false;
+            for (const auto& b : blocks) {
+                if (done.count(b.first)) continue;
+                bool ready = true;   // every block function that reaches it is placed
+                for (const auto& o : blocks)
+                    if (o.first != b.first && !done.count(o.first) && reach[o.first].count(b.first) &&
+                        !reach[b.first].count(o.first))
+                        { ready = false; break; }
+                if (!ready) continue;
+                ordered.push_back(b);
+                done.insert(b.first);
+                progress = true;
+            }
+            if (!progress)   // (a cycle through calls via pointers: take the next as it comes)
+                for (const auto& b : blocks)
+                    if (!done.count(b.first)) { ordered.push_back(b); done.insert(b.first); break; }
+        }
+        blocks = ordered;
+    }
     const uint32_t area = ZAR_HI - ZAR_LO;
     for (const auto& [f, len] : blocks) {
         std::vector<std::pair<uint32_t, uint32_t>> busy;

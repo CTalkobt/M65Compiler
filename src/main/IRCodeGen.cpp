@@ -2067,22 +2067,24 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // A ZP-convention leaf function uses its parameters where the caller put
     // them, in the ZP parameter block: no copy into storage at the entry
     zpParams_.clear();
+    // vregs whose address is used (&x, a struct's members, a vector's
+    // elements): they need an absolute address, not a ZP one
+    std::set<uint32_t> addressed;
+    for (const auto& blk : fn.blocks)
+        for (const auto& in : blk.insts) {
+            // (an element address of a vector parameter is its address; of a
+            // pointer, its value. Fused into a load/store, args[0] is the base)
+            auto elemBase = [&](const ir::Operand& b) {
+                if (!b.isVreg()) return;
+                auto t = b.vregId < fn.paramTypes.size() ? fn.paramTypes[b.vregId]
+                         : (fn.vregTypes.count(b.vregId) ? fn.vregTypes.at(b.vregId) : ir::Type::PTR);
+                if (t != ir::Type::PTR) addressed.insert(b.vregId);
+            };
+            if (in.op == ir::Op::ADDR_LOCAL && in.src1.isVreg()) addressed.insert(in.src1.vregId);
+            if (in.op == ir::Op::ADDR_ELEM) elemBase(in.src1);
+            if ((in.op == ir::Op::LOAD || in.op == ir::Op::STORE) && in.args.size() >= 3) elemBase(in.args[0]);
+        }
     if (ir::paramsStayInZp(fn) && !isZeroAllocLeaf(fn.name, fn)) {
-        // (not one whose address is used: the block has no absolute address)
-        std::set<uint32_t> addressed;
-        for (const auto& blk : fn.blocks)
-            for (const auto& in : blk.insts)
-            {
-                // (an element address of a vector parameter is its address; of a
-                // pointer, its value. Fused into a load/store, args[0] is the base)
-                auto elemBase = [&](const ir::Operand& b) {
-                    if (b.isVreg() && b.vregId < fn.paramTypes.size() && fn.paramTypes[b.vregId] != ir::Type::PTR)
-                        addressed.insert(b.vregId);
-                };
-                if (in.op == ir::Op::ADDR_LOCAL && in.src1.isVreg()) addressed.insert(in.src1.vregId);
-                if (in.op == ir::Op::ADDR_ELEM) elemBase(in.src1);
-                if ((in.op == ir::Op::LOAD || in.op == ir::Op::STORE) && in.args.size() >= 3) elemBase(in.args[0]);
-            }
         int zpOff = (int)zeroPageStart_ + 8;
         for (uint32_t i = 0; i < fn.paramTypes.size(); i++) {
             int ps = ir::typeSize(fn.paramTypes[i]);
@@ -2107,27 +2109,56 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                     leaf = false;
         bool willSac = staticAllocMode_ && !fn.isRecurse && !fn.isInterrupt && !fn.isNaked && !fn.isVariadic &&
                        !callsRuntimeAlloca(fn) && !recursiveFunctions_.count(fn.name);
-        if (!leaf && willSac && relocMode && !getenv("CC45_NO_ZP_LOCALS") && !getenv("CC45_NO_ZP_POINTERS")) {
+        int zarMax = ZAR_MAX;
+        if (const char* m = getenv("CC45_ZP_LOCALS_MAX")) zarMax = std::max(0, std::min(atoi(m), ZAR_END - ZAR_START));
+        if (!leaf && willSac && relocMode && zarMax > 0 && !getenv("CC45_NO_ZP_LOCALS") && !getenv("CC45_NO_ZP_POINTERS")) {
             const uint32_t paramCount = (uint32_t)fn.paramTypes.size();
             bool fnZpConv = fn.conv == ir::CallConv::ZP && !fn.isVariadic;
-            auto isPtr = [&](uint32_t v) {
+            auto typeOf = [&](uint32_t v) {
+                if (v < paramCount) return fn.paramTypes[v];
                 auto t = fn.vregTypes.find(v);
-                return v < paramCount ? fn.paramTypes[v] == ir::Type::PTR
-                                      : t != fn.vregTypes.end() && t->second == ir::Type::PTR;
+                return t != fn.vregTypes.end() ? t->second : ir::Type::VOID;
             };
-            auto take = [&](uint32_t v) {
-                if (zarSize_ + 2 > ZAR_MAX || !isPtr(v) || fn.memoryVregs.count(v) || fn.vregSizes.count(v) ||
-                    fn.registerVregs.count(v) || fn.registerXVregs.count(v) || fn.registerYVregs.count(v) ||
-                    fn.registerZVregs.count(v) || zarVregs_.count(v))
+            // references, those in loop blocks counted 4 times
+            std::map<uint32_t, int> refs;
+            for (const auto& blk : fn.blocks) {
+                const std::string& l = blk.label;
+                bool inLoop = (l.rfind("while_", 0) == 0 || l.rfind("for_", 0) == 0 || l.rfind("do_", 0) == 0) &&
+                              l.find("_end") == std::string::npos;
+                int w = inLoop ? 4 : 1;
+                for (const auto& in : blk.insts) {
+                    for (const ir::Operand* o : {&in.src1, &in.src2, &in.dest})
+                        if (o->isVreg()) refs[o->vregId] += w;
+                    for (const auto& a : in.args) if (a.isVreg()) refs[a.vregId] += w;
+                }
+            }
+            std::vector<uint32_t> cands;
+            auto consider = [&](uint32_t v) {
+                ir::Type t = typeOf(v);
+                if ((t != ir::Type::PTR && t != ir::Type::I8 && t != ir::Type::I16) || fn.memoryVregs.count(v) ||
+                    addressed.count(v) ||
+                    fn.vregSizes.count(v) || fn.registerVregs.count(v) || fn.registerXVregs.count(v) ||
+                    fn.registerYVregs.count(v) || fn.registerZVregs.count(v) || !refs.count(v))
                     return;
-                zarVregs_[v] = ZAR_START + zarSize_;
-                zarSize_ += 2;
+                if (std::find(cands.begin(), cands.end(), v) == cands.end()) cands.push_back(v);
             };
             if (fnZpConv && !fn.isRegparm)
-                for (uint32_t i = 0; i < paramCount; i++) take(i);
+                for (uint32_t i = 0; i < paramCount; i++) consider(i);
             for (const auto& name : fn.localNamesOrder) {
                 auto it = fn.localNames.find(name);
-                if (it != fn.localNames.end() && it->second >= paramCount) take(it->second);
+                if (it != fn.localNames.end() && it->second >= paramCount) consider(it->second);
+            }
+            // pointers first (a dereference needs the pointer in ZP), then by use
+            std::stable_sort(cands.begin(), cands.end(), [&](uint32_t a, uint32_t b) {
+                bool pa = typeOf(a) == ir::Type::PTR, pb = typeOf(b) == ir::Type::PTR;
+                if (pa != pb) return pa;
+                return refs[a] > refs[b];
+            });
+            for (uint32_t v : cands) {
+                int sz = typeOf(v) == ir::Type::I8 ? 1 : 2;
+                if (zarSize_ + sz > zarMax) continue;
+                zarVregs_[v] = ZAR_START + zarSize_;
+                zarSize_ += sz;
             }
         }
     }
@@ -2701,6 +2732,18 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             procLine += "#@_p_" + fn.paramNames[i];
         } else {
             procLine += "#@_p_" + std::to_string(i);
+        }
+    }
+    // A function that calls through a pointer (or has inline asm, which
+    // may): ln45 assumes it can call any function whose address is used
+    {
+        bool icall = false;
+        for (const auto& blk : fn.blocks)
+            for (const auto& in : blk.insts)
+                if (in.op == ir::Op::CALL_INDIRECT || in.op == ir::Op::ASM_INLINE) icall = true;
+        if (icall && relocMode) {
+            emit(".global cc45.icall." + fn.name);
+            emit("cc45.icall." + fn.name + " = 1");
         }
     }
     if (zarSize_ > 0) {

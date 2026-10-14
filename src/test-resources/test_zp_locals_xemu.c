@@ -14,7 +14,10 @@
  *   [3] a function with a block called through a function pointer from a
  *       function with a block
  *   [4] a recursive function (a stack frame, no block) calling one with a block
- *   [5] $AA sentinel
+ *   [5] int and char variables and parameters (scalars in the blocks, the
+ *       most used first) kept across calls, also into the other module,
+ *       counting across byte boundaries
+ *   [6] $AA sentinel
  */
 #define OUT ((volatile unsigned char *)0xC0C0)
 #define NOINLINE __attribute__((noinline))
@@ -66,6 +69,20 @@ static unsigned char data[6] = {1, 2, 3, 4, 5, 0};
 static unsigned char text[] = {10, 20, 99, 30, 0};
 static unsigned char out[8];
 
+NOINLINE static unsigned char bump(unsigned char x) { return (unsigned char)(x + 1); }
+
+/* n (char parameter), i and s (ints), c (char): all live across calls */
+NOINLINE static unsigned scal(unsigned char n, unsigned start) {
+    unsigned i, s = start;
+    unsigned char c = 250;
+    for (i = 0; i < n; i++) {
+        s += twice(1);                  /* +2 per round */
+        c = bump(c);                    /* 250 -> wraps past 255 */
+        if (b_find(text, 99) != text + 2) return 0;
+    }
+    return s + c + i;
+}
+
 int main(void) {
     unsigned char *f;
 
@@ -78,6 +95,8 @@ int main(void) {
     OUT[2] = f == text + 2 && out[0] == 11 && out[2] == 100 && out[3] == 31 && out[4] == 0;
     OUT[3] = via_ptr(data, 3) == 12;
     OUT[4] = rec(data, 3) == 12;
-    OUT[5] = 0xAA;
+    /* scal(10, 300): s = 300 + 20, c = 250 + 10 = 4 (wrapped), i = 10 */
+    OUT[5] = scal(10, 300) == 320 + 4 + 10 && scal(0, 7) == 7 + 250;
+    OUT[6] = 0xAA;
     return 0;
 }

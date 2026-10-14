@@ -87,8 +87,9 @@ writes a standalone assembly form with its own startup stub.
   "calling convention mismatch" error). Indirect calls are not bridged.
 - **ZP map**: `$06` static chain, `$08`–`$0F` scratch (`__zp_scratch*`),
   `$10`–`$2F` parameters, `$30`–`$7F` register pool, `$80`–`$E9` functions'
-  base-page blocks (pointer variables of SAC functions that make calls; ca45
-  `.zar`, placed by ln45 like the SAC overlay; `-fno-zp-locals`), `$FD/$FE` frame pointer.
+  base-page blocks (the most used variables of SAC functions that make calls,
+  up to 8 bytes, `-fzp-locals-max=N`; ca45 `.zar`, placed by ln45 like the SAC
+  overlay; `-fno-zp-locals`), `$FD/$FE` frame pointer.
 
 ### Relocated Base Page (the program's private zero page)
 

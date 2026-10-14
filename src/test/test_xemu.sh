@@ -1178,7 +1178,7 @@ for zlmode in "zp||lib/build/c45.lib" "stack|-fno-zpcall|lib/build/c45_stack.lib
     if $CC $zlflags -c src/test-resources/test_zp_locals_xemu.c -o ${zlbase}_a.o45 2>/dev/null &&
        $CC $zlflags -c src/test-resources/test_zp_locals_b.c -o ${zlbase}_b.o45 2>/dev/null &&
        $LD -basic -o ${zlbase}_xemu.prg $CRT0 ${zlbase}_a.o45 ${zlbase}_b.o45 $zllib >/dev/null 2>&1; then
-        run_xemu_test "test_zp_locals_$zlname" "${zlbase}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+        run_xemu_test "test_zp_locals_$zlname" "${zlbase}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
     else
         echo "FAIL: test_zp_locals_xemu.c $zlname (compilation/linking failed)"
         failed=$((failed + 1))
@@ -1211,7 +1211,8 @@ zlsrc=build/test/zp_locals_overflow.c
 for zomode in "zp||lib/build/c45.lib" "stack|-fno-zpcall|lib/build/c45_stack.lib"; do
     IFS='|' read -r zoname zoflags zolib <<< "$zomode"
     zobase=build/test/zp_locals_overflow_$zoname
-    if $CC $zoflags -c $zlsrc -o $zobase.o45 2>/dev/null &&
+    # (16-byte blocks: the default 8 fits the chain)
+    if $CC $zoflags -fzp-locals-max=16 -c $zlsrc -o $zobase.o45 2>/dev/null &&
        $LD -basic -o ${zobase}_xemu.prg $CRT0 $zobase.o45 $zolib 2>$zobase.err >/dev/null; then
         if grep -q "base-page storage: .* save and restore" $zobase.err; then
             run_xemu_test "zp_locals_overflow_$zoname" "${zobase}_xemu.prg" "C0C0" 2 "6E AA"

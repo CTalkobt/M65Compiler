@@ -97,11 +97,17 @@ It is not a `-f` switch: `CC45_NO_ZP_POINTERS=1` turns both parts off (for
 comparing code). Validation: `test_zp_pointers_xemu.c`.
 
 A static-allocation function that makes calls cannot use the pool across
-them; its pointer variables (and pointer parameters in the ZP convention) go
-in a base-page block of its own, `$80+k`, declared with `.zar $80, N`. ca45
+them; its most used variables go in a base-page block of its own, `$80+k`,
+declared with `.zar $80, N`: pointers first, then `char`/`int` variables
+(parameters too in the ZP convention) by number of uses, loop uses counted 4
+times, up to 8 bytes (`-fzp-locals-max=N`; in `c45.lib` 8 bytes per function
+cover 70% of the static-storage accesses, 16 cover 87%, but 16 makes deep
+stdio chains overflow the area). ca45
 relocates those operands against `<f>__zar` and ln45 places the blocks in
 `$80`–`$E9` so that functions active together never share bytes
-(`computeZarOverlay`, the SAC overlay's call graph). The register pool ends at
+(`computeZarOverlay`, the SAC overlay's call graph plus edges from functions
+that call through pointers to address-taken functions; callers placed before
+callees). The register pool ends at
 `$7F`. Blocks that do not fit share bytes, and ln45 calls the functions on
 the inside of such pairs through save/restore wrappers (a warning).
 `-fno-zp-locals` turns it off; validation: `test_zp_locals_xemu.c` (two
