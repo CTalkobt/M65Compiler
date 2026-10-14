@@ -8,8 +8,7 @@ Checklist for preparing and publishing a release.
 
 | File | What to change |
 |------|----------------|
-| `include/Version.hpp` | `SUITE_VERSION` (e.g. `"1.1.0"`) — used by every tool's `--version` except `basic45` and `disk45` |
-| `src/main/disk45_main.cpp`, `src/main/basic45_main.cpp` | their own version strings (`disk45 v1.0.5`, `basic45 v1.0` at present) |
+| `include/Version.hpp` | `SUITE_VERSION` (e.g. `"1.1.0"`) — used by every tool's `--version` |
 | `CLAUDE.md` | Status line at the top |
 | `ROADMAP.md` | Current status |
 | `README.md` | Version references |

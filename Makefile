@@ -462,7 +462,7 @@ clean: lib45-clean
 	@$(MAKE) -C bug clean
 	@$(MAKE) -C lib clean
 
-test: all lib $(TEST_O45_TARGET)
+test: all lib $(BIN_DIR)/test_o45
 	@echo "Running .o45 format and linker unit tests..."
 	@$(TEST_O45_TARGET)
 	@echo "Validating documentation structure and links..."

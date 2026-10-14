@@ -2,7 +2,110 @@
 
 All notable changes to the cc45 / ca45 suite will be documented in this file.
 
-## [Unreleased] - Optimization System Refactor (2026-08-19)
+## [v1.0.6] - 2026-10-14
+
+A large release: the calling conventions, the code generator and the
+standard library were reworked, the documentation was validated against the
+source, and runtime tests moved to xemu (220 programs, both conventions;
+GCC torture tests 537 in each convention). Details: `doc/bin/*.md`,
+`doc/architecture/`.
+
+### cc45
+
+- **Calling conventions**: the ZP convention (`$10`–`$2F` parameter block)
+  with static allocation (SAC) is the default; the stack convention is
+  `-fno-zpcall`. Structs, unions, floats and `long long` are returned through
+  a caller-supplied pointer. `__regparm`, `__fastcall__`, variadic functions
+  with static allocation, `__interrupt` handlers on their own base page.
+- **Relocated base page**: programs run on a private base page placed by
+  ln45 after BSS; ROM calls switch to page 0 and back. 16-bit CPU stack by
+  default (`-fno-stack16`, `-fstack-top`, `-fstack-size`).
+- **Startup**: one-step `cc45 file.c -o file.prg`; `main(argc, argv)` from
+  the BASIC line; BSS filled at startup (`-fbss-fill`); `__basic_call` runs a
+  C function from BASIC `SYS`.
+- **Language**: GCC vector extension, nested functions, statement
+  expressions, computed goto, case ranges, `continue <value>` in a switch,
+  `_Alignas`/`aligned`, variable-length arrays, `_Complex`, `int64_t` and
+  `__int128` as operator-overloaded structs, `p"…"`/`s"…"`/`a"…"` string
+  encodings, file-scope `asm("…")`, `-fsigned-default`, `-funsigned-char`,
+  `-fimplicit-function-declaration`, `__has_include`/`__has_builtin`,
+  uninitialized static locals in BSS.
+- **Optimization**: nine IR passes at `-O1`+ (`-f<name>`/`-fno-<name>`,
+  `#pragma cc45 optimize`), automatic inlining at `-O2`, loop interchange and
+  unrolling at `-O4`; `-Os` (multiplies as library calls); base-page blocks
+  for the busiest variables of functions that make calls; post-increment
+  sinking, in-place read-modify-write, division and remainder as library
+  calls, signed compares by subtraction, sign tests, smaller stack-convention
+  calls (pushed constants, no result save around the pops, arguments pushed
+  directly by frameless callers, parameter thunks through `__sac_args`).
+- **Per-function sections** (`-ffunction-sections`): ln45 drops what a
+  program does not reach.
+- Many code generation fixes (sign extension, bitfields, floats, struct
+  copies, frames, inlining); see the git history.
+
+### Standard library
+
+- printf family in assembly (`__vformat`, `pf_format`), `%f %e %g` over the
+  whole float range from the BASIC 65 ROM; float math through the ROM with
+  `errno` on domain/range errors; double math functions.
+- File I/O on disk drives (`fopen` r/w/a and `+` modes, `fseek`/`ftell`,
+  REL files), heap rewrite (`malloc`/`calloc`/`realloc`, `__stack_size`),
+  `setjmp`, time, `snprintf`/`vsnprintf`, `strdup`, `strlcpy`, ...
+- One set of C sources for both conventions; hand-written assembly with
+  sections. Library code: `c45.lib` 117,738 bytes, `c45_stack.lib` 126,478
+  (the stack convention's parameter entries and calls made smaller).
+
+### ca45 / ln45 / ar45 / nm45 / objdump45
+
+- ca45: expressions, directives, simulated instructions and string escapes
+  fixed; section table for per-function linking; unknown directives warn;
+  `(sym,x)` / `(sym)` with a symbol use the base-page form unless the
+  instruction has the absolute one.
+- ln45: SAC overlay (functions never active together share storage),
+  base-page block placement, calling-convention bridge thunks in both
+  directions, unreachable sections dropped (`--gc-inputs`), `-basic -t ADDR`,
+  heap warnings.
+- The `.o45` format gained section tables and function attribute records.
+
+### disk45
+
+- 25 formats: D64, D71, D81, D65, D80/D82 (8050/8250 layout), D9090/D9060
+  (VICE's layout, now read/write), X64, G64/G71 writing, NIB/NBZ, Zipcode,
+  T64, TAP, ARK, ARC/SDA, LNX, P00, CVT; images inside `.zip` and `.gz`.
+- CMD D1M/D2M/D4M/DNP in the real layout: `disk.d2m:N` opens any partition
+  (native, or emulated 1541/1571/1581), `create --partitions`, native `DIR`
+  subdirectories.
+- Subdirectories: `DIR/NAME` paths in add/extract/rm/mv/lock, `mkdir`/`rmdir`,
+  and the FUSE mount reads and writes them.
+- REL files on every sector format (super side sectors on D81/D65, D82, D90,
+  CMD); GEOS files (VLIR and sequential) as Convert (CVT) files; MEGA65 SD
+  card images (`disk45 sd`); SQLite catalog of images in zips and on cards.
+
+### basic45
+
+- Programs run on BASIC 65: label-based source, long variable names, block
+  IF / proc, string encodings, `--link` C functions, `--decompile`,
+  `--disk`, `--emulator`, MEGA65 escape codes checked against the ROM.
+
+### cvt_asm
+
+- The ca45 reader reads the source as written (lossless ca45 → ca45).
+- One shared reader for ca65, ACME, KickAssembler, Merlin 64, Oscar and x65:
+  every flat test source converts to each dialect and back to the same
+  bytes, and programs in each dialect's own syntax assemble as ca45.
+- Strings and character constants keep their bytes in every direction.
+
+### Tooling and tests
+
+- Runtime tests on xemu (`test_xemu.sh`, both conventions); mmemu is no
+  longer used for testing. GCC torture tests in both conventions with
+  documented known failures. Installed toolchains find their headers and
+  libraries; Alpine and Ubuntu Docker images. `make test` builds its
+  `.o45` unit-test binary itself (it failed after `make clean`).
+
+---
+
+## Optimization System Refactor (2026-08-19, released in v1.0.5)
 
 ### Standards-Compliant Optimization Flags
 

@@ -1,6 +1,6 @@
 # MEGA65 C Compiler Suite — Codebase Guide
 
-**Version:** 1.0.5 (`include/Version.hpp`, `SUITE_VERSION`)
+**Version:** 1.0.6 (`include/Version.hpp`, `SUITE_VERSION`)
 **Maintainer:** Craig Taylor (CTalkobt)
 
 This file is the overview for working in the repository. The validated

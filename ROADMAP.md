@@ -1,7 +1,7 @@
 # M65 Compiler Suite Roadmap: v1.0 → v2.0
 
-**Current Status:** v1.0.5
-**Last Updated:** 2026-07-19
+**Current Status:** v1.0.6
+**Last Updated:** 2026-10-14
 **Maintainer:** Craig Taylor (CTalkobt)
 
 ---
