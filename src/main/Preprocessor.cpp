@@ -92,9 +92,9 @@ Preprocessor::Preprocessor(bool isCompiler) : isCompiler(isCompiler) {
     // format (32-bit mantissa, exponent range 2^-128 .. 2^127); see <float.h>
     for (const char* f : {"FLT", "DBL", "LDBL"}) {
         std::string p = std::string("__") + f;
-        macros[p + "_MAX__"] = Macro{false, false, {}, "1.7014118e38"};
-        macros[p + "_MIN__"] = Macro{false, false, {}, "2.9387359e-39"};
-        macros[p + "_EPSILON__"] = Macro{false, false, {}, "4.6566129e-10"};
+        macros[p + "_MAX__"] = Macro{false, false, {}, "1.7014118342085515e38"};
+        macros[p + "_MIN__"] = Macro{false, false, {}, "2.9387358770557188e-39"};
+        macros[p + "_EPSILON__"] = Macro{false, false, {}, "4.6566128730773926e-10"};
         macros[p + "_MANT_DIG__"] = Macro{false, false, {}, "32"};
         macros[p + "_DIG__"] = Macro{false, false, {}, "9"};
         macros[p + "_MIN_EXP__"] = Macro{false, false, {}, "(-127)"};

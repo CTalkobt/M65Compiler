@@ -659,6 +659,20 @@ for fimode in "stack|-fno-zpcall" "zp|"; do
     fi
 done
 
+# Test: <float.h> constants (exact bytes, epsilon, underflow), complex * and
+# / of two complex values, __real__/__imag__, operators on temporaries
+for flmode in "stack|-fno-zpcall" "zp|"; do
+    IFS='|' read -r flname flflags <<< "$flmode"
+    echo "Testing test_float_limits_xemu.c ($flname)..."
+    compile_link_test "src/test-resources/test_float_limits_xemu.c" "build/test/test_float_limits_${flname}_xemu.prg" "$flflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_float_limits_$flname" "build/test/test_float_limits_${flname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_float_limits_xemu.c $flname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: sscanf, vsnprintf, vfprintf (a file on drive 8), perror (the screen
 # row), getchar (the KERNAL keyboard buffer); both conventions
 for s2mode in "stack|-fno-zpcall" "zp|"; do

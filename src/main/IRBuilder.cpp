@@ -3063,6 +3063,30 @@ void IRBuilder::sretCallResult(const std::string& fname, const ir::Operand& buf,
 // Call to an operator method built by hand (this, rhs...): handles the hidden result pointer
 // sretBuf/sretAddr: the hidden result buffer when already claimed (sretCallBuffer)
 // before the arguments were evaluated.
+ir::Operand IRBuilder::addressOfValue(const ir::Operand& v, const ir::SourceLoc& sl) {
+    if (v.type == ir::Type::PTR || v.type == ir::Type::VOID || !currentFunc_) return v;
+    auto slot = allocVreg(v.type);
+    currentFunc_->localSlotVregs.insert(slot.vregId);
+    currentFunc_->memoryVregs.insert(slot.vregId);
+    usedVregs_.insert(slot.vregId);
+    ir::Inst st;
+    st.op = ir::Op::STORE;
+    st.resultType = v.type;
+    st.src1 = v;
+    st.src2 = slot;
+    st.loc = sl;
+    emit(st);
+    auto addr = allocVreg(ir::Type::PTR);
+    ir::Inst la;
+    la.op = ir::Op::ADDR_LOCAL;
+    la.dest = addr;
+    la.resultType = ir::Type::PTR;
+    la.src1 = slot;
+    la.loc = sl;
+    emit(la);
+    return addr;
+}
+
 void IRBuilder::emitMethodCall(const std::string& mangledName, std::vector<ir::Operand> args, const ir::SourceLoc& sl,
                                const ir::Operand* sretBuf, const ir::Operand* sretAddr) {
     ir::Inst call;
@@ -5139,7 +5163,8 @@ void IRBuilder::visit(BinaryOperation& node) {
                     computeAddressOnly_ = true;
                     node.left->accept(*this);
                     computeAddressOnly_ = false;
-                    auto thisPtr = lastValue_;
+                    // a small struct value (an operator's result) has no address
+                    auto thisPtr = addressOfValue(lastValue_, loc(node));
 
                     // Evaluate RHS (an aggregate operand is passed as a copy)
                     auto rhsVal = evalArgument(node.right.get(), paramAggSize(mangledName, mSret ? 2 : 1), loc(node));
@@ -5148,6 +5173,15 @@ void IRBuilder::visit(BinaryOperation& node) {
                     computeAddressOnly_ = savedAddrMode;  // result form follows the caller's mode
                     emitMethodCall(mangledName, {thisPtr, rhsVal}, loc(node),
                                    mSret ? &sretBuf : nullptr, mSret ? &sretAddr : nullptr);
+                    return;
+                }
+                // a struct or union value with no such operator (C has none)
+                if (node.op.find('=') == std::string::npos || node.op == "==" || node.op == "!=" ||
+                    node.op == "<=" || node.op == ">=") {
+                    errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column, Severity::Error,
+                        "invalid operands to binary " + node.op + " ('" + lhsInfo.typeName + "' has no operator" +
+                        node.op + ")"));
+                    lastValue_ = ir::Operand::imm(0, ir::Type::I16);
                     return;
                 }
             }
@@ -5479,7 +5513,7 @@ void IRBuilder::visit(UnaryOperation& node) {
                         computeAddressOnly_ = true;
                         node.operand->accept(*this);
                         computeAddressOnly_ = savedAddrMode;
-                        auto thisPtr = lastValue_;
+                        auto thisPtr = addressOfValue(lastValue_, loc(node));
                         emitMethodCall(mangledName, {thisPtr}, loc(node),
                                        mSret ? &sretBuf : nullptr, mSret ? &sretAddr : nullptr);
                         return;
@@ -7816,31 +7850,12 @@ void IRBuilder::visit(MemberAccess& node) {
     auto base = lastValue_;
     computeAddressOnly_ = oldAddrMode;
 
-    // f().m of a small struct returned in registers: the value has no
-    // address; it is stored into a hidden local first
-    if (!node.isArrow && dynamic_cast<FunctionCall*>(node.structExpr.get()) &&
-        base.type != ir::Type::PTR && base.type != ir::Type::VOID && currentFunc_) {
-        auto slot = allocVreg(base.type);
-        currentFunc_->localSlotVregs.insert(slot.vregId);
-        currentFunc_->memoryVregs.insert(slot.vregId);
-        usedVregs_.insert(slot.vregId);
-        ir::Inst st;
-        st.op = ir::Op::STORE;
-        st.resultType = base.type;
-        st.src1 = base;
-        st.src2 = slot;
-        st.loc = loc(node);
-        emit(st);
-        auto addr = allocVreg(ir::Type::PTR);
-        ir::Inst la;
-        la.op = ir::Op::ADDR_LOCAL;
-        la.dest = addr;
-        la.resultType = ir::Type::PTR;
-        la.src1 = slot;
-        la.loc = loc(node);
-        emit(la);
-        base = addr;
-    }
+    // f().m, (a + b).m of a small struct returned in registers: the value
+    // has no address; it is stored into a hidden local first
+    if (!node.isArrow && (dynamic_cast<FunctionCall*>(node.structExpr.get()) ||
+                          dynamic_cast<BinaryOperation*>(node.structExpr.get()) ||
+                          dynamic_cast<UnaryOperation*>(node.structExpr.get())))
+        base = addressOfValue(base, loc(node));
 
     IRTypeInfo baseInfo = getExprTypeInfo(node.structExpr.get());
     std::string sName = getAggregateName(baseInfo.typeName);

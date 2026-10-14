@@ -37,22 +37,26 @@ typedef enum {
 
 /* Create a far pointer from bank and offset */
 static inline far_ptr_t far_make(bank_t bank, uint16_t offset) {
-    return ((far_ptr_t)bank << 16) | offset;
+    far_ptr_t p;
+    p.bytes[0] = (unsigned char)bank;
+    p.bytes[1] = (unsigned char)offset;
+    p.bytes[2] = (unsigned char)(offset >> 8);
+    return p;
 }
 
-/* Extract bank from far pointer (upper 8 bits) */
+/* Extract bank from far pointer */
 static inline bank_t far_bank(far_ptr_t ptr) {
-    return (bank_t)((ptr >> 16) & 0xFF);
+    return (bank_t)ptr.bytes[0];
 }
 
 /* Extract offset from far pointer (lower 16 bits) */
 static inline uint16_t far_offset(far_ptr_t ptr) {
-    return ptr & 0xFFFF;
+    return (uint16_t)(ptr.bytes[1] | ((uint16_t)ptr.bytes[2] << 8));
 }
 
-/* Check if far pointer is NULL */
+/* Check if far pointer is NULL (bank 0, offset 0) */
 static inline int far_is_null(far_ptr_t ptr) {
-    return ptr == 0;
+    return (ptr.bytes[0] | ptr.bytes[1] | ptr.bytes[2]) == 0;
 }
 
 /* ============================================================================

@@ -13,7 +13,7 @@
 
 #include <errno.h>
 
-#define FLOAT_MAX 1.7014118e38
+#define FLOAT_MAX 1.7014118342085515e38
 
 extern float _float_a;
 void _float_sin(void);

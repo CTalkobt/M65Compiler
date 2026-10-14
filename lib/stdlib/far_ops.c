@@ -305,7 +305,7 @@ int far_cmp(far_ptr_t ptr1, far_ptr_t ptr2) {
 }
 
 int far_eq(far_ptr_t ptr1, far_ptr_t ptr2) {
-    return ptr1 == ptr2;
+    return far_cmp(ptr1, ptr2) == 0;
 }
 
 int far_lt(far_ptr_t ptr1, far_ptr_t ptr2) {

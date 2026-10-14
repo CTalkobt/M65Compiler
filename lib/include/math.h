@@ -81,7 +81,7 @@ int __isinff(float x);
 #define M_LN10      2.30258509
 #define M_SQRT2     1.41421356
 #define M_SQRT1_2   0.70710678
-#define HUGE_VALF   1.7014118e38
+#define HUGE_VALF   1.7014118342085515e38
 #define INFINITY    HUGE_VALF
 
 /* C89/C99 double aliases (downgraded to float on this target) */

@@ -175,6 +175,16 @@ else
     echo "SUCCESS: -I flag (no space)"
 fi
 
+echo "Testing arithmetic on a struct with no operator..."
+printf 'struct S { int a; };\nint f(struct S x, struct S y) { struct S z; z = x / y; return z.a; }\n' > build/test/test_struct_op.c
+out=$($CC -c build/test/test_struct_op.c -o build/test/test_struct_op.o45 2>&1)
+if [ $? -ne 0 ] && grep -q "invalid operands to binary / ('struct S' has no operator/)" <<< "$out"; then
+    echo "SUCCESS: struct / struct without an operator is an error"
+else
+    echo "FAIL: struct / struct was accepted ($(head -1 <<< "$out"))"
+    failed=$((failed + 1))
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All tests passed!"
     exit 0

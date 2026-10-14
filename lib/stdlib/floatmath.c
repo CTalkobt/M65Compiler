@@ -15,7 +15,7 @@ float truncf(float x);
 
 #include <errno.h>
 
-#define FLOAT_MAX 1.7014118e38
+#define FLOAT_MAX 1.7014118342085515e38
 
 /* powf: x^y = exp(y * log(|x|)). A negative base needs an integer exponent
  * (otherwise there is no value: 0, EDOM; an odd one keeps the sign);

@@ -35,6 +35,14 @@ struct _Complex_int {
         return r;
     }
 
+    struct _Complex_int operator/(struct _Complex_int o) {
+        struct _Complex_int r;
+        signed int denom = o.real * o.real + o.imag * o.imag;
+        r.real = (this->real * o.real + this->imag * o.imag) / denom;
+        r.imag = (this->imag * o.real - this->real * o.imag) / denom;
+        return r;
+    }
+
     int operator==(struct _Complex_int o) {
         return this->real == o.real && this->imag == o.imag;
     }

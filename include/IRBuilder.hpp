@@ -163,6 +163,9 @@ private:
     // as a hidden first parameter "__sret" (the callee also returns it in AX).
     ir::Operand sretCallBuffer(const std::string& fname, ir::Operand& buf, const ir::SourceLoc& sl);
     void sretCallResult(const std::string& fname, const ir::Operand& buf, const ir::Operand& addr, const ir::SourceLoc& sl);
+    // The address of a value with none (a small struct returned in
+    // registers): stored into a hidden local first; an address as it is
+    ir::Operand addressOfValue(const ir::Operand& v, const ir::SourceLoc& sl);
     void emitMethodCall(const std::string& mangledName, std::vector<ir::Operand> args, const ir::SourceLoc& sl,
                         const ir::Operand* sretBuf = nullptr, const ir::Operand* sretAddr = nullptr);
     std::map<std::string, std::shared_ptr<FuncPtrSignature>> fnPtrSigs_;  // function-pointer variables

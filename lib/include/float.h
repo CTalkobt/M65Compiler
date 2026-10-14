@@ -50,13 +50,13 @@
 #define LDBL_MAX_10_EXP FLT_MAX_10_EXP
 
 /* Maximum representable finite float (exponent $FF, mantissa $FFFFFFFF) */
-#define FLT_MAX     1.7014118e38
+#define FLT_MAX     1.7014118342085515e38
 
 /* Minimum positive normalized float (exponent $01, mantissa $80000000) */
-#define FLT_MIN     2.9387359e-39
+#define FLT_MIN     2.9387358770557188e-39
 
 /* Smallest x such that 1.0 + x != 1.0 (2^-31) */
-#define FLT_EPSILON 4.6566129e-10
+#define FLT_EPSILON 4.6566128730773926e-10
 
 /* double = float on this target */
 #define DBL_MAX     FLT_MAX
