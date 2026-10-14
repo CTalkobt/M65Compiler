@@ -193,6 +193,7 @@ std::string D71Image::diskId() const {
 }
 
 std::vector<FileInfo> D71Image::listFiles() const {
+    if (inSubdirectory()) return listDirectory(cwd_);
     std::vector<FileInfo> files;
     const uint8_t* bam = sectorData(BAM_TRACK_SIDE0, BAM_SECTOR);
     if (!bam) return files;

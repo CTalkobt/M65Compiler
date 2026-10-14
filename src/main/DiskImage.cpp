@@ -6,7 +6,9 @@
 #include <cctype>
 #include <cstdio>
 #include <cstring>
+#include <cerrno>
 #include <map>
+#include <set>
 #include <stdexcept>
 
 // Forward declarations for format-specific subclasses
@@ -217,7 +219,7 @@ bool DiskImage::findFileEntry(const std::string& name, TrackSector& dirTS, int& 
     // Start from directory first sector (sector 1 on D64/D71, sector 3 on D81)
     (void)dirTrack;
     // Follow the directory chain from its first sector
-    TrackSector ts = firstDirectorySector();
+    TrackSector ts = directoryStart();
 
     while (ts.track != 0) {
         const uint8_t* sec = sectorData(ts.track, ts.sector);
@@ -251,6 +253,29 @@ bool DiskImage::findFileEntry(const std::string& name, TrackSector& dirTS, int& 
     return false;
 }
 
+std::vector<FileInfo> DiskImage::listDirectory(TrackSector start) const {
+    std::vector<FileInfo> files;
+    TrackSector ts = start;
+    for (int guard = 0; ts.track != 0 && guard < 65536; guard++) {
+        const uint8_t* sec = sectorData(ts.track, ts.sector);
+        if (!sec) break;
+        for (int i = 0; i < 8; i++) {
+            DirEntry e = DirEntry::fromSector(sec, i);
+            if (!e.isValid()) continue;
+            FileInfo fi;
+            fi.name = e.name();
+            fi.type = e.type();
+            fi.sizeInSectors = e.sizeInSectors;
+            fi.sizeInBytes = e.sizeInSectors * 254;
+            fi.locked = (e.fileType & 0x40) != 0;
+            fi.closed = e.isClosed();
+            files.push_back(fi);
+        }
+        ts = {sec[0], sec[1]};
+    }
+    return files;
+}
+
 std::vector<TrackSector> DiskImage::getFileChain(TrackSector start) const {
     std::vector<TrackSector> chain;
     TrackSector ts = start;
@@ -269,8 +294,7 @@ std::vector<TrackSector> DiskImage::getFileChain(TrackSector start) const {
 }
 
 TrackSector DiskImage::allocDirectoryEntry(DirEntry& entry) {
-    int dirTrack = directoryTrack();
-    TrackSector ts = firstDirectorySector();
+    TrackSector ts = directoryStart();
     TrackSector prevTS = {0, 0};
 
     while (ts.track != 0) {
@@ -347,6 +371,70 @@ bool DiskImage::renameFile(const std::string& oldName, const std::string& newNam
     return true;
 }
 
+bool DiskImage::moveFile(const std::string& name, TrackSector to, const std::string& newName) {
+    TrackSector dirTS;
+    int entryIdx;
+    if (!findFileEntry(name, dirTS, entryIdx)) return false;
+    uint8_t* sec = sectorData(dirTS.track, dirTS.sector);
+    if (!sec) return false;
+    DirEntry e = DirEntry::fromSector(sec, entryIdx);
+    if (e.type() == CbmFileType::CBM) return false;  // a directory could land inside itself
+    TrackSector from = cwd_;
+    cwd_ = to;
+    TrackSector otherTS;
+    int otherIdx;
+    bool taken = findFileEntry(newName, otherTS, otherIdx);
+    if (!taken) {
+        if (isGeos(e)) {
+            std::memset(e.filename, 0xA0, 16);
+            std::memcpy(e.filename, newName.data(), std::min<size_t>(16, newName.size()));
+        } else {
+            padPetsciiName(e.filename, newName);
+        }
+        taken = allocDirectoryEntry(e).isNull();
+    }
+    cwd_ = from;
+    if (taken) return false;
+    // the old slot is freed (allocDirectoryEntry may have moved no sector)
+    sec = sectorData(dirTS.track, dirTS.sector);
+    DirEntry old = DirEntry::fromSector(sec, entryIdx);
+    old.fileType = 0;
+    old.toSector(sec, entryIdx);
+    return true;
+}
+
+bool DiskImage::makeDirectory(const std::string& name) {
+    TrackSector ts;
+    int idx;
+    if (findFileEntry(name, ts, idx)) return false;
+    TrackSector dir = allocateNextFree(-1);
+    if (dir.isNull()) return false;
+    uint8_t* sec = sectorData(dir.track, dir.sector);
+    std::memset(sec, 0, 256);
+    sec[1] = 0xFF;  // the last sector of the chain
+    DirEntry e;
+    e.fileType = 0x80 | (uint8_t)CbmFileType::CBM;
+    e.firstDataTS = dir;
+    e.sizeInSectors = 1;
+    padPetsciiName(e.filename, name);
+    if (allocDirectoryEntry(e).isNull()) { freeSector(dir.track, dir.sector); return false; }
+    return true;
+}
+
+int DiskImage::removeDirectory(const std::string& name) {
+    TrackSector dirTS;
+    int entryIdx;
+    if (!findFileEntry(name, dirTS, entryIdx)) return -ENOENT;
+    uint8_t* sec = sectorData(dirTS.track, dirTS.sector);
+    DirEntry e = DirEntry::fromSector(sec, entryIdx);
+    if (e.type() != CbmFileType::CBM) return -ENOENT;
+    if (!listDirectory(e.firstDataTS).empty()) return -ENOTEMPTY;
+    for (auto& ts : getFileChain(e.firstDataTS)) freeSector(ts.track, ts.sector);
+    e.fileType = 0;
+    e.toSector(sec, entryIdx);
+    return 0;
+}
+
 // ============================================================================
 // Lock / unlock a file (bit 6 of file type byte)
 // ============================================================================
@@ -399,10 +487,15 @@ DiskImage::ValidateResult DiskImage::validate() const {
         return r;
     }
 
-    // Walk directory and trace all file chains
-    TrackSector ts = firstDirectorySector();
+    // Walk the directory and its CBM subdirectories (a subdirectory's chain
+    // is counted as its entry's sectors), tracing all file chains
+    std::vector<TrackSector> dirs = {firstDirectorySector()};
+    std::set<uint64_t> walked;
+    for (size_t d = 0; d < dirs.size(); d++) {
+    TrackSector ts = dirs[d];
+    if (!walked.insert(key(ts.track, ts.sector)).second) continue;
     while (ts.track != 0) {
-        usageCount[key(ts.track, ts.sector)]++; // directory sector itself
+        if (d == 0) usageCount[key(ts.track, ts.sector)]++; // directory sector itself
         const uint8_t* sec = sectorData(ts.track, ts.sector);
         if (!sec) {
             r.errors.push_back("Broken directory chain at T" +
@@ -416,6 +509,8 @@ DiskImage::ValidateResult DiskImage::validate() const {
             r.filesFound++;
 
             auto chain = fileSectors(e);
+            if (e.type() == CbmFileType::CBM && !e.firstDataTS.isNull())
+                dirs.push_back(e.firstDataTS);
             for (auto& cs : chain) {
                 r.sectorsUsedByFiles++;
                 auto k = key(cs.track, cs.sector);
@@ -440,6 +535,7 @@ DiskImage::ValidateResult DiskImage::validate() const {
         uint8_t nextT = sec[0], nextS = sec[1];
         if (nextT == 0) break;
         ts = {nextT, nextS};
+    }
     }
 
     // Also count BAM/header sector itself

@@ -185,6 +185,7 @@ std::string D64Image::diskId() const {
 }
 
 std::vector<FileInfo> D64Image::listFiles() const {
+    if (inSubdirectory()) return listDirectory(cwd_);
     std::vector<FileInfo> files;
     const uint8_t* bam = sectorData(DIR_TRACK, BAM_SECTOR);
     if (!bam) return files;

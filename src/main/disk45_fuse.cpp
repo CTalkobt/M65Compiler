@@ -64,7 +64,7 @@ static CbmFileType extToType(const std::string& path) {
 // Strip leading / and type extension to get CBM name (for new files)
 static std::string pathToCbmName(const char* path) {
     std::string p = path;
-    if (!p.empty() && p[0] == '/') p = p.substr(1);
+    p = p.substr(p.rfind('/') + 1);  // the last component
     // Strip extension
     auto dot = p.rfind('.');
     if (dot != std::string::npos) {
@@ -106,7 +106,6 @@ struct Node {
     FileInfo info;
     bool geos = false;
     DirEntry entry;
-    bool sub = false;   // in a CBM subdirectory (read-only)
 };
 
 static bool isDir(const Node& n) { return n.info.type == CbmFileType::CBM && !n.geos; }
@@ -122,34 +121,6 @@ static std::vector<Node> nodes() {
             n.geos = n.entry.isValid() && g_img->isGeos(n.entry);
         }
         out.push_back(n);
-    }
-    return out;
-}
-
-// The entries of a CBM subdirectory: the directory chain at its entry's
-// first data sector
-static std::vector<Node> subNodes(const DirEntry& dir) {
-    std::vector<Node> out;
-    TrackSector ts = dir.firstDataTS;
-    for (int guard = 0; ts.track != 0 && guard < 1024; guard++) {
-        const uint8_t* sec = g_img->sectorData(ts.track, ts.sector);
-        if (!sec) break;
-        for (int i = 0; i < 8; i++) {
-            DirEntry e = DirEntry::fromSector(sec, i);
-            if (!e.isValid()) continue;
-            Node n;
-            n.info.name = e.name();
-            n.info.type = e.type();
-            n.info.sizeInSectors = e.sizeInSectors;
-            n.info.sizeInBytes = e.sizeInSectors * 254;
-            n.info.locked = (e.fileType & 0x40) != 0;
-            n.info.closed = e.isClosed();
-            n.entry = e;
-            n.geos = g_img->isGeos(e);
-            n.sub = true;
-            out.push_back(n);
-        }
-        ts = {sec[0], sec[1]};
     }
     return out;
 }
@@ -180,32 +151,38 @@ static std::vector<std::string> pathParts(const char* path) {
     return parts;
 }
 
-// Whether a path is inside a subdirectory ("/DIR/NAME")
-static bool inSubdir(const char* path) { return pathParts(path).size() > 1; }
-
-// The file or directory a path names, through CBM subdirectories
-static bool findNode(const char* path, Node& node) {
+// Make the directory holding a path the image's working directory (a CBM
+// subdirectory, or the root); `leaf` is the path's last component
+static int enterParent(const char* path, std::string& leaf) {
     auto parts = pathParts(path);
-    if (parts.empty()) return false;
-    auto all = nodes();
-    for (size_t i = 0; i < parts.size(); i++) {
-        if (!findIn(all, parts[i], node)) return false;
-        if (i + 1 == parts.size()) return true;
-        if (!isDir(node) || !node.entry.isValid()) return false;
-        all = subNodes(node.entry);
+    g_img->setDirectory({0, 0});
+    leaf = parts.empty() ? "" : parts.back();
+    for (size_t i = 0; i + 1 < parts.size(); i++) {
+        Node d;
+        if (!findIn(nodes(), parts[i], d)) return -ENOENT;
+        if (!isDir(d) || !d.entry.isValid()) return -ENOTDIR;
+        g_img->setDirectory(d.entry.firstDataTS);
     }
-    return false;
+    return 0;
+}
+
+// The file or directory a path names; its directory becomes the working one
+static bool findNode(const char* path, Node& node) {
+    std::string leaf;
+    if (enterParent(path, leaf) != 0 || leaf.empty()) return false;
+    return findIn(nodes(), leaf, node);
+}
+
+// The parent part of a path ("/" for a root entry)
+static std::string parentOf(const std::string& path) {
+    auto slash = path.rfind('/');
+    return slash == 0 || slash == std::string::npos ? "/" : path.substr(0, slash);
 }
 
 static bool nodeBytes(const Node& n, std::vector<uint8_t>& data) {
     if (n.geos) {
         std::string err;
         return g_img->readGeosCvt(n.entry, data, err);
-    }
-    if (n.sub) {
-        bool ok;
-        data = g_img->chainBytes(n.entry.firstDataTS, &ok);
-        return ok;
     }
     data = g_img->readFile(n.info.name);
     return true;
@@ -221,7 +198,9 @@ static int commitPending(const std::string& path) {
     if (it == g_pending.end()) return 0;
     std::vector<uint8_t> data = std::move(it->second);
     g_pending.erase(it);
-    std::string stem = path.substr(1, path.size() - 5);  // "/name.cvt" -> "name"
+    std::string stem;
+    if (int rc = enterParent(path.c_str(), stem)) return rc;
+    stem = stem.substr(0, stem.size() - 4);  // "name.cvt" -> "name"
     Node old;
     if (findNode(path.c_str(), old)) g_img->removeFile(old.info.name);
     std::string err;
@@ -265,10 +244,10 @@ static int cbm_getattr(const char* path, struct stat* st, struct fuse_file_info*
     Node n;
     if (!findNode(path, n)) return -ENOENT;
     if (isDir(n)) {
-        st->st_mode = S_IFDIR | (n.sub || g_readonly ? 0555 : 0755);
+        st->st_mode = S_IFDIR | (g_readonly ? 0555 : 0755);
         st->st_nlink = 2;
     } else {
-        st->st_mode = S_IFREG | (g_readonly || n.sub ? 0444 : 0644);
+        st->st_mode = S_IFREG | (g_readonly ? 0444 : 0644);
         st->st_nlink = 1;
         std::vector<uint8_t> data;
         nodeBytes(n, data);
@@ -284,24 +263,25 @@ static int cbm_readdir(const char* path, void* buf, fuse_fill_dir_t filler,
     filler(buf, ".", NULL, 0, (fuse_fill_dir_flags)0);
     filler(buf, "..", NULL, 0, (fuse_fill_dir_flags)0);
 
-    if (strcmp(path, "/") != 0) {
+    if (strcmp(path, "/") == 0) {
+        g_img->setDirectory({0, 0});
+    } else {
         Node d;
         if (!findNode(path, d)) return -ENOENT;
         if (!isDir(d) || !d.entry.isValid()) return -ENOTDIR;
-        for (auto& n : subNodes(d.entry))
-            filler(buf, cbmToPath(n.info, n.geos).c_str(), NULL, 0, (fuse_fill_dir_flags)0);
-        return 0;
+        g_img->setDirectory(d.entry.firstDataTS);
     }
 
     std::vector<std::string> shown;
+    std::string dir = strcmp(path, "/") == 0 ? "" : path;
     for (auto& n : nodes()) {
         std::string posixName = cbmToPath(n.info, n.geos);
-        shown.push_back("/" + posixName);
+        shown.push_back(dir + "/" + posixName);
         filler(buf, posixName.c_str(), NULL, 0, (fuse_fill_dir_flags)0);
     }
     for (auto& [p, data] : g_pending)
-        if (std::find(shown.begin(), shown.end(), p) == shown.end())
-            filler(buf, p.c_str() + 1, NULL, 0, (fuse_fill_dir_flags)0);
+        if (parentOf(p) == path && std::find(shown.begin(), shown.end(), p) == shown.end())
+            filler(buf, p.c_str() + p.rfind('/') + 1, NULL, 0, (fuse_fill_dir_flags)0);
     return 0;
 }
 
@@ -315,7 +295,7 @@ static int cbm_open(const char* path, struct fuse_file_info* fi) {
     Node n;
     if (!findNode(path, n)) return -ENOENT;
     if (g_readonly && writing) return -EACCES;
-    if (n.sub && writing) return -EROFS;
+    if (writing && isDir(n)) return -EISDIR;
     if (writing && n.geos) {
         // a GEOS file is rewritten as a whole CVT, committed on close
         std::vector<uint8_t> data;
@@ -348,7 +328,6 @@ static int cbm_read(const char* path, char* buf, size_t size, off_t offset,
 static int cbm_write(const char* path, const char* buf, size_t size, off_t offset,
                       struct fuse_file_info*) {
     if (g_readonly) return -EACCES;
-    if (inSubdir(path)) return -EROFS;  // disk45 writes only the root directory
     std::lock_guard<std::mutex> lock(g_mutex);
     auto pend = g_pending.find(path);
     if (pend != g_pending.end()) {
@@ -378,8 +357,9 @@ static int cbm_write(const char* path, const char* buf, size_t size, off_t offse
 
 static int cbm_create(const char* path, mode_t, struct fuse_file_info*) {
     if (g_readonly) return -EACCES;
-    if (inSubdir(path)) return -EROFS;  // disk45 writes only the root directory
     std::lock_guard<std::mutex> lock(g_mutex);
+    std::string leaf;
+    if (int rc = enterParent(path, leaf)) return rc;
     std::string cbmName = pathToCbmName(path);
     if (cbmName.size() > 16) return -ENAMETOOLONG;
 
@@ -401,35 +381,81 @@ static int cbm_release(const char* path, struct fuse_file_info*) {
 
 static int cbm_unlink(const char* path) {
     if (g_readonly) return -EACCES;
-    if (inSubdir(path)) return -EROFS;  // disk45 writes only the root directory
     std::lock_guard<std::mutex> lock(g_mutex);
     bool pending = g_pending.erase(path) > 0;
     Node n;
     if (!findNode(path, n)) return pending ? 0 : -ENOENT;
+    if (isDir(n)) return -EISDIR;
     if (!g_img->removeFile(n.info.name)) return -ENOENT;  // a GEOS file: all its sectors
     return g_img->saveImage(g_imagePath) ? 0 : -EIO;
 }
 
 static int cbm_rename(const char* from, const char* to, unsigned int) {
     if (g_readonly) return -EACCES;
-    if (inSubdir(from) || inSubdir(to)) return -EROFS;
     std::lock_guard<std::mutex> lock(g_mutex);
+    std::string toLeaf;
+    if (int rc = enterParent(to, toLeaf)) return rc;
+    TrackSector toDir = g_img->directoryStart();
+    Node target;
+    bool replace = findIn(nodes(), toLeaf, target);
     Node n;
     if (!findNode(from, n)) return -ENOENT;
     std::string newName = pathToCbmName(to);
     if (n.geos) {
         // keep the case of a GEOS name
-        std::string t = to[0] == '/' ? to + 1 : to;
-        newName = isCvtPath(t) ? t.substr(0, t.size() - 4) : t;
+        newName = isCvtPath(toLeaf) ? toLeaf.substr(0, toLeaf.size() - 4) : toLeaf;
     }
     if (newName.size() > 16) return -ENAMETOOLONG;
-    if (!g_img->renameFile(n.info.name, newName)) return -ENOENT;
+    if (replace) {
+        // POSIX rename replaces the target (an empty directory by a directory)
+        if (isDir(target) != isDir(n)) return isDir(target) ? -EISDIR : -ENOTDIR;
+        if (target.info.name == n.info.name && toDir == g_img->directoryStart()) {
+            // the same entry (a change of case)
+        } else {
+            TrackSector fromDir = g_img->directoryStart();
+            g_img->setDirectory(toDir);
+            int rc = isDir(target) ? g_img->removeDirectory(target.info.name)
+                                   : (g_img->removeFile(target.info.name) ? 0 : -EIO);
+            g_img->setDirectory(fromDir);
+            if (rc) return rc;
+        }
+    }
+    if (toDir == g_img->directoryStart()) {
+        if (!g_img->renameFile(n.info.name, newName)) return -EIO;
+    } else {
+        if (isDir(n)) return -EXDEV;  // a directory is not moved (it could land inside itself)
+        if (!g_img->moveFile(n.info.name, toDir, newName)) return -EIO;
+    }
+    return g_img->saveImage(g_imagePath) ? 0 : -EIO;
+}
+
+static int cbm_mkdir(const char* path, mode_t) {
+    if (g_readonly) return -EACCES;
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (!trackImage()) return -EPERM;
+    std::string leaf;
+    if (int rc = enterParent(path, leaf)) return rc;
+    Node n;
+    if (findIn(nodes(), leaf, n)) return -EEXIST;
+    std::string name = leaf;
+    std::transform(name.begin(), name.end(), name.begin(), ::toupper);
+    if (name.size() > 16) return -ENAMETOOLONG;
+    if (!g_img->makeDirectory(name)) return -ENOSPC;
+    return g_img->saveImage(g_imagePath) ? 0 : -EIO;
+}
+
+static int cbm_rmdir(const char* path) {
+    if (g_readonly) return -EACCES;
+    std::lock_guard<std::mutex> lock(g_mutex);
+    Node n;
+    if (!findNode(path, n)) return -ENOENT;
+    if (!isDir(n)) return -ENOTDIR;
+    if (int rc = g_img->removeDirectory(n.info.name)) return rc;
     return g_img->saveImage(g_imagePath) ? 0 : -EIO;
 }
 
 static int cbm_truncate(const char* path, off_t size, struct fuse_file_info*) {
     if (g_readonly) return -EACCES;
-    if (inSubdir(path)) return -EROFS;  // disk45 writes only the root directory
     std::lock_guard<std::mutex> lock(g_mutex);
     auto pend = g_pending.find(path);
     if (pend != g_pending.end()) {
@@ -489,6 +515,8 @@ static void init_cbm_ops() {
     cbm_ops.create   = cbm_create;
     cbm_ops.utimens  = cbm_utimens;
     cbm_ops.release  = cbm_release;
+    cbm_ops.mkdir    = cbm_mkdir;
+    cbm_ops.rmdir    = cbm_rmdir;
 }
 
 // ============================================================================

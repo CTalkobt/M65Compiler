@@ -299,6 +299,7 @@ bool CmdImage::setDiskId(const std::string& id) {
 }
 
 std::vector<FileInfo> CmdImage::listFiles() const {
+    if (inSubdirectory()) return listDirectory(cwd_);
     std::vector<FileInfo> files;
     TrackSector ts = firstDirectorySector();
     for (int guard = 0; ts.track != 0 && guard < 65536; guard++) {

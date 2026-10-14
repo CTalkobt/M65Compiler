@@ -95,7 +95,7 @@ Add a host file. The CBM type comes from the host file's extension: `.prg`→PRG
 
 A **GEOS Convert file** (a `.cvt`, recognised by its signature whatever its extension) is added as a GEOS file: its info block, the record block and the record chains of a VLIR file, or the data chain of a sequential one, with the directory entry from the CVT (GEOS type, structure, date). The name is the one in the CVT unless `cbm_name` is given. See [GEOS Files](#geos-files).
 
-Files are always added to the root directory: a name such as `ASSETS/SPRITES` creates a root entry with a `/` in its name, not a file inside subdirectory `ASSETS`.
+A name with a path adds into a CBM subdirectory: `ASSETS/SPRITES` (the file `SPRITES` in `ASSETS`), `ASSETS/` (the host file's own name). The directory must exist (`mkdir`).
 
 **Examples:**
 ```bash
@@ -113,7 +113,7 @@ for f in build/*.prg; do disk45 add game.d81 "$f"; done
 disk45 extract <image> <cbm_name> <host_file> [-p|--petscii]
 ```
 
-Extract a file (name lookup is case-insensitive). `-p` converts PETSCII→ASCII (applied whatever the file type). The host file name is required; there is no stdout mode. A GEOS file is written as its Convert (CVT) form, the only form that keeps its info block and VLIR records; `extract-all` names GEOS files `<name>.cvt`.
+Extract a file (name lookup is case-insensitive; `DIR/NAME` for a file in a subdirectory). `-p` converts PETSCII→ASCII (applied whatever the file type). The host file name is required; there is no stdout mode. A GEOS file is written as its Convert (CVT) form, the only form that keeps its info block and VLIR records; `extract-all` names GEOS files `<name>.cvt`.
 
 ```bash
 disk45 extract game.d81 GAME recovered.prg
@@ -175,7 +175,7 @@ for f in *.d64; do disk45 convert "$f" "${f%.d64}.d81"; done
 disk45 remove <image> <cbm_name>
 ```
 
-Delete one file (exact name, no wildcards).
+Delete one file (exact name, no wildcards; `DIR/NAME` in a subdirectory). A subdirectory is removed with `rmdir`.
 
 #### rename / mv
 
@@ -183,7 +183,7 @@ Delete one file (exact name, no wildcards).
 disk45 rename <image> <old_name> <new_name>
 ```
 
-Works for files and for CBM subdirectory entries in the root directory.
+Works for files and for CBM subdirectory entries, in the root or a subdirectory (`DIR/OLD DIR/NEW`). A new name in another directory moves the file there (`mv GAME TOOLS/`, `mv TOOLS/GAME GAME2`); a subdirectory is renamed but not moved.
 
 #### lock / unlock
 
@@ -192,7 +192,7 @@ disk45 lock <image> <cbm_name>
 disk45 unlock <image> <cbm_name>
 ```
 
-Set or clear the locked flag (bit 6 of the file type; shown as `<`). disk45's own `remove` does not check this flag.
+Set or clear the locked flag (bit 6 of the file type; shown as `<`; `DIR/NAME` in a subdirectory). disk45's own `remove` does not check this flag.
 
 #### splat / unsplat
 
@@ -349,7 +349,9 @@ disk45 rel-list data.d64 SCORES
 
 ### Subdirectory Operations
 
-CBM subdirectories (file type `CBM`) work on all sector-based images (D64, D71, D81, D65, ...). Paths use `/`.
+CBM subdirectories (file type `CBM`) work on all sector-based images (D64, D71, D81, D65, ...). Paths use `/`: `list`, `add`, `extract`, `remove`, `rename`, `lock`/`unlock`, `mkdir`, `rmdir`, `dir-shrink`, `dir-ensure` and the FUSE mount work inside them, and `validate` checks their files.
+
+A subdirectory is disk45's own layout: the `CBM` entry's first data sector starts the subdirectory's directory chain, and its files share the disk's BAM. This is not a 1581 partition (which has its own header and BAM and must cover whole tracks), so a 1581 drive does not see the files inside one.
 
 #### mkdir
 
@@ -408,8 +410,8 @@ disk45 mount <image> <mountpoint> [-ro|--readonly] [fuse options...]
 
 Mount an image as a Linux directory using FUSE3. Only available when disk45 was built with libfuse3 (the Makefile detects it with `pkg-config fuse3`; the command then appears in the usage text). disk45 stays in the foreground until unmounted; extra arguments are passed to FUSE.
 
-- Files appear with type extensions (`GAME.prg`, `README.seq`). CBM subdirectories appear as directories and can be listed and read at any depth (`SUB/INNER/NOTE.seq`); they are read-only (creating, writing, renaming or deleting in them fails with `EROFS`), since disk45 adds files only to the root directory.
-- Read/write (root directory): create, write, truncate, rename and delete files; the image is saved after every change. A new file's type comes from its extension (`.prg`, `.seq`, `.usr`, `.rel`; others become PRG); names are limited to 16 characters.
+- Files appear with type extensions (`GAME.prg`, `README.seq`). CBM subdirectories appear as directories at any depth (`SUB/INNER/NOTE.seq`): files in them are created, written, renamed and deleted as in the root, `mkdir`/`rmdir` create and remove (empty) subdirectories, and `mv` moves a file between directories (a directory is renamed but not moved: `EXDEV`).
+- Read/write: create, write, truncate, rename and delete files; the image is saved after every change. A new file's type comes from its extension (`.prg`, `.seq`, `.usr`, `.rel`; others become PRG); names are limited to 16 characters.
 - Images with no tracks (TAP, T64, ARK, ARC/SDA, LNX, CVT, P00) and read-only formats are always mounted read-only.
 - GEOS files appear as `<name>.cvt`, their Convert (CVT) form (as `extract` writes it). A `.cvt` copied into the mount (or a GEOS file rewritten) is buffered and becomes a GEOS file when it is closed, named after the file (case kept); data that is not a CVT is stored as a USR file. Renaming keeps a GEOS name's case; deleting frees all its sectors.
 - The image path may be relative (it is made absolute; FUSE runs from `/`); a change that cannot be saved fails with an I/O error.

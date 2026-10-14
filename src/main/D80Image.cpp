@@ -232,6 +232,7 @@ bool D80Image::setDiskId(const std::string& id) {
 // ============================================================================
 
 std::vector<FileInfo> D80Image::listFiles() const {
+    if (inSubdirectory()) return listDirectory(cwd_);
     std::vector<FileInfo> files;
     TrackSector ts = {DIR_TRACK, 1};
     while (ts.track != 0) {

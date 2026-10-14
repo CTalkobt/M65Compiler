@@ -106,6 +106,7 @@ int D90Image::freeSectors() const {
 }
 
 std::vector<FileInfo> D90Image::listFiles() const {
+    if (inSubdirectory()) return listDirectory(cwd_);
     std::vector<FileInfo> files;
     TrackSector ts = {39, 1};
     while (ts.track != 0) {

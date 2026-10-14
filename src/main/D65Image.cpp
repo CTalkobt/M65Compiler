@@ -176,6 +176,7 @@ std::string D65Image::diskId() const {
 }
 
 std::vector<FileInfo> D65Image::listFiles() const {
+    if (inSubdirectory()) return listDirectory(cwd_);
     std::vector<FileInfo> files;
     const uint8_t* hdr = sectorData(DIR_TRACK, HEADER_SECTOR);
     if (!hdr) return files;

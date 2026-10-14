@@ -120,6 +120,12 @@ public:
     virtual TrackSector firstDirectorySector() const;
     // The track of the header sector (sector 0) and the directory
     int headerTrack() const { return directoryTrack(); }
+    // The directory file operations work in (find, add, remove, rename,
+    // readFile, listFiles): the root (default) or a CBM subdirectory's
+    // chain, its entry's first data sector. {0,0} returns to the root
+    void setDirectory(TrackSector start) { cwd_ = start; }
+    TrackSector directoryStart() const { return cwd_.isNull() ? firstDirectorySector() : cwd_; }
+    bool inSubdirectory() const { return !cwd_.isNull(); }
     // The header sector (disk name, ID, GEOS signature): sector 0 of the
     // directory track; a CMD native partition's is 1/1
     virtual TrackSector headerSector() const { return {(uint8_t)directoryTrack(), 0}; }
@@ -136,6 +142,17 @@ public:
     virtual bool removeFile(const std::string& name) = 0;
     virtual bool renameFile(const std::string& oldName, const std::string& newName);
     virtual bool lockFile(const std::string& name, bool locked);
+    // Move a file of the working directory into the directory chain at `to`
+    // (the root: firstDirectorySector()) as newName; refused for a
+    // subdirectory entry and when `to` already has newName
+    bool moveFile(const std::string& name, TrackSector to, const std::string& newName);
+    // A CBM subdirectory of the working directory: an entry of type CBM
+    // whose first data sector starts the subdirectory's own directory chain.
+    // makeDirectory fails when the name exists or the disk is full;
+    // removeDirectory returns 0, -ENOENT (no such directory) or -ENOTEMPTY,
+    // and frees the subdirectory's sectors
+    bool makeDirectory(const std::string& name);
+    int removeDirectory(const std::string& name);
     virtual std::vector<uint8_t> readFile(const std::string& name) const = 0;
     virtual bool fileExists(const std::string& name) const = 0;
 
@@ -199,6 +216,10 @@ protected:
     std::string zipMember_;       // the member this image was loaded from
     std::vector<uint8_t> image_;  // raw disk image bytes
     bool blank_ = false;          // freshly formatted by create (markBlank)
+    TrackSector cwd_;             // setDirectory: a subdirectory, or {0,0}
+
+    // The files of a directory chain (listFiles in a subdirectory)
+    std::vector<FileInfo> listDirectory(TrackSector start) const;
 
     // Subclasses implement: convert (track,sector) to byte offset in image_
     virtual int sectorOffset(int track, int sector) const = 0;

@@ -229,6 +229,28 @@ $DISK45 dir-ensure "$TMPDIR/sub.d81" 20 GAMES 2>&1 | grep -q 'Added' && pass "di
 # dir-shrink
 $DISK45 dir-shrink "$TMPDIR/sub.d81" GAMES 2>&1 | grep -q 'Reclaimed\|No empty' && pass "dir-shrink" || fail "dir-shrink"
 
+# Files in subdirectories: add, extract, rename, move, lock, remove
+$DISK45 mkdir "$TMPDIR/sub.d81" GAMES/ARCADE >/dev/null 2>&1
+$DISK45 add "$TMPDIR/sub.d81" "$TMPDIR/d1.prg" GAMES/ARCADE/PONG >/dev/null 2>&1 &&
+    $DISK45 add "$TMPDIR/sub.d81" "$TMPDIR/d1.prg" GAMES/ >/dev/null 2>&1 &&
+    $DISK45 extract "$TMPDIR/sub.d81" GAMES/ARCADE/PONG "$TMPDIR/pong.prg" >/dev/null 2>&1 &&
+    cmp -s "$TMPDIR/pong.prg" "$TMPDIR/d1.prg" &&
+    $DISK45 list "$TMPDIR/sub.d81" GAMES/ | grep -q '"D1"' &&
+    ! $DISK45 list "$TMPDIR/sub.d81" | grep -q 'PONG\|"D1"' &&
+    pass "add/extract in subdirectories" || fail "add/extract in subdirectories"
+$DISK45 mv "$TMPDIR/sub.d81" GAMES/ARCADE/PONG GAMES/ARCADE/PONG2 >/dev/null 2>&1 &&
+    $DISK45 mv "$TMPDIR/sub.d81" GAMES/D1 TOP >/dev/null 2>&1 &&
+    $DISK45 mv "$TMPDIR/sub.d81" TOP GAMES/ARCADE/ >/dev/null 2>&1 &&
+    $DISK45 lock "$TMPDIR/sub.d81" GAMES/ARCADE/TOP >/dev/null 2>&1 &&
+    $DISK45 list "$TMPDIR/sub.d81" GAMES/ARCADE/ | grep -q '"PONG2".*PRG' &&
+    $DISK45 list "$TMPDIR/sub.d81" GAMES/ARCADE/ | grep -q '"TOP".*PRG<' &&
+    ! $DISK45 rmdir "$TMPDIR/sub.d81" GAMES/ARCADE >/dev/null 2>&1 &&
+    ! $DISK45 rm "$TMPDIR/sub.d81" GAMES/ARCADE >/dev/null 2>&1 &&
+    ! $DISK45 add "$TMPDIR/sub.d81" "$TMPDIR/d1.prg" NOPE/X >/dev/null 2>&1 &&
+    $DISK45 rm "$TMPDIR/sub.d81" GAMES/ARCADE/PONG2 >/dev/null 2>&1 &&
+    $DISK45 validate "$TMPDIR/sub.d81" | grep -q 'Status: OK' &&
+    pass "rename/move/lock/remove in subdirectories" || fail "rename/move/lock/remove in subdirectories"
+
 # ============================================================================
 echo "=== PETSCII filters ==="
 
@@ -514,39 +536,13 @@ if $DISK45 2>&1 | grep -q ' mount ' && command -v fusermount3 >/dev/null 2>&1 &&
         echo "  SKIP: mount (FUSE mount failed: $(cat "$TMPDIR/mount.log"))"
     fi
 
-    # CBM subdirectories list and read; writing into them is refused.
-    # disk45 adds only to the root: the entries of TOOL and NOTE are moved
-    # into SUB and SUB/INNER (D81: sector offset ((t-1)*40+s)*256)
+    # CBM subdirectories: listed, read and written at any depth
     $DISK45 create "$TMPDIR/fsub.d81" >/dev/null 2>&1
     $DISK45 mkdir "$TMPDIR/fsub.d81" SUB >/dev/null 2>&1
     $DISK45 mkdir "$TMPDIR/fsub.d81" SUB/INNER >/dev/null 2>&1
-    $DISK45 add "$TMPDIR/fsub.d81" "$TMPDIR/d1.prg" TOOL >/dev/null 2>&1
+    $DISK45 add "$TMPDIR/fsub.d81" "$TMPDIR/d1.prg" SUB/TOOL >/dev/null 2>&1
     printf 'deep text' > "$TMPDIR/note.seq"
-    $DISK45 add "$TMPDIR/fsub.d81" "$TMPDIR/note.seq" NOTE >/dev/null 2>&1
-    python3 - "$TMPDIR/fsub.d81" <<'PY'
-import sys
-p = sys.argv[1]; d = bytearray(open(p, 'rb').read())
-off = lambda t, s: ((t - 1) * 40 + s) * 256
-def entries(t, s):
-    while t:
-        o = off(t, s)
-        for i in range(8):
-            yield o + i * 32
-        t, s = d[o], d[o + 1]
-def find(t, s, name):
-    for e in entries(t, s):
-        if d[e + 2] & 7 and bytes(d[e + 5:e + 21]).rstrip(b'\xa0') == name:
-            return e
-def move(e, t, s):
-    for f in entries(t, s):
-        if not d[f + 2] & 7:
-            d[f + 2:f + 32] = d[e + 2:e + 32]; d[e + 2:e + 32] = bytes(30); return
-sub = find(40, 3, b'SUB'); st, ss = d[sub + 3], d[sub + 4]
-inner = find(st, ss, b'INNER'); it, is_ = d[inner + 3], d[inner + 4]
-move(find(40, 3, b'TOOL'), st, ss)
-move(find(40, 3, b'NOTE'), it, is_)
-open(p, 'wb').write(d)
-PY
+    $DISK45 add "$TMPDIR/fsub.d81" "$TMPDIR/note.seq" SUB/INNER/ >/dev/null 2>&1
     $DISK45 mount "$TMPDIR/fsub.d81" "$FM" >"$TMPDIR/mount.log" 2>&1 &
     for i in $(seq 1 50); do mountpoint -q "$FM" && break; sleep 0.1; done
     if mountpoint -q "$FM"; then
@@ -556,11 +552,25 @@ PY
             cmp -s "$FM/SUB/INNER/NOTE.seq" "$TMPDIR/note.seq" &&
             pass "mount: subdirectories list and read" ||
             fail "mount: subdirectories ($(ls -R "$FM" 2>&1 | tr '\n' ' '))"
-        ! echo x 2>/dev/null > "$FM/SUB/NEW.seq" && ! rm "$FM/SUB/TOOL.prg" 2>/dev/null &&
-            [ -f "$FM/SUB/TOOL.prg" ] &&
-            pass "mount: writing in a subdirectory is refused" || fail "mount: subdirectory writes"
+        echo written > "$FM/SUB/NEW.seq"
+        mkdir "$FM/SUB/INNER/DEEP" && mkdir "$FM/GONE" && rmdir "$FM/GONE"
+        cp "$TMPDIR/d1.prg" "$FM/SUB/INNER/DEEP/COPY.prg"
+        mv "$FM/SUB/TOOL.prg" "$FM/TOOL.prg"
+        mv "$FM/SUB/INNER/NOTE.seq" "$FM/SUB/NOTE.seq"
+        ! rmdir "$FM/SUB/INNER" 2>/dev/null && rm "$FM/SUB/NOTE.seq" &&
+            [ "$(cat "$FM/SUB/NEW.seq")" = written ] &&
+            pass "mount: files and directories written in subdirectories" ||
+            fail "mount: subdirectory writes ($(ls -R "$FM" 2>&1 | tr '\n' ' '))"
         (cd / && fusermount3 -u "$FM")
         for i in $(seq 1 50); do mountpoint -q "$FM" || break; sleep 0.1; done
+        $DISK45 tree "$TMPDIR/fsub.d81" > "$TMPDIR/tree.txt"
+        $DISK45 extract "$TMPDIR/fsub.d81" SUB/INNER/DEEP/COPY "$TMPDIR/copy.prg" >/dev/null &&
+            cmp -s "$TMPDIR/copy.prg" "$TMPDIR/d1.prg" &&
+            grep -q '^    NEW (SEQ' "$TMPDIR/tree.txt" && grep -q '^  TOOL (PRG' "$TMPDIR/tree.txt" &&
+            grep -q '^      DEEP/' "$TMPDIR/tree.txt" && ! grep -q 'GONE\|NOTE' "$TMPDIR/tree.txt" &&
+            $DISK45 validate "$TMPDIR/fsub.d81" 2>&1 | grep -q 'Status: OK' &&
+            pass "mount: subdirectory changes saved" ||
+            fail "mount: subdirectory changes ($(cat "$TMPDIR/tree.txt" "$TMPDIR/mount.log"))"
     fi
 else
     echo "  SKIP: mount (no FUSE)"

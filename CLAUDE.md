@@ -337,7 +337,7 @@ https://ist.uwaterloo.ca/~schepers/formats.html): read/write D64, D71,
 D81 (recommended), D65, D80, D82, X64, G64/G71 (unchanged tracks keep their
 GCR), T64, ARK, ARC/SDA, LNX, P00, transparent `.gz` and `.zip` (`x.d81.zip`,
 `archive.zip:member.d64`), CMD D1M/D2M/D4M/DNP (the first native partition);
-read-only D90/D60, NIB/NBZ, Zipcode, TAP, CVT. FUSE mount (subdirectories read-only; GEOS files as `<name>.cvt`), SQLite catalog, batch
+read-only D90/D60, NIB/NBZ, Zipcode, TAP, CVT. CBM subdirectories (`DIR/NAME` paths; disk45's own layout, not 1581 partitions), FUSE mount (subdirectories too; GEOS files as `<name>.cvt`), SQLite catalog, batch
 scripts, PETSCII/ASCII filters (`-a2p`, `-p2a`). GEOS files (VLIR and
 sequential) on disk images: `extract` writes and `add` takes the Convert
 (CVT) form, `copy`/`convert` keep them, `create --geos`.
