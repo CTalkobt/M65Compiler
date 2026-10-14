@@ -75,7 +75,8 @@ writes a standalone assembly form with its own startup stub.
   next function. ln45 rejects SAC functions on a cross-module call cycle and
   SAC functions reachable from an `__interrupt` handler, and overlays the
   storage (`_f__ar` blocks) of SAC functions never active at the same time
-  (address-taken functions and their callees keep their own).
+  (calls through pointers count as calls from every function that makes
+  them, cc45 `cc45.icall.<f>`, to every address-taken function).
 - **Returns**: `char` A; `int`/pointer A/X; `long` A/X/Y/Z (Q). Structs,
   unions, floats and `long long` are returned through a hidden first parameter
   `__sret` that points into the caller's storage; the callee copies the value

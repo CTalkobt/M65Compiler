@@ -2012,16 +2012,17 @@ void O45Linker::buildCallGraph(std::map<std::string, std::set<std::string>>& gra
     }
 
     // Calls through pointers: a function that makes them (cc45:
-    // cc45.icall.<f>; any label of an object not made by cc45, which may)
-    // can call every function whose address is used
+    // cc45.icall.<f>; any label of an object not made by cc45, or made by a
+    // cc45 that did not mark them, cc45.icallinfo) can call every function
+    // whose address is used
     std::set<std::string> icallers;
     for (const auto& input : objects_) {
-        bool isCc45 = false;
+        bool marked = false;
         for (const auto& exp : input.obj.exports)
-            if (exp.name == "cc45.mode_zp" || exp.name == "cc45.mode_stack") isCc45 = true;
+            if (exp.name == "cc45.icallinfo") marked = true;
         for (const auto& exp : input.obj.exports) {
-            if (isCc45 && exp.name.rfind("cc45.icall.", 0) == 0) icallers.insert(exp.name.substr(11));
-            else if (!isCc45 && exp.segmentId() == SEG_TEXT) icallers.insert(exp.name);
+            if (marked && exp.name.rfind("cc45.icall.", 0) == 0) icallers.insert(exp.name.substr(11));
+            else if (!marked && exp.segmentId() == SEG_TEXT) icallers.insert(sacBase(exp.name));
         }
     }
     for (const auto& c : icallers)
@@ -2209,8 +2210,8 @@ void O45Linker::generateZarWrappers() {
 //
 // Calls are JSR and JMP references to a function. Any other reference
 // (an address loaded or stored in data) makes the function callable
-// indirectly from anywhere: it and everything it reaches keep their own
-// storage. In objects not made by cc45 (assembly), exported labels are
+// through a pointer: from every function that calls through pointers
+// (buildCallGraph adds those edges). In objects not made by cc45 (assembly), exported labels are
 // not function boundaries: a label's code can fall through to or branch to
 // another, so all labels of such an object are treated as one function.
 void O45Linker::computeSacOverlay() {
@@ -2242,12 +2243,8 @@ void O45Linker::computeSacOverlay() {
         return seen;
     };
 
+    // (calls through pointers are edges of the graph: buildCallGraph)
     std::set<std::string> unsafe;
-    for (const auto& f : addrTaken) {
-        unsafe.insert(f);
-        auto r = reachFrom(f);
-        unsafe.insert(r.begin(), r.end());
-    }
 
     // the blocks that can move: the definition the link uses, in an object
     // without aligned BSS

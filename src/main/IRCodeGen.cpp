@@ -1341,6 +1341,10 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
         std::string modeSym = zpCallMode_ ? "cc45.mode_zp" : "cc45.mode_stack";
         emit(".weak " + modeSym);
         emit(modeSym + " = 1");
+        // this object marks its functions that call through pointers
+        // (cc45.icall.<f>): ln45 need not assume all of them do
+        emit(".weak cc45.icallinfo");
+        emit("cc45.icallinfo = 1");
         // A stack-mode module's ZP-convention calls (to __fastcall__
         // functions): cc45.zpcall.<callee> tells the linker those calls
         // already follow the callee's convention

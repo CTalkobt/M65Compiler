@@ -619,7 +619,7 @@ for somode in "stack|-fno-zpcall" "zp|"; do
     echo "Testing test_sac_overlay_xemu.c ($soname)..."
     compile_link_test "src/test-resources/test_sac_overlay_xemu.c" "build/test/test_sac_overlay_${soname}_xemu.prg" "$soflags"
     if [ $? -eq 0 ]; then
-        run_xemu_test "test_sac_overlay_$soname" "build/test/test_sac_overlay_${soname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
+        run_xemu_test "test_sac_overlay_$soname" "build/test/test_sac_overlay_${soname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
     else
         echo "FAIL: test_sac_overlay_xemu.c $soname (compilation/linking failed)"
         failed=$((failed + 1))

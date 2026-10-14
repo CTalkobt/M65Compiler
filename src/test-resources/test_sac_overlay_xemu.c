@@ -2,8 +2,9 @@
  *
  * Static-allocation (SAC) functions keep parameters and locals in BSS. ln45
  * lets functions that are never active at the same time (neither reaches
- * the other through calls) share that storage; functions whose address is
- * taken, and everything they call, keep their own.
+ * the other through calls) share that storage. A function whose address is
+ * taken can be called (through a pointer) by every function that calls
+ * through pointers: ln45 adds those calls to the graph.
  *
  * Results at $C0C0 (01 = pass):
  *   [0] two sibling functions share storage, and both compute correctly
@@ -12,7 +13,10 @@
  *   [3] a call chain keeps every level's locals across the calls below
  *   [4] a callee shared by two siblings
  *   [5] a tail call whose arguments are the caller's locals
- *   [6] $AA sentinel
+ *   [6] a callback in a table, called two levels down, calling a helper of
+ *       its own: every caller's locals survive; an unrelated function with
+ *       the same pattern may share the callback's storage
+ *   [7] $AA sentinel
  */
 #define OUT ((volatile unsigned char *)0xC0C0)
 #define NOINL __attribute__((noinline))
@@ -109,10 +113,19 @@ NOINL int t1(int a, int b) {
     return t2(v, u);
 }
 
+NOINL int helper6(int x) { int k[3]; k[0] = x; k[1] = x + 1; k[2] = x + 2; return k[0] + k[1] + k[2]; }
+NOINL int cb6(int x) { int m[4]; int i; for (i = 0; i < 4; i++) m[i] = x * i; return m[3] + helper6(x); }
+NOINL int unrelated6(int x) { int m[4]; int i; for (i = 0; i < 4; i++) m[i] = x + i; return m[3]; }
+static int (*table6[2])(int) = { cb6, cb6 };
+NOINL int inner6(int x) { int keep = x * 7; int r = table6[x & 1](x); return r + keep; }
+NOINL int outer6(int x) { int a = x + 100, b = x + 200; int r = inner6(x); return r + a + b; }
+
 int main(void) {
     int ok;
 
-    OUT[6] = 0xAA;
+    /* cb6(3) = 9 + (3 + 4 + 5) = 21; inner6(3) = 21 + 21 = 42; outer6(3) = 42 + 103 + 203 */
+    OUT[6] = outer6(3) == 348 && unrelated6(3) == 6 && outer6(2) == 6 + 9 + 14 + 102 + 202 ? 1 : 0;
+    OUT[7] = 0xAA;
 
     /* [0] */
     ok = sib_a(10) == 25 && sib_b(10) == 60;
