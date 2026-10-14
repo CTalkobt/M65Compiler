@@ -1221,6 +1221,35 @@ for szmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: variadic functions with static allocation
+for vsmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r vsname vsflags <<< "$vsmode"
+    echo "Testing test_varargs_sac_xemu.c ($vsname)..."
+    compile_link_test "src/test-resources/test_varargs_sac_xemu.c" "build/test/test_varargs_sac_${vsname}_xemu.prg" "$vsflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_varargs_sac_$vsname" "build/test/test_varargs_sac_${vsname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_varargs_sac_xemu.c $vsname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: a weak function with static storage overridden by a strong one while
+# its object stays linked (its storage symbols are weak), with and without GC
+for wsmode in "zp|||lib/build/c45.lib" "stack|-fno-zpcall||lib/build/c45_stack.lib" "nogc||--no-gc|lib/build/c45.lib"; do
+    IFS='|' read -r wsname wsflags wsld wslib <<< "$wsmode"
+    echo "Testing test_weak_sac_xemu.c ($wsname)..."
+    wsbase="build/test/test_weak_sac_${wsname}"
+    if $CC $wsflags -c src/test-resources/test_weak_sac_xemu.c -o ${wsbase}_a.o45 2>/dev/null &&
+       $CC $wsflags -c src/test-resources/test_weak_sac_b.c -o ${wsbase}_b.o45 2>/dev/null &&
+       $LD $wsld -basic -o ${wsbase}_xemu.prg $CRT0 ${wsbase}_a.o45 ${wsbase}_b.o45 $wslib >/dev/null 2>&1; then
+        run_xemu_test "test_weak_sac_$wsname" "${wsbase}_xemu.prg" "C0C0" 3 "01 01 AA"
+    else
+        echo "FAIL: test_weak_sac_xemu.c $wsname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: pointer variables in functions' base-page blocks ($80-$E9, placed by
 # ln45), two modules
 for zlmode in "zp||lib/build/c45.lib" "stack|-fno-zpcall|lib/build/c45_stack.lib" "off|-fno-zp-locals|lib/build/c45.lib"; do

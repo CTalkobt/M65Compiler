@@ -2111,7 +2111,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 if (in.op == ir::Op::CALL || in.op == ir::Op::CALL_VOID || in.op == ir::Op::CALL_INDIRECT ||
                     in.op == ir::Op::ASM_INLINE)
                     leaf = false;
-        bool willSac = staticAllocMode_ && !fn.isRecurse && !fn.isInterrupt && !fn.isNaked && !fn.isVariadic &&
+        bool willSac = staticAllocMode_ && !fn.isRecurse && !fn.isInterrupt && !fn.isNaked &&
                        !callsRuntimeAlloca(fn) && !recursiveFunctions_.count(fn.name);
         int zarMax = ZAR_MAX;
         if (const char* m = getenv("CC45_ZP_LOCALS_MAX")) zarMax = std::max(0, std::min(atoi(m), ZAR_END - ZAR_START));
@@ -2455,7 +2455,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // Determine SAC mode early (needed for frame address allocation decision)
     // SAC enabled if: (1) -fstaticalloc flag enabled, (2) not recursive, (3) not interrupt/naked/variadic
     bool earlyUseSAC = staticAllocMode_ && !fn.isRecurse && !fn.isInterrupt &&
-                       !fn.isNaked && !fn.isVariadic;
+                       !fn.isNaked;
 
     // Don't resetFrame() here — vregOffset_ was already populated by allocator at lines 958-968
     frameAddrZPIndex_ = -1;  // reset for new function
@@ -2519,8 +2519,10 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // 3. Not __interrupt, __naked, or variadic
     // Linker will verify runtime-checkable constraints (4-5): not reachable from ISR, no cycles
     bool usesAlloca = callsRuntimeAlloca(fn);
+    // (a variadic function too: its arguments stay on the stack, where the
+    // entry thunk finds them; va_start reads the address it keeps, <fn>__va)
     bool useSAC = staticAllocMode_ && !fn.isRecurse && !fn.isInterrupt &&
-                  !fn.isNaked && !fn.isVariadic && !usesAlloca;
+                  !fn.isNaked && !usesAlloca;
     // Mutual recursion within the module (a direct self-call warns below)
     if (useSAC && recursiveFunctions_.count(fn.name)) {
         bool selfCall = false;
@@ -2571,7 +2573,9 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     functionParameterNames_[fn.name] = paramNames;
 
     if (useSAC) {
-        sacFunctions_.insert(fn.name);  // Track for .global __ar symbol emission
+        // (same-file callers of a function in this set store its arguments
+        // and skip its thunk: not for a variadic one, whose ... is pushed)
+        if (!fn.isVariadic) sacFunctions_.insert(fn.name);  // Track for .global __ar symbol emission
 
         // Detect zero-alloc leaves (leaf + no locals + all constant params)
         detectZeroAllocLeaves(fn);
@@ -2619,6 +2623,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 auto ait = fn.vregAlign.find(vregId);
                 if (ait != fn.vregAlign.end() && ait->second > 1) aligned = true;
             }
+            if (fn.isVariadic) hasStorage = true;   // (<fn>__va)
             sacMovable = hasStorage && !aligned;
         }
         // a section of its own, unless it holds aligned locals (their
@@ -2628,7 +2633,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             else emit(".nosplit");
         }
         if (sacMovable && !bssBoundaryClean_) emit(".res 1", "SAC block lead pad");
-        emit(".global " + fn.name + "__ar");
+        emit((fn.isWeak ? ".weak " : ".global ") + fn.name + "__ar");
         emitLabel(fn.name + "__ar");
 
         // Emit storage for parameters
@@ -2640,7 +2645,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
                 ? fn.paramNames[i] : std::to_string(i);
             std::string paramSymbol = fn.name + "__param_" + pName;
-            emit(".global " + paramSymbol);
+            emit((fn.isWeak ? ".weak " : ".global ") + paramSymbol);
 
             // Check if this is a constant parameter
             int64_t constValue = 0;
@@ -2704,10 +2709,15 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 sacBlockSize += varSize;
             }
         }
+        if (fn.isVariadic) {
+            emitLabel(fn.name + "__va");
+            emit(".res 2", "address of the first ... argument (the entry thunk)");
+            sacBlockSize += 2;
+        }
         if (sacMovable && !sacBlockAligned && sacBlockSize > 0) {
             emit(".res 1", "SAC block trailing pad");
             sacBlockSize += 1;
-            emit(".global cc45.sacsize." + fn.name);
+            emit(std::string(fn.isWeak ? ".weak " : ".global ") + "cc45.sacsize." + fn.name);
             emit("cc45.sacsize." + fn.name + " = " + std::to_string(sacBlockSize));
             bssBoundaryClean_ = true;
         }
@@ -2757,7 +2767,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     if (zarSize_ > 0) {
         // the base-page block: ln45 defines <fn>__zar and places it
         emit(".extern " + fn.name + "__zar");
-        emit(".global cc45.zarsize." + fn.name);
+        emit(std::string(fn.isWeak ? ".weak " : ".global ") + "cc45.zarsize." + fn.name);
         emit("cc45.zarsize." + fn.name + " = " + std::to_string(zarSize_));
     }
     emit(procLine);
@@ -2816,7 +2826,8 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // SAC thunk prologue: load params from stack into SAC param symbols.
     // This allows cross-unit callers (which push to stack) to call SAC functions.
     // Same-unit SAC callers call _func__sac directly (skipping the thunk).
-    if (currentFunctionUseSAC_ && !fn.paramTypes.empty() && !(fn.isRegparm && fn.paramTypes.size() == 1 && !fnZp)) {
+    if (currentFunctionUseSAC_ && (!fn.paramTypes.empty() || fn.isVariadic) &&
+        !(fn.isRegparm && fn.paramTypes.size() == 1 && !fnZp)) {
         bool isZeroAlloc = isZeroAllocLeaf(fn.name, fn);
         if (!isZeroAlloc) {
             if (g_cc45Verbosity >= 1)
@@ -2844,7 +2855,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             } else {
             emitComment("SAC thunk: load stack params into SAC storage");
             // Read through a pointer to SP so the stack may be on any page
-            bool anyParamBytes = false;
+            bool anyParamBytes = fn.isVariadic;
             for (auto t : fn.paramTypes) if (ir::typeSize(t) > 0) anyParamBytes = true;
             if (anyParamBytes) {
                 emit("tsx");
@@ -2866,9 +2877,19 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 }
                 stackOff += (pSize < 2) ? 2 : pSize; // C promotes char to 16-bit on stack
             }
+            if (fn.isVariadic) {
+                // the first ... argument follows the named ones: va_start's start
+                emit("lda $08", "va_start: SP + 1 + " + std::to_string(stackOff));
+                emit("clc");
+                emit("adc #" + std::to_string(1 + stackOff));
+                emit("sta " + fn.name + "__va");
+                emit("lda $09");
+                emit("adc #0");
+                emit("sta " + fn.name + "__va+1");
+            }
             }
             // Emit __sac label for direct SAC callers to skip thunk
-            emit(".global " + fn.name + "__sac");
+            emit((fn.isWeak ? ".weak " : ".global ") + fn.name + "__sac");
             emitLabel(fn.name + "__sac");
             sacLabelEmitted = true;
         }
@@ -2876,7 +2897,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // Same-unit SAC callers always call _func__sac: without a parameter thunk
     // (no params, regparm, zero-alloc leaf) it is the function entry itself
     if (currentFunctionUseSAC_ && !sacLabelEmitted) {
-        emit(".global " + fn.name + "__sac");
+        emit((fn.isWeak ? ".weak " : ".global ") + fn.name + "__sac");
         emitLabel(fn.name + "__sac");
     }
     if (currentFunctionUseSAC_) emitRetAddrCapture();
@@ -6133,8 +6154,14 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     }
                 }
             }
-            emit("leax.param @_p_" + pName);
-            emit("add.16 .AX, #" + std::to_string(slot));
+            if (currentFunctionUseSAC_) {
+                // static allocation: the entry thunk kept the address
+                emit("lda " + currentFunctionName_ + "__va");
+                emit("ldx " + currentFunctionName_ + "__va+1");
+            } else {
+                emit("leax.param @_p_" + pName);
+                emit("add.16 .AX, #" + std::to_string(slot));
+            }
             // A/X now hold the address, not whatever vreg they held before
             resultInAX_ = -1;
             ms_.invalidateAll();

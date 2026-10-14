@@ -146,7 +146,12 @@ These are keywords written before the return type, for example
 
 ### 3.5 Variadic functions
 
-Variadic functions always use the stack convention, and they never use SAC.
+Variadic functions always use the stack convention. They use SAC like other
+functions (unless recursive): the named parameters are copied from the stack
+by the entry thunk, which also keeps the address of the first `...` argument
+in `<f>__va` for `va_start`; the `...` arguments stay on the stack (the
+caller removes them). Same-file callers push their arguments and call the
+normal entry (never `<f>__sac`).
 
 - Every argument, fixed and variable, is pushed with the slot sizes in §3.1.
 - `va_list` is an `unsigned int` pointer into the pushed arguments.
@@ -215,7 +220,7 @@ A function uses SAC unless one of these applies:
   silently.
 - it is on a call cycle with other functions in the same file (mutual
   recursion). This falls back silently.
-- it is `__interrupt`, `__naked`, or variadic.
+- it is `__interrupt` or `__naked`.
 - it calls a runtime `alloca`.
 - it follows `#pragma cc45 recurse`, which applies to the next function.
 

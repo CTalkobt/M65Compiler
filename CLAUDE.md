@@ -69,9 +69,10 @@ writes a standalone assembly form with its own startup stub.
   pushed right to left (at least 2 bytes each); the caller removes them.
 - **Static allocation (SAC)** (default; `-fno-staticalloc` disables):
   non-recursive functions keep parameters and locals in static BSS
-  (`_f__param_x`, `_f__local_N`) and have a second entry `_f__sac`. Functions on
-  a call cycle within the file, `__interrupt`, variadic and runtime-`alloca`
-  functions get stack frames; `#pragma cc45 recurse` forces a frame for the
+  (`_f__param_x`, `_f__local_N`) and have a second entry `_f__sac`. Variadic
+  functions too (their `...` stays on the stack: `va_start` reads `_f__va`, set by
+  the entry thunk). Functions on a call cycle within the file, `__interrupt`
+  and runtime-`alloca` functions get stack frames; `#pragma cc45 recurse` forces a frame for the
   next function. ln45 rejects SAC functions on a cross-module call cycle and
   SAC functions reachable from an `__interrupt` handler, and overlays the
   storage (`_f__ar` blocks) of SAC functions never active at the same time
@@ -177,7 +178,7 @@ not change what is tested; a test's own later `-O` still wins. Use an
 explicit `-O<n>` in ad-hoc test commands too.
 
 - `make test` — unit tests (no emulator).
-- `bash src/test/test_xemu.sh` — runtime tests on xemu (209 pass): each
+- `bash src/test/test_xemu.sh` — runtime tests on xemu (214 pass): each
   `*_xemu.c` writes results to `$C0C0` (01 = pass, `$AA` sentinel), built in
   both conventions. New runtime tests follow this pattern and are registered
   in `test_xemu.sh`.
