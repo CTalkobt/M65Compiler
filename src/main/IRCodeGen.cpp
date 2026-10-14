@@ -2928,6 +2928,13 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     int localFrameSize = frameSize_;
     // A runtime alloca needs FP (set up only with a frame) to reset SP on return
     if (usesAlloca && localFrameSize == 0) localFrameSize = 1;
+    // Its frame pointer is the static chain of its nested functions (GET_FP;
+    // a non-local goto back into it restores SP from it): it needs one even
+    // when no variable lives in the frame
+    if (localFrameSize == 0)
+        for (const auto& blk : fn.blocks)
+            for (const auto& in : blk.insts)
+                if (in.op == ir::Op::GET_FP) localFrameSize = 1;
     localFrameSize_ = localFrameSize;  // save for RET cleanup
 
     // SAC storage is now emitted BEFORE proc directive for correct memory placement
@@ -4250,12 +4257,15 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         }
 
         case ir::Op::MUL: {
+            // The low 16 (32) bits of a product do not depend on the
+            // operands' signs: the unsigned multiply (the hardware multiplier,
+            // 24 bytes) gives them; mul.s16 (89 bytes) negates around it
             std::string src2 = src2MemOperand(inst.src2);
             loadOperand(inst.src1);
             if (inst.resultType == ir::Type::I32) {
-                emit("mul.s32 .AXYZ, " + src2);
+                emit("mul.32 .AXYZ, " + src2);
             } else {
-                emit("mul.s16 .AX, " + src2);
+                emit("mul.16 .AX, " + src2);
             }
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;

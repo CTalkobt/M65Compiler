@@ -14,11 +14,12 @@
 
 #include <string.h>
 
-/* Fast inline swap for small blocks (≤4 bytes common case) */
-static inline void swap(char *a, char *b, signed int size) __attribute__((always_inline)) {
+/* Swap two elements (a function: inlined at its 7 call sites it made
+ * qs_impl 6 KB) */
+static void swap(char *a, char *b, signed int size) __attribute__((noinline)) {
     char tmp;
-    signed int i;
-    for (i = 0; i < size; i++) {
+    unsigned int i;
+    for (i = 0; i < (unsigned int)size; i++) {
         tmp = a[i]; a[i] = b[i]; b[i] = tmp;
     }
 }
@@ -43,71 +44,81 @@ static inline signed int cmp_not_positive(void *a, void *b) __attribute__((alway
     return !cmp_positive(a, b);
 }
 
+/* Not recursive (a recursive function keeps its variables in a stack frame,
+ * every access 12-15 bytes of code; this one gets static storage and a
+ * base-page block): the smaller part of each partition is sorted next, the
+ * larger one waits on a stack. A waiting part is at least as large as all
+ * that comes after it, so 16 entries cover any 16-bit count. */
+#define QS_DEPTH 16
+static char *qs_stk_arr[QS_DEPTH];
+static signed int qs_stk_n[QS_DEPTH];
+
+/* Element x of the part being sorted (a function: the multiply once) */
+static char *qs_arr;
+static char *qs_at(signed int x) __attribute__((noinline)) { return qs_arr + x * qs_size; }
+#define AT(x) qs_at(x)
+
 static void qs_impl(char *arr, signed int nmemb) {
-    #pragma cc45 optimize(constant-folding, dead-code-elimination, branch-inversion)
-    signed int i, j;
+    signed int i, j, size = qs_size;
     char *pivot;
-    signed int size = qs_size;
+    qs_arr = arr;
+    unsigned char sp = 0;
 
-    /* Fast path: single element or empty */
-    if (nmemb <= 1) return;
-
-    /* Hybrid: use insertion sort for small arrays (≤8 elements)
-     * Avoids recursion overhead and is faster for small partitions */
-    if (nmemb <= 8) {
-        for (i = 1; i < nmemb; i++) {
-            j = i;
-            /* Insertion loop — register-resident i,j for best performance */
-            while (j > 0 && cmp_positive(arr + (j - 1) * size, arr + j * size)) {
-                swap(arr + (j - 1) * size, arr + j * size, size);
-                j--;
+    for (;;) {
+        if (nmemb <= 8) {
+            /* small: insertion sort */
+            for (i = 1; i < nmemb; i++) {
+                j = i;
+                while (j > 0 && cmp_positive(AT(j - 1), AT(j))) {
+                    swap(AT(j - 1), AT(j), size);
+                    j--;
+                }
             }
+            if (sp == 0) return;
+            sp--;
+            qs_arr = arr = qs_stk_arr[sp];
+            nmemb = qs_stk_n[sp];
+            continue;
         }
-        return;
-    }
 
-    /* Median-of-three pivot selection — reduces worst-case O(n²) to O(n log n)
-     * Places pivot at arr[1], with smallest at arr[0], largest at arr[nmemb-1] */
-    {
-        signed int mid = nmemb / 2;
-        signed int last = nmemb - 1;
-        if (cmp_positive(arr, arr + mid * size))
-            swap(arr, arr + mid * size, size);
-        if (cmp_positive(arr, arr + last * size))
-            swap(arr, arr + last * size, size);
-        if (cmp_positive(arr + mid * size, arr + last * size))
-            swap(arr + mid * size, arr + last * size, size);
-        swap(arr + size, arr + mid * size, size);
-    }
+        /* median of three: the smallest at arr[0], the largest at
+           arr[nmemb-1], the pivot at arr[1] */
+        {
+            signed int mid = nmemb / 2;
+            signed int last = nmemb - 1;
+            if (cmp_positive(AT(0), AT(mid)))
+                swap(AT(0), AT(mid), size);
+            if (cmp_positive(AT(0), AT(last)))
+                swap(AT(0), AT(last), size);
+            if (cmp_positive(AT(mid), AT(last)))
+                swap(AT(mid), AT(last), size);
+            swap(AT(1), AT(mid), size);
+        }
 
-    /* Partition phase: split array around pivot
-     * All elements < pivot moved left, all > pivot moved right
-     * Comparisons are intensive; compiler will unroll inner loops if beneficial */
-    pivot = arr + size;
-    i = 2;
-    j = nmemb - 1;
+        /* partition around the pivot */
+        pivot = AT(1);
+        i = 2;
+        j = nmemb - 1;
+        for (;;) {
+            while (i < nmemb && cmp_not_positive(AT(i), pivot)) i++;
+            while (j > 1 && cmp_positive(AT(j), pivot)) j--;
+            if (i >= j) break;
+            swap(AT(i), AT(j), size);
+        }
+        swap(AT(1), AT(j), size);
 
-    while (1) {
-        /* Scan from left for element >= pivot */
-        while (i < nmemb && cmp_not_positive(arr + i * size, pivot)) i++;
-        /* Scan from right for element <= pivot */
-        while (j > 1 && cmp_positive(arr + j * size, pivot)) j--;
-        if (i >= j) break;
-        swap(arr + i * size, arr + j * size, size);
-    }
-
-    /* Place pivot in final position */
-    swap(arr + size, arr + j * size, size);
-
-    /* Tail recursion optimization: sort smaller partition first
-     * This minimizes stack depth and improves cache locality
-     * Compiler can convert to iteration with tail-call optimization */
-    if (j < nmemb - j) {
-        qs_impl(arr, j);
-        qs_impl(arr + (j + 1) * size, nmemb - j - 1);
-    } else {
-        qs_impl(arr + (j + 1) * size, nmemb - j - 1);
-        qs_impl(arr, j);
+        /* arr[0..j-1] and arr[j+1..nmemb-1]: the larger waits */
+        if (j < nmemb - j) {
+            qs_stk_arr[sp] = AT(j + 1);
+            qs_stk_n[sp] = nmemb - j - 1;
+            nmemb = j;
+        } else {
+            qs_stk_arr[sp] = arr;
+            qs_stk_n[sp] = j;
+            qs_arr = arr = AT(j + 1);
+            nmemb = nmemb - j - 1;
+        }
+        sp++;
     }
 }
 

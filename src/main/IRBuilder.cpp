@@ -998,10 +998,11 @@ void IRBuilder::declareBuiltinPrototypes() {
             builtinProtos_.push_back(std::move(fd));
         }
     }
-    // int __overflow(unsigned long a, unsigned long b, unsigned char *res,
-    //                unsigned int flags): the __builtin_*_overflow helper
-    {
-        auto fd = std::make_unique<FunctionDeclaration>("__overflow", "int");
+    // int __overflow_add/_sub/_mul(unsigned long a, unsigned long b,
+    //                unsigned char *res, unsigned int flags): the
+    //                __builtin_*_overflow helpers, one per operation
+    for (const char* hn : {"__overflow_add", "__overflow_sub", "__overflow_mul"}) {
+        auto fd = std::make_unique<FunctionDeclaration>(hn, "int");
         fd->isPrototype = true;
         fd->isSigned = true;
         const std::pair<const char*, int> ps[] = {{"long", 0}, {"long", 0}, {"char", 1}, {"int", 0}};
@@ -1014,7 +1015,7 @@ void IRBuilder::declareBuiltinPrototypes() {
             fd->parameters.push_back(prm);
         }
         visit(*fd);
-        builtinProtoNames_.insert("__overflow");
+        builtinProtoNames_.insert(hn);
         builtinProtos_.push_back(std::move(fd));
     }
     // the ones the library implements in (ZP) asm
@@ -6057,7 +6058,7 @@ void IRBuilder::visit(FunctionCall& node) {
 
     // __builtin_{add,sub,mul}_overflow(a, b, &r), the _p forms (the third
     // operand only gives the type) and the typed __builtin_[su]op[l|ll]_overflow:
-    // a call of __overflow (lib/stdlib/__builtin_overflow.c) with the operands
+    // a call of __overflow_<op> (lib/stdlib/__builtin_overflow.c) with the operands
     // widened to 32 bits and the result type's size and signedness
     if (node.name.rfind("__builtin_", 0) == 0 && node.arguments.size() == 3 &&
         node.name.size() > 19 && (node.name.compare(node.name.size() - 9, 9, "_overflow") == 0 ||
@@ -6112,7 +6113,7 @@ void IRBuilder::visit(FunctionCall& node) {
             }
             unsigned flags = (unsigned)op | (sg[0] ? 4u : 0u) | (sg[1] ? 8u : 0u) |
                              (rsigned ? 16u : 0u) | ((unsigned)rsize << 8);
-            FunctionCall call("__overflow");
+            FunctionCall call(op == 0 ? "__overflow_add" : op == 1 ? "__overflow_sub" : "__overflow_mul");
             call.line = node.line; call.column = node.column; call.sourceFile = node.sourceFile;
             call.arguments.push_back(std::move(wide[0]));
             call.arguments.push_back(std::move(wide[1]));

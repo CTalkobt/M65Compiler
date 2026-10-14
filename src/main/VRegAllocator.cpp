@@ -299,10 +299,12 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
 
     // Identify call instruction indices (A:X is clobbered after calls)
     std::set<int> callIndices;
+    std::set<int> zpCallIndices;   // ZP convention: the arguments go straight to $10-$2F
     for (int idx = 0; idx < (int)flatInsts_.size(); idx++) {
         ir::Op op = flatInsts_[idx].inst->op;
         if (op == ir::Op::CALL || op == ir::Op::CALL_VOID || op == ir::Op::CALL_INDIRECT) {
             callIndices.insert(idx);
+            if (flatInsts_[idx].inst->callConv == ir::CallConv::ZP) zpCallIndices.insert(idx);
         }
     }
 
@@ -439,10 +441,14 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
             for (auto vid : expired) frameAllocMap.erase(vid);
         }
 
-        // Check if any call occurs within the live range
+        // Check if any call occurs within the live range. A value whose last
+        // use is a ZP-convention call is one of its arguments, stored into
+        // $10-$2F before the JSR: it does not cross it. (A stack-convention
+        // call stages its arguments in the parameter block first, which for
+        // more than 32 bytes runs into the register pool.)
         bool crossesCall = false;
         for (int ci : callIndices) {
-            if (ci > lr.firstDef && ci <= lr.lastUse) {
+            if (ci > lr.firstDef && (ci < lr.lastUse || (ci == lr.lastUse && !zpCallIndices.count(ci)))) {
                 crossesCall = true;
                 break;
             }
