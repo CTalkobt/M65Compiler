@@ -4318,10 +4318,42 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             break;
         }
 
-        case ir::Op::MUL: {
-            // The low 16 (32) bits of a product do not depend on the
-            // operands' signs: the unsigned multiply (the hardware multiplier,
-            // 24 bytes) gives them; mul.s16 (89 bytes) negates around it
+        case ir::Op::MUL:
+        case ir::Op::MUL_U:
+            // -fmul-call (-Os): a call of __mul16 / __mul32 (divmod.s45; the
+            // multiplier in __zp_scratch2) instead of the inline multiply
+            // (24 / 50 bytes). As for division: not without a library, nor
+            // for a 32-bit multiplicand in a stack frame
+            if (relocMode_ && getenv("CC45_MUL_CALL") &&
+                (inst.resultType == ir::Type::I16 || inst.resultType == ir::Type::PTR || inst.resultType == ir::Type::I32) &&
+                !(inst.resultType == ir::Type::I32 && inst.src1.isVreg() &&
+                  alloc_.getAlloc(inst.src1.vregId).loc == VRegAllocator::IN_FRAME && !currentFunctionUseSAC_)) {
+                bool is32 = inst.resultType == ir::Type::I32;
+                std::string src2 = src2MemOperand(inst.src2);
+                int nb = is32 ? 4 : 2;
+                if (src2 != "__zp_scratch2") {
+                    long long iv = 0;
+                    bool imm = src2[0] == '#';
+                    if (imm) iv = std::stoll(src2.substr(1));
+                    for (int k = 0; k < nb; k++) {
+                        emit(imm ? "lda #" + std::to_string((int)((iv >> (8 * k)) & 0xFF))
+                                 : "lda " + src2 + (k ? "+" + std::to_string(k) : std::string()));
+                        emit("sta __zp_scratch2" + (k ? "+" + std::to_string(k) : std::string()));
+                    }
+                }
+                loadOperand(inst.src1);
+                std::string fnName = is32 ? "__mul32" : "__mul16";
+                emit(".extern " + fnName);
+                emit("jsr " + fnName);
+                ms_.invalidateAll();
+                if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
+                break;
+            }
+            {
+            // Signed or not: the low 16 (32) bits of a product do not depend
+            // on the operands' signs, so the unsigned multiply (the hardware
+            // multiplier, 24 bytes) gives them; mul.s16 (89 bytes) negated
+            // around it
             std::string src2 = src2MemOperand(inst.src2);
             loadOperand(inst.src1);
             if (inst.resultType == ir::Type::I32) {
@@ -4330,20 +4362,8 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 emit("mul.16 .AX, " + src2);
             }
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
-            break;
-        }
-
-        case ir::Op::MUL_U: {
-            std::string src2 = src2MemOperand(inst.src2);
-            loadOperand(inst.src1);
-            if (inst.resultType == ir::Type::I32) {
-                emit("mul.32 .AXYZ, " + src2);
-            } else {
-                emit("mul.16 .AX, " + src2);
             }
-            if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
-        }
 
         case ir::Op::DIV:
         case ir::Op::DIV_U:
@@ -4412,6 +4432,9 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         case ir::Op::CMP_GTU:
         case ir::Op::CMP_GEU: {
             // Load src1, compare with src2, set result to 0 or 1
+            // (cmpOp: the comparison the flags answer; <= / > against a
+            // constant may become < / >= with the next constant)
+            ir::Op cmpOp = inst.op;
             {
             // Check if src2 is a vreg holding a known constant — use immediate directly
             std::string src2;
@@ -4499,7 +4522,35 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     emit(std::string(isSigned ? "cmp.s32" : "cmp.32") + " .AXYZ, " + src2);
                 } else {
                     loadOperand(inst.src1);
-                    emit(std::string(isSigned ? "cmp.s16" : "cmp.16") + " .AX, " + src2);
+                    // Signed < / >= by subtraction: C = not less (N xor V of
+                    // the high-byte subtraction, into C): 10 bytes, not
+                    // cmp.s16's 13-19 (which also keeps Z for = / <= / >)
+                    ir::Op op = inst.op;
+                    long long c = (int16_t)(src2ConstVal & 0xFFFF);
+                    if (isSigned && src2IsConst && (op == ir::Op::CMP_LE || op == ir::Op::CMP_GT) && c != 32767) {
+                        c++;
+                        op = op == ir::Op::CMP_LE ? ir::Op::CMP_LT : ir::Op::CMP_GE;
+                    }
+                    std::string lo, hi;
+                    if (src2IsConst) {
+                        lo = "#" + std::to_string((int)(c & 0xFF));
+                        hi = "#" + std::to_string((int)((c >> 8) & 0xFF));
+                    } else if (!src2.empty() && src2[0] != '#') {
+                        lo = src2;
+                        hi = src2 + "+1";
+                    }
+                    if (isSigned && (op == ir::Op::CMP_LT || op == ir::Op::CMP_GE) && !lo.empty()) {
+                        emit("cmp " + lo, irDesc("signed compare: C = not less"));
+                        emit("txa");
+                        emit("sbc " + hi);
+                        emit("bvs *+4");
+                        emit("eor #$80");
+                        emit("asl a");
+                        ms_.invalidateAll();
+                        cmpOp = op;
+                    } else {
+                        emit(std::string(isSigned ? "cmp.s16" : "cmp.16") + " .AX, " + src2);
+                    }
                 }
             }
             } // end src2/signed scope
@@ -4522,7 +4573,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
 
             if (canFuse) {
                 // Record for the following BR_COND to use
-                lastCmp_ = {inst.op, inst.dest.vregId, true};
+                lastCmp_ = {cmpOp, inst.dest.vregId, true};
                 // Don't materialize boolean — BR_COND will branch on flags.
                 // NOTE: For I16 CMP_EQ/CMP_NE against 0, the compare code above
                 // (ora __zp_scratch) already set Z correctly. For other comparisons,
@@ -4533,7 +4584,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 std::string setLabel = "@__cmp_set_" + std::to_string(stringCount_);
                 std::string zeroLabel = "@__cmp_zero_" + std::to_string(stringCount_);
                 std::string doneLabel = "@__cmp_done_" + std::to_string(stringCount_++);
-                switch (inst.op) {
+                switch (cmpOp) {
                     case ir::Op::CMP_EQ:
                         emit("beq " + setLabel);
                         emit("bra " + zeroLabel);

@@ -1,4 +1,5 @@
-; divmod.s45 — division and remainder for cc45 (both conventions)
+; divmod.s45 — division, remainder and (-fmul-call, -Os) multiplication
+;              for cc45 (both conventions)
 ;
 ; cc45 calls these instead of expanding ca45's div/mod simulated
 ; instructions at every use (43-222 bytes each). The dividend is in A/X
@@ -62,4 +63,16 @@ __mods32:
 .global __modu32
 __modu32:
     mod.32 .AXYZ, __zp_scratch2
+    rts
+
+    .split "__mul16"
+.global __mul16
+__mul16:
+    mul.16 .AX, __zp_scratch2
+    rts
+
+    .split "__mul32"
+.global __mul32
+__mul32:
+    mul.32 .AXYZ, __zp_scratch2
     rts

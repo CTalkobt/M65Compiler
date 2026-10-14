@@ -504,6 +504,8 @@ int main(int argc, char** argv) {
                 std::cout << "  -fno-zp-locals  No base-page blocks ($80-$E9) for pointer variables of functions" << std::endl;
                 std::cout << "                 that make calls (for call chains that do not fit there)" << std::endl;
                 std::cout << "  -fzp-locals-max=N  Bytes of such a block (default 8; 0 = none)" << std::endl;
+                std::cout << "  -fmul-call     Multiplies as calls of the library's __mul16/__mul32 (smaller," << std::endl;
+                std::cout << "                 slower; -Os = -O2 -fmul-call)" << std::endl;
                 std::cout << "  -finline-functions  Inline small functions" << std::endl;
                 std::cout << "  -fmax-inline-ir-size=N  Max IR instructions for an inlined function (default 11)" << std::endl;
                 std::cout << "  -fmax-unroll-bytes=N    Max estimated code bytes of an unrolled loop (default 128)" << std::endl;
@@ -571,6 +573,11 @@ int main(int argc, char** argv) {
             config.staticAllocMode = true;
         } else if (arg == "-fno-staticalloc") {
             config.staticAllocMode = false;
+        } else if (arg == "-fmul-call") {
+            // multiplies as calls of __mul16 / __mul32 (smaller, slower)
+            setenv("CC45_MUL_CALL", "1", 1);
+        } else if (arg == "-fno-mul-call") {
+            unsetenv("CC45_MUL_CALL");
         } else if (arg == "-fno-zp-locals") {
             // no base-page blocks ($80-$E9) for pointer variables of functions that make calls
             setenv("CC45_NO_ZP_LOCALS", "1", 1);
@@ -624,8 +631,10 @@ int main(int argc, char** argv) {
             std::string levelStr = arg.substr(2);
             if (!levelStr.empty() && levelStr[0] >= '0' && levelStr[0] <= '9') {
                 config.optimizationLevel = levelStr[0] - '0';
-            } else if (levelStr == "size") {
+            } else if (levelStr == "s" || levelStr == "size") {
+                // -Os: -O2, and code size over speed (multiplies as calls)
                 config.optimizationLevel = 2;
+                setenv("CC45_MUL_CALL", "1", 1);
             } else if (levelStr == "speed") {
                 config.optimizationLevel = 3;
             } else {
