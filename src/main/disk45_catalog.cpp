@@ -112,6 +112,7 @@ static const char* fileTypeStr(CbmFileType t) {
         case CbmFileType::USR: return "USR";
         case CbmFileType::REL: return "REL";
         case CbmFileType::CBM: return "CBM";
+        case CbmFileType::DIR: return "DIR";
     }
     return "???";
 }

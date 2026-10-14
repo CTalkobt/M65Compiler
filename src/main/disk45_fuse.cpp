@@ -44,7 +44,8 @@ static std::string typeExt(CbmFileType t) {
         case CbmFileType::SEQ: return ".seq";
         case CbmFileType::USR: return ".usr";
         case CbmFileType::REL: return ".rel";
-        case CbmFileType::CBM: return "";  // directories have no extension
+        case CbmFileType::CBM:
+        case CbmFileType::DIR: return "";  // directories have no extension
         default: return ".del";
     }
 }
@@ -108,7 +109,9 @@ struct Node {
     DirEntry entry;
 };
 
-static bool isDir(const Node& n) { return n.info.type == CbmFileType::CBM && !n.geos; }
+static bool isDir(const Node& n) {
+    return (n.info.type == CbmFileType::CBM || n.info.type == CbmFileType::DIR) && !n.geos;
+}
 
 static std::vector<Node> nodes() {
     std::vector<Node> out;
@@ -161,7 +164,7 @@ static int enterParent(const char* path, std::string& leaf) {
         Node d;
         if (!findIn(nodes(), parts[i], d)) return -ENOENT;
         if (!isDir(d) || !d.entry.isValid()) return -ENOTDIR;
-        g_img->setDirectory(d.entry.firstDataTS);
+        g_img->enterDirectory(d.entry);
     }
     return 0;
 }
@@ -269,7 +272,7 @@ static int cbm_readdir(const char* path, void* buf, fuse_fill_dir_t filler,
         Node d;
         if (!findNode(path, d)) return -ENOENT;
         if (!isDir(d) || !d.entry.isValid()) return -ENOTDIR;
-        g_img->setDirectory(d.entry.firstDataTS);
+        g_img->enterDirectory(d.entry);
     }
 
     std::vector<std::string> shown;
@@ -395,7 +398,7 @@ static int cbm_rename(const char* from, const char* to, unsigned int) {
     std::lock_guard<std::mutex> lock(g_mutex);
     std::string toLeaf;
     if (int rc = enterParent(to, toLeaf)) return rc;
-    TrackSector toDir = g_img->directoryStart();
+    TrackSector toDir = g_img->directoryStart(), toHeader = g_img->directoryHeader();
     Node target;
     bool replace = findIn(nodes(), toLeaf, target);
     Node n;
@@ -412,11 +415,11 @@ static int cbm_rename(const char* from, const char* to, unsigned int) {
         if (target.info.name == n.info.name && toDir == g_img->directoryStart()) {
             // the same entry (a change of case)
         } else {
-            TrackSector fromDir = g_img->directoryStart();
-            g_img->setDirectory(toDir);
+            TrackSector fromDir = g_img->directoryStart(), fromHeader = g_img->directoryHeader();
+            g_img->setDirectory(toDir, toHeader);
             int rc = isDir(target) ? g_img->removeDirectory(target.info.name)
                                    : (g_img->removeFile(target.info.name) ? 0 : -EIO);
-            g_img->setDirectory(fromDir);
+            g_img->setDirectory(fromDir, fromHeader);
             if (rc) return rc;
         }
     }
@@ -424,7 +427,7 @@ static int cbm_rename(const char* from, const char* to, unsigned int) {
         if (!g_img->renameFile(n.info.name, newName)) return -EIO;
     } else {
         if (isDir(n)) return -EXDEV;  // a directory is not moved (it could land inside itself)
-        if (!g_img->moveFile(n.info.name, toDir, newName)) return -EIO;
+        if (!g_img->moveFile(n.info.name, toDir, newName, toHeader)) return -EIO;
     }
     return g_img->saveImage(g_imagePath) ? 0 : -EIO;
 }

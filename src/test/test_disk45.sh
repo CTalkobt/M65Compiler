@@ -504,6 +504,62 @@ $DISK45 create "$TMPDIR/c100.dnp" -t 100 >/dev/null 2>&1 && [ "$(stat -c %s "$TM
     $DISK45 list "$TMPDIR/c100.dnp" | grep -q '^25565 blocks free' &&
     pass "DNP create -t 100" || fail "DNP -t"
 
+# Native subdirectories (type DIR): the entry points to a header block (link
+# to the directory, "H", name, ID, "1H"; $20 itself, $22 the parent header,
+# $24-$26 the entry's sector and offset); the entry counts header and
+# directory blocks
+rm -f "$TMPDIR/cs.dnp"
+$DISK45 create "$TMPDIR/cs.dnp" -i JO >/dev/null 2>&1
+$DISK45 mkdir "$TMPDIR/cs.dnp" GAMES >/dev/null 2>&1
+$DISK45 mkdir "$TMPDIR/cs.dnp" GAMES/ARCADE >/dev/null 2>&1
+for i in $(seq 1 10); do $DISK45 add "$TMPDIR/cs.dnp" "$TMPDIR/d1.prg" "GAMES/F$i" >/dev/null 2>&1; done
+$DISK45 add "$TMPDIR/cs.dnp" "$TMPDIR/d1.prg" GAMES/ARCADE/PONG >/dev/null 2>&1
+ENT=$(dd if="$TMPDIR/cs.dnp" bs=1 skip=$((0x2202)) count=8 2>/dev/null | xxd -p)
+SIZE=$(dd if="$TMPDIR/cs.dnp" bs=1 skip=$((0x221e)) count=2 2>/dev/null | xxd -p)
+DH=$(dd if="$TMPDIR/cs.dnp" bs=1 skip=$((0x2300)) count=39 2>/dev/null | xxd -p | tr -d '\n')
+[ "$ENT" = "86012347414d4553" ] && [ "$SIZE" = "0300" ] &&
+    [ "$DH" = "0124480047414d4553a0a0a0a0a0a0a0a0a0a0a0a0a04a4fa03148a0a000000001230101012202" ] &&
+    $DISK45 list "$TMPDIR/cs.dnp" | grep -q '"GAMES".*DIR' &&
+    $DISK45 tree "$TMPDIR/cs.dnp" | grep -q '^      PONG' &&
+    $DISK45 extract "$TMPDIR/cs.dnp" GAMES/ARCADE/PONG "$TMPDIR/pong2.prg" >/dev/null 2>&1 &&
+    cmp -s "$TMPDIR/pong2.prg" "$TMPDIR/d1.prg" &&
+    ! $DISK45 rmdir "$TMPDIR/cs.dnp" GAMES/ARCADE >/dev/null 2>&1 &&
+    $DISK45 rm "$TMPDIR/cs.dnp" GAMES/ARCADE/PONG >/dev/null 2>&1 &&
+    $DISK45 rmdir "$TMPDIR/cs.dnp" GAMES/ARCADE >/dev/null 2>&1 &&
+    $DISK45 validate "$TMPDIR/cs.dnp" | grep -q 'Status: OK' &&
+    pass "CMD native subdirectories (DIR): header block, sizes, nested files" ||
+    fail "CMD native subdirectories (entry $ENT size $SIZE header $DH)"
+
+# Partitions: create --partitions; disk.d2m:N / :NAME opens one (native in
+# place, an emulated 1541/1571/1581 as its D64/D71/D81, written back)
+rm -f "$TMPDIR/cp.d2m"
+$DISK45 create "$TMPDIR/cp.d2m" --partitions native:GAMES:300,1581:WORK,1541:OLD,native:REST >/dev/null 2>&1
+PD=$(dd if="$TMPDIR/cp.d2m" bs=1 skip=$((0x190820)) count=128 2>/dev/null | xxd -p | tr -d '\n')
+$DISK45 info "$TMPDIR/cp.d2m" | grep -q '4  native.*"REST"  1536 sectors at 4652' &&
+    [ "${PD:4:2}${PD:44:4}${PD:60:4}" = "0100000180" ] &&
+    [ "${PD:68:2}${PD:108:4}${PD:124:4}" = "0401800640" ] &&
+    $DISK45 add "$TMPDIR/cp.d2m:WORK" "$TMPDIR/d1.prg" W1 >/dev/null 2>&1 &&
+    $DISK45 mkdir "$TMPDIR/cp.d2m:2" SUB >/dev/null 2>&1 &&
+    $DISK45 add "$TMPDIR/cp.d2m:2" "$TMPDIR/d1.prg" SUB/W2 >/dev/null 2>&1 &&
+    $DISK45 add "$TMPDIR/cp.d2m:old" "$TMPDIR/d1.prg" O1 >/dev/null 2>&1 &&
+    $DISK45 add "$TMPDIR/cp.d2m:4" "$TMPDIR/d1.prg" R1 >/dev/null 2>&1 &&
+    $DISK45 add "$TMPDIR/cp.d2m" "$TMPDIR/d1.prg" G1 >/dev/null 2>&1 &&
+    [ "$($DISK45 list "$TMPDIR/cp.d2m" | grep -c PRG)" = 1 ] &&
+    $DISK45 list "$TMPDIR/cp.d2m:WORK" | grep -q '"W1"' &&
+    $DISK45 list "$TMPDIR/cp.d2m:OLD" | grep -q '"O1"' &&
+    $DISK45 list "$TMPDIR/cp.d2m:REST" | grep -q '"R1"' &&
+    ! $DISK45 list "$TMPDIR/cp.d2m:REST" | grep -q '"G1"\|"W1"' &&
+    $DISK45 extract "$TMPDIR/cp.d2m:WORK" SUB/W2 "$TMPDIR/w2.prg" >/dev/null 2>&1 &&
+    cmp -s "$TMPDIR/w2.prg" "$TMPDIR/d1.prg" &&
+    dd if="$TMPDIR/cp.d2m" bs=256 skip=768 count=3200 of="$TMPDIR/work.d81" 2>/dev/null &&
+    $DISK45 list "$TMPDIR/work.d81" | grep -q '"W1"' &&
+    $DISK45 validate "$TMPDIR/work.d81" | grep -q 'Status: OK' &&
+    $DISK45 validate "$TMPDIR/cp.d2m:4" | grep -q 'Status: OK' &&
+    ! $DISK45 list "$TMPDIR/cp.d2m:9" >/dev/null 2>&1 &&
+    [ "$(stat -c %s "$TMPDIR/cp.d2m")" = 1658880 ] &&
+    pass "CMD partitions: create --partitions, open native and emulated ones" ||
+    fail "CMD partitions ($PD)"
+
 # ============================================================================
 echo "=== FUSE mount ==="
 

@@ -150,12 +150,54 @@ bool DiskImage::cardPath(const std::string& path, std::string& card, std::string
     return false;
 }
 
+bool DiskImage::partitionPath(const std::string& path, std::string& image, std::string& part) {
+    auto colon = path.rfind(':');
+    if (colon == std::string::npos || colon + 1 >= path.size()) return false;
+    std::string file = path.substr(0, colon);
+    std::string ext = std::filesystem::path(file).extension().string();
+    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+    std::error_code ec;
+    if ((ext != ".d1m" && ext != ".d2m" && ext != ".d4m") || !std::filesystem::is_regular_file(file, ec))
+        return false;
+    image = file;
+    part = path.substr(colon + 1);
+    return true;
+}
+
+// A partition of a CMD image ("disk.d2m:N")
+static std::unique_ptr<DiskImage> loadPartition(const std::string& file, const std::string& spec) {
+    auto img = DiskImage::createFromExtension(file);
+    auto* cmd = dynamic_cast<CmdImage*>(img.get());
+    if (!cmd || !cmd->loadFromFile(file)) return nullptr;
+    const CmdImage::Partition* p = cmd->findPartition(spec);
+    if (!p) {
+        std::cerr << "Error: " << file << " has no partition \"" << spec << "\" (disk45 info lists them)\n";
+        return nullptr;
+    }
+    if (p->type == 1) {
+        if (!cmd->selectPartition(*p)) return nullptr;
+        return img;
+    }
+    uint32_t bytes = CmdImage::emulatedBytes(p->type);
+    if (!bytes || p->sectors * 256 < bytes) {
+        std::cerr << "Error: partition " << p->number << " is a " << CmdImage::partitionTypeName(p->type)
+                  << " partition, which disk45 does not open\n";
+        return nullptr;
+    }
+    std::ifstream f(file, std::ios::binary);
+    std::vector<uint8_t> data(bytes);
+    f.seekg((std::streamoff)p->start * 256);
+    if (!f.read(reinterpret_cast<char*>(data.data()), bytes)) return nullptr;
+    return loadFromBytes(std::string("partition") + CmdImage::emulatedExtension(p->type), data);
+}
+
 std::unique_ptr<DiskImage> DiskImage::load(const std::string& path) {
     if (looksLikeSdCard(path)) {
         std::cerr << "Error: " << path << " is a MEGA65 SD card image; use disk45 sd (disk45 sd --help)\n";
         return nullptr;
     }
     std::string zip, member;
+    if (partitionPath(path, zip, member)) return loadPartition(zip, member);
     if (cardPath(path, zip, member)) {
         SdCardImage card;
         std::string err;
@@ -239,6 +281,23 @@ bool DiskImage::zipPath(const std::string& path, std::string& zip, std::string& 
 
 bool DiskImage::saveImage(const std::string& path) const {
     std::string zip, member;
+    if (partitionPath(path, zip, member)) {
+        // a native partition is part of the whole image; an emulated one's
+        // bytes go back where they came from
+        if (dynamic_cast<const CmdImage*>(this)) return saveToFile(zip);
+        auto whole = createFromExtension(zip);
+        auto* cmd = dynamic_cast<CmdImage*>(whole.get());
+        const CmdImage::Partition* p = cmd && cmd->loadFromFile(zip) ? cmd->findPartition(member) : nullptr;
+        std::vector<uint8_t> data;
+        if (!p || !imageBytes(*this, std::string("p") + CmdImage::emulatedExtension(p->type), data) ||
+            data.size() != CmdImage::emulatedBytes(p->type)) {
+            std::cerr << "Error: cannot write partition " << member << " of " << zip << "\n";
+            return false;
+        }
+        std::fstream f(zip, std::ios::binary | std::ios::in | std::ios::out);
+        f.seekp((std::streamoff)p->start * 256);
+        return (bool)f.write(reinterpret_cast<const char*>(data.data()), data.size());
+    }
     if (cardPath(path, zip, member)) {
         std::vector<uint8_t> data;
         SdCardImage card;

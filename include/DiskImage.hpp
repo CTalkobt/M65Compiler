@@ -27,6 +27,7 @@ enum class CbmFileType : uint8_t {
     USR = 3,    // User
     REL = 4,    // Relative (record-based)
     CBM = 5,    // CBM subdirectory (D71/D81)
+    DIR = 6,    // CMD native partition subdirectory (a header block, then its directory)
 };
 
 // Directory entry (32 bytes, 8 per directory sector)
@@ -100,6 +101,10 @@ public:
     // "card.img:/DIR/X.D81": a file on a MEGA65 SD card image (load/saveImage
     // read and write it there)
     static bool cardPath(const std::string& path, std::string& card, std::string& member);
+    // "disk.d2m:N": partition N (a number, or its name) of a CMD D1M/D2M/D4M.
+    // A native partition is opened in place; an emulated 1541/1571/1581 one
+    // as a D64/D71/D81 whose bytes saveImage writes back into the image
+    static bool partitionPath(const std::string& path, std::string& image, std::string& part);
     // A MEGA65 SD card image (MBR with FAT32 / $41 partitions, 32 MB or more)
     static bool isSdCard(const std::string& path);
     static bool isImageExtension(const std::string& name);
@@ -123,9 +128,28 @@ public:
     // The directory file operations work in (find, add, remove, rename,
     // readFile, listFiles): the root (default) or a CBM subdirectory's
     // chain, its entry's first data sector. {0,0} returns to the root
-    void setDirectory(TrackSector start) { cwd_ = start; }
+    // (and, for a CMD native subdirectory, the header block that precedes it)
+    void setDirectory(TrackSector start, TrackSector header = {0, 0}) { cwd_ = start; cwdHeader_ = header; }
     TrackSector directoryStart() const { return cwd_.isNull() ? firstDirectorySector() : cwd_; }
+    TrackSector directoryHeader() const { return cwdHeader_; }
     bool inSubdirectory() const { return !cwd_.isNull(); }
+    // The image's bytes as loaded or formatted (a sector image's sectors)
+    const std::vector<uint8_t>& rawBytes() const { return image_; }
+    // A subdirectory entry (CBM, or a CMD native DIR) and its directory chain
+    // (a DIR entry points to a header block, whose link starts the chain)
+    static bool isDirectory(const DirEntry& e) {
+        return e.type() == CbmFileType::CBM || e.type() == CbmFileType::DIR;
+    }
+    TrackSector directoryChain(const DirEntry& e) const;
+    // The working directory gained (or lost) directory blocks: a CMD native
+    // subdirectory's entry counts them
+    void directoryBlocksChanged(int delta);
+    // Make a subdirectory entry of the working directory the working one
+    void enterDirectory(const DirEntry& e);
+    // Enter a path of subdirectories from the root (empty: the root); false
+    // when a component is not a subdirectory (the working directory is then
+    // the root)
+    bool enterPath(const std::vector<std::string>& dirs);
     // The header sector (disk name, ID, GEOS signature): sector 0 of the
     // directory track; a CMD native partition's is 1/1
     virtual TrackSector headerSector() const { return {(uint8_t)directoryTrack(), 0}; }
@@ -145,13 +169,14 @@ public:
     // Move a file of the working directory into the directory chain at `to`
     // (the root: firstDirectorySector()) as newName; refused for a
     // subdirectory entry and when `to` already has newName
-    bool moveFile(const std::string& name, TrackSector to, const std::string& newName);
+    bool moveFile(const std::string& name, TrackSector to, const std::string& newName,
+                  TrackSector toHeader = {0, 0});
     // A CBM subdirectory of the working directory: an entry of type CBM
     // whose first data sector starts the subdirectory's own directory chain.
     // makeDirectory fails when the name exists or the disk is full;
     // removeDirectory returns 0, -ENOENT (no such directory) or -ENOTEMPTY,
     // and frees the subdirectory's sectors
-    bool makeDirectory(const std::string& name);
+    virtual bool makeDirectory(const std::string& name);
     int removeDirectory(const std::string& name);
     virtual std::vector<uint8_t> readFile(const std::string& name) const = 0;
     virtual bool fileExists(const std::string& name) const = 0;
@@ -217,6 +242,7 @@ protected:
     std::vector<uint8_t> image_;  // raw disk image bytes
     bool blank_ = false;          // freshly formatted by create (markBlank)
     TrackSector cwd_;             // setDirectory: a subdirectory, or {0,0}
+    TrackSector cwdHeader_;       // a CMD native subdirectory's header block
 
     // The files of a directory chain (listFiles in a subdirectory)
     std::vector<FileInfo> listDirectory(TrackSector start) const;

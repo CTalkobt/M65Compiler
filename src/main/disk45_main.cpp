@@ -14,6 +14,7 @@
 #include <iomanip>
 #include <cstring>
 #include <cerrno>
+#include <sstream>
 #include <algorithm>
 
 static const char* VERSION = SUITE_VERSION;
@@ -125,6 +126,7 @@ static void usage() {
 static const char* fileTypeStr(CbmFileType t) {
     switch (t) {
         case CbmFileType::CBM: return "CBM";
+        case CbmFileType::DIR: return "DIR";
         case CbmFileType::DEL: return "DEL";
         case CbmFileType::SEQ: return "SEQ";
         case CbmFileType::PRG: return "PRG";
@@ -255,21 +257,20 @@ static std::vector<std::string> splitPath(const std::string& path) {
     return parts;
 }
 
-// Find a CBM subdirectory entry starting from a given directory chain.
-// Returns the firstDataTS of the subdirectory (which is its directory chain start).
+// Find a subdirectory entry (CBM, or a CMD native DIR) of a directory chain.
+// Returns the subdirectory's directory chain start
 static TrackSector findSubdir(DiskImage* img, TrackSector dirStart, const std::string& name) {
     std::string upper = name;
     std::transform(upper.begin(), upper.end(), upper.begin(), ::toupper);
 
     TrackSector ts = dirStart;
-    while (ts.track != 0) {
+    for (int guard = 0; ts.track != 0 && guard < 65536; guard++) {
         const uint8_t* sec = img->sectorData(ts.track, ts.sector);
         if (!sec) break;
         for (int i = 0; i < 8; i++) {
             DirEntry e = DirEntry::fromSector(sec, i);
-            if (e.isValid() && e.type() == CbmFileType::CBM && e.name() == upper) {
-                return e.firstDataTS;
-            }
+            if (e.isValid() && DiskImage::isDirectory(e) && e.name() == upper)
+                return img->directoryChain(e);
         }
         uint8_t nextT = sec[0], nextS = sec[1];
         if (nextT == 0) break;
@@ -278,25 +279,21 @@ static TrackSector findSubdir(DiskImage* img, TrackSector dirStart, const std::s
     return {0, 0}; // not found
 }
 
-// Resolve a path like "SUBDIR/SUBDIR2" to the directory chain start T/S.
-// Returns the root directory start if path is empty.
+// Resolve a path like "SUBDIR/SUBDIR2", making it the image's working
+// directory: its directory chain start ({0,0}: not found; an empty path is
+// the root)
 static TrackSector resolveDir(DiskImage* img, const std::vector<std::string>& pathParts) {
-    // Root directory start
-    TrackSector current = img->firstDirectorySector();
-
-    for (const auto& part : pathParts) {
-        TrackSector sub = findSubdir(img, current, part);
-        if (sub.isNull()) return {0, 0}; // path not found
-        current = sub;
-    }
-    return current;
+    if (!img->enterPath(pathParts)) return {0, 0};
+    return img->directoryStart();
 }
 
 // A file name with a directory path ("SUB/NAME", "A/B/NAME"): the
-// directory's chain start (the root for a plain name) and the last
-// component. False, with a message, when the directory does not exist
-static bool splitDirName(DiskImage* img, std::string& name, TrackSector& dir) {
+// directory's chain start and header (the root for a plain name) and the
+// last component. False, with a message, when the directory does not exist.
+// The working directory is left as it was
+static bool splitDirName(DiskImage* img, std::string& name, TrackSector& dir, TrackSector& header) {
     dir = img->firstDirectorySector();
+    header = {0, 0};
     if (name.find('/') == std::string::npos) return true;
     auto parts = splitPath(name);
     if (parts.empty()) { std::cerr << "Error: empty file name\n"; return false; }
@@ -308,7 +305,11 @@ static bool splitDirName(DiskImage* img, std::string& name, TrackSector& dir) {
             std::cerr << "Error: subdirectories only supported on sector-based images\n";
             return false;
         }
+        TrackSector cwd = img->inSubdirectory() ? img->directoryStart() : TrackSector{0, 0};
+        TrackSector cwdHeader = img->directoryHeader();
         dir = resolveDir(img, std::vector<std::string>(parts.begin(), parts.end() - 1));
+        header = img->directoryHeader();
+        img->setDirectory(cwd, cwdHeader);
         if (dir.isNull()) {
             std::cerr << "Error: directory \"" << name.substr(0, name.rfind('/')) << "\" not found\n";
             return false;
@@ -320,9 +321,9 @@ static bool splitDirName(DiskImage* img, std::string& name, TrackSector& dir) {
 
 // splitDirName, making the directory the image's working directory
 static bool enterDirOf(DiskImage* img, std::string& name) {
-    TrackSector dir;
-    if (!splitDirName(img, name, dir)) return false;
-    if (dir != img->firstDirectorySector()) img->setDirectory(dir);
+    TrackSector dir, header;
+    if (!splitDirName(img, name, dir, header)) return false;
+    if (dir != img->firstDirectorySector()) img->setDirectory(dir, header);
     return true;
 }
 
@@ -565,12 +566,15 @@ static int cmdCreate(int argc, char** argv) {
     std::string diskName, diskId;
     int tracks = 0; // 0 = use format default
     bool geos = false;
+    std::string partitions;
 
     for (int i = 1; i < argc; i++) {
         if (std::string(argv[i]) == "-n" && i + 1 < argc) diskName = argv[++i];
         else if (std::string(argv[i]) == "-i" && i + 1 < argc) diskId = argv[++i];
         else if (std::string(argv[i]) == "-t" && i + 1 < argc) tracks = std::stoi(argv[++i]);
         else if (std::string(argv[i]) == "--geos") geos = true;
+        else if ((std::string(argv[i]) == "--partitions" || std::string(argv[i]) == "-P") && i + 1 < argc)
+            partitions = argv[++i];
     }
 
     std::string zipFile, zipMember;
@@ -592,6 +596,33 @@ static int cmdCreate(int argc, char** argv) {
         if (tracks > 255) { std::cerr << "Error: a DNP has at most 255 tracks\n"; return 1; }
         cmd->setNativeTracks(tracks);
         tracks = 0;
+    }
+    // a D1M/D2M/D4M's partitions: TYPE[:NAME[:BLOCKS]],... (native, 1541,
+    // 1571, 1581; a native partition's size in 512-byte blocks, default the
+    // rest of the disk)
+    if (!partitions.empty()) {
+        auto* cmd = dynamic_cast<CmdImage*>(img.get());
+        if (!cmd) { std::cerr << "Error: --partitions is for D1M/D2M/D4M images\n"; return 1; }
+        std::vector<CmdImage::PartSpec> layout;
+        std::stringstream list(partitions);
+        for (std::string item; std::getline(list, item, ',');) {
+            std::vector<std::string> f;
+            std::stringstream fs(item);
+            for (std::string x; std::getline(fs, x, ':');) f.push_back(x);
+            CmdImage::PartSpec p;
+            std::string t = f.empty() ? "" : f[0];
+            std::transform(t.begin(), t.end(), t.begin(), ::tolower);
+            p.type = t == "native" ? 1 : t == "1541" ? 2 : t == "1571" ? 3 : t == "1581" ? 4 : 0;
+            if (!p.type || f.size() > 3 || (f.size() == 3 && p.type != 1)) {
+                std::cerr << "Error: partition \"" << item << "\": TYPE[:NAME[:BLOCKS]], TYPE native, 1541, 1571 or 1581 (BLOCKS for native only)\n";
+                return 1;
+            }
+            if (f.size() >= 2) p.name = f[1];
+            if (f.size() == 3) p.blocks = (uint32_t)std::stoul(f[2]);
+            layout.push_back(p);
+        }
+        std::string err;
+        if (!cmd->setLayout(layout, err)) { std::cerr << "Error: " << err << "\n"; return 1; }
     }
     img->format(diskName, diskId);
     img->markBlank();
@@ -734,12 +765,12 @@ static int cmdInfo(int argc, char** argv) {
         if (trackImage(img.get()) && !img->geosSignature().empty())
             std::cout << "GEOS:         " << img->geosSignature() << "\n";
         if (auto* cmd = dynamic_cast<CmdImage*>(img.get()); cmd && !cmd->partitions().empty()) {
-            std::cout << "Partitions:\n";
+            std::cout << "Partitions:   (open one as " << argv[0] << ":N or :NAME)\n";
             for (const auto& p : cmd->partitions())
                 std::cout << "  " << std::setw(2) << p.number << "  " << std::left << std::setw(14)
                           << CmdImage::partitionTypeName(p.type) << std::right << " \"" << p.name << "\"  "
                           << p.sectors << " sectors at " << p.start
-                          << (cmd->hasNative() && p.start == cmd->nativeStart() && p.type == 1 ? "  (the one disk45 uses)" : "")
+                          << (cmd->hasNative() && p.start == cmd->nativeStart() && p.type == 1 ? "  (the default)" : "")
                           << "\n";
         }
     }
@@ -859,7 +890,7 @@ static int cmdRemove(int argc, char** argv) {
     auto img = DiskImage::load(imagePath);
     if (!img) { std::cerr << "Error: failed to load " << imagePath << "\n"; return 1; }
     if (!enterDirOf(img.get(), cbmName)) return 1;
-    if (img->findEntry(cbmName).type() == CbmFileType::CBM) {
+    if (DiskImage::isDirectory(img->findEntry(cbmName))) {
         std::cerr << "Error: \"" << cbmName << "\" is a directory (use rmdir)\n";
         return 1;
     }
@@ -886,8 +917,8 @@ static int cmdRename(int argc, char** argv) {
     auto img = DiskImage::load(imagePath);
     if (!img) { std::cerr << "Error: failed to load " << imagePath << "\n"; return 1; }
     if (!enterDirOf(img.get(), oldName)) return 1;
-    TrackSector toDir;
-    if (!splitDirName(img.get(), newName, toDir)) return 1;
+    TrackSector toDir, toHeader;
+    if (!splitDirName(img.get(), newName, toDir, toHeader)) return 1;
     if (newName.empty()) newName = oldName;  // "mv X SUB/"
 
     // A GEOS file keeps the case of its new name (GEOS names are ASCII)
@@ -902,7 +933,7 @@ static int cmdRename(int argc, char** argv) {
 
     // Into another directory ("mv SUB/X Y", "mv X SUB/Y"): the entry moves
     if (toDir != img->directoryStart()) {
-        if (!img->moveFile(oldName, toDir, newName)) {
+        if (!img->moveFile(oldName, toDir, newName, toHeader)) {
             std::cerr << "Error: cannot move \"" << oldName << "\" (not found, a directory, or the name is taken)\n";
             return 1;
         }
@@ -1931,7 +1962,6 @@ static int cmdMkdir(int argc, char** argv) {
         return 1;
     }
 
-    if (parentDir != img->firstDirectorySector()) img->setDirectory(parentDir);
     if (!img->makeDirectory(newName)) {
         std::cerr << "Error: \"" << newName << "\" exists or the disk is full\n";
         return 1;
@@ -1969,7 +1999,6 @@ static int cmdRmdir(int argc, char** argv) {
         if (parentDir.isNull()) { std::cerr << "Error: parent not found\n"; return 1; }
     }
 
-    if (parentDir != img->firstDirectorySector()) img->setDirectory(parentDir);
     int rc = img->removeDirectory(dirName);
     if (rc == -ENOTEMPTY) {
         std::cerr << "Error: directory \"" << dirName << "\" is not empty\n";
@@ -1979,6 +2008,7 @@ static int cmdRmdir(int argc, char** argv) {
 
     // Shrink the parent directory chain (remove trailing empty sectors)
     int reclaimed = shrinkDirChain(img.get(), parentDir);
+    img->directoryBlocksChanged(-reclaimed);
 
     if (!img->saveImage(argv[0])) {
         std::cerr << "Error: failed to write " << argv[0] << "\n";
@@ -1995,7 +2025,7 @@ static void printTree(DiskImage* img, TrackSector dirStart, int depth) {
     for (auto& f : files) {
         for (int i = 0; i < depth; i++) std::cout << "  ";
         std::cout << f.name;
-        if (f.type == CbmFileType::CBM) {
+        if (f.type == CbmFileType::CBM || f.type == CbmFileType::DIR) {
             std::cout << "/\n";
             TrackSector sub = findSubdir(img, dirStart, f.name);
             if (!sub.isNull()) printTree(img, sub, depth + 1);
@@ -2039,6 +2069,7 @@ static int cmdDirShrink(int argc, char** argv) {
     if (dirTS.isNull()) { std::cerr << "Error: directory not found\n"; return 1; }
 
     int reclaimed = shrinkDirChain(img.get(), dirTS);
+    img->directoryBlocksChanged(-reclaimed);
     if (reclaimed > 0) {
         if (!img->saveImage(argv[0])) {
             std::cerr << "Error: failed to write " << argv[0] << "\n";
@@ -2077,6 +2108,7 @@ static int cmdDirEnsure(int argc, char** argv) {
         std::cerr << "Error: disk full, cannot allocate directory sectors\n";
         return 1;
     }
+    img->directoryBlocksChanged(added);
     if (added > 0) {
         if (!img->saveImage(argv[0])) {
             std::cerr << "Error: failed to write " << argv[0] << "\n";
@@ -2169,7 +2201,7 @@ static int cmdConvert(int argc, char** argv) {
     auto files = src->listFiles();
     int copied = 0;
     for (auto& f : files) {
-        if (f.type == CbmFileType::CBM) continue; // skip subdirectory entries
+        if (f.type == CbmFileType::CBM || f.type == CbmFileType::DIR) continue; // skip subdirectory entries
         std::string err;
         size_t bytes = 0;
         if (!copyImageFile(src.get(), dst.get(), f, err, bytes)) {

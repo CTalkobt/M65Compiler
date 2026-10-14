@@ -33,6 +33,10 @@ public:
     bool removeFile(const std::string& name) override;
     std::vector<uint8_t> readFile(const std::string& name) const override;
     bool fileExists(const std::string& name) const override;
+    // A native subdirectory (type DIR): a header block, as the root's 1/1
+    // (link to the directory, name, ID, "1H"; $20 itself, $22 the parent's
+    // header, $24-$26 the entry in the parent), and one directory block
+    bool makeDirectory(const std::string& name) override;
     TrackSector firstDirectorySector() const override;
     TrackSector headerSector() const override { return {1, 1}; }
     std::vector<TrackSector> systemSectors() const override;
@@ -57,10 +61,24 @@ public:
     // The partitions of a D1M/D2M/D4M (empty for a DNP)
     const std::vector<Partition>& partitions() const { return parts_; }
     bool hasNative() const { return partSectors_ > 0; }
+    // A partition by number or name (case-insensitive); nullptr if none
+    const Partition* findPartition(const std::string& spec) const;
+    // Work on a native partition instead of the first one
+    bool selectPartition(const Partition& p);
+    // The size of an emulated partition's D64/D71/D81 (0: not emulated)
+    static uint32_t emulatedBytes(uint8_t type);
+    static const char* emulatedExtension(uint8_t type);
     uint32_t nativeStart() const { return partStart_; }
     const char* formatName() const;
     // DNP: the partition size for format() (1-255 tracks; default 32)
     void setNativeTracks(int tracks) { nativeTracks_ = tracks; }
+    // D1M/D2M/D4M: the partitions format() lays out, from the start of the
+    // disk (default: one native partition filling it). Type 1 native (blocks:
+    // 512-byte blocks, rounded up to whole 256-sector tracks; 0 = the rest
+    // of the disk), 2/3/4 an emulated 1541/1571/1581 (formatted as its
+    // D64/D71/D81). False (with err) when the layout does not fit
+    struct PartSpec { uint8_t type = 1; std::string name; uint32_t blocks = 0; };
+    bool setLayout(const std::vector<PartSpec>& layout, std::string& err);
     static const char* partitionTypeName(uint8_t type);
 
     bool isSectorFree(int track, int sector) const override;
@@ -73,6 +91,7 @@ protected:
     uint32_t partSectors_ = 0;
     std::vector<Partition> parts_;
     int nativeTracks_ = 32;
+    std::vector<PartSpec> layout_;   // resolved: every size known
 
     int sectorOffset(int track, int sector) const override;
     bool allocateSector(int track, int sector) override;

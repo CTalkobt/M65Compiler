@@ -26,7 +26,7 @@ Running `disk45` with no arguments or an unknown command prints the usage summar
 #### create
 
 ```
-disk45 create <image> [-n name] [-i id] [-t tracks] [--geos]
+disk45 create <image> [-n name] [-i id] [-t tracks] [--geos] [--partitions LIST]
 ```
 
 Create a new, empty image or archive. An existing file is overwritten.
@@ -37,6 +37,7 @@ Create a new, empty image or archive. An existing file is overwritten.
 | `-i id` | 2-character disk ID (default `CC`) |
 | `--geos` | Format for GEOS (D64/D71): `GEOS format V1.0` at `$AD` of the BAM sector and a border sector (searched from 19/0 upwards, then from 1/0), as [GEOS.TXT](https://ist.uwaterloo.ca/~schepers/formats/GEOS.TXT) describes. |
 | `-t tracks` | Track count larger than the format default (e.g. 36-40 for an extended D64). The image is padded with the extra tracks, but the BAM is not extended, so files are not allocated there. |
+| `--partitions LIST`, `-P` | D1M/D2M/D4M: the partitions, from the start of the disk: `TYPE[:NAME[:BLOCKS]],...`, TYPE `native`, `1541`, `1571` or `1581`. An emulated partition is formatted as its D64/D71/D81 (342/683/1600 blocks); a native one takes BLOCKS 512-byte blocks (rounded up to whole 256-sector tracks, at least 256), or with no size the rest of the disk. Default: one native partition filling the disk. |
 
 **Examples:**
 ```bash
@@ -45,6 +46,10 @@ disk45 create game.d81 -n "MY GAME" -i "MG"
 
 # 40-track C64 image (standard is 35 tracks)
 disk45 create extended.d64 -n "SPEEDDOS" -t 40
+
+# CMD FD-2000 disk: a native partition, a 1581 and a 1541 partition, native for the rest
+disk45 create fd.d2m --partitions native:GAMES:512,1581:WORK,1541:OLD,native:DATA
+disk45 add fd.d2m:WORK game.prg GAME      # into partition WORK (or fd.d2m:2)
 
 # Compressed image
 disk45 create backup.d64.gz -n "BACKUP"
@@ -349,7 +354,7 @@ disk45 rel-list data.d64 SCORES
 
 ### Subdirectory Operations
 
-CBM subdirectories (file type `CBM`) work on all sector-based images (D64, D71, D81, D65, ...). Paths use `/`: `list`, `add`, `extract`, `remove`, `rename`, `lock`/`unlock`, `mkdir`, `rmdir`, `dir-shrink`, `dir-ensure` and the FUSE mount work inside them, and `validate` checks their files.
+CBM subdirectories (file type `CBM`) work on all sector-based images (D64, D71, D81, D65, ...); on a CMD native partition, subdirectories are its own type `DIR` (see [Hard Drives & CMD Devices](#hard-drives--cmd-devices)). Paths use `/`: `list`, `add`, `extract`, `remove`, `rename`, `lock`/`unlock`, `mkdir`, `rmdir`, `dir-shrink`, `dir-ensure` and the FUSE mount work inside them, and `validate` checks their files.
 
 A subdirectory is disk45's own layout: the `CBM` entry's first data sector starts the subdirectory's directory chain, and its files share the disk's BAM. This is not a 1581 partition (which has its own header and BAM and must cover whole tracks), so a 1581 drive does not see the files inside one.
 
@@ -665,7 +670,7 @@ R/W means `create`, `add`, `remove` etc. work and the image is written back in i
 
 D90/D60 are read-only: `create` produces a blank formatted image, and every command that changes one is refused (disk45 does not write their BAM).
 
-**CMD images** follow [D2M-DNP.TXT](https://ist.uwaterloo.ca/~schepers/formats/D2M-DNP.TXT). A D1M/D2M/D4M has a system partition on its reserved last physical track (the DevBlock at its sector 5, the partition directory in sectors 8-11: up to 31 native or emulated 1541/1571/1581 partitions, offsets and sizes in 512-byte blocks); disk45 works on the first **native** partition and `info` lists them all. A native partition has 256-sector tracks counted from 1: 1/0 the boot block, 1/1 the header (name, ID, `1H`, the directory link), 1/2-1/33 the BAM (from offset `$20` of 1/2, 32 bytes per track, bit 7 = sector 0, 1 = free; byte 8 = the last track), the directory from 1/34. `create` makes a D1M/D2M/D4M with one native partition filling the disk (DevBlock `CMD FD SERIES`) or a DNP; `test_disk45.sh` checks these bytes. Subdirectories (type 6) are listed but not entered, emulated partitions are not opened (extract them with `bread`), and error bytes after the sectors are kept.
+**CMD images** follow [D2M-DNP.TXT](https://ist.uwaterloo.ca/~schepers/formats/D2M-DNP.TXT). A D1M/D2M/D4M has a system partition on its reserved last physical track (the DevBlock at its sector 5, the partition directory in sectors 8-11: up to 31 native or emulated 1541/1571/1581 partitions, offsets and sizes in 512-byte blocks); disk45 works on the first **native** partition by default and `info` lists them all; `disk.d2m:N` (the number) or `disk.d2m:NAME` opens another one, with every command and the FUSE mount. A native partition is opened in place; an emulated 1541/1571/1581 partition as the D64/D71/D81 it holds, written back into the image after a change. A native partition has 256-sector tracks counted from 1: 1/0 the boot block, 1/1 the header (name, ID, `1H`, the directory link), 1/2-1/33 the BAM (from offset `$20` of 1/2, 32 bytes per track, bit 7 = sector 0, 1 = free; byte 8 = the last track), the directory from 1/34. `create` makes a D1M/D2M/D4M with one native partition filling the disk (DevBlock `CMD FD SERIES`) or a DNP; `test_disk45.sh` checks these bytes. Native subdirectories (type `DIR`, 6) are entered like CBM ones (`GAMES/ARCADE/PONG`); `mkdir` on a native partition makes one as the FD-2000 does: the entry points to a header block (the link to its directory, `H`, the name, the partition's ID, `1H`; `$20` the block itself, `$22` the parent's header, `$24`-`$26` the entry's sector and the offset of its type byte), followed by one directory block, and the entry's size counts the header and directory blocks (updated when the directory grows or shrinks). Error bytes after the sectors are kept.
 
 ### GCR Formats
 

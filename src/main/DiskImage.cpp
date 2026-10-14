@@ -340,6 +340,7 @@ TrackSector DiskImage::allocDirectoryEntry(DirEntry& entry) {
 
     // Write entry in first slot
     entry.toSector(newSec, 0);
+    directoryBlocksChanged(1);
     return newDir;
 }
 
@@ -371,16 +372,17 @@ bool DiskImage::renameFile(const std::string& oldName, const std::string& newNam
     return true;
 }
 
-bool DiskImage::moveFile(const std::string& name, TrackSector to, const std::string& newName) {
+bool DiskImage::moveFile(const std::string& name, TrackSector to, const std::string& newName,
+                         TrackSector toHeader) {
     TrackSector dirTS;
     int entryIdx;
     if (!findFileEntry(name, dirTS, entryIdx)) return false;
     uint8_t* sec = sectorData(dirTS.track, dirTS.sector);
     if (!sec) return false;
     DirEntry e = DirEntry::fromSector(sec, entryIdx);
-    if (e.type() == CbmFileType::CBM) return false;  // a directory could land inside itself
-    TrackSector from = cwd_;
-    cwd_ = to;
+    if (isDirectory(e)) return false;  // a directory could land inside itself
+    TrackSector from = cwd_, fromHeader = cwdHeader_;
+    setDirectory(to == firstDirectorySector() ? TrackSector{0, 0} : to, toHeader);
     TrackSector otherTS;
     int otherIdx;
     bool taken = findFileEntry(newName, otherTS, otherIdx);
@@ -393,13 +395,52 @@ bool DiskImage::moveFile(const std::string& name, TrackSector to, const std::str
         }
         taken = allocDirectoryEntry(e).isNull();
     }
-    cwd_ = from;
+    setDirectory(from, fromHeader);
     if (taken) return false;
     // the old slot is freed (allocDirectoryEntry may have moved no sector)
     sec = sectorData(dirTS.track, dirTS.sector);
     DirEntry old = DirEntry::fromSector(sec, entryIdx);
     old.fileType = 0;
     old.toSector(sec, entryIdx);
+    return true;
+}
+
+void DiskImage::directoryBlocksChanged(int delta) {
+    // a CMD native subdirectory's entry counts its header and directory
+    // blocks: the header ($24-$26) locates the entry in the parent
+    if (cwdHeader_.isNull()) return;
+    const uint8_t* hdr = sectorData(cwdHeader_.track, cwdHeader_.sector);
+    if (!hdr) return;
+    uint8_t* parent = sectorData(hdr[0x24], hdr[0x25]);
+    if (!parent || hdr[0x26] < 2 || hdr[0x26] > 256 - 30) return;
+    uint8_t* p = parent + hdr[0x26] - 2;  // the entry ($26 is the offset of its type byte)
+    int n = (p[0x1E] | (p[0x1F] << 8)) + delta;
+    if (n < 2) n = 2;
+    p[0x1E] = (uint8_t)n;
+    p[0x1F] = (uint8_t)(n >> 8);
+}
+
+TrackSector DiskImage::directoryChain(const DirEntry& e) const {
+    if (e.type() == CbmFileType::CBM) return e.firstDataTS;
+    if (e.type() != CbmFileType::DIR) return {0, 0};
+    const uint8_t* hdr = sectorData(e.firstDataTS.track, e.firstDataTS.sector);
+    return hdr ? TrackSector{hdr[0], hdr[1]} : TrackSector{0, 0};
+}
+
+void DiskImage::enterDirectory(const DirEntry& e) {
+    setDirectory(directoryChain(e), e.type() == CbmFileType::DIR ? e.firstDataTS : TrackSector{0, 0});
+}
+
+bool DiskImage::enterPath(const std::vector<std::string>& dirs) {
+    setDirectory({0, 0});
+    for (auto& d : dirs) {
+        DirEntry e = findFile(d);
+        if (!e.isValid() || !isDirectory(e) || directoryChain(e).isNull()) {
+            setDirectory({0, 0});
+            return false;
+        }
+        enterDirectory(e);
+    }
     return true;
 }
 
@@ -427,8 +468,8 @@ int DiskImage::removeDirectory(const std::string& name) {
     if (!findFileEntry(name, dirTS, entryIdx)) return -ENOENT;
     uint8_t* sec = sectorData(dirTS.track, dirTS.sector);
     DirEntry e = DirEntry::fromSector(sec, entryIdx);
-    if (e.type() != CbmFileType::CBM) return -ENOENT;
-    if (!listDirectory(e.firstDataTS).empty()) return -ENOTEMPTY;
+    if (!isDirectory(e)) return -ENOENT;
+    if (!listDirectory(directoryChain(e)).empty()) return -ENOTEMPTY;
     for (auto& ts : getFileChain(e.firstDataTS)) freeSector(ts.track, ts.sector);
     e.fileType = 0;
     e.toSector(sec, entryIdx);
@@ -509,8 +550,8 @@ DiskImage::ValidateResult DiskImage::validate() const {
             r.filesFound++;
 
             auto chain = fileSectors(e);
-            if (e.type() == CbmFileType::CBM && !e.firstDataTS.isNull())
-                dirs.push_back(e.firstDataTS);
+            if (isDirectory(e) && !directoryChain(e).isNull())
+                dirs.push_back(directoryChain(e));
             for (auto& cs : chain) {
                 r.sectorsUsedByFiles++;
                 auto k = key(cs.track, cs.sector);

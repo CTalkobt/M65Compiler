@@ -1,6 +1,8 @@
 #include "CmdImage.hpp"
 #include <algorithm>
 #include <cstring>
+#include <cctype>
+#include <memory>
 
 namespace {
 const uint32_t NATIVE_DIR_SECTOR = 34;  // 1/34
@@ -130,6 +132,43 @@ int CmdImage::freeSectors() const {
 // Loading and formatting
 // ----------------------------------------------------------------------------
 
+const CmdImage::Partition* CmdImage::findPartition(const std::string& spec) const {
+    bool number = !spec.empty() && std::all_of(spec.begin(), spec.end(), ::isdigit);
+    for (auto& p : parts_) {
+        if (number && p.number == std::stoi(spec)) return &p;
+        if (!number && p.name.size() == spec.size() &&
+            std::equal(spec.begin(), spec.end(), p.name.begin(),
+                       [](char a, char b) { return std::toupper((unsigned char)a) == std::toupper((unsigned char)b); }))
+            return &p;
+    }
+    return nullptr;
+}
+
+bool CmdImage::selectPartition(const Partition& p) {
+    if (p.type != 1 || p.start + p.sectors > systemStart()) return false;
+    partStart_ = p.start;
+    partSectors_ = p.sectors;
+    return true;
+}
+
+uint32_t CmdImage::emulatedBytes(uint8_t type) {
+    switch (type) {
+        case 2: return 683 * 256;    // 1541: 35 tracks
+        case 3: return 1366 * 256;   // 1571: 70 tracks
+        case 4: return 3200 * 256;   // 1581: 80 tracks of 40 sectors
+    }
+    return 0;
+}
+
+const char* CmdImage::emulatedExtension(uint8_t type) {
+    switch (type) {
+        case 2: return ".d64";
+        case 3: return ".d71";
+        case 4: return ".d81";
+    }
+    return "";
+}
+
 void CmdImage::readPartitions() {
     parts_.clear();
     partStart_ = partSectors_ = 0;
@@ -249,19 +288,81 @@ void CmdImage::format(const std::string& diskName, const std::string& diskId) {
     root[2] = 0xFF;
     std::memset(root + 5, 0xA0, 16);
     std::memcpy(root + 5, "SYSTEM", 6);
-    // partition 1: native, the whole disk before the system track
-    uint8_t* p1 = root + 32;
-    p1[2] = 0x01;
-    std::string pname = asciiToPetscii(diskName.empty() ? "PARTITION 1" : diskName);
-    std::memset(p1 + 5, 0xA0, 16);
-    std::memcpy(p1 + 5, pname.data(), std::min<size_t>(16, pname.size()));
-    uint32_t blocks = sys / 2;
-    p1[0x16] = 0;
-    p1[0x17] = 0;
-    p1[0x1E] = (uint8_t)(blocks >> 8);
-    p1[0x1F] = (uint8_t)blocks;
+    // the partitions from the start of the disk: by default partition 1,
+    // native, the whole disk before the system track
+    std::vector<PartSpec> layout = layout_;
+    if (layout.empty()) layout.push_back({1, diskName.empty() ? "PARTITION 1" : diskName, sys / 2});
+    uint32_t start = 0;  // in 512-byte blocks
+    for (size_t i = 0; i < layout.size(); i++) {
+        int number = (int)i + 1;
+        uint8_t* p = image_.data() + (size_t)(sys + 8 + number / 8) * 256 + (number % 8) * 32;
+        p[2] = layout[i].type;
+        std::string pname = asciiToPetscii(layout[i].name.empty() ? "PARTITION " + std::to_string(number)
+                                                                   : layout[i].name);
+        std::memset(p + 5, 0xA0, 16);
+        std::memcpy(p + 5, pname.data(), std::min<size_t>(16, pname.size()));
+        p[0x16] = (uint8_t)(start >> 8);
+        p[0x17] = (uint8_t)start;
+        p[0x1E] = (uint8_t)(layout[i].blocks >> 8);
+        p[0x1F] = (uint8_t)layout[i].blocks;
+        if (layout[i].type != 1) {
+            // an emulated drive's disk, formatted as its own image
+            std::unique_ptr<DiskImage> emu = layout[i].type == 2 ? DiskImage::create(DiskFormat::D64)
+                                           : layout[i].type == 3 ? DiskImage::create(DiskFormat::D71)
+                                                                 : DiskImage::create(DiskFormat::D81);
+            emu->format(layout[i].name.empty() ? diskName : layout[i].name, diskId);
+            const auto& bytes = emu->rawBytes();
+            std::memcpy(image_.data() + (size_t)start * 512, bytes.data(),
+                        std::min<size_t>(bytes.size(), (size_t)layout[i].blocks * 512));
+        }
+        start += layout[i].blocks;
+    }
     readPartitions();
-    formatNative(diskName, diskId);
+    // format every native partition, then work on the first
+    for (auto& p : std::vector<Partition>(parts_)) {
+        if (p.type != 1) continue;
+        partStart_ = p.start;
+        partSectors_ = p.sectors;
+        formatNative(layout_.empty() || (p.number == 1 && !diskName.empty()) ? diskName : p.name, diskId);
+    }
+    readPartitions();
+}
+
+bool CmdImage::setLayout(const std::vector<PartSpec>& layout, std::string& err) {
+    layout_.clear();
+    if (fmt_ == NATIVE) { err = "a DNP is one native partition"; return false; }
+    if (layout.size() > 30) { err = "at most 30 partitions"; return false; }
+    uint32_t avail = systemStart() / 2;  // blocks before the system track
+    uint32_t used = 0;
+    int rest = -1;
+    for (size_t i = 0; i < layout.size(); i++) {
+        PartSpec p = layout[i];
+        if (p.type < 1 || p.type > 4) { err = "unknown partition type"; return false; }
+        if (p.type == 1) {
+            if (p.blocks == 0) {
+                if (rest >= 0) { err = "only one native partition can take the rest of the disk"; return false; }
+                rest = (int)i;
+            } else {
+                p.blocks = (p.blocks + 127) / 128 * 128;     // whole 256-sector tracks
+                if (p.blocks < 256) p.blocks = 256;           // the system tracks and a directory
+            }
+        } else {
+            p.blocks = (emulatedBytes(p.type) / 256 + 1) / 2;  // 342 / 683 / 1600
+        }
+        used += p.blocks;
+        layout_.push_back(p);
+    }
+    if (used > avail) {
+        err = "the partitions need " + std::to_string(used) + " blocks; the disk has " + std::to_string(avail);
+        layout_.clear();
+        return false;
+    }
+    if (rest >= 0) {
+        uint32_t left = (avail - used) / 128 * 128;
+        if (left < 256) { err = "no room left for a native partition"; layout_.clear(); return false; }
+        layout_[rest].blocks = left;
+    }
+    return true;
 }
 
 // ----------------------------------------------------------------------------
@@ -359,5 +460,62 @@ bool CmdImage::removeFile(const std::string& name) {
     for (auto& ts : fileSectors(e)) freeSector(ts.track, ts.sector);
     e.fileType = 0;
     e.toSector(dirSec, entryIdx);
+    return true;
+}
+
+bool CmdImage::makeDirectory(const std::string& name) {
+    if (!hasNative() || fileExists(name)) return false;
+    TrackSector hdrTS = allocateNextFree();
+    TrackSector dirTS = hdrTS.isNull() ? hdrTS : allocateNextFree();
+    if (dirTS.isNull()) {
+        if (!hdrTS.isNull()) freeSector(hdrTS.track, hdrTS.sector);
+        return false;
+    }
+    TrackSector parent = cwdHeader_.isNull() ? headerSector() : cwdHeader_;
+    const uint8_t* root = sectorData(1, 1);
+    uint8_t* hdr = sectorData(hdrTS.track, hdrTS.sector);
+    std::memset(hdr, 0, 256);
+    hdr[0] = dirTS.track;
+    hdr[1] = dirTS.sector;
+    hdr[2] = 'H';
+    std::memset(hdr + 0x04, 0xA0, 18);  // the name, padded to $15
+    padPetsciiName(reinterpret_cast<char*>(hdr + 0x04), name);
+    hdr[0x16] = root[0x16];   // the partition's ID
+    hdr[0x17] = root[0x17];
+    hdr[0x18] = 0xA0;
+    hdr[0x19] = '1';
+    hdr[0x1A] = 'H';
+    hdr[0x1B] = hdr[0x1C] = 0xA0;
+    hdr[0x20] = hdrTS.track;
+    hdr[0x21] = hdrTS.sector;
+    hdr[0x22] = parent.track;
+    hdr[0x23] = parent.sector;
+    uint8_t* dir = sectorData(dirTS.track, dirTS.sector);
+    std::memset(dir, 0, 256);
+    dir[1] = 0xFF;
+
+    DirEntry e;
+    e.fileType = 0x80 | (uint8_t)CbmFileType::DIR;
+    e.firstDataTS = hdrTS;
+    e.sizeInSectors = 2;   // the header and directory blocks
+    padPetsciiName(e.filename, name);
+    TrackSector at = allocDirectoryEntry(e);
+    if (at.isNull()) {
+        freeSector(hdrTS.track, hdrTS.sector);
+        freeSector(dirTS.track, dirTS.sector);
+        return false;
+    }
+    // where the entry landed: $24-$25 its sector, $26 the offset of its type byte
+    const uint8_t* sec = sectorData(at.track, at.sector);
+    for (int i = 0; i < 8; i++) {
+        DirEntry x = DirEntry::fromSector(sec, i);
+        if (x.type() == CbmFileType::DIR && x.firstDataTS == hdrTS) {
+            hdr = sectorData(hdrTS.track, hdrTS.sector);
+            hdr[0x24] = at.track;
+            hdr[0x25] = at.sector;
+            hdr[0x26] = (uint8_t)(i * 32 + 2);
+            break;
+        }
+    }
     return true;
 }
