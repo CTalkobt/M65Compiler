@@ -101,6 +101,7 @@ private:
         std::map<std::string, ir::Type> localTypes;
         std::map<std::string, std::string> localTypeNames;
         std::map<std::string, bool> localSigned;
+        std::map<std::string, bool> localPlainUnsigned;
         std::map<std::string, bool> localConst;
         std::map<std::string, bool> localPointsToConst;
         std::map<std::string, bool> localRegister;
@@ -131,6 +132,12 @@ private:
     std::map<std::string, std::string> globalTypeNames_;
     std::map<std::string, bool> localSigned_;  // true if variable was declared signed
     std::map<std::string, bool> globalSigned_; // true if global variable was declared signed
+    // variables of a plain integer type, unsigned only by cc45's default
+    // (VariableDeclaration::isPlainUnsigned): ConstantFolder warns about
+    // them, so the "unsigned < 0" warning here skips them
+    std::map<std::string, bool> localPlainUnsigned_;
+    std::map<std::string, bool> globalPlainUnsigned_;
+    bool plainUnsignedVar(Expression* e, std::string& name);
     std::map<std::string, bool> localConst_;       // true if variable itself is const
     std::map<std::string, bool> localPointsToConst_; // true if pointed-to data is const (const int *p)
     std::map<std::string, bool> localRegister_;

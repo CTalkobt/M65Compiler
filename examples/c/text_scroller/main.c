@@ -4,7 +4,8 @@
  *   - C:   string handling, game loop, scroll logic
  *   - ASM: hardware screen ops (DMA-free byte shifting, VSYNC, colour RAM)
  *
- * The message scrolls continuously across row 12 (center of screen).
+ * The message scrolls continuously across row 8 of the MEGA65's 80x25
+ * text screen, between two banner rows.
  * Border colour cycles through a palette on each full scroll.
  * Press RUN/STOP to exit.
  */
@@ -12,17 +13,23 @@
 #include <cbm.h>
 #include <string.h>
 
-/* Assembly routines from scroll_hw.s */
-void scroll_line_left(int row);
-void set_text_color(int row, char color);
+/* Assembly routines from scroll_hw.s45; their arguments go through the
+ * variables it defines */
+void scroll_line_left(void);    /* the row at scroll_ptr */
+void set_text_color(void);      /* colour RAM row at color_ptr := fill_color */
 void wait_vsync(void);
-void clear_screen(char color);
+extern char *scroll_ptr;
+extern char *color_ptr;
+extern char fill_color;
 
-/* Screen constants */
+/* Screen constants: the 80x25 text screen. Colour RAM rows 0-11 lie at
+ * $D800-$DBBF; above $DC00 are the CIAs (unless CRAM2K is set), so the
+ * colour rows used here stay below row 12. */
 #define SCREEN  0x0800
-#define COLS    40
+#define COLRAM  0xD800
+#define COLS    80
 #define ROWS    25
-#define SCROLL_ROW  12
+#define SCROLL_ROW  8
 
 /* Border colour register */
 #define BORDER  (*(char *)0xD020)
@@ -37,7 +44,9 @@ void clear_screen(char color);
 #define COL_LGREEN  13
 #define COL_LBLUE   14
 
-const char *message = "    welcome to the mega65!    this scroller was built with cc45 -- a c compiler targeting the 45gs02 cpu.    mixed c and assembly makes hardware access easy.    press run/stop to exit...    ";
+/* s"...": screen codes, as screen RAM holds them (PETSCII would show
+ * graphics characters) */
+const char *message = s"    welcome to the mega65!    this scroller was built with cc45 -- a c compiler targeting the 45gs02 cpu.    mixed c and assembly makes hardware access easy.    press run/stop to exit...    ";
 
 char palette[7];
 int palette_len;
@@ -53,33 +62,41 @@ void init_palette() {
     palette_len = 7;
 }
 
+void color_row(int row, char color) {
+    color_ptr = (char *)COLRAM + row * COLS;
+    fill_color = color;
+    set_text_color();
+}
+
 void draw_banner(char color) {
     char *scr;
     int i;
 
-    /* top border: row 10 */
-    scr = (char *)SCREEN + 10 * COLS;
+    /* top border: row 6 */
+    scr = (char *)SCREEN + 6 * COLS;
     for (i = 0; i < COLS; i++)
-        scr[i] = 0x43;  /* PETSCII horizontal bar */
+        scr[i] = 0x43;  /* screen code: horizontal bar */
 
-    /* bottom border: row 14 */
-    scr = (char *)SCREEN + 14 * COLS;
+    /* bottom border: row 10 */
+    scr = (char *)SCREEN + 10 * COLS;
     for (i = 0; i < COLS; i++)
         scr[i] = 0x43;
 
-    set_text_color(10, color);
-    set_text_color(14, color);
+    color_row(6, color);
+    color_row(10, color);
 }
 
 int main() {
     int msg_pos;
     int msg_len;
     int pal_idx;
-    int speed_count;
     char *row_ptr;
     char next_char;
 
-    clear_screen(COL_WHITE);
+    /* White text, then clear the screen: the KERNAL clears all 2000 cells
+     * and fills their colour RAM with the text colour */
+    cbm_chrout(0x05);
+    cbm_chrout(0x93);
     init_palette();
 
     BORDER = 0;   /* black border */
@@ -88,14 +105,14 @@ int main() {
     msg_len = strlen(message);
     msg_pos = 0;
     pal_idx = 0;
-    speed_count = 0;
 
     /* Set scroll row colour */
-    set_text_color(SCROLL_ROW, palette[pal_idx]);
+    scroll_ptr = (char *)SCREEN + SCROLL_ROW * COLS;
+    color_row(SCROLL_ROW, palette[pal_idx]);
     draw_banner(palette[pal_idx]);
 
     /* Title line */
-    cbm_gotoxy(12, 2);
+    cbm_gotoxy(33, 2);
     {
         const char *title = "text scroller";
         int t;
@@ -113,7 +130,7 @@ int main() {
             break;
 
         /* Shift the scroll row left by one character */
-        scroll_line_left(SCROLL_ROW);
+        scroll_line_left();
 
         /* Place next character from message at rightmost column */
         next_char = message[msg_pos];
@@ -130,7 +147,7 @@ int main() {
             pal_idx = pal_idx + 1;
             if (pal_idx >= palette_len)
                 pal_idx = 0;
-            set_text_color(SCROLL_ROW, palette[pal_idx]);
+            color_row(SCROLL_ROW, palette[pal_idx]);
             draw_banner(palette[pal_idx]);
             BORDER = palette[pal_idx];
         }
@@ -139,7 +156,8 @@ int main() {
     /* Clean exit */
     BORDER = 14;   /* restore light blue border */
     BGCOLOR = 6;   /* restore blue background */
-    clear_screen(COL_LBLUE);
+    cbm_chrout(0x9A);   /* light blue text */
+    cbm_chrout(0x93);
 
     return 0;
 }

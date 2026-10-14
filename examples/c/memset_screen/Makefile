@@ -23,7 +23,7 @@ clean:
 	rm -f main.o45 main.o45.s45 $(TARGET) memset_screen.map
 
 run: $(TARGET)
-	xemu-xmega65 -prgexit $(TARGET)
+	xemu-xmega65 -prg $(TARGET)
 
 inspect: $(TARGET)
 	$(ROOT)/bin/objdump45 -d $(TARGET)

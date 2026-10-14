@@ -2,6 +2,7 @@
 #include "AST.hpp"
 #include "TypeInfo.hpp"
 #include "AddressTemplateDetector.hpp"
+#include "Diagnostic.hpp"
 #include <memory>
 #include <map>
 #include <set>
@@ -30,6 +31,11 @@ public:
     std::map<std::string, std::shared_ptr<TypeInfo::StructInfo>> structs;
     std::set<std::string> vmStructs_;  // structs with run-time member sizes
     std::set<std::string> usedVars_;
+    // Warnings (OptimizeStage prints them): negative constants stored in or
+    // compared with a variable of a plain integer type, which cc45 makes
+    // unsigned (VariableDeclaration::isPlainUnsigned). Checked here, before
+    // folding and constant propagation can remove the comparison.
+    std::vector<std::string> warnings;
 
     std::unique_ptr<Expression> fold(std::unique_ptr<Expression> expr) {
         if (!expr) return nullptr;
@@ -75,6 +81,7 @@ public:
     }
 
     void visit(Assignment& node) override {
+        if (node.op == "=") checkPlainStore(node.target.get(), node.expression.get(), node);
         // Check for const assignment
         if (auto* ref = dynamic_cast<VariableReference*>(node.target.get())) {
             if (constVars.count(ref->name) || constPointerVars.count(ref->name)) {
@@ -135,6 +142,7 @@ public:
     }
 
     void visit(BinaryOperation& node) override {
+        checkPlainCompare(node);
         // Phase 89: Check for address template patterns BEFORE constant folding
         // This preserves patterns that would otherwise be optimized away
         static AddressTemplateDetector detector;
@@ -403,6 +411,11 @@ public:
     void visit(SizeofExpression& node) override;
 
     void visit(VariableDeclaration& node) override {
+        plainUnsigned_[node.name] = node.isPlainUnsigned ? node.type : std::string();
+        if (node.isPlainUnsigned && node.arrayDims.empty() && node.initializer) {
+            VariableReference ref(node.name);
+            checkPlainStore(&ref, node.initializer.get(), *node.initializer);
+        }
         // Track the variable's type even if it's not currently constant
         TypeInfo::VarInfo vi;
         vi.type = node.type;
@@ -445,6 +458,7 @@ public:
         }
         auto decl = copyPos(std::make_unique<VariableDeclaration>(node.type, node.name, node.pointerLevel), node);
         decl->isSigned = node.isSigned;
+        decl->isPlainUnsigned = node.isPlainUnsigned;
         decl->initializer = std::move(initializer);
         decl->alignmentExpr = std::move(alignmentExpr);
         decl->alignment = node.alignment;
@@ -742,8 +756,10 @@ public:
     void visit(FunctionDeclaration& node) override {
         knownConstants.clear(); // Fresh state for new function
         boolVars.clear();
+        auto savedPlain = plainUnsigned_;   // the function's locals stay in it
         // Record parameter types
         for (const auto& param : node.parameters) {
+            plainUnsigned_[param.name].clear();
             TypeInfo::VarInfo vi;
             vi.type = param.type;
             vi.pointerLevel = param.pointerLevel;
@@ -758,6 +774,7 @@ public:
         // The body is a CompoundStatement, which is modified in-place by its visit method.
         // We just need to call accept on it directly, not fold it via the helper.
         if (node.body) node.body->accept(*this);
+        plainUnsigned_ = std::move(savedPlain);
         // We don't set lastStmt here, as FunctionDeclaration is modified in place
     }
 
@@ -767,6 +784,74 @@ public:
     std::unique_ptr<ASTNode> fold(std::unique_ptr<ASTNode> node);
 
 private:
+    // name -> its declared type when it is a plain (default-unsigned) integer, else ""
+    std::map<std::string, std::string> plainUnsigned_;
+    std::set<std::string> warned_;
+
+    std::string plainVarType(Expression* e, std::string& name) {
+        auto* vr = dynamic_cast<VariableReference*>(e);
+        if (!vr) return "";
+        name = vr->name;
+        auto it = plainUnsigned_.find(vr->name);
+        return it == plainUnsigned_.end() ? "" : it->second;
+    }
+    static bool negativeConstant(Expression* e, int64_t& v) {
+        if (auto* lit = dynamic_cast<IntegerLiteral*>(e)) {
+            if (lit->value < 0 && lit->castType.empty()) { v = lit->value; return true; }
+            return false;
+        }
+        if (auto* u = dynamic_cast<UnaryOperation*>(e); u && u->op == "-")
+            if (auto* lit = dynamic_cast<IntegerLiteral*>(u->operand.get()); lit && lit->value > 0 && lit->castType.empty()) {
+                v = -lit->value;
+                return true;
+            }
+        return false;
+    }
+    static bool isZero(Expression* e) {
+        auto* lit = dynamic_cast<IntegerLiteral*>(e);
+        return lit && lit->value == 0;
+    }
+    // what v becomes in an unsigned variable of this plain type
+    static std::string unsignedImage(int64_t v, const std::string& type) {
+        int bits = type == "char" ? 8 : type == "long" ? 32 : 16;
+        return std::to_string((uint64_t)v & ((1ull << bits) - 1));
+    }
+    void warnPlain(const ASTNode& at, const std::string& name, const std::string& type, const std::string& what) {
+        std::string key = at.sourceFile + ":" + std::to_string(at.line) + ":" + std::to_string(at.column) + ":" + name;
+        if (!warned_.insert(key).second) return;
+        warnings.push_back(formatDiagnostic(at.sourceFile, at.line, at.column, Severity::Warning,
+            "'" + name + "' is unsigned (plain " + type + " is unsigned in cc45): " + what +
+            "; declare it 'signed' (or use -fsigned-default)"));
+    }
+    // x = -1 / int x = -1
+    void checkPlainStore(Expression* target, Expression* value, const ASTNode& at) {
+        std::string name;
+        std::string type = plainVarType(target, name);
+        int64_t v;
+        if (!type.empty() && negativeConstant(value, v))
+            warnPlain(at, name, type, std::to_string(v) + " becomes " + unsignedImage(v, type));
+    }
+    // x < 0, x >= 0, x == -1, x <= -1 ...
+    void checkPlainCompare(BinaryOperation& node) {
+        static const std::set<std::string> cmpOps = {"<", "<=", ">", ">=", "==", "!="};
+        if (!cmpOps.count(node.op)) return;
+        for (int side = 0; side < 2; side++) {
+            Expression* var = side ? node.right.get() : node.left.get();
+            Expression* other = side ? node.left.get() : node.right.get();
+            std::string name;
+            std::string type = plainVarType(var, name);
+            if (type.empty()) continue;
+            int64_t v;
+            // the operator as if the variable were on the left
+            std::string op = node.op;
+            if (side) op = op == "<" ? ">" : op == ">" ? "<" : op == "<=" ? ">=" : op == ">=" ? "<=" : op;
+            if (isZero(other) && (op == "<" || op == ">="))
+                warnPlain(node, name, type, "'" + name + " " + op + " 0' is always " + (op == "<" ? "false" : "true"));
+            else if (negativeConstant(other, v))
+                warnPlain(node, name, type, "compared with " + std::to_string(v) + ", which becomes " + unsignedImage(v, type));
+        }
+    }
+
     template<typename T, typename U>
     std::unique_ptr<T> copyPos(std::unique_ptr<T> newNode, const U& oldNode) {
         newNode->line = oldNode.line;

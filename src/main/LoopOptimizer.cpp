@@ -1223,6 +1223,7 @@ std::unique_ptr<Statement> cloneAndSubstituteStatement(Statement* stmt, const st
     if (auto* var = dynamic_cast<VariableDeclaration*>(stmt)) {
         auto cloned = std::make_unique<VariableDeclaration>(var->type, var->name, var->pointerLevel);
         cloned->isSigned = var->isSigned;
+        cloned->isPlainUnsigned = var->isPlainUnsigned;
         cloned->isVolatile = var->isVolatile;
         cloned->isConst = var->isConst;
         cloned->isPointerConst = var->isPointerConst;
@@ -1323,6 +1324,7 @@ std::unique_ptr<Statement> cloneStatement(Statement* stmt) {
     if (auto* var = dynamic_cast<VariableDeclaration*>(stmt)) {
         auto cloned = std::make_unique<VariableDeclaration>(var->type, var->name, var->pointerLevel);
         cloned->isSigned = var->isSigned;
+        cloned->isPlainUnsigned = var->isPlainUnsigned;
         cloned->isVolatile = var->isVolatile;
         cloned->isConst = var->isConst;
         cloned->isPointerConst = var->isPointerConst;

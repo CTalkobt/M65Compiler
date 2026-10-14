@@ -332,6 +332,19 @@ int IRBuilder::getTypeSize(const std::string& typeName, int ptrLevel) {
     return TypeSystem::getTypeSize(typeName, ptrLevel, aggregates);
 }
 
+// A variable of a plain integer type that is unsigned only by cc45's default
+bool IRBuilder::plainUnsignedVar(Expression* e, std::string& name) {
+    auto* vr = dynamic_cast<VariableReference*>(e);
+    if (!vr) return false;
+    name = vr->name;
+    if (locals_.count(vr->name)) {
+        auto it = localPlainUnsigned_.find(vr->name);
+        return it != localPlainUnsigned_.end() && it->second;
+    }
+    auto it = globalPlainUnsigned_.find(vr->name);
+    return it != globalPlainUnsigned_.end() && it->second;
+}
+
 IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
     if (!expr) return {};
     if (!vmVars_.empty()) {
@@ -1424,6 +1437,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         scope.localTypes = std::move(localTypes_);
         scope.localTypeNames = std::move(localTypeNames_);
         scope.localSigned = std::move(localSigned_);
+        scope.localPlainUnsigned = std::move(localPlainUnsigned_);
         scope.localConst = std::move(localConst_);
         scope.localPointsToConst = std::move(localPointsToConst_);
         scope.localRegister = std::move(localRegister_);
@@ -1795,6 +1809,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         localTypes_ = std::move(scope.localTypes);
         localTypeNames_ = std::move(scope.localTypeNames);
         localSigned_ = std::move(scope.localSigned);
+        localPlainUnsigned_ = std::move(scope.localPlainUnsigned);
         localConst_ = std::move(scope.localConst);
         localPointsToConst_ = std::move(scope.localPointsToConst);
         localRegister_ = std::move(scope.localRegister);
@@ -3170,6 +3185,7 @@ void IRBuilder::resetFunctionLocalState() {
     localTypes_.clear();
     localTypeNames_.clear();
     localSigned_.clear();
+    localPlainUnsigned_.clear();
     localConst_.clear();
     localPointsToConst_.clear();
     localRegister_.clear();
@@ -3449,6 +3465,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
             // elements are Ts
             globalPtrLevel_[node.name] = node.pointerLevel - (node.ptrArrayDims.empty() ? 0 : 1);
             globalSigned_[node.name] = node.isSigned;
+            globalPlainUnsigned_[node.name] = node.isPlainUnsigned;
             globalRegister_[node.name] = node.isRegister;
         };
         if (node.isExtern) {
@@ -3642,6 +3659,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
         localTypeNames_[node.name] = resolvedGlobalTypeName;
         localPtrLevel_[node.name] = node.pointerLevel;
         localSigned_[node.name] = node.isSigned;
+        localPlainUnsigned_[node.name] = node.isPlainUnsigned;
         localConst_[node.name] = node.isConst && node.pointerLevel == 0;
         localPointsToConst_[node.name] = node.isConst && node.pointerLevel > 0;
         localDeclLocs_[node.name] = declLoc(node);
@@ -3687,6 +3705,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
         paramArrayDims_.erase(node.name);
     }
     localSigned_[node.name] = node.isSigned;
+    localPlainUnsigned_[node.name] = node.isPlainUnsigned;
     localConst_[node.name] = node.isConst && node.pointerLevel == 0;
     localPointsToConst_[node.name] = node.isConst && node.pointerLevel > 0;
     if (node.pointerLevel > 0) {
@@ -5128,11 +5147,17 @@ void IRBuilder::visit(BinaryOperation& node) {
         };
         bool alwaysFalse = (node.op == "<" && isZero(node.right.get()) && isUnsignedInt(lhsInfo)) ||
                            (node.op == ">" && isZero(node.left.get()) && isUnsignedInt(rhsInfo));
-        if (alwaysFalse) {
+        bool alwaysTrue = (node.op == ">=" && isZero(node.right.get()) && isUnsignedInt(lhsInfo)) ||
+                          (node.op == "<=" && isZero(node.left.get()) && isUnsignedInt(rhsInfo));
+        if (alwaysFalse || alwaysTrue) {
+            // a plain-int variable: ConstantFolder reported it (it explains why)
+            Expression* var = isZero(node.right.get()) ? node.left.get() : node.right.get();
+            std::string vn;
+            std::string what = alwaysFalse ? "< 0 is always false" : ">= 0 is always true";
             std::string key = node.sourceFile + ":" + std::to_string(node.line) + ":" + std::to_string(node.column) + ":lt0";
-            if (reportedUnused_.insert(key).second)
+            if (!plainUnsignedVar(var, vn) && reportedUnused_.insert(key).second)
                 warnings_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column, Severity::Warning,
-                    "comparison of unsigned expression < 0 is always false (declare it 'signed' if it can be negative)"));
+                    "comparison of unsigned expression " + what + " (declare it 'signed' if it can be negative)"));
         }
     }
 

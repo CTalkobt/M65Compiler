@@ -1,7 +1,7 @@
 /* game_of_life — Conway's Game of Life on MEGA65
  *
- * Runs on the 40x25 default text screen. Each cell is one character
- * position: '*' for alive, ' ' for dead.
+ * Runs on the MEGA65's 80x25 text screen (screen RAM at $0800). Each cell
+ * is one character position: '*' for alive, ' ' for dead.
  *
  * Demonstrates: 2D arrays, nested loops, pointer arithmetic,
  * direct screen RAM writes, frame delay via busy loop.
@@ -10,12 +10,16 @@
  *   - Live cell with 2 or 3 neighbors survives
  *   - Dead cell with exactly 3 neighbors becomes alive
  *   - All other cells die or stay dead
+ *
+ * cc45's plain int is unsigned: the neighbour offsets (-1..1) and the
+ * wrapped coordinates are declared 'signed int'.
  */
 
+#include <stdio.h>
 #include <string.h>
 #include <mega65.h>
 
-#define WIDTH  40
+#define WIDTH  80
 #define HEIGHT 25
 #define ALIVE  0x2A   /* '*' in PETSCII */
 #define DEAD   0x20   /* ' ' in PETSCII */
@@ -24,10 +28,8 @@
 static char grid[HEIGHT][WIDTH];
 static char next[HEIGHT][WIDTH];
 
-/* Screen RAM pointer (default C64/MEGA65 location) */
-volatile char *screen = (char *)0x0400;
-/* Color RAM */
-volatile char *color = (char *)0xD800;
+/* Screen RAM of the MEGA65's 80-column text mode */
+volatile char *screen = (char *)SCREEN_RAM;
 
 static void clear_grid() {
     memset(grid, 0, WIDTH * HEIGHT);
@@ -35,12 +37,12 @@ static void clear_grid() {
 }
 
 /* Count live neighbors with wrapping */
-static int count_neighbors(int row, int col) {
+static int count_neighbors(signed int row, signed int col) {
     int count;
-    int r;
-    int c;
-    int nr;
-    int nc;
+    signed int r;
+    signed int c;
+    signed int nr;
+    signed int nc;
 
     count = 0;
     for (r = -1; r <= 1; r++) {
@@ -137,16 +139,17 @@ int main() {
 
     /* Place some patterns */
     VREG_BORDER=COLOR_CYAN;
-    seed_r_pentomino(10, 18);
+    seed_r_pentomino(10, 38);
     VREG_BORDER=COLOR_MGREY;
     seed_glider(2, 2);
     VREG_BORDER=COLOR_GREEN;
-    seed_glider(3, 30);
+    seed_glider(3, 60);
     VREG_BORDER=COLOR_CYAN;
 
-    /* Set all color RAM to green */
-
-    memset(color, (char)5, WIDTH * HEIGHT);
+    /* Green text, then clear the screen: the KERNAL fills the whole colour
+     * RAM (80x25 = 2000 bytes, past $DC00 at $D800) with the text colour */
+    putchar(0x1E);
+    putchar(0x93);
     VREG_BORDER=COLOR_BLACK;
     for (gen = 0; gen < 500; gen++) {
     VREG_BORDER=COLOR_WHITE;

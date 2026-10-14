@@ -13,7 +13,6 @@ ROOT = ../../..
 CC45 = $(ROOT)/bin/cc45
 CA45 = $(ROOT)/bin/ca45
 LN45 = $(ROOT)/bin/ln45
-CRT0 = $(ROOT)/lib/build/crt0.o45
 STDLIB = $(ROOT)/lib/build/c45.lib
 INCLUDES = -I$(ROOT)/lib/include
 
@@ -30,8 +29,8 @@ main.o45: main.c
 scroll_hw.o45: scroll_hw.s45
 	$(CA45) -c scroll_hw.s45 -o scroll_hw.o45
 
-$(TARGET): $(OBJS) $(CRT0) $(STDLIB)
-	$(LN45) -m -basic -o $(TARGET) $(CRT0) $(OBJS) $(STDLIB) > map.txt
+$(TARGET): $(OBJS) $(STDLIB)
+	$(LN45) -m -basic -o $(TARGET) $(OBJS) $(STDLIB) > map.txt
 
 clean:
 	rm -f $(OBJS) main.o45.s45 $(TARGET) map.txt

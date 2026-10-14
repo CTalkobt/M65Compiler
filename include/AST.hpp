@@ -217,6 +217,9 @@ public:
     std::string type;
     int pointerLevel;
     bool isSigned = false;
+    // a plain char/short/int/long (no signed/unsigned, not a typedef) that is
+    // unsigned only by cc45's default: storing a negative constant warns
+    bool isPlainUnsigned = false;
     std::string name;
     bool isVolatile = false;
     bool isConst = false;        // const on the base type (pointed-to data is const)

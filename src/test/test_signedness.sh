@@ -63,12 +63,30 @@ int v = 5; int f(void) { return v % 14; }'                                      
 # x < 0 on an unsigned value is always false and warns
 warns() {
     printf '%s\n' "$1" > $T.c
-    $CC -S $T.c -o $T.s45 2>&1 >/dev/null | grep -q "unsigned expression < 0 is always false"
+    $CC -S $T.c -o $T.s45 2>&1 >/dev/null | grep -q -E "unsigned expression < 0 is always false|< 0' is always false"
 }
 warns 'int f(int x) { return x < 0; }'        && pass "warn: unsigned x < 0"     || fail "warn: unsigned x < 0"
 warns 'int g; int f(void) { return 0 > g; }'  && pass "warn: 0 > unsigned g"     || fail "warn: 0 > unsigned g"
 warns 'int f(signed int x) { return x < 0; }' && fail "no warning for signed x < 0" || pass "no warning for signed x < 0"
 warns 'int f(int x) { return x < 1; }'        && fail "no warning for x < 1"     || pass "no warning for x < 1"
+
+# a negative constant stored in or compared with a plain int (unsigned only by
+# cc45's default) warns; explicit unsigned, typedefs, signed and
+# -fsigned-default do not
+warnsplain() {
+    printf '%s\n' "$2" > $T.c
+    $CC $1 -S $T.c -o $T.s45 2>&1 >/dev/null | grep -q "is unsigned (plain .* is unsigned in cc45)"
+}
+warnsplain "" 'int f(void) { int r; for (r = -1; r <= 1; r++) ; return r; }' && pass "warn: plain r = -1"        || fail "warn: plain r = -1"
+warnsplain "" 'int f(void) { int x = -1; return x; }'                     && pass "warn: plain int x = -1"     || fail "warn: plain int x = -1"
+warnsplain "" 'char c; int f(void) { c = -2; return c; }'                 && pass "warn: plain char global"    || fail "warn: plain char global"
+warnsplain "" 'int f(void) { int r = 1; return r == -1; }'                && pass "warn: plain r == -1"        || fail "warn: plain r == -1"
+warnsplain "" 'int f(void) { int r = 5; return r < 0; }'                  && pass "warn: plain r < 0 (folded)" || fail "warn: plain r < 0 (folded)"
+warnsplain "" 'int f(void) { unsigned int u = -1; return u; }'            && fail "no warning: unsigned u = -1" || pass "no warning: unsigned u = -1"
+warnsplain "" 'typedef unsigned int U; int f(void) { U u = -1; return u; }' && fail "no warning: typedef = -1" || pass "no warning: typedef = -1"
+warnsplain "" 'int f(void) { signed int s = -1; return s; }'              && fail "no warning: signed s = -1"  || pass "no warning: signed s = -1"
+warnsplain -fsigned-default 'int f(void) { int x = -1; return x; }'       && fail "no warning: -fsigned-default" || pass "no warning: -fsigned-default"
+warnsplain "" 'int g; int f(unsigned int g) { g = -1; return g; }'        && fail "no warning: explicit param shadows plain global" || pass "no warning: explicit param shadows plain global"
 
 rm -f $T.c $T.s45
 

@@ -476,6 +476,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     vd->isGlobal = true;
                     vd->isExtern = isExtern;
                     vd->isSigned = isUnsig ? false : (vd->isSigned || isSig);  // cc45: unsigned unless declared signed
+                    vd->isPlainUnsigned = vd->isPlainUnsigned && !isSig && !isUnsig && !vd->isSigned;
                 } else if (auto* cs = dynamic_cast<CompoundStatement*>(decl.get())) {
                     for (auto& s : cs->statements) {
                         if (auto* vd2 = dynamic_cast<VariableDeclaration*>(s.get())) {
@@ -483,6 +484,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                             vd2->isExtern = isExtern;
                             vd2->isStatic = isStatic;
                             vd2->isSigned = isUnsig ? false : (vd2->isSigned || isSig);
+                            vd2->isPlainUnsigned = vd2->isPlainUnsigned && !isSig && !isUnsig && !vd2->isSigned;
                         }
                     }
                 }
@@ -555,6 +557,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     if (auto* vd = dynamic_cast<VariableDeclaration*>(decl.get())) {
                         vd->isGlobal = true;
                         vd->isSigned = isUnsig ? false : (vd->isSigned || isSig);
+                        vd->isPlainUnsigned = vd->isPlainUnsigned && !isSig && !isUnsig && !vd->isSigned;
                         vd->isExtern = isExtern;
                         vd->isStatic = isStatic;
                     } else if (auto* cs = dynamic_cast<CompoundStatement*>(decl.get())) {
@@ -562,6 +565,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                             if (auto* vd2 = dynamic_cast<VariableDeclaration*>(s.get())) {
                                 vd2->isGlobal = true;
                                 vd2->isSigned = isUnsig ? false : (vd2->isSigned || isSig);
+                                vd2->isPlainUnsigned = vd2->isPlainUnsigned && !isSig && !isUnsig && !vd2->isSigned;
                                 vd2->isExtern = isExtern;
                                 vd2->isStatic = isStatic;
                             }
@@ -628,6 +632,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     vd->isGlobal = true;
                     vd->isExtern = isExtern;
                     vd->isSigned = isUnsig ? false : (vd->isSigned || isSig || signedDefault); // implicit int follows the active default
+                    vd->isPlainUnsigned = vd->isPlainUnsigned && !isSig && !isUnsig && !vd->isSigned;
                 }
                 flushPending(*unit);
                 unit->topLevelDecls.push_back(std::move(decl));
@@ -1677,6 +1682,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
     size_t specStart = pos;
     std::string type;
     bool isSigned = false;
+    bool plainInt = false;   // no signed/unsigned written, not a typedef
     int basePtrLevel = 0;
     int addressSpace = 0;  // Phase 97: Track address space qualifier
     std::vector<int> typedefArrayDims;
@@ -1706,6 +1712,8 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
         if (ts.valid) {
             type = ts.name;
             isSigned = ts.isSigned;
+            plainInt = !ts.fromTypedef && !ts.isUnsigned && !ts.isSigned &&
+                       (ts.name == "char" || ts.name == "short" || ts.name == "int" || ts.name == "long");
             addressSpace = ts.addressSpace;  // Phase 97: Extract address space
             typedefArrayDims = ts.arrayDims;
             // Rewind past any stars (and their trailing qualifiers) consumed by
@@ -1948,6 +1956,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
         decl->vlaDimExprs = std::move(vlaDimExprs);
     }
     decl->isSigned = isSigned;
+    decl->isPlainUnsigned = plainInt && !isSigned && ptrLevel == 0;
     decl->isVolatile = isVolatile;
     decl->isConst = isConst;
     decl->isStatic = isStatic;
@@ -2056,6 +2065,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
             extraDims.insert(extraDims.end(), typedefArrayDims.begin(), typedefArrayDims.end());
             auto extraDecl = setPos(std::make_unique<VariableDeclaration>(type, extraName, extraPtr), typeToken);
             extraDecl->isSigned = isSigned;
+            extraDecl->isPlainUnsigned = plainInt && !isSigned && extraPtr == 0;
             extraDecl->isVolatile = isVolatile;
             extraDecl->isConst = isConst;
             extraDecl->isStatic = isStatic;

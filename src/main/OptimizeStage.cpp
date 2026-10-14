@@ -54,6 +54,7 @@ void OptimizeStage::performConstantFolding() {
         // The ConstantFolder visitor modifies the AST in place
         ast_->accept(folder);
     }
+    for (const auto& w : folder.warnings) std::cerr << w << std::endl;
 }
 
 void OptimizeStage::performFunctionAnalysis() {
