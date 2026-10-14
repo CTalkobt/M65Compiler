@@ -355,6 +355,33 @@ bool AssemblerOptimizer::optimizeInternal(
     // --- Pass 2: MachineState-driven register/memory tracking and optimization ---
     bool inNoOptRegion = false;
 
+    // Local labels something refers to (a branch, jump or data operand
+    // naming them): only those are merge points. A local label nothing
+    // refers to (left by branch inversion: bcc @b; bra @e; @b: -> bcs @e)
+    // is reached only by falling through, so what the registers hold stays
+    // known across it.
+    std::vector<std::string> operandTexts;
+    for (const auto& st : parser->statements) {
+        if (!st || st->deleted) continue;
+        if (!st->instr.operand.empty()) operandTexts.push_back(st->instr.operand);
+        for (const auto& a2 : st->dir.arguments) operandTexts.push_back(a2);
+    }
+    auto referenced = [&](const std::string& label) {
+        std::string local = label.substr(label.rfind(':') == std::string::npos ? 0 : label.rfind(':') + 1);
+        if (local.empty() || local[0] != '@') return true;
+        for (const auto& t : operandTexts) {
+            size_t at = t.find(local);
+            while (at != std::string::npos) {
+                size_t end = at + local.size();
+                bool wordEnd = end >= t.size() || !(std::isalnum((unsigned char)t[end]) || t[end] == '_' || t[end] == '@');
+                if (wordEnd) return true;
+                at = t.find(local, at + 1);
+            }
+        }
+        return false;
+    };
+    const AssemblerParser::Statement* prevInstr = nullptr;
+
     for (size_t i = 0; i < parser->statements.size(); ++i) {
         auto* s = parser->statements[i].get();
         if (s->deleted) continue;
@@ -372,11 +399,25 @@ bool AssemblerOptimizer::optimizeInternal(
             continue;
         }
 
-        // Barrier: non-local labels reset all knowledge
-        if (!s->label.empty() && s->label[0] != '@') {
-            ms.invalidateAll();
-            stackVarLastValue.clear();
+        // Barrier: a label reached other than by falling through resets all
+        // knowledge (an unreferenced local label after a statement that can
+        // fall through keeps it)
+        if (!s->label.empty()) {
+            bool fallsInto = prevInstr != nullptr;
+            if (prevInstr && prevInstr->type == AssemblerParser::Statement::INSTRUCTION) {
+                std::string pm = prevInstr->instr.mnemonic;
+                std::transform(pm.begin(), pm.end(), pm.begin(), ::toupper);
+                if (pm == "BRA" || pm == "JMP" || pm == "RTS" || pm == "RTN" || pm == "RTI" || pm == "BRL")
+                    fallsInto = false;
+            }
+            if (s->label[0] != '@' && s->label.find(":@") == std::string::npos) fallsInto = false;
+            if (!fallsInto || referenced(s->label)) {
+                ms.invalidateAll();
+                stackVarLastValue.clear();
+            }
         }
+        if (s->type == AssemblerParser::Statement::INSTRUCTION || s->isSimulatedOp()) prevInstr = s;
+        else if (s->type == AssemblerParser::Statement::DIRECTIVE) prevInstr = nullptr;
 
         // Skip all optimizations for statements in no-optimize regions
         if (inNoOptRegion) {

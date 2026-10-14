@@ -161,8 +161,9 @@ static const std::map<std::string, OpEffect>& getTable() {
         {"sxt.16",   {E::A|E::X|E::Y|E::Z, true, false, false}},
 
         // --- 16-bit compare ---
-        {"cmp.16",   {E::A|E::X,       true,  false, false}},
-        {"cpw",      {E::A|E::X,       true,  false, false}},  // alias for cmp.16
+        // (cpx hi; bne; cmp lo: A and X only read)
+        {"cmp.16",   {0,               true,  false, false}},
+        {"cpw",      {0,               true,  false, false}},  // alias for cmp.16
         {"cmp.s16",  {E::A|E::X,       true,  true,  false}},  // uses scratch ZP
 
         // --- 16-bit mul/div/mod (use scratch ZP, may clobber Y) ---

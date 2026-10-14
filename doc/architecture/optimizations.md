@@ -109,6 +109,16 @@ statement (`for (...; i++)`: only `inw $30` remains). Speed is measured with
 `src/test/bench/run_bench.sh` (six benchmarks on xemu, timed by CIA2;
 not part of `make test`): 1344 ms at v1.0.6, 1041 ms after these.
 
+A stack frame of 8 to 255 bytes is made by moving SP (`tsx; txa; sec; sbc #n;
+tax; txs`, the low byte only, right with either stack) instead of pushing
+zeros; when the low byte would wrap, the push loop runs instead (C locals
+start undefined). ca45's redundant-load elimination keeps what the registers
+hold across a local label nothing refers to (branch inversion leaves the loop
+body's label so: `bcc @body; bra @end; @body:` becomes `bcs @end`), so a
+loop body does not reload the counter the test just loaded; `cmp.16` is known
+to leave A and X alone. A byte constant stored to an element loads only A.
+Benchmark: 987 ms.
+
 A static-allocation function that makes calls cannot use the pool across
 them; its most used variables go in a base-page block of its own, `$80+k`,
 declared with `.zar $80, N`: pointers first, then `char`/`int`/`long` variables

@@ -3072,7 +3072,31 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             // Push frame in 2-byte chunks; if odd size, push final byte separately
             // (a large frame in a loop: Z is free at the entry)
             int words = localFrameSize / 2;
-            if (words >= 4) {
+            if (words >= 4 && localFrameSize <= 255) {
+                // SP -= size when that does not cross a page (txs: the low
+                // byte only, right in either stack mode); else the pushes.
+                // C locals start undefined: the frame is not cleared
+                std::string slow = "@__fslow_" + std::to_string(labelCounter_++);
+                std::string done = "@__fdone_" + std::to_string(labelCounter_++);
+                std::string lbl = "@__fpush_" + std::to_string(labelCounter_++);
+                emit("tsx", "frame: SP - " + std::to_string(localFrameSize));
+                emit("txa");
+                emit("sec");
+                emit("sbc #" + std::to_string(localFrameSize));
+                emit("bcc " + slow);
+                emit("tax");
+                emit("txs");
+                emit("bra " + done);
+                emitLabel(slow);
+                emit("ldz #" + std::to_string(words));
+                emitLabel(lbl);
+                emit("phw #0");
+                emit("dez");
+                emit("bne " + lbl);
+                if (localFrameSize % 2 == 1) emit("pha");
+                emitLabel(done);
+                words = 0;
+            } else if (words >= 4) {
                 for (int done = 0; done < words; ) {
                     int n = std::min(words - done, 255);
                     std::string lbl = "@__fpush_" + std::to_string(labelCounter_++);
@@ -3086,7 +3110,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             } else {
                 for (int i = 0; i < words; i++) emit("phw #0");
             }
-            if (localFrameSize % 2 == 1) {
+            if (localFrameSize % 2 == 1 && !(localFrameSize / 2 >= 4 && localFrameSize <= 255)) {
                 emit("lda #0");
                 emit("pha");  // Push final odd byte
             }
@@ -4863,7 +4887,13 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                         "#" + base.name : src2MemOperand(base);
                     emitArrayElemAddr(baseStr, index, stride, "__zp_scratch");
                     ms_.invalidateAll();
-                    loadOperand(inst.src1);
+                    if (constVal && inst.resultType == ir::Type::I8) {
+                        // a byte: A only
+                        int64_t v = inst.src1.isImm() ? inst.src1.immVal : vregConstVal_[inst.src1.vregId];
+                        emit("lda #" + std::to_string((int)(v & 0xFF)));
+                    } else {
+                        loadOperand(inst.src1);
+                    }
                     emit("ldy #0");
                     emit("sta (__zp_scratch),y");
                     if (inst.resultType != ir::Type::I8) {
