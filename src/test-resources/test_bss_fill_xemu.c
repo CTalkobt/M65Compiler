@@ -6,8 +6,8 @@
  *
  * Results at $C0C0: [0] g_byte, [1] the low byte of g_int, [2] g_arr[0],
  * [3] g_arr[299], [4] 01 if every byte of g_int and g_arr equals [0],
- * [5] 01: an uninitialized static local is 0 (cc45 puts those in the
- * initialized data, not BSS), [6] $AA
+ * [5] 01: an uninitialized static local is in BSS too (filled like [0]),
+ * [6] $AA
  */
 #define OUT ((volatile unsigned char *)0xC0C0)
 
@@ -29,7 +29,7 @@ int main(void) {
     OUT[2] = g_arr[0];
     OUT[3] = g_arr[299];
     OUT[4] = same((const unsigned char *)&g_int, 2, v) && same(g_arr, 300, v);
-    OUT[5] = s_local == 0;
+    OUT[5] = same((const unsigned char *)&s_local, 4, v);
     OUT[6] = 0xAA;
     return 0;
 }

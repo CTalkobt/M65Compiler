@@ -3597,10 +3597,9 @@ void IRBuilder::visit(VariableDeclaration& node) {
                 gv.hasInitValue = true;
                 std::memcpy(&gv.initValue, &flit->value, sizeof(double));
             }
-        } else {
-            gv.hasInitValue = true;
-            gv.initValue = 0;
         }
+        // (no initializer: BSS, zeroed by crt0 like an uninitialized global;
+        // an explicit = 0 stays in DATA, which -fbss-fill=V does not touch)
 
         addVtableWords(gv, node.type, node.pointerLevel, node.arrayDims);
         module_.globals.push_back(gv);

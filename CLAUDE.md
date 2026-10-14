@@ -183,7 +183,7 @@ explicit `-O<n>` in ad-hoc test commands too.
   both conventions. New runtime tests follow this pattern and are registered
   in `test_xemu.sh`.
 - GCC torture tests: `src/test/run_gte_all.sh` — 537 pass with the ZP
-  convention, 537 with `-fno-zpcall` (GTE uses `-fsigned-default`). Expected
+  convention, 538 with `-fno-zpcall` (GTE uses `-fsigned-default`). Expected
   failures are listed, with reasons, in `src/test/known_failures/gte.txt`.
 - `bash src/test/test_cc_interop.sh` — calling-convention interop (13 checks).
 - **xemu runs**: `timeout 15 xemu-xmega65 -headless -besure -sleepless -prgmode 65 -prgexit -dumpmem out.mem -prg file.prg`.

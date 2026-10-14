@@ -1234,6 +1234,19 @@ for mcmode in "zp|-Os" "stack|-Os -fno-zpcall"; do
     fi
 done
 
+# Test: static locals (uninitialized ones in BSS)
+for slmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r slname slflags <<< "$slmode"
+    echo "Testing test_static_local_xemu.c ($slname)..."
+    compile_link_test "src/test-resources/test_static_local_xemu.c" "build/test/test_static_local_${slname}_xemu.prg" "$slflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_static_local_$slname" "build/test/test_static_local_${slname}_xemu.prg" "C0C0" 3 "01 01 AA"
+    else
+        echo "FAIL: test_static_local_xemu.c $slname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: sizeof of arrays of pointers, array members and array type names
 for szmode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r szname szflags <<< "$szmode"
