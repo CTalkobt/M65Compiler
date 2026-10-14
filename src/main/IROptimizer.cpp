@@ -701,19 +701,24 @@ void optimizeTypeNarrowing(Module& mod) {
             Role role;
         };
         std::map<uint32_t, std::vector<UseInfo>> uses;
-
-        for (auto& block : fn.blocks) {
-            for (auto& inst : block.insts) {
-                if (inst.src1.isVreg())
-                    uses[inst.src1.vregId].push_back({&inst, UseInfo::SRC1});
-                if (inst.src2.isVreg())
-                    uses[inst.src2.vregId].push_back({&inst, UseInfo::SRC2});
-                for (auto& arg : inst.args) {
-                    if (arg.isVreg())
-                        uses[arg.vregId].push_back({&inst, UseInfo::ARG});
+        // (pointers into the blocks' instruction vectors: built again after
+        // anything inserts instructions)
+        auto buildUses = [&]() {
+            uses.clear();
+            for (auto& block : fn.blocks) {
+                for (auto& inst : block.insts) {
+                    if (inst.src1.isVreg())
+                        uses[inst.src1.vregId].push_back({&inst, UseInfo::SRC1});
+                    if (inst.src2.isVreg())
+                        uses[inst.src2.vregId].push_back({&inst, UseInfo::SRC2});
+                    for (auto& arg : inst.args) {
+                        if (arg.isVreg())
+                            uses[arg.vregId].push_back({&inst, UseInfo::ARG});
+                    }
                 }
             }
-        }
+        };
+        buildUses();
 
         // Narrowable arithmetic ops (safe to compute in I8 when result is truncated)
         auto isNarrowable = [](Op op) -> bool {
@@ -778,6 +783,7 @@ void optimizeTypeNarrowing(Module& mod) {
         // Pass 1b: operations on zero-extended bytes on the bytes; constant
         // operands as immediates
         forwardNarrowing(fn);
+        buildUses();   // (forwardNarrowing inserts instructions)
 
         // Pass 2: Eliminate redundant ZEXT/SEXT where the extended value is
         // only used in I8 context (TRUNC back to I8)
@@ -876,8 +882,13 @@ static void forwardNarrowing(Function& fn) {
             }
         }
 
-    // 2. narrowing of AND/OR/XOR, comparisons, branches
-    for (auto& block : fn.blocks) {
+    // 2. narrowing of AND/OR/XOR, comparisons, branches. The byte
+    // operations are inserted after the scan of every block: def holds
+    // pointers into the blocks' instruction vectors (of later blocks' operands
+    // too), which an insert would move
+    std::map<size_t, std::vector<std::pair<size_t, Inst>>> inserts;   // block -> (before index, instruction)
+    for (size_t bi = 0; bi < fn.blocks.size(); bi++) {
+        auto& block = fn.blocks[bi];
         for (size_t i = 0; i < block.insts.size(); i++) {
             Inst& inst = block.insts[i];
             bool bitwise = inst.op == Op::AND || inst.op == Op::OR || inst.op == Op::XOR;
@@ -937,10 +948,25 @@ static void forwardNarrowing(Function& fn) {
             ext.loc = inst.loc;
             trace("narrow", fn.name, "v" + std::to_string(inst.dest.vregId) + " computed on bytes", inst.loc);
             block.insts[i] = ext;
-            block.insts.insert(block.insts.begin() + i, narrow);
-            i++;
+            inserts[bi].push_back({i, narrow});
         }
     }
+    for (auto& [bi, list] : inserts)
+        for (auto it = list.rbegin(); it != list.rend(); ++it)
+            fn.blocks[bi].insts.insert(fn.blocks[bi].insts.begin() + it->first, it->second);
+    // (the blocks changed: the definitions again)
+    defCount.clear();
+    storedTo.clear();
+    for (auto& block : fn.blocks)
+        for (auto& inst : block.insts) {
+            if (inst.dest.isVreg()) defCount[inst.dest.vregId]++;
+            if ((inst.op == Op::STORE || inst.op == Op::STORE_ZP) && inst.src2.isVreg())
+                storedTo.insert(inst.src2.vregId);
+        }
+    def.clear();
+    for (auto& block : fn.blocks)
+        for (auto& inst : block.insts)
+            if (inst.dest.isVreg() && single(inst.dest.vregId)) def[inst.dest.vregId] = &inst;
 
     // 3. constant second operands as immediates
     for (auto& block : fn.blocks) {
@@ -1074,6 +1100,7 @@ void optimizeBranchFold(Module& mod) {
                     if (bi + 1 < fn.blocks.size() && fn.blocks[bi + 1].label == target) {
                         trace("branch", fn.name, "BR_COND const → fallthrough");
                         fn.blocks[bi].insts.erase(it);
+                        break;   // (the terminator: the iterator is gone)
                     } else {
                         trace("branch", fn.name, "BR_COND const → BR " + target);
                         it->op = Op::BR;

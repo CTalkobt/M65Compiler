@@ -16,18 +16,17 @@ if ! docker images | grep -q "^mega65-cc45"; then
     return 1
 fi
 
-# Create aliases for all tools
-alias cc45="docker run --rm -v \$(pwd):/work $IMAGE"
-alias ca45="docker run --rm -v \$(pwd):/work --entrypoint ca45 $IMAGE"
-alias cp45="docker run --rm -v \$(pwd):/work --entrypoint cp45 $IMAGE"
-alias nm45="docker run --rm -v \$(pwd):/work --entrypoint nm45 $IMAGE"
-alias ln45="docker run --rm -v \$(pwd):/work --entrypoint ln45 $IMAGE"
-alias ar45="docker run --rm -v \$(pwd):/work --entrypoint ar45 $IMAGE"
-alias objdump45="docker run --rm -v \$(pwd):/work --entrypoint objdump45 $IMAGE"
-alias disk45="docker run --rm -v \$(pwd):/work --entrypoint disk45 $IMAGE"
+# Create aliases for all tools (as the calling user: the files they write in
+# the current directory are yours, not root's)
+_M65RUN="docker run --rm --user \$(id -u):\$(id -g) -v \$(pwd):/work"
+alias cc45="$_M65RUN $IMAGE"
+for _t in ca45 cp45 nm45 ln45 ar45 objdump45 disk45 basic45 cvt_asm; do
+    alias $_t="$_M65RUN --entrypoint $_t $IMAGE"
+done
+unset _t
 
 echo "✓ Docker aliases created for MEGA65 toolchain"
-echo "  Available commands: cc45, ca45, cp45, nm45, ln45, ar45, objdump45, disk45"
+echo "  Available commands: cc45, ca45, cp45, nm45, ln45, ar45, objdump45, disk45, basic45, cvt_asm"
 echo ""
 echo "Examples:"
 echo "  cc45 hello.c -o hello.s       # Compile C to assembly"

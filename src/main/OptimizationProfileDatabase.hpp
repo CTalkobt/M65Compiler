@@ -7,7 +7,7 @@
 
 // Context for optimization effectiveness
 struct OptimizationContext {
-    enum FileSize { TINY, SMALL, MEDIUM, LARGE, HUGE };
+    enum FileSize { TINY, SMALL, MEDIUM, LARGE, HUGE_FILE };   // (HUGE: a macro of musl's math.h)
     enum Complexity { LOW, MODERATE, HIGH, VERY_HIGH };
 
     FileSize fileSize;

@@ -201,7 +201,7 @@ OptimizationContext OptimizationProfileDatabase::classifyContext(
     } else if (record.fileSize < 100000) {
         context.fileSize = OptimizationContext::LARGE;
     } else {
-        context.fileSize = OptimizationContext::HUGE;
+        context.fileSize = OptimizationContext::HUGE_FILE;
     }
 
     // Classify by complexity

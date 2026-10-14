@@ -12,7 +12,7 @@ public:
             case OptimizationContext::FileSize::SMALL: return "SMALL";
             case OptimizationContext::FileSize::MEDIUM: return "MEDIUM";
             case OptimizationContext::FileSize::LARGE: return "LARGE";
-            case OptimizationContext::FileSize::HUGE: return "HUGE";
+            case OptimizationContext::FileSize::HUGE_FILE: return "HUGE";
         }
         return "UNKNOWN";
     }

@@ -28,9 +28,9 @@ FLOAT_ROM_OBJECTS = $(patsubst src/%.s45,$(BUILD)/%.o45,$(FLOAT_ROM_SOURCES))
 # convention; the hand-written assembly (stdlib_asm/) uses the ZP convention
 # and is shared by both libraries — stack-convention callers reach it through
 # ln45's stack→ZP bridge thunks. A C file with an assembly version is skipped.
-STDLIB_ASM_SOURCES = $(wildcard stdlib_asm/*.s45)
+STDLIB_ASM_SOURCES = $(sort $(wildcard stdlib_asm/*.s45))
 STDLIB_ASM_NAMES = $(basename $(notdir $(STDLIB_ASM_SOURCES)))
-STDLIB_C_SOURCES = $(filter-out $(addprefix stdlib/,$(addsuffix .c,$(STDLIB_ASM_NAMES))),$(wildcard stdlib/*.c))
+STDLIB_C_SOURCES = $(filter-out $(addprefix stdlib/,$(addsuffix .c,$(STDLIB_ASM_NAMES))),$(sort $(wildcard stdlib/*.c)))
 STDLIB_ASM_OBJECTS = $(patsubst stdlib_asm/%.s45,$(BUILD)/asm_%.o45,$(STDLIB_ASM_SOURCES))
 STDLIB_OBJECTS = $(patsubst stdlib/%.c,$(BUILD)/%.o45,$(STDLIB_C_SOURCES)) \
                  $(STDLIB_ASM_OBJECTS) $(FLOAT_ROM_OBJECTS)

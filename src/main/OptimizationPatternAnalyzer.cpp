@@ -116,7 +116,7 @@ FileCharacteristics OptimizationPatternAnalyzer::classifyFile(
     } else if (fileSize < 100000) {
         fc.fileSizeCategory = OptimizationContext::LARGE;
     } else {
-        fc.fileSizeCategory = OptimizationContext::HUGE;
+        fc.fileSizeCategory = OptimizationContext::HUGE_FILE;
     }
 
     // Classify complexity
@@ -198,7 +198,7 @@ void OptimizationPatternAnalyzer::analyzeContextualEffectiveness(
         OptimizationContext::SMALL,
         OptimizationContext::MEDIUM,
         OptimizationContext::LARGE,
-        OptimizationContext::HUGE};
+        OptimizationContext::HUGE_FILE};
 
     std::vector<OptimizationContext::Complexity> complexities = {
         OptimizationContext::LOW,

@@ -125,7 +125,7 @@ int LearnerBasedOptimizationSelector::selectOptimizationLevel(
             return 2;  // -O2
 
         case OptimizationContext::LARGE:
-        case OptimizationContext::HUGE:
+        case OptimizationContext::HUGE_FILE:
             return 3;  // -O3
 
         default:

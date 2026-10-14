@@ -161,7 +161,7 @@ doc/architecture/    reference docs; doc/archive and doc/architecture/bug are hi
 - `make lib` — build the standard libraries (lib/build/)
 - `make test` — compiler/assembler unit tests, validation units and examples (no emulator)
 - `make clean`, `make install` (PREFIX=/usr/local: `bin/`, `lib/cc45/`, `include/cc45/`), `make install_local`, `make man`
-- `make coverage`, `make test-o45`, `make docker` (the Alpine `src/Docker/Dockerfile` is currently broken; the root `Dockerfile` works)
+- `make coverage`, `make test-o45`, `make docker` (Alpine `src/Docker/Dockerfile`: `make install PREFIX=/app`, entrypoint cc45; `src/Docker/docker-aliases.sh`; the root `Dockerfile` is Ubuntu, with the source tree for `make test`)
 - Some targets (`test-mmemu`, `test-stdlib`, `bench-optimizer`) still use mmemu — **runtime tests are run on xemu-xmega65, never mmemu**.
 
 The tools find headers and libraries relative to their own location, in the
@@ -183,7 +183,7 @@ explicit `-O<n>` in ad-hoc test commands too.
   both conventions. New runtime tests follow this pattern and are registered
   in `test_xemu.sh`.
 - GCC torture tests: `src/test/run_gte_all.sh` — 537 pass with the ZP
-  convention, 538 with `-fno-zpcall` (GTE uses `-fsigned-default`). Expected
+  convention, 537 with `-fno-zpcall` (GTE uses `-fsigned-default`). Expected
   failures are listed, with reasons, in `src/test/known_failures/gte.txt`.
 - `bash src/test/test_cc_interop.sh` — calling-convention interop (13 checks).
 - **xemu runs**: `timeout 15 xemu-xmega65 -headless -besure -sleepless -prgmode 65 -prgexit -dumpmem out.mem -prg file.prg`.
