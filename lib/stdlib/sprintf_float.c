@@ -6,7 +6,7 @@
 
 #include <stdarg.h>
 
-__fastcall__ int printf_float(char *buf, float val, int conv, int prec, int alt);
+__fastcall__ int __pf_format(char *buf, float val, int conv, int prec, int alt);   /* stdlib_asm/pf_format.s45 */
 
 /* Referenced by cc45 when sprintf is called with a float argument, so this
  * member (and its strong sprintf) is linked instead of the integer-only one */
@@ -21,7 +21,7 @@ int sprintf(char *buf, char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
     char *out = buf;
-    int count = __vformat(__vformat_buf_put, &out, fmt, ap, printf_float);
+    int count = __vformat(__vformat_buf_put, &out, fmt, ap, __pf_format);
     *out = 0;
     va_end(ap);
     return count;

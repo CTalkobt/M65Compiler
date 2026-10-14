@@ -10,7 +10,10 @@
  *   [5] the largest float, precision beyond the 9-10 digits the format holds,
  *       1e20 (FOUT prints a value just below it as " 0E19")
  *   [6] printf to the screen returns the same count as sprintf
- *   [7] $AA sentinel
+ *   [7] 792 cases (36 values from 1e-38 to 1e38, 22 formats: f e g F E G,
+ *       precisions 0-20, #): a hash of all the text, compared with the one
+ *       of the C formatter that pf_format.s45 replaced (8350 bytes)
+ *   [8] $AA sentinel
  */
 #include <stdio.h>
 #include <string.h>
@@ -23,6 +26,35 @@ static char buf[64];
 static int is(const char *want, const char *fmt, double v) {
     int n = sprintf(buf, fmt, v);
     return n == (int)strlen(want) && strcmp(buf, want) == 0;
+}
+
+static const float hvals[] = {
+    0.0, 1.0, -1.0, 0.5, 2.5, 9.9996, 0.0005, 99.5, 0.95, 3.14159265, -2.71828,
+    123456789.0, 1234567.0, 0.000123, 1.5e-10, 1.0e20, 1.0e30, -4.5e20, 1.7014118e38,
+    2.9387359e-39, 1.0e-38, 6.02214e23, 1.0e-5, 1.0e-4, 0.001, 9.99999, 999999.5,
+    65536.0, 32767.5, 0.1, 0.3333333, 7.0e-7, 12345.678, -0.0001234, 1.0e10, 9.5e-3
+};
+static const char *hfmts[] = {
+    "%f", "%e", "%g", "%F", "%E", "%G", "%.0f", "%.1f", "%.3f", "%.9f", "%.20f",
+    "%.0e", "%.2e", "%.12e", "%.0g", "%.1g", "%.3g", "%.10g", "%#g", "%#.0f", "%#.0e", "%#.3g"
+};
+
+/* h = h * 31 + c over every case's text and a '|' after it */
+static unsigned int hash_all(unsigned int *len) {
+    unsigned int h = 0, i, j, n = 0;
+    char *p;
+    for (i = 0; i < sizeof hvals / sizeof hvals[0]; i++)
+        for (j = 0; j < sizeof hfmts / sizeof hfmts[0]; j++) {
+            sprintf(buf, hfmts[j], hvals[i]);
+            for (p = buf; ; p++) {
+                unsigned char c = *p ? (unsigned char)*p : '|';
+                h = h * 31u + c;
+                n++;
+                if (!*p) break;
+            }
+        }
+    *len = n;
+    return h;
 }
 
 int main(void) {
@@ -75,6 +107,10 @@ int main(void) {
         int b = printf("%g|%f\n", 1.25, -7.5);
         OUT[6] = a == 14 && b == 15;
     }
-    OUT[7] = 0xAA;
+    {
+        unsigned int len, h = hash_all(&len);
+        OUT[7] = h == 0xE4F6u && len == 8350u;
+    }
+    OUT[8] = 0xAA;
     return 0;
 }

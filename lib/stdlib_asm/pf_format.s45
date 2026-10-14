@@ -1,0 +1,513 @@
+; pf_format.s45 — %f %e %g (%F %E %G) for the printf family
+;
+; int __pf_format(char *buf, float val, int conv, int prec, int alt);
+;   ZP convention (__fastcall__): buf $10, val $12-$16, conv $17, prec $19,
+;   alt $1B. __vformat calls it for a float conversion; the length of the
+;   text written at buf (sign included, NUL-terminated) comes back in A/X.
+;
+; The digits come from the BASIC 65 ROM's number formatting (FOUT, what
+; PRINT and STR$ use: __float_fout in float_rom.s45), so every value of the
+; CBM 40-bit format prints. Its text ([ -]digits[.digits][E[+-]digits], up to
+; 10 significant digits) is parsed into digits d0 d1 ... and an exponent:
+; the value is 0.d0 d1 d2 ... x 10^exp. Those are rounded (half up) to the
+; digits the conversion keeps and laid out as C's %f, %e and %g with the
+; precision (default 6, at most 20) and the # flag. Every count fits a byte.
+;
+; Letters are PETSCII: e f g = $45 $46 $47, E F G = $65 $66 $67 (the low
+; nibble is the conversion, bit 5 upper case).
+
+    .cpu 45gs02
+
+.extern __float_a
+.extern __float_str
+.extern __float_fout
+.global ___pf_format
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+OUTP    = $08           ; output pointer (after the ROM call)
+PF_NDIG = 12            ; significant digits kept from the ROM's text
+PF_MAXP = 20            ; precision limit (the buffer's size)
+
+.segment "bss"
+pf_d:     .res PF_NDIG  ; the digits 0-9
+pf_nd:    .res 1        ; how many (0: the value is 0)
+pf_exp:   .res 1        ; signed: value = 0.d0 d1 ... x 10^pf_exp
+pf_prec:  .res 1
+pf_kind:  .res 1        ; 5 e, 6 f, 7 g
+pf_up:    .res 1        ; $20: upper case
+pf_alt:   .res 1
+pf_strip: .res 1        ; %g without #: trailing zeros go
+pf_nz:    .res 1        ; the value is not 0 (its exponent byte)
+pf_oi:    .res 1        ; output index
+pf_neg:   .res 1
+pf_dot:   .res 1
+pf_int:   .res 1        ; digits before the point
+pf_lead:  .res 1        ; signed: zeros after the point before the first digit
+pf_e:     .res 1        ; signed: the exponent printed by %e
+pf_i:     .res 1        ; a digit position (signed)
+pf_cnt:   .res 1
+pf_buf:   .res 2
+
+.segment "code"
+
+proc ___pf_format
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17, $19, $1A, $1B
+    .zp_clobbers $10, $11, $12, $13, $14, $15, $16, $17, $19, $1A, $1B
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+
+    lda $10
+    sta pf_buf
+    lda $11
+    sta pf_buf+1
+    lda $17
+    and #$20
+    sta pf_up
+    lda $17
+    and #$0F
+    sta pf_kind
+    lda $1B
+    sta pf_alt
+    lda $12
+    sta pf_nz
+    ; precision: < 0 is 6, > 20 is 20
+    lda $1A
+    bmi @p6
+    bne @p20
+    lda $19
+    cmp #PF_MAXP+1
+    bcc @pok
+@p20:
+    lda #PF_MAXP
+    bra @pok
+@p6:
+    lda #6
+@pok:
+    sta pf_prec
+    ldx #4
+@cpv:
+    lda $12,x
+    sta __float_a,x
+    dex
+    bpl @cpv
+    jsr __float_fout
+    lda pf_buf
+    sta OUTP
+    lda pf_buf+1
+    sta OUTP+1
+    lda #0
+    sta pf_oi
+    sta pf_strip
+
+    jsr @parse
+    lda pf_neg
+    beq @nosign
+    lda #'-'
+    jsr @put
+@nosign:
+
+    ; --- %g: %e or %f by the exponent, then trailing zeros stripped ---
+    lda pf_kind
+    cmp #7
+    bne @not_g
+    lda pf_prec
+    bne @gp
+    lda #1
+@gp:
+    sta pf_prec             ; P
+    jsr @round
+    jsr @exp10              ; A = e
+    sta pf_e
+    sec                     ; e < -4: %e
+    sbc #<-4
+    bmi @g_e
+    lda pf_e                ; e >= P: %e
+    sec
+    sbc pf_prec
+    bpl @g_e
+    lda pf_prec             ; %f with P - 1 - e decimals
+    clc
+    sbc pf_e
+    sta pf_prec
+    lda #6
+    bra @g_kind
+@g_e:
+    dec pf_prec             ; %e with P - 1
+    lda #5
+@g_kind:
+    sta pf_kind
+    lda pf_alt
+    bne @not_g
+    inc pf_strip
+@not_g:
+
+    lda pf_kind
+    cmp #5
+    beq @do_e
+    jmp @do_f
+
+; --- %e: d.ddde+XX ---
+@do_e:
+    lda pf_prec
+    inc a
+    jsr @round
+    jsr @exp10
+    sta pf_e
+    lda #0
+    jsr @digit
+    jsr @put
+    jsr @point
+    lda #1
+    sta pf_i
+@e_dig:
+    lda pf_i
+    cmp pf_prec
+    beq @e_d1
+    bcs @e_digx
+@e_d1:
+    jsr @digit
+    jsr @put
+    inc pf_i
+    bra @e_dig
+@e_digx:
+    lda pf_prec
+    beq @e_nostrip
+    jsr @strip
+@e_nostrip:
+    lda #$45                ; e / E
+    ora pf_up
+    jsr @put
+    lda pf_e
+    bpl @e_pos
+    eor #$FF                ; -e
+    inc a
+    sta pf_e
+    lda #'-'
+    bra @e_sg
+@e_pos:
+    lda #'+'
+@e_sg:
+    jsr @put
+    ldx #'0'                ; tens (e <= 39)
+    lda pf_e
+@e_10:
+    cmp #10
+    bcc @e_1
+    sbc #10
+    inx
+    bra @e_10
+@e_1:
+    pha
+    txa
+    jsr @put
+    pla
+    ora #'0'
+    jsr @put
+    jmp @done
+
+; --- %f: the digits before the point (positions 0 .. exp-1), then prec ---
+@do_f:
+    lda pf_exp
+    clc
+    adc pf_prec
+    jsr @round
+    lda pf_nd
+    beq @f_zero
+    lda pf_exp
+    beq @f_zero
+    bmi @f_zero
+    lda #0
+    sta pf_i
+@f_int:
+    lda pf_i
+    cmp pf_exp
+    bcs @f_intx
+    jsr @digit
+    jsr @put
+    inc pf_i
+    bra @f_int
+@f_zero:
+    lda #'0'
+    jsr @put
+@f_intx:
+    jsr @point
+    lda pf_exp
+    sta pf_i
+    lda pf_prec
+    sta pf_cnt
+@f_dec:
+    lda pf_cnt
+    beq @f_decx
+    lda pf_i
+    jsr @digit
+    jsr @put
+    inc pf_i
+    dec pf_cnt
+    bra @f_dec
+@f_decx:
+    lda pf_prec
+    ora pf_alt
+    beq @done
+    jsr @strip
+
+@done:
+    lda #0
+    ldy pf_oi
+    sta (OUTP),y            ; NUL (not counted)
+    lda pf_oi
+    ldx #0
+    rts
+
+; --- helpers ---
+
+; A: a character to the output
+@put:
+    ldy pf_oi
+    sta (OUTP),y
+    inc pf_oi
+    rts
+
+; the point, when there are decimals or the # flag
+@point:
+    lda pf_prec
+    ora pf_alt
+    beq @pt_x
+    lda #'.'
+    jsr @put
+@pt_x:
+    rts
+
+; %g without #: trailing zeros, then a bare point, go (pf_strip set)
+@strip:
+    lda pf_strip
+    beq @st_x
+@st_z:
+    ldy pf_oi
+    dey
+    lda (OUTP),y
+    cmp #'0'
+    bne @st_p
+    dec pf_oi
+    bra @st_z
+@st_p:
+    cmp #'.'
+    bne @st_x
+    dec pf_oi
+@st_x:
+    rts
+
+; A = position i (signed) -> the digit's character ('0' outside 0 .. nd-1)
+@digit:
+    cmp #0                  ; (the caller's flags may not be A's)
+    bmi @dg_0
+    cmp pf_nd
+    bcs @dg_0
+    tay
+    lda pf_d,y
+    ora #'0'
+    rts
+@dg_0:
+    lda #'0'
+    rts
+
+; A = e of d.ddd x 10^e (exp - 1; 0 for the value 0)
+@exp10:
+    lda pf_nd
+    beq @ex_x
+    lda pf_exp
+    dec a
+@ex_x:
+    rts
+
+; Keep A (signed) significant digits, rounding half up
+@round:
+    ldx pf_nd
+    beq @rd_x
+    cmp #0
+    bmi @rd_none
+    cmp pf_nd
+    bcs @rd_x               ; as many as there are
+    tay
+    lda pf_d,y
+    cmp #5
+    bcs @rd_up
+    sty pf_nd
+    bra @trim
+@rd_none:
+    lda #0
+    sta pf_nd
+@rd_x:
+    rts
+@rd_up:
+    dey                     ; the carry runs left through the 9s
+@rd_9:
+    bmi @rd_all9
+    lda pf_d,y
+    cmp #9
+    bne @rd_inc
+    dey
+    bra @rd_9
+@rd_all9:                   ; 9.99 -> 10.0: one digit more in front
+    lda #1
+    sta pf_d
+    sta pf_nd
+    inc pf_exp
+    rts
+@rd_inc:
+    inc a
+    sta pf_d,y
+    iny
+    sty pf_nd
+@trim:                      ; trailing zero digits go
+    ldy pf_nd
+@tr_l:
+    beq @tr_x
+    lda pf_d-1,y
+    bne @tr_x
+    dey
+    sty pf_nd
+    bra @tr_l
+@tr_x:
+    rts
+
+; Parse __float_str (the ROM's text) into pf_d / pf_nd / pf_exp / pf_neg
+@parse:
+    lda #0
+    sta pf_nd
+    sta pf_exp
+    sta pf_neg
+    sta pf_dot
+    sta pf_int
+    sta pf_lead
+    ldx #0
+@ps_sp:
+    lda __float_str,x
+    cmp #' '
+    bne @ps_sg
+    inx
+    bra @ps_sp
+@ps_sg:
+    cmp #'-'
+    bne @ps_pl
+    inc pf_neg
+    inx
+    bra @ps_dig
+@ps_pl:
+    cmp #'+'
+    bne @ps_dig
+    inx
+@ps_dig:
+    lda __float_str,x
+    cmp #'.'
+    bne @ps_d1
+    inc pf_dot
+    inx
+    bra @ps_dig
+@ps_d1:
+    sec
+    sbc #'0'
+    cmp #10
+    bcs @ps_e               ; not a digit
+    ldy pf_nd
+    bne @ps_keep
+    cmp #0
+    bne @ps_keep
+    lda pf_dot              ; a leading zero: after the point it moves the exponent
+    beq @ps_next
+    dec pf_lead
+    bra @ps_next
+@ps_keep:
+    cpy #PF_NDIG
+    bcs @ps_cnt
+    sta pf_d,y
+    inc pf_nd
+@ps_cnt:
+    lda pf_dot
+    bne @ps_next
+    inc pf_int
+@ps_next:
+    inx
+    bra @ps_dig
+@ps_e:                      ; E[+-]digits ('E' is $45 or $65 in PETSCII)
+    lda __float_str,x
+    and #$DF
+    cmp #$45
+    bne @ps_end
+    inx
+    ldy #0                  ; Y: the exponent's sign
+    lda __float_str,x
+    cmp #'-'
+    bne @ps_ep
+    iny
+    inx
+    bra @ps_ed
+@ps_ep:
+    cmp #'+'
+    bne @ps_ed
+    inx
+@ps_ed:
+    lda __float_str,x
+    sec
+    sbc #'0'
+    cmp #10
+    bcs @ps_eneg
+    sta pf_cnt              ; exp = exp * 10 + digit
+    lda pf_exp
+    asl a
+    sta pf_exp
+    asl a
+    asl a
+    clc
+    adc pf_exp
+    adc pf_cnt
+    sta pf_exp
+    inx
+    bra @ps_ed
+@ps_eneg:
+    cpy #0
+    beq @ps_end
+    lda pf_exp
+    eor #$FF
+    inc a
+    sta pf_exp
+@ps_end:
+    ; trailing zero digits go
+    ldy pf_nd
+@ps_tz:
+    beq @ps_tzx
+    lda pf_d-1,y
+    bne @ps_tzx
+    dey
+    sty pf_nd
+    bra @ps_tz
+@ps_tzx:
+    lda pf_nd
+    bne @ps_have
+    lda pf_nz
+    beq @ps_x
+    ; not 0 but no digit: FOUT's "0E19" for a value just below 1E20 lost
+    ; its carry (10E19 = 0.1 x 10^21)
+    lda #1
+    sta pf_d
+    sta pf_nd
+    lda pf_exp
+    clc
+    adc #2
+    sta pf_exp
+    rts
+@ps_have:
+    lda pf_int
+    bne @ps_add
+    lda pf_lead
+@ps_add:
+    clc
+    adc pf_exp
+    sta pf_exp
+@ps_x:
+    rts
+
+    .func_flags zp_call
+    endproc
