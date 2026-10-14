@@ -1,0 +1,71 @@
+; test_ca45_seqextract_xemu.s45 — ca45 --experimental SeqExtract (issue #89)
+;
+; f1 repeats a 10-byte run three times: it becomes a routine at the end of
+; the proc (after an RTS: f1 falls through to endproc), each run a BSR.
+; f2 repeats a run that names a .var symbol: not moved (at the routine's
+; place the symbol would have its last value). test_xemu.sh assembles this
+; with and without --experimental and expects the first one smaller.
+;
+; Results at $C0C0:
+;   +0  $11  f1's run stored                +1  $03  X counted between the runs
+;   +2  $06  f2: 1 + 2 + 3 (.var values)    +3  $22  f1's run's second store
+;   +4  $AA  sentinel
+        * = $2001
+        .basicUpstart main
+
+out     = $C0C0
+w0      = $3000
+w1      = $3001
+
+main:
+        lda #0
+        sta w0
+        sta w1
+        jsr f1
+        jsr f2
+        lda w0
+        sta out+3
+        lda w1
+        sta out+2
+        lda #$AA
+        sta out+4
+        rts
+
+        proc f1
+        ldx #1
+        lda #$11
+        sta out+0
+        lda #$22
+        sta w0
+        inx
+        lda #$11
+        sta out+0
+        lda #$22
+        sta w0
+        inx
+        lda #$11
+        sta out+0
+        lda #$22
+        sta w0
+        stx out+1
+        endproc
+
+        proc f2
+        .var vv = 1
+        lda #vv
+        clc
+        adc w1
+        sta w1
+        .var vv = 2
+        lda #vv
+        clc
+        adc w1
+        sta w1
+        .var vv = 3
+        lda #vv
+        clc
+        adc w1
+        sta w1
+        .var vv = 9
+        rts
+        endproc

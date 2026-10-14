@@ -50,6 +50,7 @@ public:
     bool verboseOptimizer = false;
     bool traceMachState = false;
     bool enableExperimental = false;
+    int seqExtractCounter = 0;   // SeqExtract routine names, unique over pass 2 iterations
     bool warnOverflow = false;   // Warn on immediate/address value overflows (default: off)
     bool functionSections = false; // .function_sections / -ffunction-sections: write a section table
     bool warnUnderflow = false;  // Warn on negative values (underflows) (default: off)

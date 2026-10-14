@@ -411,7 +411,6 @@ int main(int argc, char** argv) {
     std::vector<std::string> projectConfigArgs = loadConfigFile(getProjectConfigFilePath());
 
     // Phase 4.3: Load environment variables (override precedence)
-    // CA45_CONFIG: Override config file path
     // CA45_OPTIMIZE: Override optimization level (-O0, -O1, -O2, -O3)
     // CA45_WARNINGS: Add warning flags (-Woverflow, -Wunderflow)
     std::vector<std::string> envArgs;

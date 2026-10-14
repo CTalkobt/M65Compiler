@@ -1778,6 +1778,22 @@ else
     failed=$((failed + 1))
 fi
 
+echo "Testing test_ca45_seqextract_xemu.s45 (ca45 --experimental SeqExtract, .var by position)..."
+T=src/test-resources/test_ca45_seqextract_xemu.s45
+if ./bin/ca45 $T -o build/test/test_ca45_seqextract0_xemu.prg >/dev/null 2>&1 &&
+   ./bin/ca45 --experimental $T -o build/test/test_ca45_seqextract_xemu.prg >/dev/null 2>&1; then
+    if [ "$(stat -c %s build/test/test_ca45_seqextract_xemu.prg)" -lt "$(stat -c %s build/test/test_ca45_seqextract0_xemu.prg)" ]; then
+        run_xemu_test "test_ca45_seqextract0" "build/test/test_ca45_seqextract0_xemu.prg" "C0C0" 5 "11 03 06 22 AA"
+        run_xemu_test "test_ca45_seqextract" "build/test/test_ca45_seqextract_xemu.prg" "C0C0" 5 "11 03 06 22 AA"
+    else
+        echo "FAIL: test_ca45_seqextract_xemu.s45 (--experimental extracted nothing)"
+        failed=$((failed + 1))
+    fi
+else
+    echo "FAIL: test_ca45_seqextract_xemu.s45 (assembly failed)"
+    failed=$((failed + 1))
+fi
+
 # Test: calls to the library's ZP assembly routines without a declaration
 # (__builtin_alloca/setjmp/longjmp/abs/labs, implicit alloca/strlen) use the
 # ZP convention in a stack-convention unit too: the stack build links with

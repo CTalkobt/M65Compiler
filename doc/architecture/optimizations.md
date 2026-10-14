@@ -350,7 +350,7 @@ order after `-O`). `-Roptimizer` prints every change
 | `StoreLoadPair` | `store-load-pair` | Store/load pair simplification on ZP |
 | `PreserveXSP`, `TSXRedundant` | `preserve-x-sp`, `tsx-redundant` | Avoid reloading X from SP |
 | `TailDedup` | `tail-dedup`, `tail-dedup-suffix` | Merges identical tail sequences |
-| `SeqExtract` | `seq-extract` | Extracts repeated sequences into shared routines; **only with `--experimental`** |
+| `SeqExtract` | `seq-extract` | Extracts a 4-instruction run repeated in one proc into a routine before its `endproc` (`BSR` calls); **only with `--experimental`** |
 | `StrengthReduction`, `AlgebraicSimplify`, `TypeNarrowing`, `BranchFold`, `CSE`, `LICM`, `CopyChains`, `AddrElemFusion` | — | Accepted, **no effect** (IR-level flags; ca45 has no IR) |
 
 At `-O2` and above ca45 also runs the field-striped array passes

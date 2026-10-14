@@ -1258,153 +1258,173 @@ bool AssemblerOptimizer::optimizeInternal(
     }
         }  // if (parser->optFlags.tailDedup)
 
-    // --- Pass 4: In-method sequence jumping (extract duplicate sequences) ---
-    // EXPERIMENTAL - DISABLED by default due to size accounting bug causing null bytes in code (issue #89)
-    // Find duplicate instruction sequences and create shared routines.
-    // Conservative: only extract 8+ byte sequences appearing 2+ times with 4+ byte savings.
-
-    struct SeqMatch {
-        size_t startIdx = 0;  // First statement index
-        std::vector<size_t> instrIndices;
-        size_t seqSize = 0;
-    };
-
-    // Collect non-overlapping 4-instruction sequences
-    std::set<size_t> processed;  // Already-processed instruction indices
-    std::map<std::string, std::vector<SeqMatch>> seqsBySignature;
-
-    if (parser->enableExperimental && parser->optFlags.seqExtract) for (size_t i = 0; i < parser->statements.size(); ++i) {
-        auto* stmt = parser->statements[i].get();
-        if (stmt->deleted || processed.count(i) || !stmt->label.empty()) continue;
-        if (stmt->type != AssemblerParser::Statement::INSTRUCTION) continue;
-
-        std::string m = stmt->instr.mnemonic;
-        std::transform(m.begin(), m.end(), m.begin(), ::toupper);
-        if (m == "RTS" || m == "RTN" || m == "JMP" || m == "JSR" || m == "BSR" ||
-            m == "BRA" || m == "BEQ" || m == "BNE" || m == "BCS" || m == "BCC" ||
-            m == "BMI" || m == "BPL" || m == "BVS" || m == "BVC") continue;
-
-        std::vector<size_t> seqIdx;
-        std::string sig;
-        size_t totSize = 0;
-
-        // Collect 4 consecutive instructions (skip already-processed ones)
-        for (size_t j = i; j < parser->statements.size() && seqIdx.size() < 4; ++j) {
-            if (processed.count(j)) continue;
-            auto* s = parser->statements[j].get();
-            if (s->deleted || !s->label.empty()) continue;
-            if (s->type != AssemblerParser::Statement::INSTRUCTION) break;
-
-            std::string nm = s->instr.mnemonic;
-            std::transform(nm.begin(), nm.end(), nm.begin(), ::toupper);
-            if (nm == "RTS" || nm == "RTN" || nm == "JMP" || nm == "JSR" || nm == "BSR" ||
-                nm == "BRA" || nm == "BEQ" || nm == "BNE" || nm == "BCS" || nm == "BCC" ||
-                nm == "BMI" || nm == "BPL" || nm == "BVS" || nm == "BVC") break;
-
-            seqIdx.push_back(j);
-            sig += nm + ":" + s->instr.operand + ";";
-            totSize += s->size;
-        }
-
-        if (seqIdx.size() < 4 || totSize < 8) continue;
-
-        // Mark these as processed to avoid overlaps
-        for (size_t idx : seqIdx) {
-            processed.insert(idx);
-        }
-
-        SeqMatch match;
-        match.startIdx = i;
-        match.instrIndices = seqIdx;
-        match.seqSize = totSize;
-        seqsBySignature[sig].push_back(match);
-    }
-
-    // Extract sequences appearing 2+ times with sufficient savings
-    std::vector<std::unique_ptr<AssemblerParser::Statement>> sharedRoutines;
-    int routineCounter = 0;
-
-    for (auto& [sig, matches] : seqsBySignature) {
-        if (matches.size() < 2) continue;
-
-        size_t seqSize = matches[0].seqSize;
-        size_t occCount = matches.size();
-        size_t origSize = seqSize * occCount;
-        size_t callSize = 3 * occCount;
-        size_t routineSize = seqSize + 1;
-        size_t newSize = callSize + routineSize;
-
-        if (newSize >= origSize) continue;
-
-        size_t savings = origSize - newSize;
-        if (savings < 4) continue;
-
-        std::string routineName = "__seq_" + std::to_string(routineCounter++);
-
-        // Copy sequence to routine
-        for (size_t idx : matches[0].instrIndices) {
-            auto* stmt = parser->statements[idx].get();
-            auto copy = std::make_unique<AssemblerParser::Statement>(*stmt);
-            sharedRoutines.push_back(std::move(copy));
-        }
-
-        auto rts = std::make_unique<AssemblerParser::Statement>();
-        rts->type = AssemblerParser::Statement::INSTRUCTION;
-        rts->instr.mnemonic = "rts";
-        rts->instr.mode = AddressingMode::IMPLIED;
-        rts->size = 1;
-        rts->segmentName = parser->statements[matches[0].instrIndices[0]]->segmentName;
-        sharedRoutines.push_back(std::move(rts));
-
-        // Replace occurrences (reverse order)
-        std::sort(matches.rbegin(), matches.rend(),
-                  [](const auto& a, const auto& b) { return a.startIdx > b.startIdx; });
-
-        for (auto& match : matches) {
-            auto* firstStmt = parser->statements[match.instrIndices.front()].get();
-
-            auto bsr = std::make_unique<AssemblerParser::Statement>();
-            bsr->type = AssemblerParser::Statement::INSTRUCTION;
-            bsr->instr.mnemonic = "bsr";
-            bsr->instr.mode = AddressingMode::RELATIVE16;
-            bsr->instr.operand = routineName;
-            bsr->size = 3;
-            bsr->line = firstStmt->line;
-            bsr->sourceFile = firstStmt->sourceFile;
-            bsr->sourceLine = firstStmt->sourceLine;
-            bsr->segmentName = firstStmt->segmentName;
-            bsr->localLabelScope = firstStmt->localLabelScope;
-            bsr->scopePrefix = firstStmt->scopePrefix;
-
-            int deleted_total = 0;
-            for (size_t idx : match.instrIndices) {
-                deleted_total += parser->statements[idx]->size;
-                parser->statements[idx]->deleted = true;
-                parser->statements[idx]->size = 0;
+    // --- Pass 4: sequence extraction (SeqExtract, only with --experimental) ---
+    // The same run of 4 instructions (8+ bytes) appearing 2+ times in one
+    // proc becomes a routine at the end of that proc, each run a BSR to it.
+    // Only what means the same at the routine's place: plain instructions
+    // (no labels, branches, stack instructions, simulated instructions) whose
+    // operands name no @local, .var symbol or *. Each run is replaced in
+    // place (the BSR takes its first statement), so no index moves before
+    // the routines are inserted, last proc first.
+    if (parser->enableExperimental && parser->optFlags.seqExtract) {
+        auto& st = parser->statements;
+        std::set<std::string> varNames;
+        for (const auto& s : st)
+            if (s->type == AssemblerParser::Statement::DIRECTIVE && !s->dir.varName.empty()) {
+                varNames.insert(s->dir.varName);   // scoped, and as the source names it
+                if (s->dir.varName.compare(0, s->scopePrefix.size(), s->scopePrefix) == 0)
+                    varNames.insert(s->dir.varName.substr(s->scopePrefix.size()));
             }
-            int bsr_size = 3;
-            int actual_savings_per_call = deleted_total - bsr_size;
+        auto lower = [](std::string m) { std::transform(m.begin(), m.end(), m.begin(), ::tolower); return m; };
+        static const std::set<std::string> stackOps = {
+            "pha", "php", "phx", "phy", "phz", "phw", "pla", "plp", "plx", "ply", "plz",
+            "tsx", "tsy", "txs", "tys", "cle", "see", "rts", "rti", "rtn", "brk", "jmp", "jsr",
+            "bsr", "proc", "endproc", "map", "eom"};
+        auto movable = [&](const AssemblerParser::Statement* s) {
+            if (s->type != AssemblerParser::Statement::INSTRUCTION || !s->label.empty() || s->size <= 0) return false;
+            std::string m = lower(s->instr.mnemonic);
+            if (m.find('.') != std::string::npos || stackOps.count(m)) return false;
+            switch (s->instr.mode) {
+                case AddressingMode::RELATIVE: case AddressingMode::RELATIVE16:
+                case AddressingMode::BASE_PAGE_RELATIVE: case AddressingMode::STACK_RELATIVE:
+                case AddressingMode::STACK_RELATIVE_INDIRECT_Y: case AddressingMode::BASE_PAGE_INDIRECT_SP_Y:
+                case AddressingMode::NONE:
+                    return false;
+                default: break;
+            }
+            if (!s->instr.bitBranchTarget.empty() || !s->instr.callArgs.empty()) return false;
+            const std::string& o = s->instr.operand;
+            if (o.find_first_of("@*:") != std::string::npos) return false;
+            std::string lo = lower(o);
+            if (lo.find("sp") != std::string::npos && lo.find(",sp") != std::string::npos) return false;
+            for (size_t k = 0; k < o.size();) {   // the names in the operand
+                if (std::isalpha((unsigned char)o[k]) || o[k] == '_' || o[k] == '.') {
+                    size_t e = k;
+                    while (e < o.size() && (std::isalnum((unsigned char)o[e]) || o[e] == '_' || o[e] == '.')) e++;
+                    if (k == 0 || o[k - 1] != '$') {   // not a hex digit run
+                        if (varNames.count(o.substr(k, e - k))) return false;
+                    }
+                    k = e;
+                } else k++;
+            }
+            return true;
+        };
 
-            parser->statements.insert(
-                parser->statements.begin() + match.instrIndices.front(),
-                std::move(bsr)
-            );
-
-            report("seq-extract", firstStmt,
-                   "sequence → bsr " + routineName + " (saved " + std::to_string(actual_savings_per_call) + " bytes)");
-            changed = true;
+        struct Run { std::vector<size_t> idx; };
+        struct ProcRuns { size_t endproc = 0; std::map<std::string, std::vector<Run>> bySig; };
+        std::vector<ProcRuns> procs;
+        bool inProc = false;
+        for (size_t i = 0; i < st.size(); ++i) {
+            auto* s = st[i].get();
+            if (s->deleted) continue;
+            if (s->type == AssemblerParser::Statement::INSTRUCTION && s->instr.mnemonic == "proc") {
+                procs.emplace_back(); inProc = true; continue;
+            }
+            if (s->type == AssemblerParser::Statement::INSTRUCTION && s->instr.mnemonic == "endproc") {
+                if (inProc) procs.back().endproc = i;
+                inProc = false; continue;
+            }
+            if (!inProc || !movable(s)) continue;
+            Run r;   // the window of 4 instructions starting here
+            std::string sig = s->segmentName + "|" + s->scopePrefix + "|";
+            int bytes = 0;
+            size_t j = i;
+            for (; j < st.size() && r.idx.size() < 4; ++j) {
+                auto* t = st[j].get();
+                if (t->deleted) continue;
+                if (!movable(t) || t->segmentName != s->segmentName || t->scopePrefix != s->scopePrefix) break;
+                r.idx.push_back(j);
+                sig += lower(t->instr.mnemonic) + " " + t->instr.operand + " " +
+                       std::to_string((int)t->instr.mode) + ";";
+                bytes += t->size;
+            }
+            if (r.idx.size() < 4 || bytes < 8) continue;
+            procs.back().bySig[sig].push_back(r);
         }
-    }
+        // the windows overlap: per proc, the most repeated run first takes
+        // its non-overlapping occurrences, left to right
+        for (auto& pr : procs) {
+            std::vector<std::pair<std::string, std::vector<Run>>> order(pr.bySig.begin(), pr.bySig.end());
+            std::stable_sort(order.begin(), order.end(),
+                             [](const auto& a, const auto& b) { return a.second.size() > b.second.size(); });
+            std::set<size_t> used;
+            std::map<std::string, std::vector<Run>> chosen;
+            for (auto& [sig, runs] : order) {
+                std::vector<Run> keep;
+                for (auto& r : runs) {
+                    bool free = true;
+                    for (size_t k : r.idx) if (used.count(k)) free = false;
+                    if (free && (keep.empty() || r.idx.front() > keep.back().idx.back())) keep.push_back(r);
+                }
+                if (keep.size() < 2) continue;
+                int seq = 0;
+                for (size_t k : keep[0].idx) seq += st[k]->size;
+                if (seq * (int)keep.size() - (3 * (int)keep.size() + seq + 1) < 4) continue;
+                for (auto& r : keep) used.insert(r.idx.begin(), r.idx.end());
+                chosen[sig] = keep;
+            }
+            pr.bySig = std::move(chosen);
+        }
 
-    if (!sharedRoutines.empty()) {
-        auto label = std::make_unique<AssemblerParser::Statement>();
-        label->type = AssemblerParser::Statement::DIRECTIVE;
-        label->label = "__shared_routines";
-        label->segmentName = sharedRoutines[0]->segmentName;
-        parser->statements.push_back(std::move(label));
-
-        for (auto& routine : sharedRoutines) {
-            parser->statements.push_back(std::move(routine));
+        for (size_t p = procs.size(); p-- > 0;) {
+            auto& pr = procs[p];
+            if (!pr.endproc) continue;
+            std::vector<std::unique_ptr<AssemblerParser::Statement>> routines;
+            for (auto& [sig, runs] : pr.bySig) {
+                if (runs.size() < 2) continue;
+                int seqSize = 0;
+                for (size_t k : runs[0].idx) seqSize += st[k]->size;
+                int saved = seqSize * (int)runs.size() - (3 * (int)runs.size() + seqSize + 1);
+                if (saved < 4) continue;
+                std::string name = "__seqx_" + std::to_string(parser->seqExtractCounter++);
+                for (size_t n = 0; n < runs[0].idx.size(); ++n) {
+                    auto copy = std::make_unique<AssemblerParser::Statement>(*st[runs[0].idx[n]]);
+                    copy->label = n == 0 ? name : std::string();
+                    routines.push_back(std::move(copy));
+                }
+                auto rts = std::make_unique<AssemblerParser::Statement>(*st[runs[0].idx.back()]);
+                rts->label.clear();
+                rts->instr = Instruction();
+                rts->instr.mnemonic = "rts";
+                rts->instr.mode = AddressingMode::IMPLIED;
+                rts->size = 1;
+                routines.push_back(std::move(rts));
+                for (auto& r : runs) {
+                    auto* first = st[r.idx[0]].get();
+                    report("seq-extract", first, "sequence -> bsr " + name);
+                    Instruction bsr;
+                    bsr.mnemonic = "bsr";
+                    bsr.mode = AddressingMode::RELATIVE16;
+                    bsr.operand = name;
+                    first->instr = bsr;
+                    first->size = 3;
+                    for (size_t n = 1; n < r.idx.size(); ++n) {
+                        st[r.idx[n]]->deleted = true;
+                        st[r.idx[n]]->size = 0;
+                    }
+                }
+                changed = true;
+            }
+            if (routines.empty()) continue;
+            // before endproc; an RTS first when the code there can fall through
+            bool fallsThrough = true;
+            for (size_t k = pr.endproc; k-- > 0;) {
+                auto* s = st[k].get();
+                if (s->deleted) continue;
+                if (s->type == AssemblerParser::Statement::DIRECTIVE && s->label.empty()) continue;
+                if (s->type == AssemblerParser::Statement::INSTRUCTION) {
+                    static const std::set<std::string> terminal = {"rts", "rti", "rtn", "jmp", "bra"};
+                    fallsThrough = !terminal.count(lower(s->instr.mnemonic));
+                }
+                break;
+            }
+            if (fallsThrough) {
+                auto rts = std::make_unique<AssemblerParser::Statement>(*routines.back());
+                routines.insert(routines.begin(), std::move(rts));
+            }
+            for (auto& r : routines) r->segmentName = st[pr.endproc]->segmentName;
+            st.insert(st.begin() + pr.endproc, std::make_move_iterator(routines.begin()),
+                      std::make_move_iterator(routines.end()));
         }
     }
 
