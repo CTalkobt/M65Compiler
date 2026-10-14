@@ -1,5 +1,7 @@
 # Mega65 C Compiler Suite v1.0.6
 
+Source, issues and releases: <https://github.com/CTalkobt/M65Compiler>
+
 A modern development toolchain for the MEGA65 (45GS02) home computer. It consists of:
 
 - **cc45** — C compiler (C source to assembly or `.o45` relocatable objects)
