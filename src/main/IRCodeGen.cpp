@@ -4283,49 +4283,57 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             break;
         }
 
-        case ir::Op::DIV: {
-            std::string src2 = src2MemOperand(inst.src2);
-            loadOperand(inst.src1);
-            if (inst.resultType == ir::Type::I32) {
-                emit("div.s32 .AXYZ, " + src2);
-            } else {
-                emit("div.s16 .AX, " + src2);
-            }
-            if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
-            break;
-        }
-
-        case ir::Op::DIV_U: {
-            std::string src2 = src2MemOperand(inst.src2);
-            loadOperand(inst.src1);
-            if (inst.resultType == ir::Type::I32) {
-                emit("div.32 .AXYZ, " + src2);
-            } else {
-                emit("div.16 .AX, " + src2);
-            }
-            if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
-            break;
-        }
-
-        case ir::Op::MOD: {
-            std::string src2 = src2MemOperand(inst.src2);
-            loadOperand(inst.src1);
-            if (inst.resultType == ir::Type::I32) {
-                emit("mod.s32 .AXYZ, " + src2);
-            } else {
-                emit("mod.s16 .AX, " + src2);
-            }
-            if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
-            break;
-        }
-
+        case ir::Op::DIV:
+        case ir::Op::DIV_U:
+        case ir::Op::MOD:
         case ir::Op::MOD_U: {
+            bool is32 = inst.resultType == ir::Type::I32;
+            bool sg = inst.op == ir::Op::DIV || inst.op == ir::Op::MOD;
+            bool div = inst.op == ir::Op::DIV || inst.op == ir::Op::DIV_U;
+            bool frame32early = is32 && inst.src1.isVreg() &&
+                                alloc_.getAlloc(inst.src1.vregId).loc == VRegAllocator::IN_FRAME && !currentFunctionUseSAC_;
+            if (frame32early) {
+                // The dividend's frame load (ldaxyz.fp) uses __zp_scratch2/3:
+                // the divisor waits in the dedicated 32-bit temporary
+                loadOperand(inst.src2);
+                emit("stq $" + hex8((uint8_t)ZP_TEMP32), "divisor (frame dividend)");
+                loadOperand(inst.src1);
+                std::string mn = std::string(div ? "div" : "mod") + (sg ? ".s32" : ".32") + " .AXYZ, $" + hex8((uint8_t)ZP_TEMP32);
+                emit(mn);
+                ms_.invalidateAll();
+                if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
+                break;
+            }
             std::string src2 = src2MemOperand(inst.src2);
-            loadOperand(inst.src1);
-            if (inst.resultType == ir::Type::I32) {
-                emit("mod.32 .AXYZ, " + src2);
+            // A call of the library routine (lib/stdlib_asm/divmod.s45): the
+            // divisor in __zp_scratch2, the dividend in A/X(/Y/Z). Inline
+            // (ca45's simulated instruction, 43-222 bytes) without a library
+            // (standalone -S) and for a 32-bit dividend in a stack frame
+            // (its load uses __zp_scratch2)
+            bool frame32 = is32 && inst.src1.isVreg() &&
+                           alloc_.getAlloc(inst.src1.vregId).loc == VRegAllocator::IN_FRAME && !currentFunctionUseSAC_;
+            if (relocMode_ && !frame32) {
+                int nb = is32 ? 4 : 2;
+                if (src2 != "__zp_scratch2") {
+                    long long iv = 0;
+                    bool imm = src2[0] == '#';
+                    if (imm) iv = std::stoll(src2.substr(1));
+                    for (int k = 0; k < nb; k++) {
+                        emit(imm ? "lda #" + std::to_string((int)((iv >> (8 * k)) & 0xFF))
+                                 : "lda " + src2 + (k ? "+" + std::to_string(k) : std::string()));
+                        emit("sta __zp_scratch2" + (k ? "+" + std::to_string(k) : std::string()));
+                    }
+                }
+                loadOperand(inst.src1);
+                if (!is32 && inst.src1.isVreg() && alloc_.getAlloc(inst.src1.vregId).type == ir::Type::I8) emit("ldx #0");
+                std::string fnName = std::string("__") + (div ? "div" : "mod") + (sg ? "s" : "u") + (is32 ? "32" : "16");
+                emit(".extern " + fnName);
+                emit("jsr " + fnName);
+                ms_.invalidateAll();
             } else {
-                emit("mod.16 .AX, " + src2);
+                loadOperand(inst.src1);
+                std::string mn = std::string(div ? "div" : "mod") + (sg ? ".s" : ".") + (is32 ? "32 .AXYZ, " : "16 .AX, ");
+                emit(mn + src2);
             }
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
@@ -4377,7 +4385,23 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 std::string b = directByte(inst.src1, k);
                 directZeroTest = !b.empty() && b[0] != '#';
             }
-            if (directZeroTest) {
+            // x < 0 / x >= 0 (signed): only the sign decides; C = not negative
+            // (the branch: bcc for <, bcs for >=)
+            bool signTest = isSigned && src2IsConst && src2ConstVal == 0 &&
+                            (inst.op == ir::Op::CMP_LT || inst.op == ir::Op::CMP_GE) &&
+                            (inst.src1.type == ir::Type::I16 || inst.src1.type == ir::Type::I32) && !directZeroTest;
+            if (signTest) {
+                int top = inst.src1.type == ir::Type::I32 ? 3 : 1;
+                std::string hb = inst.src1.isVreg() && !justStored(inst.src1.vregId) ? directByte(inst.src1, top) : "";
+                if (!hb.empty() && hb[0] != '#') {
+                    emit("lda " + hb, irDesc("sign test"));
+                } else {
+                    loadOperand(inst.src1);
+                    emit(top == 3 ? "tza" : "txa", irDesc("sign test"));
+                }
+                emit("eor #$80");
+                emit("asl a");
+            } else if (directZeroTest) {
                 // a value in memory is 0 when all its bytes OR to 0
                 emit("lda " + directByte(inst.src1, 0));
                 for (int k = 1; k < zeroTestBytes; k++) emit("ora " + directByte(inst.src1, k));

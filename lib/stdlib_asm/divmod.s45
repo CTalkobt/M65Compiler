@@ -1,0 +1,65 @@
+; divmod.s45 — division and remainder for cc45 (both conventions)
+;
+; cc45 calls these instead of expanding ca45's div/mod simulated
+; instructions at every use (43-222 bytes each). The dividend is in A/X
+; (16 bits) or A/X/Y/Z (32 bits), the divisor in __zp_scratch2 ($0A, 2 or 4
+; bytes); the result comes back in the same registers. Plain labels (no
+; .func_flags): the same entry serves ZP- and stack-convention callers.
+; Each entry is its own section (ca45 -ffunction-sections): a program links
+; only those it uses.
+
+    .cpu 45gs02
+
+__zp_scratch2 = $0A
+
+; no calls through pointers here (ln45's call graph, see O45Linker)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+    .split "__divs16"
+.global __divs16
+__divs16:
+    div.s16 .AX, __zp_scratch2
+    rts
+
+    .split "__divu16"
+.global __divu16
+__divu16:
+    div.16 .AX, __zp_scratch2
+    rts
+
+    .split "__mods16"
+.global __mods16
+__mods16:
+    mod.s16 .AX, __zp_scratch2
+    rts
+
+    .split "__modu16"
+.global __modu16
+__modu16:
+    mod.16 .AX, __zp_scratch2
+    rts
+
+    .split "__divs32"
+.global __divs32
+__divs32:
+    div.s32 .AXYZ, __zp_scratch2
+    rts
+
+    .split "__divu32"
+.global __divu32
+__divu32:
+    div.32 .AXYZ, __zp_scratch2
+    rts
+
+    .split "__mods32"
+.global __mods32
+__mods32:
+    mod.s32 .AXYZ, __zp_scratch2
+    rts
+
+    .split "__modu32"
+.global __modu32
+__modu32:
+    mod.32 .AXYZ, __zp_scratch2
+    rts

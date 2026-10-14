@@ -1182,6 +1182,32 @@ for qsmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: division and remainder (library routines; inline for a 32-bit stack-frame dividend)
+for dmmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r dmname dmflags <<< "$dmmode"
+    echo "Testing test_divmod_xemu.c ($dmname)..."
+    compile_link_test "src/test-resources/test_divmod_xemu.c" "build/test/test_divmod_${dmname}_xemu.prg" "$dmflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_divmod_$dmname" "build/test/test_divmod_${dmname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_divmod_xemu.c $dmname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: signed compares with 0 as a sign test
+for csmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r csname csflags <<< "$csmode"
+    echo "Testing test_cmp_sign_xemu.c ($csname)..."
+    compile_link_test "src/test-resources/test_cmp_sign_xemu.c" "build/test/test_cmp_sign_${csname}_xemu.prg" "$csflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_cmp_sign_$csname" "build/test/test_cmp_sign_${csname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_cmp_sign_xemu.c $csname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: pointer variables in functions' base-page blocks ($80-$E9, placed by
 # ln45), two modules
 for zlmode in "zp||lib/build/c45.lib" "stack|-fno-zpcall|lib/build/c45_stack.lib" "off|-fno-zp-locals|lib/build/c45.lib"; do
