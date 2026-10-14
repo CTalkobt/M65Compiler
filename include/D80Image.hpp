@@ -58,5 +58,7 @@ private:
 // D82 is double-sided D80 (154 tracks)
 class D82Image : public D80Image {
 public:
+    // DOS 2.7 (8250) REL files have a super side sector, as the 1581 (VICE)
+    bool superSideSectors() const override { return true; }
     D82Image() { tracks_ = 154; }
 };

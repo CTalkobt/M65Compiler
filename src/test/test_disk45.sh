@@ -152,6 +152,23 @@ for ext in d71 d81; do
         pass "REL on $ext" || fail "REL on $ext"
 done
 
+# 8250 (D82), D9090/D9060 and CMD native REL files start with a super side
+# sector ($FE at byte 2, as the 1581's; VICE), the 8050's (D80) do not
+for spec in d80:39:1:no d82:39:1:yes d90:76:10:yes dnp:1:34:yes; do
+    IFS=: read ext dt ds super <<< "$spec"
+    rm -f "$TMPDIR/rs.$ext"
+    $DISK45 create "$TMPDIR/rs.$ext" >/dev/null 2>&1
+    $DISK45 rel-create "$TMPDIR/rs.$ext" SCORES 100 1000 >/dev/null 2>&1
+    $DISK45 rel-write "$TMPDIR/rs.$ext" SCORES 900 '"HELLO"' >/dev/null 2>&1
+    read -r st ss <<< "$($DISK45 bpeek "$TMPDIR/rs.$ext" $dt $ds 21 2)"
+    MARK=$($DISK45 bpeek "$TMPDIR/rs.$ext" $((16#$st)) $((16#$ss)) 2 1)
+    WANT=00; [ $super = yes ] && WANT=FE
+    [ "$MARK" = $WANT ] &&
+        $DISK45 rel-read "$TMPDIR/rs.$ext" SCORES 900 2>&1 | grep -q 'Text: "HELLO' &&
+        $DISK45 validate "$TMPDIR/rs.$ext" 2>&1 | grep -q 'Status: OK' &&
+        pass "REL on $ext (super side sector: $super)" || fail "REL on $ext (byte 2 of the first side sector: $MARK)"
+done
+
 # ============================================================================
 echo "=== Directory slots ==="
 
@@ -192,17 +209,40 @@ $DISK45 list "$TMPDIR/l.d82" | grep -q '^261 blocks free' && cmp -s "$TMPDIR/big
     pass "D82 second side" || fail "D82 second side"
 
 # ============================================================================
-echo "=== Read-only formats ==="
+echo "=== D9090/D9060, read-only formats ==="
 
-# D90/D60: create gives a blank image; changing it is refused and leaves it
-# unchanged. NIB/Zipcode cannot be created
-for ext in d90; do
-    $DISK45 create "$TMPDIR/ro.$ext" -n "RO" >/dev/null 2>&1
-    SUM=$(md5sum < "$TMPDIR/ro.$ext")
-    ! $DISK45 add "$TMPDIR/ro.$ext" "$TMPDIR/d1.prg" X >/dev/null 2>&1 &&
-        [ "$(md5sum < "$TMPDIR/ro.$ext")" = "$SUM" ] &&
-        pass "Read-only $ext: add refused" || fail "Read-only $ext: add refused"
+# D9090/D9060 (VICE's layout): tracks 0-152 of 192/128 sectors; 0/0 the
+# configuration block (directory 76/10, header 76/20, BAM 1/0), the BAM a
+# chain of sectors with 5 bytes per track and head
+for spec in d90:7520256:29162:8 d60:5013504:19441:12; do
+    IFS=: read ext size free per <<< "$spec"
+    rm -f "$TMPDIR/hd.$ext"
+    $DISK45 create "$TMPDIR/hd.$ext" -n "HARD DISK" -i HD >/dev/null 2>&1
+    SPT=$(( (size / 153) / 256 ))
+    CFG=$(dd if="$TMPDIR/hd.$ext" bs=1 count=12 2>/dev/null | xxd -p)
+    HDR=$(dd if="$TMPDIR/hd.$ext" bs=1 skip=$(( (76 * SPT + 20) * 256 )) count=29 2>/dev/null | xxd -p | tr -d '\n')
+    BAM=$(dd if="$TMPDIR/hd.$ext" bs=1 skip=$(( SPT * 256 )) count=21 2>/dev/null | xxd -p | tr -d '\n')
+    dd if=/dev/urandom of="$TMPDIR/hdbig.bin" bs=1k count=300 2>/dev/null
+    [ "$(stat -c %s "$TMPDIR/hd.$ext")" = "$size" ] &&
+        [ "$CFG" = "000100ff4c0a4c1401004844" ] &&
+        [ "$HDR" = "4c0a0000000048415244204449534ba0a0a0a0a0a0a0a0a04844a03341" ] &&
+        [ "${BAM:0:12}" = "$(printf '%02x00ffff00%02x' $((1 + per)) $per)" ] &&
+        $DISK45 list "$TMPDIR/hd.$ext" | grep -q "^$free blocks free" &&
+        $DISK45 add "$TMPDIR/hd.$ext" "$TMPDIR/hdbig.bin" BIG >/dev/null 2>&1 &&
+        $DISK45 mkdir "$TMPDIR/hd.$ext" SUB >/dev/null 2>&1 &&
+        $DISK45 add "$TMPDIR/hd.$ext" "$TMPDIR/d1.prg" SUB/X >/dev/null 2>&1 &&
+        $DISK45 extract "$TMPDIR/hd.$ext" BIG "$TMPDIR/hdbig2.bin" >/dev/null 2>&1 &&
+        cmp -s "$TMPDIR/hdbig.bin" "$TMPDIR/hdbig2.bin" &&
+        $DISK45 validate "$TMPDIR/hd.$ext" | grep -q 'Status: OK' &&
+        $DISK45 rm "$TMPDIR/hd.$ext" BIG >/dev/null 2>&1 &&
+        $DISK45 list "$TMPDIR/hd.$ext" | grep -q "^$((free - 2)) blocks free" &&
+        pass "$ext: VICE layout, add/extract/remove, subdirectory, validate" ||
+        fail "$ext (cfg $CFG header $HDR bam $BAM)"
 done
+# the size tells D9090 and D9060 apart
+cp "$TMPDIR/hd.d60" "$TMPDIR/hd60.d90"
+$DISK45 list "$TMPDIR/hd60.d90" | grep -q '^19439 blocks free' && pass "D9060 image named .d90" || fail "D9060 as .d90"
+
 ! $DISK45 create "$TMPDIR/ro.nib" >/dev/null 2>&1 && [ ! -f "$TMPDIR/ro.nib" ] &&
     pass "NIB create refused" || fail "NIB create refused"
 

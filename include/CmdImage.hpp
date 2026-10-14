@@ -40,6 +40,7 @@ public:
     TrackSector firstDirectorySector() const override;
     TrackSector headerSector() const override { return {1, 1}; }
     std::vector<TrackSector> systemSectors() const override;
+    bool superSideSectors() const override { return true; }   // REL files, as VICE
 
     DiskFormat diskFormat() const override { return DiskFormat::D81; }
     std::string diskName() const override;

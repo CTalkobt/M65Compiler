@@ -311,7 +311,7 @@ File "LEVEL1" chain:
 
 ### REL File Operations
 
-REL files work on the sector-based images (D64, D71, D81, D65, D80, D82), laid out as CBM DOS does: the records packed one after another across the data sectors (254 data bytes each; a record can span two), an empty record being `$FF` and `$00`s, side sectors listing the data sectors (6 per group, 120 data sectors each), and on D81/D65 the 1581's super side sector in front of the groups. `rel-create` on a D81 gives the same sectors as BASIC 65's DOS creating the file, and BASIC 65 reads, writes and extends a REL file disk45 made (`test_disk45_rel_xemu.bas` on xemu). The D64/D71 layout follows the 1541/1571 format; D80/D82 use it too (the REL layout is not checked against an 8050/8250).
+REL files work on the sector-based images (D64, D71, D81, D65, D80, D82, D90/D60, CMD), laid out as CBM DOS does: the records packed one after another across the data sectors (254 data bytes each; a record can span two), an empty record being `$FF` and `$00`s, side sectors listing the data sectors (6 per group, 120 data sectors each), and on D81/D65, D82, D90/D60 and CMD native partitions a super side sector in front of the groups (as the 1581, the 8250's DOS 2.7, the D9090/D9060 and CMD drives use, following VICE; the 8050's D80 has none). `rel-create` on a D81 gives the same sectors as BASIC 65's DOS creating the file, and BASIC 65 reads, writes and extends a REL file disk45 made (`test_disk45_rel_xemu.bas` on xemu). The D64/D71 layout follows the 1541/1571 format;
 
 #### rel-create
 
@@ -319,7 +319,7 @@ REL files work on the sector-based images (D64, D71, D81, D65, D80, D82), laid o
 disk45 rel-create <image> <name> <record_len> [num_records]
 ```
 
-Create a REL file with fixed-length records (1-254 bytes, default 10 records). As DOS does, the file fills its last data sector, so it can hold more records than asked (`rel-create x 20 30` makes 38); all of them are empty. Without a super side sector (D64, D71, D80, D82) a REL file holds at most 720 data sectors.
+Create a REL file with fixed-length records (1-254 bytes, default 10 records). As DOS does, the file fills its last data sector, so it can hold more records than asked (`rel-create x 20 30` makes 38); all of them are empty. Without a super side sector (D64, D71, D80) a REL file holds at most 720 data sectors.
 
 #### rel-read
 
@@ -661,14 +661,14 @@ R/W means `create`, `add`, `remove` etc. work and the image is written back in i
 
 | Extension | Format | R/W | Size | Notes |
 |-----------|--------|-----|------|-------|
-| `.d90` | D9090 | R | 7.5 MB | CBM hard drive (6 heads). |
-| `.d60` | D9060 | R | 5 MB | CBM hard drive (4 heads). |
+| `.d90` | D9090 | R/W | 7.5 MB | CBM hard drive (6 heads, 192 sectors per track). |
+| `.d60` | D9060 | R/W | 5 MB | CBM hard drive (4 heads, 128 sectors per track). |
 | `.d1m` | FD-2000 DD | R/W | 810 KB | CMD FD-2000 double density (3240 sectors). |
 | `.d2m` | FD-2000 HD | R/W | 1.58 MB | CMD FD-2000 high density (6480 sectors). |
 | `.d4m` | FD-4000 ED | R/W | 3.16 MB | CMD FD-4000 extra density (12960 sectors). |
 | `.dnp` | CMD Native | R/W | ≤ 16 MB | CMD native partition (a hard disk partition); `create -t N` gives N tracks (default 32, 2 MB). |
 
-D90/D60 are read-only: `create` produces a blank formatted image, and every command that changes one is refused (disk45 does not write their BAM).
+**D9090/D9060** images are laid out as VICE (which follows the drives' DOS 3.0) reads and writes them; there is no Schepers document for them. 153 cylinders, tracks 0-152, of 6 (D9090) or 4 (D9060) heads × 32 sectors, so a track has 192 or 128 sectors (sector = head × 32 + sector on the head); the image is the tracks in order, 7,520,256 or 5,013,504 bytes, and the size tells them apart (either extension loads either). 0/0 is the configuration block (`$00-$01` the bad-block list 0/1, `$03` `$FF`, `$04-$05` the directory 76/10, `$06-$07` the header 76/20, `$08-$09` the first BAM sector 1/0, `$0A-$0B` the ID), 0/1 the bad-block list (`$FF`s). The header holds the directory link, the name at `$06`, the ID at `$18` and the DOS version `3A` at `$1B`. The BAM is a chain of sectors (1/0, 9/0, 17/0, ... on a D9090, 8 tracks each; 1/0, 13/0, ... on a D9060, 12 tracks each; the last link 255/255): `$02-$03` the previous one, `$04` the first track it covers, `$05` the track after its last, and from `$10` 5 bytes per track and head, the free count and 32 bits (bit n of byte k = sector 8k+n of that head, 1 = free). Files are never put on track 0 (a link to track 0 ends a chain). `test_disk45.sh` checks these bytes. disk45 before 1.0.6 treated these images as read-only with another, wrong layout; it never wrote files to them.
 
 **CMD images** follow [D2M-DNP.TXT](https://ist.uwaterloo.ca/~schepers/formats/D2M-DNP.TXT). A D1M/D2M/D4M has a system partition on its reserved last physical track (the DevBlock at its sector 5, the partition directory in sectors 8-11: up to 31 native or emulated 1541/1571/1581 partitions, offsets and sizes in 512-byte blocks); disk45 works on the first **native** partition by default and `info` lists them all; `disk.d2m:N` (the number) or `disk.d2m:NAME` opens another one, with every command and the FUSE mount. A native partition is opened in place; an emulated 1541/1571/1581 partition as the D64/D71/D81 it holds, written back into the image after a change. A native partition has 256-sector tracks counted from 1: 1/0 the boot block, 1/1 the header (name, ID, `1H`, the directory link), 1/2-1/33 the BAM (from offset `$20` of 1/2, 32 bytes per track, bit 7 = sector 0, 1 = free; byte 8 = the last track), the directory from 1/34. `create` makes a D1M/D2M/D4M with one native partition filling the disk (DevBlock `CMD FD SERIES`) or a DNP; `test_disk45.sh` checks these bytes. Native subdirectories (type `DIR`, 6) are entered like CBM ones (`GAMES/ARCADE/PONG`); `mkdir` on a native partition makes one as the FD-2000 does: the entry points to a header block (the link to its directory, `H`, the name, the partition's ID, `1H`; `$20` the block itself, `$22` the parent's header, `$24`-`$26` the entry's sector and the offset of its type byte), followed by one directory block, and the entry's size counts the header and directory blocks (updated when the directory grows or shrinks). Error bytes after the sectors are kept.
 
