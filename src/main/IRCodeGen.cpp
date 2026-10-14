@@ -27,6 +27,32 @@ static std::string hex16(uint16_t val) {
     return ss.str();
 }
 
+// Whether the element address in __zp_scratch (elemCache_) stays right
+// across an instruction: a fused element load or store (they handle it),
+// a NOP, a store of a value to a variable in ZP, or a load / store through
+// a pointer in ZP: none of them touches __zp_scratch; none may write the
+// cached index variable
+bool IRCodeGen::elemCacheSurvives(const ir::Inst& inst) {
+    if (inst.op == ir::Op::NOP) return true;
+    bool fused = (inst.op == ir::Op::LOAD || inst.op == ir::Op::STORE) && inst.args.size() >= 3;
+    if (fused) return true;
+    auto inZp = [&](const ir::Operand& o) {
+        return o.isVreg() && alloc_.getAlloc(o.vregId).loc == VRegAllocator::IN_ZP;
+    };
+    auto plainVal = [&](const ir::Operand& o) {   // loaded without scratch
+        return o.isImm() || inZp(o) || (o.isVreg() && vregConstVal_.count(o.vregId));
+    };
+    if (inst.resultType == ir::Type::F32 || inst.resultType == ir::Type::I32 || inst.resultType == ir::Type::I_N)
+        return false;
+    if (inst.op == ir::Op::STORE && inst.args.empty() && inZp(inst.src2) && plainVal(inst.src1) &&
+        inst.src2.vregId != elemCache_.index && !foldedAddrs_.count(inst.src2.vregId))
+        return true;   // a variable in ZP, or *p with p in ZP
+    if (inst.op == ir::Op::LOAD && inst.args.empty() && inZp(inst.src1) && !foldedAddrs_.count(inst.src1.vregId) &&
+        inst.dest.isVreg() && inst.dest.vregId != elemCache_.index && inZp(inst.dest))
+        return true;   // *p with p in ZP, into ZP
+    return false;
+}
+
 std::string IRCodeGen::globalBase(const ir::Operand& base, int offset) {
     if (offset == 0) return "#" + base.name;
     return "#(" + base.name + (offset > 0 ? "+" : "-") + std::to_string(offset > 0 ? offset : -offset) + ")";
@@ -3603,7 +3629,7 @@ bool IRCodeGen::frameAddrUsedAfterCall() const {
 void IRCodeGen::emitInst(const ir::Inst& inst) {
     // the element address in __zp_scratch survives only from one fused
     // element load to the next
-    if (!(inst.op == ir::Op::LOAD && inst.args.size() >= 3) && inst.op != ir::Op::NOP) elemCache_.valid = false;
+    if (elemCache_.valid && !elemCacheSurvives(inst)) elemCache_.valid = false;
     if (skipThrough_) {
         if (&inst == skipThrough_) skipThrough_ = nullptr;
         return;
@@ -4913,7 +4939,23 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 if (constVal || zpVal) {
                     std::string baseStr = (base.kind == ir::OperandKind::GLOBAL) ?
                         globalBase(base, inst.elemOffset) : src2MemOperand(base);
-                    emitArrayElemAddr(baseStr, index, stride, "__zp_scratch");
+                    // the address may be in __zp_scratch already (a load of
+                    // the same element just before: a[j + 1] = t after a[j + 1])
+                    int yOff = 0;
+                    bool cacheable = base.kind == ir::OperandKind::GLOBAL && index.isVreg();
+                    int d = inst.elemOffset - elemCache_.offset;
+                    if (cacheable && elemCache_.valid && elemCache_.base == base.name &&
+                        elemCache_.index == index.vregId && elemCache_.stride == stride && d >= 0 && d <= 250) {
+                        yOff = d;
+                        emitComment("address in __zp_scratch, Y + " + std::to_string(d));
+                    } else {
+                        emitArrayElemAddr(baseStr, index, stride, "__zp_scratch");
+                        elemCache_.valid = cacheable;
+                        elemCache_.base = base.name;
+                        elemCache_.index = index.isVreg() ? index.vregId : 0;
+                        elemCache_.stride = stride;
+                        elemCache_.offset = inst.elemOffset;
+                    }
                     ms_.invalidateAll();
                     if (constVal && inst.resultType == ir::Type::I8) {
                         // a byte: A only
@@ -4922,7 +4964,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     } else {
                         loadOperand(inst.src1);
                     }
-                    emit("ldy #0");
+                    emit("ldy #" + std::to_string(yOff));
                     emit("sta (__zp_scratch),y");
                     if (inst.resultType != ir::Type::I8) {
                         emit("txa"); emit("iny"); emit("sta (__zp_scratch),y");

@@ -133,7 +133,11 @@ index*stride; the next fused load of the same global array and index
 variable (no other instruction between, no label) reads through it with Y
 moved by the offset difference (`a[j]` then `a[j + 1]`: `ldy #3` instead of
 the address computed again). A load into the index variable itself
-(`i = n[i]`) forgets it. Benchmark: 843 ms.
+(`i = n[i]`) forgets it. Fused element stores use it too, and it survives
+the instructions that cannot touch `__zp_scratch` or the index: a store of a
+value to a variable in ZP, a load or store through a pointer in ZP (bubble
+sort's swap: `a[j + 1] = t` reuses the address of the `a[j + 1]` load before
+it). Benchmark: 812 ms.
 
 A static-allocation function that makes calls cannot use the pool across
 them; its most used variables go in a base-page block of its own, `$80+k`,

@@ -666,7 +666,7 @@ for eomode in "stack|-fno-zpcall" "zp|"; do
     echo "Testing test_elem_offset_xemu.c ($eoname)..."
     compile_link_test "src/test-resources/test_elem_offset_xemu.c" "build/test/test_elem_offset_${eoname}_xemu.prg" "$eoflags"
     if [ $? -eq 0 ]; then
-        run_xemu_test "test_elem_offset_$eoname" "build/test/test_elem_offset_${eoname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+        run_xemu_test "test_elem_offset_$eoname" "build/test/test_elem_offset_${eoname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
     else
         echo "FAIL: test_elem_offset_xemu.c $eoname (compilation/linking failed)"
         failed=$((failed + 1))

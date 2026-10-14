@@ -10,7 +10,9 @@
  *   [3] x changed between x + c and the access
  *   [4] consecutive loads a[i], a[i + 1], a[i + 3] through one address (int
  *       and char), and i = n[i] (the load changes the index: recomputed)
- *   [5] $AA sentinel
+ *   [5] a load and a store of the same element around a store through a
+ *       pointer (the address reused), and the index changed between (not)
+ *   [6] $AA sentinel
  */
 #define OUT ((volatile unsigned char *)0xC0C0)
 
@@ -19,6 +21,8 @@ static unsigned char c[12] = {10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120}
 static unsigned char b[16];
 static signed int d[8] = {1, 2, 3, 4, 5, 6, 7, 8};
 static unsigned int n[8] = {3, 6, 1, 7, 2, 0, 5, 4};
+static signed int e[10] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+static signed int sink;
 
 int main(void) {
     unsigned int j, s;
@@ -53,6 +57,14 @@ int main(void) {
         for (j = 0; j < 5; j++) { x = n[x]; s = n[x + 1]; }   /* x = n[x]: the index changes (0 3 7 4 2 1) */
         OUT[4] = q == 1162 && r == 1400 && x == 1 && s == n[2];
     }
-    OUT[5] = 0xAA;
+    {
+        signed int *p = &sink, u;
+        unsigned int k;
+        for (k = 0; k < 4; k++) { u = e[k + 1]; *p = u; e[k + 1] = u + 10; }   /* e[1..4] += 10 */
+        k = 5;
+        u = e[k + 1]; k++; e[k + 1] = u;                                        /* e[7] = e[6] */
+        OUT[5] = e[1] == 11 && e[4] == 14 && e[5] == 5 && e[6] == 6 && e[7] == 6 && sink == 4 && k == 6;
+    }
+    OUT[6] = 0xAA;
     return 0;
 }
