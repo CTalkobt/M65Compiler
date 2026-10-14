@@ -98,7 +98,7 @@ comparing code). Validation: `test_zp_pointers_xemu.c`.
 
 A static-allocation function that makes calls cannot use the pool across
 them; its most used variables go in a base-page block of its own, `$80+k`,
-declared with `.zar $80, N`: pointers first, then `char`/`int` variables
+declared with `.zar $80, N`: pointers first, then `char`/`int`/`long` variables
 (parameters too in the ZP convention) by number of uses, loop uses counted 4
 times, up to 8 bytes (`-fzp-locals-max=N`; in `c45.lib` 8 bytes per function
 cover 70% of the static-storage accesses, 16 cover 87%, but 16 makes deep

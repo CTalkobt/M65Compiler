@@ -2139,9 +2139,13 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             std::vector<uint32_t> cands;
             auto consider = [&](uint32_t v) {
                 ir::Type t = typeOf(v);
-                if ((t != ir::Type::PTR && t != ir::Type::I8 && t != ir::Type::I16) || fn.memoryVregs.count(v) ||
+                // (a long local is a "memory" vreg of 4 bytes, like a struct:
+                // fine when its address is not used)
+                bool plainLong = t == ir::Type::I32 && fn.vregSizes.count(v) && fn.vregSizes.at(v) == 4;
+                if ((t != ir::Type::PTR && t != ir::Type::I8 && t != ir::Type::I16 && t != ir::Type::I32) ||
+                    (fn.memoryVregs.count(v) && !plainLong) ||
                     addressed.count(v) ||
-                    fn.vregSizes.count(v) || fn.registerVregs.count(v) || fn.registerXVregs.count(v) ||
+                    (fn.vregSizes.count(v) && !plainLong) || fn.registerVregs.count(v) || fn.registerXVregs.count(v) ||
                     fn.registerYVregs.count(v) || fn.registerZVregs.count(v) || !refs.count(v))
                     return;
                 if (std::find(cands.begin(), cands.end(), v) == cands.end()) cands.push_back(v);
@@ -2159,7 +2163,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 return refs[a] > refs[b];
             });
             for (uint32_t v : cands) {
-                int sz = typeOf(v) == ir::Type::I8 ? 1 : 2;
+                int sz = typeOf(v) == ir::Type::I8 ? 1 : typeOf(v) == ir::Type::I32 ? 4 : 2;
                 if (zarSize_ + sz > zarMax) continue;
                 zarVregs_[v] = ZAR_START + zarSize_;
                 zarSize_ += sz;

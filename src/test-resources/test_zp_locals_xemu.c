@@ -17,7 +17,8 @@
  *   [5] int and char variables and parameters (scalars in the blocks, the
  *       most used first) kept across calls, also into the other module,
  *       counting across byte boundaries
- *   [6] $AA sentinel
+ *   [6] long variables in a block (ldq/stq on base-page bytes) kept across calls
+ *   [7] $AA sentinel
  */
 #define OUT ((volatile unsigned char *)0xC0C0)
 #define NOINLINE __attribute__((noinline))
@@ -83,6 +84,12 @@ NOINLINE static unsigned scal(unsigned char n, unsigned start) {
     return s + c + i;
 }
 
+NOINLINE static unsigned long lsum(unsigned char n) {
+    unsigned long s = 0x10000UL, k = 70000UL;
+    while (n--) { s += k; k = k + twice(1); if (b_find(text, 99) != text + 2) return 0; }
+    return s;
+}
+
 int main(void) {
     unsigned char *f;
 
@@ -97,6 +104,8 @@ int main(void) {
     OUT[4] = rec(data, 3) == 12;
     /* scal(10, 300): s = 300 + 20, c = 250 + 10 = 4 (wrapped), i = 10 */
     OUT[5] = scal(10, 300) == 320 + 4 + 10 && scal(0, 7) == 7 + 250;
-    OUT[6] = 0xAA;
+    /* 3 rounds: s = 0x10000 + 70000 + 70002 + 70004 */
+    OUT[6] = lsum(3) == 0x10000UL + 210006UL;
+    OUT[7] = 0xAA;
     return 0;
 }

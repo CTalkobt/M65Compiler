@@ -1178,7 +1178,7 @@ for zlmode in "zp||lib/build/c45.lib" "stack|-fno-zpcall|lib/build/c45_stack.lib
     if $CC $zlflags -c src/test-resources/test_zp_locals_xemu.c -o ${zlbase}_a.o45 2>/dev/null &&
        $CC $zlflags -c src/test-resources/test_zp_locals_b.c -o ${zlbase}_b.o45 2>/dev/null &&
        $LD -basic -o ${zlbase}_xemu.prg $CRT0 ${zlbase}_a.o45 ${zlbase}_b.o45 $zllib >/dev/null 2>&1; then
-        run_xemu_test "test_zp_locals_$zlname" "${zlbase}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
+        run_xemu_test "test_zp_locals_$zlname" "${zlbase}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
     else
         echo "FAIL: test_zp_locals_xemu.c $zlname (compilation/linking failed)"
         failed=$((failed + 1))
