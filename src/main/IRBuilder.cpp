@@ -443,7 +443,8 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
         auto ait = localArrayDims_.find(ref->name);
         if (ait != localArrayDims_.end() && !ait->second.empty()) {
             std::string tn = localTypeNames_[ref->name];
-            int totalSize = getTypeSize(tn, 0);
+            // (an array of pointers: its elements are pointers)
+            int totalSize = getTypeSize(tn, localPtrLevel_.count(ref->name) ? localPtrLevel_[ref->name] : 0);
             for (int d : ait->second) totalSize *= d;
             return {ir::Type::PTR, tn, false, localTypes_[ref->name], totalSize};
         }
@@ -451,7 +452,7 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
         auto gait = globalArrayDims_.find(ref->name);
         if (gait != globalArrayDims_.end() && !gait->second.empty()) {
             std::string tn = globalTypeNames_[ref->name];
-            int totalSize = getTypeSize(tn, 0);
+            int totalSize = getTypeSize(tn, globalPtrLevel_.count(ref->name) ? globalPtrLevel_[ref->name] : 0);
             for (int d : gait->second) totalSize *= d;
             return {ir::Type::PTR, tn, false, globalTypes_[ref->name], totalSize};
         }
@@ -516,6 +517,10 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
             info.typeName = mit->type;
             info.isSigned = mit->isSigned;
             info.totalSize = ir::typeSize(info.type);
+            // an array member (of anything, pointers too) or a struct member:
+            // the member's full size (sizeof s.a)
+            if ((!mit->arrayDims.empty() || mit->pointerLevel == 0) && mit->size > 0 && mit->bitWidth == 0)
+                info.totalSize = mit->size;
             if (info.type == ir::Type::PTR) {
                 info.pointedToType = mapType(mit->type, 0);
             }
@@ -8223,6 +8228,7 @@ void IRBuilder::visit(SizeofExpression& node) {
                 if (d > 0) sz *= d;
             }
         }
+        for (int d : node.declDims) if (d > 0) sz *= d;
     } else if (node.expression) {
         // sizeof(expr) — evaluate type of expression
         IRTypeInfo info = getExprTypeInfo(node.expression.get());

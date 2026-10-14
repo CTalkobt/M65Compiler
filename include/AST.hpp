@@ -306,7 +306,8 @@ public:
     std::string typeName;                   // For sizeof(type)
     int pointerLevel = 0;
     bool isType = false;
-    std::vector<int> arrayDims;
+    std::vector<int> arrayDims;             // of a typedef'd array type (pointerLevel 0)
+    std::vector<int> declDims;              // sizeof(T *[3][4]): the type is an array of them
     SizeofExpression(std::unique_ptr<Expression> e) : expression(std::move(e)), isType(false) {}
     SizeofExpression(const std::string& t, int p = 0) : typeName(t), pointerLevel(p), isType(true) {}
     void accept(ASTVisitor& visitor) override;

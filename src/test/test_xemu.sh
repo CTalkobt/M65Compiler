@@ -1208,6 +1208,19 @@ for csmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: sizeof of arrays of pointers, array members and array type names
+for szmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r szname szflags <<< "$szmode"
+    echo "Testing test_sizeof_xemu.c ($szname)..."
+    compile_link_test "src/test-resources/test_sizeof_xemu.c" "build/test/test_sizeof_${szname}_xemu.prg" "$szflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_sizeof_$szname" "build/test/test_sizeof_${szname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
+    else
+        echo "FAIL: test_sizeof_xemu.c $szname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: pointer variables in functions' base-page blocks ($80-$E9, placed by
 # ln45), two modules
 for zlmode in "zp||lib/build/c45.lib" "stack|-fno-zpcall|lib/build/c45_stack.lib" "off|-fno-zp-locals|lib/build/c45.lib"; do

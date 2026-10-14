@@ -2680,9 +2680,31 @@ std::unique_ptr<Expression> Parser::parseUnary() {
             // Check if it's a type or an expression
             if (isTypeStartToken()) {
                 auto ts = parseTypeSpecifier();
+                // abstract declarators: (*)[N] is a pointer (to an array),
+                // [N]... an array of the type (int[4], char *[4], T[2][3])
+                std::vector<int> declDims;
+                if (peek().type == TokenType::OPEN_PAREN && pos + 1 < tokens.size() &&
+                    tokens[pos + 1].type == TokenType::STAR) {
+                    advance();
+                    while (match(TokenType::STAR)) ts.pointerLevel++;
+                    expect(TokenType::CLOSE_PAREN, "Expected ')' in sizeof type");
+                    ts.arrayDims.clear();
+                    while (match(TokenType::OPEN_SQUARE)) {   // (the pointee's dimensions)
+                        while (peek().type != TokenType::CLOSE_SQUARE && peek().type != TokenType::END_OF_FILE) advance();
+                        expect(TokenType::CLOSE_SQUARE, "Expected ']'");
+                    }
+                }
+                while (match(TokenType::OPEN_SQUARE)) {
+                    auto szExpr = parseExpression();
+                    long cv = 0;
+                    if (!evalConstInt(szExpr.get(), cv)) cv = 1;
+                    declDims.push_back((int)cv);
+                    expect(TokenType::CLOSE_SQUARE, "Expected ']'");
+                }
                 expect(TokenType::CLOSE_PAREN, "Expected ')' after type in sizeof");
                 auto node = std::make_unique<SizeofExpression>(ts.name, ts.pointerLevel);
                 node->arrayDims = ts.arrayDims;
+                node->declDims = declDims;
                 return setPos(std::move(node), startToken);
             } else {
                 auto expr = parseExpression();

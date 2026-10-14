@@ -157,6 +157,7 @@ void ConstantFolder::visit(SizeofExpression& node) {
         if (vmStructs_.count(tn)) {
             auto copy = copyPos(std::make_unique<SizeofExpression>(node.typeName, node.pointerLevel), node);
             copy->arrayDims = node.arrayDims;
+            copy->declDims = node.declDims;
             lastExpr = std::move(copy);
             return;
         }
@@ -168,6 +169,7 @@ void ConstantFolder::visit(SizeofExpression& node) {
                 if (d > 0) size *= d;
             }
         }
+        for (int d : node.declDims) if (d > 0) size *= d;
         lastExpr = copyPos(std::make_unique<IntegerLiteral>(size), node);
     } else {
         // We need to resolve the type of the expression to get its size.
