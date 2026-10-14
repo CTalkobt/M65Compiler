@@ -2346,7 +2346,13 @@ void removeDeadTemps(Module& mod) {
                 }
             for (auto& b : fn.blocks)
                 for (auto& i : b.insts) {
-                    if (!pure(i.op) || !i.dest.isVreg()) continue;
+                    // a read of a local variable (deref of its slot: the value
+                    // of x++ when nothing uses it), unless the variable is
+                    // volatile or in memory
+                    bool slotRead = i.op == Op::DEREF && i.src1.isVreg() &&
+                                    fn.localSlotVregs.count(i.src1.vregId) &&
+                                    !fn.memoryVregs.count(i.src1.vregId);
+                    if ((!pure(i.op) && !slotRead) || !i.dest.isVreg()) continue;
                     uint32_t d = i.dest.vregId;
                     if (used.count(d) || fn.localSlotVregs.count(d) || fn.memoryVregs.count(d)) continue;
                     if ((int)d == fn.staticLinkVreg || (int)d == fn.retAddrSlot) continue;

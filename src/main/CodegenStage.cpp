@@ -170,6 +170,8 @@ void CodegenStage::optimizeIR() {
             [](const ir::Function& f) { auto it = f.optOverrides.find("PostIncrementSink");
                                         return it != f.optOverrides.end() && it->second; }))
         ir::optimizePostIncrementSink(*irModule_);
+    // what the sinking left unused (the old value of x++ as a statement)
+    if (ranAny) ir::removeDeadTemps(*irModule_);
     ir::passEnabled = nullptr;
     ir::optTrace = nullptr;
 }

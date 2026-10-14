@@ -76,15 +76,18 @@ every function for which the pass is on (`-O1` and up, unless switched off).
 After the passes, pure instructions whose temporary result nothing uses are
 removed (`removeDeadTemps`; part of dead-code elimination, always on).
 
-### Pointers in zero page (leaf functions)
+### Pointers and variables in zero page (leaf functions)
 
 A pointer dereference needs the pointer in zero page (`lda ($zp),y`); a
 pointer kept in static or stack storage is copied to scratch first on every
 access. In a **leaf function** (no `CALL`/`CALL_VOID`/`CALL_INDIRECT`, no
 inline asm), so nothing can clobber the register pool between uses:
 
-- `IRCodeGen` allocates named pointer locals (not arrays, not address-taken,
-  not `__cpu` registers) in the ZP register pool like `register` variables.
+- `IRCodeGen` allocates named pointer, `char` and `int` locals (not arrays,
+  not structs or variables whose address is used (`addr_local`), not
+  `__cpu` registers) in the ZP register pool like `register` variables: a
+  dereference uses the pointer in place and a loop counter is a ZP access
+  (`inw $30`, `lda $30`) instead of an absolute one.
 - `leafPointerParamsToZp` (`IROptimizer.cpp`, after the passes and
   `removeDeadTemps`; tag `zp`) gives a pointer parameter used twice or more
   a new register local, stored from the parameter at the start of the entry
@@ -95,6 +98,16 @@ inline asm), so nothing can clobber the register pool between uses:
 
 It is not a `-f` switch: `CC45_NO_ZP_POINTERS=1` turns both parts off (for
 comparing code). Validation: `test_zp_pointers_xemu.c`.
+
+Other code generation for loops: an element address with a stride of 2, 4
+or 8 shifts the index (`asl; pha; txa; rol; tax; pla` per doubling, 6 bytes)
+instead of using the hardware multiplier (24 bytes); a store of a constant or
+of a value in ZP to an element (`a[i] = 0`) computes the address first and
+loads the value after it (no `pha`/`pla`); and `removeDeadTemps` runs again
+after `post-increment-sink`, which drops the unused old value of `x++` as a
+statement (`for (...; i++)`: only `inw $30` remains). Speed is measured with
+`src/test/bench/run_bench.sh` (six benchmarks on xemu, timed by CIA2;
+not part of `make test`): 1344 ms at v1.0.6, 1041 ms after these.
 
 A static-allocation function that makes calls cannot use the pool across
 them; its most used variables go in a base-page block of its own, `$80+k`,

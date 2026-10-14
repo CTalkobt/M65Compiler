@@ -949,7 +949,18 @@ void IRCodeGen::emitArrayElemAddr(const std::string& baseStr, const ir::Operand&
         emit("ldx #0");
 
     // Step 2: Multiply index by stride if stride > 1
-    if (stride > 1) {
+    if (stride == 2 || stride == 4 || stride == 8) {
+        // a power of two: A:X shifted left (6 bytes each, Y kept) instead of
+        // the hardware multiplier (24 bytes)
+        for (int k = stride; k > 1; k >>= 1) {
+            emit("asl", "index * " + std::to_string(stride));
+            emit("pha");
+            emit("txa");
+            emit("rol");
+            emit("tax");
+            emit("pla");
+        }
+    } else if (stride > 1) {
         emit("mul.16 .AX, #" + std::to_string(stride));  // A:X = index * stride
     }
 
@@ -2054,9 +2065,9 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // prescanFunction(fn);  // REMOVED
 
     // Run register allocator. In a leaf function (no calls, no inline asm)
-    // nothing can clobber the ZP register pool while it runs: its pointer
-    // locals live there like register variables, so a dereference uses the
-    // pointer in place instead of copying it to ZP first.
+    // nothing can clobber the ZP register pool while it runs: its pointer,
+    // char and int locals live there like register variables (a dereference
+    // uses the pointer in place, a loop counter is a ZP access).
     regVregs_ = fn.registerVregs;
     {
         bool leaf = true;
@@ -2067,11 +2078,23 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                     leaf = false;
         if (leaf && !getenv("CC45_NO_ZP_POINTERS")) {
             uint32_t paramCount = (uint32_t)fn.paramTypes.size();
+            // (a variable whose address is used, such as a small struct read
+            // member by member, stays in memory)
+            std::set<uint32_t> addressedLocals;
+            for (const auto& blk : fn.blocks)
+                for (const auto& in : blk.insts)
+                    if (in.op == ir::Op::ADDR_LOCAL && in.src1.isVreg()) addressedLocals.insert(in.src1.vregId);
             for (const auto& [name, vid] : fn.localNames) {
-                if (vid < paramCount || fn.memoryVregs.count(vid) || fn.vregSizes.count(vid)) continue;
+                if (vid < paramCount || fn.memoryVregs.count(vid) || fn.vregSizes.count(vid) ||
+                    addressedLocals.count(vid))
+                    continue;
                 if (fn.registerXVregs.count(vid) || fn.registerYVregs.count(vid) || fn.registerZVregs.count(vid)) continue;
                 auto t = fn.vregTypes.find(vid);
-                if (t != fn.vregTypes.end() && t->second == ir::Type::PTR) regVregs_.insert(vid);
+                // pointers, and the char and int variables (loop counters):
+                // zero-page accesses instead of absolute ones
+                if (t != fn.vregTypes.end() &&
+                    (t->second == ir::Type::PTR || t->second == ir::Type::I16 || t->second == ir::Type::I8))
+                    regVregs_.insert(vid);
             }
         }
     }
@@ -4824,10 +4847,31 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             std::string storeR = irDesc(inst.src2.kind == ir::OperandKind::GLOBAL ? "→ " + inst.src2.name : "");
 
             // Fused ADDR_ELEM+STORE: compute address inline to __zp_scratch
-            if (inst.args.size() >= 3 && inst.resultType != ir::Type::F32) {
+            // (a long goes the normal way: its bytes 2 and 3 need Y and Z)
+            if (inst.args.size() >= 3 && inst.resultType != ir::Type::F32 && inst.resultType != ir::Type::I32) {
                 auto& base = inst.args[0];
                 auto& index = inst.args[1];
                 int stride = (int)inst.args[2].immVal;
+
+                // A constant or a value in ZP is loaded after the address:
+                // no save on the stack
+                bool constVal = inst.src1.isImm() || (inst.src1.isVreg() && vregConstVal_.count(inst.src1.vregId));
+                bool zpVal = inst.src1.isVreg() && !constVal &&
+                             alloc_.getAlloc(inst.src1.vregId).loc == VRegAllocator::IN_ZP;
+                if (constVal || zpVal) {
+                    std::string baseStr = (base.kind == ir::OperandKind::GLOBAL) ?
+                        "#" + base.name : src2MemOperand(base);
+                    emitArrayElemAddr(baseStr, index, stride, "__zp_scratch");
+                    ms_.invalidateAll();
+                    loadOperand(inst.src1);
+                    emit("ldy #0");
+                    emit("sta (__zp_scratch),y");
+                    if (inst.resultType != ir::Type::I8) {
+                        emit("txa"); emit("iny"); emit("sta (__zp_scratch),y");
+                    }
+                    ms_.invalidateAll();
+                    break;
+                }
 
                 // Load value first (before addr_elem clobbers A:X)
                 loadOperand(inst.src1);
