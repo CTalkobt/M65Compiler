@@ -13,7 +13,11 @@
  *   [4] called through function pointers; a leaf calling nothing but used
  *       from a non-leaf caller that has its own parameters live
  *   [5] the same in a function with a stack frame (#pragma cc45 recurse)
- *   [6] $AA sentinel
+ *   [6] a function that makes calls: parameters used only before its first
+ *       call stay in the block too (a, b); one also used after a call (c),
+ *       one passed to the first call itself (d), one used in a loop (n)
+ *       are copied
+ *   [7] $AA sentinel
  */
 #define OUT ((volatile unsigned char *)0xC0C0)
 #define NOINLINE __attribute__((noinline))
@@ -53,6 +57,18 @@ NOINLINE static unsigned framed(const unsigned char *p, unsigned char n) {
 
 static unsigned char a[5] = {1, 2, 3, 4, 250};
 
+NOINLINE static unsigned twice(unsigned x) { return x * 2; }
+
+/* a, b: read before the first call only; c after a call; d an argument of
+   the first call; n in the loop (another block) */
+NOINLINE static unsigned nonleaf(unsigned a, unsigned b, unsigned c, unsigned d, unsigned char n) {
+    unsigned s = a + b;                 /* a, b here only */
+    s += twice(d);                      /* d: the first call's argument */
+    s += c;                             /* c after a call */
+    while (n--) s += twice(1);
+    return s;
+}
+
 NOINLINE static unsigned outer(const unsigned char *p, unsigned char n, unsigned k) {
     /* p, n and k live across the calls: this function is not a leaf */
     return sum(p, n) + sum(p + 1, n - 1) + k;
@@ -69,6 +85,8 @@ int main(void) {
     OUT[3] = vsum(v) == 10;
     OUT[4] = fs(a, 3) == 6 && fb(1, 1) == 4 && outer(a, 3, 100) == 6 + 5 + 100;
     OUT[5] = framed(a, 4) == 10;
-    OUT[6] = 0xAA;
+    /* 1 + 2 + 2*4 + 3 + 3*2 */
+    OUT[6] = nonleaf(1, 2, 3, 4, 3) == 20 && nonleaf(100, 200, 300, 400, 0) == 1400;
+    OUT[7] = 0xAA;
     return 0;
 }

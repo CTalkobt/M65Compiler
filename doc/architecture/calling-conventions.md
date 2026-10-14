@@ -253,7 +253,10 @@ What a SAC function looks like:
   `$10`…, which nothing it runs can overwrite: no copy at the entry, and a
   pointer parameter is dereferenced in place (`lda ($10),y`). The same holds
   with a stack frame. A parameter whose address is used (`&x`, a vector
-  passed by value) is still copied to its storage. `CC45_NO_ZP_PARAMS=1`
+  passed by value) is still copied to its storage. In a function that does make
+  calls, a parameter used only in the entry block before the first call
+  (or asm) stays there too: the block is untouched until that call stores its
+  own arguments. `CC45_NO_ZP_PARAMS=1`
   turns this off (`test_zp_params_xemu.c`).
 - **SAC-to-SAC calls in stack mode.** A SAC caller in the same file stores
   the arguments straight into `<callee>__param_<name>` and does

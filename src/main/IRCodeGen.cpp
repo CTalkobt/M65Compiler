@@ -2095,6 +2095,46 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             if (!fn.memoryVregs.count(i) && !fn.vregSizes.count(i) && !addressed.count(i)) zpParams_[i] = zpOff;
             zpOff += ps < 2 ? 2 : ps;
         }
+    } else if (fn.conv == ir::CallConv::ZP && !fn.isVariadic && !fn.isRegparm && !fn.isNaked &&
+               !fn.isInterrupt && !fn.isNested && !fn.blocks.empty() && !getenv("CC45_NO_ZP_PARAMS")) {
+        // A function that makes calls: a parameter used only in the entry
+        // block before its first call (or asm) is used where the caller put
+        // it too; the block is untouched until that call stores its own
+        // arguments. (Not with float code: the float runtime is called
+        // without an IR call.)
+        bool floats = false;
+        for (auto t : fn.paramTypes) if (t == ir::Type::F32) floats = true;
+        for (const auto& blk : fn.blocks)
+            for (const auto& in : blk.insts)
+                if (in.resultType == ir::Type::F32 || in.src1.type == ir::Type::F32 || in.src2.type == ir::Type::F32)
+                    floats = true;
+        const auto& entry = fn.blocks[0].insts;
+        size_t firstCall = entry.size();
+        for (size_t k = 0; k < entry.size(); k++)
+            if (entry[k].op == ir::Op::CALL || entry[k].op == ir::Op::CALL_VOID ||
+                entry[k].op == ir::Op::CALL_INDIRECT || entry[k].op == ir::Op::ASM_INLINE) { firstCall = k; break; }
+        int zpOff = (int)zeroPageStart_ + 8;
+        for (uint32_t i = 0; i < fn.paramTypes.size() && !floats; i++) {
+            int ps = ir::typeSize(fn.paramTypes[i]);
+            bool ok = !fn.memoryVregs.count(i) && !fn.vregSizes.count(i) && !addressed.count(i) &&
+                      !fn.registerVregs.count(i);
+            bool used = false;
+            auto uses = [&](const ir::Inst& in) {
+                auto is = [i](const ir::Operand& o) { return o.isVreg() && o.vregId == i; };
+                if (is(in.src1) || is(in.src2) || is(in.dest)) return true;
+                for (const auto& a : in.args) if (is(a)) return true;
+                for (const auto& ph : in.phiIncoming) if (is(ph.first)) return true;
+                return false;
+            };
+            for (size_t b = 0; b < fn.blocks.size() && ok; b++)
+                for (size_t k = 0; k < fn.blocks[b].insts.size() && ok; k++)
+                    if (uses(fn.blocks[b].insts[k])) {
+                        used = true;
+                        if (b != 0 || k >= firstCall) ok = false;
+                    }
+            if (ok && used) zpParams_[i] = zpOff;
+            zpOff += ps < 2 ? 2 : ps;
+        }
     }
     // A static-allocation function that makes calls keeps its pointer
     // variables in a base-page block of its own ($80..., .zar), which ln45
@@ -2143,6 +2183,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 // fine when its address is not used)
                 bool plainLong = t == ir::Type::I32 && fn.vregSizes.count(v) && fn.vregSizes.at(v) == 4;
                 if ((t != ir::Type::PTR && t != ir::Type::I8 && t != ir::Type::I16 && t != ir::Type::I32) ||
+                    zpParams_.count(v) ||
                     (fn.memoryVregs.count(v) && !plainLong) ||
                     addressed.count(v) ||
                     (fn.vregSizes.count(v) && !plainLong) || fn.registerVregs.count(v) || fn.registerXVregs.count(v) ||
