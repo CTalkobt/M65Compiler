@@ -659,6 +659,22 @@ for fimode in "stack|-fno-zpcall" "zp|"; do
     fi
 done
 
+# Test: sscanf, vsnprintf, vfprintf (a file on drive 8), perror (the screen
+# row), getchar (the KERNAL keyboard buffer); both conventions
+for s2mode in "stack|-fno-zpcall" "zp|"; do
+    IFS='|' read -r s2name s2flags <<< "$s2mode"
+    echo "Testing test_stdio2_xemu.c ($s2name)..."
+    compile_link_test "src/test-resources/test_stdio2_xemu.c" "build/test/test_stdio2_${s2name}_xemu.prg" "$s2flags"
+    if [ $? -eq 0 ] && rm -f "build/test/test_stdio2_${s2name}.d81" &&
+       ./bin/disk45 create "build/test/test_stdio2_${s2name}.d81" -n "STDIO2" >/dev/null 2>&1; then
+        run_xemu_test "test_stdio2_$s2name" "build/test/test_stdio2_${s2name}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA" \
+            -8 "$PWD/build/test/test_stdio2_${s2name}.d81"
+    else
+        echo "FAIL: test_stdio2_xemu.c $s2name (build failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: fopen "r+"/"w+"/"a+" (memory streams) and fseek/ftell/rewind on a
 # disk; both conventions
 for fsmode in "stack|-fno-zpcall" "zp|"; do

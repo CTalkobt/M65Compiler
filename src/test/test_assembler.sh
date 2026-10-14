@@ -396,6 +396,19 @@ else
     failed=$((failed + 1))
 fi
 
+# An address written with its leading zeros ($00D0) is absolute, $D0 base
+# page (the relocated base page moves only the latter); a symbol (sta (ptr,x)
+# with ptr = $fb) takes the base-page indirect form
+printf '.org $2000\nptr = $fb\n sta $00D0\n sta $D0\n lda $00D0,x\n ldx $00D0,y\n sta (ptr,x)\n jmp (ptr)\n' > build/test_abs00.s45
+if $AS build/test_abs00.s45 -o build/test_abs00.bin >/dev/null 2>&1 &&
+   [ "$(xxd -p build/test_abs00.bin)" = "8dd00085d0bdd000bed00081fb6cfb00" ]; then
+    echo "SUCCESS: \$00D0 is absolute, (sym,x) base page"
+    passed=$((passed + 1))
+else
+    echo "FAIL: \$00D0 / (sym,x) ($(xxd -p build/test_abs00.bin 2>/dev/null))"
+    failed=$((failed + 1))
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All assembler feature tests passed!"
     exit 0

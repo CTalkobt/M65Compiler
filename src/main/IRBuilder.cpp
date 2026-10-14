@@ -4301,6 +4301,8 @@ void IRBuilder::visit(Assignment& node) {
             if (auto* ref = dynamic_cast<VariableReference*>(deref->operand.get())) {
                 auto cit = localConstPtrValue_.find(ref->name);
                 if (cit != localConstPtrValue_.end()) {
+                    // a store through the pointer uses it
+                    if (auto lit = locals_.find(ref->name); lit != locals_.end()) usedVregs_.insert(lit->second.vregId);
                     if (auto* litExpr = dynamic_cast<IntegerLiteral*>(node.expression.get())) {
                         IRTypeInfo derefInfo = getExprTypeInfo(node.target.get());
                         std::string addrName = "$" + [&]() {
@@ -4593,6 +4595,8 @@ void IRBuilder::visit(Assignment& node) {
             if (auto* ref = dynamic_cast<VariableReference*>(deref->operand.get())) {
                 auto cit = localConstPtrValue_.find(ref->name);
                 if (cit != localConstPtrValue_.end()) {
+                    // a store through the pointer uses it
+                    if (auto lit = locals_.find(ref->name); lit != locals_.end()) usedVregs_.insert(lit->second.vregId);
                     IRTypeInfo derefInfo = getExprTypeInfo(node.target.get());
 
                     // Use immediate operand if RHS is a literal (avoids CONST vreg entirely)

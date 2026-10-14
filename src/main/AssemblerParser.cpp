@@ -1724,6 +1724,28 @@ void AssemblerParser::pass1() {
                             } catch(...) { stmt->instr.mode = AddressingMode::ABSOLUTE; }
                         }
                     }
+                    // $00D0: an address written with its leading zeros (3 or more
+                    // hex digits) is absolute, as in ACME; by value alone $D0 is a
+                    // base-page address, which the relocated base page moves
+                    if (!stmt->instr.forceMode && stmt->instr.operandTokenIndex >= 0 &&
+                        stmt->instr.operandTokenIndex + 1 < (int)tokens.size() &&
+                        (stmt->instr.mode == AddressingMode::BASE_PAGE || stmt->instr.mode == AddressingMode::ABSOLUTE ||
+                         stmt->instr.mode == AddressingMode::BASE_PAGE_X || stmt->instr.mode == AddressingMode::ABSOLUTE_X ||
+                         stmt->instr.mode == AddressingMode::BASE_PAGE_Y || stmt->instr.mode == AddressingMode::ABSOLUTE_Y)) {
+                        const auto& t = tokens[stmt->instr.operandTokenIndex];
+                        auto nt = tokens[stmt->instr.operandTokenIndex + 1].type;
+                        bool alone = nt == AssemblerTokenType::NEWLINE || nt == AssemblerTokenType::END_OF_FILE ||
+                                     nt == AssemblerTokenType::COMMA;
+                        if (alone && t.type == AssemblerTokenType::HEX_LITERAL && t.value.size() >= 4 &&
+                            std::stoul(t.value.substr(1), nullptr, 16) <= 0xFF &&
+                            AssemblerOpcodeDatabase::isValidMode(stmt->instr.mnemonic, AddressingMode::ABSOLUTE)) {
+                            AddressingMode m = stmt->instr.mode;
+                            stmt->instr.mode = (m == AddressingMode::BASE_PAGE_X || m == AddressingMode::ABSOLUTE_X) ? AddressingMode::ABSOLUTE_X
+                                             : (m == AddressingMode::BASE_PAGE_Y || m == AddressingMode::ABSOLUTE_Y) ? AddressingMode::ABSOLUTE_Y
+                                             : AddressingMode::ABSOLUTE;
+                            stmt->instr.forceMode = true;
+                        }
+                    }
                     if ((stmt->instr.mnemonic == "inw" || stmt->instr.mnemonic == "dew") && stmt->instr.mode == AddressingMode::STACK_RELATIVE) {
                         stmt->type = (stmt->instr.mnemonic == "inw") ? Statement::STACK_INC : Statement::STACK_DEC;
                         stmt->emitFn = AssemblerSimulatedOps::dispatch_StackIncDec;
