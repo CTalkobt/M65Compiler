@@ -298,7 +298,7 @@ bool D80Image::addFile(const std::string& name, CbmFileType type,
     int pos = 0;
 
     while (bytesLeft > 0) {
-        TrackSector ts = allocateNextFree(-1);
+        TrackSector ts = nextFileSector(prev, -1);
         if (ts.isNull()) return false;
 
         uint8_t* sec = sectorData(ts.track, ts.sector);
@@ -332,7 +332,7 @@ bool D80Image::addFile(const std::string& name, CbmFileType type,
 
     // Handle empty files
     if (data.empty()) {
-        TrackSector ts = allocateNextFree(-1);
+        TrackSector ts = nextFileSector({0, 0}, -1);
         if (ts.isNull()) return false;
         uint8_t* sec = sectorData(ts.track, ts.sector);
         std::memset(sec, 0, 256);

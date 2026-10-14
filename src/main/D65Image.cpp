@@ -32,6 +32,7 @@ void D65Image::bamLocation(int track, int& bamSector, int& entryOffset) const {
 }
 
 bool D65Image::isSectorFree(int track, int sector) const {
+    if (!bamCovers(track)) return false;   // tracks 81 and 122: no BAM entry
     int bs, off;
     bamLocation(track, bs, off);
     const uint8_t* bam = sectorData(DIR_TRACK, bs);
@@ -42,6 +43,7 @@ bool D65Image::isSectorFree(int track, int sector) const {
 }
 
 bool D65Image::allocateSector(int track, int sector) {
+    if (!bamCovers(track)) return false;
     int bs, off;
     bamLocation(track, bs, off);
     uint8_t* bam = sectorData(DIR_TRACK, bs);
@@ -55,6 +57,7 @@ bool D65Image::allocateSector(int track, int sector) {
 }
 
 bool D65Image::freeSector(int track, int sector) {
+    if (!bamCovers(track)) return false;
     int bs, off;
     bamLocation(track, bs, off);
     uint8_t* bam = sectorData(DIR_TRACK, bs);
@@ -88,7 +91,7 @@ TrackSector D65Image::allocateNextFree(int nearTrack) {
 int D65Image::freeSectors() const {
     int count = 0;
     int bamSectors[] = {BAM_S0_SEC1, BAM_S0_SEC2, BAM_S1_SEC1, BAM_S1_SEC2};
-    int trackCounts[] = {40, 41, 41, 40}; // tracks per BAM sector
+    int trackCounts[] = {40, 40, 40, 40}; // tracks per BAM sector (81 and 122 have no entry)
     for (int b = 0; b < 4; b++) {
         const uint8_t* bam = sectorData(DIR_TRACK, bamSectors[b]);
         if (!bam) continue;
@@ -142,6 +145,7 @@ void D65Image::format(const std::string& diskName, const std::string& diskId) {
         for (int t = 0; t < bi.numTracks; t++) {
             int absTrack = bi.startTrack + t;
             int off = 0x10 + t * 6;
+            if (!bamCovers(absTrack)) continue;   // its entry would run past the sector
             if (absTrack == DIR_TRACK) {
                 // Header + 4 BAM sectors + first dir sector = 6 used
                 bam[off] = SECTORS_PER_TRACK - 6;
@@ -233,7 +237,7 @@ bool D65Image::addFile(const std::string& name, CbmFileType type,
     if (sectorsNeeded > freeSectors()) return false;
     std::vector<TrackSector> chain;
     for (int i = 0; i < sectorsNeeded; i++) {
-        TrackSector ts = allocateNextFree(DIR_TRACK);
+        TrackSector ts = nextFileSector(chain.empty() ? TrackSector{0, 0} : chain.back(), DIR_TRACK);
         if (ts.isNull()) return false;
         chain.push_back(ts);
     }

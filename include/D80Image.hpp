@@ -14,6 +14,11 @@
 
 class D80Image : public DiskImage {
 public:
+    // the BAM sectors: 38/0, 38/3 (D80), and 38/6, 38/9 (D82)
+    std::vector<TrackSector> systemSectors() const override {
+        if (tracks_ > 77) return {{38, 0}, {38, 3}, {38, 6}, {38, 9}};
+        return {{38, 0}, {38, 3}};
+    }
     void format(const std::string& diskName = "", const std::string& diskId = "CC") override;
 
     std::vector<FileInfo> listFiles() const override;

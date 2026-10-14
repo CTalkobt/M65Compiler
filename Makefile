@@ -128,7 +128,7 @@ $(LIB_DIR)/lib45-basic.a: $(addprefix $(OBJ_DIR)/, \
     SymbolExpressionEvaluator.o BasicMinifier.o BasicTooling.o \
     BasicCharacterMap.o BasicDocumentationGenerator.o BasicStructures.o \
     BasicArchiveSupport.o BasicStandardLibrary.o BasicVarRenamer.o BasicStructured.o \
-    BasicDecompiler.o BasicFormatter.o)
+    BasicDecompiler.o BasicFormatter.o BasicLister.o)
 	@mkdir -p $(LIB_DIR)
 	$(AR) rcs $@ $^
 
@@ -239,9 +239,9 @@ $(OD_TARGET): $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-basic.a $(LIB_DIR)/lib
 
 # Disk Utility (disk45) - uses tools + common
 $(DISK_TARGET): $(OBJ_DIR)/disk45_main.o | $(LIB_DIR)
-$(DISK_TARGET): $(LIB_DIR)/lib45-tools.a $(LIB_DIR)/lib45-common.a
+$(DISK_TARGET): $(LIB_DIR)/lib45-tools.a $(LIB_DIR)/lib45-basic.a $(LIB_DIR)/lib45-common.a
 	@mkdir -p $(BIN_DIR)
-	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/disk45_main.o $(LIB_DIR)/lib45-tools.a $(LIB_DIR)/lib45-common.a -lz -lsqlite3 $(FUSE3_LIBS)
+	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/disk45_main.o $(LIB_DIR)/lib45-tools.a $(LIB_DIR)/lib45-basic.a $(LIB_DIR)/lib45-common.a -lz -lsqlite3 $(FUSE3_LIBS)
 
 # Assembly Format Converter (cvt_asm) - uses tools, codegen, opt + common
 $(CVT_ASM_TARGET): $(OBJ_DIR)/cvt_asm_main.o | $(LIB_DIR)

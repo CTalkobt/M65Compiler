@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <map>
 #include <memory>
 #include <functional>
 
@@ -141,6 +142,18 @@ public:
         return e.type() == CbmFileType::CBM || e.type() == CbmFileType::DIR;
     }
     TrackSector directoryChain(const DirEntry& e) const;
+    // Where addFile puts a new file's sectors (disk45 add -s/-b/-e/--track):
+    // interleave (sectors between one and the next on a track; 0: the
+    // format's own choice), the first sector, a forced track, or the first
+    // empty track. Inactive by default: the formats' own allocation
+    struct Placement {
+        int interleave = 0;
+        int beginSector = -1;
+        int track = 0;
+        bool emptyTrack = false;
+        bool active() const { return interleave > 0 || beginSector >= 0 || track > 0 || emptyTrack; }
+    };
+    void setPlacement(const Placement& p) { placement_ = p; }
     // The working directory gained (or lost) directory blocks: a CMD native
     // subdirectory's entry counts them
     void directoryBlocksChanged(int delta);
@@ -156,6 +169,9 @@ public:
     // Sectors the format reserves besides the header and directory (counted
     // as used by validate): a CMD native partition's boot block and BAM
     virtual std::vector<TrackSector> systemSectors() const { return {}; }
+    // Whether the BAM has an entry for the track (validate and repair skip
+    // one it has not)
+    virtual bool bamCovers(int track) const { (void)track; return true; }
     // REL files use a 1581 super side sector (D81, D65)
     virtual bool superSideSectors() const { return false; }
 
@@ -206,6 +222,17 @@ public:
         bool ok() const { return errors.empty(); }
     };
     virtual ValidateResult validate() const;
+    // The sectors in use: the directory, subdirectories, every file's
+    // sectors, the header and the format's systemSectors() (counted, for
+    // cross-links); errors go to r
+    std::map<uint64_t, int> usedSectors(ValidateResult& r) const;
+    // Rebuild the BAM from usedSectors(): sectors in use marked used, the
+    // others free (dryRun: only report)
+    struct RepairResult {
+        std::vector<TrackSector> allocated, freed;
+        std::vector<std::string> errors;
+    };
+    RepairResult rebuildBam(bool dryRun);
 
     // --- GEOS files (Schepers' GEOS.TXT / CVT.TXT) ---
     // A GEOS file has an info block (directory bytes $15/$16) and, when VLIR
@@ -243,6 +270,11 @@ protected:
     bool blank_ = false;          // freshly formatted by create (markBlank)
     TrackSector cwd_;             // setDirectory: a subdirectory, or {0,0}
     TrackSector cwdHeader_;       // a CMD native subdirectory's header block
+    Placement placement_;         // setPlacement
+
+    // The next sector of a file being written: allocateNextFree(near), or
+    // where placement_ asks (prev: the file's previous sector, {0,0} first)
+    TrackSector nextFileSector(TrackSector prev, int near);
 
     // The files of a directory chain (listFiles in a subdirectory)
     std::vector<FileInfo> listDirectory(TrackSector start) const;

@@ -11,6 +11,8 @@
 
 class D71Image : public DiskImage {
 public:
+    // the second side's BAM (53/0)
+    std::vector<TrackSector> systemSectors() const override { return {{53, 0}}; }
     static constexpr int TRACKS = 70;
     static constexpr int DIR_TRACK = 18;
     static constexpr int BAM_TRACK_SIDE0 = 18;

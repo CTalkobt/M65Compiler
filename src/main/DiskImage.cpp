@@ -508,25 +508,10 @@ bool DiskImage::setDiskId(const std::string&) { return false; }
 // Validate disk image integrity
 // ============================================================================
 
-DiskImage::ValidateResult DiskImage::validate() const {
-    ValidateResult r;
-    if (totalTracks() == 0) {
-        r.errors.push_back("Validation not supported for archive formats");
-        return r;
-    }
-
-    // Build a usage map: track×sector → count of files claiming each sector
-    int maxTrack = totalTracks();
+std::map<uint64_t, int> DiskImage::usedSectors(ValidateResult& r) const {
     std::map<uint64_t, int> usageCount;
     auto key = [](int t, int s) -> uint64_t { return ((uint64_t)t << 16) | s; };
-
-    // Count directory sectors as used
     int dirTrack_ = directoryTrack();
-    const uint8_t* hdr = sectorData(dirTrack_, 0);
-    if (!hdr) {
-        r.errors.push_back("Cannot read header sector");
-        return r;
-    }
 
     // Walk the directory and its CBM subdirectories (a subdirectory's chain
     // is counted as its entry's sectors), tracing all file chains
@@ -579,8 +564,8 @@ DiskImage::ValidateResult DiskImage::validate() const {
     }
     }
 
-    // Also count BAM/header sector itself
-    usageCount[key(dirTrack_, 0)]++;
+    // Also count the header sector (the BAM sectors are systemSectors())
+    (void)dirTrack_;
     usageCount[key(headerSector().track, headerSector().sector)]++;
     for (auto& ts : systemSectors()) usageCount[key(ts.track, ts.sector)]++;
     // and a GEOS disk's border sector
@@ -588,12 +573,28 @@ DiskImage::ValidateResult DiskImage::validate() const {
         const uint8_t* h = sectorData(headerSector().track, headerSector().sector);
         if (h && h[0xAB] != 0) usageCount[key(h[0xAB], h[0xAC])]++;
     }
+    return usageCount;
+}
+
+DiskImage::ValidateResult DiskImage::validate() const {
+    ValidateResult r;
+    if (totalTracks() == 0) {
+        r.errors.push_back("Validation not supported for archive formats");
+        return r;
+    }
+    int maxTrack = totalTracks();
+    auto key = [](int t, int s) -> uint64_t { return ((uint64_t)t << 16) | s; };
+    if (!sectorData(directoryTrack(), 0) && !sectorData(headerSector().track, headerSector().sector)) {
+        r.errors.push_back("Cannot read header sector");
+        return r;
+    }
+    std::map<uint64_t, int> usageCount = usedSectors(r);
 
     // Compare BAM vs actual usage
     r.freeSectorsInBAM = freeSectors();
     int totalUsedInBAM = 0;
     for (int t = 1; t <= maxTrack; t++) {
-        int spt = sectorsOnTrack(t);
+        int spt = bamCovers(t) ? sectorsOnTrack(t) : 0;
         for (int s = 0; s < spt; s++) {
             bool bamFree = isSectorFree(t, s);
             bool fileUsed = usageCount.count(key(t, s)) > 0;
@@ -611,6 +612,27 @@ DiskImage::ValidateResult DiskImage::validate() const {
     r.sectorsMarkedUsed = totalUsedInBAM;
 
     return r;
+}
+
+DiskImage::RepairResult DiskImage::rebuildBam(bool dryRun) {
+    RepairResult out;
+    ValidateResult r;
+    if (totalTracks() == 0) return out;
+    std::map<uint64_t, int> used = usedSectors(r);
+    out.errors = r.errors;
+    auto key = [](int t, int s) -> uint64_t { return ((uint64_t)t << 16) | s; };
+    for (int t = 1; t <= totalTracks(); t++)
+        for (int s = 0; s < sectorsOnTrack(t) && bamCovers(t); s++) {
+            bool isUsed = used.count(key(t, s)) > 0, isFree = isSectorFree(t, s);
+            if (isUsed && isFree) {
+                out.allocated.push_back({(uint8_t)t, (uint8_t)s});
+                if (!dryRun) allocateSector(t, s);
+            } else if (!isUsed && !isFree) {
+                out.freed.push_back({(uint8_t)t, (uint8_t)s});
+                if (!dryRun) freeSector(t, s);
+            }
+        }
+    return out;
 }
 
 // ============================================================================
@@ -770,13 +792,58 @@ std::string DiskImage::cvtName(const std::vector<uint8_t>& cvt) {
     return n;
 }
 
+TrackSector DiskImage::nextFileSector(TrackSector prev, int near) {
+    if (!placement_.active()) return allocateNextFree(near);
+    auto takeOn = [&](int t, int start) -> TrackSector {
+        int spt = sectorsOnTrack(t);
+        if (t < 1 || spt <= 0) return {0, 0};
+        for (int k = 0; k < spt; k++) {
+            int s = (start + k) % spt;
+            if (isSectorFree(t, s) && allocateSector(t, s)) return {(uint8_t)t, (uint8_t)s};
+        }
+        return {0, 0};
+    };
+    // a track found the format's way (allocateNextFree), its sector given back
+    auto formatTrack = [&](int nearTrack) -> int {
+        TrackSector probe = allocateNextFree(nearTrack);
+        if (probe.isNull()) return 0;
+        freeSector(probe.track, probe.sector);
+        return probe.track;
+    };
+    int step = placement_.interleave > 0 ? placement_.interleave : 1;
+    if (prev.isNull()) {
+        int t = placement_.track;
+        if (!t && placement_.emptyTrack) {
+            // the empty track nearest the directory
+            int dt = directoryTrack();
+            for (int d = 1; d <= totalTracks() && !t; d++)
+                for (int cand : {dt - d, dt + d}) {
+                    if (cand < 1 || cand > totalTracks() || cand == dt || !bamCovers(cand)) continue;
+                    bool empty = true;
+                    for (int s = 0; s < sectorsOnTrack(cand) && empty; s++) empty = isSectorFree(cand, s);
+                    if (empty) { t = cand; break; }
+                }
+        }
+        if (!t) t = formatTrack(near);
+        if (!t) return {0, 0};
+        TrackSector r = takeOn(t, placement_.beginSector > 0 ? placement_.beginSector % sectorsOnTrack(t) : 0);
+        return r.isNull() ? allocateNextFree(near) : r;
+    }
+    // the next sector `step` on, on the same track while it has room
+    TrackSector r = takeOn(prev.track, (prev.sector + step) % std::max(1, sectorsOnTrack(prev.track)));
+    if (!r.isNull()) return r;
+    int t = formatTrack(prev.track);
+    if (!t) return {0, 0};
+    return takeOn(t, (prev.sector + step) % std::max(1, sectorsOnTrack(t)));
+}
+
 TrackSector DiskImage::writeChainBytes(const uint8_t* data, size_t len) {
     // as the formats' addFile: sectors from allocateNextFree, the last one
     // linked 00 / index of its last byte
     size_t n = len ? (len + 253) / 254 : 1;
     std::vector<TrackSector> chain;
     for (size_t i = 0; i < n; i++) {
-        TrackSector ts = allocateNextFree(directoryTrack());
+        TrackSector ts = nextFileSector(chain.empty() ? TrackSector{0, 0} : chain.back(), directoryTrack());
         if (ts.isNull()) {
             for (auto& c : chain) freeSector(c.track, c.sector);
             return {0, 0};

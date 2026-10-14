@@ -248,7 +248,7 @@ bool D64Image::addFile(const std::string& name, CbmFileType type,
 
     std::vector<TrackSector> chain;
     for (int i = 0; i < sectorsNeeded; i++) {
-        TrackSector ts = allocateNextFree(DIR_TRACK);
+        TrackSector ts = nextFileSector(chain.empty() ? TrackSector{0, 0} : chain.back(), DIR_TRACK);
         if (ts.isNull()) return false;
         chain.push_back(ts);
     }

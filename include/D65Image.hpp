@@ -12,6 +12,12 @@
 
 class D65Image : public DiskImage {
 public:
+    // the BAM sectors (40/1-40/4). Each holds 40 six-byte track entries from
+    // $10: the 41st of 40/2 (track 81) and of 40/3 (track 122) would run
+    // past the sector's end (into the next BAM sector's link), so those two
+    // tracks have no entry: never free, never allocated
+    std::vector<TrackSector> systemSectors() const override { return {{40, 1}, {40, 2}, {40, 3}, {40, 4}}; }
+    bool bamCovers(int track) const override { return track != 81 && track != 122; }
     bool superSideSectors() const override { return true; }
     static constexpr int TRACKS_PER_SIDE = 81;
     static constexpr int SIDES = 2;

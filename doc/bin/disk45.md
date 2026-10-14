@@ -64,6 +64,7 @@ disk45 create large.d65 -n "ARCHIVE" -i "AR"
 disk45 list <image> [pattern]
 disk45 list <image> SUBDIR/              # list a subdirectory
 disk45 list <image> SUBDIR/pattern       # filter within a subdirectory
+disk45 list <image> --petscii            # names in the C64's characters
 ```
 
 Display the directory. Patterns use `*` and `?` and match the CBM file name (case-insensitive); they do not match the file type.
@@ -97,6 +98,13 @@ disk45 add <image> <host_file> [cbm_name] [-p|--petscii]
 Add a host file. The CBM type comes from the host file's extension: `.prg`→PRG, `.seq`→SEQ, `.usr`→USR, anything else→PRG. The CBM name defaults to the host file name without directory and extension; names are upper-cased and truncated to 16 characters. Adding fails if the name already exists or the image is full.
 
 `-p` converts ASCII→PETSCII, but only when the file is added as SEQ (host extension `.seq`).
+
+Placement (for loaders that read sectors in a set order; sector-based images): `-s N` puts each next sector `N` sectors on along the track (the interleave; without it, the next free sector), `-b N` starts at sector `N`, `-e` on the empty track nearest the directory, `--track T` on track `T`; a file that fills its track goes on where the format would put it, at the same interleave. Without these options the format's own allocation is used.
+
+```bash
+disk45 add demo.d64 part1.prg PART1 -e -s 10   # an empty track, interleave 10
+disk45 add demo.d64 loader.prg LOADER --track 1 -b 0
+```
 
 A **GEOS Convert file** (a `.cvt`, recognised by its signature whatever its extension) is added as a GEOS file: its info block, the record block and the record chains of a VLIR file, or the data chain of a sequential one, with the directory entry from the CVT (GEOS type, structure, date). The name is the one in the CVT unless `cbm_name` is given. See [GEOS Files](#geos-files).
 
@@ -233,6 +241,57 @@ disk45 validate <image>
 ```
 
 Check BAM consistency of a sector-based image: files found, sectors used by files, sectors marked used, free sectors, and counts of cross-linked sectors, orphaned sectors and broken chains. Exit status 1 if errors are found (archives always report "Validation not supported").
+
+"Used" means: the directory and its subdirectories, every file's sectors (a REL file's side sectors, a GEOS file's info block and records), the header and the format's own reserved sectors (the BAM sectors: D71 53/0, D81 40/1-2, D65 40/1-4, D80/D82 38/0, 38/3 (38/6, 38/9); CMD's boot block and BAM; D90's configuration, bad-block and BAM sectors).
+
+#### repair
+
+```
+disk45 repair <image> [--dry]
+```
+
+Rebuild the BAM from the file chains: every sector in use (as `validate` counts them) is marked used, every other one free. `--dry` (or `-n`) prints what would change and writes nothing. Broken chains and cross-links are reported as warnings; the files are not changed. A fresh image of every writable format needs no change (`test_disk45.sh`).
+
+```
+$ disk45 repair game.d64 --dry
+Would mark used: 1 sector (17/0)
+Would free: 1 sector (1/0)
+```
+
+`--petscii` shows the listing as the C64 does: the disk name padded to 16 in quotes, `BLOCKS FREE.`, and each name's PETSCII bytes in the power-on upper case / graphics set as Unicode (letters, `£ ↑ ←`, the box and block graphics from the Symbols for Legacy Computing block of Unicode 13, `π`); control codes show as `·`. It needs a terminal font with those characters.
+
+#### basic
+
+```
+disk45 basic <image> <name> [--v2|--v7|--65]
+disk45 basic <file.prg> [--v2|--v7|--65]
+```
+
+List a tokenized BASIC program as LIST shows it (`10 PRINT "HELLO WORLD"`), from an image (`DIR/NAME` in a subdirectory) or a `.prg` on the host. The dialect comes from the load address — `$0801` BASIC V2 (C64), `$1C01` BASIC V7 (C128, with its `$CE xx` / `$FE xx` tokens), `$2001` BASIC 65 (the tokens basic45 writes) — or from `--v2`, `--v7`, `--65`. Keywords and letters are upper case, shifted letters lower case; in strings and REM text control codes are `{name}` escapes (`{clear}`, `{red}`, `{f1}` ...) and other bytes `{$xx}`. basic45 `--decompile` turns a BASIC 65 program into basic45 source instead.
+
+#### shell
+
+```
+disk45 shell
+```
+
+Run disk45 commands one per line without starting disk45 for each (the prompt shows the attached image; without a terminal, as in `... | disk45 shell`, there is no prompt). `attach <image>` makes an image the one of the following commands: `list`, `add file.prg NAME`, `extract NAME out.prg`, `mkdir`, `tree`, `basic NAME`, ... leave it out (naming another image still works); `detach` drops it. `!<command>` runs a host shell command, `history` lists the commands entered, `help` shows these, `quit` (or end of input) leaves. Words are split at spaces, `"..."` keeps them together. Line editing is the terminal's own (no external line-editing library, so no tab completion). The exit status is the last command's.
+
+#### edit
+
+```
+disk45 edit <image> <track> <sector>
+```
+
+A full-screen sector editor: the sector's 256 bytes as hex (16 a row, with their characters), the byte under the cursor in reverse. The arrow keys move; two hex digits set the byte under the cursor (the first changes its high half) and move on; `n` / `p` (Page Down / Page Up) go to the next / previous sector (the cursor stays); `w` writes the image; `q` quits, asking for a second `q` when there are unwritten changes. Keys piped in work the same without the screen (`printf 'ABwq' | disk45 edit x.d64 18 0`), which is how `test_disk45.sh` tests it.
+
+#### diff / compare
+
+```
+disk45 diff <image1> <image2> [--sectors]
+```
+
+Compare two images. By default the files, subdirectories included (`DIR/NAME`): `- NAME` only in the first, `+ NAME` only in the second, `~ NAME: size a -> b crc X -> Y` changed (type, size, CRC-32 of the contents), and a different disk name or ID. `--sectors` (`-s`) compares every sector of two images of the same geometry and lists those that differ (`41/1: 256 bytes differ (first at $00)`). Exit status 0 when they are the same, 1 when they differ, 2 on an error. The images may be of different formats for the file comparison (`disk45 diff game.d64 game.d81`).
 
 #### bam / map
 
@@ -652,7 +711,7 @@ R/W means `create`, `add`, `remove` etc. work and the image is written back in i
 | `.d64` | 1541 | R/W | 170 KB, 35 tracks | C64 standard. `-t` pads to 36-40 tracks. |
 | `.d71` | 1571 | R/W | 340 KB, 70 tracks | C128 double-sided. |
 | `.d81` | 1581 | R/W | 800 KB, 80 tracks | C65/MEGA65. **Recommended.** |
-| `.d65` | MEGA65 | R/W | 1.6 MB, 162 tracks | MEGA65 native extended. |
+| `.d65` | MEGA65 | R/W | 1.6 MB, 162 tracks | MEGA65 native extended. The BAM (40/1-40/4, 40 six-byte track entries each) has no room for tracks 81 and 122: disk45 never allocates them (6394 blocks free on a new image). |
 | `.d80` | 8050 | R/W | 533 KB, 77 tracks | CBM PET 8050. Header 39/0 → BAM 38/0, 38/3 → directory 39/1 ([D80-D82.TXT](https://ist.uwaterloo.ca/~schepers/formats/D80-D82.TXT)). |
 | `.d82` | 8250 | R/W | 1 MB, 154 tracks | CBM PET 8250. BAM 38/0, 38/3, 38/6, 38/9 (50 tracks each); all 154 tracks are used. |
 | `.x64` | Extended D64 | R/W | D64 + 64-byte header | |
@@ -803,6 +862,11 @@ auto prg = disk->readFile("GAME");
 | `chain` | — | Show file sector chain |
 | `rel-create` / `rel-read` / `rel-write` / `rel-list` | — | REL files (D64/D71) |
 | `mkdir` / `rmdir` | — | Create/remove subdirectory |
+| `repair` | — | Rebuild the BAM from the file chains (`--dry`) |
+| `diff` | `compare` | Compare two images' files or sectors |
+| `basic` | — | List a BASIC V2 / V7 / 65 program |
+| `edit` | — | Full-screen sector hex editor |
+| `shell` | — | Interactive commands on an attached image |
 | `tree` | — | Directory tree |
 | `dir-shrink` | — | Reclaim empty directory sectors |
 | `dir-ensure` | — | Ensure min free directory slots |

@@ -9,6 +9,8 @@
 
 class D81Image : public DiskImage {
 public:
+    // the BAM sectors (40/1, 40/2)
+    std::vector<TrackSector> systemSectors() const override { return {{40, 1}, {40, 2}}; }
     bool superSideSectors() const override { return true; }
     static constexpr int TRACKS = 80;
     static constexpr int SECTORS_PER_TRACK = 40;

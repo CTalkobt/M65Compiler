@@ -169,6 +169,143 @@ for spec in d80:39:1:no d82:39:1:yes d90:76:10:yes dnp:1:34:yes; do
         pass "REL on $ext (super side sector: $super)" || fail "REL on $ext (byte 2 of the first side sector: $MARK)"
 done
 
+# repair: the BAM rebuilt from the file chains. A D64 with a file sector
+# marked free and an unused sector (1/0) marked used; a fresh image of every
+# writable format needs no change
+rm -f "$TMPDIR/rep.d64"
+$DISK45 create "$TMPDIR/rep.d64" >/dev/null 2>&1
+$DISK45 add "$TMPDIR/rep.d64" "$TMPDIR/d1.prg" A >/dev/null 2>&1
+FIRST=$($DISK45 chain "$TMPDIR/rep.d64" A | sed -n 2p | grep -oE '[0-9]+/[0-9]+' | head -1)
+python3 - "$TMPDIR/rep.d64" "$FIRST" <<'PY'
+import sys
+p = sys.argv[1]; t, s = map(int, sys.argv[2].split('/'))
+d = bytearray(open(p, 'rb').read())
+bam = sum(21 for _ in range(17)) * 256      # 18/0
+def entry(tr): return bam + 4 + 4 * (tr - 1)
+e = entry(t); d[e + 1 + s // 8] |= 1 << (s % 8); d[e] += 1     # file sector "free"
+e = entry(1); d[e + 1] &= 0xFE; d[e] -= 1                       # 1/0 "used"
+open(p, 'wb').write(d)
+PY
+DRY=$($DISK45 repair "$TMPDIR/rep.d64" --dry 2>&1)
+SUM=$(md5sum < "$TMPDIR/rep.d64")
+grep -q "Would mark used: 1 sector ($FIRST)" <<< "$DRY" && grep -q 'Would free: 1 sector (1/0)' <<< "$DRY" &&
+    [ "$(md5sum < "$TMPDIR/rep.d64")" = "$SUM" ] &&
+    $DISK45 repair "$TMPDIR/rep.d64" >/dev/null 2>&1 &&
+    $DISK45 validate "$TMPDIR/rep.d64" 2>&1 | grep -q 'Status: OK' &&
+    ! $DISK45 validate "$TMPDIR/rep.d64" 2>&1 | grep -q 'Orphaned' &&
+    $DISK45 repair "$TMPDIR/rep.d64" 2>&1 | grep -q 'The BAM matches' &&
+    pass "repair: --dry reports, repair rebuilds the BAM" || fail "repair ($DRY)"
+bad=""
+for ext in d64 d71 d81 d65 d80 d82 d90 d60 d2m dnp g64 g71 x64; do
+    rm -f "$TMPDIR/rf.$ext"
+    $DISK45 create "$TMPDIR/rf.$ext" >/dev/null 2>&1
+    $DISK45 repair "$TMPDIR/rf.$ext" --dry 2>&1 | grep -q 'Would mark used: 0 sectors' &&
+        $DISK45 repair "$TMPDIR/rf.$ext" --dry 2>&1 | grep -q 'Would free: 0 sectors' || bad="$bad $ext"
+done
+[ -z "$bad" ] && pass "repair: fresh images of every format match their BAM" || fail "repair on fresh images:$bad"
+
+# diff: the files of two images (subdirectories too) by name, type, size and
+# CRC-32; --sectors byte by byte. Exit status 0 when the same, 1 otherwise
+rm -f "$TMPDIR/da.d81" "$TMPDIR/db.d81"
+$DISK45 create "$TMPDIR/da.d81" >/dev/null 2>&1
+$DISK45 add "$TMPDIR/da.d81" "$TMPDIR/d1.prg" A >/dev/null 2>&1
+$DISK45 add "$TMPDIR/da.d81" "$TMPDIR/d1.prg" B >/dev/null 2>&1
+$DISK45 mkdir "$TMPDIR/da.d81" SUB >/dev/null 2>&1
+cp "$TMPDIR/da.d81" "$TMPDIR/db.d81"
+SAME=$($DISK45 diff "$TMPDIR/da.d81" "$TMPDIR/db.d81"); SAMERC=$?
+SSAME=$($DISK45 diff "$TMPDIR/da.d81" "$TMPDIR/db.d81" --sectors)
+printf 'changed' > "$TMPDIR/chg.prg"
+$DISK45 rm "$TMPDIR/db.d81" A >/dev/null 2>&1
+$DISK45 rm "$TMPDIR/db.d81" B >/dev/null 2>&1
+$DISK45 add "$TMPDIR/db.d81" "$TMPDIR/chg.prg" B >/dev/null 2>&1
+$DISK45 add "$TMPDIR/db.d81" "$TMPDIR/d1.prg" SUB/Y >/dev/null 2>&1
+DIFF=$($DISK45 diff "$TMPDIR/da.d81" "$TMPDIR/db.d81"); DIFFRC=$?
+[ $SAMERC = 0 ] && grep -q 'The files are the same' <<< "$SAME" && grep -q 'The sectors are the same' <<< "$SSAME" &&
+    [ $DIFFRC = 1 ] && grep -q '^- A (PRG' <<< "$DIFF" && grep -q '^~ B: .*crc ' <<< "$DIFF" &&
+    grep -q '^+ SUB/Y (PRG' <<< "$DIFF" && grep -q '3 difference' <<< "$DIFF" &&
+    $DISK45 diff "$TMPDIR/da.d81" "$TMPDIR/db.d81" --sectors | grep -q 'sector(s) differ' &&
+    pass "diff: files (subdirectories too) and sectors" || fail "diff ($DIFF)"
+
+# list --petscii: names in the C64's characters (Unicode); a name with
+# graphics ($60 $61 $5C $5E $A6 $FF) patched into the directory
+rm -f "$TMPDIR/pt.d64"
+$DISK45 create "$TMPDIR/pt.d64" -n GAMES -i 2A >/dev/null 2>&1
+$DISK45 add "$TMPDIR/pt.d64" "$TMPDIR/d1.prg" HELLO >/dev/null 2>&1
+python3 - "$TMPDIR/pt.d64" <<'PY'
+import sys
+p = sys.argv[1]; d = bytearray(open(p, 'rb').read())
+off = (17 * 21 + 1) * 256        # 18/1
+d[off + 5:off + 21] = bytes([0x41, 0x42, 0x60, 0x61, 0x5C, 0x5E, 0xA6, 0xFF]) + bytes([0xA0] * 8)
+open(p, 'wb').write(d)
+PY
+PT=$($DISK45 list "$TMPDIR/pt.d64" --petscii)
+grep -q '^0 "GAMES           " 2A$' <<< "$PT" && grep -q '"AB─♠£↑▒π" *PRG' <<< "$PT" &&
+    grep -q 'BLOCKS FREE' <<< "$PT" && pass "list --petscii" || fail "list --petscii ($PT)"
+
+# basic: a BASIC program as LIST shows it; V2 ($0801), V7 ($1C01: DO, $FE
+# SLEEP, LOOP UNTIL), BASIC 65 (basic45's output, on the host)
+python3 - "$TMPDIR" <<'PY'
+import sys
+d = sys.argv[1]
+def prg(load, lines):
+    out = bytearray([load & 0xff, load >> 8]); addr = load
+    for num, body in lines:
+        nxt = addr + 5 + len(body)
+        out += bytes([nxt & 0xff, nxt >> 8, num & 0xff, num >> 8]) + bytes(body) + b'\0'; addr = nxt
+    return out + b'\0\0'
+open(d + '/bv2.prg', 'wb').write(prg(0x0801, [(10, [0x99, 0x20, 0x22] + list(b'HELLO WORLD') + [0x22]),
+                                              (20, [0x89, 0x20] + list(b'10'))]))
+open(d + '/bv7.prg', 'wb').write(prg(0x1C01, [(10, [0xEB]), (20, [0xFE, 0x0B, 0x20, 0x31]),
+                                              (30, [0xEC, 0x20, 0xFC, 0x20, 0x58, 0xB2, 0x31])]))
+PY
+rm -f "$TMPDIR/bas.d64"
+$DISK45 create "$TMPDIR/bas.d64" >/dev/null 2>&1
+$DISK45 add "$TMPDIR/bas.d64" "$TMPDIR/bv2.prg" HELLO >/dev/null 2>&1
+$DISK45 add "$TMPDIR/bas.d64" "$TMPDIR/bv7.prg" LOOPS >/dev/null 2>&1
+printf 'print "hi"\nsleep 1\n' > "$TMPDIR/b65.bas"
+./bin/basic45 "$TMPDIR/b65.bas" -o "$TMPDIR/b65.prg" >/dev/null 2>&1
+[ "$($DISK45 basic "$TMPDIR/bas.d64" HELLO)" = "$(printf '10 PRINT "HELLO WORLD"\n20 GOTO 10')" ] &&
+    [ "$($DISK45 basic "$TMPDIR/bas.d64" LOOPS)" = "$(printf '10 DO\n20 SLEEP 1\n30 LOOP UNTIL X=1')" ] &&
+    [ "$($DISK45 basic "$TMPDIR/b65.prg")" = "$(printf '10 PRINT"HI"\n20 SLEEP 1')" ] &&
+    pass "basic: BASIC V2, V7 and BASIC 65 listings" ||
+    fail "basic ($($DISK45 basic "$TMPDIR/bas.d64" LOOPS 2>&1 | head -3))"
+
+# add -s/-b/-e/--track: interleave and placement of a file's sectors
+head -c 2000 /dev/urandom > "$TMPDIR/pl.bin"
+plchain() {   # plchain <add options...>: the first 4 sectors of the file
+    rm -f "$TMPDIR/pl.d64"
+    $DISK45 create "$TMPDIR/pl.d64" >/dev/null 2>&1
+    $DISK45 add "$TMPDIR/pl.d64" "$TMPDIR/d1.prg" F1 >/dev/null 2>&1
+    $DISK45 add "$TMPDIR/pl.d64" "$TMPDIR/pl.bin" BIG "$@" >/dev/null 2>&1
+    $DISK45 extract "$TMPDIR/pl.d64" BIG "$TMPDIR/pl.out" >/dev/null 2>&1
+    cmp -s "$TMPDIR/pl.out" "$TMPDIR/pl.bin" && $DISK45 validate "$TMPDIR/pl.d64" | grep -q 'Status: OK' &&
+        $DISK45 chain "$TMPDIR/pl.d64" BIG | sed -n 2p | grep -oE '[0-9]+/[0-9]+' | head -4 | tr '\n' ' '
+}
+[ "$(plchain -s 10)" = "19/1 19/11 19/2 19/12 " ] && [ "$(plchain -s 4 -b 5)" = "19/5 19/9 19/13 19/17 " ] &&
+    [ "$(plchain -e)" = "17/0 17/1 17/2 17/3 " ] && [ "$(plchain --track 3 -s 2)" = "3/0 3/2 3/4 3/6 " ] &&
+    ! $DISK45 add "$TMPDIR/pl.d64" "$TMPDIR/pl.bin" X --track 99 >/dev/null 2>&1 &&
+    pass "add -s/-b/-e/--track: interleave and placement" ||
+    fail "add placement ($(plchain -s 10)/$(plchain -s 4 -b 5)/$(plchain -e)/$(plchain --track 3 -s 2))"
+
+# shell: commands from stdin; an attached image is left out of them, !
+# runs a host command, history lists them
+rm -f "$TMPDIR/sh.d81"
+SH=$(cd "$TMPDIR" && printf 'create sh.d81\nattach sh.d81\nadd d1.prg ONE\nmkdir SUB\nadd d1.prg SUB/TWO\nlist SUB/\nextract ONE sh1.prg\n!cmp -s sh1.prg d1.prg && echo SAME\nhistory\nquit\nlist\n' | "$OLDPWD/$DISK45" shell 2>&1)
+grep -q '"TWO".*PRG' <<< "$SH" && grep -q '^SAME$' <<< "$SH" && grep -q '  2  attach sh.d81' <<< "$SH" &&
+    [ "$(grep -c 'blocks free' <<< "$SH")" = 1 ] &&
+    pass "shell: attach, commands, !, history, quit" || fail "shell ($SH)"
+
+# edit: the sector editor's keys piped in (right, right, AB cd, down, next
+# sector, ff, write, quit); without w nothing is written
+rm -f "$TMPDIR/ed.d64"
+$DISK45 create "$TMPDIR/ed.d64" >/dev/null 2>&1
+printf '\033[C\033[CABcd\033[Bnffwq' | $DISK45 edit "$TMPDIR/ed.d64" 18 1 >/dev/null 2>&1
+SUM=$(md5sum < "$TMPDIR/ed.d64")
+printf '00q' | $DISK45 edit "$TMPDIR/ed.d64" 18 1 >/dev/null 2>&1
+[ "$($DISK45 bpeek "$TMPDIR/ed.d64" 18 1 2 2)" = "AB CD" ] && [ "$($DISK45 bpeek "$TMPDIR/ed.d64" 18 2 20 1)" = "FF" ] &&
+    [ "$(md5sum < "$TMPDIR/ed.d64")" = "$SUM" ] && ! $DISK45 edit "$TMPDIR/ed.d64" 99 0 </dev/null >/dev/null 2>&1 &&
+    pass "edit: the sector editor's keys" || fail "edit"
+
 # ============================================================================
 echo "=== Directory slots ==="
 

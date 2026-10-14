@@ -1,4 +1,5 @@
 #include "Version.hpp"
+#include "BasicLister.hpp"
 #include "DiskImage.hpp"
 #include "D64Image.hpp"
 #include "D71Image.hpp"
@@ -13,6 +14,12 @@
 #include <fstream>
 #include <iomanip>
 #include <cstring>
+#include <zlib.h>
+#include <iterator>
+#include <unistd.h>
+#include <set>
+#include <cstdlib>
+#include <termios.h>
 #include <cerrno>
 #include <sstream>
 #include <algorithm>
@@ -68,6 +75,13 @@ static void usage() {
 #endif
               << "  disk45 convert <source> <target>          Convert between formats\n"
               << "  disk45 chain <image> <filename>           Show file sector chain\n"
+              << "  disk45 repair <image> [--dry]             Rebuild the BAM from the file chains\n"
+              << "  disk45 diff <image1> <image2> [--sectors] Compare two images (files or sectors)\n"
+              << "  disk45 list <image> --petscii             Names in the C64's characters (Unicode)\n"
+              << "  disk45 basic <image> <name> [--v2|--v7|--65]  List a BASIC program\n"
+              << "  disk45 shell                              Interactive: attach an image, run commands\n"
+              << "  disk45 edit <image> <track> <sector>      Sector hex editor\n"
+              << "  disk45 add <image> <file> [name] [-s N] [-b N] [-e] [--track T]  Interleave / placement\n"
               << "  disk45 mkdir <image> <dirname>            Create subdirectory\n"
               << "  disk45 rmdir <image> <dirname>            Remove empty subdirectory\n"
               << "  disk45 tree <image>                       Show directory tree\n"
@@ -678,7 +692,60 @@ static int cmdCreate(int argc, char** argv) {
     return 0;
 }
 
+// PETSCII (the C64's power-on upper case / graphics set) as Unicode, the
+// graphics from Symbols for Legacy Computing (Unicode 13): a name shown as on
+// the C64's screen
+static std::string petsciiGlyph(uint8_t c) {
+    static const char32_t g60[32] = {   // $60-$7F (= $C0-$DF)
+        0x2500, 0x2660, 0x1FB72, 0x1FB78, 0x1FB77, 0x1FB76, 0x1FB7A, 0x1FB71,
+        0x1FB74, 0x256E, 0x2570, 0x256F, 0x1FB7C, 0x2572, 0x2571, 0x1FB7D,
+        0x1FB7E, 0x25CF, 0x1FB7B, 0x2665, 0x1FB70, 0x256D, 0x2573, 0x25CB,
+        0x2663, 0x1FB75, 0x2666, 0x253C, 0x1FB8C, 0x2502, 0x03C0, 0x25E5};
+    static const char32_t gA0[32] = {   // $A0-$BF (= $E0-$FE; $FF is pi)
+        0x00A0, 0x258C, 0x2584, 0x2594, 0x2581, 0x258F, 0x2592, 0x2595,
+        0x1FB8F, 0x25E4, 0x1FB87, 0x251C, 0x2597, 0x2514, 0x2510, 0x2582,
+        0x250C, 0x2534, 0x252C, 0x2524, 0x258E, 0x258D, 0x1FB88, 0x1FB82,
+        0x1FB83, 0x2583, 0x1FB7F, 0x2596, 0x259D, 0x2518, 0x2598, 0x259A};
+    char32_t u;
+    if (c >= 0x20 && c <= 0x5B) u = c;                 // space, digits, @, A-Z, [
+    else if (c == 0x5C) u = 0x00A3;                    // pound
+    else if (c == 0x5D) u = ']';
+    else if (c == 0x5E) u = 0x2191;                    // up arrow
+    else if (c == 0x5F) u = 0x2190;                    // left arrow
+    else if (c >= 0x60 && c <= 0x7F) u = g60[c - 0x60];
+    else if (c >= 0xC0 && c <= 0xDF) u = g60[c - 0xC0];
+    else if (c >= 0xA0 && c <= 0xBF) u = gA0[c - 0xA0];
+    else if (c >= 0xE0 && c <= 0xFE) u = gA0[c - 0xE0];
+    else if (c == 0xFF) u = 0x03C0;
+    else u = 0x00B7;                                   // a control code: a middle dot
+    std::string out;                                   // UTF-8
+    if (u < 0x80) out += (char)u;
+    else if (u < 0x800) { out += (char)(0xC0 | (u >> 6)); out += (char)(0x80 | (u & 0x3F)); }
+    else if (u < 0x10000) {
+        out += (char)(0xE0 | (u >> 12)); out += (char)(0x80 | ((u >> 6) & 0x3F)); out += (char)(0x80 | (u & 0x3F));
+    } else {
+        out += (char)(0xF0 | (u >> 18)); out += (char)(0x80 | ((u >> 12) & 0x3F));
+        out += (char)(0x80 | ((u >> 6) & 0x3F)); out += (char)(0x80 | (u & 0x3F));
+    }
+    return out;
+}
+
+static std::string petsciiText(const std::string& p) {
+    std::string out;
+    for (unsigned char c : p) out += petsciiGlyph(c);
+    return out;
+}
+
 static int cmdList(int argc, char** argv) {
+    // --petscii: names in the C64's characters (Unicode)
+    bool petsciiView = false;
+    for (int i = 0; i < argc; i++)
+        if (std::string(argv[i]) == "--petscii") {
+            petsciiView = true;
+            for (int j = i; j + 1 < argc; j++) argv[j] = argv[j + 1];
+            argc--;
+            break;
+        }
     if (argc < 1) { usage(); return 1; }
     auto img = DiskImage::load(argv[0]);
     if (!img) { std::cerr << "Error: failed to load " << argv[0] << "\n"; return 1; }
@@ -710,6 +777,23 @@ static int cmdList(int argc, char** argv) {
         files = filterFiles(img->listFiles(), pattern);
     }
 
+    if (petsciiView) {
+        // as the C64 lists it: the name padded to 16 in quotes, the ID after
+        std::string dn = DiskImage::asciiToPetscii(img->diskName());
+        dn.resize(16, ' ');
+        std::cout << "0 \"" << petsciiText(dn) << "\" " << petsciiText(DiskImage::asciiToPetscii(img->diskId())) << "\n";
+        for (auto& f : files) {
+            DirEntry e = img->totalTracks() > 0 ? img->findEntry(f.name) : DirEntry{};
+            std::string raw = e.isValid() ? e.petsciiName() : DiskImage::asciiToPetscii(f.name);
+            std::string blocks = std::to_string(f.sizeInSectors);
+            std::string quoted = "\"" + petsciiText(raw) + "\"";
+            std::cout << blocks << std::string(blocks.size() < 5 ? 5 - blocks.size() : 1, ' ') << quoted
+                      << std::string(raw.size() < 17 ? 17 - raw.size() : 1, ' ') << (f.closed ? " " : "*")
+                      << fileTypeStr(f.type) << (f.locked ? "<" : "") << "\n";
+        }
+        std::cout << img->freeSectors() << " BLOCKS FREE.\n";
+        return 0;
+    }
     std::cout << "0 \"" << img->diskName() << "\" " << img->diskId() << "\n";
     for (auto& f : files) {
         std::cout << f.sizeInSectors << "\t\"" << f.name << "\"\t";
@@ -779,6 +863,26 @@ static int cmdInfo(int argc, char** argv) {
 
 static int cmdAdd(int argc, char** argv) {
     bool petscii = extractPetsciiFlag(argc, argv);
+    // placement: -s N interleave, -b N first sector, -e an empty track,
+    // --track T a track (demo loaders that read sectors in a set order)
+    DiskImage::Placement place;
+    {
+        int out = 0;
+        for (int i = 0; i < argc; i++) {
+            std::string a = argv[i];
+            auto num = [&](int& dst) {
+                if (i + 1 >= argc) return false;
+                dst = std::atoi(argv[++i]);
+                return true;
+            };
+            if (a == "-s" && num(place.interleave)) continue;
+            if (a == "-b" && num(place.beginSector)) continue;
+            if (a == "--track" && num(place.track)) continue;
+            if (a == "-e") { place.emptyTrack = true; continue; }
+            argv[out++] = argv[i];
+        }
+        argc = out;
+    }
     if (argc < 2) { usage(); return 1; }
     std::string imagePath = argv[0];
     std::string hostFile = argv[1];
@@ -794,6 +898,14 @@ static int cmdAdd(int argc, char** argv) {
     f.seekg(0);
     std::vector<uint8_t> data((size_t)size);
     f.read(reinterpret_cast<char*>(data.data()), size);
+
+    if (place.active()) {
+        if (place.track && (place.track < 1 || place.track > img->totalTracks() || !img->sectorsOnTrack(place.track))) {
+            std::cerr << "Error: the image has no track " << place.track << "\n";
+            return 1;
+        }
+        img->setPlacement(place);
+    }
 
     // "SUB/NAME" adds into a subdirectory ("SUB/" keeps the host name)
     if (argc >= 3) {
@@ -1064,6 +1176,175 @@ static int cmdLock(int argc, char** argv, bool lock) {
         return 1;
     }
     std::cout << (lock ? "Locked" : "Unlocked") << " \"" << cbmName << "\"\n";
+    return 0;
+}
+
+// The files of an image, subdirectories included ("DIR/NAME"): type,
+// blocks, size and CRC-32 of the contents
+struct DiffFile { CbmFileType type; int blocks; size_t size; uint32_t crc; };
+static void diffFiles(DiskImage* img, const std::string& prefix, std::map<std::string, DiffFile>& out, int depth = 0) {
+    TrackSector here = img->inSubdirectory() ? img->directoryStart() : TrackSector{0, 0};
+    TrackSector hereHdr = img->directoryHeader();
+    for (const auto& f : img->listFiles()) {
+        std::string path = prefix + f.name;
+        if (f.type == CbmFileType::CBM || f.type == CbmFileType::DIR) {
+            out[path + "/"] = {f.type, f.sizeInSectors, 0, 0};
+            DirEntry e = img->findEntry(f.name);
+            if (e.isValid() && depth < 16 && !img->directoryChain(e).isNull()) {
+                img->enterDirectory(e);
+                diffFiles(img, path + "/", out, depth + 1);
+                img->setDirectory(here, hereHdr);
+            }
+            continue;
+        }
+        auto data = img->readFile(f.name);
+        out[path] = {f.type, f.sizeInSectors, data.size(),
+                     (uint32_t)::crc32(0, data.data(), (uInt)data.size())};
+    }
+}
+
+// Compare two images: their files (added, removed, changed), or with
+// --sectors every sector. Exit status 0 when they are the same, 1 otherwise
+static int cmdDiff(int argc, char** argv) {
+    if (argc < 2) { std::cerr << "Usage: disk45 diff <image1> <image2> [--sectors]\n"; return 2; }
+    bool sectors = false;
+    for (int i = 2; i < argc; i++)
+        if (std::string(argv[i]) == "--sectors" || std::string(argv[i]) == "-s") sectors = true;
+    auto a = DiskImage::load(argv[0]);
+    if (!a) { std::cerr << "Error: failed to load " << argv[0] << "\n"; return 2; }
+    auto b = DiskImage::load(argv[1]);
+    if (!b) { std::cerr << "Error: failed to load " << argv[1] << "\n"; return 2; }
+    int differences = 0;
+    if (sectors) {
+        if (a->totalTracks() != b->totalTracks() || a->totalSectors() != b->totalSectors() ||
+            a->totalTracks() == 0) {
+            std::cerr << "Error: --sectors needs two sector images of the same geometry\n";
+            return 2;
+        }
+        int t0 = a->sectorData(0, 0) ? 0 : 1;   // D90/D60 have a track 0
+        for (int t = t0; t <= a->totalTracks(); t++)
+            for (int sec = 0; sec < a->sectorsOnTrack(t); sec++) {
+                const uint8_t* x = a->sectorData(t, sec);
+                const uint8_t* y = b->sectorData(t, sec);
+                if (!x || !y || std::memcmp(x, y, 256) == 0) continue;
+                int n = 0, first = -1;
+                for (int i = 0; i < 256; i++)
+                    if (x[i] != y[i]) { if (first < 0) first = i; n++; }
+                std::cout << t << "/" << sec << ": " << n << " byte" << (n == 1 ? "" : "s") << " differ (first at $"
+                          << std::hex << std::uppercase << std::setw(2) << std::setfill('0') << first
+                          << std::dec << std::setfill(' ') << ")\n";
+                differences++;
+            }
+        std::cout << (differences ? std::to_string(differences) + " sector(s) differ" : std::string("The sectors are the same"))
+                  << "\n";
+        return differences ? 1 : 0;
+    }
+    std::map<std::string, DiffFile> fa, fb;
+    diffFiles(a.get(), "", fa);
+    diffFiles(b.get(), "", fb);
+    auto crcHex = [](uint32_t c) {
+        char buf[16];
+        std::snprintf(buf, sizeof(buf), "%08X", c);
+        return std::string(buf);
+    };
+    for (const auto& [name, x] : fa) {
+        auto it = fb.find(name);
+        if (it == fb.end()) {
+            std::cout << "- " << name << " (" << fileTypeStr(x.type) << ", " << x.blocks << " blocks)\n";
+            differences++;
+            continue;
+        }
+        const DiffFile& y = it->second;
+        if (x.type != y.type || x.size != y.size || x.crc != y.crc) {
+            std::cout << "~ " << name << ":";
+            if (x.type != y.type) std::cout << " type " << fileTypeStr(x.type) << " -> " << fileTypeStr(y.type);
+            if (x.size != y.size) std::cout << " size " << x.size << " -> " << y.size;
+            if (x.crc != y.crc) std::cout << " crc " << crcHex(x.crc) << " -> " << crcHex(y.crc);
+            std::cout << "\n";
+            differences++;
+        }
+    }
+    for (const auto& [name, y] : fb)
+        if (!fa.count(name)) {
+            std::cout << "+ " << name << " (" << fileTypeStr(y.type) << ", " << y.blocks << " blocks)\n";
+            differences++;
+        }
+    if (a->diskName() != b->diskName() || a->diskId() != b->diskId()) {
+        std::cout << "~ disk name/ID: \"" << a->diskName() << "\" " << a->diskId() << " -> \"" << b->diskName()
+                  << "\" " << b->diskId() << "\n";
+        differences++;
+    }
+    std::cout << (differences ? std::to_string(differences) + " difference(s)" : std::string("The files are the same")) << "\n";
+    return differences ? 1 : 0;
+}
+
+// A BASIC program on an image (or a .prg on the host) as LIST shows it
+static int cmdBasic(int argc, char** argv) {
+    BasicDialect dialect = BasicDialect::AUTO;
+    std::vector<std::string> args;
+    for (int i = 0; i < argc; i++) {
+        std::string a = argv[i];
+        if (a == "--v2" || a == "-2") dialect = BasicDialect::V2;
+        else if (a == "--v7" || a == "-7") dialect = BasicDialect::V7;
+        else if (a == "--65" || a == "-6") dialect = BasicDialect::B65;
+        else args.push_back(a);
+    }
+    if (args.empty()) {
+        std::cerr << "Usage: disk45 basic <image> <name> [--v2|--v7|--65]\n"
+                  << "       disk45 basic <file.prg> [--v2|--v7|--65]\n";
+        return 1;
+    }
+    std::vector<uint8_t> data;
+    if (args.size() == 1) {
+        std::ifstream f(args[0], std::ios::binary);
+        if (!f) { std::cerr << "Error: cannot open " << args[0] << "\n"; return 1; }
+        data.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+    } else {
+        auto img = DiskImage::load(args[0]);
+        if (!img) { std::cerr << "Error: failed to load " << args[0] << "\n"; return 1; }
+        std::string name = normalizeName(args[1]);
+        if (!enterDirOf(img.get(), name)) return 1;
+        if (!img->fileExists(name)) { std::cerr << "Error: file \"" << name << "\" not found\n"; return 1; }
+        data = img->readFile(name);
+    }
+    BasicListing l = listBasic(data, dialect);
+    if (!l.ok) { std::cerr << "Error: " << l.error << "\n"; return 1; }
+    for (const auto& w : l.warnings) std::cerr << "Warning: " << w << "\n";
+    std::cout << l.text;
+    return 0;
+}
+
+// Rebuild the BAM from the file chains (the directory, subdirectories,
+// every file's sectors, the header and the format's own sectors)
+static int cmdRepair(int argc, char** argv) {
+    if (argc < 1) { std::cerr << "Usage: disk45 repair <image> [--dry]\n"; return 1; }
+    bool dry = false;
+    for (int i = 1; i < argc; i++)
+        if (std::string(argv[i]) == "--dry" || std::string(argv[i]) == "-n") dry = true;
+    auto img = DiskImage::load(argv[0]);
+    if (!img) { std::cerr << "Error: failed to load " << argv[0] << "\n"; return 1; }
+    if (img->totalTracks() == 0) { std::cerr << "Error: " << argv[0] << " has no BAM (an archive)\n"; return 1; }
+    if (!img->writable() && !dry) {
+        std::cerr << "Error: disk45 cannot write this format (use --dry to see the changes)\n";
+        return 1;
+    }
+    auto r = img->rebuildBam(dry);
+    for (const auto& e : r.errors) std::cerr << "Warning: " << e << "\n";
+    auto show = [](const char* what, const std::vector<TrackSector>& v) {
+        std::cout << what << ": " << v.size() << " sector" << (v.size() == 1 ? "" : "s");
+        for (size_t i = 0; i < v.size() && i < 16; i++)
+            std::cout << (i ? ", " : " (") << (int)v[i].track << "/" << (int)v[i].sector;
+        if (!v.empty()) std::cout << (v.size() > 16 ? ", ...)" : ")");
+        std::cout << "\n";
+    };
+    show(dry ? "Would mark used" : "Marked used", r.allocated);
+    show(dry ? "Would free" : "Freed", r.freed);
+    if (dry || (r.allocated.empty() && r.freed.empty())) {
+        if (!dry) std::cout << "The BAM matches the files\n";
+        return 0;
+    }
+    if (!img->saveImage(argv[0])) { std::cerr << "Error: failed to write " << argv[0] << "\n"; return 1; }
+    std::cout << img->freeSectors() << " blocks free.\n";
     return 0;
 }
 
@@ -2228,6 +2509,192 @@ static int cmdConvert(int argc, char** argv) {
 static int processCommand(int argc, char** argv);
 
 // Batch script: read commands from file, execute each line
+// A command line as argv-style words (spaces separate, "..." keeps them)
+static std::vector<std::string> splitCommandLine(const std::string& line) {
+    std::vector<std::string> tokens;
+    std::string current;
+    bool inQuote = false, any = false;
+    for (char c : line) {
+        if (c == '"') { inQuote = !inQuote; any = true; continue; }
+        if ((c == ' ' || c == '\t') && !inQuote) {
+            if (any || !current.empty()) { tokens.push_back(current); current.clear(); any = false; }
+        } else {
+            current += c;
+        }
+    }
+    if (any || !current.empty()) tokens.push_back(current);
+    return tokens;
+}
+
+// disk45 edit: a sector's 256 bytes as hex, edited in place. Keys: the
+// arrows move, two hex digits set a byte, n / p (Page Down / Up) go to the
+// next / previous sector, w writes the image, q quits (a second q discards
+// unwritten changes). From a terminal it runs full screen (raw keys); keys
+// piped in (tests) work the same, without the screen
+static int cmdEdit(int argc, char** argv) {
+    if (argc < 3) { std::cerr << "Usage: disk45 edit <image> <track> <sector>\n"; return 1; }
+    auto img = DiskImage::load(argv[0]);
+    if (!img) { std::cerr << "Error: failed to load " << argv[0] << "\n"; return 1; }
+    int t = std::atoi(argv[1]), sec = std::atoi(argv[2]);
+    if (!img->sectorData(t, sec)) { std::cerr << "Error: no sector " << t << "/" << sec << "\n"; return 1; }
+    bool tty = isatty(0) && isatty(1);
+    struct termios saved{};
+    if (tty) {
+        tcgetattr(0, &saved);
+        struct termios raw = saved;
+        raw.c_lflag &= ~(ICANON | ECHO);
+        raw.c_cc[VMIN] = 1;
+        raw.c_cc[VTIME] = 0;
+        tcsetattr(0, TCSANOW, &raw);
+    }
+    int cur = 0, nibble = -1;
+    bool dirty = false, quitArmed = false;
+    std::string status;
+    auto draw = [&]() {
+        if (!tty) return;
+        const uint8_t* d = img->sectorData(t, sec);
+        std::cout << "\x1b[H\x1b[2J" << argv[0] << "  track " << t << " sector " << sec
+                  << (dirty ? "  (changed)" : "") << "\r\n\r\n";
+        char buf[16];
+        for (int row = 0; row < 16; row++) {
+            std::snprintf(buf, sizeof buf, "%02X: ", row * 16);
+            std::cout << buf;
+            for (int c = 0; c < 16; c++) {
+                int i = row * 16 + c;
+                std::snprintf(buf, sizeof buf, "%02X", d[i]);
+                if (i == cur) std::cout << "\x1b[7m" << buf << "\x1b[0m "; else std::cout << buf << " ";
+            }
+            std::cout << " ";
+            for (int c = 0; c < 16; c++) {
+                int i = row * 16 + c;
+                std::string ch = petsciiGlyph(d[i] < 0x20 || (d[i] >= 0x80 && d[i] < 0xA0) ? 0x2E : d[i]);
+                if (i == cur) std::cout << "\x1b[7m" << ch << "\x1b[0m"; else std::cout << ch;
+            }
+            std::cout << "\r\n";
+        }
+        std::cout << "\r\narrows move, hex digits set the byte, n/p next/previous sector, w write, q quit\r\n"
+                  << status << std::flush;
+    };
+    auto step = [&](int dir) {
+        int t2 = t, s2 = sec + dir;
+        if (s2 >= img->sectorsOnTrack(t2)) { t2++; s2 = 0; }
+        if (s2 < 0) { t2--; s2 = t2 >= 0 ? img->sectorsOnTrack(t2) - 1 : 0; }
+        if (img->sectorData(t2, s2)) { t = t2; sec = s2; nibble = -1; }
+    };
+    int rc = 0;
+    draw();
+    while (true) {
+        int ch = std::getchar();
+        if (ch == EOF) break;
+        status.clear();
+        if (ch == 0x1B) {                                   // ESC [ A..D, 5~, 6~
+            int c1 = std::getchar(), c2 = std::getchar();
+            if (c1 == '[') {
+                if (c2 == 'A') cur = (cur + 240) % 256;
+                else if (c2 == 'B') cur = (cur + 16) % 256;
+                else if (c2 == 'C') cur = (cur + 1) % 256;
+                else if (c2 == 'D') cur = (cur + 255) % 256;
+                else if (c2 == '5' || c2 == '6') { std::getchar(); step(c2 == '6' ? 1 : -1); }
+                nibble = -1;
+            }
+        } else if (std::isxdigit(ch)) {
+            int v = std::isdigit(ch) ? ch - '0' : std::tolower(ch) - 'a' + 10;
+            uint8_t* d = img->sectorData(t, sec);
+            if (nibble < 0) { d[cur] = (uint8_t)((v << 4) | (d[cur] & 0x0F)); nibble = v; }
+            else { d[cur] = (uint8_t)((nibble << 4) | v); nibble = -1; cur = (cur + 1) % 256; }
+            dirty = true;
+        } else if (ch == 'n' || ch == 'p') {
+            step(ch == 'n' ? 1 : -1);
+        } else if (ch == 'w') {
+            if (img->saveImage(argv[0])) { dirty = false; status = "written"; }
+            else { status = "could not write the image"; rc = 1; }
+        } else if (ch == 'q') {
+            if (dirty && !quitArmed) { status = "unwritten changes: w writes them, q again discards them"; quitArmed = true; }
+            else break;
+            draw();
+            continue;
+        }
+        quitArmed = false;
+        draw();
+    }
+    if (tty) { tcsetattr(0, TCSANOW, &saved); std::cout << "\x1b[H\x1b[2J" << std::flush; }
+    if (!tty && dirty) std::cerr << "disk45 edit: changes not written (no w)\n";
+    return rc;
+}
+
+// The commands whose first argument is the image (the shell inserts the
+// attached one)
+static bool takesImage(const std::string& c) {
+    static const std::set<std::string> cmds = {
+        "list", "ls", "dir", "info", "add", "write", "extract", "read", "extract-all", "extractall",
+        "remove", "delete", "rm", "rename", "mv", "lock", "unlock", "splat", "unsplat", "label",
+        "validate", "check", "repair", "bam", "map", "dump", "hex", "mkdir", "rmdir", "tree",
+        "basic", "dir-shrink", "dir-ensure", "rel-create", "rel-read", "rel-write", "rel-list",
+        "bread", "bwrite", "bpeek", "bpoke", "bfill", "chain"};
+    return cmds.count(c) > 0;
+}
+
+// disk45 shell: commands one per line, without reloading disk45; an
+// attached image is the image of the commands that take one
+static int cmdShell() {
+    bool tty = isatty(0);
+    std::string attached;
+    std::vector<std::string> history;
+    std::string line;
+    int last = 0;
+    if (tty) std::cout << "disk45 " << VERSION << " shell: help for the commands, quit to leave\n";
+    while (true) {
+        if (tty) std::cout << (attached.empty() ? std::string("disk45> ") : attached + "> ") << std::flush;
+        if (!std::getline(std::cin, line)) break;
+        size_t start = line.find_first_not_of(" \t");
+        if (start == std::string::npos || line[start] == '#') continue;
+        history.push_back(line.substr(start));
+        if (line[start] == '!') {                       // a host shell command
+            last = std::system(line.c_str() + start + 1) == 0 ? 0 : 1;
+            continue;
+        }
+        std::vector<std::string> w = splitCommandLine(line.substr(start));
+        if (w.empty()) continue;
+        const std::string& c = w[0];
+        if (c == "quit" || c == "exit" || c == "q") break;
+        if (c == "help" || c == "?") {
+            std::cout << "  attach <image>    the image of the following commands (detach: none)\n"
+                         "  <command> [args]  any disk45 command; with an attached image it is left out\n"
+                         "                    (list, add file.prg NAME, extract NAME out.prg, tree, ...)\n"
+                         "  !<command>        run a host shell command\n"
+                         "  history           the commands so far\n"
+                         "  quit              leave the shell\n";
+            continue;
+        }
+        if (c == "attach") {
+            if (w.size() < 2) { std::cerr << "Usage: attach <image>\n"; last = 1; continue; }
+            if (!DiskImage::load(w[1])) { std::cerr << "Error: cannot load " << w[1] << "\n"; last = 1; continue; }
+            attached = w[1];
+            last = 0;
+            continue;
+        }
+        if (c == "detach") { attached.clear(); continue; }
+        if (c == "history") {
+            for (size_t i = 0; i + 1 < history.size(); i++) std::cout << "  " << i + 1 << "  " << history[i] << "\n";
+            continue;
+        }
+        // the attached image goes in front of the arguments, unless the
+        // first one already names an image
+        if (!attached.empty() && takesImage(c)) {
+            bool named = w.size() > 1 && DiskImage::isImageExtension(w[1].substr(0, w[1].find(':'))) &&
+                         access(w[1].substr(0, w[1].find(':')).c_str(), F_OK) == 0;
+            if (!named) w.insert(w.begin() + 1, attached);
+        }
+        std::vector<char*> args;
+        std::string prog = "disk45";
+        args.push_back(const_cast<char*>(prog.c_str()));
+        for (auto& t : w) args.push_back(const_cast<char*>(t.c_str()));
+        last = processCommand((int)args.size(), args.data());
+    }
+    if (tty) std::cout << "\n";
+    return last;
+}
+
 static int cmdBatch(const std::string& scriptFile) {
     std::ifstream f(scriptFile);
     if (!f) { std::cerr << "Error: cannot open script " << scriptFile << "\n"; return 1; }
@@ -2241,20 +2708,7 @@ static int cmdBatch(const std::string& scriptFile) {
         if (start == std::string::npos) continue;
         if (line[start] == '#' || line[start] == ';') continue;
 
-        // Parse line into argv-style tokens (simple space splitting, respecting quotes)
-        std::vector<std::string> tokens;
-        std::string current;
-        bool inQuote = false;
-        for (size_t i = start; i < line.size(); i++) {
-            char c = line[i];
-            if (c == '"') { inQuote = !inQuote; continue; }
-            if (c == ' ' && !inQuote) {
-                if (!current.empty()) { tokens.push_back(current); current.clear(); }
-            } else {
-                current += c;
-            }
-        }
-        if (!current.empty()) tokens.push_back(current);
+        std::vector<std::string> tokens = splitCommandLine(line.substr(start));
         if (tokens.empty()) continue;
 
         // Build argv (prepend "disk45" as argv[0])
@@ -2316,6 +2770,10 @@ static int processCommand(int argc, char** argv) {
     if (cmd == "splat")   return cmdSplat(subArgc, subArgv, false);
     if (cmd == "unsplat") return cmdSplat(subArgc, subArgv, true);
     if (cmd == "label")   return cmdLabel(subArgc, subArgv);
+    if (cmd == "repair")  return cmdRepair(subArgc, subArgv);
+    if (cmd == "edit")    return cmdEdit(subArgc, subArgv);
+    if (cmd == "basic")   return cmdBasic(subArgc, subArgv);
+    if (cmd == "diff" || cmd == "compare") return cmdDiff(subArgc, subArgv);
     if (cmd == "validate" || cmd == "check")
                           return cmdValidate(subArgc, subArgv);
     if (cmd == "bam" || cmd == "map")
@@ -2372,6 +2830,7 @@ int main(int argc, char** argv) {
 
     // Batch script mode: disk45 batch <scriptfile>
     std::string first = argv[1];
+    if (first == "shell") return cmdShell();
     if (first == "batch" || first == "--batch") {
         if (argc < 3) { std::cerr << "Usage: disk45 batch <scriptfile>\n"; return 1; }
         return cmdBatch(argv[2]);
