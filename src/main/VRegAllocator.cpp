@@ -304,7 +304,11 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
         ir::Op op = flatInsts_[idx].inst->op;
         if (op == ir::Op::CALL || op == ir::Op::CALL_VOID || op == ir::Op::CALL_INDIRECT) {
             callIndices.insert(idx);
-            if (flatInsts_[idx].inst->callConv == ir::CallConv::ZP) zpCallIndices.insert(idx);
+            // (a stack-convention call stages its arguments in the parameter
+            // block: safe when they fit in its 32 bytes)
+            int argBytes = 0;
+            for (const auto& a : flatInsts_[idx].inst->args) argBytes += std::max(2, (int)ir::typeSize(a.type));
+            if (flatInsts_[idx].inst->callConv == ir::CallConv::ZP || argBytes <= 32) zpCallIndices.insert(idx);
         }
     }
 
@@ -442,10 +446,10 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
         }
 
         // Check if any call occurs within the live range. A value whose last
-        // use is a ZP-convention call is one of its arguments, stored into
-        // $10-$2F before the JSR: it does not cross it. (A stack-convention
-        // call stages its arguments in the parameter block first, which for
-        // more than 32 bytes runs into the register pool.)
+        // use is a call is one of its arguments, stored into $10-$2F (ZP
+        // convention) or staged there (stack convention) before the JSR: it
+        // does not cross it. Not when a stack-convention call's arguments
+        // take more than 32 bytes: the staging runs into the register pool.
         bool crossesCall = false;
         for (int ci : callIndices) {
             if (ci > lr.firstDef && (ci < lr.lastUse || (ci == lr.lastUse && !zpCallIndices.count(ci)))) {
