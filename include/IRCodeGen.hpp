@@ -191,6 +191,9 @@ private:
     // at SP+1: the bytes swapped, so the stack holds it little-endian (as
     // push .ax); a symbol's address as the opcode and >sym, <sym
     void pushWordConst(int v);
+    // A global array's address as an immediate operand, plus a constant
+    // offset (an element access folded by foldElemIndexOffset)
+    std::string globalBase(const ir::Operand& base, int offset);
     void pushWordAddr(const std::string& sym);
     std::set<uint32_t> regVregs_;   // the function's register variables (declared, and a leaf's pointer locals)
     // -ffunction-sections: each variable, string and SAC block is a .split

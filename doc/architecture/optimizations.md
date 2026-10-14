@@ -119,6 +119,15 @@ loop body does not reload the counter the test just loaded; `cmp.16` is known
 to leave A and X alone. A byte constant stored to an element loads only A.
 Benchmark: 987 ms.
 
+`foldElemIndexOffset` (`IROptimizer.cpp`, after the passes and
+`removeDeadTemps`; tag `elemoff`; `CC45_NO_ELEM_OFFSET=1` turns it off) turns
+an element access `a[x + c]` (`a[x - c]`) of a global array into element `x`
+of `a + c*stride` (`Inst::elemOffset`; the code generator writes the base as
+`#<(_a+2)`), when `x + c` is a 16-bit add defined once in the same block
+before the access and `x` is not written in between: the add disappears and
+`a[j]` / `a[j + 1]` scale the same index. It runs last because CSE does not
+compare offsets. Validation: `test_elem_offset_xemu.c`. Benchmark: 904 ms.
+
 A static-allocation function that makes calls cannot use the pool across
 them; its most used variables go in a base-page block of its own, `$80+k`,
 declared with `.zar $80, N`: pointers first, then `char`/`int`/`long` variables

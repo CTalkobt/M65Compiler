@@ -178,6 +178,10 @@ struct Inst {
     Type resultType = Type::VOID;
     uint8_t resultByteWidth = 0; // For I_N: actual byte count
 
+    // ADDR_ELEM, or a LOAD/STORE with a fused one, whose base is a global:
+    // bytes added to it (a[i + c] as element i of a + c*stride)
+    int elemOffset = 0;
+
     // For CALL/CALL_INDIRECT: argument list and convention
     std::vector<Operand> args;
     CallConv callConv = CallConv::STACK;

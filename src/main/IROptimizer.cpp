@@ -2364,4 +2364,66 @@ void removeDeadTemps(Module& mod) {
     }
 }
 
+// a[x + c] (also a[x - c]) with a global base: element x of the array
+// shifted by c*stride bytes, so the index is x itself and the base address
+// carries the constant (bubble sort's a[j] / a[j + 1] use the same index).
+// Only when x + c is defined once, in the same block before the access, x
+// is not written between, and the add is 16-bit (no 8-bit wraparound). Runs
+// after the other passes (CSE would not see the offset)
+void foldElemIndexOffset(Module& mod) {
+    for (auto& fn : mod.functions) {
+        std::map<uint32_t, int> defCount;
+        for (const auto& b : fn.blocks)
+            for (const auto& i : b.insts)
+                if (i.dest.isVreg()) defCount[i.dest.vregId]++;
+        for (auto& b : fn.blocks) {
+            for (size_t ui = 0; ui < b.insts.size(); ui++) {
+                Inst& use = b.insts[ui];
+                Operand* base = nullptr;
+                Operand* index = nullptr;
+                int stride = 0;
+                if ((use.op == Op::LOAD || use.op == Op::STORE) && use.args.size() >= 3) {
+                    base = &use.args[0]; index = &use.args[1]; stride = (int)use.args[2].immVal;
+                } else if (use.op == Op::ADDR_ELEM && !use.args.empty()) {
+                    base = &use.src1; index = &use.src2; stride = (int)use.args[0].immVal;
+                }
+                if (!base || base->kind != OperandKind::GLOBAL || !index->isVreg() || stride <= 0) continue;
+                uint32_t iv = index->vregId;
+                if (defCount[iv] != 1 || fn.localSlotVregs.count(iv)) continue;
+                // the definition, earlier in this block
+                size_t di = ui;
+                for (size_t k = 0; k < ui; k++)
+                    if (b.insts[k].dest.isVreg() && b.insts[k].dest.vregId == iv) di = k;
+                if (di == ui) continue;
+                const Inst& def = b.insts[di];
+                if ((def.op != Op::ADD && def.op != Op::SUB) || (def.resultType != Type::I16 && def.resultType != Type::PTR))
+                    continue;
+                Operand x;
+                int64_t c;
+                if (def.src1.isVreg() && def.src2.isImm()) { x = def.src1; c = def.src2.immVal; }
+                else if (def.op == Op::ADD && def.src2.isVreg() && def.src1.isImm()) { x = def.src2; c = def.src1.immVal; }
+                else continue;
+                if (def.op == Op::SUB) c = -c;
+                if (fn.memoryVregs.count(x.vregId)) continue;
+                // x unchanged from the add to the access
+                bool written = false;
+                for (size_t k = di + 1; k < ui && !written; k++) {
+                    const Inst& w = b.insts[k];
+                    if (w.dest.isVreg() && w.dest.vregId == x.vregId) written = true;
+                    if (w.op == Op::STORE && w.src2.isVreg() && w.src2.vregId == x.vregId) written = true;
+                    if (w.op == Op::CALL || w.op == Op::CALL_VOID || w.op == Op::CALL_INDIRECT || w.op == Op::ASM_INLINE)
+                        written = true;
+                }
+                if (written) continue;
+                int64_t off = (int64_t)use.elemOffset + c * stride;
+                if (off < -32768 || off > 32767) continue;
+                trace("elemoff", fn.name, "a[v" + std::to_string(x.vregId) + (c >= 0 ? " + " : " - ") +
+                      std::to_string(c >= 0 ? c : -c) + "]: base " + base->name + " + " + std::to_string(off), use.loc);
+                *index = x;
+                use.elemOffset = (int)off;
+            }
+        }
+    }
+}
+
 } // namespace ir

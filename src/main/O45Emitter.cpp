@@ -391,6 +391,10 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
 
         if (!isLow && !isHigh && !isWord) continue;
         if (idx >= (int)parser.tokens.size()) continue;
+        // #<(sym+2): the symbol inside the parentheses; the whole expression
+        // gives the carry byte
+        int exprIdx = idx;
+        while (idx + 1 < (int)parser.tokens.size() && parser.tokens[idx].value == "(") idx++;
 
         std::string symName = parser.tokens[idx].value;
         Symbol* sym = parser.resolveSymbol(symName, stmt->scopePrefix);
@@ -429,7 +433,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
             // R_LOWX: the extra byte is the high byte of the whole value the
             // low byte is taken from, so the linker can rebuild it
             uint8_t highByte = (uint8_t)((sym->value >> 8) & 0xFF);
-            try { highByte = (uint8_t)((parser.evaluateExpressionAt(idx, stmt->scopePrefix) >> 8) & 0xFF); } catch (...) {}
+            try { highByte = (uint8_t)((parser.evaluateExpressionAt(exprIdx, stmt->scopePrefix) >> 8) & 0xFF); } catch (...) {}
             O45Reloc reloc;
             reloc.offset = patchOff;
             reloc.type = R_LOWX;
@@ -446,7 +450,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
             // byte is taken from ('>' applies to everything after it:
             // #>buf+2 is the high byte of buf+2), for the linker's carry
             uint8_t lowByte = (uint8_t)(sym->value & 0xFF);
-            try { lowByte = (uint8_t)(parser.evaluateExpressionAt(idx, stmt->scopePrefix) & 0xFF); } catch (...) {}
+            try { lowByte = (uint8_t)(parser.evaluateExpressionAt(exprIdx, stmt->scopePrefix) & 0xFF); } catch (...) {}
             O45Reloc reloc;
             reloc.offset = patchOff;
             reloc.type = R_HIGH;

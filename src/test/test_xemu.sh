@@ -659,6 +659,20 @@ for fimode in "stack|-fno-zpcall" "zp|"; do
     fi
 done
 
+# Test: a[i + c] / a[i - c] folded into a shifted base address (int and
+# char elements, a char index, an index changed before the access)
+for eomode in "stack|-fno-zpcall" "zp|"; do
+    IFS='|' read -r eoname eoflags <<< "$eomode"
+    echo "Testing test_elem_offset_xemu.c ($eoname)..."
+    compile_link_test "src/test-resources/test_elem_offset_xemu.c" "build/test/test_elem_offset_${eoname}_xemu.prg" "$eoflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_elem_offset_$eoname" "build/test/test_elem_offset_${eoname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
+    else
+        echo "FAIL: test_elem_offset_xemu.c $eoname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: <float.h> constants (exact bytes, epsilon, underflow), complex * and
 # / of two complex values, __real__/__imag__, operators on temporaries
 for flmode in "stack|-fno-zpcall" "zp|"; do

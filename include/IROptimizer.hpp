@@ -48,6 +48,8 @@ void leafPointerParamsToZp(Module& mod);
 // block where the caller put them (nothing it runs can overwrite it)
 bool paramsStayInZp(const Function& fn);
 void removeDeadTemps(Module& mod);
+// a[x + c] with a global base: element x of the base + c*stride (after the passes)
+void foldElemIndexOffset(Module& mod);
 
     // Strength reduction: replace expensive ops with cheaper equivalents
     // (MUL by power-of-2 → LSL, DIV_U by power-of-2 → LSR, MOD_U by power-of-2 → AND)

@@ -27,6 +27,11 @@ static std::string hex16(uint16_t val) {
     return ss.str();
 }
 
+std::string IRCodeGen::globalBase(const ir::Operand& base, int offset) {
+    if (offset == 0) return "#" + base.name;
+    return "#(" + base.name + (offset > 0 ? "+" : "-") + std::to_string(offset > 0 ? offset : -offset) + ")";
+}
+
 void IRCodeGen::pushWordConst(int v) {
     emit("phw #$" + hex16((uint16_t)(((v & 0xFF) << 8) | ((v >> 8) & 0xFF))));
 }
@@ -4715,7 +4720,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 int stride = (int)inst.args[2].immVal;
 
                 std::string baseStr = (base.kind == ir::OperandKind::GLOBAL) ?
-                    "#" + base.name : src2MemOperand(base);
+                    globalBase(base, inst.elemOffset) : src2MemOperand(base);
                 emitArrayElemAddr(baseStr, index, stride, "__zp_scratch");
                 // Now load from (__zp_scratch),Y
                 if (inst.resultType == ir::Type::I32) {
@@ -4884,7 +4889,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                              alloc_.getAlloc(inst.src1.vregId).loc == VRegAllocator::IN_ZP;
                 if (constVal || zpVal) {
                     std::string baseStr = (base.kind == ir::OperandKind::GLOBAL) ?
-                        "#" + base.name : src2MemOperand(base);
+                        globalBase(base, inst.elemOffset) : src2MemOperand(base);
                     emitArrayElemAddr(baseStr, index, stride, "__zp_scratch");
                     ms_.invalidateAll();
                     if (constVal && inst.resultType == ir::Type::I8) {
@@ -4909,7 +4914,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 if (inst.resultType != ir::Type::I8) emit("phx");
 
                 std::string baseStr = (base.kind == ir::OperandKind::GLOBAL) ?
-                    "#" + base.name : src2MemOperand(base);
+                    globalBase(base, inst.elemOffset) : src2MemOperand(base);
                 emitArrayElemAddr(baseStr, index, stride, "__zp_scratch");
 
                 // Restore value and store via (__zp_scratch),Y
@@ -5530,7 +5535,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
 
             std::string baseStr;
             if (inst.src1.kind == ir::OperandKind::GLOBAL) {
-                baseStr = "#" + inst.src1.name;
+                baseStr = globalBase(inst.src1, inst.elemOffset);
             } else {
                 baseStr = operandToString(inst.src1);
             }

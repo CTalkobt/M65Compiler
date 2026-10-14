@@ -172,6 +172,12 @@ void CodegenStage::optimizeIR() {
         ir::optimizePostIncrementSink(*irModule_);
     // what the sinking left unused (the old value of x++ as a statement)
     if (ranAny) ir::removeDeadTemps(*irModule_);
+    // a[x + c] as element x of a shifted base (after the passes: CSE does not
+    // see the offset), then the add it leaves unused
+    if (ranAny && !getenv("CC45_NO_ELEM_OFFSET")) {
+        ir::foldElemIndexOffset(*irModule_);
+        ir::removeDeadTemps(*irModule_);
+    }
     ir::passEnabled = nullptr;
     ir::optTrace = nullptr;
 }

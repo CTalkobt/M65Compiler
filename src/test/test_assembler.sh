@@ -425,6 +425,17 @@ else
     failed=$((failed + 1))
 fi
 
+# #<(sym+2) / #>(sym+2) in an object: relocated like #<sym+2 / #>sym+2
+printf '    .segment "bss"\nbuf: .res 300\n    .segment "code"\n    lda #<(buf+2)\n    adc #>(buf+2)\n' > build/test_paren_reloc.s45
+R=$($AS -c build/test_paren_reloc.s45 -o build/test_paren_reloc.o45 >/dev/null 2>&1 && ./bin/nm45 -r build/test_paren_reloc.o45)
+if grep -q '0001  R_LOWX      BSS' <<< "$R" && grep -q '0003  R_HIGH      BSS     extra=\$02' <<< "$R"; then
+    echo "SUCCESS: #<(sym+n) / #>(sym+n) are relocated"
+    passed=$((passed + 1))
+else
+    echo "FAIL: parenthesized lo/hi relocations ($R)"
+    failed=$((failed + 1))
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All assembler feature tests passed!"
     exit 0
