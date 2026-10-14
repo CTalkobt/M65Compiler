@@ -3,7 +3,8 @@
 #include <sstream>
 #include <iomanip>
 
-std::string X65Writer::write(const AsmIR::Module& module) {
+std::string X65Writer::write(const AsmIR::Module& input) {
+    const AsmIR::Module module = textAsBytes(input);
     // X65 doesn't support macros, so expand them
     AsmIR::Module expandedModule = module;
     MacroUtils::processAndExpandMacros(expandedModule, "x65", true);

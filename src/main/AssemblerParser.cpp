@@ -1648,7 +1648,11 @@ void AssemblerParser::pass1() {
                                         uint32_t val = parseNumericLiteral(stmt->instr.operand);
                                         if (val > 0xFF || stmt->instr.mnemonic == "jsr" || stmt->instr.mnemonic == "jmp" || stmt->instr.mnemonic == "phw") stmt->instr.mode = AddressingMode::ABSOLUTE_X_INDIRECT;
                                         else stmt->instr.mode = AddressingMode::BASE_PAGE_X_INDIRECT;
-                                    } catch(...) { stmt->instr.mode = AddressingMode::ABSOLUTE_X_INDIRECT; }
+                                    } catch(...) {
+                                        // a symbol: (abs,x) only where the instruction has it (jmp, jsr)
+                                        stmt->instr.mode = AssemblerOpcodeDatabase::isValidMode(stmt->instr.mnemonic, AddressingMode::ABSOLUTE_X_INDIRECT)
+                                            ? AddressingMode::ABSOLUTE_X_INDIRECT : AddressingMode::BASE_PAGE_X_INDIRECT;
+                                    }
                                 }
                             } else if (r == "SP" || r == "sp") {
                                 expect(AssemblerTokenType::CLOSE_PAREN, "Expected )"); expect(AssemblerTokenType::COMMA, "Expected ,"); advance();
@@ -1668,7 +1672,11 @@ void AssemblerParser::pass1() {
                                         uint32_t val = parseNumericLiteral(stmt->instr.operand);
                                         if (val > 0xFF || stmt->instr.mnemonic == "jsr" || stmt->instr.mnemonic == "jmp" || stmt->instr.mnemonic == "phw") stmt->instr.mode = AddressingMode::ABSOLUTE_INDIRECT;
                                         else stmt->instr.mode = AddressingMode::INDIRECT;
-                                    } catch(...) { stmt->instr.mode = AddressingMode::ABSOLUTE_INDIRECT; }
+                                    } catch(...) {
+                                        // a symbol: (abs) only where the instruction has it (jmp, jsr)
+                                        stmt->instr.mode = AssemblerOpcodeDatabase::isValidMode(stmt->instr.mnemonic, AddressingMode::ABSOLUTE_INDIRECT)
+                                            ? AddressingMode::ABSOLUTE_INDIRECT : AddressingMode::INDIRECT;
+                                    }
                                 }
                             }
                         }

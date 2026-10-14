@@ -14,7 +14,7 @@
 | `oscar` | Oscar (Commodore 6502 assembler) | `.s6502` | `.s6502` |
 | `x65` | x65 | `.x65` | `.x65` |
 
-`cvt_asm -l` (or `--list-formats`) prints the registered parsers and writers. The conversion quality differs a lot between formats — see [Limitations](#limitations).
+`cvt_asm -l` (or `--list-formats`) prints the registered parsers and writers. See [Readers and writers](#readers-and-writers) for what each format's reader takes and [Limitations](#limitations) for what does not convert.
 
 ## Usage
 
@@ -144,6 +144,23 @@ game.main:
   RTS
 ```
 
+## Readers and writers
+
+The six non-ca45 readers share one line-based reader (`DialectReader`), set up per dialect, which reads a line as ca45's own reader does: a label, then a constant, an origin, a directive or an instruction, with its comment. An instruction's addressing mode comes from its operand (`#e`, `e,x`, `e,y`, `(e,x)`, `(e),y`, `(e)`, `e`); another operand (and any operand of an instruction that is not a 6502/65C02/45GS02 opcode, such as ca45's simulated `push a` or `add.16`) is kept as written. A directive the dialect's table does not know is passed on under its own name, as the writers pass on ca45-only directives, and macro definitions are read into the module (their calls are expanded).
+
+| Reader | Labels | Constants, origin | Data and strings | Symbols, other |
+|--------|--------|-------------------|------------------|----------------|
+| `ca65` | `name:`, `@local:` | `n = e`, `n := e`, `.org` | `.byte`/`.byt` (strings ASCII), `.word`/`.addr`, `.dword`, `.res` | `.import`/`.export` (also `zp`), `.segment`, `.code`/`.data`/`.bss`/`.rodata`, `.setcpu`; `.p02`, `.p4510`, ... dropped |
+| `acme` | `name:` or a word in column 1 | `n = e`, `*= e` | `!byte`/`!by`/`!8`, `!word`/`!wo`/`!16`, `!32`, `!text`/`!tx` (ASCII), `!pet` (PETSCII), `!scr` (screen codes), `!fill`, `!align`, `!binary` | `!cpu m65` (45GS02); `!to`, `!zone`, `!sl` dropped; `!macro n { }` called as `+n` |
+| `kickassembler` | `name:` | `.const`/`.label n = e`, `.var`, `*=` / `.pc =` | `.byte`, `.word`, `.dword`, `.text` (in the current `.encoding`: screencode_mixed by default, petscii_mixed/upper, screencode_upper, ascii), `.fill`, `.align` | `.cpu _45gs02`; `//` and `/* */` comments; `.macro n(a) { }` called as `n(a)` |
+| `merlin64` | column 1, no `:` | `n EQU e`, `n = e`, `ORG` | `DFB`/`DB`, `HEX`, `DW`/`DA`, `ASC` (ASCII), `DS` | `ENT`/`EXT`; `*` comment lines; `LST`, `MX`, `XC`, ... dropped |
+| `oscar` | column 1, no `:` | `n = e`, `ORG` | `BYTE`/`DB`, `WORD`/`DW` | `GLOBAL`/`EXTERN` |
+| `x65` | `name:` or a word in column 1 | `n = e`, `.org` | `.byte`, `.word`, `.long`, `dc.b`/`dc.w`/`dc.l`, `.text` | `.import`/`.export`, `xref`/`xdef` |
+
+Strings and character constants keep their bytes: a reader writes a dialect's strings as ca45 `.ascii` (plain ASCII) or `.byte` lists in that dialect's encoding, and `'c'` constants as numbers; the writers write ca45's `.text` (PETSCII), `.screencode` and `.ascii` as `.byte` lists of the bytes ca45 makes (the string in the comment), and its `'c'` (PETSCII: `'a'` is `$41`) as numbers. The Merlin 64 writer uses Merlin's keywords (`DFB`, `DW`, `ASC`, `DS`, `ENT`, `EXT`, directives indented out of the label column); a ca45 directive with no keyword in Merlin or Oscar is written `.name`.
+
+`test_cvt_asm.sh` (in `make test`) converts every test source that ca45 assembles as a flat binary to each dialect and back, and checks that it assembles to the same bytes; and converts a program written in each dialect's own syntax (ca65, ACME, Merlin 64, KickAssembler, x65) and checks it against the same program written for ca45.
+
 ## Limitations
 
 **ca45 input** is read from the (preprocessed) source as written: labels keep their spelling, operands and directive arguments their expressions and commas, constants (`name = expr`) and comments stay in place, and a label and a statement on one line both survive. ca45's own parse supplies the addressing modes. What only ca45 understands — simulated instructions (`add.16`), `proc`/`endproc`, `.repeat`, `(zp),z`, `[zp],z`, stack-relative operands — is written out as it was, with a warning (`'lda ($20),z' is ca45-specific and kept as written`). `#define` macros are expanded by the preprocessor; their definitions are not reproduced. ca45 → ca45 is lossless: `test_cvt_asm.sh` (in `make test`) converts every test source that ca45 assembles as a flat binary and checks that it assembles to the same bytes.
@@ -152,8 +169,9 @@ game.main:
 
 Known problems:
 
-- The **other readers** (ca65, ACME, KickAssembler, merlin64, oscar, x65 input) are simple token-based parsers: they keep an indexed operand's `,x`/`,y` and parentheses in the operand text (so the mode is written twice), drop `<`/`>` from immediates, read `name = expr` as an instruction and pass data-list commas as arguments. Converting their output back to ca45 therefore does not reassemble to the same bytes yet.
-- The merlin64 and oscar writers use `BYTE`/`WORD`/`GLOBAL`/`EXTERN`, the keywords their own readers accept, not Merlin's `DFB`/`DW`/`ENT`/`EXT`.
+- A reader knows the common directives of its assembler, not all of them: scoping (`.proc`, `!zone` blocks, KickAssembler namespaces), conditional assembly in the dialect's own syntax, KickAssembler's script language and `.fill` with an expression of the index are not translated; an unknown directive reaches ca45 under its own name, where ca45 reports it.
+- Merlin's `ASC` is taken as ASCII as written (the Apple II versions set bit 7 for some delimiters).
+- ca65's `.asciiz` and ACME's `!24` have no ca45 equivalent yet and are passed on unchanged.
 
 Warnings (unknown directives, constructs kept as written) always go to stderr; `-v`'s and `--metrics`' performance summary goes to stderr too, so it never mixes with converted source on stdout. Use `--validate` and `--stats` to see how much of a file survives a conversion, and check the result by assembling it.
 

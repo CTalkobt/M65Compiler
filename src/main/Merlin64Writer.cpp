@@ -3,7 +3,8 @@
 #include <sstream>
 #include <iomanip>
 
-std::string Merlin64Writer::write(const AsmIR::Module& module) {
+std::string Merlin64Writer::write(const AsmIR::Module& input) {
+    const AsmIR::Module module = textAsBytes(input);
     // Merlin64 doesn't support macros, so expand them
     AsmIR::Module expandedModule = module;
     MacroUtils::processAndExpandMacros(expandedModule, "merlin64", true);
@@ -13,9 +14,9 @@ std::string Merlin64Writer::write(const AsmIR::Module& module) {
     // Emit symbols (globals, externs, weak) - Merlin 64 style
     for (const auto& [name, sym] : expandedModule.symbols) {
         if (sym.is_extern) {
-            out << "EXTERN " << name << "\n";
+            out << "\tEXT " << name << "\n";
         } else if (sym.is_global) {
-            out << "GLOBAL " << name << "\n";
+            out << "\tENT " << name << "\n";
         }
     }
 
@@ -49,7 +50,8 @@ std::string Merlin64Writer::write(const AsmIR::Module& module) {
                     continue;
                 }
 
-                out << formatDirective(stmt.dir) << (stmt.comment.empty() ? "" : " ;" + stmt.comment) << "\n";
+                out << (stmt.dir.type == AsmIR::DirectiveType::CONST ? "" : "\t") << formatDirective(stmt.dir)
+                    << (stmt.comment.empty() ? "" : " ;" + stmt.comment) << "\n";
                 break;
             }
 
@@ -145,9 +147,14 @@ std::string Merlin64Writer::formatDirective(const AsmIR::Directive& dir) {
 }
 
 std::string Merlin64Writer::formatDirectiveKeyword(const std::string& irName) {
-    // Map IR directive names to Merlin 64 keywords
-    if (irName == "byte") return "BYTE";
-    if (irName == "word") return "WORD";
+    // the keywords of the IR directives; another (a ca45 one) is written
+    // .name, which the reader passes back unchanged
+    if (irName == "byte") return "DFB";
+    if (irName == "word") return "DW";
     if (irName == "org") return "ORG";
-    return irName;
+    if (irName == "text") return "ASC";
+    if (irName == "res") return "DS";
+    if (irName == "global") return "ENT";
+    if (irName == "extern") return "EXT";
+    return "." + irName;
 }

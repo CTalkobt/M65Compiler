@@ -3,7 +3,8 @@
 #include <iomanip>
 #include <algorithm>
 
-std::string KickAssemblerWriter::write(const AsmIR::Module& module) {
+std::string KickAssemblerWriter::write(const AsmIR::Module& input) {
+    const AsmIR::Module module = textAsBytes(input);
     std::stringstream out;
 
     // KickAssembler assembles one program, without a linker: imports and

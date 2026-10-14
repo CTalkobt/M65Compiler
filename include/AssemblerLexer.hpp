@@ -1,5 +1,6 @@
 #pragma once
 #include <vector>
+#include <cstdint>
 #include <string>
 #include "AssemblerToken.hpp"
 
@@ -19,6 +20,9 @@ inline int byteLength(const std::string& v) {
     for (; i < v.size(); ++i, ++n) if (v[i] == EXACT) ++i;
     return n;
 }
+// The bytes .text (PETSCII), .screencode or .ascii (`directive`) assemble a
+// string token value to (its s"..." / p"..." prefix and escapes applied)
+std::vector<uint8_t> encode(const std::string& v, const std::string& directive);
 }  // namespace asmstr
 
 class AssemblerLexer {

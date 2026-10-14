@@ -3,7 +3,8 @@
 #include <sstream>
 #include <iomanip>
 
-std::string OscarWriter::write(const AsmIR::Module& module) {
+std::string OscarWriter::write(const AsmIR::Module& input) {
+    const AsmIR::Module module = textAsBytes(input);
     // Oscar doesn't support macros, so expand them
     AsmIR::Module expandedModule = module;
     MacroUtils::processAndExpandMacros(expandedModule, "oscar", true);
@@ -13,9 +14,9 @@ std::string OscarWriter::write(const AsmIR::Module& module) {
     // Emit symbols (globals, externs, weak)
     for (const auto& [name, sym] : expandedModule.symbols) {
         if (sym.is_extern) {
-            out << "EXTERN " << name << "\n";
+            out << "\tEXTERN " << name << "\n";
         } else if (sym.is_global) {
-            out << "GLOBAL " << name << "\n";
+            out << "\tGLOBAL " << name << "\n";
         } else if (sym.is_weak) {
             out << "WEAK " << name << "\n";
         }
@@ -51,7 +52,8 @@ std::string OscarWriter::write(const AsmIR::Module& module) {
                     continue;
                 }
 
-                out << formatDirective(stmt.dir) << (stmt.comment.empty() ? "" : " ;" + stmt.comment) << "\n";
+                out << (stmt.dir.type == AsmIR::DirectiveType::CONST ? "" : "\t") << formatDirective(stmt.dir)
+                    << (stmt.comment.empty() ? "" : " ;" + stmt.comment) << "\n";
                 break;
             }
 
@@ -147,9 +149,12 @@ std::string OscarWriter::formatDirective(const AsmIR::Directive& dir) {
 }
 
 std::string OscarWriter::formatDirectiveKeyword(const std::string& irName) {
-    // Map IR directive names to Oscar keywords
+    // the keywords of the IR directives; another (a ca45 one) is written
+    // .name, which the reader passes back unchanged
     if (irName == "byte") return "BYTE";
     if (irName == "word") return "WORD";
     if (irName == "org") return "ORG";
-    return irName;
+    if (irName == "global") return "GLOBAL";
+    if (irName == "extern") return "EXTERN";
+    return "." + irName;
 }

@@ -85,6 +85,29 @@ static uint8_t toScreencode(char c) {
     return u;                               // space, digits, punctuation unchanged
 }
 
+std::vector<uint8_t> asmstr::encode(const std::string& v, const std::string& directive) {
+    std::vector<uint8_t> out;
+    std::string str = v;
+    // Encoding prefix s"..." / p"..." arrives from the lexer as "\x01s..." / "\x01p..."
+    char prefix = 0;
+    if (str.size() >= 2 && str[0] == PREFIX) {
+        prefix = str[1];
+        str = str.substr(2);
+    }
+    bool screen = prefix == 's' || prefix == 'S' || (prefix == 0 && directive == "screencode");
+    bool ascii = prefix == 0 && directive == "ascii";
+    for (size_t i = 0; i < str.size(); ++i) {
+        char c = str[i];
+        if (c == EXACT && i + 1 < str.size()) out.push_back((uint8_t)str[++i]);
+        else if (c == NEWLINE) out.push_back(ascii ? 0x0A : 0x0D);
+        else if (c == RETURN) out.push_back(ascii ? 0x0D : 0x0A);
+        else if (screen) out.push_back(toScreencode(c));
+        else if (ascii) out.push_back((uint8_t)c);
+        else out.push_back(toPetscii(c));
+    }
+    return out;
+}
+
 // .float: the CBM 40-bit format, rounded to nearest (as cc45's constants)
 static std::vector<uint8_t> encodeFloat(double val) {
     std::vector<uint8_t> result(5);
@@ -707,26 +730,8 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                     }
                     else if (stmt->dir.name == "float") for (const auto& a : stmt->dir.arguments) { double v = std::stod(a); std::vector<uint8_t> enc = encodeFloat(v); for (uint8_t eb : enc) e.emitByte(eb); }
                     else if (stmt->dir.name == "text" || stmt->dir.name == "ascii" || stmt->dir.name == "screencode") {
-                        if (!stmt->dir.arguments.empty()) {
-                            std::string str = stmt->dir.arguments[0];
-                            // Encoding prefix s"..." / p"..." arrives from the lexer as "\x01s..." / "\x01p..."
-                            char prefix = 0;
-                            if (str.size() >= 2 && str[0] == asmstr::PREFIX) {
-                                prefix = str[1];
-                                str = str.substr(2);
-                            }
-                            bool screen = prefix == 's' || prefix == 'S' || (prefix == 0 && stmt->dir.name == "screencode");
-                            bool ascii = prefix == 0 && stmt->dir.name == "ascii";
-                            for (size_t i = 0; i < str.size(); ++i) {
-                                char c = str[i];
-                                if (c == asmstr::EXACT && i + 1 < str.size()) e.emitByte((uint8_t)str[++i]);
-                                else if (c == asmstr::NEWLINE) e.emitByte(ascii ? 0x0A : 0x0D);
-                                else if (c == asmstr::RETURN) e.emitByte(ascii ? 0x0D : 0x0A);
-                                else if (screen) e.emitByte(toScreencode(c));
-                                else if (ascii) e.emitByte((uint8_t)c);
-                                else e.emitByte(toPetscii(c));
-                            }
-                        }
+                        if (!stmt->dir.arguments.empty())
+                            for (uint8_t b : asmstr::encode(stmt->dir.arguments[0], stmt->dir.name)) e.emitByte(b);
                     }
                     else if (stmt->dir.name == "res" || stmt->dir.name == "fill" || stmt->dir.name == "space") {
                         uint32_t count = parser->evaluateExpressionAt(stmt->dir.tokenIndex, stmt->scopePrefix);

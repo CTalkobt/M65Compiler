@@ -3,7 +3,8 @@
 #include <sstream>
 #include <iomanip>
 
-std::string Ca65Writer::write(const AsmIR::Module& module) {
+std::string Ca65Writer::write(const AsmIR::Module& input) {
+    const AsmIR::Module module = textAsBytes(input);
     std::stringstream out;
 
     // Emit imports/exports

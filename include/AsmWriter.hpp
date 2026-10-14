@@ -15,6 +15,12 @@ public:
     bool hasErrors() const { return !errors_.empty(); }
 
 protected:
+    // ca45's strings (.text PETSCII, .screencode, .ascii) as .byte lists of
+    // the bytes ca45 makes of them, the string kept in the comment, and its
+    // character constants ('A' is PETSCII $61) as numbers: the other
+    // assemblers encode both differently
+    static AsmIR::Module textAsBytes(const AsmIR::Module& module);
+
     std::vector<std::string> errors_;
     std::vector<std::string> warnings_;
 
