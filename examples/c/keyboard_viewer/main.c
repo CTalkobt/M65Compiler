@@ -4,7 +4,7 @@
  * (<mega65.h>: several keys at once, SHIFT and CTRL too); a key held down is
  * drawn reversed in yellow. The bottom lines show conio's kbhit() and the
  * characters getch() returns (PETSCII, as the KERNAL's keyboard buffer gives
- * them), with their codes. Hold RUN/STOP for a second to quit.
+ * them), with their codes. RUN/STOP (code 3 from getch) quits.
  *
  * This is the interactive test of kbhit/getch/cputsxy/textcolor: run it in
  * a windowed xemu (headless xemu can't press keys) or on a MEGA65.
@@ -70,14 +70,14 @@ static void wait_frame(void) {
 static const char hex[] = "0123456789abcdef";
 
 int main(void) {
-    unsigned char i, stop_frames = 0, count = 0;
+    unsigned char i, count = 0;
     char line[8];
 
     putchar(14);            /* upper/lower case characters (cc45 text) */
     textbackground(BLUE);
     textcolor(WHITE);
     clrscr();
-    cputsxy(2, 1, "MEGA65 Keyboard Viewer: press keys (several at once). Hold RUN/STOP to quit.");
+    cputsxy(2, 1, "MEGA65 Keyboard Viewer: press keys (several at once). Press RUN/STOP to quit.");
     for (i = 0; i < NKEYS; i++) draw_key(i, 0);
     textcolor(LIGHT_BLUE);
     cputsxy(2, 17, "kbhit():");
@@ -97,6 +97,7 @@ int main(void) {
         cputsxy(11, 17, kbhit() ? "1 (a key is waiting)" : "0                   ");
         while (kbhit()) {
             int c = getch();
+            if (c == 3) goto quit;          /* RUN/STOP */
             /* the code, and the character itself when it prints */
             line[0] = '$';
             line[1] = hex[(c >> 4) & 15];
@@ -111,12 +112,8 @@ int main(void) {
             count = (count + 1) % 60;
             cputch(13 + count, 21, ' ');
         }
-        if (key_pressed(KEY_STOP)) {
-            if (++stop_frames >= 50) break;
-        } else {
-            stop_frames = 0;
-        }
     }
+quit:
     textcolor(WHITE);
     textbackground(BLACK);
     clrscr();

@@ -199,7 +199,8 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
     colour RAM's attribute bits, and `getch`/`kbhit`/`cursoron`/`cursoroff`
     were stubs. It now follows the VIC-IV's screen (80x25 in MEGA65 mode),
     converts to screen codes, wraps and scrolls, writes colour RAM by DMA,
-    sets `$D021` for the background, reads keys from the KERNAL buffer,
+    sets `$D021` for the background, reads keys through the KERNAL (`kbhit`
+    also sees the hardware queue at `$D610`, where typed keys wait),
     shows the cursor in `getch`, and has `revers`.
 - `rtc_read` (and `localtime`, `gmtime`) read the RTC through a 16-bit
   pointer, i.e. `$7110` (zeros, month -1): the registers at `$FFD7110` are

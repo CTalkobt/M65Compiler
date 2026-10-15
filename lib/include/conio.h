@@ -222,8 +222,8 @@ int cprintfxy(int x, int y, const char *format, ...);
 /**
  * getch - Read character from keyboard (blocking)
  *
- * Waits for a key press (the KERNAL keyboard buffer, no echo) and returns
- * its PETSCII code. After cursoron() the cursor cell shows reversed while
+ * Waits for a key press (KERNAL GETIN, no echo) and returns its PETSCII
+ * code; RUN/STOP is 3. After cursoron() the cursor cell shows reversed while
  * it waits.
  */
 int getch(void);
@@ -231,7 +231,8 @@ int getch(void);
 /**
  * kbhit - Check if key is available (non-blocking)
  *
- * Returns whether a key press is waiting in the KERNAL keyboard buffer.
+ * Returns whether a key press is waiting: in the KERNAL keyboard buffer or
+ * in the keyboard's hardware queue ($D610), where typed keys wait.
  *
  * Returns:
  *   1 if key available, 0 if no key

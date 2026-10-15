@@ -131,7 +131,7 @@ matrix is read with `key_pressed()` (several at once, SHIFT and CTRL too)
 and a held key shows reversed in yellow. Below, conio's `kbhit()` and the
 characters `getch()` returns, with their PETSCII codes. It is the
 interactive test of `kbhit`/`getch` (headless xemu can't press keys): run it
-in a windowed xemu or on a MEGA65. Hold RUN/STOP to quit.
+in a windowed xemu or on a MEGA65. RUN/STOP quits.
 
 ![keyboard_viewer](images/keyboard_viewer.png)
 

@@ -268,9 +268,11 @@ int getch(void) {
     return c;
 }
 
-/* Whether a key is waiting (the KERNAL keyboard buffer's count at $00D0) */
+/* Whether a key is waiting: in the KERNAL keyboard buffer (count at $00D0)
+ * or in the keyboard's hardware queue ($D610, which the C65 KERNAL's GETIN
+ * reads directly when its buffer is empty: typed keys wait there) */
 int kbhit(void) {
-    return *(volatile unsigned char *)0x00D0 != 0;
+    return *(volatile unsigned char *)0x00D0 != 0 || *(volatile unsigned char *)0xD610 != 0;
 }
 
 /* ============================================================================

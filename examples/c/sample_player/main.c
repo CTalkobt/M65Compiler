@@ -31,7 +31,6 @@
 #include <audio_digi.h>
 #include <conio.h>
 #include <stdio.h>
-#include <mega65.h>
 
 #define REG(a) (*(volatile unsigned char *)(a))
 #define RATE 8000U
@@ -246,7 +245,7 @@ int main(void) {
 }
 #else
 int main(void) {
-    unsigned char frames = 0, stop_frames = 0;
+    unsigned char frames = 0;
     unsigned int acc = 0;
     fast_cpu();
     putchar(14);                    /* upper/lower case characters */
@@ -273,6 +272,7 @@ int main(void) {
         }
         while (kbhit()) {
             int c = getch();
+            if (c == 3) goto quit;          /* RUN/STOP */
             if (c == '1') play_kick();
             else if (c == '2') play_snare();
             else if (c == '3') play_hat();
@@ -285,9 +285,8 @@ int main(void) {
             else if ((c == 'w' || c == 'W') && tone_note > 36) { tone_note--; tone_update(); }
         }
         if (++frames >= 2) { frames = 0; draw_status(); }
-        /* RUN/STOP held for half a second */
-        if (key_pressed(KEY_STOP)) { if (++stop_frames > 25) break; } else stop_frames = 0;
     }
+quit:
     digi_done();
     textcolor(WHITE);
     clrscr();
