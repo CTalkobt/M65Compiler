@@ -8,6 +8,14 @@
 ;     z = c; repeat z = z^2 + c until |z|^2 > 4 or mb_maxit iterations;
 ;     returns the iteration count (mb_maxit: inside the set)
 ;
+; Points in the main cardioid or the period-2 bulb never escape: they are
+; recognised before iterating (most of the black area of the whole set,
+; which otherwise costs the full limit). With q = (x - 1/4)^2 + y^2:
+;   cardioid  q * (q + x - 1/4) <= y^2 / 4
+;   bulb      (x + 1)^2 + y^2 <= 1/16
+; each tested only inside its bounding box, where every operand of the
+; multiplier stays below 2.0.
+;
 ; The C side passes c and the limit in the variables below, so the routine
 ; works in both calling conventions.
 
@@ -36,6 +44,19 @@ zi2:  .dword 0
 prod: .dword 0
 sgn:  .byte 0
 n:    .byte 0
+ay:   .dword 0            ; |ci|
+y2:   .dword 0            ; ci^2
+p:    .dword 0            ; cr - 1/4
+q:    .dword 0
+lhs:  .dword 0
+
+K_ONE:   .dword $10000000 ; 1.0
+K_Q:     .dword $04000000 ; 0.25
+K_X0:    .dword $F4000000 ; -0.75
+K_X1:    .dword $06000000 ; 0.375
+K_Y:     .dword $0A900000 ; 0.66
+K_BX0:   .dword $EC000000 ; -1.25
+K_R2:    .dword $01000000 ; 1/16
 
 .code
 
@@ -64,6 +85,95 @@ proc fmul_abs
     endproc
 
 proc _mandel_iter
+    ldq _mb_ci
+    jsr absval
+    stq ay
+    ; the main cardioid: -0.75 <= x <= 0.375, |y| <= 0.66 first
+    sec
+    sbcq K_Y
+    cpz #$80
+    bcc @bulb             ; |y| - 0.66 >= 0
+    ldq _mb_cr
+    sec
+    sbcq K_X0
+    cpz #$80
+    bcs @iterate          ; x < -0.75: not the cardioid, nor the bulb's box
+    ldq K_X1
+    sec
+    sbcq _mb_cr
+    cpz #$80
+    bcs @iterate          ; x > 0.375
+    ldq ay
+    stq MULB
+    jsr fmul_abs
+    stq y2                ; y^2
+    ldq _mb_cr
+    sec
+    sbcq K_Q
+    stq p                 ; x - 1/4
+    jsr absval
+    stq MULB
+    jsr fmul_abs
+    clc
+    adcq y2
+    stq q                 ; q = p^2 + y^2
+    clc
+    adcq p                ; q + p: negative, so q * (q + p) <= y^2 / 4
+    cpz #$80
+    bcs @inside
+    stq MULB
+    ldq q
+    jsr fmul_abs
+    stq lhs               ; q * (q + p)
+    ldq y2
+    lsrq
+    lsrq                  ; y^2 / 4
+    sec
+    sbcq lhs
+    cpz #$80
+    bcc @inside           ; y^2 / 4 - q * (q + p) >= 0
+    bra @iterate
+@bulb:
+    ; the period-2 bulb: -1.25 <= x <= -0.75, |y| <= 0.25
+    ldq ay
+    sec
+    sbcq K_Q
+    cpz #$80
+    bcc @iterate
+    ldq _mb_cr
+    sec
+    sbcq K_BX0
+    cpz #$80
+    bcs @iterate
+    ldq K_X0
+    sec
+    sbcq _mb_cr
+    cpz #$80
+    bcs @iterate
+    ldq _mb_cr
+    clc
+    adcq K_ONE
+    jsr absval
+    stq MULB
+    jsr fmul_abs
+    stq lhs               ; (x + 1)^2
+    ldq ay
+    stq MULB
+    jsr fmul_abs
+    clc
+    adcq lhs
+    stq lhs               ; + y^2
+    ldq K_R2
+    sec
+    sbcq lhs
+    cpz #$80
+    bcc @inside           ; 1/16 - ... >= 0
+    bra @iterate
+@inside:
+    lda _mb_maxit
+    ldx #0
+    rts
+@iterate:
     ldq _mb_cr
     stq zr
     ldq _mb_ci

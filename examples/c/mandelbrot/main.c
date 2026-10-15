@@ -8,7 +8,8 @@
  *     palette registers (no pixel is redrawn)
  *   - mixed C and assembly: the iteration (mandel_asm.s45) runs on the
  *     45GS02's 32-bit Q register with the hardware multiplier, in 4.28
- *     fixed point (zoom to about 2^20)
+ *     fixed point (zoom to about 2^20); points in the main cardioid and
+ *     the period-2 bulb are recognised without iterating
  *   - DMA: each finished cell goes into far memory with dma_copy_far, the
  *     preview pass fills cells with dma_fill_far
  *   - scrolling without redrawing: every cell holds a pointer to its pixel
@@ -137,8 +138,31 @@ static void render_cell(unsigned int cell, unsigned char detail) {
         if (same) {
             dma_fill_far(dest, 64, c);
         } else {
-            for (y = 1; y < 7; y++)
-                for (x = 1; x < 7; x++) cellbuf[y * 8 + x] = pixel(x, y);
+            /* the same one level down: the rows and columns between the
+             * four 4 x 4 quadrants, then each quadrant's 2 x 2 inside is
+             * filled (its border all one colour) or computed */
+            unsigned char q, x0, y0, k, i;
+            for (y = 1; y < 7; y++) {
+                cellbuf[y * 8 + 3] = pixel(3, y);
+                cellbuf[y * 8 + 4] = pixel(4, y);
+            }
+            for (x = 1; x < 7; x++) {
+                if (x == 3) x = 5;
+                cellbuf[24 + x] = pixel(x, 3);
+                cellbuf[32 + x] = pixel(x, 4);
+            }
+            for (q = 0; q < 4; q++) {
+                x0 = (q & 1) << 2;
+                y0 = (q & 2) << 1;
+                i = y0 * 8 + x0;
+                c = cellbuf[i];
+                same = 1;
+                for (k = 0; k < 4 && same; k++)
+                    if (cellbuf[i + k] != c || cellbuf[i + 24 + k] != c || cellbuf[i + k * 8] != c ||
+                        cellbuf[i + k * 8 + 3] != c) same = 0;
+                for (y = y0 + 1; y < y0 + 3; y++)
+                    for (x = x0 + 1; x < x0 + 3; x++) cellbuf[y * 8 + x] = same ? c : pixel(x, y);
+            }
             dma_copy_far(dest, (unsigned long)(unsigned int)cellbuf, 64);
         }
     }
