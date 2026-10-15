@@ -42,7 +42,7 @@ static volatile uint8_t* g_bank_register = (volatile uint8_t*)0x01;
  * ========================================================================== */
 
 void bank_set(bank_t bank) {
-    assert(bank >= 0 && bank < 8);
+    assert(bank < 8);   /* bank_t is unsigned */
     g_current_bank = bank;
     *g_bank_register = bank;
 }
@@ -52,7 +52,7 @@ bank_t bank_get(void) {
 }
 
 size_t bank_available(bank_t bank) {
-    assert(bank >= 0 && bank < 8);
+    assert(bank < 8);   /* bank_t is unsigned */
 
     bank_allocator_t* allocator = &g_banks[bank];
     uint16_t used = 0;
@@ -68,7 +68,7 @@ size_t bank_available(bank_t bank) {
 }
 
 void bank_reset(bank_t bank) {
-    assert(bank >= 0 && bank < 8);
+    assert(bank < 8);   /* bank_t is unsigned */
 
     bank_allocator_t* allocator = &g_banks[bank];
     allocator->num_allocs = 0;
@@ -145,7 +145,7 @@ static void coalesce_free_blocks(bank_t bank) {
  * ========================================================================== */
 
 far_ptr_t far_malloc(size_t size, bank_t bank) {
-    assert(bank >= 0 && bank < 8);
+    assert(bank < 8);   /* bank_t is unsigned */
     assert(size > 0);
 
     initialize_bank(bank);
@@ -256,7 +256,7 @@ void far_free(far_ptr_t ptr) {
     bank_t bank = far_bank(ptr);
     uint16_t offset = far_offset(ptr);
 
-    assert(bank >= 0 && bank < 8);
+    assert(bank < 8);   /* bank_t is unsigned */
 
     bank_allocator_t* allocator = &g_banks[bank];
 
@@ -331,7 +331,7 @@ void far_policy_round_robin(void) {
 }
 
 void far_policy_fixed_bank(bank_t bank) {
-    assert(bank >= 0 && bank < 8);
+    assert(bank < 8);   /* bank_t is unsigned */
     g_allocation_policy = 1;
     g_fixed_bank = bank;
 }

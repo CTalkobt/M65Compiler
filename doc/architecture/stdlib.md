@@ -59,7 +59,7 @@ ln45 -prg main.o45 -L lib/build -l c45.lib -o program.prg      # plain PRG (-L o
 | `time.h` | jiffy clock, MEGA65 RTC | library |
 | `cbm.h` | KERNAL wrappers ([stdcbm.md](stdcbm.md)) | `static` functions in the header |
 | `mega65.h` | hardware register overlays | header (+ `key_pressed` in the library) |
-| `dma.h` | `dma_copy`/`dma_fill` | compiler builtins |
+| `dma.h` | `dma_copy`/`dma_fill` (16-bit, bank 0); `dma_copy_far`/`dma_fill_far` (28-bit) | compiler builtins; `lib/stdlib/dma_far.c` |
 | `conio.h`, `far_ptr.h`, `far_ops.h`, `dma_controller.h`, `audio_digi.h`, `audio_midi.h`, `audio_sid.h`, `intwide.h`, `complex.h` | see [§12](#12-other-library-backed-headers) | library / compiler |
 | `uart.h` and the graphics, sprite, hardware-helper and game-framework headers | see [§14](#14-headers-without-a-library-implementation) | **no library implementation** |
 
@@ -280,6 +280,10 @@ The jiffy clock counts 60 Hz ticks from power-on; it is not wall-clock time.
 | `complex.h` | marker only: the `_Complex` types and operators are built into cc45 |
 
 ## 13. MEGA65 Hardware (`mega65.h`) and DMA (`dma.h`)
+
+`dma.h`: `dma_copy(dst, src, len)` / `dma_fill(dst, len, val)` are compiler builtins with 16-bit bank-0 addresses. `dma_copy_far(dst, src, len)` / `dma_fill_far(dst, len, val)` (`__dma_copy_far`/`__dma_fill_far` in `lib/stdlib/dma_far.c`) take 28-bit linear addresses (`unsigned long`): chip RAM ($0000000–$005FFFF; $0020000–$003FFFF holds the ROM), colour RAM at $FF80000 (all of it, beyond the $D800–$DBFF window), …. They run an enhanced F018B job (megabyte options $80/$81) while the CPU waits; `len` 0 does nothing; the copy runs forwards. Test: `test_dma_far_xemu.c`.
+
+**Known issue:** the bank-based APIs of `dma_controller.h` (`dma_execute`, `dma_transfer_smart`, `dma_fill`) and `far_ptr.h`/`far_ops.h` (`far_read_*`/`far_write_*`, `far_memcpy`, `far_memset`, …) do not work: `dma_execute` writes `$D7xx` as if they were source/destination registers (the DMA runs job lists), and the others write the bank number to `$01`, the CPU port (ROM/I/O mapping), then access bank 0. Use `dma_copy_far`/`dma_fill_far`.
 
 `mega65.h` provides `volatile` struct overlays and register macros. All helpers except `key_pressed` are `static` functions in the header.
 

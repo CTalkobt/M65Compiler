@@ -673,6 +673,20 @@ for eomode in "stack|-fno-zpcall" "zp|"; do
     fi
 done
 
+# Test: dma_copy_far / dma_fill_far (28-bit addresses: chip RAM above
+# 64 KB, colour RAM at $FF80000, across a 64 KB boundary)
+for dfmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r dfname dfflags <<< "$dfmode"
+    echo "Testing test_dma_far_xemu.c ($dfname)..."
+    compile_link_test "src/test-resources/test_dma_far_xemu.c" "build/test/test_dma_far_${dfname}_xemu.prg" "$dfflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_dma_far_$dfname" "build/test/test_dma_far_${dfname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_dma_far_xemu.c $dfname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: <float.h> constants (exact bytes, epsilon, underflow), complex * and
 # / of two complex values, __real__/__imag__, operators on temporaries
 for flmode in "stack|-fno-zpcall" "zp|"; do
