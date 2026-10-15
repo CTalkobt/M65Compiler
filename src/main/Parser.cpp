@@ -6,7 +6,64 @@
 #include <stdexcept>
 #include <iostream>
 
+// C11 lets an alignment specifier appear anywhere among the declaration
+// specifiers (_Alignas(8) static int x; static int _Alignas(8) x;). The
+// declaration parsers accept it right after the storage class: move each
+// _Alignas(...) group there, within its run of specifier tokens.
+static void normalizeAlignas(std::vector<Token>& toks) {
+    auto isSpec = [](TokenType t) {
+        switch (t) {
+            case TokenType::STATIC: case TokenType::EXTERN: case TokenType::REGISTER: case TokenType::AUTO:
+            case TokenType::CONST: case TokenType::VOLATILE: case TokenType::RESTRICT:
+            case TokenType::SIGNED: case TokenType::UNSIGNED: case TokenType::INT: case TokenType::CHAR:
+            case TokenType::SHORT: case TokenType::LONG: case TokenType::FLOAT: case TokenType::DOUBLE:
+            case TokenType::BOOL: case TokenType::VOID: case TokenType::INLINE: case TokenType::NORETURN:
+                return true;
+            default: return false;
+        }
+    };
+    auto isStorage = [](TokenType t) {
+        return t == TokenType::STATIC || t == TokenType::EXTERN || t == TokenType::REGISTER || t == TokenType::AUTO;
+    };
+    for (size_t i = 0; i < toks.size(); i++) {
+        if (toks[i].type != TokenType::ALIGNAS) continue;
+        // the group: _Alignas ( ... )
+        size_t end = i + 1;
+        if (end >= toks.size() || toks[end].type != TokenType::OPEN_PAREN) continue;
+        int depth = 0;
+        for (; end < toks.size(); end++) {
+            if (toks[end].type == TokenType::OPEN_PAREN) depth++;
+            else if (toks[end].type == TokenType::CLOSE_PAREN && --depth == 0) break;
+        }
+        if (end >= toks.size()) break;
+        end++;   // one past ')'
+        // the specifiers before it (struct/union/enum NAME counts as one)
+        size_t start = i;
+        while (start > 0) {
+            TokenType t = toks[start - 1].type;
+            if (isSpec(t)) { start--; continue; }
+            if (t == TokenType::IDENTIFIER && start >= 2 &&
+                (toks[start - 2].type == TokenType::STRUCT || toks[start - 2].type == TokenType::UNION ||
+                 toks[start - 2].type == TokenType::ENUM)) { start -= 2; continue; }
+            break;
+        }
+        size_t target = start;
+        while (target < i && isStorage(toks[target].type)) target++;
+        if (target == i) {
+            // storage classes after it (_Alignas(8) static int): it goes after them
+            size_t after = end;
+            while (after < toks.size() && isStorage(toks[after].type)) after++;
+            if (after > end) std::rotate(toks.begin() + i, toks.begin() + end, toks.begin() + after);
+            i = after - 1;
+            continue;
+        }
+        std::rotate(toks.begin() + target, toks.begin() + i, toks.begin() + end);
+        i = end - 1;
+    }
+}
+
 Parser::Parser(const std::vector<Token>& tokens) : tokens(tokens), pos(0) {
+    normalizeAlignas(this->tokens);
     this->tokens.reserve(tokens.size() * 2 + 1024);  // room for insertTokens
     // Built-in type aliases for wide integers
     typedefs["__int128"] = {"struct __int128", 0, false, false, {}, {}};

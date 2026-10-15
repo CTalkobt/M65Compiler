@@ -929,7 +929,7 @@ for almode in "zp|" "stack|-fno-zpcall"; do
     echo "Testing test_aligned_xemu.c ($alname)..."
     compile_link_test "src/test-resources/test_aligned_xemu.c" "build/test/test_aligned_${alname}_xemu.prg" "$alflags"
     if [ $? -eq 0 ]; then
-        run_xemu_test "test_aligned_$alname" "build/test/test_aligned_${alname}_xemu.prg" "C0C0" 10 "01 01 01 01 01 01 01 01 01 AA"
+        run_xemu_test "test_aligned_$alname" "build/test/test_aligned_${alname}_xemu.prg" "C0C0" 11 "01 01 01 01 01 01 01 01 01 01 AA"
     else
         echo "FAIL: test_aligned_xemu.c $alname (compilation/linking failed)"
         failed=$((failed + 1))
