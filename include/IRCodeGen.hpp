@@ -280,6 +280,8 @@ private:
     // Track parameter names for each function (for SAC naming consistency)
     // Maps function name → vector of parameter names
     std::map<std::string, std::vector<std::string>> functionParameterNames_;
+    std::map<std::string, std::vector<ir::Type>> functionParameterTypes_;  // (same unit)
+    std::set<std::string> emittedLabelRefs_;  // @labels named by the emitted code (this function)
 
     // SAC constant parameter optimization: track which parameters always receive the same constant
     // Maps function_name → parameter_index → constant_value (optional)

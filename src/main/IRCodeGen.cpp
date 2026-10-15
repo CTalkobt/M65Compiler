@@ -216,6 +216,12 @@ const ir::Inst* IRCodeGen::peekNextInst() const {
 }
 
 void IRCodeGen::emit(const std::string& line, const std::string& reason) {
+    // the @labels this line names (a block label nothing names is not emitted)
+    for (size_t at = line.find('@'); at != std::string::npos; at = line.find('@', at + 1)) {
+        size_t e = at + 1;
+        while (e < line.size() && (std::isalnum((unsigned char)line[e]) || line[e] == '_')) e++;
+        if (e > at + 1) emittedLabelRefs_.insert(line.substr(at + 1, e - at - 1));
+    }
     if (staleFlags_ && line.size() >= 3) {
         std::string m = line.substr(0, 3);
         std::transform(m.begin(), m.end(), m.begin(), ::tolower);
@@ -1268,6 +1274,7 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
                 }
             }
             functionParameterNames_[fn.name] = paramNames;
+            functionParameterTypes_[fn.name] = fn.paramTypes;
 
             // SAC eligibility: enabled globally, not recursive, not interrupt/naked/variadic
             bool useSAC = !fn.isRecurse && !fn.isInterrupt && !fn.isNaked && !fn.isVariadic &&
@@ -2746,6 +2753,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         }
     }
     functionParameterNames_[fn.name] = paramNames;
+    functionParameterTypes_[fn.name] = fn.paramTypes;
 
     if (useSAC) {
         // (same-file callers of a function in this set store its arguments
@@ -3470,6 +3478,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // how often each label is a jump target (inline asm may name any: none
     // counts as single then)
     labelRefs_.clear();
+    emittedLabelRefs_.clear();
     bool anyAsm = false;
     for (const auto& b : fn.blocks)
         for (const auto& in : b.insts) {
@@ -3497,6 +3506,22 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                  (last.src2.kind == ir::OperandKind::LABEL && last.src2.name == block.label)))
                 carried = elemCache_;
         }
+        // A block reached only by falling through from the conditional branch
+        // before it (a switch's next comparison): no label, so what is known
+        // about the registers carries on (the switch value is not reloaded,
+        // ca45's passes see one block)
+        bool fallOnly = false;
+        if (bi > 0 && !anyAsm && !fn.addressTakenLabels.count(block.label) && labelRefs_[block.label] == 1 &&
+            !emittedLabelRefs_.count(block.label) && !fn.blocks[bi - 1].insts.empty()) {
+            const auto& last = fn.blocks[bi - 1].insts.back();
+            fallOnly = last.op == ir::Op::BR_COND && last.src2.kind == ir::OperandKind::LABEL &&
+                       last.src2.name == block.label &&
+                       !(last.dest.kind == ir::OperandKind::LABEL && last.dest.name == block.label);
+        }
+        if (fallOnly) {
+            emitComment("@" + block.label + " (reached by falling through only)");
+            carried = ElemCache();
+        } else
         emitLabel("@" + block.label);
         if (carried.valid) {
             elemCache_ = carried;
@@ -6156,9 +6181,13 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                             loadOperand(arg);
                         }
 
-                        // Store to parameter symbol
+                        // Store to parameter symbol (a char parameter: its byte
+                        // alone, the slot's other byte is never read)
                         emit("sta " + paramSymbol);
-                        emit("stx " + paramSymbol + "+1");
+                        bool charParam = arg.type == ir::Type::I8 && functionParameterTypes_.count(inst.src1.name) &&
+                                         ai < (int)functionParameterTypes_[inst.src1.name].size() &&
+                                         functionParameterTypes_[inst.src1.name][ai] == ir::Type::I8;
+                        if (!charParam) emit("stx " + paramSymbol + "+1");
                         if (arg.type == ir::Type::I32) {
                             emit("sty " + paramSymbol + "+2");
                             emit("stz " + paramSymbol + "+3");

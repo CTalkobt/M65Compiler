@@ -998,6 +998,54 @@ bool AssemblerOptimizer::optimizeInternal(
         }
     }
 
+    // --- Pass 2b: dead LDX #imm (cc45's zero extension of a byte value that is
+    // used as a byte) ---
+    // Removed when, in the same straight-line code, X is written again (ldx,
+    // tax, tsx, plx: these set N/Z too) before anything reads X. Anything that
+    // may read X or the flags ends the search and keeps it: an instruction
+    // that names X or indexes with it, a simulated instruction, a label, a
+    // branch, call or return, a non-instruction.
+    if (parser->optFlags.redundantLoad) {
+        auto lower = [](std::string m) { std::transform(m.begin(), m.end(), m.begin(), ::tolower); return m; };
+        static const std::set<std::string> readsX = {
+            "stx", "txa", "txs", "cpx", "inx", "dex", "phx", "map", "eom", "brk",
+            "jsr", "jmp", "bsr", "rts", "rti", "rtn", "php", "proc", "endproc"};
+        static const std::set<std::string> writesX = {"ldx", "tax", "tsx", "plx"};
+        auto& st = parser->statements;
+        for (size_t i = 0; i < st.size(); ++i) {
+            auto* s = st[i].get();
+            if (s->deleted || s->type != AssemblerParser::Statement::INSTRUCTION || !s->label.empty()) continue;
+            if (lower(s->instr.mnemonic) != "ldx" || s->instr.mode != AddressingMode::IMMEDIATE) continue;
+            bool dead = false;
+            for (size_t j = i + 1; j < st.size(); ++j) {
+                auto* t = st[j].get();
+                if (t->deleted) continue;
+                if (!t->label.empty()) break;
+                if (t->type == AssemblerParser::Statement::DIRECTIVE) continue;
+                if (t->type != AssemblerParser::Statement::INSTRUCTION) break;
+                std::string m = lower(t->instr.mnemonic);
+                if (m.find('.') != std::string::npos) break;
+                if (m.size() == 3 && m[0] == 'b' && m != "bit") break;            // branches
+                if (m.size() == 4 && (m.compare(0, 3, "bbr") == 0 || m.compare(0, 3, "bbs") == 0)) break;
+                if (readsX.count(m)) break;
+                switch (t->instr.mode) {
+                    case AddressingMode::BASE_PAGE_X: case AddressingMode::ABSOLUTE_X:
+                    case AddressingMode::BASE_PAGE_X_INDIRECT: case AddressingMode::ABSOLUTE_X_INDIRECT:
+                        goto keep;
+                    default: break;
+                }
+                if (writesX.count(m)) { dead = true; break; }
+            }
+        keep:
+            if (dead) {
+                report("dead-ldx", s, "LDX " + s->instr.operand + " eliminated (X written before it is read)");
+                s->deleted = true;
+                s->size = 0;
+                changed = true;
+            }
+        }
+    }
+
     // --- Pass 3: Function tail deduplication (with re-scanning for convergence) ---
     // Iteratively find and eliminate duplicate instruction sequences at function tails.
     // Re-scans after each pass because earlier optimizations may:

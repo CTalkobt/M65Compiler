@@ -62,6 +62,13 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   by a constant is reduced too (strength reduction runs again after the
   passes that make the promoted divisor a constant). The examples are
   1112 more bytes smaller.
+- A block reached only by falling through from the conditional branch
+  before it gets no label (a switch's next comparison): the switch value is
+  not reloaded before every case. A `char` parameter of a statically
+  allocated function gets one byte at the call (not the slot's unused high
+  byte, from a stale X). ca45 drops an `ldx #imm` whose X is written again
+  before it is read (cc45's zero extension of a byte used as a byte). The
+  examples are 1060 more bytes smaller.
 - ln45: calls after a computed-goto label (cc45 exports `f__lbl_x` for
   `&&x` in a table) are the function's: the static-allocation overlay gave
   a computed-goto interpreter and the functions it calls the same storage.
