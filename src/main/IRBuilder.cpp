@@ -3019,11 +3019,11 @@ bool IRBuilder::usesZpConv(const std::string& fname) {
 // src/test/test_libcall_conv.sh checks this list against the library.
 bool IRBuilder::isLibraryZpRoutine(const std::string& fname) {
     static const std::set<std::string> routines = {
-        "abs", "alloca", "atoi", "calloc", "cbm_drive_status", "clock", "exit", "free",
+        "abs", "alloca", "assert_fail_abort", "atoi", "calloc", "cbm_drive_status", "exit", "free",
         "getchar", "isalnum", "isalpha", "isblank", "iscntrl", "isdigit", "isgraph", "islower",
         "isprint", "ispunct", "isspace", "isupper", "isxdigit", "itoa", "labs", "longjmp", "ltoa",
-        "malloc", "memcmp", "memcpy", "memmove", "memset", "putchar", "puts", "rand", "realloc",
-        "setjmp", "srand", "strcat", "strchr", "strcmp", "strcpy", "strlen", "strncat", "strncmp",
+        "malloc", "memcmp", "memcpy", "memmove", "memset", "putchar", "puts", "realloc",
+        "setjmp", "strcat", "strchr", "strcmp", "strcpy", "strlen", "strncat", "strncmp",
         "strncpy", "strrchr", "tolower", "toupper", "utoa", "putstr"};
     return routines.count(fname) > 0;
 }
@@ -6689,6 +6689,8 @@ normal_call:
             fpSigned.push_back(p.isSigned);
         }
     }
+    if (!fpSig && (node.name == "vscanf" || node.name == "vfscanf" || node.name == "vsscanf"))
+        module_.callsVscanf = true;
     auto const& pTypes = fpSig ? fpTypes : functionParamTypes_[node.name];
     auto const& pSigned = fpSig ? fpSigned : functionParamSigned_[node.name];
 
@@ -6714,6 +6716,11 @@ normal_call:
                 if (!fpSig && (node.name == "sprintf" || node.name == "_sprintf"))
                     module_.floatSprintfArg = true;
             }
+            // scanf reading a float: link the %f-aware scanf family
+            if (!fpSig && args[i].type == ir::Type::PTR && ai < node.arguments.size() &&
+                (node.name == "scanf" || node.name == "fscanf" || node.name == "sscanf") &&
+                getExprTypeInfo(node.arguments[ai].get()).pointedToType == ir::Type::F32)
+                module_.floatScanfArg = true;
             if (args[i].type == ir::Type::I8 && (fpSig ? fpSig->isVariadic : variadicFunctions_.count(node.name) > 0) &&
                 ai < node.arguments.size()) {
                 bool sig = getExprTypeInfo(node.arguments[ai].get()).isSigned;

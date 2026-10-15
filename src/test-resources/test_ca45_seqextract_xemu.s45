@@ -10,12 +10,22 @@
 ;   +0  $11  f1's run stored                +1  $03  X counted between the runs
 ;   +2  $06  f2: 1 + 2 + 3 (.var values)    +3  $22  f1's run's second store
 ;   +4  $AA  sentinel
+;   +5  $02  f3: the low byte after three 16-bit decrements of $0105
+;   +6  $01  f3: the high byte                +7  $01  f3: the flag
+;
+; f3 repeats cc45's 16-bit decrement (lda lo / bne *+5 / dec hi / dec lo)
+; and a flag store: the run "dec hi, dec lo, lda #1, sta flag" repeats, but
+; bne *+5 lands on its second instruction, so it must not be extracted
+; (the branch would skip the whole BSR).
         * = $2001
         .basicUpstart main
 
 out     = $C0C0
 w0      = $3000
 w1      = $3001
+w2      = $3002
+w3      = $3003
+flag    = $3004
 
 main:
         lda #0
@@ -23,6 +33,13 @@ main:
         sta w1
         jsr f1
         jsr f2
+        jsr f3
+        lda w2
+        sta out+5
+        lda w3
+        sta out+6
+        lda flag
+        sta out+7
         lda w0
         sta out+3
         lda w1
@@ -67,5 +84,33 @@ main:
         adc w1
         sta w1
         .var vv = 9
+        rts
+        endproc
+
+        proc f3
+        lda #$05
+        sta w2
+        lda #$01
+        sta w3
+        lda #0
+        sta flag
+        lda w2
+        bne *+5
+        dec w3
+        dec w2
+        lda #1
+        sta flag
+        lda w2
+        bne *+5
+        dec w3
+        dec w2
+        lda #1
+        sta flag
+        lda w2
+        bne *+5
+        dec w3
+        dec w2
+        lda #1
+        sta flag
         rts
         endproc

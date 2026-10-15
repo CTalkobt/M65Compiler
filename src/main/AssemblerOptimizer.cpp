@@ -1375,6 +1375,36 @@ bool AssemblerOptimizer::optimizeInternal(
             return true;
         };
 
+        // The statements a "*+N" / "*-N" branch lands on (bne *+5 skipping one
+        // instruction): a run may start there (its BSR takes that address) but
+        // not contain one further in, or the branch would skip into the BSR
+        std::set<size_t> pcTargets;
+        for (size_t i = 0; i < st.size(); ++i) {
+            auto* s = st[i].get();
+            if (s->deleted || s->type != AssemblerParser::Statement::INSTRUCTION) continue;
+            const std::string& o = s->instr.operand;
+            if (o.size() < 3 || o[0] != '*' || (o[1] != '+' && o[1] != '-')) continue;
+            long n = std::strtol(o.c_str() + 2, nullptr, 0);
+            if (o[1] == '+') {
+                long acc = 0;
+                size_t j = i;
+                while (j < st.size() && acc < n) {
+                    if (!st[j]->deleted) acc += st[j]->size;
+                    ++j;
+                }
+                while (j < st.size() && st[j]->deleted) ++j;
+                if (acc == n) pcTargets.insert(j);
+            } else {
+                long acc = 0;
+                size_t j = i;
+                while (j > 0 && acc < n) {
+                    --j;
+                    if (!st[j]->deleted) acc += st[j]->size;
+                }
+                if (acc == n) pcTargets.insert(j);
+            }
+        }
+
         struct Run { std::vector<size_t> idx; };
         struct ProcRuns { size_t endproc = 0; std::map<std::string, std::vector<Run>> bySig; };
         std::vector<ProcRuns> procs;
@@ -1398,6 +1428,7 @@ bool AssemblerOptimizer::optimizeInternal(
                 auto* t = st[j].get();
                 if (t->deleted) continue;
                 if (!movable(t) || t->segmentName != s->segmentName || t->scopePrefix != s->scopePrefix) break;
+                if (!r.idx.empty() && pcTargets.count(j)) break;
                 r.idx.push_back(j);
                 sig += lower(t->instr.mnemonic) + " " + t->instr.operand + " " +
                        std::to_string((int)t->instr.mode) + ";";

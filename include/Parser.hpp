@@ -131,6 +131,8 @@ private:
         bool valid = false;     // true if a type was successfully parsed
         bool fromTypedef = false; // signedness came from a typedef
         int addressSpace = 0;   // Phase 97: AddressSpace (0=DEFAULT, 1=ZP, 2=ABS, 3=FAR)
+        int starsParsed = 0;    // '*'s after the type consumed here
+        bool lastStarConst = false; // a const after the last of them (T *const)
     };
     std::unique_ptr<Expression> parseCommaExpression();   // expression , expression ...
     TypeSpec parseTypeSpecifier();    // consume type keywords + qualifiers, return TypeSpec

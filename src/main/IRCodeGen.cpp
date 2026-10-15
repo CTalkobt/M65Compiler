@@ -1614,6 +1614,10 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
         if (hasFloatSprintf) {
             emit(".extern _sprintf_float");
         }
+        // scanf reading a float: link the %f-aware scanf family
+        if (mod.floatScanfArg || (mod.callsVscanf && hasFloat)) {
+            emit(".extern _scanf_float");
+        }
     }
 
     // File-scope asm("..."): module-level assembler text, then back to the

@@ -277,6 +277,10 @@ struct Module {
     // %f-aware printf (_printf_float), and sprintf (_sprintf_float)
     bool floatVarArg = false;
     bool floatSprintfArg = false;
+    // scanf/fscanf/sscanf given a float pointer, or a v*scanf call (its
+    // arguments are not visible): with float code, the %f-aware scanf
+    bool floatScanfArg = false;
+    bool callsVscanf = false;
     // asm("...") statements at file scope, in source order: passed to the
     // assembler at module level
     std::vector<std::string> fileAsm;

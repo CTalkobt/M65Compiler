@@ -2382,14 +2382,30 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
             memberTypedefVla = ts.vlaDimVars;
             memberFpSig = ts.funcPtrSig;
             if (ts.isConst) mIsConst = true;
+            // with '*'s in the declarator, only a const after the last one
+            // makes the member itself const
+            if (ts.starsParsed) mIsConst = ts.lastStarConst;
         }
         // Skip __attribute__ after type, before pointer/name
         while (tryParseAttribute()) {}
         int ptrLevel = basePtrLevel;
-        while (match(TokenType::STAR)) {
-            ptrLevel++;
-            while (match(TokenType::CONST) || match(TokenType::VOLATILE) || match(TokenType::RESTRICT) || tryParseAttribute() || match(TokenType::EXTENSION));
-        }
+        // const before the type qualifies what a declarator's '*' points to:
+        // the member itself is const only with a const after its last '*'
+        // (const char *p can be changed, char *const p cannot)
+        const bool baseConst = mIsConst;
+        auto parsePtrQuals = [&](int& level, bool& isConst) {
+            while (match(TokenType::STAR)) {
+                level++;
+                isConst = false;
+                for (;;) {
+                    if (match(TokenType::CONST)) { isConst = true; continue; }
+                    if (match(TokenType::VOLATILE) || match(TokenType::RESTRICT) || tryParseAttribute() ||
+                        match(TokenType::EXTENSION)) continue;
+                    break;
+                }
+            }
+        };
+        parsePtrQuals(ptrLevel, mIsConst);
         // Unnamed bitfield: int : 6;  (no member name, colon follows type)
         if (peek().type == TokenType::COLON) {
             advance(); // consume ':'
@@ -2506,7 +2522,8 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
         // Multi-member declarations: long p_x, p_y;
         while (match(TokenType::COMMA)) {
             int extraPtr = basePtrLevel;
-            while (match(TokenType::STAR)) extraPtr++;
+            bool extraConst = baseConst;
+            parsePtrQuals(extraPtr, extraConst);
             std::string extraName = expect(TokenType::IDENTIFIER, "Expected member name").value;
             std::vector<int> extraDims;
             bool extraFlex = false;
@@ -2526,7 +2543,7 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
             while (tryParseAttribute()) {}
             StructMember esm;
             esm.type = type; esm.pointerLevel = extraPtr; esm.isSigned = mIsSigned;
-            esm.name = extraName; esm.isConst = mIsConst;
+            esm.name = extraName; esm.isConst = extraConst;
             esm.arrayDims = extraDims; esm.bitWidth = extraBitWidth;
             esm.isFlexible = extraFlex;
             esm.alignment = takePendingAlign();
@@ -3689,8 +3706,10 @@ Parser::TypeSpec Parser::parseTypeSpecifierRaw() {
     // Consume pointer stars
     while (match(TokenType::STAR)) {
         ts.pointerLevel++;
+        ts.starsParsed++;
+        ts.lastStarConst = false;
         while (match(TokenType::CONST) || match(TokenType::VOLATILE) || match(TokenType::RESTRICT)) {
-            if (tokens[pos-1].type == TokenType::CONST) ts.isConst = true;
+            if (tokens[pos-1].type == TokenType::CONST) { ts.isConst = true; ts.lastStarConst = true; }
         }
     }
 
