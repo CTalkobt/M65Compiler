@@ -1,256 +1,89 @@
-/* audio_midi.h — MEGA65 MIDI Input Handler (Phase 11)
+/* audio_midi.h — MIDI messages played on the SIDs (lib/stdlib/audio_midi.c)
  *
- * MIDI message parsing and SID synthesizer control.
- * Converts MIDI note/control messages to synthesis parameters.
+ * A parser turns a MIDI byte stream into messages (running status,
+ * real-time bytes and SysEx skipped); a synth plays the channel messages on
+ * a range of SID voices (<audio_sid.h>): voice allocation (a free voice, else
+ * the oldest), velocity 0 as note off, the sustain pedal, pitch bend
+ * (+-2 semitones), program change (an instrument table), channel volume
+ * (the SID master volume) and all notes off.
+ *
+ *   midi_parser_t p;  midi_synth_t s;  midi_msg_t m;
+ *   sid_init();
+ *   midi_parser_init(&p);
+ *   midi_synth_init(&s, 0, 6, &piano);       // voices 0-5
+ *   for each byte b: if (midi_parse(&p, b, &m)) midi_synth_message(&s, &m);
  */
-
 #pragma once
 
 #include <audio_sid.h>
 
-/* ============================================================================
- * MIDI MESSAGE TYPES
- * ============================================================================ */
+/* Status bytes (high nybble; the low one is the channel) */
+#define MIDI_NOTE_OFF           0x80
+#define MIDI_NOTE_ON            0x90
+#define MIDI_POLY_PRESSURE      0xA0
+#define MIDI_CONTROL_CHANGE     0xB0
+#define MIDI_PROGRAM_CHANGE     0xC0
+#define MIDI_CHANNEL_PRESSURE   0xD0
+#define MIDI_PITCH_BEND         0xE0
 
-/**
- * MIDI message status bytes
- */
-typedef enum {
-    MIDI_NOTE_OFF = 0x80,           /* Note off (2 bytes) */
-    MIDI_NOTE_ON = 0x90,            /* Note on (2 bytes) */
-    MIDI_POLYTOUCH = 0xA0,          /* Polyphonic key pressure (2 bytes) */
-    MIDI_CONTROL_CHANGE = 0xB0,     /* Control change (2 bytes) */
-    MIDI_PROGRAM_CHANGE = 0xC0,     /* Program change (1 byte) */
-    MIDI_CHANNEL_PRESSURE = 0xD0,   /* Channel pressure (1 byte) */
-    MIDI_PITCH_BEND = 0xE0,         /* Pitch bend (2 bytes) */
-    MIDI_SYSTEM_EXCLUSIVE = 0xF0    /* System exclusive */
-} midi_status_t;
+/* Controllers the synth uses */
+#define MIDI_CC_VOLUME          7
+#define MIDI_CC_SUSTAIN         64
+#define MIDI_CC_ALL_SOUND_OFF   120
+#define MIDI_CC_ALL_NOTES_OFF   123
 
-/**
- * Standard MIDI Control Change (CC) messages
- */
-typedef enum {
-    MIDI_CC_MODULATION = 1,         /* Vibrato depth */
-    MIDI_CC_BREATH = 2,             /* Breath controller */
-    MIDI_CC_FOOT = 4,               /* Foot pedal */
-    MIDI_CC_PORTAMENTO_TIME = 5,    /* Portamento/glide time */
-    MIDI_CC_DATA_ENTRY = 6,         /* Data entry slider */
-    MIDI_CC_CHANNEL_VOLUME = 7,     /* Channel volume */
-    MIDI_CC_BALANCE = 8,            /* Balance */
-    MIDI_CC_PAN = 10,               /* Stereo pan */
-    MIDI_CC_EXPRESSION = 11,        /* Expression */
-    MIDI_CC_EFFECT1 = 12,           /* Effect control 1 */
-    MIDI_CC_EFFECT2 = 13,           /* Effect control 2 */
-    MIDI_CC_SUSTAIN = 64,           /* Sustain pedal */
-    MIDI_CC_FILTER_CUTOFF = 74,     /* Filter cutoff frequency */
-    MIDI_CC_FILTER_RESONANCE = 71,  /* Filter resonance/Q */
-    MIDI_CC_REVERB_SEND = 91,       /* Reverb send level */
-    MIDI_CC_CHORUS_SEND = 93,       /* Chorus send level */
-    MIDI_CC_ALL_NOTES_OFF = 123,    /* All notes off */
-    MIDI_CC_OMNI_OFF = 124,         /* Omni mode off */
-    MIDI_CC_OMNI_ON = 125,          /* Omni mode on */
-    MIDI_CC_MONO_MODE = 126         /* Mono mode */
-} midi_cc_t;
+/* A channel message */
+typedef struct {
+    unsigned char status;   /* type | channel */
+    unsigned char data1;    /* note, controller, program... */
+    unsigned char data2;    /* velocity, value (0 for 1-byte messages) */
+} midi_msg_t;
 
-/* ============================================================================
- * MIDI INPUT HANDLER
- * ============================================================================ */
+#define MIDI_TYPE(m)    ((m)->status & 0xF0)
+#define MIDI_CHANNEL(m) ((m)->status & 0x0F)
 
-/**
- * MIDI input state machine
- *
- * Parses incoming MIDI bytes and generates complete messages.
- */
-struct midi_input {
-    /* Input state */
-    int midi_fd;                    /* MIDI input device file/port */
-    unsigned char running_status;   /* Running status byte (for compression) */
-    unsigned char message_buffer[3];/* Message being accumulated */
-    int buffer_index;               /* Current position in buffer */
-    int expected_length;            /* Expected message length */
+typedef struct {
+    unsigned char running;  /* running status, 0 = none */
+    unsigned char data[2];
+    unsigned char have;     /* data bytes so far */
+    unsigned char sysex;    /* inside a SysEx message */
+} midi_parser_t;
 
-    /* Receiving */
-    int message_ready;              /* 1 = complete message in buffer */
-    unsigned char last_channel;     /* Last MIDI channel (0-15) */
+void midi_parser_init(midi_parser_t *p);
+/* Feed one byte; 1 when *msg holds a complete channel message */
+unsigned char midi_parse(midi_parser_t *p, unsigned char b, midi_msg_t *msg);
 
-    /* Methods */
-    void (*init)(struct midi_input *this);
-    void (*done)(struct midi_input *this);
-    int (*read_byte)(struct midi_input *this);
-    int (*has_message)(struct midi_input *this);
-    void (*clear_message)(struct midi_input *this);
-};
+#define MIDI_SYNTH_VOICES 12
 
-typedef struct midi_input midi_input_t;
+typedef struct {
+    unsigned char first_voice;              /* SID voices used */
+    unsigned char num_voices;
+    unsigned char note[MIDI_SYNTH_VOICES];  /* per voice: its note, */
+    unsigned char channel[MIDI_SYNTH_VOICES];   /* channel, */
+    unsigned char state[MIDI_SYNTH_VOICES];     /* 0 free, 1 playing, 2 held by the pedal */
+    unsigned char age[MIDI_SYNTH_VOICES];   /* when it started (oldest is stolen) */
+    unsigned char clock;
+    unsigned char sustain[16];              /* pedal down per channel */
+    int bend[16];                           /* -8192..8191 per channel */
+    const sid_instrument_t *inst[16];       /* instrument per channel */
+    const sid_instrument_t *programs;       /* program change table (or NULL) */
+    unsigned char num_programs;
+} midi_synth_t;
 
-/* ============================================================================
- * MIDI-TO-SID VOICE ROUTER
- * ============================================================================ */
+/* Voices first_voice .. first_voice + num_voices - 1, every channel playing
+ * inst */
+void midi_synth_init(midi_synth_t *s, unsigned char first_voice, unsigned char num_voices,
+                     const sid_instrument_t *inst);
+/* The instrument of a channel */
+void midi_synth_set_instrument(midi_synth_t *s, unsigned char channel, const sid_instrument_t *inst);
+/* Program change n selects programs[n % count] */
+void midi_synth_set_programs(midi_synth_t *s, const sid_instrument_t *programs, unsigned char count);
+/* Play a message */
+void midi_synth_message(midi_synth_t *s, const midi_msg_t *m);
+/* Voices sounding (playing or held by the pedal) */
+unsigned char midi_synth_active(const midi_synth_t *s);
+/* Release every note */
+void midi_synth_all_off(midi_synth_t *s);
 
-/**
- * MIDI voice allocation - tracks which MIDI channel uses which SID voice
- */
-struct midi_voice_alloc {
-    int sid_voice;                  /* Allocated SID voice (0-2) */
-    int midi_channel;               /* MIDI channel (0-15) */
-    int active;                     /* 1 = currently playing a note */
-    int current_note;               /* Current note being played */
-};
-
-/**
- * MIDI to SID synthesizer bridge
- *
- * Routes MIDI messages to SID voices (up to 12 voices across 4 SID chips).
- * with parameter mapping.
- */
-struct midi_to_sid {
-    /* Synthesizer reference */
-    sid_synth_t *synth;             /* Pointer to SID synthesizer */
-
-    /* Voice allocation (up to 12 voices) */
-    struct midi_voice_alloc voice_alloc[12];
-
-    /* MIDI settings */
-    int omni_mode;                  /* 1 = omni mode (all channels) */
-    int mono_mode;                  /* 1 = monophonic mode */
-    int sustain_pedal;              /* Sustain pedal state (0-127) */
-
-    /* Per-channel parameters */
-    int channel_volume[16];         /* Channel volume (0-127) */
-    int channel_pan[16];            /* Channel pan (0-127) */
-    int channel_portamento[16];     /* Portamento time per channel (ms) */
-    int channel_vibrato_depth[16];  /* Vibrato depth per channel */
-    int channel_vibrato_rate[16];   /* Vibrato rate per channel */
-
-    /* Filter parameters */
-    int filter_cutoff[12];          /* Per-voice filter cutoff */
-    int filter_resonance[12];       /* Per-voice filter resonance */
-    int num_voices;                 /* Total voices available (3-12) */
-
-    /* Effect levels */
-    int reverb_send;                /* Reverb send level (0-127) */
-    int chorus_send;                /* Chorus send level (0-127) */
-    int delay_time;                 /* Delay time (0-1000ms) */
-
-    /* Methods */
-    void (*init)(struct midi_to_sid *this, sid_synth_t *synth);
-    void (*done)(struct midi_to_sid *this);
-
-    /* MIDI message handling */
-    void (*note_on)(struct midi_to_sid *this, int channel, int note, int velocity);
-    void (*note_off)(struct midi_to_sid *this, int channel, int note);
-    void (*control_change)(struct midi_to_sid *this, int channel, int cc, int value);
-    void (*pitch_bend)(struct midi_to_sid *this, int channel, int bend);
-    void (*program_change)(struct midi_to_sid *this, int channel, int program);
-    void (*channel_pressure)(struct midi_to_sid *this, int channel, int pressure);
-
-    /* Utilities */
-    void (*set_omni_mode)(struct midi_to_sid *this, int enabled);
-    void (*set_mono_mode)(struct midi_to_sid *this, int enabled);
-    void (*reset_all_controllers)(struct midi_to_sid *this);
-    int (*get_active_voices)(struct midi_to_sid *this);
-};
-
-typedef struct midi_to_sid midi_to_sid_t;
-
-/* ============================================================================
- * MIDI RECEIVER - High-level interface combining input + router
- * ============================================================================ */
-
-/**
- * Complete MIDI receiver system - input + SID control
- */
-struct midi_receiver {
-    /* Components */
-    midi_input_t input;             /* MIDI input parser */
-    midi_to_sid_t router;           /* MIDI-to-SID voice router */
-    sid_synth_t *synth;             /* Reference to SID synth */
-
-    /* Processing */
-    int running;                    /* 1 = receiver is active */
-    int messages_received;          /* Message counter */
-
-    /* Methods */
-    void (*init)(struct midi_receiver *this, sid_synth_t *synth);
-    void (*done)(struct midi_receiver *this);
-    void (*process)(struct midi_receiver *this);
-    void (*handle_message)(struct midi_receiver *this,
-                          unsigned char status,
-                          unsigned char byte1,
-                          unsigned char byte2);
-};
-
-typedef struct midi_receiver midi_receiver_t;
-
-/* ============================================================================
- * MIDI RECEIVER API FUNCTIONS
- * ============================================================================ */
-
-/**
- * Create MIDI receiver connected to SID synthesizer
- *
- * Returns:
- *   Initialized midi_receiver_t ready for MIDI message processing
- *
- * Example:
- *   midi_receiver_t receiver = midi_receiver_create(&synth);
- *   receiver.init(&receiver, &synth);
- *   while (receiver.running) {
- *       receiver.process(&receiver);
- *   }
- */
-midi_receiver_t midi_receiver_create(void);
-
-/* ============================================================================
- * MIDI NOTE CONVERSION
- * ============================================================================ */
-
-/**
- * Convert MIDI note number to frequency in Hz
- *
- * Parameters:
- *   note — MIDI note (0-127)
- *
- * Returns:
- *   Frequency in Hz
- */
-int midi_note_to_frequency(int note);
-
-/**
- * Convert frequency in Hz to MIDI note number
- *
- * Parameters:
- *   freq — Frequency in Hz
- *
- * Returns:
- *   MIDI note (0-127)
- */
-int frequency_to_midi_note(int freq);
-
-/* ============================================================================
- * CONSTANTS
- * ============================================================================ */
-
-/* MIDI byte ranges */
-#define MIDI_NOTE_MIN               0       /* Lowest MIDI note */
-#define MIDI_NOTE_MAX               127     /* Highest MIDI note */
-#define MIDI_VELOCITY_MIN           0       /* No velocity */
-#define MIDI_VELOCITY_MAX           127     /* Maximum velocity */
-#define MIDI_CC_MIN                 0       /* Minimum CC value */
-#define MIDI_CC_MAX                 127     /* Maximum CC value */
-
-/* MIDI channels */
-#define MIDI_CHANNEL_1              0       /* First MIDI channel */
-#define MIDI_CHANNEL_16             15      /* Last MIDI channel */
-#define MIDI_CHANNELS               16      /* Total channels */
-
-/* Voice allocation strategies */
-#define MIDI_ALLOC_ROUND_ROBIN      0       /* Round-robin voice allocation */
-#define MIDI_ALLOC_CHANNEL_TO_VOICE 1       /* Map MIDI channels to voices */
-#define MIDI_ALLOC_LOWEST_NOTE      2       /* Allocate to lowest note voice */
-
-/* Default values */
-#define MIDI_DEFAULT_VOLUME         100     /* Default MIDI volume */
-#define MIDI_DEFAULT_PAN            64      /* Center pan */
-#define MIDI_DEFAULT_PORTAMENTO     0       /* No glide */
-#define MIDI_DEFAULT_REVERB         50      /* Default reverb send */
+/* The frequency in Hz of a MIDI note (69 = A4 = 440 Hz), rounded */
+unsigned int midi_note_to_hz(unsigned char note);

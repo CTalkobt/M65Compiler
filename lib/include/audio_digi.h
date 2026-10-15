@@ -1,145 +1,51 @@
-/* audio_digi.h — MEGA65 DIGI Audio Chip (Phase 9)
+/* audio_digi.h — sample playback through the MEGA65's audio DMA
+ * (lib/stdlib/audio_digi.c)
  *
- * Digital PCM audio playback system with struct method API.
- * Supports 8-bit PCM samples with volume, frequency, and mixing.
+ * Four channels ($D720, $D730, $D740, $D750): 0 and 1 play on the left,
+ * 2 and 3 on the right (each also has a volume for the other side). A
+ * channel reads its sample from chip RAM by DMA while the program runs (the
+ * CPU must be at full speed, 40 MHz); a sample is at most 64 KB.
+ *
+ *   digi_init();
+ *   digi_play(0, sample, sizeof sample, 8000, 255, 0);   // 8 kHz, once
+ *   while (digi_playing(0)) ;
+ *
+ * Samples are 8-bit unsigned unless the flags say otherwise.
  */
-
 #pragma once
 
-/* ============================================================================
- * DIGI AUDIO DEFINITIONS
- * ============================================================================ */
+#define DIGI_CHANNELS   4
 
-/**
- * PCM sample format
- */
-typedef enum {
-    DIGI_FORMAT_UNSIGNED_8BIT,  /* Unsigned 8-bit (0-255, midpoint 0x80) */
-    DIGI_FORMAT_SIGNED_8BIT     /* Signed 8-bit (-128 to 127, midpoint 0x00) */
-} digi_format_t;
+/* digi_play flags */
+#define DIGI_LOOP       0x40    /* repeat from the start */
+#define DIGI_SIGNED     0x01    /* signed samples (default unsigned) */
+#define DIGI_16BIT      0x02    /* 16-bit samples (little endian) */
+#define DIGI_NYBBLE_LO  0x04    /* 4-bit samples in the low nybbles */
+#define DIGI_NYBBLE_HI  0x08    /* 4-bit samples in the high nybbles */
 
-/**
- * DIGI sample state and methods
- *
- * Manages individual PCM samples with creation, destruction, and manipulation.
- */
-typedef struct digi_sample {
-    unsigned char *data;        /* Sample buffer pointer */
-    int length;                 /* Sample length in bytes */
-    int position;               /* Current playback position */
-    int volume;                 /* Volume level (0-255) */
-    int frequency;              /* Sample rate in Hz */
-    digi_format_t format;       /* Sample format */
-    int looping;                /* 1 = loop, 0 = play once */
-    int playing;                /* 1 = currently playing, 0 = stopped */
+/* Audio DMA on (it then feeds the audio mixer), all channels stopped */
+void digi_init(void);
+/* Audio DMA off */
+void digi_done(void);
 
-    /* Methods */
-    void (*destroy)(struct digi_sample *this);
-    void (*silence)(struct digi_sample *this, digi_format_t format);
-    void (*apply_volume)(struct digi_sample *this, int volume, digi_format_t format);
-    void (*reverse)(struct digi_sample *this);
+/* The rate register value of a sample rate in Hz (rate * 2^24 / 40.5 MHz) */
+unsigned long digi_rate_to_reg(unsigned int hz);
 
-} digi_sample_t;
+/* Play len bytes from sample (in bank 0) / from a 24-bit chip RAM address on
+ * channel ch at rate Hz, volume 0-255 (the other side silent) */
+void digi_play(unsigned char ch, const void *sample, unsigned int len, unsigned int rate,
+               unsigned char volume, unsigned char flags);
+void digi_play_far(unsigned char ch, unsigned long addr, unsigned int len, unsigned int rate,
+                   unsigned char volume, unsigned char flags);
 
-/**
- * DIGI playback system and methods
- *
- * Manages audio playback, volume, frequency, and sample lifecycle.
- */
-typedef struct digi_system {
-    /* State */
-    int volume;                 /* Master volume (0-255) */
-    int frequency;              /* Current playback frequency */
-    int playing;                /* 1 = playback active */
-    int paused;                 /* 1 = paused, 0 = running or stopped */
+/* Stop the channel */
+void digi_stop(unsigned char ch);
+/* 1 while the channel plays (enabled and not at the end of its sample) */
+unsigned char digi_playing(unsigned char ch);
 
-    unsigned char *current_sample;      /* Current sample data */
-    int current_sample_length;          /* Current sample length */
-    int current_position;               /* Current playback position */
-    int current_frequency;              /* Current sample frequency */
-    digi_format_t current_format;       /* Current sample format */
-    int current_looping;                /* Current looping flag */
-
-    /* Methods */
-    void (*init)(struct digi_system *this);
-    void (*done)(struct digi_system *this);
-
-    int (*play_sample)(struct digi_system *this, unsigned char *sample, int length,
-                       int frequency, digi_format_t format, int looping);
-    void (*stop)(struct digi_system *this);
-    void (*pause)(struct digi_system *this);
-    void (*resume)(struct digi_system *this);
-
-    int (*is_playing)(struct digi_system *this);
-    int (*get_position)(struct digi_system *this);
-    int (*seek)(struct digi_system *this, int position);
-
-    void (*set_volume)(struct digi_system *this, int volume);
-    int (*get_volume)(struct digi_system *this);
-    void (*set_frequency)(struct digi_system *this, int frequency);
-    int (*get_frequency)(struct digi_system *this);
-
-    void (*update)(struct digi_system *this);
-
-} digi_system_t;
-
-/* ============================================================================
- * DIGI SYSTEM API FUNCTIONS
- * ============================================================================ */
-
-/**
- * Create and initialize DIGI playback system
- *
- * Returns:
- *   Initialized digi_system_t with method pointers set
- *
- * Example:
- *   digi_system_t digi = digi_system_create();
- *   digi.init(&digi);
- */
-digi_system_t digi_system_create(void);
-
-/**
- * Create sample buffer
- *
- * Parameters:
- *   length — Sample buffer size in bytes
- *
- * Returns:
- *   Allocated and initialized digi_sample_t, or NULL on failure
- *
- * Example:
- *   digi_sample_t *sample = digi_sample_create(4410);  // 100ms at 44.1kHz
- */
-digi_sample_t *digi_sample_create(int length);
-
-/**
- * Mix two samples (static utility)
- *
- * Parameters:
- *   dest — Destination buffer
- *   src1 — First source sample
- *   src2 — Second source sample
- *   length — Number of bytes to mix
- *   mix_level — Blend factor (0-255): 0=src2 only, 255=src1 only
- */
-void digi_sample_mix_static(unsigned char *dest,
-                            unsigned char *src1, unsigned char *src2,
-                            int length, int mix_level);
-
-
-/* ============================================================================
- * CONSTANTS
- * ============================================================================ */
-
-#define DIGI_VOLUME_MIN         0       /* Minimum volume (silent) */
-#define DIGI_VOLUME_MAX         255     /* Maximum volume */
-#define DIGI_VOLUME_DEFAULT     200     /* Default volume level */
-
-#define DIGI_FREQ_8000          8000    /* 8 kHz (low quality, small) */
-#define DIGI_FREQ_11025         11025   /* 11.025 kHz (telephone quality) */
-#define DIGI_FREQ_22050         22050   /* 22.05 kHz (CD quality, halved) */
-#define DIGI_FREQ_44100         44100   /* 44.1 kHz (CD quality) */
-#define DIGI_FREQ_DEFAULT       22050   /* Default frequency */
-
-#define DIGI_MAX_SAMPLE_SIZE    (256 * 1024)  /* 256KB max sample size */
+/* Volume 0-255 on the channel's side and on the other side (panning) */
+void digi_set_volume(unsigned char ch, unsigned char volume, unsigned char other_side);
+/* A new rate (Hz) while it plays */
+void digi_set_rate(unsigned char ch, unsigned int rate);
+/* The address the channel reads next (24 bits) */
+unsigned long digi_position(unsigned char ch);

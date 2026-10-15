@@ -1,276 +1,107 @@
-/* audio_sid.h — MEGA65 SID Audio Chip (Phase 10)
+/* audio_sid.h — the MEGA65's four SID chips (lib/stdlib/audio_sid.c)
  *
- * Sound synthesis system with oscillators, ADSR envelopes, and filters.
- * Full struct method API for synthesizer control.
+ * Twelve voices: voice v is voice v % 3 of SID v / 3 (SID 1 $D400, SID 2
+ * $D420 on the left, SID 3 $D440, SID 4 $D460 on the right). Every register
+ * written is also kept in a shadow copy (the SID's registers are write-only),
+ * which sid_get_reg reads and which lets the waveform and gate be changed
+ * separately. With sid_set_mirror(1), writes to voices 0-5 (SIDs 1-2) are
+ * repeated on voices 6-11 (SIDs 3-4), so they play on both sides.
+ *
+ *   sid_init();
+ *   sid_set_instrument(0, &piano);
+ *   sid_note_on(0, 60);          // middle C
+ *   ...
+ *   sid_note_off(0);             // release
+ *
+ * Frequencies follow the SID clock of the video standard (PAL 985248 Hz,
+ * NTSC 1022727 Hz, $D06F bit 7).
  */
-
 #pragma once
 
-/* ============================================================================
- * SID AUDIO DEFINITIONS
- * ============================================================================ */
+#define SID_VOICES      12
+#define SID_CHIPS       4
 
-/**
- * Oscillator waveform types
- */
-typedef enum {
-    SID_WAVE_TRIANGLE,      /* Triangle wave */
-    SID_WAVE_SAWTOOTH,      /* Sawtooth wave */
-    SID_WAVE_PULSE,         /* Pulse/square wave (PWM) */
-    SID_WAVE_NOISE          /* Pseudo-random noise */
-} sid_waveform_t;
+/* Control register bits (as in <mega65.h>) */
+#ifndef SID_GATE
+#define SID_GATE        0x01    /* gate: attack-decay-sustain while set, release when cleared */
+#define SID_SYNC        0x02    /* hard sync with the previous voice */
+#define SID_RINGMOD     0x04    /* ring modulation with the previous voice */
+#define SID_TEST        0x08    /* test bit: resets the oscillator */
+#define SID_TRIANGLE    0x10
+#define SID_SAWTOOTH    0x20
+#define SID_PULSE       0x40
+#define SID_NOISE       0x80
+#endif
 
-/**
- * Filter type
- */
-typedef enum {
-    SID_FILTER_LOWPASS,     /* Low-pass filter */
-    SID_FILTER_BANDPASS,    /* Band-pass filter */
-    SID_FILTER_HIGHPASS,    /* High-pass filter */
-    SID_FILTER_NOTCH        /* Notch/band-reject filter */
-} sid_filter_type_t;
+/* Filter modes (sid_set_filter) */
+#define SID_FILTER_LP   0x10    /* low pass */
+#define SID_FILTER_BP   0x20    /* band pass */
+#define SID_FILTER_HP   0x40    /* high pass */
+#define SID_FILTER_3OFF 0x80    /* voice 3 of the chip silent (for modulation) */
 
-/**
- * ADSR Envelope state
- */
-typedef enum {
-    ADSR_ATTACK,            /* Attack phase */
-    ADSR_DECAY,             /* Decay phase */
-    ADSR_SUSTAIN,           /* Sustain phase */
-    ADSR_RELEASE            /* Release phase */
-} adsr_phase_t;
+/* Voice registers (sid_write) */
+#define SID_REG_FREQ_LO 0
+#define SID_REG_FREQ_HI 1
+#define SID_REG_PW_LO   2
+#define SID_REG_PW_HI   3
+#define SID_REG_CTRL    4
+#define SID_REG_AD      5
+#define SID_REG_SR      6
 
-/**
- * ADSR Envelope - Attack, Decay, Sustain, Release
- *
- * Controls amplitude envelope for dynamic sound shaping.
- */
-struct sid_adsr {
-    int attack;             /* Attack time (0-255, ms) */
-    int decay;              /* Decay time (0-255, ms) */
-    int sustain;            /* Sustain level (0-255) */
-    int release;            /* Release time (0-255, ms) */
+/* A sound: waveform (SID_PULSE...), attack/decay and sustain/release
+ * nibble pairs, pulse width (0-4095) */
+typedef struct {
+    unsigned char wave;
+    unsigned char ad;
+    unsigned char sr;
+    unsigned int pw;
+} sid_instrument_t;
 
-    /* State tracking */
-    adsr_phase_t phase;     /* Current ADSR phase */
-    int elapsed;            /* Elapsed time in current phase */
-    int current_level;      /* Current amplitude (0-255) */
-    int active;             /* 1 = envelope is running */
+/* All four SIDs silent (gates off, registers 0), volume 15, no mirroring */
+void sid_init(void);
 
-    /* Methods */
-    void (*note_on)(struct sid_adsr *this);
-    void (*note_off)(struct sid_adsr *this);
-    void (*update)(struct sid_adsr *this);
-    int (*get_level)(struct sid_adsr *this);
-};
+/* Writes to voices 0-5 also go to voices 6-11 (on: 1) */
+void sid_set_mirror(unsigned char on);
 
-typedef struct sid_adsr sid_adsr_t;
+/* Register reg (0-6) of voice v; register reg (0-$18) of SID chip (0-3) */
+void sid_write(unsigned char v, unsigned char reg, unsigned char val);
+void sid_write_chip(unsigned char chip, unsigned char reg, unsigned char val);
+/* The value last written to register reg (0-$18) of SID chip (0-3) */
+unsigned char sid_get_reg(unsigned char chip, unsigned char reg);
 
-/**
- * Oscillator - generates waveforms
- *
- * Produces different waveforms at specified frequency.
- */
-struct sid_oscillator {
-    int frequency;          /* Frequency in Hz (0-20000) */
-    int phase;              /* Current phase accumulator */
-    sid_waveform_t waveform;/* Waveform type */
-    int pulse_width;        /* Pulse width for PWM (0-255) */
-    int detune;             /* Detune amount (-100 to +100 cents) */
+/* Frequency register values: of a frequency in Hz (up to about 3800 Hz),
+ * of a MIDI note (69 = A4 = 440 Hz; 0-106) */
+unsigned int sid_hz_to_reg(unsigned int hz);
+unsigned int sid_note_to_reg(unsigned char note);
 
-    /* Methods */
-    void (*set_frequency)(struct sid_oscillator *this, int freq);
-    void (*set_waveform)(struct sid_oscillator *this, sid_waveform_t wave);
-    void (*set_pulse_width)(struct sid_oscillator *this, int width);
-    int (*generate_sample)(struct sid_oscillator *this);
-};
+void sid_set_freq_reg(unsigned char v, unsigned int reg);
+void sid_set_freq(unsigned char v, unsigned int hz);
+void sid_set_note(unsigned char v, unsigned char note);
 
-typedef struct sid_oscillator sid_oscillator_t;
+/* Waveform bits (SID_PULSE | SID_RINGMOD...); the gate stays as it is */
+void sid_set_waveform(unsigned char v, unsigned char wave);
+/* Pulse width 0-4095 (2048: square) */
+void sid_set_pulse(unsigned char v, unsigned int width);
+/* Envelope, each 0-15 */
+void sid_set_adsr(unsigned char v, unsigned char attack, unsigned char decay,
+                  unsigned char sustain, unsigned char release);
+/* Waveform, envelope and pulse width of an instrument */
+void sid_set_instrument(unsigned char v, const sid_instrument_t *inst);
 
-/**
- * Filter - resonant filter for timbre shaping
- *
- * Applies low-pass, high-pass, band-pass, or notch filtering.
- */
-struct sid_filter {
-    sid_filter_type_t type; /* Filter type */
-    int cutoff;             /* Cutoff frequency (0-20000 Hz) */
-    int resonance;          /* Resonance/Q factor (0-255) */
-    int output;             /* Filtered output sample */
+/* Gate on (1: attack) or off (0: release) */
+void sid_gate(unsigned char v, unsigned char on);
+/* The note (MIDI) with the envelope restarted (gate off, then on) */
+void sid_note_on(unsigned char v, unsigned char note);
+/* Release the note */
+void sid_note_off(unsigned char v);
+/* Instrument, note and a restarted envelope */
+void sid_play(unsigned char v, const sid_instrument_t *inst, unsigned char note);
+/* Every voice released */
+void sid_all_off(void);
 
-    /* Filter state (IIR coefficients) */
-    int sample_history[4];  /* Previous input/output samples */
-
-    /* Methods */
-    void (*set_cutoff)(struct sid_filter *this, int freq);
-    void (*set_resonance)(struct sid_filter *this, int q);
-    void (*set_type)(struct sid_filter *this, sid_filter_type_t type);
-    int (*apply)(struct sid_filter *this, int sample);
-};
-
-typedef struct sid_filter sid_filter_t;
-
-/**
- * SID Voice - single polyphonic voice
- *
- * Combines oscillator, envelope, and filter for one note.
- */
-struct sid_voice {
-    int note;               /* MIDI note (0-127) */
-    int velocity;           /* Note velocity (0-127) */
-    int active;             /* 1 = voice is playing */
-
-    /* Components */
-    sid_oscillator_t osc;   /* Oscillator */
-    sid_adsr_t envelope;    /* ADSR envelope */
-    sid_filter_t filter;    /* Filter */
-
-    /* Modulation */
-    int portamento;         /* Pitch slide time (ms) */
-    int target_frequency;   /* Target frequency for portamento */
-    int vibrato_depth;      /* Vibrato depth (0-100 cents) */
-    int vibrato_rate;       /* Vibrato rate (Hz) */
-
-    /* Methods */
-    void (*note_on)(struct sid_voice *this, int note, int velocity);
-    void (*note_off)(struct sid_voice *this);
-    void (*update)(struct sid_voice *this);
-    int (*get_sample)(struct sid_voice *this);
-    void (*set_vibrato)(struct sid_voice *this, int depth, int rate);
-    void (*set_portamento)(struct sid_voice *this, int time);
-};
-
-typedef struct sid_voice sid_voice_t;
-
-/**
- * SID Synthesizer - full polyphonic synthesizer
- *
- * Manages multiple SID chips with up to 3 voices each (MEGA65 supports 4 SID chips).
- * Provides full synthesis control with effects.
- */
-struct sid_synth {
-    /* Multiple SID chips (MEGA65: 4 chips × 3 voices = 12 total voices) */
-    int num_sids;           /* Number of active SID chips (1-4) */
-    sid_voice_t voice[12];  /* Up to 12 voices (4 SIDs × 3 voices each) */
-    int active_voices;      /* Number of currently playing voices */
-
-    /* Master controls */
-    int volume;             /* Master volume (0-255) */
-    int master_tuning;      /* Master pitch offset (cents) */
-    int glide_time;         /* Legato glide time (ms) */
-
-    /* Global effects */
-    int reverb_level;       /* Reverb amount (0-255) */
-    int chorus_level;       /* Chorus amount (0-255) */
-    int delay_time;         /* Delay time (0-1000 ms) */
-    int delay_feedback;     /* Delay feedback (0-255) */
-
-    /* State tracking */
-    int sample_rate;        /* Sample rate in Hz */
-    int frame_count;        /* Frames generated */
-
-    /* Methods */
-    void (*init)(struct sid_synth *this);
-    void (*done)(struct sid_synth *this);
-    void (*init_sid_count)(struct sid_synth *this, int num_sids);
-
-    /* Voices */
-    void (*note_on)(struct sid_synth *this, int voice, int note, int velocity);
-    void (*note_off)(struct sid_synth *this, int voice);
-    void (*all_notes_off)(struct sid_synth *this);
-    int (*get_sid_from_voice)(struct sid_synth *this, int voice);
-    int (*get_voice_in_sid)(struct sid_synth *this, int voice);
-
-    /* Synthesis */
-    int (*get_sample)(struct sid_synth *this);
-    void (*update)(struct sid_synth *this);
-
-    /* Controls */
-    void (*set_volume)(struct sid_synth *this, int volume);
-    int (*get_volume)(struct sid_synth *this);
-    void (*set_vibrato)(struct sid_synth *this, int voice, int depth, int rate);
-    void (*set_portamento)(struct sid_synth *this, int time);
-
-    /* Effects */
-    void (*set_reverb)(struct sid_synth *this, int level);
-    void (*set_chorus)(struct sid_synth *this, int level);
-    void (*set_delay)(struct sid_synth *this, int time, int feedback);
-
-    /* Filter */
-    void (*set_cutoff)(struct sid_synth *this, int voice, int freq);
-    void (*set_resonance)(struct sid_synth *this, int voice, int q);
-};
-
-typedef struct sid_synth sid_synth_t;
-
-/* ============================================================================
- * SID SYNTHESIZER API FUNCTIONS
- * ============================================================================ */
-
-/**
- * Create and initialize SID synthesizer
- *
- * Returns:
- *   Initialized sid_synth_t with all method pointers set
- *
- * Example:
- *   sid_synth_t synth = sid_synth_create();
- *   synth.init(&synth);
- *   synth.note_on(&synth, 0, 60, 127);  // Play middle C on voice 0
- */
-sid_synth_t sid_synth_create(void);
-
-/* ============================================================================
- * CONSTANTS
- * ============================================================================ */
-
-/* Volume levels */
-#define SID_VOLUME_MIN          0       /* Silent */
-#define SID_VOLUME_MAX          255     /* Maximum */
-#define SID_VOLUME_DEFAULT      200     /* Default level */
-
-/* Frequency range (Hz) */
-#define SID_FREQ_MIN            20      /* Lowest frequency */
-#define SID_FREQ_MAX            20000   /* Highest frequency */
-#define SID_FREQ_A4             440     /* A4 tuning frequency */
-
-/* Time ranges (milliseconds) */
-#define SID_TIME_MIN            0       /* Immediate */
-#define SID_TIME_MAX            5000    /* 5 seconds */
-
-/* Note constants (MIDI) */
-#define SID_NOTE_C0             0       /* Lowest MIDI note */
-#define SID_NOTE_C4             60      /* Middle C */
-#define SID_NOTE_A4             69      /* A4 (440 Hz) */
-#define SID_NOTE_C8             108     /* Highest reasonable note */
-
-/* SID Chip indices */
-#define SID_CHIP_1              0       /* First SID chip ($D400) */
-#define SID_CHIP_2              1       /* Second SID chip ($D420) */
-#define SID_CHIP_3              2       /* Third SID chip ($D440) */
-#define SID_CHIP_4              3       /* Fourth SID chip ($D460) */
-#define SID_CHIPS_MAX           4       /* Maximum SID chips (MEGA65) */
-
-/* Voice indices */
-#define SID_VOICE_1             0       /* First voice */
-#define SID_VOICE_2             1       /* Second voice */
-#define SID_VOICE_3             2       /* Third voice */
-#define SID_VOICE_4             3       /* SID 2, voice 1 */
-#define SID_VOICE_5             4       /* SID 2, voice 2 */
-#define SID_VOICE_6             5       /* SID 2, voice 3 */
-#define SID_VOICE_7             6       /* SID 3, voice 1 */
-#define SID_VOICE_8             7       /* SID 3, voice 2 */
-#define SID_VOICE_9             8       /* SID 3, voice 3 */
-#define SID_VOICE_10            9       /* SID 4, voice 1 */
-#define SID_VOICE_11            10      /* SID 4, voice 2 */
-#define SID_VOICE_12            11      /* SID 4, voice 3 */
-#define SID_VOICES_MAX          12      /* Maximum total voices */
-
-/* SID chip memory addresses */
-#define SID_CHIP_1_ADDR         0xD400  /* SID 1 base address */
-#define SID_CHIP_2_ADDR         0xD420  /* SID 2 base address */
-#define SID_CHIP_3_ADDR         0xD440  /* SID 3 base address */
-#define SID_CHIP_4_ADDR         0xD460  /* SID 4 base address */
-
-/* Voice-to-chip mapping */
-#define SID_VOICE_COUNT_PER_CHIP 3      /* Each SID has 3 voices */
+/* Master volume 0-15 of all four SIDs (the filter mode bits are kept) */
+void sid_set_volume(unsigned char volume);
+/* A SID's filter: cutoff 0-2047, resonance 0-15, mode (SID_FILTER_LP...),
+ * the voices it filters (bits 0-2) */
+void sid_set_filter(unsigned char chip, unsigned int cutoff, unsigned char resonance,
+                    unsigned char mode, unsigned char voices);

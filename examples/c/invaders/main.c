@@ -10,7 +10,8 @@
  *     pointers, colour RAM written with dma_fill_far
  *   - input: joystick port 2 or the keyboard (Z/X or , . to move, SPACE to
  *     fire), scanned directly (key_pressed)
- *   - sound: SID effects (shot, explosion, UFO) and the marching beat
+ *   - sound: SID effects (shot, explosion, UFO) and the marching beat,
+ *     through <audio_sid.h>
  *   - file I/O: the high score is kept on disk ("invaders.hi" on device 8,
  *     fopen/fread/fwrite), read at the start and written after a game that
  *     beat it
@@ -22,6 +23,7 @@
 #include <stdio.h>
 #include <dma.h>
 #include <mega65.h>
+#include <audio_sid.h>
 #include "gfx.h"
 
 /* the program ends near $B200 with the file I/O: a 2 KB stack share (the
@@ -133,83 +135,72 @@ static void sprite_place(unsigned char n, signed int x, signed int y, unsigned c
 }
 
 /* ------------------------------------------------------------------------ */
-/* Sound: SID 1 voice 0 shots, voice 1 explosions, voice 2 the march; SID 2 */
-/* voice 0 the UFO                                                          */
+/* Sound (<audio_sid.h>): voice 0 shots, voice 1 explosions, voice 2 the     */
+/* march (SID 1); voice 3 the UFO (SID 2)                                   */
+
+#define V_SHOT 0
+#define V_BOOM 1
+#define V_BEAT 2
+#define V_UFO  3
+
+static const sid_instrument_t snd_shot_i = { SID_PULSE,    0x08, 0x00, 0x0800 };
+static const sid_instrument_t snd_boom_i = { SID_NOISE,    0x0A, 0x00, 0 };
+static const sid_instrument_t snd_beat_i = { SID_TRIANGLE, 0x06, 0x00, 0 };
+static const sid_instrument_t snd_ufo_i  = { SID_SAWTOOTH, 0x00, 0xF0, 0 };
 
 static unsigned char snd_shot_t, snd_boom_t, snd_beat_t, snd_beat_n;
+static unsigned int snd_shot_f;
 static const unsigned char beat_notes[4] = {0x0C, 0x0B, 0x0A, 0x09};
 
+/* A sound on a voice at a raw frequency value, its envelope restarted */
+static void snd_start(unsigned char v, const sid_instrument_t *inst, unsigned int freq) {
+    sid_gate(v, 0);
+    sid_set_instrument(v, inst);
+    sid_set_freq_reg(v, freq);
+    sid_gate(v, 1);
+}
+
 static void snd_init(void) {
-    volatile struct sid_voice *v;
-    unsigned char i;
-    for (i = 0; i < 3; i++) {
-        v = SID1_VOICE(i);
-        v->ctrl = 0;
-        v->freq_hi = 0;
-    }
-    SID2_VOICE(0)->ctrl = 0;
-    SID1_VOICE(0)->pw_lo = 0x00;
-    SID1_VOICE(0)->pw_hi = 0x08;
-    sid1->volume = 15;
-    sid2->volume = 15;
+    sid_init();
 }
 
 static void snd_shot(void) {
-    volatile struct sid_voice *v = SID1_VOICE(0);
-    v->attack_decay = 0x08;
-    v->sustain_release = 0x00;
-    v->freq_lo = 0;
-    v->freq_hi = 0x38;
-    v->ctrl = SID_PULSE | SID_GATE;
+    snd_shot_f = 0x3800;
+    snd_start(V_SHOT, &snd_shot_i, snd_shot_f);
     snd_shot_t = 10;
 }
 
 static void snd_boom(void) {
-    volatile struct sid_voice *v = SID1_VOICE(1);
-    v->attack_decay = 0x0A;
-    v->sustain_release = 0x00;
-    v->freq_lo = 0;
-    v->freq_hi = 0x0A;
-    v->ctrl = SID_NOISE | SID_GATE;
+    snd_start(V_BOOM, &snd_boom_i, 0x0A00);
     snd_boom_t = 3;
 }
 
 static void snd_beat(void) {
-    volatile struct sid_voice *v = SID1_VOICE(2);
-    v->attack_decay = 0x06;
-    v->sustain_release = 0x00;
-    v->freq_lo = 0;
-    v->freq_hi = beat_notes[snd_beat_n];
+    snd_start(V_BEAT, &snd_beat_i, (unsigned int)beat_notes[snd_beat_n] << 8);
     snd_beat_n = (snd_beat_n + 1) & 3;
-    v->ctrl = SID_TRIANGLE | SID_GATE;
     snd_beat_t = 3;
 }
 
 static void snd_ufo(unsigned char on, unsigned char phase) {
-    volatile struct sid_voice *v = SID2_VOICE(0);
-    if (!on) { v->ctrl = SID_SAWTOOTH; return; }
-    v->attack_decay = 0x00;
-    v->sustain_release = 0xF0;
-    v->freq_lo = 0;
-    v->freq_hi = 0x20 + (phase & 15) * 2;
-    v->ctrl = SID_SAWTOOTH | SID_GATE;
+    if (!on) { sid_gate(V_UFO, 0); return; }
+    sid_set_instrument(V_UFO, &snd_ufo_i);
+    sid_set_freq_reg(V_UFO, (unsigned int)(0x20 + (phase & 15) * 2) << 8);
+    sid_gate(V_UFO, 1);
 }
 
 /* once a frame: sweeps and gate releases */
 static void snd_update(void) {
     if (snd_shot_t) {
-        SID1_VOICE(0)->freq_hi = SID1_VOICE(0)->freq_hi - 3;
-        if (--snd_shot_t == 0) SID1_VOICE(0)->ctrl = SID_PULSE;
+        snd_shot_f -= 0x0300;
+        sid_set_freq_reg(V_SHOT, snd_shot_f);
+        if (--snd_shot_t == 0) sid_gate(V_SHOT, 0);
     }
-    if (snd_boom_t && --snd_boom_t == 0) SID1_VOICE(1)->ctrl = SID_NOISE;
-    if (snd_beat_t && --snd_beat_t == 0) SID1_VOICE(2)->ctrl = SID_TRIANGLE;
+    if (snd_boom_t && --snd_boom_t == 0) sid_gate(V_BOOM, 0);
+    if (snd_beat_t && --snd_beat_t == 0) sid_gate(V_BEAT, 0);
 }
 
 static void snd_off(void) {
-    SID1_VOICE(0)->ctrl = 0;
-    SID1_VOICE(1)->ctrl = 0;
-    SID1_VOICE(2)->ctrl = 0;
-    SID2_VOICE(0)->ctrl = 0;
+    sid_init();
 }
 
 /* ------------------------------------------------------------------------ */

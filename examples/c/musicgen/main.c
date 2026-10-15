@@ -31,9 +31,9 @@
  *     hi-hat on one SID voice) with a fill at the end of a section and
  *     swing (long-short eighths) for blues and jazz.
  *
- * Sound: SID 1 voice 1 lead, voice 2 bass, voice 3 drums; SID 2 the
- * chords. SID 3 and 4 get the same writes, so the music plays on both
- * stereo channels. 14 instruments (ADSR, waveform, pulse width with
+ * Sound (<audio_sid.h>): SID 1 voice 1 lead, voice 2 bass, voice 3 drums;
+ * SID 2 the chords. SID 3 and 4 get the same writes (sid_set_mirror), so
+ * the music plays on both stereo channels. 14 instruments (ADSR, waveform, pulse width with
  * modulation, delayed vibrato).
  *
  * Keys (the hardware typing queue at $D610):
@@ -52,7 +52,11 @@
  */
 #include <mega65.h>
 #include <dma.h>
-#include "notes.h"
+#include <audio_sid.h>
+
+/* the notes played: MIDI 24-95 (C1-B6) */
+#define NOTE_LO 24
+#define NOTE_HI 95
 
 #define REG(a) (*(volatile unsigned char *)(a))
 #define ASCIIKEY REG(0xD610)
@@ -572,7 +576,6 @@ static void gen_song(void) {
 #define V_BASS 1
 #define V_DRUM 2
 #define V_CH   3
-static const unsigned char voff[6] = { 0x00, 0x07, 0x0E, 0x20, 0x27, 0x2E };
 
 struct voice {
     unsigned char inst, note, gate, t, level;
@@ -581,16 +584,10 @@ struct voice {
 };
 static struct voice voices[6];
 
-/* a SID register, on both stereo sides (SID 1/2 and SID 3/4) */
-static void sid_w(unsigned char v, unsigned char reg, unsigned char val) {
-    unsigned char o = voff[v] + reg;
-    REG(0xD400 + o) = val;
-    REG(0xD440 + o) = val;
-}
-static void sid_freq(unsigned char v, unsigned int f) {
-    sid_w(v, 0, (unsigned char)f);
-    sid_w(v, 1, (unsigned char)(f >> 8));
-}
+/* SID registers through <audio_sid.h>: voices 0-5 are SID 1 and 2, mirrored
+ * to SID 3 and 4 (sid_set_mirror) so the music plays on both sides */
+#define sid_w(v, reg, val) sid_write((v), (reg), (val))
+#define sid_freq(v, f) sid_set_freq_reg((v), (f))
 
 static void note_on(unsigned char v, unsigned char n) {
     struct voice *vo = &voices[v];
@@ -598,7 +595,7 @@ static void note_on(unsigned char v, unsigned char n) {
     if (n < NOTE_LO) n += 12;
     if (n > NOTE_HI) n -= 12;
     vo->note = n;
-    vo->freq = note_freq[n - NOTE_LO];
+    vo->freq = sid_note_to_reg(n);
     vo->t = 0;
     vo->gate = 1;
     vo->level = 15;
@@ -877,7 +874,7 @@ static void voices_frame(void) {
     if (arp_on) {
         /* the chord's notes in turn, one a frame */
         arp_i = arp_i == 2 ? 0 : arp_i + 1;
-        sid_freq(V_CH, note_freq[voicing[arp_i] + 12 - NOTE_LO]);
+        sid_freq(V_CH, sid_note_to_reg(voicing[arp_i] + 12));
         voices[V_CH + 1].level = voices[V_CH + 2].level = voices[V_CH].level;
     }
     drum_frame();
@@ -1140,10 +1137,8 @@ int main(void) {
     rs ^= REG(0xD012) | (REG(0xDC04) << 8);
     if (rs == 0) rs = 1;
     for (i = 0; i < 6; i++) voices[i].inst = I_PIANO;
-    REG(0xD418) = 15;              /* volume */
-    REG(0xD438) = 15;
-    REG(0xD458) = 15;
-    REG(0xD478) = 15;
+    sid_init();                    /* silent, volume 15 */
+    sid_set_mirror(1);             /* SID 1/2 also on SID 3/4: stereo */
     video_on();
     while (ASCIIKEY) ASCIIKEY = 0;
     choose_style(0);

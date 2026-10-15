@@ -38,7 +38,7 @@ and mount it.
 A Space Invaders game. The game objects are structs with single inheritance
 and virtual `update()`/`draw()`, positions an operator-overloaded `Vec2`. The
 character set is copied to bank 4 with `dma_copy_far` and redefined (aliens,
-shields); the cannon and UFO are 16-colour VIC-IV sprites; SID sound effects
+shields); the cannon and UFO are 16-colour VIC-IV sprites; SID sound effects (through `<audio_sid.h>`)
 and the marching beat. An attract mode plays by itself (shown); FIRE or SPACE
 starts a game, Z/X, `,`/`.`, the cursor keys or a joystick move, RUN/STOP quits.
 The high score is kept on disk: `INVADERS.HI`, a sequential file on device 8
@@ -67,7 +67,7 @@ A random music generator in seven styles (pop, rock, blues, jazz,
 classical, ambient, chiptune): Markov chord tables with fixed cadences, AABA
 or 12-bar blues form, melodies built from a motif with chord tones on the
 strong beats, voice-led chords, walking/boogie/Alberti bass and drums with
-swing, played by 14 SID instruments on four SIDs. Keys 1-7 choose the style,
+swing, played by 14 SID instruments on four SIDs (`<audio_sid.h>`: SIDs 1-2 mirrored to 3-4 for stereo). Keys 1-7 choose the style,
 `+`/`-` the tempo, N a new song. `make check` composes songs of every style
 and checks them against the chords and scales.
 

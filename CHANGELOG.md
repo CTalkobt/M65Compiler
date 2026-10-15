@@ -176,6 +176,24 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
     a variable; they now choose `far_malloc_current`'s bank (fixed, first
     fit 4→5, round robin), whose default bank is 4 (was the unusable 0).
     `bank_reset` no longer uses `assert` (which linked printf).
+  - The far-pointer versions of `memcpy`/`memset`/`strlen`/`strcpy`/
+    `strcmp`/`strcat`/`memcmp` (`memcpy__fpvst` …, `stdlib_overloads.c`)
+    were declared nowhere (the comment's "compiler selects the variant" is
+    not so): `<far_string.h>` declares them. Far destinations return the
+    far pointer (was a `far_ptr_t` returned as `char *`), strings are no
+    longer cut at 256 characters, 256-512-byte buffers are gone, and the
+    typed far array helpers take any index (`test_far_string`).
+  - **Audio** (`test_audio`): `<audio_sid.h>`, `<audio_digi.h>` and
+    `<audio_midi.h>` were a software synthesizer model written for a 32-bit
+    `int` that never touched the sound hardware (no program made a sound
+    with them). New APIs drive it: `audio_sid` the four SIDs as 12 voices
+    (notes, instruments, envelopes, filter, volume, left/right mirroring,
+    a shadow of the write-only registers), `audio_digi` the four audio DMA
+    channels (8/16/4-bit samples, rates in Hz, looping, volume and
+    panning), `audio_midi` a MIDI byte parser and a synth on SID voices
+    (allocation, sustain, pitch bend, program change). The `invaders` and
+    `musicgen` examples use `audio_sid` (musicgen's generated note table
+    is gone).
   - `<conio.h>` (`test_conio`) wrote to the C64-mode screen at `$0400`
     with PETSCII codes as screen codes, put the background colour into
     colour RAM's attribute bits, and `getch`/`kbhit`/`cursoron`/`cursoroff`

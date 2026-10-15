@@ -3,7 +3,6 @@
 # Usage:
 #   make              Build musicgen.prg
 #   make check        Build the generator test, run it in xemu and check its songs
-#   make notes.h      Regenerate the SID frequency table
 #   make clean        Remove build artifacts
 #   make run          Build and run in xemu (if available)
 
@@ -20,16 +19,13 @@ TARGET = musicgen.prg
 
 all: $(TARGET)
 
-main.o45: main.c notes.h
+main.o45: main.c
 	$(CC45) -O2 $(INCLUDES) -c main.c -o main.o45
 
 $(TARGET): main.o45 $(STDLIB)
 	$(LN45) -basic -M musicgen.map -o $(TARGET) main.o45 $(STDLIB)
 
-notes.h: gen_notes.py
-	python3 gen_notes.py
-
-mgtest.prg: main.c notes.h $(STDLIB)
+mgtest.prg: main.c $(STDLIB)
 	$(CC45) -O2 -DMG_TEST $(INCLUDES) main.c -o mgtest.prg
 
 check: mgtest.prg
