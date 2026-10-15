@@ -24,8 +24,22 @@ def check_structure():
             if entry.name != "README.md":
                 errors.append(f"File '{entry.name}' should not be in the doc/ root. Please move it to doc/bin/ or doc/architecture/.")
         elif entry.is_dir():
-            if entry.name not in {"bin", "architecture", "archive", "ref"}:
-                errors.append(f"Unexpected subdirectory '{entry.name}' in doc/. Only 'bin', 'architecture', 'archive', and 'ref' are allowed.")
+            if entry.name not in {"bin", "architecture", "archive", "ref", "examples"}:
+                errors.append(f"Unexpected subdirectory '{entry.name}' in doc/. Only 'bin', 'architecture', 'archive', 'ref' and 'examples' are allowed.")
+
+    # doc/examples: README.md and images/ (the examples' screenshots, .png)
+    ex_dir = os.path.join(DOC_DIR, "examples")
+    if os.path.isdir(ex_dir):
+        for entry in os.scandir(ex_dir):
+            if entry.is_file() and entry.name != "README.md":
+                errors.append(f"File 'doc/examples/{entry.name}' is not allowed: doc/examples/ holds README.md and images/.")
+            elif entry.is_dir():
+                if entry.name != "images":
+                    errors.append(f"Subdirectory 'doc/examples/{entry.name}' is not allowed: only images/.")
+                else:
+                    for img in os.scandir(entry.path):
+                        if not (img.is_file() and img.name.endswith(".png")):
+                            errors.append(f"'doc/examples/images/{img.name}' is not a .png screenshot.")
 
     # 2. Check doc/bin folder structure
     if not os.path.exists(BIN_DIR):

@@ -150,9 +150,10 @@ lib/src/             not built by lib/Makefile (except float_rom.s45); many of
 lib/build/           c45.lib (ZP), c45_zp.lib (copy), c45_stack.lib, crt0*.o45
 src/test-resources/  test programs (*_xemu.c runtime tests, gte/ GCC torture tests)
 src/test/            test drivers (test_xemu.sh, test_cc_interop.sh, run_gte_all.sh,
-                     known_failures/, check_docs.py)
+                     known_failures/, known_ignore/, check_docs.py)
 doc/bin/             one reference page per tool
 doc/architecture/    reference docs; doc/archive and doc/architecture/bug are history
+doc/examples/        the examples with screenshots (examples/capture_screens.py)
 ```
 
 ## Build System

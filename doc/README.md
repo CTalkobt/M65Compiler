@@ -9,6 +9,7 @@ Documents are separated by their function and scope:
 - **[`bin/`](bin/)**: Program-specific user guides, syntax references, and CLI manuals for the toolchain binaries.
 - **[`architecture/`](architecture/)**: Design specifications, calling conventions, file formats, the standard library and compiler development details (coverage, benchmarking, Docker).
   - **[`architecture/bug/`](architecture/bug/)**: Technical bug reports, root cause analyses, and solutions.
+- **[`examples/`](examples/README.md)**: The example programs, each described with a link to its source and a screenshot.
 - **[`ref/`](ref/README.md)**: Release checklist and planning documents.
 - **`archive/`**: Historical session notes and phase reports (not maintained).
 
@@ -28,6 +29,10 @@ Documents are separated by their function and scope:
 | `cvt_asm` | Assembly source format converter | [bin/cvt_asm.md](bin/cvt_asm.md) |
 
 Shared configuration files (`~/.config/m65/<tool>.conf`): [bin/CONFIGURATION.md](bin/CONFIGURATION.md).
+
+## Examples
+
+- [Example programs](examples/README.md) — games and demos (Space Invaders, a Mandelbrot viewer, a music generator, DMA scrollers), hardware registers, BASIC calling C; each with its screen and a link to its source
 
 ## Reference Documents
 
@@ -62,7 +67,8 @@ make man             # man pages from doc/bin/*.md (needs pandoc)
 All documentation must follow these directory rules to keep it clean and avoid broken links. `src/test/check_docs.py` enforces them as the first step of `make test`.
 
 ### 1. File Placement & Naming
-- **No files in the root `doc/` directory** other than this `README.md`. The only subdirectories are `bin/`, `architecture/`, `ref/` and `archive/`.
+- **No files in the root `doc/` directory** other than this `README.md`. The only subdirectories are `bin/`, `architecture/`, `examples/`, `ref/` and `archive/`.
+- **`doc/examples/`** contains `README.md` (the examples) and `images/` (their screenshots, `.png`, made by `examples/capture_screens.py`).
 - **`doc/bin/`** contains only documentation for toolchain binaries. Allowed files:
   - `ar45.md` (Archiver)
   - `basic45.md` (BASIC Generator)

@@ -1,6 +1,6 @@
 # m65compiler Examples
 
-These examples demonstrate different features of the m65compiler.
+These examples demonstrate different features of the m65compiler. [doc/examples](../doc/examples/README.md) shows each one's screen. `python3 examples/capture_screens.py` (from the project root, after building) remakes those pictures.
 
 ## Available Examples
 
