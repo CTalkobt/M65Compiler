@@ -57,101 +57,97 @@ typedef struct {
  * DIRECTORY OPERATIONS
  * ============================================================================ */
 
+/* The drive sends the directory as a BASIC program (secondary address 0):
+ * a load address, then lines of a 2-byte link (0 at the end), a 2-byte
+ * line number (the size in blocks) and text up to a 0 byte. The first line
+ * is the header (the disk name), the last "BLOCKS FREE.". One line into
+ * *num and text; 1 at the end */
+static int dir_line(fd_t fd, unsigned int *num, unsigned char *text, int max) {
+    unsigned char b[2];
+    unsigned char c;
+    int n = 0;
+    if (cbm_read(fd, b, 2) != 2 || (b[0] == 0 && b[1] == 0)) return 1;
+    if (cbm_read(fd, b, 2) != 2) return 1;
+    *num = b[0] | ((unsigned int)b[1] << 8);
+    for (;;) {
+        if (cbm_read(fd, &c, 1) != 1) return 1;
+        if (c == 0) break;
+        if (n < max - 1) text[n++] = c;
+    }
+    text[n] = 0;
+    return 0;
+}
+
 /**
- * cbm_opendir - Open directory listing
- *
- * Opens the special "$" file which contains the directory listing.
- * On Commodore, directory is read just like a file.
- *
- * Parameters:
- *   device — Device number (8=disk, etc.)
- *
- * Returns:
- *   Directory handle (pseudo file descriptor) on success
- *   -1 on error
+ * cbm_opendir - Open a device's directory; returns a handle for
+ * cbm_readdir / cbm_closedir, or -1
  */
 int cbm_opendir(unsigned char device) {
+    unsigned char load[2];
+    unsigned char text[40];
+    unsigned int num;
     if (device == 0) {
         return -1;  /* Invalid device */
     }
 
-    /* Open "$" (directory) as a SEQ file for reading */
     fd_t fd = cbm_open(device, "$", CBM_T_SEQ);
-
     if (fd < 0) {
         return -1;
     }
-
-    /* Return the fd as a directory handle
-     * (caller treats it as a directory, we treat it as a file) */
+    /* Skip the load address and the header line */
+    if (cbm_read(fd, load, 2) != 2 || dir_line(fd, &num, text, sizeof text) != 0 ||
+        cbm_drive_status(device) >= 20) {
+        cbm_close(fd);
+        return -1;
+    }
     return (int)fd;
 }
 
+/* The directory listing's type names (as the drive sends them; cc45 writes
+ * "del" with the same bytes) */
+static const char dir_types[7][4] = { "del", "seq", "prg", "usr", "rel", "cbm", "dir" };
+
 /**
- * cbm_readdir - Read next directory entry
+ * cbm_readdir - Read the next directory entry
  *
- * Reads the next entry from the directory listing.
- * Parses the Commodore directory format and fills in the provided structures.
- * Properly extracts file type and flags from the directory entry.
+ *   filename — buffer for the name (17 bytes)
+ *   type     — the type byte as in the directory: the type code (CBM_T_*
+ *              & $0F) | CBM_FILE_CLOSED unless the listing marks the file
+ *              unclosed ("*SEQ") | CBM_FILE_LOCKED for "SEQ<"
+ *   size     — the size in blocks
  *
- * Parameters:
- *   fd       — Directory handle from cbm_opendir()
- *   filename — Buffer for filename (16+ bytes recommended)
- *   type     — Pointer to file type byte (includes flags: CBM_FILE_LOCKED, CBM_FILE_SPLAT, CBM_FILE_CLOSED)
- *   size     — Pointer to file size in blocks
- *
- * Returns:
- *   0 on success
- *   1 at end of directory
- *   -1 on error
- *
- * File Type Byte Format (entry[18]):
- *   Bit 7: Closed flag (1=properly closed, 0=open/error)
- *   Bit 6: Locked flag (1=locked/protected, 0=not locked)
- *   Bit 5: Splat flag (1=marked for delete, 0=normal)
- *   Bits 3-0: File type (0x1=SEQ, 0x2=PRG, 0x3=USR, 0x4=REL)
- *
- * Example:
- *   type = 0xC2  →  Closed (0x80) | Locked (0x40) | PRG type (0x2)
- *   type = 0x81  →  Normal SEQ file
+ * Returns 0 for an entry, 1 at the end of the directory, -1 on error.
  */
 int cbm_readdir(int fd_handle, char *filename, unsigned char *type, unsigned int *size) {
+    unsigned char text[40];
+    unsigned int num;
+    int i, j, t;
+    unsigned char flags = CBM_FILE_CLOSED;
     if (fd_handle < 0 || !filename || !type || !size) {
         return -1;
     }
+    if (dir_line((fd_t)fd_handle, &num, text, sizeof text) != 0) return 1;
 
-    /* Read 32-byte directory entry */
-    unsigned char entry[32];
-    int nread = cbm_read((fd_t)fd_handle, entry, 32);
+    /* The name between quotes; "BLOCKS FREE." has none */
+    for (i = 0; text[i] && text[i] != '"'; i++) ;
+    if (!text[i]) return 1;
+    i++;
+    for (j = 0; text[i] && text[i] != '"' && j < 16; i++, j++) filename[j] = (char)text[i];
+    filename[j] = '\0';
+    if (text[i] == '"') i++;
 
-    if (nread < 32) {
-        /* EOF or error */
-        return 1;  /* End of directory */
-    }
+    /* The type: [*]XXX[<] */
+    while (text[i] == ' ') i++;
+    if (text[i] == '*') { flags = 0; i++; }
+    for (t = 0; t < 7; t++)
+        if (text[i] == (unsigned char)dir_types[t][0] && text[i + 1] == (unsigned char)dir_types[t][1] &&
+            text[i + 2] == (unsigned char)dir_types[t][2]) break;
+    if (t == 7) return -1;
+    if (text[i + 3] == '<') flags |= CBM_FILE_LOCKED;
 
-    /* Parse entry */
-    *size = entry[0] | (entry[1] << 8);  /* Little-endian size in blocks */
-
-    /* Copy filename, removing padding ($A0 padding) */
-    int i, j;
-    i = 0;
-    j = 0;
-    while (i < 16 && entry[i + 2] != 0xA0) {
-        filename[j] = entry[i + 2];
-        i++;
-        j++;
-    }
-    filename[j] = '\0';  /* Null-terminate */
-
-    /* Extract file type with all flags
-     * Bit 7: Closed flag (1=closed, 0=open)
-     * Bit 6: Locked flag (1=locked, 0=unlocked)
-     * Bit 5: Splat flag (1=scratched, 0=normal)
-     * Bits 3-0: File type code (1=SEQ, 2=PRG, 3=USR, 4=REL, 8=DIR)
-     */
-    *type = entry[18];
-
-    return 0;  /* Success, more entries possible */
+    *size = num;
+    *type = (unsigned char)(flags | t);
+    return 0;
 }
 
 /**
@@ -307,11 +303,13 @@ const char *cbm_dir_type_name(unsigned char type) {
     unsigned char type_code = type & CBM_FILE_TYPE_MASK;
 
     switch (type_code) {
-        case 0x02:  return "PRG";
+        case 0x00:  return "DEL";
         case 0x01:  return "SEQ";
+        case 0x02:  return "PRG";
         case 0x03:  return "USR";
         case 0x04:  return "REL";
-        case 0x08:  return "DIR";
+        case 0x05:  return "CBM";
+        case 0x06:  return "DIR";
         default:    return "???";
     }
 }
@@ -364,7 +362,7 @@ int cbm_dir_is_closed(unsigned char type) {
  *   type — File type byte from directory entry
  *
  * Returns:
- *   Type code: 0x01=SEQ, 0x02=PRG, 0x03=USR, 0x04=REL, 0x08=DIR
+ *   Type code: 0x00=DEL, 0x01=SEQ, 0x02=PRG, 0x03=USR, 0x04=REL, 0x05=CBM, 0x06=DIR
  */
 unsigned char cbm_dir_get_type(unsigned char type) {
     return type & CBM_FILE_TYPE_MASK;

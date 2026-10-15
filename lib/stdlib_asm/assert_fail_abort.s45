@@ -1,12 +1,15 @@
-; assert_fail_abort.s — Simple halt function for assert_msg (ZP convention)
-; Called after printf has printed assertion message.
-; No return: halts execution with BRK.
+; assert_fail_abort.s — end of a failed assert / assert_msg (ZP convention)
+; Called after the message is printed. No return: calls abort(), as C
+; specifies for a failed assertion (exit status $FFFE, atexit handlers
+; not run).
 
 .global _assert_fail_abort
+.extern _abort
 
-_assert_fail_abort:
-    proc
-    brk
+.segment "code"
+
+proc _assert_fail_abort
+    jmp _abort
     .zp_clobbers
     .reg_clobbers
     .flag_clobbers

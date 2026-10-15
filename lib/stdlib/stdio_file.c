@@ -212,6 +212,8 @@ int _mem_reserve(FILE *fp, unsigned int need) {
 
 /* Write a memory stream's contents back to its file ("@0:" replaces it) */
 static int _mem_writeback(FILE *fp) {
+    /* tmpfile's stream has no file */
+    if (!fp->name) { fp->dirty = 0; return 0; }
     int h = _kernal_open(fp->name, fp->cbm_type, _IOWRITE | _IOTRUNC);
     if (h < 0) { fp->flags |= _IOERR; return EOF; }
     unsigned int done = 0;
@@ -455,43 +457,87 @@ void clearerr(FILE *stream) {
 }
 
 /**
- * setvbuf - Set buffering for a stream
+ * setvbuf - Set a stream's buffering (before its first read or write)
+ *
+ * _IONBF: every character goes to the file at once (a 1-byte buffer); _IOFBF
+ * and _IOLBF: buffer (size bytes; NULL allocates it), text streams written
+ * out at each newline either way. Returns 0, or -1 (an invalid mode, I/O
+ * already done, no memory). A memory stream (r+, w+, a+, tmpfile) has no
+ * device buffer: 0.
  */
 int setvbuf(FILE *stream, char *buffer, int mode, size_t size) {
-    if (!stream) return -1;
-    /* TODO: Implement custom buffering modes (fully buffered, line buffered, unbuffered) */
+    if (!stream || mode < _IOFBF || mode > _IONBF) return -1;
+    if (stream->backend == _IOBACKEND_MEMORY) return 0;
+    if (stream->buf_len || stream->buf_pos || stream->position) return -1;
+    if (mode == _IONBF) {
+        if (!stream->buffer) return -1;
+        stream->buf_size = 1;
+        return 0;
+    }
+    if (size == 0) size = BUFSIZ;
+    if (!buffer) {
+        if ((stream->flags & _IOMYBUF) && stream->buffer && size <= stream->buf_size) {
+            stream->buf_size = size;
+            return 0;
+        }
+        buffer = (char *)malloc(size);
+        if (!buffer) return -1;
+        if ((stream->flags & _IOMYBUF) && stream->buffer) free(stream->buffer);
+        stream->flags |= _IOMYBUF;
+    } else {
+        if ((stream->flags & _IOMYBUF) && stream->buffer) free(stream->buffer);
+        stream->flags &= ~_IOMYBUF;
+    }
+    stream->buffer = (unsigned char *)buffer;
+    stream->buf_size = size;
     return 0;
 }
 
 /**
- * setbuf - Set buffer (simplified setvbuf)
+ * setbuf - setvbuf(stream, buffer, buffer ? _IOFBF : _IONBF, BUFSIZ)
  */
 void setbuf(FILE *stream, char *buffer) {
-    if (!stream) return;
-    if (buffer) {
-        stream->buffer = (unsigned char *)buffer;
-        stream->buf_size = BUFSIZ;
-    } else {
-        /* Unbuffered mode - TODO */
-        stream->buf_size = 0;
-    }
+    setvbuf(stream, buffer, buffer ? _IOFBF : _IONBF, BUFSIZ);
 }
 
 /**
- * tmpfile - Create temporary file
+ * tmpfile - A temporary binary read/write stream ("w+b"), held in memory
+ * (the heap limits its size) and never written to a disk: nothing to
+ * remove when it is closed. NULL without memory.
  */
 FILE *tmpfile(void) {
-    /* TODO: Implement temporary file creation */
-    return NULL;
+    FILE *fp = (FILE *)malloc(sizeof(FILE));
+    if (!fp) { errno = ENOMEM; return NULL; }
+    memset(fp, 0, sizeof(FILE));
+    fp->flags = _IOREAD | _IOWRITE | _IOBINARY | _IOMYBUF;
+    fp->mode = fp->flags;
+    fp->backend = _IOBACKEND_MEMORY;
+    fp->cbm_type = CBM_T_USR;
+    return fp;
 }
 
 /**
- * tmpnam - Generate temporary filename
+ * tmpnam - A file name ("TMP0000" to "TMP9999") that no file on the disk
+ * has, in s (L_tmpnam bytes) or a static buffer. NULL when all are taken.
  */
 char *tmpnam(char *s) {
-    /* TODO: Implement temporary name generation */
     static char buf[L_tmpnam];
+    static unsigned int next;
+    unsigned int tries;
+    int saved = errno;
     if (!s) s = buf;
-    return s;
+    for (tries = 0; tries < TMP_MAX; tries++) {
+        unsigned int n = next;
+        FILE *fp;
+        next = (next + 1) % TMP_MAX;
+        s[0] = 'T'; s[1] = 'M'; s[2] = 'P';
+        s[3] = (char)('0' + n / 1000); s[4] = (char)('0' + n / 100 % 10);
+        s[5] = (char)('0' + n / 10 % 10); s[6] = (char)('0' + n % 10); s[7] = 0;
+        fp = fopen(s, "r");
+        if (!fp) { errno = saved; return s; }
+        fclose(fp);
+    }
+    errno = saved;
+    return NULL;
 }
 

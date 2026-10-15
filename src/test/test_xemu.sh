@@ -816,6 +816,38 @@ for s2mode in "stack|-fno-zpcall" "zp|"; do
     fi
 done
 
+# Test: CBM file I/O (cbm_read/write/seek/tell/eof/status, cbm_drive_status),
+# the KERNAL wrappers, the directory, REL error strings; a D81 as drive 8
+for cimode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r ciname ciflags <<< "$cimode"
+    echo "Testing test_cbmio_xemu.c ($ciname)..."
+    compile_link_test "src/test-resources/test_cbmio_xemu.c" "build/test/test_cbmio_${ciname}_xemu.prg" "$ciflags"
+    if [ $? -eq 0 ] && rm -f "build/test/test_cbmio_${ciname}.d81" &&
+       ./bin/disk45 create "build/test/test_cbmio_${ciname}.d81" -n "CBMIO" >/dev/null 2>&1; then
+        run_xemu_test "test_cbmio_$ciname" "build/test/test_cbmio_${ciname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA" \
+            -8 "$PWD/build/test/test_cbmio_${ciname}.d81"
+    else
+        echo "FAIL: test_cbmio_xemu.c $ciname (build failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: fscanf/vfscanf/sscanf %f, setvbuf/setbuf, tmpfile, tmpnam, freopen; a
+# D81 as drive 8
+for s3mode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r s3name s3flags <<< "$s3mode"
+    echo "Testing test_stdio3_xemu.c ($s3name)..."
+    compile_link_test "src/test-resources/test_stdio3_xemu.c" "build/test/test_stdio3_${s3name}_xemu.prg" "$s3flags"
+    if [ $? -eq 0 ] && rm -f "build/test/test_stdio3_${s3name}.d81" &&
+       ./bin/disk45 create "build/test/test_stdio3_${s3name}.d81" -n "STDIO3" >/dev/null 2>&1; then
+        run_xemu_test "test_stdio3_$s3name" "build/test/test_stdio3_${s3name}_xemu.prg" "C0C0" 3 "01 01 AA" \
+            -8 "$PWD/build/test/test_stdio3_${s3name}.d81"
+    else
+        echo "FAIL: test_stdio3_xemu.c $s3name (build failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: fopen "r+"/"w+"/"a+" (memory streams) and fseek/ftell/rewind on a
 # disk; both conventions
 for fsmode in "stack|-fno-zpcall" "zp|"; do
@@ -1059,6 +1091,60 @@ for slmode in "zp|" "stack|-fno-zpcall"; do
         run_xemu_test "test_struct_layout_$slname" "build/test/test_struct_layout_${slname}_xemu.prg" "C0C0" 12 "01 01 01 01 01 01 01 01 01 01 01 AA"
     else
         echo "FAIL: test_struct_layout_xemu.c $slname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: stdlib/string/ctype functions not covered elsewhere (strtol, strtoul,
+# atof, div, srand, utoa/ltoa, strtok, ctype, atexit on return and exit());
+# a failed assert / assert_msg ends with exit status $FFFE
+for s2mode in "zp|" "stack|-fno-zpcall" "zp_exit|-DVIA_EXIT" "stack_exit|-fno-zpcall -DVIA_EXIT"; do
+    IFS='|' read -r s2name s2flags <<< "$s2mode"
+    echo "Testing test_stdlib2_xemu.c ($s2name)..."
+    compile_link_test "src/test-resources/test_stdlib2_xemu.c" "build/test/test_stdlib2_${s2name}_xemu.prg" "$s2flags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_stdlib2_$s2name" "build/test/test_stdlib2_${s2name}_xemu.prg" "C0C0" 10 "01 01 01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_stdlib2_xemu.c $s2name (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+for s2mode in "assert|-DVIA_ASSERT" "assert_msg|-DVIA_ASSERT_MSG"; do
+    IFS='|' read -r s2name s2flags <<< "$s2mode"
+    echo "Testing test_stdlib2_xemu.c ($s2name)..."
+    compile_link_test "src/test-resources/test_stdlib2_xemu.c" "build/test/test_stdlib2_${s2name}_xemu.prg" "$s2flags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_stdlib2_$s2name" "build/test/test_stdlib2_${s2name}_xemu.prg" "00FD" 2 "FE FF"
+    else
+        echo "FAIL: test_stdlib2_xemu.c $s2name (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: math.h functions not covered elsewhere (atan2, fmod, frexp/ldexp,
+# modf, log2, rounding, copysign/fdim/fmax/fmin, the double names)
+for m2mode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r m2name m2flags <<< "$m2mode"
+    echo "Testing test_math2_xemu.c ($m2name)..."
+    compile_link_test "src/test-resources/test_math2_xemu.c" "build/test/test_math2_${m2name}_xemu.prg" "$m2flags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_math2_$m2name" "build/test/test_math2_${m2name}_xemu.prg" "C0C0" 9 "01 01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_math2_xemu.c $m2name (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: time.h (clock from the KERNAL frame counter, CLOCKS_PER_SEC, time from
+# the RTC, gmtime/mktime/asctime/ctime/difftime)
+for t2mode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r t2name t2flags <<< "$t2mode"
+    echo "Testing test_time2_xemu.c ($t2name)..."
+    compile_link_test "src/test-resources/test_time2_xemu.c" "build/test/test_time2_${t2name}_xemu.prg" "$t2flags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_time2_$t2name" "build/test/test_time2_${t2name}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_time2_xemu.c $t2name (compilation/linking failed)"
         failed=$((failed + 1))
     fi
 done
@@ -1905,13 +1991,13 @@ else
     failed=$((failed + 1))
 fi
 
-echo "Testing test_ca45_seqextract_xemu.s45 (ca45 SeqExtract, .var by position)..."
+echo "Testing test_ca45_seqextract_xemu.s45 (ca45 SeqExtract, .var by position, *+N targets)..."
 T=src/test-resources/test_ca45_seqextract_xemu.s45
 if ./bin/ca45 -PNoSeqExtract $T -o build/test/test_ca45_seqextract0_xemu.prg >/dev/null 2>&1 &&
    ./bin/ca45 $T -o build/test/test_ca45_seqextract_xemu.prg >/dev/null 2>&1; then
     if [ "$(stat -c %s build/test/test_ca45_seqextract_xemu.prg)" -lt "$(stat -c %s build/test/test_ca45_seqextract0_xemu.prg)" ]; then
-        run_xemu_test "test_ca45_seqextract0" "build/test/test_ca45_seqextract0_xemu.prg" "C0C0" 5 "11 03 06 22 AA"
-        run_xemu_test "test_ca45_seqextract" "build/test/test_ca45_seqextract_xemu.prg" "C0C0" 5 "11 03 06 22 AA"
+        run_xemu_test "test_ca45_seqextract0" "build/test/test_ca45_seqextract0_xemu.prg" "C0C0" 8 "11 03 06 22 AA 02 01 01"
+        run_xemu_test "test_ca45_seqextract" "build/test/test_ca45_seqextract_xemu.prg" "C0C0" 8 "11 03 06 22 AA 02 01 01"
     else
         echo "FAIL: test_ca45_seqextract_xemu.s45 (SeqExtract extracted nothing)"
         failed=$((failed + 1))

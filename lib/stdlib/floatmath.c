@@ -12,6 +12,7 @@ float expf(float x);
 float sqrtf(float x);
 float fabsf(float x);
 float truncf(float x);
+float frexpf(float x, signed int *exp);
 
 #include <errno.h>
 
@@ -105,33 +106,47 @@ float log10f(float x) {
     return logf(x) * 0.43429448;  /* 1/ln(10) */
 }
 
-/* log2f: base-2 logarithm = ln(x) / ln(2) */
+/* log2f: base-2 logarithm, exact for powers of two: x = f * 2^e with f in
+ * [0.5, 1), log2(x) = e + ln(f) / ln(2) */
 float log2f(float x) {
-    return logf(x) * 1.44269504;  /* 1/ln(2) */
+    signed int e;
+    float f;
+    if (x <= 0.0) return logf(x);    /* errno and the result as logf */
+    f = frexpf(x, &e);
+    if (f == 0.5) return (float)(e - 1);
+    return (float)e + logf(f) * 1.44269504;  /* 1/ln(2) */
 }
 
-/* ldexpf: x * 2^n */
+/* The CBM float keeps the binary exponent in its first byte (bias 128, 0 for
+ * zero): x = 0.1mmm... * 2^(byte0 - 128). ldexpf and frexpf change it. */
+
+/* ldexpf: x * 2^n, exact; beyond the range ±largest float (ERANGE), below
+ * it 0 (ERANGE) */
 float ldexpf(float x, signed int n) {
-    float scale = 1.0;
-    if (n > 0) {
-        while (n > 0) { scale = scale * 2.0; n = n - 1; }
-    } else {
-        while (n < 0) { scale = scale * 0.5; n = n + 1; }
+    unsigned char *px = (unsigned char *)&x;
+    signed int e;
+    if (px[0] == 0 || n == 0) return x;
+    e = (signed int)px[0] + n;
+    if (e > 255) {
+        errno = ERANGE;
+        px[0] = 0xFF; px[1] |= 0x7F; px[2] = 0xFF; px[3] = 0xFF; px[4] = 0xFF;
+        return x;
     }
-    return x * scale;
+    if (e < 1) {
+        errno = ERANGE;
+        return 0.0;
+    }
+    px[0] = (unsigned char)e;
+    return x;
 }
 
-/* frexpf: split x into normalized fraction [0.5, 1.0) and exponent
- * x = frac * 2^exp */
+/* frexpf: x = frac * 2^exp with |frac| in [0.5, 1), exact */
 float frexpf(float x, signed int *exp) {
-    if (x == 0.0) { *exp = 0; return 0.0; }
-    signed int e = 0;
-    float f = fabsf(x);
-    while (f >= 1.0) { f = f * 0.5; e = e + 1; }
-    while (f < 0.5) { f = f * 2.0; e = e - 1; }
-    *exp = e;
-    if (x < 0.0) f = 0.0 - f;
-    return f;
+    unsigned char *px = (unsigned char *)&x;
+    if (px[0] == 0) { *exp = 0; return 0.0; }
+    *exp = (signed int)px[0] - 128;
+    px[0] = 128;
+    return x;
 }
 
 /* copysignf: magnitude of x with sign of y */

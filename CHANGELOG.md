@@ -118,9 +118,57 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - `#pragma encoding` (and `asm(".encoding ...")`) also sets the encoding
   of the unprefixed character constants that follow: `'A'` is `$41` under
   `ascii` and 1 under `screencode` (was always PETSCII).
+- A struct member `const T *p` (pointer to const) was a const member:
+  `s->p++` and `s->p = q` were errors. Only `T *const p` is.
+- scanf with floats is linked like printf's: `_scanf_float` is referenced
+  when `scanf`/`fscanf`/`sscanf` gets a `float *`, or a unit with float code
+  calls `vscanf`/`vfscanf`/`vsscanf`. `clock`, `rand` and `srand` are no
+  longer treated as assembly ZP routines (they are C now).
 
 ### Standard library
 
+- Library functions without tests got runtime tests (`test_stdlib2`,
+  `test_math2`, `test_time2`, `test_cbmio`, `test_stdio3`), which found:
+  - `strtol`/`strtoul`: upper-case hex digits in a C string (`"0x1F"`: cc45
+    writes `F` as `$66`) and `0X` were not accepted; no `ERANGE` on
+    overflow; `strtoul` ignored a `-`.
+  - `<ctype.h>`: `'A'`–`'Z'` as cc45 writes them (`$61`–`$7A`) were not
+    upper-case letters (`isupper('A')` was 0); `tolower` maps them too.
+  - `atof`/`strtof`: fractions were summed from 0.1, 0.01, … (`"-0.25"` was
+    not -0.25); now digits form an exact integer scaled by exact powers of
+    ten; `endptr` is the start when there are no digits.
+  - `srand` did nothing: after it, `rand` is C's reference generator (a
+    seed repeats its sequence); before it, the hardware RNG as before.
+    `RAND_MAX` is defined.
+  - `atexit` handlers never ran: `exit()` and a return from `main` call
+    them (up to 32, in reverse order). A failed `assert`/`assert_msg` calls
+    `abort()` (exit status `$FFFE`) instead of `BRK`.
+  - `div_t`/`ldiv_t`/`div`/`ldiv` are declared in `<stdlib.h>`.
+  - `ldexpf`/`frexpf` set the exponent byte (exact, `ERANGE` out of range);
+    `log2f` is exact for powers of two.
+  - `clock()` returned BCD minutes:hours: the C65 KERNAL's `RDTIM` reads the
+    CIA time-of-day clock, it has no jiffy clock. `clock` counts video
+    frames (the KERNAL's counter at `$110C`), `clock_t` is `unsigned long`
+    and `CLOCKS_PER_SEC` the frame rate (50 PAL / 60 NTSC). `time()` is
+    the RTC in seconds since 2000 (was the jiffy value); `gmtime`/
+    `localtime` convert their argument (they returned the RTC); `mktime`
+    normalizes out-of-range fields and dates before 2000; `time_t` is
+    `signed long`.
+  - `cbm_seek`/`cbm_tell` were stubs and `cbm_eof` read the last status:
+    files track their position, seek forward by reading and back by
+    reopening. `cbm_readdir` parsed the directory listing as raw 32-byte
+    entries (nothing matched): it reads the listing's lines. `CBM_T_USR`/
+    `REL`/`CBM`/`DIR` are the directory codes (`$83`–`$86`). REL functions
+    on a never-opened handle used fd 0 before the first `cbm_rel_open`.
+    `cbm_k_chrin`/`cbm_k_chrout` are declared.
+  - `fscanf`/`vfscanf` were stubs and `sscanf` minimal: one scanf engine
+    (`scanf_core.c`) for `sscanf`/`vsscanf`/`fscanf`/`vfscanf` and new
+    `scanf`/`vscanf`: widths, `*`, `%i %n %p %[set]`, `hh h l ll`
+    modifiers, `EOF` before the first conversion; float conversions in
+    `scanf_float.c`, linked only when needed.
+  - `setvbuf` was a stub, `tmpfile` returned NULL and `tmpnam` an empty
+    name: `setvbuf`/`setbuf` set the buffering, `tmpfile` is a memory
+    stream (never on disk), `tmpnam` gives `TMPnnnn` names no file has.
 - `rtc_read` (and `localtime`, `gmtime`) read the RTC through a 16-bit
   pointer, i.e. `$7110` (zeros, month -1): the registers at `$FFD7110` are
   copied by DMA; the weekday is computed from the date.
@@ -161,6 +209,10 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - `.var` reassignments hold by position in the generated code (each use got
   the last value); `$00xx` is an absolute address; `#<(sym+n)` /
   `#>(sym+n)` are relocated.
+- SeqExtract could move the instruction a `bne *+5` lands on (cc45's
+  16-bit decrement skips one instruction) into a routine: the branch then
+  skipped the whole `BSR`. A run no longer contains a `*±N` target except
+  as its first instruction.
 
 ### disk45
 

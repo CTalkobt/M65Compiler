@@ -20,6 +20,10 @@ proc _isalpha
     bcc @no
     cmp #$5b
     bcc @yes
+    cmp #$61
+    bcc @no
+    cmp #$7b
+    bcc @yes
     cmp #$c1
     bcc @no
     cmp #$db

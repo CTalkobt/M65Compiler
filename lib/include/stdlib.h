@@ -43,10 +43,26 @@ __fastcall__ signed int abs(signed int value);
 #else
 __fastcall__ signed long labs(signed long value);
 #endif
+#define RAND_MAX 32767
 __fastcall__ int rand(void);
 __fastcall__ void srand(unsigned int seed);
 
+/* Up to 32 functions, called in reverse order by exit() and by a return
+ * from main (not by _exit or abort) */
 int atexit(void (*func)());
+
+typedef struct {
+    signed int quot;
+    signed int rem;
+} div_t;
+
+typedef struct {
+    signed long quot;
+    signed long rem;
+} ldiv_t;
+
+div_t div(signed int numer, signed int denom);
+ldiv_t ldiv(signed long numer, signed long denom);
 
 __fastcall__ void *malloc(size_t size);
 __fastcall__ void free(void *ptr);

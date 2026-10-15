@@ -32,6 +32,7 @@
 .extern __bss_fill
 .weak _init_features
 .weak ___mainargs
+.weak ___atexit_run
 .extern _main
 
 .segment "init"
@@ -184,6 +185,13 @@ __start:
     pha
     jsr _main
 
+    ; Returning from main runs the atexit handlers as exit() does
+    pha
+    phx
+    jsr ___atexit_run
+    plx
+    pla
+
     ; Fall through to __exit
 __exit:
     ; Back to the ROM's zero page, then record the exit status (A:X) there
@@ -286,6 +294,11 @@ __bc_a:     .byte 0
 __bc_x:     .byte 0
 __bc_y:     .byte 0
 ___bc_target: .word 0
+
+; Default __atexit_run: no handlers. atexit.c in the library replaces it
+; when the program calls atexit.
+___atexit_run:
+    rts
 
 ; Default __mainargs: no arguments (argc 0, argv NULL). mainargs.c in the
 ; library replaces it when main is defined with parameters.

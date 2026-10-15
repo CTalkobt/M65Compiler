@@ -8,15 +8,7 @@
 
 #include <stdlib.h>
 
-typedef struct {
-    signed int quot;
-    signed int rem;
-} div_t;
-
-typedef struct {
-    signed long quot;
-    signed long rem;
-} ldiv_t;
+/* div_t, ldiv_t, div and ldiv are in stdlib.h (included above) */
 
 /* abs/labs are declared in stdlib.h per C standard; re-declared here */
 #ifdef __NOMACRO_ABS
@@ -25,9 +17,6 @@ __fastcall__ signed int abs(signed int value);
 #ifdef __NOMACRO_LABS
 __fastcall__ signed long labs(signed long value);
 #endif
-
-div_t div(signed int numer, signed int denom);
-ldiv_t ldiv(signed long numer, signed long denom);
 
 signed int min(signed int a, signed int b);
 signed int max(signed int a, signed int b);

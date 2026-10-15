@@ -9,6 +9,7 @@
 /* Written for standard C signedness (int results compared with < 0) */
 #pragma cc45 signed_default
 
+#include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -63,11 +64,23 @@ extern unsigned char cbm_k_close(unsigned char fd);
  * channel), and whether a file's read reached its end */
 static unsigned char lfn_used[15];
 static unsigned char lfn_eof[15];
+/* For cbm_tell / cbm_seek: bytes read or written, whether the file was
+ * written, and what reopens it (device, secondary address, name; a name
+ * that does not fit can't be reopened) */
+#define LFN_NAME_MAX 24
+static unsigned long lfn_pos[15];
+static unsigned char lfn_wrote[15];
+static unsigned char lfn_dev[15];
+static unsigned char lfn_sa[15];
+static char lfn_name[15][LFN_NAME_MAX];
 
 static int alloc_lfn(void) {
     unsigned char i;
     for (i = 3; i <= 14; i++) {
-        if (!lfn_used[i]) { lfn_used[i] = 1; lfn_eof[i] = 0; return i; }
+        if (!lfn_used[i]) {
+            lfn_used[i] = 1; lfn_eof[i] = 0; lfn_pos[i] = 0; lfn_wrote[i] = 0;
+            return i;
+        }
     }
     return -1;
 }
@@ -79,6 +92,10 @@ static fd_t open_lfn(unsigned char device, const char *filename, unsigned char s
     fd = alloc_lfn();
     if (fd < 0) return -1;
     if (sa == 0xFF) sa = (unsigned char)fd;
+    lfn_dev[fd] = device;
+    lfn_sa[fd] = sa;
+    if (strlen(filename) < LFN_NAME_MAX) strcpy(lfn_name[fd], filename);
+    else lfn_name[fd][0] = 0;
     cbm_k_setnam(filename);
     cbm_k_setlfs((unsigned char)fd, device, sa);
     if (cbm_k_open() != 0) {
@@ -191,6 +208,7 @@ int cbm_read(fd_t fd, void *buffer, unsigned int length) {
            data */
         buf[i] = c;
         bytes_read++;
+        lfn_pos[fd]++;
         if (status & STATUS_EOF) {
             lfn_eof[fd] = 1;
             break;
@@ -249,7 +267,9 @@ int cbm_write(fd_t fd, const void *buffer, unsigned int length) {
         }
 
         bytes_written++;
+        lfn_pos[fd]++;
     }
+    lfn_wrote[fd] = 1;
 
     /* Restore output and return */
     cbm_k_clrchn();
@@ -261,64 +281,56 @@ int cbm_write(fd_t fd, const void *buffer, unsigned int length) {
  * ============================================================================ */
 
 /**
- * cbm_seek - Seek to position in file
+ * cbm_seek - Move a file opened for reading to byte position
  *
- * Note: Not all Commodore file types support seeking.
- * Sequential files (.seq) cannot seek reliably.
- * Relative files (.rel) support seeking.
- * Disk files may support seeking depending on drive firmware.
- *
- * For now, returns error as seeking requires device-specific commands.
+ * Forward by reading, backward by reopening the file (same device,
+ * secondary address and name) and reading from the start. A file that was
+ * written can only stay where it is. Returns 0, or -1 when the position
+ * can't be reached (past the end: the file is then at its end).
  */
-
 int cbm_seek(fd_t fd, unsigned long position) {
-    if (fd < 3 || fd > 14) {
+    unsigned char c;
+    if (fd < 3 || fd > 14 || !lfn_used[fd]) {
         return -1;
     }
-
-    /* TODO: Implement seeking
-     * This would require:
-     * 1. Device-specific commands (e.g., POSITION for 1581)
-     * 2. Or re-opening the file and reading forward
-     * 3. For now, return error
-     */
-
-    return -1;
-}
-
-/**
- * cbm_tell - Get current position in file
- *
- * Note: Not reliably supported on Commodore drives.
- * Sequential files don't track position.
- */
-
-unsigned long cbm_tell(fd_t fd) {
-    if (fd < 3 || fd > 14) {
-        return 0;
+    if (position == lfn_pos[fd]) return 0;
+    if (lfn_wrote[fd]) return -1;
+    if (position < lfn_pos[fd]) {
+        if (!lfn_name[fd][0]) return -1;
+        cbm_k_close((unsigned char)fd);
+        cbm_k_setnam(lfn_name[fd]);
+        cbm_k_setlfs((unsigned char)fd, lfn_dev[fd], lfn_sa[fd]);
+        if (cbm_k_open() != 0) {
+            lfn_used[fd] = 0;
+            return -1;
+        }
+        lfn_pos[fd] = 0;
+        lfn_eof[fd] = 0;
     }
-
-    /* TODO: Implement tell
-     * Would require position tracking in drive firmware
-     * For now, return 0
-     */
-
+    while (lfn_pos[fd] < position) {
+        if (cbm_read(fd, &c, 1) != 1) return -1;
+    }
     return 0;
 }
 
 /**
- * cbm_eof - Check if end-of-file reached
- *
- * Returns: 1 if at EOF, 0 otherwise
+ * cbm_tell - The number of bytes read from or written to the file
  */
+unsigned long cbm_tell(fd_t fd) {
+    if (fd < 3 || fd > 14) {
+        return 0;
+    }
+    return lfn_pos[fd];
+}
 
+/**
+ * cbm_eof - 1 once a read has reached the end of the file, else 0
+ */
 int cbm_eof(fd_t fd) {
     if (fd < 3 || fd > 14) {
         return 0;
     }
-
-    unsigned char status = cbm_k_readst();
-    return (status & STATUS_EOF) ? 1 : 0;
+    return lfn_eof[fd];
 }
 
 /**

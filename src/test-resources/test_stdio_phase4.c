@@ -74,7 +74,7 @@ int test_rel_constants(void) {
 
     ASSERT(CBM_REL_READ == 0, "CBM_REL_READ = 0");
     ASSERT(CBM_REL_WRITE == 1, "CBM_REL_WRITE = 1");
-    ASSERT(CBM_T_REL == 0x85, "CBM_T_REL = 0x85");
+    ASSERT(CBM_T_REL == 0x84, "CBM_T_REL = 0x84");
 
     return 1;
 }
@@ -212,8 +212,8 @@ int test_rel_file_type(void) {
     TEST("REL file type constant");
 
     /* CBM_T_REL should be the correct Commodore type byte */
-    ASSERT(CBM_T_REL == 0x85, "CBM_T_REL = 0x85 (Commodore REL type)");
-    ASSERT((CBM_T_REL & 0x0F) == 0x05, "REL type code is 0x05");
+    ASSERT(CBM_T_REL == 0x84, "CBM_T_REL = 0x84 (Commodore REL type)");
+    ASSERT((CBM_T_REL & 0x0F) == 0x04, "REL type code is 0x04");
     ASSERT((CBM_T_REL & 0xF0) == 0x80, "REL base is 0x80 (properly closed)");
 
     return 1;

@@ -1,19 +1,21 @@
-/* atexit.c — Register functions to call at program exit */
+/* atexit.c — Register functions to call at program exit
+ *
+ * exit() and a return from main call __atexit_run (crt0 has a weak empty
+ * one for programs that never call atexit). */
 
-/* Table of registered exit handlers (called in reverse order) */
-static void (*__atexit_funcs[8])();
-static int __atexit_count = 0;
+#define ATEXIT_MAX 32
+
+static void (*__atexit_funcs[ATEXIT_MAX])();
+static unsigned char __atexit_count;
 
 int atexit(void (*func)()) {
-    if (__atexit_count >= 8) return 1; /* table full */
+    if (__atexit_count >= ATEXIT_MAX) return 1; /* table full */
     __atexit_funcs[__atexit_count++] = func;
     return 0;
 }
 
-/* Called by exit() before termination */
+/* Called by exit() and after main returns: the handlers in reverse order of
+ * registration, each once (a handler may call exit or atexit) */
 void __atexit_run(void) {
-    int i;
-    for (i = __atexit_count - 1; i >= 0; i--) {
-        __atexit_funcs[i]();
-    }
+    while (__atexit_count) __atexit_funcs[--__atexit_count]();
 }

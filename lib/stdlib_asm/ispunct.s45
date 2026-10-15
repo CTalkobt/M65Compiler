@@ -27,6 +27,10 @@ proc _ispunct
     bcc @yes
     cmp #$5b
     bcc @no
+    cmp #$61
+    bcc @yes
+    cmp #$7b
+    bcc @no
     cmp #$c1
     bcc @yes
     cmp #$db

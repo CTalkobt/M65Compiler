@@ -1,7 +1,8 @@
 ; exit.s — Normal program termination (ZP calling convention)
 ;
 ; _Noreturn void exit(int status);
-;   Weak function — can be overridden for pre-exit hooks.
+;   Weak function — can be overridden for pre-exit hooks. Runs the atexit
+;   handlers (__atexit_run; crt0's weak one is empty) before __exit.
 ;
 ; _Noreturn void _exit(int status);
 ;   Strong function — always calls __exit directly.
@@ -10,6 +11,7 @@
 .global _exit
 .global __exit_
 .extern __exit
+.extern ___atexit_run
 
 .segment "code"
 
@@ -17,10 +19,15 @@ proc _exit
     .zp_uses $10, $11
     .zp_clobbers $10, $11
     .zp_release $10, $11
-    .reg_clobbers A, X
+    .reg_clobbers A, X, Y, Z
 
     lda $10
     ldx $11
+    pha
+    phx
+    jsr ___atexit_run
+    plx
+    pla
     jmp __exit
     .func_flags zp_call
     endproc

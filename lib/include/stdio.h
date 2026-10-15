@@ -22,7 +22,8 @@ __fastcall__ int putstr(const char *s);
 int sprintf(char *buf, char *fmt, ...);
 int snprintf(char *buf, int size, char *fmt, ...);
 int printf(char *fmt, ...);
-int sscanf(char *str, char *fmt, ...);
+int sscanf(const char *str, const char *fmt, ...);
+int vsscanf(const char *str, const char *fmt, va_list ap);
 int vsprintf(char *buf, char *fmt, va_list ap);
 int vsnprintf(char *buf, int size, char *fmt, va_list ap);
 
@@ -86,6 +87,12 @@ extern FILE *stderr;
 #define FILENAME_MAX 16              /* Max filename length (Commodore) */
 #define FOPEN_MAX   8                /* Max simultaneous open files */
 #define L_tmpnam    32               /* Length of temp filename */
+#define TMP_MAX     10000            /* tmpnam names: TMP0000-TMP9999 */
+
+/* setvbuf modes */
+#define _IOFBF      0                /* fully buffered */
+#define _IOLBF      1                /* line buffered */
+#define _IONBF      2                /* unbuffered */
 
 /* Stream file operations */
 FILE *fopen(const char *filename, const char *mode);
@@ -110,6 +117,8 @@ int fprintf(FILE *stream, const char *format, ...);
 int vfprintf(FILE *stream, const char *format, va_list ap);
 int fscanf(FILE *stream, const char *format, ...);
 int vfscanf(FILE *stream, const char *format, va_list ap);
+int scanf(const char *format, ...);
+int vscanf(const char *format, va_list ap);
 
 /* File positioning */
 int fseek(FILE *stream, long offset, int whence);
@@ -163,13 +172,15 @@ typedef signed int fd_t;             /* File descriptor (logical file number 3-1
 #define O_APPEND    0x10             /* Append mode */
 #define O_BINARY    0x20             /* Binary mode */
 
-/* File types (Commodore) */
-#define CBM_T_PRG   0x82             /* Program file */
+/* File types (Commodore): the directory entry's type byte of a closed file
+ * (cbm_readdir) */
+#define CBM_T_DEL   0x80             /* Deleted */
 #define CBM_T_SEQ   0x81             /* Sequential file */
-#define CBM_T_USR   0x84             /* User file */
-#define CBM_T_REL   0x85             /* Relative file */
-#define CBM_T_CBM   0x88             /* Directory */
-#define CBM_T_DIR   0x88             /* Directory alias */
+#define CBM_T_PRG   0x82             /* Program file */
+#define CBM_T_USR   0x83             /* User file */
+#define CBM_T_REL   0x84             /* Relative file */
+#define CBM_T_CBM   0x85             /* 1581 partition */
+#define CBM_T_DIR   0x86             /* Subdirectory (CMD native partitions) */
 
 /* File type masks and flags (directory entry byte 18) */
 #define CBM_FILE_TYPE_MASK  0x0F     /* Mask for file type in lower nibble */
@@ -259,6 +270,8 @@ unsigned char cbm_k_setlfs(unsigned char fd, unsigned char device, unsigned char
 unsigned char cbm_k_setnam(const char *filename); /* Set filename */
 unsigned char cbm_k_open(void);                   /* Open file */
 unsigned char cbm_k_close(unsigned char fd);      /* Close file */
+unsigned char cbm_k_chrin(void);                  /* Read a byte from the input channel */
+void cbm_k_chrout(unsigned char c);               /* Write a byte to the output channel */
 
 /* ============================================================================
  * CONVENIENCE MACROS

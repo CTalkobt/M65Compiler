@@ -1,4 +1,9 @@
-/* rtc.c — MEGA65 Real-Time Clock and calendar time functions */
+/* rtc.c — MEGA65 Real-Time Clock and calendar time functions
+ *
+ * time_t counts seconds from 2000-01-01 00:00:00 (signed: 1931 to 2068).
+ * The conversions use Howard Hinnant's days-from-civil algorithms, exact
+ * for any date.
+ */
 
 #include <time.h>
 #include <string.h>
@@ -19,33 +24,44 @@ static int bcd_to_int(unsigned char bcd) {
     return ((bcd >> 4) & 0x0F) * 10 + (bcd & 0x0F);
 }
 
-static unsigned char int_to_bcd(int val) {
-    return (unsigned char)(((val / 10) << 4) | (val % 10));
+/* Days from 2000-01-01 to y-m-d (m 1-12) */
+static long days_from_civil(long y, int m, int d) {
+    long era, yoe, doy, doe;
+    if (m <= 2) y--;
+    era = (y >= 0 ? y : y - 399) / 400;
+    yoe = y - era * 400;
+    doy = (153L * (m > 2 ? m - 3 : m + 9) + 2) / 5 + d - 1;
+    doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    return era * 146097L + doe - 730425L;   /* 730425: 0000-03-01 to 2000-01-01 */
 }
 
-/* Days in each month (non-leap year) */
-static int days_in_month[12] = {31,28,31,30,31,30,31,31,30,31,30,31};
-
-static int is_leap_year(int year) {
-    return (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0));
-}
-
-/* Compute day of year (0-based) from month and day */
-static int day_of_year(int year, int mon, int mday) {
-    int doy = 0;
-    int i;
-    for (i = 0; i < mon; i++) {
-        doy += days_in_month[i];
-        if (i == 1 && is_leap_year(year)) doy++;
-    }
-    return doy + mday - 1;
-}
-
-/* Compute day of week using Tomohiko Sakamoto's algorithm (0=Sunday) */
-static int compute_wday(int year, int mon, int mday) {
-    static int t[12] = {0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4};
-    if (mon < 2) year--;
-    return (year + year/4 - year/100 + year/400 + t[mon] + mday) % 7;
+/* The date and time of t seconds after 2000-01-01 into *tm */
+static void tm_from_time(time_t t, struct tm *tm) {
+    long days = t / 86400L;
+    long secs = t % 86400L;
+    long z, era, doe, yoe, y, doy, mp;
+    int m, d;
+    if (secs < 0) { secs += 86400L; days--; }
+    tm->tm_hour = (int)(secs / 3600);
+    tm->tm_min = (int)(secs / 60 % 60);
+    tm->tm_sec = (int)(secs % 60);
+    /* 2000-01-01 was a Saturday */
+    tm->tm_wday = (int)((days % 7 + 13) % 7);
+    z = days + 730425L;
+    era = (z >= 0 ? z : z - 146096L) / 146097L;
+    doe = z - era * 146097L;
+    yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096L) / 365;
+    y = yoe + era * 400;
+    doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    mp = (5 * doy + 2) / 153;
+    d = (int)(doy - (153 * mp + 2) / 5 + 1);
+    m = (int)(mp < 10 ? mp + 3 : mp - 9);
+    if (m <= 2) y++;
+    tm->tm_year = (int)(y - 1900);
+    tm->tm_mon = m - 1;
+    tm->tm_mday = d;
+    tm->tm_yday = (int)(days - days_from_civil(y, 1, 1));
+    tm->tm_isdst = 0;
 }
 
 /* Static buffer for localtime/gmtime */
@@ -63,42 +79,35 @@ void rtc_read(struct tm *tm) {
     tm->tm_mday = bcd_to_int(r[3] & 0x3F);
     tm->tm_mon  = bcd_to_int(r[4] & 0x1F) - 1; /* 0-based */
     tm->tm_year = bcd_to_int(r[5]) + 100; /* years since 1900; RTC year 00-99 → 2000-2099 */
-    /* the weekday from the date (the register's numbering is not the same
-     * on every board and in emulators) */
-    tm->tm_wday = compute_wday(tm->tm_year + 1900, tm->tm_mon, tm->tm_mday);
-    tm->tm_yday = day_of_year(tm->tm_year + 1900, tm->tm_mon, tm->tm_mday);
-    tm->tm_isdst = 0;
-}
-
-struct tm *localtime(time_t *timer) {
-    /* On MEGA65, local time = RTC time (no timezone support) */
-    rtc_read(&__tm_buf);
-    return &__tm_buf;
+    /* the weekday and day of the year from the date (the register's
+     * numbering is not the same on every board and in emulators) */
+    mktime(tm);
 }
 
 struct tm *gmtime(time_t *timer) {
-    /* Same as localtime (no timezone) */
-    rtc_read(&__tm_buf);
+    tm_from_time(*timer, &__tm_buf);
     return &__tm_buf;
 }
 
-/* Convert struct tm to time_t (seconds since 2000-01-01 00:00:00) */
+/* The RTC keeps local time and there are no time zones: localtime is gmtime */
+struct tm *localtime(time_t *timer) {
+    return gmtime(timer);
+}
+
+/* struct tm to time_t. Fields out of range are carried (tm_mon 12 is January
+ * of the next year, tm_mday 0 the last day of the previous month, negative
+ * values count back), and *tm is rewritten normalized with tm_wday/tm_yday */
 time_t mktime(struct tm *tm) {
-    long days = 0;
-    int y;
-    int full_year = tm->tm_year + 1900;
-
-    /* Count days from 2000 to tm_year */
-    for (y = 2000; y < full_year; y++) {
-        days += is_leap_year(y) ? 366 : 365;
-    }
-    days += day_of_year(full_year, tm->tm_mon, tm->tm_mday);
-
-    /* Fill in computed fields */
-    tm->tm_yday = day_of_year(full_year, tm->tm_mon, tm->tm_mday);
-    tm->tm_wday = compute_wday(full_year, tm->tm_mon, tm->tm_mday);
-
-    return days * 86400L + tm->tm_hour * 3600L + tm->tm_min * 60L + tm->tm_sec;
+    long y = tm->tm_year + 1900L;
+    long mon = tm->tm_mon;
+    time_t t;
+    y += mon / 12;
+    mon %= 12;
+    if (mon < 0) { mon += 12; y--; }
+    t = days_from_civil(y, (int)mon + 1, 1) + tm->tm_mday - 1;
+    t = t * 86400L + tm->tm_hour * 3600L + tm->tm_min * 60L + tm->tm_sec;
+    tm_from_time(t, tm);
+    return t;
 }
 
 /* Static buffer for asctime/ctime output */

@@ -150,7 +150,7 @@ int test_commodore_constants(void) {
     /* File types */
     ASSERT(CBM_T_PRG == 0x82, "CBM_T_PRG is 0x82");
     ASSERT(CBM_T_SEQ == 0x81, "CBM_T_SEQ is 0x81");
-    ASSERT(CBM_T_USR == 0x84, "CBM_T_USR is 0x84");
+    ASSERT(CBM_T_USR == 0x83, "CBM_T_USR is 0x83");
 
     return 1;
 }

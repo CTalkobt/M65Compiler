@@ -99,7 +99,7 @@ writes a standalone assembly form with its own startup stub.
   256-byte block ln45 places at the end of BSS, so the program never touches
   the ROM's page 0. `__exit` sets B back to 0.
 - **ROM calls** expect B=0: call sites bracket them with `jsr __bp_rom` /
-  `jsr __bp_prog` (crt0). Used by `putchar`, `getchar`, `puts`, `clock`
+  `jsr __bp_prog` (crt0). Used by `putchar`, `getchar`, `puts`
   and the float runtime (`float_rom.s45`). The KERNAL's **disk** code also
   needs the page-1 stack: `<cbm.h>` wrappers (and so `fopen`/`cbm_*` file
   I/O) call through crt0's `__rom_call`, which switches base page and stack.
@@ -179,7 +179,7 @@ not change what is tested; a test's own later `-O` still wins. Use an
 explicit `-O<n>` in ad-hoc test commands too.
 
 - `make test` — unit tests (no emulator).
-- `bash src/test/test_xemu.sh` — runtime tests on xemu (253 pass): each
+- `bash src/test/test_xemu.sh` — runtime tests on xemu (267 pass): each
   `*_xemu.c` writes results to `$C0C0` (01 = pass, `$AA` sentinel), built in
   both conventions. New runtime tests follow this pattern and are registered
   in `test_xemu.sh`.
@@ -278,8 +278,8 @@ BASIC (`RREG`); BSS is filled on the first call only.
 
 crt0 fills BSS (with the private base page) with `__bss_fill` by a DMA fill
 job after the stack setup: 0, or cc45 `-fbss-fill=V` / ln45 `--bss-fill=V`
-(`$FF` finds code relying on zeroed globals). `exit()` does not run `atexit`
-handlers. Heap: `__bss_end` to `__stack_size` bytes below the stack top
+(`$FF` finds code relying on zeroed globals). `exit()` and a return from
+`main` run the `atexit` handlers (`abort`/`_exit` do not). Heap: `__bss_end` to `__stack_size` bytes below the stack top
 (default 4096, so `$B000`; cc45 `-fstack-size=N` / `#pragma cc45 stack_size(N)`,
 ln45 `--stack-size=N`; `__heap_start`/`__heap_end` override), initialized on
 the first `malloc`. ln45 warns when a program using `malloc` leaves no room
@@ -290,7 +290,7 @@ for it (a program ending above `$B000` needs a smaller stack share).
 stdio (printf family; `%f`/`%e`/`%g` through the weak/strong float printf, digits from the
 BASIC 65 ROM's FOUT, full float range), stdlib,
 string, ctype, math (ROM-backed float functions; domain/range errors set
-`errno` instead of reaching the ROM), time (jiffy clock), errno, setjmp,
+`errno` instead of reaching the ROM), time (frame clock, RTC calendar), errno, setjmp,
 assert, alloca, conio, CBM file I/O, `intwide.h`, `mega65.h` register
 overlays, `dma.h` (16-bit builtins; `dma_copy_far`/`dma_fill_far` at 28-bit
 addresses), and on those far pointers (`far_ptr.h`/`far_ops.h`, an allocator

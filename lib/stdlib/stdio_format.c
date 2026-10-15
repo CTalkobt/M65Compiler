@@ -18,7 +18,6 @@
 #include <string.h>
 
 /* Forward declarations - these exist in stdlib */
-extern int vfscanf(FILE *stream, const char *format, va_list ap);
 
 /* ============================================================================
  * FORMATTED OUTPUT
@@ -74,45 +73,55 @@ int fprintf(FILE *stream, const char *format, ...) {
  * FORMATTED INPUT
  * ============================================================================ */
 
+#include "scanf_core.h"
+
+/* The scanf engine's character source: a FILE as well as a string (strong:
+ * replace the engine's string-only versions) */
+int __scan_getc(struct __scan_src *s) {
+    unsigned char c;
+    if (s->file) return fgetc(s->file);
+    c = *s->str;
+    if (!c) return SC_EOF;
+    s->str++;
+    return c;
+}
+
+void __scan_ungetc(struct __scan_src *s, int c) {
+    if (s->file) ungetc(c, s->file);
+    else s->str--;
+}
+
 /**
- * vfscanf - Formatted input from FILE (va_list version)
- *
- * Reads formatted data from stream.
- * Currently stubbed - requires complex scanf implementation.
- *
- * Returns: number of input items successfully matched and assigned
+ * vfscanf / fscanf / vscanf / scanf - Formatted input from a FILE / stdin
+ * (the scanf engine of scanf_core.c; the character after the input used is
+ * pushed back with ungetc)
  */
 int vfscanf(FILE *stream, const char *format, va_list ap) {
     if (!stream || !format) {
         return EOF;
     }
-
-    /* TODO: Implement fscanf parsing
-     * This requires a full scanf-style parser which is complex.
-     * For now, return 0 (no items matched).
-     */
-
-    return 0;
+    return __vscanf_core(stream, NULL, format, ap);
 }
 
-/**
- * fscanf - Formatted input from FILE
- *
- * Reads formatted data from stream.
- * Currently stubbed - implement if needed.
- *
- * Returns: number of input items successfully matched and assigned
- */
 int fscanf(FILE *stream, const char *format, ...) {
-    if (!stream || !format) {
-        return EOF;
-    }
-
     va_list ap;
+    int result;
     va_start(ap, format);
-    int result = vfscanf(stream, format, ap);
+    result = vfscanf(stream, format, ap);
     va_end(ap);
+    return result;
+}
 
+int vscanf(const char *format, va_list ap) {
+    return vfscanf(stdin, format, ap);
+}
+
+int scanf(const char *format, ...) {
+    va_list ap;
+    int result;
+    va_start(ap, format);
+    result = vfscanf(stdin, format, ap);
+    va_end(ap);
     return result;
 }
 

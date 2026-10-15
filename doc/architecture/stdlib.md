@@ -80,16 +80,16 @@ ln45 -prg main.o45 -L lib/build -l c45.lib -o program.prg      # plain PRG (-L o
 - **`long atol(char *s)`**: `strtol(s, NULL, 10)`.
 - **`char *itoa(int value, char *str, int base)`** / **`char *utoa(unsigned value, char *str, int base)`** / **`char *ltoa(long value, char *str, int base)`**: number to string in base 2–36, using the MEGA65 hardware divider. `itoa`/`ltoa` print a `-` for negative values in base 10 only. Digits above 9 are PETSCII `$41`… (`a`… in the default character set). Return `str`.
 - **`atos(s)`**, **`stoa(value, str, base)`**: macros for `(short)atoi(s)` and `itoa((int)value, str, base)`.
-- **`long strtol(char *nptr, char **endptr, int base)`** / **`unsigned long strtoul(...)`**: skip whitespace, optional sign (`strtol`), base 0 (auto: `0x`→16, `0`→8, else 10) or 2–36, `0x`/`0X` prefix accepted for base 16, letters `$41`–`$5A` and `$C1`–`$DA` as digits. `*endptr` is set to `nptr` if no digits were read. Overflow is **not** detected: the value wraps modulo 2^32 and `errno` is not set.
-- **`float strtof(char *nptr, char **endptr)`** / **`float atof(char *nptr)`**: whitespace, sign, digits, fraction, `e`/`E` exponent. A value beyond the float range gives ±`FLT_MAX`; a non-zero value that underflows gives 0; both set `errno = ERANGE`. `strtod(nptr, endptr)` is a macro for `(double)strtof(...)`.
+- **`long strtol(char *nptr, char **endptr, int base)`** / **`unsigned long strtoul(...)`**: skip whitespace, optional sign (`strtol`), base 0 (auto: `0x`→16, `0`→8, else 10) or 2–36, `0x`/`0X` prefix accepted for base 16, letters in either case as digits (`$41`–`$5A`, `$61`–`$7A`, `$C1`–`$DA`). The `0x` prefix counts only when a hex digit follows it (`"0x"` is 0, ending after the `0`). `*endptr` is set to `nptr` if no digits were read. A value out of range gives `LONG_MAX`/`LONG_MIN` (`strtol`) or `ULONG_MAX` (`strtoul`) and sets `errno = ERANGE`; `strtoul` negates a value after `-` (as C specifies); a base other than 0 or 2–36 gives 0 and `EINVAL`.
+- **`float strtof(char *nptr, char **endptr)`** / **`float atof(char *nptr)`**: whitespace, sign, digits, fraction, `e`/`E` exponent (only when digits follow it). The digits are collected as an exact integer and scaled by exact powers of ten, so values such as `0.25` convert exactly. `*endptr` is `nptr` when there are no digits. A value beyond the float range gives ±`FLT_MAX`; a non-zero value that underflows gives 0; both set `errno = ERANGE`. `strtod(nptr, endptr)` is a macro for `(double)strtof(...)`.
 
 **Arithmetic**
 - **`abs(x)`**, **`labs(x)`**: macros (`(x)<0?-(x):(x)`). Define `__NOMACRO_ABS` / `__NOMACRO_LABS` before including to get the library functions `signed int abs(signed int)` / `signed long labs(signed long)` instead.
 - `__builtin_abs`, `__builtin_labs`, `__builtin_ffs`, `__builtin_clz`, `__builtin_ctz`, `__builtin_popcount`, `__builtin_bswap16` are declared here; the library also provides the `l`/`ll` variants of the bit builtins, `__builtin_parity*` and `__builtin_bswap32`.
 
 **Random numbers**
-- **`int rand(void)`**: 0–32767 from the MEGA65 hardware RNG (`$D7EF`), waiting on `$D7FE` bit 7 before each of the two byte reads; bit 15 cleared.
-- **`void srand(unsigned seed)`**: no-op (the hardware RNG cannot be seeded); sequences are not reproducible.
+- **`int rand(void)`**: 0–`RAND_MAX` (32767). Until `srand` is called: the MEGA65 hardware RNG (`$D7EF`, waiting on `$D7FE` bit 7 before each of the two byte reads), different on every run. After `srand`: C's reference generator (`next = next * 1103515245 + 12345`, result bits 16–30), so `srand(1)` gives 16838 first.
+- **`void srand(unsigned seed)`**: seeds the reproducible generator; the same seed repeats the same sequence (`lib/stdlib/rand.c`).
 
 **Heap** — `void *malloc(size_t)`, `void free(void *)`, `void *calloc(size_t, size_t)`, `void *realloc(void *, size_t)` (assembly, `lib/stdlib_asm/malloc.s45`):
 - Sorted singly-linked free list, first fit, coalescing with both neighbours on `free`. Block header: 2-byte size (bit 0 = allocated) and, in free blocks, a 2-byte next pointer. Requests are rounded up to even, minimum 4 bytes including the 2-byte header.
@@ -99,9 +99,9 @@ ln45 -prg main.o45 -L lib/build -l c45.lib -o program.prg      # plain PRG (-L o
 - `#pragma cc45 heap` makes standalone (non-linked) builds call `_init_heap_crt` at startup; linked programs rely on the lazy initialization.
 
 **Program termination**
-- **`void exit(int status)`** (weak) / **`void _exit(int status)`**: jump to the CRT's `__exit`, which switches back to the ROM's base page, stores `status` at `$FD/$FE`, restores the caller's stack pointer and flags and returns to the caller (BASIC). `exit` does **not** run `atexit` handlers.
+- **`void exit(int status)`** (weak) / **`void _exit(int status)`**: jump to the CRT's `__exit`, which switches back to the ROM's base page, stores `status` at `$FD/$FE`, restores the caller's stack pointer and flags and returns to the caller (BASIC). `exit` and a return from `main` first run the `atexit` handlers; `_exit` and `abort` do not.
 - **`void abort(void)`** (weak): like `exit`, with status `$FFFE`. If `__exit` is never reached the status reads `$FFFF` (set at startup). A BASIC caller can read it with `PEEK(253)+256*PEEK(254)`.
-- **`int atexit(void (*func)())`**: registers up to 8 handlers (returns 1 when full). The handlers are stored but nothing calls them (`__atexit_run` is never invoked).
+- **`int atexit(void (*func)())`**: registers up to 32 handlers (returns 1 when full), called in reverse order, each once, by `exit` and after `main` returns (`__atexit_run`; crt0 has a weak empty one for programs that never call `atexit`).
 - `#pragma cc45 exit_halt` / `exit_brk` / `exit_rts` only change the startup stub of standalone builds; a program linked with the library always returns to its caller.
 
 **Sorting and searching**
@@ -138,36 +138,36 @@ The functions marked *asm* are hand-written assembly in `lib/stdlib_asm/`; the r
 
 All functions are `static inline` in the header and take an `int` PETSCII code (the library also has assembly versions, used only when `ctype.h` is not included). They return 1 or 0, except the conversions.
 
-PETSCII ranges (default upper/lower-case character set): digits `$30`–`$39`; lower-case letters `$41`–`$5A`; upper-case letters `$C1`–`$DA`; space `$20`.
+PETSCII ranges (default upper/lower-case character set): digits `$30`–`$39`; lower-case letters `$41`–`$5A`; upper-case letters `$61`–`$7A` (what cc45 makes of `'A'`–`'Z'` in C source) and `$C1`–`$DA` (shifted keys); space `$20`.
 
 | Function | True for |
 |----------|----------|
 | `isdigit` | `$30`–`$39` |
-| `isalpha` | `$41`–`$5A`, `$C1`–`$DA` |
+| `isalpha` | `$41`–`$5A`, `$61`–`$7A`, `$C1`–`$DA` |
 | `isalnum` | digit or letter |
 | `isspace` | `$20`, `$09`–`$0D` |
 | `isblank` | `$20`, `$09` |
-| `isupper` / `islower` | `$C1`–`$DA` / `$41`–`$5A` |
-| `isxdigit` | digit, `$41`–`$46`, `$C1`–`$C6` |
+| `isupper` / `islower` | `$61`–`$7A`, `$C1`–`$DA` / `$41`–`$5A` |
+| `isxdigit` | digit, `$41`–`$46`, `$61`–`$66`, `$C1`–`$C6` |
 | `isprint` | `$20`–`$7E`, `$A0`–`$FF` |
 | `isgraph` | `$21`–`$7E`, `$A1`–`$FF` |
 | `iscntrl` | `$00`–`$1F`, `$80`–`$9F` |
 | `ispunct` | everything from `$21` up that is not a digit or letter (this includes `$7F`–`$9F` and `$A0`) |
 
-`toupper(c)` returns `c | $80` for `$41`–`$5A`; `tolower(c)` returns `c & $7F` for `$C1`–`$DA`; other values are returned unchanged.
+`toupper(c)` returns `c | $80` for `$41`–`$5A` (so `toupper('a')` is `$C1`, not the `$61` of `'A'`); `tolower(c)` returns `c - $20` for `$61`–`$7A` and `c & $7F` for `$C1`–`$DA`; other values are returned unchanged.
 
 ## 7. Math Library (`math.h`)
 
 `math.h` includes `stdlib.h`.
 
 **Integer**
-- `div_t div(signed int, signed int)` and `ldiv_t ldiv(signed long, signed long)` (`quot`, `rem`).
+- `div_t div(signed int, signed int)` and `ldiv_t ldiv(signed long, signed long)` (`quot`, `rem`; the quotient truncated toward zero), declared in `stdlib.h` as C specifies.
 - `signed int min(a, b)`, `max(a, b)`, `gcd(a, b)` (Euclid, handles negative inputs), `lcm(a, b)` (`|a / gcd(a,b) * b|`).
 - `abs`/`labs` as in `stdlib.h`.
 
 **Floating point** (CBM 40-bit; `double` is the same type)
 - ROM-backed (BASIC 65 routines through `float_rom.s45`, which switches to base page 0 for each call): `sinf`, `cosf`, `tanf`, `atanf`, `logf`, `expf`, `sqrtf`, `fabsf`.
-- Written in C: `powf`, `fmodf`, `ceilf`, `floorf`, `roundf` (ties away from zero), `truncf`, `atan2f`, `log10f`, `log2f`, `ldexpf`, `frexpf`, `modff`, `copysignf`, `fmaxf`, `fminf`, `fdimf`.
+- Written in C: `powf`, `fmodf`, `ceilf`, `floorf`, `roundf` (ties away from zero), `truncf`, `atan2f`, `log10f`, `log2f`, `ldexpf`, `frexpf`, `modff`, `copysignf`, `fmaxf`, `fminf`, `fdimf`. `ldexpf` and `frexpf` change the exponent byte, so they are exact (`ldexpf` beyond the float range gives ±largest float or 0 with `errno = ERANGE`); `log2f` is exact for powers of two.
 - The standard names (`sin`, `cos`, `tan`, `atan`, `atan2`, `log`, `log10`, `log2`, `exp`, `pow`, `sqrt`, `fabs`, `fmod`, `ceil`, `floor`, `round`, `trunc`, `ldexp`, `frexp`, `modf`, `copysign`, `fmax`, `fmin`, `fdim`) are macros for the `f` versions; the library also defines them as functions (`math_double.c`) for code that declares them itself, together with `signbit`/`signbitf`.
 - Classification: `isnan(x)` and `isinf(x)` are always 0 and `isfinite(x)` always 1 (the format has no NaN or infinity); `__fpclassifyf(x)` returns 0 for zero, else 1.
 - Constants: `M_PI`, `M_PI_2`, `M_PI_4`, `M_E`, `M_LOG2E`, `M_LOG10E`, `M_LN2`, `M_LN10`, `M_SQRT2`, `M_SQRT1_2`, `HUGE_VALF` (= `FLT_MAX`), `INFINITY` (= `HUGE_VALF`).
@@ -209,35 +209,42 @@ These (and every other ROM call in the library) are bracketed with `__bp_rom`/`_
 
 ### Formatted input
 
-`sscanf(char *str, char *fmt, ...)` (and `fscanf`/`vfscanf` on a `FILE`): `%d %u %x %o %c %s %f %%` and `%ld %lu %lx %lo`; `%x` accepts a `$` or `0x` prefix, `%c` does not skip whitespace, `%s` reads a whitespace-delimited word, `%f` uses `strtof`. Whitespace in the format matches any amount of input whitespace (space, tab, LF, CR). Returns the number of items assigned.
+`sscanf`/`vsscanf` (a string), `fscanf`/`vfscanf` (a `FILE`) and `scanf`/`vscanf` (`stdin`) share one engine (`lib/stdlib/scanf_core.c`):
+- Conversions `d i u o x X p c s [set] [^set] n %`, and `f e g` (upper case too) with the float scanf below; field widths; `*` (read but not assigned); length modifiers `hh h l ll L j z t` (`ll` stores 8 bytes, the upper four the sign). `%i` takes `0x` (hex) and `0` (octal) prefixes, `%x` a `0x` or CBM `$` prefix; letters are digits in either case (`'A'` in cc45 source is `$61`, shifted keys `$C1`–`$DA`). `%c` reads exactly its width (default 1) without skipping whitespace; `%s` reads a whitespace-delimited word; `%[` a run of the set (`]` first and `a-z` ranges allowed).
+- Whitespace in the format matches any amount of input whitespace; other characters must match. Returns the number of items assigned, or `EOF` when the input ends before the first conversion. On a `FILE`, the character after the input used is pushed back with `ungetc`.
+- The engine reads through `__scan_getc`/`__scan_ungetc`: weak string-only versions (`scanf_str.c`), replaced by `stdio_format.c`'s FILE-capable ones when `fscanf` and friends are linked, so `sscanf` alone links no FILE code. No call goes through a pointer.
+- Floats, like printf: `%f %e %g` call `__scan_float`, a weak stub (a matching failure) unless `scanf_float.c` is linked. cc45 references it (`_scanf_float`) when a `scanf`, `fscanf` or `sscanf` call passes a `float *`/`double *`, or when a unit with float code calls `vscanf`, `vfscanf` or `vsscanf`; it then reads `[sign] digits [. digits] [e [sign] digits]` and converts with `strtof`.
 
 ### FILE streams
 
-`FILE` (handle, mode, flags, position, buffer, `ungetc` slot), `fpos_t` (`unsigned long`), `stdin`/`stdout`/`stderr`, `EOF` (−1), `SEEK_SET/CUR/END`, `BUFSIZ` 256, `FILENAME_MAX` 16, `FOPEN_MAX` 8, `L_tmpnam` 32, `_IO*` flag bits.
+`FILE` (handle, mode, flags, position, buffer, `ungetc` slot), `fpos_t` (`unsigned long`), `stdin`/`stdout`/`stderr`, `EOF` (−1), `SEEK_SET/CUR/END`, `BUFSIZ` 256, `FILENAME_MAX` 16, `FOPEN_MAX` 8, `L_tmpnam` 32, `TMP_MAX` 10000, `_IOFBF`/`_IOLBF`/`_IONBF`, `_IO*` flag bits.
 
-Functions: `fopen`, `freopen`, `fclose`, `fflush`, `fgetc`, `fputc`, `fgets`, `fputs`, `ungetc`, `fread`, `fwrite`, `fprintf`, `vfprintf`, `fscanf`, `vfscanf`, `fseek`, `ftell`, `rewind`, `fgetpos`, `fsetpos`, `feof`, `ferror`, `clearerr`, `setvbuf`, `setbuf`, `tmpfile`, `tmpnam`, `perror` (prints `s: strerror(errno)` to `stderr`). `fileno(stream)` is a macro (`stream->handle`) and `fdopen(fd, mode)` a cast.
+Functions: `fopen`, `freopen`, `fclose`, `fflush`, `fgetc`, `fputc`, `fgets`, `fputs`, `ungetc`, `fread`, `fwrite`, `fprintf`, `vfprintf`, `fscanf`, `vfscanf`, `scanf`, `vscanf`, `fseek`, `ftell`, `rewind`, `fgetpos`, `fsetpos`, `feof`, `ferror`, `clearerr`, `setvbuf`, `setbuf`, `tmpfile`, `tmpnam`, `perror` (prints `s: strerror(errno)` to `stderr`). `fileno(stream)` is a macro (`stream->handle`) and `fdopen(fd, mode)` a cast.
 
 Behaviour on the MEGA65:
 - `fopen` opens files on disk device 8. The DOS takes the type and direction from the name, so it opens `NAME,S,R` (`r`), `@0:NAME,S,W` (`w`; the `@` replaces an existing file, as C's `w` truncates) or `NAME,S,A` (`a`); `b` makes it a USR file (`U`). A name that already contains a `,` is used as given. Each file gets its own drive channel (secondary address = its logical file number). `OPEN` succeeds even for a missing file, so `fopen` then reads the drive's status (`cbm_drive_status`) and fails on an error (≥ 20, e.g. 62 FILE NOT FOUND). Tested on xemu with a D81 (`test_fileio_xemu.c`).
 - **`r+`, `w+`, `a+`** (CBM drives don't read and write a sequential file at once): the stream is held in memory. `fopen` reads the whole file into the heap (`r+` fails for a missing file; `w+` creates the file empty at once; `a+` creates it when written back); reads, writes and `fseek` work on that copy, and `fflush`/`fclose` write it back with `@0:` replacement. A write past the end after a seek fills the gap with zeros; `a+` always writes at the end. The file must fit in the heap (at most 65280 bytes).
 - **`fseek`/`ftell`/`rewind`/`fgetpos`/`fsetpos`** (in `stdio_seek.c`, linked only when used): a memory stream seeks anywhere. A stream opened with `r` seeks forward by reading and backward by reopening the file and reading to the position; `SEEK_END` reads to the end first. A stream opened with `w` or `a` (written sequentially) can only seek to where it is: anything else fails with `errno = ESPIPE`. `ungetc` then `fgetc` keeps `ftell` right. `test_fileseek_xemu.c` (both conventions) covers all of it.
 - `fgets`/`fputs` are in `stdio_line.c`, apart from `fprintf`/`fscanf`, so line I/O does not link the printf machinery (also before ln45 dropped unused functions).
-- `tmpfile` returns `NULL`; `tmpnam` returns its (empty) buffer.
+- **`setvbuf(stream, buf, mode, size)`** before the stream's first read or write: `_IONBF` passes every character on at once (a 1-byte buffer), `_IOFBF`/`_IOLBF` buffer `size` bytes in `buf` (or a `malloc`'d buffer when `buf` is NULL); a text stream is written out at each newline in either mode. It returns −1 after I/O, for an unknown mode or without memory; a memory stream ignores it (0). `setbuf(stream, buf)` is `setvbuf(stream, buf, buf ? _IOFBF : _IONBF, BUFSIZ)`.
+- **`tmpfile()`**: a read/write binary stream held in memory (the heap limits its size), never written to a disk, so nothing is left to remove after `fclose`.
+- **`tmpnam(s)`**: `"TMP0000"` to `"TMP9999"`, the next one no file on device 8 has (checked by opening it), in `s` or a static buffer; NULL when all are taken.
+- `test_stdio3_xemu.c` covers the scanf family on files, `setvbuf`, `setbuf`, `tmpfile`, `tmpnam` and `freopen`.
 
 ### CBM file API
 
 Declared in `stdio.h`, implemented in `stdio_cbm.c`, `stdio_kernal.c`, `stdio_directory.c`, `stdio_rel.c`:
 
-- Files: `fd_t cbm_open(device, filename, type)` (secondary address 0), `cbm_open_ext(device, filename, type, secondary)` (`$FF`: the logical file number), `cbm_close`, `cbm_read`, `cbm_write` (these return `signed int`, −1 on error; `fd_t` is `signed int`), `cbm_drive_status(device)` (the number of the drive's status message: 0 OK, ≥ 20 an error, −1 no channel), `cbm_eof`, `cbm_status`, and `cbm_seek`/`cbm_tell` (stubs: −1 / 0). Logical file numbers 3–14 are allocated as free ones (15 is the command channel, which stays open while files are open: closing it makes the drive close all its files). `cbm_read` keeps the byte that arrives with the end-of-file status. Constants `CBM_DEVICE_*`, `CBM_T_PRG/SEQ/USR/REL/CBM/DIR`, `O_*`, `STDIN_FILENO`…
-- Directory and disk commands: `cbm_opendir`, `cbm_readdir`, `cbm_closedir`, `cbm_dir_type_name`, `cbm_dir_get_type`, `cbm_dir_is_locked`, `cbm_dir_is_scratched`, `cbm_dir_is_closed`, `cbm_format`, `cbm_delete`, `cbm_rename`; directory type flag bits `CBM_FILE_*`.
-- Relative (REL) files: `cbm_rel_open(device, filename, record_size, mode)`, `cbm_rel_read`, `cbm_rel_write`, `cbm_rel_position`, `cbm_rel_tell`, `cbm_rel_size`, `cbm_rel_close`, `cbm_rel_record_size`, `cbm_rel_is_open`, `cbm_rel_append`, `cbm_rel_delete`, `cbm_rel_truncate`, `cbm_rel_update`, `cbm_rel_insert`, `cbm_rel_lasterror`, `cbm_rel_strerror`; `CBM_REL_READ`/`WRITE`, `CBM_REL_ERR_*`.
-- KERNAL wrappers: `cbm_k_setnam(filename)`, `cbm_k_setlfs`, `cbm_k_open`, `cbm_k_close`, `cbm_k_chkin`, `cbm_k_chkout`, `cbm_k_clrchn`, `cbm_k_chrin`, `cbm_k_chrout`, `cbm_k_readst` (`cbm_k_chrin`/`cbm_k_chrout` are in the library but not declared in `stdio.h`).
+- Files: `fd_t cbm_open(device, filename, type)` (secondary address 0), `cbm_open_ext(device, filename, type, secondary)` (`$FF`: the logical file number), `cbm_close`, `cbm_read`, `cbm_write` (these return `signed int`, −1 on error; `fd_t` is `signed int`), `cbm_drive_status(device)` (the number of the drive's status message: 0 OK, ≥ 20 an error, −1 no channel), `cbm_eof(fd)` (1 once a read reached the file's end), `cbm_status(fd)` (the KERNAL status byte), `cbm_tell(fd)` (bytes read or written) and `cbm_seek(fd, position)` (a file being read: forward by reading, back by reopening it with the same device, secondary address and name (up to 23 characters) and reading; −1 past the end or for a file that was written, unless it stays where it is). Logical file numbers 3–14 are allocated as free ones (15 is the command channel, which stays open while files are open: closing it makes the drive close all its files). `cbm_read` keeps the byte that arrives with the end-of-file status. Constants `CBM_DEVICE_*`, `CBM_T_DEL/SEQ/PRG/USR/REL/CBM/DIR` (`$80`–`$86`: a closed file's directory type byte), `O_*`, `STDIN_FILENO`…
+- Directory and disk commands: `cbm_opendir(device)` (opens `$` and skips the load address and the header line), `cbm_readdir(handle, name, &type, &blocks)` (the next entry of the listing the drive sends, a BASIC program: the name between the quotes, the size from the line number, the type byte rebuilt from the type text — the type code, `CBM_FILE_CLOSED` unless marked `*`, `CBM_FILE_LOCKED` for `<`; 1 at `BLOCKS FREE.`), `cbm_closedir`, `cbm_dir_type_name`, `cbm_dir_get_type`, `cbm_dir_is_locked`, `cbm_dir_is_scratched`, `cbm_dir_is_closed`, `cbm_format`, `cbm_delete`, `cbm_rename`; directory type flag bits `CBM_FILE_*`.
+- Relative (REL) files: `cbm_rel_open(device, filename, record_size, mode)`, `cbm_rel_read`, `cbm_rel_write`, `cbm_rel_position`, `cbm_rel_tell`, `cbm_rel_size`, `cbm_rel_close`, `cbm_rel_record_size`, `cbm_rel_is_open`, `cbm_rel_append`, `cbm_rel_delete`, `cbm_rel_truncate`, `cbm_rel_update`, `cbm_rel_insert`, `cbm_rel_lasterror`, `cbm_rel_strerror`; `CBM_REL_READ`/`WRITE`, `CBM_REL_ERR_*`. A handle that was never opened is not open (`CBM_REL_ERR_INVALID`), also before the first `cbm_rel_open`.
+- KERNAL wrappers: `cbm_k_setnam(filename)`, `cbm_k_setlfs`, `cbm_k_open`, `cbm_k_close`, `cbm_k_chkin`, `cbm_k_chkout`, `cbm_k_clrchn`, `cbm_k_chrin`, `cbm_k_chrout`, `cbm_k_readst`. `test_cbmio_xemu.c` covers the file, directory and KERNAL functions on a D81.
 
 `cbm_open` and `cbm_close` here have different signatures from the `static` `cbm_open(void)`/`cbm_close(char)` in `cbm.h`; in a file that includes both headers the `cbm.h` versions are used without a diagnostic.
 
 ## 9. Error Handling (`errno.h`)
 
-- **`extern int errno`**: set only by the float functions and `strtof` listed in [§7](#7-math-library-mathh) and [§4](#4-general-utilities-stdlibh). It is never cleared. `strtol`, `strtoul` and `malloc` do not set it.
+- **`extern int errno`**: set by the float functions, `strtof`, `strtol` and `strtoul` (see [§7](#7-math-library-mathh) and [§4](#4-general-utilities-stdlibh)). The library never clears it; `malloc` does not set it.
 - **`extern char _errnoc`**: the KERNAL status byte `ST` at `$0090` of the ROM's page 0 (read-only alias).
 
 | Constant | Value | Used for |
@@ -250,22 +257,20 @@ Declared in `stdio.h`, implemented in `stdio_cbm.c`, `stdio_kernal.c`, `stdio_di
 ## 10. Non-Local Jumps, Assertions, `alloca`
 
 - **`setjmp.h`**: `jmp_buf` is `char[6]`: return address (2 bytes), stack pointer inside `setjmp` (2 bytes) and the frame pointer `$FD/$FE` (2 bytes). `int setjmp(jmp_buf)` returns 0, and the value given to `void longjmp(jmp_buf, int val)` when that restores the context (1 if `val` is 0). Assembly (`lib/stdlib_asm/setjmp.s45`).
-- **`assert.h`**: `assert(expr)` calls `assert_fail(#expr, __FILE__, __LINE__)`, which prints `Assertion failed: <expr> (file <f>, line <n>)` with `printf` and stops with `BRK` (`assert_fail_abort`). `assert_msg(expr, msg)` calls `assert_msg_fail(..., msg)`. With `NDEBUG` both are no-ops.
+- **`assert.h`**: `assert(expr)` calls `assert_fail(#expr, __FILE__, __LINE__)`, which prints `Assertion failed: <expr> (file <f>, line <n>)` with `printf` and calls `abort()` (`assert_fail_abort`): exit status `$FFFE`, no `atexit` handlers. `assert_msg(expr, msg)` calls `assert_msg_fail(..., msg)`. With `NDEBUG` both are no-ops.
 - **`alloca.h`**: `void *alloca(unsigned)` and `__builtin_alloca`. A constant size is allocated in the frame by the compiler; a variable size uses the runtime routine (`alloca.s45`). A function that calls `alloca` with a variable size uses a stack frame instead of static allocation.
 
 ## 11. Timing (`time.h`)
 
-- `CLOCKS_PER_SEC` 60; `clock_t` is `int`, `time_t` is `long`.
-- **`clock_t clock(void)`**: low 16 bits of the KERNAL jiffy clock (`RDTIM`, `$FFDE`); wraps after 65536 ticks (~18 minutes at 60 Hz).
-- **`time_t time(time_t *tp)`**: `clock()` widened to `long` (so it also wraps after 65536 ticks); stored in `*tp` when `tp` is not `NULL`.
-- **`long difftime(time_t t2, time_t t1)`**: `t2 - t1`.
-- **`struct tm`** (`tm_sec` … `tm_isdst`, all `int`).
-- **`void rtc_read(struct tm *)`**: reads the MEGA65 RTC (BCD registers at `$FFD7110`–`$FFD7116`) into a `struct tm` (copied by DMA: the registers are beyond a 16-bit pointer); years 00–99 map to 2000–2099; `tm_wday` is computed from the date; `tm_isdst` 0. xemu gives the host's time.
-- **`localtime(timer)`** / **`gmtime(timer)`**: ignore `timer`, read the RTC into a static `struct tm` and return it.
-- **`time_t mktime(struct tm *)`**: seconds since 2000-01-01 00:00:00 (not 1970); fills in `tm_yday` and `tm_wday`.
+- `clock_t` is `unsigned long`; `time_t` is `signed long`; `struct tm`'s fields are `signed int`.
+- **`clock_t clock(void)`**: video frames since power-on. The C65 KERNAL has no C64-style jiffy clock (its `RDTIM`, `$FFDE`, returns the CIA1 time of day in BCD); its raster interrupt decrements a 24-bit counter at `$110C`–`$110E` once per frame from 0 at reset, and `clock` returns 2^24 minus it (read until two reads agree). Wraps after 2^24 frames (about 3.9 days at 50 Hz).
+- **`CLOCKS_PER_SEC`**: the frame rate, `(__clocks_per_sec())`: 50 on PAL, 60 on NTSC (`$D06F` bit 7).
+- **`time_t time(time_t *tp)`**: the RTC as seconds since 2000-01-01 00:00:00 (`rtc_read` + `mktime`); stored in `*tp` when `tp` is not `NULL`.
+- **`signed long difftime(time_t t2, time_t t1)`**: `t2 - t1` (C returns `double`; here seconds as a `long`).
+- **`void rtc_read(struct tm *)`**: reads the MEGA65 RTC (BCD registers at `$FFD7110`–`$FFD7116`) into a `struct tm` (copied by DMA: the registers are beyond a 16-bit pointer); years 00–99 map to 2000–2099; `tm_wday`/`tm_yday` are computed from the date; `tm_isdst` 0. xemu gives the host's time.
+- **`gmtime(timer)`** / **`localtime(timer)`**: `*timer` (seconds since 2000, negative before it: 1931–2068) as a date in a static `struct tm`. The RTC has no time zone, so `localtime` is `gmtime`.
+- **`time_t mktime(struct tm *)`**: seconds since 2000-01-01 00:00:00 (not 1970). Fields out of range are carried (`tm_mon` 12 is January of the next year, `tm_mday` 0 the last day of the previous month, negative values count back); `*tm` is rewritten normalized, with `tm_wday` and `tm_yday`.
 - **`asctime(tm)`** / **`ctime(timer)`**: `"Wed Jun 30 21:49:08 2026\n"` in a static buffer; `ctime(t)` is `asctime(localtime(t))`.
-
-The jiffy clock counts 60 Hz ticks from power-on; it is not wall-clock time.
 
 ## 12. Other Library-Backed Headers
 

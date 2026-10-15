@@ -23,6 +23,10 @@ proc _isxdigit
     bcc @no
     cmp #$47
     bcc @yes
+    cmp #$61
+    bcc @no
+    cmp #$67
+    bcc @yes
     cmp #$c1
     bcc @no
     cmp #$c7

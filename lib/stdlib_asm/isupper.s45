@@ -15,10 +15,15 @@ proc _isupper
     .flag_clobbers C, N, Z
 
     lda $10
+    cmp #$61
+    bcc @no
+    cmp #$7b
+    bcc @yes
     cmp #$c1
     bcc @no
     cmp #$db
     bcs @no
+@yes:
     lda #1
     ldx #0
     rts

@@ -88,6 +88,13 @@ static void _rel_init_handles(void) {
     }
 }
 
+/* Whether handle (in range) is not an open REL file: the table is set up
+ * first (in BSS every fd is 0, which would look open) */
+static int _rel_closed(int handle) {
+    _rel_init_handles();
+    return rel_files[handle].fd < 0;
+}
+
 /**
  * Find free REL file handle slot
  */
@@ -114,7 +121,7 @@ static int _rel_find_slot(void) {
  * Returns 1 if this access continues a sequential pattern
  */
 static int _rel_detect_pattern(int handle, unsigned int record_num) {
-    if (handle < 0 || handle >= 8 || rel_files[handle].fd < 0) {
+    if (handle < 0 || handle >= 8 || _rel_closed(handle)) {
         return 0;
     }
 
@@ -143,7 +150,7 @@ static int _rel_detect_pattern(int handle, unsigned int record_num) {
  * Returns 1 if cached_record == target record, 0 otherwise
  */
 static int _rel_is_cached(int handle, unsigned int record_num) {
-    if (handle < 0 || handle >= 8 || rel_files[handle].fd < 0) {
+    if (handle < 0 || handle >= 8 || _rel_closed(handle)) {
         return 0;
     }
 
@@ -179,7 +186,7 @@ static void _rel_invalidate_cache(int handle) {
  * Then you can CHKIN to read or CHKOUT to write the record.
  */
 static int _rel_position_marker(int handle, unsigned int record_num) {
-    if (handle < 0 || handle >= 8 || rel_files[handle].fd < 0) {
+    if (handle < 0 || handle >= 8 || _rel_closed(handle)) {
         return -1;
     }
 
@@ -290,7 +297,7 @@ int cbm_rel_open(unsigned char device, const char *filename,
  *   Number of bytes read, 0 on EOF, -1 on error
  */
 int cbm_rel_read(int handle, unsigned int record_num, void *buffer, unsigned int size) {
-    if (handle < 0 || handle >= 8 || rel_files[handle].fd < 0 || !buffer) {
+    if (handle < 0 || handle >= 8 || _rel_closed(handle) || !buffer) {
         return -1;
     }
 
@@ -372,7 +379,7 @@ int cbm_rel_read(int handle, unsigned int record_num, void *buffer, unsigned int
  *   Number of bytes written, -1 on error
  */
 int cbm_rel_write(int handle, unsigned int record_num, const void *buffer, unsigned int size) {
-    if (handle < 0 || handle >= 8 || rel_files[handle].fd < 0 || !buffer) {
+    if (handle < 0 || handle >= 8 || _rel_closed(handle) || !buffer) {
         return -1;
     }
 
@@ -447,7 +454,7 @@ int cbm_rel_write(int handle, unsigned int record_num, const void *buffer, unsig
  *   0 on success, -1 on error
  */
 int cbm_rel_position(int handle, unsigned int record_num) {
-    if (handle < 0 || handle >= 8 || rel_files[handle].fd < 0) {
+    if (handle < 0 || handle >= 8 || _rel_closed(handle)) {
         return -1;
     }
 
@@ -481,7 +488,7 @@ int cbm_rel_position(int handle, unsigned int record_num) {
  *   Current record number (1-based), 0 if not positioned
  */
 unsigned int cbm_rel_tell(int handle) {
-    if (handle < 0 || handle >= 8 || rel_files[handle].fd < 0) {
+    if (handle < 0 || handle >= 8 || _rel_closed(handle)) {
         return 0;
     }
 
@@ -500,7 +507,7 @@ unsigned int cbm_rel_tell(int handle) {
  *   Number of records, 0 if unknown
  */
 unsigned int cbm_rel_size(int handle) {
-    if (handle < 0 || handle >= 8 || rel_files[handle].fd < 0) {
+    if (handle < 0 || handle >= 8 || _rel_closed(handle)) {
         return 0;
     }
 
@@ -525,7 +532,7 @@ int cbm_rel_close(int handle) {
         return -1;
     }
 
-    if (rel_files[handle].fd < 0) {
+    if (_rel_closed(handle)) {
         return -1;  /* Already closed */
     }
 
@@ -568,7 +575,7 @@ int cbm_rel_close(int handle) {
  *   Record size in bytes (1-254), 0 on error
  */
 unsigned char cbm_rel_record_size(int handle) {
-    if (handle < 0 || handle >= 8 || rel_files[handle].fd < 0) {
+    if (handle < 0 || handle >= 8 || _rel_closed(handle)) {
         return 0;
     }
 
@@ -610,7 +617,7 @@ int cbm_rel_is_open(int handle) {
  *   New record number on success, 0 on error
  */
 int cbm_rel_append(int handle, const void *buffer, unsigned int size) {
-    if (handle < 0 || handle >= 8 || rel_files[handle].fd < 0 || !buffer) {
+    if (handle < 0 || handle >= 8 || _rel_closed(handle) || !buffer) {
         return 0;
     }
 
@@ -642,7 +649,7 @@ int cbm_rel_append(int handle, const void *buffer, unsigned int size) {
  *   0 on success, -1 on error
  */
 int cbm_rel_delete(int handle, unsigned int record_num) {
-    if (handle < 0 || handle >= 8 || rel_files[handle].fd < 0) {
+    if (handle < 0 || handle >= 8 || _rel_closed(handle)) {
         return -1;
     }
 
@@ -674,7 +681,7 @@ int cbm_rel_delete(int handle, unsigned int record_num) {
  *   0 on success, -1 on error
  */
 int cbm_rel_truncate(int handle, unsigned int num_records) {
-    if (handle < 0 || handle >= 8 || rel_files[handle].fd < 0) {
+    if (handle < 0 || handle >= 8 || _rel_closed(handle)) {
         return -1;
     }
 
@@ -723,7 +730,7 @@ int cbm_rel_truncate(int handle, unsigned int num_records) {
  *   Number of bytes written, -1 on error
  */
 int cbm_rel_update(int handle, unsigned int record_num, const void *buffer, unsigned int size) {
-    if (handle < 0 || handle >= 8 || rel_files[handle].fd < 0 || !buffer) {
+    if (handle < 0 || handle >= 8 || _rel_closed(handle) || !buffer) {
         return -1;
     }
 
@@ -761,7 +768,7 @@ int cbm_rel_update(int handle, unsigned int record_num, const void *buffer, unsi
  *   - Alternative: Use sparse file technique with deletion markers
  */
 int cbm_rel_insert(int handle, unsigned int record_num, const void *buffer, unsigned int size) {
-    if (handle < 0 || handle >= 8 || rel_files[handle].fd < 0 || !buffer) {
+    if (handle < 0 || handle >= 8 || _rel_closed(handle) || !buffer) {
         return -1;
     }
 
@@ -811,7 +818,7 @@ int cbm_rel_lasterror(int handle) {
         return CBM_REL_ERR_INVALID;
     }
 
-    if (rel_files[handle].fd < 0) {
+    if (_rel_closed(handle)) {
         return CBM_REL_ERR_INVALID;  /* Handle not open */
     }
 
