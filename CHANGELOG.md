@@ -87,6 +87,16 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### ca45
 
+- Tail deduplication numbered its shared-tail labels from 0 in every
+  optimizer round: a later round's `__tail_opt_dedup_0` took the name of an
+  earlier one, and the jumps made for the earlier tail went to the new one
+  (a function's epilogue jumped into another function's code). The names
+  are unique per file; the jump to a tail in another proc is a relocated
+  `JMP` (a relative branch between procs breaks when ln45 drops unused
+  sections of a sectioned object); labels the optimizer inserts get their
+  segment (a reference to them was not relocated). SeqExtract leaves the
+  routines of an earlier round alone. `-l` with a non-numeric level is an
+  error message, not an abort.
 - **SeqExtract** (repeated instruction runs → `BSR` routines) rewritten and
   on by default (#89): it called routines it never labelled, inserted
   statements while holding indices, let runs span labels and appended the

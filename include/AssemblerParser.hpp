@@ -51,6 +51,8 @@ public:
     bool traceMachState = false;
     bool enableExperimental = false;
     int seqExtractCounter = 0;   // SeqExtract routine names, unique over pass 2 iterations
+    int tailDedupCounter = 0;    // tail-dedup label names, likewise (a name reused by a later
+                                 // iteration redirected the earlier jumps to it)
     bool warnOverflow = false;   // Warn on immediate/address value overflows (default: off)
     bool functionSections = false; // .function_sections / -ffunction-sections: write a section table
     bool warnUnderflow = false;  // Warn on negative values (underflows) (default: off)
@@ -263,6 +265,7 @@ public:
         int sourceLine = 0;
 
         bool deleted = false;
+        bool seqRoutine = false;   // part of a routine SeqExtract made (not extracted again)
         std::vector<uint8_t> bytes; // Captured machine code for listing
 
         // Branch offset resolved during pass2 convergence — used by generator

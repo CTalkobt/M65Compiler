@@ -2421,6 +2421,16 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
             currentLocalScope_ = s->localLabelScope;
             if (!s->label.empty()) {
                 isDeadCode = false;
+                // a label the optimizer inserted (tail-dedup's shared tails): an
+                // address in this segment, so a JMP to it is relocated
+                {
+                    auto& ls = symbolTable[s->label];
+                    if (!ls.isAddress && ls.segment.empty() && !ls.isVariable && !ls.isConstant) {
+                        ls.isAddress = true;
+                        ls.size = 2;
+                        ls.segment = activeSegment;
+                    }
+                }
                 if (symbolTable[s->label].value != cP) {
                     symbolTable[s->label].value = cP;
                     addressRecalculationMadeChanges = true;

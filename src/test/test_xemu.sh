@@ -734,6 +734,18 @@ for fomode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: the forth example's test script with the stack convention and no
+# static allocation: ca45's tail-dedup reused a label name in a later
+# optimizer round, so exec()'s epilogue jumped into fail()'s code
+echo "Testing examples/c/forth (stack, -fno-staticalloc)..."
+compile_link_test "examples/c/forth/main.c" "build/test/test_forth_stack_nosac_xemu.prg" "-fno-zpcall -fno-staticalloc -DFORTH_TEST"
+if [ $? -eq 0 ]; then
+    run_xemu_test "test_forth_stack_nosac" "build/test/test_forth_stack_nosac_xemu.prg" "C0C0" 22 "01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 AA"
+else
+    echo "FAIL: examples/c/forth stack/no-SAC (compilation/linking failed)"
+    failed=$((failed + 1))
+fi
+
 # Test: <float.h> constants (exact bytes, epsilon, underflow), complex * and
 # / of two complex values, __real__/__imag__, operators on temporaries
 for flmode in "stack|-fno-zpcall" "zp|"; do

@@ -485,7 +485,13 @@ int main(int argc, char** argv) {
         } else if (arg == "-L" && i + 1 < (int)allArgs.size()) {
             listing_file = allArgs[++i];
         } else if (arg == "-l" && i + 1 < (int)allArgs.size()) {
-            listingLevel = std::stoi(allArgs[++i]);
+            const std::string& lv = allArgs[++i];
+            if (lv.empty() || lv.find_first_not_of("0123456789") != std::string::npos) {
+                std::cerr << "ca45: -l takes a listing level (1, 2 or 3), not '" << lv
+                          << "' (the listing file is -L <file>)" << std::endl;
+                return 1;
+            }
+            listingLevel = std::stoi(lv);
         } else if (arg == "-Roptimizer") {
             verboseOptimizer = true;
         } else if (arg == "-Rmachstate") {

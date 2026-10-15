@@ -21,7 +21,6 @@ bool AssemblerOptimizer::optimizeInternal(
     int optimizationLevel
 ) {
     bool changed = false;
-    int tailCounter = 0;
 
     // Report helper: emits optimization action to stderr when verbose
     auto report = [&](const char* pass, const AssemblerParser::Statement* s, const std::string& action) {
@@ -1104,7 +1103,7 @@ bool AssemblerOptimizer::optimizeInternal(
                 size_t savedBytes = (tails[0].tailSize - 2) * (tails.size() - 1);
                 if (savedBytes < 2) continue;
 
-                std::string sharedLabel = "__tail_opt_dedup_" + std::to_string(tailCounter++);
+                std::string sharedLabel = "__tail_opt_dedup_" + std::to_string(parser->tailDedupCounter++);
 
                 // Rewrite from the highest statement index down so each insertion
                 // leaves the indices of the tails still to be processed valid; the
@@ -1131,10 +1130,18 @@ bool AssemblerOptimizer::optimizeInternal(
                         auto* firstInstr = parser->statements[tail.startIdx].get();
                         auto braStmt = std::make_unique<AssemblerParser::Statement>();
                         braStmt->type = AssemblerParser::Statement::INSTRUCTION;
-                        braStmt->instr.mnemonic = "bra";
-                        braStmt->instr.mode = AddressingMode::RELATIVE;
+                        braStmt->instr.mnemonic = "jmp";
+                        braStmt->instr.mode = AddressingMode::ABSOLUTE;
                         braStmt->instr.operand = sharedLabel;
-                        braStmt->size = 2;
+                        {   // the operand as a token (an absolute operand is evaluated from it)
+                            AssemblerToken t; t.type = AssemblerTokenType::IDENTIFIER; t.value = sharedLabel; t.line = 0;
+                            AssemblerToken nl; nl.type = AssemblerTokenType::NEWLINE; nl.value = "\n"; nl.line = 0;
+                            braStmt->instr.operandTokenIndex = (int)parser->tokens.size();
+                            parser->tokens.push_back(t);
+                            parser->tokens.push_back(nl);
+                        }
+                        braStmt->size = 3;   // (the shared tail is in another proc: a relative branch
+                        // between procs breaks when ln45 drops an unused proc in between)
                         braStmt->line = firstInstr->line;
                         braStmt->sourceFile = firstInstr->sourceFile;
                         braStmt->sourceLine = firstInstr->sourceLine;
@@ -1203,7 +1210,7 @@ bool AssemblerOptimizer::optimizeInternal(
                     size_t savings = allTails[i].tailSize - 2;
                     if (savings < 2) continue;
 
-                    std::string offsetLabel = "__tail_opt_dedup_" + std::to_string(tailCounter++) + "_into";
+                    std::string offsetLabel = "__tail_opt_dedup_" + std::to_string(parser->tailDedupCounter++) + "_into";
 
                     size_t insertPos = longTail[longTail.size() - shortTail.size()];
                     auto* refStmt = parser->statements[insertPos].get();
@@ -1225,10 +1232,18 @@ bool AssemblerOptimizer::optimizeInternal(
                     auto* firstInstr = parser->statements[shortIdx.front()].get();
                     auto braStmt = std::make_unique<AssemblerParser::Statement>();
                     braStmt->type = AssemblerParser::Statement::INSTRUCTION;
-                    braStmt->instr.mnemonic = "bra";
-                    braStmt->instr.mode = AddressingMode::RELATIVE;
+                    braStmt->instr.mnemonic = "jmp";
+                    braStmt->instr.mode = AddressingMode::ABSOLUTE;
                     braStmt->instr.operand = offsetLabel;
-                    braStmt->size = 2;
+                    {   // the operand as a token (an absolute operand is evaluated from it)
+                        AssemblerToken t; t.type = AssemblerTokenType::IDENTIFIER; t.value = offsetLabel; t.line = 0;
+                        AssemblerToken nl; nl.type = AssemblerTokenType::NEWLINE; nl.value = "\n"; nl.line = 0;
+                        braStmt->instr.operandTokenIndex = (int)parser->tokens.size();
+                        parser->tokens.push_back(t);
+                        parser->tokens.push_back(nl);
+                    }
+                    braStmt->size = 3;   // (the shared tail is in another proc: a relative branch
+                        // between procs breaks when ln45 drops an unused proc in between)
                     braStmt->line = firstInstr->line;
                     braStmt->sourceFile = firstInstr->sourceFile;
                     braStmt->sourceLine = firstInstr->sourceLine;
@@ -1282,6 +1297,8 @@ bool AssemblerOptimizer::optimizeInternal(
             "bsr", "proc", "endproc", "map", "eom"};
         auto movable = [&](const AssemblerParser::Statement* s) {
             if (s->type != AssemblerParser::Statement::INSTRUCTION || !s->label.empty() || s->size <= 0) return false;
+            // (not a routine made by an earlier iteration)
+            if (s->seqRoutine) return false;
             std::string m = lower(s->instr.mnemonic);
             if (m.find('.') != std::string::npos || stackOps.count(m)) return false;
             switch (s->instr.mode) {
@@ -1380,6 +1397,7 @@ bool AssemblerOptimizer::optimizeInternal(
                 for (size_t n = 0; n < runs[0].idx.size(); ++n) {
                     auto copy = std::make_unique<AssemblerParser::Statement>(*st[runs[0].idx[n]]);
                     copy->label = n == 0 ? name : std::string();
+                    copy->seqRoutine = true;
                     routines.push_back(std::move(copy));
                 }
                 auto rts = std::make_unique<AssemblerParser::Statement>(*st[runs[0].idx.back()]);
@@ -1388,6 +1406,7 @@ bool AssemblerOptimizer::optimizeInternal(
                 rts->instr.mnemonic = "rts";
                 rts->instr.mode = AddressingMode::IMPLIED;
                 rts->size = 1;
+                rts->seqRoutine = true;
                 routines.push_back(std::move(rts));
                 for (auto& r : runs) {
                     auto* first = st[r.idx[0]].get();
