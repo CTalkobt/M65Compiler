@@ -608,6 +608,23 @@ std::string IRCodeGen::vregDesc(uint32_t vregId) {
     return "v" + std::to_string(vregId) + "(" + ty + "," + loc + ")";
 }
 
+// An element of a global array of at most 256 bytes: every in-bounds byte
+// offset fits in Y, so the element is name+off,y (no address built in
+// __zp_scratch). Y = index * stride for strides 1, 2, 4; the index is
+// loaded first (its load may use Y).
+bool IRCodeGen::smallArrayY(const ir::Operand& base, const ir::Operand& index, int stride, int elemOffset,
+                            int elemSize, std::string& operand) {
+    if (base.kind != ir::OperandKind::GLOBAL || !smallGlobals_.count(base.name)) return false;
+    if (!index.isVreg() || (stride != 1 && stride != 2 && stride != 4)) return false;
+    if (elemOffset < 0 || elemOffset + elemSize > 256) return false;
+    loadOperand(index);
+    for (int k = stride; k > 1; k >>= 1) emit("asl");
+    emit("tay", "index * " + std::to_string(stride) + " (" + base.name + " is at most 256 bytes)");
+    operand = elemOffset ? base.name + "+" + std::to_string(elemOffset) : base.name;
+    elemCache_.valid = false;
+    return true;
+}
+
 // A:X *= c (the low 16 bits) without the hardware multiplier, when that is
 // no bigger than its 24 bytes: the high byte is shifted in a scratch byte
 // (asl; rol s: no pha/pla), the multiplicand's bytes kept for the adds of a
@@ -1160,8 +1177,10 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
 
     // Phase 97.5: Build symbol → addressSpace mapping for instruction optimization
     symbolAddressSpace_.clear();
+    smallGlobals_.clear();
     for (const auto& global : mod.globals) {
         symbolAddressSpace_[global.name] = global.addressSpace;
+        if (global.size > 0 && global.size <= 256 && global.addressSpace == 0) smallGlobals_.insert(global.name);
     }
 
     // Pre-scan all functions to compute frame offsets (needed for capture)
@@ -4932,6 +4951,19 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                 auto& index = inst.args[1];
                 int stride = (int)inst.args[2].immVal;
 
+                // a small global array: name+off,y
+                if (inst.resultType == ir::Type::I8 || inst.resultType == ir::Type::I16 ||
+                    inst.resultType == ir::Type::PTR) {
+                    std::string op;
+                    int es = inst.resultType == ir::Type::I8 ? 1 : 2;
+                    if (smallArrayY(base, index, stride, inst.elemOffset, es, op)) {
+                        if (es == 1) { emit("lda " + op + ",y"); emit("ldx #0"); }
+                        else { emit("lda " + op + ",y"); emit("ldx " + op + "+1,y"); }
+                        if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
+                        ms_.invalidateAll();
+                        break;
+                    }
+                }
                 std::string baseStr = (base.kind == ir::OperandKind::GLOBAL) ?
                     globalBase(base, inst.elemOffset) : src2MemOperand(base);
                 // __zp_scratch may already point into the same array at the
@@ -5119,6 +5151,41 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                 bool constVal = inst.src1.isImm() || (inst.src1.isVreg() && vregConstVal_.count(inst.src1.vregId));
                 bool zpVal = inst.src1.isVreg() && !constVal &&
                              alloc_.getAlloc(inst.src1.vregId).loc == VRegAllocator::IN_ZP;
+                // a small global array: name+off,y (the value parked in
+                // __zp_scratch2 while the index is loaded, unless it is a
+                // constant or in ZP: loaded after)
+                {
+                    int es = inst.resultType == ir::Type::I8 ? 1 : 2;
+                    bool smallOk = base.kind == ir::OperandKind::GLOBAL && smallGlobals_.count(base.name) &&
+                                   index.isVreg() && (stride == 1 || stride == 2 || stride == 4) &&
+                                   inst.elemOffset >= 0 && inst.elemOffset + es <= 256;
+                    if (smallOk) {
+                        bool late = constVal || zpVal;
+                        if (!late) {
+                            loadOperand(inst.src1);
+                            emit("sta __zp_scratch2");
+                            if (es == 2) emit("stx __zp_scratch2+1");
+                        }
+                        std::string op;
+                        smallArrayY(base, index, stride, inst.elemOffset, es, op);
+                        if (late) {
+                            if (constVal && es == 1) {
+                                int64_t v = inst.src1.isImm() ? inst.src1.immVal : vregConstVal_[inst.src1.vregId];
+                                emit("lda #" + std::to_string((int)(v & 0xFF)));
+                            } else {
+                                loadOperand(inst.src1);
+                            }
+                            emit("sta " + op + ",y");
+                            if (es == 2) { emit("txa"); emit("sta " + op + "+1,y"); }
+                        } else {
+                            emit("lda __zp_scratch2");
+                            emit("sta " + op + ",y");
+                            if (es == 2) { emit("lda __zp_scratch2+1"); emit("sta " + op + "+1,y"); }
+                        }
+                        ms_.invalidateAll();
+                        break;
+                    }
+                }
                 if (constVal || zpVal) {
                     std::string baseStr = (base.kind == ir::OperandKind::GLOBAL) ?
                         globalBase(base, inst.elemOffset) : src2MemOperand(base);

@@ -69,6 +69,10 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   byte, from a stale X). ca45 drops an `ldx #imm` whose X is written again
   before it is read (cc45's zero extension of a byte used as a byte). The
   examples are 1060 more bytes smaller.
+- An element of a global array of at most 256 bytes (1- or 2-byte elements,
+  strides 1, 2, 4) is `lda name+off,y` / `sta name+off,y` with the scaled
+  index in Y, instead of an address built in `__zp_scratch` and `(zp),y`.
+  The examples are 4554 more bytes smaller (forth by 16%).
 - ln45: calls after a computed-goto label (cc45 exports `f__lbl_x` for
   `&&x` in a table) are the function's: the static-allocation overlay gave
   a computed-goto interpreter and the functions it calls the same storage.
