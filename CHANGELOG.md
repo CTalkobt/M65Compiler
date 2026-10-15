@@ -24,7 +24,10 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   scanned for later parameters' names: `F(dst, src, len)` with
   `src = g(len)` passed `g(<len's argument>)`); `<float.h>` constants exact;
   `_Complex int` division; operators on small-struct temporaries; a struct
-  operand without an operator is an error; no false "unused" warning.
+  operand without an operator is an error; no false "unused" warning;
+  `x op= y` on a struct calls its `operator op=` (a struct of 4 bytes or
+  less was added as a 32-bit integer, carrying from one member into the
+  next), and is an error without one.
 
 ### Standard library
 
@@ -36,6 +39,10 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   (or used `$DE00` as DMA registers) and accessed bank 0. The far allocator
   uses banks 4–5 only (the program, BASIC and the ROM are in 0–3).
 - `__dma_fill` works (the documented "fills with 0" issue was stale).
+- `key_pressed`, `atoi` and `isblank` fixed: a conversion of the assembly
+  library had added 13 to some constants (`key_pressed` scanned the wrong
+  column/row: no key was ever seen; `atoi` did not skip tabs and newlines;
+  `isblank('\t')` was 0).
 
 ### ca45
 
@@ -56,6 +63,8 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 ### Examples
 
 - New `far_scroller` (a map in bank 4 scrolled with DMA, parallax).
+- New `invaders`: a Space Invaders game (object extensions, a DMA-copied
+  character set, 16-colour sprites, SID sound, joystick/keyboard).
 - `text_scroller`: 80 columns, screen-code message, a bouncing ball sprite
   passing in front of and behind the text; `game_of_life` (80x25 screen,
   signed neighbour offsets), `bitfield_registers` (`$D031`/`$D054` layouts
@@ -64,8 +73,8 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### Tests
 
-- xemu runtime tests 220 → 234 (stdio, element offsets, aligned objects,
-  SeqExtract, far DMA, far pointers, parser fixes); signedness warnings;
+- xemu runtime tests 220 → 236 (stdio, element offsets, aligned objects,
+  SeqExtract, far DMA, far pointers, parser fixes, library regressions); signedness warnings;
   all examples in `test_examples.sh`. GCC torture tests: 537 in each
   convention.
 
