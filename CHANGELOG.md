@@ -157,6 +157,15 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### Standard library
 
+- **conio in assembly** (`stdlib_asm/conio.s45`; `cprintf`/`cprintfxy` stay
+  in C as `conio_printf.c`): a row's screen and colour RAM addresses are
+  32-bit pointers (row × stride by the hardware multiplier) and characters
+  go out with flat stores (`sta [$08],z`) instead of a long multiply and a
+  DMA job per character. 4000 characters with scrolling: 16 frames → 1; a
+  program using `cputs` 8374 → 1848 bytes. Clearing and scrolling are DMA
+  jobs. `test_conio_xemu.c` also checks a 40-column stride and an 80x50
+  screen in bank 4.
+
 - Library functions without tests got runtime tests (`test_stdlib2`,
   `test_math2`, `test_time2`, `test_cbmio`, `test_stdio3`), which found:
   - `strtol`/`strtoul`: upper-case hex digits in a C string (`"0x1F"`: cc45
@@ -302,6 +311,12 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   interactive `shell`, `edit` (#160–#167); BAM system sectors per format.
 
 ### Examples
+
+- **mandelbrot**: points in the main cardioid and the period-2 bulb are
+  recognised without iterating (the kernel is 2-3 times faster over the
+  whole set, exactly the same counts), and a cell whose border is mixed is
+  checked again as four quadrants. The opening view renders in 343 frames
+  (was 604), the same picture.
 
 - New `far_scroller` (a map in bank 4 scrolled with DMA, parallax).
 - New `invaders`: a Space Invaders game (object extensions, a DMA-copied

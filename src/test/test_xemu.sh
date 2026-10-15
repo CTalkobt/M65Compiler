@@ -413,11 +413,12 @@ else
 fi
 
 # Test: ln45 drops unreachable sections of a sectioned library member
-# (conio compiled with -ffunction-sections into a library of its own)
+# (a copy of the C conio compiled with -ffunction-sections into a library of
+# its own)
 echo "Testing test_gc_sections_xemu.c (dropping unused functions)..."
 rm -f build/test/test_gc_conio.lib
 if $CC -fzpcall -fimplicit-function-declaration -fsigned-default -funsigned-char -ffunction-sections -Ilib/include \
-       -c lib/stdlib/conio.c -o build/test/test_gc_conio.o45 >/dev/null 2>&1 &&
+       -c src/test-resources/gc_sample_conio.c -o build/test/test_gc_conio.o45 >/dev/null 2>&1 &&
    ./bin/ar45 c build/test/test_gc_conio.lib build/test/test_gc_conio.o45 >/dev/null 2>&1 &&
    $CC -c src/test-resources/test_gc_sections_xemu.c -o build/test/test_gc_sections.o45 >/dev/null 2>&1 &&
    $LD -basic --print-gc -o build/test/test_gc_sections_xemu.prg lib/build/crt0_zp.o45 build/test/test_gc_sections.o45 \
@@ -1243,7 +1244,7 @@ for comode in "zp|" "stack|-fno-zpcall"; do
     echo "Testing test_conio_xemu.c ($coname)..."
     compile_link_test "src/test-resources/test_conio_xemu.c" "build/test/test_conio_${coname}_xemu.prg" "$coflags"
     if [ $? -eq 0 ]; then
-        run_xemu_test "test_conio_$coname" "build/test/test_conio_${coname}_xemu.prg" "C0C0" 9 "01 01 01 01 01 01 01 01 AA"
+        run_xemu_test "test_conio_$coname" "build/test/test_conio_${coname}_xemu.prg" "C0C0" 10 "01 01 01 01 01 01 01 01 01 AA"
     else
         echo "FAIL: test_conio_xemu.c $coname (compilation/linking failed)"
         failed=$((failed + 1))

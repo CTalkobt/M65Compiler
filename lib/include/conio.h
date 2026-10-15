@@ -53,7 +53,7 @@
  * Clears the entire screen with the current background color
  * and positions the cursor at (0, 0).
  */
-void clrscr(void);
+__fastcall__ void clrscr(void);
 
 /**
  * gotoxy - Position cursor
@@ -65,21 +65,21 @@ void clrscr(void);
  *   x — Column (0 to screenwidth() - 1; clamped)
  *   y — Row (0 to screenheight() - 1; clamped)
  */
-void gotoxy(int x, int y);
+__fastcall__ void gotoxy(int x, int y);
 
 /**
  * wherex - Get cursor column
  *
  * Returns the current cursor column.
  */
-int wherex(void);
+__fastcall__ int wherex(void);
 
 /**
  * wherey - Get cursor row
  *
  * Returns the current cursor row.
  */
-int wherey(void);
+__fastcall__ int wherey(void);
 
 /* ============================================================================
  * TEXT ATTRIBUTE FUNCTIONS
@@ -93,7 +93,7 @@ int wherey(void);
  * Parameters:
  *   color — Color index (0-15 standard, 0-255 in enhanced mode)
  */
-void textcolor(int color);
+__fastcall__ void textcolor(int color);
 
 /**
  * textbackground - Set the screen's background color ($D021)
@@ -103,7 +103,7 @@ void textcolor(int color);
  * Parameters:
  *   color — Background color index (0-15)
  */
-void textbackground(int color);
+__fastcall__ void textbackground(int color);
 
 /**
  * textattr - Set combined text attributes
@@ -114,14 +114,14 @@ void textbackground(int color);
  * Parameters:
  *   attr — Combined attribute byte
  */
-void textattr(int attr);
+__fastcall__ void textattr(int attr);
 
 /**
  * revers - Reversed characters from now on (onoff 1) or not (0)
  *
  * Returns the previous setting.
  */
-unsigned char revers(unsigned char onoff);
+__fastcall__ unsigned char revers(unsigned char onoff);
 
 /* ============================================================================
  * CHARACTER OUTPUT
@@ -139,7 +139,7 @@ unsigned char revers(unsigned char onoff);
  * Returns:
  *   The character written
  */
-int putch(int ch);
+__fastcall__ int putch(int ch);
 
 /**
  * cputch - Write character with explicit position
@@ -151,7 +151,7 @@ int putch(int ch);
  *   y — Row
  *   ch — Character to write
  */
-void cputch(int x, int y, int ch);
+__fastcall__ void cputch(int x, int y, int ch);
 
 /**
  * cputs - Write string at cursor position
@@ -164,7 +164,7 @@ void cputch(int x, int y, int ch);
  * Returns:
  *   0 on success, -1 on error
  */
-int cputs(const char *str);
+__fastcall__ int cputs(const char *str);
 
 /**
  * cputsxy - Write string at explicit position
@@ -179,7 +179,7 @@ int cputs(const char *str);
  * Returns:
  *   0 on success, -1 on error
  */
-int cputsxy(int x, int y, const char *str);
+__fastcall__ int cputsxy(int x, int y, const char *str);
 
 /* ============================================================================
  * FORMATTED OUTPUT
@@ -226,7 +226,7 @@ int cprintfxy(int x, int y, const char *format, ...);
  * input_key gives it: PETSCII letters, RUN/STOP 3, F1-F14 $F1-$FE. After cursoron() the cursor cell shows reversed while
  * it waits.
  */
-int getch(void);
+__fastcall__ int getch(void);
 
 /**
  * kbhit - Check if key is available (non-blocking)
@@ -237,7 +237,7 @@ int getch(void);
  * Returns:
  *   1 if key available, 0 if no key
  */
-int kbhit(void);
+__fastcall__ int kbhit(void);
 
 /* ============================================================================
  * SCREEN SIZE FUNCTIONS
@@ -249,7 +249,7 @@ int kbhit(void);
  * Returns:
  *   The VIC-IV's characters per row ($D05E): 80 in MEGA65 mode
  */
-int screenwidth(void);
+__fastcall__ int screenwidth(void);
 
 /**
  * screenheight - Get screen height in rows
@@ -257,7 +257,7 @@ int screenwidth(void);
  * Returns:
  *   The VIC-IV's text rows ($D07B + 1): 25, or 50
  */
-int screenheight(void);
+__fastcall__ int screenheight(void);
 
 /* ============================================================================
  * CURSOR VISIBILITY
@@ -266,12 +266,12 @@ int screenheight(void);
 /**
  * cursoron - Show the cursor while getch waits
  */
-void cursoron(void);
+__fastcall__ void cursoron(void);
 
 /**
  * cursoroff - getch shows no cursor (the default)
  */
-void cursoroff(void);
+__fastcall__ void cursoroff(void);
 
 /* ============================================================================
  * SCREEN BUFFER FUNCTIONS
@@ -289,7 +289,7 @@ void cursoroff(void);
  * Returns:
  *   Character code
  */
-int getch_xy(int x, int y);
+__fastcall__ int getch_xy(int x, int y);
 
 /**
  * getattr_xy - Read attribute from screen position
@@ -303,7 +303,7 @@ int getch_xy(int x, int y);
  * Returns:
  *   Attribute byte (background << 4 | foreground)
  */
-int getattr_xy(int x, int y);
+__fastcall__ int getattr_xy(int x, int y);
 
 /* ============================================================================
  * FULL-COLOR TEXT MODE (FCM) FUNCTIONS

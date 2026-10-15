@@ -1,0 +1,736 @@
+; conio.s45 — console output on the MEGA65 text screen (<conio.h>)
+;
+; Works on the screen the VIC-IV shows, read on every call (a program may
+; change the mode): screen RAM at $D060-$D063 (28 bits), the row stride
+; $D058/$D059, characters per row $D05E (0 means 40), rows $D07B + 1, colour
+; RAM at $FF80000 + $D064/$D065. So 40 and 80 columns, 25 and 50 rows and a
+; moved screen work. A row's screen and colour RAM addresses are 32-bit
+; pointers in __zp_scratch (SCR $08, COL $0C); characters and colours are
+; written through them with flat addressing (sta [SCR],z), so a screen above
+; 64 KB and colour RAM past the 2 KB at $D800 work, one store per byte.
+; Clearing and scrolling are DMA jobs (fills and copies of whole rows).
+; Characters are PETSCII (what cc45 makes of C text), written as screen
+; codes. The text colour is a colour RAM byte's low nibble; text mode has no
+; per-character background, so textbackground sets the screen's ($D021).
+;
+; cprintf / cprintfxy are in stdlib/conio.c; getch / kbhit read the keyboard
+; through <input.h>.
+
+SCR = $08               ; screen RAM address of the row (32 bits)
+COL = $0C               ; colour RAM address of the row (32 bits)
+
+.global _clrscr, _gotoxy, _wherex, _wherey, _textcolor, _textbackground
+.global _textattr, _revers, _putch, _cputch, _cputs, _cputsxy, _getch
+.global _kbhit, _screenwidth, _screenheight, _cursoron, _cursoroff
+.global _getch_xy, _getattr_xy
+.extern _input_wait, _input_waiting
+
+.segment "bss"
+__conio_cx:     .res 1  ; cursor column
+__conio_cy:     .res 1  ; cursor row
+__conio_w:      .res 1  ; characters per row
+__conio_h:      .res 1  ; rows
+__conio_rowok:  .res 1  ; 1: SCR / COL point at the cursor's row
+__conio_rev:    .res 1  ; $80 while revers is on
+__conio_shown:  .res 1  ; 1: getch shows the cursor
+__conio_t:      .res 1  ; temporary
+__conio_r:      .res 1  ; row counter
+__conio_under:  .res 1  ; the cell under the cursor (getch)
+__conio_key:    .res 1  ; getch's key
+__conio_save:   .res 4  ; row 0's colour RAM address (scrolling)
+
+.segment "code"
+__conio_color:  .byte 1 ; text colour (WHITE)
+
+; An enhanced (F018B) DMA job: options (F018B format, source and destination
+; megabyte), then the job; the addresses are filled in
+__conio_job:
+    .byte $0B, $80, 0, $81, 0, $00
+    .byte 0                 ; command: 0 copy
+    .byte 0, 0              ; length
+    .byte 0, 0, 0           ; source bits 0-15, bank (bits 16-19)
+    .byte 0, 0, 0           ; destination
+    .byte 0, 0, 0           ; sub-command, modulo
+
+; ----------------------------------------------------------------------------
+; Internal routines
+; ----------------------------------------------------------------------------
+
+; The screen size: __conio_w, __conio_h
+proc __conio_geom
+    lda $D05E
+    bne @w
+    lda #40
+@w:
+    sta __conio_w
+    lda $D07B
+    clc
+    adc #1
+    sta __conio_h
+    rts
+endproc
+
+; SCR / COL = row A's screen and colour RAM addresses
+proc __conio_row
+    ; row * stride by the hardware multiplier ($D770 * $D774 = $D778)
+    sta $D770
+    lda #0
+    sta $D771
+    sta $D772
+    sta $D773
+    sta $D776
+    sta $D777
+    sta __conio_rowok
+    lda $D058
+    sta $D774
+    lda $D059
+    sta $D775
+    lda $D778
+    ldx $D779
+    ldy $D77A
+    ldz #0
+    stq COL
+    ; screen RAM ($D060-$D063, 28 bits) + row * stride
+    lda $D063
+    and #$0F
+    taz
+    lda $D060
+    ldx $D061
+    ldy $D062
+    clc
+    adcq COL
+    stq SCR
+    ; colour RAM ($FF80000 + $D064/$D065) + row * stride
+    lda $D064
+    ldx $D065
+    ldy #$F8
+    ldz #$0F
+    clc
+    adcq COL
+    stq COL
+    rts
+endproc
+
+; PETSCII A to a screen code; $FF for a control character
+proc __conio_scrcode
+    cmp #$20
+    bcc @ctl
+    cmp #$40
+    bcc @done           ; $20-$3F: the same
+    cmp #$60
+    bcc @sub40          ; $40-$5F: letters
+    cmp #$80
+    bcc @sub20          ; $60-$7F: shifted letters
+    cmp #$A0
+    bcc @ctl            ; $80-$9F: control
+    cmp #$C0
+    bcc @sub40          ; $A0-$BF: graphics
+    cmp #$FF
+    beq @pi
+    sec                 ; $C0-$FE
+    sbc #$80
+    rts
+@sub40:
+    sec
+    sbc #$40
+    rts
+@sub20:
+    sec
+    sbc #$20
+    rts
+@pi:
+    lda #$5E
+    rts
+@ctl:
+    lda #$FF
+@done:
+    rts
+endproc
+
+; Row A cleared: spaces in the text colour
+proc __conio_clearrow
+    jsr __conio_row
+    lda __conio_w
+    sta __conio_job+7
+    lda #0
+    sta __conio_job+8
+    jmp __conio_fillboth
+endproc
+
+; Spaces from SCR, the text colour from COL, for the length in the job
+proc __conio_fillboth
+    lda #$20
+    ldx #SCR
+    jsr __conio_fill
+    lda __conio_color
+    ldx #COL
+    jmp __conio_fill
+endproc
+
+; A DMA fill with A of the length in the job, at the address in the
+; pointer X (SCR or COL)
+proc __conio_fill
+    sta __conio_job+9       ; the value: the source address' low byte
+    lda $00,x
+    sta __conio_job+12
+    lda $01,x
+    sta __conio_job+13
+    lda $02,x
+    and #$0F
+    sta __conio_job+14
+    lda $02,x
+    pha
+    lda $03,x
+    tax
+    pla
+    jsr __conio_mbx
+    sta __conio_job+4
+    lda #3
+    sta __conio_job+6       ; fill
+    jsr __conio_dma
+    lda #0
+    sta __conio_job+6       ; (copy again)
+    rts
+endproc
+
+; The rows below the top one up by a row (DMA copies of screen and colour
+; RAM); the bottom row cleared. __conio_h, __conio_w set.
+proc __conio_scroll
+    lda #0
+    jsr __conio_row
+    ; destination: row 0
+    lda SCR
+    sta __conio_job+12
+    lda SCR+1
+    sta __conio_job+13
+    lda SCR+2
+    and #$0F
+    sta __conio_job+14
+    lda SCR+2
+    jsr __conio_mb
+    sta __conio_job+4
+    ldq COL
+    stq __conio_save
+    ; length: (rows - 1) * stride
+    lda __conio_h
+    sec
+    sbc #1
+    jsr __conio_row     ; (for its product: (rows - 1) * stride)
+    lda $D778
+    sta __conio_job+7
+    lda $D779
+    sta __conio_job+8
+    ; screen: from row 1
+    lda #1
+    jsr __conio_row
+    lda SCR
+    sta __conio_job+9
+    lda SCR+1
+    sta __conio_job+10
+    lda SCR+2
+    and #$0F
+    sta __conio_job+11
+    lda SCR+2
+    jsr __conio_mb
+    sta __conio_job+2
+    jsr __conio_dma
+    ; colour RAM: from COL (row 1) to row 0's
+    lda COL
+    sta __conio_job+9
+    lda COL+1
+    sta __conio_job+10
+    lda COL+2
+    and #$0F
+    sta __conio_job+11
+    lda COL+2
+    ldx COL+3
+    jsr __conio_mbx
+    sta __conio_job+2
+    lda __conio_save
+    sta __conio_job+12
+    lda __conio_save+1
+    sta __conio_job+13
+    lda __conio_save+2
+    and #$0F
+    sta __conio_job+14
+    lda __conio_save+2
+    ldx __conio_save+3
+    jsr __conio_mbx
+    sta __conio_job+4
+    jsr __conio_dma
+    ; the bottom row
+    lda __conio_h
+    sec
+    sbc #1
+    jmp __conio_clearrow
+endproc
+
+; The megabyte (address bits 20-27) of the address whose byte 2 is A and
+; byte 3 SCR+3 (__conio_mb) or X (__conio_mbx)
+proc __conio_mb
+    ldx SCR+3
+    jmp __conio_mbx
+endproc
+proc __conio_mbx
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    sta __conio_t
+    txa
+    asl a
+    asl a
+    asl a
+    asl a
+    ora __conio_t
+    rts
+endproc
+
+; Run __conio_job (interrupts held off while the DMA registers are set: an
+; interrupt handler starting a job of its own in between would leave its
+; list address)
+proc __conio_dma
+    php
+    sei
+    lda #0
+    sta $D702           ; list in bank 0
+    sta $D704           ; megabyte 0
+    lda #>__conio_job
+    sta $D701
+    lda #<__conio_job
+    sta $D705           ; start (enhanced job)
+    plp
+    rts
+endproc
+
+; Cursor to the start of the next row, scrolling at the bottom
+proc __conio_newline
+    lda #0
+    sta __conio_cx
+    sta __conio_rowok
+    inc __conio_cy
+    lda __conio_cy
+    cmp __conio_h
+    bcc @done
+    lda __conio_h
+    sec
+    sbc #1
+    sta __conio_cy
+    jmp __conio_scroll
+@done:
+    rts
+endproc
+
+; Character A at the cursor, which then advances (wrapping, scrolling);
+; $0D or $0A starts the next row. __conio_w / __conio_h set.
+proc __conio_out
+    cmp #$0D
+    beq @nl
+    cmp #$0A
+    beq @nl
+    jsr __conio_scrcode
+    cmp #$FF
+    beq @done
+    ora __conio_rev
+    pha
+    lda __conio_rowok
+    bne @ok
+    lda __conio_cy
+    jsr __conio_row
+    lda #1
+    sta __conio_rowok
+@ok:
+    ldz __conio_cx
+    pla
+    sta [SCR],z
+    lda __conio_color
+    sta [COL],z
+    inc __conio_cx
+    lda __conio_cx
+    cmp __conio_w
+    bcc @done
+@nl:
+    jmp __conio_newline
+@done:
+    rts
+endproc
+
+; A:Y (a signed int) clamped to 0 .. X - 1, in A
+proc __conio_clamp
+    stx __conio_t
+    cpy #0
+    bmi @zero
+    bne @max
+    cmp __conio_t
+    bcc @ok
+@max:
+    lda __conio_t
+    sec
+    sbc #1
+    rts
+@zero:
+    lda #0
+@ok:
+    rts
+endproc
+
+; ----------------------------------------------------------------------------
+; Screen
+; ----------------------------------------------------------------------------
+
+; void clrscr(void)
+proc _clrscr
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr __conio_geom
+    lda #0
+    sta __conio_cx
+    sta __conio_cy
+    sta __conio_r
+    ; rows one after another (stride = width): one fill each
+    lda $D059
+    bne @row
+    lda $D058
+    cmp __conio_w
+    bne @row
+    lda __conio_h
+    jsr __conio_row         ; (for its product: rows * stride, the cells)
+    lda $D778
+    sta __conio_job+7
+    lda $D779
+    sta __conio_job+8
+    lda #0
+    jsr __conio_row
+    jmp __conio_fillboth
+@row:
+    lda __conio_r
+    jsr __conio_clearrow
+    inc __conio_r
+    lda __conio_r
+    cmp __conio_h
+    bcc @row
+    rts
+    .func_flags zp_call
+endproc
+
+; int screenwidth(void)
+proc _screenwidth
+    .reg_clobbers A, X
+    .flag_clobbers C, N, Z
+    jsr __conio_geom
+    lda __conio_w
+    ldx #0
+    rts
+    .func_flags zp_call
+endproc
+
+; int screenheight(void)
+proc _screenheight
+    .reg_clobbers A, X
+    .flag_clobbers C, N, Z
+    jsr __conio_geom
+    lda __conio_h
+    ldx #0
+    rts
+    .func_flags zp_call
+endproc
+
+; void gotoxy(int x, int y): clamped to the screen
+proc _gotoxy
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    jsr __conio_geom
+    lda $10
+    ldy $11
+    ldx __conio_w
+    jsr __conio_clamp
+    sta __conio_cx
+    lda $12
+    ldy $13
+    ldx __conio_h
+    jsr __conio_clamp
+    sta __conio_cy
+    rts
+    .func_flags zp_call
+endproc
+
+; int wherex(void)
+proc _wherex
+    .reg_clobbers A, X
+    lda __conio_cx
+    ldx #0
+    rts
+    .func_flags zp_call
+endproc
+
+; int wherey(void)
+proc _wherey
+    .reg_clobbers A, X
+    lda __conio_cy
+    ldx #0
+    rts
+    .func_flags zp_call
+endproc
+
+; ----------------------------------------------------------------------------
+; Attributes
+; ----------------------------------------------------------------------------
+
+; void textcolor(int color)
+proc _textcolor
+    .zp_uses $10, $11
+    .reg_clobbers A
+    .flag_clobbers N, Z
+    lda $10
+    and #$0F
+    sta __conio_color
+    rts
+    .func_flags zp_call
+endproc
+
+; void textbackground(int color): the screen's ($D021)
+proc _textbackground
+    .zp_uses $10, $11
+    .reg_clobbers A
+    .flag_clobbers N, Z
+    lda $10
+    and #$0F
+    sta $D021
+    rts
+    .func_flags zp_call
+endproc
+
+; void textattr(int attr): colour in bits 0-3, background in bits 4-7
+proc _textattr
+    .zp_uses $10, $11
+    .reg_clobbers A
+    .flag_clobbers C, N, Z
+    lda $10
+    and #$0F
+    sta __conio_color
+    lda $10
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    sta $D021
+    rts
+    .func_flags zp_call
+endproc
+
+; unsigned char revers(unsigned char onoff): reversed characters from now
+; on (1) or not (0); returns the old setting
+proc _revers
+    .zp_uses $10, $11
+    .reg_clobbers A, X
+    .flag_clobbers C, N, Z
+    ldx #0
+    lda __conio_rev
+    beq @old
+    inx
+@old:
+    lda $10
+    beq @set
+    lda #$80
+@set:
+    sta __conio_rev
+    txa
+    ldx #0
+    rts
+    .func_flags zp_call
+endproc
+
+; void cursoron(void) / cursoroff(void): getch shows the cursor or not
+proc _cursoron
+    .reg_clobbers A
+    .flag_clobbers N, Z
+    lda #1
+    sta __conio_shown
+    rts
+    .func_flags zp_call
+endproc
+
+proc _cursoroff
+    .reg_clobbers A
+    .flag_clobbers N, Z
+    lda #0
+    sta __conio_shown
+    rts
+    .func_flags zp_call
+endproc
+
+; ----------------------------------------------------------------------------
+; Output
+; ----------------------------------------------------------------------------
+
+; int putch(int ch): at the cursor, which advances
+proc _putch
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr __conio_geom
+    lda #0
+    sta __conio_rowok
+    lda $10
+    jsr __conio_out
+    lda $10
+    ldx $11
+    rts
+    .func_flags zp_call
+endproc
+
+; void cputch(int x, int y, int ch): at (x, y); the cursor stays
+proc _cputch
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $14
+    jsr __conio_scrcode
+    cmp #$FF
+    beq @done
+    ora __conio_rev
+    pha
+    lda $12
+    jsr __conio_row
+    lda $10
+    taz
+    pla
+    sta [SCR],z
+    lda __conio_color
+    sta [COL],z
+@done:
+    rts
+    .func_flags zp_call
+endproc
+
+; int cputs(const char *str): at the cursor; 0, or -1 for NULL
+proc _cputs
+    .zp_uses $10, $11
+    .zp_clobbers $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $10
+    ora $11
+    bne @go
+    lda #$FF
+    tax
+    rts
+@go:
+    jsr __conio_geom
+    lda #0
+    sta __conio_rowok
+@char:
+    ldy #0
+    lda ($10),y
+    beq @end
+    jsr __conio_out
+    inw $10
+    bra @char
+@end:
+    lda #0
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+; int cputsxy(int x, int y, const char *str): gotoxy, then cputs
+proc _cputsxy
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .zp_clobbers $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $14
+    ora $15
+    bne @go
+    lda #$FF
+    tax
+    rts
+@go:
+    jsr _gotoxy
+    lda $14
+    sta $10
+    lda $15
+    sta $11
+    jmp _cputs
+    .func_flags zp_call
+endproc
+
+; ----------------------------------------------------------------------------
+; Keyboard and screen contents
+; ----------------------------------------------------------------------------
+
+; SCR / COL at the cursor's row, Z = its column
+proc __conio_cell
+    lda __conio_cy
+    jsr __conio_row
+    ldz __conio_cx
+    rts
+endproc
+
+; int getch(void): the next key (<input.h>'s codes), waiting for one; no
+; echo. With cursoron the cursor cell shows reversed while it waits.
+proc _getch
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda __conio_shown
+    beq @wait
+    jsr __conio_cell
+    lda [SCR],z
+    sta __conio_under
+    eor #$80
+    sta [SCR],z
+@wait:
+    jsr _input_wait
+    sta __conio_key
+    lda __conio_shown
+    beq @ret
+    jsr __conio_cell
+    lda __conio_under
+    sta [SCR],z
+@ret:
+    lda __conio_key
+    ldx #0
+    rts
+    .func_flags zp_call
+endproc
+
+; int kbhit(void): 1 when a key is waiting
+proc _kbhit
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr _input_waiting
+    ldx #0
+    rts
+    .func_flags zp_call
+endproc
+
+; int getch_xy(int x, int y): the screen code at (x, y)
+proc _getch_xy
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $12
+    jsr __conio_row
+    lda $10
+    taz
+    lda [SCR],z
+    ldx #0
+    rts
+    .func_flags zp_call
+endproc
+
+; int getattr_xy(int x, int y): the colour RAM byte at (x, y)
+proc _getattr_xy
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $12
+    jsr __conio_row
+    lda $10
+    taz
+    lda [COL],z
+    ldx #0
+    rts
+    .func_flags zp_call
+endproc

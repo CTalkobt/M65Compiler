@@ -3058,7 +3058,11 @@ bool IRBuilder::isLibraryZpRoutine(const std::string& fname) {
         "isprint", "ispunct", "isspace", "isupper", "isxdigit", "itoa", "labs", "longjmp", "ltoa",
         "malloc", "memcmp", "memcpy", "memmove", "memset", "putchar", "puts", "realloc",
         "setjmp", "strcat", "strchr", "strcmp", "strcpy", "strlen", "strncat", "strncmp",
-        "strncpy", "strrchr", "tolower", "toupper", "utoa", "putstr"};
+        "strncpy", "strrchr", "tolower", "toupper", "utoa", "putstr",
+        // conio (stdlib_asm/conio.s45)
+        "clrscr", "cputch", "cputs", "cputsxy", "cursoroff", "cursoron", "getattr_xy", "getch",
+        "getch_xy", "gotoxy", "kbhit", "putch", "revers", "screenheight", "screenwidth",
+        "textattr", "textbackground", "textcolor", "wherex", "wherey"};
     return routines.count(fname) > 0;
 }
 

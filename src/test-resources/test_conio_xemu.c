@@ -15,12 +15,16 @@
  *   [7] kbhit / getch (keys put into the KERNAL keyboard buffer: $02B0,
  *       count at $00D0); cursoron/cursoroff: the cell under the cursor is
  *       restored after getch
- *   [8] $AA sentinel
+ *   [8] other screens (the VIC-IV's registers set directly): 40 characters
+ *       per row; 80 x 50 with screen RAM in bank 4 (above 64 KB) and colour
+ *       RAM past its first 2 KB, scrolling there
+ *   [9] $AA sentinel
  */
 #pragma cc45 signed_default
 
 #include <conio.h>
 #include <string.h>
+#include <dma.h>
 
 #define OUT ((volatile unsigned char *)0xC0C0)
 #define KEYBUF ((volatile unsigned char *)0x02B0)
@@ -136,6 +140,51 @@ static int t_keys(void) {
     return ok && a == 'a' && b == '\n' && !kbhit() && getch_xy(3, 3) == 0x0B;
 }
 
+static unsigned char peek_far(unsigned long a) {
+    unsigned char c;
+    dma_copy_far((unsigned long)(unsigned int)&c, a, 1);
+    return c;
+}
+
+/* Other screens, set in the VIC-IV's registers (conio reads them on every
+ * call): 40 characters per row; 80 x 50 with screen RAM in bank 4 (above
+ * 64 KB; colour RAM past its first 2 KB), scrolling there */
+static int t_geometry(void) {
+    volatile unsigned char *v = (volatile unsigned char *)0xD000;
+    static const unsigned char regs[] = { 0x58, 0x59, 0x5E, 0x60, 0x61, 0x62, 0x63, 0x7B };
+    unsigned char saved[8], i;
+    unsigned long base, col;
+    int ok;
+    for (i = 0; i < 8; i++) saved[i] = v[regs[i]];
+    base = v[0x60] | ((unsigned int)v[0x61] << 8) | ((unsigned long)v[0x62] << 16);
+    col = 0xFF80000UL + (v[0x64] | ((unsigned int)v[0x65] << 8));
+    /* 40 per row */
+    v[0x58] = 40; v[0x59] = 0; v[0x5E] = 40;
+    textcolor(WHITE);
+    clrscr();
+    gotoxy(38, 1);
+    cputs("xyz");
+    ok = screenwidth() == 40 && peek_far(base + 40 + 38) == 0x18 && peek_far(base + 40 + 39) == 0x19 &&
+         peek_far(base + 80) == 0x1A && wherex() == 1 && wherey() == 2;
+    /* 80 x 50 in bank 4 */
+    v[0x58] = 80; v[0x5E] = 80; v[0x7B] = 49;
+    v[0x60] = 0; v[0x61] = 0; v[0x62] = 4; v[0x63] = 0;
+    textcolor(CYAN);
+    clrscr();
+    cputsxy(3, 49, "e");
+    ok = ok && screenheight() == 50 && getch_xy(3, 49) == 0x05 && peek_far(0x40000UL + 49 * 80 + 3) == 0x05 &&
+         (peek_far(col + 49 * 80 + 3) & 0x0F) == CYAN && (getattr_xy(3, 49) & 0x0F) == CYAN &&
+         peek_far(0x40000UL + 4) == 0x20;
+    gotoxy(0, 49);
+    cputs("w\n");
+    ok = ok && wherey() == 49 && peek_far(0x40000UL + 48 * 80) == 0x17 && peek_far(0x40000UL + 48 * 80 + 3) == 0x05 &&
+         peek_far(0x40000UL + 49 * 80 + 3) == 0x20 && (peek_far(col + 48 * 80) & 0x0F) == CYAN;
+    for (i = 0; i < 8; i++) v[regs[i]] = saved[i];
+    textcolor(WHITE);
+    clrscr();
+    return ok;
+}
+
 int main(void) {
     OUT[0] = t_size();
     OUT[1] = t_clrscr();
@@ -147,6 +196,7 @@ int main(void) {
     OUT[7] = t_keys();
     textcolor(WHITE);
     clrscr();
-    OUT[8] = 0xAA;
+    OUT[8] = t_geometry();
+    OUT[9] = 0xAA;
     return 0;
 }
