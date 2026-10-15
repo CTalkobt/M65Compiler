@@ -431,6 +431,10 @@ private:
     uint64_t emitSeq_ = 0;
     char flagReg_ = 0;
     struct StoreCache { uint32_t vreg = UINT32_MAX; uint64_t seq = ~0ULL; bool xValid = true; } storeCache_;  // xValid: X holds the high byte (stored with stx)
+    // A:X = A:X * c (16 bits) by shifts and adds when that is no bigger than
+    // the hardware multiplier's 24 bytes (xZero: X is known 0, a byte value);
+    // false: the caller multiplies
+    bool emitMulAXConst(long c, bool xZero, const std::string& why);
     bool justStored(uint32_t vregId) const { static bool off = getenv("CC45_NO_STORECACHE") != nullptr; return !off && storeCache_.vreg == vregId && storeCache_.seq == emitSeq_; }
     // A dropped load would have set N/Z from this register ('A' or 'X'): a
     // conditional branch or a label (fall through) gets ora #0 / inx+dex first

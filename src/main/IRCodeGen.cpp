@@ -602,6 +602,62 @@ std::string IRCodeGen::vregDesc(uint32_t vregId) {
     return "v" + std::to_string(vregId) + "(" + ty + "," + loc + ")";
 }
 
+// A:X *= c (the low 16 bits) without the hardware multiplier, when that is
+// no bigger than its 24 bytes: the high byte is shifted in a scratch byte
+// (asl; rol s: no pha/pla), the multiplicand's bytes kept for the adds of a
+// constant with more than one bit set. A byte value (X known 0) times 2 is
+// asl; bcc; inx. Y is kept. False: not worth it (the caller multiplies).
+bool IRCodeGen::emitMulAXConst(long c, bool xZero, const std::string& why) {
+    c &= 0xFFFF;
+    if (c == 1) return true;
+    if (c == 0) { emit("lda #0", why); emit("ldx #0"); return true; }
+    int top = 15;
+    while (!((c >> top) & 1)) top--;
+    int bits = 0;
+    for (int b = 0; b <= top; b++) bits += (c >> b) & 1;
+    const std::string S = "__zp_scratch4+1", X0 = "__zp_scratch4", X1 = "__zp_scratch3+1";
+    if (bits == 1) {
+        if (top == 1 && xZero) {
+            std::string l = "@__mulc_" + std::to_string(labelCounter_++);
+            emit("asl", why); emit("bcc " + l); emit("inx"); emitLabel(l);
+        } else if (top == 1) {
+            emit("asl", why); emit("pha"); emit("txa"); emit("rol"); emit("tax"); emit("pla");
+        } else if (top >= 8) {
+            emit("tax", why); emit("lda #0");           // * 256: the low byte up
+            if (top > 8) {
+                emit("txa");
+                for (int k = 8; k < top; k++) emit("asl");
+                emit("tax"); emit("lda #0");
+            }
+        } else {
+            emit("stx " + S, why);
+            for (int k = 0; k < top; k++) { emit("asl"); emit("rol " + S); }
+            emit("ldx " + S);
+        }
+        return true;
+    }
+    int bytes = 2 + (xZero ? 0 : 2) + 2 + top * 3 + (bits - 1) * (xZero ? 8 : 11) + 2;
+    if (bytes > 24) return false;
+    // Horner over the bits below the top one: r = r * 2 (+ x)
+    emit("sta " + X0, why + " (shifts and adds)");
+    if (!xZero) emit("stx " + X1);
+    emit("stx " + S);
+    for (int b = top - 1; b >= 0; b--) {
+        emit("asl"); emit("rol " + S);
+        if ((c >> b) & 1) {
+            emit("clc"); emit("adc " + X0);
+            if (xZero) {
+                std::string l = "@__mulc_" + std::to_string(labelCounter_++);
+                emit("bcc " + l); emit("inc " + S); emitLabel(l);
+            } else {
+                emit("pha"); emit("lda " + S); emit("adc " + X1); emit("sta " + S); emit("pla");
+            }
+        }
+    }
+    emit("ldx " + S);
+    return true;
+}
+
 void IRCodeGen::loadVreg(uint32_t vregId) {
     auto alloc = alloc_.getAlloc(vregId);
     std::string r = "loadVreg " + vregDesc(vregId);
@@ -1002,20 +1058,13 @@ void IRCodeGen::emitArrayElemAddr(const std::string& baseStr, const ir::Operand&
         (indexOp.isVreg() && alloc_.getAlloc(indexOp.vregId).type == ir::Type::I8))
         emit("ldx #0");
 
-    // Step 2: Multiply index by stride if stride > 1
-    if (stride == 2 || stride == 4 || stride == 8) {
-        // a power of two: A:X shifted left (6 bytes each, Y kept) instead of
-        // the hardware multiplier (24 bytes)
-        for (int k = stride; k > 1; k >>= 1) {
-            emit("asl", "index * " + std::to_string(stride));
-            emit("pha");
-            emit("txa");
-            emit("rol");
-            emit("tax");
-            emit("pla");
-        }
-    } else if (stride > 1) {
-        emit("mul.16 .AX, #" + std::to_string(stride));  // A:X = index * stride
+    // Step 2: Multiply index by stride if stride > 1: shifts and adds (Y
+    // kept) or the hardware multiplier
+    if (stride > 1) {
+        bool byteIndex = indexOp.type == ir::Type::I8 ||
+                         (indexOp.isVreg() && alloc_.getAlloc(indexOp.vregId).type == ir::Type::I8);
+        if (!emitMulAXConst(stride, byteIndex, "index * " + std::to_string(stride)))
+            emit("mul.16 .AX, #" + std::to_string(stride));  // A:X = index * stride
     }
 
     // Step 3 with a destination: the scaled index (in A:X) plus the base,
@@ -4383,6 +4432,9 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                     // Shift entirely out — result is 0
                     emit("lda #0"); emit("ldx #0");
                     if (is32) { emit("ldy #0"); emit("ldz #0"); }
+                } else if (!is32 && shiftCount >= 2) {
+                    // the high byte shifted in a scratch byte (no pha/pla)
+                    emitMulAXConst(1L << shiftCount, false, "<< " + std::to_string(shiftCount));
                 } else {
                     int maxBits = is32 ? 32 : 16;
                     for (int i = 0; i < shiftCount && i < maxBits; i++) emit(shOp);
@@ -4533,6 +4585,20 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
             // on the operands' signs, so the unsigned multiply (the hardware
             // multiplier, 24 bytes) gives them; mul.s16 (89 bytes) negated
             // around it
+            // A constant factor (16 bits): shifts and adds when cheaper
+            if (inst.resultType != ir::Type::I32 && (inst.src2.isImm() || inst.src1.isImm())) {
+                const ir::Operand& v = inst.src2.isImm() ? inst.src1 : inst.src2;
+                long c = (long)(inst.src2.isImm() ? inst.src2.immVal : inst.src1.immVal);
+                if (!v.isImm()) {
+                    bool byteVal = v.isVreg() && alloc_.getAlloc(v.vregId).type == ir::Type::I8;
+                    loadOperand(v);
+                    if (byteVal) emit("ldx #0");
+                    if (!emitMulAXConst(c, byteVal, "* " + std::to_string(c)))
+                        emit("mul.16 .AX, #" + std::to_string(c & 0xFFFF));
+                    if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
+                    break;
+                }
+            }
             std::string src2 = src2MemOperand(inst.src2);
             loadOperand(inst.src1);
             if (inst.resultType == ir::Type::I32) {

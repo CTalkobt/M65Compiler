@@ -49,6 +49,11 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   `char *` was read 16 bits wide, an array was treated as a pointer); a
   nested function's return type can be `unsigned char`, `unsigned long`.
 - The preprocessor expands `F()` of a macro without parameters.
+- Code size: 16-bit shifts by a constant and array index scaling shift the
+  high byte in a scratch byte (`asl; rol s`) instead of `asl; pha; txa;
+  rol; tax; pla` per bit; a byte index times 2 is `asl; bcc; inx`; a byte
+  index times another constant (3, 5, 10, 13...) is shifts and adds instead
+  of the hardware multiplier (24 bytes). The examples are 802 bytes smaller.
 - ln45: calls after a computed-goto label (cc45 exports `f__lbl_x` for
   `&&x` in a table) are the function's: the static-allocation overlay gave
   a computed-goto interpreter and the functions it calls the same storage.
