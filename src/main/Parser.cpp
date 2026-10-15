@@ -1512,19 +1512,19 @@ std::unique_ptr<Statement> Parser::parseStatement() {
                 initializer = parseVariableDeclaration(isVolatile, isConst, false, isRegister);
                 // parseVariableDeclaration expects and consumes a semicolon
             } else {
-                auto expr = parseExpression();
+                auto expr = parseCommaExpression();
                 expect(TokenType::SEMICOLON, "Expected ';' after for initializer expression");
                 initializer = setPos(std::make_unique<ExpressionStatement>(std::move(expr)), startToken);
             }
         }
         std::unique_ptr<Expression> condition = nullptr;
         if (!match(TokenType::SEMICOLON)) {
-            condition = parseExpression();
+            condition = parseCommaExpression();
             expect(TokenType::SEMICOLON, "Expected ';' after for condition");
         }
         std::unique_ptr<Expression> increment = nullptr;
         if (!match(TokenType::CLOSE_PAREN)) {
-            increment = parseExpression();
+            increment = parseCommaExpression();   // for (...; ...; i++, j++)
             expect(TokenType::CLOSE_PAREN, "Expected ')' after for increment");
         }
         auto body = parseStatement();
@@ -1720,6 +1720,17 @@ std::unique_ptr<Statement> Parser::parseStatement() {
     }
     expect(TokenType::SEMICOLON, "Expected ';'");
     return setPos(std::make_unique<ExpressionStatement>(std::move(expr)), startToken);
+}
+
+// An expression with the comma operator (a, b: both evaluated, the value b's)
+std::unique_ptr<Expression> Parser::parseCommaExpression() {
+    auto expr = parseExpression();
+    while (match(TokenType::COMMA)) {
+        const Token& commaToken = tokens[pos - 1];
+        auto right = parseExpression();
+        expr = setPos(std::make_unique<BinaryOperation>(",", std::move(expr), std::move(right)), commaToken);
+    }
+    return expr;
 }
 
 std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, bool isConst, bool isStatic, bool isRegister, bool isStriped) {

@@ -132,6 +132,7 @@ private:
         bool fromTypedef = false; // signedness came from a typedef
         int addressSpace = 0;   // Phase 97: AddressSpace (0=DEFAULT, 1=ZP, 2=ABS, 3=FAR)
     };
+    std::unique_ptr<Expression> parseCommaExpression();   // expression , expression ...
     TypeSpec parseTypeSpecifier();    // consume type keywords + qualifiers, return TypeSpec
     TypeSpec parseTypeSpecifierRaw(); // parseTypeSpecifier without the signedness default
     bool isTypeStartToken() const;   // peek: does current token start a type?

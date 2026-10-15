@@ -687,6 +687,29 @@ for dfmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: far pointers (far_ptr.h / far_ops.h) and dma_controller.h, all
+# through DMA; the comma operator in for clauses and macro arguments that
+# contain a parameter's name
+for fomode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r foname foflags <<< "$fomode"
+    echo "Testing test_far_ops_xemu.c ($foname)..."
+    compile_link_test "src/test-resources/test_far_ops_xemu.c" "build/test/test_far_ops_${foname}_xemu.prg" "$foflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_far_ops_$foname" "build/test/test_far_ops_${foname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_far_ops_xemu.c $foname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+    echo "Testing test_parse_fixes_xemu.c ($foname)..."
+    compile_link_test "src/test-resources/test_parse_fixes_xemu.c" "build/test/test_parse_fixes_${foname}_xemu.prg" "$foflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_parse_fixes_$foname" "build/test/test_parse_fixes_${foname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
+    else
+        echo "FAIL: test_parse_fixes_xemu.c $foname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: <float.h> constants (exact bytes, epsilon, underflow), complex * and
 # / of two complex values, __real__/__imag__, operators on temporaries
 for flmode in "stack|-fno-zpcall" "zp|"; do

@@ -1,11 +1,22 @@
 #include <far_ptr.h>
+#include <far_ops.h>
 #include <string.h>
 #include <stdlib.h>
 #include <assert.h>
 
 /* ============================================================================
- * Phase 26: Far Memory Allocator Implementation
+ * Far memory allocator
+ *
+ * Allocations live in the chip RAM banks no program or ROM uses: banks 4
+ * and 5 ($40000-$5FFFF). Bank 0 holds the program, bank 1 BASIC 65's
+ * variables, banks 2-3 the ROM; 6-7 are not chip RAM. Other banks get no
+ * memory (far_malloc returns the null far pointer). The records are in
+ * normal RAM; the memory is reached through far_ops (DMA).
  * ========================================================================== */
+
+static int bank_usable(bank_t bank) {
+    return bank == BANK4 || bank == BANK5;
+}
 
 /* Maximum allocations per bank */
 #define MAX_ALLOCS_PER_BANK 32
@@ -34,17 +45,15 @@ static bank_t g_current_bank = BANK0;
 static int g_allocation_policy = 0;  /* 0=round-robin, 1=fixed, 2=first-fit */
 static bank_t g_fixed_bank = BANK0;
 
-/* Current bank register access (via MMU at $01) */
-static volatile uint8_t* g_bank_register = (volatile uint8_t*)0x01;
 
 /* ============================================================================
  * Bank Management Implementation
  * ========================================================================== */
 
+/* The bank far_malloc_current / far_calloc_current use (it maps nothing:
+ * far pointers carry their bank) */
 void bank_set(bank_t bank) {
-    assert(bank < 8);   /* bank_t is unsigned */
-    g_current_bank = bank;
-    *g_bank_register = bank;
+    if (bank < 8) g_current_bank = bank;
 }
 
 bank_t bank_get(void) {
@@ -52,7 +61,7 @@ bank_t bank_get(void) {
 }
 
 size_t bank_available(bank_t bank) {
-    assert(bank < 8);   /* bank_t is unsigned */
+    if (!bank_usable(bank)) return 0;
 
     bank_allocator_t* allocator = &g_banks[bank];
     uint16_t used = 0;
@@ -145,8 +154,7 @@ static void coalesce_free_blocks(bank_t bank) {
  * ========================================================================== */
 
 far_ptr_t far_malloc(size_t size, bank_t bank) {
-    assert(bank < 8);   /* bank_t is unsigned */
-    assert(size > 0);
+    if (!bank_usable(bank) || size == 0) return far_make(BANK0, 0);
 
     initialize_bank(bank);
 
@@ -156,7 +164,7 @@ far_ptr_t far_malloc(size_t size, bank_t bank) {
     int block_idx = find_free_block(bank, size);
     if (block_idx < 0) {
         /* No space available */
-        return 0;
+        return far_make(BANK0, 0);
     }
 
     alloc_record_t* block = &allocator->allocs[block_idx];
@@ -171,11 +179,14 @@ far_ptr_t far_malloc(size_t size, bank_t bank) {
         /* Split block */
         if (allocator->num_allocs >= MAX_ALLOCS_PER_BANK) {
             /* Out of allocation slots */
-            return 0;
+            return far_make(BANK0, 0);
         }
 
-        /* Create new free block for remainder */
-        alloc_record_t* new_block = &allocator->allocs[allocator->num_allocs];
+        /* The remainder: a free block right after it (the records stay in
+         * address order, which coalescing needs) */
+        for (int j = allocator->num_allocs; j > block_idx + 1; --j)
+            allocator->allocs[j] = allocator->allocs[j - 1];
+        alloc_record_t* new_block = &allocator->allocs[block_idx + 1];
         new_block->offset = block->offset + size;
         new_block->size = remaining;
         new_block->is_free = 1;
@@ -194,16 +205,7 @@ far_ptr_t far_calloc(size_t count, size_t size, bank_t bank) {
     size_t total = count * size;
     far_ptr_t ptr = far_malloc(total, bank);
 
-    if (far_is_null(ptr)) {
-        return 0;
-    }
-
-    /* Zero-initialize: switch to bank and memset */
-    bank_t saved_bank = bank_get();
-    bank_set(bank);
-    memset((void*)far_offset(ptr), 0, total);
-    bank_set(saved_bank);
-
+    if (!far_is_null(ptr)) far_memzero(ptr, total);
     return ptr;
 }
 
@@ -214,7 +216,6 @@ far_ptr_t far_realloc(far_ptr_t ptr, size_t new_size, bank_t new_bank) {
     }
 
     bank_t old_bank = far_bank(ptr);
-    uint16_t old_offset = far_offset(ptr);
     size_t old_size = far_size(ptr);
 
     if (old_size == new_size && old_bank == new_bank) {
@@ -225,22 +226,12 @@ far_ptr_t far_realloc(far_ptr_t ptr, size_t new_size, bank_t new_bank) {
     /* Allocate new block */
     far_ptr_t new_ptr = far_malloc(new_size, new_bank);
     if (far_is_null(new_ptr)) {
-        return 0;
+        return new_ptr;
     }
 
-    /* Copy old data (if any) */
-    if (old_size > 0) {
-        size_t copy_size = (old_size < new_size) ? old_size : new_size;
-        /* TODO: far_memcpy implementation in Phase 27 */
-        /* For now, require same bank for copy */
-        if (old_bank == new_bank) {
-            bank_t saved = bank_get();
-            bank_set(old_bank);
-            memcpy((void*)far_offset(new_ptr),
-                   (void*)old_offset, copy_size);
-            bank_set(saved);
-        }
-    }
+    /* Copy the old data (any banks) */
+    if (old_size > 0)
+        far_memcpy(new_ptr, ptr, (old_size < new_size) ? old_size : new_size);
 
     /* Free old block */
     far_free(ptr);
@@ -256,7 +247,7 @@ void far_free(far_ptr_t ptr) {
     bank_t bank = far_bank(ptr);
     uint16_t offset = far_offset(ptr);
 
-    assert(bank < 8);   /* bank_t is unsigned */
+    if (!bank_usable(bank)) return;
 
     bank_allocator_t* allocator = &g_banks[bank];
 
@@ -301,6 +292,7 @@ size_t far_size(far_ptr_t ptr) {
     bank_t bank = far_bank(ptr);
     uint16_t offset = far_offset(ptr);
 
+    if (!bank_usable(bank)) return 0;
     bank_allocator_t* allocator = &g_banks[bank];
 
     for (int i = 0; i < allocator->num_allocs; ++i) {

@@ -386,69 +386,67 @@ std::string Preprocessor::expandMacros(const std::string& line) {
                                 if (m.isVariadic) {
                                     size_t glue;
                                     // Handle GCC-style comma removal: , ##__VA_ARGS__
+                                    // (the arguments go in with the parameters below:
+                                    // here only the ## and, for no arguments, the comma go)
                                     while ((glue = body.find("##__VA_ARGS__")) != std::string::npos) {
                                         size_t comma = glue;
                                         while (comma > 0 && std::isspace((unsigned char)body[comma-1])) comma--;
-                                        if (comma > 0 && body[comma-1] == ',') {
-                                            comma--;
-                                            if (vaArgs.empty()) {
-                                                body.replace(comma, (glue + 13) - comma, "");
-                                            } else {
-                                                body.replace(glue, 13, vaArgs);
-                                            }
-                                        } else {
-                                            body.replace(glue, 13, vaArgs);
-                                        }
+                                        if (comma > 0 && body[comma-1] == ',' && vaArgs.empty())
+                                            body.replace(comma - 1, (glue + 13) - (comma - 1), "");
+                                        else
+                                            body.erase(glue, 2);
                                     }
                                 }
 
-                                // 3. Replace parameters (not inside string/character
-                                // literals, nor an L/u/U/u8 literal prefix)
-                                auto inLiteral = [](const std::string& b, size_t at) {
-                                    char q = 0;
-                                    for (size_t k = 0; k < at && k < b.size(); k++) {
-                                        if (q) {
-                                            if (b[k] == '\\') k++;
-                                            else if (b[k] == q) q = 0;
-                                        } else if (b[k] == '"' || b[k] == '\'') {
-                                            q = b[k];
-                                        }
-                                    }
-                                    return q != 0;
-                                };
-                                for (size_t p = 0; p < m.params.size(); ++p) {
-                                    size_t pos = 0;
-                                    while ((pos = body.find(m.params[p], pos)) != std::string::npos) {
-                                        bool nextToGlue = (pos >= 2 && body.substr(pos-2, 2) == "##") || 
-                                                         (pos + m.params[p].length() + 2 <= body.length() && body.substr(pos + m.params[p].length(), 2) == "##");
-                                        bool bBefore = (pos == 0 || (!std::isalnum((unsigned char)body[pos-1]) && body[pos-1] != '_'));
-                                        bool bAfter = (pos + m.params[p].length() == body.length() || (!std::isalnum((unsigned char)body[pos + m.params[p].length()]) && body[pos + m.params[p].length()] != '_'));
-                                        size_t endp = pos + m.params[p].length();
-                                        bool litPrefix = (m.params[p] == "L" || m.params[p] == "u" || m.params[p] == "U" ||
-                                                          m.params[p] == "u8" || m.params[p] == "p" || m.params[p] == "s" ||
-                                                          m.params[p] == "a") && endp < body.length() &&
-                                                         (body[endp] == '\'' || body[endp] == '"');
-                                        if (litPrefix || inLiteral(body, pos)) {
-                                            pos = endp;
-                                        } else if (nextToGlue || (bBefore && bAfter)) {
-                                            body.replace(pos, m.params[p].length(), args[p]);
-                                            pos += args[p].length();
+                                // 3. Replace parameters and __VA_ARGS__ in one left-to-right
+                                // pass over the body's tokens, so an argument's text is never
+                                // scanned for parameter names again (dma_copy_far(dst, src, len)
+                                // with src = f((long)len)). Not inside string/character
+                                // literals, nor an L/u/U/u8/p/s/a literal prefix; numbers are
+                                // skipped whole (0x1Fu holds no identifier).
+                                {
+                                    std::string out;
+                                    out.reserve(body.size() * 2);
+                                    size_t k = 0;
+                                    auto isId = [](char c) { return std::isalnum((unsigned char)c) || c == '_'; };
+                                    while (k < body.size()) {
+                                        char c = body[k];
+                                        if (c == '"' || c == '\'') {
+                                            size_t e = k + 1;
+                                            while (e < body.size() && body[e] != c) e += body[e] == '\\' ? 2 : 1;
+                                            if (e < body.size()) e++;
+                                            out.append(body, k, e - k);
+                                            k = e;
+                                        } else if (std::isdigit((unsigned char)c) ||
+                                                   (c == '.' && k + 1 < body.size() && std::isdigit((unsigned char)body[k + 1]))) {
+                                            size_t e = k + 1;
+                                            while (e < body.size() && (isId(body[e]) || body[e] == '.' ||
+                                                   ((body[e] == '+' || body[e] == '-') && (body[e-1] == 'e' || body[e-1] == 'E' ||
+                                                                                          body[e-1] == 'p' || body[e-1] == 'P'))))
+                                                e++;
+                                            out.append(body, k, e - k);
+                                            k = e;
+                                        } else if (isId(c)) {
+                                            size_t e = k;
+                                            while (e < body.size() && isId(body[e])) e++;
+                                            std::string id = body.substr(k, e - k);
+                                            bool litPrefix = (id == "L" || id == "u" || id == "U" || id == "u8" ||
+                                                              id == "p" || id == "s" || id == "a") &&
+                                                             e < body.size() && (body[e] == '\'' || body[e] == '"');
+                                            const std::string* rep = nullptr;
+                                            if (!litPrefix) {
+                                                for (size_t p = 0; p < m.params.size(); ++p)
+                                                    if (m.params[p] == id) { rep = &args[p]; break; }
+                                                if (!rep && m.isVariadic && id == "__VA_ARGS__") rep = &vaArgs;
+                                            }
+                                            out += rep ? *rep : id;
+                                            k = e;
                                         } else {
-                                            pos += m.params[p].length();
+                                            out += c;
+                                            k++;
                                         }
                                     }
-                                }
-                                
-                                if (m.isVariadic) {
-                                    size_t pos = 0;
-                                    while ((pos = body.find("__VA_ARGS__", pos)) != std::string::npos) {
-                                        bool bBefore = (pos == 0 || (!std::isalnum((unsigned char)body[pos-1]) && body[pos-1] != '_'));
-                                        bool bAfter = (pos + 11 == body.length() || (!std::isalnum((unsigned char)body[pos + 11]) && body[pos + 11] != '_'));
-                                        if (bBefore && bAfter) {
-                                            body.replace(pos, 11, vaArgs);
-                                            pos += vaArgs.length();
-                                        } else pos += 11;
-                                    }
+                                    body = std::move(out);
                                 }
 
                                 // 4. Final Glue cleanup

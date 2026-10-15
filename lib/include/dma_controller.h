@@ -88,10 +88,10 @@ void dma_print_status(void);
 /* Minimum transfer size to justify DMA overhead */
 #define DMA_THRESHOLD 64
 
-/* Maximum transfer size per request */
-#define DMA_MAX_SIZE 65536
+/* Maximum transfer size per request (16-bit length) */
+#define DMA_MAX_SIZE 65535
 
-/* DMA register base address */
-#define DMA_BASE 0xDE00
+/* DMA controller register base address */
+#define DMA_BASE 0xD700
 
 #endif

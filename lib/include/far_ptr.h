@@ -7,7 +7,10 @@
 /* ============================================================================
  * Phase 26: Far Pointer Infrastructure
  *
- * 24-bit far pointers for MEGA65 extended memory (8 banks × 64KB each)
+ * 24-bit far pointers: a bank (address bits 16-23) and a 16-bit offset, the
+ * linear address (bank << 16) | offset. far_ops.h reads and writes through
+ * DMA. The allocator uses banks 4 and 5 ($40000-$5FFFF), the chip RAM no
+ * program or ROM uses.
  * Format: [BANK:8][OFFSET:16]
  * ========================================================================== */
 
@@ -63,7 +66,8 @@ static inline int far_is_null(far_ptr_t ptr) {
  * Bank Management
  * ========================================================================== */
 
-/* Set current memory bank (affects local memory access) */
+/* Select the bank far_malloc_current / far_calloc_current allocate in
+ * (it maps nothing: far pointers carry their bank) */
 void bank_set(bank_t bank);
 
 /* Get current memory bank */
