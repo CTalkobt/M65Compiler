@@ -4,10 +4,11 @@
  *   - C:   string handling, game loop, scroll logic
  *   - ASM: hardware screen ops (DMA-free byte shifting, VSYNC, colour RAM)
  *
- * The message scrolls continuously across row 8 of the MEGA65's 80x25
- * text screen, between two banner rows.
+ * The message scrolls continuously across row 7 of the MEGA65's 80x25
+ * text screen, between two banner rows (3 and 11).
  * Border colour cycles through a palette on each full scroll.
- * A ball (hardware sprite 0) bounces around the screen.
+ * A ball (hardware sprite 0) bounces between the banners, passing in
+ * front of the text on one crossing and behind it on the next.
  * Press RUN/STOP to exit.
  */
 
@@ -30,7 +31,9 @@ extern char fill_color;
 #define COLRAM  0xD800
 #define COLS    80
 #define ROWS    25
-#define SCROLL_ROW  8
+#define SCROLL_ROW  7
+#define TOP_BANNER  3
+#define BOTTOM_BANNER 11
 
 /* Border colour register */
 #define BORDER  (*(char *)0xD020)
@@ -42,6 +45,7 @@ extern char fill_color;
 #define SPR0_Y     REG(0xD001)
 #define SPR_X_MSB  REG(0xD010)   /* bit 8 of each sprite's X */
 #define SPR_ENABLE REG(0xD015)
+#define SPR_PRIO   REG(0xD01B)   /* bit set: the sprite is behind text */
 #define SPR0_COLOR REG(0xD027)
 /* VIC-IV sprite pointer table address; $D06E bit 7: 16-bit pointers, so a
  * sprite's data can be on any 64-byte boundary (pointer = address / 64) */
@@ -49,11 +53,13 @@ extern char fill_color;
 #define SPRPTR_HI  REG(0xD06D)
 #define SPRPTR_BNK REG(0xD06E)
 
-/* Visible area in sprite coordinates (24x21 sprite fully on screen) */
+/* Ball limits in sprite coordinates: X across the visible width; Y between
+ * the banner lines (text row r starts at sprite Y 50 + 8r; the ball's
+ * pixels are sprite rows 1-19) */
 #define BALL_XMIN  24
 #define BALL_XMAX  (344 - 24)
-#define BALL_YMIN  50
-#define BALL_YMAX  (250 - 21)
+#define BALL_YMIN  (50 + 8 * (TOP_BANNER + 1) - 1)
+#define BALL_YMAX  (50 + 8 * BOTTOM_BANNER - 20)
 
 /* The ball: 24x21 pixels, 3 bytes a row, 64-byte aligned for the VIC */
 static _Alignas(64) unsigned char ball[64] = {
@@ -70,8 +76,8 @@ static _Alignas(16) unsigned int sprite_ptrs[8];
 static unsigned char saved_ptr[3];    /* the pointer table address BASIC uses */
 
 /* Ball position and velocity (signed: it moves both ways) */
-static signed int ball_x = 100, ball_y = 60;
-static signed int ball_dx = 2, ball_dy = 1;
+static signed int ball_x = 100, ball_y = BALL_YMIN;
+static signed int ball_dx = 3, ball_dy = 2;
 
 static void ball_init(void) {
     saved_ptr[0] = SPRPTR_LO;
@@ -88,8 +94,14 @@ static void ball_init(void) {
 static void ball_move(void) {
     ball_x += ball_dx;
     ball_y += ball_dy;
-    if (ball_x <= BALL_XMIN || ball_x >= BALL_XMAX) ball_dx = -ball_dx;
-    if (ball_y <= BALL_YMIN || ball_y >= BALL_YMAX) ball_dy = -ball_dy;
+    /* each bounce off a side: in front of the text, then behind it */
+    if (ball_x <= BALL_XMIN || ball_x >= BALL_XMAX) {
+        ball_x = ball_x <= BALL_XMIN ? BALL_XMIN : BALL_XMAX;
+        ball_dx = -ball_dx;
+        SPR_PRIO = SPR_PRIO ^ 0x01;
+    }
+    if (ball_y <= BALL_YMIN) { ball_y = BALL_YMIN; ball_dy = -ball_dy; }
+    if (ball_y >= BALL_YMAX) { ball_y = BALL_YMAX; ball_dy = -ball_dy; }
     SPR0_X = ball_x & 0xFF;
     if (ball_x > 255) SPR_X_MSB = SPR_X_MSB | 0x01;
     else SPR_X_MSB = SPR_X_MSB & 0xFE;
@@ -98,6 +110,7 @@ static void ball_move(void) {
 
 static void ball_done(void) {
     SPR_ENABLE = SPR_ENABLE & 0xFE;
+    SPR_PRIO = SPR_PRIO & 0xFE;
     SPRPTR_LO = saved_ptr[0];
     SPRPTR_HI = saved_ptr[1];
     SPRPTR_BNK = saved_ptr[2];
@@ -140,18 +153,18 @@ void draw_banner(char color) {
     char *scr;
     int i;
 
-    /* top border: row 6 */
-    scr = (char *)SCREEN + 6 * COLS;
+    /* top border */
+    scr = (char *)SCREEN + TOP_BANNER * COLS;
     for (i = 0; i < COLS; i++)
         scr[i] = 0x43;  /* screen code: horizontal bar */
 
-    /* bottom border: row 10 */
-    scr = (char *)SCREEN + 10 * COLS;
+    /* bottom border */
+    scr = (char *)SCREEN + BOTTOM_BANNER * COLS;
     for (i = 0; i < COLS; i++)
         scr[i] = 0x43;
 
-    color_row(6, color);
-    color_row(10, color);
+    color_row(TOP_BANNER, color);
+    color_row(BOTTOM_BANNER, color);
 }
 
 int main() {
@@ -180,7 +193,7 @@ int main() {
     draw_banner(palette[pal_idx]);
 
     /* Title line */
-    cbm_gotoxy(33, 2);
+    cbm_gotoxy(33, 1);
     {
         const char *title = "text scroller";
         int t;
