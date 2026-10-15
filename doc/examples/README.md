@@ -114,8 +114,9 @@ A drum machine on the audio DMA (`<audio_digi.h>`). It needs no sample
 files: at start it synthesizes a kick (a falling sine sweep), a snare (a
 sine under noise), a hi-hat (high-passed noise) and a one-cycle sine tone
 as 8-bit samples at 8 kHz, then plays them on the four audio DMA channels,
-placed in the stereo field with `digi_set_volume`. Keys 1-3 trigger the
-drums, SPACE runs a 16-step pattern (four patterns, P), + and - set the
+placed in the stereo field with `digi_set_volume`. The 16-step pattern
+starts playing at once (SPACE stops and restarts it; four patterns, P); keys
+1-3 trigger the drums, + and - set the
 tempo, T loops the tone and Q/W change its pitch (the playback rate).
 `make check` synthesizes the samples, starts each channel and checks the
 data and the registers.

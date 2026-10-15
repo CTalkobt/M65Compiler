@@ -12,7 +12,8 @@
  *
  * Keys:
  *   1 2 3      kick, snare, hi-hat
- *   SPACE      start/stop the 16-step pattern     P  next pattern
+ *   SPACE      stop/start the 16-step pattern (it starts playing)
+ *   P          next pattern
  *   + -        tempo                              T  tone on/off
  *   Q W        tone up/down a semitone
  *   RUN/STOP   quit
@@ -254,6 +255,9 @@ int main(void) {
     synthesize();
     digi_init();
     draw_static();
+    running = 1;                    /* the pattern plays from the start */
+    step = 15;
+    acc = 3000;
     for (;;) {
         /* one frame (50 Hz) */
         while (REG(0xD012) != 0xF0) ;
