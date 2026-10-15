@@ -20,6 +20,16 @@ std::vector<Token> Lexer::tokenize() {
     while (true) {
         skipWhitespace();
         Token token = nextToken();
+        // asm(".encoding X") (#pragma encoding X) also sets the encoding of
+        // the character constants that follow
+        if (token.type == TokenType::STRING_LITERAL && token.value.rfind(".encoding ", 0) == 0 &&
+            tokens.size() >= 2 && tokens.back().type == TokenType::OPEN_PAREN &&
+            tokens[tokens.size() - 2].type == TokenType::ASM) {
+            std::string enc = token.value.substr(10);
+            if (enc == "petscii") charEncoding_ = 0;
+            else if (enc == "ascii") charEncoding_ = 1;
+            else if (enc == "screencode") charEncoding_ = 2;
+        }
         tokens.push_back(token);
         if (token.type == TokenType::END_OF_FILE) {
             break;
@@ -138,7 +148,7 @@ Token Lexer::nextToken() {
     }
 
     if (c == '\'') {
-        return lexChar(false);
+        return lexChar(charEncoding_ == 1, charEncoding_ == 2);
     }
 
     int startLine = line;
@@ -324,7 +334,7 @@ Token Lexer::lexIdentifierOrKeyword() {
     // Wide char/string prefix: L'x' or L"str" → downgrade to regular char/string
     if (value == "L" && (peek() == '\'' || peek() == '"')) {
         if (peek() == '"') { Token t = lexString(false); t.wide = true; return t; }
-        else return lexChar(false);
+        else return lexChar(charEncoding_ == 1, charEncoding_ == 2);
     }
 
     return {TokenType::IDENTIFIER, value, startLine, startCol, sourceFile};

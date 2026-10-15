@@ -115,6 +115,9 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   bytes); `char buf[sizeof(struct S)]` got 2 bytes for any struct; a
   flexible array member took one element in a variable but not in `sizeof`.
   `struct __unpacked S v;` declares a variable (was a parse error).
+- `#pragma encoding` (and `asm(".encoding ...")`) also sets the encoding
+  of the unprefixed character constants that follow: `'A'` is `$41` under
+  `ascii` and 1 under `screencode` (was always PETSCII).
 
 ### Standard library
 

@@ -1,7 +1,8 @@
 /* test_string_prefix_xemu.c — string and character literal encoding
  * prefixes (as ca45 and basic45): p"..." PETSCII, s"..." screen codes,
  * a"..." / @"..." ASCII. A prefix touches the opening quote and overrides
- * #pragma encoding for that literal.
+ * #pragma encoding for that literal; unprefixed string and character
+ * literals follow the pragma.
  *
  * Results at $C0C0 (01 = pass):
  *   [0] p"..." / p'x': PETSCII ('a' $41, 'A' $61)
@@ -12,7 +13,9 @@
  *   [5] constant expressions: enum, switch case, static char array
  *   [6] identifiers named p, s and a; concatenation; macros
  *   [7] escapes (\n is $0D in PETSCII and screen codes, $0A in ASCII)
- *   [8] $AA sentinel
+ *   [8] character constants follow #pragma encoding (enum, switch case,
+ *       global, local; a prefix overrides it)
+ *   [9] $AA sentinel
  */
 #define OUT ((volatile unsigned char *)0xC0C0)
 
@@ -113,6 +116,12 @@ static int t_escapes(void) {
 
 /* [3] prefixes override the pragma */
 #pragma encoding screencode
+enum { E_SCR = 'A' };
+static const char g_chr_scr = 'z';
+static int t_chr_screen(void) {
+    char c = 'b';
+    return E_SCR == 1 && g_chr_scr == 26 && c == 2 && '@' == 0 && p'A' == 0x61;
+}
 static int t_pragma_screen(void) {
     static const unsigned char w0[] = { 1, 2 };
     static const unsigned char wp[] = { 0x61, 0x42 };
@@ -120,6 +129,15 @@ static int t_pragma_screen(void) {
     return same("AB", w0, 2) && same(p"Ab", wp, 2) && same(a"Ab", wa, 2) && same(s"AB", w0, 2);
 }
 #pragma encoding ascii
+static int chr_case(int c) {
+    switch (c) { case 'a': return 1; case 'A': return 2; case '\n': return 3; }
+    return 0;
+}
+static int t_chr_ascii(void) {
+    char c = 'b';
+    return 'A' == 0x41 && c == 0x62 && chr_case(0x61) == 1 && chr_case(0x41) == 2 &&
+           chr_case(0x0A) == 3 && s'A' == 1;
+}
 static int t_pragma_ascii(void) {
     static const unsigned char w0[] = { 0x41, 0x62 };
     static const unsigned char wp[] = { 0x61, 0x42 };
@@ -129,6 +147,7 @@ static int t_pragma_ascii(void) {
 const char *g_pragma_p = p"Ab";   /* global pointer under the ascii pragma */
 const char *g_pragma_d = "Ab";
 #pragma encoding petscii
+static int t_chr_petscii(void) { return 'A' == 0x61 && 'a' == 0x41 && '\n' == 0x0D; }
 
 int main(void) {
     static const unsigned char wp[] = { 0x61, 0x42 };
@@ -141,6 +160,7 @@ int main(void) {
     OUT[5] = t_const();
     OUT[6] = t_names();
     OUT[7] = t_escapes();
-    OUT[8] = 0xAA;
+    OUT[8] = t_chr_screen() && t_chr_ascii() && t_chr_petscii();
+    OUT[9] = 0xAA;
     return 0;
 }

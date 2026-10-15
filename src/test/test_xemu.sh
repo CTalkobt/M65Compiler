@@ -1731,7 +1731,7 @@ for spmode in "zp|" "stack|-fno-zpcall"; do
     echo "Testing test_string_prefix_xemu.c ($spname)..."
     compile_link_test "src/test-resources/test_string_prefix_xemu.c" "build/test/test_string_prefix_${spname}_xemu.prg" "$spflags"
     if [ $? -eq 0 ]; then
-        run_xemu_test "test_string_prefix_$spname" "build/test/test_string_prefix_${spname}_xemu.prg" "C0C0" 9 "01 01 01 01 01 01 01 01 AA"
+        run_xemu_test "test_string_prefix_$spname" "build/test/test_string_prefix_${spname}_xemu.prg" "C0C0" 10 "01 01 01 01 01 01 01 01 01 AA"
     else
         echo "FAIL: test_string_prefix_xemu.c $spname (compilation/linking failed)"
         failed=$((failed + 1))

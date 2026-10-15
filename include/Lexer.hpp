@@ -23,6 +23,9 @@ public:
     void setSourceFile(const std::string& filename) { sourceFile = filename; }
 
 private:
+    // #pragma encoding in effect for character constants (asm(".encoding X")):
+    // 0 PETSCII, 1 ASCII, 2 screen codes
+    int charEncoding_ = 0;
     std::string source;
     size_t pos;
     int line;
