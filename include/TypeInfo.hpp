@@ -45,6 +45,7 @@ public:
         std::map<std::string, MemberInfo> members;
         int totalSize;
         int alignment = 1;
+        int naturalAlign = 1;  // alignment as an __unpacked struct's member
     };
 
     struct VarInfo {

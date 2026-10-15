@@ -1,3 +1,4 @@
+#include "StructLayout.hpp"
 #include <cstring>
 #include <algorithm>
 #include <map>
@@ -64,6 +65,18 @@ static void normalizeAlignas(std::vector<Token>& toks) {
 
 Parser::Parser(const std::vector<Token>& tokens) : tokens(tokens), pos(0) {
     normalizeAlignas(this->tokens);
+    // struct __unpacked Name outside a definition names the struct: drop the
+    // keyword (the struct's layout comes from its definition)
+    for (size_t i = 1; i + 2 < this->tokens.size(); ) {
+        auto& t = this->tokens;
+        if (t[i].type == TokenType::UNPACKED &&
+            (t[i-1].type == TokenType::STRUCT || t[i-1].type == TokenType::UNION) &&
+            t[i+1].type == TokenType::IDENTIFIER && t[i+2].type != TokenType::OPEN_BRACE &&
+            t[i+2].type != TokenType::COLON && !(t[i+2].type == TokenType::IDENTIFIER && t[i+2].value == "final"))
+            t.erase(t.begin() + i);
+        else
+            i++;
+    }
     this->tokens.reserve(tokens.size() * 2 + 1024);  // room for insertTokens
     // Built-in type aliases for wide integers
     typedefs["__int128"] = {"struct __int128", 0, false, false, {}, {}};
@@ -4062,9 +4075,78 @@ int Parser::scalarTypeSize(const std::string& type, int ptrLevel) {
     return -1;
 }
 
+int Parser::typeByteSize(const std::string& type, int ptrLevel, int* natAlign, int* declAlign, int depth) {
+    int na = 1, da = 1, size = -1;
+    if (depth > 32) return -1;
+    std::string t = type;
+    for (const char* q : {"const ", "volatile "})
+        for (size_t at; (at = t.find(q)) != std::string::npos; ) t.erase(at, std::strlen(q));
+    auto td = typedefs.find(t);
+    if (ptrLevel > 0) {
+        size = 2; na = 2;
+    } else if (td != typedefs.end() && !td->second.isFunctionPointer) {
+        const TypeAlias& a = td->second;
+        for (const auto& v : a.vlaDimVars) if (!v.empty()) return -1;
+        size = typeByteSize(a.baseType, a.pointerLevel, &na, &da, depth + 1);
+        if (size < 0) return -1;
+        for (int d : a.arrayDims) size *= d;
+    } else if (td != typedefs.end()) {
+        size = 2; na = 2;
+    } else if (t.rfind("enum ", 0) == 0) {
+        size = 2; na = 2;
+    } else if (t.rfind("struct ", 0) == 0 || t.rfind("union ", 0) == 0) {
+        auto it = structs.find(t.substr(t.find(' ') + 1));
+        if (it == structs.end() || !it->second) return -1;
+        StructDefinition* def = it->second;
+        int startOffset = 0, startAlign = 1, startNatural = 1;
+        if (!def->parentStruct.empty()) {
+            int pna = 1, pda = 1;
+            startOffset = typeByteSize("struct " + def->parentStruct, 0, &pna, &pda, depth + 1);
+            if (startOffset < 0) return -1;
+            startAlign = pda; startNatural = pna;
+        }
+        std::vector<StructLayout::Member> lm;
+        for (const auto& m : def->members) {
+            for (const auto& d : m.vlaDimExprs) if (d) return -1;
+            StructLayout::Member l;
+            int mna = 1, mda = 1;
+            int es = typeByteSize(m.type, m.bitWidth > 0 ? 0 : m.pointerLevel, &mna, &mda, depth + 1);
+            if (es < 0) return -1;
+            if (m.bitWidth > 0) {
+                l.unitType = m.type;
+                l.size = es;
+                l.bitWidth = m.bitWidth;
+            } else {
+                l.size = es;
+                if (m.arraySize() >= 0) l.size *= m.arraySize();
+                long ea = std::max(1, m.alignment);
+                if (m.alignmentExpr) {
+                    long cv;
+                    if (!evalConstInt(m.alignmentExpr.get(), cv)) return -1;
+                    ea = std::max(ea, cv);
+                }
+                l.explicitAlign = std::max((int)ea, m.pointerLevel > 0 ? 1 : mda);
+            }
+            l.naturalAlign = mna;
+            lm.push_back(l);
+        }
+        StructLayout::Result r = StructLayout::layout(lm, def->isUnion, def->isUnpacked, def->alignment,
+                                                      startOffset, startAlign, startNatural);
+        size = r.size; na = r.naturalAlign; da = r.align;
+    } else {
+        size = scalarTypeSize(t, 0);
+        if (size < 0) return -1;
+        bool isFloat = t == "float" || t == "double" || t == "long double";
+        na = (!isFloat && (size == 2 || size == 4)) ? size : 1;
+    }
+    if (natAlign) *natAlign = na;
+    if (declAlign) *declAlign = da;
+    return size;
+}
+
 void Parser::recordVarSize(const std::string& name, const std::string& type, int ptrLevel, const std::vector<int>& dims) {
     varShapes_[name] = {type, ptrLevel, dims};
-    int es = scalarTypeSize(type, ptrLevel);
+    int es = typeByteSize(type, ptrLevel);
     if (es > 0) {
         long n = es;
         for (int d : dims) n *= d;
@@ -4086,7 +4168,7 @@ bool Parser::evalConstInt(Expression* e, long& out) {
     if (auto* c = dynamic_cast<CastExpression*>(e)) return evalConstInt(c->expression.get(), out);
     if (auto* sz = dynamic_cast<SizeofExpression*>(e)) {
         if (sz->isType) {
-            int s = scalarTypeSize(sz->typeName, sz->pointerLevel);
+            int s = typeByteSize(sz->typeName, sz->pointerLevel);
             if (s < 0) return false;
             long n = s;
             for (int d : sz->arrayDims) n *= d;
@@ -4121,7 +4203,7 @@ bool Parser::evalConstInt(Expression* e, long& out) {
                 else if (ptr > 0) ptr--;
                 else return false;
             }
-            int es = scalarTypeSize(sh.type, ptr);
+            int es = typeByteSize(sh.type, ptr);
             if (es < 0) return false;
             long n = es;
             for (size_t k = sh.dims.size() - dimsLeft; k < sh.dims.size(); k++) n *= sh.dims[k];

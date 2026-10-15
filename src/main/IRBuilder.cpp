@@ -1,4 +1,5 @@
 #include "CompilerLog.hpp"
+#include "StructLayout.hpp"
 #include "IRBuilder.hpp"
 #include "OptimizationCatalog.hpp"
 #include "CBMFloat.hpp"
@@ -8333,6 +8334,14 @@ int IRBuilder::typeAlign(const std::string& type, int ptrLevel) {
     return sit != structs_.end() ? std::max(1, sit->second.align) : 1;
 }
 
+int IRBuilder::naturalAlign(const std::string& type, int ptrLevel) {
+    if (ptrLevel > 0) return 2;
+    if (const IRStructInfo* si = structOf(type)) return std::max(1, si->naturalAlign);
+    if (type == "float" || type == "double" || type == "long double") return 1;
+    int n = getTypeSize(type, 0);
+    return (n == 2 || n == 4) ? n : 1;
+}
+
 int IRBuilder::alignValue(Expression* e) {
     if (!e) return 1;
     if (auto* lit = dynamic_cast<IntegerLiteral*>(e)) return lit->value > 1 ? (int)lit->value : 1;
@@ -8958,7 +8967,7 @@ void IRBuilder::visit(StructDefinition& node) {
     info.name = node.name;
     info.isUnion = node.isUnion;
     info.parent = node.parentStruct;
-    int currentOffset = 0;
+    int startOffset = 0, startAlign = 1, startNatural = 1;
 
     // Phase 3: Inherit parent struct members at offset 0
     if (!node.parentStruct.empty()) {
@@ -8969,26 +8978,35 @@ void IRBuilder::visit(StructDefinition& node) {
                 info.members[pName] = parentInfo.members.at(pName);
                 info.memberOrder.push_back(pName);
             }
-            currentOffset = parentInfo.totalSize;
+            startOffset = parentInfo.totalSize;
+            startAlign = parentInfo.align;
+            startNatural = parentInfo.naturalAlign;
         }
     }
 
-    // Bitfield packing state
-    std::string bfUnitType;
-    int bfUnitOffset = 0;
-    int bfBitsUsed = 0;
-    int bfUnitSize = 0;
-
-    auto closeBitfieldUnit = [&]() {
-        if (!bfUnitType.empty()) {
-            currentOffset = bfUnitOffset + bfUnitSize;
-            bfUnitType.clear();
-            bfBitsUsed = 0;
-            bfUnitSize = 0;
-        }
-    };
-
+    std::vector<StructLayout::Member> lm;
     for (const auto& m : node.members) {
+        StructLayout::Member l;
+        if (m.bitWidth > 0) {
+            l.unitType = m.type;
+            l.size = getTypeSize(m.type, 0);
+            l.bitWidth = m.bitWidth;
+            l.naturalAlign = naturalAlign(m.type, 0);
+        } else {
+            l.size = getTypeSize(m.type, m.pointerLevel);
+            if (m.arraySize() >= 0) l.size *= m.arraySize();  // a flexible member d[]: 0
+            // Explicit alignment (_Alignas / aligned) and aligned struct types
+            l.explicitAlign = std::max({1, m.alignment, alignValue(m.alignmentExpr.get()),
+                                        typeAlign(m.type, m.pointerLevel)});
+            l.naturalAlign = naturalAlign(m.type, m.pointerLevel);
+        }
+        lm.push_back(l);
+    }
+    StructLayout::Result lr = StructLayout::layout(lm, node.isUnion, node.isUnpacked, node.alignment,
+                                                   startOffset, startAlign, startNatural);
+
+    for (size_t i = 0; i < node.members.size(); i++) {
+        const auto& m = node.members[i];
         IRMemberInfo mi;
         mi.type = m.type;
         mi.pointerLevel = m.pointerLevel;
@@ -8997,69 +9015,15 @@ void IRBuilder::visit(StructDefinition& node) {
         mi.arrayDims = m.arrayDims;
         mi.bitWidth = m.bitWidth;
         mi.funcPtrSig = m.funcPtrSig;
-
-        if (m.bitWidth > 0) {
-            // Bitfield member
-            int unitSize = getTypeSize(m.type, 0);
-            int unitBits = unitSize * 8;
-
-            // Start new unit if type changes or bits don't fit
-            if (bfUnitType != m.type || bfBitsUsed + m.bitWidth > unitBits) {
-                closeBitfieldUnit();
-                // Align to unit size (only if __unpacked)
-                int align = node.isUnpacked ? std::max(1, unitSize) : 1;
-                if (!node.isUnion && align > 1 && currentOffset % align != 0)
-                    currentOffset += align - (currentOffset % align);
-                bfUnitType = m.type;
-                bfUnitOffset = node.isUnion ? 0 : currentOffset;
-                bfBitsUsed = 0;
-                bfUnitSize = unitSize;
-            }
-
-            mi.offset = bfUnitOffset;
-            mi.size = unitSize;
-            mi.bitOffset = bfBitsUsed;
-            bfBitsUsed += m.bitWidth;
-        } else {
-            // Regular member — close any open bitfield unit first
-            closeBitfieldUnit();
-
-            mi.size = getTypeSize(m.type, m.pointerLevel);
-            if (m.arraySize() > 0) mi.size *= m.arraySize();
-
-            // Explicit alignment (_Alignas / aligned) and aligned struct types
-            int explicitAlign = std::max({1, m.alignment, alignValue(m.alignmentExpr.get()),
-                                          typeAlign(m.type, m.pointerLevel)});
-            info.align = std::max(info.align, explicitAlign);
-            if (node.isUnion) {
-                mi.offset = 0;
-            } else {
-                // Packed by default — only align if __unpacked or requested
-                int align = node.isUnpacked ? std::max(1, getTypeSize(m.type, m.pointerLevel)) : 1;
-                align = std::max(align, explicitAlign);
-                if (align > 1 && currentOffset % align != 0)
-                    currentOffset += align - (currentOffset % align);
-                mi.offset = currentOffset;
-                currentOffset += mi.size;
-            }
-        }
-
+        mi.size = lm[i].size;
+        mi.offset = lr.placed[i].offset;
+        if (m.bitWidth > 0) mi.bitOffset = lr.placed[i].bitOffset;
         info.members[m.name] = mi;
         info.memberOrder.push_back(m.name);
     }
-
-    closeBitfieldUnit();
-
-    info.totalSize = node.isUnion ? 0 : currentOffset;
-    if (node.isUnion) {
-        for (const auto& [n, mi] : info.members)
-            if (mi.size > info.totalSize) info.totalSize = mi.size;
-    }
-    // An aligned struct's size is a multiple of its alignment (arrays of it
-    // keep every element aligned)
-    info.align = std::max(info.align, node.alignment);
-    if (info.align > 1 && info.totalSize % info.align)
-        info.totalSize += info.align - info.totalSize % info.align;
+    info.totalSize = lr.size;
+    info.align = lr.align;
+    info.naturalAlign = lr.naturalAlign;
     structs_[node.name] = info;
 
     // A struct defined in a function with run-time member sizes (char x[n]):

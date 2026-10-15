@@ -1,4 +1,5 @@
 #pragma once
+#include "StructLayout.hpp"
 #include "AST.hpp"
 #include "TypeInfo.hpp"
 #include "AddressTemplateDetector.hpp"
@@ -613,11 +614,29 @@ public:
 
     void visit(StructDefinition& node) override {
         auto def = copyPos(std::make_unique<StructDefinition>(node.name, node.isUnion), node);
-        int currentOffset = 0;
-        int maxAlignment = 1;
+        int startOffset = 0, startAlign = 1, startNatural = 1;
 
         auto sInfo = std::make_shared<TypeInfo::StructInfo>();
         sInfo->name = node.name;
+
+        auto structInfoOf = [&](const std::string& type) -> const TypeInfo::StructInfo* {
+            std::string tn = type;
+            for (const char* kw : {"struct ", "union "})
+                if (tn.rfind(kw, 0) == 0) tn = tn.substr(std::string(kw).size());
+            auto sit = structs.find(tn);
+            return sit != structs.end() ? sit->second.get() : nullptr;
+        };
+        // Natural alignment of a member type (as IRBuilder::naturalAlign)
+        auto naturalAlign = [&](const std::string& type, int ptrLevel) {
+            if (ptrLevel > 0) return 2;
+            if (type.rfind("struct ", 0) == 0 || type.rfind("union ", 0) == 0) {
+                const TypeInfo::StructInfo* si = structInfoOf(type);
+                return si ? std::max(1, si->naturalAlign) : 1;
+            }
+            if (type == "float" || type == "double" || type == "long double") return 1;
+            int n = TypeInfo::getTypeSize(type, 0, -1, structs);
+            return (n == 2 || n == 4) ? n : 1;
+        };
 
         // struct D : B { ... }: B's members come first, at their own offsets
         // (as IRBuilder lays it out)
@@ -625,11 +644,14 @@ public:
             auto pit = structs.find(node.parentStruct);
             if (pit != structs.end() && pit->second) {
                 sInfo->members = pit->second->members;
-                currentOffset = pit->second->totalSize;
-                maxAlignment = std::max(maxAlignment, pit->second->alignment);
+                startOffset = pit->second->totalSize;
+                startAlign = pit->second->alignment;
+                startNatural = pit->second->naturalAlign;
             }
         }
 
+        std::vector<StructLayout::Member> lm;
+        std::vector<std::unique_ptr<Expression>> alignExprs;
         for (auto& m : node.members) {
             auto alignmentExpr = m.alignmentExpr ? fold(std::move(m.alignmentExpr)) : nullptr;
             // __attribute__((aligned)) arrives as m.alignment, _Alignas as an expression
@@ -639,52 +661,55 @@ public:
                     if (lit->value > alignment) alignment = (int)lit->value;
                 }
             }
-
-            int mSize = TypeInfo::getTypeSize(m.type, m.pointerLevel, m.arraySize(), structs);
-            int mAlign = alignment;
-            // A member of an aligned struct type takes that struct's alignment
-            if (m.pointerLevel == 0) {
-                std::string tn = m.type;
-                for (const char* kw : {"struct ", "union "})
-                    if (tn.rfind(kw, 0) == 0) tn = tn.substr(std::string(kw).size());
-                auto sit = structs.find(tn);
-                if (sit != structs.end() && sit->second && sit->second->alignment > mAlign)
-                    mAlign = sit->second->alignment;
+            StructLayout::Member l;
+            if (m.bitWidth > 0) {
+                l.unitType = m.type;
+                l.size = TypeInfo::getTypeSize(m.type, 0, -1, structs);
+                l.bitWidth = m.bitWidth;
+                l.naturalAlign = naturalAlign(m.type, 0);
+            } else {
+                l.size = TypeInfo::getTypeSize(m.type, m.pointerLevel, m.arraySize(), structs);
+                l.explicitAlign = alignment;
+                // A member of an aligned struct type takes that struct's alignment
+                if (m.pointerLevel == 0)
+                    if (const TypeInfo::StructInfo* si = structInfoOf(m.type))
+                        l.explicitAlign = std::max(l.explicitAlign, si->alignment);
+                l.naturalAlign = naturalAlign(m.type, m.pointerLevel);
             }
-            if (mAlign > maxAlignment) maxAlignment = mAlign;
+            lm.push_back(l);
+            alignExprs.push_back(std::move(alignmentExpr));
+        }
+        StructLayout::Result lr = StructLayout::layout(lm, node.isUnion, node.isUnpacked, node.alignment,
+                                                       startOffset, startAlign, startNatural);
 
-            if (!node.isUnion) {
-                if (currentOffset % mAlign != 0) currentOffset += mAlign - (currentOffset % mAlign);
-            }
-
+        for (size_t i = 0; i < node.members.size(); i++) {
+            auto& m = node.members[i];
             TypeInfo::MemberInfo mi;
             mi.type = m.type; mi.pointerLevel = m.pointerLevel; mi.isSigned = m.isSigned;
-            mi.isConst = m.isConst; mi.offset = currentOffset; mi.alignment = mAlign; mi.arrayDims = m.arrayDims;
+            mi.isConst = m.isConst; mi.offset = lr.placed[i].offset; mi.alignment = lm[i].explicitAlign;
+            mi.arrayDims = m.arrayDims;
             sInfo->members[m.name] = mi;
 
-            if (!node.isUnion) currentOffset += mSize;
-            else if (mSize > currentOffset) currentOffset = mSize;
-
-            {
-                StructMember sm;
-                sm.type = m.type; sm.pointerLevel = m.pointerLevel; sm.isSigned = m.isSigned;
-                sm.name = m.name; sm.isConst = m.isConst; sm.alignment = alignment;
-                sm.alignmentExpr = std::move(alignmentExpr); sm.isAnonymous = m.isAnonymous;
-                sm.arrayDims = m.arrayDims; sm.bitWidth = m.bitWidth;
-                sm.isFlexible = m.isFlexible;
-                sm.funcPtrSig = m.funcPtrSig;
-                for (auto& d : m.vlaDimExprs) {
-                    if (d) vmStructs_.insert(node.name);
-                    sm.vlaDimExprs.push_back(d ? fold(std::move(d)) : nullptr);
-                }
-                def->members.push_back(std::move(sm));
+            StructMember sm;
+            sm.type = m.type; sm.pointerLevel = m.pointerLevel; sm.isSigned = m.isSigned;
+            sm.name = m.name; sm.isConst = m.isConst;
+            sm.alignment = m.alignment > 1 ? m.alignment : 1;
+            if (auto* lit = dynamic_cast<IntegerLiteral*>(alignExprs[i].get()))
+                if (lit->value > sm.alignment) sm.alignment = (int)lit->value;
+            sm.alignmentExpr = std::move(alignExprs[i]); sm.isAnonymous = m.isAnonymous;
+            sm.arrayDims = m.arrayDims; sm.bitWidth = m.bitWidth;
+            sm.isFlexible = m.isFlexible;
+            sm.funcPtrSig = m.funcPtrSig;
+            for (auto& d : m.vlaDimExprs) {
+                if (d) vmStructs_.insert(node.name);
+                sm.vlaDimExprs.push_back(d ? fold(std::move(d)) : nullptr);
             }
+            def->members.push_back(std::move(sm));
         }
 
-        if (node.alignment > maxAlignment) maxAlignment = node.alignment;
-        if (currentOffset % maxAlignment != 0) currentOffset += maxAlignment - (currentOffset % maxAlignment);
-        sInfo->totalSize = currentOffset;
-        sInfo->alignment = maxAlignment;
+        sInfo->totalSize = lr.size;
+        sInfo->alignment = lr.align;
+        sInfo->naturalAlign = lr.naturalAlign;
         structs[node.name] = sInfo;
 
         // Preserve layout and OOP fields

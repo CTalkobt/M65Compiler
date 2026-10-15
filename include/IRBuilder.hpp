@@ -314,6 +314,7 @@ private:
         std::vector<std::string> memberOrder;
         int totalSize = 0;
         int align = 1;       // largest member / declared alignment (cc45 packs otherwise)
+        int naturalAlign = 1; // alignment as a member of an __unpacked struct
         std::string parent;  // the struct it inherits from (struct D : B), or ""
     };
     std::map<std::string, IRStructInfo> structs_;
@@ -321,6 +322,9 @@ private:
     const IRMemberInfo* arrayMemberOf(MemberAccess* ma);
     // Alignment of a type (an aligned struct's alignment; 1 otherwise: cc45 packs)
     int typeAlign(const std::string& type, int ptrLevel);
+    // Natural alignment of a type, as an __unpacked struct aligns its members:
+    // a 1/2/4-byte scalar or pointer its size, a struct its naturalAlign
+    int naturalAlign(const std::string& type, int ptrLevel);
     // Value of an _Alignas / aligned expression (a constant or _Alignof(type))
     int alignValue(Expression* e);
 

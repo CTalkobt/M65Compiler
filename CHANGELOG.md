@@ -106,6 +106,15 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   frame slot with its parameter); a forward-declared one (`int h(int);`
   or `auto int h(int);`) is the nested function, not an external; no
   "unused variable `__static_link`" warning.
+- Struct layout: `sizeof(type)`, `sizeof` in an array dimension, a
+  variable's storage and the member offsets now come from one layout
+  (`include/StructLayout.hpp`). An `__unpacked` struct aligns members to
+  their natural alignment (a nested struct to its own, not its size) and is
+  padded at the end (`{char a; long l; char c;}` is 12 bytes, was 9);
+  `sizeof` of a bitfield struct was the sum of its member types (5 for 3
+  bytes); `char buf[sizeof(struct S)]` got 2 bytes for any struct; a
+  flexible array member took one element in a variable but not in `sizeof`.
+  `struct __unpacked S v;` declares a variable (was a parse error).
 
 ### Standard library
 

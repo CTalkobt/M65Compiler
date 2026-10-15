@@ -152,6 +152,11 @@ private:
     int initListLength(const InitializerList& il);
     // Size of a scalar/pointer type in bytes; -1 for aggregates and unknowns
     static int scalarTypeSize(const std::string& type, int ptrLevel);
+    // Size of any type known so far (scalars, enums, typedefs, structs and
+    // unions laid out as IRBuilder does); -1 when it is not known. natAlign /
+    // declAlign: its alignment as an __unpacked struct's member / declared one
+    int typeByteSize(const std::string& type, int ptrLevel, int* natAlign = nullptr,
+                     int* declAlign = nullptr, int depth = 0);
     std::set<std::string> enumNames;
     bool isTypedef(const std::string& name) const;
 
