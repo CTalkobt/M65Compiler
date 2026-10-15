@@ -14,7 +14,7 @@
  *     your attack and defence; experience raises your level and hit points
  *   - no diagonal steps through doorways (as in Rogue)
  *
- * Keys (the hardware typing queue at $D610):
+ * Keys (<input.h>):
  *   cursor keys or h j k l, y u b n diagonally    move / attack
  *   .  or SPACE  wait      >  go down the stairs
  *   R  new game (after the end)     RUN/STOP  quit
@@ -32,9 +32,9 @@
  */
 #include <mega65.h>
 #include <dma.h>
+#include <input.h>
 
 #define REG(a) (*(volatile unsigned char *)(a))
-#define ASCIIKEY REG(0xD610)
 
 /* ------------------------------------------------------------------------ */
 /* Random numbers: 16-bit xorshift                                           */
@@ -730,13 +730,12 @@ static unsigned char get_command(void) {
     for (;;) {
         wait_frame();
         rnd16();                          /* the time between keys stirs the dice */
-        if ((c = ASCIIKEY) != 0) {
-            ASCIIKEY = 0;
+        if ((c = input_key()) != 0) {
             switch (c) {
-                case 0x91: case 'k': case 'K': return CMD_N;      /* cursor up */
-                case 0x11: case 'j': case 'J': return CMD_S;      /* cursor down */
-                case 0x1D: case 'l': case 'L': return CMD_E;      /* cursor right */
-                case 0x9D: case 'h': case 'H': return CMD_W;      /* cursor left */
+                case CH_CURSOR_UP: case 'k': case 'K': return CMD_N;      /* cursor up */
+                case CH_CURSOR_DOWN: case 'j': case 'J': return CMD_S;      /* cursor down */
+                case CH_CURSOR_RIGHT: case 'l': case 'L': return CMD_E;      /* cursor right */
+                case CH_CURSOR_LEFT: case 'h': case 'H': return CMD_W;      /* cursor left */
                 case 'u': case 'U': return CMD_NE;
                 case 'y': case 'Y': return CMD_NW;
                 case 'n': case 'N': return CMD_SE;
@@ -744,18 +743,17 @@ static unsigned char get_command(void) {
                 case '.': case ' ': return CMD_WAIT;
                 case '>': return CMD_DOWN;
                 case 'r': case 'R': return CMD_RESTART;
-                case 0x03: return CMD_QUIT;                         /* RUN/STOP */
+                case CH_STOP: return CMD_QUIT;                         /* RUN/STOP */
             }
             continue;
         }
-        /* joystick 2: CIA 1 port A with no keyboard column driven */
-        REG(0xDC00) = 0xFF;
-        j = (unsigned char)~REG(0xDC00) & 0x1F;
+        /* joystick 2 */
+        j = input_joy(2);
         if (!j) { joy_last = 0; continue; }
         if (j == joy_last && joy_wait) { joy_wait--; continue; }
         joy_wait = j == joy_last ? 6 : 14;     /* held: repeat */
         joy_last = j;
-        if (j & 0x10) return CMD_DOWN;
+        if (j & JOY_FIRE) return CMD_DOWN;
         if ((j & 5) == 5) return CMD_NW;
         if ((j & 9) == 9) return CMD_NE;
         if ((j & 6) == 6) return CMD_SW;
@@ -773,7 +771,7 @@ int main(void) {
     rs ^= REG(0xD012) | (REG(0xDC04) << 8);
     if (rs == 0) rs = 1;
     video_on();
-    while (ASCIIKEY) ASCIIKEY = 0;
+    input_flush();
     new_game();
     for (;;) {
         draw();
@@ -787,7 +785,7 @@ int main(void) {
         do_command(c);
     }
     video_off();
-    while (ASCIIKEY) ASCIIKEY = 0;
+    input_flush();
     __asm__("cli");
     return 0;
 }

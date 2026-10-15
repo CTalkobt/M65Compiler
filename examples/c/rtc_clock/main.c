@@ -13,7 +13,7 @@
  * host's clock; its month is BCD(month - 1) + 1, e.g. $0A for October,
  * which the BCD decoding below also reads as 10.)
  *
- * Keys (the hardware typing queue at $D610):
+ * Keys (<input.h>):
  *   H 12/24 hours   S stopwatch start/stop   R stopwatch reset
  *   C colours       RUN/STOP quits
  *
@@ -28,9 +28,9 @@
  */
 #include <mega65.h>
 #include <dma.h>
+#include <input.h>
 
 #define REG(a) (*(volatile unsigned char *)(a))
-#define ASCIIKEY REG(0xD610)
 #define RTC_LIN 0xFFD7110UL
 
 /* the RTC registers, copied by DMA */
@@ -304,7 +304,7 @@ int main(void) {
     ntsc = REG(0xD06F) & 0x80;
     video_on();
     draw_frame();
-    while (ASCIIKEY) ASCIIKEY = 0;
+    input_flush();
     while (!quit) {
         wait_frame();
         frame++;
@@ -318,19 +318,18 @@ int main(void) {
             draw_bar();
         }
         draw_stopwatch();
-        while ((c = ASCIIKEY) != 0) {
-            ASCIIKEY = 0;
+        while ((c = input_key()) != 0) {
             switch (c) {
                 case 'h': case 'H': h12 = !h12; last_sec = 255; break;
                 case 's': case 'S': sw_run = !sw_run; break;
                 case 'r': case 'R': sw_frames = 0; break;
                 case 'c': case 'C': scheme = (scheme + 1) & 3; last_sec = 255; break;
-                case 0x03: quit = 1; break;         /* RUN/STOP */
+                case CH_STOP: quit = 1; break;         /* RUN/STOP */
             }
         }
     }
     video_off();
-    while (ASCIIKEY) ASCIIKEY = 0;
+    input_flush();
     __asm__("cli");
     return 0;
 }

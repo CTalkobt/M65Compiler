@@ -22,6 +22,7 @@
  */
 #include <stdio.h>
 #include <dma.h>
+#include <input.h>
 #include <mega65.h>
 
 /* the iteration kernel (mandel_asm.s45) */
@@ -321,12 +322,9 @@ static void help_hide(void) {
 }
 
 /* ------------------------------------------------------------------------ */
-/* Input: keys from the MEGA65's hardware typing queue (the Book, "hardware
- * accelerated keyboard scanner": $D610 gives the ASCII code of the next key
- * press, 0 when none; writing it removes the key), one event per press with
- * the hardware's key repeat; the joysticks (either port) as held directions */
+/* Input (<input.h>): key presses, one event per press with the hardware's
+ * key repeat; the joysticks (either port) as held directions */
 
-#define ASCIIKEY REG(0xD610)
 
 #define IN_LEFT  0x0001
 #define IN_RIGHT 0x0002
@@ -349,13 +347,12 @@ static void help_hide(void) {
 static unsigned int read_keys(void) {
     unsigned int k = 0;
     unsigned char c;
-    while ((c = ASCIIKEY) != 0) {
-        ASCIIKEY = 0;
+    while ((c = input_key()) != 0) {
         switch (c) {
-            case 0x1D: case 'd': case 'D': k |= IN_RIGHT; break;     /* cursor right */
-            case 0x9D: case 'a': case 'A': k |= IN_LEFT; break;      /* cursor left */
-            case 0x11: case 's': case 'S': k |= IN_DOWN; break;      /* cursor down */
-            case 0x91: case 'w': case 'W': k |= IN_UP; break;        /* cursor up */
+            case CH_CURSOR_RIGHT: case 'd': case 'D': k |= IN_RIGHT; break;     /* cursor right */
+            case CH_CURSOR_LEFT: case 'a': case 'A': k |= IN_LEFT; break;      /* cursor left */
+            case CH_CURSOR_DOWN: case 's': case 'S': k |= IN_DOWN; break;      /* cursor down */
+            case CH_CURSOR_UP: case 'w': case 'W': k |= IN_UP; break;        /* cursor up */
             case 'z': case 'Z': case '1': k |= IN_ZIN; break;
             case 'x': case 'X': case '2': k |= IN_ZOUT; break;
             case '+': k |= IN_FAST; break;
@@ -366,7 +363,7 @@ static unsigned int read_keys(void) {
             case 'c': case 'C': k |= IN_CYCLE; break;
             case 'r': case 'R': k |= IN_RESET; break;
             case '?': case 'h': case 'H': k |= IN_HELP; break;
-            case 0x03: k |= IN_STOP; break;                          /* RUN/STOP */
+            case CH_STOP: k |= IN_STOP; break;                          /* RUN/STOP */
             default: k |= 0x8000; break;                             /* another key */
         }
     }
@@ -376,10 +373,7 @@ static unsigned int read_keys(void) {
 /* the joysticks, as held directions (fire: zoom in) */
 static unsigned int read_joysticks(void) {
     unsigned int k = 0;
-    unsigned char saved = cia1->pra, j;
-    cia1->pra = 0xFF;                     /* no keyboard column selected */
-    j = (unsigned char)(~cia1->pra | ~cia1->prb) & 0x1F;   /* ports 2 and 1 */
-    cia1->pra = saved;
+    unsigned char j = input_joy(1) | input_joy(2);
     if (j & JOY_LEFT) k |= IN_LEFT;
     if (j & JOY_RIGHT) k |= IN_RIGHT;
     if (j & JOY_UP) k |= IN_UP;
@@ -511,7 +505,7 @@ int main(void) {
     make_palette();
     help_draw();
     video_on();
-    while (ASCIIKEY) ASCIIKEY = 0;        /* no stale key presses */
+    input_flush();        /* no stale key presses */
     __asm__("sei");                       /* no KERNAL interrupt meanwhile (its screen editor */
     load_palette();                       /* would interfere) */
     status();

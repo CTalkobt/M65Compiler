@@ -48,11 +48,11 @@
 #include <math.h>
 #include <errno.h>
 #include <dma.h>
+#include <input.h>
 
 #pragma cc45 stack_top(0xBDFF)   /* $BE00-$BFFF: the interrupt stub */
 
 #define REG(a) (*(volatile unsigned char *)(a))
-#define ASCIIKEY REG(0xD610)
 
 /* GCC: statement expressions and typeof: each argument evaluated once (the
  * names differ: cc45 does not yet scope a nested statement expression's
@@ -832,7 +832,7 @@ int main(void) {
     for (i = 0; demo[i]; i++) enter(demo[i]);
     trace_x = 0;
     show_input(1);
-    while (ASCIIKEY) ASCIIKEY = 0;
+    input_flush();
     last = frames;
     for (;;) {
         unsigned char c;
@@ -851,11 +851,10 @@ int main(void) {
 #ifdef CALC_AUTOQUIT
         if (last > CALC_AUTOQUIT) break;             /* the exit path's test */
 #endif
-        if ((c = ASCIIKEY) == 0) continue;
-        ASCIIKEY = 0;
-        if (c == 0x03) break;                         /* RUN/STOP */
+        if ((c = input_key()) == 0) continue;
+        if (c == CH_STOP) break;                         /* RUN/STOP */
         switch (c) {
-        case 0x0D:                                    /* RETURN */
+        case CH_RETURN:
             if (ilen) {
                 enter(input);
                 ilen = 0;
@@ -865,7 +864,7 @@ int main(void) {
         case 0x08: case 0x14: case 0x7F:              /* DEL */
             if (ilen) input[--ilen] = 0;
             break;
-        /* the ASCII queue's letters (either case) as cc45's lowercase */
+        /* letters (either case) as cc45's lowercase */
         case 0x41 ... 0x5A:                           /* GCC: case ranges */
         case 0x61 ... 0x7A:
             c = (unsigned char)((c & 0x1F) | 0x40);
@@ -879,7 +878,7 @@ int main(void) {
     }
     irq_remove();
     video_off();
-    while (ASCIIKEY) ASCIIKEY = 0;
+    input_flush();
     return 0;
 }
 #endif

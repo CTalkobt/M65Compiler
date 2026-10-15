@@ -278,6 +278,11 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### disk45
 
+- A directory longer than one sector continued on a data track (the
+  allocator for file data skips the directory track): the DOS follows the
+  chain on the directory track only, so files after the 8th could not be
+  found (`DLOAD` gave FILE NOT FOUND). New directory sectors are taken from
+  the directory track (D81 40, D64 18).
 - `repair`, `diff`, `list --petscii`, `basic`, `add` placement options,
   interactive `shell`, `edit` (#160–#167); BAM system sectors per format.
 
@@ -303,6 +308,8 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - New `rtc_clock`: the real-time clock in big digits with the date, a
   seconds bar and a stopwatch; reads the RTC registers at `$FFD7110` with
   `dma_copy_far`.
+- All examples read the keyboard and joysticks through `<input.h>`
+  (rtc_clock, mandelbrot, rogue and calc_graph read `$D610` directly).
 - New `sample_player`: a drum machine on the audio DMA (`<audio_digi.h>`);
   the kick, snare, hi-hat and a looped tone are synthesized at start, a
   16-step pattern plays them, panned across the four channels.
