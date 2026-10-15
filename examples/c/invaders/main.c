@@ -228,7 +228,7 @@ static void clear_row(unsigned char row) {
     dma_fill_far(SCREEN_LIN + (unsigned int)row * COLS, COLS, CH_SPACE);
 }
 
-#define ATTRACT_TEXT s"invaders - fire/space: play - z/x , . joystick: move - run/stop: quit"
+#define ATTRACT_TEXT s"invaders - fire/space: play - crsr z/x , . joystick: move - run/stop: quit"
 
 /* centred text on TEXT_ROW (empty clears it; at most 80 characters) */
 static void message(const char *s) {
@@ -547,28 +547,43 @@ static struct Entity *entities[3 + NBOMBS];
 /* Input: joystick port 2 (keyboard columns released) and Z/X , . SPACE      */
 
 /* (interrupts off meanwhile: the KERNAL's keyboard scan uses the same port) */
+/* Joystick 1 shares the keyboard's row lines: while it is active the
+ * keyboard is not scanned (it would read phantom keys; xemu's PC arrow keys
+ * can drive an emulated joystick 1). Joystick 2 can't be tested the same
+ * way: its fire line is the column of SPACE. SPACE and RUN/STOP also come
+ * from the hardware typing queue ($D610, ASCII), which needs no scan. */
+#define ASCIIKEY REG(0xD610)
+static unsigned char quit_key;
+static unsigned char key_dir, key_t;   /* a queued move key: keeps moving for key_t frames */
+
 static unsigned char read_input(void) {
-    unsigned char saved, j;
-    __asm__("sei");
+    unsigned char saved, j, c, fire = 0;
+    while ((c = ASCIIKEY) != 0) {         /* key presses waiting in the queue */
+        ASCIIKEY = 0;
+        if (c == ' ') fire = JOY_FIRE;
+        else if (c == 0x03) quit_key = 1;                         /* RUN/STOP */
+        else if (c == 'z' || c == 'Z' || c == ',' || c == 0x9D) { key_dir = JOY_LEFT; key_t = 6; }  /* crsr left */
+        else if (c == 'x' || c == 'X' || c == '.' || c == 0x1D) { key_dir = JOY_RIGHT; key_t = 6; } /* crsr right */
+    }
+    __asm__("sei");                       /* joysticks: CIA 1 with no keyboard row driven */
     saved = cia1->pra;
     cia1->pra = 0xFF;
-    j = (unsigned char)(~cia1->pra) & (JOY_LEFT | JOY_RIGHT | JOY_FIRE);
+    j = (unsigned char)~(cia1->pra & cia1->prb) & (JOY_LEFT | JOY_RIGHT | JOY_FIRE);
+    cia1->pra = saved;
+    __asm__("cli");
+    j |= fire;
+    if (key_t) { key_t--; j |= key_dir; }  /* the queue's key repeat keeps it going */
+    /* keys: the MEGA65 matrix registers, independent of the joystick lines */
+    if (key_pressed(KEY_RIGHT)) j |= (key_pressed(KEY_LSHIFT) | key_pressed(KEY_RSHIFT)) ? JOY_LEFT : JOY_RIGHT;
+    if (REG(0xD60F) & 0x01) j |= JOY_LEFT;
     if (key_pressed(KEY_Z) || key_pressed(KEY_COMMA)) j |= JOY_LEFT;
     if (key_pressed(KEY_X) || key_pressed(KEY_PERIOD)) j |= JOY_RIGHT;
     if (key_pressed(KEY_SPACE)) j |= JOY_FIRE;
-    cia1->pra = saved;
-    __asm__("cli");
     return j;
 }
 
 static unsigned char stop_pressed(void) {
-    unsigned char saved, k;
-    __asm__("sei");
-    saved = cia1->pra;
-    k = key_pressed(KEY_STOP);
-    cia1->pra = saved;
-    __asm__("cli");
-    return k;
+    return key_pressed(KEY_STOP);
 }
 
 /* Attract mode: the computer dodges bombs falling close to it, otherwise
@@ -804,7 +819,8 @@ int main(void) {
     setup();
     ai_col = -1;
     start(ATTRACT);
-    while (!stop_pressed()) {
+    while (ASCIIKEY) ASCIIKEY = 0;        /* no stale key presses */
+    while (!quit_key && !stop_pressed()) {
         wait_vsync();
         frame++;
         snd_update();

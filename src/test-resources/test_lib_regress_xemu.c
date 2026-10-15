@@ -4,8 +4,8 @@
  * Results at $C0C0 (01 = pass):
  *   [0] isblank: tab and space are blank, $16 is not
  *   [1] atoi skips tabs and newlines before the number
- *   [2] key_pressed selects the key's keyboard column: SPACE column 4 ($EF),
- *       RUN/STOP column 7 ($7F), A column 2 ($FB)
+ *   [2] key_pressed reads the key's matrix row through $D614/$D613: SPACE
+ *       and RUN/STOP row 7, A row 1; with no key down it returns 0
  *   [3] a += b on a 4-byte struct calls its operator+= (it was a 32-bit
  *       integer add: x's carry went into y); a 6-byte struct's += and -=
  *   [4] $AA sentinel
@@ -28,17 +28,14 @@ struct V2 p, v;
 struct V3 a, b;
 
 int main(void) {
-    unsigned char c1, c2, c3;
+    unsigned char c1, c2, c3, k;
     OUT[0] = isblank('\t') && isblank(' ') && !isblank(0x16) && !isblank('a');
     OUT[1] = atoi("\t\n 42") == 42 && atoi("7") == 7;
 
-    __asm__("sei");
-    key_pressed(KEY_SPACE); c1 = cia1->pra;
-    key_pressed(KEY_STOP);  c2 = cia1->pra;
-    key_pressed(KEY_A);     c3 = cia1->pra;
-    cia1->pra = 0xFF;
-    __asm__("cli");
-    OUT[2] = c1 == 0xEF && c2 == 0x7F && c3 == 0xFB;
+    k = key_pressed(KEY_SPACE); c1 = *(volatile unsigned char *)0xD614;
+    k |= key_pressed(KEY_STOP); c2 = *(volatile unsigned char *)0xD614;
+    k |= key_pressed(KEY_A);    c3 = *(volatile unsigned char *)0xD614;
+    OUT[2] = c1 == 7 && c2 == 7 && c3 == 1 && k == 0;
 
     p.x = 102; p.y = 200; v.x = -2; v.y = 0;
     p += v;

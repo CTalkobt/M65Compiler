@@ -1,9 +1,14 @@
-; key_pressed.s — Direct keyboard matrix scan (ZP calling convention)
+; key_pressed.s45 — is a key held down? (ZP calling convention)
 ;
 ; __regparm unsigned char key_pressed(unsigned char keycode);
-;   keycode = (column << 3) | row  (see KEY_* constants in mega65.h)
-;   Returns 1 if key is pressed, 0 if not.
-;   Scans CIA1 keyboard matrix directly (no KERNAL).
+;   keycode = (column << 3) | row  (see the KEY_* constants in mega65.h)
+;   Returns 1 if the key is down, 0 if not.
+;
+; Reads the MEGA65's own keyboard matrix view: write a row number (0-7, 8 =
+; the C65 extra keys) to $D614, read that row's 8 keys at $D613 (a bit 0 =
+; down). Unlike a scan through CIA 1 ($DC00/$DC01) it does not depend on the
+; joysticks (which share the CIA's lines), on the KERNAL's own keyboard scan
+; in its interrupt, or on the CIA port settings.
 ;
 ; First param arrives in A via __regparm convention.
 
@@ -15,31 +20,18 @@ proc _key_pressed
     .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z
 
-    ; Save keycode
-    tay                 ; Y = keycode (preserve for row extraction)
-
-    ; Extract column: (keycode >> 3) & 7
+    tay                 ; Y = keycode
+    and #$07
+    sta $D614           ; the matrix row to read
+    tya
     lsr
     lsr
     lsr
     and #$07
-    tax                 ; X = column number (0-7)
-
-    ; Select column: write ~(1 << col) to CIA1 Port A ($DC00)
-    lda @bit_table,x
-    eor #$FF            ; invert: all bits set except column bit
-    sta $DC00
-
-    ; Extract row: keycode & 7
-    tya                 ; A = original keycode
-    and #$07
-    tax                 ; X = row number (0-7)
-
-    ; Read row data from CIA1 Port B ($DC01)
-    ; Bits are active-low: 0 = pressed
-    lda $DC01
-    eor #$FF            ; invert: now 1 = pressed
-    and @bit_table,x    ; test the row bit
+    tax                 ; X = the key's bit in the row
+    lda $D613           ; the row: a bit 0 = key down
+    eor #$FF
+    and @bit_table,x
     beq @not_pressed
     lda #1
     rts

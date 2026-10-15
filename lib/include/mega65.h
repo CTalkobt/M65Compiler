@@ -347,7 +347,8 @@ static unsigned char joy2_read(void) {
 
 /* ===== Keyboard Matrix Scan ===== */
 /* Key codes: (column << 3) | row for the C64/MEGA65 8x8 keyboard matrix.
- * Use with key_pressed() for direct hardware scanning (multi-key capable).
+ * Use with key_pressed() for direct hardware scanning (multi-key capable):
+ * it reads row (code & 7) of the MEGA65 matrix at $D614/$D613, bit (code >> 3).
  * For buffered single-key input, use cbm_getin() from <cbm.h> instead.
  *
  *      Col0    Col1    Col2    Col3    Col4    Col5    Col6    Col7

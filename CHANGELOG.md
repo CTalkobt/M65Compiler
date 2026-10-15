@@ -47,6 +47,10 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   library had added 13 to some constants (`key_pressed` scanned the wrong
   column/row: no key was ever seen; `atoi` did not skip tabs and newlines;
   `isblank('\t')` was 0).
+- `key_pressed` reads the MEGA65's keyboard matrix registers (`$D614` row
+  select, `$D613` row) instead of scanning through CIA 1: the CIA scan used
+  the code's row and column the wrong way round (Z and X were never seen) and
+  shares its lines with the joysticks and the KERNAL's interrupt scan.
 
 ### ca45
 
