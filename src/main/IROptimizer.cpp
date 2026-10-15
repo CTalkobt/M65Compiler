@@ -100,6 +100,44 @@ std::map<uint32_t, int64_t> singleDefConsts(const Function& fn) {
         if (defs[it->first] != 1 || fn.localSlotVregs.count(it->first)) it = consts.erase(it);
         else ++it;
     }
+    // A zext/sext/trunc of such a constant (a 0 of another width: x ^ 0 on a
+    // char or long) is the converted constant, followed through chains
+    auto bits = [](Type t) -> int {
+        switch (t) {
+            case Type::I8: return 8;
+            case Type::I16: case Type::PTR: return 16;
+            case Type::I32: return 32;
+            default: return 0;
+        }
+    };
+    for (bool changed = true; changed;) {
+        changed = false;
+        for (const auto& b : fn.blocks)
+            for (const auto& i : b.insts) {
+                if ((i.op != Op::ZEXT && i.op != Op::SEXT && i.op != Op::TRUNC) || !i.dest.isVreg() ||
+                    !i.src1.isVreg() || consts.count(i.dest.vregId) || defs[i.dest.vregId] != 1 ||
+                    fn.localSlotVregs.count(i.dest.vregId))
+                    continue;
+                auto c = consts.find(i.src1.vregId);
+                if (c == consts.end()) continue;
+                auto st = fn.vregTypes.find(i.src1.vregId);
+                int from = st != fn.vregTypes.end() ? bits(st->second) : 0;
+                int to = bits(i.resultType);
+                if (!from || !to) continue;
+                int64_t v = c->second;
+                int w = i.op == Op::TRUNC ? to : from;
+                int64_t mask = (w >= 64) ? -1 : ((int64_t)1 << w) - 1;
+                v &= mask;
+                if (i.op == Op::SEXT && (v >> (from - 1)) & 1) v |= ~mask;
+                /* as a value of the destination width, sign-extended: a top
+                   bit set reads as negative, so no pass takes 0x8000 for the
+                   power of two 32768 in a signed division */
+                v &= ((int64_t)1 << to) - 1;
+                if ((v >> (to - 1)) & 1) v |= ~(((int64_t)1 << to) - 1);
+                consts[i.dest.vregId] = v;
+                changed = true;
+            }
+    }
     return consts;
 }
 } // namespace
@@ -289,6 +327,21 @@ void optimizeCSE(Module& mod) {
 
 // ============================================================================
 // Strength Reduction
+// A commutative operation (+ * & | ^) with a constant first operand and a
+// non-constant second one gets its operands swapped, so the simplifications
+// that look at the second operand see 0 ^ x, 1 * x, 4 * x as x ^ 0 ...
+static void constantSecond(Inst& inst, const std::map<uint32_t, int64_t>& constVals) {
+    switch (inst.op) {
+        case Op::ADD: case Op::MUL: case Op::MUL_U: case Op::AND: case Op::OR: case Op::XOR: break;
+        default: return;
+    }
+    auto isConst = [&](const Operand& o) {
+        return o.isImm() || (o.isVreg() && constVals.count(o.vregId));
+    };
+    if (isConst(inst.src1) && !isConst(inst.src2) && inst.src2.kind != OperandKind::NONE)
+        std::swap(inst.src1, inst.src2);
+}
+
 // ============================================================================
 
 void optimizeStrengthReduction(Module& mod) {
@@ -382,11 +435,20 @@ void optimizeStrengthReduction(Module& mod) {
                     }
                 }
 
-                // Only handle ops with a vreg src2 that resolves to a constant
-                if (!inst.src2.isVreg()) continue;
-                auto it = constVals.find(inst.src2.vregId);
-                if (it == constVals.end()) continue;
-                int64_t val = it->second;
+                // A constant first operand of a commutative op goes second
+                constantSecond(inst, constVals);
+
+                // Only handle ops whose src2 is a constant (immediate, or a vreg
+                // with one constant definition)
+                int64_t val;
+                if (inst.src2.isImm()) {
+                    val = inst.src2.immVal;
+                } else {
+                    if (!inst.src2.isVreg()) continue;
+                    auto it = constVals.find(inst.src2.vregId);
+                    if (it == constVals.end()) continue;
+                    val = it->second;
+                }
 
                 auto vd = [&]() { return "v" + std::to_string(inst.dest.vregId); };
                 switch (inst.op) {
@@ -453,6 +515,7 @@ void optimizeStrengthReduction(Module& mod) {
 // Algebraic Simplification
 // ============================================================================
 
+
 void optimizeAlgebraic(Module& mod) {
     for (auto& fn : mod.functions) {
         if (!runOn(fn, "AlgebraicSimplify")) continue;
@@ -483,6 +546,9 @@ void optimizeAlgebraic(Module& mod) {
                 inst.args.clear();
             }
         }
+
+        for (auto& block : fn.blocks)
+            for (auto& inst : block.insts) constantSecond(inst, constVals);
 
         // Helper: get constant value of an operand, if known
         auto getConst = [&](const Operand& op, int64_t& out) -> bool {
@@ -548,8 +614,8 @@ void optimizeAlgebraic(Module& mod) {
                                 inst.op = Op::CONST;
                                 inst.src1 = Operand::imm(0, inst.resultType);
                                 inst.src2 = Operand::none();
-                            } else if (val2 == fullMask(inst.resultType)) {
-                                // x & 0xFFFF (I16) → x
+                            } else if ((val2 & fullMask(inst.resultType)) == fullMask(inst.resultType)) {
+                                // x & 0xFFFF (I16; also written -1) → x
                                 trace("algebraic", fn.name, vd() + " = AND &mask → COPY", inst.loc);
                                 inst.op = Op::COPY;
                                 inst.src2 = Operand::none();
@@ -561,11 +627,26 @@ void optimizeAlgebraic(Module& mod) {
                                 trace("algebraic", fn.name, vd() + " = OR |0 → COPY", inst.loc);
                                 inst.op = Op::COPY;
                                 inst.src2 = Operand::none();
-                            } else if (val2 == fullMask(inst.resultType)) {
-                                // x | 0xFFFF → 0xFFFF
+                            } else if ((val2 & fullMask(inst.resultType)) == fullMask(inst.resultType)) {
+                                // x | 0xFFFF (also written -1) → 0xFFFF
                                 trace("algebraic", fn.name, vd() + " = OR |mask → CONST mask", inst.loc);
                                 inst.op = Op::CONST;
-                                inst.src1 = Operand::imm(val2, inst.resultType);
+                                inst.src1 = Operand::imm(fullMask(inst.resultType), inst.resultType);
+                                inst.src2 = Operand::none();
+                            }
+                            break;
+                        case Op::MUL:
+                        case Op::MUL_U:
+                            if (val2 == 1) {
+                                // x * 1 → x
+                                trace("algebraic", fn.name, vd() + " = MUL *1 → COPY", inst.loc);
+                                inst.op = Op::COPY;
+                                inst.src2 = Operand::none();
+                            } else if (val2 == 0) {
+                                // x * 0 → 0
+                                trace("algebraic", fn.name, vd() + " = MUL *0 → CONST 0", inst.loc);
+                                inst.op = Op::CONST;
+                                inst.src1 = Operand::imm(0, inst.resultType);
                                 inst.src2 = Operand::none();
                             }
                             break;

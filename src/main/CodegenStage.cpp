@@ -143,6 +143,9 @@ void CodegenStage::optimizeIR() {
         // again: constants the passes above made visible (a char divided by
         // a constant: the promoted divisor became a constant only now)
         {"StrengthReduction", ir::optimizeStrengthReduction},
+        // and again: a char's x & x is (zext x) & (zext x), the same operand
+        // only after TypeNarrowing / CSE
+        {"AlgebraicSimplify", ir::optimizeAlgebraic},
     };
 
     ir::optTrace = traceIROpt_ ? &std::cerr : nullptr;

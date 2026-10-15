@@ -123,6 +123,13 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - An undeclared name in a static initializer is an error (it was stored
   as 0). The preprocessor treated `"\\"` as ending in an escaped quote: the
   macros after such a string on the same line were not expanded.
+- A commutative operation (`+ * & | ^`) with the constant first is
+  simplified like one with it second: `0 ^ x` and `1 * x` were kept (`1 * x`
+  called the multiply routine), `4 * x` is a shift like `x * 4`. A
+  constant of another width (`x ^ 0` on a `char` or `long`: the 0 is
+  converted first) is seen as a constant; all ones in `&`/`|` is recognized
+  also when written `-1`; the simplification runs again after type
+  narrowing (`x & x` on a `char`).
 - scanf with floats is linked like printf's: `_scanf_float` is referenced
   when `scanf`/`fscanf`/`sscanf` gets a `float *`, or a unit with float code
   calls `vscanf`/`vfscanf`/`vsscanf`. `clock`, `rand` and `srand` are no

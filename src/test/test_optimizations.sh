@@ -135,5 +135,21 @@ printf 'int x;\nint x(void) { return 1; }\n' > $T/dup.c
 out=$($CC -c $T/dup.c -o $T/dup.o45 2>&1); rc=$?
 echo "$out" | grep -q "'x' redeclared as a different kind of symbol" && [ $rc -ne 0 ] && pass || fail "a variable and a function of the same name are not an error"
 
+# a constant first operand of a commutative op is seen like a second one:
+# 0 ^ x, 1 * x (also long) and 4 * x simplify like x ^ 0, x * 1, x * 4; a
+# constant of another width (x ^ 0 on a char or long: a zext of the 0) too
+printf 'unsigned a(unsigned x) { return 0 ^ x; }\nunsigned b(unsigned x) { return 1 * x; }\nunsigned long c(unsigned long x) { return 1 * x; }\nunsigned d(unsigned x) { return 4 * x; }\nunsigned char e(unsigned char x) { return x ^ 0; }\nunsigned long f(unsigned long x) { return x ^ 0; }\n' > $T/alg.c
+out=$(CC45_DUMP_IR=1 $CC -c $T/alg.c -o $T/alg.o45 2>&1)
+if ! echo "$out" | grep -qE "= (xor|mul_u|mul) " && echo "$out" | grep -q "= shl i16"; then pass; else fail "0^x / 1*x / 4*x not simplified"; fi
+
+# all ones on either side of & and | (also written -1), and x & x / x | x on
+# a char (the same operand only after type narrowing)
+printf 'unsigned a(unsigned x) { return 0xFFFF & x; }\nsigned b(signed x) { return x & -1; }\nunsigned long c(unsigned long x) { return x & 0xFFFFFFFFUL; }\nunsigned char d(unsigned char x) { return x & x; }\nunsigned char e(unsigned char x) { return x | x; }\n' > $T/ones.c
+out=$(CC45_DUMP_IR=1 $CC -c $T/ones.c -o $T/ones.o45 2>&1)
+if ! echo "$out" | grep -qE "= (and|or) "; then pass; else fail "all-ones & / x&x on a char not simplified"; fi
+printf 'unsigned a(unsigned x) { return 0xFFFF | x; }\nsigned b(signed x) { return -1 | x; }\n' > $T/ones2.c
+out=$(CC45_DUMP_IR=1 $CC -c $T/ones2.c -o $T/ones2.o45 2>&1)
+if ! echo "$out" | grep -qE "= or " && [ "$(echo "$out" | grep -c "const i16 65535")" = 2 ]; then pass; else fail "all-ones | not simplified"; fi
+
 echo "Optimization switch tests: $passed passed, $failed failed"
 [ $failed -eq 0 ]
