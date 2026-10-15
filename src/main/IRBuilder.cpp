@@ -4604,6 +4604,11 @@ void IRBuilder::visit(Assignment& node) {
             add.loc = loc(node);
             emit(add);
 
+            // The value in the field's own type (a short into a long:29
+            // sign-extends: its upper bits are the field's)
+            if (rhs.type != memberType && rhs.type != ir::Type::VOID && memberType != ir::Type::I_N)
+                rhs = emitCast(rhs, memberType, node.op == "=" ? getExprTypeInfo(node.expression.get()).isSigned
+                                                                : lastValueSigned_);
             ir::Inst bfins;
             bfins.op = ir::Op::BFINS;
             bfins.resultType = memberType;
@@ -6769,10 +6774,13 @@ normal_call:
                 // A parameter the body assigns (n = n - 1, n++) is a local
                 // variable: a slot (a STORE to a slot assigns it; to a plain
                 // temp it would be a store through a pointer)
+                // A struct or union passed by value (in a 4-byte integer) is
+                // read through its address (d.i): a slot in memory too
+                bool byValueAggregate = p.pointerLevel == 0 && structOf(p.type);
                 auto paramVreg = allocVreg(pt);
-                if (inlineParamAssigned(inlineFunc->body.get(), p.name)) {
+                if (byValueAggregate || inlineParamAssigned(inlineFunc->body.get(), p.name)) {
                     currentFunc_->localSlotVregs.insert(paramVreg.vregId);
-                    if (p.isVolatile) currentFunc_->memoryVregs.insert(paramVreg.vregId);
+                    if (p.isVolatile || byValueAggregate) currentFunc_->memoryVregs.insert(paramVreg.vregId);
                     ir::Inst st;
                     st.op = ir::Op::STORE;
                     st.resultType = pt;

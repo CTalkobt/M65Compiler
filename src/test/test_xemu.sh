@@ -1533,7 +1533,7 @@ for bsmode in "zp|" "stack|-fno-zpcall"; do
     echo "Testing test_bitfield_store_xemu.c ($bsname)..."
     compile_link_test "src/test-resources/test_bitfield_store_xemu.c" "build/test/test_bitfield_store_${bsname}_xemu.prg" "$bsflags"
     if [ $? -eq 0 ]; then
-        run_xemu_test "test_bitfield_store_$bsname" "build/test/test_bitfield_store_${bsname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+        run_xemu_test "test_bitfield_store_$bsname" "build/test/test_bitfield_store_${bsname}_xemu.prg" "C0C0" 9 "01 01 01 01 01 01 01 01 AA"
     else
         echo "FAIL: test_bitfield_store_xemu.c $bsname (compilation/linking failed)"
         failed=$((failed + 1))

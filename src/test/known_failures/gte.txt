@@ -9,13 +9,6 @@
 # Bitfields of unsigned long long and of more than 16 bits in unsigned int
 # (20040709-3 includes 20040709-2):
 #   20040709-2, 20040709-3
-# Bitfields over 16 bits in a long (cc45 bugs):
-#   pr19689 (a short stored in a signed long:29 loses its sign), pr58570 (a
-#   long:29 at bit 15 of a packed struct), pr89195 (a struct with an
-#   unsigned long:24 passed by value)
 20040709-2
 20040709-3
 eeprof-1
-pr19689
-pr58570
-pr89195

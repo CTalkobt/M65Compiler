@@ -37,6 +37,10 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - `__int(8)`, `__int(16)`, `__int(32)` and `__uint(...)` are the native
   `char`, `int` and `long` (`__int(32)` was an "Unknown struct" error); only
   wider ones include `<intwide.h>`.
+- Bitfields over 16 bits in a `long`: a narrower value stored in one is
+  widened first (a `short` -55 in a `signed long : 29` read back positive);
+  a struct passed by value to an inlined function keeps a memory copy (its
+  members were read through the address of a register temporary).
 
 ### Standard library
 

@@ -9,7 +9,12 @@
  *   [5] unnamed ':0' bitfield skipped by positional initializers;
  *       bitfields in local and compound-literal initializers
  *   [6] same member name as a bitfield in another struct isn't a bitfield
- *   [7] $AA sentinel
+ *   [7] fields over 16 bits in a long: a short stored in a signed long:29
+ *       keeps its sign (it was not widened first), a long:29 after a
+ *       long:15 in a packed struct, a struct with an unsigned long:24
+ *       passed by value to an inlined function (its member was read from
+ *       a register copy that had no address)
+ *   [8] $AA sentinel
  */
 #define OUT ((volatile unsigned char *)0xC0C0)
 
@@ -21,6 +26,15 @@ struct W { long lo : 12; long hi : 20; } w;
 typedef struct { unsigned M1; unsigned M2 : 1; int : 0; unsigned M3 : 1; } S;
 struct Bx { int x : 3; int y; } bx;
 struct Nx { int x; int y; } nx;
+struct L29 { signed long b : 29; } l29;
+#pragma pack(1)
+struct P2 { long f0 : 15; signed long f1 : 29; };
+#pragma pack()
+static struct P2 p2[3];
+struct U24 { unsigned long i : 24; };
+static void put29(signed short j) { l29.b = j; }
+static unsigned long get24(struct U24 v) { return v.i; }
+static unsigned char and24(struct U24 v, unsigned char m) { return v.i & m; }
 
 int main(void) {
     volatile int v = 32;
@@ -54,6 +68,15 @@ int main(void) {
 
     bx.y = 5; nx.x = 1000; nx.y = 77;
     OUT[6] = nx.x == 1000 && nx.y == 77 && bx.y == 5;
-    OUT[7] = 0xAA;
+    {
+        struct U24 u = { 0x123456 };
+        signed int k = 1;
+        put29(-55);
+        p2[k].f0 = 1;
+        p2[k].f1 = -2;
+        OUT[7] = l29.b == -55 && p2[1].f0 == 1 && p2[1].f1 == -2 && p2[0].f1 == 0 &&
+                 get24(u) == 0x123456UL && and24(u, 0x75) == (0x56 & 0x75);
+    }
+    OUT[8] = 0xAA;
     return 0;
 }
