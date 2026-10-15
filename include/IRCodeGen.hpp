@@ -282,6 +282,7 @@ private:
     std::map<std::string, std::vector<std::string>> functionParameterNames_;
     std::map<std::string, std::vector<ir::Type>> functionParameterTypes_;  // (same unit)
     std::set<std::string> emittedLabelRefs_;  // @labels named by the emitted code (this function)
+    bool skipBrIndirect_ = false;            // the next BR_INDIRECT was emitted as jmp (table,x)
     std::set<std::string> smallGlobals_;      // globals of at most 256 bytes (not __zp/__far)
     // An element of a small global array: Y = index * stride (a byte offset
     // fits), returns the operand "name+off" for name+off,y (false: not small)

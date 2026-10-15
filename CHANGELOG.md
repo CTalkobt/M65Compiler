@@ -73,6 +73,10 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   strides 1, 2, 4) is `lda name+off,y` / `sta name+off,y` with the scaled
   index in Y, instead of an address built in `__zp_scratch` and `(zp),y`.
   The examples are 4554 more bytes smaller (forth by 16%).
+- `goto *table[i]` through a static label table of at most 256 bytes is
+  `asl; tax; jmp (table,x)` (the 45GS02's indexed indirect jump) instead of
+  the table entry patched into a self-modified `jmp`: about 16 bytes less
+  per dispatch and much faster (forth 570 bytes smaller, calc_graph 207).
 - ln45: calls after a computed-goto label (cc45 exports `f__lbl_x` for
   `&&x` in a table) are the function's: the static-allocation overlay gave
   a computed-goto interpreter and the functions it calls the same storage.

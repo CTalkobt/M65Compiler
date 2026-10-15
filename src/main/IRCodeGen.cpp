@@ -4951,6 +4951,37 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                 auto& index = inst.args[1];
                 int stride = (int)inst.args[2].immVal;
 
+                // goto *table[i] (computed goto through a static label table
+                // of at most 256 bytes): X = i * 2; jmp (table,x), no
+                // self-modified jump. The BR_INDIRECT that follows is done.
+                if (inst.resultType == ir::Type::PTR && stride == 2 && inst.dest.isVreg() &&
+                    base.kind == ir::OperandKind::GLOBAL && smallGlobals_.count(base.name) && index.isVreg() &&
+                    inst.elemOffset >= 0 && inst.elemOffset + 2 <= 256) {
+                    const ir::Inst* nx = peekNextInst();
+                    bool onlyUse = nx && nx->op == ir::Op::BR_INDIRECT && nx->args.empty() && nx->src1.isVreg() &&
+                                   nx->src1.vregId == inst.dest.vregId;
+                    if (onlyUse) {
+                        int uses = 0;
+                        for (const auto& b : currentFn_->blocks)
+                            for (const auto& in : b.insts) {
+                                for (const ir::Operand* o : {&in.src1, &in.src2})
+                                    if (o->isVreg() && o->vregId == inst.dest.vregId) uses++;
+                                for (const auto& a : in.args) if (a.isVreg() && a.vregId == inst.dest.vregId) uses++;
+                            }
+                        onlyUse = uses == 1;
+                    }
+                    if (onlyUse) {
+                        loadOperand(index);
+                        emit("asl");
+                        emit("tax", "dispatch through " + base.name);
+                        std::string op = inst.elemOffset ? base.name + "+" + std::to_string(inst.elemOffset) : base.name;
+                        emit("jmp (" + op + ",x)");
+                        skipBrIndirect_ = true;
+                        elemCache_.valid = false;
+                        ms_.invalidateAll();
+                        break;
+                    }
+                }
                 // a small global array: name+off,y
                 if (inst.resultType == ir::Type::I8 || inst.resultType == ir::Type::I16 ||
                     inst.resultType == ir::Type::PTR) {
@@ -5777,6 +5808,7 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
         }
 
         case ir::Op::BR_INDIRECT: {
+            if (skipBrIndirect_) { skipBrIndirect_ = false; break; }   // jmp (table,x) done
             loadVreg(inst.src1.vregId);
             // Self-modified JMP, as for indirect calls: JMP (abs) can't
             // address the relocated base page.
