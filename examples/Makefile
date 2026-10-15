@@ -19,6 +19,10 @@ SUBDIRS = \
 	c/invaders \
 	c/mandelbrot \
 	c/musicgen \
+	c/calc_graph \
+	c/forth \
+	c/rtc_clock \
+	c/rogue \
 	c/stdlib/string_h \
 	c/stdlib/stdlib_h \
 	c/stdlib/ctype_h \

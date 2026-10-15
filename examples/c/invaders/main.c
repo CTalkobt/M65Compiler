@@ -11,6 +11,9 @@
  *   - input: joystick port 2 or the keyboard (Z/X or , . to move, SPACE to
  *     fire), scanned directly (key_pressed)
  *   - sound: SID effects (shot, explosion, UFO) and the marching beat
+ *   - file I/O: the high score is kept on disk ("invaders.hi" on device 8,
+ *     fopen/fread/fwrite), read at the start and written after a game that
+ *     beat it
  *
  * Without a player it runs an attract mode in which the computer plays.
  * FIRE or SPACE starts a game; RUN/STOP returns to BASIC.
@@ -20,6 +23,11 @@
 #include <dma.h>
 #include <mega65.h>
 #include "gfx.h"
+
+/* the program ends near $B200 with the file I/O: a 2 KB stack share (the
+ * game needs little: its functions keep their variables in static storage)
+ * leaves the heap fopen needs below the stack */
+#pragma cc45 stack_size(2048)
 
 #define COLS 80
 #define ROWS 25
@@ -281,10 +289,43 @@ static const unsigned char type_points[3] = {30, 20, 10};
 static void add_score(unsigned int pts) {
     score += pts;
     put_number(HUD_ROW, 7, score, 5);
-    if (score > hiscore) {
+    if (state == PLAYING && score > hiscore) {     /* the attract mode's score does not count */
         hiscore = score;
         put_number(HUD_ROW, 37, hiscore, 5);
     }
+}
+
+/* The high score on disk: "invaders.hi", a sequential file on device 8
+ * holding the score in decimal. Read at the start (a missing file or a
+ * disk error leaves it at 0) and written between games, when a game beat
+ * the score on disk (the KERNAL's disk code runs while nothing moves). */
+#define HI_FILE "invaders.hi"
+static unsigned int saved_hi;
+
+static void load_hiscore(void) {
+    char buf[8];
+    unsigned int v = 0;
+    size_t n, i;
+    FILE *f = fopen(HI_FILE, "r");
+    if (!f) return;
+    n = fread(buf, 1, sizeof buf, f);
+    fclose(f);
+    for (i = 0; i < n && buf[i] >= '0' && buf[i] <= '9'; i++) v = v * 10 + (buf[i] - '0');
+    hiscore = saved_hi = v;
+}
+
+static void save_hiscore(void) {
+    char buf[6];
+    unsigned char i = 5;
+    unsigned int v = hiscore;
+    FILE *f;
+    if (hiscore <= saved_hi) return;
+    buf[5] = '\r';
+    do { buf[--i] = (char)('0' + v % 10); v /= 10; } while (i);
+    f = fopen(HI_FILE, "w");
+    if (!f) return;
+    if (fwrite(buf, 1, sizeof buf, f) == sizeof buf) saved_hi = hiscore;
+    fclose(f);
 }
 
 static void draw_hud(void) {
@@ -815,10 +856,22 @@ static void restore(void) {
     putchar(0x93);
 }
 
+/* -DINV_TEST: the high-score test (headless xemu with a D81 on device 8):
+ * $C0C0/1 the score read at the start, then a game that beats it by 1230
+ * ends, the score is saved and read back into $C0C2/3; $C0C4 = $AA */
 int main(void) {
+    load_hiscore();
     setup();
     ai_col = -1;
     start(ATTRACT);
+#ifdef INV_TEST
+    REG(0xC0C0) = (unsigned char)hiscore;
+    REG(0xC0C1) = (unsigned char)(hiscore >> 8);
+    start(PLAYING);
+    add_score(hiscore + 1230);
+    state = GAME_OVER;
+    state_timer = 1;
+#endif
     while (ASCIIKEY) ASCIIKEY = 0;        /* no stale key presses */
     while (!quit_key && !stop_pressed()) {
         wait_vsync();
@@ -828,10 +881,23 @@ int main(void) {
             start(PLAYING);
             message(s"");
         } else if (state == GAME_OVER && --state_timer == 0) {
+            save_hiscore();
             start(ATTRACT);
+#ifdef INV_TEST
+            quit_key = 1;
+#endif
         }
         play_frame();
     }
+    snd_off();
+    save_hiscore();                       /* quit during a game that beat it */
     restore();
+#ifdef INV_TEST
+    hiscore = saved_hi = 0;
+    load_hiscore();
+    REG(0xC0C2) = (unsigned char)hiscore;
+    REG(0xC0C3) = (unsigned char)(hiscore >> 8);
+    REG(0xC0C4) = 0xAA;
+#endif
     return 0;
 }

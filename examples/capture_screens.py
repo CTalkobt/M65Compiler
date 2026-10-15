@@ -37,6 +37,10 @@ EXAMPLES = {
     "invaders": "examples/c/invaders/invaders.prg",
     "mandelbrot": "examples/c/mandelbrot/mandelbrot.prg",
     "musicgen": "examples/c/musicgen/musicgen.prg",
+    "calc_graph": "examples/c/calc_graph/calc_graph.prg",
+    "forth": "examples/c/forth/forth.prg",
+    "rogue": "examples/c/rogue/rogue.prg",
+    "rtc_clock": "examples/c/rtc_clock/rtc_clock.prg",
     "ctype_demo": "examples/c/stdlib/ctype_h/ctype_demo.prg",
     # the library checks print nothing: one picture stands for them all
     "test_strlen": "examples/c/stdlib/string_h/test_strlen.prg",

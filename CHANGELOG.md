@@ -105,14 +105,29 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 - New `far_scroller` (a map in bank 4 scrolled with DMA, parallax).
 - New `invaders`: a Space Invaders game (object extensions, a DMA-copied
-  character set, 16-colour sprites, SID sound, joystick/keyboard).
+  character set, 16-colour sprites, SID sound, joystick/keyboard); the
+  high score is saved to and loaded from `INVADERS.HI` on the disk.
 - New `mandelbrot`: a Mandelbrot viewer (FCM 320x192 bitmap at 8 bits a
   pixel, palette cycling, an assembly kernel on the Q register and the
   hardware multiplier, zoom to 2^20).
+- New `forth`: a tiny Forth (a programmable calculator) whose inner
+  interpreter dispatches with computed goto; `make check` runs a test script.
 - New `musicgen`: a random music generator in seven styles (Markov chord
   tables with fixed cadences, AABA or 12-bar blues form, motif-based
   melodies on chord tones, voice-led chords, walking/boogie/Alberti bass,
   drums with swing), 14 SID instruments, tempo and style keys.
+- New `calc_graph`: a scientific calculator that plots y = f(x); a
+  shunting-yard compiler and a computed-goto bytecode evaluator, a raster
+  interrupt hooked through the KERNAL's `$0314` (safe while the float
+  routines map the BASIC ROM in), GCC extensions throughout.
+- New `rtc_clock`: the real-time clock in big digits with the date, a
+  seconds bar and a stopwatch; reads the RTC registers at `$FFD7110` with
+  `dma_copy_far`.
+- New `rogue`: a mini rogue-like (random rooms and corridors per level,
+  lit rooms and map memory, monsters by depth, combat, items, experience,
+  the amulet on depth 8).
+- New `disk`: every example on one D81 (`make -C examples/disk`, disk45)
+  with a basic45 menu saved as `AUTOBOOT.C65` that `DLOAD`s them.
 - `text_scroller`: 80 columns, screen-code message, a bouncing ball sprite
   passing in front of and behind the text; `game_of_life` (80x25 screen,
   signed neighbour offsets), `bitfield_registers` (`$D031`/`$D054` layouts

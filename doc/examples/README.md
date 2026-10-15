@@ -10,6 +10,26 @@ directory; most have `make run` to start xemu). The pictures are made by
 The MEGA65's own boot screen and `READY.` prompt show in the pictures of the
 programs that print text and return to BASIC.
 
+## The examples disk
+
+[Source](https://github.com/CTalkobt/M65Compiler/tree/main/examples/disk) —
+`make -C examples/disk` builds every example and puts them on one D81 disk
+image, `examples/disk/examples.d81`, with
+[disk45](../bin/disk45.md): `create`, an `add` for each program (named as
+in [`programs.txt`](https://github.com/CTalkobt/M65Compiler/blob/main/examples/disk/programs.txt)),
+`validate` and `list`. The menu,
+[`menu.bas`](https://github.com/CTalkobt/M65Compiler/blob/main/examples/disk/menu.bas),
+is a BASIC 65 program written in [basic45](../bin/basic45.md)'s source form
+(labels, no line numbers). It is saved as `AUTOBOOT.C65`, so a MEGA65 that
+starts with the disk mounted runs it, and as `MENU`. A key loads and starts an
+example with `DLOAD`: inside a running program it loads the next one and runs
+it, and every example is a BASIC `SYS` line at `$2001` followed by its code.
+When an example ends, `RUN "MENU"` brings the menu back. `make -C examples/disk run`
+starts xemu with the disk in drive 8; on a MEGA65, copy the D81 to the SD card
+and mount it.
+
+![The examples disk's menu](images/disk_menu.png)
+
 ## Games and demos
 
 ### invaders
@@ -21,6 +41,10 @@ character set is copied to bank 4 with `dma_copy_far` and redefined (aliens,
 shields); the cannon and UFO are 16-colour VIC-IV sprites; SID sound effects
 and the marching beat. An attract mode plays by itself (shown); FIRE or SPACE
 starts a game, Z/X, `,`/`.`, the cursor keys or a joystick move, RUN/STOP quits.
+The high score is kept on disk: `INVADERS.HI`, a sequential file on device 8
+holding the score in decimal, read with `fopen`/`fread` at the start and
+written with `fwrite` after a game that beat it (a missing file or a disk
+error leaves it at 0; the attract mode's score does not count).
 
 ![invaders](images/invaders.png)
 
@@ -48,6 +72,71 @@ swing, played by 14 SID instruments on four SIDs. Keys 1-7 choose the style,
 and checks them against the chords and scales.
 
 ![musicgen](images/musicgen.png)
+
+### calc_graph
+
+[Source](https://github.com/CTalkobt/M65Compiler/tree/main/examples/c/calc_graph) —
+A scientific calculator that plots. An expression (+ - * / ^, parentheses,
+implicit multiplication like `2x` or `3sin(x)`, `x`, `pi`, `e`, `ans`, sin cos
+tan atn sqrt log exp abs int) is compiled to bytecode by a shunting-yard
+parser and run by an evaluator that dispatches with computed goto
+(`goto *ops[*pc++]`), in cc45's ROM-backed floats; with `x` in it, it is
+plotted (up to four curves) on a full-colour 320x128 graph. A raster
+interrupt colours the graph area's border and background and counts frames:
+an `__interrupt` handler behind a stub at the KERNAL's `$0314` vector, which
+also handles interrupts that arrive while the float routines have the BASIC
+ROM mapped over the program. Shows GCC extensions: computed goto, nested
+functions, statement expressions with `typeof`, case ranges, designated
+initializers, `?:`, `__attribute__`. The demo at the start computes two
+values and plots three curves (shown); a marker runs along the newest one.
+(xemu's exit screenshot is rendered without the CPU, so it shows no raster
+split.)
+
+![calc_graph](images/calc_graph.png)
+
+### rtc_clock
+
+[Source](https://github.com/CTalkobt/M65Compiler/tree/main/examples/c/rtc_clock) —
+The real-time clock in big digits (a 5x7 font drawn with reverse spaces),
+the weekday and date, a bar of the seconds and a stopwatch counted in video
+frames. The RTC's BCD registers at `$FFD7110`-`$FFD7116` lie outside the
+16-bit address space, so a `dma_copy_far` copies them into a buffer each
+frame. H switches 12/24 hours, S starts and stops the stopwatch, R resets
+it, C changes the colours. `make check` reads the RTC twice, a second
+apart, and checks the values.
+
+![rtc_clock](images/rtc_clock.png)
+
+### rogue
+
+[Source](https://github.com/CTalkobt/M65Compiler/tree/main/examples/c/rogue) —
+A mini rogue-like: each level is a new random dungeon (a 3x3 grid of rooms,
+some only a corridor crossing, joined along a random spanning tree plus a
+few extra corridors), rooms light up when entered and what you have seen
+stays on the map. Monsters (rats to dragons, by depth) wake when they see
+you and chase you; walk into one to fight. Potions heal, weapons and armour
+improve attack and defence, experience raises your level; the amulet waits
+on depth 8. Monsters and items are structs with single inheritance
+(`struct Monster : Thing`) and a method. Cursor keys or h/j/k/l and y/u/b/n
+move, `>` goes down. `make check` tests levels from fixed seeds
+(everything reachable, nothing overlapping), scripted moves, a fight and a
+3000-step random walk.
+
+![rogue](images/rogue.png)
+
+### forth
+
+[Source](https://github.com/CTalkobt/M65Compiler/tree/main/examples/c/forth) —
+A tiny Forth: a calculator you can program. Numbers go on a 16-bit stack,
+words act on it (`2 3 + 4 * .` prints 20); `: sq dup * ;` defines a new word,
+with `if`/`else`/`then`, `do`/`loop`/`i`, `begin`/`until`, variables and
+constants; `*/`, `sqrt`, `hex`/`decimal`. A definition compiles to threaded
+code that the inner interpreter runs with GCC's computed goto, one jump per
+word (`goto *ops[code[ip++]]`); statement expressions, case ranges and a
+nested function appear too. The picture shows the demo lines it runs at
+start; type more at the keyboard, BYE or RUN/STOP returns to BASIC.
+
+![forth](images/forth.png)
 
 ### far_scroller
 
