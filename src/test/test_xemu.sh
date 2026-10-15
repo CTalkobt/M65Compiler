@@ -1207,6 +1207,21 @@ for cpmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: values put together from bytes (a | b << 8 | (long)c << 16) built
+# byte by byte, loads through constant addresses, and the cases that must
+# stay OR-ed (overlapping bytes, sign extension)
+for bjmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r bjname bjflags <<< "$bjmode"
+    echo "Testing test_bytejoin_xemu.c ($bjname)..."
+    compile_link_test "src/test-resources/test_bytejoin_xemu.c" "build/test/test_bytejoin_${bjname}_xemu.prg" "$bjflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_bytejoin_$bjname" "build/test/test_bytejoin_${bjname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_bytejoin_xemu.c $bjname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: <input.h> with keys pressed through the virtual key registers
 # ($D615/$D616: the real path of typed keys), joysticks
 for inmode in "zp|" "stack|-fno-zpcall"; do

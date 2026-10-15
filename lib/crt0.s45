@@ -133,9 +133,7 @@ __start:
     pha                 ; count low
     lda #$03
     pha                 ; command: fill
-    lda #0
-    sta $D702           ; list bank
-    tsx
+    tsx                 ; the job list at SP+1 into Y:X
     tsy
     txa
     clc
@@ -143,8 +141,14 @@ __start:
     tax
     tya
     adc #0
-    sta $D701           ; list address high
+    tay
+    php                 ; (no interrupt between the DMA register writes)
+    sei
+    lda #0
+    sta $D702           ; list bank
+    sty $D701           ; list address high
     stx $D700           ; list address low: starts the job
+    plp
     ldx #12
 @bss_drop:
     pla

@@ -572,6 +572,13 @@ void optimizeAlgebraic(Module& mod) {
         if (!runOn(fn, "AlgebraicSimplify")) continue;
         // Build constant value map
         std::map<uint32_t, int64_t> constVals = singleDefConsts(fn);
+        // (vregs are not SSA: only a single definition becomes a constant)
+        std::map<uint32_t, int> defCount;
+        for (const auto& b : fn.blocks)
+            for (const auto& i : b.insts) {
+                if (i.dest.isVreg()) defCount[i.dest.vregId]++;
+                if ((i.op == Op::STORE || i.op == Op::STORE_ZP) && i.src2.isVreg()) defCount[i.src2.vregId] += 2;
+            }
 
         // An element address with a constant index (after loop unrolling,
         // for example) on a global or pointer base: base + index * stride,
@@ -641,6 +648,41 @@ void optimizeAlgebraic(Module& mod) {
                             inst.src2 = Operand::none();
                             continue;
                         default: break;
+                    }
+                }
+
+                // Both operands constant (c + 1 on a pointer assigned a
+                // constant address): the result, as a constant
+                int64_t c1, c2;
+                bool fold = false;
+                int64_t r = 0;
+                if (inst.dest.isVreg() && inst.args.empty() && inst.resultType != Type::F32 &&
+                    !fn.localSlotVregs.count(inst.dest.vregId) && !fn.memoryVregs.count(inst.dest.vregId) &&
+                    defCount[inst.dest.vregId] == 1 && getConst(inst.src1, c1)) {
+                    if (inst.op == Op::COPY) { r = c1; fold = true; }
+                    else if (getConst(inst.src2, c2)) {
+                        int64_t m = fullMask(inst.resultType);
+                        fold = true;
+                        switch (inst.op) {
+                            case Op::ADD: r = c1 + c2; break;
+                            case Op::SUB: r = c1 - c2; break;
+                            case Op::MUL: case Op::MUL_U: r = c1 * c2; break;
+                            case Op::AND: r = c1 & c2; break;
+                            case Op::OR:  r = c1 | c2; break;
+                            case Op::XOR: r = c1 ^ c2; break;
+                            case Op::SHL: case Op::LSL: r = (c2 >= 0 && c2 < 32) ? (c1 << c2) : 0; break;
+                            case Op::SHR: case Op::LSR: r = (c2 >= 0 && c2 < 32) ? ((c1 & m) >> c2) : 0; break;
+                            default: fold = false;
+                        }
+                    }
+                    if (fold && (inst.resultType == Type::I8 || inst.resultType == Type::I16 ||
+                                 inst.resultType == Type::PTR || inst.resultType == Type::I32)) {
+                        trace("algebraic", fn.name, "v" + std::to_string(inst.dest.vregId) + " = constants → CONST " +
+                              std::to_string(r & fullMask(inst.resultType)), inst.loc);
+                        inst.op = Op::CONST;
+                        inst.src1 = Operand::imm(r & fullMask(inst.resultType), inst.resultType);
+                        inst.src2 = Operand::none();
+                        continue;
                     }
                 }
 

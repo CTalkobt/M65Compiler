@@ -166,6 +166,154 @@ std::string IRCodeGen::directByte(const ir::Operand& op, int k) const {
     return base + "+" + std::to_string(k);
 }
 
+std::map<uint32_t, IRCodeGen::ByteJoin> IRCodeGen::findByteJoins(const ir::Function& fn) const {
+    std::map<uint32_t, ByteJoin> found;
+    auto width = [](ir::Type t) {
+        return t == ir::Type::I8 ? 1 : (t == ir::Type::I16 || t == ir::Type::PTR) ? 2 : t == ir::Type::I32 ? 4 : 0;
+    };
+    // definitions and uses of each vreg
+    std::map<uint32_t, int> defs, uses;
+    for (const auto& blk : fn.blocks)
+        for (const auto& in : blk.insts) {
+            if (in.dest.isVreg()) defs[in.dest.vregId]++;
+            for (const ir::Operand* o : {&in.src1, &in.src2}) if (o->isVreg()) uses[o->vregId]++;
+            for (const auto& a : in.args) if (a.isVreg()) uses[a.vregId]++;
+            for (const auto& ph : in.phiIncoming) if (ph.first.isVreg()) uses[ph.first.vregId] += 2;
+        }
+    std::set<uint32_t> taken;   // nodes of a tree found already
+    for (const auto& blk : fn.blocks) {
+        const auto& insts = blk.insts;
+        std::map<uint32_t, size_t> at;   // vreg defined in this block (single definition) → index
+        for (size_t i = 0; i < insts.size(); i++)
+            if (insts[i].dest.isVreg() && defs[insts[i].dest.vregId] == 1) at[insts[i].dest.vregId] = i;
+        for (size_t r = insts.size(); r-- > 0;) {
+            const auto& root = insts[r];
+            if (root.op != ir::Op::OR || !root.dest.isVreg() || taken.count(root.dest.vregId) ||
+                defs[root.dest.vregId] != 1 || fn.localSlotVregs.count(root.dest.vregId) ||
+                fn.memoryVregs.count(root.dest.vregId) || width(root.resultType) < 2 || !root.args.empty())
+                continue;
+            ByteJoin bj;
+            std::set<uint32_t> leaves;
+            std::map<uint32_t, size_t> leafUser;   // the first node reading a leaf
+            size_t first = r;
+            // the bytes of op (w bytes wide) as consumed by instruction user
+            std::function<bool(const ir::Operand&, int, size_t, std::vector<ByteSrc>&)> bytesOf;
+            bytesOf = [&](const ir::Operand& op, int w, size_t user, std::vector<ByteSrc>& out) -> bool {
+                out.assign(w, ByteSrc{});
+                if (op.isImm()) {
+                    for (int k = 0; k < w; k++) {
+                        int v = (int)((op.immVal >> (8 * k)) & 0xFF);
+                        out[k] = v ? ByteSrc{2, 0, v} : ByteSrc{};
+                    }
+                    return true;
+                }
+                if (!op.isVreg()) return false;
+                uint32_t v = op.vregId;
+                auto it = at.find(v);
+                bool node = it != at.end() && it->second < user && uses[v] == 1 && !taken.count(v) &&
+                            !fn.localSlotVregs.count(v) && !fn.memoryVregs.count(v) && insts[it->second].args.empty();
+                if (node) {
+                    auto savedNodes = bj.nodes; auto savedLeaves = leaves; auto savedUser = leafUser;
+                    size_t savedFirst = first;
+                    const auto& in = insts[it->second];
+                    int iw = width(in.resultType);
+                    std::vector<ByteSrc> a, b;
+                    bool ok = iw == w;
+                    if (ok) switch (in.op) {
+                        case ir::Op::OR:
+                            ok = bytesOf(in.src1, w, it->second, a) && bytesOf(in.src2, w, it->second, b);
+                            for (int k = 0; ok && k < w; k++) {
+                                if (a[k].kind && b[k].kind) ok = false;
+                                else out[k] = a[k].kind ? a[k] : b[k];
+                            }
+                            break;
+                        case ir::Op::ZEXT: {
+                            int sw = width(in.src1.type);
+                            ok = sw > 0 && sw < w && bytesOf(in.src1, sw, it->second, a);
+                            for (int k = 0; ok && k < sw; k++) out[k] = a[k];
+                            break;
+                        }
+                        case ir::Op::TRUNC: {
+                            int sw = width(in.src1.type);
+                            ok = sw > w && bytesOf(in.src1, sw, it->second, a);
+                            for (int k = 0; ok && k < w; k++) out[k] = a[k];
+                            break;
+                        }
+                        case ir::Op::SHL: case ir::Op::LSL:
+                        case ir::Op::SHR: case ir::Op::LSR: {
+                            ok = in.src2.isImm() && in.src2.immVal > 0 && in.src2.immVal % 8 == 0 &&
+                                 bytesOf(in.src1, w, it->second, a);
+                            int n = ok ? (int)(in.src2.immVal / 8) : 0;
+                            bool left = in.op == ir::Op::SHL || in.op == ir::Op::LSL;
+                            for (int k = 0; ok && k < w; k++) {
+                                int s = left ? k - n : k + n;
+                                if (s >= 0 && s < w) out[k] = a[s];
+                            }
+                            break;
+                        }
+                        case ir::Op::AND:
+                            ok = in.src2.isImm() && bytesOf(in.src1, w, it->second, a);
+                            for (int k = 0; ok && k < w; k++) {
+                                int m = (int)((in.src2.immVal >> (8 * k)) & 0xFF);
+                                if (m == 0xFF) out[k] = a[k];
+                                else if (m != 0) ok = false;
+                            }
+                            break;
+                        default:
+                            ok = false;
+                    }
+                    if (ok) {
+                        bj.nodes.insert(v);
+                        first = std::min(first, it->second);
+                        return true;
+                    }
+                    bj.nodes = savedNodes; leaves = savedLeaves; leafUser = savedUser; first = savedFirst;
+                    out.assign(w, ByteSrc{});
+                }
+                // a leaf: its bytes as they are
+                if (width(op.type) != w) return false;
+                leaves.insert(v);
+                if (!leafUser.count(v) || leafUser[v] > user) leafUser[v] = user;
+                for (int k = 0; k < w; k++) out[k] = ByteSrc{1, v, k};
+                return true;
+            };
+            std::vector<ByteSrc> a, b;
+            int w = width(root.resultType);
+            if (!bytesOf(root.src1, w, r, a) || !bytesOf(root.src2, w, r, b) || bj.nodes.empty()) continue;
+            bool ok = true;
+            bj.bytes.assign(w, ByteSrc{});
+            for (int k = 0; k < w && ok; k++) {
+                if (a[k].kind && b[k].kind) ok = false;
+                else bj.bytes[k] = a[k].kind ? a[k] : b[k];
+            }
+            // between the first node and the root: nothing that writes memory
+            // or a leaf
+            for (size_t i = first; i < r && ok; i++) {
+                const auto& in = insts[i];
+                if (in.dest.isVreg() && bj.nodes.count(in.dest.vregId)) continue;
+                // (a leaf keeps its value from the node reading it to the root)
+                if (in.dest.isVreg() && leaves.count(in.dest.vregId) && i >= leafUser[in.dest.vregId]) ok = false;
+                switch (in.op) {
+                    case ir::Op::CONST: case ir::Op::ADD: case ir::Op::SUB: case ir::Op::AND: case ir::Op::OR:
+                    case ir::Op::XOR: case ir::Op::SHL: case ir::Op::SHR: case ir::Op::LSL: case ir::Op::LSR:
+                    case ir::Op::ASR: case ir::Op::NEG: case ir::Op::NOT: case ir::Op::ZEXT: case ir::Op::SEXT:
+                    case ir::Op::TRUNC: case ir::Op::COPY: case ir::Op::NOP: case ir::Op::ADDR_GLOBAL:
+                        break;
+                    case ir::Op::LOAD:
+                        if (!in.args.empty()) ok = false;
+                        break;
+                    default:
+                        ok = false;
+                }
+            }
+            if (!ok) continue;
+            taken.insert(bj.nodes.begin(), bj.nodes.end());
+            found[root.dest.vregId] = bj;
+        }
+    }
+    return found;
+}
+
 bool IRCodeGen::f32AbsBase(uint32_t vregId, std::string& base) {
     auto a = alloc_.getAlloc(vregId);
     if (a.loc == VRegAllocator::IN_ZP) { base = "$" + hex8((uint8_t)a.offset); return true; }
@@ -2415,6 +2563,14 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     alloc_.setRegisterXVregs(fn.registerXVregs);
     alloc_.setRegisterYVregs(fn.registerYVregs);
     alloc_.setRegisterZVregs(fn.registerZVregs);
+    byteJoins_ = findByteJoins(fn);
+    byteJoinSkip_.clear();
+    {
+        std::vector<std::pair<uint32_t, uint32_t>> live;
+        for (const auto& [root, bj] : byteJoins_)
+            for (const auto& b : bj.bytes) if (b.kind == 1) live.push_back({b.vreg, root});
+        alloc_.setLiveUntil(live);
+    }
     alloc_.analyze(fn, ZP_POOL_START, ZP_POOL_SLOTS);
 
     // Populate vregOffset_ from allocator decisions (frame-allocated vregs only)
@@ -2631,7 +2787,10 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                     if (!canSuppress) break;
                     // Check src1
                     if (inst.src1.isVreg() && inst.src1.vregId == vid) {
-                        if (inst.op == ir::Op::STORE && inst.resultType != ir::Type::F32 &&
+                        if (inst.op == ir::Op::LOAD && inst.args.empty() &&
+                            inst.resultType != ir::Type::F32 && !fn.localSlotVregs.count(vid)) {
+                            hasUse = true; // address of a load (absolute)
+                        } else if (inst.op == ir::Op::STORE && inst.resultType != ir::Type::F32 &&
                             inst.src2.kind == ir::OperandKind::GLOBAL) {
                             hasUse = true; // value of a global store (loaded as an immediate)
                         } else if (inst.op == ir::Op::STORE && inst.resultType != ir::Type::F32 &&
@@ -2797,6 +2956,16 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
 
     // Store SAC mode for this function (used by loadVreg/storeVreg for addressing)
     currentFunctionUseSAC_ = useSAC;
+
+    // the byte joins whose leaves all have an address (in ZP or SAC storage)
+    for (auto it = byteJoins_.begin(); it != byteJoins_.end();) {
+        bool ok = true;
+        for (const auto& b : it->second.bytes)
+            if (b.kind == 1 && directBase(b.vreg).empty()) ok = false;
+        if (!ok) { it = byteJoins_.erase(it); continue; }
+        byteJoinSkip_.insert(it->second.nodes.begin(), it->second.nodes.end());
+        ++it;
+    }
 
     // Track parameter names for all functions (needed for SAC call site naming)
     std::vector<std::string> paramNames;
@@ -3836,6 +4005,8 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
         if (&inst == skipThrough_) skipThrough_ = nullptr;
         return;
     }
+    // (a node of a byte join: built by its root)
+    if (inst.dest.isVreg() && byteJoinSkip_.count(inst.dest.vregId)) return;
     // Reset value-role tracking for each new instruction
     clearValueRoles();
 
@@ -4371,6 +4542,29 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
         case ir::Op::AND:
         case ir::Op::OR:
         case ir::Op::XOR: {
+            if (inst.op == ir::Op::OR && inst.dest.isVreg() && byteJoins_.count(inst.dest.vregId)) {
+                // each byte from where it lives (high bytes first: Z through A)
+                const auto& bytes = byteJoins_[inst.dest.vregId].bytes;
+                auto src = [&](int k) {
+                    const auto& b = bytes[k];
+                    if (b.kind == 0) return std::string("#0");
+                    if (b.kind == 2) return "#" + std::to_string(b.byte);
+                    return directByte(ir::Operand::vreg(b.vreg, ir::Type::I32), b.byte);
+                };
+                ms_.invalidateAll();
+                if (bytes.size() == 4) {
+                    // (ldz has no base-page mode)
+                    std::string z = src(3);
+                    if (z[0] == '#') emit("ldz " + z, irDesc("bytes joined"));
+                    else { emit("lda " + z, irDesc("bytes joined")); emit("taz"); }
+                    emit("ldy " + src(2));
+                }
+                emit("ldx " + src(1), bytes.size() == 4 ? "" : irDesc("bytes joined"));
+                emit("lda " + src(0));
+                if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
+                lastCmp_.valid = false;
+                break;
+            }
             // I8 fast path: use native 8-bit bitwise ops
             if (inst.resultType == ir::Type::I8) {
                 // Check for single-bit AND test fused with BR_COND → BBS/BBR
@@ -5237,6 +5431,21 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                     } else {
                         emit("ldx #0");
                     }
+                }
+            } else if (inst.src1.isVreg() && vregConstVal_.count(inst.src1.vregId) &&
+                       !localSlotVregs_.count(inst.src1.vregId)) {
+                // A constant address (*(volatile char *)0xD012): absolute
+                // loads, as a store to one is (four hex digits keep an
+                // address below $100 absolute: not the program's base page)
+                std::string addr = "$" + hex16((uint16_t)vregConstVal_[inst.src1.vregId]);
+                ms_.invalidateAll();
+                if (inst.resultType == ir::Type::I32) {
+                    emit("ldz " + addr + "+3"); emit("ldy " + addr + "+2");
+                    emit("ldx " + addr + "+1"); emit("lda " + addr);
+                } else if (inst.resultType != ir::Type::I8) {
+                    emit("ldx " + addr + "+1"); emit("lda " + addr);
+                } else {
+                    emit("lda " + addr); emit("ldx #0");
                 }
             } else if (inst.src1.kind != ir::OperandKind::NONE) {
                 // Load value from address held in an operand via (ZP),Y

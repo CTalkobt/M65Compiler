@@ -31,6 +31,9 @@ public:
     // parameters in the ZP parameter block)
     void setFixedZpVregs(const std::map<uint32_t, int>& m) { fixedZpVregs_ = m; }
 
+    // (vreg, until): vreg stays live up to the definition of until
+    void setLiveUntil(const std::vector<std::pair<uint32_t, uint32_t>>& v) { liveUntil_ = v; }
+
     // Set which vregs should be allocated to X register (for loop counters)
     void setRegisterXVregs(const std::set<uint32_t>& regs) { registerXVregs_ = regs; }
 
@@ -75,6 +78,7 @@ private:
 
     // vRegs marked for Z-register residency (deeply nested loop counters)
     std::set<uint32_t> registerZVregs_;
+    std::vector<std::pair<uint32_t, uint32_t>> liveUntil_;
 
     // ZP pool
     uint8_t zpStart_ = 0x20;

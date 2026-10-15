@@ -6,6 +6,21 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### cc45
 
+- **Code size**: loads through a constant address are absolute
+  (`lda $D012`, was through a zero-page pointer); a value put together from
+  bytes (`a | b << 8 | (long)c << 16`, byte swaps, `(x & 0xFF00) | lo`) is
+  built byte by byte from where each byte lives; an operation on two
+  constants, also a variable assigned a constant once, is folded. The
+  library is 1.35 KB smaller (`clock` 464 → 218 bytes, conio's `scr_addr`
+  430 → 220, `__builtin_bswap16` 65 → 11). `test_bytejoin_xemu.c`.
+- **Fix**: `volatile T *p` made the variable `p` volatile (kept in memory,
+  its constant value hidden); now only what it points to is, and
+  `T * volatile p` the variable (parameters too).
+- **Fix**: the DMA job starts (`dma_copy_far` / `dma_fill_far`, crt0's BSS
+  fill, ca45's `__dma_copy` / `__dma_fill` expansion) set the DMA registers
+  with interrupts held off: an interrupt in between could leave the list
+  address of its own, so a far copy failed depending on where code landed
+  (`test_far_string_xemu.c` failed after unrelated size changes).
 - **Speed** (benchmark `src/test/bench/run_bench.sh`, ZP convention: 1344 ms
   at v1.0.6 → 763 ms): leaf `char`/`int` locals in ZP; shifts for element
   strides 2/4/8; constant element stores; stack frames made by moving SP;

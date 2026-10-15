@@ -80,6 +80,12 @@ void VRegAllocator::computeLiveRanges(const ir::Function& fn) {
         }
     }
 
+    for (const auto& [v, until] : liveUntil_) {
+        auto u = map.find(until), it = map.find(v);
+        if (u != map.end() && it != map.end() && it->second.lastUse < u->second.firstDef)
+            it->second.lastUse = u->second.firstDef;
+    }
+
     ranges_.clear();
     for (auto& [id, lr] : map) {
         ranges_.push_back(lr);

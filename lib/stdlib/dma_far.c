@@ -40,10 +40,14 @@ static void dma_far_run(unsigned char cmd, unsigned long dst, unsigned long src,
     job[12] = (unsigned char)dst;
     job[13] = (unsigned char)(dst >> 8);
     job[14] = (unsigned char)(dst >> 16) & 0x0F;
+    /* (with interrupts held off: an interrupt handler that starts a DMA job
+       of its own between these writes would leave its list address) */
+    __asm__("php\n sei");
     REG(0xD702) = 0;                                   /* list in bank 0 */
     REG(0xD704) = 0;                                   /* megabyte 0 */
     REG(0xD701) = (unsigned int)job >> 8;
     REG(0xD705) = (unsigned int)job & 0xFF;            /* start (enhanced job) */
+    __asm__("plp");
 }
 
 void __dma_copy_far(unsigned long dst, unsigned long src, unsigned int len) {

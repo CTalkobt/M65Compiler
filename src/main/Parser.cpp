@@ -982,11 +982,14 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
             while (match(TokenType::STAR)) pPtrLevel++;
 
             // Handle const/volatile after * (qualifies the pointer itself)
-            bool pIsPointerConst = false;
+            bool pIsPointerConst = false, pPtrVolatile = false;
             while (peek().type == TokenType::CONST || peek().type == TokenType::VOLATILE || peek().type == TokenType::RESTRICT) {
                 if (match(TokenType::CONST)) pIsPointerConst = true;
-                else if (!match(TokenType::VOLATILE)) match(TokenType::RESTRICT);
+                else if (match(TokenType::VOLATILE)) pPtrVolatile = true;
+                else match(TokenType::RESTRICT);
             }
+            // volatile T *p: what p points to is volatile, not p
+            if (pPtrLevel > pBasePtrLevel) pIsVolatile = pPtrVolatile;
 
             std::string pName;
             std::shared_ptr<Expression> pVlaSize;  // int a[n++]
@@ -1921,20 +1924,26 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
     }
 
     bool isPointerConst = false;
+    // volatile T *p: what p points to is volatile, not p (char * volatile p)
+    bool ptrVolatile = false;
     while (true) {
         if (tryParseAttribute() || match(TokenType::EXTENSION)) {
             continue;
         }
         if (match(TokenType::STAR)) {
             ptrLevel++;
+            ptrVolatile = false;
             while (peek().type == TokenType::CONST || peek().type == TokenType::VOLATILE || peek().type == TokenType::RESTRICT) {
                 if (match(TokenType::CONST)) isPointerConst = true;
-                else if (!match(TokenType::VOLATILE)) match(TokenType::RESTRICT);
+                else if (match(TokenType::VOLATILE)) ptrVolatile = true;
+                else match(TokenType::RESTRICT);
             }
             continue;
         }
         break;
     }
+
+    bool declVolatile = ptrLevel > basePtrLevel ? ptrVolatile : isVolatile;
 
     // Check for function pointer declaration: type (*name)(params) or type (*name[size])(params)
     // Also handles: type (*name(params))(result) — function returning function pointer
@@ -2066,7 +2075,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
     }
     decl->isSigned = isSigned;
     decl->isPlainUnsigned = plainInt && !isSigned && ptrLevel == 0;
-    decl->isVolatile = isVolatile;
+    decl->isVolatile = declVolatile;
     decl->isConst = isConst;
     decl->isStatic = isStatic;
     decl->isRegister = isRegister;
@@ -2140,10 +2149,11 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
             int extraPtr = basePtrLevel;
             while (match(TokenType::STAR)) extraPtr++;
             // Handle const/volatile after * for additional declarators
-            bool extraPtrConst = false;
+            bool extraPtrConst = false, extraPtrVolatile = false;
             while (peek().type == TokenType::CONST || peek().type == TokenType::VOLATILE || peek().type == TokenType::RESTRICT) {
                 if (match(TokenType::CONST)) extraPtrConst = true;
-                else if (!match(TokenType::VOLATILE)) match(TokenType::RESTRICT);
+                else if (match(TokenType::VOLATILE)) extraPtrVolatile = true;
+                else match(TokenType::RESTRICT);
             }
             std::string extraName = expect(TokenType::IDENTIFIER, "Expected variable name").value;
             declTypes_[extraName] = {type, extraPtr, isSigned};
@@ -2169,7 +2179,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
             auto extraDecl = setPos(std::make_unique<VariableDeclaration>(type, extraName, extraPtr), typeToken);
             extraDecl->isSigned = isSigned;
             extraDecl->isPlainUnsigned = plainInt && !isSigned && extraPtr == 0;
-            extraDecl->isVolatile = isVolatile;
+            extraDecl->isVolatile = extraPtr > basePtrLevel ? extraPtrVolatile : isVolatile;
             extraDecl->isConst = isConst;
             extraDecl->isStatic = isStatic;
             extraDecl->isRegister = isRegister;

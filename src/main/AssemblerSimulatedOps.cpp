@@ -1283,14 +1283,20 @@ void AssemblerSimulatedOps::emitDmaCode(AssemblerParser* parser, M65Emitter& e, 
         optBytes += 1;
     }
 
-    // List at SP+1 (16 bits: the stack may be on any page); $D700 (or the
-    // enhanced trigger $D705) last
-    e.lda_imm(0); e.sta_addr(m65::DMA_ADDR_BANK);
-    if (enhanced) e.sta_addr(m65::DMA_ADDR_MB);
+    // List at SP+1 (16 bits: the stack may be on any page) in Y:X; $D700
+    // (or the enhanced trigger $D705) last. The registers are written with
+    // interrupts held off (php / sei ... plp): an interrupt handler starting
+    // a DMA job of its own in between would leave its list address
     e.tsx(); e.tsy();
     e.txa(); e.clc(); e.adc_imm(1); e.tax();
-    e.tya(); e.adc_imm(0); e.sta_addr(m65::DMA_ADDR_MSB);
+    e.tya(); e.adc_imm(0); e.tay();
+    e.emitByte(0x08);   // php
+    e.emitByte(0x78);   // sei
+    e.lda_imm(0); e.sta_addr(m65::DMA_ADDR_BANK);
+    if (enhanced) e.sta_addr(m65::DMA_ADDR_MB);
+    e.sty_addr(m65::DMA_ADDR_MSB);
     e.stx_addr(enhanced ? m65::DMA_ETRIG : m65::DMA_ADDR_LSB_TRIG);
+    e.emitByte(0x28);   // plp
     for (int i = 0; i < 12 + optBytes; i++) e.pla();
     e.machineState().invalidateAll();
 }

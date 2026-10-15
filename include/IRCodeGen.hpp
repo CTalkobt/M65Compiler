@@ -264,6 +264,14 @@ private:
     struct FoldedAddr { uint32_t base; int offset; };
     std::map<uint32_t, FoldedAddr> foldedAddrs_;  // vreg = base + offset, used only as load/store address
     std::map<uint32_t, ir::Operand> truncAlias_;
+    // Values put together from bytes of others (a | b << 8 | (long)c << 16):
+    // the OR at the root loads each byte from where it lives; the ZEXT /
+    // SHL / SHR / AND / TRUNC / OR in between are not emitted
+    struct ByteSrc { int kind = 0; uint32_t vreg = 0; int byte = 0; };  // 0 zero, 1 a byte of vreg, 2 constant byte
+    struct ByteJoin { std::vector<ByteSrc> bytes; std::set<uint32_t> nodes; };
+    std::map<uint32_t, ByteJoin> byteJoins_;     // root dest vreg
+    std::set<uint32_t> byteJoinSkip_;            // nodes not emitted
+    std::map<uint32_t, ByteJoin> findByteJoins(const ir::Function& fn) const;
     std::map<uint32_t, int> zpParams_;   // parameters used in the ZP parameter block (a leaf function)
     std::map<uint32_t, int> zarVregs_;   // variables in the function's own base-page block
     int zarSize_ = 0;  // byte TRUNC stored as is: the STORE reads its source's low byte
