@@ -6,15 +6,20 @@
 
 SUBDIRS = \
 	c/hello_world \
+	c/hello_linked \
+	c/multi_module \
 	c/palette_fade \
 	c/unit_convert \
+	c/bitfield_registers \
+	c/game_of_life \
+	c/memset_screen \
+	c/text_scroller \
+	c/vic4_colors \
+	c/far_scroller \
 	c/stdlib/string_h \
 	c/stdlib/stdlib_h \
 	c/stdlib/ctype_h \
 	basic/c_routines
-
-
-##	c/text_scroller \
 
 
 .PHONY: all clean $(SUBDIRS)

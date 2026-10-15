@@ -14,11 +14,12 @@ These examples demonstrate different features of the m65compiler.
 - **palette_fade/** - Demonstrates mixed C and assembly code with calling conventions and MEGA65 hardware register access. C controls fade timing while assembly manipulates the palette.
 - **hello_linked/** - Minimal linked C program showing the `cc45 -c` + `ln45` relocatable build workflow.
 - **multi_module/** - Multi-file project with shared header, separate compilation of 3 modules, and linking. Demonstrates extern, struct pass/return, and the standard build workflow.
-- **bitfield_registers/** - MEGA65 VIC-IV hardware register access using C bitfield structs. Maps control registers, sprite enables, and screen attributes as typed bitfield overlays.
-- **game_of_life/** - Conway's Game of Life on the 40x25 text screen with wrapping edges. Demonstrates 2D arrays, nested loops, and direct screen/color RAM access.
+- **bitfield_registers/** - MEGA65 VIC-III/VIC-IV register access using C bitfield structs: `$D031` and `$D054` (layouts per the MEGA65 Book and mega65-core's `iomap.txt`), sprite enables, and VIC-III extended attributes (blink/reverse/bold/underline in colour RAM).
+- **game_of_life/** - Conway's Game of Life on the 80x25 text screen (`$0800`) with wrapping edges. Demonstrates 2D arrays, nested loops, `signed int` arithmetic (plain `int` is unsigned in cc45), and direct screen RAM access.
 - **memset_screen/** - Fill screen with character codes 0-255, demonstrating memset with direct screen RAM writes.
-- **text_scroller/** - Horizontal text scroller demonstrating mixed C and assembly, with hardware screen manipulation routines.
-- **vic4_colors/** - Set screen/border colors via VIC-IV register struct overlay.
+- **text_scroller/** - Horizontal text scroller demonstrating mixed C and assembly (arguments through shared variables, so both calling conventions work), with a bouncing ball (hardware sprite 0, VIC-IV 16-bit sprite pointers) that passes in front of and behind the reverse-video message.
+- **far_scroller/** - A 400x25 landscape map allocated with `far_malloc` in bank 4, scrolled with one `dma_copy_far` per row each frame (parallax sky), colours written straight into colour RAM at `$FF80000` with `dma_fill_far`.
+- **vic4_colors/** - Steps the border and background colours through a struct overlay on `$D020`/`$D021`, ending on white with black text.
 - **stdlib/math_h/** - Math library examples (min/max, gcd/lcm)
 
 ### BASIC Examples

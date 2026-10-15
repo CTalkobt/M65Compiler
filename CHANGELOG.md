@@ -2,6 +2,73 @@
 
 All notable changes to the cc45 / ca45 suite will be documented in this file.
 
+## [Unreleased]
+
+### cc45
+
+- **Speed** (benchmark `src/test/bench/run_bench.sh`, ZP convention: 1344 ms
+  at v1.0.6 → 763 ms): leaf `char`/`int` locals in ZP; shifts for element
+  strides 2/4/8; constant element stores; stack frames made by moving SP;
+  `a[i + c]` as element `i` of a shifted base; the element address kept in
+  `__zp_scratch` and reused by later loads and stores of the same array and
+  index (across ZP stores, pointer accesses, compares, branches and into a
+  block with a single predecessor).
+- **Warnings**: a variable of a plain integer type (unsigned by cc45's
+  default) warns when a negative constant is stored in it or compared with
+  it, and on `x < 0` / `x >= 0`: `'r' is unsigned (plain int is unsigned in
+  cc45): -1 becomes 65535; declare it 'signed' (or use -fsigned-default)`.
+  Checked before constant folding, which used to remove such comparisons.
+- **Fixes**: `_Alignas` anywhere among the declaration specifiers
+  (`_Alignas(8) static int x;`); the comma operator in `for` clauses; the
+  preprocessor substitutes each macro parameter once (an argument's text was
+  scanned for later parameters' names: `F(dst, src, len)` with
+  `src = g(len)` passed `g(<len's argument>)`); `<float.h>` constants exact;
+  `_Complex int` division; operators on small-struct temporaries; a struct
+  operand without an operator is an error; no false "unused" warning.
+
+### Standard library
+
+- **`dma_copy_far` / `dma_fill_far`** (`<dma.h>`, `lib/stdlib/dma_far.c`):
+  DMA at 28-bit linear addresses (enhanced F018B jobs): chip RAM above
+  64 KB, all of colour RAM at `$FF80000`.
+- **Far pointers** (`far_ptr.h`, `far_ops.h`) and **`dma_controller.h`**
+  reimplemented on them: they wrote the bank number to the CPU port `$01`
+  (or used `$DE00` as DMA registers) and accessed bank 0. The far allocator
+  uses banks 4–5 only (the program, BASIC and the ROM are in 0–3).
+- `__dma_fill` works (the documented "fills with 0" issue was stale).
+
+### ca45
+
+- **SeqExtract** (repeated instruction runs → `BSR` routines) rewritten and
+  on by default (#89): it called routines it never labelled, inserted
+  statements while holding indices, let runs span labels and appended the
+  routines outside any proc. `-PNoSeqExtract` / cc45 `-fno-seq-extract`
+  turn it off; `--experimental` gates nothing now.
+- `.var` reassignments hold by position in the generated code (each use got
+  the last value); `$00xx` is an absolute address; `#<(sym+n)` /
+  `#>(sym+n)` are relocated.
+
+### disk45
+
+- `repair`, `diff`, `list --petscii`, `basic`, `add` placement options,
+  interactive `shell`, `edit` (#160–#167); BAM system sectors per format.
+
+### Examples
+
+- New `far_scroller` (a map in bank 4 scrolled with DMA, parallax).
+- `text_scroller`: 80 columns, screen-code message, a bouncing ball sprite
+  passing in front of and behind the text; `game_of_life` (80x25 screen,
+  signed neighbour offsets), `bitfield_registers` (`$D031`/`$D054` layouts
+  per the MEGA65 Book), `vic4_colors` and `memset_screen` fixed;
+  `make -C examples` builds all of them.
+
+### Tests
+
+- xemu runtime tests 220 → 234 (stdio, element offsets, aligned objects,
+  SeqExtract, far DMA, far pointers, parser fixes); signedness warnings;
+  all examples in `test_examples.sh`. GCC torture tests: 537 in each
+  convention.
+
 ## [v1.0.6] - 2026-10-14
 
 A large release: the calling conventions, the code generator and the
