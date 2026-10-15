@@ -32,6 +32,8 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   writing it overran into the next object); a non-constant array size at
   file scope, `static` or in a later declarator of a declaration
   (`int a, b[n]`) is an error (it was a 2-byte object or 1 element).
+  A struct member that is an array of pointers (`const char *d[3]`):
+  `s->d[i]` loaded one byte and `s->d[i][k]` scaled `k` by 2.
 
 ### Standard library
 
@@ -76,6 +78,10 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - New `mandelbrot`: a Mandelbrot viewer (FCM 320x192 bitmap at 8 bits a
   pixel, palette cycling, an assembly kernel on the Q register and the
   hardware multiplier, zoom to 2^20).
+- New `musicgen`: a random music generator in seven styles (Markov chord
+  tables with fixed cadences, AABA or 12-bar blues form, motif-based
+  melodies on chord tones, voice-led chords, walking/boogie/Alberti bass,
+  drums with swing), 14 SID instruments, tempo and style keys.
 - `text_scroller`: 80 columns, screen-code message, a bouncing ball sprite
   passing in front of and behind the text; `game_of_life` (80x25 screen,
   signed neighbour offsets), `bitfield_registers` (`$D031`/`$D054` layouts

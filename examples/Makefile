@@ -18,6 +18,7 @@ SUBDIRS = \
 	c/far_scroller \
 	c/invaders \
 	c/mandelbrot \
+	c/musicgen \
 	c/stdlib/string_h \
 	c/stdlib/stdlib_h \
 	c/stdlib/ctype_h \

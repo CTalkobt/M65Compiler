@@ -10,3 +10,4 @@
 
 # Debug/log files
 *.log
+*.mem

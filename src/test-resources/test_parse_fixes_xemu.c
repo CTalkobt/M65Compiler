@@ -11,7 +11,10 @@
  *   [4] sizeof x[i] / sizeof *p in constant expressions: an array sized
  *       sizeof t / sizeof t[0] (it got 2 bytes), 2D arrays, a pointer, an
  *       extra declarator (int a, b[n])
- *   [5] $AA sentinel
+ *   [5] a struct member that is an array of pointers (char *d[3]) or a
+ *       pointer to pointers: s->d[i] is a pointer (it loaded one byte),
+ *       s->d[i][k] a char (k was scaled by 2)
+ *   [6] $AA sentinel
  */
 #define OUT ((volatile unsigned char *)0xC0C0)
 
@@ -28,6 +31,11 @@ static unsigned int by_names[sizeof names / sizeof names[0]];
 static unsigned char m2[3][7];
 static unsigned char row_copy[sizeof m2[1]];
 static long *lp;
+struct strs { unsigned char n; const char *d[3]; char **pp; };
+static char s_a[] = "abcd", s_b[] = "efgh", s_c[] = "ijkl";
+static char *s_list[2] = { s_b, s_c };
+static struct strs st = { 3, { s_a, s_b, s_c }, s_list };
+static const struct strs cst[2] = { { 1, { "pq", "rs", "tu" }, 0 }, { 2, { "vw", "xy", "z" }, 0 } };
 static unsigned char lp_size[sizeof *lp];
 static unsigned int pad1, by_vals[sizeof vals / sizeof vals[0]];
 
@@ -48,6 +56,13 @@ int main(void) {
     OUT[4] = sizeof by_names == 10 && sizeof row_copy == 7 && sizeof m2[1][2] == 1 &&
              sizeof lp_size == 4 && sizeof by_vals == 6 && sizeof names / sizeof names[0] == 5 && pad1 == 0;
 
-    OUT[5] = 0xAA;
+    {
+        struct strs *p = &st;
+        const struct strs *q = &cst[1];
+        unsigned char k = 3;
+        OUT[5] = p->d[2] == s_c && p->d[2][3] == 'l' && st.d[1][k] == 'h' && p->pp[1][2] == 'k' &&
+                 q->d[1][1] == 'y' && cst[0].d[2][0] == 't' && *p->d[0] == 'a';
+    }
+    OUT[6] = 0xAA;
     return 0;
 }

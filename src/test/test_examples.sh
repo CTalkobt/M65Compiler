@@ -106,6 +106,15 @@ test_screenshot "invaders" "$EXAMPLES/c/invaders/invaders.prg" 15
 build_example "$EXAMPLES/c/mandelbrot"
 test_screenshot "mandelbrot" "$EXAMPLES/c/mandelbrot/mandelbrot.prg" 15
 
+build_example "$EXAMPLES/c/musicgen"
+test_screenshot "musicgen" "$EXAMPLES/c/musicgen/musicgen.prg" 10
+# the generator test: songs of every style checked against chords and scales
+if make -C "$EXAMPLES/c/musicgen" check >"$BUILDDIR/musicgen_check.txt" 2>&1; then
+    pass "musicgen songs"
+else
+    fail "musicgen songs" "$(tail -1 "$BUILDDIR/musicgen_check.txt")"
+fi
+
 echo ""
 echo "Example tests: $passed passed, $failed failed, $skipped skipped"
 [ "$failed" -eq 0 ] || exit 1

@@ -655,6 +655,19 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
             }
             return {baseType, tn, isSigned, ir::Type::VOID, getTypeSize(tn, 0)};
         } else {
+            // A member with pointers: the element is the member's type at the
+            // pointer level left after the indices past its array dimensions
+            // (char *names[3]: names[i] a pointer, names[i][k] a char)
+            if (auto* ma = dynamic_cast<MemberAccess*>(root)) {
+                if (auto* mi = arrayMemberOf(ma); mi && mi->pointerLevel > 0) {
+                    int through = depth - (int)mi->arrayDims.size();
+                    if (through >= 0 && mi->pointerLevel >= through) {
+                        int lvl = mi->pointerLevel - through;
+                        return {mapType(mi->type, lvl), mi->type, mi->isSigned,
+                                lvl > 0 ? mapType(mi->type, lvl - 1) : ir::Type::VOID, getTypeSize(mi->type, lvl)};
+                    }
+                }
+            }
             // General fallback for non-variable roots (e.g. member arrays, function returns, derefs)
             IRTypeInfo arrayTypeInfo = getExprTypeInfo(aa->arrayExpr.get());
             ir::Type baseType = arrayTypeInfo.pointedToType;
@@ -7747,12 +7760,14 @@ void IRBuilder::visit(ArrayAccess& node) {
                     if (i < mdv.size() && !mdv[i].empty()) rtDims.push_back(locals_[mdv[i]]);
                     else elemSize *= mi->arrayDims[i];
                 }
+            } else if (int through = depth - (int)mi->arrayDims.size(); through > 0 && mi->pointerLevel >= through) {
+                // Past the member's array dimensions, through pointers: s->p[i]
+                // (a pointer member), s->names[i][k] (char *names[3]) step by
+                // the type one pointer level further down
+                elemSize = getTypeSize(mi->type, mi->pointerLevel - through);
             } else if (!mi->arrayDims.empty()) {
                 elemSize = getTypeSize(mi->type, mi->pointerLevel);
                 for (size_t i = depth; i < mi->arrayDims.size(); i++) elemSize *= mi->arrayDims[i];
-            } else if (mi->pointerLevel > 0) {
-                // A pointer member: s->p[i] steps by the pointed-to size
-                elemSize = getTypeSize(mi->type, mi->pointerLevel - 1);
             }
         }
     } else {
