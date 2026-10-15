@@ -54,6 +54,14 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   rol; tax; pla` per bit; a byte index times 2 is `asl; bcc; inx`; a byte
   index times another constant (3, 5, 10, 13...) is shifts and adds instead
   of the hardware multiplier (24 bytes). The examples are 802 bytes smaller.
+- Division by powers of two: 16-bit right shifts by a constant use a
+  scratch byte (`lsr`/the 45GS02's `asr` on base page, `ror`) instead of
+  pushes and pulls per bit, 9-15 bits move the high byte; a signed `x / 2^k`
+  and `x % 2^k` add the bias 2^k - 1 to a negative x (from its sign) and
+  shift or mask instead of calling the division routine; a `char` divided
+  by a constant is reduced too (strength reduction runs again after the
+  passes that make the promoted divisor a constant). The examples are
+  1112 more bytes smaller.
 - ln45: calls after a computed-goto label (cc45 exports `f__lbl_x` for
   `&&x` in a table) are the function's: the static-allocation overlay gave
   a computed-goto interpreter and the functions it calls the same storage.

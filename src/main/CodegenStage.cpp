@@ -140,6 +140,9 @@ void CodegenStage::optimizeIR() {
         {"LICM",              ir::optimizeLICM},
         {"CopyPropagation",   ir::optimizeCopyChains},
         {"AddrElemFusion",    ir::optimizeAddrElemFusion},
+        // again: constants the passes above made visible (a char divided by
+        // a constant: the promoted divisor became a constant only now)
+        {"StrengthReduction", ir::optimizeStrengthReduction},
     };
 
     ir::optTrace = traceIROpt_ ? &std::cerr : nullptr;

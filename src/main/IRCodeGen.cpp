@@ -4474,7 +4474,8 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
             loadOperand(inst.src1);
             if (shiftCount >= 0) {
                 bool isASR = (inst.op == ir::Op::ASR);
-                if (shiftCount >= (is32 ? 32 : 16)) {
+                // (an arithmetic shift by width - 1 is the sign fill too)
+                if (shiftCount >= (is32 ? 32 : 16) || (isASR && shiftCount == (is32 ? 31 : 15))) {
                     // Shift entirely out — result is 0 (SHR) or 0/-1 (ASR)
                     if (isASR) {
                         if (is32) emit("tza"); else emit("txa"); // sign byte → A
@@ -4520,6 +4521,25 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                     emit("lda #0"); emit("adc #$FF"); emit("eor #$FF"); // A = sign ($FF if neg)
                     emit("tax"); emit("tay"); emit("taz"); // X=Y=Z=sign
                     emit("pla");                           // A = old Z (byte 0)
+                } else if (!is32 && shiftCount >= 2 && shiftCount < 8) {
+                    // the high byte shifted in a scratch byte (lsr / the
+                    // 45GS02's asr on base page), the low byte in A: no pha/pla
+                    const std::string S = "__zp_scratch4+1";
+                    emit("stx " + S, ">> " + std::to_string(shiftCount));
+                    for (int i = 0; i < shiftCount; i++) {
+                        emit((isASR ? "asr " : "lsr ") + S);
+                        emit("ror");
+                    }
+                    emit("ldx " + S);
+                } else if (!is32 && shiftCount > 8 && shiftCount < 16) {
+                    // the high byte down, then the low byte alone
+                    emit("txa", ">> " + std::to_string(shiftCount));
+                    for (int i = 8; i < shiftCount; i++) emit(isASR ? "asr" : "lsr");
+                    emit("ldx #0");
+                    if (isASR) {   // the high byte: the sign (A kept its top bit)
+                        std::string l = "@__shr_pos_" + std::to_string(labelCounter_++);
+                        emit("cmp #$80"); emit("bcc " + l); emit("dex"); emitLabel(l);
+                    }
                 } else {
                     // General case: loop of single-bit shifts
                     int maxBits = is32 ? 32 : 16;

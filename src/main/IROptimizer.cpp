@@ -231,6 +231,68 @@ void optimizeStrengthReduction(Module& mod) {
         // (for looking up CONST operands of MUL/DIV/MOD)
         std::map<uint32_t, int64_t> constVals = singleDefConsts(fn);
 
+        // Signed x / 2^k and x % 2^k (C rounds toward zero): a negative x
+        // gets the bias 2^k - 1 first, taken from its sign by an arithmetic
+        // shift:  b = (x >>a (w-1)) & (2^k - 1);  x / 2^k = (x + b) >>a k;
+        // x % 2^k = x - ((x + b) & -2^k). No call of the division routine.
+        for (auto& block : fn.blocks) {
+            std::vector<Inst> out;
+            out.reserve(block.insts.size());
+            for (auto& inst : block.insts) {
+                int64_t val = 0;
+                bool cand = (inst.op == Op::DIV || inst.op == Op::MOD) && inst.src2.isVreg() &&
+                            (inst.resultType == Type::I16 || inst.resultType == Type::I32) && inst.dest.isVreg();
+                if (cand) {
+                    auto it = constVals.find(inst.src2.vregId);
+                    cand = it != constVals.end();
+                    if (cand) val = it->second;
+                }
+                int w = inst.resultType == Type::I32 ? 32 : 16;
+                int k = 0;
+                if (cand && val >= 2 && (val & (val - 1)) == 0) {
+                    while ((int64_t(1) << k) < val) k++;
+                    cand = k < w - 1;
+                } else cand = false;
+                if (!cand) { out.push_back(inst); continue; }
+                Type t = inst.resultType;
+                int64_t mask = val - 1;
+                auto mk = [&](Op op, const Operand& a, const Operand& b) {
+                    Inst n;
+                    n.op = op;
+                    n.resultType = t;
+                    n.dest = Operand::vreg(fn.allocVreg(), t);
+                    fn.vregTypes[n.dest.vregId] = t;
+                    n.src1 = a;
+                    n.src2 = b;
+                    n.loc = inst.loc;
+                    out.push_back(n);
+                    return n.dest;
+                };
+                Operand x = inst.src1;
+                Operand sgn = mk(Op::ASR, x, Operand::imm(w - 1, Type::I8));
+                Operand bias = mk(Op::AND, sgn, Operand::imm(mask, t));
+                Operand xb = mk(Op::ADD, x, bias);
+                Inst fin = inst;
+                if (inst.op == Op::DIV) {
+                    trace("strength", fn.name, "v" + std::to_string(inst.dest.vregId) + " = DIV /" +
+                          std::to_string(val) + " → bias, ASR " + std::to_string(k), inst.loc);
+                    fin.op = Op::ASR;
+                    fin.src1 = xb;
+                    fin.src2 = Operand::imm(k, Type::I8);
+                } else {
+                    trace("strength", fn.name, "v" + std::to_string(inst.dest.vregId) + " = MOD %" +
+                          std::to_string(val) + " → x - ((x + bias) & -" + std::to_string(val) + ")", inst.loc);
+                    int64_t hiMask = (w == 32 ? 0xFFFFFFFFLL : 0xFFFFLL) & ~mask;
+                    Operand down = mk(Op::AND, xb, Operand::imm(hiMask, t));
+                    fin.op = Op::SUB;
+                    fin.src1 = x;
+                    fin.src2 = down;
+                }
+                out.push_back(fin);
+            }
+            block.insts = std::move(out);
+        }
+
         // Rewrite instructions
         for (auto& block : fn.blocks) {
             for (auto& inst : block.insts) {
