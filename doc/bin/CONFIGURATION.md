@@ -44,7 +44,7 @@ For the options cc45 accepts see [cc45](cc45.md) (`cc45 -?`). Besides the `-O` l
 - Each non-blank line, with leading/trailing whitespace removed, is **one** argument (no splitting, no quotes). Lines starting with `#` are comments.
 - Order of the merged argument list: global file, `./.ca45rc` (project), environment variables (below), command line.
 - `-O<n>` resets all per-pass flags for that level, so a `-P` flag only survives if it comes after the last `-O`. A `-O2` on the command line therefore cancels `-P` lines of a config file.
-- **Known problem:** while any configuration or environment argument is present, options that take a value (`-o FILE`, `-L FILE`, `-l N`, `--source-map FILE`, `--emulator-path PATH`) read the wrong argument (`CA45_OPTIMIZE=2 ca45 -c x.s45 -o x.o45` fails with `Failed to open input file: x.o45`). Keep such options out of the configuration and avoid `.ca45rc`/`CA45_*` when using them.
+- Options that take a value (`-o FILE`, `-L FILE`, `-l N`, `--source-map FILE`) work with configuration files and environment variables present: all of them are merged into one argument list before it is read (`src/test/test_config.sh`).
 
 ```
 # ~/.config/m65/ca45.conf

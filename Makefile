@@ -484,6 +484,8 @@ test: all lib $(BIN_DIR)/test_o45
 	@bash src/test/test_inline_control.sh
 	@echo "Running optimization switch tests..."
 	@bash src/test/test_optimizations.sh
+	@echo "Running configuration tests..."
+	@bash src/test/test_config.sh
 	@echo "Running function-local state tests..."
 	@bash src/test/test_function_locals.sh
 	@echo "Running string escape tests..."
