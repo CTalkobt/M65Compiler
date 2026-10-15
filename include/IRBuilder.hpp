@@ -107,6 +107,9 @@ private:
         std::map<std::string, bool> localRegister;
         std::map<std::string, ir::Type> localPointedToType;
         std::map<std::string, std::vector<int>> localArrayDims;
+        std::map<std::string, std::string> localPointedToTypeName;
+        std::map<std::string, int> localPtrLevel;
+        std::set<std::string> uplevelNames;
         std::set<uint32_t> usedVregs;
         std::map<std::string, ir::SourceLoc> localDeclLocs;
     };
@@ -150,6 +153,10 @@ private:
     std::map<std::string, std::vector<int>> localArrayDims_; // for stride computation
     std::map<std::string, std::vector<int>> globalArrayDims_; // for stride computation
     std::map<std::string, int> localPtrLevel_;   // declared pointer level (arrays: of the element)
+    // In a nested function: the enclosing functions' variables whose types
+    // are in the local type maps (they have no locals_ entry: reached through
+    // the static chain)
+    std::set<std::string> uplevelNames_;
     std::map<std::string, std::vector<int>> paramArrayDims_;  // int a[][M] parameter: {0, M}
     std::map<std::string, std::vector<ir::Operand>> paramVlaDims_;  // run-time inner dims (slots)
     std::map<std::string, std::string> vlaSizeVars_;  // variable-length array -> its size variable
@@ -166,6 +173,10 @@ private:
     std::set<uint32_t> setVregs_;   // locals assigned to (x = ..., x op= ...): "set but not used"
     std::map<std::string, ir::SourceLoc> localDeclLocs_;
     void resetFunctionLocalState();
+    // Block scope: the bindings of the names a block's declarations shadow,
+    // restored when it ends ({ int a = 5; { int a = 7; } a; })
+    std::vector<std::function<void()>> saveShadowed(Statement* decls, bool list);
+    void restoreShadowed(std::vector<std::function<void()>>& r);
     // Struct/union and float returns use a caller-allocated result buffer passed
     // as a hidden first parameter "__sret" (the callee also returns it in AX).
     ir::Operand sretCallBuffer(const std::string& fname, ir::Operand& buf, const ir::SourceLoc& sl);
@@ -303,6 +314,7 @@ private:
         std::vector<std::string> memberOrder;
         int totalSize = 0;
         int align = 1;       // largest member / declared alignment (cc45 packs otherwise)
+        std::string parent;  // the struct it inherits from (struct D : B), or ""
     };
     std::map<std::string, IRStructInfo> structs_;
     const IRStructInfo* structOf(const std::string& type);  // struct/union or typedef of one

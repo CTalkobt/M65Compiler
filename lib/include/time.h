@@ -5,7 +5,7 @@
  *
  * The RTC is at $FFD71xx (I2C registers, BCD-encoded).
  * On real MEGA65 hardware, provides year/month/day/hour/minute/second.
- * On emulators without RTC, rtc_read() returns zeros.
+ * rtc_read() reads the MEGA65 RTC ($FFD7110, by DMA); xemu gives the host's time.
  */
 
 #pragma once

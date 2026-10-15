@@ -367,6 +367,9 @@ std::string Preprocessor::expandMacros(const std::string& line) {
                                 currentArg += result[peek++];
                             }
                             args.push_back(trim(currentArg));
+                            // F() of a macro without parameters: no argument
+                            if (m.params.empty() && !m.isVariadic && args.size() == 1 && args[0].empty())
+                                args.clear();
 
                             // Handle arguments
                             if ((!m.isVariadic && args.size() == m.params.size()) || 

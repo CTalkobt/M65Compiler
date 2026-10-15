@@ -8,11 +8,14 @@
  *       and RUN/STOP row 7, A row 1; with no key down it returns 0
  *   [3] a += b on a 4-byte struct calls its operator+= (it was a 32-bit
  *       integer add: x's carry went into y); a 6-byte struct's += and -=
- *   [4] $AA sentinel
+ *   [4] rtc_read gives a real date (it read $7110 through a 16-bit pointer:
+ *       zeros, month -1): xemu's RTC is the host's clock
+ *   [5] $AA sentinel
  */
 #include <ctype.h>
 #include <stdlib.h>
 #include <mega65.h>
+#include <time.h>
 #define OUT ((volatile unsigned char *)0xC0C0)
 
 struct V2 {
@@ -45,6 +48,12 @@ int main(void) {
     a -= b;
     OUT[3] = OUT[3] && a.x == 100 && a.z == 300;
 
-    OUT[4] = 0xAA;
+    {
+        struct tm t;
+        rtc_read(&t);
+        OUT[4] = t.tm_year >= 125 && t.tm_mon < 12 && t.tm_mday >= 1 && t.tm_mday <= 31 &&
+                 t.tm_hour < 24 && t.tm_min < 60 && t.tm_sec < 60 && t.tm_wday < 7;
+    }
+    OUT[5] = 0xAA;
     return 0;
 }

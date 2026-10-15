@@ -260,7 +260,7 @@ Declared in `stdio.h`, implemented in `stdio_cbm.c`, `stdio_kernal.c`, `stdio_di
 - **`time_t time(time_t *tp)`**: `clock()` widened to `long` (so it also wraps after 65536 ticks); stored in `*tp` when `tp` is not `NULL`.
 - **`long difftime(time_t t2, time_t t1)`**: `t2 - t1`.
 - **`struct tm`** (`tm_sec` … `tm_isdst`, all `int`).
-- **`void rtc_read(struct tm *)`**: reads the MEGA65 RTC (BCD registers at `$FFD7110`–`$FFD7116`) into a `struct tm`; years 00–99 map to 2000–2099; `tm_isdst` 0. Emulators without an RTC give zeros.
+- **`void rtc_read(struct tm *)`**: reads the MEGA65 RTC (BCD registers at `$FFD7110`–`$FFD7116`) into a `struct tm` (copied by DMA: the registers are beyond a 16-bit pointer); years 00–99 map to 2000–2099; `tm_wday` is computed from the date; `tm_isdst` 0. xemu gives the host's time.
 - **`localtime(timer)`** / **`gmtime(timer)`**: ignore `timer`, read the RTC into a static `struct tm` and return it.
 - **`time_t mktime(struct tm *)`**: seconds since 2000-01-01 00:00:00 (not 1970); fills in `tm_yday` and `tm_wday`.
 - **`asctime(tm)`** / **`ctime(timer)`**: `"Wed Jun 30 21:49:08 2026\n"` in a static buffer; `ctime(t)` is `asctime(localtime(t))`.

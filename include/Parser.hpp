@@ -149,6 +149,7 @@ private:
     void recordVarSize(const std::string& name, const std::string& type, int ptrLevel, const std::vector<int>& dims);
     // Evaluate an integer constant expression; false if it isn't one
     bool evalConstInt(Expression* e, long& out);
+    int initListLength(const InitializerList& il);
     // Size of a scalar/pointer type in bytes; -1 for aggregates and unknowns
     static int scalarTypeSize(const std::string& type, int ptrLevel);
     std::set<std::string> enumNames;

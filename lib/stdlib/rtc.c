@@ -2,6 +2,7 @@
 
 #include <time.h>
 #include <string.h>
+#include <dma.h>
 
 /* MEGA65 RTC I2C registers at $FFD71xx (directly mapped)
  * BCD-encoded per VHDL (mega65r3_i2c.vhdl / mega65r4_i2c.vhdl):
@@ -50,27 +51,21 @@ static int compute_wday(int year, int mon, int mday) {
 /* Static buffer for localtime/gmtime */
 static struct tm __tm_buf;
 
-/* Read RTC registers via DMA (they're above 1MB barrier) */
+/* Read the RTC registers: they are at a 28-bit address (a 16-bit pointer
+ * cannot reach them), so a DMA job copies the seven bytes */
 void rtc_read(struct tm *tm) {
-    /* Read RTC registers at $FFD7110-$FFD7116 using 32-bit address pointer */
-    volatile unsigned char *rtc = (volatile unsigned char *)0xFFD7110L;
+    unsigned char r[7];   /* sec, min, hour, day, month, year, day of week */
+    __dma_copy_far((unsigned long)(unsigned int)r, 0xFFD7110UL, 7);
 
-    /* Per VHDL: sec, min, hour, day, month, year, wday */
-    unsigned char sec = rtc[0];
-    unsigned char min = rtc[1];
-    unsigned char hour = rtc[2];
-    unsigned char day = rtc[3];
-    unsigned char month = rtc[4];
-    unsigned char year = rtc[5];
-    unsigned char wday = rtc[6];
-
-    tm->tm_sec  = bcd_to_int(sec & 0x7F);
-    tm->tm_min  = bcd_to_int(min & 0x7F);
-    tm->tm_hour = bcd_to_int(hour & 0x3F);
-    tm->tm_mday = bcd_to_int(day & 0x3F);
-    tm->tm_mon  = bcd_to_int(month & 0x1F) - 1; /* 0-based */
-    tm->tm_year = bcd_to_int(year) + 100; /* years since 1900; RTC year 00-99 → 2000-2099 */
-    tm->tm_wday = (wday & 0x07) % 7; /* 0=Sunday */
+    tm->tm_sec  = bcd_to_int(r[0] & 0x7F);
+    tm->tm_min  = bcd_to_int(r[1] & 0x7F);
+    tm->tm_hour = bcd_to_int(r[2] & 0x3F);   /* bit 7: the 24-hour mode flag */
+    tm->tm_mday = bcd_to_int(r[3] & 0x3F);
+    tm->tm_mon  = bcd_to_int(r[4] & 0x1F) - 1; /* 0-based */
+    tm->tm_year = bcd_to_int(r[5]) + 100; /* years since 1900; RTC year 00-99 → 2000-2099 */
+    /* the weekday from the date (the register's numbering is not the same
+     * on every board and in emulators) */
+    tm->tm_wday = compute_wday(tm->tm_year + 1900, tm->tm_mon, tm->tm_mday);
     tm->tm_yday = day_of_year(tm->tm_year + 1900, tm->tm_mon, tm->tm_mday);
     tm->tm_isdst = 0;
 }

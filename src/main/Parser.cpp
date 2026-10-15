@@ -1110,7 +1110,34 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     bool moreDeclarators = peek().type == TokenType::COMMA;
     if (moreDeclarators || match(TokenType::SEMICOLON)) {
         if (moreDeclarators) advance();
-        auto func = setPos(std::make_unique<FunctionDeclaration>(name, returnType), startToken);
+        // In a function: the forward declaration of a nested function that
+        // the same function defines further on (GCC writes auto int h(int);)
+        std::string protoName = name;
+        if (currentFunction) {
+            int depth = 0;
+            for (size_t i = pos; i + 1 < tokens.size(); i++) {
+                TokenType tt = tokens[i].type;
+                if (tt == TokenType::OPEN_BRACE) depth++;
+                else if (tt == TokenType::CLOSE_BRACE) { if (--depth < 0) break; }
+                else if (depth == 0 && tt == TokenType::IDENTIFIER && tokens[i].value == name &&
+                         tokens[i + 1].type == TokenType::OPEN_PAREN) {
+                    // name ( ... ) { : its definition
+                    size_t j = i + 2;
+                    int paren = 1;
+                    while (j < tokens.size() && paren > 0) {
+                        if (tokens[j].type == TokenType::OPEN_PAREN) paren++;
+                        else if (tokens[j].type == TokenType::CLOSE_PAREN) paren--;
+                        j++;
+                    }
+                    if (j < tokens.size() && tokens[j].type == TokenType::OPEN_BRACE) {
+                        protoName = currentFunctionName + "_" + name;
+                        nestedFunctionMap[name] = protoName;
+                        break;
+                    }
+                }
+            }
+        }
+        auto func = setPos(std::make_unique<FunctionDeclaration>(protoName, returnType), startToken);
         func->returnPointerLevel = returnPtrLevel;
         func->isSigned = isSigned;
         func->parameters = std::move(params);
@@ -2051,7 +2078,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
         if (auto* strLit = dynamic_cast<StringLiteral*>(decl->initializer.get())) {
             decl->arrayDims[0] = (int)strLit->value.length() + 1; // +1 for NUL
         } else if (auto* initList = dynamic_cast<InitializerList*>(decl->initializer.get())) {
-            decl->arrayDims[0] = (int)initList->elements.size();
+            decl->arrayDims[0] = initListLength(*initList);
         }
     }
 
@@ -2149,7 +2176,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
                 if (auto* sl = dynamic_cast<StringLiteral*>(extraDecl->initializer.get()))
                     extraDecl->arrayDims[0] = (int)sl->value.length() + 1;
                 else if (auto* il = dynamic_cast<InitializerList*>(extraDecl->initializer.get()))
-                    extraDecl->arrayDims[0] = (int)il->elements.size();
+                    extraDecl->arrayDims[0] = initListLength(*il);
             }
             compound->statements.push_back(std::move(extraDecl));
         }
@@ -3397,6 +3424,18 @@ std::unique_ptr<Expression> Parser::parseGenericSelection() {
     return node;
 }
 
+// The length of an unsized array from its initializer: the highest element
+// it sets + 1 ({ [2] = 5, [0] = 1 } has 3 elements)
+int Parser::initListLength(const InitializerList& il) {
+    int n = 0, at = 0;
+    for (size_t i = 0; i < il.elements.size(); i++) {
+        auto d = il.getDesignator(i);
+        if (d.arrayIndex >= 0) at = d.arrayIndex;
+        n = std::max(n, ++at);
+    }
+    return n;
+}
+
 std::unique_ptr<Expression> Parser::parseInitializerList() {
     const Token& startToken = expect(TokenType::OPEN_BRACE, "Expected '{'");
     auto initList = setPos(std::make_unique<InitializerList>(), startToken);
@@ -3423,6 +3462,21 @@ std::unique_ptr<Expression> Parser::parseInitializerList() {
                     while (!v.empty() && std::strchr("uUlL", v.back())) v.pop_back();
                     d.arrayIndex = (int)std::stoll(v, nullptr, 0);
                     advance();
+                    parts.push_back(d);
+                } else if (peek().type == TokenType::OPEN_SQUARE) {
+                    // [constant expression]: an enum constant, (2), 1 + 1
+                    size_t at = pos;
+                    advance();
+                    long idx = 0;
+                    bool ok = false;
+                    try {
+                        auto e = parseConditional();
+                        ok = e && evalConstInt(e.get(), idx) && idx >= 0 && peek().type == TokenType::CLOSE_SQUARE;
+                    } catch (const std::exception&) { ok = false; }
+                    if (!ok) { pos = at; break; }
+                    advance();   // ]
+                    InitializerList::Designator d;
+                    d.arrayIndex = (int)idx;
                     parts.push_back(d);
                 } else {
                     break;
@@ -4178,8 +4232,17 @@ bool Parser::isFunctionDeclaration() {
         } else break;
     }
 
+    // signed / unsigned before the type (unsigned char f(), or unsigned f()
+    // with an implicit int)
+    bool sawSign = false;
+    while (look < tokens.size() && (tokens[look].type == TokenType::SIGNED || tokens[look].type == TokenType::UNSIGNED)) {
+        sawSign = true;
+        look++;
+    }
     if (look >= tokens.size()) return false;
     TokenType t = tokens[look].type;
+    if (sawSign && t == TokenType::IDENTIFIER && !isTypedef(tokens[look].value))
+        return look + 1 < tokens.size() && tokens[look + 1].type == TokenType::OPEN_PAREN;
     if (t == TokenType::INT || t == TokenType::CHAR || t == TokenType::LONG ||
         t == TokenType::SHORT || t == TokenType::VOID || t == TokenType::BOOL ||
         t == TokenType::FLOAT || t == TokenType::DOUBLE || t == TokenType::COMPLEX || t == TokenType::INT_N || t == TokenType::UINT_N ||
@@ -4211,9 +4274,17 @@ bool Parser::isFunctionDeclaration() {
             if (look < tokens.size() && tokens[look].type == TokenType::IDENTIFIER) look++;
         }
         
-        // Skip any pointers, qualifiers, and attributes interleaved
+        // Skip any pointers, qualifiers, and attributes interleaved (and the
+        // rest of a multi-word type: unsigned long int, long long, long double)
         while (look < tokens.size()) {
             if (tokens[look].type == TokenType::STAR) {
+                look++;
+            } else if (t != TokenType::IDENTIFIER && t != TokenType::STRUCT && t != TokenType::UNION &&
+                       t != TokenType::ENUM &&
+                       (tokens[look].type == TokenType::INT || tokens[look].type == TokenType::LONG ||
+                        tokens[look].type == TokenType::SHORT || tokens[look].type == TokenType::CHAR ||
+                        tokens[look].type == TokenType::DOUBLE || tokens[look].type == TokenType::SIGNED ||
+                        tokens[look].type == TokenType::UNSIGNED)) {
                 look++;
             } else if (tokens[look].type == TokenType::CONST || tokens[look].type == TokenType::VOLATILE ||
                        tokens[look].type == TokenType::RESTRICT || tokens[look].type == TokenType::EXTENSION) {

@@ -85,6 +85,9 @@ run_test "test_issue83_cast_ptr_width"
 echo "--- Issue #84: nested struct array member access ---"
 run_test "test_issue84_nested_struct_array"
 
+echo "--- Computed goto: calls after a label are the function's (SAC overlay) ---"
+run_test "test_cgoto_overlay"
+
 echo ""
 echo "========================================"
 echo "Regression tests: $passed passed, $failed failed"

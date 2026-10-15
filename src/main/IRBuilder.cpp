@@ -1456,6 +1456,9 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         scope.localRegister = std::move(localRegister_);
         scope.localPointedToType = std::move(localPointedToType_);
         scope.localArrayDims = std::move(localArrayDims_);
+        scope.localPointedToTypeName = std::move(localPointedToTypeName_);
+        scope.localPtrLevel = std::move(localPtrLevel_);
+        scope.uplevelNames = std::move(uplevelNames_);
         scope.usedVregs = std::move(usedVregs_);
         scope.localDeclLocs = std::move(localDeclLocs_);
         functionStack_.push_back(std::move(scope));
@@ -1548,6 +1551,9 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         localConst_["__static_link"] = true;
         currentFunc_->localNames["__static_link"] = vreg.vregId;
         currentFunc_->localSlotVregs.insert(vreg.vregId);
+        // its own frame slot (it lives across the body: a frame slot from
+        // the temporaries' pool was shared with a parameter)
+        keepStaticLink(currentFunc_);
 
         ir::Inst loadSl;
         loadSl.op = ir::Op::LOAD_ZP;
@@ -1584,13 +1590,34 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         paramVlaDims_[p.name] = ops;
     }
 
+    // A nested function: the enclosing functions' variables keep their types
+    // (a pointer's pointee, an array's dimensions) for expressions here; they
+    // stay out of locals_ (reached through the static chain)
+    if (fnPtr->isNested) {
+        for (int i = (int)functionStack_.size() - 1; i >= 0; i--) {
+            const auto& sc = functionStack_[i];
+            for (const auto& [n, t] : sc.localTypes) {
+                if (locals_.count(n) || localTypes_.count(n)) continue;
+                uplevelNames_.insert(n);
+                localTypes_[n] = t;
+                if (auto it = sc.localTypeNames.find(n); it != sc.localTypeNames.end()) localTypeNames_[n] = it->second;
+                if (auto it = sc.localSigned.find(n); it != sc.localSigned.end()) localSigned_[n] = it->second;
+                if (auto it = sc.localPointedToType.find(n); it != sc.localPointedToType.end()) localPointedToType_[n] = it->second;
+                if (auto it = sc.localArrayDims.find(n); it != sc.localArrayDims.end()) localArrayDims_[n] = it->second;
+                if (auto it = sc.localPointedToTypeName.find(n); it != sc.localPointedToTypeName.end()) localPointedToTypeName_[n] = it->second;
+                if (auto it = sc.localPtrLevel.find(n); it != sc.localPtrLevel.end()) localPtrLevel_[n] = it->second;
+            }
+        }
+    }
+
     // Visit body
     node.body->accept(*this);
 
     // Check for unused local variables and parameters
     for (const auto& [name, vregOp] : locals_) {
-        // (__sret and a method's __this are hidden parameters)
-        if (name != "__sret" && name != "__this" && usedVregs_.find(vregOp.vregId) == usedVregs_.end() &&
+        // (__sret and a method's __this are hidden parameters, a nested
+        // function's __static_link its static chain)
+        if (name != "__sret" && name != "__this" && name != "__static_link" && usedVregs_.find(vregOp.vregId) == usedVregs_.end() &&
             externalUsedVars_.find(name) == externalUsedVars_.end()) {
             ir::SourceLoc sl = localDeclLocs_[name];
             int line = sl.valid() ? sl.line : node.line;
@@ -1828,6 +1855,9 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         localRegister_ = std::move(scope.localRegister);
         localPointedToType_ = std::move(scope.localPointedToType);
         localArrayDims_ = std::move(scope.localArrayDims);
+        localPointedToTypeName_ = std::move(scope.localPointedToTypeName);
+        localPtrLevel_ = std::move(scope.localPtrLevel);
+        uplevelNames_ = std::move(scope.uplevelNames);
         usedVregs_ = std::move(scope.usedVregs);
         localDeclLocs_ = std::move(scope.localDeclLocs);
         functionStack_.pop_back();
@@ -3205,6 +3235,8 @@ void IRBuilder::resetFunctionLocalState() {
     localPointedToType_.clear();
     localArrayDims_.clear();
     localPtrLevel_.clear();
+    localPointedToTypeName_.clear();
+    uplevelNames_.clear();
     paramArrayDims_.clear();
     // Global pointers to arrays are indexed like int a[][M] parameters
     for (const auto& [n, d] : globalPtrArrayDims_) paramArrayDims_[n] = d;
@@ -3231,7 +3263,47 @@ static bool declaresVla(CompoundStatement& node) {
     return false;
 }
 
+// The names declared directly by decls (a declaration, a group of them, or
+// with list a block's statements) that already name a variable: their
+// bindings are saved, to be restored when the scope ends
+std::vector<std::function<void()>> IRBuilder::saveShadowed(Statement* decls, bool list) {
+    std::vector<std::function<void()>> r;
+    if (!currentFunc_ || !decls) return r;
+    std::vector<std::string> names;
+    std::function<void(Statement*, bool)> collect = [&](Statement* st, bool top) {
+        if (auto* vd = dynamic_cast<VariableDeclaration*>(st)) names.push_back(vd->name);
+        else if (auto* cs = dynamic_cast<CompoundStatement*>(st); cs && (top || cs->isDeclGroup))
+            for (auto& x : cs->statements) collect(x.get(), false);
+    };
+    collect(decls, list);
+    for (const auto& n : names) {
+        if (!locals_.count(n) && !uplevelNames_.count(n)) continue;   // not shadowing
+        auto save = [&](auto& m) {
+            auto it = m.find(n);
+            if (it != m.end()) { auto v = it->second; r.push_back([&m, n, v]() { m[n] = v; }); }
+            else r.push_back([&m, n]() { m.erase(n); });
+        };
+        save(locals_); save(localTypes_); save(localTypeNames_); save(localSigned_);
+        save(localPlainUnsigned_); save(localConst_); save(localPointsToConst_); save(localRegister_);
+        save(localPointedToType_); save(localPointedToTypeName_); save(localConstPtrValue_);
+        save(localArrayDims_); save(localPtrLevel_); save(paramArrayDims_); save(paramVlaDims_);
+        save(vlaSizeVars_); save(localDeclLocs_); save(vmVars_);
+        bool up = uplevelNames_.count(n) > 0;
+        r.push_back([this, n, up]() { if (up) uplevelNames_.insert(n); else uplevelNames_.erase(n); });
+        bool agg = aggCopyParams_.count(n) > 0;
+        r.push_back([this, n, agg]() { if (agg) aggCopyParams_.insert(n); else aggCopyParams_.erase(n); });
+    }
+    return r;
+}
+
+void IRBuilder::restoreShadowed(std::vector<std::function<void()>>& r) {
+    for (auto it = r.rbegin(); it != r.rend(); ++it) (*it)();
+    r.clear();
+}
+
 void IRBuilder::visit(CompoundStatement& node) {
+    // (a declaration group is not a scope: its names are the enclosing block's)
+    auto shadowed = node.isDeclGroup ? std::vector<std::function<void()>>() : saveShadowed(&node, true);
     bool vla = currentFunc_ && declaresVla(node);
     ir::Operand spSlot;
     if (vla) {
@@ -3254,6 +3326,7 @@ void IRBuilder::visit(CompoundStatement& node) {
         restoreVlaStack(spSlot);
         vlaBlocks_.pop_back();
     }
+    restoreShadowed(shadowed);
 }
 
 // SP = the value saved when a block with variable-length arrays began
@@ -3273,10 +3346,14 @@ void IRBuilder::releaseVlasForJump() {
 void IRBuilder::visit(StatementExpression& node) {
     bool savedAddrOnly = computeAddressOnly_;
     computeAddressOnly_ = false;
-    if (node.body) node.body->accept(*this);
+    // one scope for the statements and the value ({ int a = 7; a; })
+    auto shadowed = saveShadowed(node.body.get(), true);
+    if (node.body)
+        for (auto& st : node.body->statements) st->accept(*this);
     computeAddressOnly_ = savedAddrOnly;
     if (node.result) node.result->accept(*this);
     else lastValue_ = ir::Operand::imm(0, ir::Type::I16);
+    restoreShadowed(shadowed);
 }
 
 // ============================================================================
@@ -3284,6 +3361,17 @@ void IRBuilder::visit(StatementExpression& node) {
 // ============================================================================
 
 void IRBuilder::visit(VariableDeclaration& node) {
+    // A nested function's own variable hides the enclosing function's one:
+    // its types are not the enclosing variable's
+    if (currentFunc_ && uplevelNames_.erase(node.name)) {
+        localTypes_.erase(node.name);
+        localTypeNames_.erase(node.name);
+        localSigned_.erase(node.name);
+        localPointedToType_.erase(node.name);
+        localArrayDims_.erase(node.name);
+        localPointedToTypeName_.erase(node.name);
+        localPtrLevel_.erase(node.name);
+    }
     if (node.isFunctionPointer && node.funcPtrSig) fnPtrSigs_[node.name] = node.funcPtrSig;
     // a run-time array size needs automatic storage
     if ((!currentFunc_ || node.isStatic) && !node.isExtern) {
@@ -4196,8 +4284,10 @@ void IRBuilder::visit(VariableReference& node) {
             addrInst.loc = loc(node);
             emit(addrInst);
 
-            if (computeAddressOnly_) {
-                lastValue_ = addr;
+            auto sad = scope.localArrayDims.find(node.name);
+            bool isArray = sad != scope.localArrayDims.end() && !sad->second.empty();
+            if (computeAddressOnly_ || isArray) {
+                lastValue_ = addr;   // (an array is its address)
             } else {
                 // Load the value from the captured address
                 ir::Type t = scope.localTypes.at(node.name);
@@ -6003,6 +6093,17 @@ void IRBuilder::visit(FunctionCall& node) {
             std::string sName = getAggregateName(baseInfo.typeName);
             // Check if this member is a method (mangled name exists as a function)
             std::string mangledName = sName + "__" + ma->memberName;
+            // A method of a base struct (struct D : B): B's, with the same
+            // 'this' (the base's members come first)
+            for (std::string ps = sName; !functionReturnTypes_.count(mangledName);) {
+                auto sit = structs_.find(ps);
+                if (sit == structs_.end() || sit->second.parent.empty()) break;
+                ps = sit->second.parent;
+                if (functionReturnTypes_.count(ps + "__" + ma->memberName)) {
+                    sName = ps;
+                    mangledName = ps + "__" + ma->memberName;
+                }
+            }
             std::string irName = "_" + mangledName;
             if (functionReturnTypes_.count(mangledName)) {
                 // Struct/float result: hidden result pointer goes first (claim the
@@ -6019,6 +6120,20 @@ void IRBuilder::visit(FunctionCall& node) {
                 ma->structExpr->accept(*this);
                 computeAddressOnly_ = oldAddrMode;
                 auto thisPtr = lastValue_;
+                // A global object (g.get()): its operand names the variable,
+                // whose value a small struct would pass; 'this' is its address
+                if (!ma->isArrow && thisPtr.kind == ir::OperandKind::GLOBAL) {
+                    auto addr = allocVreg(ir::Type::PTR);
+                    ir::Inst add;
+                    add.op = ir::Op::ADD;
+                    add.dest = addr;
+                    add.resultType = ir::Type::PTR;
+                    add.src1 = thisPtr;
+                    add.src2 = ir::Operand::imm(0, ir::Type::I16);
+                    add.loc = loc(node);
+                    emit(add);
+                    thisPtr = addr;
+                }
 
                 // Build argument list with 'this' prepended
                 std::vector<ir::Operand> args;
@@ -7439,6 +7554,8 @@ void IRBuilder::visit(ForStatement& node) {
 
     loopStack_.push_back({endLabel, incLabel});
 
+    // for (int i = ...): i's scope is the loop
+    auto shadowed = saveShadowed(node.initializer.get(), false);
     if (node.initializer) node.initializer->accept(*this);
 
     ir::Inst brCond;
@@ -7474,6 +7591,7 @@ void IRBuilder::visit(ForStatement& node) {
 
     loopStack_.pop_back();
     startBlock(endLabel);
+    restoreShadowed(shadowed);
 }
 
 // ============================================================================
@@ -7620,7 +7738,7 @@ void IRBuilder::visit(ArrayAccess& node) {
     // Evaluate base address
     if (auto* ref = dynamic_cast<VariableReference*>(node.arrayExpr.get())) {
         auto ait = localArrayDims_.find(ref->name);
-        if (ait != localArrayDims_.end() && !ait->second.empty()) {
+        if (ait != localArrayDims_.end() && !ait->second.empty() && !uplevelNames_.count(ref->name)) {
             // Local array — compute address via ADDR_LOCAL (a local static
             // array is a global: its operand is the address)
             auto it = locals_.find(ref->name);
@@ -8839,6 +8957,7 @@ void IRBuilder::visit(StructDefinition& node) {
     IRStructInfo info;
     info.name = node.name;
     info.isUnion = node.isUnion;
+    info.parent = node.parentStruct;
     int currentOffset = 0;
 
     // Phase 3: Inherit parent struct members at offset 0

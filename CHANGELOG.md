@@ -41,9 +41,33 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   widened first (a `short` -55 in a `signed long : 29` read back positive);
   a struct passed by value to an inlined function keeps a memory copy (its
   members were read through the address of a register temporary).
+- Struct methods: a method called on a global object (`g.set(9)`) gets the
+  object's address as `this` (it got its contents); a method with an
+  `unsigned`/`signed` return type parses; a base struct's method is found
+  through a derived struct (`struct D : B`).
+- Nested functions: the enclosing function's variables keep their types (a
+  `char *` was read 16 bits wide, an array was treated as a pointer); a
+  nested function's return type can be `unsigned char`, `unsigned long`.
+- The preprocessor expands `F()` of a macro without parameters.
+- ln45: calls after a computed-goto label (cc45 exports `f__lbl_x` for
+  `&&x` in a table) are the function's: the static-allocation overlay gave
+  a computed-goto interpreter and the functions it calls the same storage.
+- Block scope: a variable declared in an inner block, a `for` header or a
+  statement expression hides an outer one of the same name only there
+  (after `{ int a = 7; }` the outer `a` was the inner one).
+- Array designators take any integer constant expression (`[ENUM]`,
+  `[(2)]`, `[1 + 1]`); an unsized array is as long as its highest
+  designated element (`{ [2] = 5, [0] = 1 }` had 2 elements).
+- Nested functions: a recursive one ran forever (its static link shared a
+  frame slot with its parameter); a forward-declared one (`int h(int);`
+  or `auto int h(int);`) is the nested function, not an external; no
+  "unused variable `__static_link`" warning.
 
 ### Standard library
 
+- `rtc_read` (and `localtime`, `gmtime`) read the RTC through a 16-bit
+  pointer, i.e. `$7110` (zeros, month -1): the registers at `$FFD7110` are
+  copied by DMA; the weekday is computed from the date.
 - **`dma_copy_far` / `dma_fill_far`** (`<dma.h>`, `lib/stdlib/dma_far.c`):
   DMA at 28-bit linear addresses (enhanced F018B jobs): chip RAM above
   64 KB, all of colour RAM at `$FF80000`.

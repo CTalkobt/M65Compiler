@@ -1528,6 +1528,10 @@ void O45Linker::buildCallGraph() {
         };
         std::vector<FuncRange> funcs;
         for (const auto& exp : input.obj.exports) {
+            // cc45 exports a function's computed-goto labels (f__lbl_name,
+            // for &&name in a static table): they are inside f, not new
+            // functions (calls after one belong to f)
+            if (exp.name.find("__lbl_") != std::string::npos) continue;
             if (exp.segmentId() == SEG_TEXT) {
                 funcs.push_back({exp.name, input.textOffset + exp.offset, 0});
             }
