@@ -23,7 +23,7 @@ proc _atoi
     lda ($10),y
     cmp #$20
     beq @skipnext
-    cmp #$16
+    cmp #$09
     bcc @checksign
     cmp #$0e
     bcc @skipnext

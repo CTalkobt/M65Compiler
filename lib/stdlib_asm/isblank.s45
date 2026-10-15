@@ -1,7 +1,7 @@
 ; isblank.s — Test if character is blank (ZP calling convention)
 ;
 ; int isblank(int c);
-;   Returns 1 if c is space ($20) or tab ($16), 0 otherwise.
+;   Returns 1 if c is space ($20) or tab ($09), 0 otherwise.
 
 .global _isblank
 
@@ -17,7 +17,7 @@ proc _isblank
     lda $10
     cmp #$20
     beq @yes
-    cmp #$16
+    cmp #$09            ; tab
     beq @yes
     lda #0
     ldx #0

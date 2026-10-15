@@ -700,6 +700,14 @@ for fomode in "zp|" "stack|-fno-zpcall"; do
         echo "FAIL: test_far_ops_xemu.c $foname (compilation/linking failed)"
         failed=$((failed + 1))
     fi
+    echo "Testing test_lib_regress_xemu.c ($foname)..."
+    compile_link_test "src/test-resources/test_lib_regress_xemu.c" "build/test/test_lib_regress_${foname}_xemu.prg" "$foflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_lib_regress_$foname" "build/test/test_lib_regress_${foname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
+    else
+        echo "FAIL: test_lib_regress_xemu.c $foname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
     echo "Testing test_parse_fixes_xemu.c ($foname)..."
     compile_link_test "src/test-resources/test_parse_fixes_xemu.c" "build/test/test_parse_fixes_${foname}_xemu.prg" "$foflags"
     if [ $? -eq 0 ]; then

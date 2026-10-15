@@ -4272,6 +4272,33 @@ void IRBuilder::visit(Assignment& node) {
         }
         if (node.op == "=") toComplex(node.expression, k);
     }
+    // A struct or union target of x op= y: its operator method (operator+=:
+    // S__operator_add_assign(&x, y), as the binary operators dispatch);
+    // without one it is an error (a small struct is not an integer)
+    if (node.op != "=") {
+        IRTypeInfo ti = getExprTypeInfo(node.target.get());
+        std::string sName = ti.typeName.empty() ? std::string() : getAggregateName(ti.typeName);
+        if (!sName.empty() && ti.type != ir::Type::PTR && structs_.count(sName)) {
+            static const std::map<std::string, std::string> assignOps = {
+                {"+=", "add_assign"}, {"-=", "sub_assign"}, {"*=", "mul_assign"},
+                {"/=", "div_assign"}, {"%=", "mod_assign"}, {"&=", "band_assign"},
+                {"|=", "bor_assign"}, {"^=", "bxor_assign"}, {"<<=", "shl_assign"}, {">>=", "shr_assign"},
+            };
+            auto it = assignOps.find(node.op);
+            if (it != assignOps.end() && functionReturnTypes_.count(sName + "__operator_" + it->second)) {
+                BinaryOperation bin(node.op, std::move(node.target), std::move(node.expression));
+                bin.line = node.line; bin.column = node.column; bin.sourceFile = node.sourceFile;
+                bin.accept(*this);
+                node.target = std::move(bin.left);       /* the AST stays whole (inlining copies it) */
+                node.expression = std::move(bin.right);
+                return;
+            }
+            errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column, Severity::Error,
+                "invalid operands to " + node.op + " ('" + ti.typeName + "' has no operator" + node.op + ")"));
+            lastValue_ = ir::Operand::imm(0, ir::Type::I16);
+            return;
+        }
+    }
     // 1. Semantic checks for constness
     if (auto* ma = dynamic_cast<MemberAccess*>(node.target.get())) {
         // Determine the struct type of the variable being accessed
