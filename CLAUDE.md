@@ -90,7 +90,7 @@ writes a standalone assembly form with its own startup stub.
 - **ZP map**: `$06` static chain, `$08`–`$0F` scratch (`__zp_scratch*`),
   `$10`–`$2F` parameters, `$30`–`$7F` register pool, `$80`–`$E9` functions'
   base-page blocks (the most used variables of SAC functions that make calls,
-  up to 8 bytes, `-fzp-locals-max=N`; ca45 `.zar`, placed by ln45 like the SAC
+  up to 16 bytes (the library 8), `-fzp-locals-max=N`; ca45 `.zar`, placed by ln45 like the SAC
   overlay; `-fno-zp-locals`), `$FD/$FE` frame pointer.
 
 ### Relocated Base Page (the program's private zero page)
@@ -179,7 +179,7 @@ not change what is tested; a test's own later `-O` still wins. Use an
 explicit `-O<n>` in ad-hoc test commands too.
 
 - `make test` — unit tests (no emulator).
-- `bash src/test/test_xemu.sh` — runtime tests on xemu (247 pass): each
+- `bash src/test/test_xemu.sh` — runtime tests on xemu (251 pass): each
   `*_xemu.c` writes results to `$C0C0` (01 = pass, `$AA` sentinel), built in
   both conventions. New runtime tests follow this pattern and are registered
   in `test_xemu.sh`.

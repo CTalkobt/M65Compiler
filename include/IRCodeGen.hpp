@@ -137,7 +137,7 @@ private:
     //   (spare), $F0-$FC library temps, $FD-$FE frame pointer
     static constexpr int ZP_POOL_START = 0x30;
     // $80-$E9: functions' own base-page blocks (.zar), placed by ln45
-    static constexpr int ZAR_START = 0x80, ZAR_END = 0xEA, ZAR_MAX = 8;
+    static constexpr int ZAR_START = 0x80, ZAR_END = 0xEA, ZAR_MAX = 16;
     static constexpr int ZP_POOL_SLOTS = (ZAR_START - 0x30) / 2;
     static constexpr int ZP_TEMP32 = 0xEA;
     uint32_t zeroPageAvail_ = 248;  // Available ZP space (usually $08-$FF)
@@ -282,6 +282,7 @@ private:
     std::map<std::string, std::vector<std::string>> functionParameterNames_;
     std::map<std::string, std::vector<ir::Type>> functionParameterTypes_;  // (same unit)
     std::set<std::string> emittedLabelRefs_;  // @labels named by the emitted code (this function)
+    int skipInsts_ = 0;                      // instructions emitted with the one before (g += c)
     bool skipBrIndirect_ = false;            // the next BR_INDIRECT was emitted as jmp (table,x)
     std::set<std::string> smallGlobals_;      // globals of at most 256 bytes (not __zp/__far)
     // An element of a small global array: Y = index * stride (a byte offset

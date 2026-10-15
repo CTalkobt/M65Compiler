@@ -108,9 +108,74 @@ void optimizeCSE(Module& mod) {
     for (auto& fn : mod.functions) {
         if (!runOn(fn, "CommonSubexprElim")) continue;
         const auto& slots = fn.localSlotVregs;
-        for (auto& block : fn.blocks) {
+        // Extended blocks: a block whose one predecessor is the block before
+        // it in the list starts with that block's expressions and copies
+        // (an address computed before an if is reused in it: map[y][x]). Its
+        // predecessors: the branches to its label (switch cases, phi edges),
+        // the fall-through from the block before; a label whose address is
+        // taken has unknown ones.
+        std::map<std::string, size_t> labelIdx;
+        for (size_t bi = 0; bi < fn.blocks.size(); bi++) labelIdx[fn.blocks[bi].label] = bi;
+        std::vector<int> predCount(fn.blocks.size(), 0);
+        std::vector<long> onlyPred(fn.blocks.size(), -1);
+        auto addPred = [&](size_t to, size_t from) {
+            if (predCount[to]++ == 0) onlyPred[to] = (long)from;
+            else if (onlyPred[to] != (long)from) onlyPred[to] = -2;
+        };
+        for (size_t bi = 0; bi < fn.blocks.size(); bi++) {
+            const auto& b = fn.blocks[bi];
+            bool falls = true;
+            for (const auto& in : b.insts) {
+                auto target = [&](const Operand& o) {
+                    if (o.kind == OperandKind::LABEL) {
+                        auto it = labelIdx.find(o.name);
+                        if (it != labelIdx.end()) addPred(it->second, bi);
+                    }
+                };
+                if (in.op == Op::BR || in.op == Op::BR_COND || in.op == Op::SWITCH) {
+                    target(in.dest); target(in.src1); target(in.src2);
+                    for (const auto& a : in.args) target(a);
+                }
+                for (const auto& c : in.switchCases) {
+                    auto it = labelIdx.find(c.second);
+                    if (it != labelIdx.end()) { addPred(it->second, bi); addPred(it->second, bi + 100000); }
+                }
+            }
+            if (!b.insts.empty()) {
+                Op last = b.insts.back().op;
+                if (last == Op::BR || last == Op::RET || last == Op::RET_VOID || last == Op::BR_INDIRECT ||
+                    last == Op::SWITCH)
+                    falls = false;
+            }
+            if (falls && bi + 1 < fn.blocks.size()) addPred(bi + 1, bi);
+        }
+        for (const auto& l : fn.addressTakenLabels) {
+            auto it = labelIdx.find(l);
+            if (it != labelIdx.end()) predCount[it->second] += 2;
+        }
+        // any other way into a block (asm naming labels): no carrying
+        bool anyAsm = false;
+        for (const auto& b : fn.blocks)
+            for (const auto& in : b.insts)
+                if (in.op == Op::ASM_INLINE || in.op == Op::BR_INDIRECT) anyAsm = true;
+        std::vector<std::map<uint32_t, Operand>> endCopies(fn.blocks.size());
+        std::vector<std::vector<std::pair<ExprKey, Operand>>> endExprs(fn.blocks.size());
+        for (size_t blockIdx = 0; blockIdx < fn.blocks.size(); blockIdx++) {
+            auto& block = fn.blocks[blockIdx];
             std::map<uint32_t, Operand> copies;
             std::vector<std::pair<ExprKey, Operand>> activeExprs;
+            if (!anyAsm && blockIdx > 0 && predCount[blockIdx] == 1 && onlyPred[blockIdx] >= 0 &&
+                (size_t)onlyPred[blockIdx] < blockIdx) {
+                // only what is expensive to compute again (a multiply, an
+                // element address, a division): a reused cheap value lives
+                // longer and spills more than it saves
+                for (const auto& e : endExprs[onlyPred[blockIdx]]) {
+                    Op o = e.first.op;
+                    if (o == Op::MUL || o == Op::MUL_U || o == Op::ADDR_ELEM || o == Op::DIV || o == Op::DIV_U ||
+                        o == Op::MOD || o == Op::MOD_U)
+                        activeExprs.push_back(e);
+                }
+            }
 
             // Vregs are not SSA (a variable's slot vreg is assigned by STORE, a
             // temp can be defined on several paths): forget every recorded
@@ -216,6 +281,8 @@ void optimizeCSE(Module& mod) {
                     }
                 }
             }
+            endCopies[blockIdx] = std::move(copies);
+            endExprs[blockIdx] = std::move(activeExprs);
         }
     }
 }
@@ -1515,6 +1582,8 @@ void optimizeLICM(Module& mod) {
             //   3. No source reads a local slot mutated inside the loop
             //   4. Its dest vreg is not a local slot or memory-pinned vreg
             std::set<uint32_t> invariantVregs;
+            // vregs with one definition, a constant
+            std::map<uint32_t, int64_t> loopConsts = singleDefConsts(fn);
             bool changed = true;
             while (changed) {
                 changed = false;
@@ -1523,6 +1592,26 @@ void optimizeLICM(Module& mod) {
                         if (!inst.dest.isVreg()) continue;
                         if (invariantVregs.count(inst.dest.vregId)) continue;
                         if (!isHoistCandidate(inst.op)) continue;
+                        // A global's address (+ a constant) costs nothing where it
+                        // is used (name+off): hoisted, it and the address arithmetic
+                        // on it would be variables live across the loop (across its
+                        // calls in memory, copied to zero page for each use)
+                        if (inst.op == Op::ADDR_GLOBAL ||
+                            ((inst.op == Op::ADD || inst.op == Op::SUB) && inst.src1.kind == OperandKind::GLOBAL &&
+                             inst.src2.isImm()))
+                            continue;
+                        // Likewise anything computed from constants alone (a
+                        // conversion of a constant): only an instruction with a
+                        // variable operand (k * 7) is worth a variable
+                        if (inst.op != Op::CONST && inst.op != Op::FCONST) {
+                            bool hasVar = false;
+                            auto isVar = [&](const Operand& o) {
+                                return o.isVreg() && !loopConsts.count(o.vregId);
+                            };
+                            if (isVar(inst.src1) || isVar(inst.src2)) hasVar = true;
+                            for (const auto& a : inst.args) if (isVar(a)) hasVar = true;
+                            if (!hasVar) continue;
+                        }
 
                         // Don't hoist local slot vregs (they represent stack addresses)
                         if (fn.localSlotVregs.count(inst.dest.vregId)) continue;
@@ -1571,8 +1660,8 @@ void optimizeLICM(Module& mod) {
             std::map<uint32_t, Inst> constDefs;
             for (size_t bi : loopBlocks) {
                 for (const auto& inst : fn.blocks[bi].insts) {
-                    if ((inst.op == Op::CONST || inst.op == Op::FCONST) &&
-                        inst.dest.isVreg() && invariantVregs.count(inst.dest.vregId)) {
+                    bool cheap = inst.op == Op::CONST || inst.op == Op::FCONST;
+                    if (cheap && inst.dest.isVreg() && invariantVregs.count(inst.dest.vregId)) {
                         constDefs[inst.dest.vregId] = inst;
                     }
                 }

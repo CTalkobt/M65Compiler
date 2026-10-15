@@ -2357,6 +2357,38 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 auto it = fn.localNames.find(name);
                 if (it != fn.localNames.end() && it->second >= paramCount) consider(it->second);
             }
+            // pointer temporaries dereferenced and live across a call (kept in
+            // static storage otherwise: copied to __zp_scratch at each use)
+            {
+                std::map<uint32_t, std::pair<int, int>> span;   // first, last mention
+                std::vector<int> calls;
+                int idx = 0;
+                std::set<uint32_t> derefd;
+                for (const auto& blk : fn.blocks)
+                    for (const auto& in : blk.insts) {
+                        if (in.op == ir::Op::CALL || in.op == ir::Op::CALL_VOID || in.op == ir::Op::CALL_INDIRECT)
+                            calls.push_back(idx);
+                        if (in.op == ir::Op::LOAD && in.src1.isVreg() && in.args.empty()) derefd.insert(in.src1.vregId);
+                        if (in.op == ir::Op::STORE && in.src2.isVreg() && in.args.empty()) derefd.insert(in.src2.vregId);
+                        auto mention = [&](const ir::Operand& o) {
+                            if (!o.isVreg()) return;
+                            auto sp = span.find(o.vregId);
+                            if (sp == span.end()) span[o.vregId] = {idx, idx};
+                            else sp->second.second = idx;
+                        };
+                        mention(in.dest); mention(in.src1); mention(in.src2);
+                        for (const auto& a : in.args) mention(a);
+                        idx++;
+                    }
+                for (uint32_t v : derefd) {
+                    if (v < paramCount || fn.localSlotVregs.count(v) || typeOf(v) != ir::Type::PTR) continue;
+                    auto sp = span.find(v);
+                    if (sp == span.end()) continue;
+                    bool crosses = false;
+                    for (int c : calls) if (c > sp->second.first && c < sp->second.second) crosses = true;
+                    if (crosses) consider(v);
+                }
+            }
             // pointers first (a dereference needs the pointer in ZP), then by use
             std::stable_sort(cands.begin(), cands.end(), [&](uint32_t a, uint32_t b) {
                 bool pa = typeOf(a) == ir::Type::PTR, pb = typeOf(b) == ir::Type::PTR;
@@ -3554,6 +3586,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         }
         for (size_t ii = 0; ii < block.insts.size(); ii++) {
             currentInstInBlock_ = ii;
+            if (skipInsts_ > 0) { skipInsts_--; currentInstIdx_++; continue; }   // emitted with the one before
             emitInst(block.insts[ii]);
             currentInstIdx_++;
         }
@@ -4887,6 +4920,26 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                 // NOTE: For I16 CMP_EQ/CMP_NE against 0, the compare code above
                 // (ora __zp_scratch) already set Z correctly. For other comparisons,
                 // cmp.16/cmp.s16 set flags via the simop. Flags are live here.
+            } else if (cmpOp == ir::Op::CMP_GE || cmpOp == ir::Op::CMP_GEU ||
+                       cmpOp == ir::Op::CMP_LT || cmpOp == ir::Op::CMP_LTU) {
+                // the result is C (C = not less): A = C, without branches
+                lastCmp_.valid = false;
+                emit("lda #0");
+                emit("rol", "C (not less)");
+                if (cmpOp == ir::Op::CMP_LT || cmpOp == ir::Op::CMP_LTU) emit("eor #1");
+                emit("ldx #0");
+                if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
+            } else if (cmpOp == ir::Op::CMP_EQ || cmpOp == ir::Op::CMP_NE) {
+                // the result is Z (bit 1 of the status byte), without branches
+                lastCmp_.valid = false;
+                emit("php");
+                emit("pla");
+                emit("lsr", "Z (equal)");
+                emit("and #1");
+                if (cmpOp == ir::Op::CMP_NE) emit("eor #1");
+                emit("ldx #0");
+                ms_.invalidateAll();
+                if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             } else {
                 lastCmp_.valid = false;
                 // Branch IMMEDIATELY (flags live), set result to 0 or 1
@@ -5065,6 +5118,75 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                     }
                 }
                 break;
+            }
+            // g += c on a global of this file (load, add a constant, store
+            // back, the values used nowhere else): inc / dec or an add in
+            // place, not through temporaries
+            if (inst.src1.kind == ir::OperandKind::GLOBAL && inst.dest.isVreg() && inst.args.empty() &&
+                (inst.resultType == ir::Type::I8 || inst.resultType == ir::Type::I16) &&
+                symbolAddressSpace_.count(inst.src1.name) && symbolAddressSpace_[inst.src1.name] == 0 &&
+                inst.src1.name.find("__param_") == std::string::npos && currentFn_) {
+                const auto& blk = currentFn_->blocks[currentBlockIdx_];
+                size_t at = currentInstInBlock_;
+                // (x++ copies the old value first: a deref/copy of it)
+                const ir::Inst* cp = at + 1 < blk.insts.size() ? &blk.insts[at + 1] : nullptr;
+                bool hasCopy = cp && (cp->op == ir::Op::DEREF || cp->op == ir::Op::COPY) && cp->dest.isVreg() &&
+                               cp->src1.isVreg() && cp->src1.vregId == inst.dest.vregId && cp->resultType == inst.resultType;
+                size_t k = hasCopy ? 2 : 1;
+                uint32_t val = hasCopy ? cp->dest.vregId : inst.dest.vregId;
+                const ir::Inst* a = at + k < blk.insts.size() ? &blk.insts[at + k] : nullptr;
+                const ir::Inst* st = at + k + 1 < blk.insts.size() ? &blk.insts[at + k + 1] : nullptr;
+                long long c = 0;
+                bool ok = a && st && (a->op == ir::Op::ADD || a->op == ir::Op::SUB) && a->resultType == inst.resultType &&
+                          a->dest.isVreg() && a->src1.isVreg() && a->src1.vregId == val && a->src2.isImm() &&
+                          st->op == ir::Op::STORE && st->src1.isVreg() && st->src1.vregId == a->dest.vregId &&
+                          st->src2.kind == ir::OperandKind::GLOBAL && st->src2.name == inst.src1.name &&
+                          st->resultType == inst.resultType && st->args.empty();
+                if (ok) {
+                    int uses = 0;
+                    for (const auto& b : currentFn_->blocks)
+                        for (const auto& in : b.insts) {
+                            for (const ir::Operand* o : {&in.src1, &in.src2})
+                                if (o->isVreg() && (o->vregId == inst.dest.vregId || o->vregId == val ||
+                                                    o->vregId == a->dest.vregId)) uses++;
+                            for (const auto& o : in.args)
+                                if (o.isVreg() && (o.vregId == inst.dest.vregId || o.vregId == val ||
+                                                   o.vregId == a->dest.vregId)) uses++;
+                        }
+                    ok = uses == (hasCopy ? 3 : 2);
+                }
+                if (ok) {
+                    bool w16 = inst.resultType == ir::Type::I16;
+                    long long mask = w16 ? 0xFFFF : 0xFF;
+                    c = (a->op == ir::Op::ADD ? a->src2.immVal : -a->src2.immVal) & mask;
+                    const std::string& g = inst.src1.name;
+                    if (c == 0) {
+                        // nothing
+                    } else if (c == 1 && !w16) {
+                        emit("inc " + g, irDesc("+= 1 in place"));
+                    } else if (c == mask && !w16) {
+                        emit("dec " + g, irDesc("-= 1 in place"));
+                    } else if (c == 1) {
+                        std::string l = "@__inc_" + std::to_string(labelCounter_++);
+                        emit("inc " + g, irDesc("+= 1 in place"));
+                        emit("bne " + l); emit("inc " + g + "+1"); emitLabel(l);
+                    } else if (c == mask) {
+                        std::string l = "@__dec_" + std::to_string(labelCounter_++);
+                        emit("lda " + g, irDesc("-= 1 in place"));
+                        emit("bne " + l); emit("dec " + g + "+1"); emitLabel(l);
+                        emit("dec " + g);
+                    } else {
+                        emit("lda " + g, irDesc("+= " + std::to_string(c) + " in place"));
+                        emit("clc"); emit("adc #" + std::to_string((int)(c & 0xFF))); emit("sta " + g);
+                        if (w16) {
+                            emit("lda " + g + "+1"); emit("adc #" + std::to_string((int)((c >> 8) & 0xFF)));
+                            emit("sta " + g + "+1");
+                        }
+                    }
+                    ms_.invalidateAll();
+                    skipInsts_ = (int)k + 1;
+                    break;
+                }
             }
             if (inst.src1.kind == ir::OperandKind::GLOBAL) {
                 // Phase 78: Check if this is a parameter using SMC optimization

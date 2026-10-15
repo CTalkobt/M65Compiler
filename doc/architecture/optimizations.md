@@ -68,7 +68,7 @@ every function for which the pass is on (`-O1` and up, unless switched off).
 | `type-narrowing` | `narrow` | An `ADD`/`MUL`/`AND`/`OR`/`XOR`/`SHL`/`NOT` whose result is only used through a truncation to 8 bits is computed in 8 bits. Forward: a `ZEXT` of a constant becomes the constant; `AND`/`OR`/`XOR` and comparisons of zero-extended bytes (or a byte and a constant that fits) are done in 8 bits; a branch on a zero-extended byte tests the byte; a single-definition constant vreg becomes an immediate operand of `ADD`/`SUB`/`AND`/`OR`/`XOR`/shifts/comparisons. Unsigned comparisons with 0 or 1 become tests for zero (`x > 0`, `0 < x`, `x >= 1` → `x != 0`; `x <= 0`, `x < 1` → `x == 0`; `x >= 0` → 1, `x < 0` → 0), which codegen does with `lda`/`ora` and the Z flag |
 | `branch-folding` | `branch` | Removes instructions after a block's terminator, folds branches on constants, threads jumps to blocks that only jump, removes unreachable blocks |
 | `cse` | `cse` | Within a block, a repeated pure expression reuses the earlier result; copy propagation of temporaries. Forgets an expression when an operand is reassigned, and on stores through pointers, calls and inline asm |
-| `loop-invariant-code-motion` | `licm` | Moves pure computations whose operands don't change in the loop to a pre-header. A variable whose address is taken counts as changed when the loop calls a function, stores through a pointer or contains asm |
+| `loop-invariant-code-motion` | `licm` | Moves pure computations whose operands don't change in the loop to a pre-header. A variable whose address is taken counts as changed when the loop calls a function, stores through a pointer or contains asm; constants and global addresses (`&g + c`) stay where they are used (they cost nothing there) |
 | `copy-propagation` | `copy` | Replaces uses of a copy of a temporary by the original and removes the dead copies (temporaries defined once only; never variables) |
 | `addr-elem-fusion` | `fusion` | An array element address used once, by the next 1/2-byte (or 4-byte load) access of an integer or pointer, is computed inside that load/store (no pointer temporary) |
 | `post-increment-sink` | `postinc` | `*p++` / `*p--` on a pointer variable: the IR copies the old pointer to a temporary, updates `p`, then accesses through the copy. When nothing between the update and the last use of the copy reads or writes `p` (or calls, or is asm), the update moves after that use and the copy becomes `p + 0`, which the code generator folds into the access: `lda ($p),y` with `p` in ZP, then `inw $p` / `dew $p` for a step of 1. Runs after the other passes and after the leaf-function pointer allocation ([Pointers in zero page](#pointers-in-zero-page-leaf-functions)). The same pass (tag `incdec`) updates other variables in place: `n--` (`%t = deref n; %u = sub %t, 1; store %u, n`) subtracts from `n` itself, and after `--n` (`%u = sub n, 1; store %u, n`) the uses of `%u` read `n` (until it is written again); the code generator then emits `inc`/`dec` (a byte), `inw`/`dew` (ZP), `inc`/`bne`/`inc` (static storage) or ca45's `inc.16f`/`dec.16f` (stack frame). Likewise a call's result stored into a variable of its type (`c = getc()`): its later uses read the variable, and the code generator stores it from A/X without a temporary |
@@ -151,9 +151,10 @@ A static-allocation function that makes calls cannot use the pool across
 them; its most used variables go in a base-page block of its own, `$80+k`,
 declared with `.zar $80, N`: pointers first, then `char`/`int`/`long` variables
 (parameters too in the ZP convention) by number of uses, loop uses counted 4
-times, up to 8 bytes (`-fzp-locals-max=N`; in `c45.lib` 8 bytes per function
-cover 70% of the static-storage accesses, 16 cover 87%, but 16 makes deep
-stdio chains overflow the area). ca45
+times, up to 16 bytes (`-fzp-locals-max=N`; `c45.lib` is built with 8: there
+8 bytes per function cover 70% of the static-storage accesses, 16 cover 87%,
+but 16 makes deep stdio chains overflow the area; in programs 16 is 537 bytes
+smaller over the examples than 8 without overflowing). ca45
 relocates those operands against `<f>__zar` and ln45 places the blocks in
 `$80`–`$E9` so that functions active together never share bytes
 (`computeZarOverlay`, the SAC overlay's call graph plus edges from functions

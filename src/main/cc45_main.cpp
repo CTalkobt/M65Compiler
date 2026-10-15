@@ -503,7 +503,7 @@ int main(int argc, char** argv) {
                 std::cout << "  -fstaticalloc  Use static allocation (default)" << std::endl;
                 std::cout << "  -fno-zp-locals  No base-page blocks ($80-$E9) for pointer variables of functions" << std::endl;
                 std::cout << "                 that make calls (for call chains that do not fit there)" << std::endl;
-                std::cout << "  -fzp-locals-max=N  Bytes of such a block (default 8; 0 = none)" << std::endl;
+                std::cout << "  -fzp-locals-max=N  Bytes of such a block (default 16; 0 = none)" << std::endl;
                 std::cout << "  -fmul-call     Multiplies as calls of the library's __mul16/__mul32 (smaller," << std::endl;
                 std::cout << "                 slower; -Os = -O2 -fmul-call)" << std::endl;
                 std::cout << "  -finline-functions  Inline small functions" << std::endl;
@@ -584,7 +584,7 @@ int main(int argc, char** argv) {
         } else if (arg == "-fzp-locals") {
             unsetenv("CC45_NO_ZP_LOCALS");
         } else if (arg.rfind("-fzp-locals-max=", 0) == 0) {
-            // bytes of a function's base-page block (default 8)
+            // bytes of a function's base-page block (default 16)
             setenv("CC45_ZP_LOCALS_MAX", arg.substr(16).c_str(), 1);
         } else if (arg == "--prg-base" && i + 1 < allArgs.size()) {
             config.prgBase = std::stoul(allArgs[++i], nullptr, 16);

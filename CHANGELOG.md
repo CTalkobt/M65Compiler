@@ -77,6 +77,22 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   `asl; tax; jmp (table,x)` (the 45GS02's indexed indirect jump) instead of
   the table entry patched into a self-modified `jmp`: about 16 bytes less
   per dispatch and much faster (forth 570 bytes smaller, calc_graph 207).
+- A comparison used as a value is built from the flags without branches:
+  `lda #0; rol` (and `eor #1`) for `<` / `>=`, `php; pla; lsr; and #1` for
+  `==` / `!=`. `g += c` on a global (`count++`, `sp += 2`) is done in place:
+  `inc g` / `inc g; bne; inc g+1`, or an add on the variable, not through
+  temporaries. Loop-invariant code motion leaves constants and global
+  addresses (`&g + c`) where they are used (hoisted they were variables live
+  across the loop, kept in memory across its calls and copied to zero page
+  for each use); pointer temporaries dereferenced across calls are kept in
+  the function's base-page block. Loop-invariant code motion moves only
+  instructions with a variable operand (`k * 7`): constants, global
+  addresses (`&g + c`) and what is computed from them alone stay where they
+  are used (they cost nothing there; hoisted they were variables live across
+  the loop, kept in memory across its calls). CSE carries multiplies, element
+  addresses and divisions into a block whose one predecessor is the block
+  before it. A function's base-page block holds up to 16 bytes (the library
+  is built with 8). The examples are 2263 more bytes smaller.
 - ln45: calls after a computed-goto label (cc45 exports `f__lbl_x` for
   `&&x` in a table) are the function's: the static-allocation overlay gave
   a computed-goto interpreter and the functions it calls the same storage.
