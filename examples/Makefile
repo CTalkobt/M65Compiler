@@ -17,6 +17,7 @@ SUBDIRS = \
 	c/vic4_colors \
 	c/far_scroller \
 	c/invaders \
+	c/mandelbrot \
 	c/stdlib/string_h \
 	c/stdlib/stdlib_h \
 	c/stdlib/ctype_h \

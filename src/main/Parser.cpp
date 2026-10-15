@@ -1996,7 +1996,8 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
             // Evaluate constant array size: integer literals, sizeof, constant expressions
             int arrSize = 0;
             long cv;
-            if (evalConstInt(sizeExpr.get(), cv)) arrSize = (int)cv;
+            bool constSize = evalConstInt(sizeExpr.get(), cv);
+            if (constSize) arrSize = (int)cv;
             else if (auto* szExpr = dynamic_cast<SizeofExpression*>(sizeExpr.get())) {
                 if (szExpr->typeName == "int" || szExpr->typeName == "short") arrSize = 2;
                 else if (szExpr->typeName == "long") arrSize = 4;
@@ -2005,7 +2006,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
                 for (int _p = 0; _p < szExpr->pointerLevel; _p++) arrSize = 2;
             }
             else arrSize = 0; // a run-time size: a variable-length array
-            if (arrSize == 0 && !dynamic_cast<SizeofExpression*>(sizeExpr.get())) {
+            if (!constSize && arrSize == 0 && !dynamic_cast<SizeofExpression*>(sizeExpr.get())) {
                 isVla = true;
                 vlaDimExprs.push_back(std::shared_ptr<Expression>(std::move(sizeExpr)));
             } else {
@@ -2054,14 +2055,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
         }
     }
 
-    {
-        int es = scalarTypeSize(type, ptrLevel);
-        if (es > 0) {
-            long n = es;
-            for (int d : decl->arrayDims) n *= d;
-            varByteSizes[name] = n;
-        }
-    }
+    recordVarSize(name, type, ptrLevel, decl->arrayDims);
 
     // Skip __attribute__ after variable declaration: int x __attribute__((unused));
     while (tryParseAttribute()) {}
@@ -2120,12 +2114,13 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
                     extraDims.push_back(0);
                     extraUnsized = true;
                 } else {
+                    const Token& dimTok = peek();
                     auto stExpr = parseExpression();
-                    int estSize = 0;
                     long cv;
-                    if (evalConstInt(stExpr.get(), cv)) estSize = (int)cv;
-                    else estSize = 1;
-                    extraDims.push_back(estSize);
+                    if (!evalConstInt(stExpr.get(), cv))
+                        throw std::runtime_error(formatDiagnostic(dimTok.sourceFile, dimTok.line, dimTok.column, Severity::Error,
+                            "array size of '" + extraName + "' is not a constant expression"));
+                    extraDims.push_back((int)cv);
                 }
                 expect(TokenType::CLOSE_SQUARE, "Expected ']' after array size");
             }
@@ -2142,6 +2137,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
             extraDecl->isPointerConst = extraPtrConst;
             extraDecl->addressSpace = addressSpace;  // Phase 97: Set address space qualifier
             extraDecl->arrayDims = extraDims;
+            recordVarSize(extraName, type, extraPtr, extraDims);
             if (match(TokenType::EQUALS)) {
                 if (peek().type == TokenType::OPEN_BRACE) {
                     extraDecl->initializer = parseInitializerList();
@@ -4012,6 +4008,18 @@ int Parser::scalarTypeSize(const std::string& type, int ptrLevel) {
     return -1;
 }
 
+void Parser::recordVarSize(const std::string& name, const std::string& type, int ptrLevel, const std::vector<int>& dims) {
+    varShapes_[name] = {type, ptrLevel, dims};
+    int es = scalarTypeSize(type, ptrLevel);
+    if (es > 0) {
+        long n = es;
+        for (int d : dims) n *= d;
+        varByteSizes[name] = n;
+    } else {
+        varByteSizes.erase(name);
+    }
+}
+
 bool Parser::evalConstInt(Expression* e, long& out) {
     if (!e) return false;
     if (auto* lit = dynamic_cast<IntegerLiteral*>(e)) { out = (long)lit->value; return true; }
@@ -4037,7 +4045,35 @@ bool Parser::evalConstInt(Expression* e, long& out) {
             out = it->second;
             return true;
         }
-        return false;
+        // sizeof x[i][j] / sizeof *p: each subscript or * drops an array
+        // dimension, then a pointer level
+        {
+            Expression* x = sz->expression.get();
+            int depth = 0;
+            for (;;) {
+                if (auto* aa = dynamic_cast<ArrayAccess*>(x)) { x = aa->arrayExpr.get(); depth++; continue; }
+                if (auto* un = dynamic_cast<UnaryOperation*>(x); un && un->op == "*") { x = un->operand.get(); depth++; continue; }
+                break;
+            }
+            auto* v = dynamic_cast<VariableReference*>(x);
+            if (!v || !depth) return false;
+            auto it = varShapes_.find(v->name);
+            if (it == varShapes_.end()) return false;
+            const VarShape& sh = it->second;
+            int ptr = sh.ptrLevel;
+            size_t dimsLeft = sh.dims.size();
+            for (int k = 0; k < depth; k++) {
+                if (dimsLeft) dimsLeft--;
+                else if (ptr > 0) ptr--;
+                else return false;
+            }
+            int es = scalarTypeSize(sh.type, ptr);
+            if (es < 0) return false;
+            long n = es;
+            for (size_t k = sh.dims.size() - dimsLeft; k < sh.dims.size(); k++) n *= sh.dims[k];
+            out = n;
+            return true;
+        }
     }
     if (auto* u = dynamic_cast<UnaryOperation*>(e)) {
         long a;

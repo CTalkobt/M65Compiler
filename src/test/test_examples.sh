@@ -103,6 +103,9 @@ test_screenshot "far_scroller" "$EXAMPLES/c/far_scroller/far_scroller.prg" 15
 build_example "$EXAMPLES/c/invaders"
 test_screenshot "invaders" "$EXAMPLES/c/invaders/invaders.prg" 15
 
+build_example "$EXAMPLES/c/mandelbrot"
+test_screenshot "mandelbrot" "$EXAMPLES/c/mandelbrot/mandelbrot.prg" 15
+
 echo ""
 echo "Example tests: $passed passed, $failed failed, $skipped skipped"
 [ "$failed" -eq 0 ] || exit 1

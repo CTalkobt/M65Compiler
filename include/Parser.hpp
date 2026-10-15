@@ -143,6 +143,10 @@ private:
     // Byte sizes of declared variables with known scalar/array types (sizeof var
     // in constant expressions such as array dimensions)
     std::map<std::string, long> varByteSizes;
+    // a variable's shape for sizeof x[i] / sizeof *p in constant expressions
+    struct VarShape { std::string type; int ptrLevel = 0; std::vector<int> dims; };
+    std::map<std::string, VarShape> varShapes_;
+    void recordVarSize(const std::string& name, const std::string& type, int ptrLevel, const std::vector<int>& dims);
     // Evaluate an integer constant expression; false if it isn't one
     bool evalConstInt(Expression* e, long& out);
     // Size of a scalar/pointer type in bytes; -1 for aggregates and unknowns

@@ -3272,6 +3272,15 @@ void IRBuilder::visit(StatementExpression& node) {
 
 void IRBuilder::visit(VariableDeclaration& node) {
     if (node.isFunctionPointer && node.funcPtrSig) fnPtrSigs_[node.name] = node.funcPtrSig;
+    // a run-time array size needs automatic storage
+    if ((!currentFunc_ || node.isStatic) && !node.isExtern) {
+        for (const auto& d : node.vlaDimExprs)
+            if (d) {
+                errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column, Severity::Error,
+                    "array size of '" + node.name + "' is not a constant expression"));
+                break;
+            }
+    }
     // An integer variable initialized from a wide integer: its low bytes
     if (node.pointerLevel == 0 && node.arrayDims.empty() && node.initializer &&
         !dynamic_cast<InitializerList*>(node.initializer.get()) && !structOf(node.type))

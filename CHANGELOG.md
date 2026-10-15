@@ -27,7 +27,11 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   operand without an operator is an error; no false "unused" warning;
   `x op= y` on a struct calls its `operator op=` (a struct of 4 bytes or
   less was added as a 32-bit integer, carrying from one member into the
-  next), and is an error without one.
+  next), and is an error without one; `sizeof x[i]` / `sizeof *p` in
+  constant expressions (`int a[sizeof t / sizeof t[0]]` got 2 bytes, so
+  writing it overran into the next object); a non-constant array size at
+  file scope, `static` or in a later declarator of a declaration
+  (`int a, b[n]`) is an error (it was a 2-byte object or 1 element).
 
 ### Standard library
 
@@ -65,6 +69,9 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - New `far_scroller` (a map in bank 4 scrolled with DMA, parallax).
 - New `invaders`: a Space Invaders game (object extensions, a DMA-copied
   character set, 16-colour sprites, SID sound, joystick/keyboard).
+- New `mandelbrot`: a Mandelbrot viewer (FCM 320x192 bitmap at 8 bits a
+  pixel, palette cycling, an assembly kernel on the Q register and the
+  hardware multiplier, zoom to 2^20).
 - `text_scroller`: 80 columns, screen-code message, a bouncing ball sprite
   passing in front of and behind the text; `game_of_life` (80x25 screen,
   signed neighbour offsets), `bitfield_registers` (`$D031`/`$D054` layouts

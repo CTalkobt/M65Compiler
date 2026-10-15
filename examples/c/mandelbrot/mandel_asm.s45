@@ -1,0 +1,165 @@
+; mandel_asm.s45 — the Mandelbrot iteration in 45GS02 assembly
+;
+; Fixed point 4.28 in 32 bits (1.0 = $10000000), Q register arithmetic
+; (ldq/stq/adcq/sbcq/aslq/lsrq/negq) and the MEGA65 hardware multiplier
+; ($D770 x $D774 -> 64-bit product at $D778, unsigned).
+;
+;   unsigned char mandel_iter(void)
+;     z = c; repeat z = z^2 + c until |z|^2 > 4 or mb_maxit iterations;
+;     returns the iteration count (mb_maxit: inside the set)
+;
+; The C side passes c and the limit in the variables below, so the routine
+; works in both calling conventions.
+
+.cpu _45gs02
+.segmentOrder code, data, bss
+
+.global _mandel_iter
+.global _mb_cr
+.global _mb_ci
+.global _mb_maxit
+
+MULA = $D770
+MULB = $D774
+MULP = $D778
+MATHBUSY = $D70F
+
+.data
+_mb_cr:    .dword 0
+_mb_ci:    .dword 0
+_mb_maxit: .byte 32
+
+zr:   .dword 0
+zi:   .dword 0
+zr2:  .dword 0
+zi2:  .dword 0
+prod: .dword 0
+sgn:  .byte 0
+n:    .byte 0
+
+.code
+
+; Q := (|Q| * |mul_b|) >> 28 (both below 2.0, so the product is below 2^58)
+; the caller stores the other operand's absolute value at MULB first
+proc fmul_abs
+    stq MULA
+@busy:
+    bit MATHBUSY          ; bit 6 -> V: the multiplier is busy
+    bvs @busy
+    ldq MULP+3            ; product bits 24-55
+    lsrq
+    lsrq
+    lsrq
+    lsrq                  ; bits 28-59, the top nibble still empty
+    stq prod
+    lda MULP+7            ; bits 56-59 into the top nibble
+    asl
+    asl
+    asl
+    asl
+    ora prod+3
+    sta prod+3
+    ldq prod
+    rts
+    endproc
+
+proc _mandel_iter
+    ldq _mb_cr
+    stq zr
+    ldq _mb_ci
+    stq zi
+    lda #0
+    sta n
+@loop:
+    ; |zr| and |zi| below 2.0 ($20000000), else it escaped
+    lda zr+3
+    bpl @zrpos
+    eor #$FF
+@zrpos:
+    cmp #$20
+    bcs @escape
+    lda zi+3
+    bpl @zipos
+    eor #$FF
+@zipos:
+    cmp #$20
+    bcs @escape
+
+    ; zr2 = zr^2
+    ldq zr
+    jsr absval
+    stq MULB
+    jsr fmul_abs
+    stq zr2
+    ; zi2 = zi^2
+    ldq zi
+    jsr absval
+    stq MULB
+    jsr fmul_abs
+    stq zi2
+    ; zr2 + zi2 > 4.0 ($40000000): escaped
+    ldq zr2
+    clc
+    adcq zi2
+    cpz #$40
+    bcs @escape
+    ; t = zr * zi (signed)
+    lda #0
+    sta sgn
+    ldq zi
+    jsr absval_sgn
+    stq MULB
+    ldq zr
+    jsr absval_sgn
+    jsr fmul_abs
+    bit sgn
+    bpl @tpos
+    negq
+@tpos:
+    ; zi = 2t + ci
+    aslq
+    clc
+    adcq _mb_ci
+    stq zi
+    ; zr = zr2 - zi2 + cr
+    ldq zr2
+    sec
+    sbcq zi2
+    clc
+    adcq _mb_cr
+    stq zr
+    inc n
+    lda n
+    cmp _mb_maxit
+    bcc @loop
+    lda _mb_maxit
+    ldx #0
+    rts
+@escape:
+    lda n
+    ldx #0
+    rts
+    endproc
+
+; Q := |Q|
+proc absval
+    cpz #$80
+    bcc @done
+    negq
+@done:
+    rts
+    endproc
+
+; Q := |Q|, sgn ^= $80 when it was negative
+proc absval_sgn
+    cpz #$80
+    bcc @done
+    negq
+    pha
+    lda sgn
+    eor #$80
+    sta sgn
+    pla
+@done:
+    rts
+    endproc
