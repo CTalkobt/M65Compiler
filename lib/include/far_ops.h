@@ -130,4 +130,7 @@ void far_memcpy_smart(far_ptr_t dst, far_ptr_t src, size_t len);
 /* Streaming copy (may be optimized by DMA hardware) */
 void far_memcpy_stream(far_ptr_t dst, far_ptr_t src, size_t len);
 
+/* memcpy/strcpy/strcmp/... for every mix of local and far pointers */
+#include <far_string.h>
+
 #endif
