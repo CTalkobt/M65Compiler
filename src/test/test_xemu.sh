@@ -716,6 +716,14 @@ for fomode in "zp|" "stack|-fno-zpcall"; do
         echo "FAIL: test_parse_fixes_xemu.c $foname (compilation/linking failed)"
         failed=$((failed + 1))
     fi
+    echo "Testing test_intn_native_xemu.c ($foname)..."
+    compile_link_test "src/test-resources/test_intn_native_xemu.c" "build/test/test_intn_native_${foname}_xemu.prg" "$foflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_intn_native_$foname" "build/test/test_intn_native_${foname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
+    else
+        echo "FAIL: test_intn_native_xemu.c $foname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
 done
 
 # Test: <float.h> constants (exact bytes, epsilon, underflow), complex * and

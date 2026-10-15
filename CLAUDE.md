@@ -178,7 +178,7 @@ not change what is tested; a test's own later `-O` still wins. Use an
 explicit `-O<n>` in ad-hoc test commands too.
 
 - `make test` — unit tests (no emulator).
-- `bash src/test/test_xemu.sh` — runtime tests on xemu (236 pass): each
+- `bash src/test/test_xemu.sh` — runtime tests on xemu (238 pass): each
   `*_xemu.c` writes results to `$C0C0` (01 = pass, `$AA` sentinel), built in
   both conventions. New runtime tests follow this pattern and are registered
   in `test_xemu.sh`.
@@ -207,7 +207,8 @@ ln45, ar45, nm45, objdump45 and disk45 have no config files. Environment:
 - **Types**: `char`(1), `short`/`int`(2), `long`(4), `float`/`double`/`long double`
   (CBM 40-bit, 5 bytes, computed by the BASIC 65 ROM), `_Bool`, pointers (2),
   structs/unions/enums/bitfields, `_Complex`, GCC vectors, `long long` /
-  `int64_t` / `uint64_t` = `struct __int64`, `__int128`, `__int(N)` (64 and 128 defined).
+  `int64_t` / `uint64_t` = `struct __int64`, `__int128`, `__int(N)` (64 and 128 defined;
+  `__int(8/16/32)` are the native char/int/long).
 - **Signedness**: plain `char`/`short`/`int`/`long` are **unsigned** unless
   declared `signed` (deliberate). `-fsigned-default` / `#pragma cc45 signed_default`
   give standard C. `<stdint.h>`'s signed types are declared `signed`.

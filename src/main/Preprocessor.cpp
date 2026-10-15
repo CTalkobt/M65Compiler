@@ -61,6 +61,7 @@ Preprocessor::Preprocessor(bool isCompiler) : isCompiler(isCompiler) {
     macros["__signed__"] = Macro{false, false, {}, "signed"};
 
     // Parameterized integer types: __int(N) → struct __intN, __uint(N) → struct __uintN
+    // (8, 16 and 32 bits: the native signed/unsigned char, int, long; see expandMacros)
     macros["__int"] = Macro{true, false, {"N"}, "struct __int##N"};
     macros["__uint"] = Macro{true, false, {"N"}, "struct __uint##N"};
 
@@ -117,6 +118,23 @@ Preprocessor::Preprocessor(bool isCompiler) : isCompiler(isCompiler) {
     macros["__INT32_TYPE__"] = Macro{false, false, {}, "long"};
     macros["__UINT32_TYPE__"] = Macro{false, false, {}, "unsigned long"};
     macros["__BYTE_ORDER__"] = Macro{false, false, {}, "1234"}; // little-endian (6502)
+}
+
+// Does the code name __int(N) / __uint(N) of a width other than 8, 16 or 32
+// (those are the native char, int and long)?
+static bool namesWideIntN(const std::string& code) {
+    for (const char* p : {"__int(", "__uint("}) {
+        for (size_t at = code.find(p); at != std::string::npos; at = code.find(p, at + 1)) {
+            if (at > 0 && (std::isalnum((unsigned char)code[at - 1]) || code[at - 1] == '_')) continue;
+            size_t a = at + std::string(p).size(), e = code.find(')', a);
+            if (e == std::string::npos) return true;
+            std::string n = code.substr(a, e - a);
+            n.erase(0, n.find_first_not_of(" \t"));
+            n.erase(n.find_last_not_of(" \t") + 1);
+            if (n != "8" && n != "16" && n != "32") return true;
+        }
+    }
+    return false;
 }
 
 std::string Preprocessor::expandMacros(const std::string& line) {
@@ -355,6 +373,15 @@ std::string Preprocessor::expandMacros(const std::string& line) {
                                 (m.isVariadic && args.size() >= m.params.size())) {
                                 
                                 std::string body = m.body;
+                                // __int(8/16/32) / __uint(8/16/32) are the native
+                                // integers (char, int, long), not wide-integer structs
+                                if ((ident == "__int" || ident == "__uint") && args.size() == 1 &&
+                                    body == "struct " + ident + "##N") {
+                                    const char* sg = ident == "__int" ? "signed " : "unsigned ";
+                                    if (args[0] == "8") body = std::string(sg) + "char";
+                                    else if (args[0] == "16") body = std::string(sg) + "int";
+                                    else if (args[0] == "32") body = std::string(sg) + "long";
+                                }
                                 std::string vaArgs = "";
                                 if (m.isVariadic) {
                                     for (size_t a = m.params.size(); a < args.size(); ++a) {
@@ -754,8 +781,7 @@ std::string Preprocessor::process(const std::string& source,
     // (the code only: a comment or string that names them does not count)
     std::string code = isCompiler ? stripCommentsAndStrings(source) : std::string();
     if (isCompiler && source.find("intwide.h") == std::string::npos &&
-        (code.find("__int128") != std::string::npos || code.find("__int(") != std::string::npos ||
-         code.find("__uint(") != std::string::npos || code.find("int64_t") != std::string::npos ||
+        (code.find("__int128") != std::string::npos || namesWideIntN(code) || code.find("int64_t") != std::string::npos ||
          code.find("__int64") != std::string::npos || hasLongLong(code)) &&
         !findIncludeFile("intwide.h", getDirectory(currentFile)).empty()) {
         return processInternal("#include <intwide.h>\n#line 1 \"" + currentFile + "\"\n" + source, currentFile, 0);

@@ -34,6 +34,9 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   (`int a, b[n]`) is an error (it was a 2-byte object or 1 element).
   A struct member that is an array of pointers (`const char *d[3]`):
   `s->d[i]` loaded one byte and `s->d[i][k]` scaled `k` by 2.
+- `__int(8)`, `__int(16)`, `__int(32)` and `__uint(...)` are the native
+  `char`, `int` and `long` (`__int(32)` was an "Unknown struct" error); only
+  wider ones include `<intwide.h>`.
 
 ### Standard library
 
