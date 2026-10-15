@@ -30,6 +30,7 @@
 
 #include <audio_digi.h>
 #include <conio.h>
+#include <input.h>
 #include <stdio.h>
 
 #define REG(a) (*(volatile unsigned char *)(a))
@@ -270,19 +271,20 @@ int main(void) {
                 play_step();
             }
         }
-        while (kbhit()) {
-            int c = getch();
-            if (c == 3) goto quit;          /* RUN/STOP */
+        for (;;) {
+            unsigned char c = input_key();  /* <input.h>: 0 when no key waits */
+            if (!c) break;
+            if (c == CH_STOP) goto quit;
             if (c == '1') play_kick();
             else if (c == '2') play_snare();
             else if (c == '3') play_hat();
             else if (c == ' ') { running = !running; step = 15; acc = 3000; }
-            else if (c == 'p' || c == 'P') pattern = (pattern + 1) & 3;
+            else if (c == 'p') pattern = (pattern + 1) & 3;
             else if (c == '+' && bpm < 200) bpm += 5;
             else if (c == '-' && bpm > 60) bpm -= 5;
-            else if (c == 't' || c == 'T') { tone_on = !tone_on; tone_update(); }
-            else if ((c == 'q' || c == 'Q') && tone_note < 95) { tone_note++; tone_update(); }
-            else if ((c == 'w' || c == 'W') && tone_note > 36) { tone_note--; tone_update(); }
+            else if (c == 't') { tone_on = !tone_on; tone_update(); }
+            else if (c == 'q' && tone_note < 95) { tone_note++; tone_update(); }
+            else if (c == 'w' && tone_note > 36) { tone_note--; tone_update(); }
         }
         if (++frames >= 2) { frames = 0; draw_status(); }
     }

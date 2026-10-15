@@ -16,6 +16,7 @@
 #include <stdarg.h>
 #include <string.h>
 #include <dma.h>
+#include <input.h>
 
 #define VIC(r) (*(volatile unsigned char *)(0xD000 + (r)))
 #define COLOUR_RAM 0xFF80000UL
@@ -253,8 +254,9 @@ int cprintfxy(int x, int y, const char *format, ...) {
  * KEYBOARD INPUT
  * ============================================================================ */
 
-/* The next key (PETSCII), waiting for one; no echo. With cursoron the
- * cursor cell shows reversed while it waits. */
+/* The next key (<input.h>'s codes: PETSCII letters, CH_STOP, CH_F1...),
+ * waiting for one; no echo. With cursoron the cursor cell shows reversed
+ * while it waits. */
 int getch(void) {
     int c;
     unsigned long a = scr_addr(cursor_x, cursor_y);
@@ -263,16 +265,15 @@ int getch(void) {
         under = scr_get(a);
         scr_put(a, under ^ 0x80);
     }
-    c = getchar();
+    c = input_wait();
     if (cursor_shown) scr_put(a, under);
     return c;
 }
 
-/* Whether a key is waiting: in the KERNAL keyboard buffer (count at $00D0)
- * or in the keyboard's hardware queue ($D610, which the C65 KERNAL's GETIN
- * reads directly when its buffer is empty: typed keys wait there) */
+/* Whether a key is waiting (<input.h>: the keyboard's hardware queue at
+ * $D610, where typed keys wait, or the KERNAL's buffer) */
 int kbhit(void) {
-    return *(volatile unsigned char *)0x00D0 != 0 || *(volatile unsigned char *)0xD610 != 0;
+    return input_waiting();
 }
 
 /* ============================================================================

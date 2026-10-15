@@ -60,6 +60,7 @@ ln45 -prg main.o45 -L lib/build -l c45.lib -o program.prg      # plain PRG (-L o
 | `cbm.h` | KERNAL wrappers ([stdcbm.md](stdcbm.md)) | `static` functions in the header |
 | `mega65.h` | hardware register overlays | header (+ `key_pressed` in the library) |
 | `dma.h` | `dma_copy`/`dma_fill` (16-bit, bank 0); `dma_copy_far`/`dma_fill_far` (28-bit) | compiler builtins; `lib/stdlib/dma_far.c` |
+| `input.h` | see [§11a](#11a-keyboard-and-joysticks-inputh) | library |
 | `conio.h`, `far_ptr.h`, `far_ops.h`, `far_string.h`, `dma_controller.h`, `audio_digi.h`, `audio_midi.h`, `audio_sid.h`, `intwide.h`, `complex.h` | see [§12](#12-other-library-backed-headers) | library / compiler |
 | `uart.h` and the graphics, sprite, hardware-helper and game-framework headers | see [§14](#14-headers-without-a-library-implementation) | **no library implementation** |
 
@@ -271,6 +272,15 @@ Declared in `stdio.h`, implemented in `stdio_cbm.c`, `stdio_kernal.c`, `stdio_di
 - **`gmtime(timer)`** / **`localtime(timer)`**: `*timer` (seconds since 2000, negative before it: 1931–2068) as a date in a static `struct tm`. The RTC has no time zone, so `localtime` is `gmtime`.
 - **`time_t mktime(struct tm *)`**: seconds since 2000-01-01 00:00:00 (not 1970). Fields out of range are carried (`tm_mon` 12 is January of the next year, `tm_mday` 0 the last day of the previous month, negative values count back); `*tm` is rewritten normalized, with `tm_wday` and `tm_yday`.
 - **`asctime(tm)`** / **`ctime(timer)`**: `"Wed Jun 30 21:49:08 2026\n"` in a static buffer; `ctime(t)` is `asctime(localtime(t))`.
+
+## 11a. Keyboard and Joysticks (`input.h`)
+
+Where keys arrive on the MEGA65: the keyboard's hardware scanner puts each key press into a queue at `$D610` (ASCII codes; write to `$D610` to take one off). The C65 KERNAL does **not** copy typed keys into its own buffer (`$02B0`, count `$00D0`); its `GETIN` (`getchar`) reads `$D610` when the buffer is empty, and expands programmed function keys into strings. Held keys are read from the matrix (`$D614`/`$D613`, `key_pressed`), the modifiers from `$D611`.
+
+- **`unsigned char input_key(void)`**: the next key, or 0 when none waits (never waits). Letters as cc45 writes them (`'a'`; with SHIFT `'A'`: the queue's ASCII case swapped), RETURN/DEL/HOME/cursor keys as PETSCII (`CH_RETURN`, `CH_DELETE`, `CH_HOME`, `CH_CURSOR_UP`… from `cbm.h`), RUN/STOP `CH_STOP` (3), TAB 9, ESC 27, F1–F14 `CH_F1`… (`$F1`–`$FE`), `£` `$5C`, `↑` `$5E`. Keys a program or BASIC put into the KERNAL's buffer come first (through `GETIN`).
+- **`input_wait`** (waits), **`input_waiting`**, **`input_flush`**; **`input_pressed(KEY_x)`** (held now; `<mega65.h>`'s matrix codes, several at once, SHIFT/CTRL/RUN/STOP too); **`input_modifiers`** (`$D611`: bit 0 right SHIFT, 1 left SHIFT, 2 CTRL, 3 MEGA, 4 ALT, 5 NO SCROLL, 6 CAPS LOCK; xemu reports left SHIFT in bit 0).
+- **`unsigned char input_joy(port)`** (1 or 2): `JOY_UP`/`DOWN`/`LEFT`/`RIGHT`/`FIRE`, read with no keyboard row selected (`$DC00` = `$FF`, interrupts held off) so held keys don't show. Port 1 is CIA 1 port B (`$DC01`), port 2 port A (`$DC00`). The extra buttons are on the paddle lines (`$D620`/`$D621` port 1, `$D622`/`$D623` port 2) and are read once `input_joy_type(port, type)` says what is connected: `JOYTYPE_1BUTTON` (the default: a mouse or paddles use the same lines), `JOYTYPE_C64GS` (3-button sticks: a button ties its line to +5 V, `JOY_FIRE2` POT X, `JOY_FIRE3` POT Y), `JOYTYPE_SEGA` (Genesis pads: B is `JOY_FIRE`, C `JOY_FIRE2`, pin 9 pulled to ground). A Sega pad's select line is pin 7, +5 V on a Commodore port, so A, START and a 6-button pad's X/Y/Z can't be read, and the pad needs power on pin 5 (an adapter). xemu does not emulate the paddle lines (they read 0); the extra buttons are untested on hardware.
+- `conio.h`'s `kbhit`/`getch` use these. Test: `test_input_xemu.c` presses keys through the virtual key registers (`$D615`–`$D617`: a C65 scan code, row × 8 + column, holds the key; `$7F` releases it), the same path as real typing.
 
 ## 12. Other Library-Backed Headers
 

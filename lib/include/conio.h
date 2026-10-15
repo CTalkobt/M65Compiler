@@ -222,8 +222,8 @@ int cprintfxy(int x, int y, const char *format, ...);
 /**
  * getch - Read character from keyboard (blocking)
  *
- * Waits for a key press (KERNAL GETIN, no echo) and returns its PETSCII
- * code; RUN/STOP is 3. After cursoron() the cursor cell shows reversed while
+ * Waits for a key press (no echo) and returns its code as <input.h>'s
+ * input_key gives it: PETSCII letters, RUN/STOP 3, F1-F14 $F1-$FE. After cursoron() the cursor cell shows reversed while
  * it waits.
  */
 int getch(void);

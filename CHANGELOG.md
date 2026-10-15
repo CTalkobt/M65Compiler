@@ -195,6 +195,17 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
     far pointer (was a `far_ptr_t` returned as `char *`), strings are no
     longer cut at 256 characters, 256-512-byte buffers are gone, and the
     typed far array helpers take any index (`test_far_string`).
+  - **`<input.h>`** (new, `test_input`): one way to read the keyboard and
+    joysticks. `input_key` reads the keyboard's hardware queue (`$D610`,
+    where typed keys wait) and gives letters as cc45 writes them, PETSCII
+    cursor/RETURN/DEL codes, RUN/STOP 3 and F1-F14 `$F1`-`$FE`;
+    `input_pressed`/`input_modifiers` read held keys; `input_joy` reads
+    either port with 3-button sticks (C64GS style) or Sega pads (B, C) on
+    the paddle lines. conio's `kbhit`/`getch` and the invaders, musicgen,
+    sample_player and keyboard_viewer examples use it. The test presses
+    keys through the virtual key registers (`$D615`), the path of real
+    typing (the earlier tests wrote the KERNAL's buffer, which typed keys
+    never reach).
   - **Audio** (`test_audio`): `<audio_sid.h>`, `<audio_digi.h>` and
     `<audio_midi.h>` were a software synthesizer model written for a 32-bit
     `int` that never touched the sound hardware (no program made a sound

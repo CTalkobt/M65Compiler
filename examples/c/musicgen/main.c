@@ -36,7 +36,7 @@
  * the music plays on both stereo channels. 14 instruments (ADSR, waveform, pulse width with
  * modulation, delayed vibrato).
  *
- * Keys (the hardware typing queue at $D610):
+ * Keys (<input.h>: the keyboard's hardware queue):
  *   1-7 style    + - tempo    N new song    SPACE pause
  *   L C B change the lead, chord and bass instrument
  *   D drums on/off            RUN/STOP quit
@@ -53,13 +53,13 @@
 #include <mega65.h>
 #include <dma.h>
 #include <audio_sid.h>
+#include <input.h>
 
 /* the notes played: MIDI 24-95 (C1-B6) */
 #define NOTE_LO 24
 #define NOTE_HI 95
 
 #define REG(a) (*(volatile unsigned char *)(a))
-#define ASCIIKEY REG(0xD610)
 
 /* ------------------------------------------------------------------------ */
 /* Chords                                                                   */
@@ -1070,8 +1070,7 @@ static void wait_frame(void) {
 
 static unsigned char keys(void) {
     unsigned char c, quit = 0;
-    while ((c = ASCIIKEY) != 0) {
-        ASCIIKEY = 0;
+    while ((c = input_key()) != 0) {
         rs ^= frame;                       /* the player's timing stirs the random numbers */
         if (c >= '1' && c <= '7') { choose_style(c - '1'); continue; }
         switch (c) {
@@ -1095,7 +1094,7 @@ static unsigned char keys(void) {
                 set_inst(V_BASS, bass_insts[bass_sel]);
                 break;
             case 'd': case 'D': drums_on = !drums_on; break;
-            case 0x03: quit = 1; break;    /* RUN/STOP */
+            case CH_STOP: quit = 1; break;
         }
         draw_status();
     }
@@ -1140,7 +1139,7 @@ int main(void) {
     sid_init();                    /* silent, volume 15 */
     sid_set_mirror(1);             /* SID 1/2 also on SID 3/4: stereo */
     video_on();
-    while (ASCIIKEY) ASCIIKEY = 0;
+    input_flush();
     choose_style(0);
     for (;;) {
         wait_frame();
@@ -1159,7 +1158,7 @@ int main(void) {
     }
     all_off();
     video_off();
-    while (ASCIIKEY) ASCIIKEY = 0;
+    input_flush();
     __asm__("cli");
     return 0;
 }

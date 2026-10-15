@@ -1,16 +1,18 @@
 /* keyboard_viewer — the MEGA65 keyboard on screen; the keys held down light up
  *
- * Every frame each key of the 8x8 matrix is read with key_pressed()
+ * Every frame each key of the 8x8 matrix is read with input_pressed()
  * (<mega65.h>: several keys at once, SHIFT and CTRL too); a key held down is
  * drawn reversed in yellow. The bottom lines show conio's kbhit() and the
- * characters getch() returns (PETSCII, as the KERNAL's keyboard buffer gives
- * them), with their codes. RUN/STOP (code 3 from getch) quits.
+ * characters getch() returns (<input.h>'s codes: PETSCII letters, CH_F1...,
+ * RUN/STOP 3, which quits), with their codes, and the modifier keys held
+ * (input_modifiers).
  *
  * This is the interactive test of kbhit/getch/cputsxy/textcolor: run it in
  * a windowed xemu (headless xemu can't press keys) or on a MEGA65.
  */
 #include <conio.h>
 #include <mega65.h>
+#include <input.h>
 #include <stdio.h>
 
 struct key {
@@ -83,11 +85,12 @@ int main(void) {
     cputsxy(2, 17, "kbhit():");
     cputsxy(2, 19, "getch(): ");
     cputsxy(2, 21, "Last keys:");
+    cputsxy(2, 23, "Modifiers:");
 
     for (;;) {
         wait_frame();
         for (i = 0; i < NKEYS; i++) {
-            unsigned char p = key_pressed(keys[i].code);
+            unsigned char p = input_pressed(keys[i].code);
             if (p != down[i]) {
                 down[i] = p;
                 draw_key(i, p);
@@ -95,6 +98,11 @@ int main(void) {
         }
         textcolor(WHITE);
         cputsxy(11, 17, kbhit() ? "1 (a key is waiting)" : "0                   ");
+        {
+            unsigned char m = input_modifiers();
+            cprintfxy(13, 23, "%s%s%s%s%s       ", (m & 3) ? "SHIFT " : "", (m & 4) ? "CTRL " : "",
+                      (m & 8) ? "MEGA " : "", (m & 16) ? "ALT " : "", (m & 64) ? "CAPS" : "");
+        }
         while (kbhit()) {
             int c = getch();
             if (c == 3) goto quit;          /* RUN/STOP */

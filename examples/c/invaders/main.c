@@ -9,7 +9,7 @@
  *     cannon, the UFO) with their own palette entries, 16-bit sprite
  *     pointers, colour RAM written with dma_fill_far
  *   - input: joystick port 2 or the keyboard (Z/X or , . to move, SPACE to
- *     fire), scanned directly (key_pressed)
+ *     fire), through <input.h> (input_joy, input_key, input_pressed)
  *   - sound: SID effects (shot, explosion, UFO) and the marching beat,
  *     through <audio_sid.h>
  *   - file I/O: the high score is kept on disk ("invaders.hi" on device 8,
@@ -24,6 +24,7 @@
 #include <dma.h>
 #include <mega65.h>
 #include <audio_sid.h>
+#include <input.h>
 #include "gfx.h"
 
 /* the program ends near $B200 with the file I/O: a 2 KB stack share (the
@@ -578,44 +579,34 @@ static struct Entity *entities[3 + NBOMBS];
 /* ------------------------------------------------------------------------ */
 /* Input: joystick port 2 (keyboard columns released) and Z/X , . SPACE      */
 
-/* (interrupts off meanwhile: the KERNAL's keyboard scan uses the same port) */
-/* Joystick 1 shares the keyboard's row lines: while it is active the
- * keyboard is not scanned (it would read phantom keys; xemu's PC arrow keys
- * can drive an emulated joystick 1). Joystick 2 can't be tested the same
- * way: its fire line is the column of SPACE. SPACE and RUN/STOP also come
- * from the hardware typing queue ($D610, ASCII), which needs no scan. */
-#define ASCIIKEY REG(0xD610)
+/* Keys from <input.h>: SPACE, RUN/STOP and the move keys come from the
+ * keyboard's hardware queue (one code per press; the queue's key repeat
+ * keeps a move going), joysticks on both ports, keys held from the matrix */
 static unsigned char quit_key;
 static unsigned char key_dir, key_t;   /* a queued move key: keeps moving for key_t frames */
 
 static unsigned char read_input(void) {
-    unsigned char saved, j, c, fire = 0;
-    while ((c = ASCIIKEY) != 0) {         /* key presses waiting in the queue */
-        ASCIIKEY = 0;
+    unsigned char j, c, fire = 0;
+    while ((c = input_key()) != 0) {     /* key presses waiting */
         if (c == ' ') fire = JOY_FIRE;
-        else if (c == 0x03) quit_key = 1;                         /* RUN/STOP */
-        else if (c == 'z' || c == 'Z' || c == ',' || c == 0x9D) { key_dir = JOY_LEFT; key_t = 6; }  /* crsr left */
-        else if (c == 'x' || c == 'X' || c == '.' || c == 0x1D) { key_dir = JOY_RIGHT; key_t = 6; } /* crsr right */
+        else if (c == CH_STOP) quit_key = 1;
+        else if (c == 'z' || c == ',' || c == CH_CURSOR_LEFT) { key_dir = JOY_LEFT; key_t = 6; }
+        else if (c == 'x' || c == '.' || c == CH_CURSOR_RIGHT) { key_dir = JOY_RIGHT; key_t = 6; }
     }
-    __asm__("sei");                       /* joysticks: CIA 1 with no keyboard row driven */
-    saved = cia1->pra;
-    cia1->pra = 0xFF;
-    j = (unsigned char)~(cia1->pra & cia1->prb) & (JOY_LEFT | JOY_RIGHT | JOY_FIRE);
-    cia1->pra = saved;
-    __asm__("cli");
+    j = (input_joy(1) | input_joy(2)) & (JOY_LEFT | JOY_RIGHT | JOY_FIRE);
     j |= fire;
     if (key_t) { key_t--; j |= key_dir; }  /* the queue's key repeat keeps it going */
     /* keys: the MEGA65 matrix registers, independent of the joystick lines */
-    if (key_pressed(KEY_RIGHT)) j |= (key_pressed(KEY_LSHIFT) | key_pressed(KEY_RSHIFT)) ? JOY_LEFT : JOY_RIGHT;
-    if (REG(0xD60F) & 0x01) j |= JOY_LEFT;
-    if (key_pressed(KEY_Z) || key_pressed(KEY_COMMA)) j |= JOY_LEFT;
-    if (key_pressed(KEY_X) || key_pressed(KEY_PERIOD)) j |= JOY_RIGHT;
-    if (key_pressed(KEY_SPACE)) j |= JOY_FIRE;
+    if (input_pressed(KEY_RIGHT)) j |= (input_pressed(KEY_LSHIFT) | input_pressed(KEY_RSHIFT)) ? JOY_LEFT : JOY_RIGHT;
+    if (REG(0xD60F) & 0x01) j |= JOY_LEFT;   /* the MEGA65's cursor-left key */
+    if (input_pressed(KEY_Z) || input_pressed(KEY_COMMA)) j |= JOY_LEFT;
+    if (input_pressed(KEY_X) || input_pressed(KEY_PERIOD)) j |= JOY_RIGHT;
+    if (input_pressed(KEY_SPACE)) j |= JOY_FIRE;
     return j;
 }
 
 static unsigned char stop_pressed(void) {
-    return key_pressed(KEY_STOP);
+    return input_pressed(KEY_STOP);
 }
 
 /* Attract mode: the computer dodges bombs falling close to it, otherwise
@@ -863,7 +854,7 @@ int main(void) {
     state = GAME_OVER;
     state_timer = 1;
 #endif
-    while (ASCIIKEY) ASCIIKEY = 0;        /* no stale key presses */
+    input_flush();                        /* no stale key presses */
     while (!quit_key && !stop_pressed()) {
         wait_vsync();
         frame++;
