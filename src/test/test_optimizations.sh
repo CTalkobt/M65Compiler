@@ -151,5 +151,10 @@ printf 'unsigned a(unsigned x) { return 0xFFFF | x; }\nsigned b(signed x) { retu
 out=$(CC45_DUMP_IR=1 $CC -c $T/ones2.c -o $T/ones2.o45 2>&1)
 if ! echo "$out" | grep -qE "= or " && [ "$(echo "$out" | grep -c "const i16 65535")" = 2 ]; then pass; else fail "all-ones | not simplified"; fi
 
+# a variable assigned a constant once, before any read, is that constant
+printf 'unsigned a(unsigned x) { unsigned one = 1; return one * x; }\nunsigned b(unsigned x, unsigned k) { k = 0; return k ^ x; }\n' > $T/cvar.c
+out=$(CC45_DUMP_IR=1 $CC -c $T/cvar.c -o $T/cvar.o45 2>&1)
+if ! echo "$out" | grep -qE "= (xor|mul_u|mul) "; then pass; else fail "constant through a variable not propagated"; fi
+
 echo "Optimization switch tests: $passed passed, $failed failed"
 [ $failed -eq 0 ]

@@ -100,6 +100,57 @@ std::map<uint32_t, int64_t> singleDefConsts(const Function& fn) {
         if (defs[it->first] != 1 || fn.localSlotVregs.count(it->first)) it = consts.erase(it);
         else ++it;
     }
+    // A variable (a local's or parameter's slot) assigned a constant exactly
+    // once, before anything reads it: that constant everywhere (one = 1;
+    // one * x). The store must be in the entry block ahead of every read
+    // there, and nothing branches back to the entry block, so it comes
+    // first on every path (a parameter's incoming value is never seen). Not
+    // for a variable whose address is taken, that is volatile or that a
+    // nested function reaches (memoryVregs), register variables, nor in a
+    // function with inline assembly (it may name a variable's slot).
+    if (!fn.blocks.empty()) {
+        bool unsafe = false;
+        const std::string& entryLabel = fn.blocks[0].label;
+        if (fn.addressTakenLabels.count(entryLabel)) unsafe = true;
+        auto isEntry = [&](const Operand& o) { return o.kind == OperandKind::LABEL && o.name == entryLabel; };
+        std::map<uint32_t, int> slotDefs;
+        for (const auto& b : fn.blocks)
+            for (const auto& i : b.insts) {
+                if (i.op == Op::ASM_INLINE) unsafe = true;
+                if (isEntry(i.src1) || isEntry(i.src2)) unsafe = true;
+                for (const auto& a2 : i.args) if (isEntry(a2)) unsafe = true;
+                if (i.dest.isVreg() && fn.localSlotVregs.count(i.dest.vregId)) slotDefs[i.dest.vregId] += 2;
+                if ((i.op == Op::STORE || i.op == Op::STORE_ZP) && i.src2.isVreg() &&
+                    fn.localSlotVregs.count(i.src2.vregId))
+                    slotDefs[i.src2.vregId]++;
+            }
+        if (!unsafe) {
+            std::set<uint32_t> readSoFar;
+            const auto& entry = fn.blocks[0];
+            for (const auto& i : entry.insts) {
+                bool store = (i.op == Op::STORE || i.op == Op::STORE_ZP) && i.src2.isVreg();
+                if (store) {
+                    uint32_t slot = i.src2.vregId;
+                    int64_t v = 0;
+                    bool known = false;
+                    if (i.src1.isImm()) { v = i.src1.immVal; known = true; }
+                    else if (i.src1.isVreg() && consts.count(i.src1.vregId)) { v = consts[i.src1.vregId]; known = true; }
+                    auto st = fn.vregTypes.find(slot);
+                    if (known && fn.localSlotVregs.count(slot) && slotDefs[slot] == 1 && !readSoFar.count(slot) &&
+                        !fn.memoryVregs.count(slot) && !fn.registerVregs.count(slot) &&
+                        !fn.registerXVregs.count(slot) && !fn.registerYVregs.count(slot) &&
+                        !fn.registerZVregs.count(slot) && st != fn.vregTypes.end() && st->second == i.resultType &&
+                        i.resultType != Type::F32)
+                        consts[slot] = v;
+                }
+                auto reads = [&](const Operand& o) { if (o.isVreg()) readSoFar.insert(o.vregId); };
+                reads(i.src1);
+                if (!store) reads(i.src2);
+                for (const auto& a2 : i.args) reads(a2);
+            }
+        }
+    }
+
     // A zext/sext/trunc of such a constant (a 0 of another width: x ^ 0 on a
     // char or long) is the converted constant, followed through chains
     auto bits = [](Type t) -> int {

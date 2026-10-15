@@ -173,7 +173,16 @@ and no `leafPointerParamsToZp` copy ([calling conventions](calling-conventions.m
 
 The IR is not in SSA form (a variable's slot is assigned by `STORE`; a
 temporary can be defined on two paths, as in `a && b`), so every pass treats
-a value as constant or fixed only when it has exactly one definition.
+a value as constant or fixed only when it has exactly one definition. The constants the passes see (`singleDefConsts`): a
+temporary defined once by `CONST`; a `zext`/`sext`/`trunc` of one (the
+converted value, sign-extended from its width); and a variable (a local's or
+parameter's slot) stored exactly once with a constant, in the entry block
+before any read there, when nothing branches to the entry block, its address
+is never taken, it is not volatile, not reached by a nested function
+(`memoryVregs`), not a `register` variable, and the function has no inline
+assembly. Commutative operations (`+ * & | ^`) get a constant first operand
+moved second before strength reduction and the algebraic simplification
+look at them, which runs again after type narrowing.
 
 ## Loop unrolling
 

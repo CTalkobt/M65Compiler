@@ -130,6 +130,11 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   converted first) is seen as a constant; all ones in `&`/`|` is recognized
   also when written `-1`; the simplification runs again after type
   narrowing (`x & x` on a `char`).
+- A local or parameter assigned a constant exactly once, in the entry block
+  before anything reads it, is that constant to the IR passes (`one = 1;
+  one * x` is `x`, `n = 4; ... n * i` a shift). Not for variables whose
+  address is taken, volatile ones, ones a nested function reaches, register
+  variables, or in functions with inline assembly (`test_constprop`).
 - scanf with floats is linked like printf's: `_scanf_float` is referenced
   when `scanf`/`fscanf`/`sscanf` gets a `float *`, or a unit with float code
   calls `vscanf`/`vfscanf`/`vsscanf`. `clock`, `rand` and `srand` are no
