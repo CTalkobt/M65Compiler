@@ -31,7 +31,7 @@ _fill_color: .byte 0
 .code
 
 ; void scroll_line_left(void)
-;   columns 1..79 move to 0..78, column 79 becomes a space
+;   columns 1..79 move to 0..78, column 79 becomes a reverse space
 proc _scroll_line_left
     lda _scroll_ptr
     sta ptr
@@ -47,7 +47,7 @@ proc _scroll_line_left
     cpy #COLS
     bne @copy
     ldy #COLS-1
-    lda #$20
+    lda #$A0
     sta (ptr),y
     rts
     endproc

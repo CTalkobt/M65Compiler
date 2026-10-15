@@ -8,7 +8,9 @@
  * text screen, between two banner rows (3 and 11).
  * Border colour cycles through a palette on each full scroll.
  * A ball (hardware sprite 0) bounces between the banners, passing in
- * front of the text on one crossing and behind it on the next.
+ * front of the text on one crossing and behind it on the next. The
+ * message is in reverse video: a sprite behind text is hidden only by the
+ * characters' set pixels, so a solid band shows the difference.
  * Press RUN/STOP to exit.
  */
 
@@ -189,6 +191,10 @@ int main() {
 
     /* Set scroll row colour */
     scroll_ptr = (char *)SCREEN + SCROLL_ROW * COLS;
+    {   /* the message row starts as reverse spaces (a solid band) */
+        int c;
+        for (c = 0; c < COLS; c++) scroll_ptr[c] = 0xA0;
+    }
     color_row(SCROLL_ROW, palette[pal_idx]);
     draw_banner(palette[pal_idx]);
 
@@ -216,7 +222,7 @@ int main() {
         ball_move();
 
         /* Place next character from message at rightmost column */
-        next_char = message[msg_pos];
+        next_char = message[msg_pos] | 0x80;   /* reverse video */
         row_ptr = (char *)SCREEN + SCROLL_ROW * COLS;
         row_ptr[COLS - 1] = next_char;
 
