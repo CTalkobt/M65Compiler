@@ -1,65 +1,116 @@
-/* conio.c — Console I/O Implementation for MEGA65
+/* conio.c — Console I/O on the MEGA65 text screen
  *
- * Provides conio-compatible functions for text mode on MEGA65.
- * Uses VIC-IV screen RAM and hardware registers.
+ * Works on the screen the VIC-IV shows: its screen RAM ($D060-$D063), the
+ * row stride ($D058/$D059), characters per row ($D05E), rows ($D07B + 1) and the
+ * colour RAM offset ($D064/$D065), so 40 and 80 columns, 25 and 50 rows and
+ * a moved screen all work. Characters are PETSCII (what cc45 makes of C
+ * text) converted to screen codes; colour RAM ($FF80000) is written by DMA.
+ * The text colour is a colour RAM byte's low nibble; there is no per-character
+ * background in text mode, so textbackground sets the screen's ($D021).
  */
+
+#pragma cc45 signed_default
 
 #include <conio.h>
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
-#include <mega65.h>
+#include <dma.h>
+
+#define VIC(r) (*(volatile unsigned char *)(0xD000 + (r)))
+#define COLOUR_RAM 0xFF80000UL
+
+static int cursor_x, cursor_y;
+static unsigned char cur_color = WHITE;
+static unsigned char cursor_shown;
+static unsigned char reverse_on;   /* revers(): bit 7 of the screen code */
 
 /* ============================================================================
- * SCREEN CONFIGURATION
+ * SCREEN GEOMETRY (read from the VIC-IV each time: a program may change it)
  * ============================================================================ */
 
-/* MEGA65 screen RAM starts at $0400 (default) */
-#define SCREEN_RAM      ((unsigned char *)0x0400)
-#define COLOR_RAM       ((unsigned char *)0xD800)
-
-/* Current cursor position and attributes */
-static int cursor_x = 0;
-static int cursor_y = 0;
-static int current_color = WHITE;
-static int current_bg = BLACK;
-static int screen_width = CONIO_COLS;
-static int screen_height = CONIO_ROWS;
-
-/* ============================================================================
- * INTERNAL HELPERS
- * ============================================================================ */
-
-/**
- * _get_screen_offset - Convert (x, y) to screen RAM offset
- */
-static int _get_screen_offset(int x, int y) {
-    return y * screen_width + x;
+int screenwidth(void) {
+    unsigned char w = VIC(0x5E);
+    return w ? w : 40;
 }
 
-/**
- * _clamp_cursor - Ensure cursor is within bounds
- */
-static void _clamp_cursor(void) {
-    if (cursor_x < 0) cursor_x = 0;
-    if (cursor_x >= screen_width) cursor_x = screen_width - 1;
-    if (cursor_y < 0) cursor_y = 0;
-    if (cursor_y >= screen_height) cursor_y = screen_height - 1;
+/* $D07B holds the number of rows minus 1 (24, or 49 with V400) */
+int screenheight(void) {
+    return VIC(0x7B) + 1;
 }
 
-/**
- * _advance_cursor - Move cursor to next position with wrapping
- */
-static void _advance_cursor(void) {
-    cursor_x++;
-    if (cursor_x >= screen_width) {
-        cursor_x = 0;
-        cursor_y++;
-        if (cursor_y >= screen_height) {
-            cursor_y = screen_height - 1;
-            /* Scroll screen (TODO: implement scrolling) */
-        }
+static unsigned int line_step(void) {
+    return VIC(0x58) | ((unsigned int)VIC(0x59) << 8);
+}
+
+/* The screen RAM address of (x, y) */
+static unsigned long scr_addr(int x, int y) {
+    unsigned long base = VIC(0x60) | ((unsigned int)VIC(0x61) << 8) | ((unsigned long)VIC(0x62) << 16) |
+                         ((unsigned long)(VIC(0x63) & 0x0F) << 24);
+    return base + (unsigned long)y * line_step() + (unsigned int)x;
+}
+
+/* The colour RAM address of (x, y) */
+static unsigned long col_addr(int x, int y) {
+    unsigned int off = VIC(0x64) | ((unsigned int)VIC(0x65) << 8);
+    return COLOUR_RAM + off + (unsigned long)y * line_step() + (unsigned int)x;
+}
+
+static void scr_put(unsigned long a, unsigned char code) {
+    if (a < 0x10000UL) *(volatile unsigned char *)(unsigned int)a = code;
+    else dma_fill_far(a, 1, code);
+}
+
+static unsigned char scr_get(unsigned long a) {
+    unsigned char c;
+    if (a < 0x10000UL) return *(volatile unsigned char *)(unsigned int)a;
+    dma_copy_far((unsigned long)(unsigned int)&c, a, 1);
+    return c;
+}
+
+static unsigned char col_get(unsigned long a) {
+    unsigned char c;
+    dma_copy_far((unsigned long)(unsigned int)&c, a, 1);
+    return c;
+}
+
+/* PETSCII to screen code (control characters give 0xFF: not printed) */
+static unsigned char petscii_to_screen(unsigned char c) {
+    if (c < 0x20) return 0xFF;
+    if (c < 0x40) return c;
+    if (c < 0x60) return c - 0x40;
+    if (c < 0x80) return c - 0x20;
+    if (c < 0xA0) return 0xFF;
+    if (c < 0xC0) return c - 0x40;
+    if (c < 0xFF) return c - 0x80;
+    return 0x5E;
+}
+
+/* The rows below the top one up by a row; the bottom row cleared */
+static void scroll_up(void) {
+    int w = screenwidth(), h = screenheight();
+    unsigned int step = line_step();
+    unsigned int n = (unsigned int)(h - 1) * step;
+    dma_copy_far(scr_addr(0, 0), scr_addr(0, 1), n);
+    dma_copy_far(col_addr(0, 0), col_addr(0, 1), n);
+    dma_fill_far(scr_addr(0, h - 1), (unsigned int)w, 0x20);
+    dma_fill_far(col_addr(0, h - 1), (unsigned int)w, cur_color);
+}
+
+static void newline(void) {
+    cursor_x = 0;
+    if (++cursor_y >= screenheight()) {
+        cursor_y = screenheight() - 1;
+        scroll_up();
     }
+}
+
+static void clamp_cursor(void) {
+    int w = screenwidth(), h = screenheight();
+    if (cursor_x < 0) cursor_x = 0;
+    if (cursor_x >= w) cursor_x = w - 1;
+    if (cursor_y < 0) cursor_y = 0;
+    if (cursor_y >= h) cursor_y = h - 1;
 }
 
 /* ============================================================================
@@ -67,20 +118,17 @@ static void _advance_cursor(void) {
  * ============================================================================ */
 
 void clrscr(void) {
-    int i;
-    int size = screen_width * screen_height;
-
-    /* Clear screen RAM */
-    for (i = 0; i < size; i++) {
-        SCREEN_RAM[i] = ' ';
+    int y, w = screenwidth(), h = screenheight();
+    unsigned int step = line_step();
+    if (step == (unsigned int)w) {
+        dma_fill_far(scr_addr(0, 0), (unsigned int)(w * h), 0x20);
+        dma_fill_far(col_addr(0, 0), (unsigned int)(w * h), cur_color);
+    } else {
+        for (y = 0; y < h; y++) {
+            dma_fill_far(scr_addr(0, y), (unsigned int)w, 0x20);
+            dma_fill_far(col_addr(0, y), (unsigned int)w, cur_color);
+        }
     }
-
-    /* Clear color RAM */
-    for (i = 0; i < size; i++) {
-        COLOR_RAM[i] = (current_bg << 4) | current_color;
-    }
-
-    /* Home cursor */
     cursor_x = 0;
     cursor_y = 0;
 }
@@ -88,7 +136,7 @@ void clrscr(void) {
 void gotoxy(int x, int y) {
     cursor_x = x;
     cursor_y = y;
-    _clamp_cursor();
+    clamp_cursor();
 }
 
 int wherex(void) {
@@ -104,72 +152,69 @@ int wherey(void) {
  * ============================================================================ */
 
 void textcolor(int color) {
-    current_color = color & 0x0F;
+    cur_color = (unsigned char)(color & 0x0F);
 }
 
+/* Text mode has no per-character background: the screen's ($D021) */
 void textbackground(int color) {
-    current_bg = color & 0x0F;
+    VIC(0x21) = (unsigned char)(color & 0x0F);
+}
+
+/* Reversed characters from now on (1) or not (0); returns the old setting */
+unsigned char revers(unsigned char onoff) {
+    unsigned char old = reverse_on;
+    reverse_on = onoff ? 0x80 : 0;
+    return old ? 1 : 0;
 }
 
 void textattr(int attr) {
-    current_color = attr & 0x0F;
-    current_bg = (attr >> 4) & 0x0F;
+    textcolor(attr & 0x0F);
+    textbackground((attr >> 4) & 0x0F);
 }
 
 /* ============================================================================
  * CHARACTER OUTPUT
  * ============================================================================ */
 
+/* ch at (x, y) in the text colour; 0 for a control character */
+static int put_at(int x, int y, int ch) {
+    unsigned char code = petscii_to_screen((unsigned char)ch);
+    if (code == 0xFF) return 0;
+    scr_put(scr_addr(x, y), code | reverse_on);
+    dma_fill_far(col_addr(x, y), 1, cur_color);
+    return 1;
+}
+
+/* At the cursor, which then advances (wrapping, scrolling at the bottom);
+ * '\n' ($0D, or $0A from ASCII text) starts the next line */
 int putch(int ch) {
-    int offset = _get_screen_offset(cursor_x, cursor_y);
-
-    SCREEN_RAM[offset] = (unsigned char)ch;
-    COLOR_RAM[offset] = (current_bg << 4) | current_color;
-
-    _advance_cursor();
-
+    unsigned char c = (unsigned char)ch;
+    if (c == 0x0D || c == 0x0A) {
+        newline();
+        return ch;
+    }
+    if (put_at(cursor_x, cursor_y, ch) && ++cursor_x >= screenwidth()) newline();
     return ch;
 }
 
 void cputch(int x, int y, int ch) {
-    int offset = _get_screen_offset(x, y);
-
-    SCREEN_RAM[offset] = (unsigned char)ch;
-    COLOR_RAM[offset] = (current_bg << 4) | current_color;
+    put_at(x, y, ch);
 }
 
 int cputs(const char *str) {
-    int count = 0;
-
     if (!str) {
         return -1;
     }
-
-    while (*str) {
-        putch(*str);
-        str++;
-        count++;
-    }
-
+    while (*str) putch((unsigned char)*str++);
     return 0;
 }
 
 int cputsxy(int x, int y, const char *str) {
-    int count = 0;
-
     if (!str) {
         return -1;
     }
-
     gotoxy(x, y);
-
-    while (*str) {
-        putch(*str);
-        str++;
-        count++;
-    }
-
-    return 0;
+    return cputs(str);
 }
 
 /* ============================================================================
@@ -182,7 +227,7 @@ int cprintf(const char *format, ...) {
     int count;
 
     va_start(ap, format);
-    count = vsprintf(buffer, format, ap);
+    count = vsprintf(buffer, (char *)format, ap);
     va_end(ap);
 
     cputs(buffer);
@@ -196,7 +241,7 @@ int cprintfxy(int x, int y, const char *format, ...) {
     int count;
 
     va_start(ap, format);
-    count = vsprintf(buffer, format, ap);
+    count = vsprintf(buffer, (char *)format, ap);
     va_end(ap);
 
     cputsxy(x, y, buffer);
@@ -208,59 +253,48 @@ int cprintfxy(int x, int y, const char *format, ...) {
  * KEYBOARD INPUT
  * ============================================================================ */
 
+/* The next key (PETSCII), waiting for one; no echo. With cursoron the
+ * cursor cell shows reversed while it waits. */
 int getch(void) {
-    /* TODO: Implement KERNAL keyboard input
-     * For now, return placeholder
-     */
-    return 0;
+    int c;
+    unsigned long a = scr_addr(cursor_x, cursor_y);
+    unsigned char under = 0;
+    if (cursor_shown) {
+        under = scr_get(a);
+        scr_put(a, under ^ 0x80);
+    }
+    c = getchar();
+    if (cursor_shown) scr_put(a, under);
+    return c;
 }
 
+/* Whether a key is waiting (the KERNAL keyboard buffer's count at $00D0) */
 int kbhit(void) {
-    /* TODO: Implement KERNAL keyboard check
-     * For now, return 0 (no key available)
-     */
-    return 0;
+    return *(volatile unsigned char *)0x00D0 != 0;
 }
 
 /* ============================================================================
- * SCREEN SIZE FUNCTIONS
- * ============================================================================ */
-
-int screenwidth(void) {
-    return screen_width;
-}
-
-int screenheight(void) {
-    return screen_height;
-}
-
-/* ============================================================================
- * CURSOR VISIBILITY
+ * CURSOR VISIBILITY (shown by getch while it waits)
  * ============================================================================ */
 
 void cursoron(void) {
-    /* TODO: Enable VIC-IV cursor
-     * Modify VIC-IV register to show cursor
-     */
+    cursor_shown = 1;
 }
 
 void cursoroff(void) {
-    /* TODO: Disable VIC-IV cursor
-     * Modify VIC-IV register to hide cursor
-     */
+    cursor_shown = 0;
 }
 
 /* ============================================================================
  * SCREEN BUFFER FUNCTIONS
  * ============================================================================ */
 
+/* The screen code at (x, y) */
 int getch_xy(int x, int y) {
-    int offset = _get_screen_offset(x, y);
-    return (int)SCREEN_RAM[offset];
+    return scr_get(scr_addr(x, y));
 }
 
+/* The colour RAM byte at (x, y) */
 int getattr_xy(int x, int y) {
-    int offset = _get_screen_offset(x, y);
-    return (int)COLOR_RAM[offset];
+    return col_get(col_addr(x, y));
 }
-

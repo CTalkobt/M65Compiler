@@ -45,6 +45,7 @@ entries:
   data "calc graph",   "calc graph - a calculator that plots"
   data "forth",        "forth - a tiny forth"
   data "rtc clock",    "rtc clock - the real-time clock"
+  data "keyboard",     "keyboard - the keys you hold light up"
   data "far scroller", "far scroller - a dma landscape"
   data "text scroller","text scroller - a sprite and a message"
   data "game of life", "game of life - conway's cellular world"

@@ -22,6 +22,7 @@ SUBDIRS = \
 	c/calc_graph \
 	c/forth \
 	c/rtc_clock \
+	c/keyboard_viewer \
 	c/rogue \
 	c/stdlib/string_h \
 	c/stdlib/stdlib_h \

@@ -2,7 +2,6 @@
 #include <far_ops.h>
 #include <string.h>
 #include <stdlib.h>
-#include <assert.h>
 
 /* ============================================================================
  * Far memory allocator
@@ -36,14 +35,20 @@ typedef struct {
 typedef struct {
     alloc_record_t allocs[MAX_ALLOCS_PER_BANK];
     int num_allocs;
-    int next_bank;          /* For round-robin policy */
 } bank_allocator_t;
 
 /* Global allocator state */
 static bank_allocator_t g_banks[8];
-static bank_t g_current_bank = BANK0;
-static int g_allocation_policy = 0;  /* 0=round-robin, 1=fixed, 2=first-fit */
-static bank_t g_fixed_bank = BANK0;
+/* far_malloc_current / far_calloc_current choose their bank by the policy:
+ * the selected bank (bank_set, far_policy_fixed_bank; the default, bank 4),
+ * first fit (bank 4, then 5) or round robin (alternating, the other bank
+ * when one is full) */
+#define POLICY_FIXED       0
+#define POLICY_FIRST_FIT   1
+#define POLICY_ROUND_ROBIN 2
+static bank_t g_current_bank = BANK4;
+static unsigned char g_allocation_policy = POLICY_FIXED;
+static bank_t g_next_bank = BANK4;   /* round robin: the next bank to try */
 
 
 /* ============================================================================
@@ -53,7 +58,10 @@ static bank_t g_fixed_bank = BANK0;
 /* The bank far_malloc_current / far_calloc_current use (it maps nothing:
  * far pointers carry their bank) */
 void bank_set(bank_t bank) {
-    if (bank < 8) g_current_bank = bank;
+    if (bank < 8) {
+        g_current_bank = bank;
+        g_allocation_policy = POLICY_FIXED;
+    }
 }
 
 bank_t bank_get(void) {
@@ -77,7 +85,7 @@ size_t bank_available(bank_t bank) {
 }
 
 void bank_reset(bank_t bank) {
-    assert(bank < 8);   /* bank_t is unsigned */
+    if (bank >= 8) return;
 
     bank_allocator_t* allocator = &g_banks[bank];
     allocator->num_allocs = 0;
@@ -273,11 +281,26 @@ void far_free(far_ptr_t ptr) {
  * ========================================================================== */
 
 far_ptr_t far_malloc_current(size_t size) {
-    return far_malloc(size, g_current_bank);
+    far_ptr_t p;
+    bank_t first, second;
+    if (g_allocation_policy == POLICY_FIXED) return far_malloc(size, g_current_bank);
+    if (g_allocation_policy == POLICY_FIRST_FIT) {
+        first = BANK4;
+    } else {
+        first = g_next_bank;
+        g_next_bank = (first == BANK4) ? BANK5 : BANK4;
+    }
+    second = (first == BANK4) ? BANK5 : BANK4;
+    p = far_malloc(size, first);
+    if (far_is_null(p)) p = far_malloc(size, second);
+    return p;
 }
 
 far_ptr_t far_calloc_current(size_t count, size_t size) {
-    return far_calloc(count, size, g_current_bank);
+    size_t total = count * size;
+    far_ptr_t ptr = far_malloc_current(total);
+    if (!far_is_null(ptr)) far_memzero(ptr, total);
+    return ptr;
 }
 
 /* ============================================================================
@@ -318,16 +341,15 @@ int far_is_valid(far_ptr_t ptr) {
  * ========================================================================== */
 
 void far_policy_round_robin(void) {
-    g_allocation_policy = 0;
-    g_banks[0].next_bank = 0;
+    g_allocation_policy = POLICY_ROUND_ROBIN;
+    g_next_bank = BANK4;
 }
 
+/* The same as bank_set */
 void far_policy_fixed_bank(bank_t bank) {
-    assert(bank < 8);   /* bank_t is unsigned */
-    g_allocation_policy = 1;
-    g_fixed_bank = bank;
+    bank_set(bank);
 }
 
 void far_policy_first_fit(void) {
-    g_allocation_policy = 2;
+    g_allocation_policy = POLICY_FIRST_FIT;
 }

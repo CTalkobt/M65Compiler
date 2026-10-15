@@ -107,6 +107,18 @@ apart, and checks the values.
 
 ![rtc_clock](images/rtc_clock.png)
 
+### keyboard_viewer
+
+[Source](https://github.com/CTalkobt/M65Compiler/tree/main/examples/c/keyboard_viewer) —
+The MEGA65 keyboard drawn with conio; every frame each key of the 8x8
+matrix is read with `key_pressed()` (several at once, SHIFT and CTRL too)
+and a held key shows reversed in yellow. Below, conio's `kbhit()` and the
+characters `getch()` returns, with their PETSCII codes. It is the
+interactive test of `kbhit`/`getch` (headless xemu can't press keys): run it
+in a windowed xemu or on a MEGA65. Hold RUN/STOP to quit.
+
+![keyboard_viewer](images/keyboard_viewer.png)
+
 ### rogue
 
 [Source](https://github.com/CTalkobt/M65Compiler/tree/main/examples/c/rogue) —

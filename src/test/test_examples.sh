@@ -124,6 +124,9 @@ else
     fail "calc_graph check" "$(tail -1 "$BUILDDIR/calc_graph_check.txt")"
 fi
 
+build_example "$EXAMPLES/c/keyboard_viewer"
+test_screenshot "keyboard_viewer" "$EXAMPLES/c/keyboard_viewer/keyboard_viewer.prg" 10
+
 build_example "$EXAMPLES/c/rtc_clock"
 test_screenshot "rtc_clock" "$EXAMPLES/c/rtc_clock/rtc_clock.prg" 10
 # the RTC read twice, a second apart: valid BCD values in range

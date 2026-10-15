@@ -120,6 +120,9 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   `ascii` and 1 under `screencode` (was always PETSCII).
 - A struct member `const T *p` (pointer to const) was a const member:
   `s->p++` and `s->p = q` were errors. Only `T *const p` is.
+- An undeclared name in a static initializer is an error (it was stored
+  as 0). The preprocessor treated `"\\"` as ending in an escaped quote: the
+  macros after such a string on the same line were not expanded.
 - scanf with floats is linked like printf's: `_scanf_float` is referenced
   when `scanf`/`fscanf`/`sscanf` gets a `float *`, or a unit with float code
   calls `vscanf`/`vfscanf`/`vsscanf`. `clock`, `rand` and `srand` are no
@@ -169,6 +172,17 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   - `setvbuf` was a stub, `tmpfile` returned NULL and `tmpnam` an empty
     name: `setvbuf`/`setbuf` set the buffering, `tmpfile` is a memory
     stream (never on disk), `tmpnam` gives `TMPnnnn` names no file has.
+  - Far pointers and DMA (`test_far2`): the allocation policies only set
+    a variable; they now choose `far_malloc_current`'s bank (fixed, first
+    fit 4→5, round robin), whose default bank is 4 (was the unusable 0).
+    `bank_reset` no longer uses `assert` (which linked printf).
+  - `<conio.h>` (`test_conio`) wrote to the C64-mode screen at `$0400`
+    with PETSCII codes as screen codes, put the background colour into
+    colour RAM's attribute bits, and `getch`/`kbhit`/`cursoron`/`cursoroff`
+    were stubs. It now follows the VIC-IV's screen (80x25 in MEGA65 mode),
+    converts to screen codes, wraps and scrolls, writes colour RAM by DMA,
+    sets `$D021` for the background, reads keys from the KERNAL buffer,
+    shows the cursor in `getch`, and has `revers`.
 - `rtc_read` (and `localtime`, `gmtime`) read the RTC through a 16-bit
   pointer, i.e. `$7110` (zeros, month -1): the registers at `$FFD7110` are
   copied by DMA; the weekday is computed from the date.
@@ -213,6 +227,12 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   16-bit decrement skips one instruction) into a routine: the branch then
   skipped the whole `BSR`. A run no longer contains a `*±N` target except
   as its first instruction.
+- `-ffunction-sections`: a branch the optimizer inserted (the `BSR` to a
+  SeqExtract routine) had no target the section builder could evaluate, so
+  every proc with an extracted run was merged into the object's residual
+  and never dropped. The library's unused functions are dropped again
+  (a program calling one conio function: 4179 → 924 bytes; the CBM I/O
+  test's code: 43 KB → 9.7 KB).
 
 ### disk45
 
@@ -241,6 +261,9 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - New `rtc_clock`: the real-time clock in big digits with the date, a
   seconds bar and a stopwatch; reads the RTC registers at `$FFD7110` with
   `dma_copy_far`.
+- New `keyboard_viewer`: the keyboard on screen, held keys lit (several at
+  once, `key_pressed`), and conio's `kbhit`/`getch` codes: the interactive
+  keyboard test for a windowed xemu or a MEGA65.
 - New `rogue`: a mini rogue-like (random rooms and corridors per level,
   lit rooms and map memory, monsters by depth, combat, items, experience,
   the amulet on depth 8).

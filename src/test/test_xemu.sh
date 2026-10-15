@@ -1149,6 +1149,34 @@ for t2mode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: far pointer reads/writes, arrays, arithmetic, bulk copies, banks and
+# allocation policies, dma_controller.h, memcpy_optimized
+for f2mode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r f2name f2flags <<< "$f2mode"
+    echo "Testing test_far2_xemu.c ($f2name)..."
+    compile_link_test "src/test-resources/test_far2_xemu.c" "build/test/test_far2_${f2name}_xemu.prg" "$f2flags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_far2_$f2name" "build/test/test_far2_${f2name}_xemu.prg" "C0C0" 9 "01 01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_far2_xemu.c $f2name (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: conio.h on the 80x25 screen (screen codes, colour RAM, wrapping,
+# scrolling, revers, kbhit/getch from the KERNAL keyboard buffer)
+for comode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r coname coflags <<< "$comode"
+    echo "Testing test_conio_xemu.c ($coname)..."
+    compile_link_test "src/test-resources/test_conio_xemu.c" "build/test/test_conio_${coname}_xemu.prg" "$coflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_conio_$coname" "build/test/test_conio_${coname}_xemu.prg" "C0C0" 9 "01 01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_conio_xemu.c $coname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: constant initializers of aggregate globals / local statics (struct
 # layout, nested braces, brace elision, designators, unions, bitfields)
 for simode in "zp|" "stack|-fno-zpcall"; do

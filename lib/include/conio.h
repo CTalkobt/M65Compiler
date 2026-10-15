@@ -1,7 +1,10 @@
 /* conio.h — Console I/O for MEGA65 (Text Mode)
  *
- * Provides conio-compatible console I/O functions for text mode.
- * Compatible with standard C compiler conio libraries (cc65, etc.)
+ * conio-compatible console I/O (as in cc65) on the text screen the VIC-IV
+ * shows: 80x25 in MEGA65 mode, 40 columns, 50 rows or a moved screen too
+ * (screenwidth/screenheight read the VIC-IV). Text is PETSCII (what cc45
+ * makes of C strings), shown as screen codes. Colour is per character
+ * (colour RAM); the background is the screen's ($D021).
  */
 
 #pragma once
@@ -37,8 +40,8 @@
  * SCREEN DIMENSIONS
  * ============================================================================ */
 
-#define CONIO_COLS      40      /* Standard 40-column text mode */
-#define CONIO_ROWS      25      /* Standard 25-row text mode */
+#define CONIO_COLS      80      /* MEGA65 mode's text screen (screenwidth() is the real one) */
+#define CONIO_ROWS      25      /* (screenheight()) */
 
 /* ============================================================================
  * SCREEN CONTROL FUNCTIONS
@@ -59,22 +62,22 @@ void clrscr(void);
  * (0, 0) is the top-left corner.
  *
  * Parameters:
- *   x — Column (0-39 for 40-column mode)
- *   y — Row (0-24 for 25-row mode)
+ *   x — Column (0 to screenwidth() - 1; clamped)
+ *   y — Row (0 to screenheight() - 1; clamped)
  */
 void gotoxy(int x, int y);
 
 /**
  * wherex - Get cursor column
  *
- * Returns the current cursor column (0-39).
+ * Returns the current cursor column.
  */
 int wherex(void);
 
 /**
  * wherey - Get cursor row
  *
- * Returns the current cursor row (0-24).
+ * Returns the current cursor row.
  */
 int wherey(void);
 
@@ -93,9 +96,9 @@ int wherey(void);
 void textcolor(int color);
 
 /**
- * textbackground - Set text background color
+ * textbackground - Set the screen's background color ($D021)
  *
- * Sets the background color for subsequent text output.
+ * Text mode has no per-character background: this sets the whole screen's.
  *
  * Parameters:
  *   color — Background color index (0-15)
@@ -105,13 +108,20 @@ void textbackground(int color);
 /**
  * textattr - Set combined text attributes
  *
- * Sets both foreground and background color at once.
+ * textcolor(attr & 15) and textbackground(attr >> 4).
  * attr = (background << 4) | foreground
  *
  * Parameters:
  *   attr — Combined attribute byte
  */
 void textattr(int attr);
+
+/**
+ * revers - Reversed characters from now on (onoff 1) or not (0)
+ *
+ * Returns the previous setting.
+ */
+unsigned char revers(unsigned char onoff);
 
 /* ============================================================================
  * CHARACTER OUTPUT
@@ -212,17 +222,16 @@ int cprintfxy(int x, int y, const char *format, ...);
 /**
  * getch - Read character from keyboard (blocking)
  *
- * Waits for a key press and returns the character code.
- *
- * Returns:
- *   Character code (1-127 for ASCII, 128+ for special keys)
+ * Waits for a key press (the KERNAL keyboard buffer, no echo) and returns
+ * its PETSCII code. After cursoron() the cursor cell shows reversed while
+ * it waits.
  */
 int getch(void);
 
 /**
  * kbhit - Check if key is available (non-blocking)
  *
- * Returns whether a key press is available without blocking.
+ * Returns whether a key press is waiting in the KERNAL keyboard buffer.
  *
  * Returns:
  *   1 if key available, 0 if no key
@@ -237,7 +246,7 @@ int kbhit(void);
  * screenwidth - Get screen width in columns
  *
  * Returns:
- *   Width (40 for standard mode, 80 for enhanced)
+ *   The VIC-IV's characters per row ($D05E): 80 in MEGA65 mode
  */
 int screenwidth(void);
 
@@ -245,7 +254,7 @@ int screenwidth(void);
  * screenheight - Get screen height in rows
  *
  * Returns:
- *   Height (typically 25)
+ *   The VIC-IV's text rows ($D07B + 1): 25, or 50
  */
 int screenheight(void);
 
@@ -254,12 +263,12 @@ int screenheight(void);
  * ============================================================================ */
 
 /**
- * cursoron - Make cursor visible
+ * cursoron - Show the cursor while getch waits
  */
 void cursoron(void);
 
 /**
- * cursoroff - Hide cursor
+ * cursoroff - getch shows no cursor (the default)
  */
 void cursoroff(void);
 

@@ -67,7 +67,7 @@ static inline int far_is_null(far_ptr_t ptr) {
  * ========================================================================== */
 
 /* Select the bank far_malloc_current / far_calloc_current allocate in
- * (it maps nothing: far pointers carry their bank) */
+ * (bank 4 at first; it maps nothing: far pointers carry their bank) */
 void bank_set(bank_t bank);
 
 /* Get current memory bank */
@@ -125,13 +125,17 @@ int far_is_valid(far_ptr_t ptr);
  * Bank Allocation Policy
  * ========================================================================== */
 
-/* Use round-robin bank allocation (default) */
+/* How far_malloc_current / far_calloc_current choose a bank (far_malloc
+ * and far_calloc take theirs as an argument). The default is the bank
+ * bank_set selected, bank 4 at first. */
+
+/* Alternate between banks 4 and 5 (the other one when a bank is full) */
 void far_policy_round_robin(void);
 
-/* Use specific bank for new allocations */
+/* Always the given bank (the same as bank_set) */
 void far_policy_fixed_bank(bank_t bank);
 
-/* Use first-fit across all banks */
+/* Bank 4, then bank 5 when bank 4 is full */
 void far_policy_first_fit(void);
 
 #endif
