@@ -862,6 +862,27 @@ $DISK45 catalog build "$CAT/geos.d71" --db "$TMPDIR/old.db" >/dev/null 2>&1 &&
     $DISK45 catalog search '*' --db "$TMPDIR/old.db" | grep -q 'GEOS' &&
     pass "catalog: an older database gains the GEOS column" || fail "catalog migration"
 
+# A directory longer than one sector stays on the directory track (the DOS
+# follows the chain there only): D81 track 40, D64 track 18
+printf 'x' > "$TMPDIR/one.bin"
+for fmt in "d81|40|$((39 * 40 * 256))|3" "d64|18|91392|1"; do
+    IFS='|' read -r ext dtrack off first <<< "$fmt"
+    img="$TMPDIR/dirchain.$ext"
+    rm -f "$img"
+    $DISK45 create "$img" -n DIRCHAIN >/dev/null 2>&1
+    for i in $(seq 1 20); do $DISK45 add "$img" "$TMPDIR/one.bin" "F$i" >/dev/null 2>&1; done
+    ok=1; n=0; sec=$first
+    while [ "$n" -lt 4 ]; do
+        link=$(xxd -s $((off + sec * 256)) -l 2 -p "$img")
+        t=$((16#${link:0:2})); sct=$((16#${link:2:2}))
+        [ "$t" -eq 0 ] && break
+        [ "$t" -eq "$dtrack" ] || ok=0
+        sec=$sct; n=$((n + 1))
+    done
+    [ "$ok" -eq 1 ] && [ "$n" -ge 2 ] && $DISK45 list "$img" | grep -q '"F20"' &&
+        pass "$ext: a 20-file directory stays on track $dtrack" || fail "$ext: directory chain leaves track $dtrack"
+done
+
 # ============================================================================
 echo ""
 echo "disk45 tests: $passed passed, $failed failed"

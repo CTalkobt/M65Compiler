@@ -318,8 +318,21 @@ TrackSector DiskImage::allocDirectoryEntry(DirEntry& entry) {
         ts.sector = nextS;
     }
 
-    // Need to allocate a new directory sector
-    TrackSector newDir = allocateNextFree(directoryTrack());
+    // Need to allocate a new directory sector: on the directory track (the
+    // DOS follows the directory chain there only; allocateNextFree skips
+    // that track, it is for file data), the first free sector after the
+    // previous one; a full directory track falls back to any free sector
+    TrackSector newDir = {0, 0};
+    {
+        int dt = directoryTrack();
+        int n = sectorsOnTrack(dt);
+        int start = prevTS.track == dt ? prevTS.sector + 1 : 0;
+        for (int k = 0; k < n && newDir.isNull(); k++) {
+            int sct = (start + k) % n;
+            if (isSectorFree(dt, sct) && allocateSector(dt, sct)) newDir = {(uint8_t)dt, (uint8_t)sct};
+        }
+    }
+    if (newDir.isNull()) newDir = allocateNextFree(directoryTrack());
     if (newDir.isNull()) return {0, 0};
 
     // Link previous directory sector to new one
