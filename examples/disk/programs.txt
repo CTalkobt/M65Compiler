@@ -8,6 +8,7 @@ c/calc_graph/calc_graph.prg          calc graph
 c/forth/forth.prg                    forth
 c/rtc_clock/rtc_clock.prg            rtc clock
 c/keyboard_viewer/keyboard_viewer.prg keyboard
+c/sample_player/sample_player.prg  sample player
 c/far_scroller/far_scroller.prg      far scroller
 c/text_scroller/scroller.prg         text scroller
 c/game_of_life/life.prg              game of life

@@ -279,6 +279,9 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - New `rtc_clock`: the real-time clock in big digits with the date, a
   seconds bar and a stopwatch; reads the RTC registers at `$FFD7110` with
   `dma_copy_far`.
+- New `sample_player`: a drum machine on the audio DMA (`<audio_digi.h>`);
+  the kick, snare, hi-hat and a looped tone are synthesized at start, a
+  16-step pattern plays them, panned across the four channels.
 - New `keyboard_viewer`: the keyboard on screen, held keys lit (several at
   once, `key_pressed`), and conio's `kbhit`/`getch` codes: the interactive
   keyboard test for a windowed xemu or a MEGA65.

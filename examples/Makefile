@@ -23,6 +23,7 @@ SUBDIRS = \
 	c/forth \
 	c/rtc_clock \
 	c/keyboard_viewer \
+	c/sample_player \
 	c/rogue \
 	c/stdlib/string_h \
 	c/stdlib/stdlib_h \

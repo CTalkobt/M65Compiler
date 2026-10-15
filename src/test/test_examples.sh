@@ -127,6 +127,15 @@ fi
 build_example "$EXAMPLES/c/keyboard_viewer"
 test_screenshot "keyboard_viewer" "$EXAMPLES/c/keyboard_viewer/keyboard_viewer.prg" 10
 
+build_example "$EXAMPLES/c/sample_player"
+test_screenshot "sample_player" "$EXAMPLES/c/sample_player/sample_player.prg" 10
+# the synthesized samples and the audio DMA channels
+if make -C "$EXAMPLES/c/sample_player" check >"$BUILDDIR/sample_player_check.txt" 2>&1; then
+    pass "sample_player check"
+else
+    fail "sample_player check" "$(tail -1 "$BUILDDIR/sample_player_check.txt")"
+fi
+
 build_example "$EXAMPLES/c/rtc_clock"
 test_screenshot "rtc_clock" "$EXAMPLES/c/rtc_clock/rtc_clock.prg" 10
 # the RTC read twice, a second apart: valid BCD values in range
