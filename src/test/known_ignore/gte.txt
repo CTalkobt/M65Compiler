@@ -1,0 +1,39 @@
+# GTE (GCC torture) tests that are not reasonable on this platform: run_gte_all.sh
+# skips them and prints the reason. Format: <test name> <reason>
+# (Tests that fail but could be made to pass are in ../known_failures/gte.txt.)
+#
+# cc45's int is 16 bits (the 6502 family's word); these need a 32-bit int
+# (GCC's int32plus / int32: 32-bit constants in an int, int bitfields over 16 bits)
+20040703-1  needs a 32-bit int
+20040811-1  needs a 32-bit int (with a 16-bit int, n < 1000000 never ends)
+cmpsi-2     needs a 32-bit int
+pr29797-1   needs a 32-bit int
+pr37573     needs a 32-bit int
+pr45262     needs a 32-bit int
+pr56799     needs a 32-bit int ((int)0x10000 is 0)
+pr57124     needs a 32-bit int
+pr66556     needs a 32-bit int
+pr67781     needs a 32-bit int
+pr68648     needs a 32-bit int
+pr7284-1    needs a 32-bit int
+pr98366     needs a 32-bit int (int e:17 is wider than int)
+usmul       needs a 32-bit int
+vrp-5       needs a 32-bit int
+vrp-6       needs a 32-bit int (0x80000000 truncates to 0)
+pr31448     needs a 32-bit int (0xFEFEFEFE in an int)
+#
+# Too large for the memory below the $BFFF stack top
+20020108-1  too large for the memory below the stack (mode(SI) makes its shift tests 32-bit)
+20030209-1  too large for the memory below the stack
+20040629-1  too large for the memory below the stack
+pr58574     too large for the memory below the stack (the code runs into I/O at $D000)
+strlen-5    too large for the memory below the stack
+#
+# Stack frames over 64 KB (the whole 16-bit address space)
+920410-1    needs a stack frame over 64 KB
+921208-2    needs a stack frame over 64 KB
+pr28982b    needs a stack frame over 64 KB
+#
+# Memory protection: the MEGA65 has no MMU
+loop-2f     needs <sys/mman.h> (mmap, page protection)
+loop-2g     needs <sys/mman.h> (mmap, page protection)

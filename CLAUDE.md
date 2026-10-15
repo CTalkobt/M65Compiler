@@ -183,9 +183,11 @@ explicit `-O<n>` in ad-hoc test commands too.
   `*_xemu.c` writes results to `$C0C0` (01 = pass, `$AA` sentinel), built in
   both conventions. New runtime tests follow this pattern and are registered
   in `test_xemu.sh`.
-- GCC torture tests: `src/test/run_gte_all.sh` — 537 pass with the ZP
-  convention, 537 with `-fno-zpcall` (GTE uses `-fsigned-default`). Expected
-  failures are listed, with reasons, in `src/test/known_failures/gte.txt`.
+- GCC torture tests: `src/test/run_gte_all.sh` — 549 pass with the ZP
+  convention, 549 with `-fno-zpcall` (GTE uses `-fsigned-default`). Expected
+  failures that could be fixed are listed in `src/test/known_failures/gte.txt`;
+  tests not reasonable on the platform (a 32-bit `int`, too large, stack frames
+  over 64 KB, `mmap`) are skipped with their reason from `src/test/known_ignore/gte.txt`.
 - `bash src/test/test_cc_interop.sh` — calling-convention interop (13 checks).
 - **xemu runs**: `timeout 15 xemu-xmega65 -headless -besure -sleepless -prgmode 65 -prgexit -dumpmem out.mem -prg file.prg`.
   xemu exits at BASIC's `READY.`; the exit status is at `$FD/$FE` in the dump

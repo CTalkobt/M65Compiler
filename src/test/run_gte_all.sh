@@ -18,6 +18,8 @@ XEMU="xemu-xmega65"
 GTE_DIR="src/test-resources/gte"
 BUILD_DIR="build/test/gte"
 RUN_TIMEOUT=15
+# tests not reasonable on this platform: skipped, with the reason
+IGNORE="src/test/known_ignore/gte.txt"
 # GTE tests are standard (often C89) C: plain char/int/long are signed and
 # functions may be called without a declaration
 GTE_CFLAGS="${GTE_CFLAGS--fsigned-default -fimplicit-function-declaration}"
@@ -51,13 +53,13 @@ run_one() {
     local obj="$BUILD_DIR/$name.o45"
     local prg="$BUILD_DIR/$name.prg"
 
-    case "$name" in
-        # Bitfield widths >16 bits exceed the 16-bit target's limits
-        bitfld-6|bitfld-7|pr103417|pr19689|pr31448-2|pr31448|pr40404|pr52979-1|pr52979-2|pr57344-2|pr58570|pr70602|pr78170|pr78436|pr89195|pr97764)
-            echo "SKIP: $name (bitfield width >16 bits)"
-            return
-            ;;
-    esac
+    # Not reasonable on this platform (known_ignore/gte.txt): skipped with the reason
+    local why
+    why=$(awk -v n="$name" '$1 == n { $1 = ""; sub(/^ +/, ""); print; exit }' "$IGNORE" 2>/dev/null)
+    if [ -n "$why" ]; then
+        echo "SKIP: $name ($why)"
+        return
+    fi
 
     if ! $CC -c -O2 $GTE_CFLAGS -I"$GTE_DIR" "$f" -o "$obj" > "$BUILD_DIR/$name.compile.log" 2>&1; then
         echo "COMPILE FAIL: $name"; return
@@ -94,7 +96,7 @@ run_one() {
     fi
 }
 export -f run_one
-export CC LD CRT0 LIB XEMU GTE_DIR BUILD_DIR RUN_TIMEOUT GTE_CFLAGS
+export CC LD CRT0 LIB XEMU GTE_DIR BUILD_DIR RUN_TIMEOUT GTE_CFLAGS IGNORE
 
 if [ -n "$LIST" ]; then
     TEST_FILES=$(grep -v '^\s*\(#\|$\)' "$LIST" | sed "s|^|$GTE_DIR/|; s|$|.c|")
