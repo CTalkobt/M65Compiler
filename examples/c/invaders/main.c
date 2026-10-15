@@ -6,8 +6,8 @@
  *     updated through Entity pointers
  *   - VIC-IV graphics: the character set copied into bank 4 with
  *     dma_copy_far and redefined (aliens, shields), 16-colour sprites (the
- *     cannon, the UFO), 16-bit sprite pointers, colour RAM written with
- *     dma_fill_far
+ *     cannon, the UFO) with their own palette entries, 16-bit sprite
+ *     pointers, colour RAM written with dma_fill_far
  *   - input: joystick port 2 or the keyboard (Z/X or , . to move, SPACE to
  *     fire), scanned directly (key_pressed)
  *   - sound: SID effects (shot, explosion, UFO) and the marching beat
@@ -81,6 +81,33 @@ static _Alignas(64) unsigned char sprite_mem[192 * 3 + 64 * 3];
 #define SPRD_BOMB_B      (sprite_mem + 704)
 static _Alignas(16) unsigned int sprite_ptr[8];
 static unsigned char saved_regs[8];
+
+/* A 16-colour sprite takes its colours from palette entries n * 16 ..
+ * n * 16 + 15 (sprite n): sprite 0's are the standard 16 colours; the UFO
+ * (sprite 5) gets a copy of them in entries 80-95, with its own brighter
+ * red (entry 82) */
+#define PAL_R(i) REG(0xD100 + (i))
+#define PAL_G(i) REG(0xD200 + (i))
+#define PAL_B(i) REG(0xD300 + (i))
+static unsigned char saved_pal[48];
+
+static void ufo_palette(void) {
+    unsigned char i, base = SPR_UFO * 16;
+    for (i = 0; i < 16; i++) {
+        saved_pal[i] = PAL_R(base + i); saved_pal[16 + i] = PAL_G(base + i); saved_pal[32 + i] = PAL_B(base + i);
+        PAL_R(base + i) = PAL_R(i); PAL_G(base + i) = PAL_G(i); PAL_B(base + i) = PAL_B(i);
+    }
+    PAL_R(base + 2) = 0xFF;      /* nibble-swapped intensities: full red, a little green and blue */
+    PAL_G(base + 2) = 0x33;
+    PAL_B(base + 2) = 0x33;
+}
+
+static void restore_palette(void) {
+    unsigned char i, base = SPR_UFO * 16;
+    for (i = 0; i < 16; i++) {
+        PAL_R(base + i) = saved_pal[i]; PAL_G(base + i) = saved_pal[16 + i]; PAL_B(base + i) = saved_pal[32 + i];
+    }
+}
 
 static void sprite_image(unsigned char n, unsigned char *data) {
     sprite_ptr[n] = (unsigned int)data / 64;
@@ -732,6 +759,7 @@ static void setup(void) {
     REG(0xD057) = (1 << SPR_CANNON) | (1 << SPR_UFO);     /* 8 bytes a row */
     REG(0xD027 + SPR_CANNON) = 0;                         /* transparent colour 0 */
     REG(0xD027 + SPR_UFO) = 0;
+    ufo_palette();
     REG(0xD027 + SPR_SHOT) = C_WHITE;
     for (r = 0; r < NBOMBS; r++) REG(0xD027 + SPR_BOMB + r) = C_YELLOW;
     REG(0xD01B) = 0;                                      /* sprites in front */
@@ -767,6 +795,7 @@ static void restore(void) {
     REG(0xD06C) = saved_regs[3]; REG(0xD06D) = saved_regs[4]; REG(0xD06E) = saved_regs[5];
     REG(0xD020) = saved_regs[6]; REG(0xD021) = saved_regs[7];
     snd_off();
+    restore_palette();
     putchar(0x05);   /* white text */
     putchar(0x93);
 }
