@@ -436,6 +436,37 @@ else
     failed=$((failed + 1))
 fi
 
+# -ffunction-sections: a proc with a SeqExtract routine (BSRs inserted by the
+# optimizer) is a section of its own, so ln45 can drop it
+cat > build/test_seqx_sec.s45 <<'END'
+    .segment "code"
+    proc f1
+    lda #$11
+    sta $3000
+    lda #$22
+    sta $3001
+    lda #$11
+    sta $3000
+    lda #$22
+    sta $3001
+    lda #$11
+    sta $3000
+    lda #$22
+    sta $3001
+    endproc
+    proc f2
+    rts
+    endproc
+END
+S=$($AS -c -ffunction-sections build/test_seqx_sec.s45 -o build/test_seqx_sec.o45 >/dev/null 2>&1 && ./bin/nm45 -S build/test_seqx_sec.o45)
+if grep -q ' f1$' <<< "$S" && grep -q ' f2$' <<< "$S"; then
+    echo "SUCCESS: a proc with a SeqExtract routine is its own section"
+    passed=$((passed + 1))
+else
+    echo "FAIL: SeqExtract proc sections ($S)"
+    failed=$((failed + 1))
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All assembler feature tests passed!"
     exit 0

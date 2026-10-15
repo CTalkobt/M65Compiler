@@ -88,7 +88,29 @@ grep -qF '.ascii "Ha"' $T.s45 && pass "a\"...\" is .ascii" || fail "a\"...\" is 
 grep -qF '.text "Hp"' $T.s45 && pass "p\"...\" is .text under #pragma encoding ascii" \
     || fail "p\"...\" is .text under #pragma encoding ascii"
 
-rm -f $T.s45 $T.bin $T.c
+# cp45: a string ending in an escaped backslash ("\\") ends there: the
+# macros after it on the same line are expanded
+cat > $T.c <<'END'
+#define A 1
+#define S(x) x
+char *s = "\\"; int x = A; char *u = S("\\"), *v = S("q");
+END
+if ./bin/cp45 $T.c -o $T.i >/dev/null 2>&1 && grep -qF 'int x = 1;' $T.i && grep -qF 'char *u = "\\", *v = "q";' $T.i; then
+    pass "macros after \"\\\\\" on a line are expanded"
+else
+    fail "macros after \"\\\\\" on a line are expanded"
+fi
+
+# cc45: an undeclared name in a static initializer is an error (it was
+# silently stored as 0)
+printf 'struct k { int a; const char *s; };\nstatic const struct k t[] = { { FOO, "x" } };\nint main(void) { return t[0].a; }\n' > $T.c
+if $CC -c $T.c -o $T.o45 2>&1 | grep -q "'FOO' undeclared"; then
+    pass "undeclared name in a static initializer is an error"
+else
+    fail "undeclared name in a static initializer is an error"
+fi
+
+rm -f $T.s45 $T.bin $T.c $T.i $T.o45
 
 echo ""
 echo "string escape tests: $passed passed, $failed failed"

@@ -322,6 +322,7 @@ private:
     const IRMemberInfo* arrayMemberOf(MemberAccess* ma);
     // Alignment of a type (an aligned struct's alignment; 1 otherwise: cc45 packs)
     int typeAlign(const std::string& type, int ptrLevel);
+    void checkStaticInitNames(Expression* e);   // undeclared names in a static initializer
     // Natural alignment of a type, as an __unpacked struct aligns its members:
     // a 1/2/4-byte scalar or pointer its size, a struct its naturalAlign
     int naturalAlign(const std::string& type, int ptrLevel);

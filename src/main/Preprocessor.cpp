@@ -181,13 +181,15 @@ std::string Preprocessor::expandMacros(const std::string& line) {
         bool inString = false;
 
         for (size_t i = 0; i < result.length(); ) {
-            // Skip strings
-            if (result[i] == '"' && (i == 0 || result[i-1] != '\\')) {
-                inString = !inString;
+            // Skip strings ("\\" ends with an escaped backslash, not an escaped quote)
+            if (inString) {
+                if (result[i] == '\\' && i + 1 < result.length()) nextResult += result[i++];
+                else if (result[i] == '"') inString = false;
                 nextResult += result[i++];
                 continue;
             }
-            if (inString) {
+            if (result[i] == '"') {
+                inString = true;
                 nextResult += result[i++];
                 continue;
             }
@@ -342,15 +344,18 @@ std::string Preprocessor::expandMacros(const std::string& line) {
                             std::vector<std::string> args;
                             std::string currentArg;
                             int parenDepth = 0;
-                            bool inString = false;
+                            bool inString = false, escaped = false;
                             char strChar = 0;
                             while (peek < result.length()) {
                                 char ch = result[peek];
-                                // Track string/char literal state
-                                if (!inString && (ch == '"' || ch == '\'')) {
+                                // Track string/char literal state (a backslash
+                                // escapes the next character only)
+                                if (inString) {
+                                    if (escaped) escaped = false;
+                                    else if (ch == '\\') escaped = true;
+                                    else if (ch == strChar) inString = false;
+                                } else if (ch == '"' || ch == '\'') {
                                     inString = true; strChar = ch;
-                                } else if (inString && ch == strChar && (peek == 0 || result[peek-1] != '\\')) {
-                                    inString = false;
                                 }
                                 if (!inString && ch == '(') parenDepth++;
                                 else if (!inString && ch == ')') {
@@ -1319,7 +1324,8 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                     while ((pos = s.find(from, pos)) != std::string::npos) {
                         inStr = false;
                         for (size_t k = 0; k < pos; ++k) {
-                            if (s[k] == '"' && (k == 0 || s[k-1] != '\\')) inStr = !inStr;
+                            if (inStr && s[k] == '\\') ++k;   // an escaped character
+                            else if (s[k] == '"') inStr = !inStr;
                         }
                         if (inStr) { pos += from.length(); continue; }
                         bool boundaryBefore = (pos == 0 || (!std::isalnum((unsigned char)s[pos-1]) && s[pos-1] != '_'));

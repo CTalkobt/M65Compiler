@@ -2185,6 +2185,40 @@ void IRBuilder::addVtableWords(ir::Module::GlobalVar& gv, const std::string& typ
     for (const auto& [off, sym] : slots) gv.initWords[off] = sym;
 }
 
+// A name in a static initializer that is declared nowhere is an error, as
+// in a function body (the image builders would otherwise store 0 for it)
+void IRBuilder::checkStaticInitNames(Expression* e) {
+    if (!e) return;
+    if (auto* vr = dynamic_cast<VariableReference*>(e)) {
+        const std::string& n = vr->name;
+        if (!locals_.count(n) && !globalTypes_.count(n) && !globalArrayDims_.count(n) &&
+            !functionParamTypes_.count(n) && !functionReturnTypes_.count(n) && !unitFunctionNames_.count(n) &&
+            n.rfind("__", 0) != 0)
+            throw std::runtime_error(formatDiagnostic(vr->sourceFile, vr->line, vr->column, Severity::Error,
+                "'" + n + "' undeclared"));
+        return;
+    }
+    if (auto* il = dynamic_cast<InitializerList*>(e)) {
+        for (auto& el : il->elements) checkStaticInitNames(el.get());
+    } else if (auto* bo = dynamic_cast<BinaryOperation*>(e)) {
+        checkStaticInitNames(bo->left.get());
+        checkStaticInitNames(bo->right.get());
+    } else if (auto* uo = dynamic_cast<UnaryOperation*>(e)) {
+        checkStaticInitNames(uo->operand.get());
+    } else if (auto* ce = dynamic_cast<CastExpression*>(e)) {
+        checkStaticInitNames(ce->expression.get());
+    } else if (auto* co = dynamic_cast<ConditionalExpression*>(e)) {
+        checkStaticInitNames(co->condition.get());
+        checkStaticInitNames(co->thenExpr.get());
+        checkStaticInitNames(co->elseExpr.get());
+    } else if (auto* aa = dynamic_cast<ArrayAccess*>(e)) {
+        checkStaticInitNames(aa->arrayExpr.get());
+        checkStaticInitNames(aa->indexExpr.get());
+    } else if (auto* ma = dynamic_cast<MemberAccess*>(e)) {
+        checkStaticInitNames(ma->structExpr.get());
+    }
+}
+
 bool IRBuilder::buildInitImage(ir::Module::GlobalVar& gv, const std::string& type, int ptrLevel,
                                const std::vector<int>& dims, Expression* init) {
     ir::Module::GlobalVar trial = gv;
@@ -3602,6 +3636,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
             globalPtrArrayDims_[node.name] = d;
             paramArrayDims_[node.name] = d;
         }
+        if (node.initializer) checkStaticInitNames(node.initializer.get());
         if (node.initializer) {
             // -1.5: a negated float literal
             double negFloat = 0;
@@ -3727,6 +3762,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
         declaredAlign_[node.name] = gv.align;
 
         // Handle initializer
+        if (node.initializer) checkStaticInitNames(node.initializer.get());
         bool aggregateInit = node.initializer &&
             (dynamic_cast<InitializerList*>(node.initializer.get()) ||
              (dynamic_cast<StringLiteral*>(node.initializer.get()) && !node.arrayDims.empty()));

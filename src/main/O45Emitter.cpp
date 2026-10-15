@@ -878,6 +878,11 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
                         if (t) target = t->value;
                     } else if (stmt->instr.operandTokenIndex >= 0) {
                         target = parser.evaluateExpressionAt(stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                    } else if (!stmt->instr.operand.empty()) {
+                        // a branch the optimizer inserted (a BSR to a SeqExtract
+                        // routine): no source tokens, the operand is a label
+                        Symbol* t = parser.resolveSymbol(stmt->instr.operand, stmt->scopePrefix);
+                        if (t) target = t->value;
                     }
                 } catch (...) {}
                 int from = find(seg, stmt->address);
