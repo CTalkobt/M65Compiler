@@ -19,6 +19,14 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   `examples/c/overlays` (on the examples disk as `overlays`); xemu tests in
   both conventions and link errors (an interrupt handler in an overlay, an
   overlay too large).
+- New example `examples/c/mapped_overlays` (`map overlays` on the examples
+  disk) checks that mapped overlays run in place. The CPU sees each
+  overlay's code in the window, and the overlay reports what MAP maps there.
+  DMA reads and writes the same bytes in bank 5, a store through the window
+  is visible there and the other way round, and an overlay calling another
+  gets the window back. With copied overlays only 2 of the 6 checks pass.
+- The examples disk's menu has two pages of 13 examples (space turns the
+  page): 23 examples no longer fit on one screen.
 - Mapped overlays (ln45 `--overlay-map`): each overlay runs where it is
   kept, through a window of `$4000`–`$7FFF` that `MAP` points at it (only
   the map's lower half changes: the KERNAL stays mapped at `$E000`); no
@@ -39,6 +47,12 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### cc45
 
+- **Fixes**: a `__naked` function returning a value assembled with a
+  branch to an epilogue it does not have (`undefined local symbol
+  '@__return'`); `static` after `__naked`, `__interrupt`, `__fastcall__`,
+  `_Noreturn` or `__regparm` was dropped (the function was exported under
+  its plain name: two files with the same static function did not link);
+  these specifiers may now come in any order.
 - **Code size**: loads through a constant address are absolute
   (`lda $D012`, was through a zero-page pointer); a value put together from
   bytes (`a | b << 8 | (long)c << 16`, byte swaps, `(x & 0xFF00) | lo`) is

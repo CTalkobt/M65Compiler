@@ -2901,7 +2901,9 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 emitLabel(fn.labelAlias(block.label));
             }
             for (const auto& inst : block.insts) {
-                emitInst(inst);
+                // (the body's asm returns: no epilogue to branch to, even
+                // for a function that returns a value)
+                if (inst.op != ir::Op::RET && inst.op != ir::Op::RET_VOID) emitInst(inst);
                 currentInstIdx_++;
             }
         }

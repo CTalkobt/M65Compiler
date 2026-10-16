@@ -21,5 +21,7 @@ c/unit_convert/convert.prg           unit convert
 c/multi_module/program.prg           multi module
 c/overlays/ovldemo.prg               overlays
 c/overlays/ovldemo.ovl               OVLDEMO.OVL
+c/mapped_overlays/mapdemo.prg        map overlays
+c/mapped_overlays/mapdemo.ovl        MAPDEMO.OVL
 c/stdlib/ctype_h/ctype_demo.prg      ctype demo
 basic/c_routines/menu.prg            basic+c

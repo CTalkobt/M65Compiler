@@ -93,6 +93,9 @@ test_text "multi_module" "$EXAMPLES/c/multi_module/program.prg" "^6/6 TESTS PASS
 build_example "$EXAMPLES/c/overlays"
 test_text_disk "overlays" "$EXAMPLES/c/overlays/ovldemo.prg" "$EXAMPLES/c/overlays/ovldemo.d81" "^3/3 OVERLAYS RAN"
 
+build_example "$EXAMPLES/c/mapped_overlays"
+test_text_disk "mapped_overlays" "$EXAMPLES/c/mapped_overlays/mapdemo.prg" "$EXAMPLES/c/mapped_overlays/mapdemo.d81" "^MAPPED OVERLAYS: 6/6 PROVEN"
+
 build_example "$EXAMPLES/c/unit_convert"
 test_text "unit_convert" "$EXAMPLES/c/unit_convert/convert.prg" "26 MILES = 41 KM"
 

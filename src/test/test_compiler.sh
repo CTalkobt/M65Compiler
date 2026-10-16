@@ -185,6 +185,23 @@ else
     failed=$((failed + 1))
 fi
 
+# A __naked function that returns a value (its asm returns: no branch to an
+# epilogue it does not have), and a static one with the specifiers in either
+# order: module-private in both files, so the two link together
+for f in naked_s1 naked_s2; do
+    printf '__naked static unsigned char *here(void) {\n    __asm__("lda #<mark");\n    __asm__("ldx #>mark");\n    __asm__("rts");\n    __asm__("mark: .byte 1");\n}\nstatic __naked void nop(void) { __asm__("rts"); }\nunsigned char *%s(void) { nop(); return here(); }\n' $f > build/test/test_$f.c
+done
+printf 'unsigned char *naked_s1(void);\nunsigned char *naked_s2(void);\nint main(void) { return *naked_s1() + *naked_s2() == 2 ? 0 : 1; }\n' > build/test/test_naked_main.c
+if $CC -c build/test/test_naked_s1.c -o build/test/test_naked_s1.o45 >/dev/null 2>&1 &&
+   $CC -c build/test/test_naked_s2.c -o build/test/test_naked_s2.o45 >/dev/null 2>&1 &&
+   $CC -c build/test/test_naked_main.c -o build/test/test_naked_main.o45 >/dev/null 2>&1 &&
+   ./bin/ln45 -basic -o build/test/test_naked_static.prg build/test/test_naked_main.o45 build/test/test_naked_s1.o45 build/test/test_naked_s2.o45 lib/build/c45.lib >/dev/null 2>&1; then
+    echo "SUCCESS: __naked static functions returning a value"
+else
+    echo "FAIL: __naked static functions returning a value"
+    failed=$((failed + 1))
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All tests passed!"
     exit 0

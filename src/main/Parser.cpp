@@ -324,36 +324,20 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
         bool isRegparm = false;
         bool isInlineFunc = false;
 
-        if (tokens[look].type == TokenType::EXTERN) {
-            isExtern = true;
-            look++;
-        } else if (tokens[look].type == TokenType::STATIC) {
-            isStatic = true;
-            look++;
-        }
-
-        if (tokens[look].type == TokenType::NORETURN) {
-            isNR = true;
-            look++;
-        }
-        if (tokens[look].type == TokenType::FASTCALL) {
-            isFC = true;
-            look++;
-        }
-        if (tokens[look].type == TokenType::INTERRUPT) {
-            isInterrupt = true;
-            look++;
-        }
-        if (tokens[look].type == TokenType::NAKED) {
-            isNaked = true;
-            look++;
-        }
-        if (tokens[look].type == TokenType::REGPARM) {
-            isRegparm = true;
-            look++;
-        }
-        if (tokens[look].type == TokenType::INLINE) {
-            isInlineFunc = true;
+        // the storage class and function specifiers, in any order
+        // (__naked static, static __naked)
+        for (bool more = true; more && look < tokens.size(); ) {
+            switch (tokens[look].type) {
+            case TokenType::EXTERN:    isExtern = true; break;
+            case TokenType::STATIC:    isStatic = true; break;
+            case TokenType::NORETURN:  isNR = true; break;
+            case TokenType::FASTCALL:  isFC = true; break;
+            case TokenType::INTERRUPT: isInterrupt = true; break;
+            case TokenType::NAKED:     isNaked = true; break;
+            case TokenType::REGPARM:   isRegparm = true; break;
+            case TokenType::INLINE:    isInlineFunc = true; break;
+            default: more = false; continue;
+            }
             look++;
         }
 
@@ -536,10 +520,9 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
 
             // Check for parenthesized declarator (e.g., function pointer: type (*name)(params)) — treat as variable
             if (look < tokens.size() && tokens[look].type == TokenType::OPEN_PAREN) {
-                if (isExtern) match(TokenType::EXTERN);
-                if (isStatic) match(TokenType::STATIC);
-                if (isNR) match(TokenType::NORETURN);
-                if (isFC) match(TokenType::FASTCALL);
+                while (match(TokenType::EXTERN) || match(TokenType::STATIC) || match(TokenType::NORETURN) ||
+                       match(TokenType::FASTCALL) || match(TokenType::INTERRUPT) || match(TokenType::NAKED) ||
+                       match(TokenType::REGPARM) || match(TokenType::INLINE));
                 while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || match(TokenType::ZP) || match(TokenType::ABS) || match(TokenType::FAR) || tryParseAttribute() || match(TokenType::EXTENSION));
                 auto decl = parseVariableDeclaration(isVol, isConst, isStatic);
                 if (auto* vd = dynamic_cast<VariableDeclaration*>(decl.get())) {
@@ -566,13 +549,9 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
             // Check for complex declarators: (*name) or (*name(params)) → function declaration
             if (look < tokens.size() && tokens[look].type == TokenType::OPEN_PAREN &&
                 look + 1 < tokens.size() && tokens[look + 1].type == TokenType::STAR) {
-                if (isExtern) match(TokenType::EXTERN);
-                if (isStatic) match(TokenType::STATIC);
-                if (isNR) match(TokenType::NORETURN);
-                if (isFC) match(TokenType::FASTCALL);
-                if (isInterrupt) match(TokenType::INTERRUPT);
-                if (isNaked) match(TokenType::NAKED);
-                if (isRegparm) match(TokenType::REGPARM);
+                while (match(TokenType::EXTERN) || match(TokenType::STATIC) || match(TokenType::NORETURN) ||
+                       match(TokenType::FASTCALL) || match(TokenType::INTERRUPT) || match(TokenType::NAKED) ||
+                       match(TokenType::REGPARM) || match(TokenType::INLINE));
                 while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL) || match(TokenType::INTERRUPT) || match(TokenType::NAKED) || match(TokenType::REGPARM) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || tryParseAttribute() || match(TokenType::EXTENSION));
                 auto decl = parseFunctionDeclaration();
                 if (isSig) decl->isSigned = true;  // 'signed'/'unsigned' were consumed with the qualifiers above
@@ -591,13 +570,9 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
             else if (look < tokens.size() && tokens[look].type == TokenType::IDENTIFIER) {
                 look++;
                 if (look < tokens.size() && tokens[look].type == TokenType::OPEN_PAREN) {
-                    if (isExtern) match(TokenType::EXTERN);
-                    if (isStatic) match(TokenType::STATIC);
-                    if (isNR) match(TokenType::NORETURN);
-                    if (isFC) match(TokenType::FASTCALL);
-                    if (isInterrupt) match(TokenType::INTERRUPT);
-                    if (isNaked) match(TokenType::NAKED);
-                    if (isRegparm) match(TokenType::REGPARM);
+                    while (match(TokenType::EXTERN) || match(TokenType::STATIC) || match(TokenType::NORETURN) ||
+                           match(TokenType::FASTCALL) || match(TokenType::INTERRUPT) || match(TokenType::NAKED) ||
+                           match(TokenType::REGPARM) || match(TokenType::INLINE));
                     while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL) || match(TokenType::INTERRUPT) || match(TokenType::NAKED) || match(TokenType::REGPARM) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || match(TokenType::ZP) || match(TokenType::ABS) || match(TokenType::FAR) || tryParseAttribute() || match(TokenType::EXTENSION));
                     auto decl = parseFunctionDeclaration();
                     if (isSig) decl->isSigned = true;  // 'signed'/'unsigned' were consumed with the qualifiers above
@@ -614,13 +589,9 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     flushPending(*unit);
                     unit->topLevelDecls.push_back(std::move(decl));
                 } else {
-                    if (isExtern) match(TokenType::EXTERN);
-                    if (isStatic) match(TokenType::STATIC);
-                    if (isNR) match(TokenType::NORETURN);
-                    if (isFC) match(TokenType::FASTCALL);
-                    if (isInterrupt) match(TokenType::INTERRUPT);
-                    if (isNaked) match(TokenType::NAKED);
-                    if (isRegparm) match(TokenType::REGPARM);
+                    while (match(TokenType::EXTERN) || match(TokenType::STATIC) || match(TokenType::NORETURN) ||
+                           match(TokenType::FASTCALL) || match(TokenType::INTERRUPT) || match(TokenType::NAKED) ||
+                           match(TokenType::REGPARM) || match(TokenType::INLINE));
                     // NOTE: ZP/ABS/FAR are handled in parseTypeSpecifier, not here
                     while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL) || match(TokenType::INTERRUPT) || match(TokenType::NAKED) || match(TokenType::REGPARM) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || match(TokenType::STRIPED) || tryParseAttribute() || match(TokenType::EXTENSION));
                     auto decl = parseVariableDeclaration(isVol, isConst, isStatic, false, isStriped);
@@ -645,11 +616,9 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     unit->topLevelDecls.push_back(std::move(decl));
                 }
             } else {
-                if (isNR) match(TokenType::NORETURN);
-                if (isFC) match(TokenType::FASTCALL);
-                if (isInterrupt) match(TokenType::INTERRUPT);
-                if (isNaked) match(TokenType::NAKED);
-                    if (isRegparm) match(TokenType::REGPARM);
+                while (match(TokenType::EXTERN) || match(TokenType::STATIC) || match(TokenType::NORETURN) ||
+                       match(TokenType::FASTCALL) || match(TokenType::INTERRUPT) || match(TokenType::NAKED) ||
+                       match(TokenType::REGPARM) || match(TokenType::INLINE));
                 while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || tryParseAttribute() || match(TokenType::EXTENSION));
                 auto decl = parseFunctionDeclaration();
                 if (isSig) decl->isSigned = true;  // 'signed'/'unsigned' were consumed with the qualifiers above
@@ -677,13 +646,9 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                 // Check if it's a function (IDENTIFIER followed by '(') or variable
                 if (tokens[look+1].type == TokenType::OPEN_PAREN) {
                     // Implicit int function: static inline f(...) → static inline int f(...)
-                    if (isExtern) match(TokenType::EXTERN);
-                    if (isStatic) match(TokenType::STATIC);
-                    if (isNR) match(TokenType::NORETURN);
-                    if (isFC) match(TokenType::FASTCALL);
-                    if (isInterrupt) match(TokenType::INTERRUPT);
-                    if (isNaked) match(TokenType::NAKED);
-                    if (isRegparm) match(TokenType::REGPARM);
+                    while (match(TokenType::EXTERN) || match(TokenType::STATIC) || match(TokenType::NORETURN) ||
+                           match(TokenType::FASTCALL) || match(TokenType::INTERRUPT) || match(TokenType::NAKED) ||
+                           match(TokenType::REGPARM) || match(TokenType::INLINE));
                     while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || tryParseAttribute() || match(TokenType::EXTENSION));
                     auto decl = parseFunctionDeclaration();
                     if (isSig) decl->isSigned = true;  // 'signed'/'unsigned' were consumed with the qualifiers above
@@ -694,8 +659,9 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     unit->topLevelDecls.push_back(std::move(decl));
                     continue;
                 }
-                if (isExtern) match(TokenType::EXTERN);
-                if (isStatic) match(TokenType::STATIC);
+                while (match(TokenType::EXTERN) || match(TokenType::STATIC) || match(TokenType::NORETURN) ||
+                       match(TokenType::FASTCALL) || match(TokenType::INTERRUPT) || match(TokenType::NAKED) ||
+                       match(TokenType::REGPARM) || match(TokenType::INLINE));
                 while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || match(TokenType::STRIPED) || tryParseAttribute() || match(TokenType::EXTENSION));
                 auto decl = parseVariableDeclaration(isVol, isConst, isStatic, false, isStriped);
                 if (auto* vd = dynamic_cast<VariableDeclaration*>(decl.get())) {
@@ -708,14 +674,9 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                 unit->topLevelDecls.push_back(std::move(decl));
                 continue;
             }
-            if (isExtern) match(TokenType::EXTERN);
-            if (isStatic) match(TokenType::STATIC);
-            if (isNR) match(TokenType::NORETURN);
-            if (isFC) match(TokenType::FASTCALL);
-            if (isInterrupt) match(TokenType::INTERRUPT);
-            if (isNaked) match(TokenType::NAKED);
-            if (isRegparm) match(TokenType::REGPARM);
-            if (isInlineFunc) match(TokenType::INLINE);
+            while (match(TokenType::EXTERN) || match(TokenType::STATIC) || match(TokenType::NORETURN) ||
+                   match(TokenType::FASTCALL) || match(TokenType::INTERRUPT) || match(TokenType::NAKED) ||
+                   match(TokenType::REGPARM) || match(TokenType::INLINE));
             while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || tryParseAttribute() || match(TokenType::EXTENSION));
             auto decl = parseFunctionDeclaration();
             if (isSig) decl->isSigned = true;  // 'signed'/'unsigned' were consumed with the qualifiers above

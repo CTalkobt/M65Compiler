@@ -26,6 +26,7 @@ SUBDIRS = \
 	c/sample_player \
 	c/rogue \
 	c/overlays \
+	c/mapped_overlays \
 	c/stdlib/string_h \
 	c/stdlib/stdlib_h \
 	c/stdlib/ctype_h \

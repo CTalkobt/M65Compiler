@@ -21,8 +21,8 @@ in [`programs.txt`](https://github.com/CTalkobt/M65Compiler/blob/main/examples/d
 [`menu.bas`](https://github.com/CTalkobt/M65Compiler/blob/main/examples/disk/menu.bas),
 is a BASIC 65 program written in [basic45](../bin/basic45.md)'s source form
 (labels, no line numbers). It is saved as `AUTOBOOT.C65`, so a MEGA65 that
-starts with the disk mounted runs it, and as `MENU`. A key loads and starts an
-example with `DLOAD`: inside a running program it loads the next one and runs
+starts with the disk mounted runs it, and as `MENU`. It lists the examples on
+pages of 13; space turns the page. A key loads and starts an example with `DLOAD`: inside a running program it loads the next one and runs
 it, and every example is a BASIC `SYS` line at `$2001` followed by its code.
 When an example ends, `RUN "MENU"` brings the menu back. `make -C examples/disk run`
 starts xemu with the disk in drive 8; on a MEGA65, copy the D81 to the SD card
@@ -268,6 +268,27 @@ program loads into bank 5 at start, and a call copies the overlay it
 needs into the region by DMA. The text statistics call the prime sieve's
 overlay and back; each section shows which overlay the region holds.
 `make` also builds `ovldemo.d81` with both files (`make run`).
+
+### mapped_overlays
+
+[Source](https://github.com/CTalkobt/M65Compiler/tree/main/examples/c/mapped_overlays) —
+Mapped code overlays (ln45 `--overlay-map`) checked at work. The 45GS02
+runs only what it sees in its 64 KB, so far code means changing what it
+sees. Here three overlays (`red`, `green`, `blue`) stay in bank 5, where
+the program loaded `MAPDEMO.OVL`, and a call maps the window `$6000`–`$7FFF`
+to the one it needs. Each overlay reports the window address of a byte of
+its own code and the MAP registers at that moment. The program then checks,
+from both sides (the CPU through MAP, and DMA directly), that:
+1. MAP translates each overlay to its own place in bank 5;
+2. the bytes there are the overlay's code;
+3. a store through the window changes bank 5, and a change made in bank 5
+   is seen through the window without a reload;
+4. an overlay that calls another gets the window back.
+
+It ends with `MAPPED OVERLAYS: 6/6 PROVEN`. Linked as copied overlays, only
+2/6 pass, because the code would then run from one copy in bank 0. The
+comments in `main.c` walk through the call path. `make` builds
+`mapdemo.d81`.
 
 ### unit_convert
 

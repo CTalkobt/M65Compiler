@@ -18,22 +18,37 @@ start:
     read f$
   loop
   keys$ = "123456789abcdefghijklmnopqrstuvwxyz"
+  ' pages of up to 13 examples (the screen has 25 lines); space turns them
+  per = 13
+  pages = int((n + per - 1) / per)
+  page = 1
 
 show:
+  p0 = (page - 1) * per + 1
+  p1 = p0 + per - 1
+  if p1 > n then p1 = n
   print "{clear}{white}  cc45 examples for the mega65"
-  print "{light-blue}  built with the cc45 suite, disk by disk45{white}"
+  print "{light-blue}  built with the cc45 suite, disk by disk45   page"; page; "of"; pages; "{white}"
   print
-  for i = 1 to n
-    print "  {yellow}"; mid$(keys$, i, 1); "{white}  "; d$(i)
+  for i = p0 to p1
+    print "  {yellow}"; mid$(keys$, i - p0 + 1, 1); "{white}  "; d$(i)
   next
   print
-  print "{light-blue}  press a key to load and run an example."
+  print "{light-blue}  press a key to load and run an example,"
+  print "  space for the next page."
   print "  when it ends: run "; chr$(34); "menu"; chr$(34)
 
 choose:
   getkey k$
+  if k$ <> " " then goto pick
+  page = page + 1
+  if page > pages then page = 1
+  goto show
+
+pick:
   k = instr(keys$, k$)
-  if k < 1 or k > n then goto choose
+  if k < 1 or k > p1 - p0 + 1 then goto choose
+  k = p0 + k - 1
   print "{clear}{white}loading "; f$(k); " ..."
   dload (f$(k))
 
@@ -58,6 +73,7 @@ entries:
   data "unit convert", "unit convert - long arithmetic"
   data "multi module", "multi module - three files linked"
   data "overlays",     "overlays - code loaded from far memory"
+  data "map overlays", "map overlays - far code run in place"
   data "ctype demo",   "ctype demo - petscii classes"
   data "basic+c",      "basic+c - basic 65 calling c"
   data "*"
