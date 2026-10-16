@@ -713,29 +713,95 @@ bool O45Linker::layoutSegments(std::string& errorMsg) {
     }
 
     // __far code: each object's "far" chunk goes to an automatic mapped
-    // overlay (far1, far2, ...), packed first-fit into 8 KB windows (16 KB
-    // when one chunk needs more)
+    // overlay (far1, far2, ...) of 8 KB (16 KB when one chunk needs more).
+    // The packing follows the calls: a chunk is one file's far code (it may
+    // use relative BSRs inside: never split), and chunks that call each
+    // other share an overlay when they fit, so those calls need no change
+    // of the map.
+    //   1. weights: JSR/JMP sites from one chunk to a far function of
+    //      another count 4, other references (an address taken) 1
+    //   2. clusters: from the heaviest pair down, two clusters are merged
+    //      when they fit in one window together
+    //   3. overlays: the clusters, largest first, each into the overlay it
+    //      has the most calls with that has room for it (none: the first
+    //      with room; no room: a new overlay)
     ovlNames_.resize(ovlUserCount_);
     std::map<size_t, int> farOvl;   // object -> its far chunk's overlay
     if (chunksByName.count("far")) {
+        const auto& fc = chunksByName["far"];
+        size_t n = fc.size();
         uint32_t cap = 0x2000;
-        for (const auto& c : chunksByName["far"]) if (c.srcLen > cap) cap = 0x4000;
-        std::vector<uint32_t> used;
-        for (const auto& c : chunksByName["far"]) {
+        for (const auto& c : fc) {
             if (c.srcLen > 0x4000) {
                 errorMsg = "__far code of " + objects_[c.objectIdx].filename + " (" + std::to_string(c.srcLen) +
                            " bytes) is larger than the 16 KB window";
                 return false;
             }
-            size_t g = 0;
-            while (g < used.size() && used[g] + c.srcLen > cap) g++;
-            if (g == used.size()) {
-                used.push_back(0);
-                ovlNames_.push_back("far" + std::to_string(g + 1));
-            }
-            used[g] += c.srcLen;
-            farOvl[c.objectIdx] = (int)(ovlUserCount_ + g + 1);
+            if (c.srcLen > cap) cap = 0x4000;
         }
+        // which chunk defines each far symbol
+        std::map<std::string, size_t> farDef;
+        for (size_t k = 0; k < n; k++)
+            for (const auto& exp : objects_[fc[k].objectIdx].obj.exports)
+                if (exp.segmentId() == SEG_TEXT && exp.offset >= fc[k].srcOffset &&
+                    exp.offset < fc[k].srcOffset + fc[k].srcLen)
+                    farDef.emplace(exp.name, k);
+        // 1. weights between chunks
+        std::map<std::pair<size_t, size_t>, uint32_t> weight;
+        for (size_t k = 0; k < n; k++) {
+            const auto& in = objects_[fc[k].objectIdx];
+            const auto& body = in.obj.textBody;
+            for (const auto& r : O45RelocDecoder::decode(in.obj.textRelocs)) {
+                if (r.offset < fc[k].srcOffset || r.offset >= fc[k].srcOffset + fc[k].srcLen) continue;
+                if (r.segment != SEG_EXTERNAL || r.symbolIndex >= in.obj.imports.size()) continue;
+                auto d = farDef.find(in.obj.imports[r.symbolIndex].name);
+                if (d == farDef.end() || d->second == k) continue;
+                bool call = r.type == R_WORD && r.offset > 0 && r.offset - 1 < body.size() &&
+                            (body[r.offset - 1] == 0x20 || body[r.offset - 1] == 0x4C);
+                weight[{std::min(k, d->second), std::max(k, d->second)}] += call ? 4 : 1;
+            }
+        }
+        // 2. clusters (union-find), heaviest pairs first
+        std::vector<size_t> root(n);
+        std::vector<uint32_t> size(n);
+        for (size_t k = 0; k < n; k++) { root[k] = k; size[k] = fc[k].srcLen; }
+        auto find = [&](size_t x) { while (root[x] != x) x = root[x] = root[root[x]]; return x; };
+        std::vector<std::pair<uint32_t, std::pair<size_t, size_t>>> edges;
+        for (const auto& [pr, w] : weight) edges.push_back({w, pr});
+        std::stable_sort(edges.begin(), edges.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+        for (const auto& [w, pr] : edges) {
+            size_t a = find(pr.first), b = find(pr.second);
+            if (a == b || size[a] + size[b] > cap) continue;
+            if (b < a) std::swap(a, b);
+            root[b] = a;
+            size[a] += size[b];
+        }
+        // 3. clusters into overlays
+        std::vector<size_t> clusters;
+        for (size_t k = 0; k < n; k++) if (find(k) == k) clusters.push_back(k);
+        std::stable_sort(clusters.begin(), clusters.end(), [&](size_t a, size_t b) { return size[a] > size[b]; });
+        std::vector<uint32_t> used;
+        std::vector<int> groupOf(n, -1);   // cluster root -> overlay
+        for (size_t c : clusters) {
+            std::vector<uint32_t> link(used.size(), 0);
+            for (const auto& [pr, w] : weight) {
+                size_t a = find(pr.first), b = find(pr.second);
+                if (a == c && groupOf[b] >= 0) link[groupOf[b]] += w;
+                else if (b == c && groupOf[a] >= 0) link[groupOf[a]] += w;
+            }
+            int best = -1;
+            for (size_t g = 0; g < used.size(); g++)
+                if (used[g] + size[c] <= cap && (best < 0 || link[g] > link[best])) best = (int)g;
+            if (best < 0) {
+                best = (int)used.size();
+                used.push_back(0);
+                ovlNames_.push_back("far" + std::to_string(best + 1));
+            }
+            used[best] += size[c];
+            groupOf[c] = best;
+        }
+        for (size_t k = 0; k < n; k++)
+            farOvl[fc[k].objectIdx] = (int)(ovlUserCount_ + groupOf[find(k)] + 1);
     }
     ovlText_.resize(ovlNames_.size());
 
@@ -1007,6 +1073,12 @@ bool O45Linker::resolveSymbols(std::string& errorMsg) {
         def("__ovl_mapped", ovlMap_ ? 1 : 0);
         def("__ovl_table", ovlTableAddr_);
         def("__ovl_file", ovlFileAddr_);
+        // the far memory the overlay file takes (C: __ovl_store_bank, ...):
+        // far_malloc leaves it alone
+        uint32_t storeEnd = ovlStoreEnd_ > ovlStore_ ? ovlStoreEnd_ : ovlStore_ + 1;
+        def("___ovl_store_bank", ovlStore_ >> 16);
+        def("___ovl_store_first", ovlStore_ & 0xFFFF);
+        def("___ovl_store_last", (storeEnd - 1) & 0xFFFF);
         if (ovlMap_) {
             // the heap starts above the window ($8000)
             auto hs = globalSymbols_.find("__heap_start");
@@ -2585,6 +2657,7 @@ bool O45Linker::generateOverlayStubs(std::string& errorMsg) {
     size_t descLen = 30;
     for (const auto& n : ovlNames_) descLen += 6 + n.size();
     for (const auto& [n, k] : symOvl_) if (k) descLen += 4 + n.size();
+    ovlStoreEnd_ = at + (uint32_t)descLen;
     if (((at + descLen - 1) >> 16) != (ovlStore_ >> 16)) {
         errorMsg = "code overlays: " + std::to_string(at - ovlStore_ + descLen) +
                    " bytes of overlays (with the file's description) do not fit in the 64 KB bank from the overlay store";

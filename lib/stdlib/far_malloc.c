@@ -17,6 +17,13 @@ static int bank_usable(bank_t bank) {
     return bank == BANK4 || bank == BANK5;
 }
 
+/* A program with code overlays keeps them in far memory (ln45
+ * --overlay-store, bank 5 by default): ln45 defines where, and that part of
+ * its bank is never handed out. Without overlays: bank 0, nothing taken
+ * (the weak defaults are in crt0: defined in this file, the assembler would
+ * take them for constants). */
+extern char __ovl_store_bank[], __ovl_store_first[], __ovl_store_last[];
+
 /* Maximum allocations per bank */
 #define MAX_ALLOCS_PER_BANK 32
 
@@ -110,6 +117,33 @@ static void initialize_bank(bank_t bank) {
         allocator->allocs[0].size = HEAP_SIZE;
         allocator->allocs[0].is_free = 1;
         allocator->num_allocs = 1;
+        /* the code overlays' store in this bank: a block that is never free
+         * (the records stay in address order) */
+        if ((unsigned int)__ovl_store_bank == (unsigned int)bank) {
+            uint16_t first = (uint16_t)(unsigned int)__ovl_store_first;
+            uint16_t last = (uint16_t)(unsigned int)__ovl_store_last;
+            int n = 0;
+            if (first < HEAP_START) first = HEAP_START;
+            if (last >= first) {
+                if (first > HEAP_START) {
+                    allocator->allocs[n].offset = HEAP_START;
+                    allocator->allocs[n].size = first - HEAP_START;
+                    allocator->allocs[n].is_free = 1;
+                    n++;
+                }
+                allocator->allocs[n].offset = first;
+                allocator->allocs[n].size = last - first + 1;
+                allocator->allocs[n].is_free = 0;
+                n++;
+                if (last != 0xFFFF) {
+                    allocator->allocs[n].offset = last + 1;
+                    allocator->allocs[n].size = 0xFFFF - last;
+                    allocator->allocs[n].is_free = 1;
+                    n++;
+                }
+                allocator->num_allocs = n;
+            }
+        }
     }
 }
 

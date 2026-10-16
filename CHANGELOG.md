@@ -9,7 +9,9 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - `__far` on a function keeps its code in far memory: cc45 emits it in the
   text sub-segment `far`, and ln45 packs each file's far code into automatic
   mapped overlays (`far1`, `far2`, …; 8 KB windows, 16 KB when a file needs
-  more) reached through the overlay stubs. No pragma or option is needed;
+  more) reached through the overlay stubs. The packing follows the call
+  graph: files whose far code calls each other share an overlay when they
+  fit. No pragma or option is needed;
   the specifier can come anywhere among the others, and only the definition
   needs it. Far functions are not inlined; a far `__interrupt` handler is a
   link error, and so is any overlay function (far or `#pragma cc45 overlay`)
@@ -18,6 +20,10 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   chain of calls). New example `examples/c/far_functions` (`far functions`
   on the examples disk). xemu tests in both conventions, with and without function
   sections (`src/test-resources/far/`).
+- `far_malloc` leaves the code overlays' store alone: ln45 defines where
+  the overlay file lies in far memory (`__ovl_store_bank`/`_first`/`_last`)
+  and the allocator never hands out that part of its bank (bank 5 by
+  default; it used to overwrite the overlays once it reached bank 5).
 - ln45: a code overlay is now a property of each text chunk, not of a whole
   object, so one object can have resident code and code in overlays.
 - **ca45 fixes** (found with `__far`): a reference into a later text

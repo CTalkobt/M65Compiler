@@ -1308,7 +1308,8 @@ fi
 # when called (ln45 packs each file's far code into automatic overlays far1,
 # far2, ...): calls from resident code, between far functions of one overlay
 # and of two, from far code to resident code, static far functions, function
-# pointers both ways, recursion between two overlays; both conventions, with
+# pointers both ways, recursion between two overlays, far_malloc filling
+# bank 5 without touching the overlays kept there; both conventions, with
 # and without function sections. Then: a far interrupt handler is a link
 # error, the map shows the automatic overlays, objdump45 disassembles them
 for farmode in "zp|$STDLIB|" "stack|$STDLIB_STACK|-fno-zpcall" \
@@ -1324,12 +1325,35 @@ for farmode in "zp|$STDLIB|" "stack|$STDLIB_STACK|-fno-zpcall" \
     if [ $farok = 1 ] && $LD -basic -M $fard/fartest.map -o $fard/fartest.prg $fard/main.o45 $fard/far_a.o45 $fard/far_b.o45 $farlib >/dev/null 2>&1 &&
        ./bin/disk45 create $fard/far.d81 -n FARTEST >/dev/null 2>&1 &&
        ./bin/disk45 add $fard/far.d81 $fard/fartest.ovl FARTEST.OVL >/dev/null 2>&1; then
-        run_xemu_test "test_far_$farname" "$fard/fartest.prg" "C0C0" 7 "01 01 01 01 01 01 AA" -8 "$PWD/$fard/far.d81"
+        run_xemu_test "test_far_$farname" "$fard/fartest.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA" -8 "$PWD/$fard/far.d81"
     else
         echo "FAIL: __far functions $farname (build or link failed)"
         failed=$((failed + 1))
     fi
 done
+# The automatic overlays follow the calls: far code of a.c (5 KB) calls
+# d.c's (2.5 KB); with b.c (2 KB) and c.c (5 KB) linked between them,
+# first fit in command-line order would put a with b and c with d. Packed
+# by the calls, a and d share far1, c and b far2
+fard=build/test/far_pack
+rm -rf $fard; mkdir -p $fard
+printf 'void d_fn(void);\n__far void a_fn(void) { d_fn(); }\n__far __naked void a_pad(void) { __asm__(".res 5000"); }\n' > $fard/a.c
+printf '__far __naked void b_pad(void) { __asm__(".res 2000"); }\n' > $fard/b.c
+printf '__far __naked void c_pad(void) { __asm__(".res 5000"); }\n' > $fard/c.c
+printf '__far void d_fn(void) { }\n__far __naked void d_pad(void) { __asm__(".res 2500"); }\nvoid a_fn(void);\nvoid b_pad(void);\nvoid c_pad(void);\nint main(void) { a_fn(); b_pad(); c_pad(); return 0; }\n' > $fard/d.c
+farok=1
+for f in a b c d; do $CC -c $fard/$f.c -o $fard/$f.o45 >/dev/null 2>&1 || farok=0; done
+if [ $farok = 1 ] && $LD -basic -M $fard/pack.map -o $fard/pack.prg $fard/a.o45 $fard/b.o45 $fard/c.o45 $fard/d.o45 $STDLIB >/dev/null 2>&1 &&
+   grep -A2 "far_pack/a.o45" $fard/pack.map | grep -q "overlay far1," &&
+   grep -A2 "far_pack/d.o45" $fard/pack.map | grep -q "overlay far1," &&
+   grep -A2 "far_pack/c.o45" $fard/pack.map | grep -q "overlay far2," &&
+   grep -A2 "far_pack/b.o45" $fard/pack.map | grep -q "overlay far2,"; then
+    echo "SUCCESS: __far: the automatic overlays follow the calls"
+    passed=$((passed + 1))
+else
+    echo "FAIL: __far: the automatic overlays follow the calls ($(grep 'overlay far' $fard/pack.map 2>/dev/null | tr '\n' ' '))"
+    failed=$((failed + 1))
+fi
 fard=build/test/far_zp
 printf '__far __interrupt void handler(void) { }\nint main(void) { return 0; }\n' > $fard/isr.c
 # (recurse: stack frames, so the static-allocation check has nothing to say)

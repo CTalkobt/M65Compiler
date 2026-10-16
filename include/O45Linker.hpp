@@ -515,6 +515,7 @@ private:
     bool ovlMap_ = false;
     std::vector<uint32_t> ovlAt_;                  // each overlay's far address
     uint32_t ovlStore_ = 0x50000;                  // their images in far memory (bank 5)
+    uint32_t ovlStoreEnd_ = 0;                     // the end of what is loaded there (at most)
     std::string ovlFileName_;
     std::vector<uint8_t> ovlFile_;
     std::map<std::string, int> symOvl_;            // a text symbol's overlay
