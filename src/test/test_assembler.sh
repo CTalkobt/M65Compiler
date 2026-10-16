@@ -320,6 +320,33 @@ if $AS -c $SD/segref.s45 -o $SD/segref.o45 >/dev/null 2>&1 &&
 else
     echo "FAIL: references into a later text sub-segment ($(./bin/objdump45 -d $SD/segref.o45 2>&1 | grep -E 'jsr|bsr|lda' | tr '\n' ' '))"; failed=$((failed + 1))
 fi
+# Link-time symbols: an .extern only in a form a relocation holds (sym,
+# sym +/- n, <sym, >sym) and never where its value is needed while
+# assembling; data after a return is emitted; a weak absolute symbol the code
+# used cannot be given another value at link time (ln45 refuses it)
+lterr=0
+for body in '.res ext' '        lda #ext*3' '        .word ext/2' 'v = ext+1'; do
+    printf '        .code\n.extern ext\n%s\n        rts\n' "$body" > $SD/lt.s45
+    if $AS -c $SD/lt.s45 -o $SD/lt.o45 >/dev/null 2>&1; then lterr=1; echo "  (accepted: $body)"; fi
+done
+printf '        .code\n.global _start\n.extern ext\n_start:\n        ldx #>ext+1\n        lda #<ext\n        lda ext,x\n        rts\n        .word ext+4\n' > $SD/lt1.s45
+printf '        .code\n.global ext\next = $1234\n' > $SD/lt2.s45
+printf '        .code\n.global _start\n.weak wv\nwv = $12\n_start: lda #<wv\n        rts\n' > $SD/lt3.s45
+printf '        .code\n.global _main2\n.weak wv\nwv = 7\n_main2: rts\n' > $SD/lt4.s45
+printf '        .code\n.global wv\nwv = $3456\n' > $SD/lt5.s45
+if [ $lterr = 0 ] &&
+   $AS -c $SD/lt1.s45 -o $SD/lt1.o45 >/dev/null 2>&1 && $AS -c $SD/lt2.s45 -o $SD/lt2.o45 >/dev/null 2>&1 &&
+   ./bin/ln45 -prg -t 2000 -o $SD/lt12.prg $SD/lt1.o45 $SD/lt2.o45 >/dev/null 2>&1 &&
+   [ "$(xxd -s 2 -p $SD/lt12.prg)" = "a212a934bd3412603812" ] &&
+   $AS -c $SD/lt3.s45 -o $SD/lt3.o45 >/dev/null 2>&1 && $AS -c $SD/lt4.s45 -o $SD/lt4.o45 >/dev/null 2>&1 &&
+   $AS -c $SD/lt5.s45 -o $SD/lt5.o45 >/dev/null 2>&1 &&
+   ! ./bin/ln45 -prg -t 2000 -o $SD/lt35.prg $SD/lt3.o45 $SD/lt5.o45 2>&1 | grep -q "^Linked" &&
+   ./bin/ln45 -prg -t 2000 -o $SD/lt35.prg $SD/lt3.o45 $SD/lt5.o45 2>&1 | grep -q "is weak in .*assembled with its value there (\$12)" &&
+   ./bin/ln45 -prg -t 2000 -o $SD/lt45.prg $SD/lt4.o45 $SD/lt5.o45 >/dev/null 2>&1; then
+    echo "SUCCESS: link-time symbols: relocatable forms only, data after rts, weak values kept"; passed=$((passed + 1))
+else
+    echo "FAIL: link-time symbols: relocatable forms only, data after rts, weak values kept ($(xxd -s 2 -p $SD/lt12.prg 2>/dev/null))"; failed=$((failed + 1))
+fi
 cat > $SD/diff.s45 << 'EOF'
         .function_sections
         .code

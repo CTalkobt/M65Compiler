@@ -97,6 +97,7 @@ constexpr uint8_t  OPT_DEBUG_SYMBOLS = 0x12; // variable/function debug metadata
 constexpr uint8_t  OPT_SAC_PARAMS    = 0x13; // SAC parameter metadata (see below)
 constexpr uint8_t  OPT_SECTIONS      = 0x14; // section table: per-function/data pieces (see below)
 constexpr uint8_t  OPT_SECTREF       = 0x15; // section of a relocation target / export (see below)
+constexpr uint8_t  OPT_WEAKUSE       = 0x16; // weak absolute symbols the code was assembled with (see below)
 
 // Phase 4: Inter-TU Optimization Hints
 constexpr uint8_t  OPT_IPO_HINTS     = 0x50; // Cross-module optimization hints (see below)

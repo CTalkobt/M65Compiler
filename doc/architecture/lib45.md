@@ -90,6 +90,7 @@ option_data   (option_length - 2 bytes)   ; at most 253 bytes
 | `$13`  | `OPT_SAC_PARAMS`   | no | no | Reserved for SAC parameter metadata |
 | `$14`  | `OPT_SECTIONS`     | with `.function_sections` / `-ffunction-sections` | ln45 (drops unreachable sections), nm45 `-S`, objdump45 `-h` | Section table for per-function linking (1.10) |
 | `$15`  | `OPT_SECTREF`      | with `.function_sections` (relocations; not exports yet) | reader (checked), nm45 `-S` | Section of a relocation target or an export (1.10) |
+| `$16`  | `OPT_WEAKUSE`      | when the code uses a weak absolute symbol it defines | ln45 | Weak absolute symbols used at their value (1.11) |
 | `$50`  | `OPT_IPO_HINTS`    | no | ln45 | Cross-module optimisation hints (1.9) |
 
 Unknown options are skipped. `OPT_IPO_HINTS`, when a writer has hints, is written before the other options.
@@ -190,6 +191,17 @@ An internal relocation's target section is the one containing the value stored a
 Kind 3 (`key` = an import index; ca45 `.ref`): the section needs that import's definition although no relocation uses it — ln45 links the definition only while the section is kept.
 
 The reader rejects a malformed record, a section outside its segment, overlapping or unsorted sections, and references to a missing section or export, or references without a section table.
+
+### 1.11 Weak Absolute Uses (`OPT_WEAKUSE`)
+
+A weak absolute symbol (`.weak x` / `x = value`) is assembled at its value
+in the object that defines it (base-page addressing stays possible). The
+object lists the ones its code used: entries of the symbol name
+(NUL-terminated) and the value it was assembled with (4 bytes,
+little-endian), several records when they do not fit in one. ln45 fails the
+link when the program's value of such a symbol differs from the one
+recorded (another, strong definition): the object would go on using its
+own.
 
 ## 2. Segment Bodies
 

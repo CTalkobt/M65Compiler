@@ -84,6 +84,14 @@ public:
     const std::vector<std::string>& getExternSymbols() const { return externSymbols; }
     bool isGlobalSymbol(const std::string& name) const { return globalSymbols.count(name) > 0; }
     bool isExternSymbol(const std::string& name) const { return externIndex.count(name) > 0; }
+    // How the expression at a token uses symbols resolved at link time
+    // (.extern): 0 not at all, 1 in a form a relocation can hold (sym,
+    // sym + n, n + sym, sym - n, and < or > of those), 2 in another form.
+    // name: the first such symbol. weakUsed (if given): the weak absolute
+    // symbols of this object (.weak x / x = value) the expression uses,
+    // which the assembler takes at their value here
+    int linkTimeUse(int tokenIndex, const std::string& scopePrefix, std::string& name,
+                    std::set<std::string>* weakUsed = nullptr);
     // The text of token i ("" if out of range)
     std::string tokenText(int i) const { return (i >= 0 && i < (int)tokens.size()) ? tokens[i].value : ""; }
     // Returns true if the symbol's final address is not yet known (extern or in a non-org'd segment like BSS)

@@ -2,6 +2,27 @@
 
 All notable changes to the cc45 / ca45 suite will be documented in this file.
 
+## [Unreleased]
+
+### ca45 / ln45
+
+- **Weak absolute symbols**: `.weak x` / `x = value` is used at its value
+  in the defining object; such an object now records the ones its code
+  used (`OPT_WEAKUSE`), and ln45 refuses a program that gives one of them
+  another value (before, the object silently kept its own value while the
+  rest of the program got the new one). Overriding a default nothing uses
+  stays possible.
+- **`.extern` expressions**: an imported symbol in a form a relocation
+  cannot hold (`ext * 3`, `.word ext / 2`), where its value is needed while
+  assembling (`.res ext`, `x = ext + 1`), or in a form the assembler does
+  not relocate (`#(ext + 2)`, `.byte <ext`) is an error; these were
+  assembled with the import's placeholder 0 or a relocation of the wrong
+  value, without a word.
+- **Data after a return**: `.byte`/`.word`/... (and the code after them)
+  right after an `rts`/`rti` with no label in between was skipped as dead
+  code, leaving zeros (or nothing at a segment's end) where the parser had
+  placed it.
+
 ## [v1.1.0] - 2026-10-16
 
 Programs can be larger than bank 0: code overlays (`#pragma cc45

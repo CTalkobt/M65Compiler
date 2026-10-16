@@ -612,6 +612,10 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                 if (stmt->dir.name == "noopt_start") {
                     isDeadCode = false;
                 }
+                // Data after a return (a table, an inline constant) is not dead
+                // code: the parser gave it its place, so its bytes are emitted
+                // (skipped, they left zeros, or nothing at the segment's end)
+                if (stmt->size > 0) isDeadCode = false;
                 // .var / .local: each assignment holds from its position on
                 // (in dead code too, as pass 2 tracks them)
                 if (stmt->dir.name == "var") {

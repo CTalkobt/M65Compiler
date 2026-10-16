@@ -9,6 +9,7 @@
 #include "StringUtil.hpp"
 #include "Diagnostic.hpp"
 #include <stdexcept>
+#include <functional>
 #include <iostream>
 #include <iomanip>
 #include <fstream>
@@ -249,6 +250,49 @@ uint32_t AssemblerParser::evaluateExpressionAt(int index, const std::string& sco
     auto ast = parseExprAST(tokens, idx, symbolTable, scopePrefix);
     if (!ast) throwAt(tokens[index].line, tokens[index].column, "Expected expression");
     return ast->getValue(this);
+}
+
+int AssemblerParser::linkTimeUse(int tokenIndex, const std::string& scopePrefix, std::string& name,
+                                 std::set<std::string>* weakUsed) {
+    if (tokenIndex < 0 || tokenIndex >= (int)tokens.size()) return 0;
+    std::unique_ptr<ExprAST> ast;
+    try {
+        int idx = tokenIndex;
+        ast = parseExprAST(tokens, idx, symbolTable, scopePrefix);
+    } catch (...) { return 0; }
+    if (!ast) return 0;
+    std::function<int(const ExprAST*)> walk = [&](const ExprAST* e) -> int {
+        if (auto v = dynamic_cast<const VariableNode*>(e)) {
+            Symbol* s = resolveSymbol(v->name, v->scopePrefix);
+            if (externIndex.count(v->name) || (s && s->segment == "__extern__")) {
+                if (name.empty()) name = v->name;
+                return 1;
+            }
+            if (weakUsed && s && s->segment.empty() && weakSymbols.count(v->name)) weakUsed->insert(v->name);
+            return 0;
+        }
+        if (auto u = dynamic_cast<const UnaryExpr*>(e)) {
+            int k = walk(u->operand.get());
+            if (!k) return 0;
+            bool loHi = u->op == "<" || u->op == ">" || u->op == "lo" || u->op == "hi";
+            return loHi && k == 1 ? 1 : 2;
+        }
+        if (auto b = dynamic_cast<const BinaryExpr*>(e)) {
+            int l = walk(b->left.get()), r = walk(b->right.get());
+            if (!l && !r) return 0;
+            if (b->op == "+" && ((l == 1 && !r) || (!l && r == 1))) return 1;
+            if (b->op == "-" && l == 1 && !r) return 1;
+            return 2;
+        }
+        if (auto d = dynamic_cast<const DereferenceNode*>(e)) return walk(d->address.get()) ? 2 : 0;
+        if (auto a = dynamic_cast<const ArrayIndexNode*>(e)) {
+            int k = 0;
+            for (const auto& i : a->indices) k |= walk(i.get());
+            return k ? 2 : 0;
+        }
+        return 0;
+    };
+    return walk(ast.get());
 }
 
 Symbol* AssemblerParser::resolveFrameVar(const std::string& scopePrefix) {
@@ -610,6 +654,13 @@ void AssemblerParser::pass1() {
         if (peek().type == AssemblerTokenType::IDENTIFIER && pos + 1 < tokens.size() && tokens[pos+1].type == AssemblerTokenType::EQUALS) {
             std::string name = advance().value;
             advance(); // =
+            {
+                std::string ext;
+                if (linkTimeUse((int)pos, stmt->scopePrefix, ext))
+                    errors.push_back(formatDiagnostic(currentSourceFile_, tokens[pos].line, tokens[pos].column,
+                        Severity::Error, "'" + name + " = ...' uses '" + ext +
+                        "', which is resolved at link time: its value is not known here"));
+            }
             uint32_t val = evaluateExpressionAt((int)pos, stmt->scopePrefix);
             std::string fullSymName = stmt->scopePrefix + name;
             if (symbolTable.count(fullSymName) && symbolTable[fullSymName].isConstant) {

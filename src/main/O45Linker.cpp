@@ -1625,6 +1625,32 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
         }
     }
 
+    // A weak absolute symbol an object's code was assembled with (ca45
+    // OPT_WEAKUSE: .weak x / x = value, used there) must keep that value:
+    // another definition would leave that object using the old one
+    for (const auto& input : objects_)
+        for (const auto& opt : input.obj.options) {
+            if (opt.type != OPT_WEAKUSE) continue;
+            size_t i = 0;
+            while (i < opt.data.size()) {
+                std::string name;
+                while (i < opt.data.size() && opt.data[i]) name += (char)opt.data[i++];
+                i++;
+                if (i + 4 > opt.data.size()) break;
+                uint32_t used = opt.data[i] | (opt.data[i + 1] << 8) | (opt.data[i + 2] << 16) | ((uint32_t)opt.data[i + 3] << 24);
+                i += 4;
+                auto g = globalSymbols_.find(name);
+                if (g == globalSymbols_.end() || g->second == used) continue;
+                auto hex = [](uint32_t v) { char b[12]; snprintf(b, sizeof b, "$%X", (unsigned)v); return std::string(b); };
+                errorMsg = "'" + name + "' is weak in " + input.filename + ", whose code was assembled with its value there (" +
+                           hex(used) + "), but the program defines it as " + hex(g->second) + " (" +
+                           (symbolSource_.count(name) ? symbolSource_[name] : std::string("?")) +
+                           "): a weak absolute symbol cannot be overridden where it is used; declare it .extern there "
+                           "(and define its default elsewhere), or remove the other definition";
+                return {};
+            }
+        }
+
     if (!applyRelocations(errorMsg)) return {};
 
     // Code overlays: the program (to the end of BSS and its base page) stays

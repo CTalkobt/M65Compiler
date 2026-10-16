@@ -1,4 +1,5 @@
 #include "O45Emitter.hpp"
+#include "Diagnostic.hpp"
 #include "O45Writer.hpp"
 #include "O45Types.hpp"
 #include "AssemblerParser.hpp"
@@ -646,9 +647,105 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
                      relocs.end());
     }
 
+    // --- Step 3b: link-time symbols ---
+    // A symbol resolved at link time (.extern) can only be used in a form a
+    // relocation holds (sym, sym +/- n, <sym, >sym), and not where its value
+    // is needed while assembling (sizes, alignment, assignments): either is an
+    // error, as is such a use that got no relocation. A weak absolute symbol
+    // defined here (.weak x / x = value) is used at its value here: those the
+    // code uses are recorded (OPT_WEAKUSE), and ln45 refuses a program that
+    // gives one another value.
+    std::map<std::string, uint32_t> weakUsedValue;
+    {
+        std::vector<std::string> errs;
+        auto relocAt = [&](const std::string& seg, uint32_t off) {
+            auto it = segRelocs.find(seg);
+            if (it == segRelocs.end()) return false;
+            for (const auto& r : it->second) if (r.offset == off) return true;
+            return false;
+        };
+        auto segBase = [&](const std::string& seg) {
+            uint32_t b = globalBase;
+            if (parser.segments.count(seg)) {
+                b = parser.segments.at(seg)->startAddress;
+                if (b == 0xFFFFFFFF) b = 0;
+            }
+            return b;
+        };
+        std::set<std::string> weakUsed;
+        for (const auto& stmt : parser.statements) {
+            if (stmt->deleted) continue;
+            auto err = [&](const std::string& m) {
+                errs.push_back(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error, m));
+            };
+            auto badForm = [&](const std::string& n) {
+                err("'" + n + "' is resolved at link time: only " + n + ", " + n + " + n, " + n + " - n, <" + n +
+                    " and >" + n + " can be relocated");
+            };
+            std::string n;
+            if (stmt->type == AssemblerParser::Statement::INSTRUCTION) {
+                if (stmt->instr.operandTokenIndex < 0 || stmt->size == 0) continue;
+                int k = parser.linkTimeUse(stmt->instr.operandTokenIndex, stmt->scopePrefix, n, &weakUsed);
+                if (k == 2) badForm(n);
+                else if (k == 1 && stmt->instr.mode != AddressingMode::RELATIVE &&
+                         stmt->instr.mode != AddressingMode::RELATIVE16 &&
+                         !relocAt(stmt->segmentName, stmt->address + operandOffset(stmt.get()) - segBase(stmt->segmentName)))
+                    err("no relocation could be made for '" + n + "' in this operand (write it as " + n + ", " + n +
+                        " + n, <" + n + " or >" + n + ")");
+            } else if (stmt->type == AssemblerParser::Statement::DIRECTIVE) {
+                const auto& d = stmt->dir;
+                int width = d.name == "byte" ? 1 : d.name == "word" ? 2 : (d.name == "long" || d.name == "dword") ? 4 : 0;
+                if (width) {
+                    for (size_t i = 0; i < d.argTokenIndices.size(); i++) {
+                        n.clear();
+                        int k = parser.linkTimeUse(d.argTokenIndices[i], stmt->scopePrefix, n, &weakUsed);
+                        if (k == 2) badForm(n);
+                        else if (k == 1 && !relocAt(stmt->segmentName, stmt->address + (uint32_t)(i * width) - segBase(stmt->segmentName)))
+                            err("no relocation could be made for '" + n + "' in this ." + d.name + " (write it as " + n +
+                                ", " + n + " + n, <" + n + " or >" + n + ")");
+                    }
+                } else if (d.name == "res" || d.name == "fill" || d.name == "space" || d.name == "align" || d.name == "org") {
+                    std::vector<int> at;
+                    if (d.tokenIndex >= 0) at.push_back(d.tokenIndex);
+                    if (d.valueTokenIndex >= 0) at.push_back(d.valueTokenIndex);
+                    for (int t : at) {
+                        n.clear();
+                        if (parser.linkTimeUse(t, stmt->scopePrefix, n, &weakUsed)) {
+                            err("." + d.name + " uses '" + n + "', which is resolved at link time: its value is not known here");
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        if (!errs.empty()) {
+            std::string all;
+            for (const auto& e : errs) all += (all.empty() ? "" : "\n") + e;
+            throw std::runtime_error(all);
+        }
+        for (const auto& w : weakUsed) {
+            auto* s = parser.resolveSymbol(w);
+            if (s) weakUsedValue[w] = s->value;
+        }
+    }
+
     // --- Step 4: Package into .o45 ---
     O45Writer writer;
     writer.addDefaultOptions(asmVersion);
+
+    // OPT_WEAKUSE: name (NUL-terminated) and value (4 bytes LE) of each weak
+    // absolute symbol the code was assembled with
+    {
+        std::vector<uint8_t> payload;
+        auto flush = [&]() { if (!payload.empty()) { writer.addOptionRaw(OPT_WEAKUSE, payload); payload.clear(); } };
+        for (const auto& [w, v] : weakUsedValue) {
+            if (payload.size() + w.size() + 5 > O45_OPT_PAYLOAD_MAX) flush();
+            for (char c : w) payload.push_back((uint8_t)c);
+            payload.push_back(0);
+            for (int i = 0; i < 4; i++) payload.push_back((uint8_t)(v >> (8 * i)));
+        }
+        flush();
+    }
 
     // Collect all assembler segments that map to SEG_TEXT, in order.
     // Concatenate their bodies and emit OPT_SEGATTR records.
