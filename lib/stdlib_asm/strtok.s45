@@ -1,0 +1,119 @@
+; strtok.s45 — strtok / strtok_r (<string.h>)
+;
+;   char *strtok(char *s, char *delim)                       $10, $12
+;   char *strtok_r(char *s, char *delim, char **saveptr)     $10, $12, $14
+;
+; The next token of s (NULL: go on where the last call stopped): leading
+; delimiters skipped, the delimiter after the token overwritten with 0;
+; NULL when no token is left. strtok keeps its place in a static pointer,
+; strtok_r in *saveptr (NULL after the last token).
+
+.global _strtok, _strtok_r
+
+.segment "bss"
+__strtok_save:  .res 2
+__strtok_c:     .res 1
+
+.segment "code"
+
+proc _strtok
+    .zp_uses $10, $11, $12, $13
+    .zp_clobbers $10, $11, $14, $15
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    lda #<__strtok_save
+    sta $14
+    lda #>__strtok_save
+    sta $15
+    jmp _strtok_r
+    .func_flags zp_call
+endproc
+
+proc _strtok_r
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .zp_clobbers $10, $11
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    lda $10
+    ora $11
+    bne @skip
+    ldy #0              ; s = *saveptr
+    lda ($14),y
+    sta $10
+    iny
+    lda ($14),y
+    sta $11
+    ora $10
+    beq @none
+@skip:
+    ldy #0              ; leading delimiters
+    lda ($10),y
+    beq @none
+    jsr __strtok_isdelim
+    bcc @token
+    inw $10
+    bra @skip
+@token:
+    lda $10             ; the token's end
+    sta $08
+    lda $11
+    sta $09
+@scan:
+    ldy #0
+    lda ($08),y
+    beq @last
+    jsr __strtok_isdelim
+    bcs @cut
+    inw $08
+    bra @scan
+@cut:
+    lda #0
+    tay
+    sta ($08),y         ; the delimiter becomes the token's end
+    inw $08
+    lda $08             ; *saveptr = past it
+    sta ($14),y
+    iny
+    lda $09
+    sta ($14),y
+    lda $10
+    ldx $11
+    rts
+@last:
+    ldy #0              ; the token ends the string: *saveptr = NULL
+    tya
+    sta ($14),y
+    iny
+    sta ($14),y
+    lda $10
+    ldx $11
+    rts
+@none:
+    ldy #0
+    tya
+    sta ($14),y
+    iny
+    sta ($14),y
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+; C set when A is one of the delimiters at ($12)
+proc __strtok_isdelim
+    sta __strtok_c
+    ldy #0
+@next:
+    lda ($12),y
+    beq @no
+    cmp __strtok_c
+    beq @yes
+    iny
+    bne @next
+@no:
+    clc
+    rts
+@yes:
+    sec
+    rts
+endproc

@@ -157,6 +157,14 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### Standard library
 
+- **More of the library in assembly**: `clock` (222 → 32 bytes), `rand` /
+  `srand` (336 → 114; the LCG's multiply on the hardware multiplier),
+  `strtoul` / `strtol` (1733 → 677), `strtok` / `strtok_r` (584 → 136),
+  `qsort` / `bsearch` (2.2 KB → 1.2 KB, about 16% faster; the comparator is
+  called through a small C function compiled in each calling convention).
+  All `__fastcall__` in their headers. `test_qsort_xemu.c` now tests
+  `bsearch`, `test_stdlib2_xemu.c` the reference `rand` sequence and
+  `strtok_r`.
 - **conio in assembly** (`stdlib_asm/conio.s45`; `cprintf`/`cprintfxy` stay
   in C as `conio_printf.c`): a row's screen and colour RAM addresses are
   32-bit pointers (row × stride by the hardware multiplier) and characters
@@ -271,6 +279,9 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### ca45
 
+- **Fix**: with `-ffunction-sections` (`.function_sections`), an operand
+  holding both a `-` and a hex number (`sbc #$41 - 10`) hung the assembler
+  (the scan for label differences stopped at the `$`).
 - Tail deduplication numbered its shared-tail labels from 0 in every
   optimizer round: a later round's `__tail_opt_dedup_0` took the name of an
   earlier one, and the jumps made for the earlier tail went to the new one

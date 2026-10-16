@@ -1,0 +1,35 @@
+; clock.s45 — clock(): video frames since power-on (<time.h>)
+;
+; The C65 KERNAL has no C64-style jiffy clock (its RDTIM reads the CIA
+; time-of-day clock in BCD). Its raster interrupt decrements a 24-bit
+; counter at $110C-$110E once per frame, starting from 0 at reset, so the
+; frames elapsed are 2^24 minus its value. CLOCKS_PER_SEC is the frame
+; rate: 50 (PAL) or 60 (NTSC).
+;
+;   clock_t clock(void)      the frames, in A/X/Y (Z = 0)
+
+.global _clock
+
+.segment "code"
+
+proc _clock
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    ; the interrupt may change it between the byte reads: read until no
+    ; byte has changed since
+@read:
+    lda $110C
+    ldx $110D
+    ldy $110E
+    cmp $110C
+    bne @read
+    cpx $110D
+    bne @read
+    cpy $110E
+    bne @read
+    ldz #0
+    negq                ; 2^24 - counter, the top byte dropped
+    ldz #0
+    rts
+    .func_flags zp_call
+endproc

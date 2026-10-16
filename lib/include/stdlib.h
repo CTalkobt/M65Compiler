@@ -27,8 +27,8 @@ __fastcall__ char *ltoa(signed long value, char *str, int base);
 #define atos(s) ((short)atoi(s))
 #define stoa(value, str, base) itoa((int)(value), (str), (base))
 
-signed long strtol(char *nptr, char **endptr, int base);
-unsigned long strtoul(char *nptr, char **endptr, int base);
+__fastcall__ signed long strtol(char *nptr, char **endptr, int base);
+__fastcall__ unsigned long strtoul(char *nptr, char **endptr, int base);
 float strtof(char *nptr, char **endptr);
 float atof(char *nptr);
 #define strtod(nptr, endptr) ((double)strtof((nptr), (endptr)))

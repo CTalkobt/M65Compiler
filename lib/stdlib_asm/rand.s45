@@ -1,0 +1,82 @@
+; rand.s45 — rand / srand (<stdlib.h>)
+;
+; Until srand is called, rand reads the MEGA65's hardware random number
+; generator (every run differs). srand(seed) switches to C's reference
+; generator (next = next * 1103515245 + 12345, by the hardware multiplier),
+; so a seed repeats its sequence. Results are 0 to RAND_MAX (32767).
+;
+;   int rand(void)
+;   void srand(unsigned int seed)      seed at $10/$11
+
+.global _rand, _srand
+
+.segment "bss"
+__rand_next:    .res 4
+__rand_seeded:  .res 1
+
+.segment "code"
+__rand_inc:     .dword 12345
+
+proc _rand
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda __rand_seeded
+    bne @lcg
+    ; $D7EF: the next random byte, ready when bit 7 of $D7FE is clear
+@w1:
+    bit $D7FE
+    bmi @w1
+    lda $D7EF
+    pha
+@w2:
+    bit $D7FE
+    bmi @w2
+    lda $D7EF
+    and #$7F
+    tax
+    pla
+    rts
+@lcg:
+    ldq __rand_next
+    stq $D770
+    lda #$6D            ; 1103515245 = $41C64E6D
+    sta $D774
+    lda #$4E
+    sta $D775
+    lda #$C6
+    sta $D776
+    lda #$41
+    sta $D777
+@busy:
+    bit $D70F           ; bit 6 -> V: the multiplier is busy
+    bvs @busy
+    ldq $D778           ; the product's low 32 bits
+    clc
+    adcq __rand_inc
+    stq __rand_next
+    tya                 ; (next >> 16) & $7FFF
+    pha
+    tza
+    and #$7F
+    tax
+    pla
+    rts
+    .func_flags zp_call
+endproc
+
+proc _srand
+    .zp_uses $10, $11
+    .reg_clobbers A
+    .flag_clobbers N, Z
+    lda $10
+    sta __rand_next
+    lda $11
+    sta __rand_next+1
+    lda #0
+    sta __rand_next+2
+    sta __rand_next+3
+    lda #1
+    sta __rand_seeded
+    rts
+    .func_flags zp_call
+endproc

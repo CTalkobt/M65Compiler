@@ -257,6 +257,22 @@ _y:     lda #2
 _z:     rts
 EOF
 sec_check fall "Sections (2)" "00000000         5      1  x" "00000005         1      1  z"
+# a hex number in an operand with a '-' (the label-difference scan once
+# stopped at the '$' and never returned)
+cat > $SD/hexminus.s45 << 'EOF'
+        .function_sections
+        .code
+proc _a
+        sbc #$41 - 10
+        lda #$FF-$0F
+endproc
+EOF
+if timeout 10 $AS -c $SD/hexminus.s45 -o $SD/hexminus.o45 > /dev/null 2>&1 &&
+   ./bin/nm45 -S $SD/hexminus.o45 2>&1 | grep -qF "_a"; then
+    echo "SUCCESS: sections hexminus"; passed=$((passed + 1))
+else
+    echo "FAIL: sections hexminus (a hex number in an operand with '-': ca45 hung or failed)"; failed=$((failed + 1))
+fi
 cat > $SD/diff.s45 << 'EOF'
         .function_sections
         .code

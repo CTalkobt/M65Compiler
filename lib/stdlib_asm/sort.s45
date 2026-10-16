@@ -1,0 +1,535 @@
+; sort.s45 — the algorithms of qsort and bsearch (stdlib/qsort.c)
+;
+;   void __qsort_core(void *base, int nmemb, int size)            $10, $12, $14
+;   void *__bsearch_core(const void *key, const void *base,
+;                        int nmemb, int size)                   $10, $12, $14, $16
+;
+; The comparison function is called through __sort_cmp (stdlib/qsort.c),
+; compiled in the library's calling convention: it calls the program's
+; function through the pointer in that convention (ln45 bridges the call of
+; __sort_cmp, not a call through a pointer). It may change any zero page
+; byte, so the state is in BSS.
+;
+; qsort is a quicksort that is not recursive: the median of three first,
+; element, middle and last, as the pivot; the smaller part of each partition
+; is sorted next and the larger one waits on a stack (16 entries cover any
+; 16-bit count); 8 elements or fewer by insertion. An element's address is
+; base + index * size by the hardware multiplier.
+
+.global ___qsort_core, ___bsearch_core, ___sort_gt
+.extern ___sort_cmp
+
+QS_DEPTH = 16
+
+.segment "bss"
+__qs_arr:   .res 2      ; the part being sorted
+__qs_n:     .res 2      ; its count
+__qs_size:  .res 2
+__qs_i:     .res 2
+__qs_j:     .res 2
+__qs_mid:   .res 2
+__qs_sp:    .res 1
+__qs_pa:    .res 2      ; the two elements compared or swapped
+__qs_pb:    .res 2
+__qs_pv:    .res 2      ; the pivot
+__qs_cnt:   .res 2
+__qs_t:     .res 1
+__qs_key:   .res 2
+__qs_lo:    .res 2
+__qs_hi:    .res 2
+__qs_sarr:  .res QS_DEPTH * 2
+__qs_sn:    .res QS_DEPTH * 2
+
+.segment "code"
+
+; A/X = __qs_arr + (A/X) * __qs_size
+proc __qs_at
+    sta $D770
+    stx $D771
+    lda #0
+    sta $D772
+    sta $D773
+    sta $D776
+    sta $D777
+    lda __qs_size
+    sta $D774
+    lda __qs_size+1
+    sta $D775
+@busy:
+    bit $D70F
+    bvs @busy
+    lda $D778
+    clc
+    adc __qs_arr
+    pha
+    lda $D779
+    adc __qs_arr+1
+    tax
+    pla
+    rts
+endproc
+
+; __qs_pa / __qs_pb = element A/X
+proc __qs_pa_at
+    jsr __qs_at
+    sta __qs_pa
+    stx __qs_pa+1
+    rts
+endproc
+
+proc __qs_pb_at
+    jsr __qs_at
+    sta __qs_pb
+    stx __qs_pb+1
+    rts
+endproc
+
+; C set when the comparison function says *pa > *pb
+proc ___sort_gt
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda __qs_pa
+    sta $10
+    lda __qs_pa+1
+    sta $11
+    lda __qs_pb
+    sta $12
+    lda __qs_pb+1
+    sta $13
+    jsr ___sort_cmp
+    cpx #$80
+    bcs @le             ; negative
+    stx __qs_t
+    ora __qs_t
+    beq @le             ; zero
+    sec
+    rts
+@le:
+    clc
+    rts
+    .func_flags zp_call
+endproc
+
+; Swap the __qs_size bytes at pa and pb
+proc __qs_swap
+    lda __qs_pa
+    sta $08
+    lda __qs_pa+1
+    sta $09
+    lda __qs_pb
+    sta $0A
+    lda __qs_pb+1
+    sta $0B
+    lda __qs_size
+    sta __qs_cnt
+    lda __qs_size+1
+    sta __qs_cnt+1
+    ldy #0
+@byte:
+    lda __qs_cnt
+    ora __qs_cnt+1
+    beq @done
+    lda ($08),y
+    tax
+    lda ($0A),y
+    sta ($08),y
+    txa
+    sta ($0A),y
+    iny
+    bne @count
+    inc $09
+    inc $0B
+@count:
+    lda __qs_cnt
+    bne @low
+    dec __qs_cnt+1
+@low:
+    dec __qs_cnt
+    bra @byte
+@done:
+    rts
+endproc
+
+; Swap the elements A/X (pa) and those already in pb
+proc __qs_swap_gt
+    jsr ___sort_gt
+    bcc @no
+    jsr __qs_swap
+@no:
+    rts
+endproc
+
+proc ___qsort_core
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $10
+    sta __qs_arr
+    lda $11
+    sta __qs_arr+1
+    lda $12
+    sta __qs_n
+    lda $13
+    sta __qs_n+1
+    bpl @count          ; (a negative count: nothing)
+    lda #0
+    sta __qs_n
+    sta __qs_n+1
+@count:
+    lda $14
+    sta __qs_size
+    lda $15
+    sta __qs_size+1
+    lda #0
+    sta __qs_sp
+@part:
+    lda __qs_n+1
+    bne @big
+    lda __qs_n
+    cmp #9
+    bcs @big
+    ; 8 or fewer: insertion sort
+    lda #1
+    sta __qs_i
+    lda #0
+    sta __qs_i+1
+@ins:
+    lda __qs_i          ; i < n
+    cmp __qs_n
+    lda __qs_i+1
+    sbc __qs_n+1
+    bcs @pop
+    lda __qs_i
+    sta __qs_j
+    lda __qs_i+1
+    sta __qs_j+1
+@insj:
+    lda __qs_j
+    ora __qs_j+1
+    beq @insnext
+    lda __qs_j          ; elements j - 1 and j
+    sec
+    sbc #1
+    tay
+    lda __qs_j+1
+    sbc #0
+    tax
+    tya
+    jsr __qs_pa_at
+    lda __qs_j
+    ldx __qs_j+1
+    jsr __qs_pb_at
+    jsr ___sort_gt
+    bcc @insnext
+    jsr __qs_swap
+    lda __qs_j
+    bne @jlow
+    dec __qs_j+1
+@jlow:
+    dec __qs_j
+    bra @insj
+@insnext:
+    inc __qs_i
+    bne @ins
+    inc __qs_i+1
+    bra @ins
+@pop:
+    lda __qs_sp
+    bne @popit
+    rts
+@popit:
+    dec __qs_sp
+    lda __qs_sp
+    asl a
+    tax
+    lda __qs_sarr,x
+    sta __qs_arr
+    lda __qs_sarr+1,x
+    sta __qs_arr+1
+    lda __qs_sn,x
+    sta __qs_n
+    lda __qs_sn+1,x
+    sta __qs_n+1
+    jmp @part
+@big:
+    ; the median of three: the smallest at 0, the largest at n - 1, the
+    ; pivot (the middle) at 1
+    lda __qs_n+1
+    lsr a
+    sta __qs_mid+1
+    lda __qs_n
+    ror a
+    sta __qs_mid
+    lda #0              ; 0, mid
+    tax
+    jsr __qs_pa_at
+    lda __qs_mid
+    ldx __qs_mid+1
+    jsr __qs_pb_at
+    jsr __qs_swap_gt
+    lda #0              ; 0, n - 1
+    tax
+    jsr __qs_pa_at
+    jsr __qs_last
+    jsr __qs_pb_at
+    jsr __qs_swap_gt
+    lda __qs_mid        ; mid, n - 1
+    ldx __qs_mid+1
+    jsr __qs_pa_at
+    jsr __qs_last
+    jsr __qs_pb_at
+    jsr __qs_swap_gt
+    lda #1              ; 1, mid
+    ldx #0
+    jsr __qs_pa_at
+    lda __qs_mid
+    ldx __qs_mid+1
+    jsr __qs_pb_at
+    jsr __qs_swap
+    lda __qs_pa         ; the pivot: element 1
+    sta __qs_pv
+    lda __qs_pa+1
+    sta __qs_pv+1
+    ; partition: i from 2 up, j from n - 1 down
+    lda #2
+    sta __qs_i
+    lda #0
+    sta __qs_i+1
+    jsr __qs_last
+    sta __qs_j
+    stx __qs_j+1
+@scani:
+    lda __qs_i          ; i < n
+    cmp __qs_n
+    lda __qs_i+1
+    sbc __qs_n+1
+    bcs @scanj
+    lda __qs_i          ; and element i <= pivot
+    ldx __qs_i+1
+    jsr __qs_pa_at
+    jsr __qs_pv_pb
+    jsr ___sort_gt
+    bcs @scanj
+    inc __qs_i
+    bne @scani
+    inc __qs_i+1
+    bra @scani
+@scanj:
+    lda __qs_j+1        ; j > 1
+    bne @jgt
+    lda __qs_j
+    cmp #2
+    bcc @cross
+@jgt:
+    lda __qs_j          ; and element j > pivot
+    ldx __qs_j+1
+    jsr __qs_pa_at
+    jsr __qs_pv_pb
+    jsr ___sort_gt
+    bcc @cross
+    lda __qs_j
+    bne @jl
+    dec __qs_j+1
+@jl:
+    dec __qs_j
+    bra @scanj
+@cross:
+    lda __qs_i          ; i >= j: done
+    cmp __qs_j
+    lda __qs_i+1
+    sbc __qs_j+1
+    bcs @parted
+    lda __qs_i
+    ldx __qs_i+1
+    jsr __qs_pa_at
+    lda __qs_j
+    ldx __qs_j+1
+    jsr __qs_pb_at
+    jsr __qs_swap
+    bra @scani
+@parted:
+    lda #1              ; the pivot to j
+    ldx #0
+    jsr __qs_pa_at
+    lda __qs_j
+    ldx __qs_j+1
+    jsr __qs_pb_at
+    jsr __qs_swap
+    ; 0 .. j - 1 and j + 1 .. n - 1: the larger waits
+    lda __qs_sp
+    asl a
+    tax
+    lda __qs_n          ; __qs_i = u = n - j - 1 (the upper part's count)
+    clc
+    sbc __qs_j
+    sta __qs_i
+    lda __qs_n+1
+    sbc __qs_j+1
+    sta __qs_i+1
+    lda __qs_i          ; j <= u (j < n - j): the lower part is next
+    cmp __qs_j
+    lda __qs_i+1
+    sbc __qs_j+1
+    bcs @lowfirst
+    ; the lower part (arr, j) waits; the upper one is next
+    lda __qs_arr
+    sta __qs_sarr,x
+    lda __qs_arr+1
+    sta __qs_sarr+1,x
+    lda __qs_j
+    sta __qs_sn,x
+    lda __qs_j+1
+    sta __qs_sn+1,x
+    jsr __qs_upper
+    sta __qs_arr
+    stx __qs_arr+1
+    lda __qs_i
+    sta __qs_n
+    lda __qs_i+1
+    sta __qs_n+1
+    inc __qs_sp
+    jmp @part
+@lowfirst:
+    ; the upper part (at j + 1, u) waits; the lower one is next
+    phx
+    jsr __qs_upper
+    ply
+    sta __qs_sarr,y
+    txa
+    sta __qs_sarr+1,y
+    lda __qs_i
+    sta __qs_sn,y
+    lda __qs_i+1
+    sta __qs_sn+1,y
+    lda __qs_j
+    sta __qs_n
+    lda __qs_j+1
+    sta __qs_n+1
+    inc __qs_sp
+    jmp @part
+    .func_flags zp_call
+endproc
+
+; A/X = n - 1
+proc __qs_last
+    lda __qs_n
+    sec
+    sbc #1
+    pha
+    lda __qs_n+1
+    sbc #0
+    tax
+    pla
+    rts
+endproc
+
+; pb = the pivot
+proc __qs_pv_pb
+    lda __qs_pv
+    sta __qs_pb
+    lda __qs_pv+1
+    sta __qs_pb+1
+    rts
+endproc
+
+; A/X = element j + 1
+proc __qs_upper
+    lda __qs_j
+    clc
+    adc #1
+    pha
+    lda __qs_j+1
+    adc #0
+    tax
+    pla
+    jmp __qs_at
+endproc
+
+proc ___bsearch_core
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $10
+    sta __qs_key
+    lda $11
+    sta __qs_key+1
+    lda $12
+    sta __qs_arr
+    lda $13
+    sta __qs_arr+1
+    lda $16
+    sta __qs_size
+    lda $17
+    sta __qs_size+1
+    lda #0
+    sta __qs_lo
+    sta __qs_lo+1
+    lda $14             ; hi = n - 1
+    sec
+    sbc #1
+    sta __qs_hi
+    lda $15
+    sbc #0
+    sta __qs_hi+1
+@loop:
+    lda __qs_hi+1       ; hi < 0, or lo > hi: not found
+    bmi @none
+    lda __qs_hi
+    cmp __qs_lo
+    lda __qs_hi+1
+    sbc __qs_lo+1
+    bcc @none
+    lda __qs_lo         ; mid = (lo + hi) / 2
+    clc
+    adc __qs_hi
+    tay
+    lda __qs_lo+1
+    adc __qs_hi+1
+    ror a
+    sta __qs_mid+1
+    tya
+    ror a
+    sta __qs_mid
+    ldx __qs_mid+1
+    jsr __qs_at
+    sta __qs_pb
+    stx __qs_pb+1
+    sta $12
+    stx $13
+    lda __qs_key
+    sta $10
+    lda __qs_key+1
+    sta $11
+    jsr ___sort_cmp
+    cpx #0
+    bmi @lower
+    bne @higher
+    cmp #0
+    bne @higher
+    lda __qs_pb         ; found
+    ldx __qs_pb+1
+    rts
+@higher:
+    lda __qs_mid        ; lo = mid + 1
+    clc
+    adc #1
+    sta __qs_lo
+    lda __qs_mid+1
+    adc #0
+    sta __qs_lo+1
+    bra @loop
+@lower:
+    lda __qs_mid        ; hi = mid - 1
+    sec
+    sbc #1
+    sta __qs_hi
+    lda __qs_mid+1
+    sbc #0
+    sta __qs_hi+1
+    bra @loop
+@none:
+    lda #0
+    tax
+    rts
+    .func_flags zp_call
+endproc

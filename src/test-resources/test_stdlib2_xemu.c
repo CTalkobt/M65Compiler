@@ -7,7 +7,8 @@
  *   [3] div, ldiv (truncation toward zero, signs of the remainder)
  *   [4] srand/rand: a seed repeats its sequence, results within RAND_MAX
  *   [5] utoa, ltoa (bases 2, 10, 16, 36; negative; LONG_MIN)
- *   [6] strtok (several delimiters, empty tokens skipped, NULL continues)
+ *   [6] strtok (several delimiters, empty tokens skipped, NULL continues),
+ *       strtok_r (two strings at once)
  *   [7] ctype: ispunct; 'A' (cc45 writes $61) is an upper-case letter
  *   [8] atexit: handlers run in reverse order when main returns (or, built
  *       with -DVIA_EXIT, when exit() is called)
@@ -104,8 +105,8 @@ static int t_rand(void) {
     srand(1);
     for (i = 0; i < 5; i++) if (rand() != a[i]) ok = 0;
     for (i = 0; i < 5; i++) if (a[i] < 0 || a[i] > RAND_MAX) ok = 0;
-    /* C's reference generator: seed 1 gives 16838 first */
-    ok = ok && a[0] == 16838;
+    /* C's reference generator: seed 1 gives 16838, 5758, 10113, 17515, 31051 */
+    ok = ok && a[0] == 16838 && a[1] == 5758 && a[2] == 10113 && a[3] == 17515 && a[4] == 31051;
     srand(2);
     ok = ok && rand() != a[0];
     return ok;
@@ -132,8 +133,15 @@ static int t_strtok(void) {
     char *t4 = strtok(0, ",;");
     char *t5 = strtok(0, ",;");
     char e[] = ";;";
+    /* strtok_r: two strings at once */
+    char p[] = "x y", q[] = "1-2-3";
+    char *sp, *sq;
+    char *p1 = strtok_r(p, " ", &sp), *q1 = strtok_r(q, "-", &sq), *p2 = strtok_r(0, " ", &sp);
+    char *q2 = strtok_r(0, "-", &sq), *q3 = strtok_r(0, "-", &sq), *q4 = strtok_r(0, "-", &sq);
     return t1 && strcmp(t1, "a") == 0 && t2 && strcmp(t2, "b") == 0 && t3 && strcmp(t3, "c") == 0 &&
-           t4 == 0 && t5 == 0 && strtok(e, ";") == 0;
+           t4 == 0 && t5 == 0 && strtok(e, ";") == 0 &&
+           p1 == p && q1 == q && p2 == p + 2 && q2 == q + 2 && q3 == q + 4 && q4 == 0 && sq == 0 &&
+           strtok_r(0, " ", &sp) == 0;
 }
 
 static int t_ispunct(void) {

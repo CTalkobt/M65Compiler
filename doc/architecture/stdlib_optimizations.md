@@ -22,9 +22,27 @@ Byte loops over `(zp),y` with a 16-bit count; the pointer high bytes are increme
 
 Byte loops with an 8-bit `Y` index. `strlen` (and `puts`) stop when `Y` wraps, so they only handle strings shorter than 256 bytes — `strlen` of a 256-byte string returns 0.
 
-### rand
+### rand / srand — `rand.s45`
 
-Two reads of the hardware RNG (`$D7EF`), each after waiting for `$D7FE` bit 7 to clear; bit 15 is cleared. `srand` is a no-op.
+Until `srand`: two reads of the hardware RNG (`$D7EF`), each after waiting for `$D7FE` bit 7 to clear; bit 15 is cleared. After `srand`: C's reference generator, `next * 1103515245` by the hardware multiplier (the low 32 bits of the product) `+ 12345`, result bits 16–30 (114 bytes; the C version was 336).
+
+### clock — `clock.s45`
+
+Reads the KERNAL's 24-bit frame counter (`$110C`–`$110E`) until no byte changed since, and negates it (`negq`): 32 bytes (the C version was 222).
+
+### strtoul / strtol — `strtoul.s45`
+
+A digit loop with the product `result * base` from the hardware multiplier (32 × 32 bits: any bit above the low 32, or a carry adding the digit, is an overflow); `strtol` checks its sign, calls `strtoul` and limits the range. 677 bytes for both (the C versions were 1733).
+
+### strtok / strtok_r — `strtok.s45`
+
+One routine: `strtok` passes its static save pointer to `strtok_r` (136 bytes; 584 in C).
+
+### qsort / bsearch — `sort.s45`, `stdlib/qsort.c`
+
+- Not recursive: median of three (element 0, the middle and the last) as the pivot, the smaller part of each partition sorted next and the larger one on a 16-entry stack (enough for any 16-bit count), insertion sort for 8 elements or fewer. An element's address is `base + index * size` by the hardware multiplier; the swap is a byte loop over `(zp),y`.
+- The comparison function is called through `__sort_cmp` (`stdlib/qsort.c`), compiled in each library's calling convention: it calls the program's function through the pointer in that convention (ln45 bridges the assembly's call of `__sort_cmp` in `c45_stack.lib`, not a call through a pointer). The comparator may change any zero-page byte, so the state is in BSS: `qsort` is not reentrant (a comparator must not call `qsort` or `bsearch`).
+- 1.2 KB with the C part (the C versions were 2.2 KB); 20 sorts of 300 ints: 58 → 49 frames (the comparator calls dominate).
 
 ### itoa / ltoa / utoa
 
@@ -32,25 +50,13 @@ Repeated division with the MEGA65 hardware divider (`$D770`…), digits pushed o
 
 ## C Routines (`lib/stdlib/`)
 
-### qsort — `qsort.c`
-
-- Median-of-three pivot, insertion sort for partitions of ≤ 8 elements, recursion into both partitions (smaller first).
-- `swap`, `do_cmp`, `cmp_positive` are `always_inline` helpers; `swap` is a byte loop for every element size.
-- Comparator and element size are kept in globals (`qs_cmp`, `qs_size`), so `qsort` is not reentrant.
-- `qs_impl` is recursive, so it uses a stack frame rather than static allocation.
-- The `#pragma cc45 optimize(...)` lines inside the functions name optimizations (`constant-folding`, `dead-code-elimination`, `branch-inversion`, `cross-function-inlining`, `tail-call-optimization`, `cse`); they apply to the function they are in. `cse` is an IR pass that is on anyway at the library's level, the always-on and file-wide (ca45) ones are on anyway, and `cross-function-inlining` is not implemented, so they do not change the code. Both recursive calls are real `JSR`s: `qs_impl` has a stack frame to remove after them, so they are not tail calls.
-
-### bsearch — `bsearch.c`
-
-Iterative binary search with `mid = lo + (hi - lo) / 2`, early return on a match, comparator through an `always_inline` wrapper and a global (`bs_cmp`).
-
 ### memcpy_optimized — `memcpy_fast.c`
 
 Exported as `memcpy_optimized` (not declared in any header). For `n > 4` with both pointers 4-byte aligned it runs a C loop copying 4 bytes per iteration, otherwise it calls `memcpy`. It is not used by anything in the library, and no measurement shows it beating the assembly `memcpy`.
 
-### strtol / strtoul / strtof — `strtol.c`, `strtoul.c`, `strtof.c`
+### strtof — `strtof.c`
 
-Straightforward digit loops (`result = result * base + digit` on `unsigned long`); no unrolling or base-specific fast paths. `strtol` delegates to `strtoul`.
+The digits gathered as a whole number (up to 10 significant digits, the rest only moving the exponent), then scaled at the end by powers of ten from a table of 10^0–10^9 (multiplied or divided in steps of up to 10^9), so short decimals are exact (0.25 is 25 / 100).
 
 ### Float math — `float_rom_fns.c`, `floatmath.c`, `src/float_rom.s45`
 

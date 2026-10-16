@@ -1,6 +1,6 @@
 /* atol.c — Convert string to long integer */
 
-long strtol(char *nptr, char **endptr, int base);
+#include <stdlib.h>
 
 long atol(char *s) {
     return strtol(s, (char **)0, 10);

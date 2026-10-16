@@ -81,7 +81,7 @@ ln45 -prg main.o45 -L lib/build -l c45.lib -o program.prg      # plain PRG (-L o
 - **`long atol(char *s)`**: `strtol(s, NULL, 10)`.
 - **`char *itoa(int value, char *str, int base)`** / **`char *utoa(unsigned value, char *str, int base)`** / **`char *ltoa(long value, char *str, int base)`**: number to string in base 2–36, using the MEGA65 hardware divider. `itoa`/`ltoa` print a `-` for negative values in base 10 only. Digits above 9 are PETSCII `$41`… (`a`… in the default character set). Return `str`.
 - **`atos(s)`**, **`stoa(value, str, base)`**: macros for `(short)atoi(s)` and `itoa((int)value, str, base)`.
-- **`long strtol(char *nptr, char **endptr, int base)`** / **`unsigned long strtoul(...)`**: skip whitespace, optional sign (`strtol`), base 0 (auto: `0x`→16, `0`→8, else 10) or 2–36, `0x`/`0X` prefix accepted for base 16, letters in either case as digits (`$41`–`$5A`, `$61`–`$7A`, `$C1`–`$DA`). The `0x` prefix counts only when a hex digit follows it (`"0x"` is 0, ending after the `0`). `*endptr` is set to `nptr` if no digits were read. A value out of range gives `LONG_MAX`/`LONG_MIN` (`strtol`) or `ULONG_MAX` (`strtoul`) and sets `errno = ERANGE`; `strtoul` negates a value after `-` (as C specifies); a base other than 0 or 2–36 gives 0 and `EINVAL`.
+- **`long strtol(char *nptr, char **endptr, int base)`** / **`unsigned long strtoul(...)`**: skip whitespace, optional sign (`strtol`), base 0 (auto: `0x`→16, `0`→8, else 10) or 2–36, `0x`/`0X` prefix accepted for base 16, letters in either case as digits (`$41`–`$5A`, `$61`–`$7A`, `$C1`–`$DA`). The `0x` prefix counts only when a hex digit follows it (`"0x"` is 0, ending after the `0`). `*endptr` is set to `nptr` if no digits were read. A value out of range gives `LONG_MAX`/`LONG_MIN` (`strtol`) or `ULONG_MAX` (`strtoul`) and sets `errno = ERANGE`; `strtoul` negates a value after `-` (as C specifies); a base other than 0 or 2–36 gives 0 and `EINVAL`. Assembly (`stdlib_asm/strtoul.s45`; the multiply by the base on the hardware multiplier).
 - **`float strtof(char *nptr, char **endptr)`** / **`float atof(char *nptr)`**: whitespace, sign, digits, fraction, `e`/`E` exponent (only when digits follow it). The digits are collected as an exact integer and scaled by exact powers of ten, so values such as `0.25` convert exactly. `*endptr` is `nptr` when there are no digits. A value beyond the float range gives ±`FLT_MAX`; a non-zero value that underflows gives 0; both set `errno = ERANGE`. `strtod(nptr, endptr)` is a macro for `(double)strtof(...)`.
 
 **Arithmetic**
@@ -90,7 +90,7 @@ ln45 -prg main.o45 -L lib/build -l c45.lib -o program.prg      # plain PRG (-L o
 
 **Random numbers**
 - **`int rand(void)`**: 0–`RAND_MAX` (32767). Until `srand` is called: the MEGA65 hardware RNG (`$D7EF`, waiting on `$D7FE` bit 7 before each of the two byte reads), different on every run. After `srand`: C's reference generator (`next = next * 1103515245 + 12345`, result bits 16–30), so `srand(1)` gives 16838 first.
-- **`void srand(unsigned seed)`**: seeds the reproducible generator; the same seed repeats the same sequence (`lib/stdlib/rand.c`).
+- **`void srand(unsigned seed)`**: seeds the reproducible generator; the same seed repeats the same sequence (`lib/stdlib_asm/rand.s45`; the multiply by the hardware multiplier).
 
 **Heap** — `void *malloc(size_t)`, `void free(void *)`, `void *calloc(size_t, size_t)`, `void *realloc(void *, size_t)` (assembly, `lib/stdlib_asm/malloc.s45`):
 - Sorted singly-linked free list, first fit, coalescing with both neighbours on `free`. Block header: 2-byte size (bit 0 = allocated) and, in free blocks, a 2-byte next pointer. Requests are rounded up to even, minimum 4 bytes including the 2-byte header.
@@ -106,8 +106,8 @@ ln45 -prg main.o45 -L lib/build -l c45.lib -o program.prg      # plain PRG (-L o
 - `#pragma cc45 exit_halt` / `exit_brk` / `exit_rts` only change the startup stub of standalone builds; a program linked with the library always returns to its caller.
 
 **Sorting and searching**
-- **`void qsort(void *base, int nmemb, int size, int (*cmp)())`**: quicksort with median-of-three pivot, insertion sort for partitions of ≤ 8 elements, smaller partition first. The comparator and size are kept in globals (`qs_cmp`, `qs_size`), so `qsort` is not reentrant (a comparator must not call `qsort`).
-- **`void *bsearch(const void *key, const void *base, int nmemb, int size, int (*cmp)())`**: binary search; returns the match or `NULL`.
+- **`void qsort(void *base, int nmemb, int size, int (*cmp)())`**: quicksort (assembly, `stdlib_asm/sort.s45`) with median-of-three pivot, insertion sort for partitions of ≤ 8 elements, the smaller partition first and the larger on a 16-entry stack (not recursive). The comparator is called through `__sort_cmp` (`stdlib/qsort.c`, in the program's calling convention). The state is in static storage, so `qsort` is not reentrant (a comparator must not call `qsort` or `bsearch`).
+- **`void *bsearch(const void *key, const void *base, int nmemb, int size, int (*cmp)())`**: binary search (assembly, `sort.s45`); returns the match or `NULL`.
 
 ## 5. String & Memory Operations (`string.h`)
 
@@ -122,7 +122,7 @@ The functions marked *asm* are hand-written assembly in `lib/stdlib_asm/`; the r
 | `char *strchr(char *s, int c)`, `char *strrchr(char *s, int c)` | *asm* |
 | `char *strstr(char *h, char *n)`, `char *strpbrk(char *s, char *accept)` | C |
 | `int strspn(char *s, char *accept)`, `int strcspn(char *s, char *reject)` | C |
-| `char *strtok(char *s, char *delim)`, `char *strtok_r(char *s, char *delim, char **save)` | C. `strtok` keeps static state |
+| `char *strtok(char *s, char *delim)`, `char *strtok_r(char *s, char *delim, char **save)` | Assembly (`strtok.s45`). `strtok` keeps static state; `strtok_r` keeps it in `*save` (NULL after the last token) |
 | `int strnlen(const char *s, int maxlen)` | C |
 | `int strlcpy(char *dst, const char *src, int size)` | C. Returns `strlen(src)` |
 | `char *strdup(const char *s)` | C. Uses `malloc` |

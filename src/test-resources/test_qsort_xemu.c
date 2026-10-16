@@ -1,5 +1,6 @@
 /* test_qsort_xemu.c — qsort (not recursive: the larger part of each
- * partition waits on a stack; insertion sort for 8 elements or fewer)
+ * partition waits on a stack; insertion sort for 8 elements or fewer) and
+ * bsearch
  *
  * Results at $C0C0 (01 = pass):
  *   [0] ints: 0, 1, 2, 8, 9 elements (the insertion-sort cutoff)
@@ -7,7 +8,9 @@
  *   [2] already sorted, reversed, all equal, two values
  *   [3] chars (size 1) and a 3-byte struct sorted by one member
  *   [4] 5-byte elements (a float-sized record) by a 16-bit key
- *   [5] $AA sentinel
+ *   [5] bsearch: found first, middle and last; not found below, between
+ *       and above; no elements; one; 5-byte records
+ *   [6] $AA sentinel
  */
 #include <stdlib.h>
 #define OUT ((volatile unsigned char *)0xC0C0)
@@ -79,6 +82,21 @@ int main(void) {
     for (i = 0; i < 7; i++) { s5[i].key = (unsigned int)(1000 - i * 111); s5[i].pad[0] = (unsigned char)i; }
     qsort(s5, 7, sizeof s5[0], cmp_s5);
     OUT[4] = sizeof s5[0] == 5 && s5[0].key == 1000 - 666 && s5[0].pad[0] == 6 && s5[6].key == 1000 && s5[6].pad[0] == 0;
-    OUT[5] = 0xAA;
+    {
+        static signed int key;
+        static struct S5 k5;
+        for (i = 0; i < 101; i++) v[i] = (signed int)(i * 2);       /* 0, 2 .. 200 */
+        key = 0;   ok = bsearch(&key, v, 101, 2, cmp_int) == &v[0];
+        key = 100; ok = ok && bsearch(&key, v, 101, 2, cmp_int) == &v[50];
+        key = 200; ok = ok && bsearch(&key, v, 101, 2, cmp_int) == &v[100];
+        key = -1;  ok = ok && bsearch(&key, v, 101, 2, cmp_int) == 0;
+        key = 77;  ok = ok && bsearch(&key, v, 101, 2, cmp_int) == 0;
+        key = 201; ok = ok && bsearch(&key, v, 101, 2, cmp_int) == 0;
+        key = 0;   ok = ok && bsearch(&key, v, 0, 2, cmp_int) == 0 && bsearch(&key, v, 1, 2, cmp_int) == &v[0];
+        k5.key = 1000 - 333;
+        ok = ok && bsearch(&k5, s5, 7, sizeof s5[0], cmp_s5) == &s5[3];
+        OUT[5] = ok;
+    }
+    OUT[6] = 0xAA;
     return 0;
 }

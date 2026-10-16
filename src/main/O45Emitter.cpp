@@ -939,6 +939,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
                     out.push_back(e.substr(i, j - i));
                     i = j;
                 } else if (e[i] == '$' || std::isdigit((unsigned char)e[i])) {
+                    i++;   // (past the '$' of a hex number too)
                     while (i < e.size() && std::isalnum((unsigned char)e[i])) i++;
                 } else i++;
             }

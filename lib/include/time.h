@@ -24,7 +24,7 @@ static inline clock_t __clocks_per_sec(void) {
 #define CLOCKS_PER_SEC (__clocks_per_sec())
 
 /* Frames since power-on (wraps after 2^24, about 3.9 days at 50 Hz) */
-clock_t clock(void);
+__fastcall__ clock_t clock(void);
 time_t time(time_t *tp);
 signed long difftime(time_t t2, time_t t1);
 

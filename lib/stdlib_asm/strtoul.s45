@@ -1,0 +1,399 @@
+; strtoul.s45 — strtoul / strtol (<stdlib.h>)
+;
+;   unsigned long strtoul(char *nptr, char **endptr, int base)   $10, $12, $14
+;   long strtol(char *nptr, char **endptr, int base)
+;
+; Leading white space, a sign, a 0x prefix (base 0 or 16, when a hex digit
+; follows it), base 0 meaning 8 after a leading 0 and 10 otherwise. Letters
+; are digits 10-35 in either case and in any of the encodings a string can
+; have: cc45 literals ("ff" $46, "FF" $66), ASCII and shifted PETSCII
+; ($C1-$DA). *endptr (when endptr is not NULL) is past the last digit, or
+; nptr without any. A base other than 0 and 2-36 gives 0, errno EINVAL.
+; strtoul: a value that does not fit gives ULONG_MAX, errno ERANGE; a
+; leading '-' negates the result (as C specifies). strtol: outside
+; LONG_MIN..LONG_MAX gives LONG_MIN or LONG_MAX, errno ERANGE.
+; The product of the result and the base comes from the hardware multiplier
+; (32 x 32 bits: anything above the low 32 is an overflow).
+
+.global _strtoul, _strtol
+.extern _errno
+
+ERANGE = 1
+EINVAL = 3
+
+.segment "bss"
+__strto_r:      .res 4      ; the result
+__strto_d:      .res 4      ; a digit (32 bits, for adcq)
+__strto_neg:    .res 1
+__strto_any:    .res 1      ; 1: a digit was read
+__strto_ovf:    .res 1
+__strto_base:   .res 1
+__strto_nptr:   .res 2      ; strtol's argument
+__strto_s:      .res 2      ; strtol: past the sign
+__strto_errno:  .res 2      ; strtol: errno before
+
+.segment "code"
+
+; Digit value of A, or 99
+proc __strto_digit
+    cmp #$30
+    bcc @no
+    cmp #$3A
+    bcc @dec
+    cmp #$41
+    bcc @no
+    cmp #$5B
+    bcc @l41
+    cmp #$61
+    bcc @no
+    cmp #$7B
+    bcc @l61
+    cmp #$C1
+    bcc @no
+    cmp #$DB
+    bcs @no
+    sec
+    sbc #$C1 - 10
+    rts
+@l61:
+    sec
+    sbc #$61 - 10
+    rts
+@l41:
+    sec
+    sbc #$41 - 10
+    rts
+@dec:
+    sec
+    sbc #$30
+    rts
+@no:
+    lda #99
+    rts
+endproc
+
+; Leading white space and a sign of the string at ($08): $08 past them,
+; __strto_neg set; A = the character there
+proc __strto_sign
+    lda #0
+    sta __strto_neg
+@ws:
+    ldy #0
+    lda ($08),y
+    cmp #$20
+    beq @next
+    cmp #9
+    bcc @sign
+    cmp #14
+    bcs @sign
+@next:
+    inw $08
+    bra @ws
+@sign:
+    cmp #$2D            ; '-'
+    bne @plus
+    inc __strto_neg
+    bra @past
+@plus:
+    cmp #$2B            ; '+'
+    bne @done
+@past:
+    inw $08
+    ldy #0
+    lda ($08),y
+@done:
+    rts
+endproc
+
+proc _strtoul
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $10
+    sta $08
+    lda $11
+    sta $09
+    jsr __strto_sign
+    ; the base: 0 or 2-36
+    lda $15
+    bne @badbase
+    lda $14
+    cmp #1
+    beq @badbase
+    cmp #37
+    bcs @badbase
+    sta __strto_base
+    ; 0x prefix: base 0 or 16, a hex digit after it
+    lda __strto_base
+    beq @prefix
+    cmp #16
+    bne @digits
+@prefix:
+    ldy #0
+    lda ($08),y
+    cmp #$30
+    bne @nohex
+    iny
+    lda ($08),y
+    cmp #$58
+    beq @x
+    cmp #$78
+    beq @x
+    cmp #$D8
+    bne @nohex
+@x:
+    iny
+    lda ($08),y
+    jsr __strto_digit
+    cmp #16
+    bcs @nohex
+    lda #16
+    sta __strto_base
+    inw $08
+    inw $08
+    bra @digits
+@nohex:
+    lda __strto_base
+    bne @digits
+    lda #10             ; base 0: 8 after a leading 0, else 10
+    sta __strto_base
+    ldy #0
+    lda ($08),y
+    cmp #$30
+    bne @digits
+    lda #8
+    sta __strto_base
+@digits:
+    lda #0
+    sta __strto_any
+    sta __strto_ovf
+    sta __strto_r
+    sta __strto_r+1
+    sta __strto_r+2
+    sta __strto_r+3
+    sta __strto_d+1
+    sta __strto_d+2
+    sta __strto_d+3
+    sta $D775           ; the multiplier's B: the base (32 bits)
+    sta $D776
+    sta $D777
+@digit:
+    ldy #0
+    lda ($08),y
+    jsr __strto_digit
+    cmp __strto_base
+    bcs @end
+    sta __strto_d
+    lda #1
+    sta __strto_any
+    lda __strto_ovf
+    bne @skip           ; (past an overflow: only the digits are read)
+    ldq __strto_r
+    stq $D770
+    lda __strto_base
+    sta $D774
+@busy:
+    bit $D70F
+    bvs @busy
+    lda $D77C           ; above 32 bits: too large
+    ora $D77D
+    ora $D77E
+    ora $D77F
+    bne @over
+    ldq $D778
+    clc
+    adcq __strto_d
+    bcs @over
+    stq __strto_r
+    bra @skip
+@over:
+    lda #1
+    sta __strto_ovf
+@skip:
+    inw $08
+    bra @digit
+@end:
+    ; *endptr: past the digits, or nptr
+    lda $12
+    ora $13
+    beq @noend
+    lda __strto_any
+    bne @setend
+    lda $10
+    sta $08
+    lda $11
+    sta $09
+@setend:
+    ldy #0
+    lda $08
+    sta ($12),y
+    iny
+    lda $09
+    sta ($12),y
+@noend:
+    lda __strto_ovf
+    beq @value
+    lda #ERANGE
+    sta _errno
+    lda #0
+    sta _errno+1
+    lda #$FF            ; ULONG_MAX
+    tax
+    tay
+    taz
+    rts
+@value:
+    lda __strto_neg
+    beq @pos
+    ldq __strto_r
+    negq
+    rts
+@pos:
+    ldq __strto_r
+    rts
+@badbase:
+    lda $12
+    ora $13
+    beq @noend2
+    ldy #0
+    lda $10
+    sta ($12),y
+    iny
+    lda $11
+    sta ($12),y
+@noend2:
+    lda #EINVAL
+    sta _errno
+    lda #0
+    sta _errno+1
+    tax
+    tay
+    taz
+    rts
+    .func_flags zp_call
+endproc
+
+proc _strtol
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .zp_clobbers $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $10
+    sta __strto_nptr
+    sta $08
+    lda $11
+    sta __strto_nptr+1
+    sta $09
+    jsr __strto_sign
+    ; a second sign is not a number
+    cmp #$2D
+    beq @nonum
+    cmp #$2B
+    beq @nonum
+    lda __strto_neg
+    pha
+    lda $08
+    sta $10
+    sta __strto_s
+    lda $09
+    sta $11
+    sta __strto_s+1
+    lda _errno
+    sta __strto_errno
+    lda _errno+1
+    sta __strto_errno+1
+    lda #0
+    sta _errno
+    sta _errno+1
+    jsr _strtoul        ; (its own sign check finds none)
+    stq __strto_r
+    pla
+    sta __strto_neg
+    ; no digits: *endptr = nptr
+    lda $12
+    ora $13
+    beq @range
+    ldy #0
+    lda ($12),y
+    cmp __strto_s
+    bne @range
+    iny
+    lda ($12),y
+    cmp __strto_s+1
+    bne @range
+    lda __strto_nptr+1
+    sta ($12),y
+    dey
+    lda __strto_nptr
+    sta ($12),y
+@range:
+    lda _errno
+    cmp #ERANGE
+    bne @fits
+    lda _errno+1
+    beq @huge
+@fits:
+    lda __strto_r+3     ; bit 31 set: too large for a long,
+    bpl @ok
+    lda __strto_neg     ; except $80000000 negated
+    beq @huge
+    lda __strto_r+3
+    cmp #$80
+    bne @huge
+    lda __strto_r
+    ora __strto_r+1
+    ora __strto_r+2
+    bne @huge
+@ok:
+    lda _errno
+    ora _errno+1
+    bne @value
+    lda __strto_errno
+    sta _errno
+    lda __strto_errno+1
+    sta _errno+1
+@value:
+    lda __strto_neg
+    bne @negate
+    ldq __strto_r
+    rts
+@negate:
+    ldq __strto_r
+    negq
+    rts
+@huge:
+    lda #ERANGE
+    sta _errno
+    lda #0
+    sta _errno+1
+    lda __strto_neg
+    bne @min
+    lda #$FF            ; LONG_MAX
+    tax
+    tay
+    ldz #$7F
+    rts
+@min:
+    lda #0              ; LONG_MIN
+    tax
+    tay
+    ldz #$80
+    rts
+@nonum:
+    lda $12
+    ora $13
+    beq @zero
+    ldy #0
+    lda __strto_nptr
+    sta ($12),y
+    iny
+    lda __strto_nptr+1
+    sta ($12),y
+@zero:
+    lda #0
+    tax
+    tay
+    taz
+    rts
+    .func_flags zp_call
+endproc
