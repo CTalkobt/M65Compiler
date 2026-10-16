@@ -10,10 +10,14 @@
 ;   Restores SP and jumps to saved return address.
 ;   setjmp appears to return val (or 1 if val==0).
 ;
-; jmp_buf layout: [0] PCL, [1] PCH, [2] SPL, [3] SPH, [4-5] frame pointer
+; jmp_buf layout: [0] PCL, [1] PCH, [2] SPL, [3] SPH, [4-5] frame pointer,
+; [6] the code overlays' return stack depth, [7] the overlay in the region
+; (__ovl_jsave/__ovl_jrestore: ovl.s45 in a program with overlays, else
+; crt0's empty ones)
 
 .global _setjmp
 .global _longjmp
+.extern __ovl_jsave, __ovl_jrestore
 
 .segment "code"
 
@@ -54,6 +58,7 @@ proc _setjmp
     lda $FE
     iny
     sta ($10), y
+    jsr __ovl_jsave         ; env[6], env[7]
 
     ; Return 0
     lda #0
@@ -101,6 +106,7 @@ proc _longjmp
     iny
     lda ($10), y
     sta $FE
+    jsr __ovl_jrestore      ; the overlay setjmp's caller runs in
 
     ; Push saved return address onto hardware stack
     ldy #1

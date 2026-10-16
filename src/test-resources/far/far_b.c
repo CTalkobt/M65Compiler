@@ -11,6 +11,8 @@ __far int fb_rec(int n) { return n <= 0 ? 0 : 1 + fa_rec(n - 1); }
 
 __far unsigned char fb_group(void) { return __ovl_current; }
 
+__far void fb_throw(void) { longjmp(jb, 1); }
+
 __far __naked void fb_filler(void) {
     __asm__("rts");
     __asm__(".res 5000");

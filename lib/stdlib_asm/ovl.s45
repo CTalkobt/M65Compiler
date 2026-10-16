@@ -43,6 +43,7 @@
 
 .global __ovl_init, __ovl_call, __ovl_ret, __ovl_load, __ovl_rom_leave, __ovl_exit
 .global __ovl_sa, __ovl_want, __ovl_tgt, __ovl_cur, ___ovl_current
+.global __ovl_jsave, __ovl_jrestore
 .extern __ovl_region, __ovl_region_end, __ovl_table, __ovl_file, __ovl_mapped
 .extern ___cbm_target, __rom_call, _abort
 
@@ -158,6 +159,35 @@ __ovl_ret:
     ldy __ovl_sy
     ldz __ovl_sz
     plp
+    rts
+endproc
+
+; setjmp/longjmp (setjmp.s45; jmp_buf at $10/$11): setjmp saves the overlay
+; return stack's depth and the overlay in the region in env[6], env[7];
+; longjmp puts them back -- the calls it leaves are dropped, and the
+; overlay setjmp was called from (if any) is brought back before execution
+; continues there. A, Y (and in __ovl_jrestore X, Z) are changed, $10-$13 kept.
+proc __ovl_jsave
+    ldy #6
+    lda __ovl_rsp
+    sta ($10),y
+    iny
+    lda __ovl_cur
+    sta ($10),y
+    rts
+endproc
+
+proc __ovl_jrestore
+    ldy #6
+    lda ($10),y
+    sta __ovl_rsp
+    iny
+    lda ($10),y
+    beq @done               ; (none was in yet: the code there is resident)
+    cmp __ovl_cur
+    beq @done
+    jsr __ovl_load
+@done:
     rts
 endproc
 

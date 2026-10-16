@@ -29,6 +29,17 @@ __far __naked static unsigned char *here(void) {
 }
 __far unsigned int fa_where(void) { return (unsigned int)here(); }
 
+/* longjmp out of two overlays: far1 -> far2 -> longjmp to a resident setjmp */
+__far void fa_throw_via_b(void) { fb_throw(); counter = -1; }
+
+/* setjmp in far code: far2 longjmps back here, and far1 must be mapped again
+   (the code after setjmp is this function's) */
+__far int fa_catch(void) {
+    if (setjmp(jb)) return fa_group() == 1 ? 7 : 8;
+    fb_throw();
+    return 9;
+}
+
 __far __naked void fa_filler(void) {
     __asm__("rts");
     __asm__(".res 5000");

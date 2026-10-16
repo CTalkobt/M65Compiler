@@ -258,7 +258,7 @@ Declared in `stdio.h`, implemented in `stdio_cbm.c`, `stdio_kernal.c`, `stdio_di
 
 ## 10. Non-Local Jumps, Assertions, `alloca`
 
-- **`setjmp.h`**: `jmp_buf` is `char[6]`: return address (2 bytes), stack pointer inside `setjmp` (2 bytes) and the frame pointer `$FD/$FE` (2 bytes). `int setjmp(jmp_buf)` returns 0, and the value given to `void longjmp(jmp_buf, int val)` when that restores the context (1 if `val` is 0). Assembly (`lib/stdlib_asm/setjmp.s45`).
+- **`setjmp.h`**: `jmp_buf` is `char[8]`: return address (2 bytes), stack pointer inside `setjmp` (2 bytes), the frame pointer `$FD/$FE` (2 bytes), and for code overlays the depth of their return stack and the overlay in the region (1 byte each; `longjmp` out of overlay calls restores both, mapping or copying that overlay back). `int setjmp(jmp_buf)` returns 0, and the value given to `void longjmp(jmp_buf, int val)` when that restores the context (1 if `val` is 0). Assembly (`lib/stdlib_asm/setjmp.s45`).
 - **`assert.h`**: `assert(expr)` calls `assert_fail(#expr, __FILE__, __LINE__)`, which prints `Assertion failed: <expr> (file <f>, line <n>)` with `printf` and calls `abort()` (`assert_fail_abort`): exit status `$FFFE`, no `atexit` handlers. `assert_msg(expr, msg)` calls `assert_msg_fail(..., msg)`. With `NDEBUG` both are no-ops.
 - **`alloca.h`**: `void *alloca(unsigned)` and `__builtin_alloca`. A constant size is allocated in the frame by the compiler; a variable size uses the runtime routine (`alloca.s45`). A function that calls `alloca` with a variable size uses a stack frame instead of static allocation.
 

@@ -1309,7 +1309,8 @@ fi
 # far2, ...): calls from resident code, between far functions of one overlay
 # and of two, from far code to resident code, static far functions, function
 # pointers both ways, recursion between two overlays, far_malloc filling
-# bank 5 without touching the overlays kept there; both conventions, with
+# bank 5 without touching the overlays kept there, setjmp/longjmp across
+# overlay calls; both conventions, with
 # and without function sections. Then: a far interrupt handler is a link
 # error, the map shows the automatic overlays, objdump45 disassembles them
 for farmode in "zp|$STDLIB|" "stack|$STDLIB_STACK|-fno-zpcall" \
@@ -1325,7 +1326,7 @@ for farmode in "zp|$STDLIB|" "stack|$STDLIB_STACK|-fno-zpcall" \
     if [ $farok = 1 ] && $LD -basic -M $fard/fartest.map -o $fard/fartest.prg $fard/main.o45 $fard/far_a.o45 $fard/far_b.o45 $farlib >/dev/null 2>&1 &&
        ./bin/disk45 create $fard/far.d81 -n FARTEST >/dev/null 2>&1 &&
        ./bin/disk45 add $fard/far.d81 $fard/fartest.ovl FARTEST.OVL >/dev/null 2>&1; then
-        run_xemu_test "test_far_$farname" "$fard/fartest.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA" -8 "$PWD/$fard/far.d81"
+        run_xemu_test "test_far_$farname" "$fard/fartest.prg" "C0C0" 9 "01 01 01 01 01 01 01 01 AA" -8 "$PWD/$fard/far.d81"
     else
         echo "FAIL: __far functions $farname (build or link failed)"
         failed=$((failed + 1))

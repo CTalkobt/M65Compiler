@@ -1553,7 +1553,7 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
             if (!resolveLibraries(errorMsg)) return {};
             forcedUndefined_.clear();
         }
-        for (const char* k : {"__ovl_call", "__ovl_init", "__ovl_sa"})
+        for (const char* k : {"__ovl_call", "__ovl_init", "__ovl_sa", "__ovl_jsave", "__ovl_jrestore"})
             if (std::find(keepSymbols_.begin(), keepSymbols_.end(), k) == keepSymbols_.end()) keepSymbols_.push_back(k);
     }
     if (gcObjectsOn_) {

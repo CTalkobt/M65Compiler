@@ -34,6 +34,8 @@
 .weak __ovl_init
 .weak __ovl_rom_leave
 .weak __ovl_exit
+.weak __ovl_jsave
+.weak __ovl_jrestore
 .weak ___ovl_store_bank
 .weak ___ovl_store_first
 .weak ___ovl_store_last
@@ -250,6 +252,8 @@ __ovl_init:
 ; at exit: none
 __ovl_rom_leave:
 __ovl_exit:
+__ovl_jsave:         ; (setjmp/longjmp: the overlay state, ovl.s45)
+__ovl_jrestore:
     rts
 
 ; __basic_call — run a C function from a BASIC SYS (basic45 --link makes

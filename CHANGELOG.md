@@ -20,6 +20,13 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   chain of calls). New example `examples/c/far_functions` (`far functions`
   on the examples disk). xemu tests in both conventions, with and without function
   sections (`src/test-resources/far/`).
+- `setjmp`/`longjmp` work across code overlay calls: `jmp_buf` grows to 8
+  bytes; `setjmp` saves the overlay return stack's depth and the overlay in
+  the region, and `longjmp` drops the overlay calls it leaves and brings
+  that overlay back (hooks `__ovl_jsave`/`__ovl_jrestore`: `ovl.s45`, empty
+  weak ones in crt0). Before, each `longjmp` out of overlay calls left
+  entries on the 32-deep overlay return stack, and a `longjmp` back into
+  overlay code could run in the wrong overlay.
 - `far_malloc` leaves the code overlays' store alone: ln45 defines where
   the overlay file lies in far memory (`__ovl_store_bank`/`_first`/`_last`)
   and the allocator never hands out that part of its bank (bank 5 by

@@ -5,6 +5,8 @@
 #include "far.h"
 
 int counter;
+jmp_buf jb;
+static unsigned char rounds;
 
 int resident_inc(int x) { return x + 1; }
 
@@ -39,6 +41,13 @@ int main(void) {
         }
         r[6] = n > 0 && fa_add(1, 1) == 2 && fb_mul(3, 3) == 9 && fa_rec(5) == 5;
     }
-    r[7] = 0xAA;
+    /* setjmp/longjmp across overlay calls: 40 rounds of a longjmp out of
+       far1 -> far2 (each would leave two entries on the 32-deep overlay
+       return stack), then a setjmp in far code, longjmp from far2 back */
+    counter = 0;
+    for (rounds = 0; rounds < 40; rounds++)
+        if (!setjmp(jb)) fa_throw_via_b();
+    r[7] = rounds == 40 && counter == 0 && fa_catch() == 7 && fa_add(2, 2) == 4;
+    r[8] = 0xAA;
     return 0;
 }
