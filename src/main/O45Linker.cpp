@@ -2844,7 +2844,7 @@ void O45Linker::mergeLineMaps() {
             if (li.fileIndex < input.obj.lineFiles.size())
                 file = input.obj.lineFiles[li.fileIndex];
             uint32_t addr = textBaseOf(input) + input.remapTextOffset(li.textOffset);
-            mergedLineMap_.push_back({addr, file, (int)li.line});
+            mergedLineMap_.push_back({addr, file, (int)li.line, input.ovl});
         }
     }
     // Sort by address
@@ -2864,7 +2864,9 @@ void O45Linker::writeLineMap(std::ostream& out) const {
         if (!first) out << ",\n";
         out << "  {\"addr\":" << e.address
             << ",\"file\":\"" << e.file
-            << "\",\"line\":" << e.line << "}";
+            << "\",\"line\":" << e.line;
+        if (e.ovl > 0 && e.ovl <= (int)ovlNames_.size()) out << ",\"overlay\":\"" << ovlNames_[e.ovl - 1] << "\"";
+        out << "}";
         prevFile = e.file;
         prevLine = e.line;
         first = false;
@@ -2907,6 +2909,29 @@ void O45Linker::writeMap(std::ostream& out) const {
         out << buf;
     }
     printSeg("ZP", zpBase_, mergedZpLen_);
+    // code overlays: where they run, and where each is kept in far memory
+    // (bank, then the address in the bank)
+    auto far = [](uint32_t a) {
+        char b[24];
+        snprintf(b, sizeof(b), "bank %X $%04X", a >> 16, a & 0xFFFF);
+        return std::string(b);
+    };
+    if (!ovlNames_.empty()) {
+        char buf[200];
+        snprintf(buf, sizeof(buf), "  %-6s $%04X - $%04X  (%zu %s, %s)\n", "OVL", ovlBase_, ovlBase_ + ovlSize_ - 1,
+                 ovlNames_.size(), ovlNames_.size() == 1 ? "overlay" : "overlays",
+                 ovlMap_ ? "mapped: MAP points this window at each" : "copied here by DMA when called");
+        out << buf;
+        for (size_t i = 0; i < ovlNames_.size(); i++) {
+            uint32_t len = (uint32_t)ovlText_[i].size();
+            snprintf(buf, sizeof(buf), "    %-14s kept in %s - $%04X  (%u bytes)\n", ovlNames_[i].c_str(),
+                     far(ovlAt_[i]).c_str(), (ovlAt_[i] + (len ? len - 1 : 0)) & 0xFFFF, len);
+            out << buf;
+        }
+        snprintf(buf, sizeof(buf), "    (file %s, %zu bytes, loaded into %s at start)\n",
+                 ovlFileName_.c_str(), ovlFile_.size(), far(ovlStore_).c_str());
+        out << buf;
+    }
     out << "\n";
 
     if (!discardedObjects_.empty()) {
@@ -2928,9 +2953,17 @@ void O45Linker::writeMap(std::ostream& out) const {
     out << "Object Files\n";
     out << "------------\n";
     for (const auto& input : objects_) {
-        out << "  " << input.filename << "\n";
-        char buf[80];
-        if (input.obj.tlen > 0) {
+        out << "  " << input.filename;
+        if (input.ovl) out << "  [overlay " << ovlNames_[input.ovl - 1] << "]";
+        out << "\n";
+        char buf[120];
+        if (input.obj.tlen > 0 && input.ovl) {
+            uint32_t start = ovlBase_ + input.textOffset, kept = ovlAt_[input.ovl - 1] + input.textOffset;
+            snprintf(buf, sizeof(buf), "    TEXT  $%04X - $%04X  (%u bytes; kept in %s - $%04X)\n",
+                     start, start + input.obj.tlen - 1, input.obj.tlen, far(kept).c_str(),
+                     (kept + input.obj.tlen - 1) & 0xFFFF);
+            out << buf;
+        } else if (input.obj.tlen > 0) {
             uint32_t start = textBase_ + input.textOffset;
             snprintf(buf, sizeof(buf), "    TEXT  $%04X - $%04X  (%u bytes)\n",
                      start, start + input.obj.tlen - 1, input.obj.tlen);
@@ -2965,6 +2998,8 @@ void O45Linker::writeMap(std::ostream& out) const {
     std::vector<std::pair<uint32_t, std::string>> sorted;
     sorted.reserve(globalSymbols_.size());
     for (const auto& [name, addr] : globalSymbols_) {
+        auto o = symOvl_.find(name);
+        if (o != symOvl_.end() && o->second && !ovlStubs_.count(name)) continue;   // (Overlay Symbols)
         sorted.push_back({addr, name});
     }
     std::sort(sorted.begin(), sorted.end());
@@ -3014,6 +3049,17 @@ void O45Linker::writeMap(std::ostream& out) const {
             out << " regs:" << (regs.empty() ? "-" : regs);
             out << "]";
         }
+        // the stub of a function in a code overlay
+        if (ovlStubs_.count(name)) {
+            auto o = symOvl_.find(name);
+            auto ra = realAddr_.find(name);
+            if (o != symOvl_.end() && o->second && ra != realAddr_.end())
+            {
+                char b[64];
+                snprintf(b, sizeof(b), "  [stub: overlay %s, $%04X]", ovlNames_[o->second - 1].c_str(), ra->second);
+                out << b;
+            }
+        }
 
         // Append transitive clobbers if different from direct
         auto transIt = transitiveClobbers_.find(name);
@@ -3050,6 +3096,31 @@ void O45Linker::writeMap(std::ostream& out) const {
         out << "\n";
     }
 
+    // The code overlays' symbols: where they run (the same addresses for every
+    // overlay) and where they are kept
+    if (!ovlNames_.empty()) {
+        out << "\nOverlay Symbols\n";
+        out << "---------------\n";
+        for (size_t i = 0; i < ovlNames_.size(); i++) {
+            std::vector<std::pair<uint32_t, std::string>> os;
+            for (const auto& [n, k] : symOvl_)
+                if (k == (int)i + 1 && n.rfind("cc45.", 0) != 0 && realAddr_.count(n))
+                    os.push_back({realAddr_.at(n), n});
+            std::sort(os.begin(), os.end());
+            out << "  overlay " << ovlNames_[i] << " (" << far(ovlAt_[i]) << ")\n";
+            for (const auto& [a, n] : os) {
+                char buf[200], stub[24] = "";
+                auto srcIt = symbolSource_.find(n);
+                auto st = ovlStubs_.find(n);
+                if (st != ovlStubs_.end()) snprintf(stub, sizeof(stub), "  (stub $%04X)", st->second);
+                snprintf(buf, sizeof(buf), "    $%04X  %-30s %-14s %s%s\n", a, n.c_str(),
+                         far(ovlAt_[i] + (a - ovlBase_)).c_str(),
+                         srcIt != symbolSource_.end() ? srcIt->second.c_str() : "", stub);
+                out << buf;
+            }
+        }
+    }
+
     // Call graph section
     if (!callGraph_.empty()) {
         out << "\nCall Graph\n";
@@ -3069,11 +3140,26 @@ void O45Linker::writeMap(std::ostream& out) const {
         out << "------------\n";
         std::set<std::pair<std::string, int>> seen;
         for (const auto& entry : mergedLineMap_) {
+            if (entry.ovl) continue;   // (Overlay Lines)
             auto key = std::make_pair(entry.file, entry.line);
             if (seen.insert(key).second) {
                 char buf[256];
                 snprintf(buf, sizeof(buf), "  $%04X  %s:%d\n",
                          entry.address, entry.file.c_str(), entry.line);
+                out << buf;
+            }
+        }
+        // (the overlays' lines run at the same addresses: one list per overlay)
+        bool header = false;
+        for (size_t i = 0; i < ovlNames_.size(); i++) {
+            bool first = true;
+            for (const auto& entry : mergedLineMap_) {
+                if (entry.ovl != (int)i + 1) continue;
+                if (!seen.insert(std::make_pair(entry.file, entry.line)).second) continue;
+                if (!header) { out << "\nOverlay Lines\n-------------\n"; header = true; }
+                if (first) { out << "  overlay " << ovlNames_[i] << " (" << far(ovlAt_[i]) << ")\n"; first = false; }
+                char buf[256];
+                snprintf(buf, sizeof(buf), "    $%04X  %s:%d\n", entry.address, entry.file.c_str(), entry.line);
                 out << buf;
             }
         }

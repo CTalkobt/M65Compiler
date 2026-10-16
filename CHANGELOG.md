@@ -34,6 +34,12 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - crt0 calls `__ovl_init` (weak, empty without overlays) after
   `_init_features`, `__ovl_rom_leave` after ROM calls (`__bp_prog`) and
   `__ovl_exit` in `__exit`.
+- The linker map (`-M`) shows where the overlays run and where each is
+  kept (bank and addresses). It lists overlay objects at their run
+  addresses and tags each stub with its overlay. New sections, Overlay
+  Symbols and Overlay Lines, list each overlay's symbols and source lines
+  separately; each symbol shows its run address, where it is kept and
+  its stub.
 - The overlay file ends with a description of its overlays and symbols:
   nm45 lists the symbols at their run addresses with their overlay (`-h`
   the overlays), objdump45 shows a section per overlay (`-f -h -t -s -d`,

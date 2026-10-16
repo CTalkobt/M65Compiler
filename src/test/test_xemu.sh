@@ -1273,11 +1273,19 @@ for ovname in zp zp_map; do
     ./bin/objdump45 -h $ovf 2>&1 | grep -q "^  1 a " &&
     ./bin/objdump45 -d $ovf 2>&1 | grep -q "<_b_mul>:" || ovtools=0
 done
+# the linker map: the overlays kept in bank 5, an overlay object where it
+# runs, a stub tagged with its overlay, the overlays' own symbols
+ovd=build/test/overlay_zp
+$LD -basic -M $ovd/ovltest.map -o $ovd/ovlmap.prg $ovd/main.o45 $ovd/ovl_a.o45 $ovd/ovl_b.o45 $STDLIB >/dev/null 2>&1 &&
+grep -qF 'kept in bank 5 $0000 - ' $ovd/ovltest.map &&
+grep -qF 'ovl_a.o45  [overlay a]' $ovd/ovltest.map &&
+grep -qF '[stub: overlay a, $' $ovd/ovltest.map &&
+grep -qF '  overlay b (bank 5 ' $ovd/ovltest.map || ovtools=0
 if [ $ovtools = 1 ]; then
-    echo "SUCCESS: nm45 and objdump45 read code overlay files"
+    echo "SUCCESS: nm45, objdump45 and the linker map show code overlays"
     passed=$((passed + 1))
 else
-    echo "FAIL: nm45 and objdump45 read code overlay files"
+    echo "FAIL: nm45, objdump45 and the linker map show code overlays"
     failed=$((failed + 1))
 fi
 ovd=build/test/overlay_err

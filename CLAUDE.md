@@ -21,8 +21,8 @@ dependencies (SQLite and FUSE only for disk45):
 - **ca45** — 45GS02 assembler (flat binaries or relocatable `.o45` objects with `-c`)
 - **ln45** — linker (`.o45` objects + `.lib` archives → PRG or flat binary)
 - **ar45** — archiver for `.lib` static libraries
-- **nm45** — symbol/attribute/relocation inspector for `.o45` and `.lib`
-- **objdump45** — object/PRG/binary inspector and disassembler (also BASIC listing with `-bas`)
+- **nm45** — symbol/attribute/relocation inspector for `.o45` and `.lib` (and ln45's `.ovl` overlay files)
+- **objdump45** — object/PRG/binary/`.ovl` inspector and disassembler (also BASIC listing with `-bas`)
 - **basic45** — BASIC 65 program generator (label-based source, PETSCII tokenizer, preprocessor,
   long variable names, block IF / proc, `--link` C functions, `--decompile`, `--disk`, `--emulator`)
 - **disk45** — CBM disk/tape/archive image utility (25 formats, FUSE mount, SQLite catalog)
@@ -72,8 +72,12 @@ Copied by default; `--overlay-map` maps a window of `$4000`-`$7FFF` to each
 overlay instead (only the lower half of MAP: the KERNAL is mapped at $E000;
 the program ends below the window, the heap starts above it; the KERNAL's
 current map at `$011C` is kept in step). Data/BSS stay resident; no
-`__interrupt` in an overlay. Example `examples/c/overlays`, test
-`src/test-resources/overlay/`.
+`__interrupt` in an overlay. The `.ovl` file ends with a description of the
+overlays and their symbols (`include/O45OverlayFile.hpp`), which nm45 and
+objdump45 read; the `-M` map shows each overlay's bank and its symbols and
+lines per overlay. Examples `examples/c/overlays` and
+`examples/c/mapped_overlays` (checks MAP really runs the code in bank 5),
+test `src/test-resources/overlay/`.
 
 ### Calling Conventions (details: `doc/architecture/calling-conventions.md`)
 

@@ -376,6 +376,7 @@ public:
         uint32_t address;
         std::string file;
         int line;
+        int ovl = 0;          // the code overlay it is in (its address is where it runs)
     };
 
 private:
