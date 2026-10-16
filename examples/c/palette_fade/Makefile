@@ -26,7 +26,7 @@ DISASM_ASM = palette_fade_asm.asm
 all: $(TARGET)
 
 palette_fade.o45: palette_fade.c
-	$(CC45) -Rcodegen -fzpcall $(INCLUDES) -c palette_fade.c -o palette_fade.o45
+	$(CC45) -O2 -Rcodegen -fzpcall $(INCLUDES) -c palette_fade.c -o palette_fade.o45
 
 palette_fade_asm.o45: palette_fade_asm.s45
 	$(CA45) -c palette_fade_asm.s45 -o palette_fade_asm.o45

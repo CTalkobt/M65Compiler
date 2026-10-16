@@ -1,8 +1,23 @@
 # M65 Compiler Suite Roadmap: v1.0 → v2.0
 
-**Current Status:** v1.0.6
-**Last Updated:** 2026-10-14
+**Current Status:** v1.1.0
+**Last Updated:** 2026-10-16
 **Maintainer:** Craig Taylor (CTalkobt)
+
+> The milestones below (v1.1 to v1.4, v2.0) group features; they shipped
+> in the 1.0.x releases as they were done. Releases: CHANGELOG.md.
+
+---
+
+## v1.1.0 Release (2026-10-16)
+
+- [x] Code overlays: `#pragma cc45 overlay(name)` / `-foverlay`, copied into a region or mapped into a window (`--overlay-map`), stubs, `__ovl_call` runtime, overlay file loaded into bank 5
+- [x] `__far` functions: automatic mapped overlays packed by the call graph
+- [x] Overlay safety: interrupt handlers may not reach overlay code (link error); `setjmp`/`longjmp` across overlay calls; `far_malloc` spares the overlay store
+- [x] nm45 / objdump45 read `.ovl` files; the linker map shows banks, stubs, overlay symbols and lines
+- [x] Standard library parts rewritten in assembly (conio, scanf engine, strtol/strtoul, strtok, qsort/bsearch, clock, rand)
+- [x] Examples: overlays, mapped_overlays, far_functions; invaders title screen; `-O2` in every example Makefile
+- [x] Tests: 295 xemu runtime tests, GCC torture 552 in each convention
 
 ---
 
@@ -22,9 +37,9 @@
 - [x] mega65.h hardware register overlays complete (VIC-IV, SID, CIA, DMA, math accel, audio mixer, FDC, SD, Ethernet, Hypervisor)
 - [x] Calling convention enforcement implemented (FUNC_FLAG_ZP_CONV bit, linker safety checks, thunk generation)
 - [x] _Alignas support Phase 1 complete (alignment computation, .align directives)
-- [ ] Final QA on target hardware (MEGA65 emulator) ← In progress
-- [ ] Release notes finalized
-- [ ] Man pages generated (optional, requires pandoc)
+- [ ] Final QA on real MEGA65 hardware (the runtime tests run on xemu)
+- [x] Release notes finalized (CHANGELOG.md)
+- [x] Man pages generated (`make man`, requires pandoc)
 
 ### Recent fixes (rc3)
 
@@ -105,6 +120,7 @@
 | Banked segment support (Phase 99) | linker | **done** |
 | Position-Independent Code (PIC) | codegen, linker | **n/a** (45GS02 lacks PC-relative data modes; `.o45` relocation covers practical needs) |
 | `.import binary` / `.incbin` assembler directive | asm | **done** |
+| Code overlays (copied, mapped) and `__far` functions | linker, codegen | **done** (v1.1.0) |
 
 ---
 
@@ -113,7 +129,7 @@
 | Task | Category | Status |
 |------|----------|--------|
 | `long long` / `unsigned long long` (64-bit) | parser, codegen | **done** (maps to `struct __int64` + `__intN_*` runtime) |
-| Variable-Length Arrays (VLA) | parser, codegen | todo |
+| Variable-Length Arrays (VLA) | parser, codegen | **done** (stack allocation through `alloca`) |
 | Inter-TU optimization (Phase 4) | optimizer | **partial** (Phase 91/96.5/99/100 cross-module done; header annotations deferred) |
 | Assembler peephole optimizer (Phase 5) | asm | **done** (AssemblerOptimizer + MachineState tracking) |
 | `mega65.h` platform library | stdlib | **done** (VIC-IV, SID, CIA, DMA, math accel, audio, FDC, SD, Ethernet, Hypervisor, keyboard) |

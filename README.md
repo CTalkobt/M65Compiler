@@ -1,4 +1,4 @@
-# Mega65 C Compiler Suite v1.0.6
+# Mega65 C Compiler Suite v1.1.0
 
 Source, issues and releases: <https://github.com/CTalkobt/M65Compiler>
 
@@ -8,8 +8,8 @@ A modern development toolchain for the MEGA65 (45GS02) home computer. It consist
 - **ca45** — 45GS02 assembler (assembly to binary or `.o45` relocatable objects)
 - **ln45** — Linker (links `.o45` objects and `.lib` archives into flat binaries or PRG executables)
 - **ar45** — Archiver (creates `.lib` static library archives from `.o45` objects)
-- **nm45** — Symbol lister for `.o45` / `.o65` object files
-- **objdump45** — Object file inspector and 45GS02 disassembler
+- **nm45** — Symbol lister for `.o45` / `.o65` object files (and ln45's `.ovl` overlay files)
+- **objdump45** — Object file inspector and 45GS02 disassembler (objects, PRGs, binaries, `.ovl` files)
 - **cp45** — C preprocessor (standalone)
 - **disk45** — CBM disk, tape and archive image utility (D64/D71/D81/D65 and 20 more formats)
 - **basic45** — BASIC 65 program generator (label-based source to a tokenized `.prg`)
@@ -70,6 +70,23 @@ convention (and `c45_stack.lib`).
 ```
 `ln45 -basic` writes the BASIC `SYS` line and links `crt0` from the library;
 `-m` prints a symbol map. `CC45_LIB` lets ln45 find libraries named with `-l`.
+
+### Programs larger than bank 0: code overlays and `__far`
+```c
+__far int checksum(const char *p, int n) { ... }   /* kept in far memory (bank 5) */
+```
+```bash
+./bin/cc45 -O2 -c main.c -o main.o45
+./bin/cc45 -O2 -c tools.c -o tools.o45       # __far functions, or #pragma cc45 overlay(name)
+./bin/ln45 -basic -M app.map -o app.prg main.o45 tools.o45 lib/build/c45.lib   # also writes app.ovl
+./bin/disk45 create app.d81 && ./bin/disk45 add app.d81 app.prg APP && ./bin/disk45 add app.d81 app.ovl APP.OVL
+```
+The program loads `APP.OVL` into far memory at start; a call into far code
+goes through a resident stub that maps the code into a window
+(`--overlay-map`; `__far` code always) or copies it into a region. See
+[cc45: Code Overlays](doc/bin/cc45.md#code-overlays) and
+[ln45: Code Overlays](doc/bin/ln45.md#code-overlays); examples in
+`examples/c/overlays`, `mapped_overlays` and `far_functions`.
 
 ### Inspecting
 ```bash

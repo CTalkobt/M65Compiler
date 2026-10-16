@@ -20,7 +20,7 @@ TARGET = vic4_colors.prg
 all: $(TARGET)
 
 main.o45: main.c
-	$(CC45) $(INCLUDES) -c main.c -o main.o45
+	$(CC45) -O2 $(INCLUDES) -c main.c -o main.o45
 
 $(TARGET): main.o45 $(STDLIB)
 	$(LN45) -basic -M vic4_colors.map -o $(TARGET) main.o45 $(STDLIB)

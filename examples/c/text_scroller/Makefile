@@ -24,7 +24,7 @@ OBJS = main.o45 scroll_hw.o45
 all: $(TARGET)
 
 main.o45: main.c
-	$(CC45) $(INCLUDES) -c main.c -o main.o45
+	$(CC45) -O2 $(INCLUDES) -c main.c -o main.o45
 
 scroll_hw.o45: scroll_hw.s45
 	$(CA45) -c scroll_hw.s45 -o scroll_hw.o45

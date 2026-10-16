@@ -21,7 +21,7 @@ TARGET = convert.prg
 all: $(TARGET)
 
 convert.o45: convert.c
-	$(CC45) $(INCLUDES) -c convert.c -o convert.o45
+	$(CC45) -O2 $(INCLUDES) -c convert.c -o convert.o45
 
 $(TARGET): convert.o45 $(CRT0) $(STDLIB)
 	$(LN45) -basic -o $(TARGET) $(CRT0) convert.o45 $(STDLIB)

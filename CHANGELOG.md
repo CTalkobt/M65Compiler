@@ -2,17 +2,17 @@
 
 All notable changes to the cc45 / ca45 suite will be documented in this file.
 
-## [Unreleased]
+## [v1.1.0] - 2026-10-16
 
-### Examples
-
-- invaders: a title screen (the name in block letters in cycling colours,
-  the score table typed out with the aliens marching in place and the UFO
-  sprite, the high score, the controls); after about 5 seconds without
-  input the attract mode plays for about 20 seconds, then the title comes
-  back. The sprite images moved to bank 4 (16-bit pointers reach all chip
-  RAM), which keeps room for the heap `fopen` needs at `-O2`; the Makefile
-  builds with `-O2` explicitly.
+Programs can be larger than bank 0: code overlays (`#pragma cc45
+overlay(name)`, copied into a region or mapped into a window with MAP) and
+`__far` functions (kept in far memory and mapped in when called, packed by
+the call graph), with their file inspected by nm45 and objdump45 and shown
+in the linker map. Much of the standard library was rewritten in assembly
+(conio, the scanf engine, strtol/strtoul, strtok, qsort/bsearch, clock,
+rand); cc45 generates smaller code for constant addresses and byte joins;
+ca45, ln45 and cp45 fixes. xemu runtime tests 220 → 295, GCC torture tests
+537 → 552 in each convention. Details: `doc/bin/*.md`, `doc/architecture/`.
 
 ### cp45
 
@@ -442,6 +442,16 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   checked again as four quadrants. The opening view renders in 343 frames
   (was 604), the same picture.
 
+- invaders: a title screen (the name in block letters in cycling colours,
+  the score table typed out with the aliens marching in place and the UFO
+  sprite, the high score, the controls); after about 5 seconds without
+  input the attract mode plays for about 20 seconds, then the title comes
+  back. The sprite images moved to bank 4 (16-bit pointers reach all chip
+  RAM), which keeps room for the heap `fopen` needs at `-O2`.
+- New `overlays`, `mapped_overlays` and `far_functions` (code overlays,
+  copied and mapped, and `__far` functions; on the examples disk).
+- Every example Makefile passes `-O2` explicitly: a personal `cc45.conf`
+  no longer changes how an example is built.
 - New `far_scroller` (a map in bank 4 scrolled with DMA, parallax).
 - New `invaders`: a Space Invaders game (object extensions, a DMA-copied
   character set, 16-colour sprites, SID sound, joystick/keyboard); the
@@ -483,10 +493,11 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### Tests
 
-- xemu runtime tests 220 → 236 (stdio, element offsets, aligned objects,
-  SeqExtract, far DMA, far pointers, parser fixes, library regressions); signedness warnings;
-  all examples in `test_examples.sh`. GCC torture tests: 537 in each
-  convention.
+- xemu runtime tests 220 → 295 (stdio, element offsets, aligned objects,
+  SeqExtract, far DMA, far pointers, parser fixes, library regressions,
+  scanf, code overlays and `__far` functions in both conventions);
+  signedness warnings; all examples in `test_examples.sh`. GCC torture
+  tests: 552 in each convention.
 
 ## [v1.0.6] - 2026-10-14
 

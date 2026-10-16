@@ -28,7 +28,7 @@ OBJECTS = $(SOURCES:.c=.o45)
 all: $(TARGET)
 
 %.o45: %.c util.h
-	$(CC45) $(INCLUDES) -c $< -o $@
+	$(CC45) -O2 $(INCLUDES) -c $< -o $@
 
 $(TARGET): $(OBJECTS) $(STDLIB)
 	$(LN45) -basic -o $(TARGET) $(CRT0) $(OBJECTS) $(STDLIB)

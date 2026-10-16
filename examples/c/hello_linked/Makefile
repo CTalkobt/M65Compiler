@@ -23,7 +23,7 @@ TARGET = hello.prg
 all: $(TARGET)
 
 main.o45: main.c
-	$(CC45) $(INCLUDES) -c main.c -o main.o45
+	$(CC45) -O2 $(INCLUDES) -c main.c -o main.o45
 
 $(TARGET): main.o45 $(CRT0) $(STDLIB)
 	$(LN45) -basic -o $(TARGET) $(CRT0) main.o45 $(STDLIB)

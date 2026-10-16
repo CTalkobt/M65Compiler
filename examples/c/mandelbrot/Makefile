@@ -20,7 +20,7 @@ OBJS = main.o45 mandel_asm.o45
 all: $(TARGET)
 
 main.o45: main.c
-	$(CC45) $(INCLUDES) -c main.c -o main.o45
+	$(CC45) -O2 $(INCLUDES) -c main.c -o main.o45
 
 mandel_asm.o45: mandel_asm.s45
 	$(CA45) -c mandel_asm.s45 -o mandel_asm.o45

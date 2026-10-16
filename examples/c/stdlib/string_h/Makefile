@@ -22,7 +22,7 @@ TARGETS = $(addsuffix .prg,$(TESTS))
 all: $(TARGETS)
 
 %.o45: %.c
-	$(CC45) $(INCLUDES) -c $< -o $@
+	$(CC45) -O2 $(INCLUDES) -c $< -o $@
 
 %.prg: %.o45 $(CRT0) $(STDLIB)
 	$(LN45) -basic -o $@ $(CRT0) $< $(STDLIB)
