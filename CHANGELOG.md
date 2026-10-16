@@ -157,6 +157,12 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### Standard library
 
+- **The scanf engine in assembly** (`stdlib_asm/scanf_core.s45`): 4.8 KB →
+  1.7 KB; a program using `sscanf("%d")` 9972 → 6794 bytes. Its callbacks
+  (`__scan_getc`, `__scan_ungetc`, `__scan_float`) are `__fastcall__`, so no
+  bridge thunks in the stack library. New `test_scanf_xemu.c`: integers and
+  their prefixes, sizes (`hh`…`ll`, `%n`), widths, sets, suppression, the
+  counts returned, floats (the same results as the C engine gave).
 - **More of the library in assembly**: `clock` (222 → 32 bytes), `rand` /
   `srand` (336 → 114; the LCG's multiply on the hardware multiplier),
   `strtoul` / `strtol` (1733 → 677), `strtok` / `strtok_r` (584 → 136),

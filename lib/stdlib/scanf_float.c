@@ -21,7 +21,7 @@ static int sc_is_e(int c) {
 
 /* [sign] digits [. digits] [e [sign] digits], at most width characters,
  * into *dest (not stored when dest is NULL); 1 when a number was read */
-int __scan_float(struct __scan_src *s, int width, float *dest) {
+__fastcall__ int __scan_float(struct __scan_src *s, int width, float *dest) {
     char buf[40];
     int n = 0, digits = 0;
     int ch = sc_peek(s);

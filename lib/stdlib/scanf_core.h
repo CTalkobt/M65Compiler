@@ -1,6 +1,6 @@
 /* scanf_core.h — the scanf engine's interface (library-private)
  *
- * __vscanf_core reads a string (file NULL) or a FILE through __scan_getc /
+ * __vscanf_core (assembly: stdlib_asm/scanf_core.s45) reads a string (file NULL) or a FILE through __scan_getc /
  * __scan_ungetc: the engine's weak versions read only strings, stdio_format.c
  * (linked by fscanf and friends) has strong ones that also read a FILE, so
  * sscanf alone does not link the FILE code. %f %e %g go to __scan_float:
@@ -24,9 +24,11 @@ struct __scan_src {
     int count;                  /* characters consumed (%n) */
 };
 
-int __scan_getc(struct __scan_src *s);
-void __scan_ungetc(struct __scan_src *s, int c);
-int __scan_float(struct __scan_src *s, int width, float *dest);
+/* (__fastcall__: the engine, in assembly, calls them in the ZP convention in
+   both libraries) */
+__fastcall__ int __scan_getc(struct __scan_src *s);
+__fastcall__ void __scan_ungetc(struct __scan_src *s, int c);
+__fastcall__ int __scan_float(struct __scan_src *s, int width, float *dest);
 
 static inline int sc_peek(struct __scan_src *s) {
     if (s->la == SC_NONE) s->la = __scan_getc(s);
@@ -38,4 +40,5 @@ static inline void sc_next(struct __scan_src *s) {
     s->count++;
 }
 
-int __vscanf_core(FILE *file, const char *str, const char *fmt, va_list ap);
+/* stdlib_asm/scanf_core.s45 */
+__fastcall__ int __vscanf_core(FILE *file, const char *str, const char *fmt, va_list ap);

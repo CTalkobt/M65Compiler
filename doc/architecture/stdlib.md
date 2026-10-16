@@ -210,10 +210,10 @@ These (and every other ROM call in the library) are bracketed with `__bp_rom`/`_
 
 ### Formatted input
 
-`sscanf`/`vsscanf` (a string), `fscanf`/`vfscanf` (a `FILE`) and `scanf`/`vscanf` (`stdin`) share one engine (`lib/stdlib/scanf_core.c`):
+`sscanf`/`vsscanf` (a string), `fscanf`/`vfscanf` (a `FILE`) and `scanf`/`vscanf` (`stdin`) share one engine, in assembly (`lib/stdlib_asm/scanf_core.s45`, 1.7 KB; the C version was 4.8 KB):
 - Conversions `d i u o x X p c s [set] [^set] n %`, and `f e g` (upper case too) with the float scanf below; field widths; `*` (read but not assigned); length modifiers `hh h l ll L j z t` (`ll` stores 8 bytes, the upper four the sign). `%i` takes `0x` (hex) and `0` (octal) prefixes, `%x` a `0x` or CBM `$` prefix; letters are digits in either case (`'A'` in cc45 source is `$61`, shifted keys `$C1`–`$DA`). `%c` reads exactly its width (default 1) without skipping whitespace; `%s` reads a whitespace-delimited word; `%[` a run of the set (`]` first and `a-z` ranges allowed).
 - Whitespace in the format matches any amount of input whitespace; other characters must match. Returns the number of items assigned, or `EOF` when the input ends before the first conversion. On a `FILE`, the character after the input used is pushed back with `ungetc`.
-- The engine reads through `__scan_getc`/`__scan_ungetc`: weak string-only versions (`scanf_str.c`), replaced by `stdio_format.c`'s FILE-capable ones when `fscanf` and friends are linked, so `sscanf` alone links no FILE code. No call goes through a pointer.
+- The engine reads through `__scan_getc`/`__scan_ungetc`: weak string-only versions (`scanf_str.c`), replaced by `stdio_format.c`'s FILE-capable ones when `fscanf` and friends are linked, so `sscanf` alone links no FILE code. No call goes through a pointer. These and `__scan_float` are `__fastcall__` (`scanf_core.h`), so the engine calls them in the ZP convention in both libraries; it keeps its state (and the `struct __scan_src` it passes them) in BSS, so it is not reentrant. Tested by `test_scanf_xemu.c`.
 - Floats, like printf: `%f %e %g` call `__scan_float`, a weak stub (a matching failure) unless `scanf_float.c` is linked. cc45 references it (`_scanf_float`) when a `scanf`, `fscanf` or `sscanf` call passes a `float *`/`double *`, or when a unit with float code calls `vscanf`, `vfscanf` or `vsscanf`; it then reads `[sign] digits [. digits] [e [sign] digits]` and converts with `strtof`.
 
 ### FILE streams

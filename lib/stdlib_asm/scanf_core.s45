@@ -1,0 +1,908 @@
+; scanf_core.s45 — the scanf engine behind sscanf/vsscanf and fscanf/vfscanf
+;
+;   int __vscanf_core(FILE *file, const char *str, const char *fmt,
+;                     va_list ap)                  $10, $12, $14, $16
+;
+; Reads characters through __scan_getc / __scan_ungetc (a string, or a FILE
+; with stdio_format.c's strong versions) with one character of lookahead,
+; which is pushed back at the end (ungetc for a FILE). The source is a
+; struct __scan_src (scanf_core.h) in BSS: file, str, la (the lookahead:
+; -2 none, -1 EOF), count (characters consumed, for %n).
+;
+; Conversions: %d %i %u %o %x %X %p %c %s %[set] %[^set] %n %%, and %f %e %g
+; %a (upper case too) through __scan_float (scanf_float.c, else a matching
+; failure); field width; '*' (assignment suppression); length modifiers hh h
+; l ll L j z t (ll stores 8 bytes, the upper 4 the sign). %x also accepts
+; CBM's '$' prefix. Letters are digits in any case and in either PETSCII
+; letter range. The format's characters are PETSCII as cc45 writes C text:
+; 'd' is $44, 'D' $64.
+;
+; Returns the number of items assigned, or EOF when the input ended before
+; the first conversion. The callbacks are __fastcall__ (scanf_core.h) and
+; may change any base-page byte below the register pool: the state is in
+; BSS. Not reentrant.
+
+.global ___vscanf_core
+.extern ___scan_getc, ___scan_ungetc, ___scan_float
+
+SC_NONE_LO = $FE        ; la: -2 (not read yet), -1 EOF
+
+.segment "bss"
+sc_src:                 ; struct __scan_src
+sc_file:    .res 2
+sc_str:     .res 2
+sc_la:      .res 2
+sc_count:   .res 2
+sc_fmt:     .res 2
+sc_ap:      .res 2
+sc_assigned: .res 1
+sc_converted: .res 1
+sc_infail:  .res 1
+sc_suppress: .res 1
+sc_width:   .res 2
+sc_size:    .res 1
+sc_conv:    .res 1
+sc_lc:      .res 1
+sc_base:    .res 1
+sc_neg:     .res 1
+sc_got:     .res 1
+sc_val:     .res 4
+sc_dest:    .res 2
+sc_n:       .res 2
+sc_t:       .res 1
+sc_hi:      .res 1
+sc_set:     .res 32
+sc_setneg:  .res 1
+
+.segment "code"
+sc_bits:    .byte 1, 2, 4, 8, 16, 32, 64, 128
+
+proc ___vscanf_core
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $10
+    sta sc_file
+    lda $11
+    sta sc_file+1
+    lda $12
+    sta sc_str
+    lda $13
+    sta sc_str+1
+    lda $14
+    sta sc_fmt
+    lda $15
+    sta sc_fmt+1
+    lda $16
+    sta sc_ap
+    lda $17
+    sta sc_ap+1
+    lda #SC_NONE_LO
+    sta sc_la
+    lda #$FF
+    sta sc_la+1
+    lda #0
+    sta sc_count
+    sta sc_count+1
+    sta sc_assigned
+    sta sc_converted
+    sta sc_infail
+
+@loop:
+    ldy #0
+    jsr @fy
+    bne @fchar
+    jmp @done
+@fchar:
+    jsr @isspace
+    bcc @notspace
+    jsr @skipws         ; white space in the format: any amount in the input
+    jsr @finc
+    bra @loop
+@notspace:
+    cmp #$25            ; '%'
+    bne @literal
+    ldy #1
+    jsr @fy
+    cmp #$25
+    bne @conv
+    jsr @finc           ; "%%": white space, then a '%'
+    jsr @skipws
+@literal:
+    jsr @peek
+    bcs @eof
+    sta sc_t
+    ldy #0
+    jsr @fy
+    cmp sc_t
+    beq @litok
+    jmp @done           ; a mismatch
+@litok:
+    jsr @next
+    jsr @finc
+    bra @loop
+@eof:
+    lda #1
+    sta sc_infail
+    jmp @done
+
+@conv:
+    jsr @finc
+    lda #0
+    sta sc_suppress
+    sta sc_width
+    sta sc_width+1
+    lda #2
+    sta sc_size
+    ldy #0
+    jsr @fy
+    cmp #$2A            ; '*'
+    bne @wdig
+    inc sc_suppress
+    jsr @finc
+@wdig:
+    ldy #0
+    jsr @fy
+    sec
+    sbc #$30
+    cmp #10
+    bcs @lenmod
+    pha                 ; width = width * 10 + digit: * 8 + * 2
+    lda sc_width
+    asl a
+    sta sc_t
+    lda sc_width+1
+    rol a
+    sta sc_hi           ; sc_hi:sc_t = width * 2
+    lda sc_t
+    asl a
+    sta sc_width
+    lda sc_hi
+    rol a
+    sta sc_width+1
+    asl sc_width
+    rol sc_width+1      ; width * 8
+    lda sc_width
+    clc
+    adc sc_t
+    sta sc_width
+    lda sc_width+1
+    adc sc_hi
+    sta sc_width+1
+    pla
+    clc
+    adc sc_width
+    sta sc_width
+    bcc @wnext
+    inc sc_width+1
+@wnext:
+    jsr @finc
+    bra @wdig
+@lenmod:
+    ldy #0
+    jsr @fy
+    cmp #$48            ; 'h'
+    bne @lm_l
+    lda #2
+    sta sc_size
+    ldy #1
+    jsr @fy
+    cmp #$48
+    bne @lm_one
+    lda #1              ; hh
+    sta sc_size
+    bra @lm_two
+@lm_l:
+    cmp #$4C            ; 'l'
+    bne @lm_big
+    lda #4
+    sta sc_size
+    ldy #1
+    jsr @fy
+    cmp #$4C
+    bne @lm_one
+    lda #8              ; ll
+    sta sc_size
+@lm_two:
+    jsr @finc
+@lm_one:
+    jsr @finc
+    bra @lenmod
+@lm_big:
+    ldx #4
+    cmp #$6C            ; 'L'
+    beq @lm_set
+    cmp #$4A            ; 'j'
+    beq @lm_set
+    ldx #2
+    cmp #$5A            ; 'z'
+    beq @lm_set
+    cmp #$54            ; 't'
+    bne @convchar
+@lm_set:
+    stx sc_size
+    bra @lm_one
+@convchar:
+    sta sc_conv
+    cmp #0
+    bne @hasconv
+    jmp @done
+@hasconv:
+    jsr @finc
+    lda sc_conv         ; the lower-case letter ('D' and 'd' are the same)
+    cmp #$61
+    bcc @lc
+    cmp #$7B
+    bcs @lc_c1
+    sec
+    sbc #$20
+    bra @lc
+@lc_c1:
+    cmp #$C1
+    bcc @lc
+    cmp #$DB
+    bcs @lc
+    sec
+    sbc #$80
+@lc:
+    sta sc_lc
+
+    lda sc_conv
+    cmp #$4E            ; 'n': the characters read so far
+    bne @notn
+    lda sc_suppress
+    bne @jloop
+    lda sc_count
+    sta sc_val
+    lda sc_count+1
+    sta sc_val+1
+    lda #0
+    sta sc_val+2
+    sta sc_val+3
+    sta sc_neg
+    jsr @store_int
+@jloop:
+    jmp @loop
+@notn:
+    lda sc_lc
+    cmp #$43            ; 'c' and '[' do not skip white space
+    beq @noskip
+    lda sc_conv
+    cmp #$5B
+    beq @noskip
+    jsr @skipws
+@noskip:
+    jsr @peek
+    bcc @have
+    jmp @eof
+@have:
+    lda sc_width
+    ora sc_width+1
+    bne @widthset
+    lda #1              ; %c: 1, else no limit
+    ldx #0
+    ldy sc_lc
+    cpy #$43
+    beq @wset
+    lda #$FF
+    ldx #$7F
+@wset:
+    sta sc_width
+    stx sc_width+1
+@widthset:
+    lda sc_lc
+    ldx #10
+    cmp #$44            ; 'd'
+    beq @int
+    cmp #$55            ; 'u'
+    beq @int
+    ldx #0
+    cmp #$49            ; 'i'
+    beq @int
+    ldx #8
+    cmp #$4F            ; 'o'
+    beq @int
+    ldx #16
+    cmp #$58            ; 'x'
+    beq @int
+    cmp #$50            ; 'p'
+    beq @int
+    cmp #$43
+    bne @notc
+    jmp @char
+@notc:
+    cmp #$53            ; 's'
+    bne @nots
+    jmp @str
+@nots:
+    lda sc_conv
+    cmp #$5B            ; '['
+    bne @notset
+    jmp @str
+@notset:
+    lda sc_lc
+    cmp #$46            ; 'f'
+    beq @float
+    cmp #$45            ; 'e'
+    beq @float
+    cmp #$47            ; 'g'
+    beq @float
+    cmp #$41            ; 'a'
+    beq @float
+    jmp @done           ; an unknown conversion
+
+; ---- %f %e %g %a: __scan_float(&src, width, dest) ----
+@float:
+    jsr @destarg
+    lda #<sc_src
+    sta $10
+    lda #>sc_src
+    sta $11
+    lda sc_width
+    sta $12
+    lda sc_width+1
+    sta $13
+    lda sc_dest
+    sta $14
+    lda sc_dest+1
+    sta $15
+    jsr ___scan_float
+    stx sc_t
+    ora sc_t
+    bne @fok
+    jmp @done
+@fok:
+    lda sc_dest         ; assigned when stored
+    ora sc_dest+1
+    beq @fcount
+    jmp @assigned
+@fcount:
+    jmp @counted
+
+; ---- integers ----
+@int:
+    stx sc_base
+    lda #0
+    sta sc_neg
+    sta sc_got
+    sta sc_val
+    sta sc_val+1
+    sta sc_val+2
+    sta sc_val+3
+    jsr @wz
+    beq @digits
+    jsr @peek
+    cmp #$2B            ; '+'
+    beq @sign
+    cmp #$2D            ; '-'
+    bne @prefix
+    inc sc_neg
+@sign:
+    jsr @next
+    jsr @wdec
+@prefix:
+    jsr @wz
+    beq @digits
+    lda sc_base
+    cmp #16
+    bne @zero
+    jsr @peek
+    cmp #$24            ; '$'
+    bne @zero
+    jsr @next
+    jsr @wdec
+    bra @digits
+@zero:
+    lda sc_base
+    beq @zero2
+    cmp #16
+    bne @digits
+@zero2:
+    jsr @peek
+    cmp #$30            ; '0'
+    bne @digits
+    jsr @next
+    jsr @wdec
+    lda #1
+    sta sc_got
+    jsr @wz
+    beq @oct
+    jsr @peek
+    cmp #$58            ; 'x' in any encoding
+    beq @hex
+    cmp #$78
+    beq @hex
+    cmp #$D8
+    bne @oct
+@hex:
+    jsr @next
+    jsr @wdec
+    lda #16
+    sta sc_base
+    bra @digits
+@oct:
+    lda sc_base
+    bne @digits
+    lda #8
+    sta sc_base
+@digits:
+    lda sc_base
+    bne @dloop
+    lda #10
+    sta sc_base
+@dloop:
+    jsr @wz
+    beq @dend
+    jsr @peek
+    jsr @digit
+    cmp sc_base
+    bcs @dend
+    pha                 ; v = v * base + digit (the hardware multiplier)
+    ldq sc_val
+    stq $D770
+    lda sc_base
+    sta $D774
+    lda #0
+    sta $D775
+    sta $D776
+    sta $D777
+@mbusy:
+    bit $D70F
+    bvs @mbusy
+    pla
+    clc
+    adc $D778
+    sta sc_val
+    lda $D779
+    adc #0
+    sta sc_val+1
+    lda $D77A
+    adc #0
+    sta sc_val+2
+    lda $D77B
+    adc #0
+    sta sc_val+3
+    jsr @next
+    jsr @wdec
+    lda #1
+    sta sc_got
+    bra @dloop
+@dend:
+    lda sc_got
+    bne @gotnum
+    jmp @done
+@gotnum:
+    lda sc_neg
+    beq @pos
+    ldq sc_val
+    negq
+    stq sc_val
+@pos:
+    lda sc_suppress
+    bne @counted
+    lda sc_lc
+    cmp #$50            ; %p: a pointer
+    bne @isize
+    lda #2
+    sta sc_size
+@isize:
+    jsr @store_int
+@assigned:
+    inc sc_assigned
+@counted:
+    inc sc_converted
+    jmp @loop
+
+; ---- %c: width characters, no terminator ----
+@char:
+    jsr @destarg
+    lda #0
+    sta sc_n
+    sta sc_n+1
+@cloop:
+    jsr @n_lt_width
+    bcs @cend
+    jsr @peek
+    bcs @cshort
+    jsr @put
+    jsr @next
+    jsr @ninc
+    bra @cloop
+@cshort:
+    lda #1
+    sta sc_infail
+    jmp @done
+@cend:
+    lda sc_dest
+    ora sc_dest+1
+    bne @assigned
+    bra @counted
+
+; ---- %s and %[set] ----
+@str:
+    lda sc_conv
+    cmp #$5B
+    bne @sdest
+    ; the set: 256 bits
+    lda #0
+    sta sc_setneg
+    ldx #31
+@clr:
+    sta sc_set,x
+    dex
+    bpl @clr
+    ldy #0
+    jsr @fy
+    cmp #$5E            ; '^'
+    bne @first
+    inc sc_setneg
+    jsr @finc
+@first:
+    ldy #0
+    jsr @fy
+    cmp #$5D            ; ']' first: one of the set
+    bne @members
+    jsr @setbit
+    jsr @finc
+@members:
+    ldy #0
+    jsr @fy
+    beq @setend
+    cmp #$5D
+    beq @setclose
+    sta sc_t            ; lo
+    sta sc_hi           ; hi
+    ldy #1
+    jsr @fy
+    cmp #$2D            ; a range lo-hi (not before ']' or the end)
+    bne @range
+    ldy #2
+    jsr @fy
+    beq @range
+    cmp #$5D
+    beq @range
+    sta sc_hi
+    jsr @finc
+    jsr @finc
+@range:
+    lda sc_t
+    cmp sc_hi
+    beq @rlast
+    bcs @rnext          ; lo > hi: nothing
+@rloop:
+    lda sc_t
+    jsr @setbit
+    lda sc_t
+    cmp sc_hi
+    beq @rnext
+    inc sc_t
+    bra @rloop
+@rlast:
+    jsr @setbit
+@rnext:
+    jsr @finc
+    bra @members
+@setclose:
+    jsr @finc
+@setend:
+@sdest:
+    jsr @destarg
+    lda #0
+    sta sc_n
+    sta sc_n+1
+@sloop:
+    jsr @n_lt_width
+    bcs @send
+    jsr @peek
+    bcs @send           ; EOF
+    sta sc_t
+    lda sc_conv
+    cmp #$5B
+    bne @sspace
+    lda sc_t            ; in the set (or not, for ^)
+    lsr a
+    lsr a
+    lsr a
+    tax
+    lda sc_t
+    and #7
+    tay
+    lda sc_set,x
+    and sc_bits,y
+    beq @notin
+    lda #1
+@notin:
+    cmp sc_setneg
+    beq @send
+    bra @sput
+@sspace:
+    lda sc_t
+    jsr @isspace
+    bcs @send
+@sput:
+    lda sc_t
+    jsr @put
+    jsr @next
+    jsr @ninc
+    bra @sloop
+@send:
+    lda sc_n
+    ora sc_n+1
+    bne @sgot
+    jmp @done
+@sgot:
+    lda sc_dest
+    ora sc_dest+1
+    beq @counted
+    lda #0              ; the terminator
+    jsr @put
+    jmp @assigned
+
+; ---- the end: the lookahead back to the source ----
+@done:
+    lda sc_la+1
+    bne @noback         ; none, or EOF
+    lda #<sc_src
+    sta $10
+    lda #>sc_src
+    sta $11
+    lda sc_la
+    sta $12
+    lda #0
+    sta $13
+    jsr ___scan_ungetc
+@noback:
+    lda sc_infail
+    beq @ret
+    lda sc_converted
+    bne @ret
+    lda #$FF            ; EOF
+    tax
+    rts
+@ret:
+    lda sc_assigned
+    ldx #0
+    rts
+
+; ---- helpers ----
+; A = the format's character Y ahead (Z flag set at its end)
+@fy:
+    lda sc_fmt
+    sta $08
+    lda sc_fmt+1
+    sta $09
+    lda ($08),y
+    rts
+@finc:
+    inc sc_fmt
+    bne @fi1
+    inc sc_fmt+1
+@fi1:
+    rts
+; A = the lookahead (read when needed); C set at EOF
+@peek:
+    lda sc_la+1
+    cmp #$FF
+    bne @pk
+    lda sc_la
+    cmp #SC_NONE_LO
+    bne @pkeof
+    lda #<sc_src
+    sta $10
+    lda #>sc_src
+    sta $11
+    jsr ___scan_getc
+    sta sc_la
+    stx sc_la+1
+    cpx #$FF
+    beq @pkeof
+@pk:
+    lda sc_la
+    clc
+    rts
+@pkeof:
+    lda #$FF
+    sec
+    rts
+; consume the lookahead
+@next:
+    lda #SC_NONE_LO
+    sta sc_la
+    lda #$FF
+    sta sc_la+1
+    inc sc_count
+    bne @nx1
+    inc sc_count+1
+@nx1:
+    rts
+; skip white space in the input
+@skipws:
+    jsr @peek
+    bcs @sw1
+    jsr @isspace
+    bcc @sw1
+    jsr @next
+    bra @skipws
+@sw1:
+    rts
+; C set when A is white space (' ', 9-13)
+@isspace:
+    cmp #$20
+    beq @issp
+    cmp #9
+    bcc @nosp
+    cmp #14
+    bcs @nosp
+@issp:
+    sec
+    rts
+@nosp:
+    clc
+    rts
+; digit value of A (letters in any encoding), or 99
+@digit:
+    cmp #$30
+    bcc @dno
+    cmp #$3A
+    bcc @dd
+    cmp #$41
+    bcc @dno
+    cmp #$5B
+    bcc @d41
+    cmp #$61
+    bcc @dno
+    cmp #$7B
+    bcc @d61
+    cmp #$C1
+    bcc @dno
+    cmp #$DB
+    bcs @dno
+    sec
+    sbc #$B7            ; $C1 - 10
+    rts
+@d61:
+    sec
+    sbc #$57            ; $61 - 10
+    rts
+@d41:
+    sec
+    sbc #$37            ; $41 - 10
+    rts
+@dd:
+    sec
+    sbc #$30
+    rts
+@dno:
+    lda #99
+    rts
+; Z set when the width left is 0
+@wz:
+    lda sc_width
+    ora sc_width+1
+    rts
+@wdec:
+    lda sc_width
+    bne @wd1
+    dec sc_width+1
+@wd1:
+    dec sc_width
+    rts
+; C set when n >= width
+@n_lt_width:
+    lda sc_n
+    cmp sc_width
+    lda sc_n+1
+    sbc sc_width+1
+    rts
+@ninc:
+    inc sc_n
+    bne @ni1
+    inc sc_n+1
+@ni1:
+    rts
+; sc_dest = the next argument, or NULL when suppressed
+@destarg:
+    lda #0
+    sta sc_dest
+    sta sc_dest+1
+    lda sc_suppress
+    bne @da1
+    jsr @arg
+    sta sc_dest
+    stx sc_dest+1
+@da1:
+    rts
+; A/X = the next argument (a pointer)
+@arg:
+    lda sc_ap
+    sta $08
+    lda sc_ap+1
+    sta $09
+    ldy #1
+    lda ($08),y
+    tax
+    dey
+    lda ($08),y
+    pha
+    lda sc_ap
+    clc
+    adc #2
+    sta sc_ap
+    bcc @ar1
+    inc sc_ap+1
+@ar1:
+    pla
+    rts
+; A to dest[n] (when there is a dest)
+@put:
+    pha
+    lda sc_dest
+    ora sc_dest+1
+    beq @pt1
+    lda sc_dest
+    clc
+    adc sc_n
+    sta $08
+    lda sc_dest+1
+    adc sc_n+1
+    sta $09
+    pla
+    ldy #0
+    sta ($08),y
+    rts
+@pt1:
+    pla
+    rts
+; set bit A of the set
+@setbit:
+    pha
+    lsr a
+    lsr a
+    lsr a
+    tax
+    pla
+    and #7
+    tay
+    lda sc_set,x
+    ora sc_bits,y
+    sta sc_set,x
+    rts
+; sc_val into the next argument: sc_size bytes (8: the upper 4 the sign)
+@store_int:
+    jsr @arg
+    sta $08
+    stx $09
+    ldy #0
+    lda sc_val
+    sta ($08),y
+    lda sc_size
+    cmp #2
+    bcc @si_end
+    iny
+    lda sc_val+1
+    sta ($08),y
+    lda sc_size
+    cmp #4
+    bcc @si_end
+    iny
+    lda sc_val+2
+    sta ($08),y
+    iny
+    lda sc_val+3
+    sta ($08),y
+    lda sc_size
+    cmp #8
+    bcc @si_end
+    lda #0
+    ldx sc_neg
+    beq @si_up
+    lda #$FF
+@si_up:
+    iny
+    sta ($08),y
+    cpy #7
+    bcc @si_up
+@si_end:
+    rts
+    .func_flags zp_call
+endproc

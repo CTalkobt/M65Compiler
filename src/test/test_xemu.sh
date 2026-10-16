@@ -1223,6 +1223,20 @@ for bjmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: the scanf engine (stdlib_asm/scanf_core.s45) through sscanf:
+# conversions, widths, sets, sizes, suppression, counts, floats
+for scmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r scname scflags <<< "$scmode"
+    echo "Testing test_scanf_xemu.c ($scname)..."
+    compile_link_test "src/test-resources/test_scanf_xemu.c" "build/test/test_scanf_${scname}_xemu.prg" "$scflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_scanf_$scname" "build/test/test_scanf_${scname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_scanf_xemu.c $scname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: <input.h> with keys pressed through the virtual key registers
 # ($D615/$D616: the real path of typed keys), joysticks
 for inmode in "zp|" "stack|-fno-zpcall"; do
