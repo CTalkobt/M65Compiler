@@ -4,6 +4,23 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Examples
+
+- invaders: a title screen (the name in block letters in cycling colours,
+  the score table typed out with the aliens marching in place and the UFO
+  sprite, the high score, the controls); after about 5 seconds without
+  input the attract mode plays for about 20 seconds, then the title comes
+  back. The sprite images moved to bank 4 (16-bit pointers reach all chip
+  RAM), which keeps room for the heap `fopen` needs at `-O2`; the Makefile
+  builds with `-O2` explicitly.
+
+### cp45
+
+- A function-like macro call whose arguments go on over the next lines is
+  expanded whole: the lines are joined first (a blank line out for each,
+  line numbers kept). It used to expand with the arguments of the first
+  line only, or not at all.
+
 ### `__far` functions
 
 - `__far` on a function keeps its code in far memory: cc45 emits it in the

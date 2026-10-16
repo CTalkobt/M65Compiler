@@ -52,6 +52,8 @@ private:
     bool isConditionTrue();
     long evaluateExpression(const std::string& expr);
     std::string expandMacros(const std::string& line);
+    // a call of a function-like macro whose ')' is not on this line
+    bool hasOpenMacroCall(const std::string& line) const;
     std::string stripComments(const std::string& line, bool& inBlockComment);
     std::string getDirectory(const std::string& filePath);
     std::string findIncludeFile(const std::string& fileName, const std::string& currentDir);

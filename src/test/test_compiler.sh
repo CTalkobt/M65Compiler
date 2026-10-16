@@ -202,6 +202,21 @@ else
     failed=$((failed + 1))
 fi
 
+# A function-like macro call whose arguments go on over the next lines (a
+# cast's parentheses on the first one): expanded whole, line numbers kept
+printf '#define ADD(a, b, c) ((a) + (b) + (c))\nint f(int x) {\n    return ADD(x,\n               2, 3);\n}\nint g(int x) { return ADD(x, (int)(unsigned)x,\n  4); }\nint h = __LINE__;\n' > build/test/test_mlmacro.c
+if ./bin/cp45 build/test/test_mlmacro.c -o build/test/test_mlmacro.i >/dev/null 2>&1 &&
+   grep -qF "return ((x) + (2) + (3));" build/test/test_mlmacro.i &&
+   grep -qF "return ((x) + ((int)(unsigned)x) + (4));" build/test/test_mlmacro.i &&
+   grep -qF "int h = 8;" build/test/test_mlmacro.i &&
+   $CC -c build/test/test_mlmacro.c -o build/test/test_mlmacro.o45 >/dev/null 2>&1 &&
+   ! ./bin/nm45 build/test/test_mlmacro.o45 | grep -q " U _ADD"; then
+    echo "SUCCESS: macro calls over several lines"
+else
+    echo "FAIL: macro calls over several lines ($(grep -v '^ *$' build/test/test_mlmacro.i 2>/dev/null | tr '\n' ' '))"
+    failed=$((failed + 1))
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All tests passed!"
     exit 0

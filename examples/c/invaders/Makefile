@@ -18,7 +18,7 @@ TARGET = invaders.prg
 all: $(TARGET)
 
 main.o45: main.c gfx.h
-	$(CC45) $(INCLUDES) -c main.c -o main.o45
+	$(CC45) -O2 $(INCLUDES) -c main.c -o main.o45
 
 $(TARGET): main.o45 $(STDLIB)
 	$(LN45) -basic -M invaders.map -o $(TARGET) main.o45 $(STDLIB)

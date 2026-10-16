@@ -137,6 +137,43 @@ static bool namesWideIntN(const std::string& code) {
     return false;
 }
 
+// A call of a function-like macro that the line leaves open: its arguments
+// go on over the following lines (the caller joins them before expanding)
+bool Preprocessor::hasOpenMacroCall(const std::string& line) const {
+    size_t i = 0, n = line.size();
+    while (i < n) {
+        char c = line[i];
+        if (c == '"' || c == '\'') {                 // a literal: skipped
+            char q = c;
+            for (i++; i < n && line[i] != q; i++) if (line[i] == '\\') i++;
+            i++;
+            continue;
+        }
+        if (!(std::isalpha((unsigned char)c) || c == '_')) { i++; continue; }
+        size_t b = i;
+        while (i < n && (std::isalnum((unsigned char)line[i]) || line[i] == '_')) i++;
+        auto m = macros.find(line.substr(b, i - b));
+        if (m == macros.end() || !m->second.isFunctionLike) continue;
+        size_t k = i;
+        while (k < n && std::isspace((unsigned char)line[k])) k++;
+        if (k >= n || line[k] != '(') continue;
+        int depth = 0;
+        for (; k < n; k++) {
+            char d = line[k];
+            if (d == '"' || d == '\'') {
+                char q = d;
+                for (k++; k < n && line[k] != q; k++) if (line[k] == '\\') k++;
+                continue;
+            }
+            if (d == '(') depth++;
+            else if (d == ')' && --depth == 0) break;
+        }
+        if (k >= n) return true;                    // still open at the end
+        i = k + 1;
+    }
+    return false;
+}
+
 std::string Preprocessor::expandMacros(const std::string& line) {
     std::string result = line;
     
@@ -901,6 +938,7 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
     int lineNum = 0;
     std::string reportedFile = currentFile;
     std::string accumulatedLine = "";
+    int joinedLines = 0;   // lines of an open macro call joined so far
     bool inBlockComment = false;
     bool hasSeenNonWhitespace = false;
 
@@ -1319,6 +1357,15 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                 output << "\n";
             }
         } else {
+            // a macro call whose arguments go on over the next lines: joined
+            // first (a blank line out for each, as for a '\\' continuation)
+            if (isConditionTrue() && joinedLines < 64 && hasOpenMacroCall(currentLine)) {
+                accumulatedLine = currentLine + " ";
+                joinedLines++;
+                output << "\n";
+                continue;
+            }
+            joinedLines = 0;
             if (isConditionTrue()) {
                 std::string processed = expandMacros(currentLine);
 

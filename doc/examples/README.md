@@ -38,9 +38,14 @@ and mount it.
 A Space Invaders game. The game objects are structs with single inheritance
 and virtual `update()`/`draw()`, positions an operator-overloaded `Vec2`. The
 character set is copied to bank 4 with `dma_copy_far` and redefined (aliens,
-shields); the cannon and UFO are 16-colour VIC-IV sprites; SID sound effects (through `<audio_sid.h>`)
-and the marching beat. An attract mode plays by itself (shown); FIRE or SPACE
-starts a game, Z/X, `,`/`.`, the cursor keys or a joystick move, RUN/STOP quits.
+shields); the cannon and UFO are 16-colour VIC-IV sprites, their images in bank 4
+too (16-bit sprite pointers); SID sound effects (through `<audio_sid.h>`)
+and the marching beat. It starts on a title screen (shown): the name in block
+letters in cycling colours, the score table typed out with the aliens marching
+in place and the UFO sprite, the high score. After about 5 seconds without
+input the computer plays (an attract mode) for about 20 seconds, then the title
+comes back. FIRE or SPACE starts a game from either; Z/X, `,`/`.`, the cursor
+keys or a joystick move; RUN/STOP quits.
 The high score is kept on disk: `INVADERS.HI`, a sequential file on device 8
 holding the score in decimal, read with `fopen`/`fread` at the start and
 written with `fwrite` after a game that beat it (a missing file or a disk
