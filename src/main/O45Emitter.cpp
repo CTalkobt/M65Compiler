@@ -387,6 +387,11 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         } else if (stmt->instr.mode == AddressingMode::IMMEDIATE16) {
             // PHW #symbol — full 16-bit immediate
             isWord = true;
+        } else if (parser.tokens[idx].type == AssemblerTokenType::IDENTIFIER &&
+                   parser.isExternSymbol(parser.tokens[idx].value)) {
+            // #sym of an external symbol (an absolute value the linker
+            // defines, say): its low byte, as #<sym (it assembled as 0)
+            isLow = true;
         }
 
         if (!isLow && !isHigh && !isWord) continue;

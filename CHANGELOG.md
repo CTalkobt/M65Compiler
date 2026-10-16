@@ -4,6 +4,39 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Code overlays
+
+- A program can be larger than bank 0: a file with `#pragma cc45 overlay(name)`
+  (cc45 `-foverlay=name`, ca45 `.overlay name`) has its code in that overlay.
+  ln45 links every overlay to run at one region below the stack's share (the
+  heap ends there), writes their code to `<program>.ovl` (loaded from the
+  program's drive as `<PROGRAM>.OVL` into bank 5 at start: `--overlay-store`,
+  `--overlay-name`, `--overlay-out`), and sends every reference from outside
+  an overlay through a resident stub: `__ovl_call` (`stdlib_asm/ovl.s45`)
+  copies the overlay in by DMA and swaps the return address, so both calling
+  conventions, thunks, function pointers and calls between overlays work.
+  `<overlay.h>`: `__ovl_current`, `__ovl_region`. New example
+  `examples/c/overlays` (on the examples disk as `overlays`); xemu tests in
+  both conventions and link errors (an interrupt handler in an overlay, an
+  overlay too large).
+- Mapped overlays (ln45 `--overlay-map`): each overlay runs where it is
+  kept, through a window of `$4000`–`$7FFF` that `MAP` points at it (only
+  the map's lower half changes: the KERNAL stays mapped at `$E000`); no
+  copying. The program ends below the window, the heap starts above it.
+- crt0 calls `__ovl_init` (weak, empty without overlays) after
+  `_init_features`, `__ovl_rom_leave` after ROM calls (`__bp_prog`) and
+  `__ovl_exit` in `__exit`.
+- The overlay file ends with a description of its overlays and symbols:
+  nm45 lists the symbols at their run addresses with their overlay (`-h`
+  the overlays), objdump45 shows a section per overlay (`-f -h -t -s -d`,
+  disassembly with labels).
+- **ca45 fix**: a value loaded with `lda #>sym` and read back as an
+  immediate (`cpx #>sym`, from the known zero-page value) kept the wrong
+  byte for the linker's carry, so the high byte could be off by one with
+  some layouts (seen in `test_parse_fixes`).
+- **ca45 fix**: `lda #sym` of an external symbol assembled as `#0` without
+  a relocation; it is now relocated as `#<sym`.
+
 ### cc45
 
 - **Code size**: loads through a constant address are absolute

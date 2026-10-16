@@ -1,4 +1,5 @@
 #include "O45Linker.hpp"
+#include "O45OverlayFile.hpp"
 #include <algorithm>
 #include <fstream>
 #include <iomanip>
@@ -101,6 +102,7 @@ bool O45Linker::resolveLibraries(std::string& errorMsg) {
             if (!defined.count(imp.name)) undefined.insert(imp.name);
         }
     }
+    for (const auto& n : forcedUndefined_) undefined.insert(n);   // (the overlay runtime)
 
     // Track which library members have been pulled in
     std::set<std::string> pulledMembers; // "libname:membername"
@@ -636,6 +638,7 @@ uint32_t O45Linker::segmentBase(O45Segment seg) const {
 
 bool O45Linker::layoutSegments(std::string& errorMsg) {
     mergedText_.clear();
+    for (auto& t : ovlText_) t.clear();
     mergedData_.clear();
     mergedBssLen_ = 0;
     bssLenBeforeZpPage_ = -1;
@@ -721,15 +724,19 @@ bool O45Linker::layoutSegments(std::string& errorMsg) {
     for (const auto& name : orderedNames) {
         for (const auto& chunk : chunksByName[name]) {
             auto& input = objects_[chunk.objectIdx];
+            // (a code overlay's: in its own text, at the region's address,
+            // which is page-aligned)
+            auto& text = input.ovl ? ovlText_[input.ovl - 1] : mergedText_;
+            uint32_t tbase = input.ovl ? 0 : textBase_;
             uint32_t ta = textAlignOf(input.obj);
             if (ta > 1)
-                while ((textBase_ + (uint32_t)mergedText_.size() - chunk.srcOffset) % ta) mergedText_.push_back(0);
-            uint32_t destOffset = (uint32_t)mergedText_.size();
+                while ((tbase + (uint32_t)text.size() - chunk.srcOffset) % ta) text.push_back(0);
+            uint32_t destOffset = (uint32_t)text.size();
 
             // Copy bytes from object's textBody
             auto begin = input.obj.textBody.begin() + chunk.srcOffset;
             auto end = begin + chunk.srcLen;
-            mergedText_.insert(mergedText_.end(), begin, end);
+            text.insert(text.end(), begin, end);
 
             // Record remap
             input.textRemaps.push_back({chunk.srcOffset, chunk.srcLen, destOffset, chunk.subSegName});
@@ -741,9 +748,9 @@ bool O45Linker::layoutSegments(std::string& errorMsg) {
     for (auto& input : objects_) {
         if (input.textRemaps.empty() && !input.obj.textBody.empty()) {
             // Shouldn't happen — all objects should have been processed above
-            input.textOffset = (uint32_t)mergedText_.size();
-            mergedText_.insert(mergedText_.end(),
-                               input.obj.textBody.begin(), input.obj.textBody.end());
+            auto& text = input.ovl ? ovlText_[input.ovl - 1] : mergedText_;
+            input.textOffset = (uint32_t)text.size();
+            text.insert(text.end(), input.obj.textBody.begin(), input.obj.textBody.end());
         } else if (input.textRemaps.size() == 1 && input.textRemaps[0].srcOffset == 0) {
             // Single chunk — set textOffset for backward compatibility
             input.textOffset = input.textRemaps[0].destOffset;
@@ -799,6 +806,8 @@ bool O45Linker::resolveSymbols(std::string& errorMsg) {
     symbolSource_.clear();
     symbolWeak_.clear();
     symbolSegment_.clear();
+    symOvl_.clear();
+    realAddr_.clear();
 
     // Collect all exports, handling weak-vs-strong resolution
     for (const auto& input : objects_) {
@@ -810,7 +819,7 @@ bool O45Linker::resolveSymbols(std::string& errorMsg) {
             uint32_t base = 0;
             uint32_t objOffset = 0;
             switch ((O45Segment)segId) {
-                case SEG_TEXT: base = textBase_; objOffset = input.textOffset; break;
+                case SEG_TEXT: base = textBaseOf(input); objOffset = input.textOffset; break;
                 case SEG_DATA: base = dataBase_; objOffset = input.dataOffset; break;
                 case SEG_BSS:  base = bssBase_;  objOffset = input.bssOffset;  break;
                 case SEG_ZP:   base = zpBase_;   objOffset = input.zpOffset;   break;
@@ -849,8 +858,16 @@ bool O45Linker::resolveSymbols(std::string& errorMsg) {
             symbolSource_[exp.name] = input.filename;
             symbolWeak_[exp.name] = isWeak;
             symbolSegment_[exp.name] = segId;
+            if (segId == SEG_TEXT) { symOvl_[exp.name] = input.ovl; realAddr_[exp.name] = finalAddr; }
         }
     }
+    // (a strong definition replacing a weak one: its object decides)
+    for (const auto& input : objects_)
+        for (const auto& exp : input.obj.exports)
+            if (exp.segmentId() == SEG_TEXT && symbolSource_[exp.name] == input.filename) {
+                symOvl_[exp.name] = input.ovl;
+                realAddr_[exp.name] = globalSymbols_[exp.name];
+            }
 
     // Detect cross-segment address collisions (different symbols from different
     // segments placed at the same address — indicates an assembler segment bug)
@@ -950,6 +967,28 @@ bool O45Linker::resolveSymbols(std::string& errorMsg) {
         symbolWeak_["__bss_fill"] = false;
     }
 
+    // Code overlays: references from outside an overlay go to the stubs
+    if (!ovlNames_.empty()) {
+        for (const auto& [n, a] : ovlStubs_) globalSymbols_[n] = a;
+        auto def = [&](const std::string& n, uint32_t v) {
+            globalSymbols_[n] = v; symbolSource_[n] = "<linker>"; symbolWeak_[n] = false;
+        };
+        def("__ovl_region", ovlBase_);
+        def("___ovl_region", ovlBase_);   // (C: __ovl_region, <overlay.h>)
+        def("__ovl_region_end", ovlBase_ + ovlSize_);
+        def("__ovl_mapped", ovlMap_ ? 1 : 0);
+        def("__ovl_table", ovlTableAddr_);
+        def("__ovl_file", ovlFileAddr_);
+        if (ovlMap_) {
+            // the heap starts above the window ($8000)
+            auto hs = globalSymbols_.find("__heap_start");
+            if (hs == globalSymbols_.end() || hs->second == 0 || hs->second < 0x8000) def("__heap_start", 0x8000);
+        } else {
+            // the heap ends below the region
+            auto he = globalSymbols_.find("__heap_end");
+            if (he == globalSymbols_.end() || he->second == 0 || he->second > ovlBase_) def("__heap_end", ovlBase_);
+        }
+    }
     // Check that all imports are satisfied
     std::set<std::string> importedSymbols;
     for (const auto& input : objects_) {
@@ -1053,6 +1092,10 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
 
         // Determine the target address
         uint32_t targetAddr = 0;
+        int targetOvl = 0;   // an address in a code overlay's region: which
+        // a JSR/JMP (patched in text): may go straight into its own overlay
+        bool isCall = objIdx >= 0 && r.type == R_WORD && patchPos > 0 &&
+                      (body[patchPos - 1] == 0x20 || body[patchPos - 1] == 0x4C);
 
         if (r.segment == SEG_EXTERNAL) {
             // Look up the import name
@@ -1082,6 +1125,24 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
             if (it == globalSymbols_.end()) {
                 errorMsg = "undefined symbol '" + symName + "' in " + input.filename;
                 return false;
+            }
+            // a function of a code overlay: its stub, but for a call from
+            // inside the same overlay (resident then)
+            uint32_t symAddr = it->second;
+            {
+                auto o = symOvl_.find(lookupName);
+                if (o != symOvl_.end() && o->second) {
+                    bool stubbed = ovlStubs_.count(lookupName) > 0;
+                    if (!stubbed || (isCall && input.ovl == o->second)) {
+                        symAddr = realAddr_[lookupName];
+                        targetOvl = o->second;
+                        if (!(isCall && input.ovl == o->second)) {
+                            errorMsg = "'" + lookupName + "' (code overlay " + ovlNames_[o->second - 1] +
+                                       ") is referenced from " + input.filename + " without a stub";
+                            return false;
+                        }
+                    }
+                }
             }
             ln45debug() << "DEBUG [External Reloc]: Symbol '" << symName << "' = 0x" << std::hex << it->second << std::dec << std::endl;
 
@@ -1122,7 +1183,7 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
                     }
                 }
             }
-            targetAddr = it->second + addend;
+            targetAddr = symAddr + addend;
 
             if (arOffset > 0) {
                 ln45debug() << "DEBUG [AR Reloc]: Symbol '" << symName << "' base=0x" << std::hex << it->second
@@ -1134,12 +1195,13 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
                 auto overIt = callSiteOverrides_.find({objIdx, rIdx});
                 if (overIt != callSiteOverrides_.end()) {
                     targetAddr = overIt->second;
+                    targetOvl = 0;
                 }
             }
         } else {
             // Internal relocation — read the current value at the patch site
             // and add the segment base + object offset for that segment.
-            uint32_t segBase = segmentBase(r.segment);
+            uint32_t segBase = r.segment == SEG_TEXT ? textBaseOf(input) : segmentBase(r.segment);
             uint32_t segObjOff = 0;
             switch (r.segment) {
                 case SEG_TEXT: segObjOff = input.textOffset; break;
@@ -1190,6 +1252,18 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
             } else {
                 targetAddr = segBase + segObjOff + segRelOff;
             }
+            // into a code overlay's own text: a function's address taken
+            // (not a JSR/JMP) is its stub
+            if (r.segment == SEG_TEXT && input.ovl) {
+                targetOvl = input.ovl;
+                if (!isCall)
+                    for (const auto& exp : input.obj.exports)
+                        if (exp.segmentId() == SEG_TEXT && exp.offset == segRelOff && ovlStubs_.count(exp.name)) {
+                            targetAddr = ovlStubs_[exp.name];
+                            targetOvl = 0;
+                            break;
+                        }
+            }
 
             // DEBUG: Log ALL DATA relocations
             if (r.segment == SEG_DATA) {
@@ -1228,7 +1302,7 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
 
         // A reference to a function reached through its base-page wrapper
         if (!zarWrapAt_.empty() && r.type != R_LOW) {
-            auto w = zarWrapAt_.find(targetAddr & 0xFFFF);
+            auto w = zarWrapAt_.find(zarKey(targetOvl, targetAddr));
             if (w != zarWrapAt_.end()) targetAddr = w->second;
         }
 
@@ -1329,8 +1403,8 @@ bool O45Linker::applyRelocations(std::string& errorMsg) {
             //std::cout << "  TEXT Reloc at offset 0x" << std::hex << r.offset << " type 0x" << (int)r.type
             //          << " seg " << segName << " extra 0x" << (int)r.extra << std::dec << std::endl;
         }
-        if (!applyRelocs(textRelocs, mergedText_, textBase_, input.textOffset,
-                         input, errorMsg, objIdx)) {
+        if (!applyRelocs(textRelocs, input.ovl ? ovlText_[input.ovl - 1] : mergedText_, textBaseOf(input),
+                         input.textOffset, input, errorMsg, objIdx)) {
             return false;
         }
 
@@ -1361,6 +1435,22 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
     // drop the members only dead code needed
     size_t numCommandLine = objects_.size();
     if (!resolveLibraries(errorMsg)) return {};
+    // Code overlays: their runtime (lib/stdlib_asm/ovl.s45), which the stubs
+    // generated later call: pulled in and kept
+    assignOverlays();
+    if (!ovlNames_.empty()) {
+        bool have = false;
+        for (const auto& input : objects_)
+            for (const auto& exp : input.obj.exports)
+                if (exp.name == "__ovl_call") have = true;
+        if (!have) {
+            forcedUndefined_ = {"__ovl_call"};
+            if (!resolveLibraries(errorMsg)) return {};
+            forcedUndefined_.clear();
+        }
+        for (const char* k : {"__ovl_call", "__ovl_init", "__ovl_sa"})
+            if (std::find(keepSymbols_.begin(), keepSymbols_.end(), k) == keepSymbols_.end()) keepSymbols_.push_back(k);
+    }
     if (gcObjectsOn_) {
         gcSections(numCommandLine);
         if (!gcErrors_.empty()) {
@@ -1368,8 +1458,10 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
             return {};
         }
     }
+    assignOverlays();
 
     if (!layoutSegments(errorMsg)) return {};
+    if (!placeOverlayRegion(errorMsg)) return {};
     if (!resolveSymbols(errorMsg)) return {};
 
     // Phase 3: function attribute integration and debug info
@@ -1401,6 +1493,8 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
     if (!computeZarOverlay(errorMsg)) return {};
     if (!zarOffset_.empty() && !resolveSymbols(errorMsg)) return {};
 
+    // Stubs of the code overlays' functions (appended to mergedText_)
+    if (!generateOverlayStubs(errorMsg)) return {};
     // Wrappers of functions whose base-page blocks are shared (appended to mergedText_)
     generateZarWrappers();
     // Generate thunks for convention mismatches (appends to mergedText_)
@@ -1427,6 +1521,24 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
     }
 
     if (!applyRelocations(errorMsg)) return {};
+
+    // Code overlays: the program (to the end of BSS and its base page) stays
+    // below the region; the images go to the overlay file
+    if (!ovlNames_.empty()) {
+        uint32_t end = bssBase_ + mergedBssLen_;
+        auto zp = globalSymbols_.find("__zp_page");
+        if (zp != globalSymbols_.end()) end = std::max(end, zp->second + 0x100);
+        end = std::max(end, dataBase_ + (uint32_t)mergedData_.size());
+        if (end > ovlBase_) {
+            char b[160];
+            snprintf(b, sizeof b, "code overlays: the program ends at $%04X, above the overlay region at $%04X "
+                     "(%u bytes below the stack's share): move more code into overlays or shrink the stack",
+                     (unsigned)end, (unsigned)ovlBase_, (unsigned)ovlSize_);
+            errorMsg = b;
+            return {};
+        }
+        buildOverlayFile();
+    }
 
     // Build the output binary: text + data (BSS is not emitted)
     std::vector<uint8_t> binary;
@@ -2179,6 +2291,10 @@ void O45Linker::generateZarWrappers() {
             auto it = globalSymbols_.find(entry);
             if (it == globalSymbols_.end()) continue;
             uint32_t wrap = textBase_ + (uint32_t)mergedText_.size();
+            // (a function of a code overlay: reached through its stub when it
+            // has one, its address in the region from inside the overlay)
+            int fOvl = symOvl_.count(entry) ? symOvl_[entry] : 0;
+            bool stubbed = ovlStubs_.count(entry) > 0;
             // code size: 5L (save) + 8 + 3 + 12 + 8 + 5L (restore) + 12 + 1
             uint32_t save = wrap + 10 * len + 44;
             uint32_t ret = save + len, regs = ret + 2;
@@ -2200,10 +2316,236 @@ void O45Linker::generateZarWrappers() {
                 ln45debug() << "base-page wrapper size mismatch for " << entry << "\n";
             }
             for (uint32_t k = 0; k < len + 6; k++) t.push_back(0);
-            zarWrapAt_[it->second & 0xFFFF] = wrap;
+            if (fOvl) {
+                zarWrapAt_[zarKey(fOvl, realAddr_[entry])] = wrap;
+                if (stubbed) zarWrapAt_[zarKey(0, it->second)] = wrap;
+            } else {
+                zarWrapAt_[zarKey(0, it->second)] = wrap;
+            }
             ln45debug() << "base-page wrapper for " << entry << " at $" << std::hex << wrap << std::dec << "\n";
         }
     }
+}
+
+// =============================================================================
+// Code overlays
+// =============================================================================
+//
+// An object exporting cc45.overlay.<name> (cc45 #pragma cc45 overlay(name),
+// -foverlay=name, ca45 .overlay) has its code in overlay <name>: linked to
+// run in one region of bank 0 shared by all overlays (__ovl_region, below
+// the stack's share; the heap ends there), kept in far memory (from
+// --overlay-store, default $50000: bank 1 is BASIC's and the ROM's) and
+// copied into the region by DMA when
+// a call needs it (lib/stdlib_asm/ovl.s45). Its data and BSS stay resident.
+// A reference to an overlay's function from anywhere but a JSR/JMP in the
+// same overlay (a call from other code, an address taken, a pointer in
+// data) goes to a resident stub, which loads the overlay and calls through
+// __ovl_call. The images go to a file of their own (overlayFile()), which
+// the program loads at start (__ovl_init).
+
+uint32_t O45Linker::textBaseOf(const InputObject& in) const {
+    return in.ovl ? ovlBase_ : textBase_;
+}
+
+void O45Linker::assignOverlays() {
+    ovlNames_.clear();
+    for (auto& input : objects_) {
+        input.ovl = 0;
+        for (const auto& exp : input.obj.exports) {
+            if (exp.name.rfind("cc45.overlay.", 0) != 0) continue;
+            std::string name = exp.name.substr(13);
+            auto it = std::find(ovlNames_.begin(), ovlNames_.end(), name);
+            if (it == ovlNames_.end()) { ovlNames_.push_back(name); it = ovlNames_.end() - 1; }
+            input.ovl = (int)(it - ovlNames_.begin()) + 1;
+        }
+    }
+    ovlText_.assign(ovlNames_.size(), {});
+}
+
+// The region: the largest overlay, page-aligned, right below the stack's
+// share (__stack_size below __stack_top; $C000 with the 8-bit stack)
+bool O45Linker::placeOverlayRegion(std::string& errorMsg) {
+    if (ovlNames_.empty()) return true;
+    ovlSize_ = 0;
+    for (const auto& t : ovlText_) ovlSize_ = std::max(ovlSize_, (uint32_t)t.size());
+    uint32_t top = 0xBFFF, size = stackSize_;
+    bool topStrong = false;
+    for (const auto& input : objects_)
+        for (const auto& exp : input.obj.exports) {
+            if (exp.segmentId() != SEG_ABSOLUTE) continue;
+            if (exp.name == "__stack_top" && (!topStrong || !exp.isWeak())) {
+                top = exp.offset; topStrong = !exp.isWeak();
+            }
+            if (exp.name == "__stack_size") size = exp.offset;
+        }
+    uint32_t end = top ? (top + 1 > size ? top + 1 - size : 0) : 0xC000;
+    if (ovlMap_) {
+        // whole 8 KB blocks of the map's lower half ending at $8000: $6000
+        // or $4000 (the upper half keeps the KERNAL mapped at $E000, and
+        // blocks 0-1 hold the zero page, the stack page, the screen and the
+        // program's start); the heap goes above it
+        uint32_t winSize = (ovlSize_ + 0x1FFF) & ~0x1FFFu;
+        if (winSize > 0x4000) {
+            errorMsg = "code overlays: mapped overlays run in $4000-$7FFF: the largest (" +
+                       std::to_string(ovlSize_) + " bytes) is over 16 KB";
+            return false;
+        }
+        if (end < 0x8000) {
+            errorMsg = "code overlays: mapped overlays need RAM to $7FFF below the stack's share";
+            return false;
+        }
+        ovlBase_ = 0x8000 - winSize;
+        return true;
+    }
+    if (end < ovlSize_ + textBase_) {
+        errorMsg = "code overlays: the largest overlay (" + std::to_string(ovlSize_) +
+                   " bytes) does not fit below the stack";
+        return false;
+    }
+    ovlBase_ = (end - ovlSize_) & ~0xFFu;
+    return true;
+}
+
+bool O45Linker::generateOverlayStubs(std::string& errorMsg) {
+    ovlStubs_.clear();
+    if (ovlNames_.empty()) return true;
+    for (const auto& input : objects_)
+        if (input.ovl)
+            for (const auto& exp : input.obj.exports)
+                if (exp.hasFuncAttr && (exp.funcAttr.flags & FUNC_FLAG_ISR)) {
+                    errorMsg = "interrupt handler '" + exp.name + "' is in code overlay '" +
+                               ovlNames_[input.ovl - 1] + "' (it must stay resident)";
+                    return false;
+                }
+    auto isCall = [](const std::vector<uint8_t>& body, uint32_t off, uint8_t type) {
+        return type == R_WORD && off > 0 && off - 1 < body.size() &&
+               (body[off - 1] == 0x20 || body[off - 1] == 0x4C);   // JSR, JMP
+    };
+    // the export of an overlay object at an offset of its text
+    auto exportAt = [](const InputObject& in, uint32_t off) -> std::string {
+        for (const auto& exp : in.obj.exports)
+            if (exp.segmentId() == SEG_TEXT && exp.offset == off && exp.name.find("__lbl_") == std::string::npos)
+                return exp.name;
+        return "";
+    };
+    std::set<std::string> need;
+    for (const auto& input : objects_) {
+        for (int pass = 0; pass < 2; pass++) {
+            bool inText = pass == 0;
+            const auto& body = inText ? input.obj.textBody : input.obj.dataBody;
+            for (const auto& r : O45RelocDecoder::decode(inText ? input.obj.textRelocs : input.obj.dataRelocs)) {
+                if (r.segment == SEG_EXTERNAL) {
+                    if (r.symbolIndex >= input.obj.imports.size()) continue;
+                    const std::string& n = input.obj.imports[r.symbolIndex].name;
+                    auto o = symOvl_.find(n);
+                    if (o == symOvl_.end() || o->second == 0) continue;
+                    if (!inText || input.ovl != o->second || !isCall(body, r.offset, r.type)) need.insert(n);
+                } else if (r.segment == SEG_TEXT && input.ovl) {
+                    if (inText && isCall(body, r.offset, r.type)) continue;
+                    uint32_t off = storedValue(r, body) - segOrigBase(input.obj, SEG_TEXT);
+                    std::string n = exportAt(input, off);
+                    if (!n.empty()) need.insert(n);
+                }
+            }
+        }
+    }
+    auto sym = [&](const char* n) -> uint32_t {
+        auto it = globalSymbols_.find(n);
+        return it == globalSymbols_.end() ? 0 : it->second;
+    };
+    uint32_t sa = sym("__ovl_sa"), want = sym("__ovl_want"), tgt = sym("__ovl_tgt"), call = sym("__ovl_call");
+    if (!call || !sa) {
+        errorMsg = "code overlays: the overlay runtime (__ovl_call, lib/stdlib_asm/ovl.s45) is not linked";
+        return false;
+    }
+    auto& t = mergedText_;
+    auto abs = [&](uint8_t op, uint32_t a) { t.push_back(op); t.push_back(a & 0xFF); t.push_back((a >> 8) & 0xFF); };
+    for (const auto& n : need) {
+        auto ra = realAddr_.find(n);
+        if (ra == realAddr_.end()) continue;
+        ovlStubs_[n] = textBase_ + (uint32_t)t.size();
+        abs(0x8D, sa);                                        // STA __ovl_sa
+        t.push_back(0xA9); t.push_back((uint8_t)symOvl_[n]);  // LDA #id
+        abs(0x8D, want);                                      // STA __ovl_want
+        t.push_back(0xA9); t.push_back(ra->second & 0xFF);    // LDA #<f
+        abs(0x8D, tgt);                                       // STA __ovl_tgt
+        t.push_back(0xA9); t.push_back((ra->second >> 8) & 0xFF);
+        abs(0x8D, tgt + 1);
+        abs(0x4C, call);                                      // JMP __ovl_call
+        globalSymbols_[n] = ovlStubs_[n];
+    }
+    // __ovl_table: per overlay its far address (24 bits, then bits 20-27)
+    // and length, or (mapped) the MAP registers that map the window to it;
+    // __ovl_file: the file's far address, the name
+    globalSymbols_["__ovl_table"] = textBase_ + (uint32_t)t.size();
+    uint32_t at = ovlStore_;
+    ovlAt_.clear();
+    uint8_t loMask = 0, hiMask = 0;   // the window's blocks
+    for (uint32_t b = ovlBase_ >> 13; ovlMap_ && b < ((ovlBase_ + ovlSize_ + 0x1FFF) >> 13); b++)
+        (b < 4 ? loMask : hiMask) |= (uint8_t)(1 << (b & 3));
+    for (const auto& img : ovlText_) {
+        if (ovlMap_) at = (at + 0xFF) & ~0xFFu;   // (MAP offsets are whole pages)
+        ovlAt_.push_back(at);
+        if (ovlMap_) {
+            uint32_t off = at - ovlBase_;   // CPU address + offset = where it is kept
+            // (the lower half of MAP; the upper half stays the ROM's)
+            t.push_back((off >> 8) & 0xFF); t.push_back(((off >> 16) & 0x0F) | (loMask << 4));
+            t.push_back(0); t.push_back(0); t.push_back(0); t.push_back(0);
+        } else {
+            t.push_back(at & 0xFF); t.push_back((at >> 8) & 0xFF); t.push_back((at >> 16) & 0xFF);
+            t.push_back((at >> 20) & 0xFF);
+            t.push_back(img.size() & 0xFF); t.push_back((img.size() >> 8) & 0xFF);
+        }
+        at += (uint32_t)img.size();
+    }
+    // (the file's description is loaded after them: a few bytes per symbol)
+    size_t descLen = 30;
+    for (const auto& n : ovlNames_) descLen += 6 + n.size();
+    for (const auto& [n, k] : symOvl_) if (k) descLen += 4 + n.size();
+    if (((at + descLen - 1) >> 16) != (ovlStore_ >> 16)) {
+        errorMsg = "code overlays: " + std::to_string(at - ovlStore_ + descLen) +
+                   " bytes of overlays (with the file's description) do not fit in the 64 KB bank from the overlay store";
+        return false;
+    }
+    globalSymbols_["__ovl_file"] = textBase_ + (uint32_t)t.size();
+    t.push_back((ovlStore_ >> 16) & 0xFF); t.push_back(ovlStore_ & 0xFF); t.push_back((ovlStore_ >> 8) & 0xFF);
+    std::string name = ovlFileName_.empty() ? std::string("OVERLAYS") : ovlFileName_;
+    t.push_back((uint8_t)name.size());
+    for (char c : name) t.push_back((uint8_t)c);
+    for (const auto* s2 : {"__ovl_table", "__ovl_file"}) { symbolSource_[s2] = "<linker>"; symbolWeak_[s2] = false; }
+    ovlTableAddr_ = globalSymbols_["__ovl_table"];
+    ovlFileAddr_ = globalSymbols_["__ovl_file"];
+    return true;
+}
+
+void O45Linker::buildOverlayFile() {
+    ovlFile_.clear();
+    if (ovlNames_.empty()) return;
+    ovlFile_.push_back(ovlStore_ & 0xFF);
+    ovlFile_.push_back((ovlStore_ >> 8) & 0xFF);
+    for (size_t i = 0; i < ovlText_.size(); i++) {
+        // (mapped overlays start on a page: zeros between them)
+        while (ovlStore_ + ovlFile_.size() - 2 < ovlAt_[i]) ovlFile_.push_back(0);
+        ovlFile_.insert(ovlFile_.end(), ovlText_[i].begin(), ovlText_[i].end());
+    }
+    // the description, for nm45 and objdump45: the overlays and their
+    // symbols at the addresses they run at
+    O45OverlayFile d;
+    d.region = ovlBase_;
+    d.mapped = ovlMap_;
+    for (size_t i = 0; i < ovlText_.size(); i++)
+        d.overlays.push_back({ovlNames_[i], ovlAt_[i], (uint32_t)ovlText_[i].size(), 0});
+    for (const auto& [name, k] : symOvl_) {
+        if (!k || name.rfind("cc45.", 0) == 0) continue;
+        auto a = realAddr_.find(name);
+        if (a != realAddr_.end()) d.symbols.push_back({k, a->second, name});
+    }
+    std::sort(d.symbols.begin(), d.symbols.end(), [](const auto& a, const auto& b) {
+        return a.overlay != b.overlay ? a.overlay < b.overlay : a.address != b.address ? a.address < b.address : a.name < b.name;
+    });
+    auto desc = d.describe();
+    ovlFile_.insert(ovlFile_.end(), desc.begin(), desc.end());
 }
 
 // SAC overlay. A static-allocation (SAC) function keeps its parameters and
@@ -2368,7 +2710,8 @@ void O45Linker::generateThunks() {
         auto calleeAddrIt = globalSymbols_.find(need.callee);
         if (calleeAddrIt == globalSymbols_.end()) continue;
         uint16_t calleeAddr = (uint16_t)calleeAddrIt->second;
-        auto wrapIt = zarWrapAt_.find(calleeAddr);   // (its base-page wrapper)
+        int calleeOvl = symOvl_.count(need.callee) && !ovlStubs_.count(need.callee) ? symOvl_[need.callee] : 0;
+        auto wrapIt = zarWrapAt_.find(zarKey(calleeOvl, calleeAddr));   // (its base-page wrapper)
         if (wrapIt != zarWrapAt_.end()) calleeAddr = (uint16_t)wrapIt->second;
 
         uint32_t thunkAddr = textBase_ + (uint32_t)mergedText_.size();
@@ -2500,7 +2843,7 @@ void O45Linker::mergeLineMaps() {
             std::string file;
             if (li.fileIndex < input.obj.lineFiles.size())
                 file = input.obj.lineFiles[li.fileIndex];
-            uint32_t addr = textBase_ + input.remapTextOffset(li.textOffset);
+            uint32_t addr = textBaseOf(input) + input.remapTextOffset(li.textOffset);
             mergedLineMap_.push_back({addr, file, (int)li.line});
         }
     }

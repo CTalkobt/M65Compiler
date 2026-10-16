@@ -551,6 +551,11 @@ int main(int argc, char** argv) {
             config.functionSections = true;
         } else if (arg == "-fno-function-sections") {
             config.functionSections = false;
+        } else if (arg.rfind("-foverlay=", 0) == 0) {
+            config.overlayName = arg.substr(10);
+            bool ok = !config.overlayName.empty();
+            for (char ch : config.overlayName) if (!std::isalnum((unsigned char)ch) && ch != '_') ok = false;
+            if (!ok) { std::cerr << "cc45: error: invalid -foverlay name '" << config.overlayName << "' (letters, digits, _)" << std::endl; return 1; }
         } else if (arg.rfind("-fstack-size=", 0) == 0) {
             std::string v = arg.substr(13);
             int base = 10;

@@ -1529,6 +1529,8 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
                 break;
             }
         }
+        // -foverlay=name: the module's code is in that code overlay
+        if (!mod.overlay.empty()) emit(".overlay " + mod.overlay);
         // -fbss-fill=V: the module defining main sets the byte crt0 fills
         // BSS with (otherwise ln45's --bss-fill, default 0)
         // -fstack-size=N: the CPU stack's share below __stack_top (the heap

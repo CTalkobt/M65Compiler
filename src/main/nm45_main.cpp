@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstdio>
 #include "O45Reader.hpp"
+#include "O45OverlayFile.hpp"
 #include "O45Linker.hpp"
 #include "O45FormatUtil.hpp"
 #include "O45Archive.hpp"
@@ -292,6 +293,43 @@ int main(int argc, char** argv) {
             std::cerr << "nm45: " << filename << ": is a .lib archive, not an object file." << std::endl;
             std::cerr << "  Use 'ar45 t " << filename << "' to list members." << std::endl;
             exitCode = 1;
+            continue;
+        }
+
+        // A code overlay file (ln45 <program>.ovl): its overlays and symbols
+        if (O45OverlayFile::is(data)) {
+            O45OverlayFile ov;
+            std::string oerr;
+            if (!O45OverlayFile::read(data, ov, oerr)) {
+                std::cerr << "nm45: " << filename << ": " << oerr << std::endl;
+                exitCode = 1;
+                continue;
+            }
+            if (multiFile && !prependFilename) std::cout << std::endl << filename << ":" << std::endl;
+            if (showHeader || showSections || showSizes) {
+                printf("code overlays (%s), run at $%04X, %zu overlays, file loaded at $%05X\n",
+                       ov.mapped ? "mapped" : "copied", ov.region, ov.overlays.size(), ov.loadAddress);
+                for (size_t i = 0; i < ov.overlays.size(); i++) {
+                    const auto& o = ov.overlays[i];
+                    printf("  %zu %-16s kept $%05X-$%05X  runs $%04X-$%04X  %u bytes\n", i + 1, o.name.c_str(),
+                           o.at, o.at + (o.length ? o.length - 1 : 0), ov.region,
+                           ov.region + (o.length ? o.length - 1 : 0), o.length);
+                }
+                if (showSymbols) std::cout << std::endl;
+            }
+            if (showSymbols) {
+                auto syms = ov.symbols;
+                if (!noSort && !sortByAddress)
+                    std::sort(syms.begin(), syms.end(), [](const auto& a, const auto& b) { return a.name < b.name; });
+                if (reverseSort) std::reverse(syms.begin(), syms.end());
+                for (const auto& s : syms) {
+                    if (onlyUndefined) continue;
+                    if (prependFilename) std::cout << filename << ": ";
+                    const std::string& on = s.overlay >= 1 && s.overlay <= (int)ov.overlays.size()
+                                            ? ov.overlays[s.overlay - 1].name : std::string("?");
+                    printf("%08x T %s  [overlay %s]\n", s.address, s.name.c_str(), on.c_str());
+                }
+            }
             continue;
         }
 

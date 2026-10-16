@@ -1226,6 +1226,14 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                         output << "__asm__(\".no_zp_save\");\n";
                     } else if (cc45Arg == "no_stack16") {
                         output << "__asm__(\".no_stack16\");\n";
+                    } else if (cc45Arg.rfind("overlay", 0) == 0) {
+                        // "overlay(name)" / "overlay name": this file's code is in
+                        // the code overlay name (ln45 loads it on demand)
+                        std::string rest = cc45Arg.substr(7), tail;
+                        while (ss >> tail) rest += tail;
+                        std::string n;
+                        for (char ch : rest) if (std::isalnum((unsigned char)ch) || ch == '_') n += ch;
+                        output << (n.empty() ? std::string("\n") : "__asm__(\".overlay " + n + "\");\n");
                     } else if (cc45Arg.rfind("stack_size", 0) == 0) {
                         // Accepts "stack_size N" and "stack_size(N)"
                         std::string rest = cc45Arg.substr(10), tail;
@@ -1368,6 +1376,13 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                         else if (cc45Arg == "stdio") output << "__asm__(\".crt_stdio\");\n";
                         else if (cc45Arg == "no_zp_save") output << "__asm__(\".no_zp_save\");\n";
                         else if (cc45Arg == "no_stack16") output << "__asm__(\".no_stack16\");\n";
+                        else if (cc45Arg.rfind("overlay", 0) == 0) {
+                            std::string rest = cc45Arg.substr(7), tail;
+                            while (ps >> tail) rest += tail;
+                            std::string n;
+                            for (char ch : rest) if (std::isalnum((unsigned char)ch) || ch == '_') n += ch;
+                            output << (n.empty() ? std::string("\n") : "__asm__(\".overlay " + n + "\");\n");
+                        }
                         else if (cc45Arg.rfind("stack_size", 0) == 0) {
                             std::string rest = cc45Arg.substr(10), tail;
                             while (ps >> tail) rest += tail;

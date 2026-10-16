@@ -158,6 +158,7 @@ CompilationResult CompilationPipeline::compile() {
         codegenStage.setFunctionSections(config_.functionSections);
         codegenStage.setBssFill(config_.bssFill);
         codegenStage.setStackSize(config_.stackSize);
+        codegenStage.setOverlay(config_.overlayName);
         codegenStage.setOptOverrides(config_.optOverrides);
         codegenStage.setFutureWarnings(config_.futureWarnings);
         codegenStage.setTraceIROpt(config_.traceIROpt);

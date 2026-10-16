@@ -35,6 +35,10 @@ static void printUsage(const char* progName) {
     std::cout << "  -u <sym>       Keep <sym> and what it reaches" << std::endl;
     std::cout << "  --bss-fill=V   Byte crt0 fills BSS with at startup (default $00; $FF, 0xFF or decimal)" << std::endl;
     std::cout << "  --stack-size=N The CPU stack's share below __stack_top; malloc's heap ends there" << std::endl;
+    std::cout << "  --overlay-store=ADDR  Where code overlays are kept in far memory (default $50000: bank 5)" << std::endl;
+    std::cout << "  --overlay-name=NAME   The overlay file's name on disk (default: the output's, .OVL)" << std::endl;
+    std::cout << "  --overlay-out=PATH    Where to write the overlay file (default: the output's, .ovl)" << std::endl;
+    std::cout << "  --overlay-map         Map overlays into a window of 8 KB blocks (MAP) instead of copying them" << std::endl;
     std::cout << "                 (default 4096; $1000, 0x1000 or decimal)" << std::endl;
     std::cout << "  -Wthunk        Warn (but still generate thunks) on convention mismatches" << std::endl;
     std::cout << "  -v             Also print the cross-module analysis and informational warnings" << std::endl;
@@ -51,6 +55,9 @@ int main(int argc, char** argv) {
     std::string outputFile;
     bool outputSet = false;
     bool isPrg = false;
+    long ovlStore = -1;            // code overlays: --overlay-store, --overlay-name, --overlay-out
+    std::string ovlName, ovlOut;
+    bool ovlMap = false;
     bool isBasic = false;
     bool printMap = false;
     int bssFill = -1;
@@ -113,6 +120,19 @@ int main(int argc, char** argv) {
             catch (...) { std::cerr << "ln45: error: invalid --stack-size value '" << arg.substr(13) << "' (0-65535, $1000, 0x1000)" << std::endl; return 1; }
             stackSize = (int)sv;
         }
+        else if (arg.rfind("--overlay-store=", 0) == 0) {
+            std::string v = arg.substr(16);
+            int base = 10;
+            if (!v.empty() && v[0] == '$') { v = v.substr(1); base = 16; }
+            else if (v.size() > 2 && v[0] == '0' && (v[1] == 'x' || v[1] == 'X')) { v = v.substr(2); base = 16; }
+            unsigned long sv = 0;
+            try { size_t used = 0; sv = std::stoul(v, &used, base); if (used != v.size() || sv < 0x10000 || sv > 0x5FFFF) throw 0; }
+            catch (...) { std::cerr << "ln45: error: invalid --overlay-store value '" << arg.substr(16) << "' (chip RAM above bank 0: $10000-$5FFFF)" << std::endl; return 1; }
+            ovlStore = (long)sv;
+        }
+        else if (arg.rfind("--overlay-name=", 0) == 0) { ovlName = arg.substr(15); }
+        else if (arg == "--overlay-map") { ovlMap = true; }
+        else if (arg.rfind("--overlay-out=", 0) == 0) { ovlOut = arg.substr(14); }
         else if (arg.rfind("--bss-fill=", 0) == 0) {
             std::string v = arg.substr(11);
             int base = 10;
@@ -164,6 +184,33 @@ int main(int argc, char** argv) {
     for (const auto& k : keepSyms) linker.addKeepSymbol(k);
     if (bssFill >= 0) linker.setBssFill((uint8_t)bssFill);
     if (stackSize >= 0) linker.setStackSize((uint16_t)stackSize);
+    // Code overlays: the file name the program loads them from (by default
+    // the output's base name, upper case: PETSCII letters, with .OVL) and
+    // where that file is written (the output's path with .ovl)
+    {
+        std::string base = outputFile;
+        size_t sl = base.find_last_of('/');
+        if (sl != std::string::npos) base = base.substr(sl + 1);
+        size_t dot = base.find_last_of('.');
+        if (dot != std::string::npos && dot > 0) base = base.substr(0, dot);
+        if (ovlName.empty()) {   // (16 characters at most: 12 of the base name)
+            for (char& c : base) c = (char)std::toupper((unsigned char)c);
+            ovlName = base.substr(0, 12) + ".OVL";
+        }
+        if (ovlOut.empty()) {
+            ovlOut = outputFile;
+            size_t d = ovlOut.find_last_of('.'), s2 = ovlOut.find_last_of('/');
+            if (d != std::string::npos && (s2 == std::string::npos || d > s2)) ovlOut = ovlOut.substr(0, d);
+            ovlOut += ".ovl";
+        }
+        if (ovlName.size() > 16) {
+            std::cerr << "ln45: error: overlay file name '" << ovlName << "' is longer than 16 characters (--overlay-name)" << std::endl;
+            return 1;
+        }
+        linker.setOverlayFileName(ovlName);
+        if (ovlStore >= 0) linker.setOverlayStore((uint32_t)ovlStore);
+        linker.setOverlayMap(ovlMap);
+    }
 
     for (const auto& filename : inputFiles) {
         std::ifstream in(filename, std::ios::binary);
@@ -372,6 +419,18 @@ int main(int argc, char** argv) {
     }
     out.write(reinterpret_cast<const char*>(binary.data()), binary.size());
     out.close();
+
+    // Code overlays: their file
+    if (linker.hasOverlays()) {
+        std::ofstream of(ovlOut, std::ios::binary);
+        if (!of.is_open()) {
+            std::cerr << "ln45: cannot write " << ovlOut << std::endl;
+            return 1;
+        }
+        const auto& ov = linker.overlayFile();
+        of.write(reinterpret_cast<const char*>(ov.data()), ov.size());
+        std::cout << "Code overlays: " << ovlOut << " (" << ov.size() << " bytes; loaded as " << ovlName << ")" << std::endl;
+    }
 
     std::cout << "Linked " << inputFiles.size() << " object"
               << (inputFiles.size() > 1 ? "s" : "")

@@ -775,6 +775,22 @@ void AssemblerParser::pass1() {
                 }
                 stmt->size = 0;
             }
+            else if (stmt->dir.name == "overlay") {
+                // .overlay name — the object's code is in the code overlay
+                // name (ln45 loads it on demand): exports cc45.overlay.<name>
+                std::string name;
+                if (peek().type == AssemblerTokenType::STRING_LITERAL || peek().type == AssemblerTokenType::IDENTIFIER)
+                    name = advance().value;
+                while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
+                if (name.empty()) {
+                    errors.push_back("Error: .overlay needs a name");
+                } else {
+                    std::string sym = "cc45.overlay." + name;
+                    symbolTable[sym] = {1, false, 2, false, true, 1, false, 0, false, 0, ""};
+                    globalSymbols.insert(sym);
+                }
+                stmt->size = 0;
+            }
             else if (stmt->dir.name == "weak") {
                 // .weak sym1, sym2, ... — mark symbols as weak exports
                 while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) {
@@ -2137,7 +2153,7 @@ void AssemblerParser::warnUnknownDirective(const AssemblerToken& tok) {
         "align", "array", "array_dims", "ascii", "balign", "basicUpstart", "bss", "byte", "cleanup", "code", "const",
         "cpu", "data", "dword", "endrepeat", "extern", "field_class", "field_count", "fill", "fillto",
         "fixed_prefix_size", "flag_clobbers", "float", "frame_size", "zar", "frameptr_zp", "func_flags", "function_sections",
-        "keep", "nosplit", "ref", "split",
+        "keep", "nosplit", "overlay", "ref", "split",
         "global", "import", "incbin", "init", "loc", "local", "long", "noopt_start", "org",
         "param_const", "param_sizes", "reg_clobbers", "repeat", "res", "sac", "screencode", "segment",
         "segmentOrder", "space", "text", "var", "var_field_array", "vtable_entry", "weak", "word", "zp", "zp_clobbers",

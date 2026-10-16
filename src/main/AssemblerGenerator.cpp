@@ -563,9 +563,12 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                                                 std::string symName = parser->tokens[ti].value;
                                                 Symbol* sym = parser->resolveSymbol(symName, stmt->scopePrefix);
                                                 if (sym) {
+                                                    // (the whole value: '<' / '>' apply to all after them)
+                                                    int64_t full = sym->value;
+                                                    try { full = parser->evaluateExpressionAt(ti, stmt->scopePrefix); } catch (...) {}
                                                     e.machineState().setReloc(targetReg, symName,
                                                         isLo ? ValueInfo::RELOC_LO : ValueInfo::RELOC_HI,
-                                                        val);
+                                                        val, full);
                                                 }
                                             }
                                         }

@@ -289,6 +289,7 @@ struct Module {
     // the ROM's 8-bit page-1 stack (-fno-stack16), else the stack's top byte
     int stackTop = -1;
     std::set<std::string> asmRefs;   // .ref needed outside any function
+    std::string overlay;    // -foverlay=name: the code is in that code overlay (.overlay)
     int stackSize = -1;     // -fstack-size=N / #pragma cc45 stack_size(N): __stack_size (-1: ln45's default)
     int bssFill = -1;       // -fbss-fill=V: crt0 fills BSS with V (-1: ln45's default, 0)
     int maxUnrollBytes = -1;   // #pragma cc45 max_unroll_bytes (last one in the file); -1 = -fmax-unroll-bytes

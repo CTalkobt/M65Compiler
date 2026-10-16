@@ -1237,6 +1237,65 @@ for scmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: code overlays (#pragma cc45 overlay, ln45), copied into a region
+# and (--overlay-map) mapped into a window: calls into, out of and between
+# two overlays, recursion bouncing between them, function pointers to
+# overlay functions, overlay data kept across swaps, disk I/O from inside
+# an overlay; the overlay file on drive 8. Then two link errors: an
+# interrupt handler in an overlay, and an overlay too large for the room
+# below the stack
+for ovmode in "zp|$STDLIB||" "stack|$STDLIB_STACK|-fno-zpcall|" \
+              "zp_map|$STDLIB||--overlay-map" "stack_map|$STDLIB_STACK|-fno-zpcall|--overlay-map"; do
+    IFS='|' read -r ovname ovlib ovflags ovlink <<< "$ovmode"
+    echo "Testing code overlays ($ovname)..."
+    ovd=build/test/overlay_$ovname
+    rm -rf $ovd; mkdir -p $ovd
+    ovok=1
+    for f in main ovl_a ovl_b; do
+        $CC $ovflags -c src/test-resources/overlay/$f.c -o $ovd/$f.o45 >/dev/null 2>&1 || ovok=0
+    done
+    if [ $ovok = 1 ] && $LD -basic $ovlink -o $ovd/ovltest.prg $ovd/main.o45 $ovd/ovl_a.o45 $ovd/ovl_b.o45 $ovlib >/dev/null 2>&1 &&
+       ./bin/disk45 create $ovd/ovl.d81 -n OVLTEST >/dev/null 2>&1 &&
+       ./bin/disk45 add $ovd/ovl.d81 $ovd/ovltest.ovl OVLTEST.OVL >/dev/null 2>&1; then
+        run_xemu_test "test_overlay_$ovname" "$ovd/ovltest.prg" "C0C0" 7 "01 01 01 01 01 01 AA" -8 "$PWD/$ovd/ovl.d81"
+    else
+        echo "FAIL: code overlays $ovname (build or link failed)"
+        failed=$((failed + 1))
+    fi
+done
+# nm45 and objdump45 read the overlay file: its overlays and their symbols at
+# the addresses they run at (copied and mapped)
+ovtools=1
+for ovname in zp zp_map; do
+    ovf=build/test/overlay_$ovname/ovltest.ovl
+    ./bin/nm45 $ovf 2>&1 | grep -q "T _a_add  \[overlay a\]" &&
+    ./bin/nm45 -h $ovf 2>&1 | grep -q "^  2 b " &&
+    ./bin/objdump45 -h $ovf 2>&1 | grep -q "^  1 a " &&
+    ./bin/objdump45 -d $ovf 2>&1 | grep -q "<_b_mul>:" || ovtools=0
+done
+if [ $ovtools = 1 ]; then
+    echo "SUCCESS: nm45 and objdump45 read code overlay files"
+    passed=$((passed + 1))
+else
+    echo "FAIL: nm45 and objdump45 read code overlay files"
+    failed=$((failed + 1))
+fi
+ovd=build/test/overlay_err
+mkdir -p $ovd
+printf '#pragma cc45 overlay(irq)\n__interrupt void handler(void) { }\nint main(void) { return 0; }\n' > $ovd/isr.c
+printf '    .overlay big\n    .code\n.global _big\nproc _big\n    .res 40000\n    rts\n    .func_flags zp_call\nendproc\n' > $ovd/big.s45
+printf 'void big(void);\nint main(void) { big(); return 0; }\n' > $ovd/bigmain.c
+if $CC -c $ovd/isr.c -o $ovd/isr.o45 >/dev/null 2>&1 &&
+   ! $LD -basic -o $ovd/isr.prg $ovd/isr.o45 $STDLIB > $ovd/isr.log 2>&1 && grep -q "interrupt handler" $ovd/isr.log &&
+   $AS -c $ovd/big.s45 -o $ovd/big.o45 >/dev/null 2>&1 && $CC -c $ovd/bigmain.c -o $ovd/bigmain.o45 >/dev/null 2>&1 &&
+   ! $LD -basic -o $ovd/big.prg $ovd/bigmain.o45 $ovd/big.o45 $STDLIB > $ovd/big.log 2>&1 && grep -q "does not fit" $ovd/big.log; then
+    echo "SUCCESS: code overlay link errors (an interrupt handler, too large)"
+    passed=$((passed + 1))
+else
+    echo "FAIL: code overlay link errors ($(cat $ovd/isr.log $ovd/big.log 2>/dev/null | head -3))"
+    failed=$((failed + 1))
+fi
+
 # Test: <input.h> with keys pressed through the virtual key registers
 # ($D615/$D616: the real path of typed keys), joysticks
 for inmode in "zp|" "stack|-fno-zpcall"; do

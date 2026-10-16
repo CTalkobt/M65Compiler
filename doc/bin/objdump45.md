@@ -6,6 +6,7 @@ Supported inputs:
 - **`.o45`** — relocatable objects (`ca45 -c`, `cc45 -c`): header, sections, symbols, relocations, contents, disassembly.
 - **`.prg`** — 2-byte load address + image: header summary, hex dump, disassembly (BASIC `SYS` stub recognised, `ln45 -M` map used for symbols), BASIC listing.
 - **raw binaries** — `.bin` extension or any file with `-b`: header summary, hex dump, disassembly.
+- **`.ovl`** — ln45's code overlay files (see [ln45 Code Overlays](ln45.md#code-overlays)): one section per overlay at the address it runs at (VMA) and where it is kept in far memory (LMA); `-f`, `-h`, `-t`, `-s` and `-d` (with the overlays' symbols as labels).
 
 ## Usage
 
@@ -201,7 +202,7 @@ objdump45 -d main_o0.o45 > o0.asm; objdump45 -d main_o2.o45 > o2.asm; diff o0.as
 
 ## Format Detection
 
-`objdump45` first tries to read each file as `.o45`. If that fails, a `.prg` extension selects PRG mode, a `.bin` extension or `-b` selects raw-binary mode; otherwise the read error is reported. For PRG/binaries `-h`, `-t` and `-r` print nothing. `.o65` files (magic `"o65"`) are not accepted as objects (see [nm45](nm45.md#supported-formats)).
+A file that ends with ln45's overlay description (`OVL45`) is read as a code overlay file. Otherwise `objdump45` tries to read each file as `.o45`. If that fails, a `.prg` extension selects PRG mode, a `.bin` extension or `-b` selects raw-binary mode; otherwise the read error is reported. For PRG/binaries `-h`, `-t` and `-r` print nothing. `.o65` files (magic `"o65"`) are not accepted as objects (see [nm45](nm45.md#supported-formats)).
 
 ## See Also
 

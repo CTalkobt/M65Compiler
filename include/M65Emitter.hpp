@@ -163,10 +163,12 @@ private:
             if (zv.isConst()) { emitImm((uint8_t)(zv.constVal & 0xFF)); return; }
             if (zv.isReloc()) {
                 // Emit immediate mode with a relocation record
+                // (a high byte's relocation carries the whole value's low
+                // byte, for the carry when the linker adds the base)
                 if (zv.relocByte == ValueInfo::RELOC_LO)
-                    recordSymbolRelocLo(zv.relocSymbol);
+                    recordSymbolRelocLo(zv.relocSymbol, (int)((zv.relocFull >> 8) & 0xFF));
                 else
-                    recordSymbolRelocHi(zv.relocSymbol, (uint8_t)(zv.constVal & 0xFF));
+                    recordSymbolRelocHi(zv.relocSymbol, (uint8_t)(zv.relocFull & 0xFF));
                 emitImm((uint8_t)(zv.constVal & 0xFF));
                 return;
             }

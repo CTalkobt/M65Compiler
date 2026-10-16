@@ -25,6 +25,7 @@ SUBDIRS = \
 	c/keyboard_viewer \
 	c/sample_player \
 	c/rogue \
+	c/overlays \
 	c/stdlib/string_h \
 	c/stdlib/stdlib_h \
 	c/stdlib/ctype_h \

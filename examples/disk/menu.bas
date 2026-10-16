@@ -57,6 +57,7 @@ entries:
   data "hello world",  "hello world"
   data "unit convert", "unit convert - long arithmetic"
   data "multi module", "multi module - three files linked"
+  data "overlays",     "overlays - code loaded from far memory"
   data "ctype demo",   "ctype demo - petscii classes"
   data "basic+c",      "basic+c - basic 65 calling c"
   data "*"

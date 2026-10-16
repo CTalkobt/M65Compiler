@@ -353,6 +353,18 @@ public:
     // (__stack_size, unless an object defines it)
     void setStackSize(uint16_t v) { stackSize_ = v; }
 
+    // Code overlays (cc45 #pragma cc45 overlay(name)): where their images
+    // are kept in far memory (default $10000, bank 1), the file name the
+    // program loads them from (PETSCII), and the file's bytes after link()
+    // (a 2-byte load address, then the images; empty without overlays)
+    void setOverlayStore(uint32_t a) { ovlStore_ = a; }
+    // Mapped overlays: run in a window of 8 KB blocks mapped to them (MAP),
+    // not copied into a region
+    void setOverlayMap(bool on) { ovlMap_ = on; }
+    void setOverlayFileName(const std::string& n) { ovlFileName_ = n; }
+    const std::vector<uint8_t>& overlayFile() const { return ovlFile_; }
+    bool hasOverlays() const { return !ovlNames_.empty(); }
+
     // Write a detailed linker map to a stream. Call after link().
     void writeMap(std::ostream& out) const;
 
@@ -371,7 +383,7 @@ private:
         std::string filename;
         O45File obj;
         // Per-object offsets within the merged segments
-        uint32_t textOffset = 0;
+        uint32_t textOffset = 0;    // (in its overlay's text when ovl > 0)
         uint32_t dataOffset = 0;
         uint32_t bssOffset = 0;
         uint32_t zpOffset = 0;
@@ -385,6 +397,7 @@ private:
             std::string name;     // sub-segment name ("init", "code", etc.)
         };
         std::vector<TextRemap> textRemaps;
+        int ovl = 0;                // its code overlay (1..n), 0: resident
 
         // Translate an offset within this object's original text body
         // to an offset within the merged text body.
@@ -484,6 +497,28 @@ private:
                        const std::vector<std::pair<int, uint32_t>>& importRefs,
                        O45File& out, std::string& err);
     uint16_t stackSize_ = 0x1000;
+
+    // Code overlays
+    std::vector<std::string> ovlNames_;            // overlay i + 1
+    std::vector<std::vector<uint8_t>> ovlText_;    // their code
+    uint32_t ovlBase_ = 0, ovlSize_ = 0;           // the region they run in
+    bool ovlMap_ = false;
+    std::vector<uint32_t> ovlAt_;                  // each overlay's far address
+    uint32_t ovlStore_ = 0x50000;                  // their images in far memory (bank 5)
+    std::string ovlFileName_;
+    std::vector<uint8_t> ovlFile_;
+    std::map<std::string, int> symOvl_;            // a text symbol's overlay
+    std::map<std::string, uint32_t> realAddr_;     // its address in the region
+    std::map<std::string, uint32_t> ovlStubs_;     // its stub (resident)
+    uint32_t ovlTableAddr_ = 0, ovlFileAddr_ = 0;
+    std::set<std::string> forcedUndefined_;
+    uint32_t textBaseOf(const struct InputObject& in) const;
+    void assignOverlays();
+    bool placeOverlayRegion(std::string& errorMsg);
+    bool generateOverlayStubs(std::string& errorMsg);
+    void buildOverlayFile();
+    // the key of zarWrapAt_: an address and the overlay it is in (0: resident)
+    static uint32_t zarKey(int ovl, uint32_t addr) { return ((uint32_t)ovl << 16) | (addr & 0xFFFF); }
     // Maps callee name → thunk address (for mismatched call sites)
     std::map<std::string, uint32_t> thunkAddresses_;
     // Per-call-site override: (objectIdx, relocIdx) → thunk target address

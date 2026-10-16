@@ -45,6 +45,22 @@ test_text() {
     fi
 }
 
+# Run with a disk in drive 8 and check text output contains expected string
+test_text_disk() {
+    local name="$1" prg="$2" disk="$3" expected="$4" timeout_sec="${5:-15}"
+    if [ ! -f "$prg" ] || [ ! -f "$disk" ]; then fail "$name" "PRG or disk not found"; return; fi
+    timeout "$timeout_sec" $XEMU -headless -besure -sleepless -prgmode 65 -prgexit \
+        -dumpscreen "$BUILDDIR/${name}.screen.txt" \
+        -8 "$PWD/$disk" -prg "$prg" </dev/null >/dev/null 2>&1
+    if [ ! -f "$BUILDDIR/${name}.screen.txt" ]; then
+        fail "$name" "no screen dump"
+    elif grep -q "$expected" "$BUILDDIR/${name}.screen.txt"; then
+        pass "$name"
+    else
+        fail "$name" "expected '$expected' not found on screen"
+    fi
+}
+
 # Run and verify screenshot is a valid PNG (program didn't crash)
 test_screenshot() {
     local name="$1" prg="$2" timeout_sec="${3:-15}"
@@ -73,6 +89,9 @@ test_text "hello_linked" "$EXAMPLES/c/hello_linked/hello.prg" "LINKED HELLO"
 
 build_example "$EXAMPLES/c/multi_module"
 test_text "multi_module" "$EXAMPLES/c/multi_module/program.prg" "^6/6 TESTS PASSED"
+
+build_example "$EXAMPLES/c/overlays"
+test_text_disk "overlays" "$EXAMPLES/c/overlays/ovldemo.prg" "$EXAMPLES/c/overlays/ovldemo.d81" "^3/3 OVERLAYS RAN"
 
 build_example "$EXAMPLES/c/unit_convert"
 test_text "unit_convert" "$EXAMPLES/c/unit_convert/convert.prg" "26 MILES = 41 KM"

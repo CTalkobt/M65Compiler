@@ -39,6 +39,8 @@ struct ValueInfo {
     int64_t rangeHi = 0;        // for RANGE
     std::string relocSymbol;    // for RELOC_CONST: symbol name
     RelocByte relocByte = RELOC_LO; // for RELOC_CONST: lo or hi byte
+    int64_t relocFull = 0;      // for RELOC_CONST: the whole assembly-time value
+                                // (a high byte's relocation needs its low byte)
 
     bool isUnknown() const { return kind == UNKNOWN; }
     bool isConst() const { return kind == CONSTANT; }
@@ -73,9 +75,9 @@ struct ValueInfo {
     static ValueInfo sameAsMem(uint16_t addr) { ValueInfo vi; vi.kind = SAME_AS_MEM; vi.mirrorAddr = addr; return vi; }
     static ValueInfo nonZero() { ValueInfo vi; vi.kind = NONZERO; return vi; }
     static ValueInfo range(int64_t lo, int64_t hi) { ValueInfo vi; vi.kind = RANGE; vi.rangeLo = lo; vi.rangeHi = hi; return vi; }
-    static ValueInfo reloc(const std::string& sym, RelocByte byte, int64_t asmVal = 0) {
+    static ValueInfo reloc(const std::string& sym, RelocByte byte, int64_t asmVal = 0, int64_t full = 0) {
         ValueInfo vi; vi.kind = RELOC_CONST; vi.relocSymbol = sym;
-        vi.relocByte = byte; vi.constVal = asmVal; return vi;
+        vi.relocByte = byte; vi.constVal = asmVal; vi.relocFull = full; return vi;
     }
 };
 
@@ -204,9 +206,9 @@ struct MachineState {
     }
 
     // Set a register to a relocatable constant (symbol lo/hi byte).
-    void setReloc(RegId r, const std::string& sym, ValueInfo::RelocByte byte, int64_t asmVal = 0) {
+    void setReloc(RegId r, const std::string& sym, ValueInfo::RelocByte byte, int64_t asmVal = 0, int64_t full = 0) {
         invalidateMirrorsOf(r);
-        reg[r] = ValueInfo::reloc(sym, byte, asmVal);
+        reg[r] = ValueInfo::reloc(sym, byte, asmVal, full);
         flags.setNZFromValue(reg[r], (int8_t)r);
     }
 

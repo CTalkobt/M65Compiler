@@ -21,6 +21,9 @@
 .extern __bss_end
 .extern __bss_fill
 .weak _init_features
+.weak __ovl_init
+.weak __ovl_rom_leave
+.weak __ovl_exit
 .weak ___mainargs
 .weak ___atexit_run
 .extern _main
@@ -149,6 +152,7 @@ __start:
     lda __bc_mode
     bne __bc_run
     jsr _init_features
+    jsr __ovl_init      ; code overlays: load their file (weak: none)
     ; main(argc, argv): __mainargs returns a pointer to { int argc; char
     ; **argv; } -- the weak default below gives argc 0, argv NULL; the
     ; library's (mainargs.c, linked when main takes parameters) parses the
@@ -188,6 +192,7 @@ __start:
 
     ; Fall through to __exit
 __exit:
+    jsr __ovl_exit      ; (mapped code overlays: the ROM's map back)
     ; Back to the ROM's zero page, then record the exit status (A:X) there
     tay
     lda #0
@@ -214,6 +219,17 @@ __saved_p:
 _init_features:
     rts
 
+; Default __ovl_init — no code overlays. ln45 links the library's (ovl.s45)
+; when a program has them: it loads their file into far memory.
+__ovl_init:
+    rts
+
+; Defaults of the mapped overlays' hooks (ovl.s45): after a ROM call, and
+; at exit: none
+__ovl_rom_leave:
+__ovl_exit:
+    rts
+
 ; __basic_call — run a C function from a BASIC SYS (basic45 --link makes
 ; a thunk per function: it sets ___bc_target and jumps here). The SYS's
 ; A, X and Y are the first three parameters ($10, $12, $14 of the program's
@@ -236,6 +252,7 @@ __bc_run:
     lda #1
     sta __bc_done
     jsr _init_features
+    jsr __ovl_init      ; code overlays: load their file (weak: none)
 @ready:
     ; the first three parameter slots (2 bytes each, as for a char or int
     ; parameter): A, X, Y with high bytes 0 (base-page stores: the
@@ -335,7 +352,7 @@ __bp_prog:
     tab
     pla
     plp
-    rts
+    jmp __ovl_rom_leave ; (mapped code overlays: the overlay mapped again)
 
 ; __rom_call — call the KERNAL routine at ___cbm_target (set by the <cbm.h>
 ; wrappers) on the ROM's page-1 stack (the caller's 8-bit stack, saved at

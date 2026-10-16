@@ -258,6 +258,17 @@ checks.
 
 ![multi_module](images/multi_module.png)
 
+### overlays
+
+[Source](https://github.com/CTalkobt/M65Compiler/tree/main/examples/c/overlays) —
+Code overlays: three tools (a prime sieve, the Towers of Hanoi, text
+statistics), each a file with `#pragma cc45 overlay(name)`, share one
+region of memory; ln45 writes their code to `OVLDEMO.OVL`, which the
+program loads into bank 5 at start, and a call copies the overlay it
+needs into the region by DMA. The text statistics call the prime sieve's
+overlay and back; each section shows which overlay the region holds.
+`make` also builds `ovldemo.d81` with both files (`make run`).
+
 ### unit_convert
 
 [Source](https://github.com/CTalkobt/M65Compiler/tree/main/examples/c/unit_convert) —

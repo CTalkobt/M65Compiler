@@ -61,6 +61,7 @@ ln45 -prg main.o45 -L lib/build -l c45.lib -o program.prg      # plain PRG (-L o
 | `mega65.h` | hardware register overlays | header (+ `key_pressed` in the library) |
 | `dma.h` | `dma_copy`/`dma_fill` (16-bit, bank 0); `dma_copy_far`/`dma_fill_far` (28-bit) | compiler builtins; `lib/stdlib/dma_far.c` |
 | `input.h` | see [§11a](#11a-keyboard-and-joysticks-inputh) | library |
+| `overlay.h` | `__ovl_current` (the code overlay in the region), `__ovl_region`: in a program with code overlays (the runtime `stdlib_asm/ovl.s45`; [ln45: Code Overlays](../bin/ln45.md#code-overlays)) | library / ln45 |
 | `conio.h`, `far_ptr.h`, `far_ops.h`, `far_string.h`, `dma_controller.h`, `audio_digi.h`, `audio_midi.h`, `audio_sid.h`, `intwide.h`, `complex.h` | see [§12](#12-other-library-backed-headers) | library / compiler |
 | `uart.h` and the graphics, sprite, hardware-helper and game-framework headers | see [§14](#14-headers-without-a-library-implementation) | **no library implementation** |
 

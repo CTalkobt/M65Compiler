@@ -59,6 +59,7 @@ public:
     bool errorsPrinted() const { return errorsPrinted_; }
     void setBssFill(int v) { bssFill_ = v; }
     void setStackSize(int v) { stackSize_ = v; }
+    void setOverlay(const std::string& v) { overlay_ = v; }
     // -f<opt>/-fno-<opt> (catalog name -> on/off), --future, -Roptir
     void setOptOverrides(const std::map<std::string, bool>& o) { optOverrides_ = o; }
     void setFutureWarnings(bool f) { futureWarnings_ = f; }
@@ -80,6 +81,7 @@ private:
     bool errorsPrinted_ = false;
     int bssFill_ = -1;
     int stackSize_ = -1;
+    std::string overlay_;
     bool staticAlloc_;
     bool zpCallMode_;
     bool saveTemps_;

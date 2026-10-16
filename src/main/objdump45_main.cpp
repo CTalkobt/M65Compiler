@@ -8,6 +8,7 @@
 #include <map>
 #include <cstdio>
 #include "O45Reader.hpp"
+#include "O45OverlayFile.hpp"
 #include "O45Linker.hpp"
 #include "O45FormatUtil.hpp"
 #include "AssemblerOpcodeDatabase.hpp"
@@ -1008,6 +1009,7 @@ static void printUsage(const char* progName) {
     std::cout << "  .o45/.o65  Relocatable object files (full header/symbol/reloc support)" << std::endl;
     std::cout << "  .prg       PRG files (2-byte load address header, auto-detected, -bas for BASIC dump)" << std::endl;
     std::cout << "  .bin       Raw binary files (use -b to set base address)" << std::endl;
+    std::cout << "  .ovl       Code overlay files (ln45): a section per overlay, at its run address" << std::endl;
 }
 
 int main(int argc, char** argv) {
@@ -1125,6 +1127,51 @@ int main(int argc, char** argv) {
         std::vector<uint8_t> data((std::istreambuf_iterator<char>(in)),
                                    std::istreambuf_iterator<char>());
         in.close();
+
+        // A code overlay file (ln45 <program>.ovl): a section per overlay,
+        // at the address it runs at
+        if (O45OverlayFile::is(data)) {
+            O45OverlayFile ov;
+            std::string oerr;
+            if (!O45OverlayFile::read(data, ov, oerr)) {
+                std::cerr << "objdump45: " << filename << ": " << oerr << std::endl;
+                exitCode = 1;
+                continue;
+            }
+            if (showFileHeader) {
+                std::cout << std::endl;
+                std::cout << filename << ":     file format code overlays (" << (ov.mapped ? "mapped" : "copied") << ")" << std::endl;
+                printf("run address: $%04x, loaded at: $%05x, %zu overlays, %zu symbols\n",
+                       ov.region, ov.loadAddress, ov.overlays.size(), ov.symbols.size());
+            }
+            if (showSections) {
+                std::cout << std::endl << filename << ":" << std::endl << "Sections:" << std::endl;
+                printf("Idx Name             Size       VMA        LMA\n");
+                for (size_t i = 0; i < ov.overlays.size(); i++)
+                    printf("%3zu %-16s %08x   %08x   %08x\n", i + 1, ov.overlays[i].name.c_str(),
+                           ov.overlays[i].length, ov.region, ov.overlays[i].at);
+            }
+            if (showSymbols) {
+                std::cout << std::endl << "SYMBOL TABLE:" << std::endl;
+                for (const auto& s : ov.symbols)
+                    printf("%08x g     %-16s %s\n", s.address,
+                           s.overlay >= 1 && s.overlay <= (int)ov.overlays.size() ? ov.overlays[s.overlay - 1].name.c_str() : "?",
+                           s.name.c_str());
+            }
+            for (size_t i = 0; i < ov.overlays.size(); i++) {
+                const auto& o = ov.overlays[i];
+                std::vector<uint8_t> body(data.begin() + o.fileOffset, data.begin() + o.fileOffset + o.length);
+                std::string label = "overlay " + o.name;
+                if (showContents) hexDump(body, ov.region, label);
+                if (showDisasm) {
+                    std::map<uint32_t, std::string> syms;
+                    for (const auto& s : ov.symbols)
+                        if (s.overlay == (int)i + 1 && !syms.count(s.address)) syms[s.address] = s.name;
+                    disassembleSection(body, ov.region, label.c_str(), opcodeTable, syms, filename);
+                }
+            }
+            continue;
+        }
 
         // Try .o45/.o65 first
         O45File obj;

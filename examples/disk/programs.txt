@@ -19,5 +19,7 @@ c/memset_screen/memset_screen.prg    memset screen
 c/hello_world/hello.prg              hello world
 c/unit_convert/convert.prg           unit convert
 c/multi_module/program.prg           multi module
+c/overlays/ovldemo.prg               overlays
+c/overlays/ovldemo.ovl               OVLDEMO.OVL
 c/stdlib/ctype_h/ctype_demo.prg      ctype demo
 basic/c_routines/menu.prg            basic+c

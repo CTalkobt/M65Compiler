@@ -273,6 +273,41 @@ if timeout 10 $AS -c $SD/hexminus.s45 -o $SD/hexminus.o45 > /dev/null 2>&1 &&
 else
     echo "FAIL: sections hexminus (a hex number in an operand with '-': ca45 hung or failed)"; failed=$((failed + 1))
 fi
+# #sym of an external symbol: a low-byte relocation, as #<sym (it
+# assembled as #0 without one)
+printf '    .extern ext\n    .code\nproc _f\n    lda #ext\n    rts\nendproc\n' > $SD/immext.s45
+if $AS -c $SD/immext.s45 -o $SD/immext.o45 >/dev/null 2>&1 &&
+   ./bin/nm45 -r $SD/immext.o45 2>&1 | grep -q "0001  R_LOWX      EXTERN  ext"; then
+    echo "SUCCESS: #extern immediate relocated"; passed=$((passed + 1))
+else
+    echo "FAIL: #extern immediate relocated ($(./bin/nm45 -r $SD/immext.o45 2>&1 | head -3))"; failed=$((failed + 1))
+fi
+# A relocatable address's bytes loaded, stored in zero page and compared
+# (cmp.16 reads them back as immediates): the high byte's relocation keeps
+# the address's low byte ($1B), which the linker needs for the carry
+cat > $SD/relochi.s45 << 'EOF'
+        .code
+proc _f
+        lda #<buf
+        sta $0a
+        lda #>buf
+        sta $0b
+        lda #0
+        ldx #0
+        cmp.16 .AX, $0a
+        rts
+endproc
+        .data
+        .res $1b
+buf:    .byte 0
+EOF
+if $AS -c $SD/relochi.s45 -o $SD/relochi.o45 >/dev/null 2>&1 &&
+   ./bin/nm45 -r $SD/relochi.o45 2>&1 | grep -q "R_HIGH      DATA    extra=\$1B" &&
+   ! ./bin/nm45 -r $SD/relochi.o45 2>&1 | grep -q "R_HIGH      DATA    extra=\$00"; then
+    echo "SUCCESS: forwarded high-byte relocation keeps the low byte"; passed=$((passed + 1))
+else
+    echo "FAIL: forwarded high-byte relocation keeps the low byte ($(./bin/nm45 -r $SD/relochi.o45 2>&1 | tr '\n' ' '))"; failed=$((failed + 1))
+fi
 cat > $SD/diff.s45 << 'EOF'
         .function_sections
         .code

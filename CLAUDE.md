@@ -58,6 +58,23 @@ then `ln45 -basic` with the standard library of the calling convention
 `CC45_LIB`). The library's `crt0` member is the startup code. `-S` alone
 writes a standalone assembly form with its own startup stub.
 
+### Code Overlays (details: `doc/bin/ln45.md#code-overlays`)
+
+A file with `#pragma cc45 overlay(name)` / `-foverlay=name` (ca45 `.overlay`)
+has its code in that overlay: ln45 links all overlays to run at one region
+below the stack's share (`__ovl_region`; the heap ends there) and writes
+them to `<prog>.ovl` (on the disk as `<PROG>.OVL`, `--overlay-name`), which
+crt0's `__ovl_init` loads into bank 5 (`--overlay-store`; bank 1 is BASIC's).
+Calls from outside an overlay (and addresses taken) go through 21-byte
+resident stubs to `__ovl_call` (`lib/stdlib_asm/ovl.s45`), which copies the
+overlay in by DMA and swaps the return address (stack layout unchanged).
+Copied by default; `--overlay-map` maps a window of `$4000`-`$7FFF` to each
+overlay instead (only the lower half of MAP: the KERNAL is mapped at $E000;
+the program ends below the window, the heap starts above it; the KERNAL's
+current map at `$011C` is kept in step). Data/BSS stay resident; no
+`__interrupt` in an overlay. Example `examples/c/overlays`, test
+`src/test-resources/overlay/`.
+
 ### Calling Conventions (details: `doc/architecture/calling-conventions.md`)
 
 - **ZP convention** (default, `-fzpcall`, library `c45.lib`): arguments packed
@@ -179,7 +196,7 @@ not change what is tested; a test's own later `-O` still wins. Use an
 explicit `-O<n>` in ad-hoc test commands too.
 
 - `make test` — unit tests (no emulator).
-- `bash src/test/test_xemu.sh` — runtime tests on xemu (283 pass): each
+- `bash src/test/test_xemu.sh` — runtime tests on xemu (289 pass): each
   `*_xemu.c` writes results to `$C0C0` (01 = pass, `$AA` sentinel), built in
   both conventions. New runtime tests follow this pattern and are registered
   in `test_xemu.sh`.
@@ -249,7 +266,7 @@ ln45, ar45, nm45, objdump45 and disk45 have no config files. Environment:
   The `CC45_IPO`/`CC45_LTCO`/`CC45_BANK_ANALYSIS` variables do not exist.
 - **Working pragmas**: `once`, `push_macro`/`pop_macro`, `weak`, `cc45 recurse`,
   `signed_default`/`unsigned_default`, `no_stack16`, `stack_top`, `stack_size`,
-  `max_inline_ir_size`, `max_unroll_bytes`, `optimize(...)`, `encoding`; `no_zp_save`/`set_bp`
+  `max_inline_ir_size`, `max_unroll_bytes`, `optimize(...)`, `encoding`, `overlay(name)`; `no_zp_save`/`set_bp`
   (only `-S`). Accepted without effect: `exit_rts`/`exit_halt`/`exit_brk`,
   `no_bssinit`, `heap`, `stdio`, `no_0100_stack`, `unroll`, `no_static_alloc`
   (use `recurse`), `no_striped`.
