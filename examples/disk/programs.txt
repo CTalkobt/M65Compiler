@@ -23,5 +23,7 @@ c/overlays/ovldemo.prg               overlays
 c/overlays/ovldemo.ovl               OVLDEMO.OVL
 c/mapped_overlays/mapdemo.prg        map overlays
 c/mapped_overlays/mapdemo.ovl        MAPDEMO.OVL
+c/far_functions/fardemo.prg          far functions
+c/far_functions/fardemo.ovl          FARDEMO.OVL
 c/stdlib/ctype_h/ctype_demo.prg      ctype demo
 basic/c_routines/menu.prg            basic+c

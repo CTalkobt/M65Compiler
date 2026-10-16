@@ -284,6 +284,13 @@ bool AssemblerOptimizer::optimizeInternal(
                 if (!op.empty() && (std::isalpha((unsigned char)op[0]) || op[0] == '_') &&
                     !parser->resolveSymbol(op, s->scopePrefix))
                     continue;
+                // nor a target in another segment: the linker places segments
+                // apart (a __far function's "far" text goes to far memory)
+                if (!op.empty() && (std::isalpha((unsigned char)op[0]) || op[0] == '_' || op[0] == '@')) {
+                    auto* ts = parser->resolveSymbol(op, s->scopePrefix);
+                    if (ts && !ts->segment.empty() && !s->segmentName.empty() && ts->segment != s->segmentName)
+                        continue;
+                }
             }
 
             if (m == "JMP" && parser->optFlags.jmpBra) {

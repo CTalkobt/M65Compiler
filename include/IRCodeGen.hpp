@@ -212,6 +212,7 @@ private:
     // -ffunction-sections: each variable, string and SAC block is a .split
     // section too (ca45 makes each function one), so ln45 can drop them
     bool functionSections_ = false;
+    std::string textSeg_ = "code";     // the text segment of the function being emitted ("far": __far)
     void emitSplit(const std::string& name) {
         if (functionSections_ && relocMode_) emit(".split \"" + name + "\"");
     }

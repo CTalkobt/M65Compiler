@@ -74,6 +74,7 @@ entries:
   data "multi module", "multi module - three files linked"
   data "overlays",     "overlays - code loaded from far memory"
   data "map overlays", "map overlays - far code run in place"
+  data "far functions","far functions - __far code in bank 5"
   data "ctype demo",   "ctype demo - petscii classes"
   data "basic+c",      "basic+c - basic 65 calling c"
   data "*"

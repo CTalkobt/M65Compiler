@@ -1175,7 +1175,8 @@ void IRBuilder::visit(FunctionDeclaration& node) {
     if (node.alignment > 1) funcAlign_[node.name] = std::max(funcAlign_[node.name], node.alignment);
     // Attributes may appear on a prototype or the definition; accumulate by name
     if (node.isAlwaysInline) alwaysInlineNames_.insert(node.name);
-    if (node.isNoInline) noInlineNames_.insert(node.name);
+    // (a __far function's code stays in far memory: not copied into its callers)
+    if (node.isNoInline || node.isFar) noInlineNames_.insert(node.name);
     if (alwaysInlineNames_.count(node.name) && noInlineNames_.count(node.name) && node.body) {
         warnings_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column, Severity::Warning,
             "function '" + node.name + "' has both always_inline and noinline; ignoring always_inline"));
@@ -1256,6 +1257,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
     fn.declLine = node.line;
     fn.isNaked = node.isNaked;
     fn.isRegparm = node.isRegparm;
+    fn.isFar = node.isFar;
     fn.isNested = node.isNested;
     if (funcAlign_.count(node.name)) fn.align = funcAlign_[node.name];
 

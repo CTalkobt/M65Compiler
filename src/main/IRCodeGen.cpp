@@ -1831,6 +1831,16 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
         if (inlineOnlyFunctions_.count(fn.name)) {
             continue;  // Skip emitting inline-only function (only available inlined)
         }
+        // a __far function: in the "far" text segment, which ln45 keeps in
+        // far memory and maps into the window when called
+        if (fn.isFar && relocMode_) {
+            textSeg_ = "far";
+            emit(".segment \"far\"");
+            emitFunction(fn, relocMode);
+            textSeg_ = "code";
+            emit(".segment \"code\"");
+            continue;
+        }
         emitFunction(fn, relocMode);
     }
 
@@ -3133,8 +3143,8 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             bssBoundaryClean_ = true;
         }
 
-        // Switch back to code segment
-        emit(".segment \"code\"");
+        // Switch back to the function's text segment
+        emit(".segment \"" + textSeg_ + "\"");
 
         }  // Close if (!isZeroAlloc)
     }

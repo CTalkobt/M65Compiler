@@ -722,6 +722,48 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         std::sort(mergedTextRelocs.begin(), mergedTextRelocs.end(),
                   [](const O45Reloc& a, const O45Reloc& b) { return a.offset < b.offset; });
 
+        // An internal relocation into a later text sub-segment ("far": the
+        // __far functions, "init") holds the target's address in that
+        // segment: make it the address in the merged text, which the linker
+        // reads as an offset from the text's base (stored value - tbase)
+        if (textSegNames.size() > 1) {
+            auto shift = [&](std::vector<uint8_t>& body, O45Reloc& r) {
+                if (r.segment != SEG_TEXT || r.baseSeg.empty()) return;
+                auto it = textSubSegOffset.find(r.baseSeg);
+                if (it == textSubSegOffset.end() || !parser.segments.count(r.baseSeg)) return;
+                uint32_t sbase = parser.segments.at(r.baseSeg)->startAddress;
+                if (sbase == 0xFFFFFFFF) sbase = 0;
+                int32_t delta = (int32_t)(it->second + textBase) - (int32_t)sbase;
+                if (!delta || r.offset >= body.size()) return;
+                switch (r.type) {
+                    case R_WORD:
+                        if (r.offset + 1 < body.size()) {
+                            uint16_t w = (uint16_t)((body[r.offset] | (body[r.offset + 1] << 8)) + delta);
+                            body[r.offset] = (uint8_t)w; body[r.offset + 1] = (uint8_t)(w >> 8);
+                        }
+                        break;
+                    case R_HIGH: {   // the high byte; extra: the low byte
+                        uint16_t w = (uint16_t)(((body[r.offset] << 8) | r.extra) + delta);
+                        body[r.offset] = (uint8_t)(w >> 8); r.extra = (uint8_t)w;
+                        break;
+                    }
+                    case R_LOWX: {   // the low byte; extra: the high byte
+                        uint16_t w = (uint16_t)(((r.extra << 8) | body[r.offset]) + delta);
+                        body[r.offset] = (uint8_t)w; r.extra = (uint8_t)(w >> 8);
+                        break;
+                    }
+                    case R_LOW:
+                        body[r.offset] = (uint8_t)(body[r.offset] + delta);
+                        break;
+                    default: break;
+                }
+            };
+            for (auto& r : mergedTextRelocs) shift(mergedTextBody, r);
+            auto dr = segRelocs.find("data");
+            if (dr != segRelocs.end() && segBodies.count("data"))
+                for (auto& r : dr->second) shift(segBodies["data"].bytes, r);
+        }
+
         if (!mergedTextBody.empty()) {
             writer.setTextSegment(textBase, mergedTextBody);
         }
@@ -1094,7 +1136,22 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
     syms.applyTo(writer);
 
     // Emit debug line info option (OPT_LINEINFO)
-    auto& lineMap = parser.getLineMap();
+    // (only lines of code: a .loc before data or BSS -- a function's static
+    // storage -- has no place in the text)
+    std::vector<AssemblerParser::LineEntry> lineMap;
+    for (const auto& e : parser.getLineMap())
+        if (e.segment.empty() || segIdFromName(e.segment) == SEG_TEXT) lineMap.push_back(e);
+    // a line's offset in the merged text: its segment's place there (a later
+    // text sub-segment: "far", __far functions)
+    auto lineOff = [&](const AssemblerParser::LineEntry& e) -> uint16_t {
+        auto it = textSubSegOffset.find(e.segment);
+        if (it != textSubSegOffset.end() && parser.segments.count(e.segment)) {
+            uint32_t sbase = parser.segments.at(e.segment)->startAddress;
+            if (sbase == 0xFFFFFFFF) sbase = 0;
+            return (uint16_t)(e.address - sbase + it->second);
+        }
+        return (uint16_t)(e.address - genStart);
+    };
     if (!lineMap.empty()) {
         // Build file string table (dedup filenames) with safe path shortening and length limits
         std::vector<std::string> fileTable;
@@ -1150,7 +1207,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
             payload.push_back((uint8_t)(totalEntries >> 8));
             size_t ei = 0;
             while (payload.size() + 6 <= 253 && ei < lineMap.size()) {
-                uint16_t off = (uint16_t)(lineMap[ei].address - genStart);
+                uint16_t off = lineOff(lineMap[ei]);
                 uint16_t fi = fileIndex[lineMap[ei].file];
                 uint16_t ln = (uint16_t)lineMap[ei].line;
                 payload.push_back((uint8_t)(off & 0xFF)); payload.push_back((uint8_t)(off >> 8));
@@ -1165,7 +1222,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
             while (ei < lineMap.size()) {
                 std::vector<uint8_t> cont;
                 while (cont.size() + 6 <= 253 && ei < lineMap.size()) {
-                    uint16_t off = (uint16_t)(lineMap[ei].address - genStart);
+                    uint16_t off = lineOff(lineMap[ei]);
                     uint16_t fi = fileIndex[lineMap[ei].file];
                     uint16_t ln = (uint16_t)lineMap[ei].line;
                     cont.push_back((uint8_t)(off & 0xFF)); cont.push_back((uint8_t)(off >> 8));

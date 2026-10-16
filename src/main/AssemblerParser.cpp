@@ -1582,7 +1582,7 @@ void AssemblerParser::pass1() {
                         symbolTable[scAN] = pSym;
                         sOff += args[i].stackSize;
                     }
-                    procedures[pc] = ctx; pass1ProcStack.push_back(currentProc);
+                    procedures.emplace(pc, ctx); pass1ProcStack.push_back(currentProc);
                     currentProc = ctx; stmt->procCtx = ctx; stmt->size = 0;
                     sacMode = false;  // Reset SAC mode for new proc (will be set by .sac directive if needed)
                 }
@@ -2486,7 +2486,7 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
                 if (lineMap_.empty() || lineMap_.back().address != s->address
                     || lineMap_.back().line != s->sourceLine
                     || lineMap_.back().file != s->sourceFile) {
-                    lineMap_.push_back({s->address, s->sourceFile, s->sourceLine});
+                    lineMap_.push_back({s->address, s->sourceFile, s->sourceLine, s->segmentName});
                 }
             }
             cP += s->size;

@@ -394,11 +394,20 @@ private:
         struct TextRemap {
             uint32_t srcOffset;   // offset within this object's original textBody
             uint32_t srcLen;      // length of this sub-segment
-            uint32_t destOffset;  // offset within the merged text body
+            uint32_t destOffset;  // offset within the merged text body (or its overlay's text)
             std::string name;     // sub-segment name ("init", "code", etc.)
+            int ovl = 0;          // the code overlay it went to (1..n), 0: resident
         };
         std::vector<TextRemap> textRemaps;
         int ovl = 0;                // its code overlay (1..n), 0: resident
+
+        // The code overlay holding an offset of this object's text: its
+        // chunk's (__far code: an automatic overlay), else the object's
+        int ovlAt(uint32_t origOff) const {
+            for (const auto& r : textRemaps)
+                if (origOff >= r.srcOffset && origOff < r.srcOffset + r.srcLen) return r.ovl;
+            return ovl;
+        }
 
         // Translate an offset within this object's original text body
         // to an offset within the merged text body.
@@ -514,6 +523,10 @@ private:
     uint32_t ovlTableAddr_ = 0, ovlFileAddr_ = 0;
     std::set<std::string> forcedUndefined_;
     uint32_t textBaseOf(const struct InputObject& in) const;
+    // the address of an offset of an object's text (resident, or where its overlay runs)
+    uint32_t textAddrOf(const struct InputObject& in, uint32_t origOff) const;
+    size_t ovlUserCount_ = 0;     // overlays named by the objects (.overlay); the rest: __far code
+    bool hasFar_ = false;         // some object has __far code (a "far" text sub-segment)
     void assignOverlays();
     bool placeOverlayRegion(std::string& errorMsg);
     bool generateOverlayStubs(std::string& errorMsg);

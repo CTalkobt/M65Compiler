@@ -27,6 +27,7 @@ SUBDIRS = \
 	c/rogue \
 	c/overlays \
 	c/mapped_overlays \
+	c/far_functions \
 	c/stdlib/string_h \
 	c/stdlib/stdlib_h \
 	c/stdlib/ctype_h \

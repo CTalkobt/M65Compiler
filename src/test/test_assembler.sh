@@ -308,6 +308,18 @@ if $AS -c $SD/relochi.s45 -o $SD/relochi.o45 >/dev/null 2>&1 &&
 else
     echo "FAIL: forwarded high-byte relocation keeps the low byte ($(./bin/nm45 -r $SD/relochi.o45 2>&1 | tr '\n' ' '))"; failed=$((failed + 1))
 fi
+# A reference from the code segment into a later text sub-segment ("far":
+# cc45 __far functions) holds the target's offset in the merged text, and a
+# call into another segment stays a JSR (a relative BSR would break when the
+# linker places the segments apart)
+printf '        .code\nproc _f\n        jsr target\n        lda #<target\n        ldx #>target\n        rts\nendproc\n        .segment "far"\ntarget: rts\n' > $SD/segref.s45
+if $AS -c $SD/segref.s45 -o $SD/segref.o45 >/dev/null 2>&1 &&
+   ./bin/objdump45 -d $SD/segref.o45 2>&1 | grep -q "jsr	\$0008" &&
+   ./bin/objdump45 -d $SD/segref.o45 2>&1 | grep -q "lda	#\$08"; then
+    echo "SUCCESS: references into a later text sub-segment"; passed=$((passed + 1))
+else
+    echo "FAIL: references into a later text sub-segment ($(./bin/objdump45 -d $SD/segref.o45 2>&1 | grep -E 'jsr|bsr|lda' | tr '\n' ' '))"; failed=$((failed + 1))
+fi
 cat > $SD/diff.s45 << 'EOF'
         .function_sections
         .code

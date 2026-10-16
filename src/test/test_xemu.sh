@@ -1304,6 +1304,56 @@ else
     failed=$((failed + 1))
 fi
 
+# Test: __far functions (cc45), kept in far memory and mapped into the window
+# when called (ln45 packs each file's far code into automatic overlays far1,
+# far2, ...): calls from resident code, between far functions of one overlay
+# and of two, from far code to resident code, static far functions, function
+# pointers both ways, recursion between two overlays; both conventions, with
+# and without function sections. Then: a far interrupt handler is a link
+# error, the map shows the automatic overlays, objdump45 disassembles them
+for farmode in "zp|$STDLIB|" "stack|$STDLIB_STACK|-fno-zpcall" \
+               "zp_sections|$STDLIB|-ffunction-sections" "stack_sections|$STDLIB_STACK|-fno-zpcall -ffunction-sections"; do
+    IFS='|' read -r farname farlib farflags <<< "$farmode"
+    echo "Testing __far functions ($farname)..."
+    fard=build/test/far_$farname
+    rm -rf $fard; mkdir -p $fard
+    farok=1
+    for f in main far_a far_b; do
+        $CC $farflags -c src/test-resources/far/$f.c -o $fard/$f.o45 >/dev/null 2>&1 || farok=0
+    done
+    if [ $farok = 1 ] && $LD -basic -M $fard/fartest.map -o $fard/fartest.prg $fard/main.o45 $fard/far_a.o45 $fard/far_b.o45 $farlib >/dev/null 2>&1 &&
+       ./bin/disk45 create $fard/far.d81 -n FARTEST >/dev/null 2>&1 &&
+       ./bin/disk45 add $fard/far.d81 $fard/fartest.ovl FARTEST.OVL >/dev/null 2>&1; then
+        run_xemu_test "test_far_$farname" "$fard/fartest.prg" "C0C0" 7 "01 01 01 01 01 01 AA" -8 "$PWD/$fard/far.d81"
+    else
+        echo "FAIL: __far functions $farname (build or link failed)"
+        failed=$((failed + 1))
+    fi
+done
+fard=build/test/far_zp
+printf '__far __interrupt void handler(void) { }\nint main(void) { return 0; }\n' > $fard/isr.c
+# (recurse: stack frames, so the static-allocation check has nothing to say)
+printf 'volatile int n;\n#pragma cc45 recurse\n__far void tick(void) { n++; }\n#pragma cc45 recurse\n__attribute__((noinline)) void helper(void) { tick(); }\n__interrupt void handler(void) { helper(); }\nint main(void) { tick(); return 0; }\n' > $fard/isrcall.c
+printf 'volatile int n;\n#pragma cc45 recurse\n__far void tick(void) { n++; }\nvoid (*hook)(void) = tick;\n__interrupt void handler(void) { hook(); }\nint main(void) { return 0; }\n' > $fard/isrptr.c
+if $CC -c $fard/isr.c -o $fard/isr.o45 >/dev/null 2>&1 &&
+   ! $LD -basic -o $fard/isr.prg $fard/isr.o45 $STDLIB > $fard/isr.log 2>&1 && grep -q "interrupt handler" $fard/isr.log &&
+   $CC -c $fard/isrcall.c -o $fard/isrcall.o45 >/dev/null 2>&1 &&
+   ! $LD -basic -o $fard/isrcall.prg $fard/isrcall.o45 $STDLIB > $fard/isrcall.log 2>&1 &&
+   grep -qF "is reachable from interrupt handler '_handler' (_handler -> _helper -> _tick)" $fard/isrcall.log &&
+   $CC -c $fard/isrptr.c -o $fard/isrptr.o45 >/dev/null 2>&1 &&
+   ! $LD -basic -o $fard/isrptr.prg $fard/isrptr.o45 $STDLIB > $fard/isrptr.log 2>&1 &&
+   grep -qF "is reachable from interrupt handler '_handler'" $fard/isrptr.log &&
+   grep -qF '    far1           kept in bank 5 $0000 - ' $fard/fartest.map &&
+   grep -qF '    far2           kept in bank 5 ' $fard/fartest.map &&
+   grep -qF '(stub $' $fard/fartest.map &&
+   ./bin/objdump45 -d $fard/fartest.ovl 2>&1 | grep -q "<_fb_mul>:"; then
+    echo "SUCCESS: __far: interrupt handlers refused (far, or reaching far code), map and objdump45 show the automatic overlays"
+    passed=$((passed + 1))
+else
+    echo "FAIL: __far: interrupt handlers refused (far, or reaching far code), map and objdump45 show the automatic overlays ($(cat $fard/isr.log $fard/isrcall.log $fard/isrptr.log 2>/dev/null | head -3))"
+    failed=$((failed + 1))
+fi
+
 # Test: <input.h> with keys pressed through the virtual key registers
 # ($D615/$D616: the real path of typed keys), joysticks
 for inmode in "zp|" "stack|-fno-zpcall"; do

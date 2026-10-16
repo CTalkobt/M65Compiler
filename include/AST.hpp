@@ -504,6 +504,7 @@ public:
     bool isInterrupt = false;
     bool isNaked = false;
     bool isRegparm = false;
+    bool isFar = false;           // __far: kept in far memory, run through the mapped window (ln45)
     bool isInline = false;
     bool isAlwaysInline = false;  // __attribute__((always_inline)) / __forceinline
     bool isNoInline = false;      // __attribute__((noinline))

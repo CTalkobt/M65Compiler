@@ -77,7 +77,10 @@ overlays and their symbols (`include/O45OverlayFile.hpp`), which nm45 and
 objdump45 read; the `-M` map shows each overlay's bank and its symbols and
 lines per overlay. Examples `examples/c/overlays` and
 `examples/c/mapped_overlays` (checks MAP really runs the code in bank 5),
-test `src/test-resources/overlay/`.
+test `src/test-resources/overlay/`. **`__far` functions**: cc45 emits them in the
+text sub-segment `far`; ln45 packs each object's `far` chunk into automatic
+mapped overlays `far1`, `far2`, … (8 KB, 16 KB if a chunk needs it; per-chunk
+overlay: `TextRemap::ovl`, `InputObject::ovlAt`); test `src/test-resources/far/`.
 
 ### Calling Conventions (details: `doc/architecture/calling-conventions.md`)
 
@@ -200,7 +203,7 @@ not change what is tested; a test's own later `-O` still wins. Use an
 explicit `-O<n>` in ad-hoc test commands too.
 
 - `make test` — unit tests (no emulator).
-- `bash src/test/test_xemu.sh` — runtime tests on xemu (289 pass): each
+- `bash src/test/test_xemu.sh` — runtime tests on xemu (294 pass): each
   `*_xemu.c` writes results to `$C0C0` (01 = pass, `$AA` sentinel), built in
   both conventions. New runtime tests follow this pattern and are registered
   in `test_xemu.sh`.
@@ -274,8 +277,10 @@ ln45, ar45, nm45, objdump45 and disk45 have no config files. Environment:
   (only `-S`). Accepted without effect: `exit_rts`/`exit_halt`/`exit_brk`,
   `no_bssinit`, `heap`, `stdio`, `no_0100_stack`, `unroll`, `no_static_alloc`
   (use `recurse`), `no_striped`.
+- **`__far` functions**: kept in far memory (see Code Overlays); `__far`
+  on a variable is still reserved.
 - **Reserved keywords** (parsed, no effect yet; kept for future expansion):
-  `__striped` (layout unchanged), `__far` (plain 16-bit access).
+  `__striped` (layout unchanged), `__far` on variables (plain 16-bit access).
   `__attribute__((weak))` is ignored (use `#pragma weak`).
 
 ## Program Startup and Exit (crt0)

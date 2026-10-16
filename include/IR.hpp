@@ -221,6 +221,7 @@ struct Function {
     bool isInterrupt = false;
     bool isNaked = false;
     bool isRegparm = false;
+    bool isFar = false;      // __far: emitted in the "far" text segment
     bool isNested = false;
     // symbols this function needs without a relocation (ca45 .ref): the
     // printf conversion hooks its format strings use

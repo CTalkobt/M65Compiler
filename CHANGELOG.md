@@ -4,6 +4,30 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### `__far` functions
+
+- `__far` on a function keeps its code in far memory: cc45 emits it in the
+  text sub-segment `far`, and ln45 packs each file's far code into automatic
+  mapped overlays (`far1`, `far2`, …; 8 KB windows, 16 KB when a file needs
+  more) reached through the overlay stubs. No pragma or option is needed;
+  the specifier can come anywhere among the others, and only the definition
+  needs it. Far functions are not inlined; a far `__interrupt` handler is a
+  link error, and so is any overlay function (far or `#pragma cc45 overlay`)
+  an interrupt handler reaches through its calls, directly or through
+  function pointers (the overlay runtime is not reentrant; ln45 names the
+  chain of calls). New example `examples/c/far_functions` (`far functions`
+  on the examples disk). xemu tests in both conventions, with and without function
+  sections (`src/test-resources/far/`).
+- ln45: a code overlay is now a property of each text chunk, not of a whole
+  object, so one object can have resident code and code in overlays.
+- **ca45 fixes** (found with `__far`): a reference into a later text
+  sub-segment (`far`, `init`) held the target's address in its own segment
+  instead of its place in the object's text; a `JSR`/`JMP` into another
+  segment could become a relative `BSR`/`BRA`; line info in a later text
+  sub-segment, or before a function's static storage, was placed at wrong
+  offsets; two `proc`s at the same address in different segments lost one
+  function attribute record.
+
 ### Code overlays
 
 - A program can be larger than bank 0: a file with `#pragma cc45 overlay(name)`

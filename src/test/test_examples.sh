@@ -96,6 +96,9 @@ test_text_disk "overlays" "$EXAMPLES/c/overlays/ovldemo.prg" "$EXAMPLES/c/overla
 build_example "$EXAMPLES/c/mapped_overlays"
 test_text_disk "mapped_overlays" "$EXAMPLES/c/mapped_overlays/mapdemo.prg" "$EXAMPLES/c/mapped_overlays/mapdemo.d81" "^MAPPED OVERLAYS: 6/6 PROVEN"
 
+build_example "$EXAMPLES/c/far_functions"
+test_text_disk "far_functions" "$EXAMPLES/c/far_functions/fardemo.prg" "$EXAMPLES/c/far_functions/fardemo.d81" "^6/6 FAR FUNCTIONS RAN"
+
 build_example "$EXAMPLES/c/unit_convert"
 test_text "unit_convert" "$EXAMPLES/c/unit_convert/convert.prg" "26 MILES = 41 KM"
 

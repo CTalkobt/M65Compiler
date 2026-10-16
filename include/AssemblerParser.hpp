@@ -139,7 +139,7 @@ public:
     };
 
     // Function attribute metadata (for .o45 export)
-    const std::map<uint32_t, std::shared_ptr<ProcContext>>& getProcedures() const { return procedures; }
+    const std::multimap<uint32_t, std::shared_ptr<ProcContext>>& getProcedures() const { return procedures; }
 
     // Array metadata (for expr array indexing)
     struct ArrayInfo {
@@ -167,6 +167,7 @@ public:
         uint32_t address;
         std::string file;
         int line;
+        std::string segment;   // the segment the address is in
     };
     const std::vector<LineEntry>& getLineMap() const { return lineMap_; }
 
@@ -186,7 +187,8 @@ private:
     std::string currentLocalScope_; // last non-@ label for auto-scoping @ labels
 
     std::shared_ptr<ProcContext> currentProc;
-    std::map<uint32_t, std::shared_ptr<ProcContext>> procedures;
+    // (by address; procs of different segments can share one: a multimap)
+    std::multimap<uint32_t, std::shared_ptr<ProcContext>> procedures;
     uint8_t framePointerZP = 0; // 0 = disabled; when set, stack ops use ($FP),Y
     bool sacMode = false; // When true, FP contains AR address directly (use direct addressing)
 

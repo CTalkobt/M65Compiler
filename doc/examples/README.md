@@ -290,6 +290,22 @@ It ends with `MAPPED OVERLAYS: 6/6 PROVEN`. Linked as copied overlays, only
 comments in `main.c` walk through the call path. `make` builds
 `mapdemo.d81`.
 
+### far_functions
+
+[Source](https://github.com/CTalkobt/M65Compiler/tree/main/examples/c/far_functions) —
+`__far` functions: their code is kept in bank 5 and mapped into the
+window `$6000`–`$7FFF` when called, with no pragma and no linker option.
+Three files mix resident and far code:
+- far math functions (a sieve whose table stays resident, `fib`, `gcd`
+  with a static far helper);
+- far text functions that call the resident library (`isalpha`, `printf`);
+- a far `checksum` in `main.c`, beside a resident function with the same
+  code.
+
+Each result shows the automatic overlay (`far1`) that ran it. `make`
+builds `fardemo.d81`; the map file `fardemo.map` shows the overlays and the
+stubs.
+
 ### unit_convert
 
 [Source](https://github.com/CTalkobt/M65Compiler/tree/main/examples/c/unit_convert) —
