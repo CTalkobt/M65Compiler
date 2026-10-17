@@ -702,7 +702,7 @@ Bug fixes and verification release. All mmemu tests compile successfully.
 
 ---
 
-## [Unreleased] - basic45 Preprocessor & Advanced Features (2026-08-13)
+## basic45 Preprocessor & Advanced Features (2026-08-13, released in v1.0.5)
 
 ### basic45 Preprocessor and Advanced Features
 
@@ -740,7 +740,7 @@ Bug fixes and verification release. All mmemu tests compile successfully.
 
 ---
 
-## [Unreleased] - basic45 Label Support (2026-08-13)
+## basic45 Label Support (2026-08-13, released in v1.0.5)
 
 ### basic45 Enhancements
 
@@ -769,7 +769,7 @@ Bug fixes and verification release. All mmemu tests compile successfully.
 
 ---
 
-## [Unreleased] - Phase 1 Simplification (2026-07-07)
+## Phase 1 Simplification (2026-07-07, released in v1.0.5)
 
 ### Code Simplification and Complexity Reduction
 
@@ -1035,7 +1035,7 @@ The `game_of_life.prg` example demonstrates the cumulative effect of all optimiz
 
 This represents a >50% code size reduction from baseline through careful register tracking, dead variable elimination, strength reduction, and fused operations.
 
-## [Unreleased] - 2026-05-31
+## 2026-05-31 (released in v1.0)
 
 Future work for v1.1+
 
@@ -1068,7 +1068,7 @@ Future work for v1.1+
 - **Parameter Narrowing Advisory**: Compiler emits `note:` when a static function's `int` parameter could be `char` — detected by checking all call sites pass values 0-255. Guides user to change signature for I8 codegen benefits.
 - game_of_life.prg: **5301 → 4656 bytes** (further reduction from MachineState-enabled optimizations).
 
-## [Unreleased] - 2026-05-27
+## 2026-05-27 (released in v1.0)
 
 ### Added
 - **`mega65.h` Hardware Register Header**: VIC-IV register struct overlay (`vic4->border = 0`) mapping all 128 registers ($D000-$D07F). Includes nested sprite position struct, `VREG_*` direct register defines, bit/colour constants, and convenience functions (`vic4_unlock`, `vic4_fast`, `vic4_sprite_pos`).
@@ -1122,7 +1122,7 @@ Future work for v1.1+
 - **`.word` Symbol References (Issue #88)**: `.word` directive now supports symbol operands with relocations, enabling static data tables with linker-resolved addresses.
 - **ln45 Unused Symbol Warnings**: Suppressed "unused global symbol" warnings for `__`-prefixed internal symbols (CRT internals like `__exit`, `__init`, `__sp_base`). Only user-facing symbols are reported.
 
-## [Unreleased] - 2026-05-26
+## 2026-05-26 (released in v1.0)
 
 ### Added
 - **`math.h` Integer Functions**: `min(a,b)`, `max(a,b)`, `gcd(a,b)`, `lcm(a,b)` — each in a separate translation unit for selective linking. Both stack and ZP calling convention variants.
@@ -1173,7 +1173,7 @@ Future work for v1.1+
 - **CRT ZP Save/Restore**: `crt0.o45` and `crt0_zp.o45` now save/restore ZP $08-$FF using `move` pseudo-op.
 - **Legacy Codegen Removed**: `--legacy-codegen` flag removed; all compilation uses IR pipeline.
 
-## [Unreleased] - 2026-05-22
+## 2026-05-22 (released in v1.0)
 
 ### Added
 - **CPU and Flag Intrinsics**: High-level access to processor state via `__cpu.R` and `__flags.F`.
@@ -1190,7 +1190,7 @@ Future work for v1.1+
 - **DMA Buffer Hazards**: Implemented explicit BSS reservation for FILL and MOVE buffers in the assembler.
 - **Relocation Signedness**: Improved linker support for signed offsets on external symbols.
 
-## [Unreleased] - 2026-05-17
+## 2026-05-17 (released in v1.0)
 
 ### Added
 - **Compiler (cc45)**:
@@ -1234,7 +1234,7 @@ Future work for v1.1+
 ### Known Limitations
 - **Custom segments in `.o45` mode**: User-defined segments (`.segment "myname"`) are mapped to `SEG_TEXT` in `.o45` output. The `.o45` format supports four segment IDs: TEXT, DATA, BSS, and ZP. Custom segment names are preserved via `OPT_SEGATTR` option records, enabling linker-side ordering (e.g., `"init"` before `"code"`). Custom segments work correctly in flat binary mode; in relocatable builds they share the TEXT segment body but retain their name metadata.
 
-## [Unreleased] - 2026-05-09
+## 2026-05-09 (released in v1.0-rc2)
 
 ### Added
 - **Linker (ln45) & Object Format (`.o45`)**:
@@ -1250,7 +1250,7 @@ Future work for v1.1+
 - **Documentation**:
     - **`doc/architecture/lib45.md` Section 4.4**: Complete specification of function attribute records: marker byte `$FA`, flags byte (LEAF, REENTRANT, ZP_CONV), register/flag clobber masks, ZP usage/clobber bitmasks. Documents linker enforcement rule (ZP→stack errors, stack→ZP permitted).
 
-## [Unreleased] - 2026-05-08
+## 2026-05-08 (released in v1.0-rc2)
 
 ### Added
 - **Compiler (cc45)**:
@@ -1262,7 +1262,7 @@ Future work for v1.1+
     - **3-operand MOVE/FILL test coverage**: Added comprehensive test cases for the 3-operand syntax (`MOVE src, dest, len` and `FILL dest, len`) that was previously undocumented. The syntax allows explicit specification of source, destination, and length operands without requiring preloaded register pairs. Tests include: immediate operands, register pair operands, symbol operands, stack-relative operands, and mixed operand types. All 9 new C++ tests pass; assembly examples in `test_fill_advanced.s45` demonstrate practical usage. Parser support for 3-operand syntax was already implemented in `AssemblerSimulatedOps::emitMoveCode()` — tests validate and document this capability.
 - **Documentation**: Updated `doc/architecture/opcodes.md` with complete syntax documentation for 2-operand and 3-operand forms of `MOVE` and `FILL`, including usage examples.
 
-## [Unreleased] - 2026-05-05
+## 2026-05-05 (released in v1.0-rc2)
 
 ### Added
 - **Compiler (cc45)**:
@@ -1285,7 +1285,7 @@ Future work for v1.1+
 - **Preprocessor (cp45)**:
     - Removed `#pragma include_once` directive. Use `#pragma once` instead (the standard form supported by GCC, Clang, and MSVC).
 
-## [Unreleased] - 2026-05-04
+## 2026-05-04 (released in v1.0-rc2)
 
 ### Added
 - **Compiler (cc45)**:
@@ -1304,7 +1304,7 @@ Future work for v1.1+
     - **Preservation of Return Values**: Refactored restoration logic to use the Z register as a temporary scratch, ensuring that 16-bit (`AX`), 24-bit (`AXY`), and 32-bit (`AXYZ`) return values are fully preserved without clobbering the Accumulator.
     - **Stack Addressing Fixes**: Updated library functions to use correct stack-relative syntax (`(offset, sp), y` and `, s`) after ZP-push shifts.
 
-## [Unreleased] - 2026-05-02
+## 2026-05-02 (released in v1.0-rc2)
 
 ### Added
 - **Compiler (cc45)**:
@@ -1349,7 +1349,7 @@ Future work for v1.1+
 - **Testing**:
     - Removed `while(1){}` infinite loops from test programs (`test_short.c`, `test_struct_return.c`, `test_inline_asm.c`, `test_mmemu_control.c`). Programs now return cleanly via RTS to the caller, matching standard CRT `exit_rts` behavior.
 
-## [Unreleased] - 2026-05-01
+## 2026-05-01 (released in v1.0-rc2)
 
 ### Added
 - **Compiler (cc45)**:
@@ -1399,7 +1399,7 @@ Future work for v1.1+
 - Added `test_struct_return.c` — mmemu validation test for struct return by value (6 sub-tests): basic struct return with member access, multiple struct returns, and using returned struct values. Verified via memory dump at `$4000`: `01 02 03 04 0A 14 AA`.
 - Added `test_variadic.c` — mmemu validation test for variadic functions (10 sub-tests): sum of 3/1/0/5 values, max finding, multiple named params before `...`, zero variadic args consumed, large values (>255), and result in expressions. Verified via mmemu (A=$00).
 
-## [Unreleased] - 2026-04-30
+## 2026-04-30 (released in v1.0-rc2)
 
 ### Added
 - **Compiler (cc45)**:
@@ -1551,7 +1551,7 @@ Future work for v1.1+
 
 ---
 
-## [Unreleased] - 2026-04-27
+## 2026-04-27 (released in 0.99.dev)
 
 ### Added
 - **Compiler (cc45)**:
@@ -1622,7 +1622,7 @@ Future work for v1.1+
 
 ---
 
-## [Unreleased] - 2026-04-26
+## 2026-04-26 (released in 0.99.dev)
 
 ### Added
 - **Compiler (cc45)**:
@@ -1667,7 +1667,7 @@ Future work for v1.1+
     - **emitAddress resultNeeded**: Set `resultNeeded=true` before visiting array base expression in `emitAddress`, preventing stale register values from being used for pointer-indexed accesses.
     - **Local variable stack offset**: Changed `.var` offset for new local variables from `size` to `0` (correct for `$0101+offset` convention where SP+1 = top of stack).
 
-## [Unreleased] - 2026-04-23
+## 2026-04-23 (released in 0.99.dev)
 
 ### Added
 - **Compiler (cc45)**:
@@ -1689,7 +1689,7 @@ Future work for v1.1+
 - **Assembler (ca45)**:
     - Standardized `.basicUpstart` size to 12 bytes to match the emitted code.
 
-## [Unreleased] - 2026-04-18
+## 2026-04-18 (released in 0.99.dev)
 
 ### Added
 - **Compiler (cc45)**:
@@ -1753,7 +1753,7 @@ Future work for v1.1+
     - **Stack-relative Logic**: Extended `stz`, `stx`, and `sty` with `tsx` absolute indexed addressing simulations where native stack-relative variants are missing.
     - **Word Load Tracking**: Enhanced the optimizer to track register states across high-level word load/store operations.
 
-## [Unreleased] - 2026-04-18
+## 2026-04-18 (released in 0.99.dev)
 
 ### Added
 - **Compiler (cc45)**:
@@ -1776,7 +1776,7 @@ Future work for v1.1+
     - Fixed 16-bit pointer arithmetic scaling for `char` and `int` pointer types.
     - Improved hex formatting for ZP scratchpad addresses in generated assembly.
 
-## [Unreleased] - 2026-04-14
+## 2026-04-14 (released in 0.99.dev)
 ...
 ### Added
 - **Compiler (cc45)**:
