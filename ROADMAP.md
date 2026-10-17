@@ -23,12 +23,12 @@
 
 ## Queued
 
-| Issue | Task | Category |
-|-------|------|----------|
-| #67 | `__zp` global qualifier: a chosen global in the base page | parser, codegen, linker |
-| #71 | Multi-level `break N` | parser, IR |
-| #75 | `__likely` / `__unlikely` branch hints | codegen, optimizer |
-| #76 | `__pure` / `__const` function attributes | optimizer |
+| Issue | Task | Category | Status |
+|-------|------|----------|--------|
+| #67 | `__zp` global qualifier: a chosen global in the base page | parser, codegen, linker | **done** |
+| #71 | Multi-level `break N` | parser, IR | |
+| #75 | `__likely` / `__unlikely` branch hints | codegen, optimizer | |
+| #76 | `__pure` / `__const` function attributes | optimizer | |
 
 ---
 

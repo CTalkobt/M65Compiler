@@ -1432,7 +1432,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
         peek().type == TokenType::VOID || peek().type == TokenType::TYPEOF ||
         peek().type == TokenType::FLOAT || peek().type == TokenType::DOUBLE || peek().type == TokenType::COMPLEX ||
         peek().type == TokenType::INT_N || peek().type == TokenType::UINT_N ||
-        peek().type == TokenType::UNSIGNED || peek().type == TokenType::SIGNED ||
+        peek().type == TokenType::UNSIGNED || peek().type == TokenType::SIGNED || peek().type == TokenType::ZP ||
         (peek().type == TokenType::IDENTIFIER && isTypedef(peek().value))) {
         if (isFunctionDeclaration()) {
             return parseFunctionDeclaration();
@@ -3547,7 +3547,7 @@ bool Parser::isTypeStartAt(size_t look) const {
            t == TokenType::SIGNED || t == TokenType::UNSIGNED ||
            t == TokenType::STRUCT || t == TokenType::UNION || t == TokenType::ENUM ||
            t == TokenType::CONST || t == TokenType::VOLATILE || t == TokenType::RESTRICT ||
-           t == TokenType::INT_N || t == TokenType::UINT_N ||
+           t == TokenType::INT_N || t == TokenType::UINT_N || t == TokenType::ZP ||
            (t == TokenType::IDENTIFIER && isTypedef(tokens[look].value));
 }
 

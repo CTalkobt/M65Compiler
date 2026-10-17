@@ -149,6 +149,16 @@ public:
     // Function attribute metadata (for .o45 export)
     const std::multimap<uint32_t, std::shared_ptr<ProcContext>>& getProcedures() const { return procedures; }
 
+    // .zpsym name, start, len: base-page bytes start..start+len-1 stand for
+    // the linker-placed variable name (cc45 __zp globals): in an object,
+    // operands there are relocated against it
+    struct ZpSym { std::string name; int start = 0, len = 0; };
+    std::vector<ZpSym> zpSyms;
+    const ZpSym* zpSymAt(uint32_t v) const {
+        for (const auto& z : zpSyms) if (v >= (uint32_t)z.start && v < (uint32_t)(z.start + z.len)) return &z;
+        return nullptr;
+    }
+
     // Array metadata (for expr array indexing)
     struct ArrayInfo {
         uint32_t elementSize;

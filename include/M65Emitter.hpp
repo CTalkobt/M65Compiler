@@ -364,6 +364,12 @@ public:
     // linker-placed block: each becomes an R_LOWX relocation against sym with
     // the offset in the block as its byte ("" turns it off)
     void setZar(int start, int len, const std::string& sym) { zarStart_ = start; zarLen_ = len; zarSym_ = sym; }
+    // .zpsym: the same for linker-placed variables (start, len, symbol), in
+    // every function; an absolute operand there becomes an R_WORD against
+    // the symbol (its value is the full address in the program's base page)
+    struct ZpRange { int start, len; std::string sym; };
+    void setZpSyms(std::vector<ZpRange> r) { zpRanges_ = std::move(r); }
+    uint16_t zpAbsOperand(uint16_t value);
     // building a relocatable object (.o45): relocations are kept
     void setObjectMode(bool on) { objectMode_ = on; }
     bool objectMode() const { return objectMode_; }
@@ -395,6 +401,7 @@ private:
     int zarStart_ = -1, zarLen_ = 0;
     bool objectMode_ = false;
     std::string zarSym_;
+    std::vector<ZpRange> zpRanges_;
     std::vector<ImmediateReloc> immediateRelocs_;  // Phase 78: SMC immediate relocations
     std::ostream* out = nullptr;
     std::vector<uint8_t>* binary = nullptr;

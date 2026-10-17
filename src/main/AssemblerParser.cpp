@@ -1059,6 +1059,24 @@ void AssemblerParser::pass1() {
                 }
                 stmt->size = 0;
             }
+            else if (stmt->dir.name == "zpsym") {
+                // .zpsym name, start, len — a linker-placed base-page variable
+                try {
+                    ZpSym z;
+                    z.name = advance().value;
+                    if (peek().type == AssemblerTokenType::COMMA) advance();
+                    z.start = (int)parseNumericLiteral(advance().value);
+                    if (peek().type == AssemblerTokenType::COMMA) advance();
+                    z.len = (int)parseNumericLiteral(advance().value);
+                    if (z.name.empty() || z.start < 0 || z.len <= 0 || z.start + z.len > 0x100)
+                        errors.push_back("Error: .zpsym range must lie in the base page");
+                    else if (!zpSymAt((uint32_t)z.start) && !zpSymAt((uint32_t)(z.start + z.len - 1)))
+                        zpSyms.push_back(z);
+                } catch (...) {
+                    errors.push_back("Error: .zpsym needs a symbol, a start address and a length");
+                }
+                stmt->size = 0;
+            }
             else if (stmt->dir.name == "zar") {
                 // .zar start, len — the function's private base-page bytes
                 if (!currentProc) {
@@ -2110,7 +2128,8 @@ int AssemblerParser::calculateInstructionSize(const Instruction& instr, uint32_t
             // $00xx, which ignores the base page register (B).
             auto warnNoBP = [&](const char* idx) {
                 // (a forward reference evaluates to 0 until it is defined)
-                if (!fitsIn8 || forceAbs || !exprSymbolsDefined(instr.operandTokenIndex, scopePrefix) ||
+                // (a .zpsym variable's operand is relocated to its full address)
+                if (!fitsIn8 || forceAbs || zpSymAt(val) || !exprSymbolsDefined(instr.operandTokenIndex, scopePrefix) ||
                     !zpYWarned_.insert(instr.operandTokenIndex).second) return;
                 const auto& tok = tokens[instr.operandTokenIndex];
                 char buf[192];
@@ -2207,7 +2226,7 @@ void AssemblerParser::warnUnknownDirective(const AssemblerToken& tok) {
         "keep", "nosplit", "overlay", "ref", "split",
         "global", "import", "incbin", "init", "loc", "local", "long", "noopt_start", "org",
         "param_const", "param_sizes", "reg_clobbers", "repeat", "res", "sac", "screencode", "segment",
-        "segmentOrder", "space", "text", "var", "var_field_array", "vtable_entry", "weak", "word", "zp", "zp_clobbers",
+        "segmentOrder", "space", "text", "var", "var_field_array", "vtable_entry", "weak", "word", "zp", "zp_clobbers", "zpsym",
         "zp_release", "zp_uses"};
     if (known.count(tok.value)) return;
     if (!warnedDirectives_.insert(tok.value + ":" + std::to_string(tok.line)).second) return;

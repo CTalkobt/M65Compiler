@@ -115,7 +115,7 @@ overlay: `TextRemap::ovl`, `InputObject::ovlAt`); test `src/test-resources/far/`
   `$10`–`$2F` parameters, `$30`–`$7F` register pool, `$80`–`$E9` functions'
   base-page blocks (the most used variables of SAC functions that make calls,
   up to 16 bytes (the library 8), `-fzp-locals-max=N`; ca45 `.zar`, placed by ln45 like the SAC
-  overlay; `-fno-zp-locals`), `$FD/$FE` frame pointer.
+  overlay; `-fno-zp-locals`; `__zp` globals take the top of that area), `$FD/$FE` frame pointer.
 
 ### Relocated Base Page (the program's private zero page)
 
@@ -203,7 +203,7 @@ not change what is tested; a test's own later `-O` still wins. Use an
 explicit `-O<n>` in ad-hoc test commands too.
 
 - `make test` — unit tests (no emulator).
-- `bash src/test/test_xemu.sh` — runtime tests on xemu (308 pass): each
+- `bash src/test/test_xemu.sh` — runtime tests on xemu (310 pass): each
   `*_xemu.c` writes results to `$C0C0` (01 = pass, `$AA` sentinel), built in
   both conventions. New runtime tests follow this pattern and are registered
   in `test_xemu.sh`.
@@ -251,7 +251,8 @@ ln45, ar45, nm45, objdump45 and disk45 have no config files. Environment:
 - **Extensions**: struct methods, single inheritance, `virtual`/`final`,
   operator overloading, GCC nested functions (static chain, trampolines),
   statement expressions, computed goto, case ranges, `continue <value>` in a switch, `repeat(N)`, `__cpu`/`__flags`,
-  `__dma_copy`/`__dma_fill`, `__interrupt`, `__naked`, `__regparm`, file-scope
+  `__dma_copy`/`__dma_fill`, `__interrupt`, `__naked`, `__regparm`, `__zp` globals
+  (in the private base page, placed by ln45 at the top of `$80`–`$E9`), file-scope
   `asm("...")` (module-level assembly), string encodings
   (`@"…"`, `p"…"`, `s"…"`, `a"…"`, `#pragma encoding`), GCC vector extension (`-fmax-unroll-bytes`, default 128).
 - **Optimization** (`doc/architecture/optimizations.md`): `-O1`+ runs the ten

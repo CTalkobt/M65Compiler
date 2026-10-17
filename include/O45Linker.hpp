@@ -550,6 +550,14 @@ private:
     std::map<uint32_t, uint32_t> zarWrapAt_;      // entry address → its wrapper
     uint32_t zarUsed_ = 0, zarTotal_ = 0;         // bytes of $80-$E9 used / asked for
     static constexpr uint32_t ZAR_LO = 0x80, ZAR_HI = 0xEA;
+    // __zp variables (cc45 cc45.zpvar.<sym> = size): placed at the top of
+    // $80-$E9, below them the base-page blocks; <sym> = __zp_page + address.
+    // One with cc45.zpinit.<sym> (its initial value, in data) is copied
+    // there by the generated __zp_init that crt0 calls after the BSS fill
+    std::map<std::string, uint32_t> zpVarAddr_, zpVarSize_;
+    uint32_t zpVarTotal_ = 0;
+    uint32_t zpInitAt_ = 0;                           // the generated __zp_init (0: none)
+    std::vector<std::pair<uint32_t, std::string>> zpInitPatches_;   // text offset, symbol (an address word)
     uint32_t sacOverlayOffset_ = 0;   // its offset in the merged BSS
     uint32_t sacOverlaySaved_ = 0;    // bytes saved by sharing
     bool sacOverlayOn_ = true;        // --no-sac-overlay clears it
@@ -668,6 +676,10 @@ private:
     // a function whose block shares bytes with a function active together
     // with it is reached through a wrapper that saves and restores them
     void generateZarWrappers();
+    bool placeZpVars(std::string& errorMsg);
+    void checkZpVarsInIsr();      // base-page uses from code an interrupt handler reaches
+    void generateZpInit();
+    void patchZpInit();
     void layoutBss();                  // BSS layout (objects, then the SAC overlay area)
     void generateThunks();
     void mergeLineMaps();

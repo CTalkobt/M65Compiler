@@ -296,6 +296,7 @@ struct Module {
     int maxUnrollBytes = -1;   // #pragma cc45 max_unroll_bytes (last one in the file); -1 = -fmax-unroll-bytes
     std::list<Function> functions;
     std::vector<std::string> externs;
+    std::map<std::string, int> zpExterns;   // extern __zp globals: name -> size (0: unknown)
 
     // Global variable declarations (for ADDR_GLOBAL references)
     struct GlobalVar {

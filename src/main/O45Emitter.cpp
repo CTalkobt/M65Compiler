@@ -92,6 +92,11 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         M65Emitter e(body, parser.getZPStart()); e.setSpBase(parser.getSpBase());
         e.setAddress(seg->startAddress);
         e.setObjectMode(true);
+        {
+            std::vector<M65Emitter::ZpRange> zr;
+            for (const auto& z : parser.zpSyms) zr.push_back({z.start, z.len, z.name});
+            e.setZpSyms(std::move(zr));
+        }
         AssemblerGenerator::generate(&parser, e, segName);
 
         auto spRelocs = e.spBaseRelocs();

@@ -1033,6 +1033,17 @@ bool O45Linker::resolveSymbols(std::string& errorMsg) {
             }
     }
 
+    // __zp variables: __zp_page + their base-page address (placeZpVars)
+    {
+        uint32_t page = globalSymbols_.count("__zp_page") ? globalSymbols_["__zp_page"] : 0;
+        for (const auto& [sym, at] : zpVarAddr_) {
+            if (globalSymbols_.count(sym) && symbolSource_[sym] != "<linker>") continue;
+            globalSymbols_[sym] = page + at;
+            symbolSource_[sym] = "<linker>";
+            symbolWeak_[sym] = false;
+        }
+    }
+
     // Inject linker-defined BSS boundary symbols.
     // These are used by _init_bss in the CRT to zero BSS at startup.
     if (!globalSymbols_.count("__bss_start")) {
@@ -1567,6 +1578,7 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
 
     if (!layoutSegments(errorMsg)) return {};
     if (!placeOverlayRegion(errorMsg)) return {};
+    if (!placeZpVars(errorMsg)) return {};
     if (!resolveSymbols(errorMsg)) return {};
 
     // Phase 3: function attribute integration and debug info
@@ -1576,6 +1588,7 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
     computeTransitiveClobbers();
     emitDiagnostics();
     verifyStaticAllocSafety();  // Verify SAC constraints before thunk generation
+    checkZpVarsInIsr();
     validateSACParameters();      // Phase 3: Validate SAC parameter metadata
     validateImmediateRelocations(); // Phase 78.4: Validate immediate relocation symbols
 
@@ -1604,6 +1617,8 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
     generateZarWrappers();
     // Generate thunks for convention mismatches (appends to mergedText_)
     generateThunks();
+    // Copies of the __zp variables' initial values (appended to mergedText_)
+    generateZpInit();
 
     // Thunks were appended to the text after data/BSS were placed: if they now
     // overlap automatically placed data or BSS, move them up and re-resolve.
@@ -1624,6 +1639,8 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
             for (const auto& [name, addr] : thunkAddresses_) globalSymbols_[name] = addr;
         }
     }
+
+    patchZpInit();
 
     // A weak absolute symbol an object's code was assembled with (ca45
     // OPT_WEAKUSE: .weak x / x = value, used there) must keep that value:
@@ -2358,7 +2375,7 @@ bool O45Linker::computeZarOverlay(std::string& errorMsg) {
         }
         blocks = ordered;
     }
-    const uint32_t area = ZAR_HI - ZAR_LO;
+    const uint32_t area = ZAR_HI - ZAR_LO - zpVarTotal_;   // (the __zp variables are above)
     for (const auto& [f, len] : blocks) {
         std::vector<std::pair<uint32_t, uint32_t>> busy;
         for (const auto& [g, at] : zarOffset_)
@@ -2404,6 +2421,122 @@ bool O45Linker::computeZarOverlay(std::string& errorMsg) {
     ln45info() << "base-page blocks: " << blocks.size() << " functions, " << zarTotal_ << " bytes in "
                << zarUsed_ << "\n";
     return true;
+}
+
+// __zp variables (cc45 cc45.zpvar.<sym> = size, one definition each): at
+// the top of $80-$E9 in name order; the base-page blocks share what is left
+bool O45Linker::placeZpVars(std::string& errorMsg) {
+    zpVarAddr_.clear();
+    zpVarSize_.clear();
+    zpVarTotal_ = 0;
+    std::map<std::string, std::string> definedIn;
+    for (const auto& input : objects_)
+        for (const auto& exp : input.obj.exports) {
+            if (exp.name.rfind("cc45.zpvar.", 0) != 0) continue;
+            std::string sym = exp.name.substr(11);
+            if (definedIn.count(sym)) {
+                errorMsg = "__zp variable '" + sym + "' is defined in " + definedIn[sym] + " and " + input.filename;
+                return false;
+            }
+            definedIn[sym] = input.filename;
+            zpVarSize_[sym] = exp.offset;
+            zpVarTotal_ += exp.offset;
+        }
+    if (zpVarTotal_ == 0) return true;
+    if (zpVarTotal_ > ZAR_HI - ZAR_LO) {
+        errorMsg = "__zp variables need " + std::to_string(zpVarTotal_) + " bytes; the program's base page has " +
+                   std::to_string(ZAR_HI - ZAR_LO) + " ($80-$E9)";
+        return false;
+    }
+    uint32_t at = ZAR_HI - zpVarTotal_;
+    for (const auto& [sym, size] : zpVarSize_) {
+        zpVarAddr_[sym] = at;
+        ln45debug() << "__zp variable: " << sym << " at $" << std::hex << at << std::dec << " len " << size << "\n";
+        at += size;
+    }
+    ln45info() << "__zp variables: " << zpVarAddr_.size() << ", " << zpVarTotal_ << " bytes\n";
+    return true;
+}
+
+// An __interrupt handler runs with its own base page (__zp_page_isr): a
+// base-page operand of a __zp variable (R_LOWX against it) in code a handler
+// reaches would use that page's byte. Absolute references are fine.
+void O45Linker::checkZpVarsInIsr() {
+    if (zpVarAddr_.empty()) return;
+    std::set<std::string> isrFuncs;
+    for (const auto& [name, attrs] : funcAttrs_)
+        if (attrs.flags & FUNC_FLAG_ISR) isrFuncs.insert(name);
+    if (isrFuncs.empty()) return;
+    std::map<std::string, std::string> reachedBy;   // function -> a handler reaching it
+    for (const auto& isr : isrFuncs) {
+        std::vector<std::string> todo{isr};
+        while (!todo.empty()) {
+            std::string f = todo.back();
+            todo.pop_back();
+            if (!reachedBy.emplace(f, isr).second) continue;
+            auto it = callGraph_.find(f);
+            if (it != callGraph_.end()) for (const auto& c : it->second) todo.push_back(c);
+        }
+    }
+    std::set<std::string> reported;
+    for (const auto& input : objects_) {
+        std::vector<std::pair<uint32_t, std::string>> funcs;   // text offset, function
+        for (const auto& exp : input.obj.exports)
+            if (exp.segmentId() == SEG_TEXT && exp.name.find("__lbl_") == std::string::npos)
+                funcs.push_back({exp.offset, exp.name});
+        std::sort(funcs.begin(), funcs.end());
+        for (const auto& r : O45RelocDecoder::decode(input.obj.textRelocs)) {
+            if (r.type != R_LOWX || r.segment != SEG_EXTERNAL || r.symbolIndex >= input.obj.imports.size()) continue;
+            const std::string& var = input.obj.imports[r.symbolIndex].name;
+            if (!zpVarAddr_.count(var)) continue;
+            std::string f;
+            for (const auto& [off, name] : funcs) if (off <= r.offset) f = name;
+            if (f.size() > 5 && f.compare(f.size() - 5, 5, "__sac") == 0) f.resize(f.size() - 5);
+            auto it = reachedBy.find(f);
+            if (it == reachedBy.end() || !reported.insert(f + " " + var).second) continue;
+            convErrors_.push_back("error: '" + f + "' uses the __zp variable '" + var + "' and is reachable from "
+                                  "interrupt handler '" + it->second + "', which runs on its own base page "
+                                  "(share data with interrupt handlers in plain globals)");
+        }
+    }
+}
+
+// __zp_init: the initial values of __zp variables (cc45.zpinit.<sym>, in
+// data) copied into the base page, one loop per variable:
+//   LDX #n-1 / LDA src,X / STA dst,X / DEX / BPL (n <= 106) ... RTS
+// The addresses are written by patchZpInit, once data and BSS are final.
+void O45Linker::generateZpInit() {
+    zpInitAt_ = 0;
+    zpInitPatches_.clear();
+    std::vector<std::string> inits;
+    for (const auto& [sym, size] : zpVarSize_)
+        if (size > 0 && globalSymbols_.count("cc45.zpinit." + sym)) inits.push_back(sym);
+    if (inits.empty()) return;
+    auto& t = mergedText_;
+    zpInitAt_ = textBase_ + (uint32_t)t.size();
+    for (const auto& sym : inits) {
+        t.push_back(0xA2); t.push_back((uint8_t)(zpVarSize_[sym] - 1));   // LDX #n-1
+        t.push_back(0xBD); zpInitPatches_.push_back({(uint32_t)t.size(), "cc45.zpinit." + sym});
+        t.push_back(0); t.push_back(0);                                   // LDA src,X
+        t.push_back(0x9D); zpInitPatches_.push_back({(uint32_t)t.size(), sym});
+        t.push_back(0); t.push_back(0);                                   // STA dst,X
+        t.push_back(0xCA);                                                // DEX
+        t.push_back(0x10); t.push_back(0xF7);                             // BPL (to the LDA)
+    }
+    t.push_back(0x60);                                                    // RTS
+    ln45debug() << "__zp_init at $" << std::hex << zpInitAt_ << std::dec << "\n";
+}
+
+void O45Linker::patchZpInit() {
+    if (!zpInitAt_) return;
+    globalSymbols_["__zp_init"] = zpInitAt_;   // (replaces crt0's weak RTS)
+    symbolSource_["__zp_init"] = "<linker>";
+    symbolWeak_["__zp_init"] = false;
+    for (const auto& [off, sym] : zpInitPatches_) {
+        uint32_t v = globalSymbols_.count(sym) ? globalSymbols_[sym] : 0;
+        mergedText_[off] = v & 0xFF;
+        mergedText_[off + 1] = (v >> 8) & 0xFF;
+    }
 }
 
 // The wrapper of a function whose base-page block is shared with a function
@@ -3087,6 +3220,12 @@ void O45Linker::writeMap(std::ostream& out) const {
         char buf[120];
         snprintf(buf, sizeof(buf), "  (base-page blocks $%02X - $%02X, %u bytes; %u asked for by %zu functions)\n",
                  ZAR_LO, ZAR_LO + zarUsed_ - 1, zarUsed_, zarTotal_, zarOffset_.size());
+        out << buf;
+    }
+    if (zpVarTotal_ > 0) {
+        char buf[120];
+        snprintf(buf, sizeof(buf), "  (__zp variables $%02X - $%02X, %u bytes, %zu variables)\n",
+                 ZAR_HI - zpVarTotal_, ZAR_HI - 1, zpVarTotal_, zpVarAddr_.size());
         out << buf;
     }
     printSeg("ZP", zpBase_, mergedZpLen_);

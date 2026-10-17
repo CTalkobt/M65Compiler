@@ -233,6 +233,39 @@ else
     failed=$((failed + 1))
 fi
 
+# __zp globals (#67): base-page operands relocated against the variable
+# (R_LOWX), absolute ones (ldz, lda abs,y) as its full address (R_WORD); ln45
+# rejects base-page uses from code an interrupt handler reaches, a variable
+# defined twice, and more than the base page's 106 bytes
+zp_ok=1
+printf '__zp unsigned char z;\n__zp long q;\nunsigned char f(void) { return z; }\nlong g(void) { return q; }\n' > build/test/zpg.c
+if $CC -c build/test/zpg.c -o build/test/zpg.o45 >/dev/null 2>&1; then
+    ./bin/nm45 -r build/test/zpg.o45 | grep -q 'R_LOWX *EXTERN *_z ' || zp_ok=0
+    ./bin/nm45 -r build/test/zpg.o45 | grep -q 'R_WORD *EXTERN *_q' || zp_ok=0
+    ./bin/nm45 build/test/zpg.o45 | grep -q 'A cc45.zpvar._z$' || zp_ok=0
+else
+    zp_ok=0
+fi
+printf '__zp unsigned char ticks;\nvoid helper(void) { ticks++; }\n__interrupt void isr(void) { helper(); }\nint main(void) { return ticks; }\n' > build/test/zpisr.c
+$CC build/test/zpisr.c -o build/test/zpisr.prg 2>&1 | grep -q "uses the __zp variable '_ticks' and is reachable from interrupt handler" || zp_ok=0
+printf '__zp int d;\nint main(void) { return d; }\n' > build/test/zpd1.c
+printf '__zp int d;\nint g(void) { return d; }\n' > build/test/zpd2.c
+printf '__zp unsigned char b[60];\nint g(void) { return b[1]; }\n' > build/test/zpd3.c
+printf '__zp unsigned char a[60];\nint main(void) { return a[1]; }\n' > build/test/zpd4.c
+for f in zpd1 zpd2 zpd3 zpd4; do $CC -c build/test/$f.c -o build/test/$f.o45 >/dev/null 2>&1 || zp_ok=0; done
+./bin/ln45 -basic -o build/test/zpd.prg build/test/zpd1.o45 build/test/zpd2.o45 lib/build/c45.lib 2>&1 | grep -q "__zp variable '_d' is defined in" || zp_ok=0
+./bin/ln45 -basic -o build/test/zpd.prg build/test/zpd4.o45 build/test/zpd3.o45 lib/build/c45.lib 2>&1 | grep -q "__zp variables need 120 bytes" || zp_ok=0
+printf 'extern __zp unsigned char ua[];\nint main(void) { return ua[1]; }\n' > build/test/zpu.c
+$CC -c build/test/zpu.c -o build/test/zpu.o45 2>&1 | grep -q "needs a size" || zp_ok=0
+printf 'int f(int a) { __zp int t = a; return t; }\n' > build/test/zpl.c
+$CC -c build/test/zpl.c -o build/test/zpl.o45 2>&1 | grep -q "__zp has no effect on a local variable" || zp_ok=0
+if [ $zp_ok -eq 1 ]; then
+    echo "SUCCESS: __zp globals: relocations and link checks"
+else
+    echo "FAIL: __zp globals: relocations and link checks"
+    failed=$((failed + 1))
+fi
+
 # A local or parameter that shadows a const global is writable (Issue #285);
 # the global is read-only again when the local's scope ends
 sh_ok=1

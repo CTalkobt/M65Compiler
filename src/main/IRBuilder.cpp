@@ -3629,6 +3629,9 @@ void IRBuilder::visit(VariableDeclaration& node) {
         };
         if (node.isExtern) {
             module_.externs.push_back("_" + node.name);
+            if (node.addressSpace == 1)
+                module_.zpExterns["_" + node.name] = getTypeSize(node.type, node.pointerLevel) *
+                                                     (node.arraySize() < 0 ? 1 : node.arraySize());
             recordGlobalType();  // its type is still needed to use it
             return;
         }
@@ -3756,6 +3759,10 @@ void IRBuilder::visit(VariableDeclaration& node) {
         module_.globals.push_back(gv);
         return;
     }
+
+    if (currentFunc_ && !node.isStatic && !node.isExtern && node.addressSpace == 1)
+        warnings_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column, Severity::Warning,
+            "__zp has no effect on a local variable '" + node.name + "' (a static __zp one is in the base page)"));
 
     // Local static variables: allocate as globals, not frame locals
     if (node.isStatic && currentFunc_) {

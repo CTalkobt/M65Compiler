@@ -22,6 +22,7 @@
 .extern __bss_fill
 .weak _init_features
 .weak __ovl_init
+.weak __zp_init
 .weak __ovl_rom_leave
 .weak __ovl_exit
 .weak __ovl_jsave
@@ -159,6 +160,7 @@ __start:
     pla
     dex
     bne @bss_drop
+    jsr __zp_init       ; __zp variables' initial values (ln45; weak: none)
 @bss_done:
 
     lda __bc_mode
@@ -234,6 +236,11 @@ _init_features:
 ; Default __ovl_init — no code overlays. ln45 links the library's (ovl.s45)
 ; when a program has them: it loads their file into far memory.
 __ovl_init:
+    rts
+
+; Default __zp_init — no __zp variable has an initial value. ln45 generates
+; one that copies them into the base page when some has.
+__zp_init:
     rts
 
 ; Defaults of the mapped overlays' hooks (ovl.s45): after a ROM call, and

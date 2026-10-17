@@ -359,6 +359,22 @@ for cpmode in "stack|-fno-zpcall|$STDLIB_STACK" "zp||$STDLIB"; do
     fi
 done
 
+# Test: __zp globals in the program's base page (two modules): initial
+# values, arrays, pointers, addresses, statics, stack and ZP conventions
+for zgmode in "stack|-fno-zpcall|$STDLIB_STACK" "zp||$STDLIB"; do
+    IFS='|' read -r zgname zgflags zglib <<< "$zgmode"
+    echo "Testing test_zp_globals_xemu.c ($zgname)..."
+    if $CC -c $zgflags src/test-resources/test_zp_globals_xemu.c -o build/test/test_zp_globals_${zgname}.o45 >/dev/null 2>&1 &&
+       $CC -c $zgflags src/test-resources/test_zp_globals_b_xemu.c -o build/test/test_zp_globals_b_${zgname}.o45 >/dev/null 2>&1 &&
+       $LD -basic -o build/test/test_zp_globals_${zgname}_xemu.prg $CRT0 build/test/test_zp_globals_${zgname}.o45 \
+           build/test/test_zp_globals_b_${zgname}.o45 $zglib >/dev/null 2>&1; then
+        run_xemu_test "test_zp_globals_$zgname" "build/test/test_zp_globals_${zgname}_xemu.prg" "C0C0" 10 "01 01 01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_zp_globals_xemu.c $zgname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: virtual dispatch (every __vt set: locals, globals, statics, arrays,
 # nested members), stack and ZP conventions
 for vtmode in "stack|-fno-zpcall" "zp|"; do

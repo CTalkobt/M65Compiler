@@ -366,6 +366,10 @@ const ir::Inst* IRCodeGen::peekNextInst() const {
 }
 
 void IRCodeGen::emit(const std::string& line, const std::string& reason) {
+    if (!zpPlace_.empty()) {
+        std::string rw = rewriteZpOperands(line);
+        if (rw != line) { emit(rw, reason); return; }
+    }
     // the @labels this line names (a block label nothing names is not emitted)
     for (size_t at = line.find('@'); at != std::string::npos; at = line.find('@', at + 1)) {
         size_t e = at + 1;
@@ -446,10 +450,89 @@ void IRCodeGen::emit(const std::string& line, const std::string& reason) {
     }
 }
 
-// Phase 97.5: Optimized emit with address space suffix transformation
+// __zp globals of relocatable output: a placeholder base-page address each
+// (in name order), from the end of the largest .zar block a function can
+// have up to $FC ($FD/$FE: the frame pointer)
+void IRCodeGen::placeZpGlobals(const ir::Module& mod) {
+    zpPlace_.clear();
+    zpLink_.clear();
+    if (!relocMode_) return;
+    std::map<std::string, std::pair<int, bool>> vars;   // name -> size, static
+    for (const auto& g : mod.globals)
+        if (g.addressSpace == 1) vars[g.name] = {g.size > 0 ? g.size : ir::typeSize(g.type), g.isStatic};
+    for (const auto& [name, size] : mod.zpExterns)
+        if (!vars.count(name)) vars[name] = {size, false};
+    if (vars.empty()) return;
+    int zarMax = ZAR_MAX;
+    if (const char* m = getenv("CC45_ZP_LOCALS_MAX")) zarMax = std::max(0, std::min(atoi(m), ZAR_END - ZAR_START));
+    if (getenv("CC45_NO_ZP_LOCALS")) zarMax = 0;
+    // a static one's symbol: name__<file> (as a static function's)
+    std::string tag;
+    {
+        std::string f = mod.sourceFile;
+        size_t sl = f.find_last_of('/');
+        if (sl != std::string::npos) f = f.substr(sl + 1);
+        size_t dot = f.find_last_of('.');
+        if (dot != std::string::npos) f = f.substr(0, dot);
+        for (char c : f) tag += std::isalnum((unsigned char)c) ? c : '_';
+    }
+    int at = ZAR_START + zarMax;
+    for (const auto& [name, v] : vars) {
+        const std::string clean = name.size() > 1 && name[0] == '_' ? name.substr(1) : name;
+        if (v.first <= 0)
+            throw std::runtime_error("__zp variable '" + clean + "' needs a size (an extern __zp array must give its length)");
+        if (at + v.first > 0xFD)
+            throw std::runtime_error("__zp variables: '" + clean + "' does not fit; one file can use " +
+                                     std::to_string(0xFD - ZAR_START - zarMax) + " bytes of them (less with a larger -fzp-locals-max)");
+        zpPlace_[name] = {at, v.first};
+        if (v.second) zpLink_[name] = name + "__" + tag;
+        at += v.first;
+    }
+}
+
+std::string IRCodeGen::rewriteZpOperands(const std::string& line) const {
+    size_t b = line.find_first_not_of(" \t");
+    if (b == std::string::npos || line[b] == ';') return line;
+    // a directive (.word _x) or a label: only a static variable's name changes
+    bool operandsToo = line[b] != '.' && line.find(':') == std::string::npos;
+    std::string out;
+    size_t i = 0;
+    // the mnemonic stays (and, after it, each identifier is a name)
+    if (operandsToo) {
+        size_t e = line.find_first_of(" \t", b);
+        if (e == std::string::npos) return line;
+        out = line.substr(0, e);
+        i = e;
+    }
+    auto isId = [](char c) { return std::isalnum((unsigned char)c) || c == '_' || c == '.'; };
+    while (i < line.size()) {
+        char c = line[i];
+        if (c == '"') {   // a string: as it is
+            size_t e = line.find('"', i + 1);
+            e = e == std::string::npos ? line.size() : e + 1;
+            out += line.substr(i, e - i);
+            i = e;
+            continue;
+        }
+        if (!isId(c) || (i > 0 && isId(line[i - 1]))) { out += c; i++; continue; }
+        size_t e = i;
+        while (e < line.size() && isId(line[e])) e++;
+        std::string id = line.substr(i, e - i);
+        auto it = zpPlace_.find(id);
+        if (it == zpPlace_.end()) { out += id; i = e; continue; }
+        // an immediate (#<_x, #>_x) is the variable's address: its symbol
+        size_t p = out.find_last_not_of(" \t<>");
+        bool address = !operandsToo || (p != std::string::npos && out[p] == '#');
+        if (address) out += zpLinkName(id);
+        else { char h[8]; snprintf(h, sizeof h, "$%02X", it->second.addr); out += h; }
+        i = e;
+    }
+    return out;
+}
+
+// (__zp globals' operands are rewritten by emit: rewriteZpOperands)
 void IRCodeGen::emitOptimized(const std::string& line, const std::string& reason) {
-    std::string optimized = addAddressSpaceSuffix(line);
-    emit(optimized, reason);
+    emit(line, reason);
 }
 
 // Is vreg id read by any instruction of the current function other than
@@ -614,66 +697,6 @@ std::string IRCodeGen::formatDebugType(ir::Type type) {
         case ir::Type::F32:   return "float32";
         default:              return "unknown";
     }
-}
-
-// Phase 97.5: Add .zp suffix to instructions accessing __zp symbols
-std::string IRCodeGen::addAddressSpaceSuffix(const std::string& instr) const {
-    // Skip directives, comments, and immediate operands
-    if (instr.empty() || instr[0] == '.' || instr[0] == ';' || instr[0] == ';') {
-        return instr;
-    }
-
-    // Parse mnemonic and operand: "lda symbol" or "lda symbol+1" or "lda symbol, X"
-    size_t spacePos = instr.find(' ');
-    if (spacePos == std::string::npos) {
-        return instr;  // No operand
-    }
-
-    std::string mnemonic = instr.substr(0, spacePos);
-    std::string operand = instr.substr(spacePos + 1);
-
-    // Only optimize memory-accessing instructions (skip branches, shifts, etc.)
-    static const std::set<std::string> zpOptimizableInstructions = {
-        "lda", "sta", "ldx", "stx", "ldy", "sty", "ldz", "stz",
-        "inc", "dec", "asl", "lsr", "rol", "ror", "bit", "trb", "tsb",
-        "and", "ora", "eor"  // ALU ops that can work with memory operands
-    };
-
-    // Check if this instruction can be optimized
-    if (zpOptimizableInstructions.find(mnemonic) == zpOptimizableInstructions.end()) {
-        return instr;
-    }
-
-    // Skip if operand is immediate (starts with #)
-    if (operand[0] == '#') {
-        return instr;
-    }
-
-    // Extract base symbol name from operand (before +, comma, etc.)
-    std::string baseSymbol;
-    size_t plusPos = operand.find('+');
-    size_t commaPos = operand.find(',');
-    size_t minusPos = operand.find('-');
-
-    size_t endPos = std::min({
-        plusPos != std::string::npos ? plusPos : operand.length(),
-        commaPos != std::string::npos ? commaPos : operand.length(),
-        minusPos != std::string::npos ? minusPos : operand.length()
-    });
-
-    baseSymbol = operand.substr(0, endPos);
-    // Trim leading/trailing whitespace
-    while (!baseSymbol.empty() && baseSymbol[0] == ' ') baseSymbol.erase(0, 1);
-    while (!baseSymbol.empty() && baseSymbol.back() == ' ') baseSymbol.pop_back();
-
-    // Check if this symbol is in the __zp address space
-    auto it = symbolAddressSpace_.find(baseSymbol);
-    if (it != symbolAddressSpace_.end() && it->second == 1) {
-        // Add .zp suffix to mnemonic
-        return mnemonic + ".zp " + operand;
-    }
-
-    return instr;
 }
 
 void IRCodeGen::emitDebugVariable(const std::string& functionName, const std::string& varName,
@@ -1334,12 +1357,15 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     }
 
     // Phase 97.5: Build symbol → addressSpace mapping for instruction optimization
+    // (__zp only in relocatable output: -S keeps them plain globals)
     symbolAddressSpace_.clear();
     smallGlobals_.clear();
     for (const auto& global : mod.globals) {
-        symbolAddressSpace_[global.name] = global.addressSpace;
-        if (global.size > 0 && global.size <= 256 && global.addressSpace == 0) smallGlobals_.insert(global.name);
+        int space = global.addressSpace == 1 && !relocMode ? 0 : global.addressSpace;
+        symbolAddressSpace_[global.name] = space;
+        if (global.size > 0 && global.size <= 256 && space == 0) smallGlobals_.insert(global.name);
     }
+    placeZpGlobals(mod);
 
     // Pre-scan all functions to compute frame offsets (needed for capture)
     // Bug #179 fix: Skip prescan for all functions.
@@ -1716,9 +1742,17 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
         // Only emit .extern for symbols actually used, and not for one this
         // module defines (extern int x; ... int x = 1;)
         for (const auto& ext : mod.externs) {
-            if (referencedSymbols.count(ext) && !definedHere(ext)) {
+            if (referencedSymbols.count(ext) && !definedHere(ext) && !zpPlace_.count(ext)) {
                 emit(".extern " + ext);
             }
+        }
+        // __zp globals (also those defined here): ln45 defines their symbols;
+        // the placeholders' operands are relocated against them
+        for (const auto& [name, zp] : zpPlace_) {
+            char h[8];
+            snprintf(h, sizeof h, "$%02X", zp.addr);
+            emit(".extern " + zpLinkName(name));
+            emit(".zpsym " + zpLinkName(name) + ", " + h + ", " + std::to_string(zp.size));
         }
     } else {
         for (const auto& ext : mod.externs) {
@@ -1889,6 +1923,15 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
     // Emit .global directives for non-static globals and functions
     if (relocMode) {
         for (const auto& g : mod.globals) {
+            if (zpPlace_.count(g.name)) {
+                // a __zp global: its size for ln45, its initial value in data
+                if (!emittedGlobals.insert(g.name).second) continue;
+                emit(".global cc45.zpvar." + zpLinkName(g.name));
+                bool init = false;
+                for (const auto& o : mod.globals) if (o.name == g.name && o.hasInitValue) init = true;
+                if (init) emit(".global cc45.zpinit." + zpLinkName(g.name));
+                continue;
+            }
             if (!g.isStatic && !emittedGlobals.count(g.name)) {
                 emit(".global " + g.name);
                 emittedGlobals.insert(g.name);
@@ -1926,40 +1969,20 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
     // Emit data section for initialized globals
     bool hasData = false;
     bool hasBss = false;
-    bool hasZp = false;
     for (size_t gi = 0; gi < mod.globals.size(); gi++) {
         const auto& g = mod.globals[gi];
         if (globalLastIdx[g.name] != gi) continue; // skip earlier duplicate
 
-        // Phase 97: Route __zp variables (addressSpace=1) to .zp segment
-        if (g.addressSpace == 1) {
-            // Zero-page global
-            if (!hasZp) {
-                if (hasData || hasBss) emitBlank();
-                if (relocMode) emit(".segment \"zp\"");
-                hasZp = true;
-            }
-            emitSplit(g.name);
-            emitLabel(g.name);
-            // Emit debug metadata for global variable
-            emitDebugVariable("@global", g.name, 0, g.type, "global");
-            // Emit initializer or reservation for zp variable
-            if (g.hasInitValue) {
-                if (g.type == ir::Type::I8) {
-                    emit(".byte " + std::to_string((int)(g.initValue & 0xFF)));
-                } else if (g.type == ir::Type::I32) {
-                    emit(".dword " + std::to_string((int)g.initValue));
-                } else {
-                    emit(".word " + std::to_string((int)(g.initValue & 0xFFFF)));
-                }
-                int typeSz = ir::typeSize(g.type);
-                if (typeSz < g.size) {
-                    emit(".res " + std::to_string(g.size - typeSz));
-                }
-            } else {
-                emit(".res " + std::to_string(g.size > 0 ? g.size : ir::typeSize(g.type)));
-            }
-        } else if (g.hasInitValue) {
+        // A __zp global (relocatable output): no storage here, ln45 places it
+        // in the base page; an initial value goes in data as cc45.zpinit.<sym>
+        // (copied there at startup). With -S it is a plain global.
+        bool zpVar = zpPlace_.count(g.name) > 0;
+        std::string label = zpVar ? "cc45.zpinit." + zpLinkName(g.name) : g.name;
+        if (zpVar) {
+            emit("cc45.zpvar." + zpLinkName(g.name) + " = " + std::to_string(zpPlace_[g.name].size));
+            if (!g.hasInitValue) continue;
+        }
+        if (g.hasInitValue) {
             // Initialized global: goes to data segment.
             // Must switch back from BSS if we were emitting uninitialized globals.
             if (!hasData || hasBss) {
@@ -1979,8 +2002,8 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
                 emit(".align " + std::to_string(g.align));
                 dataAlign_ = std::max(dataAlign_, g.align);
             }
-            emitSplit(g.name);   // (after the .align: it becomes the section's alignment)
-            emitLabel(g.name);
+            emitSplit(label);   // (after the .align: it becomes the section's alignment)
+            emitLabel(label);
             // Emit debug metadata for global variable
             emitDebugVariable("@global", g.name, 0, g.type, "global");
             if (g.hasImage) {

@@ -472,9 +472,22 @@ private:
     // Maps symbol name → addressSpace (1 for __zp, 0 for normal)
     std::map<std::string, int> symbolAddressSpace_;
 
-    // Phase 97.5: Add .zp suffix to instructions accessing __zp symbols
-    // Modifies instruction mnemonic to enable optimized addressing (e.g., lda.zp, sta.zp)
-    std::string addAddressSpaceSuffix(const std::string& instr) const;
+    // __zp globals (relocatable output): ln45 places them in the program's
+    // base page. Each has a placeholder base-page address in this module
+    // (above the functions' .zar blocks); ca45 .zpsym relocates operands in
+    // its range against the variable's symbol (zpLink_: a static one's is
+    // file-unique)
+    struct ZpPlace { int addr = 0, size = 0; };
+    std::map<std::string, ZpPlace> zpPlace_;
+    std::map<std::string, std::string> zpLink_;
+    void placeZpGlobals(const ir::Module& mod);
+    std::string zpLinkName(const std::string& name) const {
+        auto it = zpLink_.find(name);
+        return it == zpLink_.end() ? name : it->second;
+    }
+    // a line with __zp globals' names as base-page operands replaced by
+    // their placeholders (and a static one's name by its symbol elsewhere)
+    std::string rewriteZpOperands(const std::string& line) const;
 
     // Value-role tracking: which register holds each byte of the current
     // multi-byte value being constructed. Set by CONST/load/ALU emitters,
