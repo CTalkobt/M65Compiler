@@ -1,7 +1,7 @@
 # M65 Compiler Suite Roadmap: v1.0 → v2.0
 
 **Current Status:** v1.1.0
-**Last Updated:** 2026-10-16
+**Last Updated:** 2026-10-17
 **Maintainer:** Craig Taylor (CTalkobt)
 
 > The milestones below (v1.1 to v1.4, v2.0) group features; they shipped
@@ -18,6 +18,17 @@
 - [x] Standard library parts rewritten in assembly (conio, scanf engine, strtol/strtoul, strtok, qsort/bsearch, clock, rand)
 - [x] Examples: overlays, mapped_overlays, far_functions; invaders title screen; `-O2` in every example Makefile
 - [x] Tests: 295 xemu runtime tests, GCC torture 552 in each convention
+
+---
+
+## Queued
+
+| Issue | Task | Category |
+|-------|------|----------|
+| #67 | `__zp` global qualifier: a chosen global in the base page | parser, codegen, linker |
+| #71 | Multi-level `break N` | parser, IR |
+| #75 | `__likely` / `__unlikely` branch hints | codegen, optimizer |
+| #76 | `__pure` / `__const` function attributes | optimizer |
 
 ---
 
@@ -117,7 +128,7 @@
 
 | Task | Category | Status |
 |------|----------|--------|
-| Banked segment support (Phase 99) | linker | **done** |
+| Banked segment support | linker | **done** (as `__far` functions: mapped overlays in bank 5 behind resident stubs; the Phase 99 code is not connected) |
 | Position-Independent Code (PIC) | codegen, linker | **n/a** (45GS02 lacks PC-relative data modes; `.o45` relocation covers practical needs) |
 | `.import binary` / `.incbin` assembler directive | asm | **done** |
 | Code overlays (copied, mapped) and `__far` functions | linker, codegen | **done** (v1.1.0) |
@@ -130,7 +141,7 @@
 |------|----------|--------|
 | `long long` / `unsigned long long` (64-bit) | parser, codegen | **done** (maps to `struct __int64` + `__intN_*` runtime) |
 | Variable-Length Arrays (VLA) | parser, codegen | **done** (stack allocation through `alloca`) |
-| Inter-TU optimization (Phase 4) | optimizer | **partial** (Phase 91/96.5/99/100 cross-module done; header annotations deferred) |
+| Inter-TU optimization (Phase 4) | optimizer | **open** (#59: the Phase 91/96.5/99/100 code is in `lib45-phases.a`, linked by no tool; live across objects: ln45's convention thunks, SAC checks and storage overlaying) |
 | Assembler peephole optimizer (Phase 5) | asm | **done** (AssemblerOptimizer + MachineState tracking) |
 | `mega65.h` platform library | stdlib | **done** (VIC-IV, SID, CIA, DMA, math accel, audio, FDC, SD, Ethernet, Hypervisor, keyboard) |
 | File I/O wrapper (`disk.h`) | stdlib | **done** (FILE I/O + CBM file handle I/O in `stdio.h`) |
@@ -142,7 +153,7 @@
 
 - ~~Floating-point support~~ — **done** (CBM 40-bit via BASIC 65 ROM; 27 math functions)
 - Lambda expressions
-- ~~Link-Time Code Generation (LTO)~~ — **done** (Phase 100 LTCO: multi-phase hint coordination)
+- Link-Time Code Generation (LTO) — the Phase 100 LTCO code exists but is not connected (`doc/architecture/cross-module-optimization.md`)
 - Static analysis & sanitizers
 
 ### Optimizer — Remaining Items
