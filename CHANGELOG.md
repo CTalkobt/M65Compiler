@@ -6,6 +6,14 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### cc45
 
+- **Dead stores to temporaries' registers left out**: a temporary was
+  stored to its zero-page register (`$30`-`$7F`) even when every use took
+  it from A/X and nothing read the register (`return a[i];` stored the
+  index and the element and never read them). Such stores are no longer
+  emitted (not in functions with inline asm, that index a register or
+  take its address (a float copied byte by byte), or in a file with nested
+  functions; `CC45_NO_POOL_PRUNE=1` keeps them). 1662 bytes smaller over
+  the test programs and examples (ZP convention), 2275 (stack).
 - **Char subtraction and negation in 8 bits** (Issue #182): `c = a - b`
   and `c = -a` on chars were computed in 16 bits and truncated (only `+`,
   `*`, `&`, `|`, `^`, `<<`, `~` were narrowed). A difference used as an int

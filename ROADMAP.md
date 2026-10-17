@@ -150,8 +150,8 @@
 | Task | Category | Status |
 |------|----------|--------|
 | Automatic parameter narrowing (generate I8 code path for `int` params when all call sites pass 0-255) | IR optimizer | **done** (v1.1: when every use is free zero-extended) |
-| Binary-mode dead store elimination (remove dead `sta $ZP` after RELOC_CONST forwarding) | asm optimizer | todo |
-| Array indexing pseudo-op (`addr_elem.16 dest, base, index, stride` — single expansion replacing mul.16 + add.16) | asm codegen | todo |
+| Binary-mode dead store elimination (remove dead `sta $ZP` after RELOC_CONST forwarding) | asm optimizer | **done** (v1.1, in cc45: stores to vreg pool registers the function never reads are not emitted) |
+| Array indexing pseudo-op (`addr_elem.16 dest, base, index, stride` — single expansion replacing mul.16 + add.16) | asm codegen | **done** (an element address is built straight into its destination, no `add.16`; only the stride multiply remains) |
 
 ---
 

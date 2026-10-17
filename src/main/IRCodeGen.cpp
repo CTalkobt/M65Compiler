@@ -1832,6 +1832,9 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     emitGlobals(mod, relocMode);
 
     // Emit functions (skip dead code and inline-only functions from Phase 91.3 IPOAnalyzer)
+    // (a nested function reads its parent's variables)
+    bool nestedInModule = std::any_of(mod.functions.begin(), mod.functions.end(),
+        [](const ir::Function& f) { return f.isNested || f.staticLinkVreg != -1; });
     for (const auto& fn : mod.functions) {
         // Phase 91.3: Skip functions marked as dead code by IPOAnalyzer
         if (deadCodeFunctions_.count(fn.name)) {
@@ -1846,12 +1849,12 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
         if (fn.isFar && relocMode_) {
             textSeg_ = "far";
             emit(".segment \"far\"");
-            emitFunction(fn, relocMode);
+            emitFunctionPruned(fn, relocMode, nestedInModule);
             textSeg_ = "code";
             emit(".segment \"code\"");
             continue;
         }
-        emitFunction(fn, relocMode);
+        emitFunctionPruned(fn, relocMode, nestedInModule);
     }
 
     // Emit string data
@@ -2342,6 +2345,121 @@ IRCodeGen::FuncClobbers IRCodeGen::computeFuncClobbers(const ir::Function& fn) {
     }
 
     return fc;
+}
+
+// Stores to the vreg pool ($30-$7F) that nothing in the function reads: a
+// temporary written to its register although every use took it from A/X
+// (lda x; sta $30; stx $31; asl; ...). The pool holds only the function's own
+// temporaries and variables: a callee, a caller or the next call of the
+// function never reads them. Not with inline asm, which may read anything.
+void IRCodeGen::emitFunctionPruned(const ir::Function& fn, bool relocMode, bool nestedInModule) {
+    bool hasAsm = false;
+    for (const auto& blk : fn.blocks)
+        for (const auto& in : blk.insts) if (in.op == ir::Op::ASM_INLINE) hasAsm = true;
+    if (hasAsm || fn.isNaked || nestedInModule || getenv("CC45_NO_POOL_PRUNE")) {
+        emitFunction(fn, relocMode);
+        return;
+    }
+    std::ostringstream buf;
+    std::streambuf* old = out_.rdbuf(buf.rdbuf());
+    try {
+        emitFunction(fn, relocMode);
+    } catch (...) {
+        out_.rdbuf(old);
+        throw;
+    }
+    out_.rdbuf(old);
+    out_ << pruneDeadPoolStores(buf.str());
+}
+
+std::string IRCodeGen::pruneDeadPoolStores(const std::string& text) {
+    struct Line { std::string text, mn, operand; };
+    std::vector<Line> lines;
+    {
+        std::istringstream in(text);
+        std::string l;
+        while (std::getline(in, l)) {
+            Line ln{l, "", ""};
+            size_t p = l.find_first_not_of(" \t");
+            if (p != std::string::npos && l[p] != ';' && l[p] != '.' && l.find(':') == std::string::npos) {
+                std::string body = l.substr(p);
+                size_t c = body.find(';');
+                if (c != std::string::npos) body = body.substr(0, c);
+                size_t sp = body.find_first_of(" \t");
+                ln.mn = body.substr(0, sp);
+                if (sp != std::string::npos) {
+                    ln.operand = body.substr(body.find_first_not_of(" \t", sp));
+                    while (!ln.operand.empty() && isspace((unsigned char)ln.operand.back())) ln.operand.pop_back();
+                }
+                std::transform(ln.mn.begin(), ln.mn.end(), ln.mn.begin(), ::tolower);
+            } else if (p != std::string::npos && l[p] != ';' && l.compare(p, 4, ".var") != 0 &&
+                       l.compare(p, 4, ".loc") != 0) {
+                ln.mn = ".";   // a directive or a label line: any address in it counts as read
+                ln.operand = l.substr(p);
+            }
+            lines.push_back(ln);
+        }
+    }
+    // a pool address $HH or $HH+k at s[i]: its value, or -1
+    auto poolAddr = [](const std::string& s, size_t i, size_t* end) -> int {
+        if (s[i] != '$' || i + 2 >= s.size() + 0 || !isxdigit((unsigned char)s[i + 1]) ||
+            !isxdigit((unsigned char)s[i + 2]) || (i + 3 < s.size() && isxdigit((unsigned char)s[i + 3])))
+            return -1;
+        int v = std::stoi(s.substr(i + 1, 2), nullptr, 16);
+        size_t j = i + 3;
+        if (j + 1 < s.size() && s[j] == '+' && isdigit((unsigned char)s[j + 1])) {
+            size_t k = j + 1;
+            while (k < s.size() && isdigit((unsigned char)s[k])) k++;
+            v += std::stoi(s.substr(j + 1, k - j - 1));
+            j = k;
+        }
+        if (end) *end = j;
+        return v >= ZP_POOL_START && v < ZAR_START ? v : -1;
+    };
+    static const std::set<std::string> byteOps = {
+        "lda", "ldx", "ldy", "ldz", "adc", "sbc", "cmp", "cpx", "cpy", "cpz", "and", "ora", "eor",
+        "bit", "inc", "dec", "asl", "lsr", "rol", "ror", "asr", "tsb", "trb"};
+    static const std::set<std::string> wordOps = {"inw", "dew", "asw", "row"};
+    // a plain store's address and width (0: not one)
+    auto plainStore = [&](const Line& ln, int& addr) -> int {
+        int w = (ln.mn == "sta" || ln.mn == "stx" || ln.mn == "sty" || ln.mn == "stz") ? 1 : ln.mn == "stq" ? 4 : 0;
+        if (!w || ln.operand.empty()) return 0;
+        size_t end = 0;
+        addr = poolAddr(ln.operand, 0, &end);
+        return addr >= 0 && end == ln.operand.size() ? w : 0;
+    };
+    std::set<int> read;
+    for (const auto& ln : lines) {
+        if (ln.mn.empty()) continue;
+        int a;
+        if (plainStore(ln, a)) continue;
+        bool indirect = ln.operand.find('(') != std::string::npos;
+        // (anything else, a simulated op on a float or a long: up to 8 bytes)
+        int w = indirect ? 2 : byteOps.count(ln.mn) ? 1 : wordOps.count(ln.mn) ? 2 : 8;
+        for (size_t i = 0; i < ln.operand.size(); i++) {
+            size_t end;
+            int v = poolAddr(ln.operand, i, &end);
+            if (v < 0) continue;
+            // indexed ($30,x: a copy loop over a float) or its address taken
+            // (#$30, #<$30): bytes reached that the operand does not name
+            bool indexed = !indirect && end < ln.operand.size() && ln.operand[end] == ',';
+            size_t h = ln.operand.find_last_not_of("<> ", i ? i - 1 : 0);
+            bool immediate = i > 0 && h != std::string::npos && ln.operand[h] == '#';
+            if (indexed || immediate || ln.mn == ".") return text;
+            for (int k = 0; k < w; k++) read.insert(v + k);
+            i = end - 1;
+        }
+    }
+    std::string out;
+    for (const auto& ln : lines) {
+        int a, w = ln.mn.empty() ? 0 : plainStore(ln, a);
+        bool dead = w > 0;
+        for (int k = 0; dead && k < w; k++) if (read.count(a + k)) dead = false;
+        if (dead) continue;
+        out += ln.text;
+        out += '\n';
+    }
+    return out;
 }
 
 void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMainWithZPSave) {

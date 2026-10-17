@@ -113,6 +113,10 @@ private:
     void emitGlobals(const ir::Module& mod, bool relocMode);
     void emitStrings(const ir::Module& mod);
     void emitFunction(const ir::Function& fn, bool relocMode, bool isMainWithZPSave = false);
+    // emitFunction, then the stores to vreg pool registers the function never
+    // reads removed (pruneDeadPoolStores)
+    void emitFunctionPruned(const ir::Function& fn, bool relocMode, bool nestedInModule);
+    static std::string pruneDeadPoolStores(const std::string& text);
     void emitInst(const ir::Inst& inst);
     void emitInstBody(const ir::Inst& inst);
 

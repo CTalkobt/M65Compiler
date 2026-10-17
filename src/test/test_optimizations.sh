@@ -166,5 +166,15 @@ if grep -q "proc _add__pn, B#@_p_p, W#@_p_x" $T/pn.s && grep -q "proc _mul__pn, 
 $CC -S -fno-inline-small-functions -fno-param-narrowing $T/pn.c -o $T/pn2.s 2>/dev/null
 grep -q "proc _add__pn, W#@_p_p" $T/pn2.s && pass || fail "-fno-param-narrowing still narrows"
 
+# a temporary's register that nothing reads is not written (a[i]: the index
+# and the element were stored to $30/$31 and $34/$35 and never read)
+printf 'int a[10];\nvolatile unsigned i;\nint f(void) { return a[i]; }\n' > $T/dps.c
+$CC -S $T/dps.c -o $T/dps.s 2>/dev/null
+if awk '/proc _f/{p=1} /endproc/{p=0} p' $T/dps.s | grep -qE "^ +st[axyzq] [$][3-7][0-9A-F]"; then
+    fail "dead stores to pool registers kept ($(awk '/proc _f/{p=1} /endproc/{p=0} p' $T/dps.s | grep -E '^ +st' | tr '\n' ' '))"
+else pass; fi
+CC45_NO_POOL_PRUNE=1 $CC -S $T/dps.c -o $T/dps2.s 2>/dev/null
+awk '/proc _f/{p=1} /endproc/{p=0} p' $T/dps2.s | grep -qE "^ +sta [$]3" && pass || fail "CC45_NO_POOL_PRUNE=1 does not keep the stores"
+
 echo "Optimization switch tests: $passed passed, $failed failed"
 [ $failed -eq 0 ]
