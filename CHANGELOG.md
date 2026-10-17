@@ -6,6 +6,12 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### cc45
 
+- **A local that shadows an enum constant** (Issue #286): the parser put
+  the constant's value in for its name everywhere, also where a local,
+  parameter or `for` variable of that name hid it (`{ char E = c; s = E; }`
+  read the constant; `for (char G = 0; ...; G++)` was an error). The
+  declaration hides the constant until its scope ends, and an enum defined
+  in a block ends with the block.
 - **A local that shadows a global** (Issue #285): a local or parameter
   with the name of a `const` global could not be assigned ("Assignment to
   read-only location"); it is a new, writable variable. And a variable

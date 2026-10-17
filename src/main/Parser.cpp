@@ -1192,7 +1192,11 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     currentFunctionName = fullName;
     currentFunction = func.get();
 
-    func->body = parseCompoundStatement();
+    {
+        EnumScope paramScope(*this);   // the parameters hide enum constants
+        for (const auto& prm : func->parameters) hideEnumConstant(prm.name);
+        func->body = parseCompoundStatement();
+    }
 
     currentFunctionName = savedFunctionName;
     currentFunction = savedFunction;
@@ -1203,6 +1207,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
 std::unique_ptr<CompoundStatement> Parser::parseCompoundStatement() {
     const Token& startToken = expect(TokenType::OPEN_BRACE, "Expected '{'");
     auto compound = setPos(std::make_unique<CompoundStatement>(), startToken);
+    EnumScope enumScope(*this);
     while (peek().type != TokenType::CLOSE_BRACE && peek().type != TokenType::END_OF_FILE) {
         size_t pendingBefore = pendingDefinitions.size();
         auto stmt = parseStatement();
@@ -1358,6 +1363,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
             std::string varName = expect(TokenType::IDENTIFIER, "Expected variable name after struct definition").value;
             auto vDecl = std::make_unique<VariableDeclaration>(sType, varName, ptrLevel);
             declTypes_[varName] = {sType, ptrLevel, false};
+            hideEnumConstant(varName);
             vDecl->isVolatile = isVolatile;
             vDecl->isConst = isConst;
             vDecl->isStatic = isStatic;
@@ -1389,6 +1395,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
                 while (match(TokenType::STAR)) ep++;
                 std::string en = expect(TokenType::IDENTIFIER, "Expected variable name").value;
                 auto ev = std::make_unique<VariableDeclaration>(sType, en, ep);
+                hideEnumConstant(en);
                 ev->isVolatile = isVolatile;
                 ev->isConst = isConst;
                 ev->isStatic = isStatic;
@@ -1501,6 +1508,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
 
     if (match(TokenType::FOR)) {
         const Token& startToken = tokens[pos-1];
+        EnumScope forScope(*this);   // a declaration in the initializer ends with the loop
         expect(TokenType::OPEN_PAREN, "Expected '(' after 'for'");
         std::unique_ptr<Statement> initializer = nullptr;
         if (!match(TokenType::SEMICOLON)) {
@@ -1843,6 +1851,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
                 // Typedef is a function pointer type — create decl directly
                 std::string fpName = expect(TokenType::IDENTIFIER, "Expected variable name").value;
                 auto decl = setPos(std::make_unique<VariableDeclaration>("void", fpName, 1), typeToken);
+                hideEnumConstant(fpName);
                 decl->isSigned = false;
                 decl->isVolatile = isVolatile;
                 decl->isConst = isConst;
@@ -1958,6 +1967,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
         // A pointer to an array: T (*name)[N]...
         if (peek().type == TokenType::OPEN_SQUARE && fpArrayDims.empty()) {
             auto decl = setPos(std::make_unique<VariableDeclaration>(type, fpName, ptrLevel + 1), typeToken);
+            hideEnumConstant(fpName);
             decl->isSigned = isSigned;
             decl->isVolatile = isVolatile;
             decl->isConst = isConst;
@@ -1981,6 +1991,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
         }
         auto fpSig = parseFuncPtrParams(type, ptrLevel, isSigned);
         auto decl = setPos(std::make_unique<VariableDeclaration>("void", fpName, 1), typeToken);
+        hideEnumConstant(fpName);
         decl->isSigned = false;
         decl->isVolatile = isVolatile;
         decl->isConst = isConst;
@@ -2041,6 +2052,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
     // Append typedef array dimensions
     arrayDims.insert(arrayDims.end(), typedefArrayDims.begin(), typedefArrayDims.end());
     auto decl = setPos(std::make_unique<VariableDeclaration>(type, name, ptrLevel), typeToken);
+    hideEnumConstant(name);
     if (isVla) {
         vlaDimExprs.resize(arrayDims.size());  // typedef dimensions are constant
         decl->vlaDimExprs = std::move(vlaDimExprs);
@@ -2149,6 +2161,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
             // Append typedef array dimensions
             extraDims.insert(extraDims.end(), typedefArrayDims.begin(), typedefArrayDims.end());
             auto extraDecl = setPos(std::make_unique<VariableDeclaration>(type, extraName, extraPtr), typeToken);
+            hideEnumConstant(extraName);
             extraDecl->isSigned = isSigned;
             extraDecl->isPlainUnsigned = plainInt && !isSigned && extraPtr == 0;
             extraDecl->isVolatile = extraPtr > basePtrLevel ? extraPtrVolatile : isVolatile;
@@ -4172,6 +4185,31 @@ void Parser::recordVarSize(const std::string& name, const std::string& type, int
     }
 }
 
+void Parser::hideEnumConstant(const std::string& name) {
+    if (enumScopes_.empty()) return;   // file scope: a redeclaration
+    auto it = enumConstants.find(name);
+    if (it == enumConstants.end()) return;
+    enumScopes_.back().push_back({name, it->second});
+    enumConstants.erase(it);
+}
+
+void Parser::setEnumConstant(const std::string& name, int value) {
+    if (!enumScopes_.empty()) {
+        auto it = enumConstants.find(name);
+        enumScopes_.back().push_back({name, it == enumConstants.end() ? std::nullopt : std::optional<int>(it->second)});
+    }
+    enumConstants[name] = value;
+}
+
+Parser::EnumScope::~EnumScope() {
+    auto& saved = p.enumScopes_.back();
+    for (auto it = saved.rbegin(); it != saved.rend(); ++it) {
+        if (it->second) p.enumConstants[it->first] = *it->second;
+        else p.enumConstants.erase(it->first);
+    }
+    p.enumScopes_.pop_back();
+}
+
 bool Parser::evalConstInt(Expression* e, long& out) {
     if (!e) return false;
     if (auto* lit = dynamic_cast<IntegerLiteral*>(e)) { out = (long)lit->value; return true; }
@@ -4294,7 +4332,7 @@ std::unique_ptr<EnumDefinition> Parser::parseEnumDefinition() {
                     throw std::runtime_error("Expected an integer constant expression for enum value '" + enumName + "'");
                 currentValue = (int)cv;
             }
-            enumConstants[enumName] = currentValue;
+            setEnumConstant(enumName, currentValue);
             def->enumerators.push_back({enumName, currentValue});
             currentValue++;
             if (!match(TokenType::COMMA)) break;

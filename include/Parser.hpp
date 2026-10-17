@@ -2,6 +2,7 @@
 #include <vector>
 #include <memory>
 #include <map>
+#include <optional>
 #include <set>
 #include "Token.hpp"
 #include "AST.hpp"
@@ -144,6 +145,17 @@ private:
 
     std::map<std::string, TypeAlias> typedefs;
     std::map<std::string, int> enumConstants;
+    // Block scopes inside functions: the enum constants a declaration hid or
+    // an enumerator replaced there, with their previous values (none: the
+    // name was no enum constant), restored when the scope ends
+    std::vector<std::vector<std::pair<std::string, std::optional<int>>>> enumScopes_;
+    void hideEnumConstant(const std::string& name);     // a local declaration's name
+    void setEnumConstant(const std::string& name, int value);
+    struct EnumScope {
+        Parser& p;
+        explicit EnumScope(Parser& parser) : p(parser) { p.enumScopes_.emplace_back(); }
+        ~EnumScope();
+    };
     // Byte sizes of declared variables with known scalar/array types (sizeof var
     // in constant expressions such as array dimensions)
     std::map<std::string, long> varByteSizes;
