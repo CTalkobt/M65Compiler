@@ -1750,6 +1750,20 @@ for cpmode in "zp|" "stack|-fno-zpcall" "zp_sd|-fsigned-default" "stack_sd|-fno-
     fi
 done
 
+# Test: a stored comparison reloaded for a branch's flags (ca45 redundant
+# load, Issue #282)
+for rlmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r rlname rlflags <<< "$rlmode"
+    echo "Testing test_redundant_load_flags_xemu.c ($rlname)..."
+    compile_link_test "src/test-resources/test_redundant_load_flags_xemu.c" "build/test/test_redundant_load_flags_${rlname}_xemu.prg" "$rlflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_redundant_load_flags_$rlname" "build/test/test_redundant_load_flags_${rlname}_xemu.prg" "C0C0" 3 "01 01 AA"
+    else
+        echo "FAIL: test_redundant_load_flags_xemu.c $rlname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: multiplication as library calls (-Os = -O2 -fmul-call)
 for mcmode in "zp|-Os" "stack|-Os -fno-zpcall"; do
     IFS='|' read -r mcname mcflags <<< "$mcmode"
@@ -2260,6 +2274,14 @@ if ./bin/ca45 src/test-resources/test_ca45_simops_xemu.s45 -o build/test/test_ca
         "04 00 FE FF 2C 01 FB FF 05 00 00 12 FB FF 06 FF 12 34 12 42 00 99 35 12 32 01 34 56 CD AB 5A 5A 77 66 05 5C 03 01 AA"
 else
     echo "FAIL: test_ca45_simops_xemu.s45 (assembly failed)"
+    failed=$((failed + 1))
+fi
+
+echo "Testing test_ca45_redundant_load_xemu.s45 (a reload kept for its flags, Issue #282)..."
+if ./bin/ca45 src/test-resources/test_ca45_redundant_load_xemu.s45 -o build/test/test_ca45_redundant_load_xemu.prg >/dev/null 2>&1; then
+    run_xemu_test "test_ca45_redundant_load" "build/test/test_ca45_redundant_load_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
+else
+    echo "FAIL: test_ca45_redundant_load_xemu.s45 (assembly failed)"
     failed=$((failed + 1))
 fi
 

@@ -327,3 +327,7 @@ const OpEffect& getOpEffect(const std::string& mnemonic) {
     if (it != table.end()) return it->second;
     return unknownEffect;
 }
+
+bool isKnownOp(const std::string& mnemonic) {
+    return &getOpEffect(mnemonic) != &unknownEffect;
+}

@@ -41,3 +41,5 @@ struct OpEffect {
 // simulated ops ("stax.fp", "add.16", "mul.s16").
 // Returns a conservative "clobber everything" for unknown mnemonics.
 const OpEffect& getOpEffect(const std::string& mnemonic);
+// True if the table has the mnemonic (getOpEffect is not the unknown default)
+bool isKnownOp(const std::string& mnemonic);

@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <iostream>
 #include <map>
+#include <set>
 #include <fstream>
 
 bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose, bool traceMachState) {
@@ -388,6 +389,65 @@ bool AssemblerOptimizer::optimizeInternal(
     };
     const AssemblerParser::Statement* prevInstr = nullptr;
 
+    // Can the N or Z flag as it is after statement i be read? In the code
+    // that follows on this path (falling into a label included): yes at a
+    // BEQ/BNE/BMI/BPL or PHP, no once both are set again; anything else that
+    // ends the search (a jump, a call, a return, data, an op the scan does
+    // not know) counts as a read
+    auto nzLiveAfter = [&](size_t i, std::string& why) -> bool {
+        static const std::set<std::string> setsNZ = {
+            "LDA", "LDX", "LDY", "LDZ", "LDQ", "TAX", "TXA", "TAY", "TYA", "TAZ", "TZA", "TBA",
+            "TSX", "TSY", "PLA", "PLX", "PLY", "PLZ", "PLP", "ADC", "SBC", "AND", "ORA", "EOR",
+            "ASL", "LSR", "ROL", "ROR", "ASR", "INC", "DEC", "NEG", "INX", "DEX", "INY", "DEY",
+            "INZ", "DEZ", "INW", "DEW", "ASW", "ROW", "CMP", "CPX", "CPY", "CPZ", "BIT",
+            "ADCQ", "SBCQ", "ANDQ", "ORQ", "EORQ", "ASLQ", "LSRQ", "ROLQ", "RORQ", "ASRQ",
+            "INQ", "DEQ", "NEGQ", "CMPQ", "BITQ"};
+        static const std::set<std::string> keepsNZ = {
+            "STA", "STX", "STY", "STZ", "STQ", "PHA", "PHX", "PHY", "PHZ", "PHW",
+            "CLC", "SEC", "CLD", "SED", "CLI", "SEI", "CLV", "NOP", "EOM", "TXS", "TYS",
+            "TSB", "TRB"};                 // (Z only: N is still the old one)
+        for (size_t j = i + 1; j < parser->statements.size() && j < i + 64; ++j) {
+            auto* n = parser->statements[j].get();
+            if (n->deleted) continue;
+            if (n->type == AssemblerParser::Statement::NONE && !n->label.empty()) continue;
+            if (n->type == AssemblerParser::Statement::DIRECTIVE) {
+                std::string d = n->dir.name;
+                std::transform(d.begin(), d.end(), d.begin(), ::tolower);
+                if (d == "loc") continue;
+                why = "." + d;
+                return true;
+            }
+            if (n->isSimulatedOp()) {
+                // one that sets the flags computes them (select and
+                // branch.16 read them)
+                std::string sm = n->instr.mnemonic;
+                std::transform(sm.begin(), sm.end(), sm.begin(), ::tolower);
+                if (isKnownOp(sm) && getOpEffect(sm).clobbersFlags && sm != "select" && sm != "branch.16")
+                    return false;
+                why = n->instr.mnemonic;
+                return true;
+            }
+            if (n->type != AssemblerParser::Statement::INSTRUCTION) { why = n->instr.mnemonic; return true; }
+            std::string nm = n->instr.mnemonic;
+            std::transform(nm.begin(), nm.end(), nm.begin(), ::toupper);
+            if (setsNZ.count(nm)) return false;
+            // a call to a function known to set N and Z (no convention passes
+            // them in)
+            if (nm == "JSR") {
+                auto pc = procClobbers.find(n->instr.operand);
+                if (pc != procClobbers.end() && pc->second.known && (pc->second.flagMask & 0x06) == 0x06)
+                    return false;
+            }
+            if (keepsNZ.count(nm)) continue;
+            // BEQ/BNE/BMI/BPL/PHP read them; any other branch, JMP/JSR/RTS...
+            // leave the run (the flags reach where they go)
+            why = nm;
+            return true;
+        }
+        why = "too far";
+        return true;
+    };
+
     for (size_t i = 0; i < parser->statements.size(); ++i) {
         auto* s = parser->statements[i].get();
         if (s->deleted) continue;
@@ -649,34 +709,25 @@ bool AssemblerOptimizer::optimizeInternal(
                     }
                 }
 
-                // CRITICAL: Don't eliminate loads immediately before control-flow change
-                // Loads before branches, labels, or calls are CRITICAL because they
-                // establish register state at control-flow merge points. Eliminating
-                // them breaks Bug #183 where return value loads were removed before
-                // branches to common epilogue.
-                // CRITICAL: Check if load comes immediately before control-flow instruction.
-                // Look ahead up to 3 statements (e.g., LDA $28; LDX $29; BRA @label)
+                // Don't eliminate a load just before a label (a merge point:
+                // up to 3 statements ahead, e.g. LDA $28; LDX $29; label)
                 bool isBeforeCFChange = false;
                 for (size_t lookahead = 1; lookahead <= 3 && i + lookahead < parser->statements.size(); ++lookahead) {
                     auto* nextStmt = parser->statements[i + lookahead].get();
                     if (!nextStmt || nextStmt->deleted) continue;
-
                     if (!nextStmt->label.empty()) {
                         isBeforeCFChange = true;
                         break;
-                    } else if (nextStmt->type == AssemblerParser::Statement::INSTRUCTION) {
-                        const std::string& mn = nextStmt->instr.mnemonic;
-                        if (mn == "BRA" || mn == "BEQ" || mn == "BNE" || mn == "BMI" ||
-                            mn == "BPL" || mn == "BCS" || mn == "BCC" || mn == "BVS" ||
-                            mn == "BVC" || mn == "RTS" || mn == "RTI" || mn == "JMP" ||
-                            mn == "JSR" || mn == "BRL" || mn == "JML" || mn == "RTL") {
-                            isBeforeCFChange = true;
-                            break;
-                        }
-                    } else {
-                        // Non-instruction, non-label statement - keep searching
-                        continue;
                     }
+                }
+
+                // The load also sets N/Z from the register (Issue #282: lda $30
+                // after ldx #0, for a bne): it goes only when the flags already
+                // reflect the register, or nothing reads them before they are set again
+                std::string why;
+                if (redundant && !isBeforeCFChange && !ms.flags.flagsReflect(r) && nzLiveAfter(i, why)) {
+                    report("redundant-load", s, m + " " + op + " kept (its N/Z may be read: " + why + ")");
+                    redundant = false;
                 }
 
                 if (redundant && !isBeforeCFChange) {
@@ -892,10 +943,12 @@ bool AssemblerOptimizer::optimizeInternal(
             else if (m == "PHA" || m == "PHX" || m == "PHY" || m == "PHZ" || m == "PHW") {
                 ms.spModified();
             }
-            else if (m == "PLA") { ms.spModified(); ms.invalidateReg(REG_A); }
-            else if (m == "PLX") { ms.spModified(); ms.invalidateReg(REG_X); }
-            else if (m == "PLY") { ms.spModified(); ms.invalidateReg(REG_Y); }
-            else if (m == "PLZ") { ms.spModified(); ms.invalidateReg(REG_Z); }
+            // (a pull sets N/Z from the register)
+            else if (m == "PLA") { ms.spModified(); ms.invalidateReg(REG_A); ms.flags.setNZ(REG_A); }
+            else if (m == "PLX") { ms.spModified(); ms.invalidateReg(REG_X); ms.flags.setNZ(REG_X); }
+            else if (m == "PLY") { ms.spModified(); ms.invalidateReg(REG_Y); ms.flags.setNZ(REG_Y); }
+            else if (m == "PLZ") { ms.spModified(); ms.invalidateReg(REG_Z); ms.flags.setNZ(REG_Z); }
+            else if (m == "PLP") { ms.spModified(); ms.flags.invalidate(); }
 
             // --- RTS/RTN/RTI ---
             else if (m == "RTS" || m == "RTN" || m == "RTI") { ms.invalidateAll(); }
@@ -974,6 +1027,14 @@ bool AssemblerOptimizer::optimizeInternal(
             else if (m == "SEC") { ms.flags.setCarry(true); }
 
             // Branches: flags/registers valid for fall-through. Labels handle merge points.
+            // Anything else that may set flags (BIT, an op not listed here):
+            // they no longer reflect a register
+            else if (m == "BIT") { ms.flags.invalidate(); }
+            else if (!(m.size() == 3 && m[0] == 'B') && m != "NOP" && m != "EOM" && m != "MAP" &&
+                     m != "CLD" && m != "SED" && m != "CLI" && m != "SEI" && m != "CLV" &&
+                     m != "TXS" && m != "TYS" && m != "CLE" && m != "SEE") {
+                ms.flags.invalidate();
+            }
 
         } else if (s->isSimulatedOp()) {
             // Use centralized OpEffect table — keyed by mnemonic

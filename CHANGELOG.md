@@ -19,6 +19,19 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### ca45 / ln45
 
+- **Redundant loads kept for their flags** (Issue #282): the
+  redundant-load pass removed an `lda`/`ldx`/`ldy`/`ldz` whose register
+  already held the value although the load's N/Z were read: `cr = c == 13;
+  if (c == 13 ...)` reloaded the boolean for a `bne` after an `ldx #0`, and
+  the branch tested X (a CR was never recognised at `-O2`). Its guard
+  against a following branch compared lowercase mnemonics with uppercase
+  names and never applied. A load now goes only when the flags already
+  reflect the register or are set again before anything can read them (a
+  branch on N/Z, `php`, a jump, a return, a call to a function not known
+  to set them). The flag tracking also records that `pla`/`plx`/`ply`/`plz`
+  set N/Z, and that `plp`, `bit` and the instructions it does not model
+  change them. Tests `test_ca45_redundant_load_xemu.s45`,
+  `test_redundant_load_flags_xemu.c`.
 - **Weak absolute symbols**: `.weak x` / `x = value` is used at its value
   in the defining object; such an object now records the ones its code
   used (`OPT_WEAKUSE`), and ln45 refuses a program that gives one of them

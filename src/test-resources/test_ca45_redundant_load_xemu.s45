@@ -1,0 +1,75 @@
+; test_ca45_redundant_load_xemu.s45 — ca45's redundant-load elimination keeps
+; a load whose N/Z flags a branch reads (Issue #282)
+;
+; Results at $C0C0.. ($01 each = pass, then $AA):
+;   +0  lda $30 after ldx #0, for a bne (the issue's case: A = 1)
+;   +1  lda $31 after ldx #1, for a beq (A = 0)
+;   +2  ldx $40 again after a pla (the pull sets N/Z from A)
+;   +3  ldx $40 again after a bit (sets N/Z from memory)
+;   +4  $AA
+        * = $2001
+        .basicUpstart main
+
+out     = $C0C0
+
+main:
+        ; --- +0: the boolean reloaded for its flags ---
+        lda #13
+        sta $02
+        lda $02
+        cmp #13
+        php
+        pla
+        lsr
+        and #1
+        ldx #0
+        sta $30
+        ldx #0
+        sta $05
+        lda $30
+        bne @t0yes
+        lda #0
+        bra @t0end
+@t0yes: lda #1
+@t0end: sta out+0
+
+        ; --- +1: zero reloaded after a load that cleared Z ---
+        lda #0
+        sta $31
+        ldx #1
+        lda $31
+        beq @t1yes
+        lda #0
+        bra @t1end
+@t1yes: lda #1
+@t1end: sta out+1
+
+        ; --- +2: X reloaded after a pla ---
+        lda #0
+        sta $40
+        lda #1
+        pha
+        ldx $40
+        pla
+        ldx $40
+        beq @t2yes
+        lda #0
+        bra @t2end
+@t2yes: lda #1
+@t2end: sta out+2
+
+        ; --- +3: X reloaded after a bit ---
+        lda #$80
+        sta $41
+        ldx $40
+        bit $41
+        ldx $40
+        beq @t3yes
+        lda #0
+        bra @t3end
+@t3yes: lda #1
+@t3end: sta out+3
+
+        lda #$AA
+        sta out+4
+        rts

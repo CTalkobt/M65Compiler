@@ -356,7 +356,7 @@ order after `-O`). `-Roptimizer` prints every change
 | `DeadStore` | `dead-store` | Removes dead `STW.SP` stores |
 | `CmpElimination` | `cmp-elim` | Removes `CMP #0` when flags already reflect the value — not when the carry it sets is read (`BCC`/`BCS` in the branches that follow, or `ADC`/`SBC`/`ROL`/`ROR`/`PHP` after them) |
 | `FCmpOpt` | `fcmp-opt` | Float compare result tests (`CMP #$FF` → `BMI`/`BPL`) |
-| `RedundantLoad` | `redundant-load` | Removes `LDA/LDX/LDY/LDZ` when the register already holds the value |
+| `RedundantLoad` | `redundant-load` | Removes `LDA/LDX/LDY/LDZ` when the register already holds the value, unless its N/Z may be read (the flags reflect another value and a branch, `PHP`, jump, return or call may read them) |
 | `StoreLoadPair` | `store-load-pair` | Store/load pair simplification on ZP |
 | `PreserveXSP`, `TSXRedundant` | `preserve-x-sp`, `tsx-redundant` | Avoid reloading X from SP |
 | `TailDedup` | `tail-dedup`, `tail-dedup-suffix` | Merges identical tail sequences |

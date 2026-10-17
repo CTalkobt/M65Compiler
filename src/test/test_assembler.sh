@@ -501,13 +501,14 @@ fi
 
 # A local label nothing refers to (left by branch inversion) is reached
 # only by falling through: the reload after it goes; a label a branch
-# reaches is a merge point: the load after it stays. cmp.16 keeps A/X
-printf '.org $2000\n lda $32\n ldx $33\n cmp.16 .AX, #8192\n bcc @b\n bra @e\n@b:\n lda $32\n ldx $33\n sta $40\n stx $41\n sta $42\n stx $43\n@e:\n rts\n' > build/test_unref_label.s45
+# reaches is a merge point: the load after it stays. cmp.16 keeps A/X. (The
+# lda #0 sets the flags again: the reload's own N/Z must not reach the rts)
+printf '.org $2000\n lda $32\n ldx $33\n cmp.16 .AX, #8192\n bcc @b\n bra @e\n@b:\n lda $32\n ldx $33\n sta $40\n stx $41\n sta $42\n stx $43\n@e:\n lda #0\n rts\n' > build/test_unref_label.s45
 printf '.org $2000\n lda #1\n beq @x\n lda #2\n@x:\n lda #2\n sta $40\n rts\n' > build/test_merge_label.s45
 $AS build/test_unref_label.s45 -o build/test_unref_label.bin >/dev/null 2>&1
 $AS build/test_merge_label.s45 -o build/test_merge_label.bin >/dev/null 2>&1
 U=$(xxd -p build/test_unref_label.bin | tr -d '\n'); M=$(xxd -p build/test_merge_label.bin | tr -d '\n')
-if [ "$U" = "a532a633e020d002c900b008854086418542864360" ] && [ "$M" = "a901f002a902a902854060" ]; then
+if [ "$U" = "a532a633e020d002c900b0088540864185428643a90060" ] && [ "$M" = "a901f002a902a902854060" ]; then
     echo "SUCCESS: unreferenced labels keep register knowledge, merge points reset it"
     passed=$((passed + 1))
 else
