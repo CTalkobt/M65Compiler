@@ -6,10 +6,17 @@
 #include <vector>
 #include <string>
 #include <unistd.h>
+#include <sys/stat.h>
 #include "O45Reader.hpp"
 #include "O45Linker.hpp"
 #include "O45Archive.hpp"
 #include "Version.hpp"
+
+// An ifstream opens a directory but throws on the first read.
+static bool isDirectory(const std::string& path) {
+    struct stat st;
+    return stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
+}
 
 static void printUsage(const char* progName) {
     std::cout << "Usage: " << progName << " [options] <file1.o45> [file2.o45 ...] [-l lib.lib ...]" << std::endl;
@@ -213,6 +220,10 @@ int main(int argc, char** argv) {
     }
 
     for (const auto& filename : inputFiles) {
+        if (isDirectory(filename)) {
+            std::cerr << "ln45: " << filename << ": is a directory" << std::endl;
+            return 1;
+        }
         std::ifstream in(filename, std::ios::binary);
         if (!in.is_open()) {
             std::cerr << "ln45: cannot open " << filename << std::endl;
@@ -255,15 +266,20 @@ int main(int argc, char** argv) {
         // standard library directories
         std::string resolvedLib = libname;
         {
+            // A directory of the library's name is not the library
             std::ifstream test(resolvedLib, std::ios::binary);
-            if (!test.is_open()) {
+            if (!test.is_open() || isDirectory(resolvedLib)) {
                 bool found = false;
                 for (const auto& dir : libSearchPaths) {
                     std::string candidate = dir + "/" + libname;
                     std::ifstream t(candidate, std::ios::binary);
-                    if (t.is_open()) { resolvedLib = candidate; found = true; break; }
+                    if (t.is_open() && !isDirectory(candidate)) { resolvedLib = candidate; found = true; break; }
                 }
                 if (!found) {
+                    if (isDirectory(libname)) {
+                        std::cerr << "ln45: " << libname << ": is a directory" << std::endl;
+                        return 1;
+                    }
                     std::cerr << "ln45: cannot find library " << libname << std::endl;
                     return 1;
                 }

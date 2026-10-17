@@ -5,12 +5,19 @@
 #include <iomanip>
 #include <algorithm>
 #include <cstdio>
+#include <sys/stat.h>
 #include "O45Reader.hpp"
 #include "O45OverlayFile.hpp"
 #include "O45Linker.hpp"
 #include "O45FormatUtil.hpp"
 #include "O45Archive.hpp"
 #include "Version.hpp"
+
+// An ifstream opens a directory but throws on the first read.
+static bool isDirectory(const std::string& path) {
+    struct stat st;
+    return stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
+}
 
 static char segmentLetter(uint8_t seg) {
     switch (seg) {
@@ -276,6 +283,11 @@ int main(int argc, char** argv) {
     }
 
     for (const auto& filename : files) {
+        if (isDirectory(filename)) {
+            std::cerr << "nm45: " << filename << ": is a directory" << std::endl;
+            exitCode = 1;
+            continue;
+        }
         std::ifstream in(filename, std::ios::binary);
         if (!in.is_open()) {
             std::cerr << "nm45: " << filename << ": cannot open" << std::endl;

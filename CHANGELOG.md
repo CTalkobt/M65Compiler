@@ -49,12 +49,15 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   code, leaving zeros (or nothing at a segment's end) where the parser had
   placed it.
 
-### objdump45
+### objdump45 / nm45 / ln45
 
 - **A directory as input**: `objdump45 -h <directory>` (any option, and
-  `-D`) ended with an uncaught `std::ios_failure`; it now reports "is a
-  directory", goes on with the other files and exits with status 1. `-D`
-  also exits with 1 when it cannot open its files (it exited with 0).
+  `-D`), `nm45 <directory>` and `ln45 <directory>` (also `-l <directory>`)
+  ended with an uncaught `std::ios_failure`; they now report "is a
+  directory" and exit with status 1 (objdump45 and nm45 go on with the
+  other files). ln45's library search skips a directory with the library's
+  name. `objdump45 -D` also exits with 1 when it cannot open its files (it
+  exited with 0).
 
 ## [v1.1.0] - 2026-10-16
 

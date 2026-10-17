@@ -136,6 +136,23 @@ else
     failed=$((failed + 1))
 fi
 
+echo "Testing nm45 and ln45 with a directory as input..."
+# a directory opens as a stream but throws on the first read (they aborted)
+mkdir -p build/test/dirinput/c45.lib
+nm_out=$(./bin/nm45 build/test/dirinput build/test/test_global_extern.o45 2>&1); nm_rc=$?
+ln_out=$(./bin/ln45 -o build/test/dirinput.prg build/test/dirinput 2>&1); ln_rc=$?
+lnl_out=$(./bin/ln45 -o build/test/dirinput.prg build/test/test_global_extern.o45 -l build/test/dirinput 2>&1); lnl_rc=$?
+if [ $nm_rc -eq 1 ] && grep -q "dirinput: is a directory" <<< "$nm_out" && grep -q " T _main" <<< "$nm_out" &&
+   [ $ln_rc -eq 1 ] && grep -q "dirinput: is a directory" <<< "$ln_out" &&
+   [ $lnl_rc -eq 1 ] && grep -q "dirinput: is a directory" <<< "$lnl_out" &&
+   (cd build/test/dirinput && ../../../bin/ln45 -o ../dirinput.prg ../test_global_extern.o45 -l c45.lib >/dev/null 2>&1); then
+    echo "SUCCESS: a directory is reported, a library directory of the same name is skipped"
+    passed=$((passed + 1))
+else
+    echo "FAIL: directory input (nm45 $nm_rc: $nm_out / ln45 $ln_rc: $ln_out / ln45 -l $lnl_rc: $lnl_out)"
+    failed=$((failed + 1))
+fi
+
 echo "Testing a used .extern in a flat program..."
 # no linker resolves it: an error (it would be $0000); declared but unused is fine,
 # and -c keeps it as an import
