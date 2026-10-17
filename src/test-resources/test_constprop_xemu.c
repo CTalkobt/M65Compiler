@@ -12,7 +12,9 @@
  *   [4] a variable a nested function changes
  *   [5] a variable assigned in a loop (the store is not in the entry block)
  *   [6] a variable changed by inline assembly (a register variable)
- *   [7] $AA sentinel
+ *   [7] a local or parameter that shadows a const global is its own,
+ *       writable variable (Issue #285); the global keeps its value
+ *   [8] $AA sentinel
  */
 #define OUT ((volatile unsigned char *)0xC0C0)
 #define NOINLINE __attribute__((noinline))
@@ -82,6 +84,29 @@ NOINLINE static unsigned char asm_changed(void) {
     return r * 3;
 }
 
+const unsigned char cr = 13;
+
+NOINLINE static unsigned char shadow_local(unsigned char c) {
+    unsigned char cr;
+    cr = c;
+    cr++;
+    return cr;
+}
+
+NOINLINE static unsigned char shadow_param(unsigned char cr) {
+    cr = cr + 1;
+    return cr;
+}
+
+NOINLINE static unsigned char shadow_block(unsigned char c) {
+    unsigned char s = 0;
+    {
+        unsigned char cr;
+        for (cr = 0; cr < c; cr++) s += 2;
+    }
+    return s + cr;                /* the global again */
+}
+
 int main(void) {
     OUT[0] = plain(5) == 30 && param_first(4, 100) == 12 && loop_const(4) == 8 * 6;
     OUT[1] = param_read_first(3, 10) == 30 + 6;
@@ -90,6 +115,7 @@ int main(void) {
     OUT[4] = nested(2) == 18;
     OUT[5] = in_loop(10) == 60;
     OUT[6] = asm_changed() == 15;
-    OUT[7] = 0xAA;
+    OUT[7] = shadow_local(40) == 41 && shadow_param(7) == 8 && shadow_block(3) == 6 + 13 && cr == 13;
+    OUT[8] = 0xAA;
     return 0;
 }

@@ -6,6 +6,12 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### cc45
 
+- **A local that shadows a global** (Issue #285): a local or parameter
+  with the name of a `const` global could not be assigned ("Assignment to
+  read-only location"); it is a new, writable variable. And a variable
+  declared in an inner block with a global's name stayed in force after
+  the block: `{ char g = c; } return g;` read the block's `g`, not the
+  global.
 - **Dead stores to temporaries' registers left out**: a temporary was
   stored to its zero-page register (`$30`-`$7F`) even when every use took
   it from A/X and nothing read the register (`return a[i];` stored the

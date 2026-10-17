@@ -63,6 +63,7 @@ void ConstantFolder::visit(RepeatStatement& node) {
 }
 
 void ConstantFolder::visit(ForStatement& node) {
+    ConstScope scope(*this);   // a declaration in the initializer ends with the loop
     auto initializer = fold(std::move(node.initializer));
     knownConstants.clear(); // Clear before condition/body/increment
     auto condition = fold(std::move(node.condition));

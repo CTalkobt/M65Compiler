@@ -233,6 +233,28 @@ else
     failed=$((failed + 1))
 fi
 
+# A local or parameter that shadows a const global is writable (Issue #285);
+# the global is read-only again when the local's scope ends
+sh_ok=1
+for src in "const char cr = 13; unsigned char f(unsigned char c) { unsigned char cr; cr = c; cr++; return cr; }" \
+           "extern const char cr; unsigned char f(unsigned char cr) { cr = 1; return cr; }" \
+           "const char i = 3; int f(void) { int s = 0; for (int i = 0; i < 4; i++) s += i; return s; }"; do
+    printf '%s\n' "$src" > build/test/cshadow.c
+    $CC -c build/test/cshadow.c -o build/test/cshadow.o45 >/dev/null 2>&1 || sh_ok=0
+done
+for src in "const char cr = 13; void f(void) { { char cr; cr = 2; } cr = 1; }" \
+           "const char cr = 13; void g(char cr) { cr = 1; } void f(void) { cr = 1; }" \
+           "const char i = 3; void f(void) { for (int i = 0; i < 4; i++) ; i = 1; }"; do
+    printf '%s\n' "$src" > build/test/cshadow.c
+    $CC -c build/test/cshadow.c -o build/test/cshadow.o45 2>&1 | grep -q "read-only location" || sh_ok=0
+done
+if [ $sh_ok -eq 1 ]; then
+    echo "SUCCESS: a local shadowing a const global is writable"
+else
+    echo "FAIL: a local shadowing a const global is writable"
+    failed=$((failed + 1))
+fi
+
 # A directory as input: an error (it was read as an empty file); a directory
 # with a header's name is skipped by the include search
 mkdir -p build/test/dirinput_c/stdio.h

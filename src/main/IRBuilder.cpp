@@ -3325,7 +3325,8 @@ std::vector<std::function<void()>> IRBuilder::saveShadowed(Statement* decls, boo
     };
     collect(decls, list);
     for (const auto& n : names) {
-        if (!locals_.count(n) && !uplevelNames_.count(n)) continue;   // not shadowing
+        // not shadowing (a global's name is: after the block it is the global again)
+        if (!locals_.count(n) && !uplevelNames_.count(n) && !globalTypes_.count(n)) continue;
         auto save = [&](auto& m) {
             auto it = m.find(n);
             if (it != m.end()) { auto v = it->second; r.push_back([&m, n, v]() { m[n] = v; }); }

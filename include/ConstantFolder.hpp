@@ -437,6 +437,10 @@ public:
             }
         }
         auto initializer = node.initializer ? fold(std::move(node.initializer)) : nullptr;
+        // A declaration hides an outer one of the same name: a non-const
+        // local is writable even when it shadows a const global.
+        constVars.erase(node.name);
+        constPointerVars.erase(node.name);
         if (node.pointerLevel > 0) {
             if (node.isPointerConst) constPointerVars.insert(node.name);
         } else {
@@ -739,6 +743,7 @@ public:
         // it could read any variable (function calls, control flow, etc.).
         std::map<std::string, int> lastConstStore;
         std::vector<std::unique_ptr<Statement>> newStatements;
+        ConstScope scope(*this);   // the block's declarations end with it
         for (auto& stmt : node.statements) {
             auto folded = fold(std::move(stmt));
             if (folded) {
@@ -782,9 +787,12 @@ public:
         knownConstants.clear(); // Fresh state for new function
         boolVars.clear();
         auto savedPlain = plainUnsigned_;   // the function's locals stay in it
+        ConstScope scope(*this);
         // Record parameter types
         for (const auto& param : node.parameters) {
             plainUnsigned_[param.name].clear();
+            constVars.erase(param.name);        // hides a const global
+            constPointerVars.erase(param.name);
             TypeInfo::VarInfo vi;
             vi.type = param.type;
             vi.pointerLevel = param.pointerLevel;
@@ -809,6 +817,15 @@ public:
     std::unique_ptr<ASTNode> fold(std::unique_ptr<ASTNode> node);
 
 private:
+    // Saves the const name sets and puts them back at the end of a scope.
+    struct ConstScope {
+        ConstantFolder& cf;
+        std::set<std::string> c, cp;
+        explicit ConstScope(ConstantFolder& f) : cf(f), c(f.constVars), cp(f.constPointerVars) {}
+        ~ConstScope() { cf.constVars = std::move(c); cf.constPointerVars = std::move(cp); }
+    };
+    friend struct ConstScope;
+
     // name -> its declared type when it is a plain (default-unsigned) integer, else ""
     std::map<std::string, std::string> plainUnsigned_;
     std::set<std::string> warned_;

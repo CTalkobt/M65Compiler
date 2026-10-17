@@ -1195,13 +1195,13 @@ done
 
 # Test: constants through variables (one = 1; one * x) and the cases where a
 # variable must not be taken for a constant (read first, branches, address
-# taken, nested functions, loops, inline asm)
+# taken, nested functions, loops, inline asm, a local shadowing a const global)
 for cpmode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r cpname cpflags <<< "$cpmode"
     echo "Testing test_constprop_xemu.c ($cpname)..."
     compile_link_test "src/test-resources/test_constprop_xemu.c" "build/test/test_constprop_${cpname}_xemu.prg" "$cpflags"
     if [ $? -eq 0 ]; then
-        run_xemu_test "test_constprop_$cpname" "build/test/test_constprop_${cpname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+        run_xemu_test "test_constprop_$cpname" "build/test/test_constprop_${cpname}_xemu.prg" "C0C0" 9 "01 01 01 01 01 01 01 01 AA"
     else
         echo "FAIL: test_constprop_xemu.c $cpname (compilation/linking failed)"
         failed=$((failed + 1))
