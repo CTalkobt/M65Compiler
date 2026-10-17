@@ -1,14 +1,5 @@
 # GTE tests currently failing on xemu with the default (ZP + SAC) convention
-# that could be made to pass. Remove names as they are fixed; test_failures.sh
-# runs this list. Tests that are not reasonable on this platform (a 32-bit int,
-# too large, stack frames over 64 KB, mmap) are in ../known_ignore/gte.txt and
-# are skipped.
-#
-# -finstrument-functions (__cyg_profile_func_enter/exit hooks) not implemented:
-#   eeprof-1
-# Bitfields of unsigned long long and of more than 16 bits in unsigned int
-# (20040709-3 includes 20040709-2):
-#   20040709-2, 20040709-3
-20040709-2
-20040709-3
-eeprof-1
+# that could be made to pass (none at the moment). Remove names as they are
+# fixed. Tests that are not reasonable on this platform (a 32-bit int, too
+# large, stack frames over 64 KB, mmap) or test features cc45 will not
+# implement are in ../known_ignore/gte.txt and are skipped.

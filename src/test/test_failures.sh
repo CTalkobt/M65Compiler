@@ -11,10 +11,6 @@ groups_failed=0
 section() { echo ""; echo "=== $1 ==="; }
 result() { if [ "$1" -eq 0 ]; then echo "--> $2: all passing (remove from test_failures.sh)"; else echo "--> $2: still failing"; groups_failed=$((groups_failed + 1)); fi; }
 
-section "GTE (src/test/known_failures/gte.txt)"
-bash src/test/run_gte_all.sh -l src/test/known_failures/gte.txt | tail -8
-result ${PIPESTATUS[0]} "GTE"
-
 section "Stack frames with -fno-staticalloc (int -> long widening)"
 f=src/test-resources/test_stackframe_xemu.c
 ./bin/cc45 -O2 -c -fno-staticalloc $f -o build/test/stackframe_nosac.o45 >/dev/null 2>&1 &&

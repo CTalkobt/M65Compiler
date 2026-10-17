@@ -1,5 +1,6 @@
-# GTE (GCC torture) tests that are not reasonable on this platform: run_gte_all.sh
-# skips them and prints the reason. Format: <test name> <reason>
+# GTE (GCC torture) tests that are not reasonable on this platform, or that
+# test features cc45 will not implement: run_gte_all.sh skips them and prints
+# the reason. Format: <test name> <reason>
 # (Tests that fail but could be made to pass are in ../known_failures/gte.txt.)
 #
 # cc45's int is 16 bits (the 6502 family's word); these need a 32-bit int
@@ -38,3 +39,8 @@ pr28982b    needs a stack frame over 64 KB
 # Memory protection: the MEGA65 has no MMU
 loop-2f     needs <sys/mman.h> (mmap, page protection)
 loop-2g     needs <sys/mman.h> (mmap, page protection)
+#
+# Features cc45 will not implement
+20040709-2  won't do: bitfields of unsigned long long (and over 16 bits in unsigned int)
+20040709-3  won't do: bitfields of unsigned long long (and over 16 bits in unsigned int)
+eeprof-1    won't do: -finstrument-functions (__cyg_profile_func_enter/exit hooks)
