@@ -4,6 +4,19 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45
+
+- **Char sums keep their carry**: `+ - * <<` of chars are ints, also as
+  the operand of another char operation: `a + (b + c)` and `a + b + c` of
+  unsigned chars cut `b + c` (or `a + b`) back to 8 bits (200 + 200 + 200
+  gave 344).
+- **Narrow arguments widen by their own signedness**: an `unsigned char`
+  passed to a `signed int` or `signed long` parameter was sign-extended
+  (200 arrived as -56); this hit every `int` parameter with
+  `-fsigned-default` (the library is built with it). A constant still
+  takes the parameter's signedness (`f(-1)` to a `signed long` is -1).
+  Test `test_char_promotion_xemu.c`.
+
 ### ca45 / ln45
 
 - **Weak absolute symbols**: `.weak x` / `x = value` is used at its value

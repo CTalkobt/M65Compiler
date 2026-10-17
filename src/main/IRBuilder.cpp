@@ -830,6 +830,11 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
                 sig = true;
         }
         ir::Type t = (ir::typeSize(lhs.type) >= ir::typeSize(rhs.type)) ? lhs.type : rhs.type;
+        // + - * << of chars are ints (the value is computed in 16 bits and
+        // can need them): a char type here would let an enclosing char
+        // operation truncate it (a + (b + c) lost the carry of b + c)
+        if (t == ir::Type::I8 && (bin->op == "+" || bin->op == "-" || bin->op == "*" || bin->op == "<<"))
+            t = ir::Type::I16;
         return {t, lhs.typeName, sig, ir::Type::VOID, ir::typeSize(t)};
     }
 
@@ -6746,6 +6751,20 @@ normal_call:
             if (pTypes[i] == ir::Type::F32 && args[i].type != ir::Type::F32 && (!isSret || i > 0) &&
                 ai < node.arguments.size())
                 sig = getExprTypeInfo(node.arguments[ai].get()).isSigned;
+            // a narrower integer widens by its own signedness (an unsigned
+            // char 200 passed to a signed int is 200, not -56); a constant
+            // keeps the parameter's (f(-1) to a signed long is -1)
+            else if ((!isSret || i > 0) && ai < node.arguments.size()) {
+                auto isInt = [](ir::Type t) { return t == ir::Type::I8 || t == ir::Type::I16 || t == ir::Type::I32; };
+                Expression* a = node.arguments[ai].get();
+                while (auto* u = dynamic_cast<UnaryOperation*>(a)) {
+                    if (u->op != "-" && u->op != "+" && u->op != "~") break;
+                    a = u->operand.get();
+                }
+                if (isInt(args[i].type) && isInt(pTypes[i]) &&
+                    ir::typeSize(args[i].type) < ir::typeSize(pTypes[i]) && !dynamic_cast<IntegerLiteral*>(a))
+                    sig = getExprTypeInfo(node.arguments[ai].get()).isSigned;
+            }
             castArgs.push_back(emitCast(args[i], pTypes[i], sig));
         } else {
             // The variadic arguments of a function declared with "...": the
