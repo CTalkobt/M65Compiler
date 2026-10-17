@@ -19,6 +19,21 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   `cpx #0; bne +; cmp c`), not first widened into a 16-bit temporary. LICM
   leaves such an extension at its use. 1115 bytes smaller over the test
   programs and examples (ZP convention), 1330 with parameter narrowing.
+- **A signed int against an unsigned char is signed**: `signed int s = -3;
+  unsigned char c = 245;` compared and divided unsigned (`s >= c` was true,
+  `-6 / c` with `c = 3` was 21843), also with `-fsigned-default`; the
+  char's values all fit in the signed type, which C promotes it to. `/=`,
+  `%=` and `*=` follow the same rule (they did not consider a wider signed
+  type at all: `signed long l; l /= (unsigned int)u` divided unsigned).
+  Test `test_char_promotion_xemu.c`.
+- **A signed char against an unsigned char**: both promote to int, but they
+  were compared in 8 bits, where -1 and 255 are the same byte (`sc < uc`
+  was false for -1 and 255, also for -1 and 1), and divided unsigned (`/`,
+  `%`, `/=`, `%=`). They are now computed in 16 bits, signed.
+- **Compound assignment widens its right side by its signedness**: the
+  right side was always zero-extended to the left side's type, so
+  `long l; l += (signed char)-1` added 255 and `int s; s /= (signed char)-3`
+  divided by 253.
 - **Char sums keep their carry**: `+ - * <<` of chars are ints, also as
   the operand of another char operation: `a + (b + c)` and `a + b + c` of
   unsigned chars cut `b + c` (or `a + b`) back to 8 bits (200 + 200 + 200

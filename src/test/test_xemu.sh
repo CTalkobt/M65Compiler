@@ -1736,14 +1736,15 @@ for cgmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
-# Test: chars in int arithmetic (a + (b + c) kept the carry) and as int
-# arguments (widened by their own signedness), also with -fsigned-default
+# Test: chars in int arithmetic (a + (b + c) kept the carry), as int
+# arguments (widened by their own signedness) and against signed ints
+# (signed: the char promotes to int), also with -fsigned-default
 for cpmode in "zp|" "stack|-fno-zpcall" "zp_sd|-fsigned-default" "stack_sd|-fno-zpcall -fsigned-default"; do
     IFS='|' read -r cpname cpflags <<< "$cpmode"
     echo "Testing test_char_promotion_xemu.c ($cpname)..."
     compile_link_test "src/test-resources/test_char_promotion_xemu.c" "build/test/test_char_promotion_${cpname}_xemu.prg" "$cpflags"
     if [ $? -eq 0 ]; then
-        run_xemu_test "test_char_promotion_$cpname" "build/test/test_char_promotion_${cpname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
+        run_xemu_test "test_char_promotion_$cpname" "build/test/test_char_promotion_${cpname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
     else
         echo "FAIL: test_char_promotion_xemu.c $cpname (compilation/linking failed)"
         failed=$((failed + 1))

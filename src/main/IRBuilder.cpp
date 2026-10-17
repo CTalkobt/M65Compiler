@@ -4616,6 +4616,13 @@ void IRBuilder::visit(Assignment& node) {
             auto* rhsLit = dynamic_cast<IntegerLiteral*>(node.expression.get());
             if (lhsSigned && !rhsInfo.isSigned && rhsLit && rhsLit->castType.empty() && rhsLit->value >= 0 && rhsLit->value <= 32767)
                 bothSigned = true;
+            // (a wider signed type holds every value of a narrower unsigned one)
+            ir::Type lt = lhsVal.type;
+            if (!bothSigned && lt != ir::Type::PTR && rhsInfo.type != ir::Type::PTR &&
+                lt != ir::Type::F32 && rhsInfo.type != ir::Type::F32) {
+                int ls = (int)ir::typeSize(lt), rs = (int)ir::typeSize(rhsInfo.type);
+                if ((lhsSigned && ls > rs) || (rhsInfo.isSigned && rs > ls)) bothSigned = true;
+            }
         }
         if (node.op == "+=") binOp = ir::Op::ADD;
         else if (node.op == "-=") binOp = ir::Op::SUB;
@@ -4651,9 +4658,21 @@ void IRBuilder::visit(Assignment& node) {
             binOp = ir::Op::NOP;
         }
 
+        // a signed and an unsigned char divided: in (signed) int, as for /
+        bool mixedChars = (binOp == ir::Op::DIV || binOp == ir::Op::DIV_U ||
+                           binOp == ir::Op::MOD || binOp == ir::Op::MOD_U) &&
+                          lhsVal.type == ir::Type::I8 && rhs.type == ir::Type::I8 &&
+                          lhsSigned != rhsInfo.isSigned;
+        ir::Type narrowType = lhsVal.type;
+        if (mixedChars) {
+            binOp = (binOp == ir::Op::DIV || binOp == ir::Op::DIV_U) ? ir::Op::DIV : ir::Op::MOD;
+            lhsVal = emitCast(lhsVal, ir::Type::I16, lhsSigned);
+        }
+
         if (binOp != ir::Op::NOP) {
             ir::Type opType = lhsVal.type;
-            auto castRhs = emitCast(rhs, opType, false);
+            // (widened by its own signedness: l += (signed char)-1 adds -1)
+            auto castRhs = emitCast(rhs, opType, rhsInfo.isSigned);
             // p += n / p -= n: scale n by the pointed-to element size
             if (opType == ir::Type::PTR && (binOp == ir::Op::ADD || binOp == ir::Op::SUB)) {
                 IRTypeInfo pinfo = getExprTypeInfo(node.target.get());
@@ -4684,6 +4703,7 @@ void IRBuilder::visit(Assignment& node) {
             inst.loc = loc(node);
             emit(inst);
             rhs = dest;
+            if (mixedChars) rhs = emitCast(dest, narrowType, false);
         }
     }
 
@@ -5411,7 +5431,16 @@ void IRBuilder::visit(BinaryOperation& node) {
     // Only when BOTH operands are I8, or one is I8 and the other is a small
     // literal with no explicit wider type. Never narrow a wider operand to I8.
     bool forceI8 = false;
-    if (lhsInfo.type == ir::Type::I8 && rhsInfo.type == ir::Type::I8) {
+    // A signed and an unsigned char both promote to (signed) int: compared,
+    // divided or taken modulo in 16 bits, signed (-1 < 255; in 8 bits they
+    // are the same byte)
+    bool mixedChars = lhsInfo.type == ir::Type::I8 && rhsInfo.type == ir::Type::I8 &&
+                      lhsInfo.isSigned != rhsInfo.isSigned &&
+                      (node.op == "<" || node.op == ">" || node.op == "<=" || node.op == ">=" ||
+                       node.op == "==" || node.op == "!=" || node.op == "/" || node.op == "%");
+    if (mixedChars) {
+        // computed in int
+    } else if (lhsInfo.type == ir::Type::I8 && rhsInfo.type == ir::Type::I8) {
         forceI8 = true;
     } else if (lhsInfo.type == ir::Type::I8 && ir::typeSize(rhsInfo.type) <= 2) {
         // I8 op with I16/PTR literal — keep I8 if literal fits in 8 bits
@@ -5456,7 +5485,7 @@ void IRBuilder::visit(BinaryOperation& node) {
         : lastValue_;
 
     // Determine result type
-    ir::Type resultType = forceI8 ? ir::Type::I8 : lhs.type;
+    ir::Type resultType = forceI8 ? ir::Type::I8 : mixedChars ? ir::Type::I16 : lhs.type;
     if (!forceI8 && !shiftImm && ir::typeSize(rhs.type) > ir::typeSize(resultType)) resultType = rhs.type;
 
     // Cast operands to result type
@@ -5523,7 +5552,7 @@ void IRBuilder::visit(BinaryOperation& node) {
     // For comparison operators: use signed ops only if BOTH operands are signed.
     // Per C semantics: if one operand is signed and the other is an unsigned
     // literal that fits in the signed range (0-32767 for 16-bit), treat as signed.
-    bool bothSigned = lhsInfo.isSigned && rhsInfo.isSigned;
+    bool bothSigned = (lhsInfo.isSigned && rhsInfo.isSigned) || mixedChars;
     if (!bothSigned && (lhsInfo.isSigned || rhsInfo.isSigned)) {
         auto* lhsLit = dynamic_cast<IntegerLiteral*>(node.left.get());
         auto* rhsLit = dynamic_cast<IntegerLiteral*>(node.right.get());
@@ -5532,8 +5561,9 @@ void IRBuilder::visit(BinaryOperation& node) {
         else if (rhsInfo.isSigned && !lhsInfo.isSigned && lhsLit && lhsLit->castType.empty() && lhsLit->value >= 0 && lhsLit->value <= 32767)
             bothSigned = true;
         // A wider signed type holds every value of a narrower unsigned one:
-        // the common type is the signed one (long vs unsigned short)
-        auto intSize = [](ir::Type t) { return t == ir::Type::I8 ? 2 : (int)ir::typeSize(t); };
+        // the common type is the signed one (long vs unsigned short; an int
+        // vs an unsigned char, which C promotes to a signed int)
+        auto intSize = [](ir::Type t) { return (int)ir::typeSize(t); };
         if (!bothSigned && lhsInfo.type != ir::Type::PTR && rhsInfo.type != ir::Type::PTR &&
             lhsInfo.type != ir::Type::F32 && rhsInfo.type != ir::Type::F32) {
             int ls = intSize(lhsInfo.type), rs = intSize(rhsInfo.type);
