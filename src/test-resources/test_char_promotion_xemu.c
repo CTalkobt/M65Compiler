@@ -11,6 +11,8 @@
  * A signed and an unsigned char both promote to int: -1 < 255 (it was an
  * 8-bit compare of the same byte), and so /, % and /=. The right side of a
  * compound assignment widens by its own signedness (l += (signed char)-1).
+ * A char difference or negation whose only use is a char is computed in 8
+ * bits on the bytes themselves; used as an int it keeps 16 bits.
  * Run in both conventions, with and without -fsigned-default.
  *
  * Results at $C0C0 (01 = pass):
@@ -22,7 +24,9 @@
  *       a signed long /= an unsigned int
  *   [5] signed char against unsigned char: compares, / % /= %=; a signed
  *       char on the right of += and /= on wider types
- *   [6] $AA sentinel
+ *   [6] char differences and negations stored as chars (8 bits, wrapping)
+ *       and used as ints (not narrowed: -20)
+ *   [7] $AA sentinel
  */
 #define OUT ((volatile unsigned char *)0xC0C0)
 #define N __attribute__((noinline))
@@ -37,6 +41,9 @@ volatile signed long l6 = -6;
 volatile signed char scm1 = -1, scm3 = -3, scm6 = -6;
 volatile unsigned char uc255 = 255, uc1 = 1;
 volatile signed int s600 = 600;
+volatile unsigned char ua10 = 10, ub30 = 30, uc7 = 7;
+volatile signed char sa10 = 10, sb30 = 30, sm5 = -5;
+static unsigned char ucs[3];
 static unsigned char v[4] = {112, 112, 112, 112};
 
 N static unsigned char get(unsigned char i) { return v[i]; }
@@ -46,7 +53,10 @@ N static signed int two(unsigned char k, signed int x) { return x + k - k; }
 
 int main(void) {
     unsigned int s;
-    unsigned char ok0 = 1, ok1 = 1, ok2 = 1, ok3 = 1, ok4 = 1, ok5 = 1;
+    unsigned char ok0 = 1, ok1 = 1, ok2 = 1, ok3 = 1, ok4 = 1, ok5 = 1, ok6 = 1;
+    unsigned char ux, uy;
+    signed char sx;
+    signed int di;
     signed char xa, xb;
     unsigned char xu;
     signed int si, sq;
@@ -100,6 +110,20 @@ int main(void) {
     lq = 1000; lq += scm1;                  if (lq != 999) ok5 = 0;
     si = s600; si /= scm3;                  if (si != -200) ok5 = 0;
 
-    OUT[0] = ok0; OUT[1] = ok1; OUT[2] = ok2; OUT[3] = ok3; OUT[4] = ok4; OUT[5] = ok5; OUT[6] = 0xAA;
+    ux = ua10; uy = ub30;
+    xu = ux - uy;                           if (xu != 236) ok6 = 0;
+    xu = -ux;                               if (xu != 246) ok6 = 0;
+    xu = ~ux;                               if (xu != 245) ok6 = 0;
+    xu = ux - uy - uc7;                     if (xu != 229) ok6 = 0;
+    sx = sa10 - sb30;                       if (sx != -20) ok6 = 0;
+    sx = -sm5;                              if (sx != 5) ok6 = 0;
+    di = (signed int)ux - uy;               if (di != -20) ok6 = 0;
+    di = sa10 - sb30;                       if (di != -20) ok6 = 0;
+    if ((unsigned char)(ux - uy) != 236) ok6 = 0;
+    ucs[0] = ux; ucs[1] = uy;
+    ucs[2] = ucs[0] - ucs[1];               if (ucs[2] != 236) ok6 = 0;
+
+    OUT[0] = ok0; OUT[1] = ok1; OUT[2] = ok2; OUT[3] = ok3; OUT[4] = ok4; OUT[5] = ok5; OUT[6] = ok6;
+    OUT[7] = 0xAA;
     return 0;
 }

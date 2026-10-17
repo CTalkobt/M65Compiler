@@ -4829,6 +4829,12 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
         }
 
         case ir::Op::NEG: {
+            if (inst.resultType == ir::Type::I8) {
+                loadOperandA(inst.src1);
+                emit("neg a", irDesc("neg8"));
+                if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
+                break;
+            }
             loadOperand(inst.src1);
             emit(inst.resultType == ir::Type::I32 ? "neg.32 .AXYZ" : "neg.16 .AX");
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
@@ -4836,6 +4842,12 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
         }
 
         case ir::Op::NOT: {
+            if (inst.resultType == ir::Type::I8) {
+                loadOperandA(inst.src1);
+                emit("eor #$FF", irDesc("not8"));
+                if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
+                break;
+            }
             loadOperand(inst.src1);
             emit(inst.resultType == ir::Type::I32 ? "not.32 .AXYZ" : "not.16 .AX");
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);

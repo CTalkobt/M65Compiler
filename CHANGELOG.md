@@ -6,6 +6,13 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### cc45
 
+- **Char subtraction and negation in 8 bits** (Issue #182): `c = a - b`
+  and `c = -a` on chars were computed in 16 bits and truncated (only `+`,
+  `*`, `&`, `|`, `^`, `<<`, `~` were narrowed). A difference used as an int
+  still keeps 16 bits. The narrowed operation reads its operands' bytes
+  directly instead of 16-bit extensions of them, and an 8-bit negation is
+  `neg a`, an 8-bit `~` is `eor #$FF`. 2063 bytes smaller over the test
+  programs and examples (rogue 509, musicgen 329, invaders 322).
 - **A bitfield wider than its type is an error** after a comma and when
   unnamed too: `int a, e : 17;` and `int : 17;` were accepted and kept 16
   bits (only the first declarator of a member line was checked). A

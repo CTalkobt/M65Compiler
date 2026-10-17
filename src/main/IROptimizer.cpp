@@ -1263,10 +1263,12 @@ void optimizeTypeNarrowing(Module& mod) {
 
         // Narrowable arithmetic ops (safe to compute in I8 when result is truncated)
         auto isNarrowable = [](Op op) -> bool {
-            // SUB and NEG excluded: result sign matters (char subtraction
-            // must produce signed int result per C integer promotion rules)
+            // (only when every use is a truncation to 8 bits: the low byte of
+            // a sum, difference, product, ... does not depend on the high
+            // bytes; a result used wider, e.g. a char difference compared as
+            // a signed int, is not narrowed)
             switch (op) {
-                case Op::ADD:
+                case Op::ADD: case Op::SUB: case Op::NEG:
                 case Op::MUL: case Op::MUL_U:
                 case Op::AND: case Op::OR: case Op::XOR:
                 case Op::SHL:   // not SHR: the low byte of x >> n comes from x's high bits
@@ -1306,6 +1308,40 @@ void optimizeTypeNarrowing(Module& mod) {
                 // Narrow: change result type to I8
                 trace("narrow", fn.name, "v" + std::to_string(inst.dest.vregId) + " narrowed to I8", inst.loc);
                 inst.resultType = Type::I8;
+
+                // Its operands extended from a byte: the byte itself (only the
+                // low byte is read), when the byte keeps its value up to here
+                size_t at = &inst - &block.insts[0];
+                for (Operand* o : {&inst.src1, &inst.src2}) {
+                    if (!o->isVreg()) continue;
+                    size_t d = at;
+                    while (d-- > 0) {
+                        const Inst& x = block.insts[d];
+                        if (x.dest.isVreg() && x.dest.vregId == o->vregId) break;
+                    }
+                    if (d == (size_t)-1) continue;
+                    const Inst& ext = block.insts[d];
+                    if ((ext.op != Op::ZEXT && ext.op != Op::SEXT) || !ext.src1.isVreg() ||
+                        ext.src1.type != Type::I8 || fn.localSlotVregs.count(o->vregId))
+                        continue;
+                    uint32_t src = ext.src1.vregId;
+                    bool keeps = true;
+                    for (size_t k = d + 1; k < at && keeps; k++) {
+                        const Inst& x = block.insts[k];
+                        if ((x.dest.isVreg() && (x.dest.vregId == src || x.dest.vregId == o->vregId)) ||
+                            (x.op == Op::STORE && x.src2.isVreg() && x.src2.vregId == src) ||
+                            x.op == Op::CALL || x.op == Op::CALL_VOID || x.op == Op::CALL_INDIRECT ||
+                            x.op == Op::ASM_INLINE)
+                            keeps = false;
+                        // (memory it shares with pointers: only instructions that write no memory)
+                        if (fn.memoryVregs.count(src) &&
+                            !(x.op == Op::CONST || x.op == Op::COPY || x.op == Op::ADD || x.op == Op::SUB ||
+                              x.op == Op::TRUNC || x.op == Op::ZEXT || x.op == Op::SEXT || x.op == Op::DEREF ||
+                              x.op == Op::NOP || (x.op == Op::LOAD && x.args.empty())))
+                            keeps = false;
+                    }
+                    if (keeps) *o = Operand::vreg(src, Type::I8);
+                }
 
                 // Convert each TRUNC consumer to COPY (the result is already I8)
                 auto& useList = uses[inst.dest.vregId];
