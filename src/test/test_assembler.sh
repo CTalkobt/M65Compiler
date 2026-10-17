@@ -153,6 +153,29 @@ else
     failed=$((failed + 1))
 fi
 
+echo "Testing ln45's end-of-RAM check (Issue #283)..."
+# a C program reaching $C000 (reads as ROM in C65 mode) fails to link with
+# either stack and with a stack top above $BFFF; --ram-top moves the limit
+printf 'static unsigned char big[41000];\nint main(void) { big[40999] = 1; return big[40999]; }\n' > build/test/big_bss.c
+printf 'static unsigned char big[30000];\nint main(void) { big[29999] = 1; return big[29999]; }\n' > build/test/fit_bss.c
+rt_ok=1
+./bin/cc45 -O2 build/test/big_bss.c -o build/test/big_bss.prg >/dev/null 2>&1 && rt_ok=0
+for fl in "-fno-stack16" "-fstack-top=0xFFF0"; do
+    ./bin/cc45 -O2 $fl -c build/test/big_bss.c -o build/test/big_bss.o45 >/dev/null 2>&1 || rt_ok=0
+    ./bin/ln45 -basic -o build/test/big_bss.prg build/test/big_bss.o45 lib/build/c45.lib >/dev/null 2>&1 && rt_ok=0
+done
+./bin/cc45 -O2 -fno-stack16 -c build/test/big_bss.c -o build/test/big_bss.o45 >/dev/null 2>&1
+./bin/ln45 -basic --ram-top=0x10000 -o build/test/big_bss.prg build/test/big_bss.o45 lib/build/c45.lib >/dev/null 2>&1 || rt_ok=0
+./bin/cc45 -O2 build/test/fit_bss.c -o build/test/fit_bss.prg >/dev/null 2>&1 || rt_ok=0
+./bin/cc45 -O2 -fno-stack16 build/test/fit_bss.c -o build/test/fit_bss.prg >/dev/null 2>&1 || rt_ok=0
+if [ $rt_ok -eq 1 ]; then
+    echo "SUCCESS: a C program above \$C000 fails to link"
+    passed=$((passed + 1))
+else
+    echo "FAIL: ln45 end-of-RAM check"
+    failed=$((failed + 1))
+fi
+
 echo "Testing a used .extern in a flat program..."
 # no linker resolves it: an error (it would be $0000); declared but unused is fine,
 # and -c keeps it as an import

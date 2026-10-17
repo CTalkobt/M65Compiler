@@ -5,6 +5,7 @@
 #include <fstream>
 #include <vector>
 #include <string>
+#include <sstream>
 #include <unistd.h>
 #include <sys/stat.h>
 #include "O45Reader.hpp"
@@ -42,6 +43,8 @@ static void printUsage(const char* progName) {
     std::cout << "  -u <sym>       Keep <sym> and what it reaches" << std::endl;
     std::cout << "  --bss-fill=V   Byte crt0 fills BSS with at startup (default $00; $FF, 0xFF or decimal)" << std::endl;
     std::cout << "  --stack-size=N The CPU stack's share below __stack_top; malloc's heap ends there" << std::endl;
+    std::cout << "  --ram-top=ADDR End of the RAM a C program may use in bank 0 (default $C000: $C000-$CFFF" << std::endl;
+    std::cout << "                 reads as ROM in C65 mode); for a program that maps RAM there itself" << std::endl;
     std::cout << "  --overlay-store=ADDR  Where code overlays are kept in far memory (default $50000: bank 5)" << std::endl;
     std::cout << "  --overlay-name=NAME   The overlay file's name on disk (default: the output's, .OVL)" << std::endl;
     std::cout << "  --overlay-out=PATH    Where to write the overlay file (default: the output's, .ovl)" << std::endl;
@@ -69,6 +72,7 @@ int main(int argc, char** argv) {
     bool printMap = false;
     int bssFill = -1;
     int stackSize = -1;
+    uint32_t ramTop = 0xC000;   // bank 0 reads as RAM below $C000 in C65 mode
     bool gcObjects = true, printGc = false, gcInputs = false;
     std::vector<std::string> keepSyms;
     std::string mapFile;
@@ -126,6 +130,16 @@ int main(int argc, char** argv) {
             try { size_t used = 0; sv = std::stoul(v, &used, base); if (used != v.size() || sv > 0xFFFF) throw 0; }
             catch (...) { std::cerr << "ln45: error: invalid --stack-size value '" << arg.substr(13) << "' (0-65535, $1000, 0x1000)" << std::endl; return 1; }
             stackSize = (int)sv;
+        }
+        else if (arg.rfind("--ram-top=", 0) == 0) {
+            std::string v = arg.substr(10);
+            int base = 10;
+            if (!v.empty() && v[0] == '$') { v = v.substr(1); base = 16; }
+            else if (v.size() > 2 && v[0] == '0' && (v[1] == 'x' || v[1] == 'X')) { v = v.substr(2); base = 16; }
+            unsigned long rv = 0;
+            try { size_t used = 0; rv = std::stoul(v, &used, base); if (used != v.size() || rv == 0 || rv > 0x10000) throw 0; }
+            catch (...) { std::cerr << "ln45: error: invalid --ram-top value '" << arg.substr(10) << "' (1-65536, $C000, 0xC000)" << std::endl; return 1; }
+            ramTop = (uint32_t)rv;
         }
         else if (arg.rfind("--overlay-store=", 0) == 0) {
             std::string v = arg.substr(16);
@@ -320,21 +334,43 @@ int main(int argc, char** argv) {
             std::cerr << "ln45: dropped section " << n << std::endl;
     }
 
-    // The 16-bit CPU stack grows down from __stack_top towards the end of the
-    // program (BSS and the private base page): make sure there is room
+    // A C program (crt0's private base page) must end below the top of bank
+    // 0's RAM ($C000: $C000-$CFFF reads as ROM in C65 mode, writes go to
+    // RAM), with either stack: the 8-bit stack (__stack_top = 0) or a stack
+    // top set anywhere does not change that. The 16-bit CPU stack grows down
+    // from __stack_top towards the end of the program (BSS and the private
+    // base page): make sure there is room
     {
         const auto& syms = linker.getSymbolMap();
         auto st = syms.find("__stack_top");
+        auto zp = syms.find("__zp_page");
+        uint32_t end = 0;
+        auto be = syms.find("__bss_end");
+        if (be != syms.end()) end = be->second;
+        if (zp != syms.end() && zp->second + 0x100 > end) end = zp->second + 0x100;
+        auto zpi = syms.find("__zp_page_isr");
+        if (zpi != syms.end() && zpi->second != 0 && zpi->second + 0x100 > end) end = zpi->second + 0x100;
+        auto hex = [](uint32_t v) { std::ostringstream o; o << "$" << std::hex << std::uppercase << v; return o.str(); };
+        if (zp != syms.end()) {
+            if (st != syms.end() && st->second != 0 && st->second >= ramTop) {
+                std::cerr << "ln45: error: the CPU stack top " << hex(st->second) << " is above the end of bank 0's RAM "
+                          << hex(ramTop - 1) << " ($C000-$CFFF reads as ROM in C65 mode; cc45 -fstack-top=ADDR "
+                          << "at most " << hex(ramTop - 1) << ", or ln45 --ram-top=ADDR for a program that maps RAM there)"
+                          << std::endl;
+                return 1;
+            }
+            if (end > ramTop) {
+                std::cerr << "ln45: error: program ends at " << hex(end) << ", above the end of bank 0's RAM "
+                          << hex(ramTop - 1) << " ($C000-$CFFF reads as ROM in C65 mode): make it smaller, or move code "
+                          << "into overlays (#pragma cc45 overlay) or __far functions" << std::endl;
+                return 1;
+            }
+        }
         if (st != syms.end() && st->second != 0) {
-            uint32_t end = 0;
-            auto be = syms.find("__bss_end");
-            if (be != syms.end()) end = be->second;
-            auto zp = syms.find("__zp_page");
-            if (zp != syms.end() && zp->second + 0x100 > end) end = zp->second + 0x100;
             if (end > 0 && end > st->second) {
-                std::cerr << "ln45: error: program ends at $" << std::hex << std::uppercase << end
-                          << ", above the CPU stack top $" << st->second << std::dec
-                          << " (cc45 -fstack-top=ADDR or -fno-stack16)" << std::endl;
+                std::cerr << "ln45: error: program ends at " << hex(end) << ", above the CPU stack top "
+                          << hex(st->second) << " (cc45 -fstack-top=ADDR, at most " << hex(ramTop - 1)
+                          << "; or make the program smaller)" << std::endl;
                 return 1;
             }
             if (end > 0 && st->second + 1 - end < 0x200) {

@@ -68,6 +68,14 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### ca45 / ln45
 
+- **ln45: a C program must end below `$C000`** (Issue #283): `$C000`-`$CFFF`
+  reads as ROM in C65 mode, but the only check compared the program's end
+  with the 16-bit stack top, so a program built with `-fno-stack16` (stack
+  top 0) or `-fstack-top=$FFF0` linked with its BSS and base page above
+  `$C000` and failed at runtime. ln45 now fails for a program ending above
+  `$C000` with either stack, and for a stack top at `$C000` or above;
+  `--ram-top=ADDR` moves the limit for a program that maps RAM there. The
+  "above the stack top" error no longer suggests `-fno-stack16`.
 - **Redundant loads kept for their flags** (Issue #282): the
   redundant-load pass removed an `lda`/`ldx`/`ldy`/`ldz` whose register
   already held the value although the load's N/Z were read: `cr = c == 13;
