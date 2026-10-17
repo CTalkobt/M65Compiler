@@ -68,6 +68,15 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### ca45 / ln45
 
+- **Overlay → resident → other overlay returns into the right code** (Issue
+  #284): `__ovl_call` brought a caller's overlay back on the return only
+  when the call came from the region, so when resident code that overlay
+  `a` called called overlay `b`, `b` stayed in the region and the resident
+  function returned into `b`'s bytes at `a`'s return address. The return
+  now brings back the overlay the innermost overlay call still running
+  entered (none at the top level, so `main` calling `a` and then `b` copies
+  nothing back). Test `src/test-resources/overlay/` result [6], copied and
+  mapped overlays, both conventions.
 - **ln45: a C program must end below `$C000`** (Issue #283): `$C000`-`$CFFF`
   reads as ROM in C65 mode, but the only check compared the program's end
   with the 16-bit stack top, so a program built with `-fno-stack16` (stack

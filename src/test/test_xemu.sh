@@ -1257,7 +1257,7 @@ for ovmode in "zp|$STDLIB||" "stack|$STDLIB_STACK|-fno-zpcall|" \
     if [ $ovok = 1 ] && $LD -basic $ovlink -o $ovd/ovltest.prg $ovd/main.o45 $ovd/ovl_a.o45 $ovd/ovl_b.o45 $ovlib >/dev/null 2>&1 &&
        ./bin/disk45 create $ovd/ovl.d81 -n OVLTEST >/dev/null 2>&1 &&
        ./bin/disk45 add $ovd/ovl.d81 $ovd/ovltest.ovl OVLTEST.OVL >/dev/null 2>&1; then
-        run_xemu_test "test_overlay_$ovname" "$ovd/ovltest.prg" "C0C0" 7 "01 01 01 01 01 01 AA" -8 "$PWD/$ovd/ovl.d81"
+        run_xemu_test "test_overlay_$ovname" "$ovd/ovltest.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA" -8 "$PWD/$ovd/ovl.d81"
     else
         echo "FAIL: code overlays $ovname (build or link failed)"
         failed=$((failed + 1))

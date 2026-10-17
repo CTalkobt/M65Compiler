@@ -3,6 +3,7 @@
 
 /* resident (main.c) */
 int res_inc(int x);
+int res_via_b(int x);
 extern int res_calls;
 
 /* overlay a (ovl_a.c) */
@@ -13,6 +14,7 @@ int a_apply(int (*f)(int), int x);
 int a_rec(int n);
 long a_long(long x);
 int a_count(void);
+int a_via_res(int x);
 
 /* overlay b (ovl_b.c) */
 int b_mul(int x, int y);

@@ -11,13 +11,17 @@
 ; A call from outside an overlay goes through a stub ln45 generates:
 ;     sta __ovl_sa / lda #id / sta __ovl_want
 ;     lda #<f / sta __ovl_tgt / lda #>f / sta __ovl_tgt+1 / jmp __ovl_call
-; __ovl_call moves the caller's return address (and its overlay: the one in
-; the region when the call came from there) to the overlay return stack, copies the wanted overlay in by
-; DMA when it is not there, and jumps to the function with the stack as the
-; caller left it, but for the return address, now __ovl_ret's: both calling
-; conventions find their arguments where they expect them. __ovl_ret puts
-; the caller's overlay back when another one was copied in meanwhile (a
-; caller in resident code needs none), and returns to the caller. A, X, Y, Z go in and come back unchanged, and the
+; __ovl_call moves the caller's return address to the overlay return stack,
+; with the overlay to bring back on the return: the one the innermost
+; overlay call still running entered (0 at the top level). That is the
+; caller's own overlay for a call from the region, and also for a call from
+; resident code an overlay called (overlay a -> resident -> overlay b: a is
+; needed again when the resident function returns into it). It copies the
+; wanted overlay in by DMA when it is not there, and jumps to the function
+; with the stack as the caller left it, but for the return address, now
+; __ovl_ret's: both calling conventions find their arguments where they
+; expect them. __ovl_ret puts that overlay back when another one was copied
+; in meanwhile, and returns to the caller. A, X, Y, Z go in and come back unchanged, and the
 ; flags come back as the function left them.
 ;
 ; ln45 provides:
@@ -62,7 +66,8 @@ __ovl_cur:  .res 1          ; the overlay in the region (0: none)
 __ovl_rsp:  .res 1          ; the overlay return stack
 __ovl_rlo:  .res OVL_DEPTH
 __ovl_rhi:  .res OVL_DEPTH
-__ovl_rid:  .res OVL_DEPTH
+__ovl_rid:  .res OVL_DEPTH  ; the overlay to bring back on the return
+__ovl_rwt:  .res OVL_DEPTH  ; the overlay the call entered
 __ovl_t:    .res 1
 
 .segment "code"
@@ -97,23 +102,17 @@ proc __ovl_call
     sta __ovl_rlo,x
     pla
     sta __ovl_rhi,x
-    ; the caller's overlay: the one in the region when the call came from
-    ; there, else 0 (resident code: nothing to copy back on the return)
+    ; the overlay to bring back: the one the innermost call still running
+    ; entered (code in the region runs only inside such a call), 0 at the
+    ; top level (nothing to copy back)
     lda #0
-    sta __ovl_rid,x
-    lda __ovl_rlo,x
-    cmp #<__ovl_region
-    lda __ovl_rhi,x
-    sbc #>__ovl_region
-    bcc @owner              ; below the region
-    lda __ovl_rlo,x
-    cmp #<__ovl_region_end
-    lda __ovl_rhi,x
-    sbc #>__ovl_region_end
-    bcs @owner              ; above it
-    lda __ovl_cur
-    sta __ovl_rid,x
+    cpx #0
+    beq @owner
+    lda __ovl_rwt-1,x
 @owner:
+    sta __ovl_rid,x
+    lda __ovl_want
+    sta __ovl_rwt,x
     inx
     stx __ovl_rsp
     lda __ovl_want

@@ -9,7 +9,9 @@
  *   [4] a long argument and result; static data and BSS of the overlays
  *       kept across swaps
  *   [5] disk I/O from inside an overlay (a file written and read back)
- *   [6] $AA sentinel
+ *   [6] overlay a into resident code into overlay b, back to a (a copied in
+ *       again although the call into b came from resident code)
+ *   [7] $AA sentinel
  */
 #include "ovl.h"
 
@@ -19,6 +21,9 @@ int res_calls;
 int res_inc(int x) { res_calls++; return x + 1; }
 
 static int res_double(int x) { return x * 2; }
+
+/* called from overlay a: overlay b replaces a in the region */
+int res_via_b(int x) { return b_mul(x, 2) + 1; }
 
 static int (*const table[3])(int) = { b_neg, a_twice, res_double };
 
@@ -33,6 +38,7 @@ int main(void) {
     OUT[3] = a_rec(20) == 10 * 11 && b_rec(3) == 10 + 1 + 10;
     OUT[4] = a_long(100000L) == 370000L && a_count() == 8 * 1000 + 113 && b_count() == 4;
     OUT[5] = b_file();
-    OUT[6] = 0xAA;
+    OUT[6] = a_via_res(5) == 10 + 1 + 0x20;
+    OUT[7] = 0xAA;
     return 0;
 }
