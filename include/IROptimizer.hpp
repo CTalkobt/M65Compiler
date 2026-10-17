@@ -29,6 +29,10 @@ namespace ir {
     // COPY chain elimination: resolve transitive copies, remove dead COPYs
     void optimizeCopyChains(Module& mod);
 
+    // Parameter narrowing: an int/long parameter of a static function whose
+    // every call passes a value that fits in fewer bytes gets that type
+    void optimizeParamNarrowing(Module& mod);
+
     // Type narrowing: replace wide ops with I8 when result is truncated
     void optimizeTypeNarrowing(Module& mod);
 

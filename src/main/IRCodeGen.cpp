@@ -157,6 +157,8 @@ std::string IRCodeGen::directByte(const ir::Operand& op, int k) const {
     auto imm = [k](int64_t v) { return "#" + std::to_string((int)((v >> (8 * k)) & 0xFF)); };
     if (op.isImm()) return imm(op.immVal);
     if (!op.isVreg()) return "";
+    auto za = zextAlias_.find(op.vregId);
+    if (za != zextAlias_.end()) return k == 0 ? directByte(za->second, 0) : "#0";
     auto cit = vregConstVal_.find(op.vregId);
     if (cit != vregConstVal_.end() && !localSlotVregs_.count(op.vregId)) return imm(cit->second);
     std::string base = directBase(op.vregId);
@@ -830,6 +832,12 @@ bool IRCodeGen::emitMulAXConst(long c, bool xZero, const std::string& why) {
 }
 
 void IRCodeGen::loadVreg(uint32_t vregId) {
+    auto za = zextAlias_.find(vregId);
+    if (za != zextAlias_.end()) {
+        emit("lda " + directByte(za->second, 0), "zero-extended byte");
+        emit("ldx #0");
+        return;
+    }
     auto alloc = alloc_.getAlloc(vregId);
     std::string r = "loadVreg " + vregDesc(vregId);
     if (suppressedVregs_.count(vregId) && vregConstVal_.count(vregId) && !localSlotVregs_.count(vregId)) {
@@ -938,6 +946,8 @@ void IRCodeGen::loadVreg(uint32_t vregId) {
 void IRCodeGen::loadVregA(uint32_t vregId) {
     auto ta = truncAlias_.find(vregId);
     if (ta != truncAlias_.end()) { emit("lda " + directByte(ta->second, 0), "low byte"); return; }
+    auto za = zextAlias_.find(vregId);
+    if (za != zextAlias_.end()) { emit("lda " + directByte(za->second, 0), "zero-extended byte"); return; }
     if (suppressedVregs_.count(vregId) && vregConstVal_.count(vregId) && !localSlotVregs_.count(vregId)) {
         emit("lda #" + std::to_string((int)(vregConstVal_[vregId] & 0xFF)), "constant");
         return;
@@ -2727,6 +2737,67 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 if (ok) truncAlias_[d] = in.src1;
             }
         }
+        // A byte variable's ZEXT whose one use is a 16-bit ADD/SUB, AND/XOR or
+        // compare (as its second operand) later in the block: not emitted;
+        // the use reads the byte where it lives and 0 for the high byte
+        zextAlias_.clear();
+        std::set<uint32_t> joinNodes;
+        for (const auto& bj : byteJoins_) joinNodes.insert(bj.second.nodes.begin(), bj.second.nodes.end());
+        auto is16 = [](ir::Type t) { return t == ir::Type::I16 || t == ir::Type::PTR; };
+        for (size_t b = 0; b < blocks.size(); b++) {
+            const auto& insts = blocks[b]->insts;
+            for (size_t i = 0; i < insts.size(); i++) {
+                const auto& in = insts[i];
+                if (in.op != ir::Op::ZEXT || in.src1.type != ir::Type::I8 || !is16(in.resultType) ||
+                    !in.dest.isVreg() || !in.src1.isVreg() || in.src1.vregId == in.dest.vregId) continue;
+                uint32_t d = in.dest.vregId, sv = in.src1.vregId;
+                if (defs[d] != 1 || fn.localSlotVregs.count(d) || fn.memoryVregs.count(d) || joinNodes.count(d))
+                    continue;
+                // (a variable or a parameter: a temporary's register can be reused before the use)
+                if (!fn.localSlotVregs.count(sv) && sv >= fn.paramTypes.size()) continue;
+                auto sl = alloc_.getAlloc(sv).loc;
+                if (sl != VRegAllocator::IN_ZP && sl != VRegAllocator::IN_FRAME) continue;
+                auto uit = uses.find(d);
+                if (uit == uses.end() || uit->second.size() != 1 || uit->second[0].blk != b) continue;
+                size_t j = uit->second[0].idx;
+                if (j <= i) continue;
+                const auto& u = insts[j];
+                if (!u.args.empty()) continue;
+                bool at1 = u.src1.isVreg() && u.src1.vregId == d, at2 = u.src2.isVreg() && u.src2.vregId == d;
+                if (at1 == at2) continue;
+                bool fits = false;
+                switch (u.op) {
+                    case ir::Op::ADD: case ir::Op::SUB: case ir::Op::AND: case ir::Op::XOR:
+                        fits = is16(u.resultType); break;
+                    case ir::Op::CMP_EQ: case ir::Op::CMP_NE: case ir::Op::CMP_LT: case ir::Op::CMP_GE:
+                    case ir::Op::CMP_LTU: case ir::Op::CMP_LEU: case ir::Op::CMP_GTU: case ir::Op::CMP_GEU:
+                        fits = at2 ? is16(u.src1.type) : (u.src2.isImm() || is16(u.src2.type)); break;
+                    default: break;
+                }
+                if (!fits) continue;
+                bool ok = true;
+                for (const auto& blk2 : fn.blocks)
+                    for (const auto& x : blk2.insts)
+                        for (const auto& ph : x.phiIncoming)
+                            if (ph.first.isVreg() && ph.first.vregId == d) ok = false;
+                // the byte keeps its value up to the use
+                for (size_t k = i + 1; k < j && ok; k++) {
+                    const auto& x = insts[k];
+                    if ((x.dest.isVreg() && x.dest.vregId == sv) ||
+                        (x.op == ir::Op::STORE && x.src2.isVreg() && x.src2.vregId == sv) ||
+                        x.op == ir::Op::CALL || x.op == ir::Op::CALL_VOID || x.op == ir::Op::CALL_INDIRECT ||
+                        x.op == ir::Op::ASM_INLINE)
+                        ok = false;
+                    if (fn.memoryVregs.count(sv) &&
+                        !(x.op == ir::Op::CONST || x.op == ir::Op::COPY || x.op == ir::Op::ADD ||
+                          x.op == ir::Op::SUB || x.op == ir::Op::TRUNC || x.op == ir::Op::ZEXT ||
+                          x.op == ir::Op::SEXT || x.op == ir::Op::DEREF || x.op == ir::Op::NOP ||
+                          (x.op == ir::Op::LOAD && x.args.empty())))
+                        ok = false;
+                }
+                if (ok) zextAlias_[d] = in.src1;
+            }
+        }
     }
 
     // Pre-scan: identify CONST vregs and detect which are only used as
@@ -4391,6 +4462,55 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                 }
             }
 
+            // A zero-extended byte (not emitted): the other operand in A/X,
+            // the byte added, the carry into X
+            if (inst.resultType == ir::Type::I16 || inst.resultType == ir::Type::PTR) {
+                bool z2 = inst.src2.isVreg() && zextAlias_.count(inst.src2.vregId);
+                bool z1 = !z2 && inst.src1.isVreg() && zextAlias_.count(inst.src1.vregId);
+                if (z1 && inst.op == ir::Op::SUB) {
+                    // byte - x: the high byte 0 - x's high byte
+                    std::string b = directByte(inst.src1, 0);
+                    std::string lo = directByte(inst.src2, 0), hi = directByte(inst.src2, 1);
+                    if (lo.empty() || hi.empty()) {
+                        lo = src2MemOperand(inst.src2);
+                        hi = lo + "+1";
+                    }
+                    emit("lda " + b, irDesc("zero-extended byte minus a value"));
+                    emit("sec");
+                    emit("sbc " + lo);
+                    emit("pha");
+                    emit("lda #0");
+                    emit("sbc " + hi);
+                    emit("tax");
+                    emit("pla");
+                    ms_.invalidateAll();
+                    if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
+                    if (inst.dest.isVreg() && alloc_.getAlloc(inst.dest.vregId).loc != VRegAllocator::IN_FRAME)
+                        resultInAX_ = (int32_t)inst.dest.vregId;
+                    else
+                        resultInAX_ = -1;
+                    break;
+                }
+                if (z1 || z2) {
+                    bool add = inst.op == ir::Op::ADD;
+                    std::string b = directByte(z2 ? inst.src2 : inst.src1, 0);
+                    loadOperand(z2 ? inst.src1 : inst.src2);
+                    std::string l = "@__zx_" + std::to_string(labelCounter_++);
+                    emit(add ? "clc" : "sec", irDesc(add ? "add a zero-extended byte" : "sub a zero-extended byte"));
+                    emit((add ? "adc " : "sbc ") + b);
+                    emit((add ? "bcc " : "bcs ") + l);
+                    emit(add ? "inx" : "dex");
+                    emitLabel(l);
+                    ms_.invalidateAll();
+                    if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
+                    if (inst.dest.isVreg() && alloc_.getAlloc(inst.dest.vregId).loc != VRegAllocator::IN_FRAME)
+                        resultInAX_ = (int32_t)inst.dest.vregId;
+                    else
+                        resultInAX_ = -1;
+                    break;
+                }
+            }
+
             // For commutative ADD: if src1 is in frame (would clobber scratch),
             // swap operands — load src1 as memory, src2 into AX
             bool src1InFrame = inst.src1.isVreg() &&
@@ -4556,6 +4676,31 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
         case ir::Op::AND:
         case ir::Op::OR:
         case ir::Op::XOR: {
+            // A zero-extended byte (not emitted): with the other operand's
+            // low byte (and: the high byte 0; xor: the other's high byte)
+            if (inst.op != ir::Op::OR && (inst.resultType == ir::Type::I16 || inst.resultType == ir::Type::PTR)) {
+                bool z2 = inst.src2.isVreg() && zextAlias_.count(inst.src2.vregId);
+                bool z1 = !z2 && inst.src1.isVreg() && zextAlias_.count(inst.src1.vregId);
+                if (z1 || z2) {
+                    bool isAnd = inst.op == ir::Op::AND;
+                    std::string b = directByte(z2 ? inst.src2 : inst.src1, 0);
+                    const ir::Operand& other = z2 ? inst.src1 : inst.src2;
+                    // (and: only the other's low byte matters)
+                    std::string olo = isAnd ? directByte(other, 0) : "";
+                    if (!olo.empty()) emit("lda " + olo, irDesc("and a zero-extended byte"));
+                    else loadOperand(other);
+                    if (isAnd) emit("ldx #0", olo.empty() ? irDesc("and a zero-extended byte") : "");
+                    emit((isAnd ? "and " : "eor ") + b, isAnd ? "" : irDesc("xor a zero-extended byte"));
+                    ms_.invalidateAll();
+                    if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
+                    if (inst.dest.isVreg() && alloc_.getAlloc(inst.dest.vregId).loc != VRegAllocator::IN_FRAME)
+                        resultInAX_ = (int32_t)inst.dest.vregId;
+                    else
+                        resultInAX_ = -1;
+                    lastCmp_.valid = false;
+                    break;
+                }
+            }
             if (inst.op == ir::Op::OR && inst.dest.isVreg() && byteJoins_.count(inst.dest.vregId)) {
                 // each byte from where it lives (high bytes first: Z through A)
                 const auto& bytes = byteJoins_[inst.dest.vregId].bytes;
@@ -4989,7 +5134,58 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
             // (cmpOp: the comparison the flags answer; <= / > against a
             // constant may become < / >= with the next constant)
             ir::Op cmpOp = inst.op;
-            {
+            if (inst.src2.isVreg() && zextAlias_.count(inst.src2.vregId)) {
+                // a zero-extended byte (not emitted): the high byte against 0
+                std::string b = directByte(inst.src2, 0);
+                loadOperand(inst.src1);
+                if (inst.op == ir::Op::CMP_LT || inst.op == ir::Op::CMP_GE) {
+                    emit("cmp " + b, irDesc("signed compare with a zero-extended byte: C = not less"));
+                    emit("txa");
+                    emit("sbc #0");
+                    emit("bvs *+4");
+                    emit("eor #$80");
+                    emit("asl a");
+                    ms_.invalidateAll();
+                } else {
+                    // as cmp.16: the high bytes decide unless equal
+                    std::string l = "@__zx_" + std::to_string(labelCounter_++);
+                    emit("cpx #0", irDesc("compare with a zero-extended byte"));
+                    emit("bne " + l);
+                    emit("cmp " + b);
+                    emitLabel(l);
+                }
+            } else if (inst.src1.isVreg() && zextAlias_.count(inst.src1.vregId)) {
+                // a zero-extended byte (not emitted) against a 16-bit value:
+                // 0 against its high byte, then the byte against its low byte
+                std::string b = directByte(inst.src1, 0);
+                std::string lo = directByte(inst.src2, 0), hi = directByte(inst.src2, 1);
+                if (lo.empty() || hi.empty()) {
+                    lo = src2MemOperand(inst.src2);
+                    hi = lo[0] == '#' ? "#" + std::to_string((std::stol(lo.substr(1)) >> 8) & 0xFF) : lo + "+1";
+                    if (lo[0] == '#') lo = "#" + std::to_string(std::stol(lo.substr(1)) & 0xFF);
+                }
+                if (inst.op == ir::Op::CMP_LT || inst.op == ir::Op::CMP_GE) {
+                    emit("lda " + b, irDesc("signed compare of a zero-extended byte: C = not less"));
+                    emit("cmp " + lo);
+                    emit("lda #0");
+                    emit("sbc " + hi);
+                    emit("bvs *+4");
+                    emit("eor #$80");
+                    emit("asl a");
+                } else if (hi == "#0") {
+                    emit("lda " + b, irDesc("compare a zero-extended byte"));
+                    emit("cmp " + lo);
+                } else {
+                    std::string l = "@__zx_" + std::to_string(labelCounter_++);
+                    emit("lda #0", irDesc("compare a zero-extended byte"));
+                    emit("cmp " + hi);
+                    emit("bne " + l);
+                    emit("lda " + b);
+                    emit("cmp " + lo);
+                    emitLabel(l);
+                }
+                ms_.invalidateAll();
+            } else {
             // Check if src2 is a vreg holding a known constant — use immediate directly
             std::string src2;
             bool src2IsConst = inst.src2.isImm();
@@ -6980,6 +7176,10 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
         }
 
         case ir::Op::ZEXT: {
+            if (inst.dest.isVreg() && zextAlias_.count(inst.dest.vregId)) {
+                if (!directByte(inst.src1, 0).empty()) break;   // read by its one use
+                zextAlias_.erase(inst.dest.vregId);             // (a stack frame)
+            }
             loadOperand(inst.src1);
             if (inst.src1.type == ir::Type::I8) {
                 emit("ldx #0"); // zero-extend: clear high byte

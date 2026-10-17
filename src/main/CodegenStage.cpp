@@ -133,6 +133,8 @@ void CodegenStage::optimizeIR() {
     struct Pass { const char* name; void (*run)(ir::Module&); };
     static const Pass passes[] = {
         {"LoopUnrolling",     ir::optimizeLoopUnroll},   // first: its constants feed the others
+        // before TypeNarrowing, which then computes on the narrowed bytes
+        {"ParamNarrowing",    ir::optimizeParamNarrowing},
         {"StrengthReduction", ir::optimizeStrengthReduction},
         {"AlgebraicSimplify", ir::optimizeAlgebraic},
         {"TypeNarrowing",     ir::optimizeTypeNarrowing},

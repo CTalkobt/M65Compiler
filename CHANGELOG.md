@@ -6,6 +6,19 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### cc45
 
+- **Parameter narrowing** (`-fparam-narrowing`, from `-O1`): an `int`
+  parameter of a `static` function that every call passes 0-255 (a
+  constant, an `unsigned char`, `x & 0xFF`) is passed as a byte, when each of
+  its uses costs nothing zero-extended (a byte use, a 16-bit add/sub,
+  and/xor or comparison). A parameter used otherwise (multiplied, stored,
+  passed on, ...) keeps its type, so the function does not grow. Test
+  `test_param_narrowing_xemu.c`.
+- **Zero-extended bytes read in place**: a byte variable or parameter
+  zero-extended for one 16-bit add/sub, and/xor or comparison is read where
+  it lives, with 0 for its high byte (`lda x; clc; adc c; bcc *+3; inx`,
+  `cpx #0; bne +; cmp c`), not first widened into a 16-bit temporary. LICM
+  leaves such an extension at its use. 1115 bytes smaller over the test
+  programs and examples (ZP convention), 1330 with parameter narrowing.
 - **Char sums keep their carry**: `+ - * <<` of chars are ints, also as
   the operand of another char operation: `a + (b + c)` and `a + b + c` of
   unsigned chars cut `b + c` (or `a + b`) back to 8 bits (200 + 200 + 200

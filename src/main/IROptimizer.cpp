@@ -377,6 +377,244 @@ void optimizeCSE(Module& mod) {
 }
 
 // ============================================================================
+// Parameter Narrowing
+// An int or long parameter of a static function every call of which passes
+// a value that fits in fewer bytes (0-255, 0-65535): the parameter gets that
+// type, each call truncates its argument to it, and each use in the function
+// zero-extends it again. Only for parameters the function never assigns or
+// takes the address of, and functions called only directly in this file;
+// only an int parameter whose every use costs nothing zero-extended (byte
+// uses, 16-bit add/sub/and/xor and compares, which IRCodeGen computes from
+// the byte where it lives), so the function does not grow.
+// ============================================================================
+
+// The bytes (1, 2, 4) an unsigned value is known to fit in; 0 if unknown
+static int fitBytes(const Operand& o, const std::map<uint32_t, const Inst*>& defs, int depth = 0) {
+    auto ofValue = [](int64_t v) { return v < 0 ? 0 : v <= 0xFF ? 1 : v <= 0xFFFF ? 2 : v <= 0xFFFFFFFFLL ? 4 : 0; };
+    if (o.isImm()) return ofValue(o.immVal);
+    if (!o.isVreg() || depth > 8) return 0;
+    auto it = defs.find(o.vregId);
+    if (it == defs.end() || !it->second) return 0;
+    const Inst& in = *it->second;
+    switch (in.op) {
+        case Op::CONST: return ofValue(in.src1.immVal);
+        case Op::ZEXT: {
+            int s = typeSize(in.src1.type);
+            return s == 1 || s == 2 ? s : 0;
+        }
+        case Op::COPY: return typeSize(in.resultType) < typeSize(in.src1.type) ? 0 : fitBytes(in.src1, defs, depth + 1);
+        case Op::AND: {
+            int a = fitBytes(in.src1, defs, depth + 1), b = fitBytes(in.src2, defs, depth + 1);
+            return a && b ? std::min(a, b) : std::max(a, b);
+        }
+        case Op::MOD_U: {
+            int b = fitBytes(in.src2, defs, depth + 1);
+            int64_t d = in.src2.isImm() ? in.src2.immVal : -1;
+            if (in.src2.isVreg()) {
+                auto dt = defs.find(in.src2.vregId);
+                if (dt != defs.end() && dt->second && dt->second->op == Op::CONST) d = dt->second->src1.immVal;
+            }
+            return d == 256 ? 1 : d == 65536 ? 2 : b;
+        }
+        default: return 0;
+    }
+}
+
+static bool namesSymbol(const std::string& text, const std::string& sym) {
+    auto ident = [](char c) { return isalnum((unsigned char)c) || c == '_'; };
+    for (size_t p = text.find(sym); p != std::string::npos; p = text.find(sym, p + 1))
+        if ((p == 0 || !ident(text[p - 1])) && (p + sym.size() >= text.size() || !ident(text[p + sym.size()])))
+            return true;
+    return false;
+}
+
+void optimizeParamNarrowing(Module& mod) {
+    // (a nested function reaches its parent's parameters from its own frame)
+    for (const auto& fn : mod.functions) if (fn.isNested || fn.staticLinkVreg != -1) return;
+
+    // Functions whose address is taken (code, data, asm) may be called with anything
+    std::set<std::string> addressTaken;
+    auto mentions = [&](const std::string& text) {
+        for (const auto& fn : mod.functions) if (namesSymbol(text, fn.name)) addressTaken.insert(fn.name);
+    };
+    for (const auto& s : mod.fileAsm) mentions(s);
+    for (const auto& s : mod.asmRefs) mentions(s);
+    for (const auto& g : mod.globals) {
+        for (const auto& l : g.initLabels) mentions(l);
+        for (const auto& l : g.vtableMethodNames) mentions(l);
+        for (const auto& w : g.initWords) mentions(w.second);
+    }
+    for (const auto& fn : mod.functions)
+        for (const auto& blk : fn.blocks)
+            for (const auto& in : blk.insts) {
+                bool direct = in.op == Op::CALL || in.op == Op::CALL_VOID;
+                if (!direct && in.src1.kind == OperandKind::GLOBAL) addressTaken.insert(in.src1.name);
+                for (const Operand* o : {&in.src2, &in.dest})
+                    if (o->kind == OperandKind::GLOBAL) addressTaken.insert(o->name);
+                for (const auto& a : in.args) if (a.kind == OperandKind::GLOBAL) addressTaken.insert(a.name);
+                if (in.op == Op::ASM_INLINE) mentions(in.asmText);
+            }
+
+    // Narrowing a function makes the arguments of its own calls zero-extended
+    // values: again until nothing changes
+    for (int round = 0; round < 8; round++) {
+        bool changed = false;
+        for (auto& fn : mod.functions) {
+            if (!fn.isStatic || fn.blocks.empty() || fn.isVariadic || fn.isInterrupt || fn.isNaked ||
+                fn.isRegparm || fn.isFar || addressTaken.count(fn.name) || !runOn(fn, "ParamNarrowing"))
+                continue;
+            const size_t np = fn.paramTypes.size();
+            std::vector<int> want(np, 0);   // bytes every call's argument fits in (0: not narrowable)
+            for (size_t p = 0; p < np; p++)
+                if (fn.paramTypes[p] == Type::I16 || fn.paramTypes[p] == Type::I32) want[p] = 1;
+
+            // the parameter is only read, in plain instructions
+            for (const auto& blk : fn.blocks)
+                for (const auto& in : blk.insts) {
+                    if (in.op == Op::ASM_INLINE || in.op == Op::VA_START) std::fill(want.begin(), want.end(), 0);
+                    auto kill = [&](const Operand& o) { if (o.isVreg() && o.vregId < np) want[o.vregId] = 0; };
+                    kill(in.dest);
+                    if (in.op == Op::STORE) kill(in.src2);
+                    if (in.op == Op::ADDR_LOCAL || in.op == Op::ADDR_UPLEVEL || in.op == Op::DEREF ||
+                        in.op == Op::BFINS || in.op == Op::PHI) { kill(in.src1); kill(in.src2); }
+                    for (const auto& ph : in.phiIncoming) kill(ph.first);
+                    // each use must cost nothing zero-extended: a byte use, or
+                    // a 16-bit add/sub, and/xor or compare (which read the byte
+                    // where it lives and 0 for the high byte)
+                    for (size_t p = 0; p < np; p++) {
+                        int n = 0;
+                        for (const Operand* o : {&in.src1, &in.src2}) if (o->isVreg() && o->vregId == p) n++;
+                        for (const auto& a : in.args) if (a.isVreg() && a.vregId == p) n += 2;
+                        if (n == 0 || !want[p]) continue;
+                        bool cheap = false;
+                        if (n == 1 && fn.paramTypes[p] == Type::I16 && in.args.empty()) switch (in.op) {
+                            case Op::TRUNC:
+                                cheap = in.resultType == Type::I8; break;
+                            case Op::ADD: case Op::SUB: case Op::AND: case Op::XOR:
+                                cheap = in.resultType == Type::I16 || in.resultType == Type::PTR; break;
+                            case Op::CMP_EQ: case Op::CMP_NE: case Op::CMP_LT: case Op::CMP_GE:
+                            case Op::CMP_LTU: case Op::CMP_LEU: case Op::CMP_GTU: case Op::CMP_GEU:
+                                cheap = true; break;
+                            default: break;
+                        }
+                        if (!cheap) want[p] = 0;
+                    }
+                }
+            for (size_t p = 0; p < np; p++)
+                if (fn.memoryVregs.count(p) || fn.registerVregs.count(p) || fn.registerXVregs.count(p) ||
+                    fn.registerYVregs.count(p) || fn.registerZVregs.count(p) || fn.retAddrSlot == (int)p)
+                    want[p] = 0;
+            if (std::none_of(want.begin(), want.end(), [](int w) { return w != 0; })) continue;
+
+            // every call passes a value that fits
+            int calls = 0;
+            for (const auto& caller : mod.functions) {
+                std::map<uint32_t, const Inst*> defs;   // single definitions (nullptr: several)
+                for (const auto& blk : caller.blocks)
+                    for (const auto& in : blk.insts)
+                        if (in.dest.isVreg()) {
+                            auto [it, fresh] = defs.emplace(in.dest.vregId, &in);
+                            if (!fresh) it->second = nullptr;
+                        }
+                for (uint32_t s : caller.localSlotVregs) defs[s] = nullptr;
+                for (uint32_t p = 0; p < caller.paramTypes.size(); p++) defs[p] = nullptr;
+                for (const auto& blk : caller.blocks)
+                    for (const auto& in : blk.insts) {
+                        if (!(in.op == Op::CALL || in.op == Op::CALL_VOID) || in.src1.kind != OperandKind::GLOBAL ||
+                            in.src1.name != fn.name)
+                            continue;
+                        calls++;
+                        if (in.args.size() != np) { std::fill(want.begin(), want.end(), 0); continue; }
+                        for (size_t p = 0; p < np; p++) {
+                            if (!want[p]) continue;
+                            int b = fitBytes(in.args[p], defs);
+                            if (b == 0 || b >= typeSize(fn.paramTypes[p])) want[p] = 0;
+                            else want[p] = std::max(want[p], b);
+                        }
+                    }
+            }
+            if (calls == 0) continue;
+
+            for (uint32_t p = 0; p < np; p++) {
+                if (!want[p]) continue;
+                Type wide = fn.paramTypes[p];
+                Type narrow = want[p] == 1 ? Type::I8 : Type::I16;
+                std::string pName = p < fn.paramNames.size() && !fn.paramNames[p].empty() ? fn.paramNames[p] : std::to_string(p);
+                trace("param", fn.name, "parameter " + pName + " narrowed to " + (narrow == Type::I8 ? "i8" : "i16") +
+                      " (every call passes a value that fits)");
+
+                // the function: each use reads the zero-extended parameter
+                fn.paramTypes[p] = narrow;
+                fn.vregTypes[p] = narrow;
+                if (fn.vregSizes.count(p)) fn.vregSizes[p] = typeSize(narrow);
+                for (auto& blk : fn.blocks)
+                    for (size_t i = 0; i < blk.insts.size(); i++) {
+                        std::vector<Operand*> ops;
+                        Inst& in = blk.insts[i];
+                        for (Operand* o : {&in.src1, &in.src2}) if (o->isVreg() && o->vregId == p) ops.push_back(o);
+                        for (auto& a : in.args) if (a.isVreg() && a.vregId == p) ops.push_back(&a);
+                        if (ops.empty()) continue;
+                        uint32_t t = fn.allocVreg();
+                        fn.vregTypes[t] = wide;
+                        for (Operand* o : ops) *o = Operand::vreg(t, wide);
+                        Inst ext;
+                        ext.op = Op::ZEXT;
+                        ext.resultType = wide;
+                        ext.dest = Operand::vreg(t, wide);
+                        ext.src1 = Operand::vreg(p, narrow);
+                        ext.loc = in.loc;
+                        blk.insts.insert(blk.insts.begin() + i, ext);
+                        i++;
+                    }
+
+                // the calls: the argument truncated to the parameter's type (a
+                // constant: the constant of that type)
+                for (auto& caller : mod.functions) {
+                    std::map<uint32_t, int64_t> consts;   // single CONST definitions
+                    std::map<uint32_t, int> ndefs;
+                    for (const auto& blk : caller.blocks)
+                        for (const auto& in : blk.insts)
+                            if (in.dest.isVreg()) {
+                                ndefs[in.dest.vregId]++;
+                                if (in.op == Op::CONST) consts[in.dest.vregId] = in.src1.immVal;
+                            }
+                    for (auto& blk : caller.blocks)
+                        for (size_t i = 0; i < blk.insts.size(); i++) {
+                            Inst& in = blk.insts[i];
+                            if (!(in.op == Op::CALL || in.op == Op::CALL_VOID) || in.src1.kind != OperandKind::GLOBAL ||
+                                in.src1.name != fn.name)
+                                continue;
+                            Operand arg = in.args[p];
+                            if (arg.isVreg() && consts.count(arg.vregId) && ndefs[arg.vregId] == 1 &&
+                                !caller.localSlotVregs.count(arg.vregId) && arg.vregId >= caller.paramTypes.size())
+                                arg = Operand::imm(consts[arg.vregId], wide);
+                            uint32_t t = caller.allocVreg();
+                            caller.vregTypes[t] = narrow;
+                            Inst cv;
+                            cv.dest = Operand::vreg(t, narrow);
+                            cv.resultType = narrow;
+                            cv.loc = in.loc;
+                            if (arg.isImm()) {
+                                cv.op = Op::CONST;
+                                cv.src1 = Operand::imm(arg.immVal, narrow);
+                            } else {
+                                cv.op = Op::TRUNC;
+                                cv.src1 = arg;
+                                cv.src1.type = wide;
+                            }
+                            in.args[p] = Operand::vreg(t, narrow);
+                            blk.insts.insert(blk.insts.begin() + i, cv);
+                            i++;
+                        }
+                }
+                changed = true;
+            }
+        }
+        if (!changed) break;
+    }
+}
+
+// ============================================================================
 // Strength Reduction
 // A commutative operation (+ * & | ^) with a constant first operand and a
 // non-constant second one gets its operands swapped, so the simplifications
@@ -1831,10 +2069,15 @@ void optimizeLICM(Module& mod) {
             // Collect invariant CONST definitions (for duplication, not movement).
             // CONST instructions stay in the loop body but are duplicated in the
             // pre-header so that hoisted dependents can reference them.
+            // So is the zero extension of a variable (a char parameter used
+            // as an int): read where it is used, it costs an ldx #0; hoisted,
+            // a 16-bit copy live across the loop.
             std::map<uint32_t, Inst> constDefs;
             for (size_t bi : loopBlocks) {
                 for (const auto& inst : fn.blocks[bi].insts) {
-                    bool cheap = inst.op == Op::CONST || inst.op == Op::FCONST;
+                    bool cheap = inst.op == Op::CONST || inst.op == Op::FCONST ||
+                                 (inst.op == Op::ZEXT && inst.src1.isVreg() &&
+                                  (fn.localSlotVregs.count(inst.src1.vregId) || inst.src1.vregId < fn.paramTypes.size()));
                     if (cheap && inst.dest.isVreg() && invariantVregs.count(inst.dest.vregId)) {
                         constDefs[inst.dest.vregId] = inst;
                     }

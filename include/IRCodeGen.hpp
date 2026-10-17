@@ -265,6 +265,9 @@ private:
     struct FoldedAddr { uint32_t base; int offset; };
     std::map<uint32_t, FoldedAddr> foldedAddrs_;  // vreg = base + offset, used only as load/store address
     std::map<uint32_t, ir::Operand> truncAlias_;
+    // A byte ZEXT used once by a 16-bit add/sub, and/xor or compare: not
+    // emitted; the use reads the byte where it lives and 0 above it
+    std::map<uint32_t, ir::Operand> zextAlias_;
     // Values put together from bytes of others (a | b << 8 | (long)c << 16):
     // the OR at the root loads each byte from where it lives; the ZEXT /
     // SHL / SHR / AND / TRUNC / OR in between are not emitted

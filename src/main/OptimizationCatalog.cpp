@@ -220,6 +220,12 @@ void OptimizationCatalog::initializeCatalog() {
     });
 
     catalog_.push_back({
+        "ParamNarrowing", "Parameter Narrowing",
+        "A static function's int/long parameter gets the narrower type every call's argument fits in",
+        OptimizationCategory::BOTH, 1, -1, "-fparam-narrowing", false, 2
+    });
+
+    catalog_.push_back({
         "AddrElemFusion", "Address Fusion",
         "Fuse a single-use array element address into its load or store",
         OptimizationCategory::BOTH, 1, -1, "-faddr-elem-fusion", false, 2
@@ -241,6 +247,7 @@ void OptimizationCatalog::initializeCatalog() {
         {"Devirtualization",     OptimizationImpl::BUILDER,   "", 0},
         {"StrengthReduction",    OptimizationImpl::IR_PASS,   "", 1},
         {"AlgebraicSimplify",    OptimizationImpl::IR_PASS,   "", 1},
+        {"ParamNarrowing",       OptimizationImpl::IR_PASS,   "", 1},
         {"TypeNarrowing",        OptimizationImpl::IR_PASS,   "", 1},
         {"BranchFolding",        OptimizationImpl::IR_PASS,   "", 1},
         {"CommonSubexprElim",    OptimizationImpl::IR_PASS,   "", 1},

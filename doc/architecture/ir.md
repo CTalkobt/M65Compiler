@@ -20,7 +20,7 @@ driven by `src/main/CompilationPipeline.cpp`. IRCodeGen writes ca45 source text
 assembler, not to this path.
 
 **IR-level optimization.** `CodegenStage::optimizeIR()` runs the passes of
-`src/main/IROptimizer.cpp` after IR generation (`-O1` and up): `optimizeStrengthReduction`,
+`src/main/IROptimizer.cpp` after IR generation (`-O1` and up): `optimizeParamNarrowing`, `optimizeStrengthReduction`,
 `optimizeAlgebraic`, `optimizeTypeNarrowing`, `optimizeBranchFold`, `optimizeCSE`,
 `optimizeLICM`, `optimizeCopyChains`, `optimizeAddrElemFusion` and (after the
 leaf-function pointer allocation) `optimizePostIncrementSink`, each switchable

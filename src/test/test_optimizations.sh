@@ -156,5 +156,15 @@ printf 'unsigned a(unsigned x) { unsigned one = 1; return one * x; }\nunsigned b
 out=$(CC45_DUMP_IR=1 $CC -c $T/cvar.c -o $T/cvar.o45 2>&1)
 if ! echo "$out" | grep -qE "= (xor|mul_u|mul) "; then pass; else fail "constant through a variable not propagated"; fi
 
+# an int parameter every call passes 0-255 is a byte when its uses cost
+# nothing zero-extended (an add, a compare), not when one would (a multiply),
+# nor in a function other files can call
+printf 'volatile unsigned w = 1000;\nstatic unsigned add(unsigned p, unsigned x) { return x + p > 1200; }\nstatic unsigned mul(unsigned p, unsigned x) { return x * p; }\nunsigned pub(unsigned p, unsigned x) { return x + p; }\nint main(void) { return add(200, w) + add(7, w) + mul(3, w) + pub(4, w); }\n' > $T/pn.c
+$CC -S -fno-inline-small-functions $T/pn.c -o $T/pn.s 2>/dev/null
+if grep -q "proc _add__pn, B#@_p_p, W#@_p_x" $T/pn.s && grep -q "proc _mul__pn, W#@_p_p" $T/pn.s &&
+   grep -q "proc _pub, W#@_p_p" $T/pn.s; then pass; else fail "param narrowing ($(grep 'proc _' $T/pn.s | tr '\n' ' '))"; fi
+$CC -S -fno-inline-small-functions -fno-param-narrowing $T/pn.c -o $T/pn2.s 2>/dev/null
+grep -q "proc _add__pn, W#@_p_p" $T/pn2.s && pass || fail "-fno-param-narrowing still narrows"
+
 echo "Optimization switch tests: $passed passed, $failed failed"
 [ $failed -eq 0 ]
