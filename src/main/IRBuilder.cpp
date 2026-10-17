@@ -1075,6 +1075,77 @@ void IRBuilder::declareBuiltinPrototypes() {
     }
 }
 
+// File-scope declarations of one object must agree (C99 6.7p4, 6.2.2p7): the
+// same type -- base type, signedness, pointer level, qualifiers, __zp, the
+// array's dimensions (an incomplete first one, a[], completes) -- and a
+// static one after a non-static one, or a definition without static after a
+// static one, is an error, and so is a second initializer. (A later
+// different declaration used to win:
+// int a[27]; ... static int a; gave a 2 bytes.)
+void IRBuilder::checkGlobalRedeclarations(TranslationUnit& node) {
+    std::vector<VariableDeclaration*> decls;
+    for (auto& d : node.topLevelDecls) {
+        if (auto* vd = dynamic_cast<VariableDeclaration*>(d.get())) decls.push_back(vd);
+        else if (auto* cs = dynamic_cast<CompoundStatement*>(d.get()); cs && cs->isDeclGroup)
+            for (auto& g : cs->statements)
+                if (auto* vd = dynamic_cast<VariableDeclaration*>(g.get())) decls.push_back(vd);
+    }
+    auto typeText = [](const VariableDeclaration* v) {
+        bool integer = v->type == "char" || v->type == "short" || v->type == "int" || v->type == "long";
+        std::string t = (v->isConst ? "const " : "") +
+                        std::string(integer ? (v->isSigned ? "signed " : "unsigned ") : "") + v->type;
+        if (v->isFunctionPointer) return t + " (*)(...)";
+        if (v->pointerLevel) t += " " + std::string(v->pointerLevel, '*') + (v->isPointerConst ? " const" : "");
+        for (size_t i = 0; i < v->arrayDims.size(); ++i)
+            t += "[" + (v->arrayDims[i] || i ? std::to_string(v->arrayDims[i]) : std::string()) + "]";
+        if (v->addressSpace == 1) t = "__zp " + t;
+        return t;
+    };
+    auto sameType = [](const VariableDeclaration* a, const VariableDeclaration* b) {
+        if (a->type != b->type || a->pointerLevel != b->pointerLevel || a->isSigned != b->isSigned ||
+            a->isConst != b->isConst || a->isFunctionPointer != b->isFunctionPointer ||
+            (a->pointerLevel && a->isPointerConst != b->isPointerConst) ||
+            (a->addressSpace == 1) != (b->addressSpace == 1) ||
+            a->arrayDims.size() != b->arrayDims.size())
+            return false;
+        for (size_t i = 0; i < a->arrayDims.size(); ++i)
+            if (a->arrayDims[i] != b->arrayDims[i] && !(i == 0 && (a->arrayDims[0] == 0 || b->arrayDims[0] == 0)))
+                return false;
+        return true;
+    };
+    std::map<std::string, VariableDeclaration*> first;
+    std::map<std::string, bool> internal;   // its linkage (from the first declaration)
+    std::map<std::string, int> initAt;      // the line of its initializer
+    for (auto* v : decls) {
+        auto it = first.find(v->name);
+        if (it == first.end()) {
+            first[v->name] = v;
+            internal[v->name] = v->isStatic;
+            if (v->initializer) initAt[v->name] = v->line;
+            continue;
+        }
+        if (v->initializer && initAt.count(v->name)) {
+            errors_.push_back(formatDiagnostic(v->sourceFile, v->line, v->column, Severity::Error,
+                "redefinition of '" + v->name + "' (previous definition at line " + std::to_string(initAt[v->name]) + ")"));
+            continue;
+        }
+        if (v->initializer) initAt[v->name] = v->line;
+        const VariableDeclaration* p = it->second;
+        std::string where = " (previous declaration at line " + std::to_string(p->line) + ")";
+        if (!sameType(p, v))
+            errors_.push_back(formatDiagnostic(v->sourceFile, v->line, v->column, Severity::Error,
+                "conflicting types for '" + v->name + "': '" + typeText(v) + "', was '" + typeText(p) + "'" + where));
+        else if (v->isStatic && !internal[v->name])
+            errors_.push_back(formatDiagnostic(v->sourceFile, v->line, v->column, Severity::Error,
+                "static declaration of '" + v->name + "' follows non-static declaration" + where));
+        else if (!v->isStatic && !v->isExtern && internal[v->name])
+            errors_.push_back(formatDiagnostic(v->sourceFile, v->line, v->column, Severity::Error,
+                "non-static declaration of '" + v->name + "' follows static declaration" + where));
+        // (an array's size, once known, is kept for the later ones)
+        if (!p->arrayDims.empty() && p->arrayDims[0] == 0 && !v->arrayDims.empty() && v->arrayDims[0]) it->second = v;
+    }
+}
+
 void IRBuilder::visit(TranslationUnit& node) {
     // #pragma encoding (asm(".encoding ...")) takes effect where it appears:
     // literals before the first one are PETSCII
@@ -1089,6 +1160,7 @@ void IRBuilder::visit(TranslationUnit& node) {
         if (auto* vd = dynamic_cast<VariableDeclaration*>(decl.get()); vd && unitFunctionNames_.count(vd->name))
             errors_.push_back(formatDiagnostic(vd->sourceFile, vd->line, vd->column, Severity::Error,
                 "'" + vd->name + "' redeclared as a different kind of symbol (a variable and a function)"));
+    checkGlobalRedeclarations(node);
     declareBuiltinPrototypes();
     // Now visit all declarations
     for (auto& decl : node.topLevelDecls) {

@@ -6,6 +6,15 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### cc45
 
+- **Conflicting redeclarations of a global are errors** (Issue #287): a
+  file-scope object declared again with another type (`unsigned int
+  a[27];` then `static unsigned int a;`, another array size, signedness,
+  qualifier or `__zp`), `static` after a non-static declaration (or a
+  non-static definition after a `static` one), or initialized twice, was
+  accepted, and the later declaration won: the array got 2 bytes, and
+  writes to it overwrote the BSS after it. Compatible ones (tentative
+  definitions, `extern` then the definition, `extern int a[];` then
+  `int a[27];`, `static` then `extern`) are still accepted.
 - **`__zp` globals** (Issue #67): `__zp int counter;` (or a `static __zp`
   local) lives in the program's base page: every access is a base-page
   instruction (2 bytes, 1 cycle less). ln45 places the variables at the top

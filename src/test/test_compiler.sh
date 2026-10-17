@@ -266,6 +266,30 @@ else
     failed=$((failed + 1))
 fi
 
+# File-scope redeclarations must agree (Issue #287): a different type or
+# array size, static after non-static (and the reverse), a second
+# initializer are errors; tentative definitions, extern + definition, a[]
+# completed, static then extern are not
+rd_ok=1
+for src in 'unsigned int a[27];\nstatic unsigned int a;' 'unsigned int a[27];\nunsigned int a;' \
+           'extern unsigned int a[27];\nstatic unsigned int a;' 'int a[3];\nint a[4];' \
+           'extern int a;\nstatic int a;' 'static int a;\nint a;' 'int a = 1;\nint a = 2;'; do
+    printf "$src\n" > build/test/redecl.c
+    $CC -c build/test/redecl.c -o build/test/redecl.o45 >/dev/null 2>&1 && rd_ok=0
+done
+for src in 'int a;\nint a;\nint a = 3;' 'extern int a;\nint a = 1;' 'extern int a[];\nint a[27];' \
+           'static int a;\nextern int a;' 'typedef unsigned char u8;\nextern u8 b[4];\nunsigned char b[4];' \
+           'extern const char *s;\nconst char *s = "hi";' 'extern int (*fp)(int);\nint (*fp)(int);'; do
+    printf "$src\n" > build/test/redecl.c
+    $CC -c build/test/redecl.c -o build/test/redecl.o45 >/dev/null 2>&1 || rd_ok=0
+done
+if [ $rd_ok -eq 1 ]; then
+    echo "SUCCESS: conflicting redeclarations of a global are errors"
+else
+    echo "FAIL: conflicting redeclarations of a global are errors"
+    failed=$((failed + 1))
+fi
+
 # A local or parameter that shadows a const global is writable (Issue #285);
 # the global is read-only again when the local's scope ends
 sh_ok=1

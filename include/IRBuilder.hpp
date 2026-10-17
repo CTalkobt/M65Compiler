@@ -83,6 +83,7 @@ public:
     void visit(CpuFlagAccess& node) override;
     void visit(LabelAddressExpression& node) override;
     void visit(TranslationUnit& node) override;
+    void checkGlobalRedeclarations(TranslationUnit& node);
 
     void emitConditionBranches(Expression* cond, const std::string& trueLabel,
                                const std::string& falseLabel, ir::SourceLoc sl);
