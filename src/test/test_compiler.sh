@@ -217,6 +217,22 @@ else
     failed=$((failed + 1))
 fi
 
+# A bitfield wider than its type is an error, also after a comma and unnamed
+# (int e : 17 kept 16 bits without a word)
+bf_ok=1
+for decl in "int a, c : 7, e : 17;" "int : 17;" "char a : 4, b : 9;" "unsigned long long a : 40;"; do
+    printf 'struct S { %s } s;\n' "$decl" > build/test/bfw.c
+    $CC -c build/test/bfw.c -o build/test/bfw.o45 >/dev/null 2>&1 && bf_ok=0
+done
+printf 'struct S { int a, c : 7, e : 16; char d : 8; long l : 32, m : 20; int : 0; } s;\n' > build/test/bfw.c
+$CC -c build/test/bfw.c -o build/test/bfw.o45 >/dev/null 2>&1 || bf_ok=0
+if [ $bf_ok -eq 1 ]; then
+    echo "SUCCESS: bitfield widths checked"
+else
+    echo "FAIL: bitfield widths checked"
+    failed=$((failed + 1))
+fi
+
 # A directory as input: an error (it was read as an empty file); a directory
 # with a header's name is skipped by the include search
 mkdir -p build/test/dirinput_c/stdio.h

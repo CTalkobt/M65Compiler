@@ -85,6 +85,8 @@ private:
     std::vector<std::unique_ptr<Statement>> typedefVlaDecls_;
     int typedefVlaCounter_ = 0;
     bool tryParseAttribute();  // parse __attribute__((...)), returns true if found
+    // the width of a bitfield of type `type` (0 only unnamed); an error if out of range
+    int parseBitfieldWidth(const std::string& type, const std::string& name, bool unnamed);
     bool pendingAlwaysInline_ = false;  // set by always_inline, consumed by next function declaration
     // __attribute__((aligned(N))): consumed by the declaration it belongs to
     // (variable, struct member or struct type) as if _Alignas(N) were written

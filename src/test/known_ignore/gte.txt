@@ -16,7 +16,8 @@ pr66556     needs a 32-bit int
 pr67781     needs a 32-bit int
 pr68648     needs a 32-bit int
 pr7284-1    needs a 32-bit int
-pr98366     needs a 32-bit int (int e:17 is wider than int)
+pr98366     needs a 32-bit int (int e:17 is wider than int: an error in cc45)
+bitfld-4    needs a 32-bit int (int b:20 is wider than int: an error in cc45)
 usmul       needs a 32-bit int
 vrp-5       needs a 32-bit int
 vrp-6       needs a 32-bit int (0x80000000 truncates to 0)

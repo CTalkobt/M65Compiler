@@ -2391,8 +2391,7 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
         // Unnamed bitfield: int : 6;  (no member name, colon follows type)
         if (peek().type == TokenType::COLON) {
             advance(); // consume ':'
-            const Token& bwTok = expect(TokenType::INTEGER_LITERAL, "Expected integer literal for bitfield width");
-            int bw = std::stoi(bwTok.value);
+            int bw = parseBitfieldWidth(type, "", true);
             StructMember sm;
             sm.type = type; sm.pointerLevel = ptrLevel; sm.isSigned = mIsSigned;
             sm.name = "__unnamed_bf_" + std::to_string(def->members.size());
@@ -2479,13 +2478,7 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
                 throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "Bitfield member '" + memberName + "' cannot be an array"));
             if (ptrLevel > 0)
                 throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "Bitfield member '" + memberName + "' cannot be a pointer"));
-            const Token& bwTok = expect(TokenType::INTEGER_LITERAL, "Expected integer literal for bitfield width");
-            memberBitWidth = std::stoi(bwTok.value);
-            // Max bitfield width: char=8, int=16, long=32
-            // Use long for bitfields >16 bits (with __int(N) for arbitrary widths)
-            int maxBits = (type == "long") ? 32 : (type == "char") ? 8 : 16;
-            if (memberBitWidth < 1 || memberBitWidth > maxBits)
-                throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "Bitfield width " + std::to_string(memberBitWidth) + " out of range for type '" + type + "'"));
+            memberBitWidth = parseBitfieldWidth(type, memberName, false);
         }
         while (tryParseAttribute()) {}
         StructMember sm;
@@ -2520,7 +2513,11 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
             extraDims.insert(extraDims.end(), typedefArrayDims.begin(), typedefArrayDims.end());
             int extraBitWidth = 0;
             if (match(TokenType::COLON)) {
-                extraBitWidth = std::stoi(expect(TokenType::INTEGER_LITERAL, "Expected bitfield width").value);
+                if (!extraDims.empty())
+                    throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "Bitfield member '" + extraName + "' cannot be an array"));
+                if (extraPtr > 0)
+                    throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "Bitfield member '" + extraName + "' cannot be a pointer"));
+                extraBitWidth = parseBitfieldWidth(type, extraName, false);
             }
             while (tryParseAttribute()) {}
             StructMember esm;
@@ -4074,6 +4071,24 @@ int Parser::scalarTypeSize(const std::string& type, int ptrLevel) {
     if (t == "long long" || t == "long long int") return 8;
     if (t == "float" || t == "double" || t == "long double") return 5;
     return -1;
+}
+
+// Max bitfield width: char 8, int 16, long 32 (a wider field: long, or
+// __int(N)). A wider one would silently lose its top bits.
+int Parser::parseBitfieldWidth(const std::string& type, const std::string& name, bool unnamed) {
+    const Token& bwTok = expect(TokenType::INTEGER_LITERAL, "Expected integer literal for bitfield width");
+    int bw = std::stoi(bwTok.value);
+    if (type.rfind("struct ", 0) == 0 || type.rfind("union ", 0) == 0)   // long long: struct __int64
+        throw std::runtime_error(formatDiagnostic(bwTok.sourceFile, bwTok.line, bwTok.column, Severity::Error,
+            "Bitfield of type '" + type + "' not supported" + (name.empty() ? "" : " (member '" + name + "')") +
+            "; use long (at most 32 bits)"));
+    int maxBits = (type == "long") ? 32 : (type == "char") ? 8 : 16;
+    if (bw < (unnamed ? 0 : 1) || bw > maxBits)
+        throw std::runtime_error(formatDiagnostic(bwTok.sourceFile, bwTok.line, bwTok.column, Severity::Error,
+            "Bitfield width " + std::to_string(bw) + " out of range for type '" + type + "'" +
+            (name.empty() ? "" : " (member '" + name + "')") +
+            (bw > maxBits ? " (at most " + std::to_string(maxBits) + " bits)" : "")));
+    return bw;
 }
 
 int Parser::typeByteSize(const std::string& type, int ptrLevel, int* natAlign, int* declAlign, int depth) {

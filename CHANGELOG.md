@@ -6,6 +6,12 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### cc45
 
+- **A bitfield wider than its type is an error** after a comma and when
+  unnamed too: `int a, e : 17;` and `int : 17;` were accepted and kept 16
+  bits (only the first declarator of a member line was checked). A
+  `long long` bitfield's error names the problem instead of "at most 16
+  bits". GTE `bitfld-4` (`int b:20`, a 32-bit int) is skipped like
+  `pr98366`: it passed only because its value fit in 16 bits.
 - **Parameter narrowing** (`-fparam-narrowing`, from `-O1`): an `int`
   parameter of a `static` function that every call passes 0-255 (a
   constant, an `unsigned char`, `x & 0xFF`) is passed as a byte, when each of
