@@ -49,6 +49,13 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   code, leaving zeros (or nothing at a segment's end) where the parser had
   placed it.
 
+### objdump45
+
+- **A directory as input**: `objdump45 -h <directory>` (any option, and
+  `-D`) ended with an uncaught `std::ios_failure`; it now reports "is a
+  directory", goes on with the other files and exits with status 1. `-D`
+  also exits with 1 when it cannot open its files (it exited with 0).
+
 ## [v1.1.0] - 2026-10-16
 
 Programs can be larger than bank 0: code overlays (`#pragma cc45

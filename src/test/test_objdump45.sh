@@ -117,6 +117,15 @@ assert_exit "missing file exits non-zero" $? 1
 assert_contains "missing file error message" "$OUT" "cannot open"
 
 echo ""
+echo "--- Test: directory ---"
+OUT=$($OD -h "$BUILD" 2>&1)
+assert_exit "directory exits non-zero" $? 1
+assert_contains "directory error message" "$OUT" "is a directory"
+OUT=$($OD -D "$BUILD" "$BUILD" 2>&1)
+assert_exit "diff of a directory exits non-zero" $? 1
+assert_contains "diff directory error message" "$OUT" "is a directory"
+
+echo ""
 echo "--- Test: invalid format ---"
 echo "not an o45 file" > "$BUILD/bad.o45"
 OUT=$($OD -f "$BUILD/bad.o45" 2>&1)

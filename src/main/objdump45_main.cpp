@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <map>
 #include <cstdio>
+#include <sys/stat.h>
 #include "O45Reader.hpp"
 #include "O45OverlayFile.hpp"
 #include "O45Linker.hpp"
@@ -16,6 +17,12 @@
 #include "BasicTokenizer.hpp"
 #include "BasicEmitter.hpp"
 #include "Version.hpp"
+
+// An ifstream opens a directory but throws on the first read.
+static bool isDirectory(const std::string& path) {
+    struct stat st;
+    return stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
+}
 
 // TODO: Add binary diff mode (-D) for comparing two .prg/.o45 files.
 // Shows byte-level differences at matching symbol addresses, highlighting
@@ -939,11 +946,17 @@ static void dumpBasicProgram(const std::string& filename, bool showHex) {
     }
 }
 
-static void diffBinaries(const std::string& file1, const std::string& file2) {
+static bool diffBinaries(const std::string& file1, const std::string& file2) {
+    for (const auto& f : {file1, file2}) {
+        if (isDirectory(f)) {
+            std::cerr << "objdump45: " << f << ": is a directory" << std::endl;
+            return false;
+        }
+    }
     std::ifstream f1(file1, std::ios::binary), f2(file2, std::ios::binary);
     if (!f1 || !f2) {
         std::cerr << "objdump45: cannot open files for comparison" << std::endl;
-        return;
+        return false;
     }
 
     std::vector<uint8_t> data1((std::istreambuf_iterator<char>(f1)), std::istreambuf_iterator<char>()),
@@ -955,7 +968,7 @@ static void diffBinaries(const std::string& file1, const std::string& file2) {
 
     if (data1.empty() && data2.empty()) {
         printf("Both files are empty (identical)\n");
-        return;
+        return true;
     }
 
     int diffCount = 0;
@@ -983,6 +996,7 @@ static void diffBinaries(const std::string& file1, const std::string& file2) {
     } else {
         printf("\n\nTotal differences: %d bytes\n", diffCount);
     }
+    return true;
 }
 
 static void printUsage(const char* progName) {
@@ -1093,8 +1107,7 @@ int main(int argc, char** argv) {
             std::cerr << "objdump45: -D requires exactly 2 files" << std::endl;
             return 1;
         }
-        diffBinaries(files[0], files[1]);
-        return 0;
+        return diffBinaries(files[0], files[1]) ? 0 : 1;
     }
 
     // If no display options given, default to showing file header (unless -bas is specified)
@@ -1117,6 +1130,11 @@ int main(int argc, char** argv) {
     int exitCode = 0;
 
     for (const auto& filename : files) {
+        if (isDirectory(filename)) {
+            std::cerr << "objdump45: " << filename << ": is a directory" << std::endl;
+            exitCode = 1;
+            continue;
+        }
         std::ifstream in(filename, std::ios::binary);
         if (!in.is_open()) {
             std::cerr << "objdump45: " << filename << ": cannot open" << std::endl;
