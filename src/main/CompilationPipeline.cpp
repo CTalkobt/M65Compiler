@@ -13,8 +13,14 @@
 #include <sstream>
 #include <cstdlib>
 #include <unistd.h>
+#include <sys/stat.h>
 
 std::string CompilationPipeline::loadSourceFile(const std::string& filename) {
+    // An ifstream opens a directory and reads it as an empty file
+    struct stat st;
+    if (stat(filename.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
+        throw std::runtime_error("Input file is a directory: " + filename);
+    }
     std::ifstream file(filename);
     if (!file.is_open()) {
         throw std::runtime_error("Failed to open input file: " + filename);

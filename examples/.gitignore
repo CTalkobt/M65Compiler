@@ -3,6 +3,7 @@
 *.o45
 *.bin
 *.map
+c/text_scroller/map.txt
 
 # Generated assembly (compiler output)
 *.o45.s

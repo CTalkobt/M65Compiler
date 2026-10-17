@@ -49,7 +49,7 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   code, leaving zeros (or nothing at a segment's end) where the parser had
   placed it.
 
-### objdump45 / nm45 / ln45
+### objdump45 / nm45 / ln45 / cc45
 
 - **A directory as input**: `objdump45 -h <directory>` (any option, and
   `-D`), `nm45 <directory>` and `ln45 <directory>` (also `-l <directory>`)
@@ -58,6 +58,10 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   other files). ln45's library search skips a directory with the library's
   name. `objdump45 -D` also exits with 1 when it cannot open its files (it
   exited with 0).
+- **cc45 with a directory as input**: `cc45 <directory>` (and cp45) read
+  it as an empty source file (a one-step build then failed with "undefined
+  symbol '_main'"); it is now an error ("Input file is a directory"). The
+  `#include` search skips a directory with the header's name.
 
 ## [v1.1.0] - 2026-10-16
 

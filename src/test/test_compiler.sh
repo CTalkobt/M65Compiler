@@ -217,6 +217,19 @@ else
     failed=$((failed + 1))
 fi
 
+# A directory as input: an error (it was read as an empty file); a directory
+# with a header's name is skipped by the include search
+mkdir -p build/test/dirinput_c/stdio.h
+printf '#include "stdio.h"\nint main(void) { printf("x"); return 0; }\n' > build/test/dirinput_c/t.c
+dir_out=$($CC build/test/dirinput_c 2>&1)
+if ! $CC build/test/dirinput_c >/dev/null 2>&1 && grep -q "is a directory" <<< "$dir_out" &&
+   $CC -c build/test/dirinput_c/t.c -o build/test/dirinput_c.o45 >/dev/null 2>&1; then
+    echo "SUCCESS: a directory as input"
+else
+    echo "FAIL: a directory as input ($dir_out)"
+    failed=$((failed + 1))
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All tests passed!"
     exit 0

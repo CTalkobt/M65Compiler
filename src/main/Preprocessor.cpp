@@ -854,13 +854,14 @@ std::string Preprocessor::getDirectory(const std::string& filePath) {
 
 std::string Preprocessor::findIncludeFile(const std::string& fileName, const std::string& currentDir) {
     // 1. Check current directory
+    // (a directory of that name is not the header)
     fs::path p1 = fs::path(currentDir) / fileName;
-    if (fs::exists(p1)) return p1.string();
+    if (fs::exists(p1) && !fs::is_directory(p1)) return p1.string();
     
     // 2. Check include paths
     for (const auto& dir : includePaths) {
         fs::path p = fs::path(dir) / fileName;
-        if (fs::exists(p)) return p.string();
+        if (fs::exists(p) && !fs::is_directory(p)) return p.string();
     }
     
     return "";
