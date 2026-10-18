@@ -77,7 +77,7 @@ Unclosed (splat) files show `*` before the type (`*PRG`); locked files show `<` 
 12	"GAME"	PRG<
 1	"README"	SEQ
 12	"LEVEL1"	*PRG
-3145 blocks free.
+3109 blocks free.
 ```
 
 **Examples:**
@@ -711,7 +711,7 @@ R/W means `create`, `add`, `remove` etc. work and the image is written back in i
 | `.d64` | 1541 | R/W | 170 KB, 35 tracks | C64 standard. `-t` pads to 36-40 tracks. |
 | `.d71` | 1571 | R/W | 340 KB, 70 tracks | C128 double-sided. |
 | `.d81` | 1581 | R/W | 800 KB, 80 tracks | C65/MEGA65. **Recommended.** |
-| `.d65` | MEGA65 | R/W | 1.6 MB, 162 tracks | MEGA65 native extended. The BAM (40/1-40/4, 40 six-byte track entries each) has no room for tracks 81 and 122: disk45 never allocates them (6394 blocks free on a new image). |
+| `.d65` | MEGA65 | R/W | 1.6 MB, 162 tracks | MEGA65 native extended. The BAM (40/1-40/4, 40 six-byte track entries each) has no room for tracks 81 and 122: disk45 never allocates them (6360 blocks free on a new image, without the directory track 40). |
 | `.d80` | 8050 | R/W | 533 KB, 77 tracks | CBM PET 8050. Header 39/0 → BAM 38/0, 38/3 → directory 39/1 ([D80-D82.TXT](https://ist.uwaterloo.ca/~schepers/formats/D80-D82.TXT)). |
 | `.d82` | 8250 | R/W | 1 MB, 154 tracks | CBM PET 8250. BAM 38/0, 38/3, 38/6, 38/9 (50 tracks each); all 154 tracks are used. |
 | `.x64` | Extended D64 | R/W | D64 + 64-byte header | |
@@ -781,8 +781,8 @@ NIB, NBZ and Zipcode are read-only: `create` refuses them and changes are refuse
 
 | Direction | Conversion |
 |-----------|------------|
-| ASCII→PETSCII (`add -p`, `-a2p`) | `a-z`→`$41-$5A`, `A-Z`→`$C1-$DA`, LF→CR, CR dropped, `~`→`$A8`, `\|`→`$7D`, `\`→`$5C` |
-| PETSCII→ASCII (`extract -p`, `extract-all -p`, `-p2a`) | `$41-$5A`→`a-z`, `$C1-$DA`→`A-Z`, CR→LF, `$A8`→`~`, a `$00` byte ends the output |
+| ASCII→PETSCII (`add -p`, `-a2p`) | `a-z`→`$41-$5A`, `A-Z`→`$C1-$DA` (BASIC's `ASC("A")` is 193), LF→CR, CR dropped; everything else unchanged: the MEGA65's ASCII fonts (`FONT A`/`B`) show `\ ^ _ { \| } ~` at their ASCII codes, and cc45 encodes them the same |
+| PETSCII→ASCII (`extract -p`, `extract-all -p`, `-p2a`) | `$41-$5A`→`a-z`, `$61-$7A` and `$C1-$DA`→`A-Z` (both forms of the capitals), CR→LF; everything else unchanged (`$00` too) |
 
 ## Docker Usage
 

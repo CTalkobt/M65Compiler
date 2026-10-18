@@ -161,6 +161,10 @@ static const char* formatStr(DiskFormat f) {
 }
 
 // --- PETSCII ↔ ASCII content conversion for SEQ files ---
+// The letters swap case (a-z: $41-$5A, A-Z: $C1-$DA, as BASIC's ASC("A") is
+// 193), LF is CR, and the rest stays: the MEGA65's ASCII fonts (FONT A/B)
+// show \ ^ _ { | } ~ at their ASCII codes, and cc45 encodes them the same.
+// Back to ASCII, both ranges of capitals ($61-$7A, $C1-$DA) are A-Z.
 
 static std::vector<uint8_t> asciiToPetsciiContent(const std::vector<uint8_t>& data) {
     std::vector<uint8_t> out;
@@ -170,9 +174,6 @@ static std::vector<uint8_t> asciiToPetsciiContent(const std::vector<uint8_t>& da
         else if (c == '\r') continue;                   // strip CR (handle CRLF)
         else if (c >= 'a' && c <= 'z') out.push_back(c - 32);  // lowercase → PETSCII $41-$5A
         else if (c >= 'A' && c <= 'Z') out.push_back(c + 128); // uppercase → PETSCII $C1-$DA
-        else if (c == '~') out.push_back(0xA8);         // tilde → pi
-        else if (c == '|') out.push_back(0x7D);         // pipe → bar
-        else if (c == '\\') out.push_back(0x5C);        // backslash → pound
         else out.push_back(c);
     }
     return out;
@@ -184,12 +185,9 @@ static std::vector<uint8_t> petsciiToAsciiContent(const std::vector<uint8_t>& da
     for (uint8_t c : data) {
         if (c == 0x0D) out.push_back('\n');             // CR → LF
         else if (c >= 0x41 && c <= 0x5A) out.push_back(c + 32);  // PETSCII $41-$5A → lowercase
+        else if (c >= 0x61 && c <= 0x7A) out.push_back(c - 32);  // PETSCII $61-$7A → uppercase
         else if (c >= 0xC1 && c <= 0xDA) out.push_back(c - 128); // PETSCII $C1-$DA → uppercase
-        else if (c >= 0x20 && c < 0x7F) out.push_back(c);  // printable ASCII range
-        else if (c == 0xA8) out.push_back('~');         // pi → tilde
-        else if (c == 0x7D) out.push_back('|');         // bar → pipe
-        else if (c == 0x00) break;                      // null terminator
-        else out.push_back(c);                          // pass through
+        else out.push_back(c);
     }
     return out;
 }

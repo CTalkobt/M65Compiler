@@ -106,10 +106,12 @@ TrackSector D64Image::allocateNextFree(int nearTrack) {
 }
 
 int D64Image::freeSectors() const {
-    if (!bamOps_) return 0;
-    const uint8_t* bam = sectorData(DIR_TRACK, BAM_SECTOR);
-    if (!bam) return 0;
-    return bamOps_->countFreeSectors(bam);
+    // as DOS counts BLOCKS FREE: not the directory track
+    int n = 0;
+    for (int t = 1; t <= 35; t++)
+        for (int s = 0; t != DIR_TRACK && s < sectorsOnTrack(t); s++)
+            if (isSectorFree(t, s)) n++;
+    return n;
 }
 
 // ============================================================================

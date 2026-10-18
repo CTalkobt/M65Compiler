@@ -438,6 +438,25 @@ echo "$A2P" | grep -qi 'c8454c4c4f0d' && pass "-a2p filter" || fail "-a2p filter
 P2A=$(printf '\xC8\xC5\xCC\xCC\xCF\x0D' | $DISK45 -p2a)
 [ "$P2A" = "HELLO" ] && pass "-p2a filter" || fail "-p2a filter (got '$P2A')"
 
+# #300: punctuation keeps its ASCII byte (| is $7C, not $7D like }; ~ is
+# $7E), so the round trip is lossless; both ranges of capitals come back
+# as A-Z; a NUL does not end the file
+RT=$(printf 'a|b}c~d\\e_f{g`hZ^\n' | $DISK45 -a2p | xxd -p | tr -d '\n')
+[ "$RT" = "417c427d437e445c455f467b476048da5e0d" ] &&
+    [ "$(printf 'a|b}c~d\\e_f{g`hZ^\n' | $DISK45 -a2p | $DISK45 -p2a)" = 'a|b}c~d\e_f{g`hZ^' ] &&
+    [ "$(printf '\x61\xC1\x00\x42' | $DISK45 -p2a | xxd -p)" = "41410062" ] &&
+    pass "-a2p/-p2a: punctuation unchanged, both capital ranges, NULs kept" ||
+    fail "-a2p/-p2a: punctuation, capitals, NULs (got $RT)"
+
+# #300: BLOCKS FREE leaves out the directory track(s), as the drives do
+for f in d64:664 d71:1328 d81:3160; do
+    IFS=: read -r ext free <<< "$f"
+    rm -f "$TMPDIR/bf.$ext"
+    $DISK45 create "$TMPDIR/bf.$ext" -n BF -i BF >/dev/null 2>&1 &&
+        $DISK45 list "$TMPDIR/bf.$ext" | grep -q "^$free blocks free" &&
+        pass "$ext: $free blocks free when empty" || fail "$ext: blocks free (want $free)"
+done
+
 # ============================================================================
 echo "=== GZ compression ==="
 
