@@ -258,7 +258,13 @@ What a SAC function looks like:
     (`.byte n`, `.word <fn>__param_<p>`, ..., `.byte 0`; 3 bytes a parameter
     instead of 7 a byte); `lib/stdlib_asm/sac_args.s45` reads the arguments
     through SP and returns past the list. A variadic function, and `-S`
-    output, copy them inline.
+    output, copy them inline. In ZP mode the thunk is `jsr __zp_args` with
+    the same list when that is shorter than copying inline (4-5 bytes a
+    byte: a single `char` stays inline): the address is `<fn>__param_<p>` or,
+    for a parameter in the function's base-page block, `<fn>__zar+n`; a
+    parameter not copied (kept in the ZP block, below) is a size byte with
+    bit 7 set and no address, which only moves past its slot
+    (`lib/stdlib_asm/zp_args.s45`, `test_zp_args_xemu.c`).
   - `<fn>__sac` is the entry past that thunk.
 - **Leaf functions in ZP mode keep their parameters in the ZP block.** A
   ZP-convention function that makes no calls and has no inline asm or float

@@ -4,6 +4,15 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45
+
+- **Shorter parameter thunks** (Issue #292): a ZP-convention SAC function's
+  entry copied its parameters from `$10`-`$2F` into their storage with an
+  `lda`/`sta` per byte (4-5 bytes each). It now calls `__zp_args` with a
+  list of the parameters' sizes and homes (3 bytes a parameter), as the
+  stack convention's thunks already did, when that is shorter. vim2: 614
+  bytes smaller. The copy is a loop now: a few dozen cycles more per call.
+
 ### ln45
 
 - **The overlay description is no longer loaded** (Issue #298): ln45 wrote
