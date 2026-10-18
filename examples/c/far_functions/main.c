@@ -4,7 +4,7 @@
  * brought into view. A function declared __far is kept in far memory
  * (bank 5) and run through a window: cc45 puts its code in the text
  * segment "far", ln45 packs each file's far code into automatic overlays
- * (far1, far2, ... of 8 KB) and writes them to FARDEMO.OVL, which the
+ * (far1, far2, ... of 8 KB) and writes them to FARDEMO.OV1, which the
  * startup code loads into bank 5. A call into far code goes through a small
  * resident stub that points the window ($6000-$7FFF) at the overlay with
  * MAP (no copying) and maps the caller's code back on return.
@@ -16,9 +16,9 @@
  * demo's far code (about 1 KB) fits in one, far1; a program with more gets
  * far2, ... and a call between them switches the map.
  *
- * Build: make (fardemo.prg, fardemo.ovl, fardemo.d81). Run: make run.
+ * Build: make (fardemo.prg, fardemo.ov1, fardemo.d81). Run: make run.
  * The linker map (fardemo.map) shows the overlays, their banks and the
- * stubs; objdump45 -d fardemo.ovl disassembles the far code.
+ * stubs; objdump45 -d fardemo.ov1 disassembles the far code.
  */
 #include <stdio.h>
 #include <string.h>

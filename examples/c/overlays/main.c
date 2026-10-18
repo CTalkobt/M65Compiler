@@ -3,7 +3,7 @@
  * Code overlays let a program be larger than the memory it runs in: each
  * file with #pragma cc45 overlay(name) (or compiled with -foverlay=name)
  * puts its code in that overlay. ln45 links all overlays to run in one
- * region of bank 0 and writes them to OVLDEMO.OVL, which the program's
+ * region of bank 0 and writes them to OVLDEMO.OV1, which the program's
  * startup code loads into far memory (bank 5). A call into an overlay goes
  * through a small resident stub that copies the overlay into the region by
  * DMA when it is not there (about 0.1 ms per KB) -- or, linked with
