@@ -6,6 +6,13 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### cc45
 
+- **A warning for `__noescape` data leaving its overlay** (Issue #301,
+  phase 2): cc45 records each call that passes the address of data kept
+  with an overlay's code (followed through copies, offsets, a pointer read
+  from a kept table, a local it is stored in), and ln45 warns, with the
+  line and the chain of calls, when the callee can call into another
+  overlay (as `msgf` -> `vfmt`), where the data is not in the region. vim2
+  with the pragma in its overlay files: 25 such calls.
 - **Constants kept with an overlay's code** (Issue #301): `__noescape` (or
   `__attribute__((noescape))`) on a read-only object, and `#pragma cc45
   noescape_strings` for the string literals in functions (`__escape "…"`

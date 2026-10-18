@@ -116,6 +116,10 @@ private:
     // functions); the others stay in "data"
     std::map<std::string, std::string> noescapeSeg_;
     void placeNoescape(const ir::Module& mod);
+    // calls that pass the address of data kept with the code: caller ->
+    // callee ("icall" through a pointer) -> the first such call's line, for
+    // ln45 to check the callee cannot reach another overlay (cc45.nesc.*)
+    std::map<std::pair<std::string, std::string>, int> noescapeCalls_;
     void emitStrings(const ir::Module& mod);
     void emitFunction(const ir::Function& fn, bool relocMode, bool isMainWithZPSave = false);
     // emitFunction, then the stores to vreg pool registers the function never
