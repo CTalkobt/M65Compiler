@@ -1169,12 +1169,19 @@ void optimizeCopyChains(Module& mod) {
                 auto& insts = block.insts;
                 for (size_t k = 0; k < insts.size(); k++) {
                     Inst& def = insts[k];
-                    // (not the extensions: the codegen takes a ZEXT/TRUNC's result
-                    // for its source byte, which needs its one definition)
-                    if (!def.dest.isVreg() || def.op == Op::COPY || def.op == Op::PHI || def.op == Op::NOP ||
-                        def.op == Op::STORE || def.op == Op::STORE_ZP || def.op == Op::ZEXT ||
-                        def.op == Op::SEXT || def.op == Op::TRUNC)
-                        continue;
+                    // Arithmetic and logic only: the codegen takes a CONST's vreg
+                    // for its value (allocated nowhere, an immediate operand) and a
+                    // ZEXT/TRUNC's result for its source byte, which needs their
+                    // one definition (x ? 1 : 0 keeps its constants copied)
+                    switch (def.op) {
+                        case Op::ADD: case Op::SUB: case Op::MUL: case Op::MUL_U:
+                        case Op::AND: case Op::OR: case Op::XOR: case Op::SHL: case Op::SHR:
+                        case Op::ASR: case Op::NEG: case Op::NOT:
+                            break;
+                        default:
+                            continue;
+                    }
+                    if (!def.dest.isVreg()) continue;
                     uint32_t t = def.dest.vregId;
                     if (!fixedTemp(t) || useCount[t] != 1 || fn.memoryVregs.count(t)) continue;
                     size_t j = k + 1;

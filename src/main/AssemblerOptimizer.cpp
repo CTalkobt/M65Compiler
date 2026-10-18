@@ -1069,15 +1069,22 @@ bool AssemblerOptimizer::optimizeInternal(
     // --- Pass 2b: dead LDX #imm (cc45's zero extension of a byte value that is
     // used as a byte) ---
     // Removed when, in the same straight-line code, X is written again (ldx,
-    // tax, tsx, plx: these set N/Z too) before anything reads X. Anything that
-    // may read X or the flags ends the search and keeps it: an instruction
-    // that names X or indexes with it, a simulated instruction, a label, a
-    // branch, call or return, a non-instruction.
+    // tax, tsx, plx: these set N/Z too) before anything reads X. Only the
+    // instructions known not to read X are passed over (not X-indexed, and
+    // not a Q instruction: Q is A:X:Y:Z, so stq $10 stores X); anything else
+    // ends the search and keeps it: an instruction that names X, a Q or
+    // simulated instruction (push .ax), a label, a branch, call or return, a
+    // non-instruction (neg too: neg / neg is the prefix of a Q instruction).
+    // (A list of the readers missed stq: ldx #252 / stq $10 / ldx #0 lost the
+    // 252.)
     if (parser->optFlags.redundantLoad) {
         auto lower = [](std::string m) { std::transform(m.begin(), m.end(), m.begin(), ::tolower); return m; };
-        static const std::set<std::string> readsX = {
-            "stx", "txa", "txs", "cpx", "inx", "dex", "phx", "map", "eom", "brk",
-            "jsr", "jmp", "bsr", "rts", "rti", "rtn", "php", "proc", "endproc"};
+        static const std::set<std::string> noX = {
+            "lda", "sta", "ldy", "sty", "ldz", "stz", "adc", "sbc", "and", "ora", "eor", "cmp", "cpy", "cpz",
+            "bit", "asl", "lsr", "rol", "ror", "asr", "inc", "dec", "iny", "dey", "inz", "dez", "inw", "dew",
+            "asw", "row", "tay", "tya", "taz", "tza", "tab", "tba", "tys", "tsy", "clc", "sec", "cld", "sed",
+            "cli", "sei", "clv", "nop", "pha", "pla", "phy", "ply", "phz", "plz", "tsb", "trb",
+            "ldx", "tax", "tsx", "plx"};
         static const std::set<std::string> writesX = {"ldx", "tax", "tsx", "plx"};
         auto& st = parser->statements;
         for (size_t i = 0; i < st.size(); ++i) {
@@ -1095,7 +1102,8 @@ bool AssemblerOptimizer::optimizeInternal(
                 if (m.find('.') != std::string::npos) break;
                 if (m.size() == 3 && m[0] == 'b' && m != "bit") break;            // branches
                 if (m.size() == 4 && (m.compare(0, 3, "bbr") == 0 || m.compare(0, 3, "bbs") == 0)) break;
-                if (readsX.count(m)) break;
+                bool rmbSmb = m.size() == 4 && (m.compare(0, 3, "rmb") == 0 || m.compare(0, 3, "smb") == 0);
+                if (!noX.count(m) && !rmbSmb) break;
                 switch (t->instr.mode) {
                     case AddressingMode::BASE_PAGE_X: case AddressingMode::ABSOLUTE_X:
                     case AddressingMode::BASE_PAGE_X_INDIRECT: case AddressingMode::ABSOLUTE_X_INDIRECT:

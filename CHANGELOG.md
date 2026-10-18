@@ -6,13 +6,14 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### cc45
 
-- **Smaller code** (Issues #290, #292, #293, #295; vim2: 72,087 → 67,720
-  bytes, -6%):
+- **Smaller code** (Issues #290, #292, #293, #295; vim2: 72,087 → 68,347
+  bytes, -5%):
   - constant arguments are stored straight into the parameter block (`lda
     #'d' / sta $10`), not computed into a register-pool temp, truncated and
     copied there: a `ZEXT`/`SEXT`/`TRUNC` of a constant is a constant, and a
     constant used as a ZP-convention argument is not materialized (#290);
-  - the arms of a ternary compute into its result (no temp copied to it),
+  - the arms of a ternary compute into its result (no temp copied to it;
+    an arithmetic or logic result, not a constant),
     and a store to a register-pool temp that the same straight-line code
     stores again before reading is removed (#293);
   - a 16/32-bit value in memory is tested by OR-ing its bytes in place
@@ -119,6 +120,12 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### ca45 / ln45
 
+- **The dead `LDX #imm` pass removed loads a Q instruction needed**: an
+  `ldx #imm` followed by `stq` (Q is A:X:Y:Z) and another `ldx` was taken
+  for dead, since the pass listed the instructions that read X and the Q
+  instructions were not among them: `ldx #252 / stq $10 / ldx #0` passed
+  -1000 as `$FFFF0018`. The pass now passes over only the instructions
+  known not to read X. (cc45 had not emitted this sequence before.)
 - **Overlay → resident → other overlay returns into the right code** (Issue
   #284): `__ovl_call` brought a caller's overlay back on the return only
   when the call came from the region, so when resident code that overlay

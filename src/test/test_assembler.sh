@@ -598,6 +598,30 @@ else
     failed=$((failed + 1))
 fi
 
+# The dead LDX #imm pass: Q instructions read X (Q is A:X:Y:Z): ldx #252 /
+# stq $10 / ldx #0 keeps the 252 (it was removed: -1000 passed as $FFFF0018)
+cat > build/test_deadldx.s45 << 'END'
+    proc f
+    lda #24
+    ldx #252
+    ldy #255
+    ldz #255
+    stq $10
+    lda #70
+    ldx #0
+    sta $14
+    rts
+    endproc
+END
+D=$($AS -c build/test_deadldx.s45 -o build/test_deadldx.o45 >/dev/null 2>&1 && ./bin/objdump45 -d build/test_deadldx.o45)
+if grep -q 'ldx.*#\$fc' <<< "$D"; then
+    echo "SUCCESS: dead LDX: a Q store reads X"
+    passed=$((passed + 1))
+else
+    echo "FAIL: dead LDX removed the ldx before stq ($D)"
+    failed=$((failed + 1))
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All assembler feature tests passed!"
     exit 0
