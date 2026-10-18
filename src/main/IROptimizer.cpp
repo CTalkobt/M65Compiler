@@ -220,9 +220,11 @@ void optimizeCSE(Module& mod) {
         for (size_t bi = 0; bi < fn.blocks.size(); bi++) labelIdx[fn.blocks[bi].label] = bi;
         std::vector<int> predCount(fn.blocks.size(), 0);
         std::vector<long> onlyPred(fn.blocks.size(), -1);
+        std::vector<std::set<size_t>> predSet(fn.blocks.size());
         auto addPred = [&](size_t to, size_t from) {
             if (predCount[to]++ == 0) onlyPred[to] = (long)from;
             else if (onlyPred[to] != (long)from) onlyPred[to] = -2;
+            if (from < fn.blocks.size()) predSet[to].insert(from);
         };
         for (size_t bi = 0; bi < fn.blocks.size(); bi++) {
             const auto& b = fn.blocks[bi];
@@ -260,6 +262,58 @@ void optimizeCSE(Module& mod) {
         for (const auto& b : fn.blocks)
             for (const auto& in : b.insts)
                 if (in.op == Op::ASM_INLINE || in.op == Op::BR_INDIRECT) anyAsm = true;
+        // Dominators (Issue #294): a block starts with what its immediate
+        // dominator computed, when nothing on the paths between them (nor
+        // the block itself, in a loop) changes the operands. Blocks with
+        // other ways in (an address-taken label, asm) start empty.
+        const size_t nb = fn.blocks.size();
+        std::vector<bool> unknownIn(nb, false);
+        for (const auto& l : fn.addressTakenLabels) {
+            auto it = labelIdx.find(l);
+            if (it != labelIdx.end()) unknownIn[it->second] = true;
+        }
+        std::vector<std::vector<bool>> dom(nb, std::vector<bool>(nb, true));
+        if (nb) { dom[0].assign(nb, false); dom[0][0] = true; }
+        for (bool ch = true; ch; ) {
+            ch = false;
+            for (size_t b = 1; b < nb; b++) {
+                std::vector<bool> d(nb, !predSet[b].empty() && !unknownIn[b]);
+                for (size_t p : predSet[b]) for (size_t k = 0; k < nb; k++) d[k] = d[k] && dom[p][k];
+                d[b] = true;
+                if (d != dom[b]) { dom[b] = d; ch = true; }
+            }
+        }
+        auto idomOf = [&](size_t b) -> long {
+            if (unknownIn[b] || predSet[b].empty()) return -1;
+            for (size_t d = 0; d < nb; d++) {
+                if (d == b || !dom[b][d]) continue;
+                bool imm = true;   // every other strict dominator dominates d
+                for (size_t o = 0; o < nb && imm; o++)
+                    if (o != b && o != d && dom[b][o] && !dom[d][o]) imm = false;
+                if (imm) return (long)d;
+            }
+            return -1;
+        };
+        std::vector<std::vector<size_t>> succOf(nb);
+        for (size_t b = 0; b < nb; b++) for (size_t p : predSet[b]) succOf[p].push_back(b);
+        // what each block changes: the vregs it defines or stores, and
+        // whether it writes memory (a store elsewhere, a call, asm)
+        std::vector<std::set<uint32_t>> blockDefs(nb);
+        std::vector<bool> blockMem(nb, false), blockMemPure(nb, false);
+        for (size_t b = 0; b < nb; b++)
+            for (const auto& in : fn.blocks[b].insts) {
+                if (in.dest.isVreg()) blockDefs[b].insert(in.dest.vregId);
+                bool st = in.op == Op::STORE || in.op == Op::STORE_ZP;
+                if (st && in.src2.isVreg() && slots.count(in.src2.vregId)) {
+                    blockDefs[b].insert(in.src2.vregId);
+                    if (fn.memoryVregs.count(in.src2.vregId)) blockMemPure[b] = true;
+                } else if ((st || in.op == Op::CALL || in.op == Op::CALL_VOID || in.op == Op::CALL_INDIRECT ||
+                            in.op == Op::ASM_INLINE || in.op == Op::CPU_REG_WRITE || in.op == Op::CPU_FLAG_WRITE) &&
+                           !purityOf(mod, in)) {
+                    blockMem[b] = true;
+                    blockMemPure[b] = true;
+                }
+            }
         std::vector<std::map<uint32_t, Operand>> endCopies(fn.blocks.size());
         std::vector<std::vector<std::pair<ExprKey, Operand>>> endExprs(fn.blocks.size());
         // calls of pure / const functions and their results (Issue #76)
@@ -280,17 +334,60 @@ void optimizeCSE(Module& mod) {
             std::map<uint32_t, Operand> copies;
             std::vector<std::pair<ExprKey, Operand>> activeExprs;
             std::vector<PureCall> activeCalls;
-            if (!anyAsm && blockIdx > 0 && predCount[blockIdx] == 1 && onlyPred[blockIdx] >= 0 &&
-                (size_t)onlyPred[blockIdx] < blockIdx) {
-                activeCalls = endCalls[onlyPred[blockIdx]];   // (a call is expensive to repeat)
+            long dIdx = anyAsm || blockIdx == 0 ? -1 : idomOf(blockIdx);
+            if (dIdx >= 0 && (size_t)dIdx < blockIdx) {
+                const size_t D = (size_t)dIdx;
+                // the blocks on a path D -> ... -> blockIdx (not through D
+                // again), and blockIdx itself when it is in a loop without D
+                std::vector<bool> fwd(nb, false), bwd(nb, false);
+                std::vector<size_t> todo;
+                for (size_t s2 : succOf[D]) if (s2 != D && !fwd[s2]) { fwd[s2] = true; todo.push_back(s2); }
+                while (!todo.empty()) {
+                    size_t x = todo.back(); todo.pop_back();
+                    for (size_t s2 : succOf[x]) if (s2 != D && !fwd[s2]) { fwd[s2] = true; todo.push_back(s2); }
+                }
+                bwd[blockIdx] = true;
+                todo.push_back(blockIdx);
+                while (!todo.empty()) {
+                    size_t x = todo.back(); todo.pop_back();
+                    for (size_t p2 : predSet[x]) if (p2 != D && !bwd[p2]) { bwd[p2] = true; todo.push_back(p2); }
+                }
+                std::set<uint32_t> killed;
+                bool mem = false, memPure = false;
+                for (size_t x = 0; x < nb; x++) {
+                    if (x == D || !fwd[x] || !bwd[x]) continue;
+                    // (blockIdx itself only when a path from it comes back)
+                    if (x == blockIdx) {
+                        bool loops = false;
+                        for (size_t p2 : predSet[blockIdx]) if (p2 != D && fwd[p2] && bwd[p2]) loops = true;
+                        if (!loops) continue;
+                    }
+                    killed.insert(blockDefs[x].begin(), blockDefs[x].end());
+                    mem = mem || blockMem[x];
+                    memPure = memPure || blockMemPure[x];
+                }
+                auto alive = [&](const Operand& o) {
+                    if (!o.isVreg()) return true;
+                    if (killed.count(o.vregId)) return false;
+                    return !(mem && slots.count(o.vregId));   // (a variable may change through a write)
+                };
+                for (const auto& c : endCalls[D]) {
+                    bool ok = alive(c.result) && !(c.purity < 2 && memPure);
+                    for (const auto& a : c.args) ok = ok && alive(a);
+                    if (ok) activeCalls.push_back(c);   // (a call is expensive to repeat)
+                }
                 // only what is expensive to compute again (a multiply, an
                 // element address, a division): a reused cheap value lives
                 // longer and spills more than it saves
-                for (const auto& e : endExprs[onlyPred[blockIdx]]) {
+                for (const auto& e : endExprs[D]) {
                     Op o = e.first.op;
-                    if (o == Op::MUL || o == Op::MUL_U || o == Op::ADDR_ELEM || o == Op::DIV || o == Op::DIV_U ||
-                        o == Op::MOD || o == Op::MOD_U)
-                        activeExprs.push_back(e);
+                    // (measured on vim2 and the library: carrying cheap ones
+                    // too, or only from a direct predecessor, is larger)
+                    if (!(o == Op::MUL || o == Op::MUL_U || o == Op::ADDR_ELEM || o == Op::DIV ||
+                          o == Op::DIV_U || o == Op::MOD || o == Op::MOD_U))
+                        continue;
+                    if ((o == Op::LOAD || o == Op::LOAD_ZP) && mem) continue;
+                    if (alive(e.first.src1) && alive(e.first.src2) && alive(e.second)) activeExprs.push_back(e);
                 }
             }
 
@@ -415,8 +512,10 @@ void optimizeCSE(Module& mod) {
                 if (isCSECandidate(inst.op) && inst.dest.isVreg()) {
                     ExprKey key;
                     key.op = inst.op;
-                    key.src1 = inst.src1;
-                    key.src2 = inst.src2;
+                    // (a constant operand by its value: each use has its own
+                    // const vreg)
+                    key.src1 = argKey(inst.src1);
+                    key.src2 = argKey(inst.src2);
                     key.type = inst.resultType;
                     key.byteWidth = inst.resultByteWidth;
                     
