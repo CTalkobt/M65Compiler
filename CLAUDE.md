@@ -72,7 +72,9 @@ overlay in by DMA and swaps the return address (stack layout unchanged).
 Copied by default; `--overlay-map` maps a window of `$4000`-`$7FFF` to each
 overlay instead (only the lower half of MAP: the KERNAL is mapped at $E000;
 the program ends below the window, the heap starts above it; the KERNAL's
-current map at `$011C` is kept in step). Data/BSS stay resident; no
+current map at `$011C` is kept in step). Data/BSS stay resident (but
+`__noescape` constants and `#pragma cc45 noescape_strings` literals are kept
+with the code: in the overlay, or a `__far` function's chunk); no
 `__interrupt` in an overlay. ln45 describes the overlays and their symbols in
 `<prog>.ovd` (`include/O45OverlayFile.hpp`; never loaded), which nm45 and
 objdump45 read; the `-M` map shows each overlay's bank and its symbols and
@@ -251,7 +253,7 @@ ln45, ar45, nm45, objdump45 and disk45 have no config files. Environment:
   emitted weak so several units can include the same struct.
 - **Extensions**: struct methods, single inheritance, `virtual`/`final`,
   operator overloading, GCC nested functions (static chain, trampolines),
-  statement expressions, computed goto, case ranges, `continue <value>` in a switch, `break N`, `repeat(N)`, `__likely`/`__unlikely`, `__cpu`/`__flags`,
+  statement expressions, computed goto, case ranges, `continue <value>` in a switch, `break N`, `repeat(N)`, `__likely`/`__unlikely`, `__noescape`, `__cpu`/`__flags`,
   `__dma_copy`/`__dma_fill`, `__interrupt`, `__naked`, `__regparm`, `__zp` globals
   (in the private base page, placed by ln45 at the top of `$80`–`$E9`), file-scope
   `asm("...")` (module-level assembly), string encodings

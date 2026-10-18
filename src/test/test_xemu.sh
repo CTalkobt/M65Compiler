@@ -1457,6 +1457,51 @@ else
     failed=$((failed + 1))
 fi
 
+# Test: constants kept with an overlay's code (#301): __noescape objects and
+# #pragma cc45 noescape_strings literals in a code overlay (copied, mapped)
+# and in __far functions; __escape and stored literals stay resident
+for nemode in "zp|$STDLIB||" "stack|$STDLIB_STACK|-fno-zpcall|" \
+              "zp_map|$STDLIB||--overlay-map" "stack_map|$STDLIB_STACK|-fno-zpcall|--overlay-map"; do
+    IFS='|' read -r nename nelib neflags nelink <<< "$nemode"
+    echo "Testing __noescape ($nename)..."
+    ned=build/test/noescape_$nename
+    rm -rf $ned; mkdir -p $ned
+    neok=1
+    for f in main ovl_a ovl_b far; do
+        $CC $neflags -c src/test-resources/noescape/$f.c -o $ned/$f.o45 >/dev/null 2>&1 || neok=0
+    done
+    if [ $neok = 1 ] && $LD -basic $nelink -M $ned/t.map -o $ned/netest.prg $ned/main.o45 $ned/ovl_a.o45 $ned/ovl_b.o45 \
+            $ned/far.o45 $nelib >/dev/null 2>&1 &&
+       ./bin/disk45 create $ned/ne.d81 -n NETEST >/dev/null 2>&1 &&
+       ./bin/disk45 add $ned/ne.d81 $ned/netest.ov1 NETEST.OV1 >/dev/null 2>&1; then
+        run_xemu_test "test_noescape_$nename" "$ned/netest.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA" -8 "$PWD/$ned/ne.d81"
+    else
+        echo "FAIL: __noescape $nename (build or link failed)"
+        failed=$((failed + 1))
+    fi
+done
+# placement: overlay a keeps only what must stay resident (the pad, the
+# stored pointer, "stored", the __escape strings: 15 bytes), the far object
+# only its resident function's literal; a reference to an overlay's
+# __noescape data from outside it, and __noescape on a writable object, are
+# errors
+ned=build/test/noescape_zp
+nee=build/test/noescape_err.log
+printf 'extern const unsigned char weights[4];\nunsigned char peek3(void) { return weights[3]; }\n' > $ned/out.c
+printf 'static char __noescape buf[4] = "abc";\nchar f(void) { return buf[0]; }\n' > $ned/rw.c
+if grep -A3 'ovl_a.o45  \[overlay a\]' $ned/t.map | grep -q 'DATA .*(15 bytes)' &&
+   grep -A3 'far.o45$' $ned/t.map | grep -q 'overlay far1' && grep -A3 'far.o45$' $ned/t.map | grep -q 'DATA .*(10 bytes)' &&
+   $CC -c $ned/out.c -o $ned/out.o45 >/dev/null 2>&1 &&
+   ! $LD -basic -o $ned/out.prg $ned/main.o45 $ned/ovl_a.o45 $ned/ovl_b.o45 $ned/far.o45 $ned/out.o45 $STDLIB > $nee 2>&1 &&
+   grep -q "'_weights' is __noescape data kept in code overlay a" $nee &&
+   ! $CC -c $ned/rw.c -o $ned/rw.o45 > $nee 2>&1 && grep -q "__noescape needs a read-only object" $nee; then
+    echo "SUCCESS: __noescape placement; outside references and writable objects refused"
+    passed=$((passed + 1))
+else
+    echo "FAIL: __noescape placement or errors ($(head -2 $nee 2>/dev/null))"
+    failed=$((failed + 1))
+fi
+
 # Test: __far functions (cc45), kept in far memory and mapped into the window
 # when called (ln45 packs each file's far code into automatic overlays far1,
 # far2, ...): calls from resident code, between far functions of one overlay

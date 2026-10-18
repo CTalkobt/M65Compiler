@@ -31,6 +31,9 @@ Preprocessor::Preprocessor(bool isCompiler) : isCompiler(isCompiler) {
 
     // Target platform identification
     macros["__MEGA65__"] = Macro{false, false, {}, "1"};
+    // __noescape: a constant whose address stays in its object's code (an
+    // overlay keeps it with its code; Issue #301)
+    macros["__noescape"] = Macro{false, false, {}, "__attribute__((noescape))"};
     macros["__45GS02__"] = Macro{false, false, {}, "1"};
     macros["__6502__"] = Macro{false, false, {}, "1"};
 
@@ -1309,6 +1312,8 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                         } else {
                             output << "\n";
                         }
+                    } else if (cc45Arg == "noescape_strings" || cc45Arg == "escape_strings") {
+                        output << "__asm__(\"." + cc45Arg + "\");\n";
                     } else if (cc45Arg == "signed_default") {
                         output << "__asm__(\".signed_default\");\n";
                     } else if (cc45Arg == "unsigned_default") {

@@ -2745,6 +2745,17 @@ bool O45Linker::generateOverlayStubs(std::string& errorMsg) {
                 return exp.name;
         return "";
     };
+    // __noescape data kept in an overlay's code (cc45 cc45.noescape.<sym>):
+    // no stub; a reference from outside its overlay is an error
+    std::set<std::string> noescapeData;
+    for (const auto& input : objects_)
+        for (const auto& exp : input.obj.exports)
+            if (exp.name.rfind("cc45.noescape.", 0) == 0) noescapeData.insert(exp.name.substr(14));
+    auto outsideRef = [&](const std::string& n, int ovl, const InputObject& from) {
+        errorMsg = "'" + n + "' is __noescape data kept in code overlay " + ovlNames_[ovl - 1] + ", but " +
+                   from.filename + " refers to it from outside that overlay (its address must not leave it)";
+        return false;
+    };
     std::set<std::string> need;
     for (const auto& input : objects_) {
         for (int pass = 0; pass < 2; pass++) {
@@ -2756,6 +2767,10 @@ bool O45Linker::generateOverlayStubs(std::string& errorMsg) {
                     const std::string& n = input.obj.imports[r.symbolIndex].name;
                     auto o = symOvl_.find(n);
                     if (o == symOvl_.end() || o->second == 0) continue;
+                    if (noescapeData.count(n)) {
+                        if (!inText || input.ovlAt(r.offset) != o->second) return outsideRef(n, o->second, input);
+                        continue;
+                    }
                     if (!inText || input.ovlAt(r.offset) != o->second || !isCall(body, r.offset, r.type)) need.insert(n);
                 } else if (r.segment == SEG_TEXT) {
                     uint32_t off = storedValue(r, body) - segOrigBase(input.obj, SEG_TEXT);
@@ -2763,6 +2778,10 @@ bool O45Linker::generateOverlayStubs(std::string& errorMsg) {
                     if (!tOvl) continue;
                     if (inText && isCall(body, r.offset, r.type) && input.ovlAt(r.offset) == tOvl) continue;
                     std::string n = exportAt(input, off);
+                    if (!n.empty() && noescapeData.count(n)) {
+                        if (!inText || input.ovlAt(r.offset) != tOvl) return outsideRef(n, tOvl, input);
+                        continue;
+                    }
                     if (!n.empty()) need.insert(n);
                 }
             }

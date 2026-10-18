@@ -322,6 +322,9 @@ struct Module {
         std::vector<uint8_t> initBytes;
         std::map<int, std::string> initWords;
         std::map<int, ImageString> initStrings;
+        // __noescape (Issue #301): read-only, its address used only by this
+        // object's code: kept with the code (an overlay's, or __far)
+        bool noescape = false;
     };
     std::vector<GlobalVar> globals;
 
@@ -332,6 +335,11 @@ struct Module {
         int encoding = 0;
         bool isAscii = false;
         bool wide = false;    // 16-bit characters (L"...")
+        // #pragma cc45 noescape_strings / a __noescape object's: kept with the
+        // code of the function using it (an overlay's, or in "far" for a
+        // __far function's)
+        bool noescape = false;
+        bool far = false;
     };
     std::vector<StringLiteral> strings;
 };

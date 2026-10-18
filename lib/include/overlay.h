@@ -8,7 +8,9 @@
  * next bank takes what does not fit, <program>.ov2) from the drive the
  * program came from, under the name <PROGRAM>.OV1 (--overlay-name). Calls
  * into an overlay go through resident stubs, which copy it into the region
- * by DMA when another is there; the overlays' variables stay resident.
+ * by DMA when another is there; the overlays' variables stay resident (the
+ * constants marked __noescape, and literals under #pragma cc45
+ * noescape_strings, are kept with the code: cc45.md).
  *
  * These are only defined in a program that has overlays.
  */

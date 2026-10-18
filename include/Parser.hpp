@@ -93,6 +93,12 @@ private:
     // (variable, struct member or struct type) as if _Alignas(N) were written
     int pendingAlign_ = 0;
     int takePendingAlign() { int a = pendingAlign_; pendingAlign_ = 0; return a; }
+    // __noescape (__attribute__((noescape))) seen in the declaration
+    bool pendingNoescape_ = false;
+    bool takePendingNoescape() { bool n = pendingNoescape_; pendingNoescape_ = false; return n; }
+    // #pragma cc45 noescape_strings (until escape_strings): string literals
+    // in functions stay with their code (Issue #301)
+    bool noescapeStrings_ = false;
     // __attribute__((alias("target"))): the declared name is another name
     // for target; later uses of it are read as target
     // Declared variables' types, for typeof(name)
