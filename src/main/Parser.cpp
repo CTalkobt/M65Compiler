@@ -4127,8 +4127,17 @@ std::shared_ptr<FuncPtrSignature> Parser::parseFuncPtrParams(const std::string& 
                 fp.pointerLevel = 1;
                 fp.isSigned = false;
             }
-            // Skip optional parameter name
+            // Skip optional parameter name, then its attributes (int *p
+            // __attribute__((noescape))) and an array suffix (int a[], a
+            // pointer)
             if (peek().type == TokenType::IDENTIFIER && !isTypedef(peek().value)) advance();
+            while (tryParseAttribute()) {}
+            while (peek().type == TokenType::OPEN_SQUARE) {
+                while (peek().type != TokenType::CLOSE_SQUARE && peek().type != TokenType::END_OF_FILE) advance();
+                match(TokenType::CLOSE_SQUARE);
+                fp.pointerLevel++;
+            }
+            while (tryParseAttribute()) {}
             sig->params.push_back(fp);
         } while (match(TokenType::COMMA));
     }

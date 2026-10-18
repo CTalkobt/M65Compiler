@@ -369,6 +369,16 @@ else
     failed=$((failed + 1))
 fi
 
+# Function pointer parameters with attributes after the name and array
+# suffixes (int *p __attribute__((noescape)), const int a[]): accepted
+printf 'void (*cb)(int *p __attribute__((noescape)));\nint (*sum)(const int a[], int n __attribute__((unused)));\nint x;\n' > build/test/fpattr.c
+if $CC -c build/test/fpattr.c -o build/test/fpattr.o45 >/dev/null 2>&1; then
+    echo "SUCCESS: function pointer parameters with attributes and array suffixes"
+else
+    echo "FAIL: function pointer parameters with attributes and array suffixes"
+    failed=$((failed + 1))
+fi
+
 # break N (Issue #71): more levels than the loops/switches around it, 0 or
 # a level over 255 are errors; break 1 and a switch as a level are not
 bn_ok=1

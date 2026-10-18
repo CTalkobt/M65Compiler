@@ -6,6 +6,11 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### cc45
 
+- **Function pointer parameters**: an attribute after a parameter's name
+  (`void (*cb)(int *p __attribute__((noescape)))`, as Clang headers write
+  it) or an array suffix (`int (*f)(const int a[])`) in a function pointer
+  type was a syntax error ("Expected ')' after function pointer parameter
+  list"); both are accepted (an array parameter is a pointer).
 - **A warning for `__noescape` data leaving its overlay** (Issue #301,
   phase 2): cc45 records each call that passes the address of data kept
   with an overlay's code (followed through copies, offsets, a pointer read
