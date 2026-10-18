@@ -379,6 +379,25 @@ else
     failed=$((failed + 1))
 fi
 
+# Size (Issues #296, #297): no ldx #0 (the high byte of a char) before a
+# ZP-convention call, whose arguments are in $10-$2F; no inx / dex
+# restoring the flags of a dropped load at a label whose code sets them
+cat > build/test/szchk.c <<'SRC'
+unsigned int buf_len(unsigned int l);
+void put(unsigned char c);
+unsigned int cur_col, cur_line;
+unsigned char k;
+void f(unsigned char c) { if (c) cur_col = buf_len(cur_line); cur_line = 0; put(k); }
+SRC
+if $CC -S build/test/szchk.c -o build/test/szchk.s45 2>/dev/null &&
+   ! grep -qE '^\s*inx$' build/test/szchk.s45 &&
+   grep -A1 'lda _k' build/test/szchk.s45 | grep -q 'sta \$10'; then
+    echo "SUCCESS: no dead ldx before ZP calls, no dead flag restores"
+else
+    echo "FAIL: no dead ldx before ZP calls, no dead flag restores"
+    failed=$((failed + 1))
+fi
+
 # break N (Issue #71): more levels than the loops/switches around it, 0 or
 # a level over 255 are errors; break 1 and a switch as a level are not
 bn_ok=1

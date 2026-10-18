@@ -126,6 +126,14 @@ private:
     // reads removed (pruneDeadPoolStores)
     void emitFunctionPruned(const ir::Function& fn, bool relocMode, bool nestedInModule);
     static std::string pruneDeadPoolStores(const std::string& text);
+    // a load of X right before a ZP-convention call (X is not an argument):
+    // removed (Issue #296); the calls are marked by a comment line
+    static constexpr const char* kXFreeCall = "(X is not an argument of the next call)";
+    static std::string pruneDeadLdx(const std::string& text);
+    // the flags of a dropped load restored at a label, when the code there
+    // sets them before reading them (Issue #297)
+    static constexpr const char* kFlagRestore = "(N/Z of a dropped load, for the code at the label)";
+    static std::string pruneDeadFlagRestores(const std::string& text);
     void emitInst(const ir::Inst& inst);
     void emitInstBody(const ir::Inst& inst);
 

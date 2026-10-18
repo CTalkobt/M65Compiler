@@ -6,6 +6,13 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### cc45
 
+- **Smaller calls and labels** (Issues #296, #297): an 8-bit value is
+  loaded with `ldx #0` (its high byte); before a ZP-convention call, whose
+  arguments are all in `$10`-`$2F`, that load is dead and is dropped when
+  the callee clobbers X anyway (`lda k / sta $10 / jsr f`). And the N/Z
+  flags of a dropped load, restored with `inx / dex` (or `ora #0`) on the
+  fall-through into a label, are not restored when the code there sets
+  them before reading them. vim2: 176 bytes smaller, 43 -> 9 `inx/dex`.
 - **Pure and const functions** (Issue #76): `__pure` / `__attribute__((pure))`
   (no side effects) and `__attribute__((const))` (the result depends on the
   arguments alone), on any declaration of a function. From `-O1`, a repeated

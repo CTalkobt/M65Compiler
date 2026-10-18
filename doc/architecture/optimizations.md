@@ -102,6 +102,14 @@ inline asm), so nothing can clobber the register pool between uses:
 It is not a `-f` switch: `CC45_NO_ZP_POINTERS=1` turns both parts off (for
 comparing code). Validation: `test_zp_pointers_xemu.c`.
 
+After a function's code is generated, two cleanups run on its text: an
+`ldx` just before a ZP-convention call that clobbers X anyway (an 8-bit
+value's `ldx #0`; the arguments are in `$10`-`$2F`) is removed
+(`pruneDeadLdx`, #296), and the `ora #0` / `inx / dex` that restores the
+N/Z flags of a dropped load on the fall-through into a label is removed
+when the code there sets N/Z before reading them (`pruneDeadFlagRestores`,
+#297).
+
 Other code generation for loops: an element address with a stride of 2, 4
 or 8 shifts the index (`asl; pha; txa; rol; tax; pla` per doubling, 6 bytes)
 instead of using the hardware multiplier (24 bytes); a store of a constant or
