@@ -20,10 +20,10 @@ c/hello_world/hello.prg              hello world
 c/unit_convert/convert.prg           unit convert
 c/multi_module/program.prg           multi module
 c/overlays/ovldemo.prg               overlays
-c/overlays/ovldemo.ovl               OVLDEMO.OVL
+c/overlays/ovldemo.ov1               OVLDEMO.OV1
 c/mapped_overlays/mapdemo.prg        map overlays
-c/mapped_overlays/mapdemo.ovl        MAPDEMO.OVL
+c/mapped_overlays/mapdemo.ov1        MAPDEMO.OV1
 c/far_functions/fardemo.prg          far functions
-c/far_functions/fardemo.ovl          FARDEMO.OVL
+c/far_functions/fardemo.ov1          FARDEMO.OV1
 c/stdlib/ctype_h/ctype_demo.prg      ctype demo
 basic/c_routines/menu.prg            basic+c

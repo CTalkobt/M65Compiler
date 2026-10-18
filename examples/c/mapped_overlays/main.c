@@ -3,7 +3,7 @@
  * The 45GS02's program counter is 16 bits: it can only run code it sees in
  * its 64 KB. "Far code" therefore means changing what it sees. ln45
  * --overlay-map does that with the MAP instruction: the overlays stay where
- * the startup code loaded them (MAPDEMO.OVL, in bank 5 at $50000), and a
+ * the startup code loaded them (MAPDEMO.OV1, in bank 5 at $50000), and a
  * call into one points the CPU's window ($6000-$7FFF here, 8 KB blocks) at
  * it. Nothing is copied: the code runs from bank 5.
  *
@@ -25,7 +25,7 @@
  *   4. an overlay calling another gives up the window and gets it back
  *
  * Build: make (the program links with ln45 --overlay-map; disk45 puts
- * mapdemo.prg and MAPDEMO.OVL on mapdemo.d81). Run: make run.
+ * mapdemo.prg and MAPDEMO.OV1 on mapdemo.d81). Run: make run.
  * Linked without --overlay-map (copied overlays) the checks of 1-3 fail:
  * each overlay would be copied to the same place in bank 0 and run from
  * there (2/6 pass: the window and the calls of 4 work either way).

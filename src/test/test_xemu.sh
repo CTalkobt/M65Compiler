@@ -1344,6 +1344,21 @@ for cbmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: purity inference (-fipa-pure-const): inferred const / pure functions
+# merged and hoisted; a volatile register read polled in a loop (not pure:
+# hoisted, it would hang), writes, loops, recursion and unknown calls kept
+for pimode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r piname piflags <<< "$pimode"
+    echo "Testing test_purity_infer_xemu.c ($piname)..."
+    compile_link_test "src/test-resources/test_purity_infer_xemu.c" "build/test/test_purity_infer_${piname}_xemu.prg" "$piflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_purity_infer_$piname" "build/test/test_purity_infer_${piname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_purity_infer_xemu.c $piname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: values put together from bytes (a | b << 8 | (long)c << 16) built
 # byte by byte, loads through constant addresses, and the cases that must
 # stay OR-ed (overlapping bytes, sign extension)

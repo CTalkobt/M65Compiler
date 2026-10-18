@@ -6,6 +6,13 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### cc45
 
+- **Purity inference** (`-fipa-pure-const`, from `-O1`): a function of the
+  same file that reads only its parameters and own variables, writes only
+  its own variables, has no loops or recursion and calls only const / pure
+  functions is treated as const (or pure), as if declared so: repeated calls
+  share a result, unused ones are dropped, calls in a loop's header are
+  hoisted. It never reads memory itself, since volatile loads are not
+  marked in the IR (a hardware register read must keep its calls).
 - **CSE across basic blocks** (Issue #294): a costly value (a multiply, a
   division, an element address, a call of a pure / const function)
   computed in a block that dominates another is reused there, when nothing

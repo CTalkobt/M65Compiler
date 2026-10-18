@@ -398,6 +398,19 @@ else
     failed=$((failed + 1))
 fi
 
+# Purity inference (-fipa-pure-const): a static function computing only from
+# its argument is const, so sq(a) + sq(a) calls it once; not with
+# -fno-ipa-pure-const, nor for one that reads a global
+printf '__attribute__((noinline)) static int sq(int x) { return x * x; }\nunsigned char g;\n__attribute__((noinline)) static int rd(int x) { return x + g; }\nint f(int a) { return sq(a) + sq(a) + rd(a) + rd(a); }\n' > build/test/pinfer.c
+if $CC -Roptir -c build/test/pinfer.c -o build/test/pinfer.o45 2>&1 | grep -q "reuses the result of a call of _sq" &&
+   ! $CC -Roptir -c build/test/pinfer.c -o build/test/pinfer.o45 2>&1 | grep -q "reuses the result of a call of _rd" &&
+   ! $CC -fno-ipa-pure-const -Roptir -c build/test/pinfer.c -o build/test/pinfer.o45 2>&1 | grep -q "reuses the result"; then
+    echo "SUCCESS: purity inference"
+else
+    echo "FAIL: purity inference"
+    failed=$((failed + 1))
+fi
+
 # break N (Issue #71): more levels than the loops/switches around it, 0 or
 # a level over 255 are errors; break 1 and a switch as a level are not
 bn_ok=1

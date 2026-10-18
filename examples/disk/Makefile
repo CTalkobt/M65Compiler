@@ -29,6 +29,10 @@ examples:
 menu.prg: menu.bas
 	$(BASIC45) menu.bas -o menu.prg
 
+# a listed program not built yet (a fresh tree): built in its directory
+$(PRGS):
+	$(MAKE) -C $(dir $@)
+
 $(DISK): menu.prg programs.txt $(PRGS)
 	rm -f $(DISK)
 	$(DISK45) create $(DISK) -n "CC45 EXAMPLES" -i "45"
