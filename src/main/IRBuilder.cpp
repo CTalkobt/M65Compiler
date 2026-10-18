@@ -290,6 +290,7 @@ ir::Block& IRBuilder::startBlock(const std::string& label) {
     }
     currentFunc_->blocks.push_back({label, {}});
     currentBlock_ = &currentFunc_->blocks.back();
+    currentBlock_->cold = coldDepth_ > 0;
     return *currentBlock_;
 }
 
@@ -7599,20 +7600,30 @@ void IRBuilder::visit(IfStatement& node) {
         emitConditionBranches(node.condition.get(), thenLabel, falseTarget, loc(node));
     }
 
+    // the branch not expected to run (__unlikely / __likely with an else):
+    // its blocks are cold, placed at the function's end
+    bool hinted = !dynamic_cast<IntegerLiteral*>(node.condition.get());
+    bool coldThen = hinted && node.hint < 0;
+    bool coldElse = hinted && node.hint > 0 && node.elseBranch;
+
+    if (coldThen) coldDepth_++;
     startBlock(thenLabel);
     node.thenBranch->accept(*this);
     ir::Inst brEnd;
     brEnd.op = ir::Op::BR;
     brEnd.src1 = ir::Operand::label(endLabel);
     emit(brEnd);
+    if (coldThen) coldDepth_--;
 
     if (node.elseBranch) {
+        if (coldElse) coldDepth_++;
         startBlock(elseLabel);
         node.elseBranch->accept(*this);
         ir::Inst brEnd2;
         brEnd2.op = ir::Op::BR;
         brEnd2.src1 = ir::Operand::label(endLabel);
         emit(brEnd2);
+        if (coldElse) coldDepth_--;
     }
 
     startBlock(endLabel);

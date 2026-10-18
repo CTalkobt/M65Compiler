@@ -1489,12 +1489,24 @@ std::unique_ptr<Statement> Parser::parseStatement() {
         expect(TokenType::OPEN_PAREN, "Expected '(' after 'if'");
         auto condition = parseExpression();
         expect(TokenType::CLOSE_PAREN, "Expected ')' after if condition");
+        // the condition's hint (!__likely(x): expected false)
+        Expression* hinted = condition.get();
+        int nots = 0;
+        while (!hinted->branchHint) {
+            auto* u = dynamic_cast<UnaryOperation*>(hinted);
+            if (!u || u->op != "!" || !u->operand) break;
+            hinted = u->operand.get();
+            nots++;
+        }
+        int hint = (nots & 1) ? -hinted->branchHint : hinted->branchHint;
         auto thenBranch = parseStatement();
         std::unique_ptr<Statement> elseBranch = nullptr;
         if (match(TokenType::ELSE)) {
             elseBranch = parseStatement();
         }
-        return setPos(std::make_unique<IfStatement>(std::move(condition), std::move(thenBranch), std::move(elseBranch)), startToken);
+        auto ifs = std::make_unique<IfStatement>(std::move(condition), std::move(thenBranch), std::move(elseBranch));
+        ifs->hint = hint;
+        return setPos(std::move(ifs), startToken);
     }
 
     if (match(TokenType::WHILE)) {
@@ -3142,8 +3154,22 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
         expect(TokenType::COMMA, "Expected ',' in __builtin_expect");
         auto hint = parseExpression();  // evaluated too (it may have side effects)
         expect(TokenType::CLOSE_PAREN, "Expected ')'");
-        // (hint, val): the value of val, both evaluated
-        expr = setPos(std::make_unique<BinaryOperation>(",", std::move(hint), std::move(val)), bToken);
+        if (auto* lit = dynamic_cast<IntegerLiteral*>(hint.get())) {
+            // a constant: val is expected to be it (0: false, else true)
+            val->branchHint = lit->value ? 1 : -1;
+            expr = std::move(val);
+        } else {
+            // (hint, val): the value of val, both evaluated
+            expr = setPos(std::make_unique<BinaryOperation>(",", std::move(hint), std::move(val)), bToken);
+        }
+    } else if (peek().type == TokenType::IDENTIFIER && (peek().value == "__likely" || peek().value == "__unlikely")) {
+        // __likely(x) / __unlikely(x): x, expected true / false (the branch of
+        // an if that is not expected is placed at the function's end)
+        bool likely = advance().value == "__likely";
+        expect(TokenType::OPEN_PAREN, likely ? "Expected '(' after __likely" : "Expected '(' after __unlikely");
+        expr = parseExpression();
+        expect(TokenType::CLOSE_PAREN, "Expected ')'");
+        expr->branchHint = likely ? 1 : -1;
     } else if (peek().type == TokenType::IDENTIFIER && peek().value == "__builtin_trap") {
         // __builtin_trap() → BRK instruction
         const Token& bToken = advance();

@@ -327,6 +327,32 @@ else
     failed=$((failed + 1))
 fi
 
+# __unlikely / __likely (Issue #75): the branch not expected to run comes
+# after the function's rts, the expected path falls through; -O0 and
+# -fno-reorder-blocks keep the source order
+cat > build/test/likely.c <<'EOF'
+void fail(void);
+unsigned char n;
+void f(unsigned char x) {
+    if (__unlikely(x == 0)) fail();
+    n = x;
+}
+EOF
+cold_after_rts() {   # does the jsr _fail come after the function's rts?
+    awk '/rts/ { r = 1 } /jsr _fail/ { print (r ? "after" : "before"); exit }' "$1"
+}
+if $CC -S build/test/likely.c -o build/test/likely.s45 2>/dev/null &&
+   [ "$(cold_after_rts build/test/likely.s45)" = after ] &&
+   $CC -O0 -S build/test/likely.c -o build/test/likely0.s45 2>/dev/null &&
+   [ "$(cold_after_rts build/test/likely0.s45)" = before ] &&
+   $CC -fno-reorder-blocks -S build/test/likely.c -o build/test/likelyn.s45 2>/dev/null &&
+   [ "$(cold_after_rts build/test/likelyn.s45)" = before ]; then
+    echo "SUCCESS: __unlikely code after the function's return"
+else
+    echo "FAIL: __unlikely code after the function's return"
+    failed=$((failed + 1))
+fi
+
 # break N (Issue #71): more levels than the loops/switches around it, 0 or
 # a level over 255 are errors; break 1 and a switch as a level are not
 bn_ok=1

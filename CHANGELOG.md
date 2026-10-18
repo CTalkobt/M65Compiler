@@ -6,6 +6,12 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### cc45
 
+- **`__likely(x)` / `__unlikely(x)`** (Issue #75): branch hints. On an
+  `if`'s condition (also under `!`) the branch not expected to run is
+  placed after the function's `rts` (a new IR pass, `-freorder-blocks`, on
+  from `-O1`), so the expected path falls through the conditional branches
+  and into the return. `__builtin_expect(x, c)` with a constant `c` is a
+  hint too (it was ignored).
 - **`~` on a constant** (Issue #289): the constant folder computed `~` in 64
   bits, so `~0x8000` (an `unsigned int`) was -32769 instead of `0x7FFF`:
   cc45 warned "integer literal -32769 exceeds 16-bit range, promoted to

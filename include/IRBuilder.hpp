@@ -339,6 +339,7 @@ private:
         std::string continueLabel;
     };
     std::vector<LoopLabels> loopStack_;
+    int coldDepth_ = 0;     // > 0: building the branch of an if not expected to run
     size_t loopBase_ = 0;   // loopStack_ entries of the function being built (inlined bodies too)
 
     // Switch tracking

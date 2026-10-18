@@ -574,7 +574,9 @@ public:
                     }
                 }
             }
-            lastStmt = copyPos(std::make_unique<IfStatement>(std::move(condition), std::move(thenBranch), std::move(elseBranch)), node);
+            auto ifs = std::make_unique<IfStatement>(std::move(condition), std::move(thenBranch), std::move(elseBranch));
+            ifs->hint = node.hint;
+            lastStmt = copyPos(std::move(ifs), node);
         }
     }
 

@@ -29,7 +29,12 @@ public:
     virtual void accept(ASTVisitor& visitor) = 0;
 };
 
-class Expression : public ASTNode {};
+class Expression : public ASTNode {
+public:
+    // __likely(x) / __unlikely(x) / __builtin_expect(x, c): +1 when the
+    // expression is expected true, -1 when expected false (else 0)
+    signed char branchHint = 0;
+};
 class Statement : public ASTNode {};
 
 class IntegerLiteral : public Expression {
@@ -257,6 +262,7 @@ public:
     std::unique_ptr<Expression> condition;
     std::unique_ptr<Statement> thenBranch;
     std::unique_ptr<Statement> elseBranch;
+    int hint = 0;       // +1: the condition is expected true, -1: false (__likely/__unlikely)
     IfStatement(std::unique_ptr<Expression> c, std::unique_ptr<Statement> t, std::unique_ptr<Statement> e = nullptr)
         : condition(std::move(c)), thenBranch(std::move(t)), elseBranch(std::move(e)) {}
     void accept(ASTVisitor& visitor) override;

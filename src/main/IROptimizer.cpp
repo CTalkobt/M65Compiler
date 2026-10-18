@@ -3253,4 +3253,46 @@ void foldElemIndexOffset(Module& mod) {
     }
 }
 
+// Block reordering: the cold blocks (the branch of an if that __unlikely /
+// __likely says is not expected to run) after the others, so the expected
+// path falls through its branches. A block that falls into the next one
+// gets a branch to it first (the last one: to the epilogue).
+void optimizeBlockReorder(Module& mod) {
+    auto ends = [](const Block& b) {
+        if (b.insts.empty()) return false;
+        switch (b.insts.back().op) {
+            case Op::BR: case Op::BR_COND: case Op::BR_INDIRECT: case Op::SWITCH:
+            case Op::RET: case Op::RET_VOID:
+                return true;
+            default:
+                return false;
+        }
+    };
+    for (auto& fn : mod.functions) {
+        if (!runOn(fn, "BlockReordering") || fn.blocks.size() < 3) continue;
+        // the entry block stays first; is a cold block before a hot one?
+        bool cold = false, move = false;
+        for (size_t i = 1; i < fn.blocks.size() && !move; i++) {
+            if (fn.blocks[i].cold) cold = true;
+            else if (cold) move = true;
+        }
+        if (!move) continue;
+        for (size_t i = 0; i < fn.blocks.size(); i++) {
+            if (ends(fn.blocks[i])) continue;
+            Inst br;
+            br.op = Op::BR;
+            br.src1 = Operand::label(i + 1 < fn.blocks.size() ? fn.blocks[i + 1].label : "__return");
+            if (!fn.blocks[i].insts.empty()) br.loc = fn.blocks[i].insts.back().loc;
+            fn.blocks[i].insts.push_back(br);
+        }
+        std::vector<Block> hot, coldBlocks;
+        for (size_t i = 0; i < fn.blocks.size(); i++)
+            (i > 0 && fn.blocks[i].cold ? coldBlocks : hot).push_back(std::move(fn.blocks[i]));
+        trace("reorder", fn.name, std::to_string(coldBlocks.size()) + " cold block(s) moved to the end");
+        fn.blocks = std::move(hot);
+        for (auto& b : coldBlocks) fn.blocks.push_back(std::move(b));
+        fn.coldAtEnd = true;
+    }
+}
+
 } // namespace ir

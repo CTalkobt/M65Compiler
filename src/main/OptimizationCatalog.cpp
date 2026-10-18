@@ -237,6 +237,12 @@ void OptimizationCatalog::initializeCatalog() {
         OptimizationCategory::BOTH, 1, -1, "-fpost-increment-sink", false, 2
     });
 
+    catalog_.push_back({
+        "BlockReordering", "Block Reordering",
+        "The branch __unlikely / __likely says is not expected to run is placed at the function's end",
+        OptimizationCategory::SPEED, 1, -1, "-freorder-blocks", false, 1
+    });
+
     // What is implemented, and where
     struct Impl { const char* name; OptimizationImpl impl; const char* asmFlag; int level; };
     static const Impl impls[] = {
@@ -255,6 +261,7 @@ void OptimizationCatalog::initializeCatalog() {
         {"CopyPropagation",      OptimizationImpl::IR_PASS,   "", 1},
         {"AddrElemFusion",       OptimizationImpl::IR_PASS,   "", 1},
         {"PostIncrementSink",    OptimizationImpl::IR_PASS,   "", 1},
+        {"BlockReordering",      OptimizationImpl::IR_PASS,   "", 1},
         {"LoopInterchange",      OptimizationImpl::AST_PASS,  "", 4},
         {"LoopUnrolling",        OptimizationImpl::IR_PASS,   "", 4},
         // ca45 runs these at its default level whatever cc45's -O level

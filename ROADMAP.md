@@ -27,7 +27,7 @@
 |-------|------|----------|--------|
 | #67 | `__zp` global qualifier: a chosen global in the base page | parser, codegen, linker | **done** |
 | #71 | Multi-level `break N` | parser, IR | **done** |
-| #75 | `__likely` / `__unlikely` branch hints | codegen, optimizer | |
+| #75 | `__likely` / `__unlikely` branch hints | codegen, optimizer | **done** |
 | #76 | `__pure` / `__const` function attributes | optimizer | |
 
 ---

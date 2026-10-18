@@ -1211,6 +1211,7 @@ std::unique_ptr<Statement> cloneAndSubstituteStatement(Statement* stmt, const st
         auto cloned = std::make_unique<IfStatement>(cloneAndSubstituteExpression(ifStmt->condition.get(), varName, value), cloneAndSubstituteStatement(ifStmt->thenBranch.get(), varName, value));
         if (ifStmt->elseBranch)
             cloned->elseBranch = cloneAndSubstituteStatement(ifStmt->elseBranch.get(), varName, value);
+        cloned->hint = ifStmt->hint;
         return cloned;
     }
     if (auto* ret = dynamic_cast<ReturnStatement*>(stmt)) {
@@ -1312,6 +1313,7 @@ std::unique_ptr<Statement> cloneStatement(Statement* stmt) {
         auto cloned = std::make_unique<IfStatement>(cloneExpression(ifStmt->condition.get()), cloneStatement(ifStmt->thenBranch.get()));
         if (ifStmt->elseBranch)
             cloned->elseBranch = cloneStatement(ifStmt->elseBranch.get());
+        cloned->hint = ifStmt->hint;
         return cloned;
     }
     if (auto* ret = dynamic_cast<ReturnStatement*>(stmt)) {

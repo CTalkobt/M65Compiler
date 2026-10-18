@@ -4078,15 +4078,86 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             for (const auto& c : in.switchCases) labelRefs_[c.second] += 2;
             for (const auto& ph : in.phiIncoming) labelRefs_[ph.second] += 2;
         }
+    // Common return point — clean up frame, then endproc emits rts. After
+    // the blocks, or (cold blocks at the end) before the cold ones, so the
+    // expected path falls into it
+    auto emitEpilogue = [&]() {
+        emitLabel("@__return");
+
+        // Emit SAC debug exit marker (if SAC mode and debug enabled)
+        if (currentFunctionUseSAC_ && sacDebugMode_) {
+            emitSACDebugExit(fn.name);
+        }
+
+        // SAC functions don't have a stack frame to clean up
+        if (!useSAC && localFrameSize > 0) {
+            if (savedCallerFP_) {
+                // Drop the frame and restore the caller's FP using only A (saved in
+                // scratch), so X/Y/Z of the return value are preserved
+                emit("sta __zp_scratch");
+                if (usesAlloca || localFrameSize >= 8) {
+                    // alloca moved SP, or a large frame: set SP to just below the
+                    // saved FP (FP + size - 1: the frame starts at FP) instead of
+                    // pulling the frame byte by byte. SP rises, so SPL is written
+                    // first (an interrupt between the writes pushes below the
+                    // frame). X/Y of the result are kept.
+                    int off = localFrameSize - 1;
+                    emit("stx __zp_scratch+1");
+                    emit("sty __zp_scratch+2");
+                    emit("lda $FD");
+                    emit("clc");
+                    emit("adc #" + std::to_string(off & 0xFF));
+                    emit("tax");
+                    emit("lda $FE");
+                    emit("adc #" + std::to_string((off >> 8) & 0xFF));
+                    emit("tay");
+                    emit("txs");
+                    emit("tys");
+                    emit("ldx __zp_scratch+1");
+                    emit("ldy __zp_scratch+2");
+                } else {
+                    for (int i = 0; i < localFrameSize; i++) emit("pla");
+                }
+                emit("pla");
+                emit("sta $FE");   // prologue pushed $FD then $FE
+                emit("pla");
+                emit("sta $FD");
+                emit("lda __zp_scratch");
+            } else {
+                emitStackCleanup(localFrameSize);
+            }
+        }
+
+        // __interrupt: restore registers and return with RTI
+        if (fn.isInterrupt) {
+            emit("dec __isr_depth");
+            emit("pla"); emit("tab");
+            emit("plz"); emit("ply"); emit("plx"); emit("pla");
+            emit("rti");
+        }
+
+        // Non-interrupt functions return with RTS (SAC or stack-based)
+        // (Plain rts without plz for SAC; with plz cleanup for stack-based functions above)
+        emit("rts");
+    };
+    size_t coldStart = fn.blocks.size();
+    if (fn.coldAtEnd)
+        while (coldStart > 1 && fn.blocks[coldStart - 1].cold) coldStart--;
     for (size_t bi = 0; bi < fn.blocks.size(); bi++) {
         const auto& block = fn.blocks[bi];
         currentBlockIdx_ = bi;
         // Track the next block's label for no-op branch elimination
         nextBlockLabel_ = (bi + 1 < fn.blocks.size()) ? fn.blocks[bi + 1].label : "__return";
+        // the epilogue between the expected blocks and the cold ones
+        if (coldStart < fn.blocks.size()) {
+            if (bi + 1 == coldStart) nextBlockLabel_ = "__return";
+            else if (bi + 1 == fn.blocks.size()) nextBlockLabel_.clear();
+            if (bi == coldStart) emitEpilogue();
+        }
         // the element address cache carries into a block reached only by
         // the conditional branch that ends the block before it
         ElemCache carried;
-        if (elemCache_.valid && bi > 0 && !anyAsm && !fn.addressTakenLabels.count(block.label) &&
+        if (elemCache_.valid && bi > 0 && bi != coldStart && !anyAsm && !fn.addressTakenLabels.count(block.label) &&
             labelRefs_[block.label] == 1 && !fn.blocks[bi - 1].insts.empty()) {
             const auto& last = fn.blocks[bi - 1].insts.back();
             if (last.op == ir::Op::BR_COND &&
@@ -4099,7 +4170,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         // about the registers carries on (the switch value is not reloaded,
         // ca45's passes see one block)
         bool fallOnly = false;
-        if (bi > 0 && !anyAsm && !fn.addressTakenLabels.count(block.label) && labelRefs_[block.label] == 1 &&
+        if (bi > 0 && bi != coldStart && !anyAsm && !fn.addressTakenLabels.count(block.label) && labelRefs_[block.label] == 1 &&
             !emittedLabelRefs_.count(block.label) && !fn.blocks[bi - 1].insts.empty()) {
             const auto& last = fn.blocks[bi - 1].insts.back();
             fallOnly = last.op == ir::Op::BR_COND && last.src2.kind == ir::OperandKind::LABEL &&
@@ -4130,64 +4201,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     }
     nextBlockLabel_.clear();
 
-    // Common return point — clean up frame, then endproc emits rts
-    emitLabel("@__return");
-
-    // Emit SAC debug exit marker (if SAC mode and debug enabled)
-    if (currentFunctionUseSAC_ && sacDebugMode_) {
-        emitSACDebugExit(fn.name);
-    }
-
-    // SAC functions don't have a stack frame to clean up
-    if (!useSAC && localFrameSize > 0) {
-        if (savedCallerFP_) {
-            // Drop the frame and restore the caller's FP using only A (saved in
-            // scratch), so X/Y/Z of the return value are preserved
-            emit("sta __zp_scratch");
-            if (usesAlloca || localFrameSize >= 8) {
-                // alloca moved SP, or a large frame: set SP to just below the
-                // saved FP (FP + size - 1: the frame starts at FP) instead of
-                // pulling the frame byte by byte. SP rises, so SPL is written
-                // first (an interrupt between the writes pushes below the
-                // frame). X/Y of the result are kept.
-                int off = localFrameSize - 1;
-                emit("stx __zp_scratch+1");
-                emit("sty __zp_scratch+2");
-                emit("lda $FD");
-                emit("clc");
-                emit("adc #" + std::to_string(off & 0xFF));
-                emit("tax");
-                emit("lda $FE");
-                emit("adc #" + std::to_string((off >> 8) & 0xFF));
-                emit("tay");
-                emit("txs");
-                emit("tys");
-                emit("ldx __zp_scratch+1");
-                emit("ldy __zp_scratch+2");
-            } else {
-                for (int i = 0; i < localFrameSize; i++) emit("pla");
-            }
-            emit("pla");
-            emit("sta $FE");   // prologue pushed $FD then $FE
-            emit("pla");
-            emit("sta $FD");
-            emit("lda __zp_scratch");
-        } else {
-            emitStackCleanup(localFrameSize);
-        }
-    }
-
-    // __interrupt: restore registers and return with RTI
-    if (fn.isInterrupt) {
-        emit("dec __isr_depth");
-        emit("pla"); emit("tab");
-        emit("plz"); emit("ply"); emit("plx"); emit("pla");
-        emit("rti");
-    }
-
-    // Non-interrupt functions return with RTS (SAC or stack-based)
-    // (Plain rts without plz for SAC; with plz cleanup for stack-based functions above)
-    emit("rts");
+    if (coldStart == fn.blocks.size()) emitEpilogue();
 
     // Phase 78: Finalize SMC parameter metadata based on access counts
     // Set useSMC = true for parameters accessed >3 times (sufficient to save >= 1 byte)
