@@ -266,6 +266,17 @@ else
     failed=$((failed + 1))
 fi
 
+# ~ folds in the constant's width (Issue #289): ~0x8000 and ~0xFFFF are
+# 16-bit constants, with no "exceeds 16-bit range" warning
+printf 'unsigned int r;\nvoid f(unsigned int p) { r = p & ~0x8000; r = p & ~0xFFFF; }\n' > build/test/bnot.c
+if $CC -S build/test/bnot.c -o build/test/bnot.s45 >build/test/bnot.err 2>&1 &&
+   ! grep -q "exceeds 16-bit range" build/test/bnot.err; then
+    echo "SUCCESS: ~ folds in the constant's width"
+else
+    echo "FAIL: ~ folds in the constant's width"
+    failed=$((failed + 1))
+fi
+
 # Constant arguments are stored straight into the parameter block (#290),
 # and a long is tested by OR-ing its bytes in place (#295)
 printf 'void g(unsigned char a, unsigned char b, unsigned int n);\nvoid f(void) { g(1, 2, 300); }\nunsigned char t(unsigned long v) { if (v) return 1; return 0; }\n' > build/test/codesize.c

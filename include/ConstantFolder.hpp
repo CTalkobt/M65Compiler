@@ -280,18 +280,25 @@ public:
         auto* lit = dynamic_cast<IntegerLiteral*>(operand.get());
 
         if (lit) {
-            int result = 0;
-            if (node.op == "-") result = -lit->value;
+            int64_t result = 0;
+            if (node.op == "-") result = (int)-lit->value;
             else if (node.op == "!") result = !lit->value;
-            else if (node.op == "~") result = ~lit->value;
-            else {
+            // ~ in the operand's width: ~0x8000 (an unsigned int) is 0x7FFF,
+            // not -32769, which is a long (Issue #289); a char is promoted
+            else if (node.op == "~") {
+                int w = litWidth(*lit);
+                result = w >= 2 ? normalize(~lit->value, w, litSigned(*lit)) : (int)~lit->value;
+            } else {
                 lastExpr = copyPos(std::make_unique<UnaryOperation>(node.op, std::move(operand)), node);
                 return;
             }
             auto resLit = std::make_unique<IntegerLiteral>(result);
-            resLit->castType = lit->castType;
-            resLit->castPointerLevel = lit->castPointerLevel;
-            resLit->castIsSigned = lit->castIsSigned;
+            // -c and ~c of a char are ints (~(unsigned char)1 is -2, not 254)
+            if (!((node.op == "-" || node.op == "~") && litWidth(*lit) == 1)) {
+                resLit->castType = lit->castType;
+                resLit->castPointerLevel = lit->castPointerLevel;
+                resLit->castIsSigned = lit->castIsSigned;
+            }
             lastExpr = copyPos(std::move(resLit), node);
         } else {
             lastExpr = copyPos(std::make_unique<UnaryOperation>(node.op, std::move(operand)), node);

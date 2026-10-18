@@ -1281,6 +1281,20 @@ for bjmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: ~ on a constant in the constant's width: ~0x8000 is 0x7FFF, not the
+# long -32769; ~ and - of a char cast are ints (#289)
+for bfmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r bfname bfflags <<< "$bfmode"
+    echo "Testing test_bnot_fold_xemu.c ($bfname)..."
+    compile_link_test "src/test-resources/test_bnot_fold_xemu.c" "build/test/test_bnot_fold_${bfname}_xemu.prg" "$bfflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_bnot_fold_$bfname" "build/test/test_bnot_fold_${bfname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_bnot_fold_xemu.c $bfname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: the code-size changes: constant arguments into the parameter block,
 # ternaries computed into their result, dead pool stores, known tests,
 # parameters used in place, wide zero tests (#290 #292 #293 #295)

@@ -6,6 +6,12 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### cc45
 
+- **`~` on a constant** (Issue #289): the constant folder computed `~` in 64
+  bits, so `~0x8000` (an `unsigned int`) was -32769 instead of `0x7FFF`:
+  cc45 warned "integer literal -32769 exceeds 16-bit range, promoted to
+  long" and computed `p & ~0x8000` in 32 bits; `~0xFFFF` was -65536, not 0.
+  `~` now folds in the constant's width. `~` and `-` of a char cast are
+  ints, as C promotes them (`~(unsigned char)1` was 254, now -2).
 - **Byte operations with an out-of-range constant** (Issue #288): `p & ~0x80`
   on an `unsigned char` became `and #-129` (the int constant of a 16-bit
   AND narrowed to 8 bits), and ca45 warned "8-bit operand overflow" at every
