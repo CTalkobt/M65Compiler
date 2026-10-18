@@ -1841,12 +1841,16 @@ void optimizeBranchFold(Module& mod) {
                 for (size_t i = 0; i < nb; i++) at[fn.blocks[i].label] = i;
                 // vregs whose value memory can change (address taken): no facts
                 std::set<uint32_t> mem(fn.memoryVregs.begin(), fn.memoryVregs.end());
-                std::set<std::string> taken;   // labels whose address is taken: entered from anywhere
+                // labels whose address is taken (here, or by a nested function
+                // for its goto to a label of this one): entered from anywhere
+                std::set<std::string> taken;
+                for (const auto& f : mod.functions)
+                    for (const auto& b : f.blocks)
+                        for (const auto& x : b.insts)
+                            if (x.op == Op::ADDR_LABEL) taken.insert(x.src1.name);
                 for (const auto& b : fn.blocks)
-                    for (const auto& x : b.insts) {
+                    for (const auto& x : b.insts)
                         if (x.op == Op::ADDR_LOCAL && x.src1.isVreg()) mem.insert(x.src1.vregId);
-                        if (x.op == Op::ADDR_LABEL) taken.insert(x.src1.name);
-                    }
                 using Facts = std::map<uint32_t, bool>;
                 auto isTerm = [](Op op) {
                     return op == Op::BR || op == Op::BR_COND || op == Op::BR_INDIRECT || op == Op::SWITCH ||

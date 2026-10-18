@@ -2655,6 +2655,14 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             blockAt[fn.blocks[b].label] = b;
             for (const auto& in : insts) if (in.op == ir::Op::BR_INDIRECT || in.op == ir::Op::ADDR_LABEL) indirect = true;
         }
+        // a label whose address a nested function takes (its goto to a label
+        // of this one) is entered from there, after calls
+        std::set<std::string> takenLabels;
+        if (currentModule_)
+            for (const auto& f : currentModule_->functions)
+                for (const auto& b : f.blocks)
+                    for (const auto& in : b.insts)
+                        if (in.op == ir::Op::ADDR_LABEL) takenLabels.insert(in.src1.name);
         std::vector<bool> afterCall(nb, false);   // entered after a call may have run
         if (indirect) {
             for (size_t b = 1; b < nb; b++) afterCall[b] = true;
@@ -2689,6 +2697,26 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 if (seen[b]) continue;
                 seen[b] = true;
                 for (size_t n : succ(b)) { afterCall[n] = true; if (!seen[n]) work.push_back(n); }
+            }
+            // A block no branch of the function reaches is entered some other
+            // way (a nested function's goto to a label of this one, after the
+            // calls that led there: nestfunc-5): after a call
+            std::vector<bool> reach(nb, false);
+            std::vector<size_t> todo{0};
+            while (!todo.empty()) {
+                size_t b = todo.back(); todo.pop_back();
+                if (reach[b]) continue;
+                reach[b] = true;
+                for (size_t n : succ(b)) if (!reach[n]) todo.push_back(n);
+            }
+            for (size_t b = 0; b < nb; b++)
+                if (!reach[b] || takenLabels.count(fn.blocks[b].label)) afterCall[b] = true;
+            // (and so are the blocks those reach)
+            std::vector<size_t> more;
+            for (size_t b = 0; b < nb; b++) if (afterCall[b] && takenLabels.count(fn.blocks[b].label)) more.push_back(b);
+            while (!more.empty()) {
+                size_t b = more.back(); more.pop_back();
+                for (size_t n : succ(b)) if (!afterCall[n]) { afterCall[n] = true; more.push_back(n); }
             }
         }
         int zpOff = (int)zeroPageStart_ + 8;
