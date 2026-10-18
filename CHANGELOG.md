@@ -6,6 +6,15 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### cc45
 
+- **CSE across basic blocks** (Issue #294): a costly value (a multiply, a
+  division, an element address, a call of a pure / const function)
+  computed in a block that dominates another is reused there, when nothing
+  on the way changes its operands (it was carried only into a block whose
+  one predecessor was the block before); and a constant operand compares by
+  its value, so `a * 7` twice matches (each `7` had a vreg of its own).
+  Cheap values (`len + 16`, the issue's example) are still recomputed:
+  carrying them was measured larger on the library (by 3.2 KB) and smaller
+  only on vim2. The library's C code is 8.8 KB smaller, vim2 201 bytes.
 - **`**p` of a `char **`** (Issue #303): dereferencing a pointer to a
   pointer twice loaded 16 bits instead of one `char` (the next byte became
   the high byte) and compared them with `cmp.16`, so `**p < 'x'` was
