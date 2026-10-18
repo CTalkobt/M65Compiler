@@ -235,6 +235,7 @@ private:
     // Byte k of an operand as an instruction operand that needs no code
     // first (#imm, a constant vreg, ZP, a SAC symbol); "" when it has none
     std::string directByte(const ir::Operand& op, int k) const;
+    bool directTest(const ir::Operand& op) const;
     // A vreg's own storage as an absolute/ZP base ("$30", "_f__local_3"); ""
     // for registers and stack frames
     std::string directBase(uint32_t vregId) const;

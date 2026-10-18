@@ -1,3 +1,4 @@
+#include <optional>
 #include "IROptimizer.hpp"
 #include <algorithm>
 #include <iostream>
@@ -1152,6 +1153,53 @@ void optimizeCopyChains(Module& mod) {
         auto fixedTemp = [&](uint32_t v) {
             return !fn.localSlotVregs.count(v) && defCount[v] <= 1;
         };
+        // Backward: %t = op ...; %d = copy %t (the copy right after, %t used
+        // only there) is %d = op ...: the arms of a ternary (x ? a - b : c)
+        // compute into its result instead of a temp copied to it (Issue #293)
+        {
+            std::map<uint32_t, int> useCount;
+            for (auto& block : fn.blocks)
+                for (auto& inst : block.insts) {
+                    for (const Operand* o : {&inst.src1, &inst.src2})
+                        if (o->isVreg()) useCount[o->vregId]++;
+                    for (auto& a : inst.args) if (a.isVreg()) useCount[a.vregId]++;
+                    for (auto& ph : inst.phiIncoming) if (ph.first.isVreg()) useCount[ph.first.vregId] += 2;
+                }
+            for (auto& block : fn.blocks) {
+                auto& insts = block.insts;
+                for (size_t k = 0; k < insts.size(); k++) {
+                    Inst& def = insts[k];
+                    // (not the extensions: the codegen takes a ZEXT/TRUNC's result
+                    // for its source byte, which needs its one definition)
+                    if (!def.dest.isVreg() || def.op == Op::COPY || def.op == Op::PHI || def.op == Op::NOP ||
+                        def.op == Op::STORE || def.op == Op::STORE_ZP || def.op == Op::ZEXT ||
+                        def.op == Op::SEXT || def.op == Op::TRUNC)
+                        continue;
+                    uint32_t t = def.dest.vregId;
+                    if (!fixedTemp(t) || useCount[t] != 1 || fn.memoryVregs.count(t)) continue;
+                    size_t j = k + 1;
+                    while (j < insts.size() && insts[j].op == Op::NOP) j++;
+                    if (j >= insts.size()) continue;
+                    Inst& cp = insts[j];
+                    if (cp.op != Op::COPY || !cp.src1.isVreg() || cp.src1.vregId != t || !cp.dest.isVreg()) continue;
+                    uint32_t d = cp.dest.vregId;
+                    if (d == t || fn.localSlotVregs.count(d) || fn.memoryVregs.count(d) ||
+                        cp.resultType != def.resultType)
+                        continue;
+                    // (an operation that reads %d itself keeps its temp)
+                    bool reads = (def.src1.isVreg() && def.src1.vregId == d) || (def.src2.isVreg() && def.src2.vregId == d);
+                    for (auto& a : def.args) if (a.isVreg() && a.vregId == d) reads = true;
+                    if (reads) continue;
+                    trace("copy", fn.name, "v" + std::to_string(t) + " computed into v" + std::to_string(d), def.loc);
+                    def.dest = cp.dest;
+                    cp.op = Op::NOP;
+                    cp.src1 = Operand::none();
+                    cp.src2 = Operand::none();
+                    cp.dest = Operand::none();
+                }
+            }
+        }
+
         std::map<uint32_t, Operand> copyRoot;
         for (auto& block : fn.blocks) {
             for (auto& inst : block.insts) {
@@ -1448,14 +1496,29 @@ static void forwardNarrowing(Function& fn) {
     };
     auto isInt = [](Type t) { return t == Type::I8 || t == Type::I16 || t == Type::I32; };
 
-    // 1. ZEXT of a constant: a wider constant
+    // 1. ZEXT/SEXT/TRUNC of a constant: a constant of the new width (a
+    // constant argument, operate('d', 'l', n), is then an immediate stored
+    // into the parameter block, not a constant in a register-pool temp
+    // truncated and copied there: Issue #290)
     for (auto& block : fn.blocks)
         for (auto& inst : block.insts) {
             int64_t v;
-            if (inst.op == Op::ZEXT && inst.dest.isVreg() && isInt(inst.resultType) && constOf(inst.src1, v) &&
-                (inst.src1.type == Type::I8 || inst.src1.type == Type::I16)) {
+            if (!inst.dest.isVreg() || !isInt(inst.resultType) || !isInt(inst.src1.type) || !constOf(inst.src1, v))
+                continue;
+            int64_t from = inst.src1.type == Type::I8 ? 0xFF : inst.src1.type == Type::I16 ? 0xFFFF : 0xFFFFFFFF;
+            int64_t to = inst.resultType == Type::I8 ? 0xFF : inst.resultType == Type::I16 ? 0xFFFF : 0xFFFFFFFF;
+            if (inst.op == Op::ZEXT && inst.src1.type != Type::I32) {
                 inst.op = Op::CONST;
-                inst.src1 = Operand::imm(v & (inst.src1.type == Type::I8 ? 0xFF : 0xFFFF), inst.resultType);
+                inst.src1 = Operand::imm(v & from, inst.resultType);
+            } else if (inst.op == Op::SEXT && inst.src1.type != Type::I32) {
+                int64_t sign = (from + 1) >> 1;
+                int64_t x = v & from;
+                if (x & sign) x -= from + 1;
+                inst.op = Op::CONST;
+                inst.src1 = Operand::imm(x & to, inst.resultType);
+            } else if (inst.op == Op::TRUNC) {
+                inst.op = Op::CONST;
+                inst.src1 = Operand::imm(v & to, inst.resultType);
             }
         }
 
@@ -1718,12 +1781,143 @@ void optimizeBranchFold(Module& mod) {
                             }
                         };
 
+                        // An edge of br_cond %v to a block that only tests %v
+                        // again: the test is decided on that edge (if (!block
+                        // && !len) ... else if (!block || ...): Issue #295)
+                        auto threadCond = [&](std::string& label, uint32_t v, bool truth) {
+                            int depth = 8;
+                            while (--depth > 0) {
+                                auto bi = blockIndex.find(label);
+                                if (bi == blockIndex.end()) break;
+                                const Inst* only = nullptr;
+                                bool other = false;
+                                for (const auto& x : fn.blocks[bi->second].insts) {
+                                    if (x.op == Op::NOP) continue;
+                                    if (only) { other = true; break; }
+                                    only = &x;
+                                }
+                                if (other || !only || only->op != Op::BR_COND || !only->src1.isVreg() ||
+                                    only->src1.vregId != v)
+                                    break;
+                                const std::string& next = truth ? only->dest.name : only->src2.name;
+                                if (next.empty() || next == label) break;
+                                trace("branch", fn.name, "thread " + label + " → " + next + " (condition known)");
+                                label = next;
+                                changed = true;
+                            }
+                        };
+
                         if (inst.op == Op::BR && !inst.src1.name.empty()) {
                             threadLabel(inst.src1.name);
                         } else if (inst.op == Op::BR_COND) {
                             if (!inst.dest.name.empty()) threadLabel(inst.dest.name);
                             if (!inst.src2.name.empty()) threadLabel(inst.src2.name);
+                            if (inst.src1.isVreg()) {
+                                if (!inst.dest.name.empty()) threadCond(inst.dest.name, inst.src1.vregId, true);
+                                if (!inst.src2.name.empty()) threadCond(inst.src2.name, inst.src1.vregId, false);
+                            }
                         }
+                    }
+                }
+            }
+
+            // Pass 2b: tests whose outcome is known where they run (Issue #295).
+            // Forward dataflow over the blocks: a fact "%v != 0" / "%v == 0"
+            // holds on the edges of a br_cond on %v and lasts until %v is
+            // assigned; a block's facts are those of all its predecessors. A
+            // test of a known %v becomes a plain branch (if (block) ...
+            // if (!block && !len) ... else if (!block || cap < len) tested
+            // block three times on paths where it was known).
+            {
+                size_t nb = fn.blocks.size();
+                std::map<std::string, size_t> at;
+                for (size_t i = 0; i < nb; i++) at[fn.blocks[i].label] = i;
+                // vregs whose value memory can change (address taken): no facts
+                std::set<uint32_t> mem(fn.memoryVregs.begin(), fn.memoryVregs.end());
+                std::set<std::string> taken;   // labels whose address is taken: entered from anywhere
+                for (const auto& b : fn.blocks)
+                    for (const auto& x : b.insts) {
+                        if (x.op == Op::ADDR_LOCAL && x.src1.isVreg()) mem.insert(x.src1.vregId);
+                        if (x.op == Op::ADDR_LABEL) taken.insert(x.src1.name);
+                    }
+                using Facts = std::map<uint32_t, bool>;
+                auto isTerm = [](Op op) {
+                    return op == Op::BR || op == Op::BR_COND || op == Op::BR_INDIRECT || op == Op::SWITCH ||
+                           op == Op::RET || op == Op::RET_VOID;
+                };
+                auto kill = [&](Facts& f, const Inst& x) {
+                    if (x.op == Op::ASM_INLINE) { f.clear(); return; }   // (it may name any local)
+                    if (x.dest.isVreg()) f.erase(x.dest.vregId);
+                    if ((x.op == Op::STORE || x.op == Op::STORE_ZP) && x.src2.isVreg()) f.erase(x.src2.vregId);
+                };
+                // successors with the fact each edge adds
+                struct Edge { size_t to; bool hasFact; uint32_t v; bool truth; };
+                std::vector<std::vector<Edge>> succ(nb);
+                for (size_t i = 0; i < nb; i++) {
+                    const auto& insts = fn.blocks[i].insts;
+                    const Inst* t = insts.empty() || !isTerm(insts.back().op) ? nullptr : &insts.back();
+                    auto add = [&](const std::string& l, bool hf, uint32_t v, bool tr) {
+                        auto it = at.find(l);
+                        if (it != at.end()) succ[i].push_back({it->second, hf, v, tr});
+                    };
+                    if (!t) { if (i + 1 < nb) succ[i].push_back({i + 1, false, 0, false}); continue; }
+                    if (t->op == Op::BR) add(t->src1.name, false, 0, false);
+                    else if (t->op == Op::BR_COND) {
+                        bool hf = t->src1.isVreg() && !mem.count(t->src1.vregId) && t->dest.name != t->src2.name;
+                        uint32_t v = t->src1.isVreg() ? t->src1.vregId : 0;
+                        add(t->dest.name, hf, v, true);
+                        add(t->src2.name, hf, v, false);
+                    } else if (t->op == Op::SWITCH) {
+                        // the default and the cases: no facts
+                        add(t->src2.name, false, 0, false);
+                        for (const auto& sc : t->switchCases) add(sc.second, false, 0, false);
+                    }
+                }
+                bool opaque = false;   // a terminator whose targets are not all known
+                for (const auto& b : fn.blocks)
+                    if (!b.insts.empty() && b.insts.back().op == Op::BR_INDIRECT) opaque = true;
+                if (!opaque && nb > 1) {
+                    std::vector<std::optional<Facts>> in(nb);
+                    in[0] = Facts{};
+                    for (size_t i = 0; i < nb; i++) if (taken.count(fn.blocks[i].label)) in[i] = Facts{};
+                    bool moved = true;
+                    for (int round = 0; moved && round < 32; round++) {
+                        moved = false;
+                        for (size_t i = 0; i < nb; i++) {
+                            if (!in[i]) continue;
+                            Facts out = *in[i];
+                            for (const auto& x : fn.blocks[i].insts) kill(out, x);
+                            for (const auto& e : succ[i]) {
+                                Facts f = out;
+                                if (e.hasFact) f[e.v] = e.truth;
+                                if (taken.count(fn.blocks[e.to].label) || e.to == 0) continue;
+                                if (!in[e.to]) { in[e.to] = f; moved = true; continue; }
+                                Facts& d = *in[e.to];
+                                for (auto it = d.begin(); it != d.end();) {
+                                    auto g = f.find(it->first);
+                                    if (g == f.end() || g->second != it->second) { it = d.erase(it); moved = true; }
+                                    else ++it;
+                                }
+                            }
+                        }
+                    }
+                    for (size_t i = 0; i < nb; i++) {
+                        auto& insts = fn.blocks[i].insts;
+                        if (!in[i] || insts.empty() || insts.back().op != Op::BR_COND) continue;
+                        Facts f = *in[i];
+                        for (size_t k = 0; k + 1 < insts.size(); k++) kill(f, insts[k]);
+                        Inst& br = insts.back();
+                        if (!br.src1.isVreg()) continue;
+                        auto it = f.find(br.src1.vregId);
+                        if (it == f.end()) continue;
+                        std::string target = it->second ? br.dest.name : br.src2.name;
+                        trace("branch", fn.name, "test of v" + std::to_string(br.src1.vregId) + " in " +
+                              fn.blocks[i].label + " known: br " + target, br.loc);
+                        br.op = Op::BR;
+                        br.src1 = Operand::label(target);
+                        br.src2 = Operand::none();
+                        br.dest = Operand::none();
+                        changed = true;
                     }
                 }
             }

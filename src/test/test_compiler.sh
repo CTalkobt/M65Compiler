@@ -266,6 +266,20 @@ else
     failed=$((failed + 1))
 fi
 
+# Constant arguments are stored straight into the parameter block (#290),
+# and a long is tested by OR-ing its bytes in place (#295)
+printf 'void g(unsigned char a, unsigned char b, unsigned int n);\nvoid f(void) { g(1, 2, 300); }\nunsigned char t(unsigned long v) { if (v) return 1; return 0; }\n' > build/test/codesize.c
+if $CC -S build/test/codesize.c -o build/test/codesize.s45 2>/dev/null &&
+   awk '/proc _f/,/endproc/' build/test/codesize.s45 | grep -v '^ *[.;]' | tr -s ' ' | tr '\n' '|' |
+       grep -q 'lda #1| sta \$10| lda #2| sta \$12| lda #44| ldx #1| sta \$14| stx \$15| jsr _g' &&
+   awk '/proc _t/,/endproc/' build/test/codesize.s45 | grep -q 'ora \$13' &&
+   ! awk '/proc _t/,/endproc/' build/test/codesize.s45 | grep -q '__zp_scratch'; then
+    echo "SUCCESS: constant arguments and wide zero tests"
+else
+    echo "FAIL: constant arguments and wide zero tests"
+    failed=$((failed + 1))
+fi
+
 # File-scope redeclarations must agree (Issue #287): a different type or
 # array size, static after non-static (and the reverse), a second
 # initializer are errors; tentative definitions, extern + definition, a[]

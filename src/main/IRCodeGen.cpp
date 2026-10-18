@@ -168,6 +168,20 @@ std::string IRCodeGen::directByte(const ir::Operand& op, int k) const {
     return base + "+" + std::to_string(k);
 }
 
+// A 16/32-bit vreg whose bytes can all be read where it lives (not just
+// stored from A/X, not a constant): tested by OR-ing them in place
+bool IRCodeGen::directTest(const ir::Operand& op) const {
+    if (!op.isVreg() || justStored(op.vregId)) return false;
+    auto a = alloc_.getAlloc(op.vregId);
+    int nb = a.type == ir::Type::I32 ? 4 : (a.type == ir::Type::I16 || a.type == ir::Type::PTR) ? 2 : 0;
+    if (!nb) return false;
+    for (int k = 0; k < nb; k++) {
+        std::string b = directByte(op, k);
+        if (b.empty() || b[0] == '#') return false;
+    }
+    return true;
+}
+
 std::map<uint32_t, IRCodeGen::ByteJoin> IRCodeGen::findByteJoins(const ir::Function& fn) const {
     std::map<uint32_t, ByteJoin> found;
     auto width = [](ir::Type t) {
@@ -2451,11 +2465,8 @@ std::string IRCodeGen::pruneDeadPoolStores(const std::string& text) {
         addr = poolAddr(ln.operand, 0, &end);
         return addr >= 0 && end == ln.operand.size() ? w : 0;
     };
-    std::set<int> read;
-    for (const auto& ln : lines) {
-        if (ln.mn.empty()) continue;
-        int a;
-        if (plainStore(ln, a)) continue;
+    // the pool bytes a line reads (false: it reaches bytes it does not name)
+    auto readsOf = [&](const Line& ln, std::set<int>& rd) -> bool {
         bool indirect = ln.operand.find('(') != std::string::npos;
         // (anything else, a simulated op on a float or a long: up to 8 bytes)
         int w = indirect ? 2 : byteOps.count(ln.mn) ? 1 : wordOps.count(ln.mn) ? 2 : 8;
@@ -2468,18 +2479,59 @@ std::string IRCodeGen::pruneDeadPoolStores(const std::string& text) {
             bool indexed = !indirect && end < ln.operand.size() && ln.operand[end] == ',';
             size_t h = ln.operand.find_last_not_of("<> ", i ? i - 1 : 0);
             bool immediate = i > 0 && h != std::string::npos && ln.operand[h] == '#';
-            if (indexed || immediate || ln.mn == ".") return text;
-            for (int k = 0; k < w; k++) read.insert(v + k);
+            if (indexed || immediate || ln.mn == ".") return false;
+            for (int k = 0; k < w; k++) rd.insert(v + k);
             i = end - 1;
         }
-    }
-    std::string out;
+        return true;
+    };
+    std::set<int> read;
     for (const auto& ln : lines) {
-        int a, w = ln.mn.empty() ? 0 : plainStore(ln, a);
+        if (ln.mn.empty()) continue;
+        int a;
+        if (plainStore(ln, a)) continue;
+        if (!readsOf(ln, read)) return text;
+    }
+    std::vector<bool> drop(lines.size(), false);
+    for (size_t i = 0; i < lines.size(); i++) {
+        int a, w = lines[i].mn.empty() ? 0 : plainStore(lines[i], a);
         bool dead = w > 0;
         for (int k = 0; dead && k < w; k++) if (read.count(a + k)) dead = false;
-        if (dead) continue;
-        out += ln.text;
+        if (dead) drop[i] = true;
+    }
+    // A store whose bytes are all stored again further on in the same
+    // straight-line code, none read before: dead (a temp computed, stored
+    // to a global and overwritten: sta $30 / sta g / lda #5 / sta $30; #293).
+    // Labels, branches, calls and simulated instructions end the run.
+    for (size_t i = 0; i < lines.size(); i++) {
+        int a, w = drop[i] || lines[i].mn.empty() ? 0 : plainStore(lines[i], a);
+        if (!w) continue;
+        std::set<int> pending;
+        for (int k = 0; k < w; k++) pending.insert(a + k);
+        for (size_t j = i + 1; j < lines.size() && !pending.empty(); j++) {
+            const Line& ln = lines[j];
+            if (ln.mn.empty()) continue;
+            const std::string& m = ln.mn;
+            if (m == "." || m[0] == 'b' || m == "jmp" || m == "jsr" || m == "rts" || m == "rti" ||
+                m == "brk" || m.find('.') != std::string::npos)
+                break;
+            int b, wb = plainStore(ln, b);
+            if (wb) {
+                for (int k = 0; k < wb; k++) pending.erase(b + k);
+                continue;
+            }
+            std::set<int> rd;
+            if (!readsOf(ln, rd)) break;
+            bool hit = false;
+            for (int x : pending) if (rd.count(x)) { hit = true; break; }
+            if (hit) break;
+        }
+        if (pending.empty()) drop[i] = true;
+    }
+    std::string out;
+    for (size_t i = 0; i < lines.size(); i++) {
+        if (drop[i]) continue;
+        out += lines[i].text;
         out += '\n';
     }
     return out;
@@ -2583,11 +2635,62 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             for (const auto& in : blk.insts)
                 if (in.resultType == ir::Type::F32 || in.src1.type == ir::Type::F32 || in.src2.type == ir::Type::F32)
                     floats = true;
-        const auto& entry = fn.blocks[0].insts;
-        size_t firstCall = entry.size();
-        for (size_t k = 0; k < entry.size(); k++)
-            if (entry[k].op == ir::Op::CALL || entry[k].op == ir::Op::CALL_VOID ||
-                entry[k].op == ir::Op::CALL_INDIRECT || entry[k].op == ir::Op::ASM_INLINE) { firstCall = k; break; }
+        // Each block's first call, and the blocks a call can reach (after a
+        // call the parameter block holds that call's arguments): a parameter
+        // used only where no call has run yet is used in place, not copied
+        // into storage by the entry thunk (Issue #292). (A computed goto:
+        // the entry block only, as its targets are not known.)
+        size_t nb = fn.blocks.size();
+        auto isCall = [](const ir::Inst& in) {
+            return in.op == ir::Op::CALL || in.op == ir::Op::CALL_VOID ||
+                   in.op == ir::Op::CALL_INDIRECT || in.op == ir::Op::ASM_INLINE;
+        };
+        std::vector<size_t> firstCall(nb);
+        std::map<std::string, size_t> blockAt;
+        bool indirect = false;
+        for (size_t b = 0; b < nb; b++) {
+            const auto& insts = fn.blocks[b].insts;
+            firstCall[b] = insts.size();
+            for (size_t k = 0; k < insts.size(); k++) if (isCall(insts[k])) { firstCall[b] = k; break; }
+            blockAt[fn.blocks[b].label] = b;
+            for (const auto& in : insts) if (in.op == ir::Op::BR_INDIRECT || in.op == ir::Op::ADDR_LABEL) indirect = true;
+        }
+        std::vector<bool> afterCall(nb, false);   // entered after a call may have run
+        if (indirect) {
+            for (size_t b = 1; b < nb; b++) afterCall[b] = true;
+        } else {
+            auto succ = [&](size_t b) {
+                std::vector<size_t> out;
+                const auto& insts = fn.blocks[b].insts;
+                auto add = [&](const ir::Operand& o) {
+                    if (o.kind != ir::OperandKind::LABEL) return;
+                    auto it = blockAt.find(o.name);
+                    if (it != blockAt.end()) out.push_back(it->second);
+                };
+                if (insts.empty()) { if (b + 1 < nb) out.push_back(b + 1); return out; }
+                const auto& t = insts.back();
+                if (t.op == ir::Op::BR) add(t.src1);
+                else if (t.op == ir::Op::BR_COND) { add(t.dest); add(t.src2); }
+                else if (t.op == ir::Op::SWITCH) {
+                    add(t.src2);
+                    for (const auto& sc : t.switchCases) {
+                        auto it = blockAt.find(sc.second);
+                        if (it != blockAt.end()) out.push_back(it->second);
+                    }
+                } else if (t.op != ir::Op::RET && t.op != ir::Op::RET_VOID && b + 1 < nb) out.push_back(b + 1);
+                return out;
+            };
+            std::vector<size_t> work;
+            for (size_t b = 0; b < nb; b++)
+                if (firstCall[b] < fn.blocks[b].insts.size()) work.push_back(b);
+            std::vector<bool> seen(nb, false);
+            while (!work.empty()) {
+                size_t b = work.back(); work.pop_back();
+                if (seen[b]) continue;
+                seen[b] = true;
+                for (size_t n : succ(b)) { afterCall[n] = true; if (!seen[n]) work.push_back(n); }
+            }
+        }
         int zpOff = (int)zeroPageStart_ + 8;
         for (uint32_t i = 0; i < fn.paramTypes.size() && !floats; i++) {
             int ps = ir::typeSize(fn.paramTypes[i]);
@@ -2605,7 +2708,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 for (size_t k = 0; k < fn.blocks[b].insts.size() && ok; k++)
                     if (uses(fn.blocks[b].insts[k])) {
                         used = true;
-                        if (b != 0 || k >= firstCall) ok = false;
+                        if (afterCall[b] || k >= firstCall[b]) ok = false;
                     }
             if (ok && used) zpParams_[i] = zpOff;
             zpOff += ps < 2 ? 2 : ps;
@@ -3001,6 +3104,13 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                         if (a.isVreg() && a.vregId == vid) {
                             if ((inst.op == ir::Op::CALL || inst.op == ir::Op::CALL_VOID) &&
                                 deadCallArgSlots.count(vid)) {
+                                hasUse = true;
+                            } else if ((inst.op == ir::Op::CALL || inst.op == ir::Op::CALL_VOID) &&
+                                       inst.callConv == ir::CallConv::ZP && !fn.localSlotVregs.count(vid) &&
+                                       a.type != ir::Type::F32) {
+                                // an immediate stored straight into the parameter
+                                // block (loadOperand), not a register-pool temp
+                                // copied there (Issue #290)
                                 hasUse = true;
                             } else {
                                 canSuppress = false;
@@ -6778,6 +6888,13 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                     // I8: load A only (no ldx #0), Z set from lda — branch directly
                     loadOperandA(inst.src1);
                     if (!trueTarget.empty()) emit("bne " + trueTarget);
+                } else if (directTest(inst.src1)) {
+                    // a value in memory: its bytes OR-ed (lda b0 / ora b1 ...,
+                    // not loaded into A/X/Y/Z and OR-ed through scratch: #295)
+                    int nb = alloc.type == ir::Type::I32 ? 4 : 2;
+                    emit("lda " + directByte(inst.src1, 0));
+                    for (int k = 1; k < nb; k++) emit("ora " + directByte(inst.src1, k));
+                    if (!trueTarget.empty()) emit("bne " + trueTarget);
                 } else {
                     // I16: need proper nonzero test.
                     // loadOperand loads A then X, but Z from ldx only tests high byte.
@@ -6845,7 +6962,8 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                         zpOff += slot;
                         continue;
                     }
-                    loadOperand(arg);
+                    if (arg.type == ir::Type::I8) loadOperandA(arg);   // (the slot's low byte only)
+                    else loadOperand(arg);
                     if (arg.type == ir::Type::I32) {
                         emit("stq " + zp(0));
                     } else if (arg.type != ir::Type::I8) {

@@ -6,6 +6,22 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### cc45
 
+- **Smaller code** (Issues #290, #292, #293, #295; vim2: 72,087 → 67,720
+  bytes, -6%):
+  - constant arguments are stored straight into the parameter block (`lda
+    #'d' / sta $10`), not computed into a register-pool temp, truncated and
+    copied there: a `ZEXT`/`SEXT`/`TRUNC` of a constant is a constant, and a
+    constant used as a ZP-convention argument is not materialized (#290);
+  - the arms of a ternary compute into its result (no temp copied to it),
+    and a store to a register-pool temp that the same straight-line code
+    stores again before reading is removed (#293);
+  - a 16/32-bit value in memory is tested by OR-ing its bytes in place
+    (`lda b0 / ora b1 / ora b2 / ora b3`), not loaded into A/X/Y/Z and OR-ed
+    through scratch; a test whose outcome is known on the path (`if (!block
+    && !len) ... else if (!block || ...)`) becomes a plain branch (#295);
+  - a parameter used only where no call has run yet stays where the caller
+    put it in the parameter block, also outside the entry block (the entry
+    thunk does not copy it) (#292).
 - **`break N`** (Issue #71): leaves the N innermost loops and `switch`es in
   one jump (`break 2;` out of two nested `for` loops), instead of a `goto`
   or a flag. A `switch` counts as a level, `repeat(N)` does not; more

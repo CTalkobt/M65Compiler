@@ -1267,6 +1267,21 @@ for bjmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: the code-size changes: constant arguments into the parameter block,
+# ternaries computed into their result, dead pool stores, known tests,
+# parameters used in place, wide zero tests (#290 #292 #293 #295)
+for csmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r csname csflags <<< "$csmode"
+    echo "Testing test_codesize_xemu.c ($csname)..."
+    compile_link_test "src/test-resources/test_codesize_xemu.c" "build/test/test_codesize_${csname}_xemu.prg" "$csflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_codesize_$csname" "build/test/test_codesize_${csname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_codesize_xemu.c $csname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: the scanf engine (stdlib_asm/scanf_core.s45) through sscanf:
 # conversions, widths, sets, sizes, suppression, counts, floats
 for scmode in "zp|" "stack|-fno-zpcall"; do
