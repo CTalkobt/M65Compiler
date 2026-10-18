@@ -39,6 +39,16 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### ln45
 
+- **Code overlays in two banks** (Issue #299): the overlay store was one
+  64 KB bank, so a program whose overlay code grew past it could not link.
+  `--overlay-store` now takes a second range in the next bank
+  (`--overlay-store=0x41800-0x4FFFF,0x50000-0x5FFFF`): each overlay goes
+  into the first range with room for it, those of the second into
+  `<program>.ov2` (`<PROGRAM>.OV2` on the disk), which `__ovl_init` loads
+  after the first (it loads each file to the address the file starts
+  with). `__ovl_store2_bank`/`_first`/`_last` give the second bank's part,
+  which `far_malloc` leaves alone. An overlay that fits nowhere is a link
+  error naming the range to add.
 - **The overlay description is no longer loaded** (Issue #298): ln45 wrote
   the description of the overlays and their symbols (for nm45 and
   objdump45) at the end of the overlay file, so the program loaded it into
