@@ -60,11 +60,11 @@ start: score = 10 : scale = 20 : store = 30 : sc = 5
   if hits = 5233 then poke 49349, 1
   call addto(5, 7)
   if total2 = 12 and spins = 3 then poke 49350, 1
-  ok = asc(p"A") = 97 and asc(p"a") = 65 and asc(s"A") = 1 and asc(@"a") = 97
+  ok = asc(p"A") = 193 and asc(p"a") = 65 and asc(s"A") = 1 and asc(@"a") = 97
   ok = ok and asc("a") = 65 and asc("{shift-a}") = 193 and asc("{cbm-a}") = 176
   ok = ok and len("{down*3}") = 3 and asc("{esc-x}") = 27 and asc(mid$("{80col}", 2)) = 88
 #pragma encoding petscii
-  ok = ok and asc("Q") = 113
+  ok = ok and asc("Q") = 209
 #pragma encoding upper
   if ok and asc("Q") = 81 then poke 49351, 1
   poke 49352, 170

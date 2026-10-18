@@ -353,6 +353,22 @@ else
     failed=$((failed + 1))
 fi
 
+# Character constants (Issue #300): capitals are $C1-$DA ('S' $D3), and a
+# constant is its byte read as a char: negative from $80 up when plain char
+# is signed (-fsigned-default without -funsigned-char), as in GCC
+cc_ok=1
+printf '_Static_assert('"'"'S'"'"' == 0xD3 && '"'"'s'"'"' == 0x53 && '"'"'\\xff'"'"' == 255, "u");\nint x;\n' > build/test/charconst.c
+$CC -c build/test/charconst.c -o build/test/charconst.o45 >/dev/null 2>&1 || cc_ok=0
+$CC -fsigned-default -funsigned-char -c build/test/charconst.c -o build/test/charconst.o45 >/dev/null 2>&1 || cc_ok=0
+printf '_Static_assert('"'"'S'"'"' == -45 && '"'"'s'"'"' == 0x53 && '"'"'\\xff'"'"' == -1, "s");\nint x;\n' > build/test/charconst.c
+$CC -fsigned-default -c build/test/charconst.c -o build/test/charconst.o45 >/dev/null 2>&1 || cc_ok=0
+if [ $cc_ok -eq 1 ]; then
+    echo "SUCCESS: character constants: capitals \$C1-\$DA, signed with a signed char"
+else
+    echo "FAIL: character constants: capitals \$C1-\$DA, signed with a signed char"
+    failed=$((failed + 1))
+fi
+
 # break N (Issue #71): more levels than the loops/switches around it, 0 or
 # a level over 255 are errors; break 1 and a switch as a level are not
 bn_ok=1

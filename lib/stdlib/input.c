@@ -13,7 +13,7 @@ __regparm unsigned char key_pressed(unsigned char keycode);
 
 /* A code from the hardware queue ($D610: ASCII) as cc45 sees characters */
 static unsigned char from_queue(unsigned char c) {
-    if (c >= 0x41 && c <= 0x5A) return c + 0x20;   /* SHIFT+letter: 'A' is $61 in cc45 */
+    if (c >= 0x41 && c <= 0x5A) return c + 0x80;   /* SHIFT+letter: 'A' is $C1 in cc45 */
     if (c >= 0x61 && c <= 0x7A) return c - 0x20;   /* letter: 'a' is $41 */
     if (c == 0xA3) return 0x5C;                     /* pound */
     if (c == 0xAF) return 0x5E;                     /* up arrow */

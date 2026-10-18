@@ -12,7 +12,8 @@
  *   [6] printf to the screen returns the same count as sprintf
  *   [7] 792 cases (36 values from 1e-38 to 1e38, 22 formats: f e g F E G,
  *       precisions 0-20, #): a hash of all the text, compared with the one
- *       of the C formatter that pf_format.s45 replaced (8350 bytes)
+ *       of the C formatter that pf_format.s45 replaced (8350 bytes; its
+ *       capitals were $61-$7A, hashed in that form); %E/%G print cc45's 'E'
  *   [8] $AA sentinel
  */
 #include <stdio.h>
@@ -39,7 +40,8 @@ static const char *hfmts[] = {
     "%.0e", "%.2e", "%.12e", "%.0g", "%.1g", "%.3g", "%.10g", "%#g", "%#.0f", "%#.0e", "%#.3g"
 };
 
-/* h = h * 31 + c over every case's text and a '|' after it */
+/* h = h * 31 + c over every case's text and a '|' after it (capitals as
+ * $61-$7A, the form cc45 gave 'E' when the hash was taken) */
 static unsigned int hash_all(unsigned int *len) {
     unsigned int h = 0, i, j, n = 0;
     char *p;
@@ -48,6 +50,7 @@ static unsigned int hash_all(unsigned int *len) {
             sprintf(buf, hfmts[j], hvals[i]);
             for (p = buf; ; p++) {
                 unsigned char c = *p ? (unsigned char)*p : '|';
+                if (c >= 0xC1 && c <= 0xDA) c -= 0x60;
                 h = h * 31u + c;
                 n++;
                 if (!*p) break;
@@ -109,7 +112,8 @@ int main(void) {
     }
     {
         unsigned int len, h = hash_all(&len);
-        OUT[7] = h == 0xE4F6u && len == 8350u;
+        OUT[7] = h == 0xE4F6u && len == 8350u && is("1.500000E+00", "%E", 1.5) &&
+                 is("1E+20", "%G", 1.0e20) && buf[1] == 'E';
     }
     OUT[8] = 0xAA;
     return 0;

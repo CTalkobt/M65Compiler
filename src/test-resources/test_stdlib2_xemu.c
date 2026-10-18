@@ -9,7 +9,7 @@
  *   [5] utoa, ltoa (bases 2, 10, 16, 36; negative; LONG_MIN)
  *   [6] strtok (several delimiters, empty tokens skipped, NULL continues),
  *       strtok_r (two strings at once)
- *   [7] ctype: ispunct; 'A' (cc45 writes $61) is an upper-case letter
+ *   [7] ctype: ispunct; 'A' (cc45 writes $C1) is an upper-case letter
  *   [8] atexit: handlers run in reverse order when main returns (or, built
  *       with -DVIA_EXIT, when exit() is called)
  *   [9] $AA sentinel (written by the last handler)

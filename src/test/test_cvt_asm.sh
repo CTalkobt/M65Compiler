@@ -276,7 +276,7 @@ $CA45 "$T/e.ka.s45" -o "$T/e.ka.bin" >/dev/null 2>&1
 $CVT -t acme "$T/e.s45" -o "$T/e.out.acme" 2>/dev/null
 [ "$(xxd -p "$T/e.acme.bin")" = "4869c849480900a961" ] &&
     [ "$(xxd -p "$T/e.ka.bin")" = "4809c849a941" ] &&
-    grep -q '!byte \$68, \$49' "$T/e.out.acme" && grep -q 'lda #\$41' "$T/e.out.acme" &&
+    grep -q '!byte \$C8, \$49' "$T/e.out.acme" && grep -q 'lda #\$41' "$T/e.out.acme" &&
     pass "strings and 'c' constants keep their bytes (ACME !text/!pet/!scr, KickAssembler .encoding, ca45 .text)" ||
     fail "string encodings (acme $(xxd -p "$T/e.acme.bin"), kickassembler $(xxd -p "$T/e.ka.bin"): $(cat "$T/e.out.acme")"
 
