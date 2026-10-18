@@ -6,8 +6,10 @@
  * PETSCII character ranges:
  *   Digits    '0'-'9' = $30-$39
  *   Lowercase 'a'-'z' = $41-$5A  (PETSCII default — unshifted)
- *   Uppercase 'A'-'Z' = $61-$7A  (what cc45 makes of 'A' in C source)
- *                     and $C1-$DA  (shifted keys from the keyboard)
+ *   Uppercase 'A'-'Z' = $C1-$DA  (what cc45 makes of 'A' in C source, and
+ *                                 BASIC's ASC("A"))
+ *                     and $61-$7A  (the other form of the capitals, shown
+ *                                 the same: accepted as upper case too)
  *   Space     $20
  *   CR        $0D  (PETSCII carriage return / Enter)
  *   Tab       $09  (not standard PETSCII, included for compatibility)
@@ -91,7 +93,7 @@ static inline int ispunct(int c) {
     if (c >= 0x30 && c < 0x3A) return 0;
     /* Reject lowercase $41-$5A */
     if (c >= 0x41 && c < 0x5B) return 0;
-    /* Reject uppercase $61-$7A ('A' in a cc45 literal) and $C1-$DA */
+    /* Reject uppercase $C1-$DA ('A' in a cc45 literal) and $61-$7A */
     if (c >= 0x61 && c < 0x7B) return 0;
     if (c >= 0xC1 && c < 0xDB) return 0;
     /* Everything else: $21-$2F, $3A-$40, $5B-$C0, $DB-$FF */
@@ -106,8 +108,8 @@ static inline int toupper(int c) {
     return c;
 }
 
-/* Inlined lowercase conversion: uppercase $61-$7A ('A' in a cc45 literal)
- * or $C1-$DA (shifted keys) → lowercase $41-$5A */
+/* Inlined lowercase conversion: uppercase $C1-$DA ('A' in a cc45 literal)
+ * or $61-$7A → lowercase $41-$5A */
 static inline int tolower(int c) {
     if (c >= 0x61 && c < 0x7B) {
         return c - 0x20;

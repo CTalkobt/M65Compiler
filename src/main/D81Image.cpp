@@ -75,18 +75,12 @@ TrackSector D81Image::allocateNextFree(int nearTrack) {
 }
 
 int D81Image::freeSectors() const {
-    if (!bamOps_) return 0;
-    int count = 0;
-
-    // Count free sectors from BAM sector 1 (tracks 1-40)
-    const uint8_t* bam1 = sectorData(DIR_TRACK, BAM_SECTOR_1);
-    if (bam1) count += bamOps_->countFreeSectors(bam1);
-
-    // Count free sectors from BAM sector 2 (tracks 41-80)
-    const uint8_t* bam2 = sectorData(DIR_TRACK, BAM_SECTOR_2);
-    if (bam2) count += bamOps_->countFreeSectors(bam2);
-
-    return count;
+    // as DOS counts BLOCKS FREE: not the directory track
+    int n = 0;
+    for (int t = 1; t <= 80; t++)
+        for (int s = 0; t != DIR_TRACK && s < 40; s++)
+            if (isSectorFree(t, s)) n++;
+    return n;
 }
 
 // ============================================================================

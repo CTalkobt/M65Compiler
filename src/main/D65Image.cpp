@@ -89,17 +89,12 @@ TrackSector D65Image::allocateNextFree(int nearTrack) {
 }
 
 int D65Image::freeSectors() const {
-    int count = 0;
-    int bamSectors[] = {BAM_S0_SEC1, BAM_S0_SEC2, BAM_S1_SEC1, BAM_S1_SEC2};
-    int trackCounts[] = {40, 40, 40, 40}; // tracks per BAM sector (81 and 122 have no entry)
-    for (int b = 0; b < 4; b++) {
-        const uint8_t* bam = sectorData(DIR_TRACK, bamSectors[b]);
-        if (!bam) continue;
-        for (int t = 0; t < trackCounts[b]; t++) {
-            count += bam[0x10 + t * 6];
-        }
-    }
-    return count;
+    // as DOS counts BLOCKS FREE: not the directory track (as the 1581's)
+    int n = 0;
+    for (int t = 1; t <= TRACKS; t++)
+        for (int s = 0; t != DIR_TRACK && s < SECTORS_PER_TRACK; s++)
+            if (isSectorFree(t, s)) n++;
+    return n;
 }
 
 // ============================================================================

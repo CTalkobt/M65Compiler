@@ -15,7 +15,7 @@
 ; l ll L j z t (ll stores 8 bytes, the upper 4 the sign). %x also accepts
 ; CBM's '$' prefix. Letters are digits in any case and in either PETSCII
 ; letter range. The format's characters are PETSCII as cc45 writes C text:
-; 'd' is $44, 'D' $64.
+; 'd' is $44, 'D' $C4.
 ;
 ; Returns the number of items assigned, or EOF when the input ended before
 ; the first conversion. The callbacks are __fastcall__ (scanf_core.h) and
@@ -210,7 +210,9 @@ proc ___vscanf_core
     bra @lenmod
 @lm_big:
     ldx #4
-    cmp #$6C            ; 'L'
+    cmp #$CC            ; 'L'
+    beq @lm_set
+    cmp #$6C            ; (the other form of 'L')
     beq @lm_set
     cmp #$4A            ; 'j'
     beq @lm_set

@@ -96,16 +96,13 @@ TrackSector D71Image::allocateNextFree(int nearTrack) {
 }
 
 int D71Image::freeSectors() const {
-    int count = 0;
-    for (int side = 0; side < 2; side++) {
-        int bamTrack = (side == 0) ? BAM_TRACK_SIDE0 : BAM_TRACK_SIDE1;
-        const uint8_t* bam = sectorData(bamTrack, BAM_SECTOR);
-        if (!bam) continue;
-        for (int t = 0; t < 35; t++) {
-            count += bam[0x04 + t * 4];
-        }
-    }
-    return count;
+    // as DOS counts BLOCKS FREE: not the directory track nor side 1's BAM
+    // track (53), which the 1571 keeps for itself
+    int n = 0;
+    for (int t = 1; t <= 70; t++)
+        for (int s = 0; t != DIR_TRACK && t != BAM_TRACK_SIDE1 && s < sectorsOnTrack(t); s++)
+            if (isSectorFree(t, s)) n++;
+    return n;
 }
 
 // ============================================================================

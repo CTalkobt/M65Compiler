@@ -334,7 +334,7 @@ Token Lexer::lexIdentifierOrKeyword() {
     // Wide char/string prefix: L'x' or L"str" → downgrade to regular char/string
     if (value == "L" && (peek() == '\'' || peek() == '"')) {
         if (peek() == '"') { Token t = lexString(false); t.wide = true; return t; }
-        else return lexChar(charEncoding_ == 1, charEncoding_ == 2);
+        else return lexCharValue(charEncoding_ == 1, charEncoding_ == 2);   // (a wchar_t: not signed as a char)
     }
 
     return {TokenType::IDENTIFIER, value, startLine, startCol, sourceFile};
@@ -520,6 +520,12 @@ static uint8_t toScreencode(uint8_t u) {
 }
 
 Token Lexer::lexChar(bool ascii, bool screen) {
+    Token t = lexCharValue(ascii, screen);
+    if (t.type == TokenType::INTEGER_LITERAL && !t.wide) t.charConst = true;
+    return t;
+}
+
+Token Lexer::lexCharValue(bool ascii, bool screen) {
     int startLine = line;
     int startCol = column;
     get(); // skip opening '
@@ -544,7 +550,7 @@ Token Lexer::lexChar(bool ascii, bool screen) {
         // Convert to PETSCII to match .text string encoding
         uint8_t petscii = (uint8_t)c;
         if (c >= 'a' && c <= 'z') petscii = c - 32;
-        else if (c >= 'A' && c <= 'Z') petscii = c + 32;
+        else if (c >= 'A' && c <= 'Z') petscii = c + 128;   // $C1-$DA, as BASIC's ASC("A")
         return {TokenType::INTEGER_LITERAL, std::to_string((int)petscii), startLine, startCol, sourceFile};
     }
     // ASCII mode: preserve raw byte value

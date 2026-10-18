@@ -24,10 +24,10 @@ echo "--- Test: string escapes and encodings ---"
 asm_bytes '    .text "say \"hi\""'      "5341592022484922" ".text with escaped quotes"
 asm_bytes '    .text "a\nb\r"'          "410d420a"           ".text \\n is \$0D, \\r is \$0A"
 asm_bytes '    .ascii "a\nb\r"'         "610a620d"           ".ascii keeps C newline values"
-asm_bytes '    .text "\x41\101A\\"'     "4141615c"           ".text \\x and octal escapes are exact"
+asm_bytes '    .text "\x41\101A\\"'     "4141c15c"           ".text \\x and octal escapes are exact"
 asm_bytes '    .text s"hi\n"'           "08090d"             "s\"...\" screen codes with escape"
 asm_bytes '    .text "second"'          "5345434f4e44"       "string starting with s is not a prefix"
-asm_bytes "    .byte 'A', s'A', p'a', 65" "61014141"         ".byte accepts plain and prefixed chars"
+asm_bytes "    .byte 'A', s'A', p'a', 65" "c1014141"         ".byte accepts plain and prefixed chars"
 
 printf '* = $2000\n    .text "say "hi""\n' > $T.s45
 if $AS $T.s45 -o $T.bin 2>&1 | grep -q "single string argument"; then

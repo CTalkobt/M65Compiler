@@ -131,7 +131,7 @@ A string's encoding is chosen by a prefix touching its opening quote, as in ca45
 | String | Encoding | `"Hello"` is stored as |
 |--------|----------|------------------------|
 | `"…"` | the default (`upper`, or `--encoding` / `#pragma encoding`) | |
-| `p"…"` | PETSCII as ca45 and cc45 map it: `a`-`z` → `$41`-`$5A`, `A`-`Z` → `$61`-`$7A` — mixed case, for the lower-case character set | `$68 $45 $4C $4C $4F` |
+| `p"…"` | PETSCII as ca45 and cc45 map it: `a`-`z` → `$41`-`$5A`, `A`-`Z` → `$C1`-`$DA` (as BASIC's `ASC("A")`) — mixed case, for the lower-case character set | `$C8 $45 $4C $4C $4F` |
 | `s"…"` | screen codes (ca45's `s"…"`): letters `$01`-`$1A`, `@` `$00` | `$08 $05 $0C $0C $0F` |
 | `a"…"`, `@"…"` | ASCII, as typed | `$48 $65 $6C $6C $6F` |
 | `upper` (default) | PETSCII with letters folded: either case → `$41`-`$5A` (upper case on the default screen) | `$48 $45 $4C $4C $4F` |

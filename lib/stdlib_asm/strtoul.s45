@@ -6,8 +6,8 @@
 ; Leading white space, a sign, a 0x prefix (base 0 or 16, when a hex digit
 ; follows it), base 0 meaning 8 after a leading 0 and 10 otherwise. Letters
 ; are digits 10-35 in either case and in any of the encodings a string can
-; have: cc45 literals ("ff" $46, "FF" $66), ASCII and shifted PETSCII
-; ($C1-$DA). *endptr (when endptr is not NULL) is past the last digit, or
+; have: cc45 literals ("ff" $46, "FF" $C6), ASCII and the other form of
+; PETSCII capitals ($61-$7A). *endptr (when endptr is not NULL) is past the last digit, or
 ; nptr without any. A base other than 0 and 2-36 gives 0, errno EINVAL.
 ; strtoul: a value that does not fit gives ULONG_MAX, errno ERANGE; a
 ; leading '-' negates the result (as C specifies). strtol: outside

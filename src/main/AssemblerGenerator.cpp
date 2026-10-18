@@ -72,7 +72,7 @@ static void forgetUnmodelledEffects(MachineState& ms, const std::string& mnemoni
 
 static uint8_t toPetscii(char c) {
     if (c >= 'a' && c <= 'z') return c - 32;
-    if (c >= 'A' && c <= 'Z') return c + 32;
+    if (c >= 'A' && c <= 'Z') return c + 128;   // $C1-$DA, as BASIC's ASC("A")
     return (uint8_t)c;
 }
 

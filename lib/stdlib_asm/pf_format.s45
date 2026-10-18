@@ -13,8 +13,9 @@
 ; digits the conversion keeps and laid out as C's %f, %e and %g with the
 ; precision (default 6, at most 20) and the # flag. Every count fits a byte.
 ;
-; Letters are PETSCII: e f g = $45 $46 $47, E F G = $65 $66 $67 (the low
-; nibble is the conversion, bit 5 upper case).
+; Letters are PETSCII: e f g = $45 $46 $47, E F G = $C5 $C6 $C7 (the low
+; nibble is the conversion; bit 7, or bit 5 for the other form of the
+; capitals, $65 $66 $67, upper case: an E is then printed as $C5).
 
     .cpu 45gs02
 
@@ -37,7 +38,7 @@ pf_nd:    .res 1        ; how many (0: the value is 0)
 pf_exp:   .res 1        ; signed: value = 0.d0 d1 ... x 10^pf_exp
 pf_prec:  .res 1
 pf_kind:  .res 1        ; 5 e, 6 f, 7 g
-pf_up:    .res 1        ; $20: upper case
+pf_up:    .res 1        ; $80: upper case
 pf_alt:   .res 1
 pf_strip: .res 1        ; %g without #: trailing zeros go
 pf_nz:    .res 1        ; the value is not 0 (its exponent byte)
@@ -64,7 +65,10 @@ proc ___pf_format
     lda $11
     sta pf_buf+1
     lda $17
-    and #$20
+    and #$A0                ; $C5 or $65: upper case
+    beq @lower
+    lda #$80
+@lower:
     sta pf_up
     lda $17
     and #$0F

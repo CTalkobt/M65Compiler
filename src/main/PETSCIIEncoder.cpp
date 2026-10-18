@@ -200,7 +200,7 @@ std::vector<uint8_t> PETSCIIEncoder::encodeAs(const std::string& text, char enco
         uint8_t c = (uint8_t)text[i];
         if (encoding == 'p') {                 // ca45 toPetscii
             if (c >= 'a' && c <= 'z') c -= 32;
-            else if (c >= 'A' && c <= 'Z') c += 32;
+            else if (c >= 'A' && c <= 'Z') c += 128;
         } else if (encoding == 's') {          // ca45 toScreencode
             if (c == 0x40) c = 0;
             else if (c >= 0x41 && c <= 0x5A) c -= 0x40;

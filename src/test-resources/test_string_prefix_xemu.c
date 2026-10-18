@@ -5,7 +5,7 @@
  * literals follow the pragma.
  *
  * Results at $C0C0 (01 = pass):
- *   [0] p"..." / p'x': PETSCII ('a' $41, 'A' $61)
+ *   [0] p"..." / p'x': PETSCII ('a' $41, 'A' $C1)
  *   [1] s"..." / s'x': screen codes (@ 0, A-Z and a-z 1-26, [\]^_ 27-31)
  *   [2] a"..." / a'x' and @"...": raw ASCII
  *   [3] a prefix overrides #pragma encoding (in functions)
@@ -53,8 +53,8 @@ static int a_fn(int a) { int s = a * 2; return s; }
 #define STR(x) #x
 
 static int t_petscii(void) {
-    static const unsigned char want[] = { 0x41, 0x62, 0x40, 0x31, 0x5A, 0x7A };
-    return same(p"aB@1zZ", want, 6) && p'a' == 0x41 && p'A' == 0x61 && p'1' == 0x31 &&
+    static const unsigned char want[] = { 0x41, 0xC2, 0x40, 0x31, 0x5A, 0xDA };
+    return same(p"aB@1zZ", want, 6) && p'a' == 0x41 && p'A' == 0xC1 && p'1' == 0x31 &&
            p'a' == 'a' && p'Z' == 'Z';
 }
 
@@ -72,13 +72,13 @@ static int t_ascii(void) {
 
 static int t_globals(void) {
     static const unsigned char ws[] = { 1, 2, 0 };
-    static const unsigned char wp[] = { 0x41, 0x62 };
+    static const unsigned char wp[] = { 0x41, 0xC2 };
     static const unsigned char wa[] = { 0x61, 0x42 };
     static const unsigned char wx[] = { 24, 25, 26 };
     return same(g_s, ws, 2) && g_s[2] == 0 && same(g_p, wp, 2) && same(g_a, wa, 2) &&
            g_tbl[0][0] == 3 && g_tbl[1][0] == 0x43 && g_tbl[2][0] == 0x63 && g_tbl[3][0] == 0x43 &&
            same(g_arr, wx, 3) && sizeof(g_arr) == 4 &&
-           (unsigned char)g_parr[0] == 0x61 && (unsigned char)g_parr[1] == 0x42 && g_parr[2] == 0;
+           (unsigned char)g_parr[0] == 0xC1 && (unsigned char)g_parr[1] == 0x42 && g_parr[2] == 0;
 }
 
 static int t_const(void) {
@@ -96,13 +96,13 @@ static int t_names(void) {
     ok = ok && s == 7 && a == 8;
     /* concatenation: the first literal's encoding is used */
     static const unsigned char w1[] = { 1, 2 };
-    static const unsigned char w2[] = { 0x61, 0x62 };
+    static const unsigned char w2[] = { 0xC1, 0xC2 };
     static const unsigned char w3[] = { 0x41, 0x62 };
     ok = ok && same(s"A" "B", w1, 2) && same("A" s"B", w2, 2) && same(a"A" "b", w3, 2);
     /* through macros: the prefix stays with the literal */
     ok = ok && ID(s"A")[0] == 1 && ID(s'B') == 2;
     const char *st = STR(s"A");          /* "s\"A\"" (PETSCII text) */
-    ok = ok && st[0] == 0x53 && st[1] == '"' && st[2] == 0x61 && st[4] == 0;
+    ok = ok && st[0] == 0x53 && st[1] == '"' && st[2] == 0xC1 && st[4] == 0;
     return ok;
 }
 
@@ -120,11 +120,11 @@ enum { E_SCR = 'A' };
 static const char g_chr_scr = 'z';
 static int t_chr_screen(void) {
     char c = 'b';
-    return E_SCR == 1 && g_chr_scr == 26 && c == 2 && '@' == 0 && p'A' == 0x61;
+    return E_SCR == 1 && g_chr_scr == 26 && c == 2 && '@' == 0 && p'A' == 0xC1;
 }
 static int t_pragma_screen(void) {
     static const unsigned char w0[] = { 1, 2 };
-    static const unsigned char wp[] = { 0x61, 0x42 };
+    static const unsigned char wp[] = { 0xC1, 0x42 };
     static const unsigned char wa[] = { 0x41, 0x62 };
     return same("AB", w0, 2) && same(p"Ab", wp, 2) && same(a"Ab", wa, 2) && same(s"AB", w0, 2);
 }
@@ -140,17 +140,17 @@ static int t_chr_ascii(void) {
 }
 static int t_pragma_ascii(void) {
     static const unsigned char w0[] = { 0x41, 0x62 };
-    static const unsigned char wp[] = { 0x61, 0x42 };
+    static const unsigned char wp[] = { 0xC1, 0x42 };
     static const unsigned char ws[] = { 1, 2 };
     return same("Ab", w0, 2) && same(p"Ab", wp, 2) && same(s"Ab", ws, 2);
 }
 const char *g_pragma_p = p"Ab";   /* global pointer under the ascii pragma */
 const char *g_pragma_d = "Ab";
 #pragma encoding petscii
-static int t_chr_petscii(void) { return 'A' == 0x61 && 'a' == 0x41 && '\n' == 0x0D; }
+static int t_chr_petscii(void) { return 'A' == 0xC1 && 'a' == 0x41 && '\n' == 0x0D; }
 
 int main(void) {
-    static const unsigned char wp[] = { 0x61, 0x42 };
+    static const unsigned char wp[] = { 0xC1, 0x42 };
     static const unsigned char wd[] = { 0x41, 0x62 };
     OUT[0] = t_petscii();
     OUT[1] = t_screen();

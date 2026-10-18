@@ -812,12 +812,12 @@ std::unique_ptr<ExprAST> parseExprAST(const std::vector<AssemblerToken>& tokens,
             } else if (prefix == 'p' || prefix == 'P') {
                 // PETSCII conversion
                 if (ch >= 'a' && ch <= 'z') val = ch - 32;
-                else if (ch >= 'A' && ch <= 'Z') val = ch + 32;
+                else if (ch >= 'A' && ch <= 'Z') val = ch + 128;
                 else val = (uint8_t)ch;
             } else {
                 // Default: PETSCII conversion (same as .text)
                 if (ch >= 'a' && ch <= 'z') val = ch - 32;
-                else if (ch >= 'A' && ch <= 'Z') val = ch + 32;
+                else if (ch >= 'A' && ch <= 'Z') val = ch + 128;
                 else val = (uint8_t)ch;
             }
             return std::make_unique<ConstantNode>(val);

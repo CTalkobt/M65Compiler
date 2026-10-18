@@ -3357,6 +3357,9 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
             valStr.pop_back();
         }
         int64_t val = (int64_t)std::stoull(valStr, nullptr, 0);
+        // a character constant is the value of its byte as a char: negative
+        // from $80 up when plain char is signed ('S' is $D3: -45)
+        if (litToken.charConst && val >= 0x80 && val <= 0xFF && signedDefault && !unsignedChar) val -= 0x100;
         auto lit = std::make_unique<IntegerLiteral>(val);
         if (isUnsigned && !isLong && (uint64_t)val > 0xFFFF) isLong = true; // 0x80000001U
         if (isLong) {

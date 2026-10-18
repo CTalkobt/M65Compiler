@@ -6,12 +6,36 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### cc45
 
+- **Capital letters are `$C1`-`$DA`** (incompatible; with Issue #300): in
+  PETSCII literals (the default encoding and `p"…"`), cc45 and ca45 (`.text`,
+  `'A'`) wrote `A`-`Z` as `$61`-`$7A`; now `$C1`-`$DA`, BASIC's `ASC("A")`
+  (193) and what disk45's `-p` writes, so a string compiled by cc45 and a
+  text file converted by disk45 have the same bytes. basic45's `p"…"`
+  follows. The two forms of the capitals look the same on screen, and the
+  ctype functions still take both; the library follows: printf's `%E`/`%G`
+  print cc45's `'E'`, scanf's `L` modifier, `<input.h>`'s SHIFT+letter
+  (`$C1`-`$DA`). Code comparing with `$61`-`$7A` by number needs changing.
+  A character constant is now its byte read as a `char`: negative from
+  `$80` up when plain `char` is signed (`-fsigned-default`; `'\xff'` is -1,
+  as in GCC), so `c == 'S'` still holds for a signed `char c`.
 - **Shorter parameter thunks** (Issue #292): a ZP-convention SAC function's
   entry copied its parameters from `$10`-`$2F` into their storage with an
   `lda`/`sta` per byte (4-5 bytes each). It now calls `__zp_args` with a
   list of the parameters' sizes and homes (3 bytes a parameter), as the
   stack convention's thunks already did, when that is shorter. vim2: 614
   bytes smaller. The copy is a loop now: a few dozen cycles more per call.
+
+### disk45
+
+- **`-p` / `-a2p` / `-p2a`** (Issue #300): `|` became `$7D` (the byte of
+  `}`, so the round trip turned `|` into `}`) and `~` `$A8`; punctuation now
+  keeps its ASCII byte, as cc45 encodes it and the MEGA65's ASCII fonts
+  (`FONT A`/`B`) show it. Back to ASCII, both forms of the capitals
+  (`$61`-`$7A`, `$C1`-`$DA`) are `A`-`Z` (`$61`-`$7A` came back lower case),
+  and a `$00` byte no longer ends the file.
+- **BLOCKS FREE** (Issue #300): D64, D71, D81 and D65 counted the directory
+  track's free sectors (D81: 3196 on an empty disk, 36 too many, and 36
+  "free" on a full one); now as the drives count them (664, 1328, 3160).
 
 ### ln45
 

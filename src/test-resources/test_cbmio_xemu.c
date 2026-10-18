@@ -23,7 +23,7 @@
 
 #define OUT ((volatile unsigned char *)0xC0C0)
 
-/* cc45 writes 'A' as $61; the drive's directory listing uses the same bytes
+/* cc45 writes 'A' as $C1; the drive's directory listing uses the same bytes
  * for a name written from C */
 static unsigned char data[300];
 static unsigned char back[300];
