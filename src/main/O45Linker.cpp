@@ -2733,6 +2733,46 @@ bool O45Linker::generateOverlayStubs(std::string& errorMsg) {
                     if (!from.count(next)) { from[next] = cur; queue.push_back(next); }
             }
         }
+        // The address of __noescape data passed to a function that can call
+        // into another overlay (cc45 cc45.nesc.<caller>.<callee> = the line;
+        // "icall": through a pointer): while that overlay runs, the data is
+        // not in the region (Issue #301). A warning: the call may not reach
+        // it, or not while the pointer is used.
+        if (warnStream_)
+            for (const auto& input : objects_)
+                for (const auto& exp : input.obj.exports) {
+                    if (exp.name.rfind("cc45.nesc.", 0) != 0) continue;
+                    std::string rest = exp.name.substr(10);
+                    size_t dot = rest.find('.');
+                    if (dot == std::string::npos) continue;
+                    std::string caller = rest.substr(0, dot), callee = rest.substr(dot + 1);
+                    int home = ovlOf(caller);
+                    if (!home) continue;
+                    std::map<std::string, std::string> from;
+                    std::vector<std::string> queue;
+                    if (callee == "icall") { for (const auto& t : addrTaken) { from[t] = ""; queue.push_back(t); } }
+                    else { from[callee] = ""; queue.push_back(callee); }
+                    for (size_t q = 0; q < queue.size(); q++) {
+                        const std::string cur = queue[q];
+                        int o = ovlOf(cur);
+                        if (o && o != home) {
+                            std::string chain = cur;
+                            for (std::string pr = from[cur]; !pr.empty(); pr = from[pr]) chain = pr + " -> " + chain;
+                            *warnStream_ << "ln45: warning: " << input.filename << ", line " << exp.offset << ": '" << caller
+                                         << "' (code overlay " << ovlNames_[home - 1] << ") passes the address of "
+                                         << "__noescape data to " << (callee == "icall" ? std::string("a call through a pointer")
+                                                                                         : "'" + callee + "'")
+                                         << ", which can call into code overlay " << ovlNames_[o - 1] << " (" << chain
+                                         << "): the data is not in the region while that runs (__escape keeps a literal resident)"
+                                         << std::endl;
+                            break;
+                        }
+                        auto g = graph.find(cur);
+                        if (g == graph.end()) continue;
+                        for (const auto& next : g->second)
+                            if (!from.count(next)) { from[next] = cur; queue.push_back(next); }
+                    }
+                }
     }
     auto isCall = [](const std::vector<uint8_t>& body, uint32_t off, uint8_t type) {
         return type == R_WORD && off > 0 && off - 1 < body.size() &&

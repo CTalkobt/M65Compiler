@@ -1937,10 +1937,15 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
 // in two places or by nothing stays resident.
 void IRCodeGen::placeNoescape(const ir::Module& mod) {
     noescapeSeg_.clear();
+    noescapeCalls_.clear();
     if (!relocMode_) return;
     std::set<std::string> want;
     for (const auto& g : mod.globals) if (g.noescape && g.hasInitValue) want.insert(g.name);
-    if (want.empty()) return;
+    // (literals kept with the code: emitStrings' rule)
+    std::set<std::string> kept;
+    for (const auto& sl : mod.strings)
+        if (sl.noescape && (sl.far || !mod.overlay.empty())) kept.insert(sl.label);
+    if (want.empty() && kept.empty()) return;
     std::map<std::string, std::set<std::string>> places;   // object -> "code"/"far"
     for (const auto& fn : mod.functions) {
         if (deadCodeFunctions_.count(fn.name) || inlineOnlyFunctions_.count(fn.name)) continue;
@@ -1968,6 +1973,57 @@ void IRCodeGen::placeNoescape(const ir::Module& mod) {
         auto it = places.find(w);
         if (it != places.end() && it->second.size() == 1 && *it->second.begin() != "data")
             noescapeSeg_[w] = *it->second.begin();
+    }
+    for (const auto& [w, seg] : noescapeSeg_) kept.insert(w);
+
+    // Calls passing such an address (Issue #301): a pointer value is from
+    // kept data when computed from a kept label or such a value (its
+    // address, a copy, an offset, an element, a pointer loaded from a kept
+    // table, a local it was stored in). ln45 warns when the callee can reach
+    // another overlay, which would replace the data while it runs.
+    for (const auto& fn : mod.functions) {
+        if (deadCodeFunctions_.count(fn.name) || inlineOnlyFunctions_.count(fn.name)) continue;
+        std::set<uint32_t> from;
+        auto isKept = [&](const ir::Operand& o) {
+            return (o.kind == ir::OperandKind::GLOBAL && kept.count(o.name)) || (o.isVreg() && from.count(o.vregId));
+        };
+        for (bool changed = true; changed; ) {
+            changed = false;
+            for (const auto& b : fn.blocks)
+                for (const auto& in : b.insts) {
+                    if (in.op == ir::Op::CALL || in.op == ir::Op::CALL_VOID || in.op == ir::Op::CALL_INDIRECT) continue;
+                    bool k = isKept(in.src1) || isKept(in.src2);
+                    for (const auto& a : in.args) k = k || isKept(a);
+                    if (!k) continue;
+                    if (in.op == ir::Op::STORE) {
+                        // (stored in a local: the local holds it)
+                        if (in.src2.isVreg() && fn.localSlotVregs.count(in.src2.vregId) && isKept(in.src1) &&
+                            from.insert(in.src2.vregId).second) changed = true;
+                        continue;
+                    }
+                    if (!in.dest.isVreg()) continue;
+                    switch (in.op) {
+                        case ir::Op::ADDR_GLOBAL: case ir::Op::COPY: case ir::Op::ADD: case ir::Op::SUB:
+                        case ir::Op::ADDR_ELEM: case ir::Op::LOAD: case ir::Op::PHI:
+                            break;
+                        default:
+                            continue;
+                    }
+                    if (in.dest.type != ir::Type::PTR && in.dest.type != ir::Type::I16) continue;
+                    if (from.insert(in.dest.vregId).second) changed = true;
+                }
+        }
+        for (const auto& b : fn.blocks)
+            for (const auto& in : b.insts) {
+                if (in.op != ir::Op::CALL && in.op != ir::Op::CALL_VOID && in.op != ir::Op::CALL_INDIRECT) continue;
+                bool k = false;
+                for (const auto& a : in.args) k = k || isKept(a);
+                if (!k) continue;
+                std::string callee = in.op == ir::Op::CALL_INDIRECT || in.src1.kind != ir::OperandKind::GLOBAL
+                                   ? std::string("icall") : in.src1.name;
+                auto key = std::make_pair(fn.name, callee);
+                if (!noescapeCalls_.count(key)) noescapeCalls_[key] = in.loc.line;
+            }
     }
 }
 
@@ -1997,6 +2053,13 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
                     emit("cc45.noescape." + g.name + " = 1");
                 }
             }
+        }
+        // calls passing kept data's address: cc45.nesc.<caller>.<callee> =
+        // the call's line (ln45 warns when the callee reaches another overlay)
+        for (const auto& [k, line] : noescapeCalls_) {
+            std::string m = "cc45.nesc." + k.first + "." + k.second;
+            emit(".global " + m);
+            emit(m + " = " + std::to_string(std::max(line, 1)));
         }
         for (const auto& fn : mod.functions) {
             // Phase 91.3: Skip global declarations for dead code functions

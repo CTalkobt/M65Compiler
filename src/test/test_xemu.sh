@@ -1501,6 +1501,23 @@ else
     echo "FAIL: __noescape placement or errors ($(head -2 $nee 2>/dev/null))"
     failed=$((failed + 1))
 fi
+# the warning (#301 phase 2): overlay a passes kept data to msgf (resident,
+# calls vfmt in overlay fmt) and through a function pointer that can reach
+# fmt: two warnings; to show (resident), to a function of a itself, and
+# __escape literals: none
+ned=build/test/noescape_warn
+mkdir -p $ned
+for f in warn_a warn_fmt warn_main; do $CC -c src/test-resources/noescape/$f.c -o $ned/$f.o45 >/dev/null 2>&1; done
+$LD -basic -o $ned/w.prg $ned/warn_main.o45 $ned/warn_a.o45 $ned/warn_fmt.o45 $STDLIB > $ned/w.log 2>&1
+if [ "$(grep -c 'passes the address of __noescape data' $ned/w.log)" = 2 ] &&
+   grep -q "line 12: '_a_run' (code overlay a) passes the address of __noescape data to '_msgf', which can call into code overlay fmt (_msgf -> _vfmt)" $ned/w.log &&
+   grep -q "line 16: '_a_run' (code overlay a) passes the address of __noescape data to a call through a pointer" $ned/w.log; then
+    echo "SUCCESS: __noescape data passed to code that can reach another overlay is warned about"
+    passed=$((passed + 1))
+else
+    echo "FAIL: __noescape warning ($(head -3 $ned/w.log))"
+    failed=$((failed + 1))
+fi
 
 # Test: __far functions (cc45), kept in far memory and mapped into the window
 # when called (ln45 packs each file's far code into automatic overlays far1,
