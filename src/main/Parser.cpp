@@ -1141,6 +1141,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
         func->isVariadic = isVariadic;
         func->isAlwaysInline = pendingAlwaysInline_;
         func->alignment = takePendingAlign();
+        func->purity = pendingPurity_; pendingPurity_ = 0;
         pendingNoescape_ = false;   // (on a function: no effect)
         applyAlias(func->name);
         func->isNoInline = pendingNoInline_;
@@ -1173,7 +1174,8 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     func->isInline = isInline;
     func->isAlwaysInline = pendingAlwaysInline_;
     func->alignment = takePendingAlign();
-        pendingNoescape_ = false;   // (on a function: no effect)
+    func->purity = pendingPurity_; pendingPurity_ = 0;
+    pendingNoescape_ = false;   // (on a function: no effect)
     applyAlias(func->name);
     func->isNoInline = pendingNoInline_;
     pendingAlwaysInline_ = pendingNoInline_ = false;
@@ -2129,6 +2131,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
     while (tryParseAttribute()) {}
     decl->alignment = std::max(decl->alignment, takePendingAlign());
     decl->isNoescape = takePendingNoescape();
+    pendingPurity_ = 0;   // (on a variable: no effect)
     applyAlias(decl->name);
     applyVectorMode(decl->type, decl->pointerLevel, decl->isSigned);
     declTypes_[decl->name] = {decl->type, decl->pointerLevel, decl->isSigned};
@@ -3826,6 +3829,12 @@ bool Parser::tryParseAttribute() {
 
     // Parse comma-separated attribute list until ))
     while (peek().type != TokenType::CLOSE_PAREN && peek().type != TokenType::END_OF_FILE) {
+        // const (__const__) is a keyword: the function attribute (Issue #76)
+        if (peek().type == TokenType::CONST) {
+            advance();
+            pendingPurity_ = 2;
+            continue;
+        }
         if (peek().type == TokenType::IDENTIFIER) {
             std::string attr = advance().value;
             // Strip leading/trailing underscores for canonical form
@@ -3839,6 +3848,10 @@ bool Parser::tryParseAttribute() {
             // noescape on an object: keep it with its code (Issue #301); on
             // a parameter (Clang's meaning) it has no effect
             if (canonical == "noescape") pendingNoescape_ = true;
+            // pure / const on a function (Issue #76): no side effects / the
+            // result depends only on the arguments
+            if (canonical == "pure") pendingPurity_ = std::max(pendingPurity_, 1);
+            if (canonical == "const") pendingPurity_ = 2;
 
             // vector_size(N): a GCC vector of N bytes; mode(QI/HI/SI/...): an
             // integer of that width. Both apply to the declaration's type

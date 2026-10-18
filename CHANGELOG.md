@@ -6,6 +6,16 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### cc45
 
+- **Pure and const functions** (Issue #76): `__pure` / `__attribute__((pure))`
+  (no side effects) and `__attribute__((const))` (the result depends on the
+  arguments alone), on any declaration of a function. From `-O1`, a repeated
+  call with the same arguments reuses the first result (a pure one's only
+  while nothing writes memory in between), an unused call is dropped, and a
+  call in a loop's header with invariant arguments is hoisted before the
+  loop. `<string.h>`'s `strlen`, `strcmp`, `strchr`, `memcmp`… are `__pure`,
+  `abs`/`labs` const. (`__const` stays GCC's spelling of the `const`
+  qualifier.) An `__attribute__((const))` was not seen at all: the name is a
+  keyword token, which the attribute parser skipped.
 - **Function pointer parameters**: an attribute after a parameter's name
   (`void (*cb)(int *p __attribute__((noescape)))`, as Clang headers write
   it) or an array suffix (`int (*f)(const int a[])`) in a function pointer
