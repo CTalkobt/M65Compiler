@@ -14,3 +14,5 @@ c/text_scroller/map.txt
 *.mem
 *.d81
 *.ovl
+*.ov[1-9]
+*.ovd
