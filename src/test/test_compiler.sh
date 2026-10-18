@@ -290,6 +290,30 @@ else
     failed=$((failed + 1))
 fi
 
+# break N (Issue #71): more levels than the loops/switches around it, 0 or
+# a level over 255 are errors; break 1 and a switch as a level are not
+bn_ok=1
+for src in 'int f(void){ int i; for(i=0;i<3;i++) break 2; return i; }' \
+           'int f(int x){ int i; for(i=0;i<3;i++) switch(x){ case 1: break 3; } return i; }' \
+           'int f(void){ int i; for(i=0;i<3;i++) break 0; return i; }' \
+           'int f(void){ int i; for(i=0;i<3;i++) break 256; return i; }' \
+           'int f(void){ int i; for(i=0;i<3;i++){ int g(void){ break 2; return 0; } g(); } return i; }'; do
+    printf '%s\n' "$src" > build/test/breakn.c
+    $CC -c build/test/breakn.c -o build/test/breakn.o45 >/dev/null 2>&1 && bn_ok=0
+done
+for src in 'int f(void){ int i; for(i=0;i<3;i++) break 1; return i; }' \
+           'int f(int x){ int i; for(i=0;i<3;i++) switch(x){ case 1: break 2; } return i; }' \
+           'int f(void){ int i, j; for(i=0;i<3;i++) for(j=0;j<3;j++) break 2; return i + j; }'; do
+    printf '%s\n' "$src" > build/test/breakn.c
+    $CC -c build/test/breakn.c -o build/test/breakn.o45 >/dev/null 2>&1 || bn_ok=0
+done
+if [ $bn_ok -eq 1 ]; then
+    echo "SUCCESS: break N levels are checked"
+else
+    echo "FAIL: break N levels are checked"
+    failed=$((failed + 1))
+fi
+
 # A local or parameter that shadows a const global is writable (Issue #285);
 # the global is read-only again when the local's scope ends
 sh_ok=1

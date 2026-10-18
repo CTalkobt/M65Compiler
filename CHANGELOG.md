@@ -6,6 +6,11 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### cc45
 
+- **`break N`** (Issue #71): leaves the N innermost loops and `switch`es in
+  one jump (`break 2;` out of two nested `for` loops), instead of a `goto`
+  or a flag. A `switch` counts as a level, `repeat(N)` does not; more
+  levels than enclose it is an error. The VLAs of the loops it leaves are
+  released.
 - **Conflicting redeclarations of a global are errors** (Issue #287): a
   file-scope object declared again with another type (`unsigned int
   a[27];` then `static unsigned int a;`, another array size, signedness,

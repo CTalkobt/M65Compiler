@@ -264,6 +264,8 @@ public:
 
 class BreakStatement : public Statement {
 public:
+    int levels = 1;     // break N: leave N enclosing loops/switches
+    BreakStatement(int n = 1) : levels(n) {}
     void accept(ASTVisitor& visitor) override;
 };
 

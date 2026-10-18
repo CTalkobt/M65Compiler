@@ -166,7 +166,7 @@ private:
     struct VlaBlock { ir::Operand spSlot; size_t loopDepth; };
     std::vector<VlaBlock> vlaBlocks_;
     void restoreVlaStack(const ir::Operand& spSlot);
-    void releaseVlasForJump();
+    void releaseVlasForJump(size_t depth);
     std::map<std::string, int> globalPtrLevel_;
 
     // Unused variable tracking
@@ -339,6 +339,7 @@ private:
         std::string continueLabel;
     };
     std::vector<LoopLabels> loopStack_;
+    size_t loopBase_ = 0;   // loopStack_ entries of the function being built (inlined bodies too)
 
     // Switch tracking
     struct SwitchCtx {

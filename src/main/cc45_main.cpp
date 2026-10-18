@@ -190,8 +190,8 @@ public:
             indent--;
         }
     }
-    void visit(BreakStatement&) override {
-        printIndent(); std::cout << "BreakStatement" << std::endl;
+    void visit(BreakStatement& node) override {
+        printIndent(); std::cout << "BreakStatement"; if (node.levels > 1) std::cout << " " << node.levels; std::cout << std::endl;
     }
     void visit(ContinueStatement&) override {
         printIndent(); std::cout << "ContinueStatement" << std::endl;

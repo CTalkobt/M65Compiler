@@ -1452,8 +1452,19 @@ std::unique_ptr<Statement> Parser::parseStatement() {
 
     if (match(TokenType::BREAK)) {
         const Token& startToken = tokens[pos-1];
+        // break N: leave N enclosing loops/switches (break 1 is break)
+        int levels = 1;
+        if (peek().type == TokenType::INTEGER_LITERAL) {
+            const Token& n = advance();
+            unsigned long long v = 0;
+            try { v = std::stoull(n.value, nullptr, 0); } catch (...) { v = 0; }
+            if (v < 1 || v > 255)
+                throw std::runtime_error(formatDiagnostic(n.sourceFile, n.line, n.column, Severity::Error,
+                    "the level of 'break " + n.value + "' must be from 1 to 255"));
+            levels = (int)v;
+        }
         expect(TokenType::SEMICOLON, "Expected ';' after break");
-        return setPos(std::make_unique<BreakStatement>(), startToken);
+        return setPos(std::make_unique<BreakStatement>(levels), startToken);
     }
 
     if (match(TokenType::CONTINUE)) {

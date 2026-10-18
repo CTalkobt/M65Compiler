@@ -489,7 +489,7 @@ public:
     }
 
     void visit(BreakStatement& node) override {
-        lastStmt = copyPos(std::make_unique<BreakStatement>(), node);
+        lastStmt = copyPos(std::make_unique<BreakStatement>(node.levels), node);
     }
 
     void visit(ContinueStatement& node) override {

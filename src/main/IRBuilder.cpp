@@ -1236,6 +1236,9 @@ void IRBuilder::addUplevelChain(ir::Inst& inst, int levels) {
 }
 
 void IRBuilder::visit(FunctionDeclaration& node) {
+    // break N counts only this function's loops (a nested function's body)
+    struct LoopBase { size_t& b; size_t saved; LoopBase(size_t& r, size_t v) : b(r), saved(r) { r = v; } ~LoopBase() { b = saved; } }
+        loopBase(loopBase_, loopStack_.size());
     // Module-private name for a static function (also when only its prototype is static)
     if (!node.isMethod) {
         auto rn = staticRenames_.find(node.name);
@@ -3459,9 +3462,11 @@ void IRBuilder::restoreVlaStack(const ir::Operand& spSlot) {
 
 // break/continue leave the blocks opened inside the current loop: release
 // their variable-length arrays (from the outermost of them)
-void IRBuilder::releaseVlasForJump() {
+// A jump out of the loops/switches deeper than `depth`: release the VLAs
+// declared in them (the outermost one's saved stack pointer)
+void IRBuilder::releaseVlasForJump(size_t depth) {
     for (const auto& vb : vlaBlocks_)
-        if (vb.loopDepth == loopStack_.size()) { restoreVlaStack(vb.spSlot); return; }
+        if (vb.loopDepth > depth) { restoreVlaStack(vb.spSlot); return; }
 }
 
 void IRBuilder::visit(StatementExpression& node) {
@@ -6397,7 +6402,10 @@ void IRBuilder::visit(FunctionCall& node) {
                         auto savedInlineSourceFunc = inlineSourceFunc_;
                         inlineSourceFunc_ = mangledName;
 
+                        size_t savedLoopBase = loopBase_;
+                        loopBase_ = loopStack_.size();
                         if (inlineFunc->body) inlineFunc->body->accept(*this);
+                        loopBase_ = savedLoopBase;
 
                         // Emit fall-through branch to merge label for implicit return
                         // (explicit returns already branch via visit(ReturnStatement))
@@ -7141,7 +7149,10 @@ normal_call:
             inlineSourceFunc_ = node.name;
 
             // Visit the inlined function body
+            size_t savedLoopBase = loopBase_;
+            loopBase_ = loopStack_.size();
             inlineFunc->body->accept(*this);
+            loopBase_ = savedLoopBase;
 
             // Emit fall-through branch to merge label for implicit return
             {
@@ -8898,18 +8909,27 @@ void IRBuilder::visit(DefaultStatement& node) {
     startBlock(node.label);
 }
 
-void IRBuilder::visit(BreakStatement&) {
-    if (loopStack_.empty()) return;
-    releaseVlasForJump();
+void IRBuilder::visit(BreakStatement& node) {
+    size_t open = loopStack_.size() - loopBase_;
+    if (node.levels > 1 && (size_t)node.levels > open) {
+        errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column, Severity::Error,
+            "Compile Error: 'break " + std::to_string(node.levels) + "' leaves " +
+            std::to_string(node.levels) + " loops/switches, but only " + std::to_string(open) +
+            (open == 1 ? " encloses it" : " enclose it")));
+        return;
+    }
+    if (open == 0) return;
+    size_t target = loopStack_.size() - node.levels;
+    releaseVlasForJump(target);
     ir::Inst br;
     br.op = ir::Op::BR;
-    br.src1 = ir::Operand::label(loopStack_.back().breakLabel);
+    br.src1 = ir::Operand::label(loopStack_[target].breakLabel);
     emit(br);
 }
 
 void IRBuilder::visit(ContinueStatement&) {
     if (loopStack_.empty() || loopStack_.back().continueLabel.empty()) return;
-    releaseVlasForJump();
+    releaseVlasForJump(loopStack_.size() - 1);
     ir::Inst br;
     br.op = ir::Op::BR;
     br.src1 = ir::Operand::label(loopStack_.back().continueLabel);
@@ -8926,7 +8946,7 @@ void IRBuilder::visit(SwitchContinueStatement& node) {
         return;
     }
     const SwitchCtx& sc = switchStack_.back();
-    releaseVlasForJump();
+    releaseVlasForJump(loopStack_.size() - 1);
     ir::Inst br;
     br.op = ir::Op::BR;
     if (!node.target) {

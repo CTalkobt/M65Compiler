@@ -26,7 +26,7 @@
 | Issue | Task | Category | Status |
 |-------|------|----------|--------|
 | #67 | `__zp` global qualifier: a chosen global in the base page | parser, codegen, linker | **done** |
-| #71 | Multi-level `break N` | parser, IR | |
+| #71 | Multi-level `break N` | parser, IR | **done** |
 | #75 | `__likely` / `__unlikely` branch hints | codegen, optimizer | |
 | #76 | `__pure` / `__const` function attributes | optimizer | |
 

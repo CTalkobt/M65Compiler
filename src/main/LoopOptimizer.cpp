@@ -1259,7 +1259,7 @@ std::unique_ptr<Statement> cloneAndSubstituteStatement(Statement* stmt, const st
     if (auto* asmStmt = dynamic_cast<AsmStatement*>(stmt))
         return std::make_unique<AsmStatement>(asmStmt->code);
     if (auto* breakStmt = dynamic_cast<BreakStatement*>(stmt))
-        return std::make_unique<BreakStatement>();
+        return std::make_unique<BreakStatement>(breakStmt->levels);
     if (auto* continueStmt = dynamic_cast<ContinueStatement*>(stmt))
         return std::make_unique<ContinueStatement>();
     return nullptr;
@@ -1358,7 +1358,7 @@ std::unique_ptr<Statement> cloneStatement(Statement* stmt) {
     if (auto* asmStmt = dynamic_cast<AsmStatement*>(stmt))
         return std::make_unique<AsmStatement>(asmStmt->code);
     if (auto* breakStmt = dynamic_cast<BreakStatement*>(stmt))
-        return std::make_unique<BreakStatement>();
+        return std::make_unique<BreakStatement>(breakStmt->levels);
     if (auto* continueStmt = dynamic_cast<ContinueStatement*>(stmt))
         return std::make_unique<ContinueStatement>();
     // For other statement types, return null (not unrollable)
