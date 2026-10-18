@@ -1362,8 +1362,12 @@ done
 # an overlay; the overlay file on drive 8. Then two link errors: an
 # interrupt handler in an overlay, and an overlay too large for the room
 # below the stack
+# (and in two banks, two files: a range in bank 4 with room for overlay a
+# only, then bank 5: OVLTEST.OV1 and OVLTEST.OV2, #299)
+OV2="--overlay-store=0x4FC00-0x4FFFF,0x50000-0x5FFFF"
 for ovmode in "zp|$STDLIB||" "stack|$STDLIB_STACK|-fno-zpcall|" \
-              "zp_map|$STDLIB||--overlay-map" "stack_map|$STDLIB_STACK|-fno-zpcall|--overlay-map"; do
+              "zp_map|$STDLIB||--overlay-map" "stack_map|$STDLIB_STACK|-fno-zpcall|--overlay-map" \
+              "zp_two|$STDLIB||$OV2" "stack_two_map|$STDLIB_STACK|-fno-zpcall|--overlay-map $OV2"; do
     IFS='|' read -r ovname ovlib ovflags ovlink <<< "$ovmode"
     echo "Testing code overlays ($ovname)..."
     ovd=build/test/overlay_$ovname
@@ -1374,7 +1378,8 @@ for ovmode in "zp|$STDLIB||" "stack|$STDLIB_STACK|-fno-zpcall|" \
     done
     if [ $ovok = 1 ] && $LD -basic $ovlink -o $ovd/ovltest.prg $ovd/main.o45 $ovd/ovl_a.o45 $ovd/ovl_b.o45 $ovlib >/dev/null 2>&1 &&
        ./bin/disk45 create $ovd/ovl.d81 -n OVLTEST >/dev/null 2>&1 &&
-       ./bin/disk45 add $ovd/ovl.d81 $ovd/ovltest.ov1 OVLTEST.OV1 >/dev/null 2>&1; then
+       ./bin/disk45 add $ovd/ovl.d81 $ovd/ovltest.ov1 OVLTEST.OV1 >/dev/null 2>&1 &&
+       { [ ! -f $ovd/ovltest.ov2 ] || ./bin/disk45 add $ovd/ovl.d81 $ovd/ovltest.ov2 OVLTEST.OV2 >/dev/null 2>&1; }; then
         run_xemu_test "test_overlay_$ovname" "$ovd/ovltest.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA" -8 "$PWD/$ovd/ovl.d81"
     else
         echo "FAIL: code overlays $ovname (build or link failed)"
@@ -1403,6 +1408,14 @@ grep -qF 'kept in bank 5 $0000 - ' $ovd/ovltest.map &&
 grep -qF 'ovl_a.o45  [overlay a]' $ovd/ovltest.map &&
 grep -qF '[stub: overlay a, $' $ovd/ovltest.map &&
 grep -qF '  overlay b (bank 5 ' $ovd/ovltest.map || ovtools=0
+# two banks: overlay b in OVLTEST.OV2 in bank 5, both files in the map and
+# read by nm45 / objdump45 from either file
+ovd=build/test/overlay_zp_two
+[ -f $ovd/ovltest.ov2 ] && [ ! -f $ovd/ovltest.ov3 ] &&
+./bin/nm45 -h $ovd/ovltest.ovd 2>&1 | grep -q "^  2 b                kept \$50000" &&
+./bin/objdump45 -d $ovd/ovltest.ov2 2>&1 | grep -q "<_b_mul>:" &&
+$LD -basic -M $ovd/two.map $OV2 -o $ovd/twomap.prg $ovd/main.o45 $ovd/ovl_a.o45 $ovd/ovl_b.o45 $STDLIB >/dev/null 2>&1 &&
+grep -qF '(file TWOMAP.OV2, ' $ovd/two.map && grep -qF 'b              kept in bank 5 $0000' $ovd/two.map || ovtools=0
 if [ $ovtools = 1 ]; then
     echo "SUCCESS: nm45, objdump45 and the linker map show code overlays"
     passed=$((passed + 1))
@@ -1423,6 +1436,24 @@ if $CC -c $ovd/isr.c -o $ovd/isr.o45 >/dev/null 2>&1 &&
     passed=$((passed + 1))
 else
     echo "FAIL: code overlay link errors ($(cat $ovd/isr.log $ovd/big.log 2>/dev/null | head -3))"
+    failed=$((failed + 1))
+fi
+# the overlay store (#299): one range too small names the next bank as a
+# second range; a range across banks, a second range not in the next bank
+# and (two files) a name without a digit to count up are refused
+ovd=build/test/overlay_zp
+ovs=build/test/overlay_err/store.log
+if ! $LD -basic --overlay-store=0x4FC00 -o $ovd/s1.prg $ovd/main.o45 $ovd/ovl_a.o45 $ovd/ovl_b.o45 $STDLIB > $ovs 2>&1 &&
+   grep -q "overlay b (.*does not fit in the overlay store.*--overlay-store=0x4FC00-0x4FFFF,0x50000-0x5FFFF" $ovs &&
+   ! $LD -basic --overlay-store=0x4FC00-0x50FFF -o $ovd/s2.prg $ovd/main.o45 $STDLIB > $ovs 2>&1 && grep -q "one bank" $ovs &&
+   ! $LD -basic --overlay-store=0x40000-0x4FFFF,0x30000-0x3FFFF -o $ovd/s3.prg $ovd/main.o45 $STDLIB > $ovs 2>&1 &&
+   grep -q "next bank" $ovs &&
+   ! $LD -basic $OV2 --overlay-name=OVLX -o $ovd/s4.prg $ovd/main.o45 $ovd/ovl_a.o45 $ovd/ovl_b.o45 $STDLIB > $ovs 2>&1 &&
+   grep -q "must end in a digit" $ovs; then
+    echo "SUCCESS: overlay store ranges: too small, across banks, not the next bank, a name to count up"
+    passed=$((passed + 1))
+else
+    echo "FAIL: overlay store ranges ($(head -2 $ovs))"
     failed=$((failed + 1))
 fi
 

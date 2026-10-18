@@ -30,6 +30,9 @@
 .weak ___ovl_store_bank
 .weak ___ovl_store_first
 .weak ___ovl_store_last
+.weak ___ovl_store2_bank
+.weak ___ovl_store2_first
+.weak ___ovl_store2_last
 .weak ___mainargs
 .weak ___atexit_run
 .extern _main
@@ -39,11 +42,15 @@
 __sp_base = $0101
 
 ; Where code overlays are kept in far memory (C: __ovl_store_bank, _first,
-; _last): ln45 defines them for a program with overlays, far_malloc leaves
-; that memory alone. Without overlays: bank 0, nothing.
+; _last; __ovl_store2_*: a second bank's): ln45 defines them for a program
+; with overlays, far_malloc leaves that memory alone. Without overlays (or
+; a second bank): bank 0, nothing.
 ___ovl_store_bank = 0
 ___ovl_store_first = 0
 ___ovl_store_last = 0
+___ovl_store2_bank = 0
+___ovl_store2_first = 0
+___ovl_store2_last = 0
 
 ; Exit status, left in the ROM's zero page at $FD/$FE (BASIC 65 leaves these
 ; alone; a BASIC caller can PEEK(253)+256*PEEK(254), test harnesses read it

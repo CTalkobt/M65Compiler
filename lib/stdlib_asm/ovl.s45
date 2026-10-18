@@ -32,8 +32,12 @@
 ;                  the length; mapped overlays (ln45 --overlay-map) the
 ;                  lower half of MAP (A, X) that maps the window to it
 ;   __ovl_mapped   1 when the overlays are mapped, 0 when they are copied
-;   __ovl_file     the far address of the file (3 bytes), the name's
-;                  length, the name (PETSCII)
+;   __ovl_file     the first file's bank, the number of files (one per
+;                  bank, in consecutive banks: ln45 --overlay-store with
+;                  several ranges), the name's length, the first file's
+;                  name (PETSCII; the others count its last character up:
+;                  PROG.OV1, PROG.OV2). Each file starts with its load
+;                  address in the bank
 ;
 ; Mapped overlays (ln45 --overlay-map) run where they are kept: the window
 ; (8 KB blocks of $4000-$7FFF, the lower half of the map) is mapped to the
@@ -69,6 +73,8 @@ __ovl_rhi:  .res OVL_DEPTH
 __ovl_rid:  .res OVL_DEPTH  ; the overlay to bring back on the return
 __ovl_rwt:  .res OVL_DEPTH  ; the overlay the call entered
 __ovl_t:    .res 1
+__ovl_bank: .res 1          ; __ovl_init: the bank of the file it loads
+__ovl_n:    .res 1          ;             the files still to load
 
 .segment "code"
 ; What the stubs write (in the code segment: ln45 places stubs before it is
@@ -295,23 +301,29 @@ proc __ovl_init
     sta __ovl_rsp
     ldq $011C               ; the ROM's map (mapped overlays keep its upper half)
     stq __ovl_sys
+    lda __ovl_file
+    sta __ovl_bank
+    lda __ovl_file+1
+    sta __ovl_n
+@file:
     ; SETBNK: A = the bank of the data, X = the bank of the file name
     lda #$6B
     sta ___cbm_target
     lda #$FF
     sta ___cbm_target+1
-    lda __ovl_file          ; (bits 16-19 of the far address)
+    lda __ovl_bank
     and #$0F
     ldx #0
     jsr __rom_call
     ; SETNAM: A = length, X/Y = the name
     lda #$BD
     sta ___cbm_target
-    lda __ovl_file+3
-    ldx #<(__ovl_file+4)
-    ldy #>(__ovl_file+4)
+    lda __ovl_file+2
+    ldx #<(__ovl_file+3)
+    ldy #>(__ovl_file+3)
     jsr __rom_call
-    ; SETLFS 0, the program's device (8 when none is known), 0: load to X/Y
+    ; SETLFS 0, the program's device (8 when none is known), 1: load to
+    ; the address the file starts with
     lda #$BA
     sta ___cbm_target
     ldx $00BA
@@ -320,16 +332,33 @@ proc __ovl_init
     ldx #8
 @dev:
     lda #0
-    ldy #0
+    ldy #1
     jsr __rom_call
-    ; LOAD to the far address (bits 0-15 in X/Y)
+    ; LOAD (to the file's own address, in the bank SETBNK set)
     lda #$D5
     sta ___cbm_target
     lda #0
-    ldx __ovl_file+1
-    ldy __ovl_file+2
+    ldx #0
+    ldy #0
     jsr __rom_call
     bcs @fail
+    dec __ovl_n
+    beq @loaded
+    ; the next file: the next bank, the name's last character + 1
+    inc __ovl_bank
+    ldx __ovl_file+2
+    inc __ovl_file+2,x
+    bra @file
+@loaded:
+    ; the first file's name again (for another run of the program)
+    ldx __ovl_file+2
+    lda __ovl_file+1
+    dec a
+    sta __ovl_n
+    lda __ovl_file+2,x
+    sec
+    sbc __ovl_n
+    sta __ovl_file+2,x
     rts
 @fail:
     ldx #0

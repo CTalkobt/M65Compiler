@@ -23,6 +23,7 @@ static int bank_usable(bank_t bank) {
  * (the weak defaults are in crt0: defined in this file, the assembler would
  * take them for constants). */
 extern char __ovl_store_bank[], __ovl_store_first[], __ovl_store_last[];
+extern char __ovl_store2_bank[], __ovl_store2_first[], __ovl_store2_last[];
 
 /* Maximum allocations per bank */
 #define MAX_ALLOCS_PER_BANK 32
@@ -117,11 +118,13 @@ static void initialize_bank(bank_t bank) {
         allocator->allocs[0].size = HEAP_SIZE;
         allocator->allocs[0].is_free = 1;
         allocator->num_allocs = 1;
-        /* the code overlays' store in this bank: a block that is never free
-         * (the records stay in address order) */
-        if ((unsigned int)__ovl_store_bank == (unsigned int)bank) {
-            uint16_t first = (uint16_t)(unsigned int)__ovl_store_first;
-            uint16_t last = (uint16_t)(unsigned int)__ovl_store_last;
+        /* the code overlays' store in this bank (the first file's, or a
+         * second bank's): a block that is never free (the records stay in
+         * address order) */
+        int two = (unsigned int)__ovl_store2_bank == (unsigned int)bank && (unsigned int)__ovl_store2_bank;
+        if ((unsigned int)__ovl_store_bank == (unsigned int)bank || two) {
+            uint16_t first = (uint16_t)(unsigned int)(two ? __ovl_store2_first : __ovl_store_first);
+            uint16_t last = (uint16_t)(unsigned int)(two ? __ovl_store2_last : __ovl_store_last);
             int n = 0;
             if (first < HEAP_START) first = HEAP_START;
             if (last >= first) {

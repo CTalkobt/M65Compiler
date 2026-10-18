@@ -354,15 +354,18 @@ public:
     void setStackSize(uint16_t v) { stackSize_ = v; }
 
     // Code overlays (cc45 #pragma cc45 overlay(name)): where their images
-    // are kept in far memory (default $10000, bank 1), the file name the
-    // program loads them from (PETSCII), and the file's bytes after link()
-    // (a 2-byte load address, then the images; empty without overlays)
-    void setOverlayStore(uint32_t a) { ovlStore_ = a; }
+    // are kept in far memory: ranges (first, last byte), each in one bank,
+    // the banks consecutive (default $50000-$5FFFF), one file per range
+    // used; the first file's name the program loads them from (PETSCII; the
+    // others count its last character up), and the files' bytes after
+    // link() (a 2-byte load address, then the images; none without overlays)
+    void setOverlayStore(uint32_t a) { ovlStores_ = {{a, a | 0xFFFF}}; }
+    void setOverlayStores(const std::vector<std::pair<uint32_t, uint32_t>>& r) { ovlStores_ = r; }
     // Mapped overlays: run in a window of 8 KB blocks mapped to them (MAP),
     // not copied into a region
     void setOverlayMap(bool on) { ovlMap_ = on; }
     void setOverlayFileName(const std::string& n) { ovlFileName_ = n; }
-    const std::vector<uint8_t>& overlayFile() const { return ovlFile_; }
+    const std::vector<std::vector<uint8_t>>& overlayFiles() const { return ovlFiles_; }
     const std::vector<uint8_t>& overlayDescription() const { return ovlDesc_; }   // the .ovd file
     bool hasOverlays() const { return !ovlNames_.empty(); }
 
@@ -515,10 +518,19 @@ private:
     uint32_t ovlBase_ = 0, ovlSize_ = 0;           // the region they run in
     bool ovlMap_ = false;
     std::vector<uint32_t> ovlAt_;                  // each overlay's far address
-    uint32_t ovlStore_ = 0x50000;                  // their images in far memory (bank 5)
-    uint32_t ovlStoreEnd_ = 0;                     // the end of what is loaded there (at most)
+    // where their images are kept in far memory (default bank 5): ranges,
+    // the end of what each holds, each overlay's range (its file - 1)
+    std::vector<std::pair<uint32_t, uint32_t>> ovlStores_{{0x50000, 0x5FFFF}};
+    std::vector<uint32_t> ovlStoreEnd_;
+    std::vector<int> ovlFileOf_;
     std::string ovlFileName_;
-    std::vector<uint8_t> ovlFile_;
+    std::vector<std::vector<uint8_t>> ovlFiles_;
+    // the files' names on disk: the first, its last character counted up
+    std::string ovlFileNameOf(size_t i) const {
+        std::string n = ovlFileName_.empty() ? std::string("OVERLAYS") : ovlFileName_;
+        if (i && !n.empty()) n.back() = (char)(n.back() + i);
+        return n;
+    }
     std::vector<uint8_t> ovlDesc_;   // the overlays' description (nm45, objdump45)
     std::map<std::string, int> symOvl_;            // a text symbol's overlay
     std::map<std::string, uint32_t> realAddr_;     // its address in the region

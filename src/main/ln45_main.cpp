@@ -45,7 +45,9 @@ static void printUsage(const char* progName) {
     std::cout << "  --stack-size=N The CPU stack's share below __stack_top; malloc's heap ends there" << std::endl;
     std::cout << "  --ram-top=ADDR End of the RAM a C program may use in bank 0 (default $C000: $C000-$CFFF" << std::endl;
     std::cout << "                 reads as ROM in C65 mode); for a program that maps RAM there itself" << std::endl;
-    std::cout << "  --overlay-store=ADDR  Where code overlays are kept in far memory (default $50000: bank 5)" << std::endl;
+    std::cout << "  --overlay-store=ADDR[-END][,ADDR-END]" << std::endl;
+    std::cout << "                        Where code overlays are kept in far memory (default $50000: bank 5);" << std::endl;
+    std::cout << "                        a second range in the next bank: a second file (.ov2)" << std::endl;
     std::cout << "  --overlay-name=NAME   The overlay file's name on disk (default: the output's, .OV1)" << std::endl;
     std::cout << "  --overlay-out=PATH    Where to write the overlay file (default: the output's, .ov1;" << std::endl;
     std::cout << "                        its description for nm45/objdump45 next to it, .ovd)" << std::endl;
@@ -66,7 +68,7 @@ int main(int argc, char** argv) {
     std::string outputFile;
     bool outputSet = false;
     bool isPrg = false;
-    long ovlStore = -1;            // code overlays: --overlay-store, --overlay-name, --overlay-out
+    std::vector<std::pair<uint32_t, uint32_t>> ovlStores;   // code overlays: --overlay-store, --overlay-name, --overlay-out
     std::string ovlName, ovlOut;
     bool ovlMap = false;
     bool isBasic = false;
@@ -143,14 +145,35 @@ int main(int argc, char** argv) {
             ramTop = (uint32_t)rv;
         }
         else if (arg.rfind("--overlay-store=", 0) == 0) {
-            std::string v = arg.substr(16);
-            int base = 10;
-            if (!v.empty() && v[0] == '$') { v = v.substr(1); base = 16; }
-            else if (v.size() > 2 && v[0] == '0' && (v[1] == 'x' || v[1] == 'X')) { v = v.substr(2); base = 16; }
-            unsigned long sv = 0;
-            try { size_t used = 0; sv = std::stoul(v, &used, base); if (used != v.size() || sv < 0x10000 || sv > 0x5FFFF) throw 0; }
-            catch (...) { std::cerr << "ln45: error: invalid --overlay-store value '" << arg.substr(16) << "' (chip RAM above bank 0: $10000-$5FFFF)" << std::endl; return 1; }
-            ovlStore = (long)sv;
+            // ADDR (to its bank's end) or ADDR-END, then (a second file) the
+            // next bank's ADDR-END: each range in one bank of $10000-$5FFFF
+            auto num = [](std::string v, unsigned long& out) {
+                int base = 10;
+                if (!v.empty() && v[0] == '$') { v = v.substr(1); base = 16; }
+                else if (v.size() > 2 && v[0] == '0' && (v[1] == 'x' || v[1] == 'X')) { v = v.substr(2); base = 16; }
+                try { size_t used = 0; out = std::stoul(v, &used, base); return used == v.size() && !v.empty(); }
+                catch (...) { return false; }
+            };
+            std::string all = arg.substr(16), why;
+            ovlStores.clear();
+            for (size_t p = 0; why.empty() && p <= all.size(); ) {
+                size_t c = all.find(',', p);
+                std::string r = all.substr(p, c == std::string::npos ? std::string::npos : c - p);
+                p = c == std::string::npos ? all.size() + 1 : c + 1;
+                size_t d = r.find('-', 1);
+                unsigned long a = 0, e = 0;
+                if (!num(r.substr(0, d), a) || (d != std::string::npos && !num(r.substr(d + 1), e))) { why = "not an address"; break; }
+                if (d == std::string::npos) e = a | 0xFFFF;
+                if (a < 0x10000 || e > 0x5FFFF || e < a) why = "chip RAM above bank 0: $10000-$5FFFF";
+                else if ((a >> 16) != (e >> 16)) why = "a range must lie in one bank";
+                else if (!ovlStores.empty() && (a >> 16) != (ovlStores.back().first >> 16) + 1) why = "the second range must be in the next bank";
+                else ovlStores.push_back({(uint32_t)a, (uint32_t)e});
+            }
+            if (why.empty() && ovlStores.size() > 2) why = "at most two ranges (banks 4 and 5)";
+            if (!why.empty()) {
+                std::cerr << "ln45: error: invalid --overlay-store value '" << all << "' (" << why << ")" << std::endl;
+                return 1;
+            }
         }
         else if (arg.rfind("--overlay-name=", 0) == 0) { ovlName = arg.substr(15); }
         else if (arg == "--overlay-map") { ovlMap = true; }
@@ -230,7 +253,7 @@ int main(int argc, char** argv) {
             return 1;
         }
         linker.setOverlayFileName(ovlName);
-        if (ovlStore >= 0) linker.setOverlayStore((uint32_t)ovlStore);
+        if (!ovlStores.empty()) linker.setOverlayStores(ovlStores);
         linker.setOverlayMap(ovlMap);
     }
 
@@ -473,16 +496,28 @@ int main(int argc, char** argv) {
     out.write(reinterpret_cast<const char*>(binary.data()), binary.size());
     out.close();
 
-    // Code overlays: their file
+    // Code overlays: their files (a second bank's: the path's last
+    // character counted up, prog.ov2) and their description
     if (linker.hasOverlays()) {
-        std::ofstream of(ovlOut, std::ios::binary);
-        if (!of.is_open()) {
-            std::cerr << "ln45: cannot write " << ovlOut << std::endl;
+        const auto& files = linker.overlayFiles();
+        if (files.size() > 1 && (ovlOut.empty() || ovlOut.back() < '0' || ovlOut.back() + (int)files.size() - 1 > '9')) {
+            std::cerr << "ln45: error: " << files.size() << " overlay files: --overlay-out ('" << ovlOut
+                      << "') must end in a digit the others count up from (as the default .ov1)" << std::endl;
             return 1;
         }
-        const auto& ov = linker.overlayFile();
-        of.write(reinterpret_cast<const char*>(ov.data()), ov.size());
-        // the description (never loaded) next to it: the same path with .ovd
+        size_t total = 0;
+        for (size_t i = 0; i < files.size(); i++) {
+            std::string path = ovlOut;
+            path.back() = (char)(path.back() + i);
+            std::ofstream of(path, std::ios::binary);
+            if (!of.is_open()) {
+                std::cerr << "ln45: cannot write " << path << std::endl;
+                return 1;
+            }
+            of.write(reinterpret_cast<const char*>(files[i].data()), files[i].size());
+            total += files[i].size();
+        }
+        // the description (never loaded) next to them: the same path with .ovd
         std::string descOut = ovlOut;
         size_t d = descOut.find_last_of('.'), s2 = descOut.find_last_of('/');
         if (d != std::string::npos && (s2 == std::string::npos || d > s2)) descOut = descOut.substr(0, d);
@@ -494,8 +529,16 @@ int main(int argc, char** argv) {
         }
         const auto& desc = linker.overlayDescription();
         df.write(reinterpret_cast<const char*>(desc.data()), desc.size());
-        std::cout << "Code overlays: " << ovlOut << " (" << ov.size() << " bytes; loaded as " << ovlName
-                  << "), described in " << descOut << std::endl;
+        if (files.size() == 1)
+            std::cout << "Code overlays: " << ovlOut << " (" << total << " bytes; loaded as " << ovlName
+                      << "), described in " << descOut << std::endl;
+        else {
+            std::string last = ovlName, lastPath = ovlOut;
+            last.back() = (char)(last.back() + files.size() - 1);
+            lastPath.back() = (char)(lastPath.back() + files.size() - 1);
+            std::cout << "Code overlays: " << ovlOut << " - " << lastPath << " (" << files.size() << " files, "
+                      << total << " bytes; loaded as " << ovlName << " - " << last << "), described in " << descOut << std::endl;
+        }
     }
 
     std::cout << "Linked " << inputFiles.size() << " object"
