@@ -243,6 +243,12 @@ void OptimizationCatalog::initializeCatalog() {
         OptimizationCategory::SPEED, 1, -1, "-freorder-blocks", false, 1
     });
 
+    catalog_.push_back({
+        "PurityInference", "Purity Inference",
+        "A function that reads only its arguments and locals, always returns and calls only pure / const functions is pure / const",
+        OptimizationCategory::BOTH, 1, -1, "-fipa-pure-const", false, 2
+    });
+
     // What is implemented, and where
     struct Impl { const char* name; OptimizationImpl impl; const char* asmFlag; int level; };
     static const Impl impls[] = {
@@ -262,6 +268,7 @@ void OptimizationCatalog::initializeCatalog() {
         {"AddrElemFusion",       OptimizationImpl::IR_PASS,   "", 1},
         {"PostIncrementSink",    OptimizationImpl::IR_PASS,   "", 1},
         {"BlockReordering",      OptimizationImpl::IR_PASS,   "", 1},
+        {"PurityInference",      OptimizationImpl::IR_PASS,   "", 1},
         {"LoopInterchange",      OptimizationImpl::AST_PASS,  "", 4},
         {"LoopUnrolling",        OptimizationImpl::IR_PASS,   "", 4},
         // ca45 runs these at its default level whatever cc45's -O level

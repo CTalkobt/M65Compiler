@@ -158,6 +158,11 @@ void CodegenStage::optimizeIR() {
         if (it != fn.optOverrides.end()) return it->second;
         return optOn(name);
     };
+    // first: which functions are const / pure (the passes use it)
+    if (optOn("PurityInference") || std::any_of(irModule_->functions.begin(), irModule_->functions.end(),
+            [](const ir::Function& f) { auto it = f.optOverrides.find("PurityInference");
+                                        return it != f.optOverrides.end() && it->second; }))
+        ir::inferPurity(*irModule_);
     bool ranAny = false;
     for (const auto& p : passes) {
         bool any = optOn(p.name);

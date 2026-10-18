@@ -54,6 +54,8 @@ bool paramsStayInZp(const Function& fn);
 void removeDeadTemps(Module& mod);
 // a[x + c] with a global base: element x of the base + c*stride (after the passes)
 void foldElemIndexOffset(Module& mod);
+// const / pure functions of the module, inferred (-fipa-pure-const)
+void inferPurity(Module& mod);
 // the cold blocks (__unlikely branches) moved to the function's end
 void optimizeBlockReorder(Module& mod);
 

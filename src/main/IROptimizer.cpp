@@ -3490,4 +3490,116 @@ void optimizeBlockReorder(Module& mod) {
     }
 }
 
+// Purity inference (-fipa-pure-const): a function of this module is const
+// when it reads nothing but its parameters and its own locals, writes
+// nothing but its own locals, always returns (no loops, no recursion) and
+// calls only const functions; pure when it calls pure ones too. It never
+// reads memory itself (the IR does not mark volatile loads: a function
+// reading a hardware register must not be merged or hoisted), so it is pure
+// only through the functions it calls (declared __pure / const, or
+// inferred). The result joins mod.pureFunctions for CSE, LICM and the
+// removal of unused calls.
+void inferPurity(Module& mod) {
+    std::map<std::string, Function*> defs;
+    for (auto& fn : mod.functions)
+        if (!fn.blocks.empty()) defs[fn.name] = &fn;
+    // the functions that may qualify, each with its first estimate (2)
+    std::map<std::string, int> level;
+    for (auto& [name, fn] : defs) {
+        if (!runOn(*fn, "PurityInference")) continue;
+        if (fn->isInterrupt || fn->isNaked || fn->isVariadic || fn->isWeak || fn->isNested) continue;
+        if (fn->returnType == Type::F32 || !fn->memoryVregs.empty()) continue;
+        if (!fn->paramNames.empty() && fn->paramNames[0] == "__sret") continue;
+        bool ok = true;
+        std::map<std::string, size_t> idx;
+        for (size_t b = 0; b < fn->blocks.size(); b++) idx[fn->blocks[b].label] = b;
+        auto slot = [&](const Operand& o) { return o.isVreg() && fn->localSlotVregs.count(o.vregId); };
+        for (size_t b = 0; b < fn->blocks.size() && ok; b++)
+            for (const auto& in : fn->blocks[b].insts) {
+                // (a branch back: a loop, which might not end)
+                for (const Operand* o : {&in.dest, &in.src1, &in.src2})
+                    if ((in.op == Op::BR || in.op == Op::BR_COND) && o->kind == OperandKind::LABEL) {
+                        auto t = idx.find(o->name);
+                        if (t == idx.end() || t->second <= b) ok = false;
+                    }
+                for (const auto& c : in.switchCases) {
+                    auto t = idx.find(c.second);
+                    if (t == idx.end() || t->second <= b) ok = false;
+                }
+                switch (in.op) {
+                    case Op::CONST: case Op::ADD: case Op::SUB: case Op::MUL: case Op::DIV: case Op::MOD:
+                    case Op::MUL_U: case Op::DIV_U: case Op::MOD_U: case Op::AND: case Op::OR: case Op::XOR:
+                    case Op::LSL: case Op::LSR: case Op::ASR: case Op::SHL: case Op::SHR: case Op::NEG: case Op::NOT:
+                    case Op::CMP_EQ: case Op::CMP_NE: case Op::CMP_LT: case Op::CMP_LE: case Op::CMP_GT:
+                    case Op::CMP_GE: case Op::CMP_LTU: case Op::CMP_LEU: case Op::CMP_GTU: case Op::CMP_GEU:
+                    case Op::SEXT: case Op::ZEXT: case Op::TRUNC: case Op::COPY: case Op::PHI: case Op::NOP:
+                    case Op::BR: case Op::BR_COND: case Op::SWITCH: case Op::RET: case Op::RET_VOID:
+                    case Op::ADDR_GLOBAL:   // (an address, passed on: reading through it is the callee's)
+                        break;
+                    case Op::LOAD: case Op::DEREF:    // only of its own variables
+                        if (!slot(in.src1) || !in.args.empty()) ok = false;
+                        break;
+                    case Op::STORE:                   // only to its own variables
+                        if (!slot(in.src2) || !in.args.empty()) ok = false;
+                        break;
+                    case Op::CALL: case Op::CALL_VOID:
+                        if (in.src1.kind != OperandKind::GLOBAL) ok = false;
+                        break;
+                    default:
+                        ok = false;
+                }
+                if (!ok) break;
+            }
+        if (ok) level[name] = 2;
+    }
+    // the fixed point: a function is at most what it calls
+    for (bool changed = true; changed; ) {
+        changed = false;
+        for (auto& [name, lv] : level) {
+            if (!lv) continue;
+            int l = 2;
+            for (const auto& blk : defs[name]->blocks)
+                for (const auto& in : blk.insts) {
+                    if (in.op != Op::CALL && in.op != Op::CALL_VOID) continue;
+                    const std::string& callee = in.src1.name;
+                    int c = 0;
+                    auto d = mod.pureFunctions.find(callee);
+                    if (d != mod.pureFunctions.end()) c = d->second;
+                    auto inf = level.find(callee);
+                    if (inf != level.end()) c = std::max(c, inf->second);
+                    if (callee == name) c = 0;   // (recursion)
+                    l = std::min(l, c);
+                }
+            if (l < lv) { lv = l; changed = true; }
+        }
+    }
+    // (mutual recursion: a cycle of qualifying functions keeps its first
+    // estimate above; such a function may not end, so it does not qualify)
+    std::map<std::string, std::set<std::string>> calls;
+    for (const auto& [name, lv] : level)
+        for (const auto& blk : defs[name]->blocks)
+            for (const auto& in : blk.insts)
+                if ((in.op == Op::CALL || in.op == Op::CALL_VOID) && level.count(in.src1.name)) calls[name].insert(in.src1.name);
+    for (auto& [name, lv] : level) {
+        if (!lv) continue;
+        std::set<std::string> seen;
+        std::vector<std::string> todo(calls[name].begin(), calls[name].end());
+        bool cycle = false;
+        while (!todo.empty() && !cycle) {
+            std::string n = todo.back(); todo.pop_back();
+            if (n == name) cycle = true;
+            else if (seen.insert(n).second) for (const auto& c : calls[n]) todo.push_back(c);
+        }
+        if (cycle) lv = 0;
+    }
+    for (const auto& [name, lv] : level) {
+        if (!lv) continue;
+        int& p = mod.pureFunctions[name];
+        if (lv > p) {
+            trace("purity", name, std::string("inferred ") + (lv == 2 ? "const" : "pure"));
+            p = lv;
+        }
+    }
+}
+
 } // namespace ir
