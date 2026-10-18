@@ -432,6 +432,9 @@ private:
         bool isSigned = false;
         ir::Type pointedToType = ir::Type::VOID; // if type == PTR
         int totalSize = 0;
+        // a pointer's levels down to typeName (1: it points at a typeName;
+        // 0: not known), so *p of a char ** is a char *, and **p a char
+        int ptrDepth = 0;
     };
 
     IRTypeInfo getExprTypeInfo(Expression* expr);

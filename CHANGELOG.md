@@ -6,6 +6,13 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### cc45
 
+- **`**p` of a `char **`** (Issue #303): dereferencing a pointer to a
+  pointer twice loaded 16 bits instead of one `char` (the next byte became
+  the high byte) and compared them with `cmp.16`, so `**p < 'x'` was
+  usually wrong. `*p` of a pointer to a pointer had no type for what it
+  points to; it has now, down any number of levels (`***q`), for locals,
+  parameters and globals (a global `char **` claimed to point at a `char`)
+  and through pointer arithmetic on an array of pointers (`**(names + 1)`).
 - **Smaller calls and labels** (Issues #296, #297): an 8-bit value is
   loaded with `ldx #0` (its high byte); before a ZP-convention call, whose
   arguments are all in `$10`-`$2F`, that load is dead and is dropped when

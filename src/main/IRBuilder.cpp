@@ -483,7 +483,11 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
             // (an array of pointers: its elements are pointers)
             int totalSize = getTypeSize(tn, localPtrLevel_.count(ref->name) ? localPtrLevel_[ref->name] : 0);
             for (int d : ait->second) totalSize *= d;
-            return {ir::Type::PTR, tn, false, localTypes_[ref->name], totalSize};
+            IRTypeInfo r{ir::Type::PTR, tn, false, localTypes_[ref->name], totalSize};
+            // (a one-dimensional array decays to a pointer to its element:
+            // char *a[] is a char **, Issue #303)
+            if (ait->second.size() == 1) r.ptrDepth = (localPtrLevel_.count(ref->name) ? localPtrLevel_[ref->name] : 0) + 1;
+            return r;
         }
 
         auto gait = globalArrayDims_.find(ref->name);
@@ -491,7 +495,9 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
             std::string tn = globalTypeNames_[ref->name];
             int totalSize = getTypeSize(tn, globalPtrLevel_.count(ref->name) ? globalPtrLevel_[ref->name] : 0);
             for (int d : gait->second) totalSize *= d;
-            return {ir::Type::PTR, tn, false, globalTypes_[ref->name], totalSize};
+            IRTypeInfo r{ir::Type::PTR, tn, false, globalTypes_[ref->name], totalSize};
+            if (gait->second.size() == 1) r.ptrDepth = (globalPtrLevel_.count(ref->name) ? globalPtrLevel_[ref->name] : 0) + 1;
+            return r;
         }
 
         auto it = localTypes_.find(ref->name);
@@ -508,6 +514,8 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
             if (info.type == ir::Type::PTR) {
                 auto pit = localPointedToType_.find(ref->name);
                 if (pit != localPointedToType_.end()) info.pointedToType = pit->second;
+                auto lv = localPtrLevel_.find(ref->name);
+                if (lv != localPtrLevel_.end() && !paramArrayDims_.count(ref->name)) info.ptrDepth = lv->second;
             }
             return info;
         }
@@ -524,6 +532,8 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
             if (info.type == ir::Type::PTR) {
                 auto gpit = globalPointedToType_.find(ref->name);
                 if (gpit != globalPointedToType_.end()) info.pointedToType = gpit->second;
+                auto lv = globalPtrLevel_.find(ref->name);
+                if (lv != globalPtrLevel_.end()) info.ptrDepth = lv->second;
             }
             return info;
         }
@@ -732,23 +742,46 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
                     bool sg = local ? localSigned_[ref->name] : (globalSigned_.count(ref->name) && globalSigned_[ref->name]);
                     return {ir::Type::PTR, tn, sg, mapType(tn, 0), 2};
                 }
+                // *p of a pointer to a pointer (char **p): a pointer, to what
+                // the declared levels leave (Issue #303: it was a pointer to
+                // nothing known, so **p loaded 16 bits)
+                auto pointerLevels = [&](const std::string& tn, bool sg, int lvl) -> IRTypeInfo {
+                    IRTypeInfo r{ir::Type::PTR, tn, sg, lvl - 1 >= 2 ? ir::Type::PTR : mapType(tn, 0), 2};
+                    r.ptrDepth = lvl - 1;
+                    return r;
+                };
                 auto pit = localPointedToType_.find(ref->name);
                 if (pit != localPointedToType_.end()) {
                     std::string tn = localTypeNames_.count(ref->name) ? localTypeNames_[ref->name] : "";
+                    auto lv = localPtrLevel_.find(ref->name);
+                    if (pit->second == ir::Type::PTR && !tn.empty() && lv != localPtrLevel_.end() && lv->second >= 2)
+                        return pointerLevels(tn, localSigned_[ref->name], lv->second);
                     int sz = tn.empty() ? ir::typeSize(pit->second) : getTypeSize(tn, 0);
                     return {pit->second, tn, localSigned_[ref->name], ir::Type::VOID, sz};
                 }
                 auto gpit = globalPointedToType_.find(ref->name);
                 if (gpit != globalPointedToType_.end()) {
                     std::string tn = globalTypeNames_.count(ref->name) ? globalTypeNames_[ref->name] : "";
-                    int sz = tn.empty() ? ir::typeSize(gpit->second) : getTypeSize(tn, 0);
                     auto gsit = globalSigned_.find(ref->name);
-                    return {gpit->second, tn, gsit != globalSigned_.end() && gsit->second, ir::Type::VOID, sz};
+                    bool sg = gsit != globalSigned_.end() && gsit->second;
+                    auto lv = globalPtrLevel_.find(ref->name);
+                    if (gpit->second == ir::Type::PTR && !tn.empty() && lv != globalPtrLevel_.end() && lv->second >= 2)
+                        return pointerLevels(tn, sg, lv->second);
+                    int sz = tn.empty() ? ir::typeSize(gpit->second) : getTypeSize(tn, 0);
+                    return {gpit->second, tn, sg, ir::Type::VOID, sz};
                 }
             }
             // General case: derive pointee type from operand expression
             // Handles *(cast_expr), *(ptr + offset), etc.
             IRTypeInfo operandInfo = getExprTypeInfo(deref->operand.get());
+            // (a pointer to a pointer: one level less, **p of a char **)
+            if (operandInfo.type == ir::Type::PTR && operandInfo.pointedToType == ir::Type::PTR &&
+                operandInfo.ptrDepth >= 2 && !operandInfo.typeName.empty()) {
+                IRTypeInfo r{ir::Type::PTR, operandInfo.typeName, operandInfo.isSigned,
+                             operandInfo.ptrDepth - 1 >= 2 ? ir::Type::PTR : mapType(operandInfo.typeName, 0), 2};
+                r.ptrDepth = operandInfo.ptrDepth - 1;
+                return r;
+            }
             if (operandInfo.type == ir::Type::PTR && operandInfo.pointedToType != ir::Type::VOID) {
                 int sz = operandInfo.typeName.empty() ? ir::typeSize(operandInfo.pointedToType) : getTypeSize(operandInfo.typeName, 0);
                 return {operandInfo.pointedToType, operandInfo.typeName, operandInfo.isSigned, ir::Type::VOID, sz};
@@ -3729,7 +3762,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
         // Extern declaration: add to externs list, no BSS allocation
         auto recordGlobalType = [&]() {
             if (node.pointerLevel > 0) {
-                globalPointedToType_[node.name] = mapType(node.type, 0);
+                globalPointedToType_[node.name] = node.pointerLevel >= 2 ? ir::Type::PTR : mapType(node.type, 0);   // (char **g: a pointer)
                 globalPointedToTypeName_[node.name] = node.type;
             }
             if (!node.arrayDims.empty()) globalArrayDims_[node.name] = node.arrayDims;
