@@ -1023,7 +1023,7 @@ static void printUsage(const char* progName) {
     std::cout << "  .o45/.o65  Relocatable object files (full header/symbol/reloc support)" << std::endl;
     std::cout << "  .prg       PRG files (2-byte load address header, auto-detected, -bas for BASIC dump)" << std::endl;
     std::cout << "  .bin       Raw binary files (use -b to set base address)" << std::endl;
-    std::cout << "  .ovl       Code overlay files (ln45): a section per overlay, at its run address" << std::endl;
+    std::cout << "  .ovd .ov1  Code overlay files (ln45; also a version 1 .ovl): a section per overlay, at its run address" << std::endl;
 }
 
 int main(int argc, char** argv) {
@@ -1146,12 +1146,12 @@ int main(int argc, char** argv) {
                                    std::istreambuf_iterator<char>());
         in.close();
 
-        // A code overlay file (ln45 <program>.ovl): a section per overlay,
+        // A code overlay file (ln45 <program>.ovd / .ov1, or a version 1 .ovl): a section per overlay,
         // at the address it runs at
-        if (O45OverlayFile::is(data)) {
+        if (O45OverlayFile::is(filename, data)) {
             O45OverlayFile ov;
             std::string oerr;
-            if (!O45OverlayFile::read(data, ov, oerr)) {
+            if (!O45OverlayFile::open(filename, data, ov, oerr)) {
                 std::cerr << "objdump45: " << filename << ": " << oerr << std::endl;
                 exitCode = 1;
                 continue;
@@ -1178,8 +1178,14 @@ int main(int argc, char** argv) {
             }
             for (size_t i = 0; i < ov.overlays.size(); i++) {
                 const auto& o = ov.overlays[i];
-                std::vector<uint8_t> body(data.begin() + o.fileOffset, data.begin() + o.fileOffset + o.length);
+                std::vector<uint8_t> body = ov.code(i);
                 std::string label = "overlay " + o.name;
+                if (body.empty() && o.length && (showContents || showDisasm)) {
+                    std::cerr << "objdump45: " << filename << ": overlay " << o.name << ": its code file (.ov"
+                              << o.file << ") was not found" << std::endl;
+                    exitCode = 1;
+                    continue;
+                }
                 if (showContents) hexDump(body, ov.region, label);
                 if (showDisasm) {
                     std::map<uint32_t, std::string> syms;

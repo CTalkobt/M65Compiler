@@ -2812,14 +2812,12 @@ bool O45Linker::generateOverlayStubs(std::string& errorMsg) {
         }
         at += (uint32_t)img.size();
     }
-    // (the file's description is loaded after them: a few bytes per symbol)
-    size_t descLen = 30;
-    for (const auto& n : ovlNames_) descLen += 6 + n.size();
-    for (const auto& [n, k] : symOvl_) if (k) descLen += 4 + n.size();
-    ovlStoreEnd_ = at + (uint32_t)descLen;
-    if (((at + descLen - 1) >> 16) != (ovlStore_ >> 16)) {
-        errorMsg = "code overlays: " + std::to_string(at - ovlStore_ + descLen) +
-                   " bytes of overlays (with the file's description) do not fit in the 64 KB bank from the overlay store";
+    // (the description is a file of its own, never loaded: only the code
+    // counts)
+    ovlStoreEnd_ = at;
+    if (at > ovlStore_ && ((at - 1) >> 16) != (ovlStore_ >> 16)) {
+        errorMsg = "code overlays: " + std::to_string(at - ovlStore_) +
+                   " bytes of overlays do not fit in the 64 KB bank from the overlay store";
         return false;
     }
     globalSymbols_["__ovl_file"] = textBase_ + (uint32_t)t.size();
@@ -2835,6 +2833,7 @@ bool O45Linker::generateOverlayStubs(std::string& errorMsg) {
 
 void O45Linker::buildOverlayFile() {
     ovlFile_.clear();
+    ovlDesc_.clear();
     if (ovlNames_.empty()) return;
     ovlFile_.push_back(ovlStore_ & 0xFF);
     ovlFile_.push_back((ovlStore_ >> 8) & 0xFF);
@@ -2849,7 +2848,7 @@ void O45Linker::buildOverlayFile() {
     d.region = ovlBase_;
     d.mapped = ovlMap_;
     for (size_t i = 0; i < ovlText_.size(); i++)
-        d.overlays.push_back({ovlNames_[i], ovlAt_[i], (uint32_t)ovlText_[i].size(), 0});
+        d.overlays.push_back({ovlNames_[i], ovlAt_[i], (uint32_t)ovlText_[i].size(), 1, 2 + (ovlAt_[i] - ovlStore_)});
     for (const auto& [name, k] : symOvl_) {
         if (!k || name.rfind("cc45.", 0) == 0) continue;
         auto a = realAddr_.find(name);
@@ -2858,8 +2857,7 @@ void O45Linker::buildOverlayFile() {
     std::sort(d.symbols.begin(), d.symbols.end(), [](const auto& a, const auto& b) {
         return a.overlay != b.overlay ? a.overlay < b.overlay : a.address != b.address ? a.address < b.address : a.name < b.name;
     });
-    auto desc = d.describe();
-    ovlFile_.insert(ovlFile_.end(), desc.begin(), desc.end());
+    ovlDesc_ = d.describe();
 }
 
 // SAC overlay. A static-allocation (SAC) function keeps its parameters and

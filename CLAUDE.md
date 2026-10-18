@@ -21,8 +21,8 @@ dependencies (SQLite and FUSE only for disk45):
 - **ca45** — 45GS02 assembler (flat binaries or relocatable `.o45` objects with `-c`)
 - **ln45** — linker (`.o45` objects + `.lib` archives → PRG or flat binary)
 - **ar45** — archiver for `.lib` static libraries
-- **nm45** — symbol/attribute/relocation inspector for `.o45` and `.lib` (and ln45's `.ovl` overlay files)
-- **objdump45** — object/PRG/binary/`.ovl` inspector and disassembler (also BASIC listing with `-bas`)
+- **nm45** — symbol/attribute/relocation inspector for `.o45` and `.lib` (and ln45's `.ovd`/`.ov1` overlay files)
+- **objdump45** — object/PRG/binary/`.ovd`/`.ov1` inspector and disassembler (also BASIC listing with `-bas`)
 - **basic45** — BASIC 65 program generator (label-based source, PETSCII tokenizer, preprocessor,
   long variable names, block IF / proc, `--link` C functions, `--decompile`, `--disk`, `--emulator`)
 - **disk45** — CBM disk/tape/archive image utility (25 formats, FUSE mount, SQLite catalog)
@@ -63,7 +63,7 @@ writes a standalone assembly form with its own startup stub.
 A file with `#pragma cc45 overlay(name)` / `-foverlay=name` (ca45 `.overlay`)
 has its code in that overlay: ln45 links all overlays to run at one region
 below the stack's share (`__ovl_region`; the heap ends there) and writes
-them to `<prog>.ovl` (on the disk as `<PROG>.OVL`, `--overlay-name`), which
+them to `<prog>.ov1` (on the disk as `<PROG>.OV1`, `--overlay-name`), which
 crt0's `__ovl_init` loads into bank 5 (`--overlay-store`; bank 1 is BASIC's).
 Calls from outside an overlay (and addresses taken) go through 21-byte
 resident stubs to `__ovl_call` (`lib/stdlib_asm/ovl.s45`), which copies the
@@ -72,8 +72,8 @@ Copied by default; `--overlay-map` maps a window of `$4000`-`$7FFF` to each
 overlay instead (only the lower half of MAP: the KERNAL is mapped at $E000;
 the program ends below the window, the heap starts above it; the KERNAL's
 current map at `$011C` is kept in step). Data/BSS stay resident; no
-`__interrupt` in an overlay. The `.ovl` file ends with a description of the
-overlays and their symbols (`include/O45OverlayFile.hpp`), which nm45 and
+`__interrupt` in an overlay. ln45 describes the overlays and their symbols in
+`<prog>.ovd` (`include/O45OverlayFile.hpp`; never loaded), which nm45 and
 objdump45 read; the `-M` map shows each overlay's bank and its symbols and
 lines per overlay. Examples `examples/c/overlays` and
 `examples/c/mapped_overlays` (checks MAP really runs the code in bank 5),

@@ -268,7 +268,7 @@ checks.
 [Source](https://github.com/CTalkobt/M65Compiler/tree/main/examples/c/overlays) —
 Code overlays: three tools (a prime sieve, the Towers of Hanoi, text
 statistics), each a file with `#pragma cc45 overlay(name)`, share one
-region of memory; ln45 writes their code to `OVLDEMO.OVL`, which the
+region of memory; ln45 writes their code to `OVLDEMO.OV1`, which the
 program loads into bank 5 at start, and a call copies the overlay it
 needs into the region by DMA. The text statistics call the prime sieve's
 overlay and back; each section shows which overlay the region holds.
@@ -280,7 +280,7 @@ overlay and back; each section shows which overlay the region holds.
 Mapped code overlays (ln45 `--overlay-map`) checked at work. The 45GS02
 runs only what it sees in its 64 KB, so far code means changing what it
 sees. Here three overlays (`red`, `green`, `blue`) stay in bank 5, where
-the program loaded `MAPDEMO.OVL`, and a call maps the window `$6000`–`$7FFF`
+the program loaded `MAPDEMO.OV1`, and a call maps the window `$6000`–`$7FFF`
 to the one it needs. Each overlay reports the window address of a byte of
 its own code and the MAP registers at that moment. The program then checks,
 from both sides (the CPU through MAP, and DMA directly), that:

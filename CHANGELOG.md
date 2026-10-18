@@ -4,6 +4,18 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### ln45
+
+- **The overlay description is no longer loaded** (Issue #298): ln45 wrote
+  the description of the overlays and their symbols (for nm45 and
+  objdump45) at the end of the overlay file, so the program loaded it into
+  the overlay store: it counted against the store's 64 KB bank (vim2's link
+  failed with 56.3 KB of code) and took far memory past
+  `__ovl_store_last`. The code is now `<program>.ov1` (on the disk
+  `<PROGRAM>.OV1`, was `.ovl` / `.OVL`), the description `<program>.ovd`,
+  never loaded; only the code counts. nm45 and objdump45 read either file
+  (with the other next to it); the old `.ovl` files are not read.
+
 ### cc45
 
 - **"could be 'unsigned int'" note**: given for a `static` function's
