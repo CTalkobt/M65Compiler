@@ -187,6 +187,8 @@ void CodegenStage::optimizeIR() {
         ir::foldElemIndexOffset(*irModule_);
         ir::removeDeadTemps(*irModule_);
     }
+    // last: the blocks __unlikely / __likely say are cold at the end
+    ir::optimizeBlockReorder(*irModule_);
     ir::passEnabled = nullptr;
     ir::optTrace = nullptr;
 }

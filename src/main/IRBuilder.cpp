@@ -172,6 +172,11 @@ void IRBuilder::generate(TranslationUnit& unit) {
     // Parameter narrowing analysis: detect static functions where all call sites
     // pass values fitting in char for int parameters. Emit advisory warning.
     {
+        // parameter i of a function (its name without the leading _) is declared signed
+        auto paramSigned = [&](const std::string& fname, size_t i) {
+            auto it = functionParamSigned_.find(fname);
+            return it != functionParamSigned_.end() && i < it->second.size() && it->second[i];
+        };
         // Build map of function name → param types
         std::map<std::string, std::vector<ir::Type>> funcParams;
         std::map<std::string, int> funcDeclLines;
@@ -249,8 +254,10 @@ void IRBuilder::generate(TranslationUnit& unit) {
                     warnings_.push_back(formatDiagnostic(module_.sourceFile, funcDeclLines[name], 0,
                         Severity::Note, ss.str()));
                 } else if (params[i] == ir::Type::I16 && !allConst[i] &&
-                           allNonNegPtr && i < allNonNegPtr->size() && (*allNonNegPtr)[i]) {
+                           allNonNegPtr && i < allNonNegPtr->size() && (*allNonNegPtr)[i] &&
+                           paramSigned(name.substr(1), i)) {
                     // All values non-negative but some > 255 — suggest unsigned int
+                    // (only for a parameter declared signed)
                     std::stringstream ss;
                     ss << "parameter " << (i + 1) << " of '" << cleanName
                        << "' could be 'unsigned int' (all call sites pass non-negative values)";
@@ -290,6 +297,7 @@ ir::Block& IRBuilder::startBlock(const std::string& label) {
     }
     currentFunc_->blocks.push_back({label, {}});
     currentBlock_ = &currentFunc_->blocks.back();
+    currentBlock_->cold = coldDepth_ > 0;
     return *currentBlock_;
 }
 
@@ -7599,20 +7607,30 @@ void IRBuilder::visit(IfStatement& node) {
         emitConditionBranches(node.condition.get(), thenLabel, falseTarget, loc(node));
     }
 
+    // the branch not expected to run (__unlikely / __likely with an else):
+    // its blocks are cold, placed at the function's end
+    bool hinted = !dynamic_cast<IntegerLiteral*>(node.condition.get());
+    bool coldThen = hinted && node.hint < 0;
+    bool coldElse = hinted && node.hint > 0 && node.elseBranch;
+
+    if (coldThen) coldDepth_++;
     startBlock(thenLabel);
     node.thenBranch->accept(*this);
     ir::Inst brEnd;
     brEnd.op = ir::Op::BR;
     brEnd.src1 = ir::Operand::label(endLabel);
     emit(brEnd);
+    if (coldThen) coldDepth_--;
 
     if (node.elseBranch) {
+        if (coldElse) coldDepth_++;
         startBlock(elseLabel);
         node.elseBranch->accept(*this);
         ir::Inst brEnd2;
         brEnd2.op = ir::Op::BR;
         brEnd2.src1 = ir::Operand::label(endLabel);
         emit(brEnd2);
+        if (coldElse) coldDepth_--;
     }
 
     startBlock(endLabel);

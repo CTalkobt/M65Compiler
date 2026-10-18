@@ -1266,6 +1266,21 @@ for bnmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: __likely / __unlikely (#75): the branch not expected to run after
+# the function's return (else branches, !, __builtin_expect, loops, goto and
+# case labels into cold code, stack frames, nested hints)
+for lkmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r lkname lkflags <<< "$lkmode"
+    echo "Testing test_likely_xemu.c ($lkname)..."
+    compile_link_test "src/test-resources/test_likely_xemu.c" "build/test/test_likely_${lkname}_xemu.prg" "$lkflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_likely_$lkname" "build/test/test_likely_${lkname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_likely_xemu.c $lkname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: values put together from bytes (a | b << 8 | (long)c << 16) built
 # byte by byte, loads through constant addresses, and the cases that must
 # stay OR-ed (overlapping bytes, sign extension)

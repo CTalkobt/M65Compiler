@@ -250,15 +250,15 @@ ln45, ar45, nm45, objdump45 and disk45 have no config files. Environment:
   emitted weak so several units can include the same struct.
 - **Extensions**: struct methods, single inheritance, `virtual`/`final`,
   operator overloading, GCC nested functions (static chain, trampolines),
-  statement expressions, computed goto, case ranges, `continue <value>` in a switch, `break N`, `repeat(N)`, `__cpu`/`__flags`,
+  statement expressions, computed goto, case ranges, `continue <value>` in a switch, `break N`, `repeat(N)`, `__likely`/`__unlikely`, `__cpu`/`__flags`,
   `__dma_copy`/`__dma_fill`, `__interrupt`, `__naked`, `__regparm`, `__zp` globals
   (in the private base page, placed by ln45 at the top of `$80`–`$E9`), file-scope
   `asm("...")` (module-level assembly), string encodings
   (`@"…"`, `p"…"`, `s"…"`, `a"…"`, `#pragma encoding`), GCC vector extension (`-fmax-unroll-bytes`, default 128).
-- **Optimization** (`doc/architecture/optimizations.md`): `-O1`+ runs the ten
+- **Optimization** (`doc/architecture/optimizations.md`): `-O1`+ runs the eleven
   IR passes of `IROptimizer.cpp` (parameter narrowing, strength reduction, algebraic simplification,
   type narrowing, branch folding, CSE, LICM, copy propagation, address fusion,
-  post-increment sinking;
+  post-increment sinking, block reordering;
   `CodegenStage::optimizeIR`); `-O2`+ adds automatic inlining
   (`-fmax-inline-ir-size`, default 11); `-O4`+ adds loop interchange (an AST
   pass, `LoopInterchange.cpp`, run by `OptimizeStage`) and loop unrolling

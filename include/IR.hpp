@@ -207,6 +207,7 @@ struct Inst {
 struct Block {
     std::string label;
     std::vector<Inst> insts;
+    bool cold = false;      // not expected to run (__unlikely): placed at the function's end
 };
 
 struct Function {
@@ -223,6 +224,7 @@ struct Function {
     bool isRegparm = false;
     bool isFar = false;      // __far: emitted in the "far" text segment
     bool isNested = false;
+    bool coldAtEnd = false;  // the cold blocks are the last ones (optimizeBlockReorder)
     // symbols this function needs without a relocation (ca45 .ref): the
     // printf conversion hooks its format strings use
     std::set<std::string> asmRefs;

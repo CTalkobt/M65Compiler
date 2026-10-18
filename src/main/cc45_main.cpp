@@ -241,7 +241,7 @@ public:
         indent--;
     }
     void visit(IfStatement& node) override {
-        printIndent(); std::cout << "IfStatement" << std::endl;
+        printIndent(); std::cout << "IfStatement" << (node.hint > 0 ? " (likely)" : node.hint < 0 ? " (unlikely)" : "") << std::endl;
         indent++;
         printIndent(); std::cout << "Condition:" << std::endl;
         indent++;
