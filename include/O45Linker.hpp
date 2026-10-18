@@ -363,6 +363,7 @@ public:
     void setOverlayMap(bool on) { ovlMap_ = on; }
     void setOverlayFileName(const std::string& n) { ovlFileName_ = n; }
     const std::vector<uint8_t>& overlayFile() const { return ovlFile_; }
+    const std::vector<uint8_t>& overlayDescription() const { return ovlDesc_; }   // the .ovd file
     bool hasOverlays() const { return !ovlNames_.empty(); }
 
     // Write a detailed linker map to a stream. Call after link().
@@ -518,6 +519,7 @@ private:
     uint32_t ovlStoreEnd_ = 0;                     // the end of what is loaded there (at most)
     std::string ovlFileName_;
     std::vector<uint8_t> ovlFile_;
+    std::vector<uint8_t> ovlDesc_;   // the overlays' description (nm45, objdump45)
     std::map<std::string, int> symOvl_;            // a text symbol's overlay
     std::map<std::string, uint32_t> realAddr_;     // its address in the region
     std::map<std::string, uint32_t> ovlStubs_;     // its stub (resident)

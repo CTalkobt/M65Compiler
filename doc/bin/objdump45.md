@@ -6,7 +6,7 @@ Supported inputs:
 - **`.o45`** — relocatable objects (`ca45 -c`, `cc45 -c`): header, sections, symbols, relocations, contents, disassembly.
 - **`.prg`** — 2-byte load address + image: header summary, hex dump, disassembly (BASIC `SYS` stub recognised, `ln45 -M` map used for symbols), BASIC listing.
 - **raw binaries** — `.bin` extension or any file with `-b`: header summary, hex dump, disassembly.
-- **`.ovl`** — ln45's code overlay files (see [ln45 Code Overlays](ln45.md#code-overlays)): one section per overlay at the address it runs at (VMA) and where it is kept in far memory (LMA); `-f`, `-h`, `-t`, `-s` and `-d` (with the overlays' symbols as labels).
+- **`.ovd`, `.ov1`** — ln45's code overlay files, the description and the code (see [ln45 Code Overlays](ln45.md#code-overlays)); either one, with the other next to it: one section per overlay at the address it runs at (VMA) and where it is kept in far memory (LMA); `-f`, `-h`, `-t`, `-s` and `-d` (with the overlays' symbols as labels).
 
 ## Usage
 
@@ -28,7 +28,7 @@ At least one display option (`-f`, `-h`, `-t`, `-r`, `-s`, `-d`, `-a` or `-bas`)
 | `-d` | Disassemble (an object's TEXT and DATA sections; the code of a PRG/binary) |
 | `-a` | All of `-f -h -t -r -s -d` |
 | `-b ADDR` | Base address for raw binaries (default `$0000`); overrides the load address of a `.prg`. `$C000` and `0xC000` are hex; a plain number is decimal (`2048`), and a leading `0` makes it octal |
-| `-m FILE` | Load symbols and source lines from an `ln45 -M` map file for PRG/binary disassembly. For `foo.prg`, `foo.map` is used automatically when it exists. With code overlays, a call into an overlay is labelled with the function's name at its stub; the overlays' own symbols are in the `.ovl` file |
+| `-m FILE` | Load symbols and source lines from an `ln45 -M` map file for PRG/binary disassembly. For `foo.prg`, `foo.map` is used automatically when it exists. With code overlays, a call into an overlay is labelled with the function's name at its stub; the overlays' own symbols are in the `.ovd` file |
 | `-bas` | List the BASIC program of a `.prg` (line numbers, detokenised text) |
 | `-x` | With `-bas`: also show each line's bytes in hex |
 | `-D` | Binary diff of exactly two files (any format, compared byte by byte) |
@@ -202,7 +202,7 @@ objdump45 -d main_o0.o45 > o0.asm; objdump45 -d main_o2.o45 > o2.asm; diff o0.as
 
 ## Format Detection
 
-A file that ends with ln45's overlay description (`OVL45`) is read as a code overlay file. Otherwise `objdump45` tries to read each file as `.o45`. If that fails, a `.prg` extension selects PRG mode, a `.bin` extension or `-b` selects raw-binary mode; otherwise the read error is reported. For PRG/binaries `-h`, `-t` and `-r` print nothing. `.o65` files (magic `"o65"`) are not accepted as objects (see [nm45](nm45.md#supported-formats)).
+ln45's overlay description (a file that starts and ends with `OVL45`) and a file named `.ov1`–`.ov9` are read as code overlay files (the code needs the `.ovd` next to it; the description without its code files gives the sections and symbols, not `-s`/`-d`). Otherwise `objdump45` tries to read each file as `.o45`. If that fails, a `.prg` extension selects PRG mode, a `.bin` extension or `-b` selects raw-binary mode; otherwise the read error is reported. For PRG/binaries `-h`, `-t` and `-r` print nothing. `.o65` files (magic `"o65"`) are not accepted as objects (see [nm45](nm45.md#supported-formats)).
 
 ## See Also
 

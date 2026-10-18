@@ -46,8 +46,9 @@ static void printUsage(const char* progName) {
     std::cout << "  --ram-top=ADDR End of the RAM a C program may use in bank 0 (default $C000: $C000-$CFFF" << std::endl;
     std::cout << "                 reads as ROM in C65 mode); for a program that maps RAM there itself" << std::endl;
     std::cout << "  --overlay-store=ADDR  Where code overlays are kept in far memory (default $50000: bank 5)" << std::endl;
-    std::cout << "  --overlay-name=NAME   The overlay file's name on disk (default: the output's, .OVL)" << std::endl;
-    std::cout << "  --overlay-out=PATH    Where to write the overlay file (default: the output's, .ovl)" << std::endl;
+    std::cout << "  --overlay-name=NAME   The overlay file's name on disk (default: the output's, .OV1)" << std::endl;
+    std::cout << "  --overlay-out=PATH    Where to write the overlay file (default: the output's, .ov1;" << std::endl;
+    std::cout << "                        its description for nm45/objdump45 next to it, .ovd)" << std::endl;
     std::cout << "  --overlay-map         Map overlays into a window of 8 KB blocks (MAP) instead of copying them" << std::endl;
     std::cout << "                 (default 4096; $1000, 0x1000 or decimal)" << std::endl;
     std::cout << "  -Wthunk        Warn (but still generate thunks) on convention mismatches" << std::endl;
@@ -206,8 +207,8 @@ int main(int argc, char** argv) {
     if (bssFill >= 0) linker.setBssFill((uint8_t)bssFill);
     if (stackSize >= 0) linker.setStackSize((uint16_t)stackSize);
     // Code overlays: the file name the program loads them from (by default
-    // the output's base name, upper case: PETSCII letters, with .OVL) and
-    // where that file is written (the output's path with .ovl)
+    // the output's base name, upper case: PETSCII letters, with .OV1) and
+    // where that file is written (the output's path with .ov1)
     {
         std::string base = outputFile;
         size_t sl = base.find_last_of('/');
@@ -216,13 +217,13 @@ int main(int argc, char** argv) {
         if (dot != std::string::npos && dot > 0) base = base.substr(0, dot);
         if (ovlName.empty()) {   // (16 characters at most: 12 of the base name)
             for (char& c : base) c = (char)std::toupper((unsigned char)c);
-            ovlName = base.substr(0, 12) + ".OVL";
+            ovlName = base.substr(0, 12) + ".OV1";
         }
         if (ovlOut.empty()) {
             ovlOut = outputFile;
             size_t d = ovlOut.find_last_of('.'), s2 = ovlOut.find_last_of('/');
             if (d != std::string::npos && (s2 == std::string::npos || d > s2)) ovlOut = ovlOut.substr(0, d);
-            ovlOut += ".ovl";
+            ovlOut += ".ov1";
         }
         if (ovlName.size() > 16) {
             std::cerr << "ln45: error: overlay file name '" << ovlName << "' is longer than 16 characters (--overlay-name)" << std::endl;
@@ -481,7 +482,20 @@ int main(int argc, char** argv) {
         }
         const auto& ov = linker.overlayFile();
         of.write(reinterpret_cast<const char*>(ov.data()), ov.size());
-        std::cout << "Code overlays: " << ovlOut << " (" << ov.size() << " bytes; loaded as " << ovlName << ")" << std::endl;
+        // the description (never loaded) next to it: the same path with .ovd
+        std::string descOut = ovlOut;
+        size_t d = descOut.find_last_of('.'), s2 = descOut.find_last_of('/');
+        if (d != std::string::npos && (s2 == std::string::npos || d > s2)) descOut = descOut.substr(0, d);
+        descOut += ".ovd";
+        std::ofstream df(descOut, std::ios::binary);
+        if (!df.is_open()) {
+            std::cerr << "ln45: cannot write " << descOut << std::endl;
+            return 1;
+        }
+        const auto& desc = linker.overlayDescription();
+        df.write(reinterpret_cast<const char*>(desc.data()), desc.size());
+        std::cout << "Code overlays: " << ovlOut << " (" << ov.size() << " bytes; loaded as " << ovlName
+                  << "), described in " << descOut << std::endl;
     }
 
     std::cout << "Linked " << inputFiles.size() << " object"

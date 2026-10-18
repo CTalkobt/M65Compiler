@@ -3,9 +3,9 @@
  * A file with #pragma cc45 overlay(name) (or compiled with -foverlay=name)
  * has its code in the code overlay name. ln45 links every overlay to run in
  * one region of bank 0 (below the stack's share; the heap ends there) and
- * writes their code to <program>.ovl, which the startup code loads into
+ * writes their code to <program>.ov1, which the startup code loads into
  * far memory (bank 5 by default: ln45 --overlay-store) from the drive the
- * program came from, under the name <PROGRAM>.OVL (--overlay-name). Calls
+ * program came from, under the name <PROGRAM>.OV1 (--overlay-name). Calls
  * into an overlay go through resident stubs, which copy it into the region
  * by DMA when another is there; the overlays' variables stay resident.
  *

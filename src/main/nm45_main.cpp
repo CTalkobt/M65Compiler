@@ -308,11 +308,11 @@ int main(int argc, char** argv) {
             continue;
         }
 
-        // A code overlay file (ln45 <program>.ovl): its overlays and symbols
-        if (O45OverlayFile::is(data)) {
+        // A code overlay file (ln45 <program>.ovd / .ov1, or a version 1 .ovl): its overlays and symbols
+        if (O45OverlayFile::is(filename, data)) {
             O45OverlayFile ov;
             std::string oerr;
-            if (!O45OverlayFile::read(data, ov, oerr)) {
+            if (!O45OverlayFile::open(filename, data, ov, oerr)) {
                 std::cerr << "nm45: " << filename << ": " << oerr << std::endl;
                 exitCode = 1;
                 continue;

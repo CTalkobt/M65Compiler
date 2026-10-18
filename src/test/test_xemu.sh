@@ -1358,22 +1358,26 @@ for ovmode in "zp|$STDLIB||" "stack|$STDLIB_STACK|-fno-zpcall|" \
     done
     if [ $ovok = 1 ] && $LD -basic $ovlink -o $ovd/ovltest.prg $ovd/main.o45 $ovd/ovl_a.o45 $ovd/ovl_b.o45 $ovlib >/dev/null 2>&1 &&
        ./bin/disk45 create $ovd/ovl.d81 -n OVLTEST >/dev/null 2>&1 &&
-       ./bin/disk45 add $ovd/ovl.d81 $ovd/ovltest.ovl OVLTEST.OVL >/dev/null 2>&1; then
+       ./bin/disk45 add $ovd/ovl.d81 $ovd/ovltest.ov1 OVLTEST.OV1 >/dev/null 2>&1; then
         run_xemu_test "test_overlay_$ovname" "$ovd/ovltest.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA" -8 "$PWD/$ovd/ovl.d81"
     else
         echo "FAIL: code overlays $ovname (build or link failed)"
         failed=$((failed + 1))
     fi
 done
-# nm45 and objdump45 read the overlay file: its overlays and their symbols at
-# the addresses they run at (copied and mapped)
+# nm45 and objdump45 read the overlay files: the description (.ovd, which
+# the program never loads: the code file has none of it, #298) and the code
+# (.ov1), either named; their overlays and symbols at the addresses they run
+# at (copied and mapped)
 ovtools=1
 for ovname in zp zp_map; do
-    ovf=build/test/overlay_$ovname/ovltest.ovl
-    ./bin/nm45 $ovf 2>&1 | grep -q "T _a_add  \[overlay a\]" &&
-    ./bin/nm45 -h $ovf 2>&1 | grep -q "^  2 b " &&
-    ./bin/objdump45 -h $ovf 2>&1 | grep -q "^  1 a " &&
-    ./bin/objdump45 -d $ovf 2>&1 | grep -q "<_b_mul>:" || ovtools=0
+    for ovf in build/test/overlay_$ovname/ovltest.ovd build/test/overlay_$ovname/ovltest.ov1; do
+        ./bin/nm45 $ovf 2>&1 | grep -q "T _a_add  \[overlay a\]" &&
+        ./bin/nm45 -h $ovf 2>&1 | grep -q "^  2 b " &&
+        ./bin/objdump45 -h $ovf 2>&1 | grep -q "^  1 a " &&
+        ./bin/objdump45 -d $ovf 2>&1 | grep -q "<_b_mul>:" || ovtools=0
+    done
+    ! grep -q OVL45 build/test/overlay_$ovname/ovltest.ov1 || ovtools=0
 done
 # the linker map: the overlays kept in bank 5, an overlay object where it
 # runs, a stub tagged with its overlay, the overlays' own symbols
@@ -1427,7 +1431,7 @@ for farmode in "zp|$STDLIB|" "stack|$STDLIB_STACK|-fno-zpcall" \
     done
     if [ $farok = 1 ] && $LD -basic -M $fard/fartest.map -o $fard/fartest.prg $fard/main.o45 $fard/far_a.o45 $fard/far_b.o45 $farlib >/dev/null 2>&1 &&
        ./bin/disk45 create $fard/far.d81 -n FARTEST >/dev/null 2>&1 &&
-       ./bin/disk45 add $fard/far.d81 $fard/fartest.ovl FARTEST.OVL >/dev/null 2>&1; then
+       ./bin/disk45 add $fard/far.d81 $fard/fartest.ov1 FARTEST.OV1 >/dev/null 2>&1; then
         run_xemu_test "test_far_$farname" "$fard/fartest.prg" "C0C0" 9 "01 01 01 01 01 01 01 01 AA" -8 "$PWD/$fard/far.d81"
     else
         echo "FAIL: __far functions $farname (build or link failed)"
@@ -1473,7 +1477,7 @@ if $CC -c $fard/isr.c -o $fard/isr.o45 >/dev/null 2>&1 &&
    grep -qF '    far1           kept in bank 5 $0000 - ' $fard/fartest.map &&
    grep -qF '    far2           kept in bank 5 ' $fard/fartest.map &&
    grep -qF '(stub $' $fard/fartest.map &&
-   ./bin/objdump45 -d $fard/fartest.ovl 2>&1 | grep -q "<_fb_mul>:"; then
+   ./bin/objdump45 -d $fard/fartest.ov1 2>&1 | grep -q "<_fb_mul>:"; then
     echo "SUCCESS: __far: interrupt handlers refused (far, or reaching far code), map and objdump45 show the automatic overlays"
     passed=$((passed + 1))
 else
