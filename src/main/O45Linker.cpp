@@ -3034,10 +3034,15 @@ void O45Linker::computeSacOverlay() {
             if (fa == funcAttrs_.end() || !(fa->second.flags & FUNC_FLAG_STATIC_ALLOC)) continue;
             if (unsafe.count(fn)) continue;
             if (symbolSource_[fn] != input.filename) continue;
-            bool defined = false;   // this object's definition is the one in use
+            // this object's definition is the one in use: resident, at its
+            // place in the merged text; or in a code overlay (its address is
+            // in the overlay region, later its stub), from this object (as
+            // symbolSource_ says). Its block is resident BSS either way, and
+            // calls through the stubs are calls in the graph (Issue #302)
+            bool defined = false;
             for (const auto& e2 : input.obj.exports)
                 if (e2.name == fn && e2.segmentId() == SEG_TEXT &&
-                    globalSymbols_[fn] == textBase_ + input.remapTextOffset(e2.offset))
+                    (globalSymbols_[fn] == textBase_ + input.remapTextOffset(e2.offset) || input.ovlAt(e2.offset)))
                     defined = true;
             if (!defined) continue;
             if (exp.offset + sz->second > input.obj.blen) continue;

@@ -1473,6 +1473,37 @@ else
     failed=$((failed + 1))
 fi
 
+# Test: the SAC overlay shares the static-allocation blocks of functions in
+# code overlays (#302): a chain overlay o1 -> resident -> overlay o2 keeps
+# its storage apart (o1_f's array survives o2_g), two functions never
+# active together share theirs (the map: o1_h__ar and o2_k__ar at one
+# address, o1_f__ar and o2_g__ar at two)
+for somode in "zp|$STDLIB||" "stack|$STDLIB_STACK|-fno-zpcall|" "zp_map|$STDLIB||--overlay-map"; do
+    IFS='|' read -r soname solib soflags solink <<< "$somode"
+    echo "Testing SAC overlay of code overlays ($soname)..."
+    sod=build/test/sacovl_$soname
+    rm -rf $sod; mkdir -p $sod
+    sook=1
+    for f in main o1 o2; do $CC $soflags -c src/test-resources/sacovl/$f.c -o $sod/$f.o45 >/dev/null 2>&1 || sook=0; done
+    if [ $sook = 1 ] && $LD -basic $solink -M $sod/t.map -o $sod/sotest.prg $sod/main.o45 $sod/o1.o45 $sod/o2.o45 $solib >/dev/null 2>&1 &&
+       ./bin/disk45 create $sod/so.d81 -n SOTEST >/dev/null 2>&1 &&
+       ./bin/disk45 add $sod/so.d81 $sod/sotest.ov1 SOTEST.OV1 >/dev/null 2>&1; then
+        run_xemu_test "test_sacovl_$soname" "$sod/sotest.prg" "C0C0" 5 "01 01 01 01 AA" -8 "$PWD/$sod/so.d81"
+        soaddr() { awk -v s="$1" '$2 == s { print $1; exit }' $sod/t.map; }
+        if [ -n "$(soaddr _o1_h__ar)" ] && [ "$(soaddr _o1_h__ar)" = "$(soaddr _o2_k__ar)" ] &&
+           [ -n "$(soaddr _o2_g__ar)" ] && [ "$(soaddr _o1_f__ar)" != "$(soaddr _o2_g__ar)" ]; then
+            echo "SUCCESS: SAC overlay of code overlays ($soname): shared, and apart along the chain"
+            passed=$((passed + 1))
+        else
+            echo "FAIL: SAC overlay of code overlays ($soname): $(grep -E '_(o1_f|o2_g|o1_h|o2_k)__ar ' $sod/t.map | tr -s ' ' | tr '\n' ';')"
+            failed=$((failed + 1))
+        fi
+    else
+        echo "FAIL: SAC overlay of code overlays $soname (build or link failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: constants kept with an overlay's code (#301): __noescape objects and
 # #pragma cc45 noescape_strings literals in a code overlay (copied, mapped)
 # and in __far functions; __escape and stored literals stay resident

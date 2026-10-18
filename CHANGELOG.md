@@ -71,6 +71,15 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### ln45
 
+- **The SAC overlay takes functions in code overlays** (Issue #302): the
+  static-allocation blocks (`<f>__ar`) of SAC functions never active at the
+  same time share storage, but a function in a code overlay was always left
+  out: the check that its object holds the definition in use compared its
+  address with a place in the resident text, and an overlay function's is
+  in the overlay region. Each overlay function kept a block of its own in
+  bank 0. Now they share like resident ones (calls through the stubs are
+  calls in the graph, so overlay A -> resident -> overlay B keeps them
+  apart). vim2: 5,120 bytes of bank 0 freed (BSS 12,742 -> 7,622).
 - **Code overlays in two banks** (Issue #299): the overlay store was one
   64 KB bank, so a program whose overlay code grew past it could not link.
   `--overlay-store` now takes a second range in the next bank
