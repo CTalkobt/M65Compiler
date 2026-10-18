@@ -1446,6 +1446,24 @@ void optimizeTypeNarrowing(Module& mod) {
                 }
             }
         }
+
+        // Immediate operands of the byte operations as bytes: p & ~0x80 arrives
+        // as a 16-bit AND with -129, which is $7F once the AND is narrowed
+        // (Issue #288; the low byte of the result depends only on it)
+        for (auto& block : fn.blocks)
+            for (auto& inst : block.insts) {
+                if (inst.resultType != Type::I8) continue;
+                switch (inst.op) {
+                    case Op::ADD: case Op::SUB: case Op::MUL: case Op::MUL_U:
+                    case Op::AND: case Op::OR: case Op::XOR:
+                        for (Operand* o : {&inst.src1, &inst.src2})
+                            if (o->isImm() && (o->immVal < 0 || o->immVal > 0xFF))
+                                *o = Operand::imm(o->immVal & 0xFF, Type::I8);
+                        break;
+                    default:
+                        break;
+                }
+            }
     }
 }
 

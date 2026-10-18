@@ -1238,6 +1238,20 @@ for esmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: the constants of byte operations are bytes: p & ~0x80 is and #127,
+# not and #-129 (an assembler warning) (#288)
+for bimode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r biname biflags <<< "$bimode"
+    echo "Testing test_byte_imm_xemu.c ($biname)..."
+    compile_link_test "src/test-resources/test_byte_imm_xemu.c" "build/test/test_byte_imm_${biname}_xemu.prg" "$biflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_byte_imm_$biname" "build/test/test_byte_imm_${biname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
+    else
+        echo "FAIL: test_byte_imm_xemu.c $biname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: break N leaves N enclosing loops/switches (a switch is a level,
 # repeat(N) is not), releasing the VLAs of the loops it leaves (#71)
 for bnmode in "zp|" "stack|-fno-zpcall"; do

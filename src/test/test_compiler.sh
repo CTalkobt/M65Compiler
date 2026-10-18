@@ -304,6 +304,18 @@ else
     failed=$((failed + 1))
 fi
 
+# The constants of byte operations are bytes (Issue #288): p & ~0x80 on an
+# unsigned char is and #127, with no "8-bit operand overflow" from ca45
+printf 'unsigned char r;\nvoid f(unsigned char p) { r = p & ~0x80; r = p - 300; }\n' > build/test/byteimm.c
+if $CC -S build/test/byteimm.c -o build/test/byteimm.s45 2>/dev/null &&
+   grep -q "and #127" build/test/byteimm.s45 && ! grep -qE "#-|#300" build/test/byteimm.s45 &&
+   ! $CC -c build/test/byteimm.c -o build/test/byteimm.o45 2>&1 | grep -q "operand overflow"; then
+    echo "SUCCESS: byte operations have byte constants"
+else
+    echo "FAIL: byte operations have byte constants"
+    failed=$((failed + 1))
+fi
+
 # break N (Issue #71): more levels than the loops/switches around it, 0 or
 # a level over 255 are errors; break 1 and a switch as a level are not
 bn_ok=1

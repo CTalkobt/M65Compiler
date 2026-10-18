@@ -6,6 +6,12 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### cc45
 
+- **Byte operations with an out-of-range constant** (Issue #288): `p & ~0x80`
+  on an `unsigned char` became `and #-129` (the int constant of a 16-bit
+  AND narrowed to 8 bits), and ca45 warned "8-bit operand overflow" at every
+  build; `p - 300` was `sbc #300`, `p + -3` `adc #-3`. The constants of the
+  narrowed operations are now the bytes (`and #127`). The code was right;
+  the warning was noise.
 - **Smaller code** (Issues #290, #292, #293, #295; vim2: 72,087 → 68,347
   bytes, -5%):
   - constant arguments are stored straight into the parameter block (`lda
