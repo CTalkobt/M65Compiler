@@ -172,6 +172,11 @@ void IRBuilder::generate(TranslationUnit& unit) {
     // Parameter narrowing analysis: detect static functions where all call sites
     // pass values fitting in char for int parameters. Emit advisory warning.
     {
+        // parameter i of a function (its name without the leading _) is declared signed
+        auto paramSigned = [&](const std::string& fname, size_t i) {
+            auto it = functionParamSigned_.find(fname);
+            return it != functionParamSigned_.end() && i < it->second.size() && it->second[i];
+        };
         // Build map of function name → param types
         std::map<std::string, std::vector<ir::Type>> funcParams;
         std::map<std::string, int> funcDeclLines;
@@ -249,8 +254,10 @@ void IRBuilder::generate(TranslationUnit& unit) {
                     warnings_.push_back(formatDiagnostic(module_.sourceFile, funcDeclLines[name], 0,
                         Severity::Note, ss.str()));
                 } else if (params[i] == ir::Type::I16 && !allConst[i] &&
-                           allNonNegPtr && i < allNonNegPtr->size() && (*allNonNegPtr)[i]) {
+                           allNonNegPtr && i < allNonNegPtr->size() && (*allNonNegPtr)[i] &&
+                           paramSigned(name.substr(1), i)) {
                     // All values non-negative but some > 255 — suggest unsigned int
+                    // (only for a parameter declared signed)
                     std::stringstream ss;
                     ss << "parameter " << (i + 1) << " of '" << cleanName
                        << "' could be 'unsigned int' (all call sites pass non-negative values)";

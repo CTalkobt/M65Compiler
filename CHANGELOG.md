@@ -6,6 +6,10 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### cc45
 
+- **"could be 'unsigned int'" note**: given for a `static` function's
+  parameter that every call passes a non-negative value, even when it was
+  already unsigned (`unsigned int`, or a plain `int`, unsigned by default).
+  Now only for a parameter declared signed.
 - **`__likely(x)` / `__unlikely(x)`** (Issue #75): branch hints. On an
   `if`'s condition (also under `!`) the branch not expected to run is
   placed after the function's `rts` (a new IR pass, `-freorder-blocks`, on
