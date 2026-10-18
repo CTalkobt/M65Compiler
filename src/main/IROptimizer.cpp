@@ -15,6 +15,18 @@ static bool runOn(const Function& fn, const char* pass) {
     return !passEnabled || passEnabled(fn, pass);
 }
 
+// A direct call of a __pure / __attribute__((pure)) function: 1, or of an
+// __attribute__((const)) one: 2; else 0 (Issue #76)
+static int purityOf(const Module& mod, const Inst& in) {
+    if ((in.op != Op::CALL && in.op != Op::CALL_VOID) || in.src1.kind != OperandKind::GLOBAL) return 0;
+    auto it = mod.pureFunctions.find(in.src1.name);
+    return it == mod.pureFunctions.end() ? 0 : it->second;
+}
+
+static bool sameOperand(const Operand& a, const Operand& b) {
+    return a.kind == b.kind && a.vregId == b.vregId && a.immVal == b.immVal && a.name == b.name;
+}
+
 static void trace(const char* pass, const std::string& func, const std::string& action,
                   const SourceLoc& loc = {}) {
     if (optTrace) {
@@ -250,12 +262,27 @@ void optimizeCSE(Module& mod) {
                 if (in.op == Op::ASM_INLINE || in.op == Op::BR_INDIRECT) anyAsm = true;
         std::vector<std::map<uint32_t, Operand>> endCopies(fn.blocks.size());
         std::vector<std::vector<std::pair<ExprKey, Operand>>> endExprs(fn.blocks.size());
+        // calls of pure / const functions and their results (Issue #76)
+        struct PureCall { std::string name; std::vector<Operand> args; Type type; int purity; Operand result; };
+        std::vector<std::vector<PureCall>> endCalls(fn.blocks.size());
+        // (an argument that is a constant compares by its value: each call
+        // gets its own const vreg)
+        const std::map<uint32_t, int64_t> callConsts = singleDefConsts(fn);
+        auto argKey = [&](const Operand& o) {
+            if (o.isVreg()) {
+                auto c = callConsts.find(o.vregId);
+                if (c != callConsts.end()) return Operand::imm(c->second, o.type);
+            }
+            return o;
+        };
         for (size_t blockIdx = 0; blockIdx < fn.blocks.size(); blockIdx++) {
             auto& block = fn.blocks[blockIdx];
             std::map<uint32_t, Operand> copies;
             std::vector<std::pair<ExprKey, Operand>> activeExprs;
+            std::vector<PureCall> activeCalls;
             if (!anyAsm && blockIdx > 0 && predCount[blockIdx] == 1 && onlyPred[blockIdx] >= 0 &&
                 (size_t)onlyPred[blockIdx] < blockIdx) {
+                activeCalls = endCalls[onlyPred[blockIdx]];   // (a call is expensive to repeat)
                 // only what is expensive to compute again (a multiply, an
                 // element address, a division): a reused cheap value lives
                 // longer and spills more than it saves
@@ -279,6 +306,11 @@ void optimizeCSE(Module& mod) {
                     if (it->first == v || uses(it->second, v)) it = copies.erase(it);
                     else ++it;
                 }
+                activeCalls.erase(std::remove_if(activeCalls.begin(), activeCalls.end(), [&](const PureCall& c) {
+                    if (uses(c.result, v)) return true;
+                    for (const auto& a : c.args) if (uses(a, v)) return true;
+                    return false;
+                }), activeCalls.end());
             };
             // A store through a pointer, a call or inline asm may change any
             // variable (its address may have been taken)
@@ -302,10 +334,20 @@ void optimizeCSE(Module& mod) {
                 for (auto& arg : inst.args) prop(arg, false);
                 for (auto& pair : inst.phiIncoming) prop(pair.first, false);
 
-                // 2. Handle memory stores invalidating load expressions
-                if (inst.op == Op::STORE || inst.op == Op::STORE_ZP ||
-                    inst.op == Op::CALL || inst.op == Op::CALL_INDIRECT || inst.op == Op::CALL_VOID ||
-                    inst.op == Op::ASM_INLINE || inst.op == Op::CPU_REG_WRITE || inst.op == Op::CPU_FLAG_WRITE) {
+                // 2. Handle memory stores invalidating load expressions (a
+                // call of a pure / const function changes nothing)
+                const int purity = purityOf(mod, inst);
+                if ((inst.op == Op::STORE || inst.op == Op::STORE_ZP ||
+                     inst.op == Op::CALL || inst.op == Op::CALL_INDIRECT || inst.op == Op::CALL_VOID ||
+                     inst.op == Op::ASM_INLINE || inst.op == Op::CPU_REG_WRITE || inst.op == Op::CPU_FLAG_WRITE) &&
+                    !purity) {
+                    // (a pure function's result depends on memory too; not on
+                    // a local variable whose address is not taken)
+                    bool plainLocal = (inst.op == Op::STORE || inst.op == Op::STORE_ZP) && inst.src2.isVreg() &&
+                                      slots.count(inst.src2.vregId) && !fn.memoryVregs.count(inst.src2.vregId);
+                    if (!plainLocal)
+                        activeCalls.erase(std::remove_if(activeCalls.begin(), activeCalls.end(),
+                            [](const PureCall& c) { return c.purity < 2; }), activeCalls.end());
                     
                     activeExprs.erase(
                         std::remove_if(activeExprs.begin(), activeExprs.end(),
@@ -324,6 +366,42 @@ void optimizeCSE(Module& mod) {
 
                 // The instruction (re)defines its destination
                 if (inst.dest.isVreg()) invalidate(inst.dest.vregId);
+
+                // A call of a pure / const function with the arguments of an
+                // earlier one (nothing changed in between): its result
+                if (purity && inst.op == Op::CALL && inst.dest.isVreg()) {
+                    bool found = false;
+                    for (const auto& c : activeCalls) {
+                        if (c.name != inst.src1.name || c.type != inst.resultType || c.args.size() != inst.args.size()) continue;
+                        bool same = true;
+                        for (size_t a = 0; a < c.args.size() && same; a++) same = sameOperand(c.args[a], argKey(inst.args[a]));
+                        if (!same) continue;
+                        trace("cse", fn.name, "v" + std::to_string(inst.dest.vregId) + " reuses the result of a call of " +
+                              inst.src1.name + " (v" + std::to_string(c.result.vregId) + ")", inst.loc);
+                        Operand result = c.result;
+                        uint32_t d = inst.dest.vregId;
+                        Type t = inst.dest.type;
+                        SourceLoc where = inst.loc;
+                        inst = Inst();
+                        inst.op = Op::COPY;
+                        inst.dest = Operand::vreg(d, t);
+                        inst.src1 = result;
+                        inst.resultType = t;
+                        inst.loc = where;
+                        if (!slots.count(d)) copies[d] = result;
+                        found = true;
+                        break;
+                    }
+                    if (found) continue;
+                    if (!slots.count(inst.dest.vregId)) {
+                        bool self = false;
+                        for (const auto& a : inst.args) self = self || uses(a, inst.dest.vregId);
+                        std::vector<Operand> keys;
+                        for (const auto& a : inst.args) keys.push_back(argKey(a));
+                        if (!self) activeCalls.push_back({inst.src1.name, keys, inst.resultType, purity, inst.dest});
+                    }
+                    continue;
+                }
 
                 // 3. Record new copies directly
                 if (inst.op == Op::COPY) {
@@ -373,6 +451,7 @@ void optimizeCSE(Module& mod) {
             }
             endCopies[blockIdx] = std::move(copies);
             endExprs[blockIdx] = std::move(activeExprs);
+            endCalls[blockIdx] = std::move(activeCalls);
         }
     }
 }
@@ -2220,10 +2299,10 @@ void optimizeLICM(Module& mod) {
                     if ((inst.op == Op::STORE || inst.op == Op::STORE_ZP) &&
                         inst.src2.isVreg() && fn.localSlotVregs.count(inst.src2.vregId)) {
                         loopMutatedSlots.insert(inst.src2.vregId);
-                    } else if (inst.op == Op::STORE || inst.op == Op::STORE_ZP ||
-                               inst.op == Op::CALL || inst.op == Op::CALL_VOID ||
-                               inst.op == Op::CALL_INDIRECT || inst.op == Op::ASM_INLINE ||
-                               inst.op == Op::CPU_REG_WRITE) {
+                    } else if ((inst.op == Op::STORE || inst.op == Op::STORE_ZP ||
+                                inst.op == Op::CALL || inst.op == Op::CALL_VOID ||
+                                inst.op == Op::CALL_INDIRECT || inst.op == Op::ASM_INLINE ||
+                                inst.op == Op::CPU_REG_WRITE) && !purityOf(mod, inst)) {
                         loopWritesMemory = true;
                     }
                 }
@@ -2262,7 +2341,15 @@ void optimizeLICM(Module& mod) {
                     for (const auto& inst : fn.blocks[bi].insts) {
                         if (!inst.dest.isVreg()) continue;
                         if (invariantVregs.count(inst.dest.vregId)) continue;
-                        if (!isHoistCandidate(inst.op)) continue;
+                        // A call of a const function, or of a pure one in a
+                        // loop that writes no memory (Issue #76): only from
+                        // the header, which runs whenever the loop is entered
+                        // (one in a conditional block, or in a loop that
+                        // runs no times, would then run when it did not)
+                        const int purity = purityOf(mod, inst);
+                        const bool pureCall = purity && inst.op == Op::CALL && bi == header &&
+                                              (purity == 2 || !loopWritesMemory);
+                        if (!isHoistCandidate(inst.op) && !pureCall) continue;
                         // A global's address (+ a constant) costs nothing where it
                         // is used (name+off): hoisted, it and the address arithmetic
                         // on it would be variables live across the loop (across its
@@ -2274,7 +2361,7 @@ void optimizeLICM(Module& mod) {
                         // Likewise anything computed from constants alone (a
                         // conversion of a constant): only an instruction with a
                         // variable operand (k * 7) is worth a variable
-                        if (inst.op != Op::CONST && inst.op != Op::FCONST) {
+                        if (inst.op != Op::CONST && inst.op != Op::FCONST && !pureCall) {
                             bool hasVar = false;
                             auto isVar = [&](const Operand& o) {
                                 return o.isVreg() && !loopConsts.count(o.vregId);
@@ -3179,7 +3266,16 @@ void removeDeadTemps(Module& mod) {
                     bool slotRead = i.op == Op::DEREF && i.src1.isVreg() &&
                                     fn.localSlotVregs.count(i.src1.vregId) &&
                                     !fn.memoryVregs.count(i.src1.vregId);
-                    if ((!pure(i.op) && !slotRead) || !i.dest.isVreg()) continue;
+                    // a call of a pure / const function whose result nothing
+                    // uses (or that returns nothing): no effect (Issue #76)
+                    if (purityOf(mod, i) && (i.op == Op::CALL_VOID || !i.dest.isVreg())) {
+                        i = Inst();
+                        i.op = Op::NOP;
+                        changed = true;
+                        continue;
+                    }
+                    bool pureCall = purityOf(mod, i) > 0;
+                    if ((!pure(i.op) && !slotRead && !pureCall) || !i.dest.isVreg()) continue;
                     uint32_t d = i.dest.vregId;
                     if (used.count(d) || fn.localSlotVregs.count(d) || fn.memoryVregs.count(d)) continue;
                     if ((int)d == fn.staticLinkVreg || (int)d == fn.retAddrSlot) continue;

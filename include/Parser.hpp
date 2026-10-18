@@ -95,6 +95,8 @@ private:
     int takePendingAlign() { int a = pendingAlign_; pendingAlign_ = 0; return a; }
     // __noescape (__attribute__((noescape))) seen in the declaration
     bool pendingNoescape_ = false;
+    // __pure / pure (1), const (2) seen on a function declaration
+    int pendingPurity_ = 0;
     bool takePendingNoescape() { bool n = pendingNoescape_; pendingNoescape_ = false; return n; }
     // #pragma cc45 noescape_strings (until escape_strings): string literals
     // in functions stay with their code (Issue #301)

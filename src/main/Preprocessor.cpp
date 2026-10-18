@@ -34,6 +34,8 @@ Preprocessor::Preprocessor(bool isCompiler) : isCompiler(isCompiler) {
     // __noescape: a constant whose address stays in its object's code (an
     // overlay keeps it with its code; Issue #301)
     macros["__noescape"] = Macro{false, false, {}, "__attribute__((noescape))"};
+    // __pure: a function without side effects (Issue #76)
+    macros["__pure"] = Macro{false, false, {}, "__attribute__((pure))"};
     macros["__45GS02__"] = Macro{false, false, {}, "1"};
     macros["__6502__"] = Macro{false, false, {}, "1"};
 

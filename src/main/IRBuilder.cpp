@@ -1278,6 +1278,15 @@ void IRBuilder::visit(FunctionDeclaration& node) {
     if (node.alignment > 1) funcAlign_[node.name] = std::max(funcAlign_[node.name], node.alignment);
     // Attributes may appear on a prototype or the definition; accumulate by name
     if (node.isAlwaysInline) alwaysInlineNames_.insert(node.name);
+    // (only a function whose value comes back in registers: a struct, union,
+    // _Complex, float or long long one writes it through its hidden __sret
+    // pointer, so its call is not free of effects)
+    bool regReturn = node.returnPointerLevel > 0 ||
+                     (!structOf(node.returnType) && mapType(node.returnType, 0) != ir::Type::F32);
+    if (node.purity > 0 && regReturn) {
+        int& p = module_.pureFunctions["_" + node.name];
+        p = std::max(p, node.purity);
+    }
     // (a __far function's code stays in far memory: not copied into its callers)
     if (node.isNoInline || node.isFar) noInlineNames_.insert(node.name);
     if (alwaysInlineNames_.count(node.name) && noInlineNames_.count(node.name) && node.body) {

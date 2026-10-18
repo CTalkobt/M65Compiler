@@ -299,6 +299,9 @@ struct Module {
     std::list<Function> functions;
     std::vector<std::string> externs;
     std::map<std::string, int> zpExterns;   // extern __zp globals: name -> size (0: unknown)
+    // __pure / __attribute__((pure)) functions: 1; __attribute__((const)):
+    // 2 (calls with the same arguments give the same result; Issue #76)
+    std::map<std::string, int> pureFunctions;
 
     // Global variable declarations (for ADDR_GLOBAL references)
     struct GlobalVar {

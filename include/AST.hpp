@@ -524,6 +524,9 @@ public:
     bool isAlwaysInline = false;  // __attribute__((always_inline)) / __forceinline
     bool isNoInline = false;      // __attribute__((noinline))
     int alignment = 0;            // __attribute__((aligned(N))): code address alignment
+    // __pure / __attribute__((pure)): 1, no side effects (may read memory);
+    // __attribute__((const)): 2, the result depends only on the arguments
+    int purity = 0;
 
     // Nested function support
     bool isNested = false;

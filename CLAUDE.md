@@ -253,7 +253,7 @@ ln45, ar45, nm45, objdump45 and disk45 have no config files. Environment:
   emitted weak so several units can include the same struct.
 - **Extensions**: struct methods, single inheritance, `virtual`/`final`,
   operator overloading, GCC nested functions (static chain, trampolines),
-  statement expressions, computed goto, case ranges, `continue <value>` in a switch, `break N`, `repeat(N)`, `__likely`/`__unlikely`, `__noescape`, `__cpu`/`__flags`,
+  statement expressions, computed goto, case ranges, `continue <value>` in a switch, `break N`, `repeat(N)`, `__likely`/`__unlikely`, `__noescape`, `__pure`, `__cpu`/`__flags`,
   `__dma_copy`/`__dma_fill`, `__interrupt`, `__naked`, `__regparm`, `__zp` globals
   (in the private base page, placed by ln45 at the top of `$80`–`$E9`), file-scope
   `asm("...")` (module-level assembly), string encodings

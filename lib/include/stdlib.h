@@ -36,12 +36,12 @@ float atof(char *nptr);
 #ifndef __NOMACRO_ABS
 #define abs(x) ((x)<0?-(x):(x))
 #else
-__fastcall__ signed int abs(signed int value);
+__fastcall__ signed int abs(signed int value) __attribute__((const));
 #endif
 #ifndef __NOMACRO_LABS
 #define labs(x) ((long)((x)<0?-(x):(x)))
 #else
-__fastcall__ signed long labs(signed long value);
+__fastcall__ signed long labs(signed long value) __attribute__((const));
 #endif
 #define RAND_MAX 32767
 __fastcall__ int rand(void);

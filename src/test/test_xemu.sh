@@ -1297,6 +1297,22 @@ for zamode in "zp|" "zp_nolocals|-fno-zp-locals" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: __pure / __attribute__((pure)) and __attribute__((const)) (#76):
+# repeated calls share one result, unused calls are dropped, a call in a
+# loop condition is hoisted (not one in a conditional block, nor a pure one
+# in a loop that stores); the functions count their calls to show it
+for pumode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r puname puflags <<< "$pumode"
+    echo "Testing test_pure_xemu.c ($puname)..."
+    compile_link_test "src/test-resources/test_pure_xemu.c" "build/test/test_pure_${puname}_xemu.prg" "$puflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_pure_$puname" "build/test/test_pure_${puname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_pure_xemu.c $puname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: values put together from bytes (a | b << 8 | (long)c << 16) built
 # byte by byte, loads through constant addresses, and the cases that must
 # stay OR-ed (overlapping bytes, sign extension)
