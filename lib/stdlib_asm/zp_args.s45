@@ -1,0 +1,88 @@
+; zp_args.s45 — the parameter thunk of a ZP-convention SAC function
+;
+; A function with static allocation called through its plain entry finds
+; its arguments in the ZP parameter block ($10-$2F) and copies them into
+; its parameter storage: static (_f__param_a) or its base-page block
+; (_f__zar + n). cc45 emits, instead of an lda/sta per byte (4-5 bytes
+; each), when that is shorter (Issue #292):
+;
+;     jsr __zp_args
+;     .byte size1
+;     .word dest1          ; _f__param_a, or _f__zar+2
+;     .byte size2 | $80    ; not copied (the function uses it in $10-$2F):
+;     ...                  ; its slot is skipped, no address follows
+;     .byte 0
+;
+; The arguments are in the parameter block in order, a char in a 2-byte
+; slot (the ZP convention). __zp_args returns after the list. A, X, Y and
+; $08-$0D are clobbered (free at a function's entry); Z is not used.
+
+    .cpu 45gs02
+
+; no calls through pointers here (ln45's call graph, see O45Linker)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+data     = $08      ; the list - 1 (the return address)
+dest     = $0A      ; where the current parameter goes
+idx      = $0C      ; the next list byte, from data
+cnt      = $0D      ; the current parameter's size
+PARAMS   = $10      ; the parameter block
+
+    .split "__zp_args"
+.global __zp_args
+__zp_args:
+    pla
+    sta data
+    pla
+    sta data+1
+    ldx #0              ; the next argument byte: PARAMS + X
+    ldy #1
+@param:
+    lda (data),y        ; the size (0 ends the list; bit 7: not copied)
+    beq @done
+    iny
+    pha
+    and #$7F
+    sta cnt
+    pla
+    bmi @skip
+    lda (data),y
+    sta dest
+    iny
+    lda (data),y
+    sta dest+1
+    iny
+    sty idx
+    ldy #0
+@byte:
+    lda PARAMS,x
+    sta (dest),y
+    inx
+    iny
+    cpy cnt
+    bne @byte
+    ldy idx
+    bra @slot
+@skip:
+    txa
+    clc
+    adc cnt
+    tax
+@slot:
+    lda cnt
+    cmp #1              ; a char's slot is 2 bytes
+    bne @param
+    inx
+    bra @param
+@done:
+    ; return past the list: the return address + the index of its 0
+    tya
+    clc
+    adc data
+    tax
+    lda data+1
+    adc #0
+    pha
+    phx
+    rts

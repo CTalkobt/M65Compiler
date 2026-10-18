@@ -3607,8 +3607,38 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             if (fnZp) {
                 // ZP convention: copy the parameter block into SAC storage
                 emitComment("SAC thunk: load ZP params into SAC storage");
-                int zpOff = (int)zeroPageStart_ + 8;
+                // __zp_args (stdlib_asm/zp_args.s45) copies them from a list
+                // of the parameters' sizes and homes, 3 bytes each (1 for one
+                // not copied) after a jsr: when that is shorter than the
+                // copies inline, lda/sta per byte (-S output, assembled
+                // without the library, copies them inline)
+                int inlineBytes = 0, listBytes = 4, pending = 0;   // (jsr, the 0)
+                std::vector<std::string> list;
                 for (size_t i = 0; i < fn.paramTypes.size(); i++) {
+                    std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
+                        ? fn.paramNames[i] : std::to_string(i);
+                    int pSize = ir::typeSize(fn.paramTypes[i]);
+                    if (zpParams_.count((uint32_t)i)) { pending++; continue; }
+                    auto zv = zarVregs_.find((uint32_t)i);
+                    inlineBytes += pSize * (zv != zarVregs_.end() ? 4 : 5);
+                    // (the skipped parameters before this one)
+                    for (size_t k = i - pending; k < i; k++)
+                        list.push_back(".byte " + std::to_string(0x80 | ir::typeSize(fn.paramTypes[k])));
+                    listBytes += pending + 3;
+                    pending = 0;
+                    list.push_back(".byte " + std::to_string(pSize));
+                    list.push_back(".word " + (zv != zarVregs_.end()
+                        ? fn.name + "__zar+" + std::to_string(zv->second - ZAR_START)
+                        : fn.name + "__param_" + pName));
+                }
+                if (relocMode_ && listBytes < inlineBytes) {
+                    emit(".extern __zp_args");
+                    emit("jsr __zp_args");
+                    for (const auto& l : list) emit(l);
+                    emit(".byte 0");
+                }
+                int zpOff = (int)zeroPageStart_ + 8;
+                for (size_t i = 0; !(relocMode_ && listBytes < inlineBytes) && i < fn.paramTypes.size(); i++) {
                     std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
                         ? fn.paramNames[i] : std::to_string(i);
                     std::string sym = fn.name + "__param_" + pName;

@@ -1281,6 +1281,22 @@ for lkmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: the table-driven parameter thunk of ZP-convention SAC functions
+# (__zp_args, #292): static and base-page homes, skipped slots, floats,
+# pointers, a recursive caller, calls through pointers, a struct return;
+# also without base-page locals
+for zamode in "zp|" "zp_nolocals|-fno-zp-locals" "stack|-fno-zpcall"; do
+    IFS='|' read -r zaname zaflags <<< "$zamode"
+    echo "Testing test_zp_args_xemu.c ($zaname)..."
+    compile_link_test "src/test-resources/test_zp_args_xemu.c" "build/test/test_zp_args_${zaname}_xemu.prg" "$zaflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_zp_args_$zaname" "build/test/test_zp_args_${zaname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_zp_args_xemu.c $zaname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: values put together from bytes (a | b << 8 | (long)c << 16) built
 # byte by byte, loads through constant addresses, and the cases that must
 # stay OR-ed (overlapping bytes, sign extension)
