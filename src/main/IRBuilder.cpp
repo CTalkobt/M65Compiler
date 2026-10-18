@@ -288,6 +288,21 @@ void IRBuilder::emit(ir::Inst inst) {
     if (currentBlock_) currentBlock_->insts.push_back(std::move(inst));
 }
 
+// __noescape on a declaration (Issue #301): only a read-only object (const,
+// or for pointers * const) may be kept with the code: a copied overlay is
+// copied in again from its store, so a write would be lost. An extern
+// declaration or one without an initializer is not placed (resident).
+bool IRBuilder::noescapeGlobal(const VariableDeclaration& node) {
+    if (!node.isNoescape) return false;
+    bool readOnly = node.pointerLevel == 0 ? node.isConst : node.isPointerConst;
+    if (!readOnly) {
+        errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column, Severity::Error,
+            "'" + node.name + "': __noescape needs a read-only object (const, or * const for a pointer)"));
+        return false;
+    }
+    return node.initializer != nullptr;
+}
+
 ir::Block& IRBuilder::startBlock(const std::string& label) {
     if (!currentFunc_) {
         // Safety: create a dummy function if none exists
@@ -2166,6 +2181,10 @@ bool IRBuilder::constAddress(Expression* e, std::string& label, int& off) {
         sl.escMask = str->escMask;
         sl.encoding = stringEncodingOf(*str);
         sl.isAscii = sl.encoding == 1;
+        // (in a function's code: the literal's own; in a static initializer:
+        // only for a __noescape object's)
+        sl.noescape = initNoescape_ || (str->noescape && currentFunc_ && !inStaticInit_);
+        sl.far = sl.noescape && currentFunc_ && currentFunc_->isFar;
         module_.strings.push_back(sl);
         off = 0;
         return true;
@@ -2337,6 +2356,8 @@ bool IRBuilder::initLocalAggregate(const ir::Operand& vreg, const std::string& t
     image.size = size;
     image.isConst = true;
     image.isStatic = true;
+    // only this function copies from it: kept with its code (Issue #301)
+    image.noescape = true;
     image.align = std::max(1, typeAlign(type, ptr));
     bool constant = buildInitImage(image, type, ptr, dims, init);
     auto base = allocVreg(ir::Type::PTR);
@@ -3729,8 +3750,10 @@ void IRBuilder::visit(VariableDeclaration& node) {
         gv.isConst = node.isConst;
         gv.isStatic = node.isStatic;
         gv.addressSpace = node.addressSpace;  // Phase 97: Preserve address space qualifier
+        gv.noescape = noescapeGlobal(node);
         gv.align = std::max({1, node.alignment, alignValue(node.alignmentExpr.get()),
                              typeAlign(node.type, node.pointerLevel)});
+        NoescapeInit noescapeInit(initNoescape_, inStaticInit_, gv.noescape);
         declaredAlign_[node.name] = gv.align;
         if (!node.ptrArrayDims.empty()) {
             std::vector<int> d{0};
@@ -3791,6 +3814,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
                 sl.escMask = slit->escMask;
                 sl.encoding = stringEncodingOf(*slit);
                 sl.isAscii = sl.encoding == 1;
+                sl.noescape = initNoescape_;
                 module_.strings.push_back(sl);
                 gv.hasInitValue = true;
                 gv.initLabels.push_back(label); // symbolic reference
@@ -3826,6 +3850,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
                         sl.escMask = slit->escMask;
                         sl.encoding = stringEncodingOf(*slit);
                         sl.isAscii = sl.encoding == 1;
+                        sl.noescape = initNoescape_;
                         module_.strings.push_back(sl);
                         gv.initList.push_back(0);
                         gv.initLabels.push_back(label);
@@ -3863,8 +3888,10 @@ void IRBuilder::visit(VariableDeclaration& node) {
         gv.isConst = node.isConst;
         gv.isStatic = true;
         gv.addressSpace = node.addressSpace;  // Phase 97: Preserve address space qualifier
+        gv.noescape = noescapeGlobal(node);
         gv.align = std::max({1, node.alignment, alignValue(node.alignmentExpr.get()),
                              typeAlign(node.type, node.pointerLevel)});
+        NoescapeInit noescapeInit(initNoescape_, inStaticInit_, gv.noescape);
         declaredAlign_[node.name] = gv.align;
 
         // Handle initializer
@@ -4257,6 +4284,9 @@ void IRBuilder::visit(StringLiteral& node) {
     sl.isAscii = (encoding == 1);
     sl.encoding = encoding;
     sl.wide = node.isWide;
+    // #pragma cc45 noescape_strings: with the code of the function using it
+    sl.noescape = (node.noescape || initNoescape_) && currentFunc_;
+    sl.far = sl.noescape && currentFunc_->isFar;
     module_.strings.push_back(sl);
     auto dest = allocVreg(ir::Type::PTR);
     ir::Inst inst;
@@ -9009,6 +9039,14 @@ void IRBuilder::visit(LabelledStatement& node) {
 }
 
 void IRBuilder::visit(AsmStatement& node) {
+    // #pragma cc45 overlay(name) at file scope: the module's overlay (as
+    // -foverlay=name), which code generation emits and places by
+    if (!currentFunc_ && node.code.rfind(".overlay ", 0) == 0) {
+        std::string n = node.code.substr(9);
+        while (!n.empty() && std::isspace((unsigned char)n.back())) n.pop_back();
+        while (!n.empty() && std::isspace((unsigned char)n.front())) n.erase(0, 1);
+        if (!n.empty()) { module_.overlay = n; return; }
+    }
     if (node.code == ".weak_next") {
         weakNextFunction_ = true;
         return;

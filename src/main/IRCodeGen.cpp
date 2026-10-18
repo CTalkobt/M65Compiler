@@ -1877,6 +1877,7 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     if (!mod.externs.empty()) emitBlank();
 
     // Emit global declarations (segment switching only in reloc mode)
+    placeNoescape(mod);
     emitGlobals(mod, relocMode);
 
     // Emit functions (skip dead code and inline-only functions from Phase 91.3 IPOAnalyzer)
@@ -1930,6 +1931,46 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     }
 }
 
+// __noescape objects: kept with the code of the functions that use them when
+// those all go to one place: the overlay (an overlay object's code) or the
+// far chunk (__far functions). One used by a resident initializer, by code
+// in two places or by nothing stays resident.
+void IRCodeGen::placeNoescape(const ir::Module& mod) {
+    noescapeSeg_.clear();
+    if (!relocMode_) return;
+    std::set<std::string> want;
+    for (const auto& g : mod.globals) if (g.noescape && g.hasInitValue) want.insert(g.name);
+    if (want.empty()) return;
+    std::map<std::string, std::set<std::string>> places;   // object -> "code"/"far"
+    for (const auto& fn : mod.functions) {
+        if (deadCodeFunctions_.count(fn.name) || inlineOnlyFunctions_.count(fn.name)) continue;
+        std::string where = fn.isFar ? "far" : !mod.overlay.empty() ? "code" : "data";
+        auto see = [&](const ir::Operand& o) {
+            if (o.kind == ir::OperandKind::GLOBAL && want.count(o.name)) places[o.name].insert(where);
+        };
+        for (const auto& b : fn.blocks)
+            for (const auto& in : b.insts) {
+                see(in.dest); see(in.src1); see(in.src2);
+                for (const auto& a : in.args) see(a);
+            }
+    }
+    // (a resident initializer's pointer to it: its address is stored)
+    for (const auto& g : mod.globals) {
+        if (g.noescape) continue;
+        auto mention = [&](const std::string& l) {
+            for (const auto& w : want)
+                if (l == w || l.rfind(w + "+", 0) == 0) places[w].insert("data");
+        };
+        for (const auto& l : g.initLabels) mention(l);
+        for (const auto& [o, l] : g.initWords) mention(l);
+    }
+    for (const auto& w : want) {
+        auto it = places.find(w);
+        if (it != places.end() && it->second.size() == 1 && *it->second.begin() != "data")
+            noescapeSeg_[w] = *it->second.begin();
+    }
+}
+
 void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
     // Deduplicate globals: extern decl + definition → keep definition only
     std::set<std::string> emittedGlobals;
@@ -1949,6 +1990,12 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
             if (!g.isStatic && !emittedGlobals.count(g.name)) {
                 emit(".global " + g.name);
                 emittedGlobals.insert(g.name);
+                // __noescape data kept in code: ln45 gives it no call stub
+                // and refuses a reference from outside its overlay
+                if (noescapeSeg_.count(g.name)) {
+                    emit(".global cc45.noescape." + g.name);
+                    emit("cc45.noescape." + g.name + " = 1");
+                }
             }
         }
         for (const auto& fn : mod.functions) {
@@ -1983,6 +2030,8 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
     // Emit data section for initialized globals
     bool hasData = false;
     bool hasBss = false;
+    std::string curSeg;               // the segment an initialized global went to
+    std::set<std::string> padded;     // "code"/"far": __noescape data begun there
     for (size_t gi = 0; gi < mod.globals.size(); gi++) {
         const auto& g = mod.globals[gi];
         if (globalLastIdx[g.name] != gi) continue; // skip earlier duplicate
@@ -1997,9 +2046,20 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
             if (!g.hasInitValue) continue;
         }
         if (g.hasInitValue) {
-            // Initialized global: goes to data segment.
+            // Initialized global: goes to data segment (a __noescape one to
+            // the code it is kept with: placeNoescape).
             // Must switch back from BSS if we were emitting uninitialized globals.
-            if (!hasData || hasBss) {
+            auto ns = noescapeSeg_.find(g.name);
+            if (ns != noescapeSeg_.end()) {
+                if (curSeg != ns->second) {
+                    emit(".segment \"" + ns->second + "\"");
+                    // (a relocation at offset 0 cannot be encoded: see data's pad)
+                    if (padded.insert(ns->second).second) emit(".byte 0");
+                    curSeg = ns->second;
+                    hasBss = false;
+                }
+            } else if (!hasData || hasBss || curSeg != "data") {
+                curSeg = "data";
                 if (relocMode) {
                     emit(".segment \"data\"");
                     if (!hasData) {
@@ -2100,6 +2160,7 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
             }
         } else {
             // Uninitialized global: goes to bss segment
+            curSeg = "bss";
             if (!hasBss) {
                 if (hasData) emitBlank();
                 if (relocMode) emit(".segment \"bss\"");
@@ -2128,8 +2189,19 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
 void IRCodeGen::emitStrings(const ir::Module& mod) {
     if (mod.strings.empty()) return;
     emitBlank();
-    if (relocMode_) emit(".segment \"data\"");
+    // a __noescape literal (#pragma cc45 noescape_strings) is kept with the
+    // code using it: in the far chunk for a __far function, in the overlay
+    // for an overlay object's code (Issue #301); the others are resident
+    auto segOf = [&](const ir::Module::StringLiteral& sl) -> std::string {
+        if (!relocMode_ || !sl.noescape) return "data";
+        if (sl.far) return "far";
+        return mod.overlay.empty() ? "data" : "code";
+    };
+    std::string cur;
+    for (const char* seg : {"data", "code", "far"})
     for (const auto& sl : mod.strings) {
+        if (segOf(sl) != seg) continue;
+        if (relocMode_ && cur != seg) { emit(std::string(".segment \"") + seg + "\""); cur = seg; }
         emitSplit(sl.label);
         emitLabel(sl.label);
         if (sl.wide) {

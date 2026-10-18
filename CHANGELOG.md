@@ -6,6 +6,16 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### cc45
 
+- **Constants kept with an overlay's code** (Issue #301): `__noescape` (or
+  `__attribute__((noescape))`) on a read-only object, and `#pragma cc45
+  noescape_strings` for the string literals in functions (`__escape "…"`
+  keeps one resident), promise that the address stays in the file's code;
+  cc45 then keeps the data in the overlay's image (copied or mapped), or in
+  the far chunk of the `__far` functions that use it, instead of bank 0.
+  Literals stored in static initializers stay resident; ln45 refuses a
+  reference from outside the overlay (no call stub for data). The starting
+  values of local arrays and structs are always kept with their code. vim2
+  with the pragma in its overlay files: 1,993 bytes less resident data.
 - **Capital letters are `$C1`-`$DA`** (incompatible; with Issue #300): in
   PETSCII literals (the default encoding and `p"…"`), cc45 and ca45 (`.text`,
   `'A'`) wrote `A`-`Z` as `$61`-`$7A`; now `$C1`-`$DA`, BASIC's `ASC("A")`

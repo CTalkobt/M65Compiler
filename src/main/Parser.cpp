@@ -150,6 +150,10 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                 signedDefault = (code == ".signed_default");  // #pragma cc45 signed_default / unsigned_default
                 continue;
             }
+            if (code == ".noescape_strings" || code == ".escape_strings") {
+                noescapeStrings_ = code == ".noescape_strings";   // #pragma cc45 noescape_strings / escape_strings
+                continue;
+            }
             flushPending(*unit);
             unit->topLevelDecls.push_back(setPos(std::make_unique<AsmStatement>(code), tokens[asmTok]));
             continue;
@@ -1137,6 +1141,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
         func->isVariadic = isVariadic;
         func->isAlwaysInline = pendingAlwaysInline_;
         func->alignment = takePendingAlign();
+        pendingNoescape_ = false;   // (on a function: no effect)
         applyAlias(func->name);
         func->isNoInline = pendingNoInline_;
         pendingAlwaysInline_ = pendingNoInline_ = false;
@@ -1168,6 +1173,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     func->isInline = isInline;
     func->isAlwaysInline = pendingAlwaysInline_;
     func->alignment = takePendingAlign();
+        pendingNoescape_ = false;   // (on a function: no effect)
     applyAlias(func->name);
     func->isNoInline = pendingNoInline_;
     pendingAlwaysInline_ = pendingNoInline_ = false;
@@ -1712,6 +1718,12 @@ std::unique_ptr<Statement> Parser::parseStatement() {
         }
         expect(TokenType::CLOSE_PAREN, "Expected ')' after asm");
         expect(TokenType::SEMICOLON, "Expected ';'");
+        if (asmOps[0].empty() && asmOps[1].empty() && (code == ".noescape_strings" || code == ".escape_strings")) {
+            noescapeStrings_ = code == ".noescape_strings";   // (the pragma inside a function)
+            auto none = setPos(std::make_unique<CompoundStatement>(), startToken);
+            none->isDeclGroup = true;
+            return none;
+        }
         if (asmOps[0].empty() && asmOps[1].empty())
             return setPos(std::make_unique<AsmStatement>(code), startToken);
 
@@ -2116,12 +2128,14 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
     // Skip __attribute__ after variable declaration: int x __attribute__((unused));
     while (tryParseAttribute()) {}
     decl->alignment = std::max(decl->alignment, takePendingAlign());
+    decl->isNoescape = takePendingNoescape();
     applyAlias(decl->name);
     applyVectorMode(decl->type, decl->pointerLevel, decl->isSigned);
     declTypes_[decl->name] = {decl->type, decl->pointerLevel, decl->isSigned};
 
     // --- Multi-variable declarations: int a, b = 3, *c, d[4]; ---
     if (peek().type == TokenType::COMMA) {
+        const bool declNoescape = decl->isNoescape;   // (decl moves into the group)
         auto compound = setPos(std::make_unique<CompoundStatement>(), typeToken);
         compound->isDeclGroup = true;
         compound->statements.push_back(std::move(decl));
@@ -2194,6 +2208,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
             extraDecl->isStriped = isStriped;
             extraDecl->isPointerConst = extraPtrConst;
             extraDecl->addressSpace = addressSpace;  // Phase 97: Set address space qualifier
+            extraDecl->isNoescape = declNoescape || takePendingNoescape();
             extraDecl->arrayDims = extraDims;
             recordVarSize(extraName, type, extraPtr, extraDims);
             if (match(TokenType::EQUALS)) {
@@ -3390,17 +3405,20 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
         std::string concatMask = litToken.escMask;
         bool wide = litToken.wide;
         int prefixEncoding = litToken.strEncoding;  // the first literal's encoding wins
+        bool escaped = litToken.escaped;
         // C string literal concatenation: "hello" " world" → "hello world"
         while (peek().type == TokenType::STRING_LITERAL || peek().type == TokenType::ASCII_STRING_LITERAL) {
             const Token& next = advance();
             concatStr += next.value;
             concatMask += next.escMask;
             wide = wide || next.wide;
+            escaped = escaped || next.escaped;
         }
         auto strLit = std::make_unique<StringLiteral>(concatStr, isAscii);
         strLit->escMask = concatMask;
         strLit->isWide = wide;
         strLit->prefixEncoding = isAscii ? -1 : prefixEncoding;
+        strLit->noescape = noescapeStrings_ && !escaped;
         expr = setPos(std::move(strLit), litToken);
     } else if (match(TokenType::OPEN_PAREN)) {
         const Token& parenToken = tokens[pos-1];
@@ -3818,6 +3836,9 @@ bool Parser::tryParseAttribute() {
 
             if (canonical == "always_inline") pendingAlwaysInline_ = true;
             if (canonical == "noinline") pendingNoInline_ = true;
+            // noescape on an object: keep it with its code (Issue #301); on
+            // a parameter (Clang's meaning) it has no effect
+            if (canonical == "noescape") pendingNoescape_ = true;
 
             // vector_size(N): a GCC vector of N bytes; mode(QI/HI/SI/...): an
             // integer of that width. Both apply to the declaration's type
@@ -3866,7 +3887,7 @@ bool Parser::tryParseAttribute() {
             }
 
             // Recognized — silently accept
-            if (canonical == "noinline" || canonical == "noclone" || canonical == "packed" ||
+            if (canonical == "noinline" || canonical == "noclone" || canonical == "packed" || canonical == "noescape" ||
                 canonical == "always_inline" || canonical == "gnu_inline" ||
                 canonical == "unused" || canonical == "used" || canonical == "weak" ||
                 canonical == "const" || canonical == "pure" || canonical == "flatten" ||
@@ -4073,6 +4094,8 @@ std::shared_ptr<FuncPtrSignature> Parser::parseFuncPtrParams(const std::string& 
     sig->returnIsSigned = returnIsSigned;
     // Current token should be '(' — the opening paren of the parameter list
     expect(TokenType::OPEN_PAREN, "Expected '(' for function pointer parameter list");
+    // (noescape on a parameter, as in Clang, is not the declaration's)
+    struct KeepNoescape { bool& f; bool v; ~KeepNoescape() { f = v; } } keepNoescape{pendingNoescape_, pendingNoescape_};
     if (peek().type == TokenType::VOID && pos + 1 < tokens.size() && tokens[pos + 1].type == TokenType::CLOSE_PAREN) {
         advance(); // consume 'void'
     } else if (peek().type != TokenType::CLOSE_PAREN) {

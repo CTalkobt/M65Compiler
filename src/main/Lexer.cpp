@@ -318,6 +318,19 @@ Token Lexer::lexIdentifierOrKeyword() {
         return {it->second, value, startLine, startCol, sourceFile};
     }
 
+    // __escape "...": the string literal that follows stays resident under
+    // #pragma cc45 noescape_strings (its address leaves the overlay)
+    if (value == "__escape") {
+        skipWhitespace();
+        Token t = nextToken();
+        if (t.type != TokenType::STRING_LITERAL && t.type != TokenType::ASCII_STRING_LITERAL)
+            throw std::runtime_error(sourceFile + ":" + std::to_string(startLine) + ": __escape must be followed by a string literal");
+        t.escaped = true;
+        t.line = startLine;
+        t.column = startCol;
+        return t;
+    }
+
     // Encoding prefix touching the quote (as in ca45 and basic45): p"..." /
     // p'x' PETSCII, s"..." / s'x' screen codes, a"..." / a'x' ASCII (as @).
     // It overrides #pragma encoding for that literal. With a space between

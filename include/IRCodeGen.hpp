@@ -111,6 +111,11 @@ private:
     // Module-level emission
     void emitStartupStub(const ir::Module& mod);
     void emitGlobals(const ir::Module& mod, bool relocMode);
+    // __noescape objects (Issue #301): the segment each is kept in, "code"
+    // (an overlay object's: in the overlay) or "far" (used only by __far
+    // functions); the others stay in "data"
+    std::map<std::string, std::string> noescapeSeg_;
+    void placeNoescape(const ir::Module& mod);
     void emitStrings(const ir::Module& mod);
     void emitFunction(const ir::Function& fn, bool relocMode, bool isMainWithZPSave = false);
     // emitFunction, then the stores to vreg pool registers the function never

@@ -487,6 +487,7 @@ public:
         decl->isFunctionPointer = node.isFunctionPointer;
         decl->funcPtrSig = node.funcPtrSig;
         decl->addressSpace = node.addressSpace;  // Phase 97: Preserve address space qualifier
+        decl->isNoescape = node.isNoescape;
         decl->isStriped = node.isStriped;
         lastStmt = std::move(decl);
     }

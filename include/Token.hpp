@@ -141,6 +141,9 @@ struct Token {
     // An INTEGER_LITERAL from a character constant ('x'): with a signed plain
     // char its byte is a char's value ('\xFF' is -1, as in GCC)
     bool charConst = false;
+    // A string literal after __escape: kept resident under #pragma cc45
+    // noescape_strings
+    bool escaped = false;
     // String literal encoding prefix: 0 p"..." (PETSCII), 2 s"..." (screen
     // codes); -1 none (the #pragma encoding applies). @"..."/a"..." are
     // ASCII_STRING_LITERAL tokens.

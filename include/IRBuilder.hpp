@@ -339,6 +339,18 @@ private:
         std::string continueLabel;
     };
     std::vector<LoopLabels> loopStack_;
+    // building the initializer of a __noescape object: its string literals
+    // are kept with it (Issue #301)
+    bool initNoescape_ = false;
+    // building a static/global initializer: a literal's address is stored
+    // there, so it stays resident unless the object is __noescape itself
+    bool inStaticInit_ = false;
+    struct NoescapeInit {
+        bool& flag; bool& init; bool saved, savedInit;
+        NoescapeInit(bool& f, bool& i, bool on) : flag(f), init(i), saved(f), savedInit(i) { flag = on; init = true; }
+        ~NoescapeInit() { flag = saved; init = savedInit; }
+    };
+    bool noescapeGlobal(const VariableDeclaration& node);
     int coldDepth_ = 0;     // > 0: building the branch of an if not expected to run
     size_t loopBase_ = 0;   // loopStack_ entries of the function being built (inlined bodies too)
 

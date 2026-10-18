@@ -64,12 +64,16 @@ public:
     // Encoding prefix: 0 p"..." (PETSCII), 2 s"..." (screen codes), -1 none
     // (isAscii, else #pragma encoding). Overrides the pragma.
     int prefixEncoding = -1;
+    // #pragma cc45 noescape_strings (not __escape "..."): its address stays
+    // in the object's code, so in an overlay it is kept in the overlay
+    bool noescape = false;
     StringLiteral(const std::string& v, bool ascii = false) : value(v), isAscii(ascii) {}
     static std::unique_ptr<StringLiteral> copyOf(const StringLiteral& s) {
         auto c = std::make_unique<StringLiteral>(s.value, s.isAscii);
         c->escMask = s.escMask;
         c->isWide = s.isWide;
         c->prefixEncoding = s.prefixEncoding;
+        c->noescape = s.noescape;
         return c;
     }
     void accept(ASTVisitor& visitor) override;
@@ -246,6 +250,9 @@ public:
     bool isFunctionPointer = false;
     std::shared_ptr<FuncPtrSignature> funcPtrSig; // non-null when isFunctionPointer
     int addressSpace = 0;  // Phase 97: Address space (0=DEFAULT, 1=ZP, 2=ABS, 3=FAR)
+    // __noescape (__attribute__((noescape))): a constant whose address
+    // is used only by its object's code: kept with that code (an overlay's)
+    bool isNoescape = false;
     VariableDeclaration(const std::string& t, const std::string& n, int p = 0) : type(t), pointerLevel(p), name(n) {}
     void accept(ASTVisitor& visitor) override;
 };
