@@ -650,8 +650,10 @@ bool IRCodeGen::vregUsedOutside(uint32_t id, const ir::Inst* a, const ir::Inst* 
 void IRCodeGen::restoreFlags() {
     char r = staleFlags_;
     staleFlags_ = 0;
-    if (r == 'A') emit("ora #0", "N/Z of a dropped load");
-    else if (r == 'X') { emit("inx", "N/Z of a dropped load"); emit("dex"); }
+    // (marked: pruneDeadFlagRestores drops it when the code at the label
+    // sets N/Z before reading them, Issue #297)
+    if (r == 'A') { emitComment(kFlagRestore); emit("ora #0", "N/Z of a dropped load"); }
+    else if (r == 'X') { emitComment(kFlagRestore); emit("inx", "N/Z of a dropped load"); emit("dex"); }
 }
 
 void IRCodeGen::emitLabel(const std::string& label) {
@@ -2541,7 +2543,111 @@ void IRCodeGen::emitFunctionPruned(const ir::Function& fn, bool relocMode, bool 
         throw;
     }
     out_.rdbuf(old);
-    out_ << pruneDeadPoolStores(buf.str());
+    out_ << pruneDeadFlagRestores(pruneDeadLdx(pruneDeadPoolStores(buf.str())));
+}
+
+// The N/Z flags of a dropped load restored on the fall-through into a label
+// (restoreFlags: ora #0, or inx / dex; marked kFlagRestore): not needed when
+// the code that follows sets N/Z before anything reads them. Stores and the
+// carry instructions are skipped; a branch, call, jump, return, php or an
+// unknown (simulated) instruction keeps them (Issue #297).
+std::string IRCodeGen::pruneDeadFlagRestores(const std::string& text) {
+    std::vector<std::string> lines;
+    {
+        std::istringstream in(text);
+        std::string l;
+        while (std::getline(in, l)) lines.push_back(l);
+    }
+    const std::string mark = std::string("; ") + kFlagRestore;
+    static const std::set<std::string> sets = {
+        "lda", "ldx", "ldy", "ldz", "cmp", "cpx", "cpy", "cpz", "adc", "sbc", "and", "ora", "eor", "inc", "dec",
+        "inx", "dex", "iny", "dey", "inz", "dez", "asl", "lsr", "rol", "ror", "tax", "tay", "txa", "tya", "taz",
+        "tza", "tsx", "pla", "plx", "ply", "plz", "bit", "neg", "asr", "ldq"};
+    static const std::set<std::string> leaves = {"sta", "stx", "sty", "stz", "stq", "clc", "sec", "cld", "nop", "pha",
+                                                  "phx", "phy", "phz"};
+    auto parse = [](const std::string& l, std::string& mn) {
+        size_t q = l.find_first_not_of(" \t");
+        if (q == std::string::npos || l[q] == ';') return 0;                         // blank, comment
+        if (l.compare(q, 4, ".loc") == 0 || l.compare(q, 4, ".var") == 0) return 0;
+        if (l[q] == '.') return 2;                                                   // another directive
+        if (l.find(':') != std::string::npos) return 3;                              // a label
+        std::string body = l.substr(q);
+        size_t sp = body.find_first_of(" \t;");
+        mn = body.substr(0, sp);
+        std::transform(mn.begin(), mn.end(), mn.begin(), ::tolower);
+        return 1;
+    };
+    std::vector<bool> drop(lines.size(), false);
+    for (size_t i = 0; i < lines.size(); i++) {
+        size_t p = lines[i].find_first_not_of(" \t");
+        if (p == std::string::npos || lines[i].compare(p, mark.size(), mark) != 0) continue;
+        // the restore: ora #0, or inx / dex
+        std::string mn;
+        size_t j = i + 1, n = 0;
+        if (j < lines.size() && parse(lines[j], mn) == 1 && mn == "ora") n = 1;
+        else if (j + 1 < lines.size() && parse(lines[j], mn) == 1 && mn == "inx") n = 2;
+        drop[i] = true;   // (the mark itself)
+        if (!n) continue;
+        bool dead = false;
+        for (size_t k = j + n; k < lines.size(); k++) {
+            int t = parse(lines[k], mn);
+            if (t == 0 || t == 3) continue;
+            if (t != 1) break;
+            if (leaves.count(mn)) continue;
+            dead = sets.count(mn) > 0;
+            break;
+        }
+        if (dead) for (size_t k = j; k < j + n; k++) drop[k] = true;
+    }
+    std::string out;
+    for (size_t i = 0; i < lines.size(); i++)
+        if (!drop[i]) { out += lines[i]; out += '\n'; }
+    return out;
+}
+
+// A load of X just before a ZP-convention call (marked kXFreeCall), with
+// nothing in between that reads or writes X, is dead: the arguments are in
+// $10-$2F, and an 8-bit value's ldx #0 (its high byte) is never used
+// there (Issue #296). Removes it and the marks.
+std::string IRCodeGen::pruneDeadLdx(const std::string& text) {
+    std::vector<std::string> lines;
+    {
+        std::istringstream in(text);
+        std::string l;
+        while (std::getline(in, l)) lines.push_back(l);
+    }
+    const std::string mark = std::string("; ") + kXFreeCall;
+    // instructions that neither read nor write X (with no ,x operand)
+    static const std::set<std::string> noX = {
+        "lda", "sta", "ldy", "sty", "ldz", "stz", "adc", "sbc", "and", "ora", "eor", "cmp", "cpy", "cpz",
+        "bit", "inc", "dec", "asl", "lsr", "rol", "ror", "clc", "sec", "tay", "tya", "taz", "tza", "iny",
+        "dey", "inz", "dez", "neg", "nop"};
+    std::vector<bool> drop(lines.size(), false);
+    for (size_t i = 0; i < lines.size(); i++) {
+        size_t p = lines[i].find_first_not_of(" \t");
+        if (p == std::string::npos || lines[i].compare(p, mark.size(), mark) != 0) continue;
+        drop[i] = true;
+        for (size_t j = i; j-- > 0; ) {
+            if (drop[j]) continue;
+            const std::string& l = lines[j];
+            size_t q = l.find_first_not_of(" \t");
+            if (q == std::string::npos || l[q] == ';' || l.compare(q, 4, ".loc") == 0) continue;
+            if (l[q] == '.' || l.find(':') != std::string::npos || l[q] == '@') break;   // a directive, a label
+            std::string body = l.substr(q);
+            size_t c = body.find(';');
+            if (c != std::string::npos) body = body.substr(0, c);
+            size_t sp = body.find_first_of(" \t");
+            std::string mn = body.substr(0, sp), op = sp == std::string::npos ? "" : body.substr(sp);
+            std::transform(mn.begin(), mn.end(), mn.begin(), ::tolower);
+            std::transform(op.begin(), op.end(), op.begin(), ::tolower);
+            if (mn == "ldx" && !op.empty() && op.find(",") == std::string::npos) { drop[j] = true; break; }
+            if (!noX.count(mn) || op.find(",x") != std::string::npos || op.find(", x") != std::string::npos) break;
+        }
+    }
+    std::string out;
+    for (size_t i = 0; i < lines.size(); i++)
+        if (!drop[i]) { out += lines[i]; out += '\n'; }
+    return out;
 }
 
 std::string IRCodeGen::pruneDeadPoolStores(const std::string& text) {
@@ -7528,6 +7634,13 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
             // If it's a direct call and we didn't jsr yet (ZP case)
             if (inst.callConv == ir::CallConv::ZP && (inst.op == ir::Op::CALL || inst.op == ir::Op::CALL_VOID)) {
                 if (inst.src1.kind == ir::OperandKind::GLOBAL) {
+                    // (its arguments are in $10-$2F: X is not one, so a load
+                    // of X just before is dead: pruneDeadLdx, Issue #296)
+                    // (only when the call clobbers X: else what is known of X
+                    // carries past the call, and the load is relied on)
+                    auto cm = functionClobberMasks_.find(inst.src1.name);
+                    bool clobbersX = cm == functionClobberMasks_.end() || (cm->second & (1 << REG_X));
+                    if (!inst.isRegparm && clobbersX) emitComment(kXFreeCall);
                     emit("jsr " + inst.src1.name);
                 }
             } else if (inst.callConv == ir::CallConv::ZP && inst.op == ir::Op::CALL_INDIRECT) {
