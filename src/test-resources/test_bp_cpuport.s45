@@ -1,0 +1,69 @@
+; test_bp_cpuport.s45 — bp_cpuport for test_bp_cpuport_xemu.c: base-page
+; $00/$01 against the CPU port at $0000/$0001 (B is the program's page).
+; Absolute accesses go through the pointer at $08/$09 ($C0C0 reads as ROM:
+; values are kept in $0A-$0C)
+OUT = $C0C0
+.global _bp_cpuport
+    proc _bp_cpuport
+    tba
+    sta $0A                 ; B: __zp_page's high byte
+    lda #0                  ; the port, at CPU address $0000/$0001
+    sta $08
+    sta $09
+    ldy #0
+    lda ($08),y
+    sta $0B
+    iny
+    lda ($08),y
+    sta $0C
+    lda $0A                 ; $A5 into __zp_page+0/+1
+    sta $09
+    lda #$A5
+    ldy #0
+    sta ($08),y
+    iny
+    sta ($08),y
+    ldx #0                  ; [0] base-page $00/$01 read it
+    lda $00
+    cmp #$A5
+    bne @r0
+    lda $01
+    cmp #$A5
+    bne @r0
+    inx
+@r0:
+    stx OUT+0
+    lda $0B                 ; the port's own values into base-page $00/$01
+    sta $00
+    lda $0C
+    sta $01
+    ldx #0                  ; [1] they are in __zp_page+0/+1
+    ldy #0
+    lda ($08),y
+    cmp $0B
+    bne @r1
+    iny
+    lda ($08),y
+    cmp $0C
+    bne @r1
+    inx
+@r1:
+    stx OUT+1
+    lda #0                  ; [2] the port reads as before
+    sta $09
+    ldx #0
+    ldy #0
+    lda ($08),y
+    cmp $0B
+    bne @r2
+    iny
+    lda ($08),y
+    cmp $0C
+    bne @r2
+    inx
+@r2:
+    stx OUT+2
+    lda #$AA
+    sta OUT+3
+    rts
+    endproc

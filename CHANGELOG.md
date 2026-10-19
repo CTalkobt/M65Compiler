@@ -26,6 +26,9 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   blocks in every file (the 106-byte area left the program too large), but
   with 15 wrapped functions. Test `test_zp_area_xemu.c`; the overflow test's
   chain is 14 functions long.
+- Test `test_bp_cpuport_xemu.c`: with the base page moved off page 0,
+  base-page `$00`/`$01` are RAM (the CPU port answers only at CPU address
+  `$0000`/`$0001`), on xemu.
 
 ### cc45 / cp45: a macro redefined differently is warned about (Issue #311)
 
