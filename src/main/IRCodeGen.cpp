@@ -211,6 +211,56 @@ void IRCodeGen::findArgTargets(const ir::Function& fn) {
     }
 }
 
+// A value whose one use stores it into a local kept in the base page (its
+// zarVregs_ home): computed there instead of in a temporary copied over.
+// Nothing from its definition to the store may mention the local (a read
+// would see the new value early, a write would be lost), and the local's
+// address is never taken
+void IRCodeGen::findStoreTargets(const ir::Function& fn) {
+    storeTargets_.clear();
+    if (zarVregs_.empty()) return;
+    std::map<uint32_t, int> defs, uses;
+    for (const auto& blk : fn.blocks)
+        for (const auto& in : blk.insts) {
+            if (in.dest.isVreg()) defs[in.dest.vregId]++;
+            for (const ir::Operand* o : {&in.src1, &in.src2}) if (o->isVreg()) uses[o->vregId]++;
+            for (const auto& a : in.args) if (a.isVreg()) uses[a.vregId]++;
+            for (const auto& ph : in.phiIncoming) if (ph.first.isVreg()) uses[ph.first.vregId] += 2;
+        }
+    auto mentions = [](const ir::Inst& x, uint32_t v) {
+        if (x.dest.isVreg() && x.dest.vregId == v) return true;
+        for (const ir::Operand* o : {&x.src1, &x.src2}) if (o->isVreg() && o->vregId == v) return true;
+        for (const auto& a : x.args) if (a.isVreg() && a.vregId == v) return true;
+        for (const auto& ph : x.phiIncoming) if (ph.first.isVreg() && ph.first.vregId == v) return true;
+        return false;
+    };
+    for (const auto& blk : fn.blocks) {
+        const auto& insts = blk.insts;
+        for (size_t s = 0; s < insts.size(); s++) {
+            const auto& st = insts[s];
+            if (st.op != ir::Op::STORE || !st.args.empty() || !st.src1.isVreg() || !st.src2.isVreg()) continue;
+            uint32_t t = st.src1.vregId, l = st.src2.vregId;
+            auto home = zarVregs_.find(l);
+            if (home == zarVregs_.end() || !fn.localSlotVregs.count(l) || fn.memoryVregs.count(l)) continue;
+            if (t < fn.paramTypes.size() || defs[t] != 1 || uses[t] != 1 || fn.localSlotVregs.count(t) ||
+                fn.memoryVregs.count(t) || argTargets_.count(t) || storeTargets_.count(t)) continue;
+            auto vt = fn.vregTypes.find(t), lt = fn.vregTypes.find(l);
+            if (vt == fn.vregTypes.end() || lt == fn.vregTypes.end() ||
+                ir::typeSize(vt->second) != ir::typeSize(lt->second) || ir::typeSize(st.resultType) != ir::typeSize(lt->second) ||
+                vt->second == ir::Type::F32)
+                continue;
+            size_t d = s;
+            for (size_t i = 0; i < s; i++)
+                if (insts[i].dest.isVreg() && insts[i].dest.vregId == t) d = i;
+            if (d == s || insts[d].op == ir::Op::CONST || insts[d].op == ir::Op::CALL ||
+                insts[d].op == ir::Op::CALL_VOID || insts[d].op == ir::Op::CALL_INDIRECT) continue;
+            bool ok = true;
+            for (size_t i = d; i < s && ok; i++) ok = !mentions(insts[i], l) && insts[i].op != ir::Op::ASM_INLINE;
+            if (ok) storeTargets_[t] = home->second;
+        }
+    }
+}
+
 std::string IRCodeGen::directBase(uint32_t vregId) const {
     auto ga = globalLoadAlias_.find(vregId);
     if (ga != globalLoadAlias_.end()) return ga->second;
@@ -3172,10 +3222,12 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         }
     }
     findArgTargets(fn);
+    findStoreTargets(fn);
     {
         std::map<uint32_t, int> fixed = zpParams_;
         fixed.insert(zarVregs_.begin(), zarVregs_.end());
         fixed.insert(argTargets_.begin(), argTargets_.end());
+        fixed.insert(storeTargets_.begin(), storeTargets_.end());
         alloc_.setFixedZpVregs(fixed);
     }
     alloc_.setRegisterXVregs(fn.registerXVregs);
@@ -3330,7 +3382,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                           (x.op == ir::Op::LOAD && x.args.empty())))
                         ok = false;
                 }
-                if (ok) truncAlias_[d] = in.src1;
+                if (ok && !storeTargets_.count(d)) truncAlias_[d] = in.src1;
             }
         }
         // A byte variable's ZEXT whose one use is a 16-bit ADD/SUB, AND/XOR or
@@ -3391,7 +3443,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                           (x.op == ir::Op::LOAD && x.args.empty())))
                         ok = false;
                 }
-                if (ok) zextAlias_[d] = in.src1;
+                if (ok && !storeTargets_.count(d)) zextAlias_[d] = in.src1;
             }
         }
         // A long loaded from a global (of this program, not on the base page,
@@ -3463,7 +3515,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                     for (const auto& x : blk2.insts)
                         for (const auto& ph : x.phiIncoming)
                             if (ph.first.isVreg() && ph.first.vregId == d) inPhi = true;
-                if (!inPhi) globalLoadAlias_[d] = g;
+                if (!inPhi && !storeTargets_.count(d)) globalLoadAlias_[d] = g;
             }
         }
     }
@@ -6526,6 +6578,15 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
         }
 
         case ir::Op::STORE: {
+            // computed in the local's home already (findStoreTargets)
+            if (inst.src1.isVreg() && inst.src2.isVreg() && inst.args.empty() &&
+                storeTargets_.count(inst.src1.vregId) && zarVregs_.count(inst.src2.vregId) &&
+                storeTargets_[inst.src1.vregId] == zarVregs_[inst.src2.vregId]) {
+                // (the instruction before may have stored it there itself:
+                // its "skip the next store" is for this one)
+                if (resultInAX_ == -2) resultInAX_ = -1;
+                break;
+            }
             std::string storeR = irDesc(inst.src2.kind == ir::OperandKind::GLOBAL ? "→ " + inst.src2.name : "");
 
             // Fused ADDR_ELEM+STORE: compute address inline to __zp_scratch

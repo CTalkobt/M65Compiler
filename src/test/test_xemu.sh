@@ -1407,6 +1407,20 @@ for l6mode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: a value computed in the base-page home of the local it is stored
+# into, not in a temporary copied over (nothing in between mentions it)
+for stmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r stname stflags <<< "$stmode"
+    echo "Testing test_store_target_xemu.c ($stname)..."
+    compile_link_test "src/test-resources/test_store_target_xemu.c" "build/test/test_store_target_${stname}_xemu.prg" "$stflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_store_target_$stname" "build/test/test_store_target_${stname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_store_target_xemu.c $stname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: extern declarations in a block (#308): the file-scope variable (a
 # local of the name hidden for the block), a function prototype
 for bemode in "zp|" "stack|-fno-zpcall"; do
