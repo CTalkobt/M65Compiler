@@ -4,6 +4,35 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### ln45 / ca45: the base-page blocks' area starts where the register pool ends (Issue #291)
+
+- The functions' base-page blocks and `__zp` variables were placed in
+  `$80`-`$E9` (106 bytes). ca45 now exports `cc45.bptop` from every
+  object: the end of the register pool (`$30`-`$7F`) its instructions name
+  (an indexed operand counts as reaching every byte above it). ln45 starts
+  the area at the largest, so a program whose code uses the pool up to
+  `$45` gets `$46`-`$F1` (172 bytes). An object without `cc45.bptop` (from
+  an older ca45) counts as using all of the pool.
+- New ca45 directives: `.bptop $nn` states an object's pool end (the
+  float code names the ROM's FAC at `$63`-`$71` with the base page at 0),
+  `.bpindex n` how far the indexed operands that follow reach (cc45 says 5
+  around its float copies; conio, `__vformat`, `pf_format` and `__zp_args`
+  say theirs).
+- cc45's 32-bit temporary moved from `$EA`-`$ED` to `$F2`-`$F5`, the float
+  code's temporaries from `$F0`-`$F4` to `$F6`-`$FA`: the area ends at
+  `$F1`. One file's `__zp` variables can take 98 bytes (they could reach
+  the 32-bit temporary at `$EA` before).
+- vim2 (176 bytes, `$42`-`$F1`): 10 of the 14 files it builds with
+  `-fno-zp-locals` (edit, fileio, change, put, ex, disk, subst, mapkeys,
+  mapcmd, map) can drop it together with no wrapped functions and the
+  resident code unchanged: 3,265 bytes smaller (124,853 to 121,588). With
+  the 106-byte area the same build needs 49 wrapped functions and does not
+  link. All 14 files link now too, but with 15 wrapped functions. Test `test_zp_area_xemu.c`; the overflow test's
+  chain is 14 functions long.
+- Test `test_bp_cpuport_xemu.c`: with the base page moved off page 0,
+  base-page `$00`/`$01` are RAM (the CPU port answers only at CPU address
+  `$0000`/`$0001`), on xemu.
+
 ### cc45 / cp45: a macro redefined differently is warned about (Issue #311)
 
 - A `#define` of a macro already defined with another replacement list or

@@ -36,6 +36,10 @@ F_SPACE = 4
 F_ALT   = 8
 F_ZERO  = 16
 
+; (the indexed accesses are to the parameter block, $10-$19: none of the
+; register pool)
+    .bpindex 8
+
 .segment "bss"
 vf_ctx:    .res 2
 vf_fmt:    .res 2

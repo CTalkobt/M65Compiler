@@ -405,6 +405,7 @@ cc45 objects also contain:
 | `cc45.mode_zp` / `cc45.mode_stack` | weak absolute (1) | Calling convention of the object (used by ln45) |
 | `cc45.zeroPageStart` | weak absolute | First ZP address of the code generator (`$08`); base of the ZP masks |
 | `cc45.align.text` / `.data` / `.bss` | weak absolute | Largest alignment in that segment (only when > 1) |
+| `cc45.bptop` | weak absolute | End of the register pool (`$30`-`$7F`) the object's instructions name (ca45, every object; `.bptop` sets it): ln45 starts the base-page blocks' area at the largest |
 | `__zp_scratch`..`__zp_scratch4`, `__static_chain`, `__sp_base` | weak absolute | ZP temporaries and stack base used by the code |
 
 ---

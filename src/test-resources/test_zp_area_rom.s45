@@ -1,0 +1,9 @@
+; test_zp_area_rom.s45 — names $7E of the register pool, but as the ROM's
+; page 0 would (never called here): .bptop $30 says it uses none of the
+; program's pool, so ln45 places the blocks as without it
+    .bptop $30
+.global _rom_peek
+    proc _rom_peek
+    lda $7E
+    rts
+    endproc

@@ -186,9 +186,20 @@ void M65Emitter::emitInstruction(const std::string& mnemonic, AddressingMode amo
                 case AddressingMode::BASE_PAGE_X_INDIRECT:
                 case AddressingMode::BASE_PAGE_INDIRECT_Y:
                 case AddressingMode::BASE_PAGE_INDIRECT_Z:
-                case AddressingMode::FLAT_INDIRECT_Z:
-                    emitByte(zarOperand((uint8_t)value));
+                case AddressingMode::FLAT_INDIRECT_Z: {
+                    int width = 1;   // (bytes of the base page the instruction reaches)
+                    if (amode == AddressingMode::BASE_PAGE_X || amode == AddressingMode::BASE_PAGE_Y ||
+                        amode == AddressingMode::BASE_PAGE_X_INDIRECT)
+                        width = indexReach_ > 0 ? indexReach_ : 0x100;   // (indexed: .bpindex, or any byte above it)
+                    else if (amode == AddressingMode::FLAT_INDIRECT_Z) width = 4;
+                    else if (amode != AddressingMode::BASE_PAGE && amode != AddressingMode::BASE_PAGE_X &&
+                             amode != AddressingMode::BASE_PAGE_Y) width = 2;
+                    else if (quadNext_) width = 4;
+                    else if (lowerMnemonic == "inw" || lowerMnemonic == "dew" ||
+                             lowerMnemonic == "asw" || lowerMnemonic == "row") width = 2;
+                    emitByte(zarOperand((uint8_t)value, width));
                     break;
+                }
                 case AddressingMode::IMMEDIATE:
                 case AddressingMode::BASE_PAGE_INDIRECT_SP_Y:
                 case AddressingMode::STACK_RELATIVE:
@@ -413,7 +424,7 @@ void M65Emitter::recordSymbolReloc(const std::string& name) {
     }
 }
 
-uint8_t M65Emitter::zarOperand(uint8_t value) {
+uint8_t M65Emitter::zarOperand(uint8_t value, int width) {
     if (!zarSym_.empty() && value >= zarStart_ && value < zarStart_ + zarLen_) {
         if (mode == Mode::BINARY)   // (the byte is the next one: currentAddress)
             symbolRelocs_.push_back({currentAddress, zarSym_, 0xE0, 0, relocScope_, relocLocalScope_}); // R_LOWX
@@ -425,6 +436,8 @@ uint8_t M65Emitter::zarOperand(uint8_t value) {
                 symbolRelocs_.push_back({currentAddress, z.sym, 0xE0, 0, relocScope_, relocLocalScope_}); // R_LOWX
             return (uint8_t)(value - z.start);
         }
+    if (value + width > 0x30 && value < 0x80)
+        bpPoolTop_ = std::max(bpPoolTop_, std::min(value + width, 0x80));
     return value;
 }
 

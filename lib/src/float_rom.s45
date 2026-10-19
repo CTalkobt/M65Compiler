@@ -55,6 +55,9 @@ BJT_ABS     = $7F4E
 BJT_ROUND   = $7F4B
 
 ; FAC/ARG ZP locations
+; (FAC/ARG are the ROM's, read and written with the base page at 0: none
+; of the program's register pool is used)
+    .bptop $30
 FAC_EX = $63
 FAC_M1 = $64
 FAC_M2 = $65
@@ -457,13 +460,13 @@ __float_cmp:
 ;   __float_ltof: 32-bit signed integer in A/X/Y/Z -> float at __float_a
 ;   __float_ultof: 32-bit unsigned integer in A/X/Y/Z -> float at __float_a
 ;   __float_itof / __float_utof: signed / unsigned 16-bit A/X -> float
-; Temporaries: $F0-$F4 of the program's zero page (library temps).
+; Temporaries: $F6-$FA of the program's zero page (library temps).
 ; ===========================================================================
-FT_M0 = $F0
-FT_M1 = $F1
-FT_M2 = $F2
-FT_M3 = $F3
-FT_SG = $F4
+FT_M0 = $F6
+FT_M1 = $F7
+FT_M2 = $F8
+FT_M3 = $F9
+FT_SG = $FA
 
     .split "__float_ftoi"
 .global __float_ftoi

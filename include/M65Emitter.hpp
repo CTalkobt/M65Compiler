@@ -373,8 +373,16 @@ public:
     // building a relocatable object (.o45): relocations are kept
     void setObjectMode(bool on) { objectMode_ = on; }
     bool objectMode() const { return objectMode_; }
-    // the operand byte of a base-page operand at the next byte (recording its relocation)
-    uint8_t zarOperand(uint8_t value);
+    // the operand byte of a base-page operand at the next byte (recording its
+    // relocation); width: the bytes the instruction reaches from it
+    uint8_t zarOperand(uint8_t value, int width = 1);
+    // the end of the register pool ($30-$7F) the code names directly (ln45
+    // places the functions' base-page blocks above it: cc45.bptop)
+    int bpPoolTop() const { return bpPoolTop_; }
+    // the next instruction's operand width when it is a Q instruction (4)
+    void setQuadNext(bool q) { quadNext_ = q; }
+    // the bytes the next instruction's indexed base-page operand reaches (0: all above it)
+    void setIndexReach(int n) { indexReach_ = n; }
     void emitWordReloc(const std::string& symbolName, uint16_t value = 0);
     void recordSymbolReloc(const std::string& name);
     // highByte >= 0: R_LOWX carrying the high byte of the full value (sym+n),
@@ -399,6 +407,9 @@ private:
     std::vector<SpBaseReloc> spBaseRelocs_;
     std::vector<SymbolReloc> symbolRelocs_;
     int zarStart_ = -1, zarLen_ = 0;
+    int bpPoolTop_ = 0;
+    bool quadNext_ = false;
+    int indexReach_ = 0;
     bool objectMode_ = false;
     std::string zarSym_;
     std::vector<ZpRange> zpRanges_;

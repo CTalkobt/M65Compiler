@@ -1027,7 +1027,7 @@ bool O45Linker::resolveSymbols(std::string& errorMsg) {
                 const std::string& n = imp.name;
                 if (n.size() <= 5 || n.compare(n.size() - 5, 5, "__zar") != 0 || globalSymbols_.count(n)) continue;
                 auto it = zarOffset_.find(n.substr(0, n.size() - 5));
-                globalSymbols_[n] = page + (it != zarOffset_.end() ? it->second : ZAR_LO);
+                globalSymbols_[n] = page + (it != zarOffset_.end() ? it->second : zarLo_);
                 symbolSource_[n] = "<linker>";
                 symbolWeak_[n] = false;
             }
@@ -2302,7 +2302,8 @@ void O45Linker::buildCallGraph(std::map<std::string, std::set<std::string>>& gra
 // Base-page blocks (cc45 .zar, size cc45.zarsize.<f>): a static-allocation
 // function keeps variables (pointers) in base-page bytes of its own, which
 // no callee touches, so they survive calls. The blocks are placed first-fit
-// in $80-$E9 of the program's base page: two functions share bytes when
+// in the program's base page above the register pool it uses (computeZarLo)
+// up to $F1: two functions share bytes when
 // neither reaches the other through calls. A function whose address is used
 // (callable from anywhere) and everything it reaches share with nothing.
 // When a block does not fit, it goes where it shares the fewest bytes with
@@ -2380,11 +2381,11 @@ bool O45Linker::computeZarOverlay(std::string& errorMsg) {
         }
         blocks = ordered;
     }
-    const uint32_t area = ZAR_HI - ZAR_LO - zpVarTotal_;   // (the __zp variables are above)
+    const uint32_t area = ZAR_HI - zarLo_ - zpVarTotal_;   // (the __zp variables are above)
     for (const auto& [f, len] : blocks) {
         std::vector<std::pair<uint32_t, uint32_t>> busy;
         for (const auto& [g, at] : zarOffset_)
-            if (conflict(f, g)) busy.push_back({at - ZAR_LO, at - ZAR_LO + sizes[g]});
+            if (conflict(f, g)) busy.push_back({at - zarLo_, at - zarLo_ + sizes[g]});
         std::sort(busy.begin(), busy.end());
         uint32_t at = 0;
         for (const auto& [lo, hi] : busy) {
@@ -2403,7 +2404,7 @@ bool O45Linker::computeZarOverlay(std::string& errorMsg) {
             at = best;
             std::string wrapped;
             for (const auto& [g, gat] : zarOffset_) {
-                uint32_t glo = gat - ZAR_LO, ghi = glo + sizes[g];
+                uint32_t glo = gat - zarLo_, ghi = glo + sizes[g];
                 if (!conflict(f, g) || ghi <= at || glo >= at + len) continue;
                 bool fInside = reach[g].count(f) || unsafe.count(f) || unsafe.count(g);
                 bool gInside = reach[f].count(g) || unsafe.count(f) || unsafe.count(g);
@@ -2412,15 +2413,15 @@ bool O45Linker::computeZarOverlay(std::string& errorMsg) {
             }
             if (warnStream_)
                 *warnStream_ << "ln45: warning: base-page storage: " << f << " needs " << len
-                             << " bytes of $80-$E9 that functions active together with it use; calls to "
+                             << " bytes of the base page that functions active together with it use; calls to "
                              << (wrapped.empty() ? f : wrapped)
                              << " save and restore the bytes they share (compile with cc45 -fno-zp-locals to avoid this)"
                              << std::endl;
         }
-        zarOffset_[f] = ZAR_LO + at;
+        zarOffset_[f] = zarLo_ + at;
         zarUsed_ = std::max(zarUsed_, at + len);
         zarTotal_ += len;
-        ln45debug() << "base-page block: " << f << " at $" << std::hex << (ZAR_LO + at) << std::dec
+        ln45debug() << "base-page block: " << f << " at $" << std::hex << (zarLo_ + at) << std::dec
                     << " len " << len << "\n";
     }
     ln45info() << "base-page blocks: " << blocks.size() << " functions, " << zarTotal_ << " bytes in "
@@ -2428,9 +2429,24 @@ bool O45Linker::computeZarOverlay(std::string& errorMsg) {
     return true;
 }
 
+// The bottom of the area: the end of the register pool the program's
+// objects name (ca45's cc45.bptop; an object without it, from an older
+// ca45, counts as naming all of $30-$7F)
+void O45Linker::computeZarLo() {
+    zarLo_ = 0x30;
+    for (const auto& input : objects_) {
+        uint32_t top = 0x80;
+        for (const auto& exp : input.obj.exports)
+            if (exp.name == "cc45.bptop") { top = std::min<uint32_t>(std::max<uint32_t>(exp.offset, 0x30), 0x80); break; }
+        zarLo_ = std::max(zarLo_, top);
+    }
+    ln45info() << "base-page area: $" << std::hex << zarLo_ << "-$" << (ZAR_HI - 1) << std::dec << "\n";
+}
+
 // __zp variables (cc45 cc45.zpvar.<sym> = size, one definition each): at
-// the top of $80-$E9 in name order; the base-page blocks share what is left
+// the top of the area in name order; the base-page blocks share what is left
 bool O45Linker::placeZpVars(std::string& errorMsg) {
+    computeZarLo();
     zpVarAddr_.clear();
     zpVarSize_.clear();
     zpVarTotal_ = 0;
@@ -2448,9 +2464,11 @@ bool O45Linker::placeZpVars(std::string& errorMsg) {
             zpVarTotal_ += exp.offset;
         }
     if (zpVarTotal_ == 0) return true;
-    if (zpVarTotal_ > ZAR_HI - ZAR_LO) {
+    if (zpVarTotal_ > ZAR_HI - zarLo_) {
+        char range[16];
+        snprintf(range, sizeof(range), "$%02X-$%02X", zarLo_, ZAR_HI - 1);
         errorMsg = "__zp variables need " + std::to_string(zpVarTotal_) + " bytes; the program's base page has " +
-                   std::to_string(ZAR_HI - ZAR_LO) + " ($80-$E9)";
+                   std::to_string(ZAR_HI - zarLo_) + " (" + range + ")";
         return false;
     }
     uint32_t at = ZAR_HI - zpVarTotal_;
@@ -3324,7 +3342,7 @@ void O45Linker::writeMap(std::ostream& out) const {
     if (zarTotal_ > 0) {
         char buf[120];
         snprintf(buf, sizeof(buf), "  (base-page blocks $%02X - $%02X, %u bytes; %u asked for by %zu functions)\n",
-                 ZAR_LO, ZAR_LO + zarUsed_ - 1, zarUsed_, zarTotal_, zarOffset_.size());
+                 zarLo_, zarLo_ + zarUsed_ - 1, zarUsed_, zarTotal_, zarOffset_.size());
         out << buf;
     }
     if (zpVarTotal_ > 0) {

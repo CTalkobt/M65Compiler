@@ -91,10 +91,12 @@ proc ___pf_format
     lda #6
 @pok:
     sta pf_prec
+    .bpindex 5              ; ($12-$16: below the register pool)
     ldx #4
 @cpv:
     lda $12,x
     sta __float_a,x
+    .bpindex 0
     dex
     bpl @cpv
     jsr __float_fout

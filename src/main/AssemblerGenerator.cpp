@@ -329,6 +329,8 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                         }
                         bool isQuad = (stmt->instr.mnemonic.size() > 1 && stmt->instr.mnemonic.back() == 'q' && stmt->instr.mnemonic != "beq" && stmt->instr.mnemonic != "bne" && stmt->instr.mnemonic != "bra" && stmt->instr.mnemonic != "bsr");
                         if (isQuad) { e.emitByte(0x42); e.emitByte(0x42); }
+                        e.setQuadNext(isQuad);
+                        e.setIndexReach(stmt->bpIndex);
                         if (resolvedMode == AddressingMode::FLAT_INDIRECT_Z) e.eom();
 
 

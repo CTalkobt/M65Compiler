@@ -562,10 +562,16 @@ private:
     std::map<std::string, uint32_t> zarSize_;     // function → block size
     std::set<std::string> zarWrapped_;            // functions reached through a save/restore wrapper
     std::map<uint32_t, uint32_t> zarWrapAt_;      // entry address → its wrapper
-    uint32_t zarUsed_ = 0, zarTotal_ = 0;         // bytes of $80-$E9 used / asked for
-    static constexpr uint32_t ZAR_LO = 0x80, ZAR_HI = 0xEA;
+    uint32_t zarUsed_ = 0, zarTotal_ = 0;         // bytes of the area used / asked for
+    // The area of the base-page blocks and __zp variables: from the end of
+    // the register pool ($30-$7F) the program's objects use (their largest
+    // cc45.bptop; an object without one uses all of it) to $F1 ($F2-$FC:
+    // cc45's 32-bit temp and the library's temps)
+    static constexpr uint32_t ZAR_HI = 0xF2;
+    uint32_t zarLo_ = 0x80;
+    void computeZarLo();
     // __zp variables (cc45 cc45.zpvar.<sym> = size): placed at the top of
-    // $80-$E9, below them the base-page blocks; <sym> = __zp_page + address.
+    // the area, below them the base-page blocks; <sym> = __zp_page + address.
     // One with cc45.zpinit.<sym> (its initial value, in data) is copied
     // there by the generated __zp_init that crt0 calls after the BSS fill
     std::map<std::string, uint32_t> zpVarAddr_, zpVarSize_;

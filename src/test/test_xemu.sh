@@ -2277,8 +2277,8 @@ for wsmode in "zp|||lib/build/c45.lib" "stack|-fno-zpcall||lib/build/c45_stack.l
     fi
 done
 
-# Test: pointer variables in functions' base-page blocks ($80-$E9, placed by
-# ln45), two modules
+# Test: pointer variables in functions' base-page blocks (placed by ln45
+# above the register pool the program uses), two modules
 for zlmode in "zp||lib/build/c45.lib" "stack|-fno-zpcall|lib/build/c45_stack.lib" "off|-fno-zp-locals|lib/build/c45.lib"; do
     IFS='|' read -r zlname zlflags zllib <<< "$zlmode"
     echo "Testing test_zp_locals_xemu.c ($zlname)..."
@@ -2292,20 +2292,21 @@ for zlmode in "zp||lib/build/c45.lib" "stack|-fno-zpcall|lib/build/c45_stack.lib
         failed=$((failed + 1))
     fi
 done
-# A call chain whose blocks do not fit in $80-$E9: ln45 warns, and the
-# functions sharing bytes with others active together are called through
-# save/restore wrappers (f7, wrapped, also through a function pointer)
+# A call chain whose blocks do not fit in the area (14 x 16 bytes; at most
+# $30-$F1): ln45 warns, and the functions sharing bytes with others active
+# together are called through save/restore wrappers (f7, wrapped, also
+# through a function pointer)
 zlsrc=build/test/zp_locals_overflow.c
 {
     echo "#define N __attribute__((noinline))"
     echo "#define OUT ((volatile unsigned char *)0xC0C0)"
     echo "unsigned char g[24] = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24};"
-    echo "N static unsigned char f10(unsigned char *a) { return a[0]; }"
-    for lv in 9 8 7 6 5 4 3 2 1; do
+    echo "N static unsigned char f15(unsigned char *a) { return a[0]; }"
+    for lv in 14 13 12 11 10 9 8 7 6 5 4 3 2 1; do
         echo "N static unsigned char f$lv(unsigned char *a);"
     done
     echo "static unsigned char (*fp7)(unsigned char *) = f7;"
-    for lv in 9 8 7 6 5 4 3 2 1; do
+    for lv in 14 13 12 11 10 9 8 7 6 5 4 3 2 1; do
         call="f$((lv + 1))"; [ $lv = 6 ] && call="fp7"
         echo "N static unsigned char f$lv(unsigned char *a) {"
         echo "    unsigned char *p0 = a, *p1 = a + 1, *p2 = a + 2, *p3 = a + 3, *p4 = a + 4, *p5 = a + 5, *p6 = a + 6, *p7 = a + 7;"
@@ -2315,7 +2316,7 @@ zlsrc=build/test/zp_locals_overflow.c
     done
     echo "int main(void) { OUT[0] = f1(g); OUT[1] = 0xAA; return 0; }"
 } > $zlsrc
-# f(lv, a) = f(lv+1, a+1) + g[a..a+7], f(10, a) = g[a]: f(1, 0) = $6E (mod 256)
+# f(lv, a) = f(lv+1, a+1) + g[a..a+7], f(15, a) = g[a]: f(1, 0) = $DF (mod 256)
 for zomode in "zp||lib/build/c45.lib" "stack|-fno-zpcall|lib/build/c45_stack.lib"; do
     IFS='|' read -r zoname zoflags zolib <<< "$zomode"
     zobase=build/test/zp_locals_overflow_$zoname
@@ -2323,13 +2324,57 @@ for zomode in "zp||lib/build/c45.lib" "stack|-fno-zpcall|lib/build/c45_stack.lib
     if $CC $zoflags -fzp-locals-max=16 -c $zlsrc -o $zobase.o45 2>/dev/null &&
        $LD -basic -o ${zobase}_xemu.prg $CRT0 $zobase.o45 $zolib 2>$zobase.err >/dev/null; then
         if grep -q "base-page storage: .* save and restore" $zobase.err; then
-            run_xemu_test "zp_locals_overflow_$zoname" "${zobase}_xemu.prg" "C0C0" 2 "6E AA"
+            run_xemu_test "zp_locals_overflow_$zoname" "${zobase}_xemu.prg" "C0C0" 2 "DF AA"
         else
             echo "FAIL: zp_locals_overflow_$zoname (no base-page storage warning)"
             failed=$((failed + 1))
         fi
     else
         echo "FAIL: zp_locals_overflow_$zoname (compilation/linking failed: $(head -1 $zobase.err))"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: the base-page blocks' area starts above the register pool the
+# program names (ca45's cc45.bptop): below $80 alone, at $80 with an asm
+# object writing all of $30-$7F (the blocks survive its calls), unchanged
+# with one that names $7E but says .bptop $30
+for zamode in "zp||lib/build/c45.lib" "stack|-fno-zpcall|lib/build/c45_stack.lib"; do
+    IFS='|' read -r zaname zaflags zalib <<< "$zamode"
+    echo "Testing test_zp_area_xemu.c ($zaname)..."
+    zabase=build/test/test_zp_area_$zaname
+    if $CC $zaflags -c src/test-resources/test_zp_area_xemu.c -o ${zabase}.o45 2>/dev/null &&
+       $CC $zaflags -DCLOBBER -c src/test-resources/test_zp_area_xemu.c -o ${zabase}_c.o45 2>/dev/null &&
+       $AS -c src/test-resources/test_zp_area_clob.s45 -o ${zabase}_clob.o45 >/dev/null 2>&1 &&
+       $AS -c src/test-resources/test_zp_area_rom.s45 -o ${zabase}_rom.o45 >/dev/null 2>&1 &&
+       $LD -basic -M ${zabase}.map -o ${zabase}_xemu.prg $CRT0 ${zabase}.o45 $zalib >/dev/null 2>&1 &&
+       $LD -basic -M ${zabase}_rom.map -o ${zabase}_rom_xemu.prg $CRT0 ${zabase}.o45 ${zabase}_rom.o45 $zalib >/dev/null 2>&1 &&
+       $LD -basic -M ${zabase}_c.map -o ${zabase}_c_xemu.prg $CRT0 ${zabase}_c.o45 ${zabase}_clob.o45 $zalib >/dev/null 2>&1; then
+        zalo=$(grep -o "base-page blocks \$[0-9A-F]*" ${zabase}.map | tr -dc '0-9A-F')
+        zarom=$(grep -o "base-page blocks \$[0-9A-F]*" ${zabase}_rom.map | tr -dc '0-9A-F')
+        zaclob=$(grep -o "base-page blocks \$[0-9A-F]*" ${zabase}_c.map | tr -dc '0-9A-F')
+        if [ -n "$zalo" ] && [ $((16#$zalo)) -lt 128 ] && [ "$zarom" = "$zalo" ] && [ "$zaclob" = "80" ]; then
+            run_xemu_test "test_zp_area_$zaname" "${zabase}_xemu.prg" "C0C0" 3 "01 01 AA"
+            run_xemu_test "test_zp_area_clob_$zaname" "${zabase}_c_xemu.prg" "C0C0" 3 "01 01 AA"
+        else
+            echo "FAIL: test_zp_area_$zaname (blocks at \$$zalo alone, \$$zarom with .bptop, \$$zaclob with the pool written)"
+            failed=$((failed + 1))
+        fi
+    else
+        echo "FAIL: test_zp_area_$zaname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: with the base page moved off page 0, base-page $00/$01 are RAM, not
+# the CPU port (which answers only at CPU address $0000/$0001)
+for cpmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r cpname cpflags <<< "$cpmode"
+    echo "Testing test_bp_cpuport_xemu.c ($cpname)..."
+    if compile_link_test "src/test-resources/test_bp_cpuport_xemu.c" "build/test/test_bp_cpuport_${cpname}_xemu.prg" "$cpflags" "src/test-resources/test_bp_cpuport.s45"; then
+        run_xemu_test "test_bp_cpuport_$cpname" "build/test/test_bp_cpuport_${cpname}_xemu.prg" "C0C0" 4 "01 01 01 AA"
+    else
+        echo "FAIL: test_bp_cpuport_xemu.c $cpname (compilation/linking failed)"
         failed=$((failed + 1))
     fi
 done

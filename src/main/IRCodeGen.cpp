@@ -469,8 +469,10 @@ void IRCodeGen::emitF32CopyAbs(const std::string& src, const std::string& dst) {
     // as absolute $0020,y and miss the relocated base page.
     emit("ldx #4");
     emit(lbl + ":");
+    emit(".bpindex 5", "(the base-page bytes the copy reaches: ln45's cc45.bptop)");
     emit("lda " + src + ",x");
     emit("sta " + dst + ",x");
+    emit(".bpindex 0");
     emit("dex");
     emit("bpl " + lbl);
 }
@@ -584,7 +586,8 @@ void IRCodeGen::emit(const std::string& line, const std::string& reason) {
 
 // __zp globals of relocatable output: a placeholder base-page address each
 // (in name order), from the end of the largest .zar block a function can
-// have up to $FC ($FD/$FE: the frame pointer)
+// have up to $F1 (above: the 32-bit temp and library temps, whose
+// operands must not read as a variable's)
 void IRCodeGen::placeZpGlobals(const ir::Module& mod) {
     zpPlace_.clear();
     zpLink_.clear();
@@ -613,9 +616,9 @@ void IRCodeGen::placeZpGlobals(const ir::Module& mod) {
         const std::string clean = name.size() > 1 && name[0] == '_' ? name.substr(1) : name;
         if (v.first <= 0)
             throw std::runtime_error("__zp variable '" + clean + "' needs a size (an extern __zp array must give its length)");
-        if (at + v.first > 0xFD)
+        if (at + v.first > ZAR_END)
             throw std::runtime_error("__zp variables: '" + clean + "' does not fit; one file can use " +
-                                     std::to_string(0xFD - ZAR_START - zarMax) + " bytes of them (less with a larger -fzp-locals-max)");
+                                     std::to_string(ZAR_END - ZAR_START - zarMax) + " bytes of them (less with a larger -fzp-locals-max)");
         zpPlace_[name] = {at, v.first};
         if (v.second) zpLink_[name] = name + "__" + tag;
         at += v.first;

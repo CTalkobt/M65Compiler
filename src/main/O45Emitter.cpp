@@ -79,6 +79,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
     // Segment each recorded reloc was emitted in (segments overlap in address
     // space in relocatable mode, so an address alone can't identify it)
     std::vector<std::string> spBaseRelocSeg, symbolRelocSeg, immediateRelocSeg;
+    int bpPoolTop = 0x30;   // (cc45.bptop: the register pool's bytes the code names)
 
     for (const auto& segName : allSegNames) {
         auto seg = parser.segments[segName];
@@ -112,6 +113,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         allImmediateRelocs.insert(allImmediateRelocs.end(), immRelocs.begin(), immRelocs.end());
         immediateRelocSeg.insert(immediateRelocSeg.end(), immRelocs.size(), segName);
 
+        bpPoolTop = std::max(bpPoolTop, e.bpPoolTop());
         segBodies[segName] = {segName, seg->startAddress, body};
     }
 
@@ -162,6 +164,13 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         bool isWeak = parser.isWeakSymbol(name);
         syms.addExport(name, segId, offset, isWeak);
     }
+
+    // The end of the register pool ($30-$7F) this object's instructions name
+    // directly: ln45 places the functions' base-page blocks above the
+    // largest (an object without it counts as using the whole pool); .bptop
+    // states it instead
+    if (parser.bpTop >= 0) bpPoolTop = parser.bpTop;
+    if (!syms.isExported("cc45.bptop")) syms.addExport("cc45.bptop", SEG_ABSOLUTE, bpPoolTop, true);
 
     // --- Step 2b: Attach function attributes from proc contexts ---
     for (const auto& [addr, proc] : parser.getProcedures()) {
