@@ -7955,7 +7955,10 @@ void IRBuilder::visit(ConditionalExpression& node) {
         thenVal = cond;
     }
     
-    if (dest.type == ir::Type::F32 || thenVal.type == ir::Type::F32)
+    // (an arm narrower than the result widened: c ? x : 0 with a long x
+    // copied a 16-bit 0, leaving the top bytes as they were)
+    if (dest.type == ir::Type::F32 || thenVal.type == ir::Type::F32 ||
+        ir::typeSize(thenVal.type) != ir::typeSize(dest.type))
         thenVal = emitCast(thenVal, dest.type, lastValueSigned_);
     ir::Inst copyThen;
     copyThen.op = ir::Op::COPY;
@@ -7972,7 +7975,8 @@ void IRBuilder::visit(ConditionalExpression& node) {
     startBlock(elseLabel);
     node.elseExpr->accept(*this);
     auto elseVal = lastValue_;
-    if (dest.type == ir::Type::F32 || elseVal.type == ir::Type::F32)
+    if (dest.type == ir::Type::F32 || elseVal.type == ir::Type::F32 ||
+        ir::typeSize(elseVal.type) != ir::typeSize(dest.type))
         elseVal = emitCast(elseVal, dest.type, lastValueSigned_);
     
     ir::Inst copyElse;

@@ -1365,6 +1365,20 @@ for bpmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: a ?: between a long and a narrower value (#310): the narrower arm
+# widened (zero or sign), not copied with its top bytes left as they were
+for twmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r twname twflags <<< "$twmode"
+    echo "Testing test_ternary_widen_xemu.c ($twname)..."
+    compile_link_test "src/test-resources/test_ternary_widen_xemu.c" "build/test/test_ternary_widen_${twname}_xemu.prg" "$twflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_ternary_widen_$twname" "build/test/test_ternary_widen_${twname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_ternary_widen_xemu.c $twname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: extern declarations in a block (#308): the file-scope variable (a
 # local of the name hidden for the block), a function prototype
 for bemode in "zp|" "stack|-fno-zpcall"; do
