@@ -4,6 +4,16 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: 16-bit globals read where they are used
+
+- A 16-bit or pointer global (or an imported one) loaded for one use, an
+  add, subtract, compare or store coming next, is read there instead of
+  copied into a temporary first, as longs were; between the load and its
+  use only instructions that write no memory and read none but the
+  function's parameter storage are allowed (so `ga + x` with a parameter
+  `x` qualifies). vim2's code 1.7% smaller (1.7 KB), the library's C part
+  160 bytes. Test `test_load16_xemu.c`.
+
 ### cc45: call arguments computed in their slots
 
 - An argument of a call (ZP convention) whose value is computed just for

@@ -1393,6 +1393,20 @@ for atmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: a 16-bit or pointer global read where its one use is (an add,
+# subtract, compare or store), not copied into a temporary first
+for l6mode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r l6name l6flags <<< "$l6mode"
+    echo "Testing test_load16_xemu.c ($l6name)..."
+    compile_link_test "src/test-resources/test_load16_xemu.c" "build/test/test_load16_${l6name}_xemu.prg" "$l6flags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_load16_$l6name" "build/test/test_load16_${l6name}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_load16_xemu.c $l6name (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: extern declarations in a block (#308): the file-scope variable (a
 # local of the name hidden for the block), a function prototype
 for bemode in "zp|" "stack|-fno-zpcall"; do
