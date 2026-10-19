@@ -804,6 +804,41 @@ static bool hasLongLong(const std::string& s) {
     return false;
 }
 
+// The same definition by C11 6.10.3p2: both object-like or both
+// function-like with the same parameters (names too), and replacement
+// lists the same but for the amount of white space between tokens
+bool Preprocessor::sameDefinition(const Macro& a, const Macro& b) {
+    if (a.isFunctionLike != b.isFunctionLike || a.isVariadic != b.isVariadic || a.params != b.params) return false;
+    auto norm = [](const std::string& s) {
+        std::string r;
+        bool space = false;
+        for (char c : s) {
+            if (std::isspace((unsigned char)c)) { space = !r.empty(); continue; }
+            if (space) { r += ' '; space = false; }
+            r += c;
+        }
+        return r;
+    };
+    return norm(a.body) == norm(b.body);
+}
+
+void Preprocessor::defineMacro(const std::string& name, Macro m, const std::string& file, int line) {
+    m.defFile = file;
+    m.defLine = line;
+    auto it = macros.find(name);
+    if (it != macros.end() && !sameDefinition(it->second, m)) {
+        std::cerr << file << ":" << line << ": warning: macro '" << name << "' redefined differently" << std::endl;
+        const Macro& old = it->second;
+        if (old.defFile.empty())
+            std::cerr << file << ":" << line << ": note: '" << name << "' is predefined (as '" << old.body << "')" << std::endl;
+        else if (old.defLine == 0)
+            std::cerr << file << ":" << line << ": note: '" << name << "' was defined on the command line (as '" << old.body << "')" << std::endl;
+        else
+            std::cerr << old.defFile << ":" << old.defLine << ": note: the previous definition of '" << name << "'" << std::endl;
+    }
+    macros[name] = std::move(m);
+}
+
 std::string Preprocessor::process(const std::string& source,
                                   const std::map<std::string, std::string>& initialSymbols,
                                   const std::vector<std::string>& includePaths,
@@ -815,7 +850,9 @@ std::string Preprocessor::process(const std::string& source,
     for (auto& [k, v] : saved) this->macros[k] = std::move(v);
     // Add/override with initialSymbols
     for (const auto& pair : initialSymbols) {
-        this->macros[pair.first] = Macro{false, false, {}, pair.second};
+        Macro m{false, false, {}, pair.second};
+        m.defFile = "<command line>";
+        this->macros[pair.first] = m;
     }
     this->includePaths = includePaths;
     this->includedFiles.clear();
@@ -1069,11 +1106,11 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                                 m.params.push_back(p);
                             }
                         }
-                        macros[name] = m;
+                        defineMacro(name, m, reportedFile, lineNum);
                     } else {
                         // Object-like
                         std::string body = lineRest.substr(name.length());
-                        macros[name] = Macro{false, false, {}, trim(body)};
+                        defineMacro(name, Macro{false, false, {}, trim(body)}, reportedFile, lineNum);
                     }
                 }
                 output << "\n";
@@ -1216,7 +1253,7 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                 if (isConditionTrue()) {
                     std::string msg;
                     std::getline(ss, msg);
-                    std::cerr << "Warning: " << trim(msg) << " at " << reportedFile << ":" << (lineNum + 1) << std::endl;
+                    std::cerr << "Warning: " << trim(msg) << " at " << reportedFile << ":" << lineNum << std::endl;
                 }
                 output << "\n";
             } else if (cmd == "#pragma") {

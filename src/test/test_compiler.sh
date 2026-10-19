@@ -470,6 +470,27 @@ else
     failed=$((failed + 1))
 fi
 
+# A macro redefined differently (#311): a warning at the redefinition and a
+# note at the previous one; none for an identical redefinition (white space
+# aside); parameter names count; -D and predefined macros too; #warning's
+# line is its own
+mkdir -p build/test/macroredef
+mr=build/test/macroredef/m.c
+printf '#define REG_SMALL 2\n#define REG_SMALL 1024\n#define SAME 5\n#define SAME  5\n#define F(a) a\n#define F(b) b\n#define G(a) (a +  1)\n#define G(a) (a + 1)\n#define DX 3\n#define __STDC_HOSTED__ 1\n#warning on line 11\nint f(void) { return REG_SMALL + SAME + F(1) + G(2) + DX; }\n' > $mr
+mr_out=$($CC -O2 -DDX=4 -c $mr -o build/test/macroredef/m.o45 2>&1)
+if grep -q "m.c:2: warning: macro 'REG_SMALL' redefined differently" <<< "$mr_out" &&
+   grep -q "m.c:1: note: the previous definition of 'REG_SMALL'" <<< "$mr_out" &&
+   grep -q "m.c:6: warning: macro 'F' redefined" <<< "$mr_out" && grep -q "m.c:5: note: the previous definition of 'F'" <<< "$mr_out" &&
+   grep -q "m.c:9: warning: macro 'DX' redefined" <<< "$mr_out" && grep -q "'DX' was defined on the command line" <<< "$mr_out" &&
+   grep -q "m.c:10: warning: macro '__STDC_HOSTED__' redefined" <<< "$mr_out" && grep -q "is predefined" <<< "$mr_out" &&
+   [ "$(grep -c 'redefined differently' <<< "$mr_out")" = 4 ] && grep -q "on line 11 at .*m.c:11" <<< "$mr_out"; then
+    echo "SUCCESS: a macro redefined differently is warned about (both places); identical ones are not"
+    passed=$((passed + 1))
+else
+    echo "FAIL: macro redefinition warnings ($mr_out)"
+    failed=$((failed + 1))
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All tests passed!"
     exit 0
