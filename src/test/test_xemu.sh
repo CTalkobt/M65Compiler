@@ -720,7 +720,7 @@ for fomode in "zp|" "stack|-fno-zpcall"; do
     echo "Testing test_far_attic_xemu.c ($foname)..."
     compile_link_test "src/test-resources/test_far_attic_xemu.c" "build/test/test_far_attic_${foname}_xemu.prg" "$foflags"
     if [ $? -eq 0 ]; then
-        run_xemu_test "test_far_attic_$foname" "build/test/test_far_attic_${foname}_xemu.prg" "C0C0" 11 "01 01 01 01 01 01 01 01 01 01 AA"
+        run_xemu_test "test_far_attic_$foname" "build/test/test_far_attic_${foname}_xemu.prg" "C0C0" 12 "01 01 01 01 01 01 01 01 01 01 01 AA"
     else
         echo "FAIL: test_far_attic_xemu.c $foname (compilation/linking failed)"
         failed=$((failed + 1))
