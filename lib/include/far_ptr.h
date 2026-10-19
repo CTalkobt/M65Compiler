@@ -161,14 +161,41 @@ void far_policy_first_fit(void);
  * ========================================================================== */
 
 /* Let the allocator also use attic RAM from first to last (linear
- * addresses, within $8000000-$87FFFFF): far_malloc(size, BANK_ATTIC), and
- * after banks 4 and 5 for far_malloc_current with the first-fit and
- * round-robin policies. It checks that the memory is there (not every board
- * or emulator has it) and returns the bytes it took, 0 when there is none.
- * Attic RAM is slower than chip RAM and reached only through far_* / DMA. */
+ * addresses, within $8000000-$87FFFFF): far_malloc(size, BANK_ATTIC),
+ * far_malloc_long, and after banks 4 and 5 for far_malloc_current with the
+ * first-fit and round-robin policies. It checks that the memory is there
+ * (not every board or emulator has it) and returns the bytes it took, 0 when
+ * there is none. Attic RAM is slower than chip RAM and reached only through
+ * far_* / DMA.
+ *
+ * A buddy allocator: a block is a power of two, at least a granule of
+ * 2^order bytes, and aligned to its size (one of 64 KB or less never crosses
+ * an attic bank); a free block merges with its buddy. far_size gives the
+ * block's size. far_attic_init takes the granule's order (8: 256 bytes ..
+ * 20: 1 MB) and memory for its table, FAR_ATTIC_META_SIZE(order) bytes
+ * (1 KB for 4 KB granules, 128 bytes for 32 KB) that must stay valid;
+ * far_attic_enable is far_attic_init with 4 KB granules and a table of its
+ * own. A program that calls neither links no attic code. */
+#define FAR_ATTIC_MIN_ORDER 8
+#define FAR_ATTIC_MAX_ORDER 20
+#define FAR_ATTIC_META_SIZE(order) (1u << (22 - (order)))
+unsigned long far_attic_init(unsigned long first, unsigned long last, unsigned char order,
+                             unsigned char *meta, unsigned int size);
 unsigned long far_attic_enable(unsigned long first, unsigned long last);
 
 /* Bytes of attic RAM not handed out (0 when not enabled) */
 unsigned long far_attic_available(void);
+
+/* far_malloc for more than 64 KB: attic RAM (BANK_ATTIC) up to all of it,
+ * chip RAM banks up to 65535 bytes. far_size_long gives its size (far_size
+ * at most 65535). */
+far_ptr_t far_malloc_long(unsigned long size, bank_t bank);
+unsigned long far_size_long(far_ptr_t ptr);
+
+/* Keep first..last (linear addresses in banks 4 and 5, $40000-$5FFFF) from
+ * the far heap: a program's own buffers at fixed addresses. Call it before
+ * the first allocation there (what is allocated already stays so);
+ * bank_reset keeps it. At most 8 ranges; 0 when full or outside banks 4-5. */
+int far_reserve(unsigned long first, unsigned long last);
 
 #endif

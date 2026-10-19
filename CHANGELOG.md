@@ -6,6 +6,13 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### cc45
 
+- **Calls in a `?:`** (Issue #307): a call through a function pointer (a
+  variable, an array element, a struct member, a parameter, `(*fp)()`) was
+  typed `int` wherever its type was needed before the call was built, so
+  `hook ? hook(a) : 0` kept only 16 bits of a `long` result; it has its
+  pointer's result type now. And a call in an arm of a struct-valued `?:`
+  passed a scalar argument by address (`k ? f(size) : z` gave `f` the
+  address of `size`); arguments are values.
 - **Purity inference** (`-fipa-pure-const`, from `-O1`): a function of the
   same file that reads only its parameters and own variables, writes only
   its own variables, has no loops or recursion and calls only const / pure
@@ -89,17 +96,28 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### Standard library
 
-- **`far_malloc` from attic RAM** (Issue #305), off by default:
+- **`far_malloc` from attic RAM** (Issues #305, #306), off by default:
   `far_attic_enable(first, last)` checks the range of attic RAM
   (`$8000000`-`$87FFFFF`) can be written and read back and lets the far heap
-  hand it out: `far_malloc(n, BANK_ATTIC)`, and `far_malloc_current` after
-  banks 4 and 5 are full. A `far_ptr_t` keeps its 3 bytes: banks `$80`-`$FF`
-  are attic RAM (bank `$80 + n` is `$8000000 + n * 64 KB`), so `far_add` and
-  the other `far_ops.h` functions cross its 64 KB banks, and the
-  `far_read_*`/`far_write_*`/`far_memcpy*` DMA jobs reach it unchanged.
-  `far_attic_available()` gives the free bytes. Attic RAM is slower (DMA
-  only, through the hyperRAM) and not on every MEGA65 (`far_attic_enable`
-  returns 0 then). Test `test_far_attic_xemu.c`.
+  hand it out: `far_malloc(n, BANK_ATTIC)`, `far_malloc_long(n, BANK_ATTIC)`
+  for more than 64 KB (`far_size_long`), and `far_malloc_current` after
+  banks 4 and 5 are full. A buddy allocator: power-of-two blocks aligned to
+  their size (one of 64 KB or less never crosses an attic bank), merged with
+  their buddy when freed, any number of them (two bitmaps; `far_attic_init`
+  takes the granule and the program's memory for them, 128 bytes for 32 KB
+  granules; `far_attic_enable` uses 4 KB and 1 KB of its own). A program
+  that never enables attic RAM links none of it. A `far_ptr_t` keeps its 3
+  bytes: banks `$80`-`$FF` are attic RAM (bank `$80 + n` is
+  `$8000000 + n * 64 KB`), so `far_add` and the other `far_ops.h` functions
+  cross its banks, and the `far_read_*`/`far_write_*`/`far_memcpy*` DMA jobs
+  reach it unchanged. `far_attic_available()` gives the free bytes. Attic
+  RAM is slower (DMA only, through the hyperRAM) and not on every MEGA65
+  (`far_attic_enable` returns 0 then). Test `test_far_attic_xemu.c`.
+- **`far_reserve(first, last)`** (Issue #306): ranges of banks 4 and 5 the
+  far heap never hands out (a program's buffers at fixed addresses), as the
+  code overlays' store already was; `bank_reset` keeps them.
+- `far_malloc` with a bank full: its "no free block" (`-1`) was compared as
+  unsigned and never seen, so it went on with a record past the end.
 
 ### disk45
 

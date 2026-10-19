@@ -833,6 +833,16 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
             }
             return {it->second, "", sig, ir::Type::VOID, ir::typeSize(it->second)};
         }
+        // a call through a function pointer: its signature's result
+        std::string callee;
+        if (auto sig = callSignature(*call, callee)) {
+            if (sig->returnPointerLevel > 0)
+                return {ir::Type::PTR, sig->returnType, sig->returnIsSigned,
+                        mapType(sig->returnType, sig->returnPointerLevel - 1), 2};
+            ir::Type rt = mapType(sig->returnType, 0);
+            if (rt != ir::Type::VOID)
+                return {rt, sig->returnType, sig->returnIsSigned, ir::Type::VOID, getTypeSize(sig->returnType, 0)};
+        }
     }
 
     // cond ? a : b — the usual arithmetic conversions of a and b (a float
@@ -3253,7 +3263,12 @@ ir::Operand IRBuilder::evalArgument(Expression* arg, int aggSize, const ir::Sour
         emitAggregateInto(arg, addr, aggSize, sl);
         return addr;
     }
+    // an argument is a value, also in a call whose struct result is wanted
+    // as an address (a struct-valued ?:'s arm)
+    bool saved = computeAddressOnly_;
+    computeAddressOnly_ = false;
     arg->accept(*this);
+    computeAddressOnly_ = saved;
     return lastValue_;
 }
 
@@ -6305,6 +6320,37 @@ void IRBuilder::visit(CastExpression& node) {
     lastValue_ = emitCast(src, destType, sig);
 }
 
+// The signature of the function pointer a call goes through (a variable, an
+// array element, a struct member; (*fp)(...) too), or null for a direct call
+// or an unknown one; calleeName is the function or variable called
+std::shared_ptr<FuncPtrSignature> IRBuilder::callSignature(FunctionCall& node, std::string& calleeName) {
+    calleeName = node.name;
+    Expression* e = node.callExpr.get();
+    while (auto* u = dynamic_cast<UnaryOperation*>(e)) {
+        if (u->op != "*") break;
+        e = u->operand.get();
+    }
+    if (auto* vr = dynamic_cast<VariableReference*>(e)) calleeName = vr->name;
+    if (!functionReturnTypes_.count(calleeName) && !definedFunctions_.count("_" + calleeName) &&
+        (locals_.count(calleeName) || globalTypes_.count(calleeName))) {
+        auto fit = fnPtrSigs_.find(calleeName);
+        if (fit != fnPtrSigs_.end()) return fit->second;
+    }
+    // a struct member (s.f(...), p->f(...)): the member's signature
+    if (auto* ma = dynamic_cast<MemberAccess*>(e))
+        if (const IRMemberInfo* mi = arrayMemberOf(ma)) return mi->funcPtrSig;
+    // an element of an array of function pointers (t[i](...))
+    if (auto* aa = dynamic_cast<ArrayAccess*>(e)) {
+        Expression* b = aa->arrayExpr.get();
+        while (auto* inner = dynamic_cast<ArrayAccess*>(b)) b = inner->arrayExpr.get();
+        if (auto* vr = dynamic_cast<VariableReference*>(b)) {
+            auto fit = fnPtrSigs_.find(vr->name);
+            if (fit != fnPtrSigs_.end()) return fit->second;
+        }
+    }
+    return nullptr;
+}
+
 void IRBuilder::visit(FunctionCall& node) {
     noteFormatNeeds(node);
     if (node.name == "__builtin_shuffle" && (node.arguments.size() == 2 || node.arguments.size() == 3) && currentFunc_ &&
@@ -6841,32 +6887,9 @@ normal_call:
     ir::Operand sretBuf, sretAddr;
     // Callee name; for a call expression such as (*fp)(...), the function or
     // function-pointer variable it dereferences
-    std::string calleeName = node.name;
-    if (node.callExpr) {
-        Expression* e = node.callExpr.get();
-        while (auto* u = dynamic_cast<UnaryOperation*>(e)) {
-            if (u->op != "*") break;
-            e = u->operand.get();
-        }
-        if (auto* vr = dynamic_cast<VariableReference*>(e)) calleeName = vr->name;
-    }
+    std::string calleeName;
+    std::shared_ptr<FuncPtrSignature> fpSig = callSignature(node, calleeName);
     std::string sretKey = calleeName;
-    std::shared_ptr<FuncPtrSignature> fpSig;
-    if (!functionReturnTypes_.count(calleeName) && !definedFunctions_.count("_" + calleeName) &&
-        (locals_.count(calleeName) || globalTypes_.count(calleeName))) {
-        auto fit = fnPtrSigs_.find(calleeName);
-        if (fit != fnPtrSigs_.end()) fpSig = fit->second;
-    }
-    // a call through a struct member (s.f(...), p->f(...)): the member's signature
-    if (!fpSig && node.callExpr) {
-        Expression* e = node.callExpr.get();
-        while (auto* u = dynamic_cast<UnaryOperation*>(e)) {
-            if (u->op != "*") break;
-            e = u->operand.get();
-        }
-        if (auto* ma = dynamic_cast<MemberAccess*>(e))
-            if (const IRMemberInfo* mi = arrayMemberOf(ma)) fpSig = mi->funcPtrSig;
-    }
     if (fpSig && fpSig->returnPointerLevel == 0) {
         // Call through a function pointer whose target returns a struct/union/float
         bool retFloat = mapType(fpSig->returnType, 0) == ir::Type::F32;
