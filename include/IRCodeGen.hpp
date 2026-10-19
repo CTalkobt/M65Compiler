@@ -290,6 +290,11 @@ private:
     // A byte ZEXT used once by a 16-bit add/sub, and/xor or compare: not
     // emitted; the use reads the byte where it lives and 0 above it
     std::map<uint32_t, ir::Operand> zextAlias_;
+    // A long loaded from a global whose one use is the next instruction (an
+    // add, sub, compare or store): the load is not emitted, the use reads
+    // the global (loadVreg, directBase, src2MemOperand)
+    std::map<uint32_t, std::string> globalLoadAlias_;
+    std::set<std::string> plainExterns_;    // imported data not on the base page
     // Values put together from bytes of others (a | b << 8 | (long)c << 16):
     // the OR at the root loads each byte from where it lives; the ZEXT /
     // SHL / SHR / AND / TRUNC / OR in between are not emitted

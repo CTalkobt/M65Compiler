@@ -1344,7 +1344,7 @@ for qdmode in "zp|" "stack|-fno-zpcall"; do
     echo "Testing test_quad_xemu.c ($qdname)..."
     compile_link_test "src/test-resources/test_quad_xemu.c" "build/test/test_quad_${qdname}_xemu.prg" "$qdflags"
     if [ $? -eq 0 ]; then
-        run_xemu_test "test_quad_$qdname" "build/test/test_quad_${qdname}_xemu.prg" "C0C0" 9 "01 01 01 01 01 01 01 01 AA"
+        run_xemu_test "test_quad_$qdname" "build/test/test_quad_${qdname}_xemu.prg" "C0C0" 11 "01 01 01 01 01 01 01 01 01 01 AA"
     else
         echo "FAIL: test_quad_xemu.c $qdname (compilation/linking failed)"
         failed=$((failed + 1))
