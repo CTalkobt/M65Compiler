@@ -11,7 +11,11 @@
  * (far_attic_enable: pointers with banks $80-$FF). Bank 0 holds the program, bank 1 BASIC 65's
  * variables, banks 2-3 the ROM; 6-7 are not chip RAM. Other banks get no
  * memory (far_malloc returns the null far pointer). The records are in
- * normal RAM; the memory is reached through far_ops (DMA).
+ * normal RAM; the memory is reached through far_ops (DMA). Attic RAM is
+ * far_attic.c's buddy allocator, reached through the __far_attic_* hooks
+ * far_attic_init sets; ranges of
+ * banks 4 and 5 a program keeps for itself (far_reserve) and the code
+ * overlays' store are never handed out.
  * ========================================================================== */
 
 static int bank_usable(bank_t bank) {
@@ -49,17 +53,19 @@ typedef struct {
 /* Global allocator state */
 static bank_allocator_t g_banks[8];
 
-/* Attic RAM (far_attic_enable): one heap over the range the program gave,
- * linear addresses; the records in address order (coalescing needs it).
- * Off until enabled. */
-#define MAX_ATTIC_ALLOCS 32
-typedef struct {
-    unsigned long at;       /* linear address */
-    unsigned long size;
-    unsigned char is_free;
-} attic_record_t;
-static attic_record_t g_attic[MAX_ATTIC_ALLOCS];
-static int g_attic_n;       /* records in use; 0: attic RAM not enabled */
+/* Attic RAM (far_attic.c, set by far_attic_init; null until then) */
+far_ptr_t (*__far_attic_alloc)(unsigned long size);
+unsigned long (*__far_attic_size)(unsigned long at);
+void (*__far_attic_free)(unsigned long at);
+unsigned long (*__far_attic_avail)(void);
+
+/* Ranges of banks 4 and 5 never handed out (far_reserve), linear
+ * addresses; is_free RESERVED in a bank's records (the overlay store too) */
+#define MAX_RESERVED 8
+#define RESERVED 2
+static unsigned long g_res_first[MAX_RESERVED], g_res_last[MAX_RESERVED];
+static unsigned char g_res_n;
+
 /* far_malloc_current / far_calloc_current choose their bank by the policy:
  * the selected bank (bank_set, far_policy_fixed_bank; the default, bank 4),
  * first fit (bank 4, then 5) or round robin (alternating, the other bank
@@ -91,7 +97,7 @@ bank_t bank_get(void) {
 
 size_t bank_available(bank_t bank) {
     if (bank == BANK_ATTIC) {   /* (at most 65535: see far_attic_available) */
-        unsigned long n = far_attic_available();
+        unsigned long n = __far_attic_avail ? __far_attic_avail() : 0;
         return n > 0xFFFFUL ? 0xFFFF : (size_t)n;
     }
     if (!bank_usable(bank)) return 0;
@@ -101,7 +107,7 @@ size_t bank_available(bank_t bank) {
 
     /* Sum all allocated blocks */
     for (int i = 0; i < allocator->num_allocs; ++i) {
-        if (!allocator->allocs[i].is_free) {
+        if (allocator->allocs[i].is_free != 1) {
             used += allocator->allocs[i].size;
         }
     }
@@ -126,6 +132,45 @@ void bank_reset_all(void) {
  * Allocator Initialization
  * ========================================================================== */
 
+/* Mark first..last of a bank (offsets) as never handed out: the free
+ * records it covers are split (the records stay in address order); what is
+ * allocated already stays so */
+static void carve(bank_allocator_t* allocator, uint16_t first, uint16_t last) {
+    for (int i = 0; i < allocator->num_allocs; ++i) {
+        alloc_record_t* r = &allocator->allocs[i];
+        if (r->is_free != 1) continue;
+        uint16_t lo = r->offset, hi = r->offset + r->size - 1;
+        if (last < lo || first > hi) continue;
+        uint16_t a = first > lo ? first : lo, b = last < hi ? last : hi;
+        int need = (a > lo) + (b < hi);
+        if (allocator->num_allocs + need > MAX_ALLOCS_PER_BANK) return;
+        for (int j = allocator->num_allocs - 1; j > i; --j)
+            allocator->allocs[j + need] = allocator->allocs[j];
+        allocator->num_allocs += need;
+        if (a > lo) {
+            r->size = a - lo;       /* (r->offset, r->is_free unchanged) */
+            r = &allocator->allocs[++i];
+        }
+        r->offset = a;
+        r->size = b - a + 1;
+        r->is_free = RESERVED;
+        if (b < hi) {
+            r = &allocator->allocs[++i];
+            r->offset = b + 1;
+            r->size = hi - b;
+            r->is_free = 1;
+        }
+    }
+}
+
+/* The part of first..last (linear) in a bank */
+static void carve_linear(bank_t bank, unsigned long first, unsigned long last) {
+    unsigned long lo = (unsigned long)bank << 16, hi = lo + 0xFFFFUL;
+    if (last < lo || first > hi) return;
+    carve(&g_banks[bank], (uint16_t)(first < lo ? 0 : first - lo),
+          (uint16_t)(last > hi ? 0xFFFF : last - lo));
+}
+
 static void initialize_bank(bank_t bank) {
     bank_allocator_t* allocator = &g_banks[bank];
 
@@ -136,35 +181,26 @@ static void initialize_bank(bank_t bank) {
         allocator->allocs[0].is_free = 1;
         allocator->num_allocs = 1;
         /* the code overlays' store in this bank (the first file's, or a
-         * second bank's): a block that is never free (the records stay in
-         * address order) */
-        int two = (unsigned int)__ovl_store2_bank == (unsigned int)bank && (unsigned int)__ovl_store2_bank;
-        if ((unsigned int)__ovl_store_bank == (unsigned int)bank || two) {
-            uint16_t first = (uint16_t)(unsigned int)(two ? __ovl_store2_first : __ovl_store_first);
-            uint16_t last = (uint16_t)(unsigned int)(two ? __ovl_store2_last : __ovl_store_last);
-            int n = 0;
-            if (first < HEAP_START) first = HEAP_START;
-            if (last >= first) {
-                if (first > HEAP_START) {
-                    allocator->allocs[n].offset = HEAP_START;
-                    allocator->allocs[n].size = first - HEAP_START;
-                    allocator->allocs[n].is_free = 1;
-                    n++;
-                }
-                allocator->allocs[n].offset = first;
-                allocator->allocs[n].size = last - first + 1;
-                allocator->allocs[n].is_free = 0;
-                n++;
-                if (last != 0xFFFF) {
-                    allocator->allocs[n].offset = last + 1;
-                    allocator->allocs[n].size = 0xFFFF - last;
-                    allocator->allocs[n].is_free = 1;
-                    n++;
-                }
-                allocator->num_allocs = n;
-            }
-        }
+         * second bank's) */
+        if ((unsigned int)__ovl_store_bank == (unsigned int)bank)
+            carve(allocator, (uint16_t)(unsigned int)__ovl_store_first, (uint16_t)(unsigned int)__ovl_store_last);
+        if ((unsigned int)__ovl_store2_bank == (unsigned int)bank && (unsigned int)__ovl_store2_bank)
+            carve(allocator, (uint16_t)(unsigned int)__ovl_store2_first, (uint16_t)(unsigned int)__ovl_store2_last);
+        for (unsigned char k = 0; k < g_res_n; ++k)
+            carve_linear(bank, g_res_first[k], g_res_last[k]);
     }
+}
+
+int far_reserve(unsigned long first, unsigned long last) {
+    if (last < first || g_res_n >= MAX_RESERVED) return 0;
+    if (last < 0x40000UL || first > 0x5FFFFUL) return 0;
+    g_res_first[g_res_n] = first;
+    g_res_last[g_res_n] = last;
+    g_res_n++;
+    /* banks already in use: now (what is allocated there stays so) */
+    if (g_banks[BANK4].num_allocs) carve_linear(BANK4, first, last);
+    if (g_banks[BANK5].num_allocs) carve_linear(BANK5, first, last);
+    return 1;
 }
 
 /* ============================================================================
@@ -172,11 +208,11 @@ static void initialize_bank(bank_t bank) {
  * ========================================================================== */
 
 /* Find a free block large enough for size */
-static int find_free_block(bank_t bank, size_t size) {
+static signed int find_free_block(bank_t bank, size_t size) {
     bank_allocator_t* allocator = &g_banks[bank];
 
     for (int i = 0; i < allocator->num_allocs; ++i) {
-        if (allocator->allocs[i].is_free &&
+        if (allocator->allocs[i].is_free == 1 &&
             allocator->allocs[i].size >= size) {
             return i;
         }
@@ -194,7 +230,7 @@ static void coalesce_free_blocks(bank_t bank) {
         alloc_record_t* next = &allocator->allocs[i + 1];
 
         /* Check if both free and adjacent */
-        if (curr->is_free && next->is_free &&
+        if (curr->is_free == 1 && next->is_free == 1 &&
             curr->offset + curr->size == next->offset) {
 
             /* Merge */
@@ -215,91 +251,9 @@ static void coalesce_free_blocks(bank_t bank) {
  * Allocation Implementation
  * ========================================================================== */
 
-/* ============================================================================
- * Attic RAM
- * ========================================================================== */
-
-/* Is there memory at a? (a write read back, a second address not the same
- * byte: no RAM reads back what was written, or mirrors) */
-static int attic_probe(unsigned long first, unsigned long last) {
-    unsigned char a = 0x5A, b = 0xA5, r = 0;
-    far_ptr_t pf = far_of_linear(first), pl = far_of_linear(last);
-    far_memcpy_from_local(pf, &a, 1);
-    far_memcpy_from_local(pl, &b, 1);
-    far_memcpy_to_local(&r, pf, 1);
-    if (r != 0x5A) return 0;
-    far_memcpy_to_local(&r, pl, 1);
-    if (r != 0xA5) return 0;
-    a = 0xC3;
-    far_memcpy_from_local(pf, &a, 1);
-    far_memcpy_to_local(&r, pl, 1);
-    return r == 0xA5;
-}
-
-unsigned long far_attic_enable(unsigned long first, unsigned long last) {
-    if (first < 0x8000000UL) first = 0x8000000UL;
-    if (last > 0x87FFFFFUL) last = 0x87FFFFFUL;
-    g_attic_n = 0;
-    if (last <= first || !attic_probe(first, last)) return 0;
-    g_attic[0].at = first;
-    g_attic[0].size = last - first + 1;
-    g_attic[0].is_free = 1;
-    g_attic_n = 1;
-    return g_attic[0].size;
-}
-
-unsigned long far_attic_available(void) {
-    unsigned long n = 0;
-    for (int i = 0; i < g_attic_n; ++i)
-        if (g_attic[i].is_free) n += g_attic[i].size;
-    return n;
-}
-
-static far_ptr_t attic_malloc(size_t size) {
-    for (int i = 0; i < g_attic_n; ++i) {
-        attic_record_t* r = &g_attic[i];
-        if (!r->is_free || r->size < size) continue;
-        if (r->size > size) {
-            /* the rest: a free record after it */
-            if (g_attic_n >= MAX_ATTIC_ALLOCS) return far_make(BANK0, 0);
-            for (int j = g_attic_n; j > i + 1; --j) g_attic[j] = g_attic[j - 1];
-            g_attic[i + 1].at = r->at + size;
-            g_attic[i + 1].size = r->size - size;
-            g_attic[i + 1].is_free = 1;
-            g_attic_n++;
-            r->size = size;
-        }
-        r->is_free = 0;
-        return far_of_linear(r->at);
-    }
-    return far_make(BANK0, 0);
-}
-
-/* The record of an allocation in attic RAM, or -1 */
-static int attic_find(far_ptr_t ptr) {
-    unsigned long a = far_to_linear(ptr);
-    for (int i = 0; i < g_attic_n; ++i)
-        if (g_attic[i].at == a && !g_attic[i].is_free) return i;
-    return -1;
-}
-
-static void attic_free(int i) {
-    g_attic[i].is_free = 1;
-    /* merge with the free neighbours */
-    if (i + 1 < g_attic_n && g_attic[i + 1].is_free) {
-        g_attic[i].size += g_attic[i + 1].size;
-        for (int j = i + 1; j < g_attic_n - 1; ++j) g_attic[j] = g_attic[j + 1];
-        g_attic_n--;
-    }
-    if (i > 0 && g_attic[i - 1].is_free) {
-        g_attic[i - 1].size += g_attic[i].size;
-        for (int j = i; j < g_attic_n - 1; ++j) g_attic[j] = g_attic[j + 1];
-        g_attic_n--;
-    }
-}
-
 far_ptr_t far_malloc(size_t size, bank_t bank) {
-    if ((bank & 0x80) && size) return attic_malloc(size);
+    if (bank & 0x80)
+        return __far_attic_alloc && size ? __far_attic_alloc(size) : far_make(BANK0, 0);
     if (!bank_usable(bank) || size == 0) return far_make(BANK0, 0);
 
     initialize_bank(bank);
@@ -307,7 +261,7 @@ far_ptr_t far_malloc(size_t size, bank_t bank) {
     bank_allocator_t* allocator = &g_banks[bank];
 
     /* Find first free block large enough */
-    int block_idx = find_free_block(bank, size);
+    signed int block_idx = find_free_block(bank, size);
     if (block_idx < 0) {
         /* No space available */
         return far_make(BANK0, 0);
@@ -347,6 +301,13 @@ far_ptr_t far_malloc(size_t size, bank_t bank) {
     return far_make(bank, alloc_offset);
 }
 
+far_ptr_t far_malloc_long(unsigned long size, bank_t bank) {
+    if (bank & 0x80)
+        return __far_attic_alloc && size ? __far_attic_alloc(size) : far_make(BANK0, 0);
+    if (size > 0xFFFFUL) return far_make(BANK0, 0);
+    return far_malloc((size_t)size, bank);
+}
+
 far_ptr_t far_calloc(size_t count, size_t size, bank_t bank) {
     size_t total = count * size;
     far_ptr_t ptr = far_malloc(total, bank);
@@ -362,7 +323,7 @@ far_ptr_t far_realloc(far_ptr_t ptr, size_t new_size, bank_t new_bank) {
     }
 
     bank_t old_bank = far_bank(ptr);
-    size_t old_size = far_size(ptr);
+    unsigned long old_size = far_size_long(ptr);
 
     if (old_size == new_size && old_bank == new_bank) {
         /* No change needed */
@@ -377,7 +338,7 @@ far_ptr_t far_realloc(far_ptr_t ptr, size_t new_size, bank_t new_bank) {
 
     /* Copy the old data (any banks) */
     if (old_size > 0)
-        far_memcpy(new_ptr, ptr, (old_size < new_size) ? old_size : new_size);
+        far_memcpy(new_ptr, ptr, (old_size < new_size) ? (size_t)old_size : new_size);
 
     /* Free old block */
     far_free(ptr);
@@ -394,8 +355,7 @@ void far_free(far_ptr_t ptr) {
     uint16_t offset = far_offset(ptr);
 
     if (bank & 0x80) {
-        int i = attic_find(ptr);
-        if (i >= 0) attic_free(i);
+        if (__far_attic_free) __far_attic_free(far_to_linear(ptr));
         return;
     }
     if (!bank_usable(bank)) return;
@@ -437,7 +397,7 @@ far_ptr_t far_malloc_current(size_t size) {
     p = far_malloc(size, first);
     if (far_is_null(p)) p = far_malloc(size, second);
     /* (attic RAM, when enabled, after the chip RAM banks) */
-    if (far_is_null(p) && g_attic_n) p = attic_malloc(size);
+    if (far_is_null(p) && __far_attic_alloc) p = __far_attic_alloc(size);
     return p;
 }
 
@@ -452,7 +412,13 @@ far_ptr_t far_calloc_current(size_t count, size_t size) {
  * Allocation Metadata
  * ========================================================================== */
 
+/* (a block of attic RAM of 64 KB or more: 65535; far_size_long) */
 size_t far_size(far_ptr_t ptr) {
+    unsigned long n = far_size_long(ptr);
+    return n > 0xFFFFUL ? 0xFFFF : (size_t)n;
+}
+
+unsigned long far_size_long(far_ptr_t ptr) {
     if (far_is_null(ptr)) {
         return 0;
     }
@@ -460,10 +426,8 @@ size_t far_size(far_ptr_t ptr) {
     bank_t bank = far_bank(ptr);
     uint16_t offset = far_offset(ptr);
 
-    if (bank & 0x80) {
-        int i = attic_find(ptr);
-        return i < 0 ? 0 : (size_t)g_attic[i].size;
-    }
+    if (bank & 0x80)
+        return __far_attic_size ? __far_attic_size(far_to_linear(ptr)) : 0;
     if (!bank_usable(bank)) return 0;
     bank_allocator_t* allocator = &g_banks[bank];
 

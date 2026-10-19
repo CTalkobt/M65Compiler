@@ -321,6 +321,7 @@ private:
     std::map<std::string, IRStructInfo> structs_;
     const IRStructInfo* structOf(const std::string& type);  // struct/union or typedef of one
     const IRMemberInfo* arrayMemberOf(MemberAccess* ma);
+    std::shared_ptr<FuncPtrSignature> callSignature(FunctionCall& node, std::string& calleeName);
     // Alignment of a type (an aligned struct's alignment; 1 otherwise: cc45 packs)
     int typeAlign(const std::string& type, int ptrLevel);
     void checkStaticInitNames(Expression* e);   // undeclared names in a static initializer

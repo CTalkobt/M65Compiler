@@ -720,7 +720,7 @@ for fomode in "zp|" "stack|-fno-zpcall"; do
     echo "Testing test_far_attic_xemu.c ($foname)..."
     compile_link_test "src/test-resources/test_far_attic_xemu.c" "build/test/test_far_attic_${foname}_xemu.prg" "$foflags"
     if [ $? -eq 0 ]; then
-        run_xemu_test "test_far_attic_$foname" "build/test/test_far_attic_${foname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+        run_xemu_test "test_far_attic_$foname" "build/test/test_far_attic_${foname}_xemu.prg" "C0C0" 11 "01 01 01 01 01 01 01 01 01 01 AA"
     else
         echo "FAIL: test_far_attic_xemu.c $foname (compilation/linking failed)"
         failed=$((failed + 1))
@@ -1332,6 +1332,21 @@ for dpmode in "zp|" "stack|-fno-zpcall"; do
         run_xemu_test "test_derefptr_$dpname" "build/test/test_derefptr_${dpname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
     else
         echo "FAIL: test_derefptr_xemu.c $dpname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: calls in a ?: (#307): a call through a function pointer has its
+# pointer's result type (a long kept 16 bits); a call's arguments in a
+# struct-valued ?: are values (a parameter was passed by address)
+for fcmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r fcname fcflags <<< "$fcmode"
+    echo "Testing test_fnptr_cond_xemu.c ($fcname)..."
+    compile_link_test "src/test-resources/test_fnptr_cond_xemu.c" "build/test/test_fnptr_cond_${fcname}_xemu.prg" "$fcflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_fnptr_cond_$fcname" "build/test/test_fnptr_cond_${fcname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_fnptr_cond_xemu.c $fcname (compilation/linking failed)"
         failed=$((failed + 1))
     fi
 done
