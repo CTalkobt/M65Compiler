@@ -29,6 +29,9 @@ idx      = $0C      ; the next list byte, from data
 cnt      = $0D      ; the current parameter's size
 PARAMS   = $10      ; the parameter block
 
+; (PARAMS,x stays in the parameter block: none of the register pool)
+    .bpindex 32
+
     .split "__zp_args"
 .global __zp_args
 __zp_args:

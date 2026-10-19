@@ -169,6 +169,8 @@ endproc
 
 ; A DMA fill with A of the length in the job, at the address in the
 ; pointer X (SCR or COL)
+; (X is SCR or COL: the indexed loads reach 4 bytes, below the register pool)
+    .bpindex 4
 proc __conio_fill
     sta __conio_job+9       ; the value: the source address' low byte
     lda $00,x
@@ -191,6 +193,7 @@ proc __conio_fill
     lda #0
     sta __conio_job+6       ; (copy again)
     rts
+    .bpindex 0
 endproc
 
 ; The rows below the top one up by a row (DMA copies of screen and colour

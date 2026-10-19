@@ -1,0 +1,17 @@
+; test_zp_area_clob.s45 — writes $FF to all of the register pool ($30-$7F):
+; linked with test_zp_area_xemu.c, ln45 must place the base-page blocks
+; above it ($80)
+.global _clobber_pool
+.global _clobber_pool__sac
+    proc _clobber_pool
+_clobber_pool__sac:
+    lda #$FF
+    ldx #0
+@loop:
+    sta $30,x
+    inx
+    cpx #$50
+    bne @loop
+    sta $7F
+    rts
+    endproc

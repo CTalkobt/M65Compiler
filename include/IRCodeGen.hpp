@@ -154,13 +154,15 @@ private:
     std::vector<ZPReg> zpRegs_;
     // Zero-page layout (the program owns its whole relocated base page):
     //   $06-$07 static chain, $08-$0F scratch, $10-$2F ZP parameters / stack-call
-    //   argument staging, $30-$E9 vreg pool, $EA-$ED 32-bit temp, $EE-$EF
-    //   (spare), $F0-$FC library temps, $FD-$FE frame pointer
+    //   argument staging, $30-$7F vreg pool, $80-$F1 base-page blocks and
+    //   __zp variables, $F2-$F5 32-bit temp, $F6-$FC library temps, $FD-$FE
+    //   frame pointer
     static constexpr int ZP_POOL_START = 0x30;
-    // $80-$E9: functions' own base-page blocks (.zar), placed by ln45
-    static constexpr int ZAR_START = 0x80, ZAR_END = 0xEA, ZAR_MAX = 16;
+    // functions' own base-page blocks (.zar): written at $80, placed by ln45
+    // above the part of the pool the program uses
+    static constexpr int ZAR_START = 0x80, ZAR_END = 0xF2, ZAR_MAX = 16;
     static constexpr int ZP_POOL_SLOTS = (ZAR_START - 0x30) / 2;
-    static constexpr int ZP_TEMP32 = 0xEA;
+    static constexpr int ZP_TEMP32 = 0xF2;
     uint32_t zeroPageAvail_ = 248;  // Available ZP space (usually $08-$FF)
     int frameAddrZPIndex_ = -1;  // allocated ZP index for frame address (2 bytes), -1 if not allocated
     bool frameAddrCacheValid_ = true;  // Frame pointer cache valid flag (invalidated after function calls)

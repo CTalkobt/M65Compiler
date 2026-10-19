@@ -1077,6 +1077,33 @@ void AssemblerParser::pass1() {
                 }
                 stmt->size = 0;
             }
+            else if (stmt->dir.name == "bptop") {
+                // .bptop N — the end of the register pool ($30-$7F) this
+                // object uses, instead of the one ca45 finds from its
+                // operands (cc45.bptop): asm naming the ROM's page 0 while
+                // the base page is switched to it
+                try {
+                    int top = (int)parseNumericLiteral(advance().value);
+                    if (top < 0x30 || top > 0x80) errors.push_back("Error: .bptop must lie in $30-$80");
+                    else bpTop = top;
+                } catch (...) {
+                    errors.push_back("Error: .bptop needs an address");
+                }
+                stmt->size = 0;
+            }
+            else if (stmt->dir.name == "bpindex") {
+                // .bpindex N — the indexed base-page operands that follow
+                // reach at most N bytes from theirs (0: any byte above it,
+                // the default); cc45 says 5 around its float copies
+                try {
+                    int n = (int)parseNumericLiteral(advance().value);
+                    if (n < 0 || n > 0x100) errors.push_back("Error: .bpindex must be 0-256");
+                    else bpIndex = n;
+                } catch (...) {
+                    errors.push_back("Error: .bpindex needs a byte count");
+                }
+                stmt->size = 0;
+            }
             else if (stmt->dir.name == "zar") {
                 // .zar start, len — the function's private base-page bytes
                 if (!currentProc) {
@@ -1288,6 +1315,7 @@ void AssemblerParser::pass1() {
         else if (match(AssemblerTokenType::INSTRUCTION)) {
           try {
             stmt->type = Statement::INSTRUCTION;
+            stmt->bpIndex = bpIndex;
             std::string fullMnemonic = tokens[pos-1].value;
             std::transform(fullMnemonic.begin(), fullMnemonic.end(), fullMnemonic.begin(), ::tolower);
             stmt->instr.mnemonic = fullMnemonic;
@@ -2220,7 +2248,7 @@ int AssemblerParser::calculateInstructionSize(const Instruction& instr, uint32_t
 // with a warning, once per name and line
 void AssemblerParser::warnUnknownDirective(const AssemblerToken& tok) {
     static const std::set<std::string> known = {
-        "align", "array", "array_dims", "ascii", "balign", "basicUpstart", "bss", "byte", "cleanup", "code", "const",
+        "align", "array", "array_dims", "ascii", "balign", "basicUpstart", "bpindex", "bptop", "bss", "byte", "cleanup", "code", "const",
         "cpu", "data", "dword", "endrepeat", "extern", "field_class", "field_count", "fill", "fillto",
         "fixed_prefix_size", "flag_clobbers", "float", "frame_size", "zar", "frameptr_zp", "func_flags", "function_sections",
         "keep", "nosplit", "overlay", "ref", "split",

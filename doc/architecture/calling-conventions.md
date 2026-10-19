@@ -315,7 +315,9 @@ All of these addresses are offsets in the program's base page:
 | `$08-$0F` | `__zp_scratch`, `__zp_scratch2`, `__zp_scratch3`, `__zp_scratch4` (2 bytes each) |
 | `$10-$2F` | ZP parameter block |
 | `$30-$7F` | register-allocator pool (temporaries / virtual registers) |
-| `$80-$E9` | functions' own base-page blocks (the most used variables of static-allocation functions that make calls), placed by ln45 (`.zar`; ln45 "base-page blocks") |
+| `$80-$F1` | functions' own base-page blocks (the most used variables of static-allocation functions that make calls), placed by ln45 (`.zar`; ln45 "base-page blocks"), and `__zp` variables; the area starts at the end of the pool the program uses (ca45's `cc45.bptop`), which can be below `$80` |
+| `$F2-$F5` | 32-bit temporary (cc45) |
+| `$F6-$FC` | library temporaries (float code `$F6-$FA`, `puts` and large frames `$FB-$FC`) |
 | `$FD-$FE` | frame pointer |
 
 ### 6.2 Relocated base page

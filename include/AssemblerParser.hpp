@@ -154,6 +154,8 @@ public:
     // operands there are relocated against it
     struct ZpSym { std::string name; int start = 0, len = 0; };
     std::vector<ZpSym> zpSyms;
+    int bpTop = -1;   // .bptop: the object's register-pool end (-1: from its operands)
+    int bpIndex = 0;  // .bpindex N: the bytes indexed base-page operands reach (0: all above)
     const ZpSym* zpSymAt(uint32_t v) const {
         for (const auto& z : zpSyms) if (v >= (uint32_t)z.start && v < (uint32_t)(z.start + z.len)) return &z;
         return nullptr;
@@ -263,6 +265,7 @@ public:
         uint32_t address = 0;
         int size = 0;
         int line = 0;
+        int bpIndex = 0;             // .bpindex in force (0: an indexed operand reaches any byte above it)
         std::string scopePrefix;
         std::string localLabelScope; // auto-scope for @ label resolution
         std::string segmentName;
