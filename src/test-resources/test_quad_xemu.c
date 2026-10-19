@@ -15,12 +15,20 @@
  *       in and out), globals and locals, a product over 16 bits
  *   [7] a long plus a byte (the carry into X, Y, Z only as far as it goes):
  *       carries out of each byte, through all four, a global += 1
- *   [8] $AA sentinel
+ *   [8] a global long read where it is by its one use (not copied first):
+ *       a subtraction, compares, a copy to another global, one declared
+ *       extern before its definition;
+ *       a copy taken before the global changes keeps the old value
+ *   [9] a long + 1 / - 1 (inq / deq): carries and borrows through every
+ *       byte, + 0xFFFFFFFF, g++ and h -= 1 in place, a counting loop
+ *   [10] $AA sentinel
  */
 #define OUT ((volatile unsigned char *)0xC0C0)
 #define NOINLINE __attribute__((noinline))
 
 unsigned long ga = 0x12345678UL, gb = 0x0F0F0F0FUL, gc;
+unsigned long gi = 0x00FFFFFFUL, gd = 0x01000000UL;
+extern unsigned long gx;            /* (declared first, defined at the end) */
 signed long gs = -0x10001L;
 volatile unsigned char k3 = 3, k17 = 17;
 
@@ -32,6 +40,21 @@ NOINLINE static unsigned char above(unsigned long a, unsigned long b) { return a
 NOINLINE static unsigned long mul(unsigned long a, unsigned long b) { return a * b; }
 NOINLINE static unsigned long quo(unsigned long a, unsigned long b) { return a / b; }
 NOINLINE static unsigned long rem(unsigned long a, unsigned long b) { return a % b; }
+NOINLINE static unsigned long inc1(unsigned long v) { return v + 1; }
+NOINLINE static unsigned long dec1(unsigned long v) { return v - 1; }
+NOINLINE static unsigned long addm1(unsigned long v) { return v + 0xFFFFFFFFUL; }
+NOINLINE static void ginc(void) { gi++; }
+NOINLINE static void gdec(void) { gd -= 1; }
+NOINLINE static unsigned long count(unsigned long n) { unsigned long i, s = 0; for (i = 0; i < n; i++) s++; return s; }
+NOINLINE static unsigned long gdiff(void) { return ga - gb; }
+NOINLINE static unsigned char gless(void) { return gb < ga; }
+NOINLINE static unsigned char gmore(unsigned long v) { return v > gx; }
+NOINLINE static void gcopy(void) { gc = gx; }
+NOINLINE static unsigned long gkeep(void) {
+    unsigned long old = gx;
+    gx = 7;
+    return old + gx;
+}
 NOINLINE static unsigned long add5(unsigned long v) { return v + 5; }
 NOINLINE static unsigned long add255(unsigned long v) { return v + 255; }
 NOINLINE static unsigned long widen(unsigned char c, unsigned int i) { return (unsigned long)c + i + 0x10000UL; }
@@ -73,6 +96,19 @@ int main(void) {
     gc = 0x00FFFFFFUL;
     gc += 1;
     OUT[7] = ok && gc == 0x01000000UL;
-    OUT[8] = 0xAA;
+    gx = 0x01020304UL;
+    ok = gdiff() == 0x03254769UL && gless() && !gmore(0x01020304UL) && gmore(0x01020305UL);
+    gcopy();
+    ok = ok && gc == 0x01020304UL && gkeep() == 0x0102030BUL && gx == 7;
+    OUT[8] = ok;
+    ok = inc1(0xFFUL) == 0x100UL && inc1(0xFFFFFFFFUL) == 0 && dec1(0x10000UL) == 0xFFFFUL && dec1(0) == 0xFFFFFFFFUL;
+    ok = ok && addm1(0x01000000UL) == 0x00FFFFFFUL;
+    ginc();
+    gdec();
+    ok = ok && gi == 0x01000000UL && gd == 0x00FFFFFFUL && count(300) == 300;
+    OUT[9] = ok;
+    OUT[10] = 0xAA;
     return 0;
 }
+
+unsigned long gx;

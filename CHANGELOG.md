@@ -4,6 +4,18 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45 / ca45: 32-bit code, round two
+
+- A long loaded from a global (or an imported one) whose one use is the
+  next instruction (an add, subtract, compare or store) is read by that use
+  where it is, not copied into a temporary first.
+- A long `+ 1` / `- 1` (`++`, `--`, `+= 1`, `-= 1`, `+ 0xFFFFFFFF`) is `inq` /
+  `deq`: in place (`g++` on a global: `inq _g`, 5 bytes for about 40),
+  else `ldq` / `inq` / `stq`. The in-place increment of a global also looks
+  past the IR's `nop`s (`h -= 1` was missed). ca45 accepts `inq` / `deq`
+  (the 45GS02's names) for `incq` / `decq`.
+- vim2 532 bytes smaller, the library's C part 140.
+
 ### ca45 / cc45 / objdump45: 32-bit code
 
 32-bit values move and shift with the 45GS02's Q instructions (measured with

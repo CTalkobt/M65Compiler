@@ -146,6 +146,8 @@ std::string IRCodeGen::sacSymbol(uint32_t vregId) const {
 }
 
 std::string IRCodeGen::directBase(uint32_t vregId) const {
+    auto ga = globalLoadAlias_.find(vregId);
+    if (ga != globalLoadAlias_.end()) return ga->second;
     auto a = alloc_.getAlloc(vregId);
     if (a.loc == VRegAllocator::IN_ZP) return "$" + hex8((uint8_t)a.offset);
     if (a.loc == VRegAllocator::IN_FRAME && currentFunctionUseSAC_ && vregOffset_.count(vregId))
@@ -871,6 +873,8 @@ bool IRCodeGen::emitMulAXConst(long c, bool xZero, const std::string& why) {
 }
 
 void IRCodeGen::loadVreg(uint32_t vregId) {
+    auto ga = globalLoadAlias_.find(vregId);
+    if (ga != globalLoadAlias_.end()) { emit("ldq " + ga->second, "long read where it is"); ms_.invalidateAll(); return; }
     auto za = zextAlias_.find(vregId);
     if (za != zextAlias_.end()) {
         emit("lda " + directByte(za->second, 0), "zero-extended byte");
@@ -983,6 +987,8 @@ void IRCodeGen::loadVreg(uint32_t vregId) {
 }
 
 void IRCodeGen::loadVregA(uint32_t vregId) {
+    auto ga = globalLoadAlias_.find(vregId);
+    if (ga != globalLoadAlias_.end()) { emit("lda " + ga->second, "long read where it is"); ms_.invalidateAll(); return; }
     auto ta = truncAlias_.find(vregId);
     if (ta != truncAlias_.end()) { emit("lda " + directByte(ta->second, 0), "low byte"); return; }
     auto za = zextAlias_.find(vregId);
@@ -1191,6 +1197,7 @@ std::string IRCodeGen::src2MemOperand(const ir::Operand& op) {
     if (op.isImm()) {
         return "#" + std::to_string((int)op.immVal);
     }
+    if (op.isVreg() && globalLoadAlias_.count(op.vregId)) return globalLoadAlias_.at(op.vregId);
     if (op.isVreg()) {
         // Check for suppressed CONST vreg — use immediate instead of ZP
         auto alloc = alloc_.getAlloc(op.vregId);
@@ -1381,6 +1388,9 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
         symbolAddressSpace_[global.name] = space;
         if (global.size > 0 && global.size <= 256 && space == 0) smallGlobals_.insert(global.name);
     }
+    plainExterns_.clear();
+    for (const auto& e : mod.externs)
+        if (!mod.zpExterns.count(e)) plainExterns_.insert(e);
     placeZpGlobals(mod);
 
     // Pre-scan all functions to compute frame offsets (needed for capture)
@@ -3311,6 +3321,54 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 if (ok) zextAlias_[d] = in.src1;
             }
         }
+        // A long loaded from a global (of this program, not on the base page,
+        // not a parameter's storage) whose one use is the next instruction:
+        // read by that use where it is
+        globalLoadAlias_.clear();
+        for (size_t b = 0; b < blocks.size(); b++) {
+            const auto& insts = blocks[b]->insts;
+            for (size_t i = 0; i + 1 < insts.size(); i++) {
+                const auto& in = insts[i];
+                if (in.op != ir::Op::LOAD || in.resultType != ir::Type::I32 || !in.args.empty() ||
+                    in.src1.kind != ir::OperandKind::GLOBAL || !in.dest.isVreg()) continue;
+                const std::string& g = in.src1.name;
+                if (g.find("__param_") != std::string::npos) continue;
+                if (symbolAddressSpace_.count(g) ? symbolAddressSpace_[g] != 0 : !plainExterns_.count(g)) continue;
+                uint32_t d = in.dest.vregId;
+                if (defs[d] != 1 || fn.localSlotVregs.count(d) || fn.memoryVregs.count(d) || joinNodes.count(d))
+                    continue;
+                auto uit = uses.find(d);
+                if (uit == uses.end() || uit->second.size() != 1 || uit->second[0].blk != b ||
+                    uit->second[0].idx <= i) continue;
+                // the use is the next instruction but NOPs
+                size_t j = uit->second[0].idx;
+                bool next = true;
+                for (size_t x = i + 1; x < j; x++) next = next && insts[x].op == ir::Op::NOP;
+                if (!next) continue;
+                const auto& u = insts[j];
+                bool fits = false;
+                switch (u.op) {
+                    case ir::Op::ADD: case ir::Op::SUB:
+                        fits = u.resultType == ir::Type::I32 && u.args.empty(); break;
+                    case ir::Op::CMP_EQ: case ir::Op::CMP_NE: case ir::Op::CMP_LT: case ir::Op::CMP_GE:
+                    case ir::Op::CMP_LE: case ir::Op::CMP_GT:
+                    case ir::Op::CMP_LTU: case ir::Op::CMP_LEU: case ir::Op::CMP_GTU: case ir::Op::CMP_GEU:
+                        fits = u.src1.type == ir::Type::I32 && u.args.empty(); break;
+                    case ir::Op::STORE:      // (the value, not the address)
+                        fits = u.resultType == ir::Type::I32 && u.src1.isVreg() && u.src1.vregId == d &&
+                               !(u.src2.isVreg() && u.src2.vregId == d);
+                        break;
+                    default: break;
+                }
+                if (!fits) continue;
+                bool inPhi = false;
+                for (const auto& blk2 : fn.blocks)
+                    for (const auto& x : blk2.insts)
+                        for (const auto& ph : x.phiIncoming)
+                            if (ph.first.isVreg() && ph.first.vregId == d) inPhi = true;
+                if (!inPhi) globalLoadAlias_[d] = g;
+            }
+        }
     }
 
     // Pre-scan: identify CONST vregs and detect which are only used as
@@ -5025,7 +5083,26 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                         if (base[0] == '$') return "$" + hex8((uint8_t)(std::stoi(base.substr(1), nullptr, 16) + k));
                         return base + "+" + std::to_string(k);
                     };
-                    if (nb == 4 && directByte(inst.src1, 0)[0] != '#' && directByte(inst.src2, 0)[0] != '#') {
+                    // a long +/- 1: inq / deq (in place, or in Q between ldq and stq)
+                    int step = 0;
+                    if (nb == 4 && directByte(inst.src1, 0)[0] != '#') {
+                        // (a constant, immediate or in a vreg: its bytes)
+                        std::string b0 = directByte(inst.src2, 0), b1 = directByte(inst.src2, 1),
+                                    b2 = directByte(inst.src2, 2), b3 = directByte(inst.src2, 3);
+                        if (b0 == "#1" && b1 == "#0" && b2 == "#0" && b3 == "#0") step = add ? 1 : -1;
+                        else if (b0 == "#255" && b1 == "#255" && b2 == "#255" && b3 == "#255") step = add ? -1 : 1;
+                    }
+                    if (step) {
+                        std::string src = directByte(inst.src1, 0);
+                        std::string m = step > 0 ? "inq" : "deq";
+                        if (src == dst) {
+                            emit(m + " " + dst, irDesc(step > 0 ? "a long + 1 in place" : "a long - 1 in place"));
+                        } else {
+                            emit("ldq " + src, irDesc(step > 0 ? "a long + 1" : "a long - 1"));
+                            emit(m);
+                            emit("stq " + dst);
+                        }
+                    } else if (nb == 4 && directByte(inst.src1, 0)[0] != '#' && directByte(inst.src2, 0)[0] != '#') {
                         emit(add ? "clc" : "sec", r);
                         emit("ldq " + directByte(inst.src1, 0));
                         emit((add ? "adcq " : "sbcq ") + directByte(inst.src2, 0));
@@ -6141,19 +6218,27 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
             // back, the values used nowhere else): inc / dec or an add in
             // place, not through temporaries
             if (inst.src1.kind == ir::OperandKind::GLOBAL && inst.dest.isVreg() && inst.args.empty() &&
-                (inst.resultType == ir::Type::I8 || inst.resultType == ir::Type::I16) &&
+                (inst.resultType == ir::Type::I8 || inst.resultType == ir::Type::I16 ||
+                 inst.resultType == ir::Type::I32) &&
                 symbolAddressSpace_.count(inst.src1.name) && symbolAddressSpace_[inst.src1.name] == 0 &&
                 inst.src1.name.find("__param_") == std::string::npos && currentFn_) {
                 const auto& blk = currentFn_->blocks[currentBlockIdx_];
                 size_t at = currentInstInBlock_;
+                // the next instruction after j that is not a NOP
+                auto after = [&](size_t j) {
+                    for (++j; j < blk.insts.size() && blk.insts[j].op == ir::Op::NOP; ++j) {}
+                    return j;
+                };
                 // (x++ copies the old value first: a deref/copy of it)
-                const ir::Inst* cp = at + 1 < blk.insts.size() ? &blk.insts[at + 1] : nullptr;
+                size_t ic = after(at);
+                const ir::Inst* cp = ic < blk.insts.size() ? &blk.insts[ic] : nullptr;
                 bool hasCopy = cp && (cp->op == ir::Op::DEREF || cp->op == ir::Op::COPY) && cp->dest.isVreg() &&
                                cp->src1.isVreg() && cp->src1.vregId == inst.dest.vregId && cp->resultType == inst.resultType;
-                size_t k = hasCopy ? 2 : 1;
+                size_t ia = hasCopy ? after(ic) : ic, ist = after(ia);
+                size_t k = ia - at;
                 uint32_t val = hasCopy ? cp->dest.vregId : inst.dest.vregId;
-                const ir::Inst* a = at + k < blk.insts.size() ? &blk.insts[at + k] : nullptr;
-                const ir::Inst* st = at + k + 1 < blk.insts.size() ? &blk.insts[at + k + 1] : nullptr;
+                const ir::Inst* a = ia < blk.insts.size() ? &blk.insts[ia] : nullptr;
+                const ir::Inst* st = ist < blk.insts.size() ? &blk.insts[ist] : nullptr;
                 long long c = 0;
                 bool ok = a && st && (a->op == ir::Op::ADD || a->op == ir::Op::SUB) && a->resultType == inst.resultType &&
                           a->dest.isVreg() && a->src1.isVreg() && a->src1.vregId == val && a->src2.isImm() &&
@@ -6172,6 +6257,18 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                                                    o.vregId == a->dest.vregId)) uses++;
                         }
                     ok = uses == (hasCopy ? 3 : 2);
+                }
+                bool w32 = inst.resultType == ir::Type::I32;
+                if (ok && w32) {
+                    // a long: += 1 / -= 1 only (inq / deq), others the usual way
+                    c = (a->op == ir::Op::ADD ? a->src2.immVal : -a->src2.immVal) & 0xFFFFFFFFLL;
+                    ok = c == 1 || c == 0xFFFFFFFFLL;
+                }
+                if (ok && w32) {
+                    emit((c == 1 ? "inq " : "deq ") + inst.src1.name, irDesc(c == 1 ? "+= 1 in place" : "-= 1 in place"));
+                    ms_.invalidateAll();
+                    skipInsts_ = (int)(ist - at);
+                    break;
                 }
                 if (ok) {
                     bool w16 = inst.resultType == ir::Type::I16;
@@ -6202,10 +6299,12 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                         }
                     }
                     ms_.invalidateAll();
-                    skipInsts_ = (int)k + 1;
+                    skipInsts_ = (int)(ist - at);
                     break;
                 }
             }
+            // a long read by its one use, from the global (globalLoadAlias_)
+            if (inst.dest.isVreg() && globalLoadAlias_.count(inst.dest.vregId)) break;
             if (inst.src1.kind == ir::OperandKind::GLOBAL) {
                 // Phase 78: Check if this is a parameter using SMC optimization
                 bool useSMC = false;

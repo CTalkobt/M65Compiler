@@ -247,6 +247,9 @@ AssemblerToken AssemblerLexer::lexIdentifierOrInstruction() {
 
     std::string upperValue = value;
     std::transform(upperValue.begin(), upperValue.end(), upperValue.begin(), ::toupper);
+    // the 45GS02's names for the 32-bit increment / decrement (incq, decq)
+    if (upperValue == "INQ") upperValue = "INCQ";
+    else if (upperValue == "DEQ") upperValue = "DECQ";
 
     if (instructions.count(upperValue)) {
         return {AssemblerTokenType::INSTRUCTION, upperValue, startLine, startCol};
