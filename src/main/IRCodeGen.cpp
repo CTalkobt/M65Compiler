@@ -940,7 +940,12 @@ bool IRCodeGen::emitMulAXConst(long c, bool xZero, const std::string& why) {
 
 void IRCodeGen::loadVreg(uint32_t vregId) {
     auto ga = globalLoadAlias_.find(vregId);
-    if (ga != globalLoadAlias_.end()) { emit("ldq " + ga->second, "long read where it is"); ms_.invalidateAll(); return; }
+    if (ga != globalLoadAlias_.end()) {
+        if (alloc_.getAlloc(vregId).type == ir::Type::I32) emit("ldq " + ga->second, "long read where it is");
+        else { emit("lda " + ga->second, "read where it is"); emit("ldx " + ga->second + "+1"); }
+        ms_.invalidateAll();
+        return;
+    }
     auto za = zextAlias_.find(vregId);
     if (za != zextAlias_.end()) {
         emit("lda " + directByte(za->second, 0), "zero-extended byte");
@@ -3397,7 +3402,9 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             const auto& insts = blocks[b]->insts;
             for (size_t i = 0; i + 1 < insts.size(); i++) {
                 const auto& in = insts[i];
-                if (in.op != ir::Op::LOAD || in.resultType != ir::Type::I32 || !in.args.empty() ||
+                bool w32 = in.resultType == ir::Type::I32;
+                bool w16 = in.resultType == ir::Type::I16 || in.resultType == ir::Type::PTR;
+                if (in.op != ir::Op::LOAD || !(w32 || w16) || !in.args.empty() ||
                     in.src1.kind != ir::OperandKind::GLOBAL || !in.dest.isVreg()) continue;
                 const std::string& g = in.src1.name;
                 if (g.find("__param_") != std::string::npos) continue;
@@ -3408,22 +3415,44 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 auto uit = uses.find(d);
                 if (uit == uses.end() || uit->second.size() != 1 || uit->second[0].blk != b ||
                     uit->second[0].idx <= i) continue;
-                // the use is the next instruction but NOPs
+                // the use comes next but for instructions that write no
+                // memory and read none but parameters' storage (the value
+                // read later is the same; volatile reads keep their order)
                 size_t j = uit->second[0].idx;
                 bool next = true;
-                for (size_t x = i + 1; x < j; x++) next = next && insts[x].op == ir::Op::NOP;
+                for (size_t x = i + 1; x < j && next; x++) {
+                    const auto& y = insts[x];
+                    switch (y.op) {
+                        case ir::Op::NOP: case ir::Op::CONST: case ir::Op::COPY: case ir::Op::ZEXT:
+                        case ir::Op::SEXT: case ir::Op::TRUNC: case ir::Op::ADDR_GLOBAL: case ir::Op::ADDR_LOCAL:
+                            break;
+                        case ir::Op::LOAD:
+                            next = y.args.empty() && y.src1.kind == ir::OperandKind::GLOBAL &&
+                                   y.src1.name.find("__param_") != std::string::npos;
+                            break;
+                        default: next = false;
+                    }
+                }
                 if (!next) continue;
                 const auto& u = insts[j];
                 bool fits = false;
+                // (the use's width: a long's, or 16 bits / a pointer's)
+                auto sameWidth = [&](ir::Type t) {
+                    return w32 ? t == ir::Type::I32 : (t == ir::Type::I16 || t == ir::Type::PTR);
+                };
                 switch (u.op) {
                     case ir::Op::ADD: case ir::Op::SUB:
-                        fits = u.resultType == ir::Type::I32 && u.args.empty(); break;
+                        // (not a pointer + offset folded into its loads and
+                        // stores: they index the pointer in its ZP home)
+                        fits = sameWidth(u.resultType) && u.args.empty() &&
+                               !(u.dest.isVreg() && foldedAddrs_.count(u.dest.vregId));
+                        break;
                     case ir::Op::CMP_EQ: case ir::Op::CMP_NE: case ir::Op::CMP_LT: case ir::Op::CMP_GE:
                     case ir::Op::CMP_LE: case ir::Op::CMP_GT:
                     case ir::Op::CMP_LTU: case ir::Op::CMP_LEU: case ir::Op::CMP_GTU: case ir::Op::CMP_GEU:
-                        fits = u.src1.type == ir::Type::I32 && u.args.empty(); break;
+                        fits = sameWidth(u.src1.type) && u.args.empty(); break;
                     case ir::Op::STORE:      // (the value, not the address)
-                        fits = u.resultType == ir::Type::I32 && u.src1.isVreg() && u.src1.vregId == d &&
+                        fits = sameWidth(u.resultType) && u.src1.isVreg() && u.src1.vregId == d &&
                                !(u.src2.isVreg() && u.src2.vregId == d);
                         break;
                     default: break;
@@ -5291,6 +5320,8 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                         std::string src1hi;
                         if (inst.src1.isImm()) {
                             src1hi = "#" + std::to_string((int)((inst.src1.immVal >> 8) & 0xFF));
+                        } else if (inst.src1.isVreg() && globalLoadAlias_.count(inst.src1.vregId)) {
+                            src1hi = directByte(inst.src1, 1);
                         } else if (inst.src1.isVreg()) {
                             auto s1alloc = alloc_.getAlloc(inst.src1.vregId);
                             if (s1alloc.loc == VRegAllocator::IN_ZP) {
@@ -5316,6 +5347,8 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                             // Load only lo byte of src1 (no ldx for hi — we use lda src1hi later)
                             if (inst.src1.isImm()) {
                                 emit("lda #" + std::to_string((int)(inst.src1.immVal & 0xFF)), r);
+                            } else if (inst.src1.isVreg() && globalLoadAlias_.count(inst.src1.vregId)) {
+                                emit("lda " + directByte(inst.src1, 0), r);
                             } else if (inst.src1.isVreg()) {
                                 auto s1a = alloc_.getAlloc(inst.src1.vregId);
                                 if (s1a.loc == VRegAllocator::IN_ZP) {
@@ -6001,6 +6034,9 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                 if (inst.src1.type == ir::Type::I8) {
                     loadOperand(inst.src1);
                     emit("cmp #0");
+                } else if (inst.src1.isVreg() && globalLoadAlias_.count(inst.src1.vregId)) {
+                    emit("lda " + directByte(inst.src1, 0));
+                    emit("ora " + directByte(inst.src1, 1));
                 } else if (inst.src1.isVreg()) {
                     auto alloc = alloc_.getAlloc(inst.src1.vregId);
                     if (alloc.loc == VRegAllocator::IN_ZP) {
