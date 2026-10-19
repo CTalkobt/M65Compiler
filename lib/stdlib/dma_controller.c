@@ -10,7 +10,9 @@
  * transfer is complete when the call returns: there is nothing to wait for.
  * ========================================================================== */
 
-#define LINEAR(bank, addr) (((unsigned long)(bank) << 16) | (uint16_t)(addr))
+/* (banks $80-$FF: attic RAM, as for far pointers) */
+#define LINEAR(bank, addr) ((unsigned char)(bank) & 0x80 ? 0x8000000UL + ((unsigned long)((bank) & 0x7F) << 16) + (uint16_t)(addr) \
+                                                  : (((unsigned long)(bank) << 16) | (uint16_t)(addr)))
 
 static int g_dma_enabled = 1;
 static uint8_t g_dma_status;   /* 0: idle (no job outlives its call) */

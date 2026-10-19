@@ -7,7 +7,8 @@
  * Far memory allocator
  *
  * Allocations live in the chip RAM banks no program or ROM uses: banks 4
- * and 5 ($40000-$5FFFF). Bank 0 holds the program, bank 1 BASIC 65's
+ * and 5 ($40000-$5FFFF), and in attic RAM when the program enables it
+ * (far_attic_enable: pointers with banks $80-$FF). Bank 0 holds the program, bank 1 BASIC 65's
  * variables, banks 2-3 the ROM; 6-7 are not chip RAM. Other banks get no
  * memory (far_malloc returns the null far pointer). The records are in
  * normal RAM; the memory is reached through far_ops (DMA).
@@ -47,6 +48,18 @@ typedef struct {
 
 /* Global allocator state */
 static bank_allocator_t g_banks[8];
+
+/* Attic RAM (far_attic_enable): one heap over the range the program gave,
+ * linear addresses; the records in address order (coalescing needs it).
+ * Off until enabled. */
+#define MAX_ATTIC_ALLOCS 32
+typedef struct {
+    unsigned long at;       /* linear address */
+    unsigned long size;
+    unsigned char is_free;
+} attic_record_t;
+static attic_record_t g_attic[MAX_ATTIC_ALLOCS];
+static int g_attic_n;       /* records in use; 0: attic RAM not enabled */
 /* far_malloc_current / far_calloc_current choose their bank by the policy:
  * the selected bank (bank_set, far_policy_fixed_bank; the default, bank 4),
  * first fit (bank 4, then 5) or round robin (alternating, the other bank
@@ -66,7 +79,7 @@ static bank_t g_next_bank = BANK4;   /* round robin: the next bank to try */
 /* The bank far_malloc_current / far_calloc_current use (it maps nothing:
  * far pointers carry their bank) */
 void bank_set(bank_t bank) {
-    if (bank < 8) {
+    if (bank < 8 || bank == BANK_ATTIC) {
         g_current_bank = bank;
         g_allocation_policy = POLICY_FIXED;
     }
@@ -77,6 +90,10 @@ bank_t bank_get(void) {
 }
 
 size_t bank_available(bank_t bank) {
+    if (bank == BANK_ATTIC) {   /* (at most 65535: see far_attic_available) */
+        unsigned long n = far_attic_available();
+        return n > 0xFFFFUL ? 0xFFFF : (size_t)n;
+    }
     if (!bank_usable(bank)) return 0;
 
     bank_allocator_t* allocator = &g_banks[bank];
@@ -198,7 +215,91 @@ static void coalesce_free_blocks(bank_t bank) {
  * Allocation Implementation
  * ========================================================================== */
 
+/* ============================================================================
+ * Attic RAM
+ * ========================================================================== */
+
+/* Is there memory at a? (a write read back, a second address not the same
+ * byte: no RAM reads back what was written, or mirrors) */
+static int attic_probe(unsigned long first, unsigned long last) {
+    unsigned char a = 0x5A, b = 0xA5, r = 0;
+    far_ptr_t pf = far_of_linear(first), pl = far_of_linear(last);
+    far_memcpy_from_local(pf, &a, 1);
+    far_memcpy_from_local(pl, &b, 1);
+    far_memcpy_to_local(&r, pf, 1);
+    if (r != 0x5A) return 0;
+    far_memcpy_to_local(&r, pl, 1);
+    if (r != 0xA5) return 0;
+    a = 0xC3;
+    far_memcpy_from_local(pf, &a, 1);
+    far_memcpy_to_local(&r, pl, 1);
+    return r == 0xA5;
+}
+
+unsigned long far_attic_enable(unsigned long first, unsigned long last) {
+    if (first < 0x8000000UL) first = 0x8000000UL;
+    if (last > 0x87FFFFFUL) last = 0x87FFFFFUL;
+    g_attic_n = 0;
+    if (last <= first || !attic_probe(first, last)) return 0;
+    g_attic[0].at = first;
+    g_attic[0].size = last - first + 1;
+    g_attic[0].is_free = 1;
+    g_attic_n = 1;
+    return g_attic[0].size;
+}
+
+unsigned long far_attic_available(void) {
+    unsigned long n = 0;
+    for (int i = 0; i < g_attic_n; ++i)
+        if (g_attic[i].is_free) n += g_attic[i].size;
+    return n;
+}
+
+static far_ptr_t attic_malloc(size_t size) {
+    for (int i = 0; i < g_attic_n; ++i) {
+        attic_record_t* r = &g_attic[i];
+        if (!r->is_free || r->size < size) continue;
+        if (r->size > size) {
+            /* the rest: a free record after it */
+            if (g_attic_n >= MAX_ATTIC_ALLOCS) return far_make(BANK0, 0);
+            for (int j = g_attic_n; j > i + 1; --j) g_attic[j] = g_attic[j - 1];
+            g_attic[i + 1].at = r->at + size;
+            g_attic[i + 1].size = r->size - size;
+            g_attic[i + 1].is_free = 1;
+            g_attic_n++;
+            r->size = size;
+        }
+        r->is_free = 0;
+        return far_of_linear(r->at);
+    }
+    return far_make(BANK0, 0);
+}
+
+/* The record of an allocation in attic RAM, or -1 */
+static int attic_find(far_ptr_t ptr) {
+    unsigned long a = far_to_linear(ptr);
+    for (int i = 0; i < g_attic_n; ++i)
+        if (g_attic[i].at == a && !g_attic[i].is_free) return i;
+    return -1;
+}
+
+static void attic_free(int i) {
+    g_attic[i].is_free = 1;
+    /* merge with the free neighbours */
+    if (i + 1 < g_attic_n && g_attic[i + 1].is_free) {
+        g_attic[i].size += g_attic[i + 1].size;
+        for (int j = i + 1; j < g_attic_n - 1; ++j) g_attic[j] = g_attic[j + 1];
+        g_attic_n--;
+    }
+    if (i > 0 && g_attic[i - 1].is_free) {
+        g_attic[i - 1].size += g_attic[i].size;
+        for (int j = i; j < g_attic_n - 1; ++j) g_attic[j] = g_attic[j + 1];
+        g_attic_n--;
+    }
+}
+
 far_ptr_t far_malloc(size_t size, bank_t bank) {
+    if ((bank & 0x80) && size) return attic_malloc(size);
     if (!bank_usable(bank) || size == 0) return far_make(BANK0, 0);
 
     initialize_bank(bank);
@@ -292,6 +393,11 @@ void far_free(far_ptr_t ptr) {
     bank_t bank = far_bank(ptr);
     uint16_t offset = far_offset(ptr);
 
+    if (bank & 0x80) {
+        int i = attic_find(ptr);
+        if (i >= 0) attic_free(i);
+        return;
+    }
     if (!bank_usable(bank)) return;
 
     bank_allocator_t* allocator = &g_banks[bank];
@@ -330,6 +436,8 @@ far_ptr_t far_malloc_current(size_t size) {
     second = (first == BANK4) ? BANK5 : BANK4;
     p = far_malloc(size, first);
     if (far_is_null(p)) p = far_malloc(size, second);
+    /* (attic RAM, when enabled, after the chip RAM banks) */
+    if (far_is_null(p) && g_attic_n) p = attic_malloc(size);
     return p;
 }
 
@@ -352,6 +460,10 @@ size_t far_size(far_ptr_t ptr) {
     bank_t bank = far_bank(ptr);
     uint16_t offset = far_offset(ptr);
 
+    if (bank & 0x80) {
+        int i = attic_find(ptr);
+        return i < 0 ? 0 : (size_t)g_attic[i].size;
+    }
     if (!bank_usable(bank)) return 0;
     bank_allocator_t* allocator = &g_banks[bank];
 

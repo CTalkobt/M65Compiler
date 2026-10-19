@@ -16,15 +16,14 @@
 
 /* The linear address of ptr + offset */
 static unsigned long far_linear(far_ptr_t ptr, long offset) {
-    unsigned long a = ((unsigned long)far_bank(ptr) << 16) | far_offset(ptr);
-    return a + (unsigned long)offset;
+    return far_to_linear(ptr) + (unsigned long)offset;   /* (attic RAM too) */
 }
 
 /* A local (bank 0) address as a linear one */
 #define LOCAL(p) ((unsigned long)(unsigned int)(p))
 
 static far_ptr_t far_from_linear(unsigned long a) {
-    return far_make((bank_t)(unsigned char)(a >> 16), (uint16_t)a);
+    return far_of_linear(a);
 }
 
 /* ============================================================================

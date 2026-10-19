@@ -7,10 +7,12 @@
 /* ============================================================================
  * Phase 26: Far Pointer Infrastructure
  *
- * 24-bit far pointers: a bank (address bits 16-23) and a 16-bit offset, the
- * linear address (bank << 16) | offset. far_ops.h reads and writes through
- * DMA. The allocator uses banks 4 and 5 ($40000-$5FFFF), the chip RAM no
- * program or ROM uses.
+ * 24-bit far pointers: a bank and a 16-bit offset. Banks $00-$7F are chip
+ * RAM, the linear address (bank << 16) | offset; banks $80-$FF are attic RAM
+ * (the 8 MB HyperRAM at $8000000): bank $80 + n is $8000000 + n * 64 KB.
+ * far_ops.h reads and writes through DMA. The allocator uses banks 4 and 5
+ * ($40000-$5FFFF), the chip RAM no program or ROM uses, and attic RAM when
+ * the program asks for it (far_attic_enable).
  * Format: [BANK:8][OFFSET:16]
  * ========================================================================== */
 
@@ -32,6 +34,7 @@ typedef enum {
     BANK5 = 5,
     BANK6 = 6,
     BANK7 = 7,
+    BANK_ATTIC = 0x80,   /* far_malloc: anywhere in attic RAM (far_attic_enable) */
 } bank_t;
 
 /* ============================================================================
@@ -55,6 +58,21 @@ static inline bank_t far_bank(far_ptr_t ptr) {
 /* Extract offset from far pointer (lower 16 bits) */
 static inline uint16_t far_offset(far_ptr_t ptr) {
     return (uint16_t)(ptr.bytes[1] | ((uint16_t)ptr.bytes[2] << 8));
+}
+
+/* The linear (28-bit) address of a far pointer, and back: banks $80-$FF
+ * are attic RAM */
+static inline unsigned long far_to_linear(far_ptr_t ptr) {
+    unsigned long off = (unsigned long)ptr.bytes[1] | ((unsigned long)ptr.bytes[2] << 8);
+    if (ptr.bytes[0] & 0x80) return 0x8000000UL + ((unsigned long)(ptr.bytes[0] & 0x7F) << 16) + off;
+    return ((unsigned long)ptr.bytes[0] << 16) | off;
+}
+static inline far_ptr_t far_of_linear(unsigned long a) {
+    far_ptr_t p;
+    p.bytes[0] = a >= 0x8000000UL ? (unsigned char)(0x80 | ((a - 0x8000000UL) >> 16)) : (unsigned char)(a >> 16);
+    p.bytes[1] = (unsigned char)a;
+    p.bytes[2] = (unsigned char)(a >> 8);
+    return p;
 }
 
 /* Check if far pointer is NULL (bank 0, offset 0) */
@@ -137,5 +155,20 @@ void far_policy_fixed_bank(bank_t bank);
 
 /* Bank 4, then bank 5 when bank 4 is full */
 void far_policy_first_fit(void);
+
+/* ============================================================================
+ * Attic RAM (off until a program asks for it)
+ * ========================================================================== */
+
+/* Let the allocator also use attic RAM from first to last (linear
+ * addresses, within $8000000-$87FFFFF): far_malloc(size, BANK_ATTIC), and
+ * after banks 4 and 5 for far_malloc_current with the first-fit and
+ * round-robin policies. It checks that the memory is there (not every board
+ * or emulator has it) and returns the bytes it took, 0 when there is none.
+ * Attic RAM is slower than chip RAM and reached only through far_* / DMA. */
+unsigned long far_attic_enable(unsigned long first, unsigned long last);
+
+/* Bytes of attic RAM not handed out (0 when not enabled) */
+unsigned long far_attic_available(void);
 
 #endif

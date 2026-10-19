@@ -87,6 +87,20 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   stack convention's thunks already did, when that is shorter. vim2: 614
   bytes smaller. The copy is a loop now: a few dozen cycles more per call.
 
+### Standard library
+
+- **`far_malloc` from attic RAM** (Issue #305), off by default:
+  `far_attic_enable(first, last)` checks the range of attic RAM
+  (`$8000000`-`$87FFFFF`) can be written and read back and lets the far heap
+  hand it out: `far_malloc(n, BANK_ATTIC)`, and `far_malloc_current` after
+  banks 4 and 5 are full. A `far_ptr_t` keeps its 3 bytes: banks `$80`-`$FF`
+  are attic RAM (bank `$80 + n` is `$8000000 + n * 64 KB`), so `far_add` and
+  the other `far_ops.h` functions cross its 64 KB banks, and the
+  `far_read_*`/`far_write_*`/`far_memcpy*` DMA jobs reach it unchanged.
+  `far_attic_available()` gives the free bytes. Attic RAM is slower (DMA
+  only, through the hyperRAM) and not on every MEGA65 (`far_attic_enable`
+  returns 0 then). Test `test_far_attic_xemu.c`.
+
 ### disk45
 
 - **`-p` / `-a2p` / `-p2a`** (Issue #300): `|` became `$7D` (the byte of
