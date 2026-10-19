@@ -39,6 +39,11 @@ their 32-bit code 27% and 22%):
 
 ### cc45
 
+- **`c ? x : 0` with a long** (Issue #310): an arm narrower than the
+  result (a literal 0, an `int`, a `char` against a long) was copied in
+  without being widened, so the result's top bytes kept whatever was in Y
+  and Z. Arms are now widened to the result (zero or sign extension by the
+  arm's type). Test `test_ternary_widen_xemu.c`.
 - **A pointer in `&&` / `||`** (Issue #309): `k && b && c` with pointers took
   `c`'s low byte as its truth value (false for a pointer at `$xx00`) when an
   earlier function in the file had an `&&` result with the same vreg number:
