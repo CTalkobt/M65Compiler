@@ -3573,6 +3573,24 @@ void IRBuilder::visit(StatementExpression& node) {
 // ============================================================================
 
 void IRBuilder::visit(VariableDeclaration& node) {
+    // extern in a block: the file-scope variable (a local of the name hidden
+    // to the block's end, which restores it: saveShadowed), declared as at
+    // file scope
+    if (currentFunc_ && node.isExtern) {
+        const std::string& n = node.name;
+        locals_.erase(n); localTypes_.erase(n); localTypeNames_.erase(n); localSigned_.erase(n);
+        localPlainUnsigned_.erase(n); localConst_.erase(n); localPointsToConst_.erase(n); localRegister_.erase(n);
+        localPointedToType_.erase(n); localPointedToTypeName_.erase(n); localConstPtrValue_.erase(n);
+        localArrayDims_.erase(n); localPtrLevel_.erase(n); paramArrayDims_.erase(n); paramVlaDims_.erase(n);
+        vlaSizeVars_.erase(n); localDeclLocs_.erase(n); vmVars_.erase(n);
+        uplevelNames_.erase(n); aggCopyParams_.erase(n);
+        if (globalTypes_.count(n)) return;      // (declared at file scope already)
+        ir::Function* f = currentFunc_;
+        currentFunc_ = nullptr;
+        visit(node);
+        currentFunc_ = f;
+        return;
+    }
     // A nested function's own variable hides the enclosing function's one:
     // its types are not the enclosing variable's
     if (currentFunc_ && uplevelNames_.erase(node.name)) {

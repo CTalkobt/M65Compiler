@@ -2,6 +2,7 @@
 #include <cstring>
 #include <algorithm>
 #include <map>
+#include <functional>
 #include "Parser.hpp"
 #include "Diagnostic.hpp"
 #include <stdexcept>
@@ -1244,6 +1245,19 @@ std::unique_ptr<Statement> Parser::parseStatement() {
 
     if (match(TokenType::SEMICOLON)) {
         return setPos(std::make_unique<CompoundStatement>(), tokens[pos-1]); // Null statement
+    }
+
+    // extern in a block: the declaration, of a file-scope name (a function's
+    // is a prototype as without it)
+    if (match(TokenType::EXTERN)) {
+        auto st = parseStatement();
+        std::function<void(Statement*)> mark = [&](Statement* s) {
+            if (auto* vd = dynamic_cast<VariableDeclaration*>(s)) vd->isExtern = true;
+            else if (auto* cs = dynamic_cast<CompoundStatement*>(s); cs && cs->isDeclGroup)
+                for (auto& x : cs->statements) mark(x.get());
+        };
+        mark(st.get());
+        return st;
     }
 
     if (peek().type == TokenType::IDENTIFIER && pos + 1 < tokens.size() && tokens[pos+1].type == TokenType::COLON) {
