@@ -22,9 +22,12 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   code's temporaries from `$F0`-`$F4` to `$F6`-`$FA`: the area ends at
   `$F1`. One file's `__zp` variables can take 98 bytes (they could reach
   the 32-bit temporary at `$EA` before).
-- vim2: its 14 files built with `-fno-zp-locals` link now with base-page
-  blocks in every file (the 106-byte area left the program too large), but
-  with 15 wrapped functions. Test `test_zp_area_xemu.c`; the overflow test's
+- vim2 (176 bytes, `$42`-`$F1`): 10 of the 14 files it builds with
+  `-fno-zp-locals` (edit, fileio, change, put, ex, disk, subst, mapkeys,
+  mapcmd, map) can drop it together with no wrapped functions and the
+  resident code unchanged: 3,265 bytes smaller (124,853 to 121,588). With
+  the 106-byte area the same build needs 49 wrapped functions and does not
+  link. All 14 files link now too, but with 15 wrapped functions. Test `test_zp_area_xemu.c`; the overflow test's
   chain is 14 functions long.
 - Test `test_bp_cpuport_xemu.c`: with the base page moved off page 0,
   base-page `$00`/`$01` are RAM (the CPU port answers only at CPU address
