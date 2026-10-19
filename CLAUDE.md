@@ -206,7 +206,7 @@ not change what is tested; a test's own later `-O` still wins. Use an
 explicit `-O<n>` in ad-hoc test commands too.
 
 - `make test` — unit tests (no emulator).
-- `bash src/test/test_xemu.sh` — runtime tests on xemu (310 pass): each
+- `bash src/test/test_xemu.sh` — runtime tests on xemu (350 pass): each
   `*_xemu.c` writes results to `$C0C0` (01 = pass, `$AA` sentinel), built in
   both conventions. New runtime tests follow this pattern and are registered
   in `test_xemu.sh`.
@@ -326,7 +326,10 @@ string, ctype, math (ROM-backed float functions; domain/range errors set
 assert, alloca, conio, CBM file I/O, `intwide.h`, `mega65.h` register
 overlays, `dma.h` (16-bit builtins; `dma_copy_far`/`dma_fill_far` at 28-bit
 addresses), and on those far pointers (`far_ptr.h`/`far_ops.h`, an allocator
-in banks 4-5) and `dma_controller.h`. Many other headers (graphics, sprites, hw_*, uart, conio
+in banks 4-5 with `far_reserve`d ranges; attic RAM when the program enables
+it, `far_attic_init`/`far_attic_enable`: a buddy allocator in `far_attic.c`,
+power-of-two blocks aligned to their size, `far_malloc_long` over 64 KB) and
+`dma_controller.h`. Many other headers (graphics, sprites, hw_*, uart, conio
 `fcm_*`) declare functions that no library implements.
 
 ## Known Bugs (found in the 2026-10-11 doc audit; not yet fixed unless noted)

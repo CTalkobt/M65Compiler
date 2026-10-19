@@ -11,8 +11,9 @@
  * RAM, the linear address (bank << 16) | offset; banks $80-$FF are attic RAM
  * (the 8 MB HyperRAM at $8000000): bank $80 + n is $8000000 + n * 64 KB.
  * far_ops.h reads and writes through DMA. The allocator uses banks 4 and 5
- * ($40000-$5FFFF), the chip RAM no program or ROM uses, and attic RAM when
- * the program asks for it (far_attic_enable).
+ * ($40000-$5FFFF), the chip RAM no program or ROM uses (but the ranges a
+ * program keeps, far_reserve), and attic RAM when the program asks for it
+ * (far_attic_init / far_attic_enable: power-of-two blocks).
  * Format: [BANK:8][OFFSET:16]
  * ========================================================================== */
 
@@ -34,7 +35,7 @@ typedef enum {
     BANK5 = 5,
     BANK6 = 6,
     BANK7 = 7,
-    BANK_ATTIC = 0x80,   /* far_malloc: anywhere in attic RAM (far_attic_enable) */
+    BANK_ATTIC = 0x80,   /* far_malloc: anywhere in attic RAM (far_attic_init) */
 } bank_t;
 
 /* ============================================================================
@@ -97,14 +98,15 @@ size_t bank_available(bank_t bank);
 /* Reset all bank allocators (clear all far allocations) */
 void bank_reset_all(void);
 
-/* Reset allocator for specific bank */
+/* Reset allocator for specific bank (frees all; far_reserve ranges stay) */
 void bank_reset(bank_t bank);
 
 /* ============================================================================
  * Far Memory Allocation
  * ========================================================================== */
 
-/* Allocate memory in specified bank */
+/* Allocate memory in specified bank: BANK4, BANK5, or BANK_ATTIC (a
+ * power-of-two block; far_malloc_long for more than 64 KB) */
 far_ptr_t far_malloc(size_t size, bank_t bank);
 
 /* Allocate and zero-initialize in specified bank */
@@ -130,7 +132,8 @@ far_ptr_t far_calloc_current(size_t count, size_t size);
  * Allocation Metadata
  * ========================================================================== */
 
-/* Get size of allocation (or 0 if not allocated) */
+/* Get size of allocation (or 0 if not allocated); in attic RAM the block's
+ * size, at most 65535 (far_size_long) */
 size_t far_size(far_ptr_t ptr);
 
 /* Get bank of allocation */
