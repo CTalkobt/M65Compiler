@@ -232,7 +232,9 @@ Only these read configuration (`doc/bin/CONFIGURATION.md`):
 - cvt_asm: `.cvtasmrc`
 
 ln45, ar45, nm45, objdump45 and disk45 have no config files. Environment:
-`CC45_INCLUDE`, `CC45_LIB` (ln45 library search), `CC45_DUMP_IR=1` (IR to stderr).
+`CC45_INCLUDE`, `CC45_LIB` (ln45 library search), `CC45_DUMP_IR=1` (IR to stderr),
+`CC45_OPMARK=1` (IR operation markers in the assembly; `src/test/opsize.py`
+totals code bytes by IR operation).
 
 ## Language (details: `doc/bin/cc45.md`)
 

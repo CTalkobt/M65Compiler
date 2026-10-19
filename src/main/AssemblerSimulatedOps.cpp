@@ -55,6 +55,25 @@ void AssemblerSimulatedOps::emitExpressionCode(AssemblerParser* parser, M65Emitt
     }
 }
 
+// A 32-bit value moved with the 45GS02's Q instructions (NEG NEG prefix):
+// ldq of a memory operand (a symbol or a number, relocated), stq / ldq of
+// an absolute address (the math registers)
+static uint32_t quadAddr(AssemblerParser* parser, const std::string& src, const std::string& scopePrefix) {
+    Symbol* sym = parser->resolveSymbol(src, scopePrefix);
+    if (sym) return sym->value;
+    try { return parseNumericLiteral(src); } catch(...) { return 0; }
+}
+static void quadLoadMem(AssemblerParser* parser, M65Emitter& e, const std::string& src, const std::string& scopePrefix) {
+    e.emitByte(0x42); e.emitByte(0x42);
+    e.relocNext(relOf(parser, src, scopePrefix)).lda_addr(quadAddr(parser, src, scopePrefix));
+}
+static void quadStoreMem(AssemblerParser* parser, M65Emitter& e, const std::string& dst, const std::string& scopePrefix) {
+    e.emitByte(0x42); e.emitByte(0x42);
+    e.relocNext(relOf(parser, dst, scopePrefix)).sta_addr(quadAddr(parser, dst, scopePrefix));
+}
+static void quadStoreAbs(M65Emitter& e, uint16_t a) { e.emitByte(0x42); e.emitByte(0x42); e.sta_addr(a); }
+static void quadLoadAbs(M65Emitter& e, uint16_t a) { e.emitByte(0x42); e.emitByte(0x42); e.lda_addr(a); }
+
 void AssemblerSimulatedOps::emitMulCode(AssemblerParser* parser, M65Emitter& e, int width, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
     int bytes = width / 8;
     if (bytes < 1) bytes = 1;
@@ -75,7 +94,17 @@ void AssemblerSimulatedOps::emitMulCode(AssemblerParser* parser, M65Emitter& e, 
             e.relocNext(relOf(parser, src, scopePrefix)).lda_addr(addr); e.sta_addr(regBase + i);
         }
     };
-    if (dest == ".A" || dest == ".AX" || dest == ".AXY" || dest == ".AXYZ" || dest == ".Q") {
+    bool regs = dest == ".A" || dest == ".AX" || dest == ".AXY" || dest == ".AXYZ" || dest == ".Q";
+    // (the second operand in registers: the first is not loaded into Q)
+    bool srcRegs = false;
+    if (!(isImmediate && srcAst->isConstant(parser))) {
+        const auto& t = parser->tokens[isImmediate ? tokenIndex + 1 : tokenIndex];
+        srcRegs = t.type == AssemblerTokenType::REGISTER;
+    }
+    if (bytes == 4 && (regs || !srcRegs)) {   // (all 32 bits: Q moves)
+        if (!regs) quadLoadMem(parser, e, dest, scopePrefix);
+        quadStoreAbs(e, m65::MULT_ARG1);
+    } else if (regs) {
         if (bytes >= 1) storeMath(m65::MULT_ARG1, 0, ".A");
         if (bytes >= 2) storeMath(m65::MULT_ARG1, 1, ".X");
         if (bytes >= 3) storeMath(m65::MULT_ARG1, 2, ".Y");
@@ -97,9 +126,15 @@ void AssemblerSimulatedOps::emitMulCode(AssemblerParser* parser, M65Emitter& e, 
             if (bytes >= 2) storeMath(m65::MULT_ARG2, 1, ".X");
             if (bytes >= 3) storeMath(m65::MULT_ARG2, 2, ".Y");
             if (bytes >= 4) storeMath(m65::MULT_ARG2, 3, ".Z");
+        } else if (bytes == 4) {
+            quadLoadMem(parser, e, srcName, scopePrefix);
+            quadStoreAbs(e, m65::MULT_ARG2);
         } else for (int i = 0; i < bytes; ++i) storeMath(m65::MULT_ARG2, i, srcName);
     }
-    if (dest == ".A" || dest == ".AX" || dest == ".AXY" || dest == ".AXYZ" || dest == ".Q") {
+    if (bytes == 4) {
+        quadLoadAbs(e, m65::MULT_RES);
+        if (!regs) quadStoreMem(parser, e, dest, scopePrefix);
+    } else if (dest == ".A" || dest == ".AX" || dest == ".AXY" || dest == ".AXYZ" || dest == ".Q") {
         // Read result into registers: load high bytes first into their
         // target registers, then load the low byte into A last
         if (bytes >= 4) { e.lda_addr(m65::MULT_RES + 3); e.taz(); }
@@ -136,7 +171,17 @@ void AssemblerSimulatedOps::emitDivCode(AssemblerParser* parser, M65Emitter& e, 
             e.relocNext(relOf(parser, src, scopePrefix)).lda_addr(addr); e.sta_addr(regBase + i);
         }
     };
-    if (dest == ".A" || dest == ".AX" || dest == ".AXY" || dest == ".AXYZ" || dest == ".Q") {
+    bool regs = dest == ".A" || dest == ".AX" || dest == ".AXY" || dest == ".AXYZ" || dest == ".Q";
+    // (the second operand in registers: the first is not loaded into Q)
+    bool srcRegs = false;
+    if (!(isImmediate && srcAst->isConstant(parser))) {
+        const auto& t = parser->tokens[isImmediate ? tokenIndex + 1 : tokenIndex];
+        srcRegs = t.type == AssemblerTokenType::REGISTER;
+    }
+    if (bytes == 4 && (regs || !srcRegs)) {   // (all 32 bits: Q moves)
+        if (!regs) quadLoadMem(parser, e, dest, scopePrefix);
+        quadStoreAbs(e, m65::DIV_ARG1);
+    } else if (regs) {
         if (bytes >= 1) storeMath(m65::DIV_ARG1, 0, ".A");
         if (bytes >= 2) storeMath(m65::DIV_ARG1, 1, ".X");
         if (bytes >= 3) storeMath(m65::DIV_ARG1, 2, ".Y");
@@ -159,6 +204,9 @@ void AssemblerSimulatedOps::emitDivCode(AssemblerParser* parser, M65Emitter& e, 
             if (bytes >= 2) storeMath(m65::DIV_ARG2, 1, ".X");
             if (bytes >= 3) storeMath(m65::DIV_ARG2, 2, ".Y");
             if (bytes >= 4) storeMath(m65::DIV_ARG2, 3, ".Z");
+        } else if (bytes == 4) {
+            quadLoadMem(parser, e, srcName, scopePrefix);
+            quadStoreAbs(e, m65::DIV_ARG2);
         } else for (int i = 0; i < bytes; ++i) storeMath(m65::DIV_ARG2, i, srcName);
     }
     // The divider always uses all 32 bits of both inputs; clear bytes this op didn't write
@@ -167,7 +215,10 @@ void AssemblerSimulatedOps::emitDivCode(AssemblerParser* parser, M65Emitter& e, 
         for (int i = bytes; i < 4; ++i) { e.sta_addr(m65::DIV_ARG1 + i); e.sta_addr(m65::DIV_ARG2 + i); }
     }
     e.bit_addr(m65::MATH_BUSY_STATUS); e.bmi(-5);  // DIVBUSY is bit 7 → N
-    if (dest == ".A" || dest == ".AX" || dest == ".AXY" || dest == ".AXYZ" || dest == ".Q") {
+    if (bytes == 4) {
+        quadLoadAbs(e, m65::DIV_RES);
+        if (!regs) quadStoreMem(parser, e, dest, scopePrefix);
+    } else if (dest == ".A" || dest == ".AX" || dest == ".AXY" || dest == ".AXYZ" || dest == ".Q") {
         if (bytes >= 4) { e.lda_addr(m65::DIV_RES + 3); e.taz(); }
         if (bytes >= 3) { e.lda_addr(m65::DIV_RES + 2); e.tay(); }
         if (bytes >= 2) { e.lda_addr(m65::DIV_RES + 1); e.tax(); }
@@ -2420,9 +2471,9 @@ void AssemblerSimulatedOps::emitCMP32Code(AssemblerParser* parser, M65Emitter& e
         // Save A (byte 0) to scratch since TZA/TYA/TXA will clobber it
         size_t br0, br1, br2;
         uint8_t zpScratch = e.getZP(0); // __zp_scratch ($08)
-        e.sta_zp(zpScratch);
         if (isImmediate && src2Ast->isConstant(parser)) {
             uint32_t val = src2Ast->getValue(parser);
+            e.sta_zp(zpScratch);
             e.tza(); e.cmp_imm((val >> 24) & 0xFF);
             br0 = e.emitBranchPlaceholder(0xD0); // BNE
             e.tya(); e.cmp_imm((val >> 16) & 0xFF);
@@ -2439,13 +2490,11 @@ void AssemblerSimulatedOps::emitCMP32Code(AssemblerParser* parser, M65Emitter& e
                 Symbol* sym = parser->resolveSymbol(src, scopePrefix);
                 if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(src); } catch(...) { addr = 0; } }
             }
-            e.tza(); e.relocNext(relOf(parser, parser->tokens[tokenIndex].value, scopePrefix)).cmp_addr(addr + 3);
-            br0 = e.emitBranchPlaceholder(0xD0); // BNE
-            e.tya(); e.relocNext(relOf(parser, parser->tokens[tokenIndex].value, scopePrefix)).cmp_addr(addr + 2);
-            br1 = e.emitBranchPlaceholder(0xD0); // BNE
-            e.txa(); e.relocNext(relOf(parser, parser->tokens[tokenIndex].value, scopePrefix)).cmp_addr(addr + 1);
-            br2 = e.emitBranchPlaceholder(0xD0); // BNE
-            e.lda_zp(zpScratch); e.relocNext(relOf(parser, parser->tokens[tokenIndex].value, scopePrefix)).cmp_addr(addr);
+            // CPQ: C and Z as the byte compares from the top would leave
+            // them (N from bit 31 of the difference), A-Z kept
+            e.emitByte(0x42); e.emitByte(0x42);
+            e.relocNext(relOf(parser, parser->tokens[tokenIndex].value, scopePrefix)).cmp_addr(addr);
+            return;
         }
         e.patchBranchTarget(br0);
         e.patchBranchTarget(br1);
@@ -2583,16 +2632,12 @@ void AssemblerSimulatedOps::emitLSL32Code(AssemblerParser* parser, M65Emitter& e
     std::string DEST = dest; if (!DEST.empty() && DEST[0] != '.') DEST = "." + DEST;
     std::transform(DEST.begin(), DEST.end(), DEST.begin(), ::toupper);
     if (DEST == ".AXYZ" || DEST == ".Q") {
-        // ASL A, then ROL through X, Y, Z
-        e.asl_a();
-        e.pha(); e.txa(); e.rol_a(); e.tax();
-        e.tya(); e.rol_a(); e.tay();
-        e.tza(); e.rol_a(); e.taz(); e.pla();
+        e.emitByte(0x42); e.emitByte(0x42); e.asl_a();     // ASLQ
     } else {
         uint32_t addr = 0;
         try { addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
         catch(...) { Symbol* sym = parser->resolveSymbol(dest, scopePrefix); if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(dest); } catch(...) { addr = 0; } } }
-        e.asl_addr(addr); e.rol_addr(addr + 1); e.rol_addr(addr + 2); e.rol_addr(addr + 3);
+        e.emitByte(0x42); e.emitByte(0x42); e.asl_addr(addr);     // ASLQ addr
     }
 }
 
@@ -2602,15 +2647,12 @@ void AssemblerSimulatedOps::emitLSR32Code(AssemblerParser* parser, M65Emitter& e
     std::string DEST = dest; if (!DEST.empty() && DEST[0] != '.') DEST = "." + DEST;
     std::transform(DEST.begin(), DEST.end(), DEST.begin(), ::toupper);
     if (DEST == ".AXYZ" || DEST == ".Q") {
-        // LSR Z, then ROR through Y, X, A
-        e.pha(); e.tza(); e.lsr_a(); e.taz();
-        e.tya(); e.ror_a(); e.tay();
-        e.txa(); e.ror_a(); e.tax(); e.pla(); e.ror_a();
+        e.emitByte(0x42); e.emitByte(0x42); e.lsr_a();     // LSRQ
     } else {
         uint32_t addr = 0;
         try { addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
         catch(...) { Symbol* sym = parser->resolveSymbol(dest, scopePrefix); if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(dest); } catch(...) { addr = 0; } } }
-        e.lsr_addr(addr + 3); e.ror_addr(addr + 2); e.ror_addr(addr + 1); e.ror_addr(addr);
+        e.emitByte(0x42); e.emitByte(0x42); e.lsr_addr(addr);     // LSRQ addr
     }
 }
 
@@ -2620,15 +2662,12 @@ void AssemblerSimulatedOps::emitROL32Code(AssemblerParser* parser, M65Emitter& e
     std::string DEST = dest; if (!DEST.empty() && DEST[0] != '.') DEST = "." + DEST;
     std::transform(DEST.begin(), DEST.end(), DEST.begin(), ::toupper);
     if (DEST == ".AXYZ" || DEST == ".Q") {
-        e.rol_a();
-        e.pha(); e.txa(); e.rol_a(); e.tax();
-        e.tya(); e.rol_a(); e.tay();
-        e.tza(); e.rol_a(); e.taz(); e.pla();
+        e.emitByte(0x42); e.emitByte(0x42); e.rol_a();     // ROLQ
     } else {
         uint32_t addr = 0;
         try { addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
         catch(...) { Symbol* sym = parser->resolveSymbol(dest, scopePrefix); if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(dest); } catch(...) { addr = 0; } } }
-        e.rol_addr(addr); e.rol_addr(addr + 1); e.rol_addr(addr + 2); e.rol_addr(addr + 3);
+        e.emitByte(0x42); e.emitByte(0x42); e.rol_addr(addr);     // ROLQ addr
     }
 }
 
@@ -2638,14 +2677,12 @@ void AssemblerSimulatedOps::emitROR32Code(AssemblerParser* parser, M65Emitter& e
     std::string DEST = dest; if (!DEST.empty() && DEST[0] != '.') DEST = "." + DEST;
     std::transform(DEST.begin(), DEST.end(), DEST.begin(), ::toupper);
     if (DEST == ".AXYZ" || DEST == ".Q") {
-        e.pha(); e.tza(); e.ror_a(); e.taz();
-        e.tya(); e.ror_a(); e.tay();
-        e.txa(); e.ror_a(); e.tax(); e.pla(); e.ror_a();
+        e.emitByte(0x42); e.emitByte(0x42); e.ror_a();     // RORQ
     } else {
         uint32_t addr = 0;
         try { addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
         catch(...) { Symbol* sym = parser->resolveSymbol(dest, scopePrefix); if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(dest); } catch(...) { addr = 0; } } }
-        e.ror_addr(addr + 3); e.ror_addr(addr + 2); e.ror_addr(addr + 1); e.ror_addr(addr);
+        e.emitByte(0x42); e.emitByte(0x42); e.ror_addr(addr);     // RORQ addr
     }
 }
 
@@ -2655,10 +2692,7 @@ void AssemblerSimulatedOps::emitASR32Code(AssemblerParser* parser, M65Emitter& e
     std::string DEST = dest; if (!DEST.empty() && DEST[0] != '.') DEST = "." + DEST;
     std::transform(DEST.begin(), DEST.end(), DEST.begin(), ::toupper);
     if (DEST == ".AXYZ" || DEST == ".Q") {
-        // CMP #$80 on high byte sets carry = sign bit, then ROR chain
-        e.pha(); e.tza(); e.cmp_imm(0x80); e.ror_a(); e.taz();
-        e.tya(); e.ror_a(); e.tay();
-        e.txa(); e.ror_a(); e.tax(); e.pla(); e.ror_a();
+        e.emitByte(0x42); e.emitByte(0x42); e.emitByte(0x43);     // ASRQ
     } else {
         uint32_t addr = 0;
         try { addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }

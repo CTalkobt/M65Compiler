@@ -2029,7 +2029,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
 bool IRBuilder::isBooleanValue(const ir::Operand& v) const {
     if (v.isImm()) return v.immVal == 0 || v.immVal == 1;
     if (v.kind != ir::OperandKind::VREG) return false;
-    if (boolVregs_.count(v.vregId)) return true;
+    if (boolVregs_.count({currentFunc_, v.vregId})) return true;
     if (!currentBlock_) return false;
     for (auto it = currentBlock_->insts.rbegin(); it != currentBlock_->insts.rend(); ++it) {
         if (it->dest.kind == ir::OperandKind::VREG && it->dest.vregId == v.vregId)
@@ -5486,7 +5486,7 @@ void IRBuilder::visit(BinaryOperation& node) {
 
         // Both paths write one result vreg, normalized to 0/1
         auto result = allocVreg(ir::Type::I8);
-        boolVregs_.insert(result.vregId);
+        boolVregs_.insert({currentFunc_, result.vregId});
 
         // RHS evaluation block (merge)
         startBlock(mergeLabel);

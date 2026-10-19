@@ -86,6 +86,7 @@ struct OptimizationFlags {
     bool storeLoadPair = true;        // Optimize store-load pairs
     bool fcmpOpt = true;              // Floating-point compare optimization
     bool tsxRedundant = true;         // Eliminate redundant TSX instructions
+    bool quadMove = true;             // sta/stx/sty/stz (lda/ldx/ldy/ldz) of 4 bytes -> stq (ldq)
     bool fieldStripedOpt = true;      // Phase 95.5: Field-striped array offset caching
     bool fieldDeadCode = true;        // Phase 95.5: Dead code elimination for unused fields
     bool variableSizeOpt = true;      // Phase 96.2: Variable-size field pointer caching
@@ -116,6 +117,7 @@ struct OptimizationFlags {
             flags.seqExtract = false;
             flags.storeLoadPair = false;
             flags.fcmpOpt = false;
+            flags.quadMove = false;
             flags.tsxRedundant = false;
             flags.fieldStripedOpt = false;
             flags.fieldDeadCode = false;

@@ -1336,6 +1336,35 @@ for dpmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: 32-bit values through the Q instructions: ca45's quad moves (stq /
+# ldq for byte-wise stores and loads), the shift simops as aslq/lsrq/asrq,
+# cmp.32 as cpq, mul/div moving Q, a long plus a byte
+for qdmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r qdname qdflags <<< "$qdmode"
+    echo "Testing test_quad_xemu.c ($qdname)..."
+    compile_link_test "src/test-resources/test_quad_xemu.c" "build/test/test_quad_${qdname}_xemu.prg" "$qdflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_quad_$qdname" "build/test/test_quad_${qdname}_xemu.prg" "C0C0" 9 "01 01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_quad_xemu.c $qdname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: a pointer as an operand of && / || (#309): its truth value is all
+# of it (an earlier function's && result took it for 0/1: its low byte)
+for bpmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r bpname bpflags <<< "$bpmode"
+    echo "Testing test_bool_ptr_xemu.c ($bpname)..."
+    compile_link_test "src/test-resources/test_bool_ptr_xemu.c" "build/test/test_bool_ptr_${bpname}_xemu.prg" "$bpflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_bool_ptr_$bpname" "build/test/test_bool_ptr_${bpname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
+    else
+        echo "FAIL: test_bool_ptr_xemu.c $bpname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: extern declarations in a block (#308): the file-scope variable (a
 # local of the name hidden for the block), a function prototype
 for bemode in "zp|" "stack|-fno-zpcall"; do
@@ -1463,7 +1492,7 @@ done
 # below the stack
 # (and in two banks, two files: a range in bank 4 with room for overlay a
 # only, then bank 5: OVLTEST.OV1 and OVLTEST.OV2, #299)
-OV2="--overlay-store=0x4FC00-0x4FFFF,0x50000-0x5FFFF"
+OV2="--overlay-store=0x4FD40-0x4FFFF,0x50000-0x5FFFF"   # (704 bytes: a fits, a and b do not)
 for ovmode in "zp|$STDLIB||" "stack|$STDLIB_STACK|-fno-zpcall|" \
               "zp_map|$STDLIB||--overlay-map" "stack_map|$STDLIB_STACK|-fno-zpcall|--overlay-map" \
               "zp_two|$STDLIB||$OV2" "stack_two_map|$STDLIB_STACK|-fno-zpcall|--overlay-map $OV2"; do
@@ -1542,8 +1571,8 @@ fi
 # and (two files) a name without a digit to count up are refused
 ovd=build/test/overlay_zp
 ovs=build/test/overlay_err/store.log
-if ! $LD -basic --overlay-store=0x4FC00 -o $ovd/s1.prg $ovd/main.o45 $ovd/ovl_a.o45 $ovd/ovl_b.o45 $STDLIB > $ovs 2>&1 &&
-   grep -q "overlay b (.*does not fit in the overlay store.*--overlay-store=0x4FC00-0x4FFFF,0x50000-0x5FFFF" $ovs &&
+if ! $LD -basic --overlay-store=0x4FD40 -o $ovd/s1.prg $ovd/main.o45 $ovd/ovl_a.o45 $ovd/ovl_b.o45 $STDLIB > $ovs 2>&1 &&
+   grep -q "overlay b (.*does not fit in the overlay store.*--overlay-store=0x4FD40-0x4FFFF,0x50000-0x5FFFF" $ovs &&
    ! $LD -basic --overlay-store=0x4FC00-0x50FFF -o $ovd/s2.prg $ovd/main.o45 $STDLIB > $ovs 2>&1 && grep -q "one bank" $ovs &&
    ! $LD -basic --overlay-store=0x40000-0x4FFFF,0x30000-0x3FFFF -o $ovd/s3.prg $ovd/main.o45 $STDLIB > $ovs 2>&1 &&
    grep -q "next bank" $ovs &&
