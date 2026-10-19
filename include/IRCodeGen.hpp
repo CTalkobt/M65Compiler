@@ -294,6 +294,10 @@ private:
     // add, sub, compare or store): the load is not emitted, the use reads
     // the global (loadVreg, directBase, src2MemOperand)
     std::map<uint32_t, std::string> globalLoadAlias_;
+    // A call's argument computed where the call wants it: the vreg kept in
+    // its parameter slot ($10-$2F), not copied there (findArgTargets)
+    std::map<uint32_t, int> argTargets_;
+    void findArgTargets(const ir::Function& fn);
     std::set<std::string> plainExterns_;    // imported data not on the base page
     // Values put together from bytes of others (a | b << 8 | (long)c << 16):
     // the OR at the root loads each byte from where it lives; the ZEXT /

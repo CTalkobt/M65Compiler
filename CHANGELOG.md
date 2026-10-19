@@ -4,6 +4,16 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: call arguments computed in their slots
+
+- An argument of a call (ZP convention) whose value is computed just for
+  that call, in the same block, with nothing in between that may use the
+  parameter block ($10-$2F: another call, division, float code, inline
+  asm), is computed in its parameter slot instead of a temporary copied
+  there before the `jsr` (`IRCodeGen::findArgTargets`; the allocator keeps
+  such a temporary at its fixed address). vim2's code 3.4% smaller (3.6
+  KB). Test `test_arg_target_xemu.c`.
+
 ### cc45 / ca45: 32-bit code, round two
 
 - A long loaded from a global (or an imported one) whose one use is the

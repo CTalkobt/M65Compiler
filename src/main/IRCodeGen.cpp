@@ -145,6 +145,72 @@ std::string IRCodeGen::sacSymbol(uint32_t vregId) const {
     return currentFunctionName_ + "__local_" + std::to_string(vregId);
 }
 
+// A call's (ZP convention) arguments computed in their slots of the
+// parameter block instead of a temporary copied there before the call:
+// an argument vreg defined once, in the call's block, used only by the
+// call, with only instructions between that keep the parameter block (no
+// call, no division or float code, no inline asm: they can use $10-$2F)
+void IRCodeGen::findArgTargets(const ir::Function& fn) {
+    argTargets_.clear();
+    if (!zpParams_.empty()) return;     // (the function's own parameters stay there)
+    std::map<uint32_t, int> defs, uses;
+    for (const auto& blk : fn.blocks)
+        for (const auto& in : blk.insts) {
+            if (in.dest.isVreg()) defs[in.dest.vregId]++;
+            for (const ir::Operand* o : {&in.src1, &in.src2}) if (o->isVreg()) uses[o->vregId]++;
+            for (const auto& a : in.args) if (a.isVreg()) uses[a.vregId]++;
+            for (const auto& ph : in.phiIncoming) if (ph.first.isVreg()) uses[ph.first.vregId] += 2;
+        }
+    auto intType = [](ir::Type t) {
+        return t == ir::Type::I8 || t == ir::Type::I16 || t == ir::Type::PTR || t == ir::Type::I32;
+    };
+    // code that leaves $10-$2F alone
+    auto safe = [&](const ir::Inst& x) {
+        switch (x.op) {
+            case ir::Op::NOP: return true;
+            case ir::Op::CONST: case ir::Op::COPY: case ir::Op::ZEXT: case ir::Op::SEXT: case ir::Op::TRUNC:
+            case ir::Op::ADD: case ir::Op::SUB: case ir::Op::AND: case ir::Op::OR: case ir::Op::XOR:
+            case ir::Op::LSL: case ir::Op::LSR: case ir::Op::ASR: case ir::Op::SHL: case ir::Op::SHR:
+            case ir::Op::NEG: case ir::Op::NOT:
+            case ir::Op::CMP_EQ: case ir::Op::CMP_NE: case ir::Op::CMP_LT: case ir::Op::CMP_LE: case ir::Op::CMP_GT:
+            case ir::Op::CMP_GE: case ir::Op::CMP_LTU: case ir::Op::CMP_LEU: case ir::Op::CMP_GTU: case ir::Op::CMP_GEU:
+            case ir::Op::LOAD: case ir::Op::STORE:
+            case ir::Op::ADDR_GLOBAL: case ir::Op::ADDR_LOCAL: case ir::Op::ADDR_ELEM:
+                return x.resultType == ir::Type::VOID || intType(x.resultType);
+            default: return false;
+        }
+    };
+    for (const auto& blk : fn.blocks) {
+        const auto& insts = blk.insts;
+        for (size_t c = 0; c < insts.size(); c++) {
+            const auto& call = insts[c];
+            if ((call.op != ir::Op::CALL && call.op != ir::Op::CALL_VOID) || call.callConv != ir::CallConv::ZP)
+                continue;
+            int zpOff = (int)zeroPageStart_ + 8;
+            for (size_t k = 0; k < call.args.size(); k++) {
+                const auto& arg = call.args[k];
+                int ps = ir::typeSize(arg.type);
+                int slot = ps < 2 ? 2 : ps;
+                int at = zpOff;
+                zpOff += slot;
+                if (call.isRegparm && k == 0) continue;
+                if (!arg.isVreg() || !intType(arg.type)) continue;
+                uint32_t v = arg.vregId;
+                if (v < fn.paramTypes.size() || defs[v] != 1 || uses[v] != 1 || fn.localSlotVregs.count(v) ||
+                    fn.memoryVregs.count(v) || argTargets_.count(v)) continue;
+                // its definition in this block, before the call, and safe from there on
+                size_t d = c;
+                for (size_t i = 0; i < c; i++)
+                    if (insts[i].dest.isVreg() && insts[i].dest.vregId == v) d = i;
+                if (d == c || insts[d].op == ir::Op::CONST || !intType(insts[d].resultType)) continue;
+                bool ok = true;
+                for (size_t i = d; i < c && ok; i++) ok = safe(insts[i]);
+                if (ok) argTargets_[v] = at;
+            }
+        }
+    }
+}
+
 std::string IRCodeGen::directBase(uint32_t vregId) const {
     auto ga = globalLoadAlias_.find(vregId);
     if (ga != globalLoadAlias_.end()) return ga->second;
@@ -3100,9 +3166,11 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             }
         }
     }
+    findArgTargets(fn);
     {
         std::map<uint32_t, int> fixed = zpParams_;
         fixed.insert(zarVregs_.begin(), zarVregs_.end());
+        fixed.insert(argTargets_.begin(), argTargets_.end());
         alloc_.setFixedZpVregs(fixed);
     }
     alloc_.setRegisterXVregs(fn.registerXVregs);
@@ -7399,6 +7467,11 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                     if (inst.isRegparm && argIdx == 0) {
                         // First param: in A/AX, loaded after the others
                         // (loading them goes through A/X); its slot stays free
+                        zpOff += slot;
+                        continue;
+                    }
+                    // (computed in its slot: findArgTargets)
+                    if (arg.isVreg() && argTargets_.count(arg.vregId) && argTargets_[arg.vregId] == zpOff) {
                         zpOff += slot;
                         continue;
                     }
