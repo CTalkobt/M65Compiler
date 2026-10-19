@@ -10,7 +10,6 @@ extern unsigned char __far_attic_m, __far_attic_d;
 extern unsigned int __far_attic_avail_g;
 void __far_attic_put(unsigned char *map, unsigned int n, unsigned char on);
 unsigned long __far_attic_bytes(unsigned int g);
-void __far_attic_hook(void);
 
 #define ATTIC_BASE  0x8000000UL
 #define ATTIC_ORDER 23              /* 8 MB */
@@ -27,7 +26,6 @@ unsigned long far_attic_init(unsigned long first, unsigned long last, unsigned c
                              unsigned char *meta, unsigned int size) {
     unsigned int lo, hi, o, b, top;
     unsigned char v = 0;
-    __far_attic_hook();
     __far_attic_map = 0;
     __far_attic_avail_g = 0;
     if (order < FAR_ATTIC_MIN_ORDER || order > FAR_ATTIC_MAX_ORDER || !meta ||

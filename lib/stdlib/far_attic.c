@@ -5,9 +5,11 @@
 /* ============================================================================
  * The far heap's attic RAM (Issue #305, #306): a buddy allocator
  *
- * Linked only when a program calls far_attic_init (or far_attic_enable),
- * which hooks it into far_malloc.c (__far_attic_*): a program without attic
- * RAM pays nothing. A block is a power of two, at least a granule (2^g_m),
+ * Linked only when a program calls far_attic_init (or far_attic_enable);
+ * far_attic_hook (far_attic_hook.c, which far_attic_enable calls) lets
+ * far_malloc.c reach it: a program without attic RAM pays nothing, and one
+ * that calls far_attic_malloc & co. itself takes no address of these
+ * (calls through pointers make ln45 assume the worst). A block is a power of two, at least a granule (2^g_m),
  * and aligned to its size in attic RAM: one of 64 KB or less never crosses
  * an attic bank. A program that uses attic RAM only can call
  * far_attic_malloc / far_attic_free / far_attic_size and leave the chip
@@ -23,11 +25,6 @@
  * (the 45GS02 shifts a bit per instruction). far_attic_init.c sets it up
  * (a member of its own: a program can keep the two in different overlays).
  * ========================================================================== */
-
-extern far_ptr_t (*__far_attic_alloc)(unsigned long size);
-extern unsigned long (*__far_attic_size)(unsigned long at);
-extern void (*__far_attic_free)(unsigned long at);
-extern unsigned long (*__far_attic_avail)(void);
 
 #define ATTIC_BASE  0x8000000UL
 #define ATTIC_ORDER 23              /* 8 MB */
@@ -52,6 +49,8 @@ void __far_attic_put(unsigned char *map, unsigned int n, unsigned char on) {
     else map[n >> 3] &= (unsigned char)~b;
 }
 
+static const far_ptr_t g_null;         /* (the null far pointer) */
+
 /* granules <-> attic RAM offsets */
 unsigned long __far_attic_bytes(unsigned int g) {
     unsigned long a = g;
@@ -70,10 +69,10 @@ static far_ptr_t at(unsigned int g) {
     return p;
 }
 
-static far_ptr_t attic_malloc(unsigned long size) {
+far_ptr_t far_attic_malloc(unsigned long size) {
     unsigned int n = 0, end, need, b = 1, base;
     unsigned char want = g_d, l;
-    if (!g_free || !size || size > __far_attic_bytes(1u << g_d)) return far_make(BANK0, 0);
+    if (!g_free || !size || size > __far_attic_bytes(1u << g_d)) return g_null;
     /* granules it takes, and the level of blocks that size */
     need = (unsigned int)((size + __far_attic_bytes(1) - 1) >> g_m);
     while (b < need) {
@@ -92,7 +91,7 @@ static far_ptr_t attic_malloc(unsigned long size) {
         if (n < end) break;
         n = 0;
     }
-    if (!n) return far_make(BANK0, 0);
+    if (!n) return g_null;
     __far_attic_put(g_free, n, 0);
     /* split it down: each right half free */
     while (l < want) {
@@ -124,13 +123,13 @@ static unsigned int attic_find(unsigned long a, unsigned int *bp) {
     return 0;
 }
 
-static unsigned long attic_size(unsigned long a) {
+unsigned long far_attic_size(far_ptr_t p) {
     unsigned int b;
-    return attic_find(a, &b) ? __far_attic_bytes(b) : 0;
+    return attic_find(far_to_linear(p), &b) ? __far_attic_bytes(b) : 0;
 }
 
-static void attic_free(unsigned long a) {
-    unsigned int b, n = attic_find(a, &b);
+void far_attic_free(far_ptr_t p) {
+    unsigned int b, n = attic_find(far_to_linear(p), &b);
     if (!n) return;
     __far_attic_put(g_used, n, 0);
     g_avail += b;
@@ -142,26 +141,6 @@ static void attic_free(unsigned long a) {
     __far_attic_put(g_free, n, 1);
 }
 
-far_ptr_t far_attic_malloc(unsigned long size) {
-    return attic_malloc(size);
-}
-
-void far_attic_free(far_ptr_t p) {
-    attic_free(far_to_linear(p));
-}
-
-unsigned long far_attic_size(far_ptr_t p) {
-    return attic_size(far_to_linear(p));
-}
-
 unsigned long far_attic_available(void) {
     return g_free ? __far_attic_bytes(g_avail) : 0;
-}
-
-/* far_attic_init: point far_malloc.c at this allocator */
-void __far_attic_hook(void) {
-    __far_attic_alloc = attic_malloc;
-    __far_attic_size = attic_size;
-    __far_attic_free = attic_free;
-    __far_attic_avail = far_attic_available;
 }

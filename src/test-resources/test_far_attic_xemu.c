@@ -135,7 +135,7 @@ int main(void) {
     OUT[7] = ok;
 
     ok = far_attic_init(0x8000000UL, 0x87FFFFFUL, 15, meta, sizeof meta - 1) == 0;
-    n = far_attic_init(0x8001000UL, 0x803FFFFUL, 15, meta, sizeof meta);
+    n = far_attic_init(0x8001000UL, 0x803FFFFUL, 15, meta, sizeof meta);   /* (still hooked) */
     ok = ok && n == 0x38000UL && far_attic_available() == 0x38000UL;
     x = far_malloc(100u, BANK_ATTIC);
     ok = ok && far_size(x) == 32768u && attic_off(x) == 0x8000UL;

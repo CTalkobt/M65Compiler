@@ -177,14 +177,18 @@ void far_policy_first_fit(void);
  * block's size. far_attic_init takes the granule's order (9: 512 bytes ..
  * 20: 1 MB) and memory for its table, FAR_ATTIC_META_SIZE(order) bytes
  * (1 KB for 4 KB granules, 128 bytes for 32 KB) that must stay valid;
- * far_attic_enable is far_attic_init with 4 KB granules and a table of its
- * own. A program that calls neither links no attic code. */
+ * far_attic_init sets up attic RAM for far_attic_malloc / far_attic_free /
+ * far_attic_size; far_attic_hook lets far_malloc(.., BANK_ATTIC), far_free,
+ * far_size(_long) and far_malloc_current reach it too. far_attic_enable is
+ * far_attic_init with 4 KB granules and a table of its own, and
+ * far_attic_hook. A program that calls none of them links no attic code. */
 #define FAR_ATTIC_MIN_ORDER 9
 #define FAR_ATTIC_MAX_ORDER 20
 #define FAR_ATTIC_META_SIZE(order) (1u << (22 - (order)))
 unsigned long far_attic_init(unsigned long first, unsigned long last, unsigned char order,
                              unsigned char *meta, unsigned int size);
 unsigned long far_attic_enable(unsigned long first, unsigned long last);
+void far_attic_hook(void);
 
 /* Bytes of attic RAM not handed out (0 when not enabled) */
 unsigned long far_attic_available(void);

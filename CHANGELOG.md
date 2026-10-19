@@ -109,7 +109,11 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   that never enables attic RAM links none of it, and one that uses only
   attic RAM (`far_attic_malloc`, `far_attic_free`, `far_attic_size`) not
   the chip RAM heap either: 3.2 KB, and 1.3 KB for `far_attic_init` (a
-  member of its own; both can be compiled into a program's overlays). The
+  member of its own; both can be compiled into a program's overlays).
+  `far_attic_init` sets up only the allocator; `far_attic_hook()` (which
+  `far_attic_enable` calls) lets `far_malloc`/`far_free` reach it, so a
+  program that calls `far_attic_malloc` itself takes no address of it
+  (ln45 assumes a call through a pointer can reach any such function). The
   bookkeeping is 16-bit, in granules. A `far_ptr_t` keeps its 3
   bytes: banks `$80`-`$FF` are attic RAM (bank `$80 + n` is
   `$8000000 + n * 64 KB`), so `far_add` and the other `far_ops.h` functions
