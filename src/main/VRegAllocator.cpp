@@ -497,6 +497,13 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
         // Vregs go to ZP or frame instead. May increase frame size for large functions.
         bool canUseAX = false;
 
+        // a temporary at a fixed ZP address (a call's argument computed in
+        // its parameter slot: IRCodeGen::findArgTargets): no pool slot
+        if (fixedZpVregs_.count(lr.vregId) && !localVarVregs.count(lr.vregId)) {
+            allocs_[lr.vregId] = {IN_ZP, fixedZpVregs_.at(lr.vregId), lr.type};
+            continue;
+        }
+
         // Bug #179 fix: Locals (including parameters) MUST go to FRAME, never ZP.
         // They may be accessed by linked functions that expect frame offsets,
         // and reusing ZP across different locals causes address mismatches.
