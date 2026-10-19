@@ -26,7 +26,14 @@ private:
         bool isVariadic = false;
         std::vector<std::string> params;
         std::string body;
+        // where it was defined: a file and line, "<command line>" (-D) or
+        // "" (predefined)
+        std::string defFile;
+        int defLine = 0;
     };
+    // #define name: a different redefinition is diagnosed (C11 6.10.3p2)
+    void defineMacro(const std::string& name, Macro m, const std::string& file, int line);
+    static bool sameDefinition(const Macro& a, const Macro& b);
     std::map<std::string, Macro> macros;
     // #pragma push_macro("X") / pop_macro("X"): saved definitions (absent = not defined)
     std::map<std::string, std::vector<std::pair<bool, Macro>>> pushedMacros_;

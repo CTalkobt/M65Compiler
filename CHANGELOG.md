@@ -4,6 +4,15 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45 / cp45: a macro redefined differently is warned about (Issue #311)
+
+- A `#define` of a macro already defined with another replacement list or
+  other parameters (C11 6.10.3p2; white space aside) warns at the new
+  definition and notes the previous one (a file and line, the command
+  line's `-D`, or that it is predefined). An identical redefinition is
+  silent. In vim2 a second `REG_SMALL` silently replaced the first.
+- `#warning` reports its own line (it said the next one).
+
 ### cc45: values computed in their local's base-page home
 
 - A value whose one use stores it into a local kept in the base page (a
