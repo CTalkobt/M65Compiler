@@ -4,6 +4,14 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: values computed in their local's base-page home
+
+- A value whose one use stores it into a local kept in the base page (a
+  function that makes calls keeps its most used locals there) is computed
+  in that home instead of a temporary copied over, when nothing between
+  the computation and the store mentions the local (`findStoreTargets`).
+  vim2's code 212 bytes smaller. Test `test_store_target_xemu.c`.
+
 ### cc45: 16-bit globals read where they are used
 
 - A 16-bit or pointer global (or an imported one) loaded for one use, an

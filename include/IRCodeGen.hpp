@@ -298,6 +298,10 @@ private:
     // its parameter slot ($10-$2F), not copied there (findArgTargets)
     std::map<uint32_t, int> argTargets_;
     void findArgTargets(const ir::Function& fn);
+    // A value computed for its one use, a store into a local with a ZP home
+    // (zarVregs_): kept in that home, the store not emitted
+    std::map<uint32_t, int> storeTargets_;
+    void findStoreTargets(const ir::Function& fn);
     std::set<std::string> plainExterns_;    // imported data not on the base page
     // Values put together from bytes of others (a | b << 8 | (long)c << 16):
     // the OR at the root loads each byte from where it lives; the ZEXT /
