@@ -275,7 +275,10 @@ private:
     // Evaluate an aggregate-valued expression into the memory at dst
     void emitAggregateInto(Expression* expr, const ir::Operand& dst, int size, const ir::SourceLoc& sl,
                            bool dstMayAlias = false);
-    std::set<int> boolVregs_;  // results of && / || (already 0/1)
+    // results of && / || (already 0/1), by function: vreg numbers are each
+    // function's own (a set of numbers alone said a vreg of a later function
+    // was 0/1: x && p took a pointer p as its own truth value)
+    std::set<std::pair<const ir::Function*, uint32_t>> boolVregs_;
     bool isBooleanValue(const ir::Operand& v) const;
     std::set<std::string> reportedUnused_;  // location keys of warnings already issued (unused names, x < 0)
     std::set<std::string> externalUsedVars_;

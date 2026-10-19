@@ -4626,6 +4626,25 @@ bool IRCodeGen::frameAddrUsedAfterCall() const {
 }
 
 void IRCodeGen::emitInst(const ir::Inst& inst) {
+    // (measure/opsize: CC45_OPMARK=1 marks each instruction's code, for
+    // ca45 --source-map to attribute bytes to IR operations)
+    static const bool opmark = getenv("CC45_OPMARK") != nullptr;
+    if (opmark) {
+        auto kind = [](const ir::Operand& o) {
+            switch (o.kind) {
+                case ir::OperandKind::VREG: return 'v';
+                case ir::OperandKind::IMM: return 'i';
+                case ir::OperandKind::GLOBAL: return 'g';
+                case ir::OperandKind::LABEL: return 'l';
+                case ir::OperandKind::FRAME_RELATIVE: return 'f';
+                default: return '-';
+            }
+        };
+        ir::Type w = inst.resultType;
+        for (const ir::Operand* o : {&inst.dest, &inst.src1, &inst.src2})
+            if (!o->isNone() && o->kind != ir::OperandKind::LABEL && ir::typeSize(o->type) > ir::typeSize(w)) w = o->type;
+        emit(std::string("; @op ") + ir::opName(inst.op) + " " + ir::typeName(w) + " " + kind(inst.src1) + kind(inst.src2));
+    }
     // the element address in __zp_scratch survives only from one fused
     // element load to the next
     if (elemCache_.valid && !elemCacheSurvives(inst)) {
@@ -5010,6 +5029,21 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                         emit(add ? "clc" : "sec", r);
                         emit("ldq " + directByte(inst.src1, 0));
                         emit((add ? "adcq " : "sbcq ") + directByte(inst.src2, 0));
+                        emit("stq " + dst);
+                    } else if (nb == 4 && add && directByte(inst.src1, 0)[0] != '#' && directByte(inst.src2, 0)[0] == '#' &&
+                               directByte(inst.src2, 1) == "#0" && directByte(inst.src2, 2) == "#0" &&
+                               directByte(inst.src2, 3) == "#0") {
+                        // + a byte: in Q, the carry into X, Y, Z only as far
+                        // as it goes (20 bytes instead of 25-29)
+                        std::string l = "@__addq_" + std::to_string(labelCounter_++);
+                        emit("ldq " + directByte(inst.src1, 0), irDesc("add a byte to a long"));
+                        emit("clc");
+                        emit("adc " + directByte(inst.src2, 0));
+                        emit("bcc " + l);
+                        emit("inx"); emit("bne " + l);
+                        emit("iny"); emit("bne " + l);
+                        emit("inz");
+                        emitLabel(l);
                         emit("stq " + dst);
                     } else {
                         for (int k = 0; k < nb; k++) {
@@ -7776,7 +7810,6 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                 emit("ldx #0"); // zero-extend: clear high byte
             }
             if (inst.resultType == ir::Type::I32 && inst.src1.type != ir::Type::I32) {
-                if (inst.src1.type == ir::Type::I8) emit("ldx #0");
                 emit("ldy #0");
                 emit("ldz #0");
             }

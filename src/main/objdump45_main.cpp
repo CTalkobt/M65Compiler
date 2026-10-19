@@ -661,7 +661,27 @@ static void disassembleSection(const std::vector<uint8_t>& body, uint32_t base,
             }
         }
 
-        uint8_t opcode = body[i];
+        // the 45GS02's 32-bit instructions: NEG NEG ($42 $42) before one
+        // that has a Q form (ldq, stq, adcq, cpq, aslq, ...)
+        size_t pre = 0;
+        std::string qname;
+        if (i + 2 < body.size() && body[i] == 0x42 && body[i + 1] == 0x42) {
+            auto qit = opcodeTable.find(body[i + 2]);
+            if (qit != opcodeTable.end()) {
+                std::string m = qit->second.mnemonic;
+                std::transform(m.begin(), m.end(), m.begin(), ::tolower);
+                static const std::map<std::string, std::string> qform = {
+                    {"lda", "ldq"}, {"sta", "stq"}, {"cmp", "cpq"}, {"ora", "orq"}, {"inc", "inq"}, {"dec", "deq"},
+                    {"adc", "adcq"}, {"sbc", "sbcq"}, {"and", "andq"}, {"eor", "eorq"}, {"bit", "bitq"},
+                    {"asl", "aslq"}, {"lsr", "lsrq"}, {"rol", "rolq"}, {"ror", "rorq"}, {"asr", "asrq"}};
+                auto q = qform.find(m);
+                if (q != qform.end()) {
+                    pre = 2;
+                    qname = q->second;
+                }
+            }
+        }
+        uint8_t opcode = body[i + pre];
         auto it = opcodeTable.find(opcode);
 
         if (it == opcodeTable.end()) {
@@ -673,7 +693,7 @@ static void disassembleSection(const std::vector<uint8_t>& body, uint32_t base,
 
         const OpcodeInfo& info = it->second;
         int opSize = operandSize(info.mode);
-        int instrSize = 1 + opSize;
+        int instrSize = (int)pre + 1 + opSize;
 
         // Check if we have enough bytes
         if (i + instrSize > body.size()) {
@@ -685,30 +705,21 @@ static void disassembleSection(const std::vector<uint8_t>& body, uint32_t base,
             break;
         }
 
-        // Format hex bytes column (up to 4 bytes shown)
-        char hexCol[20];
-        switch (instrSize) {
-            case 1:
-                snprintf(hexCol, sizeof(hexCol), "%02x          ", opcode);
-                break;
-            case 2:
-                snprintf(hexCol, sizeof(hexCol), "%02x %02x       ",
-                         opcode, body[i + 1]);
-                break;
-            case 3:
-                snprintf(hexCol, sizeof(hexCol), "%02x %02x %02x    ",
-                         opcode, body[i + 1], body[i + 2]);
-                break;
-            case 4:
-                snprintf(hexCol, sizeof(hexCol), "%02x %02x %02x %02x",
-                         opcode, body[i + 1], body[i + 2], body[i + 3]);
-                break;
-            default:
-                snprintf(hexCol, sizeof(hexCol), "%02x          ", opcode);
-                break;
+        // Format hex bytes column (the instruction's bytes, padded)
+        char hexCol[24];
+        {
+            std::string h;
+            for (int b = 0; b < instrSize; b++) {
+                char x[4];
+                snprintf(x, sizeof(x), b ? " %02x" : "%02x", body[i + b]);
+                h += x;
+            }
+            if (instrSize < 4) while (h.size() < 12) h += ' ';   // (the widths before)
+            snprintf(hexCol, sizeof(hexCol), "%s", h.c_str());
         }
 
-        const uint8_t* operandBytes = (opSize > 0) ? &body[i + 1] : nullptr;
+        size_t o = i + pre;     // the instruction after any prefix
+        const uint8_t* operandBytes = (opSize > 0) ? &body[o + 1] : nullptr;
         std::string operand = formatOperand(info.mode, operandBytes, opSize, pc);
 
         // Annotate operands with symbol names where the address matches
@@ -717,11 +728,11 @@ static void disassembleSection(const std::vector<uint8_t>& body, uint32_t base,
             info.mode == AddressingMode::RELATIVE16) {
             uint32_t target;
             if (info.mode == AddressingMode::RELATIVE) {
-                int8_t offset = (int8_t)body[i + 1];
-                target = pc + 2 + offset;
+                int8_t offset = (int8_t)body[o + 1];
+                target = pc + (uint32_t)pre + 2 + offset;
             } else {
-                int16_t offset = (int16_t)(body[i + 1] | (body[i + 2] << 8));
-                target = pc + 3 + offset;
+                int16_t offset = (int16_t)(body[o + 1] | (body[o + 2] << 8));
+                target = pc + (uint32_t)pre + 3 + offset;
             }
             target &= 0xFFFF;
             auto tgtSym = symbols.find(target);
@@ -733,19 +744,19 @@ static void disassembleSection(const std::vector<uint8_t>& body, uint32_t base,
                    info.mode == AddressingMode::ABSOLUTE_Y ||
                    info.mode == AddressingMode::ABSOLUTE_INDIRECT ||
                    info.mode == AddressingMode::ABSOLUTE_X_INDIRECT) {
-            uint32_t target = body[i + 1] | (body[i + 2] << 8);
+            uint32_t target = body[o + 1] | (body[o + 2] << 8);
             auto tgtSym = symbols.find(target);
             if (tgtSym != symbols.end()) {
                 annotation = "\t; <" + tgtSym->second + ">";
             }
         } else if (info.mode == AddressingMode::IMMEDIATE16) {
-            uint32_t val = body[i + 1] | (body[i + 2] << 8);
+            uint32_t val = body[o + 1] | (body[o + 2] << 8);
             auto tgtSym = symbols.find(val);
             if (tgtSym != symbols.end()) {
                 annotation = "\t; <" + tgtSym->second + ">";
             }
         } else if (info.mode == AddressingMode::BASE_PAGE_RELATIVE) {
-            int8_t rel = (int8_t)body[i + 2];
+            int8_t rel = (int8_t)body[o + 2];
             uint32_t target = (pc + 3 + rel) & 0xFFFF;
             auto tgtSym = symbols.find(target);
             if (tgtSym != symbols.end()) {
@@ -754,7 +765,7 @@ static void disassembleSection(const std::vector<uint8_t>& body, uint32_t base,
         }
 
         printf("    %04x:\t%s\t%s\t%s%s\n",
-               pc, hexCol, info.mnemonic.c_str(), operand.c_str(),
+               pc, hexCol, pre ? qname.c_str() : info.mnemonic.c_str(), operand.c_str(),
                annotation.c_str());
 
         i += instrSize;

@@ -150,7 +150,7 @@ static void printHelpOptimization() {
     std::cout << "  -P<OptName>        Enable individual optimization (after -O level)\n";
     std::cout << "  -PNo<OptName>      Disable individual optimization\n";
     std::cout << "                     Options: RedundantLoad, DeadStore, TailCall, JmpBra,\n";
-    std::cout << "                     CmpElimination, BranchInvert, JSRRelocate, etc.\n";
+    std::cout << "                     CmpElimination, BranchInvert, JSRRelocate, QuadMove, etc.\n";
     std::cout << "                     Example: ca45 -O2 -PNoRedundantLoad input.s45\n\n";
     std::cout << "  --experimental     Enable experimental optimizations (none at present)\n";
 }
@@ -538,6 +538,7 @@ int main(int argc, char** argv) {
             else if (flagName == "StoreLoadPair") optFlags.storeLoadPair = enable;
             else if (flagName == "FCmpOpt") optFlags.fcmpOpt = enable;
             else if (flagName == "TSXRedundant") optFlags.tsxRedundant = enable;
+            else if (flagName == "QuadMove") optFlags.quadMove = enable;
         } else if (arg == "-Woverflow" || arg == "--warn-overflow") {
             warnOverflow = true;  // Phase 1.3: enable overflow warnings
         } else if (arg == "-Wunderflow" || arg == "--warn-underflow") {

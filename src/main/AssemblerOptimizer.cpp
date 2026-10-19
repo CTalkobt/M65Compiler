@@ -1602,6 +1602,95 @@ bool AssemblerOptimizer::optimizeInternal(
         }
     }
 
+    // --- Quad moves: sta X / stx X+1 / sty X+2 / stz X+3 (one 32-bit value
+    // stored a byte at a time, as cc45 does) is stq X, 4 bytes instead of 8
+    // (base page) or 5 instead of 12 (absolute); lda / ldx / ldy / ldz the
+    // same is ldq X, when nothing reads N or Z before they are set again
+    // (ldq sets them from all 32 bits, ldz from the high byte)
+    if (parser->optFlags.quadMove) {
+        auto& st = parser->statements;
+        // operand "X+n" / "X" / a number: its base and offset
+        auto split = [&](const std::string& op, std::string& base, int64_t& off) -> bool {
+            int64_t v;
+            if (parseNum(op, v)) { base.clear(); off = v; return true; }
+            size_t plus = op.rfind('+');
+            if (plus != std::string::npos && parseNum(op.substr(plus + 1), v)) {
+                base = op.substr(0, plus);
+                off = v;
+            } else {
+                base = op;
+                off = 0;
+            }
+            for (char c : base)
+                if (!(isalnum((unsigned char)c) || c == '_' || c == '.' || c == '@')) return false;
+            return !base.empty();
+        };
+        auto next = [&](size_t i) {
+            for (++i; i < st.size() && st[i]->deleted; ++i) {}
+            return i;
+        };
+        // N and Z read before they are set again after statement i?
+        auto nzRead = [&](size_t i) -> bool {
+            static const std::set<std::string> setsNZ = {
+                "lda", "ldx", "ldy", "ldz", "ldq", "adc", "sbc", "and", "ora", "eor", "cmp", "cpx", "cpy", "cpz",
+                "inc", "dec", "inx", "iny", "inz", "dex", "dey", "dez", "tax", "tay", "taz", "txa", "tya", "tza",
+                "tsx", "tsy", "pla", "plx", "ply", "plz", "asl", "lsr", "rol", "ror", "asr", "neg", "bit", "inw", "dew",
+                "adcq", "sbcq", "andq", "orq", "eorq", "cpq", "aslq", "lsrq", "rolq", "rorq", "asrq", "inq", "deq"};
+            static const std::set<std::string> neutral = {
+                "sta", "stx", "sty", "stz", "stq", "clc", "sec", "cld", "sed", "clv", "nop", "pha", "phx", "phy", "phz"};
+            for (size_t j = next(i); j < st.size(); j = next(j)) {
+                auto* n = st[j].get();
+                if (n->type != AssemblerParser::Statement::INSTRUCTION || !n->label.empty()) return true;
+                std::string m = n->instr.mnemonic;
+                std::transform(m.begin(), m.end(), m.begin(), ::tolower);
+                if (setsNZ.count(m)) return false;
+                if (!neutral.count(m)) return true;     // a branch, php, jsr, ... : assume read
+            }
+            return true;
+        };
+        static const char* stores[4] = {"sta", "stx", "sty", "stz"};
+        static const char* loads[4] = {"lda", "ldx", "ldy", "ldz"};
+        for (size_t i = 0; i < st.size(); ++i) {
+            auto* s0 = st[i].get();
+            if (s0->deleted || s0->type != AssemblerParser::Statement::INSTRUCTION) continue;
+            std::string m0 = s0->instr.mnemonic;
+            std::transform(m0.begin(), m0.end(), m0.begin(), ::tolower);
+            const char** set = m0 == "sta" ? stores : m0 == "lda" ? loads : nullptr;
+            if (!set) continue;
+            AddressingMode mode = s0->instr.mode;
+            if (mode != AddressingMode::BASE_PAGE && mode != AddressingMode::ABSOLUTE) continue;
+            std::string b0, b;
+            int64_t o0, o;
+            if (!split(s0->instr.operand, b0, o0)) {
+                if (!parseNum(s0->instr.operand, o0)) continue;
+                b0.clear();
+            }
+            size_t idx[4] = {i, 0, 0, 0};
+            bool ok = true;
+            size_t j = i;
+            for (int k = 1; k < 4 && ok; ++k) {
+                j = next(j);
+                if (j >= st.size()) { ok = false; break; }
+                auto* sk = st[j].get();
+                std::string mk = sk->instr.mnemonic;
+                std::transform(mk.begin(), mk.end(), mk.begin(), ::tolower);
+                ok = sk->type == AssemblerParser::Statement::INSTRUCTION && sk->label.empty() && mk == set[k] &&
+                     sk->instr.mode == mode && split(sk->instr.operand, b, o) == true && b == b0 && o == o0 + k;
+                if (!ok && sk->type == AssemblerParser::Statement::INSTRUCTION && sk->label.empty() && mk == set[k] &&
+                    sk->instr.mode == mode && b0.empty() && parseNum(sk->instr.operand, o) && o == o0 + k)
+                    ok = true;
+                idx[k] = j;
+            }
+            if (!ok) continue;
+            if (set == loads && nzRead(idx[3])) continue;
+            s0->instr.mnemonic = set == stores ? "stq" : "ldq";
+            for (int k = 1; k < 4; ++k) st[idx[k]]->deleted = true;
+            report("quad", s0, std::string(set == stores ? "stores" : "loads") + " of " + s0->instr.operand + " -> " +
+                   s0->instr.mnemonic);
+            changed = true;
+        }
+    }
+
     // --- Phase 95.5: Field-striped array optimization ---
     if (optimizationLevel >= 2) {
         OptimizationFlags optFlags = OptimizationFlags::fromLevel(optimizationLevel);

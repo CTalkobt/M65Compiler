@@ -4,8 +4,34 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### ca45 / cc45 / objdump45: 32-bit code
+
+32-bit values move and shift with the 45GS02's Q instructions (measured with
+`src/test/opsize.py`: vim2's code 3.8% smaller, the library's C part 4.2%;
+their 32-bit code 27% and 22%):
+
+- ca45 **`QuadMove`** pass: a 32-bit store a byte at a time (`sta x` `stx x+1`
+  `sty x+2` `stz x+3`) is `stq x`, 4 bytes instead of 8 on the base page, 5
+  instead of 12 absolute; the same loads are `ldq x` when the flags of the
+  last one are not read (`-PNoQuadMove` turns it off).
+- The 32-bit shift simops (`lsl.32` `lsr.32` `asr.32` `rol.32` `ror.32`) are
+  `aslq` `lsrq` `asrq` `rolq` `rorq`: 3 bytes a bit on `.q` instead of 13.
+  `cmp.32` with a memory operand is `cpq` (it no longer changes A).
+  32-bit `mul`/`div` move their operands and result with `stq`/`ldq`.
+- cc45: a long plus a byte constant adds into Q and carries into X, Y and Z
+  only as far as the carry goes; an `int`/`char` zero-extended to a long no
+  longer loads X twice. `CC45_OPMARK=1` marks each IR instruction's code.
+- objdump45 shows Q instructions (`ldq`, `stq`, `aslq`, `cpq` ...) instead of
+  two `neg` and the base instruction.
+- Test `test_quad_xemu.c`.
+
 ### cc45
 
+- **A pointer in `&&` / `||`** (Issue #309): `k && b && c` with pointers took
+  `c`'s low byte as its truth value (false for a pointer at `$xx00`) when an
+  earlier function in the file had an `&&` result with the same vreg number:
+  the set of vregs known to be 0/1 was not per function. Test
+  `test_bool_ptr_xemu.c`.
 - **`extern` in a block** (Issue #308): `extern int g;` or `extern int
   f(int);` inside a function was a syntax error. It declares the
   file-scope name for the block (a local of that name is hidden until the
