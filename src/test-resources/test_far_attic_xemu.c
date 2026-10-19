@@ -21,7 +21,9 @@
  *   [8] far_attic_init with 32 KB granules and the program's 128-byte table,
  *       a range not on granules (rounded in); a table too small refused
  *   [9] far_reserve: banks 4 and 5 never hand out the reserved ranges
- *   [10] $AA sentinel
+ *   [10] far_attic_malloc / far_attic_size / far_attic_free (no chip RAM
+ *        heap): the same blocks as far_malloc(.., BANK_ATTIC)
+ *   [11] $AA sentinel
  */
 #include <far_ptr.h>
 #include <far_ops.h>
@@ -160,6 +162,17 @@ int main(void) {
     /* bank 4: $41C00-$4FFFF holds 14 (the gaps below are too small);
      * bank 5: $50100-$5FDFF 15 */
     OUT[9] = ok && cnt4 == 14 && cnt5 == 15;
-    OUT[10] = 0xAA;
+
+    n = far_attic_available();                   /* (granules of 32 KB: [8]) */
+    x = far_attic_malloc(1u);
+    y = far_attic_malloc(0x10000UL);
+    ok = attic_off(x) == 0x8000UL && far_attic_size(x) == 32768UL && attic_off(y) == 0x10000UL &&
+         far_attic_size(y) == 0x10000UL && far_attic_available() == n - 0x18000UL;
+    ok = ok && far_attic_size(far_add(x, 1)) == 0;   /* not a block's start */
+    far_attic_free(y);
+    far_attic_free(x);
+    ok = ok && far_attic_available() == n && far_is_null(far_attic_malloc(0x40000UL));
+    OUT[10] = ok;
+    OUT[11] = 0xAA;
     return 0;
 }
