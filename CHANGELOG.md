@@ -6,6 +6,10 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### cc45
 
+- **`extern` in a block** (Issue #308): `extern int g;` or `extern int
+  f(int);` inside a function was a syntax error. It declares the
+  file-scope name for the block (a local of that name is hidden until the
+  block ends; one defined in another module is imported).
 - **Calls in a `?:`** (Issue #307): a call through a function pointer (a
   variable, an array element, a struct member, a parameter, `(*fp)()`) was
   typed `int` wherever its type was needed before the call was built, so
