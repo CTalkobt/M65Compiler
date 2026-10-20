@@ -2407,6 +2407,19 @@ for ismode in "zp||lib/build/c45.lib" "stack|-fno-zpcall|lib/build/c45_stack.lib
     done
 done
 
+# Test: 'signed' / 'unsigned' alone as a function pointer's return type at
+# file scope, sizeof of a function pointer type
+for pumode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r puname puflags <<< "$pumode"
+    echo "Testing test_plain_unsigned_fnptr_xemu.c ($puname)..."
+    if compile_link_test "src/test-resources/test_plain_unsigned_fnptr_xemu.c" "build/test/test_plain_unsigned_fnptr_${puname}_xemu.prg" "$puflags"; then
+        run_xemu_test "test_plain_unsigned_fnptr_$puname" "build/test/test_plain_unsigned_fnptr_${puname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
+    else
+        echo "FAIL: test_plain_unsigned_fnptr_xemu.c $puname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: GCC statement expressions ({ stmt; ...; expr; })
 for semode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r sename seflags <<< "$semode"

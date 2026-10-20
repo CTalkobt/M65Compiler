@@ -537,6 +537,8 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     vd->isExtern = isExtern;
                     vd->isSigned = isUnsig ? false : (vd->isSigned || isSig);  // cc45: unsigned unless declared signed
                     vd->isPlainUnsigned = vd->isPlainUnsigned && !isSig && !isUnsig && !vd->isSigned;
+                    // (signed/unsigned were consumed above: a function pointer's result is what they say)
+                    if (vd->funcPtrSig) vd->funcPtrSig->returnIsSigned = isUnsig ? false : (vd->funcPtrSig->returnIsSigned || isSig);
                 } else if (auto* cs = dynamic_cast<CompoundStatement*>(decl.get())) {
                     for (auto& s : cs->statements) {
                         if (auto* vd2 = dynamic_cast<VariableDeclaration*>(s.get())) {
@@ -545,6 +547,8 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                             vd2->isStatic = isStatic;
                             vd2->isSigned = isUnsig ? false : (vd2->isSigned || isSig);
                             vd2->isPlainUnsigned = vd2->isPlainUnsigned && !isSig && !isUnsig && !vd2->isSigned;
+                            if (vd2->funcPtrSig)
+                                vd2->funcPtrSig->returnIsSigned = isUnsig ? false : (vd2->funcPtrSig->returnIsSigned || isSig);
                         }
                     }
                 }
@@ -643,6 +647,16 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                 unit->topLevelDecls.push_back(std::move(decl));
             }
         } else {
+            // 'signed' / 'unsigned' alone before a parenthesized declarator
+            // (unsigned (*fp)(long), unsigned (*t[2])(int)): 'int' is meant
+            // (C17 6.7.2p2); parse it again with the keyword in place
+            if ((isSig || isUnsig) && look < tokens.size() && tokens[look].type == TokenType::OPEN_PAREN) {
+                Token intTok = tokens[look];
+                intTok.type = TokenType::INT;
+                intTok.value = "int";
+                insertTokens(look, {intTok});
+                continue;
+            }
             // Implicit int: if we have qualifiers but no type keyword, and next
             // is IDENTIFIER followed by ; or = or , or [ → treat as "int" declaration
             if (look < tokens.size() && tokens[look].type == TokenType::IDENTIFIER &&
@@ -2870,6 +2884,15 @@ std::unique_ptr<Expression> Parser::parseUnary() {
                     while (match(TokenType::OPEN_SQUARE)) {   // (the pointee's dimensions)
                         while (peek().type != TokenType::CLOSE_SQUARE && peek().type != TokenType::END_OF_FILE) advance();
                         expect(TokenType::CLOSE_SQUARE, "Expected ']'");
+                    }
+                    // (*)(params): a pointer to a function, the same size
+                    if (peek().type == TokenType::OPEN_PAREN) {
+                        int depth = 0;
+                        do {
+                            if (peek().type == TokenType::OPEN_PAREN) depth++;
+                            else if (peek().type == TokenType::CLOSE_PAREN) depth--;
+                            advance();
+                        } while (depth > 0 && peek().type != TokenType::END_OF_FILE);
                     }
                 }
                 while (match(TokenType::OPEN_SQUARE)) {

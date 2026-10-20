@@ -4,6 +4,18 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: `unsigned (*fp)(long)` at file scope, `sizeof` of a function pointer type
+
+- `signed` or `unsigned` alone as a function pointer's return type at file
+  scope (`unsigned (*fp)(long);`, `const unsigned (*t[2])(int);`) was a
+  parse error ("Expected return type"); it means `int` (C17 6.7.2p2).
+- `sizeof(int (*)(long))`: a function pointer type name in `sizeof` was a
+  parse error.
+- A file-scope function pointer declared with `signed` before its type
+  (`signed int (*sp)(long)`) returned an unsigned result (`sp(1) < 0` was
+  always false); the result is signed, as it was for a local one.
+- Test `test_plain_unsigned_fnptr_xemu.c`.
+
 ### ln45 / cc45: a call through a prototyped pointer reaches only functions with its parameters
 
 - ln45 took every call through a function pointer to reach every function
