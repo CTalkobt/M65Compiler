@@ -37,23 +37,29 @@ MANDIR ?= $(PREFIX)/share/man/man1
 # lib45 LIBRARY DEFINITIONS
 # ============================================================================
 
+# (Each archive is made anew: ar rcs adds and replaces members but never
+# drops one, so an object taken out of a list would stay in an existing archive.)
+
 # lib45-common: Object format, symbols, config, utilities, diagnostics, debug info, source tracking
 $(LIB_DIR)/lib45-common.a: $(addprefix $(OBJ_DIR)/, \
     O45Reader.o O45Writer.o O45DebugSections.o O45Emitter.o O45Archive.o \
     O45Linker.o AssemblerOpcodeDatabase.o ConfigLoader.o)
 	@mkdir -p $(LIB_DIR)
+	@rm -f $@
 	$(AR) rcs $@ $^
 
 # lib45-c-compile: C compiler frontend (Lexer, Parser, AST, Validator)
 $(LIB_DIR)/lib45-c-compile.a: $(addprefix $(OBJ_DIR)/, \
     Lexer.o Parser.o AST.o TypeSystem.o TypeInfo.o)
 	@mkdir -p $(LIB_DIR)
+	@rm -f $@
 	$(AR) rcs $@ $^
 
 # lib45-ir: Intermediate representation (basic IR structures, no codegen)
 $(LIB_DIR)/lib45-ir.a: $(addprefix $(OBJ_DIR)/, \
     IRBuilder.o IRPrinter.o IROptimizer.o VRegAllocator.o)
 	@mkdir -p $(LIB_DIR)
+	@rm -f $@
 	$(AR) rcs $@ $^
 
 # lib45-opt: Optimization passes + code generation
@@ -61,6 +67,7 @@ $(LIB_DIR)/lib45-opt.a: $(addprefix $(OBJ_DIR)/, \
     IRCodeGen.o ConstantFolder.o LoopInterchange.o FunctionAnalyzer.o \
     OptimizationCatalog.o AddressTemplateDetector.o)
 	@mkdir -p $(LIB_DIR)
+	@rm -f $@
 	$(AR) rcs $@ $^
 
 # lib45-codegen: Code generation & assembly (includes preprocessor & emitter)
@@ -69,6 +76,7 @@ $(LIB_DIR)/lib45-codegen.a: $(addprefix $(OBJ_DIR)/, \
     AssemblerLexer.o AssemblerParser.o AssemblerExpression.o SymbolSuggester.o \
     AssemblerOptimizer.o AssemblerSimulatedOps.o AssemblerGenerator.o OpEffect.o)
 	@mkdir -p $(LIB_DIR)
+	@rm -f $@
 	$(AR) rcs $@ $^
 
 # lib45-phases: code of earlier development phases that no tool links (IPO,
@@ -119,6 +127,7 @@ $(LIB_DIR)/lib45-phases.a: $(addprefix $(OBJ_DIR)/, \
     O45LinkerPhases.o O45WriterPhases.o IRCodeGenPhases.o \
     OptimizeStagePhases.o CodegenStagePhases.o)
 	@mkdir -p $(LIB_DIR)
+	@rm -f $@
 	$(AR) rcs $@ $^
 
 # lib45-basic: BASIC language features
@@ -130,6 +139,7 @@ $(LIB_DIR)/lib45-basic.a: $(addprefix $(OBJ_DIR)/, \
     BasicArchiveSupport.o BasicStandardLibrary.o BasicVarRenamer.o BasicStructured.o \
     BasicDecompiler.o BasicFormatter.o BasicLister.o)
 	@mkdir -p $(LIB_DIR)
+	@rm -f $@
 	$(AR) rcs $@ $^
 
 # lib45-audio: Audio and procedural music generation (includes Phase 12-18)
@@ -144,6 +154,7 @@ $(LIB_DIR)/lib45-audio.a: $(addprefix $(OBJ_DIR)/, \
     KeyboardController.o SynthesizerUI.o \
     Effect.o EffectsChain.o)
 	@mkdir -p $(LIB_DIR)
+	@rm -f $@
 	$(AR) rcs $@ $^
 
 # lib45-tools: Disk utilities, format converters (includes optional FUSE3 support)
@@ -164,6 +175,7 @@ endif
 
 $(LIB_DIR)/lib45-tools.a: $(LIB45_TOOLS_OBJS)
 	@mkdir -p $(LIB_DIR)
+	@rm -f $@
 	$(AR) rcs $@ $^
 
 # ============================================================================
@@ -462,9 +474,11 @@ clean: lib45-clean
 	@$(MAKE) -C bug clean
 	@$(MAKE) -C lib clean
 
-test: all lib $(BIN_DIR)/test_o45
+test: all lib $(BIN_DIR)/test_o45 $(BIN_DIR)/test_ast_walker
 	@echo "Running .o45 format and linker unit tests..."
 	@$(TEST_O45_TARGET)
+	@echo "Running the AST walker unit test..."
+	@$(TEST_AST_WALKER_TARGET)
 	@echo "Validating documentation structure and links..."
 	@python3 src/test/check_docs.py
 	@echo "Running compiler tests..."
@@ -611,6 +625,16 @@ $(OBJ_DIR)/test_o45.o: src/test/test_o45.cpp
 
 test-o45: $(TEST_O45_TARGET)
 	@$(TEST_O45_TARGET)
+
+# ASTWalker unit test: it reaches a call in every place one can be (#94)
+TEST_AST_WALKER_TARGET = $(BIN_DIR)/test_ast_walker
+$(TEST_AST_WALKER_TARGET): $(OBJ_DIR)/test_ast_walker.o $(LIB_DIR)/lib45-c-compile.a $(LIB_DIR)/lib45-common.a
+	@mkdir -p $(BIN_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/test_ast_walker.o $(LIB_DIR)/lib45-c-compile.a $(LIB_DIR)/lib45-common.a
+
+$(OBJ_DIR)/test_ast_walker.o: src/test/test_ast_walker.cpp
+	@mkdir -p $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 # Move/Fill operations unit test
 TEST_MOVE_FILL_TARGET = $(BIN_DIR)/test_move_fill

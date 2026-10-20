@@ -8884,68 +8884,23 @@ void IRBuilder::visit(SizeofExpression& node) {
     lastValue_ = dest;
 }
 
-class CaseCollector : public ASTVisitor {
+// The case and default labels of a switch: its body's statements, not those
+// of a nested switch. (It walks less than ASTWalker where a label cannot be:
+// an assignment's target, a call's callee, goto *expr, _Alignof, a
+// declaration's other expressions, _Static_assert, nested functions.)
+class CaseCollector : public ASTWalker {
 public:
     IRBuilder::SwitchCtx& ctx;
     IRBuilder& builder;
     CaseCollector(IRBuilder::SwitchCtx& c, IRBuilder& b) : ctx(c), builder(b) {}
+    using ASTWalker::visit;
 
-    void visit(IntegerLiteral&) override {}
-    void visit(FloatLiteral&) override {}
-    void visit(StringLiteral&) override {}
-    void visit(VariableReference&) override {}
     void visit(Assignment& node) override { if (node.expression) node.expression->accept(*this); }
-    void visit(BinaryOperation& node) override { if (node.left) node.left->accept(*this); if (node.right) node.right->accept(*this); }
-    void visit(UnaryOperation& node) override { if (node.operand) node.operand->accept(*this); }
     void visit(FunctionCall& node) override { for (auto& arg : node.arguments) arg->accept(*this); }
-    void visit(BuiltinVaStart& node) override { if (node.ap) node.ap->accept(*this); }
-    void visit(BuiltinVaArg& node) override { if (node.ap) node.ap->accept(*this); }
-    void visit(CpuRegisterAccess&) override {}
-    void visit(CpuFlagAccess&) override {}
-    void visit(MemberAccess& node) override { if (node.structExpr) node.structExpr->accept(*this); }
-    void visit(ConditionalExpression& node) override {
-        if (node.condition) node.condition->accept(*this);
-        if (node.thenExpr) node.thenExpr->accept(*this);
-        if (node.elseExpr) node.elseExpr->accept(*this);
-    }
-    void visit(GenericSelection& node) override {
-        if (node.control) node.control->accept(*this);
-        for (auto& assoc : node.associations) if (assoc.result) assoc.result->accept(*this);
-    }
-    void visit(InitializerList& node) override { for (auto& elem : node.elements) if (elem) elem->accept(*this); }
-    void visit(ArrayAccess& node) override { if (node.arrayExpr) node.arrayExpr->accept(*this); if (node.indexExpr) node.indexExpr->accept(*this); }
-    void visit(CastExpression& node) override { if (node.expression) node.expression->accept(*this); }
-    void visit(CompoundLiteral& node) override { if (node.initializer) node.initializer->accept(*this); }
     void visit(AlignofExpression&) override {}
-    void visit(SizeofExpression& node) override { if (!node.isType && node.expression) node.expression->accept(*this); }
     void visit(VariableDeclaration& node) override { if (node.initializer) node.initializer->accept(*this); }
-    void visit(ReturnStatement& node) override { if (node.expression) node.expression->accept(*this); }
-    void visit(BreakStatement&) override {}
-    void visit(ContinueStatement&) override {}
     void visit(SwitchContinueStatement& node) override { ctx.hasSwitchContinue = true; if (node.target) node.target->accept(*this); }
     void visit(GotoStatement&) override {}
-    void visit(LabelledStatement& node) override { if (node.statement) node.statement->accept(*this); }
-    void visit(ExpressionStatement& node) override { if (node.expression) node.expression->accept(*this); }
-    void visit(IfStatement& node) override {
-        if (node.condition) node.condition->accept(*this);
-        if (node.thenBranch) node.thenBranch->accept(*this);
-        if (node.elseBranch) node.elseBranch->accept(*this);
-    }
-    void visit(WhileStatement& node) override {
-        if (node.condition) node.condition->accept(*this);
-        if (node.body) node.body->accept(*this);
-    }
-    void visit(DoWhileStatement& node) override {
-        if (node.body) node.body->accept(*this);
-        if (node.condition) node.condition->accept(*this);
-    }
-    void visit(ForStatement& node) override {
-        if (node.initializer) node.initializer->accept(*this);
-        if (node.condition) node.condition->accept(*this);
-        if (node.increment) node.increment->accept(*this);
-        if (node.body) node.body->accept(*this);
-    }
-    void visit(RepeatStatement& node) override { if (node.body) node.body->accept(*this); }
     void visit(SwitchStatement& node) override {
         if (node.expression) node.expression->accept(*this);
         // Do NOT visit body to avoid collecting cases from nested switches
@@ -8967,16 +8922,11 @@ public:
         ctx.defaultLabel = node.label;
         ctx.hasDefault = true;
     }
-    void visit(AsmStatement&) override {}
     void visit(StaticAssert&) override {}
-    void visit(EnumDefinition&) override {}
     void visit(StructDefinition&) override {}
-    void visit(CompoundStatement& node) override { for (auto& s : node.statements) if (s) s->accept(*this); }
     void visit(FunctionDeclaration&) override {}
-    void visit(LabelAddressExpression&) override {}
     void visit(TranslationUnit&) override {}
 };
-
 void IRBuilder::visit(SwitchStatement& node) {
     node.expression->accept(*this);
     auto expr = lastValue_;
@@ -9767,73 +9717,6 @@ void IRBuilder::visit(LabelAddressExpression& node) {
 void IRBuilder::registerAllStructDefinitions(TranslationUnit& unit) {
     // Phase 102.1: Walk the entire AST and register all struct definitions
     // This allows us to later resolve typedef'd struct types correctly
-
-    // Create a visitor to walk and register struct definitions
-    class StructRegistrationVisitor : public ASTVisitor {
-    public:
-        IRBuilder& builder;
-
-        StructRegistrationVisitor(IRBuilder& b) : builder(b) {}
-
-        // Minimal visitor that delegates to IRBuilder for struct definitions
-        // and ignores other nodes
-
-        void visit(IntegerLiteral&) override {}
-        void visit(FloatLiteral&) override {}
-        void visit(StringLiteral&) override {}
-        void visit(VariableReference&) override {}
-        void visit(Assignment&) override {}
-        void visit(BinaryOperation&) override {}
-        void visit(UnaryOperation&) override {}
-        void visit(ConditionalExpression&) override {}
-        void visit(GenericSelection&) override {}
-        void visit(InitializerList&) override {}
-        void visit(ArrayAccess&) override {}
-        void visit(FunctionCall&) override {}
-        void visit(MemberAccess&) override {}
-        void visit(CastExpression&) override {}
-        void visit(CompoundLiteral&) override {}
-        void visit(AlignofExpression&) override {}
-        void visit(SizeofExpression&) override {}
-        void visit(VariableDeclaration& node) override {
-            // Register variable declarations to infer typedef-to-struct mappings
-            // This happens when we see `typedef_name *var` declarations
-            if (!node.type.empty() && node.type.find("struct ") == std::string::npos) {
-                // Check if this type looks like a struct type (we infer from context)
-                // For now, just skip - we'll infer from struct definitions
-            }
-        }
-        void visit(ReturnStatement&) override {}
-        void visit(BreakStatement&) override {}
-        void visit(ContinueStatement&) override {}
-        void visit(SwitchContinueStatement&) override {}
-        void visit(GotoStatement&) override {}
-        void visit(LabelledStatement&) override {}
-        void visit(ExpressionStatement&) override {}
-        void visit(IfStatement&) override {}
-        void visit(WhileStatement&) override {}
-        void visit(DoWhileStatement&) override {}
-        void visit(ForStatement&) override {}
-        void visit(RepeatStatement&) override {}
-        void visit(SwitchStatement&) override {}
-        void visit(CaseStatement&) override {}
-        void visit(DefaultStatement&) override {}
-        void visit(AsmStatement&) override {}
-        void visit(StaticAssert&) override {}
-        void visit(EnumDefinition&) override {}
-        void visit(StructDefinition&) override {
-            // Struct definitions are already visited during IR generation
-            // Just ensure they're registered
-        }
-        void visit(CompoundStatement&) override {}
-        void visit(FunctionDeclaration&) override {}
-        void visit(BuiltinVaStart&) override {}
-        void visit(BuiltinVaArg&) override {}
-        void visit(CpuRegisterAccess&) override {}
-        void visit(CpuFlagAccess&) override {}
-        void visit(LabelAddressExpression&) override {}
-        void visit(TranslationUnit&) override {}
-    };
 
     // Walk through all top-level declarations looking for struct definitions
     // and variable declarations that might establish typedef mappings
