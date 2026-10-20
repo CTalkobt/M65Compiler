@@ -3,6 +3,10 @@
 ; void *memcpy(void *dest, void *src, int n);
 ;   Copies n bytes from src to dest. Returns dest.
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global _memcpy
 
 .segment "code"

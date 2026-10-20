@@ -5,6 +5,10 @@
 ; page-1 stack). Linked only when no object defines the symbols, so a
 ; program can place the heap with its own __heap_start/__heap_end.
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global __heap_start
 .global __heap_end
 

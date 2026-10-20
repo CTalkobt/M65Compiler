@@ -4,6 +4,29 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### ln45 / cc45: a call through a prototyped pointer reaches only functions with its parameters
+
+- ln45 took every call through a function pointer to reach every function
+  whose address is used, so none of those functions could share base-page
+  block bytes or SAC overlay storage with any function that calls through
+  pointers. cc45 now records each function's parameter slots
+  (`cc45.fsig.<f>.<sig>`: `char`, `int`, pointers and structs by value 2,
+  `long` 4, `float` 5, `v` variadic) and each prototyped pointer it calls
+  through (`cc45.isig.<f>.<sig>`); ln45 adds the calls only to functions
+  with the same slots. An unprototyped pointer (`int (*)()`), a cast at the
+  call, a virtual call and inline asm still reach all of them
+  (`cc45.icall.<f>`).
+- The library's asm files say they make no calls through pointers
+  (`cc45.icallinfo`) except crt0's `__basic_call` / `__rom_call`,
+  `__ovl_call` and `__vformat`; a marked asm object's labels are not taken
+  to be called through typed pointers unless they say `cc45.fsig.<f>.any`
+  (`exit`, the `__builtin_*` aliases). Before, every label of crt0 counted
+  as calling through any pointer, which undid any narrowing.
+- A function called through a pointer of another type (a cast at the
+  assignment) is undefined behaviour; such a pair may now share storage.
+- vim2 is unchanged (it has no function pointers). Test
+  `test_icall_sig_xemu.c`; `ln45 -vv` lists the indirect calls.
+
 ### ln45 / ca45: the base-page blocks' area starts where the register pool ends (Issue #291)
 
 - The functions' base-page blocks and `__zp` variables were placed in

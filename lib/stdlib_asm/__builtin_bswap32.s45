@@ -2,6 +2,10 @@
 ;
 ; unsigned long __builtin_bswap32(unsigned long x);   x in $10-$13, result in AXYZ
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global ___builtin_bswap32
 
 .segment "code"

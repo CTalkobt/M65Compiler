@@ -1,4 +1,33 @@
 ; __builtin_aliases.s — Aliases for GCC builtins to standard library functions
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+; callable through any pointer (they call C code: cc45.fsig.<f>.any)
+.weak cc45.fsig.___builtin_malloc.any
+cc45.fsig.___builtin_malloc.any = 1
+.weak cc45.fsig.___builtin_free.any
+cc45.fsig.___builtin_free.any = 1
+.weak cc45.fsig.___builtin_strncpy.any
+cc45.fsig.___builtin_strncpy.any = 1
+.weak cc45.fsig.___builtin_strchr.any
+cc45.fsig.___builtin_strchr.any = 1
+.weak cc45.fsig.___builtin_sprintf.any
+cc45.fsig.___builtin_sprintf.any = 1
+.weak cc45.fsig.___builtin_vprintf.any
+cc45.fsig.___builtin_vprintf.any = 1
+.weak cc45.fsig.___builtin_printf.any
+cc45.fsig.___builtin_printf.any = 1
+.weak cc45.fsig.___builtin_memset.any
+cc45.fsig.___builtin_memset.any = 1
+.weak cc45.fsig.___builtin_setjmp.any
+cc45.fsig.___builtin_setjmp.any = 1
+.weak cc45.fsig.___builtin_longjmp.any
+cc45.fsig.___builtin_longjmp.any = 1
+.weak cc45.fsig.___builtin_abort.any
+cc45.fsig.___builtin_abort.any = 1
+.weak cc45.fsig.___builtin_exit.any
+cc45.fsig.___builtin_exit.any = 1
 .global ___builtin_malloc
 .global ___builtin_free
 .global ___builtin_strncpy

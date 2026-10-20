@@ -49,6 +49,12 @@
 ; __bp_prog) __ovl_rom_leave maps it again; __exit (__ovl_exit) restores
 ; the ROM's map.
 
+; ln45's call graph: calls through pointers only from __ovl_call (cc45.icall.<f>)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+.weak cc45.icall.__ovl_call
+cc45.icall.__ovl_call = 1
+
 .global __ovl_init, __ovl_call, __ovl_ret, __ovl_load, __ovl_rom_leave, __ovl_exit
 .global __ovl_sa, __ovl_want, __ovl_tgt, __ovl_cur, ___ovl_current
 .global __ovl_jsave, __ovl_jrestore

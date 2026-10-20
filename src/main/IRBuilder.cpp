@@ -1517,11 +1517,14 @@ void IRBuilder::visit(FunctionDeclaration& node) {
 
     if (sretSize_.count(node.name)) fn.returnType = ir::Type::PTR;  // returns the __sret pointer
 
+    std::vector<std::pair<std::string, int>> sigParams;   // (as a pointer to it declares them)
     for (const auto& p : node.parameters) {
         fn.paramTypes.push_back(aggregateBlockSize(p.type, p.pointerLevel) ? ir::Type::PTR
                                                                             : mapType(p.type, p.pointerLevel));
         fn.paramNames.push_back(p.name);
+        if (p.name != "__sret" && p.name != "__static_link") sigParams.push_back({p.type, p.pointerLevel});
     }
+    fn.ptrSig = ptrSigKey(sigParams, node.isVariadic);
 
     module_.functions.push_back(std::move(fn));
     ir::Function* fnPtr = &module_.functions.back();
@@ -2036,6 +2039,23 @@ bool IRBuilder::isBooleanValue(const ir::Operand& v) const {
             return it->op >= ir::Op::CMP_EQ && it->op <= ir::Op::CMP_GEU;
     }
     return false;
+}
+
+std::string IRBuilder::fpSigKey(const FuncPtrSignature* sig) {
+    if (!sig || !sig->prototyped) return "";
+    std::vector<std::pair<std::string, int>> params;
+    for (const auto& p : sig->params) params.push_back({p.type, p.pointerLevel});
+    return ptrSigKey(params, sig->isVariadic);
+}
+
+std::string IRBuilder::ptrSigKey(const std::vector<std::pair<std::string, int>>& params, bool variadic) {
+    std::string key = "s";
+    for (size_t i = 0; i < params.size(); i++) {
+        const auto& [type, ptr] = params[i];
+        int size = aggregateBlockSize(type, ptr) ? 2 : ir::typeSize(mapType(type, ptr));
+        key += (i ? "_" : "") + std::to_string(size < 2 ? 2 : size);
+    }
+    return variadic ? key + "v" : key;
 }
 
 int IRBuilder::aggregateBlockSize(const std::string& typeName, int pointerLevel) {
@@ -7115,6 +7135,7 @@ normal_call:
         target->accept(*this);
         inst.src1 = lastValue_;
         inst.op = ir::Op::CALL_INDIRECT;
+        inst.callSig = fpSigKey(fpSig.get());
         if (isSret) {
             inst.resultType = ir::Type::VOID;
             emit(inst);
@@ -7352,6 +7373,7 @@ normal_call:
                 }
                 inst.src1 = ptrVal;
                 inst.op = ir::Op::CALL_INDIRECT;
+                inst.callSig = fpSigKey(fpSig.get());
                 if (isSret) {
                     inst.resultType = ir::Type::VOID;
                     emit(inst);

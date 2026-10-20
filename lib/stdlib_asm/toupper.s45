@@ -3,6 +3,10 @@
 ; int toupper(int c);
 ;   If c is lowercase ($41-$5A), returns uppercase ($C1-$DA).
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global _toupper
 
 .segment "code"

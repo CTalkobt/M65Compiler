@@ -3,6 +3,10 @@
 ; int islower(int c);
 ;   Returns 1 if c is lowercase a-z ($41-$5A), 0 otherwise.
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global _islower
 
 .segment "code"

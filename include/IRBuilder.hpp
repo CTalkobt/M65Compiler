@@ -269,6 +269,10 @@ private:
     // Aggregates (struct/union) whose size is not 1, 2 or 4 bytes are copied
     // by address rather than as a scalar value; returns that size, else 0.
     int aggregateBlockSize(const std::string& typeName, int pointerLevel);
+    // A function's or function pointer's parameters as ln45 matches calls
+    // through pointers: each slot's size ("2_4", "v" after a variadic one)
+    std::string ptrSigKey(const std::vector<std::pair<std::string, int>>& params, bool variadic);
+    std::string fpSigKey(const FuncPtrSignature* sig);   // "" for none or an unprototyped one
     ir::Operand emitAddressOf(Expression* expr);
     ir::Operand emitPtrOffset(const ir::Operand& base, int offset, const ir::SourceLoc& sl);
     void emitBlockCopy(const ir::Operand& dst, const ir::Operand& src, int size, const ir::SourceLoc& sl);

@@ -10,6 +10,10 @@
 ; The KERNAL is called through crt0's __rom_call (the routine's address in
 ; ___cbm_target), which uses the ROM's page-1 stack the disk code needs.
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global _cbm_drive_status, ___cbm_cmd_device
 .extern __rom_call, ___cbm_target
 

@@ -2,6 +2,10 @@
 ;
 ; char *strncat(char *dest, char *src, int n);
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global _strncat
 
 .segment "code"

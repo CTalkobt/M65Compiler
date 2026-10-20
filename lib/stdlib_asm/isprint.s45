@@ -3,6 +3,10 @@
 ; int isprint(int c);
 ;   Returns 1 if c is printable PETSCII ($20-$7E or $A0-$FF).
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global _isprint
 
 .segment "code"

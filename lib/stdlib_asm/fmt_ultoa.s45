@@ -8,6 +8,10 @@
 ;   (lib/stdlib/fmtconv.h). __vformat uses it for int arguments too when
 ;   __fmt_utoa is not linked.
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global ___fmt_ultoa
 .global ___fmt_long_linked
 

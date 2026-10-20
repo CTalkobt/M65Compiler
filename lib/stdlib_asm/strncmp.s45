@@ -3,6 +3,10 @@
 ; int strncmp(char *s1, char *s2, int n);
 ;   Compares at most n bytes. Returns 0 if equal, <0 or >0 otherwise.
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global _strncmp
 
 .segment "code"

@@ -2379,6 +2379,34 @@ for cpmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: calls through function pointers and base-page blocks: a prototyped
+# pointer reaches only functions with its parameter slots (cc45.isig /
+# cc45.fsig), an unprototyped one or a cast every function whose address is
+# used; callers' blocks survive. Without -DANY_CALLS, other_sig (no pointer
+# has its parameters) shares caller_typed's bytes (ln45 -vv placement)
+for ismode in "zp||lib/build/c45.lib" "stack|-fno-zpcall|lib/build/c45_stack.lib"; do
+    IFS='|' read -r isname isflags islib <<< "$ismode"
+    for isvar in "typed|" "any|-DANY_CALLS"; do
+        IFS='|' read -r isvn isvf <<< "$isvar"
+        echo "Testing test_icall_sig_xemu.c ($isname, $isvn)..."
+        isbase=build/test/test_icall_sig_${isname}_$isvn
+        if $CC $isflags $isvf -c src/test-resources/test_icall_sig_xemu.c -o $isbase.o45 2>/dev/null &&
+           $LD -vv -basic -o ${isbase}_xemu.prg $CRT0 $isbase.o45 $islib > $isbase.log 2>&1; then
+            iscaller=$(grep -o "base-page block: _caller_typed at \$[0-9a-f]*" $isbase.log | grep -o '[0-9a-f]*$')
+            isother=$(grep -o "base-page block: _other_sig at \$[0-9a-f]*" $isbase.log | grep -o '[0-9a-f]*$')
+            if [ "$isvn" = typed ] && { [ -z "$iscaller" ] || [ "$iscaller" != "$isother" ]; }; then
+                echo "FAIL: test_icall_sig_${isname}_$isvn (other_sig at \$$isother, not with caller_typed at \$$iscaller)"
+                failed=$((failed + 1))
+            else
+                run_xemu_test "test_icall_sig_${isname}_$isvn" "${isbase}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
+            fi
+        else
+            echo "FAIL: test_icall_sig_xemu.c $isname $isvn (compilation/linking failed)"
+            failed=$((failed + 1))
+        fi
+    done
+done
+
 # Test: GCC statement expressions ({ stmt; ...; expr; })
 for semode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r sename seflags <<< "$semode"

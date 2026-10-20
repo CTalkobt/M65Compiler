@@ -4,6 +4,10 @@
 ;   Returns 1 if c is a letter:
 ;     lowercase a-z = $41-$5A, uppercase A-Z = $C1-$DA
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global _isalpha
 
 .segment "code"

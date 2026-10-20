@@ -3,6 +3,10 @@
 ; char *strcpy(char *dest, char *src);
 ;   Copies src including NUL terminator to dest. Returns dest.
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global _strcpy
 
 .segment "code"

@@ -4,6 +4,10 @@
 ;   _errno   — 16-bit global error number (int), in BSS
 ;   __errnoc — CBM kernal status byte at $0090 (read-only alias)
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global _errno
 .global __errnoc
 

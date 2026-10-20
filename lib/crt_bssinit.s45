@@ -6,6 +6,10 @@
 ; Called from the CRT startup stub via "jsr _init_bss".
 ; Skips zeroing if __bss_start == __bss_end (no BSS).
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global _init_bss
 .extern __bss_start
 .extern __bss_end

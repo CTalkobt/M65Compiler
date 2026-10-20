@@ -4,6 +4,10 @@
 ;   Writes the low byte of c to the screen using KERNAL $FFD2.
 ;   Returns c.
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global _putchar
 .extern __bp_rom
 .extern __bp_prog

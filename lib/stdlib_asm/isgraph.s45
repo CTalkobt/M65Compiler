@@ -5,6 +5,10 @@
 ;   Returns 1 if c is a printable, non-space PETSCII character.
 ;   Equivalent to: isprint(c) && c != ' '
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global _isgraph
 
 .segment "code"

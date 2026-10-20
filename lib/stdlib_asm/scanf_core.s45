@@ -22,6 +22,10 @@
 ; may change any base-page byte below the register pool: the state is in
 ; BSS. Not reentrant.
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global ___vscanf_core
 .extern ___scan_getc, ___scan_ungetc, ___scan_float
 

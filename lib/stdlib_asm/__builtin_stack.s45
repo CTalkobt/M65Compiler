@@ -3,6 +3,10 @@
 ; void* __builtin_frame_address(unsigned int level);
 ; void* __builtin_return_address(unsigned int level);
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global ___builtin_frame_address
 .global ___builtin_return_address
 

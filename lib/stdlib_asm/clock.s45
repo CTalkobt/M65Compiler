@@ -8,6 +8,10 @@
 ;
 ;   clock_t clock(void)      the frames, in A/X/Y (Z = 0)
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global _clock
 
 .segment "code"

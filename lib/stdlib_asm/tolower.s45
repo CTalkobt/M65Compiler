@@ -3,6 +3,10 @@
 ; int tolower(int c);
 ;   If c is uppercase ($C1-$DA), returns lowercase ($41-$5A).
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global _tolower
 
 .segment "code"

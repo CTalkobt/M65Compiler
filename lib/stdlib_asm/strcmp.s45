@@ -3,6 +3,10 @@
 ; int strcmp(char *s1, char *s2);
 ;   Returns 0 if equal, <0 if s1 < s2, >0 if s1 > s2.
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global _strcmp
 
 .segment "code"

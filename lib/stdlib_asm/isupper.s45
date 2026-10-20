@@ -3,6 +3,10 @@
 ; int isupper(int c);
 ;   Returns 1 if c is uppercase A-Z ($C1-$DA), 0 otherwise.
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global _isupper
 
 .segment "code"

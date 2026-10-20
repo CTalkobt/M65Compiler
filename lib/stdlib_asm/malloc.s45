@@ -7,6 +7,10 @@
 ;
 ; Internal ZP usage: $10-$0B (after reading params from ZP block)
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global _malloc
 .global _free
 .global _calloc

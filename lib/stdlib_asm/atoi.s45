@@ -4,6 +4,10 @@
 ;   Parses a decimal integer from a NUL-terminated string.
 ;   Returns the 16-bit integer value in .AX.
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global _atoi
 
 .segment "code"

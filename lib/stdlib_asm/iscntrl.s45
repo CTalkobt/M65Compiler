@@ -3,6 +3,10 @@
 ; int iscntrl(int c);
 ;   Returns 1 if c is $00-$1F or $80-$9F, 0 otherwise.
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global _iscntrl
 
 .segment "code"

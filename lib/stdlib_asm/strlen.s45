@@ -4,6 +4,10 @@
 ;   Returns the number of bytes before the NUL terminator.
 ;   Any length up to 65535 (Y walks a page, X counts the pages).
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global _strlen
 
 .segment "code"

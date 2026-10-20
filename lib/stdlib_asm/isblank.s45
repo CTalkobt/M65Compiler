@@ -3,6 +3,10 @@
 ; int isblank(int c);
 ;   Returns 1 if c is space ($20) or tab ($09), 0 otherwise.
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global _isblank
 
 .segment "code"

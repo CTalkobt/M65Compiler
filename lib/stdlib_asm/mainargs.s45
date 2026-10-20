@@ -28,6 +28,10 @@
 ;
 ; Uses A, X, Y. BSS is not cleared when this runs: everything is set here.
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global ___mainargs, ___mainargs_link
 
 BASIC_BUF = $0200

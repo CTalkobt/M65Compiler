@@ -7,6 +7,13 @@
 ; _Noreturn void _exit(int status);
 ;   Strong function — always calls __exit directly.
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+; callable through any pointer (it runs the atexit handlers)
+.weak cc45.fsig._exit.any
+cc45.fsig._exit.any = 1
+
 .weak _exit
 .global _exit
 .global __exit_
