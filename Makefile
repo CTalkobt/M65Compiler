@@ -73,19 +73,19 @@ $(LIB_DIR)/lib45-codegen.a: $(addprefix $(OBJ_DIR)/, \
 
 # lib45-phases: code of earlier development phases that no tool links (IPO,
 # bank assignment, link-time optimization coordination, benchmarking, learning
-# and tuning hooks, DWARF output, the AST-level CodeGenerator and its
-# optimizers, field striping, templates; O45Linker's analysis passes, see
+# and tuning hooks, DWARF output, AST-level optimizers, field striping;
+# O45Linker's analysis passes, see
 # doc/architecture/cross-module-optimization.md). Built so it keeps compiling;
 # a static library adds nothing to a program that does not use it.
 $(LIB_DIR)/lib45-phases.a: $(addprefix $(OBJ_DIR)/, \
     AdaptiveLearnerIntegration.o AdaptiveThresholdAdjuster.o \
-    AddressSpaceValidator.o AddressTemplates.o AlgebraicSimplification.o \
+    AlgebraicSimplification.o \
     BankAwareCodeGenerator.o BankLayoutGenerator.o BankSetupOptimizer.o \
     BenchmarkComparativeAnalyzer.o BenchmarkCompilerIntegration.o \
     BenchmarkExecutor.o BenchmarkMetricsCollector.o \
     BenchmarkReportGenerator.o BenchmarkingSuite.o BranchOptimization.o \
     CallGraphAnalyzer.o CallPatternAnalyzer.o CoOptimizationApplier.o \
-    CoOptimizationSelector.o CodeGenerator.o CodeGeneratorDWARF.o \
+    CoOptimizationSelector.o \
     CommonSubexpressionElimination.o ComparativePerformanceAnalyzer.o \
     CompilationProfiler.o CompilationSignalCollector.o \
     CompilerDecisionLogic.o CompilerHookIntegrator.o CopyPropagation.o \
@@ -94,7 +94,7 @@ $(LIB_DIR)/lib45-phases.a: $(addprefix $(OBJ_DIR)/, \
     DevirtualizationDetector.o DevirtualizationHints.o EnhancedDiagnostic.o \
     EscapeAnalysis.o FarAddressCodeGenerator.o FarAddressMemorySupport.o \
     FeedbackCoordinator.o FieldCachingAnalyzer.o \
-    FieldCachingLinkerIntegration.o FieldStripedOffsetCalc.o \
+    FieldCachingLinkerIntegration.o \
     GlobalFunctionDatabase.o GlobalPointerFieldDatabase.o \
     GlobalValueNumbering.o HookIntegration.o HotSpotProfiler.o IPOAnalyzer.o \
     IPOProfiler.o IRSpecializationGenerator.o InlineSelector.o \

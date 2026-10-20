@@ -78,7 +78,7 @@ void TableDrivenDispatch::apply(ir::Module& irModule) {
                 bytesReduced_ += estimateTableBenefit(analysis);
 
                 // Note: Actual code generation for the table lookup and indirect jump
-                // would be handled in CodeGenerator phase. Here we mark the switch
+                // would be handled in code generation. Here we mark the switch
                 // as optimizable and attach metadata.
                 //
                 // For Phase C5.3, we track that the switch was analyzed and

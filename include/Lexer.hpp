@@ -10,7 +10,7 @@ public:
     Lexer(const std::string& source);
     std::vector<Token> tokenize();
 
-    // Access to line number mappings for CodeGenerator
+    // Access to line number mappings (#line)
     struct FileContext {
         std::string filename;
         int lineOffset;      // Line number from #line directive

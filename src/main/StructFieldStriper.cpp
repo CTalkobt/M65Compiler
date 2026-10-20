@@ -136,14 +136,9 @@ std::vector<StructField> StructFieldStriper::extractStructFields(
 ) {
     std::vector<StructField> result;
 
-    // This is a framework function for extracting struct fields from IR
-    // In practice, field extraction is performed directly in CodeGenerator
-    // during semantic analysis where struct type information is available.
-    // This function remains for potential future use with cross-module analysis.
-    //
-    // The actual extraction happens in:
-    // - CodeGenerator::visit(VariableDeclaration&) at lines 1978+
-    // - Where structs map provides member info directly
+    // A framework function for extracting struct fields from IR, kept for
+    // possible cross-module analysis: nothing calls it (the AST-level code
+    // generator that did the extraction itself was removed, #92)
 
     return result;
 }

@@ -173,14 +173,10 @@ void ConstantFolder::visit(SizeofExpression& node) {
         for (int d : node.declDims) if (d > 0) size *= d;
         lastExpr = copyPos(std::make_unique<IntegerLiteral>(size), node);
     } else {
-        // We need to resolve the type of the expression to get its size.
-        // ConstantFolder doesn't have a full type-checking pass yet, 
-        // so we might need to defer this to CodeGenerator or implement minimal lookup.
-        // For now, if it's a VariableReference we might know it.
+        // sizeof expr needs the expression's type, which ConstantFolder does
+        // not track: IRBuilder gives it (in code, and in static initializers
+        // through IRBuilder::constSizeof)
         if (dynamic_cast<VariableReference*>(node.expression.get())) {
-             // We'd need a map of variable types in ConstantFolder too.
-             // Given the current architecture, deferring 'sizeof expr' to CodeGenerator is safer
-             // unless we add variableType tracking to ConstantFolder.
              lastExpr = copyPos(std::make_unique<SizeofExpression>(fold(std::move(node.expression))), node);
         } else {
              lastExpr = copyPos(std::make_unique<SizeofExpression>(fold(std::move(node.expression))), node);

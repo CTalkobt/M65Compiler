@@ -5,7 +5,7 @@
 #include <deque>
 #include <memory>
 
-// Unified symbol table for CodeGenerator.
+// Unified symbol table.
 // Manages nested scopes (global, function, block) and variable lookup across scope boundaries.
 class ScopeManager {
 public:

@@ -16,12 +16,12 @@ today.
 | `#pragma cc45 no_striped`, `#pragma cc45 force_striped` | not implemented; silently ignored like other unknown `cc45` pragmas |
 | ca45 `fieldStripedOpt` (`AssemblerOptimizer.cpp`, "Phase 95.5") | stub: detection always returns false, nothing is changed |
 
-Leftover implementation work exists only in code cc45 does not run:
-`src/main/CodeGenerator.cpp` (the legacy AST → asm generator, built into
-`lib45-phases.a`, which no tool links) has `emitStripedArrayAccess` for 2D `int` arrays and
-struct/union striping hooks using `FieldStripedOffsetCalc`;
-`StructFieldStriper.cpp` and `ExtendedStripedArrayValidator.cpp` are not
-referenced by anything.
+No implementation remains in code cc45 runs. The legacy AST → asm
+generator (`CodeGenerator.cpp`) had `emitStripedArrayAccess` for 2D `int`
+arrays and struct/union striping hooks (`FieldStripedOffsetCalc`); both were
+removed with it (#92). `StructFieldStriper.cpp` and
+`ExtendedStripedArrayValidator.cpp`, in `lib45-phases.a`, are not referenced by
+anything.
 
 ## Verification
 
