@@ -259,6 +259,20 @@ else
     failed=$((failed + 1))
 fi
 
+# A bit-field width that is not a constant, and a failing _Static_assert on
+# sizeof of a variable, are errors (#93)
+pc_ok=1
+printf 'int y;\nstruct D { unsigned b : y; } d;\n' > build/test/bfconst.c
+$CC -c build/test/bfconst.c -o build/test/bfconst.o45 2>&1 | grep -q "integer constant expression for the bitfield width of 'b'" || pc_ok=0
+printf 'long l;\n_Static_assert(sizeof l == 2, "long is 2");\n' > build/test/saconst.c
+$CC -c build/test/saconst.c -o build/test/saconst.o45 2>&1 | grep -q "Static assertion failed.*long is 2" || pc_ok=0
+if [ $pc_ok -eq 1 ]; then
+    echo "SUCCESS: non-constant bit-field widths and failing static assertions are errors"
+else
+    echo "FAIL: non-constant bit-field widths and failing static assertions are errors"
+    failed=$((failed + 1))
+fi
+
 # __zp globals (#67): base-page operands relocated against the variable
 # (R_LOWX), absolute ones (ldz, lda abs,y) as its full address (R_WORD); ln45
 # rejects base-page uses from code an interrupt handler reaches, a variable

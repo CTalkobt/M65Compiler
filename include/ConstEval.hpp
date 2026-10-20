@@ -39,10 +39,12 @@ struct ConstValue {
     std::unique_ptr<IntegerLiteral> toLiteral() const;
 };
 
-// What the caller knows: sizes and alignments of expressions and types
+// What the caller knows: sizes and alignments of expressions and types,
+// names with a constant value (enum constants the parser has not replaced)
 class ConstEvalContext {
 public:
     virtual ~ConstEvalContext() = default;
+    virtual bool identifier(VariableReference& node, ConstValue& out) { (void)node; (void)out; return false; }
     virtual bool sizeOf(SizeofExpression& node, int64_t& out) { (void)node; (void)out; return false; }
     virtual bool alignOf(AlignofExpression& node, int64_t& out) { (void)node; (void)out; return false; }
 };
@@ -64,7 +66,8 @@ bool cast(const std::string& type, int pointerLevel, bool isSigned, const ConstV
 bool isFloatType(const std::string& type, int pointerLevel);
 
 // A whole expression: literals, unary and binary operators (&&, || and ?:
-// evaluate only the operand that counts), casts, sizeof / _Alignof
+// evaluate only the operand that counts), casts, sizeof / _Alignof, names
+// the context knows
 bool eval(Expression* e, ConstEvalContext& ctx, ConstValue& out);
 
 }  // namespace ConstEval

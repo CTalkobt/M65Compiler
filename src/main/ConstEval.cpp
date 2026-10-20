@@ -221,6 +221,7 @@ bool eval(Expression* e, ConstEvalContext& ctx, ConstValue& out) {
     if (!e) return false;
     if (auto* l = dynamic_cast<IntegerLiteral*>(e)) { out = ConstValue::ofLiteral(*l); return true; }
     if (auto* f = dynamic_cast<FloatLiteral*>(e)) { out = ConstValue::ofFloat(f->value); return true; }
+    if (auto* v = dynamic_cast<VariableReference*>(e)) return ctx.identifier(*v, out);
     if (auto* u = dynamic_cast<UnaryOperation*>(e)) {
         ConstValue v;
         return eval(u->operand.get(), ctx, v) && unary(u->op, v, out);
