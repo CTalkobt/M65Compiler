@@ -50,7 +50,7 @@ $(LIB_DIR)/lib45-common.a: $(addprefix $(OBJ_DIR)/, \
 
 # lib45-c-compile: C compiler frontend (Lexer, Parser, AST, Validator)
 $(LIB_DIR)/lib45-c-compile.a: $(addprefix $(OBJ_DIR)/, \
-    Lexer.o Parser.o AST.o TypeSystem.o TypeInfo.o)
+    Lexer.o Parser.o AST.o TypeSystem.o TypeInfo.o ConstEval.o)
 	@mkdir -p $(LIB_DIR)
 	@rm -f $@
 	$(AR) rcs $@ $^
@@ -474,11 +474,13 @@ clean: lib45-clean
 	@$(MAKE) -C bug clean
 	@$(MAKE) -C lib clean
 
-test: all lib $(BIN_DIR)/test_o45 $(BIN_DIR)/test_ast_walker
+test: all lib $(BIN_DIR)/test_o45 $(BIN_DIR)/test_ast_walker $(BIN_DIR)/test_const_eval
 	@echo "Running .o45 format and linker unit tests..."
 	@$(TEST_O45_TARGET)
 	@echo "Running the AST walker unit test..."
 	@$(TEST_AST_WALKER_TARGET)
+	@echo "Running the constant evaluator unit test..."
+	@$(TEST_CONST_EVAL_TARGET)
 	@echo "Validating documentation structure and links..."
 	@python3 src/test/check_docs.py
 	@echo "Running compiler tests..."
@@ -633,6 +635,16 @@ $(TEST_AST_WALKER_TARGET): $(OBJ_DIR)/test_ast_walker.o $(LIB_DIR)/lib45-c-compi
 	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/test_ast_walker.o $(LIB_DIR)/lib45-c-compile.a $(LIB_DIR)/lib45-common.a
 
 $(OBJ_DIR)/test_ast_walker.o: src/test/test_ast_walker.cpp
+	@mkdir -p $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+# ConstEval unit test: constant expressions and their values (#93)
+TEST_CONST_EVAL_TARGET = $(BIN_DIR)/test_const_eval
+$(TEST_CONST_EVAL_TARGET): $(OBJ_DIR)/test_const_eval.o $(LIB_DIR)/lib45-c-compile.a $(LIB_DIR)/lib45-common.a
+	@mkdir -p $(BIN_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/test_const_eval.o $(LIB_DIR)/lib45-c-compile.a $(LIB_DIR)/lib45-common.a
+
+$(OBJ_DIR)/test_const_eval.o: src/test/test_const_eval.cpp
 	@mkdir -p $(OBJ_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 

@@ -4,6 +4,24 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: one constant-expression evaluator for initializers and case labels (Issue #93, stages 1-2)
+
+- `ConstEval` (`ConstEval.hpp`) is cc45's evaluator of constant
+  expressions: the literal arithmetic `ConstantFolder` used (which now calls
+  it; the library, the GCC torture tests and vim2 compile to the same
+  code), and whole expressions with `sizeof` / `_Alignof` of variables,
+  `&&` / `||` / `?:` that evaluate only the operand that counts, casts and
+  floats. Unit test `test_const_eval` (40 expressions).
+- Static initializers use it: `sizeof x << 1`, `sizeof x % 3`,
+  `sizeof lx > 2 ? 7 : 9`, `(sizeof x == 2) && ...` were "not a
+  compile-time constant"; a cast's type is kept (`(signed char)200` was
+  stored as 200, `(unsigned)-1` in a `long` as -1); `float f = 7 / 2` is 3
+  (it was 3.5).
+- Case labels use it: `case sizeof x:` was silently `case 0:` (any label
+  but a literal was); a label that is not a constant is now an error.
+- Test `test_const_eval_xemu.c`. Still to do: the parser's array sizes,
+  enum values, `_Static_assert` and bit-field widths (stage 3).
+
 ### Internal: one AST walker (Issue #94)
 
 - `ASTWalker` (`AST.hpp`): a visitor that walks into every child node in

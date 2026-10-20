@@ -2483,6 +2483,19 @@ for esmode in "zp||lib/build/c45.lib" "stack|-fno-zpcall|lib/build/c45_stack.lib
     fi
 done
 
+# Test: constant expressions in static initializers and case labels, through
+# ConstEval (#93)
+for cemode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r cename ceflags <<< "$cemode"
+    echo "Testing test_const_eval_xemu.c ($cename)..."
+    if compile_link_test "src/test-resources/test_const_eval_xemu.c" "build/test/test_const_eval_${cename}_xemu.prg" "$ceflags"; then
+        run_xemu_test "test_const_eval_$cename" "build/test/test_const_eval_${cename}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_const_eval_xemu.c $cename (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: GCC statement expressions ({ stmt; ...; expr; })
 for semode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r sename seflags <<< "$semode"

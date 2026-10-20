@@ -2686,6 +2686,7 @@ bool IRBuilder::initScalar(InitImageCtx& c, int off, const std::string& type, in
         emit(st);
         return true;
     }
+    Expression* orig = e;   // (with its casts: a number's value)
     while (auto* cast = dynamic_cast<CastExpression*>(e)) e = cast->expression.get();
     auto& bytes = c.gv->initBytes;
     ir::Type t = mapType(type, ptr);
@@ -2728,22 +2729,12 @@ bool IRBuilder::initScalar(InitImageCtx& c, int off, const std::string& type, in
         c.gv->initWords[off] = currentFunc_->labelAlias(la->label);
         return true;
     }
-    // Numbers
-    bool isFloat = false, isInt = false;
-    double fv = 0;
-    int64_t iv = 0;
-    Expression* v = e;
-    bool neg = false;
-    while (auto* u = dynamic_cast<UnaryOperation*>(v)) {
-        if (u->op == "-") neg = !neg;
-        else if (u->op != "+") return false;
-        v = u->operand.get();
-        while (auto* cast = dynamic_cast<CastExpression*>(v)) v = cast->expression.get();
-    }
-    if (auto* il = dynamic_cast<IntegerLiteral*>(v)) { isInt = true; iv = neg ? -il->value : il->value; }
-    else if (auto* fl = dynamic_cast<FloatLiteral*>(v)) { isFloat = true; fv = neg ? -fl->value : fl->value; }
-    else if (double cv; evalConstFloat(e, cv)) { isFloat = true; fv = cv; }
-    else return false;
+    // Numbers (ConstEval: an integer as its type says, (signed char)200 is -56)
+    ConstValue cv;
+    if (!ConstEval::eval(orig, *this, cv)) return false;
+    bool isFloat = cv.isFloat();
+    double fv = cv.asDouble();
+    int64_t iv = isFloat ? 0 : cv.intValue();
     if (t == ir::Type::F32 && ptr == 0) {
         uint8_t cbm[5];
         doubleToCBM40(isFloat ? fv : (double)iv, cbm);
@@ -3117,40 +3108,17 @@ bool IRBuilder::constSizeof(SizeofExpression& node, int64_t& out) {
 }
 
 bool IRBuilder::evalConstFloat(Expression* e, double& out) {
-    if (!e) return false;
-    if (auto* f = dynamic_cast<FloatLiteral*>(e)) { out = f->value; return true; }
-    if (auto* i = dynamic_cast<IntegerLiteral*>(e)) { out = (double)i->value; return true; }
-    if (auto* s = dynamic_cast<SizeofExpression*>(e)) {
-        int64_t v;
-        if (!constSizeof(*s, v)) return false;
-        out = (double)v;
-        return true;
-    }
-    if (auto* c = dynamic_cast<CastExpression*>(e)) {
-        double v;
-        if (!evalConstFloat(c->expression.get(), v)) return false;
-        // A cast to an integer type truncates toward zero
-        if (c->pointerLevel == 0 && mapType(c->targetType, 0) != ir::Type::F32) v = std::trunc(v);
-        out = v;
-        return true;
-    }
-    if (auto* u = dynamic_cast<UnaryOperation*>(e)) {
-        double v;
-        if ((u->op != "-" && u->op != "+") || !evalConstFloat(u->operand.get(), v)) return false;
-        out = u->op == "-" ? -v : v;
-        return true;
-    }
-    if (auto* b = dynamic_cast<BinaryOperation*>(e)) {
-        double l, r;
-        if (!evalConstFloat(b->left.get(), l) || !evalConstFloat(b->right.get(), r)) return false;
-        if (b->op == "+") out = l + r;
-        else if (b->op == "-") out = l - r;
-        else if (b->op == "*") out = l * r;
-        else if (b->op == "/" && r != 0) out = l / r;
-        else return false;
-        return true;
-    }
-    return false;
+    ConstValue v;
+    if (!ConstEval::eval(e, *this, v)) return false;
+    out = v.asDouble();
+    return true;
+}
+
+bool IRBuilder::evalConstInt(Expression* e, int64_t& out) {
+    ConstValue v;
+    if (!ConstEval::eval(e, *this, v)) return false;
+    out = v.isFloat() ? (int64_t)std::trunc(v.fvalue) : v.intValue();
+    return true;
 }
 
 ir::Operand IRBuilder::emitAddressOf(Expression* expr) {
@@ -3923,12 +3891,13 @@ void IRBuilder::visit(VariableDeclaration& node) {
                 std::memcpy(&gv.initValue, &negFloat, sizeof(double));
             } else if (auto* lit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
                 gv.hasInitValue = true;
+                ConstValue lv = ConstValue::ofLiteral(*lit);   // (its value as its type says)
                 if (t == ir::Type::F32) {
                     // float f = 10; — stored as the double's bits like a float literal
-                    double dv = (double)lit->value;
+                    double dv = lv.asDouble();
                     std::memcpy(&gv.initValue, &dv, sizeof(double));
                 } else {
-                    gv.initValue = lit->value;
+                    gv.initValue = lv.intValue();
                 }
             } else if (dynamic_cast<StringLiteral*>(node.initializer.get()) && !node.arrayDims.empty() &&
                        buildInitImage(gv, node.type, node.pointerLevel, node.arrayDims, node.initializer.get())) {
@@ -3962,12 +3931,12 @@ void IRBuilder::visit(VariableDeclaration& node) {
                 // A constant computed through an address: static int o = offsetof(T, m);
                 gv.hasInitValue = true;
                 gv.initValue = noff;
-            } else if (double cv; node.arrayDims.empty() && t != ir::Type::F32 &&
+            } else if (int64_t cv; node.arrayDims.empty() && t != ir::Type::F32 &&
                        !dynamic_cast<InitializerList*>(node.initializer.get()) &&
-                       evalConstFloat(node.initializer.get(), cv)) {
+                       evalConstInt(node.initializer.get(), cv)) {
                 // int n = sizeof a / sizeof a[0]; (an integer constant expression)
                 gv.hasInitValue = true;
-                gv.initValue = (int64_t)cv;
+                gv.initValue = cv;
             } else if (auto* cast = dynamic_cast<CastExpression*>(node.initializer.get());
                        cast && dynamic_cast<IntegerLiteral*>(cast->expression.get())) {
                 gv.hasInitValue = true;
@@ -3979,7 +3948,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
                 gv.hasInitValue = true;
                 for (auto const& elem : il->elements) {
                     if (auto* elit = dynamic_cast<IntegerLiteral*>(elem.get())) {
-                        gv.initList.push_back(elit->value);
+                        gv.initList.push_back(ConstValue::ofLiteral(*elit).intValue());
                         gv.initLabels.push_back("");
                     } else if (auto* slit = dynamic_cast<StringLiteral*>(elem.get())) {
                         // String literal in pointer array: create string constant and store label
@@ -3997,8 +3966,8 @@ void IRBuilder::visit(VariableDeclaration& node) {
                     } else if (std::string alabel = staticAddressLabel(elem.get()); !alabel.empty()) {
                         gv.initList.push_back(0);
                         gv.initLabels.push_back(alabel);
-                    } else if (double ev; evalConstFloat(elem.get(), ev)) {
-                        gv.initList.push_back((int64_t)ev);
+                    } else if (int64_t ev; evalConstInt(elem.get(), ev)) {
+                        gv.initList.push_back(ev);
                         gv.initLabels.push_back("");
                     } else {
                         // (it used to become 0, silently)
@@ -4060,20 +4029,21 @@ void IRBuilder::visit(VariableDeclaration& node) {
         } else if (node.initializer) {
             if (auto* lit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
                 gv.hasInitValue = true;
+                ConstValue lv = ConstValue::ofLiteral(*lit);   // (its value as its type says)
                 if (t == ir::Type::F32) {
-                    double dv = (double)lit->value;
+                    double dv = lv.asDouble();
                     std::memcpy(&gv.initValue, &dv, sizeof(double));
                 } else {
-                    gv.initValue = lit->value;
+                    gv.initValue = lv.intValue();
                 }
             } else if (auto* flit = dynamic_cast<FloatLiteral*>(node.initializer.get())) {
                 gv.hasInitValue = true;
                 std::memcpy(&gv.initValue, &flit->value, sizeof(double));
-            } else if (double cv; node.arrayDims.empty() && t != ir::Type::F32 &&
-                       evalConstFloat(node.initializer.get(), cv)) {
+            } else if (int64_t cv; node.arrayDims.empty() && t != ir::Type::F32 &&
+                       evalConstInt(node.initializer.get(), cv)) {
                 // static int n = sizeof a; (an integer constant expression)
                 gv.hasInitValue = true;
-                gv.initValue = (int64_t)cv;
+                gv.initValue = cv;
             }
         }
         // (no initializer: BSS, zeroed by crt0 like an uninitialized global;
@@ -8759,7 +8729,7 @@ int IRBuilder::alignValue(Expression* e) {
     return 1;
 }
 
-void IRBuilder::visit(AlignofExpression& node) {
+int IRBuilder::alignofValue(AlignofExpression& node) {
     if (node.expression) {
         // __alignof__(expr): a function's or object's declared alignment,
         // else its type's (the expression is not evaluated)
@@ -8777,10 +8747,13 @@ void IRBuilder::visit(AlignofExpression& node) {
             IRTypeInfo ti = getExprTypeInfo(node.expression.get());
             a = typeAlign(ti.typeName, ti.type == ir::Type::PTR ? 1 : 0);
         }
-        lastValue_ = ir::Operand::imm(std::max(1, a), ir::Type::I16);
-        return;
+        return std::max(1, a);
     }
-    lastValue_ = ir::Operand::imm(typeAlign(node.typeName, node.pointerLevel), ir::Type::I16);
+    return typeAlign(node.typeName, node.pointerLevel);
+}
+
+void IRBuilder::visit(AlignofExpression& node) {
+    lastValue_ = ir::Operand::imm(alignofValue(node), ir::Type::I16);
 }
 
 void IRBuilder::visit(SizeofExpression& node) {
@@ -8905,13 +8878,24 @@ public:
         if (node.expression) node.expression->accept(*this);
         // Do NOT visit body to avoid collecting cases from nested switches
     }
+    // A case label's value (ConstEval: case sizeof x, case (signed char)200);
+    // one that is not a constant is an error (it was taken as 0)
+    int64_t labelValue(Expression* e, CaseStatement& node) {
+        int64_t v = 0;
+        if (!builder.evalConstInt(e, v)) {
+            Expression* at = e ? e : nullptr;
+            builder.errors_.push_back(formatDiagnostic(at && at->line ? at->sourceFile : node.sourceFile,
+                at && at->line ? at->line : node.line, at && at->line ? at->column : node.column, Severity::Error,
+                "case label is not an integer constant expression"));
+        }
+        return v;
+    }
     void visit(CaseStatement& node) override {
-        int64_t val = 0;
-        if (auto* lit = dynamic_cast<IntegerLiteral*>(node.value.get())) val = lit->value;
+        int64_t val = labelValue(node.value.get(), node);
         int64_t endVal = val;
         bool isRange = false;
         if (node.rangeEnd) {
-            if (auto* lit2 = dynamic_cast<IntegerLiteral*>(node.rangeEnd.get())) endVal = lit2->value;
+            endVal = labelValue(node.rangeEnd.get(), node);
             isRange = true;
         }
         node.label = builder.newLabel("case");
