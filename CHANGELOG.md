@@ -4,6 +4,22 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: `sizeof` of a variable in a static initializer (Issue #312)
+
+- A static initializer with `sizeof` of a variable (an `extern` array, but
+  also one defined in the same file) was emitted as zeros: a scalar
+  (`unsigned x = sizeof m;`) went to BSS, and a braced list fell back to a
+  path that wrote 2-byte words, so the issue's `{ { b, 4 }, { m, sizeof m } }`
+  came out as two zero words, too short, losing every member. `sizeof` of a
+  type or variable (not a variable-length array) is now a constant there,
+  in expressions too (`sizeof m / sizeof m[0]`, `(unsigned)sizeof m - 1`),
+  for globals and `static` locals.
+- An initializer that is not a compile-time constant is an error
+  (`initializer of 'x' is not a compile-time constant`, `initializer
+  element of ...`) instead of zeros.
+- Tests `test_extern_sizeof_xemu.c` (the arrays defined in another module),
+  `test_compiler.sh`.
+
 ### ln45: up to 255 code overlays (Issue #313)
 
 - From the 44th overlay on, a program called the wrong code: `__ovl_load`

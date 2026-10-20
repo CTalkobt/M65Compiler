@@ -233,6 +233,22 @@ else
     failed=$((failed + 1))
 fi
 
+# A static initializer that is not a compile-time constant is an error
+# (it was emitted as zeros, #312)
+nc_ok=1
+for decl in "int g(void); int x = g();|initializer of 'x' is not a compile-time constant" \
+            "int a; int y[] = { 1, a };|initializer element of 'y' is not a compile-time constant" \
+            "int a; struct { int p, q; } s = { 1, a };|initializer element of 's' is not a compile-time constant"; do
+    printf '%s\n' "${decl%%|*}" > build/test/nonconst.c
+    $CC -c build/test/nonconst.c -o build/test/nonconst.o45 2>&1 | grep -qF "${decl#*|}" || nc_ok=0
+done
+if [ $nc_ok -eq 1 ]; then
+    echo "SUCCESS: non-constant static initializers are errors"
+else
+    echo "FAIL: non-constant static initializers are errors"
+    failed=$((failed + 1))
+fi
+
 # __zp globals (#67): base-page operands relocated against the variable
 # (R_LOWX), absolute ones (ldz, lda abs,y) as its full address (R_WORD); ln45
 # rejects base-page uses from code an interrupt handler reaches, a variable

@@ -3082,10 +3082,50 @@ bool IRBuilder::evalConstComplex(Expression* e, double& re, double& im) {
     return false;
 }
 
+bool IRBuilder::constSizeof(SizeofExpression& node, int64_t& out) {
+    if (node.isType) {
+        std::string tn = node.pointerLevel == 0 && node.arrayDims.empty() ? getAggregateName(node.typeName) : "";
+        if (tn.rfind("struct ", 0) == 0) tn = tn.substr(7);
+        else if (tn.rfind("union ", 0) == 0) tn = tn.substr(6);
+        if (vmStructs_.count(tn)) return false;
+        int64_t sz = getTypeSize(node.typeName, node.pointerLevel);
+        if (node.pointerLevel == 0)
+            for (int d : node.arrayDims) if (d > 0) sz *= d;
+        for (int d : node.declDims) if (d > 0) sz *= d;
+        out = sz;
+        return sz > 0;
+    }
+    Expression* x = node.expression.get();
+    if (!x) return false;
+    // (a variable-length array, a struct with run-time member sizes, a
+    // parameter with run-time dimensions: known only at run time)
+    Expression* base = x;
+    while (true) {
+        if (auto* aa = dynamic_cast<ArrayAccess*>(base)) { base = aa->arrayExpr.get(); continue; }
+        if (auto* u = dynamic_cast<UnaryOperation*>(base); u && u->op == "*") { base = u->operand.get(); continue; }
+        break;
+    }
+    if (auto* vr = dynamic_cast<VariableReference*>(base))
+        if (vlaSizeVars_.count(vr->name) || vmVars_.count(vr->name) || paramVlaDims_.count(vr->name)) return false;
+    if (!vmStructOf(x).empty()) return false;
+    if (auto* u = dynamic_cast<UnaryOperation*>(x); u && u->op == "*")
+        if (int row = ptrArrayRowSize(u->operand.get())) { out = row; return true; }
+    int sz = getExprTypeInfo(x).totalSize;
+    if (sz <= 0) return false;
+    out = sz;
+    return true;
+}
+
 bool IRBuilder::evalConstFloat(Expression* e, double& out) {
     if (!e) return false;
     if (auto* f = dynamic_cast<FloatLiteral*>(e)) { out = f->value; return true; }
     if (auto* i = dynamic_cast<IntegerLiteral*>(e)) { out = (double)i->value; return true; }
+    if (auto* s = dynamic_cast<SizeofExpression*>(e)) {
+        int64_t v;
+        if (!constSizeof(*s, v)) return false;
+        out = (double)v;
+        return true;
+    }
     if (auto* c = dynamic_cast<CastExpression*>(e)) {
         double v;
         if (!evalConstFloat(c->expression.get(), v)) return false;
@@ -3922,11 +3962,16 @@ void IRBuilder::visit(VariableDeclaration& node) {
                 // A constant computed through an address: static int o = offsetof(T, m);
                 gv.hasInitValue = true;
                 gv.initValue = noff;
-            } else if (auto* cast = dynamic_cast<CastExpression*>(node.initializer.get())) {
-                if (auto* clit = dynamic_cast<IntegerLiteral*>(cast->expression.get())) {
-                    gv.hasInitValue = true;
-                    gv.initValue = clit->value;
-                }
+            } else if (double cv; node.arrayDims.empty() && t != ir::Type::F32 &&
+                       !dynamic_cast<InitializerList*>(node.initializer.get()) &&
+                       evalConstFloat(node.initializer.get(), cv)) {
+                // int n = sizeof a / sizeof a[0]; (an integer constant expression)
+                gv.hasInitValue = true;
+                gv.initValue = (int64_t)cv;
+            } else if (auto* cast = dynamic_cast<CastExpression*>(node.initializer.get());
+                       cast && dynamic_cast<IntegerLiteral*>(cast->expression.get())) {
+                gv.hasInitValue = true;
+                gv.initValue = static_cast<IntegerLiteral*>(cast->expression.get())->value;
             } else if (dynamic_cast<InitializerList*>(node.initializer.get()) &&
                        buildInitImage(gv, node.type, node.pointerLevel, node.arrayDims, node.initializer.get())) {
                 // Laid out byte by byte (structs, nested arrays, designators)
@@ -3952,11 +3997,23 @@ void IRBuilder::visit(VariableDeclaration& node) {
                     } else if (std::string alabel = staticAddressLabel(elem.get()); !alabel.empty()) {
                         gv.initList.push_back(0);
                         gv.initLabels.push_back(alabel);
+                    } else if (double ev; evalConstFloat(elem.get(), ev)) {
+                        gv.initList.push_back((int64_t)ev);
+                        gv.initLabels.push_back("");
                     } else {
+                        // (it used to become 0, silently)
+                        Expression* at = elem ? elem.get() : node.initializer.get();
+                        errors_.push_back(formatDiagnostic(at->sourceFile.empty() ? node.sourceFile : at->sourceFile,
+                            at->line ? at->line : node.line, at->line ? at->column : node.column, Severity::Error,
+                            "initializer element of '" + node.name + "' is not a compile-time constant"));
                         gv.initList.push_back(0);
                         gv.initLabels.push_back("");
                     }
                 }
+            } else {
+                // (it used to leave the variable zeroed, silently)
+                errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column, Severity::Error,
+                    "initializer of '" + node.name + "' is not a compile-time constant"));
             }
         }
         recordGlobalType();
@@ -4012,6 +4069,11 @@ void IRBuilder::visit(VariableDeclaration& node) {
             } else if (auto* flit = dynamic_cast<FloatLiteral*>(node.initializer.get())) {
                 gv.hasInitValue = true;
                 std::memcpy(&gv.initValue, &flit->value, sizeof(double));
+            } else if (double cv; node.arrayDims.empty() && t != ir::Type::F32 &&
+                       evalConstFloat(node.initializer.get(), cv)) {
+                // static int n = sizeof a; (an integer constant expression)
+                gv.hasInitValue = true;
+                gv.initValue = (int64_t)cv;
             }
         }
         // (no initializer: BSS, zeroed by crt0 like an uninitialized global;

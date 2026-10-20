@@ -2467,6 +2467,22 @@ for pumode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: sizeof of a variable (an extern array, defined in another module)
+# in static initializers (#312)
+for esmode in "zp||lib/build/c45.lib" "stack|-fno-zpcall|lib/build/c45_stack.lib"; do
+    IFS='|' read -r esname esflags eslib <<< "$esmode"
+    echo "Testing test_extern_sizeof_xemu.c ($esname)..."
+    esbase=build/test/test_extern_sizeof_$esname
+    if $CC $esflags -c src/test-resources/test_extern_sizeof_xemu.c -o ${esbase}_a.o45 2>/dev/null &&
+       $CC $esflags -c src/test-resources/test_extern_sizeof_b.c -o ${esbase}_b.o45 2>/dev/null &&
+       $LD -basic -o ${esbase}_xemu.prg $CRT0 ${esbase}_a.o45 ${esbase}_b.o45 $eslib >/dev/null 2>&1; then
+        run_xemu_test "test_extern_sizeof_$esname" "${esbase}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_extern_sizeof_xemu.c $esname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: GCC statement expressions ({ stmt; ...; expr; })
 for semode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r sename seflags <<< "$semode"
