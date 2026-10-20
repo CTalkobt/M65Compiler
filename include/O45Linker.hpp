@@ -535,7 +535,7 @@ private:
     std::map<std::string, int> symOvl_;            // a text symbol's overlay
     std::map<std::string, uint32_t> realAddr_;     // its address in the region
     std::map<std::string, uint32_t> ovlStubs_;     // its stub (resident)
-    uint32_t ovlTableAddr_ = 0, ovlFileAddr_ = 0;
+    uint32_t ovlTableAddr_[6] = {}, ovlFileAddr_ = 0;   // __ovl_table0..5 (a byte per overlay each)
     std::set<std::string> forcedUndefined_;
     uint32_t textBaseOf(const struct InputObject& in) const;
     // the address of an offset of an object's text (resident, or where its overlay runs)

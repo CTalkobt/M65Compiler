@@ -1082,7 +1082,7 @@ bool O45Linker::resolveSymbols(std::string& errorMsg) {
         def("___ovl_region", ovlBase_);   // (C: __ovl_region, <overlay.h>)
         def("__ovl_region_end", ovlBase_ + ovlSize_);
         def("__ovl_mapped", ovlMap_ ? 1 : 0);
-        def("__ovl_table", ovlTableAddr_);
+        for (int k = 0; k < 6; k++) def("__ovl_table" + std::to_string(k), ovlTableAddr_[k]);
         def("__ovl_file", ovlFileAddr_);
         // the far memory the overlay files take (C: __ovl_store_bank, ...,
         // __ovl_store2_bank, ... for a second bank): far_malloc leaves it alone
@@ -2905,10 +2905,17 @@ bool O45Linker::generateOverlayStubs(std::string& errorMsg) {
         abs(0x4C, call);                                      // JMP __ovl_call
         globalSymbols_[n] = ovlStubs_[n];
     }
-    // __ovl_table: per overlay its far address (24 bits, then bits 20-27)
-    // and length, or (mapped) the MAP registers that map the window to it;
+    // __ovl_table0..5: six tables of a byte per overlay (id 1..n at index
+    // id - 1, so __ovl_load reads them with X up to 254): its far address
+    // (bits 0-7, 8-15, 16-23, 20-27) and length (0-7, 8-15), or (mapped)
+    // the MAP registers that map the window to it (0, 1; the others 0);
     // __ovl_file: the first file's bank, the number of files, the name
-    globalSymbols_["__ovl_table"] = textBase_ + (uint32_t)t.size();
+    if (ovlText_.size() > 255) {
+        errorMsg = "code overlays: " + std::to_string(ovlText_.size()) +
+                   " overlays (with the __far functions' far1, far2, ...); an overlay's id is a byte: at most 255";
+        return false;
+    }
+    std::vector<std::vector<uint8_t>> stripe(6);
     // each overlay in the first range it fits in (first fit; never across a
     // bank): a file per range up to the last one used
     std::vector<uint32_t> cur;
@@ -2943,16 +2950,21 @@ bool O45Linker::generateOverlayStubs(std::string& errorMsg) {
         cur[r] = at + (uint32_t)img.size();
         ovlAt_.push_back(at);
         ovlFileOf_.push_back((int)r);
+        uint8_t e[6];
         if (ovlMap_) {
             uint32_t off = at - ovlBase_;   // CPU address + offset = where it is kept
             // (the lower half of MAP; the upper half stays the ROM's)
-            t.push_back((off >> 8) & 0xFF); t.push_back(((off >> 16) & 0x0F) | (loMask << 4));
-            t.push_back(0); t.push_back(0); t.push_back(0); t.push_back(0);
+            e[0] = (off >> 8) & 0xFF; e[1] = ((off >> 16) & 0x0F) | (loMask << 4);
+            e[2] = e[3] = e[4] = e[5] = 0;
         } else {
-            t.push_back(at & 0xFF); t.push_back((at >> 8) & 0xFF); t.push_back((at >> 16) & 0xFF);
-            t.push_back((at >> 20) & 0xFF);
-            t.push_back(img.size() & 0xFF); t.push_back((img.size() >> 8) & 0xFF);
+            e[0] = at & 0xFF; e[1] = (at >> 8) & 0xFF; e[2] = (at >> 16) & 0xFF; e[3] = (at >> 20) & 0xFF;
+            e[4] = img.size() & 0xFF; e[5] = (img.size() >> 8) & 0xFF;
         }
+        for (int k = 0; k < 6; k++) stripe[k].push_back(e[k]);
+    }
+    for (int k = 0; k < 6; k++) {
+        globalSymbols_["__ovl_table" + std::to_string(k)] = textBase_ + (uint32_t)t.size();
+        t.insert(t.end(), stripe[k].begin(), stripe[k].end());
     }
     // (the description is a file of its own, never loaded: only the code
     // counts)
@@ -2970,8 +2982,9 @@ bool O45Linker::generateOverlayStubs(std::string& errorMsg) {
     t.push_back((ovlStores_[0].first >> 16) & 0xFF); t.push_back((uint8_t)nfiles);
     t.push_back((uint8_t)name.size());
     for (char c : name) t.push_back((uint8_t)c);
-    for (const auto* s2 : {"__ovl_table", "__ovl_file"}) { symbolSource_[s2] = "<linker>"; symbolWeak_[s2] = false; }
-    ovlTableAddr_ = globalSymbols_["__ovl_table"];
+    for (int k = 0; k < 6; k++) ovlTableAddr_[k] = globalSymbols_["__ovl_table" + std::to_string(k)];
+    for (const auto* s2 : {"__ovl_table0", "__ovl_table1", "__ovl_table2", "__ovl_table3", "__ovl_table4",
+                           "__ovl_table5", "__ovl_file"}) { symbolSource_[s2] = "<linker>"; symbolWeak_[s2] = false; }
     ovlFileAddr_ = globalSymbols_["__ovl_file"];
     return true;
 }

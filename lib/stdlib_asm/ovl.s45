@@ -27,10 +27,12 @@
 ; ln45 provides:
 ;   __ovl_region   where overlays run, __ovl_region_end the end of the
 ;                  largest
-;   __ovl_table    per overlay id 1..n, 6 bytes: copied overlays (ln45's
-;                  default) the far address (24 bits; then bits 20-27) and
-;                  the length; mapped overlays (ln45 --overlay-map) the
-;                  lower half of MAP (A, X) that maps the window to it
+;   __ovl_table0..5  six tables of a byte per overlay (id 1..n at index
+;                  id - 1, up to 255 overlays): copied overlays (ln45's
+;                  default) the far address (bits 0-7, 8-15, 16-23, then
+;                  20-27) and the length (0-7, 8-15); mapped overlays (ln45
+;                  --overlay-map) the lower half of MAP (A, X) that maps the
+;                  window to it in 0 and 1
 ;   __ovl_mapped   1 when the overlays are mapped, 0 when they are copied
 ;   __ovl_file     the first file's bank, the number of files (one per
 ;                  bank, in consecutive banks: ln45 --overlay-store with
@@ -58,7 +60,8 @@ cc45.icall.__ovl_call = 1
 .global __ovl_init, __ovl_call, __ovl_ret, __ovl_load, __ovl_rom_leave, __ovl_exit
 .global __ovl_sa, __ovl_want, __ovl_tgt, __ovl_cur, ___ovl_current
 .global __ovl_jsave, __ovl_jrestore
-.extern __ovl_region, __ovl_region_end, __ovl_table, __ovl_file, __ovl_mapped
+.extern __ovl_region, __ovl_region_end, __ovl_file, __ovl_mapped
+.extern __ovl_table0, __ovl_table1, __ovl_table2, __ovl_table3, __ovl_table4, __ovl_table5
 .extern ___cbm_target, __rom_call, _abort
 
 OVL_DEPTH = 32
@@ -78,7 +81,6 @@ __ovl_rlo:  .res OVL_DEPTH
 __ovl_rhi:  .res OVL_DEPTH
 __ovl_rid:  .res OVL_DEPTH  ; the overlay to bring back on the return
 __ovl_rwt:  .res OVL_DEPTH  ; the overlay the call entered
-__ovl_t:    .res 1
 __ovl_bank: .res 1          ; __ovl_init: the bank of the file it loads
 __ovl_n:    .res 1          ;             the files still to load
 
@@ -205,19 +207,13 @@ endproc
 ; Overlay A (1..n) into the region by DMA, or mapped into the window
 proc __ovl_load
     sta __ovl_cur
-    sec                     ; its table entry: (A - 1) * 6
-    sbc #1
-    sta __ovl_t
-    asl a
-    clc
-    adc __ovl_t
-    asl a
-    tax
+    tax                     ; its index in the tables: A - 1
+    dex
     lda #<__ovl_mapped
     beq @copy
-    lda __ovl_table,x       ; the lower half of the map: the window
+    lda __ovl_table0,x      ; the lower half of the map: the window
     sta __ovl_map
-    lda __ovl_table+1,x
+    lda __ovl_table1,x
     sta __ovl_map+1
     lda __ovl_sys+2         ; the upper half: the ROM's
     sta __ovl_map+2
@@ -229,18 +225,18 @@ proc __ovl_load
     eom
     rts
 @copy:
-    lda __ovl_table,x       ; source: bits 0-15, bank, megabyte
+    lda __ovl_table0,x      ; source: bits 0-15, bank, megabyte
     sta __ovl_job+9
-    lda __ovl_table+1,x
+    lda __ovl_table1,x
     sta __ovl_job+10
-    lda __ovl_table+2,x
+    lda __ovl_table2,x
     and #$0F
     sta __ovl_job+11
-    lda __ovl_table+3,x
+    lda __ovl_table3,x
     sta __ovl_job+2
-    lda __ovl_table+4,x     ; length
+    lda __ovl_table4,x      ; length
     sta __ovl_job+7
-    lda __ovl_table+5,x
+    lda __ovl_table5,x
     sta __ovl_job+8
     lda #<__ovl_region
     sta __ovl_job+12

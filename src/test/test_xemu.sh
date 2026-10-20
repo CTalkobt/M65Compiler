@@ -1570,6 +1570,53 @@ for ovmode in "zp|$STDLIB||" "stack|$STDLIB_STACK|-fno-zpcall|" \
         failed=$((failed + 1))
     fi
 done
+# Many code overlays (#313): ln45 writes the overlay table as six tables of
+# a byte per overlay, so __ovl_load's index is id - 1 (the 44th overlay
+# used to read other overlays' entries); 255 overlays work, copied and
+# mapped, and 256 are a link error. Each fK returns K, stored at $C100+K
+mo=build/test/overlay_many
+rm -rf $mo; mkdir -p $mo
+mook=1
+{
+    echo 'volatile unsigned char *r = (volatile unsigned char *)0xC100;'
+    k=0; while [ $k -lt 256 ]; do echo "unsigned char f$k(void);"; k=$((k+1)); done
+    echo 'int main(void) {'
+    echo '#ifndef N'
+    echo '#define N 255'
+    echo '#endif'
+    k=0; while [ $k -lt 256 ]; do echo "#if $k < N"; echo "    r[$k] = f$k();"; echo '#endif'; k=$((k+1)); done
+    echo '    *(volatile unsigned char *)0xC0C0 = 0xAA;'
+    echo '    return 0;'
+    echo '}'
+} > $mo/main.c
+k=0; while [ $k -lt 256 ]; do
+    printf '#pragma cc45 overlay(o%d)\nunsigned char f%d(void) { return %d; }\n' $k $k $k > $mo/o$k.c
+    $CC -c $mo/o$k.c -o $mo/o$k.o45 >/dev/null 2>&1 || mook=0
+    k=$((k+1))
+done
+for momode in "44|44|" "255|255|" "255_map|255|--overlay-map"; do
+    IFS='|' read -r moname mon molink <<< "$momode"
+    echo "Testing $mon code overlays ($moname)..."
+    moobjs=""; k=0; while [ $k -lt $mon ]; do moobjs="$moobjs $mo/o$k.o45"; k=$((k+1)); done
+    moexp=$(k=0; while [ $k -lt $mon ]; do printf '%02X ' $k; k=$((k+1)); done)
+    if [ $mook = 1 ] && $CC -DN=$mon -c $mo/main.c -o $mo/main_$moname.o45 >/dev/null 2>&1 &&
+       $LD -basic $molink -o $mo/many_$moname.prg $mo/main_$moname.o45 $moobjs $STDLIB >/dev/null 2>&1 &&
+       ./bin/disk45 create $mo/many_$moname.d81 -n MANY >/dev/null 2>&1 &&
+       ./bin/disk45 add $mo/many_$moname.d81 $mo/many_$moname.ov1 "$(echo MANY_$moname.OV1 | tr a-z A-Z)" >/dev/null 2>&1; then
+        run_xemu_test "test_overlay_many_$moname" "$mo/many_$moname.prg" "C100" $mon "${moexp% }" -8 "$PWD/$mo/many_$moname.d81"
+    else
+        echo "FAIL: $mon code overlays $moname (build or link failed)"
+        failed=$((failed + 1))
+    fi
+done
+moobjs=""; k=0; while [ $k -lt 256 ]; do moobjs="$moobjs $mo/o$k.o45"; k=$((k+1)); done
+if $CC -DN=256 -c $mo/main.c -o $mo/main_256.o45 >/dev/null 2>&1 &&
+   $LD -basic -o $mo/many_256.prg $mo/main_256.o45 $moobjs $STDLIB 2>&1 | grep -q "256 overlays .*at most 255"; then
+    echo "SUCCESS: 256 code overlays are a link error"
+else
+    echo "FAIL: 256 code overlays are not a link error"
+    failed=$((failed + 1))
+fi
 # nm45 and objdump45 read the overlay files: the description (.ovd, which
 # the program never loads: the code file has none of it, #298) and the code
 # (.ov1), either named; their overlays and symbols at the addresses they run
