@@ -4,6 +4,23 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: the parser's constant expressions through ConstEval (Issue #93, stage 3)
+
+- Array sizes, enum values, `_Alignas`, vector sizes and designators were
+  evaluated by the parser in host arithmetic without types: casts were
+  ignored, so `char a[(unsigned char)300]` had 300 elements and
+  `enum { E = (unsigned char)300 }` was 300 (both are 44). They use
+  ConstEval now, with the parser's enum constants and the sizes of the
+  variables declared so far.
+- `_Static_assert(sizeof x == 2, "...")` was "not a constant expression"
+  (the folder that checks it knows no variable's size): the parser
+  evaluates the condition.
+- Bit-field widths take constant expressions (`unsigned b : 1 + 2;`,
+  `sizeof(char) * 4`); they had to be literals. One that is not a constant
+  is an error.
+- The library, the GCC torture tests, the xemu tests and vim2 compile to
+  the same code. Test `test_const_parse_xemu.c`, `test_compiler.sh`.
+
 ### cc45: one constant-expression evaluator for initializers and case labels (Issue #93, stages 1-2)
 
 - `ConstEval` (`ConstEval.hpp`) is cc45's evaluator of constant

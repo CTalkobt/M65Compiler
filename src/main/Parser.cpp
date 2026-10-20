@@ -2274,6 +2274,10 @@ std::unique_ptr<StaticAssert> Parser::parseStaticAssert() {
     std::string message = expect(TokenType::STRING_LITERAL, "Expected string literal for '_Static_assert' message").value;
     expect(TokenType::CLOSE_PAREN, "Expected ')' after '_Static_assert'");
     expect(TokenType::SEMICOLON, "Expected ';'");
+    // Evaluated here, where the declarations so far give sizeof x (the
+    // folder, which checks it, knows no variable's size): its value as a
+    // literal. One the parser cannot evaluate is left to the folder
+    if (long cv; evalConstInt(condition.get(), cv)) condition = setPos(std::make_unique<IntegerLiteral>(cv != 0), startToken);
     return setPos(std::make_unique<StaticAssert>(std::move(condition), message), startToken);
 }
 
@@ -4213,8 +4217,14 @@ int Parser::scalarTypeSize(const std::string& type, int ptrLevel) {
 // Max bitfield width: char 8, int 16, long 32 (a wider field: long, or
 // __int(N)). A wider one would silently lose its top bits.
 int Parser::parseBitfieldWidth(const std::string& type, const std::string& name, bool unnamed) {
-    const Token& bwTok = expect(TokenType::INTEGER_LITERAL, "Expected integer literal for bitfield width");
-    int bw = std::stoi(bwTok.value);
+    // (an integer constant expression: int b : 2 + 1, int c : sizeof(int) * 4)
+    const Token& bwTok = peek();
+    auto widthExpr = parseConditional();
+    long cv;
+    if (!evalConstInt(widthExpr.get(), cv))
+        throw std::runtime_error(formatDiagnostic(bwTok.sourceFile, bwTok.line, bwTok.column, Severity::Error,
+            "Expected an integer constant expression for the bitfield width" + (name.empty() ? std::string() : " of '" + name + "'")));
+    int bw = (int)cv;
     if (type.rfind("struct ", 0) == 0 || type.rfind("union ", 0) == 0)   // long long: struct __int64
         throw std::runtime_error(formatDiagnostic(bwTok.sourceFile, bwTok.line, bwTok.column, Severity::Error,
             "Bitfield of type '" + type + "' not supported" + (name.empty() ? "" : " (member '" + name + "')") +
@@ -4335,103 +4345,71 @@ Parser::EnumScope::~EnumScope() {
 }
 
 bool Parser::evalConstInt(Expression* e, long& out) {
-    if (!e) return false;
-    if (auto* lit = dynamic_cast<IntegerLiteral*>(e)) { out = (long)lit->value; return true; }
-    if (auto* v = dynamic_cast<VariableReference*>(e)) {
-        auto it = enumConstants.find(v->name);
-        if (it == enumConstants.end()) return false;
+    ConstValue v;
+    if (!ConstEval::eval(e, *this, v) || !v.isInt()) return false;
+    out = (long)v.intValue();
+    return true;
+}
+
+bool Parser::identifier(VariableReference& node, ConstValue& out) {
+    auto it = enumConstants.find(node.name);
+    if (it == enumConstants.end()) return false;
+    out = ConstValue::ofInt(it->second);
+    return true;
+}
+
+bool Parser::sizeOf(SizeofExpression& sz, int64_t& out) {
+    if (sz.isType) {
+        int s = typeByteSize(sz.typeName, sz.pointerLevel);
+        if (s < 0) return false;
+        int64_t n = s;
+        for (int d : sz.arrayDims) n *= d;
+        out = n;
+        return true;
+    }
+    if (auto* v = dynamic_cast<VariableReference*>(sz.expression.get())) {
+        auto it = varByteSizes.find(v->name);
+        if (it == varByteSizes.end()) return false;
         out = it->second;
         return true;
     }
-    if (auto* c = dynamic_cast<CastExpression*>(e)) return evalConstInt(c->expression.get(), out);
-    if (auto* sz = dynamic_cast<SizeofExpression*>(e)) {
-        if (sz->isType) {
-            int s = typeByteSize(sz->typeName, sz->pointerLevel);
-            if (s < 0) return false;
-            long n = s;
-            for (int d : sz->arrayDims) n *= d;
-            out = n;
-            return true;
-        }
-        if (auto* v = dynamic_cast<VariableReference*>(sz->expression.get())) {
-            auto it = varByteSizes.find(v->name);
-            if (it == varByteSizes.end()) return false;
-            out = it->second;
-            return true;
-        }
-        // sizeof x[i][j] / sizeof *p: each subscript or * drops an array
-        // dimension, then a pointer level
-        {
-            Expression* x = sz->expression.get();
-            int depth = 0;
-            for (;;) {
-                if (auto* aa = dynamic_cast<ArrayAccess*>(x)) { x = aa->arrayExpr.get(); depth++; continue; }
-                if (auto* un = dynamic_cast<UnaryOperation*>(x); un && un->op == "*") { x = un->operand.get(); depth++; continue; }
-                break;
-            }
-            auto* v = dynamic_cast<VariableReference*>(x);
-            if (!v || !depth) return false;
-            auto it = varShapes_.find(v->name);
-            if (it == varShapes_.end()) return false;
-            const VarShape& sh = it->second;
-            int ptr = sh.ptrLevel;
-            size_t dimsLeft = sh.dims.size();
-            for (int k = 0; k < depth; k++) {
-                if (dimsLeft) dimsLeft--;
-                else if (ptr > 0) ptr--;
-                else return false;
-            }
-            int es = typeByteSize(sh.type, ptr);
-            if (es < 0) return false;
-            long n = es;
-            for (size_t k = sh.dims.size() - dimsLeft; k < sh.dims.size(); k++) n *= sh.dims[k];
-            out = n;
-            return true;
-        }
+    // sizeof x[i][j] / sizeof *p: each subscript or * drops an array
+    // dimension, then a pointer level
+    Expression* x = sz.expression.get();
+    int depth = 0;
+    for (;;) {
+        if (auto* aa = dynamic_cast<ArrayAccess*>(x)) { x = aa->arrayExpr.get(); depth++; continue; }
+        if (auto* un = dynamic_cast<UnaryOperation*>(x); un && un->op == "*") { x = un->operand.get(); depth++; continue; }
+        break;
     }
-    if (auto* u = dynamic_cast<UnaryOperation*>(e)) {
-        long a;
-        if (!evalConstInt(u->operand.get(), a)) return false;
-        if (u->op == "-") out = -a;
-        else if (u->op == "+") out = a;
-        else if (u->op == "~") out = ~a;
-        else if (u->op == "!") out = !a;
+    auto* v = dynamic_cast<VariableReference*>(x);
+    if (!v || !depth) return false;
+    auto it = varShapes_.find(v->name);
+    if (it == varShapes_.end()) return false;
+    const VarShape& sh = it->second;
+    int ptr = sh.ptrLevel;
+    size_t dimsLeft = sh.dims.size();
+    for (int k = 0; k < depth; k++) {
+        if (dimsLeft) dimsLeft--;
+        else if (ptr > 0) ptr--;
         else return false;
-        return true;
     }
-    if (auto* c = dynamic_cast<ConditionalExpression*>(e)) {
-        long k, a, b;
-        if (!evalConstInt(c->condition.get(), k) || !evalConstInt(c->thenExpr.get(), a) ||
-            !evalConstInt(c->elseExpr.get(), b)) return false;
-        out = k ? a : b;
-        return true;
-    }
-    if (auto* b = dynamic_cast<BinaryOperation*>(e)) {
-        long l, r;
-        if (!evalConstInt(b->left.get(), l) || !evalConstInt(b->right.get(), r)) return false;
-        const std::string& op = b->op;
-        if (op == "+") out = l + r;
-        else if (op == "-") out = l - r;
-        else if (op == "*") out = l * r;
-        else if (op == "/") { if (!r) return false; out = l / r; }
-        else if (op == "%") { if (!r) return false; out = l % r; }
-        else if (op == "<<") out = l << r;
-        else if (op == ">>") out = l >> r;
-        else if (op == "&") out = l & r;
-        else if (op == "|") out = l | r;
-        else if (op == "^") out = l ^ r;
-        else if (op == "&&") out = l && r;
-        else if (op == "||") out = l || r;
-        else if (op == "==") out = l == r;
-        else if (op == "!=") out = l != r;
-        else if (op == "<") out = l < r;
-        else if (op == ">") out = l > r;
-        else if (op == "<=") out = l <= r;
-        else if (op == ">=") out = l >= r;
-        else return false;
-        return true;
-    }
-    return false;
+    int es = typeByteSize(sh.type, ptr);
+    if (es < 0) return false;
+    int64_t n = es;
+    for (size_t k = sh.dims.size() - dimsLeft; k < sh.dims.size(); k++) n *= sh.dims[k];
+    out = n;
+    return true;
+}
+
+// _Alignof(type): 1 (cc45 packs everything) unless the type is declared
+// aligned (_Alignas / aligned(N)); an expression's is IRBuilder's to say
+bool Parser::alignOf(AlignofExpression& node, int64_t& out) {
+    if (node.expression) return false;
+    int na = 1, da = 1;
+    if (typeByteSize(node.typeName, node.pointerLevel, &na, &da) < 0) return false;
+    out = node.pointerLevel ? 1 : std::max(1, da);
+    return true;
 }
 
 std::unique_ptr<EnumDefinition> Parser::parseEnumDefinition() {

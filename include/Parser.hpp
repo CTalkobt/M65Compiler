@@ -6,8 +6,10 @@
 #include <set>
 #include "Token.hpp"
 #include "AST.hpp"
+#include "ConstEval.hpp"
 
-class Parser {
+// (the context of ConstEval in constant expressions: enum constants, sizes)
+class Parser : public ConstEvalContext {
     // Phase 102: Define TypeAlias before public methods that use it
     // This struct must be defined early so public methods can reference it
 public:
@@ -171,8 +173,13 @@ private:
     struct VarShape { std::string type; int ptrLevel = 0; std::vector<int> dims; };
     std::map<std::string, VarShape> varShapes_;
     void recordVarSize(const std::string& name, const std::string& type, int ptrLevel, const std::vector<int>& dims);
-    // Evaluate an integer constant expression; false if it isn't one
+    // Evaluate an integer constant expression (ConstEval); false if it isn't one
     bool evalConstInt(Expression* e, long& out);
+    // ConstEvalContext: enum constants, sizeof / _Alignof as far as the
+    // declarations so far say
+    bool identifier(VariableReference& node, ConstValue& out) override;
+    bool sizeOf(SizeofExpression& node, int64_t& out) override;
+    bool alignOf(AlignofExpression& node, int64_t& out) override;
     int initListLength(const InitializerList& il);
     // Size of a scalar/pointer type in bytes; -1 for aggregates and unknowns
     static int scalarTypeSize(const std::string& type, int ptrLevel);
