@@ -650,3 +650,57 @@ public:
     // Default: visit the statements, then the result
     virtual void visit(StatementExpression& node);
 };
+
+// A visitor that walks into every child node (expressions and statements,
+// in source order) and does nothing else: a pass derives from it and
+// overrides only the nodes it acts on, calling ASTWalker::visit(node) to
+// keep walking below them (or not, to stop there)
+class ASTWalker : public ASTVisitor {
+public:
+    using ASTVisitor::visit;
+    void visit(IntegerLiteral& node) override;
+    void visit(FloatLiteral& node) override;
+    void visit(StringLiteral& node) override;
+    void visit(VariableReference& node) override;
+    void visit(Assignment& node) override;
+    void visit(BinaryOperation& node) override;
+    void visit(UnaryOperation& node) override;
+    void visit(ConditionalExpression& node) override;
+    void visit(GenericSelection& node) override;
+    void visit(InitializerList& node) override;
+    void visit(ArrayAccess& node) override;
+    void visit(FunctionCall& node) override;
+    void visit(MemberAccess& node) override;
+    void visit(CastExpression& node) override;
+    void visit(CompoundLiteral& node) override;
+    void visit(AlignofExpression& node) override;
+    void visit(SizeofExpression& node) override;
+    void visit(VariableDeclaration& node) override;
+    void visit(ReturnStatement& node) override;
+    void visit(BreakStatement& node) override;
+    void visit(ContinueStatement& node) override;
+    void visit(SwitchContinueStatement& node) override;
+    void visit(GotoStatement& node) override;
+    void visit(LabelledStatement& node) override;
+    void visit(ExpressionStatement& node) override;
+    void visit(IfStatement& node) override;
+    void visit(WhileStatement& node) override;
+    void visit(DoWhileStatement& node) override;
+    void visit(ForStatement& node) override;
+    void visit(RepeatStatement& node) override;
+    void visit(SwitchStatement& node) override;
+    void visit(CaseStatement& node) override;
+    void visit(DefaultStatement& node) override;
+    void visit(AsmStatement& node) override;
+    void visit(StaticAssert& node) override;
+    void visit(EnumDefinition& node) override;
+    void visit(StructDefinition& node) override;
+    void visit(CompoundStatement& node) override;
+    void visit(FunctionDeclaration& node) override;
+    void visit(BuiltinVaStart& node) override;
+    void visit(BuiltinVaArg& node) override;
+    void visit(CpuRegisterAccess& node) override;
+    void visit(CpuFlagAccess& node) override;
+    void visit(LabelAddressExpression& node) override;
+    void visit(TranslationUnit& node) override;
+};

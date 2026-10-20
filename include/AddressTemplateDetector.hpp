@@ -11,7 +11,7 @@
 // Identifies: row-major addressing, sprite offset tables, cumulative strides, hardware patterns
 // Enables 30-50% code reduction for common patterns like (row * 40 + col)
 
-class AddressTemplateDetector : public ASTVisitor {
+class AddressTemplateDetector {
 public:
     enum class PatternType {
         NONE = 0,
@@ -62,55 +62,6 @@ public:
     };
 
     const Statistics& getStatistics() const { return stats_; }
-
-    // Visitor methods
-    void visit(BinaryOperation& node) override {}
-    void visit(Assignment& node) override {}
-    void visit(ArrayAccess& node) override {}
-    void visit(TranslationUnit& node) override {}
-    void visit(FunctionDeclaration& node) override {}
-    void visit(CompoundStatement& node) override {}
-
-    // Forward to default visitor for other node types
-    void visit(ForStatement& node) override {}
-    void visit(WhileStatement& node) override {}
-    void visit(DoWhileStatement& node) override {}
-    void visit(IfStatement& node) override {}
-    void visit(ExpressionStatement& node) override {}
-    void visit(ReturnStatement& node) override {}
-    void visit(BreakStatement& node) override {}
-    void visit(ContinueStatement& node) override {}
-    void visit(SwitchStatement& node) override {}
-    void visit(CaseStatement& node) override {}
-    void visit(DefaultStatement& node) override {}
-    void visit(LabelledStatement& node) override {}
-    void visit(GotoStatement& node) override {}
-    void visit(SwitchContinueStatement& node) override {}
-    void visit(RepeatStatement& node) override {}
-    void visit(VariableDeclaration& node) override {}
-    void visit(AsmStatement& node) override {}
-    void visit(StaticAssert& node) override {}
-    void visit(StructDefinition& node) override {}
-    void visit(EnumDefinition& node) override {}
-    void visit(IntegerLiteral& node) override {}
-    void visit(FloatLiteral& node) override {}
-    void visit(StringLiteral& node) override {}
-    void visit(VariableReference& node) override {}
-    void visit(MemberAccess& node) override {}
-    void visit(FunctionCall& node) override {}
-    void visit(UnaryOperation& node) override {}
-    void visit(CastExpression& node) override {}
-    void visit(SizeofExpression& node) override {}
-    void visit(AlignofExpression& node) override {}
-    void visit(ConditionalExpression& node) override {}
-    void visit(InitializerList& node) override {}
-    void visit(CompoundLiteral& node) override {}
-    void visit(GenericSelection& node) override {}
-    void visit(BuiltinVaStart& node) override {}
-    void visit(BuiltinVaArg& node) override {}
-    void visit(CpuRegisterAccess& node) override {}
-    void visit(CpuFlagAccess& node) override {}
-    void visit(LabelAddressExpression& node) override {}
 
 private:
     // Pattern detection helpers

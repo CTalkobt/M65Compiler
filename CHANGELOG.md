@@ -4,6 +4,20 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Internal: one AST walker (Issue #94)
+
+- `ASTWalker` (`AST.hpp`): a visitor that walks into every child node in
+  source order; a pass overrides only the nodes it acts on. `IRBuilder`'s
+  `CaseCollector` uses it (39 lines instead of 89, the same nodes walked).
+  The visitor classes that walked nothing are gone: `StructRegistrationVisitor`
+  (never used), `FunctionAnalyzer::collectFunctionCalls` (never called), and
+  `AddressTemplateDetector` is no longer a visitor (46 empty methods). The
+  legacy code generator's visitors went with #92. Unit test
+  `test_ast_walker` (`make test`): a call in each of 39 places is reached.
+- Makefile: each host archive (`lib45-*.a`) is made anew; `ar rcs` never
+  drops a member, so an object removed from the sources stayed in an
+  existing archive.
+
 ### Removed: the legacy AST-level CodeGenerator (Issue #92)
 
 - `CodeGenerator.cpp` / `.hpp` (about 400 KB), `CodeGeneratorDWARF.cpp`

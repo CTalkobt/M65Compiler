@@ -108,5 +108,4 @@ private:
                           std::set<std::string>& visitStack,
                           std::set<std::string>& globalVisited,
                           const std::set<std::string>& callees);
-    std::set<std::string> collectFunctionCalls(FunctionDeclaration* func);
 };
