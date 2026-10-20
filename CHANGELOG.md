@@ -4,6 +4,20 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### ln45: up to 255 code overlays (Issue #313)
+
+- From the 44th overlay on, a program called the wrong code: `__ovl_load`
+  indexed the 6-byte entries of `__ovl_table` with `(id - 1) * 6` in X,
+  which wraps past 255 (the 44th overlay read halves of the 1st and 2nd
+  entries). ln45 now writes the table as six tables of a byte per overlay
+  (`__ovl_table0`...`__ovl_table5`), which `__ovl_load` reads with
+  X = id - 1, copied and mapped.
+- 255 overlays work (an overlay's id is a byte); 256 or more, counting the
+  `__far` functions' automatic overlays, are a link error instead of a
+  program that misbehaves.
+- Test: 44 and 255 overlays (and 255 mapped), each returning its own
+  number, and the 256-overlay link error (`test_xemu.sh`).
+
 ### cc45: `unsigned (*fp)(long)` at file scope, `sizeof` of a function pointer type
 
 - `signed` or `unsigned` alone as a function pointer's return type at file
