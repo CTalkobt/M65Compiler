@@ -1,5 +1,5 @@
 #!/bin/bash
-# Comprehensive validation tests for CodeGenerator removal
+# Comprehensive validation tests of the IR code generator
 # Tests all edge cases for const-correctness, flexible arrays, etc.
 
 CC="./bin/cc45 -O2"

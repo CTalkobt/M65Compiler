@@ -9,7 +9,7 @@
 Lexer::Lexer(const std::string& source) : source(source), pos(0), line(1), column(1), absLine(1), sourceFile("") {
     // Initialize with the main file context
     FileContext mainContext;
-    mainContext.filename = "";  // Will be set by CodeGenerator
+    mainContext.filename = "";  // (set by the caller)
     mainContext.lineOffset = 1;
     mainContext.startAbsLine = 1;
     fileContextStack.push(mainContext);

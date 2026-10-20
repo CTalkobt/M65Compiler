@@ -4,6 +4,15 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Removed: the legacy AST-level CodeGenerator (Issue #92)
+
+- `CodeGenerator.cpp` / `.hpp` (about 400 KB), `CodeGeneratorDWARF.cpp`
+  and the code only they used (`ZeroArgCallDetector`,
+  `AddressSpaceValidator`, `AddressTemplates`, `FieldStripedOffsetCalc`)
+  are gone. No tool had linked them since the IRBuilder → IRCodeGen path
+  replaced them; they were only built into `lib45-phases.a`. Comments and
+  docs that pointed at them are updated.
+
 ### cc45: `sizeof` of a variable in a static initializer (Issue #312)
 
 - A static initializer with `sizeof` of a variable (an `extern` array, but

@@ -425,7 +425,7 @@ option '-f…' ignored"*.
 
 | Option | What happens |
 |---|---|
-| `#pragma cc45 unroll [N]`, `#pragma cc45 unroll_default N` | Turned into a directive that only the unused `CodeGenerator` reads; no effect |
+| `#pragma cc45 unroll [N]`, `#pragma cc45 unroll_default N` | Turned into a directive that nothing reads; no effect |
 | `--emit-ir`, `-Rcodegen` | Parsed, never used. Use `CC45_DUMP_IR=1` for IR |
 | `--pragma <p>` | Parsed into `cliPragmas`, never used: the pragma is not injected |
 

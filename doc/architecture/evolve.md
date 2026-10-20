@@ -116,7 +116,7 @@ Expected output (addressing modes used: [list]):
 [expected assembly]
 ```
 
-Implement this in CodeGenerator.cpp by:
+Implement this in IRCodeGen.cpp by:
 1. [Step 1]
 2. [Step 2]"
 ```

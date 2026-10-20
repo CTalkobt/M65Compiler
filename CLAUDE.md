@@ -42,8 +42,8 @@ C source
   → ln45 -basic (or -prg -t <base>) with c45.lib / c45_stack.lib → .prg
 ```
 
-The live compiler path is **IRBuilder → IRCodeGen**. The older AST
-`CodeGenerator` (and everything wired only into it) is not used. Code from
+The live compiler path is **IRBuilder → IRCodeGen** (the older AST-level
+`CodeGenerator` and the code only it used were removed, #92). Code from
 earlier "phases" (cross-module IPO specialization, field caching, bank
 assignment, link-time coordination, compiler hooks, adaptive tuning,
 benchmarking, DWARF output, O45Linker's analysis passes) is in

@@ -17,7 +17,7 @@ enum class AddressSpace {
 };
 
 // Lightweight type utilities used by constant folder and other optimization passes.
-// This extracted the essential type-related data structures from the legacy CodeGenerator.
+// (Extracted from the AST-level code generator removed in #92.)
 
 class TypeInfo {
 public:

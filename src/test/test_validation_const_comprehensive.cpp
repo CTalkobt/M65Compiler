@@ -6,7 +6,7 @@
 #include <string>
 
 // Comprehensive const-correctness validation tests
-// Tests edge cases for CodeGenerator removal
+// Edge cases of const-correctness in the IR code generator
 
 std::vector<std::pair<std::string, std::string>> test_cases = {
     // (C code, expected error pattern)

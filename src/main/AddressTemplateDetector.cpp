@@ -10,7 +10,7 @@ void AddressTemplateDetector::analyzeTranslationUnit(TranslationUnit& unit) {
 
 AddressTemplateDetector::MatchedPattern AddressTemplateDetector::detectPattern(const BinaryOperation& expr) {
     // Stub: Return no pattern detected
-    // This allows ConstantFolder and CodeGenerator to compile
+    // (ConstantFolder calls it)
     MatchedPattern result;
     result.type = PatternType::NONE;
     result.canOptimize = false;
