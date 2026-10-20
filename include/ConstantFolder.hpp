@@ -39,6 +39,10 @@ public:
     // folding and constant propagation can remove the comparison.
     std::vector<std::string> warnings;
 
+    // A folded literal's value as its type says ((unsigned)65536 is 0):
+    // conditions and alignments are decided on it, not on the raw value
+    static int64_t litValue(const IntegerLiteral& l) { return ConstValue::ofLiteral(l).intValue(); }
+
     std::unique_ptr<Expression> fold(std::unique_ptr<Expression> expr) {
         if (!expr) return nullptr;
         expr->accept(*this);
@@ -99,7 +103,7 @@ public:
                 // Only propagate simple assignments that aren't inside potentially complex control flow.
                 // For now, we clear constants in loops anyway, but this is a safeguard.
                 if (node.op == "=") {
-                    int val = lit->value;
+                    int val = (int)litValue(*lit);
                     if (boolVars.count(ref->name)) { val = (val != 0) ? 1 : 0; lit->value = val; }
                     
                     if (variableTypes.count(ref->name)) {
@@ -222,7 +226,7 @@ public:
         auto condition = fold(std::move(node.condition));
         auto* lit = dynamic_cast<IntegerLiteral*>(condition.get());
         if (lit) {
-            if (lit->value) lastExpr = fold(std::move(node.thenExpr));
+            if (litValue(*lit)) lastExpr = fold(std::move(node.thenExpr));
             else lastExpr = fold(std::move(node.elseExpr));
         } else {
             lastExpr = copyPos(std::make_unique<ConditionalExpression>(std::move(condition), fold(std::move(node.thenExpr)), fold(std::move(node.elseExpr))), node);
@@ -301,7 +305,7 @@ public:
         auto alignmentExpr = node.alignmentExpr ? fold(std::move(node.alignmentExpr)) : nullptr;
         if (alignmentExpr) {
             if (auto* lit = dynamic_cast<IntegerLiteral*>(alignmentExpr.get())) {
-                node.alignment = lit->value;
+                node.alignment = (int)litValue(*lit);
             }
         }
         auto initializer = node.initializer ? fold(std::move(node.initializer)) : nullptr;
@@ -320,7 +324,7 @@ public:
         } else if (initializer) {
             if (node.type == "_Bool") boolVars.insert(node.name);
             if (auto* lit = dynamic_cast<IntegerLiteral*>(initializer.get())) {
-                int val = lit->value;
+                int val = (int)litValue(*lit);
                 if (node.type == "_Bool") { val = (val != 0) ? 1 : 0; lit->value = val; }
                 knownConstants[node.name] = { val, node.type, node.pointerLevel, node.isSigned };
             } else {
@@ -408,7 +412,7 @@ public:
         // if (0) { ... case 1: ... }: the branch is still reachable by a jump
         if (lit && (hasJumpTarget(node.thenBranch.get()) || hasJumpTarget(node.elseBranch.get()))) lit = nullptr;
         if (lit) {
-            if (lit->value) {
+            if (litValue(*lit)) {
                 lastStmt = fold(std::move(node.thenBranch));
             } else {
                 if (node.elseBranch) {
@@ -533,7 +537,7 @@ public:
             int alignment = m.alignment > 1 ? m.alignment : 1;
             if (alignmentExpr) {
                 if (auto* lit = dynamic_cast<IntegerLiteral*>(alignmentExpr.get())) {
-                    if (lit->value > alignment) alignment = (int)lit->value;
+                    if (litValue(*lit) > alignment) alignment = (int)litValue(*lit);
                 }
             }
             StructLayout::Member l;
@@ -570,7 +574,7 @@ public:
             sm.name = m.name; sm.isConst = m.isConst;
             sm.alignment = m.alignment > 1 ? m.alignment : 1;
             if (auto* lit = dynamic_cast<IntegerLiteral*>(alignExprs[i].get()))
-                if (lit->value > sm.alignment) sm.alignment = (int)lit->value;
+                if (litValue(*lit) > sm.alignment) sm.alignment = (int)litValue(*lit);
             sm.alignmentExpr = std::move(alignExprs[i]); sm.isAnonymous = m.isAnonymous;
             sm.arrayDims = m.arrayDims; sm.bitWidth = m.bitWidth;
             sm.isFlexible = m.isFlexible;

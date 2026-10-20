@@ -41,7 +41,7 @@ void ConstantFolder::visit(WhileStatement& node) {
     knownConstants.clear(); // Disable constant propagation inside/across loops
     auto condition = fold(std::move(node.condition));
     auto* lit = dynamic_cast<IntegerLiteral*>(condition.get());
-    if (lit && lit->value == 0) {
+    if (lit && litValue(*lit) == 0) {
         lastStmt = nullptr;
     } else {
         lastStmt = copyPos(std::make_unique<WhileStatement>(std::move(condition), fold(std::move(node.body))), node);
@@ -71,7 +71,7 @@ void ConstantFolder::visit(ForStatement& node) {
     auto body = fold(std::move(node.body));
     
     auto* lit = dynamic_cast<IntegerLiteral*>(condition.get());
-    if (lit && lit->value == 0) {
+    if (lit && litValue(*lit) == 0) {
         lastStmt = std::move(initializer);
     } else {
         lastStmt = copyPos(std::make_unique<ForStatement>(std::move(initializer), std::move(condition), std::move(increment), std::move(body)), node);
@@ -116,7 +116,7 @@ void ConstantFolder::visit(StaticAssert& node) {
     auto condition = fold(std::move(node.condition));
     auto* lit = dynamic_cast<IntegerLiteral*>(condition.get());
     if (lit) {
-        if (lit->value == 0) {
+        if (litValue(*lit) == 0) {
             throw std::runtime_error("Static assertion failed at " + std::to_string(node.line) + ":" + std::to_string(node.column) + ": " + node.message);
         }
     } else {

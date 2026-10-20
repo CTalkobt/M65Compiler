@@ -3073,18 +3073,27 @@ bool IRBuilder::evalConstComplex(Expression* e, double& re, double& im) {
     return false;
 }
 
+// The size a type, or an expression's type, has at compile time (the
+// sizeof visitor's, and constSizeof's when the size is not a run-time one)
+int64_t IRBuilder::staticSizeof(SizeofExpression& node) {
+    if (node.isType) {
+        int64_t sz = getTypeSize(node.typeName, node.pointerLevel);
+        if (node.pointerLevel == 0)
+            for (int d : node.arrayDims) if (d > 0) sz *= d;
+        for (int d : node.declDims) if (d > 0) sz *= d;
+        return sz;
+    }
+    return node.expression ? getExprTypeInfo(node.expression.get()).totalSize : 2;
+}
+
 bool IRBuilder::constSizeof(SizeofExpression& node, int64_t& out) {
     if (node.isType) {
         std::string tn = node.pointerLevel == 0 && node.arrayDims.empty() ? getAggregateName(node.typeName) : "";
         if (tn.rfind("struct ", 0) == 0) tn = tn.substr(7);
         else if (tn.rfind("union ", 0) == 0) tn = tn.substr(6);
         if (vmStructs_.count(tn)) return false;
-        int64_t sz = getTypeSize(node.typeName, node.pointerLevel);
-        if (node.pointerLevel == 0)
-            for (int d : node.arrayDims) if (d > 0) sz *= d;
-        for (int d : node.declDims) if (d > 0) sz *= d;
-        out = sz;
-        return sz > 0;
+        out = staticSizeof(node);
+        return out > 0;
     }
     Expression* x = node.expression.get();
     if (!x) return false;
@@ -3101,10 +3110,8 @@ bool IRBuilder::constSizeof(SizeofExpression& node, int64_t& out) {
     if (!vmStructOf(x).empty()) return false;
     if (auto* u = dynamic_cast<UnaryOperation*>(x); u && u->op == "*")
         if (int row = ptrArrayRowSize(u->operand.get())) { out = row; return true; }
-    int sz = getExprTypeInfo(x).totalSize;
-    if (sz <= 0) return false;
-    out = sz;
-    return true;
+    out = staticSizeof(node);
+    return out > 0;
 }
 
 bool IRBuilder::evalConstFloat(Expression* e, double& out) {
@@ -8722,11 +8729,12 @@ int IRBuilder::naturalAlign(const std::string& type, int ptrLevel) {
     return (n == 2 || n == 4) ? n : 1;
 }
 
+// _Alignas(expr): a constant expression (ConstEval: _Alignas(sizeof x * 2)
+// was taken as 1); at least 1
 int IRBuilder::alignValue(Expression* e) {
-    if (!e) return 1;
-    if (auto* lit = dynamic_cast<IntegerLiteral*>(e)) return lit->value > 1 ? (int)lit->value : 1;
-    if (auto* al = dynamic_cast<AlignofExpression*>(e)) return typeAlign(al->typeName, al->pointerLevel);
-    return 1;
+    int64_t v;
+    if (!e || !evalConstInt(e, v)) return 1;
+    return v > 1 ? (int)v : 1;
 }
 
 int IRBuilder::alignofValue(AlignofExpression& node) {
@@ -8832,20 +8840,7 @@ void IRBuilder::visit(SizeofExpression& node) {
             }
         }
     }
-    int sz = 2;
-    if (node.isType) {
-        sz = getTypeSize(node.typeName, node.pointerLevel);
-        if (node.pointerLevel == 0) {
-            for (int d : node.arrayDims) {
-                if (d > 0) sz *= d;
-            }
-        }
-        for (int d : node.declDims) if (d > 0) sz *= d;
-    } else if (node.expression) {
-        // sizeof(expr) — evaluate type of expression
-        IRTypeInfo info = getExprTypeInfo(node.expression.get());
-        sz = info.totalSize;
-    }
+    int sz = (int)staticSizeof(node);
     auto dest = allocVreg(ir::Type::I16);
     ir::Inst inst;
     inst.op = ir::Op::CONST;
