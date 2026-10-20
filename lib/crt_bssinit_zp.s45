@@ -3,6 +3,10 @@
 ; Zeros the BSS segment at startup. Uses ZP $03-$06 as scratch.
 ; Called from CRT startup stub via "jsr _init_bss".
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global _init_bss
 .extern __bss_start
 .extern __bss_end

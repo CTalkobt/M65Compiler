@@ -6,6 +6,10 @@
 ;   Linked when a format string of the program has an integer conversion
 ;   without l: cc45 references ___fmt_int_linked (lib/stdlib/fmtconv.h).
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global ___fmt_utoa
 .global ___fmt_int_linked
 

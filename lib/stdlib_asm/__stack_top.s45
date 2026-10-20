@@ -7,6 +7,10 @@
 ; define __stack_top = 0, which keeps the ROM's 8-bit page-1 stack, and
 ; -fstack-top=ADDR picks another top.
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global __stack_top
 
 __stack_top = $BFFF

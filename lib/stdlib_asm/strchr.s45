@@ -3,6 +3,10 @@
 ; char *strchr(char *s, int c);
 ;   Returns pointer to first occurrence of (char)c in s, or NULL.
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global _strchr
 
 .segment "code"

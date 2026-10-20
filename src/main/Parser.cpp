@@ -4125,7 +4125,9 @@ std::shared_ptr<FuncPtrSignature> Parser::parseFuncPtrParams(const std::string& 
     struct KeepNoescape { bool& f; bool v; ~KeepNoescape() { f = v; } } keepNoescape{pendingNoescape_, pendingNoescape_};
     if (peek().type == TokenType::VOID && pos + 1 < tokens.size() && tokens[pos + 1].type == TokenType::CLOSE_PAREN) {
         advance(); // consume 'void'
-    } else if (peek().type != TokenType::CLOSE_PAREN) {
+    } else if (peek().type == TokenType::CLOSE_PAREN) {
+        sig->prototyped = false;
+    } else {
         do {
             // ... ends a variadic parameter list
             if (match(TokenType::ELLIPSIS)) { sig->isVariadic = true; break; }

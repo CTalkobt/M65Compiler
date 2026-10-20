@@ -2,6 +2,10 @@
 ;
 ; void __builtin_prefetch(const void *addr, ...);
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global ___builtin_prefetch
 
 .segment "code"

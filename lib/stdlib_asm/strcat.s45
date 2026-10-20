@@ -3,6 +3,10 @@
 ; char *strcat(char *dest, char *src);
 ;   Appends src to the end of dest. Returns dest.
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global _strcat
 
 .segment "code"

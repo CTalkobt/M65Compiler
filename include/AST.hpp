@@ -18,6 +18,7 @@ struct FuncPtrSignature {
     };
     std::vector<Param> params;
     bool isVariadic = false;   // (..., ...): called in the stack convention
+    bool prototyped = true;    // false for (): any arguments (C17 6.7.6.3p14)
 };
 
 class ASTNode {

@@ -16,6 +16,10 @@
 ; cprintf / cprintfxy are in stdlib/conio.c; getch / kbhit read the keyboard
 ; through <input.h>.
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 SCR = $08               ; screen RAM address of the row (32 bits)
 COL = $0C               ; colour RAM address of the row (32 bits)
 

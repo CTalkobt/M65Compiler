@@ -15,6 +15,10 @@
 ; The product of the result and the base comes from the hardware multiplier
 ; (32 x 32 bits: anything above the low 32 is an overflow).
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global _strtoul, _strtol
 .extern _errno
 

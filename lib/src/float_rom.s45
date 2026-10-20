@@ -21,6 +21,10 @@
 ; internal helpers (__jsrfar_basic, __float_load_*, __float_store_fac) must
 ; only be called with the base page already at 0.
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
     .cpu 45gs02
 
 .extern __bp_rom

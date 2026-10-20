@@ -3,6 +3,10 @@
 ; int isspace(int c);
 ;   Returns 1 if c is whitespace ($20, $16-$0D), 0 otherwise.
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global _isspace
 
 .segment "code"

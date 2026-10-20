@@ -2283,20 +2283,55 @@ void O45Linker::buildCallGraph(std::map<std::string, std::set<std::string>>& gra
     // Calls through pointers: a function that makes them (cc45:
     // cc45.icall.<f>; any label of an object not made by cc45, or made by a
     // cc45 that did not mark them, cc45.icallinfo) can call every function
-    // whose address is used
+    // whose address is used. One that calls only through prototyped
+    // pointers (cc45.isig.<f>.<sig>) calls those with the same parameter
+    // slots (cc45.fsig.<g>.<sig>, or "any"), and the labels that do not say
+    // theirs except those of an object with cc45.icallinfo (cc45's
+    // functions all say theirs; a marked asm object vouches that its labels
+    // are not called through pointers unless they say "any")
     std::set<std::string> icallers;
+    std::set<std::string> vouched;
+    std::map<std::string, std::set<std::string>> sigCallers;   // function -> the signatures it calls through
+    std::map<std::string, std::string> funcSig;                 // function -> its signature
+    auto split = [](const std::string& rest, std::string& f, std::string& sig) {
+        size_t dot = rest.rfind('.');
+        if (dot == std::string::npos || dot == 0) return false;
+        f = rest.substr(0, dot);
+        sig = rest.substr(dot + 1);
+        return true;
+    };
     for (const auto& input : objects_) {
         bool marked = false;
         for (const auto& exp : input.obj.exports)
             if (exp.name == "cc45.icallinfo") marked = true;
         for (const auto& exp : input.obj.exports) {
+            std::string f, sig;
+            if (marked && exp.segmentId() == SEG_TEXT) vouched.insert(sacBase(exp.name));
             if (marked && exp.name.rfind("cc45.icall.", 0) == 0) icallers.insert(exp.name.substr(11));
+            else if (marked && exp.name.rfind("cc45.isig.", 0) == 0 && split(exp.name.substr(10), f, sig))
+                sigCallers[f].insert(sig);
+            else if (exp.name.rfind("cc45.fsig.", 0) == 0 && split(exp.name.substr(10), f, sig))
+                funcSig[f] = sig;
             else if (!marked && exp.segmentId() == SEG_TEXT) icallers.insert(sacBase(exp.name));
         }
     }
+    for (const auto& c : icallers) ln45debug() << "call graph: " << c << " calls through any pointer\n";
+    for (const auto& [c, sigs] : sigCallers)
+        for (const auto& sig : sigs) ln45debug() << "call graph: " << c << " calls through pointers " << sig << "\n";
+    for (const auto& t : addrTaken)
+        ln45debug() << "call graph: address of " << t << " used"
+                    << (funcSig.count(t) ? ", parameters " + funcSig[t] : std::string()) << "\n";
     for (const auto& c : icallers)
         for (const auto& t : addrTaken)
             if (c != t) graph[c].insert(t);
+    for (const auto& [c, sigs] : sigCallers) {
+        if (icallers.count(c)) continue;
+        for (const auto& t : addrTaken) {
+            auto it = funcSig.find(t);
+            bool may = it == funcSig.end() ? !vouched.count(t) : it->second == "any" || sigs.count(it->second);
+            if (c != t && may) graph[c].insert(t);
+        }
+    }
 }
 
 // Base-page blocks (cc45 .zar, size cc45.zarsize.<f>): a static-allocation

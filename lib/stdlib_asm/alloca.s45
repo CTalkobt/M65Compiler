@@ -9,6 +9,10 @@
 ;   (through the linker's thunk) pops its 2-byte argument after the call, so
 ;   the block must start above them. The caller's epilogue resets SP from FP.
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global _alloca
 .global ___builtin_alloca
 

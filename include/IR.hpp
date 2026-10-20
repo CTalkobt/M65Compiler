@@ -187,6 +187,10 @@ struct Inst {
     CallConv callConv = CallConv::STACK;
     bool isRegparm = false;  // first param passed in A/AX
     bool isTailCall = false; // tail call optimization (replace JSR with JMP)
+    // CALL_INDIRECT: the pointer's parameter slots (IRBuilder::ptrSigKey),
+    // "" when not known (an unprototyped pointer, a virtual call): ln45 then
+    // assumes it can call any function whose address is used
+    std::string callSig;
 
     // For SWITCH: case values and labels
     std::vector<std::pair<int64_t, std::string>> switchCases;
@@ -217,6 +221,7 @@ struct Function {
     std::vector<Type> paramTypes;
     std::vector<std::string> paramNames;
     bool isVariadic = false;
+    std::string ptrSig;      // its parameter slots, as a pointer to it is called (IRBuilder::ptrSigKey)
     bool isStatic = false;
     bool isWeak = false;
     bool isInterrupt = false;

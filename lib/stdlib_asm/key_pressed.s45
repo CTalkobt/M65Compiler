@@ -12,6 +12,10 @@
 ;
 ; First param arrives in A via __regparm convention.
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global _key_pressed
 
 .segment "code"

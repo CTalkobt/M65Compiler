@@ -3,6 +3,10 @@
 ; This module is pulled in by #pragma cc45 heap.
 ; It ensures the heap is initialized at startup.
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global _init_heap_crt
 .extern _heap_init
 .extern _init_features

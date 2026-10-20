@@ -8,6 +8,10 @@
 ; Link with crt0.o45 to activate:
 ;   ln45 -prg crt0.o45 crt0_mega65.o45 main.o45 -o program.prg
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global _init_features
 
 .segment "init"

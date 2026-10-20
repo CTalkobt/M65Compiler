@@ -3,6 +3,10 @@
 ; char *strncpy(char *dest, char *src, int n);
 ;   Copies at most n bytes from src to dest. Pads with NUL if shorter.
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global _strncpy
 
 .segment "code"

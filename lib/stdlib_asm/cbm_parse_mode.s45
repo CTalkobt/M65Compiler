@@ -6,6 +6,10 @@
 ;   (*cbm_type = CBM_T_USR, else CBM_T_SEQ). Returns 0 for anything else.
 ; Parameters: mode $10/$11, cbm_type $12/$13; $14: '+' seen, $15: 'b' seen.
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global ___cbm_parse_mode
 
 _IOREAD   = $01

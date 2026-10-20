@@ -26,6 +26,12 @@
 ; below the register pool. Not reentrant (as the C version was not).
 ; Character constants are PETSCII, as the C strings of the format are.
 
+; ln45's call graph: calls through pointers only from ___vformat (cc45.icall.<f>)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+.weak cc45.icall.___vformat
+cc45.icall.___vformat = 1
+
 .global ___vformat
 .weak ___fmt_utoa
 .weak ___fmt_ultoa

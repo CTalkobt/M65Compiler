@@ -10,6 +10,10 @@
 ; Parameters (2-byte slots): dst $10, name $12, flags $14, cbm_type $16;
 ; $18/$19: the type and mode letters, $1A/$1B: has ',' / has ':'.
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global ___cbm_dos_name
 
 .segment "code"

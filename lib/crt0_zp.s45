@@ -3,6 +3,14 @@
 ; Entry point for all C programs compiled with -fzpcall.
 ; Same as crt0.s — main takes no parameters via ZP.
 
+; ln45's call graph: calls through pointers only from __basic_call, __rom_call (cc45.icall.<f>)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+.weak cc45.icall.__basic_call
+cc45.icall.__basic_call = 1
+.weak cc45.icall.__rom_call
+cc45.icall.__rom_call = 1
+
 .global __init
 .global __basic_call
 .global ___bc_target

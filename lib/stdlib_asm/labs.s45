@@ -3,6 +3,10 @@
 ; long labs(long value);
 ;   Returns the absolute value of a 32-bit signed integer.
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global _labs
 
 .segment "code"

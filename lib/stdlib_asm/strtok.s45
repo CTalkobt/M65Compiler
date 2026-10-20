@@ -8,6 +8,10 @@
 ; NULL when no token is left. strtok keeps its place in a static pointer,
 ; strtok_r in *saveptr (NULL after the last token).
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global _strtok, _strtok_r
 
 .segment "bss"

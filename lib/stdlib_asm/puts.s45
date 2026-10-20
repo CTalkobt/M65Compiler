@@ -10,6 +10,10 @@
 ;
 ; Uses ZP $FB/$FC for the string pointer — kernal-safe locations.
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global _puts
 .global _putstr
 .extern __bp_rom

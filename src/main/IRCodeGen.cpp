@@ -1826,7 +1826,8 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
         emit(".weak " + modeSym);
         emit(modeSym + " = 1");
         // this object marks its functions that call through pointers
-        // (cc45.icall.<f>): ln45 need not assume all of them do
+        // (cc45.icall.<f>, cc45.isig.<f>.<sig>): ln45 need not assume all
+        // of them do
         emit(".weak cc45.icallinfo");
         emit("cc45.icallinfo = 1");
         // A stack-mode module's ZP-convention calls (to __fastcall__
@@ -3974,16 +3975,30 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             procLine += "#@_p_" + std::to_string(i);
         }
     }
-    // A function that calls through a pointer (or has inline asm, which
-    // may): ln45 assumes it can call any function whose address is used
-    {
+    // A function that calls through a pointer of unknown type (or has
+    // inline asm, which may): ln45 assumes it can call any function whose
+    // address is used (cc45.icall.<f>). Through a prototyped pointer only
+    // those with its parameter slots (cc45.isig.<f>.<sig>), and every
+    // function says its own (cc45.fsig.<f>.<sig>)
+    if (relocMode) {
         bool icall = false;
+        std::set<std::string> sigs;
         for (const auto& blk : fn.blocks)
-            for (const auto& in : blk.insts)
-                if (in.op == ir::Op::CALL_INDIRECT || in.op == ir::Op::ASM_INLINE) icall = true;
-        if (icall && relocMode) {
+            for (const auto& in : blk.insts) {
+                if (in.op == ir::Op::ASM_INLINE || (in.op == ir::Op::CALL_INDIRECT && in.callSig.empty())) icall = true;
+                else if (in.op == ir::Op::CALL_INDIRECT) sigs.insert(in.callSig);
+            }
+        if (icall) {
             emit(".global cc45.icall." + fn.name);
             emit("cc45.icall." + fn.name + " = 1");
+        }
+        for (const auto& sig : sigs) {
+            emit(".weak cc45.isig." + fn.name + "." + sig);
+            emit("cc45.isig." + fn.name + "." + sig + " = 1");
+        }
+        if (!fn.ptrSig.empty()) {
+            emit(".weak cc45.fsig." + fn.name + "." + fn.ptrSig);
+            emit("cc45.fsig." + fn.name + "." + fn.ptrSig + " = 1");
         }
     }
     if (zarSize_ > 0) {

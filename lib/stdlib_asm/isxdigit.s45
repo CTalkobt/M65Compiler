@@ -3,6 +3,10 @@
 ; int isxdigit(int c);
 ;   Returns 1 if c is '0'-'9', 'a'-'f', or 'A'-'F'. Returns 0 otherwise.
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global _isxdigit
 
 .segment "code"

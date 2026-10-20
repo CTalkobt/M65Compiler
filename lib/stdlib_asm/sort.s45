@@ -16,6 +16,10 @@
 ; 16-bit count); 8 elements or fewer by insertion. An element's address is
 ; base + index * size by the hardware multiplier.
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global ___qsort_core, ___bsearch_core, ___sort_gt
 .extern ___sort_cmp
 

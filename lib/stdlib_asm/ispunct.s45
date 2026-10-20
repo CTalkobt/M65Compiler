@@ -3,6 +3,10 @@
 ; int ispunct(int c);
 ;   Returns 1 if c is printable but not alphanumeric and not space.
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global _ispunct
 
 .segment "code"

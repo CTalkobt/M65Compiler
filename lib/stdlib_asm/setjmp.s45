@@ -15,6 +15,10 @@
 ; (__ovl_jsave/__ovl_jrestore: ovl.s45 in a program with overlays, else
 ; crt0's empty ones)
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global _setjmp
 .global _longjmp
 .extern __ovl_jsave, __ovl_jrestore

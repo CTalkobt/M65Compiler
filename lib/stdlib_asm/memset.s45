@@ -3,6 +3,10 @@
 ; void *memset(void *s, int c, int n);
 ;   Fills n bytes at address s with byte c. Returns s.
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global _memset
 
 .segment "code"

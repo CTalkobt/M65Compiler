@@ -8,6 +8,10 @@
 ;   ZP param layout: value=$10-$13, str=$14/$15, base=$16/$17
 ;   Internal: $02=digit count, value modified in-place at $10-$13
 
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
 .global _ltoa
 
 .segment "code"
