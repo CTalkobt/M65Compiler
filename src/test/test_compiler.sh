@@ -249,6 +249,16 @@ else
     failed=$((failed + 1))
 fi
 
+# A case label that is not an integer constant expression is an error (it
+# was taken as 0, #93)
+printf 'int x;\nint g(int v) { switch (v) { case x: return 1; } return 0; }\n' > build/test/caselbl.c
+if $CC -c build/test/caselbl.c -o build/test/caselbl.o45 2>&1 | grep -q "case label is not an integer constant expression"; then
+    echo "SUCCESS: non-constant case labels are errors"
+else
+    echo "FAIL: non-constant case labels are errors"
+    failed=$((failed + 1))
+fi
+
 # __zp globals (#67): base-page operands relocated against the variable
 # (R_LOWX), absolute ones (ldz, lda abs,y) as its full address (R_WORD); ln45
 # rejects base-page uses from code an interrupt handler reaches, a variable

@@ -1,5 +1,6 @@
 #pragma once
 #include "AST.hpp"
+#include "ConstEval.hpp"
 #include "IR.hpp"
 #include "TypeSystem.hpp"
 #include "SourceLocationTracker.hpp"
@@ -10,7 +11,8 @@
 #include <vector>
 #include <deque>
 
-class IRBuilder : public ASTVisitor {
+// (the context of ConstEval, cc45's constant evaluator: sizes and alignments)
+class IRBuilder : public ASTVisitor, public ConstEvalContext {
 public:
     IRBuilder();
 
@@ -218,12 +220,19 @@ private:
     bool constLvalue(Expression* e, std::string& label, int& off);
     bool arrayShape(Expression* e, int& elemSize, std::vector<int>& dims);
     int pointeeStride(Expression* e);
-    // Compile-time value of a constant arithmetic expression (float or int
-    // literals, unary +/-, + - * /, casts) for static initializers
+    // Compile-time value of a constant expression (ConstEval): a float's,
+    // or an integer's as its type says ((signed char)200 is -56); an
+    // integer context truncates a float. For static initializers and case
+    // labels
     bool evalConstFloat(Expression* e, double& out);
+    bool evalConstInt(Expression* e, int64_t& out);
     // sizeof as a compile-time constant (not of a variable-length array or
     // a struct with run-time member sizes): a static initializer's value
     bool constSizeof(SizeofExpression& node, int64_t& out);
+    int alignofValue(AlignofExpression& node);
+    // ConstEvalContext
+    bool sizeOf(SizeofExpression& node, int64_t& out) override { return constSizeof(node, out); }
+    bool alignOf(AlignofExpression& node, int64_t& out) override { out = alignofValue(node); return true; }
     // _Complex support (complex types are struct _Complex_float/_Complex_int)
     std::string complexKindOf(Expression* e);
     bool isAggCopyParam(Expression* e);
