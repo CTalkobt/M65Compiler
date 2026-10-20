@@ -221,6 +221,9 @@ private:
     // Compile-time value of a constant arithmetic expression (float or int
     // literals, unary +/-, + - * /, casts) for static initializers
     bool evalConstFloat(Expression* e, double& out);
+    // sizeof as a compile-time constant (not of a variable-length array or
+    // a struct with run-time member sizes): a static initializer's value
+    bool constSizeof(SizeofExpression& node, int64_t& out);
     // _Complex support (complex types are struct _Complex_float/_Complex_int)
     std::string complexKindOf(Expression* e);
     bool isAggCopyParam(Expression* e);
