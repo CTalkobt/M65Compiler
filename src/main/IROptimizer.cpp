@@ -1,3 +1,4 @@
+#include <functional>
 #include <optional>
 #include "IROptimizer.hpp"
 #include <algorithm>
@@ -50,9 +51,11 @@ struct ExprKey {
     Type type;
     uint8_t byteWidth;
     std::string name;
+    int elemOffset = 0;   // ADDR_ELEM / LOAD: bytes added to a global base
+    std::string base;     // LOAD: the global its address is in (#320)
 
     bool operator==(const ExprKey& o) const {
-        return op == o.op &&
+        return op == o.op && elemOffset == o.elemOffset &&
                src1.kind == o.src1.kind && src1.vregId == o.src1.vregId && src1.immVal == o.src1.immVal && src1.name == o.src1.name &&
                src2.kind == o.src2.kind && src2.vregId == o.src2.vregId && src2.immVal == o.src2.immVal && src2.name == o.src2.name &&
                type == o.type &&
@@ -60,6 +63,24 @@ struct ExprKey {
                name == o.name;
     }
 };
+
+bool isCSECandidate(Op op);
+
+// Instructions that never write memory (#320: loads of globals stay valid
+// across them); anything else may
+bool memoryNeutral(Op op) {
+    if (isCSECandidate(op)) return true;
+    switch (op) {
+        case Op::CONST: case Op::FCONST: case Op::LOAD: case Op::LOAD_ZP: case Op::ADDR_LOCAL:
+        case Op::ADDR_UPLEVEL: case Op::BFEXT: case Op::BFINS: case Op::COPY: case Op::DEREF: case Op::BR:
+        case Op::BR_COND: case Op::SWITCH: case Op::RET: case Op::RET_VOID: case Op::PHI: case Op::GET_FP:
+        case Op::NOP: case Op::CPU_REG_READ: case Op::CPU_FLAG_READ: case Op::FADD: case Op::FSUB:
+        case Op::FMUL: case Op::FDIV: case Op::FCMP: case Op::FNEG: case Op::FTOI: case Op::ITOF:
+            return true;
+        default:
+            return false;
+    }
+}
 
 bool isCSECandidate(Op op) {
     switch (op) {
@@ -210,6 +231,45 @@ void optimizeCSE(Module& mod) {
     for (auto& fn : mod.functions) {
         if (!runOn(fn, "CommonSubexprElim")) continue;
         const auto& slots = fn.localSlotVregs;
+        // The global an address is in (#320): @g, addr_global @g, addr_elem
+        // of @g, a pointer added to one of those, through temporaries defined
+        // once; "#" for a local's (no global changes through it), "" unknown.
+        // A load from a global not declared volatile can be reused until a
+        // store into the same global (or through an unknown pointer, a call,
+        // asm) -- distinct objects do not overlap in C
+        std::map<uint32_t, int> nDefs;
+        std::map<uint32_t, const Inst*> defOf;
+        for (const auto& b : fn.blocks)
+            for (const auto& in : b.insts)
+                if (in.dest.isVreg()) { nDefs[in.dest.vregId]++; defOf[in.dest.vregId] = &in; }
+        auto isVolatileGlobal = [&](const std::string& g) {
+            if (mod.volatileGlobals.count(g)) return true;
+            size_t at = g.rfind("__local_");    // a function's static local (_<f>__local_<name>)
+            return at != std::string::npos && mod.volatileGlobals.count("_" + g.substr(at + 8));
+        };
+        std::function<std::string(const Operand&, int)> baseOf = [&](const Operand& o, int depth) -> std::string {
+            if (o.kind == OperandKind::GLOBAL) return o.name;
+            if (!o.isVreg() || depth > 8 || slots.count(o.vregId) || fn.memoryVregs.count(o.vregId)) return "";
+            auto n = nDefs.find(o.vregId);
+            if (n == nDefs.end() || n->second != 1) return "";
+            const Inst& d = *defOf[o.vregId];
+            switch (d.op) {
+                case Op::ADDR_GLOBAL: return d.src1.name;
+                case Op::ADDR_LOCAL: return "#";
+                case Op::ADDR_ELEM: case Op::COPY: return baseOf(d.src1, depth + 1);
+                case Op::ADD: case Op::SUB:
+                    return d.resultType == Type::PTR ? baseOf(d.src1, depth + 1) : "";
+                default: return "";
+            }
+        };
+        // a store's effect on loads of globals: the global it writes ("#": none), "" any
+        auto storeBase = [&](const Inst& in) -> std::string {
+            if ((in.op == Op::STORE || in.op == Op::STORE_ZP) && in.src2.isVreg() && slots.count(in.src2.vregId) &&
+                !fn.memoryVregs.count(in.src2.vregId))
+                return "#";
+            if (in.op == Op::STORE) return baseOf(in.src2, 0);
+            return "";
+        };
         // Extended blocks: a block whose one predecessor is the block before
         // it in the list starts with that block's expressions and copies
         // (an address computed before an if is reused in it: map[y][x]). Its
@@ -300,8 +360,16 @@ void optimizeCSE(Module& mod) {
         // whether it writes memory (a store elsewhere, a call, asm)
         std::vector<std::set<uint32_t>> blockDefs(nb);
         std::vector<bool> blockMem(nb, false), blockMemPure(nb, false);
+        // the globals each block stores into, or memory it may write anywhere
+        std::vector<std::set<std::string>> blockStores(nb);
+        std::vector<bool> blockAnyStore(nb, false);
         for (size_t b = 0; b < nb; b++)
             for (const auto& in : fn.blocks[b].insts) {
+                if (!memoryNeutral(in.op) && !purityOf(mod, in)) {
+                    std::string sb = storeBase(in);
+                    if (sb.empty()) blockAnyStore[b] = true;
+                    else if (sb != "#") blockStores[b].insert(sb);
+                }
                 if (in.dest.isVreg()) blockDefs[b].insert(in.dest.vregId);
                 bool st = in.op == Op::STORE || in.op == Op::STORE_ZP;
                 if (st && in.src2.isVreg() && slots.count(in.src2.vregId)) {
@@ -353,7 +421,8 @@ void optimizeCSE(Module& mod) {
                     for (size_t p2 : predSet[x]) if (p2 != D && !bwd[p2]) { bwd[p2] = true; todo.push_back(p2); }
                 }
                 std::set<uint32_t> killed;
-                bool mem = false, memPure = false;
+                bool mem = false, memPure = false, anyStore = false;
+                std::set<std::string> stored;
                 for (size_t x = 0; x < nb; x++) {
                     if (x == D || !fwd[x] || !bwd[x]) continue;
                     // (blockIdx itself only when a path from it comes back)
@@ -365,6 +434,8 @@ void optimizeCSE(Module& mod) {
                     killed.insert(blockDefs[x].begin(), blockDefs[x].end());
                     mem = mem || blockMem[x];
                     memPure = memPure || blockMemPure[x];
+                    anyStore = anyStore || blockAnyStore[x];
+                    stored.insert(blockStores[x].begin(), blockStores[x].end());
                 }
                 auto alive = [&](const Operand& o) {
                     if (!o.isVreg()) return true;
@@ -384,9 +455,10 @@ void optimizeCSE(Module& mod) {
                     // (measured on vim2 and the library: carrying cheap ones
                     // too, or only from a direct predecessor, is larger)
                     if (!(o == Op::MUL || o == Op::MUL_U || o == Op::ADDR_ELEM || o == Op::DIV ||
-                          o == Op::DIV_U || o == Op::MOD || o == Op::MOD_U))
+                          o == Op::DIV_U || o == Op::MOD || o == Op::MOD_U || o == Op::LOAD))
                         continue;
-                    if ((o == Op::LOAD || o == Op::LOAD_ZP) && mem) continue;
+                    // a load of a global: nothing on the way wrote it (#320)
+                    if (o == Op::LOAD && (anyStore || stored.count(e.first.base))) continue;
                     if (alive(e.first.src1) && alive(e.first.src2) && alive(e.second)) activeExprs.push_back(e);
                 }
             }
@@ -415,7 +487,8 @@ void optimizeCSE(Module& mod) {
                 for (uint32_t v : slots) invalidate(v);
             };
 
-            for (auto& inst : block.insts) {
+            for (size_t instIdx = 0; instIdx < block.insts.size(); instIdx++) {
+                auto& inst = block.insts[instIdx];
                 // 1. Apply copy propagation to operands. A variable's slot vreg
                 // as the address of a LOAD/STORE (or ADDR_LOCAL's operand) names
                 // the variable itself, so a copy of it is not propagated there
@@ -446,13 +519,21 @@ void optimizeCSE(Module& mod) {
                         activeCalls.erase(std::remove_if(activeCalls.begin(), activeCalls.end(),
                             [](const PureCall& c) { return c.purity < 2; }), activeCalls.end());
                     
-                    activeExprs.erase(
-                        std::remove_if(activeExprs.begin(), activeExprs.end(),
-                                       [](const auto& pair) {
-                                           return pair.first.op == Op::LOAD || pair.first.op == Op::LOAD_ZP;
-                                       }),
-                        activeExprs.end()
-                    );
+                }
+                // loads of globals: a store into one forgets those of that
+                // global only (#320), a store into a local none; anything
+                // else that may write memory forgets them all
+                if (!memoryNeutral(inst.op) && !purity) {
+                    std::string sb = storeBase(inst);
+                    if (sb != "#")
+                        activeExprs.erase(std::remove_if(activeExprs.begin(), activeExprs.end(), [&](const auto& pair) {
+                            return pair.first.op == Op::LOAD && (sb.empty() || pair.first.base == sb);
+                        }), activeExprs.end());
+                }
+                if ((inst.op == Op::STORE || inst.op == Op::STORE_ZP ||
+                     inst.op == Op::CALL || inst.op == Op::CALL_INDIRECT || inst.op == Op::CALL_VOID ||
+                     inst.op == Op::ASM_INLINE || inst.op == Op::CPU_REG_WRITE || inst.op == Op::CPU_FLAG_WRITE) &&
+                    !purity) {
                     // A STORE to a slot vreg assigns that variable
                     if ((inst.op == Op::STORE || inst.op == Op::STORE_ZP) && inst.src2.isVreg() &&
                         slots.count(inst.src2.vregId))
@@ -508,8 +589,23 @@ void optimizeCSE(Module& mod) {
                     continue;
                 }
 
-                // 4. Try to match expression for CSE
-                if (isCSECandidate(inst.op) && inst.dest.isVreg()) {
+                // 4. Try to match expression for CSE (a load: from a global
+                // not declared volatile, #320)
+                std::string loadBase;
+                if (inst.op == Op::LOAD && inst.dest.isVreg() && !slots.count(inst.dest.vregId) &&
+                    !fn.memoryVregs.count(inst.dest.vregId) && inst.args.empty()) {
+                    loadBase = baseOf(inst.src1, 0);
+                    if (loadBase == "#" || isVolatileGlobal(loadBase)) loadBase.clear();
+                    // a read-modify-write (x--, x += k: the same address stored
+                    // later in the block) loads afresh, so it can update in place
+                    for (size_t k = instIdx + 1; k < block.insts.size() && !loadBase.empty(); k++) {
+                        const Inst& later = block.insts[k];
+                        if ((later.op == Op::STORE || later.op == Op::STORE_ZP) && sameOperand(later.src2, inst.src1) &&
+                            later.elemOffset == inst.elemOffset)
+                            loadBase.clear();
+                    }
+                }
+                if ((isCSECandidate(inst.op) || !loadBase.empty()) && inst.dest.isVreg()) {
                     ExprKey key;
                     key.op = inst.op;
                     // (a constant operand by its value: each use has its own
@@ -518,6 +614,8 @@ void optimizeCSE(Module& mod) {
                     key.src2 = argKey(inst.src2);
                     key.type = inst.resultType;
                     key.byteWidth = inst.resultByteWidth;
+                    key.elemOffset = inst.elemOffset;
+                    key.base = loadBase;
                     
                     // If call or memory-indexed, carry label or symbol info
                     if (inst.op == Op::ADDR_GLOBAL || inst.op == Op::ADDR_LABEL) {

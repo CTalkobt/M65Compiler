@@ -307,6 +307,8 @@ struct Module {
     // __pure / __attribute__((pure)) functions: 1; __attribute__((const)):
     // 2 (calls with the same arguments give the same result; Issue #76)
     std::map<std::string, int> pureFunctions;
+    // globals declared volatile ("_name"): CSE never reuses a load of one (#320)
+    std::set<std::string> volatileGlobals;
 
     // Global variable declarations (for ADDR_GLOBAL references)
     struct GlobalVar {

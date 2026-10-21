@@ -4,6 +4,25 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: loads of a global reused across stores to other globals (Issue #320)
+
+- CSE never reused a load: `x[c]` read six times in pfest's `mux_commit`
+  was loaded six times, between stores to other arrays. A load from a
+  global not declared `volatile` (through `@g`, an element of it, or a
+  pointer derived from it) is now reused until something may write that
+  global: a store into it, a store through an unknown pointer, a call,
+  asm, or any instruction not known to leave memory alone. Stores into
+  other globals or locals leave it; a read-modify-write (`x--`) loads
+  afresh, so it still updates in place; it carries from a dominating block
+  across `?:` diamonds that do not write it. `Module::volatileGlobals`
+  keeps loads of `volatile` globals (and static locals) apart.
+- The CSE key of an element address now includes its constant offset.
+- pfest 958 bytes smaller (471 in the program, 487 in its overlays), vim2's
+  code 446.
+- Test `test_load_reuse_xemu.c` (reused, read again after a store into the
+  same array, through pointers, after a call, across `?:`, a struct
+  member, a volatile global read twice).
+
 ### cc45: static-allocation locals never live together share storage (Issue #324)
 
 - Every frame vreg of a SAC function had a slot of its own in the

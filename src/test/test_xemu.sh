@@ -2690,6 +2690,23 @@ for ssmode in "zp|-fno-zp-locals|lib/build/c45.lib" "stack|-fno-zpcall -fno-zp-l
     fi
 done
 
+# Test: CSE reuses loads of a global across stores to other globals (#320),
+# loads again after a store into the same one, through a pointer, a call;
+# a volatile global is read each time (tick_twice reads _tick twice)
+for lrmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r lrname lrflags <<< "$lrmode"
+    echo "Testing test_load_reuse_xemu.c ($lrname)..."
+    lrprg="build/test/test_load_reuse_${lrname}_xemu.prg"
+    if compile_link_test "src/test-resources/test_load_reuse_xemu.c" "$lrprg" "$lrflags" &&
+       $CC $lrflags -S src/test-resources/test_load_reuse_xemu.c -o "${lrprg%.prg}.s45" 2>/dev/null &&
+       [ "$(sed -n '/proc _tick_twice/,/endproc/p' "${lrprg%.prg}.s45" | grep -cE '(lda|adc|ldx|ldy) _tick')" -ge 2 ]; then
+        run_xemu_test "test_load_reuse_$lrname" "$lrprg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_load_reuse_xemu.c $lrname (build failed, or tick_twice reads _tick once)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: GCC statement expressions ({ stmt; ...; expr; })
 for semode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r sename seflags <<< "$semode"

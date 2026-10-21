@@ -32,6 +32,9 @@ void IRBuilder::generate(TranslationUnit& unit) {
     registerAllStructDefinitions(unit);
 
     unit.accept(*this);
+    // what was declared volatile (by name: a local of the same name only
+    // makes CSE keep more loads)
+    for (const auto& n : volatileNames_) module_.volatileGlobals.insert("_" + n);
     // Eliminate unused static functions (iterative — handles call chains)
     {
         bool changed = true;
