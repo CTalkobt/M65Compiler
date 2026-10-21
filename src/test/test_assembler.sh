@@ -651,6 +651,112 @@ else
     failed=$((failed + 1))
 fi
 
+# ... over branches and labels (#321): removed when every path writes X (and
+# the N/Z flags) before reading it ($11: both arms load X; $12: ldax #v;
+# $13: a loop's exit and its back edge both write X); kept when one path
+# reads X ($21), when a branch reads the flags it set ($22), at a call or
+# return ($23, $24), at a jump to a label not in the file ($25), at a
+# label with an offset ($26), across a .segment ($27), at an X-indexed
+# operand ($28)
+cat > build/test_deadldx2.s45 << 'END'
+    .extern far_label
+    .global x1, x2, x3, k1, k2, k3, k4, k5, k6, k7, k8, tbl
+    .segment "code"
+    proc x1
+    ldx #$11
+    lda $10
+    beq @a
+    ldx #2
+    bra @b
+@a: ldx #3
+@b: stx $20
+    rts
+    endproc
+    proc x2
+    ldx #$12
+    sta $14
+    ldax #tbl
+    rts
+    endproc
+    proc x3
+    ldx #$13
+@l: lda $10
+    ldx #4
+    stx $21
+    dec $10
+    bne @l
+    ldx #5
+    rts
+    endproc
+    proc k1
+    ldx #$21
+    lda $10
+    beq @a
+    ldx #2
+@a: stx $20
+    rts
+    endproc
+    proc k2
+    ldx #$22
+    beq @a
+    lda #1
+@a: ldx #2
+    rts
+    endproc
+    proc k3
+    ldx #$23
+    jsr x1
+    ldx #0
+    rts
+    endproc
+    proc k4
+    lda #1
+    ldx #$24
+    rts
+    endproc
+    proc k5
+    ldx #$25
+    lda $10
+    beq @n
+    jmp far_label
+@n: ldx #2
+    rts
+    endproc
+    proc k6
+    ldx #$26
+    lda $10
+    beq k6+2
+    ldx #2
+    rts
+    endproc
+    proc k7
+    ldx #$27
+    .segment "data"
+    .byte 1
+    .segment "code"
+    ldx #2
+    rts
+    endproc
+    proc k8
+    ldx #$28
+    lda tbl,x
+    ldx #2
+    rts
+    endproc
+tbl: .byte 0, 0
+END
+D=$($AS -c build/test_deadldx2.s45 -o build/test_deadldx2.o45 2>&1 >/dev/null && ./bin/objdump45 -d build/test_deadldx2.o45)
+dl_ok=1
+for v in 11 12 13; do grep -q "ldx.*#\$$v\b" <<< "$D" && dl_ok=0; done
+for v in 21 22 23 24 25 26 27 28; do grep -q "ldx.*#\$$v\b" <<< "$D" || dl_ok=0; done
+if [ $dl_ok -eq 1 ]; then
+    echo "SUCCESS: dead LDX over branches and labels: removed when dead on every path, kept otherwise"
+    passed=$((passed + 1))
+else
+    echo "FAIL: dead LDX over branches and labels ($(grep 'ldx' <<< "$D" | tr -s ' \t' ' ' | tr '\n' ';'))"
+    failed=$((failed + 1))
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All assembler feature tests passed!"
     exit 0

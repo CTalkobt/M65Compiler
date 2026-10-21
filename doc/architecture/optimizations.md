@@ -368,7 +368,7 @@ order after `-O`). `-Roptimizer` prints every change
 | `DeadStore` | `dead-store` | Removes dead `STW.SP` stores |
 | `CmpElimination` | `cmp-elim` | Removes `CMP #0` when flags already reflect the value — not when the carry it sets is read (`BCC`/`BCS` in the branches that follow, or `ADC`/`SBC`/`ROL`/`ROR`/`PHP` after them) |
 | `FCmpOpt` | `fcmp-opt` | Float compare result tests (`CMP #$FF` → `BMI`/`BPL`) |
-| `RedundantLoad` | `redundant-load` | Removes `LDA/LDX/LDY/LDZ` when the register already holds the value, unless its N/Z may be read (the flags reflect another value and a branch, `PHP`, jump, return or call may read them) |
+| `RedundantLoad` | `redundant-load` | Removes `LDA/LDX/LDY/LDZ` when the register already holds the value, unless its N/Z may be read (the flags reflect another value and a branch, `PHP`, jump, return or call may read them). Also removes an `LDX #imm` (cc45's zero extension of a byte used as a byte) when neither X nor the N/Z flags it sets are read on any path before they are written again: a liveness of X and N/Z over the file's statements, following branches and jumps to its labels; a call, return, simulated instruction (but `ldax #v`), Q instruction (but `ldq`), X-indexed operand, jump through a pointer or to a label not in the file, data or `.segment` counts as reading both (#321; pfest: 214 fewer, 434 bytes) |
 | `StoreLoadPair` | `store-load-pair` | Store/load pair simplification on ZP |
 | `PreserveXSP`, `TSXRedundant` | `preserve-x-sp`, `tsx-redundant` | Avoid reloading X from SP |
 | `TailDedup` | `tail-dedup`, `tail-dedup-suffix` | Merges identical tail sequences |
