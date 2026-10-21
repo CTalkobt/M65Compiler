@@ -168,7 +168,9 @@ void far_policy_first_fit(void);
  * far_malloc_long, and after banks 4 and 5 for far_malloc_current with the
  * first-fit and round-robin policies. It checks that the memory is there
  * (not every board or emulator has it) and returns the bytes it took, 0 when
- * there is none. Attic RAM is slower than chip RAM and reached only through
+ * there is none. The code overlays ln45 keeps in attic RAM
+ * (--overlay-store) are left out: the range is cut to its larger side of
+ * them. Attic RAM is slower than chip RAM and reached only through
  * far_* / DMA.
  *
  * A buddy allocator: a block is a power of two, at least a granule of

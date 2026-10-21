@@ -1085,16 +1085,35 @@ bool O45Linker::resolveSymbols(std::string& errorMsg) {
         for (int k = 0; k < 6; k++) def("__ovl_table" + std::to_string(k), ovlTableAddr_[k]);
         def("__ovl_file", ovlFileAddr_);
         // the far memory the overlay files take (C: __ovl_store_bank, ...,
-        // __ovl_store2_bank, ... for a second bank): far_malloc leaves it alone
+        // __ovl_store2_bank, ... in banks 4 and 5, where far_malloc hands
+        // memory out; __ovl_attic_bank, _first, _last_bank, _last: from the
+        // first attic RAM file to the end of the last, which far_attic_init
+        // leaves out): far_malloc leaves them alone
+        std::map<uint32_t, std::pair<uint32_t, uint32_t>> inBank;
+        uint32_t atticFirst = 0, atticEnd = 0;
+        for (size_t f = 0; f < ovlFileRange_.size(); f++) {
+            uint32_t first = ovlFileRange_[f].first, end = std::max(ovlFileEnd_[f], first + 1);
+            if (first >= 0x8000000) {
+                if (!atticEnd || first < atticFirst) atticFirst = first;
+                atticEnd = std::max(atticEnd, end);
+            } else if ((first >> 16) >= 4) {
+                auto [it, fresh] = inBank.insert({first >> 16, {first, end}});
+                if (!fresh) it->second = {std::min(it->second.first, first), std::max(it->second.second, end)};
+            }
+        }
+        auto bank = inBank.begin();
         for (size_t r = 0; r < 2; r++) {
             std::string k = r ? "2" : "";
-            bool used = r < ovlStores_.size() && r < ovlStoreEnd_.size() && (r == 0 || ovlStoreEnd_[r] > ovlStores_[r].first);
-            uint32_t first = used ? ovlStores_[r].first : 0;
-            uint32_t end = used ? std::max(ovlStoreEnd_[r], first + 1) : 1;
-            def("___ovl_store" + k + "_bank", used ? first >> 16 : 0);
-            def("___ovl_store" + k + "_first", first & 0xFFFF);
-            def("___ovl_store" + k + "_last", used ? (end - 1) & 0xFFFF : 0);
+            bool used = bank != inBank.end();
+            def("___ovl_store" + k + "_bank", used ? bank->first : 0);
+            def("___ovl_store" + k + "_first", used ? bank->second.first & 0xFFFF : 0);
+            def("___ovl_store" + k + "_last", used ? (bank->second.second - 1) & 0xFFFF : 0);
+            if (used) ++bank;
         }
+        def("___ovl_attic_bank", atticEnd ? atticFirst >> 16 : 0);
+        def("___ovl_attic_first", atticEnd ? atticFirst & 0xFFFF : 0);
+        def("___ovl_attic_last_bank", atticEnd ? (atticEnd - 1) >> 16 : 0);
+        def("___ovl_attic_last", atticEnd ? (atticEnd - 1) & 0xFFFF : 0);
         if (ovlMap_) {
             // the heap starts above the window ($8000)
             auto hs = globalSymbols_.find("__heap_start");
@@ -2916,12 +2935,26 @@ bool O45Linker::generateOverlayStubs(std::string& errorMsg) {
         return false;
     }
     std::vector<std::vector<uint8_t>> stripe(6);
-    // each overlay in the first range it fits in (first fit; never across a
-    // bank): a file per range up to the last one used
+    // the ranges split where a bank ends: a file holds one bank's part (its
+    // load address is 16 bits)
+    std::vector<std::pair<uint32_t, uint32_t>> parts;
+    bool attic = false;
+    for (const auto& [first, last] : ovlStores_)
+        for (uint32_t p = first; p <= last; p = (p | 0xFFFF) + 1) {
+            parts.push_back({p, std::min(last, p | 0xFFFF)});
+            attic |= p >= 0x8000000;
+        }
+    if (attic && ovlMap_) {
+        errorMsg = std::string("code overlays: attic RAM (--overlay-store) holds copied overlays only: MAP reaches the "
+                               "first megabyte (") + (hasFar_ ? "__far functions are mapped" : "--overlay-map") + ")";
+        return false;
+    }
+    // each overlay in the first part it fits in (first fit; never across a
+    // bank)
     std::vector<uint32_t> cur;
-    for (const auto& r : ovlStores_) cur.push_back(r.first);
+    for (const auto& r : parts) cur.push_back(r.first);
     ovlAt_.clear();
-    ovlFileOf_.clear();
+    std::vector<size_t> partOf;
     uint8_t loMask = 0, hiMask = 0;   // the window's blocks
     for (uint32_t b = ovlBase_ >> 13; ovlMap_ && b < ((ovlBase_ + ovlSize_ + 0x1FFF) >> 13); b++)
         (b < 4 ? loMask : hiMask) |= (uint8_t)(1 << (b & 3));
@@ -2931,25 +2964,27 @@ bool O45Linker::generateOverlayStubs(std::string& errorMsg) {
         uint32_t at = 0;
         for (; r < cur.size(); r++) {
             at = ovlMap_ ? (cur[r] + 0xFF) & ~0xFFu : cur[r];   // (MAP offsets are whole pages)
-            if (at + img.size() <= (uint64_t)ovlStores_[r].second + 1) break;
+            if (at + img.size() <= (uint64_t)parts[r].second + 1) break;
         }
         if (r == cur.size()) {
             uint32_t room = 0;
-            for (size_t k = 0; k < cur.size(); k++) room += ovlStores_[k].second + 1 - cur[k];
+            for (size_t k = 0; k < cur.size(); k++) room += parts[k].second + 1 - cur[k];
             errorMsg = "code overlays: overlay " + ovlNames_[i] + " (" + std::to_string(img.size()) +
                        " bytes) does not fit in the overlay store (" + std::to_string(room) + " bytes left in " +
                        std::to_string(cur.size()) + (cur.size() == 1 ? " bank" : " banks") + ")";
-            if (cur.size() == 1 && (ovlStores_[0].first >> 16) < 5) {
+            if (cur.size() == 1 && (parts[0].first >> 16) < 5) {
                 char b[160];
                 snprintf(b, sizeof(b), "; the next bank as a second range: --overlay-store=0x%X-0x%X,0x%X0000-0x%XFFFF",
-                         ovlStores_[0].first, ovlStores_[0].second, (ovlStores_[0].first >> 16) + 1, (ovlStores_[0].first >> 16) + 1);
+                         parts[0].first, parts[0].second, (parts[0].first >> 16) + 1, (parts[0].first >> 16) + 1);
                 errorMsg += b;
+            } else if (!ovlMap_ && !attic) {
+                errorMsg += "; attic RAM as a range too: --overlay-store=...,0x8000000-0x803FFFF";
             }
             return false;
         }
         cur[r] = at + (uint32_t)img.size();
         ovlAt_.push_back(at);
-        ovlFileOf_.push_back((int)r);
+        partOf.push_back(r);
         uint8_t e[6];
         if (ovlMap_) {
             uint32_t off = at - ovlBase_;   // CPU address + offset = where it is kept
@@ -2968,20 +3003,53 @@ bool O45Linker::generateOverlayStubs(std::string& errorMsg) {
     }
     // (the description is a file of its own, never loaded: only the code
     // counts)
-    ovlStoreEnd_ = cur;
-    size_t nfiles = 1;
-    for (int r : ovlFileOf_) nfiles = std::max(nfiles, (size_t)r + 1);
+    // a file per part that holds overlays, numbered in the parts' order
+    // (one at least: the first part's, maybe empty)
+    std::vector<int> fileOf(parts.size(), -1);
+    ovlFileRange_.clear();
+    ovlFileEnd_.clear();
+    for (size_t r = 0; r < parts.size(); r++)
+        if (cur[r] > parts[r].first) {
+            fileOf[r] = (int)ovlFileRange_.size();
+            ovlFileRange_.push_back(parts[r]);
+            ovlFileEnd_.push_back(cur[r]);
+        }
+    if (ovlFileRange_.empty()) {
+        fileOf[0] = 0;
+        ovlFileRange_.push_back(parts[0]);
+        ovlFileEnd_.push_back(cur[0]);
+    }
+    ovlFileOf_.clear();
+    for (size_t r : partOf) ovlFileOf_.push_back(fileOf[r]);
+    size_t nfiles = ovlFileRange_.size();
     std::string name = ovlFileNameOf(0);
     if (nfiles > 1 && (name.back() < '0' || name.back() + (int)nfiles - 1 > '9')) {
         errorMsg = "code overlays: " + std::to_string(nfiles) + " overlay files: the name ('" + name +
                    "', --overlay-name) must end in a digit the others count up from (" + name.substr(0, name.size() - 1) + "1)";
         return false;
     }
-    // __ovl_file: the first file's bank, the number of files, the name
+    // __ovl_file: the number of files, the name's length, the name, then a
+    // record of 8 bytes per file in the order __ovl_init loads them (attic
+    // RAM's first: they go through the staging bank, which chip RAM's may
+    // use): the name's last character, the bank it is loaded into, attic
+    // RAM's megabyte ($80-$87; 0: chip RAM, no copy) and bank it is copied
+    // to, its address in the bank (bits 0-15, both) and the length
     globalSymbols_["__ovl_file"] = textBase_ + (uint32_t)t.size();
-    t.push_back((ovlStores_[0].first >> 16) & 0xFF); t.push_back((uint8_t)nfiles);
+    t.push_back((uint8_t)nfiles);
     t.push_back((uint8_t)name.size());
     for (char c : name) t.push_back((uint8_t)c);
+    for (int pass = 0; pass < 2; pass++)
+        for (size_t f = 0; f < nfiles; f++) {
+            uint32_t first = ovlFileRange_[f].first, len = ovlFileEnd_[f] - first;
+            bool up = first >= 0x8000000;
+            if (up != (pass == 0)) continue;
+            t.push_back((uint8_t)ovlFileNameOf(f).back());
+            t.push_back(up ? (uint8_t)ovlStaging_ : (uint8_t)(first >> 16));
+            t.push_back(up ? (uint8_t)(first >> 20) : 0);
+            t.push_back((first >> 16) & 0x0F);
+            t.push_back(first & 0xFF); t.push_back((first >> 8) & 0xFF);
+            t.push_back(len & 0xFF); t.push_back((len >> 8) & 0xFF);
+        }
     for (int k = 0; k < 6; k++) ovlTableAddr_[k] = globalSymbols_["__ovl_table" + std::to_string(k)];
     for (const auto* s2 : {"__ovl_table0", "__ovl_table1", "__ovl_table2", "__ovl_table3", "__ovl_table4",
                            "__ovl_table5", "__ovl_file"}) { symbolSource_[s2] = "<linker>"; symbolWeak_[s2] = false; }
@@ -2995,16 +3063,15 @@ void O45Linker::buildOverlayFile() {
     if (ovlNames_.empty()) return;
     // a file per range up to the last one used: its start's low 16 bits,
     // then its overlays (in address order: first fit appends)
-    size_t nfiles = 1;
-    for (int r : ovlFileOf_) nfiles = std::max(nfiles, (size_t)r + 1);
+    size_t nfiles = ovlFileRange_.size();
     ovlFiles_.resize(nfiles);
     for (size_t r = 0; r < nfiles; r++) {
-        ovlFiles_[r].push_back(ovlStores_[r].first & 0xFF);
-        ovlFiles_[r].push_back((ovlStores_[r].first >> 8) & 0xFF);
+        ovlFiles_[r].push_back(ovlFileRange_[r].first & 0xFF);
+        ovlFiles_[r].push_back((ovlFileRange_[r].first >> 8) & 0xFF);
     }
     for (size_t i = 0; i < ovlText_.size(); i++) {
         auto& f = ovlFiles_[ovlFileOf_[i]];
-        uint32_t start = ovlStores_[ovlFileOf_[i]].first;
+        uint32_t start = ovlFileRange_[ovlFileOf_[i]].first;
         // (mapped overlays start on a page: zeros between them)
         while (start + f.size() - 2 < ovlAt_[i]) f.push_back(0);
         f.insert(f.end(), ovlText_[i].begin(), ovlText_[i].end());
@@ -3016,7 +3083,7 @@ void O45Linker::buildOverlayFile() {
     d.mapped = ovlMap_;
     for (size_t i = 0; i < ovlText_.size(); i++)
         d.overlays.push_back({ovlNames_[i], ovlAt_[i], (uint32_t)ovlText_[i].size(), ovlFileOf_[i] + 1,
-                              2 + (ovlAt_[i] - ovlStores_[ovlFileOf_[i]].first)});
+                              2 + (ovlAt_[i] - ovlFileRange_[ovlFileOf_[i]].first)});
     for (const auto& [name, k] : symOvl_) {
         if (!k || name.rfind("cc45.", 0) == 0) continue;
         auto a = realAddr_.find(name);
@@ -3420,8 +3487,14 @@ void O45Linker::writeMap(std::ostream& out) const {
             out << buf;
         }
         for (size_t r = 0; r < ovlFiles_.size(); r++) {
-            snprintf(buf, sizeof(buf), "    (file %s, %zu bytes, loaded into %s at start)\n",
-                     ovlFileNameOf(r).c_str(), ovlFiles_[r].size(), far(ovlStores_[r].first).c_str());
+            uint32_t first = ovlFileRange_[r].first;
+            if (first >= 0x8000000)
+                snprintf(buf, sizeof(buf), "    (file %s, %zu bytes, loaded into %s at start, copied to attic RAM $%07X)\n",
+                         ovlFileNameOf(r).c_str(), ovlFiles_[r].size(),
+                         far(((uint32_t)ovlStaging_ << 16) | (first & 0xFFFF)).c_str(), first);
+            else
+                snprintf(buf, sizeof(buf), "    (file %s, %zu bytes, loaded into %s at start)\n",
+                         ovlFileNameOf(r).c_str(), ovlFiles_[r].size(), far(first).c_str());
             out << buf;
         }
     }

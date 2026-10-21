@@ -1549,9 +1549,13 @@ done
 # (and in two banks, two files: a range in bank 4 with room for overlay a
 # only, then bank 5: OVLTEST.OV1 and OVLTEST.OV2, #299)
 OV2="--overlay-store=0x4FD40-0x4FFFF,0x50000-0x5FFFF"   # (704 bytes: a fits, a and b do not)
+# (and in attic RAM, #315: copied up from the staging bank at start; chip
+# RAM in bank 4 for a, then attic RAM, the end of a bank: two files again)
+OVA="--overlay-store=0x4FD40-0x4FFFF,0x80FFD40-0x810FFFF"
 for ovmode in "zp|$STDLIB||" "stack|$STDLIB_STACK|-fno-zpcall|" \
               "zp_map|$STDLIB||--overlay-map" "stack_map|$STDLIB_STACK|-fno-zpcall|--overlay-map" \
-              "zp_two|$STDLIB||$OV2" "stack_two_map|$STDLIB_STACK|-fno-zpcall|--overlay-map $OV2"; do
+              "zp_two|$STDLIB||$OV2" "stack_two_map|$STDLIB_STACK|-fno-zpcall|--overlay-map $OV2" \
+              "zp_attic|$STDLIB||--overlay-store=0x8000000-0x800FFFF" "stack_attic_two|$STDLIB_STACK|-fno-zpcall|$OVA"; do
     IFS='|' read -r ovname ovlib ovflags ovlink <<< "$ovmode"
     echo "Testing code overlays ($ovname)..."
     ovd=build/test/overlay_$ovname
@@ -1570,6 +1574,37 @@ for ovmode in "zp|$STDLIB||" "stack|$STDLIB_STACK|-fno-zpcall|" \
         failed=$((failed + 1))
     fi
 done
+# Code overlays kept in attic RAM (#315), loaded through bank 4
+# (--overlay-staging): both overlays come back right after far_attic_enable
+# hands out the rest of the range (all of it written), which leaves the
+# overlays out; then attic RAM with mapped overlays is a link error
+for atmode in "zp|$STDLIB|" "stack|$STDLIB_STACK|-fno-zpcall"; do
+    IFS='|' read -r atname atlib atflags <<< "$atmode"
+    echo "Testing code overlays in attic RAM ($atname)..."
+    atd=build/test/overlay_attic_$atname
+    rm -rf $atd; mkdir -p $atd
+    atok=1
+    for f in attic_main attic_x attic_y; do
+        $CC $atflags -c src/test-resources/overlay/$f.c -o $atd/$f.o45 >/dev/null 2>&1 || atok=0
+    done
+    if [ $atok = 1 ] && $LD -basic --overlay-store=0x8000000-0x803FFFF --overlay-staging=4 -o $atd/attic.prg \
+           $atd/attic_main.o45 $atd/attic_x.o45 $atd/attic_y.o45 $atlib >/dev/null 2>&1 &&
+       ./bin/disk45 create $atd/attic.d81 -n ATTIC >/dev/null 2>&1 &&
+       ./bin/disk45 add $atd/attic.d81 $atd/attic.ov1 ATTIC.OV1 >/dev/null 2>&1; then
+        run_xemu_test "test_overlay_attic_$atname" "$atd/attic.prg" "C0C0" 4 "01 01 01 AA" -8 "$PWD/$atd/attic.d81"
+    else
+        echo "FAIL: code overlays in attic RAM $atname (build or link failed)"
+        failed=$((failed + 1))
+    fi
+done
+if $LD -basic --overlay-map --overlay-store=0x8000000-0x800FFFF -o build/test/overlay_attic_zp/map.prg \
+       build/test/overlay_attic_zp/attic_main.o45 build/test/overlay_attic_zp/attic_x.o45 \
+       build/test/overlay_attic_zp/attic_y.o45 $STDLIB 2>&1 | grep -q "attic RAM .* copied overlays only"; then
+    echo "SUCCESS: mapped overlays in attic RAM are a link error"
+else
+    echo "FAIL: mapped overlays in attic RAM are not a link error"
+    failed=$((failed + 1))
+fi
 # Many code overlays (#313): ln45 writes the overlay table as six tables of
 # a byte per overlay, so __ovl_load's index is id - 1 (the 44th overlay
 # used to read other overlays' entries); 255 overlays work, copied and
@@ -1669,19 +1704,25 @@ else
     echo "FAIL: code overlay link errors ($(cat $ovd/isr.log $ovd/big.log 2>/dev/null | head -3))"
     failed=$((failed + 1))
 fi
-# the overlay store (#299): one range too small names the next bank as a
-# second range; a range across banks, a second range not in the next bank
-# and (two files) a name without a digit to count up are refused
+# the overlay store (#299, #315): one range too small names the next bank
+# as a second range; a range across banks is a file per bank; ranges
+# outside chip and attic RAM (or across both) and a staging bank that is
+# not chip RAM are refused; (two files) a name without a digit to count up
 ovd=build/test/overlay_zp
 ovs=build/test/overlay_err/store.log
+rm -f $ovd/s2.ov1 $ovd/s2.ov2
 if ! $LD -basic --overlay-store=0x4FD40 -o $ovd/s1.prg $ovd/main.o45 $ovd/ovl_a.o45 $ovd/ovl_b.o45 $STDLIB > $ovs 2>&1 &&
    grep -q "overlay b (.*does not fit in the overlay store.*--overlay-store=0x4FD40-0x4FFFF,0x50000-0x5FFFF" $ovs &&
-   ! $LD -basic --overlay-store=0x4FC00-0x50FFF -o $ovd/s2.prg $ovd/main.o45 $STDLIB > $ovs 2>&1 && grep -q "one bank" $ovs &&
-   ! $LD -basic --overlay-store=0x40000-0x4FFFF,0x30000-0x3FFFF -o $ovd/s3.prg $ovd/main.o45 $STDLIB > $ovs 2>&1 &&
-   grep -q "next bank" $ovs &&
+   $LD -basic --overlay-store=0x4FE00-0x50FFF -o $ovd/s2.prg $ovd/main.o45 $ovd/ovl_a.o45 $ovd/ovl_b.o45 $STDLIB > $ovs 2>&1 &&
+   [ -f $ovd/s2.ov1 ] && [ -f $ovd/s2.ov2 ] &&
+   ! $LD -basic --overlay-store=0x8000000-0x8800000 -o $ovd/s3.prg $ovd/main.o45 $STDLIB > $ovs 2>&1 &&
+   grep -q "attic RAM" $ovs &&
+   ! $LD -basic --overlay-store=0x50000-0x8000FFF -o $ovd/s3.prg $ovd/main.o45 $STDLIB > $ovs 2>&1 &&
+   ! $LD -basic --overlay-staging=0 -o $ovd/s3.prg $ovd/main.o45 $STDLIB > $ovs 2>&1 &&
+   grep -q "chip RAM bank" $ovs &&
    ! $LD -basic $OV2 --overlay-name=OVLX -o $ovd/s4.prg $ovd/main.o45 $ovd/ovl_a.o45 $ovd/ovl_b.o45 $STDLIB > $ovs 2>&1 &&
    grep -q "must end in a digit" $ovs; then
-    echo "SUCCESS: overlay store ranges: too small, across banks, not the next bank, a name to count up"
+    echo "SUCCESS: overlay store ranges: too small, across banks, outside chip and attic RAM, the staging bank, a name to count up"
     passed=$((passed + 1))
 else
     echo "FAIL: overlay store ranges ($(head -2 $ovs))"
@@ -2575,6 +2616,18 @@ for limode in "zp|-floop-idioms" "stack|-fno-zpcall -floop-idioms"; do
         run_xemu_test "test_loop_idiom_$liname" "$liprg" "C0C0" 6 "01 01 01 01 01 AA"
     else
         echo "FAIL: test_loop_idiom_xemu.c $liname (build failed or not 14 memmove / memset calls)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: a global's address as a condition tests all its bytes (#315)
+for acmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r acname acflags <<< "$acmode"
+    echo "Testing test_addr_cond_xemu.c ($acname)..."
+    if compile_link_test "src/test-resources/test_addr_cond_xemu.c" "build/test/test_addr_cond_${acname}_xemu.prg" "$acflags"; then
+        run_xemu_test "test_addr_cond_$acname" "build/test/test_addr_cond_${acname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
+    else
+        echo "FAIL: test_addr_cond_xemu.c $acname (compilation/linking failed)"
         failed=$((failed + 1))
     fi
 done
