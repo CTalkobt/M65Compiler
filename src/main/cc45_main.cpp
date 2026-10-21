@@ -582,7 +582,8 @@ int main(int argc, char** argv) {
             // multiplies as calls of __mul16 / __mul32 (smaller, slower)
             setenv("CC45_MUL_CALL", "1", 1);
         } else if (arg == "-fno-mul-call") {
-            unsetenv("CC45_MUL_CALL");
+            // (inline everywhere; without either, calls outside loops)
+            setenv("CC45_MUL_CALL", "0", 1);
         } else if (arg == "-fno-zp-locals") {
             // no base-page blocks ($80-$E9) for pointer variables of functions that make calls
             setenv("CC45_NO_ZP_LOCALS", "1", 1);

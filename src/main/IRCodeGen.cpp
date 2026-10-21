@@ -936,11 +936,11 @@ bool IRCodeGen::smallArrayY(const ir::Operand& base, const ir::Operand& index, i
 }
 
 // A:X *= c (the low 16 bits) without the hardware multiplier, when that is
-// no bigger than its 24 bytes: the high byte is shifted in a scratch byte
+// no bigger than limit bytes (its 24; a call of __mul16, 11): the high byte is shifted in a scratch byte
 // (asl; rol s: no pha/pla), the multiplicand's bytes kept for the adds of a
 // constant with more than one bit set. A byte value (X known 0) times 2 is
 // asl; bcc; inx. Y is kept. False: not worth it (the caller multiplies).
-bool IRCodeGen::emitMulAXConst(long c, bool xZero, const std::string& why) {
+bool IRCodeGen::emitMulAXConst(long c, bool xZero, const std::string& why, int limit) {
     c &= 0xFFFF;
     if (c == 1) return true;
     if (c == 0) { emit("lda #0", why); emit("ldx #0"); return true; }
@@ -970,7 +970,7 @@ bool IRCodeGen::emitMulAXConst(long c, bool xZero, const std::string& why) {
         return true;
     }
     int bytes = 2 + (xZero ? 0 : 2) + 2 + top * 3 + (bits - 1) * (xZero ? 8 : 11) + 2;
-    if (bytes > 24) return false;
+    if (bytes > limit) return false;
     // Horner over the bits below the top one: r = r * 2 (+ x)
     emit("sta " + X0, why + " (shifts and adds)");
     if (!xZero) emit("stx " + X1);
@@ -3601,7 +3601,11 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                     if (!canSuppress) break;
                     // Check src1
                     if (inst.src1.isVreg() && inst.src1.vregId == vid) {
-                        if (inst.op == ir::Op::LOAD && inst.args.empty() &&
+                        if ((inst.op == ir::Op::MUL || inst.op == ir::Op::MUL_U) && inst.resultType != ir::Type::I32 &&
+                            inst.resultType != ir::Type::F32 && !(inst.src1.isVreg() && inst.src2.isVreg() &&
+                            inst.src1.vregId == inst.src2.vregId)) {
+                            hasUse = true; // a factor of a 16-bit multiply (an immediate there)
+                        } else if (inst.op == ir::Op::LOAD && inst.args.empty() &&
                             inst.resultType != ir::Type::F32 && !fn.localSlotVregs.count(vid)) {
                             hasUse = true; // address of a load (absolute)
                         } else if (inst.op == ir::Op::STORE && inst.resultType != ir::Type::F32 &&
@@ -3627,7 +3631,11 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                     }
                     // Check src2: OK if STORE address (not local slot), CMP, or ADD/SUB operand
                     if (inst.src2.isVreg() && inst.src2.vregId == vid) {
-                        if (inst.op == ir::Op::STORE && !fn.localSlotVregs.count(vid)) {
+                        if ((inst.op == ir::Op::MUL || inst.op == ir::Op::MUL_U) && inst.resultType != ir::Type::I32 &&
+                            inst.resultType != ir::Type::F32 && !(inst.src1.isVreg() && inst.src2.isVreg() &&
+                            inst.src1.vregId == inst.src2.vregId)) {
+                            hasUse = true; // a factor of a 16-bit multiply (an immediate there)
+                        } else if (inst.op == ir::Op::STORE && !fn.localSlotVregs.count(vid)) {
                             hasUse = true;
                         } else if (inst.op == ir::Op::CMP_EQ || inst.op == ir::Op::CMP_NE ||
                                    inst.op == ir::Op::CMP_LT || inst.op == ir::Op::CMP_LE ||
@@ -4559,6 +4567,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // Emit blocks (with instruction index tracking for allocator queries)
     currentInstIdx_ = 0;
     currentFn_ = &fn;
+    loopBlocks_ = ir::loopBlocks(fn);
     // how often each label is a jump target (inline asm may name any: none
     // counts as single then)
     labelRefs_.clear();
@@ -5862,17 +5871,31 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
         }
 
         case ir::Op::MUL:
-        case ir::Op::MUL_U:
-            // -fmul-call (-Os): a call of __mul16 / __mul32 (divmod.s45; the
-            // multiplier in __zp_scratch2) instead of the inline multiply
-            // (24 / 50 bytes). As for division: not without a library, nor
-            // for a 32-bit multiplicand in a stack frame
-            if (relocMode_ && getenv("CC45_MUL_CALL") &&
+        case ir::Op::MUL_U: {
+            // (a factor from a suppressed CONST: its value, as an immediate)
+            ir::Inst mi = inst;
+            for (ir::Operand* o : {&mi.src1, &mi.src2})
+                if (o->isVreg() && suppressedVregs_.count(o->vregId) && vregConstVal_.count(o->vregId) &&
+                    !localSlotVregs_.count(o->vregId))
+                    *o = ir::Operand::imm(vregConstVal_[o->vregId], o->type);
+            // A call of __mul16 / __mul32 (divmod.s45; the multiplier in
+            // __zp_scratch2) instead of the inline multiply (24 / 50 bytes):
+            // -fmul-call / -Os everywhere, -fno-mul-call nowhere
+            // (CC45_MUL_CALL 1 / 0); by default outside loops (#317), where a
+            // constant factor is shifts and adds only when they are no bigger
+            // than the call. As for division: not without a library, nor for
+            // a 32-bit multiplicand in a stack frame
+            const char* mulCallEnv = getenv("CC45_MUL_CALL");
+            bool mulCallForced = mulCallEnv && mulCallEnv[0] != '0';
+            bool mulCallOk = relocMode_ &&
                 (inst.resultType == ir::Type::I16 || inst.resultType == ir::Type::PTR || inst.resultType == ir::Type::I32) &&
-                !(inst.resultType == ir::Type::I32 && inst.src1.isVreg() &&
-                  alloc_.getAlloc(inst.src1.vregId).loc == VRegAllocator::IN_FRAME && !currentFunctionUseSAC_)) {
+                !(inst.resultType == ir::Type::I32 && mi.src1.isVreg() &&
+                  alloc_.getAlloc(mi.src1.vregId).loc == VRegAllocator::IN_FRAME && !currentFunctionUseSAC_);
+            bool mulCallHere = mulCallOk && !mulCallEnv && !loopBlocks_.count(currentBlockIdx_);
+            bool constFactor = inst.resultType != ir::Type::I32 && (mi.src2.isImm() || mi.src1.isImm());
+            if (mulCallOk && (mulCallForced || (mulCallHere && !constFactor))) {
                 bool is32 = inst.resultType == ir::Type::I32;
-                std::string src2 = src2MemOperand(inst.src2);
+                std::string src2 = src2MemOperand(mi.src2);
                 int nb = is32 ? 4 : 2;
                 if (src2 != "__zp_scratch2") {
                     long long iv = 0;
@@ -5884,7 +5907,7 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                         emit("sta __zp_scratch2" + (k ? "+" + std::to_string(k) : std::string()));
                     }
                 }
-                loadOperand(inst.src1);
+                loadOperand(mi.src1);
                 std::string fnName = is32 ? "__mul32" : "__mul16";
                 emit(".extern " + fnName);
                 emit("jsr " + fnName);
@@ -5892,35 +5915,46 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                 if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
                 break;
             }
-            {
             // Signed or not: the low 16 (32) bits of a product do not depend
             // on the operands' signs, so the unsigned multiply (the hardware
             // multiplier, 24 bytes) gives them; mul.s16 (89 bytes) negated
             // around it
             // A constant factor (16 bits): shifts and adds when cheaper
-            if (inst.resultType != ir::Type::I32 && (inst.src2.isImm() || inst.src1.isImm())) {
-                const ir::Operand& v = inst.src2.isImm() ? inst.src1 : inst.src2;
-                long c = (long)(inst.src2.isImm() ? inst.src2.immVal : inst.src1.immVal);
+            if (constFactor) {
+                const ir::Operand& v = mi.src2.isImm() ? mi.src1 : mi.src2;
+                long c = (long)(mi.src2.isImm() ? mi.src2.immVal : mi.src1.immVal);
                 if (!v.isImm()) {
                     bool byteVal = v.isVreg() && alloc_.getAlloc(v.vregId).type == ir::Type::I8;
                     loadOperand(v);
                     if (byteVal) emit("ldx #0");
-                    if (!emitMulAXConst(c, byteVal, "* " + std::to_string(c)))
-                        emit("mul.16 .AX, #" + std::to_string(c & 0xFFFF));
+                    if (!emitMulAXConst(c, byteVal, "* " + std::to_string(c), mulCallHere ? 11 : 24)) {
+                        if (mulCallHere) {
+                            // (Y carries the factor: A/X hold the multiplicand)
+                            emit("ldy #" + std::to_string((int)(c & 0xFF)), "* " + std::to_string(c));
+                            emit("sty __zp_scratch2");
+                            emit("ldy #" + std::to_string((int)((c >> 8) & 0xFF)));
+                            emit("sty __zp_scratch2+1");
+                            emit(".extern __mul16");
+                            emit("jsr __mul16");
+                            ms_.invalidateAll();
+                        } else {
+                            emit("mul.16 .AX, #" + std::to_string(c & 0xFFFF));
+                        }
+                    }
                     if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
                     break;
                 }
             }
-            std::string src2 = src2MemOperand(inst.src2);
-            loadOperand(inst.src1);
+            std::string src2 = src2MemOperand(mi.src2);
+            loadOperand(mi.src1);
             if (inst.resultType == ir::Type::I32) {
                 emit("mul.32 .AXYZ, " + src2);
             } else {
                 emit("mul.16 .AX, " + src2);
             }
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
-            }
             break;
+        }
 
         case ir::Op::DIV:
         case ir::Op::DIV_U:

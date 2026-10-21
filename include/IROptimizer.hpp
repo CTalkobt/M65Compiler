@@ -58,6 +58,10 @@ void foldElemIndexOffset(Module& mod);
 void inferPurity(Module& mod);
 // the cold blocks (__unlikely branches) moved to the function's end
 void optimizeBlockReorder(Module& mod);
+// The blocks (indices) inside a loop of fn: the natural loops of its back
+// edges (a branch to a block at or before the branch's, as cc45 lays out
+// structured code)
+std::set<size_t> loopBlocks(const Function& fn);
 
     // Strength reduction: replace expensive ops with cheaper equivalents
     // (MUL by power-of-2 → LSL, DIV_U by power-of-2 → LSR, MOD_U by power-of-2 → AND)

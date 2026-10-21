@@ -492,7 +492,7 @@ private:
     // A:X = A:X * c (16 bits) by shifts and adds when that is no bigger than
     // the hardware multiplier's 24 bytes (xZero: X is known 0, a byte value);
     // false: the caller multiplies
-    bool emitMulAXConst(long c, bool xZero, const std::string& why);
+    bool emitMulAXConst(long c, bool xZero, const std::string& why, int limit = 24);
     bool justStored(uint32_t vregId) const { static bool off = getenv("CC45_NO_STORECACHE") != nullptr; return !off && storeCache_.vreg == vregId && storeCache_.seq == emitSeq_; }
     // A dropped load would have set N/Z from this register ('A' or 'X'): a
     // conditional branch or a label (fall through) gets ora #0 / inx+dex first
@@ -562,6 +562,7 @@ private:
     // pointer already set up (zpPair, yOff): true when emitted
     bool tryFusedRMW(const ir::Inst& load, const std::string& zpPair, int yOff);
     size_t currentBlockIdx_ = 0;
+    std::set<size_t> loopBlocks_;   // the current function's blocks inside a loop (ir::loopBlocks)
     size_t currentInstInBlock_ = 0; // index within current block's inst vector
 
     // Peek at the next instruction in the current block (or null if at end)

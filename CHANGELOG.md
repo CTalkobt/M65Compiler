@@ -4,6 +4,24 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: multiplies outside loops are calls of `__mul16` / `__mul32` (Issue #317)
+
+- A 16-bit multiply was the hardware-multiplier sequence inline (about 24
+  bytes; 50 for 32 bits) unless `-fmul-call` / `-Os` was given. Now a
+  multiply outside loops is a call of the library's `__mul16` /
+  `__mul32` (3-11 bytes) by default, and one inside a loop stays inline.
+  A constant factor outside loops is shifts and adds only when they are no
+  bigger than the call; otherwise the factor goes to the routine through Y
+  while A/X hold the multiplicand. `-fmul-call` makes every multiply a
+  call (as before), `-fno-mul-call` none (the old default). Loops are the
+  natural loops of the back edges (`ir::loopBlocks`).
+- A constant factor is an immediate, not a register-pool temporary copied
+  to the multiplier (`a * 1000` was 16 bytes of setup).
+- pfest: 657 bytes smaller (31,908 -> 31,434 resident, 16,802 -> 16,619 in
+  overlays); vim2 150 bytes; the C library 225. Test
+  `test_mul_loop_xemu.c` (default, `-fmul-call`, `-fno-mul-call`, both
+  conventions).
+
 ### cc45: constant decisions on typed values; `_Alignas` expressions (Issue #93, stages 4-5)
 
 - The constant folder decided `if`, `?:`, `while`, `for`, `_Static_assert`
