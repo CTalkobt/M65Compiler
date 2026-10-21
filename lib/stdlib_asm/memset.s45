@@ -1,4 +1,5 @@
-; memset.s — Fill memory with a byte value (ZP calling convention)
+; memset.s — Fill memory with a byte value (ZP calling convention), by DMA
+; (#325)
 ;
 ; void *memset(void *s, int c, int n);
 ;   Fills n bytes at address s with byte c. Returns s.
@@ -8,6 +9,7 @@
 cc45.icallinfo = 1
 
 .global _memset
+.extern __dma_mem
 
 .segment "code"
 
@@ -15,31 +17,16 @@ proc _memset
     .zp_uses $10, $11, $12, $13, $14, $15
     .zp_clobbers $10, $11, $12, $13, $14, $15
     .zp_release $12, $13, $14, $15
-    .reg_clobbers A, X, Y
+    .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z
 
-    ; s=$10/$11, c=$12 (low byte), n=$14/$15
-    ldy #0
-    lda $12             ; fill byte
-@loop:
-    ldx $15
-    bne @do
-    ldx $14
-    beq @done
-@do:
-    sta ($10),y
-    iny
-    bne @noinc
-    inc $11
-@noinc:
-    ldx $14
-    bne @declow
-    dec $15
-@declow:
-    dec $14
-    lda $12
-    bra @loop
-@done:
+    ; s=$10/$11, c=$12 (low byte: the fill job's source), n=$14/$15
+    lda $14
+    ora $15
+    beq @none               ; (a DMA length of 0 is 64 KB)
+    lda #3                  ; fill
+    jmp __dma_mem
+@none:
     lda $10
     ldx $11
     rts

@@ -1,0 +1,65 @@
+; dma_mem.s45 — memcpy, memmove and memset's DMA job (#325): bank 0, as the
+; CPU sees it (I/O at $D000-$DFFF; code overlays mapped into a window are
+; read where they are kept: __ovl_dma_fix); under the ROMs the DMA sees RAM
+;
+; __dma_mem: A = command (0 copy, 3 fill) + $30 to copy downwards (from the
+; last bytes: the F018B command's source and destination direction bits);
+; $10/$11 the destination, $12/$13 the source (fill: $12 the byte), $14/$15
+; the length (not 0). Returns $10/$11 in A/X.
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.global __dma_mem
+.extern __dma_job, __dma_start, __ovl_dma_fix
+
+.segment "code"
+proc __dma_mem
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z
+    php
+    sei
+    sta __dma_job+6         ; command and direction
+    lda #0                  ; megabyte 0 (dma_copy_far sets them)
+    sta __dma_job+2
+    sta __dma_job+4
+    ldq $12                 ; A, X: the source; Y, Z: the length
+    sta __dma_job+9
+    stx __dma_job+10
+    sty __dma_job+7
+    stz __dma_job+8
+    lda $10
+    sta __dma_job+12
+    lda $11
+    sta __dma_job+13
+    ldx #9                  ; the source, then the destination
+@addr:
+    lda #$80                ; bank 0, I/O visible
+    sta __dma_job+2,x
+    lda __dma_job+6
+    and #$30
+    beq @fix
+    clc                     ; downwards: from the last byte, + length - 1
+    lda __dma_job,x
+    adc $14
+    sta __dma_job,x
+    lda __dma_job+1,x
+    adc $15
+    sta __dma_job+1,x
+    lda __dma_job,x
+    bne @lo
+    dec __dma_job+1,x
+@lo:
+    dec __dma_job,x
+@fix:
+    jsr __ovl_dma_fix
+    inx
+    inx
+    inx
+    cpx #15
+    bne @addr
+    jmp __dma_start
+    .func_flags zp_call
+endproc

@@ -1,0 +1,45 @@
+; dma_job.s45 — the DMA job of memcpy, memmove, memset (dma_mem.s45) and
+; dma_copy_far, dma_fill_far (dma_far.s45), and its start
+;
+; An enhanced F018B job list: options ($0B F018B format, $80/$81 the source
+; and destination megabyte, $00 end), then the 12-byte job: command, length,
+; source and destination (bits 0-15, then a byte of the bank (bits 16-19)
+; and flags: $80 sees I/O at $D000-$DFFF), sub-command, modulo. (The
+; F018B command's bits 4 and 5 count the source and the destination down;
+; the F018A's bank bit 6 does not, in the F018B format.) The CPU waits for the DMA: the job is done when __dma_start
+; returns.
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.global __dma_job, __dma_start
+
+.segment "data"
+__dma_job:
+    .byte $0B, $80, 0, $81, 0, $00
+    .byte 0                 ; +6 command: 0 copy, 3 fill
+    .byte 0, 0              ; +7 length
+    .byte 0, 0, 0           ; +9 source: bits 0-15, bank and flags
+    .byte 0, 0, 0           ; +12 destination
+    .byte 0, 0, 0           ; +15 sub-command, modulo
+
+.segment "code"
+; Start the job (the caller did php / sei and filled it in: an interrupt
+; handler starting a job of its own in between would change it), plp, and
+; return $10/$11 in A/X (memcpy & co. return their first parameter)
+proc __dma_start
+    .reg_clobbers A, X
+    .flag_clobbers C, N, Z
+    lda #0
+    sta $D702               ; the list in bank 0, megabyte 0
+    sta $D704
+    lda #>__dma_job
+    sta $D701
+    lda #<__dma_job
+    sta $D705               ; start (enhanced job)
+    plp
+    lda $10
+    ldx $11
+    rts
+endproc

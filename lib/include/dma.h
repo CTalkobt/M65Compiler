@@ -20,7 +20,7 @@
  *   - val is 8-bit fill value
  *   - Not safe to use inside interrupts (uses hardware stack for job)
  *
- * dma_copy_far / dma_fill_far (the library's lib/stdlib/dma_far.c) take
+ * dma_copy_far / dma_fill_far (the library's lib/stdlib_asm/dma_far.s45) take
  * 28-bit linear addresses as unsigned long: any chip RAM ($0000000-$005FFFF;
  * $0020000-$003FFFF holds the ROM), colour RAM at $FF80000 (all of it,
  * not only the $D800 window), ... An enhanced F018B job (megabyte options)
@@ -41,8 +41,9 @@
 void __dma_copy(void *dst, const void *src, unsigned int len);
 void __dma_fill(void *dst, unsigned int len, unsigned char val);
 
-/* Library functions: 28-bit linear addresses */
-void __dma_copy_far(unsigned long dst, unsigned long src, unsigned int len);
-void __dma_fill_far(unsigned long dst, unsigned int len, unsigned char val);
+/* Library functions: 28-bit linear addresses (lib/stdlib_asm/dma_far.s45:
+   the ZP convention in either) */
+__fastcall__ void __dma_copy_far(unsigned long dst, unsigned long src, unsigned int len);
+__fastcall__ void __dma_fill_far(unsigned long dst, unsigned int len, unsigned char val);
 
 #endif /* _DMA_H */

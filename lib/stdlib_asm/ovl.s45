@@ -66,10 +66,10 @@ cc45.icall.__ovl_call = 1
 
 .global __ovl_init, __ovl_call, __ovl_ret, __ovl_load, __ovl_rom_leave, __ovl_exit
 .global __ovl_sa, __ovl_want, __ovl_tgt, __ovl_cur, ___ovl_current
-.global __ovl_jsave, __ovl_jrestore
+.global __ovl_jsave, __ovl_jrestore, __ovl_dma_fix
 .extern __ovl_region, __ovl_region_end, __ovl_file, __ovl_mapped
 .extern __ovl_table0, __ovl_table1, __ovl_table2, __ovl_table3, __ovl_table4, __ovl_table5
-.extern ___cbm_target, __rom_call, _abort
+.extern ___cbm_target, __rom_call, _abort, __dma_job
 
 OVL_DEPTH = 32
 
@@ -260,6 +260,35 @@ proc __ovl_load
     sta $D701
     lda #<__ovl_job
     sta $D705
+    plp
+    rts
+endproc
+
+; memcpy, memmove, memset (dma_mem.s45): an address of their DMA job
+; (__dma_job+X: bits 0-15, bank) the CPU sees in the window of mapped
+; overlays is where the overlay in it is kept: + the window's MAP offset.
+; A, X, Y and the flags kept.
+proc __ovl_dma_fix
+    php
+    pha
+    lda #<__ovl_mapped
+    beq @done
+    lda __ovl_cur
+    beq @done
+    lda __dma_job+1,x
+    cmp #>__ovl_region
+    bcc @done
+    cmp #$80
+    bcs @done
+    clc
+    adc __ovl_map           ; (bits 8-15 of the offset)
+    sta __dma_job+1,x
+    lda __ovl_map+1
+    and #$0F                ; (bits 16-19)
+    adc __dma_job+2,x
+    sta __dma_job+2,x
+@done:
+    pla
     plp
     rts
 endproc

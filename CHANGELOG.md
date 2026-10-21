@@ -4,6 +4,32 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### stdlib: `memcpy`, `memmove`, `memset` by DMA; `dma_copy_far` in asm (Issues #325, #319)
+
+- `memcpy`, `memmove` and `memset` fill in one F018B DMA job and start it
+  (`dma_mem.s45`): a downward copy for `memmove` when the destination is
+  above the source (the command's direction bits 4 and 5), a fill job for
+  `memset`. 16, 28 and 16 bytes with a shared 95-byte job builder. I/O at `$D000`-`$DFFF` as the CPU
+  sees it; in programs with mapped code overlays an address in the window
+  is read where the overlay is kept (`__ovl_dma_fix`). They now return
+  their first parameter (the CPU loops returned it 256 higher per full
+  page).
+- `dma_copy_far` / `dma_fill_far` are asm (`dma_far.s45`, 121 bytes; the
+  C was 643) and `__fastcall__`, sharing the job (`dma_job.s45`).
+- pfest 480 bytes smaller (it uses `dma_copy_far`), vim2 467. A program
+  using only `memcpy` or `memset` is about 125 bytes larger than with the
+  CPU loops.
+- Test `test_dma_mem_xemu.c` (overlapping copies both ways, lengths 0, 1
+  and over 256, return values, colour RAM, the far functions); the
+  `__noescape` overlay test copies from an overlay's constants.
+- cc45 fixes the GCC torture test pr93213 needed once `memcpy` no longer
+  happened to read address 0 as it did: an integer passed to a wide
+  integer (`__int128`) parameter of a `static` function, or after a struct
+  result's hidden pointer, was not converted (16 bytes were copied from the
+  integer as an address); `u128 -= c` with a `char` variable used the low
+  byte of `c`'s address; `-1` passed to an `unsigned long` parameter was
+  `0x0000FFFF` (now all ones, as assigned). Test `test_wide_args_xemu.c`.
+
 ### cc45: static functions in array and struct initializers (Issue #326)
 
 - A `static` function named without `&` in an array or struct initializer
