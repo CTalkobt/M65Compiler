@@ -1,0 +1,96 @@
+; rom_call.s45 — __rom_call: a KERNAL routine on the ROM's stack and base
+; page (#322: a library member of its own, linked only by programs that
+; call it -- the <cbm.h> wrappers, the code overlays' loader -- instead of
+; in every program's crt0)
+
+; ln45's call graph: calls through pointers only from __rom_call (cc45.icall.<f>)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+.weak cc45.icall.__rom_call
+cc45.icall.__rom_call = 1
+
+.global __rom_call
+.extern ___cbm_target, __stack_top, __saved_spl, __saved_sph, __bp_rom, __bp_prog
+
+.segment "code"
+; __rom_call — call the KERNAL routine at ___cbm_target (set by the <cbm.h>
+; wrappers) on the ROM's page-1 stack (the caller's 8-bit stack, saved at
+; startup) and base page 0: the KERNAL's disk code (OPEN/CHKIN/CHKOUT/
+; CHRIN/CHROUT on a drive) crashes on the 16-bit stack. A, X, Y, Z and the
+; flags (C for PLOT) go in, and come back out, as for a direct JSR. Our
+; return address stays on the program's stack. With -fno-stack16 the stack
+; is not moved. Interrupts are off while SP changes.
+__rom_call:
+    php
+    sta __re_a
+    stx __re_x
+    sty __re_y
+    pla
+    sta __re_p              ; the caller's flags
+    lda ___cbm_target
+    sta __rc_jsr + 1
+    lda ___cbm_target + 1
+    sta __rc_jsr + 2
+    lda #>__stack_top
+    beq __rc_call8          ; already on the 8-bit page-1 stack
+    sei
+    tsx                     ; the program's stack pointer
+    stx __re_spl
+    tsy
+    sty __re_sph
+    see                     ; the caller's page-1 stack (8-bit)
+    ldx __saved_spl + 1
+    txs
+    ldy __saved_sph + 1
+    tys
+    lda #0
+    tab
+    lda __re_p
+    ora #$20                ; (PLP loads E: keep the 8-bit stack)
+    pha
+    lda __re_a
+    ldx __re_x
+    ldy __re_y
+    plp                     ; the caller's I and C
+__rc_jsr:
+    jsr $FFFF               ; (patched above)
+    php
+    sta __re_a
+    stx __re_x
+    sty __re_y
+    pla
+    sta __re_p              ; the routine's flags
+    sei
+    cle                     ; back to the program's 16-bit stack
+    ldy __re_sph
+    tys
+    ldx __re_spl
+    txs
+    lda __re_p
+    and #$DF                ; (PLP loads E: keep the 16-bit stack)
+    pha
+    lda __re_a
+    ldx __re_x
+    ldy __re_y
+    plp
+    jmp __bp_prog           ; program base page; returns to our caller
+__rc_call8:
+    lda __re_p
+    pha
+    lda __re_a
+    ldx __re_x
+    ldy __re_y
+    plp
+    jsr __bp_rom
+    jsr __rc_jsr8
+    jmp __bp_prog
+__rc_jsr8:
+    jmp (__rc_jsr + 1)
+
+.segment "data"
+__re_a:   .byte 0
+__re_x:   .byte 0
+__re_y:   .byte 0
+__re_p:   .byte 0
+__re_spl: .byte 0
+__re_sph: .byte 0

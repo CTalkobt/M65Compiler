@@ -68,21 +68,26 @@ unsigned int sid_hz_to_reg(unsigned int hz) {
     return r > 65535UL ? 65535U : (unsigned int)r;
 }
 
-/* MIDI notes 96-107 (C7-B7) at the PAL clock (B7 is past the register's
- * range: clamped) */
-static const unsigned long top_octave[12] = {
-    35641UL, 37760UL, 40005UL, 42384UL, 44904UL, 47574UL,
-    50403UL, 53401UL, 56576UL, 59940UL, 63504UL, 67280UL
+/* The register values of MIDI notes 84-95 (C6-B6) at the PAL and NTSC
+ * clocks: 440 Hz * 2^((note - 69) / 12) * 2^24 / clock (985248 Hz PAL,
+ * 1022727 Hz NTSC); the other octaves shift them (#322: 16 bits, no
+ * multiply) */
+static const unsigned int octave7[24] = {
+    17820, 18880, 20003, 21192, 22452, 23787, 25202, 26700, 28288, 29970, 31752, 33640,   /* PAL */
+    17167, 18188, 19270, 20415, 21629, 22916, 24278, 25722, 27251, 28872, 30589, 32407    /* NTSC */
 };
 
 unsigned int sid_note_to_reg(unsigned char note) {
-    unsigned char octave = note / 12;
-    unsigned long r = top_octave[note - octave * 12];
-    /* the table is octave 8 (MIDI 96-107) */
-    if (octave < 8) r >>= 8 - octave;
-    else if (octave > 8) r = 65535UL;
-    if (ntsc()) r = r * 963UL / 1000UL;
-    return r > 65535UL ? 65535U : (unsigned int)r;
+    unsigned char octave = 0;
+    unsigned int r;
+    while (note >= 12) { note -= 12; octave++; }
+    if (ntsc()) note += 12;
+    r = octave7[note];
+    /* past the register's range (from B7 at the PAL clock): clamped */
+    if (octave > 8 || (octave == 8 && (r & 0x8000))) return 65535U;
+    if (octave == 8) return r << 1;
+    while (octave < 7) { r >>= 1; octave++; }
+    return r;
 }
 
 void sid_set_freq_reg(unsigned char v, unsigned int reg) {

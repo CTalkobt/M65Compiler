@@ -4,6 +4,21 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### stdlib: smaller `sid_note_to_reg`; `__basic_call`, `__rom_call` out of crt0 (Issue #322)
+
+- `sid_note_to_reg` uses 16-bit tables of one octave at the PAL and NTSC
+  clocks (exact values; the NTSC ones were PAL * 0.963) and 16-bit shifts:
+  157 bytes of code and a 48-byte table, was 402 and 48. Octave 8 is
+  octave 7 shifted, 1 below the exact value at most (C7 35640, not 35641).
+- crt0's `__basic_call` (a BASIC `SYS` of a C function, basic45 `--link`)
+  and `__rom_call` (KERNAL calls on the ROM's stack: `<cbm.h>`, the
+  overlay loader) are library members of their own (`basic_call.s45`,
+  `rom_call.s45`), linked only when used; cc45 declares `__rom_call` only
+  in modules whose asm names it. A minimal program: 561 bytes to 296.
+  pfest 385 bytes smaller.
+- Tests: `test_audio_xemu.c` (A4 at the NTSC clock), a link check in
+  `test_assembler.sh`.
+
 ### cc45: loads of a global reused across stores to other globals (Issue #320)
 
 - CSE never reused a load: `x[c]` read six times in pfest's `mux_commit`

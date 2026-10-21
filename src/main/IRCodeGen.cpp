@@ -1727,10 +1727,18 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
         // __sp_base is weak — linker may provide it, or we use default
         emit(".weak __sp_base");
         emit("__sp_base = $0101");  // Default stack page
-        // crt0 helpers that inline asm (cbm.h) calls around ROM routines
+        // crt0 helpers that inline asm (cbm.h) calls around ROM routines;
+        // __rom_call only where some asm names it (rom_call.s45, a library
+        // member of its own: an import would link it into every program, #322)
         emit(".extern __bp_rom");
         emit(".extern __bp_prog");
-        emit(".extern __rom_call");
+        bool namesRomCall = false;
+        for (const auto& a : mod.fileAsm) namesRomCall = namesRomCall || a.find("__rom_call") != std::string::npos;
+        for (const auto& fn : mod.functions)
+            for (const auto& blk : fn.blocks)
+                for (const auto& in : blk.insts)
+                    if (in.op == ir::Op::ASM_INLINE && in.asmText.find("__rom_call") != std::string::npos) namesRomCall = true;
+        if (namesRomCall) emit(".extern __rom_call");
 
         // The module defining main chooses the CPU stack: crt0's weak
         // __stack_top ($BFFF, 16-bit stack) is overridden here; 0 keeps the

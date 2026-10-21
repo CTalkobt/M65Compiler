@@ -137,7 +137,8 @@ overlay: `TextRemap::ovl`, `InputObject::ovlAt`); test `src/test-resources/far/`
   `jsr __bp_prog` (crt0). Used by `putchar`, `getchar`, `puts`
   and the float runtime (`float_rom.s45`). The KERNAL's **disk** code also
   needs the page-1 stack: `<cbm.h>` wrappers (and so `fopen`/`cbm_*` file
-  I/O) call through crt0's `__rom_call`, which switches base page and stack.
+  I/O) call through `__rom_call` (`stdlib_asm/rom_call.s45`, linked only when
+  used), which switches base page and stack.
 - **Inline asm can't name a parameter portably**: `@_p_x` is a ZP slot in the
   ZP convention, `lda.sp @_p_x` only works for stack frames. `<cbm.h>` passes
   arguments through the `__cbm_a/x/y/p` bytes instead.
@@ -313,7 +314,8 @@ totals code bytes by IR operation).
    (`$FFFE` after `abort()`), restore the caller's stack and flags, `rts`.
    A BASIC caller reads `PEEK(253)+256*PEEK(254)`.
 
-`__basic_call` (crt0) runs one C function from a BASIC `SYS` (basic45
+`__basic_call` (`stdlib_asm/basic_call.s45` with crt0's start-up; linked
+only when used) runs one C function from a BASIC `SYS` (basic45
 `--link` thunks set `___bc_target`): same base page / stack setup, SYS A/X/Y
 as the first three parameters (`$10`, `$12`, `$14`), result A/X back to
 BASIC (`RREG`); BSS is filled on the first call only.

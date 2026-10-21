@@ -5,8 +5,9 @@
  *
  * Results at $C0C0 (01 = pass):
  *   [0] sid_init: registers 0, volume 15
- *   [1] frequencies: sid_hz_to_reg, sid_note_to_reg (A4 = 440 Hz), the
- *       octaves, the top clamped
+ *   [1] frequencies: sid_hz_to_reg, sid_note_to_reg (A4 = 440 Hz; octave 8
+ *       is octave 7 shifted: C7 35640, 1 below the exact 35641), the
+ *       octaves, the top clamped; A4 at the NTSC clock ($D06F bit 7)
  *   [2] sid_note_on / sid_note_off / sid_gate / sid_set_waveform (the gate
  *       and the waveform kept apart); voices on SIDs 2-4
  *   [3] sid_set_adsr, sid_set_pulse, sid_set_instrument, sid_play
@@ -47,8 +48,13 @@ static int t_init(void) {
 }
 
 static int t_freq(void) {
-    return sid_hz_to_reg(440) == 7492 && sid_note_to_reg(69) == 7492 && sid_note_to_reg(81) == 14985 &&
-           sid_note_to_reg(60) == 4455 && sid_note_to_reg(96) == 35641 && sid_note_to_reg(12) == 278 &&
+    unsigned char vm = *(volatile unsigned char *)0xD06F;
+    unsigned int ntsc_a4;
+    *(volatile unsigned char *)0xD06F = vm | 0x80;          /* NTSC for a moment */
+    ntsc_a4 = sid_note_to_reg(69);
+    *(volatile unsigned char *)0xD06F = vm;
+    return ntsc_a4 == 7218 && sid_hz_to_reg(440) == 7492 && sid_note_to_reg(69) == 7492 && sid_note_to_reg(81) == 14985 &&
+           sid_note_to_reg(60) == 4455 && sid_note_to_reg(96) == 35640 && sid_note_to_reg(12) == 278 &&
            sid_note_to_reg(107) == 65535 && sid_note_to_reg(120) == 65535 && sid_hz_to_reg(5000) == 65535 &&
            sid_hz_to_reg(0) == 0;
 }

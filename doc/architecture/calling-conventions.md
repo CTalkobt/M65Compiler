@@ -429,7 +429,7 @@ crt0 (`lib/crt0.s45`) runs these steps:
 - restores the caller's 8-bit stack and flags;
 - returns with `rts`.
 
-`__basic_call` (crt0) runs a single C function for a BASIC `SYS` (the thunks
+`__basic_call` (the library's `basic_call.s45`, with crt0's start-up; linked only when a program has such functions, #322) runs a single C function for a BASIC `SYS` (the thunks
 `basic45 --link` makes store the function's address in `___bc_target` and
 jump to it). It does steps 1-5 like `__init` (the BSS fill only on the first
 call, so globals keep their values between calls; `_init_features` then

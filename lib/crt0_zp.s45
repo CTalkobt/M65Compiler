@@ -3,24 +3,19 @@
 ; Entry point for all C programs compiled with -fzpcall.
 ; Same as crt0.s — main takes no parameters via ZP.
 
-; ln45's call graph: calls through pointers only from __basic_call, __rom_call (cc45.icall.<f>)
+; ln45's call graph: no calls through pointers (__basic_call and __rom_call
+; are library members of their own: basic_call.s45, rom_call.s45)
 .weak cc45.icallinfo
 cc45.icallinfo = 1
-.weak cc45.icall.__basic_call
-cc45.icall.__basic_call = 1
-.weak cc45.icall.__rom_call
-cc45.icall.__rom_call = 1
 
 .global __init
-.global __basic_call
-.global ___bc_target
+.global __start, __bc_mode, __bc_done, __saved_spl, __saved_sph, __saved_p
+.weak __bc_run
 .global __exit
 .global __abort
 .global __sp_base
 .global __bp_rom
 .global __bp_prog
-.global __rom_call
-.extern ___cbm_target
 .extern __zp_page
 .extern __zp_page_isr
 .global __isr_depth
@@ -192,7 +187,9 @@ __start:
 @bss_done:
 
     lda __bc_mode
-    bne __bc_run
+    beq @program
+    jmp __bc_run        ; (basic_call.s45: started by __basic_call)
+@program:
     jsr _init_features
     jsr __ovl_init      ; code overlays: load their file (weak: none)
     ; main(argc, argv): __mainargs returns a pointer to { int argc; char
@@ -277,82 +274,17 @@ __ovl_rom_leave:
 __ovl_exit:
 __ovl_jsave:         ; (setjmp/longjmp: the overlay state, ovl.s45)
 __ovl_dma_fix:       ; (memcpy & co.: an address in the mapped overlays' window)
+__bc_run:            ; (basic_call.s45's; never reached without it)
 __ovl_jrestore:
     rts
 
-; __basic_call — run a C function from a BASIC SYS (basic45 --link makes
-; a thunk per function: it sets ___bc_target and jumps here). The SYS's
-; A, X and Y are the first three parameters ($10, $12, $14 of the program's
-; base page, high bytes 0; they also stay in A, X, Y): f(unsigned char a,
-; unsigned char x, unsigned char y), or unsigned int. The function runs with the program's
-; base page and stack, as main would; its A, X, Y come back to BASIC
-; (RREG). The first call fills BSS and calls _init_features, later calls
-; keep the globals.
-__basic_call:
-    sta __bc_a
-    stx __bc_x
-    sty __bc_y
-    lda #1
-    sta __bc_mode
-    jmp __start
-
-__bc_run:
-    lda __bc_done
-    bne @ready
-    lda #1
-    sta __bc_done
-    jsr _init_features
-    jsr __ovl_init      ; code overlays: load their file (weak: none)
-@ready:
-    ; the first three parameter slots (2 bytes each, as for a char or int
-    ; parameter): A, X, Y with high bytes 0 (base-page stores: the
-    ; parameter block is in __zp_page)
-    lda #0
-    sta $11
-    sta $13
-    sta $15
-    lda __bc_a
-    sta $10
-    lda __bc_x
-    sta $12
-    lda __bc_y
-    sta $14
-    lda ___bc_target
-    sta __bc_jsr + 1
-    lda ___bc_target + 1
-    sta __bc_jsr + 2
-    lda __bc_a
-    ldx __bc_x
-    ldy __bc_y
-__bc_jsr:
-    jsr $FFFF           ; (patched above)
-    sta __bc_a
-    stx __bc_x
-    sty __bc_y
-    ; back to BASIC: base page 0, its 8-bit stack and flags
-    lda #0
-    tab
-    sei
-    see
-    ldx __saved_spl + 1
-    txs
-    ldy __saved_sph + 1
-    tys
-    lda __saved_p + 1
-    pha
-    lda __bc_a
-    ldx __bc_x
-    ldy __bc_y
-    plp
-    rts
+; __basic_call (a BASIC SYS of a C function) is the library's basic_call.s45,
+; linked only when a program has such functions; it sets __bc_mode and
+; jumps to __start, which then goes on at its __bc_run (weak: below)
 
 ; (in the init code, which is RAM)
 __bc_mode:  .byte 0
 __bc_done:  .byte 0
-__bc_a:     .byte 0
-__bc_x:     .byte 0
-__bc_y:     .byte 0
-___bc_target: .word 0
 
 ; Default __atexit_run: no handlers. atexit.c in the library replaces it
 ; when the program calls atexit.
@@ -404,87 +336,8 @@ __bp_prog:
     plp
     jmp __ovl_rom_leave ; (mapped code overlays: the overlay mapped again)
 
-; __rom_call — call the KERNAL routine at ___cbm_target (set by the <cbm.h>
-; wrappers) on the ROM's page-1 stack (the caller's 8-bit stack, saved at
-; startup) and base page 0: the KERNAL's disk code (OPEN/CHKIN/CHKOUT/
-; CHRIN/CHROUT on a drive) crashes on the 16-bit stack. A, X, Y, Z and the
-; flags (C for PLOT) go in, and come back out, as for a direct JSR. Our
-; return address stays on the program's stack. With -fno-stack16 the stack
-; is not moved. Interrupts are off while SP changes.
-__rom_call:
-    php
-    sta __re_a
-    stx __re_x
-    sty __re_y
-    pla
-    sta __re_p              ; the caller's flags
-    lda ___cbm_target
-    sta __rc_jsr + 1
-    lda ___cbm_target + 1
-    sta __rc_jsr + 2
-    lda #>__stack_top
-    beq __rc_call8          ; already on the 8-bit page-1 stack
-    sei
-    tsx                     ; the program's stack pointer
-    stx __re_spl
-    tsy
-    sty __re_sph
-    see                     ; the caller's page-1 stack (8-bit)
-    ldx __saved_spl + 1
-    txs
-    ldy __saved_sph + 1
-    tys
-    lda #0
-    tab
-    lda __re_p
-    ora #$20                ; (PLP loads E: keep the 8-bit stack)
-    pha
-    lda __re_a
-    ldx __re_x
-    ldy __re_y
-    plp                     ; the caller's I and C
-__rc_jsr:
-    jsr $FFFF               ; (patched above)
-    php
-    sta __re_a
-    stx __re_x
-    sty __re_y
-    pla
-    sta __re_p              ; the routine's flags
-    sei
-    cle                     ; back to the program's 16-bit stack
-    ldy __re_sph
-    tys
-    ldx __re_spl
-    txs
-    lda __re_p
-    and #$DF                ; (PLP loads E: keep the 16-bit stack)
-    pha
-    lda __re_a
-    ldx __re_x
-    ldy __re_y
-    plp
-    jmp __bp_prog           ; program base page; returns to our caller
-__rc_call8:
-    lda __re_p
-    pha
-    lda __re_a
-    ldx __re_x
-    ldy __re_y
-    plp
-    jsr __bp_rom
-    jsr __rc_jsr8
-    jmp __bp_prog
-__rc_jsr8:
-    jmp (__rc_jsr + 1)
-
-; (in the init code, which is RAM)
-__re_a:   .byte 0
-__re_x:   .byte 0
-__re_y:   .byte 0
-__re_p:   .byte 0
-__re_spl: .byte 0
-__re_sph: .byte 0
+; __rom_call (a KERNAL routine on the ROM's stack) is the library's
+; rom_call.s45, linked only when a program calls one (#322)
 
 ; Nesting depth of running __interrupt handlers (their prologue increments
 ; it). Kept in the init code (RAM) so crt0 adds nothing to the data segment.

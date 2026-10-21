@@ -2,7 +2,7 @@
 
 `<cbm.h>` provides small C wrappers for the standard Commodore KERNAL jump table, plus PETSCII control codes, device numbers and the jump-table addresses. Each wrapper is a `static` function in the header: it stores its arguments in `__cbm_a`/`__cbm_x`/`__cbm_y`/`__cbm_p` (C assignments, which work in every calling convention; `lib/stdlib_asm/cbm_args.s45`) and the KERNAL routine's address in `__cbm_target`, loads the registers from them in inline assembly and calls crt0's `__rom_call`. That calls the routine on the ROM's base page 0 **and on the ROM's page-1 stack** (the caller's 8-bit stack, saved at startup): the KERNAL's disk code crashes on the program's 16-bit stack. Registers and flags pass through both ways, as for a direct `JSR`.
 
-`__rom_call` comes from the CRT and the argument bytes from `c45.lib`/`c45_stack.lib`, so programs must be linked with the library (a one-step `cc45 prog.c -o prog.prg` does this).
+`__rom_call` comes from the library (`stdlib_asm/rom_call.s45`, linked only by programs that call it, #322) and the argument bytes from `c45.lib`/`c45_stack.lib`, so programs must be linked with the library (a one-step `cc45 prog.c -o prog.prg` does this).
 
 Compatible with C64, C128 and MEGA65 KERNAL jump tables.
 
