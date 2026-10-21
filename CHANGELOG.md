@@ -4,6 +4,15 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: several wide integer operations in one expression (Issue #329)
+
+- `v + v + k` on `__int128` (or `long long`) was wrong: the inner sum, a
+  struct the type information calls a pointer, made the outer `+` pointer
+  arithmetic (`k` scaled by 16) instead of the struct's operator. An
+  operation on a wide integer now counts as a wide integer for the
+  operation around it (`wideKindOf`), and the operator dispatch takes it.
+  Test `test_wide_chain_xemu.c`.
+
 ### stdlib: smaller `sid_note_to_reg`; `__basic_call`, `__rom_call` out of crt0 (Issue #322)
 
 - `sid_note_to_reg` uses 16-bit tables of one octave at the PAL and NTSC
