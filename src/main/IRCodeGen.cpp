@@ -7702,9 +7702,21 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                     }
                     if (!trueTarget.empty()) emit("bne " + trueTarget);
                 }
+            } else if (inst.src1.kind == ir::OperandKind::IMM) {
+                // a constant: one way only
+                if (inst.src1.immVal) {
+                    if (!trueTarget.empty()) emit("bra " + trueTarget);
+                    break;
+                }
             } else {
+                // a global's address (16 bits: $0800 is not zero)
                 loadOperand(inst.src1);
-                emit("cmp #$00");
+                if (ir::typeSize(inst.src1.type) >= 2) {
+                    emit("stx __zp_scratch");
+                    emit("ora __zp_scratch");
+                } else {
+                    emit("cmp #$00");
+                }
                 if (!trueTarget.empty()) emit("bne " + trueTarget);
             }
             if (!falseFallsThrough && !falseTarget.empty()) {

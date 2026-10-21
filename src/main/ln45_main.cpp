@@ -45,9 +45,12 @@ static void printUsage(const char* progName) {
     std::cout << "  --stack-size=N The CPU stack's share below __stack_top; malloc's heap ends there" << std::endl;
     std::cout << "  --ram-top=ADDR End of the RAM a C program may use in bank 0 (default $C000: $C000-$CFFF" << std::endl;
     std::cout << "                 reads as ROM in C65 mode); for a program that maps RAM there itself" << std::endl;
-    std::cout << "  --overlay-store=ADDR[-END][,ADDR-END]" << std::endl;
-    std::cout << "                        Where code overlays are kept in far memory (default $50000: bank 5);" << std::endl;
-    std::cout << "                        a second range in the next bank: a second file (.ov2)" << std::endl;
+    std::cout << "  --overlay-store=ADDR[-END][,ADDR-END...]" << std::endl;
+    std::cout << "                        Where code overlays are kept in far memory (default $50000: bank 5):" << std::endl;
+    std::cout << "                        chip RAM $10000-$5FFFF or attic RAM $8000000-$87FFFFF (copied" << std::endl;
+    std::cout << "                        overlays only); a file per 64 KB bank used (.ov1, .ov2, ...)" << std::endl;
+    std::cout << "  --overlay-staging=BANK  The chip RAM bank the attic RAM's files are loaded into before" << std::endl;
+    std::cout << "                        they are copied up (default 5; only at start)" << std::endl;
     std::cout << "  --overlay-name=NAME   The overlay file's name on disk (default: the output's, .OV1)" << std::endl;
     std::cout << "  --overlay-out=PATH    Where to write the overlay file (default: the output's, .ov1;" << std::endl;
     std::cout << "                        its description for nm45/objdump45 next to it, .ovd)" << std::endl;
@@ -71,6 +74,7 @@ int main(int argc, char** argv) {
     std::vector<std::pair<uint32_t, uint32_t>> ovlStores;   // code overlays: --overlay-store, --overlay-name, --overlay-out
     std::string ovlName, ovlOut;
     bool ovlMap = false;
+    int ovlStaging = 5;   // --overlay-staging: the bank attic RAM's files are loaded into first
     bool isBasic = false;
     bool printMap = false;
     int bssFill = -1;
@@ -164,16 +168,31 @@ int main(int argc, char** argv) {
                 unsigned long a = 0, e = 0;
                 if (!num(r.substr(0, d), a) || (d != std::string::npos && !num(r.substr(d + 1), e))) { why = "not an address"; break; }
                 if (d == std::string::npos) e = a | 0xFFFF;
-                if (a < 0x10000 || e > 0x5FFFF || e < a) why = "chip RAM above bank 0: $10000-$5FFFF";
-                else if ((a >> 16) != (e >> 16)) why = "a range must lie in one bank";
-                else if (!ovlStores.empty() && (a >> 16) != (ovlStores.back().first >> 16) + 1) why = "the second range must be in the next bank";
+                bool chip = a >= 0x10000 && e <= 0x5FFFF, attic = a >= 0x8000000 && e <= 0x87FFFFF;
+                if (e < a || (!chip && !attic))
+                    why = "chip RAM above bank 0, $10000-$5FFFF, or attic RAM, $8000000-$87FFFFF";
                 else ovlStores.push_back({(uint32_t)a, (uint32_t)e});
             }
-            if (why.empty() && ovlStores.size() > 2) why = "at most two ranges (banks 4 and 5)";
             if (!why.empty()) {
                 std::cerr << "ln45: error: invalid --overlay-store value '" << all << "' (" << why << ")" << std::endl;
                 return 1;
             }
+        }
+        else if (arg.rfind("--overlay-staging=", 0) == 0) {
+            std::string v = arg.substr(18);
+            int base = 10;
+            if (!v.empty() && v[0] == '$') { v = v.substr(1); base = 16; }
+            else if (v.size() > 2 && v[0] == '0' && (v[1] == 'x' || v[1] == 'X')) { v = v.substr(2); base = 16; }
+            unsigned long sv = 0;
+            try { size_t used = 0; sv = std::stoul(v, &used, base); if (used != v.size()) throw 0; }
+            catch (...) { sv = 0xFFFFFFFF; }
+            if (sv > 5) sv = (sv & 0xFFFF) == 0 && sv <= 0x50000 ? sv >> 16 : 0;
+            if (sv < 1 || sv > 5) {
+                std::cerr << "ln45: error: invalid --overlay-staging value '" << arg.substr(18)
+                          << "' (a chip RAM bank: 1-5, or $40000, 0x50000)" << std::endl;
+                return 1;
+            }
+            ovlStaging = (int)sv;
         }
         else if (arg.rfind("--overlay-name=", 0) == 0) { ovlName = arg.substr(15); }
         else if (arg == "--overlay-map") { ovlMap = true; }
@@ -255,6 +274,7 @@ int main(int argc, char** argv) {
         linker.setOverlayFileName(ovlName);
         if (!ovlStores.empty()) linker.setOverlayStores(ovlStores);
         linker.setOverlayMap(ovlMap);
+        linker.setOverlayStaging(ovlStaging);
     }
 
     for (const auto& filename : inputFiles) {

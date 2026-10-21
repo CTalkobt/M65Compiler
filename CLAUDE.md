@@ -64,8 +64,10 @@ A file with `#pragma cc45 overlay(name)` / `-foverlay=name` (ca45 `.overlay`)
 has its code in that overlay: ln45 links all overlays to run at one region
 below the stack's share (`__ovl_region`; the heap ends there) and writes
 them to `<prog>.ov1` (on the disk as `<PROG>.OV1`, `--overlay-name`), which
-crt0's `__ovl_init` loads into bank 5 (`--overlay-store`; bank 1 is BASIC's; a second
-range in the next bank takes what does not fit, as `<prog>.ov2`).
+crt0's `__ovl_init` loads into bank 5 (`--overlay-store`; bank 1 is BASIC's; further
+ranges take what does not fit, a file per 64 KB bank: `<prog>.ov2`, …; ranges in attic
+RAM `$8000000`+ hold copied overlays, loaded through `--overlay-staging` bank 5 and
+copied up by DMA; `far_attic_init` leaves them out).
 Calls from outside an overlay (and addresses taken) go through 21-byte
 resident stubs to `__ovl_call` (`lib/stdlib_asm/ovl.s45`), which copies the
 overlay in by DMA and swaps the return address (stack layout unchanged).

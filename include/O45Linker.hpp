@@ -361,6 +361,7 @@ public:
     // link() (a 2-byte load address, then the images; none without overlays)
     void setOverlayStore(uint32_t a) { ovlStores_ = {{a, a | 0xFFFF}}; }
     void setOverlayStores(const std::vector<std::pair<uint32_t, uint32_t>>& r) { ovlStores_ = r; }
+    void setOverlayStaging(int bank) { ovlStaging_ = bank; }
     // Mapped overlays: run in a window of 8 KB blocks mapped to them (MAP),
     // not copied into a region
     void setOverlayMap(bool on) { ovlMap_ = on; }
@@ -518,11 +519,16 @@ private:
     uint32_t ovlBase_ = 0, ovlSize_ = 0;           // the region they run in
     bool ovlMap_ = false;
     std::vector<uint32_t> ovlAt_;                  // each overlay's far address
-    // where their images are kept in far memory (default bank 5): ranges,
-    // the end of what each holds, each overlay's range (its file - 1)
+    // where their images are kept in far memory (default bank 5): ranges
+    // (chip or attic RAM); the files: the part of a range in one bank each
+    // that holds overlays, and how much of it they take; each overlay's
+    // file (its number - 1); the chip RAM bank attic RAM's files are
+    // loaded into before they are copied up
     std::vector<std::pair<uint32_t, uint32_t>> ovlStores_{{0x50000, 0x5FFFF}};
-    std::vector<uint32_t> ovlStoreEnd_;
+    std::vector<std::pair<uint32_t, uint32_t>> ovlFileRange_;
+    std::vector<uint32_t> ovlFileEnd_;
     std::vector<int> ovlFileOf_;
+    int ovlStaging_ = 5;
     std::string ovlFileName_;
     std::vector<std::vector<uint8_t>> ovlFiles_;
     // the files' names on disk: the first, its last character counted up

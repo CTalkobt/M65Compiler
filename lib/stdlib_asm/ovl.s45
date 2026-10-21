@@ -4,9 +4,11 @@
 ; below the stack's share) and is kept in far memory; its data and BSS stay
 ; resident. ln45 links this runtime when a program has overlays.
 ;
-; __ovl_init (called by crt0 before main) loads the overlay file, which ln45
+; __ovl_init (called by crt0 before main) loads the overlay files, which ln45
 ; writes next to the program, into far memory through the KERNAL (SETBNK,
-; SETNAM, SETLFS, LOAD) from the device the program was loaded from.
+; SETNAM, SETLFS, LOAD) from the device the program was loaded from; the
+; KERNAL loads into chip RAM only, so a file kept in attic RAM is loaded into
+; a staging bank and copied up by DMA.
 ;
 ; A call from outside an overlay goes through a stub ln45 generates:
 ;     sta __ovl_sa / lda #id / sta __ovl_want
@@ -34,12 +36,17 @@
 ;                  --overlay-map) the lower half of MAP (A, X) that maps the
 ;                  window to it in 0 and 1
 ;   __ovl_mapped   1 when the overlays are mapped, 0 when they are copied
-;   __ovl_file     the first file's bank, the number of files (one per
-;                  bank, in consecutive banks: ln45 --overlay-store with
-;                  several ranges), the name's length, the first file's
-;                  name (PETSCII; the others count its last character up:
-;                  PROG.OV1, PROG.OV2). Each file starts with its load
-;                  address in the bank
+;   __ovl_file     the number of files (one per 64 KB bank of the ranges
+;                  ln45 --overlay-store gives), the name's length, the
+;                  name (PETSCII; each file has its own last character:
+;                  PROG.OV1, PROG.OV2), then a record of 8 bytes per file:
+;                  the name's last character, the chip RAM bank it is
+;                  loaded into, the megabyte of attic RAM ($80-$87, 0 for a
+;                  file kept where it is loaded) and the bank it is copied
+;                  to, its address (bits 0-15, both; each file starts with
+;                  it) and length. Attic RAM's come first: they are loaded
+;                  into one staging bank (ln45 --overlay-staging), which
+;                  chip RAM's files may use too
 ;
 ; Mapped overlays (ln45 --overlay-map) run where they are kept: the window
 ; (8 KB blocks of $4000-$7FFF, the lower half of the map) is mapped to the
@@ -81,7 +88,7 @@ __ovl_rlo:  .res OVL_DEPTH
 __ovl_rhi:  .res OVL_DEPTH
 __ovl_rid:  .res OVL_DEPTH  ; the overlay to bring back on the return
 __ovl_rwt:  .res OVL_DEPTH  ; the overlay the call entered
-__ovl_bank: .res 1          ; __ovl_init: the bank of the file it loads
+__ovl_rec:  .res 1          ; __ovl_init: the file's record in __ovl_file
 __ovl_n:    .res 1          ;             the files still to load
 
 .segment "code"
@@ -296,7 +303,8 @@ proc __ovl_exit
     rts
 endproc
 
-; Load the overlay file into far memory
+; Load the overlay files into far memory (attic RAM's through the staging
+; bank, then copied up by DMA)
 proc __ovl_init
     lda #0
     sta __ovl_cur
@@ -304,25 +312,32 @@ proc __ovl_init
     ldq $011C               ; the ROM's map (mapped overlays keep its upper half)
     stq __ovl_sys
     lda __ovl_file
-    sta __ovl_bank
-    lda __ovl_file+1
     sta __ovl_n
+    lda __ovl_file+1        ; the first record: after the name
+    clc
+    adc #2
+    sta __ovl_rec
 @file:
+    ; the file's name: its own last character
+    ldy __ovl_rec
+    ldx __ovl_file+1
+    lda __ovl_file,y
+    sta __ovl_file+1,x
     ; SETBNK: A = the bank of the data, X = the bank of the file name
     lda #$6B
     sta ___cbm_target
     lda #$FF
     sta ___cbm_target+1
-    lda __ovl_bank
+    lda __ovl_file+1,y
     and #$0F
     ldx #0
     jsr __rom_call
     ; SETNAM: A = length, X/Y = the name
     lda #$BD
     sta ___cbm_target
-    lda __ovl_file+2
-    ldx #<(__ovl_file+3)
-    ldy #>(__ovl_file+3)
+    lda __ovl_file+1
+    ldx #<(__ovl_file+2)
+    ldy #>(__ovl_file+2)
     jsr __rom_call
     ; SETLFS 0, the program's device (8 when none is known), 1: load to
     ; the address the file starts with
@@ -344,23 +359,46 @@ proc __ovl_init
     ldy #0
     jsr __rom_call
     bcs @fail
+    ; attic RAM's: copied up from the staging bank, to the same address in
+    ; its bank
+    ldy __ovl_rec
+    lda __ovl_file+2,y
+    beq @next
+    sta __ovl_job+4         ; destination megabyte
+    lda #0
+    sta __ovl_job+2         ; source megabyte: chip RAM
+    lda __ovl_file+1,y
+    and #$0F
+    sta __ovl_job+11
+    lda __ovl_file+3,y
+    sta __ovl_job+14
+    lda __ovl_file+4,y
+    sta __ovl_job+9
+    sta __ovl_job+12
+    lda __ovl_file+5,y
+    sta __ovl_job+10
+    sta __ovl_job+13
+    lda __ovl_file+6,y
+    sta __ovl_job+7
+    lda __ovl_file+7,y
+    sta __ovl_job+8
+    lda #0
+    php
+    sei
+    sta $D702
+    sta $D704
+    lda #>__ovl_job
+    sta $D701
+    lda #<__ovl_job
+    sta $D705
+    plp
+@next:
+    lda __ovl_rec
+    clc
+    adc #8
+    sta __ovl_rec
     dec __ovl_n
-    beq @loaded
-    ; the next file: the next bank, the name's last character + 1
-    inc __ovl_bank
-    ldx __ovl_file+2
-    inc __ovl_file+2,x
-    bra @file
-@loaded:
-    ; the first file's name again (for another run of the program)
-    ldx __ovl_file+2
-    lda __ovl_file+1
-    dec a
-    sta __ovl_n
-    lda __ovl_file+2,x
-    sec
-    sbc __ovl_n
-    sta __ovl_file+2,x
+    bne @file
     rts
 @fail:
     ldx #0

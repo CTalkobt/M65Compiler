@@ -11,6 +11,10 @@ extern unsigned int __far_attic_avail_g;
 void __far_attic_put(unsigned char *map, unsigned int n, unsigned char on);
 unsigned long __far_attic_bytes(unsigned int g);
 
+/* Code overlays kept in attic RAM (ln45 --overlay-store): from the first
+ * file to the end of the last (crt0's weak defaults: bank 0, none) */
+extern char __ovl_attic_bank[], __ovl_attic_first[], __ovl_attic_last_bank[], __ovl_attic_last[];
+
 #define ATTIC_BASE  0x8000000UL
 #define ATTIC_ORDER 23              /* 8 MB */
 
@@ -32,6 +36,15 @@ unsigned long far_attic_init(unsigned long first, unsigned long last, unsigned c
         size < FAR_ATTIC_META_SIZE(order)) return 0;
     if (first < ATTIC_BASE) first = ATTIC_BASE;
     if (last > ATTIC_BASE + 0x7FFFFFUL) last = ATTIC_BASE + 0x7FFFFFUL;
+    /* never the overlays' store: the range is cut to the larger side */
+    if ((unsigned int)__ovl_attic_bank) {
+        unsigned long s = ((unsigned long)(unsigned int)__ovl_attic_bank << 16) | (unsigned int)__ovl_attic_first;
+        unsigned long e = ((unsigned long)(unsigned int)__ovl_attic_last_bank << 16) | (unsigned int)__ovl_attic_last;
+        if (first <= e && s <= last) {
+            if (s <= first || (last > e && last - e > s - first)) first = e + 1;
+            else last = s - 1;
+        }
+    }
     /* memory there: written and read back at both ends, the first written
      * again and the last unchanged (not a mirror) */
     if (last <= first || poke(first, 0x5A) != 0x5A || poke(last, 0xA5) != 0xA5 || poke(first, 0xC3) != 0xC3)

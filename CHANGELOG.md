@@ -4,6 +4,26 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### ln45: code overlays in attic RAM (Issue #315)
+
+- `--overlay-store` takes ranges of attic RAM (`$8000000`–`$87FFFFF`) as
+  well as chip RAM, any number of them in any banks: each 64 KB bank that
+  holds overlays is a file (`.ov1` … `.ov9`). `__ovl_init` loads a file
+  for attic RAM into the staging bank (`--overlay-staging`, default 5) and
+  copies it up by DMA; `__ovl_call` copies overlays from there as from
+  chip RAM (the tables already had the megabyte). Mapped overlays (and
+  `__far` functions) cannot be there: a link error.
+- `__ovl_attic_bank`/`_first`/`_last_bank`/`_last` give the span the
+  files take; `far_attic_init`/`far_attic_enable` leave it out.
+- `__ovl_file` is now the number of files, the name and a record per file
+  (its name's last character, bank, attic address, length).
+- cc45: a global's address as a condition (`if ((unsigned int)sym)`)
+  tested only its low byte, so an address `$0800` was false; constant
+  conditions branch one way (`test_addr_cond_xemu.c`).
+- Tests: `overlay/attic_*.c` (attic RAM, the far heap around it, the link
+  error with `--overlay-map`), the overlay test with a chip RAM and an
+  attic RAM file.
+
 ### cc45: `-floop-idioms` — copy and fill loops as `memmove` / `memset` (Issue #323, off by default)
 
 - A loop that only copies elements between arrays or fills them, with its
