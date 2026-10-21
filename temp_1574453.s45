@@ -1,0 +1,51 @@
+    .org $2000
+    .weak __sp_base
+    __sp_base = $0101
+    .extern __bp_rom
+    .extern __bp_prog
+    .extern __rom_call
+    .weak __static_chain
+    .weak __zp_scratch
+    .weak __zp_scratch2
+    .weak __zp_scratch3
+    .weak __zp_scratch4
+    .weak cc45.zeroPageStart
+    __static_chain = $06
+    __zp_scratch = $08
+    __zp_scratch2 = $0A
+    __zp_scratch3 = $0C
+    __zp_scratch4 = $0E
+    cc45.zeroPageStart = $08
+    .weak cc45.mode_zp
+    cc45.mode_zp = 1
+    .weak cc45.icallinfo
+    cc45.icallinfo = 1
+
+    .global _main
+
+    .segment "code"
+
+; function _main
+; SAC zero-alloc leaf: no storage overhead
+    .weak cc45.fsig._main.s
+    cc45.fsig._main.s = 1
+    proc _main
+; Phase 51: zero-alloc leaf (all parameters constant)
+    .global _main__sac
+_main__sac:
+    .var cc45.fp = 0
+    .loc "/home/duck/.claude/jobs/ac75a4f5/tmp/a322/min.c", 1
+
+@entry:
+    lda #1
+    sta $C0C0
+    lda #0
+    ldx #0
+@__return:
+    rts
+    .func_flags zp_call, static_alloc, zeroalloc, leaf
+    .reg_clobbers A, X, Y
+    .flag_clobbers N, Z
+    .frame_size 0
+    endproc
+

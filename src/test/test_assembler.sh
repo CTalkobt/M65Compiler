@@ -205,6 +205,20 @@ else
     failed=$((failed + 1))
 fi
 
+echo "Testing what a minimal C program links (Issue #322)..."
+# crt0 no longer carries __basic_call and __rom_call: library members of
+# their own, linked only by programs that use them
+printf 'int main(void) { return 0; }\n' > build/test/min322.c
+if ./bin/cc45 -O2 -c build/test/min322.c -o build/test/min322.o45 >/dev/null 2>&1 &&
+   ./bin/ln45 -basic -M build/test/min322.map -o build/test/min322.prg build/test/min322.o45 lib/build/c45.lib >/dev/null 2>&1 &&
+   ! grep -qE "asm_(rom_call|basic_call)\.o45" build/test/min322.map; then
+    echo "SUCCESS: a minimal program links neither __rom_call nor __basic_call"
+    passed=$((passed + 1))
+else
+    echo "FAIL: a minimal program links __rom_call or __basic_call ($(grep -oE 'asm_(rom_call|basic_call)' build/test/min322.map | tr '\n' ' '))"
+    failed=$((failed + 1))
+fi
+
 echo "Testing a used .extern in a flat program..."
 # no linker resolves it: an error (it would be $0000); declared but unused is fine,
 # and -c keeps it as an import
