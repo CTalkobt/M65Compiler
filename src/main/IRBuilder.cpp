@@ -81,6 +81,12 @@ void IRBuilder::generate(TranslationUnit& unit) {
                 for (const auto& lbl : g.initLabels) {
                     if (!lbl.empty()) usedFuncs.insert(lbl);
                 }
+                // and the words of an array or struct laid out byte by byte
+                // ({ f } as well as { &f }: #326; "name+n" too)
+                for (const auto& [off, w] : g.initWords) {
+                    std::string base = w.substr(0, w.find_first_of("+-"));
+                    if (allFunctionNames.count(base)) usedFuncs.insert(base);
+                }
             }
 
             // Remove unused functions (static, inlined, or unreachable)
@@ -2288,7 +2294,15 @@ bool IRBuilder::constAddress(Expression* e, std::string& label, int& off) {
         off = 0;
         return true;
     }
-    if (auto* u = dynamic_cast<UnaryOperation*>(inner); u && u->op == "&") return constLvalue(u->operand.get(), label, off);
+    if (auto* u = dynamic_cast<UnaryOperation*>(inner); u && u->op == "&") {
+        if (constLvalue(u->operand.get(), label, off)) return true;
+        // &f, a function: its address (as f; #326)
+        std::string l = staticAddressLabel(inner);
+        if (l.empty()) return false;
+        label = l;
+        off = 0;
+        return true;
+    }
     if (auto* b = dynamic_cast<BinaryOperation*>(inner); b && (b->op == "+" || b->op == "-")) {
         int64_t k;
         if (constIntOf(b->right.get(), k) && constAddress(b->left.get(), label, off)) {

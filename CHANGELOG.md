@@ -4,6 +4,19 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: static functions in array and struct initializers (Issue #326)
+
+- A `static` function named without `&` in an array or struct initializer
+  (`static const fn table[] = { a, b, c };`) was dropped as unused: the
+  removal of unused static functions did not count the words of an
+  initializer laid out byte by byte, and the build failed with an
+  undefined symbol at assembly. They are counted now.
+- `&f` of a function inside a nested initializer (an array of structs,
+  `{ { 'a', &f } }`) was refused as "not a compile-time constant"; it is
+  the function's address, as `f` is.
+- Test `test_static_fn_table_xemu.c` (arrays, structs, arrays of structs,
+  a function reached only through tables).
+
 ### ca45: dead `ldx #imm` over branches and labels (Issue #321)
 
 - cc45 zero-extends a byte with `ldx #0` even when the value is used as a
