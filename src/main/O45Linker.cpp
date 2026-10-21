@@ -895,6 +895,28 @@ bool O45Linker::layoutSegments(std::string& errorMsg) {
 // --- Step 2: Resolve symbols ---
 // Build a global symbol map from all exports. Check imports.
 
+// Symbols of different segments at the same address (an assembler segment
+// bug), on the final addresses: resolveSymbols runs before the SAC overlay
+// shrinks BSS too, when BSS can still reach into the code overlays' region
+// (#316). Absolute symbols (constants) and the linker's own (the region's
+// bounds, base-page blocks: on a boundary by design) are not placed
+void O45Linker::checkAddressCollisions() {
+    if (!warnStream_) return;
+    std::map<uint32_t, std::pair<std::string, uint8_t>> addrMap;
+    for (const auto& [name, addr] : globalSymbols_) {
+        auto segIt = symbolSegment_.find(name);
+        if (segIt == symbolSegment_.end()) continue;   // (the linker's own: bounds, blocks)
+        uint8_t seg = segIt->second;
+        if (seg == SEG_ABSOLUTE) continue;
+        auto it = addrMap.find(addr);
+        if (it == addrMap.end()) { addrMap[addr] = {name, seg}; continue; }
+        if (it->second.second == seg) continue;
+        *warnStream_ << "ln45: warning: symbols '" << it->second.first << "' and '" << name << "' overlap at $"
+                     << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << addr << std::dec
+                     << std::setfill(' ') << " (different segments)" << std::endl;
+    }
+}
+
 bool O45Linker::resolveSymbols(std::string& errorMsg) {
     globalSymbols_.clear();
     symbolSource_.clear();
@@ -962,30 +984,6 @@ bool O45Linker::resolveSymbols(std::string& errorMsg) {
                 symOvl_[exp.name] = input.ovlAt(exp.offset);
                 realAddr_[exp.name] = globalSymbols_[exp.name];
             }
-
-    // Detect cross-segment address collisions (different symbols from different
-    // segments placed at the same address — indicates an assembler segment bug)
-    {
-        // Build address -> (name, segId) map
-        std::map<uint32_t, std::pair<std::string, uint8_t>> addrMap;
-        for (const auto& [name, addr] : globalSymbols_) {
-            auto segIt = symbolSegment_.find(name);
-            uint8_t seg = (segIt != symbolSegment_.end()) ? segIt->second : 0;
-            auto it = addrMap.find(addr);
-            if (it != addrMap.end() && it->second.second != seg) {
-                if (warnStream_) {
-                    *warnStream_ << "warning: symbols '" << it->second.first
-                                 << "' and '" << name << "' overlap at $"
-                                 << std::hex << std::uppercase << std::setfill('0')
-                                 << std::setw(4) << addr << std::dec
-                                 << " (different segments)" << std::endl;
-                }
-            }
-            if (it == addrMap.end()) {
-                addrMap[addr] = {name, seg};
-            }
-        }
-    }
 
     // __zp_page: a page-aligned 256-byte block at the end of BSS. The CRT moves
     // the base page register there (TAB) so the program's zero page never
@@ -1665,6 +1663,7 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
     }
 
     patchZpInit();
+    checkAddressCollisions();
 
     // A weak absolute symbol an object's code was assembled with (ca45
     // OPT_WEAKUSE: .weak x / x = value, used there) must keep that value:

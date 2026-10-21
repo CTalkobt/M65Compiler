@@ -658,6 +658,7 @@ private:
     bool resolveLibraries(std::string& errorMsg);
     bool layoutSegments(std::string& errorMsg);
     bool resolveSymbols(std::string& errorMsg);
+    void checkAddressCollisions();
     bool applyRelocations(std::string& errorMsg);
     void buildFuncAttrs();
     void buildCallGraph();

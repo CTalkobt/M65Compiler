@@ -176,6 +176,35 @@ else
     failed=$((failed + 1))
 fi
 
+echo "Testing ln45's overlap warning (Issue #316)..."
+# on the final addresses only: twenty functions' 2 KB locals the SAC overlay
+# shares reach past the code overlays' region before sharing, where a BSS
+# block met an overlay function's address (pad[1517]); a real collision
+# (text and BSS both at $2000) still warns, with the ln45: prefix
+ov=build/test/overlap316; rm -rf $ov; mkdir -p $ov
+{ for k in $(seq 0 19); do echo "void f$k(unsigned char p) { volatile unsigned char buf[2000]; buf[p] = p; buf[1999] = buf[p]; }"; done; } > $ov/big.c
+{ for k in $(seq 0 19); do echo "void f$k(unsigned char);"; done
+  echo "void g0(unsigned char a, unsigned char b); unsigned char pad[1517];"
+  echo "int main(void) {"; for k in $(seq 0 19); do echo "  f$k($k);"; done; echo "  g0(1, 2); pad[0] = 1; return 0; }"; } > $ov/main.c
+{ echo "#pragma cc45 overlay(o)"
+  for k in 5 4 3 2 1 0; do
+      echo "void g$k(unsigned char a, unsigned char b) { *(volatile unsigned char *)0xC000 = a + b; $([ $k -lt 5 ] && echo "g$((k+1))(b, a);") }"
+  done; } > $ov/o.c
+printf '.global _t, _b\n.segment "code"\n_t: rts\n.segment "bss"\n_b: .res 2\n' > $ov/c.s45
+ov_ok=1
+for f in main big o; do ./bin/cc45 -O2 -c $ov/$f.c -o $ov/$f.o45 >/dev/null 2>&1 || ov_ok=0; done
+./bin/ln45 -basic -o $ov/t.prg $ov/main.o45 $ov/big.o45 $ov/o.o45 lib/build/c45.lib > $ov/t.log 2>&1 || ov_ok=0
+grep -q "overlap at" $ov/t.log && ov_ok=0
+$AS -c $ov/c.s45 -o $ov/c.o45 >/dev/null 2>&1 || ov_ok=0
+./bin/ln45 -t 2000 -b 2000 -o $ov/c.bin $ov/c.o45 2>&1 | grep -q "ln45: warning: symbols '_b' and '_t' overlap at .2000 " || ov_ok=0
+if [ $ov_ok -eq 1 ]; then
+    echo "SUCCESS: overlapping symbols warn on the final addresses only"
+    passed=$((passed + 1))
+else
+    echo "FAIL: ln45 overlap warning ($(head -2 $ov/t.log))"
+    failed=$((failed + 1))
+fi
+
 echo "Testing a used .extern in a flat program..."
 # no linker resolves it: an error (it would be $0000); declared but unused is fine,
 # and -c keeps it as an import
