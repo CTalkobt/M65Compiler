@@ -2548,6 +2548,21 @@ for mlmode in "zp_default|" "stack_default|-fno-zpcall" "zp_call|-fmul-call" "zp
     fi
 done
 
+# Test: elements of global arrays as name+off,y, no address built (#318)
+for eymode in "zp||lib/build/c45.lib" "stack|-fno-zpcall|lib/build/c45_stack.lib"; do
+    IFS='|' read -r eyname eyflags eylib <<< "$eymode"
+    echo "Testing test_elem_y_xemu.c ($eyname)..."
+    eybase=build/test/test_elem_y_$eyname
+    if $CC $eyflags -c src/test-resources/test_elem_y_xemu.c -o ${eybase}_a.o45 2>/dev/null &&
+       $CC $eyflags -c src/test-resources/test_elem_y_b.c -o ${eybase}_b.o45 2>/dev/null &&
+       $LD -basic -o ${eybase}_xemu.prg $CRT0 ${eybase}_a.o45 ${eybase}_b.o45 $eylib >/dev/null 2>&1; then
+        run_xemu_test "test_elem_y_$eyname" "${eybase}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_elem_y_xemu.c $eyname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: GCC statement expressions ({ stmt; ...; expr; })
 for semode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r sename seflags <<< "$semode"

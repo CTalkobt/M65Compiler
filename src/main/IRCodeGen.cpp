@@ -135,6 +135,21 @@ std::string IRCodeGen::foldedPtr(uint32_t addrVreg, const std::string& scratch, 
     return scratch;
 }
 
+// Y for an element address kept as base+off,y (elemAbsY_): the byte index,
+// or index * stride; the operand
+std::string IRCodeGen::elemYOperand(const ElemY& e) {
+    if (e.stride == 1 && alloc_.getAlloc(e.index.vregId).type == ir::Type::I8) {
+        emit("ldy " + directBase(e.index.vregId), "the index (" + e.base.name + "+off,y: no address built)");
+    } else {
+        loadOperand(e.index);
+        for (int k = e.stride; k > 1; k >>= 1) emit("asl");
+        emit("tay", "index * " + std::to_string(e.stride) + " (" + e.base.name + " is at most 256 bytes)");
+    }
+    ms_.invalidateAll();
+    elemCache_.valid = false;
+    return e.elemOffset ? e.base.name + "+" + std::to_string(e.elemOffset) : e.base.name;
+}
+
 // SAC storage symbol of a frame vreg: fn__param_<name> for parameters, else fn__local_<id>
 std::string IRCodeGen::sacSymbol(uint32_t vregId) const {
     if (currentFn_ && vregId < currentFn_->paramTypes.size()) {
@@ -922,14 +937,27 @@ std::string IRCodeGen::vregDesc(uint32_t vregId) {
 // offset fits in Y, so the element is name+off,y (no address built in
 // __zp_scratch). Y = index * stride for strides 1, 2, 4; the index is
 // loaded first (its load may use Y).
+// Also a byte element at a byte index of any global array (#318): the index
+// fits in Y whatever the array's size.
+bool IRCodeGen::arrayYOk(const ir::Operand& base, const ir::Operand& index, int stride, int elemOffset,
+                         int elemSize) const {
+    if (base.kind != ir::OperandKind::GLOBAL || !index.isVreg() || elemOffset < 0) return false;
+    if (stride == 1 && elemSize == 1 && alloc_.getAlloc(index.vregId).type == ir::Type::I8) return true;
+    return smallGlobals_.count(base.name) && (stride == 1 || stride == 2 || stride == 4) &&
+           elemOffset + elemSize <= 256;
+}
+
 bool IRCodeGen::smallArrayY(const ir::Operand& base, const ir::Operand& index, int stride, int elemOffset,
                             int elemSize, std::string& operand) {
-    if (base.kind != ir::OperandKind::GLOBAL || !smallGlobals_.count(base.name)) return false;
-    if (!index.isVreg() || (stride != 1 && stride != 2 && stride != 4)) return false;
-    if (elemOffset < 0 || elemOffset + elemSize > 256) return false;
-    loadOperand(index);
-    for (int k = stride; k > 1; k >>= 1) emit("asl");
-    emit("tay", "index * " + std::to_string(stride) + " (" + base.name + " is at most 256 bytes)");
+    if (!arrayYOk(base, index, stride, elemOffset, elemSize)) return false;
+    std::string direct = stride == 1 && alloc_.getAlloc(index.vregId).type == ir::Type::I8 ? directBase(index.vregId) : "";
+    if (!direct.empty()) {
+        emit("ldy " + direct, "the index (" + base.name + "+off,y)");
+    } else {
+        loadOperand(index);
+        for (int k = stride; k > 1; k >>= 1) emit("asl");
+        emit("tay", "index * " + std::to_string(stride) + " (" + base.name + "+off,y)");
+    }
     operand = elemOffset ? base.name + "+" + std::to_string(elemOffset) : base.name;
     elemCache_.valid = false;
     return true;
@@ -3272,6 +3300,8 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // is not emitted; the access indexes the base pointer with Y = offset
     // (p->m, a[3], v[i] with a constant index)
     foldedAddrs_.clear();
+    elemAbsY_.clear();
+    zextSkip_.clear();
     {
         // Every use of each vreg: (block, index, how)
         struct Use { size_t blk, idx; bool addrOnly; };
@@ -3329,6 +3359,84 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 }
                 if (!ok) continue;
                 foldedAddrs_[d] = {base, isCopy ? 0 : (int)in.src2.immVal};
+            }
+        }
+        // Element addresses of a global (ADDR_ELEM) used only as load/store
+        // addresses in their block, the index in the base page and unchanged
+        // up to the last use: base+off,y at each access, no address built
+        // (#318). Y = a byte index (any array), or index * stride (an array
+        // of at most 256 bytes: every element offset fits in Y)
+        for (size_t b = 0; b < blocks.size(); b++) {
+            const auto& insts = blocks[b]->insts;
+            for (size_t i = 0; i < insts.size(); i++) {
+                const auto& in = insts[i];
+                if (in.op != ir::Op::ADDR_ELEM || !in.dest.isVreg() || in.src1.kind != ir::OperandKind::GLOBAL ||
+                    !in.src2.isVreg() || in.args.empty() || in.elemOffset < 0) continue;
+                uint32_t d = in.dest.vregId, ix = in.src2.vregId;
+                int stride = (int)in.args[0].immVal;
+                if (fn.localSlotVregs.count(d) || fn.memoryVregs.count(d) || foldedAddrs_.count(d)) continue;
+                // a byte widened only for the index (%8 = zext %0; a[%8]): the
+                // byte is the index, the ZEXT left out (zextSkip_)
+                ir::Operand indexOp = in.src2;
+                uint32_t zextOf = 0;
+                size_t zextAt = i;
+                if (stride == 1 && alloc_.getAlloc(ix).type != ir::Type::I8 && !fn.localSlotVregs.count(ix)) {
+                    int ndef = 0;
+                    const ir::Inst* zd = nullptr;
+                    for (size_t j = 0; j < insts.size(); j++)
+                        if (insts[j].dest.isVreg() && insts[j].dest.vregId == ix) { ndef++; zd = &insts[j]; zextAt = j; }
+                    for (size_t bb = 0; bb < blocks.size(); bb++)
+                        if (bb != b) for (const auto& x : blocks[bb]->insts) if (x.dest.isVreg() && x.dest.vregId == ix) ndef++;
+                    if (ndef == 1 && zd && zd->op == ir::Op::ZEXT && zd->src1.isVreg() && zextAt < i &&
+                        alloc_.getAlloc(zd->src1.vregId).type == ir::Type::I8 &&
+                        (fn.localSlotVregs.count(zd->src1.vregId) && !regVregs_.count(zd->src1.vregId))) {
+                        auto u8 = uses.find(ix);
+                        if (u8 != uses.end() && u8->second.size() == 1) {   // (the ADDR_ELEM only)
+                            zextOf = ix;
+                            indexOp = zd->src1;
+                            ix = zd->src1.vregId;
+                        }
+                    }
+                }
+                if (!zextOf) zextAt = i;
+                auto ia = alloc_.getAlloc(ix);
+                if (ia.loc != VRegAllocator::IN_ZP || fn.memoryVregs.count(ix)) continue;
+                bool byteIndex = ia.type == ir::Type::I8 && stride == 1;
+                bool small = smallGlobals_.count(in.src1.name) && (stride == 1 || stride == 2 || stride == 4) &&
+                             in.elemOffset < 256;
+                if (!byteIndex && !small) continue;
+                auto uit = uses.find(d);
+                if (uit == uses.end() || uit->second.empty()) continue;
+                bool ok = true;
+                size_t last = i;
+                for (const auto& u : uit->second) {
+                    if (!u.addrOnly || u.blk != b || u.idx <= i) { ok = false; break; }
+                    const auto& x = insts[u.idx];
+                    if (x.op == ir::Op::LOAD) {
+                        if (x.resultType != ir::Type::I8 && x.resultType != ir::Type::I16 && x.resultType != ir::Type::PTR) ok = false;
+                    } else {
+                        // a byte; (Y through A for a stride: the value must not need Y)
+                        if (x.resultType != ir::Type::I8) ok = false;
+                        if (!byteIndex && !(x.src1.isImm() || (x.src1.isVreg() &&
+                              alloc_.getAlloc(x.src1.vregId).loc == VRegAllocator::IN_ZP))) ok = false;
+                    }
+                    if (!ok) break;
+                    last = std::max(last, u.idx);
+                }
+                if (!ok) continue;
+                // A temporary index lives (for the allocator) only up to the
+                // ADDR_ELEM: then only one access right after it can use it
+                if ((!fn.localSlotVregs.count(ix) || regVregs_.count(ix)) &&
+                    (uit->second.size() != 1 || uit->second[0].idx != i + 1)) continue;
+                // The index keeps its value up to the last use (from the ZEXT)
+                for (size_t j = zextAt + 1; j <= last && ok; j++) {
+                    const auto& x = insts[j];
+                    if (x.dest.isVreg() && x.dest.vregId == ix) ok = false;
+                    if (x.op == ir::Op::STORE && x.src2.isVreg() && x.src2.vregId == ix) ok = false;
+                }
+                if (!ok) continue;
+                elemAbsY_[d] = {in.src1, in.elemOffset, indexOp, byteIndex ? 1 : stride};
+                if (zextOf) zextSkip_.insert(zextOf);
             }
         }
         // A byte TRUNC whose one use is a byte STORE (through a pointer or to
@@ -6574,6 +6682,12 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                 } else {
                     emit("lda " + addr); emit("ldx #0");
                 }
+            } else if (inst.src1.isVreg() && elemAbsY_.count(inst.src1.vregId)) {
+                // an element of a global: base+off,y (#318)
+                std::string op = elemYOperand(elemAbsY_.at(inst.src1.vregId));
+                emit("lda " + op + ",y");
+                if (inst.resultType == ir::Type::I8) emit("ldx #0");
+                else emit("ldx " + op + "+1,y");
             } else if (inst.src1.kind != ir::OperandKind::NONE) {
                 // Load value from address held in an operand via (ZP),Y
                 std::string zpPair;
@@ -6658,9 +6772,7 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                 // constant or in ZP: loaded after)
                 {
                     int es = inst.resultType == ir::Type::I8 ? 1 : 2;
-                    bool smallOk = base.kind == ir::OperandKind::GLOBAL && smallGlobals_.count(base.name) &&
-                                   index.isVreg() && (stride == 1 || stride == 2 || stride == 4) &&
-                                   inst.elemOffset >= 0 && inst.elemOffset + es <= 256;
+                    bool smallOk = arrayYOk(base, index, stride, inst.elemOffset, es);
                     if (smallOk) {
                         bool late = constVal || zpVal;
                         if (!late) {
@@ -6893,6 +7005,20 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                         valueByte_[1] = REG_X;
                         storeVreg(inst.src2.vregId);
                     }
+                } else if (elemAbsY_.count(inst.src2.vregId)) {
+                    // an element of a global: base+off,y (#318)
+                    const ElemY& ea = elemAbsY_.at(inst.src2.vregId);
+                    bool inA = inst.src1.isVreg() && (int32_t)inst.src1.vregId == resultInAX_;
+                    std::string op;
+                    if (ea.stride == 1 && alloc_.getAlloc(ea.index.vregId).type == ir::Type::I8) {
+                        if (!inA) loadOperand(inst.src1);   // (first: its load may use Y)
+                        op = elemYOperand(ea);
+                    } else {
+                        op = elemYOperand(ea);              // (through A: the value is in the
+                        loadOperand(inst.src1);             // base page or a constant, Y kept)
+                    }
+                    emit("sta " + op + ",y");
+                    ms_.invalidateAll();
                 } else {
                     // Indirect store: write value through pointer address
                     auto addrAlloc = alloc_.getAlloc(inst.src2.vregId);
@@ -7329,6 +7455,8 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
         }
 
         case ir::Op::ADDR_ELEM: {
+            // used as base+off,y by its loads and stores (elemAbsY_)
+            if (inst.dest.isVreg() && elemAbsY_.count(inst.dest.vregId)) break;
             int fromCache = elemAddrFromCache(inst);
             if (fromCache >= 0) {
                 std::string d = "$" + hex8((uint8_t)alloc_.getAlloc(inst.dest.vregId).offset);
@@ -8122,6 +8250,8 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
         }
 
         case ir::Op::ZEXT: {
+            // a byte widened only for an element index kept as name+off,y
+            if (inst.dest.isVreg() && zextSkip_.count(inst.dest.vregId)) break;
             if (inst.dest.isVreg() && zextAlias_.count(inst.dest.vregId)) {
                 if (!directByte(inst.src1, 0).empty()) break;   // read by its one use
                 zextAlias_.erase(inst.dest.vregId);             // (a stack frame)

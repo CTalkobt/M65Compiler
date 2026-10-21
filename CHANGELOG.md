@@ -4,6 +4,26 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: elements of global arrays as `name+off,y` (Issue #318)
+
+- Reading or writing `t[i]` often built the element's address in a
+  base-page pointer (`clc; adc #<t; sta p; txa; adc #>t; sta p+1`) and
+  went through it (`ldy #0; lda (p),y`). Only a byte table of at most 256
+  bytes, read once, used `lda t,y`. Now:
+  - a byte element at a byte index of any global array, defined here or
+    `extern`, is `ldy i; lda t,y` / `sta t,y`;
+  - an element address used by several loads and stores (`t[i]--`,
+    `t[i] += 3`, `t[i] |= m`) is `t+off,y` at each, provided the index is
+    in the base page and unchanged up to the last use;
+  - a byte widened only for the index (`t[i + 5]`) is read as the byte;
+  - arrays of at most 256 bytes do the same with elements of 1, 2 or 4
+    bytes.
+- pfest: 900 bytes smaller (587 resident, 313 in overlays; element
+  addresses built in a pointer 151 -> 112); vim2: 471 bytes smaller.
+- Tests: `test_elem_y_xemu.c` (an extern array in another module, a
+  600-byte one, read-modify-write, the index changed between accesses,
+  loops), `test_compiler.sh`.
+
 ### cc45: multiplies outside loops are calls of `__mul16` / `__mul32` (Issue #317)
 
 - A 16-bit multiply was the hardware-multiplier sequence inline (about 24

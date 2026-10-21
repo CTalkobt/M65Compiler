@@ -273,6 +273,19 @@ else
     failed=$((failed + 1))
 fi
 
+# Elements of global arrays at a byte index as name+off,y, no address built
+# in a pointer (#318): an extern array, a 600-byte one, read-modify-write,
+# a constant offset (a byte widened for the index)
+printf 'extern unsigned char ext[40];\nunsigned char big[600];\nvoid f(unsigned char i, unsigned char v) { ext[i]--; big[i] = v; big[i + 5] += 3; }\n' > build/test/elemy.c
+if $CC -S build/test/elemy.c -o build/test/elemy.s45 >/dev/null 2>&1 &&
+   [ "$(grep -cE '(_ext|_big)(\+5)?,y' build/test/elemy.s45)" -eq 5 ] &&
+   ! grep -qE 'adc #<\(?(_ext|_big)' build/test/elemy.s45; then
+    echo "SUCCESS: byte-table elements as name+off,y"
+else
+    echo "FAIL: byte-table elements as name+off,y"
+    failed=$((failed + 1))
+fi
+
 # __zp globals (#67): base-page operands relocated against the variable
 # (R_LOWX), absolute ones (ldz, lda abs,y) as its full address (R_WORD); ln45
 # rejects base-page uses from code an interrupt handler reaches, a variable
