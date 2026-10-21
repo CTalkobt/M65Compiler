@@ -2632,6 +2632,19 @@ for acmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: static functions named in array and struct initializers, with or
+# without & (#326)
+for sfmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r sfname sfflags <<< "$sfmode"
+    echo "Testing test_static_fn_table_xemu.c ($sfname)..."
+    if compile_link_test "src/test-resources/test_static_fn_table_xemu.c" "build/test/test_static_fn_table_${sfname}_xemu.prg" "$sfflags"; then
+        run_xemu_test "test_static_fn_table_$sfname" "build/test/test_static_fn_table_${sfname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
+    else
+        echo "FAIL: test_static_fn_table_xemu.c $sfname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: GCC statement expressions ({ stmt; ...; expr; })
 for semode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r sename seflags <<< "$semode"
