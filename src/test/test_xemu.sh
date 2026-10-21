@@ -2563,6 +2563,22 @@ for eymode in "zp||lib/build/c45.lib" "stack|-fno-zpcall|lib/build/c45_stack.lib
     fi
 done
 
+# Test: copy and fill loops as memmove / memset (#323): the loops' results,
+# and that the ones that should are calls (and the others not)
+for limode in "zp|-floop-idioms" "stack|-fno-zpcall -floop-idioms"; do
+    IFS='|' read -r liname liflags <<< "$limode"
+    echo "Testing test_loop_idiom_xemu.c ($liname)..."
+    liprg="build/test/test_loop_idiom_${liname}_xemu.prg"
+    if compile_link_test "src/test-resources/test_loop_idiom_xemu.c" "$liprg" "$liflags" &&
+       $CC $liflags -S src/test-resources/test_loop_idiom_xemu.c -o "${liprg%.prg}.s45" 2>/dev/null &&
+       [ "$(grep -cE 'jsr (_memmove|_memset)' "${liprg%.prg}.s45")" -eq 14 ]; then
+        run_xemu_test "test_loop_idiom_$liname" "$liprg" "C0C0" 6 "01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_loop_idiom_xemu.c $liname (build failed or not 14 memmove / memset calls)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: GCC statement expressions ({ stmt; ...; expr; })
 for semode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r sename seflags <<< "$semode"

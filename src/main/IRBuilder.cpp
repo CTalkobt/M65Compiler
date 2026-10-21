@@ -1101,6 +1101,33 @@ void IRBuilder::declareBuiltinPrototypes() {
             builtinProtos_.push_back(std::move(fd));
         }
     }
+    // memmove / memset (__fastcall__, as <string.h>): the calls copy and fill
+    // loops become (tryLoopIdiom) need no declaration
+    {
+        struct MProto { const char* name; std::vector<std::pair<const char*, int>> params; };
+        static const std::vector<MProto> mprotos = {
+            {"memmove", {{"void", 1}, {"void", 1}, {"int", 0}}},
+            {"memset", {{"void", 1}, {"int", 0}, {"int", 0}}},
+        };
+        for (const auto& p : mprotos) {
+            auto fd = std::make_unique<FunctionDeclaration>(p.name, "void");
+            fd->returnPointerLevel = 1;
+            fd->isPrototype = true;
+            fd->isFastcall = true;
+            int i = 0;
+            for (const auto& [t, ptr] : p.params) {
+                Parameter prm;
+                prm.type = t;
+                prm.pointerLevel = ptr;
+                prm.isSigned = ptr == 0;
+                prm.name = "a" + std::to_string(i++);
+                fd->parameters.push_back(prm);
+            }
+            visit(*fd);
+            builtinProtoNames_.insert(p.name);
+            builtinProtos_.push_back(std::move(fd));
+        }
+    }
     // int __overflow_add/_sub/_mul(unsigned long a, unsigned long b,
     //                unsigned char *res, unsigned int flags): the
     //                __builtin_*_overflow helpers, one per operation
@@ -3608,6 +3635,7 @@ void IRBuilder::visit(StatementExpression& node) {
 // ============================================================================
 
 void IRBuilder::visit(VariableDeclaration& node) {
+    if (node.isVolatile) volatileNames_.insert(node.name);
     // extern in a block: the file-scope variable (a local of the name hidden
     // to the block's end, which restores it: saveShadowed), declared as at
     // file scope
@@ -7931,6 +7959,7 @@ void IRBuilder::visit(RepeatStatement& node) {
 }
 
 void IRBuilder::visit(ForStatement& node) {
+    if (loopIdioms && tryLoopIdiom(node)) return;
     std::string condLabel = newLabel("for_cond");
     std::string bodyLabel = newLabel("for_body");
     std::string incLabel = newLabel("for_inc");
