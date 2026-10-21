@@ -288,6 +288,13 @@ private:
     std::set<uint32_t> multiDefVregs_;  // vregs with more than one definition (never constants)
     struct FoldedAddr { uint32_t base; int offset; };
     std::map<uint32_t, FoldedAddr> foldedAddrs_;  // vreg = base + offset, used only as load/store address
+    // An element address of a global used only as load/store addresses, its
+    // index in the base page (#318): each access is base+off,y (Y = the
+    // index: a byte one, or index * stride in an array of at most 256 bytes)
+    struct ElemY { ir::Operand base; int elemOffset; ir::Operand index; int stride; };
+    std::map<uint32_t, ElemY> elemAbsY_;
+    std::set<uint32_t> zextSkip_;   // ZEXTs whose one use is such an index (not emitted)
+    std::string elemYOperand(const ElemY& e);   // Y set, the operand (name+off)
     std::map<uint32_t, ir::Operand> truncAlias_;
     // A byte ZEXT used once by a 16-bit add/sub, and/xor or compare: not
     // emitted; the use reads the byte where it lives and 0 above it
@@ -336,6 +343,7 @@ private:
     std::set<std::string> smallGlobals_;      // globals of at most 256 bytes (not __zp/__far)
     // An element of a small global array: Y = index * stride (a byte offset
     // fits), returns the operand "name+off" for name+off,y (false: not small)
+    bool arrayYOk(const ir::Operand& base, const ir::Operand& index, int stride, int elemOffset, int elemSize) const;
     bool smallArrayY(const ir::Operand& base, const ir::Operand& index, int stride, int elemOffset,
                      int elemSize, std::string& operand);
 
