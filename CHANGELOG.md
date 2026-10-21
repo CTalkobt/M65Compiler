@@ -4,6 +4,21 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### ca45: dead `ldx #imm` over branches and labels (Issue #321)
+
+- cc45 zero-extends a byte with `ldx #0` even when the value is used as a
+  byte; ca45 removed such an `ldx` only when X was written again in the
+  same straight-line code. It now follows branches and jumps to the file's
+  labels: a backward liveness of X and of the N/Z flags the `ldx` sets.
+  Anything not known counts as reading both (calls, returns, simulated
+  instructions but `ldax #v`, Q instructions but `ldq`, X-indexed
+  operands, jumps through pointers or out of the file, data, `.segment`).
+- pfest: 845 `ldx #0` down to 631; the program 210 bytes smaller and its
+  overlays 224. Test in `test_assembler.sh` (removed on every path dead;
+  kept for a read on one path, a branch on its flags, a call, a return, a
+  jump out of the file, a label with an offset, a `.segment`, an indexed
+  operand).
+
 ### ln45: no false "symbols ... overlap" warning (Issue #316)
 
 - The check for symbols of different segments at one address ran with

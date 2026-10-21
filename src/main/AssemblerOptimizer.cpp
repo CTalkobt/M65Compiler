@@ -1067,53 +1067,127 @@ bool AssemblerOptimizer::optimizeInternal(
     }
 
     // --- Pass 2b: dead LDX #imm (cc45's zero extension of a byte value that is
-    // used as a byte) ---
-    // Removed when, in the same straight-line code, X is written again (ldx,
-    // tax, tsx, plx: these set N/Z too) before anything reads X. Only the
-    // instructions known not to read X are passed over (not X-indexed, and
-    // not a Q instruction: Q is A:X:Y:Z, so stq $10 stores X); anything else
-    // ends the search and keeps it: an instruction that names X, a Q or
-    // simulated instruction (push .ax), a label, a branch, call or return, a
-    // non-instruction (neg too: neg / neg is the prefix of a Q instruction).
-    // (A list of the readers missed stq: ldx #252 / stq $10 / ldx #0 lost the
-    // 252.)
+    // used as a byte, #321) ---
+    // Removed when neither X nor the N/Z flags it sets are read before they
+    // are written again, on every path: a backward liveness of X and N/Z over
+    // the statements, following branches and jumps to labels of this file.
+    // Only what is known is passed over; anything else counts as reading X
+    // and the flags: a simulated instruction (but ldax #v), a Q instruction
+    // other than ldq (Q is A:X:Y:Z, so stq $10 stores X), an X-indexed
+    // operand, a call or return (arguments and results in X, results in the
+    // flags: __flags), a jump through a pointer, a branch to a label not found
+    // or with an offset, data and any directive but the descriptive ones (a
+    // .segment ends the fall-through). (A list of the readers missed stq:
+    // ldx #252 / stq $10 / ldx #0 lost the 252.)
     if (parser->optFlags.redundantLoad) {
         auto lower = [](std::string m) { std::transform(m.begin(), m.end(), m.begin(), ::tolower); return m; };
-        static const std::set<std::string> noX = {
-            "lda", "sta", "ldy", "sty", "ldz", "stz", "adc", "sbc", "and", "ora", "eor", "cmp", "cpy", "cpz",
-            "bit", "asl", "lsr", "rol", "ror", "asr", "inc", "dec", "iny", "dey", "inz", "dez", "inw", "dew",
-            "asw", "row", "tay", "tya", "taz", "tza", "tab", "tba", "tys", "tsy", "clc", "sec", "cld", "sed",
-            "cli", "sei", "clv", "nop", "pha", "pla", "phy", "ply", "phz", "plz", "tsb", "trb",
-            "ldx", "tax", "tsx", "plx"};
-        static const std::set<std::string> writesX = {"ldx", "tax", "tsx", "plx"};
+        static const std::set<std::string> readsX = {"stx", "txa", "txy", "cpx", "inx", "dex", "phx", "txs", "map"};
+        static const std::set<std::string> writesX = {"ldx", "tax", "tsx", "plx", "ldq"};
+        static const std::set<std::string> readsNZ = {"beq", "bne", "bmi", "bpl", "lbeq", "lbne", "lbmi", "lbpl", "php"};
+        static const std::set<std::string> writesNZ = {
+            "lda", "ldx", "ldy", "ldz", "ldq", "tax", "tay", "taz", "tya", "tza", "txa", "txy", "tyx", "tsx",
+            "pla", "plx", "ply", "plz", "plp", "adc", "sbc", "and", "ora", "eor", "cmp", "cpx", "cpy", "cpz",
+            "asl", "lsr", "rol", "ror", "asr", "inc", "dec", "inx", "dex", "iny", "dey", "inz", "dez"};
+        // neither (as far as X and N/Z go; trb/tsb/inw/dew set Z or both,
+        // counted as not: that only keeps more)
+        static const std::set<std::string> passes = {
+            "sta", "sty", "stz", "clc", "sec", "cld", "sed", "cli", "sei", "clv", "nop", "eom", "pha", "phy",
+            "phz", "tab", "tba", "tys", "tsy", "trb", "tsb", "inw", "dew", "asw", "row", "bit"};
+        static const std::set<std::string> condBranch = {
+            "bcc", "bcs", "beq", "bne", "bmi", "bpl", "bvc", "bvs",
+            "lbcc", "lbcs", "lbeq", "lbne", "lbmi", "lbpl", "lbvc", "lbvs"};
+        static const std::set<std::string> quietDirs = {
+            "loc", "global", "extern", "weak", "func_flags", "flag_clobbers", "reg_clobbers", "frame_size",
+            "zp_uses", "zp_clobbers", "keep", "var", "bpindex", "bptop", "ref"};
         auto& st = parser->statements;
-        for (size_t i = 0; i < st.size(); ++i) {
+        const size_t n = st.size();
+        std::map<std::string, size_t> labelAt;
+        for (size_t i = 0; i < n; ++i)
+            if (!st[i]->deleted && !st[i]->label.empty() && !labelAt.count(st[i]->label)) labelAt[st[i]->label] = i;
+        auto target = [&](const AssemblerParser::Statement* s, std::string op) -> long {
+            size_t c = op.find(',');                              // bbr0 $12, @x
+            if (c != std::string::npos) op = op.substr(c + 1);
+            op.erase(0, op.find_first_not_of(" \t"));
+            op.erase(op.find_last_not_of(" \t") + 1);
+            for (const std::string& k : {s->scopePrefix + op, s->localLabelScope + ":" + op, op}) {
+                auto it = labelAt.find(k);
+                if (it != labelAt.end()) return (long)it->second;
+            }
+            return -1;
+        };
+        // per statement: what it does, and where control goes next
+        enum : uint8_t { RX = 1, WX = 2, RF = 4, WF = 8, FALL = 16, OPAQUE = 32 };
+        std::vector<uint8_t> eff(n, 0);
+        std::vector<long> jump(n, -1);
+        for (size_t i = 0; i < n; ++i) {
+            auto* s = st[i].get();
+            uint8_t& e = eff[i];
+            if (s->deleted) { e = FALL; continue; }
+            if (s->type == AssemblerParser::Statement::NONE) { e = FALL; continue; }   // (a label alone)
+            if (s->type == AssemblerParser::Statement::DIRECTIVE) {
+                e = quietDirs.count(lower(s->dir.name)) ? FALL : OPAQUE;
+                continue;
+            }
+            if (s->type == AssemblerParser::Statement::LDW && s->instr.operand == ".ax" && s->exprTokenIndex >= 0 &&
+                s->exprTokenIndex < (int)parser->tokens.size() &&
+                parser->tokens[s->exprTokenIndex].type == AssemblerTokenType::HASH) {
+                e = WX | WF | FALL;                               // ldax #v: lda #<v / ldx #>v
+                continue;
+            }
+            if (s->type != AssemblerParser::Statement::INSTRUCTION) { e = OPAQUE; continue; }
+            std::string m = lower(s->instr.mnemonic);
+            if (m == "proc") { e = FALL; continue; }
+            switch (s->instr.mode) {
+                case AddressingMode::BASE_PAGE_X: case AddressingMode::ABSOLUTE_X:
+                case AddressingMode::BASE_PAGE_X_INDIRECT: case AddressingMode::ABSOLUTE_X_INDIRECT:
+                    e = OPAQUE; continue;
+                default: break;
+            }
+            bool bb = m.size() == 4 && (m.compare(0, 3, "bbr") == 0 || m.compare(0, 3, "bbs") == 0);
+            if (condBranch.count(m) || bb) {
+                jump[i] = target(s, s->instr.operand);
+                if (jump[i] < 0) { e = OPAQUE; continue; }
+                e = FALL | (readsNZ.count(m) ? RF : 0);
+                continue;
+            }
+            if (m == "bra" || m == "lbra" || (m == "jmp" && s->instr.mode == AddressingMode::ABSOLUTE)) {
+                jump[i] = target(s, s->instr.operand);
+                e = jump[i] < 0 ? OPAQUE : 0;
+                continue;
+            }
+            bool rmbSmb = m.size() == 4 && (m.compare(0, 3, "rmb") == 0 || m.compare(0, 3, "smb") == 0);
+            if (rmbSmb) { e = FALL; continue; }
+            if (readsX.count(m)) e |= RX;
+            if (writesX.count(m)) e |= WX;
+            if (readsNZ.count(m)) e |= RF;
+            if (writesNZ.count(m)) e |= WF;
+            if (!e && !passes.count(m)) { e = OPAQUE; continue; }   // jsr, rts, Q instructions, unknown
+            e |= FALL;
+        }
+        // live in: read here, or live after and not written here
+        std::vector<uint8_t> liveIn(n, 0);
+        auto liveOut = [&](size_t i) -> uint8_t {
+            if (eff[i] & OPAQUE) return 3;
+            uint8_t l = 0;
+            if (eff[i] & FALL) l |= i + 1 < n ? liveIn[i + 1] : 3;
+            if (jump[i] >= 0) l |= liveIn[jump[i]];
+            return l;
+        };
+        for (bool more = true; more; ) {
+            more = false;
+            for (size_t k = n; k-- > 0; ) {
+                uint8_t out = liveOut(k), e = eff[k], in;
+                if (e & OPAQUE) in = 3;
+                else in = (uint8_t)(((e & RX) || (!(e & WX) && (out & 1)) ? 1 : 0) |
+                                    ((e & RF) || (!(e & WF) && (out & 2)) ? 2 : 0));
+                if (in != liveIn[k]) { liveIn[k] = in; more = true; }
+            }
+        }
+        for (size_t i = 0; i < n; ++i) {
             auto* s = st[i].get();
             if (s->deleted || s->type != AssemblerParser::Statement::INSTRUCTION || !s->label.empty()) continue;
             if (lower(s->instr.mnemonic) != "ldx" || s->instr.mode != AddressingMode::IMMEDIATE) continue;
-            bool dead = false;
-            for (size_t j = i + 1; j < st.size(); ++j) {
-                auto* t = st[j].get();
-                if (t->deleted) continue;
-                if (!t->label.empty()) break;
-                if (t->type == AssemblerParser::Statement::DIRECTIVE) continue;
-                if (t->type != AssemblerParser::Statement::INSTRUCTION) break;
-                std::string m = lower(t->instr.mnemonic);
-                if (m.find('.') != std::string::npos) break;
-                if (m.size() == 3 && m[0] == 'b' && m != "bit") break;            // branches
-                if (m.size() == 4 && (m.compare(0, 3, "bbr") == 0 || m.compare(0, 3, "bbs") == 0)) break;
-                bool rmbSmb = m.size() == 4 && (m.compare(0, 3, "rmb") == 0 || m.compare(0, 3, "smb") == 0);
-                if (!noX.count(m) && !rmbSmb) break;
-                switch (t->instr.mode) {
-                    case AddressingMode::BASE_PAGE_X: case AddressingMode::ABSOLUTE_X:
-                    case AddressingMode::BASE_PAGE_X_INDIRECT: case AddressingMode::ABSOLUTE_X_INDIRECT:
-                        goto keep;
-                    default: break;
-                }
-                if (writesX.count(m)) { dead = true; break; }
-            }
-        keep:
-            if (dead) {
+            if (liveOut(i) == 0) {
                 report("dead-ldx", s, "LDX " + s->instr.operand + " eliminated (X written before it is read)");
                 s->deleted = true;
                 s->size = 0;
