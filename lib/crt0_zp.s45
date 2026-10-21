@@ -34,6 +34,8 @@ cc45.icall.__rom_call = 1
 .weak __ovl_rom_leave
 .weak __ovl_exit
 .weak __ovl_jsave
+.weak __ovl_dma_fix
+.weak __dma_job
 .weak __ovl_jrestore
 .weak ___ovl_store_bank
 .weak ___ovl_store_first
@@ -68,6 +70,8 @@ ___ovl_attic_bank = 0
 ___ovl_attic_first = 0
 ___ovl_attic_last_bank = 0
 ___ovl_attic_last = 0
+; (ovl.s45's __ovl_dma_fix names memcpy's DMA job: none without it)
+__dma_job = 0
 
 ; Exit status, left in the ROM's zero page at $FD/$FE (BASIC 65 leaves these
 ; alone; a BASIC caller can PEEK(253)+256*PEEK(254), test harnesses read it
@@ -272,6 +276,7 @@ __zp_init:
 __ovl_rom_leave:
 __ovl_exit:
 __ovl_jsave:         ; (setjmp/longjmp: the overlay state, ovl.s45)
+__ovl_dma_fix:       ; (memcpy & co.: an address in the mapped overlays' window)
 __ovl_jrestore:
     rts
 

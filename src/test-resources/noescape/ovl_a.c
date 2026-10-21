@@ -25,7 +25,13 @@ unsigned int a_locals(void) {
     static const char __noescape word[] = "local";
     char buf[] = "copied text";
     unsigned int n = strlen(word) + strlen(buf);            /* 5 + 11 */
+    char t[12];
     if (n != 16 || buf[0] != 'c' || memcmp(buf + 7, "text", 4) != 0) return 0;
+    /* memcpy / memmove by DMA from the overlay's constants: mapped, the
+       window's address is where the overlay is kept (__ovl_dma_fix, #325) */
+    if (memcpy(t, names, 11) != t || memcmp(t, "autoindent", 11) != 0) return 0;
+    memmove(t, word, 6);
+    if (memcmp(t, "local\0dent", 11) != 0) return 0;
     return 5678 + scale - 10;
 }
 

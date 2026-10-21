@@ -2926,7 +2926,12 @@ void IRBuilder::toWide(std::unique_ptr<Expression>& e, const std::string& kind, 
         decl->isSigned = sgn;
         decl->initializer = std::move(e);
         decl->line = line; decl->column = col; decl->sourceFile = file;
+        // (its value: an aggregate's operand may be built in address mode,
+        // which took a variable's address: u128 -= c used the low byte of &c)
+        bool oldAddrMode = computeAddressOnly_;
+        computeAddressOnly_ = false;
         decl->accept(*this);
+        computeAddressOnly_ = oldAddrMode;
         for (int k = 0; k < n; k++) {
             std::unique_ptr<Expression> b;
             if (k < srcBytes) {
@@ -6477,18 +6482,25 @@ void IRBuilder::visit(FunctionCall& node) {
         emitVectorShuffle(node);
         return;
     }
+    std::string declaredName = node.name;   // (allFunctions_ knows a static function by it)
     if (!node.callExpr && !locals_.count(node.name)) {
         auto rn = staticRenames_.find(node.name);
         if (rn != staticRenames_.end()) node.name = rn->second;
     }
     // An integer argument for a wide integer parameter (__int(N)): converted
+    // (a static function's too, and after a struct result's hidden pointer:
+    // foo(0) for a u128 parameter copied 16 bytes from address 0)
     if (!node.callExpr) {
-        auto fit = allFunctions_.find(node.name);
+        auto fit = allFunctions_.find(declaredName);
+        if (fit == allFunctions_.end()) fit = allFunctions_.find(node.name);
         if (fit != allFunctions_.end()) {
             const auto& params = fit->second->parameters;
-            for (size_t i = 0; i < node.arguments.size() && i < params.size(); i++) {
-                if (params[i].pointerLevel) continue;
-                std::string wn = getAggregateName(params[i].type);
+            // (a struct result's hidden pointer is not an argument here)
+            size_t skip = !params.empty() && params[0].name == "__sret" ? 1 : 0;
+            for (size_t i = 0; i < node.arguments.size() && i + skip < params.size(); i++) {
+                const auto& par = params[i + skip];
+                if (par.pointerLevel) continue;
+                std::string wn = getAggregateName(par.type);
                 if (wn.rfind("struct ", 0) == 0) wn = wn.substr(7);
                 if (wn.rfind("__int", 0) == 0 && structs_.count(wn)) toWide(node.arguments[i], wn, false);
             }
@@ -7097,13 +7109,20 @@ normal_call:
             else if ((!isSret || i > 0) && ai < node.arguments.size()) {
                 auto isInt = [](ir::Type t) { return t == ir::Type::I8 || t == ir::Type::I16 || t == ir::Type::I32; };
                 Expression* a = node.arguments[ai].get();
+                bool negated = false;
                 while (auto* u = dynamic_cast<UnaryOperation*>(a)) {
                     if (u->op != "-" && u->op != "+" && u->op != "~") break;
+                    negated = negated || u->op == "-" || u->op == "~";
                     a = u->operand.get();
                 }
-                if (isInt(args[i].type) && isInt(pTypes[i]) &&
-                    ir::typeSize(args[i].type) < ir::typeSize(pTypes[i]) && !dynamic_cast<IntegerLiteral*>(a))
+                if (auto* lit = dynamic_cast<IntegerLiteral*>(a); lit && lit->value < 0) negated = true;
+                bool widens = isInt(args[i].type) && isInt(pTypes[i]) && ir::typeSize(args[i].type) < ir::typeSize(pTypes[i]);
+                if (widens && !dynamic_cast<IntegerLiteral*>(a))
                     sig = getExprTypeInfo(node.arguments[ai].get()).isSigned;
+                // (a negated constant of a signed type, -fsigned-default's -1,
+                // to an unsigned long is all ones, not 0x0000FFFF)
+                else if (widens && negated && getExprTypeInfo(node.arguments[ai].get()).isSigned)
+                    sig = true;
             }
             castArgs.push_back(emitCast(args[i], pTypes[i], sig));
         } else {
