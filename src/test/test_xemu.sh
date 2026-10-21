@@ -2509,6 +2509,19 @@ for cpmode2 in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: the constant folder decides on a literal's typed value (if / ?: /
+# while with (unsigned)65536), _Alignas with a constant expression (#93)
+for cfmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r cfname cfflags <<< "$cfmode"
+    echo "Testing test_const_fold_xemu.c ($cfname)..."
+    if compile_link_test "src/test-resources/test_const_fold_xemu.c" "build/test/test_const_fold_${cfname}_xemu.prg" "$cfflags"; then
+        run_xemu_test "test_const_fold_$cfname" "build/test/test_const_fold_${cfname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_const_fold_xemu.c $cfname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: GCC statement expressions ({ stmt; ...; expr; })
 for semode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r sename seflags <<< "$semode"

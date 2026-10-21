@@ -362,6 +362,12 @@ power-of-two blocks aligned to their size, `far_malloc_long` over 64 KB) and
   `IR.hpp`) → codegen (`IRCodeGen.cpp`, `M65Emitter`) → a runtime test
   `src/test-resources/test_<feature>_xemu.c` registered in `src/test/test_xemu.sh`
   (both conventions) → `doc/bin/cc45.md`.
+- Constant expressions: `ConstEval` (`ConstEval.hpp`) is the one evaluator
+  (the folder's literal arithmetic, static initializers, case labels, array
+  sizes, enum values, bit-field widths, `_Static_assert`, `_Alignas`); a
+  caller gives it a `ConstEvalContext` (sizes, alignments, enum constants).
+  A folded literal's value is `ConstValue::ofLiteral(l).intValue()` (its type
+  applied), not `l.value`. Unit test `src/test/test_const_eval.cpp`.
 - AST passes: derive from `ASTWalker` (`AST.hpp`), which walks into every
   child node, and override only the nodes the pass acts on (call
   `ASTWalker::visit(node)` to keep walking below one); a new node type gets

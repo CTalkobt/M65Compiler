@@ -229,6 +229,7 @@ private:
     // sizeof as a compile-time constant (not of a variable-length array or
     // a struct with run-time member sizes): a static initializer's value
     bool constSizeof(SizeofExpression& node, int64_t& out);
+    int64_t staticSizeof(SizeofExpression& node);
     int alignofValue(AlignofExpression& node);
     // ConstEvalContext
     bool sizeOf(SizeofExpression& node, int64_t& out) override { return constSizeof(node, out); }

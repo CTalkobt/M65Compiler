@@ -4,6 +4,22 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: constant decisions on typed values; `_Alignas` expressions (Issue #93, stages 4-5)
+
+- The constant folder decided `if`, `?:`, `while`, `for`, `_Static_assert`
+  and `_Bool` conversions on a literal's raw value: `(unsigned)65536` (0 in
+  a 16-bit unsigned) was true, so `if ((unsigned)65536)` took the wrong
+  branch and `while ((unsigned)65536)` ran. They use the value as its type
+  says (`ConstValue::intValue`), as do alignments.
+- `_Alignas(expr)` took any expression but a literal or `_Alignof` as 1
+  (`_Alignas(sizeof x * 2)` aligned nothing); it is evaluated with ConstEval.
+- IRBuilder's `sizeof` visitor and the constant `sizeof` share one
+  computation (`staticSizeof`). With stages 1-3, cc45 has one evaluator of
+  constant expressions, `ConstEval`. (Type sizes are still computed in three
+  places: `TypeInfo`, the parser and IRBuilder.)
+- The library, the GCC torture tests, the xemu tests and vim2 compile to
+  the same code. Test `test_const_fold_xemu.c`.
+
 ### cc45: the parser's constant expressions through ConstEval (Issue #93, stage 3)
 
 - Array sizes, enum values, `_Alignas`, vector sizes and designators were
