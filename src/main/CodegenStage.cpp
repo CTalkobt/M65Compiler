@@ -76,6 +76,7 @@ void CodegenStage::generateIR() {
         ? optOverrides_.at("InlineSmallFunctions")
         : (inlineFunctions_ || optOn("InlineSmallFunctions"));
     builder.devirtualize = optOn("Devirtualization");
+    builder.loopIdioms = optOn("LoopIdioms");
     builder.futureWarnings = futureWarnings_;
     builder.maxInlineIRSize = maxInlineIRSize_;
     builder.maxUnrollBytes = maxUnrollBytes_;

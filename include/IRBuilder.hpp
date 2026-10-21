@@ -34,7 +34,8 @@ public:
     bool inlineFunctions = false;
     int maxInlineIRSize = 11;  // -fmax-inline-ir-size / #pragma cc45 max_inline_ir_size
     int maxUnrollBytes = 128;  // -fmax-unroll-bytes / #pragma cc45 max_unroll_bytes: largest unrolled code
-    bool devirtualize = true;    // -f[no-]devirtualization: single-implementation virtual calls -> direct calls
+    bool devirtualize = true;
+    bool loopIdioms = false;     // -f[no-]loop-idioms: copy / fill loops as memmove / memset (#323)    // -f[no-]devirtualization: single-implementation virtual calls -> direct calls
     bool futureWarnings = false; // --future: warn when #pragma cc45 optimize(...) names an unimplemented optimization
     bool allowImplicitFunctionDecl = false;  // -fimplicit-function-declaration
 
@@ -179,6 +180,9 @@ private:
     // Block scope: the bindings of the names a block's declarations shadow,
     // restored when it ends ({ int a = 5; { int a = 7; } a; })
     std::vector<std::function<void()>> saveShadowed(Statement* decls, bool list);
+    // (IRBuilderLoopIdiom.cpp) a copy / fill loop as memmove / memset calls
+    bool tryLoopIdiom(ForStatement& node);
+    std::set<std::string> volatileNames_;   // variables declared volatile (loop idioms leave them)
     void restoreShadowed(std::vector<std::function<void()>>& r);
     // Struct/union and float returns use a caller-allocated result buffer passed
     // as a hidden first parameter "__sret" (the callee also returns it in AX).

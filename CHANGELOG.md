@@ -4,6 +4,22 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: `-floop-idioms` — copy and fill loops as `memmove` / `memset` (Issue #323, off by default)
+
+- A loop that only copies elements between arrays or fills them, with its
+  count known before it runs, becomes calls of `memmove` / `memset`
+  (`IRBuilderLoopIdiom.cpp`): shifts within an array in `memmove`'s
+  direction, several arrays at once, inner loops over whole rows, the loop
+  variable's final value kept. Values every call uses (the count, the low
+  index, the bytes per element size) are computed once.
+- Off by default: in pfest the only loop worth it (`hs_insert`'s shift of
+  five member arrays) went from 530 bytes to 507 with the calls' setup, and
+  the program linked `memmove` (128 bytes) for it. The decision belongs on
+  the IR, comparing the two forms' sizes; and a smaller `memmove` (DMA)
+  would change the balance.
+- Test `test_loop_idiom_xemu.c` (built with `-floop-idioms`: the loops'
+  results, 14 calls where intended, none for a smear or a body with a call).
+
 ### cc45: elements of global arrays as `name+off,y` (Issue #318)
 
 - Reading or writing `t[i]` often built the element's address in a

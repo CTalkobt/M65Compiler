@@ -87,6 +87,13 @@ void OptimizationCatalog::initializeCatalog() {
     });
 
     catalog_.push_back({
+        "LoopIdioms", "Loop Idioms",
+        "Copy and fill loops of arrays as memmove / memset calls (only with -floop-idioms: the call's setup "
+        "often costs what the loop does, #323)",
+        OptimizationCategory::SPACE, 10, -1, "-floop-idioms", true, 2
+    });
+
+    catalog_.push_back({
         "TailCallOptimization", "Tail Call Optimization",
         "Convert tail calls to jumps (JSR + RTS → JMP)",
         OptimizationCategory::BOTH, 2, -1, "-ftail-call-optimization", true, 4
