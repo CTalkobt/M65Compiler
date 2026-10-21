@@ -2522,6 +2522,32 @@ for cfmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: multiplies as calls of __mul16 / __mul32 outside loops, inline inside
+# them, by default; every one a call with -fmul-call, none with -fno-mul-call
+# (#317)
+for mlmode in "zp_default|" "stack_default|-fno-zpcall" "zp_call|-fmul-call" "zp_inline|-fno-mul-call"; do
+    IFS='|' read -r mlname mlflags <<< "$mlmode"
+    echo "Testing test_mul_loop_xemu.c ($mlname)..."
+    mlprg="build/test/test_mul_loop_${mlname}_xemu.prg"
+    if compile_link_test "src/test-resources/test_mul_loop_xemu.c" "$mlprg" "$mlflags"; then
+        mlcalls=$(./bin/nm45 -r "${mlprg%.prg}.o45" 2>/dev/null | grep -cE "__mul(16|32)")
+        mlok=1
+        case "$mlname" in
+            *_inline) [ "$mlcalls" -eq 0 ] || mlok=0 ;;
+            *) [ "$mlcalls" -gt 0 ] || mlok=0 ;;
+        esac
+        if [ $mlok = 1 ]; then
+            run_xemu_test "test_mul_loop_$mlname" "$mlprg" "C0C0" 6 "01 01 01 01 01 AA"
+        else
+            echo "FAIL: test_mul_loop_$mlname ($mlcalls calls of __mul16/__mul32)"
+            failed=$((failed + 1))
+        fi
+    else
+        echo "FAIL: test_mul_loop_xemu.c $mlname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: GCC statement expressions ({ stmt; ...; expr; })
 for semode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r sename seflags <<< "$semode"

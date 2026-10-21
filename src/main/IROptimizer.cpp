@@ -2284,6 +2284,42 @@ bool isHoistCandidate(Op op) {
 
 } // namespace
 
+std::set<size_t> loopBlocks(const Function& fn) {
+    std::set<size_t> in;
+    std::map<std::string, size_t> blockIndex;
+    for (size_t i = 0; i < fn.blocks.size(); i++) blockIndex[fn.blocks[i].label] = i;
+    std::vector<std::vector<size_t>> succs(fn.blocks.size()), preds(fn.blocks.size());
+    for (size_t i = 0; i < fn.blocks.size(); i++) {
+        std::vector<std::string> targets;
+        collectSuccessors(fn.blocks[i], targets);
+        bool terminated = false;
+        for (const auto& inst : fn.blocks[i].insts)
+            if (inst.op == Op::BR || inst.op == Op::BR_INDIRECT || inst.op == Op::SWITCH ||
+                inst.op == Op::RET || inst.op == Op::RET_VOID) terminated = true;
+        if (!terminated && i + 1 < fn.blocks.size()) { succs[i].push_back(i + 1); preds[i + 1].push_back(i); }
+        for (const auto& t : targets) {
+            auto it = blockIndex.find(t);
+            if (it != blockIndex.end()) { succs[i].push_back(it->second); preds[it->second].push_back(i); }
+        }
+    }
+    for (size_t tail = 0; tail < fn.blocks.size(); tail++)
+        for (size_t header : succs[tail]) {
+            if (header > tail) continue;
+            // the blocks that reach the back edge's source without passing its header
+            std::vector<size_t> work{tail};
+            std::set<size_t> loop{header, tail};
+            while (!work.empty()) {
+                size_t b = work.back();
+                work.pop_back();
+                if (b == header) continue;
+                for (size_t p : preds[b])
+                    if (loop.insert(p).second) work.push_back(p);
+            }
+            in.insert(loop.begin(), loop.end());
+        }
+    return in;
+}
+
 void optimizeLICM(Module& mod) {
     for (auto& fn : mod.functions) {
         if (!runOn(fn, "LICM")) continue;
