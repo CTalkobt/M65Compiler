@@ -2707,6 +2707,18 @@ for lrmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: several wide integer operations in one expression (#329)
+for wcmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r wcname wcflags <<< "$wcmode"
+    echo "Testing test_wide_chain_xemu.c ($wcname)..."
+    if compile_link_test "src/test-resources/test_wide_chain_xemu.c" "build/test/test_wide_chain_${wcname}_xemu.prg" "$wcflags"; then
+        run_xemu_test "test_wide_chain_$wcname" "build/test/test_wide_chain_${wcname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
+    else
+        echo "FAIL: test_wide_chain_xemu.c $wcname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: GCC statement expressions ({ stmt; ...; expr; })
 for semode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r sename seflags <<< "$semode"

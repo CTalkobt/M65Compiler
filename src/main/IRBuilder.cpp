@@ -2879,6 +2879,19 @@ std::string IRBuilder::wideKindOf(Expression* e) {
             return "";
     }
     if (auto* u = dynamic_cast<UnaryOperation*>(e); u && u->op == "!") return "";
+    // an operation on a wide integer is one (v + v + k: the inner sum, a
+    // struct the type info calls a pointer, made the outer + pointer
+    // arithmetic, #329); a shift by its left operand's
+    if (auto* b = dynamic_cast<BinaryOperation*>(e)) {
+        const std::string& o = b->op;
+        if (o == "<<" || o == ">>") return wideKindOf(b->left.get());
+        if (o == "+" || o == "-" || o == "*" || o == "/" || o == "%" || o == "&" || o == "|" || o == "^") {
+            std::string l = wideKindOf(b->left.get());
+            return l.empty() ? wideKindOf(b->right.get()) : l;
+        }
+    }
+    if (auto* u = dynamic_cast<UnaryOperation*>(e); u && (u->op == "-" || u->op == "~"))
+        return wideKindOf(u->operand.get());
     IRTypeInfo ti = getExprTypeInfo(e);
     if (ti.type == ir::Type::PTR && !isAggCopyParam(e)) return "";
     std::string n = getAggregateName(ti.typeName);
@@ -5683,8 +5696,11 @@ void IRBuilder::visit(BinaryOperation& node) {
     }
 
     // Operator overloading: if LHS is a struct with an operator method, dispatch to it
-    if (!lhsInfo.typeName.empty() && (lhsInfo.type != ir::Type::PTR || isAggCopyParam(node.left.get()))) {
-        std::string sName = getAggregateName(lhsInfo.typeName);
+    // (a wide integer operation's own result too: v + v + k, #329)
+    std::string lhsWide = wideKindOf(node.left.get());
+    if ((!lhsInfo.typeName.empty() && (lhsInfo.type != ir::Type::PTR || isAggCopyParam(node.left.get()))) ||
+        !lhsWide.empty()) {
+        std::string sName = lhsWide.empty() ? getAggregateName(lhsInfo.typeName) : lhsWide;
         if (structs_.count(sName)) {
             // Map operator to method name suffix
             static const std::map<std::string, std::string> opMethodMap = {
