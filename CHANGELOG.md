@@ -4,6 +4,19 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### ln45: no false "symbols ... overlap" warning (Issue #316)
+
+- The check for symbols of different segments at one address ran with
+  every symbol resolution, also before the SAC overlay shares the
+  static-allocation blocks: BSS could still reach into the code overlays'
+  region then, and a block meeting an overlay function's address warned
+  although the final addresses were apart (pfest: a parameter and
+  `_set_entry__front__sac`). It now runs once, on the final addresses,
+  leaves out constants and the linker's own symbols (the region's bounds,
+  base-page blocks) and has the `ln45:` prefix. Test in
+  `test_assembler.sh` (`make test`): the shape that warned, and a real
+  collision.
+
 ### ln45: code overlays in attic RAM (Issue #315)
 
 - `--overlay-store` takes ranges of attic RAM (`$8000000`–`$87FFFFF`) as
