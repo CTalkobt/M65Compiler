@@ -178,6 +178,27 @@ the inside of such pairs through save/restore wrappers (a warning).
 modules) and the overflow program in `test_xemu.sh` (both conventions, a
 wrapped function also called through a pointer).
 
+The rest of a static-allocation function's locals and temporaries have
+slots in its SAC block (`<f>__local_<id>`), and those never live at the
+same time share their storage (`-fsac-slot-sharing`, on from `-O1`, #324;
+`SacSlotShare.cpp`). The pass works on the function's finished assembly,
+which shows what really reads and writes each slot: a liveness of every
+byte of the slots over the code between `proc` and `endproc`, following its
+labels and branches (a store writes the bytes it names, a load or
+read-modify-write reads them; an instruction it does not know, or an indexed
+or indirect operand, reads every byte of the slots it names; a jump through
+a pointer or out of the function, or data in the code, has every slot live).
+Two slots clash when one is written while the other is live, or both are
+live at the entry; the others are grouped, largest first, and a group's
+labels share one `.res`. A slot whose address is taken (`#<f>__local_N`) or
+that is named outside its function keeps its own storage, and a function
+that calls `setjmp` is left as it is. Slots of values the code never stores
+(kept in registers or folded away) take no storage. `cc45.sacsize.<f>` gives
+the new size, so ln45's SAC overlay shares less: in vim2 the overlay went
+from 2,749 to 2,347 bytes (the blocks before sharing from 18,130 to
+12,768), in pfest from 957 to 474; the code is unchanged. Test:
+`test_sac_share_xemu.c` (two modules; with `-fno-zp-locals` too).
+
 A ZP-convention leaf function goes further: its parameters stay in the ZP
 parameter block where the caller put them (`$10`…), with no copy at the entry
 and no `leafPointerParamsToZp` copy ([calling conventions](calling-conventions.md);
@@ -402,6 +423,7 @@ implemented:
 | `param-narrowing`, `strength-reduction`, `algebraic-simplify`, `type-narrowing`, `branch-folding`, `cse`, `loop-invariant-code-motion`, `copy-propagation`, `addr-elem-fusion`, `post-increment-sink`, `reorder-blocks` | IR pass ([IR passes](#ir-passes)); also per function by pragma | `-O1` |
 | `inline-small-functions` | IRBuilder inlining (`-fno-` also overrides `-finline-functions`) | `-O2` |
 | `devirtualization` | IRBuilder | `-O0` |
+| `sac-slot-sharing` | Code generation: SAC locals never live together share storage ([IR passes](#ir-passes)); file-wide only | `-O1` |
 | `tail-call-optimization`, `branch-inversion`, `jump-optimization`, `redundant-load-elimination`, `dead-store-elimination`, `seq-extract` | ca45 pass: cc45 passes `-P<x>` / `-PNo<x>` (`TailCall`, `BranchInvert`, `JmpBra`, `RedundantLoad`, `DeadStore`, `SeqExtract`) to ca45; file-wide only | ca45's default (always) |
 | `constant-folding`, `dead-code-elimination`, `frame-pointer-optimization` | Part of code generation, always on: `-fno-` warns *"cannot be disabled"* | always |
 | `loop-interchange` | AST pass before IR generation ([Loop interchange](#loop-interchange)); also per function by pragma | `-O4` |
