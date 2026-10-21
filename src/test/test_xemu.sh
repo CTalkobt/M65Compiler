@@ -2672,6 +2672,24 @@ for wamode in "zp|" "stack|-fno-zpcall" "signed|-fsigned-default"; do
     fi
 done
 
+# Test: SAC locals never live at the same time share their storage (#324);
+# those live together (a loop's, values across calls) keep theirs. Built
+# with -fno-zp-locals too (the values in the SAC block, not the base-page one)
+for ssmode in "zp|-fno-zp-locals|lib/build/c45.lib" "stack|-fno-zpcall -fno-zp-locals|lib/build/c45_stack.lib" \
+              "zp_bp||lib/build/c45.lib"; do
+    IFS='|' read -r ssname ssflags sslib <<< "$ssmode"
+    echo "Testing test_sac_share_xemu.c ($ssname)..."
+    ssbase=build/test/test_sac_share_$ssname
+    if $CC $ssflags -c src/test-resources/test_sac_share_xemu.c -o ${ssbase}_a.o45 2>/dev/null &&
+       $CC $ssflags -c src/test-resources/test_sac_share_b.c -o ${ssbase}_b.o45 2>/dev/null &&
+       $LD -basic -o ${ssbase}_xemu.prg ${ssbase}_a.o45 ${ssbase}_b.o45 $sslib >/dev/null 2>&1; then
+        run_xemu_test "test_sac_share_$ssname" "${ssbase}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_sac_share_xemu.c $ssname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: GCC statement expressions ({ stmt; ...; expr; })
 for semode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r sename seflags <<< "$semode"

@@ -94,6 +94,13 @@ void OptimizationCatalog::initializeCatalog() {
     });
 
     catalog_.push_back({
+        "SacSlotSharing", "SAC Slot Sharing",
+        "Static-allocation locals never live at the same time share their storage (a liveness of each "
+        "function's code; #324)",
+        OptimizationCategory::SPACE, 1, -1, "-fsac-slot-sharing", true, 3
+    });
+
+    catalog_.push_back({
         "TailCallOptimization", "Tail Call Optimization",
         "Convert tail calls to jumps (JSR + RTS → JMP)",
         OptimizationCategory::BOTH, 2, -1, "-ftail-call-optimization", true, 4
@@ -264,6 +271,7 @@ void OptimizationCatalog::initializeCatalog() {
         {"FramePointerOpt",      OptimizationImpl::ALWAYS_ON, "", 0},
         {"InlineSmallFunctions", OptimizationImpl::BUILDER,   "", 2},
         {"Devirtualization",     OptimizationImpl::BUILDER,   "", 0},
+        {"SacSlotSharing",       OptimizationImpl::BUILDER,   "", 1},
         {"StrengthReduction",    OptimizationImpl::IR_PASS,   "", 1},
         {"AlgebraicSimplify",    OptimizationImpl::IR_PASS,   "", 1},
         {"ParamNarrowing",       OptimizationImpl::IR_PASS,   "", 1},

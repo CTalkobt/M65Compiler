@@ -1,3 +1,4 @@
+#include "SacSlotShare.hpp"
 #include <cstdlib>
 #include "IR.hpp"
 #include "CodegenStage.hpp"
@@ -271,6 +272,8 @@ void CodegenStage::generateAssembly() {
                      prgBase_);
 
     irOutput_ = ss.str();
+    // SAC locals never live at the same time share their storage (#324)
+    if (staticAlloc_ && optOn("SacSlotSharing")) irOutput_ = shareSacSlots(irOutput_);
 
     if (verboseLevel_ >= 2) {
         std::cout << "    Generated " << irOutput_.size()

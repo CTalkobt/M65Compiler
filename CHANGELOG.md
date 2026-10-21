@@ -4,6 +4,24 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: static-allocation locals never live together share storage (Issue #324)
+
+- Every frame vreg of a SAC function had a slot of its own in the
+  function's block, temporaries of different statements or branches too,
+  and values kept in registers or folded away. `-fsac-slot-sharing` (on
+  from `-O1`, `SacSlotShare.cpp`) lays the block out again from a liveness
+  of each slot's bytes over the function's finished assembly: slots never
+  live together share one `.res`, slots nothing stores take none.
+  Conservative where the code is not understood (unknown or indexed
+  instructions read every byte of the slots they name; jumps through
+  pointers or out of the function keep everything live); address-taken
+  slots keep their own storage; functions calling `setjmp` are left alone.
+- The issue's `f`: 93 bytes to 5. vim2's SAC overlay 2,749 bytes to 2,347,
+  pfest's 957 to 474; the code is the same.
+- Test `test_sac_share_xemu.c` (two modules, both conventions, with
+  `-fno-zp-locals`): branches sharing, a loop's and nested loops' values
+  kept apart, an address-taken local.
+
 ### stdlib: `memcpy`, `memmove`, `memset` by DMA; `dma_copy_far` in asm (Issues #325, #319)
 
 - `memcpy`, `memmove` and `memset` fill in one F018B DMA job and start it
