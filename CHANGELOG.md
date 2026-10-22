@@ -4,6 +4,17 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: a variable of a declaration of several names and a function of the same name are an error (Issue #331)
+
+- `extern unsigned long a, save_line;` and a `static` function `save_line`
+  in one file compiled without a word: the check that a file-scope name is
+  either a variable or a function looked only at declarations of one name.
+  The function then hid the variable, and `save_line` meant the function's
+  address (in vim2, replace mode copied the line over the function's
+  overlay stub; it worked until a base-page wrapper called through the
+  stub). Now the same error as for a declaration of one name. ln45's
+  wrappers were not at fault. Test in `test_optimizations.sh`.
+
 ### cc45/ln45: the program-wide base-page plan (Issue #304)
 
 - cc45 chose a function's base-page block variables one file at a time
@@ -14,8 +25,8 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   them: no wrapper), `cc45 -fzp-plan=FILE` follows it (no cap, over
   `-fno-zp-locals`). cc45 records its candidates in every object
   (`cc45.zc.<storage symbol>`). Every file should be built with the plan:
-  a stale plan leaves overflowing blocks to ln45's save/restore wrappers,
-  which give wrong results in vim2 (#331).
+  a stale plan leaves overflowing blocks to ln45's save/restore wrappers
+  (correct, but larger and slower).
 - vim2: pass 2 is 6,716 bytes of code smaller than today's build (overlays
   146,480 to 139,721 bytes), with no wrapper; pass 1 is today's build.
 - Test `zp_plan/` (both conventions, a block over 16 bytes, two passes

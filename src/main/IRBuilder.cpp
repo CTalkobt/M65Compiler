@@ -1260,11 +1260,19 @@ void IRBuilder::visit(TranslationUnit& node) {
             unitFunctionNames_.insert(fd->name);
             if (!fd->isPrototype) unitDefinedFunctions_.insert(fd->name);
         }
-    // a name is either a variable or a function at file scope
-    for (auto& decl : node.topLevelDecls)
-        if (auto* vd = dynamic_cast<VariableDeclaration*>(decl.get()); vd && unitFunctionNames_.count(vd->name))
+    // a name is either a variable or a function at file scope (each name of
+    // a declaration of several too: extern unsigned long a, save_line; and a
+    // static function save_line made save_line the function's address, #331)
+    auto clash = [&](VariableDeclaration* vd) {
+        if (vd && unitFunctionNames_.count(vd->name))
             errors_.push_back(formatDiagnostic(vd->sourceFile, vd->line, vd->column, Severity::Error,
                 "'" + vd->name + "' redeclared as a different kind of symbol (a variable and a function)"));
+    };
+    for (auto& decl : node.topLevelDecls) {
+        if (auto* vd = dynamic_cast<VariableDeclaration*>(decl.get())) clash(vd);
+        else if (auto* cs = dynamic_cast<CompoundStatement*>(decl.get()); cs && cs->isDeclGroup)
+            for (auto& g : cs->statements) clash(dynamic_cast<VariableDeclaration*>(g.get()));
+    }
     checkGlobalRedeclarations(node);
     declareBuiltinPrototypes();
     // Now visit all declarations
