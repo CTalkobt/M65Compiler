@@ -7,6 +7,7 @@
 #include <iomanip>
 #include <iostream>
 #include <sstream>
+#include <fstream>
 #include <algorithm>
 #include <set>
 
@@ -148,6 +149,32 @@ std::string IRCodeGen::elemYOperand(const ElemY& e) {
     ms_.invalidateAll();
     elemCache_.valid = false;
     return e.elemOffset ? e.base.name + "+" + std::to_string(e.elemOffset) : e.base.name;
+}
+
+// ln45's program-wide plan of base-page block variables (-fzp-plan=FILE,
+// CC45_ZP_PLAN; #304): "fn <function> <storage symbol>..." lines, every
+// function ln45 planned (perhaps with none). Read once; a file that cannot be
+// read is a warning (the local rule then)
+const std::map<std::string, std::set<std::string>>& IRCodeGen::zpPlan() {
+    static std::map<std::string, std::set<std::string>> plan;
+    static bool loaded = false;
+    if (loaded) return plan;
+    loaded = true;
+    const char* path = getenv("CC45_ZP_PLAN");
+    if (!path || !*path) return plan;
+    std::ifstream in(path);
+    if (!in) {
+        std::cerr << "cc45: warning: cannot read the base-page plan '" << path << "' (-fzp-plan): ignored" << std::endl;
+        return plan;
+    }
+    for (std::string line; std::getline(in, line); ) {
+        std::istringstream ls(line);
+        std::string kw, fnName, sym;
+        if (!(ls >> kw >> fnName) || kw != "fn") continue;
+        auto& vars = plan[fnName];
+        while (ls >> sym) vars.insert(sym);
+    }
+    return plan;
 }
 
 // SAC storage symbol of a frame vreg: fn__param_<name> for parameters, else fn__local_<id>
@@ -612,6 +639,7 @@ void IRCodeGen::placeZpGlobals(const ir::Module& mod) {
         if (g.addressSpace == 1) vars[g.name] = {g.size > 0 ? g.size : ir::typeSize(g.type), g.isStatic};
     for (const auto& [name, size] : mod.zpExterns)
         if (!vars.count(name)) vars[name] = {size, false};
+    zarPlanLimit_ = ZAR_END - ZAR_START;
     if (vars.empty()) return;
     int zarMax = ZAR_MAX;
     if (const char* m = getenv("CC45_ZP_LOCALS_MAX")) zarMax = std::max(0, std::min(atoi(m), ZAR_END - ZAR_START));
@@ -627,6 +655,14 @@ void IRCodeGen::placeZpGlobals(const ir::Module& mod) {
         for (char c : f) tag += std::isalnum((unsigned char)c) ? c : '_';
     }
     int at = ZAR_START + zarMax;
+    // with ln45's plan (-fzp-plan) a block can be larger than the cap: the
+    // variables go at the top of the range and planned blocks stop below them
+    if (!zpPlan().empty()) {
+        int total = 0;
+        for (const auto& [name, v] : vars) total += std::max(v.first, 0);
+        at = std::max(ZAR_START + zarMax, ZAR_END - total);
+        zarPlanLimit_ = at - ZAR_START;
+    }
     for (const auto& [name, v] : vars) {
         const std::string clean = name.size() > 1 && name[0] == '_' ? name.substr(1) : name;
         if (v.first <= 0)
@@ -3173,7 +3209,10 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                        !callsRuntimeAlloca(fn) && !recursiveFunctions_.count(fn.name);
         int zarMax = ZAR_MAX;
         if (const char* m = getenv("CC45_ZP_LOCALS_MAX")) zarMax = std::max(0, std::min(atoi(m), ZAR_END - ZAR_START));
-        if (!leaf && willSac && relocMode && zarMax > 0 && !getenv("CC45_NO_ZP_LOCALS") && !getenv("CC45_NO_ZP_POINTERS")) {
+        // (the candidates are recorded for ln45 --zp-plan-out whatever the
+        // options; -fzp-plan's choice wins over -fno-zp-locals and the cap)
+        const bool zarAllowed = zarMax > 0 && !getenv("CC45_NO_ZP_LOCALS");
+        if (!leaf && willSac && relocMode && !getenv("CC45_NO_ZP_POINTERS")) {
             const uint32_t paramCount = (uint32_t)fn.paramTypes.size();
             bool fnZpConv = fn.conv == ir::CallConv::ZP && !fn.isVariadic;
             auto typeOf = [&](uint32_t v) {
@@ -3181,8 +3220,10 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 auto t = fn.vregTypes.find(v);
                 return t != fn.vregTypes.end() ? t->second : ir::Type::VOID;
             };
-            // references, those in loop blocks counted 4 times
-            std::map<uint32_t, int> refs;
+            // references, those in loop blocks counted 4 times; and (for the
+            // program-wide plan, #304: code size) each counted once, and the
+            // loads and stores through each
+            std::map<uint32_t, int> refs, uses, derefs;
             for (const auto& blk : fn.blocks) {
                 const std::string& l = blk.label;
                 bool inLoop = (l.rfind("while_", 0) == 0 || l.rfind("for_", 0) == 0 || l.rfind("do_", 0) == 0) &&
@@ -3190,9 +3231,39 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 int w = inLoop ? 4 : 1;
                 for (const auto& in : blk.insts) {
                     for (const ir::Operand* o : {&in.src1, &in.src2, &in.dest})
-                        if (o->isVreg()) refs[o->vregId] += w;
-                    for (const auto& a : in.args) if (a.isVreg()) refs[a.vregId] += w;
+                        if (o->isVreg()) { refs[o->vregId] += w; uses[o->vregId]++; }
+                    for (const auto& a : in.args) if (a.isVreg()) { refs[a.vregId] += w; uses[a.vregId]++; }
                 }
+            }
+            // loads and stores through a variable: their address is the
+            // variable plus a constant (add ptr v, c; addr_elem v, ...; a copy),
+            // or a pointer temporary itself (a store to a variable's slot is an
+            // assignment, not one)
+            {
+                std::map<uint32_t, int> nDef;
+                std::map<uint32_t, const ir::Inst*> defOf;
+                for (const auto& blk : fn.blocks)
+                    for (const auto& in : blk.insts)
+                        if (in.dest.isVreg()) { nDef[in.dest.vregId]++; defOf[in.dest.vregId] = &in; }
+                auto rootOf = [&](uint32_t a) {
+                    for (int depth = 0; depth < 8; depth++) {
+                        auto d = defOf.find(a);
+                        if (fn.localSlotVregs.count(a) || a < fn.paramTypes.size() || d == defOf.end() || nDef[a] != 1) break;
+                        const ir::Inst& di = *d->second;
+                        if ((di.op == ir::Op::ADD || di.op == ir::Op::SUB || di.op == ir::Op::COPY || di.op == ir::Op::ADDR_ELEM) &&
+                            di.src1.isVreg())
+                            a = di.src1.vregId;
+                        else break;
+                    }
+                    return a;
+                };
+                for (const auto& blk : fn.blocks)
+                    for (const auto& in : blk.insts) {
+                        const ir::Operand* addr = in.op == ir::Op::LOAD ? &in.src1 : in.op == ir::Op::STORE ? &in.src2 : nullptr;
+                        if (!addr || !addr->isVreg()) continue;
+                        uint32_t a = addr->vregId, r = rootOf(a);
+                        if (r != a || !(fn.localSlotVregs.count(a) || a < fn.paramTypes.size())) derefs[r]++;
+                    }
             }
             std::vector<uint32_t> cands;
             auto consider = [&](uint32_t v) {
@@ -3253,9 +3324,32 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 if (pa != pb) return pa;
                 return refs[a] > refs[b];
             });
+            // ln45's program-wide plan (-fzp-plan, #304): a function it lists
+            // takes exactly the variables it chose (no cap: the plan fits the
+            // area); one it does not know keeps the rule above
+            const std::set<std::string>* planned = nullptr;
+            if (const auto& plan = zpPlan(); !plan.empty()) {
+                auto it = plan.find(fn.name);
+                if (it != plan.end()) planned = &it->second;
+            }
+            // (its storage symbol: sacSymbol's, but currentFn_ is not set yet)
+            auto symOf = [&](uint32_t v) {
+                if (v < paramCount)
+                    return fn.name + "__param_" + (v < fn.paramNames.size() && !fn.paramNames[v].empty()
+                                                       ? fn.paramNames[v] : std::to_string(v));
+                return fn.name + "__local_" + std::to_string(v);
+            };
             for (uint32_t v : cands) {
                 int sz = typeOf(v) == ir::Type::I8 ? 1 : typeOf(v) == ir::Type::I32 ? 4 : 2;
-                if (zarSize_ + sz > zarMax) continue;
+                // the candidate's record (cc45.zc.<storage symbol>): its size,
+                // whether a pointer, its uses and loads/stores through it -- for
+                // ln45 --zp-plan-out
+                uint32_t rec = (uint32_t)sz | (typeOf(v) == ir::Type::PTR ? 0x10u : 0u) |
+                               ((uint32_t)std::min(uses[v], 4095) << 8) | ((uint32_t)std::min(derefs[v], 4095) << 20);
+                emit((fn.isWeak ? ".weak cc45.zc." : ".global cc45.zc.") + symOf(v));
+                emit("cc45.zc." + symOf(v) + " = " + std::to_string(rec));
+                if (planned ? !planned->count(symOf(v)) || zarSize_ + sz > zarPlanLimit_
+                            : (!zarAllowed || zarSize_ + sz > zarMax)) continue;
                 zarVregs_[v] = ZAR_START + zarSize_;
                 zarSize_ += sz;
             }

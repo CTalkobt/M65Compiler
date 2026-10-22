@@ -365,6 +365,8 @@ public:
     // Mapped overlays: run in a window of 8 KB blocks mapped to them (MAP),
     // not copied into a region
     void setOverlayMap(bool on) { ovlMap_ = on; }
+    // write the program-wide choice of base-page block variables (#304)
+    void setZpPlanOut(const std::string& path) { zpPlanOut_ = path; }
     void setOverlayFileName(const std::string& n) { ovlFileName_ = n; }
     const std::vector<std::vector<uint8_t>>& overlayFiles() const { return ovlFiles_; }
     const std::vector<uint8_t>& overlayDescription() const { return ovlDesc_; }   // the .ovd file
@@ -700,6 +702,12 @@ private:
     // place the functions' private base-page blocks (cc45 .zar) in $80-$E9 of
     // the program's base page, sharing between functions never active together
     bool computeZarOverlay(std::string& errorMsg);
+    // the order computeZarOverlay places blocks in: callers before callees,
+    // largest first among unrelated ones and inside cycles
+    static std::vector<std::pair<std::string, uint32_t>> zarOrder(
+        const std::map<std::string, uint32_t>& sizes, std::map<std::string, std::set<std::string>>& reach);
+    void buildZpPlan(std::map<std::string, std::set<std::string>>& reach, uint32_t area);
+    std::string zpPlanOut_;
     // a function whose block shares bytes with a function active together
     // with it is reached through a wrapper that saves and restores them
     void generateZarWrappers();

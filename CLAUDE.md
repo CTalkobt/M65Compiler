@@ -123,7 +123,8 @@ overlay: `TextRemap::ovl`, `InputObject::ovlAt`); test `src/test-resources/far/`
   `$10`–`$2F` parameters, `$30`–`$7F` register pool, `$80`–`$F1` functions'
   base-page blocks (the most used variables of SAC functions that make calls,
   up to 16 bytes (the library 8), `-fzp-locals-max=N`; ca45 `.zar`, placed by ln45 like the SAC
-  overlay; `-fno-zp-locals`; `__zp` globals take the top of that area; the
+  overlay; `-fno-zp-locals`; a two-pass build chooses them program-wide:
+  `ln45 --zp-plan-out=FILE`, then `cc45 -fzp-plan=FILE`, #304; `__zp` globals take the top of that area; the
   area starts at the end of the pool the program uses: ca45 exports
   `cc45.bptop` per object, `.bptop`/`.bpindex` for hand-written asm),
   `$F2`–`$F5` 32-bit temp, `$F6`–`$FC` library temps, `$FD/$FE` frame pointer.

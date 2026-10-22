@@ -55,6 +55,8 @@ static void printUsage(const char* progName) {
     std::cout << "  --overlay-out=PATH    Where to write the overlay file (default: the output's, .ov1;" << std::endl;
     std::cout << "                        its description for nm45/objdump45 next to it, .ovd)" << std::endl;
     std::cout << "  --overlay-map         Map overlays into a window of 8 KB blocks (MAP) instead of copying them" << std::endl;
+    std::cout << "  --zp-plan-out=FILE    Write the program-wide choice of base-page block variables, for a" << std::endl;
+    std::cout << "                        second build with cc45 -fzp-plan=FILE" << std::endl;
     std::cout << "                 (default 4096; $1000, 0x1000 or decimal)" << std::endl;
     std::cout << "  -Wthunk        Warn (but still generate thunks) on convention mismatches" << std::endl;
     std::cout << "  -v             Also print the cross-module analysis and informational warnings" << std::endl;
@@ -74,6 +76,7 @@ int main(int argc, char** argv) {
     std::vector<std::pair<uint32_t, uint32_t>> ovlStores;   // code overlays: --overlay-store, --overlay-name, --overlay-out
     std::string ovlName, ovlOut;
     bool ovlMap = false;
+    std::string zpPlanOut;   // --zp-plan-out: the program-wide base-page plan (#304)
     int ovlStaging = 5;   // --overlay-staging: the bank attic RAM's files are loaded into first
     bool isBasic = false;
     bool printMap = false;
@@ -196,6 +199,7 @@ int main(int argc, char** argv) {
         }
         else if (arg.rfind("--overlay-name=", 0) == 0) { ovlName = arg.substr(15); }
         else if (arg == "--overlay-map") { ovlMap = true; }
+        else if (arg.rfind("--zp-plan-out=", 0) == 0) { zpPlanOut = arg.substr(14); }
         else if (arg.rfind("--overlay-out=", 0) == 0) { ovlOut = arg.substr(14); }
         else if (arg.rfind("--bss-fill=", 0) == 0) {
             std::string v = arg.substr(11);
@@ -274,6 +278,7 @@ int main(int argc, char** argv) {
         linker.setOverlayFileName(ovlName);
         if (!ovlStores.empty()) linker.setOverlayStores(ovlStores);
         linker.setOverlayMap(ovlMap);
+        if (!zpPlanOut.empty()) linker.setZpPlanOut(zpPlanOut);
         linker.setOverlayStaging(ovlStaging);
     }
 

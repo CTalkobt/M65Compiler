@@ -2754,6 +2754,36 @@ for sdmode in "zp|" "stack|-fno-zpcall" "signed|-fsigned-default"; do
     fi
 done
 
+# Test: ln45's program-wide base-page plan (#304), both conventions: pass 1
+# writes it (--zp-plan-out), pass 2 follows it (-fzp-plan) and runs; many()'s
+# block gets more than the 16 bytes a function gets without a plan; a plan
+# written from pass 2 is the same (two passes converge); a stale plan (names
+# that no longer exist) still links and runs
+for zpmode in "zp|$STDLIB|" "stack|$STDLIB_STACK|-fno-zpcall"; do
+    IFS='|' read -r zpname zplib zpflags <<< "$zpmode"
+    echo "Testing the base-page plan ($zpname)..."
+    zpd=build/test/zp_plan_$zpname
+    rm -rf $zpd; mkdir -p $zpd
+    zpok=1
+    for f in main chain; do $CC $zpflags -c src/test-resources/zp_plan/$f.c -o $zpd/$f.o45 >/dev/null 2>&1 || zpok=0; done
+    $LD -basic --zp-plan-out=$zpd/plan.zar -o $zpd/p1.prg $zpd/main.o45 $zpd/chain.o45 $zplib >/dev/null 2>&1 || zpok=0
+    for f in main chain; do $CC $zpflags -fzp-plan=$zpd/plan.zar -c src/test-resources/zp_plan/$f.c -o $zpd/$f.o45 >/dev/null 2>&1 || zpok=0; done
+    $LD -basic --zp-plan-out=$zpd/plan2.zar -o $zpd/p2.prg $zpd/main.o45 $zpd/chain.o45 $zplib > $zpd/p2.log 2>&1 || zpok=0
+    many=$(./bin/nm45 $zpd/main.o45 2>/dev/null | awk '$3 == "cc45.zarsize._many" { print $1 }')
+    many=$((16#${many:-0}))
+    printf 'fn _many _many__local_999 _gone__local_1\nfn _gone _gone__local_1\n' > $zpd/stale.zar
+    for f in main chain; do $CC $zpflags -fzp-plan=$zpd/stale.zar -c src/test-resources/zp_plan/$f.c -o $zpd/s_$f.o45 >/dev/null 2>&1 || zpok=0; done
+    $LD -basic -o $zpd/stale.prg $zpd/s_main.o45 $zpd/s_chain.o45 $zplib >/dev/null 2>&1 || zpok=0
+    if [ $zpok = 1 ] && grep -q "^fn _many _many__" $zpd/plan.zar && [ "${many:-0}" -gt 16 ] &&
+       cmp -s <(grep "^fn" $zpd/plan.zar) <(grep "^fn" $zpd/plan2.zar) && ! grep -q "base-page storage" $zpd/p2.log; then
+        run_xemu_test "test_zp_plan_$zpname" "$zpd/p2.prg" "C0C0" 4 "01 01 01 AA"
+        run_xemu_test "test_zp_plan_stale_$zpname" "$zpd/stale.prg" "C0C0" 4 "01 01 01 AA"
+    else
+        echo "FAIL: the base-page plan $zpname (build or link failed, many() block ${many:-?} bytes, or the plans differ)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: GCC statement expressions ({ stmt; ...; expr; })
 for semode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r sename seflags <<< "$semode"
