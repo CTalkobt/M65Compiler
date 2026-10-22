@@ -134,6 +134,11 @@ echo "$out" | grep -q "unknown option '-fbogus-option'" && [ $rc -eq 0 ] && pass
 printf 'int x;\nint x(void) { return 1; }\n' > $T/dup.c
 out=$($CC -c $T/dup.c -o $T/dup.o45 2>&1); rc=$?
 echo "$out" | grep -q "'x' redeclared as a different kind of symbol" && [ $rc -ne 0 ] && pass || fail "a variable and a function of the same name are not an error"
+# ... also one name of a declaration of several (#331: extern unsigned long a,
+# save_line; with a static function save_line used the function's address)
+printf 'extern unsigned long a, x, b;\nstatic void x(unsigned int n) { (void)n; }\nunsigned long f(void) { x(1); return a; }\n' > $T/dup2.c
+out=$($CC -c $T/dup2.c -o $T/dup2.o45 2>&1); rc=$?
+echo "$out" | grep -q "'x' redeclared as a different kind of symbol" && [ $rc -ne 0 ] && pass || fail "a variable of a declaration group and a function of the same name are not an error"
 
 # a constant first operand of a commutative op is seen like a second one:
 # 0 ^ x, 1 * x (also long) and 4 * x simplify like x ^ 0, x * 1, x * 4; a
