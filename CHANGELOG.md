@@ -4,6 +4,15 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### ln45: several objects in one code overlay (Issue #328)
+
+- Each object of a code overlay exports its marker `cc45.overlay.<name>`;
+  a second object of the same overlay (two C files, or C and asm) was a
+  "duplicate symbol" error, though files of one name share an overlay.
+  The marker no longer counts as a duplicate. Test `overlay_shared/` (two C
+  files and an asm file in one overlay, called from another; copied and
+  mapped, both conventions).
+
 ### cc45/stdlib: shifts and division of wide integers (Issue #330)
 
 - `<intwide.h>`'s `__int64` / `__int128` (`long long`, `int64_t`,
