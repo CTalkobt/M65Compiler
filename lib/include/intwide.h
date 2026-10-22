@@ -19,6 +19,9 @@ void __intN_and(char *r, char *a, char *b, int n);
 void __intN_or(char *r, char *a, char *b, int n);
 void __intN_xor(char *r, char *a, char *b, int n);
 void __intN_mul(char *r, char *a, char *b, int n);
+void __intN_shl(char *a, int n, int shift);
+void __intN_shr_s(char *a, int n, int shift);
+void __intN_divmod_s(char *q, char *m, char *a, char *b, int n);
 
 struct __int64 {
     char bytes[8];
@@ -65,6 +68,30 @@ struct __int64 {
         int i = 0; while (i < 8) { r.bytes[i] = this->bytes[i]; i = i + 1; }
         __intN_neg(r.bytes, 8);
         return r;
+    }
+    /* shifts by an int; >> arithmetic, / and % signed (truncating), as the
+       comparisons: the struct has no signedness (#330) */
+    struct __int64 operator<<(int s) {
+        struct __int64 r;
+        int i = 0; while (i < 8) { r.bytes[i] = this->bytes[i]; i = i + 1; }
+        __intN_shl(r.bytes, 8, s);
+        return r;
+    }
+    struct __int64 operator>>(int s) {
+        struct __int64 r;
+        int i = 0; while (i < 8) { r.bytes[i] = this->bytes[i]; i = i + 1; }
+        __intN_shr_s(r.bytes, 8, s);
+        return r;
+    }
+    struct __int64 operator/(struct __int64 o) {
+        struct __int64 q, m;
+        __intN_divmod_s(q.bytes, m.bytes, this->bytes, o.bytes, 8);
+        return q;
+    }
+    struct __int64 operator%(struct __int64 o) {
+        struct __int64 q, m;
+        __intN_divmod_s(q.bytes, m.bytes, this->bytes, o.bytes, 8);
+        return m;
     }
 };
 
@@ -113,6 +140,30 @@ struct __int128 {
         int i = 0; while (i < 16) { r.bytes[i] = this->bytes[i]; i = i + 1; }
         __intN_neg(r.bytes, 16);
         return r;
+    }
+    /* shifts by an int; >> arithmetic, / and % signed (truncating), as the
+       comparisons: the struct has no signedness (#330) */
+    struct __int128 operator<<(int s) {
+        struct __int128 r;
+        int i = 0; while (i < 16) { r.bytes[i] = this->bytes[i]; i = i + 1; }
+        __intN_shl(r.bytes, 16, s);
+        return r;
+    }
+    struct __int128 operator>>(int s) {
+        struct __int128 r;
+        int i = 0; while (i < 16) { r.bytes[i] = this->bytes[i]; i = i + 1; }
+        __intN_shr_s(r.bytes, 16, s);
+        return r;
+    }
+    struct __int128 operator/(struct __int128 o) {
+        struct __int128 q, m;
+        __intN_divmod_s(q.bytes, m.bytes, this->bytes, o.bytes, 16);
+        return q;
+    }
+    struct __int128 operator%(struct __int128 o) {
+        struct __int128 q, m;
+        __intN_divmod_s(q.bytes, m.bytes, this->bytes, o.bytes, 16);
+        return m;
     }
 };
 

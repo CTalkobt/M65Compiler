@@ -2719,6 +2719,19 @@ for wcmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: shifts and division of wide integers (#330): <<, >> (arithmetic),
+# / and % (signed), the compound assignments
+for sdmode in "zp|" "stack|-fno-zpcall" "signed|-fsigned-default"; do
+    IFS='|' read -r sdname sdflags <<< "$sdmode"
+    echo "Testing test_wide_shiftdiv_xemu.c ($sdname)..."
+    if compile_link_test "src/test-resources/test_wide_shiftdiv_xemu.c" "build/test/test_wide_shiftdiv_${sdname}_xemu.prg" "$sdflags"; then
+        run_xemu_test "test_wide_shiftdiv_$sdname" "build/test/test_wide_shiftdiv_${sdname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
+    else
+        echo "FAIL: test_wide_shiftdiv_xemu.c $sdname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: GCC statement expressions ({ stmt; ...; expr; })
 for semode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r sename seflags <<< "$semode"

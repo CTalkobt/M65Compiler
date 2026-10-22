@@ -867,7 +867,9 @@ std::string Preprocessor::process(const std::string& source,
     // _Complex gets its types)
     // (the code only: a comment or string that names them does not count)
     std::string code = isCompiler ? stripCommentsAndStrings(source) : std::string();
-    if (isCompiler && source.find("intwide.h") == std::string::npos &&
+    // (an #include of it in the code, not a comment naming it: the header's
+    // guard keeps a quoted one from counting twice)
+    if (isCompiler && code.find("intwide.h") == std::string::npos &&
         (code.find("__int128") != std::string::npos || namesWideIntN(code) || code.find("int64_t") != std::string::npos ||
          code.find("__int64") != std::string::npos || hasLongLong(code)) &&
         !findIncludeFile("intwide.h", getDirectory(currentFile)).empty()) {

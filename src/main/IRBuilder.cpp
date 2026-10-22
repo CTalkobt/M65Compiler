@@ -99,8 +99,11 @@ void IRBuilder::generate(TranslationUnit& unit) {
                     if (fn.name == "_main") return false;
                     // Keep functions that are called within this module
                     if (usedFuncs.count(fn.name)) return false;
-                    // Keep non-static (extern/global) functions — they may be called from other modules
-                    if (!fn.isStatic) return false;
+                    // Keep non-static (extern/global) functions — they may be called from other modules;
+                    // not a struct method nothing here calls: a unit that calls one has the
+                    // struct, so its own (weak) copy (#330: <intwide.h>'s 36 operators in
+                    // every program that added two long longs)
+                    if (!fn.isStatic && !fn.isMethod) return false;
                     // Remove only static functions that are not called
                     return true;
                 });
@@ -1440,6 +1443,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
     // a struct method is defined by every unit that includes its struct (as a
     // C++ inline member function): weak, so the units link together
     fn.isWeak = weakNextFunction_ || node.isMethod;
+    fn.isMethod = node.isMethod;
     weakNextFunction_ = false;
     fn.optOverrides = optOverrides_;
     fn.isRecurse = recurseNextFunction_;
@@ -4732,9 +4736,11 @@ void IRBuilder::visit(Assignment& node) {
     }
     // Wide integer target: x op= y as x = x op y, an integer value converted
     if (std::string w = wideKindOf(node.target.get()); !w.empty()) {
-        if (node.op.size() == 2 && node.op[1] == '=' && std::string("+-*&|^").find(node.op[0]) != std::string::npos) {
+        bool simple = node.op.size() == 2 && node.op[1] == '=' && std::string("+-*/%&|^").find(node.op[0]) != std::string::npos;
+        bool shift = node.op == "<<=" || node.op == ">>=";   // (#330)
+        if (simple || shift) {
             if (auto copy = cloneSimpleExpr(node.target.get())) {
-                auto bin = std::make_unique<BinaryOperation>(node.op.substr(0, 1), std::move(copy), std::move(node.expression));
+                auto bin = std::make_unique<BinaryOperation>(node.op.substr(0, node.op.size() - 1), std::move(copy), std::move(node.expression));
                 bin->line = node.line; bin->column = node.column; bin->sourceFile = node.sourceFile;
                 node.expression = std::move(bin);
                 node.op = "=";
@@ -5730,6 +5736,17 @@ void IRBuilder::visit(BinaryOperation& node) {
 
                     // Evaluate RHS (an aggregate operand is passed as a copy)
                     auto rhsVal = evalArgument(node.right.get(), paramAggSize(mangledName, mSret ? 2 : 1), loc(node));
+                    // an integer operand widened to the parameter's type, by its
+                    // own signedness (v >> c, an unsigned char for operator>>(int):
+                    // the stack convention pushed X's stale high byte, #330)
+                    {
+                        auto pit = functionParamTypes_.find(mangledName);
+                        size_t ri = mSret ? 2 : 1;
+                        auto isInt = [](ir::Type t) { return t == ir::Type::I8 || t == ir::Type::I16 || t == ir::Type::I32; };
+                        if (pit != functionParamTypes_.end() && ri < pit->second.size() && isInt(rhsVal.type) &&
+                            isInt(pit->second[ri]) && ir::typeSize(rhsVal.type) < ir::typeSize(pit->second[ri]))
+                            rhsVal = emitCast(rhsVal, pit->second[ri], getExprTypeInfo(node.right.get()).isSigned);
+                    }
 
                     // Call StructName__operator_OP(&lhs, rhs)
                     computeAddressOnly_ = savedAddrMode;  // result form follows the caller's mode

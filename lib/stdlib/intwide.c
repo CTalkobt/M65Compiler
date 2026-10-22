@@ -104,6 +104,67 @@ void __intN_shr_u(char *a, int n, int shift) {
     }
 }
 
+/* Arithmetic shift right (the sign bit copied in: the structs' operators
+   are signed, as the comparisons) */
+void __intN_shr_s(char *a, int n, int shift) {
+    char fill = (a[n - 1] & 0x80) ? 1 : 0;
+    while (shift > 0) {
+        int carry = fill;
+        int i = n - 1;
+        while (i >= 0) {
+            int val = ((unsigned char)a[i] >> 1) | (carry << 7);
+            carry = a[i] & 1;
+            a[i] = (char)val;
+            i = i - 1;
+        }
+        shift = shift - 1;
+    }
+}
+
+/* Unsigned division, shift and subtract: q = a / b, m = a % b (b == 0:
+   q all ones, m = a). q and m may not be a or b; n at most 16 */
+void __intN_divmod_u(char *q, char *m, char *a, char *b, int n) {
+    int i = 0, bits = n * 8;
+    while (i < n) { q[i] = a[i]; m[i] = 0; i = i + 1; }
+    while (bits > 0) {
+        /* (m:q) <<= 1 */
+        int carry = 0;
+        i = 0;
+        while (i < n) {
+            int val = ((unsigned char)q[i] << 1) | carry;
+            carry = (unsigned char)q[i] >> 7;
+            q[i] = (char)val;
+            i = i + 1;
+        }
+        i = 0;
+        while (i < n) {
+            int val = ((unsigned char)m[i] << 1) | carry;
+            carry = (unsigned char)m[i] >> 7;
+            m[i] = (char)val;
+            i = i + 1;
+        }
+        if (carry || __intN_cmp_u(m, b, n) >= 0) {
+            __intN_sub(m, m, b, n);
+            q[0] = q[0] | 1;
+        }
+        bits = bits - 1;
+    }
+}
+
+/* Signed division, truncating toward zero (C): the quotient negative when
+   the signs differ, the remainder with the dividend's sign */
+void __intN_divmod_s(char *q, char *m, char *a, char *b, int n) {
+    char ua[16], ub[16];
+    int i = 0;
+    int na = (a[n - 1] & 0x80) != 0, nb = (b[n - 1] & 0x80) != 0;
+    while (i < n) { ua[i] = a[i]; ub[i] = b[i]; i = i + 1; }
+    if (na) __intN_neg(ua, n);
+    if (nb) __intN_neg(ub, n);
+    __intN_divmod_u(q, m, ua, ub, n);
+    if (na != nb) __intN_neg(q, n);
+    if (na) __intN_neg(m, n);
+}
+
 void __intN_mul(char *r, char *a, char *b, int n) {
     /* Clear result */
     char result[16];
