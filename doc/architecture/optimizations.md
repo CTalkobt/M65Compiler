@@ -176,7 +176,11 @@ callees). The register pool ends at
 the inside of such pairs through save/restore wrappers (a warning).
 `-fno-zp-locals` turns it off; validation: `test_zp_locals_xemu.c` (two
 modules) and the overflow program in `test_xemu.sh` (both conventions, a
-wrapped function also called through a pointer).
+wrapped function also called through a pointer). The choice can instead be
+made for the whole program by a two-pass build: `ln45 --zp-plan-out=FILE`,
+then `cc45 -fzp-plan=FILE` (#304,
+[ln45: the program-wide plan](../bin/ln45.md#the-program-wide-base-page-plan);
+vim2's code 6,716 bytes smaller, no wrapper).
 
 The rest of a static-allocation function's locals and temporaries have
 slots in its SAC block (`<f>__local_<id>`), and those never live at the

@@ -251,6 +251,7 @@ private:
     // Absolute base (ZP "$xx" or SAC symbol) of an F32 vreg; false if it lives in a stack frame
     bool f32AbsBase(uint32_t vregId, std::string& base);
     std::string sacSymbol(uint32_t vregId) const;
+    static const std::map<std::string, std::set<std::string>>& zpPlan();
     // Byte k of an operand as an instruction operand that needs no code
     // first (#imm, a constant vreg, ZP, a SAC symbol); "" when it has none
     std::string directByte(const ir::Operand& op, int k) const;
@@ -322,7 +323,8 @@ private:
     std::map<uint32_t, ByteJoin> findByteJoins(const ir::Function& fn) const;
     std::map<uint32_t, int> zpParams_;   // parameters used in the ZP parameter block (a leaf function)
     std::map<uint32_t, int> zarVregs_;   // variables in the function's own base-page block
-    int zarSize_ = 0;  // byte TRUNC stored as is: the STORE reads its source's low byte
+    int zarSize_ = 0;
+    int zarPlanLimit_ = ZAR_END - ZAR_START;   // a planned block's bytes (below the file's __zp variables)  // byte TRUNC stored as is: the STORE reads its source's low byte
     std::string foldedPtr(uint32_t addrVreg, const std::string& scratch, int& yOff);
 
     // Track which functions use SAC (Static Allocation Convention)

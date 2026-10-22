@@ -4,6 +4,23 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45/ln45: the program-wide base-page plan (Issue #304)
+
+- cc45 chose a function's base-page block variables one file at a time
+  (16 bytes at most), so deep call chains overflowed into wrappers while
+  bytes elsewhere stayed unused. A two-pass build now lets ln45 choose for
+  the whole program: `ln45 --zp-plan-out=FILE` writes the plan (greedy by
+  estimated bytes saved per byte, every block fitting where ln45 places
+  them: no wrapper), `cc45 -fzp-plan=FILE` follows it (no cap, over
+  `-fno-zp-locals`). cc45 records its candidates in every object
+  (`cc45.zc.<storage symbol>`). Every file should be built with the plan:
+  a stale plan leaves overflowing blocks to ln45's save/restore wrappers,
+  which give wrong results in vim2 (#331).
+- vim2: pass 2 is 6,716 bytes of code smaller than today's build (overlays
+  146,480 to 139,721 bytes), with no wrapper; pass 1 is today's build.
+- Test `zp_plan/` (both conventions, a block over 16 bytes, two passes
+  converge, a stale plan).
+
 ### ca45: TailDedup no longer merges tails reading procs' own base-page blocks (Issue #327)
 
 - A base-page operand of a proc with a `.zar` block is relocated against

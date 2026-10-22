@@ -2410,34 +2410,9 @@ bool O45Linker::computeZarOverlay(std::string& errorMsg) {
     // Callers before callees (a function then lands just above the blocks of
     // the functions active when it runs, so the area needed is the heaviest
     // call path); largest first among unrelated ones and inside cycles
-    std::vector<std::pair<std::string, uint32_t>> blocks(sizes.begin(), sizes.end());
-    std::sort(blocks.begin(), blocks.end(), [](const auto& a, const auto& b) {
-        return a.second != b.second ? a.second > b.second : a.first < b.first;
-    });
-    {
-        std::vector<std::pair<std::string, uint32_t>> ordered;
-        std::set<std::string> done;
-        while (ordered.size() < blocks.size()) {
-            bool progress = false;
-            for (const auto& b : blocks) {
-                if (done.count(b.first)) continue;
-                bool ready = true;   // every block function that reaches it is placed
-                for (const auto& o : blocks)
-                    if (o.first != b.first && !done.count(o.first) && reach[o.first].count(b.first) &&
-                        !reach[b.first].count(o.first))
-                        { ready = false; break; }
-                if (!ready) continue;
-                ordered.push_back(b);
-                done.insert(b.first);
-                progress = true;
-            }
-            if (!progress)   // (a cycle through calls via pointers: take the next as it comes)
-                for (const auto& b : blocks)
-                    if (!done.count(b.first)) { ordered.push_back(b); done.insert(b.first); break; }
-        }
-        blocks = ordered;
-    }
+    std::vector<std::pair<std::string, uint32_t>> blocks = zarOrder(sizes, reach);
     const uint32_t area = ZAR_HI - zarLo_ - zpVarTotal_;   // (the __zp variables are above)
+    if (!zpPlanOut_.empty()) buildZpPlan(reach, area);
     for (const auto& [f, len] : blocks) {
         std::vector<std::pair<uint32_t, uint32_t>> busy;
         for (const auto& [g, at] : zarOffset_)
@@ -2483,6 +2458,150 @@ bool O45Linker::computeZarOverlay(std::string& errorMsg) {
     ln45info() << "base-page blocks: " << blocks.size() << " functions, " << zarTotal_ << " bytes in "
                << zarUsed_ << "\n";
     return true;
+}
+
+std::vector<std::pair<std::string, uint32_t>> O45Linker::zarOrder(
+        const std::map<std::string, uint32_t>& sizes, std::map<std::string, std::set<std::string>>& reach) {
+    std::vector<std::pair<std::string, uint32_t>> blocks;
+    for (const auto& [f, len] : sizes) if (len) blocks.push_back({f, len});
+    std::sort(blocks.begin(), blocks.end(), [](const auto& a, const auto& b) {
+        return a.second != b.second ? a.second > b.second : a.first < b.first;
+    });
+    // the blocks that must come first: their functions reach it (and it does
+    // not reach them)
+    std::map<std::string, std::vector<std::string>> before;
+    for (const auto& b : blocks)
+        for (const auto& o : blocks)
+            if (o.first != b.first && reach[o.first].count(b.first) && !reach[b.first].count(o.first))
+                before[b.first].push_back(o.first);
+    std::vector<std::pair<std::string, uint32_t>> ordered;
+    std::set<std::string> done;
+    while (ordered.size() < blocks.size()) {
+        bool progress = false;
+        for (const auto& b : blocks) {
+            if (done.count(b.first)) continue;
+            bool ready = true;   // every block function that reaches it is placed
+            for (const auto& o : before[b.first])
+                if (!done.count(o)) { ready = false; break; }
+            if (!ready) continue;
+            ordered.push_back(b);
+            done.insert(b.first);
+            progress = true;
+        }
+        if (!progress)   // (a cycle through calls via pointers: take the next as it comes)
+            for (const auto& b : blocks)
+                if (!done.count(b.first)) { ordered.push_back(b); done.insert(b.first); break; }
+    }
+    return ordered;
+}
+
+// --zp-plan-out=FILE (#304): which variables go into the base-page blocks,
+// chosen for the whole program -- cc45 chose them one function at a time
+// (pointers first, then by use, 16 bytes at most), so the blocks of deep call
+// chains overflowed the area into wrappers while bytes elsewhere stayed
+// unused. The candidates are cc45's records (cc45.zc.<storage symbol>: size,
+// pointer, uses, loads/stores through it), each worth its uses times its
+// size (an absolute access takes a byte more per byte) plus, for a pointer,
+// 10 bytes per load or store through it (the copy to __zp_scratch it saves).
+// Greedy by value per byte: a variable joins its function's block when every
+// block still fits in the area where computeZarOverlay places them (no
+// wrapper). Library functions keep their blocks (they are not recompiled).
+// The file lists every planned function with its variables, for cc45
+// -fzp-plan: two builds converge; a stale plan only costs bytes (blocks that
+// do not fit are still wrapped).
+void O45Linker::buildZpPlan(std::map<std::string, std::set<std::string>>& reach, uint32_t area) {
+    struct Cand { std::string fn, sym; uint32_t size, value; };
+    std::vector<Cand> cands;
+    std::set<std::string> planned;
+    std::map<std::string, uint32_t> fixedSizes;
+    for (const auto& input : objects_) {
+        bool library = input.filename.find(".lib(") != std::string::npos;
+        for (const auto& exp : input.obj.exports) {
+            if (exp.name.rfind("cc45.zc.", 0) == 0) {
+                std::string sym = exp.name.substr(8);
+                size_t at = std::max(sym.rfind("__local_") == std::string::npos ? 0 : sym.rfind("__local_"),
+                                     sym.rfind("__param_") == std::string::npos ? 0 : sym.rfind("__param_"));
+                if (!at) continue;
+                std::string fn = sym.substr(0, at);
+                if (library) continue;
+                uint32_t rec = exp.offset, size = rec & 0x0F, uses = (rec >> 8) & 0xFFF, derefs = (rec >> 20) & 0xFFF;
+                bool ptr = rec & 0x10;
+                planned.insert(fn);
+                if (!size) continue;
+                uint32_t value = uses * size + (ptr ? 10 * derefs : 0);
+                if (value) cands.push_back({fn, sym, size, value});
+            }
+        }
+    }
+    // (only functions that are linked: reach knows them)
+    for (const auto& [f, len] : zarSize_)
+        if (!planned.count(f)) fixedSizes[f] = len;
+    std::map<std::string, std::set<std::string>> graph;
+    std::set<std::string> addrTaken;
+    buildCallGraph(graph, addrTaken);
+    for (const auto& f : planned)
+        if (!reach.count(f)) {
+            std::set<std::string> seen;   // (a function no block had: its reach)
+            std::vector<std::string> todo{f};
+            while (!todo.empty()) {
+                std::string n = todo.back();
+                todo.pop_back();
+                auto it = graph.find(n);
+                if (it == graph.end()) continue;
+                for (const auto& c : it->second)
+                    if (seen.insert(c).second) todo.push_back(c);
+            }
+            reach[f] = seen;
+        }
+    std::stable_sort(cands.begin(), cands.end(), [](const Cand& a, const Cand& b) {
+        uint64_t l = (uint64_t)a.value * b.size, r = (uint64_t)b.value * a.size;
+        return l != r ? l > r : a.value > b.value;
+    });
+    auto fits = [&](const std::map<std::string, uint32_t>& sizes) {
+        std::map<std::string, uint32_t> at;
+        for (const auto& [f, len] : zarOrder(sizes, reach)) {
+            std::vector<std::pair<uint32_t, uint32_t>> busy;
+            for (const auto& [g, gat] : at)
+                if (reach[f].count(g) || reach[g].count(f)) busy.push_back({gat, gat + sizes.at(g)});
+            std::sort(busy.begin(), busy.end());
+            uint32_t pos = 0;
+            for (const auto& [lo, hi] : busy) {
+                if (pos + len <= lo) break;
+                pos = std::max(pos, hi);
+            }
+            if (pos + len > area) return false;
+            at[f] = pos;
+        }
+        return true;
+    };
+    std::map<std::string, uint32_t> sizes = fixedSizes;
+    std::map<std::string, std::vector<std::string>> chosen;
+    uint64_t total = 0, bytes = 0;
+    // (a block is assembled at $80 up: at most $80-$F1, less the file's __zp
+    // variables, which cc45 then keeps out of it)
+    const uint32_t blockMax = 0xF2 - 0x80;
+    for (const auto& c : cands) {
+        if (sizes[c.fn] + c.size > blockMax) continue;
+        sizes[c.fn] += c.size;
+        if (!fits(sizes)) { sizes[c.fn] -= c.size; continue; }
+        chosen[c.fn].push_back(c.sym);
+        total += c.value;
+        bytes += c.size;
+    }
+    std::ofstream out(zpPlanOut_);
+    if (!out) {
+        if (warnStream_) *warnStream_ << "ln45: warning: cannot write the base-page plan '" << zpPlanOut_ << "'" << std::endl;
+        return;
+    }
+    out << "# base-page block plan (ln45 --zp-plan-out): cc45 -fzp-plan=" << zpPlanOut_ << "\n";
+    out << "# " << bytes << " bytes of " << area << " chosen, worth about " << total << " bytes of code\n";
+    for (const auto& f : planned) {
+        out << "fn " << f;
+        for (const auto& v : chosen[f]) out << " " << v;
+        out << "\n";
+    }
+    ln45info() << "base-page plan: " << planned.size() << " functions, " << bytes << " bytes chosen (about "
+               << total << " bytes of code), written to " << zpPlanOut_ << "\n";
 }
 
 // The bottom of the area: the end of the register pool the program's
