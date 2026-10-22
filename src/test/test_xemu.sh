@@ -1605,6 +1605,28 @@ else
     echo "FAIL: mapped overlays in attic RAM are not a link error"
     failed=$((failed + 1))
 fi
+# Several objects in one code overlay (#328): two C files and an asm file
+# share overlay a (each exports its marker cc45.overlay.a: no duplicate
+# symbol), overlay b calls into it; copied and mapped, both conventions
+for shmode in "zp|$STDLIB||" "stack|$STDLIB_STACK|-fno-zpcall|" "zp_map|$STDLIB||--overlay-map" \
+              "stack_map|$STDLIB_STACK|-fno-zpcall|--overlay-map"; do
+    IFS='|' read -r shname shlib shflags shlink <<< "$shmode"
+    echo "Testing code overlays shared by several objects ($shname)..."
+    shd=build/test/overlay_shared_$shname
+    rm -rf $shd; mkdir -p $shd
+    shok=1
+    for f in main a1 a2 b; do $CC $shflags -c src/test-resources/overlay_shared/$f.c -o $shd/$f.o45 >/dev/null 2>&1 || shok=0; done
+    ./bin/ca45 -c src/test-resources/overlay_shared/a3.s45 -o $shd/a3.o45 >/dev/null 2>&1 || shok=0
+    if [ $shok = 1 ] && $LD -basic $shlink -o $shd/shared.prg $shd/main.o45 $shd/a1.o45 $shd/a2.o45 $shd/a3.o45 $shd/b.o45 $shlib >/dev/null 2>&1 &&
+       [ "$(./bin/nm45 $shd/shared.ovd 2>/dev/null | grep -cE '_a[123]  \[overlay a\]')" -eq 3 ] &&
+       ./bin/disk45 create $shd/shared.d81 -n SHARED >/dev/null 2>&1 &&
+       ./bin/disk45 add $shd/shared.d81 $shd/shared.ov1 SHARED.OV1 >/dev/null 2>&1; then
+        run_xemu_test "test_overlay_shared_$shname" "$shd/shared.prg" "C0C0" 3 "01 01 AA" -8 "$PWD/$shd/shared.d81"
+    else
+        echo "FAIL: code overlays shared by several objects $shname (build or link failed, or not one overlay)"
+        failed=$((failed + 1))
+    fi
+done
 # Many code overlays (#313): ln45 writes the overlay table as six tables of
 # a byte per overlay, so __ovl_load's index is id - 1 (the 44th overlay
 # used to read other overlays' entries); 255 overlays work, copied and

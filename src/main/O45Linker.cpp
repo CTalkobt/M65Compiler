@@ -954,6 +954,9 @@ bool O45Linker::resolveSymbols(std::string& errorMsg) {
 
             if (globalSymbols_.count(exp.name)) {
                 bool existingWeak = symbolWeak_[exp.name];
+                // a code overlay's marker (cc45.overlay.<name>) only names the
+                // overlay: every object of it defines it (#328)
+                if (exp.name.rfind("cc45.overlay.", 0) == 0) continue;
                 if (!existingWeak && !isWeak) {
                     // Two strong definitions = error
                     errorMsg = "duplicate symbol '" + exp.name + "' (defined in " +

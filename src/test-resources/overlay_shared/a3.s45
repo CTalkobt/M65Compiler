@@ -1,0 +1,10 @@
+; overlay_shared/a3.s45 — overlay a (with a1.c and a2.c), in asm
+.overlay a
+.global _a3
+.segment "code"
+proc _a3
+    lda #4
+    ldx #0
+    rts
+    .func_flags zp_call
+endproc
