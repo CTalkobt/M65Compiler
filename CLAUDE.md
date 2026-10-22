@@ -260,8 +260,9 @@ totals code bytes by IR operation).
 - **Wide integers** (`<intwide.h>`, auto-included when a unit's code names a
   64-bit or `__int(N)` type): operator-overloaded `struct __intN { char bytes[N]; }`
   with the `__intN_*` runtime; implicit conversion from/to integers, signed
-  comparisons (`__intN_cmp_s`), `LL` literals keep 64 bits. Struct methods are
-  emitted weak so several units can include the same struct.
+  comparisons (`__intN_cmp_s`), `>>`/`/`/`%` signed too, `LL` literals keep 64
+  bits. Struct methods are emitted weak so several units can include the same
+  struct, and only those the unit calls.
 - **Extensions**: struct methods, single inheritance, `virtual`/`final`,
   operator overloading, GCC nested functions (static chain, trampolines),
   statement expressions, computed goto, case ranges, `continue <value>` in a switch, `break N`, `repeat(N)`, `__likely`/`__unlikely`, `__noescape`, `__pure`, `__cpu`/`__flags`,

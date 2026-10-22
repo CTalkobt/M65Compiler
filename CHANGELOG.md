@@ -4,6 +4,23 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45/stdlib: shifts and division of wide integers (Issue #330)
+
+- `<intwide.h>`'s `__int64` / `__int128` (`long long`, `int64_t`,
+  `__int128`) get `<<`, `>>`, `/`, `%` and `<<=`, `>>=`, `/=`, `%=`:
+  `>>` arithmetic, `/` and `%` signed and truncating toward zero (the
+  structs have no signedness; the comparisons were already signed). The
+  runtime adds `__intN_shr_s`, `__intN_divmod_u` (shift and subtract) and
+  `__intN_divmod_s`.
+- An integer argument of an operator method is widened to its parameter
+  (a `char` shift count pushed X's stale high byte in the stack
+  convention).
+- A unit emits only the struct methods it calls (each unit that calls one
+  has its own weak copy): a program adding two `long long` values was
+  5,382 bytes with all of `<intwide.h>`'s operators linked, now 1,004.
+- A comment naming `intwide.h` no longer stops the automatic include.
+- Test `test_wide_shiftdiv_xemu.c` (both conventions, `-fsigned-default`).
+
 ### cc45: several wide integer operations in one expression (Issue #329)
 
 - `v + v + k` on `__int128` (or `long long`) was wrong: the inner sum, a

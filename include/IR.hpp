@@ -224,6 +224,7 @@ struct Function {
     std::string ptrSig;      // its parameter slots, as a pointer to it is called (IRBuilder::ptrSigKey)
     bool isStatic = false;
     bool isWeak = false;
+    bool isMethod = false;   // a struct method (weak): every unit that calls it has its own copy
     bool isInterrupt = false;
     bool isNaked = false;
     bool isRegparm = false;
