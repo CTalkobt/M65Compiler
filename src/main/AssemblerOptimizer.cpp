@@ -1221,6 +1221,42 @@ bool AssemblerOptimizer::optimizeInternal(
             };
             std::map<std::string, std::vector<TailInfo>> tailsBySignature;
 
+            // The proc each statement is in: a base-page operand of a proc
+            // with a .zar block is relocated against that proc's own block
+            // (<proc>__zar), so the same text in two procs names different
+            // bytes after linking (#327: a tail merged into another proc's
+            // read that proc's stale pointer byte)
+            std::vector<const AssemblerParser::ProcContext*> procOf(parser->statements.size(), nullptr);
+            {
+                const AssemblerParser::ProcContext* cur = nullptr;
+                for (size_t k = 0; k < parser->statements.size(); ++k) {
+                    auto* st = parser->statements[k].get();
+                    if (st->type == AssemblerParser::Statement::INSTRUCTION) {
+                        std::string m = st->instr.mnemonic;
+                        std::transform(m.begin(), m.end(), m.begin(), ::tolower);
+                        if (m == "proc") cur = st->procCtx.get();
+                        procOf[k] = cur;
+                        if (m == "endproc") cur = nullptr;
+                    } else {
+                        procOf[k] = cur;
+                    }
+                }
+            }
+            auto ownBasePage = [&](size_t k) -> std::string {
+                const auto* pc = procOf[k];
+                if (!pc || pc->zarLen <= 0) return "";
+                switch (parser->statements[k]->instr.mode) {
+                    case AddressingMode::BASE_PAGE: case AddressingMode::BASE_PAGE_X: case AddressingMode::BASE_PAGE_Y:
+                    case AddressingMode::BASE_PAGE_X_INDIRECT: case AddressingMode::BASE_PAGE_INDIRECT_Y:
+                    case AddressingMode::BASE_PAGE_INDIRECT_Z: case AddressingMode::BASE_PAGE_INDIRECT_SP_Y:
+                    case AddressingMode::BASE_PAGE_RELATIVE: case AddressingMode::FLAT_INDIRECT_Z:
+                    case AddressingMode::QUAD_Q:
+                        return "@" + pc->name;   // (the proc's: only its own tails match)
+                    default:
+                        return "";
+                }
+            };
+
         // Find all procedure end points and extract tail sequences
         if (parser->optFlags.tailDedup) {
         for (size_t i = 0; i < parser->statements.size(); ++i) {
@@ -1285,7 +1321,7 @@ bool AssemblerOptimizer::optimizeInternal(
                 auto* instr = parser->statements[idx].get();
                 std::string m = instr->instr.mnemonic;
                 std::transform(m.begin(), m.end(), m.begin(), ::toupper);
-                sig += m + "|" + std::to_string((int)instr->instr.mode) + "|" + instr->instr.operand + "|";
+                sig += m + "|" + std::to_string((int)instr->instr.mode) + "|" + instr->instr.operand + ownBasePage(idx) + "|";
                 tailSize += instr->size;
             }
 
@@ -1397,7 +1433,8 @@ bool AssemblerOptimizer::optimizeInternal(
 
                         if (shortInstr->instr.mnemonic != longInstr->instr.mnemonic ||
                             shortInstr->instr.mode != longInstr->instr.mode ||
-                            shortInstr->instr.operand != longInstr->instr.operand) {
+                            shortInstr->instr.operand != longInstr->instr.operand ||
+                            ownBasePage(shortTail[k]) != ownBasePage(longTail[longTail.size() - shortTail.size() + k])) {
                             isSuffix = false;
                             break;
                         }

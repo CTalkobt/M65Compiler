@@ -1,0 +1,51 @@
+; test_taildedup_zar.s45 — ca45 TailDedup and .zar blocks (#327): _f and _g end
+; in the same text, but their base-page operands are each relocated against
+; the proc's own block (<proc>__zar): not merged; _h and _k (no .zar) are
+    .segment "code"
+    .global _f, _g, _h, _k
+    proc _f
+    .zar $80, 4
+    lda #1
+    sta $80
+    lda #2
+    sta $81
+@t:
+    lda $81
+    adc #9
+    sta $33
+    lda $80
+    rts
+    endproc
+    proc _g
+    .zar $80, 4
+    lda #3
+    sta $80
+    lda #4
+    sta $81
+@t:
+    lda $81
+    adc #9
+    sta $33
+    lda $80
+    rts
+    endproc
+    proc _h
+    lda #5
+    sta $40
+@t:
+    lda $41
+    adc #9
+    sta $33
+    lda $40
+    rts
+    endproc
+    proc _k
+    lda #6
+    sta $40
+@t:
+    lda $41
+    adc #9
+    sta $33
+    lda $40
+    rts
+    endproc
