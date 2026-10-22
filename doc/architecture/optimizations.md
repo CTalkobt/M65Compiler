@@ -392,7 +392,7 @@ order after `-O`). `-Roptimizer` prints every change
 | `RedundantLoad` | `redundant-load` | Removes `LDA/LDX/LDY/LDZ` when the register already holds the value, unless its N/Z may be read (the flags reflect another value and a branch, `PHP`, jump, return or call may read them). Also removes an `LDX #imm` (cc45's zero extension of a byte used as a byte) when neither X nor the N/Z flags it sets are read on any path before they are written again: a liveness of X and N/Z over the file's statements, following branches and jumps to its labels; a call, return, simulated instruction (but `ldax #v`), Q instruction (but `ldq`), X-indexed operand, jump through a pointer or to a label not in the file, data or `.segment` counts as reading both (#321; pfest: 214 fewer, 434 bytes) |
 | `StoreLoadPair` | `store-load-pair` | Store/load pair simplification on ZP |
 | `PreserveXSP`, `TSXRedundant` | `preserve-x-sp`, `tsx-redundant` | Avoid reloading X from SP |
-| `TailDedup` | `tail-dedup`, `tail-dedup-suffix` | Merges identical tail sequences |
+| `TailDedup` | `tail-dedup`, `tail-dedup-suffix` | Merges identical tail sequences. A base-page operand of a proc with a `.zar` block is relocated against that proc's own block, so it matches only tails of the same proc (#327: a merged tail read another function's base-page bytes) |
 | `SeqExtract` | `seq-extract` | Extracts a 4-instruction run repeated in one proc into a routine before its `endproc` (`BSR` calls); cc45 `-fno-seq-extract` turns it off (benchmark: 98 bytes smaller, ~0.5% slower) |
 | `StrengthReduction`, `AlgebraicSimplify`, `TypeNarrowing`, `BranchFold`, `CSE`, `LICM`, `CopyChains`, `AddrElemFusion` | — | Accepted, **no effect** (IR-level flags; ca45 has no IR) |
 

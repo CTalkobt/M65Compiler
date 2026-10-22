@@ -205,6 +205,18 @@ else
     failed=$((failed + 1))
 fi
 
+echo "Testing TailDedup with .zar blocks (Issue #327)..."
+# identical tails of two procs with .zar blocks read each proc's own
+# base-page bytes after linking: not merged; without .zar they are
+TD=$($AS -c -O2 -Roptimizer src/test-resources/test_taildedup_zar.s45 -o build/test/test_taildedup_zar.o45 2>&1)
+if ! grep -q "asm:27: \[tail-dedup" <<< "$TD" && grep -q "asm:46: \[tail-dedup\]" <<< "$TD"; then
+    echo "SUCCESS: tails reading a proc's own .zar bytes stay apart; others merge"
+    passed=$((passed + 1))
+else
+    echo "FAIL: TailDedup with .zar ($(grep tail-dedup <<< "$TD" | tr '\n' ';'))"
+    failed=$((failed + 1))
+fi
+
 echo "Testing what a minimal C program links (Issue #322)..."
 # crt0 no longer carries __basic_call and __rom_call: library members of
 # their own, linked only by programs that use them

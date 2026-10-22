@@ -4,6 +4,16 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### ca45: TailDedup no longer merges tails reading procs' own base-page blocks (Issue #327)
+
+- A base-page operand of a proc with a `.zar` block is relocated against
+  that proc's own block (`<proc>__zar`), so the same text in two procs
+  names different bytes after linking. TailDedup merged such tails across
+  procs: one function's tail read the other's stale pointer byte (silent
+  wrong code). Such an operand now matches only in its own proc, in both
+  the exact and the suffix match. Test `test_taildedup_zar.s45` in
+  `test_assembler.sh`.
+
 ### ln45: several objects in one code overlay (Issue #328)
 
 - Each object of a code overlay exports its marker `cc45.overlay.<name>`;
