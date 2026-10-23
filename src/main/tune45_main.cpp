@@ -8,6 +8,7 @@
 #include "TunePlayer.hpp"
 #include "TuneAudio.hpp"
 #include "TuneCreate.hpp"
+#include "TuneMidi.hpp"
 #include "BasicTooling.hpp"
 #include <csignal>
 #include <climits>
@@ -38,6 +39,7 @@ void usage(std::ostream& o) {
          "  play      play the tunes on the PC (reSIDfp: four SIDs, stereo) through pw-play,\n"
          "            paplay or aplay, or into a .wav file\n"
          "  create    compose a tune (the text format): --genre, --tempo, --length, ...\n"
+         "  import    a Standard MIDI File as text (convert and play take a .mid too)\n"
          "Options:\n"
          "  -o <file>          output file\n"
          "  --bin, --asm       convert: a binary blob / ca45 source instead of C\n"
@@ -67,6 +69,12 @@ void usage(std::ostream& o) {
          "  --name <n>         create: the tune's name (default: the genre)\n"
          "  --append <file>    create: add the tune (and its instruments) to a music file\n"
          "  --play             create: play it afterwards (play's options apply)\n"
+         "  --tracks <a,b,..>  import: the tracks to make voices of (default: the first with notes)\n"
+         "  --channels [a,..]  import: channels instead of tracks (a format 0 file: always)\n"
+         "  --drums            import: channel 10 too\n"
+         "  --ticks-per-beat <n> import: the grid, ticks a quarter note (default 4: 16ths)\n"
+         "  --transpose <n>    import: semitones\n"
+         "  --instruments <f>  import: instrument lines (voice1.., gm<program> for a program change)\n"
          "  -V, --version      version\n"
          "  -h, --help         this help\n"
          "The text format: doc/bin/tune45.md (pfest's music.txt format).\n";
@@ -380,6 +388,31 @@ int playOnMega65(const std::string& src, TuneFile f, const PlayOptions& o) {
     }
 }
 
+// The text of a file: tune45 text, or a MIDI file imported
+bool loadMusic(const std::string& path, const MidiImportOptions& mo, std::string& text) {
+    std::string raw;
+    if (!readFile(path, raw)) { std::cerr << "tune45: cannot read " << path << "\n"; return false; }
+    if (raw.compare(0, 4, "MThd") != 0) { text = raw; return true; }
+    std::string err;
+    MidiImportOptions o = mo;
+    if (o.name == "song") {
+        std::string b = baseName(stem(path));
+        for (auto& c : b) if (!std::isalnum((unsigned char)c)) c = '_';
+        if (!b.empty() && !std::isdigit((unsigned char)b[0])) o.name = b;
+    }
+    text = midiImport(std::vector<unsigned char>(raw.begin(), raw.end()), o, err);
+    if (text.empty()) { std::cerr << "tune45: " << path << ": " << err << "\n"; return false; }
+    return true;
+}
+
+std::vector<int> numbers(const std::string& s) {
+    std::vector<int> v;
+    std::stringstream ss(s);
+    std::string x;
+    while (std::getline(ss, x, ',')) if (!x.empty()) v.push_back(atoi(x.c_str()));
+    return v;
+}
+
 struct CreateCli {
     CreateOptions o;
     std::string tempo, length, key, append;
@@ -528,6 +561,8 @@ int main(int argc, char** argv) {
     std::string out, mode = "c", header, input;
     PlayOptions po;
     CreateCli cc;
+    MidiImportOptions mo;
+    bool loopFlag = false;   // (import: --loop; a tune made of a MIDI file ends by default)
     for (int i = 2; i < argc; i++) {
         std::string a = argv[i];
         if (a == "-o" && i + 1 < argc) out = argv[++i];
@@ -551,12 +586,23 @@ int main(int argc, char** argv) {
         else if (a == "--seed" && i + 1 < argc) cc.o.seed = (uint32_t)strtoul(argv[++i], nullptr, 0);
         else if (a == "--key" && i + 1 < argc) cc.key = argv[++i];
         else if (a == "--once") cc.o.loop = false;
-        else if (a == "--loop") cc.o.loop = true;
+        else if (a == "--loop") cc.o.loop = loopFlag = true;
         else if (a == "--name" && i + 1 < argc) cc.o.name = argv[++i];
         else if (a == "--append" && i + 1 < argc) cc.append = argv[++i];
         else if (a == "--play") cc.play = true;
         else if (a == "--check") cc.check = true;
         else if (a == "--count" && i + 1 < argc) cc.count = atoi(argv[++i]);
+        else if (a == "--tracks" && i + 1 < argc) mo.sources = numbers(argv[++i]);
+        else if (a == "--channels") {
+            mo.channels = true;
+            if (i + 1 < argc && std::isdigit((unsigned char)argv[i + 1][0])) mo.sources = numbers(argv[++i]);
+        }
+        else if (a == "--drums") mo.drums = true;
+        else if (a == "--ticks-per-beat" && i + 1 < argc) mo.ticksPerBeat = std::max(1, atoi(argv[++i]));
+        else if (a == "--transpose" && i + 1 < argc) mo.transpose = atoi(argv[++i]);
+        else if (a == "--instruments" && i + 1 < argc) {
+            if (!readFile(argv[++i], mo.instruments)) { std::cerr << "tune45: cannot read " << argv[i] << "\n"; return 1; }
+        }
         else if (a == "--bin") mode = "bin";
         else if (a == "--asm") mode = "asm";
         else if (a == "--header" && i + 1 < argc) header = argv[++i];
@@ -565,10 +611,25 @@ int main(int argc, char** argv) {
         else input = a;
     }
     if (cmd == "create") return create(cc, out, po);
+    if (cmd == "import") {
+        if (input.empty()) { std::cerr << "tune45: no MIDI file\n"; return 1; }
+        if (!cc.o.name.empty()) mo.name = cc.o.name;
+        mo.loop = loopFlag;
+        mo.voices = std::max(1, std::min(12, cc.o.voices));
+        std::string text;
+        if (!loadMusic(input, mo, text)) return 1;
+        TuneFile chk;
+        TuneCompiler tc;
+        if (!tc.parse(text, input, chk)) { for (const auto& e : tc.errors()) std::cerr << e << "\n"; return 1; }
+        if (out.empty()) { std::cout << text; return 0; }
+        std::ofstream o(out);
+        o << text;
+        return o ? 0 : 1;
+    }
     if (cmd != "convert" && cmd != "list" && cmd != "play" && cmd != "trace") { std::cerr << "tune45: unknown command " << cmd << "\n"; usage(std::cerr); return 1; }
     if (input.empty()) { std::cerr << "tune45: no input file\n"; return 1; }
     std::string text;
-    if (!readFile(input, text)) { std::cerr << "tune45: cannot read " << input << "\n"; return 1; }
+    if (!loadMusic(input, mo, text)) return 1;
     TuneFile f;
     TuneCompiler c;
     if (!c.parse(text, input, f)) {

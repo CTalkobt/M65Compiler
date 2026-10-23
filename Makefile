@@ -252,7 +252,7 @@ $(LIB_DIR)/lib45-residfp.a: $(RESIDFP_OBJS) | $(LIB_DIR)
 	$(AR) rcs $@ $^
 $(OBJ_DIR)/TuneAudio.o: CXXFLAGS += -I$(RESIDFP_DIR)
 TUNE_OBJS = $(OBJ_DIR)/tune45_main.o $(OBJ_DIR)/TuneCompiler.o $(OBJ_DIR)/TunePlayer.o $(OBJ_DIR)/TuneAudio.o \
-            $(OBJ_DIR)/TuneCreate.o \
+            $(OBJ_DIR)/TuneCreate.o $(OBJ_DIR)/TuneMidi.o \
             $(OBJ_DIR)/BasicTooling.o
 $(TUNE_TARGET): $(TUNE_OBJS) $(LIB_DIR)/lib45-residfp.a
 	@mkdir -p $(BIN_DIR)
