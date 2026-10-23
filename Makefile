@@ -20,6 +20,7 @@ CP_TARGET = $(BIN_DIR)/cp45
 NM_TARGET = $(BIN_DIR)/nm45
 LN_TARGET = $(BIN_DIR)/ln45
 AR_TARGET = $(BIN_DIR)/ar45
+TUNE_TARGET = $(BIN_DIR)/tune45
 OD_TARGET = $(BIN_DIR)/objdump45
 DISK_TARGET = $(BIN_DIR)/disk45
 CVT_ASM_TARGET = $(BIN_DIR)/cvt_asm
@@ -183,14 +184,14 @@ $(LIB_DIR)/lib45-tools.a: $(LIB45_TOOLS_OBJS)
 # ============================================================================
 
 all: $(CC_TARGET) $(CA_TARGET) $(CP_TARGET) $(NM_TARGET) $(LN_TARGET) \
-     $(AR_TARGET) $(OD_TARGET) $(DISK_TARGET) $(CVT_ASM_TARGET) $(BASIC_TARGET) stdlib | $(LIB_DIR)/lib45-audio.a $(LIB_DIR)/lib45-phases.a
+     $(AR_TARGET) $(OD_TARGET) $(DISK_TARGET) $(CVT_ASM_TARGET) $(BASIC_TARGET) $(TUNE_TARGET) stdlib | $(LIB_DIR)/lib45-audio.a $(LIB_DIR)/lib45-phases.a
 
 # Rebuild stdlib whenever cc45 or ca45 changes
 stdlib: $(CC_TARGET) $(CA_TARGET) $(AR_TARGET)
 	$(MAKE) -C lib
 
 man: $(MAN_DIR)/cc45.1 $(MAN_DIR)/ca45.1 $(MAN_DIR)/cp45.1 $(MAN_DIR)/ln45.1 $(MAN_DIR)/nm45.1 $(MAN_DIR)/ar45.1 $(MAN_DIR)/objdump45.1 \
-     $(MAN_DIR)/disk45.1 $(MAN_DIR)/basic45.1 $(MAN_DIR)/cvt_asm.1
+     $(MAN_DIR)/disk45.1 $(MAN_DIR)/basic45.1 $(MAN_DIR)/cvt_asm.1 $(MAN_DIR)/tune45.1
 
 $(MAN_DIR)/%.1: doc/bin/%.md
 	@mkdir -p $(MAN_DIR)
@@ -238,6 +239,10 @@ $(LN_TARGET): $(LIB_DIR)/lib45-common.a
 	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/ln45_main.o $(LIB_DIR)/lib45-common.a
 
 # Archiver (ar45) - uses common
+$(TUNE_TARGET): $(OBJ_DIR)/tune45_main.o $(OBJ_DIR)/TuneCompiler.o
+	@mkdir -p $(BIN_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/tune45_main.o $(OBJ_DIR)/TuneCompiler.o
+
 $(AR_TARGET): $(OBJ_DIR)/ar45_main.o | $(LIB_DIR)
 $(AR_TARGET): $(LIB_DIR)/lib45-common.a
 	@mkdir -p $(BIN_DIR)
@@ -931,7 +936,7 @@ coverage: coverage-build
 
 install: all lib
 	install -d $(DESTDIR)$(BINDIR)
-	install -m 755 $(CC_TARGET) $(CA_TARGET) $(NM_TARGET) $(LN_TARGET) $(AR_TARGET) $(OD_TARGET) $(DISK_TARGET) $(CVT_ASM_TARGET) $(BASIC_TARGET) $(DESTDIR)$(BINDIR)
+	install -m 755 $(CC_TARGET) $(CA_TARGET) $(NM_TARGET) $(LN_TARGET) $(AR_TARGET) $(OD_TARGET) $(DISK_TARGET) $(CVT_ASM_TARGET) $(BASIC_TARGET) $(TUNE_TARGET) $(DESTDIR)$(BINDIR)
 	ln -sf cc45 $(DESTDIR)$(BINDIR)/cp45
 	install -d $(DESTDIR)$(LIBDIR)
 	install -m 644 lib/build/c45.lib lib/build/c45_zp.lib lib/build/c45_stack.lib $(DESTDIR)$(LIBDIR)
