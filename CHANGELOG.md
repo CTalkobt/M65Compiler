@@ -4,6 +4,19 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: `T *const *p` is a modifiable pointer to const pointers (Issue #334)
+
+- A `const` after any `*` of a variable's declarator made the variable
+  itself read-only: `static const song_t *const *list; list = tbl;` was
+  "Assignment to read-only location". Only the last `*`'s qualifiers are
+  the variable's now; a `const` between stars marks the pointers it points
+  to, and a store through them (`*p = q`, `p[i] = q`, `**p` of
+  `int **const *p`) is the error. The second and later names of a
+  declaration accept qualifiers between their stars too, and their
+  `* const` (`int *a, *const q;`) is read-only after the declaration (it
+  was forgotten with the group); `++`/`--` of a `* const` pointer is an
+  error. Tests in `test_optimizations.sh`.
+
 ### Library: conio's full-colour mode, a background colour for each character; conio_set_width
 
 - `fcm_enable`, `fcm_putch`, `fcm_cputs`, `fcm_cprintf`, `fcm_fill_rect`,

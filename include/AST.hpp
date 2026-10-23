@@ -234,6 +234,9 @@ public:
     bool isVolatile = false;
     bool isConst = false;        // const on the base type (pointed-to data is const)
     bool isPointerConst = false; // const on the pointer itself (pointer variable is const)
+    // const on the pointers it points to: bit k for the one k dereferences
+    // away (T *const *p: bit 1, *p is const; #334)
+    unsigned innerConstMask = 0;
     bool isGlobal = false;
     bool isExtern = false;
     bool isStatic = false;
