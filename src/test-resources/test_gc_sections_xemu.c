@@ -1,8 +1,8 @@
 /* test_gc_sections_xemu.c -- ln45 drops the unused functions of a
  * sectioned library member (cc45 -ffunction-sections)
  *
- * test_xemu.sh compiles lib/stdlib/conio.c with -ffunction-sections into a
- * library of its own and links this program with it: of conio's functions
+ * test_xemu.sh compiles gc_sample_conio.c (an earlier C conio) with
+ * -ffunction-sections into a library of its own and links this program with it: of conio's functions
  * only gotoxy, wherex, wherey and what they call stay (cprintf and the
  * printf machinery it needs go, and so do the dropped functions' static
  * storage blocks and strings), and the program still works.

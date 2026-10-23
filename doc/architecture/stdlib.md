@@ -21,7 +21,7 @@ Details (`lib/Makefile`):
 - The hand-written assembly in `lib/stdlib_asm/*.s45` uses the ZP convention and goes into both archives; stack-convention callers reach it through ln45's stack→ZP bridge thunks. A `stdlib/X.c` that has a `stdlib_asm/X.s45` is not compiled.
 - Compiler runtime in `stdlib_asm/divmod.s45`: `__divs16`, `__divu16`, `__mods16`, `__modu16` and the `32` forms, which cc45 calls for `/` and `%` (dividend in A/X or A/X/Y/Z, divisor in `__zp_scratch2`, result in the same registers; plain labels, so ZP- and stack-convention code call them directly). It declares `cc45.icallinfo` (no calls through pointers) for ln45's call graph.
 - Only `.s45` files are assembled. The `.s` files in `lib/stdlib/` and `lib/stdlib_asm/` (`strcspn`, `strdup`, `strlcpy`, `strnlen`, `strpbrk`, `strspn`, `strstr`, `uart`) are not built; those functions come from the C versions — except `uart`, which has no built implementation (see [§12](#12-other-library-backed-headers)).
-- `lib/src/*.c` (graphics, sprites, audio, conio/hardware helpers, …) is **not** part of any archive. Headers for those modules exist in `lib/include/`, but their functions are not in the library (see [§14](#14-headers-without-a-library-implementation)).
+- `lib/src/*.c` (graphics, sprites, audio, hardware helpers, …) is **not** part of any archive. Headers for those modules exist in `lib/include/`, but their functions are not in the library (see [§14](#14-headers-without-a-library-implementation)).
 
 Linking is selective: only the archive members that resolve a referenced symbol are pulled in.
 
