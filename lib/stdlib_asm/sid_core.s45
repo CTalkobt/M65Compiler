@@ -1,0 +1,52 @@
+; sid_core.s45 — one SID register write, shared by <audio_sid.h> and the
+; tune player (<audio_tune.h>)
+;
+; The SIDs' registers are write-only: each write also goes to a shadow copy
+; (128 bytes, the four chips' 32 registers each), which audio_sid's
+; sid_get_reg and its read-modify-write of a voice's control register read.
+; With the mirror on ($80 in __sid_mirror), a write to SIDs 1-2 is repeated
+; on SIDs 3-4 (stereo). In assembly, with no static allocation, so the tune
+; player can call it from an __interrupt handler (ln45 rejects static-
+; allocation C functions reachable from one); the registers it writes are
+; at __sid_regs ($D400; sid_regs.s45, weak: a test points it at RAM).
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.global ___sid_put, ___sid_write_reg, ___sid_shadow, ___sid_mirror
+.extern ___sid_regs
+
+.segment "bss"
+___sid_shadow:  .res 128        ; chip * $20 + register
+___sid_mirror:  .res 1          ; $80: SIDs 1-2 repeated on SIDs 3-4
+
+.segment "code"
+
+; A to register X (chip * $20 + register, chips 0-3) and its shadow, and with
+; the mirror on to the same register of chip + 2 (chips 0-1). A, X, Y kept.
+proc ___sid_put
+    .flag_clobbers N, Z, V, C
+    sta ___sid_shadow,x
+    sta ___sid_regs,x
+    bit ___sid_mirror
+    bpl @done
+    cpx #$40
+    bcs @done
+    sta ___sid_shadow+$40,x
+    sta ___sid_regs+$40,x
+@done:
+    rts
+    .func_flags leaf
+endproc
+
+; void __sid_write_reg(unsigned char index, unsigned char value): from C
+proc ___sid_write_reg
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X
+    .flag_clobbers N, Z, V, C
+    ldx $10
+    lda $12
+    jmp ___sid_put
+    .func_flags zp_call
+endproc

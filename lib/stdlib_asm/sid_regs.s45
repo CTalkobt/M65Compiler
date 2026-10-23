@@ -1,0 +1,6 @@
+; sid_regs.s45 — where sid_core.s45 writes the SID registers: the four
+; chips at $D400. Weak, and alone in its library member: a test that defines
+; __sid_regs (a 128-byte RAM buffer) sees every register write.
+
+.weak ___sid_regs
+___sid_regs = $D400

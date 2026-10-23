@@ -1,26 +1,22 @@
 /* audio_sid.c — the MEGA65's four SID chips (see <audio_sid.h>)
  *
  * Each register write goes to the chip and to a shadow copy (the chips'
- * registers can't be read back). Voice v: SID v / 3, voice v % 3.
+ * registers can't be read back), and with the mirror on to SIDs 3-4 too:
+ * stdlib_asm/sid_core.s45, which the tune player (<audio_tune.h>) shares.
+ * Voice v: SID v / 3, voice v % 3.
  */
 
 #include <audio_sid.h>
 
-#define SID_BASE 0xD400
+__fastcall__ void __sid_write_reg(unsigned char index, unsigned char value);
+extern unsigned char __sid_shadow[SID_CHIPS * 0x20];
+extern unsigned char __sid_mirror;     /* $80: on */
 
-static unsigned char shadow[SID_CHIPS][0x20];
-static unsigned char mirror;
-
-/* Register reg of chip: the hardware and the shadow */
-static void put(unsigned char chip, unsigned char reg, unsigned char val) {
-    shadow[chip][reg] = val;
-    *(volatile unsigned char *)(SID_BASE + chip * 0x20 + reg) = val;
-}
+#define shadow(chip, reg) __sid_shadow[(chip) * 0x20 + (reg)]
 
 void sid_write_chip(unsigned char chip, unsigned char reg, unsigned char val) {
     if (chip >= SID_CHIPS || reg >= 0x20) return;
-    put(chip, reg, val);
-    if (mirror && chip < 2) put(chip + 2, reg, val);
+    __sid_write_reg((unsigned char)(chip * 0x20 + reg), val);
 }
 
 void sid_write(unsigned char v, unsigned char reg, unsigned char val) {
@@ -31,25 +27,25 @@ void sid_write(unsigned char v, unsigned char reg, unsigned char val) {
 
 unsigned char sid_get_reg(unsigned char chip, unsigned char reg) {
     if (chip >= SID_CHIPS || reg >= 0x20) return 0;
-    return shadow[chip][reg];
+    return shadow(chip, reg);
 }
 
 /* A voice register's shadow value */
 static unsigned char vreg(unsigned char v, unsigned char reg) {
     unsigned char chip = v / 3;
-    return shadow[chip][(v - chip * 3) * 7 + reg];
+    return shadow(chip, (v - chip * 3) * 7 + reg);
 }
 
 void sid_set_mirror(unsigned char on) {
-    mirror = on ? 1 : 0;
+    __sid_mirror = on ? 0x80 : 0;
 }
 
 void sid_init(void) {
     unsigned char c, r;
-    mirror = 0;
+    __sid_mirror = 0;
     for (c = 0; c < SID_CHIPS; c++) {
-        for (r = 0; r < 0x18; r++) put(c, r, 0);
-        put(c, 0x18, 15);
+        for (r = 0; r < 0x18; r++) __sid_write_reg((unsigned char)(c * 0x20 + r), 0);
+        __sid_write_reg((unsigned char)(c * 0x20 + 0x18), 15);
     }
 }
 
@@ -172,7 +168,7 @@ void sid_all_off(void) {
 void sid_set_volume(unsigned char volume) {
     unsigned char c;
     for (c = 0; c < SID_CHIPS; c++)
-        put(c, 0x18, (unsigned char)((shadow[c][0x18] & 0xF0) | (volume & 15)));
+        __sid_write_reg((unsigned char)(c * 0x20 + 0x18), (unsigned char)((shadow(c, 0x18) & 0xF0) | (volume & 15)));
 }
 
 void sid_set_filter(unsigned char chip, unsigned int cutoff, unsigned char resonance,
@@ -182,5 +178,5 @@ void sid_set_filter(unsigned char chip, unsigned int cutoff, unsigned char reson
     sid_write_chip(chip, 0x15, (unsigned char)(cutoff & 7));
     sid_write_chip(chip, 0x16, (unsigned char)(cutoff >> 3));
     sid_write_chip(chip, 0x17, (unsigned char)(((resonance & 15) << 4) | (voices & 7)));
-    sid_write_chip(chip, 0x18, (unsigned char)((mode & 0xF0) | (shadow[chip][0x18] & 15)));
+    sid_write_chip(chip, 0x18, (unsigned char)((mode & 0xF0) | (shadow(chip, 0x18) & 15)));
 }
