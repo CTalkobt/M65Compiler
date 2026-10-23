@@ -3582,6 +3582,77 @@ void foldElemIndexOffset(Module& mod) {
     }
 }
 
+// Loop rotation (#138): a loop's test at its bottom. A for / while loop is
+// built as
+//   @cond:  <test> ; br_cond %c, @body, @end     (H)
+//   @body:  ...
+//   @inc:   ... ; br @cond                       (the latch)
+//   @end:
+// so every iteration runs a branch back and the test's branch. With H moved
+// after the latch, the latch falls into the test, whose branch goes back to
+// the body; the block before the loop branches to the test once. The same
+// code (the latch's branch becomes the entry's), one branch less an
+// iteration. Only a one-block test whose branch goes to the block after it
+// and out of the loop, and the last branch back to it (a continue's stay).
+// The functions on decides; returns those it changed. (Run by CodegenStage
+// on the finished IR, which keeps a function's rotation only when it is no
+// larger in the assembled object.)
+std::set<std::string> optimizeLoopRotation(Module& mod, const std::function<bool(const Function&)>& on) {
+    std::set<std::string> rotated;
+    auto ends = [](const Block& b) {
+        if (b.insts.empty()) return false;
+        switch (b.insts.back().op) {
+            case Op::BR: case Op::BR_COND: case Op::BR_INDIRECT: case Op::SWITCH:
+            case Op::RET: case Op::RET_VOID:
+                return true;
+            default:
+                return false;
+        }
+    };
+    for (auto& fn : mod.functions) {
+        if (!on(fn) || fn.blocks.size() < 3) continue;
+        std::set<std::string> done;
+        for (size_t h = 1; h + 1 < fn.blocks.size(); h++) {
+            Block& H = fn.blocks[h];
+            if (done.count(H.label) || H.insts.empty() || H.insts.back().op != Op::BR_COND) continue;
+            const Inst& bc = H.insts.back();
+            // the latch: the last block branching back to H
+            size_t latch = 0;
+            for (size_t b = h + 1; b < fn.blocks.size(); b++) {
+                const Block& B = fn.blocks[b];
+                if (!B.insts.empty() && B.insts.back().op == Op::BR && B.insts.back().src1.name == H.label) latch = b;
+            }
+            if (!latch) continue;
+            // the test goes to the next block (the body) and past the latch (out)
+            std::map<std::string, size_t> at;
+            for (size_t b = 0; b < fn.blocks.size(); b++) at[fn.blocks[b].label] = b;
+            auto t = at.find(bc.dest.name), f = at.find(bc.src2.name);
+            if (t == at.end() || f == at.end()) continue;
+            size_t in = t->second, out = f->second;
+            if (in != h + 1) std::swap(in, out);
+            if (in != h + 1 || out <= latch) continue;
+            // the block before falls into H: it branches there now
+            Block& P = fn.blocks[h - 1];
+            if (!ends(P)) {
+                Inst br;
+                br.op = Op::BR;
+                br.src1 = Operand::label(H.label);
+                br.loc = P.insts.empty() ? bc.loc : P.insts.back().loc;
+                P.insts.push_back(br);
+            }
+            fn.blocks[latch].insts.pop_back();      // falls into the test
+            done.insert(H.label);
+            rotated.insert(fn.name);
+            trace("rotate", fn.name, "@" + H.label + " after @" + fn.blocks[latch].label, bc.loc);
+            Block moved = std::move(fn.blocks[h]);
+            fn.blocks.erase(fn.blocks.begin() + h);
+            fn.blocks.insert(fn.blocks.begin() + latch, std::move(moved));
+            h--;    // (the block now at h)
+        }
+    }
+    return rotated;
+}
+
 // Block reordering: the cold blocks (the branch of an if that __unlikely /
 // __likely says is not expected to run) after the others, so the expected
 // path falls through its branches. A block that falls into the next one

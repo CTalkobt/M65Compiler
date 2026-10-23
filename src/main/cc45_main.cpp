@@ -642,9 +642,11 @@ int main(int argc, char** argv) {
             if (!levelStr.empty() && levelStr[0] >= '0' && levelStr[0] <= '9') {
                 config.optimizationLevel = levelStr[0] - '0';
             } else if (levelStr == "s" || levelStr == "size") {
-                // -Os: -O2, and code size over speed (multiplies as calls)
+                // -Os: -O2, and code size over speed (multiplies as calls, no
+                // loop rotation unless -frotate-loops)
                 config.optimizationLevel = 2;
                 setenv("CC45_MUL_CALL", "1", 1);
+                config.optOverrides.emplace("LoopRotation", false);
             } else if (levelStr == "speed") {
                 config.optimizationLevel = 3;
             } else {

@@ -389,6 +389,72 @@ bool AssemblerOptimizer::optimizeInternal(
     };
     const AssemblerParser::Statement* prevInstr = nullptr;
 
+    // A local label reached by one branch only (not falling in, no other
+    // reference) starts with what A, X, Y and Z held at the branch: a
+    // forward branch's from this sweep; a backward one's (a rotated loop's
+    // test branching back to its body, #138) from the last sweep, when a
+    // label that resets everything lies between the two: what is known at
+    // the branch then comes from the code after that label alone, never from
+    // what was assumed at this one
+    auto localOf = [](const std::string& label) {
+        size_t c = label.rfind(':');
+        return c == std::string::npos ? label : label.substr(c + 1);
+    };
+    static const std::set<std::string> branchOps = {
+        "BCC", "BCS", "BEQ", "BNE", "BMI", "BPL", "BVC", "BVS", "BRA", "BRL",
+        "LBCC", "LBCS", "LBEQ", "LBNE", "LBMI", "LBPL", "LBVC", "LBVS", "LBRA"};
+    auto upper = [](std::string m) { std::transform(m.begin(), m.end(), m.begin(), ::toupper); return m; };
+    // (local labels by their scope: each proc has its own @b)
+    auto keyOf = [&](const AssemblerParser::Statement* st, const std::string& local) { return st->scopePrefix + local; };
+    std::map<std::string, std::vector<size_t>> branchesTo;
+    std::map<std::string, int> refCount;                // all references (operands, data)
+    auto countRefs = [&](const AssemblerParser::Statement* st, const std::string& t) {
+        for (size_t p = t.find('@'); p != std::string::npos; p = t.find('@', p + 1)) {
+            if (p > 0 && (std::isalnum((unsigned char)t[p - 1]) || t[p - 1] == '_' || t[p - 1] == ':')) continue;
+            size_t end = p + 1;
+            while (end < t.size() && (std::isalnum((unsigned char)t[end]) || t[end] == '_' || t[end] == '@')) end++;
+            refCount[keyOf(st, t.substr(p, end - p))]++;
+        }
+    };
+    for (size_t k = 0; k < parser->statements.size(); k++) {
+        const auto* st = parser->statements[k].get();
+        if (!st || st->deleted) continue;
+        countRefs(st, st->instr.operand);
+        for (const auto& a2 : st->dir.arguments) countRefs(st, a2);
+        if (st->type == AssemblerParser::Statement::INSTRUCTION && branchOps.count(upper(st->instr.mnemonic)) &&
+            !st->instr.operand.empty() && st->instr.operand[0] == '@')
+            branchesTo[keyOf(st, st->instr.operand)].push_back(k);
+    }
+    // The one branch to label (index), or npos
+    auto onlyBranch = [&](const std::string& lbl) -> size_t {
+        auto r = refCount.find(lbl);
+        auto b = branchesTo.find(lbl);
+        if (r == refCount.end() || r->second != 1 || b == branchesTo.end() || b->second.size() != 1) return SIZE_MAX;
+        return b->second[0];
+    };
+    // backward branches whose state this sweep did not have yet (one more
+    // sweep then, even when nothing else changed)
+    std::vector<std::pair<std::string, size_t>> pendingBack;
+    // the statements after the one at index from up to the one at to
+    auto fingerprint = [&](size_t from, size_t to) {
+        size_t h = 1469598103934665603ull;
+        for (size_t k = from; k <= to && k < parser->statements.size(); k++) {
+            const auto* st = parser->statements[k].get();
+            if (!st || st->deleted) continue;
+            for (const std::string* t : {&st->label, &st->instr.mnemonic, &st->instr.operand})
+                h = (h ^ std::hash<std::string>()(*t)) * 1099511628211ull;
+        }
+        return h;
+    };
+    size_t lastReset = SIZE_MAX;    // the last label that reset everything (no registers taken)
+    auto takeRegs = [&](const AssemblerParser::BranchRegs& br) {
+        for (int r = 0; r < 4; r++) {
+            ValueInfo v = br.regs[r];
+            if (v.kind == ValueInfo::SAME_AS_REG && v.mirrorReg == REG_SP) v = ValueInfo::unknown();
+            ms.reg[r] = v;
+        }
+    };
+
     // Can the N or Z flag as it is after statement i be read? In the code
     // that follows on this path (falling into a label included): yes at a
     // BEQ/BNE/BMI/BPL or PHP, no once both are set again; anything else that
@@ -480,7 +546,38 @@ bool AssemblerOptimizer::optimizeInternal(
             if (!fallsInto || referenced(s->label)) {
                 ms.invalidateAll();
                 stackVarLastValue.clear();
+                std::string l = keyOf(s, localOf(s->label));
+                std::string loc = localOf(s->label);
+                size_t b = !fallsInto && parser->optFlags.redundantLoad && !loc.empty() && loc[0] == '@' ? onlyBranch(l) : SIZE_MAX;
+                auto snap = parser->branchRegs.find(l);
+                bool took = false;
+                if (b != SIZE_MAX) {
+                    bool same = snap != parser->branchRegs.end() && snap->second.branch == parser->statements[b].get();
+                    if (b < i) {
+                        if (same) { takeRegs(snap->second); took = true; }
+                    } else if (same && snap->second.reset) {
+                        // the reset label still between, and the code from it
+                        // to the branch as it was when the registers were seen
+                        size_t r = SIZE_MAX;
+                        for (size_t k = i + 1; k < b; k++)
+                            if (parser->statements[k].get() == snap->second.reset && !parser->statements[k]->deleted) r = k;
+                        if (r != SIZE_MAX && fingerprint(r, b) == snap->second.code) { takeRegs(snap->second); took = true; }
+                        else pendingBack.push_back({l, b});
+                    } else {
+                        pendingBack.push_back({l, b});
+                    }
+                }
+                if (!took) lastReset = i;
             }
+        }
+        // what the registers hold at a branch to a local label
+        if (s->type == AssemblerParser::Statement::INSTRUCTION && !s->instr.operand.empty() &&
+            s->instr.operand[0] == '@' && branchOps.count(upper(s->instr.mnemonic))) {
+            auto& br = parser->branchRegs[keyOf(s, s->instr.operand)];
+            br.branch = s;
+            br.reset = lastReset != SIZE_MAX ? parser->statements[lastReset].get() : nullptr;
+            br.code = lastReset != SIZE_MAX ? fingerprint(lastReset, i) : 0;
+            for (int r = 0; r < 4; r++) br.regs[r] = ms.reg[r];
         }
         if (s->type == AssemblerParser::Statement::INSTRUCTION || s->isSimulatedOp()) prevInstr = s;
         else if (s->type == AssemblerParser::Statement::DIRECTIVE) prevInstr = nullptr;
@@ -1064,6 +1161,11 @@ bool AssemblerOptimizer::optimizeInternal(
                 continue; // skip directives/blank lines
             std::cerr << "ms: " << loc << ": " << what << "\n" << ms.dumpLine() << "\n";
         }
+    }
+
+    for (const auto& [l, b] : pendingBack) {
+        auto snap = parser->branchRegs.find(l);
+        if (snap != parser->branchRegs.end() && snap->second.branch == parser->statements[b].get()) changed = true;
     }
 
     // --- Pass 2b: dead LDX #imm (cc45's zero extension of a byte value that is
