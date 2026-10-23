@@ -284,6 +284,9 @@ echo "$out" | grep -qE "^\[[a-z]+\] _after" && pass || fail "the passes do not r
 awk '/proc _asis/,/endproc/' $T/noopt.s | grep -q "jsr _twice" && awk '/proc _inbody/,/endproc/' $T/noopt.s | grep -q "jsr _twice" && pass || fail "a call in an optimize(off) function was inlined"
 awk '/proc _after/,/endproc/' $T/noopt.s | grep -q "jsr _twice" && fail "after optimize(on) twice is not inlined" || pass
 awk '/proc _after/,/endproc/' $T/noopt.s | grep -q "jsr _asis" && pass || fail "an optimize(off) function was inlined into its caller"
+# ... nor loop rotation, even with -frotate-loops
+printf '#pragma cc45 optimize(off)\nunsigned f(unsigned char n) { unsigned s = 0; unsigned char i; for (i = 0; i < n; i++) s += i; return s; }\n' > $T/noopt2.c
+$CC -frotate-loops -Roptir -c $T/noopt2.c -o $T/noopt2.o45 2>&1 | grep -q "^\[rotate\]" && fail "loop rotation in an optimize(off) function" || pass
 # ca45 leaves the code alone: asis keeps both stores to g and its doubled ldx #0
 $CC -c $T/noopt.c -o $T/noopt.o45 2>&1 | grep -q "unknown directive" && fail "ca45 does not know .noopt_end" || pass
 # (only code left as written has it: the doubled ldx #0 of a zero extension)
