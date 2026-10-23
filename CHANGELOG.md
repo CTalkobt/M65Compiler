@@ -4,6 +4,17 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Library: malloc and calloc refuse sizes over 64 KB instead of returning short blocks (Issue #203)
+
+- `malloc(n)` for `n` of `$FFFD` or more wrapped the size with its header
+  to a few bytes and returned a 4-byte block; `realloc` to such a size did
+  the same. `calloc(nmemb, size)` kept only the low 16 bits of the product:
+  `calloc(300, 300)` returned a 24,464-byte block. Both now return `NULL`
+  (calloc reads the multiplier's full 32-bit product, clearing its upper
+  input bytes first). The functions #203 listed (`calloc`, `realloc`,
+  `strlcpy`, `strnlen`, `strdup`, `strtok_r`) were already in the library.
+  Test `test_malloc_xemu.c`.
+
 ### ln45: overlay call stubs of 6 bytes (Issue #332)
 
 - A call into a code overlay from outside it went through a 21-byte
