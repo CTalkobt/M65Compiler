@@ -4,6 +4,16 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Examples: fcm_graphics; conio's fcm_putglyph
+
+- New `examples/c/fcm_graphics`: full-colour characters, a background for
+  each character (the title, a table of the 16 colours) and a 32x12
+  plasma of the program's own full-colour characters moved by palette
+  cycling alone. On the examples disk, in `capture_screens.py` and in
+  `test_examples.sh` (a test build runs 100 frames and reports).
+- `<conio.h>`: `fcm_putglyph(x, y, n, fg)` shows a program's own
+  full-colour character; `fcm_disable` leaves a space where one was.
+
 ### cc45: `T *const *p` is a modifiable pointer to const pointers (Issue #334)
 
 - A `const` after any `*` of a variable's declarator made the variable
