@@ -13,6 +13,7 @@ std::ostream* optTrace = nullptr;
 std::function<bool(const Function&, const char*)> passEnabled;
 
 static bool runOn(const Function& fn, const char* pass) {
+    if (fn.noOptimize) return false;    // #pragma cc45 optimize(off)
     return !passEnabled || passEnabled(fn, pass);
 }
 
@@ -3480,6 +3481,7 @@ void removeDeadTemps(Module& mod) {
         }
     };
     for (auto& fn : mod.functions) {
+        if (fn.noOptimize) continue;
         bool changed = true;
         while (changed) {
             changed = false;
@@ -3528,6 +3530,7 @@ void removeDeadTemps(Module& mod) {
 // after the other passes (CSE would not see the offset)
 void foldElemIndexOffset(Module& mod) {
     for (auto& fn : mod.functions) {
+        if (fn.noOptimize) continue;
         std::map<uint32_t, int> defCount;
         for (const auto& b : fn.blocks)
             for (const auto& i : b.insts)

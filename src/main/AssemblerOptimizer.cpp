@@ -104,10 +104,25 @@ bool AssemblerOptimizer::optimizeInternal(
         }
     }
 
+    // The statements between .noopt_start and .noopt_end (cc45's #pragma cc45
+    // optimize(off)): no pass changes, removes or moves them
+    {
+        bool inNo = false;
+        for (auto& st : parser->statements) {
+            if (st->type == AssemblerParser::Statement::DIRECTIVE) {
+                std::string d = st->dir.name;
+                std::transform(d.begin(), d.end(), d.begin(), ::tolower);
+                if (d == "noopt_start") inNo = true;
+                else if (d == "noopt_end") inNo = false;
+            }
+            st->noOpt = inNo;
+        }
+    }
+
     // --- Pass 1: Tail-call optimization (JSR + RTS → JMP) ---
     for (size_t i = 0; i < parser->statements.size(); ++i) {
         auto* s = parser->statements[i].get();
-        if (s->deleted) continue;
+        if (s->deleted || s->noOpt) continue;
         if (s->type != AssemblerParser::Statement::INSTRUCTION) continue;
 
         std::string m = s->instr.mnemonic;
@@ -152,7 +167,7 @@ bool AssemblerOptimizer::optimizeInternal(
     // --- Pass 1b: Eliminate no-op branches (bra to next instruction) ---
     for (size_t i = 0; i < parser->statements.size(); ++i) {
         auto* s = parser->statements[i].get();
-        if (s->deleted) continue;
+        if (s->deleted || s->noOpt) continue;
         if (s->type != AssemblerParser::Statement::INSTRUCTION) continue;
 
         std::string m = s->instr.mnemonic;
@@ -207,7 +222,7 @@ bool AssemblerOptimizer::optimizeInternal(
         for (size_t i = 0; i < parser->statements.size(); ++i) {
             if (!parser->optFlags.branchInvert) break;  // Skip entire optimization if disabled
             auto* s = parser->statements[i].get();
-            if (s->deleted) continue;
+            if (s->deleted || s->noOpt) continue;
             if (s->type != AssemblerParser::Statement::INSTRUCTION) continue;
             std::string inv = invertBranch(s->instr.mnemonic);
             if (inv.empty()) continue;
@@ -261,7 +276,7 @@ bool AssemblerOptimizer::optimizeInternal(
     // --- Pass 1d: JMP→BRA conversion when target is within ±127 bytes ---
     for (size_t i = 0; i < parser->statements.size(); ++i) {
         auto* s = parser->statements[i].get();
-        if (s->deleted) continue;
+        if (s->deleted || s->noOpt) continue;
         if (s->type != AssemblerParser::Statement::INSTRUCTION) continue;
 
         std::string m = s->instr.mnemonic;
@@ -1287,7 +1302,7 @@ bool AssemblerOptimizer::optimizeInternal(
         }
         for (size_t i = 0; i < n; ++i) {
             auto* s = st[i].get();
-            if (s->deleted || s->type != AssemblerParser::Statement::INSTRUCTION || !s->label.empty()) continue;
+            if (s->deleted || s->noOpt || s->type != AssemblerParser::Statement::INSTRUCTION || !s->label.empty()) continue;
             if (lower(s->instr.mnemonic) != "ldx" || s->instr.mode != AddressingMode::IMMEDIATE) continue;
             if (liveOut(i) == 0) {
                 report("dead-ldx", s, "LDX " + s->instr.operand + " eliminated (X written before it is read)");
@@ -1415,6 +1430,9 @@ bool AssemblerOptimizer::optimizeInternal(
 
             // Only consider tails with 2+ instructions (worth deduplicating)
             if (tailIndices.size() < 2) continue;
+            // (none in a function compiled as written)
+            if (std::any_of(tailIndices.begin(), tailIndices.end(),
+                            [&](size_t k) { return parser->statements[k]->noOpt; })) continue;
 
             // Build signature and compute size
             std::string sig;
@@ -1634,6 +1652,7 @@ bool AssemblerOptimizer::optimizeInternal(
             "bsr", "proc", "endproc", "map", "eom"};
         auto movable = [&](const AssemblerParser::Statement* s) {
             if (s->type != AssemblerParser::Statement::INSTRUCTION || !s->label.empty() || s->size <= 0) return false;
+            if (s->noOpt) return false;
             // (not a routine made by an earlier iteration)
             if (s->seqRoutine) return false;
             std::string m = lower(s->instr.mnemonic);

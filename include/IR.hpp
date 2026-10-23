@@ -225,6 +225,9 @@ struct Function {
     bool isStatic = false;
     bool isWeak = false;
     bool isMethod = false;   // a struct method (weak): every unit that calls it has its own copy
+    // #pragma cc45 optimize(off): compiled as written (no IR pass, no
+    // inlining in or of it, ca45's passes left out with .noopt_start/_end)
+    bool noOptimize = false;
     bool isInterrupt = false;
     bool isNaked = false;
     bool isRegparm = false;

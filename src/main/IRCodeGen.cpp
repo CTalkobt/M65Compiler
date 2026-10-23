@@ -4226,6 +4226,8 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         emit("cc45.zarsize." + fn.name + " = " + std::to_string(zarSize_));
     }
     emit(procLine);
+    // #pragma cc45 optimize(off): ca45 leaves the body as it is
+    if (fn.noOptimize) emit(".noopt_start");
     if (zarSize_ > 0) emit(".zar $" + hex8((uint8_t)ZAR_START) + ", " + std::to_string(zarSize_));
     for (const auto& r : fn.asmRefs) emit(".ref " + r);
 
@@ -4997,6 +4999,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         emit(".frame_size " + std::to_string(localFrameSize_));
     }
 
+    if (fn.noOptimize) emit(".noopt_end");
     emit("endproc");
     emitBlank();
 

@@ -282,6 +282,7 @@ void CodegenStage::generateAssembly() {
     // code no larger as a whole)
     std::set<std::string> forced, trial;
     for (const auto& fn : irModule_->functions) {
+        if (fn.noOptimize) continue;    // (#pragma cc45 optimize(off))
         // (a pragma, then -f / -fno-, decide outright; otherwise the level)
         auto it = fn.optOverrides.find("LoopRotation");
         auto g = optOverrides_.find("LoopRotation");

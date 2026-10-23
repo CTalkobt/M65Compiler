@@ -291,6 +291,7 @@ public:
 
         bool deleted = false;
         bool seqRoutine = false;   // part of a routine SeqExtract made (not extracted again)
+        bool noOpt = false;        // between .noopt_start and .noopt_end: no pass changes it
         std::vector<uint8_t> bytes; // Captured machine code for listing
 
         // Branch offset resolved during pass2 convergence — used by generator

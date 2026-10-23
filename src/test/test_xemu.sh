@@ -1948,6 +1948,20 @@ for comode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: #pragma cc45 optimize(off) / (on): functions compiled as written still
+# compute what their optimized twins do
+for nomode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r noname noflags <<< "$nomode"
+    echo "Testing test_noopt_xemu.c ($noname)..."
+    compile_link_test "src/test-resources/test_noopt_xemu.c" "build/test/test_noopt_${noname}_xemu.prg" "$noflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_noopt_$noname" "build/test/test_noopt_${noname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_noopt_xemu.c $noname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: conio.h's full-colour mode (a background colour for each character:
 # glyphs made from the font in a cache) and conio_set_width
 for fcmode in "zp|" "stack|-fno-zpcall"; do
