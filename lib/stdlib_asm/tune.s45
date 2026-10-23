@@ -9,7 +9,8 @@
 ; An instrument is 10 bytes: waveform, AD, SR, pulse width (2), vibrato
 ; depth, staccato gap (ticks released before the next event), pulse-width
 ; sweep (signed, a frame; bouncing between $0200 and $0E00), vibrato delay
-; (frames), pitch slide (signed, 16ths of the frequency register a frame).
+; (frames), pitch slide (signed, 16ths of the frequency register a frame;
+; it stops at 0 and $FFFF).
 ; The streams' bytes: see <audio_tune.h>.
 ;
 ; tune_update: the tempo accumulator (8.8 frames; NTSC frames count 213/256
@@ -573,6 +574,18 @@ proc __tune_effects
     sta __tv_freq_lo,x
     lda __tv_freq_hi,x
     adc T1
+    sta __tv_freq_hi,x
+    ; (stopping at 0 and $FFFF, not wrapping: down, a carry is no borrow)
+    lda __ti_slide,x
+    bmi @sdown
+    bcc @arp
+    lda #$FF
+    bra @sclamp
+@sdown:
+    bcs @arp
+    lda #0
+@sclamp:
+    sta __tv_freq_lo,x
     sta __tv_freq_hi,x
 @arp:
     ; arpeggio: the note, +a, +b, a frame each

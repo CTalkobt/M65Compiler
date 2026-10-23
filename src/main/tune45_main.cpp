@@ -7,6 +7,7 @@
 #include "TuneCompiler.hpp"
 #include "TunePlayer.hpp"
 #include "TuneAudio.hpp"
+#include "TuneCreate.hpp"
 #include "BasicTooling.hpp"
 #include <csignal>
 #include <climits>
@@ -21,6 +22,9 @@
 #include <iostream>
 #include <sstream>
 #include <algorithm>
+#include <map>
+#include <cmath>
+#include <ctime>
 #include <cstdlib>
 
 namespace {
@@ -33,6 +37,7 @@ void usage(std::ostream& o) {
          "  list      each tune: voices, bytes, ticks, seconds (PAL / NTSC), instruments\n"
          "  play      play the tunes on the PC (reSIDfp: four SIDs, stereo) through pw-play,\n"
          "            paplay or aplay, or into a .wav file\n"
+         "  create    compose a tune (the text format): --genre, --tempo, --length, ...\n"
          "Options:\n"
          "  -o <file>          output file\n"
          "  --bin, --asm       convert: a binary blob / ca45 source instead of C\n"
@@ -49,6 +54,19 @@ void usage(std::ostream& o) {
          "  --send-cmd <cmd>   the command for --send; {prg} is the program\n"
          "  --watch            play: again whenever the text file changes (Ctrl-C stops)\n"
          "  --prg <file>       play: keep the player program (--emulator / --send) there\n"
+         "  --genre <g>        create: pop, rock, blues, jazz, classical, ambient, chiptune\n"
+         "                     (default: one at random)\n"
+         "  --tempo <t>        create: beats a minute, or slow / medium / fast (default: the genre's)\n"
+         "  --length <n>       create: bars (rounded up to whole sections of 8, blues 12), or\n"
+         "                     seconds as 60s (default 32 bars)\n"
+         "  --voices <n>       create: 3 lead, bass, chords as an arpeggio (default); 4 and drums;\n"
+         "                     6 three chord voices\n"
+         "  --seed <n>         create: the same tune again (the seed is in the text's first line)\n"
+         "  --key <k>          create: c, c#, d, eb ... b (default: at random)\n"
+         "  --once, --loop     create: the tune ends / loops (default: loop)\n"
+         "  --name <n>         create: the tune's name (default: the genre)\n"
+         "  --append <file>    create: add the tune (and its instruments) to a music file\n"
+         "  --play             create: play it afterwards (play's options apply)\n"
          "  -V, --version      version\n"
          "  -h, --help         this help\n"
          "The text format: doc/bin/tune45.md (pfest's music.txt format).\n";
@@ -362,6 +380,123 @@ int playOnMega65(const std::string& src, TuneFile f, const PlayOptions& o) {
     }
 }
 
+struct CreateCli {
+    CreateOptions o;
+    std::string tempo, length, key, append;
+    bool play = false, check = false;
+    int count = 20;
+};
+
+// tune45 create: the tune's text to -o / --append / stdout, and --play it
+int create(CreateCli& c, const std::string& out, const PlayOptions& po) {
+    if (!c.key.empty()) {
+        int n = TuneCompiler::noteNumber(c.key + "4");
+        if (n < 0) { std::cerr << "tune45: not a key: " << c.key << "\n"; return 1; }
+        c.o.key = n % 12;
+    }
+    if (c.check) {
+        // the genres, count seeds each: musicgen's melody checks, and the text must parse
+        int fails = 0, n = 0;
+        for (const auto& g : tuneGenres()) {
+            if (!c.o.genre.empty() && g != c.o.genre) continue;
+            for (int seed = 1; seed <= c.count; seed++) {
+                CreateOptions o = c.o;
+                o.genre = g;
+                o.seed = (uint32_t)seed;
+                CreateResult r = tuneCreate(o);
+                std::string why = tuneCheck(r);
+                TuneFile f;
+                TuneCompiler tc;
+                if (!tc.parse(r.text, g + " seed " + std::to_string(seed), f)) why += tc.errors()[0] + "; ";
+                n++;
+                if (!why.empty()) { fails++; std::cout << g << " seed " << seed << ": " << why << "\n"; }
+            }
+        }
+        std::cout << n << " tunes composed, " << fails << " failed the checks\n";
+        return fails ? 1 : 0;
+    }
+    // the tempo and length
+    int styleBpm = 0;
+    {
+        CreateOptions probe = c.o;
+        if (probe.genre.empty()) probe.genre = tuneGenres()[0];
+        static const std::map<std::string, int> bpm = {{"pop", 112}, {"rock", 128}, {"blues", 92}, {"jazz", 132},
+                                                       {"classical", 100}, {"ambient", 70}, {"chiptune", 150}};
+        auto it = bpm.find(probe.genre);
+        styleBpm = it != bpm.end() ? it->second : 112;
+    }
+    if (!c.o.seed) c.o.seed = (uint32_t)time(nullptr) & 0xFFFF;
+    if (c.o.genre.empty()) {   // (the genre drawn from the seed, so --seed gives the tune again)
+        c.o.genre = tuneGenres()[c.o.seed % tuneGenres().size()];
+        static const std::map<std::string, int> bpm = {{"pop", 112}, {"rock", 128}, {"blues", 92}, {"jazz", 132},
+                                                       {"classical", 100}, {"ambient", 70}, {"chiptune", 150}};
+        styleBpm = bpm.at(c.o.genre);
+    }
+    if (!c.tempo.empty()) {
+        if (c.tempo == "slow") c.o.bpm = styleBpm * 4 / 5;
+        else if (c.tempo == "medium") c.o.bpm = styleBpm;
+        else if (c.tempo == "fast") c.o.bpm = styleBpm * 5 / 4;
+        else if ((c.o.bpm = atoi(c.tempo.c_str())) < 30 || c.o.bpm > 300) {
+            std::cerr << "tune45: a tempo is 30-300 beats a minute, or slow / medium / fast\n";
+            return 1;
+        }
+    }
+    if (!c.length.empty()) {
+        int v = atoi(c.length.c_str());
+        if (v <= 0) { std::cerr << "tune45: not a length: " << c.length << "\n"; return 1; }
+        if (c.length.back() == 's') {
+            int b = c.o.bpm ? c.o.bpm : styleBpm;
+            c.o.bars = std::max(1, (int)std::lround(v * b / 60.0 / 4.0));
+        } else {
+            c.o.bars = v;
+        }
+    }
+    CreateResult r = tuneCreate(c.o);
+    if (!r.error.empty()) { std::cerr << "tune45: " << r.error << "\n"; return 1; }
+    std::string text = r.text;
+    if (!c.append.empty()) {
+        // the instruments it does not have yet, then the tune
+        std::string old;
+        readFile(c.append, old);
+        TuneFile of;
+        TuneCompiler tc;
+        tc.parse(old, c.append, of);
+        std::string add;
+        std::istringstream in(text);
+        std::string line;
+        while (std::getline(in, line)) {
+            if (line.rfind("instrument ", 0) == 0) {
+                std::istringstream w(line);
+                std::string kw, name;
+                w >> kw >> name;
+                bool have = false;
+                for (const auto& i : of.instruments) if (i.name == name) have = true;
+                if (have) continue;
+            }
+            add += line + "\n";
+        }
+        std::ofstream o(c.append, std::ios::app);
+        o << (old.empty() || old.back() == '\n' ? "" : "\n") << "\n" << add;
+        if (!o) { std::cerr << "tune45: cannot write " << c.append << "\n"; return 1; }
+        std::cout << "tune45: " << r.genre << " added to " << c.append << "\n";
+    } else if (!out.empty()) {
+        std::ofstream o(out);
+        o << text;
+        if (!o) { std::cerr << "tune45: cannot write " << out << "\n"; return 1; }
+    } else if (!c.play) {
+        std::cout << text;
+    }
+    if (c.play) {
+        TuneFile f;
+        TuneCompiler tc;
+        if (!tc.parse(text, "(created)", f)) { for (const auto& e : tc.errors()) std::cerr << e << "\n"; return 1; }
+        std::string src = !out.empty() ? out : !c.append.empty() ? c.append : "";
+        if (po.emulator || po.send) return playOnMega65(src.empty() ? "created.txt" : src, f, po);
+        return play(src, f, po);
+    }
+    return 0;
+}
+
 int list(const TuneFile& f) {
     size_t total = 0;
     for (const auto& t : f.tunes) {
@@ -392,6 +527,7 @@ int main(int argc, char** argv) {
     if (cmd == "-V" || cmd == "--version") { std::cout << "tune45 " << SUITE_VERSION << "\n"; return 0; }
     std::string out, mode = "c", header, input;
     PlayOptions po;
+    CreateCli cc;
     for (int i = 2; i < argc; i++) {
         std::string a = argv[i];
         if (a == "-o" && i + 1 < argc) out = argv[++i];
@@ -408,6 +544,19 @@ int main(int argc, char** argv) {
         else if (a == "--send-cmd" && i + 1 < argc) { po.send = true; po.sendCmd = argv[++i]; }
         else if (a == "--watch") po.watch = true;
         else if (a == "--prg" && i + 1 < argc) po.prg = argv[++i];
+        else if (a == "--genre" && i + 1 < argc) cc.o.genre = argv[++i];
+        else if (a == "--tempo" && i + 1 < argc) cc.tempo = argv[++i];
+        else if (a == "--length" && i + 1 < argc) cc.length = argv[++i];
+        else if (a == "--voices" && i + 1 < argc) cc.o.voices = atoi(argv[++i]);
+        else if (a == "--seed" && i + 1 < argc) cc.o.seed = (uint32_t)strtoul(argv[++i], nullptr, 0);
+        else if (a == "--key" && i + 1 < argc) cc.key = argv[++i];
+        else if (a == "--once") cc.o.loop = false;
+        else if (a == "--loop") cc.o.loop = true;
+        else if (a == "--name" && i + 1 < argc) cc.o.name = argv[++i];
+        else if (a == "--append" && i + 1 < argc) cc.append = argv[++i];
+        else if (a == "--play") cc.play = true;
+        else if (a == "--check") cc.check = true;
+        else if (a == "--count" && i + 1 < argc) cc.count = atoi(argv[++i]);
         else if (a == "--bin") mode = "bin";
         else if (a == "--asm") mode = "asm";
         else if (a == "--header" && i + 1 < argc) header = argv[++i];
@@ -415,6 +564,7 @@ int main(int argc, char** argv) {
         else if (!a.empty() && a[0] == '-') { std::cerr << "tune45: unknown option " << a << "\n"; return 1; }
         else input = a;
     }
+    if (cmd == "create") return create(cc, out, po);
     if (cmd != "convert" && cmd != "list" && cmd != "play" && cmd != "trace") { std::cerr << "tune45: unknown command " << cmd << "\n"; usage(std::cerr); return 1; }
     if (input.empty()) { std::cerr << "tune45: no input file\n"; return 1; }
     std::string text;

@@ -160,7 +160,10 @@ void TunePlayer::effects() {
             if (hi >= 0x0E || hi < 0x02) v.pwdir = (int8_t)(0 - v.pwdir);
             wpw(v);
         }
-        if (v.slide) v.freq = (uint16_t)(v.freq + v.slide * 16);
+        if (v.slide) {
+            int f = v.freq + v.slide * 16;   // (stopping at 0 and $FFFF)
+            v.freq = (uint16_t)(f < 0 ? 0 : f > 0xFFFF ? 0xFFFF : f);
+        }
         if (v.arpa | v.arpb) {
             v.arpi = (uint8_t)(v.arpi + 1 >= 3 ? 0 : v.arpi + 1);
             uint8_t add = v.arpi == 0 ? 0 : v.arpi == 1 ? v.arpa : v.arpb;
