@@ -432,18 +432,21 @@ bool AssemblerOptimizer::optimizeInternal(
         if (r == refCount.end() || r->second != 1 || b == branchesTo.end() || b->second.size() != 1) return SIZE_MAX;
         return b->second[0];
     };
-    auto resetBetween = [&](size_t from, size_t to) {
-        for (size_t k = from + 1; k < to; k++) {
-            const auto* st = parser->statements[k].get();
-            if (!st || st->deleted || st->label.empty()) continue;
-            std::string l = localOf(st->label);
-            if (l.empty() || l[0] != '@' || referenced(st->label)) return true;
-        }
-        return false;
-    };
     // backward branches whose state this sweep did not have yet (one more
     // sweep then, even when nothing else changed)
     std::vector<std::pair<std::string, size_t>> pendingBack;
+    // the statements after the one at index from up to the one at to
+    auto fingerprint = [&](size_t from, size_t to) {
+        size_t h = 1469598103934665603ull;
+        for (size_t k = from; k <= to && k < parser->statements.size(); k++) {
+            const auto* st = parser->statements[k].get();
+            if (!st || st->deleted) continue;
+            for (const std::string* t : {&st->label, &st->instr.mnemonic, &st->instr.operand})
+                h = (h ^ std::hash<std::string>()(*t)) * 1099511628211ull;
+        }
+        return h;
+    };
+    size_t lastReset = SIZE_MAX;    // the last label that reset everything (no registers taken)
     auto takeRegs = [&](const AssemblerParser::BranchRegs& br) {
         for (int r = 0; r < 4; r++) {
             ValueInfo v = br.regs[r];
@@ -547,12 +550,24 @@ bool AssemblerOptimizer::optimizeInternal(
                 std::string loc = localOf(s->label);
                 size_t b = !fallsInto && parser->optFlags.redundantLoad && !loc.empty() && loc[0] == '@' ? onlyBranch(l) : SIZE_MAX;
                 auto snap = parser->branchRegs.find(l);
-                if (b != SIZE_MAX && (b < i || resetBetween(i, b))) {
-                    if (snap != parser->branchRegs.end() && snap->second.branch == parser->statements[b].get())
-                        takeRegs(snap->second);
-                    else if (b > i)
+                bool took = false;
+                if (b != SIZE_MAX) {
+                    bool same = snap != parser->branchRegs.end() && snap->second.branch == parser->statements[b].get();
+                    if (b < i) {
+                        if (same) { takeRegs(snap->second); took = true; }
+                    } else if (same && snap->second.reset) {
+                        // the reset label still between, and the code from it
+                        // to the branch as it was when the registers were seen
+                        size_t r = SIZE_MAX;
+                        for (size_t k = i + 1; k < b; k++)
+                            if (parser->statements[k].get() == snap->second.reset && !parser->statements[k]->deleted) r = k;
+                        if (r != SIZE_MAX && fingerprint(r, b) == snap->second.code) { takeRegs(snap->second); took = true; }
+                        else pendingBack.push_back({l, b});
+                    } else {
                         pendingBack.push_back({l, b});
+                    }
                 }
+                if (!took) lastReset = i;
             }
         }
         // what the registers hold at a branch to a local label
@@ -560,6 +575,8 @@ bool AssemblerOptimizer::optimizeInternal(
             s->instr.operand[0] == '@' && branchOps.count(upper(s->instr.mnemonic))) {
             auto& br = parser->branchRegs[keyOf(s, s->instr.operand)];
             br.branch = s;
+            br.reset = lastReset != SIZE_MAX ? parser->statements[lastReset].get() : nullptr;
+            br.code = lastReset != SIZE_MAX ? fingerprint(lastReset, i) : 0;
             for (int r = 0; r < 4; r++) br.regs[r] = ms.reg[r];
         }
         if (s->type == AssemblerParser::Statement::INSTRUCTION || s->isSimulatedOp()) prevInstr = s;

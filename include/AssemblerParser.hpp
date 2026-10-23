@@ -322,7 +322,16 @@ public:
     // What A, X, Y and Z held at a branch to a local label, by the label (the
     // optimizer's last pass 2 sweep, for a backward branch: the next sweep
     // starts the label with it; AssemblerOptimizer)
-    struct BranchRegs { const Statement* branch = nullptr; std::array<ValueInfo, 4> regs; };
+    // (reset: the last label before the branch that reset everything; code:
+    // a fingerprint of the statements from it to the branch, which must be
+    // the same where the next sweep uses the registers: a later pass of the
+    // sweep may have removed what set them)
+    struct BranchRegs {
+        const Statement* branch = nullptr;
+        const Statement* reset = nullptr;
+        size_t code = 0;
+        std::array<ValueInfo, 4> regs;
+    };
     std::map<std::string, BranchRegs> branchRegs;
 
 private:
