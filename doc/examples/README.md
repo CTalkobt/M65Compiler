@@ -194,8 +194,9 @@ pixel a palette entry (`$00` the screen's background, `$FF` the character's
 colour). `<conio.h>`'s full-colour mode (`fcm_enable`) uses them to give each
 character its own background: the title's letters and the table of the 16
 colours are drawn with `fcm_putch`, `fcm_cputs`, `fcm_cprintf` and
-`fcm_fill_rect`, and conio makes the glyphs from the font. The plasma is 384
-of the program's own characters (256x96 pixels), computed from a sine table
+`fcm_fill_rect`, and conio makes the glyphs from the font. The plasma is 756
+of the program's own characters (36x21 of them, 288x168 pixels: the screen's
+left half), computed from a sine table
 into bank 4 with `dma_copy_far` and placed with `fcm_putglyph`; each pixel is
 one of 64 palette entries set to a colour wheel, as is the bar of 32
 characters below it. It moves by palette cycling alone: each frame the 64
