@@ -252,6 +252,12 @@ void OptimizationCatalog::initializeCatalog() {
     });
 
     catalog_.push_back({
+        "LoopRotation", "Loop Rotation",
+        "A for / while loop's test is placed after its body, entered by a branch: one branch less an iteration",
+        OptimizationCategory::SPEED, 1, -1, "-frotate-loops", false, 1
+    });
+
+    catalog_.push_back({
         "BlockReordering", "Block Reordering",
         "The branch __unlikely / __likely says is not expected to run is placed at the function's end",
         OptimizationCategory::SPEED, 1, -1, "-freorder-blocks", false, 1
@@ -282,6 +288,7 @@ void OptimizationCatalog::initializeCatalog() {
         {"CopyPropagation",      OptimizationImpl::IR_PASS,   "", 1},
         {"AddrElemFusion",       OptimizationImpl::IR_PASS,   "", 1},
         {"PostIncrementSink",    OptimizationImpl::IR_PASS,   "", 1},
+        {"LoopRotation",         OptimizationImpl::IR_PASS,   "", 1},
         {"BlockReordering",      OptimizationImpl::IR_PASS,   "", 1},
         {"PurityInference",      OptimizationImpl::IR_PASS,   "", 1},
         {"LoopInterchange",      OptimizationImpl::AST_PASS,  "", 4},

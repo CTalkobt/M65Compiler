@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <set>
+#include <functional>
 
 class TranslationUnit;
 class FunctionAnalyzer;
@@ -64,6 +66,12 @@ public:
     void setOptOverrides(const std::map<std::string, bool>& o) { optOverrides_ = o; }
     void setFutureWarnings(bool f) { futureWarnings_ = f; }
     void setTraceIROpt(bool t) { traceIROpt_ = t; }
+    // Assemble trial texts (ca45, at once): for each, where its exported code
+    // symbols start and its code's size (loop rotation keeps what is not
+    // larger; the pipeline reuses the object of the text it keeps)
+    struct TrialResult { std::map<std::string, uint32_t> starts; uint32_t textSize = 0; };
+    using SizeTrial = std::function<bool(const std::vector<std::string>&, std::vector<TrialResult>&)>;
+    void setSizeTrial(SizeTrial t) { sizeTrial_ = std::move(t); }
     void setTypedefMappings(const std::map<std::string, std::string>& typedefMappings) {
         typedefMappings_ = typedefMappings;
     }
@@ -97,6 +105,7 @@ private:
     std::map<std::string, bool> optOverrides_;
     bool futureWarnings_ = false;
     bool traceIROpt_ = false;
+    SizeTrial sizeTrial_;
 
     // Is the catalog optimization `name` on: its -f/-fno- override, else the -O level's default
     bool optOn(const std::string& name) const;

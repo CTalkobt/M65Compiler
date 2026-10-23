@@ -9,6 +9,8 @@
 #include <cstdint>
 #include "AssemblerToken.hpp"
 #include "AssemblerTypes.hpp"
+#include "MachineState.hpp"
+#include <array>
 #include "AssemblerOpcodeDatabase.hpp"
 #include "AssemblerOptimizer.hpp"
 
@@ -317,6 +319,11 @@ public:
         }
     };
     std::deque<std::unique_ptr<Statement>> statements;
+    // What A, X, Y and Z held at a branch to a local label, by the label (the
+    // optimizer's last pass 2 sweep, for a backward branch: the next sweep
+    // starts the label with it; AssemblerOptimizer)
+    struct BranchRegs { const Statement* branch = nullptr; std::array<ValueInfo, 4> regs; };
+    std::map<std::string, BranchRegs> branchRegs;
 
 private:
     void switchSegment(const std::string& name);

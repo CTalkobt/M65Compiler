@@ -74,6 +74,7 @@ every function for which the pass is on (`-O1` and up, unless switched off).
 | `copy-propagation` | `copy` | Replaces uses of a copy of a temporary by the original and removes the dead copies (temporaries defined once only; never variables). Backward: `%t = op …; %d = copy %t`, the copy right after and `%t` used only there, computes into `%d` (the arms of `x ? a - b : c` into the result, not into temporaries copied to it; not for extensions, which the code generator reads as their source byte) |
 | `addr-elem-fusion` | `fusion` | An array element address used once, by the next 1/2-byte (or 4-byte load) access of an integer or pointer, is computed inside that load/store (no pointer temporary) |
 | `post-increment-sink` | `postinc` | `*p++` / `*p--` on a pointer variable: the IR copies the old pointer to a temporary, updates `p`, then accesses through the copy. When nothing between the update and the last use of the copy reads or writes `p` (or calls, or is asm), the update moves after that use and the copy becomes `p + 0`, which the code generator folds into the access: `lda ($p),y` with `p` in ZP, then `inw $p` / `dew $p` for a step of 1. Runs after the other passes and after the leaf-function pointer allocation ([Pointers in zero page](#pointers-in-zero-page-leaf-functions)). The same pass (tag `incdec`) updates other variables in place: `n--` (`%t = deref n; %u = sub %t, 1; store %u, n`) subtracts from `n` itself, and after `--n` (`%u = sub n, 1; store %u, n`) the uses of `%u` read `n` (until it is written again); the code generator then emits `inc`/`dec` (a byte), `inw`/`dew` (ZP), `inc`/`bne`/`inc` (static storage) or ca45's `inc.16f`/`dec.16f` (stack frame). Likewise a call's result stored into a variable of its type (`c = getc()`): its later uses read the variable, and the code generator stores it from A/X without a temporary |
+| `rotate-loops` | `rotate` | Loop rotation (#138): a `for` / `while` loop's test (one block, branching to the body after it and out of the loop) moves after the loop's last block, which then falls into it; the block before the loop branches to the test once. The same code (the branch back becomes the entry's), one branch less an iteration; ca45 starts the body with the registers the test left (see `RedundantLoad`). Runs in code generation, after `reorder-blocks`, and is kept only where it does not cost bytes: cc45 assembles the file both ways (two ca45 runs at once), keeps a function's rotation when its code is no larger, and the result when the file's code is no larger as a whole (its object is the output: a third run only when some functions keep it and others not). `-Roptir` reports `[rotate] f: kept (a -> b bytes)` / `undone`. `-frotate-loops` (or `#pragma cc45 optimize(rotate-loops)`) rotates without the check; `-Os` (and `-fno-rotate-loops`) not at all. Examples: kept in 136 functions, undone in 36; every example the same size or smaller (315 bytes over all), `run_bench.sh` 1.6% faster (772 → 760 ms), loops 3–7% |
 | `reorder-blocks` | `reorder` | The blocks of the branch that `__unlikely` / `__likely` (or `__builtin_expect` with a constant) says is not expected to run (an `if`'s then branch, or its else after `__likely`) move after all the others, in their order; a block that fell into the next one first gets a branch to it. The code generator emits the epilogue (`@__return`, the frame cleanup, `rts`) between the expected blocks and the cold ones, so the expected path falls through into it. Runs last |
 
 After the passes, pure instructions whose temporary result nothing uses are
@@ -127,7 +128,10 @@ zeros; when the low byte would wrap, the push loop runs instead (C locals
 start undefined). ca45's redundant-load elimination keeps what the registers
 hold across a local label nothing refers to (branch inversion leaves the loop
 body's label so: `bcc @body; bra @end; @body:` becomes `bcs @end`), so a
-loop body does not reload the counter the test just loaded; `cmp.16` is known
+loop body does not reload the counter the test just loaded (a label reached
+only by one branch, not falling in, starts with the registers at that branch:
+a forward branch's, or a backward one's from the previous sweep when a label
+that resets everything lies between them, as in a rotated loop); `cmp.16` is known
 to leave A and X alone. A byte constant stored to an element loads only A.
 Benchmark: 987 ms.
 
@@ -300,9 +304,9 @@ Each catalog optimization has a level from which it is on
 | `-O1` | 1 | The ten IR passes |
 | `-O2`, `-O3` (default `-O2`) | 2, 3 | IR passes and automatic inlining of small functions. Identical output |
 | `-O4` … `-O9` | 4–9 | Adds loop interchange and loop unrolling. Identical output for all of them (the catalog entries for higher levels are not implemented) |
-| `-Os`, `-Osize` | 2 | `-O2` with `-fmul-call` (multiplications as library calls) |
+| `-Os`, `-Osize` | 2 | `-O2` with `-fmul-call` (multiplications as library calls) and `-fno-rotate-loops` (unless `-frotate-loops`) |
 | `-Ospeed` | 3 | Same as `-O2` |
-| `-Os`, `-O` (no digit), any other `-O<text>` | 0 | **Same as `-O0`** (not `-O2`) |
+| `-O` (no digit), any other `-O<text>` | 0 | **Same as `-O0`** (not `-O2`) |
 
 Only the first digit counts (`-O10` is `-O1`). The level is **not** passed on to
 ca45, and does not turn constant folding, dead static removal,
@@ -393,7 +397,7 @@ order after `-O`). `-Roptimizer` prints every change
 | `DeadStore` | `dead-store` | Removes dead `STW.SP` stores |
 | `CmpElimination` | `cmp-elim` | Removes `CMP #0` when flags already reflect the value — not when the carry it sets is read (`BCC`/`BCS` in the branches that follow, or `ADC`/`SBC`/`ROL`/`ROR`/`PHP` after them) |
 | `FCmpOpt` | `fcmp-opt` | Float compare result tests (`CMP #$FF` → `BMI`/`BPL`) |
-| `RedundantLoad` | `redundant-load` | Removes `LDA/LDX/LDY/LDZ` when the register already holds the value, unless its N/Z may be read (the flags reflect another value and a branch, `PHP`, jump, return or call may read them). Also removes an `LDX #imm` (cc45's zero extension of a byte used as a byte) when neither X nor the N/Z flags it sets are read on any path before they are written again: a liveness of X and N/Z over the file's statements, following branches and jumps to its labels; a call, return, simulated instruction (but `ldax #v`), Q instruction (but `ldq`), X-indexed operand, jump through a pointer or to a label not in the file, data or `.segment` counts as reading both (#321; pfest: 214 fewer, 434 bytes) |
+| `RedundantLoad` | `redundant-load` | Removes `LDA/LDX/LDY/LDZ` when the register already holds the value (what A/X/Y/Z hold carries into a local label reached only by one branch: from a forward branch, or from a backward one when a referenced label lies between them, #138), unless its N/Z may be read (the flags reflect another value and a branch, `PHP`, jump, return or call may read them). Also removes an `LDX #imm` (cc45's zero extension of a byte used as a byte) when neither X nor the N/Z flags it sets are read on any path before they are written again: a liveness of X and N/Z over the file's statements, following branches and jumps to its labels; a call, return, simulated instruction (but `ldax #v`), Q instruction (but `ldq`), X-indexed operand, jump through a pointer or to a label not in the file, data or `.segment` counts as reading both (#321; pfest: 214 fewer, 434 bytes) |
 | `StoreLoadPair` | `store-load-pair` | Store/load pair simplification on ZP |
 | `PreserveXSP`, `TSXRedundant` | `preserve-x-sp`, `tsx-redundant` | Avoid reloading X from SP |
 | `TailDedup` | `tail-dedup`, `tail-dedup-suffix` | Merges identical tail sequences. A base-page operand of a proc with a `.zar` block is relocated against that proc's own block, so it matches only tails of the same proc (#327: a merged tail read another function's base-page bytes) |
@@ -424,7 +428,7 @@ implemented:
 
 | Name | Implemented as | On from |
 |---|---|---|
-| `param-narrowing`, `strength-reduction`, `algebraic-simplify`, `type-narrowing`, `branch-folding`, `cse`, `loop-invariant-code-motion`, `copy-propagation`, `addr-elem-fusion`, `post-increment-sink`, `reorder-blocks` | IR pass ([IR passes](#ir-passes)); also per function by pragma | `-O1` |
+| `param-narrowing`, `strength-reduction`, `algebraic-simplify`, `type-narrowing`, `branch-folding`, `cse`, `loop-invariant-code-motion`, `copy-propagation`, `addr-elem-fusion`, `post-increment-sink`, `rotate-loops`, `reorder-blocks` | IR pass ([IR passes](#ir-passes)); also per function by pragma | `-O1` |
 | `inline-small-functions` | IRBuilder inlining (`-fno-` also overrides `-finline-functions`) | `-O2` |
 | `devirtualization` | IRBuilder | `-O0` |
 | `sac-slot-sharing` | Code generation: SAC locals never live together share storage ([IR passes](#ir-passes)); file-wide only | `-O1` |

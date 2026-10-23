@@ -29,7 +29,7 @@ trace() { $CC -S -fsigned-default -Roptir "$@" $SRC -o $T/t.s 2>&1 >/dev/null; }
 # pass name : -Roptir tag
 for entry in strength-reduction:strength algebraic-simplify:algebraic type-narrowing:narrow \
              branch-folding:branch cse:cse loop-invariant-code-motion:licm \
-             copy-propagation:copy addr-elem-fusion:fusion; do
+             copy-propagation:copy addr-elem-fusion:fusion rotate-loops:rotate; do
     p=${entry%%:*}; tag=${entry##*:}
     trace | grep -q "^\[$tag\]" && pass || fail "$p does not run at the default level"
     # (the copies that copy propagation removes come from the other passes)
@@ -207,6 +207,61 @@ if awk '/proc _f/{p=1} /endproc/{p=0} p' $T/dps.s | grep -qE "^ +st[axyzq] [$][3
 else pass; fi
 CC45_NO_POOL_PRUNE=1 $CC -S $T/dps.c -o $T/dps2.s 2>/dev/null
 awk '/proc _f/{p=1} /endproc/{p=0} p' $T/dps2.s | grep -qE "^ +sta [$]3" && pass || fail "CC45_NO_POOL_PRUNE=1 does not keep the stores"
+
+# Loop rotation (#138): the test after the body, entered by a branch: one
+# backward conditional branch and the entry's bra, no branch back
+printf 'unsigned char buf[100];\nvoid fill(unsigned char n) { unsigned char i; for (i = 0; i < n; i++) buf[i] = i; }\n' > $T/rot.c
+$CC -c $T/rot.c -o $T/rot.o45 2>/dev/null
+dis=$(./bin/objdump45 -d $T/rot.o45 | grep -E "^\s+[0-9a-f]{4}:" | cut -f3- | awk '{print $1}' | tr '\n' ' ')
+case "$dis" in
+    *"bra "*"bcc rts"*) pass ;;
+    *) fail "a for loop is not rotated: $dis" ;;
+esac
+# ... kept only where the function is no larger (both ways assembled), none
+# under -Os, always with -frotate-loops
+printf 'unsigned int count(unsigned int n) { unsigned int c = 0, k = 0; while (k < n) { if (k & 1) c++; k++; } return c; }\n' > $T/rot2.c
+$CC -Roptir -c $T/rot2.c -o $T/rot2.o45 2>&1 | grep -q "^\[rotate\] _count: kept" && pass || fail "the size trial does not keep count's rotation"
+./bin/cc45 -Os -Roptir -c $T/rot2.c -o $T/rot2.o45 2>&1 | grep -q "^\[rotate\]" && fail "-Os rotates loops" || pass
+./bin/cc45 -Os -frotate-loops -Roptir -c $T/rot2.c -o $T/rot2.o45 2>&1 | grep -q "^\[rotate\] _count .*@while_cond0 after" && pass || fail "-Os -frotate-loops does not rotate"
+ls temp_*_trial* >/dev/null 2>&1 && fail "trial files left behind" || pass
+
+# ca45: a label reached only by a backward branch (a reset label between)
+# starts with the registers at the branch: f's body does not reload A; g's
+# label has two branches to it, so it does
+cat > $T/onebr.s45 <<'EOF'
+proc _f
+    bra @t
+@b:
+    lda $30
+    sta $40
+    sta $41
+    sta $42
+    ldy #0
+@t:
+    lda $30
+    cmp #10
+    bcc @b
+    rts
+endproc
+proc _g
+    bra @t
+@b:
+    lda $30
+    sta $40
+    sta $41
+    sta $42
+    ldy #0
+@t:
+    lda $30
+    cmp #10
+    bcc @b
+    beq @b
+    rts
+endproc
+EOF
+./bin/ca45 -c $T/onebr.s45 -o $T/onebr.o45 >/dev/null 2>&1
+n=$(./bin/objdump45 -d $T/onebr.o45 | grep -c 'lda	\$30')
+[ "$n" = 3 ] && pass || fail "ca45: a one-branch label's registers (lda \$30 left: $n, expected 3)"
 
 echo "Optimization switch tests: $passed passed, $failed failed"
 [ $failed -eq 0 ]

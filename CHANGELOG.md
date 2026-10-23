@@ -4,6 +4,25 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45/ca45: loop rotation, kept where it costs no bytes (Issue #138)
+
+- A `for` / `while` loop ran its test at the top and a `bra` back at the
+  bottom every iteration. Its test now follows the body (the loop's
+  entry branches to it once): one branch less an iteration, the same
+  code. ca45 starts a label reached only by one branch with the registers
+  at that branch (forward, or backward with a resetting label between, as
+  the rotated loop's body is), so the body still does not reload what the
+  test loaded.
+- Kept only where it costs no bytes: cc45 assembles the file with and
+  without rotation (two ca45 runs at once) and keeps a function's when its
+  code is no larger, and the result when the file's code is no larger; the
+  object of the text it keeps is the output. `-frotate-loops` rotates
+  without the check, `-Os` and `-fno-rotate-loops` not at all; `-Roptir`
+  reports each decision. In the examples it is kept in 136 functions and
+  undone in 36; every example is the same size or smaller (315 bytes over
+  all), `run_bench.sh` 1.6% faster, loops 3-7%. Tests in
+  `test_optimizations.sh`.
+
 ### Examples: fcm_graphics; conio's fcm_putglyph
 
 - New `examples/c/fcm_graphics`: full-colour characters, a background for

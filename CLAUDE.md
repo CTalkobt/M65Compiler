@@ -276,7 +276,9 @@ totals code bytes by IR operation).
   IR passes of `IROptimizer.cpp` (parameter narrowing, strength reduction, algebraic simplification,
   type narrowing, branch folding, CSE, LICM, copy propagation, address fusion,
   post-increment sinking, block reordering;
-  `CodegenStage::optimizeIR`); `-O2`+ adds automatic inlining
+  `CodegenStage::optimizeIR`), then loop rotation in `generateAssembly` (#138:
+  kept per function only when no larger, the file assembled both ways;
+  `-frotate-loops` forces it, `-Os` turns it off); `-O2`+ adds automatic inlining
   (`-fmax-inline-ir-size`, default 11); `-O4`+ adds loop interchange (an AST
   pass, `LoopInterchange.cpp`, run by `OptimizeStage`) and loop unrolling
   (`optimizeLoopUnroll`, limited by `-fmax-unroll-bytes`). Every entry of `OptimizationCatalog`

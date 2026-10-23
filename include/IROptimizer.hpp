@@ -1,6 +1,7 @@
 #pragma once
 #include "IR.hpp"
 #include <functional>
+#include <set>
 #include <ostream>
 
 namespace ir {
@@ -57,6 +58,7 @@ void foldElemIndexOffset(Module& mod);
 // const / pure functions of the module, inferred (-fipa-pure-const)
 void inferPurity(Module& mod);
 // the cold blocks (__unlikely branches) moved to the function's end
+std::set<std::string> optimizeLoopRotation(Module& mod, const std::function<bool(const Function&)>& on);
 void optimizeBlockReorder(Module& mod);
 // The blocks (indices) inside a loop of fn: the natural loops of its back
 // edges (a branch to a block at or before the branch's, as cc45 lays out

@@ -194,7 +194,8 @@ void CodegenStage::optimizeIR() {
         ir::foldElemIndexOffset(*irModule_);
         ir::removeDeadTemps(*irModule_);
     }
-    // last: the blocks __unlikely / __likely say are cold at the end
+    // last: the blocks __unlikely / __likely say are cold at the end (loop
+    // rotation follows in generateAssembly)
     ir::optimizeBlockReorder(*irModule_);
     ir::passEnabled = nullptr;
     ir::optTrace = nullptr;
@@ -255,25 +256,105 @@ void CodegenStage::generateAssembly() {
     // CC45_DUMP_IR=1: print the optimized IR to stderr (debugging aid)
     if (const char* d = getenv("CC45_DUMP_IR"); d && *d && *d != '0') ir::Printer::print(std::cerr, *irModule_);
 
-    // Generate assembly from IR using IRCodeGen
-    std::ostringstream ss;
-    IRCodeGen codegen(ss);
-    codegen.setFunctionSections(functionSections_);
+    // Generate assembly text for a module
+    auto gen = [&](const ir::Module& mod) {
+        std::ostringstream ss;
+        IRCodeGen codegen(ss);
+        codegen.setFunctionSections(functionSections_);
+        // Parameters: module, zpStart, relocMode, zpCallMode, emitReasons, staticAllocMode, sacDebugMode, prgBase
+        codegen.generate(mod,
+                         0x08,              // zpStart
+                         objectOnly_,       // relocMode (true for -c/.o45, false for direct PRG)
+                         zpCallMode_,       // zpCallMode
+                         verboseLevel_ >= 3, // emitReasons
+                         staticAlloc_,      // staticAllocMode
+                         verboseLevel_ >= 3, // sacDebugMode
+                         prgBase_);
+        std::string out = ss.str();
+        // SAC locals never live at the same time share their storage (#324)
+        if (staticAlloc_ && optOn("SacSlotSharing")) out = shareSacSlots(out);
+        return out;
+    };
 
-    // Generate assembly text for the module
-    // Parameters: module, zpStart, relocMode, zpCallMode, emitReasons, staticAllocMode, sacDebugMode, prgBase
-    codegen.generate(*irModule_,
-                     0x08,              // zpStart
-                     objectOnly_,       // relocMode (true for -c/.o45, false for direct PRG)
-                     zpCallMode_,       // zpCallMode
-                     verboseLevel_ >= 3, // emitReasons
-                     staticAlloc_,      // staticAllocMode
-                     verboseLevel_ >= 3, // sacDebugMode
-                     prgBase_);
-
-    irOutput_ = ss.str();
-    // SAC locals never live at the same time share their storage (#324)
-    if (staticAlloc_ && optOn("SacSlotSharing")) irOutput_ = shareSacSlots(irOutput_);
+    // Loop rotation (#138): forced for the functions -frotate-loops / a
+    // pragma names; otherwise (on from -O1, not -Os) kept for a function only
+    // when its code is no larger, both ways assembled by ca45 (and the file's
+    // code no larger as a whole)
+    std::set<std::string> forced, trial;
+    for (const auto& fn : irModule_->functions) {
+        // (a pragma, then -f / -fno-, decide outright; otherwise the level)
+        auto it = fn.optOverrides.find("LoopRotation");
+        auto g = optOverrides_.find("LoopRotation");
+        if (it != fn.optOverrides.end()) {
+            if (it->second) forced.insert(fn.name);
+        } else if (g != optOverrides_.end()) {
+            if (g->second) forced.insert(fn.name);
+        } else if (optOn("LoopRotation")) {
+            trial.insert(fn.name);
+        }
+    }
+    ir::optTrace = traceIROpt_ ? &std::cerr : nullptr;
+    if (!forced.empty())
+        ir::optimizeLoopRotation(*irModule_, [&](const ir::Function& f) { return forced.count(f.name) > 0; });
+    ir::optTrace = nullptr;
+    std::string base = gen(*irModule_);
+    irOutput_ = base;
+    if (!trial.empty() && sizeTrial_) {
+        ir::Module rot = *irModule_;
+        auto rotated = ir::optimizeLoopRotation(rot, [&](const ir::Function& f) { return trial.count(f.name) > 0; });
+        // each function's code bytes: from its start (its name, or its SAC
+        // entry) to the next function's, the last to the end of the code
+        auto sizesOf = [&](const TrialResult& r) {
+            std::map<std::string, uint32_t> start, size;
+            std::set<uint32_t> starts;
+            for (const auto& fn : irModule_->functions) {
+                uint32_t at = UINT32_MAX;
+                for (const std::string& n : {fn.name, fn.name + "__sac"}) {
+                    auto it = r.starts.find(n);
+                    if (it != r.starts.end()) at = std::min(at, it->second);
+                }
+                if (at != UINT32_MAX) { start[fn.name] = at; starts.insert(at); }
+            }
+            for (const auto& [n, at] : start) {
+                auto next = starts.upper_bound(at);
+                size[n] = (next == starts.end() ? r.textSize : *next) - at;
+            }
+            return size;
+        };
+        std::vector<TrialResult> res;
+        std::string text1 = rotated.empty() ? std::string() : gen(rot);
+        if (!rotated.empty() && sizeTrial_({base, text1}, res) && res.size() == 2) {
+            auto s0 = sizesOf(res[0]), s1 = sizesOf(res[1]);
+            std::set<std::string> keep;
+            for (const auto& f : rotated) {
+                bool k = s0.count(f) && s1.count(f) && s1[f] <= s0[f];
+                if (k) keep.insert(f);
+                if (traceIROpt_)
+                    std::cerr << "[rotate] " << f << ": " << (k ? "kept" : "undone") << " ("
+                              << s0[f] << " -> " << s1[f] << " bytes)" << std::endl;
+            }
+            std::string cand;
+            uint32_t candSize = 0;
+            if (keep.size() == rotated.size()) {
+                cand = text1;
+                candSize = res[1].textSize;
+            } else if (!keep.empty()) {
+                ir::Module mix = *irModule_;
+                for (auto& fn : mix.functions)
+                    if (keep.count(fn.name))
+                        for (const auto& rf : rot.functions)
+                            if (rf.name == fn.name) { fn = rf; break; }
+                cand = gen(mix);
+                std::vector<TrialResult> rc;
+                if (sizeTrial_({cand}, rc) && rc.size() == 1) candSize = rc[0].textSize;
+                else cand.clear();
+            }
+            // (and the file's code no larger as a whole)
+            if (!cand.empty() && candSize <= res[0].textSize) irOutput_ = cand;
+            else if (!cand.empty() && traceIROpt_)
+                std::cerr << "[rotate] the file: undone (" << res[0].textSize << " -> " << candSize << " bytes)" << std::endl;
+        }
+    }
 
     if (verboseLevel_ >= 2) {
         std::cout << "    Generated " << irOutput_.size()
