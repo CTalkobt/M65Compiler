@@ -190,6 +190,12 @@ build_example "$EXAMPLES/c/fcm_graphics"
 make -C "$EXAMPLES/c/fcm_graphics" check >/dev/null 2>&1
 test_text "fcm_graphics" "$EXAMPLES/c/fcm_graphics/fcmcheck.prg" "FCM CHECK OK, 100 FRAMES" 20
 
+build_example "$EXAMPLES/c/tunes"
+# the test build: the music from the raster interrupt for 150 frames, then
+# the sick tempo for 100
+make -C "$EXAMPLES/c/tunes" check >/dev/null 2>&1
+test_text "tunes" "$EXAMPLES/c/tunes/tunescheck.prg" "TUNES CHECK OK: 30 TICKS" 20
+
 build_example "$EXAMPLES/c/forth"
 test_text "forth" "$EXAMPLES/c/forth/forth.prg" "COUNT 0 1 2 3 4" 10
 # the Forth test build: 21 lines of Forth and their output

@@ -1,0 +1,136 @@
+; The music of the pfest game (its assets/music.txt, as it is): tune45
+; convert makes music.c and music.h of it (doc/bin/tune45.md has the format).
+;
+; instrument <name> <wave> <ad> <sr> <pulse> <vibrato 0-3> <gap>
+;     wave: pulse, saw, tri, noise; ad, sr: the envelope's nibble pairs (hex);
+;     gap: ticks of release before the next note (staccato)
+; tune <name> <frames per tick> loop|once
+;     then the voices "v1:", "v2:", "v3:" (voices 1-3 of SID 1, mirrored on SID 3):
+;     note:ticks (c4 is middle C, sharps c#4), r:ticks a rest,
+;     @name an instrument; | is only for reading. A line ending in \ goes on.
+
+instrument calliope pulse 09 a6 0600 1 1
+instrument bass     tri   0a 00 0000 0 1
+instrument stab     pulse 05 00 0800 0 0
+instrument trombone saw   48 a6 0000 2 0
+instrument bell     tri   0a 00 0000 0 0
+instrument organ    pulse 2a c8 0300 2 0
+instrument brass    saw   26 96 0000 1 1
+
+; the title: a fairground waltz, oom-pah-pah (3/4, a bar is 12 ticks)
+tune title 6 loop
+v1: @calliope g4:4 c5:4 e5:4 | g5:8 e5:4 | f5:4 e5:4 d5:4 | c5:8 r:4 | \
+    a4:4 d5:4 f5:4 | a5:8 f5:4 | e5:4 d5:4 c5:4 | b4:8 r:4 | \
+    g4:4 b4:4 d5:4 | g5:8 f5:4 | e5:4 f5:4 g5:4 | a5:8 g5:4 | \
+    f5:4 e5:4 d5:4 | g5:4 b4:4 d5:4 | c5:12 | r:12
+v2: @bass c3:4 r:8 | c3:4 r:8 | g2:4 r:8 | c3:4 r:8 | \
+    d3:4 r:8 | d3:4 r:8 | g2:4 r:8 | g2:4 r:8 | \
+    g2:4 r:8 | g2:4 r:8 | c3:4 r:8 | f2:4 r:8 | \
+    g2:4 r:8 | g2:4 r:8 | c3:4 r:8 | c3:4 r:8
+v3: @stab r:4 e4:3 r:1 g4:3 r:1 | r:4 e4:3 r:1 g4:3 r:1 | r:4 d4:3 r:1 f4:3 r:1 | r:4 e4:3 r:1 g4:3 r:1 | \
+    r:4 f4:3 r:1 a4:3 r:1 | r:4 f4:3 r:1 a4:3 r:1 | r:4 d4:3 r:1 f4:3 r:1 | r:4 d4:3 r:1 f4:3 r:1 | \
+    r:4 d4:3 r:1 f4:3 r:1 | r:4 d4:3 r:1 f4:3 r:1 | r:4 e4:3 r:1 g4:3 r:1 | r:4 a4:3 r:1 c5:3 r:1 | \
+    r:4 d4:3 r:1 f4:3 r:1 | r:4 d4:3 r:1 f4:3 r:1 | r:4 e4:3 r:1 g4:3 r:1 | r:4 e4:3 r:1 g4:3 r:1
+
+; in play: a brisk circus march, oom-pah (2/4, a bar is 8 ticks); the
+; player speeds it up and makes it wobble when the player is sick
+tune march 5 loop
+v1: @calliope c5:2 e5:2 g5:2 e5:2 | f5:2 a5:2 g5:4 | e5:2 g5:2 c6:2 g5:2 | f5:2 e5:2 d5:4 | \
+    d5:2 f5:2 a5:2 f5:2 | e5:2 g5:2 f5:4 | e5:2 d5:2 c5:2 b4:2 | d5:6 r:2 | \
+    c5:2 e5:2 g5:2 e5:2 | f5:2 a5:2 g5:4 | c6:2 b5:2 a5:2 g5:2 | f5:2 e5:2 d5:4 | \
+    e5:2 f5:2 g5:2 a5:2 | g5:2 f5:2 e5:2 d5:2 | c5:2 e5:2 d5:2 b4:2 | c5:6 r:2 | \
+    g5:2 g5:2 a5:2 g5:2 | f5:2 e5:2 d5:4 | e5:2 e5:2 f5:2 e5:2 | d5:2 c5:2 b4:4 | \
+    c5:2 d5:2 e5:2 f5:2 | g5:2 a5:2 b5:2 c6:2 | d6:2 b5:2 g5:2 b5:2 | c6:6 r:2
+v2: @bass c3:4 g2:4 | f2:4 c3:4 | c3:4 g2:4 | g2:4 d3:4 | \
+    d3:4 a2:4 | c3:4 g2:4 | g2:4 d3:4 | g2:4 d3:4 | \
+    c3:4 g2:4 | f2:4 c3:4 | a2:4 e3:4 | g2:4 d3:4 | \
+    c3:4 g2:4 | g2:4 d3:4 | g2:4 d3:4 | c3:4 g2:4 | \
+    c3:4 g2:4 | g2:4 d3:4 | c3:4 g2:4 | g2:4 d3:4 | \
+    c3:4 g2:4 | c3:4 g2:4 | g2:4 d3:4 | c3:4 g2:4
+v3: @stab r:2 e4:2 r:2 g4:2 | r:2 f4:2 r:2 a4:2 | r:2 e4:2 r:2 g4:2 | r:2 b3:2 r:2 d4:2 | \
+    r:2 f4:2 r:2 a4:2 | r:2 e4:2 r:2 g4:2 | r:2 b3:2 r:2 d4:2 | r:2 b3:2 r:2 d4:2 | \
+    r:2 e4:2 r:2 g4:2 | r:2 f4:2 r:2 a4:2 | r:2 e4:2 r:2 a4:2 | r:2 b3:2 r:2 d4:2 | \
+    r:2 e4:2 r:2 g4:2 | r:2 b3:2 r:2 d4:2 | r:2 b3:2 r:2 d4:2 | r:2 e4:2 r:2 g4:2 | \
+    r:2 e4:2 r:2 g4:2 | r:2 b3:2 r:2 d4:2 | r:2 e4:2 r:2 g4:2 | r:2 b3:2 r:2 d4:2 | \
+    r:2 e4:2 r:2 g4:2 | r:2 e4:2 r:2 g4:2 | r:2 b3:2 r:2 d4:2 | r:2 e4:2 r:2 g4:2
+
+; a screen cleared: ta-da
+tune clear 4 once
+v1: @calliope c5:2 e5:2 g5:2 c6:10
+v2: @bass c3:2 r:2 g2:2 c3:10
+v3: @bell e4:2 g4:2 c5:2 e5:10
+
+; passed out: wah, wah, wah, waaah
+tune passout 6 once
+v1: @trombone g3:6 f#3:6 f3:6 e3:20
+v2: @bass c3:6 r:12 c2:20
+v3: r:38
+
+; game over: down and out
+tune gameover 7 once
+v1: @trombone e4:4 d4:4 c4:4 b3:4 a3:4 g3:4 c3:16
+v2: @bass c3:8 g2:8 f2:8 c2:16
+v3: @bell r:24 e3:16
+
+; the story between screens: a slow music box (3/4)
+tune story 7 loop
+v1: @bell e5:4 g5:4 c6:4 | b5:8 g5:4 | a5:4 f5:4 a5:4 | g5:12 | \
+    e5:4 g5:4 c6:4 | d6:8 b5:4 | c6:12 | r:12
+v2: @bass c3:4 r:8 | g2:4 r:8 | f2:4 r:8 | c3:4 r:8 | c3:4 r:8 | g2:4 r:8 | c3:4 r:8 | c3:4 r:8
+v3: @stab r:4 e4:3 r:1 g4:3 r:1 | r:4 d4:3 r:1 f4:3 r:1 | r:4 f4:3 r:1 a4:3 r:1 | r:4 e4:3 r:1 g4:3 r:1 | \
+    r:4 e4:3 r:1 g4:3 r:1 | r:4 d4:3 r:1 f4:3 r:1 | r:4 e4:3 r:1 g4:3 r:1 | r:4 e4:3 r:1 g4:3 r:1
+
+; ---- a tune for each screen (the Midway has the march) ----
+
+; the parking lot: a jaunty stroll in (4/4, a bar is 16 ticks)
+tune stroll 5 loop
+v1: @calliope e5:4 g5:4 a5:2 g5:2 e5:4 | d5:4 e5:2 d5:2 c5:8 | e5:4 g5:4 a5:4 c6:4 | b5:4 a5:2 g5:2 a5:8 | \
+    a5:4 g5:4 e5:2 d5:2 c5:4 | d5:4 e5:4 g5:8 | e5:4 d5:4 c5:2 d5:2 e5:4 | c5:12 r:4
+v2: @bass c3:4 g2:4 c3:4 g2:4 | g2:4 d3:4 g2:4 d3:4 | a2:4 e3:4 a2:4 e3:4 | g2:4 d3:4 g2:4 d3:4 | \
+    c3:4 g2:4 c3:4 g2:4 | g2:4 d3:4 g2:4 d3:4 | c3:4 g2:4 c3:4 g2:4 | c3:4 g2:4 c3:4 g2:4
+v3: @stab r:2 e4:2 r:2 g4:2 r:2 e4:2 r:2 g4:2 | r:2 b3:2 r:2 d4:2 r:2 b3:2 r:2 d4:2 | \
+    r:2 e4:2 r:2 a4:2 r:2 e4:2 r:2 a4:2 | r:2 b3:2 r:2 d4:2 r:2 b3:2 r:2 d4:2 | \
+    r:2 e4:2 r:2 g4:2 r:2 e4:2 r:2 g4:2 | r:2 b3:2 r:2 d4:2 r:2 b3:2 r:2 d4:2 | \
+    r:2 e4:2 r:2 g4:2 r:2 e4:2 r:2 g4:2 | r:2 e4:2 r:2 g4:2 r:2 e4:2 r:2 g4:2
+
+; the food court: an oom-pah polka (2/4, a bar is 8 ticks)
+tune polka 4 loop
+v1: @calliope c5:2 f5:2 a5:2 f5:2 | g5:2 a#5:2 a5:4 | c6:2 a5:2 f5:2 a5:2 | g5:6 r:2 | \
+    c5:2 e5:2 g5:2 e5:2 | f5:2 a5:2 g5:4 | e5:2 g5:2 a#5:2 g5:2 | f5:6 r:2
+v2: @bass f2:2 r:2 c3:2 r:2 | c3:2 r:2 g2:2 r:2 | f2:2 r:2 c3:2 r:2 | c3:2 r:2 g2:2 r:2 | \
+    c3:2 r:2 g2:2 r:2 | f2:2 r:2 c3:2 r:2 | c3:2 r:2 g2:2 r:2 | f2:2 r:2 c3:2 r:2
+v3: @stab r:2 a4:2 r:2 a4:2 | r:2 e4:2 r:2 a#4:2 | r:2 a4:2 r:2 c5:2 | r:2 e4:2 r:2 g4:2 | \
+    r:2 e4:2 r:2 g4:2 | r:2 a4:2 r:2 c5:2 | r:2 e4:2 r:2 a#4:2 | r:2 a4:2 r:2 a4:2
+
+; the teacups: a dizzy waltz, wobbling (3/4, a bar is 12 ticks)
+tune teacups 5 loop
+v1: @calliope d5:4 g5:4 b5:4 | a5:2 g#5:2 a5:2 b5:2 a5:4 | c6:4 a5:4 f#5:4 | g5:12 | \
+    b4:4 d5:4 g5:4 | f#5:2 f5:2 f#5:2 g5:2 a5:4 | g5:4 f#5:4 e5:4 | d5:8 r:4
+v2: @bass g2:4 r:8 | d3:4 r:8 | d3:4 r:8 | g2:4 r:8 | g2:4 r:8 | d3:4 r:8 | c3:4 r:8 | d3:4 r:8
+v3: @stab r:4 b3:3 r:1 d4:3 r:1 | r:4 a3:3 r:1 f#4:3 r:1 | r:4 a3:3 r:1 c4:3 r:1 | r:4 b3:3 r:1 d4:3 r:1 | \
+    r:4 b3:3 r:1 d4:3 r:1 | r:4 a3:3 r:1 f#4:3 r:1 | r:4 e4:3 r:1 g4:3 r:1 | r:4 a3:3 r:1 f#4:3 r:1
+
+; the funhouse: spooky, staccato (4/4, a bar is 16 ticks; A minor)
+tune funhouse 6 loop
+v1: @bell a4:2 r:2 c5:2 r:2 e5:2 r:2 d#5:2 e5:2 | f5:4 e5:2 d5:2 c5:8 | \
+    a4:2 r:2 c5:2 r:2 e5:2 r:2 g#5:2 a5:2 | b5:4 g#5:2 e5:2 a5:8
+v2: @organ a2:16 | d3:8 a2:8 | a2:16 | e3:8 a2:8
+v3: @stab r:4 e4:4 r:4 c4:4 | r:4 f4:4 r:4 a3:4 | r:4 e4:4 r:4 c4:4 | r:4 g#3:4 r:4 e4:4
+
+; the boat ride: a gentle barcarolle, rocking (6/8, a bar is 12 ticks)
+tune boat 6 loop
+v1: @bell b4:4 a4:2 g4:4 b4:2 | d5:6 c5:6 | b4:4 a4:2 g4:4 e4:2 | d4:12 | \
+    g4:4 a4:2 b4:4 d5:2 | e5:6 d5:6 | c5:4 b4:2 a4:4 f#4:2 | g4:12
+v2: @bass g2:6 d3:6 | d3:6 a2:6 | g2:6 d3:6 | d3:6 a2:6 | g2:6 d3:6 | c3:6 g2:6 | d3:6 a2:6 | g2:6 d3:6
+v3: @stab r:2 b3:2 d4:2 r:2 b3:2 d4:2 | r:2 a3:2 f#4:2 r:2 a3:2 f#4:2 | r:2 b3:2 d4:2 r:2 b3:2 d4:2 | \
+    r:2 a3:2 f#4:2 r:2 a3:2 f#4:2 | r:2 b3:2 d4:2 r:2 b3:2 d4:2 | r:2 e4:2 g4:2 r:2 e4:2 g4:2 | \
+    r:2 a3:2 f#4:2 r:2 a3:2 f#4:2 | r:2 b3:2 d4:2 r:2 b3:2 d4:2
+
+; the fireworks: a brass fanfare (4/4, a bar is 16 ticks)
+tune fireworks 5 loop
+v1: @brass c5:2 c5:2 c5:2 e5:2 g5:8 | e5:2 e5:2 e5:2 g5:2 c6:8 | a5:4 g5:4 f5:4 e5:4 | d5:8 g4:8 | \
+    c5:2 c5:2 c5:2 e5:2 g5:8 | a5:2 a5:2 a5:2 b5:2 c6:8 | d6:4 b5:4 g5:4 b5:4 | c6:12 r:4
+v2: @bass c3:4 c3:4 g2:4 g2:4 | c3:4 c3:4 g2:4 g2:4 | f2:4 f2:4 c3:4 c3:4 | g2:4 g2:4 d3:4 d3:4 | \
+    c3:4 c3:4 g2:4 g2:4 | f2:4 f2:4 c3:4 c3:4 | g2:4 g2:4 d3:4 d3:4 | c3:4 c3:4 g2:4 g2:4
+v3: @stab e4:4 r:4 g4:4 r:4 | e4:4 r:4 g4:4 r:4 | f4:4 r:4 a4:4 r:4 | b3:4 r:4 d4:4 r:4 | \
+    e4:4 r:4 g4:4 r:4 | f4:4 r:4 a4:4 r:4 | b3:4 r:4 d4:4 r:4 | e4:4 r:4 g4:4 r:4

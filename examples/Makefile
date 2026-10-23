@@ -27,6 +27,7 @@ SUBDIRS = \
 	c/rogue \
 	c/hanger \
 	c/fcm_graphics \
+	c/tunes \
 	c/overlays \
 	c/mapped_overlays \
 	c/far_functions \

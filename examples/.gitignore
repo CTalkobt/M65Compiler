@@ -19,3 +19,7 @@ c/text_scroller/map.txt
 
 # hanger: make preview
 c/hanger/preview.png
+
+# tunes: tune45 convert's output
+c/tunes/music.c
+c/tunes/music.h
