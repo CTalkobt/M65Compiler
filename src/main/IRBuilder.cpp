@@ -3383,7 +3383,10 @@ bool IRBuilder::isLibraryZpRoutine(const std::string& fname) {
         "getch_xy", "gotoxy", "kbhit", "putch", "revers", "screenheight", "screenwidth",
         "textattr", "textbackground", "textcolor", "wherex", "wherey",
         // clock.s45, rand.s45, strtok.s45, strtoul.s45
-        "clock", "rand", "srand", "strtok", "strtok_r", "strtol", "strtoul"};
+        "clock", "rand", "srand", "strtok", "strtok_r", "strtol", "strtoul",
+        // tune.s45
+        "tune_detune", "tune_note", "tune_play", "tune_play_far", "tune_playing", "tune_stop",
+        "tune_tempo", "tune_ticks", "tune_transpose", "tune_update", "tune_vibrato", "tune_voices"};
     return routines.count(fname) > 0;
 }
 
