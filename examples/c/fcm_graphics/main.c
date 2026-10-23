@@ -8,7 +8,8 @@
  *
  *   - a title and a table of the 16 colours, each character on its own
  *     background (fcm_putch / fcm_cputs / fcm_cprintf / fcm_fill_rect);
- *   - a plasma 32 x 12 characters (256 x 96 pixels) of 384 full-colour
+ *   - a plasma 36 x 21 characters (288 x 168 pixels, the screen's left
+ *     half) of 756 full-colour
  *     characters, each pixel one of 64 palette entries, and a bar of the 64
  *     entries; they move by palette cycling alone: each frame the 64 entries
  *     are rewritten one step further round, and no character changes.
@@ -25,9 +26,10 @@
 
 #define PX 1            /* the plasma's top left cell */
 #define PY 2
-#define PW 32           /* its size in cells */
-#define PH 12
-#define BARY 15         /* the palette bar's row */
+#define PW 36           /* its size in cells */
+#define PH 21
+#define BARY 23         /* the palette bar's row */
+#define BARX (PX + 2)   /* (32 cells, centred under the plasma) */
 #define RAMP 64         /* the palette entries it uses: RAMP .. RAMP + 63 */
 
 /* sin, 0..63 over 64 steps */
@@ -75,14 +77,15 @@ static void store(unsigned long a) {
 /* The plasma's characters and the bar's, from a (64-byte aligned): the
  * character at a + 64 * k is number a / 64 + k */
 static void make_glyphs(unsigned long a) {
-    unsigned char cx, cy, r, c, px, py, i;
+    unsigned char cx, cy, r, c, i;
+    unsigned int px, py;
     for (cy = 0; cy < PH; cy++)
         for (cx = 0; cx < PW; cx++) {
             i = 0;
             for (r = 0; r < 8; r++) {
-                py = (unsigned char)(cy * 8 + r);
+                py = cy * 8u + r;
                 for (c = 0; c < 8; c++) {
-                    px = (unsigned char)(cx * 8 + c);
+                    px = cx * 8u + c;
                     pix[i++] = (unsigned char)(RAMP +
                         ((sine[(px >> 1) & 63] + sine[(py + (px >> 2)) & 63] +
                           sine[((px + py) >> 1) & 63] + sine[(sine[py & 63] + (px >> 1)) & 63]) >> 2));
@@ -121,15 +124,15 @@ static void draw_text(void) {
         fcm_fill_rect(x, 4 + i % 8, x + 19, 4 + i % 8, ' ', 1, i);
         fcm_cprintf(x + 1, 4 + i % 8, ink(i), i, "%2d %s", i, names[i]);
     }
-    fcm_cputs(38, 13, "the plasma: 384 full-colour characters,", 15, 0);
+    fcm_cputs(38, 13, "the plasma: 756 full-colour characters,", 15, 0);
     fcm_cputs(38, 14, "a byte a pixel, 64 palette entries", 15, 0);
     fcm_cputs(38, 15, "rewritten each frame: nothing else", 15, 0);
     fcm_cputs(38, 16, "changes on the screen.", 15, 0);
-    fcm_cputs(PX, BARY + 2, "palette entries 64-127", 12, 0);
-    fcm_cputs(1, 24, " space ", 0, 7);
-    fcm_cputs(8, 24, " pause   ", 1, 0);
-    fcm_cputs(17, 24, " run/stop ", 0, 7);
-    fcm_cputs(27, 24, " quit", 1, 0);
+    fcm_cputs(BARX, BARY + 1, "palette entries 64-127", 12, 0);
+    fcm_cputs(38, 24, " space ", 0, 7);
+    fcm_cputs(45, 24, " pause   ", 1, 0);
+    fcm_cputs(54, 24, " run/stop ", 0, 7);
+    fcm_cputs(64, 24, " quit", 1, 0);
 }
 
 static void wait_frame(void) {
@@ -149,7 +152,7 @@ int main(void) {
     REG(0xD021) = 0;
     textcolor(1);
     clrscr();
-    /* 384 + 32 characters, 64-byte aligned */
+    /* 756 + 32 characters (49 KB), 64-byte aligned */
     mem = far_malloc((PW * PH + 32) * 64u + 63u, BANK4);
     if (far_is_null(mem)) mem = far_malloc((PW * PH + 32) * 64u + 63u, BANK5);
     if (far_is_null(mem) || !fcm_enable()) {
@@ -164,7 +167,7 @@ int main(void) {
     for (cy = 0; cy < PH; cy++)
         for (cx = 0; cx < PW; cx++)
             fcm_putglyph(PX + cx, PY + cy, k++, 1);
-    for (cx = 0; cx < 32; cx++) fcm_putglyph(PX + cx, BARY, k++, 1);
+    for (cx = 0; cx < 32; cx++) fcm_putglyph(BARX + cx, BARY, k++, 1);
     draw_text();
 
     for (;;) {
@@ -173,7 +176,7 @@ int main(void) {
             cycle(++at);
             frames++;
         }
-        fcm_cprintf(PX + 24, BARY + 2, 11, 0, "%5u", frames);
+        fcm_cprintf(BARX + 24, BARY + 1, 11, 0, "%5u", frames);
 #ifdef FCM_CHECK
         if (frames == 100) break;
 #endif

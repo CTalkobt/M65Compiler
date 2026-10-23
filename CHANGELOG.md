@@ -7,7 +7,7 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 ### Examples: fcm_graphics; conio's fcm_putglyph
 
 - New `examples/c/fcm_graphics`: full-colour characters, a background for
-  each character (the title, a table of the 16 colours) and a 32x12
+  each character (the title, a table of the 16 colours) and a 36x21
   plasma of the program's own full-colour characters moved by palette
   cycling alone. On the examples disk, in `capture_screens.py` and in
   `test_examples.sh` (a test build runs 100 frames and reports).
