@@ -31,7 +31,7 @@
 cc45.icallinfo = 1
 
 .global _tune_play, _tune_play_far, _tune_stop, _tune_update, _tune_playing
-.global _tune_voices, _tune_tempo, _tune_vibrato, _tune_transpose, _tune_detune, _tune_ticks
+.global _tune_voices, _tune_tempo, _tune_vibrato, _tune_transpose, _tune_detune, _tune_ticks, _tune_note
 .extern ___sid_put
 
 P  = $F6
@@ -959,6 +959,28 @@ proc _tune_ticks
     lda __tune_ticks
     ldx __tune_ticks+1
     plp
+    rts
+    .func_flags zp_call, leaf
+endproc
+
+; unsigned char tune_note(unsigned char voice): its note, $FF when silent
+proc _tune_note
+    .zp_uses $10, $11
+    .reg_clobbers A, X
+    .flag_clobbers C, N, Z
+    ldx $10
+    cpx __tune_n
+    bcs @silent
+    lda __tune_active
+    beq @silent
+    lda __tv_gated,x
+    beq @silent
+    lda __tv_note,x
+    ldx #0
+    rts
+@silent:
+    lda #$FF
+    ldx #0
     rts
     .func_flags zp_call, leaf
 endproc

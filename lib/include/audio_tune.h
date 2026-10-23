@@ -60,3 +60,7 @@ __fastcall__ void tune_detune(unsigned char voice, signed char amount);
 
 /* The tune's position: ticks played since tune_play */
 __fastcall__ unsigned int tune_ticks(void);
+
+/* The note tune voice voice sounds (MIDI, before its transpose), 0xFF when
+ * it is silent (a rest, released, over) */
+__fastcall__ unsigned char tune_note(unsigned char voice);

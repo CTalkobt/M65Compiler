@@ -251,7 +251,8 @@ $(OBJ_DIR)/residfp/%.o: $(RESIDFP_DIR)/%
 $(LIB_DIR)/lib45-residfp.a: $(RESIDFP_OBJS) | $(LIB_DIR)
 	$(AR) rcs $@ $^
 $(OBJ_DIR)/TuneAudio.o: CXXFLAGS += -I$(RESIDFP_DIR)
-TUNE_OBJS = $(OBJ_DIR)/tune45_main.o $(OBJ_DIR)/TuneCompiler.o $(OBJ_DIR)/TunePlayer.o $(OBJ_DIR)/TuneAudio.o
+TUNE_OBJS = $(OBJ_DIR)/tune45_main.o $(OBJ_DIR)/TuneCompiler.o $(OBJ_DIR)/TunePlayer.o $(OBJ_DIR)/TuneAudio.o \
+            $(OBJ_DIR)/BasicTooling.o
 $(TUNE_TARGET): $(TUNE_OBJS) $(LIB_DIR)/lib45-residfp.a
 	@mkdir -p $(BIN_DIR)
 	$(CXX) $(CXXFLAGS) -pthread -o $@ $(TUNE_OBJS) $(LIB_DIR)/lib45-residfp.a
@@ -953,7 +954,7 @@ install: all lib
 	ln -sf cc45 $(DESTDIR)$(BINDIR)/cp45
 	install -d $(DESTDIR)$(LIBDIR)
 	install -m 644 lib/build/c45.lib lib/build/c45_zp.lib lib/build/c45_stack.lib $(DESTDIR)$(LIBDIR)
-	install -m 644 lib/build/crt0*.o45 $(DESTDIR)$(LIBDIR)
+	install -m 644 lib/build/crt0*.o45 lib/build/tuneplay.o45 $(DESTDIR)$(LIBDIR)
 	install -d $(DESTDIR)$(INCDIR) $(DESTDIR)$(INCDIR)/sys
 	install -m 644 lib/include/*.h $(DESTDIR)$(INCDIR)
 	install -m 644 lib/include/sys/*.h $(DESTDIR)$(INCDIR)/sys
