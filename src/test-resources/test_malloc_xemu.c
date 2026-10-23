@@ -6,7 +6,10 @@
  *   [2] free + malloc reuses memory; freeing neighbours coalesces them
  *   [3] calloc zeroes the block
  *   [4] realloc keeps the contents (grow and shrink), NULL/0 forms
- *   [5] a large allocation succeeds and a too-large one returns NULL
+ *   [5] a large allocation succeeds and a too-large one returns NULL; sizes
+ *       near 64 KB and calloc products over 64 KB are NULL, not short
+ *       blocks (#203), and stale bytes in the multiplier's upper inputs
+ *       don't make a small calloc fail
  *   [6] 01
  *   [7] $AA sentinel
  */
@@ -60,6 +63,13 @@ int main(void) {
     big = malloc(20000u);
     ok = big != 0 && malloc(60000u) == 0;
     if (big) { big[0] = 1; big[19999u] = 2; ok = ok && big[0] == 1 && big[19999u] == 2; }
+    ok = ok && malloc(0xFFFFu) == 0 && malloc(0xFFFDu) == 0;
+    ok = ok && calloc(300, 300) == 0 && calloc(0x1000u, 0x11) == 0;
+    ok = ok && big && realloc(big, 0xFFFEu) == 0 && big[19999u] == 2;
+    *(volatile unsigned char *)0xD773 = 0xFF;   /* the multiplier's upper input bytes */
+    *(volatile unsigned char *)0xD777 = 0xFF;
+    d = calloc(3, 2);
+    ok = ok && d && filled(d, 6, 0);
     OUT[5] = ok;
 
     OUT[6] = 1;

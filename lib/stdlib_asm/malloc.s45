@@ -62,6 +62,9 @@ proc _malloc
     tax
     lda $17
     adc #0
+    bcc @no_wrap
+    jmp @fail           ; size > $FFFC: no block that large
+@no_wrap:
     tay
     txa
     and #$FE
@@ -447,8 +450,25 @@ proc _calloc
     .flag_clobbers C, N, Z
 
     ; total = nmemb * size (malloc clobbers $12-$17: keep it on the stack)
-    ldax $10
-    mul.16 .ax, $12
+    ; (the full 32-bit product: a total over 64 KB is NULL, not a short block)
+    lda $10
+    sta $D770
+    lda $11
+    sta $D771
+    lda $12
+    sta $D774
+    lda $13
+    sta $D775
+    lda #0
+    sta $D772
+    sta $D773
+    sta $D776
+    sta $D777
+    lda $D77A
+    ora $D77B
+    bne @overflow
+    lda $D778
+    ldx $D779
     sta $10             ; malloc(total)
     stx $11
     pha                 ; total lo
@@ -480,6 +500,7 @@ proc _calloc
 @fail:
     pla
     pla
+@overflow:
     lda #0
     tax
     rts
