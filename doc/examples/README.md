@@ -160,6 +160,32 @@ move, `>` goes down. `make check` tests levels from fixed seeds
 
 ![rogue](images/rogue.png)
 
+### hanger
+
+[Source](https://github.com/CTalkobt/M65Compiler/tree/main/examples/c/hanger) —
+Hangman with a different victim each level: a human, a cat, a duck, a
+giraffe, an elephant and an octopus (6 to 9 wrong letters allowed). Each
+wrong letter adds a part, and a hanged animal's eyes are crossed out. One
+player guesses the computer's words (3 lives; solve a word to move on to the
+next animal) or two players type secret words for each other. The words are
+the 500 most common English words of 3 or more letters (`words.txt`, from the
+wordfreq ranking; `make_words.py`), sorted by the misses of a player who
+guesses letters in order of English frequency and cut into six tiers, one per
+level. The pictures are drawn with PIL shapes in `gen_gfx.py` and cut into
+8x8 character cells (in 80 columns a pixel is half as wide as it is tall, so
+the shapes are drawn in square units and squeezed). Each level's glyphs, up
+to 182, are copied into a character set in bank 4 with `dma_copy_far` when it
+starts. Each stage of the drawing is stored as the cells it changes. The
+generated `gfx.h` and `words.h` are in the repository, so the example builds
+without Python (`make gfx` remakes them). The screen is built in two buffers
+and copied out by DMA each frame. Untried letters show in the alphabet and
+tried ones become dots; the wrong letters are listed by the miss count, so
+nothing depends on colour alone. Keys: 1 or 2 on the title, A-Z to guess,
+RETURN to go on, RUN/STOP back to the title or quit. `make demo` builds a
+version that plays by itself (`DEMO_LEVEL=n` starts at level n).
+
+![hanger](images/hanger.png)
+
 ### forth
 
 [Source](https://github.com/CTalkobt/M65Compiler/tree/main/examples/c/forth) —

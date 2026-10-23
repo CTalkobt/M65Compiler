@@ -179,6 +179,12 @@ else
     fail "rogue levels" "$(tail -1 "$BUILDDIR/rogue_check.txt")"
 fi
 
+build_example "$EXAMPLES/c/hanger"
+test_text "hanger" "$EXAMPLES/c/hanger/hanger.prg" "HANGMAN FOR THE MEGA65" 10
+# the self-playing build guesses its way through the levels
+make -C "$EXAMPLES/c/hanger" demo >/dev/null 2>&1
+test_text "hanger demo" "$EXAMPLES/c/hanger/hangerdemo.prg" "LEVEL [1-6] OF 6" 20
+
 build_example "$EXAMPLES/c/forth"
 test_text "forth" "$EXAMPLES/c/forth/forth.prg" "COUNT 0 1 2 3 4" 10
 # the Forth test build: 21 lines of Forth and their output
