@@ -4,6 +4,18 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### ln45: overlay call stubs of 6 bytes (Issue #332)
+
+- A call into a code overlay from outside it went through a 21-byte
+  resident stub (stores of A, the overlay's id and the function, then
+  `jmp __ovl_call`). It is now `jsr __ovl_calli` followed by the id and the
+  address: 6 bytes. `__ovl_calli` reads them after its return address,
+  pulls it off and goes on in `__ovl_call` (A, X, Y, Z kept; a few cycles
+  more per call). `--overlay-fast-stubs` keeps the 21-byte form.
+- vim2's 159 stubs: 2,341 bytes less of bank 0 (resident 24,252 to
+  21,911); pfest's 34: 466 bytes. The overlay test runs with
+  `--overlay-fast-stubs` too.
+
 ### Examples: hanger
 
 - New `examples/c/hanger`: hangman with a different animal on the gallows

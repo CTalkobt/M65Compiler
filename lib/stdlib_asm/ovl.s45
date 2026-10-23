@@ -10,7 +10,12 @@
 ; KERNAL loads into chip RAM only, so a file kept in attic RAM is loaded into
 ; a staging bank and copied up by DMA.
 ;
-; A call from outside an overlay goes through a stub ln45 generates:
+; A call from outside an overlay goes through a stub ln45 generates, 6
+; bytes (#332):
+;     jsr __ovl_calli / .byte id / .word f
+; __ovl_calli reads the id and the function after its return address and
+; goes on as __ovl_call. With ln45 --overlay-fast-stubs, 21 bytes and a few
+; cycles less per call:
 ;     sta __ovl_sa / lda #id / sta __ovl_want
 ;     lda #<f / sta __ovl_tgt / lda #>f / sta __ovl_tgt+1 / jmp __ovl_call
 ; __ovl_call moves the caller's return address to the overlay return stack,
@@ -64,7 +69,7 @@ cc45.icallinfo = 1
 .weak cc45.icall.__ovl_call
 cc45.icall.__ovl_call = 1
 
-.global __ovl_init, __ovl_call, __ovl_ret, __ovl_load, __ovl_rom_leave, __ovl_exit
+.global __ovl_init, __ovl_call, __ovl_calli, __ovl_ret, __ovl_load, __ovl_rom_leave, __ovl_exit
 .global __ovl_sa, __ovl_want, __ovl_tgt, __ovl_cur, ___ovl_current
 .global __ovl_jsave, __ovl_jrestore, __ovl_dma_fix
 .extern __ovl_region, __ovl_region_end, __ovl_file, __ovl_mapped
@@ -90,6 +95,8 @@ __ovl_rid:  .res OVL_DEPTH  ; the overlay to bring back on the return
 __ovl_rwt:  .res OVL_DEPTH  ; the overlay the call entered
 __ovl_rec:  .res 1          ; __ovl_init: the file's record in __ovl_file
 __ovl_n:    .res 1          ;             the files still to load
+__ovl_ix:   .res 1          ; __ovl_calli: X and Y while it reads the stub
+__ovl_iy:   .res 1
 
 .segment "code"
 ; What the stubs write (in the code segment: ln45 places stubs before it is
@@ -109,6 +116,32 @@ __ovl_job:
 __ovl_msg:
     .byte 13, $3F, $4F, $56, $45, $52, $4C, $41, $59, $20, $46, $49, $4C, $45, 13   ; "?OVERLAY FILE"
 __ovl_msg_end:
+
+; The 6-byte stub's entry: jsr __ovl_calli / .byte id / .word f. Its return
+; address is the stub's last byte: the id and the function follow it. Pulled
+; off, it leaves the caller's own return address on top, as the 21-byte
+; stub's jmp __ovl_call does. A, X, Y, Z are kept ($08/$09: scratch).
+proc __ovl_calli
+    sta __ovl_sa
+    stx __ovl_ix
+    sty __ovl_iy
+    pla
+    sta $08
+    pla
+    sta $09
+    ldy #1
+    lda ($08),y
+    sta __ovl_want
+    iny
+    lda ($08),y
+    sta __ovl_tgt
+    iny
+    lda ($08),y
+    sta __ovl_tgt+1
+    ldx __ovl_ix
+    ldy __ovl_iy
+    jmp __ovl_call
+endproc
 
 proc __ovl_call
     stx __ovl_sx

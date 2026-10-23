@@ -3024,8 +3024,9 @@ bool O45Linker::generateOverlayStubs(std::string& errorMsg) {
         auto it = globalSymbols_.find(n);
         return it == globalSymbols_.end() ? 0 : it->second;
     };
-    uint32_t sa = sym("__ovl_sa"), want = sym("__ovl_want"), tgt = sym("__ovl_tgt"), call = sym("__ovl_call");
-    if (!call || !sa) {
+    uint32_t sa = sym("__ovl_sa"), want = sym("__ovl_want"), tgt = sym("__ovl_tgt"), call = sym("__ovl_call"),
+             calli = sym("__ovl_calli");
+    if (!call || !sa || (!ovlFastStubs_ && !calli)) {
         errorMsg = "code overlays: the overlay runtime (__ovl_call, lib/stdlib_asm/ovl.s45) is not linked";
         return false;
     }
@@ -3035,6 +3036,15 @@ bool O45Linker::generateOverlayStubs(std::string& errorMsg) {
         auto ra = realAddr_.find(n);
         if (ra == realAddr_.end()) continue;
         ovlStubs_[n] = textBase_ + (uint32_t)t.size();
+        globalSymbols_[n] = ovlStubs_[n];
+        if (!ovlFastStubs_) {
+            // 6 bytes: the id and the function after a JSR (#332)
+            abs(0x20, calli);                                 // JSR __ovl_calli
+            t.push_back((uint8_t)symOvl_[n]);                 // .byte id
+            t.push_back(ra->second & 0xFF);                   // .word f
+            t.push_back((ra->second >> 8) & 0xFF);
+            continue;
+        }
         abs(0x8D, sa);                                        // STA __ovl_sa
         t.push_back(0xA9); t.push_back((uint8_t)symOvl_[n]);  // LDA #id
         abs(0x8D, want);                                      // STA __ovl_want
@@ -3043,7 +3053,6 @@ bool O45Linker::generateOverlayStubs(std::string& errorMsg) {
         t.push_back(0xA9); t.push_back((ra->second >> 8) & 0xFF);
         abs(0x8D, tgt + 1);
         abs(0x4C, call);                                      // JMP __ovl_call
-        globalSymbols_[n] = ovlStubs_[n];
     }
     // __ovl_table0..5: six tables of a byte per overlay (id 1..n at index
     // id - 1, so __ovl_load reads them with X up to 254): its far address

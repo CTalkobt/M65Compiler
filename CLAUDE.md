@@ -68,8 +68,9 @@ crt0's `__ovl_init` loads into bank 5 (`--overlay-store`; bank 1 is BASIC's; fur
 ranges take what does not fit, a file per 64 KB bank: `<prog>.ov2`, …; ranges in attic
 RAM `$8000000`+ hold copied overlays, loaded through `--overlay-staging` bank 5 and
 copied up by DMA; `far_attic_init` leaves them out).
-Calls from outside an overlay (and addresses taken) go through 21-byte
-resident stubs to `__ovl_call` (`lib/stdlib_asm/ovl.s45`), which copies the
+Calls from outside an overlay (and addresses taken) go through 6-byte
+resident stubs (`jsr __ovl_calli` + id + address; 21 bytes with ln45
+`--overlay-fast-stubs`) to `__ovl_call` (`lib/stdlib_asm/ovl.s45`), which copies the
 overlay in by DMA and swaps the return address (stack layout unchanged).
 Copied by default; `--overlay-map` maps a window of `$4000`-`$7FFF` to each
 overlay instead (only the lower half of MAP: the KERNAL is mapped at $E000;
