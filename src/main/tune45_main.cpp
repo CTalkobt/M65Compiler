@@ -2,14 +2,19 @@
 //
 //   tune45 convert music.txt -o music.c     C source and header (or --bin, --asm)
 //   tune45 list music.txt                   each tune's size and length
-// (play, create and import: see doc/bin/tune45.md)
+//   tune45 play music.txt [--tune name]     on the PC (reSIDfp), or a .wav
+// (create and import: see doc/bin/tune45.md)
 #include "TuneCompiler.hpp"
+#include "TunePlayer.hpp"
+#include "TuneAudio.hpp"
 #include "Version.hpp"
 #include <cctype>
 #include <cstdio>
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <algorithm>
+#include <cstdlib>
 
 namespace {
 
@@ -19,10 +24,18 @@ void usage(std::ostream& o) {
          "  convert   the player's data: -o music.c (C source and music.h), --bin -o music.bin\n"
          "            (one blob for far memory; music.h gives each tune's offset), --asm -o music.s45\n"
          "  list      each tune: voices, bytes, ticks, seconds (PAL / NTSC), instruments\n"
+         "  play      play the tunes on the PC (reSIDfp: four SIDs, stereo) through pw-play,\n"
+         "            paplay or aplay, or into a .wav file\n"
          "Options:\n"
          "  -o <file>          output file\n"
          "  --bin, --asm       convert: a binary blob / ca45 source instead of C\n"
          "  --header <file>    convert: the header's name (default: the output's, .h)\n"
+         "  --tune <name>      play: that tune (again for more; default: all, in order)\n"
+         "  --loops <n>        play: times through a looping tune (default 1)\n"
+         "  --wav <file>       play: into a WAV file instead of the speakers\n"
+         "  --ntsc             play: an NTSC machine (60 Hz, its SID clock)\n"
+         "  --6581             play: the MOS 6581 SID (default: the 8580)\n"
+         "  --mono             play: SIDs 1-2 only (without the mirror on SIDs 3-4)\n"
          "  -V, --version      version\n"
          "  -h, --help         this help\n"
          "The text format: doc/bin/tune45.md (pfest's music.txt format).\n";
@@ -133,6 +146,79 @@ int convert(const TuneFile& f, const std::string& src, const std::string& outPat
     return o ? 0 : 1;
 }
 
+struct PlayOptions {
+    std::vector<std::string> tunes;
+    unsigned loops = 1, frames = 0;
+    std::string wav;
+    bool ntsc = false, mos6581 = false, mono = false;
+};
+
+// The tunes named (all when none), or an error
+bool chosen(const TuneFile& f, const PlayOptions& o, std::vector<const Tune*>& out) {
+    if (o.tunes.empty()) { for (const auto& t : f.tunes) out.push_back(&t); return true; }
+    for (const auto& n : o.tunes) {
+        const Tune* found = nullptr;
+        for (const auto& t : f.tunes) if (t.name == n) found = &t;
+        if (!found) { std::cerr << "tune45: no tune " << n << "\n"; return false; }
+        out.push_back(found);
+    }
+    return true;
+}
+
+int play(const TuneFile& f, const PlayOptions& o) {
+    std::vector<const Tune*> list;
+    if (!chosen(f, o, list)) return 1;
+    TuneAudio audio(o.ntsc, o.mos6581);
+    TunePlayer player([&](uint8_t i, uint8_t v) { audio.write(i, v); });
+    player.setNtsc(o.ntsc);
+    player.setMirror(!o.mono);
+    // the volume up (as sid_init: the player leaves it to the program)
+    for (uint8_t c = 0; c < 4; c++) audio.write((uint8_t)(c * 0x20 + 0x18), 15);
+    AudioSink sink;
+    if (!sink.open(o.wav, audio.rate())) { std::cerr << "tune45: " << sink.error() << "\n"; return 1; }
+    const double hz = o.ntsc ? 60.0 : 50.0;
+    std::vector<int16_t> buf;
+    for (const Tune* t : list) {
+        unsigned ticks = t->voices[0].ticks;
+        double frames = ticks * (t->fpt / 256.0) * (o.ntsc ? 60.0 / 50.0 : 1.0);
+        unsigned total = t->loop ? (unsigned)(frames * o.loops + 0.5) : 0;
+        char line[160];
+        snprintf(line, sizeof line, "playing %s: %.1f s%s (via %s)\n", t->name.c_str(), frames / hz,
+                 t->loop ? (o.loops > 1 ? ", looping" : ", once round") : "", sink.via().c_str());
+        std::cout << line << std::flush;
+        player.play(TuneCompiler::blob(f, *t));
+        for (unsigned n = 0; t->loop ? n < total : player.playing(); n++) {
+            player.update();
+            audio.frame(buf);
+            if (buf.size() >= 4096) { sink.put(buf); buf.clear(); }
+        }
+        player.stop();
+        for (unsigned n = 0; n < (unsigned)hz; n++) audio.frame(buf);   // a second for the release
+        sink.put(buf);
+        buf.clear();
+    }
+    sink.close();
+    return 0;
+}
+
+// The model's registers after each frame (the tests compare them with the
+// real player's): a line a frame, 128 bytes in hex
+int trace(const TuneFile& f, const PlayOptions& o) {
+    std::vector<const Tune*> list;
+    if (!chosen(f, o, list) || list.empty()) return 1;
+    uint8_t regs[128] = {};
+    TunePlayer player([&](uint8_t i, uint8_t v) { regs[i & 0x7F] = v; });
+    player.setNtsc(o.ntsc);
+    player.setMirror(!o.mono);
+    player.play(TuneCompiler::blob(f, *list[0]));
+    for (unsigned n = 0; n < (o.frames ? o.frames : 100); n++) {
+        player.update();
+        for (uint8_t b : regs) { char h[4]; snprintf(h, sizeof h, "%02x", b); std::cout << h; }
+        std::cout << "\n";
+    }
+    return 0;
+}
+
 int list(const TuneFile& f) {
     size_t total = 0;
     for (const auto& t : f.tunes) {
@@ -162,9 +248,17 @@ int main(int argc, char** argv) {
     if (cmd == "-h" || cmd == "--help") { usage(std::cout); return 0; }
     if (cmd == "-V" || cmd == "--version") { std::cout << "tune45 " << SUITE_VERSION << "\n"; return 0; }
     std::string out, mode = "c", header, input;
+    PlayOptions po;
     for (int i = 2; i < argc; i++) {
         std::string a = argv[i];
         if (a == "-o" && i + 1 < argc) out = argv[++i];
+        else if (a == "--tune" && i + 1 < argc) po.tunes.push_back(argv[++i]);
+        else if (a == "--loops" && i + 1 < argc) po.loops = (unsigned)std::max(1, atoi(argv[++i]));
+        else if (a == "--frames" && i + 1 < argc) po.frames = (unsigned)std::max(1, atoi(argv[++i]));
+        else if (a == "--wav" && i + 1 < argc) po.wav = argv[++i];
+        else if (a == "--ntsc") po.ntsc = true;
+        else if (a == "--6581") po.mos6581 = true;
+        else if (a == "--mono") po.mono = true;
         else if (a == "--bin") mode = "bin";
         else if (a == "--asm") mode = "asm";
         else if (a == "--header" && i + 1 < argc) header = argv[++i];
@@ -172,7 +266,7 @@ int main(int argc, char** argv) {
         else if (!a.empty() && a[0] == '-') { std::cerr << "tune45: unknown option " << a << "\n"; return 1; }
         else input = a;
     }
-    if (cmd != "convert" && cmd != "list") { std::cerr << "tune45: unknown command " << cmd << "\n"; usage(std::cerr); return 1; }
+    if (cmd != "convert" && cmd != "list" && cmd != "play" && cmd != "trace") { std::cerr << "tune45: unknown command " << cmd << "\n"; usage(std::cerr); return 1; }
     if (input.empty()) { std::cerr << "tune45: no input file\n"; return 1; }
     std::string text;
     if (!readFile(input, text)) { std::cerr << "tune45: cannot read " << input << "\n"; return 1; }
@@ -183,6 +277,8 @@ int main(int argc, char** argv) {
         return 1;
     }
     if (cmd == "list") return list(f);
+    if (cmd == "play") return play(f, po);
+    if (cmd == "trace") return trace(f, po);
     if (out.empty()) out = stem(input) + (mode == "bin" ? ".bin" : mode == "asm" ? ".s45" : ".c");
     return convert(f, input, out, mode, header);
 }

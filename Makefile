@@ -239,9 +239,22 @@ $(LN_TARGET): $(LIB_DIR)/lib45-common.a
 	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/ln45_main.o $(LIB_DIR)/lib45-common.a
 
 # Archiver (ar45) - uses common
-$(TUNE_TARGET): $(OBJ_DIR)/tune45_main.o $(OBJ_DIR)/TuneCompiler.o
+# tune45, with reSIDfp (third_party/libresidfp, built as it is: its own
+# warnings off) for tune45 play
+RESIDFP_DIR = third_party/libresidfp/src
+RESIDFP_SRCS = $(wildcard $(RESIDFP_DIR)/*.cpp) $(RESIDFP_DIR)/version.cc \
+               $(RESIDFP_DIR)/resample/SincResampler.cpp $(RESIDFP_DIR)/residfp/residfp.cpp
+RESIDFP_OBJS = $(patsubst $(RESIDFP_DIR)/%,$(OBJ_DIR)/residfp/%.o,$(RESIDFP_SRCS))
+$(OBJ_DIR)/residfp/%.o: $(RESIDFP_DIR)/%
+	@mkdir -p $(dir $@)
+	$(CXX) -std=c++17 -O2 -pthread -w -I$(RESIDFP_DIR) -MMD -MP -c $< -o $@
+$(LIB_DIR)/lib45-residfp.a: $(RESIDFP_OBJS) | $(LIB_DIR)
+	$(AR) rcs $@ $^
+$(OBJ_DIR)/TuneAudio.o: CXXFLAGS += -I$(RESIDFP_DIR)
+TUNE_OBJS = $(OBJ_DIR)/tune45_main.o $(OBJ_DIR)/TuneCompiler.o $(OBJ_DIR)/TunePlayer.o $(OBJ_DIR)/TuneAudio.o
+$(TUNE_TARGET): $(TUNE_OBJS) $(LIB_DIR)/lib45-residfp.a
 	@mkdir -p $(BIN_DIR)
-	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/tune45_main.o $(OBJ_DIR)/TuneCompiler.o
+	$(CXX) $(CXXFLAGS) -pthread -o $@ $(TUNE_OBJS) $(LIB_DIR)/lib45-residfp.a
 
 $(AR_TARGET): $(OBJ_DIR)/ar45_main.o | $(LIB_DIR)
 $(AR_TARGET): $(LIB_DIR)/lib45-common.a

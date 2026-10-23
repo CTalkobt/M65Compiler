@@ -1,0 +1,16 @@
+; test_tune_trace_xemu: tunes whose register writes the real player and
+; tune45's model must agree on, frame by frame
+
+instrument lead  pulse 09 a6 0600 2 1 vdelay=6
+instrument sweep pulse 00 f0 0700 0 0 pwm=40
+instrument kick  pulse 00 f0 0800 0 0 slide=-3
+instrument chip  pulse 00 f0 0400 0 0
+instrument hat   noise 00 a0 0800 0 1
+
+; every effect: vibrato after a delay, a pulse sweep, a pitch slide, an
+; arpeggio, ties, a note longer than 255 ticks, 2.5 frames a tick
+tune effects 2.5 once
+v1: @lead c5:4 e5:4 ~:4 g5:2 eb5:2 | c6:300 r:6
+v2: @sweep c3:16 g2:8 ~:8 r:4 c3:286
+v3: @chip arp:4,7 c4:8 arp:3,7 a3:8 arp:off @kick c2:2 r:2 c2:2 r:2 @hat c7:1 r:1 c7:1 r:1 \
+    @chip arp:5,9 c4:294
