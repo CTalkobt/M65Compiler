@@ -1555,7 +1555,8 @@ OVA="--overlay-store=0x4FD40-0x4FFFF,0x80FFD40-0x810FFFF"
 for ovmode in "zp|$STDLIB||" "stack|$STDLIB_STACK|-fno-zpcall|" \
               "zp_map|$STDLIB||--overlay-map" "stack_map|$STDLIB_STACK|-fno-zpcall|--overlay-map" \
               "zp_two|$STDLIB||$OV2" "stack_two_map|$STDLIB_STACK|-fno-zpcall|--overlay-map $OV2" \
-              "zp_attic|$STDLIB||--overlay-store=0x8000000-0x800FFFF" "stack_attic_two|$STDLIB_STACK|-fno-zpcall|$OVA"; do
+              "zp_attic|$STDLIB||--overlay-store=0x8000000-0x800FFFF" "stack_attic_two|$STDLIB_STACK|-fno-zpcall|$OVA" \
+              "zp_fast|$STDLIB||--overlay-fast-stubs" "stack_fast_map|$STDLIB_STACK|-fno-zpcall|--overlay-fast-stubs --overlay-map"; do
     IFS='|' read -r ovname ovlib ovflags ovlink <<< "$ovmode"
     echo "Testing code overlays ($ovname)..."
     ovd=build/test/overlay_$ovname
