@@ -7,6 +7,7 @@
 #include "ConstEval.hpp"
 #include <memory>
 #include <map>
+#include <optional>
 #include <set>
 #include <iostream>
 #include <cstdint>
@@ -94,6 +95,7 @@ public:
                 throw std::runtime_error("Compile Error: Assignment to read-only location '" + ref->name + "'");
             }
         }
+        checkInnerConst(node.target.get(), "Assignment to");
         // Don't fold the target! It must remain a VariableReference or MemberAccess.
         auto expression = fold(std::move(node.expression));
         
@@ -157,8 +159,9 @@ public:
 
     void visit(UnaryOperation& node) override {
         if (node.op == "++" || node.op == "--" || node.op == "++_POST" || node.op == "--_POST") {
+            checkInnerConst(node.operand.get(), "Increment/decrement of");
             if (auto* ref = dynamic_cast<VariableReference*>(node.operand.get())) {
-                if (constVars.count(ref->name)) {
+                if (constVars.count(ref->name) || constPointerVars.count(ref->name)) {
                     throw std::runtime_error("Compile Error: Increment/decrement of read-only location '" + ref->name + "'");
                 }
                 // Don't fold the operand — variable reference must survive for store-back
@@ -313,6 +316,8 @@ public:
         // local is writable even when it shadows a const global.
         constVars.erase(node.name);
         constPointerVars.erase(node.name);
+        innerConstVars.erase(node.name);
+        if (node.innerConstMask && node.arrayDims.empty()) innerConstVars[node.name] = node.innerConstMask;
         if (node.pointerLevel > 0) {
             if (node.isPointerConst) constPointerVars.insert(node.name);
         } else {
@@ -618,7 +623,10 @@ public:
         // it could read any variable (function calls, control flow, etc.).
         std::map<std::string, int> lastConstStore;
         std::vector<std::unique_ptr<Statement>> newStatements;
-        ConstScope scope(*this);   // the block's declarations end with it
+        // the block's declarations end with it (a declaration of several names
+        // is a group, not a block: int *a, *const b keeps b read-only, #334)
+        std::optional<ConstScope> scope;
+        if (!node.isDeclGroup) scope.emplace(*this);
         for (auto& stmt : node.statements) {
             auto folded = fold(std::move(stmt));
             if (folded) {
@@ -667,6 +675,7 @@ public:
         for (const auto& param : node.parameters) {
             plainUnsigned_[param.name].clear();
             constVars.erase(param.name);        // hides a const global
+            innerConstVars.erase(param.name);
             constPointerVars.erase(param.name);
             TypeInfo::VarInfo vi;
             vi.type = param.type;
@@ -696,9 +705,33 @@ private:
     struct ConstScope {
         ConstantFolder& cf;
         std::set<std::string> c, cp;
-        explicit ConstScope(ConstantFolder& f) : cf(f), c(f.constVars), cp(f.constPointerVars) {}
-        ~ConstScope() { cf.constVars = std::move(c); cf.constPointerVars = std::move(cp); }
+        std::map<std::string, unsigned> ic;
+        explicit ConstScope(ConstantFolder& f)
+            : cf(f), c(f.constVars), cp(f.constPointerVars), ic(f.innerConstVars) {}
+        ~ConstScope() {
+            cf.constVars = std::move(c);
+            cf.constPointerVars = std::move(cp);
+            cf.innerConstVars = std::move(ic);
+        }
     };
+    // Pointer variables whose pointed-to pointers are const (T *const *p):
+    // VariableDeclaration::innerConstMask
+    std::map<std::string, unsigned> innerConstVars;
+    // A store to *p / p[i] (k of them deep) where that pointer is const
+    void checkInnerConst(Expression* target, const char* what) {
+        int depth = 0;
+        Expression* e = target;
+        for (;;) {
+            if (auto* u = dynamic_cast<UnaryOperation*>(e); u && u->op == "*") { e = u->operand.get(); depth++; }
+            else if (auto* a = dynamic_cast<ArrayAccess*>(e)) { e = a->arrayExpr.get(); depth++; }
+            else break;
+        }
+        auto* ref = dynamic_cast<VariableReference*>(e);
+        if (!depth || depth >= 16 || !ref) return;
+        auto it = innerConstVars.find(ref->name);
+        if (it != innerConstVars.end() && (it->second & (1u << depth)))
+            throw std::runtime_error(std::string("Compile Error: ") + what + " read-only location");
+    }
     friend struct ConstScope;
 
     // name -> its declared type when it is a plain (default-unsigned) integer, else ""

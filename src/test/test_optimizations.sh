@@ -140,6 +140,33 @@ printf 'extern unsigned long a, x, b;\nstatic void x(unsigned int n) { (void)n; 
 out=$($CC -c $T/dup2.c -o $T/dup2.o45 2>&1); rc=$?
 echo "$out" | grep -q "'x' redeclared as a different kind of symbol" && [ $rc -ne 0 ] && pass || fail "a variable of a declaration group and a function of the same name are not an error"
 
+# const between the stars (#334): T *const *p is a modifiable pointer to const
+# pointers (*p and p[i] are read-only, p and **p are not); int **const *p's
+# *p is the const one; the const pointers of a declaration of several names
+# (int *a, *const q) stay read-only after it
+n334=0
+while IFS='|' read -r want code; do
+    n334=$((n334 + 1))
+    printf '%s\n' "$code" > $T/c334_$n334.c
+    if $CC -c $T/c334_$n334.c -o $T/c334.o45 >/dev/null 2>&1; then got=ok; else got=err; fi
+    [ "$got" = "$want" ] && pass || fail "#334 case $n334 ($want expected): $code"
+done <<'EOF334'
+ok|static const int a = 1, b = 2; static const int *const tbl[2] = {&a, &b}; static const int *const *p; int main(void) { p = tbl; return **p; }
+ok|int main(void) { static const int a = 1; const int *const t[1] = {&a}; const int *const *p; p = t; return **p; }
+err|static int *const *p; static int *q; int main(void) { *p = q; return 0; }
+err|int main(void) { static int *q; int *const *p = 0; p[0] = q; return 0; }
+ok|static int **pp; int main(void) { static int x; int *const *p = pp; **p = 1; return x; }
+err|static int **const r; int main(void) { r = 0; return 0; }
+err|int main(void) { static int *y; int *a, **const r = &y; r = 0; return 0; }
+err|int main(void) { static int x; int *a, *const q = &x; q++; return 0; }
+err|int main(void) { static int *q; int *a, *const *p = 0; *p = q; return 0; }
+ok|int main(void) { static int *q, *r; int *const *p = &q; p = &r; return 0; }
+err|int main(void) { static int *xp; int **const *p = 0; *p = &xp; return 0; }
+ok|int main(void) { static int x; int **const *p = 0; **p = &x; return 0; }
+ok|typedef int *const cip; static cip *p; static cip t[1]; int main(void) { p = t; return 0; }
+ok|int f(int *const *p) { p = 0; return 0; } int main(void) { return f(0); }
+EOF334
+
 # a constant first operand of a commutative op is seen like a second one:
 # 0 ^ x, 1 * x (also long) and 4 * x simplify like x ^ 0, x * 1, x * 4; a
 # constant of another width (x ^ 0 on a char or long: a zext of the 0) too

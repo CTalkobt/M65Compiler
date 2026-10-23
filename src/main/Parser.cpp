@@ -1972,15 +1972,21 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
     bool isPointerConst = false;
     // volatile T *p: what p points to is volatile, not p (char * volatile p)
     bool ptrVolatile = false;
+    unsigned constStars = 0;    // bit j: const after the j-th '*' (from 1)
+    int stars = 0;
     while (true) {
         if (tryParseAttribute() || match(TokenType::EXTENSION)) {
             continue;
         }
         if (match(TokenType::STAR)) {
             ptrLevel++;
+            stars++;
+            // (only the last '*''s qualifiers are the variable's: in T *const *p
+            // the pointers p points to are const, not p, #334)
+            isPointerConst = false;
             ptrVolatile = false;
             while (peek().type == TokenType::CONST || peek().type == TokenType::VOLATILE || peek().type == TokenType::RESTRICT) {
-                if (match(TokenType::CONST)) isPointerConst = true;
+                if (match(TokenType::CONST)) { isPointerConst = true; constStars |= 1u << stars; }
                 else if (match(TokenType::VOLATILE)) ptrVolatile = true;
                 else match(TokenType::RESTRICT);
             }
@@ -2130,6 +2136,8 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
     decl->isRegister = isRegister;
     decl->isStriped = isStriped;
     decl->isPointerConst = isPointerConst;
+    for (int j = 1; j < stars && j < 16; j++)
+        if (constStars & (1u << j)) decl->innerConstMask |= 1u << (stars - j);
     decl->addressSpace = addressSpace;  // Phase 97: Set address space qualifier
     decl->alignmentExpr = std::move(alignmentExpr);
     decl->arrayDims = arrayDims;
@@ -2199,13 +2207,19 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
             advance();
             // Parse additional declarators reusing the same base type
             int extraPtr = basePtrLevel;
-            while (match(TokenType::STAR)) extraPtr++;
-            // Handle const/volatile after * for additional declarators
+            // const/volatile after each '*': the last one's are the variable's
             bool extraPtrConst = false, extraPtrVolatile = false;
-            while (peek().type == TokenType::CONST || peek().type == TokenType::VOLATILE || peek().type == TokenType::RESTRICT) {
-                if (match(TokenType::CONST)) extraPtrConst = true;
-                else if (match(TokenType::VOLATILE)) extraPtrVolatile = true;
-                else match(TokenType::RESTRICT);
+            unsigned extraConstStars = 0;
+            int extraStars = 0;
+            while (match(TokenType::STAR)) {
+                extraPtr++;
+                extraStars++;
+                extraPtrConst = extraPtrVolatile = false;
+                while (peek().type == TokenType::CONST || peek().type == TokenType::VOLATILE || peek().type == TokenType::RESTRICT) {
+                    if (match(TokenType::CONST)) { extraPtrConst = true; extraConstStars |= 1u << extraStars; }
+                    else if (match(TokenType::VOLATILE)) extraPtrVolatile = true;
+                    else match(TokenType::RESTRICT);
+                }
             }
             std::string extraName = expect(TokenType::IDENTIFIER, "Expected variable name").value;
             declTypes_[extraName] = {type, extraPtr, isSigned};
@@ -2238,6 +2252,8 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
             extraDecl->isRegister = isRegister;
             extraDecl->isStriped = isStriped;
             extraDecl->isPointerConst = extraPtrConst;
+            for (int j = 1; j < extraStars && j < 16; j++)
+                if (extraConstStars & (1u << j)) extraDecl->innerConstMask |= 1u << (extraStars - j);
             extraDecl->addressSpace = addressSpace;  // Phase 97: Set address space qualifier
             extraDecl->isNoescape = declNoescape || takePendingNoescape();
             extraDecl->arrayDims = extraDims;
