@@ -2430,6 +2430,7 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
         std::string type;
         bool mIsSigned = false;
         int basePtrLevel = 0;
+        int declStars = 0;   // the first declarator's '*'s, if the type specifier took them
         std::vector<int> typedefArrayDims;
         std::vector<std::string> memberTypedefVla;
         std::shared_ptr<FuncPtrSignature> memberFpSig;   // a typedef'd function pointer type
@@ -2453,6 +2454,7 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
             // with '*'s in the declarator, only a const after the last one
             // makes the member itself const
             if (ts.starsParsed) mIsConst = ts.lastStarConst;
+            declStars = ts.starsParsed;
         }
         // Skip __attribute__ after type, before pointer/name
         while (tryParseAttribute()) {}
@@ -2582,7 +2584,10 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
 
         // Multi-member declarations: long p_x, p_y;
         while (match(TokenType::COMMA)) {
-            int extraPtr = basePtrLevel;
+            // (the type's own pointer level: not the first declarator's '*'s,
+            // which the type specifier may have taken -- const char *a, *b
+            // made b a char **, #333)
+            int extraPtr = basePtrLevel - declStars;
             bool extraConst = baseConst;
             parsePtrQuals(extraPtr, extraConst);
             std::string extraName = expect(TokenType::IDENTIFIER, "Expected member name").value;

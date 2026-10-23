@@ -4,6 +4,15 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: the second pointer member of a declaration line (Issue #333)
+
+- `const unsigned char *a, *b;` in a struct made `b` a pointer to
+  pointers: the type specifier had already taken `a`'s `*`, and each
+  further declarator started from that level. `sp->b[i]` read 2-byte
+  entries at `b + 2i`. Each declarator now starts from the type's own
+  pointer level. Test `test_member_decls_xemu.c` (several forms, typedef'd
+  pointer types, const pointers).
+
 ### cc45: a variable of a declaration of several names and a function of the same name are an error (Issue #331)
 
 - `extern unsigned long a, save_line;` and a `static` function `save_line`

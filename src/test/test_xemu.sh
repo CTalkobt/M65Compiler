@@ -2784,6 +2784,18 @@ for zpmode in "zp|$STDLIB|" "stack|$STDLIB_STACK|-fno-zpcall"; do
     fi
 done
 
+# Test: struct members declared several to a line (#333)
+for mdmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r mdname mdflags <<< "$mdmode"
+    echo "Testing test_member_decls_xemu.c ($mdname)..."
+    if compile_link_test "src/test-resources/test_member_decls_xemu.c" "build/test/test_member_decls_${mdname}_xemu.prg" "$mdflags"; then
+        run_xemu_test "test_member_decls_$mdname" "build/test/test_member_decls_${mdname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
+    else
+        echo "FAIL: test_member_decls_xemu.c $mdname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: GCC statement expressions ({ stmt; ...; expr; })
 for semode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r sename seflags <<< "$semode"
