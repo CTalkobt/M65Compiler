@@ -4,6 +4,22 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Library: conio's full-colour mode, a background colour for each character; conio_set_width
+
+- `fcm_enable`, `fcm_putch`, `fcm_cputs`, `fcm_cprintf`, `fcm_fill_rect`,
+  `fcm_set_line_color`, `fcm_getattr_xy`, `fcm_disable` were declared in
+  `<conio.h>` but in no library (`lib/src/conio.c` wrote backgrounds to an
+  "attribute RAM" the VIC-IV does not have). Now built on the VIC-IV's
+  full-colour characters: the screen becomes two bytes a cell (CHR16) in
+  bank 4 or 5; a cell on another background than the screen's shows a
+  glyph made from the font (64 bytes, its clear pixels in the background
+  colour), kept in a cache of 256 (`fcm_set_cache_size`) from which glyphs
+  no cell shows are dropped when it is full. The screen's contents are kept
+  across `fcm_enable` / `fcm_disable`. The rest of conio works on two-byte
+  cells too. `conio_set_width(40/80)` / `conio_get_width` switch H640,
+  keeping the screen where it is (with full-colour mode too). Test
+  `test_conio_fcm_xemu.c`.
+
 ### Library: malloc and calloc refuse sizes over 64 KB instead of returning short blocks (Issue #203)
 
 - `malloc(n)` for `n` of `$FFFD` or more wrapped the size with its header

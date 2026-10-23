@@ -1948,6 +1948,20 @@ for comode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: conio.h's full-colour mode (a background colour for each character:
+# glyphs made from the font in a cache) and conio_set_width
+for fcmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r fcname fcflags <<< "$fcmode"
+    echo "Testing test_conio_fcm_xemu.c ($fcname)..."
+    compile_link_test "src/test-resources/test_conio_fcm_xemu.c" "build/test/test_conio_fcm_${fcname}_xemu.prg" "$fcflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_conio_fcm_$fcname" "build/test/test_conio_fcm_${fcname}_xemu.prg" "C0C0" 10 "01 01 01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_conio_fcm_xemu.c $fcname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: constant initializers of aggregate globals / local statics (struct
 # layout, nested braces, brace elision, designators, unions, bitfields)
 for simode in "zp|" "stack|-fno-zpcall"; do
