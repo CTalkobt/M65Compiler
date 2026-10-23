@@ -262,6 +262,33 @@ EOF
 ./bin/ca45 -c $T/onebr.s45 -o $T/onebr.o45 >/dev/null 2>&1
 n=$(./bin/objdump45 -d $T/onebr.o45 | grep -c 'lda	\$30')
 [ "$n" = 3 ] && pass || fail "ca45: a one-branch label's registers (lda \$30 left: $n, expected 3)"
+# #pragma cc45 optimize(off) / (on): the functions between compiled as
+# written (no IR pass, no inlining in or of them, ca45's passes left out),
+# those after optimized again; in a body, that function only
+cat > $T/noopt.c <<'EOF'
+static unsigned char g;
+static unsigned char twice(unsigned char x) { return x + x; }
+#pragma cc45 optimize(off)
+static unsigned char asis(unsigned char a) { unsigned char t = a * 4; g = 1; g = 2; return twice(t); }
+#pragma cc45 optimize(on)
+unsigned char inbody(unsigned char a) {
+#pragma cc45 optimize(off)
+    return twice(a * 4);
+}
+unsigned char after(unsigned char a) { g = 1; g = 2; return twice(a * 4) + asis(a); }
+EOF
+out=$($CC -S -Roptir $T/noopt.c -o $T/noopt.s 2>&1)
+echo "$out" | grep -qE "^\[[a-z]+\] _(asis|inbody)" && fail "an IR pass ran on an optimize(off) function" || pass
+echo "$out" | grep -qE "^\[[a-z]+\] _after" && pass || fail "the passes do not run after optimize(on)"
+[ "$(grep -c '\.noopt_start' $T/noopt.s)" = 2 ] && [ "$(grep -c '\.noopt_end' $T/noopt.s)" = 2 ] && pass || fail "optimize(off) functions not in .noopt regions"
+awk '/proc _asis/,/endproc/' $T/noopt.s | grep -q "jsr _twice" && awk '/proc _inbody/,/endproc/' $T/noopt.s | grep -q "jsr _twice" && pass || fail "a call in an optimize(off) function was inlined"
+awk '/proc _after/,/endproc/' $T/noopt.s | grep -q "jsr _twice" && fail "after optimize(on) twice is not inlined" || pass
+awk '/proc _after/,/endproc/' $T/noopt.s | grep -q "jsr _asis" && pass || fail "an optimize(off) function was inlined into its caller"
+# ca45 leaves the code alone: asis keeps both stores to g and its doubled ldx #0
+$CC -c $T/noopt.c -o $T/noopt.o45 2>&1 | grep -q "unknown directive" && fail "ca45 does not know .noopt_end" || pass
+# (only code left as written has it: the doubled ldx #0 of a zero extension)
+dis=$(./bin/objdump45 -d $T/noopt.o45 | grep -E "^\s+[0-9a-f]{4}:" | cut -f3- | tr '\n' ';')
+case "$dis" in *"ldx	#\$00;ldx	#\$00;"*) pass ;; *) fail "ca45 changed an optimize(off) function" ;; esac
 
 echo "Optimization switch tests: $passed passed, $failed failed"
 [ $failed -eq 0 ]

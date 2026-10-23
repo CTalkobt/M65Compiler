@@ -2252,7 +2252,7 @@ void AssemblerParser::warnUnknownDirective(const AssemblerToken& tok) {
         "cpu", "data", "dword", "endrepeat", "extern", "field_class", "field_count", "fill", "fillto",
         "fixed_prefix_size", "flag_clobbers", "float", "frame_size", "zar", "frameptr_zp", "func_flags", "function_sections",
         "keep", "nosplit", "overlay", "ref", "split",
-        "global", "import", "incbin", "init", "loc", "local", "long", "noopt_start", "org",
+        "global", "import", "incbin", "init", "loc", "local", "long", "noopt_start", "noopt_end", "org",
         "param_const", "param_sizes", "reg_clobbers", "repeat", "res", "sac", "screencode", "segment",
         "segmentOrder", "space", "text", "var", "var_field_array", "vtable_entry", "weak", "word", "zp", "zp_clobbers", "zpsym",
         "zp_release", "zp_uses"};

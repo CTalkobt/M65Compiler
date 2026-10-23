@@ -205,6 +205,8 @@ int LoopInterchange::optimizeTranslationUnit(TranslationUnit& unit, bool enabled
                 while (std::getline(list, item, ',')) {
                     if (item == "loop-interchange" || item == "loop_interchange") fileEnabled = true;
                     if (item == "no-loop-interchange" || item == "no_loop_interchange") fileEnabled = false;
+                    if (item == "off") fileEnabled = false;
+                    if (item == "on") fileEnabled = enabledByDefault;
                 }
             }
             continue;
@@ -240,6 +242,7 @@ void LoopInterchange::walk(std::unique_ptr<Statement>& s, bool& enabled) {
             while (std::getline(list, item, ',')) {
                 if (item == "loop-interchange" || item == "loop_interchange") enabled = true;
                 if (item == "no-loop-interchange" || item == "no_loop_interchange") enabled = false;
+                if (item == "off") enabled = false;
             }
         }
         return;

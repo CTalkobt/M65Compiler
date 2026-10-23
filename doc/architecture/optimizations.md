@@ -360,6 +360,7 @@ functions; only `always_inline` bypasses it.
 | `-O<n>` | `-O2` | See above |
 | `-f<name>` / `-fno-<name>` | per level | Switch one optimization (see [Optimization switches](#optimization-switches)) |
 | `#pragma cc45 optimize(<name>, no-<name>, …)` | — | Switch IR passes for the functions defined after it |
+| `#pragma cc45 optimize(off)` / `optimize(on)` | — | `#pragma cc45 optimize(off)` … `optimize(on)`: the functions defined between them compiled as written, to read their code before and after optimizing or to step through it: no IR pass (nor dead-temporary removal, loop interchange), no inlining of them into callers or of calls inside them, and ca45's passes (redundant loads, branch inversion, tail calls, tail merging, sequence extraction, …) leave their code alone (cc45 puts it between `.noopt_start` and `.noopt_end`). Inside a function body, for that function only. What code generation always does (constant folding of the source, its choice of instructions) stays; the other functions are optimized as usual (`test_noopt_xemu.c`). |
 | `--future` | off | Warn when an optimization that is not implemented is requested |
 | `-Roptir` | off | Report the IR passes' changes on stderr |
 | `-finline-functions` | off | Automatic inlining even at `-O0`/`-O1` (same as `-finline-small-functions`) |

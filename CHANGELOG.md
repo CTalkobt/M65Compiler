@@ -4,6 +4,17 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: #pragma cc45 optimize(off) / optimize(on)
+
+- The functions defined between `#pragma cc45 optimize(off)` and
+  `optimize(on)` (or the one function whose body has `optimize(off)`) are
+  compiled as written, to compare a function's code before and after
+  optimizing: no IR pass, no inlining of them or into them, and ca45's
+  passes leave their code alone (cc45 wraps it in `.noopt_start` /
+  `.noopt_end`; ca45 knew only `.noopt_start`, and only its
+  redundant-load pass honoured the region: now every pass does). Test
+  `test_noopt_xemu.c`, checks in `test_optimizations.sh`.
+
 ### cc45/ca45: loop rotation, kept where it costs no bytes (Issue #138)
 
 - A `for` / `while` loop ran its test at the top and a `bra` back at the

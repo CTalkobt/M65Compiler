@@ -1251,7 +1251,53 @@ void IRBuilder::checkGlobalRedeclarations(TranslationUnit& node) {
     }
 }
 
+// #pragma cc45 optimize(off) / optimize(on) (".optimize off" / "on"): at file
+// scope for the functions that follow, in a body for that function. Found
+// before the functions are built: a call made before its callee's definition
+// must not inline it either. Returns -1 (neither), 0 (on) or 1 (off).
+static int offOrOn(const std::string& code) {
+    if (code.rfind(".optimize ", 0) != 0) return -1;
+    std::stringstream list(code.substr(10));
+    std::string item;
+    int r = -1;
+    while (std::getline(list, item, ',')) {
+        item.erase(0, item.find_first_not_of(" \t"));
+        item.erase(item.find_last_not_of(" \t") + 1);
+        if (item == "off") r = 1;
+        else if (item == "on") r = 0;
+    }
+    return r;
+}
+
+void IRBuilder::scanNoOptimize(TranslationUnit& node) {
+    bool off = false;
+    std::function<void(Statement*, int&)> body = [&](Statement* s, int& fo) {
+        if (!s) return;
+        if (auto* a = dynamic_cast<AsmStatement*>(s)) {
+            int r = offOrOn(a->code);
+            if (r >= 0) fo = r;
+        } else if (auto* c = dynamic_cast<CompoundStatement*>(s)) {
+            for (auto& x : c->statements) body(x.get(), fo);
+        }
+    };
+    for (auto& decl : node.topLevelDecls) {
+        if (auto* a = dynamic_cast<AsmStatement*>(decl.get())) {
+            int r = offOrOn(a->code);
+            if (r >= 0) off = r == 1;
+        } else if (auto* fd = dynamic_cast<FunctionDeclaration*>(decl.get())) {
+            if (!fd->body) continue;
+            int fo = off ? 1 : 0;
+            body(fd->body.get(), fo);
+            if (fo != 1) continue;
+            noOptimizeNames_.insert(fd->name);
+            // (a static function is visited under its module-unique name)
+            if (fd->isStatic && !fd->parentFunc && !fd->isMethod) noOptimizeNames_.insert(staticFunctionName(fd->name));
+        }
+    }
+}
+
 void IRBuilder::visit(TranslationUnit& node) {
+    scanNoOptimize(node);
     // #pragma encoding (asm(".encoding ...")) takes effect where it appears:
     // literals before the first one are PETSCII
     currentStringEncoding_ = StringEncoding::PETSCII;
@@ -1378,7 +1424,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         p = std::max(p, node.purity);
     }
     // (a __far function's code stays in far memory: not copied into its callers)
-    if (node.isNoInline || node.isFar) noInlineNames_.insert(node.name);
+    if (node.isNoInline || node.isFar || noOptimizeNames_.count(node.name)) noInlineNames_.insert(node.name);
     if (alwaysInlineNames_.count(node.name) && noInlineNames_.count(node.name) && node.body) {
         warnings_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column, Severity::Warning,
             "function '" + node.name + "' has both always_inline and noinline; ignoring always_inline"));
@@ -1454,6 +1500,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
     fn.isMethod = node.isMethod;
     weakNextFunction_ = false;
     fn.optOverrides = optOverrides_;
+    fn.noOptimize = noOptimizeNames_.count(node.name) > 0;
     fn.isRecurse = recurseNextFunction_;
     recurseNextFunction_ = false;
     fn.isInterrupt = node.isInterrupt;
@@ -6672,7 +6719,7 @@ void IRBuilder::visit(FunctionCall& node) {
                     inst.src1 = funcPtr;
                 } else {
                     // Direct call — check for inline expansion of trivial methods
-                    auto inlineIt = inlineCandidates_.find(mangledName);
+                    auto inlineIt = currentFunc_ && currentFunc_->noOptimize ? inlineCandidates_.end() : inlineCandidates_.find(mangledName);
                     if (inlineIt != inlineCandidates_.end() && inlineExpansionStack_.count(mangledName) &&
                         alwaysInlineNames_.count(mangledName))
                         warnRecursiveForcedInline(mangledName, node);
@@ -7304,8 +7351,8 @@ normal_call:
         }
     } else {
 
-        // Check for inline expansion
-        auto inlineIt = inlineCandidates_.find(node.name);
+        // Check for inline expansion (none in a function compiled as written)
+        auto inlineIt = currentFunc_ && currentFunc_->noOptimize ? inlineCandidates_.end() : inlineCandidates_.find(node.name);
         if (inlineIt != inlineCandidates_.end() && inlineExpansionStack_.count(node.name) &&
             alwaysInlineNames_.count(node.name))
             warnRecursiveForcedInline(node.name, node);
@@ -9270,7 +9317,7 @@ void IRBuilder::visit(AsmStatement& node) {
         while (std::getline(list, item, ',')) {
             item.erase(0, item.find_first_not_of(" \t"));
             item.erase(item.find_last_not_of(" \t") + 1);
-            if (item.empty()) continue;
+            if (item.empty() || item == "off" || item == "on") continue;   // (scanNoOptimize)
             bool on = item.compare(0, 3, "no-") != 0 && item.compare(0, 3, "no_") != 0;
             std::string name = on ? item : item.substr(3);
             const OptimizationInfo* o = OptimizationCatalog::find(name);

@@ -86,6 +86,7 @@ public:
     void visit(CpuFlagAccess& node) override;
     void visit(LabelAddressExpression& node) override;
     void visit(TranslationUnit& node) override;
+    void scanNoOptimize(TranslationUnit& node);
     void checkGlobalRedeclarations(TranslationUnit& node);
 
     void emitConditionBranches(Expression* cond, const std::string& trueLabel,
@@ -421,6 +422,7 @@ private:
     std::map<std::string, FunctionDeclaration*> inlineCandidates_;
     std::set<std::string> alwaysInlineNames_;   // always_inline: bypass size limits
     std::set<std::string> noInlineNames_;       // noinline: never expand
+    std::set<std::string> noOptimizeNames_;     // #pragma cc45 optimize(off): as written
     std::set<std::string> warnedRecursiveInline_;
     void warnRecursiveForcedInline(const std::string& name, ASTNode& at);
     std::map<std::string, FunctionDeclaration*> allFunctions_;

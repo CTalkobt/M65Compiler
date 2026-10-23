@@ -295,7 +295,7 @@ totals code bytes by IR operation).
   The `CC45_IPO`/`CC45_LTCO`/`CC45_BANK_ANALYSIS` variables do not exist.
 - **Working pragmas**: `once`, `push_macro`/`pop_macro`, `weak`, `cc45 recurse`,
   `signed_default`/`unsigned_default`, `no_stack16`, `stack_top`, `stack_size`,
-  `max_inline_ir_size`, `max_unroll_bytes`, `optimize(...)`, `encoding`, `overlay(name)`; `no_zp_save`/`set_bp`
+  `max_inline_ir_size`, `max_unroll_bytes`, `optimize(...)` (`optimize(off)` / `optimize(on)`: functions compiled as written, ca45 `.noopt_start`/`.noopt_end`), `encoding`, `overlay(name)`; `no_zp_save`/`set_bp`
   (only `-S`). Accepted without effect: `exit_rts`/`exit_halt`/`exit_brk`,
   `no_bssinit`, `heap`, `stdio`, `no_0100_stack`, `unroll`, `no_static_alloc`
   (use `recurse`), `no_striped`.
