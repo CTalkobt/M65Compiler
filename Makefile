@@ -1077,10 +1077,10 @@ uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/cc45 $(DESTDIR)$(BINDIR)/ca45 $(DESTDIR)$(BINDIR)/cp45
 	rm -f $(DESTDIR)$(BINDIR)/nm45 $(DESTDIR)$(BINDIR)/ln45 $(DESTDIR)$(BINDIR)/ar45
 	rm -f $(DESTDIR)$(BINDIR)/objdump45 $(DESTDIR)$(BINDIR)/disk45 $(DESTDIR)$(BINDIR)/cvt_asm
-	rm -f $(DESTDIR)$(BINDIR)/basic45
+	rm -f $(DESTDIR)$(BINDIR)/basic45 $(DESTDIR)$(BINDIR)/tune45
 	rm -rf $(DESTDIR)$(LIBDIR)
 	rm -rf $(DESTDIR)$(INCDIR)
 	rm -f $(DESTDIR)$(MANDIR)/cc45.1 $(DESTDIR)$(MANDIR)/ca45.1 $(DESTDIR)$(MANDIR)/cp45.1
 	rm -f $(DESTDIR)$(MANDIR)/ln45.1 $(DESTDIR)$(MANDIR)/nm45.1 $(DESTDIR)$(MANDIR)/ar45.1
 	rm -f $(DESTDIR)$(MANDIR)/objdump45.1 $(DESTDIR)$(MANDIR)/disk45.1
-	rm -f $(DESTDIR)$(MANDIR)/basic45.1 $(DESTDIR)$(MANDIR)/cvt_asm.1
+	rm -f $(DESTDIR)$(MANDIR)/basic45.1 $(DESTDIR)$(MANDIR)/cvt_asm.1 $(DESTDIR)$(MANDIR)/tune45.1
