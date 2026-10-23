@@ -306,152 +306,70 @@ __fastcall__ int getch_xy(int x, int y);
 __fastcall__ int getattr_xy(int x, int y);
 
 /* ============================================================================
- * FULL-COLOR TEXT MODE (FCM) FUNCTIONS
+ * FULL-COLOUR TEXT MODE: A BACKGROUND COLOUR FOR EACH CHARACTER
+ *
+ * The VIC-IV's text mode has one background colour, the screen's ($D021).
+ * fcm_enable makes the screen two bytes a cell (CHR16) with full-colour
+ * characters for character numbers from 256 (FCLRHI): 64 bytes, a byte a
+ * pixel, at the number * 64. A cell on the screen's background shows the
+ * font's character; one on another background a glyph made from the font,
+ * its clear pixels in that colour, kept in a cache (256 glyphs, 64 bytes
+ * each, in bank 4 or 5 through far_malloc, after the screen: about 24 KB at
+ * 80x50). When the cache is full the glyphs no cell shows are dropped; when
+ * all are on the screen, a new cell is drawn on the screen's background.
+ * The other conio functions keep working (on the screen's background);
+ * stdio output through the ROM goes to the ROM's screen, not shown until
+ * fcm_disable. Colours are 0-15; a black (0) background uses palette entry
+ * $FE, which fcm_enable sets to black.
  * ============================================================================ */
 
-/**
- * fcm_enable - Enable VIC-IV Full-Color Text Mode
- *
- * Enables full-color text mode on MEGA65, allowing per-character
- * foreground (0-15) and background (0-15) colors independently.
- * Requires Phase 30 feature detection to check availability.
- *
- * Returns:
- *   1 if FCM enabled successfully, 0 if unavailable
- */
+/* Enable it, keeping what is on the screen. 1, or 0 when far_malloc finds
+ * no room in banks 4 and 5. */
 int fcm_enable(void);
 
-/**
- * fcm_disable - Disable Full-Color Text Mode
- *
- * Returns to standard VIC-II compatible text mode.
- */
+/* Back to the screen as it was (one byte a cell), with what is on it; the
+ * cache's memory is freed. */
 void fcm_disable(void);
 
-/**
- * fcm_is_enabled - Check if Full-Color Text Mode is active
- *
- * Returns:
- *   1 if FCM is enabled, 0 if in standard mode
- */
+/* 1 while enabled */
 int fcm_is_enabled(void);
 
-/**
- * fcm_putch - Write character with explicit colors at position
- *
- * Writes a character at position (x, y) with foreground and
- * background colors. Works in FCM mode only.
- *
- * Parameters:
- *   x — Column
- *   y — Row
- *   ch — Character to write
- *   fg — Foreground color (0-15)
- *   bg — Background color (0-15)
- */
+/* The cache's size (1-256 glyphs) for the next fcm_enable; 0 while enabled
+ * or out of range. */
+int fcm_set_cache_size(int glyphs);
+
+/* PETSCII character ch at (x, y) in colour fg on background bg (without
+ * fcm_enable, on the screen's background). The cursor stays; revers applies. */
 void fcm_putch(int x, int y, int ch, int fg, int bg);
 
-/**
- * fcm_cputs - Write string with colors at position
- *
- * Writes a string starting at position (x, y) with specified
- * foreground and background colors.
- *
- * Parameters:
- *   x — Column
- *   y — Row
- *   str — Null-terminated string
- *   fg — Foreground color (0-15)
- *   bg — Background color (0-15)
- *
- * Returns:
- *   0 on success, -1 on error
- */
+/* A string from (x, y), wrapping at the right edge, '\n' starting the next
+ * row; it stops at the bottom. 0, or -1 for NULL. */
 int fcm_cputs(int x, int y, const char *str, int fg, int bg);
 
-/**
- * fcm_cprintf - Formatted output with colors at position
- *
- * Like cprintf, but with explicit position and colors.
- *
- * Parameters:
- *   x — Column
- *   y — Row
- *   fg — Foreground color (0-15)
- *   bg — Background color (0-15)
- *   format — Format string (printf-compatible)
- *   ... — Variable arguments
- *
- * Returns:
- *   Number of characters written
- */
+/* fcm_cputs of printf-formatted text (up to 255 characters); the count
+ * vsnprintf gives */
 int fcm_cprintf(int x, int y, int fg, int bg, const char *format, ...);
 
-/**
- * fcm_fill_rect - Fill rectangle with character and colors
- *
- * Fills a rectangular region from (x1, y1) to (x2, y2) with
- * the specified character and colors.
- *
- * Parameters:
- *   x1, y1 — Top-left corner
- *   x2, y2 — Bottom-right corner
- *   ch — Character to fill with
- *   fg — Foreground color (0-15)
- *   bg — Background color (0-15)
- */
+/* The rectangle (x1, y1)-(x2, y2), corners included and clipped to the
+ * screen, filled with ch in fg on bg */
 void fcm_fill_rect(int x1, int y1, int x2, int y2, int ch, int fg, int bg);
 
-/**
- * fcm_set_line_color - Set color for entire text line
- *
- * Sets the foreground and background color for all characters
- * on a given row.
- *
- * Parameters:
- *   y — Row number
- *   fg — Foreground color (0-15)
- *   bg — Background color (0-15)
- */
+/* Row y's characters recoloured: fg on bg */
 void fcm_set_line_color(int y, int fg, int bg);
 
-/**
- * fcm_getattr_xy - Read foreground and background colors
- *
- * Reads both foreground and background colors at position (x, y).
- *
- * Parameters:
- *   x — Column
- *   y — Row
- *
- * Returns:
- *   Combined attribute: (bg << 4) | fg
- */
+/* (bg << 4) | fg at (x, y) */
 int fcm_getattr_xy(int x, int y);
 
 /* ============================================================================
- * SCREEN WIDTH FUNCTIONS (supports 40-column and 80-column modes)
+ * SCREEN WIDTH
  * ============================================================================ */
 
-/**
- * conio_set_width - Set screen width (40 or 80 columns)
- *
- * Switches between 40-column standard mode and 80-column H640 mode.
- * Requires FEATURE_H640 available (check via Phase 30).
- *
- * Parameters:
- *   width — 40 for standard, 80 for H640 mode
- *
- * Returns:
- *   1 if successful, 0 if mode unavailable
- */
+/* 40 or 80 columns (H640, $D031 bit 7; with fcm_enable too): the screen's
+ * address is kept and the screen cleared. 1, or 0 for another width. The
+ * ROM's screen editor is not told: set the width back before returning to
+ * BASIC. */
 int conio_set_width(int width);
 
-/**
- * conio_get_width - Get current screen width
- *
- * Returns:
- *   Current screen width (40 or 80)
- */
+/* screenwidth() */
 int conio_get_width(void);
 
