@@ -4,6 +4,17 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Examples: hanger
+
+- New `examples/c/hanger`: hangman with a different animal on the gallows
+  each level (human, cat, duck, giraffe, elephant, octopus), one player
+  against the computer or two players. The words are the 500 most common
+  English words of 3+ letters, harder each level. The pictures are generated
+  by `gen_gfx.py` (PIL shapes cut into per-level character sets; the
+  generated headers are checked in). On the examples disk, in
+  `capture_screens.py` and in `test_examples.sh` (the title, and the
+  self-playing build reaching a level).
+
 ### cc45: a variable of a declaration of several names and a function of the same name are an error (Issue #331)
 
 - `extern unsigned long a, save_line;` and a `static` function `save_line`

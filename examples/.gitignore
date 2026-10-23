@@ -16,3 +16,6 @@ c/text_scroller/map.txt
 *.ovl
 *.ov[1-9]
 *.ovd
+
+# hanger: make preview
+c/hanger/preview.png

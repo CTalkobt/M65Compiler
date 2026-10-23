@@ -40,6 +40,7 @@ EXAMPLES = {
     "calc_graph": "examples/c/calc_graph/calc_graph.prg",
     "forth": "examples/c/forth/forth.prg",
     "rogue": "examples/c/rogue/rogue.prg",
+    "hanger": "examples/c/hanger/hanger.prg",
     "rtc_clock": "examples/c/rtc_clock/rtc_clock.prg",
     "keyboard_viewer": "examples/c/keyboard_viewer/keyboard_viewer.prg",
     "sample_player": "examples/c/sample_player/sample_player.prg",

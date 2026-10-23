@@ -25,6 +25,7 @@ SUBDIRS = \
 	c/keyboard_viewer \
 	c/sample_player \
 	c/rogue \
+	c/hanger \
 	c/overlays \
 	c/mapped_overlays \
 	c/far_functions \
