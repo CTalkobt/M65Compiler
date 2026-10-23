@@ -186,6 +186,25 @@ version that plays by itself (`DEMO_LEVEL=n` starts at level n).
 
 ![hanger](images/hanger.png)
 
+### fcm_graphics
+
+[Source](https://github.com/CTalkobt/M65Compiler/tree/main/examples/c/fcm_graphics) —
+The VIC-IV's full-colour characters: 64 bytes each, a byte a pixel, every
+pixel a palette entry (`$00` the screen's background, `$FF` the character's
+colour). `<conio.h>`'s full-colour mode (`fcm_enable`) uses them to give each
+character its own background: the title's letters and the table of the 16
+colours are drawn with `fcm_putch`, `fcm_cputs`, `fcm_cprintf` and
+`fcm_fill_rect`, and conio makes the glyphs from the font. The plasma is 384
+of the program's own characters (256x96 pixels), computed from a sine table
+into bank 4 with `dma_copy_far` and placed with `fcm_putglyph`; each pixel is
+one of 64 palette entries set to a colour wheel, as is the bar of 32
+characters below it. It moves by palette cycling alone: each frame the 64
+entries are rewritten one step further round and nothing on the screen
+changes. Keys: SPACE pause, RUN/STOP quit. `make check` builds a test that
+runs 100 frames, then reads cells back and reports on the screen.
+
+![fcm_graphics](images/fcm_graphics.png)
+
 ### forth
 
 [Source](https://github.com/CTalkobt/M65Compiler/tree/main/examples/c/forth) —

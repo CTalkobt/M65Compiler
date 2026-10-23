@@ -41,6 +41,7 @@ EXAMPLES = {
     "forth": "examples/c/forth/forth.prg",
     "rogue": "examples/c/rogue/rogue.prg",
     "hanger": "examples/c/hanger/hanger.prg",
+    "fcm_graphics": "examples/c/fcm_graphics/fcm_graphics.prg",
     "rtc_clock": "examples/c/rtc_clock/rtc_clock.prg",
     "keyboard_viewer": "examples/c/keyboard_viewer/keyboard_viewer.prg",
     "sample_player": "examples/c/sample_player/sample_player.prg",

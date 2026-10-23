@@ -160,6 +160,7 @@ static void convert(unsigned long scr, unsigned long col, unsigned int stride,
                     unsigned char w, unsigned char h, unsigned char wide) {
     unsigned long scr2 = far_to_linear(fcm_mem), col2 = COLOUR_RAM + FCM_COLOURS;
     unsigned char y, i, b;
+    unsigned int n;
     for (y = 0; y < h; y++) {
         if (wide) {
             dma_copy_far(LIN(fcm_row), scr, w);
@@ -178,7 +179,9 @@ static void convert(unsigned long scr, unsigned long col, unsigned int stride,
             dma_copy_far(LIN(fcm_big), scr2, 2u * w);
             for (i = 0; i < w; i++) {
                 b = fcm_big[2 * i];
-                fcm_row[i] = fcm_big[2 * i + 1] ? fcm_ch[b] : b;    /* a glyph: its character */
+                n = b | ((unsigned int)fcm_big[2 * i + 1] << 8);
+                /* a cached glyph: its character; the program's own: a space */
+                fcm_row[i] = n < 256 ? b : n - fcm_first < fcm_slots ? fcm_ch[b] : 0x20;
             }
             dma_copy_far(LIN(fcm_big), col2, 2u * w);
             for (i = 0; i < w; i++) fcm_row2[i] = fcm_big[2 * i + 1];
@@ -294,6 +297,13 @@ void fcm_set_line_color(int y, int fg, int bg) {
     if (y < 0 || y >= screenheight()) return;
     for (x = 0; x < w; x++)
         put_code(x, y, (unsigned char)getch_xy(x, y), fg, bg);
+}
+
+void fcm_putglyph(int x, int y, unsigned int n, int fg) {
+    if (!fcm_on || n < 256 || (unsigned int)x >= (unsigned int)screenwidth() ||
+        (unsigned int)y >= (unsigned int)screenheight())
+        return;
+    __conio_put16(x, y, n, (unsigned char)fg);
 }
 
 int fcm_getattr_xy(int x, int y) {

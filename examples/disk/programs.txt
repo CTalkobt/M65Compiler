@@ -3,6 +3,7 @@
 c/invaders/invaders.prg              invaders
 c/rogue/rogue.prg                    rogue
 c/hanger/hanger.prg                  hanger
+c/fcm_graphics/fcm_graphics.prg      fcm graphics
 c/mandelbrot/mandelbrot.prg          mandelbrot
 c/musicgen/musicgen.prg              musicgen
 c/calc_graph/calc_graph.prg          calc graph

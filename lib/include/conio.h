@@ -360,6 +360,13 @@ void fcm_set_line_color(int y, int fg, int bg);
 /* (bg << 4) | fg at (x, y) */
 int fcm_getattr_xy(int x, int y);
 
+/* The program's own full-colour character n (256 or more: its 64 bytes, a
+ * byte a pixel, at n * 64 in the first 512 KB of chip RAM, such as bank 4
+ * through far_malloc; pixel $00 the screen's background, $FF colour fg,
+ * others that palette entry) at (x, y); nothing without fcm_enable.
+ * getch_xy / fcm_getattr_xy do not know it; fcm_disable leaves a space. */
+void fcm_putglyph(int x, int y, unsigned int n, int fg);
+
 /* ============================================================================
  * SCREEN WIDTH
  * ============================================================================ */

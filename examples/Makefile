@@ -26,6 +26,7 @@ SUBDIRS = \
 	c/sample_player \
 	c/rogue \
 	c/hanger \
+	c/fcm_graphics \
 	c/overlays \
 	c/mapped_overlays \
 	c/far_functions \
