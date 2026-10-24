@@ -2663,7 +2663,7 @@ bool O45Linker::placeZpVars(std::string& errorMsg) {
     if (zpVarTotal_ + zpSeg > ZAR_HI - zarLo_) {
         char range[16];
         snprintf(range, sizeof(range), "$%02X-$%02X", zarLo_, ZAR_HI - 1);
-        errorMsg = "__zp variables and zp segments need " + std::to_string(zpVarTotal_ + zpSeg) +
+        errorMsg = std::string(zpSeg ? "__zp variables and zp segments" : "__zp variables") + " need " + std::to_string(zpVarTotal_ + zpSeg) +
                    " bytes; the program's base page has " + std::to_string(ZAR_HI - zarLo_) + " (" + range + ")";
         return false;
     }
