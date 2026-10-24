@@ -181,14 +181,22 @@ fi
 
 build_example "$EXAMPLES/c/hanger"
 test_text "hanger" "$EXAMPLES/c/hanger/hanger.prg" "HANGMAN FOR THE MEGA65" 10
-# the self-playing build guesses its way through the levels
+# the self-playing build guesses its way through the levels; xemu runs
+# -sleepless, so in 20 s it may have lost the game and be back at the title,
+# which then shows the best score (only after a game)
 make -C "$EXAMPLES/c/hanger" demo >/dev/null 2>&1
-test_text "hanger demo" "$EXAMPLES/c/hanger/hangerdemo.prg" "LEVEL [1-6] OF 6" 20
+test_text "hanger demo" "$EXAMPLES/c/hanger/hangerdemo.prg" "LEVEL [1-6] OF 6\|BEST SCORE [1-9]" 20
 
 build_example "$EXAMPLES/c/fcm_graphics"
 # the test build: 100 frames of palette cycling, then fcm_disable and a report
 make -C "$EXAMPLES/c/fcm_graphics" check >/dev/null 2>&1
 test_text "fcm_graphics" "$EXAMPLES/c/fcm_graphics/fcmcheck.prg" "FCM CHECK OK, 100 FRAMES" 20
+
+build_example "$EXAMPLES/c/tunes"
+# the test build: the music from the raster interrupt for 150 frames, then
+# the sick tempo for 100
+make -C "$EXAMPLES/c/tunes" check >/dev/null 2>&1
+test_text "tunes" "$EXAMPLES/c/tunes/tunescheck.prg" "TUNES CHECK OK: 30 TICKS" 20
 
 build_example "$EXAMPLES/c/forth"
 test_text "forth" "$EXAMPLES/c/forth/forth.prg" "COUNT 0 1 2 3 4" 10

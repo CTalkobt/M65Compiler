@@ -47,7 +47,7 @@ C_TOOL_DEPS = $(CC45) $(CA45) $(wildcard include/*.h)
 
 .PHONY: all clean
 
-all: $(BUILD)/c45.lib $(BUILD)/c45_zp.lib $(BUILD)/c45_stack.lib
+all: $(BUILD)/c45.lib $(BUILD)/c45_zp.lib $(BUILD)/c45_stack.lib $(BUILD)/tuneplay.o45
 
 # --- Rules ---
 
@@ -77,6 +77,10 @@ $(BUILD)/c45.lib: $(CRT_ZP_OBJECTS) $(STDLIB_ZP_OBJECTS) $(FLOAT_ROM_OBJECTS) | 
 
 $(BUILD)/c45_zp.lib: $(BUILD)/c45.lib
 	cp $< $@
+
+# tune45 play --emulator / --send: the player program (linked with the tunes)
+$(BUILD)/tuneplay.o45: tools/tuneplay.c $(C_TOOL_DEPS) | $(BUILD)
+	$(CC45) -c -O2 $< -o $@
 
 $(BUILD):
 	mkdir -p $(BUILD)

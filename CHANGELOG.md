@@ -4,6 +4,31 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Library and tune45: a tune (song) player, and a tool for its music (Issue #314)
+
+- `<audio_tune.h>` (`lib/stdlib_asm/tune.s45`): pre-composed music played
+  once a frame on SID voices: `tune_play` / `tune_play_far` (tunes read
+  where they are, in far memory too), `tune_stop`, `tune_update`,
+  `tune_playing`, `tune_ticks`, `tune_note`; run-time controls
+  `tune_voices`, `tune_tempo`, `tune_vibrato`, `tune_transpose`,
+  `tune_detune`. Instruments with envelope, pulse width, vibrato (and its
+  delay), staccato gap, pulse-width sweep and pitch slide; arpeggios and
+  ties in the streams; PAL and NTSC. Assembly with no static allocation and
+  no hardware multiplier: callable from an `__interrupt` handler. The SID
+  register write (shadow, stereo mirror) moved into `sid_core.s45`, shared
+  with `<audio_sid.h>`. Tests `test_tune_xemu.c`.
+- `tune45`, a new suite tool: `convert` (pfest's `music.txt` format and
+  additions → C, a far-memory blob or ca45 source), `list`, `play` (on the
+  PC through four reSIDfp SIDs piped to `pw-play` / `paplay` / `aplay` or a
+  WAV; `--emulator` / `--send` a player program on the MEGA65; `--watch`),
+  `create` (examples/c/musicgen's composer: genre, tempo, length, voices,
+  seed) and `import` (Standard MIDI Files). Its model of the player writes
+  the same registers as the player, checked frame by frame in xemu.
+  reSIDfp is vendored in `third_party/libresidfp` (GPL-2.0-or-later).
+  `doc/bin/tune45.md`, tests `test_tune45.sh`.
+- New `examples/c/tunes`: the pfest game's music played from a raster
+  interrupt, with the run-time controls on keys.
+
 ### cc45: #pragma cc45 optimize(off) / optimize(on)
 
 - The functions defined between `#pragma cc45 optimize(off)` and

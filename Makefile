@@ -20,6 +20,7 @@ CP_TARGET = $(BIN_DIR)/cp45
 NM_TARGET = $(BIN_DIR)/nm45
 LN_TARGET = $(BIN_DIR)/ln45
 AR_TARGET = $(BIN_DIR)/ar45
+TUNE_TARGET = $(BIN_DIR)/tune45
 OD_TARGET = $(BIN_DIR)/objdump45
 DISK_TARGET = $(BIN_DIR)/disk45
 CVT_ASM_TARGET = $(BIN_DIR)/cvt_asm
@@ -183,14 +184,14 @@ $(LIB_DIR)/lib45-tools.a: $(LIB45_TOOLS_OBJS)
 # ============================================================================
 
 all: $(CC_TARGET) $(CA_TARGET) $(CP_TARGET) $(NM_TARGET) $(LN_TARGET) \
-     $(AR_TARGET) $(OD_TARGET) $(DISK_TARGET) $(CVT_ASM_TARGET) $(BASIC_TARGET) stdlib | $(LIB_DIR)/lib45-audio.a $(LIB_DIR)/lib45-phases.a
+     $(AR_TARGET) $(OD_TARGET) $(DISK_TARGET) $(CVT_ASM_TARGET) $(BASIC_TARGET) $(TUNE_TARGET) stdlib | $(LIB_DIR)/lib45-audio.a $(LIB_DIR)/lib45-phases.a
 
 # Rebuild stdlib whenever cc45 or ca45 changes
 stdlib: $(CC_TARGET) $(CA_TARGET) $(AR_TARGET)
 	$(MAKE) -C lib
 
 man: $(MAN_DIR)/cc45.1 $(MAN_DIR)/ca45.1 $(MAN_DIR)/cp45.1 $(MAN_DIR)/ln45.1 $(MAN_DIR)/nm45.1 $(MAN_DIR)/ar45.1 $(MAN_DIR)/objdump45.1 \
-     $(MAN_DIR)/disk45.1 $(MAN_DIR)/basic45.1 $(MAN_DIR)/cvt_asm.1
+     $(MAN_DIR)/disk45.1 $(MAN_DIR)/basic45.1 $(MAN_DIR)/cvt_asm.1 $(MAN_DIR)/tune45.1
 
 $(MAN_DIR)/%.1: doc/bin/%.md
 	@mkdir -p $(MAN_DIR)
@@ -238,6 +239,25 @@ $(LN_TARGET): $(LIB_DIR)/lib45-common.a
 	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/ln45_main.o $(LIB_DIR)/lib45-common.a
 
 # Archiver (ar45) - uses common
+# tune45, with reSIDfp (third_party/libresidfp, built as it is: its own
+# warnings off) for tune45 play
+RESIDFP_DIR = third_party/libresidfp/src
+RESIDFP_SRCS = $(wildcard $(RESIDFP_DIR)/*.cpp) $(RESIDFP_DIR)/version.cc \
+               $(RESIDFP_DIR)/resample/SincResampler.cpp $(RESIDFP_DIR)/residfp/residfp.cpp
+RESIDFP_OBJS = $(patsubst $(RESIDFP_DIR)/%,$(OBJ_DIR)/residfp/%.o,$(RESIDFP_SRCS))
+$(OBJ_DIR)/residfp/%.o: $(RESIDFP_DIR)/%
+	@mkdir -p $(dir $@)
+	$(CXX) -std=c++17 -O2 -pthread -w -I$(RESIDFP_DIR) -MMD -MP -c $< -o $@
+$(LIB_DIR)/lib45-residfp.a: $(RESIDFP_OBJS) | $(LIB_DIR)
+	$(AR) rcs $@ $^
+$(OBJ_DIR)/TuneAudio.o: CXXFLAGS += -I$(RESIDFP_DIR)
+TUNE_OBJS = $(OBJ_DIR)/tune45_main.o $(OBJ_DIR)/TuneCompiler.o $(OBJ_DIR)/TunePlayer.o $(OBJ_DIR)/TuneAudio.o \
+            $(OBJ_DIR)/TuneCreate.o $(OBJ_DIR)/TuneMidi.o \
+            $(OBJ_DIR)/BasicTooling.o
+$(TUNE_TARGET): $(TUNE_OBJS) $(LIB_DIR)/lib45-residfp.a
+	@mkdir -p $(BIN_DIR)
+	$(CXX) $(CXXFLAGS) -pthread -o $@ $(TUNE_OBJS) $(LIB_DIR)/lib45-residfp.a
+
 $(AR_TARGET): $(OBJ_DIR)/ar45_main.o | $(LIB_DIR)
 $(AR_TARGET): $(LIB_DIR)/lib45-common.a
 	@mkdir -p $(BIN_DIR)
@@ -500,6 +520,8 @@ test: all lib $(BIN_DIR)/test_o45 $(BIN_DIR)/test_ast_walker $(BIN_DIR)/test_con
 	@bash src/test/test_inline_control.sh
 	@echo "Running optimization switch tests..."
 	@bash src/test/test_optimizations.sh
+	@echo "Running tune45 tests..."
+	@bash src/test/test_tune45.sh
 	@echo "Running configuration tests..."
 	@bash src/test/test_config.sh
 	@echo "Running function-local state tests..."
@@ -931,11 +953,11 @@ coverage: coverage-build
 
 install: all lib
 	install -d $(DESTDIR)$(BINDIR)
-	install -m 755 $(CC_TARGET) $(CA_TARGET) $(NM_TARGET) $(LN_TARGET) $(AR_TARGET) $(OD_TARGET) $(DISK_TARGET) $(CVT_ASM_TARGET) $(BASIC_TARGET) $(DESTDIR)$(BINDIR)
+	install -m 755 $(CC_TARGET) $(CA_TARGET) $(NM_TARGET) $(LN_TARGET) $(AR_TARGET) $(OD_TARGET) $(DISK_TARGET) $(CVT_ASM_TARGET) $(BASIC_TARGET) $(TUNE_TARGET) $(DESTDIR)$(BINDIR)
 	ln -sf cc45 $(DESTDIR)$(BINDIR)/cp45
 	install -d $(DESTDIR)$(LIBDIR)
 	install -m 644 lib/build/c45.lib lib/build/c45_zp.lib lib/build/c45_stack.lib $(DESTDIR)$(LIBDIR)
-	install -m 644 lib/build/crt0*.o45 $(DESTDIR)$(LIBDIR)
+	install -m 644 lib/build/crt0*.o45 lib/build/tuneplay.o45 $(DESTDIR)$(LIBDIR)
 	install -d $(DESTDIR)$(INCDIR) $(DESTDIR)$(INCDIR)/sys
 	install -m 644 lib/include/*.h $(DESTDIR)$(INCDIR)
 	install -m 644 lib/include/sys/*.h $(DESTDIR)$(INCDIR)/sys
@@ -1055,10 +1077,10 @@ uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/cc45 $(DESTDIR)$(BINDIR)/ca45 $(DESTDIR)$(BINDIR)/cp45
 	rm -f $(DESTDIR)$(BINDIR)/nm45 $(DESTDIR)$(BINDIR)/ln45 $(DESTDIR)$(BINDIR)/ar45
 	rm -f $(DESTDIR)$(BINDIR)/objdump45 $(DESTDIR)$(BINDIR)/disk45 $(DESTDIR)$(BINDIR)/cvt_asm
-	rm -f $(DESTDIR)$(BINDIR)/basic45
+	rm -f $(DESTDIR)$(BINDIR)/basic45 $(DESTDIR)$(BINDIR)/tune45
 	rm -rf $(DESTDIR)$(LIBDIR)
 	rm -rf $(DESTDIR)$(INCDIR)
 	rm -f $(DESTDIR)$(MANDIR)/cc45.1 $(DESTDIR)$(MANDIR)/ca45.1 $(DESTDIR)$(MANDIR)/cp45.1
 	rm -f $(DESTDIR)$(MANDIR)/ln45.1 $(DESTDIR)$(MANDIR)/nm45.1 $(DESTDIR)$(MANDIR)/ar45.1
 	rm -f $(DESTDIR)$(MANDIR)/objdump45.1 $(DESTDIR)$(MANDIR)/disk45.1
-	rm -f $(DESTDIR)$(MANDIR)/basic45.1 $(DESTDIR)$(MANDIR)/cvt_asm.1
+	rm -f $(DESTDIR)$(MANDIR)/basic45.1 $(DESTDIR)$(MANDIR)/cvt_asm.1 $(DESTDIR)$(MANDIR)/tune45.1

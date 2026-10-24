@@ -1948,6 +1948,58 @@ for comode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: <audio_tune.h>, the tune player (its SID writes into a RAM buffer)
+for tumode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r tuname tuflags <<< "$tumode"
+    echo "Testing test_tune_xemu.c ($tuname)..."
+    compile_link_test "src/test-resources/test_tune_xemu.c" "build/test/test_tune_${tuname}_xemu.prg" "$tuflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_tune_$tuname" "build/test/test_tune_${tuname}_xemu.prg" "C0C0" 9 "01 01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_tune_xemu.c $tuname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: tune45's model of the tune player against the player itself: the
+# registers of voices 0-2 after each of 300 frames (a tune with every
+# effect), in both conventions
+mkdir -p build/test/tune
+for trmode in "zp|$STDLIB|" "stack|$STDLIB_STACK|-fno-zpcall"; do
+    IFS='|' read -r trname trlib trflags <<< "$trmode"
+    echo "Testing tune45 trace against the tune player ($trname)..."
+    TD=build/test/tune
+    if ./bin/tune45 convert src/test-resources/tune/tunes.txt -o $TD/music.c >/dev/null &&
+       ./bin/cc45 -O2 $trflags -I$TD -DTUNE=0 -c src/test-resources/tune/trace_xemu.c -o $TD/trace_$trname.o45 &&
+       ./bin/cc45 -O2 $trflags -I$TD -c $TD/music.c -o $TD/music_$trname.o45 &&
+       ./bin/ln45 -basic -o $TD/trace_$trname.prg $TD/trace_$trname.o45 $TD/music_$trname.o45 $trlib >/dev/null; then
+        rm -f $TD/trace_$trname.mem
+        timeout 60 xemu-xmega65 -headless -besure -sleepless -prgmode 65 -prgexit -dumpmem $TD/trace_$trname.mem \
+            -prg $TD/trace_$trname.prg >/dev/null 2>&1
+        ./bin/tune45 trace src/test-resources/tune/tunes.txt --tune effects --mono --frames 300 > $TD/model.txt
+        if python3 - $TD/trace_$trname.mem $TD/model.txt <<'PY'
+import sys
+mem = open(sys.argv[1], 'rb').read()
+model = [bytes.fromhex(l.strip())[:21] for l in open(sys.argv[2])]
+if mem[0xC0C0] != 0xAA or len(model) != 300:
+    sys.exit("did not finish")
+bad = [f for f in range(300) if mem[0x8000 + 21 * f:0x8000 + 21 * f + 21] != model[f]]
+if bad:
+    sys.exit("they differ from frame %d (%d frames)" % (bad[0] + 1, len(bad)))
+PY
+        then
+            echo "SUCCESS: tune45 trace = the tune player ($trname)"
+            passed=$((passed + 1))
+        else
+            echo "FAIL: tune45 trace differs from the tune player ($trname)"
+            failed=$((failed + 1))
+        fi
+    else
+        echo "FAIL: tune45 trace test ($trname): build failed"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: #pragma cc45 optimize(off) / (on): functions compiled as written still
 # compute what their optimized twins do
 for nomode in "zp|" "stack|-fno-zpcall"; do

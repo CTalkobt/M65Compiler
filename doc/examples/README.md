@@ -206,6 +206,25 @@ runs 100 frames, then reads cells back and reports on the screen.
 
 ![fcm_graphics](images/fcm_graphics.png)
 
+### tunes
+
+[Source](https://github.com/CTalkobt/M65Compiler/tree/main/examples/c/tunes) —
+The pfest game's music (its `music.txt`: 12 tunes on three voices, 2.6 KB)
+played by the library's tune player, `<audio_tune.h>`. `tune45 convert`
+turns the text into `music.c` and `music.h` as part of the build. The music
+plays from a raster interrupt, as a game's would: `tune_update` runs in an
+`__interrupt` handler once a frame (the player has no static allocation, so
+ln45 allows it there), reached through a small stub at the KERNAL's `$0314`
+vector that passes the other interrupts on. The main loop only draws: the
+tunes, the one playing, and each voice's note (`tune_note`) as a bar. Keys:
+CRSR or 1-9 a tune, SPACE stop/play, + - tempo, V vibrato, T G transpose, S
+the game's "sick" music (faster, a wobble and a voice out of tune, made with
+`tune_tempo`, `tune_vibrato` and `tune_detune`), RUN/STOP quit. `make play`
+plays the music on the PC (`tune45 play`); `make check` builds a test that
+plays from the interrupt for 150 frames and reports.
+
+![tunes](images/tunes.png)
+
 ### forth
 
 [Source](https://github.com/CTalkobt/M65Compiler/tree/main/examples/c/forth) —

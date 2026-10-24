@@ -27,6 +27,8 @@ dependencies (SQLite and FUSE only for disk45):
   long variable names, block IF / proc, `--link` C functions, `--decompile`, `--disk`, `--emulator`)
 - **disk45** — CBM disk/tape/archive image utility (25 formats, FUSE mount, SQLite catalog)
 - **cvt_asm** — assembler source converter between 7 dialects
+- **tune45** — music for the tune player (`<audio_tune.h>`): text (pfest's format) or MIDI → data;
+  plays on the PC (reSIDfp, `third_party/libresidfp`), in xemu or on a MEGA65; composes (`create`)
 
 ## Architecture
 
@@ -242,7 +244,7 @@ Only these read configuration (`doc/bin/CONFIGURATION.md`):
 - ca45: `~/.config/m65/ca45.conf`, `./.ca45rc`, `CA45_OPTIMIZE`, `CA45_WARNINGS`
 - cvt_asm: `.cvtasmrc`
 
-ln45, ar45, nm45, objdump45 and disk45 have no config files. Environment:
+ln45, ar45, nm45, objdump45, disk45 and tune45 have no config files. Environment:
 `CC45_INCLUDE`, `CC45_LIB` (ln45 library search), `CC45_DUMP_IR=1` (IR to stderr),
 `CC45_OPMARK=1` (IR operation markers in the assembly; `src/test/opsize.py`
 totals code bytes by IR operation).
@@ -340,7 +342,8 @@ stdio (printf family; `%f`/`%e`/`%g` through the weak/strong float printf, digit
 BASIC 65 ROM's FOUT, full float range), stdlib,
 string, ctype, math (ROM-backed float functions; domain/range errors set
 `errno` instead of reaching the ROM), time (frame clock, RTC calendar), errno, setjmp,
-assert, alloca, conio, CBM file I/O, `intwide.h`, `mega65.h` register
+assert, alloca, conio, CBM file I/O, a tune (song) player (`audio_tune.h`, assembly, callable
+from an `__interrupt` handler; `tune45` makes its data), `intwide.h`, `mega65.h` register
 overlays, `dma.h` (16-bit builtins; `dma_copy_far`/`dma_fill_far` at 28-bit
 addresses), and on those far pointers (`far_ptr.h`/`far_ops.h`, an allocator
 in banks 4-5 with `far_reserve`d ranges; attic RAM when the program enables
