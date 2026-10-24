@@ -44,6 +44,7 @@ void usage(std::ostream& o) {
          "  -o <file>          output file\n"
          "  --bin, --asm       convert: a binary blob / ca45 source instead of C\n"
          "  --header <file>    convert: the header's name (default: the output's, .h)\n"
+         "  --load-at <addr>   convert --bin: a 2-byte load address first (a KERNAL LOAD skips it)\n"
          "  --tune <name>      play: that tune (again for more; default: all, in order)\n"
          "  --loops <n>        play: times through a looping tune (default 1)\n"
          "  --wav <file>       play: into a WAV file instead of the speakers\n"
@@ -124,7 +125,7 @@ std::string bytes(const std::vector<uint8_t>& b, const char* lead, const char* s
 }
 
 int convert(const TuneFile& f, const std::string& src, const std::string& outPath, const std::string& mode,
-            std::string header) {
+            std::string header, long loadAt) {
     for (const auto& t : f.tunes)
         if (!isIdent(t.name)) {
             std::cerr << src << ":" << t.line << ": error: a tune's name must be a C identifier: " << t.name << "\n";
@@ -136,6 +137,9 @@ int convert(const TuneFile& f, const std::string& src, const std::string& outPat
     if (!h) { std::cerr << "tune45: cannot write " << header << "\n"; return 1; }
     h << guardNote << "#pragma once\n\n#define NTUNES " << f.tunes.size() << "\n";
     for (size_t k = 0; k < f.tunes.size(); k++) h << "#define TUNE_" << upper(f.tunes[k].name) << " " << k << "\n";
+    // each tune's ticks once through (tune_seek: a looping tune's position)
+    for (const auto& t : f.tunes)
+        h << "#define TUNE_" << upper(t.name) << "_TICKS " << (t.voices.empty() ? 0 : t.voices[0].ticks) << "\n";
 
     if (mode == "bin") {
         // [tunes][offset (2) each] then the blobs; offsets from the start
@@ -155,6 +159,10 @@ int convert(const TuneFile& f, const std::string& src, const std::string& outPat
         if (out.size() > 0xFFFF) { std::cerr << "tune45: over 64 KB of tunes\n"; return 1; }
         h << "#define TUNES_SIZE " << out.size() << "\n";
         std::ofstream o(outPath, std::ios::binary);
+        if (loadAt >= 0) {      // a load address first, as a KERNAL LOAD reads it
+            char la[2] = {(char)(loadAt & 0xFF), (char)((loadAt >> 8) & 0xFF)};
+            o.write(la, 2);
+        }
         o.write((const char*)out.data(), (std::streamsize)out.size());
         if (!o) { std::cerr << "tune45: cannot write " << outPath << "\n"; return 1; }
         return 0;
@@ -189,7 +197,7 @@ time_t mtime(const std::string& p);
 
 struct PlayOptions {
     std::vector<std::string> tunes;
-    unsigned loops = 1, frames = 0;
+    unsigned loops = 1, frames = 0, seek = 0;
     std::string wav, emulatorPath, sendCmd, prg;
     bool ntsc = false, mos6581 = false, mono = false, emulator = false, send = false, watch = false;
 };
@@ -275,6 +283,7 @@ int trace(const TuneFile& f, const PlayOptions& o) {
     player.setNtsc(o.ntsc);
     player.setMirror(!o.mono);
     player.play(TuneCompiler::blob(f, *list[0]));
+    player.seek(o.seek);
     for (unsigned n = 0; n < (o.frames ? o.frames : 100); n++) {
         player.update();
         for (uint8_t b : regs) { char h[4]; snprintf(h, sizeof h, "%02x", b); std::cout << h; }
@@ -559,6 +568,7 @@ int main(int argc, char** argv) {
     if (cmd == "-h" || cmd == "--help") { usage(std::cout); return 0; }
     if (cmd == "-V" || cmd == "--version") { std::cout << "tune45 " << SUITE_VERSION << "\n"; return 0; }
     std::string out, mode = "c", header, input;
+    long loadAt = -1;              // --bin: a load address first (--load-at)
     PlayOptions po;
     CreateCli cc;
     MidiImportOptions mo;
@@ -569,6 +579,7 @@ int main(int argc, char** argv) {
         else if (a == "--tune" && i + 1 < argc) po.tunes.push_back(argv[++i]);
         else if (a == "--loops" && i + 1 < argc) po.loops = (unsigned)std::max(1, atoi(argv[++i]));
         else if (a == "--frames" && i + 1 < argc) po.frames = (unsigned)std::max(1, atoi(argv[++i]));
+        else if (a == "--seek" && i + 1 < argc) po.seek = (unsigned)std::max(0, atoi(argv[++i]));
         else if (a == "--wav" && i + 1 < argc) po.wav = argv[++i];
         else if (a == "--ntsc") po.ntsc = true;
         else if (a == "--6581") po.mos6581 = true;
@@ -606,6 +617,7 @@ int main(int argc, char** argv) {
         else if (a == "--bin") mode = "bin";
         else if (a == "--asm") mode = "asm";
         else if (a == "--header" && i + 1 < argc) header = argv[++i];
+        else if (a == "--load-at" && i + 1 < argc) loadAt = strtol(argv[++i], nullptr, 0) & 0xFFFF;
         else if (a == "-h" || a == "--help") { usage(std::cout); return 0; }
         else if (!a.empty() && a[0] == '-') { std::cerr << "tune45: unknown option " << a << "\n"; return 1; }
         else input = a;
@@ -640,5 +652,5 @@ int main(int argc, char** argv) {
     if (cmd == "play") return po.emulator || po.send ? playOnMega65(input, f, po) : play(input, f, po);
     if (cmd == "trace") return trace(f, po);
     if (out.empty()) out = stem(input) + (mode == "bin" ? ".bin" : mode == "asm" ? ".s45" : ".c");
-    return convert(f, input, out, mode, header);
+    return convert(f, input, out, mode, header, loadAt);
 }

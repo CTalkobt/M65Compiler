@@ -13,7 +13,9 @@
 //       "|" marks are checked
 //   v1: ... v12:  a voice: note:ticks (c4 is MIDI 60; c#4, eb4), r:ticks a
 //       rest, ~:ticks the note held longer, @name an instrument,
-//       arp:4,7 / arp:off an arpeggio, | a bar line
+//       arp:4,7 / arp:off an arpeggio, | a bar line; g4^3:ticks glides up
+//       into the note from 3 semitones below (^-3 from above; ^3,2: a speed
+//       of 2, 1/4 of the distance a frame; the default 3, 1/8)
 // The data (lib/include/audio_tune.h, lib/stdlib_asm/tune.s45): a blob a
 // tune: header, the instruments it uses, a byte stream a voice.
 #pragma once

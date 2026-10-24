@@ -40,6 +40,12 @@ $TUNE convert $T/a.txt --bin -o $T/a.bin >/dev/null 2>&1 &&
 $TUNE convert $T/a.txt --asm -o $T/a.s45 >/dev/null 2>&1 && ./bin/ca45 -c $T/a.s45 -o $T/a.o45 >/dev/null 2>&1 &&
     pass || fail "--asm does not assemble"
 
+# a glide: $84 s k before the note (default speed 3); a tune's ticks once through
+printf 'instrument a pulse 09 a6 0600 0 0\ntune g 1 loop\nv1: c4^3:4 g4^-5,1:4 r:2\n' > $T/g.txt
+$TUNE convert $T/g.txt -o $T/g.c >/dev/null 2>&1 &&
+    sed -n '/tune_g\[/,/};/p' $T/g.c | tr -d ' \n' | grep -q '132,3,3,60,4,132,251,1,67,4,128,2,254' &&
+    grep -q "#define TUNE_G_TICKS 10" $T/g.h && pass || fail "glide bytes / TUNE_G_TICKS"
+
 # errors, with file and line
 err() {   # $1 the text, $2 a part of the message
     printf '%s\n' "$1" > $T/e.txt
@@ -53,6 +59,8 @@ err $'instrument a pulse 09 a6 0600 1 1\ntune t 5 once 4\nv1: @a c4:3 | c4:4' "b
 err $'instrument a wobble 09 a6 0600 1 1' "not a waveform"
 err $'instrument a pulse 09 a6 0600 1 1\ntune t 5 once\nv2: @a c4:1' "v1: expected"
 err $'tune 1x 5 once\ninstrument a pulse 09 a6 0600 1 1\nv1: @a c4:1' "C identifier"
+err $'instrument a pulse 09 a6 0600 1 1\ntune t 5 once\nv1: @a c4^0:1' "a glide is note^semitones"
+err $'instrument a pulse 09 a6 0600 1 1\ntune t 5 once\nv1: @a c4^3,8:1' "speed 1-7"
 
 # pfest's format as it is (its first tune's lines)
 cat > $T/pfest.txt <<'EOF'

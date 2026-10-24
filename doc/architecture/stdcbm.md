@@ -39,6 +39,8 @@ int main() {
 |----------|-----------|-------------|
 | `cbm_setlfs` | `void cbm_setlfs(char lfn, char device, char sa)` | Set logical file number, device and secondary address (KERNAL `$FFBA`) |
 | `cbm_setnam` | `void cbm_setnam(char *name, char len)` | Set filename for the next OPEN/LOAD/SAVE (KERNAL `$FFBD`) |
+| `cbm_setbnk` | `void cbm_setbnk(char data_bank, char name_bank)` | The banks (0-5, chip RAM) of the next LOAD/SAVE's data and of its file name (the C65 KERNAL's SETBNK, `$FF6B`) |
+| `cbm_load` | `int cbm_load(unsigned int addr)` | LOAD the file set up by `cbm_setbnk`/`cbm_setnam`/`cbm_setlfs` (KERNAL `$FFD5`): with secondary address 0 to `addr` in the SETBNK bank, with 1 to the address the file starts with (its first two bytes, not loaded either way). Returns 0 on success, 1 on error. `examples/c/glamlambs` loads its music into bank 5 with it |
 | `cbm_open` | `int cbm_open(void)` | Open the logical file set up by `cbm_setlfs`/`cbm_setnam` (KERNAL `$FFC0`). Returns 0 on success, 1 on error |
 | `cbm_close` | `void cbm_close(char lfn)` | Close a logical file (KERNAL `$FFC3`) |
 | `cbm_chkin` | `int cbm_chkin(char lfn)` | Set input channel. Returns 0 on success, 1 on error (KERNAL `$FFC6`) |

@@ -25,6 +25,7 @@ public:
     void play(const std::vector<uint8_t>& tune);
     void stop();
     void update();          // a frame
+    void seek(unsigned ticks);   // on, silently
     bool playing() const { return active_; }
     unsigned ticks() const { return ticks_; }
 
@@ -38,12 +39,15 @@ private:
         uint8_t wave = 0, ad = 0, sr = 0, vib = 0, gap = 0, vdel = 0;
         uint16_t ipw = 0;
         int8_t pwm = 0, slide = 0;
+        int8_t gsemi = 0;
+        uint8_t gpend = 0, glide = 0;
+        uint16_t tgt = 0;
     };
     Write write_;
     std::vector<uint8_t> tune_;
     Voice v_[12];
     int8_t transp_[12] = {}, detune_[12] = {};
-    bool ntsc_ = false, mirror_ = false, active_ = false;
+    bool ntsc_ = false, mirror_ = false, active_ = false, mute_ = false;
     uint8_t first_ = 0, vibx_ = 0, n_ = 0, ninst_ = 0;
     uint16_t scale_ = 0x100, step_ = 0x100, fpt_ = 0x100, acc_ = 0, ins_ = 0;
     unsigned ticks_ = 0;

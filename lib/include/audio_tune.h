@@ -27,6 +27,9 @@
  *   $80 d         rest          $81 i   instrument i
  *   $82 d         the note held d ticks more (a tie)
  *   $83 a b       arpeggio: the note, +a, +b semitones a frame each (0, 0 off)
+ *   $84 s k       the next note glides: it starts s semitones below its pitch
+ *                 (signed) and from its second frame moves (distance +
+ *                 2^k - 1) >> k a frame towards it (k 1-7; 0: no glide)
  *   $FE           back to the voice's start (a tune that loops)
  *   $FF           the voice's end
  */
@@ -60,6 +63,12 @@ __fastcall__ void tune_detune(unsigned char voice, signed char amount);
 
 /* The tune's position: ticks played since tune_play */
 __fastcall__ unsigned int tune_ticks(void);
+/* On ticks ticks at once, silently (after tune_play: back where a tune was,
+ * from tune_ticks; tune45 gives a tune's TUNE_<NAME>_TICKS, once through, to
+ * keep a looping tune's position short). The voices sound again from their
+ * next events. Interrupts are held off while it runs (about 0.2 ms a
+ * thousand ticks of a voice). */
+__fastcall__ void tune_seek(unsigned int ticks);
 
 /* The note tune voice voice sounds (MIDI, before its transpose), 0xFF when
  * it is silent (a rest, released, over) */

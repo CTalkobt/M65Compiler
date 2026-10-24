@@ -128,6 +128,36 @@ static void cbm_setnam(char *name, char len) {
     __asm__("jsr __rom_call");
 }
 
+/* The banks of the next LOAD / SAVE's data and of its file name (the C65
+ * KERNAL's SETBNK: A = data bank, X = name bank; 0-5, chip RAM)
+ */
+static void cbm_setbnk(char data_bank, char name_bank) {
+    __cbm_target = 0xFF6B;
+    __cbm_a = data_bank;
+    __cbm_x = name_bank;
+    __asm__("ldx ___cbm_x");
+    __asm__("lda ___cbm_a");
+    __asm__("jsr __rom_call");
+}
+
+/* Load a file (call cbm_setbnk, cbm_setnam and cbm_setlfs first): with
+ * secondary address 0 to addr in cbm_setbnk's bank, with 1 to the address
+ * the file starts with (its first two bytes, in either case not loaded).
+ * Returns 0 on success, 1 on error (carry set)
+ */
+static int cbm_load(unsigned int addr) {
+    __cbm_target = 0xFFD5;
+    __cbm_p = addr;
+    __asm__("ldx ___cbm_p");
+    __asm__("ldy ___cbm_p+1");
+    __asm__("lda #$00");
+    __asm__("jsr __rom_call");
+    __asm__("lda #$00");
+    __asm__("tax");
+    __asm__("adc #$00");  /* A = carry (0=ok, 1=error) */
+    return;
+}
+
 /* Open a logical file (call cbm_setlfs and cbm_setnam first)
  * Returns 0 on success, 1 on error (carry set)
  */

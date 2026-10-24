@@ -2,6 +2,7 @@ build/
 refs/
 obj/
 bin/
+!doc/bin/
 *.o45
 
 .idea/
