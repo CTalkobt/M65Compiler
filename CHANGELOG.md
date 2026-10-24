@@ -4,6 +4,14 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Examples: two disks, games and demos
+
+- `examples/disk` makes two D81s instead of one: `games.d81` ("CC45 GAMES":
+  invaders, rogue, hanger, Glam Lambs) and `demos.d81` ("CC45 DEMOS": the
+  rest), each with its menu (`AUTOBOOT.C65`, `MENU`). The lists are
+  `games.txt` and `demos.txt` (program, name on the disk, menu line);
+  `menu.bas` is shared, with each disk's title and programs as `DATA`.
+
 ### Examples: Glam Lambs, with its band in tune45; glides and tune_seek
 
 - New `examples/c/glamlambs`: Glam Lambs, a sheep makeover game. Its

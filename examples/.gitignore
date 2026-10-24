@@ -29,3 +29,7 @@ c/hanger/sounds.h
 # glamlambs: tune45 convert's output
 c/glamlambs/music.h
 c/glamlambs/glammusic.bin
+
+# disk: the menus the Makefile makes
+disk/games_menu.bas
+disk/demos_menu.bas

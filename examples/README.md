@@ -6,7 +6,7 @@ These examples demonstrate different features of the m65compiler. [doc/examples]
 
 ### The examples disk
 
-- **disk/** - All the examples on one D81 disk image with a menu: `make -C examples/disk` (disk45 `create`/`add`/`validate`; the menu is a basic45 program saved as `AUTOBOOT.C65`, so the MEGA65 runs it at start, and as `MENU`; a key `DLOAD`s an example). `make -C examples/disk run` starts xemu with it.
+- **disk/** - The examples on two D81 disk images, each with a menu: `make -C examples/disk` makes `games.d81` ("CC45 GAMES": invaders, rogue, hanger, Glam Lambs) and `demos.d81` ("CC45 DEMOS": the rest), from the lists `games.txt` and `demos.txt` (disk45 `create`/`add`/`validate`; the menu is a basic45 program saved as `AUTOBOOT.C65`, so the MEGA65 runs it at start, and as `MENU`; a key `DLOAD`s an example). `make -C examples/disk run` starts xemu with the games disk, `run-demos` with the demos disk.
 
 ### C Examples
 
