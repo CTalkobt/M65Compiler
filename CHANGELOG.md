@@ -4,6 +4,23 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### ca45 / ln45: label differences and the zp segment in objects (#336, #335)
+
+- A difference of two labels of one segment (`#<(blk_end-blk)`, `.byte`,
+  `.word end-start+1`) is a constant in `ca45 -c` objects: it was relocated
+  like an address (`lda #<(blk_end-blk)` loaded part of an address, #336).
+  An operand naming several labels is relocated by what its value holds (a
+  label plus a difference once); `2*lbl`, `lbl>>1` or labels of two
+  segments are errors instead of silently wrong code. `.byte <(sym+1)` now
+  gets its relocation.
+- Labels in `.segment "zp"` are base-page variables: their operands keep
+  the base-page form in every base-page mode (`(ptr),y`, `[ptr],z` had no
+  relocation, `sta ptr` was absolute $0002 in the ROM's page 0, #335), with
+  `R_LOWX`; ln45 places the objects' zp segments in the program's base page
+  below the `__zp` variables (`R_WORD` for `ldz ptr` gets the full address).
+  Code an `__interrupt` handler reaches may not use them in base-page form.
+  Test `test_ca45_reloc_xemu.c`.
+
 ### Examples: two disks, games and demos
 
 - `examples/disk` makes two D81s instead of one: `games.d81` ("CC45 GAMES":

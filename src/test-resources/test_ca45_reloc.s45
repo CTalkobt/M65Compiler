@@ -1,0 +1,69 @@
+; test_ca45_reloc.s45 — for test_ca45_reloc_xemu.c: ca45 -c relocations
+; of label differences (#336: a constant, no relocation) and of "zp"
+; segment labels (#335: in the program's base page, every base-page mode)
+.global _blk_len, _blk_last, _tab, _blk, _blk_end, _zp_test, _zp_target, _zp_out
+
+    .code
+; blk_end-blk in immediates: 3, not an address
+proc _blk_len
+    lda #<(_blk_end-_blk)
+    ldx #>(_blk_end-_blk)
+    rts
+endproc
+
+; a label plus a difference: relocated once (the block's last byte)
+proc _blk_last
+    lda _blk+(_blk_end-_blk)-1
+    ldx #0
+    rts
+endproc
+
+; a pointer in the zp segment, through zp_target: zp_out gets what each
+; base-page mode reads
+proc _zp_test
+    lda _zp_target
+    sta ptr
+    lda _zp_target+1
+    sta ptr+1
+    lda #0
+    sta ptr+2
+    sta ptr+3
+    ldy #0
+    lda (ptr),y             ; [0] target[0]
+    sta _zp_out
+    ldz #1
+    lda [ptr],z             ; [1] target[1] (32-bit pointer)
+    sta _zp_out+1
+    inc ptr
+    ldy #1
+    lda (ptr),y             ; [2] target[2]: the pointer moved on one
+    sta _zp_out+2
+    ldx #1
+    lda ptr,x               ; [3] its high byte (bp,x)
+    sta _zp_out+3
+    ldz ptr                 ; [4] its low byte at its full address (no base-page LDZ)
+    tza
+    sta _zp_out+4
+    lda #zp_end-ptr         ; [5] a difference of two zp labels: 4
+    sta _zp_out+5
+    rts
+endproc
+
+_blk:
+    .byte 1, 2, 3
+_blk_end:
+
+    .data
+; a difference in data: constants; a label plus one: relocated
+_tab:
+    .byte <(_blk_end-_blk), >(_blk_end-_blk)
+    .word _blk_end-_blk, _blk+(_blk_end-_blk)
+_zp_target:
+    .word 0
+_zp_out:
+    .byte 0, 0, 0, 0, 0, 0
+
+    .segment "zp"
+ptr:
+    .res 4
+zp_end:

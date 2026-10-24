@@ -925,6 +925,15 @@ bool O45Linker::resolveSymbols(std::string& errorMsg) {
     symOvl_.clear();
     realAddr_.clear();
 
+    // The zp segments in the program's base page (placeZpVars): at __zp_page
+    // (where it will be, below) + their address there, so a base-page
+    // operand's byte (R_LOWX) is that address and a full one (R_WORD) the
+    // byte's address in memory
+    if (zpSegAt_ >= 0) {
+        if (bssLenBeforeZpPage_ < 0) bssLenBeforeZpPage_ = (int64_t)mergedBssLen_;
+        zpBase_ = ((bssBase_ + (uint32_t)bssLenBeforeZpPage_ + 0xFF) & ~0xFFu) + (uint32_t)zpSegAt_;
+    }
+
     // Collect all exports, handling weak-vs-strong resolution
     for (const auto& input : objects_) {
         for (const auto& exp : input.obj.exports) {
@@ -2625,6 +2634,7 @@ bool O45Linker::placeZpVars(std::string& errorMsg) {
     zpVarAddr_.clear();
     zpVarSize_.clear();
     zpVarTotal_ = 0;
+    zpSegAt_ = -1;
     std::map<std::string, std::string> definedIn;
     for (const auto& input : objects_)
         for (const auto& exp : input.obj.exports) {
@@ -2638,7 +2648,30 @@ bool O45Linker::placeZpVars(std::string& errorMsg) {
             zpVarSize_[sym] = exp.offset;
             zpVarTotal_ += exp.offset;
         }
-    if (zpVarTotal_ == 0) return true;
+    // The objects' "zp" segments (ca45 .segment "zp"): in the program's base
+    // page too, below the variables, when there is one (crt0's __zp_page)
+    // and no -z address for them
+    uint32_t zpSeg = 0;
+    if (mergedZpLen_ > 0 && !zpBaseSet_) {
+        bool page = false;
+        for (const auto& input : objects_)
+            for (const auto& imp : input.obj.imports)
+                if (imp.name == "__zp_page") page = true;
+        if (page) zpSeg = mergedZpLen_;
+    }
+    if (zpVarTotal_ + zpSeg == 0) return true;
+    if (zpVarTotal_ + zpSeg > ZAR_HI - zarLo_) {
+        char range[16];
+        snprintf(range, sizeof(range), "$%02X-$%02X", zarLo_, ZAR_HI - 1);
+        errorMsg = "__zp variables and zp segments need " + std::to_string(zpVarTotal_ + zpSeg) +
+                   " bytes; the program's base page has " + std::to_string(ZAR_HI - zarLo_) + " (" + range + ")";
+        return false;
+    }
+    if (zpSeg) {
+        zpSegAt_ = ZAR_HI - zpVarTotal_ - zpSeg;
+        ln45info() << "zp segments: " << zpSeg << " bytes at $" << std::hex << zpSegAt_ << std::dec << "\n";
+    }
+    if (zpVarTotal_ == 0) { zpVarTotal_ = zpSeg; return true; }
     if (zpVarTotal_ > ZAR_HI - zarLo_) {
         char range[16];
         snprintf(range, sizeof(range), "$%02X-$%02X", zarLo_, ZAR_HI - 1);
@@ -2653,6 +2686,7 @@ bool O45Linker::placeZpVars(std::string& errorMsg) {
         at += size;
     }
     ln45info() << "__zp variables: " << zpVarAddr_.size() << ", " << zpVarTotal_ << " bytes\n";
+    zpVarTotal_ += zpSeg;   // (the base-page blocks share what is below both)
     return true;
 }
 
@@ -2660,7 +2694,7 @@ bool O45Linker::placeZpVars(std::string& errorMsg) {
 // base-page operand of a __zp variable (R_LOWX against it) in code a handler
 // reaches would use that page's byte. Absolute references are fine.
 void O45Linker::checkZpVarsInIsr() {
-    if (zpVarAddr_.empty()) return;
+    if (zpVarAddr_.empty() && zpSegAt_ < 0) return;
     std::set<std::string> isrFuncs;
     for (const auto& [name, attrs] : funcAttrs_)
         if (attrs.flags & FUNC_FLAG_ISR) isrFuncs.insert(name);
@@ -2684,15 +2718,20 @@ void O45Linker::checkZpVarsInIsr() {
                 funcs.push_back({exp.offset, exp.name});
         std::sort(funcs.begin(), funcs.end());
         for (const auto& r : O45RelocDecoder::decode(input.obj.textRelocs)) {
-            if (r.type != R_LOWX || r.segment != SEG_EXTERNAL || r.symbolIndex >= input.obj.imports.size()) continue;
-            const std::string& var = input.obj.imports[r.symbolIndex].name;
-            if (!zpVarAddr_.count(var)) continue;
+            if (r.type != R_LOWX) continue;
+            std::string var;
+            if (r.segment == SEG_ZP && zpSegAt_ >= 0) var = "zp segment";   // (ca45 .segment "zp")
+            else if (r.segment == SEG_EXTERNAL && r.symbolIndex < input.obj.imports.size() &&
+                     zpVarAddr_.count(input.obj.imports[r.symbolIndex].name))
+                var = input.obj.imports[r.symbolIndex].name;
+            else continue;
             std::string f;
             for (const auto& [off, name] : funcs) if (off <= r.offset) f = name;
             if (f.size() > 5 && f.compare(f.size() - 5, 5, "__sac") == 0) f.resize(f.size() - 5);
             auto it = reachedBy.find(f);
             if (it == reachedBy.end() || !reported.insert(f + " " + var).second) continue;
-            convErrors_.push_back("error: '" + f + "' uses the __zp variable '" + var + "' and is reachable from "
+            convErrors_.push_back("error: '" + f + "' uses " + (var == "zp segment" ? std::string("its object's zp segment")
+                                  : "the __zp variable '" + var + "'") + " and is reachable from "
                                   "interrupt handler '" + it->second + "', which runs on its own base page "
                                   "(share data with interrupt handlers in plain globals)");
         }
@@ -3590,13 +3629,20 @@ void O45Linker::writeMap(std::ostream& out) const {
                  zarLo_, zarLo_ + zarUsed_ - 1, zarUsed_, zarTotal_, zarOffset_.size());
         out << buf;
     }
-    if (zpVarTotal_ > 0) {
+    uint32_t zpSegLen = zpSegAt_ >= 0 ? mergedZpLen_ : 0, zpVarLen = zpVarTotal_ - zpSegLen;
+    if (zpVarLen > 0) {
         char buf[120];
         snprintf(buf, sizeof(buf), "  (__zp variables $%02X - $%02X, %u bytes, %zu variables)\n",
-                 ZAR_HI - zpVarTotal_, ZAR_HI - 1, zpVarTotal_, zpVarAddr_.size());
+                 ZAR_HI - zpVarLen, ZAR_HI - 1, zpVarLen, zpVarAddr_.size());
         out << buf;
     }
     printSeg("ZP", zpBase_, mergedZpLen_);
+    if (zpSegLen > 0) {
+        char buf[80];
+        snprintf(buf, sizeof(buf), "  (in the program's base page: $%02X - $%02X)\n",
+                 (unsigned)zpSegAt_, (unsigned)(zpSegAt_ + zpSegLen - 1));
+        out << buf;
+    }
     // code overlays: where they run, and where each is kept in far memory
     // (bank, then the address in the bank)
     auto far = [](uint32_t a) {

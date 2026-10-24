@@ -585,7 +585,8 @@ private:
     // One with cc45.zpinit.<sym> (its initial value, in data) is copied
     // there by the generated __zp_init that crt0 calls after the BSS fill
     std::map<std::string, uint32_t> zpVarAddr_, zpVarSize_;
-    uint32_t zpVarTotal_ = 0;
+    uint32_t zpVarTotal_ = 0;          // (with the zp segment below the variables)
+    int64_t zpSegAt_ = -1;             // the zp segment's base-page address (placeZpVars), -1: at zpBase_
     uint32_t zpInitAt_ = 0;                           // the generated __zp_init (0: none)
     std::vector<std::pair<uint32_t, std::string>> zpInitPatches_;   // text offset, symbol (an address word)
     uint32_t sacOverlayOffset_ = 0;   // its offset in the merged BSS

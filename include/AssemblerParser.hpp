@@ -99,6 +99,18 @@ public:
     // Returns true if the symbol's final address is not yet known (extern or in a non-org'd segment like BSS)
     bool isRelocatableSymbol(const std::string& name) const;
     bool isRelocatableSymbolIn(const std::string& name, const std::string& scopePrefix);
+    // A label of the "zp" segment: a base-page address the linker places in
+    // the program's base page (operands keep their base-page modes)
+    bool isZpSegmentSymbolIn(const std::string& name, const std::string& scopePrefix);
+    // The relocatable segments an operand's value moves with, from index to
+    // the operand's end: for each segment of the labels it names, how many
+    // times the segment's base the value holds (0: a constant there, as a
+    // difference of two of its labels; 1: relocated against it). Empty for
+    // a symbol plus or minus numbers (no need to work it out).
+    std::map<std::string, int> segmentMultiples(int index, const std::string& scopePrefix);
+    // The "zp" segment label a base-page operand names (its byte relocated
+    // in the program's base page), "" for none (or a constant, zp_end-ptr)
+    std::string zpSegmentOperand(int index, const std::string& scopePrefix);
     uint32_t getExternIndex(const std::string& name) const;
 
     bool isPass1() const { return isPass1_; }
