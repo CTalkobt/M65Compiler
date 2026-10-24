@@ -55,6 +55,10 @@ pick:
 entries:
   data "invaders",     "invaders - a space invaders game"
   data "rogue",        "rogue - a dungeon crawl"
+  data "glamlambs",    "glam lambs - a sheep makeover game"
+  data "hanger",       "hanger - hangman, six victims"
+  data "tunes",        "tunes - a game's music, from an irq"
+  data "fcm graphics", "fcm graphics - full-colour characters"
   data "mandelbrot",   "mandelbrot - the set, zoom and scroll"
   data "musicgen",     "musicgen - random music in 7 styles"
   data "calc graph",   "calc graph - a calculator that plots"

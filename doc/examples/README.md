@@ -209,6 +209,44 @@ runs 100 frames, then reads cells back and reports on the screen.
 
 ![fcm_graphics](images/fcm_graphics.png)
 
+### glamlambs
+
+[Source](https://github.com/CTalkobt/M65Compiler/tree/main/examples/c/glamlambs) —
+Glam Lambs, a sheep makeover game. Catch an adult sheep in full fleece, carry
+it to the salon and style it: wool dye, lipstick, eyelashes and a bow. Rams
+seek out ewes, a lamb takes each trait from one of its parents, and the score
+comes from the glam lambs born (more for later generations, double for the
+season's trend) and the wool sold. Farmer Fergus comes out to shear full
+fleeces, the made-up sheep first, which takes the makeup off. The screen is
+80 x 25 multicolour characters (a multicolour pixel is square in 80 columns),
+the glyphs (`gen_gfx.py`, from ASCII pictures; `gfx.h` is in the repository)
+in a character set in bank 4, and the whole screen is built in two buffers
+and copied out by DMA each frame. After a minute on the title page the
+computer plays a season by itself.
+
+The music is a nine-voice band on SIDs 2-4, written as tune45 text
+(`music.txt`): in the field the farm band plays Old MacDonald, Baa, Baa,
+Black Sheep and Mary Had a Little Lamb in turn, and the salon has a slow bump
+and grind. The text was written from the game's own band, which built the
+bass, chords and drums from one-bar patterns, and plays as it did, frame for
+frame: the trombone's slides into a note are glides (`g4^3`), the kick drum's
+fall is a fast glide down, and a tick is a frame, so the lead lets go a
+frame before each note. As data the band is 4.4 KB, more than the game has
+room for, so `tune45 convert --bin --load-at 0` writes it as `GLAMMUSIC`, which
+the game loads from the disk into bank 5 at start (`cbm_setbnk`, `cbm_setnam`,
+`cbm_setlfs`, `cbm_load` from `<cbm.h>`) and plays from there
+(`tune_play_far`). Coming back from the salon, the farm songs carry on where
+they were: the game keeps the tune's position (`tune_ticks` modulo the
+`TUNE_FARM_TICKS` of a time through) and `tune_seek`s to it. The sound effects
+(bleats, a birth's arpeggio, clicks) stay on SID 1 with `<audio_sid.h>`.
+Without the music file the game plays silently. Keys: cursor keys / WASD or
+a joystick to walk, SPACE / RETURN / fire to grab, style and let go, M music
+on / off, RUN/STOP quit. `make` builds `glamlambs.d81` (the program and the
+music), `make demo` a self-playing version, `make music` plays the band on
+the PC.
+
+![glamlambs](images/glamlambs.png)
+
 ### tunes
 
 [Source](https://github.com/CTalkobt/M65Compiler/tree/main/examples/c/tunes) —

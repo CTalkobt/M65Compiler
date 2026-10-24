@@ -198,6 +198,22 @@ build_example "$EXAMPLES/c/tunes"
 make -C "$EXAMPLES/c/tunes" check >/dev/null 2>&1
 test_text "tunes" "$EXAMPLES/c/tunes/tunescheck.prg" "TUNES CHECK OK: 30 TICKS" 20
 
+build_example "$EXAMPLES/c/glamlambs"
+test_text_disk "glamlambs" "$EXAMPLES/c/glamlambs/glamlambs.prg" "$EXAMPLES/c/glamlambs/glamlambs.d81" "SHEEP MAKEOVER GAME" 15
+# the self-playing build: a season in the field; its music loaded from the
+# disk into bank 5 and playing (the demo writes its state to $C0F0-$C0F3)
+make -C "$EXAMPLES/c/glamlambs" demo >/dev/null 2>&1
+test_text_disk "glamlambs demo" "$EXAMPLES/c/glamlambs/glamdemo.prg" "$EXAMPLES/c/glamlambs/glamdemo.d81" "SCORE" 15
+rm -f "$BUILDDIR/glamdemo.mem"
+timeout 15 $XEMU -headless -besure -sleepless -prgmode 65 -prgexit -dumpmem "$BUILDDIR/glamdemo.mem" \
+    -8 "$PWD/$EXAMPLES/c/glamlambs/glamdemo.d81" -prg "$EXAMPLES/c/glamlambs/glamdemo.prg" </dev/null >/dev/null 2>&1
+if [ -f "$BUILDDIR/glamdemo.mem" ] && python3 - "$BUILDDIR/glamdemo.mem" <<'PY'
+import sys
+m = open(sys.argv[1], 'rb').read()
+sys.exit(0 if m[0xC0F0] == 1 and m[0xC0F1] in (1, 2) and m[0xC0F2] | m[0xC0F3] else 1)
+PY
+then pass "glamlambs music"; else fail "glamlambs music" "the music did not load or play"; fi
+
 build_example "$EXAMPLES/c/forth"
 test_text "forth" "$EXAMPLES/c/forth/forth.prg" "COUNT 0 1 2 3 4" 10
 # the Forth test build: 21 lines of Forth and their output

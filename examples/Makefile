@@ -28,6 +28,7 @@ SUBDIRS = \
 	c/hanger \
 	c/fcm_graphics \
 	c/tunes \
+	c/glamlambs \
 	c/overlays \
 	c/mapped_overlays \
 	c/far_functions \

@@ -5,6 +5,8 @@ c/rogue/rogue.prg                    rogue
 c/hanger/hanger.prg                  hanger
 c/fcm_graphics/fcm_graphics.prg      fcm graphics
 c/tunes/tunes.prg                    tunes
+c/glamlambs/glamlambs.prg            glamlambs
+c/glamlambs/glammusic.bin            glammusic
 c/mandelbrot/mandelbrot.prg          mandelbrot
 c/musicgen/musicgen.prg              musicgen
 c/calc_graph/calc_graph.prg          calc graph

@@ -4,6 +4,23 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Examples: Glam Lambs, with its band in tune45; glides and tune_seek
+
+- New `examples/c/glamlambs`: Glam Lambs, a sheep makeover game. Its
+  nine-voice band (SIDs 2-4) is tune45 text (`music.txt`), written from the
+  game's own pattern-built band and checked against it frame by frame; the
+  music (4.4 KB) is a file on the game's disk, loaded into bank 5 at start
+  and played with `tune_play_far`. On the examples disk and in its menu
+  (which also gets hanger, tunes and fcm graphics).
+- `<audio_tune.h>`: glides (stream `$84 s k`, tune45 `note^s[,k]`: a note
+  starts s semitones off and moves 1/2^k of the way a frame to its pitch)
+  and `tune_seek(ticks)` (silently on, to where a tune was); tune45
+  `convert` gives `TUNE_<NAME>_TICKS`, and `--bin --load-at <addr>` a file
+  KERNAL LOAD can load.
+- `<cbm.h>`: `cbm_setbnk` and `cbm_load` (a file into any chip-RAM bank).
+- `doc/bin/tune45.md` was never committed (`.gitignore`'s `bin/` matched
+  `doc/bin/`, now excepted); restored, so `make man` builds `tune45.1`.
+
 ### Library and tune45: a tune (song) player, and a tool for its music (Issue #314)
 
 - `<audio_tune.h>` (`lib/stdlib_asm/tune.s45`): pre-composed music played
