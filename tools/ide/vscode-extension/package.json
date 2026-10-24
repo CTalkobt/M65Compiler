@@ -1,7 +1,7 @@
 {
   "name": "mega65-cc45-ca45",
   "displayName": "MEGA65 CC45/CA45 Compiler",
-  "description": "Language support for MEGA65 C compiler (cc45) and assembler (ca45)",
+  "description": "Language support and a debugger for the MEGA65 C compiler (cc45) and assembler (ca45)",
   "version": "0.1.0",
   "type": "module",
   "publisher": "m65",
@@ -16,7 +16,8 @@
   },
   "categories": [
     "Programming Languages",
-    "Linters"
+    "Linters",
+    "Debuggers"
   ],
   "main": "./dist/extension.js",
   "scripts": {
@@ -28,7 +29,9 @@
   "activationEvents": [
     "onLanguage:c",
     "onLanguage:h",
-    "onLanguage:m65-asm"
+    "onLanguage:m65-asm",
+    "onDebugResolve:cc45",
+    "onDebugDynamicConfigurations:cc45"
   ],
   "contributes": {
     "languages": [
@@ -99,8 +102,94 @@
               "build"
             ],
             "description": "Glob patterns to exclude from workspace indexing"
+          },
+          "m65.dbg45Path": {
+            "type": "string",
+            "default": "${workspaceFolder}/bin/dbg45",
+            "description": "Path to dbg45, the debugger (it runs the program in xemu)"
           }
         }
+      }
+    ],
+    "breakpoints": [
+      {
+        "language": "c"
+      },
+      {
+        "language": "m65-asm"
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "cc45",
+        "label": "MEGA65 (cc45 in xemu)",
+        "languages": [
+          "c",
+          "m65-asm"
+        ],
+        "configurationAttributes": {
+          "launch": {
+            "required": [
+              "program"
+            ],
+            "properties": {
+              "program": {
+                "type": "string",
+                "description": "The program (.prg) to debug; its debug file (.dbg) next to it: build with cc45 -g / ln45 -g",
+                "default": "${workspaceFolder}/program.prg"
+              },
+              "xemu": {
+                "type": "string",
+                "description": "The xemu to run (it needs the monitor's breakpoint list: CTalkobt/xemu, branch feat/monitor-breakpoints); default xemu-xmega65"
+              },
+              "xemuArgs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "More of xemu's options (a disk: [\"-8\", \"disk.d81\"])",
+                "default": []
+              },
+              "headless": {
+                "type": "boolean",
+                "description": "Run xemu without a window",
+                "default": false
+              },
+              "fast": {
+                "type": "boolean",
+                "description": "Run xemu as fast as it can (-sleepless)",
+                "default": false
+              },
+              "stopOnEntry": {
+                "type": "boolean",
+                "description": "Stop at main",
+                "default": true
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "cc45",
+            "request": "launch",
+            "name": "Debug in xemu",
+            "program": "${workspaceFolder}/program.prg",
+            "stopOnEntry": true
+          }
+        ],
+        "configurationSnippets": [
+          {
+            "label": "MEGA65: debug a cc45 program in xemu",
+            "description": "dbg45 runs the program in xemu",
+            "body": {
+              "type": "cc45",
+              "request": "launch",
+              "name": "Debug in xemu",
+              "program": "^\"\\${workspaceFolder}/${1:program}.prg\"",
+              "stopOnEntry": true
+            }
+          }
+        ]
       }
     ]
   },

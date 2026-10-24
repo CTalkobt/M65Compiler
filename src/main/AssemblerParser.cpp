@@ -1250,6 +1250,9 @@ void AssemblerParser::pass1() {
                     currentSourceLine_ = (int)evaluateExpressionAt((int)pos, stmt->scopePrefix);
                     while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
                 }
+                // (the line it sets: the line map gives it the next instruction's address)
+                stmt->sourceFile = currentSourceFile_;
+                stmt->sourceLine = currentSourceLine_;
                 stmt->size = 0;
             }
             else if (stmt->dir.name == "array") {
@@ -2557,6 +2560,7 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
         }
         overallChanged = false;
         lineMap_.clear();  // rebuild each iteration; final iteration's map is kept
+        std::vector<std::pair<std::string, int>> pendingLocs;   // .loc lines not yet at an instruction
         bool optimizerMadeChanges = optimize();
         if (optimizerMadeChanges) overallChanged = true;
         std::deque<std::unique_ptr<Statement>> newStatements;
@@ -2673,8 +2677,20 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
             if (s->size != oS) {
                 addressRecalculationMadeChanges = true;
             }
-            // Build source-level line map (only on last iteration)
+            // Build source-level line map (only on last iteration). The lines
+            // of .loc directives with no code of their own before an
+            // instruction (a function's opening line, a statement whose code
+            // is an inlined call's) start at its address too, in order
+            if (s->type == Statement::DIRECTIVE && s->dir.name == "loc" && s->sourceLine > 0)
+                pendingLocs.push_back({s->sourceFile, s->sourceLine});
             if (!s->sourceFile.empty() && s->sourceLine > 0 && s->size > 0 && !s->deleted) {
+                for (const auto& [file, line] : pendingLocs) {
+                    if (file == s->sourceFile && line == s->sourceLine) continue;
+                    if (!lineMap_.empty() && lineMap_.back().address == s->address && lineMap_.back().line == line &&
+                        lineMap_.back().file == file) continue;
+                    lineMap_.push_back({s->address, file, line, s->segmentName});
+                }
+                pendingLocs.clear();
                 if (lineMap_.empty() || lineMap_.back().address != s->address
                     || lineMap_.back().line != s->sourceLine
                     || lineMap_.back().file != s->sourceFile) {

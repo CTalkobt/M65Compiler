@@ -1,6 +1,7 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
+#include "MiniJson.hpp"
 #include <vector>
 #include <string>
 #include <iomanip>
@@ -556,73 +557,6 @@ struct SourceLineEntry {
 };
 using SourceLineMap = std::map<uint32_t, SourceLineEntry>;
 
-// A JSON value (the debug file's): enough of JSON for it
-struct Json {
-    enum Kind { NUL, NUM, STR, ARR, OBJ } kind = NUL;
-    double num = 0;
-    std::string str;
-    std::vector<Json> arr;
-    std::vector<std::pair<std::string, Json>> obj;
-    const Json* at(const std::string& k) const {
-        for (const auto& [n, v] : obj) if (n == k) return &v;
-        return nullptr;
-    }
-};
-
-static bool parseJson(const std::string& s, size_t& p, Json& out) {
-    auto ws = [&] { while (p < s.size() && isspace((unsigned char)s[p])) p++; };
-    ws();
-    if (p >= s.size()) return false;
-    char c = s[p];
-    if (c == '"') {
-        out.kind = Json::STR;
-        for (p++; p < s.size() && s[p] != '"'; p++) {
-            if (s[p] == '\\' && p + 1 < s.size()) {
-                p++;
-                if (s[p] == 'u' && p + 4 < s.size()) { out.str += (char)std::stoi(s.substr(p + 1, 4), nullptr, 16); p += 4; }
-                else out.str += s[p];
-            } else out.str += s[p];
-        }
-        p++;
-        return true;
-    }
-    if (c == '[' || c == '{') {
-        bool isObj = c == '{';
-        out.kind = isObj ? Json::OBJ : Json::ARR;
-        p++;
-        ws();
-        if (p < s.size() && s[p] == (isObj ? '}' : ']')) { p++; return true; }
-        for (;;) {
-            std::string key;
-            if (isObj) {
-                Json k;
-                if (!parseJson(s, p, k) || k.kind != Json::STR) return false;
-                key = k.str;
-                ws();
-                if (p >= s.size() || s[p] != ':') return false;
-                p++;
-            }
-            Json v;
-            if (!parseJson(s, p, v)) return false;
-            if (isObj) out.obj.push_back({key, v}); else out.arr.push_back(v);
-            ws();
-            if (p < s.size() && s[p] == ',') { p++; continue; }
-            if (p < s.size() && s[p] == (isObj ? '}' : ']')) { p++; return true; }
-            return false;
-        }
-    }
-    if (s.compare(p, 4, "null") == 0) { p += 4; out.kind = Json::NUL; return true; }
-    if (s.compare(p, 4, "true") == 0) { p += 4; out.kind = Json::NUM; out.num = 1; return true; }
-    if (s.compare(p, 5, "false") == 0) { p += 5; out.kind = Json::NUM; out.num = 0; return true; }
-    size_t e = p;
-    while (e < s.size() && (isdigit((unsigned char)s[e]) || s[e] == '-' || s[e] == '.' || s[e] == 'e' || s[e] == 'E' || s[e] == '+')) e++;
-    if (e == p) return false;
-    out.kind = Json::NUM;
-    out.num = std::stod(s.substr(p, e - p));
-    p = e;
-    return true;
-}
-
 // The resident functions (as symbols) and source lines of ln45 -g's debug
 // file (<program>.dbg, #202): what the map gives, when there is no map
 static bool loadDebugFile(const std::string& path, std::map<uint32_t, std::string>& symbols,
@@ -709,9 +643,8 @@ static bool loadDebugFile(const std::string& path, std::map<uint32_t, std::strin
     std::stringstream ss;
     ss << in.rdbuf();
     std::string text = ss.str();
-    size_t p = 0;
     Json root;
-    if (!parseJson(text, p, root) || root.kind != Json::OBJ) {
+    if (!Json::parse(text, root) || root.kind != Json::OBJ) {
         std::cerr << "objdump45: " << path << ": not a debug file" << std::endl;
         return false;
     }
