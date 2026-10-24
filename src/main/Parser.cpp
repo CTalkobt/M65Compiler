@@ -170,20 +170,18 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
             bool isUnion = peek().type == TokenType::UNION;
             bool isEnum = peek().type == TokenType::ENUM;
             // Check if it's a definition: struct/union/enum name { ... };
+            // an enum's definition (enum [E] { ... } [var];) or declaration
+            // (enum E;); anything else is a declaration of that type, a
+            // variable or a function (enum E shade; enum E *p; enum E f(void);),
+            // which the general path below parses (#337)
+            bool enumDef = false;
             if (isEnum) {
-                // Check if this is enum as function return type: enum E foo(...)
-                // vs enum definition: enum E { ... };
                 size_t eLook = pos + 1; // after 'enum'
-                if (eLook < tokens.size() && tokens[eLook].type == TokenType::IDENTIFIER) {
-                    eLook++; // after enum name
-                    if (eLook < tokens.size() && tokens[eLook].type == TokenType::IDENTIFIER) {
-                        // enum Name FuncName — function with enum return
-                        auto decl = parseFunctionDeclaration();
-                        flushPending(*unit);
-                        unit->topLevelDecls.push_back(std::move(decl));
-                        continue;
-                    }
-                }
+                if (eLook < tokens.size() && tokens[eLook].type == TokenType::IDENTIFIER) eLook++;
+                enumDef = eLook < tokens.size() &&
+                          (tokens[eLook].type == TokenType::OPEN_BRACE || tokens[eLook].type == TokenType::SEMICOLON);
+            }
+            if (enumDef) {
                 advance(); // enum
                 auto def = parseEnumDefinition();
                 while (tryParseAttribute()) {}
@@ -205,7 +203,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                 unit->topLevelDecls.push_back(std::move(def));
                 continue;
             }
-            {
+            if (!isEnum) {
                 // Check for struct/union forward declaration: struct Name;
                 size_t sLook = pos + 1;
                 while (sLook < tokens.size()) {
