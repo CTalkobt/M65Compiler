@@ -181,9 +181,11 @@ fi
 
 build_example "$EXAMPLES/c/hanger"
 test_text "hanger" "$EXAMPLES/c/hanger/hanger.prg" "HANGMAN FOR THE MEGA65" 10
-# the self-playing build guesses its way through the levels
+# the self-playing build guesses its way through the levels; xemu runs
+# -sleepless, so in 20 s it may have lost the game and be back at the title,
+# which then shows the best score (only after a game)
 make -C "$EXAMPLES/c/hanger" demo >/dev/null 2>&1
-test_text "hanger demo" "$EXAMPLES/c/hanger/hangerdemo.prg" "LEVEL [1-6] OF 6" 20
+test_text "hanger demo" "$EXAMPLES/c/hanger/hangerdemo.prg" "LEVEL [1-6] OF 6\|BEST SCORE [1-9]" 20
 
 build_example "$EXAMPLES/c/fcm_graphics"
 # the test build: 100 frames of palette cycling, then fcm_disable and a report
