@@ -4,7 +4,22 @@ import { LanguageClient, LanguageClientOptions, ServerOptions, TransportKind } f
 
 let client: LanguageClient;
 
+// The "cc45" debug type: dbg45 --dap (the Debug Adapter Protocol on its
+// stdin/stdout), which runs the program in xemu (#202)
+class Dbg45AdapterFactory implements vscode.DebugAdapterDescriptorFactory {
+  createDebugAdapterDescriptor(session: vscode.DebugSession): vscode.ProviderResult<vscode.DebugAdapterDescriptor> {
+    const folder = session.workspaceFolder ?? vscode.workspace.workspaceFolders?.[0];
+    const configured = vscode.workspace.getConfiguration('m65').get<string>('dbg45Path', '${workspaceFolder}/bin/dbg45');
+    const dbg45 = configured.replace('${workspaceFolder}', folder ? folder.uri.fsPath : '');
+    return new vscode.DebugAdapterExecutable(dbg45, ['--dap'], { cwd: folder?.uri.fsPath });
+  }
+}
+
 export async function activate(context: vscode.ExtensionContext) {
+  context.subscriptions.push(
+    vscode.debug.registerDebugAdapterDescriptorFactory('cc45', new Dbg45AdapterFactory())
+  );
+
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
   if (!workspaceFolder) {
     vscode.window.showWarningMessage(

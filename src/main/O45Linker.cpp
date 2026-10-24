@@ -3586,8 +3586,8 @@ void O45Linker::mergeLineMaps() {
             mergedLineMap_.push_back({addr, file, (int)li.line, input.ovlAt(li.textOffset)});
         }
     }
-    // Sort by address
-    std::sort(mergedLineMap_.begin(), mergedLineMap_.end(),
+    // Sort by address (lines starting at one address keep their order)
+    std::stable_sort(mergedLineMap_.begin(), mergedLineMap_.end(),
               [](const MergedLineEntry& a, const MergedLineEntry& b) { return a.address < b.address; });
 }
 
@@ -3787,6 +3787,16 @@ void O45Linker::writeDebugFile(std::ostream& out, const std::string& program) co
         }
     }
     out << "  \"functions\": [" << funcs.str() << "\n  ],\n";
+    // the program's global symbols (the linker's own and the objects'
+    // exports; not the cc45.* markers): __exit, __stack_top, plain labels
+    out << "  \"symbols\": {";
+    first = true;
+    for (const auto& [name, addr] : globalSymbols_) {
+        if (name.rfind("cc45.", 0) == 0) continue;
+        out << (first ? "\n    " : ",\n    ") << esc(name) << ": " << addr;
+        first = false;
+    }
+    out << "\n  },\n";
     out << "  \"variables\": [" << vars.str() << "\n  ]\n}\n";
 }
 

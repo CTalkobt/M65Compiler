@@ -13,6 +13,7 @@ Language Server Protocol (LSP) server and VS Code extension for the MEGA65 C com
 
 - **`vscode-extension/`** — VS Code client extension
   - Bundles the LSP server
+  - Contributes the `cc45` debug type: `dbg45 --dap` runs the program in xemu (breakpoints, stepping, the call stack, variables; [dbg45](../../doc/bin/dbg45.md))
   - Registers language support for `.c`, `.h`, `.s45`, `.asm` files
   - Contributes syntax highlighting, configuration, command palette
 
@@ -42,7 +43,7 @@ Set breakpoints in the extension or LSP server code. The debugger will pause and
 - No header-only diagnostics (`.h` files alone)
 - No multi-error collection (stops at first error)
 - Symbol navigation is ctags-style (no semantic analysis)
-- No debugger/DAP integration (issue #200)
+- The debugger (`cc45` debug type) needs `dbg45` (`m65.dbg45Path`) and an xemu with the monitor's breakpoint list ([doc/bin/dbg45.md](../../doc/bin/dbg45.md))
 - `#include` in assembly is broken in ca45 (known compiler bug)
 
 ## Notes

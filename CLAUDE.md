@@ -29,6 +29,10 @@ dependencies (SQLite and FUSE only for disk45):
 - **cvt_asm** — assembler source converter between 7 dialects
 - **tune45** — music for the tune player (`<audio_tune.h>`): text (pfest's format) or MIDI → data;
   plays on the PC (reSIDfp, `third_party/libresidfp`), in xemu or on a MEGA65; composes (`create`)
+- **dbg45** — source-level debugger in xemu (#202): the program's debug file (`cc45 -g` / `ln45 -g`:
+  `<prog>.dbg`, JSON), breakpoints by line / function, stepping, the stack, variables by type; drives
+  xemu's monitor socket (needs its `k` breakpoint list: CTalkobt/xemu `feat/monitor-breakpoints`);
+  `--dap` for VS Code (`tools/ide/vscode-extension`, debug type `cc45`)
 
 ## Architecture
 

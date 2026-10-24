@@ -2583,6 +2583,20 @@ for dfmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: dbg45, the debugger (#202): a command-line session, the Debug Adapter
+# Protocol (test_dbg45.sh). It needs an xemu with the monitor's breakpoint
+# list ($DBG45_XEMU, else xemu-xmega65): without one it is skipped
+for dbmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r dbname dbflags <<< "$dbmode"
+    echo "Testing dbg45 ($dbname)..."
+    bash src/test/test_dbg45.sh $dbflags
+    case $? in
+        0) echo "SUCCESS: dbg45 ($dbname)"; passed=$((passed + 1)) ;;
+        2) ;;   # (SKIP printed)
+        *) echo "FAIL: dbg45 ($dbname)"; failed=$((failed + 1)) ;;
+    esac
+done
+
 # Test: ca45 -c relocations: a difference of two labels is a constant
 # (#336), "zp" segment labels are bytes of the program's base page (#335)
 for crmode in "zp|" "stack|-fno-zpcall"; do

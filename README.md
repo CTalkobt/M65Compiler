@@ -9,6 +9,7 @@ A modern development toolchain for the MEGA65 (45GS02) home computer. It consist
 - **ln45** — Linker (links `.o45` objects and `.lib` archives into flat binaries or PRG executables)
 - **ar45** — Archiver (creates `.lib` static library archives from `.o45` objects)
 - **tune45** — Music for the tune player: text (or MIDI) to data, play on the PC / in xemu / on a MEGA65, compose
+- **dbg45** — Source-level debugger: a cc45 program in xemu by its C source (breakpoints, stepping, the stack, variables); VS Code through `--dap`
 - **nm45** — Symbol lister for `.o45` / `.o65` object files (and ln45's `.ovl` overlay files)
 - **objdump45** — Object file inspector and 45GS02 disassembler (objects, PRGs, binaries, `.ovl` files)
 - **cp45** — C preprocessor (standalone)
@@ -188,6 +189,7 @@ For detailed information on each tool, refer to:
 - [doc/bin/ln45.md](doc/bin/ln45.md) — Linker Usage and Reference
 - [doc/bin/ar45.md](doc/bin/ar45.md) — Archiver Usage and Reference
 - [doc/bin/tune45.md](doc/bin/tune45.md) — Tune Player Data, Playing, Composing, MIDI Import
+- [doc/bin/dbg45.md](doc/bin/dbg45.md) — Debugging in xemu: Commands, VS Code
 - [doc/bin/disk45.md](doc/bin/disk45.md) — Disk/Tape/Archive Image Utility
 - [doc/bin/basic45.md](doc/bin/basic45.md) — BASIC 65 Program Generator
 - [doc/bin/cvt_asm.md](doc/bin/cvt_asm.md) — Assembly Dialect Converter

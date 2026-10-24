@@ -4,6 +4,27 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### dbg45, a source-level debugger in xemu (#202, stage 3)
+
+- New tool `dbg45`: debugs a cc45 program by its C source in xemu, from
+  its debug file (`cc45 -g` / `ln45 -g`). gdb-like commands: run, start,
+  continue, next, step, finish, stepi, break (function, file:line, line,
+  `*ADDR`), delete, info breakpoints / locals / args / registers,
+  backtrace, frame / up / down, print (variables, `*e`, `&e`, `.`, `->`,
+  `[i]`), x, list; batch mode (`-ex`, `-x`, `--batch`) and `--timeout`.
+  Values by type: integers, PETSCII chars and strings, the CBM float,
+  pointers, arrays, structs and unions with bit-fields. `--dap` speaks the
+  Debug Adapter Protocol; the VS Code extension (`tools/ide`) adds the
+  `cc45` debug type (`m65.dbg45Path`). doc/bin/dbg45.md.
+- It drives xemu's monitor socket and needs its breakpoint list that stops
+  before the opcode (the `k` command, CTalkobt/xemu branch
+  `feat/monitor-breakpoints`). Tests `test_dbg45.sh` (from `test_xemu.sh`,
+  both conventions; skipped without such an xemu, `DBG45_XEMU`).
+- ca45 gives every `.loc` line that reaches an instruction an entry at its
+  address (a function's opening line, a statement whose code is an
+  inlined call's had none); ln45 keeps lines at one address in order. The
+  debug file lists the program's symbols.
+
 ### The program's debug file (#202, stage 2)
 
 - `ln45 -g` (and `cc45 -g` in a one-step build) writes `<program>.dbg`:
