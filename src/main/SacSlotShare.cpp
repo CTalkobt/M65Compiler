@@ -188,7 +188,7 @@ std::string shareSacSlots(const std::string& text) {
                 static const std::set<std::string> quiet = {
                     ".loc", ".var", ".func_flags", ".reg_clobbers", ".flag_clobbers", ".frame_size", ".zp_uses",
                     ".zp_clobbers", ".zp_release", ".global", ".extern", ".weak", ".local", ".bptop", ".bpindex", ".sac",
-                    ".param_sizes", ".zar"};
+                    ".param_sizes", ".zar", ".dbg_var", ".dbg_type"};
                 if (quiet.count(m)) continue;
                 nd.opaque = true;                      // data in the code, or anything else
                 nodes.push_back(nd);

@@ -68,6 +68,11 @@ struct O45File {
     };
     std::vector<std::string> lineFiles;   // file string table
     std::vector<LineInfo> lineInfos;
+    // Debug information (OPT_DEBUG_TYPES / OPT_DEBUG_VARS, #202), one text
+    // entry each: "struct NAME SIZE member@offset:type ..." (a long layout's
+    // continuation entries joined back) and "kind scope name type location"
+    std::vector<std::string> debugTypes;
+    std::vector<std::string> debugVars;
 
     // IR Metadata (Phase 47 - Extended .o45 format)
     uint8_t irMajorVersion = 0;          // 0 = no IR present

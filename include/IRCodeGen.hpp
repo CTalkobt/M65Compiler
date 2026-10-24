@@ -92,9 +92,11 @@ private:
     void emitStackCleanup(int frameSize);
 
     // Debug metadata emission
-    std::string formatDebugType(ir::Type type);
-    void emitDebugVariable(const std::string& functionName, const std::string& varName,
-                          int offset, ir::Type type, const std::string& scope);
+    void emitDebugVar(const std::string& kind, const std::string& scope, const std::string& name,
+                      const std::string& type, const std::string& loc);
+    std::string debugLocation(const ir::Function& fn, uint32_t vregId);
+    std::vector<std::string> pendingDebugVars_;   // a function's .dbg_var lines, until its endproc
+    void flushDebugVars();
 
     // SAC debug output emission (runtime AR buffer debugging)
     void emitSACDebugEnter(const std::string& funcName, int arSize);

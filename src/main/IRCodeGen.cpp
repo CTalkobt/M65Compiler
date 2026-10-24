@@ -873,32 +873,48 @@ void IRCodeGen::emitBlank() {
     out_ << "\n";
 }
 
-std::string IRCodeGen::formatDebugType(ir::Type type) {
-    // Convert IR type to debug metadata type identifier
-    switch (type) {
-        case ir::Type::VOID:  return "void";
-        case ir::Type::I8:    return "int8";
-        case ir::Type::I16:   return "int16";
-        case ir::Type::I32:   return "int32";
-        case ir::Type::I_N:   return "int_N";
-        case ir::Type::PTR:   return "ptr";
-        case ir::Type::F32:   return "float32";
-        default:              return "unknown";
-    }
+// Debug information (#202): a variable for ca45's OPT_DEBUG_VARS record:
+// kind (global / static / local / param), scope (its function's label, "-"),
+// C name, type descriptor, location
+// (written after the function's endproc, flushDebugVars: a directive inside
+// a proc would stand between instructions for ca45's optimiser passes)
+void IRCodeGen::emitDebugVar(const std::string& kind, const std::string& scope, const std::string& name,
+                             const std::string& type, const std::string& loc) {
+    pendingDebugVars_.push_back(".dbg_var \"" + kind + " " + scope + " " + name + " " + type + " " + loc + "\"");
 }
 
-void IRCodeGen::emitDebugVariable(const std::string& functionName, const std::string& varName,
-                                  int offset, ir::Type type, const std::string& scope) {
-    int size = ir::typeSize(type);
-    if (size < 2) size = 2;  // minimum 2 bytes for stack alignment
+void IRCodeGen::flushDebugVars() {
+    for (const auto& l : pendingDebugVars_) emit(l);
+    pendingDebugVars_.clear();
+}
 
-    std::string debugType = formatDebugType(type);
-    std::string metadata = ".debug_var: " + functionName + " " + varName +
-                          " offset=" + std::to_string(offset) +
-                          " size=" + std::to_string(size) +
-                          " type=" + debugType +
-                          " scope=" + scope;
-    emitComment(metadata);
+// Where a local's value lives for the debugger: its base-page block byte
+// (sym:<fn>__zar+n), a byte of the ZP register pool (zp:$xx, in the
+// program's base page), its static storage (sym:<fn>__local_N / __param_x,
+// which ca45 finds or not: an optimised-out local has none), a frame offset
+// (frame:n, from the frame pointer at $FD/$FE) or a register (reg:AX)
+std::string IRCodeGen::debugLocation(const ir::Function& fn, uint32_t vregId) {
+    auto z = zarVregs_.find(vregId);
+    if (z != zarVregs_.end())
+        return "sym:" + fn.name + "__zar+" + std::to_string(z->second - ZAR_START);
+    auto a = alloc_.getAlloc(vregId);
+    switch (a.loc) {
+        case VRegAllocator::IN_ZP: return "zp:$" + hex8((uint8_t)a.offset);
+        case VRegAllocator::IN_AX: return "reg:AX";
+        case VRegAllocator::IN_X:  return "reg:X";
+        case VRegAllocator::IN_Y:  return "reg:Y";
+        case VRegAllocator::IN_Z:  return "reg:Z";
+        case VRegAllocator::IN_FRAME:
+            // (fn__param_<name> / fn__local_<id>, as sacSymbol names them)
+            if (currentFunctionUseSAC_)
+                return "sym:" + fn.name + (vregId < fn.paramTypes.size()
+                    ? "__param_" + (vregId < fn.paramNames.size() && !fn.paramNames[vregId].empty()
+                                    ? fn.paramNames[vregId] : std::to_string(vregId))
+                    : "__local_" + std::to_string(vregId));
+            if (vregOffset_.count(vregId)) return "frame:" + std::to_string(vregOffset_.at(vregId));
+            return "none";
+    }
+    return "none";
 }
 
 // ============================================================================
@@ -2350,8 +2366,6 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
             }
             emitSplit(label);   // (after the .align: it becomes the section's alignment)
             emitLabel(label);
-            // Emit debug metadata for global variable
-            emitDebugVariable("@global", g.name, 0, g.type, "global");
             if (g.hasImage) {
                 // Byte image: plain bytes, address words and string text
                 int n = (int)g.initBytes.size();
@@ -2444,12 +2458,18 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
             }
             emitSplit(g.name);
             emitLabel(g.name);
-            // Emit debug metadata for global variable
-            emitDebugVariable("@global", g.name, 0, g.type, "global");
             emit(".res " + std::to_string(g.size > 0 ? g.size : ir::typeSize(g.type)));
         }
     }
     if (hasData || hasBss) emitBlank();
+
+    // Debug information (#202): the module's globals and statics, and the
+    // layouts of the structs and unions their types name
+    for (const auto& t : mod.debugTypes) emit(".dbg_type \"" + t + "\"");
+    for (const auto& d : mod.debugGlobals)
+        emitDebugVar(d.function.empty() ? (d.fileStatic ? "static" : "global") : "static",
+                     d.function.empty() ? "-" : d.function, d.name, d.type, "sym:" + d.symbol);
+    flushDebugVars();
 
     // Switch to code segment (only in reloc mode; PRG mode is linear)
     if (relocMode) {
@@ -2775,7 +2795,7 @@ std::string IRCodeGen::pruneDeadFlagRestores(const std::string& text) {
     auto parse = [](const std::string& l, std::string& mn) {
         size_t q = l.find_first_not_of(" \t");
         if (q == std::string::npos || l[q] == ';') return 0;                         // blank, comment
-        if (l.compare(q, 4, ".loc") == 0 || l.compare(q, 4, ".var") == 0) return 0;
+        if (l.compare(q, 4, ".loc") == 0 || l.compare(q, 4, ".var") == 0 || l.compare(q, 5, ".dbg_") == 0) return 0;
         if (l[q] == '.') return 2;                                                   // another directive
         if (l.find(':') != std::string::npos) return 3;                              // a label
         std::string body = l.substr(q);
@@ -2838,7 +2858,8 @@ std::string IRCodeGen::pruneDeadLdx(const std::string& text) {
             if (drop[j]) continue;
             const std::string& l = lines[j];
             size_t q = l.find_first_not_of(" \t");
-            if (q == std::string::npos || l[q] == ';' || l.compare(q, 4, ".loc") == 0) continue;
+            if (q == std::string::npos || l[q] == ';' || l.compare(q, 4, ".loc") == 0 ||
+                l.compare(q, 5, ".dbg_") == 0) continue;
             if (l[q] == '.' || l.find(':') != std::string::npos || l[q] == '@') break;   // a directive, a label
             std::string body = l.substr(q);
             size_t c = body.find(';');
@@ -2878,7 +2899,7 @@ std::string IRCodeGen::pruneDeadPoolStores(const std::string& text) {
                 }
                 std::transform(ln.mn.begin(), ln.mn.end(), ln.mn.begin(), ::tolower);
             } else if (p != std::string::npos && l[p] != ';' && l.compare(p, 4, ".var") != 0 &&
-                       l.compare(p, 4, ".loc") != 0) {
+                       l.compare(p, 4, ".loc") != 0 && l.compare(p, 5, ".dbg_") != 0) {
                 ln.mn = ".";   // a directive or a label line: any address in it counts as read
                 ln.operand = l.substr(p);
             }
@@ -3938,6 +3959,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             }
         }
         emit("endproc");
+        flushDebugVars();
         emitBlank();
         return;
     }
@@ -4615,15 +4637,24 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         }
     }
 
-    // Emit debug metadata for local variables
-    for (const auto& [name, vregId] : fn.localNames) {
-        bool isParam = paramNamesSet.count(name) > 0;
-        if (isParam) continue; // Skip parameters, they're handled separately
-
-        if (vregOffset_.count(vregId)) {
-            ir::Type varType = vregType_.count(vregId) ? vregType_[vregId] : ir::Type::I16;
-            emitDebugVariable("_" + fn.name, "@_l_" + name, vregOffset_[vregId], varType, "local");
-        }
+    // Debug information (#202): each local and parameter, where its value is
+    // (not the compiler's own: __static_link, __zp_<param>)
+    for (const auto& name : fn.localNamesOrder) {
+        auto it = fn.localNames.find(name);
+        if (it == fn.localNames.end() || paramNamesSet.count(name) || name.rfind("__", 0) == 0) continue;
+        auto ty = fn.debugTypes.find(name);
+        emitDebugVar("local", fn.name, name, ty != fn.debugTypes.end() ? ty->second : "u16",
+                     debugLocation(fn, it->second));
+    }
+    for (size_t i = 0; i < fn.paramTypes.size(); i++) {
+        if (i >= fn.paramNames.size() || fn.paramNames[i].empty()) continue;
+        // (a pointer parameter the optimiser moved to a ZP register: there)
+        auto it = fn.localNames.find("__zp_" + fn.paramNames[i]);
+        if (it == fn.localNames.end()) it = fn.localNames.find(fn.paramNames[i]);
+        if (it == fn.localNames.end()) continue;
+        auto ty = fn.debugTypes.find(fn.paramNames[i]);
+        emitDebugVar("param", fn.name, fn.paramNames[i], ty != fn.debugTypes.end() ? ty->second : "u16",
+                     debugLocation(fn, it->second));
     }
 
     // Param .var overrides
@@ -4660,40 +4691,6 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
                 ? fn.paramNames[i] : std::to_string(i);
             emit(".var @_p_" + pName + " = " + hex8(zpOff));
-            zpOff += ps;
-        }
-    }
-
-    // Emit debug metadata for parameters
-    if (useStackParams) {
-        // Stack convention: parameters on stack
-        // In SAC mode, no frame is pushed, so offset is 2 (just return address)
-        // In non-SAC mode, offset is 2 + frame size
-        int pOff = useSAC ? 2 : (localFrameSize + 2 + (savedCallerFP_ ? 2 : 0));
-        for (size_t i = 0; i < fn.paramTypes.size(); i++) {
-            if (fn.isRegparm && i == 0) continue;  // in A/A:X, not on the stack
-            int ps = ir::typeSize(fn.paramTypes[i]);
-            if (ps < 2) ps = 2;
-            std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
-                ? fn.paramNames[i] : std::to_string(i);
-            emitDebugVariable("_" + fn.name, "@_p_" + pName, pOff, fn.paramTypes[i], "parameter");
-            pOff += ps;
-        }
-    } else {
-        // ZP call convention: parameters in zero page
-        auto hex8 = [](uint32_t val) {
-            std::stringstream ss;
-            ss << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (val & 0xFF);
-            return ss.str();
-        };
-        int zpOff = (int)zeroPageStart_ + 8;
-        for (size_t i = 0; i < fn.paramTypes.size(); i++) {
-            int ps = ir::typeSize(fn.paramTypes[i]);
-            if (ps < 2) ps = 2;
-            std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
-                ? fn.paramNames[i] : std::to_string(i);
-            // Store ZP address as offset for metadata (0xZZ format gets parsed as offset)
-            emitDebugVariable("_" + fn.name, "@_p_" + pName, zpOff, fn.paramTypes[i], "parameter");
             zpOff += ps;
         }
     }
@@ -5001,6 +4998,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
 
     if (fn.noOptimize) emit(".noopt_end");
     emit("endproc");
+    flushDebugVars();
     emitBlank();
 
     // Phase 78: Finalize SMC metadata for this function

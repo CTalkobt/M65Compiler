@@ -286,6 +286,61 @@ void IRBuilder::generate(TranslationUnit& unit) {
             module_.externs.push_back(name);
         }
     }
+    buildDebugTypes();
+}
+
+// A debug type descriptor (#202): [N] an array of N, * a pointer, then the
+// base type: char (plain char: unsigned in cc45), u8 s8 u16 s16 u32 s32 u64
+// s64 (an integer by size and signedness), bool, f40 (the CBM 5-byte float),
+// void, struct:NAME / union:NAME (layouts in .dbg_type)
+std::string IRBuilder::debugType(const std::string& type, int ptrLevel, const std::vector<int>& dims, bool isSigned) {
+    std::string out;
+    for (int d : dims) out += "[" + std::to_string(d) + "]";
+    out += std::string((size_t)std::max(0, ptrLevel), '*');
+    std::string t = type;
+    if (t.rfind("const ", 0) == 0) t = t.substr(6);
+    if (const IRStructInfo* s = structOf(t)) {
+        debugStructs_.insert(s->name);
+        return out + (s->isUnion ? "union:" : "struct:") + getAggregateName(s->name);
+    }
+    if (t == "void") return out + "void";
+    if (t == "_Bool" || t == "bool") return out + "bool";
+    if (t == "float" || t == "double" || t == "long double") return out + "f40";
+    if (t == "char" && !isSigned) return out + "char";
+    int size = ptrLevel > 0 ? getTypeSize(t, 0) : getTypeSize(t, 0);
+    if (size == 1 || size == 2 || size == 4 || size == 8 || size == 16)
+        return out + (isSigned ? "s" : "u") + std::to_string(size * 8);
+    return out + "[" + std::to_string(std::max(size, 1)) + "]u8";
+}
+
+// The layouts of the structs and unions the debug types name (and those
+// their members name): "struct NAME SIZE member@offset:type ..." (a
+// bit-field member@offset.bit.width:type)
+void IRBuilder::buildDebugTypes() {
+    std::set<std::string> done;
+    std::vector<std::string> todo(debugStructs_.begin(), debugStructs_.end());
+    while (!todo.empty()) {
+        std::string name = todo.back();
+        todo.pop_back();
+        if (!done.insert(name).second) continue;
+        auto it = structs_.find(name);
+        if (it == structs_.end()) continue;
+        const IRStructInfo& s = it->second;
+        std::string line = std::string(s.isUnion ? "union " : "struct ") + getAggregateName(s.name) + " " +
+                           std::to_string(s.totalSize);
+        for (const auto& m : s.memberOrder) {
+            auto mi = s.members.find(m);
+            if (mi == s.members.end()) continue;
+            const IRMemberInfo& info = mi->second;
+            std::set<std::string> before = debugStructs_;
+            std::string mt = debugType(info.type, info.pointerLevel, info.arrayDims, info.isSigned);
+            for (const auto& n : debugStructs_) if (!before.count(n)) todo.push_back(n);
+            line += " " + m + "@" + std::to_string(info.offset);
+            if (info.bitWidth > 0) line += "." + std::to_string(info.bitOffset) + "." + std::to_string(info.bitWidth);
+            line += ":" + mt;
+        }
+        module_.debugTypes.push_back(line);
+    }
 }
 
 
@@ -1748,7 +1803,11 @@ void IRBuilder::visit(FunctionDeclaration& node) {
             localDeclLocs_[p.name].column = p.column;
             if (!p.sourceFile.empty()) localDeclLocs_[p.name].file = p.sourceFile;
         }
-        if (currentFunc_) currentFunc_->localNames[p.name] = vreg.vregId;
+        if (currentFunc_) {
+            currentFunc_->localNames[p.name] = vreg.vregId;
+            // (a struct passed by copy: the parameter holds the copy's address)
+            currentFunc_->debugTypes[p.name] = (byCopy ? "&" : "") + debugType(p.type, p.pointerLevel, {}, p.isSigned);
+        }
         localTypes_[p.name] = pt;
         // Phase 102: Resolve typedef to struct name for parameter types
         std::string resolvedTypeName = p.type;
@@ -4120,6 +4179,8 @@ void IRBuilder::visit(VariableDeclaration& node) {
         recordGlobalType();
         addVtableWords(gv, node.type, node.pointerLevel, node.arrayDims);
         module_.globals.push_back(gv);
+        module_.debugGlobals.push_back({node.name, gv.name,
+            debugType(node.type, node.pointerLevel, node.arrayDims, node.isSigned), "", node.isStatic});
         return;
     }
 
@@ -4183,6 +4244,8 @@ void IRBuilder::visit(VariableDeclaration& node) {
 
         addVtableWords(gv, node.type, node.pointerLevel, node.arrayDims);
         module_.globals.push_back(gv);
+        module_.debugGlobals.push_back({node.name, globalName,
+            debugType(node.type, node.pointerLevel, node.arrayDims, node.isSigned), currentFunc_->name, true});
 
         // Store mapping for scope lookup
         locals_[node.name] = ir::Operand::global(globalName);
@@ -4219,6 +4282,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
     if (currentFunc_) {
         currentFunc_->localNames[node.name] = vreg.vregId;
         currentFunc_->localNamesOrder.push_back(node.name);
+        currentFunc_->debugTypes[node.name] = debugType(node.type, node.pointerLevel, node.arrayDims, node.isSigned);
         if (node.isRegister) {
             currentFunc_->registerVregs.insert(vreg.vregId);
         }
@@ -8059,6 +8123,7 @@ void IRBuilder::visit(RepeatStatement& node) {
         if (currentFunc_) {
             currentFunc_->localNames[node.varName] = vreg.vregId;
             currentFunc_->localSlotVregs.insert(vreg.vregId);
+            currentFunc_->debugTypes[node.varName] = debugType(node.varType, 0, {}, node.varSigned);
         }
 
         for (int i = 1; i <= node.count; i++) {

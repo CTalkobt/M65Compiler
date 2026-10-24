@@ -1,4 +1,5 @@
 #include "O45Reader.hpp"
+#include <sstream>
 #include <cstring>
 
 static uint16_t readU16(const uint8_t* p) { return p[0] | (p[1] << 8); }
@@ -141,6 +142,26 @@ bool O45Reader::read(const std::vector<uint8_t>& data, O45File& out, std::string
             while (nameEnd < opt.data.size() && opt.data[nameEnd] != 0) nameEnd++;
             sa.name.assign(opt.data.begin() + nameStart, opt.data.begin() + nameEnd);
             out.segAttrs.push_back(sa);
+        }
+
+        // Debug information (#202): NUL-terminated text entries; a "+ NAME
+        // members..." type entry continues the layout of NAME
+        if (opt.type == OPT_DEBUG_TYPES || opt.type == OPT_DEBUG_VARS) {
+            std::string e;
+            for (uint8_t c : opt.data) {
+                if (c) { e += (char)c; continue; }
+                if (opt.type == OPT_DEBUG_VARS) out.debugVars.push_back(e);
+                else if (e.rfind("+ ", 0) == 0) {
+                    std::string name = e.substr(2, e.find(' ', 2) - 2), rest = e.substr(2 + name.size());
+                    for (auto it = out.debugTypes.rbegin(); it != out.debugTypes.rend(); ++it) {
+                        std::istringstream ws(*it);
+                        std::string kind, n;
+                        ws >> kind >> n;
+                        if (n == name) { *it += rest; break; }
+                    }
+                } else out.debugTypes.push_back(e);
+                e.clear();
+            }
         }
 
         // Parse OPT_LINEINFO into structured line info

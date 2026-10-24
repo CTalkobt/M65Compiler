@@ -4,6 +4,21 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Debug information in objects (#202, stage 1)
+
+- cc45 describes every global, static, local and parameter for a debugger:
+  its C type (integers by size and signedness, `char`, `bool`, `f40`,
+  pointers, arrays, structs and unions with their layouts and bit-fields)
+  and where its value lives (static storage, a base-page block byte, a ZP
+  register, a frame offset, registers, or none when optimised away). The
+  `; .debug_var` comments (wrong function names, struct types, missing
+  locals) are replaced by `.dbg_var` / `.dbg_type` directives, which ca45
+  stores in two new object records, `OPT_DEBUG_VARS` and `OPT_DEBUG_TYPES`
+  (lib45.md 1.12), resolving locations to the object's segments; the code
+  is unchanged (the directives stay outside functions: the static-storage
+  sharing and ZP passes skip them). `objdump45 -g` shows an object's debug
+  information. Test `src/test/test_debug_info.sh`.
+
 ### ca45 / ln45: label differences and the zp segment in objects (#336, #335)
 
 - A difference of two labels of one segment (`#<(blk_end-blk)`, `.byte`,
