@@ -178,7 +178,10 @@ to 182, are copied into a character set in bank 4 with `dma_copy_far` when it
 starts. Each stage of the drawing is stored as the cells it changes. The
 generated `gfx.h` and `words.h` are in the repository, so the example builds
 without Python (`make gfx` remakes them). The screen is built in two buffers
-and copied out by DMA each frame. Untried letters show in the alphabet and
+and copied out by DMA each frame. The sounds (a letter right or wrong, a
+word won or lost) are in `sounds.txt`, played by the library's tune player
+(`<audio_tune.h>`; `tune45 convert` makes `sounds.c`, `make sounds` plays them
+on the PC). Untried letters show in the alphabet and
 tried ones become dots; the wrong letters are listed by the miss count, so
 nothing depends on colour alone. Keys: 1 or 2 on the title, A-Z to guess,
 RETURN to go on, RUN/STOP back to the title or quit. `make demo` builds a
