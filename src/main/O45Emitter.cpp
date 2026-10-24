@@ -1507,6 +1507,26 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
                 vars.push_back(text.substr(0, sp + 1) + location(text.substr(sp + 1)));
             }
         }
+        // each named procedure's code: "func LABEL seg:text+OFFSET LENGTH"
+        // (static functions too, which have no export), when the object has
+        // debug information
+        if (!vars.empty() || !types.empty()) {
+            std::vector<std::pair<const AssemblerParser::Statement*, std::string>> open;
+            for (const auto& stmt : parser.statements) {
+                if (stmt->type != AssemblerParser::Statement::INSTRUCTION) continue;
+                if (stmt->instr.mnemonic == "proc") {
+                    open.push_back({stmt.get(), stmt->procCtx && !stmt->procCtx->unnamed ? stmt->procCtx->name : ""});
+                } else if (stmt->instr.mnemonic == "endproc" && !open.empty()) {
+                    auto [start, name] = open.back();
+                    open.pop_back();
+                    if (name.empty() || start->segmentName != stmt->segmentName) continue;
+                    std::string loc = location("sym:" + name);
+                    if (loc.rfind("seg:text+", 0) != 0) continue;
+                    uint32_t len = stmt->address + stmt->size - start->address;
+                    vars.push_back("func " + name + " " + loc + " " + std::to_string(len));
+                }
+            }
+        }
         pack(OPT_DEBUG_TYPES, types);
         pack(OPT_DEBUG_VARS, vars);
     }

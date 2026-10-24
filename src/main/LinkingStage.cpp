@@ -45,6 +45,7 @@ int LinkingStage::invokeLinker() {
     if (prgBase_.empty()) cmd += " -basic";
     else cmd += " -prg -t 0x" + prgBase_;
     if (gcInputs_) cmd += " --gc-inputs";
+    if (debugFile_) cmd += " -g";
     cmd += " -o " + outputFile_ + " " + objectFile_;
     for (const auto& libPath : libraryPaths_) cmd += " " + libPath;
     cmd += " " + standardLibrary();

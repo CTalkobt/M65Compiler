@@ -1270,13 +1270,14 @@ void test_line_map_output() {
 
     CHECK(linker.hasLineMap(), "line map populated");
 
+    // the debug file (ln45 -g): the files and [address, file, line] entries
     std::ostringstream json;
-    linker.writeLineMap(json);
+    linker.writeDebugFile(json, "test.prg");
     std::string j = json.str();
-    CHECK(j.find("\"addr\"") != std::string::npos, "JSON has addr field");
-    CHECK(j.find("\"file\"") != std::string::npos, "JSON has file field");
-    CHECK(j.find("\"line\"") != std::string::npos, "JSON has line field");
-    CHECK(j.find("test.c") != std::string::npos, "JSON has filename");
+    CHECK(j.find("\"format\": \"cc45-debug\"") != std::string::npos, "JSON is a debug file");
+    CHECK(j.find("\"files\": [") != std::string::npos && j.find("\"test.c\"") != std::string::npos, "JSON has the file");
+    CHECK(j.find("[8192, 0, 10]") != std::string::npos, "JSON has line 10 at $2000");
+    CHECK(j.find("[8194, 0, 12]") != std::string::npos, "JSON has line 12 at $2002");
 }
 
 // Test: Data relocation (relocs in data segment)

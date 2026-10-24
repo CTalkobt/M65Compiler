@@ -4,6 +4,19 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### The program's debug file (#202, stage 2)
+
+- `ln45 -g` (and `cc45 -g` in a one-step build) writes `<program>.dbg`:
+  JSON with the source files, the line table, functions with their address
+  ranges (static functions and overlays too), struct / union layouts and
+  every variable at its final address (`{"addr"}`, a base-page byte
+  `{"zp"}`, a frame offset, registers, or null), after library selection,
+  dropped sections, overlays and the static-allocation overlay (ln45.md,
+  Debug File). ca45 adds a `func` entry per procedure to `OPT_DEBUG_VARS`.
+  `objdump45 -d prog.prg` uses `prog.dbg` when there is no map. Tests:
+  `test_debug_info.sh` and `test_debug_file_xemu.c` (the addresses against
+  a running program's memory, both conventions).
+
 ### Debug information in objects (#202, stage 1)
 
 - cc45 describes every global, static, local and parameter for a debugger:

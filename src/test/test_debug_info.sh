@@ -1,8 +1,9 @@
 #!/bin/bash
-# test_debug_info.sh — debug information in objects (#202, stage 1): cc45's
-# .dbg_var / .dbg_type directives, ca45's OPT_DEBUG_TYPES / OPT_DEBUG_VARS
-# records (locations resolved to the object's segments), objdump45 -g; the
-# program's code is the same with them
+# test_debug_info.sh — debug information (#202): in objects (stage 1:
+# cc45's .dbg_var / .dbg_type directives, ca45's OPT_DEBUG_TYPES /
+# OPT_DEBUG_VARS records, objdump45 -g; the program's code is the same with
+# them) and the program's debug file (stage 2: ln45 -g / cc45 -g,
+# <program>.dbg; test_xemu.sh checks its addresses against a running program)
 cd "$(dirname "$0")/../.." || exit 1
 T=build/test/debug_info
 mkdir -p $T
@@ -103,6 +104,51 @@ if [ -n "$asm" ]; then
 else
     fail "cc45 --save-temps kept no assembly"
 fi
+
+# --- the program's debug file: ln45 -g / cc45 -g (stage 2) ---------------
+jq() {   # $1 the file, $2 a Python expression over d (the JSON): true or not
+    python3 -c "import json, sys; d = json.load(open(sys.argv[1])); sys.exit(0 if ($2) else 1)" "$1" 2>/dev/null
+}
+# ln45 -g next to the program; cc45 -g in a one-step build
+if ./bin/ln45 -basic -g -o $T/prog.prg $T/prog_zp.o45 lib/build/c45.lib >/dev/null 2>&1 && [ -f $T/prog.dbg ] &&
+   jq $T/prog.dbg "d['format'] == 'cc45-debug' and d['version'] == 1 and d['zp_page'] and
+       {'_add', '_sum', '_main', '_first__prog'} <= {f['name'] for f in d['functions']} and
+       any(v['name'] == 'counter' and v['location'] and 'addr' in v['location'] for v in d['variables']) and
+       d['types']['struct:pt']['size'] == 7"; then pass; else fail "ln45 -g: $T/prog.dbg"; fi
+rm -f $T/one.dbg
+./bin/cc45 -O2 -g $T/prog.c -o $T/one.prg >/dev/null 2>&1 && [ -f $T/one.dbg ] && pass || fail "cc45 -g wrote no one.dbg"
+./bin/cc45 -O2 $T/prog.c -o $T/two.prg >/dev/null 2>&1 && [ ! -f $T/two.dbg ] && pass || fail "a .dbg without -g"
+
+# a dropped function (-ffunction-sections): not in the file, nor its variables
+printf 'int used(int v) { static int seen; seen += v; return seen; }\nint unused(int v) { static int kept; kept += v; return kept * 3; }\nint main(void) { return used(4); }\n' > $T/gc.c
+./bin/cc45 -O2 -ffunction-sections -g $T/gc.c -o $T/gc.prg >/dev/null 2>&1 &&
+    jq $T/gc.dbg "'_used' in [f['name'] for f in d['functions']] and '_unused' not in [f['name'] for f in d['functions']] and
+        any(v['name'] == 'seen' and v['location'] for v in d['variables']) and
+        not any(v['scope'] == '_unused' for v in d['variables'])" && pass || fail "a dropped function in the debug file"
+
+# a code overlay's functions and lines carry its name
+printf '#pragma cc45 overlay(over)\nint far_add(int a, int b) { int c = a + b; return c * 2; }\n' > $T/ov.c
+printf 'int far_add(int a, int b);\nint main(void) { return far_add(1, 2); }\n' > $T/ovmain.c
+./bin/cc45 -O2 -c $T/ov.c -o $T/ov.o45 >/dev/null 2>&1 && ./bin/cc45 -O2 -c $T/ovmain.c -o $T/ovmain.o45 >/dev/null 2>&1 &&
+    ./bin/ln45 -basic -g -o $T/ovp.prg $T/ovmain.o45 $T/ov.o45 lib/build/c45.lib >/dev/null 2>&1 &&
+    jq $T/ovp.dbg "d['overlays'][0]['name'] == 'over' and
+        [f['overlay'] for f in d['functions'] if f['name'] == '_far_add'] == ['over'] and
+        any(len(l) > 3 and l[3] == 'over' for l in d['lines'])" && pass || fail "an overlay in the debug file"
+
+# two files' different layouts of one struct name are kept apart
+printf 'struct pt { int x; };\nstruct pt one;\nint get1(void) { return one.x; }\n' > $T/s1.c
+printf 'struct pt { char a, b, c; };\nstruct pt two;\nint get1(void);\nint main(void) { return two.c + get1(); }\n' > $T/s2.c
+./bin/cc45 -O2 -c $T/s1.c -o $T/s1.o45 >/dev/null 2>&1 && ./bin/cc45 -O2 -c $T/s2.c -o $T/s2.o45 >/dev/null 2>&1 &&
+    ./bin/ln45 -basic -g -o $T/sp.prg $T/s2.o45 $T/s1.o45 lib/build/c45.lib >/dev/null 2>&1 &&
+    jq $T/sp.dbg "[v['type'] for v in d['variables'] if v['name'] == 'two'] == ['struct:pt'] and
+        [v['type'] for v in d['variables'] if v['name'] == 'one'] == ['struct:pt@1'] and
+        d['types']['struct:pt']['size'] == 3 and d['types']['struct:pt@1']['size'] == 2" &&
+    pass || fail "two layouts of one struct name"
+
+# objdump45 -d of a program with a .dbg and no map: its functions and lines
+rm -f $T/prog.map
+./bin/objdump45 -d $T/prog.prg | grep -q "<_sum>:" && ./bin/objdump45 -d $T/prog.prg | grep -q "prog.c:9" &&
+    pass || fail "objdump45 -d does not use the .dbg"
 
 echo "debug info tests: $passed passed, $failed failed"
 [ $failed -eq 0 ]

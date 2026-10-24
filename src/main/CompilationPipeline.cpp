@@ -327,6 +327,7 @@ CompilationResult CompilationPipeline::compile() {
                               config_.prgBaseSet ? std::string(prgBaseHex) : std::string(),
                               config_.libraryPaths, config_.toolDir, config_.zpCallMode);
         linkStage.setGcInputs(config_.functionSections);
+        linkStage.setDebugFile(config_.debugFile);
         auto linkResult = runStage(linkStage);
         remove(objectFile.c_str());
 

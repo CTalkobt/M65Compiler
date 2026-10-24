@@ -378,7 +378,8 @@ public:
     void writeMap(std::ostream& out) const;
 
     // Write a JSON debug line map to a stream. Call after link().
-    void writeLineMap(std::ostream& out) const;
+    // The program's debug information (#202), JSON: ln45 -g, <program>.dbg
+    void writeDebugFile(std::ostream& out, const std::string& program) const;
     bool hasLineMap() const { return !mergedLineMap_.empty(); }
 
     struct MergedLineEntry {
