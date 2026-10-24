@@ -2559,6 +2559,19 @@ for zamode in "zp||lib/build/c45.lib" "stack|-fno-zpcall|lib/build/c45_stack.lib
     fi
 done
 
+# Test: ca45 -c relocations: a difference of two labels is a constant
+# (#336), "zp" segment labels are bytes of the program's base page (#335)
+for crmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r crname crflags <<< "$crmode"
+    echo "Testing test_ca45_reloc_xemu.c ($crname)..."
+    if compile_link_test "src/test-resources/test_ca45_reloc_xemu.c" "build/test/test_ca45_reloc_${crname}_xemu.prg" "$crflags" "src/test-resources/test_ca45_reloc.s45"; then
+        run_xemu_test "test_ca45_reloc_$crname" "build/test/test_ca45_reloc_${crname}_xemu.prg" "C0C0" 11 "01 01 01 01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_ca45_reloc_xemu.c $crname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: with the base page moved off page 0, base-page $00/$01 are RAM, not
 # the CPU port (which answers only at CPU address $0000/$0001)
 for cpmode in "zp|" "stack|-fno-zpcall"; do

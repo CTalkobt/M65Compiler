@@ -70,6 +70,12 @@ static void forgetUnmodelledEffects(MachineState& ms, const std::string& mnemoni
 // Forward declarations for helper functions if they are static in AssemblerParser.cpp
 // or just re-implement them if they are simple enough and used here.
 
+static bool isBasePageOperandMode(AddressingMode m) {
+    return m == AddressingMode::BASE_PAGE || m == AddressingMode::BASE_PAGE_X || m == AddressingMode::BASE_PAGE_Y ||
+           m == AddressingMode::BASE_PAGE_X_INDIRECT || m == AddressingMode::BASE_PAGE_INDIRECT_Y ||
+           m == AddressingMode::BASE_PAGE_INDIRECT_Z || m == AddressingMode::FLAT_INDIRECT_Z;
+}
+
 static uint8_t toPetscii(char c) {
     if (c >= 'a' && c <= 'z') return c - 32;
     if (c >= 'A' && c <= 'Z') return c + 128;   // $C1-$DA, as BASIC's ASC("A")
@@ -306,7 +312,9 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                                 parser->tokens[stmt->instr.operandTokenIndex].type == AssemblerTokenType::IDENTIFIER) {
                                 std::string symName = stmt->scopePrefix + parser->tokens[stmt->instr.operandTokenIndex].value;
                                 if (!parser->symbolTable.count(symName)) symName = parser->tokens[stmt->instr.operandTokenIndex].value;
-                                if (parser->isRelocatableSymbol(symName)) forceAbs = true;
+                                if (parser->isRelocatableSymbol(symName) &&
+                                    !parser->isZpSegmentSymbolIn(parser->tokens[stmt->instr.operandTokenIndex].value, stmt->scopePrefix))
+                                    forceAbs = true;
                             }
                             if (stmt->instr.mode == AddressingMode::BASE_PAGE || stmt->instr.mode == AddressingMode::ABSOLUTE) resolvedMode = (fitsIn8 && !forceAbs) ? AddressingMode::BASE_PAGE : AddressingMode::ABSOLUTE;
                             else if (stmt->instr.mode == AddressingMode::BASE_PAGE_X || stmt->instr.mode == AddressingMode::ABSOLUTE_X) resolvedMode = (fitsIn8 && !forceAbs) ? AddressingMode::BASE_PAGE_X : AddressingMode::ABSOLUTE_X;
@@ -346,6 +354,8 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                             Symbol* sym = parser->resolveSymbol(stmt->instr.operand, stmt->scopePrefix);
                             uint32_t v = sym ? sym->value : parseNumericLiteral(stmt->instr.operand);
                             uint8_t op = AssemblerOpcodeDatabase::getOpcode(stmt->instr.mnemonic, resolvedMode);
+                            if (sym && sym->segment == "zp" && parser->isZpSegmentSymbolIn(stmt->instr.operand, stmt->scopePrefix))
+                                e.recordSymbolRelocLo(stmt->instr.operand, 0);
                             e.emitByte(op);
                             e.emitByte(e.zarOperand((uint8_t)v));
                             int32_t off;
@@ -406,6 +416,11 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                                             parser->checkAddressOverflow(val, resolvedMode, stmt->line, 1);
                                         }
                                     }
+                                }
+                                // a "zp" segment label's byte: relocated in the program's base page
+                                if (hasValue && isBasePageOperandMode(resolvedMode)) {
+                                    std::string zs = parser->zpSegmentOperand(stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                                    if (!zs.empty()) e.recordSymbolRelocLo(zs, (int)((val >> 8) & 0xFF));
                                 }
                                 e.emitInstruction(stmt->instr.mnemonic, resolvedMode, val, hasValue);
                                 forgetUnmodelledEffects(e.machineState(), stmt->instr.mnemonic, isQuad, resolvedMode, val, hasValue);
@@ -657,11 +672,29 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                             const std::string& a = stmt->dir.arguments[ai];
                             // <sym / >sym of a relocatable or external symbol:
                             // the byte with a relocation (R_LOWX / R_HIGH)
-                            if (ti >= 0 && !a.empty() && (a[0] == '<' || a[0] == '>') && ti + 1 < (int)parser->tokens.size() &&
-                                parser->tokens[ti + 1].type == AssemblerTokenType::IDENTIFIER) {
-                                std::string name = parser->tokens[ti + 1].value;
+                            // (<(sym+1): the name inside the parentheses)
+                            int ni = ti + 1;
+                            while (ti >= 0 && ni + 1 < (int)parser->tokens.size() &&
+                                   parser->tokens[ni].type == AssemblerTokenType::OPEN_PAREN) ni++;
+                            if (ti >= 0 && !a.empty() && (a[0] == '<' || a[0] == '>') && ni < (int)parser->tokens.size() &&
+                                parser->tokens[ni].type == AssemblerTokenType::IDENTIFIER) {
+                                std::string name = parser->tokens[ni].value;
                                 bool ext = parser->isExternSymbol(name);
-                                if (ext || parser->isRelocatableSymbolIn(name, stmt->scopePrefix)) {
+                                // (<(blk_end-blk): a difference of two labels of one segment is a constant)
+                                bool moves = ext;
+                                if (!ext && parser->isRelocatableSymbolIn(name, stmt->scopePrefix)) {
+                                    auto m = parser->segmentMultiples(ti + 1, stmt->scopePrefix);
+                                    moves = m.empty();
+                                    for (const auto& [seg, k] : m) {
+                                        if (k == 0) continue;
+                                        Symbol* s0 = parser->resolveSymbol(name, stmt->scopePrefix);
+                                        if (k != 1 || !s0 || s0->segment != seg)
+                                            throw std::runtime_error("the value can't be relocated: it holds the address of a label of segment '" +
+                                                                     seg + "' " + (k == 0x7FFF ? std::string("in part") : std::to_string(k) + " times") + "");
+                                        moves = true;
+                                    }
+                                }
+                                if (moves) {
                                     uint32_t full = 0;
                                     try { full = parser->evaluateExpressionAt(ti + 1, stmt->scopePrefix); }
                                     catch (...) { if (!ext) throw; }
@@ -716,13 +749,21 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                                 // symbol + addend ("+1", "-2"); anything more
                                 // complex goes through the expression evaluator
                                 std::string rest = a.substr(name.size());
-                                // sym1-sym2 of two symbols defined here: a
-                                // constant distance, no relocation
-                                if (rest.size() > 1 && rest[0] == '-' &&
-                                    (std::isalpha((unsigned char)rest[1]) || rest[1] == '_' || rest[1] == '@')) {
-                                    Symbol* sym2 = parser->resolveSymbol(rest.substr(1), stmt->scopePrefix);
-                                    if (sym && sym2 && sym->segment == sym2->segment) {
-                                        e.emitWord((uint16_t)(sym->value - sym2->value));
+                                // a difference of two labels of one segment
+                                // (blk_end-blk, blk_end-blk+1): a constant,
+                                // no relocation (twice a label: an error)
+                                if (ti0 >= 0) {
+                                    auto m = parser->segmentMultiples(ti0, stmt->scopePrefix);
+                                    bool moves = m.empty();
+                                    for (const auto& [seg, k] : m) {
+                                        if (k == 0) continue;
+                                        if (k != 1 || !sym || sym->segment != seg)
+                                            throw std::runtime_error("the value can't be relocated: it holds the address of a label of segment '" +
+                                                                     seg + "' " + (k == 0x7FFF ? std::string("in part") : std::to_string(k) + " times"));
+                                        moves = true;
+                                    }
+                                    if (!moves) {
+                                        e.emitWord((uint16_t)parser->evaluateExpressionAt(ti0, stmt->scopePrefix));
                                         continue;
                                     }
                                 }

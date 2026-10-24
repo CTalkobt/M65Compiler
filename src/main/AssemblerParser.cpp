@@ -350,6 +350,89 @@ bool AssemblerParser::isRelocatableSymbolIn(const std::string& name, const std::
     return sit != segments.end() && !sit->second->hasOrg;
 }
 
+bool AssemblerParser::isZpSegmentSymbolIn(const std::string& name, const std::string& scopePrefix) {
+    if (externIndex.count(name)) return false;
+    Symbol* sym = resolveSymbol(name, scopePrefix);
+    if (!sym || sym->segment != "zp") return false;
+    auto sit = segments.find(sym->segment);
+    return sit != segments.end() && !sit->second->hasOrg;
+}
+
+// Each segment's labels are moved by a step and the expression evaluated
+// again: the change, in steps, is how many times the value holds the
+// segment's base (blk_end-blk: 0, buf+2: 1, 2*buf: 2)
+std::map<std::string, int> AssemblerParser::segmentMultiples(int index, const std::string& scopePrefix) {
+    std::map<std::string, int> out;
+    if (index < 0) return out;
+    std::map<std::string, std::vector<Symbol*>> bySeg;
+    int names = 0, depth = 0;
+    bool arith = false;   // an operator besides + and - (2*buf, buf>>1)
+    for (int t = index; t < (int)tokens.size(); ++t) {
+        const auto& tok = tokens[t];
+        if (tok.type == AssemblerTokenType::NEWLINE || tok.type == AssemblerTokenType::END_OF_FILE) break;
+        if (tok.type == AssemblerTokenType::OPEN_PAREN || tok.type == AssemblerTokenType::OPEN_BRACKET) depth++;
+        else if (tok.type == AssemblerTokenType::CLOSE_PAREN || tok.type == AssemblerTokenType::CLOSE_BRACKET) {
+            if (depth == 0) break;   // (the operand's own bracket: (ptr),y)
+            depth--;
+        } else if (tok.type == AssemblerTokenType::COMMA && depth == 0) break;
+        else if (tok.type == AssemblerTokenType::STAR || tok.type == AssemblerTokenType::SLASH ||
+                 tok.type == AssemblerTokenType::LSHIFT || tok.type == AssemblerTokenType::RSHIFT ||
+                 tok.type == AssemblerTokenType::AMPERSAND || tok.type == AssemblerTokenType::PIPE ||
+                 tok.type == AssemblerTokenType::CARET || tok.type == AssemblerTokenType::TILDE) arith = true;
+        else if (tok.type == AssemblerTokenType::IDENTIFIER) {
+            names++;
+            if (externIndex.count(tok.value)) continue;
+            Symbol* sym = resolveSymbol(tok.value, scopePrefix);
+            if (!sym || !sym->isAddress || !isRelocatableSymbolIn(tok.value, scopePrefix)) continue;
+            auto& v = bySeg[sym->segment];
+            if (std::find(v.begin(), v.end(), sym) == v.end()) v.push_back(sym);
+        }
+    }
+    if (names == 0 || (names == 1 && !arith)) return out;
+    const uint32_t step = 0x1000;
+    uint32_t base = evaluateExpressionAt(index, scopePrefix);
+    for (auto& [seg, syms] : bySeg) {
+        for (Symbol* s : syms) s->value += step;
+        uint32_t moved = 0;
+        try { moved = evaluateExpressionAt(index, scopePrefix); }
+        catch (...) { for (Symbol* s : syms) s->value -= step; throw; }
+        for (Symbol* s : syms) s->value -= step;
+        int32_t d = (int32_t)(moved - base);
+        // (not a whole number of steps, buf>>1: no relocation can hold it)
+        out[seg] = d % (int32_t)step == 0 ? d / (int32_t)step : 0x7FFF;
+    }
+    return out;
+}
+
+// The "zp" segment label a base-page operand names (its byte is relocated in
+// the program's base page), or "": the first such label from index to the
+// operand's end. One that the value does not hold once (zp_end-ptr: a
+// constant) is "", one it holds more often an error.
+std::string AssemblerParser::zpSegmentOperand(int index, const std::string& scope) {
+    if (index < 0) return "";
+    std::string found;
+    int depth = 0;
+    for (int t = index; t < (int)tokens.size() && found.empty(); ++t) {
+        const auto& tok = tokens[t];
+        if (tok.type == AssemblerTokenType::NEWLINE || tok.type == AssemblerTokenType::END_OF_FILE) break;
+        if (tok.type == AssemblerTokenType::OPEN_PAREN || tok.type == AssemblerTokenType::OPEN_BRACKET) depth++;
+        else if (tok.type == AssemblerTokenType::CLOSE_PAREN || tok.type == AssemblerTokenType::CLOSE_BRACKET) {
+            if (depth == 0) break;
+            depth--;
+        } else if (tok.type == AssemblerTokenType::COMMA && depth == 0) break;
+        else if (tok.type == AssemblerTokenType::IDENTIFIER && isZpSegmentSymbolIn(tok.value, scope))
+            found = tok.value;
+    }
+    if (found.empty()) return "";
+    auto m = segmentMultiples(index, scope);
+    if (m.empty()) return found;
+    for (const auto& [seg, k] : m)
+        if (k != 0 && !(seg == "zp" && k == 1))
+            throw std::runtime_error("the operand's value can't be relocated: it holds the address of a label "
+                                     "of segment '" + seg + "' " + (k == 0x7FFF ? std::string("in part") : std::to_string(k) + " times") + "");
+    return m.count("zp") && m["zp"] == 1 ? found : "";
+}
+
 bool AssemblerParser::isRelocatableSymbol(const std::string& name) const {
     if (externIndex.count(name)) return true;
     auto it = symbolTable.find(name);
@@ -2148,7 +2231,9 @@ int AssemblerParser::calculateInstructionSize(const Instruction& instr, uint32_t
                 std::string symName = scopePrefix + tokens[instr.operandTokenIndex].value;
                 // Try scoped name first, then bare name
                 if (!symbolTable.count(symName)) symName = tokens[instr.operandTokenIndex].value;
-                if (isRelocatableSymbol(symName)) forceAbs = true;
+                // (a "zp" segment label is a base-page address, relocated in the base page)
+                if (isRelocatableSymbol(symName) &&
+                    !isZpSegmentSymbolIn(tokens[instr.operandTokenIndex].value, scopePrefix)) forceAbs = true;
             }
 
             // A zero-page operand on an instruction without the matching

@@ -1,4 +1,5 @@
 #include "O45Emitter.hpp"
+#include "AssemblerOpcodeDatabase.hpp"
 #include "Diagnostic.hpp"
 #include "O45Writer.hpp"
 #include "O45Types.hpp"
@@ -219,6 +220,25 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
     // --- Step 3: Scan statements for relocations ---
     std::map<std::string, std::vector<O45Reloc>> segRelocs; // segment name → reloc list
 
+    // An operand naming several labels (blk_end-blk, buf+len): relocated
+    // against its first label's segment only if its value holds that
+    // segment's base once and no other's; a constant (a difference of two
+    // labels of one segment) gets no relocation; anything else is an error
+    auto relocatedAs = [&](const AssemblerParser::Statement* stmt, int idx, const std::string& seg) {
+        auto m = parser.segmentMultiples(idx, stmt->scopePrefix);
+        if (m.empty()) return true;
+        bool any = false;
+        for (const auto& [s, k] : m) {
+            if (k == 0) continue;
+            if (s != seg || k != 1)
+                throw std::runtime_error(stmt->sourceFile + ":" + std::to_string(stmt->line) +
+                    ": error: the operand's value can't be relocated: it holds the address of a label of segment '" +
+                    s + "' " + (k == 0x7FFF ? std::string("in part") : std::to_string(k) + " times") + " (a difference of two labels of one segment is a constant)");
+            any = true;
+        }
+        return any;
+    };
+
     for (const auto& stmt : parser.statements) {
         if (stmt->deleted || stmt->size == 0) continue;
         if (stmt->type != AssemblerParser::Statement::INSTRUCTION) continue;
@@ -249,7 +269,9 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
                     parser.tokens[stmt->instr.operandTokenIndex].type == AssemblerTokenType::IDENTIFIER) {
                     std::string symName = stmt->scopePrefix + parser.tokens[stmt->instr.operandTokenIndex].value;
                     if (!parser.symbolTable.count(symName)) symName = parser.tokens[stmt->instr.operandTokenIndex].value;
-                    if (parser.isRelocatableSymbol(symName)) forceAbs = true;
+                    if (parser.isRelocatableSymbol(symName) &&
+                        !parser.isZpSegmentSymbolIn(parser.tokens[stmt->instr.operandTokenIndex].value, stmt->scopePrefix))
+                        forceAbs = true;
                 }
                 if (resolvedMode == AddressingMode::BASE_PAGE || resolvedMode == AddressingMode::ABSOLUTE)
                     resolvedMode = (fitsIn8 && !forceAbs) ? AddressingMode::BASE_PAGE : AddressingMode::ABSOLUTE;
@@ -257,6 +279,14 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
                     resolvedMode = (fitsIn8 && !forceAbs) ? AddressingMode::BASE_PAGE_X : AddressingMode::ABSOLUTE_X;
                 else if (resolvedMode == AddressingMode::BASE_PAGE_Y || resolvedMode == AddressingMode::ABSOLUTE_Y)
                     resolvedMode = (fitsIn8 && !forceAbs) ? AddressingMode::BASE_PAGE_Y : AddressingMode::ABSOLUTE_Y;
+                // an instruction without the base-page mode (LDZ, LDA bp,Y) is
+                // assembled absolute, as the generator does
+                if (resolvedMode == AddressingMode::BASE_PAGE && !AssemblerOpcodeDatabase::isValidMode(stmt->instr.mnemonic, AddressingMode::BASE_PAGE))
+                    resolvedMode = AddressingMode::ABSOLUTE;
+                else if (resolvedMode == AddressingMode::BASE_PAGE_X && !AssemblerOpcodeDatabase::isValidMode(stmt->instr.mnemonic, AddressingMode::BASE_PAGE_X))
+                    resolvedMode = AddressingMode::ABSOLUTE_X;
+                else if (resolvedMode == AddressingMode::BASE_PAGE_Y && !AssemblerOpcodeDatabase::isValidMode(stmt->instr.mnemonic, AddressingMode::BASE_PAGE_Y))
+                    resolvedMode = AddressingMode::ABSOLUTE_Y;
             } catch(...) {
                 // Can't resolve — keep original mode (safe: ABSOLUTE)
             }
@@ -332,6 +362,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         if (!isExtern) {
             targetSeg = sym->segment;
             if (targetSeg.empty()) continue; // absolute/unknown — no relocation needed
+            if (!relocatedAs(stmt.get(), stmt->instr.operandTokenIndex, targetSeg)) continue;
         }
 
         // Build relocation entry
@@ -425,6 +456,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         if (!isExtern) {
             targetSeg = sym->segment;
             if (targetSeg.empty()) continue;
+            if (!relocatedAs(stmt.get(), exprIdx, targetSeg)) continue;
         }
 
         std::string srcSeg = stmt->segmentName;
@@ -501,16 +533,17 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         uint32_t patchAddr = stmt->address;
 
         for (size_t ai = 0; ai < stmt->dir.arguments.size(); ai++) {
-            // The symbol of an expression argument (lbl+1)
+            // The symbol of an expression argument: its first name (lbl+1, 2*lbl)
             const std::string& full = stmt->dir.arguments[ai];
-            const std::string arg = full.substr(0, full.find_first_of("+-", 1));
-            Symbol* sym = parser.resolveSymbol(arg, stmt->scopePrefix);
-            // sym1-sym2 of two symbols in one segment: a constant distance
-            if (sym && full.size() > arg.size() + 1 && full[arg.size()] == '-' &&
-                (std::isalpha((unsigned char)full[arg.size() + 1]) || full[arg.size() + 1] == '_' || full[arg.size() + 1] == '@')) {
-                Symbol* sym2 = parser.resolveSymbol(full.substr(arg.size() + 1), stmt->scopePrefix);
-                if (sym2 && sym2->segment == sym->segment) { patchAddr += 2; continue; }
+            int ti = ai < stmt->dir.argTokenIndices.size() ? stmt->dir.argTokenIndices[ai] : -1;
+            std::string arg = full.substr(0, full.find_first_of("+-", 1));
+            for (int t = ti; ti >= 0 && t < (int)parser.tokens.size(); ++t) {
+                auto ty = parser.tokens[t].type;
+                if (ty == AssemblerTokenType::COMMA || ty == AssemblerTokenType::NEWLINE ||
+                    ty == AssemblerTokenType::END_OF_FILE) break;
+                if (ty == AssemblerTokenType::IDENTIFIER) { arg = parser.tokens[t].value; break; }
             }
+            Symbol* sym = parser.resolveSymbol(arg, stmt->scopePrefix);
             // For 32-bit symbols in .word directives, skip (they should use .dword)
             if (!sym) { patchAddr += 2; continue; }
             if (sym->value > 0xFFFF) {
@@ -524,6 +557,9 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
             if (!isExtern) {
                 targetSeg = sym->segment;
                 if (targetSeg.empty()) { patchAddr += 2; continue; }
+                // (blk_end-blk: a constant; 2*blk: an error)
+                if (ti >= 0 && parser.isRelocatableSymbolIn(arg, stmt->scopePrefix) &&
+                    !relocatedAs(stmt.get(), ti, targetSeg)) { patchAddr += 2; continue; }
             }
 
             O45Reloc reloc;
