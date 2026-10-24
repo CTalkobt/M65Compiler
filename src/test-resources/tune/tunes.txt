@@ -14,3 +14,10 @@ v1: @lead c5:4 e5:4 ~:4 g5:2 eb5:2 | c6:300 r:6
 v2: @sweep c3:16 g2:8 ~:8 r:4 c3:286
 v3: @chip arp:4,7 c4:8 arp:3,7 a3:8 arp:off @kick c2:2 r:2 c2:2 r:2 @hat c7:1 r:1 c7:1 r:1 \
     @chip arp:5,9 c4:294
+
+; glides: up and down, slow and fast, held on by a tie, with vibrato (the
+; trace starts 40 ticks in: tune_seek)
+tune glides 1 once
+v1: @chip c4^3:12 ~:8 g4^-5:20 c5^12,1:40 r:4 e4^2,7:6 r:110
+v2: @lead c3^7:30 c3:10 eb3^-3,2:60 r:100
+v3: @kick c2^-30,2:8 r:8 c2^-30,2:8 r:8 @hat c6^1:8 @chip arp:4,7 c4^5:20 arp:off c4:140

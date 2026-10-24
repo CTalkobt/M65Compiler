@@ -196,6 +196,20 @@ bool TuneCompiler::parse(const std::string& text, const std::string& file, TuneF
                 }
                 if (d < 1 || d > 4096) { error(file, ln, "a length of " + std::to_string(d) + " ticks: " + tok); continue; }
                 std::string what = lower(tok.substr(0, colon));
+                // a glide: note^semitones[,speed]
+                long gs = 0, gk = 0;
+                size_t caret = what.find('^');
+                if (caret != std::string::npos) {
+                    std::string g = what.substr(caret + 1);
+                    what = what.substr(0, caret);
+                    size_t c = g.find(',');
+                    gk = 3;
+                    if (!parseInt(g.substr(0, c), gs) || (c != std::string::npos && !parseInt(g.substr(c + 1), gk)) ||
+                        gs < -127 || gs > 127 || gs == 0 || gk < 1 || gk > 7 || what == "r" || what == "~") {
+                        error(file, ln, "a glide is note^semitones[,speed] (semitones -127 to 127, not 0; speed 1-7): " + tok);
+                        continue;
+                    }
+                }
                 int code;
                 if (what == "r") code = 0x80;
                 else if (what == "~") code = 0x82;
@@ -203,6 +217,11 @@ bool TuneCompiler::parse(const std::string& text, const std::string& file, TuneF
                     code = noteNumber(what);
                     if (code < 0) { error(file, ln, "not a note (c4 is middle C; c#4, eb4): " + tok); continue; }
                     if (!named) v.defaultInstrument = true;
+                    if (gk) {
+                        v.stream.push_back(0x84);
+                        v.stream.push_back((uint8_t)(int8_t)gs);
+                        v.stream.push_back((uint8_t)gk);
+                    }
                 }
                 // over 255 ticks: the rest goes on as ties (a note) or rests
                 long left = d;
@@ -284,7 +303,7 @@ std::vector<uint8_t> TuneCompiler::blob(const TuneFile& f, const Tune& t) {
             b.push_back(c);
             if (c < 0x80 || c == 0x80 || c == 0x82) { b.push_back(s[++k]); }
             else if (c == 0x81) { b.push_back((uint8_t)renum[s[++k]]); }
-            else if (c == 0x83) { b.push_back(s[k + 1]); b.push_back(s[k + 2]); k += 2; }
+            else if (c == 0x83 || c == 0x84) { b.push_back(s[k + 1]); b.push_back(s[k + 2]); k += 2; }
         }
         b.push_back(t.loop ? 0xFE : 0xFF);
     }

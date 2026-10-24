@@ -11,6 +11,9 @@
 ; sweep (signed, a frame; bouncing between $0200 and $0E00), vibrato delay
 ; (frames), pitch slide (signed, 16ths of the frequency register a frame;
 ; it stops at 0 and $FFFF).
+; A glide ($84 s k before a note) starts the note s semitones below its
+; pitch (signed: above when s is negative) and from its second frame moves
+; (distance + 2^k - 1) >> k a frame towards it, then stops.
 ; The streams' bytes: see <audio_tune.h>.
 ;
 ; tune_update: the tempo accumulator (8.8 frames; NTSC frames count 213/256
@@ -33,6 +36,7 @@ cc45.icallinfo = 1
 
 .global _tune_play, _tune_play_far, _tune_stop, _tune_update, _tune_playing
 .global _tune_voices, _tune_tempo, _tune_vibrato, _tune_transpose, _tune_detune, _tune_ticks, _tune_note
+.global _tune_seek
 .extern ___sid_put
 
 P  = $F6
@@ -58,6 +62,7 @@ __tune_x:       .res 1          ; (a saved voice index)
 __tune_f:       .res 2          ; a frequency being worked out
 __tune_sum:     .res 3          ; (__tune_rate)
 __tune_k:       .res 1
+__tune_mute:    .res 1          ; $80: no register writes (tune_seek)
 ; each voice's state
 __tv_pos_lo:    .res NV
 __tv_pos_hi:    .res NV
@@ -77,6 +82,11 @@ __tv_arpa:      .res NV
 __tv_arpb:      .res NV
 __tv_arpi:      .res NV
 __tv_base:      .res NV         ; its SID registers (chip * $20 + voice * 7)
+__tv_gsemi:     .res NV         ; the next note's glide: semitones below
+__tv_gpend:     .res NV         ;   and speed (0: none)
+__tv_glide:     .res NV         ; the note's glide speed (0: none, or done)
+__tv_tgt_lo:    .res NV         ; the frequency it glides to
+__tv_tgt_hi:    .res NV
 ; its instrument
 __ti_wave:      .res NV
 __ti_ad:        .res NV
@@ -224,6 +234,8 @@ endproc
 
 ; A to register Y (0-6) of voice X; X, Y kept
 proc __tune_w
+    bit __tune_mute
+    bmi @muted
     stx __tune_x
     pha
     tya
@@ -233,6 +245,7 @@ proc __tune_w
     pla
     jsr ___sid_put
     ldx __tune_x
+@muted:
     rts
 endproc
 
@@ -387,6 +400,8 @@ proc __tune_next
     beq @tie
     cmp #$83
     beq @arp
+    cmp #$84
+    beq @glide
     cmp #$FE
     bne @end
     lda __tune_guard    ; back to the start (once: an empty voice ends)
@@ -412,6 +427,12 @@ proc __tune_next
     sta __tv_arpa,x
     jsr __tune_rd
     sta __tv_arpb,x
+    bra @read
+@glide:
+    jsr __tune_rd
+    sta __tv_gsemi,x
+    jsr __tune_rd
+    sta __tv_gpend,x
     bra @read
 @tie:
     jsr __tune_rd
@@ -448,6 +469,20 @@ proc __tune_next
     jsr __tune_w
     lda #0
     jsr __tune_notef
+    lda __tv_gpend,x    ; a glide: to this pitch, from s semitones below
+    sta __tv_glide,x
+    beq @plain
+    lda #0
+    sta __tv_gpend,x
+    lda __tune_f
+    sta __tv_tgt_lo,x
+    lda __tune_f+1
+    sta __tv_tgt_hi,x
+    lda #0
+    sec
+    sbc __tv_gsemi,x
+    jsr __tune_notef
+@plain:
     lda __tune_f
     sta __tv_freq_lo,x
     lda __tune_f+1
@@ -526,7 +561,7 @@ proc __tune_effects
 @pwm:
     ; pulse-width sweep, bouncing between $0200 and $0E00
     lda __tv_pwdir,x
-    beq @slide
+    beq @glide
     ldy #0
     ora #0
     bpl @pw
@@ -549,6 +584,52 @@ proc __tune_effects
     sta __tv_pwdir,x
 @pwset:
     jsr __tune_wpw
+@glide:
+    ; glide: (distance + 2^k - 1) >> k towards the target, from the note's
+    ; second frame
+    lda __tv_glide,x
+    beq @slide
+    lda __tv_t,x
+    cmp #2
+    bcc @slide
+    sec
+    lda __tv_tgt_lo,x
+    sbc __tv_freq_lo,x
+    sta T0
+    lda __tv_tgt_hi,x
+    sbc __tv_freq_hi,x
+    sta T1
+    bcc @gdown
+    ora T0
+    bne @gup
+    sta __tv_glide,x    ; there
+    bra @slide
+@gup:
+    jsr __tune_gstep
+    clc
+    lda __tv_freq_lo,x
+    adc T0
+    sta __tv_freq_lo,x
+    lda __tv_freq_hi,x
+    adc T1
+    sta __tv_freq_hi,x
+    bra @slide
+@gdown:
+    sec                 ; the distance: freq - target
+    lda #0
+    sbc T0
+    sta T0
+    lda #0
+    sbc T1
+    sta T1
+    jsr __tune_gstep
+    sec
+    lda __tv_freq_lo,x
+    sbc T0
+    sta __tv_freq_lo,x
+    lda __tv_freq_hi,x
+    sbc T1
+    sta __tv_freq_hi,x
 @slide:
     ; pitch slide: the note's frequency + slide * 16
     lda __ti_slide,x
@@ -678,6 +759,34 @@ proc __tune_effects
     jmp @voice
 endproc
 
+; T1:T0 = (T1:T0 + 2^k - 1) >> k, k voice X's glide speed (1-7)
+proc __tune_gstep
+    ldy __tv_glide,x
+    lda #0
+@mask:
+    sec
+    rol a
+    dey
+    bne @mask
+    clc
+    adc T0
+    sta T0
+    lda T1
+    adc #0
+    sta T1
+    lda #0
+    rol a
+    sta T2              ; (the 17th bit)
+    ldy __tv_glide,x
+@shift:
+    lsr T2
+    ror T1
+    ror T0
+    dey
+    bne @shift
+    rts
+endproc
+
 ; ----------------------------------------------------------------------------
 ; The API
 ; ----------------------------------------------------------------------------
@@ -774,6 +883,8 @@ proc __tune_start
     sta __tv_arpb,x
     sta __tv_t,x
     sta __tv_pwdir,x
+    sta __tv_gpend,x
+    sta __tv_glide,x
     jsr __tune_inst     ; instrument 0 until the stream says
     inx
     bra @voice
@@ -952,6 +1063,37 @@ proc _tune_update
     rts
 @frame:
     jmp __tune_effects
+    .func_flags zp_call
+endproc
+
+; void tune_seek(unsigned int ticks): on that many ticks, silently (interrupts
+; held off; the voices sound again from their next events)
+proc _tune_seek
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    php
+    sei
+    lda #$80
+    sta __tune_mute
+@tick:
+    lda __tune_active
+    beq @done
+    lda $10
+    ora $11
+    beq @done
+    lda $10
+    bne @lo
+    dec $11
+@lo:
+    dec $10
+    jsr __tune_tick
+    bra @tick
+@done:
+    lda #0
+    sta __tune_mute
+    plp
+    rts
     .func_flags zp_call
 endproc
 

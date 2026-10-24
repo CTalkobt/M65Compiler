@@ -1963,20 +1963,22 @@ done
 
 # Test: tune45's model of the tune player against the player itself: the
 # registers of voices 0-2 after each of 300 frames (a tune with every
-# effect), in both conventions
+# effect; one of glides, after a tune_seek), in both conventions
 mkdir -p build/test/tune
-for trmode in "zp|$STDLIB|" "stack|$STDLIB_STACK|-fno-zpcall"; do
-    IFS='|' read -r trname trlib trflags <<< "$trmode"
+for trmode in "zp|$STDLIB||effects|0|0" "stack|$STDLIB_STACK|-fno-zpcall|effects|0|0" \
+              "zp|$STDLIB||glides|1|40" "stack|$STDLIB_STACK|-fno-zpcall|glides|1|40"; do
+    IFS='|' read -r trname trlib trflags trtune trn trseek <<< "$trmode"
+    trname=${trtune}_$trname
     echo "Testing tune45 trace against the tune player ($trname)..."
     TD=build/test/tune
     if ./bin/tune45 convert src/test-resources/tune/tunes.txt -o $TD/music.c >/dev/null &&
-       ./bin/cc45 -O2 $trflags -I$TD -DTUNE=0 -c src/test-resources/tune/trace_xemu.c -o $TD/trace_$trname.o45 &&
+       ./bin/cc45 -O2 $trflags -I$TD -DTUNE=$trn -DSEEK=$trseek -c src/test-resources/tune/trace_xemu.c -o $TD/trace_$trname.o45 &&
        ./bin/cc45 -O2 $trflags -I$TD -c $TD/music.c -o $TD/music_$trname.o45 &&
        ./bin/ln45 -basic -o $TD/trace_$trname.prg $TD/trace_$trname.o45 $TD/music_$trname.o45 $trlib >/dev/null; then
         rm -f $TD/trace_$trname.mem
         timeout 60 xemu-xmega65 -headless -besure -sleepless -prgmode 65 -prgexit -dumpmem $TD/trace_$trname.mem \
             -prg $TD/trace_$trname.prg >/dev/null 2>&1
-        ./bin/tune45 trace src/test-resources/tune/tunes.txt --tune effects --mono --frames 300 > $TD/model.txt
+        ./bin/tune45 trace src/test-resources/tune/tunes.txt --tune $trtune --seek $trseek --mono --frames 300 > $TD/model.txt
         if python3 - $TD/trace_$trname.mem $TD/model.txt <<'PY'
 import sys
 mem = open(sys.argv[1], 'rb').read()

@@ -12,6 +12,7 @@ const int8_t tri[8] = {0, 1, 2, 1, 0, -1, -2, -1};
 }  // namespace
 
 void TunePlayer::put(uint8_t idx, uint8_t val) {
+    if (mute_) return;
     write_(idx, val);
     if (mirror_ && idx < 0x40) write_((uint8_t)(idx + 0x40), val);
 }
@@ -89,6 +90,7 @@ void TunePlayer::play(const std::vector<uint8_t>& tune) {
         v.arpa = v.arpb = 0;
         v.t = 0;
         v.pwdir = 0;
+        v.gpend = v.glide = 0;
         inst(v, 0);
     }
     acc_ = fpt_ >= step_ ? (uint16_t)(fpt_ - step_) : 0;
@@ -115,6 +117,12 @@ void TunePlayer::next(Voice& v, int idx) {
             w(v, 5, v.ad);
             w(v, 6, v.sr);
             v.freq = notef(v, idx, 0);
+            v.glide = v.gpend;
+            if (v.glide) {      // to this pitch, from gsemi semitones below
+                v.gpend = 0;
+                v.tgt = v.freq;
+                v.freq = notef(v, idx, (uint8_t)(0 - (uint8_t)v.gsemi));
+            }
             wf(v, v.freq);
             v.gated = 1;
             ctrl(v);
@@ -124,6 +132,7 @@ void TunePlayer::next(Voice& v, int idx) {
         if (b == 0x81) { inst(v, rd(v)); continue; }
         if (b == 0x82) { v.left = rd(v); return; }
         if (b == 0x83) { v.arpa = rd(v); v.arpb = rd(v); continue; }
+        if (b == 0x84) { v.gsemi = (int8_t)rd(v); v.gpend = rd(v); continue; }
         if (b == 0xFE && !guard) { guard = true; v.pos = v.start; continue; }
         v.done = 1;
         v.gated = 0;
@@ -160,6 +169,12 @@ void TunePlayer::effects() {
             if (hi >= 0x0E || hi < 0x02) v.pwdir = (int8_t)(0 - v.pwdir);
             wpw(v);
         }
+        if (v.glide && v.t >= 2) {   // (distance + 2^k - 1) >> k towards the target
+            uint32_t mask = (1u << v.glide) - 1;
+            if (v.tgt == v.freq) v.glide = 0;
+            else if (v.tgt > v.freq) v.freq = (uint16_t)(v.freq + (((uint32_t)(v.tgt - v.freq) + mask) >> v.glide));
+            else v.freq = (uint16_t)(v.freq - (((uint32_t)(v.freq - v.tgt) + mask) >> v.glide));
+        }
         if (v.slide) {
             int f = v.freq + v.slide * 16;   // (stopping at 0 and $FFFF)
             v.freq = (uint16_t)(f < 0 ? 0 : f > 0xFFFF ? 0xFFFF : f);
@@ -180,6 +195,12 @@ void TunePlayer::effects() {
         }
         wf(v, f);
     }
+}
+
+void TunePlayer::seek(unsigned ticks) {
+    mute_ = true;
+    for (; ticks && active_; ticks--) tick();
+    mute_ = false;
 }
 
 void TunePlayer::update() {
