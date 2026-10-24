@@ -3386,7 +3386,7 @@ bool IRBuilder::isLibraryZpRoutine(const std::string& fname) {
         "clock", "rand", "srand", "strtok", "strtok_r", "strtol", "strtoul",
         // tune.s45
         "tune_detune", "tune_note", "tune_play", "tune_play_far", "tune_playing", "tune_stop",
-        "tune_tempo", "tune_ticks", "tune_transpose", "tune_update", "tune_vibrato", "tune_voices"};
+        "tune_seek", "tune_tempo", "tune_ticks", "tune_transpose", "tune_update", "tune_vibrato", "tune_voices"};
     return routines.count(fname) > 0;
 }
 
