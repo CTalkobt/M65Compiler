@@ -4,6 +4,15 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: file-scope variables of an enum type (#337)
+
+- `enum colour shade;` at file scope was parsed as a function declaration
+  ("Expected '('"), with or without an initializer, and `enum colour *p;`
+  / `enum colour arr[3];` failed too. The enum branch of the top-level
+  parser now takes only definitions (`enum [E] { ... }`, `enum E;`); every
+  other declaration of an enum type goes the way `static enum E x;` always
+  did. Test `test_enum_global_xemu.c`.
+
 ### dbg45, a source-level debugger in xemu (#202, stage 3)
 
 - New tool `dbg45`: debugs a cc45 program by its C source in xemu, from

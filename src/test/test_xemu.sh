@@ -1232,6 +1232,19 @@ for cpmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: file-scope variables of an enum type (#337): plain, initialized,
+# two declarators, an array, a pointer, const, as a function's type
+for egmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r egname egflags <<< "$egmode"
+    echo "Testing test_enum_global_xemu.c ($egname)..."
+    if compile_link_test "src/test-resources/test_enum_global_xemu.c" "build/test/test_enum_global_${egname}_xemu.prg" "$egflags"; then
+        run_xemu_test "test_enum_global_$egname" "build/test/test_enum_global_${egname}_xemu.prg" "C0C0" 9 "01 01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_enum_global_xemu.c $egname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: a local, parameter or for variable hides an enum constant of its
 # name until its scope ends; an enum defined in a block ends with it (#286)
 for esmode in "zp|" "stack|-fno-zpcall"; do
