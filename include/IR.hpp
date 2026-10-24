@@ -261,6 +261,9 @@ struct Function {
     std::map<uint32_t, int> vregAlign;  // locals with _Alignas / aligned (> 1)
  // override sizes for array vRegs (bytes)
     std::map<std::string, uint32_t> localNames; // name (without _l_ or _p_ prefix) -> vregId
+    // Debug information (#202): the C type of each local / parameter, as a
+    // debug type descriptor (u16, s8, char, *u8, [4]u8, struct:pt ...)
+    std::map<std::string, std::string> debugTypes;
     std::vector<std::string> localNamesOrder; // preserves declaration order of local variables
     std::set<uint32_t> memoryVregs;    // vRegs that MUST be in memory (e.g. volatile or address-taken)
     std::set<uint32_t> registerVregs;  // vRegs declared with 'register' keyword (prefer ZP allocation)
@@ -284,6 +287,16 @@ struct Function {
 
 struct Module {
     std::string sourceFile;
+    // Debug information (#202): globals and statics (their C names, symbols
+    // and types) and the layouts of the structs / unions they use, for
+    // IRCodeGen's .dbg_var / .dbg_type directives
+    struct DebugGlobal {
+        std::string name, symbol, type;
+        std::string function;   // a function's static local: the function; else ""
+        bool fileStatic = false;
+    };
+    std::vector<DebugGlobal> debugGlobals;
+    std::vector<std::string> debugTypes;
     bool saveZP = true;
     // A float passed as a variadic (or unprototyped) argument: link the
     // %f-aware printf (_printf_float), and sprintf (_sprintf_float)

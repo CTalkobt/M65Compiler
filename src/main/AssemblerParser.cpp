@@ -1234,6 +1234,15 @@ void AssemblerParser::pass1() {
                 while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
                 stmt->size = 0;
             }
+            else if (stmt->dir.name == "dbg_var" || stmt->dir.name == "dbg_type") {
+                // .dbg_var "kind scope name type location" / .dbg_type "struct
+                // name size members...": cc45's debug information (#202), no
+                // bytes; the object writer turns them into records
+                if (peek().type == AssemblerTokenType::STRING_LITERAL) stmt->dir.arguments = {advance().value};
+                else errors.push_back("Error: ." + stmt->dir.name + " needs a string");
+                while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
+                stmt->size = 0;
+            }
             else if (stmt->dir.name == "loc") {
                 // .loc "filename", line — source-level debug info marker
                 currentSourceFile_ = advance().value;
@@ -2337,7 +2346,7 @@ void AssemblerParser::warnUnknownDirective(const AssemblerToken& tok) {
         "cpu", "data", "dword", "endrepeat", "extern", "field_class", "field_count", "fill", "fillto",
         "fixed_prefix_size", "flag_clobbers", "float", "frame_size", "zar", "frameptr_zp", "func_flags", "function_sections",
         "keep", "nosplit", "overlay", "ref", "split",
-        "global", "import", "incbin", "init", "loc", "local", "long", "noopt_start", "noopt_end", "org",
+        "dbg_type", "dbg_var", "global", "import", "incbin", "init", "loc", "local", "long", "noopt_start", "noopt_end", "org",
         "param_const", "param_sizes", "reg_clobbers", "repeat", "res", "sac", "screencode", "segment",
         "segmentOrder", "space", "text", "var", "var_field_array", "vtable_entry", "weak", "word", "zp", "zp_clobbers", "zpsym",
         "zp_release", "zp_uses"};

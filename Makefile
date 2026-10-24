@@ -522,6 +522,8 @@ test: all lib $(BIN_DIR)/test_o45 $(BIN_DIR)/test_ast_walker $(BIN_DIR)/test_con
 	@bash src/test/test_optimizations.sh
 	@echo "Running tune45 tests..."
 	@bash src/test/test_tune45.sh
+	@echo "Running debug information tests..."
+	@bash src/test/test_debug_info.sh
 	@echo "Running configuration tests..."
 	@bash src/test/test_config.sh
 	@echo "Running function-local state tests..."

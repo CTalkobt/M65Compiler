@@ -344,6 +344,12 @@ private:
         std::string parent;  // the struct it inherits from (struct D : B), or ""
     };
     std::map<std::string, IRStructInfo> structs_;
+    // Debug information (#202): a variable's type as a debug type descriptor
+    // (u8 s16 char bool f40 void, *T, [N]T, struct:NAME / union:NAME); the
+    // structs and unions named, whose layouts generate() writes
+    std::string debugType(const std::string& type, int ptrLevel, const std::vector<int>& dims, bool isSigned);
+    std::set<std::string> debugStructs_;
+    void buildDebugTypes();
     const IRStructInfo* structOf(const std::string& type);  // struct/union or typedef of one
     const IRMemberInfo* arrayMemberOf(MemberAccess* ma);
     std::shared_ptr<FuncPtrSignature> callSignature(FunctionCall& node, std::string& calleeName);

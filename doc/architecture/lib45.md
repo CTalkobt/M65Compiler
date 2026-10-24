@@ -91,6 +91,8 @@ option_data   (option_length - 2 bytes)   ; at most 253 bytes
 | `$14`  | `OPT_SECTIONS`     | with `.function_sections` / `-ffunction-sections` | ln45 (drops unreachable sections), nm45 `-S`, objdump45 `-h` | Section table for per-function linking (1.10) |
 | `$15`  | `OPT_SECTREF`      | with `.function_sections` (relocations; not exports yet) | reader (checked), nm45 `-S` | Section of a relocation target or an export (1.10) |
 | `$16`  | `OPT_WEAKUSE`      | when the code uses a weak absolute symbol it defines | ln45 | Weak absolute symbols used at their value (1.11) |
+| `$17`  | `OPT_DEBUG_TYPES`  | with `.dbg_type` (cc45: always) | objdump45 `-g` | Struct / union layouts (1.12) |
+| `$18`  | `OPT_DEBUG_VARS`   | with `.dbg_var` (cc45: always) | objdump45 `-g` | Variables: kind, scope, C name, type, location (1.12) |
 | `$50`  | `OPT_IPO_HINTS`    | no | ln45 | Cross-module optimisation hints (1.9) |
 
 Unknown options are skipped. `OPT_IPO_HINTS`, when a writer has hints, is written before the other options.
@@ -202,6 +204,49 @@ little-endian), several records when they do not fit in one. ln45 fails the
 link when the program's value of such a symbol differs from the one
 recorded (another, strong definition): the object would go on using its
 own.
+
+### 1.12 Debug Types and Variables (`OPT_DEBUG_TYPES`, `OPT_DEBUG_VARS`)
+
+The C variables and their types, for a debugger (#202). Both records hold
+text entries, each NUL-terminated, as many as fit in one record (under 240
+bytes); more records follow as needed. cc45 writes them for every object
+(ca45's `.dbg_type` / `.dbg_var`); they never change the code.
+
+A **type descriptor** is `[N]` (an array of N) and `*` (a pointer to), any
+number of times, then the base type: `char` (plain char: unsigned in cc45),
+`u8` `s8` `u16` `s16` `u32` `s32` `u64` `s64` `u128` `s128` (an integer by
+size and signedness), `bool`, `f40` (the CBM 5-byte float), `void`, or
+`struct:NAME` / `union:NAME` (a layout entry). A leading `&` says the
+location holds the address of the value (a struct parameter passed by copy).
+Enums are integers.
+
+`OPT_DEBUG_TYPES` entry:
+```
+struct|union NAME SIZE member@offset:type ...      ; a bit-field: member@offset.bit.width:type
++ NAME member@offset:type ...                       ; NAME's layout goes on (a long one)
+```
+
+`OPT_DEBUG_VARS` entry: `kind scope name type location`
+- **kind**: `global`, `static` (a file's static, or a function's static
+  local), `local`, `param`.
+- **scope**: the function's label (`_main`, a static function's renamed one)
+  for `local`, `param` and a static local; `-` otherwise.
+- **location**:
+
+  | Form | Meaning |
+  |------|---------|
+  | `seg:SEGMENT+offset` | In this object's `text`, `data`, `bss` or `zp` body, at the offset (ln45 places it like an export) |
+  | `imp:NAME[+n]` | At the import NAME (+ n): a function's base-page block (`<f>__zar`), an `__zp` variable, an `.extern` |
+  | `abs:$XXXX` | At a fixed address (an equate) |
+  | `zp:$XX` | A byte of the base page: the program's (`__zp_page` + $XX), or an interrupt handler's own (`__zp_page_isr`) in one |
+  | `frame:n` | n bytes from the frame pointer at `$FD/$FE` (a function with a stack frame) |
+  | `reg:AX`, `reg:X`, `reg:Y`, `reg:Z` | In registers |
+  | `none` | Nowhere: optimised away |
+
+  A local in static storage (`_f__local_N`) shares it with others the
+  function never has live at the same time, and ln45 overlays the storage
+  of functions never active together: the location holds the variable
+  while its function runs and it is live.
 
 ## 2. Segment Bodies
 

@@ -288,6 +288,8 @@ static void printFileHeader(const O45File& obj, const std::string& filename) {
                 case OPT_CREATED: name = "CREATED"; break;
                 case OPT_LINEINFO: name = "LINEINFO"; break;
                 case OPT_DEBUG_SYMBOLS: name = "DEBUG_SYMBOLS"; break;
+                case OPT_DEBUG_TYPES: name = "DEBUG_TYPES"; break;
+                case OPT_DEBUG_VARS: name = "DEBUG_VARS"; break;
             }
             printf("  option: %s", name);
             bool isText = true;
@@ -586,6 +588,38 @@ static SourceLineMap loadMapSourceLines(const std::string& mapFile) {
         }
     }
     return lines;
+}
+
+// -g: an object's debug information (#202): its source files and line
+// table, the struct / union layouts and the variables with their locations
+static void printDebugInfo(const O45File& obj, const std::string& filename) {
+    std::cout << std::endl << filename << ":" << std::endl << "Debug information:" << std::endl;
+    std::cout << "  Source files:" << std::endl;
+    for (size_t i = 0; i < obj.lineFiles.size(); i++) printf("    %zu  %s\n", i, obj.lineFiles[i].c_str());
+    std::cout << "  Lines (text offset  file:line):" << std::endl;
+    for (const auto& li : obj.lineInfos)
+        printf("    %04x  %s:%u\n", li.textOffset,
+               li.fileIndex < obj.lineFiles.size() ? obj.lineFiles[li.fileIndex].c_str() : "?", li.line);
+    std::cout << "  Types:" << std::endl;
+    for (const auto& t : obj.debugTypes) {
+        std::istringstream ws(t);
+        std::string kind, name, size, m;
+        ws >> kind >> name >> size;
+        printf("    %s %s (%s bytes)\n", kind.c_str(), name.c_str(), size.c_str());
+        while (ws >> m) {
+            size_t at = m.find('@'), colon = m.find(':', at);
+            if (at == std::string::npos || colon == std::string::npos) continue;
+            printf("      %-16s +%-8s %s\n", m.substr(0, at).c_str(), m.substr(at + 1, colon - at - 1).c_str(),
+                   m.substr(colon + 1).c_str());
+        }
+    }
+    std::cout << "  Variables (kind  scope  name  type  location):" << std::endl;
+    for (const auto& v : obj.debugVars) {
+        std::istringstream ws(v);
+        std::string kind, scope, name, type, loc;
+        ws >> kind >> scope >> name >> type >> loc;
+        printf("    %-7s %-18s %-14s %-16s %s\n", kind.c_str(), scope.c_str(), name.c_str(), type.c_str(), loc.c_str());
+    }
 }
 
 // Build source line map from .o45 line info
@@ -1021,6 +1055,7 @@ static void printUsage(const char* progName) {
     std::cout << "  -r       Display relocation entries" << std::endl;
     std::cout << "  -s       Display full contents of all sections (hex dump)" << std::endl;
     std::cout << "  -d       Disassemble executable sections" << std::endl;
+    std::cout << "  -g       Display debug information (source lines, types, variables)" << std::endl;
     std::cout << "  -a       Display all information" << std::endl;
     std::cout << "  -D       Binary diff mode (requires two files)" << std::endl;
     std::cout << "  -bas     Dump BASIC program (for .prg files only)" << std::endl;
@@ -1045,6 +1080,7 @@ int main(int argc, char** argv) {
     bool showContents = false;
     bool showDisasm = false;
     bool showAll = false;
+    bool showDebug = false;
     bool showBasic = false;
     bool showHex = false;
     bool showDiff = false;
@@ -1096,6 +1132,7 @@ int main(int argc, char** argv) {
                     case 'r': showRelocs = true; break;
                     case 's': showContents = true; break;
                     case 'd': showDisasm = true; break;
+                    case 'g': showDebug = true; break;
                     case 'a': showAll = true; break;
                     case 'x': showHex = true; break;
                     default:
@@ -1109,7 +1146,7 @@ int main(int argc, char** argv) {
     }
 
     if (showAll) {
-        showFileHeader = showSections = showSymbols = showRelocs = showContents = showDisasm = true;
+        showFileHeader = showSections = showSymbols = showRelocs = showContents = showDisasm = showDebug = true;
     }
 
     // Handle diff mode - requires exactly 2 files
@@ -1123,7 +1160,7 @@ int main(int argc, char** argv) {
 
     // If no display options given, default to showing file header (unless -bas is specified)
     if (!showFileHeader && !showSections && !showSymbols && !showRelocs &&
-        !showContents && !showDisasm && !showBasic) {
+        !showContents && !showDisasm && !showBasic && !showDebug) {
         std::cerr << "objdump45: no display option specified (use -f, -h, -t, -r, -s, -d, -a, or -bas)" << std::endl;
         printUsage(argv[0]);
         return 1;
@@ -1220,6 +1257,7 @@ int main(int argc, char** argv) {
             if (showSymbols)    printSymbolTable(obj, filename);
             if (showRelocs)     printRelocations(obj, filename);
             if (showContents)   printSectionContents(obj);
+            if (showDebug)      printDebugInfo(obj, filename);
             if (showDisasm) {
                 auto symbols = buildSymbolMap(obj);
                 auto srcLines = buildSourceLineMap(obj);

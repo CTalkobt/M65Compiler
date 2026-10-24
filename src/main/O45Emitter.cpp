@@ -7,6 +7,7 @@
 #include "AssemblerGenerator.hpp"
 #include "M65Emitter.hpp"
 #include "StringUtil.hpp"
+#include <sstream>
 #include <iostream>
 #include <iomanip>
 #include <algorithm>
@@ -1436,6 +1437,78 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         if (payload.size() > 2) {  // Only emit if we have more than just the count header
             writer.addOptionRaw(OPT_DEBUG_SYMBOLS, payload);
         }
+    }
+
+    // Debug information (#202): cc45's .dbg_type / .dbg_var as NUL-terminated
+    // text entries, packed into records under the option size limit. A
+    // variable's sym:NAME[+n] location becomes seg:SEGMENT+offset (in this
+    // object's segment body), imp:NAME+n (an import) or abs:$XXXX (an
+    // equate); a symbol that is not there (an optimised-out local's
+    // storage) leaves it none
+    {
+        auto pack = [&](uint8_t opt, const std::vector<std::string>& entries) {
+            std::vector<uint8_t> payload;
+            for (const auto& e : entries) {
+                if (!payload.empty() && payload.size() + e.size() + 1 > 240) {
+                    writer.addOptionRaw(opt, payload);
+                    payload.clear();
+                }
+                payload.insert(payload.end(), e.begin(), e.end());
+                payload.push_back(0x00);
+            }
+            if (!payload.empty()) writer.addOptionRaw(opt, payload);
+        };
+        auto location = [&](const std::string& loc) -> std::string {
+            if (loc.rfind("sym:", 0) != 0) return loc;
+            std::string name = loc.substr(4);
+            long add = 0;
+            size_t plus = name.find('+');
+            if (plus != std::string::npos) { add = std::stol(name.substr(plus + 1)); name.resize(plus); }
+            std::string tail = add ? "+" + std::to_string(add) : "";
+            if (parser.isExternSymbol(name)) return "imp:" + name + tail;
+            Symbol* sym = parser.resolveSymbol(name, "");
+            if (!sym) return "none";
+            char buf[16];
+            if (!sym->isAddress || sym->segment.empty() || !parser.segments.count(sym->segment)) {
+                snprintf(buf, sizeof buf, "$%04X", (unsigned)((sym->value + add) & 0xFFFF));
+                return std::string("abs:") + buf;
+            }
+            uint32_t base = parser.segments.at(sym->segment)->startAddress;
+            if (base == 0xFFFFFFFF) base = 0;
+            uint32_t off = sym->value - base + (uint32_t)add;
+            O45Segment seg = segIdFromName(sym->segment);
+            if (seg == SEG_TEXT) {
+                auto t = textSubSegOffset.find(sym->segment);
+                if (t != textSubSegOffset.end()) off += t->second;
+            }
+            static const char* names[] = {"", "", "text", "data", "bss", "zp"};
+            return std::string("seg:") + (seg >= SEG_TEXT && seg <= SEG_ZP ? names[seg] : "text") + "+" +
+                   std::to_string(off);
+        };
+        std::vector<std::string> types, vars;
+        for (const auto& stmt : parser.statements) {
+            if (stmt->type != AssemblerParser::Statement::DIRECTIVE || stmt->dir.arguments.empty()) continue;
+            const std::string& text = stmt->dir.arguments[0];
+            if (stmt->dir.name == "dbg_type") {
+                // a long layout goes on in "+ NAME members..." entries
+                std::istringstream ws(text);
+                std::string kind, name, size, m, cur;
+                ws >> kind >> name >> size;
+                cur = kind + " " + name + " " + size;
+                while (ws >> m) {
+                    if (cur.size() + 1 + m.size() > 230) { types.push_back(cur); cur = "+ " + name; }
+                    cur += " " + m;
+                }
+                types.push_back(cur);
+            } else if (stmt->dir.name == "dbg_var") {
+                // kind scope name type location
+                size_t sp = text.rfind(' ');
+                if (sp == std::string::npos) continue;
+                vars.push_back(text.substr(0, sp + 1) + location(text.substr(sp + 1)));
+            }
+        }
+        pack(OPT_DEBUG_TYPES, types);
+        pack(OPT_DEBUG_VARS, vars);
     }
 
     return writer.emit();

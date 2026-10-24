@@ -28,7 +28,8 @@ At least one display option (`-f`, `-h`, `-t`, `-r`, `-s`, `-d`, `-a` or `-bas`)
 | `-r` | Relocation entries per section |
 | `-s` | Full contents of all sections (hex dump) |
 | `-d` | Disassemble (an object's TEXT and DATA sections; the code of a PRG/binary) |
-| `-a` | All of `-f -h -t -r -s -d` |
+| `-g` | An object's debug information: its source files and line table, the struct / union layouts and the variables (kind, scope, name, type, location; lib45.md 1.12) |
+| `-a` | All of `-f -h -t -r -s -d -g` |
 | `-b ADDR` | Base address for raw binaries (default `$0000`); overrides the load address of a `.prg`. `$C000` and `0xC000` are hex; a plain number is decimal (`2048`), and a leading `0` makes it octal |
 | `-m FILE` | Load symbols and source lines from an `ln45 -M` map file for PRG/binary disassembly. For `foo.prg`, `foo.map` is used automatically when it exists. With code overlays, a call into an overlay is labelled with the function's name at its stub; the overlays' own symbols are in the `.ovd` file |
 | `-bas` | List the BASIC program of a `.prg` (line numbers, detokenised text) |
