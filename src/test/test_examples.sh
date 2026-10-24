@@ -223,24 +223,35 @@ else
     fail "forth checks" "$(tail -1 "$BUILDDIR/forth_check.txt")"
 fi
 
-# The examples disk: every example on a D81 with a menu (AUTOBOOT.C65);
-# a program DLOADed from it runs
-make -C "$EXAMPLES/disk" -B examples.d81 >"$BUILDDIR/disk.txt" 2>&1
-if grep -q "Status: OK" "$BUILDDIR/disk.txt" && ./bin/disk45 list "$EXAMPLES/disk/examples.d81" | grep -q '"AUTOBOOT.C65"'; then
-    pass "examples disk"
+# The examples disks: the games and the rest on two D81s, each with its
+# menu (AUTOBOOT.C65, MENU); the menu shows the disk's title, and a program
+# DLOADed from each disk runs (Glam Lambs loading its music into bank 5)
+make -C "$EXAMPLES/disk" -B disks >"$BUILDDIR/disk.txt" 2>&1
+if [ "$(grep -c "Status: OK" "$BUILDDIR/disk.txt")" = 2 ] &&
+   ./bin/disk45 list "$EXAMPLES/disk/games.d81" | grep -q '"CC45 GAMES"' &&
+   ./bin/disk45 list "$EXAMPLES/disk/demos.d81" | grep -q '"CC45 DEMOS"' &&
+   ./bin/disk45 list "$EXAMPLES/disk/games.d81" | grep -q '"AUTOBOOT.C65"' &&
+   ./bin/disk45 list "$EXAMPLES/disk/demos.d81" | grep -q '"AUTOBOOT.C65"'; then
+    pass "examples disks"
 else
-    fail "examples disk" "$(tail -1 "$BUILDDIR/disk.txt")"
+    fail "examples disks" "$(tail -1 "$BUILDDIR/disk.txt")"
 fi
+test_text_disk "games disk menu" "$EXAMPLES/disk/games_menu.prg" "$EXAMPLES/disk/games.d81" "CC45 GAMES FOR THE MEGA65" 10
+test_text_disk "demos disk menu" "$EXAMPLES/disk/demos_menu.prg" "$EXAMPLES/disk/demos.d81" "CC45 DEMOS FOR THE MEGA65" 10
 printf 'start:\n  dload "hello world"\n' > "$BUILDDIR/chain.bas"
 ./bin/basic45 "$BUILDDIR/chain.bas" -o "$BUILDDIR/chain.prg" >/dev/null 2>&1
-rm -f "$BUILDDIR/chain.screen.txt"
-timeout 25 $XEMU -headless -besure -sleepless -prgmode 65 -prgexit -8 "$EXAMPLES/disk/examples.d81" \
-    -dumpscreen "$BUILDDIR/chain.screen.txt" -prg "$BUILDDIR/chain.prg" </dev/null >/dev/null 2>&1
-if grep -q "HELLO WORLD" "$BUILDDIR/chain.screen.txt" 2>/dev/null; then
-    pass "examples disk: DLOAD runs a program"
-else
-    fail "examples disk: DLOAD runs a program" "no HELLO WORLD"
-fi
+test_text_disk "demos disk: DLOAD runs a program" "$BUILDDIR/chain.prg" "$EXAMPLES/disk/demos.d81" "HELLO WORLD" 25
+printf 'start:\n  dload "glamlambs"\n' > "$BUILDDIR/chain2.bas"
+./bin/basic45 "$BUILDDIR/chain2.bas" -o "$BUILDDIR/chain2.prg" >/dev/null 2>&1
+rm -f "$BUILDDIR/chain2.mem"
+timeout 15 $XEMU -headless -besure -sleepless -prgmode 65 -prgexit -8 "$PWD/$EXAMPLES/disk/games.d81" \
+    -dumpmem "$BUILDDIR/chain2.mem" -prg "$BUILDDIR/chain2.prg" </dev/null >/dev/null 2>&1
+if [ -f "$BUILDDIR/chain2.mem" ] && python3 - "$BUILDDIR/chain2.mem" <<'PY'
+import sys
+m = open(sys.argv[1], 'rb').read()
+sys.exit(0 if len(m) > 0x50000 and m[0x50000] == 2 else 1)
+PY
+then pass "games disk: DLOAD runs Glam Lambs, its music loaded"; else fail "games disk: DLOAD runs Glam Lambs" "no music in bank 5"; fi
 
 echo ""
 echo "Example tests: $passed passed, $failed failed, $skipped skipped"

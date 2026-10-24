@@ -1,0 +1,29 @@
+# The demos disk, demos.d81 ("CC45 DEMOS"): <program, relative to examples/> | <name on the disk> | <its line in the menu>
+# (a file with no menu line goes on the disk only: the code overlays a program loads)
+c/mandelbrot/mandelbrot.prg          | mandelbrot   | mandelbrot - the set, zoom and scroll
+c/musicgen/musicgen.prg              | musicgen     | musicgen - random music in 7 styles
+c/tunes/tunes.prg                    | tunes        | tunes - a game's music, from an irq
+c/fcm_graphics/fcm_graphics.prg      | fcm graphics | fcm graphics - full-colour characters
+c/calc_graph/calc_graph.prg          | calc graph   | calc graph - a calculator that plots
+c/forth/forth.prg                    | forth        | forth - a tiny forth
+c/rtc_clock/rtc_clock.prg            | rtc clock    | rtc clock - the real-time clock
+c/keyboard_viewer/keyboard_viewer.prg | keyboard    | keyboard - the keys you hold light up
+c/sample_player/sample_player.prg    | sample player | sample player - drums on the audio dma
+c/far_scroller/far_scroller.prg      | far scroller | far scroller - a dma landscape
+c/text_scroller/scroller.prg         | text scroller | text scroller - a sprite and a message
+c/game_of_life/life.prg              | game of life | game of life - conway's cellular world
+c/palette_fade/palette_fade.prg      | palette fade | palette fade - c and assembly
+c/vic4_colors/vic4_colors.prg        | vic4 colors  | vic4 colors - registers as a struct
+c/bitfield_registers/bitfield_demo.prg | bitfield regs | bitfield regs - registers as bitfields
+c/memset_screen/memset_screen.prg    | memset screen | memset screen - every character
+c/hello_world/hello.prg              | hello world  | hello world
+c/unit_convert/convert.prg           | unit convert | unit convert - long arithmetic
+c/multi_module/program.prg           | multi module | multi module - three files linked
+c/overlays/ovldemo.prg               | overlays     | overlays - code loaded from far memory
+c/overlays/ovldemo.ov1               | OVLDEMO.OV1  |
+c/mapped_overlays/mapdemo.prg        | map overlays | map overlays - far code run in place
+c/mapped_overlays/mapdemo.ov1        | MAPDEMO.OV1  |
+c/far_functions/fardemo.prg          | far functions | far functions - __far code in bank 5
+c/far_functions/fardemo.ov1          | FARDEMO.OV1  |
+c/stdlib/ctype_h/ctype_demo.prg      | ctype demo   | ctype demo - petscii classes
+basic/c_routines/menu.prg            | basic+c      | basic+c - basic 65 calling c

@@ -1,6 +1,9 @@
-' menu.bas — the menu of the examples disk (basic45 source)
+' menu.bas — the menu of the examples disks (basic45 source)
 '
-' Saved on examples.d81 as AUTOBOOT.C65 (the MEGA65 runs it when it starts
+' The Makefile makes a menu for each disk, games_menu.bas and
+' demos_menu.bas: this file (#include) and, at the label entries, the
+' disk's title and its programs (from games.txt, demos.txt) as DATA. Each
+' is saved on its disk as AUTOBOOT.C65 (the MEGA65 runs it when it starts
 ' with the disk in drive 0) and as MENU. A key loads and starts an example:
 ' DLOAD in a running program loads the next one into BASIC memory and runs
 ' it, and each example is a BASIC stub (SYS) at $2001 followed by its code.
@@ -10,6 +13,7 @@ start:
   dim f$(35), d$(35)
   n = 0
   restore entries
+  read title$
   read f$
   do while f$ <> "*"
     read d$
@@ -27,7 +31,7 @@ show:
   p0 = (page - 1) * per + 1
   p1 = p0 + per - 1
   if p1 > n then p1 = n
-  print "{clear}{white}  cc45 examples for the mega65"
+  print "{clear}{white}  "; title$
   print "{light-blue}  built with the cc45 suite, disk by disk45   page"; page; "of"; pages; "{white}"
   print
   for i = p0 to p1
@@ -51,34 +55,3 @@ pick:
   k = p0 + k - 1
   print "{clear}{white}loading "; f$(k); " ..."
   dload (f$(k))
-
-entries:
-  data "invaders",     "invaders - a space invaders game"
-  data "rogue",        "rogue - a dungeon crawl"
-  data "glamlambs",    "glam lambs - a sheep makeover game"
-  data "hanger",       "hanger - hangman, six victims"
-  data "tunes",        "tunes - a game's music, from an irq"
-  data "fcm graphics", "fcm graphics - full-colour characters"
-  data "mandelbrot",   "mandelbrot - the set, zoom and scroll"
-  data "musicgen",     "musicgen - random music in 7 styles"
-  data "calc graph",   "calc graph - a calculator that plots"
-  data "forth",        "forth - a tiny forth"
-  data "rtc clock",    "rtc clock - the real-time clock"
-  data "keyboard",     "keyboard - the keys you hold light up"
-  data "sample player","sample player - drums on the audio dma"
-  data "far scroller", "far scroller - a dma landscape"
-  data "text scroller","text scroller - a sprite and a message"
-  data "game of life", "game of life - conway's cellular world"
-  data "palette fade", "palette fade - c and assembly"
-  data "vic4 colors",  "vic4 colors - registers as a struct"
-  data "bitfield regs","bitfield regs - registers as bitfields"
-  data "memset screen","memset screen - every character"
-  data "hello world",  "hello world"
-  data "unit convert", "unit convert - long arithmetic"
-  data "multi module", "multi module - three files linked"
-  data "overlays",     "overlays - code loaded from far memory"
-  data "map overlays", "map overlays - far code run in place"
-  data "far functions","far functions - __far code in bank 5"
-  data "ctype demo",   "ctype demo - petscii classes"
-  data "basic+c",      "basic+c - basic 65 calling c"
-  data "*"

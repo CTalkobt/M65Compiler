@@ -10,25 +10,33 @@ directory; most have `make run` to start xemu). The pictures are made by
 The MEGA65's own boot screen and `READY.` prompt show in the pictures of the
 programs that print text and return to BASIC.
 
-## The examples disk
+## The examples disks
 
 [Source](https://github.com/CTalkobt/M65Compiler/tree/main/examples/disk) —
-`make -C examples/disk` builds every example and puts them on one D81 disk
-image, `examples/disk/examples.d81`, with
-[disk45](../bin/disk45.md): `create`, an `add` for each program (named as
-in [`programs.txt`](https://github.com/CTalkobt/M65Compiler/blob/main/examples/disk/programs.txt)),
-`validate` and `list`. The menu,
+`make -C examples/disk` builds every example and puts them on two D81 disk
+images with [disk45](../bin/disk45.md) (`create`, an `add` for each program,
+`validate` and `list`): `examples/disk/games.d81`, "CC45 GAMES" (invaders,
+rogue, hanger and Glam Lambs with its music), and `examples/disk/demos.d81`,
+"CC45 DEMOS" (the rest, with the code overlays the overlay examples load).
+Each disk's programs, their names on it and their lines in the menu are in
+[`games.txt`](https://github.com/CTalkobt/M65Compiler/blob/main/examples/disk/games.txt)
+and [`demos.txt`](https://github.com/CTalkobt/M65Compiler/blob/main/examples/disk/demos.txt).
+The menu,
 [`menu.bas`](https://github.com/CTalkobt/M65Compiler/blob/main/examples/disk/menu.bas),
 is a BASIC 65 program written in [basic45](../bin/basic45.md)'s source form
-(labels, no line numbers). It is saved as `AUTOBOOT.C65`, so a MEGA65 that
-starts with the disk mounted runs it, and as `MENU`. It lists the examples on
-pages of 13; space turns the page. A key loads and starts an example with `DLOAD`: inside a running program it loads the next one and runs
-it, and every example is a BASIC `SYS` line at `$2001` followed by its code.
-When an example ends, `RUN "MENU"` brings the menu back. `make -C examples/disk run`
-starts xemu with the disk in drive 8; on a MEGA65, copy the D81 to the SD card
-and mount it.
+(labels, no line numbers); the Makefile makes each disk's from it with
+`#include` and the disk's title and programs as `DATA`. It is saved as
+`AUTOBOOT.C65`, so a MEGA65 that starts with the disk mounted runs it, and
+as `MENU`. It lists the programs on pages of 13; space turns the page. A key
+loads and starts one with `DLOAD`: inside a running program it loads the next
+one and runs it, and every example is a BASIC `SYS` line at `$2001` followed
+by its code. When an example ends, `RUN "MENU"` brings the menu back.
+`make -C examples/disk run` starts xemu with the games disk in drive 8,
+`run-demos` with the demos disk; on a MEGA65, copy the D81s to the SD card and
+mount one.
 
-![The examples disk's menu](images/disk_menu.png)
+![The games disk's menu](images/disk_games.png)
+![The demos disk's menu](images/disk_demos.png)
 
 ## Games and demos
 
