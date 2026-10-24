@@ -21,7 +21,9 @@
  * The screen is 80 x 25 text. The picture's glyphs (gen_gfx.py) are
  * loaded per level into a copy of the upper case character set in bank 4,
  * from screen code GLYPH0; codes $40-$47 are the frame's lines. The whole
- * screen is built in two buffers and copied out by DMA each frame.
+ * screen is built in two buffers and copied out by DMA each frame. The
+ * sounds are sounds.txt, played by the library's tune player (tune45
+ * convert makes sounds.c and sounds.h of it).
  *
  * Build with -DDEMO for a self-playing game (screenshots, soak tests);
  * -DDEMO_LEVEL=n starts it at level n (0-5).
@@ -32,10 +34,12 @@
 #include <dma.h>
 #include <mega65.h>
 #include <audio_sid.h>
+#include <audio_tune.h>
 #include <input.h>
 
 #include "gfx.h"
 #include "words.h"
+#include "sounds.h"                     /* tune45 convert sounds.txt */
 
 #ifndef REG
 #define REG(a) (*(volatile unsigned char *)(a))
@@ -167,42 +171,8 @@ static unsigned int rnd(void) {
     return rnd_state;
 }
 
-/* ------------------------------------------------------------------------ */
-/* Sound: one voice playing a short tune of (MIDI note, frames) pairs       */
-
-static const sid_instrument_t snd_blip = { SID_TRIANGLE, 0x08, 0x00, 0 };
-static const sid_instrument_t snd_buzz = { SID_SAWTOOTH, 0x09, 0x00, 0 };
-static const sid_instrument_t snd_tune = { SID_PULSE, 0x0A, 0x00, 0x0600 };
-
-static const unsigned char tune_right[] = { 84, 4, 0 };
-static const unsigned char tune_wrong[] = { 40, 6, 37, 10, 0 };
-static const unsigned char tune_key[] = { 96, 2, 0 };
-static const unsigned char tune_win[] = { 72, 6, 76, 6, 79, 6, 84, 16, 0 };
-static const unsigned char tune_lose[] = { 55, 12, 54, 12, 53, 12, 52, 30, 0 };
-
-static const unsigned char *tune_p;
-static unsigned char tune_t;
-
-static void play(const sid_instrument_t *inst, const unsigned char *tune) {
-    sid_gate(0, 0);
-    sid_set_instrument(0, inst);
-    tune_p = tune;
-    tune_t = 0;
-}
-
-static void snd_update(void) {
-    if (!tune_p) return;
-    if (tune_t) {
-        if (--tune_t == 1) sid_gate(0, 0);
-        return;
-    }
-    if (!*tune_p) { tune_p = 0; return; }
-    sid_gate(0, 0);
-    sid_set_freq_reg(0, sid_note_to_reg(tune_p[0]));
-    sid_gate(0, 1);
-    tune_t = tune_p[1];
-    tune_p += 2;
-}
+/* Sound: the jingles of sounds.txt (tune45 convert: sounds.c, sounds.h),
+ * played on voice 1 by the library's tune player, tune_update once a frame */
 
 /* ------------------------------------------------------------------------ */
 /* The picture                                                              */
@@ -469,7 +439,7 @@ static void round_over(void) {
     if (won) {
         pts = (10 + 2 * (parts - misses)) * (level + 1);
         score[players == 1 ? 0 : guesser] += pts;
-        play(&snd_tune, tune_win);
+        tune_play(tune_win);
         if (players == 1) { sb_add(s"you saved the "); sb_add(lvl_name[level]); sb_add(s"!"); }
         else { sb_player(guesser); sb_add(s" saved the "); sb_add(lvl_name[level]); sb_add(s"!"); }
         panel_text(ROW_MSG, sbuf, C_LGREEN);
@@ -479,7 +449,7 @@ static void round_over(void) {
     } else {
         apply_stage((unsigned char)(parts + 1));
         draw_word(1);
-        play(&snd_buzz, tune_lose);
+        tune_play(tune_lose);
         sb_add(s"the poor "); sb_add(lvl_name[level]); sb_add(s" is hanged.");
         panel_text(ROW_MSG, sbuf, C_PINK);
         sb_reset();
@@ -507,7 +477,7 @@ static void game_over(void) {
         if (score[0] > hiscore) hiscore = score[0];
         if (lives) {
             message(s"you saved them all!", C_LGREEN, s"", C_WHITE);
-            play(&snd_tune, tune_win);
+            tune_play(tune_win);
         } else {
             message(s"game over", C_PINK, s"", C_WHITE);
         }
@@ -520,7 +490,7 @@ static void game_over(void) {
         sb_reset();
         sb_num(score[0]); sb_add(s" to "); sb_num(score[1]);
         panel_text(ROW_MSG + 1, sbuf, C_YELLOW);
-        play(&snd_tune, tune_win);
+        tune_play(tune_win);
     }
     help(s"press return");
 }
@@ -554,7 +524,7 @@ static void guess(unsigned char l) {
     if (n) {
         tried[l] = 1;
         left -= n;
-        play(&snd_blip, tune_right);
+        tune_play(tune_right);
         draw_word(0);
         draw_alpha();
         if (!left) { won = 1; round_over(); }
@@ -562,7 +532,7 @@ static void guess(unsigned char l) {
         tried[l] = 2;
         missed[misses] = l;
         apply_stage(++misses);
-        play(&snd_buzz, tune_wrong);
+        tune_play(tune_wrong);
         draw_misses();
         draw_alpha();
         if (misses == lvl_parts[level]) { won = 0; round_over(); }
@@ -572,7 +542,7 @@ static void guess(unsigned char l) {
 static void enter_key(unsigned char k, unsigned char l) {
     if (l && wlen < MAXLEN) {
         word[wlen++] = l;
-        play(&snd_blip, tune_key);
+        tune_play(tune_key);
     } else if (k == CH_DELETE && wlen) {
         --wlen;
     } else if (k == CH_RETURN) {
@@ -683,7 +653,7 @@ int main(void) {
         wait_vsync();
         while (frame_seen != FRAMECOUNT) {
             frame_seen++;
-            snd_update();
+            tune_update();
         }
         rnd();                        /* stirred every frame: picks depend on timing */
 #ifdef DEMO

@@ -1,0 +1,20 @@
+; hanger's sounds (tune45 convert sounds.txt -o sounds.c; tune45 play
+; sounds.txt --tune win to hear one): one voice, a tick a frame, each note
+; released a tick before the next
+instrument blip tri   08 00 0000 0 1
+instrument buzz saw   09 00 0000 0 1
+instrument tone pulse 0a 00 0600 0 1
+
+; a letter in the word; one not in it; a letter typed (two players)
+tune right 1 once
+v1: @blip c6:4
+tune wrong 1 once
+v1: @buzz e2:6 c#2:10
+tune key 1 once
+v1: @blip c7:2
+
+; the word guessed; the victim hanged
+tune win 1 once
+v1: @tone c5:6 e5:6 g5:6 c6:16
+tune lose 1 once
+v1: @buzz g3:12 f#3:12 f3:12 e3:30
