@@ -29,8 +29,11 @@ public:
 
     // -ffunction-sections: ln45 also drops the program's own unused sections
     void setGcInputs(bool on) { gcInputs_ = on; }
+    // -g: ln45 writes the program's debug information, <program>.dbg
+    void setDebugFile(bool on) { debugFile_ = on; }
 private:
     bool gcInputs_ = false;
+    bool debugFile_ = false;
     std::string objectFile_;
     std::string outputFile_;
     int verboseLevel_;

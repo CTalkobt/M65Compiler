@@ -569,6 +569,24 @@ bool O45Linker::compactObject(const O45File& o, const std::vector<bool>& keepSec
     }
     for (auto& sa : out.segAttrs)
         if (sa.segId == SEG_TEXT) { sa.offset = 0; sa.length = out.tlen; }
+    // debug information (#202): seg:SEGMENT+offset locations move with their
+    // sections; one in a dropped section is gone (none; a function's entry
+    // goes)
+    out.debugVars.clear();
+    for (const auto& v : o.debugVars) {
+        size_t at = v.find(" seg:"), plus = at == std::string::npos ? at : v.find('+', at);
+        if (plus == std::string::npos) { out.debugVars.push_back(v); continue; }
+        size_t end = v.find(' ', plus);
+        std::string segName = v.substr(at + 5, plus - at - 5);
+        uint8_t seg = segName == "text" ? SEG_TEXT : segName == "data" ? SEG_DATA : segName == "bss" ? SEG_BSS : SEG_ZP;
+        std::string tail = end == std::string::npos ? "" : v.substr(end);
+        uint32_t no;
+        if (!siteNew(seg, (uint32_t)std::stoul(v.substr(plus + 1, end - plus - 1)), no)) {
+            if (v.rfind("func ", 0) != 0) out.debugVars.push_back(v.substr(0, at) + " none" + tail);
+            continue;
+        }
+        out.debugVars.push_back(v.substr(0, plus + 1) + std::to_string(no) + tail);
+    }
     return true;
 }
 
@@ -3573,26 +3591,203 @@ void O45Linker::mergeLineMaps() {
               [](const MergedLineEntry& a, const MergedLineEntry& b) { return a.address < b.address; });
 }
 
-void O45Linker::writeLineMap(std::ostream& out) const {
-    if (mergedLineMap_.empty()) return;
-    out << "[\n";
-    std::string prevFile;
-    int prevLine = -1;
+// The program's debug information (#202), ln45 -g: <program>.dbg, JSON.
+// Source files, the line table, functions, struct / union layouts and the
+// variables at their final addresses (from the objects' OPT_LINEINFO,
+// OPT_DEBUG_TYPES and OPT_DEBUG_VARS; doc/bin/ln45.md, "Debug file")
+void O45Linker::writeDebugFile(std::ostream& out, const std::string& program) const {
+    auto esc = [](const std::string& s) {
+        std::string r = "\"";
+        for (char c : s) {
+            if (c == '"' || c == '\\') { r += '\\'; r += c; }
+            else if ((unsigned char)c < 0x20) { char b[8]; snprintf(b, sizeof b, "\\u%04x", (unsigned char)c); r += b; }
+            else r += c;
+        }
+        return r + "\"";
+    };
+    auto sym = [&](const char* n) -> std::string {
+        auto it = globalSymbols_.find(n);
+        return it == globalSymbols_.end() ? "null" : std::to_string(it->second);
+    };
+    auto ovlName = [&](int ovl) -> std::string {
+        return ovl > 0 && ovl <= (int)ovlNames_.size() ? esc(ovlNames_[ovl - 1]) : "null";
+    };
+    // an object's segment offset at its place in the program, or -1 when
+    // its section was dropped (a BSS / text offset no piece holds)
+    auto segAddr = [&](const InputObject& in, const std::string& seg, uint32_t off, int& ovl) -> int64_t {
+        ovl = 0;
+        if (seg == "text") {
+            if (!in.textRemaps.empty()) {
+                bool held = false;
+                for (const auto& r : in.textRemaps) held |= off >= r.srcOffset && off < r.srcOffset + r.srcLen;
+                if (!held) return -1;
+            }
+            ovl = in.ovlAt(off);
+            return textAddrOf(in, off);
+        }
+        if (seg == "data") return dataBase_ + in.dataOffset + off;
+        if (seg == "bss") return bssBase_ + in.remapBssOffset(off);
+        if (seg == "zp") return zpBase_ + in.zpOffset + off;
+        return -1;
+    };
+
+    out << "{\n  \"format\": \"cc45-debug\",\n  \"version\": 1,\n  \"program\": " << esc(program) << ",\n";
+    out << "  \"zp_page\": " << sym("__zp_page") << ",\n  \"zp_page_isr\": " << sym("__zp_page_isr") << ",\n";
+    out << "  \"overlays\": [";
+    for (size_t i = 0; i < ovlNames_.size(); i++)
+        out << (i ? ", " : "") << "{\"name\": " << esc(ovlNames_[i]) << ", \"runs_at\": " << ovlBase_ << "}";
+    out << "],\n";
+
+    // objects and source files
+    out << "  \"objects\": [";
+    for (size_t i = 0; i < objects_.size(); i++) out << (i ? ", " : "") << esc(objects_[i].filename);
+    out << "],\n";
+    std::vector<std::string> files;
+    std::map<std::string, size_t> fileIdx;
+    for (const auto& e : mergedLineMap_)
+        if (fileIdx.emplace(e.file, files.size()).second) files.push_back(e.file);
+    out << "  \"files\": [";
+    for (size_t i = 0; i < files.size(); i++) out << (i ? ",\n    " : "\n    ") << esc(files[i]);
+    out << "\n  ],\n";
+
+    // lines: [address, file, line, overlay], one where the line starts
+    out << "  \"lines\": [";
     bool first = true;
-    for (size_t i = 0; i < mergedLineMap_.size(); i++) {
-        const auto& e = mergedLineMap_[i];
-        if (e.file == prevFile && e.line == prevLine) continue;
-        if (!first) out << ",\n";
-        out << "  {\"addr\":" << e.address
-            << ",\"file\":\"" << e.file
-            << "\",\"line\":" << e.line;
-        if (e.ovl > 0 && e.ovl <= (int)ovlNames_.size()) out << ",\"overlay\":\"" << ovlNames_[e.ovl - 1] << "\"";
-        out << "}";
-        prevFile = e.file;
-        prevLine = e.line;
+    std::string prevFile;
+    int prevLine = -1, prevOvl = -1;
+    for (const auto& e : mergedLineMap_) {
+        if (e.file == prevFile && e.line == prevLine && e.ovl == prevOvl) continue;
+        out << (first ? "\n    " : ",\n    ") << "[" << e.address << ", " << fileIdx[e.file] << ", " << e.line;
+        if (e.ovl) out << ", " << ovlName(e.ovl);
+        out << "]";
+        prevFile = e.file; prevLine = e.line; prevOvl = e.ovl;
         first = false;
     }
-    out << "\n]\n";
+    out << "\n  ],\n";
+
+    // types: one layout a name; a different layout of a name another object
+    // already gave is NAME@object, and that object's types say so
+    std::map<std::string, std::string> layouts;              // kind:NAME -> its entry (less the kind and name)
+    std::vector<std::map<std::string, std::string>> renames(objects_.size());
+    std::vector<std::pair<std::string, std::string>> typeOut; // key, entry
+    for (size_t i = 0; i < objects_.size(); i++)
+        for (const auto& t : objects_[i].obj.debugTypes) {
+            std::istringstream ws(t);
+            std::string kind, name;
+            ws >> kind >> name;
+            std::string key = kind + ":" + name, rest;
+            std::getline(ws, rest);
+            auto it = layouts.find(key);
+            if (it == layouts.end()) { layouts[key] = rest; typeOut.push_back({key, rest}); continue; }
+            if (it->second == rest) continue;
+            std::string alt = key + "@" + std::to_string(i);
+            renames[i][key] = alt;
+            layouts[alt] = rest;
+            typeOut.push_back({alt, rest});
+        }
+    auto retype = [&](size_t obj, const std::string& type) {
+        std::string t = type;
+        for (const auto& [from, to] : renames[obj]) {
+            size_t p = t.find(from);
+            if (p != std::string::npos && p + from.size() == t.size()) t = t.substr(0, p) + to;
+        }
+        return t;
+    };
+    std::map<std::string, size_t> typeObj;   // a renamed layout's object (its member types)
+    for (size_t i = 0; i < renames.size(); i++)
+        for (const auto& [from, to] : renames[i]) typeObj[to] = i;
+    out << "  \"types\": {";
+    first = true;
+    for (const auto& [key, rest] : typeOut) {
+        std::istringstream ws(rest);
+        std::string size, m;
+        ws >> size;
+        out << (first ? "\n    " : ",\n    ") << esc(key) << ": {\"size\": " << size << ", \"members\": [";
+        bool mfirst = true;
+        while (ws >> m) {
+            size_t at = m.find('@'), colon = m.find(':', at);
+            if (at == std::string::npos || colon == std::string::npos) continue;
+            std::string place = m.substr(at + 1, colon - at - 1), type = m.substr(colon + 1);
+            auto ob = typeObj.find(key);
+            if (ob != typeObj.end()) type = retype(ob->second, type);
+            out << (mfirst ? "" : ", ") << "{\"name\": " << esc(m.substr(0, at));
+            size_t dot = place.find('.');
+            out << ", \"offset\": " << place.substr(0, dot);
+            if (dot != std::string::npos) {
+                size_t dot2 = place.find('.', dot + 1);
+                out << ", \"bit\": " << place.substr(dot + 1, dot2 - dot - 1) << ", \"width\": " << place.substr(dot2 + 1);
+            }
+            out << ", \"type\": " << esc(type) << "}";
+            mfirst = false;
+        }
+        out << "]}";
+        first = false;
+    }
+    out << "\n  },\n";
+
+    // functions and variables (a function's own, only when the function is
+    // in the program: not one ln45 dropped)
+    std::ostringstream funcs, vars;
+    bool ffirst = true, vfirst = true;
+    for (size_t i = 0; i < objects_.size(); i++) {
+        const auto& in = objects_[i];
+        std::set<std::string> present;
+        for (const auto& v : in.obj.debugVars) {
+            std::istringstream ws(v);
+            std::string kind, name;
+            ws >> kind >> name;
+            if (kind == "func") present.insert(name);
+        }
+        for (const auto& v : in.obj.debugVars) {
+            std::istringstream ws(v);
+            std::string kind;
+            ws >> kind;
+            if (kind == "func") {
+                std::string name, loc;
+                uint32_t len = 0;
+                ws >> name >> loc >> len;
+                size_t plus = loc.find('+');
+                if (loc.rfind("seg:", 0) != 0 || plus == std::string::npos) continue;
+                int ovl;
+                int64_t a = segAddr(in, loc.substr(4, plus - 4), (uint32_t)std::stoul(loc.substr(plus + 1)), ovl);
+                if (a < 0) continue;
+                funcs << (ffirst ? "\n    " : ",\n    ") << "{\"name\": " << esc(name) << ", \"start\": " << a
+                      << ", \"end\": " << a + len << ", \"overlay\": " << ovlName(ovl) << ", \"object\": " << i << "}";
+                ffirst = false;
+                continue;
+            }
+            std::string scope, name, type, loc;
+            ws >> scope >> name >> type >> loc;
+            if (scope != "-" && !present.count(scope)) continue;
+            std::string where = "null";
+            size_t plus = loc.find('+');
+            if (loc.rfind("seg:", 0) == 0 && plus != std::string::npos) {
+                int ovl;
+                int64_t a = segAddr(in, loc.substr(4, plus - 4), (uint32_t)std::stoul(loc.substr(plus + 1)), ovl);
+                if (a >= 0) where = "{\"addr\": " + std::to_string(a) + "}";
+            } else if (loc.rfind("imp:", 0) == 0) {
+                std::string n = loc.substr(4);
+                long add = 0;
+                if (plus != std::string::npos) { add = std::stol(loc.substr(plus + 1)); n = loc.substr(4, plus - 4); }
+                auto it = globalSymbols_.find(n);
+                if (it != globalSymbols_.end()) where = "{\"addr\": " + std::to_string(it->second + add) + "}";
+            } else if (loc.rfind("abs:$", 0) == 0) {
+                where = "{\"addr\": " + std::to_string(std::stoul(loc.substr(5), nullptr, 16)) + "}";
+            } else if (loc.rfind("zp:$", 0) == 0) {
+                where = "{\"zp\": " + std::to_string(std::stoul(loc.substr(4), nullptr, 16)) + "}";
+            } else if (loc.rfind("frame:", 0) == 0) {
+                where = "{\"frame\": " + loc.substr(6) + "}";
+            } else if (loc.rfind("reg:", 0) == 0) {
+                where = "{\"reg\": " + esc(loc.substr(4)) + "}";
+            }
+            vars << (vfirst ? "\n    " : ",\n    ") << "{\"kind\": " << esc(kind) << ", \"scope\": "
+                 << (scope == "-" ? "null" : esc(scope)) << ", \"name\": " << esc(name) << ", \"type\": "
+                 << esc(retype(i, type)) << ", \"location\": " << where << ", \"object\": " << i << "}";
+            vfirst = false;
+        }
+    }
+    out << "  \"functions\": [" << funcs.str() << "\n  ],\n";
+    out << "  \"variables\": [" << vars.str() << "\n  ]\n}\n";
 }
 
 // =============================================================================

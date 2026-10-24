@@ -482,6 +482,7 @@ int main(int argc, char** argv) {
             if (programName != "cp45") {
                 std::cout << "  -E             Preprocess only" << std::endl;
                 std::cout << "  -S             Generate assembly only" << std::endl;
+                std::cout << "  -g             With -o prog.prg: also write prog.dbg, the debug information (ln45 -g)" << std::endl;
                 std::cout << "  -c             Generate object file only" << std::endl;
             } else {
                 std::cout << "  (cp45 performs C preprocessing)" << std::endl;
@@ -548,6 +549,8 @@ int main(int argc, char** argv) {
             else if (v.size() > 2 && v[0] == '0' && (v[1] == 'x' || v[1] == 'X')) { v = v.substr(2); base = 16; }
             try { config.stackTop = (int)(std::stoul(v, nullptr, base) & 0xFFFF); }
             catch (...) { std::cerr << "cc45: error: invalid -fstack-top value '" << arg.substr(12) << "'" << std::endl; return 1; }
+        } else if (arg == "-g") {
+            config.debugFile = true;   // (one-step build: ln45 -g writes <program>.dbg)
         } else if (arg == "-ffunction-sections") {
             config.functionSections = true;
         } else if (arg == "-fno-function-sections") {

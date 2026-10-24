@@ -2559,6 +2559,30 @@ for zamode in "zp||lib/build/c45.lib" "stack|-fno-zpcall|lib/build/c45_stack.lib
     fi
 done
 
+# Test: the debug file (#202): cc45 -g's <program>.dbg against the program's
+# memory: its variables' addresses hold what the program left there, its
+# functions and lines are where the code is
+mkdir -p build/test/debug_file
+for dfmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r dfname dfflags <<< "$dfmode"
+    echo "Testing the debug file ($dfname)..."
+    dfp=build/test/debug_file/df_$dfname
+    rm -f $dfp.prg $dfp.dbg $dfp.mem
+    if $CC $dfflags -g src/test-resources/test_debug_file_xemu.c -o $dfp.prg >/dev/null 2>&1 && [ -f $dfp.dbg ]; then
+        timeout 15 xemu-xmega65 -headless -besure -sleepless -prgmode 65 -prgexit -dumpmem $dfp.mem -prg $dfp.prg >/dev/null 2>&1
+        if python3 src/test/check_debug_file.py $dfp.dbg $dfp.mem $dfp.prg; then
+            echo "SUCCESS: the debug file ($dfname)"
+            passed=$((passed + 1))
+        else
+            echo "FAIL: the debug file ($dfname)"
+            failed=$((failed + 1))
+        fi
+    else
+        echo "FAIL: the debug file ($dfname): cc45 -g wrote no .dbg"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: ca45 -c relocations: a difference of two labels is a constant
 # (#336), "zp" segment labels are bytes of the program's base page (#335)
 for crmode in "zp|" "stack|-fno-zpcall"; do

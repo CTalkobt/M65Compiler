@@ -33,6 +33,8 @@ static void printUsage(const char* progName) {
     std::cout << "  -l <lib.lib>   Link against a library archive (selective linking)" << std::endl;
     std::cout << "  -m             Print linker map (symbol addresses) after linking" << std::endl;
     std::cout << "  -M <file>      Write detailed linker map file (segments, objects, symbols)" << std::endl;
+    std::cout << "  -g             Write the debug information to <output>.dbg (JSON: lines, functions," << std::endl;
+    std::cout << "                 variables, types; for a debugger)" << std::endl;
     std::cout << "  --no-thunks    Error on calling convention mismatches (no thunk generation)" << std::endl;
     std::cout << "  --no-sac-overlay  Give every static-allocation function its own storage" << std::endl;
     std::cout << "  --no-gc        Keep every library member pulled in, also those only dropped code" << std::endl;
@@ -89,6 +91,7 @@ int main(int argc, char** argv) {
     bool gcObjects = true, printGc = false, gcInputs = false;
     std::vector<std::string> keepSyms;
     std::string mapFile;
+    bool debugFile = false;   // -g: <output>.dbg
     uint32_t textBase = 0x2000; // sensible MEGA65 default
     bool textBaseSet = false;
     uint32_t dataBase = 0; bool dataBaseSet = false;
@@ -120,6 +123,7 @@ int main(int argc, char** argv) {
         else if (arg == "-basic") { isBasic = true; isPrg = true; }
         else if (arg == "-m") { printMap = true; }
         else if (arg == "-M" && i + 1 < argc) { mapFile = argv[++i]; }
+        else if (arg == "-g") { debugFile = true; }
         else if (arg == "-L" && i + 1 < argc) { libSearchPaths.push_back(argv[++i]); }
         else if (arg == "-l" && i + 1 < argc) { libFiles.push_back(argv[++i]); }
         else if (arg == "-t" && i + 1 < argc) { textBase = parseAddr(argv[++i]); textBaseSet = true; }
@@ -581,6 +585,22 @@ int main(int argc, char** argv) {
         for (const auto& [name, addr] : linker.getSymbolMap()) {
             printf("  %08x %s\n", addr, name.c_str());
         }
+    }
+
+    // -g: the debug information next to the program, <output>.dbg
+    if (debugFile) {
+        std::string dbgOut = outputFile;
+        size_t d = dbgOut.find_last_of('.'), s2 = dbgOut.find_last_of('/');
+        if (d != std::string::npos && (s2 == std::string::npos || d > s2)) dbgOut = dbgOut.substr(0, d);
+        dbgOut += ".dbg";
+        std::ofstream df(dbgOut);
+        if (!df.is_open()) {
+            std::cerr << "ln45: cannot write " << dbgOut << std::endl;
+            return 1;
+        }
+        std::string prog = outputFile.substr(outputFile.find_last_of('/') == std::string::npos ? 0 : outputFile.find_last_of('/') + 1);
+        linker.writeDebugFile(df, prog);
+        std::cout << "Debug information: " << dbgOut << std::endl;
     }
 
     // Write detailed map file if requested

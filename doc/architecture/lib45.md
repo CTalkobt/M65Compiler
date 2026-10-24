@@ -226,7 +226,10 @@ struct|union NAME SIZE member@offset:type ...      ; a bit-field: member@offset.
 + NAME member@offset:type ...                       ; NAME's layout goes on (a long one)
 ```
 
-`OPT_DEBUG_VARS` entry: `kind scope name type location`
+`OPT_DEBUG_VARS` entry: `kind scope name type location`, and for each named
+procedure a `func LABEL seg:text+OFFSET LENGTH` entry (its code; static
+functions too, which have no export), which ln45 `-g` turns into the debug
+file's functions
 - **kind**: `global`, `static` (a file's static, or a function's static
   local), `local`, `param`.
 - **scope**: the function's label (`_main`, a static function's renamed one)
