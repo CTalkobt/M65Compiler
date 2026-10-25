@@ -37,7 +37,7 @@ cp src/test-resources/test_debug_file_xemu.c $T/t.c
 # a command-line session and what it must print (in order; cc45 may call
 # sum(&a) or sum(&b) first: sum(&a) + sum(&b))
 timeout 180 ./bin/dbg45 --xemu "$XEMU" --headless --timeout 30 --batch \
-    -ex "break t.c:30" -ex start -ex next -ex step -ex continue -ex "info locals" -ex next \
+    -ex "break t.c:31" -ex start -ex next -ex step -ex continue -ex "info locals" -ex next \
     -ex "print a.next->x" -ex "break sum" -ex continue -ex bt -ex "print *p" -ex "print p->y" -ex "info args" \
     -ex up -ex "print b" -ex down -ex finish -ex "delete" -ex "break 21" -ex continue -ex "print calls" \
     -ex "print s" -ex "delete" -ex continue \
@@ -46,14 +46,15 @@ python3 - $T/session.txt <<'EOF' || fail "the command-line session ($T/session.t
 import re, sys
 out = open(sys.argv[1]).read()
 want = [
-    r'Breakpoint 1 at \$[0-9a-f]{4}: t\.c:30',
-    r'main \(\) at t\.c:26', r'26\tint main\(void\) \{',
-    r'28\t    a\.x = add\(1, 2\);',
+    r'Breakpoint 1 at \$[0-9a-f]{4}: t\.c:31',
+    # (the first statement: an inlined call, add's lines in the line's place)
+    r'main \(\) at t\.c:28', r'28\t    a\.x = add\(1, 2\);',
     r'29\t    a\.y = -5;',
-    r'Breakpoint 1, main \(\) at t\.c:30', r'30\t    a\.next = &b;',
-    r'a = \{x = 3, y = -5, next = 0x0000\}', r'b = \{x = 0, y = 0, next = 0x0000\}',
-    r'31\t    b\.x = 4;',
-    r'a\.next->x = 0',
+    r'30\t    a\.next = &b;',
+    r'Breakpoint 1, main \(\) at t\.c:31', r'31\t    b\.x = 4;',
+    r'a = \{x = 3, y = -5, next = 0x[0-9a-f]{4}\}', r'b = \{x = 0, y = 0, next = 0x0000\}',
+    r'32\t    b\.y = 6;',
+    r'a\.next->x = 4',
     r'Breakpoint 2 at \$[0-9a-f]{4}: sum',
     r'Breakpoint 2, sum \(p=0x[0-9a-f]{4}\) at t\.c:20',
     r'#0  sum \(p=0x[0-9a-f]{4}\) at t\.c:20', r'#1  main \(\) at t\.c:35',

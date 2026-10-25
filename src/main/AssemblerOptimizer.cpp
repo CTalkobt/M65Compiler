@@ -10,6 +10,13 @@
 #include <set>
 #include <fstream>
 
+// A .loc line (source line info, no label): the passes look past it, so a
+// file assembles to the same code with or without line info
+static bool isLocDirective(const AssemblerParser::Statement* s) {
+    if (s->type != AssemblerParser::Statement::DIRECTIVE || !s->label.empty()) return false;
+    return s->dir.name == "loc" || s->dir.name == "LOC";
+}
+
 bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose, bool traceMachState) {
     return optimizeInternal(parser, nullptr, verbose, traceMachState, parser->optimizationLevel);
 }
@@ -595,7 +602,7 @@ bool AssemblerOptimizer::optimizeInternal(
             for (int r = 0; r < 4; r++) br.regs[r] = ms.reg[r];
         }
         if (s->type == AssemblerParser::Statement::INSTRUCTION || s->isSimulatedOp()) prevInstr = s;
-        else if (s->type == AssemblerParser::Statement::DIRECTIVE) prevInstr = nullptr;
+        else if (s->type == AssemblerParser::Statement::DIRECTIVE && !isLocDirective(s)) prevInstr = nullptr;
 
         // Skip all optimizations for statements in no-optimize regions
         if (inNoOptRegion) {
@@ -823,10 +830,13 @@ bool AssemblerOptimizer::optimizeInternal(
 
                 // Don't eliminate a load just before a label (a merge point:
                 // up to 3 statements ahead, e.g. LDA $28; LDX $29; label)
+                // (line info is not counted: the code is the same without it)
                 bool isBeforeCFChange = false;
-                for (size_t lookahead = 1; lookahead <= 3 && i + lookahead < parser->statements.size(); ++lookahead) {
+                for (size_t lookahead = 1, seen = 0; seen < 3 && i + lookahead < parser->statements.size(); ++lookahead) {
                     auto* nextStmt = parser->statements[i + lookahead].get();
-                    if (!nextStmt || nextStmt->deleted) continue;
+                    if (!nextStmt || nextStmt->deleted) { seen++; continue; }
+                    if (isLocDirective(nextStmt)) continue;
+                    seen++;
                     if (!nextStmt->label.empty()) {
                         isBeforeCFChange = true;
                         break;
@@ -1735,6 +1745,8 @@ bool AssemblerOptimizer::optimizeInternal(
             for (; j < st.size() && r.idx.size() < 4; ++j) {
                 auto* t = st[j].get();
                 if (t->deleted) continue;
+                // (line info does not end a run: code is the same with or without it)
+                if (isLocDirective(t)) continue;
                 if (!movable(t) || t->segmentName != s->segmentName || t->scopePrefix != s->scopePrefix) break;
                 if (!r.idx.empty() && pcTargets.count(j)) break;
                 r.idx.push_back(j);

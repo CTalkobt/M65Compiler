@@ -202,6 +202,9 @@ struct Inst {
     std::string asmText;
 
     SourceLoc loc;
+    // An inlined function's instruction: the call's location in the function
+    // it was inlined into (the outermost call when inlines nest)
+    SourceLoc callLoc;
 };
 
 // ============================================================================
