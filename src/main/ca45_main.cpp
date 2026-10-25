@@ -1,5 +1,6 @@
 #include <iostream>
 #include "Logger.hpp"
+#include "AsmMacro.hpp"
 #include <set>
 #include <regex>
 #include <string>
@@ -617,11 +618,22 @@ int main(int argc, char** argv) {
         std::cerr << formatDiagnostic(input_file, 1, 1, Severity::Error, e.what()) << std::endl;
         return 1;
     }
+    // .macro ... .endmacro
+    {
+        std::string expanded, merr;
+        if (!expandAsmMacros(source, input_file, expanded, merr)) {
+            std::cerr << "ca45: error: " << merr << std::endl;
+            return 1;
+        }
+        source = std::move(expanded);
+    }
 
     LOG_INFO("ca45", "Lexing " << input_file << "...");
 
     AssemblerLexer lexer(source);
     std::vector<AssemblerToken> tokens = lexer.tokenize();
+    // (the files of #include'd lines, for messages)
+    const std::vector<std::string> tokenFiles = lexer.files();
 
     if (Logger::isEnabled(LogLevel::TRACE))
         for (const auto& token : tokens)
@@ -629,6 +641,7 @@ int main(int argc, char** argv) {
 
     AssemblerParser parser(tokens, predefinedSymbols); if (functionSections) parser.functionSections = true;
     parser.setSourceFile(input_file);
+    parser.setTokenFiles(tokenFiles);
     parser.verboseOptimizer = verboseOptimizer;
     parser.traceMachState = traceMachState;
     parser.enableExperimental = enableExperimental;
@@ -781,6 +794,9 @@ int main(int argc, char** argv) {
             }
         }
         for (const auto& w : parser.getWarnings()) std::cerr << w << std::endl;
+    } catch (const AsmFileError& e) {
+        std::cerr << e.file << ": " << e.what() << std::endl;   // (a line of an #include'd file)
+        return 1;
     } catch (const std::exception& e) {
         std::cerr << input_file << ": " << e.what() << std::endl;
         return 1;
@@ -818,11 +834,17 @@ int main(int argc, char** argv) {
 
                     Preprocessor preprocessor(false);
                     std::string source = preprocessor.process(sourceRaw, initialSymbols, includePaths, input_file);
+                    {
+                        std::string expanded, merr;
+                        if (!expandAsmMacros(source, input_file, expanded, merr)) throw std::runtime_error(merr);
+                        source = std::move(expanded);
+                    }
 
                     AssemblerLexer lexer(source);
                     std::vector<AssemblerToken> tokens = lexer.tokenize();
 
                     AssemblerParser parser(tokens, predefinedSymbols); if (functionSections) parser.functionSections = true;
+                    parser.setTokenFiles(lexer.files());
                     parser.setSourceFile(input_file);
                     parser.verboseOptimizer = verboseOptimizer;
                     parser.traceMachState = traceMachState;

@@ -30,18 +30,37 @@ AssemblerParser::AssemblerParser(const std::vector<AssemblerToken>& tokens, cons
     switchSegment("default");
 }
 
+// the file a message about a statement names: its #include's, else its source's
+static const std::string& stmtFile(const AssemblerParser::Statement& s) {
+    return !s.asmFile.empty() ? s.asmFile : s.sourceFile;
+}
+
+std::string AssemblerParser::fileForLine(int line) const {
+    if (!tokens.empty()) {
+        size_t at = std::min(pos, tokens.size() - 1);
+        for (size_t k = at + 1; k-- > 0 && at - k < 64;)
+            if (tokens[k].line == line) {
+                std::string f = includeFileOf(tokens[k]);
+                return f.empty() ? currentSourceFile_ : f;
+            }
+        std::string f = includeFileOf(tokens[at]);
+        if (!f.empty()) return f;
+    }
+    return currentSourceFile_;
+}
+
 // Error reporting helpers — ensure all errors have file:line:col format
 void AssemblerParser::errorAt(int line, int col, const std::string& msg) {
-    addError(formatDiagnostic(currentSourceFile_, line, col, Severity::Error, msg));
+    addError(formatDiagnostic(fileForLine(line), line, col, Severity::Error, msg));
 }
 
 [[noreturn]] void AssemblerParser::throwAt(int line, int col, const std::string& msg) {
-    throw std::runtime_error(formatDiagnostic(currentSourceFile_, line, col, Severity::Error, msg));
+    throw std::runtime_error(formatDiagnostic(fileForLine(line), line, col, Severity::Error, msg));
 }
 
 void AssemblerParser::errorAtStmt(const Statement* stmt, const std::string& msg) {
     if (stmt) {
-        addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error, msg));
+        addError(formatDiagnostic(stmtFile(*stmt), stmt->line, 1, Severity::Error, msg));
     } else {
         addError(formatDiagnostic(currentSourceFile_, 0, 1, Severity::Error, msg));
     }
@@ -86,7 +105,7 @@ void AssemblerParser::checkImmediateOverflow(uint32_t value, int line, int col) 
         char buf[128];
         std::snprintf(buf, sizeof(buf), "Immediate value $%X exceeds 8-bit limit (truncated to $%X)",
                      value, value & 0xFF);
-        addWarning(formatDiagnostic(currentSourceFile_, line, col, Severity::Warning, buf));
+        addWarning(formatDiagnostic(fileForLine(line), line, col, Severity::Warning, buf));
     }
 }
 
@@ -137,7 +156,7 @@ void AssemblerParser::checkAddressOverflow(uint32_t address, AddressingMode mode
     }
 
     if (isOverflow) {
-        addWarning(formatDiagnostic(currentSourceFile_, line, col, Severity::Warning, msg));
+        addWarning(formatDiagnostic(fileForLine(line), line, col, Severity::Warning, msg));
     }
 }
 
@@ -150,7 +169,7 @@ void AssemblerParser::checkImmediateUnderflow(int32_t value, int line, int col) 
         uint8_t truncated = static_cast<uint8_t>(value);
         std::snprintf(buf, sizeof(buf), "Immediate value %d is negative (interpreted as $%02X when used as unsigned)",
                      value, truncated);
-        addWarning(formatDiagnostic(currentSourceFile_, line, col, Severity::Warning, buf));
+        addWarning(formatDiagnostic(fileForLine(line), line, col, Severity::Warning, buf));
     }
 }
 
@@ -164,7 +183,7 @@ void AssemblerParser::checkAddressUnderflow(int32_t address, int line, int col) 
         uint32_t truncated32 = static_cast<uint32_t>(address);
         std::snprintf(buf, sizeof(buf), "Address %d is negative (interpreted as $%04X or $%08X when used as unsigned)",
                      address, truncated16, truncated32);
-        addWarning(formatDiagnostic(currentSourceFile_, line, col, Severity::Warning, buf));
+        addWarning(formatDiagnostic(fileForLine(line), line, col, Severity::Warning, buf));
     }
 }
 
@@ -705,6 +724,7 @@ void AssemblerParser::pass1() {
         auto stmt = std::make_unique<Statement>();
         stmt->address = pc;
         stmt->line = peek().line;
+        stmt->asmFile = includeFileOf(peek());
         stmt->scopePrefix = currentScopePrefix();
         stmt->segmentName = currentSegment->name;
         stmt->sourceFile = currentSourceFile_;
@@ -740,7 +760,7 @@ void AssemblerParser::pass1() {
             {
                 std::string ext;
                 if (linkTimeUse((int)pos, stmt->scopePrefix, ext))
-                    errors.push_back(formatDiagnostic(currentSourceFile_, tokens[pos].line, tokens[pos].column,
+                    errors.push_back(formatDiagnostic(tokenFile(tokens[pos]), tokens[pos].line, tokens[pos].column,
                         Severity::Error, "'" + name + " = ...' uses '" + ext +
                         "', which is resolved at link time: its value is not known here"));
             }
@@ -1066,7 +1086,7 @@ void AssemblerParser::pass1() {
                     // bare `proc` (after a `name:` label) would drop it silently
                     if (currentProc->unnamed && !currentProc->warnedUnnamed) {
                         currentProc->warnedUnnamed = true;
-                        addWarning(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Warning,
+                        addWarning(formatDiagnostic(stmtFile(*stmt), stmt->line, 1, Severity::Warning,
                             ".func_flags in an unnamed 'proc' is ignored: name the function with 'proc <name>' (and .global <name>)"));
                     }
                     while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) {
@@ -1732,7 +1752,7 @@ void AssemblerParser::pass1() {
                 if (stmt->instr.mnemonic == "nop") throwAt(stmt->line, 1, "nop disallowed");
                 if (stmt->instr.mnemonic == "proc") {
                     if (currentProc != nullptr) {
-                        addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                        addError(formatDiagnostic(stmtFile(*stmt), stmt->line, 1, Severity::Error,
                             "nested 'proc' not allowed (inside '" + currentProc->name + "')"));
                     }
                     bool unnamedProc = peek().type == AssemblerTokenType::NEWLINE || peek().type == AssemblerTokenType::END_OF_FILE;
@@ -1784,7 +1804,7 @@ void AssemblerParser::pass1() {
                         currentProc = pass1ProcStack.empty() ? nullptr : pass1ProcStack.back();
                         if (!pass1ProcStack.empty()) pass1ProcStack.pop_back();
                     } else {
-                        addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                        addError(formatDiagnostic(stmtFile(*stmt), stmt->line, 1, Severity::Error,
                             "'endproc' outside of procedure scope"));
                     }
                     sacMode = false;  // Reset SAC mode when exiting proc
@@ -1986,7 +2006,7 @@ void AssemblerParser::pass1() {
             }
           } catch (const std::exception& ex) {
             int errLine = stmt->line;
-            errors.push_back(formatDiagnostic(stmt->sourceFile, errLine, 1, Severity::Error,
+            errors.push_back(formatDiagnostic(stmtFile(*stmt), errLine, 1, Severity::Error,
                 "Error parsing instruction '" + stmt->instr.mnemonic + "': " + ex.what()));
             while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
             continue;
@@ -1995,7 +2015,7 @@ void AssemblerParser::pass1() {
         else if (stmt->label.empty()) {
             std::string badToken = peek().value;
             int badLine = peek().line;
-            errors.push_back(formatDiagnostic(stmt->sourceFile, badLine, 1, Severity::Error,
+            errors.push_back(formatDiagnostic(stmtFile(*stmt), badLine, 1, Severity::Error,
                 "Unknown instruction '" + badToken + "'"));
             while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
             continue;
@@ -2262,7 +2282,7 @@ int AssemblerParser::calculateInstructionSize(const Instruction& instr, uint32_t
                     "'%s $%02X%s' has no base-page mode: assembled as absolute $00%02X%s, "
                     "which ignores the base page register",
                     instr.mnemonic.c_str(), val, idx, val, idx);
-                addWarning(formatDiagnostic(currentSourceFile_, tok.line, tok.column, Severity::Warning, buf));
+                addWarning(formatDiagnostic(tokenFile(tok), tok.line, tok.column, Severity::Warning, buf));
             };
             if (instr.mode == AddressingMode::BASE_PAGE || instr.mode == AddressingMode::ABSOLUTE) {
                 bool supportsBP = AssemblerOpcodeDatabase::isValidMode(instr.mnemonic, AddressingMode::BASE_PAGE);
@@ -2364,7 +2384,7 @@ void AssemblerParser::warnUnknownDirective(const AssemblerToken& tok) {
              tok.value == "endif")
         msg += " (ca45 has no conditional assembly)";
     else if (tok.value == "asciiz") msg += " (use .ascii \"...\" and .byte $00)";
-    addWarning(formatDiagnostic(currentSourceFile_, tok.line, tok.column, Severity::Warning, msg));
+    addWarning(formatDiagnostic(tokenFile(tok), tok.line, tok.column, Severity::Warning, msg));
 }
 
 int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t currentAddr, const Statement* stmt) {
@@ -2375,7 +2395,7 @@ int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t curre
     if (dir.name == "text" || dir.name == "ascii" || dir.name == "screencode") {
         if (dir.arguments.empty()) {
             if (stmt) {
-                addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                addError(formatDiagnostic(stmtFile(*stmt), stmt->line, 1, Severity::Error,
                     "Directive ." + dir.name + " requires string argument"));
             } else {
                 addError("Directive ." + dir.name + " requires string argument");
@@ -2387,7 +2407,7 @@ int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t curre
         if (!isString || dir.arguments.size() != 1) {
             std::string msg = "Directive ." + dir.name + " takes a single string argument"
                               " (escape quotes inside it as \\\")";
-            if (stmt) addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error, msg));
+            if (stmt) addError(formatDiagnostic(stmtFile(*stmt), stmt->line, 1, Severity::Error, msg));
             else addError(msg);
             return 0;
         }
@@ -2396,7 +2416,7 @@ int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t curre
     if (dir.name == "res" || dir.name == "fill" || dir.name == "space") {
         if (dir.arguments.empty()) {
             if (stmt) {
-                addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                addError(formatDiagnostic(stmtFile(*stmt), stmt->line, 1, Severity::Error,
                     "Directive ." + dir.name + " requires size argument"));
             } else {
                 addError("Directive ." + dir.name + " requires size argument");
@@ -2407,7 +2427,7 @@ int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t curre
             return (int)evaluateExpressionAt(dir.tokenIndex, "");
         } catch (const std::exception& e) {
             if (stmt) {
-                addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                addError(formatDiagnostic(stmtFile(*stmt), stmt->line, 1, Severity::Error,
                     "Directive ." + dir.name + ": failed to evaluate size: " + std::string(e.what())));
             } else {
                 addError("Directive ." + dir.name + ": failed to evaluate size: " + std::string(e.what()));
@@ -2418,7 +2438,7 @@ int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t curre
     if (dir.name == "array") {
         if (dir.arguments.empty()) {
             if (stmt) {
-                addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                addError(formatDiagnostic(stmtFile(*stmt), stmt->line, 1, Severity::Error,
                     "Directive .array requires size argument"));
             } else {
                 addError("Directive .array requires size argument");
@@ -2429,7 +2449,7 @@ int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t curre
             return (int)parseNumericLiteral(dir.arguments[0]);
         } catch (const std::exception& e) {
             if (stmt) {
-                addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                addError(formatDiagnostic(stmtFile(*stmt), stmt->line, 1, Severity::Error,
                     "Directive .array: failed to parse size: " + std::string(e.what())));
             } else {
                 addError("Directive .array: failed to parse size: " + std::string(e.what()));
@@ -2440,7 +2460,7 @@ int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t curre
     if (dir.name == "align" || dir.name == "balign") {
         if (dir.arguments.empty()) {
             if (stmt) {
-                addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                addError(formatDiagnostic(stmtFile(*stmt), stmt->line, 1, Severity::Error,
                     "Directive ." + dir.name + " requires alignment argument"));
             } else {
                 addError("Directive ." + dir.name + " requires alignment argument");
@@ -2451,7 +2471,7 @@ int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t curre
             uint32_t align = parseNumericLiteral(dir.arguments[0]);
             if (align == 0) {
                 if (stmt) {
-                    addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                    addError(formatDiagnostic(stmtFile(*stmt), stmt->line, 1, Severity::Error,
                         "Directive ." + dir.name + ": alignment must be non-zero"));
                 } else {
                     addError("Directive ." + dir.name + ": alignment must be non-zero");
@@ -2461,7 +2481,7 @@ int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t curre
             return (align - (currentAddr % align)) % align;
         } catch (const std::exception& e) {
             if (stmt) {
-                addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                addError(formatDiagnostic(stmtFile(*stmt), stmt->line, 1, Severity::Error,
                     "Directive ." + dir.name + ": failed to parse alignment: " + std::string(e.what())));
             } else {
                 addError("Directive ." + dir.name + ": failed to parse alignment: " + std::string(e.what()));
@@ -2473,7 +2493,7 @@ int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t curre
         auto hex4 = [](uint32_t v) { char b[16]; snprintf(b, sizeof b, "%04X", (unsigned)v); return std::string(b); };
         if (dir.arguments.empty()) {
             if (stmt) {
-                addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                addError(formatDiagnostic(stmtFile(*stmt), stmt->line, 1, Severity::Error,
                     "Directive .fillto requires target address argument"));
             } else {
                 addError("Directive .fillto requires target address argument");
@@ -2484,7 +2504,7 @@ int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t curre
             uint32_t target = evaluateExpressionAt(dir.tokenIndex, "");
             if (target < currentAddr) {
                 if (stmt) {
-                    addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                    addError(formatDiagnostic(stmtFile(*stmt), stmt->line, 1, Severity::Error,
                         "Directive .fillto: target address $" + hex4(target) +
                         " is before current PC $" + hex4(currentAddr)));
                 } else {
@@ -2496,7 +2516,7 @@ int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t curre
             return (int)(target - currentAddr);
         } catch (const std::exception& e) {
             if (stmt) {
-                addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                addError(formatDiagnostic(stmtFile(*stmt), stmt->line, 1, Severity::Error,
                     "Directive .fillto: failed to evaluate target address: " + std::string(e.what())));
             } else {
                 addError("Directive .fillto: failed to evaluate target address: " + std::string(e.what()));
@@ -2507,7 +2527,7 @@ int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t curre
     if (dir.name == "import" || dir.name == "incbin") {
         if (dir.arguments.empty()) {
             if (stmt) {
-                addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                addError(formatDiagnostic(stmtFile(*stmt), stmt->line, 1, Severity::Error,
                     "Directive ." + dir.name + " requires filename argument"));
             } else {
                 addError("Directive ." + dir.name + " requires filename argument");
@@ -2518,7 +2538,7 @@ int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t curre
         if (dir.name == "import") {
             if (dir.arguments.size() < 2 || dir.arguments[0] != "binary") {
                 if (stmt) {
-                    addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                    addError(formatDiagnostic(stmtFile(*stmt), stmt->line, 1, Severity::Error,
                         "Directive .import requires 'binary' keyword: .import binary \"filename\""));
                 } else {
                     addError("Directive .import requires 'binary' keyword: .import binary \"filename\"");
@@ -2536,7 +2556,7 @@ int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t curre
         std::ifstream file(filename, std::ios::binary | std::ios::ate);
         if (!file) {
             if (stmt) {
-                addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                addError(formatDiagnostic(stmtFile(*stmt), stmt->line, 1, Severity::Error,
                     "Directive ." + dir.name + ": cannot open binary file '" + filename + "'"));
             } else {
                 addError("Directive ." + dir.name + ": cannot open binary file '" + filename + "'");

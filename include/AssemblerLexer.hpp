@@ -29,8 +29,13 @@ class AssemblerLexer {
 public:
     AssemblerLexer(const std::string& source);
     std::vector<AssemblerToken> tokenize();
+    // the files tokens come from (AssemblerToken::file): [0] "" (the main
+    // source), then each #line "file" in turn
+    const std::vector<std::string>& files() const { return files_; }
 
 private:
+    std::vector<std::string> files_{""};
+    int curFile_ = 0;
     std::string source;
     size_t pos;
     int line;

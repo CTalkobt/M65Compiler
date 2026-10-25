@@ -18,6 +18,7 @@ struct AssemblerToken {
     std::string value;
     int line;
     int column;
+    int file = 0;   // the lexer's files(): 0 the main source, else a #line "file" (#include)
 
     std::string typeToString() const {
         switch (type) {

@@ -1,6 +1,7 @@
 #include "Ca45Parser.hpp"
 #include "Preprocessor.hpp"
 #include "MacroUtils.hpp"
+#include "AsmMacro.hpp"
 #include <algorithm>
 #include <cctype>
 #include <map>
@@ -22,6 +23,12 @@ AsmIR::Module Ca45Parser::parse(const std::string& source) {
         std::map<std::string, std::string> symbols;
         std::vector<std::string> includePaths;
         std::string processed = preprocessor.process(source, symbols, includePaths, "");
+        // .macro ... .endmacro: expanded as ca45 does (the output has the expansions)
+        {
+            std::string expanded, merr;
+            if (!expandAsmMacros(processed, "", expanded, merr)) throw std::runtime_error(merr);
+            processed = std::move(expanded);
+        }
 
         // Tokenize
         AssemblerLexer lexer(processed);

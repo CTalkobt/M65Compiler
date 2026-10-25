@@ -4,6 +4,22 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### ca45 `.macro` / `.endmacro` (#232)
+
+- Multi-line macros with parameters (`.macro store val, addr` …
+  `.endmacro`, used as `store 5, $d020`): nested uses, macros that define
+  macros, `\@` for labels of their own in each use, a recursion limit
+  (64), messages at the line of the use. ca45 had only C `#define`
+  (one line; nested `#define` composition is fixed by #233).
+- cvt_asm: ca45 input's `.macro` is expanded as ca45 does; a macro's
+  parameters in the other dialects are replaced as whole words (a
+  parameter `a` turned `sta` into `st7`; #235).
+- ca45 fix: an error in an `#include`d file named the main source (with
+  the included file's line number, and an excerpt from the main source);
+  it names the included file now (the lexer keeps `#line`'s file name).
+- Tests in `test_assembler.sh` (`test_ca45_macro.s45`, errors in an
+  `#include`d file) and `test_cvt_asm.sh`.
+
 ### Two more benchmarks
 
 - `src/test/bench/bench_xemu.c`: `life` (a 25×80 grid's neighbour pass

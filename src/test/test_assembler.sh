@@ -56,6 +56,43 @@ for f in "${AS_TEST_FILES[@]}"; do
     test_file "$f"
 done
 
+# .macro / .endmacro: nested uses, parameters, \@ labels, a macro defined by a
+# macro (pha phx phy lda #1 | lda #5 sta $d020 | lda #10 sta $d021 | ldx #3 |
+# dex bne x2 | inc $d020 | "v" 65 | rts); a recursive macro, too many
+# arguments and a .macro without .endmacro are errors
+echo "Testing .macro..."
+mac_ok=1
+./bin/ca45 src/test-resources/test_ca45_macro.s45 -o build/test/test_ca45_macro.bin >/dev/null 2>&1 || mac_ok=0
+ACTUAL=$(hexdump -v -e '1/1 "%02x "' build/test/test_ca45_macro.bin 2>/dev/null | xargs)
+[ "$ACTUAL" = "48 da 5a a9 01 a9 05 8d 20 d0 a9 0a 8d 21 d0 a2 03 ca d0 fd ca d0 fd ee 20 d0 56 41 60" ] || mac_ok=0
+for bad in '.macro r\n r\n.endmacro\n * = $2000\n r\n' '.macro a x\n lda #x\n.endmacro\n * = $2000\n a 1, 2\n' '.macro a\n inx\n'; do
+    printf "$bad" > build/test/test_ca45_macro_bad.s45
+    ./bin/ca45 build/test/test_ca45_macro_bad.s45 -o build/test/test_ca45_macro_bad.bin >/dev/null 2>&1 && mac_ok=0
+done
+if [ $mac_ok = 1 ]; then
+    echo "SUCCESS: .macro"
+else
+    echo "FAIL: .macro (bytes: $ACTUAL)"
+    failed=$((failed + 1))
+fi
+
+# An #include'd file's errors name that file and its line (they named the
+# main source with the include's line), the excerpt from that file too
+echo "Testing errors in an #include'd file..."
+printf ' lda #inc_undefined\n' > build/test/inc_err_a.s45
+printf ' lda #$12\n bogus_op 5\n' > build/test/inc_err_b.s45
+printf ' * = $2000\n inx\n#include "inc_err_a.s45"\n rts\n' > build/test/inc_err_1.s45
+printf ' * = $2000\n inx\n#include "inc_err_b.s45"\n rts\n' > build/test/inc_err_2.s45
+E1=$(./bin/ca45 build/test/inc_err_1.s45 -o build/test/inc_err.bin 2>&1)
+E2=$(./bin/ca45 build/test/inc_err_2.s45 -o build/test/inc_err.bin 2>&1)
+if grep -q "inc_err_a.s45: line 1: Error: undefined symbol 'inc_undefined'" <<< "$E1" &&
+   grep -q "inc_err_b.s45:2:1: error: Unknown instruction 'bogus_op'" <<< "$E2" && grep -q "bogus_op 5" <<< "$E2"; then
+    echo "SUCCESS: errors in an #include'd file name it"
+else
+    echo "FAIL: errors in an #include'd file: $E1 / $E2"
+    failed=$((failed + 1))
+fi
+
 # Specific check for basicUpstart output format
 echo "Verifying .basicUpstart output bytes..."
 # Expecting: 0b 08 0a 00 9e 32 30 36 31 00 00 00 (for START at $080D = 2061)

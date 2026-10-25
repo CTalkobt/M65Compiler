@@ -727,7 +727,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         for (const auto& stmt : parser.statements) {
             if (stmt->deleted) continue;
             auto err = [&](const std::string& m) {
-                errs.push_back(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error, m));
+                errs.push_back(formatDiagnostic(!stmt->asmFile.empty() ? stmt->asmFile : stmt->sourceFile, stmt->line, 1, Severity::Error, m));
             };
             auto badForm = [&](const std::string& n) {
                 err("'" + n + "' is resolved at link time: only " + n + ", " + n + " + n, " + n + " - n, <" + n +
