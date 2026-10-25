@@ -1335,6 +1335,34 @@ void AssemblerParser::pass1() {
                 if (currentProc) currentProc->totalParamSize += val;
                 stmt->size = 0;
             }
+            else if (stmt->dir.name == "assert") {
+                // .assert expr[, "message"] (#204): checked by the generator,
+                // when every symbol has its value; arguments[0] is the message
+                // (or the expression as written)
+                stmt->dir.tokenIndex = (int)pos;
+                std::string text, msg;
+                int depth = 0;
+                while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) {
+                    auto ty = peek().type;
+                    if (ty == AssemblerTokenType::OPEN_PAREN || ty == AssemblerTokenType::OPEN_BRACKET) depth++;
+                    else if ((ty == AssemblerTokenType::CLOSE_PAREN || ty == AssemblerTokenType::CLOSE_BRACKET) && depth > 0) depth--;
+                    else if (ty == AssemblerTokenType::COMMA && depth == 0) {
+                        advance();
+                        if (peek().type != AssemblerTokenType::STRING_LITERAL)
+                            throwAt(peek().line, peek().column, ".assert: expected a \"message\" after ','");
+                        msg = advance().value;
+                        break;
+                    }
+                    AssemblerToken t = advance();
+                    if (!text.empty() && t.type != AssemblerTokenType::CLOSE_PAREN && text.back() != '(') text += ' ';
+                    text += t.type == AssemblerTokenType::HEX_LITERAL || t.type == AssemblerTokenType::BINARY_LITERAL ||
+                            t.type == AssemblerTokenType::DIRECTIVE ? (t.type == AssemblerTokenType::DIRECTIVE ? "." : "") + t.value : t.value;
+                }
+                while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
+                if (text.empty()) throwAt(tokens[pos - 1].line, tokens[pos - 1].column, ".assert needs an expression");
+                stmt->dir.arguments.push_back(msg.empty() ? "assertion failed: " + text : msg);
+                stmt->size = 0;
+            }
             else if (stmt->dir.name == "basicUpstart") {
                 if (firstOrgAddress == 0xFFFFFFFF) {
                     firstOrgAddress = 0x2001;
@@ -1849,9 +1877,21 @@ void AssemblerParser::pass1() {
                     stmt->size = d.size();
                 }
                 else {
+                    // the operand's text up to a ',' outside ( ) (bits(v, 4, 7), x)
+                    auto operandToComma = [&]() {
+                        std::string o;
+                        int depth = 0;
+                        while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE &&
+                               !(depth == 0 && peek().type == AssemblerTokenType::COMMA)) {
+                            if (peek().type == AssemblerTokenType::OPEN_PAREN) depth++;
+                            else if (peek().type == AssemblerTokenType::CLOSE_PAREN && depth > 0) depth--;
+                            o += advance().value;
+                        }
+                        return o;
+                    };
                     if (match(AssemblerTokenType::HASH)) {
                         stmt->instr.operandTokenIndex = (int)pos;
-                        std::string o; while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE && peek().type != AssemblerTokenType::COMMA) o += advance().value;
+                        std::string o = operandToComma();
                         stmt->instr.operand = o;
                         if (!stmt->instr.forceMode) {
                             if (stmt->instr.mnemonic == "phw") stmt->instr.mode = AddressingMode::IMMEDIATE16;
@@ -1927,7 +1967,7 @@ void AssemblerParser::pass1() {
                     }
                     else {
                         stmt->instr.operandTokenIndex = (int)pos;
-                        std::string o; while (peek().type != AssemblerTokenType::COMMA && peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) o += advance().value;
+                        std::string o = operandToComma();
                         stmt->instr.operand = o;
                         if (peek().type == AssemblerTokenType::COMMA) {
                             advance(); std::string r = advance().value;
@@ -2365,7 +2405,7 @@ int AssemblerParser::calculateInstructionSize(const Instruction& instr, uint32_t
 // with a warning, once per name and line
 void AssemblerParser::warnUnknownDirective(const AssemblerToken& tok) {
     static const std::set<std::string> known = {
-        "align", "array", "array_dims", "ascii", "balign", "basicUpstart", "bpindex", "bptop", "bss", "byte", "cleanup", "code", "const",
+        "align", "array", "array_dims", "ascii", "assert", "balign", "basicUpstart", "bpindex", "bptop", "bss", "byte", "cleanup", "code", "const",
         "cpu", "data", "dword", "endrepeat", "extern", "field_class", "field_count", "fill", "fillto",
         "fixed_prefix_size", "flag_clobbers", "float", "frame_size", "zar", "frameptr_zp", "func_flags", "function_sections",
         "keep", "nosplit", "overlay", "ref", "split",

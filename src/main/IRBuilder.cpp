@@ -439,6 +439,13 @@ bool IRBuilder::plainUnsignedVar(Expression* e, std::string& name) {
 
 IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
     if (!expr) return {};
+    if (auto* bs = dynamic_cast<BitSelect*>(expr)) {
+        // unsigned, as wide as the field needs
+        int w = bs->hi - bs->lo + 1;
+        if (w <= 8) return {ir::Type::I8, "unsigned char", false, ir::Type::VOID, 1};
+        if (w <= 16) return {ir::Type::I16, "unsigned int", false, ir::Type::VOID, 2};
+        return {ir::Type::I32, "unsigned long", false, ir::Type::VOID, 4};
+    }
     if (!vmVars_.empty()) {
         if (auto* vr = dynamic_cast<VariableReference*>(expr)) {
             auto it = vmVars_.find(vr->name);
@@ -1621,6 +1628,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
                 if (auto* c = dynamic_cast<ConditionalExpression*>(e))
                     return addrOfParam(c->condition.get()) || addrOfParam(c->thenExpr.get()) || addrOfParam(c->elseExpr.get());
                 if (auto* c = dynamic_cast<CastExpression*>(e)) return addrOfParam(c->expression.get());
+                if (auto* bs = dynamic_cast<BitSelect*>(e)) return addrOfParam(bs->operand.get());
                 if (auto* a = dynamic_cast<ArrayAccess*>(e)) return addrOfParam(a->arrayExpr.get()) || addrOfParam(a->indexExpr.get());
                 if (auto* m = dynamic_cast<MemberAccess*>(e)) return addrOfParam(m->structExpr.get());
                 if (auto* f = dynamic_cast<FunctionCall*>(e)) {
@@ -1729,6 +1737,8 @@ void IRBuilder::visit(FunctionDeclaration& node) {
                 if (hasFunctionCalls(arrayacc->indexExpr.get())) fnPtr->originalIsLeaf = false;
             } else if (auto* memberacc = dynamic_cast<MemberAccess*>(n)) {
                 if (hasFunctionCalls(memberacc->structExpr.get())) fnPtr->originalIsLeaf = false;
+            } else if (auto* bs = dynamic_cast<BitSelect*>(n)) {
+                if (hasFunctionCalls(bs->operand.get())) fnPtr->originalIsLeaf = false;
             } else if (auto* cast = dynamic_cast<CastExpression*>(n)) {
                 if (hasFunctionCalls(cast->expression.get())) fnPtr->originalIsLeaf = false;
             } else if (auto* condexpr = dynamic_cast<ConditionalExpression*>(n)) {
@@ -3094,9 +3104,11 @@ bool IRBuilder::inlineParamAssigned(Statement* body, const std::string& name) {
     std::function<bool(Expression*)> ex = [&](Expression* e) -> bool {
         if (!e) return false;
         auto isName = [&](Expression* t) {
+            if (auto* bs = dynamic_cast<BitSelect*>(t)) t = bs->operand.get();   // __bits(name, ...) = v
             auto* v = dynamic_cast<VariableReference*>(t);
             return v && v->name == name;
         };
+        if (auto* bs = dynamic_cast<BitSelect*>(e)) return ex(bs->operand.get());
         if (auto* a = dynamic_cast<Assignment*>(e)) return isName(a->target.get()) || ex(a->target.get()) || ex(a->expression.get());
         if (auto* u = dynamic_cast<UnaryOperation*>(e)) {
             if ((u->op == "++" || u->op == "--" || u->op == "++_POST" || u->op == "--_POST") && isName(u->operand.get())) return true;
@@ -4839,6 +4851,10 @@ void IRBuilder::visit(VariableReference& node) {
 }
 
 void IRBuilder::visit(Assignment& node) {
+    if (auto* bs = dynamic_cast<BitSelect*>(node.target.get())) {
+        emitBitSelectWrite(*bs, node.op, node.expression.get(), false, node);
+        return;
+    }
     if (auto* vr = dynamic_cast<VariableReference*>(node.target.get())) {
         auto it = locals_.find(vr->name);
         if (it != locals_.end()) setVregs_.insert(it->second.vregId);
@@ -6123,6 +6139,11 @@ void IRBuilder::visit(BinaryOperation& node) {
 }
 
 void IRBuilder::visit(UnaryOperation& node) {
+    if (auto* bs = dynamic_cast<BitSelect*>(node.operand.get());
+        bs && (node.op == "++" || node.op == "--" || node.op == "++_POST" || node.op == "--_POST")) {
+        emitBitSelectWrite(*bs, node.op.substr(0, 2) == "++" ? "+=" : "-=", nullptr, node.op.size() > 2, node);
+        return;
+    }
     if ((node.op == "-" || node.op == "~" || node.op == "+" || node.op == "!") && currentFunc_ &&
         !vecOf(node.operand.get()).empty()) {
         emitVectorUnary(node);
@@ -7969,6 +7990,35 @@ void IRBuilder::emitConditionBranches(Expression* cond, const std::string& trueL
     if (auto* unary = dynamic_cast<UnaryOperation*>(cond)) {
         if (unary->op == "!") {
             emitConditionBranches(unary->operand.get(), falseLabel, trueLabel, sl);
+            return;
+        }
+    }
+
+    // __bit(v, n) / __bits(v, lo, hi) tested: v & mask, no shift (#204)
+    if (auto* bs = dynamic_cast<BitSelect*>(cond)) {
+        ir::Type unit = bitSelectUnit(*bs);
+        if (unit != ir::Type::VOID) {
+            bs->operand->accept(*this);
+            ir::Operand v = emitCast(lastValue_, unit, false);
+            int w = bs->hi - bs->lo + 1;
+            if (w < 8 * ir::typeSize(unit)) {
+                ir::Inst a;
+                a.op = ir::Op::AND;
+                a.dest = allocVreg(unit);
+                a.resultType = unit;
+                a.src1 = v;
+                a.src2 = ir::Operand::imm((int64_t)(((1ull << w) - 1) << bs->lo), unit);
+                a.loc = sl;
+                emit(a);
+                v = a.dest;
+            }
+            ir::Inst br;
+            br.op = ir::Op::BR_COND;
+            br.src1 = v;
+            br.dest = ir::Operand::label(trueLabel);
+            br.src2 = ir::Operand::label(falseLabel);
+            br.loc = sl;
+            emit(br);
             return;
         }
     }
@@ -9888,6 +9938,176 @@ void IRBuilder::visit(CpuRegisterAccess& node) {
     emit(inst);
     lastValue_ = dest;
     lastValueSigned_ = false; // Registers are unsigned
+}
+
+// __bit(v, n) / __bits(v, lo, hi) (#204) -----------------------------------
+
+ir::Type IRBuilder::bitSelectUnit(BitSelect& node) {
+    IRTypeInfo ti = getExprTypeInfo(node.operand.get());
+    std::string name = node.lo == node.hi ? "__bit" : "__bits";
+    const std::string& tn = ti.typeName;
+    bool integer = (ti.type == ir::Type::I8 || ti.type == ir::Type::I16 || ti.type == ir::Type::I32) &&
+                   !structOf(tn) && tn.find("float") == std::string::npos && tn.find("double") == std::string::npos;
+    if (!integer) {
+        errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column, Severity::Error,
+            name + ": the operand is not an integer (" +
+            (ti.type == ir::Type::PTR ? std::string("a pointer") : "'" + (tn.empty() ? std::string("?") : tn) + "'") + ")"));
+        return ir::Type::VOID;
+    }
+    int bits = 8 * ir::typeSize(ti.type);
+    if (node.hi >= bits) {
+        errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column, Severity::Error,
+            name + ": bit " + std::to_string(node.hi) + " is outside the operand (" + std::to_string(bits) +
+            " bits: 0 to " + std::to_string(bits - 1) + ")"));
+        return ir::Type::VOID;
+    }
+    return ti.type;
+}
+
+void IRBuilder::visit(BitSelect& node) {
+    ir::Type unit = bitSelectUnit(node);
+    ir::Type rt = getExprTypeInfo(&node).type;
+    lastValueSigned_ = false;
+    if (unit == ir::Type::VOID) { lastValue_ = ir::Operand::imm(0, rt); return; }
+    node.operand->accept(*this);
+    ir::Operand v = emitCast(lastValue_, unit, false);
+    int w = node.hi - node.lo + 1, bits = 8 * ir::typeSize(unit);
+    auto op2 = [&](ir::Op op, ir::Operand a, int64_t b) {
+        ir::Inst i;
+        i.op = op;
+        i.dest = allocVreg(unit);
+        i.resultType = unit;
+        i.src1 = a;
+        i.src2 = ir::Operand::imm(b, unit);
+        i.loc = loc(node);
+        emit(i);
+        return i.dest;
+    };
+    if (node.lo) v = op2(ir::Op::SHR, v, node.lo);
+    if (w < bits - node.lo) v = op2(ir::Op::AND, v, (int64_t)((1ull << w) - 1));
+    lastValue_ = emitCast(v, rt, false);
+    lastValueSigned_ = false;
+}
+
+void IRBuilder::emitBitSelectWrite(BitSelect& node, const std::string& op, Expression* rhs, bool post, ASTNode& at) {
+    ir::Type unit = bitSelectUnit(node);
+    ir::Type rt = getExprTypeInfo(&node).type;
+    lastValueSigned_ = false;
+    if (unit == ir::Type::VOID) { lastValue_ = ir::Operand::imm(0, rt); return; }
+    int w = node.hi - node.lo + 1, bits = 8 * ir::typeSize(unit);
+    uint64_t unitMask = bits >= 64 ? ~0ull : (1ull << bits) - 1;
+    uint64_t m = (1ull << w) - 1, k = m << node.lo;
+    bool whole = w == bits;
+    auto bin = [&](ir::Op o, ir::Operand a, ir::Operand b) {
+        ir::Inst i;
+        i.op = o;
+        i.dest = allocVreg(unit);
+        i.resultType = unit;
+        i.src1 = a;
+        i.src2 = b;
+        i.loc = loc(at);
+        emit(i);
+        return i.dest;
+    };
+    auto imm = [&](uint64_t v) { return ir::Operand::imm((int64_t)(v & unitMask), unit); };
+
+    // the value (=) first, then the operand
+    ir::Operand val;
+    bool valSigned = false;
+    int64_t cv;
+    if (rhs && evalConstInt(rhs, cv)) {
+        val = ir::Operand::imm(cv, unit);
+    } else if (rhs) {
+        valSigned = getExprTypeInfo(rhs).isSigned;
+        rhs->accept(*this);
+        val = lastValue_;
+    }
+    // where the operand is: a local's vreg, a global, or memory at an address
+    Expression* e = node.operand.get();
+    ir::Operand where;
+    int kind = 2;
+    if (auto* vr = dynamic_cast<VariableReference*>(e)) {
+        auto lit = locals_.find(vr->name);
+        if (lit != locals_.end()) {
+            kind = 0;
+            where = lit->second;
+            setVregs_.insert(lit->second.vregId);
+        } else if (globalTypes_.count(vr->name)) {
+            kind = 1;
+            where = ir::Operand::global("_" + vr->name);
+        }
+    }
+    if (kind == 2) where = emitAddressOf(e);
+    bool constVal = op == "=" && val.kind == ir::OperandKind::IMM;
+    // the old value (not needed when every bit is written)
+    ir::Operand old;
+    if (!(op == "=" && whole)) {
+        if (kind == 2) {
+            ir::Inst ld;
+            ld.op = ir::Op::LOAD;
+            ld.dest = allocVreg(unit);
+            ld.resultType = unit;
+            ld.src1 = where;
+            ld.loc = loc(at);
+            emit(ld);
+            old = ld.dest;
+        } else {
+            e->accept(*this);
+            old = emitCast(lastValue_, unit, false);
+        }
+    }
+    // the field's new value, masked, in bit 0 up
+    ir::Operand field, oldField;
+    if (op != "=") {
+        oldField = node.lo ? bin(ir::Op::SHR, old, imm((uint64_t)node.lo)) : old;
+        if (w < bits - node.lo) oldField = bin(ir::Op::AND, oldField, imm(m));
+        ir::Operand x = !rhs ? imm(1) : val.kind == ir::OperandKind::IMM ? imm((uint64_t)val.immVal) : emitCast(val, unit, valSigned);
+        ir::Op o = ir::Op::NOP;
+        if (op == "+=") o = ir::Op::ADD;
+        else if (op == "-=") o = ir::Op::SUB;
+        else if (op == "&=") o = ir::Op::AND;
+        else if (op == "|=") o = ir::Op::OR;
+        else if (op == "^=") o = ir::Op::XOR;
+        else if (op == "<<=") o = ir::Op::SHL;
+        else if (op == ">>=") o = ir::Op::SHR;
+        else if (op == "*=") o = ir::Op::MUL_U;
+        else if (op == "/=") o = ir::Op::DIV_U;
+        else if (op == "%=") o = ir::Op::MOD_U;
+        if (o == ir::Op::NOP) {
+            errors_.push_back(formatDiagnostic(at.sourceFile, at.line, at.column, Severity::Error,
+                "'" + op + "' is not supported on __bit/__bits"));
+            lastValue_ = ir::Operand::imm(0, rt);
+            return;
+        }
+        field = bin(o, oldField, x);
+    } else if (constVal) {
+        field = imm((uint64_t)val.immVal & m);
+    } else {
+        field = emitCast(val, unit, valSigned);
+    }
+    if (field.kind != ir::OperandKind::IMM && w < bits) field = bin(ir::Op::AND, field, imm(m));
+    // merged into the old value
+    ir::Operand nv;
+    if (whole) {
+        nv = field;
+    } else if (field.kind == ir::OperandKind::IMM) {
+        uint64_t c = ((uint64_t)field.immVal & m) << node.lo;
+        if (c == 0) nv = bin(ir::Op::AND, old, imm(~k));
+        else if (c == k) nv = bin(ir::Op::OR, old, imm(k));
+        else nv = bin(ir::Op::OR, bin(ir::Op::AND, old, imm(~k)), imm(c));
+    } else {
+        ir::Operand sh = node.lo ? bin(ir::Op::SHL, field, imm((uint64_t)node.lo)) : field;
+        nv = bin(ir::Op::OR, bin(ir::Op::AND, old, imm(~k)), sh);
+    }
+    ir::Inst st;
+    st.op = ir::Op::STORE;
+    st.resultType = unit;
+    st.src1 = nv;
+    st.src2 = where;
+    st.loc = loc(at);
+    emit(st);
+    lastValue_ = emitCast(post ? oldField : field, rt, false);
+    lastValueSigned_ = false;
 }
 
 void IRBuilder::visit(CpuFlagAccess& node) {

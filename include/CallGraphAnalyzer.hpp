@@ -108,6 +108,7 @@ public:
     void visit(BuiltinVaArg&) override {}
     void visit(CpuRegisterAccess&) override {}
     void visit(CpuFlagAccess&) override {}
+    void visit(BitSelect&) override {}
     void visit(LabelAddressExpression&) override {}
 
 private:

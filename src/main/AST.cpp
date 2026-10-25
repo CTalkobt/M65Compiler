@@ -48,6 +48,7 @@ void BuiltinVaStart::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void BuiltinVaArg::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void CpuRegisterAccess::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void CpuFlagAccess::accept(ASTVisitor& visitor) { visitor.visit(*this); }
+void BitSelect::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void TranslationUnit::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 
 void LabelAddressExpression::accept(ASTVisitor& visitor) { visitor.visit(*this); }
@@ -183,6 +184,9 @@ void ASTWalker::visit(BuiltinVaArg& node) {
 }
 void ASTWalker::visit(CpuRegisterAccess&) {}
 void ASTWalker::visit(CpuFlagAccess&) {}
+void ASTWalker::visit(BitSelect& node) {
+    if (node.operand) node.operand->accept(*this);
+}
 void ASTWalker::visit(LabelAddressExpression&) {}
 void ASTWalker::visit(TranslationUnit& node) {
     for (auto& d : node.topLevelDecls) if (d) d->accept(*this);

@@ -386,6 +386,10 @@ public:
     void visit(CpuFlagAccess& node) override {
         printIndent(); std::cout << "CpuFlagAccess: " << node.flagName << std::endl;
     }
+    void visit(BitSelect& node) override {
+        printIndent(); std::cout << "BitSelect: " << node.lo << ".." << node.hi << std::endl;
+        indent++; node.operand->accept(*this); indent--;
+    }
     void visit(LabelAddressExpression& node) override {
         printIndent(); std::cout << "LabelAddressExpression: &&" << node.label << std::endl;
     }

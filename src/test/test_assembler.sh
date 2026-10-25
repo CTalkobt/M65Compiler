@@ -76,6 +76,28 @@ else
     failed=$((failed + 1))
 fi
 
+# .assert and bit() / bits() (#204): the values, a symbol defined after the
+# assert, the PC; a false assert stops with its message (or the expression)
+# and the line, also in -c mode
+echo "Testing .assert, bit(), bits()..."
+bits_ok=1
+./bin/ca45 src/test-resources/test_ca45_bits.s45 -o build/test/test_ca45_bits.bin >/dev/null 2>&1 || bits_ok=0
+ACTUAL=$(hexdump -v -e '1/1 "%02x "' build/test/test_ca45_bits.bin 2>/dev/null | xargs)
+[ "$ACTUAL" = "a9 0b a2 01 a0 01 a3 ff 60" ] || bits_ok=0
+./bin/ca45 -c src/test-resources/test_ca45_bits.s45 -o build/test/test_ca45_bits.o45 >/dev/null 2>&1 || bits_ok=0
+printf ' * = $2000\nX = 5\n .assert X == 4\n rts\n' > build/test/test_ca45_assert1.s45
+printf ' * = $2000\n inx\n .assert * > $3000, "code starts too low"\n rts\n' > build/test/test_ca45_assert2.s45
+A1=$(./bin/ca45 build/test/test_ca45_assert1.s45 -o build/test/test_ca45_assert.bin 2>&1) && bits_ok=0
+A2=$(./bin/ca45 -c build/test/test_ca45_assert2.s45 -o build/test/test_ca45_assert.o45 2>&1) && bits_ok=0
+grep -q 'line 3: assertion failed: X == 4' <<< "$A1" || bits_ok=0
+grep -q 'line 3: code starts too low' <<< "$A2" || bits_ok=0
+if [ $bits_ok = 1 ]; then
+    echo "SUCCESS: .assert, bit(), bits()"
+else
+    echo "FAIL: .assert, bit(), bits() (bytes: $ACTUAL; $A1; $A2)"
+    failed=$((failed + 1))
+fi
+
 # An #include'd file's errors name that file and its line (they named the
 # main source with the include's line), the excerpt from that file too
 echo "Testing errors in an #include'd file..."

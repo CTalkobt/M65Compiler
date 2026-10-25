@@ -6009,7 +6009,12 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                     emit("taz"); emit("lda #0"); emit("ldx #0"); emit("ldy #0");
                 }
             };
-            if (shiftCount >= 0) {
+            if (shiftCount >= 0 && inst.resultType == ir::Type::I8) {
+                // a byte: A alone
+                if (shiftCount >= 8) emit("lda #0");
+                else for (int i = 0; i < shiftCount; i++) emit("asl", i ? "" : "<< " + std::to_string(shiftCount));
+                emit("ldx #0");
+            } else if (shiftCount >= 0) {
                 if (shiftCount == 8 && !is32) {
                     emit("tax"); emit("lda #0");
                 } else if (is32 && (shiftCount == 8 || shiftCount == 16 || shiftCount == 24)) {
@@ -6106,7 +6111,12 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                     emit("pla");                           // A = old Z (byte 0)
                 }
             };
-            if (shiftCount >= 0) {
+            if (shiftCount >= 0 && inst.resultType == ir::Type::I8 && inst.op == ir::Op::SHR) {
+                // an unsigned byte: A alone
+                if (shiftCount >= 8) emit("lda #0");
+                else for (int i = 0; i < shiftCount; i++) emit("lsr", i ? "" : ">> " + std::to_string(shiftCount));
+                emit("ldx #0");
+            } else if (shiftCount >= 0) {
                 bool isASR = (inst.op == ir::Op::ASR);
                 // (an arithmetic shift by width - 1 is the sign fill too)
                 if (shiftCount >= (is32 ? 32 : 16) || (isASR && shiftCount == (is32 ? 31 : 15))) {
