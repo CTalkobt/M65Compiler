@@ -1,12 +1,13 @@
-// LinkerLog.hpp — ln45's diagnostic verbosity
+// LinkerLog.hpp — ln45's diagnostic streams (Logger.hpp, tag "ln45")
 //
 // ln45 prints only errors, warnings that need action, and its summary by
 // default; -v adds the analysis summaries and informational warnings
-// (ln45info), -vv also traces every relocation (ln45debug). Both return
-// std::cerr or a stream that discards its output.
+// (ln45info, INFO), -vv the call graph and the layout: base-page blocks,
+// __zp variables, the SAC overlay's placement (DEBUG), -vvv the relocation
+// records and patches (ln45debug, DEEP). Each line goes to
+// stderr as "[ln45:LEVEL] ..."; disabled levels discard their output.
 #pragma once
-#include <ostream>
+#include "Logger.hpp"
 
-extern int g_ln45Verbosity;   // 0 (default), 1 (-v), 2 (-vv)
-std::ostream& ln45info();
-std::ostream& ln45debug();
+inline std::ostream& ln45info() { return Logger::stream(LogLevel::INFO); }
+inline std::ostream& ln45debug() { return Logger::stream(LogLevel::DEEP); }

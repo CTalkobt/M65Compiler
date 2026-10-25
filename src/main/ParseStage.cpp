@@ -1,4 +1,5 @@
 #include "ParseStage.hpp"
+#include "Logger.hpp"
 #include "Lexer.hpp"
 #include "Parser.hpp"  // Include full definition for Parser
 #include "Token.hpp"
@@ -7,7 +8,7 @@
 
 void ParseStage::printTokens(const std::vector<Token>& tokens) const {
     for (const auto& token : tokens) {
-        std::cout << "Token: " << token.typeToString() << " ("
+        Logger::stream(LogLevel::TRACE) << "Token: " << token.typeToString() << " ("
                  << token.value << ") at " << token.line << ":"
                  << token.column << std::endl;
     }
@@ -15,7 +16,7 @@ void ParseStage::printTokens(const std::vector<Token>& tokens) const {
 
 Stage::Result ParseStage::execute() {
     if (verboseLevel_ >= 1) {
-        std::cout << "Lexing..." << std::endl;
+        Logger::stream(LogLevel::INFO) << "Lexing..." << std::endl;
     }
 
     try {
@@ -31,12 +32,12 @@ Stage::Result ParseStage::execute() {
             lineMap_.push_back({entry.first, {entry.second.filename, entry.second.lineOffset}});
         }
 
-        if (verboseLevel_ >= 2) {
+        if (verboseLevel_ >= 4) {
             printTokens(tokens);
         }
 
         if (verboseLevel_ >= 1) {
-            std::cout << "Parsing..." << std::endl;
+            Logger::stream(LogLevel::INFO) << "Parsing..." << std::endl;
         }
 
         // _Complex types are structs with overloaded operators; add their
@@ -74,7 +75,7 @@ Stage::Result ParseStage::execute() {
         }
 
         if (verboseLevel_ >= 1) {
-            std::cout << "Parsing complete." << std::endl;
+            Logger::stream(LogLevel::INFO) << "Parsing complete." << std::endl;
         }
 
         return {true};

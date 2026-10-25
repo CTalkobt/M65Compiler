@@ -13,8 +13,6 @@
 
 #include "CBMFloat.hpp"
 
-// cc45's verbosity (-v); see CompilerLog.hpp
-int g_cc45Verbosity = 0;
 
 static std::string hex8(uint8_t val) {
     std::stringstream ss;
@@ -4376,9 +4374,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         !(fn.isRegparm && fn.paramTypes.size() == 1 && !fnZp)) {
         bool isZeroAlloc = isZeroAllocLeaf(fn.name, fn);
         if (!isZeroAlloc) {
-            if (g_cc45Verbosity >= 1)
-                fprintf(stderr, "info: SAC thunk generated for %s (%zu params)\n",
-                    fn.name.c_str(), fn.paramTypes.size());
+            LOG_INFO("cc45", "SAC thunk generated for " << fn.name << " (" << fn.paramTypes.size() << " params)");
             if (fnZp) {
                 // ZP convention: copy the parameter block into SAC storage
                 emitComment("SAC thunk: load ZP params into SAC storage");

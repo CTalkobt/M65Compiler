@@ -13,14 +13,6 @@
 #include <streambuf>
 
 // ln45's verbosity (-v, -vv); see LinkerLog.hpp
-int g_ln45Verbosity = 0;
-namespace {
-struct NullBuf : std::streambuf { int overflow(int c) override { return c; } };
-NullBuf g_nullBuf;
-std::ostream g_nullStream(&g_nullBuf);
-}
-std::ostream& ln45info() { return g_ln45Verbosity >= 1 ? std::cerr : g_nullStream; }
-std::ostream& ln45debug() { return g_ln45Verbosity >= 2 ? std::cerr : g_nullStream; }
 
 // =============================================================================
 // O45RelocDecoder — inverse of O45RelocEncoder
@@ -1194,7 +1186,7 @@ bool O45Linker::resolveSymbols(std::string& errorMsg) {
                 symbolSource_[name] != "<linker>") {
                 // informational (most are library internals and C globals
                 // used only in their own object): only with -v
-                if (g_ln45Verbosity >= 1 && warnStream_)
+                if (Logger::isEnabled(LogLevel::INFO) && warnStream_)
                     *warnStream_ << "ln45: warning: unused global symbol '" << name << "' (defined in " << symbolSource_[name] << ")" << std::endl;
             }
         }
@@ -1303,7 +1295,7 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
                     }
                 }
             }
-            ln45debug() << "DEBUG [External Reloc]: Symbol '" << symName << "' = 0x" << std::hex << it->second << std::dec << std::endl;
+            ln45debug() << "External reloc: Symbol '" << symName << "' = 0x" << std::hex << it->second << std::dec << std::endl;
 
             // If AR offset was parsed from symbol name, use it as the addend.
             // Otherwise, read the addend from the patch site.
@@ -1345,7 +1337,7 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
             targetAddr = symAddr + addend;
 
             if (arOffset > 0) {
-                ln45debug() << "DEBUG [AR Reloc]: Symbol '" << symName << "' base=0x" << std::hex << it->second
+                ln45debug() << "Archive reloc: Symbol '" << symName << "' base=0x" << std::hex << it->second
                          << " arOffset=" << std::dec << arOffset << " targetAddr=0x" << std::hex << targetAddr << std::dec << std::endl;
             }
 
@@ -1436,7 +1428,7 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
             // DEBUG: Log ALL DATA relocations
             if (r.segment == SEG_DATA) {
                 // Log all DATA relocations with detailed information
-                ln45debug() << "\n=== DEBUG: DATA relocation at offset 0x" << std::hex << patchPos << std::dec << " ===" << std::endl;
+                ln45debug() << "DATA relocation at offset 0x" << std::hex << patchPos << std::dec << " ===" << std::endl;
                 ln45debug() << "  RelType: " << (int)r.type << " (32=R_LOW, 64=R_HIGH, 128=R_WORD)" << std::endl;
                 ln45debug() << "  Extra: 0x" << std::hex << (int)r.extra << std::dec << std::endl;
                 ln45debug() << "  PatchPos: 0x" << std::hex << patchPos << std::dec << std::endl;
@@ -1485,7 +1477,7 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
         bool shouldLogPatch = false;
         if (r.segment == SEG_DATA) {
             shouldLogPatch = true;
-            ln45debug() << "DEBUG [DATA Patch]: at 0x" << std::hex << patchPos << " type=" << (int)r.type << " targetAddr=0x" << targetAddr << std::dec << "\n";
+            ln45debug() << "DATA patch at 0x" << std::hex << patchPos << " type=" << (int)r.type << " targetAddr=0x" << targetAddr << std::dec << "\n";
             ln45debug() << "  Bytes BEFORE patch: 0x" << std::hex;
             for (int i = 0; i < patchSize && (patchPos + i) < body.size(); i++) {
                 ln45debug() << std::setw(2) << std::setfill('0') << (int)body[patchPos + i] << " ";
@@ -2363,11 +2355,11 @@ void O45Linker::buildCallGraph(std::map<std::string, std::set<std::string>>& gra
             else if (!marked && exp.segmentId() == SEG_TEXT) icallers.insert(sacBase(exp.name));
         }
     }
-    for (const auto& c : icallers) ln45debug() << "call graph: " << c << " calls through any pointer\n";
+    for (const auto& c : icallers) Logger::stream(LogLevel::DEBUG) << "call graph: " << c << " calls through any pointer\n";
     for (const auto& [c, sigs] : sigCallers)
-        for (const auto& sig : sigs) ln45debug() << "call graph: " << c << " calls through pointers " << sig << "\n";
+        for (const auto& sig : sigs) Logger::stream(LogLevel::DEBUG) << "call graph: " << c << " calls through pointers " << sig << "\n";
     for (const auto& t : addrTaken)
-        ln45debug() << "call graph: address of " << t << " used"
+        Logger::stream(LogLevel::DEBUG) << "call graph: address of " << t << " used"
                     << (funcSig.count(t) ? ", parameters " + funcSig[t] : std::string()) << "\n";
     for (const auto& c : icallers)
         for (const auto& t : addrTaken)
@@ -2479,7 +2471,7 @@ bool O45Linker::computeZarOverlay(std::string& errorMsg) {
         zarOffset_[f] = zarLo_ + at;
         zarUsed_ = std::max(zarUsed_, at + len);
         zarTotal_ += len;
-        ln45debug() << "base-page block: " << f << " at $" << std::hex << (zarLo_ + at) << std::dec
+        Logger::stream(LogLevel::DEBUG) << "base-page block: " << f << " at $" << std::hex << (zarLo_ + at) << std::dec
                     << " len " << len << "\n";
     }
     ln45info() << "base-page blocks: " << blocks.size() << " functions, " << zarTotal_ << " bytes in "
@@ -2700,7 +2692,7 @@ bool O45Linker::placeZpVars(std::string& errorMsg) {
     uint32_t at = ZAR_HI - zpVarTotal_;
     for (const auto& [sym, size] : zpVarSize_) {
         zpVarAddr_[sym] = at;
-        ln45debug() << "__zp variable: " << sym << " at $" << std::hex << at << std::dec << " len " << size << "\n";
+        Logger::stream(LogLevel::DEBUG) << "__zp variable: " << sym << " at $" << std::hex << at << std::dec << " len " << size << "\n";
         at += size;
     }
     ln45info() << "__zp variables: " << zpVarAddr_.size() << ", " << zpVarTotal_ << " bytes\n";
@@ -2779,7 +2771,7 @@ void O45Linker::generateZpInit() {
         t.push_back(0x10); t.push_back(0xF7);                             // BPL (to the LDA)
     }
     t.push_back(0x60);                                                    // RTS
-    ln45debug() << "__zp_init at $" << std::hex << zpInitAt_ << std::dec << "\n";
+    Logger::stream(LogLevel::DEBUG) << "__zp_init at $" << std::hex << zpInitAt_ << std::dec << "\n";
 }
 
 void O45Linker::patchZpInit() {
@@ -2832,7 +2824,7 @@ void O45Linker::generateZarWrappers() {
             abs(0xAE, regs + 1); abs(0xAD, regs);
             t.push_back(0x60);                           // RTS
             if (textBase_ + t.size() != save) {
-                ln45debug() << "base-page wrapper size mismatch for " << entry << "\n";
+                Logger::stream(LogLevel::DEBUG) << "base-page wrapper size mismatch for " << entry << "\n";
             }
             for (uint32_t k = 0; k < len + 6; k++) t.push_back(0);
             if (fOvl) {
@@ -2841,7 +2833,7 @@ void O45Linker::generateZarWrappers() {
             } else {
                 zarWrapAt_[zarKey(0, it->second)] = wrap;
             }
-            ln45debug() << "base-page wrapper for " << entry << " at $" << std::hex << wrap << std::dec << "\n";
+            Logger::stream(LogLevel::DEBUG) << "base-page wrapper for " << entry << " at $" << std::hex << wrap << std::dec << "\n";
         }
     }
 }
@@ -3369,9 +3361,9 @@ void O45Linker::computeSacOverlay() {
             blocks.push_back({fn, idx, exp.offset, sz->second});
         }
     }
-    for (const auto& f : addrTaken) ln45debug() << "SAC overlay: address taken " << f << "\n";
-    for (const auto& f : unsafe) ln45debug() << "SAC overlay: unsafe " << f << "\n";
-    for (const auto& b : blocks) ln45debug() << "SAC overlay: block " << b.func << " " << b.len << "\n";
+    for (const auto& f : addrTaken) Logger::stream(LogLevel::DEBUG) << "SAC overlay: address taken " << f << "\n";
+    for (const auto& f : unsafe) Logger::stream(LogLevel::DEBUG) << "SAC overlay: unsafe " << f << "\n";
+    for (const auto& b : blocks) Logger::stream(LogLevel::DEBUG) << "SAC overlay: block " << b.func << " " << b.len << "\n";
     if (blocks.size() < 2) return;
 
     std::map<std::string, std::set<std::string>> reach;
@@ -3406,7 +3398,7 @@ void O45Linker::computeSacOverlay() {
     sacOverlaySaved_ = total - sacOverlayLen_;
     for (const auto& p : placed) {
         sacMoves_[p.b->obj].push_back({p.b->off, p.b->len, p.at, p.b->func});
-        ln45debug() << "SAC overlay: place " << p.b->func << " at " << p.at << " len " << p.b->len << "\n";
+        Logger::stream(LogLevel::DEBUG) << "SAC overlay: place " << p.b->func << " at " << p.at << " len " << p.b->len << "\n";
     }
     ln45info() << "SAC overlay: " << placed.size() << " functions, " << total
                << " bytes of storage in " << sacOverlayLen_ << " (" << sacOverlaySaved_

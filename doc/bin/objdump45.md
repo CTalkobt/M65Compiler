@@ -35,6 +35,7 @@ At least one display option (`-f`, `-h`, `-t`, `-r`, `-s`, `-d`, `-a` or `-bas`)
 | `-bas` | List the BASIC program of a `.prg` (line numbers, detokenised text) |
 | `-x` | With `-bas`: also show each line's bytes in hex |
 | `-D` | Binary diff of exactly two files (any format, compared byte by byte) |
+| `-v` … `-vvvv`, `-v0` | Log on stderr as `[objdump45:LEVEL] …` (the toolchain's format, `include/Logger.hpp`); cumulative, at most `-vvvv`; `-v0` off: each file's format (object, PRG, raw binary, overlay file) and the map or debug file the disassembly takes symbols from (`-v`); why a file is not an object (`-vv`) |
 | `-V` / `--version` | Display version and exit |
 | `-?` / `--help` | Display help |
 

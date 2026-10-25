@@ -1,4 +1,5 @@
 #include <iostream>
+#include "Logger.hpp"
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -115,7 +116,8 @@ static void showUsage(const char* progName) {
     std::cerr << "  --validate     Verify round-trip conversion (A → target → A)\n";
     std::cerr << "  --stats        Show detailed conversion statistics and loss analysis\n";
     std::cerr << "  -l             List supported formats and exit\n";
-    std::cerr << "  -v             Verbose output\n";
+    std::cerr << "  -v ... -vvvv   Log to stderr ([cvt_asm:INFO] ...): each file's formats, parse and\n"
+              << "                 write steps, the summary; -v0 off\n";
     std::cerr << "  --help         Show this help message\n";
     std::cerr << "  --version      Show version information\n";
     std::cerr << "\nBatch conversion:\n";
@@ -407,7 +409,7 @@ static bool convertFile(const std::string& inputFile,
         if (detected) {
             actualFormat = *detected;
             if (verbose) {
-                std::cerr << "Auto-detected input format: " << actualFormat << "\n";
+                Logger::stream(LogLevel::INFO) << "Auto-detected input format: " << actualFormat << "\n";
             }
         } else {
             std::cerr << "Error: Could not auto-detect input format for '" << inputFile << "'. Specify with -f <format>\n";
@@ -416,9 +418,9 @@ static bool convertFile(const std::string& inputFile,
     }
 
     if (verbose) {
-        std::cerr << "Processing: " << inputFile << "\n";
-        std::cerr << "  Input format: " << actualFormat << "\n";
-        std::cerr << "  Target format: " << targetFormat << "\n";
+        Logger::stream(LogLevel::INFO) << "Processing: " << inputFile << "\n";
+        Logger::stream(LogLevel::INFO) << "  Input format: " << actualFormat << "\n";
+        Logger::stream(LogLevel::INFO) << "  Target format: " << targetFormat << "\n";
     }
 
     // Create parser
@@ -430,7 +432,7 @@ static bool convertFile(const std::string& inputFile,
 
     // Parse
     if (verbose) {
-        std::cerr << "  Parsing...\n";
+        Logger::stream(LogLevel::INFO) << "  Parsing...\n";
     }
 
     auto module = parser->parse(source);
@@ -447,7 +449,7 @@ static bool convertFile(const std::string& inputFile,
         std::cerr << inputFile << ": " << warn << "\n";
     }
     if (verbose) {
-        std::cerr << "  Parsed " << module.statements.size() << " statements\n";
+        Logger::stream(LogLevel::INFO) << "  Parsed " << module.statements.size() << " statements\n";
     }
 
     // Create writer
@@ -459,7 +461,7 @@ static bool convertFile(const std::string& inputFile,
 
     // Write
     if (verbose) {
-        std::cerr << "  Writing to " << targetFormat << "...\n";
+        Logger::stream(LogLevel::INFO) << "  Writing to " << targetFormat << "...\n";
     }
 
     std::string output = writer->write(module);
@@ -502,7 +504,7 @@ static bool convertFile(const std::string& inputFile,
         outFile.close();
 
         if (verbose) {
-            std::cerr << "  Output written to '" << outputFile << "'\n";
+            Logger::stream(LogLevel::INFO) << "  Output written to '" << outputFile << "'\n";
         }
     }
 
@@ -589,7 +591,7 @@ static bool collectConversionStats(const std::string& inputFile,
     if (tgtParser->hasErrors()) {
         // Warn but don't fail - target might have parsing issues
         if (verbose) {
-            std::cerr << "Warning: Target format output has parsing issues\n";
+            Logger::stream(LogLevel::INFO) << "Warning: Target format output has parsing issues\n";
         }
     }
 
@@ -612,7 +614,7 @@ static bool collectConversionStats(const std::string& inputFile,
     stats.unsupportedDirectives = detectUnsupportedDirectives(srcModule, targetFormat);
 
     if (verbose) {
-        std::cerr << "Conversion analysis: " << inputFile << " (" << actualFormat
+        Logger::stream(LogLevel::INFO) << "Conversion analysis: " << inputFile << " (" << actualFormat
                   << " → " << targetFormat << ")\n";
     }
 
@@ -649,7 +651,7 @@ static bool validateRoundTrip(const std::string& inputFile,
     }
 
     if (verbose) {
-        std::cerr << "Validating round-trip: " << inputFile << " (" << actualFormat
+        Logger::stream(LogLevel::INFO) << "Validating round-trip: " << inputFile << " (" << actualFormat
                   << " → " << targetFormat << " → " << actualFormat << ")\n";
     }
 
@@ -773,6 +775,8 @@ int main(int argc, char** argv) {
     std::string targetFormat = configSettings.default_format;  // Use config default
     std::string outputDir = configSettings.output_dir;  // Use config default
     bool verbose = false;
+    int verbosity = 0;
+    Logger::setTool("cvt_asm");
     bool validateMode = configSettings.validate_round_trip;  // Use config default
     bool statsMode = false;
     bool metricsMode = configSettings.metrics_default;  // Phase 5a: Use config default
@@ -812,8 +816,9 @@ int main(int argc, char** argv) {
         } else if (arg == "-l" || arg == "--list-formats") {
             listFormats();
             return 0;
-        } else if (arg == "-v") {
-            verbose = true;
+        } else if (Logger::parseFlag(arg, verbosity)) {
+            Logger::setLevel(verbosity);   // -v ... -vvvv, -v0
+            verbose = Logger::isEnabled(LogLevel::INFO);
         } else if (arg == "--help") {
             showUsage(argv[0]);
             return 0;
@@ -836,9 +841,9 @@ int main(int argc, char** argv) {
     }
 
     if (verbose) {
-        std::cerr << "Target format: " << targetFormat << "\n";
+        Logger::stream(LogLevel::INFO) << "Target format: " << targetFormat << "\n";
         if (!outputDir.empty() && !validateMode && !statsMode) {
-            std::cerr << "Output directory: " << outputDir << "\n";
+            Logger::stream(LogLevel::INFO) << "Output directory: " << outputDir << "\n";
         }
     }
 
@@ -853,7 +858,7 @@ int main(int argc, char** argv) {
             ConversionStats stats;
 
             if (verbose && inputFiles.size() > 1) {
-                std::cerr << "\n[" << (i + 1) << "/" << inputFiles.size() << "] ";
+                Logger::stream(LogLevel::INFO) << "[" << (i + 1) << "/" << inputFiles.size() << "] ";
             }
 
             if (!collectConversionStats(inputFile, inputFormat, targetFormat, verbose, stats)) {
@@ -936,7 +941,7 @@ int main(int argc, char** argv) {
         }
 
         if (verbose && inputFiles.size() > 1) {
-            std::cerr << "\nStatistics complete: " << successCount << " analyzed, "
+            Logger::stream(LogLevel::INFO) << "Statistics complete: " << successCount << " analyzed, "
                       << failureCount << " failed\n";
         }
 
@@ -954,7 +959,7 @@ int main(int argc, char** argv) {
             ValidationStats stats;
 
             if (verbose && inputFiles.size() > 1) {
-                std::cerr << "\n[" << (i + 1) << "/" << inputFiles.size() << "] ";
+                Logger::stream(LogLevel::INFO) << "[" << (i + 1) << "/" << inputFiles.size() << "] ";
             }
 
             if (!validateRoundTrip(inputFile, inputFormat, targetFormat, verbose, stats)) {
@@ -984,7 +989,7 @@ int main(int argc, char** argv) {
         }
 
         if (verbose && inputFiles.size() > 1) {
-            std::cerr << "\nRound-trip validation complete: " << successCount << " succeeded, " << failureCount << " failed\n";
+            Logger::stream(LogLevel::INFO) << "Round-trip validation complete: " << successCount << " succeeded, " << failureCount << " failed\n";
         }
 
         return (failureCount > 0) ? 1 : 0;
@@ -994,7 +999,7 @@ int main(int argc, char** argv) {
     if (clearCache) {
         MacroUtils::clearCache();
         if (verbose) {
-            std::cerr << "Include file cache cleared.\n";
+            Logger::stream(LogLevel::INFO) << "Include file cache cleared.\n";
         }
     }
 
@@ -1009,7 +1014,7 @@ int main(int argc, char** argv) {
     if (parallelMode && inputFiles.size() > 1) {
         // Phase 4b: Parallel batch conversion
         if (verbose) {
-            std::cerr << "Using parallel conversion with "
+            Logger::stream(LogLevel::INFO) << "Using parallel conversion with "
                       << (numThreads > 0 ? std::to_string(numThreads) : "auto-detected")
                       << " threads\n";
         }
@@ -1032,7 +1037,7 @@ int main(int argc, char** argv) {
             pool.enqueue([inputFile, inputFormat, targetFormat, outputFile, verbose,
                          &failureCount, &successCount, i, totalCount = inputFiles.size()]() {
                 if (verbose) {
-                    std::cerr << "[" << (i + 1) << "/" << totalCount << "] ";
+                    Logger::stream(LogLevel::INFO) << "[" << (i + 1) << "/" << totalCount << "] ";
                 }
 
                 if (convertFile(inputFile, inputFormat, targetFormat, outputFile, verbose)) {
@@ -1045,10 +1050,6 @@ int main(int argc, char** argv) {
 
         // Wait for all conversions to complete
         pool.waitAll();
-
-        if (verbose) {
-            std::cerr << "\n";
-        }
     } else {
         // Sequential batch conversion (Phase 2b)
         for (size_t i = 0; i < inputFiles.size(); ++i) {
@@ -1064,7 +1065,7 @@ int main(int argc, char** argv) {
             }
 
             if (verbose && inputFiles.size() > 1) {
-                std::cerr << "\n[" << (i + 1) << "/" << inputFiles.size() << "] ";
+                Logger::stream(LogLevel::INFO) << "[" << (i + 1) << "/" << inputFiles.size() << "] ";
             }
 
             if (!convertFile(inputFile, inputFormat, targetFormat, outputFile, verbose)) {
@@ -1073,17 +1074,13 @@ int main(int argc, char** argv) {
                 successCount++;
             }
         }
-
-        if (verbose && inputFiles.size() > 1) {
-            std::cerr << "\n";
-        }
     }
 
     auto batchEndTime = std::chrono::high_resolution_clock::now();
     auto batchDuration = std::chrono::duration_cast<std::chrono::milliseconds>(batchEndTime - batchStartTime);
 
     if (verbose && inputFiles.size() > 1) {
-        std::cerr << "\nBatch conversion complete: " << successCount << " succeeded, " << failureCount << " failed\n";
+        Logger::stream(LogLevel::INFO) << "Batch conversion complete: " << successCount << " succeeded, " << failureCount << " failed\n";
     }
 
     // Phase 4: Report performance metrics if enabled or verbose

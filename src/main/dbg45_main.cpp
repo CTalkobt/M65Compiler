@@ -6,6 +6,7 @@
 // stepi, break, delete, info breakpoints|locals|args|registers, backtrace,
 // frame, up, down, print, x, list, kill, quit. --dap speaks the Debug
 // Adapter Protocol on stdin/stdout instead (an editor's debugger: VS Code).
+#include "Logger.hpp"
 #include "Dbg45.hpp"
 #include "Version.hpp"
 #include <cstdio>
@@ -31,6 +32,8 @@ static void usage(std::ostream& o) {
          "  -x <file>          Run the commands in a file first\n"
          "  --batch            Quit after the -ex / -x commands\n"
          "  --dap              Speak the Debug Adapter Protocol on stdin/stdout (for an editor)\n"
+         "  -v ... -vvvv       Log to stderr ([dbg45:INFO] ...): xemu's start and the program (-v),\n"
+         "                     each monitor command (-vv) and its reply (-vvv); -v0 off\n"
          "  -V, --version      Version\n"
          "  -h, --help         This help\n"
          "Commands: run, start, continue (c), next (n), step (s), finish, stepi (si), break (b) LOC,\n"
@@ -212,6 +215,8 @@ struct Cli {
 }  // namespace
 
 int main(int argc, char** argv) {
+    Logger::setTool("dbg45");
+    int verbosity = 0;
     Dbg45 d;
     if (const char* x = getenv("DBG45_XEMU")) d.opt.xemu = x;
     std::vector<std::string> cmds;
@@ -234,6 +239,7 @@ int main(int argc, char** argv) {
         }
         else if (a == "--batch") batch = true;
         else if (a == "--dap") dap = true;
+        else if (Logger::parseFlag(a, verbosity)) Logger::setLevel(verbosity);   // -v ... -vvvv, -v0
         else if (!a.empty() && a[0] == '-') { std::cerr << "dbg45: unknown option " << a << std::endl; return 1; }
         else prg = a;
     }

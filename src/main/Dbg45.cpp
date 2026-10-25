@@ -8,6 +8,7 @@
 // speed, going on past a stop deeper in the stack (recursion). A stop at a
 // breakpoint address whose bytes are not the program's (the ROM's code
 // mapped there before the program runs) resumes.
+#include "Logger.hpp"
 #include "Dbg45.hpp"
 #include <algorithm>
 #include <chrono>
@@ -32,6 +33,8 @@ bool Dbg45::open(const std::string& prg, std::string& err) {
     if (d != std::string::npos && (s == std::string::npos || d > s)) dbgPath = dbgPath.substr(0, d);
     dbgPath += ".dbg";
     if (!dbg.load(dbgPath, err)) return false;
+    LOG_INFO("dbg45", prg << ": " << image.size() << " bytes at $" << std::hex << imageBase << std::dec
+                      << ", debug file " << dbgPath);
     exitAddr_ = dbg.symbol("__exit");
     return true;
 }

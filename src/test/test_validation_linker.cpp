@@ -618,9 +618,9 @@ void test_unused_global_warning() {
     std::ostringstream warns;
     linker.setWarningStream(&warns);
     std::string err;
-    g_ln45Verbosity = 1;   // an informational warning: ln45 -v
+    Logger::setLevel(LogLevel::INFO);   // an informational warning: ln45 -v
     linker.link(err, false);
-    g_ln45Verbosity = 0;
+    Logger::setLevel(LogLevel::OFF);
 
     std::string w_str = warns.str();
     CHECK(w_str.find("unused global symbol") != std::string::npos, "unused symbol warning emitted (-v)");

@@ -64,7 +64,7 @@ Without `-o` the output is the input name with its extension replaced by `.prg` 
 | `--lib <file>` | The library for `--link` (default: `c45.lib` next to the tools, else `ln45`'s `CC45_LIB` search) |
 | `--decompile` | Turn a tokenized BASIC `.prg` into basic45 source ([Listing, Source Map and Decompiling](#listing-source-map-and-decompiling)) |
 | `--list-tokens` | List all keywords with their token values and exit |
-| `-v`, `--verbose` | Verbose output |
+| `-v`, `--verbose` (… `-vvvv`, `-v0`) | Log on stderr as `[basic45:LEVEL] …` (the toolchain's format, `include/Logger.hpp`); cumulative, at most `-vvvv`; `-v0` off: the files, load address, included files, the ca45/ln45 commands of `--link`, the variable renames (`--list` prints those on stdout instead); notes for unused labels |
 | `--version` | Show version |
 | `-h`, `--help` | Show help (exit status 0) |
 

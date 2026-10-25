@@ -63,9 +63,10 @@ static void printUsage(const char* progName) {
     std::cout << "                        second build with cc45 -fzp-plan=FILE" << std::endl;
     std::cout << "                 (default 4096; $1000, 0x1000 or decimal)" << std::endl;
     std::cout << "  -Wthunk        Warn (but still generate thunks) on convention mismatches" << std::endl;
-    std::cout << "  -v             Also print the cross-module analysis and informational warnings" << std::endl;
-    std::cout << "                 (unused global symbols, SAC overlay)" << std::endl;
-    std::cout << "  -vv            As -v, plus a trace of every relocation" << std::endl;
+    std::cout << "  -v             Log to stderr ([ln45:INFO] ...): the cross-module analysis and" << std::endl;
+    std::cout << "                 informational warnings (unused global symbols, SAC overlay)" << std::endl;
+    std::cout << "  -vv            As -v, plus the call graph's calls through pointers (DEBUG)" << std::endl;
+    std::cout << "  -vvv, -vvvv    As -vv, plus every relocation record and patch (DEEP); -v0 off" << std::endl;
     std::cout << "  -?             Display this help message" << std::endl;
 }
 
@@ -74,6 +75,8 @@ static uint32_t parseAddr(const std::string& s) {
 }
 
 int main(int argc, char** argv) {
+    Logger::setTool("ln45");
+    int verbosity = 0;
     std::string outputFile;
     bool outputSet = false;
     bool isPrg = false;
@@ -136,8 +139,7 @@ int main(int argc, char** argv) {
         else if (arg == "--gc-inputs") { gcInputs = true; }
         else if (arg == "-u" && i + 1 < argc) { keepSyms.push_back(argv[++i]); }
         else if (arg == "--print-gc") { printGc = true; }
-        else if (arg == "-v") { g_ln45Verbosity = std::max(g_ln45Verbosity, 1); }
-        else if (arg == "-vv") { g_ln45Verbosity = 2; }
+        else if (Logger::parseFlag(arg, verbosity)) { Logger::setLevel(verbosity); }
         else if (arg.rfind("--stack-size=", 0) == 0) {
             std::string v = arg.substr(13);
             int base = 10;
@@ -384,12 +386,17 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    if (printGc || g_ln45Verbosity >= 1)
-    {
+    // (--print-gc asks for them; -v logs them)
+    if (printGc) {
         for (const auto& n : linker.discardedObjects())
             std::cerr << "ln45: dropped " << n << " (nothing live references it)" << std::endl;
         for (const auto& n : linker.discardedSectionNames())
             std::cerr << "ln45: dropped section " << n << std::endl;
+    } else if (Logger::isEnabled(LogLevel::INFO)) {
+        for (const auto& n : linker.discardedObjects())
+            ln45info() << "dropped " << n << " (nothing live references it)" << std::endl;
+        for (const auto& n : linker.discardedSectionNames())
+            ln45info() << "dropped section " << n << std::endl;
     }
 
     // A C program (crt0's private base page) must end below the top of bank

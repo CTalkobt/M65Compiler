@@ -1,4 +1,5 @@
 #include <iostream>
+#include "Logger.hpp"
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -40,6 +41,7 @@ struct Options {
     uint16_t loadAddress = 0x2001;
     uint16_t lineIncrement = 10;
     bool verbose = false;
+    int verbosity = 0;
     bool showVersion = false;
     bool showHelp = false;
     bool listTokens = false;
@@ -199,7 +201,8 @@ static void printUsage(const char* progName) {
     std::cout << "  --lib <file>        The C library for --link (default: c45.lib)" << std::endl;
     std::cout << "  --decompile         Turn a BASIC .prg into basic45 source (also for a .prg input)" << std::endl;
     std::cout << "  --list-tokens       List all supported BASIC keywords and exit" << std::endl;
-    std::cout << "  -v, --verbose       Verbose output" << std::endl;
+    std::cout << "  -v, --verbose       Log to stderr ([basic45:INFO] ...): files, addresses, steps;" << std::endl;
+    std::cout << "                      -vv ... -vvvv more detail, -v0 off" << std::endl;
     std::cout << "  --version           Show version" << std::endl;
     std::cout << "  -h, --help          Show this help" << std::endl;
 }
@@ -218,8 +221,10 @@ static Options parseArgs(int argc, char* argv[]) {
         } else if (arg == "--load" && i + 1 < argc) {
             std::istringstream iss(argv[++i]);
             iss >> std::hex >> opts.loadAddress;
-        } else if (arg == "-v" || arg == "--verbose") {
-            opts.verbose = true;
+        } else if (arg == "--verbose" || Logger::parseFlag(arg, opts.verbosity)) {
+            if (arg == "--verbose") opts.verbosity = std::max(opts.verbosity, 1);
+            Logger::setLevel(opts.verbosity);   // -v ... -vvvv, -v0
+            opts.verbose = Logger::isEnabled(LogLevel::INFO);
         } else if (arg == "--label-table" && i + 1 < argc) {
             opts.labelTableFile = argv[++i];
         } else if (arg == "--increment" && i + 1 < argc) {
@@ -430,6 +435,7 @@ struct Build {
 };
 
 int main(int argc, char* argv[]) {
+    Logger::setTool("basic45");
     Options opts = parseArgs(argc, argv);
 
     if (opts.listTokens) {
@@ -543,17 +549,17 @@ int main(int argc, char* argv[]) {
             std::ofstream out(opts.outputFile);
             if (!out) { std::cerr << "Error: Could not write " << opts.outputFile << std::endl; return 1; }
             out << r.source;
-            if (opts.verbose) std::cout << "Source written to: " << opts.outputFile << std::endl;
+            if (opts.verbose) Logger::stream(LogLevel::INFO) << "Source written to: " << opts.outputFile << std::endl;
         }
         return 0;
     }
 
     if (opts.verbose) {
-        std::cout << "Input:  " << opts.inputFile << std::endl;
-        std::cout << "Output: " << opts.outputFile << std::endl;
-        std::cout << "Load:   $" << std::hex << opts.loadAddress << std::dec << std::endl;
+        Logger::stream(LogLevel::INFO) << "Input:  " << opts.inputFile << std::endl;
+        Logger::stream(LogLevel::INFO) << "Output: " << opts.outputFile << std::endl;
+        Logger::stream(LogLevel::INFO) << "Load:   $" << std::hex << opts.loadAddress << std::dec << std::endl;
         if (opts.lineIncrement != 10) {
-            std::cout << "Line increment: " << opts.lineIncrement << std::endl;
+            Logger::stream(LogLevel::INFO) << "Line increment: " << opts.lineIncrement << std::endl;
         }
     }
 
@@ -568,7 +574,7 @@ int main(int argc, char* argv[]) {
     try {
         sourceCode = preprocessor.preprocess(originalSource, opts.inputFile);
         if (opts.verbose && !preprocessor.getIncludedFiles().empty()) {
-            std::cout << "Included files: " << preprocessor.getIncludedFiles().size() << std::endl;
+            Logger::stream(LogLevel::INFO) << "Included files: " << preprocessor.getIncludedFiles().size() << std::endl;
         }
     } catch (const std::exception& e) {
         std::cerr << "Preprocessor error: " << e.what() << std::endl;
@@ -599,7 +605,7 @@ int main(int argc, char* argv[]) {
     if (!opts.symbolFile.empty()) {
         symbols.loadFromFile(opts.symbolFile);
         if (opts.verbose) {
-            std::cout << "Symbols loaded from: " << opts.symbolFile << std::endl;
+            Logger::stream(LogLevel::INFO) << "Symbols loaded from: " << opts.symbolFile << std::endl;
         }
     }
 
@@ -737,7 +743,7 @@ int main(int argc, char* argv[]) {
             Build b = build(symbols);
             if (!b.ok) return 1;
         }
-        if (opts.verbose) std::cout << "Validation successful" << std::endl;
+        if (opts.verbose) Logger::stream(LogLevel::INFO) << "Validation successful" << std::endl;
         return 0;
     }
 
@@ -792,7 +798,7 @@ int main(int argc, char* argv[]) {
         }
         std::string log;
         auto step = [&](const std::string& cmd, const std::string& what) {
-            if (opts.verbose) std::cout << "  " << cmd << std::endl;
+            if (opts.verbose) Logger::stream(LogLevel::INFO) << "  " << cmd << std::endl;
             if (runCommand(cmd, &log) != 0) {
                 std::cerr << "basic45: " << what << " failed:\n" << log;
                 return false;
@@ -878,10 +884,10 @@ int main(int argc, char* argv[]) {
         codeStart = imageBase;
         codeEnd = imageBase + (uint32_t)code.size() - 2;
         if (opts.verbose) {
-            std::cout << "Linked code at $" << std::hex << imageBase << "-$"
+            Logger::stream(LogLevel::INFO) << "Linked code at $" << std::hex << imageBase << "-$"
                       << imageBase + code.size() - 3 << std::dec << std::endl;
             for (const auto& n : sysTargets)
-                std::cout << "  SYS {" << n << "}: thunk __bas_" << n << std::endl;
+                Logger::stream(LogLevel::INFO) << "  SYS {" << n << "}: thunk __bas_" << n << std::endl;
         }
     }
 
@@ -903,7 +909,7 @@ int main(int argc, char* argv[]) {
     if (!opts.labelTableFile.empty()) {
         result.emitter->outputLabelTable(opts.labelTableFile);
         if (opts.verbose) {
-            std::cout << "Label table written to: " << opts.labelTableFile << std::endl;
+            Logger::stream(LogLevel::INFO) << "Label table written to: " << opts.labelTableFile << std::endl;
         }
     }
 
@@ -943,10 +949,12 @@ int main(int argc, char* argv[]) {
 
     // The variables renamed to short names
     const auto& vars = result.emitter->getVariableMap();
-    if ((opts.verbose || opts.listing) && !vars.empty()) {
-        std::cout << "Variables:";
-        for (const auto& [from, to] : vars) std::cout << " " << from << "->" << to;
-        std::cout << std::endl;
+    if (!vars.empty() && (opts.listing || opts.verbose)) {
+        // (--listing asks for it on stdout; -v logs it)
+        std::ostream& vo = opts.listing ? std::cout : Logger::stream(LogLevel::INFO);
+        vo << "Variables:";
+        for (const auto& [from, to] : vars) vo << " " << from << "->" << to;
+        vo << std::endl;
     }
 
     if (opts.listing) {
@@ -969,7 +977,7 @@ int main(int argc, char* argv[]) {
         if (docFile) {
             docFile << docs;
             if (opts.verbose) {
-                std::cout << "Documentation written to: " << opts.docsFile << std::endl;
+                Logger::stream(LogLevel::INFO) << "Documentation written to: " << opts.docsFile << std::endl;
             }
         } else {
             std::cerr << "Warning: Could not write documentation file: " << opts.docsFile << std::endl;
@@ -990,7 +998,7 @@ int main(int argc, char* argv[]) {
         if (mapFile) {
             mapFile << mapGen.generateJSON();
             if (opts.verbose) {
-                std::cout << "Source map written to: " << opts.sourceMapFile << std::endl;
+                Logger::stream(LogLevel::INFO) << "Source map written to: " << opts.sourceMapFile << std::endl;
             }
         } else {
             std::cerr << "Warning: Could not write source map file: " << opts.sourceMapFile << std::endl;
@@ -1018,7 +1026,7 @@ int main(int argc, char* argv[]) {
             std::cerr << "basic45: could not add the program to " << opts.diskImage << ":\n" << log;
             return 1;
         }
-        if (opts.verbose) std::cout << "Added \"" << name << "\" to " << opts.diskImage << std::endl;
+        if (opts.verbose) Logger::stream(LogLevel::INFO) << "Added \"" << name << "\" to " << opts.diskImage << std::endl;
     }
 
     // --send: to a MEGA65 (mega65-tools etherload over Ethernet, or m65 over
@@ -1052,7 +1060,7 @@ int main(int argc, char* argv[]) {
     }
 
     if (opts.verbose) {
-        std::cout << "Generated " << binary.size() << " bytes" << std::endl;
+        Logger::stream(LogLevel::INFO) << "Generated " << binary.size() << " bytes" << std::endl;
     }
 
     return 0;

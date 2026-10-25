@@ -14,6 +14,8 @@ tune45 -V | --version
 tune45 -h | --help
 ```
 
+`-v` … `-vvvv` anywhere among the arguments log on stderr as `[tune45:LEVEL] …` (the toolchain's format, `include/Logger.hpp`); cumulative, at most `-vvvv`; `-v0` off: the tunes and instruments read, the file written, the player program built (`-v`); each tune's voices and data size, the commands run (`-vv`).
+
 In a makefile:
 
 ```make

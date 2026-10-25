@@ -1,4 +1,5 @@
 #include "Version.hpp"
+#include "Logger.hpp"
 #include "BasicLister.hpp"
 #include "DiskImage.hpp"
 #include "D64Image.hpp"
@@ -100,6 +101,10 @@ static void usage() {
               << "  disk45 -a2p                               ASCII→PETSCII filter (stdin→stdout)\n"
               << "  disk45 -p2a                               PETSCII→ASCII filter (stdin→stdout)\n"
               << "  disk45 batch <scriptfile>                 Run commands from file\n"
+              << "\n"
+              << "Options (anywhere): -v ... -vvvv  log to stderr ([disk45:INFO] ...): the images\n"
+              << "  opened and written (-v), partitions and archive members (-vv); -v0 off.\n"
+              << "  A lone -v as the first argument is --version.\n"
               << "\n"
               << "Supported formats (auto-detected from extension):\n"
               << "  .d64  C64 1541 (170KB, 35 tracks)\n"
@@ -2824,6 +2829,10 @@ static int processCommand(int argc, char** argv) {
 }
 
 int main(int argc, char** argv) {
+    if (argc < 2) { usage(); return 1; }
+    // -v ... -vvvv anywhere: the log (a lone -v first stays --version)
+    Logger::setTool("disk45");
+    if (std::string(argv[1]) != "-v") argc = Logger::takeFlags(argc, argv);
     if (argc < 2) { usage(); return 1; }
 
     // Batch script mode: disk45 batch <scriptfile>

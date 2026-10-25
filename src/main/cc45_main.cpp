@@ -426,6 +426,7 @@ int main(int argc, char** argv) {
     // Parse arguments
     CompilationConfig config;
     config.preprocessOnly = (programName == "cp45");
+    Logger::setTool(programName == "cp45" ? "cp45" : "cc45");
     std::vector<std::string> includePaths;
     std::map<std::string, std::string> symbols;
     bool outputFileSet = false;
@@ -491,7 +492,8 @@ int main(int argc, char** argv) {
             if (programName != "cp45") {
                 std::cout << "  -O0..9         Optimization level" << std::endl;
             }
-            std::cout << "  -v,-vv         Verbose output" << std::endl;
+            std::cout << "  -v ... -vvvv   Log to stderr ([cc45:INFO] ...): phases (-v), pass activity (-vv)," << std::endl;
+            std::cout << "                 internals (-vvv), tokens (-vvvv); ca45/ln45 run at the same level; -v0 off" << std::endl;
             std::cout << "  -I<path>       Include path" << std::endl;
             std::cout << "  -D<name>=<val> Define symbol" << std::endl;
             if (programName != "cp45") {
@@ -655,10 +657,8 @@ int main(int argc, char** argv) {
             } else {
                 config.optimizationLevel = 0;
             }
-        } else if (arg == "-vv") {
-            config.verboseLevel = 2;
-        } else if (arg == "-v") {
-            config.verboseLevel = 1;
+        } else if (Logger::parseFlag(arg, config.verboseLevel)) {
+            // -v ... -vvvv (cumulative), -v0: Logger.hpp
         } else if (arg == "-I" && i + 1 < allArgs.size()) {
             includePaths.push_back(allArgs[++i]);
         } else if (arg.substr(0, 2) == "-I") {
@@ -716,7 +716,7 @@ int main(int argc, char** argv) {
     config.symbols = symbols;
 
     // Use CompilationPipeline to compile
-    g_cc45Verbosity = config.verboseLevel;
+    Logger::setLevel(config.verboseLevel);
     CompilationPipeline pipeline(config);
     CompilationResult result = pipeline.compile();
 
@@ -725,9 +725,7 @@ int main(int argc, char** argv) {
         return result.exitCode;
     }
 
-    if (config.verboseLevel >= 1) {
-        std::cout << "Compilation successful: " << result.outputFile << std::endl;
-    }
+    LOG_INFO(Logger::tool(), "Compilation successful: " << result.outputFile);
 
     return 0;
 }

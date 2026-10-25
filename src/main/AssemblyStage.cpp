@@ -1,4 +1,5 @@
 #include "AssemblyStage.hpp"
+#include "Logger.hpp"
 #include <iostream>
 #include <fstream>
 #include <cstdlib>
@@ -8,7 +9,7 @@
 
 Stage::Result AssemblyStage::execute() {
     if (verboseLevel_ >= 1) {
-        std::cout << "Assembling..." << std::endl;
+        Logger::stream(LogLevel::INFO) << "Assembling..." << std::endl;
     }
 
     try {
@@ -26,7 +27,7 @@ Stage::Result AssemblyStage::execute() {
         }
 
         if (verboseLevel_ >= 2) {
-            std::cout << "  Assembling to " << objectFile_ << std::endl;
+            Logger::stream(LogLevel::DEBUG) << "Assembling to " << objectFile_ << std::endl;
         }
 
         // Write assembly input to temporary file
@@ -39,7 +40,7 @@ Stage::Result AssemblyStage::execute() {
         asmOut.close();
 
         if (verboseLevel_ >= 3) {
-            std::cout << "    Wrote assembly to " << tempAsmFile << std::endl;
+            Logger::stream(LogLevel::DEEP) << "Wrote assembly to " << tempAsmFile << std::endl;
         }
 
         // Invoke ca45 assembler
@@ -54,7 +55,7 @@ Stage::Result AssemblyStage::execute() {
         }
 
         if (verboseLevel_ >= 1) {
-            std::cout << "Assembly complete." << std::endl;
+            Logger::stream(LogLevel::INFO) << "Assembly complete." << std::endl;
         }
 
         return {true};
@@ -66,7 +67,7 @@ Stage::Result AssemblyStage::execute() {
 
 int AssemblyStage::invokeAssembler() {
     if (verboseLevel_ >= 2) {
-        std::cout << "  Invoking ca45..." << std::endl;
+        Logger::stream(LogLevel::DEBUG) << "Invoking ca45..." << std::endl;
     }
 
     // Build ca45 command line
@@ -82,13 +83,11 @@ int AssemblyStage::invokeAssembler() {
     cmd += " -o " + objectFile_;
     if (!extraArgs_.empty()) cmd += " " + extraArgs_;
 
-    // Add verbosity flags
-    if (verboseLevel_ >= 2) {
-        cmd += " -v";
-    }
+    // ca45 logs at cc45's level
+    if (verboseLevel_ >= 1) cmd += " " + Logger::flagFor(verboseLevel_);
 
-    if (verboseLevel_ >= 3) {
-        std::cout << "    Command: " << cmd << std::endl;
+    if (verboseLevel_ >= 2) {
+        Logger::stream(LogLevel::DEBUG) << "Command: " << cmd << std::endl;
     }
     // ca45's stdout is its "Object file: ..." summary; errors and warnings
     // go to stderr and are always shown
