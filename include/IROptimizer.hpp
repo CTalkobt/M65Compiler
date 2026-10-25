@@ -71,4 +71,5 @@ std::set<size_t> loopBlocks(const Function& fn);
     // Strength reduction: replace expensive ops with cheaper equivalents
     // (MUL by power-of-2 → LSL, DIV_U by power-of-2 → LSR, MOD_U by power-of-2 → AND)
     void optimizeStrengthReduction(Module& mod);
+    void optimizeLoopStrengthReduction(Module& mod);
 }

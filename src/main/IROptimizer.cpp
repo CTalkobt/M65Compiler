@@ -2419,6 +2419,366 @@ std::set<size_t> loopBlocks(const Function& fn) {
     return in;
 }
 
+// ============================================================================
+// Loop strength reduction
+// ============================================================================
+
+// An element address g[v] whose element size is not a power of 2, or v * K,
+// in a loop where the variable v changes only by v = v ± c: a new variable
+// w holds it, set once before the loop (the multiply there) and stepped by
+// c * size right after v's update, the uses read w. v is a 16-bit local
+// whose address is never taken (its value wraps as w's does); the base a
+// global or a value the loop does not change. Loops innermost first.
+void optimizeLoopStrengthReduction(Module& mod) {
+    for (auto& fn : mod.functions) {
+        if (!runOn(fn, "LoopStrengthReduction") || fn.blocks.size() < 2 || fn.staticLinkVreg >= 0) continue;
+        bool asmIn = false;
+        for (const auto& blk : fn.blocks)
+            for (const auto& in : blk.insts) if (in.op == Op::ASM_INLINE) asmIn = true;
+        if (asmIn) continue;
+
+        // the CFG (as loopBlocks)
+        size_t nb = fn.blocks.size();
+        std::map<std::string, size_t> blockIndex;
+        for (size_t i = 0; i < nb; i++) blockIndex[fn.blocks[i].label] = i;
+        std::vector<std::vector<size_t>> succs(nb), preds(nb);
+        for (size_t i = 0; i < nb; i++) {
+            std::vector<std::string> targets;
+            collectSuccessors(fn.blocks[i], targets);
+            bool terminated = false;
+            for (const auto& inst : fn.blocks[i].insts)
+                if (inst.op == Op::BR || inst.op == Op::BR_INDIRECT || inst.op == Op::SWITCH ||
+                    inst.op == Op::RET || inst.op == Op::RET_VOID) terminated = true;
+            if (!terminated && i + 1 < nb) { succs[i].push_back(i + 1); preds[i + 1].push_back(i); }
+            for (const auto& t : targets) {
+                auto it = blockIndex.find(t);
+                if (it != blockIndex.end()) { succs[i].push_back(it->second); preds[it->second].push_back(i); }
+            }
+        }
+        // natural loops, one per header (the back edges' sources merged)
+        std::map<size_t, std::set<size_t>> loops;
+        for (size_t tail = 0; tail < nb; tail++)
+            for (size_t header : succs[tail]) {
+                if (header > tail) continue;
+                std::vector<size_t> work{tail};
+                auto& loop = loops[header];
+                loop.insert(header);
+                loop.insert(tail);
+                while (!work.empty()) {
+                    size_t b = work.back();
+                    work.pop_back();
+                    if (b == header) continue;
+                    for (size_t p : preds[b])
+                        if (loop.insert(p).second) work.push_back(p);
+                }
+            }
+        std::vector<std::pair<size_t, std::set<size_t>>> order(loops.begin(), loops.end());
+        std::sort(order.begin(), order.end(), [](const auto& a, const auto& b) { return a.second.size() < b.second.size(); });
+
+        std::map<uint32_t, int> defCount;
+        std::set<uint32_t> addrTaken;
+        for (const auto& blk : fn.blocks)
+            for (const auto& in : blk.insts) {
+                if (in.dest.isVreg()) defCount[in.dest.vregId]++;
+                if (in.op == Op::ADDR_LOCAL && in.src1.isVreg()) addrTaken.insert(in.src1.vregId);
+            }
+        auto isPow2 = [](int64_t k) { return k > 0 && !(k & (k - 1)); };
+
+        for (const auto& [header, L] : order) {
+            // the variables stored in the loop: how often, and each one's update
+            std::map<uint32_t, int> stores;
+            std::map<uint32_t, std::pair<size_t, size_t>> storeAt;   // block, index
+            for (size_t bi : L)
+                for (size_t ii = 0; ii < fn.blocks[bi].insts.size(); ii++) {
+                    const auto& in = fn.blocks[bi].insts[ii];
+                    if ((in.op == Op::STORE || in.op == Op::STORE_ZP) && in.src2.isVreg() && in.args.empty()) {
+                        stores[in.src2.vregId]++;
+                        storeAt[in.src2.vregId] = {bi, ii};
+                    }
+                }
+            // the header goes into the loop only when v < N (an unsigned byte
+            // compare with a constant), else out of it
+            auto guardedBelow = [&](uint32_t v) {
+                const auto& hi = fn.blocks[header].insts;
+                for (size_t k = 0; k < hi.size(); k++) {
+                    const auto& br = hi[k];
+                    if (br.op != Op::BR_COND || !br.src1.isVreg()) continue;
+                    // (BR_COND: dest the true label, src2 the false one)
+                    bool inT = blockIndex.count(br.dest.name) && L.count(blockIndex[br.dest.name]);
+                    bool inF = blockIndex.count(br.src2.name) && L.count(blockIndex[br.src2.name]);
+                    if (!inT || inF) return false;
+                    for (size_t j = 0; j < k; j++) {
+                        const auto& c = hi[j];
+                        if (c.dest.isVreg() && c.dest.vregId == br.src1.vregId)
+                            return defCount[c.dest.vregId] == 1 && c.op == Op::CMP_LTU && c.src1.isVreg() &&
+                                   c.src1.vregId == v && c.src2.isImm() && c.src2.immVal >= 0 && c.src2.immVal <= 255;
+                    }
+                    return false;
+                }
+                return false;
+            };
+            // v = v ± c, the only change of v in the loop: c, else 0
+            auto stepOf = [&](uint32_t v) -> int64_t {
+                if (!fn.localSlotVregs.count(v) || fn.memoryVregs.count(v) || addrTaken.count(v)) return 0;
+                auto vt = fn.vregTypes.find(v);
+                if (vt == fn.vregTypes.end() || (vt->second != Type::I16 && vt->second != Type::I8)) return 0;
+                bool byte = vt->second == Type::I8;
+                // (a byte: v++ only, the loop entered at its header only while
+                // v < N, so v never wraps where the loop uses it)
+                if (byte && !guardedBelow(v)) return 0;
+                if (stores[v] != 1) return 0;
+                auto [bi, ii] = storeAt[v];
+                const auto& st = fn.blocks[bi].insts[ii];
+                if (st.resultType != vt->second || !st.src1.isVreg()) return 0;
+                uint32_t t = st.src1.vregId;
+                if (defCount[t] != 1) return 0;
+                // v itself, or its copy (x++ keeps the old value) made before in the block
+                auto isV = [&](const Operand& o, size_t before) {
+                    if (!o.isVreg()) return false;
+                    if (o.vregId == v) return true;
+                    if (defCount[o.vregId] != 1) return false;
+                    for (size_t k = 0; k < before; k++) {
+                        const auto& d = fn.blocks[bi].insts[k];
+                        if (d.dest.isVreg() && d.dest.vregId == o.vregId)
+                            return (d.op == Op::COPY || d.op == Op::DEREF) && d.src1.isVreg() && d.src1.vregId == v;
+                    }
+                    return false;
+                };
+                for (size_t k = 0; k < ii; k++) {
+                    const auto& d = fn.blocks[bi].insts[k];
+                    if (!d.dest.isVreg() || d.dest.vregId != t) continue;
+                    if ((d.op != Op::ADD && d.op != Op::SUB) || !isV(d.src1, k) ||
+                        !d.src2.isImm() || d.resultType != vt->second) return 0;
+                    int64_t c = d.op == Op::ADD ? d.src2.immVal : -d.src2.immVal;
+                    if (byte) return (c & 0xFF) == 1 ? 1 : 0;
+                    return (c & 0xFFFF) ? c : 0;
+                }
+                return 0;
+            };
+            // a base the loop does not change
+            auto invariant = [&](const Operand& o) {
+                if (o.kind == OperandKind::GLOBAL) return true;
+                if (!o.isVreg()) return false;
+                if (fn.localSlotVregs.count(o.vregId))
+                    return !stores.count(o.vregId) && !fn.memoryVregs.count(o.vregId) && !addrTaken.count(o.vregId);
+                if (defCount[o.vregId] != 1) return false;
+                for (size_t bi : L)
+                    for (const auto& in : fn.blocks[bi].insts)
+                        if (in.dest.isVreg() && in.dest.vregId == o.vregId) return false;
+                return true;
+            };
+            // the variable an index or factor is: v itself, or zext(v) of a byte v
+            auto varOf = [&](const Operand& o, uint32_t& v, bool& widened) {
+                if (!o.isVreg()) return false;
+                widened = false;
+                if (fn.localSlotVregs.count(o.vregId)) { v = o.vregId; return true; }
+                if (defCount[o.vregId] != 1) return false;
+                for (size_t bi : L)
+                    for (const auto& d : fn.blocks[bi].insts)
+                        if (d.dest.isVreg() && d.dest.vregId == o.vregId) {
+                            if (d.op != Op::ZEXT || !d.src1.isVreg() || !fn.localSlotVregs.count(d.src1.vregId) ||
+                                d.resultType != Type::I16) return false;
+                            auto vt = fn.vregTypes.find(d.src1.vregId);
+                            if (vt == fn.vregTypes.end() || vt->second != Type::I8) return false;
+                            v = d.src1.vregId;
+                            widened = true;
+                            return true;
+                        }
+                return false;
+            };
+            // a constant factor: an immediate or a CONST
+            auto constOf = [&](const Operand& o, int64_t& k) {
+                if (o.isImm()) { k = o.immVal; return true; }
+                if (!o.isVreg() || defCount[o.vregId] != 1) return false;
+                for (const auto& blk : fn.blocks)
+                    for (const auto& d : blk.insts)
+                        if (d.dest.isVreg() && d.dest.vregId == o.vregId) {
+                            if (d.op != Op::CONST || !d.src1.isImm()) return false;
+                            k = d.src1.immVal;
+                            return true;
+                        }
+                return false;
+            };
+            struct Group { uint32_t w; int64_t inc; Inst init; int64_t mul; uint32_t v; bool widened; };
+            std::vector<Group> groups;
+            std::map<std::string, size_t> groupOf;
+            std::map<uint32_t, std::vector<size_t>> groupsOfVar;
+            for (size_t bi : L)
+                for (auto& in : fn.blocks[bi].insts) {
+                    if (!in.dest.isVreg()) continue;
+                    uint32_t v = 0;
+                    bool widened = false;
+                    int64_t k = 0;
+                    std::string key;
+                    bool elem = in.op == Op::ADDR_ELEM;
+                    if (elem && !in.args.empty() && in.args[0].isImm()) {
+                        k = in.args[0].immVal;
+                        if (k <= 1 || isPow2(k) || !invariant(in.src1) || !varOf(in.src2, v, widened)) continue;
+                        key = "e " + (in.src1.kind == OperandKind::GLOBAL ? in.src1.name : "%" + std::to_string(in.src1.vregId)) +
+                              " " + std::to_string(in.elemOffset) + " " + std::to_string(k);
+                    } else if ((in.op == Op::MUL || in.op == Op::MUL_U) && in.resultType == Type::I16) {
+                        if (constOf(in.src2, k) && varOf(in.src1, v, widened)) {}
+                        else if (constOf(in.src1, k) && varOf(in.src2, v, widened)) {}
+                        else continue;
+                        k &= 0xFFFF;
+                        if (k <= 1 || isPow2(k)) continue;
+                        key = "m " + std::to_string(k);
+                    } else continue;
+                    // (a 16-bit v as itself; a byte v only through its zero extension)
+                    auto vt = fn.vregTypes.find(v);
+                    if (vt == fn.vregTypes.end() || (vt->second == Type::I8) != widened) continue;
+                    int64_t c = stepOf(v);
+                    if (!c) continue;
+                    key += " %" + std::to_string(v);
+                    auto g = groupOf.find(key);
+                    size_t gi;
+                    Type t = elem ? Type::PTR : Type::I16;
+                    if (g == groupOf.end()) {
+                        uint32_t w = fn.allocVreg();
+                        fn.localSlotVregs.insert(w);
+                        fn.vregTypes[w] = t;
+                        std::string name = "__lsr_" + std::to_string(w);
+                        fn.localNames[name] = w;
+                        fn.localNamesOrder.push_back(name);
+                        // the value before the loop: the same computation on v there
+                        Inst init = in;
+                        init.args.clear();
+                        if (elem) {
+                            init.args.push_back(Operand::imm(k, Type::I16));
+                        } else {
+                            init.op = Op::MUL_U;
+                            init.resultType = Type::I16;
+                            init.src2 = Operand::imm(k, Type::I16);
+                        }
+                        groups.push_back({w, (c * k) & 0xFFFF, init, k, v, widened});
+                        gi = groups.size() - 1;
+                        groupOf[key] = gi;
+                        groupsOfVar[v].push_back(gi);
+                        trace("lsr", fn.name, "v" + std::to_string(in.dest.vregId) + " = " +
+                              (elem ? "ADDR_ELEM" : "MUL") + " *" + std::to_string(k) +
+                              " → variable v" + std::to_string(w) + " stepped by " + std::to_string(groups[gi].inc), in.loc);
+                    } else gi = g->second;
+                    in.op = Op::COPY;
+                    in.resultType = t;
+                    in.src1 = Operand::vreg(groups[gi].w, t);
+                    in.src2 = Operand::none();
+                    in.args.clear();
+                    in.elemOffset = 0;
+                }
+            if (groups.empty()) continue;
+            std::set<uint32_t> groupVar;
+            for (const auto& gv : groupsOfVar) groupVar.insert(gv.first);
+            // each w stepped right after its variable's update
+            for (const auto& [v, gis] : groupsOfVar) {
+                auto [bi, ii] = storeAt[v];
+                auto& insts = fn.blocks[bi].insts;
+                std::vector<Inst> add;
+                for (size_t gi : gis) {
+                    const auto& g = groups[gi];
+                    Type t = fn.vregTypes[g.w];
+                    uint32_t tmp = fn.allocVreg();
+                    fn.vregTypes[tmp] = t;
+                    Inst a;
+                    a.op = Op::ADD;
+                    a.resultType = t;
+                    a.dest = Operand::vreg(tmp, t);
+                    a.src1 = Operand::vreg(g.w, t);
+                    a.src2 = Operand::imm(g.inc, Type::I16);
+                    a.loc = insts[ii].loc;
+                    Inst s;
+                    s.op = Op::STORE;
+                    s.resultType = t;
+                    s.src1 = Operand::vreg(tmp, t);
+                    s.src2 = Operand::vreg(g.w, t);
+                    s.loc = a.loc;
+                    add.push_back(a);
+                    add.push_back(s);
+                }
+                insts.insert(insts.begin() + ii + 1, add.begin(), add.end());
+            }
+            // each w set before the loop: at the end of each block entering it
+            for (size_t p : preds[header]) {
+                if (L.count(p)) continue;
+                auto& insts = fn.blocks[p].insts;
+                size_t at = insts.size();
+                if (at && (insts[at - 1].op == Op::BR || insts[at - 1].op == Op::BR_COND ||
+                           insts[at - 1].op == Op::SWITCH || insts[at - 1].op == Op::BR_INDIRECT)) {
+                    at--;
+                    // (a branch's compare kept next to it)
+                    const auto& br = insts[at];
+                    if (br.op == Op::BR_COND && at && br.src1.isVreg() && insts[at - 1].dest.isVreg() &&
+                        insts[at - 1].dest.vregId == br.src1.vregId) at--;
+                }
+                // v's value here when the block sets it to a constant (for (v = 0; ...)):
+                // the initial address or product a constant too
+                bool known = false;
+                int64_t kv = 0;
+                for (size_t k = at; k-- > 0;) {
+                    const auto& x = insts[k];
+                    if ((x.op == Op::STORE || x.op == Op::STORE_ZP) && x.src2.isVreg() && groupVar.count(x.src2.vregId)) {
+                        // (the last store to one of the variables: only when it is the one)
+                        if (x.src1.isImm()) { known = true; kv = x.src1.immVal; }
+                        else if (x.src1.isVreg() && defCount[x.src1.vregId] == 1)
+                            for (size_t j = 0; j < k; j++)
+                                if (insts[j].dest.isVreg() && insts[j].dest.vregId == x.src1.vregId &&
+                                    insts[j].op == Op::CONST) { known = true; kv = insts[j].src1.immVal; }
+                        if (known) known = groupVar.size() == 1;
+                        break;
+                    }
+                    if (x.op == Op::CALL || x.op == Op::CALL_VOID || x.op == Op::CALL_INDIRECT) break;
+                }
+                std::vector<Inst> init;
+                for (const auto& g : groups) {
+                    Type t = fn.vregTypes[g.w];
+                    uint32_t tmp = fn.allocVreg();
+                    fn.vregTypes[tmp] = t;
+                    Inst i0 = g.init;
+                    i0.dest = Operand::vreg(tmp, t);
+                    Type vt = fn.vregTypes[g.v];
+                    if (g.widened) kv &= 0xFF;
+                    Operand idx = Operand::vreg(g.v, vt);
+                    if (!known && g.widened) {
+                        uint32_t z = fn.allocVreg();
+                        fn.vregTypes[z] = Type::I16;
+                        Inst ze;
+                        ze.op = Op::ZEXT;
+                        ze.resultType = Type::I16;
+                        ze.dest = Operand::vreg(z, Type::I16);
+                        ze.src1 = idx;
+                        ze.loc = i0.loc;
+                        init.push_back(ze);
+                        idx = ze.dest;
+                    }
+                    if (known && i0.op == Op::ADDR_ELEM) {
+                        i0.src2 = Operand::imm(kv & 0xFFFF, Type::I16);
+                    } else if (known) {
+                        i0.op = Op::CONST;
+                        i0.src1 = Operand::imm((kv * g.mul) & 0xFFFF, Type::I16);
+                        i0.src2 = Operand::none();
+                    } else if (i0.op == Op::ADDR_ELEM) {
+                        i0.src2 = idx;
+                    } else {
+                        i0.src1 = idx;
+                    }
+                    Inst s;
+                    s.op = Op::STORE;
+                    s.resultType = t;
+                    s.src1 = Operand::vreg(tmp, t);
+                    s.src2 = Operand::vreg(g.w, t);
+                    s.loc = i0.loc;
+                    init.push_back(i0);
+                    init.push_back(s);
+                }
+                insts.insert(insts.begin() + at, init.begin(), init.end());
+            }
+            // (block contents changed: the counts again for the next loop)
+            defCount.clear();
+            for (const auto& blk : fn.blocks)
+                for (const auto& in : blk.insts) if (in.dest.isVreg()) defCount[in.dest.vregId]++;
+        }
+    }
+}
+
 void optimizeLICM(Module& mod) {
     for (auto& fn : mod.functions) {
         if (!runOn(fn, "LICM")) continue;

@@ -4,6 +4,22 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Loop strength reduction; element addresses outside loops multiply by a call
+
+The examples' code is another 1.1 % smaller (140,427 → 138,878 bytes).
+
+- cc45 `loop-strength-reduction` (IR pass, `-O1`): `grid[r]` (a row
+  size not a power of 2) and `i * K` in a loop over `r` / `i` become a
+  variable set before the loop and stepped with the counter (`+= 80`), no
+  multiply in the loop. A 16-bit counter, or an `unsigned char` counted up
+  by 1 under the loop's `i < N`. Test `test_lsr_xemu.c`.
+- cc45: an element address's index times its size outside loops calls
+  `__mul16y` / `__mul16` (as a multiply does since #317), not the
+  22-byte inline sequence.
+- cc45 fix: `static` / `extern` / `const` / `volatile` before a tagged
+  definition with its variable (`static struct S { ... } x;`, unions and
+  enums too) was a syntax error at file scope.
+
 ### Smaller code: byte globals read by their one use
 
 The examples' code is another 0.5 % smaller (141,191 → 140,427 bytes).

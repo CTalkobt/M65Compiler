@@ -278,9 +278,9 @@ totals code bytes by IR operation).
   (in the private base page, placed by ln45 at the top of `$80`–`$F1`, with ca45 `.segment "zp"` variables below them), file-scope
   `asm("...")` (module-level assembly), string encodings
   (`@"…"`, `p"…"`, `s"…"`, `a"…"`, `#pragma encoding`), GCC vector extension (`-fmax-unroll-bytes`, default 128).
-- **Optimization** (`doc/architecture/optimizations.md`): `-O1`+ runs the eleven
+- **Optimization** (`doc/architecture/optimizations.md`): `-O1`+ runs the twelve
   IR passes of `IROptimizer.cpp` (parameter narrowing, strength reduction, algebraic simplification,
-  type narrowing, branch folding, CSE, LICM, copy propagation, address fusion,
+  type narrowing, branch folding, CSE, LICM, loop strength reduction, copy propagation, address fusion,
   post-increment sinking, block reordering;
   `CodegenStage::optimizeIR`), then loop rotation in `generateAssembly` (#138:
   kept per function only when no larger, the file assembled both ways;
