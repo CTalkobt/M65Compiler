@@ -1509,8 +1509,9 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         }
         // each named procedure's code: "func LABEL seg:text+OFFSET LENGTH"
         // (static functions too, which have no export), when the object has
-        // debug information
-        if (!vars.empty() || !types.empty()) {
+        // debug information: variables, types or line info (a file whose
+        // functions have no variables, main() { puts(...); }, has only lines)
+        if (!vars.empty() || !types.empty() || !parser.getLineMap().empty()) {
             std::vector<std::pair<const AssemblerParser::Statement*, std::string>> open;
             for (const auto& stmt : parser.statements) {
                 if (stmt->type != AssemblerParser::Statement::INSTRUCTION) continue;

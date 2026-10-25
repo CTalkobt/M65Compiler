@@ -134,6 +134,17 @@ for src in prog.c ../../../examples/c/forth/main.c ../../../examples/c/game_of_l
     fi
 done
 
+# a file whose functions have no variables (main() { puts(...); }): its
+# functions in the .dbg all the same (only line info in the object), so a
+# debugger can break on main
+printf '#include <stdio.h>\nint main(void) {\n    puts("hi");\n    return 0;\n}\n' > $T/novars.c
+./bin/cc45 -O2 -g $T/novars.c -o $T/novars.prg >/dev/null 2>&1 &&
+    python3 -c "
+import json, sys
+d = json.load(open(sys.argv[1]))
+sys.exit(0 if any(f['name'] == '_main' for f in d['functions']) else 1)" $T/novars.dbg && pass ||
+    fail "a file without variables has no functions in its .dbg"
+
 # an inlined call is its statement's line: line 5 (r = add(1, 2), add's
 # body inlined in its place) has the code, add's line 2 none
 printf 'int counter;\nstatic int add(int x, int y) { return x + y + counter; }\nint main(void) {\n    int r;\n    r = add(1, 2);\n    counter = r;\n    return r;\n}\n' > $T/inl.c
