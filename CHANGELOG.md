@@ -4,6 +4,15 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### ca45 `.macro` / `.endmacro` (#232)
+
+- Multi-line macros with parameters (`.macro store val, addr` …
+  `.endmacro`, used as `store 5, $d020`): nested uses, macros that define
+  macros, `\@` for labels of their own in each use, a recursion limit
+  (64), messages at the line of the use. ca45 had only C `#define`
+  (one line; nested `#define` composition is fixed by #233).
+- Test in `test_assembler.sh` (`test_ca45_macro.s45`).
+
 ### Two more benchmarks
 
 - `src/test/bench/bench_xemu.c`: `life` (a 25×80 grid's neighbour pass

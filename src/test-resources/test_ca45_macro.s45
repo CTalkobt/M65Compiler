@@ -1,0 +1,47 @@
+; test_ca45_macro.s45 — .macro / .endmacro (test_assembler.sh): a nested use,
+; parameters (an argument with parentheses), \@ labels in two expansions, a
+; macro that defines a macro, a parameter name inside a string left alone
+.macro push_regs_and_save_zp
+  pha
+  phx
+  phy
+.endmacro
+
+.macro setup_environment
+  push_regs_and_save_zp  ; nested macro invocation
+  lda #$01               ; additional setup code
+.endmacro
+
+.macro store val, addr   ; two parameters
+    lda #(val)
+    sta addr
+.endmacro
+
+.macro wait n
+@w\@:
+    dex
+    bne @w\@
+.endmacro
+
+.macro define_inc name   ; a macro that defines a macro
+.macro name
+    inc $d020
+.endm
+.endmacro
+
+.macro text_of v
+    .text "v"            ; the "v" in the string stays
+    .byte v
+.endmacro
+
+    * = $2000
+start: setup_environment
+    store 5, $d020
+    store (2+3)*2, $d021 ; a comma-free expression with parentheses
+    ldx #3
+    wait 1
+    wait 2
+    define_inc bump
+    bump
+    text_of 65
+    rts

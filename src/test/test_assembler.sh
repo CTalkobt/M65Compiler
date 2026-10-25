@@ -56,6 +56,26 @@ for f in "${AS_TEST_FILES[@]}"; do
     test_file "$f"
 done
 
+# .macro / .endmacro: nested uses, parameters, \@ labels, a macro defined by a
+# macro (pha phx phy lda #1 | lda #5 sta $d020 | lda #10 sta $d021 | ldx #3 |
+# dex bne x2 | inc $d020 | "v" 65 | rts); a recursive macro, too many
+# arguments and a .macro without .endmacro are errors
+echo "Testing .macro..."
+mac_ok=1
+./bin/ca45 src/test-resources/test_ca45_macro.s45 -o build/test/test_ca45_macro.bin >/dev/null 2>&1 || mac_ok=0
+ACTUAL=$(hexdump -v -e '1/1 "%02x "' build/test/test_ca45_macro.bin 2>/dev/null | xargs)
+[ "$ACTUAL" = "48 da 5a a9 01 a9 05 8d 20 d0 a9 0a 8d 21 d0 a2 03 ca d0 fd ca d0 fd ee 20 d0 56 41 60" ] || mac_ok=0
+for bad in '.macro r\n r\n.endmacro\n * = $2000\n r\n' '.macro a x\n lda #x\n.endmacro\n * = $2000\n a 1, 2\n' '.macro a\n inx\n'; do
+    printf "$bad" > build/test/test_ca45_macro_bad.s45
+    ./bin/ca45 build/test/test_ca45_macro_bad.s45 -o build/test/test_ca45_macro_bad.bin >/dev/null 2>&1 && mac_ok=0
+done
+if [ $mac_ok = 1 ]; then
+    echo "SUCCESS: .macro"
+else
+    echo "FAIL: .macro (bytes: $ACTUAL)"
+    failed=$((failed + 1))
+fi
+
 # Specific check for basicUpstart output format
 echo "Verifying .basicUpstart output bytes..."
 # Expecting: 0b 08 0a 00 9e 32 30 36 31 00 00 00 (for START at $080D = 2061)

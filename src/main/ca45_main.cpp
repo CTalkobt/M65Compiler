@@ -1,5 +1,6 @@
 #include <iostream>
 #include "Logger.hpp"
+#include "AsmMacro.hpp"
 #include <set>
 #include <regex>
 #include <string>
@@ -617,6 +618,15 @@ int main(int argc, char** argv) {
         std::cerr << formatDiagnostic(input_file, 1, 1, Severity::Error, e.what()) << std::endl;
         return 1;
     }
+    // .macro ... .endmacro
+    {
+        std::string expanded, merr;
+        if (!expandAsmMacros(source, input_file, expanded, merr)) {
+            std::cerr << "ca45: error: " << merr << std::endl;
+            return 1;
+        }
+        source = std::move(expanded);
+    }
 
     LOG_INFO("ca45", "Lexing " << input_file << "...");
 
@@ -818,6 +828,11 @@ int main(int argc, char** argv) {
 
                     Preprocessor preprocessor(false);
                     std::string source = preprocessor.process(sourceRaw, initialSymbols, includePaths, input_file);
+                    {
+                        std::string expanded, merr;
+                        if (!expandAsmMacros(source, input_file, expanded, merr)) throw std::runtime_error(merr);
+                        source = std::move(expanded);
+                    }
 
                     AssemblerLexer lexer(source);
                     std::vector<AssemblerToken> tokens = lexer.tokenize();
