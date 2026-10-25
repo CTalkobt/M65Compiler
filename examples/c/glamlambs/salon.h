@@ -3,22 +3,31 @@
 #define SAL_LIN 0x40000UL             /* where the game loads salon1.dat (GLAMSALON) */
 #define SAL_SIZE 61440u
 #define SAL2_LIN 0x52800UL            /* salon2.dat (GLAMSALON2): the SAL_* offsets are in it */
-#define SAL2_SIZE 10713u
-#define SAL_CHARS 1042
-#define SAL_SCREEN 5248u
-#define SAL_EYES 8928u
-#define SAL_TOP 9072u
-#define SAL_PALETTE 9752u
-#define SAL_DYES 10373u
-#define SAL_LIPSTICKS 10565u
-#define SAL_BULBS 10661u
-#define SAL_PAL_FIRST 48
-#define SAL_PAL_COUNT 207
+#define SAL2_SIZE 20693u
+#define SAL_CHARS 1194
+#define SAL_SCREEN 14976u
+#define SAL_EYES 18656u
+#define SAL_HORNS 18800u
+#define SAL_HAT 19036u
+#define SAL_NECK 19516u
+#define SAL_PALETTE 19648u
+#define SAL_DYES 20233u
+#define SAL_LIPSTICKS 20425u
+#define SAL_BULBS 20521u
+#define SAL_SHADOWS 20569u
+#define SAL_BLUSHES 20617u
+#define SAL_HOOVES 20641u
+#define SAL_PAL_FIRST 60
+#define SAL_PAL_COUNT 195
 #define SAL_WOOL 16
 #define SAL_LIPS 32
 #define SAL_BULBA 40
 #define SAL_BULBB 44
 #define SAL_GLASS 14
+#define SAL_SHADOW 48
+#define SAL_BLUSH 52
+#define SAL_HOOF 56
+#define SAL_TONE 4
 #define SAL_SIGN_X 3
 #define SAL_SIGN_Y 2
 #define SAL_SIGN_W 18
@@ -26,16 +35,26 @@
 #define SAL_DOOR_Y 15
 #define SAL_DOOR_W 27
 #define SAL_DOOR_H 8
-/* the eyes (index lash << 1 | blink): runs (column, screen row, width, height 1), a look's cells 36 bytes */
+/* the eyes's looks (4): runs of cells (column, screen row, width), a look's numbers 36 bytes */
 #define SAL_EYES_N 6
 #define SAL_EYES_LOOK 36
-#define SAL_EYES_RECTS 45, 5, 3, 1, 45, 6, 3, 1, 60, 6, 3, 1, 64, 6, 3, 1, 60, 7, 3, 1, 64, 7, 3, 1
-/* the head's top (index ram << 1 | bow): runs (column, screen row, width, height 1), a look's cells 170 bytes */
-#define SAL_TOP_N 17
-#define SAL_TOP_LOOK 170
-#define SAL_TOP_RECTS 37, 2, 1, 1, 43, 2, 2, 1, 37, 3, 7, 1, 61, 3, 6, 1, 37, 4, 7, 1, 57, 4, 2, 1, 61, 4, 5, 1, 68, 4, 1, 1, 37, 5, 6, 1, 53, 5, 7, 1, 67, 5, 7, 1, 38, 6, 3, 1, 53, 6, 7, 1, 67, 6, 7, 1, 39, 7, 3, 1, 53, 7, 7, 1, 67, 7, 7, 1
+#define SAL_EYES_RUNS 45, 5, 3, 45, 6, 3, 60, 6, 3, 64, 6, 3, 60, 7, 3, 64, 7, 3
+/* the horns's looks (2): runs of cells (column, screen row, width), a look's numbers 118 bytes */
+#define SAL_HORNS_N 12
+#define SAL_HORNS_LOOK 118
+#define SAL_HORNS_RUNS 37, 4, 4, 37, 5, 3, 53, 5, 7, 67, 5, 7, 39, 6, 2, 53, 6, 7, 67, 6, 7, 39, 7, 2, 53, 7, 7, 67, 7, 7, 54, 8, 3, 70, 8, 3
+/* the hat's looks (6): runs of cells (column, screen row, width), a look's numbers 80 bytes */
+#define SAL_HAT_N 9
+#define SAL_HAT_LOOK 80
+#define SAL_HAT_RUNS 43, 1, 2, 41, 2, 6, 61, 2, 5, 41, 3, 6, 60, 3, 7, 41, 4, 5, 60, 4, 7, 62, 5, 1, 64, 5, 1
+/* the neck's looks (3): runs of cells (column, screen row, width), a look's numbers 44 bytes */
+#define SAL_NECK_N 4
+#define SAL_NECK_LOOK 44
+#define SAL_NECK_RUNS 40, 8, 7, 42, 9, 5, 44, 10, 1, 59, 11, 9
 /* sparkles: column, screen row, the large one's number, the small one's */
-#define SAL_SPARK_WOOL 6, 5, 0x14DA, 0x14DB, 20, 15, 0x14DC, 0x14DD, 40, 15, 0x14DE, 0x14DF, 24, 4, 0x14E0, 0x14E1
-#define SAL_SPARK_EYE 53, 3, 0x14E2, 0x14E3, 73, 3, 0x14E4, 0x14E5, 48, 5, 0x14E6, 0x14E7, 53, 8, 0x14E4, 0x14E5
-#define SAL_SPARK_LIPS 73, 9, 0x14E4, 0x14E5, 53, 10, 0x14E8, 0x14E9, 48, 9, 0x14EA, 0x14EB, 74, 6, 0x14E4, 0x14E5
-#define SAL_SPARK_BOW 30, 3, 0x14EC, 0x14ED, 44, 1, 0x14EC, 0x14ED, 60, 2, 0x14EE, 0x14EF, 66, 2, 0x14F0, 0x14F1
+#define SAL_SPARK_WOOL 6, 5, 0x1560, 0x1561, 20, 15, 0x1562, 0x1563, 40, 15, 0x1564, 0x1565, 24, 4, 0x1566, 0x1567
+#define SAL_SPARK_EYE 53, 3, 0x1568, 0x1569, 73, 3, 0x156A, 0x156B, 48, 5, 0x156C, 0x156D, 53, 8, 0x156A, 0x156B
+#define SAL_SPARK_LIPS 73, 9, 0x156A, 0x156B, 53, 10, 0x156E, 0x156F, 48, 9, 0x1570, 0x1571, 74, 6, 0x156A, 0x156B
+#define SAL_SPARK_BOW 30, 3, 0x1572, 0x1573, 45, 1, 0x1574, 0x1575, 60, 2, 0x1576, 0x1577, 66, 2, 0x1578, 0x1579
+#define SAL_SPARK_NECK 49, 9, 0x157A, 0x157B, 36, 8, 0x157C, 0x157D, 52, 11, 0x157E, 0x157F, 74, 11, 0x1580, 0x1581
+#define SAL_SPARK_HOOF 30, 19, 0x1582, 0x1583, 47, 20, 0x1584, 0x1585, 40, 18, 0x1586, 0x1587, 48, 18, 0x1588, 0x1589

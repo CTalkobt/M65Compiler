@@ -46,13 +46,14 @@ PW, PH = 640, 184                       # the pixels shown
 LOAD_LIN = 0x40000                      # salon1.dat: characters (to the game's character sets)
 LIMIT = 0x4F000
 LOAD2_LIN = 0x52800                     # salon2.dat: the rest, then the tables
-LIMIT2 = 0x60000
+LIMIT2 = 0x5A000                        # (the game's code overlays from here)
 
 P_WOOL, N_WOOL = 16, 16
 P_LIPS, N_LIPS = 32, 8
 P_BULBA, P_BULBB, N_BULB = 40, 44, 4
+P_SHADOW, P_BLUSH, P_HOOF, N_TONE = 48, 52, 56, 4
 P_GLASS = 14                            # (the text cells' background: $D021)
-P_FIRST = 48                            # the picture's own colours: 48-254
+P_FIRST = 60                            # the picture's own colours: 60-254
 P_LAST = 254
 
 GLASS_RGB = (0x2A, 0x16, 0x34)          # the sign's and the doors' background (palette 14)
@@ -65,7 +66,23 @@ LIPS_RGB = [(0x30, 0x18, 0x20), (0xE0, 0x20, 0x30), (0xA8, 0x48, 0xD0), (0xFF, 0
 BULB_ON, BULB_OFF = (0xFF, 0xF0, 0xA0), (0xC0, 0x90, 0x40)
 
 # roles of a pixel (the role image): what the game recolours
-R_ART, R_WOOL, R_LIPS, R_BULBA, R_BULBB, R_GLASS = 0, 1, 2, 3, 4, 5
+R_ART, R_WOOL, R_LIPS, R_BULBA, R_BULBB, R_GLASS, R_SHADOW, R_BLUSH, R_HOOF = 0, 1, 2, 3, 4, 5, 6, 7, 8
+TONE_ROLES = {R_SHADOW: P_SHADOW, R_BLUSH: P_BLUSH, R_HOOF: P_HOOF}
+
+# the looks' groups of cells: (name, the number of looks, the scene's
+# parameters for look k); look 0 is the plain one (the room's)
+GROUPS = [
+    ("EYES", 4, lambda k: {"lash": k >> 1, "blink": k & 1}),
+    ("HORNS", 2, lambda k: {"ram": k}),
+    ("HAT", 6, lambda k: {"hat": k}),       # none, red bow, dotty bow, flower, tiara, top hat
+    ("NECK", 3, lambda k: {"neck": k}),     # none, pearls, a ribbon collar
+]
+
+# the tones' choices (palette entries P_SHADOW.., P_BLUSH.., P_HOOF..: four
+# shades each, dark to light); choice 0 is the sheep's own
+SHADOWS = [None, (0x50, 0x90, 0xFF), (0xB0, 0x50, 0xE0), (0xF0, 0xC0, 0x40)]   # none, blue, purple, gold
+BLUSHES = [None, (0xFF, 0x70, 0x90)]                                            # none, rosy
+HOOVES = [(0x30, 0x2C, 0x30), (0xE0, 0x20, 0x30), (0xFF, 0x80, 0xC0), (0xE8, 0xB8, 0x40)]  # natural, red, pink, gold
 
 # where things are (cells; rows of the picture: screen row - 1)
 SIGN = (2, 21, 0, 3)                    # columns, rows of the sign over the chair (text: rows 1-2)
@@ -80,6 +97,8 @@ SPARKS = {
     "EYE": [(53, 3), (73, 3), (48, 5), (53, 8)],
     "LIPS": [(73, 9), (53, 10), (48, 9), (72, 6)],
     "BOW": [(30, 3), (44, 1), (60, 2), (66, 2)],
+    "NECK": [(49, 9), (36, 8), (52, 11), (74, 11)],
+    "HOOF": [(30, 19), (47, 20), (40, 18), (48, 18)],
 }
 
 
@@ -226,7 +245,7 @@ def room(p):
         p.line([(x, 0), (x, y0 - 3)], GOLD_DARK, 2)
 
 
-def vanity(p, ram, lash, bow, blink):
+def vanity(p, look):
     c0, c1, r0, r1 = MIRROR
     x0, x1, y0, y1 = U(c0), U(c1 + 1) - 1, V(r0), V(r1 + 1) - 1
     p.rrect((x0, y0 + 2, x1, y1 - 2), 6, GOLD_DARK)
@@ -235,7 +254,7 @@ def vanity(p, ram, lash, bow, blink):
     # the glass, the sheep's face in it, a shine in two corners
     gx0, gx1, gy0, gy1 = U(GLASS[0]), U(GLASS[1] + 1) - 1, V(GLASS[2]), V(GLASS[3] + 1) - 1
     p.rect((gx0, gy0, gx1, gy1), MIRROR_RGB)
-    reflection(p, (gx0 + gx1) / 2.0, gy0, gy1, ram, lash, bow, blink)
+    reflection(p, (gx0 + gx1) / 2.0, gy0, gy1, look)
     shine = (0x8C, 0x7C, 0xA8)
     p.line([(gx0 + 4, gy0 + 34), (gx0 + 22, gy0 + 4)], shine, 2)
     p.line([(gx0 + 4, gy0 + 50), (gx0 + 12, gy0 + 36)], shine, 2)
@@ -250,6 +269,10 @@ def vanity(p, ram, lash, bow, blink):
     p.rect((gx0 - 2, gy1 + 1, gx1 + 2, gy1 + 2), GOLD_DARK)
     p.rect((gx0 - 2, gy0 - 2, gx0 - 1, gy1 + 2), GOLD_LIGHT)
     p.rect((gx1 + 1, gy0 - 2, gx1 + 2, gy1 + 2), GOLD_DARK)
+    # (the wall round the frame, where the reflection's wool spread)
+    p.rect((x0 - 8, y1 - 1, x1 + 8, V(13) - 1), WALL)
+    p.rect((x0 - 8, y0, x0 - 1, y1), WALL)
+    p.rect((x1 + 1, y0, x1 + 8, y1), WALL)
     # the bulbs: round, on the frame, two sets that take turns
     k = 0
     for c in range(c0 + 1, c1, 2):
@@ -357,10 +380,31 @@ BOW_LO = (0x98, 0x10, 0x28)
 BOW_HI = (0xFF, 0x70, 0x80)
 
 
+HAT_PINK, HAT_PINK_LO = (0xFF, 0x7C, 0xC0), (0xC0, 0x40, 0x88)
+PETAL, PETAL_LO, PETAL_MID = (0xFF, 0xD8, 0xEC), (0xE0, 0x88, 0xB8), (0xF8, 0xD0, 0x30)
+GEM_BLUE, GEM_PINK = (0x50, 0xA0, 0xFF), (0xFF, 0x60, 0xA0)
+HAT_BLACK, HAT_GREY = (0x18, 0x16, 0x1C), (0x50, 0x4C, 0x58)
+PEARL, PEARL_LO = (0xF8, 0xF4, 0xEC), (0xA8, 0xA0, 0x98)
+RIBBON, RIBBON_LO = (0xFF, 0x60, 0xA8), (0xB0, 0x30, 0x70)
+
+
+def tone(p, box, role, steps=4):
+    """an ellipse in a tone's shades (the game colours them): darker at the edge"""
+    x0, y0, x1, y1 = box
+    for i in range(steps):
+        t = i / (steps - 1)
+        sx, sy = (x1 - x0) * 0.22 * t, (y1 - y0) * 0.22 * t
+        v = int(48 + 190 * t)
+        p.ellipse((x0 + sx - 0.6 * sx, y0 + sy - 0.6 * sy, x1 - sx - 0.6 * sx, y1 - sy - 0.6 * sy), (v, v, v), role)
+
+
 def eye(p, ex, ey, rad, look_dx, lash, blink, side=1):
-    """a big cartoon eye; lashes curl out to one side (side: 1 right, -1 left)"""
+    """a big cartoon eye under its lid (the eyeshadow's tone); lashes curl
+    out to one side (side: 1 right, -1 left); a blink shows the lid"""
+    tone(p, (ex - rad - 3, ey - rad - 6, ex + rad + 3, ey + rad - 1), R_SHADOW)
     if blink:
-        p.arc((ex - rad, ey - rad - 3, ex + rad, ey + rad - 3), 20, 160, INK, 2.5)
+        tone(p, (ex - rad - 1, ey - rad - 2, ex + rad + 1, ey + rad), R_SHADOW)
+        p.arc((ex - rad, ey - rad + 2, ex + rad, ey + rad - 1), 20, 160, INK, 2.5)
     else:
         p.ellipse((ex - rad - 1, ey - rad, ex + rad + 1, ey + rad), INK)
         p.ellipse((ex - rad, ey - rad + 1, ex + rad, ey + rad - 1), EYE_WHITE)
@@ -370,8 +414,7 @@ def eye(p, ex, ey, rad, look_dx, lash, blink, side=1):
         p.circle(ix - rad * 0.15, ey - rad * 0.3, max(1.2, rad * 0.15), (0xFF, 0xFF, 0xFF))
     if lash:
         p.arc((ex - rad - 1, ey - rad - 1, ex + rad + 1, ey + rad + 1), 190, 350, INK, 3)
-        angles = (236, 253, 270, 287, 304)
-        for a in angles:
+        for a in (236, 253, 270, 287, 304):
             ra = math.radians(a)
             l = rad * (0.8 + 0.5 * math.sin(math.radians(a - 180)))
             sx, sy = ex + (rad + 1) * math.cos(ra), ey + (rad + 1) * math.sin(ra)
@@ -379,16 +422,75 @@ def eye(p, ex, ey, rad, look_dx, lash, blink, side=1):
             p.line([(sx, sy), ((sx + tx) / 2 + 1 * side, (sy + ty) / 2 - 2), (tx + 2 * side, ty)], INK, 2)
 
 
-def bow_at(p, bx, by, size=1.0):
+def bow_at(p, bx, by, size=1.0, col=BOW, lo=BOW_LO, hi=BOW_HI, dots=False):
     s = size
-    p.poly([(bx, by), (bx - 26 * s, by - 14 * s), (bx - 22 * s, by + 16 * s)], BOW_LO)
-    p.poly([(bx, by), (bx + 26 * s, by - 14 * s), (bx + 22 * s, by + 16 * s)], BOW_LO)
-    p.poly([(bx, by), (bx - 23 * s, by - 11 * s), (bx - 20 * s, by + 12 * s)], BOW)
-    p.poly([(bx, by), (bx + 23 * s, by - 11 * s), (bx + 20 * s, by + 12 * s)], BOW)
-    p.poly([(bx - 3 * s, by + 2 * s), (bx - 12 * s, by + 22 * s), (bx - 6 * s, by + 24 * s)], BOW_LO)
-    p.poly([(bx + 3 * s, by + 2 * s), (bx + 12 * s, by + 22 * s), (bx + 6 * s, by + 24 * s)], BOW_LO)
-    p.circle(bx, by, 6 * s, BOW_LO)
-    p.circle(bx - 1, by - 1, 4 * s, BOW_HI)
+    p.poly([(bx, by), (bx - 26 * s, by - 14 * s), (bx - 22 * s, by + 16 * s)], lo)
+    p.poly([(bx, by), (bx + 26 * s, by - 14 * s), (bx + 22 * s, by + 16 * s)], lo)
+    p.poly([(bx, by), (bx - 23 * s, by - 11 * s), (bx - 20 * s, by + 12 * s)], col)
+    p.poly([(bx, by), (bx + 23 * s, by - 11 * s), (bx + 20 * s, by + 12 * s)], col)
+    if dots:
+        for dx, dy in ((-15, -4), (-11, 5), (-18, 4), (15, -4), (11, 5), (18, 4)):
+            p.circle(bx + dx * s, by + dy * s, 2.2 * s, (0xFF, 0xFF, 0xFF))
+    p.poly([(bx - 3 * s, by + 2 * s), (bx - 12 * s, by + 22 * s), (bx - 6 * s, by + 24 * s)], lo)
+    p.poly([(bx + 3 * s, by + 2 * s), (bx + 12 * s, by + 22 * s), (bx + 6 * s, by + 24 * s)], lo)
+    p.circle(bx, by, 6 * s, lo)
+    p.circle(bx - 1, by - 1, 4 * s, hi)
+
+
+def hat(p, kind, x, y, s=1.0):
+    """headwear sitting at x, y (its bottom middle): 1 a red bow, 2 a dotty
+    bow, 3 a flower, 4 a tiara, 5 a top hat"""
+    if kind == 1:
+        bow_at(p, x, y - 10 * s, s * 0.9)
+    elif kind == 2:
+        bow_at(p, x, y - 10 * s, s * 0.9, HAT_PINK, HAT_PINK_LO, (0xFF, 0xC0, 0xE0), True)
+    elif kind == 3:
+        cy = y - 12 * s
+        for i in range(6):
+            a = math.radians(60 * i + 15)
+            p.circle(x + 9 * s * math.cos(a), cy + 9 * s * math.sin(a), 7 * s, PETAL_LO)
+        for i in range(6):
+            a = math.radians(60 * i + 15)
+            p.circle(x + 8 * s * math.cos(a) - 1, cy + 8 * s * math.sin(a) - 1, 5.5 * s, PETAL)
+        p.circle(x, cy, 6 * s, (0xC8, 0x90, 0x10))
+        p.circle(x - 1, cy - 1, 4.5 * s, PETAL_MID)
+        p.poly([(x + 10 * s, cy + 8 * s), (x + 22 * s, cy + 4 * s), (x + 14 * s, cy + 14 * s)], (0x40, 0x90, 0x40))
+    elif kind == 4:
+        p.rect((x - 22 * s, y - 6 * s, x + 22 * s, y), GOLD_DARK)
+        p.rect((x - 21 * s, y - 5 * s, x + 21 * s, y - 2 * s), GOLD)
+        for dx, h in ((-14, 10), (0, 18), (14, 10)):
+            p.poly([(x + (dx - 7) * s, y - 5 * s), (x + dx * s, y - (5 + h) * s), (x + (dx + 7) * s, y - 5 * s)], GOLD)
+            p.poly([(x + (dx - 4) * s, y - 6 * s), (x + dx * s, y - (5 + h) * s + 3), (x + (dx + 1) * s, y - 6 * s)], GOLD_LIGHT)
+        p.circle(x, y - 13 * s, 3.5 * s, GEM_BLUE)
+        p.circle(x - 14 * s, y - 9 * s, 2.5 * s, GEM_PINK)
+        p.circle(x + 14 * s, y - 9 * s, 2.5 * s, GEM_PINK)
+        p.circle(x - 1, y - 14 * s, 1.2, (0xFF, 0xFF, 0xFF))
+    elif kind == 5:
+        p.ellipse((x - 24 * s, y - 6 * s, x + 24 * s, y + 2 * s), HAT_BLACK)
+        p.rect((x - 14 * s, y - 34 * s, x + 14 * s, y - 2 * s), HAT_BLACK)
+        p.ellipse((x - 14 * s, y - 38 * s, x + 14 * s, y - 30 * s), HAT_GREY)
+        p.rect((x - 14 * s, y - 12 * s, x + 14 * s, y - 6 * s), HAT_PINK)
+        p.rect((x - 10 * s, y - 30 * s, x - 7 * s, y - 14 * s), HAT_GREY)
+
+
+def necklace(p, kind, pts):
+    """along pts: 1 pearls, 2 a ribbon collar with a bow"""
+    if kind == 1:
+        for (ax, ay), (bx, by) in zip(pts, pts[1:]):
+            n = max(1, int(math.hypot(bx - ax, by - ay) / 6))
+            for i in range(n):
+                t = i / n
+                x, y = ax + (bx - ax) * t, ay + (by - ay) * t
+                p.circle(x, y, 3.4, PEARL_LO)
+                p.circle(x - 0.8, y - 0.8, 2.4, PEARL)
+        x, y = pts[-1]
+        p.circle(x, y, 3.4, PEARL_LO)
+        p.circle(x - 0.8, y - 0.8, 2.4, PEARL)
+    elif kind == 2:
+        p.line(pts, RIBBON_LO, 8)
+        p.line([(x, y - 1) for x, y in pts], RIBBON, 5)
+        mx, my = pts[len(pts) // 2]
+        bow_at(p, mx, my + 2, 0.45, RIBBON, RIBBON_LO, (0xFF, 0xC0, 0xE0))
 
 
 def horn_spiral(p, cx, cy, size, side):
@@ -403,17 +505,31 @@ def horn_spiral(p, cx, cy, size, side):
         p.circle(x - 1, y - 1, w * 0.75, HORN)
 
 
-def sheep(p, ram=False, lash=False, bow=False, blink=False):
+def lips(p, x, y, rx, ry):
+    """lips in the lipstick's shades (dark at the edge, a shine)"""
+    for i in range(N_LIPS):
+        t = i / (N_LIPS - 1)
+        p.ellipse((x - rx * (1 - 0.6 * t) - 1 * t, y - ry * (1 - 0.6 * t) - 1 * t,
+                   x + rx * (1 - 0.6 * t) - 1 * t, y + ry * (1 - 0.6 * t) - 1 * t), (30 + 32 * i,) * 3, R_LIPS)
+
+
+def hoof(p, hx, top, bottom):
+    """a hoof in the polish's tone (shaded top to bottom)"""
+    p.rrect((hx - 9, top, hx + 9, bottom + 1), 4, FACE_LO)
+    for i in range(N_TONE):
+        v = int(60 + 60 * i)
+        p.rrect((hx - 8 + i, top + 1 + i * 0.5, hx + 8 - 2 * i, bottom - i * 0.5), 1, (v, v, v), R_HOOF)
+
+
+def sheep(p, look):
+    ram, lash, blink, kind, neck = look["ram"], look["lash"], look["blink"], look["hat"], look["neck"]
     # the front legs: from the chest, a bend at the knee, to the footrest
     for x0, dx in ((262, 0), (290, 6)):
         pts = [(x0, V(14)), (x0 + 50 + dx, V(15) + 8), (x0 + 52 + dx, V(19) - 2)]
         p.limb(pts, 18, FACE_LO)
         p.limb(pts, 14, FACE)
         p.line([(x0 + 2, V(14) - 2), (x0 + 48 + dx, V(15) + 2)], FACE_HI, 3)
-        hx = x0 + 52 + dx
-        p.rrect((hx - 9, V(19) - 6, hx + 9, V(19) + 3), 4, GOLD_DARK)
-        p.rrect((hx - 8, V(19) - 6, hx + 8, V(19) + 1), 4, GOLD)
-        p.rect((hx - 6, V(19) - 5, hx - 1, V(19) - 3), GOLD_LIGHT)
+        hoof(p, x0 + 52 + dx, V(19) - 7, V(19) + 2)
     # the body: a big fleece over the seat, the haunch, the tail, the chest
     body = in_ellipse(196, V(9) + 4, 126, 84)
     haunch = in_ellipse(150, V(13), 74, 44)
@@ -425,7 +541,7 @@ def sheep(p, ram=False, lash=False, bow=False, blink=False):
     # the ear or the horn behind the head
     hx, hy = 356, V(5) + 6                  # the skull's centre
     if ram:
-        horn_spiral(p, hx - 24, hy - 2, 24, -1)
+        horn_spiral(p, hx - 24, hy - 5, 20, -1)
     else:
         p.poly([(hx - 10, hy - 14), (hx - 52, hy - 30), (hx - 58, hy - 22), (hx - 22, hy + 2)], FACE_LO)
         p.poly([(hx - 14, hy - 12), (hx - 50, hy - 26), (hx - 52, hy - 22), (hx - 22, hy - 2)], EAR_IN)
@@ -436,31 +552,26 @@ def sheep(p, ram=False, lash=False, bow=False, blink=False):
     p.poly([(hx - 8, hy - 18), (hx + 38, hy - 2), (hx + 55, hy + 33), (hx + 44, hy + 53), (hx + 4, hy + 38)], FACE)
     p.ellipse((hx - 18, hy - 22, hx + 18, hy + 0), FACE_HI)
     p.ellipse((hx - 14, hy - 20, hx + 22, hy + 6), FACE)
-    # the forelock
+    tone(p, (hx + 10, hy + 10, hx + 32, hy + 24), R_BLUSH)                 # the cheek
+    # the necklace round the neck, over the chest's wool
+    necklace(p, neck, [(hx - 26, hy + 30), (hx - 14, hy + 40), (hx, hy + 46), (hx + 12, hy + 48)])
+    # the forelock, the eye, the headwear
     for x, y, r in ((hx - 26, hy - 26, 11), (hx - 10, hy - 34, 12), (hx + 6, hy - 32, 10), (hx - 32, hy - 10, 10)):
         curl(p, x, y, r)
     eye(p, hx + 14, hy - 2, 8, 2, lash, blink)
+    hat(p, kind, hx - 6, hy - 40, 0.8)
     # the muzzle: a nostril, the lips
     mx, my = hx + 46, hy + 42
     p.ellipse((mx - 4, my - 18, mx + 2, my - 13), FACE_LO)
     lips(p, mx - 6, my + 2, 10, 5)
     p.line([(mx - 15, my + 2), (mx + 2, my + 1)], FACE_LO, 1.5)
-    if bow:
-        bow_at(p, hx - 30, hy - 42)
-
-
-def lips(p, x, y, rx, ry):
-    """lips in the lipstick's shades (dark at the edge, a shine)"""
-    for i in range(N_LIPS):
-        t = i / (N_LIPS - 1)
-        p.ellipse((x - rx * (1 - 0.6 * t) - 1 * t, y - ry * (1 - 0.6 * t) - 1 * t,
-                   x + rx * (1 - 0.6 * t) - 1 * t, y + ry * (1 - 0.6 * t) - 1 * t), (30 + 32 * i,) * 3, R_LIPS)
 
 
 # ---------------------------------------------------------------------------
 # the sheep in the mirror: its face from the front
 
-def reflection(p, cx, gy0, gy1, ram, lash, bow, blink):
+def reflection(p, cx, gy0, gy1, look):
+    ram, lash, blink, kind, neck = look["ram"], look["lash"], look["blink"], look["hat"], look["neck"]
     # the shoulders: wool to the bottom of the glass
     sh = in_ellipse(cx, gy1 + 30, 110, 66)
     p.ellipse((cx - 110, gy1 - 34, cx + 110, gy1 + 96), WOOL_DARK, R_WOOL)
@@ -469,14 +580,13 @@ def reflection(p, cx, gy0, gy1, ram, lash, bow, blink):
     # the ears (or the horns): out to the sides
     if ram:
         for sd in (-1, 1):
-            # from the top of the head out to the curl
-            p.limb([(cx + sd * 22, fy - 38), (cx + sd * 40, fy - 40), (cx + sd * 56, fy - 30)], 12, HORN_LO)
-            p.limb([(cx + sd * 22, fy - 39), (cx + sd * 40, fy - 41), (cx + sd * 55, fy - 31)], 8, HORN)
-            horn_spiral(p, cx + sd * 66, fy - 14, 17, sd)
+            p.limb([(cx + sd * 26, fy - 28), (cx + sd * 42, fy - 30), (cx + sd * 56, fy - 24)], 12, HORN_LO)
+            p.limb([(cx + sd * 26, fy - 29), (cx + sd * 42, fy - 31), (cx + sd * 55, fy - 25)], 8, HORN)
+            horn_spiral(p, cx + sd * 66, fy - 10, 17, sd)
     else:
-        for s in (-1, 1):
-            p.ellipse((cx + s * 34 - 24, fy - 22, cx + s * 34 + 24, fy - 6), FACE_LO)
-            p.ellipse((cx + s * 36 - 18, fy - 19, cx + s * 36 + 18, fy - 9), EAR_IN)
+        for sd in (-1, 1):
+            p.ellipse((cx + sd * 34 - 24, fy - 22, cx + sd * 34 + 24, fy - 6), FACE_LO)
+            p.ellipse((cx + sd * 36 - 18, fy - 19, cx + sd * 36 + 18, fy - 9), EAR_IN)
     # the face: wide at the eyes, narrow at the muzzle
     p.poly([(cx - 30, fy - 40), (cx + 30, fy - 40), (cx + 36, fy - 6), (cx + 26, fy + 40),
             (cx + 16, fy + 58), (cx - 16, fy + 58), (cx - 26, fy + 40), (cx - 36, fy - 6)], FACE_LO)
@@ -484,6 +594,8 @@ def reflection(p, cx, gy0, gy1, ram, lash, bow, blink):
             (cx + 14, fy + 56), (cx - 14, fy + 56), (cx - 24, fy + 40), (cx - 34, fy - 6)], FACE)
     p.ellipse((cx - 14, fy - 30, cx + 14, fy + 40), FACE_HI)
     p.ellipse((cx - 10, fy - 28, cx + 18, fy + 44), FACE)
+    for sd in (-1, 1):                       # the cheeks
+        tone(p, (cx + sd * 22 - 9, fy + 10, cx + sd * 22 + 9, fy + 22), R_BLUSH)
     # the forelock over the brow
     for x, y, r in ((cx - 26, fy - 40, 11), (cx - 9, fy - 46, 12), (cx + 9, fy - 46, 12), (cx + 26, fy - 40, 11),
                     (cx, fy - 34, 10)):
@@ -496,16 +608,19 @@ def reflection(p, cx, gy0, gy1, ram, lash, bow, blink):
     p.ellipse((cx + 3, fy + 34, cx + 9, fy + 39), FACE_LO)
     lips(p, cx, fy + 48, 12, 5)
     p.line([(cx - 11, fy + 48), (cx + 11, fy + 48)], FACE_LO, 1.5)
-    if bow:
-        bow_at(p, cx + 2, fy - 64, 0.7)
+    necklace(p, neck, [(cx - 30, fy + 56), (cx - 16, fy + 64), (cx, fy + 67), (cx + 16, fy + 64), (cx + 30, fy + 56)])
+    hat(p, kind, cx, fy - 54, 0.9)
 
 
-def scene(ram=False, lash=False, bow=False, blink=False):
+LOOK0 = {"ram": 0, "lash": 0, "blink": 0, "hat": 0, "neck": 0}
+
+
+def scene(look):
     p = Pic()
     room(p)
-    vanity(p, ram, lash, bow, blink)
+    vanity(p, look)
     chair(p)
-    sheep(p, ram, lash, bow, blink)
+    sheep(p, look)
     return p
 
 
@@ -534,7 +649,7 @@ def lum(c):
 
 
 def index_pixels(rgb, role, art_palette, cache):
-    """palette indices: wool, lips and bulbs by their shade, the glass, the rest nearest"""
+    """palette indices: the game's colours by their shade, the glass, the rest nearest"""
     px = rgb.load()
     out = []
     for y in range(PH):
@@ -547,6 +662,8 @@ def index_pixels(rgb, role, art_palette, cache):
                 out.append(P_LIPS + min(N_LIPS - 1, int(lum(c) * N_LIPS / 256)))
             elif r in (R_BULBA, R_BULBB):
                 out.append((P_BULBA if r == R_BULBA else P_BULBB) + min(N_BULB - 1, int(lum(c) * N_BULB / 256)))
+            elif r in TONE_ROLES:
+                out.append(TONE_ROLES[r] + min(N_TONE - 1, int(lum(c) * N_TONE / 256)))
             elif r == R_GLASS:
                 out.append(P_GLASS)
             else:
@@ -620,54 +737,81 @@ def rects_of(cells):
     return runs
 
 
+def tones():
+    """the tones' palettes: per choice, four shades dark to light"""
+    def shades(c, face=False):
+        if c is None:                    # the sheep's own: the face's greys
+            return [mix(FACE_LO, FACE_HI, i / (N_TONE - 1)) for i in range(N_TONE)]
+        return [mix((0, 0, 0), c, 0.45 + 0.55 * i / (N_TONE - 1)) for i in range(N_TONE)]
+    return ([shades(c) for c in SHADOWS], [shades(c) for c in BLUSHES], [shades(c) for c in HOOVES])
+
+
 # ---------------------------------------------------------------------------
 
 def main():
     args = sys.argv[1:]
-    preview, look = None, (1, 1, 1, 1, 0, 0)
+    preview, look = None, None
+    verify = "--fast" not in args
+    args = [a for a in args if a != "--fast"]
     if "--preview" in args:
         i = args.index("--preview")
         preview = args[i + 1]
-        if i + 2 < len(args) and "," in args[i + 2]:
-            look = tuple(int(v) for v in args[i + 2].split(","))
-            del args[i + 2]
-        del args[i:i + 2]
+        look = args[i + 2] if i + 2 < len(args) and "=" in args[i + 2] else ""
+        del args[i:i + (3 if look else 2)]
     out = args[0] if args else "."
 
-    pics = []
-    for k in range(16):                 # ram << 3 | lash << 2 | bow << 1 | blink
-        pics.append(to_pixels(scene(ram=bool(k & 8), lash=bool(k & 4), bow=bool(k & 2), blink=bool(k & 1))))
-    art = art_palette_of(pics)
+    # every group's looks, the others plain
+    looks = []
+    for name, n, params in GROUPS:
+        for k in range(n):
+            lk = dict(LOOK0)
+            lk.update(params(k))
+            looks.append((name, k, lk))
+    pics = {}
+    for name, k, lk in looks:
+        key = tuple(sorted(lk.items()))
+        if key not in pics:
+            pics[key] = to_pixels(scene(lk))
+    art = art_palette_of(list(pics.values()))
     cache = {}
-    combos = [cells_of(index_pixels(rgb, role, art, cache)) for rgb, role in pics]
-    base = combos[0]
-
-    # the two groups of looks: the eyes (lash, blink), the head's top (ram, bow)
-    def k_of(ram, lash, bow, blink):
-        return ram << 3 | lash << 2 | bow << 1 | blink
-    eye_ks = [k_of(0, lash, 0, blink) for lash in (0, 1) for blink in (0, 1)]     # (index lash << 1 | blink)
-    top_ks = [k_of(ram, 0, bow, 0) for ram in (0, 1) for bow in (0, 1)]           # (index ram << 1 | bow)
-    eye_cells = {pos for k in eye_ks for pos in base if combos[k][pos] != base[pos]}
-    top_cells = {pos for k in top_ks for pos in base if combos[k][pos] != base[pos]}
-    eye_rects, top_rects = rects_of(eye_cells), rects_of(top_cells)
-
-    def covers(rects):
-        return {(c, r) for x0, y0, x1, y1 in rects for c in range(x0, x1 + 1) for r in range(y0, y1 + 1)}
-    if eye_cells & top_cells:
-        sys.exit("the eyes' and the head top's looks change the same cells: %s" % sorted(eye_cells & top_cells))
-    # every look is the base with its two groups' cells
-    for k in range(16):
-        ram, lash, bow, blink = k >> 3 & 1, k >> 2 & 1, k >> 1 & 1, k & 1
-        e, t = combos[k_of(0, lash, 0, blink)], combos[k_of(ram, 0, bow, 0)]
-        for pos in base:
-            want = combos[k][pos]
-            got = e[pos] if pos in covers(eye_rects) else t[pos] if pos in covers(top_rects) else base[pos]
-            if want != got:
-                sys.exit("look %d: cell %s is not the groups' (the eyes and the head's top touch)" % (k, pos))
+    cells = {key: cells_of(index_pixels(rgb, role, art, cache)) for key, (rgb, role) in pics.items()}
+    base = cells[tuple(sorted(LOOK0.items()))]
+    group_cells, group_looks = {}, {}
+    for name, n, params in GROUPS:
+        gl = []
+        for k in range(n):
+            lk = dict(LOOK0)
+            lk.update(params(k))
+            gl.append(cells[tuple(sorted(lk.items()))])
+        group_looks[name] = gl
+        group_cells[name] = {pos for cm in gl for pos in base if cm[pos] != base[pos]}
+    names = [g[0] for g in GROUPS]
+    for i, a in enumerate(names):
+        for b in names[i + 1:]:
+            both = group_cells[a] & group_cells[b]
+            if both:
+                sys.exit("the %s and the %s change the same cells: %s" % (a, b, sorted(both)))
+    # every combination is the base with each group's cells
+    if verify:
+        import itertools
+        for ks in itertools.product(*[range(g[1]) for g in GROUPS]):
+            if all(k == 0 for k in ks) or sum(1 for k in ks if k) < 2:
+                continue
+            lk = dict(LOOK0)
+            for (name, n, params), k in zip(GROUPS, ks):
+                lk.update(params(k))
+            want = cells_of(index_pixels(*to_pixels(scene(lk)), art, cache))
+            for pos in base:
+                got = base[pos]
+                for (name, n, params), k in zip(GROUPS, ks):
+                    if pos in group_cells[name]:
+                        got = group_looks[name][k][pos]
+                if want[pos] != got:
+                    sys.exit("look %s: cell %s is not its groups' (they touch)" % (lk, pos))
+    runs = {name: rects_of(group_cells[name]) for name in names}
 
     # the characters: the room's, the looks', the sparkles'
-    chars = []
-    num = {}
+    chars, num = [], {}
 
     def char(b):
         if b not in num:
@@ -678,26 +822,29 @@ def main():
         for c in range(COLS):
             char(base[(c, r)])
     nroom = len(chars)
-    for ks, rects in ((eye_ks, eye_rects), (top_ks, top_rects)):
-        for k in ks:
-            for x0, y0, x1, y1 in rects:
-                for r in range(y0, y1 + 1):
-                    for c in range(x0, x1 + 1):
-                        char(combos[k][(c, r)])
+    for name in names:
+        for cm in group_looks[name]:
+            for x0, y0, x1, y1 in runs[name]:
+                for c in range(x0, x1 + 1):
+                    char(cm[(c, y0)])
     nlooks = len(chars) - nroom
     pal_index = {"W": P_FIRST + nearest(art, (0xFF, 0xFF, 0xFF)), "Y": P_FIRST + nearest(art, (0xFF, 0xF4, 0xB0))}
-    # a sparkle goes to the cell nearest its place that no look and no text uses
-    busy = covers(eye_rects) | covers(top_rects)
+
+    def covers(rs):
+        return {(c, r) for x0, y0, x1, y1 in rs for c in range(x0, x1 + 1) for r in range(y0, y1 + 1)}
+    busy = set()
+    for name in names:
+        busy |= covers(runs[name])
     busy |= {(c, r) for c in range(SIGN[0] + 1, SIGN[1]) for r in range(SIGN[2] + 1, SIGN[3])}
     busy |= {(c, r) for c in range(CABINET[0], CABINET[1] + 1) for r in range(CABINET[2], CABINET[3] + 1)}
     spark_pos = []
-    for name, pts in SPARKS.items():
+    for sname, pts in SPARKS.items():
         for c, r in pts:
             pos = min(((cc, rr) for cc in range(c - 3, c + 4) for rr in range(r - 3, r + 2)
                        if 0 <= cc < COLS and 0 <= rr < ROWS and (cc, rr) not in busy),
                       key=lambda q: (q[0] - c) ** 2 + 4 * (q[1] - (r - 1)) ** 2)
             busy.add(pos)
-            spark_pos.append((name, pos[0], pos[1] + 1,
+            spark_pos.append((sname, pos[0], pos[1] + 1,
                               char(sparkled(base[pos], 0, pal_index)), char(sparkled(base[pos], 1, pal_index))))
 
     # the characters: as many as fit in bank 4, the rest in bank 5
@@ -709,47 +856,51 @@ def main():
     data1 = bytearray(b"".join(chars[:n1]))
     # the second file: the other characters, the screen (rows 1-23:
     # numbers, low byte first), the looks' runs (per group, per look: its
-    # cells' numbers), the palette
+    # cells' numbers), the palettes
     data = bytearray(b"".join(chars[n1:]))
     off = {"SCREEN": len(data)}
     for r in range(ROWS):
         for c in range(COLS):
             n = num[base[(c, r)]]
             data += bytes((n & 0xFF, n >> 8))
-    rect_defs = []
-    for gname, ks, rects in (("EYES", eye_ks, eye_rects), ("TOP", top_ks, top_rects)):
-        off[gname] = len(data)
-        size = sum((x1 - x0 + 1) * (y1 - y0 + 1) * 2 for x0, y0, x1, y1 in rects)
-        for k in ks:
-            for x0, y0, x1, y1 in rects:
-                for r in range(y0, y1 + 1):
-                    for c in range(x0, x1 + 1):
-                        n = num[combos[k][(c, r)]]
-                        data += bytes((n & 0xFF, n >> 8))
-        rect_defs.append((gname, rects, size))
+    sizes = {}
+    for name in names:
+        off[name] = len(data)
+        sizes[name] = sum((x1 - x0 + 1) * 2 for x0, y0, x1, y1 in runs[name])
+        for cm in group_looks[name]:
+            for x0, y0, x1, y1 in runs[name]:
+                for c in range(x0, x1 + 1):
+                    n = num[cm[(c, y0)]]
+                    data += bytes((n & 0xFF, n >> 8))
+
     # palettes (as palette_restore takes them: the reds, the greens, the
-    # blues, nibbles swapped as the VIC-IV has them): the picture's colours
-    # (entries P_FIRST..), each dye's wool shades, each lipstick's, the two
-    # phases of the bulbs (A lit and B dimmed, then the other way)
+    # blues, nibbles swapped as the VIC-IV has them): the picture's colours,
+    # each dye's wool shades, each lipstick's, the bulbs' two phases, the
+    # eyeshadows', the blushes', the hooves'
     def regs(colours):
         return bytes((c[ch] << 4 | c[ch] >> 4) & 0xFF for ch in range(3) for c in colours)
     off["PALETTE"] = len(data)
     data += regs(art)
     off["DYES"] = len(data)
     for wool in range(4):
-        data += regs(palette_for(art, (wool, 0, 0, 0, 0, 0))[P_WOOL:P_WOOL + N_WOOL])
+        data += regs(wool_shades(wool))
     off["LIPSTICKS"] = len(data)
     for lip in range(4):
-        data += regs(palette_for(art, (0, lip, 0, 0, 0, 0))[P_LIPS:P_LIPS + N_LIPS])
+        data += regs(lip_shades(lip))
     off["BULBS"] = len(data)
     lit = [mix(BULB_OFF, BULB_ON, 0.4 + 0.6 * i / (N_BULB - 1)) for i in range(N_BULB)]
     dim = [mix((0x50, 0x38, 0x18), BULB_OFF, 0.3 + 0.7 * i / (N_BULB - 1)) for i in range(N_BULB)]
     data += regs(lit + dim) + regs(dim + lit)
+    sh, bl, ho = tones()
+    for key, tab in (("SHADOWS", sh), ("BLUSHES", bl), ("HOOVES", ho)):
+        off[key] = len(data)
+        for t in tab:
+            data += regs(t)
     data += b"GLAM"                     # (the end: the game checks it)
-    if LOAD2_LIN + len(data) > LIMIT2:
-        sys.exit("the salon is %d bytes in bank 5: more than the %d from $%X" % (len(data), LIMIT2 - LOAD2_LIN, LOAD2_LIN))
-    for name, d in (("salon1.dat", data1), ("salon2.dat", data)):
-        with open(out + "/" + name, "wb") as f:
+    if len(data1) > LIMIT - LOAD_LIN or LOAD2_LIN + len(data) > LIMIT2:
+        sys.exit("the salon is %d + %d bytes: more than %d + %d" % (len(data1), len(data), LIMIT - LOAD_LIN, LIMIT2 - LOAD2_LIN))
+    for fname, d in (("salon1.dat", data1), ("salon2.dat", data)):
+        with open(out + "/" + fname, "wb") as f:
             f.write(b"\x00\x00" + d)    # (the load header: the game gives the address)
 
     with open(out + "/salon.h", "w") as f:
@@ -764,60 +915,71 @@ def main():
         w("#define SAL_PAL_FIRST %d\n#define SAL_PAL_COUNT %d\n" % (P_FIRST, len(art)))
         w("#define SAL_WOOL %d\n#define SAL_LIPS %d\n#define SAL_BULBA %d\n#define SAL_BULBB %d\n#define SAL_GLASS %d\n"
           % (P_WOOL, P_LIPS, P_BULBA, P_BULBB, P_GLASS))
+        w("#define SAL_SHADOW %d\n#define SAL_BLUSH %d\n#define SAL_HOOF %d\n#define SAL_TONE %d\n"
+          % (P_SHADOW, P_BLUSH, P_HOOF, N_TONE))
         w("#define SAL_SIGN_X %d\n#define SAL_SIGN_Y %d\n#define SAL_SIGN_W %d\n"
           % (SIGN[0] + 1, SIGN[2] + 2, SIGN[1] - SIGN[0] - 1))
         w("#define SAL_DOOR_X %d\n#define SAL_DOOR_Y %d\n#define SAL_DOOR_W %d\n#define SAL_DOOR_H %d\n"
           % (CABINET[0], CABINET[2] + 1, CABINET[1] - CABINET[0] + 1, CABINET[3] - CABINET[2] + 1))
-        for gname, rects, size in rect_defs:
-            w("/* the %s: runs (column, screen row, width, height 1), a look's cells %d bytes */\n"
-              % ("eyes (index lash << 1 | blink)" if gname == "EYES" else "head's top (index ram << 1 | bow)", size))
-            w("#define SAL_%s_N %d\n#define SAL_%s_LOOK %d\n" % (gname, len(rects), gname, size))
-            w("#define SAL_%s_RECTS %s\n" % (gname, ", ".join("%d, %d, %d, %d" % (x0, y0 + 1, x1 - x0 + 1, y1 - y0 + 1)
-                                                            for x0, y0, x1, y1 in rects)))
+        for name, n, params in GROUPS:
+            w("/* the %s's looks (%d): runs of cells (column, screen row, width), a look's numbers %d bytes */\n"
+              % (name.lower(), n, sizes[name]))
+            w("#define SAL_%s_N %d\n#define SAL_%s_LOOK %d\n" % (name, len(runs[name]), name, sizes[name]))
+            w("#define SAL_%s_RUNS %s\n" % (name, ", ".join("%d, %d, %d" % (x0, y0 + 1, x1 - x0 + 1)
+                                                          for x0, y0, x1, y1 in runs[name])))
         w("/* sparkles: column, screen row, the large one's number, the small one's */\n")
-        for name in SPARKS:
-            pts = [s for s in spark_pos if s[0] == name]
-            w("#define SAL_SPARK_%s %s\n" % (name, ", ".join("%d, %d, 0x%X, 0x%X" % (s[1], s[2], number(s[3]), number(s[4]))
-                                                           for s in pts)))
-    print("salon: %d characters (room %d, looks %d, sparkles %d), %d + %d bytes; runs: eyes %d, head top %d"
-          % (len(chars), nroom, nlooks, len(chars) - nroom - nlooks, len(data1), len(data), len(eye_rects), len(top_rects)))
+        for sname in SPARKS:
+            pts = [sp for sp in spark_pos if sp[0] == sname]
+            w("#define SAL_SPARK_%s %s\n" % (sname, ", ".join("%d, %d, 0x%X, 0x%X" % (sp[1], sp[2], number(sp[3]), number(sp[4]))
+                                                           for sp in pts)))
+    print("salon: %d characters (room %d, looks %d, sparkles %d), %d + %d bytes; runs: %s"
+          % (len(chars), nroom, nlooks, len(chars) - nroom - nlooks, len(data1), len(data),
+             ", ".join("%s %d" % (n, len(runs[n])) for n in names)))
     if preview:
-        render(preview, base, combos, eye_rects, top_rects, art, look)
+        render(preview, base, group_looks, runs, art, look)
+
+
+def wool_shades(wool):
+    return [mix((0, 0, 0), WOOL_RGB[wool], 0.30 + 0.70 * i / (N_WOOL - 1)) for i in range(N_WOOL)]
+
+
+def lip_shades(lip):
+    if lip == 0:
+        return [mix((0x22, 0x1E, 0x22), (0x6A, 0x50, 0x58), i / (N_LIPS - 1)) for i in range(N_LIPS)]
+    return [mix((0, 0, 0), LIPS_RGB[lip], 0.45 + 0.55 * i / (N_LIPS - 1)) for i in range(N_LIPS)]
 
 
 def nearest(art, c):
     return min(range(len(art)), key=lambda i: sum((art[i][j] - c[j]) ** 2 for j in range(3)))
 
 
-def palette_for(art, look):
-    wool, lips = look[0], look[1]
+def render(path, base, group_looks, runs, art, spec):
+    """the picture as shown (each pixel 2 x 4 in the PNG): spec 'wool=1,lips=2,lash=1,blink=0,ram=1,hat=3,neck=1,
+    shadow=2,blush=1,hoof=3'"""
+    lk = {"wool": 1, "lips": 1, "lash": 1, "blink": 0, "ram": 0, "hat": 1, "neck": 1, "shadow": 1, "blush": 1, "hoof": 3}
+    for kv in spec.split(","):
+        if "=" in kv:
+            k, v = kv.split("=")
+            lk[k] = int(v)
+    ks = {"EYES": lk["lash"] << 1 | lk["blink"], "HORNS": lk["ram"], "HAT": lk["hat"], "NECK": lk["neck"]}
+    cm = dict(base)
+    for name, rs in runs.items():
+        for x0, y0, x1, y1 in rs:
+            for c in range(x0, x1 + 1):
+                cm[(c, y0)] = group_looks[name][ks[name]][(c, y0)]
     pal = [(0, 0, 0)] * 256
     pal[P_GLASS] = GLASS_RGB
-    for i in range(N_WOOL):
-        pal[P_WOOL + i] = mix((0, 0, 0), WOOL_RGB[wool], 0.30 + 0.70 * i / (N_WOOL - 1))
-    for i in range(N_LIPS):
-        if lips == 0:
-            pal[P_LIPS + i] = mix((0x22, 0x1E, 0x22), (0x6A, 0x50, 0x58), i / (N_LIPS - 1))
-        else:
-            pal[P_LIPS + i] = mix((0, 0, 0), LIPS_RGB[lips], 0.45 + 0.55 * i / (N_LIPS - 1))
+    pal[P_WOOL:P_WOOL + N_WOOL] = wool_shades(lk["wool"])
+    pal[P_LIPS:P_LIPS + N_LIPS] = lip_shades(lk["lips"])
     for i in range(N_BULB):
         pal[P_BULBA + i] = mix(BULB_OFF, BULB_ON, 0.4 + 0.6 * i / (N_BULB - 1))
-        pal[P_BULBB + i] = mix(BULB_OFF, (0xFF, 0xFF, 0xFF), 0.5 + 0.5 * i / (N_BULB - 1))
+        pal[P_BULBB + i] = mix((0x50, 0x38, 0x18), BULB_OFF, 0.3 + 0.7 * i / (N_BULB - 1))
+    sh, bl, ho = tones()
+    pal[P_SHADOW:P_SHADOW + N_TONE] = sh[lk["shadow"]]
+    pal[P_BLUSH:P_BLUSH + N_TONE] = bl[lk["blush"]]
+    pal[P_HOOF:P_HOOF + N_TONE] = ho[lk["hoof"]]
     for i, c in enumerate(art):
         pal[P_FIRST + i] = c
-    return pal
-
-
-def render(path, base, combos, eye_rects, top_rects, art, look):
-    """the picture as shown (each pixel 2 x 4 in the PNG: 80-column pixels)"""
-    wool, lips, lash, bow, ram, blink = look
-    cm = dict(base)
-    for rects, k in ((eye_rects, lash << 2 | blink), (top_rects, ram << 3 | bow << 1)):
-        for x0, y0, x1, y1 in rects:
-            for r in range(y0, y1 + 1):
-                for c in range(x0, x1 + 1):
-                    cm[(c, r)] = combos[k][(c, r)]
-    pal = palette_for(art, look)
     img = Image.new("RGB", (PW, PH))
     px = img.load()
     for (c, r), b in cm.items():

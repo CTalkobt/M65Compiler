@@ -37,95 +37,19 @@
  *
  * cc45's plain char/int/long are unsigned: signed values say so.
  */
-#include <string.h>
-#include <dma.h>
-#include <mega65.h>
-#include <audio_sid.h>
-#include <audio_tune.h>
-#include <cbm.h>
-#include <input.h>
-#include <palette.h>
-#include <seam.h>
+#include "glam.h"
 
-#define CH_BASE 0x60                  /* our glyphs replace screen codes $60.. */
-#include "gfx.h"
-#include "music.h"                    /* tune45 convert --bin music.txt */
-#include "salon.h"                    /* gen_salon.py: the salon's picture */
-
-#ifndef REG
-#define REG(a) (*(volatile unsigned char *)(a))
-#endif
-
-#define COLS 80
-#define ROWS 25
-#define SCREEN_LIN  0x0000800UL       /* the ROM's screen: our back buffer (scr) */
-#define SHOWN_LIN   0x005E000UL       /* the screen shown (bank 5) */
-#define COLOR_LIN   0xFF80000UL
-#define CHARROM_LIN 0xFF7E000UL       /* the MEGA65 character set */
-#define CHARSET_LIN 0x004F800UL       /* our copy: bank 4 */
-#define CHARSET2_LIN 0x004F000UL      /* the title's: the ROM's upper/lower case set */
-#define FRAMECOUNT  REG(0xD7FA)
-#define CRSR_LEFTUP REG(0xD60F)       /* bit 0 cursor left, bit 1 cursor up */
-
-/* colours 0-7: the game's palette (see setup) */
-#define C_BLACK 0
-#define C_WHITE 1
-#define C_RED 2
-#define C_LBLUE 3
-#define C_PURPLE 4
-#define C_BROWN 5
-#define C_PINK 6
-#define C_YELLOW 7
-#define MCOL 8                        /* + a colour: a multicolour cell */
-/* the shared colours (any of 0-15) */
-#define C_DGREY 11                    /* $D022: faces, legs */
-#define C_MEADOW 12                   /* $D021: the background */
-#define C_TUFT 13                     /* $D023: grass */
-
-#define CH_SPACE 0x20
-
-/* layout: the field (fenced) on the left, the salon panel on the right */
-#define HUD_ROW  0
-#define MSG_ROW  24
-#define FENCE_T  1
-#define FENCE_B  23
-#define FENCE_L  0
-#define FENCE_R  59
-#define FX0 1                         /* the field's inside */
-#define FX1 58
-#define FY0 2
-#define FY1 22
-#define BGW 60                        /* the background: rows 1-23, columns 0-59 */
-#define BGH 23
-#define GATE_Y0 11                    /* the salon door, in the right fence */
-#define GATE_Y1 13
-#define PANEL_X 61                    /* the panel's frame: columns 61-79 */
-#define PANEL_IN 63                   /* its text */
-#define BIG_X 67                      /* the big sheep: 6 x 4 cells (bow row on top) */
-#define BIG_Y 3
-
-#define SW 4                          /* a sheep: 4 x 2 cells */
-#define SH 2
-#define PW 2                          /* the stylist: 2 x 2 */
-#define PH 2
-
-/* ------------------------------------------------------------------------ */
-/* The screen, built here and copied by DMA once a frame                    */
-
-#define scr ((unsigned char *)0x0800)
-static unsigned char clr[COLS * ROWS];
+unsigned char clr[COLS * ROWS];
 /* the field's background (characters, colours: rows 1-23, columns 0-59),
  * made once, kept in bank 5 */
-#define BGK_LIN 0x5C000UL
-#define BGC_LIN 0x5C800UL
 
-static void put(unsigned char x, unsigned char y, unsigned char ch, unsigned char c) {
+void put(unsigned char x, unsigned char y, unsigned char ch, unsigned char c) {
     unsigned int o = (unsigned int)y * COLS + x;
     scr[o] = ch;
     clr[o] = c;
 }
 
-static void put_text(unsigned char x, unsigned char y, const char *s, unsigned char c) {
+void put_text(unsigned char x, unsigned char y, const char *s, unsigned char c) {
     unsigned int o = (unsigned int)y * COLS + x;
     while (*s) {
         scr[o] = (unsigned char)*s++;
@@ -133,7 +57,7 @@ static void put_text(unsigned char x, unsigned char y, const char *s, unsigned c
     }
 }
 
-static void put_number(unsigned char x, unsigned char y, unsigned int v, unsigned char digits, unsigned char c) {
+void put_number(unsigned char x, unsigned char y, unsigned int v, unsigned char digits, unsigned char c) {
     unsigned int o = (unsigned int)y * COLS + x + digits;
     while (digits--) {
         --o;
@@ -143,17 +67,17 @@ static void put_number(unsigned char x, unsigned char y, unsigned int v, unsigne
     }
 }
 
-static void clear_span(unsigned char x, unsigned char y, unsigned char n) {
+void clear_span(unsigned char x, unsigned char y, unsigned char n) {
     unsigned int o = (unsigned int)y * COLS + x;
     while (n--) scr[o++] = CH_SPACE;
 }
 
-static void show(void) {
+void show(void) {
     dma_copy_far(SHOWN_LIN, SCREEN_LIN, COLS * ROWS);
     dma_copy_far(COLOR_LIN, (unsigned long)(unsigned int)clr, COLS * ROWS);
 }
 
-static void set_charset(unsigned long lin) {
+void set_charset(unsigned long lin) {
     REG(0xD068) = (unsigned char)lin;
     REG(0xD069) = (unsigned char)(lin >> 8);
     REG(0xD06A) = (unsigned char)(lin >> 16);
@@ -161,7 +85,7 @@ static void set_charset(unsigned long lin) {
 
 /* text in plain ASCII, for the upper/lower case set: a-z are screen codes
  * 1-26, A-Z $41-$5A */
-static void put_ascii(unsigned char x, unsigned char y, const char *s, unsigned char c) {
+void put_ascii(unsigned char x, unsigned char y, const char *s, unsigned char c) {
     unsigned int o = (unsigned int)y * COLS + x;
     while (*s) {
         unsigned char ch = (unsigned char)*s++;
@@ -180,23 +104,20 @@ static void wait_vsync(void) {
 /* ------------------------------------------------------------------------ */
 /* Random numbers (16-bit xorshift)                                         */
 
-static unsigned int rnd_state = 0xACE1;
-static unsigned int rnd(void) {
+unsigned int rnd_state = 0xACE1;
+unsigned int rnd(void) {
     rnd_state ^= rnd_state << 7;
     rnd_state ^= rnd_state >> 9;
     rnd_state ^= rnd_state << 8;
     return rnd_state;
 }
-static unsigned char rnd_n(unsigned char n) {    /* 0 .. n - 1 */
+unsigned char rnd_n(unsigned char n) {    /* 0 .. n - 1 */
     return (unsigned char)((rnd() & 0xFF) * n >> 8);
 }
 
 /* ------------------------------------------------------------------------ */
 /* Sound (<audio_sid.h>): voice 0 the sheep, 1 births, 2 clicks             */
 
-#define V_BAA   0
-#define V_BIRTH 1
-#define V_CLICK 2
 
 static const sid_instrument_t snd_baa_i   = { SID_SAWTOOTH, 0x16, 0x84, 0 };
 static const sid_instrument_t snd_birth_i = { SID_TRIANGLE, 0x08, 0x00, 0 };
@@ -224,7 +145,7 @@ static void snd_birth(void) {
     birth_t = 24;
 }
 
-static void snd_click(unsigned int f) {
+void snd_click(unsigned int f) {
     snd_start(V_CLICK, &snd_click_i, f);
     click_t = 3;
 }
@@ -257,10 +178,6 @@ static void snd_update(void) {
 /* and Mary Had a Little Lamb in turn) in the field, salon in the salon.    */
 /* Without the file the game has no music.                                  */
 
-#define MUSIC_LIN 0x0050000UL         /* the tunes: bank 5 */
-#define V_BAND 3                      /* the band's first voice: SID 2's first */
-#define MUS_FARM 1
-#define MUS_SALON 2
 
 static unsigned char music_ok, music_on = 1;
 static unsigned char music_at;        /* the tune playing: 0, MUS_FARM, MUS_SALON */
@@ -298,7 +215,7 @@ static void music_play(unsigned char which) {
 }
 
 /* from the top (a new season, the title) */
-static void music_restart(void) {
+void music_restart(void) {
     music_stop();
     farm_saved = 0;
 }
@@ -310,24 +227,20 @@ static void music_toggle(void) {
 }
 
 /* the tunes for where we are */
-static void music_for(unsigned char salon) {
+void music_for(unsigned char salon) {
     if (music_on) music_play(salon ? MUS_SALON : MUS_FARM);
 }
 
 /* ------------------------------------------------------------------------ */
 /* Looks: the traits a sheep shows, the ones the salon changes              */
 
-#define L_WOOL   0x03                 /* 0 natural, pink, blue, gold */
-#define L_LIPS   0x0C                 /* 0 natural, red, purple, pink */
-#define L_LASH   0x10
-#define L_BOW    0x20
 
 static const unsigned char wool_color[4] = {C_WHITE, C_PINK, C_LBLUE, C_YELLOW};
 static const unsigned char lips_color[4] = {C_BLACK, C_RED, C_PURPLE, C_PINK};
 
-static const char *const wool_name[4] = {s"natural", s"pink", s"blue", s"gold"};
-static const char *const lips_name[4] = {s"natural", s"red", s"purple", s"pink"};
-static const char *const yesno_name[2] = {s"no", s"yes"};
+const char *const wool_name[4] = {s"natural", s"pink", s"blue", s"gold"};
+const char *const lips_name[4] = {s"natural", s"red", s"purple", s"pink"};
+const char *const yesno_name[2] = {s"no", s"yes"};
 
 /* the glam traits of a look (0 - 4) */
 static unsigned char glam(unsigned char look) {
@@ -340,13 +253,12 @@ static unsigned char glam(unsigned char look) {
 }
 
 /* the season's trend: a trait value worth double */
-#define NTRENDS 8
 static const unsigned char trend_mask[NTRENDS] = {L_WOOL, L_WOOL, L_WOOL, L_LIPS, L_LIPS, L_LIPS, L_LASH, L_BOW};
 static const unsigned char trend_val[NTRENDS] = {0x01, 0x02, 0x03, 0x04, 0x08, 0x0C, L_LASH, L_BOW};
-static const char *const trend_name[NTRENDS] = {
+const char *const trend_name[NTRENDS] = {
     s"pink wool", s"blue wool", s"gold wool", s"red lips", s"purple lips", s"pink lips",
     s"long lashes", s"bows"};
-static unsigned char trend;
+unsigned char trend;
 
 static unsigned char on_trend(unsigned char look) {
     return (look & trend_mask[trend]) == trend_val[trend];
@@ -355,44 +267,26 @@ static unsigned char on_trend(unsigned char look) {
 /* ------------------------------------------------------------------------ */
 /* The flock                                                                */
 
-#define MAXS 32
-#define F_ALIVE   0x01
-#define F_RAM     0x02
-#define F_LEFT    0x04                /* facing left (head in the left column) */
-#define F_CARRIED 0x08
-#define F_STEP    0x10                /* which legs are forward */
 
-#define ADULT_AGE 12                  /* seconds */
-#define EWE_REST  10                  /* seconds between lambs */
-#define RAM_REST  5
-#define MAX_GEN   5
-#define WOOL_FULL 3                   /* a fleece: shorn 0, short 1-2, full 3 */
-#define WOOL_GROW 12                  /* seconds a step of regrowth */
-#define MAX_SHEARS 6                  /* shorn this often, a sheep passes on */
-#define BAG_PRICE 10                  /* a bag of wool; dyed: */
-#define DYED_PRICE 25
 
 /* a sheep takes SW x SH cells from (x, y) */
-static unsigned char s_x[MAXS], s_y[MAXS], s_flags[MAXS], s_look[MAXS];
-static unsigned char s_age[MAXS], s_life[MAXS], s_cool[MAXS], s_gen[MAXS], s_tmr[MAXS];
-static unsigned char s_wool[MAXS], s_woolt[MAXS], s_shear[MAXS];   /* fleece 0-3, regrowth, times shorn */
+unsigned char s_x[MAXS], s_y[MAXS], s_flags[MAXS], s_look[MAXS];
+unsigned char s_style[MAXS];   /* the styles beyond the scored four (S_*) */
+unsigned char studio;          /* 1: the styling studio (no time, score or shearer) */
+unsigned char s_age[MAXS], s_life[MAXS], s_cool[MAXS], s_gen[MAXS], s_tmr[MAXS];
+unsigned char s_wool[MAXS], s_woolt[MAXS], s_shear[MAXS];   /* fleece 0-3, regrowth, times shorn */
 static unsigned char flock;
 
 /* the player: PW x PH cells from (p_x, p_y) */
-static unsigned char p_x, p_y, p_tmr, p_step;
-static unsigned char carry = 0xFF;    /* the sheep carried, or none */
+unsigned char p_x, p_y, p_tmr, p_step;
+unsigned char carry = 0xFF;    /* the sheep carried, or none */
 
 /* Farmer Fergus, the shearer: PW x PH cells from (sh_x, sh_y). He comes
  * out SHEARER_FIRST seconds into the first season, SHEARER_SOONER seconds
  * sooner each season after (but not before SHEARER_SOONEST), hunts sheep in
  * full fleece and shears them back to natural (SNIP_FRAMES at it); FIRE
  * beside him shoos him off for a while */
-#define SHEARER_FIRST   60
-#define SHEARER_SOONER  15
-#define SHEARER_SOONEST 10
-#define SNIP_FRAMES 100
-#define SHOO_TIME   10                /* seconds */
-static unsigned char sh_on, sh_x, sh_y, sh_tmr, sh_step, sh_snip, sh_rest;
+unsigned char sh_on, sh_x, sh_y, sh_tmr, sh_step, sh_snip, sh_rest;
 static unsigned char sh_target = 0xFF;
 
 static unsigned char shearer_in(unsigned char x, unsigned char y, unsigned char w, unsigned char h) {
@@ -400,7 +294,6 @@ static unsigned char shearer_in(unsigned char x, unsigned char y, unsigned char 
 }
 
 /* hearts and sparkles over the field */
-#define NFX 6
 static unsigned char fx_x[NFX], fx_y[NFX], fx_t[NFX], fx_ch[NFX], fx_c[NFX];
 
 static void add_fx(unsigned char x, unsigned char y, unsigned char ch, unsigned char c) {
@@ -460,6 +353,7 @@ static unsigned char new_sheep(unsigned char x, unsigned char y, unsigned char l
         s_x[i] = x; s_y[i] = y;
         s_flags[i] = (unsigned char)(F_ALIVE | (ram ? F_RAM : 0) | (rnd() & 1 ? F_LEFT : 0));
         s_look[i] = look;
+        s_style[i] = 0;
         s_age[i] = age;
         s_life[i] = (unsigned char)(90 + rnd_n(60));
         s_cool[i] = (unsigned char)(ram ? 0 : 3 + rnd_n(6));
@@ -476,35 +370,28 @@ static unsigned char new_sheep(unsigned char x, unsigned char y, unsigned char l
 /* ------------------------------------------------------------------------ */
 /* Game state                                                               */
 
-enum { M_TITLE, M_PLAY, M_SALON, M_OVER };
-static unsigned char mode;
-static unsigned char fps;              /* 50 (PAL) or 60 (NTSC) */
+unsigned char mode;
+unsigned char fps;              /* 50 (PAL) or 60 (NTSC) */
 static unsigned char sec_frames;       /* frames to the next second */
 static unsigned int time_left;         /* seconds of the season */
-static unsigned char season;           /* the season (1, 2, ...) since the title */
+unsigned char season;           /* the season (1, 2, ...) since the title */
 static unsigned int shearer_at;        /* time_left when Fergus comes out */
 static unsigned char trend_t;          /* seconds to the next trend */
-static unsigned int score, hiscore;
-static unsigned int hiscore_was;       /* the high score when the season began */
-static unsigned char over_t;           /* frames before the season-over box takes fire */
-static unsigned int lambs, glam_lambs;
-static unsigned int lamb_pts, wool_bags, income;   /* the score: lamb_pts + income */
+unsigned int score, hiscore;
+unsigned int hiscore_was;       /* the high score when the season began */
+unsigned char over_t;           /* frames before the season-over box takes fire */
+unsigned int lambs, glam_lambs;
+unsigned int lamb_pts, wool_bags, income;   /* the score: lamb_pts + income */
 static unsigned char msg_t;
-static unsigned char sel;              /* the salon's row */
-static unsigned char hud_dirty, panel_dirty;
+unsigned char sel;              /* the salon's row */
+unsigned char hud_dirty, panel_dirty;
 
 /* the attract mode: after IDLE_T seconds on the title without a key or the
  * joystick touched (any key starts the wait again), the
  * computer plays for ATTRACT_T seconds (any input ends it; fire plays) */
-#define IDLE_T    60
-#define ATTRACT_T 40
-static unsigned char attract;
-static unsigned int idle_t, attract_t;
+unsigned char attract;
+unsigned int idle_t, attract_t;
 
-#ifndef SEASON
-#define SEASON  180                   /* seconds (tests: -DSEASON=n, at least SHEARER_FIRST) */
-#endif
-#define TREND_T 30
 
 static void message(const char *s, unsigned char c) {
     unsigned char n = (unsigned char)strlen(s);
@@ -537,6 +424,8 @@ static unsigned char inherit(unsigned char ma, unsigned char pa) {
     look |= (rnd() & 1 ? ma : pa) & L_LIPS;
     look |= (rnd() & 1 ? ma : pa) & L_LASH;
     look |= (rnd() & 1 ? ma : pa) & L_BOW;
+    look |= (rnd() & 1 ? ma : pa) & L_HOOF;
+    if (rnd_n(8) == 0) look &= (unsigned char)~L_HOOF;
     if (rnd_n(8) == 0) look &= (unsigned char)~L_WOOL;
     if (rnd_n(8) == 0) look &= (unsigned char)~L_LIPS;
     if (rnd_n(8) == 0) look &= (unsigned char)~L_LASH;
@@ -546,6 +435,15 @@ static unsigned char inherit(unsigned char ma, unsigned char pa) {
 
 /* the points of a newborn: 5 a glam trait, times its generation (up to
  * MAX_GEN), double on trend, 50 more with all four */
+/* the other styles: each from one parent (now and then lost); not scored */
+static unsigned char inherit_style(unsigned char ma, unsigned char pa) {
+    static const unsigned char field[4] = {S_HAT, S_SHADOW, S_BLUSH, S_NECK};
+    unsigned char st = 0, k;
+    for (k = 0; k < 4; k++)
+        if (rnd_n(8)) st |= (unsigned char)((rnd() & 1 ? ma : pa) & field[k]);
+    return st;
+}
+
 static void score_lamb(unsigned char look, unsigned char gen) {
     unsigned char t = glam(look);
     unsigned int pts;
@@ -596,8 +494,10 @@ static void breed(void) {
             lamb = new_sheep(fx_, fy_, inherit(s_look[e], s_look[r]), rnd() & 1, 0,
                              (unsigned char)((s_gen[e] > s_gen[r] ? s_gen[e] : s_gen[r]) + 1));
             if (lamb == 0xFF) break;
+            s_style[lamb] = inherit_style(s_style[e], s_style[r]);
             snd_birth();
-            score_lamb(s_look[lamb], s_gen[lamb]);
+            if (!studio) score_lamb(s_look[lamb], s_gen[lamb]);
+            else if (mode == M_PLAY) message(s"a lamb is born! it takes after its parents", C_PINK);
             break;
         }
     }
@@ -693,39 +593,9 @@ static void move_sheep(void) {
 /* ------------------------------------------------------------------------ */
 /* The field: background, then sheep, effects, the player                   */
 
-static void make_background(void) {
-    unsigned char x, y;
-    for (y = 0; y < BGH; y++)
-        for (x = 0; x < BGW; x++) {
-            unsigned int o = (unsigned int)(y + FENCE_T) * COLS + x;   /* (made in the screen's buffers) */
-            unsigned char ch = CH_SPACE, c = C_WHITE, row = (unsigned char)(y + FENCE_T);
-            if (row == FENCE_T || row == FENCE_B) {
-                ch = (x == FENCE_L || x == FENCE_R) ? G_POST : G_FENCE_H;
-                c = C_BROWN;
-            } else if (x == FENCE_L || x == FENCE_R) {
-                if (x == FENCE_R && row >= GATE_Y0 && row <= GATE_Y1) { ch = G_GATE; c = C_YELLOW; }
-                else if (x == FENCE_R && (row == GATE_Y0 - 1 || row == GATE_Y1 + 1)) { ch = G_POST; c = C_BROWN; }
-                else { ch = G_FENCE_V; c = C_BROWN; }
-            } else {
-                unsigned char r = rnd_n(32);
-                if (r < 2) { ch = G_GRASS1; c = MCOL; }
-                else if (r < 4) { ch = G_GRASS2; c = MCOL; }
-                else if (r == 4) { ch = G_FLOWER; c = (rnd() & 1) ? C_YELLOW : C_WHITE; }
-            }
-            scr[o] = ch;
-            clr[o] = c;
-        }
-    for (y = 0; y < BGH; y++) {
-        unsigned int o = (unsigned int)(y + FENCE_T) * COLS;
-        dma_copy_far(BGK_LIN + (unsigned int)y * BGW, (unsigned long)(unsigned int)(scr + o), BGW);
-        dma_copy_far(BGC_LIN + (unsigned int)y * BGW, (unsigned long)(unsigned int)(clr + o), BGW);
-    }
-    memset(scr, CH_SPACE, COLS * ROWS);
-}
-
 /* a sheep's 4 x 2 cells: three of wool (and legs), the head. Each _L
  * glyph follows its _R; a wool row is cells 0 1 2, each _R _L */
-static void draw_sheep_at(unsigned char x, unsigned char y, unsigned char i) {
+void draw_sheep_at(unsigned char x, unsigned char y, unsigned char i) {
     unsigned char f = s_flags[i], look = s_look[i], top, bot, head, muz, k;
     unsigned char wc = MCOL + wool_color[look & L_WOOL];
     unsigned char mc = MCOL + ((look & L_LIPS) ? lips_color[(look & L_LIPS) >> 2] : C_RED);
@@ -816,6 +686,13 @@ static void draw_field(void) {
 
 static void draw_hud(void) {
     clear_span(0, HUD_ROW, COLS);
+    if (studio) {
+        put_text(0, HUD_ROW, s"* styling studio *", C_PINK);
+        put_text(24, HUD_ROW, s"flock", C_WHITE);
+        put_number(30, HUD_ROW, flock, 2, C_YELLOW);
+        put_text(44, HUD_ROW, s"run/stop: back to the title", C_LBLUE);
+        return;
+    }
     put_text(0, HUD_ROW, s"score", C_WHITE);
     put_number(6, HUD_ROW, score, 5, C_YELLOW);
     put_text(13, HUD_ROW, s"time", C_WHITE);
@@ -833,7 +710,7 @@ static void draw_hud(void) {
 }
 
 /* a fenced, empty box: columns x0-x1, rows y0-y1 */
-static void fence_box(unsigned char x0, unsigned char y0, unsigned char x1, unsigned char y1) {
+void fence_box(unsigned char x0, unsigned char y0, unsigned char x1, unsigned char y1) {
     unsigned char y;
     for (y = y0; y <= y1; y++) {
         unsigned char edge = (y == y0 || y == y1);
@@ -857,7 +734,7 @@ static const unsigned char big_cell[18] = {
     G_BIG4, G_BIG5, G_BIG6, G_BIG7, G_BFACE_A, G_BFACE_B,
     G_BIG8, G_BIG9, G_BIG10, G_BIG11, G_BMUZ_A, G_BMUZ_B};
 
-static void draw_big(unsigned char look, unsigned char ram) {
+void draw_big(unsigned char look, unsigned char ram) {
     unsigned char wc = MCOL + wool_color[look & L_WOOL], lc = MCOL + lips_color[(look & L_LIPS) >> 2];
     unsigned char r, c, k = 0;
     clear_span(BIG_X, BIG_Y, 6);
@@ -879,33 +756,12 @@ static void draw_big(unsigned char look, unsigned char ram) {
     if (ram && (look & L_LASH)) put(BIG_X + 5, BIG_Y + 1, G_BLASH_B, MCOL + C_BLACK);
 }
 
-static const char *const salon_rows[5] = {s"wool", s"lips", s"lashes", s"bow", s"done"};
 
 static void draw_panel(void) {
     unsigned char y = 9;
     panel_clear();
     if (mode == M_SALON) {
-        unsigned char look = s_look[carry], r;
-        put_text(PANEL_IN + 1, 2, s"* glam salon *", C_YELLOW);
-        draw_big(look, s_flags[carry] & F_RAM);
-        put_text(PANEL_IN + 5, 8, (s_flags[carry] & F_RAM) ? s"a ram" : s"a ewe", C_LBLUE);
-        for (r = 0; r < 5; r++) {
-            unsigned char c = (r == sel) ? C_YELLOW : C_WHITE;
-            const char *v = 0;
-            if (r == sel) put_text(PANEL_IN, (unsigned char)(10 + r), s">", C_YELLOW);
-            put_text(PANEL_IN + 1, (unsigned char)(10 + r), salon_rows[r], c);
-            if (r == 0) v = wool_name[look & L_WOOL];
-            else if (r == 1) v = lips_name[(look & L_LIPS) >> 2];
-            else if (r == 2) v = yesno_name[(look & L_LASH) ? 1 : 0];
-            else if (r == 3) v = yesno_name[(look & L_BOW) ? 1 : 0];
-            if (v) put_text(PANEL_IN + 8, (unsigned char)(10 + r), v, c);
-        }
-        put_text(PANEL_IN, 17, s"up/down: choose", C_LBLUE);
-        put_text(PANEL_IN, 18, s"left/right:", C_LBLUE);
-        put_text(PANEL_IN + 2, 19, s"change", C_LBLUE);
-        put_text(PANEL_IN, 20, s"fire: let it go", C_LBLUE);
-        put_text(PANEL_IN, 21, s"trend:", C_LBLUE);
-        put_text(PANEL_IN + 2, 22, trend_name[trend], C_PINK);
+        salon_panel();
         return;
     }
     /* playing */
@@ -932,47 +788,10 @@ static void draw_panel(void) {
 }
 
 /* the season-over box, in the middle of the screen over the (frozen) field */
-#define BOX_X 21
-#define BOX_Y 3
-#define BOX_W 38
-#define BOX_H 19
-
-static void box_line(unsigned char y, const char *s, unsigned char c) {
-    put_text((unsigned char)(BOX_X + (BOX_W - strlen(s)) / 2), y, s, c);
-}
-
-static void box_number(unsigned char y, const char *s, unsigned int v) {
-    put_text(BOX_X + 8, y, s, C_WHITE);
-    put_number(BOX_X + BOX_W - 13, y, v, 5, C_YELLOW);
-}
-
-static void draw_over_box(void) {
-    fence_box(BOX_X, BOX_Y, BOX_X + BOX_W - 1, BOX_Y + BOX_H - 1);
-    put_text(BOX_X + 10, BOX_Y + 2, s"season", C_YELLOW);
-    put_number(BOX_X + 17, BOX_Y + 2, season, season < 10 ? 1 : 2, C_YELLOW);
-    put_text(season < 10 ? BOX_X + 19 : BOX_X + 20, BOX_Y + 2, s"is over!", C_YELLOW);
-    box_number(BOX_Y + 4, s"lambs born", lambs);
-    box_number(BOX_Y + 5, s"glam lambs", glam_lambs);
-    box_number(BOX_Y + 6, s"lamb points", lamb_pts);
-    box_number(BOX_Y + 7, s"wool bags", wool_bags);
-    box_number(BOX_Y + 8, s"wool income", income);
-    box_number(BOX_Y + 9, s"score", score);
-    box_number(BOX_Y + 10, s"high score", hiscore);
-    if (score > hiscore_was) box_line(BOX_Y + 11, s"a new high score!", C_PINK);
-    box_line(BOX_Y + 13, s"your flock goes to market.", C_LBLUE);
-    box_line(BOX_Y + 14, s"next season starts afresh", C_LBLUE);
-    box_line(BOX_Y + 15, s"with a plain, unstyled flock.", C_LBLUE);
-    if (!over_t) box_line(BOX_Y + 17, s"return or fire to go on", C_WHITE);
-}
 
 /* ------------------------------------------------------------------------ */
 /* Input                                                                    */
 
-#define K_UP    0x01
-#define K_DOWN  0x02
-#define K_LEFT  0x04
-#define K_RIGHT 0x08
-#define K_FIRE  0x10
 
 static unsigned char held, prev_held;
 
@@ -997,7 +816,6 @@ static unsigned char next_to_sheep(void) {
  * go. It plays at a player's pace: directions are held (so the stylist
  * walks at the usual speed), a button is pressed for a frame and then it
  * waits DEMO_PAUSE frames, as if thinking */
-#define DEMO_PAUSE 12
 static unsigned char demo_t, demo_wait;
 
 static unsigned char demo_press(unsigned char k) {
@@ -1012,12 +830,14 @@ static unsigned char demo_controls(void) {
     if (demo_wait) { demo_wait--; return 0; }
     if (mode == M_TITLE || mode == M_OVER) return (demo_t & 63) == 0 ? demo_press(K_FIRE) : 0;
     if (mode == M_SALON) {
-        if (sel < 4) {
-            unsigned char look = s_look[carry];
+        if (sel < NROWS - 1) {
+            unsigned char look = s_look[carry], st = s_style[carry];
             if (sel == 0 && (look & L_WOOL) != 1 + (demo_t >> 7 & 1)) return demo_press(K_RIGHT);
             if (sel == 1 && (look & L_LIPS) != 0x04) return demo_press(K_RIGHT);
             if (sel == 2 && !(look & L_LASH)) return demo_press(K_RIGHT);
-            if (sel == 3 && !(look & L_BOW) && (demo_t & 2)) return demo_press(K_RIGHT);
+            if (sel == 3 && !(st & S_SHADOW)) return demo_press(K_RIGHT);
+            if (sel == 5 && !(look & L_BOW) && (demo_t & 2)) return demo_press(K_RIGHT);
+            if (sel == 6 && !(st & S_NECK) && (demo_t & 4)) return demo_press(K_RIGHT);
             return demo_press(K_DOWN);
         }
         return demo_press(K_FIRE);
@@ -1172,173 +992,6 @@ static void move_shearer(void) {
         shearer_step((signed char)(rnd_n(3) - 1), (signed char)(rnd_n(3) - 1));
 }
 
-/* ------------------------------------------------------------------------ */
-/* The salon's room: GLAMSALON (characters) into bank 4, GLAMSALON2 (more,  */
-/* its screen, the looks, the palette) into bank 5; without them, the panel */
-
-#define SAL_SCREEN_LIN 0x51800UL      /* its screen: two bytes a cell (80 x 25: to $5279F) */
-#define SAL_COLOUR 0x1000             /* its colour RAM (an offset) */
-#define PALSAVE_LIN 0x5D000UL         /* palette entries 16-255 as they were */
-#define SCRATCH (scr + COLS)          /* (rows 1-23 of the buffers: the room has its own screen) */
-
-static unsigned char salon_ok;        /* the files loaded */
-static seam_screen_t sal;
-static unsigned char sal_look;        /* the look the palette shows (+ 1; 0: none yet) */
-static unsigned int sal_key;          /* what the text shows (+ 1) */
-static unsigned char blink_t, bulb_t, bulb_on;
-#define NSPARK 4
-static unsigned char spark_t[NSPARK], spark_kind;
-static char sal_line[SAL_DOOR_W];
-
-/* sparkles (column, row, the large one's character, the small one's) by
- * the menu's row: wool, lips, lashes, bow */
-static const unsigned int spark_tab[4][4 * NSPARK] = {
-    {SAL_SPARK_WOOL}, {SAL_SPARK_LIPS}, {SAL_SPARK_EYE}, {SAL_SPARK_BOW}};
-static const unsigned char eye_runs[SAL_EYES_N * 4] = {SAL_EYES_RECTS};
-static const unsigned char top_runs[SAL_TOP_N * 4] = {SAL_TOP_RECTS};
-
-/* GLAMSALON and GLAMSALON2 from the drive the game was loaded from (before
- * our screen: the KERNAL's disk code) */
-static void salon_load(void) {
-    static char n1[] = p"glamsalon", n2[] = p"glamsalon2";
-    unsigned char dev = *(volatile unsigned char *)0x00BA;
-    if (dev < 8) dev = 8;
-    if (cbm_load_far(n1, sizeof n1 - 1, dev, SAL_LIN) || cbm_load_far(n2, sizeof n2 - 1, dev, SAL2_LIN)) return;
-    dma_copy_far((unsigned long)(unsigned int)scr, SAL2_LIN + SAL2_SIZE - 4, 4);
-    salon_ok = scr[0] == 0x47 && scr[1] == 0x4C && scr[2] == 0x41 && scr[3] == 0x4D;   /* "GLAM" */
-}
-
-/* palette entries from the file (as palette_restore takes them) */
-static void sal_palette(unsigned char first, unsigned char n, unsigned int at) {
-    dma_copy_far((unsigned long)(unsigned int)SCRATCH, SAL2_LIN + at, 3 * n);
-    palette_restore(first, n, SCRATCH);
-}
-
-/* once (after setup): its screen, the picture's palette (entries 16-255 as
- * they were kept in bank 5); and back at the end */
-static void salon_setup(void) {
-    seam_init(&sal, SAL_SCREEN_LIN, SAL_COLOUR, COLS, ROWS);
-    palette_save(16, 240, SCRATCH);
-    dma_copy_far(PALSAVE_LIN, (unsigned long)(unsigned int)SCRATCH, 720);
-    sal_palette(SAL_PAL_FIRST, SAL_PAL_COUNT, SAL_PALETTE);
-}
-
-static void salon_unsetup(void) {
-    dma_copy_far((unsigned long)(unsigned int)SCRATCH, PALSAVE_LIN, 720);
-    palette_restore(16, 240, SCRATCH);
-}
-
-/* a sparkle's cell: the sparkle, or the room's again */
-static void spark_cell(unsigned char i, unsigned char on) {
-    const unsigned int *sp = spark_tab[spark_kind] + 4 * i;
-    unsigned char x = (unsigned char)sp[0], y = (unsigned char)sp[1];
-    if (on) seam_put(&sal, x, y, (spark_t[i] & 4) ? sp[2] : sp[3], 0);
-    else seam_cells(&sal, x, y, SAL2_LIN + SAL_SCREEN + (((unsigned int)(y - 1) * COLS + x) << 1), 1);
-}
-
-/* sparkles round what the menu's row k changed, one after another */
-static void sparkle(unsigned char k) {
-    unsigned char i;
-    if (sal.shown)
-        for (i = 0; i < NSPARK; i++) spark_cell(i, 0);
-    spark_kind = k;
-    for (i = 0; i < NSPARK; i++) spark_t[i] = (unsigned char)(20 + 8 * i);
-}
-
-/* a line of text (screen codes) on the room: s from off */
-static void sal_fill(unsigned char off, const char *s) {
-    while (*s && off < SAL_DOOR_W) sal_line[off++] = *s++;
-}
-
-static void sal_text(unsigned char x, unsigned char y, unsigned char w, unsigned char off, const char *s,
-                     unsigned char c) {
-    memset(sal_line, CH_SPACE, w);
-    sal_fill(off, s);
-    seam_text(&sal, x, y, sal_line, w, c);
-}
-
-/* one look's cells over the room: runs (column, row, width) of numbers */
-static void sal_runs(const unsigned char *run, unsigned char n, unsigned long src) {
-    while (n--) {
-        seam_cells(&sal, run[0], run[1], src, run[2]);
-        src += (unsigned int)run[2] * 2;
-        run += 4;
-    }
-}
-
-/* the sign (the trend) and the doors (the menu, the help) */
-static void sal_words(unsigned char look) {
-    unsigned char i;
-    sal_text(SAL_SIGN_X, SAL_SIGN_Y, SAL_SIGN_W, 2, s"* glam salon *", C_YELLOW);
-    sal_text(SAL_SIGN_X, SAL_SIGN_Y + 1, SAL_SIGN_W, 0, s"trend: ", C_PINK);
-    sal_fill(7, trend_name[trend]);
-    seam_text(&sal, SAL_SIGN_X, SAL_SIGN_Y + 1, sal_line, SAL_SIGN_W, C_PINK);
-    sal_text(SAL_DOOR_X, SAL_DOOR_Y, SAL_DOOR_W, 2,
-             (s_flags[carry] & F_RAM) ? s"a ram in the chair!" : s"a ewe in the chair!", C_LBLUE);
-    for (i = 0; i < 5; i++) {
-        const char *v = s"";
-        if (i == 0) v = wool_name[look & L_WOOL];
-        else if (i == 1) v = lips_name[(look & L_LIPS) >> 2];
-        else if (i == 2) v = yesno_name[(look & L_LASH) ? 1 : 0];
-        else if (i == 3) v = yesno_name[(look & L_BOW) ? 1 : 0];
-        sal_text(SAL_DOOR_X, (unsigned char)(SAL_DOOR_Y + 1 + i), SAL_DOOR_W, 13, v, i == sel ? C_YELLOW : C_WHITE);
-        sal_fill(4, salon_rows[i]);
-        if (i == sel) sal_line[2] = '>';
-        seam_text(&sal, SAL_DOOR_X, (unsigned char)(SAL_DOOR_Y + 1 + i), sal_line, SAL_DOOR_W,
-                  i == sel ? C_YELLOW : C_WHITE);
-    }
-    sal_text(SAL_DOOR_X, SAL_DOOR_Y + 6, SAL_DOOR_W, 1, s"up/down choose, l/r change", C_LBLUE);
-    sal_text(SAL_DOOR_X, SAL_DOOR_Y + 7, SAL_DOOR_W, 1, s"fire: let it go, darling", C_LBLUE);
-}
-
-static void draw_salon(void) {
-    unsigned char look = s_look[carry], i, k;
-    unsigned int key = (unsigned int)(look | (unsigned int)sel << 6 | (unsigned int)trend << 9) + 1;
-    if (sal_look != look + 1) {          /* the dye's and the lipstick's shades */
-        sal_palette(SAL_WOOL, 16, SAL_DYES + 48 * (look & L_WOOL));
-        sal_palette(SAL_LIPS, 8, SAL_LIPSTICKS + 24 * ((look & L_LIPS) >> 2));
-        sal_look = (unsigned char)(look + 1);
-    }
-    if (++bulb_t >= 20) {                /* the bulbs take turns */
-        bulb_t = 0;
-        bulb_on ^= 1;
-        sal_palette(SAL_BULBA, 8, SAL_BULBS + 24 * bulb_on);
-    }
-    if (blink_t) blink_t--;
-    else blink_t = (unsigned char)(120 + rnd_n(120));
-    /* the eyes' look and the head top's */
-    k = (unsigned char)(((look & L_LASH) ? 2 : 0) | (blink_t < 6 ? 1 : 0));
-    sal_runs(eye_runs, SAL_EYES_N, SAL2_LIN + SAL_EYES + (unsigned int)k * SAL_EYES_LOOK);
-    k = (unsigned char)(((s_flags[carry] & F_RAM) ? 2 : 0) | ((look & L_BOW) ? 1 : 0));
-    sal_runs(top_runs, SAL_TOP_N, SAL2_LIN + SAL_TOP + (unsigned int)k * SAL_TOP_LOOK);
-    for (i = 0; i < NSPARK; i++) {
-        if (spark_t[i]) spark_t[i]--;
-        spark_cell(i, spark_t[i] && spark_t[i] <= 20);
-    }
-    if (key != sal_key) { sal_words(look); sal_key = key; }
-    /* the score line and the messages */
-    seam_row(&sal, 0, HUD_ROW, COLS, scr, clr);
-    seam_row(&sal, 0, MSG_ROW, COLS, scr + MSG_ROW * COLS, clr + MSG_ROW * COLS);
-}
-
-/* into the room (drawn first) and out of it */
-static void salon_on(void) {
-    dma_copy_far(seam_cell(&sal, 0, 1), SAL2_LIN + SAL_SCREEN, COLS * (ROWS - 2) * 2);
-    dma_fill_far(seam_colour(&sal, 0, 1), COLS * (ROWS - 2) * 2, 0);
-    sal_key = 0;
-    blink_t = 100;
-    sparkle(0);
-    draw_salon();
-    seam_show(&sal);
-    REG(0xD021) = SAL_GLASS;
-}
-
-static void salon_off(void) {
-    if (!sal.shown) return;
-    seam_hide(&sal);
-    REG(0xD021) = C_MEADOW;
-}
-
 static void enter_salon(void) {
     mode = M_SALON;
     music_for(1);
@@ -1349,12 +1002,12 @@ static void enter_salon(void) {
     if (salon_ok) salon_on();
 }
 
-static void leave_salon(void) {
+void leave_salon(void) {
     unsigned char i = carry;
     salon_off();
-    p_x = FX1 - 1;                     /* back inside the gate */
+    if (!studio) p_x = FX1 - 1;        /* back inside the gate (the studio: where the stylist was) */
     s_flags[i] &= (unsigned char)~F_CARRIED;
-    if (find_spot(FX1 - SW - 2, p_y)) {
+    if (find_spot(studio ? (p_x > SW ? p_x - SW : FX0) : FX1 - SW - 2, p_y)) {
         s_x[i] = fx_; s_y[i] = fy_;
     }
     s_flags[i] |= F_LEFT;
@@ -1385,6 +1038,7 @@ static void play_input(unsigned char pressed) {
             s_flags[i] |= F_CARRIED;
             snd_baa();
             panel_dirty = 1;
+            if (studio) { enter_salon(); return; }   /* (the studio: straight to the chair) */
             message((s_flags[i] & F_RAM) ? s"got a ram! to the salon" : s"got a ewe! to the salon", C_WHITE);
         } else if (find_spot(p_x > SW ? p_x - SW : FX0, p_y)) {
             unsigned char i = carry;
@@ -1426,24 +1080,9 @@ static void play_input(unsigned char pressed) {
     }
 }
 
-static void salon_input(unsigned char pressed) {
-    unsigned char *look = &s_look[carry];
-    if (pressed & K_UP) { sel = sel ? sel - 1 : 4; snd_click(0x1800); panel_dirty = 1; }
-    if (pressed & K_DOWN) { sel = sel < 4 ? sel + 1 : 0; snd_click(0x1800); panel_dirty = 1; }
-    if (pressed & (K_LEFT | K_RIGHT)) {
-        unsigned char step = (pressed & K_RIGHT) ? 1 : 3;
-        if (sel == 0) *look = (unsigned char)((*look & ~L_WOOL) | ((*look + step) & L_WOOL));
-        else if (sel == 1) *look = (unsigned char)((*look & ~L_LIPS) | ((*look + (step << 2)) & L_LIPS));
-        else if (sel == 2) *look ^= L_LASH;
-        else if (sel == 3) *look ^= L_BOW;
-        if (sel < 4) { snd_click(0x3000); panel_dirty = 1; sparkle(sel); }
-    }
-    if (pressed & K_FIRE) leave_salon();
-}
-
 /* ------------------------------------------------------------------------ */
 
-static void clear_flock(void) {
+void clear_flock(void) {
     unsigned char i;
     for (i = 0; i < MAXS; i++) s_flags[i] = 0;
     for (i = 0; i < NFX; i++) fx_t[i] = 0;
@@ -1461,8 +1100,9 @@ static void new_flock(void) {
     }
 }
 
-static void start_season(void) {
+void start_season(void) {
     mode = M_PLAY;
+    studio = 0;
     score = 0; lambs = 0; glam_lambs = 0;
     lamb_pts = wool_bags = income = 0;
     hiscore_was = hiscore;
@@ -1487,150 +1127,14 @@ static void start_season(void) {
     message_n(s"season ", season, s" begins! catch a sheep", C_YELLOW);
 }
 
-/* ------------------------------------------------------------------------ */
-/* The title page: a block-letter logo, how to play, a parade of sheep      */
-
-/* letters 5 high, 3 or 5 wide; a pixel is two cells (a solid block) */
-static const char logo_text[] = "glam lambs";
-static const char logo_letters[] = "glambs";
-static const unsigned char logo_w[6] = {3, 3, 3, 5, 3, 3};
-static const unsigned char logo_font[6][5] = {
-    {7, 4, 5, 5, 7},                  /* g */
-    {4, 4, 4, 4, 7},                  /* l */
-    {2, 5, 7, 5, 5},                  /* a */
-    {17, 27, 21, 17, 17},             /* m */
-    {6, 5, 6, 5, 6},                  /* b */
-    {7, 4, 7, 1, 7}};                 /* s */
-static const unsigned char logo_color[4] = {C_PINK, C_YELLOW, C_WHITE, C_LBLUE};
-
-#define LOGO_Y 1
-#define LOGO_SPACE 4                  /* cells for a space */
-#define PARADE_Y 21
-#define NPARADE 4
-
-/* the title's text: two columns of headings (a leading '#') and bullet
- * points (a leading '*'); plain ASCII, mixed case */
-static const char *const title_left[] = {
-    "#How to play",
-    "",
-    "*Catch a sheep: walk up, press fire",
-    "*Carry it to the salon door",
-    " in the right-hand fence",
-    "*Dye the wool, add lipstick,",
-    " lashes and a bow",
-    "*Let it go: its lambs inherit",
-    " the look",
-    "*Farmer Fergus shears full fleeces",
-    " (the makeup goes too).",
-    " Fire beside him: shoo!"};
-static const char *const title_right[] = {
-    "#Scoring",
-    "",
-    "*Glam lamb: 5 a trait x generation",
-    "*On the trend: double points",
-    "*All four traits: +50",
-    "*Wool sold: 10 a bag, dyed 25",
-    "*Wool regrows; shorn 6 times,",
-    " a sheep passes on",
-    "",
-    "#Controls",
-    "*Joystick, cursor keys or WASD",
-    "*Fire, Space or Return"};
-
-static void title_line(unsigned char x, unsigned char y, const char *s) {
-    if (*s == '#') put_ascii(x, y, s + 1, C_YELLOW);
-    else if (*s == '*') {
-        put(x, y, G_BULLET, C_PINK);
-        put_ascii((unsigned char)(x + 2), y, s + 1, C_WHITE);
-    } else if (*s) put_ascii((unsigned char)(x + 2), y, s + 1, C_WHITE);
-}
-
-static unsigned char logo_index(char ch) {
-    unsigned char f = 0;
-    while (logo_letters[f] != ch) f++;
-    return f;
-}
-
-static void draw_logo(void) {
-    unsigned char k, r, b, w = 0, x;
-    for (k = 0; logo_text[k]; k++)    /* the width, to centre it */
-        w += logo_text[k] == ' ' ? LOGO_SPACE : logo_w[logo_index(logo_text[k])] * 2 + 1;
-    x = (unsigned char)((COLS - w + 1) / 2);
-    for (k = 0; logo_text[k]; k++) {
-        unsigned char f, lw, c = logo_color[k & 3];
-        if (logo_text[k] == ' ') { x += LOGO_SPACE; continue; }
-        f = logo_index(logo_text[k]);
-        lw = logo_w[f];
-        for (r = 0; r < 5; r++)
-            for (b = 0; b < lw; b++)
-                if (logo_font[f][r] & (1 << (lw - 1 - b))) {
-                    put((unsigned char)(x + b * 2), (unsigned char)(LOGO_Y + r), G_BLOCK, c);
-                    put((unsigned char)(x + b * 2 + 1), (unsigned char)(LOGO_Y + r), G_BLOCK, c);
-                }
-        x += lw * 2 + 1;
-    }
-}
-
-static void draw_title_page(void) {
-    unsigned char i;
-    memset(scr, CH_SPACE, COLS * ROWS);
-    memset(clr, C_WHITE, sizeof clr);
-    draw_logo();
-    put_ascii(22, 7, "A sheep makeover game for the MEGA65", C_LBLUE);
-    for (i = 0; i < 12; i++) {
-        title_line(3, (unsigned char)(9 + i), title_left[i]);
-        title_line(43, (unsigned char)(9 + i), title_right[i]);
-    }
-    for (i = 0; i < COLS; i++) {
-        put(i, 8, G_FENCE_H, C_BROWN);
-        put(i, PARADE_Y + 2, G_FENCE_H, C_BROWN);
-    }
-}
-
-/* once a frame: the parade walks right, the prompt blinks */
-static unsigned char parade_t;
-static void title_frame(void) {
-    unsigned char i;
-    clear_span(0, PARADE_Y, COLS);
-    clear_span(0, PARADE_Y + 1, COLS);
-    if (++parade_t >= 10) {
-        parade_t = 0;
-        for (i = 0; i < NPARADE; i++) {
-            s_x[i] = s_x[i] >= COLS - SW ? 0 : s_x[i] + 1;
-            s_flags[i] ^= F_STEP;
-        }
-    }
-    for (i = 0; i < NPARADE; i++) draw_sheep_at(s_x[i], PARADE_Y, i);
-    clear_span(0, MSG_ROW, COLS);
-    if (FRAMECOUNT & 0x20)
-        put_ascii(15, MSG_ROW, "Fire: start   -   M: music on/off   -   Run/Stop: quit", C_YELLOW);
-}
-
-static void title(void) {
-    static const unsigned char parade_look[NPARADE] = {
-        0x01 | L_BOW | L_LASH, 0x02 | 0x04, 0x03 | 0x08 | L_LASH, 0x01 | 0x0C | L_BOW};
-    unsigned char i;
-    salon_off();
-    mode = M_TITLE;
-    attract = 0;
+/* the styling studio: a flock to style at leisure (no time, score or
+ * shearer); fire beside a sheep takes it to the salon */
+void start_studio(void) {
+    start_season();
+    studio = 1;
     season = 0;
-    idle_t = 0;
-    carry = 0xFF;
-    p_x = 0; p_y = 0;
-    sh_on = 0;
-    trend = rnd_n(NTRENDS);
-    music_restart();
-    music_for(0);
-    clear_flock();
-    set_charset(CHARSET2_LIN);
-    for (i = 0; i < NPARADE; i++) {   /* the parade: sheep slots, never in the field */
-        s_flags[i] = (unsigned char)(F_ALIVE | F_CARRIED | ((i & 1) ? F_RAM : 0));
-        s_x[i] = (unsigned char)(i * 20);
-        s_look[i] = parade_look[i];
-        s_age[i] = ADULT_AGE;
-        s_wool[i] = WOOL_FULL;
-    }
-    draw_title_page();
+    hud_dirty = panel_dirty = 1;
+    message(s"the styling studio! fire beside a sheep to style it", C_PINK);
 }
 
 static void end_season(void) {
@@ -1656,7 +1160,7 @@ static void second(void) {
     tick_flock();
     breed();
     hud_dirty = 1;
-    if (mode != M_PLAY && mode != M_SALON) return;
+    if ((mode != M_PLAY && mode != M_SALON) || studio) return;
     if (sh_rest) sh_rest--;
     if (!sh_on && time_left <= shearer_at) shearer_arrives();
 #ifdef DEMO
@@ -1679,12 +1183,9 @@ static void second(void) {
 /* The palette: entries 0-7 (the cells' own colours) and the shared ones,   */
 /* as 0-255 intensities (the registers take them nibble-swapped)            */
 
-#define PAL_R(i) REG(0xD100 + (i))
-#define PAL_G(i) REG(0xD200 + (i))
-#define PAL_B(i) REG(0xD300 + (i))
 
-static const unsigned char pal_idx[12] = {0, 1, 2, 3, 4, 5, 6, 7, C_DGREY, C_MEADOW, C_TUFT, SAL_GLASS};
-static const unsigned char pal_rgb[36] = {
+const unsigned char pal_idx[12] = {0, 1, 2, 3, 4, 5, 6, 7, C_DGREY, C_MEADOW, C_TUFT, SAL_GLASS};
+const unsigned char pal_rgb[36] = {
     0x00, 0x00, 0x00,    /* black */
     0xFF, 0xFF, 0xFF,    /* white */
     0xE0, 0x20, 0x30,    /* red */
@@ -1698,89 +1199,12 @@ static const unsigned char pal_rgb[36] = {
     0x80, 0x98, 0x68,    /* grass tufts */
     0x2A, 0x16, 0x34,    /* the salon's sign and doors: its text's background */
 };
-static unsigned char saved_pal[48];
-static unsigned char saved_regs[13];
-
-static unsigned char swap_nib(unsigned char v) {
-    return (unsigned char)(v << 4 | v >> 4);
-}
-
-static void set_palette(void) {
-    unsigned char i, k = 0;
-    for (i = 0; i < 16; i++) {
-        saved_pal[i] = PAL_R(i); saved_pal[16 + i] = PAL_G(i); saved_pal[32 + i] = PAL_B(i);
-    }
-    for (i = 0; i < 12; i++, k += 3) {
-        unsigned char n = pal_idx[i];
-        PAL_R(n) = swap_nib(pal_rgb[k]);
-        PAL_G(n) = swap_nib(pal_rgb[k + 1]);
-        PAL_B(n) = swap_nib(pal_rgb[k + 2]);
-    }
-}
-
-static void restore_palette(void) {
-    unsigned char i;
-    for (i = 0; i < 16; i++) {
-        PAL_R(i) = saved_pal[i]; PAL_G(i) = saved_pal[16 + i]; PAL_B(i) = saved_pal[32 + i];
-    }
-}
+unsigned char saved_pal[48];
+unsigned char saved_regs[13];
 
 /* ------------------------------------------------------------------------ */
 
-static void setup(void) {
-    unsigned char i;
-    saved_regs[0] = REG(0xD068); saved_regs[1] = REG(0xD069); saved_regs[2] = REG(0xD06A);
-    saved_regs[3] = REG(0xD020); saved_regs[4] = REG(0xD021);
-    saved_regs[5] = REG(0xD022); saved_regs[6] = REG(0xD023); saved_regs[7] = REG(0xD016);
-    saved_regs[8] = REG(0xD05D);
-    for (i = 0; i < 4; i++) saved_regs[9 + i] = REG(0xD060 + i);
-    /* the screen shown: bank 5 (built at $0800) */
-    dma_fill_far(SHOWN_LIN, COLS * ROWS, CH_SPACE);
-    REG(0xD060) = (unsigned char)SHOWN_LIN;
-    REG(0xD061) = (unsigned char)(SHOWN_LIN >> 8);
-    REG(0xD062) = (unsigned char)(SHOWN_LIN >> 16);
-    REG(0xD063) = REG(0xD063) & 0xF0;
-    /* the character sets: the ROM's (upper case and graphics; upper and
-     * lower case for the title) copied to bank 4, our glyphs over CH_BASE.. */
-    dma_copy_far(CHARSET_LIN, CHARROM_LIN, 2048);
-    dma_copy_far(CHARSET_LIN + CH_BASE * 8, (unsigned long)(unsigned int)glyph_data, sizeof glyph_data);
-    dma_copy_far(CHARSET2_LIN, CHARROM_LIN + 2048, 2048);
-    dma_copy_far(CHARSET2_LIN + CH_BASE * 8, (unsigned long)(unsigned int)glyph_data, sizeof glyph_data);
-    set_charset(CHARSET_LIN);
-    set_palette();
-    REG(0xD020) = C_DGREY;
-    REG(0xD021) = C_MEADOW;
-    REG(0xD022) = C_DGREY;
-    REG(0xD023) = C_TUFT;
-    fps = (REG(0xD06F) & 0x80) ? 60 : 50;
-    memset(scr, CH_SPACE, COLS * ROWS);
-    memset(clr, C_WHITE, sizeof clr);
-    show();
-    /* multicolour characters; with the VIC-IV's hot registers off, or
-     * writing $D016 would recompute (and lose) the 80-column layout */
-    REG(0xD05D) = REG(0xD05D) & 0x7F;
-    REG(0xD016) = REG(0xD016) | 0x10;
-    rnd_state ^= (unsigned int)FRAMECOUNT << 8 | REG(0xD012);
-    if (!rnd_state) rnd_state = 0xACE1;
-    make_background();
-    sid_init();
-}
-
-static void restore(void) {
-    unsigned char i;
-    sid_init();
-    REG(0xD016) = saved_regs[7];
-    REG(0xD05D) = saved_regs[8];
-    REG(0xD068) = saved_regs[0]; REG(0xD069) = saved_regs[1]; REG(0xD06A) = saved_regs[2];
-    REG(0xD020) = saved_regs[3]; REG(0xD021) = saved_regs[4];
-    REG(0xD022) = saved_regs[5]; REG(0xD023) = saved_regs[6];
-    for (i = 0; i < 4; i++) REG(0xD060 + i) = saved_regs[9 + i];
-    restore_palette();
-    dma_fill_far(SCREEN_LIN, COLS * ROWS, CH_SPACE);
-    dma_fill_far(COLOR_LIN, COLS * ROWS, C_WHITE);
-}
-
-static unsigned char m_held;
+static unsigned char m_held, stop_held;
 static unsigned char frame_seen;      /* FRAMECOUNT the sound has caught up to */
 
 int main(void) {
@@ -1807,7 +1231,14 @@ int main(void) {
         REG(0xC0F2) = (unsigned char)tune_ticks();
         REG(0xC0F3) = (unsigned char)(tune_ticks() >> 8);
 #endif
-        if (input_pressed(KEY_STOP)) break;
+        if (input_pressed(KEY_STOP)) {   /* quit; from the studio, the title */
+            if (!stop_held) {
+                if (!studio) break;
+                title();
+                held = prev_held = 0xFF;
+            }
+            stop_held = 1;
+        } else stop_held = 0;
         if (input_pressed(KEY_M)) {
             if (!m_held) music_toggle();
             m_held = 1;
@@ -1842,7 +1273,8 @@ int main(void) {
         }
 #endif
         pressed = held & (unsigned char)~prev_held;
-        if (mode == M_TITLE || mode == M_OVER) {
+        if (mode == M_TITLE) title_input(pressed);
+        else if (mode == M_OVER) {
             if ((pressed & K_FIRE) && !over_t) start_season();
         } else if (mode == M_PLAY) {
             play_input(pressed);
@@ -1875,6 +1307,7 @@ int main(void) {
 #ifdef DEMO
         REG(0xC0FA) = salon_ok;       /* (tests: the salon's files loaded; $D054 in the room) */
         if (sal.shown) REG(0xC0FB) = REG(0xD054);
+        REG(0xC0FC) = studio;         /* (tests: the styling studio) */
         REG(0xC0F7) = p_x;            /* (tests: the stylist's pace) */
         REG(0xC0F8) = p_y;
         REG(0xC0F9) = mode;

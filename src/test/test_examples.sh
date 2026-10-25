@@ -223,6 +223,18 @@ m = open(sys.argv[1], 'rb').read()
 sys.exit(0 if m[0xC0FA] == 1 and m[0xC0FB] & 0x05 == 0x05 and m[0x52800:0x52802] != b"\0\0" else 1)
 PY
 then pass "glamlambs salon"; else fail "glamlambs salon" "the salon's files did not load or the room was not shown"; fi
+# the styling studio (the demo choosing it on the title): no season, the
+# salon shown (the demo writes the studio's flag to $C0FC)
+make -C "$EXAMPLES/c/glamlambs" demo-studio >/dev/null 2>&1
+rm -f "$BUILDDIR/glamstudio.mem"
+timeout 15 $XEMU -headless -besure -sleepless -prgmode 65 -prgexit -dumpmem "$BUILDDIR/glamstudio.mem" \
+    -8 "$PWD/$EXAMPLES/c/glamlambs/glamstudio.d81" -prg "$EXAMPLES/c/glamlambs/glamstudio.prg" </dev/null >/dev/null 2>&1
+if [ -f "$BUILDDIR/glamstudio.mem" ] && python3 - "$BUILDDIR/glamstudio.mem" <<'PY'
+import sys
+m = open(sys.argv[1], 'rb').read()
+sys.exit(0 if m[0xC0FC] == 1 and m[0xC0FB] & 0x05 == 0x05 and m[0xC0F4] == 0 else 1)
+PY
+then pass "glamlambs styling studio"; else fail "glamlambs styling studio" "the studio did not start or show the salon"; fi
 
 build_example "$EXAMPLES/c/forth"
 test_text "forth" "$EXAMPLES/c/forth/forth.prg" "COUNT 0 1 2 3 4" 10
