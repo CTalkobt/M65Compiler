@@ -282,7 +282,11 @@ Dbg45::Stop Dbg45::stepLine(bool over, std::string& err) {
                 Stop s = runUntilStop(temp, err);
                 if (s != STEP) return s;
                 if (regs.sp < sp0 && dbg.functionAt(regs.pc) == fn) continue;   // (a deeper call of it)
-                if (!dbg.lineAt(regs.pc)) return stepLine(false, err);           // (back into code without lines)
+                const DbgLine* l = dbg.lineAt(regs.pc);
+                if (!l) return stepLine(false, err);                             // (back into code without lines)
+                // (the same line again, after an inlined function's lines: on)
+                if (start && l->line == start->line && l->file == start->file && regs.sp == sp0 &&
+                    dbg.functionAt(regs.pc) == fn) continue;
                 return STEP;
             }
         }

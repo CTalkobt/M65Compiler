@@ -105,6 +105,35 @@ else
     fail "cc45 --save-temps kept no assembly"
 fi
 
+# nor without the line info: ca45's passes look past .loc (a larger file:
+# the examples, whose code has many places a .loc line falls in)
+for src in prog.c ../../../examples/c/glamlambs/main.c ../../../examples/c/rogue/main.c; do
+    rm -f $T/temp_*.s45
+    (cd $T && ../../../bin/cc45 -O2 -I../../../lib/include -I$(dirname $src) -c $src -o l.o45 --save-temps >/dev/null 2>&1)
+    asm=$(ls -t $T/temp_*.s45 2>/dev/null | head -1)
+    [ -n "$asm" ] || { fail "$src: cc45 --save-temps kept no assembly"; continue; }
+    mv "$asm" $T/l1.s45
+    grep -v '^[[:space:]]*\.loc' $T/l1.s45 > $T/l0.s45
+    ./bin/ca45 -c $T/l1.s45 -o $T/l1.o45 >/dev/null 2>&1 && ./bin/ca45 -c $T/l0.s45 -o $T/l0.o45 >/dev/null 2>&1 &&
+        ./bin/ln45 -basic -o $T/l1.prg $T/l1.o45 lib/build/c45.lib >/dev/null 2>&1 &&
+        ./bin/ln45 -basic -o $T/l0.prg $T/l0.o45 lib/build/c45.lib >/dev/null 2>&1 &&
+        cmp -s $T/l1.prg $T/l0.prg && pass || fail "$(basename $(dirname $src))/$(basename $src): the code changes with the .loc lines"
+done
+
+# an inlined call is its statement's line: line 5 (r = add(1, 2), add's
+# body inlined in its place) has the code, add's line 2 none
+printf 'int counter;\nstatic int add(int x, int y) { return x + y + counter; }\nint main(void) {\n    int r;\n    r = add(1, 2);\n    counter = r;\n    return r;\n}\n' > $T/inl.c
+./bin/cc45 -O2 -c $T/inl.c -o $T/inl.o45 >/dev/null 2>&1 && ! ./bin/objdump45 -d $T/inl.o45 | grep -q "jsr.*_add" &&
+    ./bin/ln45 -basic -g -o $T/inl.prg $T/inl.o45 lib/build/c45.lib >/dev/null 2>&1 &&
+    python3 -c "
+import json, sys
+d = json.load(open(sys.argv[1]))
+f = [i for i, n in enumerate(d['files']) if n.endswith('inl.c')][0]
+at = {}
+for l in d['lines']:
+    if l[1] == f: at.setdefault(l[2], l[0])
+sys.exit(0 if 5 in at and 2 not in at else 1)" $T/inl.dbg && pass || fail "an inlined call's code is not its line's"
+
 # --- the program's debug file: ln45 -g / cc45 -g (stage 2) ---------------
 jq() {   # $1 the file, $2 a Python expression over d (the JSON): true or not
     python3 -c "import json, sys; d = json.load(open(sys.argv[1])); sys.exit(0 if ($2) else 1)" "$1" 2>/dev/null

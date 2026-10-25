@@ -349,6 +349,7 @@ std::string IRBuilder::newLabel(const std::string& prefix) {
 }
 
 void IRBuilder::emit(ir::Inst inst) {
+    if (inlineCallLoc_.valid() && !inst.callLoc.valid()) inst.callLoc = inlineCallLoc_;
     if (!zpCallMode && (inst.op == ir::Op::CALL || inst.op == ir::Op::CALL_VOID) &&
         inst.callConv == ir::CallConv::STACK && inst.src1.kind == ir::OperandKind::GLOBAL)
         stackCalledFunctions_.insert(inst.src1.name);
@@ -7547,12 +7548,16 @@ normal_call:
             inlineReturnTarget_ = resultVreg;
             inlineReturnLabel_ = mergeLabel;
             inlineSourceFunc_ = node.name;
+            // (the call's line, for the body's line info: the outermost call)
+            ir::SourceLoc savedInlineCallLoc = inlineCallLoc_;
+            if (!inlineCallLoc_.valid()) inlineCallLoc_ = loc(node);
 
             // Visit the inlined function body
             size_t savedLoopBase = loopBase_;
             loopBase_ = loopStack_.size();
             inlineFunc->body->accept(*this);
             loopBase_ = savedLoopBase;
+            inlineCallLoc_ = savedInlineCallLoc;
 
             // Emit fall-through branch to merge label for implicit return
             {

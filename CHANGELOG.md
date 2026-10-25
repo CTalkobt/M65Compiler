@@ -4,6 +4,22 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Line info: an inlined call's line; ca45's code the same without `.loc`
+
+- cc45: a statement whose call is inlined had no address of its own in
+  the line table (`a.x = add(1, 2);` began with `add`'s lines), so a
+  breakpoint on it and dbg45's `start` used another line, and `next` went
+  through the inlined function's lines in the caller's frame. An inlined
+  function's code now has the call's line (the outermost call when
+  inlines nest): `next` and `step` go over it as part of its statement.
+  dbg45's `next` also goes on past the same line again in one frame.
+- ca45: `.loc` lines changed the code: they ended a sequence-extraction
+  run, counted in the "load before a label" look-ahead of the
+  redundant-load pass, and before an unreferenced local label dropped
+  what the registers held. The passes look past them now, so a file
+  assembles to the same code with or without line info (some programs
+  get a few bytes smaller). `test_debug_info.sh` checks both.
+
 ### cc45: file-scope variables of an enum type (#337)
 
 - `enum colour shade;` at file scope was parsed as a function declaration

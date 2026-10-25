@@ -5123,11 +5123,14 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
     // Reset value-role tracking for each new instruction
     clearValueRoles();
 
-    // Emit .loc directive when source location changes
-    if (inst.loc.valid() && (inst.loc.line != lastLocLine_ || inst.loc.file != lastLocFile_)) {
-        lastLocLine_ = inst.loc.line;
-        lastLocFile_ = inst.loc.file;
-        emit(".loc \"" + inst.loc.file + "\", " + std::to_string(inst.loc.line));
+    // Emit .loc directive when source location changes. An inlined
+    // function's code has the line of the call (its statement): a debugger
+    // steps over it as part of that line, in the function it is in
+    const ir::SourceLoc& at = inst.callLoc.valid() ? inst.callLoc : inst.loc;
+    if (at.valid() && (at.line != lastLocLine_ || at.file != lastLocFile_)) {
+        lastLocLine_ = at.line;
+        lastLocFile_ = at.file;
+        emit(".loc \"" + at.file + "\", " + std::to_string(at.line));
     }
 
     // Build IR instruction description for -Rcodegen annotations

@@ -438,6 +438,7 @@ private:
     ir::Operand inlineReturnTarget_;               // vreg for inlined return value
     std::string inlineReturnLabel_;                // merge label for inlined returns
     std::string inlineSourceFunc_;                 // callee function name during inline expansion (for asm rewriting)
+    ir::SourceLoc inlineCallLoc_;                  // the outermost inlined call's location (emit gives it to the body's instructions)
 
     // Track function parameter info for const-qualification warnings
     struct ParamInfo { bool isConst = false; int pointerLevel = 0; };
