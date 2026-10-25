@@ -120,6 +120,20 @@ for src in prog.c ../../../examples/c/forth/main.c ../../../examples/c/rogue/mai
         cmp -s $T/l1.prg $T/l0.prg && pass || fail "$(basename $(dirname $src))/$(basename $src): the code changes with the .loc lines"
 done
 
+# -Rcodegen: why each instruction ("  ; [CONST -> v3(...)]" comments) and
+# the same object (the text passes look past the comments)
+for src in prog.c ../../../examples/c/forth/main.c ../../../examples/c/game_of_life/main.c; do
+    rm -f $T/temp_*.s45
+    (cd $T && ../../../bin/cc45 -O2 -I../../../lib/include -I$(dirname $src) -c $src -o r0.o45 >/dev/null 2>&1 &&
+              ../../../bin/cc45 -O2 -Rcodegen -I../../../lib/include -I$(dirname $src) -c $src -o r1.o45 --save-temps >/dev/null 2>&1)
+    asm=$(ls -t $T/temp_*.s45 2>/dev/null | head -1)
+    if [ -n "$asm" ] && grep -q '  ; \[CONST ' "$asm" && cmp -s $T/r0.o45 $T/r1.o45; then
+        pass
+    else
+        fail "$(basename $(dirname $src))/$(basename $src): -Rcodegen annotates nothing or changes the code"
+    fi
+done
+
 # an inlined call is its statement's line: line 5 (r = add(1, 2), add's
 # body inlined in its place) has the code, add's line 2 none
 printf 'int counter;\nstatic int add(int x, int y) { return x + y + counter; }\nint main(void) {\n    int r;\n    r = add(1, 2);\n    counter = r;\n    return r;\n}\n' > $T/inl.c

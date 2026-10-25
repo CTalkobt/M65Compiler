@@ -183,6 +183,7 @@ CompilationResult CompilationPipeline::compile() {
         codegenStage.setBssFill(config_.bssFill);
         codegenStage.setStackSize(config_.stackSize);
         codegenStage.setOverlay(config_.overlayName);
+        codegenStage.setEmitReasons(config_.emitReasons);
         codegenStage.setOptOverrides(config_.optOverrides);
         codegenStage.setFutureWarnings(config_.futureWarnings);
         codegenStage.setTraceIROpt(config_.traceIROpt);

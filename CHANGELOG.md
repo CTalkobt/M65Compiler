@@ -4,6 +4,19 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### `-Rcodegen` works again
+
+- cc45 `-Rcodegen` annotates the assembly with why each instruction is
+  there (`lda #2  ; [CONST → v2(I8,ZP:$22) val=2]`). It had been parsed and
+  ignored since the compiler driver became a pipeline (Phase 112).
+- Fixed: the code generator's text passes (dead pool stores, dead `ldx`,
+  flag restores, base-page operand rewriting) took a comment containing
+  `:` for a label and a commented instruction's trailing spaces for an
+  operand (a crash); with the comments the code was different. The
+  objects of the examples, the library and the runtime tests are now the
+  same with and without `-Rcodegen` (594 compared); test_debug_info.sh
+  checks three.
+
 ### One diagnostic log for cc45, ca45 and ln45
 
 - `include/Logger.hpp`: levels `-v` (INFO), `-vv` (DEBUG), `-vvv` (DEEP),

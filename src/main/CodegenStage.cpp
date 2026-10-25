@@ -274,7 +274,7 @@ void CodegenStage::generateAssembly() {
                          0x08,              // zpStart
                          objectOnly_,       // relocMode (true for -c/.o45, false for direct PRG)
                          zpCallMode_,       // zpCallMode
-                         false,             // emitReasons (-Rcodegen, not wired; not by -v)
+                         emitReasons_,      // emitReasons (-Rcodegen: why each instruction)
                          staticAlloc_,      // staticAllocMode
                          false,             // sacDebugMode (code of its own: not by -v)
                          prgBase_);

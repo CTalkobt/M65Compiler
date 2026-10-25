@@ -686,7 +686,7 @@ std::string IRCodeGen::rewriteZpOperands(const std::string& line) const {
     size_t b = line.find_first_not_of(" \t");
     if (b == std::string::npos || line[b] == ';') return line;
     // a directive (.word _x) or a label: only a static variable's name changes
-    bool operandsToo = line[b] != '.' && line.find(':') == std::string::npos;
+    bool operandsToo = line[b] != '.' && line.substr(0, line.find(';')).find(':') == std::string::npos;
     std::string out;
     size_t i = 0;
     // the mnemonic stays (and, after it, each identifier is a name)
@@ -2840,7 +2840,7 @@ std::string IRCodeGen::pruneDeadFlagRestores(const std::string& text) {
         if (q == std::string::npos || l[q] == ';') return 0;                         // blank, comment
         if (l.compare(q, 4, ".loc") == 0 || l.compare(q, 4, ".var") == 0 || l.compare(q, 5, ".dbg_") == 0) return 0;
         if (l[q] == '.') return 2;                                                   // another directive
-        if (l.find(':') != std::string::npos) return 3;                              // a label
+        if (l.substr(0, l.find(';')).find(':') != std::string::npos) return 3;       // a label (not a comment's ':')
         std::string body = l.substr(q);
         size_t sp = body.find_first_of(" \t;");
         mn = body.substr(0, sp);
@@ -2903,7 +2903,8 @@ std::string IRCodeGen::pruneDeadLdx(const std::string& text) {
             size_t q = l.find_first_not_of(" \t");
             if (q == std::string::npos || l[q] == ';' || l.compare(q, 4, ".loc") == 0 ||
                 l.compare(q, 5, ".dbg_") == 0) continue;
-            if (l[q] == '.' || l.find(':') != std::string::npos || l[q] == '@') break;   // a directive, a label
+            if (l[q] == '.' || l.substr(0, l.find(';')).find(':') != std::string::npos || l[q] == '@')
+                break;   // a directive, a label (not a comment's ':')
             std::string body = l.substr(q);
             size_t c = body.find(';');
             if (c != std::string::npos) body = body.substr(0, c);
@@ -2930,10 +2931,11 @@ std::string IRCodeGen::pruneDeadPoolStores(const std::string& text) {
         while (std::getline(in, l)) {
             Line ln{l, "", ""};
             size_t p = l.find_first_not_of(" \t");
-            if (p != std::string::npos && l[p] != ';' && l[p] != '.' && l.find(':') == std::string::npos) {
-                std::string body = l.substr(p);
-                size_t c = body.find(';');
-                if (c != std::string::npos) body = body.substr(0, c);
+            // (the code before a comment: -Rcodegen's "  ; [... ZP:$42]" is no label)
+            std::string code = l.substr(0, l.find(';'));
+            if (p != std::string::npos && l[p] != ';' && l[p] != '.' && code.find(':') == std::string::npos) {
+                std::string body = code.substr(p);
+                while (!body.empty() && isspace((unsigned char)body.back())) body.pop_back();
                 size_t sp = body.find_first_of(" \t");
                 ln.mn = body.substr(0, sp);
                 if (sp != std::string::npos) {
@@ -2944,7 +2946,7 @@ std::string IRCodeGen::pruneDeadPoolStores(const std::string& text) {
             } else if (p != std::string::npos && l[p] != ';' && l.compare(p, 4, ".var") != 0 &&
                        l.compare(p, 4, ".loc") != 0 && l.compare(p, 5, ".dbg_") != 0) {
                 ln.mn = ".";   // a directive or a label line: any address in it counts as read
-                ln.operand = l.substr(p);
+                ln.operand = code.substr(p);
             }
             lines.push_back(ln);
         }

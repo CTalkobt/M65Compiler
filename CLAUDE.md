@@ -406,6 +406,7 @@ sprites, hw_*, uart) declare functions that no library implements.
 ./bin/cc45 -S input.c -o input.s45       # standalone assembly (inspection)
 ./bin/cc45 -c input.c -o input.o45       # relocatable object
 CC45_DUMP_IR=1 ./bin/cc45 -c input.c     # optimized IR on stderr
+./bin/cc45 -Rcodegen -S input.c -o x.s45 # why each instruction ("; [CONST → v2(...)]")
 ./bin/ca45 -c input.s45 -o input.o45
 ./bin/nm45 -f input.o45                  # symbols + function attributes
 ./bin/nm45 -r input.o45                  # relocations
