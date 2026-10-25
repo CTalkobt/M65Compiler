@@ -241,6 +241,27 @@ else
     failed=$((failed + 1))
 fi
 
+# #embed / #include binary (the runtime test is test_embed_xemu.c): the
+# lines after one keep their numbers, an odd byte for words warns, and a
+# missing file, an unknown parameter or parameters on #include binary are
+# errors naming the line; in a false #if nothing is read
+printf '\001\002\003' > build/test/test_embed3.bin
+printf 'unsigned int w[] = {\n#include binary word "test_embed3.bin"\n};\n#if 0\n#embed "nowhere.bin"\n#endif\nint e = __LINE__;\n' > build/test/test_embed_ok.c
+printf 'char a[] = {\n#embed "nowhere.bin"\n};\n' > build/test/test_embed_e1.c
+printf 'char a[] = {\n\n#embed "test_embed3.bin" vendor::thing(1)\n};\n' > build/test/test_embed_e2.c
+printf 'char a[] = {\n#include binary "test_embed3.bin" limit(1)\n};\n' > build/test/test_embed_e3.c
+if ./bin/cp45 build/test/test_embed_ok.c -o build/test/test_embed_ok.i 2>build/test/test_embed_ok.err &&
+   grep -qx '0x0201, 0x0003' build/test/test_embed_ok.i && grep -qx 'int e = 7;' build/test/test_embed_ok.i &&
+   grep -q 'test_embed_ok.c:2: warning: .*3 bytes is not a whole number of words' build/test/test_embed_ok.err &&
+   ./bin/cp45 build/test/test_embed_e1.c -o /dev/null 2>&1 | grep -q 'test_embed_e1.c:2: .*nowhere.bin' &&
+   ./bin/cp45 build/test/test_embed_e2.c -o /dev/null 2>&1 | grep -q "test_embed_e2.c:3: #embed: unknown parameter 'vendor::thing'" &&
+   ./bin/cp45 build/test/test_embed_e3.c -o /dev/null 2>&1 | grep -q 'test_embed_e3.c:2: #include binary takes no parameters'; then
+    echo "SUCCESS: #embed / #include binary lines and errors"
+else
+    echo "FAIL: #embed / #include binary ($(cat build/test/test_embed_ok.err 2>/dev/null; ./bin/cp45 build/test/test_embed_e2.c -o /dev/null 2>&1 | head -2))"
+    failed=$((failed + 1))
+fi
+
 # A bitfield wider than its type is an error, also after a comma and unnamed
 # (int e : 17 kept 16 bits without a word)
 bf_ok=1
