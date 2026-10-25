@@ -407,6 +407,20 @@ library calls (`itoa`, `strlen`).
 
 ![hello_linked](images/hello_linked.png)
 
+### ext_tour
+
+[Source](https://github.com/CTalkobt/M65Compiler/tree/main/examples/c/ext_tour) —
+cc45's extensions to C, one per line: each is a short function that uses
+it (struct methods and operators, `break N`, `continue <value>`, `repeat`,
+`__likely`, `__pure`, `__zp`, `__cpu`/`__flags`, `__fastcall__`, string
+encodings, `optimize(off)`, `__noescape`, vectors, `long long`/`__int(N)`,
+`_Complex`, builtins, `#pragma weak`, `push_macro`) and checks its result.
+The uses are marked `EXT:` in the source. `make check` builds it with both
+calling conventions (`__CC45_STACK__` in the `-fno-zpcall` build) and runs
+both in xemu.
+
+![ext_tour](images/ext_tour.png)
+
 ### multi_module
 
 [Source](https://github.com/CTalkobt/M65Compiler/tree/main/examples/c/multi_module) —

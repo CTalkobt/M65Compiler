@@ -8,6 +8,7 @@ SUBDIRS = \
 	c/hello_world \
 	c/hello_linked \
 	c/multi_module \
+	c/ext_tour \
 	c/palette_fade \
 	c/unit_convert \
 	c/bitfield_registers \

@@ -4,6 +4,22 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Example: a tour of the extensions
+
+- `examples/c/ext_tour`: cc45's extensions to C in one program, a short
+  function each with its check (18: struct methods and operators,
+  `break N`, `continue <value>`, `repeat`, `__likely`, `__pure`, `__zp`,
+  `__cpu`/`__flags`, `__fastcall__`, encodings, `optimize(off)`,
+  `__noescape`, vectors, `long long`/`__int(N)`, `_Complex`, builtins,
+  `#pragma weak`, `push_macro`); `make check` runs it built with both
+  calling conventions (`test_examples.sh`). cc45.md's Features section
+  points to it.
+- cc45 / cp45 predefine `__CC45_ZPCALL__` (the ZP convention, the
+  default) or `__CC45_STACK__` (`-fno-zpcall`).
+- A decimal literal with an `LL`/`ULL` suffix over 32 bits no longer warns
+  that it does not fit (`2432902008176640000ULL`), as a hex one did not.
+- cc45.md: `_Pragma` takes every pragma (since #233).
+
 ### ca45 `.macro` / `.endmacro` (#232)
 
 - Multi-line macros with parameters (`.macro store val, addr` …
