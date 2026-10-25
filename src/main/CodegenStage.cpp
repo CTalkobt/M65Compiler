@@ -143,6 +143,8 @@ void CodegenStage::optimizeIR() {
         {"BranchFolding",     ir::optimizeBranchFold},
         {"CommonSubexprElim", ir::optimizeCSE},
         {"LICM",              ir::optimizeLICM},
+        // after LICM: g[r] hoisted out of an inner loop is reduced in the outer one
+        {"LoopStrengthReduction", ir::optimizeLoopStrengthReduction},
         {"CopyPropagation",   ir::optimizeCopyChains},
         {"AddrElemFusion",    ir::optimizeAddrElemFusion},
         // again: constants the passes above made visible (a char divided by

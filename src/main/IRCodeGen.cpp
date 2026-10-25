@@ -1509,12 +1509,34 @@ void IRCodeGen::emitArrayElemAddr(const std::string& baseStr, const ir::Operand&
         emit("ldx #0");
 
     // Step 2: Multiply index by stride if stride > 1: shifts and adds (Y
-    // kept) or the hardware multiplier
+    // kept) or the hardware multiplier; outside loops (as a multiply, #317)
+    // a call of __mul16y / __mul16 when the shifts are bigger (Y and
+    // __zp_scratch2 changed: not with a base there)
     if (stride > 1) {
         bool byteIndex = indexOp.type == ir::Type::I8 ||
                          (indexOp.isVreg() && alloc_.getAlloc(indexOp.vregId).type == ir::Type::I8);
-        if (!emitMulAXConst(stride, byteIndex, "index * " + std::to_string(stride)))
+        const char* mulCallEnv = getenv("CC45_MUL_CALL");
+        bool call = relocMode_ && baseStr.find("__zp_scratch") == std::string::npos &&
+                    (mulCallEnv ? mulCallEnv[0] != '0' : !loopBlocks_.count(currentBlockIdx_));
+        bool byteFactor = !(stride & 0xFF00);
+        std::string why = "index * " + std::to_string(stride);
+        if (emitMulAXConst(stride, byteIndex, why, call ? (byteFactor ? 5 : 11) : 22)) {
+        } else if (call && byteFactor) {
+            emit("ldy #" + std::to_string(stride), why);
+            emit(".extern __mul16y");
+            emit("jsr __mul16y");
+            ms_.invalidateAll();
+        } else if (call) {
+            emit("ldy #" + std::to_string(stride & 0xFF), why);
+            emit("sty __zp_scratch2");
+            emit("ldy #" + std::to_string((stride >> 8) & 0xFF));
+            emit("sty __zp_scratch2+1");
+            emit(".extern __mul16");
+            emit("jsr __mul16");
+            ms_.invalidateAll();
+        } else {
             emit("mul.16 .AX, #" + std::to_string(stride));  // A:X = index * stride
+        }
     }
 
     // Step 3 with a destination: the scaled index (in A:X) plus the base,

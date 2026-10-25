@@ -166,6 +166,35 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
             continue;
         }
 
+        // static / extern / const / volatile before a tagged definition
+        // (static struct S { ... } x;): taken here, they apply to the
+        // variables declared with it
+        bool defStatic = false, defExtern = false, defConst = false, defVolatile = false;
+        {
+            size_t q = pos;
+            bool st = false, ex = false, co = false, vo = false;
+            for (; q < tokens.size(); q++) {
+                TokenType t = tokens[q].type;
+                if (t == TokenType::STATIC) st = true;
+                else if (t == TokenType::EXTERN) ex = true;
+                else if (t == TokenType::CONST) co = true;
+                else if (t == TokenType::VOLATILE) vo = true;
+                else break;
+            }
+            if (q > pos && q + 2 < tokens.size() &&
+                (tokens[q].type == TokenType::STRUCT || tokens[q].type == TokenType::UNION ||
+                 tokens[q].type == TokenType::ENUM) &&
+                tokens[q + 1].type == TokenType::IDENTIFIER && tokens[q + 2].type == TokenType::OPEN_BRACE) {
+                pos = q;
+                defStatic = st; defExtern = ex; defConst = co; defVolatile = vo;
+            }
+        }
+        auto defQuals = [&](VariableDeclaration& vd) {
+            if (defStatic) vd.isStatic = true;
+            if (defExtern) vd.isExtern = true;
+            if (defConst) vd.isConst = true;
+            if (defVolatile) vd.isVolatile = true;
+        };
         if (peek().type == TokenType::STRUCT || peek().type == TokenType::UNION || peek().type == TokenType::ENUM) {
             bool isUnion = peek().type == TokenType::UNION;
             bool isEnum = peek().type == TokenType::ENUM;
@@ -193,6 +222,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     std::string eName = advance().value;
                     auto vDecl = std::make_unique<VariableDeclaration>(eType, eName, 0);
                     vDecl->isGlobal = true;
+                    defQuals(*vDecl);
                     if (match(TokenType::EQUALS)) vDecl->initializer = parseExpression();
                     expect(TokenType::SEMICOLON, "Expected ';'");
                     unit->topLevelDecls.push_back(std::move(def));
@@ -260,6 +290,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                         auto vDecl = std::make_unique<VariableDeclaration>(sType, vName, ptrLevel);
                         declTypes_[vName] = {sType, ptrLevel, false};
                         vDecl->isGlobal = true;
+                        defQuals(*vDecl);
                         // Array dimensions: struct S { } arr[2];
                         while (match(TokenType::OPEN_SQUARE)) {
                             if (match(TokenType::CLOSE_SQUARE)) {
@@ -291,6 +322,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                 declTypes_[en] = {sType, ep, false};
                             declTypes_[en] = {sType, ep, false};
                             ev->isGlobal = true;
+                            defQuals(*ev);
                             while (match(TokenType::OPEN_SQUARE)) {
                                 if (match(TokenType::CLOSE_SQUARE)) ev->arrayDims.push_back(0);
                                 else {

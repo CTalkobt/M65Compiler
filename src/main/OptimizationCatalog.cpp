@@ -138,6 +138,12 @@ void OptimizationCatalog::initializeCatalog() {
         OptimizationCategory::SPEED, 1, -1, "-floop-invariant-code-motion", true, 3
     });
 
+    catalog_.push_back({
+        "LoopStrengthReduction", "Loop Strength Reduction",
+        "Replace g[i] (element size not a power of 2) and i * K in a loop over i with a variable stepped by i's step times the size",
+        OptimizationCategory::BOTH, 1, -1, "-floop-strength-reduction", true, 3
+    });
+
     // Level 5: Advanced inlining and devirtualization
     catalog_.push_back({
         "CrossFunctionInlining", "Cross-Function Inlining",
@@ -285,6 +291,7 @@ void OptimizationCatalog::initializeCatalog() {
         {"BranchFolding",        OptimizationImpl::IR_PASS,   "", 1},
         {"CommonSubexprElim",    OptimizationImpl::IR_PASS,   "", 1},
         {"LICM",                 OptimizationImpl::IR_PASS,   "", 1},
+        {"LoopStrengthReduction", OptimizationImpl::IR_PASS,  "", 1},
         {"CopyPropagation",      OptimizationImpl::IR_PASS,   "", 1},
         {"AddrElemFusion",       OptimizationImpl::IR_PASS,   "", 1},
         {"PostIncrementSink",    OptimizationImpl::IR_PASS,   "", 1},
