@@ -107,13 +107,13 @@ fi
 
 # nor without the line info: ca45's passes look past .loc (a larger file:
 # the examples, whose code has many places a .loc line falls in)
-for src in prog.c ../../../examples/c/glamlambs/main.c ../../../examples/c/rogue/main.c; do
+for src in prog.c ../../../examples/c/forth/main.c ../../../examples/c/rogue/main.c; do
     rm -f $T/temp_*.s45
     (cd $T && ../../../bin/cc45 -O2 -I../../../lib/include -I$(dirname $src) -c $src -o l.o45 --save-temps >/dev/null 2>&1)
     asm=$(ls -t $T/temp_*.s45 2>/dev/null | head -1)
     [ -n "$asm" ] || { fail "$src: cc45 --save-temps kept no assembly"; continue; }
     mv "$asm" $T/l1.s45
-    grep -v '^[[:space:]]*\.loc' $T/l1.s45 > $T/l0.s45
+    grep -v '^[[:space:]]*\.loc[[:space:]]' $T/l1.s45 > $T/l0.s45
     ./bin/ca45 -c $T/l1.s45 -o $T/l1.o45 >/dev/null 2>&1 && ./bin/ca45 -c $T/l0.s45 -o $T/l0.o45 >/dev/null 2>&1 &&
         ./bin/ln45 -basic -o $T/l1.prg $T/l1.o45 lib/build/c45.lib >/dev/null 2>&1 &&
         ./bin/ln45 -basic -o $T/l0.prg $T/l0.o45 lib/build/c45.lib >/dev/null 2>&1 &&
