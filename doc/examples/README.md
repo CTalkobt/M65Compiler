@@ -230,8 +230,9 @@ comes from the glam lambs born (more for later generations, double for the
 season's trend) and the wool sold: the dye, the lipstick, the lashes and
 any headwear score, the other styles are passed on too but only for the
 look. The **styling studio** (chosen on the title page) has no clock, score
-or shearer: fire beside any sheep takes it straight to the salon, for
-players who just like dressing sheep up; RUN/STOP goes back to the title. Farmer Fergus comes out to shear full
+or shearer: it opens in the salon with a sheep in the chair, and back in
+the field fire beside any other takes it straight there, for players who
+just like dressing sheep up; RUN/STOP goes back to the title. Farmer Fergus comes out to shear full
 fleeces, the made-up sheep first, which takes the makeup off. The screen is
 80 x 25 multicolour characters (a multicolour pixel is square in 80 columns),
 the glyphs (`gen_gfx.py`, from ASCII pictures; `gfx.h` is in the repository)
