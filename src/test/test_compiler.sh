@@ -319,6 +319,38 @@ else
     failed=$((failed + 1))
 fi
 
+# The __bit type (#73; the runtime test is test_bit_type_xemu.c): two flags
+# share one byte; a flag set / cleared is tsb / trb (lda #1 first), a __zp
+# one smb / rmb, a lone __zp flag tested bbs on the variable; the errors:
+# extern __bit, its address, ++, an initial value that is not constant
+printf '__bit ready, busy;\n__zp __bit zr;\nunsigned char h;\nvoid set(void) { ready = 1; busy = 0; zr = 1; }\nvoid clr(void) { zr = 0; }\nvoid t(void) { if (zr) h = 1; }\n' > build/test/test_bitty.c
+bt_ok=1
+rm -f build/test/temp_*.s45
+if (cd build/test && ../../bin/cc45 -O2 -c test_bitty.c -o test_bitty.o45 --save-temps >/dev/null 2>&1); then
+    T=$(ls -t build/test/temp_*.s45 | head -1)
+    SET=$(sed -n '/proc _set/,/endproc/p' "$T" | grep -E '^\s+(lda|tsb|trb|smb|rmb|sta|ora|and)' | tr -s ' \n' ' ')
+    case "$SET" in *"lda #1 tsb ___bitvars0 lda #2 trb ___bitvars0 smb0 \$"*) ;; *) bt_ok=0 ;; esac
+    sed -n '/proc _clr/,/endproc/p' "$T" | grep -q 'rmb0 \$' || bt_ok=0
+    sed -n '/proc _t$/,/endproc/p' "$T" | grep -qE 'bbs0 \$[0-9A-F]+, ' || bt_ok=0
+    ./bin/nm45 build/test/test_bitty.o45 | grep -qE ' _ready$| _busy$' && bt_ok=0
+    rm -f "$T"
+else
+    bt_ok=0
+fi
+for bad in 'extern __bit f; int main(void){ return f; }|a __bit variable belongs to its file' \
+           '__bit f; int main(void){ __bit *p = &f; return p != 0; }|has no address' \
+           '__bit f; int main(void){ f++; return 0; }|++/-- of a __bit variable' \
+           'int v; __bit f = v; int main(void){ return f; }|is not a constant'; do
+    printf '%s\n' "${bad%%|*}" > build/test/test_bitty_bad.c
+    ./bin/cc45 -O2 -c build/test/test_bitty_bad.c -o build/test/test_bitty_bad.o45 2>&1 | grep -qF "${bad##*|}" || bt_ok=0
+done
+if [ $bt_ok = 1 ]; then
+    echo "SUCCESS: __bit type packing, tsb/trb/smb/rmb/bbs and errors"
+else
+    echo "FAIL: __bit type ($SET)"
+    failed=$((failed + 1))
+fi
+
 # A bitfield wider than its type is an error, also after a comma and unnamed
 # (int e : 17 kept 16 bits without a word)
 bf_ok=1

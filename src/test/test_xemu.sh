@@ -1158,6 +1158,21 @@ for blmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: the __bit type (#73): file-scope booleans packed 8 to a byte (__zp
+# ones in the base page), conversions, struct members (1-bit fields),
+# locals and parameters (_Bool)
+for btmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r btname btflags <<< "$btmode"
+    echo "Testing test_bit_type_xemu.c ($btname)..."
+    compile_link_test "src/test-resources/test_bit_type_xemu.c" "build/test/test_bit_type_${btname}_xemu.prg" "$btflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_bit_type_$btname" "build/test/test_bit_type_${btname}_xemu.prg" "C0C0" 9 "01 01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_bit_type_xemu.c $btname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: __attribute__((aligned(N))) / _Alignas on globals, locals, struct
 # members and struct types
 for almode in "zp|" "stack|-fno-zpcall"; do

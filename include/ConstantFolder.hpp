@@ -357,10 +357,10 @@ public:
             volatileVars.insert(node.name);
             knownConstants.erase(node.name);
         } else if (initializer) {
-            if (node.type == "_Bool") boolVars.insert(node.name);
+            if (node.type == "_Bool" || node.type == "__bit") boolVars.insert(node.name);
             if (auto* lit = dynamic_cast<IntegerLiteral*>(initializer.get())) {
                 int val = (int)litValue(*lit);
-                if (node.type == "_Bool") { val = (val != 0) ? 1 : 0; lit->value = val; }
+                if (node.type == "_Bool" || node.type == "__bit") { val = (val != 0) ? 1 : 0; lit->value = val; }
                 knownConstants[node.name] = { val, node.type, node.pointerLevel, node.isSigned };
             } else {
                 knownConstants.erase(node.name);

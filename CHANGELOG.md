@@ -4,6 +4,19 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### The `__bit` type: packed booleans (#73)
+
+- `__bit flag;` at file scope is a bit of a hidden byte of the file, 8 to
+  a byte (with initial values); `__zp __bit` ones in the base page.
+  Writes are `TSB`/`TRB` (`SMB`/`RMB` in the base page), tests
+  `AND #mask` (`BBS`/`BBR`); a value stored is 0 or 1. `__bit` struct
+  members are 1-bit fields; locals, parameters and return values are
+  `_Bool`s. `extern __bit`, `&flag` and `++`/`--` are errors. Test
+  `test_bit_type_xemu.c` (both conventions).
+- cc45: a global byte with bits set or cleared by a constant
+  (`g |= 0x20`, `g &= ~4`) is `lda #m` / `tsb` or `trb`, not a load, an
+  `ora`/`and` and a store.
+
 ### `_Bool` fixed
 
 - A value converted to `_Bool` is 0 or 1 (C11 6.3.1.2): in an assignment

@@ -6769,6 +6769,75 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                 }
                 break;
             }
+            // A bit of a __zp byte (a __zp __bit, #73; __bit(z, n)): set or
+            // cleared in place (load, or/and one bit, store back: smb / rmb),
+            // or tested by a branch (load, and one bit, br_cond: bbs on the
+            // variable itself, not a copy)
+            // (a byte elsewhere, or bits of a mask: lda #m / tsb or trb)
+            if (inst.src1.kind == ir::OperandKind::GLOBAL && inst.resultType == ir::Type::I8 && inst.dest.isVreg() &&
+                inst.args.empty() && currentFn_ && inst.src1.name.find("__param_") == std::string::npos &&
+                (zpPlace_.count(inst.src1.name) ||
+                 (symbolAddressSpace_.count(inst.src1.name) && symbolAddressSpace_[inst.src1.name] == 0))) {
+                bool zp = zpPlace_.count(inst.src1.name) > 0;
+                const auto& blk = currentFn_->blocks[currentBlockIdx_];
+                size_t at = currentInstInBlock_;
+                auto after = [&](size_t j) {
+                    for (++j; j < blk.insts.size() && blk.insts[j].op == ir::Op::NOP; ++j) {}
+                    return j;
+                };
+                auto uses = [&](uint32_t v) {
+                    int n = 0;
+                    for (const auto& b : currentFn_->blocks)
+                        for (const auto& in : b.insts) {
+                            for (const ir::Operand* o : {&in.src1, &in.src2}) if (o->isVreg() && o->vregId == v) n++;
+                            for (const auto& o : in.args) if (o.isVreg() && o.vregId == v) n++;
+                        }
+                    return n;
+                };
+                auto bitOf = [](int64_t m) {
+                    m &= 0xFF;
+                    for (int b = 0; b < 8; b++) if (m == (1 << b)) return b;
+                    return -1;
+                };
+                size_t ia = after(at), ib = after(ia);
+                const ir::Inst* a = ia < blk.insts.size() ? &blk.insts[ia] : nullptr;
+                const ir::Inst* b = ib < blk.insts.size() ? &blk.insts[ib] : nullptr;
+                if (a && b && (a->op == ir::Op::OR || a->op == ir::Op::AND) && a->resultType == ir::Type::I8 &&
+                    a->src1.isVreg() && a->src1.vregId == inst.dest.vregId && a->src2.isImm() && a->dest.isVreg() &&
+                    uses(inst.dest.vregId) == 1) {
+                    const std::string& g = inst.src1.name;
+                    int setBit = a->op == ir::Op::OR ? bitOf(a->src2.immVal) : -1;
+                    int clrBit = a->op == ir::Op::AND ? bitOf(~a->src2.immVal) : -1;
+                    int testBit = a->op == ir::Op::AND ? bitOf(a->src2.immVal) : -1;
+                    bool storeBack = b->op == ir::Op::STORE && b->src1.isVreg() &&
+                        b->src1.vregId == a->dest.vregId && b->src2.kind == ir::OperandKind::GLOBAL &&
+                        b->src2.name == g && b->resultType == ir::Type::I8 && b->args.empty() &&
+                        uses(a->dest.vregId) == 1;
+                    if (storeBack && zp && (setBit >= 0 || clrBit >= 0)) {
+                        emit((setBit >= 0 ? "smb" + std::to_string(setBit) : "rmb" + std::to_string(clrBit)) + " " + g,
+                             irDesc(setBit >= 0 ? "set a bit in place" : "clear a bit in place"));
+                        ms_.invalidateAll();
+                        skipInsts_ = (int)(ib - at);
+                        break;
+                    }
+                    if (storeBack) {
+                        int64_t m = (a->op == ir::Op::OR ? a->src2.immVal : ~a->src2.immVal) & 0xFF;
+                        emit("lda #" + std::to_string((int)m), irDesc(a->op == ir::Op::OR ? "set bits in place" : "clear bits in place"));
+                        emit((a->op == ir::Op::OR ? "tsb " : "trb ") + g);
+                        ms_.invalidateAll();
+                        skipInsts_ = (int)(ib - at);
+                        break;
+                    }
+                    if (zp && testBit >= 0 && b->op == ir::Op::BR_COND && b->src1.isVreg() && b->src1.vregId == a->dest.vregId &&
+                        uses(a->dest.vregId) == 1) {
+                        lastCmp_ = {ir::Op::CMP_NE, a->dest.vregId, true};
+                        lastCmp_.bbsZpAddr = g;
+                        lastCmp_.bbsBitN = testBit;
+                        skipInsts_ = (int)(ia - at);   // (the branch is the next one)
+                        break;
+                    }
+                }
+            }
             // g += c on a global of this file (load, add a constant, store
             // back, the values used nowhere else): inc / dec or an add in
             // place, not through temporaries

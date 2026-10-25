@@ -440,6 +440,7 @@ bool IRBuilder::plainUnsignedVar(Expression* e, std::string& name) {
 
 IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
     if (!expr) return {};
+    if (bitVarOf(expr)) return {ir::Type::I8, "__bit", false, ir::Type::VOID, 1};
     if (auto* bs = dynamic_cast<BitSelect*>(expr)) {
         // unsigned, as wide as the field needs
         int w = bs->hi - bs->lo + 1;
@@ -1361,6 +1362,7 @@ void IRBuilder::scanNoOptimize(TranslationUnit& node) {
 }
 
 void IRBuilder::visit(TranslationUnit& node) {
+    packBitVariables(node);
     scanNoOptimize(node);
     // #pragma encoding (asm(".encoding ...")) takes effect where it appears:
     // literals before the first one are PETSCII
@@ -3808,6 +3810,7 @@ void IRBuilder::visit(StatementExpression& node) {
 // ============================================================================
 
 void IRBuilder::visit(VariableDeclaration& node) {
+    if (packedBitDecls_.count(&node)) return;   // (a bit of a __bitvars byte)
     if (node.isVolatile) volatileNames_.insert(node.name);
     // extern in a block: the file-scope variable (a local of the name hidden
     // to the block's end, which restores it: saveShadowed), declared as at
@@ -4642,6 +4645,17 @@ void IRBuilder::visit(StringLiteral& node) {
 }
 
 void IRBuilder::visit(VariableReference& node) {
+    if (const BitVar* b = bitVarOf(&node)) {
+        if (computeAddressOnly_) {
+            errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column, Severity::Error,
+                "a __bit variable has no address (it is a bit of a byte)"));
+            lastValue_ = ir::Operand::imm(0, ir::Type::PTR);
+            return;
+        }
+        auto sel = bitVarSelect(*b, node);
+        visit(*sel);
+        return;
+    }
     if (!vmVars_.empty() && vmVars_.count(node.name) && locals_.count(node.name) && !inVmVarLoad_) {
         // A struct with run-time member sizes: the variable holds its address
         bool saved = computeAddressOnly_;
@@ -4857,6 +4871,24 @@ void IRBuilder::visit(VariableReference& node) {
 }
 
 void IRBuilder::visit(Assignment& node) {
+    if (const BitVar* b = bitVarOf(node.target.get())) {
+        // flag = v: __bit(byte, n) = (__bit)v; flag op= v: = (__bit)(flag op v)
+        auto sel = bitVarSelect(*b, node);
+        std::unique_ptr<Expression> value = std::move(node.expression);
+        BinaryOperation* bin = nullptr;
+        if (node.op != "=") {
+            auto self = std::make_unique<VariableReference>(static_cast<VariableReference*>(node.target.get())->name);
+            self->line = node.line; self->column = node.column; self->sourceFile = node.sourceFile;
+            auto b2 = std::make_unique<BinaryOperation>(node.op.substr(0, node.op.size() - 1), std::move(self), std::move(value));
+            bin = b2.get();
+            value = std::move(b2);
+        }
+        CastExpression cast("__bit", 0, false, std::move(value));
+        cast.line = node.line; cast.column = node.column; cast.sourceFile = node.sourceFile;
+        emitBitSelectWrite(*sel, "=", &cast, false, node);
+        node.expression = bin ? std::move(bin->right) : std::move(cast.expression);   // (the AST stays whole)
+        return;
+    }
     if (auto* bs = dynamic_cast<BitSelect*>(node.target.get())) {
         emitBitSelectWrite(*bs, node.op, node.expression.get(), false, node);
         return;
@@ -6148,6 +6180,14 @@ void IRBuilder::visit(BinaryOperation& node) {
 }
 
 void IRBuilder::visit(UnaryOperation& node) {
+    if (bitVarOf(node.operand.get()) && (node.op == "&" || node.op == "++" || node.op == "--" ||
+                                         node.op == "++_POST" || node.op == "--_POST")) {
+        errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column, Severity::Error,
+            node.op == "&" ? "a __bit variable has no address (it is a bit of a byte)"
+                           : "++/-- of a __bit variable: assign it (flag = 1, flag = !flag)"));
+        lastValue_ = ir::Operand::imm(0, ir::Type::I16);
+        return;
+    }
     if (auto* bs = dynamic_cast<BitSelect*>(node.operand.get());
         bs && (node.op == "++" || node.op == "--" || node.op == "++_POST" || node.op == "--_POST")) {
         emitBitSelectWrite(*bs, node.op.substr(0, 2) == "++" ? "+=" : "-=", nullptr, node.op.size() > 2, node);
@@ -8011,6 +8051,12 @@ void IRBuilder::emitConditionBranches(Expression* cond, const std::string& trueL
         }
     }
 
+    // a __bit variable tested: its byte & mask
+    if (const BitVar* b = bitVarOf(cond)) {
+        auto sel = bitVarSelect(*b, *cond);
+        emitConditionBranches(sel.get(), trueLabel, falseLabel, sl);
+        return;
+    }
     // __bit(v, n) / __bits(v, lo, hi) tested: v & mask, no shift (#204)
     if (auto* bs = dynamic_cast<BitSelect*>(cond)) {
         ir::Type unit = bitSelectUnit(*bs);
@@ -9979,6 +10025,84 @@ ir::Type IRBuilder::bitSelectUnit(BitSelect& node) {
         return ir::Type::VOID;
     }
     return ti.type;
+}
+
+// __bit variables at file scope (#73): bit n of a hidden static unsigned char,
+// 8 to a byte in the order declared; __zp ones in bytes of the base page
+// (bbs/bbr/smb/rmb), the others in BSS/DATA (usable by interrupt handlers)
+void IRBuilder::packBitVariables(TranslationUnit& tu) {
+    struct Pool { const char* prefix; int addressSpace; std::vector<int> init; int used = 0; };
+    Pool pools[2] = {{"__bitvars", 0, {}}, {"__zbitvars", 1, {}}};
+    ASTNode* first = nullptr;
+    // (a declaration of several names is a group of declarations)
+    std::vector<VariableDeclaration*> decls;
+    for (auto& d : tu.topLevelDecls) {
+        if (auto* v = dynamic_cast<VariableDeclaration*>(d.get())) decls.push_back(v);
+        else if (auto* g = dynamic_cast<CompoundStatement*>(d.get()); g && g->isDeclGroup)
+            for (auto& m : g->statements)
+                if (auto* v = dynamic_cast<VariableDeclaration*>(m.get())) decls.push_back(v);
+    }
+    for (VariableDeclaration* v : decls) {
+        if (v->type != "__bit" || v->pointerLevel > 0 || !v->arrayDims.empty()) continue;
+        if (v->isExtern) {
+            errors_.push_back(formatDiagnostic(v->sourceFile, v->line, v->column, Severity::Error,
+                "extern __bit '" + v->name + "': a __bit variable belongs to its file (share an unsigned char "
+                "and __bit(v, n) between files)"));
+            continue;
+        }
+        if (!first) first = v;
+        Pool& p = pools[v->addressSpace == 1 ? 1 : 0];
+        auto it = bitVars_.find(v->name);
+        int k, n;
+        if (it != bitVars_.end()) {   // (declared again: the same bit)
+            k = std::stoi(it->second.byte.substr(std::string(p.prefix).size()));
+            n = it->second.bit;
+        } else {
+            k = p.used / 8;
+            n = p.used % 8;
+            p.used++;
+            if ((size_t)k >= p.init.size()) p.init.push_back(0);
+            bitVars_[v->name] = {p.prefix + std::to_string(k), n};
+        }
+        if (v->initializer) {
+            int64_t c;
+            if (!evalConstInt(v->initializer.get(), c))
+                errors_.push_back(formatDiagnostic(v->sourceFile, v->line, v->column, Severity::Error,
+                    "the initial value of __bit '" + v->name + "' is not a constant"));
+            else if (c)
+                p.init[(size_t)k] |= 1 << n;
+        }
+        packedBitDecls_.insert(v);
+    }
+    if (!first) return;
+    std::vector<std::unique_ptr<Statement>> bytes;
+    for (const Pool& p : pools)
+        for (size_t k = 0; k < p.init.size(); k++) {
+            auto d = std::make_unique<VariableDeclaration>("char", p.prefix + std::to_string(k));
+            d->isGlobal = true;
+            d->isStatic = true;
+            d->addressSpace = p.addressSpace;
+            if (p.init[k]) d->initializer = std::make_unique<IntegerLiteral>(p.init[k]);
+            d->line = first->line; d->column = first->column; d->sourceFile = first->sourceFile;
+            bytes.push_back(std::move(d));
+        }
+    tu.topLevelDecls.insert(tu.topLevelDecls.begin(), std::make_move_iterator(bytes.begin()),
+                            std::make_move_iterator(bytes.end()));
+}
+
+const IRBuilder::BitVar* IRBuilder::bitVarOf(Expression* e) {
+    auto* v = dynamic_cast<VariableReference*>(e);
+    if (!v || bitVars_.empty() || locals_.count(v->name)) return nullptr;
+    auto it = bitVars_.find(v->name);
+    return it == bitVars_.end() ? nullptr : &it->second;
+}
+
+std::unique_ptr<BitSelect> IRBuilder::bitVarSelect(const BitVar& b, ASTNode& at) {
+    auto byte = std::make_unique<VariableReference>(b.byte);
+    byte->line = at.line; byte->column = at.column; byte->sourceFile = at.sourceFile;
+    auto sel = std::make_unique<BitSelect>(std::move(byte), b.bit, b.bit);
+    sel->line = at.line; sel->column = at.column; sel->sourceFile = at.sourceFile;
+    return sel;
 }
 
 ir::Operand IRBuilder::emitBoolConvert(ir::Operand v, const ir::SourceLoc& sl) {
