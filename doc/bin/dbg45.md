@@ -5,7 +5,7 @@
 ## Requirements
 
 - The program built with debug information: `cc45 -g main.c -o prog.prg`, or `ln45 -g ...` (objects always carry it).
-- An xemu whose monitor has a **breakpoint list** that stops before the opcode: the `k` command of [CTalkobt/xemu](https://github.com/CTalkobt/xemu), branch `feat/monitor-breakpoints` (`k` lists, `k+ADDR` adds, `k-ADDR` removes, `k-` clears). The monitor's own `b` holds one breakpoint and stops after the opcode has run. dbg45 says so when the xemu it runs has no `k`. `--xemu`, `$DBG45_XEMU` or `xemu-xmega65` on `PATH`.
+- An xemu whose monitor has a **breakpoint list** that stops before the opcode: the `k` command of [CTalkobt/xemu](https://github.com/CTalkobt/xemu), branch `monitor-breakpoints` (`k` lists, `k+ADDR` adds, `k-ADDR` removes, `k-` clears). The monitor's own `b` holds one breakpoint and stops after the opcode has run. dbg45 says so when the xemu it runs has no `k`. `--xemu`, `$DBG45_XEMU` or `xemu-xmega65` on `PATH`.
 
 ## Usage
 

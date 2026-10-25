@@ -66,6 +66,12 @@ __modu32:
     rts
 
     .split "__mul16"
+; __mul16y: A/X times the byte in Y (cc45: a constant factor below 256)
+.global __mul16y
+__mul16y:
+    sty __zp_scratch2
+    ldy #0
+    sty __zp_scratch2+1
 .global __mul16
 __mul16:
     mul.16 .AX, __zp_scratch2

@@ -140,7 +140,7 @@
               },
               "xemu": {
                 "type": "string",
-                "description": "The xemu to run (it needs the monitor's breakpoint list: CTalkobt/xemu, branch feat/monitor-breakpoints); default xemu-xmega65"
+                "description": "The xemu to run (it needs the monitor's breakpoint list: CTalkobt/xemu, branch monitor-breakpoints); default xemu-xmega65"
               },
               "xemuArgs": {
                 "type": "array",

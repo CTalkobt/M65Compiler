@@ -348,6 +348,8 @@ private:
     // An element of a small global array: Y = index * stride (a byte offset
     // fits), returns the operand "name+off" for name+off,y (false: not small)
     bool arrayYOk(const ir::Operand& base, const ir::Operand& index, int stride, int elemOffset, int elemSize) const;
+    bool zpPtrByteIndex(const ir::Operand& base, const ir::Operand& index, int stride, int elemOffset,
+                        std::string& zp) const;
     bool smallArrayY(const ir::Operand& base, const ir::Operand& index, int stride, int elemOffset,
                      int elemSize, std::string& operand);
 
@@ -504,7 +506,7 @@ private:
     // A:X = A:X * c (16 bits) by shifts and adds when that is no bigger than
     // the hardware multiplier's 24 bytes (xZero: X is known 0, a byte value);
     // false: the caller multiplies
-    bool emitMulAXConst(long c, bool xZero, const std::string& why, int limit = 24);
+    bool emitMulAXConst(long c, bool xZero, const std::string& why, int limit = 22);
     bool justStored(uint32_t vregId) const { static bool off = getenv("CC45_NO_STORECACHE") != nullptr; return !off && storeCache_.vreg == vregId && storeCache_.seq == emitSeq_; }
     // A dropped load would have set N/Z from this register ('A' or 'X'): a
     // conditional branch or a label (fall through) gets ora #0 / inx+dex first

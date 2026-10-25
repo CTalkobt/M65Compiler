@@ -4,6 +4,24 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Smaller code: multiply / divide, byte indexes through pointers, widened bytes
+
+The examples' code is another 2.3 % smaller (144,451 → 141,191 bytes over
+42 objects); test `test_mulidx_xemu.c` (both conventions).
+
+- ca45 `mul` / `div` (and the signed forms): operands stored from X, Y and
+  Z directly (`stx $D771`, not `txa; sta`), the result loaded into them
+  (`ldx $D779`, not `lda; tax`), a constant's byte loaded only when it
+  differs from the one before (`mul.16 .AX, #c`: 22 bytes, was 24).
+- cc45: a multiply by a constant below 256 outside loops calls the new
+  `__mul16y` (`ldy #c; jsr __mul16y`: 5 bytes, was 11 with `__mul16`).
+- cc45: a byte through a pointer in the base page at a byte index is
+  `ldy i; lda (p),y` / `sta (p),y` (was the address built in 16 bits
+  first: 21 bytes).
+- cc45: a byte temporary zero-extended for one 16-bit add, subtract,
+  and / xor or comparison right after it is read where it lives (as a byte
+  variable already was), not widened into a 16-bit register first.
+
 ### Smaller code: six changes from the examples' most common sequences
 
 The examples' code is 3.9 % smaller (150,159 → 144,291 bytes over 42
