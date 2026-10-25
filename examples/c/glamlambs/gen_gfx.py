@@ -585,10 +585,11 @@ def main():
         f.write("#define G_COUNT %d\n" % len(names))
         for i, n in enumerate(names):
             f.write("#define G_%s (CH_BASE + %d)\n" % (n, i))
-        f.write("\nstatic const unsigned char glyph_data[%d] = {\n" % (len(data) * 8))
+        # (the glyphs' data: in the one file that defines GFX_DATA)
+        f.write("\n#ifdef GFX_DATA\nstatic const unsigned char glyph_data[%d] = {\n" % (len(data) * 8))
         for n, g in zip(names, data):
             f.write("    " + ", ".join("0x%02X" % b for b in g) + ",   /* %s */\n" % n)
-        f.write("};\n")
+        f.write("};\n#endif\n")
 
 
 if __name__ == "__main__":
