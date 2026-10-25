@@ -3125,6 +3125,9 @@ std::unique_ptr<Expression> Parser::parseUnary() {
         if (dynamic_cast<CpuFlagAccess*>(operand.get())) {
             throw std::runtime_error(formatDiagnostic(opToken.sourceFile, opToken.line, opToken.column, Severity::Error, "Cannot take address of CPU flag"));
         }
+        if (dynamic_cast<BitSelect*>(operand.get())) {
+            throw std::runtime_error(formatDiagnostic(opToken.sourceFile, opToken.line, opToken.column, Severity::Error, "Cannot take address of __bit/__bits"));
+        }
         return setPos(std::make_unique<UnaryOperation>(op, std::move(operand)), opToken);
     }
 
@@ -3186,6 +3189,31 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
         } else {
             expr = setPos(std::make_unique<CpuFlagAccess>(member), baseToken);
         }
+    } else if (peek().type == TokenType::IDENTIFIER && (peek().value == "__bit" || peek().value == "__bits") &&
+               pos + 1 < tokens.size() && tokens[pos + 1].type == TokenType::OPEN_PAREN) {
+        // __bit(v, n) / __bits(v, lo, hi) (#204): bits of the integer lvalue v,
+        // the positions constant (the operand's width is checked by IRBuilder)
+        const Token& bToken = advance();
+        std::string name = bToken.value;
+        advance();   // (
+        auto v = parseConditional();
+        auto position = [&](const char* what) {
+            expect(TokenType::COMMA, "Expected ',' in " + name);
+            auto e = parseConditional();
+            long c;
+            if (!evalConstInt(e.get(), c))
+                throw std::runtime_error(formatDiagnostic(e->sourceFile, e->line, e->column, Severity::Error,
+                    std::string("the ") + what + " of " + name + " is not a constant"));
+            return c;
+        };
+        long lo = position(name == "__bit" ? "bit number" : "low bit");
+        long hi = name == "__bit" ? lo : position("high bit");
+        expect(TokenType::CLOSE_PAREN, "Expected ')' after " + name);
+        if (lo < 0 || hi > 31 || lo > hi)
+            throw std::runtime_error(formatDiagnostic(bToken.sourceFile, bToken.line, bToken.column, Severity::Error,
+                name + ": " + (lo > hi && lo >= 0 && hi <= 31 ? "the low bit " + std::to_string(lo) + " is above the high bit " + std::to_string(hi)
+                                                               : "bit " + std::to_string(lo < 0 ? lo : hi) + " is out of range (0 to 31)")));
+        expr = setPos(std::make_unique<BitSelect>(std::move(v), (int)lo, (int)hi), bToken);
     } else if (peek().type == TokenType::IDENTIFIER && peek().value == "__builtin_constant_p") {
         // __builtin_constant_p(x) → 1 if x is a compile-time constant, 0 otherwise
         const Token& bToken = advance();

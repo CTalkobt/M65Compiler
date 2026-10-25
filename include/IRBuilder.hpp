@@ -84,6 +84,12 @@ public:
     void visit(BuiltinVaArg& node) override;
     void visit(CpuRegisterAccess& node) override;
     void visit(CpuFlagAccess& node) override;
+    void visit(BitSelect& node) override;
+    // __bit / __bits (#204): the operand's integer type (VOID after an
+    // error), and a write: op "=" or op= with rhs, or ++/-- (rhs null; post:
+    // the value is the old field), the operand read once and written once
+    ir::Type bitSelectUnit(BitSelect& node);
+    void emitBitSelectWrite(BitSelect& node, const std::string& op, Expression* rhs, bool post, ASTNode& at);
     void visit(LabelAddressExpression& node) override;
     void visit(TranslationUnit& node) override;
     void scanNoOptimize(TranslationUnit& node);

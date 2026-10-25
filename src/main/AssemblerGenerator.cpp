@@ -814,6 +814,10 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                             fill = (uint8_t)parser->evaluateExpressionAt(stmt->dir.valueTokenIndex, stmt->scopePrefix);
                         for (int i = 0; i < stmt->size; ++i) e.emitByte(fill);
                     }
+                    else if (stmt->dir.name == "assert") {
+                        if (parser->evaluateExpressionAt(stmt->dir.tokenIndex, stmt->scopePrefix) == 0)
+                            throw std::runtime_error(stmt->dir.arguments.empty() ? "assertion failed" : stmt->dir.arguments[0]);
+                    }
                     else if (stmt->dir.name == "fillto") {
                         uint8_t fill = 0;
                         if (stmt->dir.valueTokenIndex >= 0)

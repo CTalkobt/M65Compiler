@@ -262,6 +262,36 @@ else
     failed=$((failed + 1))
 fi
 
+# __bit / __bits (#204; the runtime test is test_bits_xemu.c): a volatile
+# register written with one load and one store (lda/and/ora/sta), a bit
+# test without shifts (bbs7), and the errors: not an integer, a bit outside
+# the operand, lo > hi, a position not constant, its address
+printf '#define VIC (*(volatile unsigned char *)0xD011)\nunsigned char g, h;\nvoid w(void) { __bits(VIC, 4, 6) = 3; }\nvoid s(void) { __bit(g, 5) = 1; }\nvoid t(void) { if (__bit(g, 7)) h = 1; }\n' > build/test/test_bits_cg.c
+bits_ok=1
+if ./bin/cc45 -O2 -S build/test/test_bits_cg.c -o build/test/test_bits_cg.s45 >/dev/null 2>&1; then
+    W=$(sed -n '/proc _w$/,/endproc/p' build/test/test_bits_cg.s45 | grep -E '^\s+(lda|and|ora|sta) ' | tr -s ' \n' ' ')
+    S=$(sed -n '/proc _s$/,/endproc/p' build/test/test_bits_cg.s45 | grep -cE '^\s+(and|lsr|asl)')
+    [ "$W" = " lda \$D011 and #143 ora #48 sta \$D011 " ] || bits_ok=0
+    [ "$S" = 0 ] || bits_ok=0
+    sed -n '/proc _t$/,/endproc/p' build/test/test_bits_cg.s45 | grep -q 'bbs7' || bits_ok=0
+else
+    bits_ok=0
+fi
+for bad in 'float f; void t(void){ __bit(f, 1) = 1; }|not an integer' \
+           'unsigned char c; void t(void){ __bits(c, 4, 8) = 1; }|bit 8 is outside the operand (8 bits' \
+           'unsigned char c; void t(void){ __bits(c, 5, 2) = 1; }|low bit 5 is above the high bit 2' \
+           'unsigned char c; int n; void t(void){ __bit(c, n) = 1; }|bit number of __bit is not a constant' \
+           'unsigned char c; void t(void){ unsigned char *p = &__bit(c, 1); }|Cannot take address of __bit'; do
+    printf '%s\n' "${bad%%|*}" > build/test/test_bits_bad.c
+    ./bin/cc45 -O2 -c build/test/test_bits_bad.c -o build/test/test_bits_bad.o45 2>&1 | grep -qF "${bad##*|}" || bits_ok=0
+done
+if [ $bits_ok = 1 ]; then
+    echo "SUCCESS: __bit / __bits code and errors"
+else
+    echo "FAIL: __bit / __bits ($W; and/shifts in s: $S)"
+    failed=$((failed + 1))
+fi
+
 # A bitfield wider than its type is an error, also after a comma and unnamed
 # (int e : 17 kept 16 bits without a word)
 bf_ok=1

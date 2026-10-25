@@ -840,6 +840,27 @@ std::unique_ptr<ExprAST> parseExprAST(const std::vector<AssemblerToken>& tokens,
                 bool exists = symbolTable.count(scopedName) > 0 || symbolTable.count(symName) > 0;
                 return std::make_unique<ConstantNode>(exists ? 1 : 0);
             }
+            // bit(v, n) = (v >> n) & 1; bits(v, lo, hi) = (v & ((2 << hi) - 1)) >> lo
+            // (bits 0..hi kept, then shifted down; 2 << 31 wraps to 0, all ones)
+            if ((lowerName == "bit" || lowerName == "bits") && idx < (int)tokens.size() && tokens[idx].type == AssemblerTokenType::OPEN_PAREN) {
+                idx++; // consume (
+                std::vector<std::unique_ptr<ExprAST>> args;
+                while (true) {
+                    args.push_back(parseExprAST(tokens, idx, symbolTable, scopePrefix));
+                    if (idx < (int)tokens.size() && tokens[idx].type == AssemblerTokenType::COMMA) { idx++; continue; }
+                    break;
+                }
+                if (idx < (int)tokens.size() && tokens[idx].type == AssemblerTokenType::CLOSE_PAREN) idx++; // consume )
+                size_t want = lowerName == "bit" ? 2 : 3;
+                if (args.size() != want)
+                    throw std::runtime_error(lowerName + "() takes " + std::to_string(want) + " arguments, given " + std::to_string(args.size()));
+                if (lowerName == "bit")
+                    return std::make_unique<BinaryExpr>("&", std::make_unique<BinaryExpr>(">>", std::move(args[0]), std::move(args[1])),
+                                                        std::make_unique<ConstantNode>(1));
+                auto mask = std::make_unique<BinaryExpr>("-", std::make_unique<BinaryExpr>("<<", std::make_unique<ConstantNode>(2), std::move(args[2])),
+                                                         std::make_unique<ConstantNode>(1));
+                return std::make_unique<BinaryExpr>(">>", std::make_unique<BinaryExpr>("&", std::move(args[0]), std::move(mask)), std::move(args[1]));
+            }
             if (t.type == AssemblerTokenType::IDENTIFIER && (lowerName == "lo" || lowerName == "hi" || lowerName == "bank") && idx < (int)tokens.size() && tokens[idx].type == AssemblerTokenType::OPEN_PAREN) {
                 idx++; // consume (
                 auto expr = parseExprAST(tokens, idx, symbolTable, scopePrefix);
@@ -903,7 +924,12 @@ std::unique_ptr<ExprAST> parseExprAST(const std::vector<AssemblerToken>& tokens,
                 tokens[idx].type == AssemblerTokenType::END_OF_FILE ||
                 tokens[idx].type == AssemblerTokenType::COMMA ||
                 tokens[idx].type == AssemblerTokenType::CLOSE_PAREN ||
-                tokens[idx].type == AssemblerTokenType::CLOSE_BRACKET) {
+                tokens[idx].type == AssemblerTokenType::CLOSE_BRACKET ||
+                tokens[idx].type == AssemblerTokenType::EQUALS_EQUALS || tokens[idx].type == AssemblerTokenType::NOT_EQUALS ||
+                tokens[idx].type == AssemblerTokenType::LESS_EQUAL || tokens[idx].type == AssemblerTokenType::GREATER_EQUAL ||
+                // (* < $2000 compares; *<lbl, *>lbl stay a dereference of a byte)
+                ((tokens[idx].type == AssemblerTokenType::LESS_THAN || tokens[idx].type == AssemblerTokenType::GREATER_THAN) &&
+                 idx + 1 < (int)tokens.size() && tokens[idx + 1].type != AssemblerTokenType::IDENTIFIER)) {
                 return std::make_unique<RegisterNode>(".PC");
             }
             return std::make_unique<DereferenceNode>(parseExprAST(tokens, idx, symbolTable, scopePrefix));

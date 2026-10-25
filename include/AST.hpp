@@ -594,6 +594,16 @@ public:
     void accept(ASTVisitor& visitor) override;
 };
 
+// __bit(v, n) / __bits(v, lo, hi) (#204): bits lo..hi of the integer lvalue
+// v, an unsigned value (and an lvalue: v is read once and written once)
+class BitSelect : public Expression {
+public:
+    std::unique_ptr<Expression> operand;
+    int lo, hi;
+    BitSelect(std::unique_ptr<Expression> v, int l, int h) : operand(std::move(v)), lo(l), hi(h) {}
+    void accept(ASTVisitor& visitor) override;
+};
+
 
 class TranslationUnit : public ASTNode {
 public:
@@ -648,6 +658,7 @@ public:
     virtual void visit(BuiltinVaArg& node) = 0;
     virtual void visit(CpuRegisterAccess& node) = 0;
     virtual void visit(CpuFlagAccess& node) = 0;
+    virtual void visit(BitSelect& node) = 0;
     virtual void visit(LabelAddressExpression& node) = 0;
     virtual void visit(TranslationUnit& node) = 0;
     // Default: visit the statements, then the result
@@ -704,6 +715,7 @@ public:
     void visit(BuiltinVaArg& node) override;
     void visit(CpuRegisterAccess& node) override;
     void visit(CpuFlagAccess& node) override;
+    void visit(BitSelect& node) override;
     void visit(LabelAddressExpression& node) override;
     void visit(TranslationUnit& node) override;
 };

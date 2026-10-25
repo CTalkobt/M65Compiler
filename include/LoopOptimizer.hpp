@@ -62,6 +62,7 @@ public:
     void visit(BuiltinVaArg& node) override {}
     void visit(CpuRegisterAccess& node) override {}
     void visit(CpuFlagAccess& node) override {}
+    void visit(BitSelect& node) override {}
     void visit(LabelAddressExpression& node) override {}
 
 private:
@@ -113,6 +114,7 @@ private:
         void visit(AlignofExpression&) override {}
         void visit(CpuRegisterAccess&) override {}
         void visit(CpuFlagAccess&) override {}
+        void visit(BitSelect& node) override { node.operand->accept(*this); }
         void visit(IfStatement&) override {}
         void visit(ExpressionStatement&) override {}
         void visit(ReturnStatement&) override {}

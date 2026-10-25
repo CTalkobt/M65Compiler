@@ -203,6 +203,21 @@ static void tour_cpu(void) {
     report("__cpu, __flags", line, before == after && a == 0x16 && !carry);
 }
 
+/* --- __bit and __bits ---------------------------------------------------- */
+
+static unsigned char vic_ctrl = 0x9B;     /* a register's value: 1001 1011 */
+
+static void tour_bits(void) {
+    unsigned char rows, mode;
+    rows = __bits(vic_ctrl, 0, 2);       /* EXT: __bits: bits 0-2, shifted down */
+    __bit(vic_ctrl, 7) = 0;              /* EXT: __bit: one bit written (and #$7f) */
+    __bits(vic_ctrl, 4, 6) = 5;          /* bits 4-6 := 5, the others kept */
+    ++__bits(vic_ctrl, 0, 2);            /* the field counts, wrapping in its 3 bits */
+    mode = vic_ctrl;
+    sprintf(line, "$9b: bits 0-2 = %u, then $%02x", rows, mode);
+    report("__bit, __bits", line, rows == 3 && mode == 0x5C && __bit(mode, 6));
+}
+
 /* --- __fastcall__ -------------------------------------------------------- */
 
 /* EXT: __fastcall__: this one function takes its arguments in the base
@@ -354,7 +369,7 @@ static void ascii_font(void) {
 
 int main(void) {
     ascii_font();
-    printf("ext_tour: cc45's extensions to C, one per line\n\n");
+    printf("ext_tour: cc45's extensions to C, one per line\n");
     tour_methods();
     tour_break_n();
     tour_continue_value();
@@ -363,6 +378,7 @@ int main(void) {
     tour_pure();
     tour_zp();
     tour_cpu();
+    tour_bits();
     tour_fastcall();
     tour_encoding();
     tour_optimize();

@@ -4,6 +4,23 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### `__bit` / `__bits`, ca45 `.assert` and `bit()` / `bits()` (#204)
+
+- cc45: `__bit(v, n)` and `__bits(v, lo, hi)` read and write bits of an
+  integer lvalue (char, int, long; a variable, member, element, `*p`, a
+  volatile register) without a bit-field struct: the operand evaluated
+  once, read once and written once (`__bits(VIC, 4, 6) = 3` is lda / and /
+  ora / sta); compound assignment and `++`/`--` wrap in the field; the
+  value is unsigned; in a condition a field is `v & mask` (`bbs`/`bbr`).
+  Test `test_bits_xemu.c` (both conventions); the extensions tour has it
+  (19 lines).
+- cc45: a byte shifted by a constant is shifted in A alone (`lsr` / `asl`
+  n times, was the 16-bit sequence through a scratch byte).
+- ca45: `.assert expr[, "message"]` (checked when the code is generated:
+  every symbol known, `*` its address); `bit(e, n)` and `bits(e, lo, hi)`
+  in expressions; an instruction's operand keeps commas inside `( )`
+  (`lda #bits(M, 4, 7)`); `*` before a comparison is the PC.
+
 ### `#embed` and `#include binary` (#91)
 
 - cp45 / cc45: a file's bytes as an initializer's list of constants.

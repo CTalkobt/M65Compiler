@@ -1107,6 +1107,21 @@ for emmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: __bit(v, n) / __bits(v, lo, hi) (#204): reads and writes of char,
+# int and long operands, compound assignment, ++/--, an operand evaluated
+# once, a volatile byte, conditions
+for btmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r btname btflags <<< "$btmode"
+    echo "Testing test_bits_xemu.c ($btname)..."
+    compile_link_test "src/test-resources/test_bits_xemu.c" "build/test/test_bits_${btname}_xemu.prg" "$btflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_bits_$btname" "build/test/test_bits_${btname}_xemu.prg" "C0C0" 10 "01 01 01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_bits_xemu.c $btname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: __attribute__((aligned(N))) / _Alignas on globals, locals, struct
 # members and struct types
 for almode in "zp|" "stack|-fno-zpcall"; do

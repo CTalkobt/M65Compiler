@@ -1,0 +1,16 @@
+; .assert and bit() / bits() (#204): the bytes a9 0b a2 01 a0 01 a3 ff 60
+        .org $2001
+MODE = %10110100
+start:
+        lda #bits(MODE, 4, 7)           ; $0b
+        ldx #bit(MODE, 2)               ; 1
+        ldy #bits($12345678, 28, 31)    ; 1
+        ldz #bits($FFFFFFFF, 0, 31) & $FF
+        .assert bits(MODE, 4, 7) == $B, "mode field"
+        .assert bit(MODE, 3) == 0
+        .assert * <= $2100              ; the PC
+        .assert end - start < 64, "too big"
+        .assert later == 3              ; a symbol defined further on
+        rts
+end:
+later = 3

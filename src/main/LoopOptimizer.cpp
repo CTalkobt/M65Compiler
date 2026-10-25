@@ -152,6 +152,7 @@ namespace {
         void visit(BuiltinVaArg&) override {}
         void visit(CpuRegisterAccess&) override {}
         void visit(CpuFlagAccess&) override {}
+        void visit(BitSelect&) override {}
         void visit(LabelAddressExpression&) override {}
     };
 
@@ -228,6 +229,9 @@ namespace {
         void visit(BuiltinVaArg&) override {}
         void visit(CpuRegisterAccess&) override {}
         void visit(CpuFlagAccess&) override {}
+        void visit(BitSelect& n) override {
+            if (n.operand && !found) n.operand->accept(*this);
+        }
         void visit(LabelAddressExpression&) override {}
         void visit(BreakStatement&) override {}
         void visit(ContinueStatement&) override {}
@@ -661,6 +665,7 @@ namespace {
         void visit(AlignofExpression&) override {}
         void visit(CpuRegisterAccess&) override {}
         void visit(CpuFlagAccess&) override {}
+        void visit(BitSelect& n) override { n.operand->accept(*this); }
         void visit(LabelAddressExpression&) override {}
         void visit(IfStatement&) override {}
         void visit(ExpressionStatement&) override {}
@@ -771,6 +776,14 @@ namespace {
         void visit(BuiltinVaArg&) override {}
         void visit(CpuRegisterAccess&) override {}
         void visit(CpuFlagAccess&) override {}
+        void visit(BitSelect& n) override {
+            if (auto* t = dynamic_cast<BitSelect*>(target)) {
+                if (n.lo != t->lo || n.hi != t->hi) return;
+                ExpressionComparator cmp;
+                cmp.compare(*n.operand, *t->operand);
+                equal = cmp.equal;
+            }
+        }
         void visit(LabelAddressExpression&) override {}
         
         // Statements/Decls
@@ -809,12 +822,16 @@ namespace {
         void visit(Assignment& n) override {
             if (auto* ref = dynamic_cast<VariableReference*>(n.target.get()))
                 mutatedVars.insert(ref->name);
+            if (auto* bs = dynamic_cast<BitSelect*>(n.target.get()))   // __bits(x, ...) = v changes x
+                if (auto* ref = dynamic_cast<VariableReference*>(bs->operand.get())) mutatedVars.insert(ref->name);
             n.expression->accept(*this);
         }
         void visit(UnaryOperation& n) override {
             if (n.op == "++" || n.op == "--") {
                  if (auto* ref = dynamic_cast<VariableReference*>(n.operand.get()))
                     mutatedVars.insert(ref->name);
+                 if (auto* bs = dynamic_cast<BitSelect*>(n.operand.get()))
+                    if (auto* ref = dynamic_cast<VariableReference*>(bs->operand.get())) mutatedVars.insert(ref->name);
             }
             n.operand->accept(*this);
         }
@@ -902,6 +919,10 @@ namespace {
         void visit(BuiltinVaArg&) override {}
         void visit(CpuRegisterAccess&) override {}
         void visit(CpuFlagAccess&) override {}
+        void visit(BitSelect& n) override {
+            addExpr(&n);
+            n.operand->accept(*this);
+        }
         void visit(LabelAddressExpression&) override {}
         void visit(BreakStatement&) override {}
         void visit(ContinueStatement&) override {}

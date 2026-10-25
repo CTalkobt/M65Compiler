@@ -88,6 +88,13 @@ public:
     }
 
     void visit(Assignment& node) override {
+        if (auto* bs = dynamic_cast<BitSelect*>(node.target.get())) {
+            bitSelectWrite(bs, "Assignment to");
+            node.target = fold(std::move(node.target));
+            auto expression = fold(std::move(node.expression));
+            lastExpr = copyPos(std::make_unique<Assignment>(std::move(node.target), std::move(expression), node.op), node);
+            return;
+        }
         if (node.op == "=") checkPlainStore(node.target.get(), node.expression.get(), node);
         // Check for const assignment
         if (auto* ref = dynamic_cast<VariableReference*>(node.target.get())) {
@@ -159,6 +166,12 @@ public:
 
     void visit(UnaryOperation& node) override {
         if (node.op == "++" || node.op == "--" || node.op == "++_POST" || node.op == "--_POST") {
+            if (dynamic_cast<BitSelect*>(node.operand.get())) {
+                bitSelectWrite(node.operand.get(), "Increment/decrement of");
+                node.operand = fold(std::move(node.operand));
+                lastExpr = copyPos(std::make_unique<UnaryOperation>(node.op, std::move(node.operand)), node);
+                return;
+            }
             checkInnerConst(node.operand.get(), "Increment/decrement of");
             if (auto* ref = dynamic_cast<VariableReference*>(node.operand.get())) {
                 if (constVars.count(ref->name) || constPointerVars.count(ref->name)) {
@@ -219,6 +232,23 @@ public:
 
     void visit(CpuFlagAccess& node) override {
         lastExpr = copyPos(std::make_unique<CpuFlagAccess>(node.flagName), node);
+    }
+    void visit(BitSelect& node) override {
+        // (the operand stays an lvalue: not folded to its value)
+        if (!dynamic_cast<VariableReference*>(node.operand.get())) node.operand = fold(std::move(node.operand));
+        lastExpr = copyPos(std::make_unique<BitSelect>(std::move(node.operand), node.lo, node.hi), node);
+    }
+    // __bits(x, ...) = v / ++__bits(x, ...) changes x: the read-only checks and
+    // the constant x had before
+    void bitSelectWrite(Expression* target, const char* what) {
+        auto* bs = dynamic_cast<BitSelect*>(target);
+        if (!bs) return;
+        checkInnerConst(bs->operand.get(), what);
+        if (auto* ref = dynamic_cast<VariableReference*>(bs->operand.get())) {
+            if (constVars.count(ref->name) || constPointerVars.count(ref->name))
+                throw std::runtime_error(std::string("Compile Error: ") + what + " read-only location '" + ref->name + "'");
+            knownConstants.erase(ref->name);
+        }
     }
 
     void visit(LabelAddressExpression& node) override {
