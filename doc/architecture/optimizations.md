@@ -487,7 +487,7 @@ option '-f…' ignored"*.
 | Option | What happens |
 |---|---|
 | `#pragma cc45 unroll [N]`, `#pragma cc45 unroll_default N` | Turned into a directive that nothing reads; no effect |
-| `--emit-ir`, `-Rcodegen` | Parsed, never used. Use `CC45_DUMP_IR=1` for IR |
+| `--emit-ir` | Parsed, never used. Use `CC45_DUMP_IR=1` for IR (`-Rcodegen` annotates the assembly: [cc45.md](../bin/cc45.md)) |
 | `--pragma <p>` | Parsed into `cliPragmas`, never used: the pragma is not injected |
 
 ## Configuration file
