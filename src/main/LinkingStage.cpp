@@ -1,4 +1,5 @@
 #include "LinkingStage.hpp"
+#include "Logger.hpp"
 #include <iostream>
 #include <cstdlib>
 #include <cstring>
@@ -7,12 +8,12 @@
 
 Stage::Result LinkingStage::execute() {
     if (verboseLevel_ >= 1) {
-        std::cout << "Linking..." << std::endl;
+        Logger::stream(LogLevel::INFO) << "Linking..." << std::endl;
     }
 
     try {
         if (verboseLevel_ >= 2) {
-            std::cout << "  Linking object file to " << outputFile_ << std::endl;
+            Logger::stream(LogLevel::DEBUG) << "Linking object file to " << outputFile_ << std::endl;
         }
 
         // Invoke ln45 linker
@@ -23,7 +24,7 @@ Stage::Result LinkingStage::execute() {
         }
 
         if (verboseLevel_ >= 1) {
-            std::cout << "Linking complete." << std::endl;
+            Logger::stream(LogLevel::INFO) << "Linking complete." << std::endl;
         }
 
         return {true};
@@ -35,7 +36,7 @@ Stage::Result LinkingStage::execute() {
 
 int LinkingStage::invokeLinker() {
     if (verboseLevel_ >= 2) {
-        std::cout << "  Invoking ln45..." << std::endl;
+        Logger::stream(LogLevel::DEBUG) << "Invoking ln45..." << std::endl;
     }
 
     // Build ln45 command line: the object, the extra libraries, then the
@@ -49,9 +50,11 @@ int LinkingStage::invokeLinker() {
     cmd += " -o " + outputFile_ + " " + objectFile_;
     for (const auto& libPath : libraryPaths_) cmd += " " + libPath;
     cmd += " " + standardLibrary();
+    // ln45 logs at cc45's level
+    if (verboseLevel_ >= 1) cmd += " " + Logger::flagFor(verboseLevel_);
 
-    if (verboseLevel_ >= 3) {
-        std::cout << "    Command: " << cmd << std::endl;
+    if (verboseLevel_ >= 2) {
+        Logger::stream(LogLevel::DEBUG) << "Command: " << cmd << std::endl;
     }
     // ln45's stdout is its "Linked ..." summary; errors and warnings go to
     // stderr and are always shown

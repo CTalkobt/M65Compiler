@@ -174,7 +174,7 @@ void IRBuilder::generate(TranslationUnit& unit) {
                     }
                 }
             }
-            if (devirtCount > 0 && g_cc45Verbosity >= 1) {
+            if (devirtCount > 0 && Logger::isEnabled(LogLevel::INFO)) {
                 warnings_.push_back(formatDiagnostic(module_.sourceFile, 0, 0, Severity::Note,
                     "devirtualized " + std::to_string(devirtCount) + " virtual call(s)"));
             }

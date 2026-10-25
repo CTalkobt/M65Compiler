@@ -1,4 +1,5 @@
 #include "SacSlotShare.hpp"
+#include "Logger.hpp"
 #include <cstdlib>
 #include "IR.hpp"
 #include "CodegenStage.hpp"
@@ -14,7 +15,7 @@
 
 Stage::Result CodegenStage::execute() {
     if (verboseLevel_ >= 1) {
-        std::cout << "Generating IR (level " << optimizationLevel_ << ")..." << std::endl;
+        Logger::stream(LogLevel::INFO) << "Generating IR (level " << optimizationLevel_ << ")..." << std::endl;
     }
 
     try {
@@ -39,7 +40,7 @@ Stage::Result CodegenStage::execute() {
         generateAssembly();
 
         if (verboseLevel_ >= 1) {
-            std::cout << "IR generation complete." << std::endl;
+            Logger::stream(LogLevel::INFO) << "IR generation complete." << std::endl;
         }
 
         return {true};
@@ -51,7 +52,7 @@ Stage::Result CodegenStage::execute() {
 
 void CodegenStage::configureIRBuilder() {
     if (verboseLevel_ >= 2) {
-        std::cout << "  Configuring IRBuilder..." << std::endl;
+        Logger::stream(LogLevel::DEBUG) << "Configuring IRBuilder..." << std::endl;
     }
 
     // IRBuilder configuration will be done within generate phase
@@ -60,7 +61,7 @@ void CodegenStage::configureIRBuilder() {
 
 void CodegenStage::generateIR() {
     if (verboseLevel_ >= 2) {
-        std::cout << "  Generating IR from AST..." << std::endl;
+        Logger::stream(LogLevel::DEBUG) << "Generating IR from AST..." << std::endl;
     }
 
     if (!ast_) return;
@@ -113,7 +114,7 @@ void CodegenStage::generateIR() {
     if (irModule_->overlay.empty()) irModule_->overlay = overlay_;
 
     if (verboseLevel_ >= 2) {
-        std::cout << "    IR generated successfully" << std::endl;
+        Logger::stream(LogLevel::DEBUG) << "IR generated successfully" << std::endl;
     }
 }
 
@@ -128,7 +129,7 @@ bool CodegenStage::optOn(const std::string& name) const {
 // enables it (all are on from -O1).
 void CodegenStage::optimizeIR() {
     if (verboseLevel_ >= 2) {
-        std::cout << "  Optimizing IR..." << std::endl;
+        Logger::stream(LogLevel::DEBUG) << "Optimizing IR..." << std::endl;
     }
     if (!irModule_) return;
 
@@ -175,7 +176,7 @@ void CodegenStage::optimizeIR() {
             if (it != fn.optOverrides.end() && it->second) any = true;
         }
         if (!any) continue;
-        if (verboseLevel_ >= 2) std::cout << "    " << p.name << std::endl;
+        if (verboseLevel_ >= 2) Logger::stream(LogLevel::DEBUG) << p.name << std::endl;
         p.run(*irModule_);
         ranAny = true;
     }
@@ -210,7 +211,7 @@ void CodegenStage::optimizeIR() {
 
 void CodegenStage::applyInlining() {
     if (verboseLevel_ >= 2) {
-        std::cout << "  Applying inlining decisions..." << std::endl;
+        Logger::stream(LogLevel::DEBUG) << "Applying inlining decisions..." << std::endl;
     }
 
     if (!irModule_ || !analyzer_) return;
@@ -233,13 +234,13 @@ void CodegenStage::applyInlining() {
     }
 
     if (verboseLevel_ >= 2 && inlineCount > 0) {
-        std::cout << "    Found " << inlineCount << " inlining candidates." << std::endl;
+        Logger::stream(LogLevel::DEBUG) << "Found " << inlineCount << " inlining candidates." << std::endl;
     }
 }
 
 void CodegenStage::eliminateDeadCode() {
     if (verboseLevel_ >= 2) {
-        std::cout << "  Eliminating dead code..." << std::endl;
+        Logger::stream(LogLevel::DEBUG) << "Eliminating dead code..." << std::endl;
     }
 
     if (!irModule_) return;
@@ -249,13 +250,13 @@ void CodegenStage::eliminateDeadCode() {
     // different granularity (module-level functions vs IR instructions)
 
     if (verboseLevel_ >= 3) {
-        std::cout << "    Dead code elimination complete." << std::endl;
+        Logger::stream(LogLevel::DEEP) << "Dead code elimination complete." << std::endl;
     }
 }
 
 void CodegenStage::generateAssembly() {
     if (verboseLevel_ >= 2) {
-        std::cout << "  Generating assembly..." << std::endl;
+        Logger::stream(LogLevel::DEBUG) << "Generating assembly..." << std::endl;
     }
 
     if (!irModule_) return;
@@ -273,9 +274,9 @@ void CodegenStage::generateAssembly() {
                          0x08,              // zpStart
                          objectOnly_,       // relocMode (true for -c/.o45, false for direct PRG)
                          zpCallMode_,       // zpCallMode
-                         verboseLevel_ >= 3, // emitReasons
+                         false,             // emitReasons (-Rcodegen, not wired; not by -v)
                          staticAlloc_,      // staticAllocMode
-                         verboseLevel_ >= 3, // sacDebugMode
+                         false,             // sacDebugMode (code of its own: not by -v)
                          prgBase_);
         std::string out = ss.str();
         // SAC locals never live at the same time share their storage (#324)
@@ -365,7 +366,7 @@ void CodegenStage::generateAssembly() {
     }
 
     if (verboseLevel_ >= 2) {
-        std::cout << "    Generated " << irOutput_.size()
+        Logger::stream(LogLevel::DEBUG) << "Generated " << irOutput_.size()
                  << " bytes of assembly." << std::endl;
     }
 }

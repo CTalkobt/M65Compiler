@@ -4,6 +4,22 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### One diagnostic log for cc45, ca45 and ln45
+
+- `include/Logger.hpp`: levels `-v` (INFO), `-vv` (DEBUG), `-vvv` (DEEP),
+  `-vvvv` (TRACE), cumulative and capped at 4, `-v0` off; every line on
+  stderr as `[tool:LEVEL] message`, standard output kept for what a tool
+  was asked to write. Ported from the July logging work (7d22526b).
+- cc45: its stage messages moved from stdout to the log; ca45 and ln45 of
+  a one-step build run at cc45's level (before: ca45 `-v` at `-vv` only,
+  ln45 never); the token dump is `-vvvv`. The level no longer reaches the
+  code generator (`-vvv` turned on a SAC debug mode and reasoning comments
+  that broke the build).
+- ca45: `-v` … `-vvvv`; the token dump is `-vvvv`.
+- ln45: `-v` … `-vvvv`; `ln45info()` / `ln45debug()` write log lines; the
+  relocation trace is `-vvv` (was `-vv`), the call graph stays at `-vv`.
+- Test `src/test/test_logging.sh` (`make test`).
+
 ### Loop strength reduction; element addresses outside loops multiply by a call
 
 The examples' code is another 1.1 % smaller (140,427 → 138,878 bytes).

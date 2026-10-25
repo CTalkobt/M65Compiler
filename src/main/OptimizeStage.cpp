@@ -1,4 +1,5 @@
 #include "OptimizeStage.hpp"
+#include "Logger.hpp"
 #include "AST.hpp"
 #include "ConstantFolder.hpp"
 #include "LoopInterchange.hpp"
@@ -9,7 +10,7 @@
 
 Stage::Result OptimizeStage::execute() {
     if (verboseLevel_ >= 1) {
-        std::cout << "Optimizing (level " << optimizationLevel_ << ")..." << std::endl;
+        Logger::stream(LogLevel::INFO) << "Optimizing (level " << optimizationLevel_ << ")..." << std::endl;
     }
 
     try {
@@ -33,7 +34,7 @@ Stage::Result OptimizeStage::execute() {
         performLoopInterchange();
 
         if (verboseLevel_ >= 1) {
-            std::cout << "AST optimization complete." << std::endl;
+            Logger::stream(LogLevel::INFO) << "AST optimization complete." << std::endl;
         }
 
         return {true};
@@ -45,7 +46,7 @@ Stage::Result OptimizeStage::execute() {
 
 void OptimizeStage::performConstantFolding() {
     if (verboseLevel_ >= 2) {
-        std::cout << "  Constant folding..." << std::endl;
+        Logger::stream(LogLevel::DEBUG) << "Constant folding..." << std::endl;
     }
 
     // Apply constant folder visitor to entire AST
@@ -59,7 +60,7 @@ void OptimizeStage::performConstantFolding() {
 
 void OptimizeStage::performFunctionAnalysis() {
     if (verboseLevel_ >= 2) {
-        std::cout << "  Function analysis..." << std::endl;
+        Logger::stream(LogLevel::DEBUG) << "Function analysis..." << std::endl;
     }
 
     // Create function analyzer to collect metrics
@@ -76,14 +77,14 @@ void OptimizeStage::performFunctionAnalysis() {
     }
 
     if (verboseLevel_ >= 2) {
-        std::cout << "    Analyzed " << analyzer_->getFunctionCount()
+        Logger::stream(LogLevel::DEBUG) << "Analyzed " << analyzer_->getFunctionCount()
                  << " functions." << std::endl;
     }
 }
 
 void OptimizeStage::performInlineSelection() {
     if (verboseLevel_ >= 2) {
-        std::cout << "  Inline selection..." << std::endl;
+        Logger::stream(LogLevel::DEBUG) << "Inline selection..." << std::endl;
     }
 
     if (!analyzer_) return;
@@ -111,20 +112,20 @@ void OptimizeStage::performInlineSelection() {
         if (shouldInline) {
             inlineCandidates++;
             if (verboseLevel_ >= 3) {
-                std::cout << "    Marking " << funcName << " as inline candidate"
+                Logger::stream(LogLevel::DEEP) << "Marking " << funcName << " as inline candidate"
                          << " (size: " << chars.estimatedCodeSize << " bytes)" << std::endl;
             }
         }
     }
 
     if (verboseLevel_ >= 2 && inlineCandidates > 0) {
-        std::cout << "    Found " << inlineCandidates << " inline candidates." << std::endl;
+        Logger::stream(LogLevel::DEBUG) << "Found " << inlineCandidates << " inline candidates." << std::endl;
     }
 }
 
 void OptimizeStage::performLoopOptimizations() {
     if (verboseLevel_ >= 2) {
-        std::cout << "  Loop optimizations..." << std::endl;
+        Logger::stream(LogLevel::DEBUG) << "Loop optimizations..." << std::endl;
     }
 
     // Phase 88-89: Loop idiom recognition and optimization
@@ -137,7 +138,7 @@ void OptimizeStage::performLoopOptimizations() {
     // Loop optimization is performed at the IR level during codegen
     // Mark loops for analysis during IRBuilder phase
     if (verboseLevel_ >= 3) {
-        std::cout << "    Loop optimization hints marked for IR phase." << std::endl;
+        Logger::stream(LogLevel::DEEP) << "Loop optimization hints marked for IR phase." << std::endl;
     }
 }
 
@@ -154,5 +155,5 @@ void OptimizeStage::performLoopInterchange() {
     }
     // Runs even when off: #pragma cc45 optimize(loop-interchange) can turn it on per function
     int n = li.optimizeTranslationUnit(*ast_, on);
-    if (verboseLevel_ >= 2 && n > 0) std::cout << "    Interchanged " << n << " loop nest(s)." << std::endl;
+    if (verboseLevel_ >= 2 && n > 0) Logger::stream(LogLevel::DEBUG) << "Interchanged " << n << " loop nest(s)." << std::endl;
 }

@@ -1,4 +1,5 @@
 #include "PreprocessStage.hpp"
+#include "Logger.hpp"
 #include "Preprocessor.hpp"
 #include "Diagnostic.hpp"
 #include <iostream>
@@ -7,7 +8,7 @@
 
 Stage::Result PreprocessStage::execute() {
     if (verboseLevel_ >= 1) {
-        std::cout << "Preprocessing " << inputFile_ << "..." << std::endl;
+        Logger::stream(LogLevel::INFO) << "Preprocessing " << inputFile_ << "..." << std::endl;
     }
 
     try {
@@ -24,7 +25,7 @@ Stage::Result PreprocessStage::execute() {
             out.close();
 
             if (verboseLevel_ >= 1) {
-                std::cout << "Preprocessed output written to " << outputFile_ << std::endl;
+                Logger::stream(LogLevel::INFO) << "Preprocessed output written to " << outputFile_ << std::endl;
             }
         }
 

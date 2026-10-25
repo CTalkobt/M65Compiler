@@ -394,6 +394,9 @@ sprites, hw_*, uart) declare functions that no library implements.
 - Stdlib function: `lib/stdlib/<f>.c` or `lib/stdlib_asm/<f>.s45`, declare in
   `lib/include/<header>.h`, rebuild with `make lib`, document in
   `doc/architecture/stdlib.md`.
+- Diagnostics: cc45, ca45 and ln45 log through `include/Logger.hpp` (`LOG_INFO("cc45", …)`,
+  `Logger::stream(LogLevel::DEBUG)`; `-v` … `-vvvv` on stderr as `[tool:LEVEL] …`), never
+  `std::cout`; the level must not change the code generated (`src/test/test_logging.sh`).
 - Docs: `python3 src/test/check_docs.py` validates the doc tree layout.
 
 ## Debugging Tips

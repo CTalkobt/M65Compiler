@@ -1,4 +1,5 @@
 #include <iostream>
+#include "Logger.hpp"
 #include <set>
 #include <regex>
 #include <string>
@@ -84,7 +85,7 @@ static void printHelpGeneral() {
     std::cout << "Options by category:\n";
     std::cout << "  Input/Output:    -c, -o, -L, -l, --dry-run, --source-map, --watch\n";
     std::cout << "  Optimization:    -O, -P, --experimental\n";
-    std::cout << "  Debugging:       -v, -vv, -Roptimizer, -Rmachstate, --emulator\n";
+    std::cout << "  Debugging:       -v ... -vvvv, -Roptimizer, -Rmachstate, --emulator\n";
     std::cout << "  Preprocessor:    -D, -I\n";
     std::cout << "  Diagnostics:     -Woverflow, -Wunderflow\n";
     std::cout << "  General:         -?, -V\n\n";
@@ -157,10 +158,10 @@ static void printHelpOptimization() {
 
 static void printHelpDebugging() {
     std::cout << "Debugging Options:\n\n";
-    std::cout << "  -v                 Enable verbose output (show assembly phases)\n";
-    std::cout << "                     Displays preprocessing, lexing, parsing steps\n\n";
-    std::cout << "  -vv                Extra verbose output (token dumps)\n";
-    std::cout << "                     Shows every token during lexing phase\n\n";
+    std::cout << "  -v                 Log to stderr ([ca45:INFO] ...): the phases\n";
+    std::cout << "                     (preprocessing, lexing, parsing)\n";
+    std::cout << "  -vv, -vvv          More detail (DEBUG, DEEP); cumulative, -v0 off\n";
+    std::cout << "  -vvvv              Also every token (TRACE)\n\n";
     std::cout << "  -Roptimizer        Report optimizer actions to stderr\n";
     std::cout << "                     Shows which optimizations are applied\n";
     std::cout << "                     Example: ca45 -Roptimizer input.s45 2>&1 | grep -i elim\n\n";
@@ -368,6 +369,7 @@ static void writeListing(const std::string& filename, const AssemblerParser& par
 }
 
 int main(int argc, char** argv) {
+    Logger::setTool("ca45");
     std::string input_file;
     std::string output_file;
     std::string listing_file;
@@ -553,10 +555,8 @@ int main(int argc, char** argv) {
             emulatorPath = allArgs[++i];  // Phase 3.3: custom emulator path
         } else if (arg == "--watch") {
             watchMode = true;  // Phase 3.4: watch file for changes
-        } else if (arg == "-vv") {
-            verboseLevel = 2;
-        } else if (arg == "-v") {
-            verboseLevel = 1;
+        } else if (Logger::parseFlag(arg, verboseLevel)) {
+            Logger::setLevel(verboseLevel);   // -v ... -vvvv, -v0
         } else if (arg.substr(0, 2) == "-I") {
             includePaths.push_back(arg.substr(2));
         } else if (arg.substr(0, 2) == "-D") {
@@ -607,9 +607,7 @@ int main(int argc, char** argv) {
     buffer << file.rdbuf();
     std::string sourceRaw = buffer.str();
 
-    if (verboseLevel >= 1) {
-        std::cout << "Preprocessing " << input_file << "..." << std::endl;
-    }
+    LOG_INFO("ca45", "Preprocessing " << input_file << "...");
 
     Preprocessor preprocessor(false);
     std::string source;
@@ -620,18 +618,14 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    if (verboseLevel >= 1) {
-        std::cout << "Lexing " << input_file << "..." << std::endl;
-    }
+    LOG_INFO("ca45", "Lexing " << input_file << "...");
 
     AssemblerLexer lexer(source);
     std::vector<AssemblerToken> tokens = lexer.tokenize();
 
-    if (verboseLevel >= 2) {
-        for (const auto& token : tokens) {
-            std::cout << "Token: " << token.typeToString() << " (" << token.value << ") at " << token.line << ":" << token.column << std::endl;
-        }
-    }
+    if (Logger::isEnabled(LogLevel::TRACE))
+        for (const auto& token : tokens)
+            LOG_TRACE("ca45", "Token: " << token.typeToString() << " (" << token.value << ") at " << token.line << ":" << token.column);
 
     AssemblerParser parser(tokens, predefinedSymbols); if (functionSections) parser.functionSections = true;
     parser.setSourceFile(input_file);

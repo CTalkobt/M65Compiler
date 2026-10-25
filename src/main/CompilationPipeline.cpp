@@ -1,4 +1,5 @@
 #include "CompilationPipeline.hpp"
+#include "Logger.hpp"
 #include "Stage.hpp"
 #include "PreprocessStage.hpp"
 #include "ParseStage.hpp"
@@ -75,8 +76,8 @@ void CompilationPipeline::deriveOutputFiles() {
 }
 
 Stage::Result CompilationPipeline::runStage(Stage& stage) {
-    if (config_.verboseLevel >= 1) {
-        std::cout << "  " << stage.getName() << "..." << std::endl;
+    if (config_.verboseLevel >= 2) {
+        Logger::stream(LogLevel::DEBUG) << "Stage: " << stage.getName() << std::endl;
     }
     return stage.execute();
 }
@@ -93,7 +94,7 @@ CompilationResult CompilationPipeline::compile() {
         std::string sourceRaw = loadSourceFile(config_.inputFile);
 
         if (config_.verboseLevel >= 1) {
-            std::cout << "Compiling " << config_.inputFile << " (O"
+            Logger::stream(LogLevel::INFO) << "Compiling " << config_.inputFile << " (O"
                      << config_.optimizationLevel << ")..." << std::endl;
         }
 
@@ -300,7 +301,7 @@ CompilationResult CompilationPipeline::compile() {
         asmStage.setKeepTemp(config_.saveTemps);
         Stage::Result asmResult{true};
         if (!trialObject.empty() && moveFile(trialObject, objectFile)) {
-            if (config_.verboseLevel >= 1) std::cout << "Assembled (a trial's object)." << std::endl;
+            if (config_.verboseLevel >= 1) Logger::stream(LogLevel::INFO) << "Assembled (a trial's object)." << std::endl;
         } else {
             if (!trialObject.empty()) remove(trialObject.c_str());
             asmResult = runStage(asmStage);
@@ -336,10 +337,6 @@ CompilationResult CompilationPipeline::compile() {
             result.exitCode = linkResult.exitCode;
             result.error = linkResult.error;
             return result;
-        }
-
-        if (config_.verboseLevel >= 1) {
-            std::cout << "Compilation successful: " << config_.outputFile << std::endl;
         }
 
         result.success = true;
