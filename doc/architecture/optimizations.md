@@ -151,7 +151,8 @@ addresses) the address `@g+c` itself: a member of a global struct, an
 element at a constant index (`g.y = 5` is `sta _g+2`, not the address
 computed into a register pair and an indirect store). Only this file's
 globals in the default address space (not `__zp`, whose base-page
-addressing an absolute operand would miss, nor `__far`). The examples: 3.9 %
+addressing an absolute operand would miss, nor `__far`); where a `__noescape`
+object goes counts `@g+c` as a use of `g`. The examples: 3.9 %
 less code with the changes below (150,159 → 144,291 bytes over 42
 objects). Validation: `test_peephole_xemu.c`.
 

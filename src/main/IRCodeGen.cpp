@@ -2175,8 +2175,11 @@ void IRCodeGen::placeNoescape(const ir::Module& mod) {
     for (const auto& fn : mod.functions) {
         if (deadCodeFunctions_.count(fn.name) || inlineOnlyFunctions_.count(fn.name)) continue;
         std::string where = fn.isFar ? "far" : !mod.overlay.empty() ? "code" : "data";
+        // (a global at an offset, g+2 from foldGlobalOffsetAccess: g's)
         auto see = [&](const ir::Operand& o) {
-            if (o.kind == ir::OperandKind::GLOBAL && want.count(o.name)) places[o.name].insert(where);
+            if (o.kind != ir::OperandKind::GLOBAL) return;
+            std::string g = o.name.substr(0, o.name.find('+'));
+            if (want.count(g)) places[g].insert(where);
         };
         for (const auto& b : fn.blocks)
             for (const auto& in : b.insts) {
@@ -2210,7 +2213,8 @@ void IRCodeGen::placeNoescape(const ir::Module& mod) {
         if (deadCodeFunctions_.count(fn.name) || inlineOnlyFunctions_.count(fn.name)) continue;
         std::set<uint32_t> from;
         auto isKept = [&](const ir::Operand& o) {
-            return (o.kind == ir::OperandKind::GLOBAL && kept.count(o.name)) || (o.isVreg() && from.count(o.vregId));
+            return (o.kind == ir::OperandKind::GLOBAL && kept.count(o.name.substr(0, o.name.find('+')))) ||
+                   (o.isVreg() && from.count(o.vregId));
         };
         for (bool changed = true; changed; ) {
             changed = false;
