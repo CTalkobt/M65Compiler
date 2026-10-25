@@ -7,13 +7,13 @@
 #   bash src/test/bench/run_bench.sh -O1        # with other flags
 #
 # Expected checksums: sieve 0x404 (1028 primes), fib 0xa18, bubble 0xa255,
-# strings 0x3a90, sprintf 0x24b9, arith 0x6aad.
+# strings 0x3a90, sprintf 0x24b9, arith 0x6aad, life 0x132e, rows 0x433.
 
 cd "$(dirname "$0")/../../.."
 OUT=build/bench
 mkdir -p "$OUT"
-NAMES="sieve fib bubble strings sprintf arith"
-EXPECT="0x404 0xa18 0xa255 0x3a90 0x24b9 0x6aad"
+NAMES="sieve fib bubble strings sprintf arith life rows"
+EXPECT="0x404 0xa18 0xa255 0x3a90 0x24b9 0x6aad 0x132e 0x433"
 
 run() {
     local tag=$1; shift
@@ -27,9 +27,10 @@ run() {
 import sys
 m = open(sys.argv[1], 'rb').read()
 tag, size, names, expect = sys.argv[2], sys.argv[3], sys.argv[4].split(), sys.argv[5].split()
-st = [int.from_bytes(m[0xC100 + 4 * i:0xC104 + 4 * i], 'little') for i in range(7)]
-ms = [(st[i] - st[i + 1]) // 1000 for i in range(6)]
-ck = [hex(m[0xC0E0 + 2 * i] | m[0xC0E1 + 2 * i] << 8) for i in range(6)]
+n = len(names)
+st = [int.from_bytes(m[0xC100 + 4 * i:0xC104 + 4 * i], 'little') for i in range(n + 1)]
+ms = [(st[i] - st[i + 1]) // 1000 for i in range(n)]
+ck = [hex(m[0xC0E0 + 2 * i] | m[0xC0E1 + 2 * i] << 8) for i in range(n)]
 bad = [n for n, c, e in zip(names, ck, expect) if c != e]
 print(f"{tag:8} {size:>6} bytes  " + "  ".join(f"{n} {t}" for n, t in zip(names, ms)) +
       f"  total {sum(ms)} ms" + ("" if m[0xC0CC] == 0xAA else "  (did not finish)") +

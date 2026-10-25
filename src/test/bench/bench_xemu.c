@@ -2,7 +2,8 @@
  *
  * Each benchmark runs between two stamps of CIA2's timers A and B chained
  * into a 32-bit count down at ~1 MHz (4 bytes each at $C100 + 4*i); its
- * checksum goes to $C0E0 + 2*i, so a wrong result shows. $C0CC = $AA when
+ * checksum goes to $C0E0 + 2*i, so a wrong result shows (8 benchmarks:
+ * stamps $C100-$C123, checksums $C0E0-$C0EF). $C0CC = $AA when
  * all ran. -DONLY=n runs benchmark n alone; -DNO_PRINTF skips sprintf.
  */
 #include <stdio.h>
@@ -118,6 +119,40 @@ static unsigned int arith(void) {
     return ck;
 }
 
+/* 6: a 2D grid (game_of_life's neighbour pass and copy back): rows of 80
+ * bytes indexed by int counters (loop strength reduction: grid[r] stepped
+ * by 80, no multiply in the loop) */
+static unsigned char grid[25][80], next[25][80];
+
+static unsigned int life(void) {
+    int r, c, k;
+    unsigned int i, s = 0;
+    for (i = 0; i < 2000; i++) ((unsigned char *)grid)[i] = (unsigned char)((i * 7u) % 3u == 0);
+    for (k = 0; k < 4; k++) {
+        for (r = 1; r < 24; r++)
+            for (c = 1; c < 79; c++) {
+                unsigned char n = grid[r - 1][c] + grid[r + 1][c] + grid[r][c - 1] + grid[r][c + 1];
+                next[r][c] = (n == 2 || n == 3) ? 1 : 0;
+            }
+        for (r = 0; r < 25; r++)
+            for (c = 0; c < 80; c++) { grid[r][c] = next[r][c]; s += grid[r][c]; }
+    }
+    return s;
+}
+
+/* 7: a screen filled row by row, y * 80 + x with unsigned char counters */
+static unsigned char screen[2000];
+
+static unsigned int rows(void) {
+    unsigned char y, x, k;
+    unsigned int s = 0;
+    for (k = 0; k < 20; k++)
+        for (y = 0; y < 25; y++)
+            for (x = 0; x < 80; x++) screen[y * 80u + x] = (unsigned char)(x + y + k);
+    for (y = 0; y < 25; y++) s += screen[y * 80u + y];
+    return s;
+}
+
 #ifndef ONLY
 #define ONLY 255
 #endif
@@ -132,6 +167,8 @@ int main(void) {
     RUN(3, strings());
     RUN(4, formatting());
     RUN(5, arith());
+    RUN(6, life());
+    RUN(7, rows());
     stamp();
     *DONE = 0xAA;
     return 0;

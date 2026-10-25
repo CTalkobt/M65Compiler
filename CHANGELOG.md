@@ -4,6 +4,13 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Two more benchmarks
+
+- `src/test/bench/bench_xemu.c`: `life` (a 25×80 grid's neighbour pass
+  and copy back, `int` counters) and `rows` (a screen filled at
+  `y * 80 + x`, `unsigned char` counters), the loops loop strength
+  reduction speeds up; `run_bench.sh` prints eight results.
+
 ### Preprocessor: macro expansion as the C standard has it (#233)
 
 - cp45 / cc45 expand macros on tokens with hide sets (C11 6.10.3): an
