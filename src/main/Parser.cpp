@@ -747,7 +747,189 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
             unit->topLevelDecls.push_back(std::unique_ptr<Statement>(std::move(decl)));
         }
     }
+    if (usesJsr_) {
+        // __jsr's target functions: declared, and not defined in this unit
+        // (cc45's own call graph does not see a jsr in assembly; ln45 sees
+        // one into another object)
+        for (const auto& [name, tok] : jsrTargets_) {
+            bool declared = false, defined = false;
+            for (const auto& d : unit->topLevelDecls)
+                if (auto* f = dynamic_cast<FunctionDeclaration*>(d.get()); f && f->name == name) {
+                    declared = true;
+                    if (f->body) defined = true;
+                }
+            if (!declared || defined)
+                throw std::runtime_error(formatDiagnostic(tok.sourceFile, tok.line, tok.column, Severity::Error,
+                    defined ? "'" + name + "' is a C function of this file: call it (" + name + "()), not __jsr"
+                            : "the target of " + tok.value + " is an address or a function declared extern ('" + name + "' is neither)"));
+        }
+        // the register bytes: extern volatile, at the unit's start
+        static const std::pair<const char*, const char*> regs[] = {
+            {"__jsr_a", "char"}, {"__jsr_x", "char"}, {"__jsr_y", "char"}, {"__jsr_z", "char"},
+            {"__jsr_c", "char"}, {"__jsr_p", "char"}, {"__jsr_ax", "int"}, {"__jsr_ay", "int"},
+            {"__jsr_az", "int"}, {"__jsr_xy", "int"}, {"__jsr_q", "long"}};
+        std::vector<std::unique_ptr<Statement>> decls;
+        for (const auto& [n, t] : regs) {
+            auto d = setPos(std::make_unique<VariableDeclaration>(t, n), tokens[0]);
+            d->isGlobal = true;
+            d->isExtern = true;
+            d->isVolatile = true;
+            decls.push_back(std::move(d));
+        }
+        unit->topLevelDecls.insert(unit->topLevelDecls.begin(), std::make_move_iterator(decls.begin()),
+                                   std::make_move_iterator(decls.end()));
+    }
     return unit;
+}
+
+// __jsr(target[, .R = value]...[, .R -> lvalue]...)[.R], __jsr_raw(...),
+// __jmp(target[, .R = value]...): a call of an address with the CPU's
+// registers. The values go to the register bytes (or straight into the
+// assembly when constant), one inline assembly block loads the registers,
+// calls (an address in the ROM, $C000 and up, through __rom_calli: the ROM's
+// base page and stack) and saves the registers, and the results are read
+// from the bytes:
+//   ({ __jsr_a = v; asm("lda ___jsr_a\n jsr $FFD2\n sta ___jsr_a"); __jsr_a; })
+std::unique_ptr<Expression> Parser::parseJsr() {
+    const Token& kw = advance();
+    std::string what = kw.value;
+    bool isJmp = what == "__jmp", raw = what == "__jsr_raw";
+    expect(TokenType::OPEN_PAREN, "Expected '(' after " + what);
+    usesJsr_ = true;
+    auto err = [&](const Token& t, const std::string& m) {
+        return std::runtime_error(formatDiagnostic(t.sourceFile, t.line, t.column, Severity::Error, what + ": " + m));
+    };
+    // the target: a constant address or a function declared extern
+    std::string target;
+    bool rom = false;
+    const Token& targetTok = peek();
+    {
+        auto t = parseConditional();
+        long a;
+        if (evalConstInt(t.get(), a)) {
+            if (a < 0 || a > 0xFFFF) throw err(targetTok, "the address is not 16 bits");
+            char b[8];
+            snprintf(b, sizeof b, "$%04lX", a);
+            target = b;
+            rom = !raw && a >= 0xC000;
+        } else if (auto* v = dynamic_cast<VariableReference*>(t.get())) {
+            target = "_" + v->name;
+            jsrTargets_.push_back({v->name, kw});
+        } else {
+            throw err(targetTok, "the target is not a constant address or a function name");
+        }
+    }
+    // the registers: storage, its registers byte by byte
+    struct Reg { const char* store; const char* regs; };
+    static const std::map<std::string, Reg> regTable = {
+        {"A", {"__jsr_a", "a"}}, {"X", {"__jsr_x", "x"}}, {"Y", {"__jsr_y", "y"}}, {"Z", {"__jsr_z", "z"}},
+        {"AX", {"__jsr_ax", "ax"}}, {"AY", {"__jsr_ay", "ay"}}, {"AZ", {"__jsr_az", "az"}}, {"XY", {"__jsr_xy", "xy"}},
+        {"Q", {"__jsr_q", "axyz"}}, {"AXYZ", {"__jsr_q", "axyz"}}};
+    static const std::map<std::string, int> flagBits = {{"Carry", 0}, {"Zero", 1}, {"Overflow", 6}, {"Negative", 7}};
+    auto body = setPos(std::make_unique<CompoundStatement>(), kw);
+    std::string loads, carryIn;
+    std::set<char> loaded;
+    struct Out { std::string reg; std::unique_ptr<Expression> lvalue; };
+    std::vector<Out> outs;
+    auto readReg = [&](const std::string& r, const Token& at) -> std::unique_ptr<Expression> {
+        if (auto it = regTable.find(r); it != regTable.end())
+            return setPos(std::make_unique<VariableReference>(it->second.store), at);
+        auto fb = flagBits.find(r);
+        auto p = setPos(std::make_unique<VariableReference>("__jsr_p"), at);
+        std::unique_ptr<Expression> e = std::move(p);
+        if (fb->second) e = setPos(std::make_unique<BinaryOperation>(">>", std::move(e), setPos(std::make_unique<IntegerLiteral>(fb->second), at)), at);
+        return setPos(std::make_unique<BinaryOperation>("&", std::move(e), setPos(std::make_unique<IntegerLiteral>(1), at)), at);
+    };
+    std::set<std::string> outRegs;
+    while (match(TokenType::COMMA)) {
+        expect(TokenType::DOT, "Expected '.' and a register (.A = value, .X -> variable)");
+        const Token& rt = expect(TokenType::IDENTIFIER, "Expected a register after '.'");
+        std::string r = rt.value;
+        bool isReg = regTable.count(r), isFlag = flagBits.count(r);
+        if (!isReg && !isFlag) throw err(rt, "'" + r + "' is not a register (A X Y Z AX AY AZ XY Q) or flag (Carry Zero Overflow Negative)");
+        if (match(TokenType::ARROW)) {
+            if (isJmp) throw err(rt, "__jmp does not return: no results");
+            outs.push_back({r, parseConditional()});
+            outRegs.insert(r);
+            continue;
+        }
+        expect(TokenType::EQUALS, "Expected '=' (a value) or '->' (a result) after ." + r);
+        auto v = parseConditional();
+        long c;
+        bool isConst = evalConstInt(v.get(), c);
+        if (isFlag) {
+            if (r != "Carry") throw err(rt, "only the Carry flag can be given a value");
+            if (!carryIn.empty()) throw err(rt, ".Carry given twice");
+            if (isConst) carryIn = c ? " sec\n" : " clc\n";
+            else {
+                body->statements.push_back(setPos(std::make_unique<ExpressionStatement>(setPos(std::make_unique<Assignment>(
+                    setPos(std::make_unique<VariableReference>("__jsr_c"), rt), std::move(v)), rt)), rt));
+                carryIn = " lda ___jsr_c\n cmp #1\n";   // (C = the value is not 0)
+            }
+            continue;
+        }
+        const Reg& g = regTable.at(r);
+        std::string regs = g.regs;
+        for (char ch : regs)
+            if (!loaded.insert(ch).second) throw err(rt, std::string("register ") + (char)toupper(ch) + " is given twice");
+        if (!isConst)
+            body->statements.push_back(setPos(std::make_unique<ExpressionStatement>(setPos(std::make_unique<Assignment>(
+                setPos(std::make_unique<VariableReference>(g.store), rt), std::move(v)), rt)), rt));
+        for (size_t i = 0; i < regs.size(); i++) {
+            std::string ld = std::string(" ld") + regs[i];
+            if (isConst) {
+                char b[16];
+                snprintf(b, sizeof b, " #$%02lX", (c >> (8 * i)) & 0xFF);
+                loads += ld + b + "\n";
+            } else {
+                loads += ld + " ___" + std::string(g.store).substr(2) + (i ? "+" + std::to_string(i) : "") + "\n";
+            }
+        }
+    }
+    expect(TokenType::CLOSE_PAREN, "Expected ')' after " + what);
+    // .R after the call: its value
+    std::string resultReg;
+    Token resultTok = kw;
+    if (!isJmp && peek().type == TokenType::DOT && pos + 1 < tokens.size() && tokens[pos + 1].type == TokenType::IDENTIFIER &&
+        (regTable.count(tokens[pos + 1].value) || flagBits.count(tokens[pos + 1].value))) {
+        advance();
+        resultTok = advance();
+        resultReg = resultTok.value;
+    }
+    // the registers saved after the call: those asked for
+    std::set<std::string> saves = outRegs;
+    if (!resultReg.empty()) saves.insert(resultReg);
+    std::string stores;
+    bool flags = false;
+    std::set<std::string> stored;
+    for (const auto& r : saves) {
+        if (flagBits.count(r)) { flags = true; continue; }
+        const Reg& g = regTable.at(r);
+        if (!stored.insert(g.store).second) continue;
+        std::string regs = g.regs;
+        for (size_t i = 0; i < regs.size(); i++)
+            stores += std::string(" st") + regs[i] + " ___" + std::string(g.store).substr(2) + (i ? "+" + std::to_string(i) : "") + "\n";
+    }
+    if (flags) stores = " php\n" + stores + " pla\n sta ___jsr_p\n";
+    // the call
+    std::string code;
+    if (rom && !isJmp) {
+        // (the routine's address in the word after the JSR)
+        code = carryIn + loads + " jsr __rom_calli\n .word " + target + "\n" + stores;
+    } else {
+        std::string ext = target[0] == '_' ? " .extern " + target + "\n" : "";
+        code = ext + carryIn + loads + (isJmp && rom ? " jsr __bp_rom\n" : "") + (isJmp ? " jmp " : " jsr ") + target + "\n" + stores;
+    }
+    std::string text = code;
+    while (!text.empty() && text.back() == '\n') text.pop_back();
+    body->statements.push_back(setPos(std::make_unique<AsmStatement>(text), kw));
+    for (auto& o : outs)
+        body->statements.push_back(setPos(std::make_unique<ExpressionStatement>(setPos(std::make_unique<Assignment>(
+            std::move(o.lvalue), readReg(o.reg, kw)), kw)), kw));
+    auto se = setPos(std::make_unique<StatementExpression>(), kw);
+    se->body = std::move(body);
+    if (!resultReg.empty()) se->result = readReg(resultReg, resultTok);
+    return se;
 }
 
 void Parser::insertTokens(size_t at, const std::vector<Token>& v) {
@@ -3189,6 +3371,10 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
         } else {
             expr = setPos(std::make_unique<CpuFlagAccess>(member), baseToken);
         }
+    } else if (peek().type == TokenType::IDENTIFIER &&
+               (peek().value == "__jsr" || peek().value == "__jsr_raw" || peek().value == "__jmp") &&
+               pos + 1 < tokens.size() && tokens[pos + 1].type == TokenType::OPEN_PAREN) {
+        expr = parseJsr();
     } else if (peek().type == TokenType::IDENTIFIER && (peek().value == "__bit" || peek().value == "__bits") &&
                pos + 1 < tokens.size() && tokens[pos + 1].type == TokenType::OPEN_PAREN) {
         // __bit(v, n) / __bits(v, lo, hi) (#204): bits of the integer lvalue v,

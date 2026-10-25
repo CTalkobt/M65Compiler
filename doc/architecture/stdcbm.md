@@ -1,8 +1,8 @@
 # cbm.h — Commodore KERNAL Interface for MEGA65
 
-`<cbm.h>` provides small C wrappers for the standard Commodore KERNAL jump table, plus PETSCII control codes, device numbers and the jump-table addresses. Each wrapper is a `static` function in the header: it stores its arguments in `__cbm_a`/`__cbm_x`/`__cbm_y`/`__cbm_p` (C assignments, which work in every calling convention; `lib/stdlib_asm/cbm_args.s45`) and the KERNAL routine's address in `__cbm_target`, loads the registers from them in inline assembly and calls crt0's `__rom_call`. That calls the routine on the ROM's base page 0 **and on the ROM's page-1 stack** (the caller's 8-bit stack, saved at startup): the KERNAL's disk code crashes on the program's 16-bit stack. Registers and flags pass through both ways, as for a direct `JSR`.
+`<cbm.h>` provides small C wrappers for the standard Commodore KERNAL jump table, plus PETSCII control codes, device numbers and the jump-table addresses. Each wrapper is a `static` function in the header, one cc45 [`__jsr`](../bin/cc45.md#calling-an-address-__jsr-__jsr_raw-__jmp) call: `cbm_setlfs` is `__jsr(KERNAL_SETLFS, .A = lfn, .X = device, .Y = sa)`, `cbm_open` returns `__jsr(KERNAL_OPEN).Carry`. A KERNAL address goes through `__rom_calli` / `__rom_call`, which calls the routine on the ROM's base page 0 **and on the ROM's page-1 stack** (the caller's 8-bit stack, saved at startup): the KERNAL's disk code crashes on the program's 16-bit stack. Registers and flags pass through both ways, as for a direct `JSR`.
 
-`__rom_call` comes from the library (`stdlib_asm/rom_call.s45`, linked only by programs that call it, #322) and the argument bytes from `c45.lib`/`c45_stack.lib`, so programs must be linked with the library (a one-step `cc45 prog.c -o prog.prg` does this).
+`__rom_call` comes from the library (`stdlib_asm/rom_call.s45`, linked only by programs that call it, #322) and `__jsr`'s register bytes from `c45.lib`/`c45_stack.lib` (`stdlib_asm/cbm_args.s45`), so programs must be linked with the library (a one-step `cc45 prog.c -o prog.prg` does this).
 
 Compatible with C64, C128 and MEGA65 KERNAL jump tables.
 
@@ -18,6 +18,18 @@ int main() {
     return 0;
 }
 ```
+
+## Your own KERNAL calls
+
+A routine the header does not wrap is one `__jsr` (see [cc45.md](../bin/cc45.md#calling-an-address-__jsr-__jsr_raw-__jmp)):
+
+```c
+unsigned char row, col;
+__jsr(KERNAL_PLOT, .Carry = 1, .X -> row, .Y -> col);   /* where the cursor is */
+if (__jsr(KERNAL_SAVE, .A = zp, .XY = end).Carry) ...  /* SAVE failed */
+```
+
+Test: `src/test-resources/test_cbm_xemu.c` (the wrappers at run time).
 
 ## Character I/O
 
@@ -90,7 +102,7 @@ void read_file(void) {
 |----------|-----------|-------------|
 | `cbm_gotoxy` | `void cbm_gotoxy(char col, char row)` | Set cursor position (0-based). KERNAL PLOT (`$FFF0`) with carry clear |
 | `cbm_wherexy` | `int cbm_wherexy(void)` | Get cursor position (PLOT with carry set). Returns col in the low byte, row in the high byte |
-| `cbm_screen` | `int cbm_screen(void)` | Get screen size (KERNAL `$FFED`). Returns columns in the low byte, rows in the high byte |
+| `cbm_screen` | `int cbm_screen(void)` | Get screen size (KERNAL `$FFED`): its X in the low byte, Y in the high byte. The MEGA65's KERNAL gives the last column and row (79 and 24 on the 80x25 screen); the C64's gives the counts |
 
 ### Screen Example
 

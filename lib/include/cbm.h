@@ -1,9 +1,10 @@
 /* cbm.h — Commodore KERNAL interface for cc45 / MEGA65
  *
- * Provides inline wrappers for the standard CBM KERNAL jump table.
- * All functions use __asm__ to call KERNAL routines directly. Each call is
- * bracketed by __bp_rom/__bp_prog (crt0), which switch the base page to the
- * ROM's page 0 and back to the program's relocated zero page.
+ * Wrappers for the standard CBM KERNAL jump table. Each is a __jsr call
+ * (cc45's call of an address with the CPU's registers): a ROM address goes
+ * through __rom_call (lib/stdlib_asm/rom_call.s45), which switches to the
+ * ROM's base page and page-1 stack for the routine and back. Write your
+ * own the same way: __jsr(KERNAL_PLOT, .Carry = 1, .X -> row, .Y -> col).
  * Compatible with C64, C128, and MEGA65 KERNAL.
  *
  * Usage:
@@ -55,108 +56,45 @@
 #define KERNAL_UNTLK    0xFFAB  /* Send UNTALK to serial bus */
 #define KERNAL_VECTOR   0xFF8D  /* Get/set KERNAL vectors */
 
-/* The wrappers pass their arguments to the KERNAL through these
- * (lib/stdlib_asm/cbm_args.s45): C stores them in any calling convention,
- * the inline assembly loads them (asm has no one way to reach a parameter
- * in every mode) */
-extern volatile unsigned char __cbm_a, __cbm_x, __cbm_y;
-extern volatile unsigned int __cbm_p;
-extern volatile unsigned int __cbm_target;   /* the KERNAL routine __rom_call calls */
-
 /* ===== Character I/O ===== */
 
 /* Output a character to the current output channel */
-static void cbm_chrout(char c) {
-    __cbm_target = 0xFFD2;
-    __cbm_a = c;
-    __asm__("lda ___cbm_a");
-    __asm__("jsr __rom_call");
-}
+static void cbm_chrout(char c) { __jsr(KERNAL_CHROUT, .A = c); }
 
 /* Read a character from the current input channel */
-static int cbm_chrin(void) {
-    __cbm_target = 0xFFCF;
-    __asm__("jsr __rom_call");
-    __asm__("ldx #$00");
-    return;
-}
+static int cbm_chrin(void) { return __jsr(KERNAL_CHRIN).A; }
 
 /* Get a character from the keyboard queue (non-blocking, 0 if empty) */
-static int cbm_getin(void) {
-    __cbm_target = 0xFFE4;
-    __asm__("jsr __rom_call");
-    __asm__("ldx #$00");
-    return;
-}
+static int cbm_getin(void) { return __jsr(KERNAL_GETIN).A; }
 
 /* ===== I/O Status ===== */
 
 /* Read the I/O status byte */
-static int cbm_readst(void) {
-    __cbm_target = 0xFFB7;
-    __asm__("jsr __rom_call");
-    __asm__("ldx #$00");
-    return;
-}
+static int cbm_readst(void) { return __jsr(KERNAL_READST).A; }
 
 /* ===== File I/O ===== */
 
 /* Set logical file parameters: logical number, device, secondary address
  * KERNAL SETLFS: A=lfn, X=device, Y=sa
  */
-static void cbm_setlfs(char lfn, char device, char sa) {
-    __cbm_target = 0xFFBA;
-    __cbm_a = lfn;
-    __cbm_x = device;
-    __cbm_y = sa;
-    __asm__("ldy ___cbm_y");
-    __asm__("ldx ___cbm_x");
-    __asm__("lda ___cbm_a");
-    __asm__("jsr __rom_call");
-}
+static void cbm_setlfs(char lfn, char device, char sa) { __jsr(KERNAL_SETLFS, .A = lfn, .X = device, .Y = sa); }
 
 /* Set filename for next OPEN/LOAD/SAVE
  * KERNAL SETNAM: A=length, X=lo(name), Y=hi(name)
  */
-static void cbm_setnam(char *name, char len) {
-    __cbm_target = 0xFFBD;
-    __cbm_p = (unsigned int)name;
-    __cbm_a = len;
-    __asm__("ldx ___cbm_p");
-    __asm__("ldy ___cbm_p+1");
-    __asm__("lda ___cbm_a");
-    __asm__("jsr __rom_call");
-}
+static void cbm_setnam(char *name, char len) { __jsr(KERNAL_SETNAM, .A = len, .XY = (unsigned int)name); }
 
 /* The banks of the next LOAD / SAVE's data and of its file name (the C65
  * KERNAL's SETBNK: A = data bank, X = name bank; 0-5, chip RAM)
  */
-static void cbm_setbnk(char data_bank, char name_bank) {
-    __cbm_target = 0xFF6B;
-    __cbm_a = data_bank;
-    __cbm_x = name_bank;
-    __asm__("ldx ___cbm_x");
-    __asm__("lda ___cbm_a");
-    __asm__("jsr __rom_call");
-}
+static void cbm_setbnk(char data_bank, char name_bank) { __jsr(0xFF6B, .A = data_bank, .X = name_bank); }
 
 /* Load a file (call cbm_setbnk, cbm_setnam and cbm_setlfs first): with
  * secondary address 0 to addr in cbm_setbnk's bank, with 1 to the address
  * the file starts with (its first two bytes, in either case not loaded).
  * Returns 0 on success, 1 on error (carry set)
  */
-static int cbm_load(unsigned int addr) {
-    __cbm_target = 0xFFD5;
-    __cbm_p = addr;
-    __asm__("ldx ___cbm_p");
-    __asm__("ldy ___cbm_p+1");
-    __asm__("lda #$00");
-    __asm__("jsr __rom_call");
-    __asm__("lda #$00");
-    __asm__("tax");
-    __asm__("adc #$00");  /* A = carry (0=ok, 1=error) */
-    return;
-}
+static int cbm_load(unsigned int addr) { return __jsr(KERNAL_LOAD, .A = 0, .XY = addr).Carry; }
 
 /* Load a file from device to a linear address in chip RAM (banks 0-5:
  * $0000000-$005FFFF), skipping its two-byte header: name (in bank 0) of
@@ -176,191 +114,86 @@ static int cbm_load_far(char *name, char len, char device, unsigned long lin) {
 /* Open a logical file (call cbm_setlfs and cbm_setnam first)
  * Returns 0 on success, 1 on error (carry set)
  */
-static int cbm_open(void) {
-    __cbm_target = 0xFFC0;
-    __asm__("jsr __rom_call");
-    __asm__("lda #$00");
-    __asm__("tax");
-    __asm__("adc #$00");  /* A = carry (0=ok, 1=error) */
-    return;
-}
+static int cbm_open(void) { return __jsr(KERNAL_OPEN).Carry; }
 
 /* Close a logical file */
-static void cbm_close(char lfn) {
-    __cbm_target = 0xFFC3;
-    __cbm_a = lfn;
-    __asm__("lda ___cbm_a");
-    __asm__("jsr __rom_call");
-}
+static void cbm_close(char lfn) { __jsr(KERNAL_CLOSE, .A = lfn); }
 
 /* Set input channel. Returns 0 on success, 1 on error. */
-static int cbm_chkin(char lfn) {
-    __cbm_target = 0xFFC6;
-    __cbm_x = lfn;
-    __asm__("ldx ___cbm_x");
-    __asm__("jsr __rom_call");
-    __asm__("lda #$00");
-    __asm__("tax");
-    __asm__("adc #$00");
-    return;
-}
+static int cbm_chkin(char lfn) { return __jsr(KERNAL_CHKIN, .X = lfn).Carry; }
 
 /* Set output channel. Returns 0 on success, 1 on error. */
-static int cbm_chkout(char lfn) {
-    __cbm_target = 0xFFC9;
-    __cbm_x = lfn;
-    __asm__("ldx ___cbm_x");
-    __asm__("jsr __rom_call");
-    __asm__("lda #$00");
-    __asm__("tax");
-    __asm__("adc #$00");
-    return;
-}
+static int cbm_chkout(char lfn) { return __jsr(KERNAL_CHKOUT, .X = lfn).Carry; }
 
 /* Restore default I/O channels */
-static void cbm_clrchn(void) {
-    __cbm_target = 0xFFCC;
-    __asm__("jsr __rom_call");
-}
+static void cbm_clrchn(void) { __jsr(KERNAL_CLRCHN); }
 
 /* Close all open files */
-static void cbm_clall(void) {
-    __cbm_target = 0xFFE7;
-    __asm__("jsr __rom_call");
-}
+static void cbm_clall(void) { __jsr(KERNAL_CLALL); }
 
 /* ===== Keyboard ===== */
 
-/* Check if STOP key is pressed (returns non-zero if pressed) */
-static int cbm_stop(void) {
-    __cbm_target = 0xFFE1;
-    __asm__("jsr __rom_call");
-    /* Z=1 if STOP pressed. Preserve Z across LDX. */
-    __asm__("php");
-    __asm__("ldx #$00");
-    __asm__("plp");
-    __asm__("bne *+3");   /* Z=0: not pressed, skip INX */
-    __asm__("inx");       /* Z=1: pressed, X=1 */
-    __asm__("txa");       /* A=X (0 or 1) */
-    return;
-}
+/* Check if STOP key is pressed (returns non-zero if pressed: STOP sets Z) */
+static int cbm_stop(void) { return __jsr(KERNAL_STOP).Zero; }
 
 /* ===== Screen ===== */
 
 /* Set cursor position (col, row). 0-based.
  * KERNAL PLOT (CLC): X=row, Y=col
  */
-static void cbm_gotoxy(char col, char row) {
-    __cbm_target = 0xFFF0;
-    __cbm_x = row;
-    __cbm_y = col;
-    __asm__("clc");
-    __asm__("ldx ___cbm_x");
-    __asm__("ldy ___cbm_y");
-    __asm__("jsr __rom_call");
-}
+static void cbm_gotoxy(char col, char row) { __jsr(KERNAL_PLOT, .Carry = 0, .X = row, .Y = col); }
 
-/* Get cursor position. Returns col in low byte, row in high byte. */
-static int cbm_wherexy(void) {
-    __cbm_target = 0xFFF0;
-    __asm__("sec");
-    __asm__("jsr __rom_call");
-    /* X=row, Y=col → return col(lo) | row(hi) */
-    __asm__("tya");      /* A = col */
-    /* X already = row */
-    return;
-}
-
-/* Get screen size. Returns cols in low byte, rows in high byte.
- * KERNAL SCREEN returns X=cols, Y=rows.
+/* Get cursor position. Returns col in low byte, row in high byte.
+ * KERNAL PLOT (SEC) returns X=row, Y=col.
  */
-static int cbm_screen(void) {
-    __cbm_target = 0xFFED;
-    __asm__("jsr __rom_call");
-    /* X=cols, Y=rows → need A=cols, X=rows */
-    __asm__("txa");      /* A = cols (save) */
-    __asm__("taz");      /* Z = cols */
-    __asm__("tya");      /* A = rows */
-    __asm__("tax");      /* X = rows */
-    __asm__("tza");      /* A = cols */
-    return;
+static int cbm_wherexy(void) {
+    unsigned char row, col;
+    __jsr(KERNAL_PLOT, .Carry = 1, .X -> row, .Y -> col);
+    return col | (row << 8);
 }
+
+/* Get screen size: KERNAL SCREEN's X in the low byte, Y in the high byte.
+ * The MEGA65's gives the last column and row (79 and 24 on the 80x25
+ * screen); the C64's gives the counts (40, 25).
+ */
+static int cbm_screen(void) { return __jsr(KERNAL_SCREEN).XY; }
 
 /* ===== System Clock ===== */
 
 /* Read the jiffy clock (1/60s ticks since power-on).
- * Returns low 16 bits (Y=lo, X=mid from KERNAL).
+ * Returns low 16 bits (RDTIM returns A=hi, X=mid, Y=lo).
  */
 static int cbm_rdtim(void) {
-    __cbm_target = 0xFFDE;
-    __asm__("jsr __rom_call");
-    /* RDTIM returns A=hi, X=mid, Y=lo (24-bit clock) */
-    __asm__("tya");      /* A = lo byte */
-    /* X already = mid byte */
-    return;
+    unsigned char mid, lo;
+    __jsr(KERNAL_RDTIM, .X -> mid, .Y -> lo);
+    return lo | (mid << 8);
 }
 
 /* ===== Serial Bus (IEC) ===== */
 
 /* Send LISTEN command to device */
-static void cbm_listen(char device) {
-    __cbm_target = 0xFFB1;
-    __cbm_a = device;
-    __asm__("lda ___cbm_a");
-    __asm__("jsr __rom_call");
-}
+static void cbm_listen(char device) { __jsr(KERNAL_LISTEN, .A = device); }
 
 /* Send UNLISTEN */
-static void cbm_unlisten(void) {
-    __cbm_target = 0xFFAE;
-    __asm__("jsr __rom_call");
-}
+static void cbm_unlisten(void) { __jsr(KERNAL_UNLSN); }
 
 /* Send TALK command to device */
-static void cbm_talk(char device) {
-    __cbm_target = 0xFFB4;
-    __cbm_a = device;
-    __asm__("lda ___cbm_a");
-    __asm__("jsr __rom_call");
-}
+static void cbm_talk(char device) { __jsr(KERNAL_TALK, .A = device); }
 
 /* Send UNTALK */
-static void cbm_untalk(void) {
-    __cbm_target = 0xFFAB;
-    __asm__("jsr __rom_call");
-}
+static void cbm_untalk(void) { __jsr(KERNAL_UNTLK); }
 
 /* Send secondary address after LISTEN */
-static void cbm_second(char sa) {
-    __cbm_target = 0xFF93;
-    __cbm_a = sa;
-    __asm__("lda ___cbm_a");
-    __asm__("jsr __rom_call");
-}
+static void cbm_second(char sa) { __jsr(KERNAL_SECOND, .A = sa); }
 
 /* Send secondary address after TALK */
-static void cbm_tksa(char sa) {
-    __cbm_target = 0xFF96;
-    __cbm_a = sa;
-    __asm__("lda ___cbm_a");
-    __asm__("jsr __rom_call");
-}
+static void cbm_tksa(char sa) { __jsr(KERNAL_TKSA, .A = sa); }
 
 /* Send byte to serial bus */
-static void cbm_ciout(char data) {
-    __cbm_target = 0xFFA8;
-    __cbm_a = data;
-    __asm__("lda ___cbm_a");
-    __asm__("jsr __rom_call");
-}
+static void cbm_ciout(char data) { __jsr(KERNAL_CIOUT, .A = data); }
 
 /* Get byte from serial bus */
-static int cbm_acptr(void) {
-    __cbm_target = 0xFF13;
-    __asm__("jsr __rom_call");
-    __asm__("ldx #$00");
-    return;
-}
+static int cbm_acptr(void) { return __jsr(KERNAL_ACPTR).A; }
 
 /* ===== PETSCII Control Codes ===== */
 
