@@ -3160,13 +3160,20 @@ bool IRBuilder::currentFuncReturnsStruct() {
 }
 
 // A wide integer converted to an integer type t: its low bytes (as an
-// explicit cast, which visit(CastExpression) lowers)
-void IRBuilder::narrowWide(std::unique_ptr<Expression>& e, ir::Type t) {
+// explicit cast, which visit(CastExpression) lowers); to a _Bool (toBool):
+// whether it is not 0, all its bytes
+void IRBuilder::narrowWide(std::unique_ptr<Expression>& e, ir::Type t, bool toBool) {
     if (!e || (t != ir::Type::I8 && t != ir::Type::I16 && t != ir::Type::I32)) return;
     if (wideKindOf(e.get()).empty()) return;
-    const char* tn = t == ir::Type::I8 ? "char" : t == ir::Type::I32 ? "long" : "int";
     int line = e->line, col = e->column; std::string file = e->sourceFile;
-    e = std::make_unique<CastExpression>(tn, 0, false, std::move(e));
+    if (toBool) {
+        auto zero = std::make_unique<IntegerLiteral>(0);
+        zero->line = line; zero->column = col; zero->sourceFile = file;
+        e = std::make_unique<BinaryOperation>("!=", std::move(e), std::move(zero));
+    } else {
+        const char* tn = t == ir::Type::I8 ? "char" : t == ir::Type::I32 ? "long" : "int";
+        e = std::make_unique<CastExpression>(tn, 0, false, std::move(e));
+    }
     e->line = line; e->column = col; e->sourceFile = file;
 }
 
@@ -3854,7 +3861,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
     // An integer variable initialized from a wide integer: its low bytes
     if (node.pointerLevel == 0 && node.arrayDims.empty() && node.initializer &&
         !dynamic_cast<InitializerList*>(node.initializer.get()) && !structOf(node.type))
-        narrowWide(node.initializer, mapType(node.type, 0));
+        narrowWide(node.initializer, mapType(node.type, 0), isBoolType(node.type));
     // A global or static aggregate initialized with (T){...} of its own type:
     // the literal's brace list
     if ((!currentFunc_ || node.isStatic) && node.pointerLevel == 0 && node.initializer) {
@@ -4900,7 +4907,7 @@ void IRBuilder::visit(Assignment& node) {
     // An integer target of a wide integer value: its low bytes
     if (node.op == "=" && wideKindOf(node.target.get()).empty()) {
         IRTypeInfo tt = getExprTypeInfo(node.target.get());
-        if (!structOf(tt.typeName)) narrowWide(node.expression, tt.type);
+        if (!structOf(tt.typeName)) narrowWide(node.expression, tt.type, tt.type == ir::Type::I8 && isBoolType(tt.typeName));
     }
     // A vector target: v op= x is v = v op x
     if (node.op != "=" && !vecOf(node.target.get()).empty()) {
@@ -6188,6 +6195,41 @@ void IRBuilder::visit(UnaryOperation& node) {
         lastValue_ = ir::Operand::imm(0, ir::Type::I16);
         return;
     }
+    // ++/-- of a _Bool (C11 6.5.2.4: b + 1 / b - 1 converted): ++ makes it 1,
+    // -- turns it over (0 - 1 is true); a post one's value is the old one
+    if ((node.op == "++" || node.op == "--" || node.op == "++_POST" || node.op == "--_POST") &&
+        !dynamic_cast<BitSelect*>(node.operand.get()) && !bitVarOf(node.operand.get())) {
+        IRTypeInfo ti = getExprTypeInfo(node.operand.get());
+        if (ti.type == ir::Type::I8 && isBoolType(ti.typeName)) {
+            auto target = cloneSimpleExpr(node.operand.get());
+            auto again = cloneSimpleExpr(node.operand.get());
+            if (target && again) {
+                bool post = node.op.size() > 2;
+                ir::Operand old;
+                if (post) {
+                    // (a copy: the variable's own vreg changes with the assignment)
+                    node.operand->accept(*this);
+                    old = allocVreg(ir::Type::I8);
+                    ir::Inst cp;
+                    cp.op = ir::Op::COPY;
+                    cp.dest = old;
+                    cp.src1 = emitCast(lastValue_, ir::Type::I8, false);
+                    cp.resultType = ir::Type::I8;
+                    cp.loc = loc(node);
+                    emit(cp);
+                }
+                std::unique_ptr<Expression> value;
+                if (node.op[0] == '+') value = std::make_unique<IntegerLiteral>(1);
+                else value = std::make_unique<UnaryOperation>("!", std::move(again));
+                Assignment as(std::move(target), std::move(value));
+                as.line = node.line; as.column = node.column; as.sourceFile = node.sourceFile;
+                visit(as);
+                if (post) lastValue_ = old;
+                lastValueSigned_ = false;
+                return;
+            }
+        }
+    }
     if (auto* bs = dynamic_cast<BitSelect*>(node.operand.get());
         bs && (node.op == "++" || node.op == "--" || node.op == "++_POST" || node.op == "--_POST")) {
         emitBitSelectWrite(*bs, node.op.substr(0, 2) == "++" ? "+=" : "-=", nullptr, node.op.size() > 2, node);
@@ -6635,6 +6677,7 @@ void IRBuilder::visit(UnaryOperation& node) {
 void IRBuilder::visit(CastExpression& node) {
     // (_Bool)x: 0 or 1
     if (node.pointerLevel == 0 && isBoolType(node.targetType) && !computeAddressOnly_) {
+        narrowWide(node.expression, ir::Type::I8, true);
         node.expression->accept(*this);
         lastValue_ = emitBoolConvert(lastValue_, loc(node));
         lastValueSigned_ = false;
@@ -7314,16 +7357,17 @@ normal_call:
 
     std::vector<ir::Operand> castArgs;
     std::vector<ir::Type> fpTypes;
-    std::vector<bool> fpSigned;
+    std::vector<bool> fpSigned, fpBool;
     if (fpSig) {
         // Through a function pointer: convert to its prototype's parameter
         // types (an aggregate passes its copy's address as is)
-        if (isSret) { fpTypes.push_back(ir::Type::PTR); fpSigned.push_back(false); }
+        if (isSret) { fpTypes.push_back(ir::Type::PTR); fpSigned.push_back(false); fpBool.push_back(false); }
         for (auto& p : fpSig->params) {
             if (p.type == "void" && p.pointerLevel == 0 && fpSig->params.size() == 1) break;
             bool agg = aggregateBlockSize(p.type, p.pointerLevel) > 0;
             fpTypes.push_back(agg ? ir::Type::PTR : mapType(p.type, p.pointerLevel));
             fpSigned.push_back(p.isSigned);
+            fpBool.push_back(p.pointerLevel == 0 && isBoolType(p.type));
         }
     }
     if (!fpSig && (node.name == "vscanf" || node.name == "vfscanf" || node.name == "vsscanf"))
@@ -7360,7 +7404,8 @@ normal_call:
                 else if (widens && negated && getExprTypeInfo(node.arguments[ai].get()).isSigned)
                     sig = true;
             }
-            bool toBool = !fpSig && i < functionParamBool_[node.name].size() && functionParamBool_[node.name][i];
+            const std::vector<bool>& pBool = fpSig ? fpBool : functionParamBool_[node.name];
+            bool toBool = i < pBool.size() && pBool[i];
             castArgs.push_back(toBool ? emitBoolConvert(args[i], loc(node)) : emitCast(args[i], pTypes[i], sig));
         } else {
             // The variadic arguments of a function declared with "...": the
@@ -7888,7 +7933,7 @@ void IRBuilder::visit(ReturnStatement& node) {
     if (!inlineReturnLabel_.empty()) {
         if (node.expression) {
             ir::Type retType = inlineReturnTarget_.type;
-            narrowWide(node.expression, retType);
+            narrowWide(node.expression, retType, returnsBool());
             node.expression->accept(*this);
             auto val = lastValue_;
 
@@ -7912,7 +7957,7 @@ void IRBuilder::visit(ReturnStatement& node) {
         startBlock(newLabel("inline_after_ret"));
         return;
     }
-    if (currentFunc_ && !currentFuncReturnsStruct()) narrowWide(node.expression, currentFunc_->returnType);
+    if (currentFunc_ && !currentFuncReturnsStruct()) narrowWide(node.expression, currentFunc_->returnType, returnsBool());
 
     // Struct/union/float result: copy into the caller's buffer (*__sret), return the pointer
     if (currentFunc_) {

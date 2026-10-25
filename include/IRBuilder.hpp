@@ -268,7 +268,7 @@ private:
     void toComplex(std::unique_ptr<Expression>& e, const std::string& kind);
     std::string wideKindOf(Expression* e);
     void toWide(std::unique_ptr<Expression>& e, const std::string& kind, bool braced);
-    void narrowWide(std::unique_ptr<Expression>& e, ir::Type t);
+    void narrowWide(std::unique_ptr<Expression>& e, ir::Type t, bool toBool = false);
     bool currentFuncReturnsStruct();
     bool inlineParamAssigned(Statement* body, const std::string& name);
     bool evalConstComplex(Expression* e, double& re, double& im);

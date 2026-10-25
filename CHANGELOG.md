@@ -25,6 +25,11 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - `_Bool` is one byte in the IR too: stores to a global, an array element
   or a struct member wrote two bytes, the next variable's as well. Test
   `test_bool_xemu.c` (both conventions).
+- `++` of a `_Bool` makes it 1 and `--` turns it over (it went to 2 and
+  255), `b++` gives the old value; an argument to a `_Bool` parameter
+  through a function pointer is converted; a `long long` converted to
+  `_Bool` is whether it is not 0 (its low bytes were taken). Test
+  `test_bool_ops_xemu.c` (36 checks, both conventions).
 
 ### `__jsr` / `__jsr_raw` / `__jmp`; `<cbm.h>` made of them
 
