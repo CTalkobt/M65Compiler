@@ -2043,6 +2043,21 @@ for fcmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: the code the size passes change (a global's member at its address,
+# sxt.8, constant masks byte by byte, 32-bit shifts by bytes and bits,
+# ca45's dropped flag tests and register transfers)
+for pmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r pname pflags <<< "$pmode"
+    echo "Testing test_peephole_xemu.c ($pname)..."
+    compile_link_test "src/test-resources/test_peephole_xemu.c" "build/test/test_peephole_${pname}_xemu.prg" "$pflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_peephole_$pname" "build/test/test_peephole_${pname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_peephole_xemu.c $pname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: dma.h's stepped DMA, palette.h, seam.h (two-byte cell screens with
 # full-colour characters)
 for smode in "zp|" "stack|-fno-zpcall"; do

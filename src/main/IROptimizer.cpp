@@ -3522,6 +3522,53 @@ void removeDeadTemps(Module& mod) {
     }
 }
 
+// A member of a global struct or an element of a global array at a constant
+// index: %p = add ptr @g, c used only as the address of loads and stores
+// (and defined once) is @g+c in them, an absolute address, not a pointer
+// computed into a register (g.y = 5 is sta _g+2). Only for this file's
+// globals in the default address space (not __zp: base-page addressing;
+// not __far). Runs after the other passes, which see the add; the add is
+// then dead (removeDeadTemps). Under AddrElemFusion's switch.
+void foldGlobalOffsetAccess(Module& mod) {
+    std::set<std::string> plain;
+    for (const auto& g : mod.globals)
+        if (g.addressSpace == 0) plain.insert(g.name);
+    for (auto& fn : mod.functions) {
+        if (!runOn(fn, "AddrElemFusion")) continue;
+        std::map<uint32_t, int> defCount;
+        std::map<uint32_t, const Inst*> def;
+        std::set<uint32_t> other;          // used other than as a load's / store's address
+        for (const auto& b : fn.blocks)
+            for (const auto& in : b.insts) {
+                if (in.dest.isVreg()) { defCount[in.dest.vregId]++; def[in.dest.vregId] = &in; }
+                bool addr1 = in.op == Op::LOAD && in.args.empty();
+                bool addr2 = in.op == Op::STORE && in.args.empty();
+                if (in.src1.isVreg() && !addr1) other.insert(in.src1.vregId);
+                if (in.src2.isVreg() && !addr2) other.insert(in.src2.vregId);
+                for (const auto& a : in.args)
+                    if (a.isVreg()) other.insert(a.vregId);
+            }
+        std::map<uint32_t, std::string> at;   // vreg -> "@g+c"
+        for (const auto& [v, n] : defCount) {
+            if (n != 1 || other.count(v) || fn.localSlotVregs.count(v) || fn.memoryVregs.count(v)) continue;
+            const Inst* d = def[v];
+            if (d->op != Op::ADD || d->resultType != Type::PTR || d->src1.kind != OperandKind::GLOBAL ||
+                !d->src2.isImm() || !plain.count(d->src1.name)) continue;
+            int64_t c = d->src2.immVal;
+            if (c <= 0 || c > 0xFFFF) continue;
+            at[v] = d->src1.name + "+" + std::to_string(c);
+        }
+        if (at.empty()) continue;
+        for (auto& b : fn.blocks)
+            for (auto& in : b.insts) {
+                ir::Operand* a = in.op == Op::LOAD ? &in.src1 : in.op == Op::STORE ? &in.src2 : nullptr;
+                if (!a || !a->isVreg() || !at.count(a->vregId)) continue;
+                trace("globaloff", fn.name, "v" + std::to_string(a->vregId) + " is " + at[a->vregId], in.loc);
+                *a = Operand::global(at[a->vregId]);
+            }
+    }
+}
+
 // a[x + c] (also a[x - c]) with a global base: element x of the array
 // shifted by c*stride bytes, so the index is x itself and the base address
 // carries the constant (bubble sort's a[j] / a[j + 1] use the same index).
