@@ -203,7 +203,9 @@ test_text_disk "glamlambs" "$EXAMPLES/c/glamlambs/glamlambs.prg" "$EXAMPLES/c/gl
 # the self-playing build: a season in the field; its music loaded from the
 # disk into bank 5 and playing (the demo writes its state to $C0F0-$C0F3)
 make -C "$EXAMPLES/c/glamlambs" demo >/dev/null 2>&1
-test_text_disk "glamlambs demo" "$EXAMPLES/c/glamlambs/glamdemo.prg" "$EXAMPLES/c/glamlambs/glamdemo.d81" "SCORE" 15
+# (the score line, on the field's screen or the salon's: two bytes a cell,
+# which xemu's screen dump shows as S@C@O@R@E@)
+test_text_disk "glamlambs demo" "$EXAMPLES/c/glamlambs/glamdemo.prg" "$EXAMPLES/c/glamlambs/glamdemo.d81" "SCORE\|S@C@O@R@E@" 15
 rm -f "$BUILDDIR/glamdemo.mem"
 timeout 15 $XEMU -headless -besure -sleepless -prgmode 65 -prgexit -dumpmem "$BUILDDIR/glamdemo.mem" \
     -8 "$PWD/$EXAMPLES/c/glamlambs/glamdemo.d81" -prg "$EXAMPLES/c/glamlambs/glamdemo.prg" </dev/null >/dev/null 2>&1
@@ -213,6 +215,14 @@ m = open(sys.argv[1], 'rb').read()
 sys.exit(0 if m[0xC0F0] == 1 and m[0xC0F1] in (1, 2) and m[0xC0F2] | m[0xC0F3] else 1)
 PY
 then pass "glamlambs music"; else fail "glamlambs music" "the music did not load or play"; fi
+# its salon: GLAMSALON and GLAMSALON2 loaded (into banks 4 and 5), the room
+# shown in full-colour characters on a two-byte cell screen (CHR16, FCLRHI)
+if [ -f "$BUILDDIR/glamdemo.mem" ] && python3 - "$BUILDDIR/glamdemo.mem" <<'PY'
+import sys
+m = open(sys.argv[1], 'rb').read()
+sys.exit(0 if m[0xC0FA] == 1 and m[0xC0FB] & 0x05 == 0x05 and m[0x52800:0x52802] != b"\0\0" else 1)
+PY
+then pass "glamlambs salon"; else fail "glamlambs salon" "the salon's files did not load or the room was not shown"; fi
 
 build_example "$EXAMPLES/c/forth"
 test_text "forth" "$EXAMPLES/c/forth/forth.prg" "COUNT 0 1 2 3 4" 10

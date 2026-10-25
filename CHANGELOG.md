@@ -4,6 +4,41 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Glam Lambs: a full-screen salon in full-colour characters
+
+- The salon is now a room of its own: the sheep in a salon chair, life
+  size, and its face from the front in the vanity's mirror, with the menu
+  on the cabinet's doors and the trend on a sign. It is a picture in the
+  VIC-IV's full-colour characters on a two-byte cell screen (1,042
+  characters after sharing), drawn by `gen_salon.py` (Python's PIL; `make
+  salon`; the output is in the repository) and loaded from the disk as
+  GLAMSALON (bank 4) and GLAMSALON2 (bank 5). The dye and the lipstick are
+  palette entries, so the wool keeps its shading at any colour; lashes, a
+  blink, a bow and a ram's horns are cells swapped in the profile and the
+  mirror at once; the mirror's bulbs take turns and sparkles celebrate a
+  change. Without the files the salon is the panel as before. To make
+  room, the field's background moved to bank 5 and the screen is built in
+  the ROM's screen RAM at `$0800` (shown from bank 5). On the games disk;
+  `test_examples.sh` checks the demo shows the room.
+
+### Library: stepped DMA, `palette.h`, `seam.h`, `cbm_load_far`
+
+- `dma.h`: `dma_copy_far_step` / `dma_fill_far_step`, DMA with a step for
+  each side (every other byte of a two-byte cell screen).
+- `palette.h` is implemented (`lib/stdlib/palette.c`): set, get, a range,
+  save and restore (register format), rotate, for all 256 entries with the
+  nibble swap the registers need. The header declared fades, banks and
+  names that never linked (and `lib/src/palette.c` wrote the wrong
+  registers); those are removed.
+- New `seam.h`: screens of two-byte cells (Super-Extended Attribute Mode)
+  with full-colour characters above $FF among text: init, show and hide
+  (the VIC-IV's registers saved and put back), cells, text, rows from a
+  one-byte screen, character numbers from far memory.
+- `cbm.h`: `cbm_load_far(name, len, device, linear address)`.
+- `mega65.h`: `VIC4_FCLRHI` / `VIC4_FCLRLO` had each other's bit ($D054
+  bit 2 is FCLRHI, bit 1 FCLRLO).
+- Test `test_seam_xemu.c` (both conventions).
+
 ### Line info: an inlined call's line; ca45's code the same without `.loc`
 
 - cc45: a statement whose call is inlined had no address of its own in

@@ -158,6 +158,21 @@ static int cbm_load(unsigned int addr) {
     return;
 }
 
+/* Load a file from device to a linear address in chip RAM (banks 0-5:
+ * $0000000-$005FFFF), skipping its two-byte header: name (in bank 0) of
+ * len characters. Returns 0 on success, 1 on error. The next LOAD's banks
+ * are 0 again after it.
+ */
+static int cbm_load_far(char *name, char len, char device, unsigned long lin) {
+    int err;
+    cbm_setbnk((char)(lin >> 16), 0);
+    cbm_setnam(name, len);
+    cbm_setlfs(0, device, 0);
+    err = cbm_load((unsigned int)lin);
+    cbm_setbnk(0, 0);
+    return err;
+}
+
 /* Open a logical file (call cbm_setlfs and cbm_setnam first)
  * Returns 0 on success, 1 on error (carry set)
  */

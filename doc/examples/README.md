@@ -229,8 +229,26 @@ fleeces, the made-up sheep first, which takes the makeup off. The screen is
 80 x 25 multicolour characters (a multicolour pixel is square in 80 columns),
 the glyphs (`gen_gfx.py`, from ASCII pictures; `gfx.h` is in the repository)
 in a character set in bank 4, and the whole screen is built in two buffers
-and copied out by DMA each frame. After a minute on the title page the
+(the characters in the ROM's screen RAM at `$0800`, shown from a copy in bank
+5) and copied out by DMA each frame. After a minute on the title page the
 computer plays a season by itself.
+
+The salon is a full-screen room: the sheep in a salon chair, life size, and
+its face from the front in the vanity's mirror, so the whole look shows. It
+is a picture in the VIC-IV's full-colour characters (8 x 8 pixels a
+character, any of 256 colours a pixel) on a screen of two-byte cells
+(`<seam.h>`), the score and message lines text on the same screen.
+`gen_salon.py` draws it with Python's PIL (`make salon`; its output,
+`salon.h`, `salon1.dat` and `salon2.dat`, is in the repository): 1,042
+characters (65 KB) after identical cells are shared, loaded from the disk as
+`GLAMSALON` (bank 4) and `GLAMSALON2` (bank 5, with the screen, the looks and
+the palette) with `cbm_load_far`. The dye and the lipstick are palette
+entries (sixteen shades of wool, eight of lipstick, rewritten from tables by
+`palette_restore`), so the shading stays at any colour; the eyelashes, a
+blink, a bow and a ram's horns are runs of cells copied over the room, in
+profile and in the mirror at once; the mirror's bulbs take turns and
+sparkles twinkle round whatever was just changed. Without the two files the
+salon is the panel beside the field.
 
 The music is a nine-voice band on SIDs 2-4, written as tune45 text
 (`music.txt`): in the field the farm band plays Old MacDonald, Baa, Baa,
@@ -241,19 +259,21 @@ frame: the trombone's slides into a note are glides (`g4^3`), the kick drum's
 fall is a fast glide down, and a tick is a frame, so the lead lets go a
 frame before each note. As data the band is 4.4 KB, more than the game has
 room for, so `tune45 convert --bin --load-at 0` writes it as `GLAMMUSIC`, which
-the game loads from the disk into bank 5 at start (`cbm_setbnk`, `cbm_setnam`,
-`cbm_setlfs`, `cbm_load` from `<cbm.h>`) and plays from there
+the game loads from the disk into bank 5 at start (`cbm_load_far` from
+`<cbm.h>`) and plays from there
 (`tune_play_far`). Coming back from the salon, the farm songs carry on where
 they were: the game keeps the tune's position (`tune_ticks` modulo the
 `TUNE_FARM_TICKS` of a time through) and `tune_seek`s to it. The sound effects
 (bleats, a birth's arpeggio, clicks) stay on SID 1 with `<audio_sid.h>`.
 Without the music file the game plays silently. Keys: cursor keys / WASD or
 a joystick to walk, SPACE / RETURN / fire to grab, style and let go, M music
-on / off, RUN/STOP quit. `make` builds `glamlambs.d81` (the program and the
-music), `make demo` a self-playing version, `make music` plays the band on
-the PC.
+on / off, RUN/STOP quit. `make` builds `glamlambs.d81` (the program, the
+music and the salon), `make demo` a self-playing version, `make music` plays
+the band on the PC.
 
 ![glamlambs](images/glamlambs.png)
+
+![glamlambs salon](images/glamlambs_salon.png)
 
 ### tunes
 

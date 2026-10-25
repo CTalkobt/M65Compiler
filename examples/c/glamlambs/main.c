@@ -21,7 +21,17 @@
  * is multicolour (its own colour is then 0-7), so text and the hi-res
  * glyphs keep to colours 0-7, and the game sets palette entries 0-7 to
  * its own colours (restored at the end). Every frame the whole screen is
- * built in two buffers (characters, colours) and copied out by DMA.
+ * built in two buffers (characters: the ROM's screen RAM at $0800, which
+ * the VIC-IV does not show meanwhile; colours) and copied out by DMA to
+ * the screen shown (bank 5) and colour RAM.
+ *
+ * The salon is a full-screen room (when GLAMSALON and GLAMSALON2 are on
+ * the disk; else a panel beside the field): the sheep in a salon chair
+ * and its face in the vanity's mirror, drawn by gen_salon.py in the
+ * VIC-IV's full-colour characters (a byte a pixel, any of 256 colours) on
+ * a screen of two-byte cells (<seam.h>) with the score and message lines
+ * as text. The wool's dye and the lipstick are palette entries, the looks
+ * (lashes, a bow, a ram's horns, a blink) cells swapped in.
  *
  * Build with -DDEMO to play by itself (for screenshots and soak tests).
  *
@@ -34,10 +44,13 @@
 #include <audio_tune.h>
 #include <cbm.h>
 #include <input.h>
+#include <palette.h>
+#include <seam.h>
 
 #define CH_BASE 0x60                  /* our glyphs replace screen codes $60.. */
 #include "gfx.h"
 #include "music.h"                    /* tune45 convert --bin music.txt */
+#include "salon.h"                    /* gen_salon.py: the salon's picture */
 
 #ifndef REG
 #define REG(a) (*(volatile unsigned char *)(a))
@@ -45,7 +58,8 @@
 
 #define COLS 80
 #define ROWS 25
-#define SCREEN_LIN  0x0000800UL
+#define SCREEN_LIN  0x0000800UL       /* the ROM's screen: our back buffer (scr) */
+#define SHOWN_LIN   0x005E000UL       /* the screen shown (bank 5) */
 #define COLOR_LIN   0xFF80000UL
 #define CHARROM_LIN 0xFF7E000UL       /* the MEGA65 character set */
 #define CHARSET_LIN 0x004F800UL       /* our copy: bank 4 */
@@ -98,8 +112,12 @@
 /* ------------------------------------------------------------------------ */
 /* The screen, built here and copied by DMA once a frame                    */
 
-static unsigned char scr[COLS * ROWS], clr[COLS * ROWS];
-static unsigned char bgk[BGW * BGH], bgc[BGW * BGH];
+#define scr ((unsigned char *)0x0800)
+static unsigned char clr[COLS * ROWS];
+/* the field's background (characters, colours: rows 1-23, columns 0-59),
+ * made once, kept in bank 5 */
+#define BGK_LIN 0x5C000UL
+#define BGC_LIN 0x5C800UL
 
 static void put(unsigned char x, unsigned char y, unsigned char ch, unsigned char c) {
     unsigned int o = (unsigned int)y * COLS + x;
@@ -131,7 +149,7 @@ static void clear_span(unsigned char x, unsigned char y, unsigned char n) {
 }
 
 static void show(void) {
-    dma_copy_far(SCREEN_LIN, (unsigned long)(unsigned int)scr, COLS * ROWS);
+    dma_copy_far(SHOWN_LIN, SCREEN_LIN, COLS * ROWS);
     dma_copy_far(COLOR_LIN, (unsigned long)(unsigned int)clr, COLS * ROWS);
 }
 
@@ -255,10 +273,7 @@ static void music_load(void) {
     static char name[] = p"glammusic";
     unsigned char dev = *(volatile unsigned char *)0x00BA, n;
     if (dev < 8) dev = 8;
-    cbm_setbnk(MUSIC_LIN >> 16, 0);
-    cbm_setnam(name, sizeof name - 1);
-    cbm_setlfs(0, dev, 0);
-    if (cbm_load((unsigned int)MUSIC_LIN)) return;
+    if (cbm_load_far(name, sizeof name - 1, dev, MUSIC_LIN)) return;
     dma_copy_far((unsigned long)(unsigned int)&n, MUSIC_LIN, 1);   /* its tunes */
     music_ok = n == NTUNES;
     tune_voices(V_BAND);
@@ -682,7 +697,7 @@ static void make_background(void) {
     unsigned char x, y;
     for (y = 0; y < BGH; y++)
         for (x = 0; x < BGW; x++) {
-            unsigned int o = (unsigned int)y * BGW + x;
+            unsigned int o = (unsigned int)(y + FENCE_T) * COLS + x;   /* (made in the screen's buffers) */
             unsigned char ch = CH_SPACE, c = C_WHITE, row = (unsigned char)(y + FENCE_T);
             if (row == FENCE_T || row == FENCE_B) {
                 ch = (x == FENCE_L || x == FENCE_R) ? G_POST : G_FENCE_H;
@@ -697,9 +712,15 @@ static void make_background(void) {
                 else if (r < 4) { ch = G_GRASS2; c = MCOL; }
                 else if (r == 4) { ch = G_FLOWER; c = (rnd() & 1) ? C_YELLOW : C_WHITE; }
             }
-            bgk[o] = ch;
-            bgc[o] = c;
+            scr[o] = ch;
+            clr[o] = c;
         }
+    for (y = 0; y < BGH; y++) {
+        unsigned int o = (unsigned int)(y + FENCE_T) * COLS;
+        dma_copy_far(BGK_LIN + (unsigned int)y * BGW, (unsigned long)(unsigned int)(scr + o), BGW);
+        dma_copy_far(BGC_LIN + (unsigned int)y * BGW, (unsigned long)(unsigned int)(clr + o), BGW);
+    }
+    memset(scr, CH_SPACE, COLS * ROWS);
 }
 
 /* a sheep's 4 x 2 cells: three of wool (and legs), the head. Each _L
@@ -769,8 +790,9 @@ static void draw_shearer(void) {
 static void draw_field(void) {
     unsigned char y, i;
     for (y = 0; y < BGH; y++) {
-        memcpy(scr + (unsigned int)(y + FENCE_T) * COLS, bgk + (unsigned int)y * BGW, BGW);
-        memcpy(clr + (unsigned int)(y + FENCE_T) * COLS, bgc + (unsigned int)y * BGW, BGW);
+        unsigned int o = (unsigned int)(y + FENCE_T) * COLS;
+        dma_copy_far((unsigned long)(unsigned int)(scr + o), BGK_LIN + (unsigned int)y * BGW, BGW);
+        dma_copy_far((unsigned long)(unsigned int)(clr + o), BGC_LIN + (unsigned int)y * BGW, BGW);
     }
     for (i = 0; i < MAXS; i++)
         if ((s_flags[i] & (F_ALIVE | F_CARRIED)) == F_ALIVE) draw_sheep_at(s_x[i], s_y[i], i);
@@ -1150,6 +1172,173 @@ static void move_shearer(void) {
         shearer_step((signed char)(rnd_n(3) - 1), (signed char)(rnd_n(3) - 1));
 }
 
+/* ------------------------------------------------------------------------ */
+/* The salon's room: GLAMSALON (characters) into bank 4, GLAMSALON2 (more,  */
+/* its screen, the looks, the palette) into bank 5; without them, the panel */
+
+#define SAL_SCREEN_LIN 0x51800UL      /* its screen: two bytes a cell (80 x 25: to $5279F) */
+#define SAL_COLOUR 0x1000             /* its colour RAM (an offset) */
+#define PALSAVE_LIN 0x5D000UL         /* palette entries 16-255 as they were */
+#define SCRATCH (scr + COLS)          /* (rows 1-23 of the buffers: the room has its own screen) */
+
+static unsigned char salon_ok;        /* the files loaded */
+static seam_screen_t sal;
+static unsigned char sal_look;        /* the look the palette shows (+ 1; 0: none yet) */
+static unsigned int sal_key;          /* what the text shows (+ 1) */
+static unsigned char blink_t, bulb_t, bulb_on;
+#define NSPARK 4
+static unsigned char spark_t[NSPARK], spark_kind;
+static char sal_line[SAL_DOOR_W];
+
+/* sparkles (column, row, the large one's character, the small one's) by
+ * the menu's row: wool, lips, lashes, bow */
+static const unsigned int spark_tab[4][4 * NSPARK] = {
+    {SAL_SPARK_WOOL}, {SAL_SPARK_LIPS}, {SAL_SPARK_EYE}, {SAL_SPARK_BOW}};
+static const unsigned char eye_runs[SAL_EYES_N * 4] = {SAL_EYES_RECTS};
+static const unsigned char top_runs[SAL_TOP_N * 4] = {SAL_TOP_RECTS};
+
+/* GLAMSALON and GLAMSALON2 from the drive the game was loaded from (before
+ * our screen: the KERNAL's disk code) */
+static void salon_load(void) {
+    static char n1[] = p"glamsalon", n2[] = p"glamsalon2";
+    unsigned char dev = *(volatile unsigned char *)0x00BA;
+    if (dev < 8) dev = 8;
+    if (cbm_load_far(n1, sizeof n1 - 1, dev, SAL_LIN) || cbm_load_far(n2, sizeof n2 - 1, dev, SAL2_LIN)) return;
+    dma_copy_far((unsigned long)(unsigned int)scr, SAL2_LIN + SAL2_SIZE - 4, 4);
+    salon_ok = scr[0] == 0x47 && scr[1] == 0x4C && scr[2] == 0x41 && scr[3] == 0x4D;   /* "GLAM" */
+}
+
+/* palette entries from the file (as palette_restore takes them) */
+static void sal_palette(unsigned char first, unsigned char n, unsigned int at) {
+    dma_copy_far((unsigned long)(unsigned int)SCRATCH, SAL2_LIN + at, 3 * n);
+    palette_restore(first, n, SCRATCH);
+}
+
+/* once (after setup): its screen, the picture's palette (entries 16-255 as
+ * they were kept in bank 5); and back at the end */
+static void salon_setup(void) {
+    seam_init(&sal, SAL_SCREEN_LIN, SAL_COLOUR, COLS, ROWS);
+    palette_save(16, 240, SCRATCH);
+    dma_copy_far(PALSAVE_LIN, (unsigned long)(unsigned int)SCRATCH, 720);
+    sal_palette(SAL_PAL_FIRST, SAL_PAL_COUNT, SAL_PALETTE);
+}
+
+static void salon_unsetup(void) {
+    dma_copy_far((unsigned long)(unsigned int)SCRATCH, PALSAVE_LIN, 720);
+    palette_restore(16, 240, SCRATCH);
+}
+
+/* a sparkle's cell: the sparkle, or the room's again */
+static void spark_cell(unsigned char i, unsigned char on) {
+    const unsigned int *sp = spark_tab[spark_kind] + 4 * i;
+    unsigned char x = (unsigned char)sp[0], y = (unsigned char)sp[1];
+    if (on) seam_put(&sal, x, y, (spark_t[i] & 4) ? sp[2] : sp[3], 0);
+    else seam_cells(&sal, x, y, SAL2_LIN + SAL_SCREEN + (((unsigned int)(y - 1) * COLS + x) << 1), 1);
+}
+
+/* sparkles round what the menu's row k changed, one after another */
+static void sparkle(unsigned char k) {
+    unsigned char i;
+    if (sal.shown)
+        for (i = 0; i < NSPARK; i++) spark_cell(i, 0);
+    spark_kind = k;
+    for (i = 0; i < NSPARK; i++) spark_t[i] = (unsigned char)(20 + 8 * i);
+}
+
+/* a line of text (screen codes) on the room: s from off */
+static void sal_fill(unsigned char off, const char *s) {
+    while (*s && off < SAL_DOOR_W) sal_line[off++] = *s++;
+}
+
+static void sal_text(unsigned char x, unsigned char y, unsigned char w, unsigned char off, const char *s,
+                     unsigned char c) {
+    memset(sal_line, CH_SPACE, w);
+    sal_fill(off, s);
+    seam_text(&sal, x, y, sal_line, w, c);
+}
+
+/* one look's cells over the room: runs (column, row, width) of numbers */
+static void sal_runs(const unsigned char *run, unsigned char n, unsigned long src) {
+    while (n--) {
+        seam_cells(&sal, run[0], run[1], src, run[2]);
+        src += (unsigned int)run[2] * 2;
+        run += 4;
+    }
+}
+
+/* the sign (the trend) and the doors (the menu, the help) */
+static void sal_words(unsigned char look) {
+    unsigned char i;
+    sal_text(SAL_SIGN_X, SAL_SIGN_Y, SAL_SIGN_W, 2, s"* glam salon *", C_YELLOW);
+    sal_text(SAL_SIGN_X, SAL_SIGN_Y + 1, SAL_SIGN_W, 0, s"trend: ", C_PINK);
+    sal_fill(7, trend_name[trend]);
+    seam_text(&sal, SAL_SIGN_X, SAL_SIGN_Y + 1, sal_line, SAL_SIGN_W, C_PINK);
+    sal_text(SAL_DOOR_X, SAL_DOOR_Y, SAL_DOOR_W, 2,
+             (s_flags[carry] & F_RAM) ? s"a ram in the chair!" : s"a ewe in the chair!", C_LBLUE);
+    for (i = 0; i < 5; i++) {
+        const char *v = s"";
+        if (i == 0) v = wool_name[look & L_WOOL];
+        else if (i == 1) v = lips_name[(look & L_LIPS) >> 2];
+        else if (i == 2) v = yesno_name[(look & L_LASH) ? 1 : 0];
+        else if (i == 3) v = yesno_name[(look & L_BOW) ? 1 : 0];
+        sal_text(SAL_DOOR_X, (unsigned char)(SAL_DOOR_Y + 1 + i), SAL_DOOR_W, 13, v, i == sel ? C_YELLOW : C_WHITE);
+        sal_fill(4, salon_rows[i]);
+        if (i == sel) sal_line[2] = '>';
+        seam_text(&sal, SAL_DOOR_X, (unsigned char)(SAL_DOOR_Y + 1 + i), sal_line, SAL_DOOR_W,
+                  i == sel ? C_YELLOW : C_WHITE);
+    }
+    sal_text(SAL_DOOR_X, SAL_DOOR_Y + 6, SAL_DOOR_W, 1, s"up/down choose, l/r change", C_LBLUE);
+    sal_text(SAL_DOOR_X, SAL_DOOR_Y + 7, SAL_DOOR_W, 1, s"fire: let it go, darling", C_LBLUE);
+}
+
+static void draw_salon(void) {
+    unsigned char look = s_look[carry], i, k;
+    unsigned int key = (unsigned int)(look | (unsigned int)sel << 6 | (unsigned int)trend << 9) + 1;
+    if (sal_look != look + 1) {          /* the dye's and the lipstick's shades */
+        sal_palette(SAL_WOOL, 16, SAL_DYES + 48 * (look & L_WOOL));
+        sal_palette(SAL_LIPS, 8, SAL_LIPSTICKS + 24 * ((look & L_LIPS) >> 2));
+        sal_look = (unsigned char)(look + 1);
+    }
+    if (++bulb_t >= 20) {                /* the bulbs take turns */
+        bulb_t = 0;
+        bulb_on ^= 1;
+        sal_palette(SAL_BULBA, 8, SAL_BULBS + 24 * bulb_on);
+    }
+    if (blink_t) blink_t--;
+    else blink_t = (unsigned char)(120 + rnd_n(120));
+    /* the eyes' look and the head top's */
+    k = (unsigned char)(((look & L_LASH) ? 2 : 0) | (blink_t < 6 ? 1 : 0));
+    sal_runs(eye_runs, SAL_EYES_N, SAL2_LIN + SAL_EYES + (unsigned int)k * SAL_EYES_LOOK);
+    k = (unsigned char)(((s_flags[carry] & F_RAM) ? 2 : 0) | ((look & L_BOW) ? 1 : 0));
+    sal_runs(top_runs, SAL_TOP_N, SAL2_LIN + SAL_TOP + (unsigned int)k * SAL_TOP_LOOK);
+    for (i = 0; i < NSPARK; i++) {
+        if (spark_t[i]) spark_t[i]--;
+        spark_cell(i, spark_t[i] && spark_t[i] <= 20);
+    }
+    if (key != sal_key) { sal_words(look); sal_key = key; }
+    /* the score line and the messages */
+    seam_row(&sal, 0, HUD_ROW, COLS, scr, clr);
+    seam_row(&sal, 0, MSG_ROW, COLS, scr + MSG_ROW * COLS, clr + MSG_ROW * COLS);
+}
+
+/* into the room (drawn first) and out of it */
+static void salon_on(void) {
+    dma_copy_far(seam_cell(&sal, 0, 1), SAL2_LIN + SAL_SCREEN, COLS * (ROWS - 2) * 2);
+    dma_fill_far(seam_colour(&sal, 0, 1), COLS * (ROWS - 2) * 2, 0);
+    sal_key = 0;
+    blink_t = 100;
+    sparkle(0);
+    draw_salon();
+    seam_show(&sal);
+    REG(0xD021) = SAL_GLASS;
+}
+
+static void salon_off(void) {
+    if (!sal.shown) return;
+    seam_hide(&sal);
+    REG(0xD021) = C_MEADOW;
+}
+
 static void enter_salon(void) {
     mode = M_SALON;
     music_for(1);
@@ -1157,10 +1346,12 @@ static void enter_salon(void) {
     panel_dirty = 1;
     snd_click(0x2000);
     message(s"welcome to the salon! make it fabulous", C_YELLOW);
+    if (salon_ok) salon_on();
 }
 
 static void leave_salon(void) {
     unsigned char i = carry;
+    salon_off();
     p_x = FX1 - 1;                     /* back inside the gate */
     s_flags[i] &= (unsigned char)~F_CARRIED;
     if (find_spot(FX1 - SW - 2, p_y)) {
@@ -1245,7 +1436,7 @@ static void salon_input(unsigned char pressed) {
         else if (sel == 1) *look = (unsigned char)((*look & ~L_LIPS) | ((*look + (step << 2)) & L_LIPS));
         else if (sel == 2) *look ^= L_LASH;
         else if (sel == 3) *look ^= L_BOW;
-        if (sel < 4) { snd_click(0x3000); panel_dirty = 1; }
+        if (sel < 4) { snd_click(0x3000); panel_dirty = 1; sparkle(sel); }
     }
     if (pressed & K_FIRE) leave_salon();
 }
@@ -1275,7 +1466,7 @@ static void start_season(void) {
     score = 0; lambs = 0; glam_lambs = 0;
     lamb_pts = wool_bags = income = 0;
     hiscore_was = hiscore;
-    memset(scr, CH_SPACE, sizeof scr);   /* off with the title page */
+    memset(scr, CH_SPACE, COLS * ROWS);   /* off with the title page */
     set_charset(CHARSET_LIN);
     time_left = SEASON;
     if (season < 99) season++;
@@ -1382,7 +1573,7 @@ static void draw_logo(void) {
 
 static void draw_title_page(void) {
     unsigned char i;
-    memset(scr, CH_SPACE, sizeof scr);
+    memset(scr, CH_SPACE, COLS * ROWS);
     memset(clr, C_WHITE, sizeof clr);
     draw_logo();
     put_ascii(22, 7, "A sheep makeover game for the MEGA65", C_LBLUE);
@@ -1419,6 +1610,7 @@ static void title(void) {
     static const unsigned char parade_look[NPARADE] = {
         0x01 | L_BOW | L_LASH, 0x02 | 0x04, 0x03 | 0x08 | L_LASH, 0x01 | 0x0C | L_BOW};
     unsigned char i;
+    salon_off();
     mode = M_TITLE;
     attract = 0;
     season = 0;
@@ -1443,6 +1635,7 @@ static void title(void) {
 
 static void end_season(void) {
     unsigned char i;
+    salon_off();
     if (carry != 0xFF) {              /* the sheep in hand goes home */
         i = carry;
         s_flags[i] &= (unsigned char)~F_CARRIED;
@@ -1490,8 +1683,8 @@ static void second(void) {
 #define PAL_G(i) REG(0xD200 + (i))
 #define PAL_B(i) REG(0xD300 + (i))
 
-static const unsigned char pal_idx[11] = {0, 1, 2, 3, 4, 5, 6, 7, C_DGREY, C_MEADOW, C_TUFT};
-static const unsigned char pal_rgb[33] = {
+static const unsigned char pal_idx[12] = {0, 1, 2, 3, 4, 5, 6, 7, C_DGREY, C_MEADOW, C_TUFT, SAL_GLASS};
+static const unsigned char pal_rgb[36] = {
     0x00, 0x00, 0x00,    /* black */
     0xFF, 0xFF, 0xFF,    /* white */
     0xE0, 0x20, 0x30,    /* red */
@@ -1503,9 +1696,10 @@ static const unsigned char pal_rgb[33] = {
     0x38, 0x38, 0x38,    /* dark grey */
     0x6A, 0x80, 0x58,    /* the meadow: a soft sage green */
     0x80, 0x98, 0x68,    /* grass tufts */
+    0x2A, 0x16, 0x34,    /* the salon's sign and doors: its text's background */
 };
 static unsigned char saved_pal[48];
-static unsigned char saved_regs[9];
+static unsigned char saved_regs[13];
 
 static unsigned char swap_nib(unsigned char v) {
     return (unsigned char)(v << 4 | v >> 4);
@@ -1516,7 +1710,7 @@ static void set_palette(void) {
     for (i = 0; i < 16; i++) {
         saved_pal[i] = PAL_R(i); saved_pal[16 + i] = PAL_G(i); saved_pal[32 + i] = PAL_B(i);
     }
-    for (i = 0; i < 11; i++, k += 3) {
+    for (i = 0; i < 12; i++, k += 3) {
         unsigned char n = pal_idx[i];
         PAL_R(n) = swap_nib(pal_rgb[k]);
         PAL_G(n) = swap_nib(pal_rgb[k + 1]);
@@ -1534,10 +1728,18 @@ static void restore_palette(void) {
 /* ------------------------------------------------------------------------ */
 
 static void setup(void) {
+    unsigned char i;
     saved_regs[0] = REG(0xD068); saved_regs[1] = REG(0xD069); saved_regs[2] = REG(0xD06A);
     saved_regs[3] = REG(0xD020); saved_regs[4] = REG(0xD021);
     saved_regs[5] = REG(0xD022); saved_regs[6] = REG(0xD023); saved_regs[7] = REG(0xD016);
     saved_regs[8] = REG(0xD05D);
+    for (i = 0; i < 4; i++) saved_regs[9 + i] = REG(0xD060 + i);
+    /* the screen shown: bank 5 (built at $0800) */
+    dma_fill_far(SHOWN_LIN, COLS * ROWS, CH_SPACE);
+    REG(0xD060) = (unsigned char)SHOWN_LIN;
+    REG(0xD061) = (unsigned char)(SHOWN_LIN >> 8);
+    REG(0xD062) = (unsigned char)(SHOWN_LIN >> 16);
+    REG(0xD063) = REG(0xD063) & 0xF0;
     /* the character sets: the ROM's (upper case and graphics; upper and
      * lower case for the title) copied to bank 4, our glyphs over CH_BASE.. */
     dma_copy_far(CHARSET_LIN, CHARROM_LIN, 2048);
@@ -1551,7 +1753,7 @@ static void setup(void) {
     REG(0xD022) = C_DGREY;
     REG(0xD023) = C_TUFT;
     fps = (REG(0xD06F) & 0x80) ? 60 : 50;
-    memset(scr, CH_SPACE, sizeof scr);
+    memset(scr, CH_SPACE, COLS * ROWS);
     memset(clr, C_WHITE, sizeof clr);
     show();
     /* multicolour characters; with the VIC-IV's hot registers off, or
@@ -1565,12 +1767,14 @@ static void setup(void) {
 }
 
 static void restore(void) {
+    unsigned char i;
     sid_init();
     REG(0xD016) = saved_regs[7];
     REG(0xD05D) = saved_regs[8];
     REG(0xD068) = saved_regs[0]; REG(0xD069) = saved_regs[1]; REG(0xD06A) = saved_regs[2];
     REG(0xD020) = saved_regs[3]; REG(0xD021) = saved_regs[4];
     REG(0xD022) = saved_regs[5]; REG(0xD023) = saved_regs[6];
+    for (i = 0; i < 4; i++) REG(0xD060 + i) = saved_regs[9 + i];
     restore_palette();
     dma_fill_far(SCREEN_LIN, COLS * ROWS, CH_SPACE);
     dma_fill_far(COLOR_LIN, COLS * ROWS, C_WHITE);
@@ -1581,7 +1785,9 @@ static unsigned char frame_seen;      /* FRAMECOUNT the sound has caught up to *
 
 int main(void) {
     music_load();                     /* (first: the KERNAL's disk code, before our screen) */
+    salon_load();
     setup();
+    if (salon_ok) salon_setup();
     title();
     input_flush();
     held = 0xFF;                      /* a key held at the start (RUN's RETURN) is no press */
@@ -1659,16 +1865,23 @@ int main(void) {
         if (msg_t && --msg_t == 0) clear_span(0, MSG_ROW, COLS);
         if (hud_dirty) { draw_hud(); hud_dirty = 0; }
         if (panel_dirty) { draw_panel(); panel_dirty = 0; }
-        draw_field();
-        if (mode == M_OVER) draw_over_box();
-        show();
+        if (sal.shown) draw_salon();  /* (the room's own screen) */
+        else {
+            draw_field();
+            if (mode == M_OVER) draw_over_box();
+            show();
+        }
         input_flush();                /* the KERNAL's key buffer: unused */
 #ifdef DEMO
+        REG(0xC0FA) = salon_ok;       /* (tests: the salon's files loaded; $D054 in the room) */
+        if (sal.shown) REG(0xC0FB) = REG(0xD054);
         REG(0xC0F7) = p_x;            /* (tests: the stylist's pace) */
         REG(0xC0F8) = p_y;
         REG(0xC0F9) = mode;
 #endif
     }
+    salon_off();
+    if (salon_ok) salon_unsetup();
     restore();
     return 0;
 }

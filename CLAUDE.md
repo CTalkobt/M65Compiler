@@ -346,7 +346,9 @@ stdio (printf family; `%f`/`%e`/`%g` through the weak/strong float printf, digit
 BASIC 65 ROM's FOUT, full float range), stdlib,
 string, ctype, math (ROM-backed float functions; domain/range errors set
 `errno` instead of reaching the ROM), time (frame clock, RTC calendar), errno, setjmp,
-assert, alloca, conio, CBM file I/O, a tune (song) player (`audio_tune.h`, assembly, callable
+assert, alloca, conio, CBM file I/O (`cbm_load_far`: a file to any chip RAM bank), `palette.h` (all 256
+entries), `seam.h` (two-byte cell screens: full-colour characters among text), stepped DMA
+(`dma_copy_far_step`), a tune (song) player (`audio_tune.h`, assembly, callable
 from an `__interrupt` handler; `tune45` makes its data), `intwide.h`, `mega65.h` register
 overlays, `dma.h` (16-bit builtins; `dma_copy_far`/`dma_fill_far` at 28-bit
 addresses), and on those far pointers (`far_ptr.h`/`far_ops.h`, an allocator

@@ -168,8 +168,8 @@ struct vic4_regs {
 
 /* ===== $D054 (ctrl_c) bits ===== */
 #define VIC4_CHR16    0x01  /* 16-bit character numbers */
-#define VIC4_FCLRHI   0x02  /* Full-colour chars use high nybble */
-#define VIC4_FCLRLO   0x04  /* Full-colour chars use low nybble */
+#define VIC4_FCLRLO   0x02  /* Full-colour characters for numbers <= $FF */
+#define VIC4_FCLRHI   0x04  /* Full-colour characters for numbers > $FF */
 #define VIC4_SMTH     0x08  /* Enable smooth scrolling */
 #define VIC4_VIC400   0x10  /* VIC-IV 400 scanline mode */
 #define VIC4_PALEMU   0x20  /* PAL CRT emulation */

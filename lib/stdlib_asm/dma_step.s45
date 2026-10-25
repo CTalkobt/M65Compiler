@@ -1,0 +1,131 @@
+; dma_step.s45 — DMA copy and fill with a step at 28-bit addresses (dma.h:
+; dma_copy_far_step, dma_fill_far_step): every other byte of a two-byte
+; cell screen (seam.h), a column of a buffer, ...
+;
+; void __dma_copy_far_step(unsigned long dst, unsigned long src, unsigned int len,
+;                          unsigned char dst_step, unsigned char src_step);
+; void __dma_fill_far_step(unsigned long dst, unsigned int len, unsigned char val,
+;                          unsigned char dst_step);
+;
+; len is the bytes written; the steps are whole bytes (1 the plain copy, 0
+; the same byte again). The job is dma_far.s45's with the F018B skip-rate
+; options ($83 the source's, $85 the destination's) in front; the CPU waits
+; for the DMA. A length of 0 does nothing.
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.global ___dma_copy_far_step, ___dma_fill_far_step
+
+.segment "data"
+__dma_sjob:
+    .byte $83, 1            ; +0 the source's step
+    .byte $85, 1            ; +2 the destination's step
+    .byte $0B, $80, 0, $81, 0, $00   ; +4 F018B, the source's (+6) and destination's (+8) megabyte
+    .byte 0                 ; +10 command: 0 copy, 3 fill
+    .byte 0, 0              ; +11 length
+    .byte 0, 0, 0           ; +13 source: bits 0-15, bank
+    .byte 0, 0, 0           ; +16 destination
+    .byte 0, 0, 0           ; +19 sub-command, modulo
+
+.segment "code"
+
+; dst $10-$13, len $14/$15, val $16, step $18: as a copy, the value the
+; source's low byte, the length at $18 (the step in X meanwhile)
+proc ___dma_fill_far_step
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
+    .zp_clobbers $14, $15, $16, $17, $18, $19
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z
+    ldx $18
+    lda $14
+    sta $18
+    lda $15
+    sta $19
+    lda $16
+    sta $14
+    ldy #1                  ; (the source is not read)
+    lda #3                  ; fill
+    jmp __dma_step
+    .func_flags zp_call
+endproc
+
+; dst $10-$13, src $14-$17, len $18/$19, dst_step $1A, src_step $1C
+proc ___dma_copy_far_step
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $1A, $1B, $1C, $1D
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z
+    ldx $1A
+    ldy $1C
+    lda #0                  ; copy
+    jmp __dma_step
+    .func_flags zp_call
+endproc
+
+; A = command, X = the destination's step, Y = the source's
+proc __dma_step
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z
+    php
+    sei
+    sta __dma_sjob+10
+    stx __dma_sjob+3
+    sty __dma_sjob+1
+    lda $18
+    sta __dma_sjob+11
+    ora $19
+    beq @none
+    lda $19
+    sta __dma_sjob+12
+    ldq $14                 ; the source: A, X, Y, Z = bits 0-7 ... 24-31
+    sta __dma_sjob+13
+    stx __dma_sjob+14
+    tya
+    and #$0F
+    sta __dma_sjob+15
+    tya
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    sta __dma_sjob+6
+    tza
+    asl a
+    asl a
+    asl a
+    asl a
+    ora __dma_sjob+6
+    sta __dma_sjob+6
+    ldq $10                 ; the destination
+    sta __dma_sjob+16
+    stx __dma_sjob+17
+    tya
+    and #$0F
+    sta __dma_sjob+18
+    tya
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    sta __dma_sjob+8
+    tza
+    asl a
+    asl a
+    asl a
+    asl a
+    ora __dma_sjob+8
+    sta __dma_sjob+8
+    lda #0
+    sta $D702               ; the list in bank 0, megabyte 0
+    sta $D704
+    lda #>__dma_sjob
+    sta $D701
+    lda #<__dma_sjob
+    sta $D705               ; start (enhanced job)
+@none:
+    plp
+    rts
+    .func_flags zp_call
+endproc
