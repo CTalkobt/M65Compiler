@@ -11,7 +11,8 @@
  *   [1] signed 16- and 32-bit multiply, divide and remainder (all sign
  *       combinations)
  *   [2] byte constant factors outside a loop (__mul16y), others in a loop
- *   [3] p[i] loads and stores, i a byte, across a page boundary
+ *   [3] p[i] loads and stores, i a byte, across a page boundary; a byte cut
+ *       from a long stored there (the truncation read from the long)
  *   [4] sums of zero-extended byte loads (carries into the high byte)
  *   [5] 01
  *   [6] 01
@@ -82,6 +83,14 @@ static void fill_bytes(unsigned char *p, unsigned char n, unsigned char v) {
     for (i = 0; i < n; i++) p[i] = v + i;
 }
 
+static void put_bytes(unsigned char *p, unsigned long v, unsigned char n) {
+    unsigned char i;
+    for (i = 0; i < n; i++) {
+        p[i] = (unsigned char)v;
+        v >>= 8;
+    }
+}
+
 static int test_byte_index(void) {
     unsigned int k;
     unsigned char *p = page + 40;
@@ -92,6 +101,8 @@ static int test_byte_index(void) {
     if (sum_bytes(p, 255) != (unsigned char)32640u) return 0;
     p[i - 1] = 0x5A;                              /* page[294] */
     if (page[294] != 0x5A || p[i - 1] != 0x5A || p[vb[3]] != 4) return 0;
+    put_bytes(page + 250, 0x89ABCDEFUL, 4);
+    if (page[250] != 0xEF || page[251] != 0xCD || page[252] != 0xAB || page[253] != 0x89) return 0;
     return 1;
 }
 

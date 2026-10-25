@@ -7001,20 +7001,25 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                 {
                     std::string zp;
                     std::string direct = index.isVreg() ? directBase(index.vregId) : "";
+                    // (a byte cut from a variable: loaded from there, its own register unwritten)
+                    bool cut = inst.src1.isVreg() && truncAlias_.count(inst.src1.vregId);
+                    bool early = constVal || (zpVal && !cut);
                     if (inst.resultType == ir::Type::I8 && zpPtrByteIndex(base, index, stride, inst.elemOffset, zp) &&
-                        (constVal || zpVal || !direct.empty())) {
+                        (early || !direct.empty())) {
                         // (Y first when loading the value cannot change it)
-                        if (constVal || zpVal) {
+                        if (early) {
                             if (!direct.empty()) emit("ldy " + direct, "the index ((p),y)");
                             else { loadOperand(index); emit("tay", "the index ((p),y)"); }
                         }
                         if (constVal) {
                             int64_t v = inst.src1.isImm() ? inst.src1.immVal : vregConstVal_[inst.src1.vregId];
                             emit("lda #" + std::to_string((int)(v & 0xFF)));
+                        } else if (cut) {
+                            loadVregA(inst.src1.vregId);
                         } else {
                             loadOperand(inst.src1);
                         }
-                        if (!(constVal || zpVal)) emit("ldy " + direct, "the index ((p),y)");
+                        if (!early) emit("ldy " + direct, "the index ((p),y)");
                         emit("sta (" + zp + "),y");
                         ms_.invalidateAll();
                         break;
@@ -7229,13 +7234,22 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                     // an element of a global: base+off,y (#318)
                     const ElemY& ea = elemAbsY_.at(inst.src2.vregId);
                     bool inA = inst.src1.isVreg() && (int32_t)inst.src1.vregId == resultInAX_;
+                    // (a byte cut from a variable or a suppressed constant: A
+                    // from where it lives, loadVregA)
+                    auto loadValue = [&]() {
+                        if (inst.src1.isVreg() && (truncAlias_.count(inst.src1.vregId) ||
+                                                   suppressedVregs_.count(inst.src1.vregId)))
+                            loadVregA(inst.src1.vregId);
+                        else
+                            loadOperand(inst.src1);
+                    };
                     std::string op;
                     if (ea.stride == 1 && alloc_.getAlloc(ea.index.vregId).type == ir::Type::I8) {
-                        if (!inA) loadOperand(inst.src1);   // (first: its load may use Y)
+                        if (!inA) loadValue();              // (first: its load may use Y)
                         op = elemYOperand(ea);
                     } else {
                         op = elemYOperand(ea);              // (through A: the value is in the
-                        loadOperand(inst.src1);             // base page or a constant, Y kept)
+                        loadValue();                        // base page or a constant, Y kept)
                     }
                     emit("sta " + op + ",y");
                     ms_.invalidateAll();

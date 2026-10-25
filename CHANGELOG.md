@@ -21,6 +21,11 @@ The examples' code is another 2.3 % smaller (144,451 → 141,191 bytes over
 - cc45: a byte temporary zero-extended for one 16-bit add, subtract,
   and / xor or comparison right after it is read where it lives (as a byte
   variable already was), not widened into a 16-bit register first.
+- cc45 fix: a byte cut from a wider variable (`p[i] = (char)l`) stored
+  as `name,y` / `(p),y` with no address built loaded the cut's own,
+  never written register instead of the variable's low byte.
+- `test_heap_layout_xemu.c`: its array grown so the program still ends at
+  `$B000` with the smaller code (the "no heap" warning check).
 
 ### Smaller code: six changes from the examples' most common sequences
 
