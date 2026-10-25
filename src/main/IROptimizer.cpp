@@ -2555,12 +2555,12 @@ void optimizeLoopStrengthReduction(Module& mod) {
                 }
                 return 0;
             };
-            // a base the loop does not change
+            // a base the loop does not change: a global or a temporary (a
+            // local's slot as ADDR_ELEM's base may be the local array itself,
+            // not its value: left alone)
             auto invariant = [&](const Operand& o) {
                 if (o.kind == OperandKind::GLOBAL) return true;
-                if (!o.isVreg()) return false;
-                if (fn.localSlotVregs.count(o.vregId))
-                    return !stores.count(o.vregId) && !fn.memoryVregs.count(o.vregId) && !addrTaken.count(o.vregId);
+                if (!o.isVreg() || fn.localSlotVregs.count(o.vregId) || fn.memoryVregs.count(o.vregId)) return false;
                 if (defCount[o.vregId] != 1) return false;
                 for (size_t bi : L)
                     for (const auto& in : fn.blocks[bi].insts)

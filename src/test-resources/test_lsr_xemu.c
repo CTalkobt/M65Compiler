@@ -10,7 +10,8 @@
  *   [3] an unsigned char counter up to 254 (y < 255): the sum of y * 3
  *   [4] the product used before and after the counter's update in one
  *       iteration (a while loop), and the counter's value after the loop
- *   [5] 01
+ *   [5] local arrays of 3-byte elements, a fixed one and a variable-length
+ *       one, filled in a loop (their address is the base, not a value)
  *   [6] 01
  *   [7] $AA sentinel
  */
@@ -84,6 +85,20 @@ static int test_while(void) {
     return before == 405u && after == 495u && i == 10;
 }
 
+static int fill_local(signed int n) {
+    struct trip loc[9];
+    struct trip vla[n];
+    signed int i;
+    unsigned int s = 0;
+    for (i = 0; i < n; i++) {
+        loc[i].a = (unsigned char)i;
+        loc[i].c = (unsigned char)(i + 100);
+        vla[i].b = (unsigned char)(i * 2);
+    }
+    for (i = 0; i < n; i++) s += loc[i].a + loc[i].c + vla[i].b;
+    return (int)s;   /* sum of 4 i + 100 over i < 9: 144 + 900 */
+}
+
 int main(void) {
     unsigned char i;
     for (i = 0; i < 8; i++) OUT[i] = 0;
@@ -92,7 +107,7 @@ int main(void) {
     OUT[2] = test_count_down() ? 1 : 0;
     OUT[3] = test_byte_255() ? 1 : 0;
     OUT[4] = test_while() ? 1 : 0;
-    OUT[5] = 1;
+    OUT[5] = fill_local(9) == 1044 ? 1 : 0;
     OUT[6] = 1;
     OUT[7] = 0xAA;
     return 0;
