@@ -1019,7 +1019,8 @@ void leave_salon(void) {
     music_for(0);
     panel_dirty = 1;
     snd_baa();
-    message(glam(s_look[i]) ? s"gorgeous! off you go" : s"au naturel? if you say so", C_WHITE);
+    if (studio) message(s"gorgeous! fire beside a sheep to style another", C_PINK);
+    else message(glam(s_look[i]) ? s"gorgeous! off you go" : s"au naturel? if you say so", C_WHITE);
 }
 
 static void play_input(unsigned char pressed) {
@@ -1128,13 +1129,22 @@ void start_season(void) {
 }
 
 /* the styling studio: a flock to style at leisure (no time, score or
- * shearer); fire beside a sheep takes it to the salon */
+ * shearer); a sheep goes straight into the salon's chair, and back in the
+ * field fire beside another takes it there */
 void start_studio(void) {
+    unsigned char k, i;
     start_season();
     studio = 1;
     season = 0;
     hud_dirty = panel_dirty = 1;
     message(s"the styling studio! fire beside a sheep to style it", C_PINK);
+    for (k = 0, i = rnd_n(MAXS); k < MAXS; k++, i = (unsigned char)((i + 1) % MAXS))
+        if ((s_flags[i] & F_ALIVE) && adult(i) && s_wool[i] >= WOOL_FULL) {
+            carry = i;
+            s_flags[i] |= F_CARRIED;
+            enter_salon();
+            break;
+        }
 }
 
 static void end_season(void) {

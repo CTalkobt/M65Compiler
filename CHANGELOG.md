@@ -4,6 +4,15 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Glam Lambs: fluffier wool; the studio opens in the salon
+
+- The salon's fleece is small soft tufts close together (a shadow under
+  each, a lighter top, the gleam of a curl), lit from above and lumpy at
+  the edge, in place of round curls; the forelock, the tail and the
+  mirror's shoulders too.
+- The styling studio starts with a sheep in the salon's chair; let go, a
+  sheep returns to the field, where fire beside another styles it.
+
 ### Glam Lambs: more ways to style, a styling studio, code overlays
 
 - New styles in the salon: eyeshadow (blue, purple, gold), rosy cheeks,

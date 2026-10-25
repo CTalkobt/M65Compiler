@@ -171,33 +171,57 @@ def shaded_ball(p, x, y, rad, dark, light, role=R_ART, steps=6):
         p.circle(cx, cy, r, mix(dark, light, t), role)
 
 
-WOOL_DARK, WOOL_LIGHT = (70, 70, 70), (255, 255, 255)
+WOOL_DARK, WOOL_LIGHT = (104, 104, 104), (255, 255, 255)   # (the fleece's base: depth between tufts)
 
 
-def curl(p, x, y, rad):
-    """a curl of wool: a dark ring, a lit ball inside, a shine"""
-    p.circle(x, y, rad, WOOL_DARK, R_WOOL)
-    shaded_ball(p, x - 0.5, y - 0.5, rad * 0.9, (120, 120, 120), (250, 250, 250), R_WOOL, 4)
+def grey(v):
+    v = int(max(0, min(255, v)))
+    return (v, v, v)
+
+
+def tuft(p, x, y, r, lit):
+    """a tuft of wool, lit lit (0-255) at its top: a soft shadow under it,
+    its body, a lighter top and the gleam of a curl"""
+    p.circle(x + r * 0.2, y + r * 0.35, r, grey(lit * 0.55), R_WOOL)
+    p.circle(x, y, r * 0.9, grey(lit * 0.78), R_WOOL)
+    p.circle(x - r * 0.15, y - r * 0.25, r * 0.62, grey(lit * 0.92), R_WOOL)
+    p.arc((x - r * 0.6, y - r * 0.7, x + r * 0.3, y + r * 0.15), 200, 330, grey(min(255, lit * 1.08)), max(1.0, r * 0.18), R_WOOL)
+
+
+def curl(p, x, y, rad, seed=0):
+    """a little cluster of tufts (a forelock's, a tail's)"""
+    rnd = random.Random(int(x * 7 + y * 13 + seed))
+    for i in range(4):
+        a = rnd.uniform(0, 2 * math.pi)
+        d = rad * rnd.uniform(0.15, 0.5)
+        tuft(p, x + d * math.cos(a), y + d * math.sin(a) - rad * 0.1 * i, rad * rnd.uniform(0.5, 0.7),
+             rnd.uniform(205, 240) - 12 * (3 - i))
 
 
 def fleece(p, region, rad, seed):
-    """wool over a region (a test of a point): rows of curls, in an order
-    that leaves the lower ones in front"""
+    """wool over a region (a test of a point): small tufts close together,
+    a jittered grid drawn top to bottom (the lower ones in front), lit from
+    above: light on the back, darker toward the belly"""
     rnd = random.Random(seed)
     x0, y0, x1, y1, inside = region
     pts = []
     y, row = y0, 0
+    step = rad * 0.85
     while y <= y1:
-        x = x0 + (rad * 0.8 if row % 2 else 0)
+        x = x0 + (step * 0.5 if row % 2 else 0)
         while x <= x1:
-            cx, cy = x + rnd.uniform(-2.5, 2.5), y + rnd.uniform(-2, 2)
+            cx, cy = x + rnd.uniform(-0.45, 0.45) * step, y + rnd.uniform(-0.4, 0.4) * step
             if inside(cx, cy):
-                pts.append((cx, cy, rad * rnd.uniform(0.85, 1.15)))
-            x += rad * 1.5
-        y += rad * 1.25
+                pts.append((cy, cx, rad * rnd.uniform(0.75, 1.2)))
+            elif any(inside(cx + dx * rad, cy + dy * rad) for dx, dy in ((0.9, 0), (-0.9, 0), (0, 0.9), (0, -0.9))):
+                pts.append((cy, cx, rad * rnd.uniform(0.55, 0.85)))     # (a lumpy edge)
+            x += step
+        y += step * 0.8
         row += 1
-    for cx, cy, r in pts:
-        curl(p, cx, cy, r)
+    pts.sort()
+    for cy, cx, r in pts:
+        t = (cy - y0) / max(1.0, y1 - y0)
+        tuft(p, cx, cy, r, 250 - 85 * t + rnd.uniform(-10, 10))
 
 
 def in_ellipse(cx, cy, rx, ry):
@@ -535,7 +559,7 @@ def sheep(p, look):
     haunch = in_ellipse(150, V(13), 74, 44)
     chest = in_ellipse(300, V(7), 46, 64)
     p.ellipse((70, V(4) - 8, 322, V(15) + 4), WOOL_DARK, R_WOOL)
-    fleece(p, (70, V(4) - 4, 330, V(15) + 4, lambda x, y: body(x, y) or haunch(x, y) or chest(x, y)), 13, 1)
+    fleece(p, (70, V(4) - 4, 330, V(15) + 4, lambda x, y: body(x, y) or haunch(x, y) or chest(x, y)), 9, 1)
     for x, y, r in ((66, V(7), 15), (56, V(8), 12)):                        # the tail
         curl(p, x, y, r)
     # the ear or the horn behind the head
@@ -575,7 +599,7 @@ def reflection(p, cx, gy0, gy1, look):
     # the shoulders: wool to the bottom of the glass
     sh = in_ellipse(cx, gy1 + 30, 110, 66)
     p.ellipse((cx - 110, gy1 - 34, cx + 110, gy1 + 96), WOOL_DARK, R_WOOL)
-    fleece(p, (cx - 110, gy1 - 34, cx + 110, gy1 + 10, sh), 11, 7)
+    fleece(p, (cx - 110, gy1 - 34, cx + 110, gy1 + 10, sh), 8, 7)
     fy = gy0 + 76                            # the face's middle
     # the ears (or the horns): out to the sides
     if ram:
