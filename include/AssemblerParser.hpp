@@ -1,4 +1,5 @@
 #pragma once
+#include <stdexcept>
 #include <vector>
 #include <string>
 #include <set>
@@ -38,6 +39,13 @@ struct Directive {
     int valueTokenIndex = -1;          // token after the first top-level comma (.fill/.res/.space value)
 };
 
+// An error about a statement of an #include'd file: the file it names
+// (ca45 prints it in place of the main source's name)
+struct AsmFileError : std::runtime_error {
+    std::string file;
+    AsmFileError(const std::string& f, const std::string& msg) : std::runtime_error(msg), file(f) {}
+};
+
 class AssemblerParser {
 public:
     friend class AssemblerOptimizer;
@@ -47,6 +55,19 @@ public:
     AssemblerParser(const std::vector<AssemblerToken>& tokens);
     AssemblerParser(const std::vector<AssemblerToken>& tokens, const std::map<std::string, uint32_t>& predefinedSymbols);
     void setSourceFile(const std::string& filename) { currentSourceFile_ = filename; }
+    // the lexer's files() (an #include's tokens name theirs in messages)
+    void setTokenFiles(const std::vector<std::string>& files) { tokenFiles_ = files; }
+    // the file a message about line `line` names: the include file of the
+    // token being parsed there, else currentSourceFile_
+    std::string fileForLine(int line) const;
+    std::string includeFileOf(const AssemblerToken& t) const {
+        return t.file > 0 && t.file < (int)tokenFiles_.size() ? tokenFiles_[t.file] : std::string();
+    }
+    // the file a message about a token names (its #include's, else the source's)
+    std::string tokenFile(const AssemblerToken& t) const {
+        std::string f = includeFileOf(t);
+        return f.empty() ? currentSourceFile_ : f;
+    }
     void pass1();
     bool optimize();
     bool verboseOptimizer = false;
@@ -249,6 +270,7 @@ private:
 
     // Source-level debug tracking
     std::string currentSourceFile_;
+    std::vector<std::string> tokenFiles_;
     int currentSourceLine_ = 0;
     std::vector<LineEntry> lineMap_;
 
@@ -297,6 +319,8 @@ public:
         // MUL specific
         int mulWidth = 8;
 
+        // the assembly file it is in when not the main source (an #include's)
+        std::string asmFile;
         // Source-level debug info (set by .loc directive)
         std::string sourceFile;
         int sourceLine = 0;

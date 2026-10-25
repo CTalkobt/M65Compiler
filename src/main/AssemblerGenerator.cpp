@@ -846,7 +846,9 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                 stmt->bytes.assign(binaryPtr->begin() + binaryStartIdx, binaryPtr->end());
             }
           } catch (const std::runtime_error& ex) {
-            throw std::runtime_error("line " + std::to_string(stmt->line) + ": " + ex.what());
+            std::string m = "line " + std::to_string(stmt->line) + ": " + ex.what();
+            if (!stmt->asmFile.empty()) throw AsmFileError(stmt->asmFile, m);
+            throw std::runtime_error(m);
           }
         }
     }

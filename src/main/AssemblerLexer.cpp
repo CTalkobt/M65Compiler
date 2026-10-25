@@ -11,6 +11,7 @@ std::vector<AssemblerToken> AssemblerLexer::tokenize() {
     while (true) {
         skipWhitespaceAndComments();
         AssemblerToken token = nextToken();
+        token.file = curFile_;
         tokens.push_back(token);
         if (token.type == AssemblerTokenType::END_OF_FILE) {
             break;
@@ -83,6 +84,18 @@ AssemblerToken AssemblerLexer::nextToken() {
         size_t p = pos + 6;
         int n = 0;
         while (p < source.length() && std::isdigit((unsigned char)source[p])) n = n * 10 + (source[p++] - '0');
+        // (#line N "file": the lines that follow are that file's)
+        while (p < source.length() && (source[p] == ' ' || source[p] == '\t')) p++;
+        if (p < source.length() && source[p] == '"') {
+            size_t e = source.find('"', p + 1);
+            size_t nl = source.find('\n', p);
+            if (e != std::string::npos && (nl == std::string::npos || e < nl)) {
+                std::string f = source.substr(p + 1, e - p - 1);
+                auto it = std::find(files_.begin(), files_.end(), f);
+                curFile_ = (int)(it - files_.begin());
+                if (it == files_.end()) files_.push_back(f);
+            }
+        }
         while (peek() != '\n' && peek() != '\0') get();
         line = n - 1;   // the NEWLINE that follows makes it n
         return nextToken();

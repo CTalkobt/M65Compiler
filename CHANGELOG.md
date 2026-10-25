@@ -14,8 +14,11 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - cvt_asm: ca45 input's `.macro` is expanded as ca45 does; a macro's
   parameters in the other dialects are replaced as whole words (a
   parameter `a` turned `sta` into `st7`; #235).
-- Tests in `test_assembler.sh` (`test_ca45_macro.s45`) and
-  `test_cvt_asm.sh`.
+- ca45 fix: an error in an `#include`d file named the main source (with
+  the included file's line number, and an excerpt from the main source);
+  it names the included file now (the lexer keeps `#line`'s file name).
+- Tests in `test_assembler.sh` (`test_ca45_macro.s45`, errors in an
+  `#include`d file) and `test_cvt_asm.sh`.
 
 ### Two more benchmarks
 

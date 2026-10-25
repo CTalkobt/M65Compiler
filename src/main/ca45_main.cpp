@@ -632,6 +632,8 @@ int main(int argc, char** argv) {
 
     AssemblerLexer lexer(source);
     std::vector<AssemblerToken> tokens = lexer.tokenize();
+    // (the files of #include'd lines, for messages)
+    const std::vector<std::string> tokenFiles = lexer.files();
 
     if (Logger::isEnabled(LogLevel::TRACE))
         for (const auto& token : tokens)
@@ -639,6 +641,7 @@ int main(int argc, char** argv) {
 
     AssemblerParser parser(tokens, predefinedSymbols); if (functionSections) parser.functionSections = true;
     parser.setSourceFile(input_file);
+    parser.setTokenFiles(tokenFiles);
     parser.verboseOptimizer = verboseOptimizer;
     parser.traceMachState = traceMachState;
     parser.enableExperimental = enableExperimental;
@@ -791,6 +794,9 @@ int main(int argc, char** argv) {
             }
         }
         for (const auto& w : parser.getWarnings()) std::cerr << w << std::endl;
+    } catch (const AsmFileError& e) {
+        std::cerr << e.file << ": " << e.what() << std::endl;   // (a line of an #include'd file)
+        return 1;
     } catch (const std::exception& e) {
         std::cerr << input_file << ": " << e.what() << std::endl;
         return 1;
@@ -838,6 +844,7 @@ int main(int argc, char** argv) {
                     std::vector<AssemblerToken> tokens = lexer.tokenize();
 
                     AssemblerParser parser(tokens, predefinedSymbols); if (functionSections) parser.functionSections = true;
+                    parser.setTokenFiles(lexer.files());
                     parser.setSourceFile(input_file);
                     parser.verboseOptimizer = verboseOptimizer;
                     parser.traceMachState = traceMachState;

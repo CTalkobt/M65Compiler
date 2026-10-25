@@ -76,6 +76,23 @@ else
     failed=$((failed + 1))
 fi
 
+# An #include'd file's errors name that file and its line (they named the
+# main source with the include's line), the excerpt from that file too
+echo "Testing errors in an #include'd file..."
+printf ' lda #inc_undefined\n' > build/test/inc_err_a.s45
+printf ' lda #$12\n bogus_op 5\n' > build/test/inc_err_b.s45
+printf ' * = $2000\n inx\n#include "inc_err_a.s45"\n rts\n' > build/test/inc_err_1.s45
+printf ' * = $2000\n inx\n#include "inc_err_b.s45"\n rts\n' > build/test/inc_err_2.s45
+E1=$(./bin/ca45 build/test/inc_err_1.s45 -o build/test/inc_err.bin 2>&1)
+E2=$(./bin/ca45 build/test/inc_err_2.s45 -o build/test/inc_err.bin 2>&1)
+if grep -q "inc_err_a.s45: line 1: Error: undefined symbol 'inc_undefined'" <<< "$E1" &&
+   grep -q "inc_err_b.s45:2:1: error: Unknown instruction 'bogus_op'" <<< "$E2" && grep -q "bogus_op 5" <<< "$E2"; then
+    echo "SUCCESS: errors in an #include'd file name it"
+else
+    echo "FAIL: errors in an #include'd file: $E1 / $E2"
+    failed=$((failed + 1))
+fi
+
 # Specific check for basicUpstart output format
 echo "Verifying .basicUpstart output bytes..."
 # Expecting: 0b 08 0a 00 9e 32 30 36 31 00 00 00 (for START at $080D = 2061)
