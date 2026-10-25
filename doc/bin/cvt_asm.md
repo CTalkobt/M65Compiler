@@ -28,7 +28,7 @@ cvt_asm [options] <input-file> [<input-file> ...]
 | `-t <format>` | Target format (default: `ca45`, or `default_format` from `.cvtasmrc`) |
 | `-o <path>` | Output file for one input (unless `<path>` is an existing directory); for several inputs a directory (created if needed) receiving `<basename><target extension>` |
 | `-l`, `--list-formats` | List supported formats and exit |
-| `-v` | Verbose: detection, parse/write progress and a performance summary, all on stderr |
+| `-v` … `-vvvv`, `-v0` | Log on stderr as `[cvt_asm:LEVEL] …` (the toolchain's format, `include/Logger.hpp`); cumulative, at most `-vvvv`; `-v0` off: detection, parse/write progress and the batch summaries; with `-v` the performance summary too (stderr) |
 | `--stats` | Print conversion statistics (source/target counts, losses, preservation %) instead of the output |
 | `--validate` | Convert to the target and back, and report how much was preserved (`LOSSLESS` at ≥95%) instead of the output |
 | `--metrics` | Print the performance summary (time, files, include-cache hits) after converting |

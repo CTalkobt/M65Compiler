@@ -1,4 +1,5 @@
 #include <iostream>
+#include "Logger.hpp"
 #include <fstream>
 #include <sstream>
 #include "MiniJson.hpp"
@@ -1109,6 +1110,8 @@ static void printUsage(const char* progName) {
     std::cout << "  -m FILE  Load symbols from linker map file (ln45 -M output)" << std::endl;
     std::cout << "  -V       Display version" << std::endl;
     std::cout << "  -?       Display this help message" << std::endl;
+    std::cout << "  -v ... -vvvv  Log to stderr ([objdump45:INFO] ...): each file's format, the map or" << std::endl;
+    std::cout << "           debug file used for symbols; -v0 off" << std::endl;
     std::cout << std::endl;
     std::cout << "Supported formats:" << std::endl;
     std::cout << "  .o45/.o65  Relocatable object files (full header/symbol/reloc support)" << std::endl;
@@ -1133,6 +1136,8 @@ int main(int argc, char** argv) {
     bool baseAddrSet = false;
     std::string mapFile;
     std::vector<std::string> files;
+    int verbosity = 0;
+    Logger::setTool("objdump45");
 
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
@@ -1167,6 +1172,8 @@ int main(int argc, char** argv) {
             showDiff = true;
         } else if (arg == "-x") {
             showHex = true;
+        } else if (Logger::parseFlag(arg, verbosity)) {
+            Logger::setLevel(verbosity);
         } else if (arg[0] == '-' && arg.size() > 1) {
             // Parse combined flags like -fdh
             for (size_t j = 1; j < arg.size(); j++) {
@@ -1249,6 +1256,8 @@ int main(int argc, char** argv) {
                 exitCode = 1;
                 continue;
             }
+            LOG_INFO("objdump45", filename << ": code overlay file (" << (ov.mapped ? "mapped" : "copied") << "), "
+                                  << ov.overlays.size() << " overlay(s)");
             if (showFileHeader) {
                 std::cout << std::endl;
                 std::cout << filename << ":     file format code overlays (" << (ov.mapped ? "mapped" : "copied") << ")" << std::endl;
@@ -1297,6 +1306,8 @@ int main(int argc, char** argv) {
 
         if (isObject) {
             // ── .o45 / .o65 object file ──
+            LOG_INFO("objdump45", filename << ": object, text " << obj.tlen << " bytes at $" << std::hex << obj.tbase
+                                  << ", data " << std::dec << obj.dlen << " bytes");
             if (showFileHeader) printFileHeader(obj, filename);
             if (showSections)   printSectionHeaders(obj, filename);
             if (showSymbols)    printSymbolTable(obj, filename);
@@ -1314,6 +1325,7 @@ int main(int argc, char** argv) {
         } else {
             // ── Raw binary or PRG ──
             bool isPrg = hasExtension(filename, ".prg");
+            LOG_DEBUG("objdump45", filename << ": not an object (" << err << ")");
 
             // Check for BASIC dump mode
             if (showBasic && isPrg) {
@@ -1333,8 +1345,10 @@ int main(int argc, char** argv) {
                 uint16_t loadAddr = data[0] | (data[1] << 8);
                 base = baseAddrSet ? baseAddr : loadAddr;
                 body.assign(data.begin() + 2, data.end());
+                LOG_INFO("objdump45", filename << ": PRG, " << body.size() << " bytes loaded at $" << std::hex << loadAddr);
             } else if (hasExtension(filename, ".bin") || baseAddrSet) {
                 body = data;
+                LOG_INFO("objdump45", filename << ": raw binary, " << body.size() << " bytes at $" << std::hex << base);
             } else {
                 // Not a recognized format and no -b flag
                 std::cerr << "objdump45: " << filename << ": " << err << std::endl;
@@ -1366,11 +1380,13 @@ int main(int argc, char** argv) {
                 SourceLineMap srcLines;
                 uint32_t textEnd = 0;
                 if (!effectiveMap.empty()) {
+                    LOG_INFO("objdump45", "symbols from the map " << effectiveMap);
                     prgSymbols = loadMapSymbols(effectiveMap);
                     srcLines = loadMapSourceLines(effectiveMap);
                     textEnd = loadMapTextEnd(effectiveMap);
                 } else if (isPrg) {
                     // no map: the debug file (ln45 -g), foo.prg -> foo.dbg
+                    LOG_INFO("objdump45", "symbols from the debug file " << filename.substr(0, filename.size() - 4) << ".dbg, if there");
                     loadDebugFile(filename.substr(0, filename.size() - 4) + ".dbg", prgSymbols, srcLines);
                 }
                 // Detect and render BASIC SYS stub before disassembly

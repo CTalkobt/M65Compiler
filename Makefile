@@ -254,13 +254,13 @@ $(LIB_DIR)/lib45-residfp.a: $(RESIDFP_OBJS) | $(LIB_DIR)
 $(OBJ_DIR)/TuneAudio.o: CXXFLAGS += -I$(RESIDFP_DIR)
 TUNE_OBJS = $(OBJ_DIR)/tune45_main.o $(OBJ_DIR)/TuneCompiler.o $(OBJ_DIR)/TunePlayer.o $(OBJ_DIR)/TuneAudio.o \
             $(OBJ_DIR)/TuneCreate.o $(OBJ_DIR)/TuneMidi.o \
-            $(OBJ_DIR)/BasicTooling.o
+            $(OBJ_DIR)/BasicTooling.o $(OBJ_DIR)/Logger.o
 $(TUNE_TARGET): $(TUNE_OBJS) $(LIB_DIR)/lib45-residfp.a
 	@mkdir -p $(BIN_DIR)
 	$(CXX) $(CXXFLAGS) -pthread -o $@ $(TUNE_OBJS) $(LIB_DIR)/lib45-residfp.a
 
 # dbg45, the source-level debugger on xemu's monitor (#202)
-DBG45_OBJS = $(OBJ_DIR)/dbg45_main.o $(OBJ_DIR)/Dbg45.o $(OBJ_DIR)/Dbg45Dap.o $(OBJ_DIR)/DbgFile.o $(OBJ_DIR)/XemuMonitor.o
+DBG45_OBJS = $(OBJ_DIR)/dbg45_main.o $(OBJ_DIR)/Dbg45.o $(OBJ_DIR)/Dbg45Dap.o $(OBJ_DIR)/DbgFile.o $(OBJ_DIR)/XemuMonitor.o $(OBJ_DIR)/Logger.o
 $(DBG45_TARGET): $(DBG45_OBJS)
 	@mkdir -p $(BIN_DIR)
 	$(CXX) $(CXXFLAGS) -o $@ $(DBG45_OBJS)

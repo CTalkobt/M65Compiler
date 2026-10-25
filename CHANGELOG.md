@@ -17,8 +17,15 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   that broke the build).
 - ca45: `-v` … `-vvvv`; the token dump is `-vvvv`.
 - ln45: `-v` … `-vvvv`; `ln45info()` / `ln45debug()` write log lines; the
-  relocation trace is `-vvv` (was `-vv`), the call graph and the layout (base-page blocks, SAC overlay) stay at
-  `-vv`.
+  relocation trace is `-vvv` (was `-vv`), the call graph and the layout
+  (base-page blocks, SAC overlay) stay at `-vv`.
+- ar45, nm45, objdump45, disk45, cvt_asm, basic45, tune45 and dbg45 log
+  the same way (`-v` … `-vvvv` anywhere among their arguments): ar45 the
+  members, nm45 / objdump45 each file's kind, disk45 the images opened and
+  written, cvt_asm and basic45 their former verbose output (basic45's
+  moved from stdout to stderr), tune45 the tunes and files, dbg45 xemu's
+  start and every monitor command and reply. disk45's lone `-v` first
+  stays `--version`.
 - Test `src/test/test_logging.sh` (`make test`).
 
 ### Loop strength reduction; element addresses outside loops multiply by a call

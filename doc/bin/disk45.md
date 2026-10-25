@@ -17,7 +17,7 @@ The format is chosen from the file extension; an unrecognised extension is treat
 
 `disk45 sd` works on MEGA65 SD card images (FAT32 with the MEGA65 system partition, see [MEGA65 SD Card Images](#mega65-sd-card-images)).
 
-Running `disk45` with no arguments or an unknown command prints the usage summary (exit status 1). `disk45 --version` (or `-v`) prints the version.
+Running `disk45` with no arguments or an unknown command prints the usage summary (exit status 1). `disk45 --version` (or `-v` alone) prints the version; `-v` … `-vvvv` elsewhere turn on the log (see Options).
 
 ## Commands
 
@@ -875,7 +875,8 @@ auto prg = disk->readFile("GAME");
 | `batch` | `--batch` | Run commands from a file |
 | `-a2p` | `--ascii-to-petscii` | ASCII→PETSCII filter |
 | `-p2a` | `--petscii-to-ascii` | PETSCII→ASCII filter |
-| `--version` | `-v` | Print version |
+| `--version` | `-v` | Print version (`-v` alone as the first argument) |
+| `-v` … `-vvvv`, `-v0` | | Anywhere else among the arguments: log on stderr as `[disk45:LEVEL] …` (the toolchain's format, `include/Logger.hpp`); cumulative, at most `-vvvv`; `-v0` off: the images opened and written with their name and free sectors (`-v`), the partition, zip or SD card member opened (`-vv`) |
 
 ## See Also
 

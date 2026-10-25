@@ -3,7 +3,8 @@
 # -v ... -vvvv levels (cumulative, capped at 4, -v0 off) in cc45, ca45 and
 # ln45; every log line on stderr as "[tool:LEVEL] ...", none on stdout;
 # cc45 runs ca45 and ln45 at its own level; the program the same whatever
-# the level
+# the level. ar45, nm45, objdump45, disk45, cvt_asm, basic45 and tune45 log
+# with -v and write the same output (dbg45: test_dbg45.sh needs xemu)
 cd "$(dirname "$0")/../.." || exit 1
 BIN=./bin
 TMP=$(mktemp -d)
@@ -74,6 +75,29 @@ if grep -q '^\[ln45:INFO\]' "$TMP/lerr" && ! grep -q '^\[ln45:DEEP\]' "$TMP/lerr
 else
     bad "ln45 -v"
 fi
+
+# the other tools: "[tool:INFO]" lines on stderr with -v (anywhere among
+# the arguments), none without it, and the same standard output either way
+other() {   # other TOOL "ARGS before -v" "ARGS after -v"
+    local tool=$1 pre=$2 post=$3
+    eval "$BIN/$tool $pre $post" >"$TMP/o0" 2>"$TMP/e0"
+    eval "$BIN/$tool $pre -v $post" >"$TMP/o1" 2>"$TMP/e1"
+    if grep -q "^\[$tool:INFO\] " "$TMP/e1" && ! grep -q '^\[' "$TMP/e0" && cmp -s "$TMP/o0" "$TMP/o1"; then
+        ok "$tool -v logs on stderr, the same output"
+    else
+        bad "$tool -v (stderr: $(head -c 200 "$TMP/e1"))"
+    fi
+}
+other ar45 "t" "lib/build/c45.lib"
+other nm45 "" "\"$TMP/t.o45\""
+other objdump45 "-f" "\"$TMP/t.o45\""
+$BIN/disk45 create "$TMP/d.d81" -n LOGTEST >/dev/null 2>&1
+other disk45 "list" "\"$TMP/d.d81\""
+other cvt_asm "-t acme" "\"$TMP/t.s45\""
+other basic45 "src/test-resources/test_basic45_xemu.bas" "-o \"$TMP/b.prg\""
+other tune45 "list" "examples/c/tunes/music.txt"
+# disk45: a lone -v first is still --version
+if $BIN/disk45 -v | grep -q '^disk45 v'; then ok "disk45 -v (alone) is --version"; else bad "disk45 -v"; fi
 
 echo "logging tests: $passed passed, $failed failed"
 [ $failed -eq 0 ]

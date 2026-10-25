@@ -20,6 +20,7 @@
 #include "GzipHelper.hpp"
 #include "ZipArchive.hpp"
 #include "SdCardImage.hpp"
+#include "Logger.hpp"
 #include <cstdio>
 #include <iterator>
 #include <unistd.h>
@@ -191,14 +192,32 @@ static std::unique_ptr<DiskImage> loadPartition(const std::string& file, const s
     return loadFromBytes(std::string("partition") + CmdImage::emulatedExtension(p->type), data);
 }
 
+// (-v: what was opened)
+static void logOpened(const std::string& path, const DiskImage* img, const std::string& how) {
+    if (!img || !Logger::isEnabled(LogLevel::INFO)) return;
+    LOG_INFO(Logger::tool(), "opened " << path << how << ": \"" << img->diskName() << "\", "
+             << img->totalTracks() << " tracks, " << img->freeSectors() << " of " << img->totalSectors()
+             << " sectors free");
+}
+
 std::unique_ptr<DiskImage> DiskImage::load(const std::string& path) {
+    auto img = loadImage(path);
+    logOpened(path, img.get(), "");
+    return img;
+}
+
+std::unique_ptr<DiskImage> DiskImage::loadImage(const std::string& path) {
     if (looksLikeSdCard(path)) {
         std::cerr << "Error: " << path << " is a MEGA65 SD card image; use disk45 sd (disk45 sd --help)\n";
         return nullptr;
     }
     std::string zip, member;
-    if (partitionPath(path, zip, member)) return loadPartition(zip, member);
+    if (partitionPath(path, zip, member)) {
+        LOG_DEBUG(Logger::tool(), path << ": partition " << member << " of " << zip);
+        return loadPartition(zip, member);
+    }
     if (cardPath(path, zip, member)) {
+        LOG_DEBUG(Logger::tool(), path << ": " << member << " on the SD card image " << zip);
         SdCardImage card;
         std::string err;
         std::vector<uint8_t> data;
@@ -241,6 +260,7 @@ std::unique_ptr<DiskImage> DiskImage::load(const std::string& path) {
         std::vector<uint8_t> data;
         if (!za.extract(idx, data, err)) { std::cerr << "Error: " << err << "\n"; return nullptr; }
         std::string name = za.members()[idx].name;
+        LOG_DEBUG(Logger::tool(), path << ": " << name << " (" << data.size() << " bytes) from the zip " << zip);
         auto img = loadFromBytes(name, data);
         if (img) img->zipMember_ = name;
         return img;
@@ -280,6 +300,8 @@ bool DiskImage::zipPath(const std::string& path, std::string& zip, std::string& 
 }
 
 bool DiskImage::saveImage(const std::string& path) const {
+    LOG_INFO(Logger::tool(), "writing " << path << ": \"" << diskName() << "\", " << freeSectors() << " of "
+             << totalSectors() << " sectors free");
     std::string zip, member;
     if (partitionPath(path, zip, member)) {
         // a native partition is part of the whole image; an emulated one's

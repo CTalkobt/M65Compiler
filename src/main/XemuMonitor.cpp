@@ -1,4 +1,5 @@
 // XemuMonitor.cpp — xemu's monitor socket for dbg45 (XemuMonitor.hpp)
+#include "Logger.hpp"
 #include "XemuMonitor.hpp"
 #include <arpa/inet.h>
 #include <cerrno>
@@ -42,6 +43,11 @@ bool XemuMonitor::launch(const std::string& xemu, const std::string& prg, int po
     for (const auto& e : extra) args.push_back(e);
     args.push_back("-prg");
     args.push_back(prg);
+    if (Logger::isEnabled(LogLevel::INFO)) {
+        std::string line;
+        for (const auto& a : args) line += (line.empty() ? "" : " ") + a;
+        LOG_INFO("dbg45", "starting " << line);
+    }
     pid_ = fork();
     if (pid_ < 0) { err = std::string("fork: ") + strerror(errno); return false; }
     if (pid_ == 0) {
@@ -72,6 +78,7 @@ bool XemuMonitor::connect(int port, int timeoutMs, std::string& err) {
         a.sin_port = htons((uint16_t)port);
         if (::connect(s, (sockaddr*)&a, sizeof a) == 0) {
             fd_ = s;
+            LOG_INFO("dbg45", "connected to xemu's monitor at port " << port);
             return true;
         }
         close(s);
@@ -113,6 +120,7 @@ bool XemuMonitor::fill(int timeoutMs) {
 std::string XemuMonitor::command(const std::string& cmd, int timeoutMs) {
     if (fd_ < 0) return "";
     std::string line = cmd + "\n";
+    LOG_DEBUG("dbg45", "monitor> " << cmd);
     if (send(fd_, line.data(), line.size(), MSG_NOSIGNAL) != (ssize_t)line.size()) return "";
     auto until = Clock::now() + std::chrono::milliseconds(timeoutMs);
     // (the echo of the command first, then its output)
@@ -131,6 +139,17 @@ std::string XemuMonitor::command(const std::string& cmd, int timeoutMs) {
                 if (next == "." && e != std::string::npos) {
                     std::string out = buf_.substr(from, q - from);
                     buf_.erase(0, e + 1);
+                    // (the reply, after the command's echo)
+                    if (Logger::isEnabled(LogLevel::DEEP)) {
+                        size_t r = out.find('\n');
+                        for (size_t b = r == std::string::npos ? out.size() : r + 1; b < out.size(); ) {
+                            size_t eol = out.find('\n', b);
+                            std::string l = out.substr(b, eol == std::string::npos ? std::string::npos : eol - b);
+                            while (!l.empty() && l.back() == '\r') l.pop_back();
+                            if (!l.empty()) LOG_DEEP("dbg45", "monitor< " << l);
+                            b = eol == std::string::npos ? out.size() : eol + 1;
+                        }
+                    }
                     return out;
                 }
                 p = q;
@@ -138,7 +157,10 @@ std::string XemuMonitor::command(const std::string& cmd, int timeoutMs) {
         }
         auto left = std::chrono::duration_cast<std::chrono::milliseconds>(until - Clock::now()).count();
         if (left <= 0 || !fill((int)left)) {
-            if (left <= 0 || fd_ < 0) return "";
+            if (left <= 0 || fd_ < 0) {
+                LOG_DEBUG("dbg45", "monitor: no reply to " << cmd << (fd_ < 0 ? " (connection closed)" : " (timeout)"));
+                return "";
+            }
         }
     }
 }

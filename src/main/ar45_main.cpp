@@ -6,6 +6,7 @@
 #include "O45Archive.hpp"
 #include "O45Reader.hpp"
 #include "Version.hpp"
+#include "Logger.hpp"
 
 static std::vector<uint8_t> readFile(const std::string& path) {
     std::ifstream in(path, std::ios::binary);
@@ -37,6 +38,8 @@ static void printUsage(const char* progName) {
     std::cout << "  a   Add .o45 files to existing archive" << std::endl;
     std::cout << "  d   Delete members from archive" << std::endl;
     std::cout << "  -?  Display this help message" << std::endl;
+    std::cout << "Options (anywhere): -v ... -vvvv  log to stderr ([ar45:INFO] ...): members read,"
+              << std::endl << "      added and removed (-v), their symbols (-vv, -vvv); -v0 off" << std::endl;
 }
 
 // Build the symbol index by scanning each member's .o45 exports
@@ -45,14 +48,21 @@ static void buildSymbolIndex(Ar45Archive& archive) {
     for (uint32_t i = 0; i < (uint32_t)archive.members.size(); i++) {
         O45File obj;
         std::string err;
-        if (!O45Reader::read(archive.members[i].data, obj, err)) continue;
+        if (!O45Reader::read(archive.members[i].data, obj, err)) {
+            LOG_DEBUG("ar45", archive.members[i].name << ": not indexed (" << err << ")");
+            continue;
+        }
+        LOG_DEBUG("ar45", archive.members[i].name << ": " << obj.exports.size() << " exported symbol(s)");
         for (const auto& exp : obj.exports) {
+            LOG_DEEP("ar45", "  " << exp.name);
             archive.symbols.push_back({exp.name, i});
         }
     }
 }
 
 int main(int argc, char** argv) {
+    Logger::setTool("ar45");
+    argc = Logger::takeFlags(argc, argv);
     if (argc < 2 || std::string(argv[1]) == "-?" || std::string(argv[1]) == "--help") {
         printUsage(argv[0]);
         return (argc < 2) ? 1 : 0;
@@ -84,6 +94,7 @@ int main(int argc, char** argv) {
                 std::cerr << "ar45: cannot read " << argv[i] << std::endl;
                 return 1;
             }
+            LOG_INFO("ar45", "add " << basename(argv[i]) << " (" << data.size() << " bytes, from " << argv[i] << ")");
             archive.members.push_back({basename(argv[i]), data});
         }
 
@@ -116,6 +127,8 @@ int main(int argc, char** argv) {
         std::cerr << "ar45: " << archivePath << ": " << err << std::endl;
         return 1;
     }
+    LOG_INFO("ar45", "read " << archivePath << ": " << archive.members.size() << " member(s), "
+                     << archive.symbols.size() << " symbol(s), " << archiveData.size() << " bytes");
 
     // === LIST ===
     if (command == "t") {
@@ -167,6 +180,7 @@ int main(int argc, char** argv) {
                     break;
                 }
             }
+            LOG_INFO("ar45", (replaced ? "replace " : "add ") << name << " (" << data.size() << " bytes)");
             if (!replaced) archive.members.push_back({name, data});
         }
         buildSymbolIndex(archive);
@@ -194,6 +208,8 @@ int main(int argc, char** argv) {
                                      [&](const Ar45Member& m) { return m.name == target; });
             if (it == archive.members.end()) {
                 std::cerr << "ar45: " << target << ": not found in archive" << std::endl;
+            } else {
+                LOG_INFO("ar45", "delete " << target);
             }
             archive.members.erase(it, archive.members.end());
         }

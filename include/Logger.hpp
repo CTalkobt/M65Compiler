@@ -48,6 +48,9 @@ public:
     static bool parseFlag(const std::string& arg, int& level);
     // The flag that gives a child process the same level ("" at 0)
     static std::string flagFor(int level);
+    // For tools with positional arguments: the verbosity flags from
+    // argv[first..] taken out (argv compacted, the level set); the new argc
+    static int takeFlags(int argc, char** argv, int first = 1);
 
 private:
     static LogLevel current_;

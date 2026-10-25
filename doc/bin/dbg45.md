@@ -27,6 +27,7 @@ dbg45 --dap                                     # for an editor
 | `-x <file>` | The commands of a file (`#` lines are comments) |
 | `--batch` | Quit after the `-ex` / `-x` commands (each is echoed after the prompt) |
 | `--dap` | The Debug Adapter Protocol on stdin/stdout |
+| `-v` … `-vvvv`, `-v0` | Log on stderr as `[dbg45:LEVEL] …` (the toolchain's format, `include/Logger.hpp`); cumulative, at most `-vvvv`; `-v0` off: the program and its debug file, xemu's command line and the monitor connection (`-v`), each monitor command (`-vv`) and its reply (`-vvv`); with `--dap` too (the protocol stays on stdout) |
 | `-V`, `--version`; `-h`, `--help` | Version; help |
 
 ## Commands

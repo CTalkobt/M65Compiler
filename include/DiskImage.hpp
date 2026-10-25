@@ -84,6 +84,7 @@ public:
     static std::unique_ptr<DiskImage> create(DiskFormat fmt);
     static std::unique_ptr<DiskImage> createFromExtension(const std::string& path);
     static std::unique_ptr<DiskImage> load(const std::string& path);
+    static std::unique_ptr<DiskImage> loadImage(const std::string& path);   // (load without its -v log line)
 
     // --- Image lifecycle ---
     virtual void format(const std::string& diskName = "", const std::string& diskId = "CC") = 0;

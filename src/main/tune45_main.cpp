@@ -21,6 +21,7 @@
 #include <cstdio>
 #include <fstream>
 #include <iostream>
+#include "Logger.hpp"
 #include <sstream>
 #include <algorithm>
 #include <map>
@@ -76,6 +77,8 @@ void usage(std::ostream& o) {
          "  --ticks-per-beat <n> import: the grid, ticks a quarter note (default 4: 16ths)\n"
          "  --transpose <n>    import: semitones\n"
          "  --instruments <f>  import: instrument lines (voice1.., gm<program> for a program change)\n"
+         "  -v ... -vvvv       log to stderr ([tune45:INFO] ...): the tunes read, the files written,\n"
+         "                     the player built (-v); each tune and the commands run (-vv); -v0 off\n"
          "  -V, --version      version\n"
          "  -h, --help         this help\n"
          "The text format: doc/bin/tune45.md (pfest's music.txt format).\n";
@@ -343,6 +346,8 @@ std::string buildPlayer(const TuneFile& f, const std::string& src, const PlayOpt
     std::string cmd = quote(bin + "cc45") + " -O2 -c " + quote(c) + " -o " + quote(obj) + " && " +
                       quote(bin + "ln45") + " -basic -o " + quote(out) + " " + quote(lib + "tuneplay.o45") + " " + quote(obj) +
                       " " + quote(lib + "c45.lib") + " >/dev/null";
+    LOG_INFO("tune45", "building the player program " << out);
+    LOG_DEBUG("tune45", "command: " << cmd);
     int rc = system(cmd.c_str());
     remove(c.c_str());
     remove(obj.c_str());
@@ -563,6 +568,8 @@ int list(const TuneFile& f) {
 }  // namespace
 
 int main(int argc, char** argv) {
+    Logger::setTool("tune45");
+    argc = Logger::takeFlags(argc, argv);   // -v ... -vvvv anywhere
     if (argc < 2) { usage(std::cerr); return 1; }
     std::string cmd = argv[1];
     if (cmd == "-h" || cmd == "--help") { usage(std::cout); return 0; }
@@ -648,9 +655,14 @@ int main(int argc, char** argv) {
         for (const auto& e : c.errors()) std::cerr << e << "\n";
         return 1;
     }
+    LOG_INFO("tune45", input << ": " << f.tunes.size() << " tune(s), " << f.instruments.size() << " instrument(s)");
+    for (const auto& t : f.tunes)
+        LOG_DEBUG("tune45", "tune \"" << t.name << "\" (line " << t.line << "): " << t.voices.size() << " voice(s), "
+                            << (t.loop ? "loops" : "ends") << ", " << TuneCompiler::blob(f, t).size() << " bytes of data");
     if (cmd == "list") return list(f);
     if (cmd == "play") return po.emulator || po.send ? playOnMega65(input, f, po) : play(input, f, po);
     if (cmd == "trace") return trace(f, po);
     if (out.empty()) out = stem(input) + (mode == "bin" ? ".bin" : mode == "asm" ? ".s45" : ".c");
+    LOG_INFO("tune45", "writing " << out << " (" << (mode == "c" ? "C" : mode) << ")");
     return convert(f, input, out, mode, header, loadAt);
 }

@@ -90,6 +90,16 @@ bool Logger::parseFlag(const std::string& arg, int& level) {
     return true;
 }
 
+int Logger::takeFlags(int argc, char** argv, int first) {
+    int level = Logger::level(), out = first;
+    for (int i = first; i < argc; i++) {
+        if (parseFlag(argv[i], level)) continue;
+        argv[out++] = argv[i];
+    }
+    setLevel(level);
+    return out;
+}
+
 std::string Logger::flagFor(int level) {
     if (level <= 0) return "";
     return "-" + std::string(level > 4 ? 4 : level, 'v');

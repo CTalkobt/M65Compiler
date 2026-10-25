@@ -1,4 +1,5 @@
 #include <iostream>
+#include "Logger.hpp"
 #include <fstream>
 #include <vector>
 #include <string>
@@ -93,6 +94,7 @@ static void printUsage(const char* progName) {
     std::cout << "  -f       Display function attributes (ZP calling convention)" << std::endl;
     std::cout << "  -a       Display all (header + relocations + symbols + func attrs)" << std::endl;
     std::cout << "  -?       Display this help message" << std::endl;
+    std::cout << "  -v ... -vvvv  Log to stderr ([nm45:INFO] ...): each file's kind and sizes; -v0 off" << std::endl;
 }
 
 // The section table (OPT_SECTIONS) and section references (OPT_SECTREF)
@@ -247,6 +249,8 @@ int main(int argc, char** argv) {
     bool showSections = false;
     bool showSymbols = true; // default behavior
     std::vector<std::string> files;
+    int verbosity = 0;
+    Logger::setTool("nm45");
 
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
@@ -264,6 +268,7 @@ int main(int argc, char** argv) {
         else if (arg == "-x") { showHex = true; showSymbols = false; }
         else if (arg == "-f") { showFuncAttrs = true; }
         else if (arg == "-S") { showSections = true; showSymbols = false; }
+        else if (Logger::parseFlag(arg, verbosity)) Logger::setLevel(verbosity);
         else if (arg == "-a") { showAll = true; showHeader = true; showRelocs = true; showHex = true; showSymbols = true; showFuncAttrs = true; showSections = true; }
         else files.push_back(arg);
     }
@@ -298,6 +303,7 @@ int main(int argc, char** argv) {
         std::vector<uint8_t> data((std::istreambuf_iterator<char>(in)),
                                    std::istreambuf_iterator<char>());
         in.close();
+        LOG_DEBUG("nm45", filename << ": " << data.size() << " bytes");
 
         // Detect .lib archive and suggest ar45
         if (data.size() >= 4 && data[0] == AR45_MAGIC[0] && data[1] == AR45_MAGIC[1]
@@ -317,6 +323,8 @@ int main(int argc, char** argv) {
                 exitCode = 1;
                 continue;
             }
+            LOG_INFO("nm45", filename << ": code overlay file, " << ov.overlays.size() << " overlay(s), "
+                             << ov.symbols.size() << " symbol(s)");
             if (multiFile && !prependFilename) std::cout << std::endl << filename << ":" << std::endl;
             if (showHeader || showSections || showSizes) {
                 printf("code overlays (%s), run at $%04X, %zu overlays, file loaded at $%05X\n",
@@ -352,6 +360,9 @@ int main(int argc, char** argv) {
             exitCode = 1;
             continue;
         }
+        LOG_INFO("nm45", filename << ": .o45 object, text " << obj.tlen << ", data " << obj.dlen << ", bss "
+                         << obj.blen << ", zp " << obj.zlen << " bytes; " << obj.imports.size() << " import(s), "
+                         << obj.exports.size() << " export(s), " << obj.options.size() << " option record(s)");
 
         // Sizes mode — compact one-line-per-file output
         if (showSizes && !showAll) {
