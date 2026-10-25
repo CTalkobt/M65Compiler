@@ -1,9 +1,9 @@
-/* test_mulidx_xemu.c — the code the second October 2026 size pass changes:
+/* test_mulidx_xemu.c — the code the later October 2026 size passes change:
  * the hardware multiply / divide (operands stored from X/Y/Z, the result
  * loaded into them), __mul16y (a byte constant factor outside loops),
- * p[i] through a pointer in ZP with a byte index ((p),y), and zero-extended
- * byte temporaries added without widening them first (the expected values
- * computed outside cc45)
+ * p[i] through a pointer in ZP with a byte index ((p),y), zero-extended
+ * byte temporaries added without widening them first, and byte globals
+ * read by their one use (the expected values computed outside cc45)
  *
  * Results at $C0C0 (01 = pass):
  *   [0] unsigned 16- and 32-bit multiply, divide and remainder by variables
@@ -14,7 +14,8 @@
  *   [3] p[i] loads and stores, i a byte, across a page boundary; a byte cut
  *       from a long stored there (the truncation read from the long)
  *   [4] sums of zero-extended byte loads (carries into the high byte)
- *   [5] 01
+ *   [5] a byte global read by its one use where it is: add, subtract,
+ *       compare, stored to a global, through a pointer, to an element
  *   [6] 01
  *   [7] $AA sentinel
  */
@@ -123,6 +124,30 @@ static int test_zext(void) {
     return 1;
 }
 
+static unsigned char gb1 = 200, gb2 = 77, gout, garr[8];
+static signed char gsb = -5;
+
+static unsigned char via(unsigned char *p, unsigned char i) {
+    unsigned char hits = 0;
+    p[i] = gb2;                                 /* through a pointer, a byte index */
+    garr[i + 1] = gb1;                          /* an element */
+    *p = gb1;
+    gout = gb2;                                 /* a global */
+    if (gb1 > gb2) hits++;                      /* compares */
+    if (gb2 == 77) hits++;
+    if (gsb < 0) hits++;
+    return hits;
+}
+
+static int test_global_bytes(void) {
+    unsigned char a = gb1 + 3, b = gb1 - gb2, c = gb2 + gb1;   /* 203, 123, 21 */
+    if (a != 203 || b != 123 || c != 21) return 0;
+    if (via(garr, 3) != 3) return 0;
+    if (garr[0] != 200 || garr[3] != 77 || garr[4] != 200 || gout != 77) return 0;
+    gb1 = 10;
+    return (unsigned char)(gb1 + gb2) == 87;
+}
+
 int main(void) {
     unsigned char i;
     for (i = 0; i < 8; i++) OUT[i] = 0;
@@ -131,7 +156,7 @@ int main(void) {
     OUT[2] = test_const_factor() ? 1 : 0;
     OUT[3] = test_byte_index() ? 1 : 0;
     OUT[4] = test_zext() ? 1 : 0;
-    OUT[5] = 1;
+    OUT[5] = test_global_bytes() ? 1 : 0;
     OUT[6] = 1;
     OUT[7] = 0xAA;
     return 0;
