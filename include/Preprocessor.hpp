@@ -4,6 +4,7 @@
 #include <vector>
 #include <map>
 #include <set>
+#include <iosfwd>
 
 class Preprocessor {
 public:
@@ -56,9 +57,29 @@ private:
     std::string currentFile_;       // current file being processed (for __has_include path resolution)
 
     std::string processInternal(const std::string& source, const std::string& currentFile, int depth);
+    void handlePragma(std::istream& ss, std::ostream& output, const std::string& currentFile);
     bool isConditionTrue();
     long evaluateExpression(const std::string& expr);
     std::string expandMacros(const std::string& line);
+    // Macro expansion on tokens (C11 6.10.3): each token's hide set holds
+    // the macros it came from, which do not expand it again; arguments are
+    // expanded on their own before substitution (not next to # or ##)
+    struct PPTok {
+        std::string ws;        // the white space before it
+        std::string text;
+        char kind = 'p';       // 'i' identifier, 'n' pp-number, 's' string/char, 'p' punctuator, 'm' placemarker
+        std::set<std::string> hide;
+        bool expanded = false; // came from a replacement (spacing kept apart on output)
+    };
+    static std::vector<PPTok> lexPP(const std::string& text);
+    std::vector<PPTok> expandPP(std::vector<PPTok> in, int depth = 0);
+    std::vector<PPTok> substPP(const std::vector<PPTok>& body, const Macro& m,
+                               const std::vector<std::vector<PPTok>>& args, const std::vector<PPTok>& va,
+                               bool haveVa, const std::set<std::string>& hs, int depth);
+    static std::string renderPP(const std::vector<PPTok>& toks);
+    // __LINE__ / __FILE__ for the line being expanded (0 / "": left to the caller)
+    int expandLine_ = 0;
+    std::string expandFile_;
     // a call of a function-like macro whose ')' is not on this line
     bool hasOpenMacroCall(const std::string& line) const;
     std::string stripComments(const std::string& line, bool& inBlockComment);

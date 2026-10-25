@@ -2,6 +2,7 @@
 #include "Preprocessor.hpp"
 #include <fstream>
 #include <sstream>
+#include <deque>
 #include <iostream>
 #include <filesystem>
 #include <algorithm>
@@ -179,384 +180,365 @@ bool Preprocessor::hasOpenMacroCall(const std::string& line) const {
     return false;
 }
 
-std::string Preprocessor::expandMacros(const std::string& line) {
-    std::string result = line;
-    
-    // 0. Handle _Pragma("string") — convert to equivalent #pragma directive (C99 §6.10.9)
-    size_t pragmaPos;
-    while ((pragmaPos = result.find("_Pragma")) != std::string::npos) {
-        // Simple whole-word check
-        bool bBefore = (pragmaPos == 0 || (!std::isalnum((unsigned char)result[pragmaPos-1]) && result[pragmaPos-1] != '_'));
-        if (!bBefore) { break; }
+// ---------------------------------------------------------------------------
+// Macro expansion (C11 6.10.3), on tokens. Each token carries a hide set: the
+// macros whose expansion produced it, which do not expand it again (#define
+// SELF SELF + 1). A macro's replacement is rescanned with the rest of the
+// line (a function-like macro's name at its end takes the '(' that follows);
+// an argument is expanded on its own before it is substituted, except as an
+// operand of # or ## (XSTR(N) with #define XSTR(x) STR(x) is "4").
+// ---------------------------------------------------------------------------
 
-        size_t start = pragmaPos;
-        pragmaPos += 7;
-        while (pragmaPos < result.length() && std::isspace((unsigned char)result[pragmaPos])) pragmaPos++;
-        if (pragmaPos < result.length() && result[pragmaPos] == '(') {
-            pragmaPos++;
-            while (pragmaPos < result.length() && std::isspace((unsigned char)result[pragmaPos])) pragmaPos++;
-            if (pragmaPos < result.length() && result[pragmaPos] == '"') {
-                size_t strStart = pragmaPos + 1;
-                size_t strEnd = result.find('"', strStart);
-                if (strEnd != std::string::npos) {
-                    std::string pragmaContent = result.substr(strStart, strEnd - strStart);
-                    size_t endParen = result.find(')', strEnd);
-                    if (endParen != std::string::npos) {
-                        // Replace _Pragma("...") with nothing and queue the pragma for processing
-                        result.erase(start, endParen - start + 1);
-                        // Inject as #pragma line — store for the caller to process
-                        pendingPragmas_.push_back(pragmaContent);
-                        continue;
-                    }
-                }
+// The pp-tokens of a line, each with the white space before it
+std::vector<Preprocessor::PPTok> Preprocessor::lexPP(const std::string& text) {
+    std::vector<PPTok> out;
+    size_t i = 0, n = text.size();
+    auto isId = [](char c) { return std::isalnum((unsigned char)c) || c == '_'; };
+    while (i < n) {
+        PPTok t;
+        size_t w = i;
+        while (i < n && std::isspace((unsigned char)text[i])) i++;
+        t.ws = text.substr(w, i - w);
+        if (i >= n) {
+            if (!t.ws.empty() && !out.empty()) { PPTok e; e.ws = t.ws; e.kind = 'm'; out.push_back(e); }
+            break;
+        }
+        size_t b = i;
+        char c = text[i];
+        auto literal = [&](size_t q) {               // a string or character literal from q
+            char d = text[q];
+            for (i = q + 1; i < n && text[i] != d; i++) if (text[i] == '\\' && i + 1 < n) i++;
+            if (i < n) i++;
+        };
+        if (std::isalpha((unsigned char)c) || c == '_') {
+            while (i < n && isId(text[i])) i++;
+            std::string id = text.substr(b, i - b);
+            // an encoding prefix is part of its literal (L'1', u8"s"; cc45's p"x", s"x", a"x")
+            if ((id == "L" || id == "u" || id == "U" || id == "u8" || id == "p" || id == "s" || id == "a") &&
+                i < n && (text[i] == '"' || text[i] == '\'')) {
+                literal(i);
+                t.kind = 's';
+            } else {
+                t.kind = 'i';
+            }
+        } else if (std::isdigit((unsigned char)c) || (c == '.' && i + 1 < n && std::isdigit((unsigned char)text[i + 1]))) {
+            // a pp-number (1.0F, 0x1fUL, 1e-5) is one token
+            i++;
+            while (i < n && (isId(text[i]) || text[i] == '.' ||
+                             ((text[i] == '+' || text[i] == '-') && std::strchr("eEpP", text[i - 1]))))
+                i++;
+            t.kind = 'n';
+        } else if (c == '"' || c == '\'') {
+            literal(i);
+            t.kind = 's';
+        } else {
+            static const char* ops[] = {"...", "<<=", ">>=", "##", "->", "++", "--", "<<", ">>", "<=", ">=", "==", "!=",
+                                        "&&", "||", "*=", "/=", "%=", "+=", "-=", "&=", "^=", "|=", "::"};
+            size_t len = 1;
+            for (const char* op : ops) {
+                size_t l = std::strlen(op);
+                if (text.compare(i, l, op) == 0) { len = l; break; }
+            }
+            i += len;
+            t.kind = 'p';
+        }
+        t.text = text.substr(b, i - b);
+        out.push_back(std::move(t));
+    }
+    return out;
+}
+
+// The tokens as text: their white space kept; a space where two tokens of a
+// replacement would otherwise run together into another token (- -, x y)
+std::string Preprocessor::renderPP(const std::vector<PPTok>& toks) {
+    std::string out;
+    const PPTok* prev = nullptr;
+    for (const auto& t : toks) {
+        if (t.kind == 'm') { out += t.ws; continue; }
+        if (prev && t.ws.empty() && (t.expanded || prev->expanded) && lexPP(prev->text + t.text).size() < 2)
+            out += ' ';
+        out += t.ws;
+        out += t.text;
+        prev = &t;
+    }
+    return out;
+}
+
+// The replacement of a macro: its body's tokens with the arguments put in
+// (expanded, or raw next to # and ##), # and ## done, the hide set hs added
+std::vector<Preprocessor::PPTok> Preprocessor::substPP(const std::vector<PPTok>& body, const Macro& m,
+                                                         const std::vector<std::vector<PPTok>>& args,
+                                                         const std::vector<PPTok>& va, bool haveVa,
+                                                         const std::set<std::string>& hs, int depth) {
+    auto param = [&](const PPTok& t) -> const std::vector<PPTok>* {
+        if (t.kind != 'i') return nullptr;
+        for (size_t p = 0; p < m.params.size(); p++)
+            if (m.params[p] == t.text) return &args[p];
+        if (m.isVariadic && t.text == "__VA_ARGS__") return &va;
+        return nullptr;
+    };
+    auto isOp = [](const PPTok& t, const char* op) { return t.kind == 'p' && t.text == op; };
+    auto placemarker = [](const std::string& ws) { PPTok p; p.kind = 'm'; p.ws = ws; return p; };
+    // # x: the argument's spelling as a string literal (white space between
+    // its tokens one space; " and \ in its literals escaped)
+    auto stringize = [](const std::vector<PPTok>& a, const std::string& ws) {
+        std::string s = "\"";
+        bool first = true;
+        for (const auto& t : a) {
+            if (t.kind == 'm') continue;
+            if (!first && !t.ws.empty()) s += ' ';
+            first = false;
+            if (t.kind == 's') {
+                for (char c : t.text) { if (c == '"' || c == '\\') s += '\\'; s += c; }
+            } else {
+                s += t.text;
             }
         }
-        break;
+        PPTok r;
+        r.ws = ws;
+        r.text = s + "\"";
+        r.kind = 's';
+        return r;
+    };
+    // a ## b: one token made of the two (a placemarker on either side: the other)
+    auto glue = [&](std::vector<PPTok>& os, const PPTok& rhs) {
+        if (rhs.kind == 'm') return;
+        if (os.empty() || os.back().kind == 'm') {
+            std::string ws = os.empty() ? rhs.ws : os.back().ws;
+            if (!os.empty()) os.pop_back();
+            PPTok r = rhs;
+            r.ws = ws;
+            os.push_back(r);
+            return;
+        }
+        PPTok lhs = os.back();
+        os.pop_back();
+        auto toks = lexPP(lhs.text + rhs.text);
+        for (size_t k = 0; k < toks.size(); k++) {
+            if (toks[k].kind == 'm') continue;
+            toks[k].ws = k == 0 ? lhs.ws : toks[k].ws;
+            for (const auto& h : lhs.hide) if (rhs.hide.count(h)) toks[k].hide.insert(h);
+            os.push_back(toks[k]);
+        }
+    };
+    std::vector<PPTok> os;
+    for (size_t i = 0; i < body.size(); i++) {
+        const PPTok& t = body[i];
+        if (t.kind == 'm') continue;
+        // # parameter
+        if (isOp(t, "#") && i + 1 < body.size() && param(body[i + 1])) {
+            os.push_back(stringize(*param(body[i + 1]), t.ws));
+            i++;
+            continue;
+        }
+        // ## operand
+        if (isOp(t, "##") && i + 1 < body.size()) {
+            const PPTok& r = body[i + 1];
+            i++;
+            const auto* a = param(r);
+            // GNU: , ## __VA_ARGS__ drops the comma when there are no variadic arguments
+            if (a == &va && !os.empty() && isOp(os.back(), ",")) {
+                if (!haveVa || va.empty()) os.pop_back();
+                else for (size_t k = 0; k < va.size(); k++) { PPTok x = va[k]; if (k == 0) x.ws = t.ws; os.push_back(x); }
+                continue;
+            }
+            if (a) {
+                if (a->empty()) { glue(os, placemarker(r.ws)); continue; }
+                glue(os, (*a)[0]);
+                for (size_t k = 1; k < a->size(); k++) os.push_back((*a)[k]);
+            } else {
+                glue(os, r);
+            }
+            continue;
+        }
+        if (const auto* a = param(t)) {
+            bool pasted = i + 1 < body.size() && isOp(body[i + 1], "##");
+            std::vector<PPTok> v = pasted ? *a : expandPP(*a, depth + 1);
+            // (the parameter's place keeps its white space)
+            size_t first = 0;
+            while (first < v.size() && v[first].kind == 'm') first++;
+            if (first >= v.size()) {
+                os.push_back(placemarker(t.ws));
+                continue;
+            }
+            for (size_t k = first; k < v.size(); k++) {
+                PPTok x = v[k];
+                if (k == first) x.ws = t.ws;
+                os.push_back(x);
+            }
+            continue;
+        }
+        os.push_back(t);
     }
+    std::vector<PPTok> out;
+    for (auto& t : os) {
+        if (t.kind == 'm') continue;
+        t.hide.insert(hs.begin(), hs.end());
+        t.expanded = true;
+        out.push_back(std::move(t));
+    }
+    return out;
+}
 
-    bool changed = true;
-    int limit = 100; // Prevent infinite expansion
-
-    while (changed && limit-- > 0) {
-        changed = false;
-        std::string nextResult;
-        bool inString = false;
-
-        for (size_t i = 0; i < result.length(); ) {
-            // Skip strings ("\\" ends with an escaped backslash, not an escaped quote)
-            if (inString) {
-                if (result[i] == '\\' && i + 1 < result.length()) nextResult += result[i++];
-                else if (result[i] == '"') inString = false;
-                nextResult += result[i++];
-                continue;
-            }
-            if (result[i] == '"') {
-                inString = true;
-                nextResult += result[i++];
-                continue;
-            }
-
-            // Character constants ('F', '\'') are not scanned for macros
-            if (result[i] == '\'') {
-                nextResult += result[i++];
-                while (i < result.length() && result[i] != '\'') {
-                    if (result[i] == '\\' && i + 1 < result.length()) nextResult += result[i++];
-                    nextResult += result[i++];
-                }
-                if (i < result.length()) nextResult += result[i++];
-                continue;
-            }
-
-            // A pp-number (1.0F, 0x1fUL, 1e-5) is one token: its letters are
-            // not identifiers (#define F 140 must not touch 1.0F)
-            if (std::isdigit((unsigned char)result[i]) ||
-                (result[i] == '.' && i + 1 < result.length() && std::isdigit((unsigned char)result[i + 1]))) {
-                while (i < result.length()) {
-                    char ch = result[i];
-                    if ((ch == '+' || ch == '-') && i > 0 && std::strchr("eEpP", result[i - 1])) {
-                        nextResult += result[i++];
-                    } else if (std::isalnum((unsigned char)ch) || ch == '_' || ch == '.') {
-                        nextResult += result[i++];
-                    } else {
-                        break;
+// The tokens with their macros expanded (the rest of the line rescanned with
+// each replacement; a token never expands a macro its hide set holds)
+std::vector<Preprocessor::PPTok> Preprocessor::expandPP(std::vector<PPTok> in, int depth) {
+    std::vector<PPTok> out;
+    if (depth > 200) return in;                   // (a guard only: hide sets end every recursion)
+    std::deque<PPTok> q(std::make_move_iterator(in.begin()), std::make_move_iterator(in.end()));
+    long budget = 2000000;
+    auto number = [](const std::string& ws, const std::string& v) { PPTok t; t.ws = ws; t.text = v; t.kind = 'n'; t.expanded = true; return t; };
+    // the tokens of a builtin's (...) after the name, taken off q: their text
+    auto takeParens = [&](std::string& inside) {
+        size_t k = 0;
+        while (k < q.size() && q[k].kind == 'm') k++;
+        if (k >= q.size() || q[k].text != "(") return false;
+        int d = 0;
+        size_t e = k;
+        for (; e < q.size(); e++) {
+            if (q[e].kind == 'p' && q[e].text == "(") d++;
+            else if (q[e].kind == 'p' && q[e].text == ")" && --d == 0) break;
+        }
+        if (e >= q.size()) return false;
+        for (size_t x = k + 1; x < e; x++) inside += q[x].text;
+        q.erase(q.begin(), q.begin() + (long)e + 1);
+        return true;
+    };
+    while (!q.empty()) {
+        if (--budget < 0) { for (auto& t : q) out.push_back(t); break; }
+        PPTok t = std::move(q.front());
+        q.pop_front();
+        if (t.kind != 'i' || t.hide.count(t.text)) { out.push_back(std::move(t)); continue; }
+        const std::string& id = t.text;
+        // builtins
+        if (id == "__INCLUDE_LEVEL__") { out.push_back(number(t.ws, std::to_string(includeDepth_))); continue; }
+        if (id == "__LINE__" && expandLine_ > 0) { out.push_back(number(t.ws, std::to_string(expandLine_))); continue; }
+        if (id == "__FILE__" && !expandFile_.empty()) {
+            PPTok s; s.ws = t.ws; s.text = "\"" + expandFile_ + "\""; s.kind = 's'; s.expanded = true;
+            out.push_back(s);
+            continue;
+        }
+        if (id == "__has_include" || id == "__has_builtin" || id == "__has_attribute" || id == "_Pragma") {
+            std::string inside;
+            if (takeParens(inside)) {
+                if (id == "_Pragma") {
+                    // _Pragma("x"): #pragma x (the string's \" and \\ undone; C11 6.10.9)
+                    std::string body = inside;
+                    if (!body.empty() && body[0] == 'L') body = body.substr(1);
+                    if (body.size() >= 2 && body.front() == '"' && body.back() == '"') body = body.substr(1, body.size() - 2);
+                    std::string un;
+                    for (size_t k = 0; k < body.size(); k++) {
+                        if (body[k] == '\\' && k + 1 < body.size() && (body[k + 1] == '"' || body[k + 1] == '\\')) k++;
+                        un += body[k];
                     }
-                }
-                continue;
-            }
-
-            // Look for identifiers
-            if (std::isalpha((unsigned char)result[i]) || result[i] == '_') {
-                size_t start = i;
-                while (i < result.length() && (std::isalnum((unsigned char)result[i]) || result[i] == '_')) i++;
-                std::string ident = result.substr(start, i - start);
-
-                // An encoding prefix (L'1', u"x", U'a', u8"s"; cc45/ca45 p"x", s"x", a"x") is part of the
-                // literal, not a macro name
-                if ((ident == "L" || ident == "u" || ident == "U" || ident == "u8" ||
-                     ident == "p" || ident == "s" || ident == "a") &&
-                    i < result.length() && (result[i] == '\'' || result[i] == '"')) {
-                    nextResult += ident;
+                    pendingPragmas_.push_back(un);
                     continue;
                 }
-
-                std::string replacement = "";
-                bool found = false;
-
-                // __INCLUDE_LEVEL__ — current include nesting depth
-                if (ident == "__INCLUDE_LEVEL__") {
-                    replacement = std::to_string(includeDepth_);
-                    found = true;
-                }
-
-                // __has_include(<header>) / __has_include("header") — check if file exists
-                if (!found && ident == "__has_include") {
-                    size_t peek = i;
-                    while (peek < result.length() && std::isspace((unsigned char)result[peek])) peek++;
-                    if (peek < result.length() && result[peek] == '(') {
-                        peek++;
-                        while (peek < result.length() && std::isspace((unsigned char)result[peek])) peek++;
-                        std::string fileName;
-                        char delim = 0;
-                        if (peek < result.length() && (result[peek] == '"' || result[peek] == '<')) {
-                            delim = (result[peek] == '<') ? '>' : '"';
-                            peek++;
-                            size_t nameStart = peek;
-                            while (peek < result.length() && result[peek] != delim) peek++;
-                            fileName = result.substr(nameStart, peek - nameStart);
-                            if (peek < result.length()) peek++; // skip closing delim
-                        }
-                        while (peek < result.length() && std::isspace((unsigned char)result[peek])) peek++;
-                        if (peek < result.length() && result[peek] == ')') peek++;
-                        // Check if file can be found
-                        std::string fullPath = findIncludeFile(fileName, getDirectory(currentFile_));
-                        replacement = fullPath.empty() ? "0" : "1";
-                        i = peek;
-                        found = true;
-                    }
-                }
-
-                // __has_builtin(__builtin_X) — check if builtin is supported
-                if (!found && ident == "__has_builtin") {
-                    size_t peek = i;
-                    while (peek < result.length() && std::isspace((unsigned char)result[peek])) peek++;
-                    if (peek < result.length() && result[peek] == '(') {
-                        peek++;
-                        while (peek < result.length() && std::isspace((unsigned char)result[peek])) peek++;
-                        size_t nameStart = peek;
-                        while (peek < result.length() && (std::isalnum((unsigned char)result[peek]) || result[peek] == '_')) peek++;
-                        std::string builtinName = result.substr(nameStart, peek - nameStart);
-                        while (peek < result.length() && std::isspace((unsigned char)result[peek])) peek++;
-                        if (peek < result.length() && result[peek] == ')') peek++;
-                        static const std::set<std::string> knownBuiltins = {
-                            "__builtin_va_list", "__builtin_va_start", "__builtin_va_end", "__builtin_va_arg",
-                            "__builtin_constant_p", "__builtin_offsetof", "__builtin_expect", "__builtin_trap", "__builtin_choose_expr",
-                            "__builtin_unreachable", "__builtin_conjf",
-                            "__builtin_printf", "__builtin_sprintf", "__builtin_puts", "__builtin_putstr", "__builtin_putchar",
-                            "__builtin_malloc", "__builtin_free", "__builtin_calloc", "__builtin_realloc",
-                            "__builtin_strlen", "__builtin_strcmp", "__builtin_strcpy", "__builtin_strncpy",
-                            "__builtin_strcat", "__builtin_strchr", "__builtin_strstr",
-                            "__builtin_memcpy", "__builtin_memset", "__builtin_memmove", "__builtin_memcmp",
-                            "__builtin_abs", "__builtin_labs", "__builtin_exit", "__builtin_abort",
-                            "__builtin_alloca",
-                            "__builtin_clz", "__builtin_ctz", "__builtin_ffs", "__builtin_popcount",
-                            "__builtin_bswap16",
-                        };
-                        replacement = knownBuiltins.count(builtinName) ? "1" : "0";
-                        i = peek;
-                        found = true;
-                    }
-                }
-
-                // __has_attribute(attr) — check if attribute is supported
-                if (!found && ident == "__has_attribute") {
-                    size_t peek = i;
-                    while (peek < result.length() && std::isspace((unsigned char)result[peek])) peek++;
-                    if (peek < result.length() && result[peek] == '(') {
-                        peek++;
-                        while (peek < result.length() && std::isspace((unsigned char)result[peek])) peek++;
-                        size_t nameStart = peek;
-                        while (peek < result.length() && (std::isalnum((unsigned char)result[peek]) || result[peek] == '_')) peek++;
-                        std::string attrName = result.substr(nameStart, peek - nameStart);
-                        while (peek < result.length() && std::isspace((unsigned char)result[peek])) peek++;
-                        if (peek < result.length() && result[peek] == ')') peek++;
-                        static const std::set<std::string> knownAttrs = {
-                            "always_inline", "noinline", "unused", "used", "weak",
-                            "pure", "const", "cold", "hot", "packed", "aligned",
-                            "deprecated", "naked", "interrupt", "noreturn",
-                            "section", "visibility", "constructor", "destructor",
-                            "format", "warn_unused_result",
-                        };
-                        replacement = knownAttrs.count(attrName) ? "1" : "0";
-                        i = peek;
-                        found = true;
-                    }
-                }
-
-                if (macros.count(ident)) {
-                    const auto& m = macros[ident];
-                    if (!m.isFunctionLike) {
-                        replacement = m.body;
-                        found = true;
-                    } else {
-                        // Function-like macro: check for (
-                        size_t peek = i;
-                        while (peek < result.length() && std::isspace((unsigned char)result[peek])) peek++;
-                        if (peek < result.length() && result[peek] == '(') {
-                            peek++; // skip (
-                            std::vector<std::string> args;
-                            std::string currentArg;
-                            int parenDepth = 0;
-                            bool inString = false, escaped = false;
-                            char strChar = 0;
-                            while (peek < result.length()) {
-                                char ch = result[peek];
-                                // Track string/char literal state (a backslash
-                                // escapes the next character only)
-                                if (inString) {
-                                    if (escaped) escaped = false;
-                                    else if (ch == '\\') escaped = true;
-                                    else if (ch == strChar) inString = false;
-                                } else if (ch == '"' || ch == '\'') {
-                                    inString = true; strChar = ch;
-                                }
-                                if (!inString && ch == '(') parenDepth++;
-                                else if (!inString && ch == ')') {
-                                    if (parenDepth == 0) { peek++; break; }
-                                    parenDepth--;
-                                } else if (!inString && ch == ',' && parenDepth == 0) {
-                                    if (!m.isVariadic || args.size() < m.params.size()) {
-                                        args.push_back(trim(currentArg));
-                                        currentArg = "";
-                                        peek++;
-                                        continue;
-                                    }
-                                }
-                                currentArg += result[peek++];
-                            }
-                            args.push_back(trim(currentArg));
-                            // F() of a macro without parameters: no argument
-                            if (m.params.empty() && !m.isVariadic && args.size() == 1 && args[0].empty())
-                                args.clear();
-
-                            // Handle arguments
-                            if ((!m.isVariadic && args.size() == m.params.size()) || 
-                                (m.isVariadic && args.size() >= m.params.size())) {
-                                
-                                std::string body = m.body;
-                                // __int(8/16/32) / __uint(8/16/32) are the native
-                                // integers (char, int, long), not wide-integer structs
-                                if ((ident == "__int" || ident == "__uint") && args.size() == 1 &&
-                                    body == "struct " + ident + "##N") {
-                                    const char* sg = ident == "__int" ? "signed " : "unsigned ";
-                                    if (args[0] == "8") body = std::string(sg) + "char";
-                                    else if (args[0] == "16") body = std::string(sg) + "int";
-                                    else if (args[0] == "32") body = std::string(sg) + "long";
-                                }
-                                std::string vaArgs = "";
-                                if (m.isVariadic) {
-                                    for (size_t a = m.params.size(); a < args.size(); ++a) {
-                                        if (!vaArgs.empty()) vaArgs += ", ";
-                                        vaArgs += args[a];
-                                    }
-                                }
-
-                                // 1. Handle # stringification (including #__VA_ARGS__)
-                                auto doStringify = [&](std::string& b, const std::string& paramName, const std::string& argVal) {
-                                    std::string pattern = "#" + paramName;
-                                    size_t pos = 0;
-                                    while ((pos = b.find(pattern, pos)) != std::string::npos) {
-                                        if (pos > 0 && b[pos-1] == '#') { pos += pattern.length(); continue; }
-                                        // Escape inner quotes and backslashes per C99 §6.10.3.2
-                                        std::string escaped;
-                                        for (char ch : argVal) {
-                                            if (ch == '"' || ch == '\\') escaped += '\\';
-                                            escaped += ch;
-                                        }
-                                        b.replace(pos, pattern.length(), "\"" + escaped + "\"");
-                                    }
-                                };
-
-                                for (size_t p = 0; p < m.params.size(); ++p) doStringify(body, m.params[p], args[p]);
-                                if (m.isVariadic) doStringify(body, "__VA_ARGS__", vaArgs);
-
-                                // 2. Handle ## pasting (including comma removal extension ##__VA_ARGS__)
-                                if (m.isVariadic) {
-                                    size_t glue;
-                                    // Handle GCC-style comma removal: , ##__VA_ARGS__
-                                    // (the arguments go in with the parameters below:
-                                    // here only the ## and, for no arguments, the comma go)
-                                    while ((glue = body.find("##__VA_ARGS__")) != std::string::npos) {
-                                        size_t comma = glue;
-                                        while (comma > 0 && std::isspace((unsigned char)body[comma-1])) comma--;
-                                        if (comma > 0 && body[comma-1] == ',' && vaArgs.empty())
-                                            body.replace(comma - 1, (glue + 13) - (comma - 1), "");
-                                        else
-                                            body.erase(glue, 2);
-                                    }
-                                }
-
-                                // 3. Replace parameters and __VA_ARGS__ in one left-to-right
-                                // pass over the body's tokens, so an argument's text is never
-                                // scanned for parameter names again (dma_copy_far(dst, src, len)
-                                // with src = f((long)len)). Not inside string/character
-                                // literals, nor an L/u/U/u8/p/s/a literal prefix; numbers are
-                                // skipped whole (0x1Fu holds no identifier).
-                                {
-                                    std::string out;
-                                    out.reserve(body.size() * 2);
-                                    size_t k = 0;
-                                    auto isId = [](char c) { return std::isalnum((unsigned char)c) || c == '_'; };
-                                    while (k < body.size()) {
-                                        char c = body[k];
-                                        if (c == '"' || c == '\'') {
-                                            size_t e = k + 1;
-                                            while (e < body.size() && body[e] != c) e += body[e] == '\\' ? 2 : 1;
-                                            if (e < body.size()) e++;
-                                            out.append(body, k, e - k);
-                                            k = e;
-                                        } else if (std::isdigit((unsigned char)c) ||
-                                                   (c == '.' && k + 1 < body.size() && std::isdigit((unsigned char)body[k + 1]))) {
-                                            size_t e = k + 1;
-                                            while (e < body.size() && (isId(body[e]) || body[e] == '.' ||
-                                                   ((body[e] == '+' || body[e] == '-') && (body[e-1] == 'e' || body[e-1] == 'E' ||
-                                                                                          body[e-1] == 'p' || body[e-1] == 'P'))))
-                                                e++;
-                                            out.append(body, k, e - k);
-                                            k = e;
-                                        } else if (isId(c)) {
-                                            size_t e = k;
-                                            while (e < body.size() && isId(body[e])) e++;
-                                            std::string id = body.substr(k, e - k);
-                                            bool litPrefix = (id == "L" || id == "u" || id == "U" || id == "u8" ||
-                                                              id == "p" || id == "s" || id == "a") &&
-                                                             e < body.size() && (body[e] == '\'' || body[e] == '"');
-                                            const std::string* rep = nullptr;
-                                            if (!litPrefix) {
-                                                for (size_t p = 0; p < m.params.size(); ++p)
-                                                    if (m.params[p] == id) { rep = &args[p]; break; }
-                                                if (!rep && m.isVariadic && id == "__VA_ARGS__") rep = &vaArgs;
-                                            }
-                                            out += rep ? *rep : id;
-                                            k = e;
-                                        } else {
-                                            out += c;
-                                            k++;
-                                        }
-                                    }
-                                    body = std::move(out);
-                                }
-
-                                // 4. Final Glue cleanup
-                                size_t glue;
-                                while ((glue = body.find("##")) != std::string::npos) {
-                                    size_t s_p = glue;
-                                    while (s_p > 0 && std::isspace((unsigned char)body[s_p-1])) s_p--;
-                                    size_t e_p = glue + 2;
-                                    while (e_p < body.length() && std::isspace((unsigned char)body[e_p])) e_p++;
-                                    body.erase(s_p, e_p - s_p);
-                                }
-                                
-                                replacement = body;
-                                found = true;
-                                i = peek;
-                            }
-                        }
-                    }
-                }
-
-                if (found) {
-                    nextResult += replacement;
-                    changed = true;
+                std::string val;
+                if (id == "__has_include") {
+                    std::string f = inside;
+                    if (f.size() >= 2 && ((f.front() == '"' && f.back() == '"') || (f.front() == '<' && f.back() == '>')))
+                        f = f.substr(1, f.size() - 2);
+                    val = findIncludeFile(f, getDirectory(currentFile_)).empty() ? "0" : "1";
+                } else if (id == "__has_builtin") {
+                    static const std::set<std::string> knownBuiltins = {
+                        "__builtin_va_list", "__builtin_va_start", "__builtin_va_end", "__builtin_va_arg",
+                        "__builtin_constant_p", "__builtin_offsetof", "__builtin_expect", "__builtin_trap", "__builtin_choose_expr",
+                        "__builtin_unreachable", "__builtin_conjf",
+                        "__builtin_printf", "__builtin_sprintf", "__builtin_puts", "__builtin_putstr", "__builtin_putchar",
+                        "__builtin_malloc", "__builtin_free", "__builtin_calloc", "__builtin_realloc",
+                        "__builtin_strlen", "__builtin_strcmp", "__builtin_strcpy", "__builtin_strncpy",
+                        "__builtin_strcat", "__builtin_strchr", "__builtin_strstr",
+                        "__builtin_memcpy", "__builtin_memset", "__builtin_memmove", "__builtin_memcmp",
+                        "__builtin_abs", "__builtin_labs", "__builtin_exit", "__builtin_abort",
+                        "__builtin_alloca",
+                        "__builtin_clz", "__builtin_ctz", "__builtin_ffs", "__builtin_popcount",
+                        "__builtin_bswap16",
+                    };
+                    val = knownBuiltins.count(inside) ? "1" : "0";
                 } else {
-                    nextResult += ident;
+                    static const std::set<std::string> knownAttrs = {
+                        "always_inline", "noinline", "unused", "used", "weak",
+                        "pure", "const", "cold", "hot", "packed", "aligned",
+                        "deprecated", "naked", "interrupt", "noreturn",
+                        "section", "visibility", "constructor", "destructor",
+                        "format", "warn_unused_result",
+                    };
+                    val = knownAttrs.count(inside) ? "1" : "0";
                 }
-            } else {
-                nextResult += result[i++];
+                out.push_back(number(t.ws, val));
+                continue;
             }
         }
-        result = nextResult;
+        auto mi = macros.find(id);
+        if (mi == macros.end()) { out.push_back(std::move(t)); continue; }
+        const Macro& m = mi->second;
+        std::set<std::string> hs = t.hide;
+        hs.insert(id);
+        std::vector<PPTok> repl;
+        if (!m.isFunctionLike) {
+            repl = substPP(lexPP(m.body), m, {}, {}, false, hs, depth);
+        } else {
+            // a call: '(' next (else the name stays a name), the arguments to its ')'
+            size_t k = 0;
+            while (k < q.size() && q[k].kind == 'm') k++;
+            if (k >= q.size() || !(q[k].kind == 'p' && q[k].text == "(")) { out.push_back(std::move(t)); continue; }
+            std::vector<std::vector<PPTok>> args(1);
+            std::vector<PPTok> va;
+            bool inVa = m.isVariadic && m.params.empty();
+            int d = 0;
+            size_t e = k + 1;
+            bool closed = false;
+            for (; e < q.size(); e++) {
+                const PPTok& x = q[e];
+                if (x.kind == 'p' && x.text == "(") d++;
+                else if (x.kind == 'p' && x.text == ")") {
+                    if (d == 0) { closed = true; break; }
+                    d--;
+                } else if (x.kind == 'p' && x.text == "," && d == 0 && !inVa) {
+                    if (m.isVariadic && args.size() == m.params.size()) { inVa = true; continue; }
+                    args.emplace_back();
+                    continue;
+                }
+                if (inVa) va.push_back(x);
+                else args.back().push_back(x);
+            }
+            if (!closed) { out.push_back(std::move(t)); continue; }
+            bool haveVa = inVa;
+            // F() of a macro without parameters: no argument
+            if (m.params.empty() && args.size() == 1 && args[0].empty()) args.clear();
+            if (m.isVariadic && m.params.empty()) args.clear();
+            // (an argument's leading white space is not part of it)
+            for (auto& a : args) if (!a.empty()) a[0].ws.clear();
+            if (!va.empty()) va[0].ws.clear();
+            if (args.size() != m.params.size()) { out.push_back(std::move(t)); continue; }
+            const PPTok& rp = q[e];
+            std::set<std::string> h2;
+            for (const auto& h : t.hide) if (rp.hide.count(h)) h2.insert(h);
+            h2.insert(id);
+            q.erase(q.begin(), q.begin() + (long)e + 1);
+            std::string body = m.body;
+            // __int(8/16/32) / __uint(8/16/32) are the native integers (char,
+            // int, long), not wide-integer structs
+            if ((id == "__int" || id == "__uint") && args.size() == 1 && body == "struct " + id + "##N") {
+                std::string a = renderPP(args[0]);
+                const char* sg = id == "__int" ? "signed " : "unsigned ";
+                if (a == "8") body = std::string(sg) + "char";
+                else if (a == "16") body = std::string(sg) + "int";
+                else if (a == "32") body = std::string(sg) + "long";
+            }
+            repl = substPP(lexPP(body), m, args, va, haveVa, h2, depth);
+        }
+        // (the replacement in the name's place: its white space)
+        if (!repl.empty()) repl[0].ws = t.ws;
+        else if (!t.ws.empty() && !q.empty() && q.front().ws.empty()) q.front().ws = t.ws;
+        for (auto it = repl.rbegin(); it != repl.rend(); ++it) q.push_front(std::move(*it));
     }
-    return result;
+    return out;
+}
+
+std::string Preprocessor::expandMacros(const std::string& line) {
+    return renderPP(expandPP(lexPP(line)));
 }
 
 
@@ -966,6 +948,153 @@ std::string Preprocessor::stripComments(const std::string& line, bool& inBlockCo
     return result;
 }
 
+// A #pragma's text (after "#pragma"), from a #pragma line or _Pragma("..."):
+// cc45's pragmas become __asm__(".directive") lines on output (else an empty
+// line), others act here (once, push_macro / pop_macro)
+void Preprocessor::handlePragma(std::istream& ss, std::ostream& output, const std::string& currentFile) {
+    std::string pragmaArg;
+    ss >> pragmaArg;
+    if (pragmaArg.rfind("push_macro", 0) == 0 || pragmaArg.rfind("pop_macro", 0) == 0) {
+        // #pragma push_macro("NAME") / pop_macro("NAME")
+        std::string rest;
+        std::getline(ss, rest);
+        std::string all = pragmaArg + rest;
+        size_t q1 = all.find('"'), q2 = q1 == std::string::npos ? q1 : all.find('"', q1 + 1);
+        if (isConditionTrue() && q2 != std::string::npos) {
+            std::string mname = all.substr(q1 + 1, q2 - q1 - 1);
+            auto& stack = pushedMacros_[mname];
+            if (pragmaArg[1] == 'u') {
+                auto it = macros.find(mname);
+                stack.push_back(it != macros.end() ? std::make_pair(true, it->second)
+                                                   : std::make_pair(false, Macro{}));
+            } else if (!stack.empty()) {
+                if (stack.back().first) macros[mname] = stack.back().second;
+                else macros.erase(mname);
+                stack.pop_back();
+            }
+        }
+        output << "\n";
+    } else if (pragmaArg == "once") {
+        if (!currentFile.empty()) onceFiles.insert(currentFile);
+        output << "\n";
+    } else if (isCompiler && pragmaArg == "weak") {
+        output << "__asm__(\".weak_next\");\n";
+    } else if (isCompiler && pragmaArg == "no_zp_save") {
+        output << "__asm__(\".no_zp_save\");\n";
+    } else if (isCompiler && pragmaArg == "cc45") {
+        std::string cc45Arg;
+        ss >> cc45Arg;
+        if (cc45Arg == "no_0100_stack") {
+            output << "__asm__(\".crt_no_0100_stack\");\n";
+        } else if (cc45Arg == "exit_halt") {
+            output << "__asm__(\".crt_exit_halt\");\n";
+        } else if (cc45Arg == "exit_rts") {
+            output << "__asm__(\".crt_exit_rts\");\n";
+        } else if (cc45Arg == "exit_brk") {
+            output << "__asm__(\".crt_exit_brk\");\n";
+        } else if (cc45Arg == "no_bssinit") {
+            output << "__asm__(\".crt_no_bssinit\");\n";
+        } else if (cc45Arg == "heap") {
+            output << "__asm__(\".crt_heap\");\n";
+        } else if (cc45Arg == "stdio") {
+            output << "__asm__(\".crt_stdio\");\n";
+        } else if (cc45Arg == "no_zp_save") {
+            output << "__asm__(\".no_zp_save\");\n";
+        } else if (cc45Arg == "no_stack16") {
+            output << "__asm__(\".no_stack16\");\n";
+        } else if (cc45Arg.rfind("overlay", 0) == 0) {
+            // "overlay(name)" / "overlay name": this file's code is in
+            // the code overlay name (ln45 loads it on demand)
+            std::string rest = cc45Arg.substr(7), tail;
+            while (ss >> tail) rest += tail;
+            std::string n;
+            for (char ch : rest) if (std::isalnum((unsigned char)ch) || ch == '_') n += ch;
+            output << (n.empty() ? std::string("\n") : "__asm__(\".overlay " + n + "\");\n");
+        } else if (cc45Arg.rfind("stack_size", 0) == 0) {
+            // Accepts "stack_size N" and "stack_size(N)"
+            std::string rest = cc45Arg.substr(10), tail;
+            while (ss >> tail) rest += tail;
+            std::string n;
+            for (char ch : rest) if (std::isxdigit((unsigned char)ch) || ch == '$' || ch == 'x' || ch == 'X') n += ch;
+            output << (n.empty() ? std::string("\n") : "__asm__(\".stack_size " + n + "\");\n");
+        } else if (cc45Arg.rfind("stack_top", 0) == 0) {
+            // Accepts "stack_top ADDR" and "stack_top(ADDR)"
+            std::string rest = cc45Arg.substr(9), tail;
+            while (ss >> tail) rest += tail;
+            std::string addr;
+            for (char ch : rest) if (std::isxdigit((unsigned char)ch) || ch == '$' || ch == 'x' || ch == 'X') addr += ch;
+            output << (addr.empty() ? std::string("\n") : "__asm__(\".stack_top " + addr + "\");\n");
+        } else if (cc45Arg == "set_bp") {
+            std::string bpVal;
+            ss >> bpVal;
+            output << "__asm__(\".set_bp " + bpVal + "\");\n";
+        } else if (cc45Arg == "weak") {
+            output << "__asm__(\".weak_next\");\n";
+        } else if (cc45Arg == "recurse") {
+            output << "__asm__(\".recurse_next\");\n";
+        } else if (cc45Arg == "unroll") {
+            std::string countStr;
+            if (ss >> countStr) {
+                output << "asm(\".crt_unroll " + countStr + "\");\n";
+            } else {
+                output << "asm(\".crt_unroll\");\n";
+            }
+        } else if (cc45Arg == "unroll_default") {
+            std::string countStr;
+            if (ss >> countStr) {
+                output << "asm(\".crt_unroll_def " + countStr + "\");\n";
+            } else {
+                output << "\n";
+            }
+        } else if (cc45Arg == "noescape_strings" || cc45Arg == "escape_strings") {
+            output << "__asm__(\"." + cc45Arg + "\");\n";
+        } else if (cc45Arg == "signed_default") {
+            output << "__asm__(\".signed_default\");\n";
+        } else if (cc45Arg == "unsigned_default") {
+            output << "__asm__(\".unsigned_default\");\n";
+        } else if (cc45Arg.rfind("max_unroll_bytes", 0) == 0) {
+            // Accepts "max_unroll_bytes N" and "max_unroll_bytes(N)"
+            std::string rest = cc45Arg.substr(16), tail;
+            while (ss >> tail) rest += tail;
+            std::string digits;
+            for (char ch : rest) if (std::isdigit((unsigned char)ch)) digits += ch;
+            if (!digits.empty())
+                output << "__asm__(\".max_unroll_bytes " + digits + "\");\n";
+            else
+                output << "\n";
+        } else if (cc45Arg.rfind("optimize", 0) == 0) {
+            std::string d = optimizeDirective(cc45Arg, ss);
+            output << (d.empty() ? std::string("\n") : d);
+        } else if (cc45Arg.rfind("max_inline_ir_size", 0) == 0) {
+            // Accepts "max_inline_ir_size N" and "max_inline_ir_size(N)"
+            std::string rest = cc45Arg.substr(18), tail;
+            while (ss >> tail) rest += tail;
+            std::string digits;
+            for (char ch : rest) if (std::isdigit((unsigned char)ch)) digits += ch;
+            if (!digits.empty())
+                output << "__asm__(\".max_inline_ir_size " + digits + "\");\n";
+            else
+                output << "\n";
+        } else {
+            output << "\n";
+        }
+    } else if (isCompiler && pragmaArg.substr(0, 9) == "encoding(") {
+        std::string enc = pragmaArg.substr(9);
+        if (!enc.empty() && enc.back() == ')') enc.pop_back();
+        if (enc == "ascii" || enc == "petscii" || enc == "screencode")
+            output << "__asm__(\".encoding " + enc + "\");\n";
+        else output << "\n";
+    } else if (isCompiler && pragmaArg == "encoding") {
+        std::string enc;
+        ss >> enc;
+        if (enc == "ascii" || enc == "petscii" || enc == "screencode")
+            output << "__asm__(\".encoding " + enc + "\");\n";
+        else output << "\n";
+    } else {
+        output << "\n";
+    }
+}
+
 std::string Preprocessor::processInternal(const std::string& source, const std::string& currentFile, int depth) {
     if (depth > 16) {
         throw std::runtime_error("Maximum include depth exceeded (circular dependency?)");
@@ -1259,147 +1388,7 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                 }
                 output << "\n";
             } else if (cmd == "#pragma") {
-                std::string pragmaArg;
-                ss >> pragmaArg;
-                if (pragmaArg.rfind("push_macro", 0) == 0 || pragmaArg.rfind("pop_macro", 0) == 0) {
-                    // #pragma push_macro("NAME") / pop_macro("NAME")
-                    std::string rest;
-                    std::getline(ss, rest);
-                    std::string all = pragmaArg + rest;
-                    size_t q1 = all.find('"'), q2 = q1 == std::string::npos ? q1 : all.find('"', q1 + 1);
-                    if (isConditionTrue() && q2 != std::string::npos) {
-                        std::string mname = all.substr(q1 + 1, q2 - q1 - 1);
-                        auto& stack = pushedMacros_[mname];
-                        if (pragmaArg[1] == 'u') {
-                            auto it = macros.find(mname);
-                            stack.push_back(it != macros.end() ? std::make_pair(true, it->second)
-                                                               : std::make_pair(false, Macro{}));
-                        } else if (!stack.empty()) {
-                            if (stack.back().first) macros[mname] = stack.back().second;
-                            else macros.erase(mname);
-                            stack.pop_back();
-                        }
-                    }
-                    output << "\n";
-                } else if (pragmaArg == "once") {
-                    if (!currentFile.empty()) onceFiles.insert(currentFile);
-                    output << "\n";
-                } else if (isCompiler && pragmaArg == "weak") {
-                    output << "__asm__(\".weak_next\");\n";
-                } else if (isCompiler && pragmaArg == "no_zp_save") {
-                    output << "__asm__(\".no_zp_save\");\n";
-                } else if (isCompiler && pragmaArg == "cc45") {
-                    std::string cc45Arg;
-                    ss >> cc45Arg;
-                    if (cc45Arg == "no_0100_stack") {
-                        output << "__asm__(\".crt_no_0100_stack\");\n";
-                    } else if (cc45Arg == "exit_halt") {
-                        output << "__asm__(\".crt_exit_halt\");\n";
-                    } else if (cc45Arg == "exit_rts") {
-                        output << "__asm__(\".crt_exit_rts\");\n";
-                    } else if (cc45Arg == "exit_brk") {
-                        output << "__asm__(\".crt_exit_brk\");\n";
-                    } else if (cc45Arg == "no_bssinit") {
-                        output << "__asm__(\".crt_no_bssinit\");\n";
-                    } else if (cc45Arg == "heap") {
-                        output << "__asm__(\".crt_heap\");\n";
-                    } else if (cc45Arg == "stdio") {
-                        output << "__asm__(\".crt_stdio\");\n";
-                    } else if (cc45Arg == "no_zp_save") {
-                        output << "__asm__(\".no_zp_save\");\n";
-                    } else if (cc45Arg == "no_stack16") {
-                        output << "__asm__(\".no_stack16\");\n";
-                    } else if (cc45Arg.rfind("overlay", 0) == 0) {
-                        // "overlay(name)" / "overlay name": this file's code is in
-                        // the code overlay name (ln45 loads it on demand)
-                        std::string rest = cc45Arg.substr(7), tail;
-                        while (ss >> tail) rest += tail;
-                        std::string n;
-                        for (char ch : rest) if (std::isalnum((unsigned char)ch) || ch == '_') n += ch;
-                        output << (n.empty() ? std::string("\n") : "__asm__(\".overlay " + n + "\");\n");
-                    } else if (cc45Arg.rfind("stack_size", 0) == 0) {
-                        // Accepts "stack_size N" and "stack_size(N)"
-                        std::string rest = cc45Arg.substr(10), tail;
-                        while (ss >> tail) rest += tail;
-                        std::string n;
-                        for (char ch : rest) if (std::isxdigit((unsigned char)ch) || ch == '$' || ch == 'x' || ch == 'X') n += ch;
-                        output << (n.empty() ? std::string("\n") : "__asm__(\".stack_size " + n + "\");\n");
-                    } else if (cc45Arg.rfind("stack_top", 0) == 0) {
-                        // Accepts "stack_top ADDR" and "stack_top(ADDR)"
-                        std::string rest = cc45Arg.substr(9), tail;
-                        while (ss >> tail) rest += tail;
-                        std::string addr;
-                        for (char ch : rest) if (std::isxdigit((unsigned char)ch) || ch == '$' || ch == 'x' || ch == 'X') addr += ch;
-                        output << (addr.empty() ? std::string("\n") : "__asm__(\".stack_top " + addr + "\");\n");
-                    } else if (cc45Arg == "set_bp") {
-                        std::string bpVal;
-                        ss >> bpVal;
-                        output << "__asm__(\".set_bp " + bpVal + "\");\n";
-                    } else if (cc45Arg == "weak") {
-                        output << "__asm__(\".weak_next\");\n";
-                    } else if (cc45Arg == "recurse") {
-                        output << "__asm__(\".recurse_next\");\n";
-                    } else if (cc45Arg == "unroll") {
-                        std::string countStr;
-                        if (ss >> countStr) {
-                            output << "asm(\".crt_unroll " + countStr + "\");\n";
-                        } else {
-                            output << "asm(\".crt_unroll\");\n";
-                        }
-                    } else if (cc45Arg == "unroll_default") {
-                        std::string countStr;
-                        if (ss >> countStr) {
-                            output << "asm(\".crt_unroll_def " + countStr + "\");\n";
-                        } else {
-                            output << "\n";
-                        }
-                    } else if (cc45Arg == "noescape_strings" || cc45Arg == "escape_strings") {
-                        output << "__asm__(\"." + cc45Arg + "\");\n";
-                    } else if (cc45Arg == "signed_default") {
-                        output << "__asm__(\".signed_default\");\n";
-                    } else if (cc45Arg == "unsigned_default") {
-                        output << "__asm__(\".unsigned_default\");\n";
-                    } else if (cc45Arg.rfind("max_unroll_bytes", 0) == 0) {
-                        // Accepts "max_unroll_bytes N" and "max_unroll_bytes(N)"
-                        std::string rest = cc45Arg.substr(16), tail;
-                        while (ss >> tail) rest += tail;
-                        std::string digits;
-                        for (char ch : rest) if (std::isdigit((unsigned char)ch)) digits += ch;
-                        if (!digits.empty())
-                            output << "__asm__(\".max_unroll_bytes " + digits + "\");\n";
-                        else
-                            output << "\n";
-                    } else if (cc45Arg.rfind("optimize", 0) == 0) {
-                        std::string d = optimizeDirective(cc45Arg, ss);
-                        output << (d.empty() ? std::string("\n") : d);
-                    } else if (cc45Arg.rfind("max_inline_ir_size", 0) == 0) {
-                        // Accepts "max_inline_ir_size N" and "max_inline_ir_size(N)"
-                        std::string rest = cc45Arg.substr(18), tail;
-                        while (ss >> tail) rest += tail;
-                        std::string digits;
-                        for (char ch : rest) if (std::isdigit((unsigned char)ch)) digits += ch;
-                        if (!digits.empty())
-                            output << "__asm__(\".max_inline_ir_size " + digits + "\");\n";
-                        else
-                            output << "\n";
-                    } else {
-                        output << "\n";
-                    }
-                } else if (isCompiler && pragmaArg.substr(0, 9) == "encoding(") {
-                    std::string enc = pragmaArg.substr(9);
-                    if (!enc.empty() && enc.back() == ')') enc.pop_back();
-                    if (enc == "ascii" || enc == "petscii" || enc == "screencode")
-                        output << "__asm__(\".encoding " + enc + "\");\n";
-                    else output << "\n";
-                } else if (isCompiler && pragmaArg == "encoding") {
-                    std::string enc;
-                    ss >> enc;
-                    if (enc == "ascii" || enc == "petscii" || enc == "screencode")
-                        output << "__asm__(\".encoding " + enc + "\");\n";
-                    else output << "\n";
-                } else {
-                    output << "\n";
-                }
+                handlePragma(ss, output, currentFile);
             } else {
                 output << "\n";
             }
@@ -1414,7 +1403,11 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
             }
             joinedLines = 0;
             if (isConditionTrue()) {
+                expandLine_ = lineNum;
+                expandFile_ = reportedFile;
                 std::string processed = expandMacros(currentLine);
+                expandLine_ = 0;
+                expandFile_.clear();
 
                 // Handle standard predefined macros if expandMacros didn't (it should have, but let's be sure about __FILE__ etc)
                 // Actually expandMacros should handle macros map. Predefined ones should be in macros map.
@@ -1446,82 +1439,20 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                 replaceAll(processed, "__DATE__", preprocDate);
                 replaceAll(processed, "__TIME__", preprocTime);
 
-                output << processed << "\n";
-                // Process any _Pragma() directives collected during macro expansion
+                // _Pragma("x") (also from a macro): #pragma x, its output put
+                // first on this line (the line count kept)
+                std::string pragmaOut;
                 for (const auto& pragma : pendingPragmas_) {
                     std::istringstream ps(pragma);
-                    std::string pragmaArg;
-                    ps >> pragmaArg;
-                    if (pragmaArg == "once") {
-                        if (!currentFile.empty()) onceFiles.insert(currentFile);
-                    } else if (isCompiler && pragmaArg == "weak") {
-                        output << "__asm__(\".weak_next\");\n";
-                    } else if (isCompiler && pragmaArg == "no_zp_save") {
-                        output << "__asm__(\".no_zp_save\");\n";
-                    } else if (isCompiler && pragmaArg == "cc45") {
-                        std::string cc45Arg;
-                        ps >> cc45Arg;
-                        if (cc45Arg == "no_0100_stack") output << "__asm__(\".crt_no_0100_stack\");\n";
-                        else if (cc45Arg == "exit_halt") output << "__asm__(\".crt_exit_halt\");\n";
-                        else if (cc45Arg == "exit_rts") output << "__asm__(\".crt_exit_rts\");\n";
-                        else if (cc45Arg == "exit_brk") output << "__asm__(\".crt_exit_brk\");\n";
-                        else if (cc45Arg == "no_bssinit") output << "__asm__(\".crt_no_bssinit\");\n";
-                        else if (cc45Arg == "heap") output << "__asm__(\".crt_heap\");\n";
-                        else if (cc45Arg == "stdio") output << "__asm__(\".crt_stdio\");\n";
-                        else if (cc45Arg == "no_zp_save") output << "__asm__(\".no_zp_save\");\n";
-                        else if (cc45Arg == "no_stack16") output << "__asm__(\".no_stack16\");\n";
-                        else if (cc45Arg.rfind("overlay", 0) == 0) {
-                            std::string rest = cc45Arg.substr(7), tail;
-                            while (ps >> tail) rest += tail;
-                            std::string n;
-                            for (char ch : rest) if (std::isalnum((unsigned char)ch) || ch == '_') n += ch;
-                            output << (n.empty() ? std::string("\n") : "__asm__(\".overlay " + n + "\");\n");
-                        }
-                        else if (cc45Arg.rfind("stack_size", 0) == 0) {
-                            std::string rest = cc45Arg.substr(10), tail;
-                            while (ps >> tail) rest += tail;
-                            std::string n;
-                            for (char ch : rest) if (std::isxdigit((unsigned char)ch) || ch == '$' || ch == 'x' || ch == 'X') n += ch;
-                            output << (n.empty() ? std::string("\n") : "__asm__(\".stack_size " + n + "\");\n");
-                        }
-                        else if (cc45Arg.rfind("stack_top", 0) == 0) {
-                            std::string rest = cc45Arg.substr(9), tail;
-                            while (ps >> tail) rest += tail;
-                            std::string addr;
-                            for (char ch : rest) if (std::isxdigit((unsigned char)ch) || ch == '$' || ch == 'x' || ch == 'X') addr += ch;
-                            output << (addr.empty() ? std::string("\n") : "__asm__(\".stack_top " + addr + "\");\n");
-                        }
-                        else if (cc45Arg == "set_bp") { std::string bv; ps >> bv; output << "__asm__(\".set_bp " + bv + "\");\n"; }
-                        else if (cc45Arg == "weak") output << "__asm__(\".weak_next\");\n";
-                        else if (cc45Arg == "recurse") output << "__asm__(\".recurse_next\");\n";
-                        else if (cc45Arg.rfind("optimize", 0) == 0) output << optimizeDirective(cc45Arg, ps);
-                        else if (cc45Arg == "unroll") {
-                            std::string countStr;
-                            if (ps >> countStr) {
-                                output << "asm(\".crt_unroll " + countStr + "\");\n";
-                            } else {
-                                output << "asm(\".crt_unroll\");\n";
-                            }
-                        }
-                        else if (cc45Arg == "unroll_default") {
-                            std::string countStr;
-                            if (ps >> countStr) {
-                                output << "asm(\".crt_unroll_def " + countStr + "\");\n";
-                            }
-                        }
-                    } else if (isCompiler && pragmaArg.substr(0, 9) == "encoding(") {
-                        std::string enc = pragmaArg.substr(9);
-                        if (!enc.empty() && enc.back() == ')') enc.pop_back();
-                        if (enc == "ascii" || enc == "petscii" || enc == "screencode")
-                            output << "__asm__(\".encoding " + enc + "\");\n";
-                    } else if (isCompiler && pragmaArg == "encoding") {
-                        std::string enc;
-                        ps >> enc;
-                        if (enc == "ascii" || enc == "petscii" || enc == "screencode")
-                            output << "__asm__(\".encoding " + enc + "\");\n";
-                    }
+                    std::ostringstream po;
+                    handlePragma(ps, po, currentFile);
+                    for (char ch : po.str()) pragmaOut += ch == '\n' ? ' ' : ch;
                 }
                 pendingPragmas_.clear();
+                while (!pragmaOut.empty() && pragmaOut.back() == ' ') pragmaOut.pop_back();
+                if (!pragmaOut.empty() && !processed.empty() && !std::isspace((unsigned char)processed[0]))
+                    pragmaOut += ' ';
+                output << pragmaOut << processed << "\n";
             } else {
                 output << "\n";
             }

@@ -4,6 +4,21 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Preprocessor: macro expansion as the C standard has it (#233)
+
+- cp45 / cc45 expand macros on tokens with hide sets (C11 6.10.3): an
+  argument is expanded before it is substituted (`XSTR(N)` is `"4"`, was
+  `"N"`; `XCAT(v,N)` is `v4`), a macro is not expanded again inside its
+  own expansion (`#define SELF SELF + 1` was expanded about 100 times),
+  placemarkers for empty `##` operands, `XSTR(__LINE__)` gives the line.
+  The objects of the examples, the library, the runtime tests and the
+  GCC torture tests are unchanged (1,205 compared).
+- `_Pragma` takes every pragma `#pragma` does (`signed_default`,
+  `max_inline_ir_size`, ... were missing), also from a macro
+  (`DO_PRAGMA(x) _Pragma(#x)`, which did not work); `#pragma` and
+  `_Pragma` share one handler.
+- Tests in `test_compiler.sh` (`test_pp_expand.c` against gcc's output).
+
 ### `-Rcodegen` works again
 
 - cc45 `-Rcodegen` annotates the assembly with why each instruction is
