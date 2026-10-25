@@ -11,7 +11,11 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   macros, `\@` for labels of their own in each use, a recursion limit
   (64), messages at the line of the use. ca45 had only C `#define`
   (one line; nested `#define` composition is fixed by #233).
-- Test in `test_assembler.sh` (`test_ca45_macro.s45`).
+- cvt_asm: ca45 input's `.macro` is expanded as ca45 does; a macro's
+  parameters in the other dialects are replaced as whole words (a
+  parameter `a` turned `sta` into `st7`; #235).
+- Tests in `test_assembler.sh` (`test_ca45_macro.s45`) and
+  `test_cvt_asm.sh`.
 
 ### Two more benchmarks
 

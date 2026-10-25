@@ -248,29 +248,39 @@ public:
         const std::vector<std::string>& arguments) {
         std::vector<std::string> expanded;
 
-        // Simple parameter substitution
+        // One pass over each body line: a parameter's name where it is a
+        // whole word (not inside sta for a parameter a, nor a literal), and
+        // \1, \2, ... by position; an argument's own text is not scanned again
+        auto isId = [](char c) { return std::isalnum((unsigned char)c) || c == '_'; };
         for (const auto& line : macro.body) {
-            std::string expandedLine = line;
-
-            // Replace parameters with arguments (\1, \2, etc. or direct names)
-            for (size_t i = 0; i < macro.parameters.size() && i < arguments.size(); ++i) {
-                // Replace \1, \2, etc. style parameters
-                std::string placeholder = "\\" + std::to_string(i + 1);
-                size_t pos = 0;
-                while ((pos = expandedLine.find(placeholder, pos)) != std::string::npos) {
-                    expandedLine.replace(pos, placeholder.length(), arguments[i]);
-                    pos += arguments[i].length();
-                }
-
-                // Replace named parameters
-                size_t pos2 = 0;
-                while ((pos2 = expandedLine.find(macro.parameters[i], pos2)) != std::string::npos) {
-                    expandedLine.replace(pos2, macro.parameters[i].length(), arguments[i]);
-                    pos2 += arguments[i].length();
+            std::string out;
+            for (size_t k = 0; k < line.size();) {
+                char c = line[k];
+                if (c == '"' || c == '\'') {
+                    size_t b = k;
+                    for (k++; k < line.size() && line[k] != c; k++) if (line[k] == '\\') k++;
+                    if (k < line.size()) k++;
+                    out += line.substr(b, k - b);
+                } else if (c == '\\' && k + 1 < line.size() && std::isdigit((unsigned char)line[k + 1])) {
+                    size_t e = k + 1;
+                    while (e < line.size() && std::isdigit((unsigned char)line[e])) e++;
+                    size_t n = std::stoul(line.substr(k + 1, e - k - 1));
+                    out += n >= 1 && n <= arguments.size() ? arguments[n - 1] : line.substr(k, e - k);
+                    k = e;
+                } else if ((std::isalpha((unsigned char)c) || c == '_') && (k == 0 || !isId(line[k - 1]))) {
+                    size_t e = k;
+                    while (e < line.size() && isId(line[e])) e++;
+                    std::string w = line.substr(k, e - k);
+                    size_t i = 0;
+                    while (i < macro.parameters.size() && macro.parameters[i] != w) i++;
+                    out += i < macro.parameters.size() && i < arguments.size() ? arguments[i] : w;
+                    k = e;
+                } else {
+                    out += c;
+                    k++;
                 }
             }
-
-            expanded.push_back(expandedLine);
+            expanded.push_back(out);
         }
 
         return expanded;

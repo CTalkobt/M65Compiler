@@ -289,6 +289,13 @@ E=$($CVT -v -t ca65 "$T/rt.s45" 2>&1 >/dev/null)
 [ "$A" = "$B" ] && grep -q 'Performance Metrics' <<< "$E" && pass "-v: the summary goes to stderr" ||
     fail "-v output mixed into stdout"
 
+# a macro's parameters replaced as whole words: a parameter a leaves sta
+# alone (was st7); a macro used by a macro
+printf '.macro inner v\n  lda #v\n.endmacro\n.macro outer a, b\n  inner a\n  sta b\n.endmacro\n  outer 7, $d020\n  rts\n' > "$T/nm.s"
+M=$($CVT -f ca65 -t ca45 "$T/nm.s" 2>/dev/null | tr -s ' \n' ' ')
+[ "$M" = " lda #7 sta \$d020 rts " ] && pass "macro parameters as whole words, a macro inside a macro" ||
+    fail "macro parameters: $M"
+
 # warnings: unknown directives, ca45-only syntax
 printf '    .org $2000\n    .bogus 1\n    lda ($20),z\n' > "$T/w.s45"
 W=$($CVT -t acme "$T/w.s45" 2>&1 >/dev/null)
