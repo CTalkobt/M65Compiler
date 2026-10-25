@@ -4,6 +4,8 @@
 #define GFX_DATA                      /* (gfx.h's glyphs: here, for setup) */
 #include "glam.h"
 
+static unsigned char pick;            /* the title's choice: 0 a season, 1 the studio */
+
 static void set_palette(void);
 static void make_background(void);
 static unsigned char swap_nib(unsigned char v);
@@ -39,8 +41,8 @@ static const char *const title_left[] = {
     "*Catch a sheep: walk up, press fire",
     "*Carry it to the salon door",
     " in the right-hand fence",
-    "*Dye the wool, add lipstick,",
-    " lashes and a bow",
+    "*Style it: wool, lipstick, lashes,",
+    " eyeshadow, hats, pearls and more",
     "*Let it go: its lambs inherit",
     " the look",
     "*Farmer Fergus shears full fleeces",
@@ -53,9 +55,9 @@ static const char *const title_right[] = {
     "*On the trend: double points",
     "*All four traits: +50",
     "*Wool sold: 10 a bag, dyed 25",
-    "*Wool regrows; shorn 6 times,",
-    " a sheep passes on",
-    "",
+    "#Styling studio",
+    "*No clock, no score: style any",
+    " sheep you like, as long as you like",
     "#Controls",
     "*Joystick, cursor keys or WASD",
     "*Fire, Space or Return"};
@@ -113,6 +115,7 @@ static void draw_title_page(void) {
 
 /* once a frame: the parade walks right, the prompt blinks */
 static unsigned char parade_t;
+
 void title_frame(void) {
     unsigned char i;
     clear_span(0, PARADE_Y, COLS);
@@ -125,9 +128,25 @@ void title_frame(void) {
         }
     }
     for (i = 0; i < NPARADE; i++) draw_sheep_at(s_x[i], PARADE_Y, i);
+    /* the choice: a season, or the styling studio (the chosen one blinking) */
     clear_span(0, MSG_ROW, COLS);
-    if (FRAMECOUNT & 0x20)
-        put_ascii(15, MSG_ROW, "Fire: start   -   M: music on/off   -   Run/Stop: quit", C_YELLOW);
+    if (!pick || (FRAMECOUNT & 0x20)) put_ascii(4, MSG_ROW, "Play a season", pick ? C_LBLUE : C_YELLOW);
+    if (pick || (FRAMECOUNT & 0x20)) put_ascii(22, MSG_ROW, "Styling studio", pick ? C_YELLOW : C_LBLUE);
+    put(pick ? 20 : 2, MSG_ROW, '>', C_YELLOW);
+    put_ascii(41, MSG_ROW, "<> pick  Fire: go  M: music  Stop: quit", C_WHITE);
+}
+
+/* the title's input: a direction (or S) picks, fire goes */
+void title_input(unsigned char pressed) {
+    if (pressed & (K_LEFT | K_RIGHT | K_UP | K_DOWN)) {
+        pick ^= 1;
+        snd_click(0x1800);
+    }
+    if (input_pressed(KEY_S)) pick = 1;
+    if (pressed & K_FIRE) {
+        if (pick) start_studio();
+        else start_season();
+    }
 }
 
 void title(void) {
@@ -136,6 +155,10 @@ void title(void) {
     unsigned char i;
     salon_off();
     mode = M_TITLE;
+    studio = 0;
+#ifdef DEMO_STUDIO
+    pick = 1;                         /* (tests: the demo plays the studio) */
+#endif
     attract = 0;
     season = 0;
     idle_t = 0;

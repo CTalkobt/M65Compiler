@@ -271,6 +271,8 @@ static unsigned char on_trend(unsigned char look) {
 
 /* a sheep takes SW x SH cells from (x, y) */
 unsigned char s_x[MAXS], s_y[MAXS], s_flags[MAXS], s_look[MAXS];
+unsigned char s_style[MAXS];   /* the styles beyond the scored four (S_*) */
+unsigned char studio;          /* 1: the styling studio (no time, score or shearer) */
 unsigned char s_age[MAXS], s_life[MAXS], s_cool[MAXS], s_gen[MAXS], s_tmr[MAXS];
 unsigned char s_wool[MAXS], s_woolt[MAXS], s_shear[MAXS];   /* fleece 0-3, regrowth, times shorn */
 static unsigned char flock;
@@ -351,6 +353,7 @@ static unsigned char new_sheep(unsigned char x, unsigned char y, unsigned char l
         s_x[i] = x; s_y[i] = y;
         s_flags[i] = (unsigned char)(F_ALIVE | (ram ? F_RAM : 0) | (rnd() & 1 ? F_LEFT : 0));
         s_look[i] = look;
+        s_style[i] = 0;
         s_age[i] = age;
         s_life[i] = (unsigned char)(90 + rnd_n(60));
         s_cool[i] = (unsigned char)(ram ? 0 : 3 + rnd_n(6));
@@ -421,6 +424,8 @@ static unsigned char inherit(unsigned char ma, unsigned char pa) {
     look |= (rnd() & 1 ? ma : pa) & L_LIPS;
     look |= (rnd() & 1 ? ma : pa) & L_LASH;
     look |= (rnd() & 1 ? ma : pa) & L_BOW;
+    look |= (rnd() & 1 ? ma : pa) & L_HOOF;
+    if (rnd_n(8) == 0) look &= (unsigned char)~L_HOOF;
     if (rnd_n(8) == 0) look &= (unsigned char)~L_WOOL;
     if (rnd_n(8) == 0) look &= (unsigned char)~L_LIPS;
     if (rnd_n(8) == 0) look &= (unsigned char)~L_LASH;
@@ -430,6 +435,15 @@ static unsigned char inherit(unsigned char ma, unsigned char pa) {
 
 /* the points of a newborn: 5 a glam trait, times its generation (up to
  * MAX_GEN), double on trend, 50 more with all four */
+/* the other styles: each from one parent (now and then lost); not scored */
+static unsigned char inherit_style(unsigned char ma, unsigned char pa) {
+    static const unsigned char field[4] = {S_HAT, S_SHADOW, S_BLUSH, S_NECK};
+    unsigned char st = 0, k;
+    for (k = 0; k < 4; k++)
+        if (rnd_n(8)) st |= (unsigned char)((rnd() & 1 ? ma : pa) & field[k]);
+    return st;
+}
+
 static void score_lamb(unsigned char look, unsigned char gen) {
     unsigned char t = glam(look);
     unsigned int pts;
@@ -480,8 +494,10 @@ static void breed(void) {
             lamb = new_sheep(fx_, fy_, inherit(s_look[e], s_look[r]), rnd() & 1, 0,
                              (unsigned char)((s_gen[e] > s_gen[r] ? s_gen[e] : s_gen[r]) + 1));
             if (lamb == 0xFF) break;
+            s_style[lamb] = inherit_style(s_style[e], s_style[r]);
             snd_birth();
-            score_lamb(s_look[lamb], s_gen[lamb]);
+            if (!studio) score_lamb(s_look[lamb], s_gen[lamb]);
+            else if (mode == M_PLAY) message(s"a lamb is born! it takes after its parents", C_PINK);
             break;
         }
     }
@@ -670,6 +686,13 @@ static void draw_field(void) {
 
 static void draw_hud(void) {
     clear_span(0, HUD_ROW, COLS);
+    if (studio) {
+        put_text(0, HUD_ROW, s"* styling studio *", C_PINK);
+        put_text(24, HUD_ROW, s"flock", C_WHITE);
+        put_number(30, HUD_ROW, flock, 2, C_YELLOW);
+        put_text(44, HUD_ROW, s"run/stop: back to the title", C_LBLUE);
+        return;
+    }
     put_text(0, HUD_ROW, s"score", C_WHITE);
     put_number(6, HUD_ROW, score, 5, C_YELLOW);
     put_text(13, HUD_ROW, s"time", C_WHITE);
@@ -711,7 +734,7 @@ static const unsigned char big_cell[18] = {
     G_BIG4, G_BIG5, G_BIG6, G_BIG7, G_BFACE_A, G_BFACE_B,
     G_BIG8, G_BIG9, G_BIG10, G_BIG11, G_BMUZ_A, G_BMUZ_B};
 
-static void draw_big(unsigned char look, unsigned char ram) {
+void draw_big(unsigned char look, unsigned char ram) {
     unsigned char wc = MCOL + wool_color[look & L_WOOL], lc = MCOL + lips_color[(look & L_LIPS) >> 2];
     unsigned char r, c, k = 0;
     clear_span(BIG_X, BIG_Y, 6);
@@ -733,33 +756,12 @@ static void draw_big(unsigned char look, unsigned char ram) {
     if (ram && (look & L_LASH)) put(BIG_X + 5, BIG_Y + 1, G_BLASH_B, MCOL + C_BLACK);
 }
 
-const char *const salon_rows[5] = {s"wool", s"lips", s"lashes", s"bow", s"done"};
 
 static void draw_panel(void) {
     unsigned char y = 9;
     panel_clear();
     if (mode == M_SALON) {
-        unsigned char look = s_look[carry], r;
-        put_text(PANEL_IN + 1, 2, s"* glam salon *", C_YELLOW);
-        draw_big(look, s_flags[carry] & F_RAM);
-        put_text(PANEL_IN + 5, 8, (s_flags[carry] & F_RAM) ? s"a ram" : s"a ewe", C_LBLUE);
-        for (r = 0; r < 5; r++) {
-            unsigned char c = (r == sel) ? C_YELLOW : C_WHITE;
-            const char *v = 0;
-            if (r == sel) put_text(PANEL_IN, (unsigned char)(10 + r), s">", C_YELLOW);
-            put_text(PANEL_IN + 1, (unsigned char)(10 + r), salon_rows[r], c);
-            if (r == 0) v = wool_name[look & L_WOOL];
-            else if (r == 1) v = lips_name[(look & L_LIPS) >> 2];
-            else if (r == 2) v = yesno_name[(look & L_LASH) ? 1 : 0];
-            else if (r == 3) v = yesno_name[(look & L_BOW) ? 1 : 0];
-            if (v) put_text(PANEL_IN + 8, (unsigned char)(10 + r), v, c);
-        }
-        put_text(PANEL_IN, 17, s"up/down: choose", C_LBLUE);
-        put_text(PANEL_IN, 18, s"left/right:", C_LBLUE);
-        put_text(PANEL_IN + 2, 19, s"change", C_LBLUE);
-        put_text(PANEL_IN, 20, s"fire: let it go", C_LBLUE);
-        put_text(PANEL_IN, 21, s"trend:", C_LBLUE);
-        put_text(PANEL_IN + 2, 22, trend_name[trend], C_PINK);
+        salon_panel();
         return;
     }
     /* playing */
@@ -828,12 +830,14 @@ static unsigned char demo_controls(void) {
     if (demo_wait) { demo_wait--; return 0; }
     if (mode == M_TITLE || mode == M_OVER) return (demo_t & 63) == 0 ? demo_press(K_FIRE) : 0;
     if (mode == M_SALON) {
-        if (sel < 4) {
-            unsigned char look = s_look[carry];
+        if (sel < NROWS - 1) {
+            unsigned char look = s_look[carry], st = s_style[carry];
             if (sel == 0 && (look & L_WOOL) != 1 + (demo_t >> 7 & 1)) return demo_press(K_RIGHT);
             if (sel == 1 && (look & L_LIPS) != 0x04) return demo_press(K_RIGHT);
             if (sel == 2 && !(look & L_LASH)) return demo_press(K_RIGHT);
-            if (sel == 3 && !(look & L_BOW) && (demo_t & 2)) return demo_press(K_RIGHT);
+            if (sel == 3 && !(st & S_SHADOW)) return demo_press(K_RIGHT);
+            if (sel == 5 && !(look & L_BOW) && (demo_t & 2)) return demo_press(K_RIGHT);
+            if (sel == 6 && !(st & S_NECK) && (demo_t & 4)) return demo_press(K_RIGHT);
             return demo_press(K_DOWN);
         }
         return demo_press(K_FIRE);
@@ -1001,9 +1005,9 @@ static void enter_salon(void) {
 void leave_salon(void) {
     unsigned char i = carry;
     salon_off();
-    p_x = FX1 - 1;                     /* back inside the gate */
+    if (!studio) p_x = FX1 - 1;        /* back inside the gate (the studio: where the stylist was) */
     s_flags[i] &= (unsigned char)~F_CARRIED;
-    if (find_spot(FX1 - SW - 2, p_y)) {
+    if (find_spot(studio ? (p_x > SW ? p_x - SW : FX0) : FX1 - SW - 2, p_y)) {
         s_x[i] = fx_; s_y[i] = fy_;
     }
     s_flags[i] |= F_LEFT;
@@ -1034,6 +1038,7 @@ static void play_input(unsigned char pressed) {
             s_flags[i] |= F_CARRIED;
             snd_baa();
             panel_dirty = 1;
+            if (studio) { enter_salon(); return; }   /* (the studio: straight to the chair) */
             message((s_flags[i] & F_RAM) ? s"got a ram! to the salon" : s"got a ewe! to the salon", C_WHITE);
         } else if (find_spot(p_x > SW ? p_x - SW : FX0, p_y)) {
             unsigned char i = carry;
@@ -1095,8 +1100,9 @@ static void new_flock(void) {
     }
 }
 
-static void start_season(void) {
+void start_season(void) {
     mode = M_PLAY;
+    studio = 0;
     score = 0; lambs = 0; glam_lambs = 0;
     lamb_pts = wool_bags = income = 0;
     hiscore_was = hiscore;
@@ -1119,6 +1125,16 @@ static void start_season(void) {
     music_for(0);
     hud_dirty = panel_dirty = 1;
     message_n(s"season ", season, s" begins! catch a sheep", C_YELLOW);
+}
+
+/* the styling studio: a flock to style at leisure (no time, score or
+ * shearer); fire beside a sheep takes it to the salon */
+void start_studio(void) {
+    start_season();
+    studio = 1;
+    season = 0;
+    hud_dirty = panel_dirty = 1;
+    message(s"the styling studio! fire beside a sheep to style it", C_PINK);
 }
 
 static void end_season(void) {
@@ -1144,7 +1160,7 @@ static void second(void) {
     tick_flock();
     breed();
     hud_dirty = 1;
-    if (mode != M_PLAY && mode != M_SALON) return;
+    if ((mode != M_PLAY && mode != M_SALON) || studio) return;
     if (sh_rest) sh_rest--;
     if (!sh_on && time_left <= shearer_at) shearer_arrives();
 #ifdef DEMO
@@ -1188,7 +1204,7 @@ unsigned char saved_regs[13];
 
 /* ------------------------------------------------------------------------ */
 
-static unsigned char m_held;
+static unsigned char m_held, stop_held;
 static unsigned char frame_seen;      /* FRAMECOUNT the sound has caught up to */
 
 int main(void) {
@@ -1215,7 +1231,14 @@ int main(void) {
         REG(0xC0F2) = (unsigned char)tune_ticks();
         REG(0xC0F3) = (unsigned char)(tune_ticks() >> 8);
 #endif
-        if (input_pressed(KEY_STOP)) break;
+        if (input_pressed(KEY_STOP)) {   /* quit; from the studio, the title */
+            if (!stop_held) {
+                if (!studio) break;
+                title();
+                held = prev_held = 0xFF;
+            }
+            stop_held = 1;
+        } else stop_held = 0;
         if (input_pressed(KEY_M)) {
             if (!m_held) music_toggle();
             m_held = 1;
@@ -1250,7 +1273,8 @@ int main(void) {
         }
 #endif
         pressed = held & (unsigned char)~prev_held;
-        if (mode == M_TITLE || mode == M_OVER) {
+        if (mode == M_TITLE) title_input(pressed);
+        else if (mode == M_OVER) {
             if ((pressed & K_FIRE) && !over_t) start_season();
         } else if (mode == M_PLAY) {
             play_input(pressed);
@@ -1283,6 +1307,7 @@ int main(void) {
 #ifdef DEMO
         REG(0xC0FA) = salon_ok;       /* (tests: the salon's files loaded; $D054 in the room) */
         if (sal.shown) REG(0xC0FB) = REG(0xD054);
+        REG(0xC0FC) = studio;         /* (tests: the styling studio) */
         REG(0xC0F7) = p_x;            /* (tests: the stylist's pace) */
         REG(0xC0F8) = p_y;
         REG(0xC0F9) = mode;

@@ -79,8 +79,8 @@
 #define scr ((unsigned char *)0x0800)
 
 /* (main.c's) */
-#define BGK_LIN 0x5C000UL
-#define BGC_LIN 0x5C800UL
+#define BGK_LIN 0xFF82000UL            /* (in colour RAM: DMA only) */
+#define BGC_LIN 0xFF82800UL
 #define V_BAA   0
 #define V_BIRTH 1
 #define V_CLICK 2
@@ -92,6 +92,13 @@
 #define L_LIPS   0x0C                 /* 0 natural, red, purple, pink */
 #define L_LASH   0x10
 #define L_BOW    0x20
+#define L_HOOF   0xC0                 /* the hooves' polish: 0 plain, red, pink, gold (not scored) */
+/* the styles beyond the scored four (s_style): not scored, inherited */
+#define S_HAT    0x07                 /* the headwear (with L_BOW): bow, dotty bow, flower, tiara, top hat */
+#define S_SHADOW 0x18                 /* eyeshadow: none, blue, purple, gold */
+#define S_BLUSH  0x20                 /* rosy cheeks */
+#define S_NECK   0xC0                 /* necklace: none, pearls, a ribbon */
+#define NROWS 9                       /* the salon's menu: eight styles, done */
 #define NTRENDS 8
 #define MAXS 32
 #define F_ALIVE   0x01
@@ -156,6 +163,8 @@ extern const char *const yesno_name[2];
 extern const char *const trend_name[NTRENDS];
 extern unsigned char trend;
 extern unsigned char s_x[MAXS], s_y[MAXS], s_flags[MAXS], s_look[MAXS];
+extern unsigned char s_style[MAXS];
+extern unsigned char studio;
 extern unsigned char s_age[MAXS], s_life[MAXS], s_cool[MAXS], s_gen[MAXS], s_tmr[MAXS];
 extern unsigned char s_wool[MAXS], s_woolt[MAXS], s_shear[MAXS];
 extern unsigned char p_x, p_y, p_tmr, p_step;
@@ -175,14 +184,17 @@ extern unsigned char attract;
 extern unsigned int idle_t, attract_t;
 void draw_sheep_at(unsigned char x, unsigned char y, unsigned char i);
 void fence_box(unsigned char x0, unsigned char y0, unsigned char x1, unsigned char y1);
-extern const char *const salon_rows[5];
+void draw_big(unsigned char look, unsigned char ram);
 void leave_salon(void);
 void clear_flock(void);
+void start_season(void);
+void start_studio(void);
 extern const unsigned char pal_idx[12];
 extern const unsigned char pal_rgb[36];
 extern unsigned char saved_pal[48];
 extern unsigned char saved_regs[13];
 void title_frame(void);
+void title_input(unsigned char pressed);
 void title(void);
 void setup(void);
 void restore(void);
@@ -196,3 +208,4 @@ void draw_salon(void);
 void salon_on(void);
 void salon_off(void);
 void salon_input(unsigned char pressed);
+void salon_panel(void);

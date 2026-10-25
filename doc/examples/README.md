@@ -220,11 +220,18 @@ runs 100 frames, then reads cells back and reports on the screen.
 ### glamlambs
 
 [Source](https://github.com/CTalkobt/M65Compiler/tree/main/examples/c/glamlambs) —
-Glam Lambs, a sheep makeover game. Catch an adult sheep in full fleece, carry
-it to the salon and style it: wool dye, lipstick, eyelashes and a bow. Rams
+Glam Lambs, a sheep makeover game by Kimberly Taylor. Catch an adult sheep in
+full fleece, carry it to the salon and style it: wool dye, lipstick,
+eyelashes, eyeshadow, rosy cheeks, headwear (a bow, a dotty bow, a flower, a
+tiara or a top hat), a pearl necklace or a ribbon collar, and polished
+hooves. Rams
 seek out ewes, a lamb takes each trait from one of its parents, and the score
 comes from the glam lambs born (more for later generations, double for the
-season's trend) and the wool sold. Farmer Fergus comes out to shear full
+season's trend) and the wool sold: the dye, the lipstick, the lashes and
+any headwear score, the other styles are passed on too but only for the
+look. The **styling studio** (chosen on the title page) has no clock, score
+or shearer: fire beside any sheep takes it straight to the salon, for
+players who just like dressing sheep up; RUN/STOP goes back to the title. Farmer Fergus comes out to shear full
 fleeces, the made-up sheep first, which takes the makeup off. The screen is
 80 x 25 multicolour characters (a multicolour pixel is square in 80 columns),
 the glyphs (`gen_gfx.py`, from ASCII pictures; `gfx.h` is in the repository)
@@ -247,8 +254,18 @@ entries (sixteen shades of wool, eight of lipstick, rewritten from tables by
 `palette_restore`), so the shading stays at any colour; the eyelashes, a
 blink, a bow and a ram's horns are runs of cells copied over the room, in
 profile and in the mirror at once; the mirror's bulbs take turns and
-sparkles twinkle round whatever was just changed. Without the two files the
-salon is the panel beside the field.
+sparkles twinkle round whatever was just changed. The eyeshadow, the cheeks
+and the hooves' polish are palette tones too; the headwear and the necklaces
+are runs of cells swapped in. `gen_salon.py` checks that each group of
+cells (the eyes, the horns, the headwear, the necklace) changes cells no
+other one does, and that all 144 combinations are their groups' cells.
+Without the two files the salon is the panel beside the field.
+
+The game is three files: `main.c`, and `title.c` and `salon.c`, which are
+**code overlays** (`#pragma cc45 overlay`): they take turns in one region of
+bank 0, their code kept in bank 5 from `GLAMLAMBS.OV1`, which crt0 loads at
+start. The title overlay also holds what runs only at the start, at a
+season's end and at the exit; `glam.h` declares what the files share.
 
 The music is a nine-voice band on SIDs 2-4, written as tune45 text
 (`music.txt`): in the field the farm band plays Old MacDonald, Baa, Baa,
@@ -267,9 +284,10 @@ they were: the game keeps the tune's position (`tune_ticks` modulo the
 (bleats, a birth's arpeggio, clicks) stay on SID 1 with `<audio_sid.h>`.
 Without the music file the game plays silently. Keys: cursor keys / WASD or
 a joystick to walk, SPACE / RETURN / fire to grab, style and let go, M music
-on / off, RUN/STOP quit. `make` builds `glamlambs.d81` (the program, the
-music and the salon), `make demo` a self-playing version, `make music` plays
-the band on the PC.
+on / off, RUN/STOP quit. `make` builds `glamlambs.d81` (the program, its
+overlay file, the music and the salon), `make demo` a self-playing version
+(`make demo-studio` one that plays the studio), `make music` plays the band
+on the PC.
 
 ![glamlambs](images/glamlambs.png)
 

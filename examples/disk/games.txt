@@ -4,6 +4,7 @@ c/invaders/invaders.prg              | invaders     | invaders - a space invader
 c/rogue/rogue.prg                    | rogue        | rogue - a dungeon crawl
 c/hanger/hanger.prg                  | hanger       | hanger - hangman, six victims
 c/glamlambs/glamlambs.prg            | glamlambs    | glam lambs - a sheep makeover game
+c/glamlambs/glamlambs.ov1            | glamlambs.ov1 |
 c/glamlambs/glammusic.bin            | glammusic    |
 c/glamlambs/salon1.dat               | glamsalon    |
 c/glamlambs/salon2.dat               | glamsalon2   |

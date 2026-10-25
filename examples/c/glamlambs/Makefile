@@ -5,6 +5,7 @@
 #                     GLAMMUSIC, the music, which the game loads into bank 5,
 #                     and GLAMSALON / GLAMSALON2, the salon's picture: banks 4, 5)
 #   make demo         Build glamdemo.prg and glamdemo.d81, which play by themselves
+#   make demo-studio  The same playing the styling studio (glamstudio: tests)
 #   make gfx          Regenerate gfx.h (gen_gfx.py)
 #   make salon        Regenerate salon.h, salon1.dat, salon2.dat (gen_salon.py, PIL)
 #   make music        Play the music on the PC (tune45 play)
@@ -22,7 +23,7 @@ XEMU = xemu-xmega65
 
 TARGET = glamlambs.prg
 
-.PHONY: all clean run demo gfx salon music
+.PHONY: all clean run demo demo-studio gfx salon music
 
 all: glamlambs.d81
 
@@ -43,10 +44,13 @@ HEADERS = glam.h gfx.h music.h salon.h
 demo_%.o45: %.c $(HEADERS)
 	$(CC45) -O2 -DDEMO $(INCLUDES) -c $< -o $@
 
+studio_%.o45: %.c $(HEADERS)
+	$(CC45) -O2 -DDEMO -DDEMO_STUDIO $(INCLUDES) -c $< -o $@
+
 # a stack share of 1 KB (the overlays' region is under it); the overlays
 # kept in bank 5 from $5A000 (the music, the salon's screen and picture
-# are below, the field's background and the screen shown above)
-LNFLAGS = --stack-size=1024 --overlay-store=0x5A000-0x5BFFF
+# are below, the screen shown above; the field's background is in colour RAM)
+LNFLAGS = --stack-size=1024 --overlay-store=0x5A000-0x5DFFF
 
 $(TARGET): $(SOURCES:.c=.o45) $(STDLIB)
 	$(LN45) -basic $(LNFLAGS) -M glamlambs.map -o $(TARGET) $(SOURCES:.c=.o45) $(STDLIB)
@@ -70,6 +74,17 @@ demo: $(addprefix demo_,$(SOURCES:.c=.o45)) glammusic.bin salon1.dat salon2.dat 
 	$(DISK45) add glamdemo.d81 salon1.dat "glamsalon"
 	$(DISK45) add glamdemo.d81 salon2.dat "glamsalon2"
 
+# the demo playing the styling studio (tests)
+demo-studio: $(addprefix studio_,$(SOURCES:.c=.o45)) glammusic.bin salon1.dat salon2.dat $(STDLIB)
+	$(LN45) -basic $(LNFLAGS) -o glamstudio.prg $(addprefix studio_,$(SOURCES:.c=.o45)) $(STDLIB)
+	rm -f glamstudio.d81
+	$(DISK45) create glamstudio.d81 -n "GLAM LAMBS" -i "GL"
+	$(DISK45) add glamstudio.d81 glamstudio.prg "glamstudio"
+	$(DISK45) add glamstudio.d81 glamstudio.ov1 "glamstudio.ov1"
+	$(DISK45) add glamstudio.d81 glammusic.bin "glammusic"
+	$(DISK45) add glamstudio.d81 salon1.dat "glamsalon"
+	$(DISK45) add glamstudio.d81 salon2.dat "glamsalon2"
+
 gfx:
 	python3 gen_gfx.py .
 
@@ -83,7 +98,8 @@ music: music.txt
 
 clean:
 	rm -f *.o45 *.o45.s45 music.h glammusic.bin $(TARGET) glamlambs.map glamlambs.d81 glamlambs.ov1 \
-		glamlambs.ovd glamdemo.prg glamdemo.d81 glamdemo.ov1 glamdemo.ovd
+		glamlambs.ovd glamdemo.prg glamdemo.d81 glamdemo.ov1 glamdemo.ovd \
+		glamstudio.prg glamstudio.d81 glamstudio.ov1 glamstudio.ovd
 
 run: glamlambs.d81
 	$(XEMU) -prgmode 65 -8 glamlambs.d81 -prg $(TARGET)

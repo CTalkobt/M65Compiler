@@ -4,6 +4,25 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Glam Lambs: more ways to style, a styling studio, code overlays
+
+- New styles in the salon: eyeshadow (blue, purple, gold), rosy cheeks,
+  headwear (a bow, a dotty bow, a flower, a tiara, a top hat), a pearl
+  necklace or a ribbon collar, and hoof polish (red, pink, gold), in the
+  profile and in the mirror. The tones are palette entries, the headwear and
+  necklaces runs of cells; `gen_salon.py` checks every one of the 144
+  combinations. The menu has nine rows in two columns. Lambs inherit the
+  new styles; only the four original traits score (any headwear counts as
+  the bow).
+- The styling studio, chosen on the title page: no clock, score or
+  shearer; fire beside any sheep takes it to the salon; RUN/STOP goes back
+  to the title. `make demo-studio` and a check in `test_examples.sh`.
+- The title page credits Kimberly Taylor.
+- The game is three files: `title.c` and `salon.c` are code overlays
+  (GLAMLAMBS.OV1, on the disks), sharing one region of bank 0; the field's
+  background and the saved palette moved to colour RAM.
+- `examples/capture_screens.py` can run a program with its disk.
+
 ### Glam Lambs: a full-screen salon in full-colour characters
 
 - The salon is now a room of its own: the sheep in a salon chair, life

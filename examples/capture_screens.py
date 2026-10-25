@@ -21,7 +21,8 @@ import time
 DELAY = 2.5
 OUT = "doc/examples/images"
 
-# name: the PRG (the examples' build outputs)
+# name: the PRG (the examples' build outputs), or (PRG, D81) for one that
+# loads files from its disk (in drive 8)
 EXAMPLES = {
     "hello_world": "examples/c/hello_world/hello.prg",
     "hello_linked": "examples/c/hello_linked/hello.prg",
@@ -43,7 +44,7 @@ EXAMPLES = {
     "hanger": "examples/c/hanger/hanger.prg",
     "fcm_graphics": "examples/c/fcm_graphics/fcm_graphics.prg",
     "tunes": "examples/c/tunes/tunes.prg",
-    "glamlambs": "examples/c/glamlambs/glamlambs.prg",
+    "glamlambs": ("examples/c/glamlambs/glamlambs.prg", "examples/c/glamlambs/glamlambs.d81"),
     "rtc_clock": "examples/c/rtc_clock/rtc_clock.prg",
     "keyboard_viewer": "examples/c/keyboard_viewer/keyboard_viewer.prg",
     "sample_player": "examples/c/sample_player/sample_player.prg",
@@ -86,6 +87,10 @@ def loaded(sock, addr, want):
 
 
 def capture(name, prg):
+    disk = []
+    if isinstance(prg, tuple):
+        prg, d81 = prg
+        disk = ["-8", os.path.abspath(d81)]
     data = open(prg, "rb").read()
     addr = data[0] | data[1] << 8
     want = data[2:18]
@@ -96,7 +101,7 @@ def capture(name, prg):
     sockname = os.path.join(tmp, "umon")
     xemu = subprocess.Popen(
         ["xemu-xmega65", "-headless", "-besure", "-fastboot", "-prgmode", "65",
-         "-uartmon", sockname, "-screenshot", png, "-prg", os.path.abspath(prg)],
+         "-uartmon", sockname, "-screenshot", png] + disk + ["-prg", os.path.abspath(prg)],
         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         sock = None
