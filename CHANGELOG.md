@@ -4,6 +4,16 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### dbg45 finds the functions of a file without variables
+
+- ca45: the debug records of each procedure (`func LABEL ...`, which
+  ln45 `-g` writes as the debug file's functions) were written only when
+  the object had variable or type records; a file whose functions have
+  none (`int main(void) { puts("hi"); return 0; }`) had line info only,
+  and dbg45 said "no function main". They are written whenever the object
+  has line info too. Programs are unchanged (the records are in the
+  object's options). test_debug_info.sh checks it.
+
 ### One diagnostic log for cc45, ca45 and ln45
 
 - `include/Logger.hpp`: levels `-v` (INFO), `-vv` (DEBUG), `-vvv` (DEEP),

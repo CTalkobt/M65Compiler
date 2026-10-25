@@ -92,7 +92,7 @@ option_data   (option_length - 2 bytes)   ; at most 253 bytes
 | `$15`  | `OPT_SECTREF`      | with `.function_sections` (relocations; not exports yet) | reader (checked), nm45 `-S` | Section of a relocation target or an export (1.10) |
 | `$16`  | `OPT_WEAKUSE`      | when the code uses a weak absolute symbol it defines | ln45 | Weak absolute symbols used at their value (1.11) |
 | `$17`  | `OPT_DEBUG_TYPES`  | with `.dbg_type` (cc45: always) | objdump45 `-g` | Struct / union layouts (1.12) |
-| `$18`  | `OPT_DEBUG_VARS`   | with `.dbg_var` (cc45: always) | objdump45 `-g` | Variables: kind, scope, C name, type, location (1.12) |
+| `$18`  | `OPT_DEBUG_VARS`   | with `.dbg_var` or line info (cc45: always) | objdump45 `-g` | Variables: kind, scope, C name, type, location (1.12) |
 | `$50`  | `OPT_IPO_HINTS`    | no | ln45 | Cross-module optimisation hints (1.9) |
 
 Unknown options are skipped. `OPT_IPO_HINTS`, when a writer has hints, is written before the other options.
@@ -228,8 +228,9 @@ struct|union NAME SIZE member@offset:type ...      ; a bit-field: member@offset.
 
 `OPT_DEBUG_VARS` entry: `kind scope name type location`, and for each named
 procedure a `func LABEL seg:text+OFFSET LENGTH` entry (its code; static
-functions too, which have no export), which ln45 `-g` turns into the debug
-file's functions
+functions too, which have no export; in every object with debug
+information: variables, types or line info), which ln45 `-g` turns into the
+debug file's functions
 - **kind**: `global`, `static` (a file's static, or a function's static
   local), `local`, `param`.
 - **scope**: the function's label (`_main`, a static function's renamed one)
