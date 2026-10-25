@@ -103,6 +103,12 @@ private:
     // #pragma cc45 noescape_strings (until escape_strings): string literals
     // in functions stay with their code (Issue #301)
     bool noescapeStrings_ = false;
+    // __jsr / __jsr_raw / __jmp: once a unit uses one, the register bytes
+    // (lib/stdlib_asm/cbm_args.s45) are declared at its start; a target
+    // named by a function is checked at the end (declared, not defined here)
+    bool usesJsr_ = false;
+    std::vector<std::pair<std::string, Token>> jsrTargets_;
+    std::unique_ptr<Expression> parseJsr();
     // __attribute__((alias("target"))): the declared name is another name
     // for target; later uses of it are read as target
     // Declared variables' types, for typeof(name)

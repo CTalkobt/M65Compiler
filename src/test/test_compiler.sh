@@ -292,6 +292,33 @@ else
     failed=$((failed + 1))
 fi
 
+# __jsr: a constant value is an immediate load, a ROM address goes through
+# __rom_calli with the address after it, a result is saved after the call;
+# the errors: not a register, a register twice, __jmp with a result, a C
+# function of the file, a target that is neither address nor function
+printf 'unsigned char f(unsigned char v) { return __jsr(0xFFD2, .A = 65, .X = v).A; }\n' > build/test/test_jsr_cg.c
+jsr_ok=1
+if ./bin/cc45 -O2 -S build/test/test_jsr_cg.c -o build/test/test_jsr_cg.s45 >/dev/null 2>&1; then
+    J=$(sed -n '/proc _f\b/,/endproc/p' build/test/test_jsr_cg.s45 | grep -E '^\s*(lda #\$41|ldx ___jsr_x|jsr __rom_calli|\.word \$FFD2|sta ___jsr_a)' | tr -s ' \n' ' ')
+    [ "$J" = " ldx ___jsr_x lda #\$41 jsr __rom_calli .word \$FFD2 sta ___jsr_a " ] || [ "$J" = " lda #\$41 ldx ___jsr_x jsr __rom_calli .word \$FFD2 sta ___jsr_a " ] || jsr_ok=0
+else
+    jsr_ok=0
+fi
+for bad in 'void t(void){ __jsr(0xFFD2, .B = 1); }|is not a register' \
+           'void t(void){ __jsr(0xFFD2, .A = 1, .AX = 2); }|register A is given twice' \
+           'void t(void){ unsigned char c; __jmp(0x2000, .A -> c); }|__jmp does not return' \
+           'void g(void){} void t(void){ __jsr(g); }|is a C function of this file' \
+           'int v; void t(void){ __jsr(v); }|is neither'; do
+    printf '%s\n' "${bad%%|*}" > build/test/test_jsr_bad.c
+    ./bin/cc45 -O2 -c build/test/test_jsr_bad.c -o build/test/test_jsr_bad.o45 2>&1 | grep -qF "${bad##*|}" || jsr_ok=0
+done
+if [ $jsr_ok = 1 ]; then
+    echo "SUCCESS: __jsr code and errors"
+else
+    echo "FAIL: __jsr ($J)"
+    failed=$((failed + 1))
+fi
+
 # A bitfield wider than its type is an error, also after a comma and unnamed
 # (int e : 17 kept 16 bits without a word)
 bf_ok=1

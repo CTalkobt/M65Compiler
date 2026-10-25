@@ -4,6 +4,23 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### `__jsr` / `__jsr_raw` / `__jmp`; `<cbm.h>` made of them
+
+- cc45: `__jsr(target, .A = v, .X -> x, ...)` calls an address with the
+  CPU's registers: values for A X Y Z, AX AY AZ XY, Q and the carry
+  (constants as immediates, others through library bytes, all computed
+  before any register is loaded); results stored (`.X -> row`) or as the
+  call's value (`__jsr(0xFFCF).A`, `.Carry`, `.Zero`, ...). A ROM address
+  ($C000+) goes through `__rom_calli` (ROM base page and page-1 stack; the
+  address in the word after the JSR, 5 bytes); `__jsr_raw` calls
+  directly; `__jmp` jumps. Test `test_jsr_xemu.c` (both conventions);
+  the extensions tour has a `__jsr` line (20).
+- `<cbm.h>`: every wrapper is one `__jsr` (no more `__cbm_a/x/y/p`, or
+  values left in A by a bare `return;`); `cbm_screen` documented as the
+  MEGA65 KERNAL gives it (79, 24). New runtime test `test_cbm_xemu.c`.
+- ca45: a symbol declared `.extern` and defined in the same file is the
+  definition (as in C), not an import.
+
 ### `__bit` / `__bits`, ca45 `.assert` and `bit()` / `bits()` (#204)
 
 - cc45: `__bit(v, n)` and `__bits(v, lo, hi)` read and write bits of an

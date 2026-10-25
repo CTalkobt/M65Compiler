@@ -2068,6 +2068,22 @@ void AssemblerParser::pass1() {
         addError(formatDiagnostic("(assembler)", 0, 1, Severity::Error,
             "unclosed 'proc " + currentProc->name + "' at end of file"));
     }
+    // A symbol both .extern and defined here (a label) is the definition, as
+    // in C (extern int x; int x;): not an import (cc45's __jsr declares its
+    // target extern; the routine may be in the same file's asm)
+    if (!externSymbols.empty()) {
+        std::set<std::string> labels;
+        for (const auto& s : statements)
+            if (!s->label.empty()) labels.insert(s->label);
+        std::vector<std::string> kept;
+        for (const auto& e : externSymbols)
+            if (!labels.count(e)) kept.push_back(e);
+        if (kept.size() != externSymbols.size()) {
+            externSymbols = kept;
+            externIndex.clear();
+            for (uint32_t i = 0; i < externSymbols.size(); i++) externIndex[externSymbols[i]] = i;
+        }
+    }
 }
 
 

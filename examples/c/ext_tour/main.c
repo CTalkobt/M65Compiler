@@ -218,6 +218,22 @@ static void tour_bits(void) {
     report("__bit, __bits", line, rows == 3 && mode == 0x5C && __bit(mode, 6));
 }
 
+/* --- __jsr and __jsr_raw -------------------------------------------------- */
+
+/* a machine-code routine of the program: A = A * 2 */
+extern void tour_twice(void);
+asm("_tour_twice:\n asl\n rts");
+
+static void tour_jsr(void) {
+    unsigned char row, col, d;
+    /* EXT: __jsr: a call of an address with registers; KERNAL PLOT with the
+     * carry set gives the cursor's row in X and column in Y */
+    __jsr(0xFFF0, .Carry = 1, .X -> row, .Y -> col);
+    d = __jsr_raw(tour_twice, .A = 21).A;   /* EXT: __jsr_raw: A in, A out */
+    sprintf(line, "PLOT: row %u, column %u; twice(21) = %u", row, col, d);
+    report("__jsr, __jsr_raw", line, row > 0 && row < 25 && col == 0 && d == 42);
+}
+
 /* --- __fastcall__ -------------------------------------------------------- */
 
 /* EXT: __fastcall__: this one function takes its arguments in the base
@@ -379,6 +395,7 @@ int main(void) {
     tour_zp();
     tour_cpu();
     tour_bits();
+    tour_jsr();
     tour_fastcall();
     tour_encoding();
     tour_optimize();
@@ -389,6 +406,6 @@ int main(void) {
     tour_builtins();
     tour_weak();
     tour_push_macro();
-    printf("\n%u/%u extensions work\n", passed, total);
+    printf("%u/%u extensions work\n", passed, total);
     return passed == total ? 0 : 1;
 }

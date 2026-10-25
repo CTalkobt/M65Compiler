@@ -148,8 +148,9 @@ overlay: `TextRemap::ovl`, `InputObject::ovlAt`); test `src/test-resources/far/`
   I/O) call through `__rom_call` (`stdlib_asm/rom_call.s45`, linked only when
   used), which switches base page and stack.
 - **Inline asm can't name a parameter portably**: `@_p_x` is a ZP slot in the
-  ZP convention, `lda.sp @_p_x` only works for stack frames. `<cbm.h>` passes
-  arguments through the `__cbm_a/x/y/p` bytes instead.
+  ZP convention, `lda.sp @_p_x` only works for stack frames. `__jsr(addr, .A = v, .X -> x)`
+  calls an address with registers (the values through `stdlib_asm/cbm_args.s45`'s bytes;
+  a ROM address via `__rom_calli`); `<cbm.h>`'s wrappers are `__jsr` calls.
 - **Interrupts**: the ROM IRQ handler saves B and sets it to 0. A C
   `__interrupt` handler saves B and switches to `__zp_page_isr` (allocated only
   when the program has an `__interrupt` function) and increments
@@ -273,7 +274,7 @@ totals code bytes by IR operation).
   struct, and only those the unit calls.
 - **Extensions**: struct methods, single inheritance, `virtual`/`final`,
   operator overloading, GCC nested functions (static chain, trampolines),
-  statement expressions, computed goto, case ranges, `continue <value>` in a switch, `break N`, `repeat(N)`, `__likely`/`__unlikely`, `__noescape`, `__pure`, `__cpu`/`__flags`, `__bit`/`__bits`,
+  statement expressions, computed goto, case ranges, `continue <value>` in a switch, `break N`, `repeat(N)`, `__likely`/`__unlikely`, `__noescape`, `__pure`, `__cpu`/`__flags`, `__bit`/`__bits`, `__jsr`/`__jsr_raw`/`__jmp`,
   `__dma_copy`/`__dma_fill`, `__interrupt`, `__naked`, `__regparm`, `__zp` globals
   (in the private base page, placed by ln45 at the top of `$80`–`$F1`, with ca45 `.segment "zp"` variables below them), file-scope
   `asm("...")` (module-level assembly), string encodings

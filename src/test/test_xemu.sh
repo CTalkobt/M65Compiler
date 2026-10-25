@@ -1122,6 +1122,28 @@ for btmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: __jsr / __jsr_raw / __jmp: KERNAL PLOT and CHROUT (through
+# __rom_calli) checked in screen RAM, the program's routines with 8-, 16-
+# and 32-bit registers and flags, __jmp; and the <cbm.h> wrappers (__jsr
+# calls) at run time
+for jtest in test_jsr test_cbm; do
+    for jmode in "zp|" "stack|-fno-zpcall"; do
+        IFS='|' read -r jname jflags <<< "$jmode"
+        echo "Testing ${jtest}_xemu.c ($jname)..."
+        compile_link_test "src/test-resources/${jtest}_xemu.c" "build/test/${jtest}_${jname}_xemu.prg" "$jflags"
+        if [ $? -eq 0 ]; then
+            if [ $jtest = test_jsr ]; then
+                run_xemu_test "${jtest}_$jname" "build/test/${jtest}_${jname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+            else
+                run_xemu_test "${jtest}_$jname" "build/test/${jtest}_${jname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+            fi
+        else
+            echo "FAIL: ${jtest}_xemu.c $jname (compilation/linking failed)"
+            failed=$((failed + 1))
+        fi
+    done
+done
+
 # Test: __attribute__((aligned(N))) / _Alignas on globals, locals, struct
 # members and struct types
 for almode in "zp|" "stack|-fno-zpcall"; do

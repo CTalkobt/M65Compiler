@@ -1,18 +1,30 @@
-; cbm_args.s45 — the register arguments of the <cbm.h> KERNAL wrappers
+; cbm_args.s45 — the register bytes of cc45's __jsr / __jsr_raw / __jmp
+; (and so of the <cbm.h> KERNAL wrappers) and ___cbm_target, the routine
+; __rom_call calls
 ;
-; A wrapper stores its parameters here with C assignments (which work in
-; every calling convention) and its inline assembly loads A/X/Y from them:
-; inline assembly has no single way to reach a parameter in all modes.
+; C stores a register's value here (an assignment works in every calling
+; convention) and the call's inline assembly loads the register from it;
+; the registers asked for are saved here after the call.
 
 ; no calls through pointers here (ln45's call graph)
 .weak cc45.icallinfo
 cc45.icallinfo = 1
 
-.global ___cbm_a, ___cbm_x, ___cbm_y, ___cbm_p, ___cbm_target
+.global ___cbm_target
 
 .segment "bss"
-___cbm_a: .res 1
-___cbm_x: .res 1
-___cbm_y: .res 1
-___cbm_p: .res 2
 ___cbm_target: .res 2   ; the KERNAL routine crt0's __rom_call calls
+
+.global ___jsr_a, ___jsr_x, ___jsr_y, ___jsr_z, ___jsr_c, ___jsr_p
+.global ___jsr_ax, ___jsr_ay, ___jsr_az, ___jsr_xy, ___jsr_q
+___jsr_a:  .res 1
+___jsr_x:  .res 1
+___jsr_y:  .res 1
+___jsr_z:  .res 1
+___jsr_c:  .res 1       ; .Carry = value (not 0: set)
+___jsr_p:  .res 1       ; the flags after the call (php)
+___jsr_ax: .res 2
+___jsr_ay: .res 2
+___jsr_az: .res 2
+___jsr_xy: .res 2
+___jsr_q:  .res 4

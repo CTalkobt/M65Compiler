@@ -9,10 +9,51 @@ cc45.icallinfo = 1
 .weak cc45.icall.__rom_call
 cc45.icall.__rom_call = 1
 
-.global __rom_call
+.global __rom_call, __rom_calli
 .extern ___cbm_target, __stack_top, __saved_spl, __saved_sph, __bp_rom, __bp_prog
 
 .segment "code"
+; __rom_calli — __rom_call of the routine whose address is the word after
+; the JSR (cc45's __jsr of a ROM address: jsr __rom_calli / .word $FFD2, 5
+; bytes for the 13 of storing ___cbm_target and jsr __rom_call): returns
+; after the word. A, X, Y, Z and the flags go to the routine as for
+; __rom_call.
+__rom_calli:
+    php
+    sta __re_a
+    stx __re_x
+    sty __re_y
+    pla
+    sta __re_p
+    pla                     ; the return address - 1: the JSR's last byte
+    sta __rci_lo + 1
+    sta __rci_hi + 1
+    clc
+    adc #2
+    tax
+    pla
+    sta __rci_lo + 2
+    sta __rci_hi + 2
+    adc #0
+    pha                     ; the return address past the word
+    txa
+    pha
+    ldy #1
+__rci_lo:
+    lda $FFFF,y             ; (patched above: the word's low byte)
+    sta ___cbm_target
+    iny
+__rci_hi:
+    lda $FFFF,y             ; (its high byte)
+    sta ___cbm_target + 1
+    lda __re_p
+    pha
+    lda __re_a
+    ldx __re_x
+    ldy __re_y
+    plp
+    jmp __rom_call          ; its RTS returns past the word
+
 ; __rom_call — call the KERNAL routine at ___cbm_target (set by the <cbm.h>
 ; wrappers) on the ROM's page-1 stack (the caller's 8-bit stack, saved at
 ; startup) and base page 0: the KERNAL's disk code (OPEN/CHKIN/CHKOUT/

@@ -1830,6 +1830,13 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
                 for (const auto& in : blk.insts)
                     if (in.op == ir::Op::ASM_INLINE && in.asmText.find("__rom_call") != std::string::npos) namesRomCall = true;
         if (namesRomCall) emit(".extern __rom_call");
+        // (__jsr of a ROM address: jsr __rom_calli / .word addr)
+        bool namesRomCalli = false;
+        for (const auto& fn : mod.functions)
+            for (const auto& blk : fn.blocks)
+                for (const auto& in : blk.insts)
+                    if (in.op == ir::Op::ASM_INLINE && in.asmText.find("__rom_calli") != std::string::npos) namesRomCalli = true;
+        if (namesRomCalli) emit(".extern __rom_calli");
 
         // The module defining main chooses the CPU stack: crt0's weak
         // __stack_top ($BFFF, 16-bit stack) is overridden here; 0 keeps the

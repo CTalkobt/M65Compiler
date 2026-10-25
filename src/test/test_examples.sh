@@ -91,7 +91,7 @@ build_example "$EXAMPLES/c/multi_module"
 test_text "multi_module" "$EXAMPLES/c/multi_module/program.prg" "^6/6 TESTS PASSED"
 
 build_example "$EXAMPLES/c/ext_tour"
-test_text "ext_tour" "$EXAMPLES/c/ext_tour/ext_tour.prg" "^19/19 EXTENSIONS WORK"
+test_text "ext_tour" "$EXAMPLES/c/ext_tour/ext_tour.prg" "^20/20 EXTENSIONS WORK"
 # the tour built with both calling conventions (-fno-zpcall: __CC45_STACK__)
 if make -C "$EXAMPLES/c/ext_tour" check >"$BUILDDIR/ext_tour_check.txt" 2>&1; then
     pass "ext_tour both conventions"

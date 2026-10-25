@@ -98,6 +98,19 @@ else
     failed=$((failed + 1))
 fi
 
+# A symbol both .extern and defined in the file is the definition (as in C):
+# not an import (the jsr is relocated within the text)
+echo "Testing .extern of a symbol the file defines..."
+printf '    .segment "code"\n    .extern foo\n    jsr foo\n    rts\nfoo:\n    rts\n' > build/test/test_ca45_extdef.s45
+if ./bin/ca45 -c build/test/test_ca45_extdef.s45 -o build/test/test_ca45_extdef.o45 >/dev/null 2>&1 &&
+   ! ./bin/nm45 build/test/test_ca45_extdef.o45 | grep -q ' U foo' &&
+   ./bin/nm45 -r build/test/test_ca45_extdef.o45 | grep -q 'R_WORD *TEXT'; then
+    echo "SUCCESS: .extern of a symbol the file defines"
+else
+    echo "FAIL: .extern of a symbol the file defines ($(./bin/nm45 build/test/test_ca45_extdef.o45 2>&1 | tr '\n' ' '))"
+    failed=$((failed + 1))
+fi
+
 # An #include'd file's errors name that file and its line (they named the
 # main source with the include's line), the excerpt from that file too
 echo "Testing errors in an #include'd file..."
