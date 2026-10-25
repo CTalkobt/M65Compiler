@@ -3722,9 +3722,9 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 if (ok && !storeTargets_.count(d)) zextAlias_[d] = in.src1;
             }
         }
-        // A long loaded from a global (of this program, not on the base page,
-        // not a parameter's storage) whose one use is the next instruction:
-        // read by that use where it is
+        // A long, 16-bit value or byte loaded from a global (of this program,
+        // not on the base page, not a parameter's storage) whose one use is
+        // the next instruction: read by that use where it is
         globalLoadAlias_.clear();
         for (size_t b = 0; b < blocks.size(); b++) {
             const auto& insts = blocks[b]->insts;
@@ -3732,7 +3732,8 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 const auto& in = insts[i];
                 bool w32 = in.resultType == ir::Type::I32;
                 bool w16 = in.resultType == ir::Type::I16 || in.resultType == ir::Type::PTR;
-                if (in.op != ir::Op::LOAD || !(w32 || w16) || !in.args.empty() ||
+                bool w8 = in.resultType == ir::Type::I8;
+                if (in.op != ir::Op::LOAD || !(w32 || w16 || w8) || !in.args.empty() ||
                     in.src1.kind != ir::OperandKind::GLOBAL || !in.dest.isVreg()) continue;
                 const std::string& g = in.src1.name;
                 if (g.find("__param_") != std::string::npos) continue;
@@ -3764,9 +3765,9 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 if (!next) continue;
                 const auto& u = insts[j];
                 bool fits = false;
-                // (the use's width: a long's, or 16 bits / a pointer's)
+                // (the use's width: a long's, a byte's, or 16 bits / a pointer's)
                 auto sameWidth = [&](ir::Type t) {
-                    return w32 ? t == ir::Type::I32 : (t == ir::Type::I16 || t == ir::Type::PTR);
+                    return w32 ? t == ir::Type::I32 : w8 ? t == ir::Type::I8 : (t == ir::Type::I16 || t == ir::Type::PTR);
                 };
                 switch (u.op) {
                     case ir::Op::ADD: case ir::Op::SUB:
@@ -3782,6 +3783,9 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                     case ir::Op::STORE:      // (the value, not the address)
                         fits = sameWidth(u.resultType) && u.src1.isVreg() && u.src1.vregId == d &&
                                !(u.src2.isVreg() && u.src2.vregId == d);
+                        break;
+                    case ir::Op::ZEXT: case ir::Op::SEXT:   // (a byte widened: loadOperand)
+                        fits = w8 && u.args.empty();
                         break;
                     default: break;
                 }
@@ -7123,7 +7127,8 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
             }
             if (inst.src2.kind == ir::OperandKind::GLOBAL) {
                 // Store directly to global address
-                if (inst.resultType == ir::Type::I8 && inst.src1.isVreg() && (truncAlias_.count(inst.src1.vregId) || suppressedVregs_.count(inst.src1.vregId))) {
+                if (inst.resultType == ir::Type::I8 && inst.src1.isVreg() && (truncAlias_.count(inst.src1.vregId) || suppressedVregs_.count(inst.src1.vregId) ||
+                                                                              globalLoadAlias_.count(inst.src1.vregId))) {
                     loadVregA(inst.src1.vregId);
                 } else if (inst.resultType == ir::Type::I8 && inst.src1.isVreg()) {
                     // I8: only need A, skip ldx #0
@@ -7297,7 +7302,8 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                         // 8-bit store: only need A, skip X load
                         if (inst.src1.isImm()) {
                             emit("lda #" + std::to_string((int)(inst.src1.immVal & 0xFF)));
-                        } else if (inst.src1.isVreg() && (truncAlias_.count(inst.src1.vregId) || suppressedVregs_.count(inst.src1.vregId))) {
+                        } else if (inst.src1.isVreg() && (truncAlias_.count(inst.src1.vregId) || suppressedVregs_.count(inst.src1.vregId) ||
+                                                          globalLoadAlias_.count(inst.src1.vregId))) {
                             loadVregA(inst.src1.vregId);
                         } else if (inst.src1.isVreg()) {
                             auto valAlloc = alloc_.getAlloc(inst.src1.vregId);

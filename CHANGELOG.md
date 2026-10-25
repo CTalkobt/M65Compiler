@@ -4,6 +4,15 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Smaller code: byte globals read by their one use
+
+The examples' code is another 0.5 % smaller (141,191 → 140,427 bytes).
+
+- cc45: a byte loaded from a global whose one use follows (an add or
+  subtract, a compare, a store, a widening) is read by that use where it
+  is (`lda _g`), not through a temporary (16- and 32-bit values already
+  were); test `test_mulidx_xemu.c` [5].
+
 ### Smaller code: multiply / divide, byte indexes through pointers, widened bytes
 
 The examples' code is another 2.3 % smaller (144,451 → 141,191 bytes over
