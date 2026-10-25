@@ -90,6 +90,15 @@ test_text "hello_linked" "$EXAMPLES/c/hello_linked/hello.prg" "LINKED HELLO"
 build_example "$EXAMPLES/c/multi_module"
 test_text "multi_module" "$EXAMPLES/c/multi_module/program.prg" "^6/6 TESTS PASSED"
 
+build_example "$EXAMPLES/c/ext_tour"
+test_text "ext_tour" "$EXAMPLES/c/ext_tour/ext_tour.prg" "^18/18 EXTENSIONS WORK"
+# the tour built with both calling conventions (-fno-zpcall: __CC45_STACK__)
+if make -C "$EXAMPLES/c/ext_tour" check >"$BUILDDIR/ext_tour_check.txt" 2>&1; then
+    pass "ext_tour both conventions"
+else
+    fail "ext_tour both conventions" "$(tail -1 "$BUILDDIR/ext_tour_check.txt")"
+fi
+
 build_example "$EXAMPLES/c/overlays"
 test_text_disk "overlays" "$EXAMPLES/c/overlays/ovldemo.prg" "$EXAMPLES/c/overlays/ovldemo.d81" "^3/3 OVERLAYS RAN"
 

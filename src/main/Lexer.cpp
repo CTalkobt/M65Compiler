@@ -448,18 +448,19 @@ Token Lexer::lexNumber() {
         // No digits after e — backtrack
         pos = savedPos2;
     }
-    // Check decimal literal overflow
+    // Optional L/l/U/u suffixes, kept in the token for the parser
+    std::string suffix;
+    while (peek() == 'L' || peek() == 'l' || peek() == 'U' || peek() == 'u') suffix += get();
+    // Check decimal literal overflow (an LL literal keeps 64 bits, as a hex one)
+    bool ll = std::count_if(suffix.begin(), suffix.end(), [](char c) { return c == 'l' || c == 'L'; }) >= 2;
     try {
         unsigned long long ull = std::stoull(value);
-        if (ull > 0xFFFFFFFF) {
+        if (ull > 0xFFFFFFFF && !ll) {
             std::cerr << startLine << ":" << startCol << ": warning: decimal literal " << value << " overflows 32-bit integer" << std::endl;
         }
     } catch (...) {
         std::cerr << startLine << ":" << startCol << ": warning: decimal literal " << value << " overflows integer" << std::endl;
     }
-    // Optional L/l/U/u suffixes, kept in the token for the parser
-    std::string suffix;
-    while (peek() == 'L' || peek() == 'l' || peek() == 'U' || peek() == 'u') suffix += get();
     // Integer imaginary literal: 200i, 1i
     if (peek() == 'i' || peek() == 'I') {
         get();

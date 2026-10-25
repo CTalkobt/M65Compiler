@@ -27,6 +27,7 @@ EXAMPLES = {
     "hello_world": "examples/c/hello_world/hello.prg",
     "hello_linked": "examples/c/hello_linked/hello.prg",
     "multi_module": "examples/c/multi_module/program.prg",
+    "ext_tour": "examples/c/ext_tour/ext_tour.prg",
     "unit_convert": "examples/c/unit_convert/convert.prg",
     "palette_fade": "examples/c/palette_fade/palette_fade.prg",
     "bitfield_registers": "examples/c/bitfield_registers/bitfield_demo.prg",

@@ -103,6 +103,9 @@ CompilationResult CompilationPipeline::compile() {
         if (config_.staticAllocMode) {
             symbols["__CC45_STATIC_ALLOC__"] = "1";
         }
+        // the calling convention: __CC45_ZPCALL__ (the default) or
+        // __CC45_STACK__ (-fno-zpcall)
+        symbols[config_.zpCallMode ? "__CC45_ZPCALL__" : "__CC45_STACK__"] = "1";
 
         // Stage 1: Preprocess
         PreprocessStage preprocessStage(config_.inputFile, sourceRaw,
