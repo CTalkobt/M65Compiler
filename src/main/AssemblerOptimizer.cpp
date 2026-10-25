@@ -777,18 +777,30 @@ bool AssemblerOptimizer::optimizeInternal(
                     // CMP #0 also sets C: unsafe when the carry is read before
                     // anything else sets it — by a BCC/BCS anywhere in the run of
                     // branches that follows, or by the instruction after them
+                    // (forward past what leaves C alone, to what reads it:
+                    // not safe; or sets it: safe. Anything else, a call, a
+                    // label or a simulated instruction, counts as a read.
+                    // lda / ldx $hi; cmp #0; txa; sbc #1 is a 16-bit compare)
                     bool safeToElim = true;
+                    static const std::set<std::string> leavesC = {"LDA", "LDX", "LDY", "LDZ", "STA", "STX",
+                        "STY", "STZ", "TAX", "TAY", "TAZ", "TXA", "TYA", "TZA", "TSX", "TSY", "TXS", "TYS",
+                        "TAB", "TBA", "INX", "INY", "INZ", "DEX", "DEY", "DEZ", "INC", "DEC", "AND", "ORA",
+                        "EOR", "BIT", "PHA", "PHX", "PHY", "PHZ", "PLA", "PLX", "PLY", "PLZ", "NOP", "INW",
+                        "DEW", "BEQ", "BNE", "BMI", "BPL", "BVS", "BVC", "LDQ", "STQ"};
+                    static const std::set<std::string> setsC = {"CLC", "SEC", "CMP", "CPX", "CPY", "CPZ",
+                        "ASL", "LSR", "ASR", "PLP", "CMPQ", "ASLQ", "LSRQ", "ASRQ", "ASW"};
                     for (size_t j = i + 1; j < parser->statements.size(); ++j) {
                         auto* next = parser->statements[j].get();
-                        if (next->deleted) continue;
-                        if (next->type != AssemblerParser::Statement::INSTRUCTION) break;
+                        if (next->deleted || isLocDirective(next)) continue;
+                        if (next->type != AssemblerParser::Statement::INSTRUCTION || !next->label.empty()) {
+                            safeToElim = false;
+                            break;
+                        }
                         std::string nm = next->instr.mnemonic;
                         std::transform(nm.begin(), nm.end(), nm.begin(), ::toupper);
-                        if (nm == "BEQ" || nm == "BNE" || nm == "BMI" || nm == "BPL" ||
-                            nm == "BVS" || nm == "BVC") continue;
-                        static const char* readsC[] = {"BCC", "BCS", "ADC", "SBC", "ROL", "ROR",
-                            "PHP", "ADCQ", "SBCQ", "ROLQ", "RORQ", "ROW"};
-                        for (auto* r : readsC) if (nm == r) safeToElim = false;
+                        if (leavesC.count(nm)) continue;
+                        if (setsC.count(nm) && next->instr.mode != AddressingMode::BASE_PAGE_RELATIVE) break;
+                        safeToElim = false;     // reads C (bcc, adc, rol, php ...) or unknown
                         break;
                     }
                     if (safeToElim) {

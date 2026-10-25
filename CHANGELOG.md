@@ -22,6 +22,11 @@ objects); test `test_peephole_xemu.c` (both conventions).
   flags already reflect A (an `ldx #imm` between moves before A's load).
 - ca45 `RedundantLoad`: a load of a slot another register holds becomes a
   transfer (`tax` ...), moved right after the store when needed.
+- ca45 `CmpElimination` fix: a `cmp #0` whose carry a later `sbc` reads,
+  past a `txa` (a 16-bit compare), was removed when the flags reflected A:
+  the check looked at only the first instruction after the branches; it
+  now scans forward to what reads or sets the carry (the transfers above
+  made the case appear: `ldexpf`'s overflow test).
 
 ### Glam Lambs: fluffier wool; the studio opens in the salon
 
