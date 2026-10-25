@@ -34,3 +34,6 @@ bin/objdump45
 hyper_serial.log
 test_short_final.prg
 lib45/
+
+# aider (its tag cache, chat history, settings)
+.aider*
