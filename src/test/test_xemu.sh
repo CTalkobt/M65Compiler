@@ -2043,6 +2043,20 @@ for fcmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: dma.h's stepped DMA, palette.h, seam.h (two-byte cell screens with
+# full-colour characters)
+for smode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r sname sflags <<< "$smode"
+    echo "Testing test_seam_xemu.c ($sname)..."
+    compile_link_test "src/test-resources/test_seam_xemu.c" "build/test/test_seam_${sname}_xemu.prg" "$sflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_seam_$sname" "build/test/test_seam_${sname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_seam_xemu.c $sname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: constant initializers of aggregate globals / local statics (struct
 # layout, nested braces, brace elision, designators, unions, bitfields)
 for simode in "zp|" "stack|-fno-zpcall"; do

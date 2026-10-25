@@ -1,7 +1,9 @@
 # The games disk, games.d81 ("CC45 GAMES"): <program, relative to examples/> | <name on the disk> | <its line in the menu>
-# (a file with no menu line goes on the disk only: the music a game loads)
+# (a file with no menu line goes on the disk only: the music and the pictures a game loads)
 c/invaders/invaders.prg              | invaders     | invaders - a space invaders game
 c/rogue/rogue.prg                    | rogue        | rogue - a dungeon crawl
 c/hanger/hanger.prg                  | hanger       | hanger - hangman, six victims
 c/glamlambs/glamlambs.prg            | glamlambs    | glam lambs - a sheep makeover game
 c/glamlambs/glammusic.bin            | glammusic    |
+c/glamlambs/salon1.dat               | glamsalon    |
+c/glamlambs/salon2.dat               | glamsalon2   |
