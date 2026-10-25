@@ -1,4 +1,5 @@
 #include <cstring>
+#include <cstdio>
 #include "Preprocessor.hpp"
 #include <fstream>
 #include <sstream>
@@ -43,6 +44,9 @@ Preprocessor::Preprocessor(bool isCompiler) : isCompiler(isCompiler) {
     // Standard predefined macros (C17)
     macros["__STDC__"] = Macro{false, false, {}, "1"};
     macros["__STDC_VERSION__"] = Macro{false, false, {}, "201710L"};
+    macros["__STDC_EMBED_NOT_FOUND__"] = Macro{false, false, {}, "0"};
+    macros["__STDC_EMBED_FOUND__"] = Macro{false, false, {}, "1"};
+    macros["__STDC_EMBED_EMPTY__"] = Macro{false, false, {}, "2"};
     macros["__STDC_HOSTED__"] = Macro{false, false, {}, "0"};  // freestanding
 
     // C11+ optional feature-test macros (§6.10.8.3)
@@ -418,7 +422,8 @@ std::vector<Preprocessor::PPTok> Preprocessor::expandPP(std::vector<PPTok> in, i
             out.push_back(s);
             continue;
         }
-        if (id == "__has_include" || id == "__has_builtin" || id == "__has_attribute" || id == "_Pragma") {
+        if (id == "__has_include" || id == "__has_embed" || id == "__has_builtin" || id == "__has_attribute" ||
+            id == "_Pragma") {
             std::string inside;
             if (takeParens(inside)) {
                 if (id == "_Pragma") {
@@ -435,7 +440,19 @@ std::vector<Preprocessor::PPTok> Preprocessor::expandPP(std::vector<PPTok> in, i
                     continue;
                 }
                 std::string val;
-                if (id == "__has_include") {
+                if (id == "__has_embed") {
+                    // __STDC_EMBED_NOT_FOUND__ 0 (or a parameter not supported),
+                    // __STDC_EMBED_FOUND__ 1, __STDC_EMBED_EMPTY__ 2
+                    EmbedSpec spec;
+                    std::string err, path;
+                    std::vector<unsigned char> bytes;
+                    if (!parseEmbed(inside, spec, err)) {
+                        if (!err.empty()) throw std::runtime_error("__has_embed: " + err);
+                        val = "0";
+                    } else {
+                        val = !readEmbed(spec, bytes, path) ? "0" : bytes.empty() ? "2" : "1";
+                    }
+                } else if (id == "__has_include") {
                     std::string f = inside;
                     if (f.size() >= 2 && ((f.front() == '"' && f.back() == '"') || (f.front() == '<' && f.back() == '>')))
                         f = f.substr(1, f.size() - 2);
@@ -893,6 +910,101 @@ std::string Preprocessor::findIncludeFile(const std::string& fileName, const std
     return "";
 }
 
+bool Preprocessor::parseEmbed(const std::string& text, EmbedSpec& spec, std::string& err) {
+    std::string t = trim(text);
+    if (t.empty() || (t[0] != '"' && t[0] != '<')) { err = "expected \"file\" or <file>"; return false; }
+    char close = t[0] == '"' ? '"' : '>';
+    size_t e = t.find(close, 1);
+    if (e == std::string::npos) { err = std::string("missing closing ") + close; return false; }
+    spec.file = t.substr(1, e - 1);
+    if (spec.file.empty()) { err = "empty file name"; return false; }
+    size_t i = e + 1;
+    auto skipWs = [&] { while (i < t.size() && std::isspace((unsigned char)t[i])) i++; };
+    for (skipWs(); i < t.size(); skipWs()) {
+        // a parameter: name or prefix::name, then (balanced tokens)
+        size_t b = i;
+        while (i < t.size() && (std::isalnum((unsigned char)t[i]) || t[i] == '_' || t[i] == ':')) i++;
+        std::string name = t.substr(b, i - b);
+        if (name.empty()) { err = "unexpected '" + t.substr(i, 1) + "'"; return false; }
+        skipWs();
+        std::string arg;
+        bool hasArg = false;
+        if (i < t.size() && t[i] == '(') {
+            size_t ab = i + 1;
+            int depth = 0;
+            for (; i < t.size(); i++) {
+                char c = t[i];
+                if (c == '"' || c == '\'') {
+                    for (i++; i < t.size() && t[i] != c; i++) if (t[i] == '\\') i++;
+                } else if (c == '(') {
+                    depth++;
+                } else if (c == ')' && --depth == 0) {
+                    break;
+                }
+            }
+            if (i >= t.size()) { err = "missing ')' after " + name; return false; }
+            arg = trim(t.substr(ab, i - ab));
+            i++;
+            hasArg = true;
+        }
+        // (__limit__ is limit, cc45::__offset__ is cc45::offset: C23 6.10.4.1)
+        std::string vendor, n = name;
+        size_t cc = n.rfind("::");
+        if (cc != std::string::npos) { vendor = n.substr(0, cc); n = n.substr(cc + 2); }
+        if (n.size() > 4 && n.compare(0, 2, "__") == 0 && n.compare(n.size() - 2, 2, "__") == 0)
+            n = n.substr(2, n.size() - 4);
+        auto number = [&](long& v) {
+            if (!hasArg || arg.empty()) { err = name + " needs a value: " + name + "(N)"; return false; }
+            v = evaluateExpression(arg);
+            if (v < 0) { err = name + "(" + arg + ") is negative"; return false; }
+            return true;
+        };
+        if (vendor.empty() && n == "limit") {
+            if (!number(spec.limit)) return false;
+        } else if ((vendor == "cc45" || vendor == "clang" || vendor == "gnu") && n == "offset") {
+            if (!number(spec.offset)) return false;
+        } else if (vendor.empty() && (n == "prefix" || n == "suffix" || n == "if_empty")) {
+            if (!hasArg) { err = name + " needs its tokens in ( )"; return false; }
+            if (n == "prefix") { spec.hasPrefix = true; spec.prefix = arg; }
+            else if (n == "suffix") { spec.hasSuffix = true; spec.suffix = arg; }
+            else { spec.hasIfEmpty = true; spec.ifEmpty = arg; }
+        } else {
+            err.clear();   // (an unknown parameter: not supported)
+            spec.file = name;
+            return false;
+        }
+    }
+    return true;
+}
+
+bool Preprocessor::readEmbed(const EmbedSpec& spec, std::vector<unsigned char>& bytes, std::string& path) {
+    path = findIncludeFile(spec.file, getDirectory(currentFile_));
+    if (path.empty()) return false;
+    std::ifstream f(path, std::ios::binary);
+    if (!f) return false;
+    bytes.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+    size_t off = std::min(bytes.size(), (size_t)spec.offset);
+    bytes.erase(bytes.begin(), bytes.begin() + (long)off);
+    if (spec.limit >= 0 && bytes.size() > (size_t)spec.limit) bytes.resize((size_t)spec.limit);
+    return true;
+}
+
+std::string Preprocessor::embedList(const std::vector<unsigned char>& bytes, int width) {
+    std::string out;
+    size_t perLine = 16 / (size_t)width, n = 0;
+    char buf[16];
+    for (size_t i = 0; i < bytes.size(); i += (size_t)width) {
+        unsigned long v = 0;
+        for (int k = width - 1; k >= 0; k--)
+            v = (v << 8) | (i + (size_t)k < bytes.size() ? bytes[i + (size_t)k] : 0);
+        std::snprintf(buf, sizeof buf, "0x%0*lx", width * 2, v);
+        if (n) out += n % perLine ? ", " : ",\n";
+        out += buf;
+        n++;
+    }
+    return out;
+}
+
 std::string Preprocessor::stripComments(const std::string& line, bool& inBlockComment) {
     std::string result;
     bool inString = false;
@@ -1311,6 +1423,61 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                 if (stateStack.size() <= 1) throw std::runtime_error("Unexpected #endif");
                 stateStack.pop_back();
                 output << "\n";
+            } else if (cmd == "#embed" || (cmd == "#include" && isConditionTrue() && [&] {
+                           // #include binary [char|word|long] "file"
+                           std::string w;
+                           auto at = ss.tellg();
+                           bool bin = (ss >> w) && w == "binary";
+                           ss.clear();
+                           ss.seekg(at);
+                           return bin;
+                       }())) {
+                if (isConditionTrue()) {
+                    std::string where = reportedFile + ":" + std::to_string(lineNum) + ": ";
+                    std::string lineRest;
+                    std::getline(ss, lineRest);
+                    lineRest = trim(lineRest);
+                    int width = 1;
+                    if (cmd == "#include") {
+                        std::istringstream ws(lineRest);
+                        std::string w, kind;
+                        ws >> w;   // binary
+                        size_t at = lineRest.find("binary") + 6;
+                        ws >> kind;
+                        if (kind == "char" || kind == "word" || kind == "long") {
+                            width = kind == "char" ? 1 : kind == "word" ? 2 : 4;
+                            at = lineRest.find(kind, at) + kind.size();
+                        }
+                        lineRest = trim(lineRest.substr(at));
+                    }
+                    if (!lineRest.empty() && lineRest[0] != '"' && lineRest[0] != '<') lineRest = trim(expandMacros(lineRest));
+                    EmbedSpec spec;
+                    std::string err, path;
+                    std::vector<unsigned char> bytes;
+                    if (!parseEmbed(lineRest, spec, err)) {
+                        if (err.empty()) throw std::runtime_error(where + cmd + ": unknown parameter '" + spec.file + "'");
+                        throw std::runtime_error(where + cmd + ": " + err);
+                    }
+                    if (cmd == "#include" && (spec.limit >= 0 || spec.offset || spec.hasPrefix || spec.hasSuffix || spec.hasIfEmpty))
+                        throw std::runtime_error(where + "#include binary takes no parameters (use #embed)");
+                    if (!readEmbed(spec, bytes, path)) throw std::runtime_error(where + "Could not find embed file: " + spec.file);
+                    if (bytes.size() % (size_t)width)
+                        std::cerr << where << "warning: " << path << ": " << bytes.size() << " bytes is not a whole number of "
+                                  << (width == 2 ? "words" : "longs") << "; the last one is padded with zero bytes\n";
+                    std::string text;
+                    if (bytes.empty()) {
+                        if (spec.hasIfEmpty) text = expandMacros(spec.ifEmpty);
+                    } else {
+                        if (spec.hasPrefix) text = expandMacros(spec.prefix) + " ";
+                        text += embedList(bytes, width);
+                        if (spec.hasSuffix) text += " " + expandMacros(spec.suffix);
+                    }
+                    output << text << "\n";
+                    if (text.find('\n') != std::string::npos)
+                        output << "#line " << (lineNum + 1) << " \"" << reportedFile << "\"\n";
+                } else {
+                    output << "\n";
+                }
             } else if (cmd == "#include") {
                 if (isConditionTrue()) {
                     std::string lineRest;
@@ -1347,6 +1514,8 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                     // Emit #line directive to mark the start of the included file
                     output << "#line 1 \"" << fullPath << "\"\n";
                     output << processInternal(buffer.str(), fullPath, depth + 1);
+                    currentFile_ = currentFile;
+                    includeDepth_ = depth;
                     // Restore line numbering after include
                     output << "#line " << (lineNum + 1) << " \"" << currentFile << "\"\n";
                 } else {

@@ -4,6 +4,19 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### `#embed` and `#include binary` (#91)
+
+- cp45 / cc45: a file's bytes as an initializer's list of constants.
+  `#include binary [char|word|long] "file"` (words and longs
+  little-endian; an incomplete last one warns and is padded with zeros)
+  and C23 `#embed "file"` with `limit(N)`, `prefix(...)`, `suffix(...)`,
+  `if_empty(...)` and `cc45::offset(N)` (skip a PRG's load address);
+  `__has_embed` and `__STDC_EMBED_*__`. Before this `#embed` was ignored
+  without a word. Test `test_embed_xemu.c` (both conventions).
+- `__INCLUDE_LEVEL__` and `__has_include` / `__has_embed` after an
+  `#include` are the including file's again (they stayed at the included
+  file's: `__INCLUDE_LEVEL__` was 1 in the main file).
+
 ### Example: a tour of the extensions
 
 - `examples/c/ext_tour`: cc45's extensions to C in one program, a short

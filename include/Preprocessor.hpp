@@ -85,5 +85,21 @@ private:
     std::string stripComments(const std::string& line, bool& inBlockComment);
     std::string getDirectory(const std::string& filePath);
     std::string findIncludeFile(const std::string& fileName, const std::string& currentDir);
+    // #embed (C23 6.10.4) and #include binary [char|word|long]: a file's bytes
+    // as a list of integer constants
+    struct EmbedSpec {
+        std::string file;                  // the name as written (without "" / <>)
+        long limit = -1;                   // limit(N): at most N bytes (-1: all)
+        long offset = 0;                   // cc45::offset(N): skip N bytes first
+        bool hasPrefix = false, hasSuffix = false, hasIfEmpty = false;
+        std::string prefix, suffix, ifEmpty;
+    };
+    // the operands of #embed / __has_embed: "file" or <file>, then parameters;
+    // false with err set for a malformed one (unknown is false, err empty)
+    bool parseEmbed(const std::string& text, EmbedSpec& spec, std::string& err);
+    // the bytes the spec selects; false when the file is not found
+    bool readEmbed(const EmbedSpec& spec, std::vector<unsigned char>& bytes, std::string& path);
+    // bytes as "0x01, 0x02, ..." lines, width 1, 2 or 4 bytes a value (little-endian)
+    static std::string embedList(const std::vector<unsigned char>& bytes, int width);
     std::string trim(const std::string& s);
 };
