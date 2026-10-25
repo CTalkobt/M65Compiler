@@ -2,8 +2,9 @@
 //
 // ln45 prints only errors, warnings that need action, and its summary by
 // default; -v adds the analysis summaries and informational warnings
-// (ln45info, INFO), -vv the call graph's indirect calls (DEBUG), -vvv the
-// relocation records and patches (ln45debug, DEEP). Each line goes to
+// (ln45info, INFO), -vv the call graph and the layout: base-page blocks,
+// __zp variables, the SAC overlay's placement (DEBUG), -vvv the relocation
+// records and patches (ln45debug, DEEP). Each line goes to
 // stderr as "[ln45:LEVEL] ..."; disabled levels discard their output.
 #pragma once
 #include "Logger.hpp"

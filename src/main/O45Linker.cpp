@@ -2471,7 +2471,7 @@ bool O45Linker::computeZarOverlay(std::string& errorMsg) {
         zarOffset_[f] = zarLo_ + at;
         zarUsed_ = std::max(zarUsed_, at + len);
         zarTotal_ += len;
-        ln45debug() << "base-page block: " << f << " at $" << std::hex << (zarLo_ + at) << std::dec
+        Logger::stream(LogLevel::DEBUG) << "base-page block: " << f << " at $" << std::hex << (zarLo_ + at) << std::dec
                     << " len " << len << "\n";
     }
     ln45info() << "base-page blocks: " << blocks.size() << " functions, " << zarTotal_ << " bytes in "
@@ -2692,7 +2692,7 @@ bool O45Linker::placeZpVars(std::string& errorMsg) {
     uint32_t at = ZAR_HI - zpVarTotal_;
     for (const auto& [sym, size] : zpVarSize_) {
         zpVarAddr_[sym] = at;
-        ln45debug() << "__zp variable: " << sym << " at $" << std::hex << at << std::dec << " len " << size << "\n";
+        Logger::stream(LogLevel::DEBUG) << "__zp variable: " << sym << " at $" << std::hex << at << std::dec << " len " << size << "\n";
         at += size;
     }
     ln45info() << "__zp variables: " << zpVarAddr_.size() << ", " << zpVarTotal_ << " bytes\n";
@@ -2771,7 +2771,7 @@ void O45Linker::generateZpInit() {
         t.push_back(0x10); t.push_back(0xF7);                             // BPL (to the LDA)
     }
     t.push_back(0x60);                                                    // RTS
-    ln45debug() << "__zp_init at $" << std::hex << zpInitAt_ << std::dec << "\n";
+    Logger::stream(LogLevel::DEBUG) << "__zp_init at $" << std::hex << zpInitAt_ << std::dec << "\n";
 }
 
 void O45Linker::patchZpInit() {
@@ -2824,7 +2824,7 @@ void O45Linker::generateZarWrappers() {
             abs(0xAE, regs + 1); abs(0xAD, regs);
             t.push_back(0x60);                           // RTS
             if (textBase_ + t.size() != save) {
-                ln45debug() << "base-page wrapper size mismatch for " << entry << "\n";
+                Logger::stream(LogLevel::DEBUG) << "base-page wrapper size mismatch for " << entry << "\n";
             }
             for (uint32_t k = 0; k < len + 6; k++) t.push_back(0);
             if (fOvl) {
@@ -2833,7 +2833,7 @@ void O45Linker::generateZarWrappers() {
             } else {
                 zarWrapAt_[zarKey(0, it->second)] = wrap;
             }
-            ln45debug() << "base-page wrapper for " << entry << " at $" << std::hex << wrap << std::dec << "\n";
+            Logger::stream(LogLevel::DEBUG) << "base-page wrapper for " << entry << " at $" << std::hex << wrap << std::dec << "\n";
         }
     }
 }
@@ -3361,9 +3361,9 @@ void O45Linker::computeSacOverlay() {
             blocks.push_back({fn, idx, exp.offset, sz->second});
         }
     }
-    for (const auto& f : addrTaken) ln45debug() << "SAC overlay: address taken " << f << "\n";
-    for (const auto& f : unsafe) ln45debug() << "SAC overlay: unsafe " << f << "\n";
-    for (const auto& b : blocks) ln45debug() << "SAC overlay: block " << b.func << " " << b.len << "\n";
+    for (const auto& f : addrTaken) Logger::stream(LogLevel::DEBUG) << "SAC overlay: address taken " << f << "\n";
+    for (const auto& f : unsafe) Logger::stream(LogLevel::DEBUG) << "SAC overlay: unsafe " << f << "\n";
+    for (const auto& b : blocks) Logger::stream(LogLevel::DEBUG) << "SAC overlay: block " << b.func << " " << b.len << "\n";
     if (blocks.size() < 2) return;
 
     std::map<std::string, std::set<std::string>> reach;
@@ -3398,7 +3398,7 @@ void O45Linker::computeSacOverlay() {
     sacOverlaySaved_ = total - sacOverlayLen_;
     for (const auto& p : placed) {
         sacMoves_[p.b->obj].push_back({p.b->off, p.b->len, p.at, p.b->func});
-        ln45debug() << "SAC overlay: place " << p.b->func << " at " << p.at << " len " << p.b->len << "\n";
+        Logger::stream(LogLevel::DEBUG) << "SAC overlay: place " << p.b->func << " at " << p.at << " len " << p.b->len << "\n";
     }
     ln45info() << "SAC overlay: " << placed.size() << " functions, " << total
                << " bytes of storage in " << sacOverlayLen_ << " (" << sacOverlaySaved_

@@ -17,7 +17,8 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   that broke the build).
 - ca45: `-v` … `-vvvv`; the token dump is `-vvvv`.
 - ln45: `-v` … `-vvvv`; `ln45info()` / `ln45debug()` write log lines; the
-  relocation trace is `-vvv` (was `-vv`), the call graph stays at `-vv`.
+  relocation trace is `-vvv` (was `-vv`), the call graph and the layout (base-page blocks, SAC overlay) stay at
+  `-vv`.
 - Test `src/test/test_logging.sh` (`make test`).
 
 ### Loop strength reduction; element addresses outside loops multiply by a call
