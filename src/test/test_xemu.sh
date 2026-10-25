@@ -2058,6 +2058,20 @@ for pmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: the second size pass (mul / div from X/Y/Z, __mul16y, (p),y at a
+# byte index, zero-extended byte temporaries read where they live)
+for mmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r mname mflags <<< "$mmode"
+    echo "Testing test_mulidx_xemu.c ($mname)..."
+    compile_link_test "src/test-resources/test_mulidx_xemu.c" "build/test/test_mulidx_${mname}_xemu.prg" "$mflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_mulidx_$mname" "build/test/test_mulidx_${mname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_mulidx_xemu.c $mname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: dma.h's stepped DMA, palette.h, seam.h (two-byte cell screens with
 # full-colour characters)
 for smode in "zp|" "stack|-fno-zpcall"; do

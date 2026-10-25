@@ -85,9 +85,9 @@ void AssemblerSimulatedOps::emitMulCode(AssemblerParser* parser, M65Emitter& e, 
     if (!srcAst) return;
     auto storeMath = [&](uint16_t regBase, int i, const std::string& src) {
         if (src == ".A") e.sta_addr(regBase + i);
-        else if (src == ".X") { e.txa(); e.sta_addr(regBase + i); }
-        else if (src == ".Y") { e.tya(); e.sta_addr(regBase + i); }
-        else if (src == ".Z") { e.tza(); e.sta_addr(regBase + i); }
+        else if (src == ".X") e.stx_addr(regBase + i);
+        else if (src == ".Y") e.sty_addr(regBase + i);
+        else if (src == ".Z") e.stz_addr(regBase + i);
         else {
             Symbol* sym = parser->resolveSymbol(src, scopePrefix);
             uint32_t addr = i; if (sym) addr += sym->value; else { try { addr += parseNumericLiteral(src); } catch(...) { addr += 0; } }
@@ -114,7 +114,8 @@ void AssemblerSimulatedOps::emitMulCode(AssemblerParser* parser, M65Emitter& e, 
     if (isImmediate && srcAst->isConstant(parser)) {
         uint32_t val = srcAst->getValue(parser);
         for (int i = 0; i < bytes; ++i) {
-            e.lda_imm((val >> (i * 8)) & 0xFF);
+            uint8_t b = (val >> (i * 8)) & 0xFF;
+            if (i == 0 || b != ((val >> (i * 8 - 8)) & 0xFF)) e.lda_imm(b);
             e.sta_addr(m65::MULT_ARG2 + i);
         }
     } else {
@@ -137,9 +138,9 @@ void AssemblerSimulatedOps::emitMulCode(AssemblerParser* parser, M65Emitter& e, 
     } else if (dest == ".A" || dest == ".AX" || dest == ".AXY" || dest == ".AXYZ" || dest == ".Q") {
         // Read result into registers: load high bytes first into their
         // target registers, then load the low byte into A last
-        if (bytes >= 4) { e.lda_addr(m65::MULT_RES + 3); e.taz(); }
-        if (bytes >= 3) { e.lda_addr(m65::MULT_RES + 2); e.tay(); }
-        if (bytes >= 2) { e.lda_addr(m65::MULT_RES + 1); e.tax(); }
+        if (bytes >= 4) e.ldz_addr(m65::MULT_RES + 3);
+        if (bytes >= 3) e.ldy_addr(m65::MULT_RES + 2);
+        if (bytes >= 2) e.ldx_addr(m65::MULT_RES + 1);
         e.lda_addr(m65::MULT_RES);
     } else {
         for (int i = 0; i < bytes; ++i) {
@@ -162,9 +163,9 @@ void AssemblerSimulatedOps::emitDivCode(AssemblerParser* parser, M65Emitter& e, 
     if (!srcAst) return;
     auto storeMath = [&](uint16_t regBase, int i, const std::string& src) {
         if (src == ".A") e.sta_addr(regBase + i);
-        else if (src == ".X") { e.txa(); e.sta_addr(regBase + i); }
-        else if (src == ".Y") { e.tya(); e.sta_addr(regBase + i); }
-        else if (src == ".Z") { e.tza(); e.sta_addr(regBase + i); }
+        else if (src == ".X") e.stx_addr(regBase + i);
+        else if (src == ".Y") e.sty_addr(regBase + i);
+        else if (src == ".Z") e.stz_addr(regBase + i);
         else {
             Symbol* sym = parser->resolveSymbol(src, scopePrefix);
             uint32_t addr = i; if (sym) addr += sym->value; else { try { addr += parseNumericLiteral(src); } catch(...) { addr += 0; } }
@@ -192,7 +193,8 @@ void AssemblerSimulatedOps::emitDivCode(AssemblerParser* parser, M65Emitter& e, 
         uint32_t val = srcAst->getValue(parser);
         if (val == 0) throw std::runtime_error("Division by zero at line " + std::to_string(parser->tokens[tokenIndex].line));
         for (int i = 0; i < bytes; ++i) {
-            e.lda_imm((val >> (i * 8)) & 0xFF);
+            uint8_t b = (val >> (i * 8)) & 0xFF;
+            if (i == 0 || b != ((val >> (i * 8 - 8)) & 0xFF)) e.lda_imm(b);
             e.sta_addr(m65::DIV_ARG2 + i);
         }
     } else {
@@ -211,7 +213,8 @@ void AssemblerSimulatedOps::emitDivCode(AssemblerParser* parser, M65Emitter& e, 
     }
     // The divider always uses all 32 bits of both inputs; clear bytes this op didn't write
     if (bytes < 4) {
-        e.lda_imm(0);
+        bool aZero = isImmediate && srcAst->isConstant(parser) && ((srcAst->getValue(parser) >> (bytes * 8 - 8)) & 0xFF) == 0;
+        if (!aZero) e.lda_imm(0);
         for (int i = bytes; i < 4; ++i) { e.sta_addr(m65::DIV_ARG1 + i); e.sta_addr(m65::DIV_ARG2 + i); }
     }
     e.bit_addr(m65::MATH_BUSY_STATUS); e.bmi(-5);  // DIVBUSY is bit 7 → N
@@ -219,9 +222,9 @@ void AssemblerSimulatedOps::emitDivCode(AssemblerParser* parser, M65Emitter& e, 
         quadLoadAbs(e, m65::DIV_RES);
         if (!regs) quadStoreMem(parser, e, dest, scopePrefix);
     } else if (dest == ".A" || dest == ".AX" || dest == ".AXY" || dest == ".AXYZ" || dest == ".Q") {
-        if (bytes >= 4) { e.lda_addr(m65::DIV_RES + 3); e.taz(); }
-        if (bytes >= 3) { e.lda_addr(m65::DIV_RES + 2); e.tay(); }
-        if (bytes >= 2) { e.lda_addr(m65::DIV_RES + 1); e.tax(); }
+        if (bytes >= 4) e.ldz_addr(m65::DIV_RES + 3);
+        if (bytes >= 3) e.ldy_addr(m65::DIV_RES + 2);
+        if (bytes >= 2) e.ldx_addr(m65::DIV_RES + 1);
         e.lda_addr(m65::DIV_RES);
     } else {
         for (int i = 0; i < bytes; ++i) {
@@ -1633,8 +1636,7 @@ void AssemblerSimulatedOps::emitSignedMathOp(AssemblerParser* parser, M65Emitter
 
     // --- Step 2: Store abs(left) in hardware regs ---
     e.sta_addr(leftBase);
-    e.txa();
-    e.sta_addr(leftBase + 1);
+    e.stx_addr(leftBase + 1);
     if (op != 0) {
         // The divider uses all 32 bits of both inputs; clear the high bytes
         e.lda_imm(0);
@@ -1750,9 +1752,9 @@ void AssemblerSimulatedOps::emitSignedMathOp32(AssemblerParser* parser, M65Emitt
 
     // --- Step 2: Store abs(left) in hardware regs ---
     e.sta_addr(leftBase);
-    e.txa(); e.sta_addr(leftBase + 1);
-    e.tya(); e.sta_addr(leftBase + 2);
-    e.tza(); e.sta_addr(leftBase + 3);
+    e.stx_addr(leftBase + 1);
+    e.sty_addr(leftBase + 2);
+    e.stz_addr(leftBase + 3);
 
     // --- Step 3: Compute result sign (XOR of operand signs for mul/div) ---
     if (op != 2 && !srcIsConst) {
@@ -1802,14 +1804,14 @@ void AssemblerSimulatedOps::emitSignedMathOp32(AssemblerParser* parser, M65Emitt
 
     // --- Step 6: Read result into .AXYZ ---
     if (op == 0) {
-        e.lda_addr(m65::MULT_RES + 3); e.taz();
-        e.lda_addr(m65::MULT_RES + 2); e.tay();
-        e.lda_addr(m65::MULT_RES + 1); e.tax();
+        e.ldz_addr(m65::MULT_RES + 3);
+        e.ldy_addr(m65::MULT_RES + 2);
+        e.ldx_addr(m65::MULT_RES + 1);
         e.lda_addr(m65::MULT_RES);
     } else if (op == 1) {
-        e.lda_addr(m65::DIV_RES + 3); e.taz();
-        e.lda_addr(m65::DIV_RES + 2); e.tay();
-        e.lda_addr(m65::DIV_RES + 1); e.tax();
+        e.ldz_addr(m65::DIV_RES + 3);
+        e.ldy_addr(m65::DIV_RES + 2);
+        e.ldx_addr(m65::DIV_RES + 1);
         e.lda_addr(m65::DIV_RES);
     } else {
         // Remainder = dividend - quotient * divisor (no hardware remainder register)

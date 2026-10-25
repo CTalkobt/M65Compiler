@@ -15,7 +15,7 @@
 #include <stdlib.h>
 #define OUT ((volatile unsigned char *)0xC0C0)
 
-static char big[0x8400];
+static char big[0x8800];   /* (the program ends at about $B000) */
 
 #pragma cc45 recurse
 static int depth(int n) { volatile char pad[16]; pad[0] = (char)n; return n ? depth(n - 1) + pad[0] - n + 1 : 0; }

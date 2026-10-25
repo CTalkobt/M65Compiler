@@ -139,6 +139,14 @@ std::string IRCodeGen::foldedPtr(uint32_t addrVreg, const std::string& scratch, 
 // Y for an element address kept as base+off,y (elemAbsY_): the byte index,
 // or index * stride; the operand
 std::string IRCodeGen::elemYOperand(const ElemY& e) {
+    if (e.base.isVreg()) {
+        // a pointer in the base page: (p),y
+        std::string p = "$" + hex8((uint8_t)alloc_.getAlloc(e.base.vregId).offset);
+        emit("ldy " + directBase(e.index.vregId), "the index ((p),y: no address built)");
+        ms_.invalidateAll();
+        elemCache_.valid = false;
+        return "(" + p + ")";
+    }
     if (e.stride == 1 && alloc_.getAlloc(e.index.vregId).type == ir::Type::I8) {
         emit("ldy " + directBase(e.index.vregId), "the index (" + e.base.name + "+off,y: no address built)");
     } else {
@@ -1015,8 +1023,19 @@ bool IRCodeGen::smallArrayY(const ir::Operand& base, const ir::Operand& index, i
     return true;
 }
 
+// p[i] with the pointer p in ZP and a byte index i (stride 1, no offset):
+// the address is (p),y with Y = i (the caller loads Y). The ZP pair in zp.
+bool IRCodeGen::zpPtrByteIndex(const ir::Operand& base, const ir::Operand& index, int stride, int elemOffset,
+                               std::string& zp) const {
+    if (base.kind == ir::OperandKind::GLOBAL || !base.isVreg() || !index.isVreg() || stride != 1 || elemOffset != 0)
+        return false;
+    if (alloc_.getAlloc(index.vregId).type != ir::Type::I8) return false;
+    zp = directBase(base.vregId);
+    return zp.size() == 3 && zp[0] == '$';
+}
+
 // A:X *= c (the low 16 bits) without the hardware multiplier, when that is
-// no bigger than limit bytes (its 24; a call of __mul16, 11): the high byte is shifted in a scratch byte
+// no bigger than limit bytes (its 22; a call of __mul16, 11, or of __mul16y, 5): the high byte is shifted in a scratch byte
 // (asl; rol s: no pha/pla), the multiplicand's bytes kept for the adds of a
 // constant with more than one bit set. A byte value (X known 0) times 2 is
 // asl; bcc; inx. Y is kept. False: not worth it (the caller multiplies).
@@ -3492,15 +3511,22 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         // addresses in their block, the index in the base page and unchanged
         // up to the last use: base+off,y at each access, no address built
         // (#318). Y = a byte index (any array), or index * stride (an array
-        // of at most 256 bytes: every element offset fits in Y)
+        // of at most 256 bytes: every element offset fits in Y). Bytes through
+        // a pointer in the base page with a byte index likewise: (p),y
         for (size_t b = 0; b < blocks.size(); b++) {
             const auto& insts = blocks[b]->insts;
             for (size_t i = 0; i < insts.size(); i++) {
                 const auto& in = insts[i];
-                if (in.op != ir::Op::ADDR_ELEM || !in.dest.isVreg() || in.src1.kind != ir::OperandKind::GLOBAL ||
+                if (in.op != ir::Op::ADDR_ELEM || !in.dest.isVreg() ||
                     !in.src2.isVreg() || in.args.empty() || in.elemOffset < 0) continue;
                 uint32_t d = in.dest.vregId, ix = in.src2.vregId;
                 int stride = (int)in.args[0].immVal;
+                // (or a pointer in the base page, a byte index: (p),y, bytes
+                // only; Y does not carry into a second byte)
+                bool zpPtr = in.src1.isVreg() && in.elemOffset == 0 && stride == 1 &&
+                             alloc_.getAlloc(in.src1.vregId).loc == VRegAllocator::IN_ZP &&
+                             !fn.memoryVregs.count(in.src1.vregId);
+                if (in.src1.kind != ir::OperandKind::GLOBAL && !zpPtr) continue;
                 if (fn.localSlotVregs.count(d) || fn.memoryVregs.count(d) || foldedAddrs_.count(d)) continue;
                 // a byte widened only for the index (%8 = zext %0; a[%8]): the
                 // byte is the index, the ZEXT left out (zextSkip_)
@@ -3529,7 +3555,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 auto ia = alloc_.getAlloc(ix);
                 if (ia.loc != VRegAllocator::IN_ZP || fn.memoryVregs.count(ix)) continue;
                 bool byteIndex = ia.type == ir::Type::I8 && stride == 1;
-                bool small = smallGlobals_.count(in.src1.name) && (stride == 1 || stride == 2 || stride == 4) &&
+                bool small = !zpPtr && smallGlobals_.count(in.src1.name) && (stride == 1 || stride == 2 || stride == 4) &&
                              in.elemOffset < 256;
                 if (!byteIndex && !small) continue;
                 auto uit = uses.find(d);
@@ -3539,6 +3565,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 for (const auto& u : uit->second) {
                     if (!u.addrOnly || u.blk != b || u.idx <= i) { ok = false; break; }
                     const auto& x = insts[u.idx];
+                    if (zpPtr && x.resultType != ir::Type::I8) ok = false;
                     if (x.op == ir::Op::LOAD) {
                         if (x.resultType != ir::Type::I8 && x.resultType != ir::Type::I16 && x.resultType != ir::Type::PTR) ok = false;
                     } else {
@@ -3553,13 +3580,18 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 if (!ok) continue;
                 // A temporary index lives (for the allocator) only up to the
                 // ADDR_ELEM: then only one access right after it can use it
-                if ((!fn.localSlotVregs.count(ix) || regVregs_.count(ix)) &&
+                // (the pointer likewise)
+                uint32_t pb = zpPtr ? in.src1.vregId : ix;
+                if (((!fn.localSlotVregs.count(ix) || regVregs_.count(ix)) ||
+                     (zpPtr && pb >= fn.paramTypes.size() && (!fn.localSlotVregs.count(pb) || regVregs_.count(pb)))) &&
                     (uit->second.size() != 1 || uit->second[0].idx != i + 1)) continue;
-                // The index keeps its value up to the last use (from the ZEXT)
+                // The index (and pointer) keep their values up to the last use (from the ZEXT)
                 for (size_t j = zextAt + 1; j <= last && ok; j++) {
                     const auto& x = insts[j];
-                    if (x.dest.isVreg() && x.dest.vregId == ix) ok = false;
-                    if (x.op == ir::Op::STORE && x.src2.isVreg() && x.src2.vregId == ix) ok = false;
+                    for (uint32_t v : {ix, pb}) {
+                        if (x.dest.isVreg() && x.dest.vregId == v) ok = false;
+                        if (x.op == ir::Op::STORE && x.src2.isVreg() && x.src2.vregId == v) ok = false;
+                    }
                 }
                 if (!ok) continue;
                 elemAbsY_[d] = {in.src1, in.elemOffset, indexOp, byteIndex ? 1 : stride};
@@ -3640,14 +3672,19 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 uint32_t d = in.dest.vregId, sv = in.src1.vregId;
                 if (defs[d] != 1 || fn.localSlotVregs.count(d) || fn.memoryVregs.count(d) || joinNodes.count(d))
                     continue;
-                // (a variable or a parameter: a temporary's register can be reused before the use)
-                if (!fn.localSlotVregs.count(sv) && sv >= fn.paramTypes.size()) continue;
                 auto sl = alloc_.getAlloc(sv).loc;
                 if (sl != VRegAllocator::IN_ZP && sl != VRegAllocator::IN_FRAME) continue;
                 auto uit = uses.find(d);
                 if (uit == uses.end() || uit->second.size() != 1 || uit->second[0].blk != b) continue;
                 size_t j = uit->second[0].idx;
                 if (j <= i) continue;
+                // (a variable or a parameter: a temporary's register can be
+                // reused before the use, unless only NOPs come between)
+                if (!fn.localSlotVregs.count(sv) && sv >= fn.paramTypes.size()) {
+                    bool adjacent = sl == VRegAllocator::IN_ZP;
+                    for (size_t k = i + 1; k < j && adjacent; k++) adjacent = insts[k].op == ir::Op::NOP;
+                    if (!adjacent) continue;
+                }
                 const auto& u = insts[j];
                 if (!u.args.empty()) continue;
                 bool at1 = u.src1.isVreg() && u.src1.vregId == d, at2 = u.src2.isVreg() && u.src2.vregId == d;
@@ -6128,7 +6165,8 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                     !localSlotVregs_.count(o->vregId))
                     *o = ir::Operand::imm(vregConstVal_[o->vregId], o->type);
             // A call of __mul16 / __mul32 (divmod.s45; the multiplier in
-            // __zp_scratch2) instead of the inline multiply (24 / 50 bytes):
+            // __zp_scratch2; __mul16y: a byte factor in Y) instead of the
+            // inline multiply (22 / 50 bytes):
             // -fmul-call / -Os everywhere, -fno-mul-call nowhere
             // (CC45_MUL_CALL 1 / 0); by default outside loops (#317), where a
             // constant factor is shifts and adds only when they are no bigger
@@ -6166,7 +6204,7 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
             }
             // Signed or not: the low 16 (32) bits of a product do not depend
             // on the operands' signs, so the unsigned multiply (the hardware
-            // multiplier, 24 bytes) gives them; mul.s16 (89 bytes) negated
+            // multiplier, 22 bytes) gives them; mul.s16 (89 bytes) negated
             // around it
             // A constant factor (16 bits): shifts and adds when cheaper
             if (constFactor) {
@@ -6176,8 +6214,14 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                     bool byteVal = v.isVreg() && alloc_.getAlloc(v.vregId).type == ir::Type::I8;
                     loadOperand(v);
                     if (byteVal) emit("ldx #0");
-                    if (!emitMulAXConst(c, byteVal, "* " + std::to_string(c), mulCallHere ? 11 : 24)) {
-                        if (mulCallHere) {
+                    bool byteFactor = !(c & 0xFF00);
+                    if (!emitMulAXConst(c, byteVal, "* " + std::to_string(c), mulCallHere ? (byteFactor ? 5 : 11) : 22)) {
+                        if (mulCallHere && byteFactor) {
+                            emit("ldy #" + std::to_string((int)(c & 0xFF)), "* " + std::to_string(c));
+                            emit(".extern __mul16y");
+                            emit("jsr __mul16y");
+                            ms_.invalidateAll();
+                        } else if (mulCallHere) {
                             // (Y carries the factor: A/X hold the multiplicand)
                             emit("ldy #" + std::to_string((int)(c & 0xFF)), "* " + std::to_string(c));
                             emit("sty __zp_scratch2");
@@ -6600,6 +6644,19 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                         break;
                     }
                 }
+                {
+                    std::string zp;
+                    if (inst.resultType == ir::Type::I8 && zpPtrByteIndex(base, index, stride, inst.elemOffset, zp)) {
+                        std::string direct = directBase(index.vregId);
+                        if (!direct.empty()) emit("ldy " + direct, "the index ((p),y)");
+                        else { loadOperand(index); emit("tay", "the index ((p),y)"); }
+                        emit("lda (" + zp + "),y");
+                        emit("ldx #0");
+                        if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
+                        ms_.invalidateAll();
+                        break;
+                    }
+                }
                 std::string baseStr = (base.kind == ir::OperandKind::GLOBAL) ?
                     globalBase(base, inst.elemOffset) : src2MemOperand(base);
                 // __zp_scratch may already point into the same array at the
@@ -6941,6 +6998,33 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                         break;
                     }
                 }
+                {
+                    std::string zp;
+                    std::string direct = index.isVreg() ? directBase(index.vregId) : "";
+                    // (a byte cut from a variable: loaded from there, its own register unwritten)
+                    bool cut = inst.src1.isVreg() && truncAlias_.count(inst.src1.vregId);
+                    bool early = constVal || (zpVal && !cut);
+                    if (inst.resultType == ir::Type::I8 && zpPtrByteIndex(base, index, stride, inst.elemOffset, zp) &&
+                        (early || !direct.empty())) {
+                        // (Y first when loading the value cannot change it)
+                        if (early) {
+                            if (!direct.empty()) emit("ldy " + direct, "the index ((p),y)");
+                            else { loadOperand(index); emit("tay", "the index ((p),y)"); }
+                        }
+                        if (constVal) {
+                            int64_t v = inst.src1.isImm() ? inst.src1.immVal : vregConstVal_[inst.src1.vregId];
+                            emit("lda #" + std::to_string((int)(v & 0xFF)));
+                        } else if (cut) {
+                            loadVregA(inst.src1.vregId);
+                        } else {
+                            loadOperand(inst.src1);
+                        }
+                        if (!early) emit("ldy " + direct, "the index ((p),y)");
+                        emit("sta (" + zp + "),y");
+                        ms_.invalidateAll();
+                        break;
+                    }
+                }
                 if (constVal || zpVal) {
                     std::string baseStr = (base.kind == ir::OperandKind::GLOBAL) ?
                         globalBase(base, inst.elemOffset) : src2MemOperand(base);
@@ -7150,13 +7234,22 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                     // an element of a global: base+off,y (#318)
                     const ElemY& ea = elemAbsY_.at(inst.src2.vregId);
                     bool inA = inst.src1.isVreg() && (int32_t)inst.src1.vregId == resultInAX_;
+                    // (a byte cut from a variable or a suppressed constant: A
+                    // from where it lives, loadVregA)
+                    auto loadValue = [&]() {
+                        if (inst.src1.isVreg() && (truncAlias_.count(inst.src1.vregId) ||
+                                                   suppressedVregs_.count(inst.src1.vregId)))
+                            loadVregA(inst.src1.vregId);
+                        else
+                            loadOperand(inst.src1);
+                    };
                     std::string op;
                     if (ea.stride == 1 && alloc_.getAlloc(ea.index.vregId).type == ir::Type::I8) {
-                        if (!inA) loadOperand(inst.src1);   // (first: its load may use Y)
+                        if (!inA) loadValue();              // (first: its load may use Y)
                         op = elemYOperand(ea);
                     } else {
                         op = elemYOperand(ea);              // (through A: the value is in the
-                        loadOperand(inst.src1);             // base page or a constant, Y kept)
+                        loadValue();                        // base page or a constant, Y kept)
                     }
                     emit("sta " + op + ",y");
                     ms_.invalidateAll();
