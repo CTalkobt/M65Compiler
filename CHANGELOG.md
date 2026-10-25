@@ -4,6 +4,15 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### `_Bool` fixed
+
+- A value converted to `_Bool` is 0 or 1 (C11 6.3.1.2): in an assignment
+  (also `+=`), an initializer (local, global, static), a return value, an
+  argument and a cast (`_Bool b = 512` was 0: the low byte).
+- `_Bool` is one byte in the IR too: stores to a global, an array element
+  or a struct member wrote two bytes, the next variable's as well. Test
+  `test_bool_xemu.c` (both conventions).
+
 ### `__jsr` / `__jsr_raw` / `__jmp`; `<cbm.h>` made of them
 
 - cc45: `__jsr(target, .A = v, .X -> x, ...)` calls an address with the

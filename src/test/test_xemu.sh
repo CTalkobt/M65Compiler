@@ -1144,6 +1144,20 @@ for jtest in test_jsr test_cbm; do
     done
 done
 
+# Test: conversions to _Bool (0 or 1 from int, long, pointer, float, a
+# cast, an argument, a return value) and 1-byte stores
+for blmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r blname blflags <<< "$blmode"
+    echo "Testing test_bool_xemu.c ($blname)..."
+    compile_link_test "src/test-resources/test_bool_xemu.c" "build/test/test_bool_${blname}_xemu.prg" "$blflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_bool_$blname" "build/test/test_bool_${blname}_xemu.prg" "C0C0" 12 "01 01 01 01 01 01 01 01 01 01 01 01"
+    else
+        echo "FAIL: test_bool_xemu.c $blname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: __attribute__((aligned(N))) / _Alignas on globals, locals, struct
 # members and struct types
 for almode in "zp|" "stack|-fno-zpcall"; do

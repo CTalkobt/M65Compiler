@@ -89,6 +89,11 @@ public:
     // error), and a write: op "=" or op= with rhs, or ++/-- (rhs null; post:
     // the value is the old field), the operand read once and written once
     ir::Type bitSelectUnit(BitSelect& node);
+    // _Bool (and __bit): a value converted to it is 0 or 1 (C11 6.3.1.2)
+    static bool isBoolType(const std::string& t) { return t == "_Bool" || t == "bool" || t == "__bit"; }
+    ir::Operand emitBoolConvert(ir::Operand v, const ir::SourceLoc& sl);
+    bool returnsBool();                                     // the function (or the inlined one) returns _Bool
+    std::map<std::string, std::vector<bool>> functionParamBool_;   // its _Bool parameters
     void emitBitSelectWrite(BitSelect& node, const std::string& op, Expression* rhs, bool post, ASTNode& at);
     void visit(LabelAddressExpression& node) override;
     void visit(TranslationUnit& node) override;

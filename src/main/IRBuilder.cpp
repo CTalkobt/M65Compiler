@@ -394,6 +394,7 @@ ir::Operand IRBuilder::allocVreg(ir::Type t) {
 ir::Type IRBuilder::mapType(const std::string& typeName, int ptrLevel) {
     if (ptrLevel > 0) return ir::Type::PTR;
     if (typeName == "char" || typeName == "unsigned char") return ir::Type::I8;
+    if (isBoolType(typeName)) return ir::Type::I8;   // (1 byte: a 16-bit store wrote the next one too)
     if (typeName == "long" || typeName == "unsigned long") return ir::Type::I32;
     if (typeName == "void") return ir::Type::VOID;
     if (typeName == "float" || typeName == "double") return ir::Type::F32;
@@ -1499,6 +1500,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         std::vector<ParamInfo> pinfo;
         std::vector<ir::Type> ptypes;
         std::vector<bool> psigned;
+        std::vector<bool> pbool;
 
         // Struct/union/float results go through a hidden first parameter
         bool retFloat = node.returnPointerLevel == 0 &&
@@ -1525,8 +1527,10 @@ void IRBuilder::visit(FunctionDeclaration& node) {
             aggSizes.push_back(agg);
             ptypes.push_back(agg ? ir::Type::PTR : mapType(p.type, p.pointerLevel));
             psigned.push_back(p.isSigned);
+            pbool.push_back(p.pointerLevel == 0 && isBoolType(p.type));
         }
         paramAggSizes_[node.name] = aggSizes;
+        functionParamBool_[node.name] = pbool;
         bool wasZp = usesZpConv(node.name);
         if (node.isFastcall) fastcallFunctions_.insert(node.name);
         funcParamInfo_[node.name] = pinfo;
@@ -4101,7 +4105,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
                     double dv = lv.asDouble();
                     std::memcpy(&gv.initValue, &dv, sizeof(double));
                 } else {
-                    gv.initValue = lv.intValue();
+                    gv.initValue = isBoolType(node.type) && node.pointerLevel == 0 ? lv.intValue() != 0 : lv.intValue();
                 }
             } else if (dynamic_cast<StringLiteral*>(node.initializer.get()) && !node.arrayDims.empty() &&
                        buildInitImage(gv, node.type, node.pointerLevel, node.arrayDims, node.initializer.get())) {
@@ -4140,7 +4144,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
                        evalConstInt(node.initializer.get(), cv)) {
                 // int n = sizeof a / sizeof a[0]; (an integer constant expression)
                 gv.hasInitValue = true;
-                gv.initValue = cv;
+                gv.initValue = isBoolType(node.type) && node.pointerLevel == 0 ? cv != 0 : cv;
             } else if (auto* cast = dynamic_cast<CastExpression*>(node.initializer.get());
                        cast && dynamic_cast<IntegerLiteral*>(cast->expression.get())) {
                 gv.hasInitValue = true;
@@ -4240,7 +4244,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
                     double dv = lv.asDouble();
                     std::memcpy(&gv.initValue, &dv, sizeof(double));
                 } else {
-                    gv.initValue = lv.intValue();
+                    gv.initValue = isBoolType(node.type) && node.pointerLevel == 0 ? lv.intValue() != 0 : lv.intValue();
                 }
             } else if (auto* flit = dynamic_cast<FloatLiteral*>(node.initializer.get())) {
                 gv.hasInitValue = true;
@@ -4249,7 +4253,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
                        evalConstInt(node.initializer.get(), cv)) {
                 // static int n = sizeof a; (an integer constant expression)
                 gv.hasInitValue = true;
-                gv.initValue = cv;
+                gv.initValue = isBoolType(node.type) && node.pointerLevel == 0 ? cv != 0 : cv;
             }
         }
         // (no initializer: BSS, zeroed by crt0 like an uninitialized global;
@@ -4502,6 +4506,8 @@ void IRBuilder::visit(VariableDeclaration& node) {
             // Simple scalar initializer
             node.initializer->accept(*this);
             ir::Operand initVal = lastValue_;
+            if (node.pointerLevel == 0 && node.arrayDims.empty() && isBoolType(node.type))
+                initVal = emitBoolConvert(initVal, loc(node));
             // float x = 3; int i = 2.5; long l = c; — convert to the variable's
             // type (widening by the value's signedness)
             if (initVal.type != t && initVal.type != ir::Type::VOID && t != ir::Type::I_N &&
@@ -5053,7 +5059,7 @@ void IRBuilder::visit(Assignment& node) {
             inst.op = ir::Op::CONST;
             inst.dest = dest;
             inst.resultType = ir::Type::I8;
-            inst.src1 = ir::Operand::imm(lit->value & 0xFF, ir::Type::I8);
+            inst.src1 = ir::Operand::imm(isBoolType(lhsTypeHint.typeName) ? lit->value != 0 : lit->value & 0xFF, ir::Type::I8);
             inst.loc = loc(node);
             emit(inst);
             lastValue_ = dest;
@@ -5171,6 +5177,9 @@ void IRBuilder::visit(Assignment& node) {
             if (mixedChars) rhs = emitCast(dest, narrowType, false);
         }
     }
+
+    // a _Bool target: the value is 0 or 1
+    if (lhsTypeHint.type == ir::Type::I8 && isBoolType(lhsTypeHint.typeName)) rhs = emitBoolConvert(rhs, loc(node));
 
     // 2.6 Handle CPU register/flag writes
     if (auto* cra = dynamic_cast<CpuRegisterAccess*>(node.target.get())) {
@@ -6584,6 +6593,13 @@ void IRBuilder::visit(UnaryOperation& node) {
 }
 
 void IRBuilder::visit(CastExpression& node) {
+    // (_Bool)x: 0 or 1
+    if (node.pointerLevel == 0 && isBoolType(node.targetType) && !computeAddressOnly_) {
+        node.expression->accept(*this);
+        lastValue_ = emitBoolConvert(lastValue_, loc(node));
+        lastValueSigned_ = false;
+        return;
+    }
     // (integer)wide: the wide integer's low bytes
     if (node.pointerLevel == 0 && !wideKindOf(node.expression.get()).empty()) {
         ir::Type t = mapType(node.targetType, 0);
@@ -7304,7 +7320,8 @@ normal_call:
                 else if (widens && negated && getExprTypeInfo(node.arguments[ai].get()).isSigned)
                     sig = true;
             }
-            castArgs.push_back(emitCast(args[i], pTypes[i], sig));
+            bool toBool = !fpSig && i < functionParamBool_[node.name].size() && functionParamBool_[node.name][i];
+            castArgs.push_back(toBool ? emitBoolConvert(args[i], loc(node)) : emitCast(args[i], pTypes[i], sig));
         } else {
             // The variadic arguments of a function declared with "...": the
             // default argument promotions -- a char/_Bool becomes an int,
@@ -7836,7 +7853,7 @@ void IRBuilder::visit(ReturnStatement& node) {
             auto val = lastValue_;
 
             IRTypeInfo info = getExprTypeInfo(node.expression.get());
-            auto castVal = emitCast(val, retType, info.isSigned);
+            auto castVal = returnsBool() ? emitBoolConvert(val, loc(node)) : emitCast(val, retType, info.isSigned);
 
             ir::Inst copy;
             copy.op = ir::Op::COPY;
@@ -7946,7 +7963,7 @@ void IRBuilder::visit(ReturnStatement& node) {
         auto val = lastValue_;
 
         IRTypeInfo info = getExprTypeInfo(node.expression.get());
-        auto castVal = emitCast(val, retType, info.isSigned);
+        auto castVal = returnsBool() ? emitBoolConvert(val, loc(node)) : emitCast(val, retType, info.isSigned);
 
         ir::Inst ret;
         ret.op = ir::Op::RET;
@@ -9962,6 +9979,28 @@ ir::Type IRBuilder::bitSelectUnit(BitSelect& node) {
         return ir::Type::VOID;
     }
     return ti.type;
+}
+
+ir::Operand IRBuilder::emitBoolConvert(ir::Operand v, const ir::SourceLoc& sl) {
+    if (v.kind == ir::OperandKind::IMM) return ir::Operand::imm(v.immVal != 0, ir::Type::I8);
+    if (isBooleanValue(v) && v.type == ir::Type::I8) return v;
+    ir::Inst c;
+    c.op = ir::Op::CMP_NE;
+    c.dest = allocVreg(ir::Type::I8);
+    c.resultType = ir::Type::I8;
+    c.src1 = v;
+    c.src2 = ir::Operand::imm(0, v.type);
+    c.loc = sl;
+    emit(c);
+    boolVregs_.insert({currentFunc_, c.dest.vregId});
+    return c.dest;
+}
+
+bool IRBuilder::returnsBool() {
+    std::string n = !inlineReturnLabel_.empty() ? inlineSourceFunc_
+                  : currentFunc_ ? currentFunc_->name.substr(currentFunc_->name[0] == '_' ? 1 : 0) : std::string();
+    auto it = allFunctions_.find(n);
+    return it != allFunctions_.end() && it->second->returnPointerLevel == 0 && isBoolType(it->second->returnType);
 }
 
 void IRBuilder::visit(BitSelect& node) {
