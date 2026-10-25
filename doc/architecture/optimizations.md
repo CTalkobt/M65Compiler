@@ -120,8 +120,11 @@ of a value in ZP to an element (`a[i] = 0`) computes the address first and
 loads the value after it (no `pha`/`pla`); and `removeDeadTemps` runs again
 after `post-increment-sink`, which drops the unused old value of `x++` as a
 statement (`for (...; i++)`: only `inw $30` remains). Speed is measured with
-`src/test/bench/run_bench.sh` (six benchmarks on xemu, timed by CIA2;
-not part of `make test`): 1344 ms at v1.0.6, 1041 ms after these.
+`src/test/bench/run_bench.sh` (eight benchmarks on xemu, timed by CIA2;
+not part of `make test`): 1344 ms at v1.0.6, 1041 ms after these (the first
+six). `life` (a 2D grid with `int` counters) and `rows` (`y * 80 + x` with
+`unsigned char` counters) were added with loop strength reduction: 102 → 94
+and 109 → 103 ms for those loops against the code before it (October 2026).
 
 A stack frame of 8 to 255 bytes is made by moving SP (`tsx; txa; sec; sbc #n;
 tax; txs`, the low byte only, right with either stack) instead of pushing
