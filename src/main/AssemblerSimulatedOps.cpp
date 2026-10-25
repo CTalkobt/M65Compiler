@@ -479,6 +479,44 @@ void AssemblerSimulatedOps::emitAddSub16Code(AssemblerParser* parser, M65Emitter
     emitWithTarget(DEST);
 }
 
+// and / ora / eor with a constant on a 16- or 32-bit value (A, X, Y, Z:
+// bytes 0-3), byte by byte: a byte the constant leaves as it is (and $FF,
+// ora / eor $00) is skipped, one it sets (and $00, ora $FF) is loaded
+// (ldx #c ...), the others go through A (txa, the op, tax) with A kept on
+// the stack; the upper bytes first, then A's, so N / Z are A's as they
+// were (A's op is kept for them when nothing else ends setting them).
+// x & $00FF is ldx #0 and #$FF (4 bytes, was 8).
+static void bitwiseImm(M65Emitter& e, char op, uint32_t val, int nbytes) {
+    auto byte = [&](int b) { return (uint8_t)(val >> (8 * b)); };
+    auto kind = [&](uint8_t v) {         // 0 as it is, 1 a constant, 2 the op
+        if (op == '&') return v == 0xFF ? 0 : v == 0 ? 1 : 2;
+        if (op == '|') return v == 0 ? 0 : v == 0xFF ? 1 : 2;
+        return v == 0 ? 0 : 2;
+    };
+    auto doImm = [&](uint8_t v) { if (op == '&') e.and_imm(v); else if (op == '|') e.ora_imm(v); else e.eor_imm(v); };
+    uint8_t cv = op == '&' ? 0x00 : 0xFF;
+    bool viaA = false;
+    for (int b = 1; b < nbytes; b++) if (kind(byte(b)) == 2) viaA = true;
+    bool flagsA = false;
+    if (viaA) e.pha();
+    for (int b = 1; b < nbytes; b++) {
+        int k = kind(byte(b));
+        if (k == 0) continue;
+        if (k == 1) {
+            if (b == 1) e.ldx_imm(cv); else if (b == 2) e.ldy_imm(cv); else e.ldz_imm(cv);
+        } else {
+            if (b == 1) e.txa(); else if (b == 2) e.tya(); else e.tza();
+            doImm(byte(b));
+            if (b == 1) e.tax(); else if (b == 2) e.tay(); else e.taz();
+        }
+    }
+    if (viaA) { e.pla(); flagsA = true; }
+    int k0 = kind(byte(0));
+    if (k0 == 2) doImm(byte(0));
+    else if (k0 == 1) e.lda_imm(cv);
+    else if (!flagsA) doImm(byte(0));    // (as it is: for N / Z)
+}
+
 void AssemblerSimulatedOps::emitBitwise16Code(AssemblerParser* parser, M65Emitter& e, const std::string& mnemonic, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
     int idx = tokenIndex;
     bool isImmediate = (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::HASH) ||
@@ -493,10 +531,7 @@ void AssemblerSimulatedOps::emitBitwise16Code(AssemblerParser* parser, M65Emitte
     if (DEST == ".AX") {
         if (isImmediate && srcAst->isConstant(parser)) {
             uint32_t val = srcAst->getValue(parser);
-            if (M == "AND.16") e.and_imm(val & 0xFF); else if (M == "ORA.16") e.ora_imm(val & 0xFF); else if (M == "EOR.16") e.eor_imm(val & 0xFF);
-            e.pha(); e.txa();
-            if (M == "AND.16") e.and_imm((val >> 8) & 0xFF); else if (M == "ORA.16") e.ora_imm((val >> 8) & 0xFF); else if (M == "EOR.16") e.eor_imm((val >> 8) & 0xFF);
-            e.tax(); e.pla();
+            bitwiseImm(e, M == "AND.16" ? '&' : M == "ORA.16" ? '|' : '^', val, 2);
         } else {
             std::string src = parser->tokens[tokenIndex].value;
             if (parser->tokens[tokenIndex].type == AssemblerTokenType::REGISTER) src = "." + src;
@@ -1502,8 +1537,11 @@ void AssemblerSimulatedOps::emitASR16Code(AssemblerParser* parser, M65Emitter& e
     }
 }
 
+// X = A's sign extension ($00 or $FF), A kept, N / Z from A (as before:
+// a negative A leaves X = $FF, N set, Z clear): ldx #0, ora #0, bpl +1,
+// dex (7 bytes; the stack's pha / pla version was 10)
 void AssemblerSimulatedOps::emitSXT8Code(AssemblerParser*, M65Emitter& e, int, const std::string&) {
-    e.pha(); e.cmp_imm(0x80); e.lda_imm(0); auto br1659 = e.emitBranchPlaceholder(0x90); e.lda_imm(0xFF); e.patchBranchTarget(br1659); e.tax(); e.pla();
+    e.ldx_imm(0); e.ora_imm(0); auto br = e.emitBranchPlaceholder(0x10); e.dex(); e.patchBranchTarget(br);
 }
 
 static std::vector<std::string> getRegistersFromMnemonic(std::string reg) {
@@ -2429,11 +2467,9 @@ void AssemblerSimulatedOps::emitBitwise32Code(AssemblerParser* parser, M65Emitte
     auto doOp = [&](auto immFn, auto absFn) {
         if (DEST == ".AXYZ" || DEST == ".Q") {
             if (isImmediate && srcAst->isConstant(parser)) {
-                uint32_t val = srcAst->getValue(parser);
-                immFn(val & 0xFF);
-                e.pha(); e.txa(); immFn((val >> 8) & 0xFF); e.tax();
-                e.tya(); immFn((val >> 16) & 0xFF); e.tay();
-                e.tza(); immFn((val >> 24) & 0xFF); e.taz(); e.pla();
+                (void)immFn;
+                bitwiseImm(e, (M == "AND" || M == "AND.32") ? '&' : (M == "ORA" || M == "ORA.32") ? '|' : '^',
+                           srcAst->getValue(parser), 4);
             } else {
                 std::string src = parser->tokens[tokenIndex].value;
                 if (parser->tokens[tokenIndex].type == AssemblerTokenType::REGISTER) src = "." + src;

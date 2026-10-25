@@ -144,6 +144,34 @@ before the access and `x` is not written in between: the add disappears and
 `a[j]` / `a[j + 1]` scale the same index. It runs last because CSE does not
 compare offsets. Validation: `test_elem_offset_xemu.c`. Benchmark: 904 ms.
 
+`foldGlobalOffsetAccess` (`IROptimizer.cpp`, after `foldElemIndexOffset`;
+tag `globaloff`; under `addr-elem-fusion`'s switch) gives a load or store
+through `%p = add ptr @g, c` (`%p` defined once and used only as such
+addresses) the address `@g+c` itself: a member of a global struct, an
+element at a constant index (`g.y = 5` is `sta _g+2`, not the address
+computed into a register pair and an indirect store). Only this file's
+globals in the default address space (not `__zp`, whose base-page
+addressing an absolute operand would miss, nor `__far`). The examples: 3.9 %
+less code with the changes below (150,159 → 144,291 bytes over 42
+objects). Validation: `test_peephole_xemu.c`.
+
+The same changes in the code generator and ca45:
+
+- **Sign extension** (`sxt.8`, ca45): `ldx #0`, `ora #0`, `bpl`, `dex` (7
+  bytes, no stack; was `pha` … `pla`, 10), A kept, N / Z from A.
+- **Constant masks byte by byte** (`and.16`/`ora.16`/`eor.16` and the
+  `.32` forms with `#imm`, ca45): a byte the constant leaves as it is (`and
+  #$FF`, `ora` / `eor #$00`) is skipped, one it sets (`and #$00`, `ora
+  #$FF`) loaded (`ldx #0` …), N / Z still A's (`x & $00FF` is `ldx #0` `and
+  #$FF`, 4 bytes, was 8).
+- **32-bit shifts by a constant over 8** (not a multiple of 8, cc45): the
+  bytes moved first (the 8 / 16 / 24 forms), then the remaining 1–7 bits;
+  after 24 only one byte is left, shifted with the 1-byte `lsr` / `asr` /
+  `asl` (`u >> 28`: 11 bytes, was 28 `lsrq`, 84). Shifts by 1–7 stay
+  single-bit shifts (a byte move and back would lose bits).
+- ca45's `CmpElimination` and `RedundantLoad` passes below: flag tests
+  and store-reloads.
+
 A fused element load leaves `__zp_scratch` pointing at base + offset +
 index*stride; the next fused load of the same global array and index
 variable (no other instruction between, no label) reads through it with Y
@@ -396,9 +424,9 @@ order after `-O`). `-Roptimizer` prints every change
 | `JmpBra` | `jmp-bra` | `JMP` → `BRA` when in range |
 | `JSRRelocate` | `jsr-bsr` | `JSR` → `BSR` when the target is a resolved, non-relocatable label within ±32 KB (rare in `-c` objects) |
 | `DeadStore` | `dead-store` | Removes dead `STW.SP` stores |
-| `CmpElimination` | `cmp-elim` | Removes `CMP #0` when flags already reflect the value — not when the carry it sets is read (`BCC`/`BCS` in the branches that follow, or `ADC`/`SBC`/`ROL`/`ROR`/`PHP` after them) |
+| `CmpElimination` | `cmp-elim`, `flag-test` | Removes `CMP #0` when flags already reflect the value — not when the carry it sets is read (`BCC`/`BCS` in the branches that follow, or `ADC`/`SBC`/`ROL`/`ROR`/`PHP` after them). Also removes a flags test that changes nothing (`ORA #0`, `EOR #0`, `AND #$FF`: N / Z only) when the flags reflect A; when an `LDX`/`LDY`/`LDZ #imm` came between A's `LDA` and the test (a byte widened before it is tested, only stores between them and the test), the load moves before the `LDA` (not indexed by that register) and the test goes |
 | `FCmpOpt` | `fcmp-opt` | Float compare result tests (`CMP #$FF` → `BMI`/`BPL`) |
-| `RedundantLoad` | `redundant-load` | Removes `LDA/LDX/LDY/LDZ` when the register already holds the value (what A/X/Y/Z hold carries into a local label reached only by one branch: from a forward branch, or from a backward one when a referenced label lies between them, #138), unless its N/Z may be read (the flags reflect another value and a branch, `PHP`, jump, return or call may read them). Also removes an `LDX #imm` (cc45's zero extension of a byte used as a byte) when neither X nor the N/Z flags it sets are read on any path before they are written again: a liveness of X and N/Z over the file's statements, following branches and jumps to its labels; a call, return, simulated instruction (but `ldax #v`), Q instruction (but `ldq`), X-indexed operand, jump through a pointer or to a label not in the file, data or `.segment` counts as reading both (#321; pfest: 214 fewer, 434 bytes) |
+| `RedundantLoad` | `redundant-load`, `store-transfer` | A load of a zero-page slot that another register holds the value of (stored from it, both as they were since) becomes a transfer (`TAX` … `TZA`, 1 byte, the same N / Z); when the value stored from a register changed since, the transfer goes right after the store and the load disappears, if the register loaded is neither read nor written between (no label, call, branch or simulated instruction, no write through a pointer or an index) and N / Z are not read after it (or nothing between sets them). Removes `LDA/LDX/LDY/LDZ` when the register already holds the value (what A/X/Y/Z hold carries into a local label reached only by one branch: from a forward branch, or from a backward one when a referenced label lies between them, #138), unless its N/Z may be read (the flags reflect another value and a branch, `PHP`, jump, return or call may read them). Also removes an `LDX #imm` (cc45's zero extension of a byte used as a byte) when neither X nor the N/Z flags it sets are read on any path before they are written again: a liveness of X and N/Z over the file's statements, following branches and jumps to its labels; a call, return, simulated instruction (but `ldax #v`), Q instruction (but `ldq`), X-indexed operand, jump through a pointer or to a label not in the file, data or `.segment` counts as reading both (#321; pfest: 214 fewer, 434 bytes) |
 | `StoreLoadPair` | `store-load-pair` | Store/load pair simplification on ZP |
 | `PreserveXSP`, `TSXRedundant` | `preserve-x-sp`, `tsx-redundant` | Avoid reloading X from SP |
 | `TailDedup` | `tail-dedup`, `tail-dedup-suffix` | Merges identical tail sequences. A base-page operand of a proc with a `.zar` block is relocated against that proc's own block, so it matches only tails of the same proc (#327: a merged tail read another function's base-page bytes) |

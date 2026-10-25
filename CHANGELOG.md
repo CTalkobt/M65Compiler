@@ -4,6 +4,25 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Smaller code: six changes from the examples' most common sequences
+
+The examples' code is 3.9 % smaller (150,159 → 144,291 bytes over 42
+objects); test `test_peephole_xemu.c` (both conventions).
+
+- cc45: a member of a global struct or an element at a constant index is
+  stored and loaded at its address (`sta _g+2`), not through a pointer
+  computed into registers (`foldGlobalOffsetAccess`, under
+  `addr-elem-fusion`).
+- cc45: a 32-bit shift by a constant over 8 moves bytes, then shifts the
+  remaining 1-7 bits (`>> 28`: 11 bytes, was 84).
+- ca45 `sxt.8`: 7 bytes without the stack (was 10).
+- ca45 `and` / `ora` / `eor .16` / `.32` with a constant: bytes it leaves
+  as they are are skipped, bytes it sets loaded.
+- ca45 `CmpElimination`: `ora #0` / `eor #0` / `and #$FF` dropped when the
+  flags already reflect A (an `ldx #imm` between moves before A's load).
+- ca45 `RedundantLoad`: a load of a slot another register holds becomes a
+  transfer (`tax` ...), moved right after the store when needed.
+
 ### Glam Lambs: fluffier wool; the studio opens in the salon
 
 - The salon's fleece is small soft tufts close together (a shadow under

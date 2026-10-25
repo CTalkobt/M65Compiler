@@ -5931,18 +5931,36 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                 shiftCount = (int)(inst.src2.immVal & 0xFF);
             }
             loadOperand(inst.src1);
+            // a 32-bit value's bytes moved up 8, 16 or 24 bits
+            auto shl32Bytes = [&](int k) {
+                if (k == 8) {
+                    // Shift bytes up: Z=Y, Y=X, X=A, A=0
+                    emit("pha"); emit("tya"); emit("taz"); emit("txa"); emit("tay"); emit("pla"); emit("tax"); emit("lda #0");
+                } else if (k == 16) {
+                    // A→Y, X→Z, clear A,X
+                    emit("tay"); emit("txa"); emit("taz"); emit("lda #0"); emit("ldx #0");
+                } else {
+                    // A→Z, clear A,X,Y
+                    emit("taz"); emit("lda #0"); emit("ldx #0"); emit("ldy #0");
+                }
+            };
             if (shiftCount >= 0) {
                 if (shiftCount == 8 && !is32) {
                     emit("tax"); emit("lda #0");
-                } else if (shiftCount == 8 && is32) {
-                    // Shift bytes up: Z=Y, Y=X, X=A, A=0
-                    emit("pha"); emit("tya"); emit("taz"); emit("txa"); emit("tay"); emit("pla"); emit("tax"); emit("lda #0");
-                } else if (shiftCount == 16 && is32) {
-                    // A→Y, X→Z, clear A,X
-                    emit("tay"); emit("txa"); emit("taz"); emit("lda #0"); emit("ldx #0");
-                } else if (shiftCount == 24 && is32) {
-                    // A→Z, clear A,X,Y
-                    emit("taz"); emit("lda #0"); emit("ldx #0"); emit("ldy #0");
+                } else if (is32 && (shiftCount == 8 || shiftCount == 16 || shiftCount == 24)) {
+                    shl32Bytes(shiftCount);
+                } else if (is32 && shiftCount > 8 && shiftCount < 32) {
+                    // the bytes up, then the bits: after 24 only Z has any
+                    // (shifted alone in A: asl, 1 byte each)
+                    int k = shiftCount & ~7, r = shiftCount & 7;
+                    if (k == 24) {
+                        // (A, byte 0, becomes byte 3)
+                        for (int i = 0; i < r; i++) emit("asl", i ? "" : "<< " + std::to_string(shiftCount));
+                        emit("taz"); emit("lda #0"); emit("ldx #0"); emit("ldy #0");
+                    } else {
+                        shl32Bytes(k);
+                        for (int i = 0; i < r; i++) emit(shOp);
+                    }
                 } else if (shiftCount >= (is32 ? 32 : 16)) {
                     // Shift entirely out — result is 0
                     emit("lda #0"); emit("ldx #0");
@@ -5987,6 +6005,42 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                 shiftCount = (int)(inst.src2.immVal & 0xFF);
             }
             loadOperand(inst.src1);
+            // a 32-bit value's bytes moved down 8, 16 or 24 bits (signed:
+            // the top bytes the sign)
+            auto shr32Bytes = [&](int k, bool signedShift) {
+                if (k == 8 && !signedShift) {
+                    // I32 >> 8 unsigned: A=X, X=Y, Y=Z, Z=0
+                    emit("txa"); emit("pha"); emit("tya"); emit("tax");
+                    emit("tza"); emit("tay"); emit("ldz #0"); emit("pla");
+                } else if (k == 8) {
+                    // I32 >> 8 signed: A=X, X=Y, Y=Z, Z=sign_ext(Z)
+                    emit("txa"); emit("pha"); emit("tya"); emit("tax");
+                    emit("tza"); emit("tay");             // Y = old Z (byte 3)
+                    emit("cmp #$80"); emit("lda #0"); emit("adc #$FF"); emit("eor #$FF"); // sign extend: $FF if neg
+                    emit("taz"); emit("pla");             // Z = sign, A = old X
+                } else if (k == 16 && !signedShift) {
+                    // I32 >> 16 unsigned: A=Y, X=Z, Y=Z=0
+                    emit("tza"); emit("tax");
+                    emit("tya");
+                    emit("ldy #0"); emit("ldz #0");
+                } else if (k == 16) {
+                    // I32 >> 16 signed: A=Y, X=Z, Y=Z=sign_ext(Z)
+                    emit("tya"); emit("pha");             // save Y (new byte 0)
+                    emit("tza"); emit("tax");             // X = old Z (new byte 1)
+                    emit("cmp #$80"); emit("lda #0"); emit("adc #$FF"); emit("eor #$FF"); // sign extend: $FF if neg
+                    emit("tay"); emit("taz");             // Y=Z=sign
+                    emit("pla");                          // A = old Y (byte 0)
+                } else if (k == 24 && !signedShift) {
+                    // I32 >> 24 unsigned: A=Z, X=Y=Z=0
+                    emit("tza"); emit("ldx #0"); emit("ldy #0"); emit("ldz #0");
+                } else {
+                    // I32 >> 24 signed: A=Z, X=Y=Z=sign_ext(Z)
+                    emit("tza"); emit("cmp #$80"); emit("pha"); // save Z, set sign
+                    emit("lda #0"); emit("adc #$FF"); emit("eor #$FF"); // A = sign ($FF if neg)
+                    emit("tax"); emit("tay"); emit("taz"); // X=Y=Z=sign
+                    emit("pla");                           // A = old Z (byte 0)
+                }
+            };
             if (shiftCount >= 0) {
                 bool isASR = (inst.op == ir::Op::ASR);
                 // (an arithmetic shift by width - 1 is the sign fill too)
@@ -6005,37 +6059,14 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                     // I16 >> 8: high byte → low byte
                     emit("txa");
                     emit(isASR ? "sxt.8" : "ldx #0");
-                } else if (shiftCount == 8 && is32 && !isASR) {
-                    // I32 >> 8 unsigned: A=X, X=Y, Y=Z, Z=0
-                    emit("txa"); emit("pha"); emit("tya"); emit("tax");
-                    emit("tza"); emit("tay"); emit("ldz #0"); emit("pla");
-                } else if (shiftCount == 8 && is32 && isASR) {
-                    // I32 >> 8 signed: A=X, X=Y, Y=Z, Z=sign_ext(Z)
-                    emit("txa"); emit("pha"); emit("tya"); emit("tax");
-                    emit("tza"); emit("tay");             // Y = old Z (byte 3)
-                    emit("cmp #$80"); emit("lda #0"); emit("adc #$FF"); emit("eor #$FF"); // sign extend: $FF if neg
-                    emit("taz"); emit("pla");             // Z = sign, A = old X
-                } else if (shiftCount == 16 && is32 && !isASR) {
-                    // I32 >> 16 unsigned: A=Y, X=Z, Y=Z=0
-                    emit("tza"); emit("tax");
-                    emit("tya");
-                    emit("ldy #0"); emit("ldz #0");
-                } else if (shiftCount == 16 && is32 && isASR) {
-                    // I32 >> 16 signed: A=Y, X=Z, Y=Z=sign_ext(Z)
-                    emit("tya"); emit("pha");             // save Y (new byte 0)
-                    emit("tza"); emit("tax");             // X = old Z (new byte 1)
-                    emit("cmp #$80"); emit("lda #0"); emit("adc #$FF"); emit("eor #$FF"); // sign extend: $FF if neg
-                    emit("tay"); emit("taz");             // Y=Z=sign
-                    emit("pla");                          // A = old Y (byte 0)
-                } else if (shiftCount == 24 && is32 && !isASR) {
-                    // I32 >> 24 unsigned: A=Z, X=Y=Z=0
-                    emit("tza"); emit("ldx #0"); emit("ldy #0"); emit("ldz #0");
-                } else if (shiftCount == 24 && is32 && isASR) {
-                    // I32 >> 24 signed: A=Z, X=Y=Z=sign_ext(Z)
-                    emit("tza"); emit("cmp #$80"); emit("pha"); // save Z, set sign
-                    emit("lda #0"); emit("adc #$FF"); emit("eor #$FF"); // A = sign ($FF if neg)
-                    emit("tax"); emit("tay"); emit("taz"); // X=Y=Z=sign
-                    emit("pla");                           // A = old Z (byte 0)
+                } else if (is32 && (shiftCount == 8 || shiftCount == 16 || shiftCount == 24)) {
+                    shr32Bytes(shiftCount, isASR);
+                } else if (is32 && shiftCount > 8 && shiftCount < 32) {
+                    // the bytes down, then the bits: after 24 only A has
+                    // any (the others 0, or the sign: lsr / asr, 1 byte each)
+                    int k = shiftCount & ~7, r = shiftCount & 7;
+                    shr32Bytes(k, isASR);
+                    for (int i = 0; i < r; i++) emit(k == 24 ? (isASR ? "asr" : "lsr") : mn);
                 } else if (!is32 && shiftCount >= 2 && shiftCount < 8) {
                     // the high byte shifted in a scratch byte (lsr / the
                     // 45GS02's asr on base page), the low byte in A: no pha/pla

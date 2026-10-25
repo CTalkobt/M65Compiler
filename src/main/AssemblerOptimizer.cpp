@@ -717,6 +717,60 @@ bool AssemblerOptimizer::optimizeInternal(
                 }
             };
 
+            // --- A flags test that changes nothing (ora #0, eor #0, and #$FF) ---
+            // N / Z from A, A as it is (C, V as they are): not needed when
+            // the flags already reflect A. After lda; ldx #imm (a byte
+            // widened before its test) the ldx goes first, then they do.
+            if (parser->optFlags.cmpElimination && isImm && hasNumVal && !s->noOpt &&
+                (((m == "ORA" || m == "EOR") && (numVal & 0xFF) == 0) || (m == "AND" && (numVal & 0xFF) == 0xFF))) {
+                if (ms.flags.flagsReflect(REG_A)) {
+                    report("flag-test", s, m + " " + op + " eliminated (N/Z already reflect A)");
+                    s->deleted = true; s->size = 0; changed = true; continue;
+                }
+                // back over stores (and .loc lines) to ld[xyz] #imm, right after lda
+                auto prevAt = [&](long k) -> long {
+                    while (--k >= 0) {
+                        auto* t = parser->statements[k].get();
+                        if (t->deleted || isLocDirective(t)) continue;
+                        return k;
+                    }
+                    return -1;
+                };
+                auto upper = [](std::string x) { std::transform(x.begin(), x.end(), x.begin(), ::toupper); return x; };
+                AssemblerParser::Statement* ldr = nullptr;
+                AssemblerParser::Statement* lda = nullptr;
+                for (long k = prevAt((long)i); k >= 0; k = prevAt(k)) {
+                    auto* t = parser->statements[k].get();
+                    if (t->type != AssemblerParser::Statement::INSTRUCTION || !t->label.empty() || t->noOpt) break;
+                    std::string tm = upper(t->instr.mnemonic);
+                    if ((tm == "STA" || tm == "STX" || tm == "STY" || tm == "STZ") &&
+                        (t->instr.mode == AddressingMode::BASE_PAGE || t->instr.mode == AddressingMode::ABSOLUTE)) continue;
+                    if ((tm == "LDX" || tm == "LDY" || tm == "LDZ") && t->instr.mode == AddressingMode::IMMEDIATE) {
+                        long k2 = prevAt(k);
+                        auto* a = k2 >= 0 ? parser->statements[k2].get() : nullptr;
+                        if (a && a->type == AssemblerParser::Statement::INSTRUCTION && !a->noOpt && upper(a->instr.mnemonic) == "LDA") {
+                            AddressingMode am = a->instr.mode;
+                            // (lda not indexed by the register that moves before it)
+                            bool ok = am == AddressingMode::IMMEDIATE || am == AddressingMode::BASE_PAGE ||
+                                      am == AddressingMode::ABSOLUTE ||
+                                      (tm != "LDY" && (am == AddressingMode::BASE_PAGE_INDIRECT_Y || am == AddressingMode::ABSOLUTE_Y));
+                            if (ok) { ldr = t; lda = a; }
+                        }
+                    }
+                    break;
+                }
+                if (ldr && lda) {
+                    std::swap(ldr->instr, lda->instr);
+                    std::swap(ldr->size, lda->size);
+                    std::swap(ldr->exprTokenIndex, lda->exprTokenIndex);
+                    report("flag-test", s, m + " " + op + " eliminated (" + ldr->instr.mnemonic + " moved after " +
+                           lda->instr.mnemonic + ": N/Z reflect A)");
+                    s->deleted = true; s->size = 0; changed = true;
+                    ms.flags.setNZ(REG_A);
+                    continue;
+                }
+            }
+
             // --- CMP #0 elimination ---
             if (parser->optFlags.cmpElimination && m == "CMP" && isImm && hasNumVal && numVal == 0) {
                 if (ms.flags.flagsReflect(REG_A)) {
@@ -855,6 +909,112 @@ bool AssemblerOptimizer::optimizeInternal(
                 if (redundant && !isBeforeCFChange) {
                     report("redundant-load", s, m + " " + op + " eliminated (" + m.substr(2) + " already holds value)");
                     s->deleted = true; s->size = 0; changed = true; continue;
+                }
+
+                // A slot (zero page) stored from another register, both as
+                // they were since: a transfer (1 byte, N / Z the same).
+                // Else, the value stored from a register changed since: the
+                // transfer right after the store, when this register is
+                // left alone between and N / Z are not needed after.
+                if (!redundant && isZP && hasNumVal && !s->noOpt && parser->optFlags.redundantLoad) {
+                    static const struct { RegId from, to; const char* mn; } tr[] = {
+                        {REG_A, REG_X, "TAX"}, {REG_A, REG_Y, "TAY"}, {REG_A, REG_Z, "TAZ"},
+                        {REG_X, REG_A, "TXA"}, {REG_Y, REG_A, "TYA"}, {REG_Z, REG_A, "TZA"}};
+                    uint8_t zpAddr = (uint8_t)(numVal & 0xFF);
+                    auto toTransfer = [&](AssemblerParser::Statement* t, const char* mn) {
+                        Instruction in;
+                        in.mnemonic = mn;
+                        in.mode = AddressingMode::IMPLIED;
+                        t->instr = in;
+                        t->size = 1;
+                    };
+                    const char* direct = nullptr;
+                    RegId from = REG_A;
+                    for (const auto& t : tr)
+                        if (t.to == r && ms.getZP(zpAddr).isSameAs(t.from)) { direct = t.mn; from = t.from; }
+                    if (direct) {
+                        report("store-transfer", s, m + " " + op + " -> " + direct + " (the slot holds " +
+                               std::string("AXYZ").substr(from, 1) + ")");
+                        toTransfer(s, direct);
+                        ms.setTransfer(r, from);
+                        changed = true;
+                        continue;
+                    }
+                    // back to the store: instructions only, no label, no call,
+                    // this register neither read nor written, no N/Z reader
+                    // before something sets them again
+                    auto upper = [](std::string x) { std::transform(x.begin(), x.end(), x.begin(), ::toupper); return x; };
+                    std::string rn = std::string("AXYZ").substr(r, 1);
+                    long st = -1;
+                    int setters = 0;
+                    bool ok = true;
+                    for (long k = (long)i - 1, n = 0; k >= 0 && n < 8; --k) {
+                        auto* t = parser->statements[k].get();
+                        if (t->deleted || isLocDirective(t)) continue;
+                        n++;
+                        if (t->type != AssemblerParser::Statement::INSTRUCTION || t->noOpt) { ok = false; break; }
+                        std::string tm = upper(t->instr.mnemonic);
+                        std::string to = upper(t->instr.operand);
+                        int64_t ta = 0;
+                        bool tzp = (t->instr.mode == AddressingMode::BASE_PAGE ||
+                                    t->instr.mode == AddressingMode::ABSOLUTE) &&
+                                   parseNum(t->instr.operand, ta) && ta == zpAddr;
+                        if (tzp && tm.size() == 3 && tm.compare(0, 2, "ST") == 0 && tm[2] != rn[0] &&
+                            std::string("AXYZ").find(tm[2]) != std::string::npos && t->label.empty()) {
+                            st = k;
+                            break;
+                        }
+                        if (!t->label.empty() || tzp) { ok = false; break; }
+                        // the register: named by the mnemonic (ldx, stx, inx, tax, txa, cpx, phx ...)
+                        // or as an index
+                        bool usesReg = tm.find(rn[0]) != std::string::npos && tm != "AND" && tm != "ADC" &&
+                                       tm != "ASL" && tm != "ASR" && tm != "STA" && tm != "LDA" && tm != "ORA" &&
+                                       tm != "CMP" && tm != "BRA" && tm != "EOR" && tm != "SBC" && tm != "DEC" &&
+                                       tm != "INC" && tm != "ROL" && tm != "ROR" && tm != "LSR" && tm != "BIT" &&
+                                       tm != "PHA" && tm != "PLA" && tm != "NEG";
+                        if (rn == "A") usesReg = !(tm == "STX" || tm == "STY" || tm == "STZ" || tm == "LDX" ||
+                                                   tm == "LDY" || tm == "LDZ" || tm == "INX" || tm == "INY" ||
+                                                   tm == "INZ" || tm == "DEX" || tm == "DEY" || tm == "DEZ" ||
+                                                   tm == "CPX" || tm == "CPY" || tm == "CPZ" || tm == "CLC" ||
+                                                   tm == "SEC");
+                        if (to.find("," + rn) != std::string::npos || to.find("]," + rn) != std::string::npos) usesReg = true;
+                        if (tm.size() >= 3 && tm.back() == 'Q') usesReg = true;     // (ldq, stq, lsrq ...: A, X, Y, Z)
+                        // memory written other than at a plain address: it may be the slot
+                        static const std::set<std::string> writers = {"STA", "STX", "STY", "STZ", "INC", "DEC",
+                            "ASL", "LSR", "ROL", "ROR", "ASR", "TSB", "TRB", "INW", "DEW", "ASW", "ROW"};
+                        if (writers.count(tm) && t->instr.mode != AddressingMode::BASE_PAGE &&
+                            t->instr.mode != AddressingMode::ABSOLUTE && t->instr.mode != AddressingMode::IMPLIED &&
+                            t->instr.mode != AddressingMode::ACCUMULATOR) usesReg = true;
+                        static const std::set<std::string> blockers = {"JSR", "BSR", "JMP", "RTS", "RTI", "BRK",
+                            "BEQ", "BNE", "BMI", "BPL", "BCC", "BCS", "BVC", "BVS", "BRA", "PHP", "PLP", "MAP", "EOM"};
+                        if (usesReg || blockers.count(tm) || tm.find('.') != std::string::npos) { ok = false; break; }
+                        static const std::set<std::string> nzSet = {"LDA", "LDX", "LDY", "LDZ", "ADC", "SBC", "AND",
+                            "ORA", "EOR", "CMP", "CPX", "CPY", "CPZ", "INX", "INY", "INZ", "DEX", "DEY", "DEZ",
+                            "INC", "DEC", "ASL", "LSR", "ROL", "ROR", "ASR", "NEG", "TAX", "TAY", "TAZ", "TXA",
+                            "TYA", "TZA", "PLA", "PLX", "PLY", "PLZ", "BIT", "TSX", "TSY"};
+                        if (nzSet.count(tm)) setters++;
+                    }
+                    std::string why;
+                    // (with nothing setting N / Z between, they are the transfer's: the load's)
+                    if (ok && st >= 0 && (setters == 0 || !nzLiveAfter(i, why))) {
+                        auto* store = parser->statements[st].get();
+                        RegId src = storeRegId(upper(store->instr.mnemonic));
+                        const char* mn = nullptr;
+                        for (const auto& t : tr)
+                            if (t.from == src && t.to == r) mn = t.mn;
+                        if (mn) {
+                            report("store-transfer", s, m + " " + op + " -> " + mn + " after the store");
+                            toTransfer(s, mn);
+                            // the load, now the transfer, right after the store
+                            std::rotate(parser->statements.begin() + st + 1, parser->statements.begin() + i,
+                                        parser->statements.begin() + i + 1);
+                            auto saved = ms.flags;
+                            ms.setRegFromZP(r, zpAddr);
+                            ms.flags = saved;
+                            changed = true;
+                            continue;
+                        }
+                    }
                 }
             }
 
