@@ -217,6 +217,30 @@ else
     failed=$((failed + 1))
 fi
 
+# Macro expansion as C11 6.10.3 has it: XSTR(N) is "4", XCAT(v,N) v4, SELF
+# SELF + 1 (once), placemarkers, # and ## on raw arguments (the lines gcc -E
+# -P gives, in test_pp_expand.expected)
+if ./bin/cp45 src/test-resources/test_pp_expand.c -o build/test/test_pp_expand.i >/dev/null 2>&1 &&
+   grep '^a[0-9]' build/test/test_pp_expand.i | diff - src/test-resources/test_pp_expand.expected >/dev/null; then
+    echo "SUCCESS: macro expansion (arguments expanded first, hide sets, #, ##)"
+else
+    echo "FAIL: macro expansion ($(grep '^a[0-9]' build/test/test_pp_expand.i 2>/dev/null | diff - src/test-resources/test_pp_expand.expected | head -4 | tr '\n' ' '))"
+    failed=$((failed + 1))
+fi
+
+# _Pragma, also made by a macro (DO_PRAGMA(x) _Pragma(#x)): every #pragma
+# (signed_default too), its output first on its own line (line numbers kept)
+printf '#define DO_PRAGMA(x) _Pragma(#x)\nDO_PRAGMA(cc45 signed_default)\nchar c = -1;\n_Pragma("cc45 unsigned_default") char d = -1;\nint e = __LINE__;\n' > build/test/test_pragma_op.c
+if ./bin/cp45 build/test/test_pragma_op.c -o build/test/test_pragma_op.i >/dev/null 2>&1 &&
+   [ "$(sed -n 2p build/test/test_pragma_op.i)" = '__asm__(".signed_default");' ] &&
+   [ "$(sed -n 4p build/test/test_pragma_op.i)" = '__asm__(".unsigned_default"); char d = -1;' ] &&
+   grep -qx 'int e = 5;' build/test/test_pragma_op.i; then
+    echo "SUCCESS: _Pragma, also from a macro"
+else
+    echo "FAIL: _Pragma ($(tr '\n' '|' < build/test/test_pragma_op.i 2>/dev/null))"
+    failed=$((failed + 1))
+fi
+
 # A bitfield wider than its type is an error, also after a comma and unnamed
 # (int e : 17 kept 16 bits without a word)
 bf_ok=1
