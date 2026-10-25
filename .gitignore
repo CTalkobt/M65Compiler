@@ -37,3 +37,6 @@ lib45/
 
 # aider (its tag cache, chat history, settings)
 .aider*
+
+# ollama assistant files
+.ollamaassist*
