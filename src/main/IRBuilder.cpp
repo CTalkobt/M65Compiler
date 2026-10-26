@@ -4,6 +4,7 @@
 #include "OptimizationCatalog.hpp"
 #include "CBMFloat.hpp"
 #include "Diagnostic.hpp"
+#include "AssemblerLexer.hpp"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -3674,6 +3675,7 @@ void IRBuilder::emitAggregateInto(Expression* expr, const ir::Operand& dst, int 
 }
 
 void IRBuilder::resetFunctionLocalState() {
+    constStrVregs_.clear();   // (vreg numbers start again in each function)
     aggCopyParams_.clear();
     vmVars_.clear();
     vmStructs_.clear();
@@ -3818,6 +3820,11 @@ void IRBuilder::visit(StatementExpression& node) {
 
 void IRBuilder::visit(VariableDeclaration& node) {
     if (packedBitDecls_.count(&node)) return;   // (a bit of a __bitvars byte)
+    // (after the declaration, however it returns: a const string's bytes)
+    struct NoteConstString {
+        IRBuilder* b; VariableDeclaration& n;
+        ~NoteConstString() { b->noteConstString(n); }
+    } noteConstString_{this, node};
     if (node.isVolatile) volatileNames_.insert(node.name);
     // extern in a block: the file-scope variable (a local of the name hidden
     // to the block's end, which restores it: saveShadowed), declared as at
@@ -5731,6 +5738,19 @@ void IRBuilder::emitVectorShuffle(FunctionCall& node) {
 }
 
 void IRBuilder::visit(BinaryOperation& node) {
+    // strcmp(x, "lit") == 0 / != 0 as a value: byte compares (#78)
+    if (node.op == "==" || node.op == "!=") {
+        int64_t z;
+        Expression* call = evalConstInt(node.right.get(), z) && z == 0 ? node.left.get()
+                         : evalConstInt(node.left.get(), z) && z == 0 ? node.right.get() : nullptr;
+        if (call) {
+            if (auto eq = stringEqualsExpr(call)) {
+                if (node.op == "!=") eq = std::make_unique<UnaryOperation>("!", std::move(eq));
+                eq->accept(*this);
+                return;
+            }
+        }
+    }
     // GCC vectors: element by element
     if (node.op != "," && node.op != "&&" && node.op != "||" && currentFunc_ &&
         (!vecOf(node.left.get()).empty() || !vecOf(node.right.get()).empty())) {
@@ -6187,6 +6207,13 @@ void IRBuilder::visit(BinaryOperation& node) {
 }
 
 void IRBuilder::visit(UnaryOperation& node) {
+    // !strcmp(x, "lit"): byte compares (#78)
+    if (node.op == "!") {
+        if (auto eq = stringEqualsExpr(node.operand.get())) {
+            eq->accept(*this);
+            return;
+        }
+    }
     if (bitVarOf(node.operand.get()) && (node.op == "&" || node.op == "++" || node.op == "--" ||
                                          node.op == "++_POST" || node.op == "--_POST")) {
         errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column, Severity::Error,
@@ -6755,6 +6782,7 @@ std::shared_ptr<FuncPtrSignature> IRBuilder::callSignature(FunctionCall& node, s
 }
 
 void IRBuilder::visit(FunctionCall& node) {
+    if (!node.callExpr && foldStringCall(node, node.name)) return;
     noteFormatNeeds(node);
     if (node.name == "__builtin_shuffle" && (node.arguments.size() == 2 || node.arguments.size() == 3) && currentFunc_ &&
         !vecOf(node.arguments[0].get()).empty()) {
@@ -8101,6 +8129,25 @@ void IRBuilder::emitConditionBranches(Expression* cond, const std::string& trueL
         auto sel = bitVarSelect(*b, *cond);
         emitConditionBranches(sel.get(), trueLabel, falseLabel, sl);
         return;
+    }
+    // strcmp(x, "lit") tested: byte compares (#78)
+    {
+        Expression* call = cond;
+        bool equal = false;   // the condition is "they are equal"
+        if (auto* b = dynamic_cast<BinaryOperation*>(cond); b && (b->op == "==" || b->op == "!=")) {
+            int64_t z;
+            if (evalConstInt(b->right.get(), z) && z == 0) call = b->left.get();
+            else if (evalConstInt(b->left.get(), z) && z == 0) call = b->right.get();
+            else call = nullptr;
+            equal = b->op == "==";
+        }
+        if (call) {
+            if (auto eq = stringEqualsExpr(call)) {
+                if (equal) emitConditionBranches(eq.get(), trueLabel, falseLabel, sl);
+                else emitConditionBranches(eq.get(), falseLabel, trueLabel, sl);
+                return;
+            }
+        }
     }
     // __bit(v, n) / __bits(v, lo, hi) tested: v & mask, no shift (#204)
     if (auto* bs = dynamic_cast<BitSelect*>(cond)) {
@@ -10148,6 +10195,195 @@ std::unique_ptr<BitSelect> IRBuilder::bitVarSelect(const BitVar& b, ASTNode& at)
     auto sel = std::make_unique<BitSelect>(std::move(byte), b.bit, b.bit);
     sel->line = at.line; sel->column = at.column; sel->sourceFile = at.sourceFile;
     return sel;
+}
+
+// String functions on literals (#78) -----------------------------------------
+
+std::vector<uint8_t> IRBuilder::encodeLiteral(const StringLiteral& s) const {
+    // (the lexer's form of a string, which asmstr::encode reads)
+    std::string v;
+    for (size_t i = 0; i < s.value.size(); i++) {
+        char kind = i < s.escMask.size() ? s.escMask[i] : '.';
+        unsigned char c = (unsigned char)s.value[i];
+        if (kind == 'n') v += asmstr::NEWLINE;
+        else if (kind == 'r') v += asmstr::RETURN;
+        else if (kind == '.' && c >= 0x20 && c < 0x7F) v += (char)c;
+        else { v += asmstr::EXACT; v += (char)c; }
+    }
+    int enc = stringEncodingOf(s);
+    return asmstr::encode(v, enc == 1 ? "ascii" : enc == 2 ? "screencode" : "text");
+}
+
+bool IRBuilder::literalBytes(Expression* e, std::vector<uint8_t>& out) {
+    while (auto* c = dynamic_cast<CastExpression*>(e)) {
+        if (c->pointerLevel != 1) return false;
+        e = c->expression.get();
+    }
+    if (auto* s = dynamic_cast<StringLiteral*>(e)) {
+        if (s->isWide) return false;
+        out = encodeLiteral(*s);
+        return true;
+    }
+    if (auto* v = dynamic_cast<VariableReference*>(e)) {
+        auto lit = locals_.find(v->name);
+        if (lit != locals_.end()) {
+            auto it = constStrVregs_.find(lit->second.vregId);
+            if (it == constStrVregs_.end()) return false;
+            out = it->second;
+            return true;
+        }
+        auto it = constStrGlobals_.find(v->name);
+        if (it == constStrGlobals_.end()) return false;
+        out = it->second;
+        return true;
+    }
+    return false;
+}
+
+// A declaration whose value is a string literal for good: const char s[] =
+// "..." (a const array), const char *const p = "...", and a local const
+// char *p = "..." the function never assigns or takes the address of
+void IRBuilder::noteConstString(VariableDeclaration& node) {
+    auto* s = dynamic_cast<StringLiteral*>(node.initializer.get());
+    bool charType = node.type == "char";
+    bool ok = s && !s->isWide && charType && node.isConst;
+    if (ok && !node.arrayDims.empty()) ok = node.pointerLevel == 0 && node.arrayDims.size() == 1;
+    else if (ok) {
+        ok = node.pointerLevel == 1;
+        if (ok && !node.isPointerConst) {
+            // a local pointer: not assigned, ++/-- or &p anywhere in the function
+            ok = false;
+            if (currentFunc_) {
+                auto fit = allFunctions_.find(currentFunc_->name.substr(currentFunc_->name[0] == '_' ? 1 : 0));
+                if (fit != allFunctions_.end() && fit->second->body && inlineReturnLabel_.empty()) {
+                    struct Uses : ASTWalker {
+                        std::string n;
+                        bool changed = false;
+                        bool is(Expression* e) { auto* v = dynamic_cast<VariableReference*>(e); return v && v->name == n; }
+                        void visit(Assignment& a) override { if (is(a.target.get())) changed = true; ASTWalker::visit(a); }
+                        void visit(UnaryOperation& u) override {
+                            if (u.op != "*" && u.op != "-" && u.op != "!" && u.op != "~" && u.op != "+" && is(u.operand.get())) changed = true;
+                            ASTWalker::visit(u);
+                        }
+                    } uses;
+                    uses.n = node.name;
+                    fit->second->body->accept(uses);
+                    ok = !uses.changed;
+                }
+            }
+        }
+    }
+    if (currentFunc_) {
+        auto lit = locals_.find(node.name);
+        if (lit == locals_.end()) return;
+        if (ok) constStrVregs_[lit->second.vregId] = encodeLiteral(*s);
+        else constStrVregs_.erase(lit->second.vregId);
+    } else {
+        if (ok) constStrGlobals_[node.name] = encodeLiteral(*s);
+        else constStrGlobals_.erase(node.name);
+    }
+}
+
+bool IRBuilder::foldStringCall(FunctionCall& node, const std::string& declaredName) {
+    if (!foldStringBuiltins) return false;
+    std::string fn = node.name;
+    if (fn.rfind("__builtin_", 0) == 0) fn = fn.substr(10);
+    if (fn != "strlen" && fn != "strcmp" && fn != "strncmp" && fn != "strcpy") return false;
+    // (a file's own strlen is that function)
+    if (unitDefinedFunctions_.count(declaredName) || unitDefinedFunctions_.count(fn)) return false;
+    auto len = [](const std::vector<uint8_t>& b) {
+        size_t n = 0;
+        while (n < b.size() && b[n]) n++;
+        return n;
+    };
+    // the library's result: -1, 0 or 1 (unsigned bytes), at most n of them
+    auto cmp = [](std::vector<uint8_t> a, std::vector<uint8_t> b, size_t n) {
+        a.push_back(0);
+        b.push_back(0);
+        for (size_t i = 0; i < n; i++) {
+            uint8_t x = i < a.size() ? a[i] : 0, y = i < b.size() ? b[i] : 0;
+            if (x != y) return x < y ? -1 : 1;
+            if (!x) break;
+        }
+        return 0;
+    };
+    std::vector<uint8_t> a, b;
+    if (fn == "strlen" && node.arguments.size() == 1 && literalBytes(node.arguments[0].get(), a)) {
+        lastValue_ = ir::Operand::imm((int64_t)len(a), ir::Type::I16);
+        lastValueSigned_ = false;
+        return true;
+    }
+    if (fn == "strcmp" && node.arguments.size() == 2 && literalBytes(node.arguments[0].get(), a) &&
+        literalBytes(node.arguments[1].get(), b)) {
+        lastValue_ = ir::Operand::imm(cmp(a, b, (size_t)-1), ir::Type::I16);
+        lastValueSigned_ = true;
+        return true;
+    }
+    int64_t n;
+    if (fn == "strncmp" && node.arguments.size() == 3 && literalBytes(node.arguments[0].get(), a) &&
+        literalBytes(node.arguments[1].get(), b) && evalConstInt(node.arguments[2].get(), n) && n >= 0) {
+        lastValue_ = ir::Operand::imm(cmp(a, b, (size_t)n), ir::Type::I16);
+        lastValueSigned_ = true;
+        return true;
+    }
+    // strcpy(d, "lit"): memcpy(d, "lit", its length + 1), when memcpy is declared
+    if (fn == "strcpy" && strcpyLiteralAsMemcpy && node.arguments.size() == 2 && literalBytes(node.arguments[1].get(), b) &&
+        functionReturnTypes_.count("memcpy") && !unitDefinedFunctions_.count("memcpy")) {
+        FunctionCall mc("memcpy");
+        mc.line = node.line; mc.column = node.column; mc.sourceFile = node.sourceFile;
+        mc.arguments.push_back(std::move(node.arguments[0]));
+        mc.arguments.push_back(std::move(node.arguments[1]));
+        auto size = std::make_unique<IntegerLiteral>((long)len(b) + 1);
+        size->line = node.line; size->column = node.column; size->sourceFile = node.sourceFile;
+        mc.arguments.push_back(std::move(size));
+        visit(mc);
+        node.arguments[0] = std::move(mc.arguments[0]);   // (the AST stays whole)
+        node.arguments[1] = std::move(mc.arguments[1]);
+        return true;
+    }
+    return false;
+}
+
+std::unique_ptr<Expression> IRBuilder::stringEqualsExpr(Expression* call) {
+    if (!foldStringBuiltins) return nullptr;
+    auto* fc = dynamic_cast<FunctionCall*>(call);
+    if (!fc || fc->callExpr) return nullptr;
+    std::string fn = fc->name;
+    if (fn.rfind("__builtin_", 0) == 0) fn = fn.substr(10);
+    if ((fn != "strcmp" || fc->arguments.size() != 2) && (fn != "strncmp" || fc->arguments.size() != 3)) return nullptr;
+    if (unitDefinedFunctions_.count(fc->name) || unitDefinedFunctions_.count(fn)) return nullptr;
+    std::vector<uint8_t> lit, other;
+    Expression* x = nullptr;
+    if (literalBytes(fc->arguments[1].get(), lit)) x = fc->arguments[0].get();
+    else if (literalBytes(fc->arguments[0].get(), lit)) x = fc->arguments[1].get();
+    else return nullptr;
+    if (literalBytes(x, other)) return nullptr;   // (two literals: folded as a call)
+    size_t n = 0;
+    while (n < lit.size() && lit[n]) n++;
+    size_t count = n + 1;                          // the bytes compared, the terminator too
+    if (fn == "strncmp") {
+        int64_t k;
+        if (!evalConstInt(fc->arguments[2].get(), k) || k < 0) return nullptr;
+        count = std::min(count, (size_t)k);
+    }
+    if (count > (size_t)stringCompareInlineBytes) return nullptr;   // (longer: the library's loop)
+    auto p = cloneSimpleExpr(x);
+    if (!p && count > 1) return nullptr;           // (x evaluated once: a simple one only)
+    auto at = [&](auto node) { node->line = call->line; node->column = call->column; node->sourceFile = call->sourceFile; return node; };
+    if (count == 0) return at(std::make_unique<IntegerLiteral>(1));
+    std::unique_ptr<Expression> all;
+    for (size_t i = 0; i < count; i++) {
+        std::unique_ptr<Expression> base = cloneSimpleExpr(x);
+        if (!base) return nullptr;
+        // (unsigned char)x[i] == byte (an array's element directly, not
+        // through a pointer to it)
+        auto elem = at(std::make_unique<ArrayAccess>(std::move(base), at(std::make_unique<IntegerLiteral>((long)i))));
+        auto byte = at(std::make_unique<CastExpression>("char", 0, false, std::move(elem)));
+        auto eq = at(std::make_unique<BinaryOperation>("==", std::move(byte),
+                                                       at(std::make_unique<IntegerLiteral>(i < n ? lit[i] : 0))));
+        all = all ? at(std::make_unique<BinaryOperation>("&&", std::move(all), std::move(eq))) : std::move(eq);
+    }
+    return all;
 }
 
 ir::Operand IRBuilder::emitBoolConvert(ir::Operand v, const ir::SourceLoc& sl) {

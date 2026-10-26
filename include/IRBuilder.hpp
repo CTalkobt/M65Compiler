@@ -38,6 +38,9 @@ public:
     bool loopIdioms = false;     // -f[no-]loop-idioms: copy / fill loops as memmove / memset (#323)    // -f[no-]devirtualization: single-implementation virtual calls -> direct calls
     bool futureWarnings = false; // --future: warn when #pragma cc45 optimize(...) names an unimplemented optimization
     bool allowImplicitFunctionDecl = false;  // -fimplicit-function-declaration
+    bool foldStringBuiltins = true;          // -fno-builtin: strlen("..") etc. from the library
+    int stringCompareInlineBytes = 1;        // strcmp(x, "lit") == 0 inline up to this many bytes compared (-O3: 8)
+    bool strcpyLiteralAsMemcpy = false;      // strcpy(d, "lit") as memcpy (-O3: faster, 8 bytes more a call)
 
     // ASTVisitor interface
     void visit(IntegerLiteral& node) override;
@@ -103,6 +106,20 @@ public:
     void packBitVariables(TranslationUnit& tu);
     const BitVar* bitVarOf(Expression* e);
     std::unique_ptr<BitSelect> bitVarSelect(const BitVar& b, ASTNode& at);
+    // String functions on literals (#78): a literal's bytes as stored (its
+    // encoding applied, no terminator); a const array / pointer that holds
+    // one (locals by vreg, file-scope by name)
+    bool literalBytes(Expression* e, std::vector<uint8_t>& out);
+    std::vector<uint8_t> encodeLiteral(const StringLiteral& s) const;
+    std::map<uint32_t, std::vector<uint8_t>> constStrVregs_;
+    std::map<std::string, std::vector<uint8_t>> constStrGlobals_;
+    void noteConstString(VariableDeclaration& node);
+    // strlen / strcmp / strncmp / strcpy of literals: folded or rewritten
+    // (true: lastValue_ is the call's value)
+    bool foldStringCall(FunctionCall& node, const std::string& declaredName);
+    // strcmp(x, "lit") / strncmp(x, "lit", n): as byte compares (x[0] == 'l'
+    // && ... ), true when equal; nullptr when not that kind of call
+    std::unique_ptr<Expression> stringEqualsExpr(Expression* call);
     void emitBitSelectWrite(BitSelect& node, const std::string& op, Expression* rhs, bool post, ASTNode& at);
     void visit(LabelAddressExpression& node) override;
     void visit(TranslationUnit& node) override;

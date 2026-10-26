@@ -275,6 +275,12 @@ void OptimizationCatalog::initializeCatalog() {
         OptimizationCategory::BOTH, 1, -1, "-fipa-pure-const", false, 2
     });
 
+    catalog_.push_back({
+        "Builtin", "Library Builtins",
+        "strlen / strcmp / strncmp / strcpy of string literals folded or compared inline (-fno-builtin: always the library)",
+        OptimizationCategory::BOTH, 0, -1, "-fbuiltin", false, 3
+    });
+
     // What is implemented, and where
     struct Impl { const char* name; OptimizationImpl impl; const char* asmFlag; int level; };
     static const Impl impls[] = {
@@ -283,6 +289,7 @@ void OptimizationCatalog::initializeCatalog() {
         {"FramePointerOpt",      OptimizationImpl::ALWAYS_ON, "", 0},
         {"InlineSmallFunctions", OptimizationImpl::BUILDER,   "", 2},
         {"Devirtualization",     OptimizationImpl::BUILDER,   "", 0},
+        {"Builtin",              OptimizationImpl::BUILDER,   "", 0},
         {"SacSlotSharing",       OptimizationImpl::BUILDER,   "", 1},
         {"StrengthReduction",    OptimizationImpl::IR_PASS,   "", 1},
         {"AlgebraicSimplify",    OptimizationImpl::IR_PASS,   "", 1},

@@ -78,6 +78,12 @@ void CodegenStage::generateIR() {
         ? optOverrides_.at("InlineSmallFunctions")
         : (inlineFunctions_ || optOn("InlineSmallFunctions"));
     builder.devirtualize = optOn("Devirtualization");
+    builder.foldStringBuiltins = optOn("Builtin");
+    // (a byte compared inline is 8-12 bytes of code, more for an array in a
+    // stack frame: at -O2 / -Os only s[0] == 0, no larger than the call;
+    // -O3 and up, for speed, up to 8 bytes, and strcpy of a literal as memcpy)
+    builder.stringCompareInlineBytes = optimizationLevel_ >= 3 ? 8 : 1;
+    builder.strcpyLiteralAsMemcpy = optimizationLevel_ >= 3;
     builder.loopIdioms = optOn("LoopIdioms");
     builder.futureWarnings = futureWarnings_;
     builder.maxInlineIRSize = maxInlineIRSize_;

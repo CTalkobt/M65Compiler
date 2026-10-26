@@ -351,6 +351,37 @@ else
     failed=$((failed + 1))
 fi
 
+# String functions on literals (#78; the runtime test is test_strlit_xemu.c):
+# strlen("hello") is lda #5 (no call), strcmp(s, "") == 0 a byte compare
+# (no call), "GO" too at -O3 (a call at -O2), strcmp(s, "GO") < 0 the library; -fno-builtin keeps every call;
+# a file that defines its own strlen keeps it (not folded to the length)
+printf '#include <string.h>\nunsigned f1(void) { return strlen("hello"); }\nint f2(const char *s) { return strcmp(s, "") == 0; }\nint f3(const char *s) { return strcmp(s, "GO") < 0; }\nint f4(const char *s) { return strcmp(s, "GO") == 0; }\n' > build/test/test_strlit_cg.c
+printf 'unsigned strlen(const char *s) { return 7; }\nunsigned g(void) { return strlen("hi"); }\n' > build/test/test_strlit_own.c
+sl_ok=1
+proc_of() { sed -n "/proc _$1\\b/,/endproc/p" "$2"; }
+if ./bin/cc45 -O2 -S build/test/test_strlit_cg.c -o build/test/test_strlit_cg.s45 >/dev/null 2>&1 &&
+   ./bin/cc45 -O2 -fno-builtin -S build/test/test_strlit_cg.c -o build/test/test_strlit_nb.s45 >/dev/null 2>&1 &&
+   ./bin/cc45 -O3 -S build/test/test_strlit_cg.c -o build/test/test_strlit_o3.s45 >/dev/null 2>&1 &&
+   ./bin/cc45 -O2 -S build/test/test_strlit_own.c -o build/test/test_strlit_own.s45 >/dev/null 2>&1; then
+    proc_of f1 build/test/test_strlit_cg.s45 | grep -q 'jsr _strlen' && sl_ok=0
+    proc_of f1 build/test/test_strlit_cg.s45 | grep -q 'lda #5' || sl_ok=0
+    proc_of f2 build/test/test_strlit_cg.s45 | grep -q 'jsr _strcmp' && sl_ok=0
+    proc_of f3 build/test/test_strlit_cg.s45 | grep -q 'jsr _strcmp' || sl_ok=0
+    proc_of f4 build/test/test_strlit_cg.s45 | grep -q 'jsr _strcmp' || sl_ok=0    # (3 bytes: the call at -O2)
+    proc_of f4 build/test/test_strlit_o3.s45 | grep -q 'jsr _strcmp' && sl_ok=0    # (inline at -O3)
+    proc_of f1 build/test/test_strlit_nb.s45 | grep -q 'jsr _strlen' || sl_ok=0
+    proc_of f2 build/test/test_strlit_nb.s45 | grep -q 'jsr _strcmp' || sl_ok=0
+    proc_of g build/test/test_strlit_own.s45 | grep -q 'lda #2' && sl_ok=0   # (its own strlen, 7: not folded to 2)
+else
+    sl_ok=0
+fi
+if [ $sl_ok = 1 ]; then
+    echo "SUCCESS: string functions on literals folded / inline (-fno-builtin, own strlen)"
+else
+    echo "FAIL: string functions on literals"
+    failed=$((failed + 1))
+fi
+
 # A bitfield wider than its type is an error, also after a comma and unnamed
 # (int e : 17 kept 16 bits without a word)
 bf_ok=1
