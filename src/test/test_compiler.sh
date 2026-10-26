@@ -520,15 +520,20 @@ else
     failed=$((failed + 1))
 fi
 
-# Far pointers (#68; the runtime test is test_far_ptr_xemu.c): *p reads
-# with [bp],z, an address initializer fills the high word with 0, a __far
-# function is unchanged; a struct copied through one, a float and a
-# bit-field through one are errors
-printf 'char buf[2];\nchar __far *g = buf;\nchar __far *p;\nchar f(void){ return *p; }\n' > build/test/test_far_cg.c
+# Far pointers (#68; the runtime tests are test_far_ptr_xemu.c and
+# test_near_ptr_xemu.c): *p reads with [bp],z, an address initializer fills
+# the high word with 0, a __far function is unchanged; near pointers read
+# base-page indexed, initialized with an address's low byte, converted with
+# B; a struct copied through one, a float and a bit-field through one are
+# errors
+printf 'char buf[2];\nchar __far *g = buf;\nchar __far *p;\nchar f(void){ return *p; }\n__zp char z[2];\nchar __near *n = &z[1];\nchar h(void){ return *n; }\nchar *k(void){ return (char *)n; }\n' > build/test/test_far_cg.c
 fp_ok=1
 if ./bin/cc45 -O2 -S build/test/test_far_cg.c -o build/test/test_far_cg.s45 >/dev/null 2>&1; then
     grep -A2 '^_g:' build/test/test_far_cg.s45 | tr '\n' ' ' | grep -qE '\.word _buf +\.word 0' || fp_ok=0
     grep -q 'lda \[\$[0-9A-F]*\],z' build/test/test_far_cg.s45 || fp_ok=0
+    grep -A1 '^_n:' build/test/test_far_cg.s45 | grep -qF '.byte <(_z+1)' || fp_ok=0
+    grep -q 'lda \$00,x' build/test/test_far_cg.s45 || fp_ok=0
+    grep -q 'tba' build/test/test_far_cg.s45 || fp_ok=0
 else
     fp_ok=0
 fi
@@ -540,7 +545,7 @@ for bad in 'struct S { int a; }; struct S __far *p; struct S s; void f(void){ s 
     ./bin/cc45 -O2 -c build/test/test_far_bad.c -o build/test/test_far_bad.o45 2>&1 | grep -qF "${bad##*|}" || fp_ok=0
 done
 if [ $fp_ok = 1 ]; then
-    echo "SUCCESS: far pointers: [bp],z access, address initializers, errors"
+    echo "SUCCESS: far and near pointers: [bp],z / \$00,x access, address initializers, errors"
 else
     echo "FAIL: far pointer code"
     failed=$((failed + 1))

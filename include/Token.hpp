@@ -63,6 +63,7 @@ enum class TokenType {
     ZP,        // __zp (Phase 97: zero-page address space)
     ABS,       // __abs (Phase 97: absolute address space)
     FAR,       // __far (Phase 97: far/banking address space)
+    NEAR,      // __near (a base-page pointer, #68)
 
     // Variadic
     ELLIPSIS,  // ...
@@ -263,6 +264,7 @@ struct Token {
             case TokenType::ZP: return "ZP";
             case TokenType::ABS: return "ABS";
             case TokenType::FAR: return "FAR";
+            case TokenType::NEAR: return "NEAR";
             case TokenType::END_OF_FILE: return "EOF";
             default: return "UNKNOWN";
         }

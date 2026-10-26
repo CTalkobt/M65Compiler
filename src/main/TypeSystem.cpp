@@ -30,6 +30,7 @@ int TypeSystem::getTypeSize(
     // Single-byte types
     if (int fb = fixedTypeBits(typeName)) return fb / 8;
     if (isFarPointerType(typeName)) return 4;
+    if (isNearPointerType(typeName)) return 1;
     if (typeName == "char" || typeName == "unsigned char" || typeName == "_Bool" || typeName == "__bit") {
         return 1;
     }

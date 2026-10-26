@@ -3,25 +3,34 @@
 // points to is read and written by FAR_LOAD / FAR_STORE (32-bit indirect
 // addressing, [bp],z); *p, p[i], p->m and (far object).m are such far
 // lvalues, &lvalue a far pointer; p ± n moves by elements, p - q counts them.
-// A near pointer converts to a far one (bank 0), a far one to a near one by
-// its low 16 bits.
+// A normal pointer converts to a far one (bank 0), a far one to a normal
+// one by its low 16 bits.
+//
+// T __near *p is the same with a 1-byte offset into the program's base page
+// ("__nearp T"): NEAR_LOAD / NEAR_STORE ($00,x), I8 address arithmetic (it
+// stays in the page); converted to a normal or far pointer by NEAR_ADDR (the
+// base page register B its high byte), to a near one from a normal pointer
+// by its low byte. FarElem::near says which kind of pointer reached it.
 #include "IRBuilder.hpp"
 #include "Diagnostic.hpp"
 
-static std::string farPtrName(const std::string& type, bool isSigned) {
-    return (isSigned ? "__farp signed " : "__farp ") + type;
+static std::string farPtrName(const std::string& type, bool isSigned, bool near = false) {
+    return std::string(near ? "__nearp " : "__farp ") + (isSigned ? "signed " : "") + type;
 }
 
-// The far pointer type of a value ("" for another type)
+// The far or near pointer type of a value ("" for another type)
 std::string IRBuilder::farTypeOf(Expression* e) {
     if (!farUsed_ || !e) return "";
     IRTypeInfo ti = getExprTypeInfo(e);
-    return ti.type == ir::Type::I32 && isFarPointerType(ti.typeName) ? ti.typeName : "";
+    if (ti.type == ir::Type::I32 && isFarPointerType(ti.typeName)) return ti.typeName;
+    if (ti.type == ir::Type::I8 && isNearPointerType(ti.typeName)) return ti.typeName;
+    return "";
 }
 
 IRBuilder::FarElem IRBuilder::farPointeeOf(const std::string& farType) {
     FarElem el;
     el.type = farPointee(farType, &el.isSigned);
+    el.near = isNearPointerType(farType);
     return el;
 }
 
@@ -39,7 +48,10 @@ int IRBuilder::farElemSize(const FarElem& el) {
 // The type of a far lvalue's value: an array member decays to a far pointer
 // to its elements
 IRBuilder::IRTypeInfo IRBuilder::farElemInfo(const FarElem& el) {
-    if (!el.dims.empty()) return {ir::Type::I32, farPtrName(el.type, el.isSigned), false, ir::Type::VOID, 4};
+    if (!el.dims.empty()) {
+        if (el.near) return {ir::Type::I8, farPtrName(el.type, el.isSigned, true), false, ir::Type::VOID, 1};
+        return {ir::Type::I32, farPtrName(el.type, el.isSigned), false, ir::Type::VOID, 4};
+    }
     if (el.ptrLevel > 0) {
         IRTypeInfo t{ir::Type::PTR, el.type, el.isSigned, mapType(el.type, el.ptrLevel - 1), 2};
         t.ptrDepth = el.ptrLevel;
@@ -48,22 +60,24 @@ IRBuilder::IRTypeInfo IRBuilder::farElemInfo(const FarElem& el) {
     return {mapType(el.type, 0), el.type, el.isSigned, ir::Type::VOID, getTypeSize(el.type, 0)};
 }
 
-// e's value as a 32-bit far address
-ir::Operand IRBuilder::farValue(Expression* e) {
+// e's value as a 32-bit far address (an 8-bit near one)
+ir::Operand IRBuilder::farValue(Expression* e, bool near) {
     bool saved = computeAddressOnly_;
     computeAddressOnly_ = false;
     e->accept(*this);
     computeAddressOnly_ = saved;
-    return emitCast(lastValue_, ir::Type::I32, false);
+    return emitCast(lastValue_, near ? ir::Type::I8 : ir::Type::I32, false);
 }
 
-ir::Operand IRBuilder::farOffset(const ir::Operand& base, const ir::Operand& offset, bool subtract, ASTNode& at) {
+ir::Operand IRBuilder::farOffset(const ir::Operand& base, const ir::Operand& offset, bool subtract, ASTNode& at,
+                                 bool near) {
     if (offset.isImm() && offset.immVal == 0) return base;
-    auto r = allocVreg(ir::Type::I32);
+    ir::Type t = near ? ir::Type::I8 : ir::Type::I32;
+    auto r = allocVreg(t);
     ir::Inst add;
     add.op = subtract ? ir::Op::SUB : ir::Op::ADD;
     add.dest = r;
-    add.resultType = ir::Type::I32;
+    add.resultType = t;
     add.src1 = base;
     add.src2 = offset;
     add.loc = loc(at);
@@ -71,22 +85,24 @@ ir::Operand IRBuilder::farOffset(const ir::Operand& base, const ir::Operand& off
     return r;
 }
 
-// An integer expression times an element size, as a 32-bit offset
-ir::Operand IRBuilder::farScaled(Expression* index, int size, ASTNode& at) {
+// An integer expression times an element size, as a 32-bit offset (8-bit:
+// near)
+ir::Operand IRBuilder::farScaled(Expression* index, int size, ASTNode& at, bool near) {
     bool saved = computeAddressOnly_;
     computeAddressOnly_ = false;
     index->accept(*this);
     computeAddressOnly_ = saved;
-    ir::Operand i = emitCast(lastValue_, ir::Type::I32, getExprTypeInfo(index).isSigned);
+    ir::Type t = near ? ir::Type::I8 : ir::Type::I32;
+    ir::Operand i = emitCast(lastValue_, t, getExprTypeInfo(index).isSigned);
     if (size == 1) return i;
-    if (i.isImm()) return ir::Operand::imm(i.immVal * size, ir::Type::I32);
-    auto r = allocVreg(ir::Type::I32);
+    if (i.isImm()) return ir::Operand::imm(near ? (i.immVal * size) & 0xFF : i.immVal * size, t);
+    auto r = allocVreg(t);
     ir::Inst mul;
     mul.op = ir::Op::MUL;
     mul.dest = r;
-    mul.resultType = ir::Type::I32;
+    mul.resultType = t;
     mul.src1 = i;
-    mul.src2 = ir::Operand::imm(size, ir::Type::I32);
+    mul.src2 = ir::Operand::imm(size, t);
     mul.loc = loc(at);
     emit(mul);
     return r;
@@ -100,7 +116,7 @@ bool IRBuilder::farLvalue(Expression* e, FarElem& el, ir::Operand* addr) {
         std::string ft = farTypeOf(u->operand.get());
         if (ft.empty()) return false;
         el = farPointeeOf(ft);
-        if (addr) *addr = farValue(u->operand.get());
+        if (addr) *addr = farValue(u->operand.get(), el.near);
         return true;
     }
     if (auto* a = dynamic_cast<ArrayAccess*>(e)) {
@@ -114,24 +130,27 @@ bool IRBuilder::farLvalue(Expression* e, FarElem& el, ir::Operand* addr) {
         if (ft.empty()) return false;
         el = farPointeeOf(ft);
         if (addr) {
-            ir::Operand b = farValue(base);
-            *addr = farOffset(b, farScaled(index, farElemSize(el), *e), false, *e);
+            ir::Operand b = farValue(base, el.near);
+            *addr = farOffset(b, farScaled(index, farElemSize(el), *e, el.near), false, *e, el.near);
         }
         return true;
     }
     if (auto* m = dynamic_cast<MemberAccess*>(e)) {
         std::string sname;
         ir::Operand ba;
+        bool near;
         if (m->isArrow) {
             std::string ft = farTypeOf(m->structExpr.get());
             if (ft.empty()) return false;
             sname = farPointee(ft);
-            if (addr) ba = farValue(m->structExpr.get());
+            near = isNearPointerType(ft);
+            if (addr) ba = farValue(m->structExpr.get(), near);
         } else {
             FarElem base;
             if (!farLvalue(m->structExpr.get(), base, addr ? &ba : nullptr)) return false;
             if (base.ptrLevel || !base.dims.empty()) return false;
             sname = base.type;
+            near = base.near;
         }
         int off = 0;
         const IRMemberInfo* mi = findStructMember(getAggregateName(sname), m->memberName, off);
@@ -141,7 +160,9 @@ bool IRBuilder::farLvalue(Expression* e, FarElem& el, ir::Operand* addr) {
         el.isSigned = mi->isSigned;
         el.dims = mi->arrayDims;
         el.bitWidth = mi->bitWidth;
-        if (addr) *addr = farOffset(ba, ir::Operand::imm(off + mi->offset, ir::Type::I32), false, *e);
+        el.near = near;
+        if (addr) *addr = farOffset(ba, ir::Operand::imm(off + mi->offset, near ? ir::Type::I8 : ir::Type::I32), false,
+                                    *e, near);
         return true;
     }
     return false;
@@ -154,7 +175,8 @@ bool IRBuilder::farExprTypeInfo(Expression* e, IRTypeInfo& out) {
     if (farLvalue(e, el, nullptr)) { out = farElemInfo(el); return true; }
     if (auto* u = dynamic_cast<UnaryOperation*>(e); u && u->op == "&" && farLvalue(u->operand.get(), el, nullptr) &&
         el.ptrLevel == 0) {
-        out = {ir::Type::I32, farPtrName(el.type, el.isSigned), false, ir::Type::VOID, 4};
+        if (el.near) out = {ir::Type::I8, farPtrName(el.type, el.isSigned, true), false, ir::Type::VOID, 1};
+        else out = {ir::Type::I32, farPtrName(el.type, el.isSigned), false, ir::Type::VOID, 4};
         return true;
     }
     return false;
@@ -193,7 +215,7 @@ bool IRBuilder::emitFarRead(Expression& e) {
         return farError(e, "only integers and pointers can be read through a far pointer (not '" + el.type + "')");
     auto d = allocVreg(ti.type);
     ir::Inst ld;
-    ld.op = ir::Op::FAR_LOAD;
+    ld.op = el.near ? ir::Op::NEAR_LOAD : ir::Op::FAR_LOAD;
     ld.dest = d;
     ld.resultType = ti.type;
     ld.src1 = a;
@@ -268,7 +290,7 @@ bool IRBuilder::emitFarAssign(Assignment& node) {
     node.expression = std::move(conv.expression);   // (the AST stays whole)
     ir::Operand v = emitCast(lastValue_, ti.type, el.isSigned);
     ir::Inst st;
-    st.op = ir::Op::FAR_STORE;
+    st.op = el.near ? ir::Op::NEAR_STORE : ir::Op::FAR_STORE;
     st.resultType = ti.type;
     st.src1 = v;
     st.src2 = a;
@@ -281,7 +303,7 @@ bool IRBuilder::emitFarAssign(Assignment& node) {
 // The hidden far pointer to a far lvalue (made once per operation)
 std::unique_ptr<Expression> IRBuilder::farTempRefOnce(const ir::Operand& a, const FarElem& el, ASTNode& at) {
     if (farTempName_.empty()) {
-        auto r = farTempRef(a, ir::Type::I32, farPtrName(el.type, el.isSigned), 0, false, at);
+        auto r = farTempRef(a, el.near ? ir::Type::I8 : ir::Type::I32, farPtrName(el.type, el.isSigned, el.near), 0, false, at);
         farTempName_ = static_cast<VariableReference*>(r.get())->name;
         return r;
     }
@@ -340,19 +362,31 @@ bool IRBuilder::emitFarArith(BinaryOperation& node) {
     std::string lf = farTypeOf(node.left.get()), rf = farTypeOf(node.right.get());
     if (lf.empty() && rf.empty()) return false;
     if (!lf.empty() && !rf.empty()) {
-        if (node.op == "+") return farError(node, "two far pointers cannot be added");
-        ir::Operand a = farValue(node.left.get());
-        ir::Operand b = farValue(node.right.get());
-        ir::Operand d = farOffset(a, b, true, node);
+        if (node.op == "+") return farError(node, "two far or near pointers cannot be added");
+        bool near = isNearPointerType(lf);
+        if (near != isNearPointerType(rf)) return farError(node, "a far and a near pointer cannot be subtracted");
+        // (near: the offsets as ints, the difference signed)
+        ir::Type t = near ? ir::Type::I16 : ir::Type::I32;
+        ir::Operand a = emitCast(farValue(node.left.get(), near), t, false);
+        ir::Operand b = emitCast(farValue(node.right.get(), near), t, false);
+        auto d = allocVreg(t);
+        ir::Inst sub;
+        sub.op = ir::Op::SUB;
+        sub.dest = d;
+        sub.resultType = t;
+        sub.src1 = a;
+        sub.src2 = b;
+        sub.loc = loc(node);
+        emit(sub);
         int size = farElemSize(farPointeeOf(lf));
         if (size > 1) {
-            auto q = allocVreg(ir::Type::I32);
+            auto q = allocVreg(t);
             ir::Inst div;
             div.op = ir::Op::DIV;
             div.dest = q;
-            div.resultType = ir::Type::I32;
+            div.resultType = t;
             div.src1 = d;
-            div.src2 = ir::Operand::imm(size, ir::Type::I32);
+            div.src2 = ir::Operand::imm(size, t);
             div.loc = loc(node);
             emit(div);
             d = q;
@@ -363,7 +397,38 @@ bool IRBuilder::emitFarArith(BinaryOperation& node) {
     if (lf.empty() && node.op == "-") return farError(node, "a far pointer cannot be subtracted from an integer");
     Expression* p = lf.empty() ? node.right.get() : node.left.get();
     Expression* n = lf.empty() ? node.left.get() : node.right.get();
-    ir::Operand base = farValue(p);
-    lastValue_ = farOffset(base, farScaled(n, farElemSize(farPointeeOf(lf.empty() ? rf : lf)), node), node.op == "-", node);
+    FarElem el = farPointeeOf(lf.empty() ? rf : lf);
+    ir::Operand base = farValue(p, el.near);
+    lastValue_ = farOffset(base, farScaled(n, farElemSize(el), node, el.near), node.op == "-", node, el.near);
     return true;
+}
+
+// A near pointer as a normal (or far) one: its base-page address
+bool IRBuilder::emitNearCast(CastExpression& node) {
+    bool toFar = node.pointerLevel == 0 && isFarPointerType(node.targetType);
+    if (node.pointerLevel == 0 && !toFar) return false;
+    std::string nt = farTypeOf(node.expression.get());
+    if (!isNearPointerType(nt)) return false;
+    ir::Operand off = farValue(node.expression.get(), true);
+    auto a = allocVreg(ir::Type::PTR);
+    ir::Inst na;
+    na.op = ir::Op::NEAR_ADDR;
+    na.dest = a;
+    na.resultType = ir::Type::PTR;
+    na.src1 = off;
+    na.loc = loc(node);
+    emit(na);
+    lastValue_ = toFar ? emitCast(a, ir::Type::I32, false) : a;
+    return true;
+}
+
+// e converted for a pointer or far pointer target: a near pointer value
+// wrapped in a cast (its base-page address)
+void IRBuilder::nearConvertTo(std::unique_ptr<Expression>& e, const std::string& targetType, int ptr) {
+    if (!farUsed_ || !e || (ptr == 0 && !isFarPointerType(targetType))) return;
+    if (!isNearPointerType(farTypeOf(e.get()))) return;
+    int line = e->line, col = e->column;
+    std::string file = e->sourceFile;
+    e = std::make_unique<CastExpression>(ptr ? "void" : targetType, ptr ? 1 : 0, false, std::move(e));
+    e->line = line; e->column = col; e->sourceFile = file;
 }

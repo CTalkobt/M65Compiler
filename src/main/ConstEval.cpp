@@ -36,6 +36,7 @@ int litWidth(const ConstValue& l) {
     const std::string& t = l.castType;
     if (t.empty()) return (l.value > 65535 || l.value < -32768) ? 4 : 2;
     if (t.find("long") != std::string::npos || isFarPointerType(t)) return 4;
+    if (isNearPointerType(t)) return 1;
     if (t.find("char") != std::string::npos || t == "_Bool" || t == "__bit") return 1;
     return 2;
 }

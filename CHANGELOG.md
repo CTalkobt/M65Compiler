@@ -4,7 +4,7 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
-### Far pointers (#68)
+### Far and near pointers (#68)
 
 - `T __far *p` (or `__far T *p`): a pointer to any of the MEGA65's 28-bit
   address space, 4 bytes. `*p`, `p[i]`, `p->m`, `(*p).m`, array members,
@@ -17,8 +17,17 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   returns, struct members, arrays, typedefs. Not through one: whole
   structs, floats, bit-fields (errors). `__far` functions keep their
   meaning (`__far int f(void)`, `int __far h(void)`); `char __far *f()`
-  returns a far pointer. `__near` is not implemented. Test
-  `test_far_ptr_xemu.c` (both conventions); `doc/bin/cc45.md#far-pointers`.
+  returns a far pointer. Test `test_far_ptr_xemu.c` (both conventions);
+  `doc/bin/cc45.md#far-pointers`.
+- `T __near *p`: a 1-byte offset into the program's base page (`__zp`
+  variables), read and written base-page indexed (`$00,x`; IR
+  `near_load`/`near_store`). The same accesses and arithmetic (8-bit,
+  within the page); a normal pointer converts to it by its low byte, it to
+  a normal or far pointer by adding the base page (`tba`, IR `near_addr`:
+  casts, assignments, initializations, arguments, returns); static
+  initializers `.byte <(label)`. Test `test_near_ptr_xemu.c`.
+- `__far` / `__near` can start a declaration in a block
+  (`__far char *p;` was a syntax error there).
 - Fixed with them: cc45's dead base-page store pass counted `[bp],z` as a
   2-byte read (it reads 4).
 

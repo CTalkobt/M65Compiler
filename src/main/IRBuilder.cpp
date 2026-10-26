@@ -414,6 +414,7 @@ ir::Type IRBuilder::mapType(const std::string& typeName, int ptrLevel) {
     if (int fx = fixedFracOf(typeName)) return (fx >> 8) == 32 ? ir::Type::I32 : ir::Type::I16;   // (1 byte: a 16-bit store wrote the next one too)
     if (typeName == "long" || typeName == "unsigned long") return ir::Type::I32;
     if (isFarPointerType(typeName)) { farUsed_ = true; return ir::Type::I32; }
+    if (isNearPointerType(typeName)) { farUsed_ = true; return ir::Type::I8; }
     if (typeName == "void") return ir::Type::VOID;
     if (typeName == "float" || typeName == "double") return ir::Type::F32;
 
@@ -947,9 +948,11 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
             auto dfit = fit != allFunctions_.end() ? fit : allFunctions_.find(call->name);
             if (dfit != allFunctions_.end() && fixedFracOf(dfit->second->returnType))
                 return {it->second, dfit->second->returnType, true, ir::Type::VOID, ir::typeSize(it->second)};
-            // a far pointer result (#68)
+            // a far / near pointer result (#68)
             if (dfit != allFunctions_.end() && isFarPointerType(dfit->second->returnType))
                 return {ir::Type::I32, dfit->second->returnType, false, ir::Type::VOID, 4};
+            if (dfit != allFunctions_.end() && isNearPointerType(dfit->second->returnType))
+                return {ir::Type::I8, dfit->second->returnType, false, ir::Type::VOID, 1};
             return {it->second, "", sig, ir::Type::VOID, ir::typeSize(it->second)};
         }
         // a call through a function pointer: its signature's result
@@ -1001,9 +1004,13 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
         // For arithmetic/bitwise ops, result type comes from operands
         auto lhs = getExprTypeInfo(bin->left.get());
         auto rhs = getExprTypeInfo(bin->right.get());
-        // far pointers (#68): p ± n a far pointer, p - q a long
-        bool lfar = lhs.type == ir::Type::I32 && isFarPointerType(lhs.typeName);
-        bool rfar = rhs.type == ir::Type::I32 && isFarPointerType(rhs.typeName);
+        // far and near pointers (#68): p ± n the pointer, p - q a long (two
+        // near ones: an int)
+        bool lnear = lhs.type == ir::Type::I8 && isNearPointerType(lhs.typeName);
+        bool rnear = rhs.type == ir::Type::I8 && isNearPointerType(rhs.typeName);
+        bool lfar = lnear || (lhs.type == ir::Type::I32 && isFarPointerType(lhs.typeName));
+        bool rfar = rnear || (rhs.type == ir::Type::I32 && isFarPointerType(rhs.typeName));
+        if (bin->op == "-" && lnear && rnear) return {ir::Type::I16, "int", true, ir::Type::VOID, 2};
         if (bin->op == "-" && lfar && rfar) return {ir::Type::I32, "long", true, ir::Type::VOID, 4};
         if ((bin->op == "+" || bin->op == "-") && lfar) return lhs;
         if (bin->op == "+" && rfar) return rhs;
@@ -3950,6 +3957,10 @@ void IRBuilder::visit(VariableDeclaration& node) {
             fixedConvertTo(node.initializer, node.type, 0);
         }
     }
+    // a near pointer initializing a pointer or far pointer: its address (#68)
+    if (node.initializer && node.arrayDims.empty() && currentFunc_ && !node.isStatic &&
+        !dynamic_cast<InitializerList*>(node.initializer.get()))
+        nearConvertTo(node.initializer, node.type, node.pointerLevel);
     if (node.isVolatile) volatileNames_.insert(node.name);
     // extern in a block: the file-scope variable (a local of the name hidden
     // to the block's end, which restores it: saveShadowed), declared as at
@@ -4253,7 +4264,8 @@ void IRBuilder::visit(VariableDeclaration& node) {
             } else if (dynamic_cast<StringLiteral*>(node.initializer.get()) && !node.arrayDims.empty() &&
                        buildInitImage(gv, node.type, node.pointerLevel, node.arrayDims, node.initializer.get())) {
                 // char a[] = "text": the characters (not a pointer to them)
-            } else if (std::string clabel; (node.pointerLevel > 0 || isFarPointerType(node.type)) && node.arrayDims.empty() &&
+            } else if (std::string clabel; (node.pointerLevel > 0 || isFarPointerType(node.type) || isNearPointerType(node.type)) &&
+                       node.arrayDims.empty() &&
                        [&] { int coff = 0; if (!constAddress(node.initializer.get(), clabel, coff)) return false;
                              if (clabel.empty()) { gv.initValue = coff; return true; }  // (T *)0x1234
                              clabel = labelPlus(clabel, coff); return true; }()) {
@@ -4317,7 +4329,8 @@ void IRBuilder::visit(VariableDeclaration& node) {
                     } else if (std::string alabel = staticAddressLabel(elem.get()); !alabel.empty()) {
                         gv.initList.push_back(0);
                         gv.initLabels.push_back(alabel);
-                    } else if (std::string flabel; isFarPointerType(node.type) && node.pointerLevel == 0 &&
+                    } else if (std::string flabel; (isFarPointerType(node.type) || isNearPointerType(node.type)) &&
+                               node.pointerLevel == 0 &&
                                [&] { int foff = 0; if (!constAddress(elem.get(), flabel, foff) || flabel.empty()) return false;
                                      flabel = labelPlus(flabel, foff); return true; }()) {
                         // a far pointer element: label + offset (#68)
@@ -5022,6 +5035,12 @@ void IRBuilder::visit(VariableReference& node) {
 
 void IRBuilder::visit(Assignment& node) {
     if (farUsed_ && emitFarAssign(node)) return;
+    if (farUsed_ && node.op == "=") {
+        // a near pointer stored in a pointer or far pointer: its address
+        IRTypeInfo tt = getExprTypeInfo(node.target.get());
+        if (tt.type == ir::Type::PTR) nearConvertTo(node.expression, "void", 1);
+        else if (tt.type == ir::Type::I32 && isFarPointerType(tt.typeName)) nearConvertTo(node.expression, tt.typeName, 0);
+    }
     if (const BitVar* b = bitVarOf(node.target.get())) {
         // flag = v: __bit(byte, n) = (__bit)v; flag op= v: = (__bit)(flag op v)
         auto sel = bitVarSelect(*b, node);
@@ -6876,6 +6895,7 @@ void IRBuilder::visit(UnaryOperation& node) {
 }
 
 void IRBuilder::visit(CastExpression& node) {
+    if (farUsed_ && emitNearCast(node)) return;
     // (__fixed8_8)x, (int)fx, (float)fx: fixed point (IRBuilderFixed.cpp)
     if (node.pointerLevel == 0 && !computeAddressOnly_ && !isBoolType(node.targetType)) {
         int to = fixedFracOf(node.targetType);
@@ -7001,6 +7021,7 @@ void IRBuilder::visit(FunctionCall& node) {
                 // (fixed point, #72; __fx32_mul / __fx32_div take the integers)
                 if (declaredName != "__fx32_mul" && declaredName != "__fx32_div")
                     fixedConvertTo(node.arguments[i], par.type, par.pointerLevel);
+                nearConvertTo(node.arguments[i], par.type, par.pointerLevel);
                 if (par.pointerLevel) continue;
                 std::string wn = getAggregateName(par.type);
                 if (wn.rfind("struct ", 0) == 0) wn = wn.substr(7);
@@ -8153,6 +8174,7 @@ void IRBuilder::visit(ReturnStatement& node) {
     // fixed point (#72): the value converted to / from the return type
     if (const FunctionDeclaration* rf = returningFunction(); rf && node.expression) {
         fixedConvertTo(node.expression, rf->returnType, rf->returnPointerLevel);
+        nearConvertTo(node.expression, rf->returnType, rf->returnPointerLevel);
         // a wide integer result (long long, __int128) from an integer: its
         // value converted, sign-extended for a signed one (it copied the
         // integer's bytes and the 8 that followed; ~a complemented &a)

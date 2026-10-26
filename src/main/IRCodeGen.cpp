@@ -2597,8 +2597,10 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
                 for (size_t i = 0; i < g.initList.size(); i++) {
                     // Check for symbolic label reference (e.g. string literal pointer)
                     if (i < g.initLabels.size() && !g.initLabels[i].empty()) {
+                        // (a far pointer: bank 0; a near one: the low byte, #68)
+                        if (g.type == ir::Type::I8) { emit(".byte <(" + g.initLabels[i] + ")"); continue; }
                         emit(".word " + g.initLabels[i]);
-                        if (g.type == ir::Type::I32) emit(".word 0");   // (a far pointer: bank 0, #68)
+                        if (g.type == ir::Type::I32) emit(".word 0");
                     } else if (g.type == ir::Type::I8) emit(".byte " + std::to_string((int)(g.initList[i] & 0xFF)));
                     else if (g.type == ir::Type::I32) emit(".dword " + std::to_string((int)g.initList[i]));
                     else emit(".word " + std::to_string((int)(g.initList[i] & 0xFFFF)));
@@ -2610,8 +2612,9 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
                 }
             } else if (!g.initLabels.empty() && !g.initLabels[0].empty()) {
                 // Scalar symbolic reference (e.g. char *p = "hello"; a far
-                // pointer's high bytes 0, #68)
-                emit(".word " + g.initLabels[0]);
+                // pointer's high bytes 0, a near one's low byte, #68)
+                if (g.type == ir::Type::I8) emit(".byte <(" + g.initLabels[0] + ")");
+                else emit(".word " + g.initLabels[0]);
                 if (g.type == ir::Type::I32) emit(".word 0");
             } else {
                 // Scalar initializer
@@ -2821,6 +2824,9 @@ IRCodeGen::FuncClobbers IRCodeGen::computeFuncClobbers(const ir::Function& fn) {
 
                 case ir::Op::FAR_LOAD:
                 case ir::Op::FAR_STORE:
+                case ir::Op::NEAR_LOAD:
+                case ir::Op::NEAR_STORE:
+                case ir::Op::NEAR_ADDR:
                     fc.regs |= A | X | Y | Z;
                     fc.flags |= N | ZF;
                     break;
@@ -7741,6 +7747,66 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                 emit("sta [" + bp + "],z");
             }
             ms_.invalidateAll();
+            break;
+        }
+
+        case ir::Op::NEAR_LOAD:
+        case ir::Op::NEAR_STORE: {
+            // T __near *p: the offset in X, the bytes base-page indexed
+            // ($00,x: the program's base page)
+            const ir::Operand& off = inst.op == ir::Op::NEAR_LOAD ? inst.src1 : inst.src2;
+            int size = inst.resultType == ir::Type::I8 ? 1 : inst.resultType == ir::Type::I32 ? 4 : 2;
+            auto loadX = [&]() {
+                std::string b = off.isImm() ? "#" + std::to_string((int)(off.immVal & 0xFF)) : directByte(off, 0);
+                if (!b.empty()) emit("ldx " + b);
+                else { loadOperandA(off); emit("tax"); }
+            };
+            auto at = [](int k) { return "$" + hex8((uint8_t)k) + ",x"; };
+            if (inst.op == ir::Op::NEAR_LOAD) {
+                loadX();
+                if (size == 1) { emit("lda " + at(0)); emit("ldx #0"); }
+                else if (size == 2) { emit("lda " + at(1)); emit("pha"); emit("lda " + at(0)); emit("plx"); }
+                else {
+                    emit("lda " + at(3)); emit("taz"); emit("lda " + at(2)); emit("tay");
+                    emit("lda " + at(1)); emit("pha"); emit("lda " + at(0)); emit("plx");
+                }
+                ms_.invalidateAll();
+                if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
+                break;
+            }
+            // a store: the value's bytes from where they are, else from $F6-$F9
+            const ir::Operand& val = inst.src1;
+            std::vector<std::string> bytes;
+            for (int k = 0; k < size; k++) {
+                std::string b = val.isImm() ? "#" + std::to_string((int)((val.immVal >> (8 * k)) & 0xFF))
+                                            : directByte(val, k);
+                if (b.empty()) { bytes.clear(); break; }
+                bytes.push_back(b);
+            }
+            if (bytes.empty()) {
+                if (size == 1) { loadOperandA(val); emit("sta $F6"); }
+                else if (size == 2) { loadOperand(val); emit("sta $F6"); emit("stx $F7"); }
+                else { loadOperand(val); emit("stq $F6"); }
+                for (int k = 0; k < size; k++) bytes.push_back("$" + hex8((uint8_t)(0xF6 + k)));
+            }
+            loadX();
+            for (int k = 0; k < size; k++) {
+                emit("lda " + bytes[k]);
+                emit("sta " + at(k));
+            }
+            ms_.invalidateAll();
+            break;
+        }
+
+        case ir::Op::NEAR_ADDR: {
+            // a near pointer as a 16-bit one: the base page (B) its high byte
+            loadOperandA(inst.src1);
+            emit("pha");
+            emit("tba");
+            emit("tax");
+            emit("pla");
+            ms_.invalidateAll();
+            if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
         }
 

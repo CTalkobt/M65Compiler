@@ -538,6 +538,7 @@ private:
         bool isSigned = false;
         std::vector<int> dims;   // an array member
         int bitWidth = 0;
+        bool near = false;       // reached through a near pointer (base page)
     };
     bool farUsed_ = false;            // a far pointer type was seen (mapType)
     std::string farTempName_;         // the hidden far pointer of one operation
@@ -545,9 +546,10 @@ private:
     FarElem farPointeeOf(const std::string& farType);
     int farElemSize(const FarElem& el);
     IRTypeInfo farElemInfo(const FarElem& el);
-    ir::Operand farValue(Expression* e);
-    ir::Operand farOffset(const ir::Operand& base, const ir::Operand& offset, bool subtract, ASTNode& at);
-    ir::Operand farScaled(Expression* index, int size, ASTNode& at);
+    ir::Operand farValue(Expression* e, bool near = false);
+    ir::Operand farOffset(const ir::Operand& base, const ir::Operand& offset, bool subtract, ASTNode& at,
+                          bool near = false);
+    ir::Operand farScaled(Expression* index, int size, ASTNode& at, bool near = false);
     bool farLvalue(Expression* e, FarElem& el, ir::Operand* addr);
     bool farExprTypeInfo(Expression* e, IRTypeInfo& out);
     bool farError(ASTNode& at, const std::string& msg);
@@ -558,6 +560,8 @@ private:
     bool emitFarAssign(Assignment& node);
     bool emitFarIncDec(UnaryOperation& node);
     bool emitFarArith(BinaryOperation& node);
+    bool emitNearCast(CastExpression& node);
+    void nearConvertTo(std::unique_ptr<Expression>& e, const std::string& targetType, int ptr);
     void markStaticLinkProvider();
     // GCC vectors (struct __vec_<T>_<s|u>_<n> { T e[n]; })
     std::string vecOfType(const std::string& typeName, int ptrLevel);
