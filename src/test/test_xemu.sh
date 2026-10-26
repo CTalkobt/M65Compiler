@@ -31,25 +31,25 @@ failed=0
 passed=0
 
 # Helper: Run PRG with xemu and check memory via binary dump
-# Usage: run_xemu_test "name" "prg_file" "memory_addr_hex" "num_bytes" "expected_hex"
+# Usage: run_xemu_test "name" "prg_file" "memory_addr_hex" "num_bytes" "expected_hex" [xemu args...]
 #   memory_addr_hex: e.g. "4000" (without 0x prefix)
 #   expected_hex: space-separated hex bytes e.g. "01 02 03 04 AA"
-run_xemu_test() {
-    local name="$1"
-    local prg_file="$2"
-    local mem_addr="$3"
-    local num_bytes="$4"
-    local expected="$5"
-    shift 5   # any further arguments go to xemu (e.g. -prgtest "RUN : A")
+# The runs are parallel: xemu starts in the background (up to XEMU_JOBS at
+# once, default one per core but one) on a copy of the program, and the
+# results are checked in launch order as the oldest runs finish (the rest
+# by xemu_drain at the end). XEMU_SYNC=1 runs and checks one at once, on
+# the files themselves (a test that looks at what the program wrote to its
+# disk or SD card image afterwards).
+XEMU_JOBS=${XEMU_JOBS:-$(( $(nproc 2>/dev/null || echo 2) > 1 ? $(nproc 2>/dev/null || echo 2) - 1 : 1 ))}
+XJ_DIR=build/test/xemu_jobs
+rm -rf "$XJ_DIR"
+mkdir -p "$XJ_DIR"
+xj_pids=(); xj_names=(); xj_args=()
 
-    local dump_file="build/test/${name}_memdump.bin"
-
-    # Run in headless mode with -prgexit (auto-SYS and exit on READY)
-    # -prgmode 65 forces MEGA65 mode without dialog
-    # -prgexit auto-runs BASIC programs and exits on next READY prompt
-    rm -f "$dump_file"
-    timeout 15 $XEMU -headless -besure -sleepless -prgmode 65 -prgexit "$@" -dumpmem "$dump_file" -prg "$prg_file" </dev/null >/dev/null 2>&1
-    local exit_code=$?
+# the result of a run: its exit code and memory dump against what is expected
+xemu_check() {
+    local name="$1" dump_file="$2" mem_addr="$3" num_bytes="$4" expected="$5" exit_code="$6"
+    local actual expected_upper
     # Accept exit 0 (clean) or 124 (timeout — program may halt instead of returning)
     if [ $exit_code -ne 0 ] && [ $exit_code -ne 124 ]; then
         echo "FAIL: $name (xemu exit code $exit_code)"
@@ -87,6 +87,63 @@ run_xemu_test() {
         failed=$((failed + 1))
         return 1
     fi
+}
+
+# the oldest run waited for and checked
+xemu_reap() {
+    # (all local: a caller's own name / expected must not change -- bash
+    # variables are dynamically scoped, and run_xemu_test drains first)
+    local rc a name dump addr n expected
+    wait "${xj_pids[0]}"; rc=$?
+    a="${xj_args[0]}"
+    IFS=$'\x1f' read -r name dump addr n expected <<< "$a"
+    xemu_check "$name" "$dump" "$addr" "$n" "$expected" $rc
+    xj_pids=("${xj_pids[@]:1}"); xj_names=("${xj_names[@]:1}"); xj_args=("${xj_args[@]:1}")
+}
+
+# every run still going waited for and checked
+xemu_drain() {
+    while [ ${#xj_pids[@]} -gt 0 ]; do xemu_reap; done
+}
+
+run_xemu_test() {
+    local name="$1"
+    local prg_file="$2"
+    local mem_addr="$3"
+    local num_bytes="$4"
+    local expected="$5"
+    shift 5   # any further arguments go to xemu (e.g. -prgtest "RUN : A")
+
+    local dump_file="build/test/${name}_memdump.bin"
+    rm -f "$dump_file"
+    if [ "${XEMU_SYNC:-0}" = 1 ]; then
+        xemu_drain
+        flock "$XJ_DIR/../xemu_disk.lock" timeout 15 $XEMU -headless -besure -sleepless -prgmode 65 -prgexit "$@" -dumpmem "$dump_file" -prg "$prg_file" </dev/null >/dev/null 2>&1
+        xemu_check "$name" "$dump_file" "$mem_addr" "$num_bytes" "$expected" $?
+        return
+    fi
+    # (copies of the program and of a disk in drive 8: the script may build
+    # the next ones at their paths while this run goes on)
+    local jd="$XJ_DIR/$name"
+    mkdir -p "$jd"
+    cp "$prg_file" "$jd/prog.prg" 2>/dev/null
+    local args=() a prev=""
+    for a in "$@"; do
+        if [ "$prev" = "-8" ]; then cp "$a" "$jd/drive8.d81" 2>/dev/null; a="$PWD/$jd/drive8.d81"; fi
+        args+=("$a"); prev="$a"
+    done
+    # -prgmode 65 forces MEGA65 mode without dialog; -prgexit runs the
+    # program and exits at the next READY prompt
+    # a run with a disk waits for any other's to end (xemu instances using
+    # disks at once interfere: a file test reads what it did not write)
+    local lock=/dev/null
+    case " $* " in *" -8 "*|*" -sdimg "*) lock="$XJ_DIR/../xemu_disk.lock" ;; esac
+    flock "$lock" timeout 15 $XEMU -headless -besure -sleepless -prgmode 65 -prgexit "${args[@]}" -dumpmem "$dump_file" -prg "$jd/prog.prg" </dev/null >/dev/null 2>&1 &
+    xj_pids+=($!)
+    xj_names+=("$name")
+    xj_args+=("$name"$'\x1f'"$dump_file"$'\x1f'"$mem_addr"$'\x1f'"$num_bytes"$'\x1f'"$expected")
+    while [ ${#xj_pids[@]} -ge "$XEMU_JOBS" ]; do xemu_reap; done
+    return 0
 }
 
 # Helper: compile and link test
@@ -897,7 +954,7 @@ if ./bin/disk45 create build/test/test_disk45_rel.d81 -n RELTEST >/dev/null 2>&1
    ./bin/disk45 rel-create build/test/test_disk45_rel.d81 scores 20 30 >/dev/null 2>&1 &&
    ./bin/disk45 rel-write build/test/test_disk45_rel.d81 scores 5 '"HELLO"' >/dev/null 2>&1 &&
    ./bin/basic45 --strict src/test-resources/test_disk45_rel_xemu.bas -o build/test/test_disk45_rel_xemu.prg >/dev/null 2>&1; then
-    run_xemu_test "test_disk45_rel" "build/test/test_disk45_rel_xemu.prg" "C0C0" 4 "01 01 01 AA" \
+    XEMU_SYNC=1 run_xemu_test "test_disk45_rel" "build/test/test_disk45_rel_xemu.prg" "C0C0" 4 "01 01 01 AA" \
         -8 "$PWD/build/test/test_disk45_rel.d81"
     if ./bin/disk45 rel-read build/test/test_disk45_rel.d81 scores 7 2>&1 | grep -q 'Text: "BASIC' &&
        ./bin/disk45 rel-read build/test/test_disk45_rel.d81 scores 40 2>&1 | grep -q 'Text: "FAR' &&
@@ -928,7 +985,7 @@ if [ -f "$XEMU_ROM" ]; then
        ./bin/disk45 add build/test/test_disk45_sd.d81 build/test/test_disk45_sd.seq HELLO -t seq >/dev/null 2>&1 &&
        ./bin/disk45 sd add "$SDC" build/test/test_disk45_sd.d81 MEGA65.D81 >/dev/null 2>&1 &&
        ./bin/basic45 --strict src/test-resources/test_disk45_sd_xemu.bas -o build/test/test_disk45_sd_xemu.prg >/dev/null 2>&1; then
-        run_xemu_test "test_disk45_sd" "build/test/test_disk45_sd_xemu.prg" "C0C0" 3 "01 01 AA" \
+        XEMU_SYNC=1 run_xemu_test "test_disk45_sd" "build/test/test_disk45_sd_xemu.prg" "C0C0" 3 "01 01 AA" \
             -sdimg "$PWD/$SDC" -defd81fromsd -romfromsd
         if ./bin/disk45 sd check "$SDC" 2>&1 | grep -q '^OK' &&
            ./bin/disk45 sd extract "$SDC" MEGA65.D81 build/test/test_disk45_sd_back.d81 >/dev/null 2>&1 &&
@@ -3712,6 +3769,9 @@ for nt in test_printf_float_xemu test_fileio_xemu test_long_strings_xemu test_in
         failed=$((failed + 1))
     fi
 done
+
+xemu_drain
+rm -rf "$XJ_DIR"
 
 echo ""
 echo "======================================================"

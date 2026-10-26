@@ -442,7 +442,7 @@ $(LIB_DIR):
 .PHONY: test-validation-linker test-segment-emission test-validation-assembler
 .PHONY: test-validation-simops test-validation-directives test-validation-symbols
 .PHONY: test-validation-segments test-validation-proc test-validation-addressing
-.PHONY: test-validation-simops-extended test-objdump45 test-examples
+.PHONY: test-validation-simops-extended test-objdump45 test-examples test-xemu
 .PHONY: test-phase12 test-phase13 test-phase14 test-phase15 test-phase16 test-phase17 test-phase18
 
 # Build all lib45 libraries
@@ -502,98 +502,13 @@ clean: lib45-clean
 	@$(MAKE) -C lib clean
 
 test: all lib $(BIN_DIR)/test_o45 $(BIN_DIR)/test_ast_walker $(BIN_DIR)/test_const_eval
-	@echo "Running .o45 format and linker unit tests..."
-	@$(TEST_O45_TARGET)
-	@echo "Running the AST walker unit test..."
-	@$(TEST_AST_WALKER_TARGET)
-	@echo "Running the constant evaluator unit test..."
-	@$(TEST_CONST_EVAL_TARGET)
-	@echo "Validating documentation structure and links..."
-	@python3 src/test/check_docs.py
-	@echo "Running compiler tests..."
-	@bash src/test/test_compiler.sh
-	@echo "Running assembler feature tests..."
-	@bash src/test/test_assembler.sh
-	@echo "Running const keyword tests..."
-	@bash src/test/test_const_compiler.sh
-	@bash src/test/test_const_assembler.sh
-	@echo "Running restrict qualifier tests..."
-	@bash src/test/test_restrict.sh
-	@echo "Running register keyword tests..."
-	@bash src/test/test_register.sh
-	@echo "Running cast fold type preservation tests..."
-	@bash src/test/test_cast_fold.sh
-	@echo "Running inline control tests..."
-	@bash src/test/test_inline_control.sh
-	@echo "Running optimization switch tests..."
-	@bash src/test/test_optimizations.sh
-	@echo "Running tune45 tests..."
-	@bash src/test/test_tune45.sh
-	@echo "Running debug information tests..."
-	@bash src/test/test_debug_info.sh
-	@echo "Running logging tests..."
-	@bash src/test/test_logging.sh
-	@echo "Running configuration tests..."
-	@bash src/test/test_config.sh
-	@echo "Running function-local state tests..."
-	@bash src/test/test_function_locals.sh
-	@echo "Running string escape tests..."
-	@bash src/test/test_string_escapes.sh
-	@echo "Running signedness tests..."
-	@bash src/test/test_signedness.sh
-	@echo "Running installed toolchain tests..."
-	@bash src/test/test_install.sh
-	@echo "Running cvt_asm tests..."
-	@bash src/test/test_cvt_asm.sh
-	@echo "Running shadow execution tests (cc45 vs host gcc)..."
-	@bash src/test/test_shadow_ir.sh
-	@echo "Running clobber tracking tests..."
-	@bash src/test/test_clobber.sh
-	@echo "Running library call convention tests..."
-	@bash src/test/test_libcall_conv.sh
-	@echo "Running xemu runtime tests..."
-	@bash src/test/test_xemu.sh
-	@echo "Running parser syntax error validation tests..."
-	@$(MAKE) test-validation-parser
-	@echo "Running struct/union semantic error validation tests..."
-	@$(MAKE) test-validation-struct
-	@echo "Running const/register constraint error validation tests..."
-	@$(MAKE) test-validation-const
-	@echo "Running semantic/type error validation tests..."
-	@$(MAKE) test-validation-semantic
-	@echo "Running preprocessor error validation tests..."
-	@$(MAKE) test-validation-preprocessor
-	@echo "Running linker error validation tests..."
-	@$(MAKE) test-validation-linker
-	@echo "Running segment emission tests..."
-	@$(MAKE) test-segment-emission
-	@echo "Running assembler expression/emitter error validation tests..."
-	@$(MAKE) test-validation-assembler
-	@echo "Running simulated ops register constraint validation tests..."
-	@$(MAKE) test-validation-simops
-	@echo "Running data directives validation tests..."
-	@$(MAKE) test-validation-directives
-	@echo "Running symbol/expression validation tests..."
-	@$(MAKE) test-validation-symbols
-	@echo "Running segment/visibility validation tests..."
-	@$(MAKE) test-validation-segments
-	@echo "Running proc/function attribute validation tests..."
-	@$(MAKE) test-validation-proc
-	@echo "Running addressing mode validation tests..."
-	@$(MAKE) test-validation-addressing
-	@echo "Running extended simulated ops validation tests..."
-	@$(MAKE) test-validation-simops-extended
-	@$(MAKE) test-opcodes
-	@echo "Running Move/Fill operation tests..."
-	@$(MAKE) test-move-fill
-	@echo "Running objdump45 tests..."
-	@bash src/test/test_objdump45.sh
-	@echo "Running disk45 tests..."
-	@bash src/test/test_disk45.sh
-	@echo "Running new stdlib tests..."
-	@bash src/test/test_stdlib_new.sh
+	@bash src/test/run_parallel.sh src/test/test_steps.txt
 	@echo "Running example tests..."
 	@bash src/test/test_examples.sh
+
+# the runtime tests in xemu (parallel runs: XEMU_JOBS)
+test-xemu: all lib
+	@bash src/test/test_xemu.sh
 
 test-examples: all
 	@bash src/test/test_examples.sh

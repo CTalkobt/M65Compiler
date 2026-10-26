@@ -325,9 +325,11 @@ fi
 # extern __bit, its address, ++, an initial value that is not constant
 printf '__bit ready, busy;\n__zp __bit zr;\nunsigned char h;\nvoid set(void) { ready = 1; busy = 0; zr = 1; }\nvoid clr(void) { zr = 0; }\nvoid t(void) { if (zr) h = 1; }\n' > build/test/test_bitty.c
 bt_ok=1
-rm -f build/test/temp_*.s45
-if (cd build/test && ../../bin/cc45 -O2 -c test_bitty.c -o test_bitty.o45 --save-temps >/dev/null 2>&1); then
-    T=$(ls -t build/test/temp_*.s45 | head -1)
+# (in a directory of its own: other scripts may compile in build/test meanwhile)
+SD=build/test/bitty.d
+rm -rf $SD; mkdir -p $SD
+if (cd $SD && ../../../bin/cc45 -O2 -c ../test_bitty.c -o ../test_bitty.o45 --save-temps >/dev/null 2>&1); then
+    T=$(ls -t $SD/temp_*.s45 | head -1)
     SET=$(sed -n '/proc _set/,/endproc/p' "$T" | grep -E '^\s+(lda|tsb|trb|smb|rmb|sta|ora|and)' | tr -s ' \n' ' ')
     case "$SET" in *"lda #1 tsb ___bitvars0 lda #2 trb ___bitvars0 smb0 \$"*) ;; *) bt_ok=0 ;; esac
     sed -n '/proc _clr/,/endproc/p' "$T" | grep -q 'rmb0 \$' || bt_ok=0
@@ -472,9 +474,11 @@ fi
 # __zp __bit flags tested several times in a function that leaves them
 # alone: bbs on the byte itself, no load of it (a copy)
 printf '__zp __bit zr, zb;\nunsigned char h;\nvoid t(void) { if (zr) h = 1; if (zr) h = 2; if (!zb) h = 3; }\n' > build/test/test_zpalias.c
-rm -f build/test/temp_*.s45
-if (cd build/test && ../../bin/cc45 -O2 -c test_zpalias.c -o test_zpalias.o45 --save-temps >/dev/null 2>&1); then
-    T=$(ls -t build/test/temp_*.s45 | head -1)
+# (in a directory of its own: other scripts may compile in build/test meanwhile)
+SD=build/test/zpalias.d
+rm -rf $SD; mkdir -p $SD
+if (cd $SD && ../../../bin/cc45 -O2 -c ../test_zpalias.c -o ../test_zpalias.o45 --save-temps >/dev/null 2>&1); then
+    T=$(ls -t $SD/temp_*.s45 | head -1)
     ZA=$(sed -n '/proc _t$/,/endproc/p' "$T")
     rm -f "$T"
     if [ "$(grep -cE '^\s+bbs[01] \$' <<< "$ZA")" = 3 ] && ! grep -qE '^\s+lda \$[0-9A-F]{2}$' <<< "$ZA"; then

@@ -9,6 +9,8 @@ REFDIR="examples/test/reference"
 BUILDDIR="build/test/examples"
 
 mkdir -p "$BUILDDIR"
+# one xemu run with a disk at a time (instances using disks at once interfere)
+DISKLOCK="$BUILDDIR/xemu_disk.lock"
 
 if ! command -v "$XEMU" &>/dev/null; then
     echo "xemu-xmega65 not found — skipping example tests"
@@ -49,7 +51,7 @@ test_text() {
 test_text_disk() {
     local name="$1" prg="$2" disk="$3" expected="$4" timeout_sec="${5:-15}"
     if [ ! -f "$prg" ] || [ ! -f "$disk" ]; then fail "$name" "PRG or disk not found"; return; fi
-    timeout "$timeout_sec" $XEMU -headless -besure -sleepless -prgmode 65 -prgexit \
+    flock "$DISKLOCK" timeout "$timeout_sec" $XEMU -headless -besure -sleepless -prgmode 65 -prgexit \
         -dumpscreen "$BUILDDIR/${name}.screen.txt" \
         -8 "$PWD/$disk" -prg "$prg" </dev/null >/dev/null 2>&1
     if [ ! -f "$BUILDDIR/${name}.screen.txt" ]; then
@@ -79,17 +81,28 @@ test_screenshot() {
 
 echo "=== Example Validation Tests ==="
 
+unit_00() {   # hello_world
+
 # ── Text examples ──
 
 build_example "$EXAMPLES/c/hello_world"
 test_text "hello_world" "$EXAMPLES/c/hello_world/hello.prg" "HELLO WORLD"
 
+}
+
+unit_01() {   # hello_linked
 build_example "$EXAMPLES/c/hello_linked"
 test_text "hello_linked" "$EXAMPLES/c/hello_linked/hello.prg" "LINKED HELLO"
 
+}
+
+unit_02() {   # multi_module
 build_example "$EXAMPLES/c/multi_module"
 test_text "multi_module" "$EXAMPLES/c/multi_module/program.prg" "^6/6 TESTS PASSED"
 
+}
+
+unit_03() {   # ext_tour
 build_example "$EXAMPLES/c/ext_tour"
 test_text "ext_tour" "$EXAMPLES/c/ext_tour/ext_tour.prg" "^21/21 EXTENSIONS WORK"
 # the tour built with both calling conventions (-fno-zpcall: __CC45_STACK__)
@@ -99,44 +112,83 @@ else
     fail "ext_tour both conventions" "$(tail -1 "$BUILDDIR/ext_tour_check.txt")"
 fi
 
+}
+
+unit_04() {   # overlays
 build_example "$EXAMPLES/c/overlays"
 test_text_disk "overlays" "$EXAMPLES/c/overlays/ovldemo.prg" "$EXAMPLES/c/overlays/ovldemo.d81" "^3/3 OVERLAYS RAN"
 
+}
+
+unit_05() {   # mapped_overlays
 build_example "$EXAMPLES/c/mapped_overlays"
 test_text_disk "mapped_overlays" "$EXAMPLES/c/mapped_overlays/mapdemo.prg" "$EXAMPLES/c/mapped_overlays/mapdemo.d81" "^MAPPED OVERLAYS: 6/6 PROVEN"
 
+}
+
+unit_06() {   # far_functions
 build_example "$EXAMPLES/c/far_functions"
 test_text_disk "far_functions" "$EXAMPLES/c/far_functions/fardemo.prg" "$EXAMPLES/c/far_functions/fardemo.d81" "^6/6 FAR FUNCTIONS RAN"
 
+}
+
+unit_07() {   # unit_convert
 build_example "$EXAMPLES/c/unit_convert"
 test_text "unit_convert" "$EXAMPLES/c/unit_convert/convert.prg" "26 MILES = 41 KM"
 
 # ── Visual examples ──
 
+}
+
+unit_08() {   # memset_screen
 build_example "$EXAMPLES/c/memset_screen"
 test_screenshot "memset_screen" "$EXAMPLES/c/memset_screen/memset_screen.prg"
 
+}
+
+unit_09() {   # vic4_colors
 build_example "$EXAMPLES/c/vic4_colors"
 test_screenshot "vic4_colors" "$EXAMPLES/c/vic4_colors/vic4_colors.prg"
 
+}
+
+unit_10() {   # bitfield_registers
 build_example "$EXAMPLES/c/bitfield_registers"
 test_screenshot "bitfield_regs" "$EXAMPLES/c/bitfield_registers/bitfield_demo.prg"
 
+}
+
+unit_11() {   # game_of_life
 build_example "$EXAMPLES/c/game_of_life"
 test_screenshot "game_of_life" "$EXAMPLES/c/game_of_life/life.prg" 60
 
+}
+
+unit_12() {   # palette_fade
 build_example "$EXAMPLES/c/palette_fade"
 test_screenshot "palette_fade" "$EXAMPLES/c/palette_fade/palette_fade.prg" 30
 
+}
+
+unit_13() {   # text_scroller
 build_example "$EXAMPLES/c/text_scroller"
 test_screenshot "text_scroller" "$EXAMPLES/c/text_scroller/scroller.prg" 15
 
+}
+
+unit_14() {   # far_scroller
 build_example "$EXAMPLES/c/far_scroller"
 test_screenshot "far_scroller" "$EXAMPLES/c/far_scroller/far_scroller.prg" 15
 
+}
+
+unit_15() {   # invaders
 build_example "$EXAMPLES/c/invaders"
 test_screenshot "invaders" "$EXAMPLES/c/invaders/invaders.prg" 15
 
+}
+
+unit_16() {   # mandelbrot
 build_example "$EXAMPLES/c/mandelbrot"
 test_screenshot "mandelbrot" "$EXAMPLES/c/mandelbrot/mandelbrot.prg" 15
 # two views rendered whole (the C side in __fixed(4, 28)): the sums of their
@@ -147,6 +199,9 @@ else
     fail "mandelbrot views" "$(tail -1 "$BUILDDIR/mandelbrot_check.txt")"
 fi
 
+}
+
+unit_17() {   # musicgen
 build_example "$EXAMPLES/c/musicgen"
 test_screenshot "musicgen" "$EXAMPLES/c/musicgen/musicgen.prg" 10
 # the generator test: songs of every style checked against chords and scales
@@ -156,6 +211,9 @@ else
     fail "musicgen songs" "$(tail -1 "$BUILDDIR/musicgen_check.txt")"
 fi
 
+}
+
+unit_18() {   # calc_graph
 build_example "$EXAMPLES/c/calc_graph"
 test_screenshot "calc_graph" "$EXAMPLES/c/calc_graph/calc_graph.prg" 10
 # the expression compiler and evaluator, the raster interrupt during floats
@@ -165,9 +223,15 @@ else
     fail "calc_graph check" "$(tail -1 "$BUILDDIR/calc_graph_check.txt")"
 fi
 
+}
+
+unit_19() {   # keyboard_viewer
 build_example "$EXAMPLES/c/keyboard_viewer"
 test_screenshot "keyboard_viewer" "$EXAMPLES/c/keyboard_viewer/keyboard_viewer.prg" 10
 
+}
+
+unit_20() {   # sample_player
 build_example "$EXAMPLES/c/sample_player"
 test_screenshot "sample_player" "$EXAMPLES/c/sample_player/sample_player.prg" 10
 # the synthesized samples and the audio DMA channels
@@ -177,6 +241,9 @@ else
     fail "sample_player check" "$(tail -1 "$BUILDDIR/sample_player_check.txt")"
 fi
 
+}
+
+unit_21() {   # rtc_clock
 build_example "$EXAMPLES/c/rtc_clock"
 test_screenshot "rtc_clock" "$EXAMPLES/c/rtc_clock/rtc_clock.prg" 10
 # the RTC read twice, a second apart: valid BCD values in range
@@ -186,6 +253,9 @@ else
     fail "rtc_clock read" "$(tail -1 "$BUILDDIR/rtc_clock_check.txt")"
 fi
 
+}
+
+unit_22() {   # rogue
 build_example "$EXAMPLES/c/rogue"
 test_screenshot "rogue" "$EXAMPLES/c/rogue/rogue.prg" 10
 # levels from fixed seeds (reachability, placement), scripted moves, a fight, a random walk
@@ -195,6 +265,9 @@ else
     fail "rogue levels" "$(tail -1 "$BUILDDIR/rogue_check.txt")"
 fi
 
+}
+
+unit_23() {   # hanger
 build_example "$EXAMPLES/c/hanger"
 test_text "hanger" "$EXAMPLES/c/hanger/hanger.prg" "HANGMAN FOR THE MEGA65" 10
 # the self-playing build guesses its way through the levels; xemu runs
@@ -203,17 +276,26 @@ test_text "hanger" "$EXAMPLES/c/hanger/hanger.prg" "HANGMAN FOR THE MEGA65" 10
 make -C "$EXAMPLES/c/hanger" demo >/dev/null 2>&1
 test_text "hanger demo" "$EXAMPLES/c/hanger/hangerdemo.prg" "LEVEL [1-6] OF 6\|BEST SCORE [1-9]" 20
 
+}
+
+unit_24() {   # fcm_graphics
 build_example "$EXAMPLES/c/fcm_graphics"
 # the test build: 100 frames of palette cycling, then fcm_disable and a report
 make -C "$EXAMPLES/c/fcm_graphics" check >/dev/null 2>&1
 test_text "fcm_graphics" "$EXAMPLES/c/fcm_graphics/fcmcheck.prg" "FCM CHECK OK, 100 FRAMES" 20
 
+}
+
+unit_25() {   # tunes
 build_example "$EXAMPLES/c/tunes"
 # the test build: the music from the raster interrupt for 150 frames, then
 # the sick tempo for 100
 make -C "$EXAMPLES/c/tunes" check >/dev/null 2>&1
 test_text "tunes" "$EXAMPLES/c/tunes/tunescheck.prg" "TUNES CHECK OK: 30 TICKS" 20
 
+}
+
+unit_26() {   # glamlambs
 build_example "$EXAMPLES/c/glamlambs"
 test_text_disk "glamlambs" "$EXAMPLES/c/glamlambs/glamlambs.prg" "$EXAMPLES/c/glamlambs/glamlambs.d81" "SHEEP MAKEOVER GAME" 15
 # the self-playing build: a season in the field; its music loaded from the
@@ -223,7 +305,7 @@ make -C "$EXAMPLES/c/glamlambs" demo >/dev/null 2>&1
 # which xemu's screen dump shows as S@C@O@R@E@)
 test_text_disk "glamlambs demo" "$EXAMPLES/c/glamlambs/glamdemo.prg" "$EXAMPLES/c/glamlambs/glamdemo.d81" "SCORE\|S@C@O@R@E@" 15
 rm -f "$BUILDDIR/glamdemo.mem"
-timeout 15 $XEMU -headless -besure -sleepless -prgmode 65 -prgexit -dumpmem "$BUILDDIR/glamdemo.mem" \
+flock "$DISKLOCK" timeout 15 $XEMU -headless -besure -sleepless -prgmode 65 -prgexit -dumpmem "$BUILDDIR/glamdemo.mem" \
     -8 "$PWD/$EXAMPLES/c/glamlambs/glamdemo.d81" -prg "$EXAMPLES/c/glamlambs/glamdemo.prg" </dev/null >/dev/null 2>&1
 if [ -f "$BUILDDIR/glamdemo.mem" ] && python3 - "$BUILDDIR/glamdemo.mem" <<'PY'
 import sys
@@ -243,7 +325,7 @@ then pass "glamlambs salon"; else fail "glamlambs salon" "the salon's files did 
 # salon shown (the demo writes the studio's flag to $C0FC)
 make -C "$EXAMPLES/c/glamlambs" demo-studio >/dev/null 2>&1
 rm -f "$BUILDDIR/glamstudio.mem"
-timeout 15 $XEMU -headless -besure -sleepless -prgmode 65 -prgexit -dumpmem "$BUILDDIR/glamstudio.mem" \
+flock "$DISKLOCK" timeout 15 $XEMU -headless -besure -sleepless -prgmode 65 -prgexit -dumpmem "$BUILDDIR/glamstudio.mem" \
     -8 "$PWD/$EXAMPLES/c/glamlambs/glamstudio.d81" -prg "$EXAMPLES/c/glamlambs/glamstudio.prg" </dev/null >/dev/null 2>&1
 if [ -f "$BUILDDIR/glamstudio.mem" ] && python3 - "$BUILDDIR/glamstudio.mem" <<'PY'
 import sys
@@ -252,6 +334,9 @@ sys.exit(0 if m[0xC0FC] == 1 and m[0xC0FB] & 0x05 == 0x05 and m[0xC0F4] == 0 els
 PY
 then pass "glamlambs styling studio"; else fail "glamlambs styling studio" "the studio did not start or show the salon"; fi
 
+}
+
+unit_27() {   # forth
 build_example "$EXAMPLES/c/forth"
 test_text "forth" "$EXAMPLES/c/forth/forth.prg" "COUNT 0 1 2 3 4" 10
 # the Forth test build: 21 lines of Forth and their output
@@ -260,6 +345,30 @@ if make -C "$EXAMPLES/c/forth" check >"$BUILDDIR/forth_check.txt" 2>&1; then
 else
     fail "forth checks" "$(tail -1 "$BUILDDIR/forth_check.txt")"
 fi
+
+}
+
+# Each example's build and checks run as a job of their own (up to
+# EXAMPLE_JOBS at once, one per core: most of the time is xemu running a
+# program that never returns until its timeout); their output is shown in
+# order and their PASS / FAIL / SKIP lines counted. The examples disks
+# (made of the examples' programs) come after them.
+EXAMPLE_JOBS=${EXAMPLE_JOBS:-$(nproc 2>/dev/null || echo 2)}
+UNITS=$(declare -F | awk '{print $3}' | grep '^unit_' | sort)
+UD="$BUILDDIR/units"
+rm -rf "$UD"; mkdir -p "$UD"
+for u in $UNITS; do
+    while [ "$(jobs -rp | wc -l)" -ge "$EXAMPLE_JOBS" ]; do wait -n 2>/dev/null || true; done
+    ( $u ) > "$UD/$u.log" 2>&1 &
+done
+wait
+for u in $UNITS; do
+    cat "$UD/$u.log"
+    passed=$((passed + $(grep -c '^  PASS: ' "$UD/$u.log")))
+    failed=$((failed + $(grep -c '^  FAIL: ' "$UD/$u.log")))
+    skipped=$((skipped + $(grep -c '^  SKIP: ' "$UD/$u.log")))
+done
+
 
 # The examples disks: the games and the rest on two D81s, each with its
 # menu (AUTOBOOT.C65, MENU); the menu shows the disk's title, and a program
@@ -282,7 +391,7 @@ test_text_disk "demos disk: DLOAD runs a program" "$BUILDDIR/chain.prg" "$EXAMPL
 printf 'start:\n  dload "glamlambs"\n' > "$BUILDDIR/chain2.bas"
 ./bin/basic45 "$BUILDDIR/chain2.bas" -o "$BUILDDIR/chain2.prg" >/dev/null 2>&1
 rm -f "$BUILDDIR/chain2.mem"
-timeout 15 $XEMU -headless -besure -sleepless -prgmode 65 -prgexit -8 "$PWD/$EXAMPLES/disk/games.d81" \
+flock "$DISKLOCK" timeout 15 $XEMU -headless -besure -sleepless -prgmode 65 -prgexit -8 "$PWD/$EXAMPLES/disk/games.d81" \
     -dumpmem "$BUILDDIR/chain2.mem" -prg "$BUILDDIR/chain2.prg" </dev/null >/dev/null 2>&1
 if [ -f "$BUILDDIR/chain2.mem" ] && python3 - "$BUILDDIR/chain2.mem" <<'PY'
 import sys

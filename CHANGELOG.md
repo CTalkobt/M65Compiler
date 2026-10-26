@@ -4,6 +4,20 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Faster tests
+
+- `make test` no longer runs `test_xemu.sh` (the full suites ran it twice):
+  `make test-xemu`. Its steps run in parallel (`src/test/test_steps.txt`,
+  `src/test/run_parallel.sh`; the validation targets in one `make -j`), the
+  examples too (each its own job; the disks after them): about 5.5 minutes
+  instead of 13.
+- `test_xemu.sh` runs xemu in the background on copies of each program and
+  disk (`XEMU_JOBS`): about 3.3 minutes instead of 5.3. A run with a disk
+  waits for any other's (instances using disks at once interfere);
+  `XEMU_SYNC=1` for the tests that read the disk afterwards.
+- Checks that would race in parallel use directories of their own (the
+  loop-rotation trial files, `--save-temps` output).
+
 ### `<rom_ram.h>`: the C64 ROM space as RAM (#339)
 
 - `romram_enable(ROMRAM_C64)` lifts the hypervisor's write protection of
