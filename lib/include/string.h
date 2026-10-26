@@ -8,22 +8,22 @@
 
 /* String operations */
 __fastcall__ int strlen(char *s) __pure;
-__fastcall__ char *strcpy(char *dest, char *src);
-__fastcall__ char *strncpy(char *dest, char *src, int n);
+__fastcall__ char *strcpy(char *restrict dest, char *restrict src);
+__fastcall__ char *strncpy(char *restrict dest, char *restrict src, int n);
 __fastcall__ signed int strcmp(char *s1, char *s2) __pure;
 __fastcall__ signed int strncmp(char *s1, char *s2, int n) __pure;
-__fastcall__ char *strcat(char *dest, char *src);
-__fastcall__ char *strncat(char *dest, char *src, int n);
+__fastcall__ char *strcat(char *restrict dest, char *restrict src);
+__fastcall__ char *strncat(char *restrict dest, char *restrict src, int n);
 __fastcall__ char *strchr(char *s, int c) __pure;
 __fastcall__ char *strrchr(char *s, int c) __pure;
 char *strstr(char *haystack, char *needle) __pure;
 char *strpbrk(char *s, char *accept) __pure;
 int strspn(char *s, char *accept) __pure;
 int strcspn(char *s, char *reject) __pure;
-__fastcall__ char *strtok(char *s, char *delim);
+__fastcall__ char *strtok(char *restrict s, char *restrict delim);
 __fastcall__ char *strtok_r(char *s, char *delim, char **saveptr);
 int strnlen(const char *s, int maxlen) __pure;
-int strlcpy(char *dst, const char *src, int size);
+int strlcpy(char *restrict dst, const char *restrict src, int size);
 /* Which of several strings s is: 1 for the first equal one, 0 for none;
  * the list ends with NULL (cc45 turns a call whose candidates are all
  * string literals into __stridx_table, where the NULL may be left out) */
@@ -32,7 +32,7 @@ int __stridx_table(const char *s, const unsigned char *table);
 char *strdup(const char *s);
 
 /* Memory operations */
-__fastcall__ void *memcpy(void *dest, void *src, int n);
+__fastcall__ void *memcpy(void *restrict dest, void *restrict src, int n);
 __fastcall__ void *memmove(void *dest, void *src, int n);
 __fastcall__ void *memset(void *s, int c, int n);
 __fastcall__ signed int memcmp(void *s1, void *s2, int n) __pure;

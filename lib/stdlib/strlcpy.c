@@ -4,7 +4,7 @@
  * Returns strlen(src) (total length of string it tried to create).
  */
 
-int strlcpy(char *dst, const char *src, int size) {
+int strlcpy(char *restrict dst, const char *restrict src, int size) {
     int i = 0;
     if (size > 0) {
         while (i < size - 1 && src[i]) {

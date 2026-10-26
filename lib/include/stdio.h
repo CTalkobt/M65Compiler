@@ -19,13 +19,13 @@ __fastcall__ int puts(char *s);
 /* puts without the newline (also __builtin_putstr); cc45 compiles
  * printf("text") -- no %, result unused -- as putstr("text") */
 __fastcall__ int putstr(const char *s);
-int sprintf(char *buf, char *fmt, ...);
-int snprintf(char *buf, int size, char *fmt, ...);
-int printf(char *fmt, ...);
-int sscanf(const char *str, const char *fmt, ...);
-int vsscanf(const char *str, const char *fmt, va_list ap);
-int vsprintf(char *buf, char *fmt, va_list ap);
-int vsnprintf(char *buf, int size, char *fmt, va_list ap);
+int sprintf(char *restrict buf, char *restrict fmt, ...);
+int snprintf(char *restrict buf, int size, char *restrict fmt, ...);
+int printf(char *restrict fmt, ...);
+int sscanf(const char *restrict str, const char *restrict fmt, ...);
+int vsscanf(const char *restrict str, const char *restrict fmt, va_list ap);
+int vsprintf(char *restrict buf, char *restrict fmt, va_list ap);
+int vsnprintf(char *restrict buf, int size, char *restrict fmt, va_list ap);
 
 /* ============================================================================
  * FILE STRUCTURE & TRADITIONAL FILE I/O
@@ -95,36 +95,36 @@ extern FILE *stderr;
 #define _IONBF      2                /* unbuffered */
 
 /* Stream file operations */
-FILE *fopen(const char *filename, const char *mode);
-FILE *freopen(const char *filename, const char *mode, FILE *stream);
+FILE *fopen(const char *restrict filename, const char *restrict mode);
+FILE *freopen(const char *restrict filename, const char *restrict mode, FILE *restrict stream);
 int fclose(FILE *stream);
 int fflush(FILE *stream);
 
 /* Character I/O */
 int fgetc(FILE *stream);
 int fputc(int c, FILE *stream);
-char *fgets(char *str, int size, FILE *stream);
-int fputs(const char *str, FILE *stream);
+char *fgets(char *restrict str, int size, FILE *restrict stream);
+int fputs(const char *restrict str, FILE *restrict stream);
 int ungetc(int c, FILE *stream);
 void perror(const char *s);
 
 /* Block I/O */
-size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream);
-size_t fwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream);
+size_t fread(void *restrict ptr, size_t size, size_t nmemb, FILE *restrict stream);
+size_t fwrite(const void *restrict ptr, size_t size, size_t nmemb, FILE *restrict stream);
 
 /* Formatted I/O */
-int fprintf(FILE *stream, const char *format, ...);
-int vfprintf(FILE *stream, const char *format, va_list ap);
-int fscanf(FILE *stream, const char *format, ...);
+int fprintf(FILE *restrict stream, const char *restrict format, ...);
+int vfprintf(FILE *restrict stream, const char *restrict format, va_list ap);
+int fscanf(FILE *restrict stream, const char *restrict format, ...);
 int vfscanf(FILE *stream, const char *format, va_list ap);
-int scanf(const char *format, ...);
+int scanf(const char *restrict format, ...);
 int vscanf(const char *format, va_list ap);
 
 /* File positioning */
 int fseek(FILE *stream, long offset, int whence);
 long ftell(FILE *stream);
 void rewind(FILE *stream);
-int fgetpos(FILE *stream, fpos_t *pos);
+int fgetpos(FILE *restrict stream, fpos_t *restrict pos);
 int fsetpos(FILE *stream, const fpos_t *pos);
 
 /* File status */
@@ -138,8 +138,8 @@ FILE *tmpfile(void);
 char *tmpnam(char *str);
 
 /* Buffer control */
-int setvbuf(FILE *stream, char *buffer, int mode, size_t size);
-void setbuf(FILE *stream, char *buffer);
+int setvbuf(FILE *restrict stream, char *restrict buffer, int mode, size_t size);
+void setbuf(FILE *restrict stream, char *restrict buffer);
 
 /* ============================================================================
  * COMMODORE FILE HANDLE I/O (Unix-style, lightweight)

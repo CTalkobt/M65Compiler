@@ -1,6 +1,6 @@
 /* strpbrk.c — Find first occurrence of any character from accept in s */
 
-char *strpbrk(char *s, char *accept) {
+char *strpbrk(char *restrict s, char *restrict accept) {
     char *a;
     while (*s) {
         a = accept;
