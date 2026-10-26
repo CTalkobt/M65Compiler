@@ -212,8 +212,11 @@ awk '/proc _f/{p=1} /endproc/{p=0} p' $T/dps2.s | grep -qE "^ +sta [$]3" && pass
 
 # Loop rotation (#138): the test after the body, entered by a branch: one
 # backward conditional branch and the entry's bra, no branch back
+# (compiled in $T: the size trial's temporary objects go to the current
+# directory, and other test scripts may be compiling in this one meanwhile)
+TCC() { (cd $T && "$OLDPWD/bin/cc45" "$@"); }
 printf 'unsigned char buf[100];\nvoid fill(unsigned char n) { unsigned char i; for (i = 0; i < n; i++) buf[i] = i; }\n' > $T/rot.c
-$CC -c $T/rot.c -o $T/rot.o45 2>/dev/null
+TCC -O2 -c rot.c -o rot.o45 2>/dev/null
 dis=$(./bin/objdump45 -d $T/rot.o45 | grep -E "^\s+[0-9a-f]{4}:" | cut -f3- | awk '{print $1}' | tr '\n' ' ')
 case "$dis" in
     *"bra "*"bcc rts"*) pass ;;
@@ -222,10 +225,10 @@ esac
 # ... kept only where the function is no larger (both ways assembled), none
 # under -Os, always with -frotate-loops
 printf 'unsigned int count(unsigned int n) { unsigned int c = 0, k = 0; while (k < n) { if (k & 1) c++; k++; } return c; }\n' > $T/rot2.c
-$CC -Roptir -c $T/rot2.c -o $T/rot2.o45 2>&1 | grep -q "^\[rotate\] _count: kept" && pass || fail "the size trial does not keep count's rotation"
-./bin/cc45 -Os -Roptir -c $T/rot2.c -o $T/rot2.o45 2>&1 | grep -q "^\[rotate\]" && fail "-Os rotates loops" || pass
-./bin/cc45 -Os -frotate-loops -Roptir -c $T/rot2.c -o $T/rot2.o45 2>&1 | grep -q "^\[rotate\] _count .*@while_cond0 after" && pass || fail "-Os -frotate-loops does not rotate"
-ls temp_*_trial* >/dev/null 2>&1 && fail "trial files left behind" || pass
+TCC -O2 -Roptir -c rot2.c -o rot2.o45 2>&1 | grep -q "^\[rotate\] _count: kept" && pass || fail "the size trial does not keep count's rotation"
+TCC -Os -Roptir -c rot2.c -o rot2.o45 2>&1 | grep -q "^\[rotate\]" && fail "-Os rotates loops" || pass
+TCC -Os -frotate-loops -Roptir -c rot2.c -o rot2.o45 2>&1 | grep -q "^\[rotate\] _count .*@while_cond0 after" && pass || fail "-Os -frotate-loops does not rotate"
+ls $T/temp_*_trial* >/dev/null 2>&1 && fail "trial files left behind" || pass
 
 # ca45: a label reached only by a backward branch (a reset label between)
 # starts with the registers at the branch: f's body does not reload A; g's

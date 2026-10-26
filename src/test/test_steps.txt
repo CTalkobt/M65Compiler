@@ -1,0 +1,35 @@
+# The steps of make test, run in parallel by run_parallel.sh (title|command):
+# each must leave other steps' files alone and use a directory of its own for
+# what it globs (cc45 --save-temps and the loop-rotation trial write their
+# temporary files to the current directory). test_xemu.sh is make test-xemu;
+# test_examples.sh runs after these (it is parallel itself).
+
+Running .o45 format and linker unit tests...|./bin/test_o45
+Running the AST walker unit test...|./bin/test_ast_walker
+Running the constant evaluator unit test...|./bin/test_const_eval
+Validating documentation structure and links...|python3 src/test/check_docs.py
+Running compiler tests...|bash src/test/test_compiler.sh
+Running assembler feature tests...|bash src/test/test_assembler.sh
+Running const keyword tests...|bash src/test/test_const_compiler.sh
+bash src/test/test_const_assembler.sh|bash src/test/test_const_assembler.sh
+Running restrict qualifier tests...|bash src/test/test_restrict.sh
+Running register keyword tests...|bash src/test/test_register.sh
+Running cast fold type preservation tests...|bash src/test/test_cast_fold.sh
+Running inline control tests...|bash src/test/test_inline_control.sh
+Running optimization switch tests...|bash src/test/test_optimizations.sh
+Running tune45 tests...|bash src/test/test_tune45.sh
+Running debug information tests...|bash src/test/test_debug_info.sh
+Running logging tests...|bash src/test/test_logging.sh
+Running configuration tests...|bash src/test/test_config.sh
+Running function-local state tests...|bash src/test/test_function_locals.sh
+Running string escape tests...|bash src/test/test_string_escapes.sh
+Running signedness tests...|bash src/test/test_signedness.sh
+Running installed toolchain tests...|bash src/test/test_install.sh
+Running cvt_asm tests...|bash src/test/test_cvt_asm.sh
+Running shadow execution tests (cc45 vs host gcc)...|bash src/test/test_shadow_ir.sh
+Running clobber tracking tests...|bash src/test/test_clobber.sh
+Running library call convention tests...|bash src/test/test_libcall_conv.sh
+Running objdump45 tests...|bash src/test/test_objdump45.sh
+Running disk45 tests...|bash src/test/test_disk45.sh
+Running new stdlib tests...|bash src/test/test_stdlib_new.sh
+Running the validation targets (17, in one make)...|make --no-print-directory -j4 --output-sync=target test-validation-parser test-validation-struct test-validation-const test-validation-semantic test-validation-preprocessor test-validation-linker test-segment-emission test-validation-assembler test-validation-simops test-validation-directives test-validation-symbols test-validation-segments test-validation-proc test-validation-addressing test-validation-simops-extended test-opcodes test-move-fill
