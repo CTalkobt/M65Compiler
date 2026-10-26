@@ -11,6 +11,5 @@ int main() {
     r[1] = (char)bss_var2;      // 0
     r[2] = (char)init_var;      // 42 = $2A
     r[3] = 0xAA;
-    __asm__("brk");
     return 0;
 }

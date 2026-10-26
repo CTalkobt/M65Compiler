@@ -10,6 +10,5 @@ int main() {
     g_count = 5;
     r[1] = (char)g_count;       // 5 = $05
     r[2] = 0xAA;                // sentinel
-    __asm__("brk");
     return 0;
 }

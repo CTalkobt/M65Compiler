@@ -4,6 +4,36 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### The mmemu tests on xemu
+
+- The runtime checks of the mmemu-era scripts (`test_mmemu.sh`,
+  `test_zpcall.sh`, `test_stdlib.sh`, `test_integration.sh`, the serialtcp
+  and hardware-MCP runners) run in `test_xemu.sh`, both conventions: 69
+  compiler test programs by their exit status (they were only compiled),
+  the 23 `src/test-resources/stdlib/` programs (`test_stdlib_new.sh` never
+  ran them), the multi-object `integration/` programs, `mega65.h`'s
+  register overlays (`test_mega65_regs_xemu.c`: addresses instead of the
+  constants `test_hw_extra_mmemu.c` wrote itself), the VIC-IV overlay, wide
+  bit-fields, ZP-convention calls, inline asm's names for parameters
+  (`test_asm_names_xemu.c`), and five assembler programs run from BASIC
+  (16-bit stack, Q operations, `chknonzero`/`select`, opcode execution, a
+  hand-written ZP-convention module; its `.zp_uses`/`.zp_release` records).
+  The scripts, their make targets (`test-mmemu`, `test-stdlib`,
+  `test-integration`, `test-zpcall`) and the programs other tests cover are
+  removed.
+- Fixed: `__cpu.X = 20` (or `.Y`, `.Z`, `.XY`…) loaded the constant through
+  A, losing a value just written to `__cpu.A`; a constant, base-page or
+  static value now loads into the register directly (`__cpu.XY` from a
+  computed value took X twice).
+- Fixed: a ZP-convention leaf function's parameter read only by inline asm
+  through its static copy (`_f__param_x`, documented for both conventions)
+  was left in the parameter block, the copy never written.
+- Test programs with wrong expectations: `strspn("hello world", "helo")` is
+  5, `many_locals`/`deeply_nested` 24 and 130, `sizeof` of a packed
+  `{int; int; char}` 5, `"check_func_name"` 15 characters, string literals
+  PETSCII (compared with character constants), `strcmp`'s result
+  `signed`, `CLOCKS_PER_SEC` 50 or 60.
+
 ### The validation tests in one program (#96)
 
 - `test_xemu.sh` about 1.5 minutes (from 3.3): most tests are one

@@ -77,7 +77,7 @@ int main() {
 
     // Test 4: 2 params + 6 locals
     int r4 = many_locals(10, 5);
-    if (r4 != 23) return 4;
+    if (r4 != 24) return 4;
 
     // Test 5: 3 params + 3 locals, params accessed after local declarations
     int r5 = param_after_locals(10, 20, 30);
@@ -93,7 +93,7 @@ int main() {
 
     // Test 8: 4 params + 5 locals
     int r8 = deeply_nested(10, 20, 30, 40);
-    if (r8 != 90) return 8;
+    if (r8 != 130) return 8;
 
     // Test 9: Passing locals as args to multi-param functions
     int a = 5;

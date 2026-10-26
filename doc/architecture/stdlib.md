@@ -415,11 +415,11 @@ Runtime tests run on `xemu-xmega65`:
 
 | Script | In `make test` | Covers |
 |--------|----------------|--------|
-| `src/test/test_xemu.sh` | yes | short/long arithmetic, struct return, array init, compound literals, alloca, memory/string/ctype/stdlib functions |
-| `src/test/test_stdlib_new.sh` | yes (skips without xemu) | `src/test-resources/stdlib/` tests: `strdup`, `strlcpy`, `strnlen`, `strtok_r`, `strpbrk`, `strspn`, `strcspn`, `strstr`, `calloc`, `realloc`, `time`, … |
+| `src/test/test_xemu.sh` | yes | short/long arithmetic, struct return, array init, compound literals, alloca, memory/string/ctype/stdlib functions; the `src/test-resources/stdlib/` tests (`strdup`, `strlcpy`, `strnlen`, `strtok_r`, `strpbrk`, `strspn`, `strcspn`, `strstr`, `calloc`, `realloc`, `time`, …) in both conventions |
+| `src/test/test_stdlib_new.sh` | yes (skips without xemu) | `memchr`, `isgraph`, `strerror`, `qsort`, `bsearch`, array decay |
 | `src/test/test_examples.sh` | yes (skips without xemu) | `examples/` programs |
 
-A test program returns its result as the exit status (0 = pass), which the scripts read from `$FD/$FE` in a memory dump. `make test-stdlib` (`src/test/test_stdlib.sh`) is an older runner for the mmemu emulator and is not part of `make test`.
+A test program returns its result as the exit status (0 = pass), which the scripts read from `$FD/$FE` in a memory dump.
 
 ## See Also
 

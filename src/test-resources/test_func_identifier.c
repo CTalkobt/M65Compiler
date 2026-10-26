@@ -5,27 +5,27 @@
 int check_func_name() {
     char *name = __func__;
     // "check_func_name" - verify first few chars
-    if (name[0] != 99) return 1;   // 'c' = 99
-    if (name[1] != 104) return 2;  // 'h' = 104
-    if (name[2] != 101) return 3;  // 'e' = 101
-    if (name[3] != 99) return 4;   // 'c' = 99
-    if (name[4] != 107) return 5;  // 'k' = 107
+    if (name[0] != 'c') return 1;
+    if (name[1] != 'h') return 2;
+    if (name[2] != 'e') return 3;
+    if (name[3] != 'c') return 4;
+    if (name[4] != 'k') return 5;
 
     // Verify length by walking to null terminator
     int len = 0;
     while (name[len] != 0) {
         len = len + 1;
     }
-    // "check_func_name" is 16 characters
-    if (len != 16) return 6;
+    // "check_func_name" is 15 characters
+    if (len != 15) return 6;
 
     return 0;
 }
 
 int verify_main() {
     char *name = __func__;
-    // "verify_main" - first char should be 'v' = 118
-    if (name[0] != 118) return 10;
+    // "verify_main" - first char should be 'v'
+    if (name[0] != 'v') return 10;
 
     int len = 0;
     while (name[len] != 0) {

@@ -215,7 +215,7 @@ doc/examples/        the examples with screenshots (examples/capture_screens.py)
   `-l` lists them, `TV_VERBOSE=1` shows the PASS lines; `make test-validation-<x>` runs one
 - `make clean`, `make install` (PREFIX=/usr/local: `bin/`, `lib/cc45/`, `include/cc45/`), `make install_local`, `make man`
 - `make coverage`, `make test-o45`, `make docker` (Alpine `src/Docker/Dockerfile`: `make install PREFIX=/app`, entrypoint cc45; `src/Docker/docker-aliases.sh`; the root `Dockerfile` is Ubuntu, with the source tree for `make test`)
-- Some targets (`test-mmemu`, `test-stdlib`, `bench-optimizer`) still use mmemu — **runtime tests are run on xemu-xmega65, never mmemu**.
+- `bench-optimizer` (a size benchmark) still uses mmemu — **runtime tests are run on xemu-xmega65, never mmemu**.
 
 The tools find headers and libraries relative to their own location, in the
 build tree and in an installed one: headers `CC45_INCLUDE`, then

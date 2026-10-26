@@ -1,6 +1,6 @@
-// test_vic4_mmemu: VIC-IV struct overlay and VREG direct access
+// test_vic4_xemu: VIC-IV struct overlay and VREG direct access
 // Validates struct offsets, VREG defines, and 8-bit store width.
-// Results at $4000; run on mmemu rawMega65.
+// Results at $4000 (19 bytes).
 
 #include <mega65.h>
 
@@ -61,5 +61,4 @@ void main() {
     r[17] = VIC4_FAST;     // 0x40
     r[18] = VIC4_FCM;      // 0x04
 
-    __asm__("brk");
 }

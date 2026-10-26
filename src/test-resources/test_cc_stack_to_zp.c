@@ -17,7 +17,7 @@ __fastcall__ char zp_char_mul(char x, char y) {
 }
 
 // Stack-convention main (default)
-void main() {
+int main() {
     // Test 1: Call ZP function from stack code
     int r1 = zp_add(10, 20);
     assert(r1 == 30);

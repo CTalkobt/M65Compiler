@@ -1,7 +1,34 @@
 ; Test: 16-bit stack pointer via TYS (SPH) / TSY
 ; Relocate stack to page $40, push known values, verify they land at $40xx.
 ; Results written to $4000: DD CC BB AA 40 FF
-.org $2000
+        * = $2001
+        .basicUpstart __xemu_main
+
+; run from BASIC: interrupts off, the base page moved to $5000 (the test's
+; zero-page use leaves BASIC's alone), BASIC's stack pointer kept
+__xemu_main:
+        php
+        sei
+        tsx
+        stx __xemu_sp
+        tsy
+        sty __xemu_sp+1
+        lda #$50
+        tab
+        jsr __xemu_test
+__xemu_done:
+        lda #0
+        tab
+        ldx __xemu_sp
+        txs
+        ldy __xemu_sp+1
+        tys
+        plp
+        rts
+__xemu_sp:
+        .byte 0, 0
+
+__xemu_test:
 
     ; Set SPL to $FF
     ldx #$FF
@@ -39,4 +66,4 @@
     tsx
     stx $4005       ; expect $FF
 
-    brk
+    jmp __xemu_done

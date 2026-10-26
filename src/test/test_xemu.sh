@@ -229,7 +229,7 @@ compile_link_test() {
     local src="$1"
     local prg_out="$2"
     local flags="${3:-}"
-    local extra="${4:-}"     # more objects to link (assembled from .s45 sources)
+    local extra="${4:-}"     # more objects to link (.s45 sources assembled, .c compiled)
     local o_file="${prg_out%.prg}.o45"
 
     $CC -c $flags "$src" -o "$o_file" 2>/dev/null
@@ -237,8 +237,13 @@ compile_link_test() {
 
     local extra_o=""
     for s in $extra; do
-        local eo="${prg_out%.prg}_$(basename "${s%.s45}").o45"
-        $AS -c "$s" -o "$eo" >/dev/null 2>&1 || return 1
+        local b; b=$(basename "$s"); b="${b%.s45}"; b="${b%.c}"
+        local eo="${prg_out%.prg}_$b.o45"
+        if [[ "$s" == *.c ]]; then
+            $CC -c $flags "$s" -o "$eo" 2>/dev/null || return 1
+        else
+            $AS -c "$s" -o "$eo" >/dev/null 2>&1 || return 1
+        fi
         extra_o="$extra_o $eo"
     done
 
@@ -397,6 +402,92 @@ for zgmode in "stack|-fno-zpcall|$STDLIB_STACK" "zp||$STDLIB"; do
         failed=$((failed + 1))
     fi
 done
+
+# Test: programs that return 0 when they pass (exit status at $FD/$FE; a
+# failed assert() gives $FFFE), or the value given after the ":" (lo hi),
+# both conventions: compiler tests, src/test-resources/stdlib/
+RET0_TESTS="test_anon_struct test_arrays test_bool test_break_continue:2C_00 test_case_range
+ test_cc_long_return test_cc_stack_to_zp test_cc_struct_return test_char test_char_local
+ test_complex_math test_compound test_compound_types test_constant_folding:E8_01 test_dead_store
+ test_enum test_for_decl test_func_args test_func_identifier test_generic test_global_res
+ test_global_struct test_global_vars test_goto_sizeof test_i8_arith test_large_struct
+ test_literal_promotion test_many_params_locals test_memcpy test_mixed_types test_modulo
+ test_multi_call test_naked test_nested_struct test_operator_precedence test_ops
+ test_optimizations test_opt_load_store test_packed_struct test_ptr_arith test_ptr_precedence
+ test_ptr_ptr:64_00 test_recursion:78_00 test_register test_regparm test_repeat test_shift_edge
+ test_short_circuit test_signed_cc test_strchr test_strcmp test_strcpy test_strength_reduction:8E_00
+ test_string_literal test_strlen test_struct:96_00 test_sub test_switch test_switch_continue
+ test_ternary test_typedef test_type_promotion test_union test_variadic test_variadic_long
+ test_volatile test_volatile_dse test_zp_clobber test_cpu_intrinsics_xemu"
+for r0 in $RET0_TESTS $(cd src/test-resources && ls stdlib/*.c | sed 's/\.c$//'); do
+    r0name="${r0%%:*}"; r0exp="00 00"
+    [ "$r0name" != "$r0" ] && r0exp="${r0#*:}" && r0exp="${r0exp/_/ }"
+    r0base=$(echo "$r0name" | tr / _)
+    for r0mode in "stack|-fno-zpcall" "zp|"; do
+        IFS='|' read -r r0m r0flags <<< "$r0mode"
+        xemu_case "FAIL: $r0name.c $r0m (compilation/linking failed)" "src/test-resources/$r0name.c" "build/test/${r0base}_${r0m}_ret.prg" "$r0flags" -- "${r0base}_$r0m" "build/test/${r0base}_${r0m}_ret.prg" "00FD" 2 "$r0exp"
+    done
+done
+
+# Test: programs of several objects (src/test-resources/integration/), results at $4000
+for igt in "test1_globals||2A 05 AA" "test2_multi_obj_a|test2_multi_obj_b|1E 07 AA" "test3_struct_a|test3_struct_b|1E AA" \
+           "test4_cbm_getin||01 AA" "test5_long_globals||E0 01 AA" "test6_bss_init||00 00 2A AA"; do
+    IFS='|' read -r igmain igother igexp <<< "$igt"
+    igextra=""; [ -n "$igother" ] && igextra="src/test-resources/integration/$igother.c"
+    for igmode in "stack|-fno-zpcall" "zp|"; do
+        IFS='|' read -r igm igflags <<< "$igmode"
+        xemu_case "FAIL: integration/$igmain.c $igm (compilation/linking failed)" "src/test-resources/integration/$igmain.c" "build/test/ig_${igmain}_$igm.prg" "$igflags" "$igextra" -- "ig_${igmain}_$igm" "build/test/ig_${igmain}_$igm.prg" "4000" $(echo $igexp | wc -w) "$igexp"
+    done
+done
+
+# Test: mega65.h register overlays (addresses of SID, CIA, FDC, SD, Ethernet,
+# hypervisor members; constants), the VIC-IV overlay written and read back,
+# char and wide bitfields, ZP-convention calls (with variadic callees,
+# nesting, recursion, long returns), both conventions
+for c2t in "test_mega65_regs_xemu|C0C0|01 01 01 01 AA" \
+           "test_vic4_xemu|4000|AA BB CC DD 0F 11 22 E1 FF E3 C1 99 C3 00 06 0F 10 40 04" \
+           "test_bitfield_wide_xemu|4000|01 05 0C 06 F4 1E" \
+           "test_zpcall_mixed_xemu|4000|3C 00 48 00 96 00 63 50 AA" \
+           "test_zpcall_regression_xemu|4000|70 00 07 4D 00 37 00 E0 93 04 00 78 00 01 00 64 3C AA"; do
+    IFS='|' read -r c2name c2addr c2exp <<< "$c2t"
+    for c2mode in "stack|-fno-zpcall" "zp|"; do
+        IFS='|' read -r c2m c2flags <<< "$c2mode"
+        xemu_case "FAIL: $c2name.c $c2m (compilation/linking failed)" "src/test-resources/$c2name.c" "build/test/${c2name}_$c2m.prg" "$c2flags" -- "${c2name}_$c2m" "build/test/${c2name}_$c2m.prg" "$c2addr" $(echo $c2exp | wc -w) "$c2exp"
+    done
+done
+
+# Test: inline asm naming parameters and locals (@_p_x ZP slots, a SAC
+# parameter's static copy, @_l_i register locals): the ZP convention's names
+xemu_case "FAIL: test_asm_names_xemu.c (compilation/linking failed)" "src/test-resources/test_asm_names_xemu.c" "build/test/test_asm_names_xemu.prg" -- "test_asm_names" "build/test/test_asm_names_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
+
+# Test: hand-written asm run from BASIC (a wrapper moves the base page and
+# keeps BASIC's stack): 16-bit stack (TYS/TSY), 32-bit Q operations,
+# chknonzero/chkzero/select, opcode execution, ZP-convention calls
+for ast in "test_16bit_stack|DD CC BB AA 40 FF" \
+           "test_32bit_ops|E0 93 04 00 A0 86 01 00 E0 8F 03 00 60 79 FE FF FF FF FF FF" \
+           "test_chknonzero|01 00 01 00 01 01 00 01 00 00 BB CC AA" \
+           "test_opcode_execution|42 7F 33 00 AB CD 30 15 0F F3 55 80 20 02 C0 06 09 10 1F 99 77 01 01 01 01 01 01 EE 5A BB 01 BB AA" \
+           "test_zpcall_asm|0F 30 75 E0 93 04 00 AA"; do
+    IFS='|' read -r asname asexp <<< "$ast"
+    echo "Testing ${asname}_xemu.s45..."
+    if $AS "src/test-resources/${asname}_xemu.s45" -o "build/test/${asname}_xemu.prg" >/dev/null 2>&1; then
+        run_xemu_test "$asname" "build/test/${asname}_xemu.prg" "4000" $(echo $asexp | wc -w) "$asexp"
+    else
+        echo "FAIL: ${asname}_xemu.s45 (assembly failed)"
+        failed=$((failed + 1))
+    fi
+done
+# the ZP-convention attributes ca45 records for test_zpcall_asm's functions
+if $AS -c src/test-resources/test_zpcall_asm_xemu.s45 -o build/test/test_zpcall_asm.o45 >/dev/null 2>&1 &&
+   ./bin/nm45 -f build/test/test_zpcall_asm.o45 > build/test/test_zpcall_asm.nm 2>&1 &&
+   grep -q "add_chars.*uses:03-04" build/test/test_zpcall_asm.nm &&
+   grep -q "add_long_fn.*releases:07-0A" build/test/test_zpcall_asm.nm; then
+    echo "SUCCESS: test_zpcall_asm function attributes (.zp_uses, .zp_release)"
+    passed=$((passed + 1))
+else
+    echo "FAIL: test_zpcall_asm function attributes (nm45 -f: add_chars uses:03-04, add_long_fn releases:07-0A)"
+    failed=$((failed + 1))
+fi
 
 # Test: virtual dispatch (every __vt set: locals, globals, statics, arrays,
 # nested members), stack and ZP conventions

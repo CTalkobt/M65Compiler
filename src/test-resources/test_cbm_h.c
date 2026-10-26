@@ -1,7 +1,7 @@
 // Test: cbm.h compile+assemble smoke test (Issue #46)
 // Exercises every parameterized KERNAL wrapper to verify inline asm
 // parameter references (@_p_xxx) resolve correctly.
-// No runtime validation — KERNAL routines not available in mmemu.
+// Compile-only (test_compiler.sh): the calls would wait for keys and a disk.
 
 #include <cbm.h>
 

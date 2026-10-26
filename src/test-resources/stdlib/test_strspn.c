@@ -5,7 +5,7 @@
 
 int main() {
     // Test 1: Basic case - count chars at start that match accept set
-    if (strspn("hello world", "helo") != 4) return 1;  // 'h','e','l','l' match; space breaks
+    if (strspn("hello world", "helo") != 5) return 1;  // "hello" matches; the space breaks
 
     // Test 2: No chars in accept set
     if (strspn("hello", "xyz") != 0) return 2;  // no match

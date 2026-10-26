@@ -10,6 +10,5 @@ int main() {
     p.y = 20;
     r[0] = (char)sum_point(&p);  // 30 = $1E
     r[1] = 0xAA;
-    __asm__("brk");
     return 0;
 }

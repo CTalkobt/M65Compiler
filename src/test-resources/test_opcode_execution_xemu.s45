@@ -1,9 +1,36 @@
 ; Test: Opcode execution validation
-; Assembles a series of instruction sequences, executes in mmemu,
+; Assembles a series of instruction sequences, executes it on xemu,
 ; and writes results to $4000+ for verification.
 ; Each test writes a 1-byte result; $AA = sentinel at end.
 
-.org $2000
+        * = $2001
+        .basicUpstart __xemu_main
+
+; run from BASIC: interrupts off, the base page moved to $5000 (the test's
+; zero-page use leaves BASIC's alone), BASIC's stack pointer kept
+__xemu_main:
+        php
+        sei
+        tsx
+        stx __xemu_sp
+        tsy
+        sty __xemu_sp+1
+        lda #$50
+        tab
+        jsr __xemu_test
+__xemu_done:
+        lda #0
+        tab
+        ldx __xemu_sp
+        txs
+        ldy __xemu_sp+1
+        tys
+        plp
+        rts
+__xemu_sp:
+        .byte 0, 0
+
+__xemu_test:
 
     ; results pointer
     results = $4000
@@ -313,4 +340,4 @@
     lda #$AA
     sta results+32
 
-    brk
+    jmp __xemu_done

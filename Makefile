@@ -432,8 +432,8 @@ $(LIB_DIR):
 # ============================================================================
 
 .PHONY: lib45-libraries lib45-sizes lib45-clean show-lib-deps parallel-build
-.PHONY: all clean test man test-mmemu test-stdlib test-regression test-zpcall stdlib
-.PHONY: test-integration lib install install_local uninstall
+.PHONY: all clean test man test-regression stdlib
+.PHONY: lib install install_local uninstall
 .PHONY: uninstall_local cppcheck coverage coverage-build coverage-clean
 .PHONY: coverage-report docker test-assembler test-const
 .PHONY: test-restrict test-register test-cast-fold test-o45 test-move-fill
@@ -598,20 +598,8 @@ test-inline: all
 test-failures: all lib
 	@bash src/test/test_failures.sh
 
-test-integration: all
-	@bash src/test/test_integration.sh
-
-test-mmemu: all
-	@bash src/test/test_mmemu.sh
-
-test-stdlib: all lib
-	@bash src/test/test_stdlib.sh
-
 test-regression: all lib
 	@bash src/test/test_regression.sh
-
-test-zpcall: all
-	@bash src/test/test_zpcall.sh
 
 bench-optimizer: all
 	@bash src/test/bench_optimizer.sh
