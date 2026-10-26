@@ -9,6 +9,7 @@
 #endif
 #include <fstream>
 #include <sstream>
+#include <csignal>
 #include "ConfigLoader.hpp"
 #include "CompilationPipeline.hpp"
 #include "Lexer.hpp"
@@ -417,6 +418,10 @@ public:
 };
 
 int main(int argc, char** argv) {
+    // A reader that closes its end of a pipe (cc45 -Roptir ... | grep -q)
+    // makes a write fail instead of ending cc45 before it removes its
+    // temporary files (the loop-rotation trial objects)
+    signal(SIGPIPE, SIG_IGN);
     std::string programName = argv[0];
     size_t lastSlash = programName.find_last_of("/\\");
     if (lastSlash != std::string::npos) programName = programName.substr(lastSlash + 1);

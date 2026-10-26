@@ -13,7 +13,11 @@
  *   [5] a call in the loop that changes *k through a pointer made from k:
  *       not hoisted, each iteration sees the new value
  *   [6] volatile int *restrict: every read is done
- *   [7] $AA sentinel
+ *   [7] restrict parameters that are stepped (d++, s++): still their
+ *       objects; a copy loop with stores into a global between
+ *   [8] a stepped restrict pointer sees what was stored through it (p[0],
+ *       p++, p[-1], p--): no load reused across those
+ *   [9] $AA sentinel
  */
 #define OUT ((volatile unsigned char *)0xC0C0)
 
@@ -53,6 +57,19 @@ static unsigned char sum_arr(const unsigned char a[restrict], unsigned char n) {
 }
 
 static void bump(signed int *k) { *k += 1; }
+
+__attribute__((noinline)) static void copy2(char *restrict d, const char *restrict s) {
+    while (*s) { *d = *s; g++; d[1] = *s; d++; s++; }
+    *d = 0;
+}
+
+__attribute__((noinline)) static signed int step(signed int *restrict p) {
+    p[0] = 1;
+    p++;
+    *p = p[-1] + 1;
+    p--;
+    return *p + p[1] * 10;
+}
 
 static signed int count_up(signed int *restrict k, unsigned char n) {
     signed int sum = 0;
@@ -102,6 +119,14 @@ int main(void) {
         for (i = 0; i < 20 && same; i++) if (poll((volatile unsigned char *)0xD012, 1) != a) same = 0;
         OUT[6] = !same;
     }
-    OUT[7] = 0xAA;
+    {
+        static char to[8];
+        static signed int two[2];
+        g = 0;
+        copy2(to, "ABC");
+        OUT[7] = to[0] == 'A' && to[1] == 'B' && to[2] == 'C' && to[3] == 0 && g == 3;
+        OUT[8] = step(two) == 1 + 2 * 10 && two[0] == 1 && two[1] == 2;
+    }
+    OUT[9] = 0xAA;
     return 0;
 }
