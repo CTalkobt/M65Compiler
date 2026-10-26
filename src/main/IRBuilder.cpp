@@ -821,6 +821,17 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
             IRTypeInfo oi = getExprTypeInfo(deref->operand.get());
             if (oi.type != ir::Type::PTR && fixedFracOf(oi.typeName)) return oi;
         }
+        // -x, +x, ~x of a signed integer: that type, a char promoted to int
+        // (Issue #338: e > -d compared unsigned)
+        if ((deref->op == "-" || deref->op == "+" || deref->op == "~") &&
+            !dynamic_cast<IntegerLiteral*>(deref->operand.get())) {
+            IRTypeInfo oi = getExprTypeInfo(deref->operand.get());
+            if (oi.isSigned && (oi.type == ir::Type::I8 || oi.type == ir::Type::I16 || oi.type == ir::Type::I32) &&
+                !structs_.count(getAggregateName(oi.typeName))) {
+                if (oi.type == ir::Type::I8) return {ir::Type::I16, "int", true, ir::Type::VOID, 2};
+                return {oi.type, oi.typeName, true, ir::Type::VOID, oi.totalSize};
+            }
+        }
         // -<constant> is a (negative) signed constant
         if (deref->op == "-") {
             if (auto* lit = dynamic_cast<IntegerLiteral*>(deref->operand.get())) {
@@ -3083,7 +3094,12 @@ std::string IRBuilder::wideKindOf(Expression* e) {
         if (o == "<<" || o == ">>") return wideKindOf(b->left.get());
         if (o == "+" || o == "-" || o == "*" || o == "/" || o == "%" || o == "&" || o == "|" || o == "^") {
             std::string l = wideKindOf(b->left.get());
-            return l.empty() ? wideKindOf(b->right.get()) : l;
+            if (l.empty()) l = wideKindOf(b->right.get());
+            // with an LL constant a signed 32-bit long cannot hold (a long
+            // long): 64-bit (~a & 4102790424LL; #338's pr59101)
+            if (l.empty() && (wideLLLiteral(b->left.get()) || wideLLLiteral(b->right.get())) && structs_.count("__int64"))
+                l = "__int64";
+            return l;
         }
     }
     if (auto* u = dynamic_cast<UnaryOperation*>(e); u && (u->op == "-" || u->op == "~"))
@@ -3101,6 +3117,13 @@ std::string IRBuilder::wideKindOf(Expression* e) {
 // An integer as the wide integer type `kind` (no-op when it already is one):
 // its bytes, then zeros or sign fill. braced: an initializer list (for a
 // declaration's initializer), else a compound literal value
+// An LL constant a signed 32-bit long cannot hold: a long long (the
+// arithmetic and bitwise operations with it are 64-bit: wideKindOf)
+bool IRBuilder::wideLLLiteral(Expression* e) {
+    auto* lit = dynamic_cast<IntegerLiteral*>(e);
+    return lit && lit->isLongLong && (lit->value > 0x7FFFFFFFLL || lit->value < -0x80000000LL);
+}
+
 void IRBuilder::toWide(std::unique_ptr<Expression>& e, const std::string& kind, bool braced) {
     if (!e || !wideKindOf(e.get()).empty()) return;
     // c ? x : y: each branch converted (keeps 64-bit LL constants whole)
@@ -5875,6 +5898,12 @@ void IRBuilder::visit(BinaryOperation& node) {
         std::string wl = wideKindOf(node.left.get()), wr = wideKindOf(node.right.get());
         if (!wl.empty() && wr.empty()) toWide(node.right, wl, false);
         else if (wl.empty() && !wr.empty()) toWide(node.left, wr, false);
+        else if (wl.empty() && (wideLLLiteral(node.left.get()) || wideLLLiteral(node.right.get())) &&
+                 structs_.count("__int64")) {
+            // an LL constant a signed 32-bit long cannot hold: both long long
+            toWide(node.left, "__int64", false);
+            toWide(node.right, "__int64", false);
+        }
     }
     // Complex arithmetic/equality: both operands as the common complex type,
     // then the struct's operator method does the work
@@ -6489,9 +6518,14 @@ void IRBuilder::visit(UnaryOperation& node) {
 
     // Integer promotion: a char-width operand of - or ~ is widened to int
     // first (-(x < y) is -1, not 255)
-    if ((node.op == "-" || node.op == "~") && src.type == ir::Type::I8)
+    if ((node.op == "-" || node.op == "~" || node.op == "+") && src.type == ir::Type::I8)
         src = emitCast(src, ir::Type::I16, getExprTypeInfo(node.operand.get()).isSigned);
 
+    // +x: the (promoted) value
+    if (node.op == "+") {
+        lastValue_ = src;
+        return;
+    }
     if (node.op == "-") {
         auto dest = allocVreg(src.type);
         ir::Inst inst;

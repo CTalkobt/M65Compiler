@@ -841,6 +841,29 @@ void Preprocessor::defineMacro(const std::string& name, Macro m, const std::stri
     macros[name] = std::move(m);
 }
 
+// An LL constant a signed 32-bit long cannot hold (4102790424LL): a long
+// long, so the unit needs <intwide.h>
+static bool hasWideLLLiteral(const std::string& code) {
+    for (size_t i = 0; i < code.size(); i++) {
+        if (!std::isdigit((unsigned char)code[i]) || (i > 0 && (std::isalnum((unsigned char)code[i - 1]) || code[i - 1] == '_' || code[i - 1] == '.')))
+            continue;
+        size_t j = i;
+        bool hex = code[i] == '0' && i + 1 < code.size() && (code[i + 1] == 'x' || code[i + 1] == 'X');
+        if (hex) j += 2;
+        while (j < code.size() && (hex ? std::isxdigit((unsigned char)code[j]) : std::isdigit((unsigned char)code[j]))) j++;
+        size_t k = j;
+        int ls = 0;
+        while (k < code.size() && std::strchr("lLuU", code[k])) { if (code[k] == 'l' || code[k] == 'L') ls++; k++; }
+        if (ls >= 2) {
+            unsigned long long v = 0;
+            try { v = std::stoull(code.substr(i, j - i), nullptr, 0); } catch (...) { v = 0; }
+            if (v > 0x7FFFFFFFULL) return true;
+        }
+        i = k;
+    }
+    return false;
+}
+
 std::string Preprocessor::process(const std::string& source,
                                   const std::map<std::string, std::string>& initialSymbols,
                                   const std::vector<std::string>& includePaths,
@@ -874,7 +897,7 @@ std::string Preprocessor::process(const std::string& source,
     std::string prefix;
     if (isCompiler && code.find("intwide.h") == std::string::npos &&
         (code.find("__int128") != std::string::npos || namesWideIntN(code) || code.find("int64_t") != std::string::npos ||
-         code.find("__int64") != std::string::npos || hasLongLong(code)) &&
+         code.find("__int64") != std::string::npos || hasLongLong(code) || hasWideLLLiteral(code)) &&
         !findIncludeFile("intwide.h", getDirectory(currentFile)).empty())
         prefix += "#include <intwide.h>\n";
     // __fixed8_8 / __fixed16_16 (#72): <fixed.h>, their routines and helpers

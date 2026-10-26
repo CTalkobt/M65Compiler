@@ -4,6 +4,21 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed: negation of a signed integer (#338)
+
+- cc45: `-x` (and `~x`) of a `signed` integer had an unsigned type, so
+  `e > -d` compared unsigned (`2 > -5` false: a Bresenham loop ran
+  forever), and `-d >> 1`, `-d / 2`, `-d % 2` and `long w = -d` were done
+  unsigned too. The result now has the operand's type (a `signed char`
+  promoted to `int`). Test `test_neg_signed_xemu.c`.
+- cc45: unary `+` (`+x`) was a syntax error ("Expected expression"); it
+  is the operand's promoted value.
+- cc45: an `LL` constant a signed 32-bit `long` cannot hold
+  (`4102790424LL`) is a `long long` in arithmetic, bitwise operations and
+  comparisons with an integer: they are 64-bit (`~a & 4102790424LL` was a
+  32-bit `long`, negative; GCC's pr59101 passed only while `~a` was
+  wrongly unsigned). `<intwide.h>` comes with such a constant.
+
 ### `restrict` in the standard library
 
 - Headers: the C99 prototypes take `restrict` (`memcpy`, `strcpy`,

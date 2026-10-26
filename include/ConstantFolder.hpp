@@ -68,6 +68,7 @@ public:
         result->castType = node.castType;
         result->castPointerLevel = node.castPointerLevel;
         result->castIsSigned = node.castIsSigned;
+        result->isLongLong = node.isLongLong;
         lastExpr = std::move(result);
     }
     void visit(FloatLiteral& node) override {

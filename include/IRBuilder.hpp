@@ -301,6 +301,7 @@ private:
     std::set<std::string> nestedLabelAddrs_;  // &&label taken inside nested functions
     std::unique_ptr<Expression> cloneSimpleExpr(Expression* e);
     void toComplex(std::unique_ptr<Expression>& e, const std::string& kind);
+    bool wideLLLiteral(Expression* e);   // an LL constant beyond a 32-bit signed long (#338)
     std::string wideKindOf(Expression* e);
     void toWide(std::unique_ptr<Expression>& e, const std::string& kind, bool braced);
     void narrowWide(std::unique_ptr<Expression>& e, ir::Type t, bool toBool = false);
