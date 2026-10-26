@@ -1,3 +1,4 @@
+#include "FixedType.hpp"
 #include "TypeSystem.hpp"
 #include <algorithm>
 
@@ -26,8 +27,7 @@ int TypeSystem::getTypeSize(
     }
 
     // Single-byte types
-    if (typeName == "__fixed8_8") return 2;
-    if (typeName == "__fixed16_16") return 4;
+    if (int fb = fixedTypeBits(typeName)) return fb / 8;
     if (typeName == "char" || typeName == "unsigned char" || typeName == "_Bool" || typeName == "__bit") {
         return 1;
     }

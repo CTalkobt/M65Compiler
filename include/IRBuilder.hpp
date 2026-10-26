@@ -96,14 +96,17 @@ public:
     static bool isBoolType(const std::string& t) { return t == "_Bool" || t == "bool" || t == "__bit"; }
     ir::Operand emitBoolConvert(ir::Operand v, const ir::SourceLoc& sl);
     bool nonNullAddress(Expression& e) override;   // (ConstEvalContext)
-    // Fixed point (#72, IRBuilderFixed.cpp): __fixed8_8 / __fixed16_16
-    static int fixedFracOf(const std::string& typeName);   // 8, 16, or 0
-    static const char* fixedTypeName(int frac);
-    int fixedFrac(Expression* e);                           // e's type's fraction bits (0: not fixed)
-    bool fixedConstRaw(Expression* e, int frac, int64_t& raw);
+    // Fixed point (#72, IRBuilderFixed.cpp): __fixed(I, F), named __fixedI_F;
+    // a type's code is (bits << 8) | F, 0 when not fixed
+    static int fixedFracOf(const std::string& typeName);   // its code (0: not fixed)
+    static std::string fixedTypeName(int code);
+    static int fixedCombine(int a, int b);                  // two operands' type (-1: needs a cast)
+    int fixedFrac(Expression* e);                           // e's type's code (0: not fixed)
+    bool fixedConstRaw(Expression* e, int code, int64_t& raw);
     ir::Operand fixedOp(ir::Op op, ir::Operand a, ir::Operand b, ir::Type t, const ir::SourceLoc& sl);
-    ir::Operand fixedValue(Expression* e, int frac, const ir::SourceLoc& sl);
-    ir::Operand fixedTo(ir::Operand raw, int frac, ir::Type t, bool isSigned, const ir::SourceLoc& sl);
+    ir::Operand fixedShiftDown(ir::Operand v, int n, ir::Type t, const ir::SourceLoc& sl);
+    ir::Operand fixedValue(Expression* e, int code, const ir::SourceLoc& sl);
+    ir::Operand fixedTo(ir::Operand raw, int code, ir::Type t, bool isSigned, const ir::SourceLoc& sl);
     bool emitFixedBinary(BinaryOperation& node);
     void fixedConvertTo(std::unique_ptr<Expression>& e, const std::string& targetType, int ptr);
     const FunctionDeclaration* returningFunction();         // the function (or the inlined one) a return is of
@@ -524,6 +527,7 @@ private:
     };
 
     IRTypeInfo getExprTypeInfo(Expression* expr);
+    static IRTypeInfo fixedInfo(int code);   // a fixed-point type's (IRBuilderFixed.cpp)
     void markStaticLinkProvider();
     // GCC vectors (struct __vec_<T>_<s|u>_<n> { T e[n]; })
     std::string vecOfType(const std::string& typeName, int ptrLevel);

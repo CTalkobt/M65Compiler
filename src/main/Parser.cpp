@@ -1,3 +1,4 @@
+#include "FixedType.hpp"
 #include "StructLayout.hpp"
 #include <cstring>
 #include <algorithm>
@@ -70,10 +71,29 @@ Parser::Parser(const std::vector<Token>& tokens) : tokens(tokens), pos(0) {
     // with others by IRBuilder) and, followed by '(', the builtin __bit(v, n)
     // (#204): that one is renamed so it is not taken for the type
     typedefs["__bit"] = TypeAlias{"__bit", 0, false};
-    // fixed point (#72): 8.8 in 16 bits, 16.16 in 32, signed (IRBuilder
-    // scales constants and products)
+    // fixed point (#72): __fixed(I, F) is the type __fixedI_F (I + F bits,
+    // 16 or 32, signed; IRBuilder scales constants and products);
+    // __fixed8_8 and __fixed16_16 are two of them
     typedefs["__fixed8_8"] = TypeAlias{"__fixed8_8", 0, true};
     typedefs["__fixed16_16"] = TypeAlias{"__fixed16_16", 0, true};
+    for (size_t i = 0; i + 5 < this->tokens.size(); i++) {
+        auto& t = this->tokens;
+        if (t[i].type != TokenType::IDENTIFIER || t[i].value != "__fixed" || t[i + 1].type != TokenType::OPEN_PAREN)
+            continue;
+        long ib = -1, fb = -1;
+        if (t[i + 2].type == TokenType::INTEGER_LITERAL && t[i + 3].type == TokenType::COMMA &&
+            t[i + 4].type == TokenType::INTEGER_LITERAL && t[i + 5].type == TokenType::CLOSE_PAREN) {
+            try { ib = std::stol(t[i + 2].value, nullptr, 0); fb = std::stol(t[i + 4].value, nullptr, 0); } catch (...) {}
+        }
+        if (ib < 1 || fb < 1 || (ib + fb != 16 && ib + fb != 32))
+            throw std::runtime_error(formatDiagnostic(t[i].sourceFile, t[i].line, t[i].column, Severity::Error,
+                "__fixed(I, F): I integer and F fraction bits, both at least 1, I + F 16 or 32 (__fixed(8, 8), "
+                "__fixed(4, 28))"));
+        std::string name = "__fixed" + std::to_string(ib) + "_" + std::to_string(fb);
+        typedefs[name] = TypeAlias{name, 0, true};
+        t[i].value = name;
+        t.erase(t.begin() + (long)i + 1, t.begin() + (long)i + 6);
+    }
     for (size_t i = 0; i + 1 < this->tokens.size(); i++)
         if (this->tokens[i].type == TokenType::IDENTIFIER && this->tokens[i].value == "__bit" &&
             this->tokens[i + 1].type == TokenType::OPEN_PAREN)
@@ -4487,8 +4507,8 @@ int Parser::scalarTypeSize(const std::string& type, int ptrLevel) {
     for (const char* q : {"unsigned ", "signed ", "const ", "volatile "})
         for (size_t at; (at = t.find(q)) != std::string::npos; ) t.erase(at, std::strlen(q));
     if (t == "char" || t == "_Bool" || t == "bool" || t == "__bit") return 1;
-    if (t == "short" || t == "int" || t == "unsigned" || t == "signed" || t == "short int" || t == "__fixed8_8") return 2;
-    if (t == "__fixed16_16") return 4;
+    if (t == "short" || t == "int" || t == "unsigned" || t == "signed" || t == "short int") return 2;
+    if (int fb = fixedTypeBits(t)) return fb / 8;
     if (t == "long" || t == "long int") return 4;
     if (t == "long long" || t == "long long int") return 8;
     if (t == "float" || t == "double" || t == "long double") return 5;

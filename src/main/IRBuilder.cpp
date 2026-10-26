@@ -396,8 +396,7 @@ ir::Type IRBuilder::mapType(const std::string& typeName, int ptrLevel) {
     if (ptrLevel > 0) return ir::Type::PTR;
     if (typeName == "char" || typeName == "unsigned char") return ir::Type::I8;
     if (isBoolType(typeName)) return ir::Type::I8;
-    if (typeName == "__fixed8_8") return ir::Type::I16;
-    if (typeName == "__fixed16_16") return ir::Type::I32;   // (1 byte: a 16-bit store wrote the next one too)
+    if (int fx = fixedFracOf(typeName)) return (fx >> 8) == 32 ? ir::Type::I32 : ir::Type::I16;   // (1 byte: a 16-bit store wrote the next one too)
     if (typeName == "long" || typeName == "unsigned long") return ir::Type::I32;
     if (typeName == "void") return ir::Type::VOID;
     if (typeName == "float" || typeName == "double") return ir::Type::F32;
@@ -941,8 +940,9 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
         IRTypeInfo b = getExprTypeInfo(ce->elseExpr.get());
         // a fixed-point branch: the (wider) fixed type, the other converted
         if (a.type != ir::Type::PTR && b.type != ir::Type::PTR) {
-            int f = std::max(fixedFracOf(a.typeName), fixedFracOf(b.typeName));
-            if (f) return {f == 16 ? ir::Type::I32 : ir::Type::I16, fixedTypeName(f), true, ir::Type::VOID, f == 16 ? 4 : 2};
+            int f = fixedCombine(fixedFracOf(a.typeName), fixedFracOf(b.typeName));
+            if (f < 0) f = fixedFracOf(a.typeName);   // (two of one width: a cast is asked for)
+            if (f) return fixedInfo(f);
         }
         if (a.type == ir::Type::F32) return a;
         if (b.type == ir::Type::F32) return b;
@@ -973,10 +973,10 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
         // + - * / with a fixed-point operand: the wider fixed type; a
         // comparison or && || of them: an int
         if (lhs.type != ir::Type::PTR && rhs.type != ir::Type::PTR) {
-            int f = std::max(fixedFracOf(lhs.typeName), fixedFracOf(rhs.typeName));
+            int f = fixedCombine(fixedFracOf(lhs.typeName), fixedFracOf(rhs.typeName));
+            if (f < 0) f = fixedFracOf(lhs.typeName);   // (an error: emitFixedBinary says so)
             const std::string& o = bin->op;
-            if (f && (o == "+" || o == "-" || o == "*" || o == "/"))
-                return {f == 16 ? ir::Type::I32 : ir::Type::I16, fixedTypeName(f), true, ir::Type::VOID, f == 16 ? 4 : 2};
+            if (f && (o == "+" || o == "-" || o == "*" || o == "/")) return fixedInfo(f);
             if (f && (o == "==" || o == "!=" || o == "<" || o == ">" || o == "<=" || o == ">=" || o == "&&" || o == "||"))
                 return {ir::Type::I16, "int", true, ir::Type::VOID, 2};
         }
@@ -2901,7 +2901,7 @@ bool IRBuilder::initScalar(InitImageCtx& c, int off, const std::string& type, in
     // a fixed-point element: its constant scaled, in its bytes
     if (int f = ptr ? 0 : fixedFracOf(type)) {
         int64_t raw;
-        int n = f == 16 ? 4 : 2;
+        int n = (f >> 8) == 32 ? 4 : 2;
         if (!fixedConstRaw(orig, f, raw) || off < 0 || off + n > (int)c.gv->initBytes.size()) return false;
         for (int k = 0; k < n; k++) c.gv->initBytes[off + k] = (uint8_t)(raw >> (8 * k));
         return true;
@@ -3883,7 +3883,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
         if (int f = fixedFracOf(node.type); f && (!currentFunc_ || node.isStatic)) {
             int64_t raw;
             if (fixedConstRaw(node.initializer.get(), f, raw)) {
-                auto lit = std::make_unique<IntegerLiteral>(f == 16 ? (int64_t)(int32_t)raw : (int64_t)(int16_t)raw);
+                auto lit = std::make_unique<IntegerLiteral>((f >> 8) == 32 ? (int64_t)(int32_t)raw : (int64_t)(int16_t)raw);
                 lit->line = node.initializer->line; lit->column = node.initializer->column;
                 lit->sourceFile = node.initializer->sourceFile;
                 node.initializer = std::move(lit);
@@ -6911,7 +6911,9 @@ void IRBuilder::visit(FunctionCall& node) {
             size_t skip = !params.empty() && params[0].name == "__sret" ? 1 : 0;
             for (size_t i = 0; i < node.arguments.size() && i + skip < params.size(); i++) {
                 const auto& par = params[i + skip];
-                fixedConvertTo(node.arguments[i], par.type, par.pointerLevel);   // (fixed point, #72)
+                // (fixed point, #72; __fx32_mul / __fx32_div take the integers)
+                if (declaredName != "__fx32_mul" && declaredName != "__fx32_div")
+                    fixedConvertTo(node.arguments[i], par.type, par.pointerLevel);
                 if (par.pointerLevel) continue;
                 std::string wn = getAggregateName(par.type);
                 if (wn.rfind("struct ", 0) == 0) wn = wn.substr(7);

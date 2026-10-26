@@ -6,15 +6,24 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### Fixed-point types (#72)
 
-- cc45: `__fixed8_8` (16 bits, 8.8) and `__fixed16_16` (32 bits, 16.16),
-  signed. Constants are scaled when compiled; `+ -` and comparisons are
-  integer code; `*` and `/` scale (8.8 inline, 16.16 by `__fx16_mul` /
-  `__fx16_div` on the MEGA65's multiplier and divider); `int`, `float` and
-  the other fixed type convert in assignments, initializers, arguments,
-  returns, casts and `?:`. `<fixed.h>` (automatic): `toFloat8_8`,
-  `toFloat16_16`, `toInt8_8`, `toInt16_16` (print with `%f`; no `printf`
-  conversion of their own). About 4 to 18 times faster than `float`. Test
-  `test_fixed_xemu.c` (both conventions).
+- cc45: `__fixed(I, F)`, a signed number of I + F bits (16 or 32), F of
+  them the fraction (`__fixed(4, 28)`, `__fixed(8, 24)`, `__fixed(1, 15)`
+  ...); `__fixed8_8` and `__fixed16_16` are two of them. Constants are
+  scaled when compiled (out of range: a warning); `+ -` and comparisons
+  are integer code; `*` and `/` scale (16-bit types inline, 32-bit by
+  `__fx32_mul` / `__fx32_div` on the MEGA65's multiplier and divider);
+  fixed `*` / `/` an integer is integer arithmetic on the fixed value's
+  integer (exact; the integer need not fit the type); `int`, `float` and
+  other fixed types convert in assignments, initializers, arguments,
+  returns, casts and `?:` (two of one size: a cast is asked for).
+  `<fixed.h>` (automatic): `fixedToFloat`, `fixedToInt`, `toFloat8_8` ...
+  (print with `%f`; no `printf` conversion of their own). About 4 to 18
+  times faster than `float`. Tests `test_fixed_xemu.c`,
+  `test_fixed_any_xemu.c` (both conventions).
+- `examples/c/mandelbrot`: the C side's coordinates are `__fixed(4, 28)`
+  (the assembly kernel's format): `cx = -0.5`, `cx + n * step`, the printed
+  digits; `make check` renders two views and checks their pixels and
+  status lines (the same as before the change).
 
 ### Loose ends of `__jsr`, `__bit` and `_Bool`
 

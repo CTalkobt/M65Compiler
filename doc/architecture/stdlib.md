@@ -145,13 +145,13 @@ On string literals cc45 does without some of these calls (`strlen("hello")` is 5
 
 ### fixed.h
 
-The fixed-point types `__fixed8_8` and `__fixed16_16` are cc45's own ([cc45.md](../bin/cc45.md#fixed-point-__fixed8_8-__fixed16_16)); the header comes with them (included automatically):
+The fixed-point types `__fixed(I, F)` (`__fixed8_8`, `__fixed16_16`) are cc45's own ([cc45.md](../bin/cc45.md#fixed-point-__fixedi-f)); the header comes with them (included automatically):
 
 | Name | Description |
 |------|-------------|
-| `__fixed16_16 __fx16_mul(__fixed16_16 a, __fixed16_16 b)`, `__fx16_div` | *asm* (`stdlib_asm/fixed.s45`). 16.16 `a * b` and `a / b`: the magnitudes through the hardware multiplier ($D770 × $D774 → $D778) and divider ($D768, waiting on $D70F), the sign after; cc45 calls them for `*` and `/` |
-| `toFloat8_8(v)`, `toFloat16_16(v)` | Macros: the value as a `float` (`printf("%f", toFloat8_8(x))`) |
-| `toInt8_8(v)`, `toInt16_16(v)` | Macros: the value as a `signed int` / `signed long`, the fraction dropped toward 0 |
+| `signed long __fx32_mul(signed long a, signed long b, unsigned char f)`, `__fx32_div` | *asm* (`stdlib_asm/fixed.s45`). The integers of two 32-bit fixed values of `f` fraction bits: `(a * b) >> f` and `(a << f) / b`, truncated toward 0. The magnitudes go through the hardware multiplier ($D770 × $D774 → $D778, ready at once) and divider (the 32.32 quotient at $D768, after its busy bit at $D70F); 5 bytes of the 64-bit result from byte f / 8 (32 - f for the quotient), shifted the rest. cc45 calls them for `*` and `/` |
+| `fixedToFloat(v)`, `fixedToInt(v)` | Macros: any fixed value as a `float` (`printf("%f", fixedToFloat(x))`) or a `signed long`, the fraction dropped toward 0 |
+| `toFloat8_8(v)`, `toFloat16_16(v)`, `toInt8_8(v)`, `toInt16_16(v)` | Macros: the same, v converted to `__fixed8_8` / `__fixed16_16` first |
 
 ## 6. Character Utilities (`ctype.h`)
 

@@ -1,3 +1,4 @@
+#include "FixedType.hpp"
 #include "ConstEval.hpp"
 #include <algorithm>
 #include <cmath>
@@ -186,7 +187,7 @@ bool cast(const std::string& type, int pointerLevel, bool isSigned, const ConstV
     // A cast to a struct/union type (e.g. (_Complex double)2) isn't a number;
     // one to a fixed-point type is scaled by IRBuilder (not a plain integer)
     if (pointerLevel == 0 && (type.rfind("struct ", 0) == 0 || type.rfind("union ", 0) == 0)) return false;
-    if (pointerLevel == 0 && (type == "__fixed8_8" || type == "__fixed16_16")) return false;
+    if (pointerLevel == 0 && fixedTypeBits(type)) return false;
     if (isFloatType(type, pointerLevel)) {
         if (v.isFloat()) { out = v; return true; }
         if (!v.isInt()) return false;
