@@ -1,7 +1,7 @@
 // Test: cbm.h compile+assemble smoke test (Issue #46)
 // Exercises every parameterized KERNAL wrapper to verify inline asm
 // parameter references (@_p_xxx) resolve correctly.
-// Compile-only (test_compiler.sh): the calls would wait for keys and a disk.
+// Compiled and linked only (test_xemu.sh): the calls would wait for keys and a disk.
 
 #include <cbm.h>
 

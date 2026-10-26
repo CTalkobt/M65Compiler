@@ -429,6 +429,19 @@ for r0 in $RET0_TESTS $(cd src/test-resources && ls stdlib/*.c | sed 's/\.c$//')
     done
 done
 
+# Test: every <cbm.h> wrapper compiles and links (not run: they would wait
+# for keys and a disk), both conventions
+for cbmode in "stack|-fno-zpcall" "zp|"; do
+    IFS='|' read -r cbm cbflags <<< "$cbmode"
+    if compile_link_test src/test-resources/test_cbm_h.c "build/test/test_cbm_h_$cbm.prg" "$cbflags"; then
+        echo "SUCCESS: test_cbm_h $cbm (compiled and linked)"
+        passed=$((passed + 1))
+    else
+        echo "FAIL: test_cbm_h $cbm (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: programs of several objects (src/test-resources/integration/), results at $4000
 for igt in "test1_globals||2A 05 AA" "test2_multi_obj_a|test2_multi_obj_b|1E 07 AA" "test3_struct_a|test3_struct_b|1E AA" \
            "test4_cbm_getin||01 AA" "test5_long_globals||E0 01 AA" "test6_bss_init||00 00 2A AA"; do
