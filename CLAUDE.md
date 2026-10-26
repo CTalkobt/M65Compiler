@@ -209,6 +209,10 @@ doc/examples/        the examples with screenshots (examples/capture_screens.py)
   `src/test/test_steps.txt` in parallel (`run_parallel.sh`, `TEST_JOBS`), then the examples
   (parallel too, `EXAMPLE_JOBS`); about 6 minutes
 - `make test-xemu` — the runtime tests in xemu (`test_xemu.sh`, parallel runs: `XEMU_JOBS`)
+- `make test-validation` — `bin/test_validation`, the C++ validation tests in one program (#96): a
+  category per `src/test/test_validation_<x>.cpp` (and `test_segment_emission`, `test_move_fill`),
+  their checks from `src/test/test_harness.hpp`; `bin/test_validation parser linker` runs some,
+  `-l` lists them, `TV_VERBOSE=1` shows the PASS lines; `make test-validation-<x>` runs one
 - `make clean`, `make install` (PREFIX=/usr/local: `bin/`, `lib/cc45/`, `include/cc45/`), `make install_local`, `make man`
 - `make coverage`, `make test-o45`, `make docker` (Alpine `src/Docker/Dockerfile`: `make install PREFIX=/app`, entrypoint cc45; `src/Docker/docker-aliases.sh`; the root `Dockerfile` is Ubuntu, with the source tree for `make test`)
 - Some targets (`test-mmemu`, `test-stdlib`, `bench-optimizer`) still use mmemu — **runtime tests are run on xemu-xmega65, never mmemu**.

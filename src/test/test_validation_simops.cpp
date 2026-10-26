@@ -5,19 +5,10 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include "test_harness.hpp"
 
-static int tests_passed = 0;
-static int tests_failed = 0;
-
-#define CHECK(cond, msg) do { \
-    if (!(cond)) { \
-        printf("FAIL: %s\n", msg); \
-        tests_failed++; \
-    } else { \
-        printf("PASS: %s\n", msg); \
-        tests_passed++; \
-    } \
-} while(0)
+// (the category's own names: other categories are in the same program)
+namespace {
 
 // Test helper: assemble code and return stderr output
 static std::string runCA45(const char* asm_src) {
@@ -216,15 +207,6 @@ void test_zero_a_valid() {
     CHECK(passed, "ZERO with A register succeeds");
 }
 
-// Test 19: ZERO with valid multiple registers
-void test_zero_multiple_valid() {
-    const char* code = R"(
-        zero A, X, Y, Z
-    )";
-    bool passed = assembleSucceeded(code);
-    CHECK(passed, "ZERO with multiple registers succeeds");
-}
-
 // Test 20: ZERO with invalid B register
 void test_zero_b_invalid() {
     const char* code = R"(
@@ -251,6 +233,9 @@ void test_bitwise32_axy_invalid() {
     bool failed = assembleFailed(code, "Simulated bitwise 32-bit only supports .AXYZ destination");
     CHECK(failed, "BITWISE.32 with .AXY fails with expected error");
 }
+
+
+}  // namespace
 
 int main() {
     printf("Simulated Ops Register Constraint Validation Tests\n");
@@ -287,7 +272,6 @@ int main() {
 
     // ZERO tests
     test_zero_a_valid();
-    test_zero_multiple_valid();
     test_zero_b_invalid();
 
     // BITWISE.32 tests

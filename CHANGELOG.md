@@ -4,6 +4,22 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### The validation tests in one program (#96)
+
+- The 16 C++ validation test programs (`test_validation_*`,
+  `test_segment_emission`, `test_move_fill`) are one, `bin/test_validation`:
+  a category per source (its `main` compiled as `tv_<category>_main`),
+  their counters, `CHECK` and `readFile` from `src/test/test_harness.hpp`
+  instead of a copy each (failures with the file and line; PASS lines with
+  `TV_VERBOSE=1`). `make test-validation` runs all, `make
+  test-validation-<x>` one. The same checks pass as before (one test the
+  `simops` and `simops_extended` categories both had is kept once); the
+  directives test moved from `src/test-resources` to `src/test`. Removed:
+  three sources nothing built (`test_validation_const_comprehensive.cpp`
+  and `test_smc_parameter_tracking.cpp`, failing on expectations cc45 no
+  longer meets, and `test_smc_immediate_relocations.cpp`, written for
+  GoogleTest).
+
 ### Faster tests
 
 - `make test` no longer runs `test_xemu.sh` (the full suites ran it twice):

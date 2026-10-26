@@ -5,31 +5,15 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include "test_harness.hpp"
 
-static int tests_passed = 0;
-static int tests_failed = 0;
-
-#define CHECK(cond, msg) do { \
-    if (!(cond)) { \
-        printf("FAIL: %s\n", msg); \
-        tests_failed++; \
-    } else { \
-        printf("PASS: %s\n", msg); \
-        tests_passed++; \
-    } \
-} while(0)
+// (the category's own names: other categories are in the same program)
+namespace {
 
 // Helper: write assembly code to temp file
 static void writeAssemblyFile(const std::string& asmCode) {
     std::ofstream asm_file("build/test_validation_assembler_temp.s");
     asm_file << asmCode;
-}
-
-// Helper: read file content into string
-static std::string readFile(const std::string& filename) {
-    std::ifstream file(filename);
-    return std::string((std::istreambuf_iterator<char>(file)),
-                       std::istreambuf_iterator<char>());
 }
 
 // Test helper: assemble code using ca45 and return stderr or stdout
@@ -134,6 +118,9 @@ rts
     bool succeeded = assemblySucceeded(code);
     CHECK(succeeded, "Valid assembler code compiles successfully");
 }
+
+
+}  // namespace
 
 int main() {
     printf("Testing assembler expression and emitter error validation...\n\n");

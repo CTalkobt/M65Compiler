@@ -5,19 +5,10 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include "test_harness.hpp"
 
-static int tests_passed = 0;
-static int tests_failed = 0;
-
-#define CHECK(cond, msg) do { \
-    if (!(cond)) { \
-        printf("FAIL: %s\n", msg); \
-        tests_failed++; \
-    } else { \
-        printf("PASS: %s\n", msg); \
-        tests_passed++; \
-    } \
-} while(0)
+// (the category's own names: other categories are in the same program)
+namespace {
 
 // Helper: write assembly code to temp file
 static void writeAssemblyFile(const std::string& asmCode) {
@@ -278,6 +269,9 @@ sta $80
     bool succeeded = assemblySucceeded(code);
     CHECK(succeeded, "Empty segment switching succeeds");
 }
+
+
+}  // namespace
 
 int main() {
     printf("Testing segment and visibility directive validation...\n\n");

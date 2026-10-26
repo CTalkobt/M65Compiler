@@ -1,19 +1,10 @@
 #include <cstdio>
 #include <fstream>
 #include <string>
+#include "test_harness.hpp"
 
-static int tests_passed = 0;
-static int tests_failed = 0;
-
-#define CHECK(cond, msg) do { \
-    if (!(cond)) { \
-        printf("FAIL: %s\n", msg); \
-        tests_failed++; \
-    } else { \
-        printf("PASS: %s\n", msg); \
-        tests_passed++; \
-    } \
-} while(0)
+// (the category's own names: other categories are in the same program)
+namespace {
 
 // Test helper: assemble code and return stderr output
 static std::string runCA45(const char* asm_src) {
@@ -1090,6 +1081,9 @@ void test_rol32_valid() {
 void test_ror32_valid() {
     CHECK(assembleSucceeded("ror.32 .Q"), "ROR.32 .Q succeeds");
 }
+
+
+}  // namespace
 
 int main() {
     printf("Extended Simulated Ops Validation Tests\n");

@@ -32,4 +32,5 @@ Running library call convention tests...|bash src/test/test_libcall_conv.sh
 Running objdump45 tests...|bash src/test/test_objdump45.sh
 Running disk45 tests...|bash src/test/test_disk45.sh
 Running new stdlib tests...|bash src/test/test_stdlib_new.sh
-Running the validation targets (17, in one make)...|make --no-print-directory -j4 --output-sync=target test-validation-parser test-validation-struct test-validation-const test-validation-semantic test-validation-preprocessor test-validation-linker test-segment-emission test-validation-assembler test-validation-simops test-validation-directives test-validation-symbols test-validation-segments test-validation-proc test-validation-addressing test-validation-simops-extended test-opcodes test-move-fill
+Running the validation tests (bin/test_validation: 16 categories)...|mkdir -p src/test/build && ./bin/test_validation
+Running opcode tests...|make --no-print-directory test-opcodes
