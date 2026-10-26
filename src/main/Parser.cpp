@@ -3374,7 +3374,7 @@ std::unique_ptr<Expression> Parser::parseUnary() {
     }
 
     if (match(TokenType::BANG) || match(TokenType::TILDE) || match(TokenType::MINUS) || match(TokenType::STAR) ||
-        match(TokenType::PLUS_PLUS) || match(TokenType::MINUS_MINUS)) {
+        match(TokenType::PLUS) || match(TokenType::PLUS_PLUS) || match(TokenType::MINUS_MINUS)) {
         const Token& opToken = tokens[pos-1];
         std::string op = opToken.value;
         auto operand = parseUnary();
@@ -3734,10 +3734,12 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
         std::string valStr = litToken.value;
         bool isLong = false;
         bool isUnsigned = false;
-        // Suffixes in any order: L, LL, U, UL, LU, ULL, LLU (long long is long here)
+        int longs = 0;
+        // Suffixes in any order: L, LL, U, UL, LU, ULL, LLU (long long is long
+        // here, but for a value a 32-bit long cannot hold: see wideKindOf)
         while (!valStr.empty() && std::strchr("LlUu", valStr.back())) {
             if (valStr.back() == 'U' || valStr.back() == 'u') isUnsigned = true;
-            else isLong = true;
+            else { isLong = true; longs++; }
             valStr.pop_back();
         }
         int64_t val = (int64_t)std::stoull(valStr, nullptr, 0);
@@ -3745,6 +3747,7 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
         // from $80 up when plain char is signed ('S' is $D3: -45)
         if (litToken.charConst && val >= 0x80 && val <= 0xFF && signedDefault && !unsignedChar) val -= 0x100;
         auto lit = std::make_unique<IntegerLiteral>(val);
+        lit->isLongLong = longs >= 2;
         if (isUnsigned && !isLong && (uint64_t)val > 0xFFFF) isLong = true; // 0x80000001U
         if (isLong) {
             lit->castType = "long";

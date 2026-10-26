@@ -68,6 +68,7 @@ public:
         result->castType = node.castType;
         result->castPointerLevel = node.castPointerLevel;
         result->castIsSigned = node.castIsSigned;
+        result->isLongLong = node.isLongLong;
         lastExpr = std::move(result);
     }
     void visit(FloatLiteral& node) override {
@@ -131,6 +132,51 @@ public:
         lastExpr = copyPos(std::make_unique<Assignment>(std::move(node.target), std::move(expression), node.op), node);
     }
 
+    // Two integer constants, one of them LL: the operation in 64 bits (a
+    // long long; unsigned when either is ULL), the result an LL constant (a
+    // comparison an int); nullptr: not folded (a division by 0, a shift
+    // out of range)
+    static std::unique_ptr<IntegerLiteral> foldLongLong(const std::string& op, const IntegerLiteral& l,
+                                                        const IntegerLiteral& r) {
+        bool uns = (l.isLongLong && !l.castIsSigned && !l.castType.empty()) ||
+                   (r.isLongLong && !r.castIsSigned && !r.castType.empty());
+        int64_t a = l.value, b = r.value;
+        uint64_t ua = (uint64_t)a, ub = (uint64_t)b;
+        int64_t v;
+        bool cmp = false;
+        if (op == "+") v = (int64_t)(ua + ub);
+        else if (op == "-") v = (int64_t)(ua - ub);
+        else if (op == "*") v = (int64_t)(ua * ub);
+        else if (op == "/" || op == "%") {
+            if (b == 0 || (!uns && a == INT64_MIN && b == -1)) return nullptr;
+            v = uns ? (int64_t)(op == "/" ? ua / ub : ua % ub) : (op == "/" ? a / b : a % b);
+        } else if (op == "&") v = a & b;
+        else if (op == "|") v = a | b;
+        else if (op == "^") v = a ^ b;
+        else if (op == "<<" || op == ">>") {
+            if (b < 0 || b > 63) return nullptr;
+            v = op == "<<" ? (int64_t)(ua << b) : (uns ? (int64_t)(ua >> b) : a >> b);
+        } else {
+            cmp = true;
+            if (op == "==") v = a == b;
+            else if (op == "!=") v = a != b;
+            else if (op == "<") v = uns ? ua < ub : a < b;
+            else if (op == ">") v = uns ? ua > ub : a > b;
+            else if (op == "<=") v = uns ? ua <= ub : a <= b;
+            else if (op == ">=") v = uns ? ua >= ub : a >= b;
+            else if (op == "&&") v = a && b;
+            else if (op == "||") v = a || b;
+            else return nullptr;
+        }
+        auto f = std::make_unique<IntegerLiteral>(v);
+        if (!cmp) {
+            f->castType = "long";
+            f->castIsSigned = !uns;
+            f->isLongLong = true;
+        }
+        return f;
+    }
+
     void visit(BinaryOperation& node) override {
         checkPlainCompare(node);
         // Phase 89: Check for address template patterns BEFORE constant folding
@@ -150,6 +196,15 @@ public:
         auto* leftLit = dynamic_cast<IntegerLiteral*>(left.get());
         auto* rightLit = dynamic_cast<IntegerLiteral*>(right.get());
 
+        if (leftLit && rightLit && (leftLit->isLongLong || rightLit->isLongLong)) {
+            // with an LL operand: long long (64 bits; a long here is 32)
+            if (auto f = foldLongLong(node.op, *leftLit, *rightLit)) {
+                lastExpr = copyPos(std::move(f), node);
+                return;
+            }
+            lastExpr = copyPos(std::make_unique<BinaryOperation>(node.op, std::move(left), std::move(right)), node);
+            return;
+        }
         if (leftLit && rightLit) {
             // (the rules: ConstEval::binary)
             ConstValue r;
@@ -201,7 +256,14 @@ public:
         auto* lit = dynamic_cast<IntegerLiteral*>(operand.get());
 
         ConstValue r;
-        if (lit && (node.op == "-" || node.op == "!" || node.op == "~") &&
+        if (lit && lit->isLongLong && (node.op == "-" || node.op == "~")) {
+            // (64 bits: -4102790424LL)
+            auto f = std::make_unique<IntegerLiteral>(node.op == "-" ? (int64_t)(0 - (uint64_t)lit->value) : ~lit->value);
+            f->castType = lit->castType;
+            f->castIsSigned = lit->castIsSigned;
+            f->isLongLong = true;
+            lastExpr = copyPos(std::move(f), node);
+        } else if (lit && (node.op == "-" || node.op == "!" || node.op == "~") &&
             ConstEval::unary(node.op, ConstValue::ofLiteral(*lit), r)) {
             lastExpr = copyPos(r.toLiteral(), node);
         } else {

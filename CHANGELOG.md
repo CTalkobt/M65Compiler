@@ -4,6 +4,29 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed: negation of a signed integer (#338)
+
+- cc45: `-x` (and `~x`) of a `signed` integer had an unsigned type, so
+  `e > -d` compared unsigned (`2 > -5` false: a Bresenham loop ran
+  forever), and `-d >> 1`, `-d / 2`, `-d % 2` and `long w = -d` were done
+  unsigned too. The result now has the operand's type (a `signed char`
+  promoted to `int`). Test `test_neg_signed_xemu.c`.
+- cc45: unary `+` (`+x`) was a syntax error ("Expected expression"); it
+  is the operand's promoted value.
+- cc45: an `LL` constant a signed 32-bit `long` cannot hold
+  (`4102790424LL`) is a `long long` in arithmetic, bitwise operations and
+  comparisons with an integer: they are 64-bit (`~a & 4102790424LL` was a
+  32-bit `long`, negative; GCC's pr59101 passed only while `~a` was
+  wrongly unsigned). `<intwide.h>` comes with such a constant.
+- cc45: `return x;` in a function returning `long long` (or another wide
+  integer) with an integer `x` copied `x`'s bytes and the ones after it
+  (`return ~a;` complemented `&a`): the value is converted, sign-extended
+  when signed.
+- cc45: a constant expression with an `LL` operand is folded in 64 bits
+  (unsigned with a `ULL` one): `1LL << 40` was 0,
+  `4102790424LL & 0xFFFFFFFFFFFFFFFFLL` and `-4102790424LL` lost their
+  upper half. Test `test_ll_const_xemu.c`.
+
 ### `restrict` in the standard library
 
 - Headers: the C99 prototypes take `restrict` (`memcpy`, `strcpy`,

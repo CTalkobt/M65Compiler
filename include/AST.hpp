@@ -45,6 +45,7 @@ public:
     std::string castType;
     int castPointerLevel = 0;
     bool castIsSigned = false;
+    bool isLongLong = false;   // an LL suffix: a long long (64 bits) when the value needs them
     IntegerLiteral(int64_t v) : value(v) {}
     void accept(ASTVisitor& visitor) override;
 };
