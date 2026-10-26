@@ -4,6 +4,24 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Sections: `#pragma section` and `__section` (#70)
+
+- cc45: `#pragma section("NAME", address)` declares a section (or without
+  the address: another file, or ln45 `--section NAME=ADDR`, gives it);
+  `__section("NAME")` puts a global or `static` there (screen RAM, a
+  character set where the VIC reads it, a table at a known address).
+  GCC's `__attribute__((section("NAME")))` does the same for a declared
+  section (ignored as before otherwise). Initial values are copied at
+  startup by a DMA job each in `__zp_init`; section memory without one is
+  not cleared.
+- ln45: places each object's part of a section in link order and defines
+  the variables; checks that sections stay below `$10000`, apart, and off
+  the program, the stack and the overlay region (in the heap: a warning);
+  `--section NAME=ADDR`; `SECT` lines in the map. Dead-section removal
+  keeps the initial values. Test `test_section_xemu.c` (both conventions).
+- cc45: `static __attribute__((...)) T x;` in a function parses (an
+  attribute after `static` was "Expected expression").
+
 ### Fixed-point types (#72)
 
 - cc45: `__fixed(I, F)`, a signed number of I + F bits (16 or 32), F of

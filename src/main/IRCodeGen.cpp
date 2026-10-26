@@ -548,6 +548,10 @@ const ir::Inst* IRCodeGen::peekNextInst() const {
 }
 
 void IRCodeGen::emit(const std::string& line, const std::string& reason) {
+    if (!sectLink_.empty()) {
+        std::string rw = rewriteSectNames(line);
+        if (rw != line) { emit(rw, reason); return; }
+    }
     if (!zpPlace_.empty()) {
         std::string rw = rewriteZpOperands(line);
         if (rw != line) { emit(rw, reason); return; }
@@ -680,6 +684,80 @@ void IRCodeGen::placeZpGlobals(const ir::Module& mod) {
         if (v.second) zpLink_[name] = name + "__" + tag;
         at += v.first;
     }
+}
+
+// __section variables (Issue #70): each global's part of its section in
+// this object, in declaration order; a static one's symbol is name__<file>
+// (ln45 defines them all)
+void IRCodeGen::placeSections(const ir::Module& mod) {
+    sectPlace_.clear();
+    sectLink_.clear();
+    sectSize_.clear();
+    std::map<std::string, size_t> last;
+    for (size_t i = 0; i < mod.globals.size(); i++) last[mod.globals[i].name] = i;
+    std::string tag;
+    {
+        std::string f = mod.sourceFile;
+        size_t sl = f.find_last_of('/');
+        if (sl != std::string::npos) f = f.substr(sl + 1);
+        size_t dot = f.find_last_of('.');
+        if (dot != std::string::npos) f = f.substr(0, dot);
+        for (char c : f) tag += std::isalnum((unsigned char)c) ? c : '_';
+    }
+    for (size_t i = 0; i < mod.globals.size(); i++) {
+        const auto& g = mod.globals[i];
+        if (g.section.empty() || last[g.name] != i) continue;
+        int size = g.size > 0 ? g.size : ir::typeSize(g.type);
+        int& at = sectSize_[g.section];
+        sectPlace_[g.name] = {g.section, at, size};
+        at += size;
+        if (g.isStatic && relocMode_) sectLink_[g.name] = g.name + "__" + tag;
+        if (!relocMode_) {
+            // -S: the address from the file's #pragma section
+            auto a = mod.sections.find(g.section);
+            if (a == mod.sections.end() || a->second < 0)
+                throw std::runtime_error("section '" + g.section + "' has no address in the file (-S output is not linked: "
+                                         "#pragma section(\"" + g.section + "\", address))");
+            static std::set<std::string> warned;   // (the code is generated twice: loop rotation)
+            if (g.hasInitValue && warned.insert(g.name).second)
+                std::cerr << "cc45: warning: '" << g.name.substr(1) << "': -S output does not copy a section variable's initial value\n";
+        }
+    }
+}
+
+// a static __section variable's name -> its file-unique symbol (also in
+// a .dbg_var record's sym:)
+std::string IRCodeGen::rewriteSectNames(const std::string& line) const {
+    if (line.find(".dbg_var") != std::string::npos) {
+        std::string out = line;
+        for (const auto& [name, link] : sectLink_) {
+            size_t p = out.find("sym:" + name + "\"");
+            if (p != std::string::npos) out.replace(p + 4, name.size(), link);
+        }
+        return out;
+    }
+    auto isId = [](char c) { return std::isalnum((unsigned char)c) || c == '_' || c == '.'; };
+    std::string out;
+    size_t i = 0;
+    while (i < line.size()) {
+        char c = line[i];
+        if (c == '"') {
+            size_t e = line.find('"', i + 1);
+            e = e == std::string::npos ? line.size() : e + 1;
+            out += line.substr(i, e - i);
+            i = e;
+            continue;
+        }
+        if (c == ';') { out += line.substr(i); break; }
+        if (!isId(c) || (i > 0 && isId(line[i - 1]))) { out += c; i++; continue; }
+        size_t e = i;
+        while (e < line.size() && isId(line[e])) e++;
+        std::string id = line.substr(i, e - i);
+        auto it = sectLink_.find(id);
+        out += it == sectLink_.end() ? id : it->second;
+        i = e;
+    }
+    return out;
 }
 
 std::string IRCodeGen::rewriteZpOperands(const std::string& line) const {
@@ -1635,6 +1713,7 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     for (const auto& e : mod.externs)
         if (!mod.zpExterns.count(e)) plainExterns_.insert(e);
     placeZpGlobals(mod);
+    placeSections(mod);
 
     // Pre-scan all functions to compute frame offsets (needed for capture)
     // Bug #179 fix: Skip prescan for all functions.
@@ -2027,7 +2106,7 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
         // Only emit .extern for symbols actually used, and not for one this
         // module defines (extern int x; ... int x = 1;)
         for (const auto& ext : mod.externs) {
-            if (referencedSymbols.count(ext) && !definedHere(ext) && !zpPlace_.count(ext)) {
+            if (referencedSymbols.count(ext) && !definedHere(ext) && !zpPlace_.count(ext) && !sectPlace_.count(ext)) {
                 emit(".extern " + ext);
             }
         }
@@ -2309,7 +2388,28 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
 
     // Emit .global directives for non-static globals and functions
     if (relocMode) {
+        // __section variables: ln45 defines their symbols (an object's part
+        // of a section: cc45.sectsize.NAME bytes; its address from
+        // cc45.section.NAME or ln45 --section; each variable's offset in the
+        // part cc45.sectvar.NAME.<sym>; an initial value in data as
+        // cc45.sectinit.<sym>, copied there at startup)
+        for (const auto& [n, a] : mod.sections) {
+            if (a < 0) continue;
+            emit(".weak cc45.section." + n);
+            emit("cc45.section." + n + " = " + std::to_string(a));
+        }
+        for (const auto& [n, size] : sectSize_) {
+            emit(".weak cc45.sectsize." + n);
+            emit("cc45.sectsize." + n + " = " + std::to_string(size));
+        }
+        for (const auto& [name, sp] : sectPlace_) {
+            emit(".extern " + sectLinkName(name));
+            emit(".global cc45.sectvar." + sp.section + "." + sectLinkName(name));
+            for (const auto& o : mod.globals)
+                if (o.name == name && o.hasInitValue) { emit(".global cc45.sectinit." + sectLinkName(name)); break; }
+        }
         for (const auto& g : mod.globals) {
+            if (sectPlace_.count(g.name)) continue;
             if (zpPlace_.count(g.name)) {
                 // a __zp global: its size for ln45, its initial value in data
                 if (!emittedGlobals.insert(g.name).second) continue;
@@ -2378,8 +2478,20 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
         // A __zp global (relocatable output): no storage here, ln45 places it
         // in the base page; an initial value goes in data as cc45.zpinit.<sym>
         // (copied there at startup). With -S it is a plain global.
+        auto sp = sectPlace_.find(g.name);
+        if (sp != sectPlace_.end()) {
+            if (!relocMode) {
+                // -S: an equate at the file's address of the section
+                emit(g.name + " = " + std::to_string(mod.sections.at(sp->second.section) + sp->second.offset));
+                continue;
+            }
+            emit("cc45.sectvar." + sp->second.section + "." + sectLinkName(g.name) + " = " +
+                 std::to_string(sp->second.offset));
+            if (!g.hasInitValue) continue;
+        }
         bool zpVar = zpPlace_.count(g.name) > 0;
-        std::string label = zpVar ? "cc45.zpinit." + zpLinkName(g.name) : g.name;
+        std::string label = zpVar ? "cc45.zpinit." + zpLinkName(g.name)
+                          : sp != sectPlace_.end() ? "cc45.sectinit." + sectLinkName(g.name) : g.name;
         if (zpVar) {
             emit("cc45.zpvar." + zpLinkName(g.name) + " = " + std::to_string(zpPlace_[g.name].size));
             if (!g.hasInitValue) continue;

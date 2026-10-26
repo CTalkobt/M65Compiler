@@ -257,6 +257,9 @@ public:
     // __noescape (__attribute__((noescape))): a constant whose address
     // is used only by its object's code: kept with that code (an overlay's)
     bool isNoescape = false;
+    // __section("NAME") (Issue #70): placed in the section NAME (ln45 gives
+    // its address; #pragma section declares it)
+    std::string section;
     VariableDeclaration(const std::string& t, const std::string& n, int p = 0) : type(t), pointerLevel(p), name(n) {}
     void accept(ASTVisitor& visitor) override;
 };

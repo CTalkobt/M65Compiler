@@ -536,6 +536,20 @@ private:
         auto it = zpLink_.find(name);
         return it == zpLink_.end() ? name : it->second;
     }
+    // __section variables (Issue #70): no storage here; ln45 places each
+    // object's part of a section and defines the symbols. sectPlace_: the
+    // variable's section and offset in this object's part; sectLink_: a
+    // static one's file-unique symbol
+    struct SectPlace { std::string section; int offset = 0, size = 0; };
+    std::map<std::string, SectPlace> sectPlace_;
+    std::map<std::string, std::string> sectLink_;
+    std::map<std::string, int> sectSize_;            // this object's bytes of each section
+    void placeSections(const ir::Module& mod);
+    std::string sectLinkName(const std::string& name) const {
+        auto it = sectLink_.find(name);
+        return it == sectLink_.end() ? name : it->second;
+    }
+    std::string rewriteSectNames(const std::string& line) const;
     // a line with __zp globals' names as base-page operands replaced by
     // their placeholders (and a static one's name by its symbol elsewhere)
     std::string rewriteZpOperands(const std::string& line) const;

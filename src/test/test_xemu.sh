@@ -1213,6 +1213,21 @@ for sxmode in "zp|" "stack|-fno-zpcall" "zp_O3|-O3" "stack_O3|-fno-zpcall -O3"; 
     fi
 done
 
+# Test: sections (#70): __section variables at the address of their
+# #pragma section (screen RAM), initial values copied at startup, statics,
+# GCC's section attribute, in both conventions
+for scmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r scname scflags <<< "$scmode"
+    echo "Testing test_section_xemu.c ($scname)..."
+    compile_link_test "src/test-resources/test_section_xemu.c" "build/test/test_section_${scname}_xemu.prg" "$scflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_section_$scname" "build/test/test_section_${scname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_section_xemu.c $scname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: an __interrupt handler that uses __jsr leaves the interrupted
 # code's __jsr bytes as they were (__jsr_isr_save / restore); static
 # initializers with an address as a truth value (&x != 0, _Bool b = &x)

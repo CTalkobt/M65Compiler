@@ -100,6 +100,17 @@ private:
     // __pure / pure (1), const (2) seen on a function declaration
     int pendingPurity_ = 0;
     bool takePendingNoescape() { bool n = pendingNoescape_; pendingNoescape_ = false; return n; }
+    // __section("NAME") (__attribute__((cc45_section("NAME")))) or GCC's
+    // section("NAME") seen in the declaration (Issue #70); the sections the
+    // file declares (#pragma section: .cc45_section NAME [address])
+    std::string pendingSection_;
+    bool pendingSectionStrict_ = false;     // __section: the section must be declared
+    size_t pendingSectionTok_ = 0;          // (its messages point at it)
+    std::set<std::string> sections_;
+    // the pending section for a variable: its name ("" none; GCC's
+    // section("x") of an undeclared x is ignored); where no variable can
+    // be placed (a function, a member, a type) __section is an error
+    std::string takePendingSection(bool variable);
     // #pragma cc45 noescape_strings (until escape_strings): string literals
     // in functions stay with their code (Issue #301)
     bool noescapeStrings_ = false;

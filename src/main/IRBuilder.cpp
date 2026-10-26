@@ -357,6 +357,21 @@ void IRBuilder::emit(ir::Inst inst) {
     if (currentBlock_) currentBlock_->insts.push_back(std::move(inst));
 }
 
+// __section("NAME") on a global or static (Issue #70): its section, if it
+// can go there
+std::string IRBuilder::sectionGlobal(const VariableDeclaration& node) {
+    if (node.section.empty()) return "";
+    auto bad = [&](const std::string& why) {
+        errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column, Severity::Error,
+            "'" + node.name + "' in section '" + node.section + "': " + why));
+        return std::string();
+    };
+    if (node.addressSpace == 1) return bad("a __zp variable is in the base page");
+    if (node.isNoescape) return bad("a __noescape one is kept with its code");
+    if (node.alignment > 1 || node.alignmentExpr) return bad("_Alignas / aligned are not supported in a section");
+    return node.section;
+}
+
 // __noescape on a declaration (Issue #301): only a read-only object (const,
 // or for pointers * const) may be kept with the code: a copied overlay is
 // copied in again from its store, so a write would be lost. An extern
@@ -4148,6 +4163,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
         gv.noescape = noescapeGlobal(node);
         gv.align = std::max({1, node.alignment, alignValue(node.alignmentExpr.get()),
                              typeAlign(node.type, node.pointerLevel)});
+        gv.section = sectionGlobal(node);
         NoescapeInit noescapeInit(initNoescape_, inStaticInit_, gv.noescape);
         declaredAlign_[node.name] = gv.align;
         if (!node.ptrArrayDims.empty()) {
@@ -4285,6 +4301,9 @@ void IRBuilder::visit(VariableDeclaration& node) {
         return;
     }
 
+    if (currentFunc_ && !node.isStatic && !node.isExtern && !node.section.empty())
+        errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column, Severity::Error,
+            "'" + node.name + "': a local variable is not placed in a section (a static one is)"));
     if (currentFunc_ && !node.isStatic && !node.isExtern && node.addressSpace == 1)
         warnings_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column, Severity::Warning,
             "__zp has no effect on a local variable '" + node.name + "' (a static __zp one is in the base page)"));
@@ -4306,6 +4325,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
         gv.noescape = noescapeGlobal(node);
         gv.align = std::max({1, node.alignment, alignValue(node.alignmentExpr.get()),
                              typeAlign(node.type, node.pointerLevel)});
+        gv.section = sectionGlobal(node);
         NoescapeInit noescapeInit(initNoescape_, inStaticInit_, gv.noescape);
         declaredAlign_[node.name] = gv.align;
 
@@ -9696,6 +9716,21 @@ void IRBuilder::visit(AsmStatement& node) {
         while (!n.empty() && std::isspace((unsigned char)n.back())) n.pop_back();
         while (!n.empty() && std::isspace((unsigned char)n.front())) n.erase(0, 1);
         if (!n.empty()) { module_.overlay = n; return; }
+    }
+    if (!currentFunc_ && node.code.rfind(".cc45_section ", 0) == 0) {
+        // #pragma section("NAME"[, address]) (the parser checked it)
+        std::istringstream sec(node.code.substr(14));
+        std::string n;
+        long a = -1;
+        sec >> n;
+        if (!(sec >> a)) a = -1;
+        auto it = module_.sections.find(n);
+        if (it != module_.sections.end() && a >= 0 && it->second >= 0 && it->second != a)
+            errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column, Severity::Error,
+                "section '" + n + "' is declared at two addresses"));
+        else if (it == module_.sections.end() || a >= 0)
+            module_.sections[n] = a;
+        return;
     }
     if (node.code == ".weak_next") {
         weakNextFunction_ = true;

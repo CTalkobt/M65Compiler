@@ -45,6 +45,7 @@ static void printUsage(const char* progName) {
     std::cout << "  -u <sym>       Keep <sym> and what it reaches" << std::endl;
     std::cout << "  --bss-fill=V   Byte crt0 fills BSS with at startup (default $00; $FF, 0xFF or decimal)" << std::endl;
     std::cout << "  --stack-size=N The CPU stack's share below __stack_top; malloc's heap ends there" << std::endl;
+    std::cout << "  --section NAME=ADDR  The address of section NAME (cc45 __section variables; overrides #pragma section)" << std::endl;
     std::cout << "  --ram-top=ADDR End of the RAM a C program may use in bank 0 (default $C000: $C000-$CFFF" << std::endl;
     std::cout << "                 reads as ROM in C65 mode); for a program that maps RAM there itself" << std::endl;
     std::cout << "  --overlay-store=ADDR[-END][,ADDR-END...]" << std::endl;
@@ -90,6 +91,7 @@ int main(int argc, char** argv) {
     bool printMap = false;
     int bssFill = -1;
     int stackSize = -1;
+    std::map<std::string, uint32_t> sectionAddrs;   // --section NAME=ADDR
     uint32_t ramTop = 0xC000;   // bank 0 reads as RAM below $C000 in C65 mode
     bool gcObjects = true, printGc = false, gcInputs = false;
     std::vector<std::string> keepSyms;
@@ -140,6 +142,23 @@ int main(int argc, char** argv) {
         else if (arg == "-u" && i + 1 < argc) { keepSyms.push_back(argv[++i]); }
         else if (arg == "--print-gc") { printGc = true; }
         else if (Logger::parseFlag(arg, verbosity)) { Logger::setLevel(verbosity); }
+        else if (arg.rfind("--section", 0) == 0 && (arg.size() == 9 || arg[9] == '=')) {
+            // --section NAME=ADDR / --section=NAME=ADDR: a section's address (cc45 __section)
+            std::string v = arg.size() > 9 ? arg.substr(10) : (i + 1 < argc ? argv[++i] : "");
+            size_t eq = v.find('=');
+            std::string name = eq == std::string::npos ? "" : v.substr(0, eq), a = eq == std::string::npos ? "" : v.substr(eq + 1);
+            unsigned long av = 0;
+            try {
+                size_t used = 0;
+                if (!a.empty() && a[0] == '$') { av = std::stoul(a.substr(1), &used, 16); used++; }
+                else av = std::stoul(a, &used, 0);
+                if (name.empty() || used != a.size() || av > 0xFFFF) throw 0;
+            } catch (...) {
+                std::cerr << "ln45: error: invalid --section '" << v << "' (NAME=ADDR, ADDR $0000-$FFFF: $0800, 0x800, 2048)" << std::endl;
+                return 1;
+            }
+            sectionAddrs[name] = (uint32_t)av;
+        }
         else if (arg.rfind("--stack-size=", 0) == 0) {
             std::string v = arg.substr(13);
             int base = 10;
@@ -262,6 +281,7 @@ int main(int argc, char** argv) {
     for (const auto& k : keepSyms) linker.addKeepSymbol(k);
     if (bssFill >= 0) linker.setBssFill((uint8_t)bssFill);
     if (stackSize >= 0) linker.setStackSize((uint16_t)stackSize);
+    for (const auto& [n, a] : sectionAddrs) linker.setSectionAddr(n, a);
     // Code overlays: the file name the program loads them from (by default
     // the output's base name, upper case: PETSCII letters, with .OV1) and
     // where that file is written (the output's path with .ov1)

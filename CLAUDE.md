@@ -275,7 +275,7 @@ totals code bytes by IR operation).
   struct, and only those the unit calls.
 - **Extensions**: struct methods, single inheritance, `virtual`/`final`,
   operator overloading, GCC nested functions (static chain, trampolines),
-  statement expressions, computed goto, case ranges, `continue <value>` in a switch, `break N`, `repeat(N)`, `__likely`/`__unlikely`, `__noescape`, `__pure`, `__cpu`/`__flags`, `__bit`/`__bits`, `__jsr`/`__jsr_raw`/`__jmp`,
+  statement expressions, computed goto, case ranges, `continue <value>` in a switch, `break N`, `repeat(N)`, `__likely`/`__unlikely`, `__noescape`, `__pure`, `__cpu`/`__flags`, `__bit`/`__bits`, `__jsr`/`__jsr_raw`/`__jmp`, `__section` (`#pragma section("NAME", addr)`: placed by ln45, `--section`),
   `__dma_copy`/`__dma_fill`, `__interrupt`, `__naked`, `__regparm`, `__zp` globals
   (in the private base page, placed by ln45 at the top of `$80`–`$F1`, with ca45 `.segment "zp"` variables below them), file-scope
   `asm("...")` (module-level assembly), string encodings
@@ -303,7 +303,7 @@ totals code bytes by IR operation).
   The `CC45_IPO`/`CC45_LTCO`/`CC45_BANK_ANALYSIS` variables do not exist.
 - **Working pragmas**: `once`, `push_macro`/`pop_macro`, `weak`, `cc45 recurse`,
   `signed_default`/`unsigned_default`, `no_stack16`, `stack_top`, `stack_size`,
-  `max_inline_ir_size`, `max_unroll_bytes`, `optimize(...)` (`optimize(off)` / `optimize(on)`: functions compiled as written, ca45 `.noopt_start`/`.noopt_end`), `encoding`, `overlay(name)`; `no_zp_save`/`set_bp`
+  `max_inline_ir_size`, `max_unroll_bytes`, `optimize(...)` (`optimize(off)` / `optimize(on)`: functions compiled as written, ca45 `.noopt_start`/`.noopt_end`), `encoding`, `overlay(name)`, `section("NAME", addr)`; `no_zp_save`/`set_bp`
   (only `-S`). Accepted without effect: `exit_rts`/`exit_halt`/`exit_brk`,
   `no_bssinit`, `heap`, `stdio`, `no_0100_stack`, `unroll`, `no_static_alloc`
   (use `recurse`), `no_striped`.

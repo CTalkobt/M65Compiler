@@ -234,6 +234,23 @@ static void tour_jsr(void) {
     report("__jsr, __jsr_raw", line, row > 0 && row < 25 && col == 0 && d == 42);
 }
 
+/* --- #pragma section, __section ----------------------------------------- */
+
+/* EXT: #pragma section: a section at an address of the program's choosing
+ * (here free RAM just below the CPU stack's share); __section puts
+ * variables there, one after another, initial values copied at startup */
+#pragma section("FIXED", 0xAF00)
+static __section("FIXED") const unsigned char squares[5] = { 0, 1, 4, 9, 16 };
+static __section("FIXED") char note[6];
+
+static void tour_section(void) {
+    const volatile unsigned char *at = (const volatile unsigned char *)0xAF00;
+    strcpy(note, "here");
+    sprintf(line, "squares at $%04x: %u %u %u, note at $%04x", (unsigned)squares, at[2], at[3], at[4],
+            (unsigned)note);
+    report("#pragma section", line, (unsigned)squares == 0xAF00 && at[4] == 16 && strcmp((const char *)at + 5, "here") == 0);
+}
+
 /* --- __fastcall__ -------------------------------------------------------- */
 
 /* EXT: __fastcall__: this one function takes its arguments in the base
@@ -396,6 +413,7 @@ int main(void) {
     tour_cpu();
     tour_bits();
     tour_jsr();
+    tour_section();
     tour_fastcall();
     tour_encoding();
     tour_optimize();

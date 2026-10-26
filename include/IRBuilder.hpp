@@ -437,6 +437,7 @@ private:
         NoescapeInit(bool& f, bool& i, bool on) : flag(f), init(i), saved(f), savedInit(i) { flag = on; init = true; }
         ~NoescapeInit() { flag = saved; init = savedInit; }
     };
+    std::string sectionGlobal(const VariableDeclaration& node);   // __section (Issue #70)
     bool noescapeGlobal(const VariableDeclaration& node);
     int coldDepth_ = 0;     // > 0: building the branch of an if not expected to run
     size_t loopBase_ = 0;   // loopStack_ entries of the function being built (inlined bodies too)

@@ -58,6 +58,8 @@ private:
 
     std::string processInternal(const std::string& source, const std::string& currentFile, int depth);
     void handlePragma(std::istream& ss, std::ostream& output, const std::string& currentFile);
+    std::string sectionDirective(const std::string& args);   // #pragma section(...) -> .cc45_section
+    int pragmaLine_ = 0;                                     // the #pragma's line (its messages)
     bool isConditionTrue();
     long evaluateExpression(const std::string& expr);
     std::string expandMacros(const std::string& line);
