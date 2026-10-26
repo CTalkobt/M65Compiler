@@ -1,7 +1,7 @@
 // Test: strcmp — validate string comparison
 // Returns 0 (A=$00) on success, non-zero on failure.
 
-int strcmp(char *s1, char *s2) {
+signed int strcmp(char *s1, char *s2) {
     while (*s1 != 0) {
         if (*s1 != *s2) {
             if (*s1 < *s2) return -1;

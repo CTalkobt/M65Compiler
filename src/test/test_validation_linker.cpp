@@ -6,18 +6,10 @@
 #include <cstdio>
 #include <cstring>
 #include <sstream>
+#include "test_harness.hpp"
 
-static int tests_passed = 0;
-static int tests_failed = 0;
-
-#define CHECK(cond, msg) do { \
-    if (!(cond)) { \
-        printf("FAIL: %s (line %d)\n", msg, __LINE__); \
-        tests_failed++; \
-    } else { \
-        tests_passed++; \
-    } \
-} while(0)
+// (the category's own names: other categories are in the same program)
+namespace {
 
 // Test 1: No input objects to linker — link() returns false with "no input objects" error
 void test_no_input_objects() {
@@ -1323,6 +1315,9 @@ void test_data_relocation() {
 // =============================================================================
 // Main entry point
 // =============================================================================
+
+
+}  // namespace
 
 int main() {
     printf("Running linker validation tests...\n\n");

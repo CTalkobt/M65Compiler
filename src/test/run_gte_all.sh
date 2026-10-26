@@ -72,7 +72,9 @@ run_one() {
     # fully loaded machine that is the emulator, not the program
     for attempt in 1 2; do
         rm -f "$mem"
-        timeout "$RUN_TIMEOUT" $XEMU -headless -besure -sleepless -prgmode 65 -prgexit -dumpmem "$mem" -prg "$prg" </dev/null >/dev/null 2>&1
+        # (its own xemu preferences directory: xemu_pref.sh)
+        xemu_pref "$BUILD_DIR/$name.pref"
+        XEMU_PREF_DIR="$PWD/$BUILD_DIR/$name.pref" timeout "$RUN_TIMEOUT" $XEMU -headless -besure -sleepless -prgmode 65 -prgexit -dumpmem "$mem" -prg "$prg" </dev/null >/dev/null 2>&1
         res=$?
         status=""
         [ -f "$mem" ] && status=$(od -An -tx1 -j 253 -N 2 "$mem" | tr -d ' \n')
@@ -95,7 +97,10 @@ run_one() {
         echo "RUN FAIL (exit status \$${status:2:2}${status:0:2}): $name"
     fi
 }
-export -f run_one
+source src/test/xemu_pref.sh
+xemu_pref_init "$BUILD_DIR/xemu_pref_farm"
+export -f run_one xemu_pref
+export XEMU_PREF_FARM
 export CC LD CRT0 LIB XEMU GTE_DIR BUILD_DIR RUN_TIMEOUT GTE_CFLAGS IGNORE
 
 if [ -n "$LIST" ]; then

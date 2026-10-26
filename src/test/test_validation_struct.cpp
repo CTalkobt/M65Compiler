@@ -4,18 +4,10 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include "test_harness.hpp"
 
-static int tests_passed = 0;
-static int tests_failed = 0;
-
-#define CHECK(cond, msg) do { \
-    if (!(cond)) { \
-        printf("FAIL: %s (line %d)\n", msg, __LINE__); \
-        tests_failed++; \
-    } else { \
-        tests_passed++; \
-    } \
-} while(0)
+// (the category's own names: other categories are in the same program)
+namespace {
 
 // Helper: Run the C compiler and capture stderr
 static std::pair<int, std::string> runCC45(const std::string& cCode) {
@@ -226,6 +218,9 @@ int main() {
     auto [ret, stderr] = runCC45(code);
     CHECK(ret == 0, "Valid union compilation succeeds");
 }
+
+
+}  // namespace
 
 int main() {
     // Ensure compiler is built

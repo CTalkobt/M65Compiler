@@ -17,7 +17,7 @@ __fastcall__ long zp_get_long(int a, int b) {
 }
 
 // Stack caller invoking both
-void main() {
+int main() {
     // Test 1: Stack-convention long return
     long r1 = stack_get_long(0x1234, 0x5678);
     assert(r1 == 0x12345678);

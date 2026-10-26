@@ -5,18 +5,10 @@
 #include <fstream>
 #include <sstream>
 #include <vector>
+#include "test_harness.hpp"
 
-static int tests_passed = 0;
-static int tests_failed = 0;
-
-#define CHECK(cond, msg) do { \
-    if (!(cond)) { \
-        printf("FAIL: %s\n", msg); \
-        tests_failed++; \
-    } else { \
-        tests_passed++; \
-    } \
-} while(0)
+// (the category's own names: other categories are in the same program)
+namespace {
 
 // Test helper: compile assembly and return binary
 static std::vector<uint8_t> assembleCode(const std::string& asmCode) {
@@ -618,6 +610,9 @@ void test_fill_28bit_attic() {
     auto bin = assembleCode(code);
     CHECK(!bin.empty(), "FILL with 28-bit address assembles");
 }
+
+
+}  // namespace
 
 int main() {
     printf("Testing Move and Fill operations...\n\n");

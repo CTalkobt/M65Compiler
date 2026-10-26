@@ -357,9 +357,12 @@ EXAMPLE_JOBS=${EXAMPLE_JOBS:-$(nproc 2>/dev/null || echo 2)}
 UNITS=$(declare -F | awk '{print $3}' | grep '^unit_' | sort)
 UD="$BUILDDIR/units"
 rm -rf "$UD"; mkdir -p "$UD"
+# (each job its own xemu preferences directory: src/test/xemu_pref.sh)
+source src/test/xemu_pref.sh
+xemu_pref_init "$BUILDDIR/xemu_pref_farm"
 for u in $UNITS; do
     while [ "$(jobs -rp | wc -l)" -ge "$EXAMPLE_JOBS" ]; do wait -n 2>/dev/null || true; done
-    ( $u ) > "$UD/$u.log" 2>&1 &
+    ( xemu_pref "$UD/$u.pref"; export XEMU_PREF_DIR="$PWD/$UD/$u.pref"; $u ) > "$UD/$u.log" 2>&1 &
 done
 wait
 for u in $UNITS; do

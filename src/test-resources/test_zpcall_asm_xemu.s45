@@ -14,7 +14,34 @@
 ;   [3..6] = $E0 $93 $04 $00 (add_long(100000,200000) = 300000)
 ;   [7] = $AA sentinel
 
-.org $2000
+        * = $2001
+        .basicUpstart __xemu_main
+
+; run from BASIC: interrupts off, the base page moved to $5000 (the test's
+; zero-page use leaves BASIC's alone), BASIC's stack pointer kept
+__xemu_main:
+        php
+        sei
+        tsx
+        stx __xemu_sp
+        tsy
+        sty __xemu_sp+1
+        lda #$50
+        tab
+        jsr __xemu_test
+__xemu_done:
+        lda #0
+        tab
+        ldx __xemu_sp
+        txs
+        ldy __xemu_sp+1
+        tys
+        plp
+        rts
+__xemu_sp:
+        .byte 0, 0
+
+__xemu_test:
 __sp_base = $0101
 __zp_scratch = $02
 
@@ -93,7 +120,7 @@ __zp_scratch = $02
     lda #$AA
     sta $4007
 
-    brk
+    jmp __xemu_done
 
 ; ---------------------------------------------------------------
 ; add_chars: $03 + $04 → A

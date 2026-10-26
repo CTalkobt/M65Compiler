@@ -32,7 +32,7 @@ __fastcall__ struct Rect zp_get_rect(int l, int t) {
 }
 
 // Stack caller invoking both conventions
-void main() {
+int main() {
     // Test 1: Stack-convention struct return
     struct Point p = stack_get_point(10, 20);
     assert(p.x == 10);

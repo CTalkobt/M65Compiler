@@ -5,18 +5,10 @@
 #include <vector>
 #include <memory>
 #include <unistd.h>
+#include "test_harness.hpp"
 
-static int tests_passed = 0;
-static int tests_failed = 0;
-
-#define CHECK(cond, msg) do { \
-    if (!(cond)) { \
-        printf("FAIL: %s (line %d)\n", msg, __LINE__); \
-        tests_failed++; \
-    } else { \
-        tests_passed++; \
-    } \
-} while(0)
+// (the category's own names: other categories are in the same program)
+namespace {
 
 struct RunResult {
     int exitCode;
@@ -208,6 +200,9 @@ void test_cpu_intrinsic_syntax() {
     CHECK(res.output.find("must be followed by '.'") != std::string::npos,
           "test_cpu_intrinsic_syntax: error message present");
 }
+
+
+}  // namespace
 
 int main() {
     // Create build directory if needed

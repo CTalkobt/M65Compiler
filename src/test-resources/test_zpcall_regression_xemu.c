@@ -1,6 +1,6 @@
 // Comprehensive regression test for ZP calling convention (-fzpcall)
 // Tests: nested calls, address-of, long return, recursion, mixed types
-// Results written to $4000+ for mmemu verification
+// Results written to $4000+ (checked by test_xemu.sh)
 
 char *results = (char *)0x4000;
 
@@ -129,5 +129,4 @@ void main() {
     // Sentinel
     results[17] = 0xAA;
 
-    __asm__("brk");
 }

@@ -15,18 +15,10 @@
 #include <fstream>
 #include <sstream>
 #include <set>
+#include "test_harness.hpp"
 
-static int tests_passed = 0;
-static int tests_failed = 0;
-
-#define CHECK(cond, msg) do { \
-    if (!(cond)) { \
-        printf("FAIL: %s (line %d)\n", msg, __LINE__); \
-        tests_failed++; \
-    } else { \
-        tests_passed++; \
-    } \
-} while(0)
+// (the category's own names: other categories are in the same program)
+namespace {
 
 // --- Helpers for end-to-end tests ---
 
@@ -460,6 +452,9 @@ void test_data_reloc_segment() {
 }
 
 // =============================================================================
+
+
+}  // namespace
 
 int main() {
     printf("=== Segment Emission Tests ===\n\n");

@@ -26,6 +26,16 @@ static std::string hex16(uint16_t val) {
     return ss.str();
 }
 
+// Whether assembler text names a symbol (not as part of a longer name)
+static bool asmNamesSymbol(const std::string& text, const std::string& sym) {
+    auto ident = [](char c) { return std::isalnum((unsigned char)c) || c == '_' || c == '.' || c == '@'; };
+    for (size_t pos = text.find(sym); pos != std::string::npos; pos = text.find(sym, pos + 1)) {
+        size_t end = pos + sym.size();
+        if ((pos == 0 || !ident(text[pos - 1])) && (end == text.size() || !ident(text[end]))) return true;
+    }
+    return false;
+}
+
 // Whether the element address in __zp_scratch (elemCache_) stays right
 // across an instruction: a fused element load or store (they handle it),
 // a NOP, a store of a value to a variable in ZP, or a load / store through
@@ -3264,6 +3274,11 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             if (in.op == ir::Op::ADDR_LOCAL && in.src1.isVreg()) addressed.insert(in.src1.vregId);
             if (in.op == ir::Op::ADDR_ELEM) elemBase(in.src1);
             if ((in.op == ir::Op::LOAD || in.op == ir::Op::STORE) && in.args.size() >= 3) elemBase(in.args[0]);
+            // a parameter inline asm names by its static copy (_f__param_x)
+            // must have that copy
+            if (in.op == ir::Op::ASM_INLINE)
+                for (uint32_t i = 0; i < fn.paramTypes.size() && i < fn.paramNames.size(); i++)
+                    if (asmNamesSymbol(in.asmText, fn.name + "__param_" + fn.paramNames[i])) addressed.insert(i);
         }
     if (ir::paramsStayInZp(fn) && !isZeroAllocLeaf(fn.name, fn)) {
         int zpOff = (int)zeroPageStart_ + 8;
@@ -4035,7 +4050,9 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                     if (!canSuppress) break;
                     // Check src1
                     if (inst.src1.isVreg() && inst.src1.vregId == vid) {
-                        if ((inst.op == ir::Op::MUL || inst.op == ir::Op::MUL_U) && inst.resultType != ir::Type::I32 &&
+                        if (inst.op == ir::Op::CPU_REG_WRITE && !fn.localSlotVregs.count(vid)) {
+                            hasUse = true; // loaded straight into the register (directByte)
+                        } else if ((inst.op == ir::Op::MUL || inst.op == ir::Op::MUL_U) && inst.resultType != ir::Type::I32 &&
                             inst.resultType != ir::Type::F32 && !(inst.src1.isVreg() && inst.src2.isVreg() &&
                             inst.src1.vregId == inst.src2.vregId)) {
                             hasUse = true; // a factor of a 16-bit multiply (an immediate there)
@@ -8934,22 +8951,31 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                 else if (reg == "XY") { emit("ldxy #$" + hex16((uint16_t)val)); optimized = true; }
                 else if (reg == "Q" || reg == "AXYZ") { emit("ldq #$" + hex32(val)); optimized = true; }
             } else if (inst.src1.isVreg()) {
+                // A constant, base-page or static source loads straight into
+                // the register, leaving the others (A among them) alone
+                bool wide = inst.src1.type != ir::Type::I8;
+                std::string b0 = directByte(inst.src1, 0);
+                std::string b1 = wide ? directByte(inst.src1, 1) : std::string("#0");
+                // LDZ has no base-page mode: a base-page source goes through A, preserving A
+                auto ldz = [&](const std::string& b) {
+                    if (b[0] == '$' && b.size() <= 3) { emit("pha"); emit("lda " + b); emit("taz"); emit("pla"); }
+                    else emit("ldz " + b);
+                };
+                if (!b0.empty() && !b1.empty()) {
+                    optimized = true;
+                    if (reg == "A") emit("lda " + b0);
+                    else if (reg == "X") emit("ldx " + b0);
+                    else if (reg == "Y") emit("ldy " + b0);
+                    else if (reg == "Z") ldz(b0);
+                    else if (reg == "AX") { emit("lda " + b0); emit("ldx " + b1); }
+                    else if (reg == "AY") { emit("lda " + b0); emit("ldy " + b1); }
+                    else if (reg == "AZ") { ldz(b1); emit("lda " + b0); }
+                    else if (reg == "XY") { emit("ldx " + b0); emit("ldy " + b1); }
+                    else optimized = false;
+                }
                 auto alloc = alloc_.getAlloc(inst.src1.vregId);
-                if (alloc.loc == VRegAllocator::IN_ZP) {
-                    std::string zp = "$" + hex8(alloc.offset);
-                    if (reg == "A") { emit("lda " + zp); optimized = true; }
-                    else if (reg == "X") { emit("ldx " + zp); optimized = true; }
-                    else if (reg == "Y") { emit("ldy " + zp); optimized = true; }
-                    else if (reg == "Z") {
-                        // LDZ has no base-page mode: load through A, preserving A
-                        emit("pha"); emit("lda " + zp); emit("taz"); emit("pla");
-                        optimized = true;
-                    }
-                    else if (reg == "AX") { emit("ldax " + zp); optimized = true; }
-                    else if (reg == "AY") { emit("lday " + zp); optimized = true; }
-                    else if (reg == "AZ") { emit("ldaz " + zp); optimized = true; }
-                    else if (reg == "XY") { emit("ldxy " + zp); optimized = true; }
-                    else if (reg == "Q" || reg == "AXYZ") { emit("ldq " + zp); optimized = true; }
+                if (!optimized && (reg == "Q" || reg == "AXYZ") && alloc.loc == VRegAllocator::IN_ZP) {
+                    emit("ldq $" + hex8(alloc.offset)); optimized = true;
                 }
             }
 
@@ -8967,7 +8993,7 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                 else if (reg == "AX") ;
                 else if (reg == "AY") { emit("phx"); emit("ply"); }
                 else if (reg == "AZ") { emit("phx"); emit("plz"); }
-                else if (reg == "XY") { emit("tax"); emit("phx"); emit("ply"); emit("plx"); }
+                else if (reg == "XY") { emit("phx"); emit("ply"); emit("tax"); }
                 // SP = AX: low byte first, then the high byte (raising SP:
                 // the in-between value stays within the area being freed)
                 else if (reg == "SP") { emit("phx"); emit("ply"); emit("tax"); emit("txs"); emit("tys"); }

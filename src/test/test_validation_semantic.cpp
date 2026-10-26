@@ -1,18 +1,10 @@
 #include <cstdio>
 #include <fstream>
 #include <string>
+#include "test_harness.hpp"
 
-static int tests_passed = 0;
-static int tests_failed = 0;
-
-#define CHECK(cond, msg) do { \
-    if (!(cond)) { \
-        printf("FAIL: %s\n", msg); \
-        tests_failed++; \
-    } else { \
-        tests_passed++; \
-    } \
-} while(0)
+// (the category's own names: other categories are in the same program)
+namespace {
 
 // Test helper: compile C code and check for expected error
 static bool compileAndCheckError(const std::string& cCode, const std::string& expectedError) {
@@ -243,6 +235,9 @@ int main() {
     bool ok = compileAndSucceed(code);
     CHECK(ok, "valid code compiles successfully");
 }
+
+
+}  // namespace
 
 int main() {
     printf("Running semantic/type validation error tests...\n");

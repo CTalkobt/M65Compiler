@@ -4,12 +4,12 @@
 int main() {
     char *s = "HELLO";
 
-    // Verify each byte
-    if (s[0] != 72) return 1;   // 'H' = 0x48 = 72
-    if (s[1] != 69) return 2;   // 'E' = 0x45 = 69
-    if (s[2] != 76) return 3;   // 'L' = 0x4C = 76
-    if (s[3] != 76) return 4;   // 'L' = 0x4C = 76
-    if (s[4] != 79) return 5;   // 'O' = 0x4F = 79
+    // Verify each byte (literals are PETSCII: 'H' is $C8)
+    if (s[0] != 'H') return 1;
+    if (s[1] != 'E') return 2;
+    if (s[2] != 'L') return 3;
+    if (s[3] != 'L') return 4;
+    if (s[4] != 'O') return 5;
     if (s[5] != 0) return 6;    // null terminator
 
     // String length via loop
@@ -21,12 +21,12 @@ int main() {
 
     // Two string literals should be independently accessible
     char *t = "AB";
-    if (t[0] != 65) return 8;   // 'A' = 0x41 = 65
-    if (t[1] != 66) return 9;   // 'B' = 0x42 = 66
+    if (t[0] != 'A') return 8;
+    if (t[1] != 'B') return 9;
     if (t[2] != 0) return 10;   // null terminator
 
     // Original string still valid
-    if (s[0] != 72) return 11;
+    if (s[0] != 'H') return 11;
 
     return 0;
 }

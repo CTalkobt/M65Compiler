@@ -3,19 +3,10 @@
 #include <cstring>
 #include <string>
 #include <vector>
+#include "test_harness.hpp"
 
-static int tests_passed = 0;
-static int tests_failed = 0;
-
-#define CHECK(cond, msg) do { \
-    if (!(cond)) { \
-        printf("FAIL: %s\n", msg); \
-        tests_failed++; \
-    } else { \
-        printf("PASS: %s\n", msg); \
-        tests_passed++; \
-    } \
-} while(0)
+// (the category's own names: other categories are in the same program)
+namespace {
 
 struct RunResult {
     int exitCode;
@@ -217,6 +208,9 @@ int d;
     RunResult res = runCC45(src);
     CHECK(res.exitCode == 0, "Complex conditional nesting succeeds");
 }
+
+
+}  // namespace
 
 int main() {
     printf("Running Preprocessor Error Validation Tests...\n\n");

@@ -5,19 +5,10 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include "test_harness.hpp"
 
-static int tests_passed = 0;
-static int tests_failed = 0;
-
-#define CHECK(cond, msg) do { \
-    if (!(cond)) { \
-        printf("FAIL: %s\n", msg); \
-        tests_failed++; \
-    } else { \
-        printf("PASS: %s\n", msg); \
-        tests_passed++; \
-    } \
-} while(0)
+// (the category's own names: other categories are in the same program)
+namespace {
 
 // Test helper: compile C code and return stderr output
 static std::string compileCode(const std::string& cCode) {
@@ -246,6 +237,9 @@ int main() {
     bool failed_correctly = compilationFailedWithError(code, "Compile Error: Assignment to read-only location");
     CHECK(failed_correctly, "Assignment to const variable fails with expected error");
 }
+
+
+}  // namespace
 
 int main() {
     printf("Testing const/register constraint validation...\n\n");

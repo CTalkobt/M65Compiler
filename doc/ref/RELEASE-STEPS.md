@@ -42,7 +42,7 @@ This runs, in order: the documentation check (`src/test/check_docs.py`), the com
 
 **Gate: all tests pass. `xemu-xmega65` must be on the `PATH`** (`test_xemu.sh` fails without it; the stdlib and example scripts skip).
 
-The older `make test-stdlib`, `make test-mmemu` and `make bench-optimizer` targets drive the mmemu emulator and are not part of the release gate.
+`make bench-optimizer` (a code-size benchmark) drives the mmemu emulator and is not part of the release gate.
 
 ---
 

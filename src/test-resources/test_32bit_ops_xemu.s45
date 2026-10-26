@@ -6,7 +6,34 @@
 ;   400C: 60 79 FE FF  — NEG of $186A0 = $FFFE7960
 ;   4010: FF FF FF FF  — SXT.16 of $FFFF = $FFFFFFFF
 
-.org $2000
+        * = $2001
+        .basicUpstart __xemu_main
+
+; run from BASIC: interrupts off, the base page moved to $5000 (the test's
+; zero-page use leaves BASIC's alone), BASIC's stack pointer kept
+__xemu_main:
+        php
+        sei
+        tsx
+        stx __xemu_sp
+        tsy
+        sty __xemu_sp+1
+        lda #$50
+        tab
+        jsr __xemu_test
+__xemu_done:
+        lda #0
+        tab
+        ldx __xemu_sp
+        txs
+        ldy __xemu_sp+1
+        tys
+        plp
+        rts
+__xemu_sp:
+        .byte 0, 0
+
+__xemu_test:
 
 __sp_base = $0101
 __zp_scratch = $02

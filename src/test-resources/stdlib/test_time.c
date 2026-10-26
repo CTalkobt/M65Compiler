@@ -35,8 +35,8 @@ int main() {
     diff = difftime(5, 5);
     if (diff != 0) return 5;
 
-    // CLOCKS_PER_SEC should be 60
-    if (CLOCKS_PER_SEC != 60) return 6;
+    // CLOCKS_PER_SEC is the frame rate: 50 (PAL) or 60 (NTSC)
+    if (CLOCKS_PER_SEC != 50 && CLOCKS_PER_SEC != 60) return 6;
 
     return 0;
 }

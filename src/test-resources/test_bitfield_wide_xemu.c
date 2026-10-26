@@ -1,4 +1,4 @@
-// Bitfield mmemu test — results at $4000
+// test_bitfield_wide_xemu: char and wide (int : 10) bitfields — results at $4000
 struct flags {
     unsigned char active : 1;
     unsigned char mode : 3;
@@ -31,5 +31,4 @@ void main() {
     res[4] = (unsigned char)wf.counter;  // F4 (500 & 0xFF)
     res[5] = (unsigned char)wf.channel;  // 1E
 
-    __asm__("brk");
 }
