@@ -8124,8 +8124,17 @@ void IRBuilder::simplifyPrintfCall(FunctionCall& call) {
 
 void IRBuilder::visit(ReturnStatement& node) {
     // fixed point (#72): the value converted to / from the return type
-    if (const FunctionDeclaration* rf = returningFunction(); rf && node.expression)
+    if (const FunctionDeclaration* rf = returningFunction(); rf && node.expression) {
         fixedConvertTo(node.expression, rf->returnType, rf->returnPointerLevel);
+        // a wide integer result (long long, __int128) from an integer: its
+        // value converted, sign-extended for a signed one (it copied the
+        // integer's bytes and the 8 that followed; ~a complemented &a)
+        if (rf->returnPointerLevel == 0) {
+            std::string wn = getAggregateName(rf->returnType);
+            if (wn.rfind("struct ", 0) == 0) wn = wn.substr(7);
+            if (wn.rfind("__int", 0) == 0 && structs_.count(wn)) toWide(node.expression, wn, false);
+        }
+    }
     // Inline expansion: return stores to inline result vreg and branches to merge.
     // The value has the inlined function's return type (the result vreg's),
     // not that of the function it is inlined into (currentFunc_)

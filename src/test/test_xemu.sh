@@ -1272,6 +1272,20 @@ for nsmode in "zp|" "stack|-fno-zpcall" "zp_O0|-O0"; do
     fi
 done
 
+# Test: long long results and constants: an integer returned from a long
+# long function converted, LL constant expressions folded in 64 bits
+for llmode in "zp|" "stack|-fno-zpcall" "zp_O0|-O0"; do
+    IFS='|' read -r llname llflags <<< "$llmode"
+    echo "Testing test_ll_const_xemu.c ($llname)..."
+    compile_link_test "src/test-resources/test_ll_const_xemu.c" "build/test/test_ll_const_${llname}_xemu.prg" "$llflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_ll_const_$llname" "build/test/test_ll_const_${llname}_xemu.prg" "C0C0" 4 "01 01 01 AA"
+    else
+        echo "FAIL: test_ll_const_xemu.c $llname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: an __interrupt handler that uses __jsr leaves the interrupted
 # code's __jsr bytes as they were (__jsr_isr_save / restore); static
 # initializers with an address as a truth value (&x != 0, _Bool b = &x)

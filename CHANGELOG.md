@@ -18,6 +18,14 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   comparisons with an integer: they are 64-bit (`~a & 4102790424LL` was a
   32-bit `long`, negative; GCC's pr59101 passed only while `~a` was
   wrongly unsigned). `<intwide.h>` comes with such a constant.
+- cc45: `return x;` in a function returning `long long` (or another wide
+  integer) with an integer `x` copied `x`'s bytes and the ones after it
+  (`return ~a;` complemented `&a`): the value is converted, sign-extended
+  when signed.
+- cc45: a constant expression with an `LL` operand is folded in 64 bits
+  (unsigned with a `ULL` one): `1LL << 40` was 0,
+  `4102790424LL & 0xFFFFFFFFFFFFFFFFLL` and `-4102790424LL` lost their
+  upper half. Test `test_ll_const_xemu.c`.
 
 ### `restrict` in the standard library
 
