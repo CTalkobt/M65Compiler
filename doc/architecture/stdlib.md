@@ -361,6 +361,19 @@ dma_fill((void *)0x0800, 1000, 0x20);
 dma_copy((void *)0x0800, (void *)src_data, 1000);
 ```
 
+### rom_ram.h
+
+Unused parts of the ROM area ($20000-$3FFFF of chip RAM) as RAM (#339). In C65 mode the C64 BASIC and KERNAL images there are never used: 16 KB for characters, samples, DMA buffers. The hypervisor write-protects the area (CPU and DMA writes are ignored): its memory trap, `$D641`, lifts the protection (`A = $02`) or sets it again (`A = $00`); `$D67D` bit 2 shows it.
+
+| Name | Description |
+|------|-------------|
+| `ROMRAM_C64` | The C64 region: `$2A000`-`$2BFFF` (C64 BASIC) and `$2E000`-`$2FFFF` (the end of C64 BASIC and the C64 KERNAL). Not `$2C000`-`$2DFFF` between them: parts of the C65 DOS and KERNAL and a character set C65 mode uses. Overwriting it breaks only `GO64`, until the ROM is loaded again (a reset) |
+| `unsigned char romram_enable(unsigned char regions)` | *asm* (`stdlib_asm/rom_ram.s45`). Writes on (the trap), then a byte of each range of the regions is changed, read back and restored: 1 when every one took, 0 when not (or a region bit is unknown, or none is given) |
+| `void romram_protect(void)` | Writes off again; the contents stay |
+| `const unsigned long *romram_ranges(unsigned char region)` | The region's ranges: their count, then first / last pairs (28-bit addresses; reach them with `dma_copy_far` / `dma_fill_far` or far pointers); `NULL` for an unknown region |
+
+A program that leaves the area writable has it protected again when it ends: crt0's `__exit` calls `__romram_exit` (weak `rts` unless `rom_ram.s45` is linked). The allocator of banks 4-5 (`far_malloc`) does not hand these ranges out: a program uses them as it likes. Later regions (the monitor, C65 BASIC with its float routines, the DOS) would say what stops working once they are overwritten; one that `READY.` needs would need the program to reset the machine at its end. Test `test_romram_xemu.c`.
+
 ## 14. Headers Without a Library Implementation
 
 These headers declare functions whose sources (`lib/src/*.c`, `lib/stdlib/uart.s`) are not built into any archive, so calls to them fail to link: `uart.h`, `audio.h`, `cache_opt.h`, `data_structures.h`, `event_system.h`, `graphics.h`, `graphics_hal.h`, `graphics_particles.h`, `graphics_rrb.h`, `graphics_sprites.h`, `graphics_sprites_advanced.h`, `graphics_text80x50.h`, `hw_audio_mixer.h`, `hw_io.h`, `hw_peripherals.h`, `hw_raster.h`, `hw_scroll.h`, `joystick.h`, `lightpen.h`, `mega65_version.h`, `mem_pool.h`, `paddle_mouse.h`, `persistence.h`, `procedural_content.h`, `resource_manager.h`, `scripting.h`, `simd.h`, `sprites.h`, `sprite_*.h`, `test_harness.h`, `ui.h`, `world.h`. `sincos.h` and `sincos16.h` contain only `static` code and tables and work without the library.

@@ -1286,6 +1286,20 @@ for llmode in "zp|" "stack|-fno-zpcall" "zp_O0|-O0"; do
     fi
 done
 
+# Test: <rom_ram.h> (#339): the C64 ROM space as RAM -- protected at start,
+# writable after romram_enable, protected by romram_protect and at exit
+for rrmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r rrname rrflags <<< "$rrmode"
+    echo "Testing test_romram_xemu.c ($rrname)..."
+    compile_link_test "src/test-resources/test_romram_xemu.c" "build/test/test_romram_${rrname}_xemu.prg" "$rrflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_romram_$rrname" "build/test/test_romram_${rrname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_romram_xemu.c $rrname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: an __interrupt handler that uses __jsr leaves the interrupted
 # code's __jsr bytes as they were (__jsr_isr_save / restore); static
 # initializers with an address as a truth value (&x != 0, _Bool b = &x)
