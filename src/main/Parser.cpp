@@ -1144,6 +1144,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
             std::string pType;
             bool pIsSigned = false;
             int pBasePtrLevel = 0;
+            bool pBaseRestrict = false;   // T *restrict (the type's last star)
 
             {
                 auto ts = parseTypeSpecifier();
@@ -1151,6 +1152,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
                     pType = ts.name;
                     pIsSigned = ts.isSigned;
                     pBasePtrLevel = ts.pointerLevel;
+                    pBaseRestrict = ts.lastStarRestrict && ts.starsParsed > 0;
                     if (ts.isVolatile) pIsVolatile = true;
                     if (ts.isConst) pIsConst = true;
                     if (!ts.arrayDims.empty()) {
@@ -1223,11 +1225,11 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
             while (match(TokenType::STAR)) pPtrLevel++;
 
             // Handle const/volatile after * (qualifies the pointer itself)
-            bool pIsPointerConst = false, pPtrVolatile = false;
+            bool pIsPointerConst = false, pPtrVolatile = false, pRestrict = false;
             while (peek().type == TokenType::CONST || peek().type == TokenType::VOLATILE || peek().type == TokenType::RESTRICT) {
                 if (match(TokenType::CONST)) pIsPointerConst = true;
                 else if (match(TokenType::VOLATILE)) pPtrVolatile = true;
-                else match(TokenType::RESTRICT);
+                else if (match(TokenType::RESTRICT)) pRestrict = true;
             }
             // volatile T *p: what p points to is volatile, not p
             if (pPtrLevel > pBasePtrLevel) pIsVolatile = pPtrVolatile;
@@ -1254,7 +1256,10 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
                 advance(); // consume '['
                 // The dimension (may be empty for []): only a non-constant one
                 // matters, for its side effects (int a[n++])
-                if (match(TokenType::STATIC)) {}  // int a[static 10]
+                // int a[static 10], int a[restrict], int a[const restrict 4]
+                while (match(TokenType::STATIC) || match(TokenType::CONST) || match(TokenType::VOLATILE) ||
+                       match(TokenType::RESTRICT))
+                    if (tokens[pos - 1].type == TokenType::RESTRICT) pRestrict = true;
                 if (peek().type != TokenType::CLOSE_SQUARE) {
                     auto dimExpr = parseExpression();
                     long cv;
@@ -1290,6 +1295,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
             while (tryParseAttribute()) {}
 
             params.push_back({pType, pPtrLevel, pIsSigned, pName, pIsVolatile, pIsConst, pIsPointerConst, false, nullptr});
+            params.back().isRestrict = (pRestrict || (pBaseRestrict && pPtrLevel == pBasePtrLevel)) && pPtrLevel > 0;
             params.back().vlaSizeExpr = std::move(pVlaSize);
             params.back().innerArrayDims = pInnerDims;
             params.back().innerDimExprs = pInnerDimExprs;
@@ -4121,8 +4127,10 @@ Parser::TypeSpec Parser::parseTypeSpecifierRaw() {
         ts.pointerLevel++;
         ts.starsParsed++;
         ts.lastStarConst = false;
+        ts.lastStarRestrict = false;
         while (match(TokenType::CONST) || match(TokenType::VOLATILE) || match(TokenType::RESTRICT)) {
             if (tokens[pos-1].type == TokenType::CONST) { ts.isConst = true; ts.lastStarConst = true; }
+            if (tokens[pos-1].type == TokenType::RESTRICT) ts.lastStarRestrict = true;
         }
     }
 

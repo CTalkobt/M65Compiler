@@ -441,6 +441,21 @@ else
     failed=$((failed + 1))
 fi
 
+# restrict (#77; the runtime test is test_restrict_xemu.c): loads through
+# restrict parameters reused across stores into a global and through the
+# other one (CSE), and hoisted out of a loop (LICM); without restrict none
+printf 'unsigned char g;\nvoid f(unsigned char *restrict d, const unsigned char *restrict s) {\n    d[0] = s[0] + s[1];\n    g = 1;\n    d[1] = s[0] - s[1];\n}\nvoid sc(signed int *restrict o, const signed int *restrict in, const signed int *restrict k, unsigned char n) {\n    unsigned char i;\n    for (i = 0; i < n; i++) o[i] = in[i] * *k + k[1];\n}\n' > build/test/test_restrict_cg.c
+sed 's/restrict//g' build/test/test_restrict_cg.c > build/test/test_restrict_none.c
+RS=$(./bin/cc45 -O2 -Roptir -c build/test/test_restrict_cg.c -o build/test/test_restrict_cg.o45 2>&1)
+RN=$(./bin/cc45 -O2 -Roptir -c build/test/test_restrict_none.c -o build/test/test_restrict_none.o45 2>&1)
+if [ "$(grep -c '\[cse\] _f .*reuses' <<< "$RS")" -ge 2 ] && [ "$(grep -c '\[licm\] _sc' <<< "$RS")" -ge 3 ] &&
+   ! grep -q '\[cse\] _f (.*:5): v.* reuses' <<< "$RN" && [ "$(grep -c '\[licm\] _sc' <<< "$RN")" -lt 3 ]; then
+    echo "SUCCESS: restrict: loads reused and hoisted only with restrict"
+else
+    echo "FAIL: restrict (with: $(grep -cE 'cse|licm' <<< "$RS") changes, without: $(grep -cE 'cse|licm' <<< "$RN"))"
+    failed=$((failed + 1))
+fi
+
 # __zp __bit flags tested several times in a function that leaves them
 # alone: bbs on the byte itself, no load of it (a copy)
 printf '__zp __bit zr, zb;\nunsigned char h;\nvoid t(void) { if (zr) h = 1; if (zr) h = 2; if (!zb) h = 3; }\n' > build/test/test_zpalias.c

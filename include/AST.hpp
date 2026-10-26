@@ -508,6 +508,7 @@ struct Parameter {
     std::string sourceFile;  // position of the parameter name (0 line = unknown)
     int line = 0;
     int column = 0;
+    bool isRestrict = false;  // T *restrict p, T p[restrict] (Issue #77): p's object is reached only through p
 };
 
 class FunctionDeclaration : public Statement {

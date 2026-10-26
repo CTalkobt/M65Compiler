@@ -228,6 +228,37 @@ std::map<uint32_t, int64_t> singleDefConsts(const Function& fn) {
 }
 } // namespace
 
+// restrict pointer parameters (Issue #77) the function never assigns and
+// whose address it never takes: what each points to is an object of its own
+static std::set<uint32_t> restrictParams(const Function& fn) {
+    std::set<uint32_t> r(fn.restrictVregs.begin(), fn.restrictVregs.end());
+    for (const auto& b : fn.blocks)
+        for (const auto& in : b.insts)
+            if ((in.op == Op::STORE || in.op == Op::STORE_ZP) && in.src2.isVreg()) r.erase(in.src2.vregId);
+    for (uint32_t v : fn.memoryVregs) r.erase(v);
+    return r;
+}
+
+// The restrict parameter an address is made from (its value, + / - an
+// offset, an element of it, through temporaries defined once): its vreg; -2
+// a global's address; -1 unknown
+static long addressRoot(const Operand& o, const std::set<uint32_t>& restrictSlots,
+                        const std::map<uint32_t, int>& nDefs, const std::map<uint32_t, const Inst*>& defOf, int depth = 0) {
+    if (o.kind == OperandKind::GLOBAL) return -2;
+    if (!o.isVreg() || depth > 8) return -1;
+    if (restrictSlots.count(o.vregId)) return o.vregId;
+    auto n = nDefs.find(o.vregId);
+    if (n == nDefs.end() || n->second != 1) return -1;
+    const Inst& d = *defOf.at(o.vregId);
+    switch (d.op) {
+        case Op::ADDR_GLOBAL: return -2;
+        case Op::ADDR_ELEM: case Op::COPY: return addressRoot(d.src1, restrictSlots, nDefs, defOf, depth + 1);
+        case Op::ADD: case Op::SUB:
+            return d.resultType == Type::PTR ? addressRoot(d.src1, restrictSlots, nDefs, defOf, depth + 1) : -1;
+        default: return -1;
+    }
+}
+
 void optimizeCSE(Module& mod) {
     for (auto& fn : mod.functions) {
         if (!runOn(fn, "CommonSubexprElim")) continue;
@@ -248,8 +279,15 @@ void optimizeCSE(Module& mod) {
             size_t at = g.rfind("__local_");    // a function's static local (_<f>__local_<name>)
             return at != std::string::npos && mod.volatileGlobals.count("_" + g.substr(at + 8));
         };
+        // A restrict pointer parameter the function never assigns (Issue
+        // #77): what it points to is an object of its own ("&r<vreg>"),
+        // which no store into a global or through another restrict pointer
+        // changes (only a store through it, or a pointer made from it, or
+        // through an unknown pointer, a call, asm)
+        const std::set<uint32_t> restrictSlots = restrictParams(fn);
         std::function<std::string(const Operand&, int)> baseOf = [&](const Operand& o, int depth) -> std::string {
             if (o.kind == OperandKind::GLOBAL) return o.name;
+            if (o.isVreg() && restrictSlots.count(o.vregId)) return "&r" + std::to_string(o.vregId);
             if (!o.isVreg() || depth > 8 || slots.count(o.vregId) || fn.memoryVregs.count(o.vregId)) return "";
             auto n = nDefs.find(o.vregId);
             if (n == nDefs.end() || n->second != 1) return "";
@@ -441,7 +479,8 @@ void optimizeCSE(Module& mod) {
                 auto alive = [&](const Operand& o) {
                     if (!o.isVreg()) return true;
                     if (killed.count(o.vregId)) return false;
-                    return !(mem && slots.count(o.vregId));   // (a variable may change through a write)
+                    // (a variable may change through a write; not a restrict parameter)
+                    return !(mem && slots.count(o.vregId) && !restrictSlots.count(o.vregId));
                 };
                 for (const auto& c : endCalls[D]) {
                     bool ok = alive(c.result) && !(c.purity < 2 && memPure);
@@ -485,7 +524,9 @@ void optimizeCSE(Module& mod) {
             // A store through a pointer, a call or inline asm may change any
             // variable (its address may have been taken)
             auto invalidateVariables = [&]() {
-                for (uint32_t v : slots) invalidate(v);
+                // (a restrict parameter's never changes: never assigned, its
+                // address never taken)
+                for (uint32_t v : slots) if (!restrictSlots.count(v)) invalidate(v);
             };
 
             for (size_t instIdx = 0; instIdx < block.insts.size(); instIdx++) {
@@ -617,6 +658,17 @@ void optimizeCSE(Module& mod) {
                     key.byteWidth = inst.resultByteWidth;
                     key.elemOffset = inst.elemOffset;
                     key.base = loadBase;
+                    // (through a copy of a restrict parameter: the parameter's
+                    // value, as every other copy of it; "*" tells it from a
+                    // load of the variable itself)
+                    if (inst.op == Op::LOAD && loadBase.rfind("&r", 0) == 0 && inst.src1.isVreg()) {
+                        auto n = nDefs.find(inst.src1.vregId);
+                        const Inst* d = n != nDefs.end() && n->second == 1 ? defOf[inst.src1.vregId] : nullptr;
+                        if (d && d->op == Op::COPY && d->src1.isVreg() && restrictSlots.count(d->src1.vregId)) {
+                            key.src1 = d->src1;
+                            key.name = "*";
+                        }
+                    }
                     
                     // If call or memory-indexed, carry label or symbol info
                     if (inst.op == Op::ADDR_GLOBAL || inst.op == Op::ADDR_LABEL) {
@@ -2915,6 +2967,38 @@ void optimizeLICM(Module& mod) {
             for (const auto& blk : fn.blocks)
                 for (const auto& inst : blk.insts)
                     if (inst.dest.isVreg()) defCount[inst.dest.vregId]++;
+            // Loads through restrict parameters (Issue #77): what one points to
+            // changes in the loop only by a store through it (or a pointer
+            // made from it), through an unknown pointer, a call or asm --
+            // not by stores into globals or through other restrict pointers
+            const std::set<uint32_t> restrictSlots = restrictParams(fn);
+            std::map<uint32_t, const Inst*> defOf;
+            for (const auto& blk : fn.blocks)
+                for (const auto& inst : blk.insts)
+                    if (inst.dest.isVreg()) defOf[inst.dest.vregId] = &inst;
+            std::set<long> restrictWritten;   // their objects the loop writes (-1: any)
+            if (!restrictSlots.empty())
+                for (size_t bi : loopBlocks)
+                    for (const auto& inst : fn.blocks[bi].insts) {
+                        if (purityOf(mod, inst)) continue;
+                        bool st = inst.op == Op::STORE || inst.op == Op::STORE_ZP;
+                        if (st && inst.src2.isVreg() && fn.localSlotVregs.count(inst.src2.vregId) &&
+                            !fn.memoryVregs.count(inst.src2.vregId))
+                            continue;   // (a variable)
+                        if (st) {
+                            long r = addressRoot(inst.src2, restrictSlots, defCount, defOf);
+                            if (r != -2) restrictWritten.insert(r);
+                        } else if (inst.op == Op::CALL || inst.op == Op::CALL_VOID || inst.op == Op::CALL_INDIRECT ||
+                                   inst.op == Op::ASM_INLINE || inst.op == Op::CPU_REG_WRITE || inst.op == Op::BR_INDIRECT) {
+                            restrictWritten.insert(-1);
+                        }
+                    }
+            auto restrictLoad = [&](const Inst& inst) {
+                if (inst.op != Op::LOAD || !inst.args.empty() || restrictSlots.empty() || restrictWritten.count(-1))
+                    return false;
+                long r = addressRoot(inst.src1, restrictSlots, defCount, defOf);
+                return r >= 0 && !restrictWritten.count(r);
+            };
 
             // Iteratively find loop-invariant instructions.
             // An instruction is invariant if:
@@ -2943,7 +3027,7 @@ void optimizeLICM(Module& mod) {
                         const int purity = purityOf(mod, inst);
                         const bool pureCall = purity && inst.op == Op::CALL && bi == header &&
                                               (purity == 2 || !loopWritesMemory);
-                        if (!isHoistCandidate(inst.op) && !pureCall) continue;
+                        if (!isHoistCandidate(inst.op) && !pureCall && !restrictLoad(inst)) continue;
                         // A global's address (+ a constant) costs nothing where it
                         // is used (name+off): hoisted, it and the address arithmetic
                         // on it would be variables live across the loop (across its

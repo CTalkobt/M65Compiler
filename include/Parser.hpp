@@ -167,6 +167,7 @@ private:
         int addressSpace = 0;   // Phase 97: AddressSpace (0=DEFAULT, 1=ZP, 2=ABS, 3=FAR)
         int starsParsed = 0;    // '*'s after the type consumed here
         bool lastStarConst = false; // a const after the last of them (T *const)
+        bool lastStarRestrict = false; // a restrict after the last of them (T *restrict)
     };
     std::unique_ptr<Expression> parseCommaExpression();   // expression , expression ...
     TypeSpec parseTypeSpecifier();    // consume type keywords + qualifiers, return TypeSpec
