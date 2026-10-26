@@ -4,6 +4,20 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Loose ends of `__jsr`, `__bit` and `_Bool`
+
+- An `__interrupt` handler saves and restores the library's `__jsr` bytes
+  and `__rom_call`'s saved stack pointer (`__jsr_isr_save` / `__rc_isr_save`;
+  crt0's defaults do nothing when those members are not linked): a handler
+  using `__jsr` or `<cbm.h>` no longer corrupts a call the program is in
+  the middle of. Test `test_isr_jsr_xemu.c`.
+- `__zp __bit` flags tested in a function that leaves their byte alone
+  (no store, call or asm) are `bbs`/`bbr` on the byte itself, not a copy
+  loaded first.
+- An address as a truth value in a static initializer: `&x != 0` is 1,
+  `&x == 0` and `!&x` 0, and `_Bool b = &x` / `(_Bool)&x` 1 (it was refused,
+  or the address's low byte). Test `test_addr_const_xemu.c`.
+
 ### `stridx` (#79)
 
 - `<string.h>`: `int stridx(const char *s, ...)`, the 1-based index of

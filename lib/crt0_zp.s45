@@ -24,6 +24,7 @@ cc45.icallinfo = 1
 .extern __bss_end
 .extern __bss_fill
 .weak _init_features
+.weak __jsr_isr_save, __jsr_isr_restore, __rc_isr_save, __rc_isr_restore
 .weak __ovl_init
 .weak __zp_init
 .weak __ovl_rom_leave
@@ -256,6 +257,16 @@ __saved_p:
 
 ; Default init_features — does nothing. Override with a strong definition.
 _init_features:
+    rts
+
+; An __interrupt handler calls these at its start and end: the library's
+; cbm_args.s45 (__jsr's register bytes) and rom_call.s45 (__rom_call's saved
+; stack pointer) save and restore what the interrupted code may be using
+; when a program links them; here (neither linked) they do nothing.
+__jsr_isr_save:
+__jsr_isr_restore:
+__rc_isr_save:
+__rc_isr_restore:
     rts
 
 ; Default __ovl_init — no code overlays. ln45 links the library's (ovl.s45)

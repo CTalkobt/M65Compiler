@@ -95,6 +95,7 @@ public:
     // _Bool (and __bit): a value converted to it is 0 or 1 (C11 6.3.1.2)
     static bool isBoolType(const std::string& t) { return t == "_Bool" || t == "bool" || t == "__bit"; }
     ir::Operand emitBoolConvert(ir::Operand v, const ir::SourceLoc& sl);
+    bool nonNullAddress(Expression& e) override;   // (ConstEvalContext)
     bool returnsBool();                                     // the function (or the inlined one) returns _Bool
     std::map<std::string, std::vector<bool>> functionParamBool_;   // its _Bool parameters
     // __bit variables at file scope (#73): each a bit of a hidden static byte
