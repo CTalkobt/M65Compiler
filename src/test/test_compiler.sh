@@ -405,7 +405,8 @@ fi
 # Sections (#70; the runtime test is test_section_xemu.c): two files'
 # parts of one section, one with the address; --section overrides it; the
 # initial values kept by --gc-inputs and copied by __zp_init's DMA job;
-# errors: two addresses, none, the program's memory, an undeclared section
+# errors: two addresses, none, the program's memory, an undeclared section;
+# cc45 -Wl,... to ln45
 printf '#pragma section("BUF", 0x0C00)\n__section("BUF") char a1[3] = {1, 2, 3};\n__section("BUF") char a2[2];\nextern char b1[];\nint main(void) { return a1[2] + b1[1] + a2[0]; }\n' > build/test/test_sect_a.c
 printf '#pragma section("BUF")\n__section("BUF") char b1[4] = {9, 8, 7, 6};\n' > build/test/test_sect_b.c
 printf '#pragma section("BUF", 0x0D00)\n__section("BUF") char c1;\n' > build/test/test_sect_c.c
@@ -427,11 +428,14 @@ if ./bin/cc45 -O2 -ffunction-sections -c build/test/test_sect_a.c -o build/test/
     ./bin/ln45 -basic -o build/test/test_sect.prg build/test/test_sect_b.o45 $LIBC 2>&1 | grep -q 'section BUF has no address' || sc_ok=0
     ./bin/cc45 -O2 build/test/test_sect_d.c -o build/test/test_sect_d.prg 2>&1 | grep -q 'section HIGH (\$2100-\$2103) overlaps the program' || sc_ok=0
     ./bin/cc45 -O2 -c build/test/test_sect_e.c -o build/test/test_sect_e.o45 2>&1 | grep -q "section 'NONE' is not declared" || sc_ok=0
+    # a one-step build passes -Wl options to ln45 (here its map)
+    ./bin/cc45 -O2 build/test/test_sect_d.c -o build/test/test_sect_d.prg -Wl,--section,HIGH=0x0E00,-m 2>&1 |
+        grep -q '00000e00 _h' || sc_ok=0
 else
     sc_ok=0
 fi
 if [ $sc_ok = 1 ]; then
-    echo "SUCCESS: sections placed by ln45 (two files, --section, --gc-inputs, errors)"
+    echo "SUCCESS: sections placed by ln45 (two files, --section, --gc-inputs, errors, -Wl)"
 else
     echo "FAIL: sections"
     failed=$((failed + 1))

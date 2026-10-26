@@ -488,6 +488,7 @@ int main(int argc, char** argv) {
                 std::cout << "  -E             Preprocess only" << std::endl;
                 std::cout << "  -S             Generate assembly only" << std::endl;
                 std::cout << "  -g             With -o prog.prg: also write prog.dbg, the debug information (ln45 -g)" << std::endl;
+            std::cout << "  -Wl,a,b        With -o prog.prg: pass a and b to ln45 (-Wl,--section,SCREEN=0x800 or -Wl,-m); -Xlinker a passes one" << std::endl;
                 std::cout << "  -c             Generate object file only" << std::endl;
             } else {
                 std::cout << "  (cp45 performs C preprocessing)" << std::endl;
@@ -555,6 +556,13 @@ int main(int argc, char** argv) {
             else if (v.size() > 2 && v[0] == '0' && (v[1] == 'x' || v[1] == 'X')) { v = v.substr(2); base = 16; }
             try { config.stackTop = (int)(std::stoul(v, nullptr, base) & 0xFFFF); }
             catch (...) { std::cerr << "cc45: error: invalid -fstack-top value '" << arg.substr(12) << "'" << std::endl; return 1; }
+        } else if (arg.rfind("-Wl,", 0) == 0) {
+            // -Wl,a,b: ln45 options of a one-step build, split at the commas
+            std::string rest = arg.substr(4), item;
+            std::stringstream ws(rest);
+            while (std::getline(ws, item, ',')) if (!item.empty()) config.linkerArgs.push_back(item);
+        } else if (arg == "-Xlinker" && i + 1 < allArgs.size()) {
+            config.linkerArgs.push_back(allArgs[++i]);
         } else if (arg == "-g") {
             config.debugFile = true;   // (one-step build: ln45 -g writes <program>.dbg)
         } else if (arg == "-ffunction-sections") {

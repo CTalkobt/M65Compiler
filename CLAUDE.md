@@ -275,7 +275,7 @@ totals code bytes by IR operation).
   struct, and only those the unit calls.
 - **Extensions**: struct methods, single inheritance, `virtual`/`final`,
   operator overloading, GCC nested functions (static chain, trampolines),
-  statement expressions, computed goto, case ranges, `continue <value>` in a switch, `break N`, `repeat(N)`, `__likely`/`__unlikely`, `__noescape`, `__pure`, `__cpu`/`__flags`, `__bit`/`__bits`, `__jsr`/`__jsr_raw`/`__jmp`, `__section` (`#pragma section("NAME", addr)`: placed by ln45, `--section`),
+  statement expressions, computed goto, case ranges, `continue <value>` in a switch, `break N`, `repeat(N)`, `__likely`/`__unlikely`, `__noescape`, `__pure`, `__cpu`/`__flags`, `__bit`/`__bits`, `__jsr`/`__jsr_raw`/`__jmp`, `__section` (`#pragma section("NAME", addr)`: variables and functions placed by ln45, `--section`, cc45 `-Wl,`),
   `__dma_copy`/`__dma_fill`, `__interrupt`, `__naked`, `__regparm`, `__zp` globals
   (in the private base page, placed by ln45 at the top of `$80`–`$F1`, with ca45 `.segment "zp"` variables below them), file-scope
   `asm("...")` (module-level assembly), string encodings

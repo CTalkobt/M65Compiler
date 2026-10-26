@@ -111,6 +111,10 @@ private:
     // section("x") of an undeclared x is ignored); where no variable can
     // be placed (a function, a member, a type) __section is an error
     std::string takePendingSection(bool variable);
+    // a function's section: its own __section, or one an earlier declaration
+    // of it gave (a function in a section is not inlined: its code runs there)
+    std::map<std::string, std::string> functionSections_;
+    void applyFunctionSection(FunctionDeclaration& f);
     // #pragma cc45 noescape_strings (until escape_strings): string literals
     // in functions stay with their code (Issue #301)
     bool noescapeStrings_ = false;

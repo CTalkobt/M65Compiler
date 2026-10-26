@@ -409,6 +409,7 @@ private:
             uint32_t destOffset;  // offset within the merged text body (or its overlay's text)
             std::string name;     // sub-segment name ("init", "code", etc.)
             int ovl = 0;          // the code overlay it went to (1..n), 0: resident
+            int sect = -1;        // a __section function's chunk: the section's code (sectCode_), -1: none
         };
         std::vector<TextRemap> textRemaps;
         int ovl = 0;                // its code overlay (1..n), 0: resident
@@ -419,6 +420,13 @@ private:
             for (const auto& r : textRemaps)
                 if (origOff >= r.srcOffset && origOff < r.srcOffset + r.srcLen) return r.ovl;
             return ovl;
+        }
+
+        // The section code holding an offset of this object's text (-1: none)
+        int sectAt(uint32_t origOff) const {
+            for (const auto& r : textRemaps)
+                if (origOff >= r.srcOffset && origOff < r.srcOffset + r.srcLen) return r.sect;
+            return -1;
         }
 
         // Translate an offset within this object's original text body
@@ -596,7 +604,15 @@ private:
     // variable is at its part + cc45.sectvar.NAME.<sym>. One with
     // cc45.sectinit.<sym> (its initial value, in data) is copied there by
     // DMA in the generated __zp_init
-    struct Section { uint32_t addr = 0, size = 0; std::string from; };
+    // A __section function's code (text sub-segment "sect.NAME") is linked
+    // to run at the start of its section (sectCode_, its objects' chunks in
+    // link order, then the variables); a copy of it in the program's text
+    // (sectCodeImage_: its offset) is copied there at startup
+    struct Section { uint32_t addr = 0, size = 0, code = 0; std::string from; };
+    std::vector<std::string> sectCodeNames_;
+    std::vector<std::vector<uint8_t>> sectCode_;
+    std::vector<uint32_t> sectCodeImage_;
+    void copySectionCode();
     std::map<std::string, Section> sections_;
     std::map<std::string, uint32_t> sectionAddrOpt_;   // --section NAME=ADDR
     struct SectVar { uint32_t addr = 0, size = 0; std::string section, object; };

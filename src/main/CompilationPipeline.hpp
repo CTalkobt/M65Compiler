@@ -39,6 +39,7 @@ struct CompilationConfig {
     int stackSize = -1;
     std::string overlayName;        // -foverlay=name: the code goes in that code overlay
     bool debugFile = false;         // -g: the one-step build's ln45 writes <program>.dbg
+    std::vector<std::string> linkerArgs;   // -Wl,a,b / -Xlinker a: passed to the one-step build's ln45
     bool functionSections = false;  // -ffunction-sections: ca45 writes a section per function         // -fstack-size=N: the CPU stack's share below __stack_top (-1: ln45's default, 4096)
     int bssFill = -1;           // -fbss-fill=V (-1 = not set: ln45's --bss-fill or 0)          // -fno-stack16 (0) / -fstack-top=ADDR; -1 = 16-bit stack at $BFFF
     bool inlineSmallFunctions = false;

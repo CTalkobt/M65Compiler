@@ -12,7 +12,10 @@
  *   [3] GCC's __attribute__((section("NAME"))): placed when NAME is
  *       declared, an ordinary variable when it is not
  *   [4] a struct in a section, through a pointer to it
- *   [5] $AA sentinel
+ *   [5] functions in a section: their code runs at its address (copied
+ *       there at startup), called directly and through a pointer; the
+ *       section's variables follow the code
+ *   [6] $AA sentinel
  */
 #include <string.h>
 
@@ -21,6 +24,7 @@
 
 #pragma section("SCREEN", 0x0800)
 #pragma section("TABLES", $0C00)
+#pragma section("CODE", 0x0E00)
 
 __section("SCREEN") char screen[400];
 __section("SCREEN") char row[80];
@@ -39,6 +43,14 @@ static unsigned char count(void) {
 }
 
 static void move(struct pt *p, signed int dx) { p->x += dx; p->y -= dx; }
+
+__section("CODE") static unsigned int checksum(const char *p) {
+    unsigned int sum = 0;
+    while (*p) sum = sum * 3 + (unsigned char)*p++;
+    return sum;
+}
+__section("CODE") unsigned char twice(unsigned char v) { return v * 2; }
+__section("CODE") unsigned char code_var = 5;
 
 int main(void) {
     unsigned char ok, i;
@@ -64,6 +76,13 @@ int main(void) {
     where.y = 20;
     move(&where, 5);
     OUT[4] = (unsigned)&where == 0x0800 + 480 && where.x == 15 && where.y == 15 && *AT(0x0800 + 480) == 15;
-    OUT[5] = 0xAA;
+    {
+        unsigned char (*fp)(unsigned char) = twice;
+        ok = (unsigned)checksum == 0x0E00 && checksum("ABC") == ((unsigned)'A' * 3 + 'B') * 3 + 'C';
+        if ((unsigned)twice <= 0x0E00 || (unsigned)twice >= 0x0F00 || fp(21) != 42) ok = 0;
+        if ((unsigned)&code_var <= (unsigned)twice || code_var != 5) ok = 0;
+        OUT[5] = ok;
+    }
+    OUT[6] = 0xAA;
     return 0;
 }

@@ -47,6 +47,12 @@ int LinkingStage::invokeLinker() {
     else cmd += " -prg -t 0x" + prgBase_;
     if (gcInputs_) cmd += " --gc-inputs";
     if (debugFile_) cmd += " -g";
+    for (const auto& a : linkerArgs_) {
+        // (through the shell: each one quoted as it is)
+        std::string q = "'";
+        for (char c : a) q += c == '\'' ? std::string("'\\''") : std::string(1, c);
+        cmd += " " + q + "'";
+    }
     cmd += " -o " + outputFile_ + " " + objectFile_;
     for (const auto& libPath : libraryPaths_) cmd += " " + libPath;
     cmd += " " + standardLibrary();
@@ -57,8 +63,8 @@ int LinkingStage::invokeLinker() {
         Logger::stream(LogLevel::DEBUG) << "Command: " << cmd << std::endl;
     }
     // ln45's stdout is its "Linked ..." summary; errors and warnings go to
-    // stderr and are always shown
-    if (verboseLevel_ < 1) cmd += " >/dev/null";
+    // stderr and are always shown (with -Wl options its output too: -m's map)
+    if (verboseLevel_ < 1 && linkerArgs_.empty()) cmd += " >/dev/null";
 
     // Execute linker
     int exitCode = system(cmd.c_str());

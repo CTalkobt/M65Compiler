@@ -21,6 +21,12 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   keeps the initial values. Test `test_section_xemu.c` (both conventions).
 - cc45: `static __attribute__((...)) T x;` in a function parses (an
   attribute after `static` was "Expected expression").
+- Functions in a section: `__section("NAME")` on a function puts its code
+  there (ln45 links it to run at the section's address, ahead of the
+  section's variables, and copies it there at startup; it is not
+  inlined).
+- cc45 `-Wl,a,b` / `-Xlinker a`: options for ln45 in a one-step build
+  (`-Wl,--section,NAME=0x800`, `-Wl,-m`).
 
 ### Fixed-point types (#72)
 
