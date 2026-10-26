@@ -4,6 +4,20 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### CSE keeps variables whose address is never taken
+
+- cc45 `-O1`+: common subexpression elimination no longer forgets what it
+  knows about every variable at a store through a pointer, a call or asm:
+  only about variables whose address is taken (and all of them in a
+  function with inline asm, `setjmp` or a computed goto, or in a file with
+  nested functions). The standard library is 3,890 bytes smaller over both
+  conventions (`digi_play_far` 350, `cbm_rel_open` / `cbm_rel_close` ~240
+  each), the single-file examples 1,396 (invaders 448, sample_player 416).
+  Test `test_cse_slots_xemu.c`.
+- `restrict`: a parameter that is only stepped (`p++`, `p += k`) stays
+  `restrict`; a copy loop reusing `*s` across stores is 22 instructions
+  instead of 30.
+
 ### `restrict` pointer parameters (#77)
 
 - cc45: a `restrict` pointer parameter (`T *restrict p`, `T p[restrict]`,

@@ -441,6 +441,17 @@ else
     failed=$((failed + 1))
 fi
 
+# CSE across stores through pointers and calls: k * m (variables whose
+# address is never taken) is reused; with &k taken it is computed again
+printf 'signed int *gp;\nvoid nothing(void);\nsigned int f(signed int k, signed int m) {\n    signed int a, b;\n    a = k * m;\n    *gp = 3;\n    nothing();\n    b = k * m;\n    return a + b;\n}\nsigned int g(signed int k, signed int m) {\n    signed int a, b;\n    gp = &k;\n    a = k * m;\n    *gp = 3;\n    b = k * m;\n    return a + b;\n}\n' > build/test/test_cse_slots_cg.c
+CS=$(./bin/cc45 -O2 -Roptir -c build/test/test_cse_slots_cg.c -o build/test/test_cse_slots_cg.o45 2>&1)
+if grep -q '\[cse\] _f .*reuses' <<< "$CS" && ! grep -q '\[cse\] _g .*reuses' <<< "$CS"; then
+    echo "SUCCESS: CSE keeps variables whose address is not taken across stores and calls"
+else
+    echo "FAIL: CSE across stores and calls ($(grep -c cse <<< "$CS") reuses)"
+    failed=$((failed + 1))
+fi
+
 # restrict (#77; the runtime test is test_restrict_xemu.c): loads through
 # restrict parameters reused across stores into a global and through the
 # other one (CSE), and hoisted out of a loop (LICM); without restrict none
@@ -448,8 +459,10 @@ printf 'unsigned char g;\nvoid f(unsigned char *restrict d, const unsigned char 
 sed 's/restrict//g' build/test/test_restrict_cg.c > build/test/test_restrict_none.c
 RS=$(./bin/cc45 -O2 -Roptir -c build/test/test_restrict_cg.c -o build/test/test_restrict_cg.o45 2>&1)
 RN=$(./bin/cc45 -O2 -Roptir -c build/test/test_restrict_none.c -o build/test/test_restrict_none.o45 2>&1)
-if [ "$(grep -c '\[cse\] _f .*reuses' <<< "$RS")" -ge 2 ] && [ "$(grep -c '\[licm\] _sc' <<< "$RS")" -ge 3 ] &&
-   ! grep -q '\[cse\] _f (.*:5): v.* reuses' <<< "$RN" && [ "$(grep -c '\[licm\] _sc' <<< "$RN")" -lt 3 ]; then
+# (without restrict, s + 1 is still reused -- s itself does not change --
+# but not the loads through it: at least two reuses more with it)
+if [ "$(grep -c '\[cse\] _f .*reuses' <<< "$RS")" -ge $(( $(grep -c '\[cse\] _f .*reuses' <<< "$RN") + 2 )) ] &&
+   [ "$(grep -c '\[licm\] _sc' <<< "$RS")" -ge 3 ] && [ "$(grep -c '\[licm\] _sc' <<< "$RN")" -lt 3 ]; then
     echo "SUCCESS: restrict: loads reused and hoisted only with restrict"
 else
     echo "FAIL: restrict (with: $(grep -cE 'cse|licm' <<< "$RS") changes, without: $(grep -cE 'cse|licm' <<< "$RN"))"

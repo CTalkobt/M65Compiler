@@ -1243,6 +1243,21 @@ for rsmode in "zp|" "stack|-fno-zpcall" "zp_O0|-O0"; do
     fi
 done
 
+# Test: CSE keeps variables across stores through pointers and calls only
+# when their address is never taken (address taken, kept in a global,
+# nested functions, arrays, structs: reloaded)
+for csmode in "zp|" "stack|-fno-zpcall" "zp_O0|-O0" "zp_nosac|-fno-staticalloc"; do
+    IFS='|' read -r csname csflags <<< "$csmode"
+    echo "Testing test_cse_slots_xemu.c ($csname)..."
+    compile_link_test "src/test-resources/test_cse_slots_xemu.c" "build/test/test_cse_slots_${csname}_xemu.prg" "$csflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_cse_slots_$csname" "build/test/test_cse_slots_${csname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_cse_slots_xemu.c $csname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: an __interrupt handler that uses __jsr leaves the interrupted
 # code's __jsr bytes as they were (__jsr_isr_save / restore); static
 # initializers with an address as a truth value (&x != 0, _Bool b = &x)
