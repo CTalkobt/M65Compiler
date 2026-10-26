@@ -4,6 +4,15 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### `<rom_ram.h>`: the C64 ROM space as RAM (#339)
+
+- `romram_enable(ROMRAM_C64)` lifts the hypervisor's write protection of
+  the ROM area (`$D641` trap) and checks that the C64 region takes writes;
+  `romram_protect()` puts it back; `romram_ranges()` gives the region's
+  ranges (`$2A000`-`$2BFFF`, `$2E000`-`$2FFFF`: 16 KB of chip RAM C65 mode
+  never uses). crt0's `__exit` protects the area again when a program left
+  it writable. Test `test_romram_xemu.c`.
+
 ### Fixed: negation of a signed integer (#338)
 
 - cc45: `-x` (and `~x`) of a `signed` integer had an unsigned type, so

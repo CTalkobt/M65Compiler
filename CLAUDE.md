@@ -357,7 +357,7 @@ addresses), and on those far pointers (`far_ptr.h`/`far_ops.h`, an allocator
 in banks 4-5 with `far_reserve`d ranges; attic RAM when the program enables
 it, `far_attic_init`/`far_attic_enable`: a buddy allocator in `far_attic.c`,
 power-of-two blocks aligned to their size, `far_malloc_long` over 64 KB) and
-`dma_controller.h`. `conio.h` has a full-colour mode (a background colour per character:
+`dma_controller.h`, `rom_ram.h` (the unused C64 ROM space, `$2A000`-`$2BFFF` and `$2E000`-`$2FFFF`, as RAM: the hypervisor's `$D641` write protection lifted; `__exit` protects it again). `conio.h` has a full-colour mode (a background colour per character:
 glyphs made from the font, cached in bank 4/5). Many other headers (graphics,
 sprites, hw_*, uart) declare functions that no library implements.
 

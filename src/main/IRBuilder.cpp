@@ -3553,6 +3553,8 @@ bool IRBuilder::isLibraryZpRoutine(const std::string& fname) {
         "textattr", "textbackground", "textcolor", "wherex", "wherey",
         // clock.s45, rand.s45, strtok.s45, strtoul.s45
         "clock", "rand", "srand", "strtok", "strtok_r", "strtol", "strtoul",
+        // rom_ram.s45 (#339)
+        "romram_enable", "romram_protect", "romram_ranges",
         // tune.s45
         "tune_detune", "tune_note", "tune_play", "tune_play_far", "tune_playing", "tune_stop",
         "tune_seek", "tune_tempo", "tune_ticks", "tune_transpose", "tune_update", "tune_vibrato", "tune_voices"};

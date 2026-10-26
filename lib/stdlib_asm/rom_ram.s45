@@ -1,0 +1,123 @@
+; rom_ram.s45 — unused parts of the ROM area as RAM (<rom_ram.h>, #339)
+;
+; The hypervisor's memory trap, $D641: A = $02 lets the CPU and DMA write to
+; $20000-$3FFFF, A = $00 write-protects it again (a trap is followed by one
+; byte the hypervisor skips: clv). __romram_exit (crt0's __exit calls it,
+; weak elsewhere) puts the protection back when a program leaves it off.
+
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.global _romram_enable, _romram_protect, _romram_ranges, __romram_exit
+
+RR_PTR = $F6            ; 32-bit pointer for [RR_PTR],z (library temps)
+RR_OLD = $FA            ; the byte read before the test write
+
+.segment "code"
+
+; unsigned char romram_enable(unsigned char regions) -- regions at $10
+proc _romram_enable
+    .zp_uses $10
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $10
+    beq @fail                   ; (no region)
+    and #$FE                    ; (only ROMRAM_C64 so far)
+    bne @fail
+    lda #$02
+    sta $D641                   ; writes on
+    clv
+    lda #1
+    sta __romram_on
+    ; ROMRAM_C64: a byte of each of its two ranges takes a write
+    ldx #0
+@range:
+    lda __rr_c64 + 4,x          ; the range's first address
+    sta RR_PTR
+    lda __rr_c64 + 5,x
+    sta RR_PTR + 1
+    lda __rr_c64 + 6,x
+    sta RR_PTR + 2
+    lda __rr_c64 + 7,x
+    sta RR_PTR + 3
+    ldz #0
+    lda [RR_PTR],z
+    sta RR_OLD
+    eor #$FF
+    sta [RR_PTR],z
+    cmp [RR_PTR],z              ; did it take?
+    php
+    lda RR_OLD
+    sta [RR_PTR],z              ; (put it back)
+    plp
+    bne @fail
+    txa
+    clc
+    adc #8                      ; the next first/last pair
+    tax
+    cpx #16
+    bne @range
+    lda #1
+    rts
+@fail:
+    lda #0
+    rts
+    .func_flags zp_call
+    endproc
+
+; void romram_protect(void)
+proc _romram_protect
+    .reg_clobbers A
+    .flag_clobbers N, Z, V
+    lda #$00
+    sta $D641                   ; writes off
+    clv
+    sta __romram_on
+    rts
+    .func_flags zp_call
+    endproc
+
+; const unsigned long *romram_ranges(unsigned char region) -- region at $10
+proc _romram_ranges
+    .zp_uses $10
+    .reg_clobbers A, X
+    .flag_clobbers N, Z
+    lda $10
+    cmp #1                      ; ROMRAM_C64
+    bne @none
+    lda #<__rr_c64
+    ldx #>__rr_c64
+    rts
+@none:
+    lda #0
+    tax
+    rts
+    .func_flags zp_call
+    endproc
+
+; crt0's __exit: the protection back on when the program left it off
+proc __romram_exit
+    .reg_clobbers A
+    .flag_clobbers N, Z, V
+    pha
+    lda __romram_on
+    beq @done
+    lda #$00
+    sta $D641
+    clv
+    sta __romram_on
+@done:
+    pla
+    rts
+    endproc
+
+.segment "data"
+    .byte 0                     ; (a relocation at offset 0 cannot be encoded)
+; ROMRAM_C64: 2 ranges, first / last
+__rr_c64:
+    .long 2
+    .long $2A000, $2BFFF
+    .long $2E000, $2FFFF
+
+.segment "bss"
+__romram_on: .res 1

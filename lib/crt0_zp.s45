@@ -29,6 +29,7 @@ cc45.icallinfo = 1
 .weak __zp_init
 .weak __ovl_rom_leave
 .weak __ovl_exit
+.weak __romram_exit
 .weak __ovl_jsave
 .weak __ovl_dma_fix
 .weak __dma_job
@@ -233,6 +234,7 @@ __start:
     ; Fall through to __exit
 __exit:
     jsr __ovl_exit      ; (mapped code overlays: the ROM's map back)
+    jsr __romram_exit   ; (rom_ram.h: the ROM area write-protected again)
     ; Back to the ROM's zero page, then record the exit status (A:X) there
     tay
     lda #0
@@ -282,6 +284,9 @@ __zp_init:
 ; Defaults of the mapped overlays' hooks (ovl.s45): after a ROM call, and
 ; at exit: none
 __ovl_rom_leave:
+; Default __romram_exit -- rom_ram.s45 (<rom_ram.h>) protects the ROM area
+; again when the program left it writable
+__romram_exit:
 __ovl_exit:
 __ovl_jsave:         ; (setjmp/longjmp: the overlay state, ovl.s45)
 __ovl_dma_fix:       ; (memcpy & co.: an address in the mapped overlays' window)
