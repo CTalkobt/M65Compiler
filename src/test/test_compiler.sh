@@ -459,8 +459,10 @@ printf 'unsigned char g;\nvoid f(unsigned char *restrict d, const unsigned char 
 sed 's/restrict//g' build/test/test_restrict_cg.c > build/test/test_restrict_none.c
 RS=$(./bin/cc45 -O2 -Roptir -c build/test/test_restrict_cg.c -o build/test/test_restrict_cg.o45 2>&1)
 RN=$(./bin/cc45 -O2 -Roptir -c build/test/test_restrict_none.c -o build/test/test_restrict_none.o45 2>&1)
-if [ "$(grep -c '\[cse\] _f .*reuses' <<< "$RS")" -ge 2 ] && [ "$(grep -c '\[licm\] _sc' <<< "$RS")" -ge 3 ] &&
-   ! grep -q '\[cse\] _f (.*:5): v.* reuses' <<< "$RN" && [ "$(grep -c '\[licm\] _sc' <<< "$RN")" -lt 3 ]; then
+# (without restrict, s + 1 is still reused -- s itself does not change --
+# but not the loads through it: at least two reuses more with it)
+if [ "$(grep -c '\[cse\] _f .*reuses' <<< "$RS")" -ge $(( $(grep -c '\[cse\] _f .*reuses' <<< "$RN") + 2 )) ] &&
+   [ "$(grep -c '\[licm\] _sc' <<< "$RS")" -ge 3 ] && [ "$(grep -c '\[licm\] _sc' <<< "$RN")" -lt 3 ]; then
     echo "SUCCESS: restrict: loads reused and hoisted only with restrict"
 else
     echo "FAIL: restrict (with: $(grep -cE 'cse|licm' <<< "$RS") changes, without: $(grep -cE 'cse|licm' <<< "$RN"))"
