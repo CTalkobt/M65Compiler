@@ -2139,6 +2139,7 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
         if (relocMode) {
             emit(".extern __zp_page_isr");
             emit(".extern __isr_depth");
+            emit(".extern __jsr_isr_save, __jsr_isr_restore, __rc_isr_save, __rc_isr_restore");
         } else if (!(mod.saveZP && mod.setBP < 0)) {
             // Base page not relocated: handlers share the program's page
             emit("__zp_page_isr = $" + hex16(mod.setBP >= 0 ? (uint16_t)(mod.setBP << 8) : 0));
@@ -3060,6 +3061,7 @@ std::string IRCodeGen::pruneDeadPoolStores(const std::string& text) {
 
 void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMainWithZPSave) {
     emitComment("function " + fn.name);
+    zpBitAlias_.clear();
 
     // Set current function context (used by loadVreg/storeVreg for SAC addressing)
     currentFunctionName_ = fn.name;
@@ -4513,6 +4515,9 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         emit("tba"); emit("pha");
         emit("inc __isr_depth");  // __bp_prog returns to this page after ROM calls
         emit("lda #>__zp_page_isr"); emit("tab");
+        // (the library's bytes the interrupted code may be using: __jsr's,
+        // __rom_call's; crt0's empty defaults when not linked)
+        if (relocMode) { emit("jsr __jsr_isr_save"); emit("jsr __rc_isr_save"); }
     }
 
     // Frame pointer variable ("cc45.fp" can't clash with a C global named fp)
@@ -4916,6 +4921,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
 
         // __interrupt: restore registers and return with RTI
         if (fn.isInterrupt) {
+            if (relocMode_) { emit("jsr __rc_isr_restore"); emit("jsr __jsr_isr_restore"); }
             emit("dec __isr_depth");
             emit("pla"); emit("tab");
             emit("plz"); emit("ply"); emit("plx"); emit("pla");
@@ -5907,6 +5913,13 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                             if (mask == (1 << b)) { bitN = b; break; }
                         }
                     }
+                    // (a __zp byte not loaded: zpBitAlias_)
+                    if (bitN >= 0 && inst.src1.isVreg() && zpBitAlias_.count(inst.src1.vregId)) {
+                        lastCmp_ = {ir::Op::CMP_NE, inst.dest.vregId, true};
+                        lastCmp_.bbsZpAddr = zpBitAlias_[inst.src1.vregId];
+                        lastCmp_.bbsBitN = bitN;
+                        break;
+                    }
                     if (bitN >= 0 && inst.src1.isVreg()) {
                         auto srcAlloc = alloc_.getAlloc(inst.src1.vregId);
                         if (srcAlloc.loc == VRegAllocator::IN_ZP) {
@@ -6799,6 +6812,42 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                     for (int b = 0; b < 8; b++) if (m == (1 << b)) return b;
                     return -1;
                 };
+                // every use a one-bit test of a branch, the byte left alone by
+                // the function (no store, address, call or asm: an interrupt
+                // handler cannot use a __zp variable): no load, bbs on the byte
+                if (zp) {
+                    const std::string& gname = inst.src1.name;
+                    bool alone = true;
+                    for (const auto& bb : currentFn_->blocks)
+                        for (const auto& in : bb.insts) {
+                            if ((in.op == ir::Op::STORE && in.src2.kind == ir::OperandKind::GLOBAL && in.src2.name == gname) ||
+                                (in.op == ir::Op::ADDR_GLOBAL && in.src1.kind == ir::OperandKind::GLOBAL && in.src1.name == gname) ||
+                                in.op == ir::Op::CALL || in.op == ir::Op::CALL_VOID || in.op == ir::Op::CALL_INDIRECT ||
+                                in.op == ir::Op::ASM_INLINE)
+                                alone = false;
+                        }
+                    int tests = 0;
+                    bool onlyTests = alone;
+                    for (const auto& bb : currentFn_->blocks)
+                        for (size_t k = 0; onlyTests && k < bb.insts.size(); k++) {
+                            const auto& in = bb.insts[k];
+                            bool reads = false;
+                            for (const ir::Operand* o : {&in.src1, &in.src2}) if (o->isVreg() && o->vregId == inst.dest.vregId) reads = true;
+                            for (const auto& o : in.args) if (o.isVreg() && o.vregId == inst.dest.vregId) reads = true;
+                            if (!reads) continue;
+                            bool test = in.op == ir::Op::AND && in.resultType == ir::Type::I8 && in.src1.isVreg() &&
+                                        in.src1.vregId == inst.dest.vregId && in.src2.isImm() && bitOf(in.src2.immVal) >= 0 &&
+                                        in.dest.isVreg() && k + 1 < bb.insts.size() && bb.insts[k + 1].op == ir::Op::BR_COND &&
+                                        bb.insts[k + 1].src1.isVreg() && bb.insts[k + 1].src1.vregId == in.dest.vregId &&
+                                        uses(in.dest.vregId) == 1;
+                            if (!test) onlyTests = false;
+                            else tests++;
+                        }
+                    if (onlyTests && tests > 0) {
+                        zpBitAlias_[inst.dest.vregId] = gname;
+                        break;
+                    }
+                }
                 size_t ia = after(at), ib = after(ia);
                 const ir::Inst* a = ia < blk.insts.size() ? &blk.insts[ia] : nullptr;
                 const ir::Inst* b = ib < blk.insts.size() ? &blk.insts[ib] : nullptr;

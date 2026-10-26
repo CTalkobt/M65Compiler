@@ -9,7 +9,7 @@ cc45.icallinfo = 1
 .weak cc45.icall.__rom_call
 cc45.icall.__rom_call = 1
 
-.global __rom_call, __rom_calli
+.global __rom_call, __rom_calli, __rc_isr_save, __rc_isr_restore
 .extern ___cbm_target, __stack_top, __saved_spl, __saved_sph, __bp_rom, __bp_prog
 
 .segment "code"
@@ -135,3 +135,28 @@ __re_y:   .byte 0
 __re_p:   .byte 0
 __re_spl: .byte 0
 __re_sph: .byte 0
+
+.segment "code"
+; __interrupt handlers (cc45) call these at their start and end (crt0 has
+; empty defaults): a handler that calls the ROM while the interrupted code
+; is in a ROM routine (on the ROM's stack) does not change the program
+; stack pointer __rom_call saved (one level)
+__rc_isr_save:
+    ldx #5
+__rcs_loop:
+    lda __re_a,x
+    sta __rc_isr_area,x
+    dex
+    bpl __rcs_loop
+    rts
+__rc_isr_restore:
+    ldx #5
+__rcr_loop:
+    lda __rc_isr_area,x
+    sta __re_a,x
+    dex
+    bpl __rcr_loop
+    rts
+
+.segment "data"
+__rc_isr_area: .res 6

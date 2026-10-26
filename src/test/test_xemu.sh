@@ -1213,6 +1213,29 @@ for sxmode in "zp|" "stack|-fno-zpcall" "zp_O3|-O3" "stack_O3|-fno-zpcall -O3"; 
     fi
 done
 
+# Test: an __interrupt handler that uses __jsr leaves the interrupted
+# code's __jsr bytes as they were (__jsr_isr_save / restore); static
+# initializers with an address as a truth value (&x != 0, _Bool b = &x)
+for lemode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r lename leflags <<< "$lemode"
+    echo "Testing test_isr_jsr_xemu.c ($lename)..."
+    compile_link_test "src/test-resources/test_isr_jsr_xemu.c" "build/test/test_isr_jsr_${lename}_xemu.prg" "$leflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_isr_jsr_$lename" "build/test/test_isr_jsr_${lename}_xemu.prg" "C0C0" 4 "01 01 01 AA"
+    else
+        echo "FAIL: test_isr_jsr_xemu.c $lename (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+    echo "Testing test_addr_const_xemu.c ($lename)..."
+    compile_link_test "src/test-resources/test_addr_const_xemu.c" "build/test/test_addr_const_${lename}_xemu.prg" "$leflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_addr_const_$lename" "build/test/test_addr_const_${lename}_xemu.prg" "C0C0" 11 "01 01 00 01 01 01 00 01 05 01 01"
+    else
+        echo "FAIL: test_addr_const_xemu.c $lename (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: __attribute__((aligned(N))) / _Alignas on globals, locals, struct
 # members and struct types
 for almode in "zp|" "stack|-fno-zpcall"; do

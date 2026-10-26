@@ -402,6 +402,25 @@ else
     failed=$((failed + 1))
 fi
 
+# __zp __bit flags tested several times in a function that leaves them
+# alone: bbs on the byte itself, no load of it (a copy)
+printf '__zp __bit zr, zb;\nunsigned char h;\nvoid t(void) { if (zr) h = 1; if (zr) h = 2; if (!zb) h = 3; }\n' > build/test/test_zpalias.c
+rm -f build/test/temp_*.s45
+if (cd build/test && ../../bin/cc45 -O2 -c test_zpalias.c -o test_zpalias.o45 --save-temps >/dev/null 2>&1); then
+    T=$(ls -t build/test/temp_*.s45 | head -1)
+    ZA=$(sed -n '/proc _t$/,/endproc/p' "$T")
+    rm -f "$T"
+    if [ "$(grep -cE '^\s+bbs[01] \$' <<< "$ZA")" = 3 ] && ! grep -qE '^\s+lda \$[0-9A-F]{2}$' <<< "$ZA"; then
+        echo "SUCCESS: __zp __bit tests bbs on the byte (no copy)"
+    else
+        echo "FAIL: __zp __bit tests ($(tr '\n' ' ' <<< "$ZA"))"
+        failed=$((failed + 1))
+    fi
+else
+    echo "FAIL: __zp __bit tests (compilation)"
+    failed=$((failed + 1))
+fi
+
 # A bitfield wider than its type is an error, also after a comma and unnamed
 # (int e : 17 kept 16 bits without a word)
 bf_ok=1

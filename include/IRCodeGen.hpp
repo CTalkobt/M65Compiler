@@ -343,6 +343,10 @@ private:
     std::map<std::string, std::vector<ir::Type>> functionParameterTypes_;  // (same unit)
     std::set<std::string> emittedLabelRefs_;  // @labels named by the emitted code (this function)
     int skipInsts_ = 0;                      // instructions emitted with the one before (g += c)
+    // a load of a __zp byte whose uses are all one-bit tests of a branch, in
+    // a function that leaves the byte alone: not emitted, the tests bbs on
+    // the byte (vreg -> the global)
+    std::map<uint32_t, std::string> zpBitAlias_;
     bool skipBrIndirect_ = false;            // the next BR_INDIRECT was emitted as jmp (table,x)
     std::set<std::string> smallGlobals_;      // globals of at most 256 bytes (not __zp/__far)
     // An element of a small global array: Y = index * stride (a byte offset

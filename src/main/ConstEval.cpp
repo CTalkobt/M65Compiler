@@ -217,6 +217,19 @@ static bool truthy(const ConstValue& v) {
     return v.isFloat() ? v.fvalue != 0 : v.intValue() != 0;
 }
 
+// e's truth when it is a constant or an object's address (never null)
+static bool truthOf(Expression* e, ConstEvalContext& ctx, bool& t) {
+    ConstValue v;
+    if (eval(e, ctx, v)) { t = truthy(v); return true; }
+    if (e && ctx.nonNullAddress(*e)) { t = true; return true; }
+    return false;
+}
+
+static bool isZero(Expression* e, ConstEvalContext& ctx) {
+    ConstValue v;
+    return eval(e, ctx, v) && !v.isFloat() && v.intValue() == 0;
+}
+
 bool eval(Expression* e, ConstEvalContext& ctx, ConstValue& out) {
     if (!e) return false;
     if (auto* l = dynamic_cast<IntegerLiteral*>(e)) { out = ConstValue::ofLiteral(*l); return true; }
@@ -224,10 +237,29 @@ bool eval(Expression* e, ConstEvalContext& ctx, ConstValue& out) {
     if (auto* v = dynamic_cast<VariableReference*>(e)) return ctx.identifier(*v, out);
     if (auto* u = dynamic_cast<UnaryOperation*>(e)) {
         ConstValue v;
+        if (u->op == "!" && !eval(u->operand.get(), ctx, v) && ctx.nonNullAddress(*u->operand)) {
+            out = ConstValue::ofInt(0);   // !&x
+            return true;
+        }
         return eval(u->operand.get(), ctx, v) && unary(u->op, v, out);
     }
     if (auto* b = dynamic_cast<BinaryOperation*>(e)) {
         ConstValue l, r;
+        // an address compared with 0, or in && / ||: its truth (never null)
+        if (b->op == "==" || b->op == "!=") {
+            bool la = ctx.nonNullAddress(*b->left) && isZero(b->right.get(), ctx);
+            bool ra = ctx.nonNullAddress(*b->right) && isZero(b->left.get(), ctx);
+            if (la || ra) { out = ConstValue::ofInt(b->op == "!="); return true; }
+        }
+        if (b->op == "&&" || b->op == "||") {
+            bool lt, rt;
+            if (!truthOf(b->left.get(), ctx, lt)) return false;
+            if (b->op == "&&" && !lt) { out = ConstValue::ofInt(0); return true; }
+            if (b->op == "||" && lt) { out = ConstValue::ofInt(1); return true; }
+            if (!truthOf(b->right.get(), ctx, rt)) return false;
+            out = ConstValue::ofInt(rt);
+            return true;
+        }
         if (!eval(b->left.get(), ctx, l)) return false;
         // && and ||: the right operand only when it decides
         if (b->op == "&&" && !truthy(l)) { out = ConstValue::ofInt(0); return true; }
@@ -236,12 +268,18 @@ bool eval(Expression* e, ConstEvalContext& ctx, ConstValue& out) {
         return binary(b->op, l, r, out);
     }
     if (auto* c = dynamic_cast<ConditionalExpression*>(e)) {
-        ConstValue cond;
-        if (!eval(c->condition.get(), ctx, cond)) return false;
-        return eval(truthy(cond) ? c->thenExpr.get() : c->elseExpr.get(), ctx, out);
+        bool t;
+        if (!truthOf(c->condition.get(), ctx, t)) return false;
+        return eval(t ? c->thenExpr.get() : c->elseExpr.get(), ctx, out);
     }
     if (auto* c = dynamic_cast<CastExpression*>(e)) {
         ConstValue v;
+        // (_Bool)&x: 1
+        if (c->pointerLevel == 0 && (c->targetType == "_Bool" || c->targetType == "__bit") &&
+            !eval(c->expression.get(), ctx, v) && ctx.nonNullAddress(*c->expression)) {
+            out = ConstValue::ofInt(1);
+            return true;
+        }
         return eval(c->expression.get(), ctx, v) && cast(c->targetType, c->pointerLevel, c->isSigned, v, out);
     }
     if (auto* s = dynamic_cast<SizeofExpression*>(e)) {

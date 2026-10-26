@@ -3825,6 +3825,18 @@ void IRBuilder::visit(VariableDeclaration& node) {
         IRBuilder* b; VariableDeclaration& n;
         ~NoteConstString() { b->noteConstString(n); }
     } noteConstString_{this, node};
+    // a static _Bool initialized with an object's address: 1 (never null;
+    // it stored the address's low byte)
+    if ((!currentFunc_ || node.isStatic) && node.pointerLevel == 0 && node.arrayDims.empty() &&
+        isBoolType(node.type) && node.initializer) {
+        int64_t c;
+        if (!evalConstInt(node.initializer.get(), c) && nonNullAddress(*node.initializer)) {
+            auto one = std::make_unique<IntegerLiteral>(1);
+            one->line = node.initializer->line; one->column = node.initializer->column;
+            one->sourceFile = node.initializer->sourceFile;
+            node.initializer = std::move(one);
+        }
+    }
     if (node.isVolatile) volatileNames_.insert(node.name);
     // extern in a block: the file-scope variable (a local of the name hidden
     // to the block's end, which restores it: saveShadowed), declared as at
@@ -10485,6 +10497,30 @@ std::unique_ptr<Expression> IRBuilder::stringEqualsExpr(Expression* call) {
         all = all ? at(std::make_unique<BinaryOperation>("&&", std::move(all), std::move(eq))) : std::move(eq);
     }
     return all;
+}
+
+// The address of a global object, function or string literal: not null
+// (a pointer made from an integer, (T *)0x1234, has no label: not counted)
+bool IRBuilder::nonNullAddress(Expression& e) {
+    std::string label;
+    int off = 0;
+    Expression* x = &e;
+    while (auto* c = dynamic_cast<CastExpression*>(x)) {
+        if (c->pointerLevel == 0) return false;
+        x = c->expression.get();
+    }
+    if (dynamic_cast<StringLiteral*>(x)) return true;
+    bool addr = dynamic_cast<UnaryOperation*>(x) && static_cast<UnaryOperation*>(x)->op == "&";
+    if (!addr) {
+        // an array or a function named: its address
+        auto* v = dynamic_cast<VariableReference*>(x);
+        if (!v || locals_.count(v->name)) return false;
+        bool fn = functionReturnTypes_.count(v->name) > 0 || allFunctions_.count(v->name) > 0 ||
+                  staticRenames_.count(v->name) > 0;
+        bool array = globalArrayDims_.count(v->name) > 0;
+        if (!fn && !array) return false;
+    }
+    return constAddress(x, label, off) && !label.empty();
 }
 
 ir::Operand IRBuilder::emitBoolConvert(ir::Operand v, const ir::SourceLoc& sl) {

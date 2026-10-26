@@ -47,6 +47,9 @@ public:
     virtual bool identifier(VariableReference& node, ConstValue& out) { (void)node; (void)out; return false; }
     virtual bool sizeOf(SizeofExpression& node, int64_t& out) { (void)node; (void)out; return false; }
     virtual bool alignOf(AlignofExpression& node, int64_t& out) { (void)node; (void)out; return false; }
+    // the address of an object or function (&x, an array, "..."): never a
+    // null pointer, so &x != 0 is 1, !&x 0, (_Bool)&x 1
+    virtual bool nonNullAddress(Expression& e) { (void)e; return false; }
 };
 
 namespace ConstEval {

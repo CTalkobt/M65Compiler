@@ -28,3 +28,28 @@ ___jsr_ay: .res 2
 ___jsr_az: .res 2
 ___jsr_xy: .res 2
 ___jsr_q:  .res 4
+
+; __interrupt handlers (cc45) call these at their start and end (crt0 has
+; empty defaults): a handler that uses __jsr or <cbm.h> does not change the
+; bytes of a __jsr the interrupted code is in the middle of. One level: a
+; handler interrupted by another shares the save area.
+.global __jsr_isr_save, __jsr_isr_restore
+.segment "code"
+__jsr_isr_save:
+    ldx #19
+__jis_loop:
+    lda ___cbm_target,x     ; (___cbm_target and the ___jsr_ bytes: 20 in a row)
+    sta __jsr_isr_area,x
+    dex
+    bpl __jis_loop
+    rts
+__jsr_isr_restore:
+    ldx #19
+__jir_loop:
+    lda __jsr_isr_area,x
+    sta ___cbm_target,x
+    dex
+    bpl __jir_loop
+    rts
+.segment "bss"
+__jsr_isr_area: .res 20
