@@ -1,4 +1,5 @@
 #pragma once
+#include "FarPointer.hpp"
 #include "AST.hpp"
 #include "ConstEval.hpp"
 #include "IR.hpp"
@@ -530,6 +531,37 @@ private:
 
     IRTypeInfo getExprTypeInfo(Expression* expr);
     static IRTypeInfo fixedInfo(int code);   // a fixed-point type's (IRBuilderFixed.cpp)
+    // Far pointers (#68, IRBuilderFar.cpp): what a far pointer reaches
+    struct FarElem {
+        std::string type;
+        int ptrLevel = 0;
+        bool isSigned = false;
+        std::vector<int> dims;   // an array member
+        int bitWidth = 0;
+        bool near = false;       // reached through a near pointer (base page)
+    };
+    bool farUsed_ = false;            // a far pointer type was seen (mapType)
+    std::string farTempName_;         // the hidden far pointer of one operation
+    std::string farTypeOf(Expression* e);
+    FarElem farPointeeOf(const std::string& farType);
+    int farElemSize(const FarElem& el);
+    IRTypeInfo farElemInfo(const FarElem& el);
+    ir::Operand farValue(Expression* e, bool near = false);
+    ir::Operand farOffset(const ir::Operand& base, const ir::Operand& offset, bool subtract, ASTNode& at,
+                          bool near = false);
+    ir::Operand farScaled(Expression* index, int size, ASTNode& at, bool near = false);
+    bool farLvalue(Expression* e, FarElem& el, ir::Operand* addr);
+    bool farExprTypeInfo(Expression* e, IRTypeInfo& out);
+    bool farError(ASTNode& at, const std::string& msg);
+    bool emitFarRead(Expression& e);
+    std::unique_ptr<Expression> farTempRef(const ir::Operand& v, ir::Type t, const std::string& typeName,
+                                           int ptrLevel, bool sg, ASTNode& at);
+    std::unique_ptr<Expression> farTempRefOnce(const ir::Operand& a, const FarElem& el, ASTNode& at);
+    bool emitFarAssign(Assignment& node);
+    bool emitFarIncDec(UnaryOperation& node);
+    bool emitFarArith(BinaryOperation& node);
+    bool emitNearCast(CastExpression& node);
+    void nearConvertTo(std::unique_ptr<Expression>& e, const std::string& targetType, int ptr);
     void markStaticLinkProvider();
     // GCC vectors (struct __vec_<T>_<s|u>_<n> { T e[n]; })
     std::string vecOfType(const std::string& typeName, int ptrLevel);

@@ -81,7 +81,7 @@ Printed names are those of `ir::opName()`.
 | Bitwise / shifts | `and`, `or`, `xor`, `not`, `shl`, `shr` (logical), `asr` (arithmetic), `lsl`, `lsr` |
 | Compare (signed) | `cmp_eq`, `cmp_ne`, `cmp_lt`, `cmp_le`, `cmp_gt`, `cmp_ge` |
 | Compare (unsigned) | `cmp_ltu`, `cmp_leu`, `cmp_gtu`, `cmp_geu` |
-| Memory | `load`, `store`, `load_zp`, `store_zp`, `deref` |
+| Memory | `load`, `store`, `load_zp`, `store_zp`, `deref`, `far_load`, `far_store` (a 32-bit address: far pointers, #68), `near_load`, `near_store`, `near_addr` (an 8-bit base-page offset: near pointers) |
 | Address | `addr_global`, `addr_local`, `addr_label` (`&&label`), `addr_uplevel` (nested-function parent frame), `addr_elem` |
 | Conversion | `sext`, `zext`, `trunc` |
 | Bitfields | `bfext`, `bfins` |

@@ -302,6 +302,7 @@ Token Lexer::lexIdentifierOrKeyword() {
         {"__zp", TokenType::ZP},
         {"__abs", TokenType::ABS},
         {"__far", TokenType::FAR},
+        {"__near", TokenType::NEAR},
         {"repeat", TokenType::REPEAT},
         {"float", TokenType::FLOAT},
         {"double", TokenType::DOUBLE},

@@ -37,6 +37,11 @@ const char* opName(Op op) {
         case Op::LOAD:         return "load";
         case Op::STORE:        return "store";
         case Op::LOAD_ZP:      return "load_zp";
+        case Op::FAR_LOAD:     return "far_load";
+        case Op::FAR_STORE:    return "far_store";
+        case Op::NEAR_LOAD:    return "near_load";
+        case Op::NEAR_STORE:   return "near_store";
+        case Op::NEAR_ADDR:    return "near_addr";
         case Op::STORE_ZP:     return "store_zp";
         case Op::ADDR_GLOBAL:  return "addr_global";
         case Op::ADDR_LOCAL:   return "addr_local";

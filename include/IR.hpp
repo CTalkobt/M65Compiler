@@ -117,6 +117,14 @@ enum class Op : uint8_t {
     FTOI,           // %d = ftoi %a  (float → int)
     ITOF,           // %d = itof %a  (int → float)
     FCONST,         // %d = fconst <5-byte CBM float>
+
+    // Far pointers (T __far *p, #68): a 32-bit address (28 bits used)
+    FAR_LOAD,       // %d = far_load <type> <addr32>
+    FAR_STORE,      // far_store <type> <val>, <addr32>
+    // Near pointers (T __near *p): an 8-bit offset into the base page
+    NEAR_LOAD,      // %d = near_load <type> <offset8>
+    NEAR_STORE,     // near_store <type> <val>, <offset8>
+    NEAR_ADDR,      // %d = near_addr <offset8>  (its 16-bit address: B page)
 };
 
 // ============================================================================

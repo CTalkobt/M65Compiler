@@ -231,7 +231,7 @@ not change what is tested; a test's own later `-O` still wins. Use an
 explicit `-O<n>` in ad-hoc test commands too.
 
 - `make test` — unit tests (no emulator).
-- `bash src/test/test_xemu.sh` (`make test-xemu`) — runtime tests on xemu (716 pass, about 1.5 minutes): each
+- `bash src/test/test_xemu.sh` (`make test-xemu`) — runtime tests on xemu (720 pass, about 1.5 minutes): each
   `*_xemu.c` writes results to `$C0C0` (01 = pass, `$AA` sentinel), built in
   both conventions. New runtime tests follow this pattern and are registered
   in `test_xemu.sh`, most as one line: `xemu_case "FAIL message" <compile_link_test
@@ -273,7 +273,9 @@ totals code bytes by IR operation).
 
 - **Types**: `char`(1), `short`/`int`(2), `long`(4), `float`/`double`/`long double`
   (CBM 40-bit, 5 bytes, computed by the BASIC 65 ROM), `_Bool`, `__bit` (file-scope booleans packed 8 to a byte;
-  `__zp __bit` in the base page: smb/rmb/bbs), `__fixed(I, F)` (fixed point, I + F = 16 or 32; `__fixed8_8`, `__fixed16_16`; #72), pointers (2),
+  `__zp __bit` in the base page: smb/rmb/bbs), `__fixed(I, F)` (fixed point, I + F = 16 or 32; `__fixed8_8`, `__fixed16_16`; #72), pointers (2), far pointers (`T __far *p`, 4 bytes, a 28-bit address read and
+  written with `[bp],z`; cc45's scalar type `"__farp T"`, `IRBuilderFar.cpp`, IR `far_load`/`far_store`; #68), near
+  pointers (`T __near *p`, 1 byte, a base-page offset, `$00,x`; `"__nearp T"`, IR `near_load`/`near_store`/`near_addr`),
   structs/unions/enums/bitfields, `_Complex`, GCC vectors, `long long` /
   `int64_t` / `uint64_t` = `struct __int64`, `__int128`, `__int(N)` (64 and 128 defined;
   `__int(8/16/32)` are the native char/int/long).
@@ -323,9 +325,9 @@ totals code bytes by IR operation).
   `no_bssinit`, `heap`, `stdio`, `no_0100_stack`, `unroll`, `no_static_alloc`
   (use `recurse`), `no_striped`.
 - **`__far` functions**: kept in far memory (see Code Overlays); `__far`
-  on a variable is still reserved.
+  on a pointer makes a far pointer; on another variable it is still reserved.
 - **Reserved keywords** (parsed, no effect yet; kept for future expansion):
-  `__striped` (layout unchanged), `__far` on variables (plain 16-bit access).
+  `__striped` (layout unchanged), `__far` on non-pointer variables (plain 16-bit access).
   `__attribute__((weak))` is ignored (use `#pragma weak`).
 
 ## Program Startup and Exit (crt0)
