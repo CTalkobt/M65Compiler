@@ -1911,6 +1911,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         }
         if (p.isVolatile) currentFunc_->memoryVregs.insert(vreg.vregId);
         currentFunc_->localSlotVregs.insert(vreg.vregId);
+        if (p.isRestrict) currentFunc_->restrictVregs.insert(vreg.vregId);
 
         // Phase 113: Track parameter for DWARF debug info
         // Use function line/column since parameters don't have their own location

@@ -4,6 +4,19 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### `restrict` pointer parameters (#77)
+
+- cc45: a `restrict` pointer parameter (`T *restrict p`, `T p[restrict]`,
+  `__restrict`) the function never assigns or takes the address of
+  points to an object of its own. CSE reuses loads through it across
+  stores into globals and through other `restrict` parameters; LICM hoists
+  such loads out of loops that do not write the object (no store through
+  it or an unknown pointer, no call, no asm): `out[i] = in[i] * *k` reads
+  `*k` once (that loop: 72 instructions instead of 81). The parser kept
+  `restrict` only as a word before; `T *restrict p` reached the parameter
+  through the type's last star. Test `test_restrict_xemu.c` (both
+  conventions, -O0); `test_compiler.sh` checks the passes act only with it.
+
 ### Sections: `#pragma section` and `__section` (#70)
 
 - cc45: `#pragma section("NAME", address)` declares a section (or without

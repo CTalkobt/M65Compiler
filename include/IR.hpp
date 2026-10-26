@@ -270,6 +270,9 @@ struct Function {
     std::map<std::string, std::string> debugTypes;
     std::vector<std::string> localNamesOrder; // preserves declaration order of local variables
     std::set<uint32_t> memoryVregs;    // vRegs that MUST be in memory (e.g. volatile or address-taken)
+    // restrict pointer parameters (Issue #77): what one points to is reached
+    // only through it (and pointers made from it) while the function runs
+    std::set<uint32_t> restrictVregs;
     std::set<uint32_t> registerVregs;  // vRegs declared with 'register' keyword (prefer ZP allocation)
     std::set<uint32_t> registerXVregs; // vRegs marked for X-register residency (loop counters, etc)
     std::set<uint32_t> registerYVregs; // vRegs marked for Y-register residency (nested loop counters)
