@@ -4,6 +4,33 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### The `__bit` type: packed booleans (#73)
+
+- `__bit flag;` at file scope is a bit of a hidden byte of the file, 8 to
+  a byte (with initial values); `__zp __bit` ones in the base page.
+  Writes are `TSB`/`TRB` (`SMB`/`RMB` in the base page), tests
+  `AND #mask` (`BBS`/`BBR`); a value stored is 0 or 1. `__bit` struct
+  members are 1-bit fields; locals, parameters and return values are
+  `_Bool`s. `extern __bit`, `&flag` and `++`/`--` are errors. Test
+  `test_bit_type_xemu.c` (both conventions).
+- cc45: a global byte with bits set or cleared by a constant
+  (`g |= 0x20`, `g &= ~4`) is `lda #m` / `tsb` or `trb`, not a load, an
+  `ora`/`and` and a store.
+
+### `_Bool` fixed
+
+- A value converted to `_Bool` is 0 or 1 (C11 6.3.1.2): in an assignment
+  (also `+=`), an initializer (local, global, static), a return value, an
+  argument and a cast (`_Bool b = 512` was 0: the low byte).
+- `_Bool` is one byte in the IR too: stores to a global, an array element
+  or a struct member wrote two bytes, the next variable's as well. Test
+  `test_bool_xemu.c` (both conventions).
+- `++` of a `_Bool` makes it 1 and `--` turns it over (it went to 2 and
+  255), `b++` gives the old value; an argument to a `_Bool` parameter
+  through a function pointer is converted; a `long long` converted to
+  `_Bool` is whether it is not 0 (its low bytes were taken). Test
+  `test_bool_ops_xemu.c` (36 checks, both conventions).
+
 ### `__jsr` / `__jsr_raw` / `__jmp`; `<cbm.h>` made of them
 
 - cc45: `__jsr(target, .A = v, .X -> x, ...)` calls an address with the

@@ -34,7 +34,7 @@ int litWidth(const ConstValue& l) {
     const std::string& t = l.castType;
     if (t.empty()) return (l.value > 65535 || l.value < -32768) ? 4 : 2;
     if (t.find("long") != std::string::npos) return 4;
-    if (t.find("char") != std::string::npos || t == "_Bool") return 1;
+    if (t.find("char") != std::string::npos || t == "_Bool" || t == "__bit") return 1;
     return 2;
 }
 
@@ -204,7 +204,7 @@ bool cast(const std::string& type, int pointerLevel, bool isSigned, const ConstV
     else if (v.isFloat() && pointerLevel == 0) from = (int64_t)std::trunc(v.fvalue);
     else return false;
     int val = (int)from;
-    if (pointerLevel == 0 && type == "_Bool") val = (val != 0) ? 1 : 0;
+    if (pointerLevel == 0 && (type == "_Bool" || type == "__bit")) val = (val != 0) ? 1 : 0;
     else if (pointerLevel == 0 && type == "char") val = val & 0xFF;
     out = ConstValue::ofInt(val);
     out.castType = type;

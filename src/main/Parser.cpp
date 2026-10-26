@@ -66,6 +66,14 @@ static void normalizeAlignas(std::vector<Token>& toks) {
 
 Parser::Parser(const std::vector<Token>& tokens) : tokens(tokens), pos(0) {
     normalizeAlignas(this->tokens);
+    // __bit is a type (#73: a _Bool; one at file scope is packed in a byte
+    // with others by IRBuilder) and, followed by '(', the builtin __bit(v, n)
+    // (#204): that one is renamed so it is not taken for the type
+    typedefs["__bit"] = TypeAlias{"__bit", 0, false};
+    for (size_t i = 0; i + 1 < this->tokens.size(); i++)
+        if (this->tokens[i].type == TokenType::IDENTIFIER && this->tokens[i].value == "__bit" &&
+            this->tokens[i + 1].type == TokenType::OPEN_PAREN)
+            this->tokens[i].value = BIT_BUILTIN;
     // struct __unpacked Name outside a definition names the struct: drop the
     // keyword (the struct's layout comes from its definition)
     for (size_t i = 1; i + 2 < this->tokens.size(); ) {
@@ -2802,6 +2810,8 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
         sm.name = memberName; sm.isConst = mIsConst; sm.alignment = takePendingAlign();
         sm.alignmentExpr = std::move(mAlignmentExpr); sm.isAnonymous = false;
         sm.arrayDims = memberArrayDims; sm.bitWidth = memberBitWidth;
+        // a __bit member: a 1-bit field (#73; consecutive ones share a byte)
+        if (type == "__bit" && ptrLevel == 0 && memberArrayDims.empty() && sm.bitWidth == 0) sm.bitWidth = 1;
         sm.isFlexible = isFlexArray;
         if (ptrLevel == basePtrLevel && memberArrayDims.empty()) sm.funcPtrSig = memberFpSig;
         if (memberIsVla) {
@@ -2843,6 +2853,7 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
             esm.type = type; esm.pointerLevel = extraPtr; esm.isSigned = mIsSigned;
             esm.name = extraName; esm.isConst = extraConst;
             esm.arrayDims = extraDims; esm.bitWidth = extraBitWidth;
+            if (type == "__bit" && extraPtr == 0 && extraDims.empty() && esm.bitWidth == 0) esm.bitWidth = 1;
             esm.isFlexible = extraFlex;
             esm.alignment = takePendingAlign();
             def->members.push_back(std::move(esm));
@@ -3375,12 +3386,12 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
                (peek().value == "__jsr" || peek().value == "__jsr_raw" || peek().value == "__jmp") &&
                pos + 1 < tokens.size() && tokens[pos + 1].type == TokenType::OPEN_PAREN) {
         expr = parseJsr();
-    } else if (peek().type == TokenType::IDENTIFIER && (peek().value == "__bit" || peek().value == "__bits") &&
+    } else if (peek().type == TokenType::IDENTIFIER && (peek().value == BIT_BUILTIN || peek().value == "__bits") &&
                pos + 1 < tokens.size() && tokens[pos + 1].type == TokenType::OPEN_PAREN) {
         // __bit(v, n) / __bits(v, lo, hi) (#204): bits of the integer lvalue v,
         // the positions constant (the operand's width is checked by IRBuilder)
         const Token& bToken = advance();
-        std::string name = bToken.value;
+        std::string name = bToken.value == BIT_BUILTIN ? "__bit" : bToken.value;
         advance();   // (
         auto v = parseConditional();
         auto position = [&](const char* what) {
@@ -4471,7 +4482,7 @@ int Parser::scalarTypeSize(const std::string& type, int ptrLevel) {
     std::string t = type;
     for (const char* q : {"unsigned ", "signed ", "const ", "volatile "})
         for (size_t at; (at = t.find(q)) != std::string::npos; ) t.erase(at, std::strlen(q));
-    if (t == "char" || t == "_Bool" || t == "bool") return 1;
+    if (t == "char" || t == "_Bool" || t == "bool" || t == "__bit") return 1;
     if (t == "short" || t == "int" || t == "unsigned" || t == "signed" || t == "short int") return 2;
     if (t == "long" || t == "long int") return 4;
     if (t == "long long" || t == "long long int") return 8;

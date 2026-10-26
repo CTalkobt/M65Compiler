@@ -74,7 +74,7 @@ public:
                           const std::map<std::string, std::shared_ptr<StructInfo>>& structs);
 
     static bool is8BitType(const std::string& type) {
-        return type == "char" || type == "_Bool";
+        return type == "char" || type == "_Bool" || type == "__bit";
     }
 
     static bool is32BitType(const std::string& type) {

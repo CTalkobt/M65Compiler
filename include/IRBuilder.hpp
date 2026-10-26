@@ -89,6 +89,20 @@ public:
     // error), and a write: op "=" or op= with rhs, or ++/-- (rhs null; post:
     // the value is the old field), the operand read once and written once
     ir::Type bitSelectUnit(BitSelect& node);
+    // _Bool (and __bit): a value converted to it is 0 or 1 (C11 6.3.1.2)
+    static bool isBoolType(const std::string& t) { return t == "_Bool" || t == "bool" || t == "__bit"; }
+    ir::Operand emitBoolConvert(ir::Operand v, const ir::SourceLoc& sl);
+    bool returnsBool();                                     // the function (or the inlined one) returns _Bool
+    std::map<std::string, std::vector<bool>> functionParamBool_;   // its _Bool parameters
+    // __bit variables at file scope (#73): each a bit of a hidden static byte
+    // (__bitvarsN, __zbitvarsN for __zp __bit ones), read and written as
+    // __bit(byte, n)
+    struct BitVar { std::string byte; int bit; };
+    std::map<std::string, BitVar> bitVars_;
+    std::set<const VariableDeclaration*> packedBitDecls_;
+    void packBitVariables(TranslationUnit& tu);
+    const BitVar* bitVarOf(Expression* e);
+    std::unique_ptr<BitSelect> bitVarSelect(const BitVar& b, ASTNode& at);
     void emitBitSelectWrite(BitSelect& node, const std::string& op, Expression* rhs, bool post, ASTNode& at);
     void visit(LabelAddressExpression& node) override;
     void visit(TranslationUnit& node) override;
@@ -254,7 +268,7 @@ private:
     void toComplex(std::unique_ptr<Expression>& e, const std::string& kind);
     std::string wideKindOf(Expression* e);
     void toWide(std::unique_ptr<Expression>& e, const std::string& kind, bool braced);
-    void narrowWide(std::unique_ptr<Expression>& e, ir::Type t);
+    void narrowWide(std::unique_ptr<Expression>& e, ir::Type t, bool toBool = false);
     bool currentFuncReturnsStruct();
     bool inlineParamAssigned(Statement* body, const std::string& name);
     bool evalConstComplex(Expression* e, double& re, double& im);

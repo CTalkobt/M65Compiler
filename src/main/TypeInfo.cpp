@@ -6,7 +6,7 @@ int TypeInfo::getTypeSize(const std::string& type, int ptrLevel, int arraySize,
     int size = 0;
     if (ptrLevel > 0) size = 2;
     else if (type == "char") size = 1;
-    else if (type == "_Bool") size = 1;
+    else if (type == "_Bool" || type == "__bit") size = 1;
     else if (type == "int") size = 2;
     else if (type == "short") size = 2;
     else if (type == "long") size = 4;

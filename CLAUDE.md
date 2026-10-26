@@ -257,7 +257,8 @@ totals code bytes by IR operation).
 ## Language (details: `doc/bin/cc45.md`)
 
 - **Types**: `char`(1), `short`/`int`(2), `long`(4), `float`/`double`/`long double`
-  (CBM 40-bit, 5 bytes, computed by the BASIC 65 ROM), `_Bool`, pointers (2),
+  (CBM 40-bit, 5 bytes, computed by the BASIC 65 ROM), `_Bool`, `__bit` (file-scope booleans packed 8 to a byte;
+  `__zp __bit` in the base page: smb/rmb/bbs), pointers (2),
   structs/unions/enums/bitfields, `_Complex`, GCC vectors, `long long` /
   `int64_t` / `uint64_t` = `struct __int64`, `__int128`, `__int(N)` (64 and 128 defined;
   `__int(8/16/32)` are the native char/int/long).

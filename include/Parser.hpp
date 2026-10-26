@@ -160,6 +160,7 @@ private:
     bool isTypeStartAt(size_t look) const; // lookahead version
 
     std::map<std::string, TypeAlias> typedefs;
+    static constexpr const char* BIT_BUILTIN = "__bit(";   // the builtin __bit(v, n)'s token (not the type)
     std::map<std::string, int> enumConstants;
     // Block scopes inside functions: the enum constants a declaration hid or
     // an enumerator replaced there, with their previous values (none: the
