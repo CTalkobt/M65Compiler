@@ -231,14 +231,18 @@ not change what is tested; a test's own later `-O` still wins. Use an
 explicit `-O<n>` in ad-hoc test commands too.
 
 - `make test` — unit tests (no emulator).
-- `bash src/test/test_xemu.sh` (`make test-xemu`) — runtime tests on xemu (500 pass, about 3 minutes): each
+- `bash src/test/test_xemu.sh` (`make test-xemu`) — runtime tests on xemu (500 pass, about 1.5 minutes): each
   `*_xemu.c` writes results to `$C0C0` (01 = pass, `$AA` sentinel), built in
   both conventions. New runtime tests follow this pattern and are registered
-  in `test_xemu.sh`. `run_xemu_test` runs xemu in the background on copies of
-  the program and its `-8` disk, one disk-using run at a time (`flock`: xemu
-  instances using disks at once interfere); `XEMU_SYNC=1 run_xemu_test` for a
-  test that reads what the program wrote to its disk afterwards. A new test
-  script step (`test_steps.txt`) must not glob files other steps may write.
+  in `test_xemu.sh`, most as one line: `xemu_case "FAIL message" <compile_link_test
+  args> -- <run_xemu_test args>` (compiled, linked and run as a background job).
+  Runs go in the background (`XEMU_JOBS`) on copies of the program and its `-8`
+  disk, each with an xemu preferences directory of its own (`src/test/xemu_pref.sh`:
+  instances starting together race on rewriting its template file), one
+  disk-using run at a time (`flock`: xemu instances using disks at once
+  interfere); `XEMU_SYNC=1 run_xemu_test` for a test that reads what the program
+  wrote to its disk afterwards. A new test script step (`test_steps.txt`) must
+  not glob files other steps may write.
 - GCC torture tests: `src/test/run_gte_all.sh` — 551 pass with the ZP
   convention, 551 with `-fno-zpcall` (GTE uses `-fsigned-default`), none
   failing. Failures that could be fixed go in `src/test/known_failures/gte.txt`

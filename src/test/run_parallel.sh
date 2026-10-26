@@ -11,13 +11,17 @@ steps="$1"
 JOBS=${TEST_JOBS:-$(nproc 2>/dev/null || echo 2)}
 LD=build/test/steps
 rm -rf "$LD"; mkdir -p "$LD"
+# (each step its own xemu preferences directory: xemu_pref.sh)
+source src/test/xemu_pref.sh
+xemu_pref_init "$LD/xemu_pref_farm"
 titles=(); n=0
 while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in ''|'#'*) continue ;; esac
     title="${line%%|*}"; cmd="${line#*|}"
     titles+=("$title")
     while [ "$(jobs -rp | wc -l)" -ge "$JOBS" ]; do wait -n 2>/dev/null || true; done
-    ( bash -c "$cmd" > "$LD/$n.log" 2>&1; echo $? > "$LD/$n.rc" ) &
+    ( xemu_pref "$LD/$n.pref"; export XEMU_PREF_DIR="$PWD/$LD/$n.pref"
+      bash -c "$cmd" > "$LD/$n.log" 2>&1; echo $? > "$LD/$n.rc" ) &
     n=$((n + 1))
 done < "$steps"
 wait

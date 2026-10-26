@@ -6,6 +6,16 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### The validation tests in one program (#96)
 
+- `test_xemu.sh` about 1.5 minutes (from 3.3): most tests are one
+  `xemu_case` line, compiled, linked and run as a background job; the job
+  pool waits for whichever run ends; dbg45's tests run in the background
+  from the start. Fixed in the parallel runs: every xemu run took one lock
+  (`flock /dev/null`), so they ran one at a time; xemu instances starting
+  together raced on rewriting a template in their preferences directory
+  (one stopped with an error and no memory dump: the GCC torture runner's
+  retry worked around it): each run, example, test step and torture test
+  now has a directory of its own (`src/test/xemu_pref.sh`).
+
 - The 16 C++ validation test programs (`test_validation_*`,
   `test_segment_emission`, `test_move_fill`) are one, `bin/test_validation`:
   a category per source (its `main` compiled as `tv_<category>_main`),
