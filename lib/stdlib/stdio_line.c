@@ -60,7 +60,7 @@ char *fgets(char *s, int n, FILE *stream) {
  *
  * Returns: non-negative on success, EOF on error
  */
-int fputs(const char *s, FILE *stream) {
+int fputs(const char *restrict s, FILE *restrict stream) {
     if (!s || !stream) {
         return EOF;
     }

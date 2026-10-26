@@ -44,6 +44,10 @@ ln45 -prg main.o45 -L lib/build -l c45.lib -o program.prg      # plain PRG (-L o
 
 `make install` copies the archives to `PREFIX/lib/cc45` and the headers to `PREFIX/include/cc45`. An installed `cc45` finds the archives there, but it looks for headers in `PREFIX/lib/include`, so set `CC45_INCLUDE=PREFIX/include/cc45` or pass `-I`. (`lib/include/sys/` is not installed.)
 
+### `restrict` in the library
+
+The C99 prototypes take `restrict` where the standard has it (`<string.h>`: `memcpy`, `strcpy`, `strncpy`, `strcat`, `strncat`, `strtok`, `strlcpy`; `<stdio.h>`: the `printf` / `scanf` families, `fopen`, `freopen`, `fgets`, `fputs`, `fread`, `fwrite`, `fgetpos`, `setbuf`, `setvbuf`; `<stdlib.h>`: `strtol`, `strtoul`, `strtof`). That documents the contract (arguments that overlap are undefined); cc45 uses `restrict` only inside the function that declares it, so a call compiles the same. The C functions where it shrinks the code have it on their definitions: `fputs`, `strspn`, `strcspn`, `strpbrk`, `strlcpy`, `fcm_cputs`, `midi_parse`, `midi_synth_message`, `midi_synth_active`, `__stridx_table`, `__intN_cmp_u`, `__intN_shr_u` / `_s`, the scanf source's `__scan_getc` / `__scan_ungetc` and the memory streams' writer (339 bytes over both archives; no function grows). The assembly routines (`memcpy`, `strcpy`, ...) are not compiled from C.
+
 ## 2. Header Overview
 
 | Header | Contents | Implementation |

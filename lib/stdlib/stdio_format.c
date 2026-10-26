@@ -77,7 +77,7 @@ int fprintf(FILE *stream, const char *format, ...) {
 
 /* The scanf engine's character source: a FILE as well as a string (strong:
  * replace the engine's string-only versions) */
-__fastcall__ int __scan_getc(struct __scan_src *s) {
+__fastcall__ int __scan_getc(struct __scan_src *restrict s) {
     unsigned char c;
     if (s->file) return fgetc(s->file);
     c = *s->str;
@@ -86,7 +86,7 @@ __fastcall__ int __scan_getc(struct __scan_src *s) {
     return c;
 }
 
-__fastcall__ void __scan_ungetc(struct __scan_src *s, int c) {
+__fastcall__ void __scan_ungetc(struct __scan_src *restrict s, int c) {
     if (s->file) ungetc(c, s->file);
     else s->str--;
 }

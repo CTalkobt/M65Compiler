@@ -26,7 +26,7 @@ void __intN_sub(char *r, char *a, char *b, int n) {
     }
 }
 
-int __intN_cmp_u(char *a, char *b, int n) {
+int __intN_cmp_u(char *restrict a, char *restrict b, int n) {
     int i = n - 1;
     while (i >= 0) {
         if ((unsigned char)a[i] > (unsigned char)b[i]) return 1;
@@ -90,7 +90,7 @@ void __intN_shl(char *a, int n, int shift) {
     }
 }
 
-void __intN_shr_u(char *a, int n, int shift) {
+void __intN_shr_u(char *restrict a, int n, int shift) {
     while (shift > 0) {
         int carry = 0;
         int i = n - 1;
@@ -106,7 +106,7 @@ void __intN_shr_u(char *a, int n, int shift) {
 
 /* Arithmetic shift right (the sign bit copied in: the structs' operators
    are signed, as the comparisons) */
-void __intN_shr_s(char *a, int n, int shift) {
+void __intN_shr_s(char *restrict a, int n, int shift) {
     char fill = (a[n - 1] & 0x80) ? 1 : 0;
     while (shift > 0) {
         int carry = fill;

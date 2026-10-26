@@ -4,6 +4,18 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### `restrict` in the standard library
+
+- Headers: the C99 prototypes take `restrict` (`memcpy`, `strcpy`,
+  `strcat`, ..., the `printf` / `scanf` families, `fgets`, `fputs`,
+  `fread`, `fwrite`, `strtol`, ...): the contract, no code change for
+  callers.
+- The C functions where it helps have it on their definitions (`fputs`,
+  `strspn`, `strcspn`, `strpbrk`, `strlcpy`, `fcm_cputs`, the MIDI
+  parser and synth, `__stridx_table`, wide-integer compare and shifts, the
+  scanf source, memory streams): 339 bytes smaller over both archives,
+  measured per function (no function grows).
+
 ### CSE keeps variables whose address is never taken
 
 - cc45 `-O1`+: common subexpression elimination no longer forgets what it

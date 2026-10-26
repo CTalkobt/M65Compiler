@@ -19,7 +19,7 @@ int _mem_reserve(FILE *fp, unsigned int need);
 /* A memory stream ('+' modes, stdio_file.c), its position in buf_pos:
  * write n bytes there ("a+" always at the end); a gap after a seek past the
  * end becomes zeros */
-static int _mem_put(FILE *stream, const unsigned char *src, unsigned int n) {
+static int _mem_put(FILE *restrict stream, const unsigned char *restrict src, unsigned int n) {
     unsigned int pos = (stream->flags & _IOAPPEND) ? stream->buf_len : stream->buf_pos;
     unsigned int end = pos + n;
     if (end < pos || end > 0xFF00 || _mem_reserve(stream, end) < 0) {

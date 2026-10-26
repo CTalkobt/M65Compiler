@@ -258,7 +258,7 @@ void fcm_putch(int x, int y, int ch, int fg, int bg) {
     put_code(x, y, c, fg, bg);
 }
 
-int fcm_cputs(int x, int y, const char *str, int fg, int bg) {
+int fcm_cputs(int x, int y, const char *restrict str, int fg, int bg) {
     int w = screenwidth(), h = screenheight();
     unsigned char c;
     if (!str) return -1;

@@ -18,7 +18,7 @@ static unsigned char data_len(unsigned char status) {
     return (t == MIDI_PROGRAM_CHANGE || t == MIDI_CHANNEL_PRESSURE) ? 1 : 2;
 }
 
-unsigned char midi_parse(midi_parser_t *p, unsigned char b, midi_msg_t *msg) {
+unsigned char midi_parse(midi_parser_t *restrict p, unsigned char b, midi_msg_t *restrict msg) {
     if (b >= 0xF8) return 0;                /* real-time: anywhere, ignored */
     if (b & 0x80) {
         if (b == 0xF0) { p->sysex = 1; p->running = 0; return 0; }
@@ -95,7 +95,7 @@ static void release(midi_synth_t *s, unsigned char i) {
     sid_note_off(s->first_voice + i);
 }
 
-static void note_on(midi_synth_t *s, unsigned char ch, unsigned char note) {
+static void note_on(midi_synth_t *restrict s, unsigned char ch, unsigned char note) {
     unsigned char i, pick = 0xFF, oldest = 0;
     unsigned char best_age = 0;
     /* the same note again on its voice, else a free voice, else the oldest */
@@ -135,7 +135,7 @@ void midi_synth_all_off(midi_synth_t *s) {
         if (s->state[i]) release(s, i);
 }
 
-void midi_synth_message(midi_synth_t *s, const midi_msg_t *m) {
+void midi_synth_message(midi_synth_t *restrict s, const midi_msg_t *restrict m) {
     unsigned char ch = MIDI_CHANNEL(m), i;
     switch (MIDI_TYPE(m)) {
     case MIDI_NOTE_ON:
@@ -171,7 +171,7 @@ void midi_synth_message(midi_synth_t *s, const midi_msg_t *m) {
     }
 }
 
-unsigned char midi_synth_active(const midi_synth_t *s) {
+unsigned char midi_synth_active(const midi_synth_t *restrict s) {
     unsigned char i, n = 0;
     for (i = 0; i < s->num_voices; i++)
         if (s->state[i]) n++;

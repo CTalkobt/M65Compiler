@@ -25,7 +25,7 @@ int stridx(const char *s, ...) {
     return 0;
 }
 
-int __stridx_table(const char *s, const unsigned char *t) {
+int __stridx_table(const char *restrict s, const unsigned char *restrict t) {
     unsigned char n = *t++, i;
     for (i = 1; i <= n; i++) {
         const unsigned char *p = (const unsigned char *)s;
