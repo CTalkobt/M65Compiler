@@ -413,6 +413,7 @@ ir::Type IRBuilder::mapType(const std::string& typeName, int ptrLevel) {
     if (isBoolType(typeName)) return ir::Type::I8;
     if (int fx = fixedFracOf(typeName)) return (fx >> 8) == 32 ? ir::Type::I32 : ir::Type::I16;   // (1 byte: a 16-bit store wrote the next one too)
     if (typeName == "long" || typeName == "unsigned long") return ir::Type::I32;
+    if (isFarPointerType(typeName)) { farUsed_ = true; return ir::Type::I32; }
     if (typeName == "void") return ir::Type::VOID;
     if (typeName == "float" || typeName == "double") return ir::Type::F32;
 
@@ -457,6 +458,7 @@ bool IRBuilder::plainUnsignedVar(Expression* e, std::string& name) {
 
 IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
     if (!expr) return {};
+    if (IRTypeInfo fi; farUsed_ && farExprTypeInfo(expr, fi)) return fi;
     if (bitVarOf(expr)) return {ir::Type::I8, "__bit", false, ir::Type::VOID, 1};
     if (auto* bs = dynamic_cast<BitSelect*>(expr)) {
         // unsigned, as wide as the field needs
@@ -945,6 +947,9 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
             auto dfit = fit != allFunctions_.end() ? fit : allFunctions_.find(call->name);
             if (dfit != allFunctions_.end() && fixedFracOf(dfit->second->returnType))
                 return {it->second, dfit->second->returnType, true, ir::Type::VOID, ir::typeSize(it->second)};
+            // a far pointer result (#68)
+            if (dfit != allFunctions_.end() && isFarPointerType(dfit->second->returnType))
+                return {ir::Type::I32, dfit->second->returnType, false, ir::Type::VOID, 4};
             return {it->second, "", sig, ir::Type::VOID, ir::typeSize(it->second)};
         }
         // a call through a function pointer: its signature's result
@@ -996,6 +1001,12 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
         // For arithmetic/bitwise ops, result type comes from operands
         auto lhs = getExprTypeInfo(bin->left.get());
         auto rhs = getExprTypeInfo(bin->right.get());
+        // far pointers (#68): p ± n a far pointer, p - q a long
+        bool lfar = lhs.type == ir::Type::I32 && isFarPointerType(lhs.typeName);
+        bool rfar = rhs.type == ir::Type::I32 && isFarPointerType(rhs.typeName);
+        if (bin->op == "-" && lfar && rfar) return {ir::Type::I32, "long", true, ir::Type::VOID, 4};
+        if ((bin->op == "+" || bin->op == "-") && lfar) return lhs;
+        if (bin->op == "+" && rfar) return rhs;
         // + - * / with a fixed-point operand: the wider fixed type; a
         // comparison or && || of them: an int
         if (lhs.type != ir::Type::PTR && rhs.type != ir::Type::PTR) {
@@ -2947,11 +2958,12 @@ bool IRBuilder::initScalar(InitImageCtx& c, int off, const std::string& type, in
     {
         std::string label;
         int aoff = 0;
-        if (size == 2 && constAddress(e, label, aoff)) {
+        // (a far pointer: the address in its low word, bank 0, #68)
+        bool farPtr = size == 4 && ptr == 0 && isFarPointerType(type);
+        if ((size == 2 || farPtr) && constAddress(e, label, aoff)) {
             if (label.empty()) {
                 // A plain number (offsetof): its bytes
-                c.gv->initBytes[off] = (uint8_t)aoff;
-                c.gv->initBytes[off + 1] = (uint8_t)(aoff >> 8);
+                for (int k = 0; k < size; k++) c.gv->initBytes[off + k] = (uint8_t)((int64_t)aoff >> (8 * k));
             } else {
                 c.gv->initWords[off] = labelPlus(label, aoff);
             }
@@ -4241,7 +4253,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
             } else if (dynamic_cast<StringLiteral*>(node.initializer.get()) && !node.arrayDims.empty() &&
                        buildInitImage(gv, node.type, node.pointerLevel, node.arrayDims, node.initializer.get())) {
                 // char a[] = "text": the characters (not a pointer to them)
-            } else if (std::string clabel; node.pointerLevel > 0 && node.arrayDims.empty() &&
+            } else if (std::string clabel; (node.pointerLevel > 0 || isFarPointerType(node.type)) && node.arrayDims.empty() &&
                        [&] { int coff = 0; if (!constAddress(node.initializer.get(), clabel, coff)) return false;
                              if (clabel.empty()) { gv.initValue = coff; return true; }  // (T *)0x1234
                              clabel = labelPlus(clabel, coff); return true; }()) {
@@ -4305,6 +4317,12 @@ void IRBuilder::visit(VariableDeclaration& node) {
                     } else if (std::string alabel = staticAddressLabel(elem.get()); !alabel.empty()) {
                         gv.initList.push_back(0);
                         gv.initLabels.push_back(alabel);
+                    } else if (std::string flabel; isFarPointerType(node.type) && node.pointerLevel == 0 &&
+                               [&] { int foff = 0; if (!constAddress(elem.get(), flabel, foff) || flabel.empty()) return false;
+                                     flabel = labelPlus(flabel, foff); return true; }()) {
+                        // a far pointer element: label + offset (#68)
+                        gv.initList.push_back(0);
+                        gv.initLabels.push_back(flabel);
                     } else if (int64_t ev; evalConstInt(elem.get(), ev)) {
                         gv.initList.push_back(ev);
                         gv.initLabels.push_back("");
@@ -5003,6 +5021,7 @@ void IRBuilder::visit(VariableReference& node) {
 }
 
 void IRBuilder::visit(Assignment& node) {
+    if (farUsed_ && emitFarAssign(node)) return;
     if (const BitVar* b = bitVarOf(node.target.get())) {
         // flag = v: __bit(byte, n) = (__bit)v; flag op= v: = (__bit)(flag op v)
         auto sel = bitVarSelect(*b, node);
@@ -5875,6 +5894,7 @@ void IRBuilder::emitVectorShuffle(FunctionCall& node) {
 }
 
 void IRBuilder::visit(BinaryOperation& node) {
+    if (farUsed_ && emitFarArith(node)) return;
     // strcmp(x, "lit") == 0 / != 0 as a value: byte compares (#78)
     if (node.op == "==" || node.op == "!=") {
         int64_t z;
@@ -6351,6 +6371,11 @@ void IRBuilder::visit(BinaryOperation& node) {
 }
 
 void IRBuilder::visit(UnaryOperation& node) {
+    if (farUsed_) {
+        if ((node.op == "*" || node.op == "&") && emitFarRead(node)) return;
+        if ((node.op == "++" || node.op == "--" || node.op == "++_POST" || node.op == "--_POST") && emitFarIncDec(node))
+            return;
+    }
     // !strcmp(x, "lit"): byte compares (#78)
     if (node.op == "!") {
         if (auto eq = stringEqualsExpr(node.operand.get())) {
@@ -8718,6 +8743,7 @@ void IRBuilder::visit(InitializerList& node) {
 }
 
 void IRBuilder::visit(ArrayAccess& node) {
+    if (farUsed_ && emitFarRead(node)) return;
     vecSubscript(node);
     // (*p)[i] of a pointer to an array is p[0][i]
     if (auto* u = dynamic_cast<UnaryOperation*>(node.arrayExpr.get());
@@ -9053,6 +9079,7 @@ const IRBuilder::IRMemberInfo* IRBuilder::arrayMemberOf(MemberAccess* ma) {
 }
 
 void IRBuilder::visit(MemberAccess& node) {
+    if (farUsed_ && emitFarRead(node)) return;
     // For p->member: load the pointer value (not address-of)
     // For s.member: compute address of the struct variable
     bool oldAddrMode = computeAddressOnly_;

@@ -4,6 +4,24 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Far pointers (#68)
+
+- `T __far *p` (or `__far T *p`): a pointer to any of the MEGA65's 28-bit
+  address space, 4 bytes. `*p`, `p[i]`, `p->m`, `(*p).m`, array members,
+  with `=`, `op=` and `++`/`--`, read and write with 32-bit indirect
+  addressing (`lda [bp],z`, `ldq [bp],z`; IR `far_load`/`far_store`), no
+  MAP or library call. Pointer arithmetic moves by elements, `p - q`
+  counts them; `&p[i]` is a far pointer; a near pointer converts to a far
+  one (bank 0), a cast back keeps the low 16 bits. Locals, globals
+  (initialized with constants, addresses, `array + n`), parameters,
+  returns, struct members, arrays, typedefs. Not through one: whole
+  structs, floats, bit-fields (errors). `__far` functions keep their
+  meaning (`__far int f(void)`, `int __far h(void)`); `char __far *f()`
+  returns a far pointer. `__near` is not implemented. Test
+  `test_far_ptr_xemu.c` (both conventions); `doc/bin/cc45.md#far-pointers`.
+- Fixed with them: cc45's dead base-page store pass counted `[bp],z` as a
+  2-byte read (it reads 4).
+
 ### The mmemu tests on xemu
 
 - The runtime checks of the mmemu-era scripts (`test_mmemu.sh`,

@@ -1,3 +1,4 @@
+#include "FarPointer.hpp"
 #include "FixedType.hpp"
 #include "TypeInfo.hpp"
 #include <stdexcept>
@@ -10,6 +11,7 @@ int TypeInfo::getTypeSize(const std::string& type, int ptrLevel, int arraySize,
     else if (type == "_Bool" || type == "__bit") size = 1;
     else if (type == "int") size = 2;
     else if (int fb = fixedTypeBits(type)) size = fb / 8;
+    else if (isFarPointerType(type)) size = 4;
     else if (type == "short") size = 2;
     else if (type == "long") size = 4;
     else if (type == "float" || type == "double" || type == "long double") size = 5;  // CBM 40-bit

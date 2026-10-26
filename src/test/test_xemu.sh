@@ -502,6 +502,14 @@ else
     failed=$((failed + 1))
 fi
 
+# Test: far pointers (#68): T __far *p reads and writes bank 4 and bank 0
+# through 32-bit indirect addressing; members, arithmetic, initializers,
+# parameters and returns, both conventions
+for fpmode in "stack|-fno-zpcall" "zp|"; do
+    IFS='|' read -r fpname fpflags <<< "$fpmode"
+    xemu_case "FAIL: test_far_ptr_xemu.c $fpname (compilation/linking failed)" "src/test-resources/test_far_ptr_xemu.c" "build/test/test_far_ptr_${fpname}_xemu.prg" "$fpflags" -- "test_far_ptr_$fpname" "build/test/test_far_ptr_${fpname}_xemu.prg" "C0C0" 12 "01 01 01 01 01 01 01 01 01 01 01 AA"
+done
+
 # Test: virtual dispatch (every __vt set: locals, globals, statics, arrays,
 # nested members), stack and ZP conventions
 for vtmode in "stack|-fno-zpcall" "zp|"; do

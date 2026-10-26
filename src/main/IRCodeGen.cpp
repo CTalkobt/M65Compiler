@@ -2598,6 +2598,7 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
                     // Check for symbolic label reference (e.g. string literal pointer)
                     if (i < g.initLabels.size() && !g.initLabels[i].empty()) {
                         emit(".word " + g.initLabels[i]);
+                        if (g.type == ir::Type::I32) emit(".word 0");   // (a far pointer: bank 0, #68)
                     } else if (g.type == ir::Type::I8) emit(".byte " + std::to_string((int)(g.initList[i] & 0xFF)));
                     else if (g.type == ir::Type::I32) emit(".dword " + std::to_string((int)g.initList[i]));
                     else emit(".word " + std::to_string((int)(g.initList[i] & 0xFFFF)));
@@ -2608,8 +2609,10 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
                     emit(".res " + std::to_string(g.size - bytesEmitted));
                 }
             } else if (!g.initLabels.empty() && !g.initLabels[0].empty()) {
-                // Scalar symbolic reference (e.g. char *p = "hello")
+                // Scalar symbolic reference (e.g. char *p = "hello"; a far
+                // pointer's high bytes 0, #68)
                 emit(".word " + g.initLabels[0]);
+                if (g.type == ir::Type::I32) emit(".word 0");
             } else {
                 // Scalar initializer
                 if (g.type == ir::Type::F32) {
@@ -2813,6 +2816,12 @@ IRCodeGen::FuncClobbers IRCodeGen::computeFuncClobbers(const ir::Function& fn) {
                 case ir::Op::LOAD_ZP:
                 case ir::Op::STORE_ZP:
                     fc.regs |= A;
+                    fc.flags |= N | ZF;
+                    break;
+
+                case ir::Op::FAR_LOAD:
+                case ir::Op::FAR_STORE:
+                    fc.regs |= A | X | Y | Z;
                     fc.flags |= N | ZF;
                     break;
 
@@ -3126,9 +3135,11 @@ std::string IRCodeGen::pruneDeadPoolStores(const std::string& text) {
     };
     // the pool bytes a line reads (false: it reaches bytes it does not name)
     auto readsOf = [&](const Line& ln, std::set<int>& rd) -> bool {
-        bool indirect = ln.operand.find('(') != std::string::npos;
+        // ([bp],z: a 32-bit pointer, #68)
+        bool indirect32 = ln.operand.find('[') != std::string::npos;
+        bool indirect = indirect32 || ln.operand.find('(') != std::string::npos;
         // (anything else, a simulated op on a float or a long: up to 8 bytes)
-        int w = indirect ? 2 : byteOps.count(ln.mn) ? 1 : wordOps.count(ln.mn) ? 2 : 8;
+        int w = indirect32 ? 4 : indirect ? 2 : byteOps.count(ln.mn) ? 1 : wordOps.count(ln.mn) ? 2 : 8;
         for (size_t i = 0; i < ln.operand.size(); i++) {
             size_t end;
             int v = poolAddr(ln.operand, i, &end);
@@ -7668,6 +7679,68 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                         std::to_string((int)inst.dest.kind) + ") — not yet implemented (use pointer vregs)");
                 }
             }
+            break;
+        }
+
+        case ir::Op::FAR_LOAD:
+        case ir::Op::FAR_STORE: {
+            // T __far *p (#68): the 32-bit address in four base-page bytes
+            // (its register's, or $F2-$F5), read and written with 32-bit
+            // indirect addressing, [bp],z
+            const ir::Operand& addr = inst.op == ir::Op::FAR_LOAD ? inst.src1 : inst.src2;
+            std::string bp;
+            if (addr.isVreg() && !zextAlias_.count(addr.vregId) && !globalLoadAlias_.count(addr.vregId) &&
+                !(suppressedVregs_.count(addr.vregId) && vregConstVal_.count(addr.vregId))) {
+                auto al = alloc_.getAlloc(addr.vregId);
+                if (al.loc == VRegAllocator::IN_ZP && al.type == ir::Type::I32) bp = "$" + hex8((uint8_t)al.offset);
+            }
+            if (bp.empty()) {
+                if (addr.isImm()) loadOperand(ir::Operand::imm(addr.immVal, ir::Type::I32));
+                else loadOperand(addr);
+                emit("stq $F2", "far address");
+                bp = "$F2";
+            }
+            int size = inst.resultType == ir::Type::I8 ? 1 : inst.resultType == ir::Type::I32 ? 4 : 2;
+            if (inst.op == ir::Op::FAR_LOAD) {
+                if (size == 1) { emit("ldz #0"); emit("lda [" + bp + "],z"); emit("ldx #0"); }
+                else if (size == 2) {
+                    emit("ldz #1"); emit("lda [" + bp + "],z"); emit("tax");
+                    emit("dez"); emit("lda [" + bp + "],z");
+                } else { emit("ldz #0"); emit("ldq [" + bp + "],z"); }
+                ms_.invalidateAll();
+                if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
+                break;
+            }
+            // a store: each byte from where the value is, else through A/X
+            // (a long through $F6-$F9: Z indexes)
+            const ir::Operand& val = inst.src1;
+            bool direct = true;
+            std::vector<std::string> bytes;
+            for (int k = 0; k < size && direct; k++) {
+                std::string b = val.isImm() ? "#" + std::to_string((int)((val.immVal >> (8 * k)) & 0xFF))
+                                            : directByte(val, k);
+                if (b.empty()) direct = false;
+                bytes.push_back(b);
+            }
+            if (!direct) {
+                bytes.clear();
+                if (size == 1) { loadOperandA(val); emit("ldz #0"); emit("sta [" + bp + "],z"); }
+                else if (size == 2) {
+                    loadOperand(val);
+                    emit("ldz #0"); emit("sta [" + bp + "],z");
+                    emit("inz"); emit("txa"); emit("sta [" + bp + "],z");
+                } else {
+                    loadOperand(val);
+                    emit("stq $F6");
+                    for (int k = 0; k < 4; k++) bytes.push_back("$" + hex8((uint8_t)(0xF6 + k)));
+                }
+            }
+            for (int k = 0; k < (int)bytes.size(); k++) {
+                emit("lda " + bytes[k]);
+                emit("ldz #" + std::to_string(k));
+                emit("sta [" + bp + "],z");
+            }
+            ms_.invalidateAll();
             break;
         }
 

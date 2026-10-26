@@ -1,3 +1,4 @@
+#include "FarPointer.hpp"
 #include "FixedType.hpp"
 #include "StructLayout.hpp"
 #include <cstring>
@@ -1001,6 +1002,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     bool isInlineFunc = match(TokenType::INLINE);
     bool isStatic = match(TokenType::STATIC);
     bool isFar = false;
+    bool farReturn = false;   // T __far *f(): returns a far pointer (#68)
     std::string returnType;
     bool isSigned = false;
     int basePtrLevel = 0;
@@ -1013,8 +1015,10 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     }
     {
         auto ts = parseTypeSpecifier();
-        // (__far among the type's qualifiers: of the function)
-        if (ts.valid && ts.addressSpace == 3) isFar = true;
+        // (__far among the type's qualifiers: of the function; after the
+        // type of a pointer it returns, T __far *f(): a far pointer)
+        if (ts.valid && ts.addressSpace == 3 && !ts.farAfterType) isFar = true;
+        if (ts.valid && ts.farAfterType) farReturn = true;   // (int __far f(): a far function)
         if (ts.valid) {
             returnType = ts.name;
             isSigned = ts.isSigned;
@@ -1145,10 +1149,12 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
             bool pIsSigned = false;
             int pBasePtrLevel = 0;
             bool pBaseRestrict = false;   // T *restrict (the type's last star)
+            int pSpace = 0;
 
             {
                 auto ts = parseTypeSpecifier();
                 if (ts.valid) {
+                    pSpace = ts.addressSpace;
                     pType = ts.name;
                     pIsSigned = ts.isSigned;
                     pBasePtrLevel = ts.pointerLevel;
@@ -1294,6 +1300,10 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
             // Skip __attribute__ after array params
             while (tryParseAttribute()) {}
 
+            if (farPointer(pType, pPtrLevel, pSpace, pIsSigned) && pPtrLevel == 0) {
+                pIsConst = pIsPointerConst;   // (T __far *const p)
+                pIsVolatile = pIsPointerConst = false;
+            }
             params.push_back({pType, pPtrLevel, pIsSigned, pName, pIsVolatile, pIsConst, pIsPointerConst, false, nullptr});
             params.back().isRestrict = (pRestrict || (pBaseRestrict && pPtrLevel == pBasePtrLevel)) && pPtrLevel > 0;
             params.back().vlaSizeExpr = std::move(pVlaSize);
@@ -1400,6 +1410,8 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
                 }
             }
         }
+        if (farReturn && returnPtrLevel == 0) isFar = true;
+        else if (farReturn) { int sp = 3; farPointer(returnType, returnPtrLevel, sp, isSigned); }
         auto func = setPos(std::make_unique<FunctionDeclaration>(protoName, returnType), startToken);
         func->returnPointerLevel = returnPtrLevel;
         func->isSigned = isSigned;
@@ -1434,6 +1446,8 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
         nestedFunctionMap[name] = fullName;
     }
 
+    if (farReturn && returnPtrLevel == 0) isFar = true;
+    else if (farReturn) { int sp = 3; farPointer(returnType, returnPtrLevel, sp, isSigned); }
     auto func = setPos(std::make_unique<FunctionDeclaration>(fullName, returnType), startToken);
     func->returnPointerLevel = returnPtrLevel;
     func->isSigned = isSigned;
@@ -2384,14 +2398,18 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
     }
     // Append typedef array dimensions
     arrayDims.insert(arrayDims.end(), typedefArrayDims.begin(), typedefArrayDims.end());
-    auto decl = setPos(std::make_unique<VariableDeclaration>(type, name, ptrLevel), typeToken);
+    // T __far *p: a far pointer (#68)
+    std::string declType = type;
+    bool declSigned = isSigned;
+    bool farPtr = farPointer(declType, ptrLevel, addressSpace, declSigned);
+    auto decl = setPos(std::make_unique<VariableDeclaration>(declType, name, ptrLevel), typeToken);
     hideEnumConstant(name);
     if (isVla) {
         vlaDimExprs.resize(arrayDims.size());  // typedef dimensions are constant
         decl->vlaDimExprs = std::move(vlaDimExprs);
     }
-    decl->isSigned = isSigned;
-    decl->isPlainUnsigned = plainInt && !isSigned && ptrLevel == 0;
+    decl->isSigned = declSigned;
+    decl->isPlainUnsigned = plainInt && !isSigned && ptrLevel == 0 && !farPtr;
     decl->isVolatile = declVolatile;
     decl->isConst = isConst;
     decl->isStatic = isStatic;
@@ -2400,6 +2418,12 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
     decl->isPointerConst = isPointerConst;
     for (int j = 1; j < stars && j < 16; j++)
         if (constStars & (1u << j)) decl->innerConstMask |= 1u << (stars - j);
+    if (farPtr && ptrLevel == 0) {
+        // (the qualifiers of what it points to are not kept; T __far *const p is const)
+        decl->isConst = isPointerConst;
+        decl->isVolatile = false;
+        decl->isPointerConst = false;
+    }
     decl->addressSpace = addressSpace;  // Phase 97: Set address space qualifier
     decl->alignmentExpr = std::move(alignmentExpr);
     decl->arrayDims = arrayDims;
@@ -2423,7 +2447,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
         }
     }
 
-    recordVarSize(name, type, ptrLevel, decl->arrayDims);
+    recordVarSize(name, decl->type, ptrLevel, decl->arrayDims);
 
     // Skip __attribute__ after variable declaration: int x __attribute__((unused));
     while (tryParseAttribute()) {}
@@ -2506,10 +2530,15 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
             }
             // Append typedef array dimensions
             extraDims.insert(extraDims.end(), typedefArrayDims.begin(), typedefArrayDims.end());
-            auto extraDecl = setPos(std::make_unique<VariableDeclaration>(type, extraName, extraPtr), typeToken);
+            int extraSpace = addressSpace;
+            std::string extraType = type;
+            bool extraSigned = isSigned;
+            bool extraFar = farPointer(extraType, extraPtr, extraSpace, extraSigned);
+            declTypes_[extraName] = {extraType, extraPtr, extraSigned};
+            auto extraDecl = setPos(std::make_unique<VariableDeclaration>(extraType, extraName, extraPtr), typeToken);
             hideEnumConstant(extraName);
-            extraDecl->isSigned = isSigned;
-            extraDecl->isPlainUnsigned = plainInt && !isSigned && extraPtr == 0;
+            extraDecl->isSigned = extraSigned;
+            extraDecl->isPlainUnsigned = plainInt && !isSigned && extraPtr == 0 && !extraFar;
             extraDecl->isVolatile = extraPtr > basePtrLevel ? extraPtrVolatile : isVolatile;
             extraDecl->isConst = isConst;
             extraDecl->isStatic = isStatic;
@@ -2518,12 +2547,17 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
             extraDecl->isPointerConst = extraPtrConst;
             for (int j = 1; j < extraStars && j < 16; j++)
                 if (extraConstStars & (1u << j)) extraDecl->innerConstMask |= 1u << (extraStars - j);
-            extraDecl->addressSpace = addressSpace;  // Phase 97: Set address space qualifier
+            if (extraFar && extraPtr == 0) {
+                extraDecl->isConst = extraPtrConst;
+                extraDecl->isVolatile = false;
+                extraDecl->isPointerConst = false;
+            }
+            extraDecl->addressSpace = extraSpace;  // Phase 97: Set address space qualifier
             extraDecl->isNoescape = declNoescape || takePendingNoescape();
             extraDecl->section = takePendingSection(true);
             if (extraDecl->section.empty()) extraDecl->section = declSection;
             extraDecl->arrayDims = extraDims;
-            recordVarSize(extraName, type, extraPtr, extraDims);
+            recordVarSize(extraName, extraType, extraPtr, extraDims);
             if (match(TokenType::EQUALS)) {
                 if (peek().type == TokenType::OPEN_BRACE) {
                     extraDecl->initializer = parseInitializerList();
@@ -2716,6 +2750,13 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
         std::vector<int> typedefArrayDims;
         std::vector<std::string> memberTypedefVla;
         std::shared_ptr<FuncPtrSignature> memberFpSig;   // a typedef'd function pointer type
+        int mSpace = 0;   // (3: __far, T __far *m a far pointer)
+        // a member's type: T __far * a far pointer (#68)
+        auto memberType = [&](StructMember& m, int level) {
+            std::string t = type; int sp = mSpace; bool sg = mIsSigned;
+            farPointer(t, level, sp, sg);
+            m.type = t; m.pointerLevel = level; m.isSigned = sg;
+        };
         if (peek().type == TokenType::ATTRIBUTE) {
             // __attribute__ as member type prefix — skip and retry
             while (tryParseAttribute()) {}
@@ -2728,6 +2769,7 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
             }
             type = ts.name;
             mIsSigned = ts.isSigned;
+            mSpace = ts.addressSpace;
             basePtrLevel = ts.pointerLevel;
             typedefArrayDims = ts.arrayDims;
             memberTypedefVla = ts.vlaDimVars;
@@ -2852,7 +2894,7 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
         }
         while (tryParseAttribute()) {}
         StructMember sm;
-        sm.type = type; sm.pointerLevel = ptrLevel; sm.isSigned = mIsSigned;
+        memberType(sm, ptrLevel);
         sm.name = memberName; sm.isConst = mIsConst; sm.alignment = takePendingAlign();
         takePendingSection(false);
         sm.alignmentExpr = std::move(mAlignmentExpr); sm.isAnonymous = false;
@@ -2897,7 +2939,7 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
             }
             while (tryParseAttribute()) {}
             StructMember esm;
-            esm.type = type; esm.pointerLevel = extraPtr; esm.isSigned = mIsSigned;
+            memberType(esm, extraPtr);
             esm.name = extraName; esm.isConst = extraConst;
             esm.arrayDims = extraDims; esm.bitWidth = extraBitWidth;
             if (type == "__bit" && extraPtr == 0 && extraDims.empty() && esm.bitWidth == 0) esm.bitWidth = 1;
@@ -3200,6 +3242,7 @@ std::unique_ptr<Expression> Parser::parseUnary() {
                     expect(TokenType::CLOSE_SQUARE, "Expected ']'");
                 }
                 expect(TokenType::CLOSE_PAREN, "Expected ')' after type in sizeof");
+                { int sp = ts.addressSpace; farPointer(ts.name, ts.pointerLevel, sp, ts.isSigned); }
                 auto node = std::make_unique<SizeofExpression>(ts.name, ts.pointerLevel);
                 node->arrayDims = ts.arrayDims;
                 node->declDims = declDims;
@@ -3271,6 +3314,7 @@ std::unique_ptr<Expression> Parser::parseUnary() {
             castPtrLevel = ts.pointerLevel;
             castVolatile = ts.isVolatile;
             castConst = ts.isConst;
+            { int sp = ts.addressSpace; farPointer(castType, castPtrLevel, sp, castSigned); }
 
             // Array type: (int []) or (int [N]) — an array compound literal;
             // a 0 dimension is taken from the initializer
@@ -3990,6 +4034,19 @@ Parser::TypeSpec Parser::parseTypeSpecifier() {
     return ts;
 }
 
+// __far on a pointer type (T __far *p, __far T *p): the pointer the first
+// '*' makes is a far pointer (#68), a 4-byte scalar cc45 names "__farp T";
+// the other levels are plain pointers (T __far **pp: a pointer to one). A
+// signed T is "__farp signed T"; the far pointer itself is unsigned.
+bool Parser::farPointer(std::string& type, int& ptrLevel, int& addressSpace, bool& isSigned) {
+    if (addressSpace != 3 || ptrLevel < 1 || type.rfind("__farp ", 0) == 0) return false;
+    type = (isSigned ? "__farp signed " : "__farp ") + type;
+    isSigned = false;
+    ptrLevel--;
+    addressSpace = 0;
+    return true;
+}
+
 Parser::TypeSpec Parser::parseTypeSpecifierRaw() {
     TypeSpec ts;
 
@@ -4116,7 +4173,7 @@ Parser::TypeSpec Parser::parseTypeSpecifierRaw() {
         // Phase 97: Address space qualifiers
         if (tokens[pos-1].type == TokenType::ZP) ts.addressSpace = 1;    // ZP
         if (tokens[pos-1].type == TokenType::ABS) ts.addressSpace = 2;   // ABS
-        if (tokens[pos-1].type == TokenType::FAR) ts.addressSpace = 3;   // FAR
+        if (tokens[pos-1].type == TokenType::FAR) { ts.addressSpace = 3; ts.farAfterType = true; }
     }
 
     // If type is followed by __complex__ (reverse order: float __complex__)
@@ -4383,6 +4440,7 @@ bool Parser::tryParseAttribute() {
 }
 
 void Parser::parseTypedef() {
+    int tdSpace = 0;   // (3: __far)
     std::string baseType;
     bool isSigned = false;
     int basePtrLevel = 0;
@@ -4397,6 +4455,7 @@ void Parser::parseTypedef() {
         isSigned = ts.isSigned;
         basePtrLevel = ts.pointerLevel;
         typedefArrayDims = ts.arrayDims;
+        tdSpace = ts.addressSpace;
     }
     // Skip __attribute__ after type: typedef short __attribute__((...)) T;
     while (tryParseAttribute()) {}
@@ -4458,6 +4517,7 @@ void Parser::parseTypedef() {
     while (tryParseAttribute()) {}
     expect(TokenType::SEMICOLON, "Expected ';' after typedef");
 
+    farPointer(baseType, ptrLevel, tdSpace, isSigned);   // typedef T __far *name
     applyVectorMode(baseType, ptrLevel, isSigned);
     TypeAlias ta{baseType, ptrLevel, isSigned, false, nullptr, arrayDims};
     bool anyVla = false;
@@ -4590,6 +4650,7 @@ int Parser::scalarTypeSize(const std::string& type, int ptrLevel) {
     if (t == "char" || t == "_Bool" || t == "bool" || t == "__bit") return 1;
     if (t == "short" || t == "int" || t == "unsigned" || t == "signed" || t == "short int") return 2;
     if (int fb = fixedTypeBits(t)) return fb / 8;
+    if (isFarPointerType(t)) return 4;
     if (t == "long" || t == "long int") return 4;
     if (t == "long long" || t == "long long int") return 8;
     if (t == "float" || t == "double" || t == "long double") return 5;

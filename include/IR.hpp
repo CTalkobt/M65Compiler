@@ -117,6 +117,10 @@ enum class Op : uint8_t {
     FTOI,           // %d = ftoi %a  (float → int)
     ITOF,           // %d = itof %a  (int → float)
     FCONST,         // %d = fconst <5-byte CBM float>
+
+    // Far pointers (T __far *p, #68): a 32-bit address (28 bits used)
+    FAR_LOAD,       // %d = far_load <type> <addr32>
+    FAR_STORE,      // far_store <type> <val>, <addr32>
 };
 
 // ============================================================================
