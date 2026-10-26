@@ -402,6 +402,41 @@ else
     failed=$((failed + 1))
 fi
 
+# Sections (#70; the runtime test is test_section_xemu.c): two files'
+# parts of one section, one with the address; --section overrides it; the
+# initial values kept by --gc-inputs and copied by __zp_init's DMA job;
+# errors: two addresses, none, the program's memory, an undeclared section
+printf '#pragma section("BUF", 0x0C00)\n__section("BUF") char a1[3] = {1, 2, 3};\n__section("BUF") char a2[2];\nextern char b1[];\nint main(void) { return a1[2] + b1[1] + a2[0]; }\n' > build/test/test_sect_a.c
+printf '#pragma section("BUF")\n__section("BUF") char b1[4] = {9, 8, 7, 6};\n' > build/test/test_sect_b.c
+printf '#pragma section("BUF", 0x0D00)\n__section("BUF") char c1;\n' > build/test/test_sect_c.c
+printf '#pragma section("HIGH", 0x2100)\n__section("HIGH") char h[4];\nint main(void) { h[0] = 1; return 0; }\n' > build/test/test_sect_d.c
+printf '__section("NONE") char n;\n' > build/test/test_sect_e.c
+sc_ok=1
+LIBC=lib/build/c45.lib
+if ./bin/cc45 -O2 -ffunction-sections -c build/test/test_sect_a.c -o build/test/test_sect_a.o45 >/dev/null 2>&1 &&
+   ./bin/cc45 -O2 -ffunction-sections -c build/test/test_sect_b.c -o build/test/test_sect_b.o45 >/dev/null 2>&1 &&
+   ./bin/cc45 -O2 -c build/test/test_sect_c.c -o build/test/test_sect_c.o45 >/dev/null 2>&1; then
+    SM=$(./bin/ln45 -basic --gc-inputs -m -o build/test/test_sect.prg build/test/test_sect_a.o45 build/test/test_sect_b.o45 $LIBC 2>&1)
+    for want in '00000c00 _a1' '00000c03 _a2' '00000c05 _b1' 'cc45.sectinit._b1'; do
+        grep -q "$want" <<< "$SM" || sc_ok=0
+    done
+    SM=$(./bin/ln45 -basic --section BUF=0x0E00 -m -o build/test/test_sect.prg build/test/test_sect_a.o45 build/test/test_sect_b.o45 build/test/test_sect_c.o45 $LIBC 2>&1)
+    grep -q '00000e09 _c1' <<< "$SM" || sc_ok=0
+    ./bin/ln45 -basic -o build/test/test_sect.prg build/test/test_sect_a.o45 build/test/test_sect_c.o45 $LIBC 2>&1 |
+        grep -q 'section BUF is at \$0C00 in .* and at \$0D00' || sc_ok=0
+    ./bin/ln45 -basic -o build/test/test_sect.prg build/test/test_sect_b.o45 $LIBC 2>&1 | grep -q 'section BUF has no address' || sc_ok=0
+    ./bin/cc45 -O2 build/test/test_sect_d.c -o build/test/test_sect_d.prg 2>&1 | grep -q 'section HIGH (\$2100-\$2103) overlaps the program' || sc_ok=0
+    ./bin/cc45 -O2 -c build/test/test_sect_e.c -o build/test/test_sect_e.o45 2>&1 | grep -q "section 'NONE' is not declared" || sc_ok=0
+else
+    sc_ok=0
+fi
+if [ $sc_ok = 1 ]; then
+    echo "SUCCESS: sections placed by ln45 (two files, --section, --gc-inputs, errors)"
+else
+    echo "FAIL: sections"
+    failed=$((failed + 1))
+fi
+
 # __zp __bit flags tested several times in a function that leaves them
 # alone: bbs on the byte itself, no load of it (a copy)
 printf '__zp __bit zr, zb;\nunsigned char h;\nvoid t(void) { if (zr) h = 1; if (zr) h = 2; if (!zb) h = 3; }\n' > build/test/test_zpalias.c

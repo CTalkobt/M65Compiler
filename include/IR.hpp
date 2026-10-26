@@ -355,8 +355,14 @@ struct Module {
         // __noescape (Issue #301): read-only, its address used only by this
         // object's code: kept with the code (an overlay's, or __far)
         bool noescape = false;
+        // __section("NAME") (Issue #70): ln45 places it in the section NAME
+        // (no storage here; an initial value is copied there at startup)
+        std::string section;
     };
     std::vector<GlobalVar> globals;
+    // #pragma section("NAME"[, address]): the sections the file declares
+    // (-1: no address here, ln45 --section gives it)
+    std::map<std::string, long> sections;
 
     struct StringLiteral {
         std::string label;

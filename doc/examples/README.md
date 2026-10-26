@@ -412,7 +412,7 @@ library calls (`itoa`, `strlen`).
 [Source](https://github.com/CTalkobt/M65Compiler/tree/main/examples/c/ext_tour) —
 cc45's extensions to C, one per line: each is a short function that uses
 it (struct methods and operators, `break N`, `continue <value>`, `repeat`,
-`__likely`, `__pure`, `__zp`, `__cpu`/`__flags`, `__bit`/`__bits`, `__jsr`, `__fastcall__`, string
+`__likely`, `__pure`, `__zp`, `__cpu`/`__flags`, `__bit`/`__bits`, `__jsr`, `#pragma section`/`__section`, `__fastcall__`, string
 encodings, `optimize(off)`, `__noescape`, vectors, `long long`/`__int(N)`,
 `_Complex`, builtins, `#pragma weak`, `push_macro`) and checks its result.
 The uses are marked `EXT:` in the source. `make check` builds it with both

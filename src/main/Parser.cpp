@@ -155,7 +155,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
         // Skip stray semicolons at top level (e.g., }; after function)
         if (match(TokenType::SEMICOLON)) continue;
         if (match(TokenType::TYPEDEF)) {
-            parseTypedef(); pendingAlign_ = 0;  // aligned on a typedef is not supported
+            parseTypedef(); pendingAlign_ = 0; takePendingSection(false);  // aligned on a typedef is not supported
             continue;
         }
         if (peek().type == TokenType::ASM) {
@@ -186,6 +186,13 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
             if (code == ".noescape_strings" || code == ".escape_strings") {
                 noescapeStrings_ = code == ".noescape_strings";   // #pragma cc45 noescape_strings / escape_strings
                 continue;
+            }
+            if (code.rfind(".cc45_section ", 0) == 0) {
+                // #pragma section("NAME"[, address]): IRBuilder records the address
+                std::istringstream sec(code.substr(14));
+                std::string n;
+                sec >> n;
+                sections_.insert(n);
             }
             flushPending(*unit);
             unit->topLevelDecls.push_back(setPos(std::make_unique<AsmStatement>(code), tokens[asmTok]));
@@ -1402,6 +1409,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
         func->alignment = takePendingAlign();
         func->purity = pendingPurity_; pendingPurity_ = 0;
         pendingNoescape_ = false;   // (on a function: no effect)
+        takePendingSection(false);
         applyAlias(func->name);
         func->isNoInline = pendingNoInline_;
         pendingAlwaysInline_ = pendingNoInline_ = false;
@@ -1435,6 +1443,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     func->alignment = takePendingAlign();
     func->purity = pendingPurity_; pendingPurity_ = 0;
     pendingNoescape_ = false;   // (on a function: no effect)
+    takePendingSection(false);
     applyAlias(func->name);
     func->isNoInline = pendingNoInline_;
     pendingAlwaysInline_ = pendingNoInline_ = false;
@@ -1525,7 +1534,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
     }
 
     if (match(TokenType::TYPEDEF)) {
-        parseTypedef(); pendingAlign_ = 0;  // aligned on a typedef is not supported
+        parseTypedef(); pendingAlign_ = 0; takePendingSection(false);  // aligned on a typedef is not supported
         auto group = setPos(std::make_unique<CompoundStatement>(), tokens[pos-1]);
         group->isDeclGroup = true;
         // typedef int T[n]: n evaluated here
@@ -1582,6 +1591,9 @@ std::unique_ptr<Statement> Parser::parseStatement() {
             isStriped = true;
         } else if (match(TokenType::FASTCALL)) {
             // consumed; handled at function declaration level
+        } else if ((isStatic || isConst || isVolatile) && tryParseAttribute()) {
+            // static __attribute__((...)) / __section("X") char x; (the
+            // declaration takes it)
         } else {
             break;
         }
@@ -2411,6 +2423,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
     while (tryParseAttribute()) {}
     decl->alignment = std::max(decl->alignment, takePendingAlign());
     decl->isNoescape = takePendingNoescape();
+    decl->section = takePendingSection(true);
     pendingPurity_ = 0;   // (on a variable: no effect)
     applyAlias(decl->name);
     applyVectorMode(decl->type, decl->pointerLevel, decl->isSigned);
@@ -2419,6 +2432,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
     // --- Multi-variable declarations: int a, b = 3, *c, d[4]; ---
     if (peek().type == TokenType::COMMA) {
         const bool declNoescape = decl->isNoescape;   // (decl moves into the group)
+        const std::string declSection = decl->section;
         auto compound = setPos(std::make_unique<CompoundStatement>(), typeToken);
         compound->isDeclGroup = true;
         compound->statements.push_back(std::move(decl));
@@ -2500,6 +2514,8 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
                 if (extraConstStars & (1u << j)) extraDecl->innerConstMask |= 1u << (extraStars - j);
             extraDecl->addressSpace = addressSpace;  // Phase 97: Set address space qualifier
             extraDecl->isNoescape = declNoescape || takePendingNoescape();
+            extraDecl->section = takePendingSection(true);
+            if (extraDecl->section.empty()) extraDecl->section = declSection;
             extraDecl->arrayDims = extraDims;
             recordVarSize(extraName, type, extraPtr, extraDims);
             if (match(TokenType::EQUALS)) {
@@ -2832,6 +2848,7 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
         StructMember sm;
         sm.type = type; sm.pointerLevel = ptrLevel; sm.isSigned = mIsSigned;
         sm.name = memberName; sm.isConst = mIsConst; sm.alignment = takePendingAlign();
+        takePendingSection(false);
         sm.alignmentExpr = std::move(mAlignmentExpr); sm.isAnonymous = false;
         sm.arrayDims = memberArrayDims; sm.bitWidth = memberBitWidth;
         // a __bit member: a 1-bit field (#73; consecutive ones share a byte)
@@ -2880,6 +2897,7 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
             if (type == "__bit" && extraPtr == 0 && extraDims.empty() && esm.bitWidth == 0) esm.bitWidth = 1;
             esm.isFlexible = extraFlex;
             esm.alignment = takePendingAlign();
+            takePendingSection(false);
             def->members.push_back(std::move(esm));
         }
         while (tryParseAttribute()) {}
@@ -2889,6 +2907,7 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
     // struct S { ... } __attribute__((aligned(N)))
     while (tryParseAttribute()) {}
     def->alignment = std::max(def->alignment, takePendingAlign());
+    takePendingSection(false);
 
     // Phase 3: If this struct has virtual methods, insert __vt pointer as first member
     if (def->hasVirtual || (!def->parentStruct.empty() && structs.count(def->parentStruct) && structs[def->parentStruct]->hasVirtual)) {
@@ -4161,6 +4180,27 @@ std::string Parser::resolveIntNType(bool isSigned) {
     return prefix + std::to_string(bits);
 }
 
+std::string Parser::takePendingSection(bool variable) {
+    std::string n = pendingSection_;
+    bool strict = pendingSectionStrict_;
+    pendingSection_.clear();
+    pendingSectionStrict_ = false;
+    if (n.empty()) return n;
+    const Token& t = tokens[pendingSectionTok_ < tokens.size() ? pendingSectionTok_ : 0];
+    auto fail = [&](const std::string& msg) {
+        throw std::runtime_error(formatDiagnostic(t.sourceFile, t.line, t.column, Severity::Error, msg));
+    };
+    if (!variable) {
+        if (strict) fail("__section(\"" + n + "\") places variables (globals and statics), not functions, members or types");
+        return "";
+    }
+    if (!sections_.count(n)) {
+        if (strict) fail("section '" + n + "' is not declared: #pragma section(\"" + n + "\", address) before its variables");
+        return "";   // (GCC's section("x"): ignored, as before)
+    }
+    return n;
+}
+
 bool Parser::tryParseAttribute() {
     if (!match(TokenType::ATTRIBUTE)) return false;
 
@@ -4215,6 +4255,18 @@ bool Parser::tryParseAttribute() {
                 continue;
             }
 
+            // cc45_section("NAME") (__section) / section("NAME") (GCC): the
+            // variable goes in the section NAME (Issue #70)
+            if (canonical == "cc45_section" || canonical == "section") {
+                expect(TokenType::OPEN_PAREN, "Expected '(' after section");
+                pendingSectionTok_ = pos;
+                pendingSection_ = expect(TokenType::STRING_LITERAL, "Expected a section name (a string)").value;
+                pendingSectionStrict_ = canonical == "cc45_section";
+                expect(TokenType::CLOSE_PAREN, "Expected ')' after the section name");
+                match(TokenType::COMMA);
+                continue;
+            }
+
             if (canonical == "alias") {
                 expect(TokenType::OPEN_PAREN, "Expected '(' after alias");
                 pendingAlias_ = expect(TokenType::STRING_LITERAL, "Expected alias target name").value;
@@ -4248,7 +4300,7 @@ bool Parser::tryParseAttribute() {
                 canonical == "cold" || canonical == "hot" || canonical == "nothrow" ||
                 canonical == "returns_twice" || canonical == "warn_unused_result" ||
                 canonical == "deprecated" || canonical == "visibility" ||
-                canonical == "section" || canonical == "nonnull" || canonical == "sentinel" ||
+                canonical == "nonnull" || canonical == "sentinel" ||
                 canonical == "format" || canonical == "format_arg" || canonical == "malloc" ||
                 canonical == "alloc_size" || canonical == "constructor" || canonical == "destructor") {
                 // Skip optional parenthesized argument

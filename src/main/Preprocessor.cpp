@@ -36,6 +36,9 @@ Preprocessor::Preprocessor(bool isCompiler) : isCompiler(isCompiler) {
     // __noescape: a constant whose address stays in its object's code (an
     // overlay keeps it with its code; Issue #301)
     macros["__noescape"] = Macro{false, false, {}, "__attribute__((noescape))"};
+    // __section("NAME"): the variable is placed in the section NAME, which
+    // #pragma section("NAME", address) declares (Issue #70)
+    macros["__section"] = Macro{true, false, {"n"}, "__attribute__((cc45_section(n)))"};
     // __pure: a function without side effects (Issue #76)
     macros["__pure"] = Macro{false, false, {}, "__attribute__((pure))"};
     macros["__45GS02__"] = Macro{false, false, {}, "1"};
@@ -1095,6 +1098,11 @@ void Preprocessor::handlePragma(std::istream& ss, std::ostream& output, const st
     } else if (pragmaArg == "once") {
         if (!currentFile.empty()) onceFiles.insert(currentFile);
         output << "\n";
+    } else if (isCompiler && pragmaArg.rfind("section", 0) == 0 &&
+               (pragmaArg.size() == 7 || pragmaArg[7] == '(')) {
+        std::string rest = pragmaArg.substr(7), tail;
+        while (std::getline(ss, tail)) rest += tail;
+        output << sectionDirective(rest) << "\n";
     } else if (isCompiler && pragmaArg == "weak") {
         output << "__asm__(\".weak_next\");\n";
     } else if (isCompiler && pragmaArg == "no_zp_save") {
@@ -1120,6 +1128,10 @@ void Preprocessor::handlePragma(std::istream& ss, std::ostream& output, const st
             output << "__asm__(\".no_zp_save\");\n";
         } else if (cc45Arg == "no_stack16") {
             output << "__asm__(\".no_stack16\");\n";
+        } else if (cc45Arg.rfind("section", 0) == 0 && (cc45Arg.size() == 7 || cc45Arg[7] == '(')) {
+            std::string rest = cc45Arg.substr(7), tail;
+            while (std::getline(ss, tail)) rest += tail;
+            output << sectionDirective(rest) << "\n";
         } else if (cc45Arg.rfind("overlay", 0) == 0) {
             // "overlay(name)" / "overlay name": this file's code is in
             // the code overlay name (ln45 loads it on demand)
@@ -1211,6 +1223,53 @@ void Preprocessor::handlePragma(std::istream& ss, std::ostream& output, const st
     } else {
         output << "\n";
     }
+}
+
+// #pragma section("NAME"[, address]) (also #pragma cc45 section): declares
+// a section variables can be placed in with __section("NAME") (Issue #70);
+// without an address ln45 --section NAME=address gives it. The parser
+// reads the directive: .cc45_section NAME [address]
+std::string Preprocessor::sectionDirective(const std::string& args) {
+    auto fail = [&](const std::string& why) -> std::string {
+        throw std::runtime_error(currentFile_ + ":" + std::to_string(pragmaLine_) + ": error: #pragma section: " + why +
+                                 " (#pragma section(\"NAME\", address))");
+    };
+    std::string a = args;
+    auto trim = [](std::string& t) {
+        t.erase(0, t.find_first_not_of(" \t"));
+        t.erase(t.find_last_not_of(" \t\r") + 1);
+    };
+    trim(a);
+    if (a.size() < 2 || a.front() != '(' || a.back() != ')') return fail("expected (\"NAME\"[, address])");
+    a = a.substr(1, a.size() - 2);
+    trim(a);
+    if (a.empty() || a[0] != '"') return fail("the name is a string");
+    size_t q = a.find('"', 1);
+    if (q == std::string::npos) return fail("the name is a string");
+    std::string name = a.substr(1, q - 1);
+    bool ok = !name.empty() && !std::isdigit((unsigned char)name[0]);
+    for (char c : name) ok = ok && (std::isalnum((unsigned char)c) || c == '_');
+    if (!ok) return fail("'" + name + "' is not a name (letters, digits and _)");
+    std::string addr = a.substr(q + 1);
+    trim(addr);
+    std::string out = "__asm__(\".cc45_section " + name;
+    if (!addr.empty()) {
+        if (addr[0] != ',') return fail("expected ',' after the name");
+        addr = addr.substr(1);
+        trim(addr);
+        unsigned long v = 0;
+        try {
+            size_t used = 0;
+            if (!addr.empty() && addr[0] == '$') { v = std::stoul(addr.substr(1), &used, 16); used++; }
+            else v = std::stoul(addr, &used, 0);
+            if (used != addr.size()) throw std::invalid_argument(addr);
+        } catch (...) {
+            return fail("the address '" + addr + "' is not a number");
+        }
+        if (v > 0xFFFF) return fail("the address '" + addr + "' is beyond $FFFF (variables are reached with 16-bit addresses)");
+        out += " " + std::to_string(v);
+    }
+    return out + "\");";
 }
 
 std::string Preprocessor::processInternal(const std::string& source, const std::string& currentFile, int depth) {
@@ -1563,6 +1622,7 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                 }
                 output << "\n";
             } else if (cmd == "#pragma") {
+                pragmaLine_ = lineNum;
                 handlePragma(ss, output, currentFile);
             } else {
                 output << "\n";
@@ -1620,6 +1680,7 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                 for (const auto& pragma : pendingPragmas_) {
                     std::istringstream ps(pragma);
                     std::ostringstream po;
+                    pragmaLine_ = lineNum;
                     handlePragma(ps, po, currentFile);
                     for (char ch : po.str()) pragmaOut += ch == '\n' ? ' ' : ch;
                 }

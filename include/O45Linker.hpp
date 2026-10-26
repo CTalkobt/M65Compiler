@@ -352,6 +352,8 @@ public:
     // The CPU stack's share below __stack_top: the heap ends there
     // (__stack_size, unless an object defines it)
     void setStackSize(uint16_t v) { stackSize_ = v; }
+    // --section NAME=ADDR: the address of a __section variables' section
+    void setSectionAddr(const std::string& name, uint32_t addr) { sectionAddrOpt_[name] = addr; }
 
     // Code overlays (cc45 #pragma cc45 overlay(name)): where their images
     // are kept in far memory: ranges (first, last byte), each in one bank,
@@ -588,6 +590,19 @@ private:
     std::map<std::string, uint32_t> zpVarAddr_, zpVarSize_;
     uint32_t zpVarTotal_ = 0;          // (with the zp segment below the variables)
     int64_t zpSegAt_ = -1;             // the zp segment's base-page address (placeZpVars), -1: at zpBase_
+    // __section variables (cc45, Issue #70): each object's part of a section
+    // (cc45.sectsize.NAME bytes) follows the previous one's from the
+    // section's address (cc45.section.NAME, or --section NAME=ADDR); a
+    // variable is at its part + cc45.sectvar.NAME.<sym>. One with
+    // cc45.sectinit.<sym> (its initial value, in data) is copied there by
+    // DMA in the generated __zp_init
+    struct Section { uint32_t addr = 0, size = 0; std::string from; };
+    std::map<std::string, Section> sections_;
+    std::map<std::string, uint32_t> sectionAddrOpt_;   // --section NAME=ADDR
+    struct SectVar { uint32_t addr = 0, size = 0; std::string section, object; };
+    std::map<std::string, SectVar> sectVars_;
+    bool placeSections(std::string& errorMsg);
+    bool checkSections(std::string& errorMsg);    // against the program, the stack, overlays
     uint32_t zpInitAt_ = 0;                           // the generated __zp_init (0: none)
     std::vector<std::pair<uint32_t, std::string>> zpInitPatches_;   // text offset, symbol (an address word)
     uint32_t sacOverlayOffset_ = 0;   // its offset in the merged BSS

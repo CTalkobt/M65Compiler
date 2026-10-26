@@ -241,6 +241,12 @@ void O45Linker::gcSections(size_t numRoots) {
         for (size_t e = 0; e < objects_[i].obj.exports.size(); e++) {
             const auto& exp = objects_[i].obj.exports[e];
             (exp.isWeak() ? weakDef : strongDef).emplace(exp.name, std::make_pair(i, e));
+            // a __section variable (cc45.sectvar.NAME.<sym>): ln45 defines
+            // <sym>; its object is what a reference to it needs
+            if (exp.name.rfind("cc45.sectvar.", 0) == 0) {
+                size_t dot = exp.name.find('.', 13);
+                if (dot != std::string::npos) strongDef.emplace(exp.name.substr(dot + 1), std::make_pair(i, e));
+            }
         }
     auto definer = [&](const std::string& name, std::pair<size_t, size_t>& out) {
         auto it = strongDef.find(name);
@@ -288,6 +294,11 @@ void O45Linker::gcSections(size_t numRoots) {
         std::pair<size_t, size_t> d;
         if (definer(name, d)) mark(d.first, exportUnit(d.first, d.second));
     }
+    // the initial values of __section variables are copied at startup,
+    // used or not (a section can hold data for the hardware: a character set)
+    for (size_t i = 0; i < n; i++)
+        for (size_t e = 0; e < objects_[i].obj.exports.size(); e++)
+            if (objects_[i].obj.exports[e].name.rfind("cc45.sectinit.", 0) == 0) mark(i, exportUnit(i, e));
     for (size_t i = 0; i < n; i++) {
         bool root = i < numRoots;
         for (const auto& sa : objects_[i].obj.segAttrs) if (sa.name == "init") root = true;
@@ -1064,6 +1075,19 @@ bool O45Linker::resolveSymbols(std::string& errorMsg) {
         }
     }
 
+    // __section variables: their places in their sections (placeSections)
+    for (const auto& [sym, v] : sectVars_) {
+        auto g = globalSymbols_.find(sym);
+        if (g != globalSymbols_.end() && symbolSource_[sym] != "<linker>" && !symbolWeak_[sym]) {
+            errorMsg = "'" + sym + "' is a variable of section " + v.section + " (" + v.object + ") and is also defined in " +
+                       symbolSource_[sym];
+            return false;
+        }
+        globalSymbols_[sym] = v.addr;
+        symbolSource_[sym] = "<linker>";
+        symbolWeak_[sym] = false;
+    }
+
     // Inject linker-defined BSS boundary symbols.
     // These are used by _init_bss in the CRT to zero BSS at startup.
     if (!globalSymbols_.count("__bss_start")) {
@@ -1623,6 +1647,7 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
     if (!layoutSegments(errorMsg)) return {};
     if (!placeOverlayRegion(errorMsg)) return {};
     if (!placeZpVars(errorMsg)) return {};
+    if (!placeSections(errorMsg)) return {};
     if (!resolveSymbols(errorMsg)) return {};
 
     // Phase 3: function attribute integration and debug info
@@ -1685,6 +1710,7 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
     }
 
     patchZpInit();
+    if (!checkSections(errorMsg)) return {};
     checkAddressCollisions();
 
     // A weak absolute symbol an object's code was assembled with (ca45
@@ -2748,6 +2774,132 @@ void O45Linker::checkZpVarsInIsr() {
     }
 }
 
+// __section variables (cc45 __section("NAME"), Issue #70). A section's
+// address: its objects' cc45.section.NAME (one value), or --section
+// NAME=ADDR; each object's part (cc45.sectsize.NAME bytes) follows the
+// previous object's, its variables at cc45.sectvar.NAME.<sym> in it
+bool O45Linker::placeSections(std::string& errorMsg) {
+    sections_.clear();
+    sectVars_.clear();
+    auto hex = [](uint32_t v) { char b[12]; snprintf(b, sizeof b, "$%04X", (unsigned)v); return std::string(b); };
+    const std::string SECT = "cc45.section.", SIZE = "cc45.sectsize.", VAR = "cc45.sectvar.";
+    std::map<std::string, bool> addressed;
+    for (const auto& input : objects_)
+        for (const auto& exp : input.obj.exports) {
+            if (exp.name.rfind(SIZE, 0) == 0) sections_[exp.name.substr(SIZE.size())];
+            if (exp.name.rfind(SECT, 0) != 0) continue;
+            std::string n = exp.name.substr(SECT.size());
+            auto& sec = sections_[n];
+            if (!addressed[n]) {
+                sec.addr = exp.offset;
+                sec.from = input.filename;
+                addressed[n] = true;
+            } else if (sec.addr != exp.offset && !sectionAddrOpt_.count(n)) {
+                errorMsg = "section " + n + " is at " + hex(sec.addr) + " in " + sec.from + " and at " + hex(exp.offset) +
+                           " in " + input.filename;
+                return false;
+            }
+        }
+    for (auto& [n, sec] : sections_) {
+        auto o = sectionAddrOpt_.find(n);
+        if (o != sectionAddrOpt_.end()) { sec.addr = o->second; sec.from = "--section"; }
+        else if (!addressed[n]) {
+            errorMsg = "section " + n + " has no address: #pragma section(\"" + n +
+                       "\", address) in one of its files, or ln45 --section " + n + "=address";
+            return false;
+        }
+    }
+    for (const auto& input : objects_) {
+        std::map<std::string, uint32_t> part;                                         // section -> its bytes here
+        std::map<std::string, std::vector<std::pair<uint32_t, std::string>>> vars;    // section -> (offset, symbol)
+        for (const auto& exp : input.obj.exports) {
+            if (exp.name.rfind(SIZE, 0) == 0) part[exp.name.substr(SIZE.size())] = exp.offset;
+            if (exp.name.rfind(VAR, 0) != 0) continue;
+            std::string rest = exp.name.substr(VAR.size());
+            size_t dot = rest.find('.');
+            if (dot == std::string::npos) continue;
+            vars[rest.substr(0, dot)].push_back({exp.offset, rest.substr(dot + 1)});
+        }
+        for (const auto& [n, len] : part) {
+            auto& sec = sections_[n];
+            auto& vs = vars[n];
+            std::sort(vs.begin(), vs.end());
+            for (size_t k = 0; k < vs.size(); k++) {
+                const std::string& sym = vs[k].second;
+                auto prev = sectVars_.find(sym);
+                if (prev != sectVars_.end()) {
+                    errorMsg = "section variable '" + sym + "' is defined in " + prev->second.object + " and " + input.filename;
+                    return false;
+                }
+                uint32_t end = k + 1 < vs.size() ? vs[k + 1].first : len;
+                sectVars_[sym] = {sec.addr + sec.size + vs[k].first, end - vs[k].first, n, input.filename};
+            }
+            sec.size += len;
+        }
+    }
+    std::vector<std::pair<uint32_t, std::string>> order;
+    for (const auto& [n, sec] : sections_) {
+        if (sec.addr + sec.size > 0x10000) {
+            errorMsg = "section " + n + " (" + std::to_string(sec.size) + " bytes at " + hex(sec.addr) +
+                       ") goes past $FFFF (its variables are reached with 16-bit addresses)";
+            return false;
+        }
+        if (sec.size) order.push_back({sec.addr, n});
+        ln45info() << "section " << n << ": " << sec.size << " bytes at " << hex(sec.addr) << "\n";
+    }
+    std::sort(order.begin(), order.end());
+    for (size_t k = 1; k < order.size(); k++) {
+        const auto& a = sections_[order[k - 1].second];
+        if (a.addr + a.size > order[k].first) {
+            errorMsg = "sections " + order[k - 1].second + " (" + hex(a.addr) + "-" + hex(a.addr + a.size - 1) + ") and " +
+                       order[k].second + " (at " + hex(order[k].first) + ") overlap";
+            return false;
+        }
+    }
+    return true;
+}
+
+// The sections, once the program is laid out: not in the program (its text,
+// data, BSS and base page), the CPU stack's share or the code overlays'
+// region; in malloc's heap a warning
+bool O45Linker::checkSections(std::string& errorMsg) {
+    if (sections_.empty()) return true;
+    auto hex = [](uint32_t v) { char b[12]; snprintf(b, sizeof b, "$%04X", (unsigned)v); return std::string(b); };
+    uint32_t start = std::min(textBase_, dataBase_);
+    uint32_t end = std::max({textBase_ + (uint32_t)mergedText_.size(), dataBase_ + (uint32_t)mergedData_.size(),
+                             bssBase_ + mergedBssLen_});
+    auto zp = globalSymbols_.find("__zp_page");
+    if (zp != globalSymbols_.end()) end = std::max(end, zp->second + 0x100);
+    auto st = globalSymbols_.find("__stack_top");
+    uint32_t top = st != globalSymbols_.end() ? st->second : 0;
+    auto ss = globalSymbols_.find("__stack_size");
+    uint32_t size = ss != globalSymbols_.end() ? ss->second : stackSize_;
+    uint32_t stackLow = top ? (top + 1 > size ? top + 1 - size : 0) : 0;
+    for (const auto& [n, sec] : sections_) {
+        if (!sec.size) continue;
+        uint32_t a = sec.addr, b = sec.addr + sec.size;
+        std::string what = "section " + n + " (" + hex(a) + "-" + hex(b - 1) + ")";
+        if (a < end && b > start) {
+            errorMsg = what + " overlaps the program (" + hex(start) + "-" + hex(end - 1) + ")";
+            return false;
+        }
+        if (top && a <= top && b > stackLow) {
+            errorMsg = what + " overlaps the CPU stack's share (" + hex(stackLow) + "-" + hex(top) +
+                       "; --stack-size, cc45 -fstack-size)";
+            return false;
+        }
+        if (!ovlNames_.empty() && a < ovlBase_ + ovlSize_ && b > ovlBase_) {
+            errorMsg = what + " overlaps the code overlays' region (" + hex(ovlBase_) + "-" + hex(ovlBase_ + ovlSize_ - 1) + ")";
+            return false;
+        }
+        uint32_t heapEnd = top ? stackLow : 0xC000;
+        if (globalSymbols_.count("__heap_ptr") && a < heapEnd && b > end)
+            *warnStream_ << "ln45: warning: " << what << " is in malloc's heap (" << hex(end) << "-" << hex(heapEnd - 1)
+                         << "): set __heap_start / __heap_end to keep the heap off it" << std::endl;
+    }
+    return true;
+}
+
 // __zp_init: the initial values of __zp variables (cc45.zpinit.<sym>, in
 // data) copied into the base page, one loop per variable:
 //   LDX #n-1 / LDA src,X / STA dst,X / DEX / BPL (n <= 106) ... RTS
@@ -2755,10 +2907,12 @@ void O45Linker::checkZpVarsInIsr() {
 void O45Linker::generateZpInit() {
     zpInitAt_ = 0;
     zpInitPatches_.clear();
-    std::vector<std::string> inits;
+    std::vector<std::string> inits, sectInits;
     for (const auto& [sym, size] : zpVarSize_)
         if (size > 0 && globalSymbols_.count("cc45.zpinit." + sym)) inits.push_back(sym);
-    if (inits.empty()) return;
+    for (const auto& [sym, v] : sectVars_)
+        if (v.size > 0 && globalSymbols_.count("cc45.sectinit." + sym)) sectInits.push_back(sym);
+    if (inits.empty() && sectInits.empty()) return;
     auto& t = mergedText_;
     zpInitAt_ = textBase_ + (uint32_t)t.size();
     for (const auto& sym : inits) {
@@ -2770,7 +2924,32 @@ void O45Linker::generateZpInit() {
         t.push_back(0xCA);                                                // DEX
         t.push_back(0x10); t.push_back(0xF7);                             // BPL (to the LDA)
     }
+    // section variables' initial values: a DMA copy job each (as crt0's
+    // BSS fill: the list's bank, high byte, then its low byte starts it)
+    std::vector<uint32_t> jobRefs;   // text offsets of each job's LDA #< / LDA #> operands
+    for (size_t k = 0; k < sectInits.size(); k++) {
+        t.push_back(0x08); t.push_back(0x78);                             // PHP / SEI
+        t.push_back(0xA9); t.push_back(0x00);                             // LDA #0
+        t.push_back(0x8D); t.push_back(0x02); t.push_back(0xD7);          // STA $D702
+        t.push_back(0xA9); jobRefs.push_back((uint32_t)t.size()); t.push_back(0);   // LDA #>job
+        t.push_back(0x8D); t.push_back(0x01); t.push_back(0xD7);          // STA $D701
+        t.push_back(0xA9); jobRefs.push_back((uint32_t)t.size()); t.push_back(0);   // LDA #<job
+        t.push_back(0x8D); t.push_back(0x00); t.push_back(0xD7);          // STA $D700
+        t.push_back(0x28);                                                // PLP
+    }
     t.push_back(0x60);                                                    // RTS
+    for (size_t k = 0; k < sectInits.size(); k++) {
+        const auto& v = sectVars_[sectInits[k]];
+        uint32_t job = textBase_ + (uint32_t)t.size();
+        t[jobRefs[2 * k]] = (job >> 8) & 0xFF;
+        t[jobRefs[2 * k + 1]] = job & 0xFF;
+        t.push_back(0x00);                                                // copy
+        t.push_back(v.size & 0xFF); t.push_back((v.size >> 8) & 0xFF);   // count
+        zpInitPatches_.push_back({(uint32_t)t.size(), "cc45.sectinit." + sectInits[k]});
+        t.push_back(0); t.push_back(0); t.push_back(0);                   // source, bank 0
+        t.push_back(v.addr & 0xFF); t.push_back((v.addr >> 8) & 0xFF); t.push_back(0);   // destination, bank 0
+        t.push_back(0); t.push_back(0); t.push_back(0);                   // command high, modulo
+    }
     Logger::stream(LogLevel::DEBUG) << "__zp_init at $" << std::hex << zpInitAt_ << std::dec << "\n";
 }
 
@@ -3831,6 +4010,17 @@ void O45Linker::writeMap(std::ostream& out) const {
         char buf[120];
         snprintf(buf, sizeof(buf), "  (__zp variables $%02X - $%02X, %u bytes, %zu variables)\n",
                  ZAR_HI - zpVarLen, ZAR_HI - 1, zpVarLen, zpVarAddr_.size());
+        out << buf;
+    }
+    for (const auto& [n, sec] : sections_) {
+        char buf[160];
+        size_t nv = 0;
+        for (const auto& [sym, v] : sectVars_) nv += v.section == n;
+        if (sec.size)
+            snprintf(buf, sizeof(buf), "  %-6s $%04X - $%04X  (section %s, %u bytes, %zu variables)\n", "SECT", sec.addr,
+                     sec.addr + sec.size - 1, n.c_str(), sec.size, nv);
+        else
+            snprintf(buf, sizeof(buf), "  %-6s $%04X          (section %s, empty)\n", "SECT", sec.addr, n.c_str());
         out << buf;
     }
     printSeg("ZP", zpBase_, mergedZpLen_);
