@@ -26,6 +26,8 @@ int TypeSystem::getTypeSize(
     }
 
     // Single-byte types
+    if (typeName == "__fixed8_8") return 2;
+    if (typeName == "__fixed16_16") return 4;
     if (typeName == "char" || typeName == "unsigned char" || typeName == "_Bool" || typeName == "__bit") {
         return 1;
     }

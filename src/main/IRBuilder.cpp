@@ -395,7 +395,9 @@ ir::Operand IRBuilder::allocVreg(ir::Type t) {
 ir::Type IRBuilder::mapType(const std::string& typeName, int ptrLevel) {
     if (ptrLevel > 0) return ir::Type::PTR;
     if (typeName == "char" || typeName == "unsigned char") return ir::Type::I8;
-    if (isBoolType(typeName)) return ir::Type::I8;   // (1 byte: a 16-bit store wrote the next one too)
+    if (isBoolType(typeName)) return ir::Type::I8;
+    if (typeName == "__fixed8_8") return ir::Type::I16;
+    if (typeName == "__fixed16_16") return ir::Type::I32;   // (1 byte: a 16-bit store wrote the next one too)
     if (typeName == "long" || typeName == "unsigned long") return ir::Type::I32;
     if (typeName == "void") return ir::Type::VOID;
     if (typeName == "float" || typeName == "double") return ir::Type::F32;
@@ -800,6 +802,11 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
         }
     }
     if (auto* deref = dynamic_cast<UnaryOperation*>(expr)) {
+        // -x / +x of a fixed-point x: that fixed type
+        if (deref->op == "-" || deref->op == "+") {
+            IRTypeInfo oi = getExprTypeInfo(deref->operand.get());
+            if (oi.type != ir::Type::PTR && fixedFracOf(oi.typeName)) return oi;
+        }
         // -<constant> is a (negative) signed constant
         if (deref->op == "-") {
             if (auto* lit = dynamic_cast<IntegerLiteral*>(deref->operand.get())) {
@@ -909,6 +916,10 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
                 int rpl = fit->second->returnPointerLevel;
                 return {ir::Type::PTR, rt, sig, mapType(rt, rpl - 1), 2};
             }
+            // a fixed-point result: its type (#72)
+            auto dfit = fit != allFunctions_.end() ? fit : allFunctions_.find(call->name);
+            if (dfit != allFunctions_.end() && fixedFracOf(dfit->second->returnType))
+                return {it->second, dfit->second->returnType, true, ir::Type::VOID, ir::typeSize(it->second)};
             return {it->second, "", sig, ir::Type::VOID, ir::typeSize(it->second)};
         }
         // a call through a function pointer: its signature's result
@@ -928,6 +939,11 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
     if (auto* ce = dynamic_cast<ConditionalExpression*>(expr)) {
         IRTypeInfo a = ce->thenExpr ? getExprTypeInfo(ce->thenExpr.get()) : getExprTypeInfo(ce->condition.get());
         IRTypeInfo b = getExprTypeInfo(ce->elseExpr.get());
+        // a fixed-point branch: the (wider) fixed type, the other converted
+        if (a.type != ir::Type::PTR && b.type != ir::Type::PTR) {
+            int f = std::max(fixedFracOf(a.typeName), fixedFracOf(b.typeName));
+            if (f) return {f == 16 ? ir::Type::I32 : ir::Type::I16, fixedTypeName(f), true, ir::Type::VOID, f == 16 ? 4 : 2};
+        }
         if (a.type == ir::Type::F32) return a;
         if (b.type == ir::Type::F32) return b;
         if (a.type == ir::Type::PTR) return a;
@@ -954,6 +970,16 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
         // For arithmetic/bitwise ops, result type comes from operands
         auto lhs = getExprTypeInfo(bin->left.get());
         auto rhs = getExprTypeInfo(bin->right.get());
+        // + - * / with a fixed-point operand: the wider fixed type; a
+        // comparison or && || of them: an int
+        if (lhs.type != ir::Type::PTR && rhs.type != ir::Type::PTR) {
+            int f = std::max(fixedFracOf(lhs.typeName), fixedFracOf(rhs.typeName));
+            const std::string& o = bin->op;
+            if (f && (o == "+" || o == "-" || o == "*" || o == "/"))
+                return {f == 16 ? ir::Type::I32 : ir::Type::I16, fixedTypeName(f), true, ir::Type::VOID, f == 16 ? 4 : 2};
+            if (f && (o == "==" || o == "!=" || o == "<" || o == ">" || o == "<=" || o == ">=" || o == "&&" || o == "||"))
+                return {ir::Type::I16, "int", true, ir::Type::VOID, 2};
+        }
         // Pointer difference: a signed element count (ptrdiff_t)
         if (bin->op == "-" && lhs.type == ir::Type::PTR && rhs.type == ir::Type::PTR)
             return {ir::Type::I16, "", true, ir::Type::VOID, 2};
@@ -2829,9 +2855,14 @@ bool IRBuilder::initScalar(InitImageCtx& c, int off, const std::string& type, in
         ir::Type t = mapType(type, ptr);
         bool saved = computeAddressOnly_;
         computeAddressOnly_ = false;
-        e->accept(*this);
+        ir::Operand v;
+        if (int f = ptr ? 0 : fixedFracOf(type)) {
+            v = fixedValue(e, f, c.sl);           // (fixed point: scaled)
+        } else {
+            e->accept(*this);
+            v = lastValue_;
+        }
         computeAddressOnly_ = saved;
-        ir::Operand v = lastValue_;
         if (v.type != t && v.type != ir::Type::VOID && t != ir::Type::I_N)
             v = emitCast(v, t, getExprTypeInfo(e).isSigned);
         if (bitWidth > 0) {
@@ -2867,6 +2898,14 @@ bool IRBuilder::initScalar(InitImageCtx& c, int off, const std::string& type, in
         return true;
     }
     Expression* orig = e;   // (with its casts: a number's value)
+    // a fixed-point element: its constant scaled, in its bytes
+    if (int f = ptr ? 0 : fixedFracOf(type)) {
+        int64_t raw;
+        int n = f == 16 ? 4 : 2;
+        if (!fixedConstRaw(orig, f, raw) || off < 0 || off + n > (int)c.gv->initBytes.size()) return false;
+        for (int k = 0; k < n; k++) c.gv->initBytes[off + k] = (uint8_t)(raw >> (8 * k));
+        return true;
+    }
     while (auto* cast = dynamic_cast<CastExpression*>(e)) e = cast->expression.get();
     auto& bytes = c.gv->initBytes;
     ir::Type t = mapType(type, ptr);
@@ -3835,6 +3874,22 @@ void IRBuilder::visit(VariableDeclaration& node) {
             one->line = node.initializer->line; one->column = node.initializer->column;
             one->sourceFile = node.initializer->sourceFile;
             node.initializer = std::move(one);
+        }
+    }
+    // fixed point (#72): a static one's constant scaled (its integer), a
+    // local's value converted
+    if (node.initializer && node.pointerLevel == 0 && node.arrayDims.empty() &&
+        !dynamic_cast<InitializerList*>(node.initializer.get())) {
+        if (int f = fixedFracOf(node.type); f && (!currentFunc_ || node.isStatic)) {
+            int64_t raw;
+            if (fixedConstRaw(node.initializer.get(), f, raw)) {
+                auto lit = std::make_unique<IntegerLiteral>(f == 16 ? (int64_t)(int32_t)raw : (int64_t)(int16_t)raw);
+                lit->line = node.initializer->line; lit->column = node.initializer->column;
+                lit->sourceFile = node.initializer->sourceFile;
+                node.initializer = std::move(lit);
+            }
+        } else if (currentFunc_ && !node.isStatic) {
+            fixedConvertTo(node.initializer, node.type, 0);
         }
     }
     if (node.isVolatile) volatileNames_.insert(node.name);
@@ -4919,6 +4974,25 @@ void IRBuilder::visit(Assignment& node) {
         emitBitSelectWrite(*bs, node.op, node.expression.get(), false, node);
         return;
     }
+    // fixed point (#72): x op= y as x = (type of x)(x op y); a value of
+    // another type converted
+    if (fixedFrac(node.target.get()) || fixedFrac(node.expression.get())) {
+        IRTypeInfo tt = getExprTypeInfo(node.target.get());
+        std::string tn = tt.typeName;
+        if (node.op != "=" && (node.op == "+=" || node.op == "-=" || node.op == "*=" || node.op == "/=")) {
+            if (auto copy = cloneSimpleExpr(node.target.get())) {
+                auto bin = std::make_unique<BinaryOperation>(node.op.substr(0, 1), std::move(copy), std::move(node.expression));
+                bin->line = node.line; bin->column = node.column; bin->sourceFile = node.sourceFile;
+                node.expression = std::move(bin);
+                node.op = "=";
+            } else if (fixedFrac(node.target.get())) {
+                errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column, Severity::Error,
+                    "'" + node.op + "' on a fixed-point lvalue with side effects: write x = x " + node.op.substr(0, 1) + " y"));
+                return;
+            }
+        }
+        if (node.op == "=" && tt.type != ir::Type::PTR) fixedConvertTo(node.expression, tn, 0);
+    }
     if (auto* vr = dynamic_cast<VariableReference*>(node.target.get())) {
         auto it = locals_.find(vr->name);
         if (it != locals_.end()) setVregs_.insert(it->second.vregId);
@@ -5763,6 +5837,7 @@ void IRBuilder::visit(BinaryOperation& node) {
             }
         }
     }
+    if (emitFixedBinary(node)) return;   // (fixed point: IRBuilderFixed.cpp)
     // GCC vectors: element by element
     if (node.op != "," && node.op != "&&" && node.op != "||" && currentFunc_ &&
         (!vecOf(node.left.get()).empty() || !vecOf(node.right.get()).empty())) {
@@ -6714,6 +6789,24 @@ void IRBuilder::visit(UnaryOperation& node) {
 }
 
 void IRBuilder::visit(CastExpression& node) {
+    // (__fixed8_8)x, (int)fx, (float)fx: fixed point (IRBuilderFixed.cpp)
+    if (node.pointerLevel == 0 && !computeAddressOnly_ && !isBoolType(node.targetType)) {
+        int to = fixedFracOf(node.targetType);
+        if (to) {
+            lastValue_ = fixedValue(node.expression.get(), to, loc(node));
+            lastValueSigned_ = true;
+            return;
+        }
+        if (int from = fixedFrac(node.expression.get()); from && !structOf(node.targetType)) {
+            ir::Type t = mapType(node.targetType, 0);
+            if (t == ir::Type::I8 || t == ir::Type::I16 || t == ir::Type::I32 || t == ir::Type::F32) {
+                node.expression->accept(*this);
+                lastValue_ = fixedTo(lastValue_, from, t, node.isSigned, loc(node));
+                lastValueSigned_ = node.isSigned;
+                return;
+            }
+        }
+    }
     // (_Bool)x: 0 or 1
     if (node.pointerLevel == 0 && isBoolType(node.targetType) && !computeAddressOnly_) {
         narrowWide(node.expression, ir::Type::I8, true);
@@ -6818,6 +6911,7 @@ void IRBuilder::visit(FunctionCall& node) {
             size_t skip = !params.empty() && params[0].name == "__sret" ? 1 : 0;
             for (size_t i = 0; i < node.arguments.size() && i + skip < params.size(); i++) {
                 const auto& par = params[i + skip];
+                fixedConvertTo(node.arguments[i], par.type, par.pointerLevel);   // (fixed point, #72)
                 if (par.pointerLevel) continue;
                 std::string wn = getAggregateName(par.type);
                 if (wn.rfind("struct ", 0) == 0) wn = wn.substr(7);
@@ -7967,6 +8061,9 @@ void IRBuilder::simplifyPrintfCall(FunctionCall& call) {
 // ============================================================================
 
 void IRBuilder::visit(ReturnStatement& node) {
+    // fixed point (#72): the value converted to / from the return type
+    if (const FunctionDeclaration* rf = returningFunction(); rf && node.expression)
+        fixedConvertTo(node.expression, rf->returnType, rf->returnPointerLevel);
     // Inline expansion: return stores to inline result vreg and branches to merge.
     // The value has the inlined function's return type (the result vreg's),
     // not that of the function it is inlined into (currentFunc_)
@@ -8426,6 +8523,14 @@ void IRBuilder::visit(ForStatement& node) {
 // ============================================================================
 
 void IRBuilder::visit(ConditionalExpression& node) {
+    // fixed point (#72): both branches of the result's fixed type
+    if (node.thenExpr) {
+        IRTypeInfo rt = getExprTypeInfo(&node);
+        if (fixedFracOf(rt.typeName)) {
+            fixedConvertTo(node.thenExpr, rt.typeName, 0);
+            fixedConvertTo(node.elseExpr, rt.typeName, 0);
+        }
+    }
     // the condition is a value even when the result is wanted as an address
     bool savedAddrOnly = computeAddressOnly_;
     computeAddressOnly_ = false;
@@ -10536,6 +10641,13 @@ ir::Operand IRBuilder::emitBoolConvert(ir::Operand v, const ir::SourceLoc& sl) {
     emit(c);
     boolVregs_.insert({currentFunc_, c.dest.vregId});
     return c.dest;
+}
+
+const FunctionDeclaration* IRBuilder::returningFunction() {
+    std::string n = !inlineReturnLabel_.empty() ? inlineSourceFunc_
+                  : currentFunc_ ? currentFunc_->name.substr(currentFunc_->name[0] == '_' ? 1 : 0) : std::string();
+    auto it = allFunctions_.find(n);
+    return it == allFunctions_.end() ? nullptr : it->second;
 }
 
 bool IRBuilder::returnsBool() {

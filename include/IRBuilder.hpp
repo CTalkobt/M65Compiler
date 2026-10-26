@@ -96,6 +96,17 @@ public:
     static bool isBoolType(const std::string& t) { return t == "_Bool" || t == "bool" || t == "__bit"; }
     ir::Operand emitBoolConvert(ir::Operand v, const ir::SourceLoc& sl);
     bool nonNullAddress(Expression& e) override;   // (ConstEvalContext)
+    // Fixed point (#72, IRBuilderFixed.cpp): __fixed8_8 / __fixed16_16
+    static int fixedFracOf(const std::string& typeName);   // 8, 16, or 0
+    static const char* fixedTypeName(int frac);
+    int fixedFrac(Expression* e);                           // e's type's fraction bits (0: not fixed)
+    bool fixedConstRaw(Expression* e, int frac, int64_t& raw);
+    ir::Operand fixedOp(ir::Op op, ir::Operand a, ir::Operand b, ir::Type t, const ir::SourceLoc& sl);
+    ir::Operand fixedValue(Expression* e, int frac, const ir::SourceLoc& sl);
+    ir::Operand fixedTo(ir::Operand raw, int frac, ir::Type t, bool isSigned, const ir::SourceLoc& sl);
+    bool emitFixedBinary(BinaryOperation& node);
+    void fixedConvertTo(std::unique_ptr<Expression>& e, const std::string& targetType, int ptr);
+    const FunctionDeclaration* returningFunction();         // the function (or the inlined one) a return is of
     bool returnsBool();                                     // the function (or the inlined one) returns _Bool
     std::map<std::string, std::vector<bool>> functionParamBool_;   // its _Bool parameters
     // __bit variables at file scope (#73): each a bit of a hidden static byte

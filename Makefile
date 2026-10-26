@@ -59,7 +59,7 @@ $(LIB_DIR)/lib45-c-compile.a: $(addprefix $(OBJ_DIR)/, \
 
 # lib45-ir: Intermediate representation (basic IR structures, no codegen)
 $(LIB_DIR)/lib45-ir.a: $(addprefix $(OBJ_DIR)/, \
-    IRBuilder.o IRBuilderLoopIdiom.o IRPrinter.o IROptimizer.o VRegAllocator.o)
+    IRBuilder.o IRBuilderLoopIdiom.o IRBuilderFixed.o IRPrinter.o IROptimizer.o VRegAllocator.o)
 	@mkdir -p $(LIB_DIR)
 	@rm -f $@
 	$(AR) rcs $@ $^

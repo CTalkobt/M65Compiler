@@ -1,0 +1,132 @@
+; fixed.s45 — 16.16 fixed-point multiply and divide (cc45 __fixed16_16, #72)
+;
+; __fixed16_16 __fx16_mul(__fixed16_16 a, __fixed16_16 b);   (a * b) >> 16
+; __fixed16_16 __fx16_div(__fixed16_16 a, __fixed16_16 b);   (a << 16) / b
+;   a in $10-$13, b in $14-$17 (ZP convention, both libraries); the result
+;   in A X Y Z. Signed: the magnitudes go to the MEGA65's multiplier /
+;   divider ($D770 / $D774; the 64-bit product at $D778, the 32.32
+;   quotient at $D768), the result negated when the signs differ.
+;   Truncated (toward zero); a result that does not fit wraps.
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.global ___fx16_mul, ___fx16_div
+
+; library temps ($F6-$FC): the sign, the result
+FX_SIGN = $F6
+FX_R    = $F7
+
+.segment "code"
+
+; the magnitudes of a and b to the hardware's inputs, the result's sign
+proc __fx_operands
+    lda $13
+    eor $17
+    sta FX_SIGN
+    lda $13
+    bpl @apos
+    sec
+    lda #0
+    sbc $10
+    sta $10
+    lda #0
+    sbc $11
+    sta $11
+    lda #0
+    sbc $12
+    sta $12
+    lda #0
+    sbc $13
+    sta $13
+@apos:
+    lda $17
+    bpl @bpos
+    sec
+    lda #0
+    sbc $14
+    sta $14
+    lda #0
+    sbc $15
+    sta $15
+    lda #0
+    sbc $16
+    sta $16
+    lda #0
+    sbc $17
+    sta $17
+@bpos:
+    ldx #3
+@copy:
+    lda $14,x
+    sta $D774,x
+    lda $10,x
+    sta $D770,x
+    dex
+    bpl @copy
+    rts
+endproc
+
+; FX_R negated when the signs differed, then to A X Y Z
+proc __fx_result
+    bit FX_SIGN
+    bpl @load
+    sec
+    lda #0
+    sbc FX_R
+    sta FX_R
+    lda #0
+    sbc FX_R+1
+    sta FX_R+1
+    lda #0
+    sbc FX_R+2
+    sta FX_R+2
+    lda #0
+    sbc FX_R+3
+    sta FX_R+3
+@load:
+    lda FX_R+3
+    taz
+    ldy FX_R+2
+    ldx FX_R+1
+    lda FX_R
+    rts
+endproc
+
+proc ___fx16_mul
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17
+    .zp_clobbers $10, $11, $12, $13, $14, $15, $16, $17
+    .zp_release $10, $11, $12, $13, $14, $15, $16, $17
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr __fx_operands
+    ldx #3
+@get:
+    lda $D77A,x             ; product bits 16-47
+    sta FX_R,x
+    dex
+    bpl @get
+    jmp __fx_result
+    .func_flags zp_call
+endproc
+
+proc ___fx16_div
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17
+    .zp_clobbers $10, $11, $12, $13, $14, $15, $16, $17
+    .zp_release $10, $11, $12, $13, $14, $15, $16, $17
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr __fx_operands
+@wait:
+    bit $D70F               ; the divider busy
+    bmi @wait
+    ldx #3
+@get:
+    lda $D76A,x             ; quotient bits -16..15 (32.32 at $D768)
+    sta FX_R,x
+    dex
+    bpl @get
+    jmp __fx_result
+    .func_flags zp_call
+endproc

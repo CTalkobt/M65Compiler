@@ -143,6 +143,16 @@ On string literals cc45 does without some of these calls (`strlen("hello")` is 5
 
 `string.h` also declares `__builtin_memcpy`, `__builtin_memset`, `__builtin_memmove`, `__builtin_memcmp`, `__builtin_strlen`, `__builtin_strcpy` and `__builtin_strcmp`, which the library provides. The library also exports `memcpy_optimized` (`stdlib/memcpy_fast.c`), which is not declared in any header.
 
+### fixed.h
+
+The fixed-point types `__fixed8_8` and `__fixed16_16` are cc45's own ([cc45.md](../bin/cc45.md#fixed-point-__fixed8_8-__fixed16_16)); the header comes with them (included automatically):
+
+| Name | Description |
+|------|-------------|
+| `__fixed16_16 __fx16_mul(__fixed16_16 a, __fixed16_16 b)`, `__fx16_div` | *asm* (`stdlib_asm/fixed.s45`). 16.16 `a * b` and `a / b`: the magnitudes through the hardware multiplier ($D770 × $D774 → $D778) and divider ($D768, waiting on $D70F), the sign after; cc45 calls them for `*` and `/` |
+| `toFloat8_8(v)`, `toFloat16_16(v)` | Macros: the value as a `float` (`printf("%f", toFloat8_8(x))`) |
+| `toInt8_8(v)`, `toInt16_16(v)` | Macros: the value as a `signed int` / `signed long`, the fraction dropped toward 0 |
+
 ## 6. Character Utilities (`ctype.h`)
 
 All functions are `static inline` in the header and take an `int` PETSCII code (the library also has assembly versions, used only when `ctype.h` is not included). They return 1 or 0, except the conversions.

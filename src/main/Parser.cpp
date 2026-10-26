@@ -70,6 +70,10 @@ Parser::Parser(const std::vector<Token>& tokens) : tokens(tokens), pos(0) {
     // with others by IRBuilder) and, followed by '(', the builtin __bit(v, n)
     // (#204): that one is renamed so it is not taken for the type
     typedefs["__bit"] = TypeAlias{"__bit", 0, false};
+    // fixed point (#72): 8.8 in 16 bits, 16.16 in 32, signed (IRBuilder
+    // scales constants and products)
+    typedefs["__fixed8_8"] = TypeAlias{"__fixed8_8", 0, true};
+    typedefs["__fixed16_16"] = TypeAlias{"__fixed16_16", 0, true};
     for (size_t i = 0; i + 1 < this->tokens.size(); i++)
         if (this->tokens[i].type == TokenType::IDENTIFIER && this->tokens[i].value == "__bit" &&
             this->tokens[i + 1].type == TokenType::OPEN_PAREN)
@@ -4483,7 +4487,8 @@ int Parser::scalarTypeSize(const std::string& type, int ptrLevel) {
     for (const char* q : {"unsigned ", "signed ", "const ", "volatile "})
         for (size_t at; (at = t.find(q)) != std::string::npos; ) t.erase(at, std::strlen(q));
     if (t == "char" || t == "_Bool" || t == "bool" || t == "__bit") return 1;
-    if (t == "short" || t == "int" || t == "unsigned" || t == "signed" || t == "short int") return 2;
+    if (t == "short" || t == "int" || t == "unsigned" || t == "signed" || t == "short int" || t == "__fixed8_8") return 2;
+    if (t == "__fixed16_16") return 4;
     if (t == "long" || t == "long int") return 4;
     if (t == "long long" || t == "long long int") return 8;
     if (t == "float" || t == "double" || t == "long double") return 5;
