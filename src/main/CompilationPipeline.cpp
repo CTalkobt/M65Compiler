@@ -333,6 +333,7 @@ CompilationResult CompilationPipeline::compile() {
                               config_.libraryPaths, config_.toolDir, config_.zpCallMode);
         linkStage.setGcInputs(config_.functionSections);
         linkStage.setDebugFile(config_.debugFile);
+        linkStage.setLinkerArgs(config_.linkerArgs);
         auto linkResult = runStage(linkStage);
         remove(objectFile.c_str());
 

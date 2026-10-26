@@ -31,7 +31,10 @@ public:
     void setGcInputs(bool on) { gcInputs_ = on; }
     // -g: ln45 writes the program's debug information, <program>.dbg
     void setDebugFile(bool on) { debugFile_ = on; }
+    // -Wl,... / -Xlinker: options of ln45's own (--section NAME=ADDR, -m, ...)
+    void setLinkerArgs(const std::vector<std::string>& a) { linkerArgs_ = a; }
 private:
+    std::vector<std::string> linkerArgs_;
     bool gcInputs_ = false;
     bool debugFile_ = false;
     std::string objectFile_;

@@ -2254,6 +2254,21 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
             emit(".segment \"code\"");
             continue;
         }
+        // a __section function: in the text segment "sect.NAME", which ln45
+        // links to run at the section's address and copies there at startup
+        if (!fn.section.empty() && relocMode_) {
+            textSeg_ = "sect." + fn.section;
+            emit(".segment \"" + textSeg_ + "\"");
+            emitFunctionPruned(fn, relocMode, nestedInModule);
+            textSeg_ = "code";
+            emit(".segment \"code\"");
+            continue;
+        }
+        if (!fn.section.empty()) {
+            static std::set<std::string> warned;   // (the code is generated twice: loop rotation)
+            if (warned.insert(fn.name).second)
+                std::cerr << "cc45: warning: '" << fn.name.substr(1) << "': -S output keeps a section function with the other code\n";
+        }
         emitFunctionPruned(fn, relocMode, nestedInModule);
     }
 

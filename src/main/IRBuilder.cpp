@@ -1619,6 +1619,11 @@ void IRBuilder::visit(FunctionDeclaration& node) {
     fn.isNaked = node.isNaked;
     fn.isRegparm = node.isRegparm;
     fn.isFar = node.isFar;
+    fn.section = node.section;
+    if (!fn.section.empty() && (node.isFar || node.isNested))
+        errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column, Severity::Error,
+            "'" + node.name + "' in section '" + node.section + "': " +
+            (node.isFar ? "a __far function is kept in far memory" : "a nested function is not placed in a section")));
     fn.isNested = node.isNested;
     if (funcAlign_.count(node.name)) fn.align = funcAlign_[node.name];
 

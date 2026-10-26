@@ -1409,9 +1409,9 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
         func->alignment = takePendingAlign();
         func->purity = pendingPurity_; pendingPurity_ = 0;
         pendingNoescape_ = false;   // (on a function: no effect)
-        takePendingSection(false);
+        applyFunctionSection(*func);
         applyAlias(func->name);
-        func->isNoInline = pendingNoInline_;
+        func->isNoInline = pendingNoInline_ || !func->section.empty();
         pendingAlwaysInline_ = pendingNoInline_ = false;
         // The next declarator is parsed as a declaration of its own: repeat
         // the specifiers in front of it (startToken is not used after this)
@@ -1443,9 +1443,9 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     func->alignment = takePendingAlign();
     func->purity = pendingPurity_; pendingPurity_ = 0;
     pendingNoescape_ = false;   // (on a function: no effect)
-    takePendingSection(false);
+    applyFunctionSection(*func);
     applyAlias(func->name);
-    func->isNoInline = pendingNoInline_;
+    func->isNoInline = pendingNoInline_ || !func->section.empty();
     pendingAlwaysInline_ = pendingNoInline_ = false;
     func->isStatic = isStatic;
     func->isFar = isFar;
@@ -4180,6 +4180,24 @@ std::string Parser::resolveIntNType(bool isSigned) {
     return prefix + std::to_string(bits);
 }
 
+void Parser::applyFunctionSection(FunctionDeclaration& f) {
+    std::string n = takePendingSection(true);
+    if (n.empty()) {
+        auto it = functionSections_.find(f.name);
+        if (it != functionSections_.end()) n = it->second;
+    } else {
+        auto it = functionSections_.find(f.name);
+        if (it != functionSections_.end() && it->second != n) {
+            const Token& t = tokens[pendingSectionTok_ < tokens.size() ? pendingSectionTok_ : 0];
+            throw std::runtime_error(formatDiagnostic(t.sourceFile, t.line, t.column, Severity::Error,
+                "'" + f.name + "' is declared in section '" + it->second + "' and in section '" + n + "'"));
+        }
+        functionSections_[f.name] = n;
+    }
+    f.section = n;
+    if (!n.empty()) f.isNoInline = true;   // (its code runs in the section)
+}
+
 std::string Parser::takePendingSection(bool variable) {
     std::string n = pendingSection_;
     bool strict = pendingSectionStrict_;
@@ -4191,7 +4209,7 @@ std::string Parser::takePendingSection(bool variable) {
         throw std::runtime_error(formatDiagnostic(t.sourceFile, t.line, t.column, Severity::Error, msg));
     };
     if (!variable) {
-        if (strict) fail("__section(\"" + n + "\") places variables (globals and statics), not functions, members or types");
+        if (strict) fail("__section(\"" + n + "\") places variables and functions, not members or types");
         return "";
     }
     if (!sections_.count(n)) {

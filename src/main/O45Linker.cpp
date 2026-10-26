@@ -660,6 +660,9 @@ uint32_t O45Linker::segmentBase(O45Segment seg) const {
 bool O45Linker::layoutSegments(std::string& errorMsg) {
     mergedText_.clear();
     for (auto& t : ovlText_) t.clear();
+    sectCodeNames_.clear();
+    sectCode_.clear();
+    sectCodeImage_.clear();
     mergedData_.clear();
     mergedBssLen_ = 0;
     bssLenBeforeZpPage_ = -1;
@@ -841,8 +844,18 @@ bool O45Linker::layoutSegments(std::string& errorMsg) {
             // (a code overlay's: in its own text, at the region's address,
             // which is page-aligned; __far code: in its automatic overlay)
             int chunkOvl = chunk.subSegName == "far" ? farOvl[chunk.objectIdx] : input.ovl;
-            auto& text = chunkOvl ? ovlText_[chunkOvl - 1] : mergedText_;
-            uint32_t tbase = chunkOvl ? 0 : textBase_;
+            // a __section function's code: in its section's (resident, not
+            // in a code overlay)
+            int sect = -1;
+            if (chunk.subSegName.rfind("sect.", 0) == 0) {
+                std::string n = chunk.subSegName.substr(5);
+                auto it = std::find(sectCodeNames_.begin(), sectCodeNames_.end(), n);
+                sect = (int)(it - sectCodeNames_.begin());
+                if (it == sectCodeNames_.end()) { sectCodeNames_.push_back(n); sectCode_.emplace_back(); }
+                chunkOvl = 0;
+            }
+            auto& text = sect >= 0 ? sectCode_[sect] : chunkOvl ? ovlText_[chunkOvl - 1] : mergedText_;
+            uint32_t tbase = chunkOvl || sect >= 0 ? 0 : textBase_;
             uint32_t ta = textAlignOf(input.obj);
             if (ta > 1)
                 while ((tbase + (uint32_t)text.size() - chunk.srcOffset) % ta) text.push_back(0);
@@ -854,8 +867,14 @@ bool O45Linker::layoutSegments(std::string& errorMsg) {
             text.insert(text.end(), begin, end);
 
             // Record remap
-            input.textRemaps.push_back({chunk.srcOffset, chunk.srcLen, destOffset, chunk.subSegName, chunkOvl});
+            input.textRemaps.push_back({chunk.srcOffset, chunk.srcLen, destOffset, chunk.subSegName, chunkOvl, sect});
         }
+    }
+    // the section code's copies in the program's text (filled in by
+    // copySectionCode once relocated; copied into place at startup)
+    for (const auto& code : sectCode_) {
+        sectCodeImage_.push_back((uint32_t)mergedText_.size());
+        mergedText_.insert(mergedText_.end(), code.size(), 0);
     }
 
     // For objects with no sub-segments and no text body processed above,
@@ -1242,7 +1261,9 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
         // Text (objIdx >= 0): its chunk decides where it went -- the merged
         // text or an overlay's (sub-segments, __far code)
         int siteOvl = objIdx >= 0 ? input.ovlAt(r.offset) : 0;
-        auto& body = objIdx >= 0 ? (siteOvl ? ovlText_[siteOvl - 1] : mergedText_) : bodyArg;
+        int siteSect = objIdx >= 0 ? input.sectAt(r.offset) : -1;
+        auto& body = objIdx >= 0 ? (siteSect >= 0 ? sectCode_[siteSect] : siteOvl ? ovlText_[siteOvl - 1] : mergedText_)
+                                 : bodyArg;
         uint32_t patchPos = objIdx >= 0 ? input.remapTextOffset(r.offset) : objOffset + r.offset;
 
         // Log all relocations before processing (disabled for production)
@@ -1740,6 +1761,7 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
         }
 
     if (!applyRelocations(errorMsg)) return {};
+    copySectionCode();
 
     // Code overlays: the program (to the end of BSS and its base page) stays
     // below the region; the images go to the overlay file
@@ -2784,6 +2806,7 @@ bool O45Linker::placeSections(std::string& errorMsg) {
     auto hex = [](uint32_t v) { char b[12]; snprintf(b, sizeof b, "$%04X", (unsigned)v); return std::string(b); };
     const std::string SECT = "cc45.section.", SIZE = "cc45.sectsize.", VAR = "cc45.sectvar.";
     std::map<std::string, bool> addressed;
+    for (size_t k = 0; k < sectCodeNames_.size(); k++) sections_[sectCodeNames_[k]].code = (uint32_t)sectCode_[k].size();
     for (const auto& input : objects_)
         for (const auto& exp : input.obj.exports) {
             if (exp.name.rfind(SIZE, 0) == 0) sections_[exp.name.substr(SIZE.size())];
@@ -2808,6 +2831,7 @@ bool O45Linker::placeSections(std::string& errorMsg) {
                        "\", address) in one of its files, or ln45 --section " + n + "=address";
             return false;
         }
+        sec.size = sec.code;   // (its functions' code first)
     }
     for (const auto& input : objects_) {
         std::map<std::string, uint32_t> part;                                         // section -> its bytes here
@@ -2912,6 +2936,9 @@ void O45Linker::generateZpInit() {
         if (size > 0 && globalSymbols_.count("cc45.zpinit." + sym)) inits.push_back(sym);
     for (const auto& [sym, v] : sectVars_)
         if (v.size > 0 && globalSymbols_.count("cc45.sectinit." + sym)) sectInits.push_back(sym);
+    // (a section's code: copied as an initial value from its copy in the text)
+    for (size_t k = 0; k < sectCode_.size(); k++)
+        if (!sectCode_[k].empty()) sectInits.push_back("<code>" + std::to_string(k));
     if (inits.empty() && sectInits.empty()) return;
     auto& t = mergedText_;
     zpInitAt_ = textBase_ + (uint32_t)t.size();
@@ -2939,15 +2966,25 @@ void O45Linker::generateZpInit() {
     }
     t.push_back(0x60);                                                    // RTS
     for (size_t k = 0; k < sectInits.size(); k++) {
-        const auto& v = sectVars_[sectInits[k]];
+        uint32_t size, dest, src = 0;
+        if (sectInits[k].rfind("<code>", 0) == 0) {
+            size_t c = std::stoul(sectInits[k].substr(6));
+            size = (uint32_t)sectCode_[c].size();
+            dest = sections_[sectCodeNames_[c]].addr;
+            src = textBase_ + sectCodeImage_[c];
+        } else {
+            const auto& v = sectVars_[sectInits[k]];
+            size = v.size;
+            dest = v.addr;
+        }
         uint32_t job = textBase_ + (uint32_t)t.size();
         t[jobRefs[2 * k]] = (job >> 8) & 0xFF;
         t[jobRefs[2 * k + 1]] = job & 0xFF;
         t.push_back(0x00);                                                // copy
-        t.push_back(v.size & 0xFF); t.push_back((v.size >> 8) & 0xFF);   // count
-        zpInitPatches_.push_back({(uint32_t)t.size(), "cc45.sectinit." + sectInits[k]});
-        t.push_back(0); t.push_back(0); t.push_back(0);                   // source, bank 0
-        t.push_back(v.addr & 0xFF); t.push_back((v.addr >> 8) & 0xFF); t.push_back(0);   // destination, bank 0
+        t.push_back(size & 0xFF); t.push_back((size >> 8) & 0xFF);       // count
+        if (!src) zpInitPatches_.push_back({(uint32_t)t.size(), "cc45.sectinit." + sectInits[k]});
+        t.push_back(src & 0xFF); t.push_back((src >> 8) & 0xFF); t.push_back(0);     // source, bank 0
+        t.push_back(dest & 0xFF); t.push_back((dest >> 8) & 0xFF); t.push_back(0);   // destination, bank 0
         t.push_back(0); t.push_back(0); t.push_back(0);                   // command high, modulo
     }
     Logger::stream(LogLevel::DEBUG) << "__zp_init at $" << std::hex << zpInitAt_ << std::dec << "\n";
@@ -3062,7 +3099,18 @@ void O45Linker::assignOverlays() {
 }
 
 uint32_t O45Linker::textAddrOf(const InputObject& in, uint32_t origOff) const {
+    int sect = in.sectAt(origOff);
+    if (sect >= 0) {
+        auto it = sections_.find(sectCodeNames_[sect]);
+        return (it != sections_.end() ? it->second.addr : 0) + in.remapTextOffset(origOff);
+    }
     return (in.ovlAt(origOff) ? ovlBase_ : textBase_) + in.remapTextOffset(origOff);
+}
+
+// The section code, relocated, into its copy in the program's text
+void O45Linker::copySectionCode() {
+    for (size_t k = 0; k < sectCode_.size(); k++)
+        std::copy(sectCode_[k].begin(), sectCode_[k].end(), mergedText_.begin() + sectCodeImage_[k]);
 }
 
 // The region: the largest overlay, page-aligned, right below the stack's
@@ -3533,7 +3581,7 @@ void O45Linker::computeSacOverlay() {
             bool defined = false;
             for (const auto& e2 : input.obj.exports)
                 if (e2.name == fn && e2.segmentId() == SEG_TEXT &&
-                    (globalSymbols_[fn] == textBase_ + input.remapTextOffset(e2.offset) || input.ovlAt(e2.offset)))
+                    (globalSymbols_[fn] == textAddrOf(input, e2.offset) || input.ovlAt(e2.offset)))
                     defined = true;
             if (!defined) continue;
             if (exp.offset + sz->second > input.obj.blen) continue;
@@ -4016,7 +4064,10 @@ void O45Linker::writeMap(std::ostream& out) const {
         char buf[160];
         size_t nv = 0;
         for (const auto& [sym, v] : sectVars_) nv += v.section == n;
-        if (sec.size)
+        if (sec.size && sec.code)
+            snprintf(buf, sizeof(buf), "  %-6s $%04X - $%04X  (section %s, %u bytes: %u of code, %zu variables)\n", "SECT",
+                     sec.addr, sec.addr + sec.size - 1, n.c_str(), sec.size, sec.code, nv);
+        else if (sec.size)
             snprintf(buf, sizeof(buf), "  %-6s $%04X - $%04X  (section %s, %u bytes, %zu variables)\n", "SECT", sec.addr,
                      sec.addr + sec.size - 1, n.c_str(), sec.size, nv);
         else

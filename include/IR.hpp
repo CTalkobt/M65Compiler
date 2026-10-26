@@ -235,6 +235,7 @@ struct Function {
     bool isNaked = false;
     bool isRegparm = false;
     bool isFar = false;      // __far: emitted in the "far" text segment
+    std::string section;     // __section("NAME") (Issue #70): emitted in the text segment "sect.NAME"
     bool isNested = false;
     bool coldAtEnd = false;  // the cold blocks are the last ones (optimizeBlockReorder)
     // symbols this function needs without a relocation (ca45 .ref): the
