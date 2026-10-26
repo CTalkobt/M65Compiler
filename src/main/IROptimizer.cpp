@@ -308,6 +308,23 @@ void optimizeCSE(Module& mod) {
         // changes (only a store through it, or a pointer made from it, or
         // through an unknown pointer, a call, asm)
         const std::set<uint32_t> restrictSlots = restrictParams(fn);
+        // The variables a store through a pointer, a call or asm may change:
+        // those whose address is taken (or that live in memory: volatile).
+        // Every variable in a function with inline asm (it can name one) or
+        // that calls setjmp, and in a file with nested functions (they reach
+        // their parent's variables through the static chain)
+        std::set<uint32_t> exposedSlots(fn.memoryVregs.begin(), fn.memoryVregs.end());
+        bool allExposed = std::any_of(mod.functions.begin(), mod.functions.end(),
+                                      [](const Function& f) { return f.isNested || f.staticLinkVreg != -1; });
+        for (const auto& b : fn.blocks)
+            for (const auto& in : b.insts) {
+                if (in.op == Op::ADDR_LOCAL && in.src1.isVreg()) exposedSlots.insert(in.src1.vregId);
+                if (in.op == Op::ASM_INLINE || in.op == Op::ADDR_UPLEVEL || in.op == Op::BR_INDIRECT) allExposed = true;
+                if ((in.op == Op::CALL || in.op == Op::CALL_VOID) && in.src1.name.find("setjmp") != std::string::npos)
+                    allExposed = true;
+            }
+        if (allExposed) exposedSlots.insert(slots.begin(), slots.end());
+        auto exposed = [&](uint32_t v) { return exposedSlots.count(v) && !restrictSlots.count(v); };
         std::function<std::string(const Operand&, int)> baseOf = [&](const Operand& o, int depth) -> std::string {
             if (o.kind == OperandKind::GLOBAL) return o.name;
             if (o.isVreg() && restrictSlots.count(o.vregId)) return "&r" + std::to_string(o.vregId);
@@ -505,7 +522,7 @@ void optimizeCSE(Module& mod) {
                     if (!o.isVreg()) return true;
                     if (killed.count(o.vregId)) return false;
                     // (a variable may change through a write; not a restrict parameter)
-                    return !(mem && slots.count(o.vregId) && !restrictSlots.count(o.vregId));
+                    return !(mem && slots.count(o.vregId) && exposed(o.vregId));
                 };
                 for (const auto& c : endCalls[D]) {
                     bool ok = alive(c.result) && !(c.purity < 2 && memPure);
@@ -546,12 +563,10 @@ void optimizeCSE(Module& mod) {
                     return false;
                 }), activeCalls.end());
             };
-            // A store through a pointer, a call or inline asm may change any
-            // variable (its address may have been taken)
+            // A store through a pointer, a call or inline asm may change a
+            // variable whose address is taken (exposedSlots)
             auto invalidateVariables = [&]() {
-                // (a restrict parameter's never changes: never assigned, its
-                // address never taken)
-                for (uint32_t v : slots) if (!restrictSlots.count(v)) invalidate(v);
+                for (uint32_t v : slots) if (exposed(v)) invalidate(v);
             };
 
             for (size_t instIdx = 0; instIdx < block.insts.size(); instIdx++) {
