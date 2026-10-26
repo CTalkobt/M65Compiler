@@ -228,13 +228,35 @@ std::map<uint32_t, int64_t> singleDefConsts(const Function& fn) {
 }
 } // namespace
 
-// restrict pointer parameters (Issue #77) the function never assigns and
-// whose address it never takes: what each points to is an object of its own
+// restrict pointer parameters (Issue #77) whose address the function never
+// takes and that it assigns only by stepping them (p++, p += k, p = p - 1:
+// still into the same object): what each points to is an object of its own
 static std::set<uint32_t> restrictParams(const Function& fn) {
     std::set<uint32_t> r(fn.restrictVregs.begin(), fn.restrictVregs.end());
+    if (r.empty()) return r;
+    std::map<uint32_t, int> nDefs;
+    std::map<uint32_t, const Inst*> defOf;
     for (const auto& b : fn.blocks)
         for (const auto& in : b.insts)
-            if ((in.op == Op::STORE || in.op == Op::STORE_ZP) && in.src2.isVreg()) r.erase(in.src2.vregId);
+            if (in.dest.isVreg()) { nDefs[in.dest.vregId]++; defOf[in.dest.vregId] = &in; }
+    // v is p + / - an integer (through temporaries defined once)
+    std::function<bool(const Operand&, uint32_t, int)> stepOf = [&](const Operand& v, uint32_t p, int depth) {
+        if (!v.isVreg() || depth > 4) return false;
+        auto n = nDefs.find(v.vregId);
+        if (n == nDefs.end() || n->second != 1) return false;
+        const Inst& d = *defOf[v.vregId];
+        if (d.op == Op::DEREF) return d.src1.isVreg() && d.src1.vregId == p;   // (p's value read before it changes)
+        if (d.op == Op::COPY) return stepOf(d.src1, p, depth + 1);
+        if ((d.op != Op::ADD && d.op != Op::SUB) || d.resultType != Type::PTR) return false;
+        if (d.src2.isVreg() && d.src2.type == Type::PTR) return false;
+        return d.src1.isVreg() && (d.src1.vregId == p || stepOf(d.src1, p, depth + 1));
+    };
+    for (const auto& b : fn.blocks)
+        for (const auto& in : b.insts)
+            if ((in.op == Op::STORE || in.op == Op::STORE_ZP) && in.src2.isVreg() && r.count(in.src2.vregId) &&
+                !stepOf(in.src1, in.src2.vregId, 0)) {
+                r.erase(in.src2.vregId);
+            }
     for (uint32_t v : fn.memoryVregs) r.erase(v);
     return r;
 }
@@ -252,6 +274,7 @@ static long addressRoot(const Operand& o, const std::set<uint32_t>& restrictSlot
     const Inst& d = *defOf.at(o.vregId);
     switch (d.op) {
         case Op::ADDR_GLOBAL: return -2;
+        case Op::DEREF:   // (a variable's value, read where it changes next: *p++)
         case Op::ADDR_ELEM: case Op::COPY: return addressRoot(d.src1, restrictSlots, nDefs, defOf, depth + 1);
         case Op::ADD: case Op::SUB:
             return d.resultType == Type::PTR ? addressRoot(d.src1, restrictSlots, nDefs, defOf, depth + 1) : -1;
@@ -295,6 +318,8 @@ void optimizeCSE(Module& mod) {
             switch (d.op) {
                 case Op::ADDR_GLOBAL: return d.src1.name;
                 case Op::ADDR_LOCAL: return "#";
+                case Op::DEREF:   // (a restrict parameter's value: its object)
+                    return d.src1.isVreg() && restrictSlots.count(d.src1.vregId) ? baseOf(d.src1, depth + 1) : "";
                 case Op::ADDR_ELEM: case Op::COPY: return baseOf(d.src1, depth + 1);
                 case Op::ADD: case Op::SUB:
                     return d.resultType == Type::PTR ? baseOf(d.src1, depth + 1) : "";
@@ -640,7 +665,10 @@ void optimizeCSE(Module& mod) {
                     if (loadBase == "#" || isVolatileGlobal(loadBase)) loadBase.clear();
                     // a read-modify-write (x--, x += k: the same address stored
                     // later in the block) loads afresh, so it can update in place
-                    for (size_t k = instIdx + 1; k < block.insts.size() && !loadBase.empty(); k++) {
+                    // (a variable's slot as a store's target is the variable,
+                    // not the memory it points to: p++ after *p)
+                    bool slotAddr = inst.src1.isVreg() && slots.count(inst.src1.vregId);
+                    for (size_t k = instIdx + 1; k < block.insts.size() && !loadBase.empty() && !slotAddr; k++) {
                         const Inst& later = block.insts[k];
                         if ((later.op == Op::STORE || later.op == Op::STORE_ZP) && sameOperand(later.src2, inst.src1) &&
                             later.elemOffset == inst.elemOffset)
