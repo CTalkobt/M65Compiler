@@ -24,6 +24,11 @@ __fastcall__ char *strtok(char *s, char *delim);
 __fastcall__ char *strtok_r(char *s, char *delim, char **saveptr);
 int strnlen(const char *s, int maxlen) __pure;
 int strlcpy(char *dst, const char *src, int size);
+/* Which of several strings s is: 1 for the first equal one, 0 for none;
+ * the list ends with NULL (cc45 turns a call whose candidates are all
+ * string literals into __stridx_table, where the NULL may be left out) */
+int stridx(const char *s, ...);
+int __stridx_table(const char *s, const unsigned char *table);
 char *strdup(const char *s);
 
 /* Memory operations */
