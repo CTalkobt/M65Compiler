@@ -4,8 +4,9 @@
 ; __fixed16_16 __fx16_div(__fixed16_16 a, __fixed16_16 b);   (a << 16) / b
 ;   a in $10-$13, b in $14-$17 (ZP convention, both libraries); the result
 ;   in A X Y Z. Signed: the magnitudes go to the MEGA65's multiplier /
-;   divider ($D770 / $D774; the 64-bit product at $D778, the 32.32
-;   quotient at $D768), the result negated when the signs differ.
+;   divider ($D770 / $D774; the 64-bit product at $D778, ready at once;
+;   the 32.32 quotient at $D768, after the divider's busy bit at $D70F),
+;   the result negated when the signs differ.
 ;   Truncated (toward zero); a result that does not fit wraps.
 
 ; no calls through pointers here (ln45's call graph)
