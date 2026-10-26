@@ -40,7 +40,9 @@ for entry in strength-reduction:strength algebraic-simplify:algebraic type-narro
 done
 
 # post-increment-sink (*p++), on a source that has *p++
-ptrace() { $CC -S -Roptir "$@" src/test-resources/test_zp_pointers_xemu.c -o $T/p.s 2>&1 >/dev/null; }
+# (the trace through a file: grep -q ends at its first match, and cc45
+# writing into the closed pipe would die before removing its trial files)
+ptrace() { $CC -S -Roptir "$@" src/test-resources/test_zp_pointers_xemu.c -o $T/p.s >/dev/null 2>$T/ptrace.txt; cat $T/ptrace.txt; }
 ptrace | grep -q "^\[postinc\]" && pass || fail "post-increment-sink does not run at the default level"
 ptrace -O0 -fpost-increment-sink | grep -q "^\[postinc\]" && pass || fail "-O0 -fpost-increment-sink does not run it"
 ptrace -fno-post-increment-sink | grep -q "^\[postinc\]" && fail "-fno-post-increment-sink still runs it" || pass
