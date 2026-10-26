@@ -76,43 +76,6 @@ static bool isBasePageOperandMode(AddressingMode m) {
            m == AddressingMode::BASE_PAGE_INDIRECT_Z || m == AddressingMode::FLAT_INDIRECT_Z;
 }
 
-static uint8_t toPetscii(char c) {
-    if (c >= 'a' && c <= 'z') return c - 32;
-    if (c >= 'A' && c <= 'Z') return c + 128;   // $C1-$DA, as BASIC's ASC("A")
-    return (uint8_t)c;
-}
-
-static uint8_t toScreencode(char c) {
-    uint8_t u = (uint8_t)c;
-    if (u == 0x40) return 0x00;             // @ → 0
-    if (u >= 0x41 && u <= 0x5A) return u - 0x40;  // A-Z → 1-26
-    if (u >= 0x5B && u <= 0x5F) return u - 0x40;  // [\]^_ → 27-31
-    if (u >= 0x61 && u <= 0x7A) return u - 0x60;  // a-z → 1-26
-    return u;                               // space, digits, punctuation unchanged
-}
-
-std::vector<uint8_t> asmstr::encode(const std::string& v, const std::string& directive) {
-    std::vector<uint8_t> out;
-    std::string str = v;
-    // Encoding prefix s"..." / p"..." arrives from the lexer as "\x01s..." / "\x01p..."
-    char prefix = 0;
-    if (str.size() >= 2 && str[0] == PREFIX) {
-        prefix = str[1];
-        str = str.substr(2);
-    }
-    bool screen = prefix == 's' || prefix == 'S' || (prefix == 0 && directive == "screencode");
-    bool ascii = prefix == 0 && directive == "ascii";
-    for (size_t i = 0; i < str.size(); ++i) {
-        char c = str[i];
-        if (c == EXACT && i + 1 < str.size()) out.push_back((uint8_t)str[++i]);
-        else if (c == NEWLINE) out.push_back(ascii ? 0x0A : 0x0D);
-        else if (c == RETURN) out.push_back(ascii ? 0x0D : 0x0A);
-        else if (screen) out.push_back(toScreencode(c));
-        else if (ascii) out.push_back((uint8_t)c);
-        else out.push_back(toPetscii(c));
-    }
-    return out;
-}
 
 // .float: the CBM 40-bit format, rounded to nearest (as cc45's constants)
 static std::vector<uint8_t> encodeFloat(double val) {
@@ -267,7 +230,7 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                     e.emitByte((uint8_t)(link & 0xFF)); e.emitByte((uint8_t)(link >> 8));
                     e.emitByte(0x0a); e.emitByte(0x00);
                     e.emitByte(0x9e); // SYS
-                    for (char c : aS) e.emitByte(toPetscii(c));
+                    for (char c : aS) e.emitByte(asmstr::toPetscii(c));
                     e.emitByte(0x00); e.emitByte(0x00); e.emitByte(0x00);
                 }
                 continue;

@@ -1184,6 +1184,20 @@ for btmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: string functions on literals (#78): folded strlen / strcmp /
+# strncmp, inline equality compares, strcpy as memcpy; the library's results
+for slmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r slname slflags <<< "$slmode"
+    echo "Testing test_strlit_xemu.c ($slname)..."
+    compile_link_test "src/test-resources/test_strlit_xemu.c" "build/test/test_strlit_${slname}_xemu.prg" "$slflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_strlit_$slname" "build/test/test_strlit_${slname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_strlit_xemu.c $slname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: __attribute__((aligned(N))) / _Alignas on globals, locals, struct
 # members and struct types
 for almode in "zp|" "stack|-fno-zpcall"; do
@@ -1898,8 +1912,10 @@ for nemode in "zp|$STDLIB||" "stack|$STDLIB_STACK|-fno-zpcall|" \
     ned=build/test/noescape_$nename
     rm -rf $ned; mkdir -p $ned
     neok=1
+    # (-fno-builtin: strlen("near text") stays a call, its literal resident
+    # data the placement check below counts)
     for f in main ovl_a ovl_b far; do
-        $CC $neflags -c src/test-resources/noescape/$f.c -o $ned/$f.o45 >/dev/null 2>&1 || neok=0
+        $CC $neflags -fno-builtin -c src/test-resources/noescape/$f.c -o $ned/$f.o45 >/dev/null 2>&1 || neok=0
     done
     if [ $neok = 1 ] && $LD -basic $nelink -M $ned/t.map -o $ned/netest.prg $ned/main.o45 $ned/ovl_a.o45 $ned/ovl_b.o45 \
             $ned/far.o45 $nelib >/dev/null 2>&1 &&

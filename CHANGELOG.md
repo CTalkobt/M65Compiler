@@ -4,6 +4,17 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### String functions on literals (#78)
+
+- cc45: `strlen("hello")` is 5, `strcmp` / `strncmp` of two literals a
+  constant (the library's -1 / 0 / 1, the literals' bytes as stored);
+  `strcmp(x, "lit") == 0` (`!= 0`, `!`, a condition; `strncmp` too) is
+  byte compares at `-O3` (up to 8 bytes; at `-O2`/`-Os` only
+  `strcmp(s, "") == 0`, the others no smaller than the call), and
+  `strcpy(d, "lit")` a `memcpy` of its length. Also through `const char s[]`, `const char *const` and a
+  local `const char *p` the function never changes. `-fno-builtin` keeps
+  the library calls. Test `test_strlit_xemu.c` (both conventions).
+
 ### The `__bit` type: packed booleans (#73)
 
 - `__bit flag;` at file scope is a bit of a hidden byte of the file, 8 to
