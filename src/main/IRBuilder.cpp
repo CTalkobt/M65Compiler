@@ -10285,10 +10285,25 @@ void IRBuilder::noteConstString(VariableDeclaration& node) {
 }
 
 bool IRBuilder::foldStringCall(FunctionCall& node, const std::string& declaredName) {
-    if (!foldStringBuiltins) return false;
     std::string fn = node.name;
     if (fn.rfind("__builtin_", 0) == 0) fn = fn.substr(10);
-    if (fn != "strlen" && fn != "strcmp" && fn != "strncmp" && fn != "strcpy") return false;
+    // stridx's list ends with NULL: one is added when it is not there (any
+    // call, -fno-builtin too: the library would read past the arguments)
+    bool stridxNull = false;
+    if (fn == "stridx" && node.arguments.size() > 1 && !unitDefinedFunctions_.count(fn)) {
+        std::vector<uint8_t> tmp;
+        int64_t z;
+        Expression* lastArg = node.arguments.back().get();
+        stridxNull = !literalBytes(lastArg, tmp) && evalConstInt(lastArg, z) && z == 0;
+        if (!stridxNull) {
+            auto null = std::make_unique<IntegerLiteral>(0);
+            null->line = node.line; null->column = node.column; null->sourceFile = node.sourceFile;
+            node.arguments.push_back(std::move(null));
+            stridxNull = true;
+        }
+    }
+    if (!foldStringBuiltins) return false;
+    if (fn != "strlen" && fn != "strcmp" && fn != "strncmp" && fn != "strcpy" && fn != "stridx") return false;
     // (a file's own strlen is that function)
     if (unitDefinedFunctions_.count(declaredName) || unitDefinedFunctions_.count(fn)) return false;
     auto len = [](const std::vector<uint8_t>& b) {
@@ -10326,6 +10341,59 @@ bool IRBuilder::foldStringCall(FunctionCall& node, const std::string& declaredNa
         lastValueSigned_ = true;
         return true;
     }
+    // stridx(s, "a", "b", ..., NULL) with every candidate a literal: the
+    // index (s a literal too), a trie of compares (-O3, s simple), or
+    // __stridx_table(s, table): the candidates in one block, a count first
+    if (fn == "stridx" && stridxNull && node.arguments.size() >= 2) {
+        size_t nc = node.arguments.size() - 2;   // (the subject, the NULL)
+        std::vector<std::vector<uint8_t>> cands;
+        bool allLit = nc <= 255;
+        for (size_t i = 1; allLit && i <= nc; i++) {
+            std::vector<uint8_t> c;
+            if (!literalBytes(node.arguments[i].get(), c)) allLit = false;
+            else { c.resize(len(c)); cands.push_back(c); }
+        }
+        if (allLit) {
+            if (literalBytes(node.arguments[0].get(), a)) {
+                a.resize(len(a));
+                int idx = 0;
+                for (size_t k = 0; k < cands.size() && !idx; k++) if (cands[k] == a) idx = (int)k + 1;
+                lastValue_ = ir::Operand::imm(idx, ir::Type::I16);
+                lastValueSigned_ = false;
+                return true;
+            }
+            // (the trie's nodes: its distinct prefixes and ends; each is about
+            // 45 bytes of code: only a small one beats the table and matcher)
+            std::set<std::vector<uint8_t>> nodes;
+            for (const auto& c : cands)
+                for (size_t k = 0; k <= c.size(); k++) {
+                    std::vector<uint8_t> pre(c.begin(), c.begin() + (long)k);
+                    if (k == c.size()) pre.push_back(0);
+                    nodes.insert(pre);
+                }
+            if (stringCompareInlineBytes >= 8 && !cands.empty() && nodes.size() <= 6) {
+                if (auto t = stridxTrie(node.arguments[0].get(), cands, node)) {
+                    t->accept(*this);
+                    return true;
+                }
+            }
+            if (functionReturnTypes_.count("__stridx_table") && !unitDefinedFunctions_.count("__stridx_table")) {
+                std::string tbl(1, (char)cands.size());
+                for (const auto& c : cands) { tbl.append(c.begin(), c.end()); tbl += '\0'; }
+                auto lit = std::make_unique<StringLiteral>(tbl);
+                lit->escMask = std::string(tbl.size(), 'x');   // (the bytes as they are: encoded already)
+                lit->line = node.line; lit->column = node.column; lit->sourceFile = node.sourceFile;
+                FunctionCall tc("__stridx_table");
+                tc.line = node.line; tc.column = node.column; tc.sourceFile = node.sourceFile;
+                tc.arguments.push_back(std::move(node.arguments[0]));
+                tc.arguments.push_back(std::move(lit));
+                visit(tc);
+                node.arguments[0] = std::move(tc.arguments[0]);   // (the AST stays whole)
+                return true;
+            }
+        }
+        return false;
+    }
     // strcpy(d, "lit"): memcpy(d, "lit", its length + 1), when memcpy is declared
     if (fn == "strcpy" && strcpyLiteralAsMemcpy && node.arguments.size() == 2 && literalBytes(node.arguments[1].get(), b) &&
         functionReturnTypes_.count("memcpy") && !unitDefinedFunctions_.count("memcpy")) {
@@ -10342,6 +10410,39 @@ bool IRBuilder::foldStringCall(FunctionCall& node, const std::string& declaredNa
         return true;
     }
     return false;
+}
+
+std::unique_ptr<Expression> IRBuilder::stridxTrie(Expression* s, const std::vector<std::vector<uint8_t>>& cands,
+                                                  ASTNode& at) {
+    if (!cloneSimpleExpr(s)) return nullptr;
+    auto pos = [&](auto n) { n->line = at.line; n->column = at.column; n->sourceFile = at.sourceFile; return n; };
+    // the candidates still possible at byte d: grouped by their byte there
+    // (0 where one ends), in the order they first appear; the first of
+    // equal candidates wins
+    std::function<std::unique_ptr<Expression>(const std::vector<size_t>&, size_t)> level =
+        [&](const std::vector<size_t>& set, size_t d) -> std::unique_ptr<Expression> {
+        std::vector<std::pair<int, std::vector<size_t>>> groups;
+        for (size_t k : set) {
+            int b = d < cands[k].size() ? cands[k][d] : 0;
+            auto g = std::find_if(groups.begin(), groups.end(), [&](const auto& e) { return e.first == b; });
+            if (g == groups.end()) groups.push_back({b, {k}});
+            else g->second.push_back(k);
+        }
+        std::unique_ptr<Expression> result = pos(std::make_unique<IntegerLiteral>(0));
+        for (auto g = groups.rbegin(); g != groups.rend(); ++g) {
+            auto sub = g->first == 0 ? pos(std::make_unique<IntegerLiteral>((long)g->second.front() + 1))
+                                     : level(g->second, d + 1);
+            // (unsigned char)s[d] == byte ? ... : the others
+            auto elem = pos(std::make_unique<ArrayAccess>(cloneSimpleExpr(s), pos(std::make_unique<IntegerLiteral>((long)d))));
+            auto byte = pos(std::make_unique<CastExpression>("char", 0, false, std::move(elem)));
+            auto cond = pos(std::make_unique<BinaryOperation>("==", std::move(byte), pos(std::make_unique<IntegerLiteral>(g->first))));
+            result = pos(std::make_unique<ConditionalExpression>(std::move(cond), std::move(sub), std::move(result)));
+        }
+        return result;
+    };
+    std::vector<size_t> all;
+    for (size_t k = 0; k < cands.size(); k++) all.push_back(k);
+    return level(all, 0);
 }
 
 std::unique_ptr<Expression> IRBuilder::stringEqualsExpr(Expression* call) {

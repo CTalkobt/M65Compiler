@@ -4,6 +4,16 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### `stridx` (#79)
+
+- `<string.h>`: `int stridx(const char *s, ...)`, the 1-based index of
+  the first of the strings after `s` (ended by `NULL`) equal to it, 0 for
+  none: `switch (stridx(cmd, "load", "save", "quit", NULL))`. With literal
+  candidates cc45 calls `__stridx_table(s, table)` (the candidates in one
+  data block; no variadic call, the `NULL` optional), with a literal `s`
+  the index; at `-O3` a small trie is inline. A missing `NULL` is added.
+  Test `test_stridx_xemu.c` (-O2 and -O3, both conventions).
+
 ### String functions on literals (#78)
 
 - cc45: `strlen("hello")` is 5, `strcmp` / `strncmp` of two literals a

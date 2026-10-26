@@ -382,6 +382,26 @@ else
     failed=$((failed + 1))
 fi
 
+# stridx (#79): literal candidates are a table for __stridx_table (no
+# variadic call), a literal subject the index, -fno-builtin the library
+printf '#include <string.h>\nint c(const char *s) { return stridx(s, "load", "save", "quit", NULL); }\nint k(void) { return stridx("save", "load", "save"); }\n' > build/test/test_stridx_cg.c
+sx_ok=1
+if ./bin/cc45 -O2 -S build/test/test_stridx_cg.c -o build/test/test_stridx_cg.s45 >/dev/null 2>&1 &&
+   ./bin/cc45 -O2 -fno-builtin -S build/test/test_stridx_cg.c -o build/test/test_stridx_nb.s45 >/dev/null 2>&1; then
+    sed -n '/proc _c\b/,/endproc/p' build/test/test_stridx_cg.s45 | grep -q 'jsr ___stridx_table' || sx_ok=0
+    sed -n '/proc _c\b/,/endproc/p' build/test/test_stridx_cg.s45 | grep -q 'jsr _stridx\b' && sx_ok=0
+    sed -n '/proc _k\b/,/endproc/p' build/test/test_stridx_cg.s45 | grep -q 'lda #2' || sx_ok=0
+    sed -n '/proc _c\b/,/endproc/p' build/test/test_stridx_nb.s45 | grep -q 'jsr _stridx\b' || sx_ok=0
+else
+    sx_ok=0
+fi
+if [ $sx_ok = 1 ]; then
+    echo "SUCCESS: stridx table / folded / -fno-builtin"
+else
+    echo "FAIL: stridx code"
+    failed=$((failed + 1))
+fi
+
 # A bitfield wider than its type is an error, also after a comma and unnamed
 # (int e : 17 kept 16 bits without a word)
 bf_ok=1

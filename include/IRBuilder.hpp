@@ -120,6 +120,9 @@ public:
     // strcmp(x, "lit") / strncmp(x, "lit", n): as byte compares (x[0] == 'l'
     // && ... ), true when equal; nullptr when not that kind of call
     std::unique_ptr<Expression> stringEqualsExpr(Expression* call);
+    // stridx(s, "a", "b", ...) (#79): the candidates' trie as ?: of byte
+    // compares on s (inline, -O3)
+    std::unique_ptr<Expression> stridxTrie(Expression* s, const std::vector<std::vector<uint8_t>>& cands, ASTNode& at);
     void emitBitSelectWrite(BitSelect& node, const std::string& op, Expression* rhs, bool post, ASTNode& at);
     void visit(LabelAddressExpression& node) override;
     void visit(TranslationUnit& node) override;

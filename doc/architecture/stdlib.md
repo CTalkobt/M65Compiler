@@ -128,6 +128,7 @@ The functions marked *asm* are hand-written assembly in `lib/stdlib_asm/`; the r
 | `char *strtok(char *s, char *delim)`, `char *strtok_r(char *s, char *delim, char **save)` | Assembly (`strtok.s45`). `strtok` keeps static state; `strtok_r` keeps it in `*save` (NULL after the last token) |
 | `int strnlen(const char *s, int maxlen)` | C |
 | `int strlcpy(char *dst, const char *src, int size)` | C. Returns `strlen(src)` |
+| `int stridx(const char *s, ...)` | C (`stdlib/stridx.c`). Which of the strings after `s` (ended by `NULL`) `s` is: 1 for the first equal one, 0 for none (`switch (stridx(cmd, "load", "save", NULL))`). When every candidate is a string literal cc45 calls `__stridx_table(s, table)` instead: the candidates in one block (a count, then each ended by 0), no variadic call, and the `NULL` may be left out; a literal `s` too gives the index at compile time; at `-O3` a small set (a trie of up to 6 nodes) is compared inline. A call without the `NULL` gets one added |
 | `char *strdup(const char *s)` | C. Uses `malloc` |
 | `char *strerror(int errnum)` | C. "Success", "Result out of range", "Out of memory", "Invalid argument", "Math domain error", else "Unknown error" |
 | `void *memcpy(void *d, void *s, int n)` | *asm*. A DMA copy job (#325); no overlap handling |
