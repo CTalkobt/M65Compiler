@@ -143,6 +143,16 @@ On string literals cc45 does without some of these calls (`strlen("hello")` is 5
 
 `string.h` also declares `__builtin_memcpy`, `__builtin_memset`, `__builtin_memmove`, `__builtin_memcmp`, `__builtin_strlen`, `__builtin_strcpy` and `__builtin_strcmp`, which the library provides. The library also exports `memcpy_optimized` (`stdlib/memcpy_fast.c`), which is not declared in any header.
 
+### fixed.h
+
+The fixed-point types `__fixed(I, F)` (`__fixed8_8`, `__fixed16_16`) are cc45's own ([cc45.md](../bin/cc45.md#fixed-point-__fixedi-f)); the header comes with them (included automatically):
+
+| Name | Description |
+|------|-------------|
+| `signed long __fx32_mul(signed long a, signed long b, unsigned char f)`, `__fx32_div` | *asm* (`stdlib_asm/fixed.s45`). The integers of two 32-bit fixed values of `f` fraction bits: `(a * b) >> f` and `(a << f) / b`, truncated toward 0. The magnitudes go through the hardware multiplier ($D770 × $D774 → $D778, ready at once) and divider (the 32.32 quotient at $D768, after its busy bit at $D70F); 5 bytes of the 64-bit result from byte f / 8 (32 - f for the quotient), shifted the rest. cc45 calls them for `*` and `/` |
+| `fixedToFloat(v)`, `fixedToInt(v)` | Macros: any fixed value as a `float` (`printf("%f", fixedToFloat(x))`) or a `signed long`, the fraction dropped toward 0 |
+| `toFloat8_8(v)`, `toFloat16_16(v)`, `toInt8_8(v)`, `toInt16_16(v)` | Macros: the same, v converted to `__fixed8_8` / `__fixed16_16` first |
+
 ## 6. Character Utilities (`ctype.h`)
 
 All functions are `static inline` in the header and take an `int` PETSCII code (the library also has assembly versions, used only when `ctype.h` is not included). They return 1 or 0, except the conversions.

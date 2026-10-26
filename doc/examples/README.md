@@ -67,7 +67,7 @@ error leaves it at 0; the attract mode's score does not count).
 A Mandelbrot set viewer: the VIC-IV's full-colour character mode as a
 320x192 bitmap (a byte per pixel in bank 4), the iteration in 45GS02
 assembly (the 32-bit Q register and the hardware multiplier, 4.28 fixed
-point; points in the main cardioid and the period-2 bulb are recognised
+point; the C side's coordinates are cc45's `__fixed(4, 28)`; points in the main cardioid and the period-2 bulb are recognised
 without iterating), progressive rendering with border checks (an 8x8 cell
 whose border is one colour is filled; otherwise its four 4x4 quadrants are
 checked the same way; the picture is still filling in at 2.5 seconds),

@@ -139,6 +139,13 @@ test_screenshot "invaders" "$EXAMPLES/c/invaders/invaders.prg" 15
 
 build_example "$EXAMPLES/c/mandelbrot"
 test_screenshot "mandelbrot" "$EXAMPLES/c/mandelbrot/mandelbrot.prg" 15
+# two views rendered whole (the C side in __fixed(4, 28)): the sums of their
+# pixels and status lines
+if make -C "$EXAMPLES/c/mandelbrot" check >"$BUILDDIR/mandelbrot_check.txt" 2>&1; then
+    pass "mandelbrot views"
+else
+    fail "mandelbrot views" "$(tail -1 "$BUILDDIR/mandelbrot_check.txt")"
+fi
 
 build_example "$EXAMPLES/c/musicgen"
 test_screenshot "musicgen" "$EXAMPLES/c/musicgen/musicgen.prg" 10

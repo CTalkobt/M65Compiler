@@ -868,12 +868,18 @@ std::string Preprocessor::process(const std::string& source,
     std::string code = isCompiler ? stripCommentsAndStrings(source) : std::string();
     // (an #include of it in the code, not a comment naming it: the header's
     // guard keeps a quoted one from counting twice)
+    std::string prefix;
     if (isCompiler && code.find("intwide.h") == std::string::npos &&
         (code.find("__int128") != std::string::npos || namesWideIntN(code) || code.find("int64_t") != std::string::npos ||
          code.find("__int64") != std::string::npos || hasLongLong(code)) &&
-        !findIncludeFile("intwide.h", getDirectory(currentFile)).empty()) {
-        return processInternal("#include <intwide.h>\n#line 1 \"" + currentFile + "\"\n" + source, currentFile, 0);
-    }
+        !findIncludeFile("intwide.h", getDirectory(currentFile)).empty())
+        prefix += "#include <intwide.h>\n";
+    // __fixed8_8 / __fixed16_16 (#72): <fixed.h>, their routines and helpers
+    if (isCompiler && code.find("fixed.h") == std::string::npos && code.find("__fixed") != std::string::npos &&
+        !findIncludeFile("fixed.h", getDirectory(currentFile)).empty())
+        prefix += "#include <fixed.h>\n";
+    if (!prefix.empty())
+        return processInternal(prefix + "#line 1 \"" + currentFile + "\"\n" + source, currentFile, 0);
     return processInternal(source, currentFile, 0);
 }
 

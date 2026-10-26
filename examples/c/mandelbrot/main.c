@@ -10,6 +10,9 @@
  *     45GS02's 32-bit Q register with the hardware multiplier, in 4.28
  *     fixed point (zoom to about 2^20); points in the main cardioid and
  *     the period-2 bulb are recognised without iterating
+ *   - cc45's fixed-point types: the C side's coordinates are __fixed(4, 28),
+ *     the kernel's format (constants such as -0.5 written as they are,
+ *     cx + n * step and the printed digits without shifts or masks)
  *   - DMA: each finished cell goes into far memory with dma_copy_far, the
  *     preview pass fills cells with dma_fill_far
  *   - scrolling without redrawing: every cell holds a pointer to its pixel
@@ -27,7 +30,8 @@
 #include <mega65.h>
 
 /* the iteration kernel (mandel_asm.s45) */
-extern signed long mb_cr, mb_ci;
+typedef __fixed(4, 28) coord;      /* -8 to 8 in steps of 2^-28 */
+extern coord mb_cr, mb_ci;
 extern unsigned char mb_maxit;
 unsigned char mandel_iter(void);
 
@@ -40,9 +44,8 @@ unsigned char mandel_iter(void);
 #define PIX_LIN   0x0040000UL      /* pixel blocks, 64 bytes per cell */
 #define COLOR_LIN 0xFF80000UL
 
-#define ONE       0x10000000L      /* 1.0 in 4.28 fixed point */
-#define BASE_STEP (ONE * 3 / W)    /* the whole set across the screen */
-#define MIN_STEP  16L              /* zoom limit (precision) */
+#define BASE_STEP (3.0 / W)        /* the whole set across the screen */
+#define MIN_STEP  (1.0 / 16777216) /* zoom limit (precision): 16 steps of 2^-28 */
 
 static unsigned int screen[CW * 25];     /* 16-bit character numbers */
 static unsigned char cellbuf[64];
@@ -50,7 +53,7 @@ static unsigned char cellbuf[64];
 /* ------------------------------------------------------------------------ */
 /* The view and the renderer                                                */
 
-static signed long cx, cy, step;         /* centre and pixel size */
+static coord cx, cy, step;               /* centre and pixel size */
 static unsigned char zoom;               /* step = BASE_STEP >> zoom */
 
 /* per cell: 0 needs a preview, 1 needs its detail, 2 done; the renderer
@@ -65,12 +68,12 @@ static unsigned char color_of(unsigned char n) {
     return (unsigned char)(16 + (n * 4) % 240);
 }
 
-static signed long offs[8];              /* 0, step, ... 7 * step */
+static coord offs[8];                    /* 0, step, ... 7 * step */
 
 /* render everything again (a zoom, new iterations) */
 static void restart(void) {
     unsigned int i;
-    for (i = 0; i < 8; i++) offs[i] = (signed long)i * step;
+    for (i = 0; i < 8; i++) offs[i] = i * step;
     for (i = 0; i < CW * CH; i++) cstate[i] = 0;
     level = 0;
     scan = 0;
@@ -101,7 +104,7 @@ static void scroll_cells(signed char dc, signed char dr) {
     busy = 1;
 }
 
-static signed long cell_left, cell_top;
+static coord cell_left, cell_top;
 static unsigned char pixel(unsigned char x, unsigned char y) {
     mb_cr = cell_left + offs[x];
     mb_ci = cell_top + offs[y];
@@ -111,8 +114,8 @@ static unsigned char pixel(unsigned char x, unsigned char y) {
 /* one cell: its preview (one sample) or its detail */
 static void render_cell(unsigned int cell, unsigned char detail) {
     unsigned char col = (unsigned char)(cell % CW), row = (unsigned char)(cell / CW);
-    signed long left = cx + ((signed long)col * 8 - W / 2) * step;
-    signed long top = cy + ((signed long)row * 8 - H / 2) * step;
+    coord left = cx + ((signed int)col * 8 - W / 2) * step;
+    coord top = cy + ((signed int)row * 8 - H / 2) * step;
     unsigned long dest = (unsigned long)screen[cell] * 64;     /* its pixel block */
     if (!detail) {
         mb_cr = left + 4 * step;
@@ -248,18 +251,23 @@ static void put_at(unsigned char col, const char *s) {
     while (*s && col < CW) screen[CH * CW + col++] = (unsigned char)*s++;
 }
 
-/* v (4.28) as +d.ddddd */
-static void put_fixed(unsigned char col, signed long v) {
-    unsigned long f = (unsigned long)(v < 0 ? -v : v);
+/* v as +d.ddddd: the whole part, then each digit of the fraction (10 * f
+ * would not fit __fixed(4, 28), up to 8: 5 * f and a halving instead) */
+static void put_fixed(unsigned char col, coord v) {
+    coord f = v < 0 ? -v : v;
+    signed int whole = fixedToInt(f);
     unsigned char d;
     screen[CH * CW + col] = v < 0 ? 0x2D : 0x2B;              /* - + */
-    screen[CH * CW + col + 1] = (unsigned char)(0x30 + (f >> 28));
+    screen[CH * CW + col + 1] = (unsigned char)(0x30 + whole);
     screen[CH * CW + col + 2] = 0x2E;                          /* . */
-    f &= 0x0FFFFFFFUL;
+    f = f - whole;                                             /* the fraction */
     for (d = 0; d < 5; d++) {
-        f *= 10;
-        screen[CH * CW + col + 3 + d] = (unsigned char)(0x30 + (f >> 28));
-        f &= 0x0FFFFFFFUL;
+        coord g = f * 5, h;                                    /* 10 * f = 2 * g */
+        whole = fixedToInt(g);
+        h = g - whole;
+        if (h >= 0.5) { whole = whole * 2 + 1; f = (h - 0.5) * 2; }
+        else { whole = whole * 2; f = h * 2; }
+        screen[CH * CW + col + 3 + d] = (unsigned char)(0x30 + whole);
     }
 }
 
@@ -407,7 +415,7 @@ static unsigned int read_joysticks(void) {
 }
 
 static void reset_view(void) {
-    cx = -ONE / 2;                        /* -0.5 */
+    cx = -0.5;
     cy = 0;
     zoom = 0;
     step = BASE_STEP;
@@ -444,8 +452,8 @@ static unsigned char handle_input(void) {
             if (moves & IN_RIGHT) dc = 4;
             if (moves & IN_UP) dr = -4;
             if (moves & IN_DOWN) dr = 4;
-            cx += (signed long)dc * 8 * step;
-            cy += (signed long)dr * 8 * step;
+            cx += dc * 8 * step;
+            cy += dr * 8 * step;
             scroll_cells(dc, dr);
             status();
         }
@@ -523,6 +531,51 @@ static void video_off(void) {
 
 /* ------------------------------------------------------------------------ */
 
+#ifdef MB_CHECK
+/* make check: the view rendered whole, then zoomed in twice and moved 4
+ * cells right and down, rendered again; after each, the sums of the pixel
+ * blocks and of the status line (the coordinates) at $C0C0 */
+static unsigned int sum_pixels(void) {
+    unsigned int cell, s = 0;
+    unsigned char k;
+    for (cell = 0; cell < CW * CH; cell++) {
+        dma_copy_far((unsigned long)(unsigned int)cellbuf, (unsigned long)screen[cell] * 64, 64);
+        for (k = 0; k < 64; k++) s = s * 3 + cellbuf[k];
+    }
+    return s;
+}
+
+static unsigned int sum_status(void) {
+    unsigned int s = 0;
+    unsigned char i;
+    for (i = 0; i < CW; i++) s = s * 7 + screen[CH * CW + i];
+    return s;
+}
+
+static void render_all(void) {
+    restart();
+    while (busy) render_step();
+    status();
+}
+
+int main(void) {
+    volatile unsigned int *out = (volatile unsigned int *)0xC0C0;
+    unsigned int i;
+    reset_view();
+    for (i = 0; i < CW * CH; i++) screen[i] = (unsigned int)(PIX_LIN / 64 + i);   /* (video_on's blocks) */
+    render_all();
+    out[0] = sum_pixels();
+    out[1] = sum_status();
+    step >>= 1; zoom++;
+    step >>= 1; zoom++;
+    cx += 32 * step;                      /* 4 cells right and down */
+    cy += 32 * step;
+    render_all();
+    out[2] = sum_pixels();
+    out[3] = sum_status();
+    return 0;
+}
+#else
 int main(void) {
     unsigned char last_raster = 0;
     reset_view();
@@ -550,3 +603,4 @@ int main(void) {
     video_off();
     return 0;
 }
+#endif

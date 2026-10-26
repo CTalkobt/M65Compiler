@@ -421,6 +421,34 @@ else
     failed=$((failed + 1))
 fi
 
+# Fixed point (#72; the runtime test is test_fixed_xemu.c): a constant is
+# its scaled integer ($0180), 8.8 * inline (no call), 16.16 * __fx32_mul;
+# % and &, two 32-bit types mixed, a bad __fixed(I, F) are errors, a
+# constant out of range a warning
+printf '__fixed8_8 g = 1.5;\n__fixed8_8 m(__fixed8_8 a, __fixed8_8 b) { return a * b; }\n__fixed16_16 n(__fixed16_16 a, __fixed16_16 b) { return a * b; }\n' > build/test/test_fixed_cg.c
+fx_ok=1
+if ./bin/cc45 -O2 -S build/test/test_fixed_cg.c -o build/test/test_fixed_cg.s45 >/dev/null 2>&1; then
+    grep -A1 '^_g:' build/test/test_fixed_cg.s45 | grep -qE '\.word (384|\$0180)' || fx_ok=0
+    sed -n '/proc _m\b/,/endproc/p' build/test/test_fixed_cg.s45 | grep -q 'jsr' && fx_ok=0
+    sed -n '/proc _n\b/,/endproc/p' build/test/test_fixed_cg.s45 | grep -q 'jsr ___fx32_mul' || fx_ok=0
+else
+    fx_ok=0
+fi
+for bad in '__fixed8_8 a; int f(void){ return a % 2; }|'"'"'%'"'"' is not defined on fixed-point values' \
+           '__fixed8_8 a; int f(void){ return a & 1; }|'"'"'&'"'"' is not defined on fixed-point values' \
+           '__fixed(4,28) a; __fixed(16,16) b; int f(void){ return a + b > 0; }|__fixed(4, 28) and __fixed(16, 16) in one operation: cast one' \
+           '__fixed(3, 3) a;|I + F 16 or 32' \
+           '__fixed(1,15) a = 1.0;|does not fit __fixed(1, 15)'; do
+    printf '%s\n' "${bad%%|*}" > build/test/test_fixed_bad.c
+    ./bin/cc45 -O2 -c build/test/test_fixed_bad.c -o build/test/test_fixed_bad.o45 2>&1 | grep -qF "${bad##*|}" || fx_ok=0
+done
+if [ $fx_ok = 1 ]; then
+    echo "SUCCESS: fixed point: constants scaled, 8.8 * inline, 16.16 * the library, errors"
+else
+    echo "FAIL: fixed point code"
+    failed=$((failed + 1))
+fi
+
 # A bitfield wider than its type is an error, also after a comma and unnamed
 # (int e : 17 kept 16 bits without a word)
 bf_ok=1
