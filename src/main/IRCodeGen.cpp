@@ -1141,12 +1141,16 @@ bool IRCodeGen::emitMulAXConst(long c, bool xZero, const std::string& why, int l
         } else if (top == 1) {
             emit("asl", why); emit("pha"); emit("txa"); emit("rol"); emit("tax"); emit("pla");
         } else if (top >= 8) {
-            emit("tax", why); emit("lda #0");           // * 256: the low byte up
-            if (top > 8) {
-                emit("txa");
-                for (int k = 8; k < top; k++) emit("asl");
-                emit("tax"); emit("lda #0");
-            }
+            // * 256: the low byte up (shifted first: x << 9 is asl; tax; lda #0)
+            for (int k = 8; k < top; k++) emit("asl", k == 8 ? why : "");
+            emit("tax", top == 8 ? why : ""); emit("lda #0");
+        } else if (xZero && top >= 3) {
+            // a byte: the high byte its top bits (lsr), the low byte shifted
+            // (#348: 11 bytes, not 4 + 3 per bit through a scratch byte)
+            emit("pha", why);
+            for (int k = top; k < 8; k++) emit("lsr");
+            emit("tax"); emit("pla");
+            for (int k = 0; k < top; k++) emit("asl");
         } else {
             emit("stx " + S, why);
             for (int k = 0; k < top; k++) { emit("asl"); emit("rol " + S); }
@@ -2988,7 +2992,7 @@ void IRCodeGen::emitFunctionPruned(const ir::Function& fn, bool relocMode, bool 
 
 // The N/Z flags of a dropped load restored on the fall-through into a label
 // (restoreFlags: ora #0, or inx / dex; marked kFlagRestore): not needed when
-// the code that follows sets N/Z before anything reads them. Stores and the
+// the code that follows sets N/Z before anything reads them, or returns. Stores and the
 // carry instructions are skipped; a branch, call, jump, return, php or an
 // unknown (simulated) instruction keeps them (Issue #297).
 std::string IRCodeGen::pruneDeadFlagRestores(const std::string& text) {
@@ -3034,7 +3038,9 @@ std::string IRCodeGen::pruneDeadFlagRestores(const std::string& text) {
             if (t == 0 || t == 3) continue;
             if (t != 1) break;
             if (leaves.count(mn)) continue;
-            dead = sets.count(mn) > 0;
+            // (a return: N/Z are not part of the convention, #348; an
+            // interrupt handler's rti pulls the flags)
+            dead = sets.count(mn) > 0 || mn == "rts" || mn == "rti";
             break;
         }
         if (dead) for (size_t k = j; k < j + n; k++) drop[k] = true;
@@ -3252,6 +3258,21 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // char and int locals live there like register variables (a dereference
     // uses the pointer in place, a loop counter is a ZP access).
     regVregs_ = fn.registerVregs;
+    zextBytes_.clear();
+    {
+        std::map<uint32_t, int> defs;
+        for (const auto& blk : fn.blocks)
+            for (const auto& in : blk.insts)
+                if (in.dest.isVreg()) defs[in.dest.vregId]++;
+        for (const auto& blk : fn.blocks)
+            for (const auto& in : blk.insts)
+                if (in.op == ir::Op::ZEXT && in.resultType == ir::Type::I32 && in.dest.isVreg() &&
+                    defs[in.dest.vregId] == 1 && !fn.localSlotVregs.count(in.dest.vregId)) {
+                    ir::Type st = in.src1.type;
+                    if (st == ir::Type::I8) zextBytes_[in.dest.vregId] = 1;
+                    else if (st == ir::Type::I16 || st == ir::Type::PTR) zextBytes_[in.dest.vregId] = 2;
+                }
+    }
     {
         bool leaf = true;
         for (const auto& blk : fn.blocks)
@@ -3264,9 +3285,13 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             // (a variable whose address is used, such as a small struct read
             // member by member, stays in memory)
             std::set<uint32_t> addressedLocals;
+            std::set<uint32_t> farAddrs;   // (a far pointer: its base-page bytes are its home, #348)
             for (const auto& blk : fn.blocks)
-                for (const auto& in : blk.insts)
+                for (const auto& in : blk.insts) {
                     if (in.op == ir::Op::ADDR_LOCAL && in.src1.isVreg()) addressedLocals.insert(in.src1.vregId);
+                    const ir::Operand& fa = in.op == ir::Op::FAR_LOAD ? in.src1 : in.src2;
+                    if ((in.op == ir::Op::FAR_LOAD || in.op == ir::Op::FAR_STORE) && fa.isVreg()) farAddrs.insert(fa.vregId);
+                }
             for (const auto& [name, vid] : fn.localNames) {
                 if (vid < paramCount || fn.memoryVregs.count(vid) || fn.vregSizes.count(vid) ||
                     addressedLocals.count(vid))
@@ -3276,7 +3301,8 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 // pointers, and the char and int variables (loop counters):
                 // zero-page accesses instead of absolute ones
                 if (t != fn.vregTypes.end() &&
-                    (t->second == ir::Type::PTR || t->second == ir::Type::I16 || t->second == ir::Type::I8))
+                    (t->second == ir::Type::PTR || t->second == ir::Type::I16 || t->second == ir::Type::I8 ||
+                     (t->second == ir::Type::I32 && farAddrs.count(vid))))
                     regVregs_.insert(vid);
             }
         }
@@ -5581,6 +5607,20 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
         case ir::Op::SUB: {
             // A pointer + offset folded into its loads/stores
             if (inst.op == ir::Op::ADD && inst.dest.isVreg() && foldedAddrs_.count(inst.dest.vregId)) break;
+            // an int's x + c stored through a far pointer next, its one use:
+            // added there byte by byte (#348)
+            if ((inst.resultType == ir::Type::I16 || inst.resultType == ir::Type::PTR) && inst.dest.isVreg() &&
+                inst.src2.isImm() && !directByte(inst.src1, 0).empty() && !directByte(inst.src1, 1).empty()) {
+                const ir::Inst* nx = peekNextInst();
+                if (nx && nx->op == ir::Op::FAR_STORE && (nx->resultType == ir::Type::I16 || nx->resultType == ir::Type::PTR) &&
+                    nx->src1.isVreg() && nx->src1.vregId == inst.dest.vregId &&
+                    !(nx->src2.isVreg() && nx->src2.vregId == inst.dest.vregId) &&
+                    !(inst.src1.isVreg() && nx->src2.isVreg() && nx->src2.vregId == inst.src1.vregId) &&
+                    !vregUsedOutside(inst.dest.vregId, &inst, nx)) {
+                    farAddPending_ = &inst;
+                    break;
+                }
+            }
             // --- I16 INC/DEC peephole for local += 1 / local -= 1 ---
             // Pattern: %n = add/sub i16 %local, 1; store %n, %local
             // Emit: inc $ZP; bne +2; inc $ZP+1 (or dec variant)
@@ -5762,10 +5802,27 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                         emitLabel(l);
                         emit("stq " + dst);
                     } else {
+                        // a constant's low 0 bytes (+ $100, + $08300000): those
+                        // bytes copied, the carry from the first other one;
+                        // where the source is 0 (a zero-extension) from there
+                        // on, the constant's bytes (#348)
+                        int first = 0;
+                        if (add && directByte(inst.src2, 0)[0] == '#')
+                            while (first < nb - 1 && directByte(inst.src2, first) == "#0") first++;
+                        auto zx = inst.src1.isVreg() ? zextBytes_.find(inst.src1.vregId) : zextBytes_.end();
+                        bool constHigh = first > 0 && zx != zextBytes_.end() && zx->second <= first;
                         for (int k = 0; k < nb; k++) {
-                            emit("lda " + directByte(inst.src1, k), k == 0 ? r : "");
-                            if (k == 0) emit(add ? "clc" : "sec");
-                            emit((add ? "adc " : "sbc ") + directByte(inst.src2, k));
+                            std::string sb = directByte(inst.src1, k);
+                            if (zx != zextBytes_.end() && k >= zx->second) sb = "#0";
+                            if (k < first) {
+                                emit("lda " + sb, k == 0 ? r : "");
+                            } else if (constHigh) {
+                                emit("lda " + directByte(inst.src2, k), k == 0 ? r : "");
+                            } else {
+                                emit("lda " + sb, k == 0 ? r : "");
+                                if (k == first) emit(add ? "clc" : "sec");
+                                emit((add ? "adc " : "sbc ") + directByte(inst.src2, k));
+                            }
                             emit("sta " + byteOf(dst, k));
                         }
                     }
@@ -6227,8 +6284,11 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                     emit("lda #0"); emit("ldx #0");
                     if (is32) { emit("ldy #0"); emit("ldz #0"); }
                 } else if (!is32 && shiftCount >= 2) {
-                    // the high byte shifted in a scratch byte (no pha/pla)
-                    emitMulAXConst(1L << shiftCount, false, "<< " + std::to_string(shiftCount));
+                    // the high byte shifted in a scratch byte (no pha/pla); a
+                    // zero-extended byte's high byte is 0
+                    bool xZero = inst.src1.isVreg() && zextAlias_.count(inst.src1.vregId) &&
+                                 zextAlias_[inst.src1.vregId].type == ir::Type::I8;
+                    emitMulAXConst(1L << shiftCount, xZero, "<< " + std::to_string(shiftCount));
                 } else {
                     int maxBits = is32 ? 32 : 16;
                     for (int i = 0; i < shiftCount && i < maxBits; i++) emit(shOp);
@@ -7724,10 +7784,13 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                 bp = "$F2";
             }
             int size = inst.resultType == ir::Type::I8 ? 1 : inst.resultType == ir::Type::I32 ? 4 : 2;
+            // (p[c]: Z starts at the byte offset, foldFarOffset, #348)
+            int off = inst.elemOffset;
+            auto z = [&](int k) { return "ldz #" + std::to_string(off + k); };
             if (inst.op == ir::Op::FAR_LOAD) {
-                if (size == 1) { emit("ldz #0"); emit("lda [" + bp + "],z"); emit("ldx #0"); }
+                if (size == 1) { emit(z(0)); emit("lda [" + bp + "],z"); emit("ldx #0"); }
                 else if (size == 2) {
-                    emit("ldz #1"); emit("lda [" + bp + "],z"); emit("tax");
+                    emit(z(1)); emit("lda [" + bp + "],z"); emit("tax");
                     emit("dez"); emit("lda [" + bp + "],z");
                 } else { emit("ldz #0"); emit("ldq [" + bp + "],z"); }
                 ms_.invalidateAll();
@@ -7737,6 +7800,23 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
             // a store: each byte from where the value is, else through A/X
             // (a long through $F6-$F9: Z indexes)
             const ir::Operand& val = inst.src1;
+            if (farAddPending_ && val.isVreg() && farAddPending_->dest.isVreg() &&
+                val.vregId == farAddPending_->dest.vregId && size == 2) {
+                // x + c added byte by byte as it is stored (ldz / inz keep C)
+                const ir::Inst& a = *farAddPending_;
+                farAddPending_ = nullptr;
+                bool add = a.op == ir::Op::ADD;
+                for (int k = 0; k < 2; k++) {
+                    emit("lda " + directByte(a.src1, k), k ? "" : irDesc(add ? "x + c stored through a far pointer" : "x - c stored through a far pointer"));
+                    if (k == 0) emit(add ? "clc" : "sec");
+                    emit(std::string(add ? "adc #" : "sbc #") + std::to_string((int)((a.src2.immVal >> (8 * k)) & 0xFF)));
+                    emit(k ? "inz" : z(0));
+                    emit("sta [" + bp + "],z");
+                }
+                ms_.invalidateAll();
+                break;
+            }
+            farAddPending_ = nullptr;
             bool direct = true;
             std::vector<std::string> bytes;
             for (int k = 0; k < size && direct; k++) {
@@ -7747,10 +7827,10 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
             }
             if (!direct) {
                 bytes.clear();
-                if (size == 1) { loadOperandA(val); emit("ldz #0"); emit("sta [" + bp + "],z"); }
+                if (size == 1) { loadOperandA(val); emit(z(0)); emit("sta [" + bp + "],z"); }
                 else if (size == 2) {
                     loadOperand(val);
-                    emit("ldz #0"); emit("sta [" + bp + "],z");
+                    emit(z(0)); emit("sta [" + bp + "],z");
                     emit("inz"); emit("txa"); emit("sta [" + bp + "],z");
                 } else {
                     loadOperand(val);
@@ -7760,7 +7840,7 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
             }
             for (int k = 0; k < (int)bytes.size(); k++) {
                 emit("lda " + bytes[k]);
-                emit("ldz #" + std::to_string(k));
+                emit(k ? "inz" : z(k));   // (lda leaves Z)
                 emit("sta [" + bp + "],z");
             }
             ms_.invalidateAll();

@@ -451,11 +451,47 @@ bool AssemblerOptimizer::optimizeInternal(
             std::vector<std::pair<size_t, int>> stores;   // (statement, its byte)
             std::set<int> read;
             bool unknown = false;
+            // a simulated op or 16/32-bit operation (ora.16 .AX, $34): the
+            // bytes from each address it names (4 of them), false when one
+            // cannot be evaluated (#348: it made the whole proc unknown)
+            using ST = AssemblerParser::Statement;
+            auto arith = [](const ST* t) {
+                switch (t->type) {
+                    case ST::ADD16: case ST::SUB16: case ST::AND16: case ST::ORA16: case ST::EOR16: case ST::CMP16:
+                    case ST::ADD32: case ST::SUB32: case ST::AND32: case ST::ORA32: case ST::EOR32: case ST::CMP32:
+                        return true;
+                    default:
+                        return false;
+                }
+            };
+            auto simReads = [&](const AssemblerParser::Statement* t, std::set<int>& out) {
+                int ti = t->instr.operandTokenIndex;
+                if (ti < 0) return true;   // (no operand)
+                const auto& tk = parser->tokens;
+                bool start = true;   // (at an operand's first token)
+                for (size_t i = (size_t)ti; i < tk.size(); i++) {
+                    if (tk[i].type == AssemblerTokenType::NEWLINE || tk[i].type == AssemblerTokenType::END_OF_FILE) break;
+                    if (tk[i].type == AssemblerTokenType::COMMA) { start = true; continue; }
+                    if (!start) continue;
+                    start = false;
+                    const std::string& v0 = tk[i].value;
+                    if (!v0.empty() && (v0[0] == '.' || v0[0] == '#')) continue;   // (registers, an immediate)
+                    uint32_t v;
+                    try { v = parser->evaluateExpressionAt((int)i, t->scopePrefix); }
+                    catch (...) { return false; }
+                    for (uint32_t x = v; x < v + 4; x++) out.insert((int)x);
+                }
+                return true;
+            };
             for (size_t k = p + 1; k < end && !unknown; ++k) {
                 auto* t = st[k].get();
                 if (t->deleted || t->type == AssemblerParser::Statement::NONE) continue;
                 if (t->type != AssemblerParser::Statement::INSTRUCTION) {
                     if (t->type == AssemblerParser::Statement::DIRECTIVE && t->size == 0) continue;
+                    if (arith(t)) {
+                        if (!simReads(t, read)) { unknown = true; break; }
+                        continue;
+                    }
                     // data in the proc (__zp_args' list): the addresses it
                     // names count as read
                     if (t->type == AssemblerParser::Statement::DIRECTIVE &&
@@ -472,7 +508,11 @@ bool AssemblerOptimizer::optimizeInternal(
                     unknown = true;   // (other data in the proc, a simulated op: not followed)
                     break;
                 }
-                if (t->noOpt || t->isSimulatedOp()) { unknown = true; break; }
+                if (t->noOpt) { unknown = true; break; }
+                if (t->isSimulatedOp()) {
+                    if (!simReads(t, read)) { unknown = true; break; }
+                    continue;
+                }
                 if (t->instr.mode == AddressingMode::IMPLIED || t->instr.mode == AddressingMode::ACCUMULATOR) continue;
                 std::string tm = upper(t->instr.mnemonic);
                 if (t->instr.mode == AddressingMode::IMMEDIATE || t->instr.mode == AddressingMode::IMMEDIATE16) {
@@ -504,11 +544,83 @@ bool AssemblerOptimizer::optimizeInternal(
                 for (int b = (int)v; b < (int)v + w; b++) read.insert(b);
             }
             if (unknown) continue;
+            // read later on the way out? Straight on from the store: a read
+            // keeps it; the byte stored again or the return (rts, rti, the
+            // endproc's) before any read makes it dead; a branch, jump or
+            // call keeps it (#348)
+            // (a subroutine of the proc's own, SeqExtract's bsr __seqx_N or a
+            // jsr to a label of the proc: its rts returns into the proc, which
+            // may read the byte; then no rts is the way out)
+            bool localSub = false;
+            {
+                std::set<std::string> procLabels;
+                for (size_t k = p + 1; k < end; ++k)
+                    if (!st[k]->deleted && !st[k]->label.empty()) procLabels.insert(st[k]->label);
+                for (size_t k = p + 1; k < end && !localSub; ++k) {
+                    auto* t = st[k].get();
+                    if (t->deleted || t->type != AssemblerParser::Statement::INSTRUCTION) continue;
+                    std::string tm = upper(t->instr.mnemonic);
+                    if (tm == "BSR" || (tm == "JSR" && (procLabels.count(t->instr.operand) || t->instr.operand.rfind("@", 0) == 0)))
+                        localSub = true;
+                }
+            }
+            auto deadAhead = [&](size_t k0, int b0, int w0) {
+                if (localSub) return false;
+                std::vector<bool> live(w0, true);
+                for (size_t k = k0 + 1; k < end; ++k) {
+                    auto* t = st[k].get();
+                    if (t->deleted || t->type == AssemblerParser::Statement::NONE) continue;
+                    if (t->type != AssemblerParser::Statement::INSTRUCTION) {
+                        if (t->type == AssemblerParser::Statement::DIRECTIVE && t->size == 0) continue;
+                        if (!arith(t)) return false;
+                        std::set<int> r;
+                        if (!simReads(t, r)) return false;
+                        for (int x = 0; x < w0; x++) if (live[x] && r.count(b0 + x)) return false;
+                        continue;
+                    }
+                    if (t->noOpt) return false;
+                    if (t->isSimulatedOp()) {
+                        std::set<int> r;
+                        if (!simReads(t, r)) return false;
+                        for (int x = 0; x < w0; x++) if (live[x] && r.count(b0 + x)) return false;
+                        continue;
+                    }
+                    std::string tm = upper(t->instr.mnemonic);
+                    if (tm == "RTS" || tm == "RTI") return true;
+                    if ((tm.size() == 3 && tm[0] == 'B' && tm != "BIT") || tm == "JMP" || tm == "JSR" || tm == "BSR")
+                        return false;
+                    AddressingMode md = t->instr.mode;
+                    if (md == AddressingMode::IMPLIED || md == AddressingMode::ACCUMULATOR || md == AddressingMode::IMMEDIATE ||
+                        md == AddressingMode::IMMEDIATE16)
+                        continue;
+                    if (t->instr.operandTokenIndex < 0) return false;
+                    uint32_t v;
+                    try { v = parser->evaluateExpressionAt(t->instr.operandTokenIndex, t->scopePrefix); }
+                    catch (...) { return false; }
+                    if (md == AddressingMode::BASE_PAGE_X || md == AddressingMode::BASE_PAGE_Y || md == AddressingMode::ABSOLUTE_X ||
+                        md == AddressingMode::ABSOLUTE_Y || md == AddressingMode::BASE_PAGE_X_INDIRECT)
+                        return false;
+                    int w = tm.back() == 'Q' || md == AddressingMode::FLAT_INDIRECT_Z ? 4
+                          : (md == AddressingMode::BASE_PAGE_INDIRECT_Y || md == AddressingMode::BASE_PAGE_INDIRECT_Z ||
+                             md == AddressingMode::BASE_PAGE_INDIRECT_SP_Y || tm == "INW" || tm == "DEW" || tm == "ASW" ||
+                             tm == "ROW" || tm == "PHW") ? 2 : 1;
+                    bool overwrite = plainStores.count(tm) && md == AddressingMode::BASE_PAGE;
+                    for (int x = 0; x < w0; x++) {
+                        int a = b0 + x;
+                        if (!live[x] || a < (int)v || a >= (int)v + w) continue;
+                        if (!overwrite) return false;
+                        live[x] = false;
+                    }
+                    if (std::none_of(live.begin(), live.end(), [](bool l) { return l; })) return true;
+                }
+                return true;   // (the endproc's rts)
+            };
             for (const auto& [k, b] : stores) {
                 auto* t = st[k].get();
                 int w = upper(t->instr.mnemonic) == "STQ" ? 4 : 1;
                 bool used = false;
                 for (int x = b; x < b + w; x++) used |= read.count(x) > 0;
+                if (used && deadAhead(k, b, w)) used = false;
                 if (used || t->noOpt) continue;
                 report("dead-store", t, upper(t->instr.mnemonic) + " " + t->instr.operand + " eliminated (its base-page byte is never read)");
                 t->deleted = true;

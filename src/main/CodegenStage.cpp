@@ -210,6 +210,7 @@ void CodegenStage::optimizeIR() {
     // g.y and a[3] at their addresses (after the passes: they see the add)
     if (ranAny) {
         ir::foldGlobalOffsetAccess(*irModule_);
+        ir::foldFarOffset(*irModule_);
         ir::removeDeadTemps(*irModule_);
     }
     // last: the blocks __unlikely / __likely say are cold at the end (loop

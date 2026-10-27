@@ -109,6 +109,9 @@ void Printer::print(std::ostream& out, const Inst& inst) {
     if (inst.loc.valid()) {
         locComment = " ; " + inst.loc.file + ":" + std::to_string(inst.loc.line);
     }
+    // (a far access's byte offset, #348)
+    if ((inst.op == Op::FAR_LOAD || inst.op == Op::FAR_STORE) && inst.elemOffset)
+        locComment = " +" + std::to_string(inst.elemOffset) + locComment;
 
     switch (inst.op) {
         case Op::CONST:

@@ -4138,6 +4138,96 @@ void foldGlobalOffsetAccess(Module& mod) {
     }
 }
 
+// p[c] through a far pointer (#348): a FAR_LOAD / FAR_STORE whose address
+// is p + c (an add of a constant, or a copy of p) is the access at p with
+// the byte offset c in its elemOffset, Z's start (the far pointer is not
+// recomputed: ldz #c). c >= 256: the address p + (c & $FF00) and the offset
+// c & $FF, that address computed once for the accesses of a block (p[128],
+// p[129]). Only in a block, the add (or copy) before the access, p not
+// written between; the add is then dead (removeDeadTemps). Under
+// AddrElemFusion's switch.
+void foldFarOffset(Module& mod) {
+    for (auto& fn : mod.functions) {
+        if (!runOn(fn, "AddrElemFusion")) continue;
+        std::map<uint32_t, int> defCount;
+        for (const auto& b : fn.blocks)
+            for (const auto& in : b.insts)
+                if (in.dest.isVreg()) defCount[in.dest.vregId]++;
+        for (auto& b : fn.blocks) {
+            // (p, c & $FF00) -> the vreg holding p + it in this block
+            std::map<std::pair<uint32_t, int64_t>, std::pair<uint32_t, size_t>> made;
+            auto writes = [&](const Inst& w, uint32_t v) {
+                return (w.dest.isVreg() && w.dest.vregId == v) ||
+                       (w.op == Op::STORE && w.src2.isVreg() && w.src2.vregId == v && w.args.empty()) ||
+                       w.op == Op::CALL || w.op == Op::CALL_VOID || w.op == Op::CALL_INDIRECT || w.op == Op::ASM_INLINE;
+            };
+            auto unchanged = [&](uint32_t v, size_t from, size_t to) {
+                for (size_t k = from + 1; k < to; k++)
+                    if (writes(b.insts[k], v)) return false;
+                return true;
+            };
+            for (size_t ui = 0; ui < b.insts.size(); ui++) {
+                Inst& use = b.insts[ui];
+                if (use.op != Op::FAR_LOAD && use.op != Op::FAR_STORE) continue;
+                Operand& addr = use.op == Op::FAR_LOAD ? use.src1 : use.src2;
+                if (!addr.isVreg() || defCount[addr.vregId] != 1) continue;
+                int size = use.resultType == Type::I8 ? 1 : use.resultType == Type::I32 ? 4 : 2;
+                // the address's definition, earlier in this block
+                size_t di = ui;
+                for (size_t k = 0; k < ui; k++)
+                    if (b.insts[k].dest.isVreg() && b.insts[k].dest.vregId == addr.vregId) di = k;
+                if (di == ui) continue;
+                const Inst& def = b.insts[di];
+                Operand base;
+                int64_t c = 0;
+                if (def.op == Op::COPY && def.resultType == Type::I32 && def.src1.isVreg()) base = def.src1;
+                else if (def.op == Op::ADD && def.resultType == Type::I32 && def.src1.isVreg() && def.src2.isImm())
+                    { base = def.src1; c = def.src2.immVal; }
+                else if (def.op == Op::ADD && def.resultType == Type::I32 && def.src2.isVreg() && def.src1.isImm())
+                    { base = def.src2; c = def.src1.immVal; }
+                else continue;
+                c += use.elemOffset;
+                if (c < 0 || c > 0xFFFFFF || fn.memoryVregs.count(base.vregId)) continue;
+                if (!unchanged(base.vregId, di, ui)) continue;
+                int64_t lo = c & 0xFF, hi = c - lo;
+                if (lo + size > 256) { lo = 0; hi = c; }   // (Z would wrap)
+                if (lo && size == 4 && use.op == Op::FAR_LOAD) { lo = 0; hi = c; }   // (ldq [bp],z: no Z offset)
+                if (hi == 0) {
+                    trace("faroff", fn.name, "far access at v" + std::to_string(base.vregId) + " + " + std::to_string(lo), use.loc);
+                    addr = base;
+                    use.elemOffset = (int)lo;
+                    continue;
+                }
+                // p + hi: an earlier one of this block, or the add (now p + hi)
+                auto key = std::make_pair(base.vregId, hi);
+                auto m = made.find(key);
+                if (m != made.end() && defCount[m->second.first] == 1 && unchanged(base.vregId, m->second.second, ui)) {
+                    addr = Operand::vreg(m->second.first, Type::I32);
+                } else {
+                    if (def.op != Op::ADD) continue;
+                    // (the add's other uses would see p + hi: only when this is its one use)
+                    int uses = 0;
+                    for (const auto& b2 : fn.blocks)
+                        for (const auto& in : b2.insts) {
+                            auto u = [&](const Operand& o) { return o.isVreg() && o.vregId == addr.vregId; };
+                            if (u(in.src1) || u(in.src2) || (in.op == Op::STORE && u(in.dest))) uses++;
+                            for (const auto& a : in.args) if (u(a)) uses++;
+                            for (const auto& ph : in.phiIncoming) if (u(ph.first)) uses++;
+                        }
+                    if (uses != 1) continue;
+                    Inst& d = b.insts[di];
+                    d.src1 = base;
+                    d.src2 = Operand::imm(hi, Type::I32);
+                    made[key] = {addr.vregId, di};
+                }
+                trace("faroff", fn.name, "far access at v" + std::to_string(base.vregId) + " + " + std::to_string(hi) +
+                      ", offset " + std::to_string(lo), use.loc);
+                use.elemOffset = (int)lo;
+            }
+        }
+    }
+}
+
 // a[x + c] (also a[x - c]) with a global base: element x of the array
 // shifted by c*stride bytes, so the index is x itself and the base address
 // carries the constant (bubble sort's a[j] / a[j + 1] use the same index).

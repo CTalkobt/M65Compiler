@@ -4538,8 +4538,11 @@ void IRBuilder::visit(VariableDeclaration& node) {
         currentFunc_->memoryVregs.insert(vreg.vregId);
     }
 
-    if (getTypeSize(node.type, 0) > 2 && node.pointerLevel == 0 && node.arrayDims.empty()) {
+    if (getTypeSize(node.type, 0) > 2 && node.pointerLevel == 0 && node.arrayDims.empty() &&
+        !isFarPointerType(node.type)) {
         // Large aggregates (non-array) must go to frame with correct byte size
+        // (a far pointer is a 4-byte scalar: a leaf keeps it in the base
+        // page, #348)
         currentFunc_->memoryVregs.insert(vreg.vregId);
         currentFunc_->vregSizes[vreg.vregId] = getTypeSize(node.type, 0);
     }

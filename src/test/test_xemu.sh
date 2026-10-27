@@ -508,6 +508,9 @@ fi
 for fpmode in "stack|-fno-zpcall" "zp|"; do
     IFS='|' read -r fpname fpflags <<< "$fpmode"
     xemu_case "FAIL: test_far_ptr_xemu.c $fpname (compilation/linking failed)" "src/test-resources/test_far_ptr_xemu.c" "build/test/test_far_ptr_${fpname}_xemu.prg" "$fpflags" -- "test_far_ptr_$fpname" "build/test/test_far_ptr_${fpname}_xemu.prg" "C0C0" 12 "01 01 01 01 01 01 01 01 01 01 01 AA"
+    # far accesses at constant offsets (#348): Z from the offset, p + $xx00
+    # shared, x + c stored as added, a game's map accessors in attic RAM
+    xemu_case "FAIL: test_far_offsets_xemu.c $fpname (compilation/linking failed)" "src/test-resources/test_far_offsets_xemu.c" "build/test/test_far_offsets_${fpname}_xemu.prg" "$fpflags" -- "test_far_offsets_$fpname" "build/test/test_far_offsets_${fpname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
     # near pointers: base-page offsets to __zp variables
     xemu_case "FAIL: test_near_ptr_xemu.c $fpname (compilation/linking failed)" "src/test-resources/test_near_ptr_xemu.c" "build/test/test_near_ptr_${fpname}_xemu.prg" "$fpflags" -- "test_near_ptr_$fpname" "build/test/test_near_ptr_${fpname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
 done

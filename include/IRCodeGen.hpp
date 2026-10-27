@@ -302,6 +302,9 @@ private:
     // A byte ZEXT used once by a 16-bit add/sub, and/xor or compare: not
     // emitted; the use reads the byte where it lives and 0 above it
     std::map<uint32_t, ir::Operand> zextAlias_;
+    // a long defined once by a zero-extension: its low bytes from the source
+    // (1 or 2), the rest 0 (#348: + $xxxx0000 needs no carries there)
+    std::map<uint32_t, int> zextBytes_;
     // A long loaded from a global whose one use is the next instruction (an
     // add, sub, compare or store): the load is not emitted, the use reads
     // the global (loadVreg, directBase, src2MemOperand)
@@ -590,6 +593,9 @@ private:
     // Instructions consumed by a fused sequence: emitInst skips them up to
     // and including this one
     const ir::Inst* skipThrough_ = nullptr;
+    // an int's x + c whose one use is the far store that follows: added byte
+    // by byte as it is stored ([p],z; #348)
+    const ir::Inst* farAddPending_ = nullptr;
     // LOAD t = [p]; t2 = t +/- v; STORE t2 -> [p] done in place through the
     // pointer already set up (zpPair, yOff): true when emitted
     bool tryFusedRMW(const ir::Inst& load, const std::string& zpPair, int yOff);
