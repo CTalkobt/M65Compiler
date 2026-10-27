@@ -8804,7 +8804,11 @@ void IRBuilder::visit(ArrayAccess& node) {
         // (a void * has no element to index: a cast to a pointer to an array
         // is one, #347)
         IRTypeInfo bi = aPtr || !iPtr ? ai : ii;
-        if (bi.type == ir::Type::PTR && bi.typeName == "void" && bi.pointedToType == ir::Type::VOID) {
+        // (known to be a void *: a variable's, or a cast's, also one of a
+        // constant folded into a literal)
+        Expression* be = aPtr || !iPtr ? node.arrayExpr.get() : node.indexExpr.get();
+        bool known = bi.ptrDepth == 1 || dynamic_cast<CastExpression*>(be) || dynamic_cast<IntegerLiteral*>(be);
+        if (known && bi.type == ir::Type::PTR && bi.typeName == "void" && bi.pointedToType == ir::Type::VOID) {
             errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column, Severity::Error,
                 "subscript of a void pointer (to index a cast to a pointer to an array, assign it to a T (*p)[N] first)"));
             lastValue_ = ir::Operand::imm(0, ir::Type::I16);
