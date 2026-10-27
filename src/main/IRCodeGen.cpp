@@ -2257,8 +2257,9 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
         // a __far function: in the "far" text segment, which ln45 keeps in
         // far memory and maps into the window when called
         if (fn.isFar && relocMode_) {
-            textSeg_ = "far";
-            emit(".segment \"far\"");
+            // (__bank(n): "far.n", ln45 keeps its overlay in bank n)
+            textSeg_ = fn.bank >= 0 ? "far." + std::to_string(fn.bank) : "far";
+            emit(".segment \"" + textSeg_ + "\"");
             emitFunctionPruned(fn, relocMode, nestedInModule);
             textSeg_ = "code";
             emit(".segment \"code\"");
@@ -2410,6 +2411,11 @@ void IRCodeGen::placeNoescape(const ir::Module& mod) {
 void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
     // Deduplicate globals: extern decl + definition → keep definition only
     std::set<std::string> emittedGlobals;
+    // __bank(n) variables (#69): in the text sub-segment "bank.n", which ln45
+    // keeps in bank n (with -S: resident)
+    if (relocMode)
+        for (const auto& g : mod.globals)
+            if (g.bank >= 0) noescapeSeg_[g.name] = "bank." + std::to_string(g.bank);
 
     // Emit .global directives for non-static globals and functions
     if (relocMode) {
@@ -2449,7 +2455,7 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
                 emittedGlobals.insert(g.name);
                 // __noescape data kept in code: ln45 gives it no call stub
                 // and refuses a reference from outside its overlay
-                if (noescapeSeg_.count(g.name)) {
+                if (noescapeSeg_.count(g.name) && g.bank < 0) {
                     emit(".global cc45.noescape." + g.name);
                     emit("cc45.noescape." + g.name + " = 1");
                 }
@@ -2612,10 +2618,12 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
                 }
             } else if (!g.initLabels.empty() && !g.initLabels[0].empty()) {
                 // Scalar symbolic reference (e.g. char *p = "hello"; a far
-                // pointer's high bytes 0, a near one's low byte, #68)
-                if (g.type == ir::Type::I8) emit(".byte <(" + g.initLabels[0] + ")");
+                // pointer's high bytes 0, a near one's low byte, #68; a
+                // banked object's far address, #69)
+                if (g.farLabel) emit(".dword " + g.initLabels[0]);
+                else if (g.type == ir::Type::I8) emit(".byte <(" + g.initLabels[0] + ")");
                 else emit(".word " + g.initLabels[0]);
-                if (g.type == ir::Type::I32) emit(".word 0");
+                if (g.type == ir::Type::I32 && !g.farLabel) emit(".word 0");
             } else {
                 // Scalar initializer
                 if (g.type == ir::Type::F32) {

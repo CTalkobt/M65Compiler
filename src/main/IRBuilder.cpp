@@ -1649,6 +1649,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
     fn.isRegparm = node.isRegparm;
     fn.isFar = node.isFar;
     fn.section = node.section;
+    fn.bank = node.bank;
     if (!fn.section.empty() && (node.isFar || node.isNested))
         errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column, Severity::Error,
             "'" + node.name + "' in section '" + node.section + "': " +
@@ -4197,6 +4198,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
             globalPlainUnsigned_[node.name] = node.isPlainUnsigned;
             globalRegister_[node.name] = node.isRegister;
         };
+        if (node.bank >= 0) declareBanked(node);
         if (node.isExtern) {
             module_.externs.push_back("_" + node.name);
             if (node.addressSpace == 1)
@@ -4218,6 +4220,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
         gv.align = std::max({1, node.alignment, alignValue(node.alignmentExpr.get()),
                              typeAlign(node.type, node.pointerLevel)});
         gv.section = sectionGlobal(node);
+        gv.bank = node.bank;
         NoescapeInit noescapeInit(initNoescape_, inStaticInit_, gv.noescape);
         declaredAlign_[node.name] = gv.align;
         if (!node.ptrArrayDims.empty()) {
@@ -4357,12 +4360,21 @@ void IRBuilder::visit(VariableDeclaration& node) {
         }
         recordGlobalType();
         addVtableWords(gv, node.type, node.pointerLevel, node.arrayDims);
+        if (gv.bank >= 0 && !gv.hasInitValue) {
+            // (zeros: kept in its bank with the others, no BSS there)
+            gv.hasInitValue = gv.hasImage = true;
+            gv.initBytes.assign(gv.size, 0);
+        }
         module_.globals.push_back(gv);
         module_.debugGlobals.push_back({node.name, gv.name,
             debugType(node.type, node.pointerLevel, node.arrayDims, node.isSigned), "", node.isStatic});
         return;
     }
 
+    if (currentFunc_ && node.bank >= 0 && !node.isExtern)
+        errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column, Severity::Error,
+            "'" + node.name + "': __bank(n) places file-scope variables (not a local one)"));
+    if (currentFunc_ && node.bank >= 0 && node.isExtern) declareBanked(node);
     if (currentFunc_ && !node.isStatic && !node.isExtern && !node.section.empty())
         errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column, Severity::Error,
             "'" + node.name + "': a local variable is not placed in a section (a static one is)"));
@@ -4808,6 +4820,7 @@ void IRBuilder::visit(StringLiteral& node) {
 }
 
 void IRBuilder::visit(VariableReference& node) {
+    if (!bankedVars_.empty() && emitFarRead(node)) return;   // a __bank(n) variable (#69)
     if (const BitVar* b = bitVarOf(&node)) {
         if (computeAddressOnly_) {
             errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column, Severity::Error,

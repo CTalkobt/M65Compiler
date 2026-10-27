@@ -108,10 +108,53 @@ ir::Operand IRBuilder::farScaled(Expression* index, int size, ASTNode& at, bool 
     return r;
 }
 
+// A __bank(n) variable (#69): kept in far memory, reached through its
+// address in a hidden static global of the file (.dword <sym>, R_LINEAR32)
+void IRBuilder::declareBanked(VariableDeclaration& node) {
+    farUsed_ = true;
+    BankedVar bv;
+    bv.ref = "__fa_" + node.name;
+    bv.elem.type = node.type;
+    bv.elem.ptrLevel = node.pointerLevel;
+    bv.elem.isSigned = node.isSigned;
+    bv.elem.dims = node.arrayDims;
+    if (!bankedVars_.count(node.name)) {
+        ir::Module::GlobalVar ref;
+        ref.name = bv.ref;
+        ref.type = ir::Type::I32;
+        ref.size = 4;
+        ref.isStatic = true;
+        ref.isConst = true;
+        ref.hasInitValue = true;
+        ref.initLabels.push_back("_" + node.name);
+        ref.farLabel = true;
+        module_.globals.push_back(ref);
+    }
+    bankedVars_[node.name] = bv;
+}
+
 // Whether e is an object reached through a far pointer: its element (and,
 // with addr, the code computing its 32-bit address)
 bool IRBuilder::farLvalue(Expression* e, FarElem& el, ir::Operand* addr) {
     if (!farUsed_ || !e) return false;
+    if (auto* v = dynamic_cast<VariableReference*>(e)) {
+        // a __bank(n) variable (not a local of the name)
+        auto it = bankedVars_.find(v->name);
+        if (it == bankedVars_.end() || locals_.count(v->name)) return false;
+        el = it->second.elem;
+        if (addr) {
+            auto a = allocVreg(ir::Type::I32);
+            ir::Inst ld;
+            ld.op = ir::Op::LOAD;
+            ld.dest = a;
+            ld.resultType = ir::Type::I32;
+            ld.src1 = ir::Operand::global(it->second.ref);
+            ld.loc = loc(*e);
+            emit(ld);
+            *addr = a;
+        }
+        return true;
+    }
     if (auto* u = dynamic_cast<UnaryOperation*>(e); u && u->op == "*") {
         std::string ft = farTypeOf(u->operand.get());
         if (ft.empty()) return false;
@@ -172,7 +215,12 @@ bool IRBuilder::farLvalue(Expression* e, FarElem& el, ir::Operand* addr) {
 bool IRBuilder::farExprTypeInfo(Expression* e, IRTypeInfo& out) {
     if (!farUsed_) return false;
     FarElem el;
-    if (farLvalue(e, el, nullptr)) { out = farElemInfo(el); return true; }
+    if (farLvalue(e, el, nullptr)) {
+        out = farElemInfo(el);
+        // (an array: its size, as for a string literal; sizeof reads it)
+        if (!el.dims.empty()) out.totalSize = farElemSize(el);
+        return true;
+    }
     if (auto* u = dynamic_cast<UnaryOperation*>(e); u && u->op == "&" && farLvalue(u->operand.get(), el, nullptr) &&
         el.ptrLevel == 0) {
         if (el.near) out = {ir::Type::I8, farPtrName(el.type, el.isSigned, true), false, ir::Type::VOID, 1};
@@ -426,7 +474,12 @@ bool IRBuilder::emitNearCast(CastExpression& node) {
 // wrapped in a cast (its base-page address)
 void IRBuilder::nearConvertTo(std::unique_ptr<Expression>& e, const std::string& targetType, int ptr) {
     if (!farUsed_ || !e || (ptr == 0 && !isFarPointerType(targetType))) return;
-    if (!isNearPointerType(farTypeOf(e.get()))) return;
+    std::string ft = farTypeOf(e.get());
+    // a far pointer for a normal one: its low 16 bits (a cast says so)
+    if (ptr > 0 && isFarPointerType(ft))
+        warnings_.push_back(formatDiagnostic(e->sourceFile, e->line, e->column, Severity::Warning,
+            "a far pointer converted to a 16-bit pointer keeps its low 16 bits (cast it to say so)"));
+    if (!isNearPointerType(ft)) return;
     int line = e->line, col = e->column;
     std::string file = e->sourceFile;
     e = std::make_unique<CastExpression>(ptr ? "void" : targetType, ptr ? 1 : 0, false, std::move(e));

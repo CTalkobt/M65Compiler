@@ -750,9 +750,15 @@ bool O45Linker::layoutSegments(std::string& errorMsg) {
     //      has the most calls with that has room for it (none: the first
     //      with room; no room: a new overlay)
     ovlNames_.resize(ovlUserCount_);
-    std::map<size_t, int> farOvl;   // object -> its far chunk's overlay
-    if (chunksByName.count("far")) {
-        const auto& fc = chunksByName["far"];
+    ovlBank_.resize(ovlUserCount_);
+    ovlData_.resize(ovlUserCount_);
+    // (object, sub-segment) -> the overlay of its far chunk / banked data
+    std::map<std::pair<size_t, std::string>, int> farOvl;
+    // (a bank's number in hex, as the map shows it: bank4, bank800)
+    auto bankName = [](int b) { char t[16]; snprintf(t, sizeof t, "bank%X", (unsigned)b); return std::string(t); };
+    // a group of far chunks ("far", or "far.n": __bank(n) functions, kept in
+    // bank n, #69) packed into overlays
+    auto packFar = [&](const std::vector<TextChunk>& fc, int bank) -> bool {
         size_t n = fc.size();
         uint32_t cap = 0x2000;
         for (const auto& c : fc) {
@@ -801,6 +807,7 @@ bool O45Linker::layoutSegments(std::string& errorMsg) {
             size[a] += size[b];
         }
         // 3. clusters into overlays
+        std::vector<size_t> first;   // each overlay's index in ovlNames_
         std::vector<size_t> clusters;
         for (size_t k = 0; k < n; k++) if (find(k) == k) clusters.push_back(k);
         std::stable_sort(clusters.begin(), clusters.end(), [&](size_t a, size_t b) { return size[a] > size[b]; });
@@ -819,13 +826,29 @@ bool O45Linker::layoutSegments(std::string& errorMsg) {
             if (best < 0) {
                 best = (int)used.size();
                 used.push_back(0);
-                ovlNames_.push_back("far" + std::to_string(best + 1));
+                first.push_back(ovlNames_.size());
+                ovlNames_.push_back((bank < 0 ? std::string("far") : bankName(bank) + "far") + std::to_string(best + 1));
+                ovlBank_.push_back(bank);
+                ovlData_.push_back(false);
             }
             used[best] += size[c];
             groupOf[c] = best;
         }
         for (size_t k = 0; k < n; k++)
-            farOvl[fc[k].objectIdx] = (int)(ovlUserCount_ + groupOf[find(k)] + 1);
+            farOvl[{fc[k].objectIdx, fc[k].subSegName}] = (int)(first[groupOf[find(k)]] + 1);
+        return true;
+    };
+    for (const auto& [name, chunks] : chunksByName) {
+        if (name == "far" && !packFar(chunks, -1)) return false;
+        if (name.rfind("far.", 0) == 0 && !packFar(chunks, (int)std::stol(name.substr(4)))) return false;
+        // __bank(n) variables: a data overlay per bank, kept there
+        if (name.rfind("bank.", 0) == 0) {
+            int bank = (int)std::stol(name.substr(5));
+            ovlNames_.push_back(bankName(bank));
+            ovlBank_.push_back(bank);
+            ovlData_.push_back(true);
+            for (const auto& c : chunks) farOvl[{c.objectIdx, c.subSegName}] = (int)ovlNames_.size();
+        }
     }
     ovlText_.resize(ovlNames_.size());
 
@@ -843,7 +866,8 @@ bool O45Linker::layoutSegments(std::string& errorMsg) {
             auto& input = objects_[chunk.objectIdx];
             // (a code overlay's: in its own text, at the region's address,
             // which is page-aligned; __far code: in its automatic overlay)
-            int chunkOvl = chunk.subSegName == "far" ? farOvl[chunk.objectIdx] : input.ovl;
+            auto fo = farOvl.find({chunk.objectIdx, chunk.subSegName});
+            int chunkOvl = fo != farOvl.end() ? fo->second : input.ovl;
             // a __section function's code: in its section's (resident, not
             // in a code overlay)
             int sect = -1;
@@ -1327,7 +1351,14 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
             uint32_t symAddr = it->second;
             {
                 auto o = symOvl_.find(lookupName);
-                if (o != symOvl_.end() && o->second) {
+                // __bank(n) data (#69): its far address, 32 bits only
+                if (o != symOvl_.end() && isDataOvl(o->second) && r.type != R_LINEAR32 && r.type != R_LINEAR24 &&
+                    r.type != R_SEGADR) {
+                    errorMsg = "'" + lookupName + "' is kept in bank " + std::to_string(ovlBank_[o->second - 1]) +
+                               " (__bank): " + input.filename + " refers to it by a 16-bit address (only its far address reaches it)";
+                    return false;
+                }
+                if (o != symOvl_.end() && o->second && !isDataOvl(o->second)) {
                     bool stubbed = ovlStubs_.count(lookupName) > 0;
                     if (!stubbed || (isCall && siteOvl == o->second)) {
                         symAddr = realAddr_[lookupName];
@@ -1451,7 +1482,12 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
             // into a code overlay's text: a function's address taken (not a
             // JSR/JMP), or called from outside that overlay, is its stub
             int tOvl = r.segment == SEG_TEXT ? input.ovlAt(segRelOff) : 0;
-            if (tOvl) {
+            if (isDataOvl(tOvl) && r.type != R_LINEAR32 && r.type != R_LINEAR24 && r.type != R_SEGADR) {
+                errorMsg = "a 16-bit address in " + input.filename + " of __bank(" + std::to_string(ovlBank_[tOvl - 1]) +
+                           ") data (only its far address reaches it)";
+                return false;
+            }
+            if (tOvl && !isDataOvl(tOvl)) {
                 targetOvl = tOvl;
                 if (!isCall || siteOvl != tOvl) {
                     bool stubbed = false;
@@ -1643,7 +1679,7 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
     // Code overlays: their runtime (lib/stdlib_asm/ovl.s45), which the stubs
     // generated later call: pulled in and kept
     assignOverlays();
-    if (!ovlNames_.empty() || hasFar_) {
+    if (!ovlNames_.empty() || hasFar_ || hasBanked_) {
         bool have = false;
         for (const auto& input : objects_)
             for (const auto& exp : input.obj.exports)
@@ -1667,6 +1703,7 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
 
     if (!layoutSegments(errorMsg)) return {};
     if (!placeOverlayRegion(errorMsg)) return {};
+    if (!placeOverlayStore(errorMsg)) return {};
     if (!placeZpVars(errorMsg)) return {};
     if (!placeSections(errorMsg)) return {};
     if (!resolveSymbols(errorMsg)) return {};
@@ -3090,12 +3127,18 @@ void O45Linker::assignOverlays() {
     ovlUserCount_ = ovlNames_.size();
     // __far functions (cc45): a "far" text sub-segment, packed into
     // automatic mapped overlays when the text is laid out
-    hasFar_ = false;
+    hasFar_ = hasBanked_ = false;
     for (const auto& input : objects_)
-        for (const auto& sa : input.obj.segAttrs)
-            if (sa.segId == SEG_TEXT && sa.name == "far" && sa.length) hasFar_ = true;
+        for (const auto& sa : input.obj.segAttrs) {
+            if (sa.segId != SEG_TEXT || !sa.length) continue;
+            if (sa.name == "far" || sa.name.rfind("far.", 0) == 0) hasFar_ = true;
+            // (__bank(n): its code "far.n", its variables "bank.n", #69)
+            if (sa.name.rfind("far.", 0) == 0 || sa.name.rfind("bank.", 0) == 0) hasBanked_ = true;
+        }
     if (hasFar_) ovlMap_ = true;
     ovlText_.assign(ovlNames_.size(), {});
+    ovlBank_.assign(ovlNames_.size(), -1);
+    ovlData_.assign(ovlNames_.size(), false);
 }
 
 uint32_t O45Linker::textAddrOf(const InputObject& in, uint32_t origOff) const {
@@ -3104,7 +3147,10 @@ uint32_t O45Linker::textAddrOf(const InputObject& in, uint32_t origOff) const {
         auto it = sections_.find(sectCodeNames_[sect]);
         return (it != sections_.end() ? it->second.addr : 0) + in.remapTextOffset(origOff);
     }
-    return (in.ovlAt(origOff) ? ovlBase_ : textBase_) + in.remapTextOffset(origOff);
+    // (__bank(n) data: where it is kept, #69)
+    int ovl = in.ovlAt(origOff);
+    if (isDataOvl(ovl)) return (ovl <= (int)ovlAt_.size() ? ovlAt_[ovl - 1] : 0) + in.remapTextOffset(origOff);
+    return (ovl ? ovlBase_ : textBase_) + in.remapTextOffset(origOff);
 }
 
 // The section code, relocated, into its copy in the program's text
@@ -3118,7 +3164,8 @@ void O45Linker::copySectionCode() {
 bool O45Linker::placeOverlayRegion(std::string& errorMsg) {
     if (ovlNames_.empty()) return true;
     ovlSize_ = 0;
-    for (const auto& t : ovlText_) ovlSize_ = std::max(ovlSize_, (uint32_t)t.size());
+    for (size_t i = 0; i < ovlText_.size(); i++)
+        if (!ovlData_[i]) ovlSize_ = std::max(ovlSize_, (uint32_t)ovlText_[i].size());   // (data overlays never run)
     uint32_t top = 0xBFFF, size = stackSize_;
     bool topStrong = false;
     for (const auto& input : objects_)
@@ -3154,6 +3201,96 @@ bool O45Linker::placeOverlayRegion(std::string& errorMsg) {
         return false;
     }
     ovlBase_ = (end - ovlSize_) & ~0xFFu;
+    return true;
+}
+
+// Where each overlay is kept in far memory: the store ranges (--overlay-store)
+// cut where a bank ends (a file holds one bank's part: its load address is
+// 16 bits), each overlay in the first part it fits in (never across a
+// bank). A __bank(n) overlay (#69: "far.n" code, "bank.n" data) goes in a
+// part of bank n, which is added when no range has it. Before the symbols
+// are resolved: a data overlay's symbols are at its far address.
+bool O45Linker::placeOverlayStore(std::string& errorMsg) {
+    storeParts_.clear();
+    storeCur_.clear();
+    ovlPartOf_.clear();
+    ovlAt_.clear();
+    if (ovlNames_.empty()) return true;
+    if (ovlText_.size() > 255) {
+        errorMsg = "code overlays: " + std::to_string(ovlText_.size()) +
+                   " overlays (with the __far functions' far1, far2, ...); an overlay's id is a byte: at most 255";
+        return false;
+    }
+    auto& parts = storeParts_;
+    for (const auto& [first, last] : ovlStores_)
+        for (uint32_t p = first; p <= last; p = (p | 0xFFFF) + 1)
+            parts.push_back({p, std::min(last, p | 0xFFFF)});
+    for (int b : ovlBank_) {
+        if (b < 0) continue;
+        bool have = false;
+        for (const auto& pr : parts) have |= (int)(pr.first >> 16) == b;
+        if (!have) parts.push_back({(uint32_t)b << 16, ((uint32_t)b << 16) | 0xFFFF});
+    }
+    auto& cur = storeCur_;
+    for (const auto& r : parts) cur.push_back(r.first);
+    for (size_t i = 0; i < ovlText_.size(); i++) {
+        const auto& img = ovlText_[i];
+        bool mapped = ovlMap_ && !ovlData_[i];
+        if (ovlData_[i] && img.size() > 0x10000) {
+            errorMsg = "__bank(" + std::to_string(ovlBank_[i]) + ") variables: " + std::to_string(img.size()) +
+                       " bytes, more than a 64 KB bank";
+            return false;
+        }
+        size_t r = 0;
+        uint32_t at = 0;
+        for (; r < cur.size(); r++) {
+            if (ovlBank_[i] >= 0 && (int)(parts[r].first >> 16) != ovlBank_[i]) continue;
+            if (mapped && parts[r].first >= 0x8000000) continue;
+            at = mapped ? (cur[r] + 0xFF) & ~0xFFu : cur[r];   // (MAP offsets are whole pages)
+            if (at + img.size() <= (uint64_t)parts[r].second + 1) break;
+        }
+        if (r == cur.size()) {
+            if (ovlBank_[i] >= 0) {
+                errorMsg = "code overlays: " + std::string(ovlData_[i] ? "the __bank(" : "the code of __bank(") +
+                           std::to_string(ovlBank_[i]) + ")" + (ovlData_[i] ? " variables" : " functions") + " (" +
+                           std::to_string(img.size()) + " bytes, " + ovlNames_[i] + ") does not fit in what is left of bank " +
+                           std::to_string(ovlBank_[i]);
+                return false;
+            }
+            bool attic = false;
+            for (const auto& pr : parts) attic |= pr.first >= 0x8000000;
+            if (attic && ovlMap_) {
+                errorMsg = std::string("code overlays: attic RAM (--overlay-store) holds copied overlays only: MAP reaches the "
+                                       "first megabyte (") + (hasFar_ ? "__far functions are mapped" : "--overlay-map") + ")";
+                return false;
+            }
+            uint32_t room = 0;
+            for (size_t k = 0; k < cur.size(); k++) room += parts[k].second + 1 - cur[k];
+            errorMsg = "code overlays: overlay " + ovlNames_[i] + " (" + std::to_string(img.size()) +
+                       " bytes) does not fit in the overlay store (" + std::to_string(room) + " bytes left in " +
+                       std::to_string(cur.size()) + (cur.size() == 1 ? " bank" : " banks") + ")";
+            if (cur.size() == 1 && (parts[0].first >> 16) < 5) {
+                char b[160];
+                snprintf(b, sizeof(b), "; the next bank as a second range: --overlay-store=0x%X-0x%X,0x%X0000-0x%XFFFF",
+                         parts[0].first, parts[0].second, (parts[0].first >> 16) + 1, (parts[0].first >> 16) + 1);
+                errorMsg += b;
+            } else if (!ovlMap_ && !attic) {
+                errorMsg += "; attic RAM as a range too: --overlay-store=...,0x8000000-0x803FFFF";
+            }
+            return false;
+        }
+        cur[r] = at + (uint32_t)img.size();
+        ovlAt_.push_back(at);
+        ovlPartOf_.push_back(r);
+    }
+    // (copied overlays only in attic RAM: MAP reaches the first megabyte)
+    if (ovlMap_)
+        for (size_t i = 0; i < ovlAt_.size(); i++)
+            if (!ovlData_[i] && ovlAt_[i] >= 0x8000000) {
+                errorMsg = std::string("code overlays: attic RAM (--overlay-store) holds copied overlays only: MAP reaches the "
+                                       "first megabyte (") + (hasFar_ ? "__far functions are mapped" : "--overlay-map") + ")";
+                return false;
+            }
     return true;
 }
 
@@ -3275,7 +3412,7 @@ bool O45Linker::generateOverlayStubs(std::string& errorMsg) {
                     if (r.symbolIndex >= input.obj.imports.size()) continue;
                     const std::string& n = input.obj.imports[r.symbolIndex].name;
                     auto o = symOvl_.find(n);
-                    if (o == symOvl_.end() || o->second == 0) continue;
+                    if (o == symOvl_.end() || o->second == 0 || isDataOvl(o->second)) continue;   // (__bank data: no stub)
                     if (noescapeData.count(n)) {
                         if (!inText || input.ovlAt(r.offset) != o->second) return outsideRef(n, o->second, input);
                         continue;
@@ -3284,7 +3421,7 @@ bool O45Linker::generateOverlayStubs(std::string& errorMsg) {
                 } else if (r.segment == SEG_TEXT) {
                     uint32_t off = storedValue(r, body) - segOrigBase(input.obj, SEG_TEXT);
                     int tOvl = input.ovlAt(off);
-                    if (!tOvl) continue;
+                    if (!tOvl || isDataOvl(tOvl)) continue;
                     if (inText && isCall(body, r.offset, r.type) && input.ovlAt(r.offset) == tOvl) continue;
                     std::string n = exportAt(input, off);
                     if (!n.empty() && noescapeData.count(n)) {
@@ -3335,64 +3472,19 @@ bool O45Linker::generateOverlayStubs(std::string& errorMsg) {
     // (bits 0-7, 8-15, 16-23, 20-27) and length (0-7, 8-15), or (mapped)
     // the MAP registers that map the window to it (0, 1; the others 0);
     // __ovl_file: the first file's bank, the number of files, the name
-    if (ovlText_.size() > 255) {
-        errorMsg = "code overlays: " + std::to_string(ovlText_.size()) +
-                   " overlays (with the __far functions' far1, far2, ...); an overlay's id is a byte: at most 255";
-        return false;
-    }
+    // (where each is kept: placeOverlayStore)
     std::vector<std::vector<uint8_t>> stripe(6);
-    // the ranges split where a bank ends: a file holds one bank's part (its
-    // load address is 16 bits)
-    std::vector<std::pair<uint32_t, uint32_t>> parts;
-    bool attic = false;
-    for (const auto& [first, last] : ovlStores_)
-        for (uint32_t p = first; p <= last; p = (p | 0xFFFF) + 1) {
-            parts.push_back({p, std::min(last, p | 0xFFFF)});
-            attic |= p >= 0x8000000;
-        }
-    if (attic && ovlMap_) {
-        errorMsg = std::string("code overlays: attic RAM (--overlay-store) holds copied overlays only: MAP reaches the "
-                               "first megabyte (") + (hasFar_ ? "__far functions are mapped" : "--overlay-map") + ")";
-        return false;
-    }
-    // each overlay in the first part it fits in (first fit; never across a
-    // bank)
-    std::vector<uint32_t> cur;
-    for (const auto& r : parts) cur.push_back(r.first);
-    ovlAt_.clear();
-    std::vector<size_t> partOf;
+    const auto& parts = storeParts_;
+    const auto& cur = storeCur_;
+    const auto& partOf = ovlPartOf_;
     uint8_t loMask = 0, hiMask = 0;   // the window's blocks
     for (uint32_t b = ovlBase_ >> 13; ovlMap_ && b < ((ovlBase_ + ovlSize_ + 0x1FFF) >> 13); b++)
         (b < 4 ? loMask : hiMask) |= (uint8_t)(1 << (b & 3));
     for (size_t i = 0; i < ovlText_.size(); i++) {
         const auto& img = ovlText_[i];
-        size_t r = 0;
-        uint32_t at = 0;
-        for (; r < cur.size(); r++) {
-            at = ovlMap_ ? (cur[r] + 0xFF) & ~0xFFu : cur[r];   // (MAP offsets are whole pages)
-            if (at + img.size() <= (uint64_t)parts[r].second + 1) break;
-        }
-        if (r == cur.size()) {
-            uint32_t room = 0;
-            for (size_t k = 0; k < cur.size(); k++) room += parts[k].second + 1 - cur[k];
-            errorMsg = "code overlays: overlay " + ovlNames_[i] + " (" + std::to_string(img.size()) +
-                       " bytes) does not fit in the overlay store (" + std::to_string(room) + " bytes left in " +
-                       std::to_string(cur.size()) + (cur.size() == 1 ? " bank" : " banks") + ")";
-            if (cur.size() == 1 && (parts[0].first >> 16) < 5) {
-                char b[160];
-                snprintf(b, sizeof(b), "; the next bank as a second range: --overlay-store=0x%X-0x%X,0x%X0000-0x%XFFFF",
-                         parts[0].first, parts[0].second, (parts[0].first >> 16) + 1, (parts[0].first >> 16) + 1);
-                errorMsg += b;
-            } else if (!ovlMap_ && !attic) {
-                errorMsg += "; attic RAM as a range too: --overlay-store=...,0x8000000-0x803FFFF";
-            }
-            return false;
-        }
-        cur[r] = at + (uint32_t)img.size();
-        ovlAt_.push_back(at);
-        partOf.push_back(r);
+        uint32_t at = ovlAt_[i];
         uint8_t e[6];
-        if (ovlMap_) {
+        if (ovlMap_ && !ovlData_[i]) {
             uint32_t off = at - ovlBase_;   // CPU address + offset = where it is kept
             // (the lower half of MAP; the upper half stays the ROM's)
             e[0] = (off >> 8) & 0xFF; e[1] = ((off >> 16) & 0x0F) | (loMask << 4);
@@ -4090,14 +4182,18 @@ void O45Linker::writeMap(std::ostream& out) const {
     };
     if (!ovlNames_.empty()) {
         char buf[200];
-        snprintf(buf, sizeof(buf), "  %-6s $%04X - $%04X  (%zu %s, %s)\n", "OVL", ovlBase_, ovlBase_ + ovlSize_ - 1,
-                 ovlNames_.size(), ovlNames_.size() == 1 ? "overlay" : "overlays",
-                 ovlMap_ ? "mapped: MAP points this window at each" : "copied here by DMA when called");
+        if (ovlSize_)
+            snprintf(buf, sizeof(buf), "  %-6s $%04X - $%04X  (%zu %s, %s)\n", "OVL", ovlBase_, ovlBase_ + ovlSize_ - 1,
+                     ovlNames_.size(), ovlNames_.size() == 1 ? "overlay" : "overlays",
+                     ovlMap_ ? "mapped: MAP points this window at each" : "copied here by DMA when called");
+        else   // (__bank variables only: nothing runs there)
+            snprintf(buf, sizeof(buf), "  %-6s (%zu kept in far memory, no code: no region)\n", "OVL", ovlNames_.size());
         out << buf;
         for (size_t i = 0; i < ovlNames_.size(); i++) {
             uint32_t len = (uint32_t)ovlText_[i].size();
-            snprintf(buf, sizeof(buf), "    %-14s kept in %s - $%04X  (%u bytes)\n", ovlNames_[i].c_str(),
-                     far(ovlAt_[i]).c_str(), (ovlAt_[i] + (len ? len - 1 : 0)) & 0xFFFF, len);
+            snprintf(buf, sizeof(buf), "    %-14s kept in %s - $%04X  (%u bytes%s)\n", ovlNames_[i].c_str(),
+                     far(ovlAt_[i]).c_str(), (ovlAt_[i] + (len ? len - 1 : 0)) & 0xFFFF, len,
+                     ovlData_[i] ? "; __bank variables, never run" : "");
             out << buf;
         }
         for (size_t r = 0; r < ovlFiles_.size(); r++) {
@@ -4143,7 +4239,12 @@ void O45Linker::writeMap(std::ostream& out) const {
         if (input.obj.tlen > 0 && split) {
             for (const auto& r : input.textRemaps) {
                 if (!r.srcLen) continue;
-                if (r.ovl) {
+                if (isDataOvl(r.ovl)) {
+                    // __bank(n) variables: where they are kept
+                    uint32_t kept = ovlAt_[r.ovl - 1] + r.destOffset;
+                    snprintf(buf, sizeof(buf), "    BANK  %s - $%04X  (%u bytes of __bank variables)\n",
+                             far(kept).c_str(), (kept + r.srcLen - 1) & 0xFFFF, r.srcLen);
+                } else if (r.ovl) {
                     uint32_t start = ovlBase_ + r.destOffset, kept = ovlAt_[r.ovl - 1] + r.destOffset;
                     snprintf(buf, sizeof(buf), "    TEXT  $%04X - $%04X  (%u bytes; overlay %s, kept in %s - $%04X)\n",
                              start, start + r.srcLen - 1, r.srcLen, ovlNames_[r.ovl - 1].c_str(), far(kept).c_str(),

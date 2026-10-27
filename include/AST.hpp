@@ -261,6 +261,9 @@ public:
     // __section("NAME") (Issue #70): placed in the section NAME (ln45 gives
     // its address; #pragma section declares it)
     std::string section;
+    // __bank(n) (#69): kept in 64 KB bank n (far memory), reached as a far
+    // object; -1: not banked
+    int bank = -1;
     VariableDeclaration(const std::string& t, const std::string& n, int p = 0) : type(t), pointerLevel(p), name(n) {}
     void accept(ASTVisitor& visitor) override;
 };
@@ -530,6 +533,7 @@ public:
     bool isRegparm = false;
     bool isFar = false;           // __far: kept in far memory, run through the mapped window (ln45)
     std::string section;          // __section("NAME") (Issue #70): its code runs in the section
+    int bank = -1;                // __bank(n) (#69): a __far function kept in bank n
     bool isInline = false;
     bool isAlwaysInline = false;  // __attribute__((always_inline)) / __forceinline
     bool isNoInline = false;      // __attribute__((noinline))

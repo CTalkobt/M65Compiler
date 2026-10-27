@@ -1472,7 +1472,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     func->isNoInline = pendingNoInline_ || !func->section.empty();
     pendingAlwaysInline_ = pendingNoInline_ = false;
     func->isStatic = isStatic;
-    func->isFar = isFar;
+    func->isFar = isFar || func->bank >= 0;
 
     if (currentFunction) {
         func->isNested = true;
@@ -2459,6 +2459,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
     decl->alignment = std::max(decl->alignment, takePendingAlign());
     decl->isNoescape = takePendingNoescape();
     decl->section = takePendingSection(true);
+    decl->bank = takePendingBank();
     pendingPurity_ = 0;   // (on a variable: no effect)
     applyAlias(decl->name);
     applyVectorMode(decl->type, decl->pointerLevel, decl->isSigned);
@@ -2467,6 +2468,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
     // --- Multi-variable declarations: int a, b = 3, *c, d[4]; ---
     if (peek().type == TokenType::COMMA) {
         const bool declNoescape = decl->isNoescape;   // (decl moves into the group)
+        const int declBank = decl->bank;
         const std::string declSection = decl->section;
         auto compound = setPos(std::make_unique<CompoundStatement>(), typeToken);
         compound->isDeclGroup = true;
@@ -2560,6 +2562,8 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
             extraDecl->addressSpace = extraSpace;  // Phase 97: Set address space qualifier
             extraDecl->isNoescape = declNoescape || takePendingNoescape();
             extraDecl->section = takePendingSection(true);
+            extraDecl->bank = takePendingBank();
+            if (extraDecl->bank < 0) extraDecl->bank = declBank;
             if (extraDecl->section.empty()) extraDecl->section = declSection;
             extraDecl->arrayDims = extraDims;
             recordVarSize(extraName, extraType, extraPtr, extraDims);
@@ -4258,6 +4262,13 @@ std::string Parser::resolveIntNType(bool isSigned) {
     return prefix + std::to_string(bits);
 }
 
+// (as written in messages: $800 for attic RAM's)
+static std::string bankShown(int b) {
+    char t[16];
+    snprintf(t, sizeof t, b > 255 ? "$%X" : "%d", b);
+    return t;
+}
+
 void Parser::applyFunctionSection(FunctionDeclaration& f) {
     std::string n = takePendingSection(true);
     if (n.empty()) {
@@ -4274,9 +4285,43 @@ void Parser::applyFunctionSection(FunctionDeclaration& f) {
     }
     f.section = n;
     if (!n.empty()) f.isNoInline = true;   // (its code runs in the section)
+    // __bank(n): a __far function kept in bank n (a prototype's bank too)
+    int b = takePendingBank();
+    if (b < 0) {
+        auto it = functionBanks_.find(f.name);
+        if (it != functionBanks_.end()) b = it->second;
+    } else {
+        if (b > 5) {
+            const Token& t = tokens[pendingBankTok_ < tokens.size() ? pendingBankTok_ : 0];
+            throw std::runtime_error(formatDiagnostic(t.sourceFile, t.line, t.column, Severity::Error,
+                "__bank(" + bankShown(b) + ") on a function: code runs in chip RAM, banks 4 and 5 (attic RAM holds data)"));
+        }
+        functionBanks_[f.name] = b;
+    }
+    if (b >= 0) { f.bank = b; f.isFar = true; }
+}
+
+// The bank of the declaration __bank(n) is on: chip RAM banks 4 and 5, or
+// attic RAM ($800-$87F, 64 KB banks of $8000000-$87FFFFF)
+int Parser::takePendingBank() {
+    int b = pendingBank_;
+    pendingBank_ = -1;
+    if (b < 0) return -1;
+    if (b != 4 && b != 5 && !(b >= 0x800 && b <= 0x87F)) {
+        const Token& t = tokens[pendingBankTok_ < tokens.size() ? pendingBankTok_ : 0];
+        throw std::runtime_error(formatDiagnostic(t.sourceFile, t.line, t.column, Severity::Error,
+            "__bank(" + bankShown(b) + "): the banks are 4 and 5 (chip RAM) and $800-$87F (attic RAM)"));
+    }
+    return b;
 }
 
 std::string Parser::takePendingSection(bool variable) {
+    if (!variable && pendingBank_ >= 0) {
+        const Token& t = tokens[pendingBankTok_ < tokens.size() ? pendingBankTok_ : 0];
+        pendingBank_ = -1;
+        throw std::runtime_error(formatDiagnostic(t.sourceFile, t.line, t.column, Severity::Error,
+            "__bank(n) places variables and functions, not members or types"));
+    }
     std::string n = pendingSection_;
     bool strict = pendingSectionStrict_;
     pendingSection_.clear();
@@ -4353,6 +4398,20 @@ bool Parser::tryParseAttribute() {
 
             // cc45_section("NAME") (__section) / section("NAME") (GCC): the
             // variable goes in the section NAME (Issue #70)
+            // cc45_bank(n) (__bank): kept in bank n (#69)
+            if (canonical == "cc45_bank") {
+                expect(TokenType::OPEN_PAREN, "Expected '(' after __bank");
+                pendingBankTok_ = pos;
+                auto e = parseConditional();
+                long v;
+                if (!evalConstInt(e.get(), v))
+                    throw std::runtime_error(formatDiagnostic(tokens[pendingBankTok_].sourceFile, tokens[pendingBankTok_].line,
+                        tokens[pendingBankTok_].column, Severity::Error, "__bank(n): n must be a constant"));
+                pendingBank_ = (int)v;
+                expect(TokenType::CLOSE_PAREN, "Expected ')' after the bank");
+                match(TokenType::COMMA);
+                continue;
+            }
             if (canonical == "cc45_section" || canonical == "section") {
                 expect(TokenType::OPEN_PAREN, "Expected '(' after section");
                 pendingSectionTok_ = pos;

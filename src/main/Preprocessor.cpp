@@ -39,6 +39,7 @@ Preprocessor::Preprocessor(bool isCompiler) : isCompiler(isCompiler) {
     // __section("NAME"): the variable is placed in the section NAME, which
     // #pragma section("NAME", address) declares (Issue #70)
     macros["__section"] = Macro{true, false, {"n"}, "__attribute__((cc45_section(n)))"};
+    macros["__bank"] = Macro{true, false, {"n"}, "__attribute__((cc45_bank(n)))"};
     // __pure: a function without side effects (Issue #76)
     macros["__pure"] = Macro{false, false, {}, "__attribute__((pure))"};
     macros["__45GS02__"] = Macro{false, false, {}, "1"};
