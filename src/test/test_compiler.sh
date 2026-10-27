@@ -595,6 +595,40 @@ else
     failed=$((failed + 1))
 fi
 
+# #348: far accesses at constant offsets (Z from the offset, p + $100
+# shared), a base with a zero low word added without carries, the far
+# pointer in the base page: a game's map accessors stay small (were 89 and
+# 278 bytes; now 70 and 170)
+fo=build/test/far_off
+mkdir -p $fo
+cat > $fo/r.c << 'EOF2'
+#define MAP_LIN 0x8300000UL
+#define VM ((unsigned char __far *)MAP_LIN)
+unsigned char vm_kind(unsigned char x, unsigned char y) {
+    return (unsigned char)(VM[(unsigned int)y << 9 | (unsigned int)x << 2] - 0x10) >> 2;
+}
+void vm_set(unsigned char x, unsigned char y, unsigned char kind) {
+    unsigned int __far *p = (unsigned int __far *)(VM + ((unsigned int)y << 9 | (unsigned int)x << 2));
+    unsigned int c = 0x1010 + (unsigned int)kind * 4;
+    p[0] = c;
+    p[1] = c + 1;
+    p[128] = c + 2;
+    p[129] = c + 3;
+}
+EOF2
+if ./bin/cc45 -O2 -c $fo/r.c -o $fo/r.o45 >/dev/null 2>&1; then
+    FO_SET=$((16#$(./bin/nm45 $fo/r.o45 | awk '$3 == "_vm_set" {print $1}')))
+    FO_END=$((16#$(./bin/objdump45 -h $fo/r.o45 | awk '$2 == "TEXT" {print $3}')))
+else
+    FO_SET=999; FO_END=0
+fi
+if [ $FO_SET -le 70 ] && [ $((FO_END - FO_SET)) -le 175 ]; then
+    echo "SUCCESS: far accesses at constant offsets ($FO_SET and $((FO_END - FO_SET)) bytes)"
+else
+    echo "FAIL: far access code size (#348): vm_kind $FO_SET bytes (<= 70), vm_set $((FO_END - FO_SET)) (<= 175)"
+    failed=$((failed + 1))
+fi
+
 # A bitfield wider than its type is an error, also after a comma and unnamed
 # (int e : 17 kept 16 bits without a word)
 bf_ok=1

@@ -58,6 +58,9 @@ void foldElemIndexOffset(Module& mod);
 // a load / store through add ptr @g, c: at @g+c itself (a member of a global
 // struct, a constant-index element; after the passes)
 void foldGlobalOffsetAccess(Module& mod);
+// p[c] through a far pointer: the access at p with the byte offset c (its
+// Z index; c >= 256: p + (c & $FF00) shared by the accesses in a block)
+void foldFarOffset(Module& mod);
 // const / pure functions of the module, inferred (-fipa-pure-const)
 void inferPurity(Module& mod);
 // the cold blocks (__unlikely branches) moved to the function's end
