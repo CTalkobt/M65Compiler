@@ -4722,8 +4722,10 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 if (in.op == ir::Op::ASM_INLINE || in.op == ir::Op::CPU_REG_WRITE || in.op == ir::Op::CPU_FLAG_WRITE)
                     asmBody = true;
         if (fn.returnType == ir::Type::I8 || asmBody || fn.isInterrupt) emit(".var cc45.retnz = 1");
-        // (and X: a result of more than a byte; inline asm, an interrupt's)
-        if ((fn.returnType != ir::Type::VOID && fn.returnType != ir::Type::I8) || asmBody || fn.isInterrupt)
+        // (and X: any result, a char's too: a caller without its prototype,
+        // -fimplicit-function-declaration, takes it for an int; inline asm,
+        // an interrupt's)
+        if (fn.returnType != ir::Type::VOID || asmBody || fn.isInterrupt)
             emit(".var cc45.retx = 1");
     }
 

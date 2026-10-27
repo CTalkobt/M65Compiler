@@ -1051,6 +1051,58 @@ else
     failed=$((failed + 1))
 fi
 
+# What a return carries (#351): a cc45 proc's rts reads X / N Z only as
+# .var cc45.retx / retnz say; a routine a bsr calls (SeqExtract's) returns
+# into code, so its rts reads them all (its ldx #0 stays). A transfer back
+# to a store is not made over an inw of the byte before (inw $30 changes $31)
+cat > build/test_retinfo.s45 << 'END'
+    .segment "code"
+proc _v
+    .var cc45.fp = 0
+    lda $10
+    sta $0400
+    ldx #0
+    rts
+endproc
+proc _w
+    .var cc45.fp = 0
+    .var cc45.retx = 1
+    lda $10
+    clc
+    adc $12
+    sta $30
+    lda $11
+    adc $13
+    sta $31
+    inw $30
+    lda $30
+    ldx $31
+    rts
+endproc
+proc _r
+    .var cc45.fp = 0
+    bsr @k
+    sta $0401
+    stx $0402
+    rts
+@k:
+    lda #60
+    ldx #0
+    rts
+endproc
+END
+D=$($AS -c build/test_retinfo.s45 -o build/test_retinfo.o45 2>&1 >/dev/null && ./bin/objdump45 -d build/test_retinfo.o45 | awk -F'\t' '{print $3, $4}')
+ri_ok=1
+[ $(grep -c 'ldx #\$00' <<< "$D") -eq 1 ] || ri_ok=0     # _v's dead, the routine's kept
+grep -q 'ldx \$31' <<< "$D" || ri_ok=0                    # not tax before the inw
+if [ $ri_ok -eq 1 ]; then
+    echo "SUCCESS: what a return carries; a routine's rts reads all; no transfer over an inw"
+    passed=$((passed + 1))
+else
+    echo "FAIL: return information / inw transfer (#351): $(tr '\n' ';' <<< "$D")"
+    failed=$((failed + 1))
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All assembler feature tests passed!"
     exit 0

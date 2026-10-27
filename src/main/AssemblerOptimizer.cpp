@@ -933,6 +933,8 @@ bool AssemblerOptimizer::optimizeInternal(
     // result is tested by the flags), .var cc45.retx (X part of the result);
     // any other proc: both (#351)
     std::map<const AssemblerParser::Statement*, int> procRet;
+    std::set<std::string> bsrCalled;
+    bool bsrTargetsKnown = false;
     auto rtsReads = [&](size_t j) -> int {
         size_t p = j;
         while (p > 0 && !(parser->statements[p]->type == AssemblerParser::Statement::INSTRUCTION &&
@@ -942,17 +944,30 @@ bool AssemblerOptimizer::optimizeInternal(
         if (ps->type != AssemblerParser::Statement::INSTRUCTION || ps->instr.mnemonic != "proc") return 3;
         auto c = procRet.find(ps);
         if (c != procRet.end()) return c->second;
-        bool cc45 = false, retnz = false, retx = false;
+        bool cc45 = false, retnz = false, retx = false, routine = false;
+        // (a routine a bsr calls, SeqExtract's: its rts returns into code,
+        // not to the caller: everything read)
+        if (!bsrTargetsKnown) {
+            for (const auto& t : parser->statements)
+                if (!t->deleted && t->type == AssemblerParser::Statement::INSTRUCTION && upper(t->instr.mnemonic) == "BSR")
+                    bsrCalled.insert(t->instr.operand);
+            bsrTargetsKnown = true;
+        }
         for (size_t k = p + 1; k < parser->statements.size(); ++k) {
             auto* t = parser->statements[k].get();
             if (t->type == AssemblerParser::Statement::INSTRUCTION &&
                 (t->instr.mnemonic == "endproc" || t->instr.mnemonic == "proc")) break;
+            if (!t->deleted && !t->label.empty()) {
+                size_t c = t->label.rfind(':');
+                if (bsrCalled.count(t->label) || (c != std::string::npos && bsrCalled.count(t->label.substr(c + 1))))
+                    routine = true;
+            }
             if (t->deleted || t->type != AssemblerParser::Statement::DIRECTIVE || t->dir.name != "var") continue;
             if (t->dir.varName.find("cc45.fp") != std::string::npos) cc45 = true;
             if (t->dir.varName.find("cc45.retnz") != std::string::npos) retnz = true;
             if (t->dir.varName.find("cc45.retx") != std::string::npos) retx = true;
         }
-        return procRet[ps] = !cc45 ? 3 : (retnz ? 1 : 0) | (retx ? 2 : 0);
+        return procRet[ps] = !cc45 || routine ? 3 : (retnz ? 1 : 0) | (retx ? 2 : 0);
     };
     auto rtsReadsNZ = [&](size_t j) { return (rtsReads(j) & 1) != 0; };
     auto nzLiveAfter = [&](size_t i, std::string& why) -> bool {
@@ -1818,9 +1833,14 @@ bool AssemblerOptimizer::optimizeInternal(
                         std::string tm = upper(t->instr.mnemonic);
                         std::string to = upper(t->instr.operand);
                         int64_t ta = 0;
-                        bool tzp = (t->instr.mode == AddressingMode::BASE_PAGE ||
-                                    t->instr.mode == AddressingMode::ABSOLUTE) &&
-                                   parseNum(t->instr.operand, ta) && ta == zpAddr;
+                        bool plainOp = (t->instr.mode == AddressingMode::BASE_PAGE ||
+                                        t->instr.mode == AddressingMode::ABSOLUTE) && parseNum(t->instr.operand, ta);
+                        // (the bytes it reaches: a word instruction's two, a Q
+                        // one's four: inw $30 changes $31 too, #351)
+                        int tw = tm.size() >= 3 && tm.back() == 'Q' ? 4
+                               : (tm == "INW" || tm == "DEW" || tm == "ASW" || tm == "ROW" || tm == "PHW") ? 2 : 1;
+                        bool tzp = plainOp && ta == zpAddr;
+                        if (plainOp && !tzp && zpAddr >= ta && zpAddr < ta + tw) { ok = false; break; }
                         if (tzp && tm.size() == 3 && tm.compare(0, 2, "ST") == 0 && tm[2] != rn[0] &&
                             std::string("AXYZ").find(tm[2]) != std::string::npos && t->label.empty()) {
                             st = k;
