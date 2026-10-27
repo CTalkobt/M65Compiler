@@ -181,6 +181,13 @@ pointer (`ora #c` when `c` fits in `x`'s known-zero low bits). Test:
 `test_known_bits_xemu.c`. Examples: 351 bytes (0.24 %); the map accessors of
 #348: 70 → 63 and 170 → 163.
 
+`orderCommutativeOperands` (`IROptimizer.cpp`, last of the late passes; tag
+`commute`; under `algebraic-simplify`'s switch; #350): an `add`, `and`,
+`or`, `xor` or `mul` whose second operand is the result of the instruction
+just before (the first is not) takes it as its first, which code
+generation loads into A/X: it is still there, so ca45 drops its store and
+reload. Examples: 346 bytes more; the accessors 60 and 160 bytes.
+
 `foldGlobalOffsetAccess` (`IROptimizer.cpp`, after `foldElemIndexOffset`;
 tag `globaloff`; under `addr-elem-fusion`'s switch) gives a load or store
 through `%p = add ptr @g, c` (`%p` defined once and used only as such

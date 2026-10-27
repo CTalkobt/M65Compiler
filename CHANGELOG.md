@@ -11,6 +11,8 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   without carries that cannot happen (copied bytes, `ora` for bits that
   cannot overlap), and far stores of `x + c` with `ora #c`. 351 bytes over
   the examples; test `test_known_bits_xemu.c` (both conventions).
+- A commutative operation whose second operand was just computed takes it
+  first (still in A/X: no store and reload). 346 bytes more.
 
 ### `__bank` variables out of the call graph (#349)
 

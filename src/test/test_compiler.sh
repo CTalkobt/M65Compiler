@@ -619,7 +619,7 @@ fi
 # #348: far accesses at constant offsets (Z from the offset, p + $100
 # shared), a base with a zero low word added without carries, the far
 # pointer in the base page: a game's map accessors stay small (were 89 and
-# 278 bytes; 70 and 170 with #348, 63 and 163 with known bits, #350)
+# 278 bytes; 70 and 170 with #348, 60 and 160 with #350)
 fo=build/test/far_off
 mkdir -p $fo
 cat > $fo/r.c << 'EOF2'
@@ -643,10 +643,10 @@ if ./bin/cc45 -O2 -c $fo/r.c -o $fo/r.o45 >/dev/null 2>&1; then
 else
     FO_SET=999; FO_END=0
 fi
-if [ $FO_SET -le 64 ] && [ $((FO_END - FO_SET)) -le 165 ]; then
+if [ $FO_SET -le 61 ] && [ $((FO_END - FO_SET)) -le 161 ]; then
     echo "SUCCESS: far accesses at constant offsets ($FO_SET and $((FO_END - FO_SET)) bytes)"
 else
-    echo "FAIL: far access code size (#348, #350): vm_kind $FO_SET bytes (<= 64), vm_set $((FO_END - FO_SET)) (<= 165)"
+    echo "FAIL: far access code size (#348, #350): vm_kind $FO_SET bytes (<= 61), vm_set $((FO_END - FO_SET)) (<= 161)"
     failed=$((failed + 1))
 fi
 
