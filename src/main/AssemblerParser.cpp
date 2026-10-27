@@ -2663,6 +2663,9 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
             seg->startAddress = 0xFFFFFFFF; // reset for recalculation
         }
         std::string activeSegment = "default"; uint32_t cP = 0; bool isDeadCode = false;
+        // the code so far ends in a JMP/BRA (no label after it): endproc adds
+        // no RTS then, unless the proc branches by *+n (to after the jump, #340)
+        bool endsInJump = false, procStar = false;
         currentLocalScope_ = "";
         pass2PCs["default"] = 0; // default segment starts at 0
         for (auto& s : statements) {
@@ -2709,6 +2712,7 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
             currentLocalScope_ = s->localLabelScope;
             if (!s->label.empty()) {
                 isDeadCode = false;
+                endsInJump = false;
                 // a label the optimizer inserted (tail-dedup's shared tails): an
                 // address in this segment, so a JMP to it is relocated
                 {
@@ -2729,10 +2733,11 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
                 s->address = cP;
             }
             int oS = s->size;
-            if (s->type == Statement::INSTRUCTION && s->instr.mnemonic == "proc") s->size = 0;
+            if (s->type == Statement::INSTRUCTION && s->instr.mnemonic == "proc") { s->size = 0; procStar = false; }
             else if (s->type == Statement::INSTRUCTION && s->instr.mnemonic == "endproc") {
-                if (isDeadCode) s->size = 0; else s->size = 1; // always plain RTS
+                if (isDeadCode || (endsInJump && !procStar)) s->size = 0; else s->size = 1; // always plain RTS
                 isDeadCode = false;
+                endsInJump = false;
             } else if (isDeadCode && s->type != Statement::DIRECTIVE && s->type != Statement::BASIC_UPSTART) s->size = 0;
             else {
                 if (s->type == Statement::INSTRUCTION) s->size = calculateInstructionSize(s->instr, cP, s->scopePrefix, s.get());
@@ -2752,6 +2757,12 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
             }
             if (s->size != oS) {
                 addressRecalculationMadeChanges = true;
+            }
+            if (s->size > 0 && !(s->type == Statement::INSTRUCTION && s->instr.mnemonic == "endproc")) {
+                std::string mnl = s->type == Statement::INSTRUCTION ? s->instr.mnemonic : "";
+                std::transform(mnl.begin(), mnl.end(), mnl.begin(), ::tolower);
+                endsInJump = !s->isSimulatedOp() && (mnl == "jmp" || mnl == "bra");
+                if (s->type == Statement::INSTRUCTION && s->instr.operand.find('*') != std::string::npos) procStar = true;
             }
             // Build source-level line map (only on last iteration). The lines
             // of .loc directives with no code of their own before an

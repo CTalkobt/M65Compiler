@@ -4,6 +4,13 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Smaller code (#340-#344)
+
+- ca45 jump threading (#340): a `BRA`/`JMP` to an `RTS` becomes the
+  `RTS`; branches to a `BRA`/`JMP` go straight to its target; an `RTS`
+  after a tail `JMP` that nothing reaches is dropped, and `endproc` adds no
+  `RTS` after a final `JMP`/`BRA`.
+
 ### `__bank(n)` (#69)
 
 - `__bank(n)` keeps a file-scope variable in bank 4 or 5 or in attic RAM
