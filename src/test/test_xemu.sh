@@ -1616,6 +1616,29 @@ for bkmode in "zp|$STDLIB|" "stack|$STDLIB_STACK|-fno-zpcall"; do
         failed=$((failed + 1))
     fi
 done
+# Arrays of arrays through far pointers (#347): a __bank T t[R][C], far
+# pointers to arrays (declarators, typedef'd rows, casts), normal ones too
+for brmode in "zp|$STDLIB|" "stack|$STDLIB_STACK|-fno-zpcall"; do
+    IFS='|' read -r brname brlib brflags <<< "$brmode"
+    echo "Testing arrays of arrays through far pointers ($brname)..."
+    brd=build/test/bank_rows_$brname
+    rm -rf $brd; mkdir -p $brd
+    brok=0
+    if $CC $brflags -c src/test-resources/bank/bank_rows.c -o $brd/rows.o45 >/dev/null 2>&1 &&
+       $LD -basic -o $brd/rows.prg $brd/rows.o45 $brlib >/dev/null 2>&1 &&
+       ./bin/disk45 create $brd/rows.d81 -n ROWS >/dev/null 2>&1; then
+        brok=1
+        for f in $brd/rows.ov[0-9]; do
+            ./bin/disk45 add $brd/rows.d81 $f "$(basename $f | tr a-z A-Z)" >/dev/null 2>&1 || brok=0
+        done
+    fi
+    if [ $brok = 1 ]; then
+        run_xemu_test "test_bank_rows_$brname" "$brd/rows.prg" "C0C0" 6 "01 01 01 01 01 AA" -8 "$PWD/$brd/rows.d81"
+    else
+        echo "FAIL: arrays of arrays through far pointers $brname (build or link failed)"
+        failed=$((failed + 1))
+    fi
+done
 if $AS -c src/test-resources/bank/bank_ref16.s45 -o build/test/bank_zp/bank_ref16.o45 >/dev/null 2>&1 &&
    $LD -basic -o build/test/bank_zp/ref16.prg build/test/bank_zp/bank_main.o45 build/test/bank_zp/bank_data.o45 \
        build/test/bank_zp/bank_ref16.o45 $STDLIB 2>&1 | grep -q "'_cnt' is kept in bank 4 (__bank): .* 16-bit address"; then

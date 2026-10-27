@@ -1174,6 +1174,8 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
             int pBasePtrLevel = 0;
             bool pBaseRestrict = false;   // T *restrict (the type's last star)
             int pSpace = 0;
+            std::vector<int> pTypedefDims;   // a typedef'd array type (typedef T pair[2])
+            int pTypeStars = 0;              // the '*'s parseTypeSpecifier took
 
             {
                 auto ts = parseTypeSpecifier();
@@ -1187,6 +1189,8 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
                     if (ts.isConst) pIsConst = true;
                     if (!ts.arrayDims.empty()) {
                         pBasePtrLevel++; // array dims decay to pointer
+                        pTypedefDims = ts.arrayDims;
+                        pTypeStars = ts.starsParsed;
                     }
                     if (ts.isFunctionPointer) {
                         // Typedef'd function pointer parameter
@@ -1219,6 +1223,55 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
             }
 
             int pPtrLevel = pBasePtrLevel;
+
+            // A pointer to an array: T (*p)[N]..., T (__far *p)[N] (#347): p[i]
+            // is a row of N
+            if (peek().type == TokenType::OPEN_PAREN && pos + 2 < tokens.size() &&
+                (tokens[pos + 1].type == TokenType::STAR ||
+                 ((tokens[pos + 1].type == TokenType::FAR || tokens[pos + 1].type == TokenType::NEAR) &&
+                  tokens[pos + 2].type == TokenType::STAR))) {
+                size_t save = pos;
+                advance();   // '('
+                int space = pSpace;
+                if (match(TokenType::FAR)) space = 3;
+                else if (match(TokenType::NEAR)) space = 4;
+                advance();   // '*'
+                bool ptrConst = false;
+                while (peek().type == TokenType::CONST || peek().type == TokenType::VOLATILE || peek().type == TokenType::RESTRICT)
+                    if (advance().type == TokenType::CONST) ptrConst = true;
+                const Token& nameTok = peek();
+                std::string pName = peek().type == TokenType::IDENTIFIER ? advance().value : "__unnamed_" + std::to_string(pos);
+                if (match(TokenType::CLOSE_PAREN) && peek().type == TokenType::OPEN_SQUARE) {
+                    std::vector<int> dims;
+                    while (match(TokenType::OPEN_SQUARE)) {
+                        auto szExpr = parseExpression();
+                        long cv = 1;
+                        if (!evalConstInt(szExpr.get(), cv) || cv <= 0)
+                            throw std::runtime_error(formatDiagnostic(nameTok.sourceFile, nameTok.line, nameTok.column,
+                                Severity::Error, "a pointer to an array needs constant dimensions"));
+                        dims.push_back((int)cv);
+                        expect(TokenType::CLOSE_SQUARE, "Expected ']'");
+                    }
+                    std::string t = pType;
+                    int lvl = pPtrLevel - (pTypedefDims.empty() ? 0 : 1) + 1;
+                    dims.insert(dims.end(), pTypedefDims.begin(), pTypedefDims.end());
+                    Parameter p;
+                    bool far = (space == 3 || space == 4) && lvl == 1;
+                    if (far) { t = farArrayType(t, dims); farPointer(t, lvl, space, pIsSigned); }
+                    p.type = t;
+                    p.pointerLevel = lvl;
+                    p.isSigned = pIsSigned;
+                    p.name = pName;
+                    p.isVolatile = pIsVolatile;
+                    p.isConst = far ? ptrConst : pIsConst;
+                    p.isPointerConst = far ? false : ptrConst;
+                    if (!far) p.innerArrayDims = dims;
+                    markParamPos(p, nameTok);
+                    params.push_back(p);
+                    continue;
+                }
+                pos = save;   // (a function pointer)
+            }
 
             // Check for function pointer parameter: type (*name)(params), also
             // with the declarator in extra parentheses: type ((*name)(params))
@@ -1253,6 +1306,19 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
             }
 
             while (match(TokenType::STAR)) pPtrLevel++;
+            // pair *p (typedef T pair[N]): a pointer to the array, not the
+            // decayed T ** (#347); without '*' the array parameter decays to a
+            // pointer to its rows
+            std::vector<int> pRowDims;
+            if (!pTypedefDims.empty()) {
+                if (pPtrLevel - pBasePtrLevel + pTypeStars > 0) {
+                    pPtrLevel--;
+                    if ((pSpace == 3 || pSpace == 4) && pPtrLevel == 1) pType = farArrayType(pType, pTypedefDims);
+                    else if (pPtrLevel == 1) pRowDims = pTypedefDims;
+                } else {
+                    pRowDims.assign(pTypedefDims.begin() + 1, pTypedefDims.end());
+                }
+            }
 
             // Handle const/volatile after * (qualifies the pointer itself)
             bool pIsPointerConst = false, pPtrVolatile = false, pRestrict = false;
@@ -1333,6 +1399,8 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
             params.back().vlaSizeExpr = std::move(pVlaSize);
             params.back().innerArrayDims = pInnerDims;
             params.back().innerDimExprs = pInnerDimExprs;
+            if (pInnerDims.empty() && !pRowDims.empty() && params.back().pointerLevel == 1)
+                params.back().innerArrayDims = pRowDims;
             markParamPos(params.back(), pNameTok);
         } while (match(TokenType::COMMA) && peek().type != TokenType::ELLIPSIS);
         }
@@ -2302,10 +2370,26 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
 
     // Check for function pointer declaration: type (*name)(params) or type (*name[size])(params)
     // Also handles: type (*name(params))(result) — function returning function pointer
+    // (T (__far *p)[N]: a far pointer to an array, #347)
+    int declSpace = addressSpace;
+    if (peek().type == TokenType::OPEN_PAREN && pos + 2 < tokens.size() &&
+        (tokens[pos + 1].type == TokenType::FAR || tokens[pos + 1].type == TokenType::NEAR) &&
+        tokens[pos + 2].type == TokenType::STAR) {
+        size_t p = pos + 3;
+        while (p < tokens.size() && (tokens[p].type == TokenType::VOLATILE || tokens[p].type == TokenType::CONST ||
+                                     tokens[p].type == TokenType::RESTRICT)) p++;
+        if (p + 2 < tokens.size() && tokens[p].type == TokenType::IDENTIFIER &&
+            tokens[p + 1].type == TokenType::CLOSE_PAREN && tokens[p + 2].type == TokenType::OPEN_SQUARE) {
+            declSpace = tokens[pos + 1].type == TokenType::FAR ? 3 : 4;
+            tokens.erase(tokens.begin() + pos + 1);   // (then as T (*p)[N])
+        }
+    }
     if (peek().type == TokenType::OPEN_PAREN && pos + 1 < tokens.size() && tokens[pos + 1].type == TokenType::STAR) {
         advance(); // consume '('
         advance(); // consume '*'
-        while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT)) {}
+        bool fpPtrConst = false;
+        while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT))
+            if (tokens[pos - 1].type == TokenType::CONST) fpPtrConst = true;
         std::string fpName = expect(TokenType::IDENTIFIER, "Expected function pointer name").value;
 
         // Handle complex declarators: if next is '(' it's a function declarator like (*name(void))
@@ -2354,6 +2438,21 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
                 { long cv; if (evalConstInt(szExpr.get(), cv)) arrSize = (int)cv; }
                 decl->ptrArrayDims.push_back(arrSize);
                 expect(TokenType::CLOSE_SQUARE, "Expected ']'");
+            }
+            // (pair (*p)[3]: rows of the typedef's arrays)
+            decl->ptrArrayDims.insert(decl->ptrArrayDims.end(), typedefArrayDims.begin(), typedefArrayDims.end());
+            // T (__far *p)[N]: the far pointer's pointee is the row
+            // ("__farp T[N]", #347)
+            if ((declSpace == 3 || declSpace == 4) && decl->pointerLevel == 1) {
+                std::string ft = farArrayType(type, decl->ptrArrayDims);
+                int lvl = 1, sp = declSpace;
+                bool sg = isSigned;
+                farPointer(ft, lvl, sp, sg);
+                decl->type = ft;
+                decl->pointerLevel = 0;
+                decl->isSigned = false;
+                decl->ptrArrayDims.clear();
+                decl->isConst = fpPtrConst;
             }
             while (tryParseAttribute()) {}
             if (match(TokenType::EQUALS)) {
@@ -2423,14 +2522,22 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
         if (vlaDimExprs.size() < arrayDims.size()) vlaDimExprs.push_back(nullptr);
         expect(TokenType::CLOSE_SQUARE, "Expected ']' after array size");
     }
-    // Append typedef array dimensions
-    arrayDims.insert(arrayDims.end(), typedefArrayDims.begin(), typedefArrayDims.end());
-    // T __far *p: a far pointer (#68)
+    // pair *p (typedef T pair[N]): a pointer to the array (#347), else the
+    // typedef's dimensions follow the declarator's
+    std::vector<int> rowDims;
     std::string declType = type;
+    if (!typedefArrayDims.empty() && ptrLevel == basePtrLevel + 1 && arrayDims.empty()) {
+        if ((addressSpace == 3 || addressSpace == 4) && ptrLevel == 1) declType = farArrayType(type, typedefArrayDims);
+        else rowDims = typedefArrayDims;
+    } else {
+        arrayDims.insert(arrayDims.end(), typedefArrayDims.begin(), typedefArrayDims.end());
+    }
+    // T __far *p: a far pointer (#68)
     bool declSigned = isSigned;
     bool farPtr = farPointer(declType, ptrLevel, addressSpace, declSigned);
     auto decl = setPos(std::make_unique<VariableDeclaration>(declType, name, ptrLevel), typeToken);
     hideEnumConstant(name);
+    if (!rowDims.empty()) decl->ptrArrayDims = rowDims;
     if (isVla) {
         vlaDimExprs.resize(arrayDims.size());  // typedef dimensions are constant
         decl->vlaDimExprs = std::move(vlaDimExprs);
@@ -3345,7 +3452,47 @@ std::unique_ptr<Expression> Parser::parseUnary() {
             castPtrLevel = ts.pointerLevel;
             castVolatile = ts.isVolatile;
             castConst = ts.isConst;
+            // (pair __far *) with typedef T pair[N]: a far pointer to the
+            // array (#347); (pair *): a pointer to it, cast as void * (a
+            // cast keeps no row: assign it to a pair *p to index it)
+            bool rowCast = false;
+            if (!ts.arrayDims.empty() && ts.starsParsed == 1 && castPtrLevel == 1) {
+                rowCast = true;
+                if (ts.addressSpace == 3 || ts.addressSpace == 4) castType = farArrayType(castType, ts.arrayDims);
+                else { castType = "void"; castSigned = false; }
+            }
             { int sp = ts.addressSpace; farPointer(castType, castPtrLevel, sp, castSigned); }
+            // (T (*)[N]), (T (__far *)[N]): a pointer to an array, likewise
+            if (!rowCast && peek().type == TokenType::OPEN_PAREN && pos + 3 < tokens.size()) {
+                size_t q = pos + 1;
+                int sp = 0;
+                if (tokens[q].type == TokenType::FAR) { sp = 3; q++; }
+                else if (tokens[q].type == TokenType::NEAR) { sp = 4; q++; }
+                if (q + 2 < tokens.size() && tokens[q].type == TokenType::STAR &&
+                    tokens[q + 1].type == TokenType::CLOSE_PAREN && tokens[q + 2].type == TokenType::OPEN_SQUARE) {
+                    pos = q + 2;
+                    std::vector<int> dims;
+                    while (match(TokenType::OPEN_SQUARE)) {
+                        auto szExpr = parseExpression();
+                        long cv = 1;
+                        if (!evalConstInt(szExpr.get(), cv) || cv <= 0)
+                            throw std::runtime_error(formatDiagnostic(startToken.sourceFile, startToken.line, startToken.column,
+                                Severity::Error, "a pointer to an array needs constant dimensions"));
+                        dims.push_back((int)cv);
+                        expect(TokenType::CLOSE_SQUARE, "Expected ']'");
+                    }
+                    dims.insert(dims.end(), ts.arrayDims.begin(), ts.arrayDims.end());
+                    if ((sp == 3 || sp == 4) && castPtrLevel == 0) {
+                        castType = farArrayType(castType, dims);
+                        castPtrLevel = 1;
+                        farPointer(castType, castPtrLevel, sp, castSigned);
+                    } else {
+                        castType = "void";
+                        castSigned = false;
+                        castPtrLevel = 1;
+                    }
+                }
+            }
 
             // Array type: (int []) or (int [N]) — an array compound literal;
             // a 0 dimension is taken from the initializer
