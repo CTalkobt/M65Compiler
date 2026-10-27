@@ -8801,6 +8801,15 @@ void IRBuilder::visit(ArrayAccess& node) {
         bool aPtr = ai.type == ir::Type::PTR || dynamic_cast<StringLiteral*>(node.arrayExpr.get());
         bool iPtr = ii.type == ir::Type::PTR || dynamic_cast<StringLiteral*>(node.indexExpr.get());
         if (!aPtr && iPtr) std::swap(node.arrayExpr, node.indexExpr);
+        // (a void * has no element to index: a cast to a pointer to an array
+        // is one, #347)
+        IRTypeInfo bi = aPtr || !iPtr ? ai : ii;
+        if (bi.type == ir::Type::PTR && bi.typeName == "void" && bi.pointedToType == ir::Type::VOID) {
+            errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column, Severity::Error,
+                "subscript of a void pointer (to index a cast to a pointer to an array, assign it to a T (*p)[N] first)"));
+            lastValue_ = ir::Operand::imm(0, ir::Type::I16);
+            return;
+        }
     }
     bool oldAddrMode = computeAddressOnly_;
     computeAddressOnly_ = false;

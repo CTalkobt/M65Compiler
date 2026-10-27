@@ -4,6 +4,19 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Arrays of arrays through far pointers (#347)
+
+- A `__bank(n)` (or otherwise far) multi-dimensional array is indexed
+  (`t[k][v]`, `t[i][j][k]`; was an error), `T (__far *p)[N]` parses (as a
+  parameter, local, global and cast), and a typedef'd row (`pair __far *p`,
+  `(pair __far *)addr`) is a far pointer to the array (it was a near pointer
+  to a far pointer).
+- Normal pointers to arrays: `pair *p` (typedef'd row) as a parameter or
+  local is a pointer to the array (was `T **`), `T (*p)[N]` parameters
+  parse, `(T (*)[N])` casts parse (as `void *`); indexing a `void *` is an
+  error (it loaded `void`).
+- Test: `src/test-resources/bank/bank_rows.c` (both conventions).
+
 ### `<string.h>` declared as in the C standard
 
 - `const` on the parameters the string and memory functions only read

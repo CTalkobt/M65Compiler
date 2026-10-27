@@ -27,10 +27,13 @@ std::string IRBuilder::farTypeOf(Expression* e) {
     return "";
 }
 
+// (a pointer to an array: "__farp T[N]...", the dimensions after the type,
+// #347)
 IRBuilder::FarElem IRBuilder::farPointeeOf(const std::string& farType) {
     FarElem el;
     el.type = farPointee(farType, &el.isSigned);
     el.near = isNearPointerType(farType);
+    el.dims = farArrayDims(el.type);
     return el;
 }
 
@@ -45,12 +48,14 @@ int IRBuilder::farElemSize(const FarElem& el) {
     return n;
 }
 
-// The type of a far lvalue's value: an array member decays to a far pointer
-// to its elements
+// The type of a far lvalue's value: an array decays to a far pointer to its
+// elements (T[R][C]: to its rows, "__farp T[C]", #347)
 IRBuilder::IRTypeInfo IRBuilder::farElemInfo(const FarElem& el) {
     if (!el.dims.empty()) {
-        if (el.near) return {ir::Type::I8, farPtrName(el.type, el.isSigned, true), false, ir::Type::VOID, 1};
-        return {ir::Type::I32, farPtrName(el.type, el.isSigned), false, ir::Type::VOID, 4};
+        std::string row = el.type;
+        for (size_t d = 1; d < el.dims.size(); d++) row += "[" + std::to_string(el.dims[d]) + "]";
+        if (el.near) return {ir::Type::I8, farPtrName(row, el.isSigned, true), false, ir::Type::VOID, 1};
+        return {ir::Type::I32, farPtrName(row, el.isSigned), false, ir::Type::VOID, 4};
     }
     if (el.ptrLevel > 0) {
         IRTypeInfo t{ir::Type::PTR, el.type, el.isSigned, mapType(el.type, el.ptrLevel - 1), 2};
@@ -252,8 +257,7 @@ bool IRBuilder::emitFarRead(Expression& e) {
     ir::Operand a;
     farLvalue(&e, el, &a);
     if (!el.dims.empty()) {
-        if (el.dims.size() > 1) return farError(e, "a multi-dimensional array through a far pointer is not supported");
-        lastValue_ = a;   // (an array: its address)
+        lastValue_ = a;   // (an array: its address; its rows' for T[R][C])
         return true;
     }
     if (computeAddressOnly_)
