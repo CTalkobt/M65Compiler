@@ -428,6 +428,8 @@ order after `-O`). `-Roptimizer` prints every change
 | `NoOpBra` | `no-op-bra` | Removes `BRA` to the next instruction |
 | `BranchInvert` | `branch-invert` | `Bcc skip / BRA target / skip:` → inverted branch |
 | `JmpBra` | `jmp-bra` | `JMP` → `BRA` when in range |
+| `CmpElimination` | `cmp-repeat` | A `CMP`/`CPX`/`CPY`/`CPZ` at a label that only one conditional branch reaches, that branch right after the same compare, with no fall into the label: the flags are still that compare's (#341) |
+| `RedundantLoad` | `dead-store` (base page) | A store into the proc's own base-page block (`.zar`) that nothing in the proc reads is dropped (#341). Registers known at a branch include a byte they were stored to (`sta k` then `bne @l`: at `@l`, A is `k`) |
 | `JmpBra` | `jump-rts`, `jump-chain`, `dead-rts` | Jump threading (#340): a `BRA`/`JMP` to an `RTS` becomes the `RTS`; a branch to a `BRA`/`JMP` goes to its target (a relative one when in range); an `RTS` right after a `JMP`/`BRA`/`RTS` whose labels are local and named nowhere is dropped (not in a proc that branches by `*+n`). `endproc` adds no `RTS` after a final `JMP`/`BRA` either |
 | `JSRRelocate` | `jsr-bsr` | `JSR` → `BSR` when the target is a resolved, non-relocatable label within ±32 KB (rare in `-c` objects) |
 | `DeadStore` | `dead-store` | Removes dead `STW.SP` stores |
