@@ -1144,6 +1144,14 @@ bool IRCodeGen::emitMulAXConst(long c, bool xZero, const std::string& why, int l
             // * 256: the low byte up (shifted first: x << 9 is asl; tax; lda #0)
             for (int k = 8; k < top; k++) emit("asl", k == 8 ? why : "");
             emit("tax", top == 8 ? why : ""); emit("lda #0");
+        } else if (xZero && top == 2) {
+            // a byte << 2: the high byte its top two bits (three rol bring
+            // them down: and #3), 10 bytes (#350)
+            emit("pha", why);
+            emit("rol"); emit("rol"); emit("rol");
+            emit("and #3");
+            emit("tax"); emit("pla");
+            emit("asl"); emit("asl");
         } else if (xZero && top >= 3) {
             // a byte: the high byte its top bits (lsr), the low byte shifted
             // (#348: 11 bytes, not 4 + 3 per bit through a scratch byte)
@@ -6340,8 +6348,9 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                 } else if (!is32 && shiftCount >= 2) {
                     // the high byte shifted in a scratch byte (no pha/pla); a
                     // zero-extended byte's high byte is 0
-                    bool xZero = inst.src1.isVreg() && zextAlias_.count(inst.src1.vregId) &&
-                                 zextAlias_[inst.src1.vregId].type == ir::Type::I8;
+                    bool xZero = (inst.src1.isVreg() && zextAlias_.count(inst.src1.vregId) &&
+                                  zextAlias_[inst.src1.vregId].type == ir::Type::I8) ||
+                                 kb_.byteZero(inst.src1, 16, 1);   // (known bits, #350)
                     emitMulAXConst(1L << shiftCount, xZero, "<< " + std::to_string(shiftCount));
                 } else {
                     int maxBits = is32 ? 32 : 16;
