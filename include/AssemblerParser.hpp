@@ -12,6 +12,7 @@
 #include "AssemblerTypes.hpp"
 #include "MachineState.hpp"
 #include <array>
+#include <bitset>
 #include "AssemblerOpcodeDatabase.hpp"
 #include "AssemblerOptimizer.hpp"
 
@@ -368,6 +369,9 @@ public:
         const Statement* reset = nullptr;
         size_t code = 0;
         std::array<ValueInfo, 4> regs;
+        // the base-page bytes each holds too (stored from it, or the same
+        // constant: #350, a ?: result stored on both paths)
+        std::array<std::bitset<256>, 4> stored;
     };
     std::map<std::string, BranchRegs> branchRegs;
 

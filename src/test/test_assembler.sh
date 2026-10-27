@@ -979,6 +979,46 @@ else
     failed=$((failed + 1))
 fi
 
+# Register knowledge at a merge (#350): a ?: result stored on both paths is
+# in A / X at the label (no reload); a byte stored from a register holding a
+# constant, loaded into another register holding the same one, is a
+# transfer; a call to a C function does not read N / Z
+cat > build/test_merge.s45 << 'END'
+    .segment "code"
+proc _m
+    lda $10
+    beq @e
+    lda #1
+    ldx #2
+    sta $32
+    stx $33
+    bra @d
+@e:
+    lda #3
+    ldx #4
+    sta $32
+    stx $33
+@d:
+    lda $32
+    ldx $33
+    sta $0400
+    stx $0401
+    ldy #0
+    sty $34
+    lda $34
+    sta $0402
+    rts
+endproc
+END
+D=$($AS -c build/test_merge.s45 -o build/test_merge.o45 2>&1 >/dev/null && ./bin/objdump45 -d build/test_merge.o45 | awk -F'\t' '{print $3, $4}')
+if ! grep -q 'lda \$32' <<< "$D" && ! grep -q 'ldx \$33' <<< "$D" && ! grep -q 'lda \$34' <<< "$D"; then
+    echo "SUCCESS: register knowledge at a merge; a transfer from a register holding the same constant"
+    passed=$((passed + 1))
+else
+    echo "FAIL: merge knowledge / constant transfer (#350): $(tr '\n' ';' <<< "$D")"
+    failed=$((failed + 1))
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All assembler feature tests passed!"
     exit 0
