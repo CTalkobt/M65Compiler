@@ -199,6 +199,29 @@ accessors 59 and 147 bytes. (It showed a ca45 bug: the lexer names `inq` /
 `deq` `incq` / `decq`, which the optimizer's register tracking did not
 know, so a load after an in-place `inq $nn` was dropped as A's old value.)
 
+**Base-page liveness** (ca45 Pass 1h, `AssemblerOptimizer.cpp`, under
+`RedundantLoad`; `CA45_NO_SPILL_REG=1` turns it off; #350): in a cc45 proc
+(and a proc's `.zar` block) the liveness of the 256 base-page bytes over its
+code, backwards to a fixed point: a statement reads the bytes its operand
+names (any statement it does not understand: all of them), a plain store
+writes its own; branches and jumps go to their labels (one not in the proc,
+a jump through a pointer, or a `jmp $0000` whose operand a computed goto
+modifies: everything live); `rts`/`rti` and a tail call leave the proc (the
+register pool and the block are dead there), except in a proc holding a
+routine another proc calls (SeqExtract's shared `bsr __seqx_N`: its `rts`
+returns into the caller) or with `bsr`s of its own (an `rts` may return
+after any of them); a call reads none of them. Then: a plain store to a
+pool / block byte that is not live after it goes (`dead-store`), and
+`sta zp ... lda zp` with A overwritten between becomes `tay ... tya` (or
+`taz ... tza`) when the byte is dead after the load, Y (Z) is untouched
+between and written before it is read after, nothing between is a label,
+branch or call, and N / Z after the store are not read (`spill-reg`; 2 bytes
+instead of 4). Labels are kept as `proc:name` and named `name` by operands.
+(Pass 1e now leaves a proc that holds such a shared routine alone: the
+caller reads what the routine stores.) Examples: 3,387 bytes (2.3 %); the
+accessors 57 and 145 bytes. Test: `test_assembler.sh` (shared routine,
+merge label, computed goto kept; a byte in Y; a dead store on every path).
+
 `foldGlobalOffsetAccess` (`IROptimizer.cpp`, after `foldElemIndexOffset`;
 tag `globaloff`; under `addr-elem-fusion`'s switch) gives a load or store
 through `%p = add ptr @g, c` (`%p` defined once and used only as such

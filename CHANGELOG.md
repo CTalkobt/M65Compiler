@@ -19,6 +19,11 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - ca45: `inq` / `deq` on memory (the lexer's `incq` / `decq`) were not seen
   as writing it, so a load of the byte after an in-place `inq` could be
   dropped (`test_assembler.sh`).
+- ca45 Pass 1h: the liveness of the base-page bytes over a cc45 function's
+  branches; stores dead on every path go, and a byte reloaded after A was
+  used is kept in a free Y or Z (`tay` / `tya`). 3,387 bytes over the
+  examples (2.3 %). The older dead-store pass no longer drops stores of a
+  routine another function calls (SeqExtract shares them).
 
 ### `__bank` variables out of the call graph (#349)
 

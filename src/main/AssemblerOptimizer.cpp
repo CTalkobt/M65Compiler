@@ -8,6 +8,7 @@
 #include <iostream>
 #include <map>
 #include <set>
+#include <bitset>
 #include <fstream>
 
 // A .loc line (source line info, no label): the passes look past it, so a
@@ -448,6 +449,21 @@ bool AssemblerOptimizer::optimizeInternal(
                     cc45Proc = true;
             auto inBlock = [&](int a) { return (lo >= 0 && a >= lo && a <= hi) || (cc45Proc && a >= 0x30 && a < 0x80); };
             if (ps->procCtx->zarLen <= 0 && !cc45Proc) continue;
+            // (a routine another proc calls, bsr: SeqExtract's, shared: its
+            // stores are read by the caller, #350)
+            {
+                bool shared = false;
+                for (size_t k = p + 1; k < end && !shared; ++k) {
+                    if (st[k]->deleted || st[k]->label.empty()) continue;
+                    for (const auto& t : st)
+                        if (!t->deleted && t->type == AssemblerParser::Statement::INSTRUCTION &&
+                            upper(t->instr.mnemonic) == "BSR" &&
+                            (t->instr.operand == st[k]->label ||
+                             (st[k]->label.find(':') != std::string::npos &&
+                              t->instr.operand == st[k]->label.substr(st[k]->label.find(':') + 1)))) { shared = true; break; }
+                }
+                if (shared) continue;
+            }
             std::vector<std::pair<size_t, int>> stores;   // (statement, its byte)
             std::set<int> read;
             bool unknown = false;
@@ -942,6 +958,295 @@ bool AssemblerOptimizer::optimizeInternal(
         why = "too far";
         return true;
     };
+
+    // --- Pass 1h: a byte kept in a free register instead of the base page
+    // (#350): sta zp ... lda zp, A used between, is tay ... tya (or taz ...
+    // tza) when that load is the only read of the byte in the proc (its
+    // .zar block, or a cc45 proc's register pool: no one else reads them),
+    // Y (Z) is not touched between and not needed after, nothing between
+    // is a label, a branch or a call, and N / Z after the store are not
+    // read (tay sets them). 2 bytes a time ---
+    if (parser->optFlags.redundantLoad && !getenv("CA45_NO_SPILL_REG")) {
+        auto& st = parser->statements;
+        auto upper = [](std::string m) { std::transform(m.begin(), m.end(), m.begin(), ::toupper); return m; };
+        auto live = [](const AssemblerParser::Statement* t) {
+            return !t->deleted && t->type != AssemblerParser::Statement::NONE &&
+                   !(t->type == AssemblerParser::Statement::DIRECTIVE && t->size == 0);
+        };
+        // how an instruction uses register R ('Y' / 'Z'): 0 not at all, 1 writes it
+        // only, 2 reads it (or not known)
+        auto regUse = [&](const AssemblerParser::Statement* t, char R) -> int {
+            if (t->type != AssemblerParser::Statement::INSTRUCTION || t->isSimulatedOp()) return 2;
+            std::string tm = upper(t->instr.mnemonic);
+            AddressingMode md = t->instr.mode;
+            if (tm == "LDQ" || tm == (R == 'Y' ? "LDY" : "LDZ") || tm == (R == 'Y' ? "TAY" : "TAZ") ||
+                tm == (R == 'Y' ? "PLY" : "PLZ") || (R == 'Y' && tm == "TSY"))
+                return md == AddressingMode::BASE_PAGE_INDIRECT_Z || md == AddressingMode::FLAT_INDIRECT_Z ? 2 : 1;
+            if (tm.size() >= 3 && tm.back() == 'Q') return 2;
+            if (tm == "MAP") return 2;
+            if (tm.find(R) != std::string::npos && tm != "STA" && tm != "LDA") return 2;   // (sty, iny, cpy, tya, phy ...)
+            if (R == 'Y' && (md == AddressingMode::BASE_PAGE_Y || md == AddressingMode::ABSOLUTE_Y ||
+                             md == AddressingMode::BASE_PAGE_INDIRECT_Y || md == AddressingMode::BASE_PAGE_INDIRECT_SP_Y ||
+                             md == AddressingMode::LINEAR_ABSOLUTE_Y))
+                return 2;
+            if (R == 'Z' && (md == AddressingMode::BASE_PAGE_INDIRECT_Z || md == AddressingMode::FLAT_INDIRECT_Z))
+                return 2;
+            return 0;
+        };
+        auto flow = [&](const AssemblerParser::Statement* t) {
+            std::string tm = upper(t->instr.mnemonic);
+            return (tm.size() == 3 && tm[0] == 'B' && tm != "BIT") || tm == "JMP" || tm == "JSR" || tm == "BSR" ||
+                   tm == "RTS" || tm == "RTI" || tm == "RTN";
+        };
+        // (the labels a bsr anywhere in the file calls: SeqExtract shares a
+        // routine between procs, so its rts may return into another one)
+        std::set<std::string> bsrTargets;
+        for (const auto& t : st)
+            if (!t->deleted && t->type == AssemblerParser::Statement::INSTRUCTION && upper(t->instr.mnemonic) == "BSR")
+                bsrTargets.insert(t->instr.operand);
+        // (a label is kept as "proc:name"; operands name it "name")
+        auto bare = [](const std::string& l) { size_t c = l.find(':'); return c == std::string::npos ? l : l.substr(c + 1); };
+        for (size_t p = 0; p < st.size(); ++p) {
+            auto* ps = st[p].get();
+            if (ps->deleted || ps->type != AssemblerParser::Statement::INSTRUCTION || ps->instr.mnemonic != "proc" ||
+                !ps->procCtx)
+                continue;
+            size_t end = p + 1;
+            while (end < st.size() && !(st[end]->type == AssemblerParser::Statement::INSTRUCTION &&
+                                        (st[end]->instr.mnemonic == "endproc" || st[end]->instr.mnemonic == "proc")))
+                ++end;
+            if (end < st.size() && st[end]->instr.mnemonic == "proc") continue;
+            bool cc45Proc = false, holdsRoutine = false;
+            for (size_t k = p + 1; k < end; ++k) {
+                if (st[k]->type == AssemblerParser::Statement::DIRECTIVE && st[k]->dir.name == "var" &&
+                    st[k]->dir.varName.find("cc45.fp") != std::string::npos)
+                    cc45Proc = true;
+                if (!st[k]->deleted && !st[k]->label.empty() && bsrTargets.count(bare(st[k]->label))) holdsRoutine = true;
+            }
+            int lo = ps->procCtx->zarStart, hi = lo + ps->procCtx->zarLen - 1;
+            auto inBlock = [&](int a) { return (lo >= 0 && a >= lo && a <= hi) || (cc45Proc && a >= 0x30 && a < 0x80); };
+            if (ps->procCtx->zarLen <= 0 && !cc45Proc) continue;
+            // The liveness of the base-page bytes over the proc's code
+            // (backwards, to a fixed point): a statement reads the bytes its
+            // operand names (any statement not understood: all of them),
+            // a plain store writes its own; a branch or jump goes to its
+            // label (one not in the proc: everything live), rts / rti and a
+            // jump out of the proc leave it (the pool and the block are dead
+            // there; with subroutines of the proc's own, bsr, an rts may
+            // instead return after any of them); a call reads none of them
+            using Bits = std::bitset<256>;
+            std::vector<size_t> at;                   // the live statements, in order
+            std::map<std::string, size_t> labelPos;   // a label -> its statement's position
+            std::vector<std::string> pending;
+            for (size_t k = p + 1; k < end; ++k) {
+                auto* t = st[k].get();
+                if (t->deleted) continue;
+                if (!t->label.empty()) pending.push_back(bare(t->label));
+                if (!live(t)) continue;
+                for (const auto& l : pending) labelPos[l] = at.size();
+                pending.clear();
+                at.push_back(k);
+            }
+            size_t n = at.size();
+            for (const auto& l : pending) labelPos[l] = n;   // (labels before endproc: the exit)
+            std::vector<Bits> gen(n), kill(n), in(n), out(n);
+            std::vector<std::vector<size_t>> succ(n);
+            std::vector<bool> toAll(n, false);   // a successor not known: everything live after it
+            std::vector<size_t> afterBsr;
+            bool hasBsr = false;
+            auto opAddr = [&](const AssemblerParser::Statement* t, uint32_t& v) {
+                if (t->instr.operandTokenIndex < 0) return false;
+                try { v = parser->evaluateExpressionAt(t->instr.operandTokenIndex, t->scopePrefix); }
+                catch (...) { return false; }
+                return true;
+            };
+            for (size_t i = 0; i < n; ++i) {
+                auto* t = st[at[i]].get();
+                if (t->type != AssemblerParser::Statement::INSTRUCTION) { gen[i].set(); succ[i].push_back(i + 1); continue; }
+                std::string tm = upper(t->instr.mnemonic);
+                AddressingMode md = t->instr.mode;
+                if (tm == "BSR") hasBsr = true;
+                auto target = [&](const std::string& l) {
+                    auto it = labelPos.find(l);
+                    if (it == labelPos.end()) toAll[i] = true;
+                    else succ[i].push_back(it->second);
+                };
+                bool bit = tm.size() == 4 && (tm.compare(0, 3, "BBR") == 0 || tm.compare(0, 3, "BBS") == 0);
+                if (tm == "RTS" || tm == "RTI" || tm == "RTN") {
+                    // (successors after the bsrs: below)
+                } else if (tm == "JMP") {
+                    if (md == AddressingMode::ABSOLUTE) {
+                        // a label of the proc; a symbol: out of it (a tail
+                        // call); anything else (jmp $0000, a computed goto's
+                        // self-modified operand): not known, all live
+                        const std::string& o = t->instr.operand;
+                        auto it = labelPos.find(o);
+                        bool sym = !o.empty() && (std::isalpha((unsigned char)o[0]) || o[0] == '_') &&
+                                   o.find_first_of("+-*/()<>") == std::string::npos;
+                        if (it != labelPos.end()) succ[i].push_back(it->second);
+                        else if (!sym) toAll[i] = true;
+                    } else {
+                        toAll[i] = true;   // (through a pointer)
+                    }
+                } else if (tm == "BRA") {
+                    target(t->instr.operand);
+                } else if (bit) {
+                    target(t->instr.bitBranchTarget);
+                    succ[i].push_back(i + 1);
+                } else if (tm.size() == 3 && tm[0] == 'B' && tm != "BIT" && tm != "BRK") {
+                    target(t->instr.operand);
+                    succ[i].push_back(i + 1);
+                } else if (tm == "BSR") {
+                    target(t->instr.operand);
+                    afterBsr.push_back(i + 1);
+                } else {
+                    succ[i].push_back(i + 1);
+                }
+                // what it reads and writes
+                if (md == AddressingMode::IMPLIED || md == AddressingMode::ACCUMULATOR) continue;
+                if (md == AddressingMode::IMMEDIATE || md == AddressingMode::IMMEDIATE16) {
+                    if (t->instr.operand.find('<') != std::string::npos || t->instr.operand.find('>') != std::string::npos)
+                        gen[i].set();   // (a byte's address taken)
+                    continue;
+                }
+                if ((tm.size() == 3 && tm[0] == 'B' && tm != "BIT" && tm != "BRK" && !bit) ||
+                    ((tm == "JMP" || tm == "JSR" || tm == "BSR") && md == AddressingMode::ABSOLUTE))
+                    continue;
+                uint32_t v;
+                if (!opAddr(t, v)) { gen[i].set(); continue; }
+                if (v >= 256) continue;   // (not the base page)
+                if ((tm == "STA" || tm == "STX" || tm == "STY" || tm == "STZ") && md == AddressingMode::BASE_PAGE) {
+                    kill[i].set(v);
+                    continue;
+                }
+                if (tm == "STQ" && md == AddressingMode::BASE_PAGE) {
+                    for (uint32_t b = v; b < v + 4 && b < 256; b++) kill[i].set(b);
+                    continue;
+                }
+                if (md == AddressingMode::BASE_PAGE_X || md == AddressingMode::BASE_PAGE_Y ||
+                    md == AddressingMode::ABSOLUTE_X || md == AddressingMode::ABSOLUTE_Y || md == AddressingMode::INDIRECT ||
+                    md == AddressingMode::ABSOLUTE_INDIRECT || md == AddressingMode::ABSOLUTE_X_INDIRECT) {
+                    gen[i].set();
+                    continue;
+                }
+                int w = tm.back() == 'Q' || md == AddressingMode::FLAT_INDIRECT_Z ? 4
+                      : (md == AddressingMode::BASE_PAGE_INDIRECT_Y || md == AddressingMode::BASE_PAGE_INDIRECT_Z ||
+                         md == AddressingMode::BASE_PAGE_X_INDIRECT || md == AddressingMode::BASE_PAGE_INDIRECT_SP_Y ||
+                         tm == "INW" || tm == "DEW" || tm == "ASW" || tm == "ROW" || tm == "PHW") ? 2 : 1;
+                for (uint32_t b = v; b < v + (uint32_t)w && b < 256; b++) gen[i].set(b);
+            }
+            for (size_t i = 0; i < n; ++i) {
+                std::string tm = st[at[i]]->type == AssemblerParser::Statement::INSTRUCTION ? upper(st[at[i]]->instr.mnemonic) : "";
+                if (tm != "RTS" && tm != "RTI" && tm != "RTN") continue;
+                if (holdsRoutine) toAll[i] = true;   // (a routine's rts: back into whichever proc called it)
+                else if (hasBsr) for (size_t a : afterBsr) succ[i].push_back(a);
+            }
+            for (bool more = true; more;) {
+                more = false;
+                for (size_t i = n; i-- > 0;) {
+                    Bits o;
+                    if (toAll[i]) o.set();
+                    for (size_t x : succ[i]) if (x < n) o |= in[x];
+                    Bits ni = gen[i] | (o & ~kill[i]);
+                    if (o != out[i] || ni != in[i]) { out[i] = o; in[i] = ni; more = true; }
+                }
+            }
+            std::map<size_t, size_t> posOf;   // statement -> its position
+            for (size_t i = 0; i < n; ++i) posOf[at[i]] = i;
+            // dead stores: a plain store to a block byte not live after it
+            for (size_t i = 0; i < n; ++i) {
+                auto* t = st[at[i]].get();
+                if (t->type != AssemblerParser::Statement::INSTRUCTION || t->noOpt || !t->label.empty() || kill[i].none())
+                    continue;
+                bool allDead = true;
+                for (int b = 0; b < 256 && allDead; b++)
+                    if (kill[i].test(b) && (!inBlock(b) || out[i].test(b))) allDead = false;
+                if (!allDead) continue;
+                report("dead-store", t, upper(t->instr.mnemonic) + " " + t->instr.operand + " eliminated (its base-page byte is dead after it)");
+                t->deleted = true;
+                t->size = 0;
+                changed = true;
+            }
+            for (size_t k = p + 1; k < end; ++k) {
+                auto* ld = st[k].get();
+                if (!live(ld) || ld->type != AssemblerParser::Statement::INSTRUCTION || ld->noOpt || !ld->label.empty() ||
+                    upper(ld->instr.mnemonic) != "LDA" || ld->instr.mode != AddressingMode::BASE_PAGE)
+                    continue;
+                uint32_t bv;
+                if (!opAddr(ld, bv) || bv >= 256) continue;
+                int b = (int)bv;
+                auto pl = posOf.find(k);
+                if (!inBlock(b) || pl == posOf.end() || out[pl->second].test(b)) continue;
+                // the store: back over plain instructions, no label between,
+                // the byte not read between
+                long s = -1;
+                for (long j = (long)k - 1, m = 0; j > (long)p && m < 10; --j) {
+                    auto* t = st[j].get();
+                    // (a label on a statement of its own is a merge point too)
+                    if (!t->deleted && !t->label.empty() && t->type == AssemblerParser::Statement::NONE) break;
+                    if (!live(t)) continue;
+                    m++;
+                    if (t->type != AssemblerParser::Statement::INSTRUCTION || t->noOpt || flow(t)) break;
+                    auto pj = posOf.find((size_t)j);
+                    if (upper(t->instr.mnemonic) == "STA" && t->instr.mode == AddressingMode::BASE_PAGE &&
+                        pj != posOf.end() && kill[pj->second].test(b)) { s = j; break; }
+                    if (!t->label.empty() || (pj != posOf.end() && (gen[pj->second].test(b) || kill[pj->second].test(b)))) break;
+                }
+                if (s < 0) continue;
+                // (A left alone between: the load is simply redundant, the
+                // register tracking drops it; a spill would only clobber Y/Z)
+                {
+                    static const std::set<std::string> keepsA = {"STA", "STX", "STY", "STZ", "STQ", "LDX", "LDY", "LDZ",
+                        "INX", "INY", "INZ", "DEX", "DEY", "DEZ", "TAX", "TAY", "TAZ", "CPX", "CPY", "CPZ", "CMP", "BIT",
+                        "CLC", "SEC", "CLV", "NOP", "PHA", "PHX", "PHY", "PHZ", "EOM"};
+                    bool aWritten = false;
+                    for (size_t j = s + 1; j < k && !aWritten; ++j) {
+                        auto* t = st[j].get();
+                        if (!live(t)) continue;
+                        std::string tm = upper(t->instr.mnemonic);
+                        bool rmwMem = (tm == "INC" || tm == "DEC" || tm == "ASL" || tm == "LSR" || tm == "ROL" || tm == "ROR") &&
+                                      t->instr.mode != AddressingMode::ACCUMULATOR && t->instr.mode != AddressingMode::IMPLIED;
+                        if (!keepsA.count(tm) && !rmwMem) aWritten = true;
+                    }
+                    if (!aWritten) continue;
+                }
+                // a register neither used between nor read after the load
+                char R = 0;
+                for (char c : {'Y', 'Z'}) {
+                    bool free = true;
+                    for (size_t j = s + 1; j < k && free; ++j)
+                        if (live(st[j].get()) && regUse(st[j].get(), c)) free = false;
+                    if (!free) continue;
+                    bool dead = false;
+                    for (size_t j = k + 1, n = 0; j < end && n < 24; ++j) {
+                        auto* t = st[j].get();
+                        if (!t->deleted && !t->label.empty() && t->type == AssemblerParser::Statement::NONE) break;
+                        if (!live(t)) continue;
+                        n++;
+                        if (!t->label.empty() || t->type != AssemblerParser::Statement::INSTRUCTION || flow(t)) break;
+                        int u = regUse(t, c);
+                        if (u == 1) { dead = true; break; }
+                        if (u == 2) break;
+                    }
+                    if (dead) { R = c; break; }
+                }
+                if (!R) continue;
+                std::string why;
+                if (nzLiveAfter((size_t)s, why)) continue;
+                auto* sst = st[s].get();
+                report("spill-reg", ld, "STA/LDA " + ld->instr.operand + " -> TA" + std::string(1, R) + "/T" +
+                       std::string(1, R) + "A (a free register keeps the byte)");
+                for (auto* t : {sst, ld}) {
+                    Instruction in;
+                    in.mnemonic = t == sst ? (R == 'Y' ? "tay" : "taz") : (R == 'Y' ? "tya" : "tza");
+                    in.mode = AddressingMode::IMPLIED;
+                    t->instr = in;
+                    t->size = 1;
+                }
+                changed = true;
+            }
+        }
+    }
 
     for (size_t i = 0; i < parser->statements.size(); ++i) {
         auto* s = parser->statements[i].get();
