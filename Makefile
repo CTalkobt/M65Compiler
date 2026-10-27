@@ -526,7 +526,7 @@ TV_OBJECTS = $(patsubst src/test/%.cpp,$(OBJ_DIR)/tv_%.o,$(TV_SOURCES)) $(OBJ_DI
 
 # (the linker category calls O45Linker itself)
 TV_LIB_OBJECTS = $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45DebugSections.o $(OBJ_DIR)/O45IRSerializer.o \
-                 $(OBJ_DIR)/O45Linker.o $(OBJ_DIR)/Logger.o $(OBJ_DIR)/O45Archive.o $(OBJ_DIR)/AssemblerOpcodeDatabase.o
+                 $(OBJ_DIR)/O45Linker.o $(OBJ_DIR)/Logger.o $(OBJ_DIR)/O45Archive.o $(OBJ_DIR)/AssemblerOpcodeDatabase.o $(OBJ_DIR)/Pack45.o
 
 $(TV_TARGET): $(TV_OBJECTS) $(TV_LIB_OBJECTS)
 	@mkdir -p $(BIN_DIR)
