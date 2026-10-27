@@ -1688,6 +1688,17 @@ void optimizeTypeNarrowing(Module& mod) {
         };
         buildUses();
 
+        // a vreg's one definition, if it has exactly one
+        std::map<uint32_t, int> defCount;
+        std::map<uint32_t, const Inst*> defOf;
+        for (const auto& block : fn.blocks)
+            for (const auto& in : block.insts)
+                if (in.dest.isVreg()) { defCount[in.dest.vregId]++; defOf[in.dest.vregId] = &in; }
+        auto zextByte = [&](const Operand& o) {
+            if (!o.isVreg() || defCount[o.vregId] != 1 || fn.localSlotVregs.count(o.vregId)) return false;
+            const Inst* d = defOf[o.vregId];
+            return d->op == Op::ZEXT && d->src1.type == Type::I8;
+        };
         // Narrowable arithmetic ops (safe to compute in I8 when result is truncated)
         auto isNarrowable = [](Op op) -> bool {
             // (only when every use is a truncation to 8 bits: the low byte of
@@ -1706,26 +1717,52 @@ void optimizeTypeNarrowing(Module& mod) {
             }
         };
 
-        // Check if ALL uses of a vreg are TRUNC to I8
+        // Check if ALL uses of a vreg read only its low byte: TRUNCs to I8,
+        // and byte operations whose low byte depends only on their operands'
+        // low bytes (#342: (char)(v << 4 | v >> 4))
+        auto lowByteUse = [](const UseInfo& u) {
+            if ((u.inst->op == Op::TRUNC || u.inst->op == Op::COPY) && u.inst->resultType == Type::I8 &&
+                u.role == UseInfo::SRC1)
+                return true;
+            if (u.inst->resultType != Type::I8 || (u.role != UseInfo::SRC1 && u.role != UseInfo::SRC2)) return false;
+            switch (u.inst->op) {
+                case Op::ADD: case Op::SUB: case Op::MUL: case Op::MUL_U:
+                case Op::AND: case Op::OR: case Op::XOR: case Op::NOT: case Op::NEG:
+                    return true;
+                case Op::SHL: case Op::LSL:   // (the value, not the count)
+                    return u.role == UseInfo::SRC1;
+                default:
+                    return false;
+            }
+        };
         auto allUsesTruncI8 = [&](uint32_t vregId) -> bool {
             auto it = uses.find(vregId);
             if (it == uses.end()) return false;
-            for (auto& u : it->second) {
-                if (u.inst->op == Op::TRUNC && u.inst->resultType == Type::I8 &&
-                    u.role == UseInfo::SRC1) {
-                    continue; // this use is a TRUNC to I8 — OK
-                }
-                return false; // non-TRUNC use — can't narrow
-            }
+            for (auto& u : it->second)
+                if (!lowByteUse(u)) return false;   // a wider use — can't narrow
             return true;
+        };
+        // the byte operations reading it: their operand is a byte now
+        auto retypeUses = [&](uint32_t vregId) {
+            for (auto& u : uses[vregId]) {
+                if (u.inst->op == Op::TRUNC) continue;
+                for (Operand* o : {&u.inst->src1, &u.inst->src2})
+                    if (o->isVreg() && o->vregId == vregId) o->type = Type::I8;
+            }
         };
 
         // Pass: narrow I16/I32 ops whose result is only used via TRUNC I8
+        // (again until none: narrowing a use can make its operands narrowable)
+        for (bool again = true; again;) {
+        again = false;
         for (auto& block : fn.blocks) {
             for (auto& inst : block.insts) {
                 if (!inst.dest.isVreg()) continue;
                 if (inst.resultType != Type::I16 && inst.resultType != Type::I32) continue;
-                if (!isNarrowable(inst.op)) continue;
+                // (x >> n of a zero-extended byte: its low byte is the byte's)
+                bool shrByte = (inst.op == Op::SHR || inst.op == Op::LSR) && zextByte(inst.src1) &&
+                               (inst.src2.isImm() || inst.src2.isVreg());
+                if (!isNarrowable(inst.op) && !shrByte) continue;
 
                 // Don't narrow local slot vregs
                 if (fn.localSlotVregs.count(inst.dest.vregId)) continue;
@@ -1735,6 +1772,8 @@ void optimizeTypeNarrowing(Module& mod) {
                 // Narrow: change result type to I8
                 trace("narrow", fn.name, "v" + std::to_string(inst.dest.vregId) + " narrowed to I8", inst.loc);
                 inst.resultType = Type::I8;
+                retypeUses(inst.dest.vregId);
+                again = true;
 
                 // Its operands extended from a byte: the byte itself (only the
                 // low byte is read), when the byte keeps its value up to here
@@ -1783,6 +1822,48 @@ void optimizeTypeNarrowing(Module& mod) {
                 }
             }
         }
+        // a vreg of several definitions (a ?: result) whose uses read its low
+        // byte only, each definition narrowable, a copy or extension of a
+        // byte, or a constant: all of them in 8 bits (#342)
+        buildUses();
+        defCount.clear();
+        std::map<uint32_t, std::vector<Inst*>> defsOf;
+        for (auto& block : fn.blocks)
+            for (auto& in : block.insts)
+                if (in.dest.isVreg()) { defCount[in.dest.vregId]++; defsOf[in.dest.vregId].push_back(&in); }
+        for (auto& [v, defs] : defsOf) {
+            if (defs.size() < 2 || fn.localSlotVregs.count(v) || !allUsesTruncI8(v)) continue;
+            bool ok = true;
+            bool wide = false;
+            for (const Inst* d : defs) {
+                if (d->resultType == Type::I8) continue;   // (narrowed already)
+                if (d->resultType != Type::I16 && d->resultType != Type::I32) { ok = false; break; }
+                wide = true;
+                bool byteCopy = (d->op == Op::COPY && d->src1.isVreg() && zextByte(d->src1)) ||
+                                (d->op == Op::ZEXT && d->src1.type == Type::I8) || d->op == Op::CONST;
+                if (!isNarrowable(d->op) && !byteCopy) { ok = false; break; }
+            }
+            if (!ok || !wide) continue;
+            for (Inst* d : defs) {
+                if (d->resultType == Type::I8) continue;
+                if (d->op == Op::ZEXT) d->op = Op::COPY;
+                if (d->op == Op::CONST) d->src1 = Operand::imm(d->src1.immVal & 0xFF, Type::I8);
+                if (d->op == Op::COPY) d->src1.type = Type::I8;
+                d->resultType = Type::I8;
+                d->dest.type = Type::I8;
+            }
+            if (fn.vregTypes.count(v)) fn.vregTypes[v] = Type::I8;
+            trace("narrow", fn.name, "v" + std::to_string(v) + " (" + std::to_string(defs.size()) + " definitions) narrowed to I8");
+            retypeUses(v);
+            for (auto& u : uses[v])
+                if (u.inst->op == Op::TRUNC && u.inst->resultType == Type::I8) {
+                    u.inst->op = Op::COPY;
+                    u.inst->src1.type = Type::I8;
+                }
+            again = true;
+        }
+        if (again) buildUses();
+        }
 
         // Pass 1b: operations on zero-extended bytes on the bytes; constant
         // operands as immediates
@@ -1804,6 +1885,7 @@ void optimizeTypeNarrowing(Module& mod) {
                 trace("narrow", fn.name, "v" + std::to_string(inst.dest.vregId) + " redundant ZEXT/SEXT → COPY", inst.loc);
                 inst.op = Op::COPY;
                 inst.resultType = Type::I8;
+                retypeUses(inst.dest.vregId);
 
                 // Convert TRUNC consumers to COPY
                 auto& useList = uses[inst.dest.vregId];

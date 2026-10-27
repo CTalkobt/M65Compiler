@@ -1197,6 +1197,11 @@ bool AssemblerOptimizer::optimizeInternal(
                     if (isLocDirective(nextStmt)) continue;
                     seen++;
                     if (!nextStmt->label.empty()) {
+                        // (a local label nothing refers to is no merge point:
+                        // cc45's @__return once its branches became RTS, #342)
+                        std::string ll = localOf(nextStmt->label);
+                        auto rc = refCount.find(keyOf(nextStmt, ll));
+                        if (!ll.empty() && ll[0] == '@' && (rc == refCount.end() || rc->second == 0)) continue;
                         isBeforeCFChange = true;
                         break;
                     }

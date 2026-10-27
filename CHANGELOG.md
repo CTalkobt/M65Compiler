@@ -15,6 +15,11 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   base-page byte it was stored to (the reload goes), drops a store into
   the function's base-page block that nothing reads, and a compare that
   repeats the one before the only branch to its label.
+- #342: values used only through their low byte are computed in 8 bits
+  (also by 8-bit operations using them, `x >> n` of a byte, a `?:` result
+  of several definitions; narrowing runs again after copy propagation);
+  a `char` function returns in A alone (no `ldx #0`), a byte copy loads A
+  only; ca45 drops a reload before a label nothing refers to.
 
 ### `__bank(n)` (#69)
 
