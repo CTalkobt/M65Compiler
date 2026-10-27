@@ -243,7 +243,10 @@ inner operation is defined once and its own operand is a global, a constant
 or a value defined once (a local's slot could change between them).
 `pl.items[7]` (`@_pl + 11 + 7`) is then `@_pl + 18`, which
 `foldGlobalOffsetAccess` makes the load's address: `lda _pl+18` (22 bytes
-→ 7); `x - 25 + 23` is `x - 2`.
+→ 7); `x - 25 + 23` is `x - 2`. Likewise `(x & c1) & c2` is `x & (c1 &
+c2)` (and `|`, `^`), and `(x << c1) << c2` is `x << (c1 + c2)` (and `>>`,
+logical or arithmetic, the same operation both times) while the sum stays
+below the width: `w >> 4 >> 4` is `w >> 8`, a byte move (#353).
 
 **What a function's return carries** (#351): cc45 marks a function whose
 caller may read the flags after it (`.var cc45.retnz = 1`: a `char` result,

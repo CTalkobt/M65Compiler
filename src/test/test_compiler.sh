@@ -668,6 +668,21 @@ else
     failed=$((failed + 1))
 fi
 
+# #353: &, |, ^ and shift chains by constants are one operation
+# (w >> 4 >> 4 was eight 16-bit shifts; (x & 0x3c) & 0x0f two ands)
+printf 'unsigned char get(void);\nunsigned int getw(void);\nunsigned char out;\nunsigned int outw;\nvoid f2(void) { out = (get() & 0x3c) & 0x0f; }\nvoid f8(void) { outw = (getw() >> 4) >> 4; }\n' > $cs/b.c
+if ./bin/cc45 -O2 -c $cs/b.c -o $cs/b.o45 >/dev/null 2>&1; then
+    CB=$(./bin/objdump45 -d $cs/b.o45 | grep -E '^\s+[0-9a-f]{4}:' | cut -f3- | tr '\n' ';')
+else
+    CB=""
+fi
+if [ -n "$CB" ] && [ $(printf '%s' "$CB" | grep -o 'and' | wc -l) -eq 1 ] && ! printf '%s' "$CB" | grep -q 'lsr\|ror'; then
+    echo "SUCCESS: &, |, ^ and shift chains by constants are one operation"
+else
+    echo "FAIL: constant &/shift chains not folded (#353): $CB"
+    failed=$((failed + 1))
+fi
+
 # A bitfield wider than its type is an error, also after a comma and unnamed
 # (int e : 17 kept 16 bits without a word)
 bf_ok=1

@@ -12,7 +12,8 @@
  *   +4 a char result tested directly, a void call between, an int result
  *   +5 a void function's loop whose X only the body reads: the knowledge
  *      kept at a merge label went stale once the ldx #0 before it went
- *   +6 $AA
+ *   +6 &, |, ^ and shift chains (#353): byte, int, signed and long
+ *   +7 $AA
  */
 #define OUT ((volatile unsigned char *)0xC0C0)
 
@@ -104,6 +105,17 @@ int main(void) {
     ok = run(1) == 0;
     OUT[5] = ok && cs.nops == 1 && cs.ncode == 3 && prog1.code[0] == 6 && prog1.code[1] == 3 && prog1.code[2] == 1;
 
-    OUT[6] = 0xAA;
+    vb = 0xB7;
+    ok = ((vb & 0x3C) & 0x0F) == 0x04 && ((vb | 0x30) | 0x01) == 0xB7 && ((vb ^ 0x30) ^ 0x10) == 0x97;
+    ok = ok && (unsigned char)((vb << 1) << 2) == 0xB8 && ((vb >> 1) >> 2) == 0x16;
+    vw = 0xA5C3;
+    ok = ok && ((vw >> 4) >> 4) == 0xA5 && ((vw << 2) << 3) == 0xB860 && ((vw >> 8) >> 8) == 0;
+    s = -1000;
+    ok = ok && ((s >> 2) >> 3) == -32 && ((s >> 7) >> 8) == -1;
+    vl = 0x12345678L;
+    ok = ok && ((vl >> 8) >> 12) == 0x123L && ((vl & 0xFF00FF00L) & 0x0FFFF000L) == 0x02005000L;
+    OUT[6] = ok;
+
+    OUT[7] = 0xAA;
     return 0;
 }
