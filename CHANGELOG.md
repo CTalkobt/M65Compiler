@@ -11,6 +11,12 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   without carries that cannot happen (copied bytes, `ora` for bits that
   cannot overlap), and far stores of `x + c` with `ora #c`. 351 bytes over
   the examples; test `test_known_bits_xemu.c` (both conventions).
+- ca45: register knowledge kept at a merge label both paths agree on (no
+  reload of a `?:` result), calls to C functions not taken as reading N / Z,
+  a byte holding a constant another register holds loaded by a transfer.
+  933 bytes over the examples. The check for routines shared between procs
+  no longer scans the file for each label (a 12,000-line file assembled in
+  1.9 s, was 5.9 s).
 - Known bits for a local assigned once (`unsigned c = 0x1010 + k * 4;`
   then `c + 1` is `ora #1`, the high byte copied): #348's `vm_set` 145 → 128
   bytes.

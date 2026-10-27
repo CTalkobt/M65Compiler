@@ -224,6 +224,17 @@ caller reads what the routine stores.) Examples: 3,387 bytes (2.3 %); the
 accessors 57 and 145 bytes. Test: `test_assembler.sh` (shared routine,
 merge label, computed goto kept; a byte in Y; a dead store on every path).
 
+The register tracking also keeps, at a local label reached by falling in
+and by one earlier branch, what both paths agree a register holds (the
+same constant, or a base-page byte equal to it on both paths: stored from
+it, or holding the same constant; a `?:` or `&&`/`||` result stored on both
+paths needs no reload; the label is still a reset point for the snapshots
+taken after it); a call to a C function (`jsr _name`) counts as not
+reading N / Z (the runtime's `__helpers` still do); and a load of a byte
+stored from a register holding a constant becomes a transfer from another
+register holding the same constant (`ldx #0; stx $35 ... lda $35` is
+`txa`). Examples: 933 bytes (#350).
+
 `foldGlobalOffsetAccess` (`IROptimizer.cpp`, after `foldElemIndexOffset`;
 tag `globaloff`; under `addr-elem-fusion`'s switch) gives a load or store
 through `%p = add ptr @g, c` (`%p` defined once and used only as such

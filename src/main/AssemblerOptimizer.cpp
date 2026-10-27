@@ -42,6 +42,17 @@ bool AssemblerOptimizer::optimizeInternal(
     };
 
     MachineState ms;
+    // the base-page bytes holding what register r holds (stored from it, or
+    // the same constant; #350)
+    auto sameBytes = [&](RegId r) {
+        std::bitset<256> b;
+        for (int a = 0; a < 256; a++) {
+            const ValueInfo& z = ms.getZP((uint8_t)a);
+            if (z.isSameAs(r) || (ms.reg[r].isConst() && z.isConst() && (z.constVal & 0xFF) == (ms.reg[r].constVal & 0xFF)))
+                b.set(a);
+        }
+        return b;
+    };
 
     // Parse a numeric operand string to a value.
     // Handles decimal, $hex, %binary. Returns true if parseable.
@@ -429,6 +440,8 @@ bool AssemblerOptimizer::optimizeInternal(
         auto& st = parser->statements;
         auto upper = [](std::string m) { std::transform(m.begin(), m.end(), m.begin(), ::toupper); return m; };
         static const std::set<std::string> plainStores = {"STA", "STX", "STY", "STZ", "STQ"};
+        std::set<std::string> bsrTargets1e;   // (the labels a bsr calls: shared routines)
+        bool bsrTargetsDone = false;
         for (size_t p = 0; p < st.size(); ++p) {
             auto* ps = st[p].get();
             if (ps->deleted || ps->type != AssemblerParser::Statement::INSTRUCTION || ps->instr.mnemonic != "proc" ||
@@ -452,15 +465,18 @@ bool AssemblerOptimizer::optimizeInternal(
             // (a routine another proc calls, bsr: SeqExtract's, shared: its
             // stores are read by the caller, #350)
             {
-                bool shared = false;
-                for (size_t k = p + 1; k < end && !shared; ++k) {
-                    if (st[k]->deleted || st[k]->label.empty()) continue;
+                if (!bsrTargetsDone) {
                     for (const auto& t : st)
-                        if (!t->deleted && t->type == AssemblerParser::Statement::INSTRUCTION &&
-                            upper(t->instr.mnemonic) == "BSR" &&
-                            (t->instr.operand == st[k]->label ||
-                             (st[k]->label.find(':') != std::string::npos &&
-                              t->instr.operand == st[k]->label.substr(st[k]->label.find(':') + 1)))) { shared = true; break; }
+                        if (!t->deleted && t->type == AssemblerParser::Statement::INSTRUCTION && upper(t->instr.mnemonic) == "BSR")
+                            bsrTargets1e.insert(t->instr.operand);
+                    bsrTargetsDone = true;
+                }
+                bool shared = false;
+                for (size_t k = p + 1; k < end && !shared && !bsrTargets1e.empty(); ++k) {
+                    const std::string& l = st[k]->label;
+                    if (st[k]->deleted || l.empty()) continue;
+                    size_t c = l.find(':');
+                    shared = bsrTargets1e.count(l) || (c != std::string::npos && bsrTargets1e.count(l.substr(c + 1)));
                 }
                 if (shared) continue;
             }
@@ -816,6 +832,8 @@ bool AssemblerOptimizer::optimizeInternal(
     for (const auto& st : parser->statements) {
         if (!st || st->deleted) continue;
         if (!st->instr.operand.empty()) operandTexts.push_back(st->instr.operand);
+        // (a bbs / bbr target: kept apart from the operand, #350)
+        if (!st->instr.bitBranchTarget.empty()) operandTexts.push_back(st->instr.bitBranchTarget);
         for (const auto& a2 : st->dir.arguments) operandTexts.push_back(a2);
     }
     auto referenced = [&](const std::string& label) {
@@ -865,6 +883,9 @@ bool AssemblerOptimizer::optimizeInternal(
         const auto* st = parser->statements[k].get();
         if (!st || st->deleted) continue;
         countRefs(st, st->instr.operand);
+        // (bbs / bbr keep their target apart from the operand, #350: a label
+        // a bit branch reaches looked reached by one branch only)
+        countRefs(st, st->instr.bitBranchTarget);
         for (const auto& a2 : st->dir.arguments) countRefs(st, a2);
         if (st->type == AssemblerParser::Statement::INSTRUCTION && branchOps.count(upper(st->instr.mnemonic)) &&
             !st->instr.operand.empty() && st->instr.operand[0] == '@')
@@ -947,6 +968,12 @@ bool AssemblerOptimizer::optimizeInternal(
             if (nm == "JSR") {
                 auto pc = procClobbers.find(n->instr.operand);
                 if (pc != procClobbers.end() && pc->second.known && (pc->second.flagMask & 0x06) == 0x06)
+                    return false;
+                // (a C function, _name: no convention passes N / Z in, #350;
+                // the runtime's __helpers stay a read)
+                const std::string& o = n->instr.operand;
+                if (o.size() > 1 && o[0] == '_' && std::isalpha((unsigned char)o[1]) &&
+                    o.find_first_of("+-*/()") == std::string::npos)
                     return false;
             }
             if (keepsNZ.count(nm)) continue;
@@ -1278,6 +1305,18 @@ bool AssemblerOptimizer::optimizeInternal(
             }
             if (s->label[0] != '@' && s->label.find(":@") == std::string::npos) fallsInto = false;
             if (!fallsInto || referenced(s->label)) {
+                // (the registers as the code falling in leaves them: a byte
+                // they were stored to counts, as at a branch)
+                ValueInfo fallRegs[4];
+                std::bitset<256> fallStored[4];
+                if (fallsInto)
+                    for (int r = 0; r < 4; r++) {
+                        fallRegs[r] = ms.reg[r];
+                        fallStored[r] = sameBytes((RegId)r);
+                        if (fallRegs[r].isUnknown())
+                            for (int a = 0; a < 256; a++)
+                                if (ms.getZP((uint8_t)a).isSameAs((RegId)r)) { fallRegs[r] = ValueInfo::sameAsMem((uint16_t)a); break; }
+                    }
                 ms.invalidateAll();
                 stackVarLastValue.clear();
                 std::string l = keyOf(s, localOf(s->label));
@@ -1301,6 +1340,31 @@ bool AssemblerOptimizer::optimizeInternal(
                         pendingBack.push_back({l, b});
                     }
                 }
+                // a merge (#350: a ?: or &&/|| result, stored on both
+                // paths): reached by falling in and by one earlier branch,
+                // a register keeps what both paths agree it holds (the same
+                // base-page byte or the same constant)
+                if (fallsInto && !took && parser->optFlags.redundantLoad && !loc.empty() && loc[0] == '@') {
+                    size_t ob = onlyBranch(l);
+                    if (ob != SIZE_MAX && ob < i && snap != parser->branchRegs.end() &&
+                        snap->second.branch == parser->statements[ob].get()) {
+                        for (int r = 0; r < 4; r++) {
+                            const ValueInfo& f = fallRegs[r];
+                            const ValueInfo& g = snap->second.regs[r];
+                            bool agree = (f.isConst() && g.isConst() && f.constVal == g.constVal) ||
+                                         (f.kind == ValueInfo::SAME_AS_MEM && g.kind == ValueInfo::SAME_AS_MEM &&
+                                          f.mirrorAddr == g.mirrorAddr && f.mirrorAddr < 256);
+                            if (agree) ms.reg[r] = f;   // (still a reset: only part of the state is known)
+                            // (both stored it to the same byte: it holds that byte,
+                            // whatever each path's value: a ?: result)
+                            else {
+                                std::bitset<256> both = fallStored[r] & snap->second.stored[r];
+                                for (int a = 0; a < 256; a++)
+                                    if (both.test(a)) { ms.reg[r] = ValueInfo::sameAsMem((uint16_t)a); break; }
+                            }
+                        }
+                    }
+                }
                 if (!took) lastReset = i;
             }
         }
@@ -1313,6 +1377,7 @@ bool AssemblerOptimizer::optimizeInternal(
             br.code = lastReset != SIZE_MAX ? fingerprint(lastReset, i) : 0;
             for (int r = 0; r < 4; r++) {
                 br.regs[r] = ms.reg[r];
+                br.stored[r] = sameBytes((RegId)r);
                 // (a register stored to a base-page byte: it holds that byte,
                 // which the label keeps when only this branch reaches it, #341)
                 if (br.regs[r].isUnknown())
@@ -1668,6 +1733,14 @@ bool AssemblerOptimizer::optimizeInternal(
                     RegId from = REG_A;
                     for (const auto& t : tr)
                         if (t.to == r && ms.getZP(zpAddr).isSameAs(t.from)) { direct = t.mn; from = t.from; }
+                    // (the byte a constant another register holds too: ldx #0;
+                    // stx $35 ... lda $35 is txa, #350)
+                    if (!direct && ms.getZP(zpAddr).isConst())
+                        for (const auto& t : tr)
+                            if (t.to == r && ms.reg[t.from].isConst() &&
+                                (ms.reg[t.from].constVal & 0xFF) == (ms.getZP(zpAddr).constVal & 0xFF)) {
+                                direct = t.mn; from = t.from;
+                            }
                     if (direct) {
                         report("store-transfer", s, m + " " + op + " -> " + direct + " (the slot holds " +
                                std::string("AXYZ").substr(from, 1) + ")");
