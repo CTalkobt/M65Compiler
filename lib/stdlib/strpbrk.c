@@ -1,11 +1,11 @@
 /* strpbrk.c — Find first occurrence of any character from accept in s */
 
-char *strpbrk(char *restrict s, char *restrict accept) {
-    char *a;
+char *strpbrk(const char *s, const char *accept) {
+    const char *a;
     while (*s) {
         a = accept;
         while (*a) {
-            if (*s == *a) return s;
+            if (*s == *a) return (char *)s;
             a++;
         }
         s++;

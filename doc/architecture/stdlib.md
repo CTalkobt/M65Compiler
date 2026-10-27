@@ -118,28 +118,28 @@ The C99 prototypes take `restrict` where the standard has it (`<string.h>`: `mem
 
 ## 5. String & Memory Operations (`string.h`)
 
-The functions marked *asm* are hand-written assembly in `lib/stdlib_asm/`; the rest are C in `lib/stdlib/`. Lengths and counts are `int` (16-bit).
+The functions marked *asm* are hand-written assembly in `lib/stdlib_asm/`; the rest are C in `lib/stdlib/`. Lengths and counts are `int` (16-bit). The parameters are declared as in the C standard: `const` where the function only reads, `restrict` where the areas must not overlap (`memcpy`, `strcpy`, `strcat`, …; overlapping copies are undefined, use `memmove`).
 
 | Function | Notes |
 |----------|-------|
-| `int strlen(char *s)` | *asm*. Any length up to 65535 (Y walks a page, X counts the pages) |
-| `char *strcpy(char *d, char *s)`, `char *strncpy(char *d, char *s, int n)` | *asm*. `strncpy` NUL-pads |
-| `signed int strcmp(char *a, char *b)`, `signed int strncmp(char *a, char *b, int n)` | *asm*. Return <0, 0, >0 (declared `signed`: a plain `int` is unsigned in cc45, which made `strcmp(a, b) < 0` always false) |
-| `char *strcat(char *d, char *s)`, `char *strncat(char *d, char *s, int n)` | *asm*. `strncat` appends at most `n` chars and NUL-terminates |
-| `char *strchr(char *s, int c)`, `char *strrchr(char *s, int c)` | *asm* |
-| `char *strstr(char *h, char *n)`, `char *strpbrk(char *s, char *accept)` | C |
-| `int strspn(char *s, char *accept)`, `int strcspn(char *s, char *reject)` | C |
-| `char *strtok(char *s, char *delim)`, `char *strtok_r(char *s, char *delim, char **save)` | Assembly (`strtok.s45`). `strtok` keeps static state; `strtok_r` keeps it in `*save` (NULL after the last token) |
+| `int strlen(const char *s)` | *asm*. Any length up to 65535 (Y walks a page, X counts the pages) |
+| `char *strcpy(char *restrict d, const char *restrict s)`, `char *strncpy(char *restrict d, const char *restrict s, int n)` | *asm*. `strncpy` NUL-pads |
+| `signed int strcmp(const char *a, const char *b)`, `signed int strncmp(const char *a, const char *b, int n)` | *asm*. Return <0, 0, >0 (declared `signed`: a plain `int` is unsigned in cc45, which made `strcmp(a, b) < 0` always false) |
+| `char *strcat(char *restrict d, const char *restrict s)`, `char *strncat(char *restrict d, const char *restrict s, int n)` | *asm*. `strncat` appends at most `n` chars and NUL-terminates |
+| `char *strchr(const char *s, int c)`, `char *strrchr(const char *s, int c)` | *asm* |
+| `char *strstr(const char *h, const char *n)`, `char *strpbrk(const char *s, const char *accept)` | C |
+| `int strspn(const char *s, const char *accept)`, `int strcspn(const char *s, const char *reject)` | C |
+| `char *strtok(char *restrict s, const char *restrict delim)`, `char *strtok_r(char *restrict s, const char *restrict delim, char **restrict save)` | Assembly (`strtok.s45`). `strtok` keeps static state; `strtok_r` keeps it in `*save` (NULL after the last token) |
 | `int strnlen(const char *s, int maxlen)` | C |
-| `int strlcpy(char *dst, const char *src, int size)` | C. Returns `strlen(src)` |
+| `int strlcpy(char *restrict dst, const char *restrict src, int size)` | C. Returns `strlen(src)` |
 | `int stridx(const char *s, ...)` | C (`stdlib/stridx.c`). Which of the strings after `s` (ended by `NULL`) `s` is: 1 for the first equal one, 0 for none (`switch (stridx(cmd, "load", "save", NULL))`). When every candidate is a string literal cc45 calls `__stridx_table(s, table)` instead: the candidates in one block (a count, then each ended by 0), no variadic call, and the `NULL` may be left out; a literal `s` too gives the index at compile time; at `-O3` a small set (a trie of up to 6 nodes) is compared inline. A call without the `NULL` gets one added |
 | `char *strdup(const char *s)` | C. Uses `malloc` |
 | `char *strerror(int errnum)` | C. "Success", "Result out of range", "Out of memory", "Invalid argument", "Math domain error", else "Unknown error" |
-| `void *memcpy(void *d, void *s, int n)` | *asm*. A DMA copy job (#325); no overlap handling |
-| `void *memmove(void *d, void *s, int n)` | *asm*. A DMA copy job, downwards from the last bytes when `d > s` |
+| `void *memcpy(void *restrict d, const void *restrict s, int n)` | *asm*. A DMA copy job (#325); no overlap handling |
+| `void *memmove(void *d, const void *s, int n)` | *asm*. A DMA copy job, downwards from the last bytes when `d > s` |
 | `void *memset(void *s, int c, int n)` | *asm*. A DMA fill job |
-| `signed int memcmp(void *a, void *b, int n)` | *asm*. Returns <0, 0, >0 |
-| `void *memchr(void *s, int c, int n)` | C |
+| `signed int memcmp(const void *a, const void *b, int n)` | *asm*. Returns <0, 0, >0 |
+| `void *memchr(const void *s, int c, int n)` | C |
 
 `memcpy`, `memmove` and `memset` fill in one DMA job (`stdlib_asm/dma_mem.s45`, the job and its start in `dma_job.s45`, shared with `dma_copy_far`) and start it with interrupts held off while it is filled in; the CPU waits for the DMA job, which takes much less time than the CPU loops for all but a few bytes. A length of 0 does nothing. They see bank 0 as the CPU does for I/O (the job's I/O flag: `$D000`-`$DFFF`, such as colour RAM at `$D800`, are the registers), and in a program with mapped code overlays (`--overlay-map`, `__far` functions) an address in the window is read where the overlay in it is kept (`__ovl_dma_fix` in `ovl.s45`; crt0's weak version does nothing). Under the ROMs (`$C000`-`$CFFF` and the KERNAL at `$E000` in C65 mode) the DMA sees RAM, not the ROM the CPU reads there. The direction of a downward copy is the F018B command's bits 4 and 5 (the F018A bank bit 6 is not used in that format). They return their first parameter (the CPU loops returned it 256 higher for each full page copied). Sizes: `memcpy` 16 bytes, `memmove` 28, `memset` 16, with the shared 95-byte job builder and 42 bytes of job and start (the CPU loops were 34, 128 and 36). Test: `test_dma_mem_xemu.c`; the `__noescape` overlay test copies from an overlay's constants, mapped.
 

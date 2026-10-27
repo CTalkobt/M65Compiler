@@ -1,8 +1,8 @@
 /* strspn.c — Length of initial segment matching accept characters */
 
-int strspn(char *restrict s, char *restrict accept) {
+int strspn(const char *s, const char *accept) {
     int count = 0;
-    char *a;
+    const char *a;
     int found;
     while (*s) {
         found = 0;
