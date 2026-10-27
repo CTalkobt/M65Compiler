@@ -1,8 +1,8 @@
 /* strcspn.c — Length of initial segment not matching reject characters */
 
-int strcspn(char *restrict s, char *restrict reject) {
+int strcspn(const char *s, const char *reject) {
     int count = 0;
-    char *r;
+    const char *r;
     while (*s) {
         r = reject;
         while (*r) {

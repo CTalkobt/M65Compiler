@@ -4,6 +4,14 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### `<string.h>` declared as in the C standard
+
+- `const` on the parameters the string and memory functions only read
+  (`strlen`, `strcmp`, `strchr`, `strstr`, `memcmp`, `memchr`, the sources of
+  `strcpy`/`strcat`/`memcpy`/`memmove`, …) and `restrict` on `strtok_r` and
+  the `__builtin_` copies; the C implementations are const-correct.
+  Declarations only: the code is unchanged.
+
 ### The overlay loader's unpacker and library overrides (#346)
 
 - `<unpack.h>`'s `unpack` is a macro for the library's `__unpack`, which the

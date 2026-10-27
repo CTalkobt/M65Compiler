@@ -1,11 +1,11 @@
 /* strstr.c — Locate substring */
 
-char *strstr(char *haystack, char *needle) {
-    char *h;
-    char *n;
-    char *start;
+char *strstr(const char *haystack, const char *needle) {
+    const char *h;
+    const char *n;
+    const char *start;
 
-    if (*needle == 0) return haystack;
+    if (*needle == 0) return (char *)haystack;
 
     while (*haystack) {
         start = haystack;
@@ -15,7 +15,7 @@ char *strstr(char *haystack, char *needle) {
             h++;
             n++;
         }
-        if (*n == 0) return start;
+        if (*n == 0) return (char *)start;
         haystack++;
     }
     return (char *)0;
