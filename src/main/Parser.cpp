@@ -881,6 +881,10 @@ std::unique_ptr<Expression> Parser::parseJsr() {
         return setPos(std::make_unique<BinaryOperation>("&", std::move(e), setPos(std::make_unique<IntegerLiteral>(1), at)), at);
     };
     std::set<std::string> outRegs;
+    // the values set before the block, by register (a lone 8-bit one may be
+    // given straight to its register: __cpu.R = v, #344)
+    std::vector<std::pair<std::string, std::unique_ptr<Expression>>> regValues;
+    bool carryUsesA = false;
     while (match(TokenType::COMMA)) {
         expect(TokenType::DOT, "Expected '.' and a register (.A = value, .X -> variable)");
         const Token& rt = expect(TokenType::IDENTIFIER, "Expected a register after '.'");
@@ -905,6 +909,7 @@ std::unique_ptr<Expression> Parser::parseJsr() {
                 body->statements.push_back(setPos(std::make_unique<ExpressionStatement>(setPos(std::make_unique<Assignment>(
                     setPos(std::make_unique<VariableReference>("__jsr_c"), rt), std::move(v)), rt)), rt));
                 carryIn = " lda ___jsr_c\n cmp #1\n";   // (C = the value is not 0)
+                carryUsesA = true;
             }
             continue;
         }
@@ -912,9 +917,10 @@ std::unique_ptr<Expression> Parser::parseJsr() {
         std::string regs = g.regs;
         for (char ch : regs)
             if (!loaded.insert(ch).second) throw err(rt, std::string("register ") + (char)toupper(ch) + " is given twice");
-        if (!isConst)
-            body->statements.push_back(setPos(std::make_unique<ExpressionStatement>(setPos(std::make_unique<Assignment>(
-                setPos(std::make_unique<VariableReference>(g.store), rt), std::move(v)), rt)), rt));
+        if (!isConst) {
+            regValues.push_back({r, std::move(v)});
+            continue;
+        }
         for (size_t i = 0; i < regs.size(); i++) {
             std::string ld = std::string(" ld") + regs[i];
             if (isConst) {
@@ -927,6 +933,22 @@ std::unique_ptr<Expression> Parser::parseJsr() {
         }
     }
     expect(TokenType::CLOSE_PAREN, "Expected ')' after " + what);
+    // the values computed before the block: through the register bytes, or
+    // one 8-bit register (nothing else loaded through A) directly
+    bool direct = regValues.size() == 1 && regValues[0].first.size() == 1 && !carryUsesA;
+    for (auto& [r, v] : regValues) {
+        const Reg& g = regTable.at(r);
+        if (direct) {
+            body->statements.push_back(setPos(std::make_unique<ExpressionStatement>(setPos(std::make_unique<Assignment>(
+                setPos(std::make_unique<CpuRegisterAccess>(r), kw), std::move(v)), kw)), kw));
+            continue;
+        }
+        body->statements.push_back(setPos(std::make_unique<ExpressionStatement>(setPos(std::make_unique<Assignment>(
+            setPos(std::make_unique<VariableReference>(g.store), kw), std::move(v)), kw)), kw));
+        std::string regs = g.regs;
+        for (size_t i = 0; i < regs.size(); i++)
+            loads += std::string(" ld") + regs[i] + " ___" + std::string(g.store).substr(2) + (i ? "+" + std::to_string(i) : "") + "\n";
+    }
     // .R after the call: its value
     std::string resultReg;
     Token resultTok = kw;

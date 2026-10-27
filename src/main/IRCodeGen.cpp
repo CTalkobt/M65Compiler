@@ -7246,7 +7246,10 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                 if (inst.resultType == ir::Type::I8) {
                     emit("ldy #" + std::to_string(yOff));
                     emit("lda (" + zpPair + "),y");
-                    emit("ldx #0");
+                    // (into a byte register: X is not part of it, #344)
+                    if (!(inst.dest.isVreg() && alloc_.getAlloc(inst.dest.vregId).type == ir::Type::I8 &&
+                          alloc_.getAlloc(inst.dest.vregId).loc == VRegAllocator::IN_ZP))
+                        emit("ldx #0");
                 } else if (inst.resultType == ir::Type::I32 && yOff == 0) {
                     // Z = 0: (zp),z of LDQ adds Z on the MEGA65 core and xemu
                     // (the MEGA65 book documents no index): the same either way
@@ -7556,7 +7559,11 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                         valueByte_[1] = (prevAlloc.loc == VRegAllocator::IN_FRAME) ? REG_Z : REG_X;
                         storeVreg(inst.src2.vregId);
                     } else {
-                        loadOperand(inst.src1);
+                        // (a byte into a byte local: A alone, #344)
+                        if (inst.resultType == ir::Type::I8 && alloc_.getAlloc(inst.src2.vregId).type == ir::Type::I8)
+                            loadOperandA(inst.src1);
+                        else
+                            loadOperand(inst.src1);
                         valueByte_[0] = REG_A;
                         valueByte_[1] = REG_X;
                         storeVreg(inst.src2.vregId);

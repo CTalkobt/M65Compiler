@@ -431,14 +431,23 @@ bool AssemblerOptimizer::optimizeInternal(
         for (size_t p = 0; p < st.size(); ++p) {
             auto* ps = st[p].get();
             if (ps->deleted || ps->type != AssemblerParser::Statement::INSTRUCTION || ps->instr.mnemonic != "proc" ||
-                !ps->procCtx || ps->procCtx->zarLen <= 0)
+                !ps->procCtx)
                 continue;
             int lo = ps->procCtx->zarStart, hi = lo + ps->procCtx->zarLen - 1;
             size_t end = p + 1;
+            // (cc45's procs, .var cc45.fp: the register pool $30-$7F is the
+            // proc's temporaries too, #344)
+            bool cc45Proc = false;
             while (end < st.size() && !(st[end]->type == AssemblerParser::Statement::INSTRUCTION &&
                                         (st[end]->instr.mnemonic == "endproc" || st[end]->instr.mnemonic == "proc")))
                 ++end;
             if (end < st.size() && st[end]->instr.mnemonic == "proc") continue;   // (a nested proc: left alone)
+            for (size_t k = p + 1; k < end; ++k)
+                if (st[k]->type == AssemblerParser::Statement::DIRECTIVE && st[k]->dir.name == "var" &&
+                    st[k]->dir.varName.find("cc45.fp") != std::string::npos)
+                    cc45Proc = true;
+            auto inBlock = [&](int a) { return (lo >= 0 && a >= lo && a <= hi) || (cc45Proc && a >= 0x30 && a < 0x80); };
+            if (ps->procCtx->zarLen <= 0 && !cc45Proc) continue;
             std::vector<std::pair<size_t, int>> stores;   // (statement, its byte)
             std::set<int> read;
             bool unknown = false;
@@ -447,7 +456,20 @@ bool AssemblerOptimizer::optimizeInternal(
                 if (t->deleted || t->type == AssemblerParser::Statement::NONE) continue;
                 if (t->type != AssemblerParser::Statement::INSTRUCTION) {
                     if (t->type == AssemblerParser::Statement::DIRECTIVE && t->size == 0) continue;
-                    unknown = true;   // (data in the proc, a simulated op: not followed)
+                    // data in the proc (__zp_args' list): the addresses it
+                    // names count as read
+                    if (t->type == AssemblerParser::Statement::DIRECTIVE &&
+                        (t->dir.name == "byte" || t->dir.name == "word") && !t->dir.argTokenIndices.empty()) {
+                        for (int ti : t->dir.argTokenIndices) {
+                            try {
+                                uint32_t v = parser->evaluateExpressionAt(ti, t->scopePrefix);
+                                read.insert((int)(v & 0xFFFF));
+                                read.insert((int)(v & 0xFFFF) + 1);
+                            } catch (...) { unknown = true; }
+                        }
+                        if (!unknown) continue;
+                    }
+                    unknown = true;   // (other data in the proc, a simulated op: not followed)
                     break;
                 }
                 if (t->noOpt || t->isSimulatedOp()) { unknown = true; break; }
@@ -478,7 +500,7 @@ bool AssemblerOptimizer::optimizeInternal(
                 if (md == AddressingMode::BASE_PAGE_X || md == AddressingMode::BASE_PAGE_Y ||
                     md == AddressingMode::ABSOLUTE_X || md == AddressingMode::ABSOLUTE_Y || md == AddressingMode::BASE_PAGE_X_INDIRECT)
                     w = 256;
-                if (plain && (int)v >= lo && (int)v <= hi) { stores.push_back({k, (int)v}); continue; }
+                if (plain && inBlock((int)v)) { stores.push_back({k, (int)v}); continue; }
                 for (int b = (int)v; b < (int)v + w; b++) read.insert(b);
             }
             if (unknown) continue;
