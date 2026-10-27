@@ -12,7 +12,7 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - cc45 tells ca45 which functions' callers read the flags (a `char`
   result: `.var cc45.retnz`) or X (`.var cc45.retx`) after the call; any
   other cc45 function's `rts` reads neither, so reloads kept for their
-  flags and a dead `ldx #0` before it go. 882 bytes over the examples.
+  flags and a dead `ldx #0` before it go. 737 bytes over the examples.
 - Test `test_const_chain_xemu.c` (both conventions); sizes in
   `test_compiler.sh`.
 

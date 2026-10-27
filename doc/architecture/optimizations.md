@@ -252,7 +252,7 @@ a byte), and any with inline asm, `__cpu` / `__flags` writes or an
 interrupt's `rti` both ways. ca45 takes the `rts` of any other cc45 proc as
 reading neither: a reload kept for its N / Z before a `void` / `int`
 function's return goes, and so does a dead `ldx #0` (the dead-LDX pass).
-Examples: 882 bytes.
+Examples: 737 bytes.
 
 `foldGlobalOffsetAccess` (`IROptimizer.cpp`, after `foldElemIndexOffset`;
 tag `globaloff`; under `addr-elem-fusion`'s switch) gives a load or store
