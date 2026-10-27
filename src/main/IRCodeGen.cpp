@@ -8272,8 +8272,12 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                     emitF32Byte("sta", inst.dest.vregId, b);
                 }
             } else {
-                // Regular copy
-                loadOperand(inst.src1);
+                // Regular copy (a byte into a byte: A alone, #342)
+                if (inst.resultType == ir::Type::I8 && inst.src1.type == ir::Type::I8 && inst.dest.isVreg() &&
+                    alloc_.getAlloc(inst.dest.vregId).type == ir::Type::I8)
+                    loadOperandA(inst.src1);
+                else
+                    loadOperand(inst.src1);
                 if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             }
             break;
@@ -8412,7 +8416,9 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
         }
 
         case ir::Op::RET: {
-            loadOperand(inst.src1);
+            // (a char / _Bool result is A alone: calling-conventions.md §2, #342)
+            if (currentFn_ && currentFn_->returnType == ir::Type::I8 && inst.src1.type == ir::Type::I8) loadOperandA(inst.src1);
+            else loadOperand(inst.src1);
             // Jump to common return point (endproc handles frame cleanup + rts).
             // Falling through is only safe when nothing follows in this block.
             if (nextBlockLabel_ != "__return" || peekNextInst()) {

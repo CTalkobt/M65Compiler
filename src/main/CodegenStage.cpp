@@ -153,6 +153,10 @@ void CodegenStage::optimizeIR() {
         // after LICM: g[r] hoisted out of an inner loop is reduced in the outer one
         {"LoopStrengthReduction", ir::optimizeLoopStrengthReduction},
         {"CopyPropagation",   ir::optimizeCopyChains},
+        // again: copies merged (a ?: result's definitions are one vreg now),
+        // and the copies its narrowing leaves
+        {"TypeNarrowing",     ir::optimizeTypeNarrowing},
+        {"CopyPropagation",   ir::optimizeCopyChains},
         {"AddrElemFusion",    ir::optimizeAddrElemFusion},
         // again: constants the passes above made visible (a char divided by
         // a constant: the promoted divisor became a constant only now)
