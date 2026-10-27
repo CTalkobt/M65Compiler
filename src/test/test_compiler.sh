@@ -299,8 +299,9 @@ fi
 printf 'unsigned char f(unsigned char v) { return __jsr(0xFFD2, .A = 65, .X = v).A; }\n' > build/test/test_jsr_cg.c
 jsr_ok=1
 if ./bin/cc45 -O2 -S build/test/test_jsr_cg.c -o build/test/test_jsr_cg.s45 >/dev/null 2>&1; then
-    J=$(sed -n '/proc _f\b/,/endproc/p' build/test/test_jsr_cg.s45 | grep -E '^\s*(lda #\$41|ldx ___jsr_x|jsr __rom_calli|\.word \$FFD2|sta ___jsr_a)' | tr -s ' \n' ' ')
-    [ "$J" = " ldx ___jsr_x lda #\$41 jsr __rom_calli .word \$FFD2 sta ___jsr_a " ] || [ "$J" = " lda #\$41 ldx ___jsr_x jsr __rom_calli .word \$FFD2 sta ___jsr_a " ] || jsr_ok=0
+    # (one 8-bit register from a value: loaded straight into it, #344)
+    J=$(sed -n '/proc _f\b/,/endproc/p' build/test/test_jsr_cg.s45 | grep -E '^\s*(lda #\$41|ldx \$10|ldx ___jsr_x|jsr __rom_calli|\.word \$FFD2|sta ___jsr_a)' | tr -s ' \n' ' ')
+    [ "$J" = " ldx \$10 lda #\$41 jsr __rom_calli .word \$FFD2 sta ___jsr_a " ] || jsr_ok=0
 else
     jsr_ok=0
 fi

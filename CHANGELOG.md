@@ -22,6 +22,10 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   only; ca45 drops a reload before a label nothing refers to.
 - #343: a `char` global read where it is (no copy) loads its byte and
   `ldx #0`, not the byte after it.
+- #344: `__jsr(..., .A = c)` with one computed 8-bit register loads it
+  straight into the register (no store to `___jsr_a` and reload); a byte
+  loaded or stored into a byte register loads A only; ca45's unread-store
+  sweep covers the register pool (`$30`-`$7F`) of cc45's functions too.
 
 ### `__bank(n)` (#69)
 
