@@ -4,6 +4,24 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Far pointer code (#348)
+
+- `p[c]` through a far pointer uses `p` with Z from `c` (`ldz #c`, `inz`);
+  `p + (c & $FF00)` is computed once for a block's accesses; a leaf
+  function's far pointer local lives in the base page (`[$30],z`), not
+  copied there for every access.
+- A 32-bit add of a constant skips its low zero bytes, and with a
+  zero-extended source stores the constant's high bytes (`$08300000 +
+  index`: no carries); `x + c` stored through a far pointer is added as it
+  is stored.
+- `byte << n` without a scratch byte (`pha; lsr...; tax; pla; asl...`),
+  `x << 9` without a dead `lda #0`; no `ora #0` (flags of a dropped load)
+  before `rts`.
+- ca45: a pool / `.zar` store not read before the proc returns or the byte
+  is stored again is dropped; 16/32-bit operations no longer stop the pass.
+- A game's map accessors: 89 → 68 and 278 → 170 bytes. Tests:
+  `test_far_offsets_xemu.c` (both conventions), sizes in `test_compiler.sh`.
+
 ### Arrays of arrays through far pointers (#347)
 
 - A `__bank(n)` (or otherwise far) multi-dimensional array is indexed

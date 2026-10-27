@@ -90,7 +90,8 @@ pointer kept in static or stack storage is copied to scratch first on every
 access. In a **leaf function** (no `CALL`/`CALL_VOID`/`CALL_INDIRECT`, no
 inline asm), so nothing can clobber the register pool between uses:
 
-- `IRCodeGen` allocates named pointer, `char` and `int` locals (not arrays,
+- `IRCodeGen` allocates named pointer, `char` and `int` locals, and far
+  pointers used as far addresses (#348: `[$30],z` on the local itself) (not arrays,
   not structs or variables whose address is used (`addr_local`), not
   `__cpu` registers) in the ZP register pool like `register` variables: a
   dereference uses the pointer in place and a loop counter is a ZP access
@@ -148,6 +149,22 @@ of `a + c*stride` (`Inst::elemOffset`; the code generator writes the base as
 before the access and `x` is not written in between: the add disappears and
 `a[j]` / `a[j + 1]` scale the same index. It runs last because CSE does not
 compare offsets. Validation: `test_elem_offset_xemu.c`. Benchmark: 904 ms.
+
+`foldFarOffset` (`IROptimizer.cpp`, after `foldGlobalOffsetAccess`; tag
+`faroff`; under `addr-elem-fusion`'s switch; #348) gives a far load or store
+whose address is `p + c` (a 32-bit add of a constant, or a copy of `p`,
+earlier in the block with `p` unchanged since) the address `p` and the byte
+offset `c` (`elemOffset`: Z starts there, `ldz #c`, then `inz`), so
+`p[0]`, `p[1]` use one far pointer. For `c >= 256` the address is
+`p + (c & $FF00)`, computed once for the accesses of a block (`p[128]`,
+`p[129]`); an access whose bytes would carry Z past 255, and a 4-byte load
+(`ldq [p],z` takes no Z offset), keep the whole offset in the address. With
+it: a 32-bit add copies the low bytes where the constant has 0s and stores
+the constant's own bytes where the source is a zero-extension's 0
+(`base + index` for a base `$xxxx0000`), and an `int`'s `x + c` stored
+through a far pointer next (its only use) is added byte by byte as it is
+stored. A game's map accessors: 89 → 68 and 278 → 170 bytes
+(`test_compiler.sh`; runtime `test_far_offsets_xemu.c`).
 
 `foldGlobalOffsetAccess` (`IROptimizer.cpp`, after `foldElemIndexOffset`;
 tag `globaloff`; under `addr-elem-fusion`'s switch) gives a load or store
@@ -429,7 +446,7 @@ order after `-O`). `-Roptimizer` prints every change
 | `BranchInvert` | `branch-invert` | `Bcc skip / BRA target / skip:` → inverted branch |
 | `JmpBra` | `jmp-bra` | `JMP` → `BRA` when in range |
 | `CmpElimination` | `cmp-repeat` | A `CMP`/`CPX`/`CPY`/`CPZ` at a label that only one conditional branch reaches, that branch right after the same compare, with no fall into the label: the flags are still that compare's (#341) |
-| `RedundantLoad` | `dead-store` (base page) | A store into the proc's own base-page block (`.zar`) that nothing in the proc reads is dropped (#341). Registers known at a branch include a byte they were stored to (`sta k` then `bne @l`: at `@l`, A is `k`) |
+| `RedundantLoad` | `dead-store` (base page) | A store into the proc's own base-page block (`.zar`), or in a cc45 proc into the register pool, that nothing in the proc reads is dropped (#341), and one that the straight path from it overwrites or leaves the proc by `rts`/`rti` before reading (#348; not in a proc with subroutines of its own, `bsr __seqx_N`: their `rts` returns into it). 16/32-bit operations (`ora.16 .AX, $34`) read their operands. Registers known at a branch include a byte they were stored to (`sta k` then `bne @l`: at `@l`, A is `k`) |
 | `JmpBra` | `jump-rts`, `jump-chain`, `dead-rts` | Jump threading (#340): a `BRA`/`JMP` to an `RTS` becomes the `RTS`; a branch to a `BRA`/`JMP` goes to its target (a relative one when in range); an `RTS` right after a `JMP`/`BRA`/`RTS` whose labels are local and named nowhere is dropped (not in a proc that branches by `*+n`). `endproc` adds no `RTS` after a final `JMP`/`BRA` either |
 | `JSRRelocate` | `jsr-bsr` | `JSR` → `BSR` when the target is a resolved, non-relocatable label within ±32 KB (rare in `-c` objects) |
 | `DeadStore` | `dead-store` | Removes dead `STW.SP` stores |
