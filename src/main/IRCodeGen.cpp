@@ -1180,6 +1180,8 @@ void IRCodeGen::loadVreg(uint32_t vregId) {
     auto ga = globalLoadAlias_.find(vregId);
     if (ga != globalLoadAlias_.end()) {
         if (alloc_.getAlloc(vregId).type == ir::Type::I32) emit("ldq " + ga->second, "long read where it is");
+        // (a byte: not the byte after it, #343)
+        else if (alloc_.getAlloc(vregId).type == ir::Type::I8) { emit("lda " + ga->second, "read where it is"); emit("ldx #0"); }
         else { emit("lda " + ga->second, "read where it is"); emit("ldx " + ga->second + "+1"); }
         ms_.invalidateAll();
         return;

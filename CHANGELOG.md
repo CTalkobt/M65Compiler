@@ -20,6 +20,8 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   of several definitions; narrowing runs again after copy propagation);
   a `char` function returns in A alone (no `ldx #0`), a byte copy loads A
   only; ca45 drops a reload before a label nothing refers to.
+- #343: a `char` global read where it is (no copy) loads its byte and
+  `ldx #0`, not the byte after it.
 
 ### `__bank(n)` (#69)
 
