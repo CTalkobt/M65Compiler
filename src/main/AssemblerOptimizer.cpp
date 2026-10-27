@@ -832,6 +832,8 @@ bool AssemblerOptimizer::optimizeInternal(
     for (const auto& st : parser->statements) {
         if (!st || st->deleted) continue;
         if (!st->instr.operand.empty()) operandTexts.push_back(st->instr.operand);
+        // (a bbs / bbr target: kept apart from the operand, #350)
+        if (!st->instr.bitBranchTarget.empty()) operandTexts.push_back(st->instr.bitBranchTarget);
         for (const auto& a2 : st->dir.arguments) operandTexts.push_back(a2);
     }
     auto referenced = [&](const std::string& label) {
@@ -881,6 +883,9 @@ bool AssemblerOptimizer::optimizeInternal(
         const auto* st = parser->statements[k].get();
         if (!st || st->deleted) continue;
         countRefs(st, st->instr.operand);
+        // (bbs / bbr keep their target apart from the operand, #350: a label
+        // a bit branch reaches looked reached by one branch only)
+        countRefs(st, st->instr.bitBranchTarget);
         for (const auto& a2 : st->dir.arguments) countRefs(st, a2);
         if (st->type == AssemblerParser::Statement::INSTRUCTION && branchOps.count(upper(st->instr.mnemonic)) &&
             !st->instr.operand.empty() && st->instr.operand[0] == '@')

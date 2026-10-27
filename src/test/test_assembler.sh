@@ -1019,6 +1019,37 @@ else
     failed=$((failed + 1))
 fi
 
+# A label a bit branch (bbs / bbr) reaches is a merge point (#350: the
+# target is kept apart from the operand, so the label looked unreferenced
+# and A = 0 from the fall-through was kept, then merged on: lda #0 dropped)
+cat > build/test_bbs_label.s45 << 'END'
+    .segment "code"
+proc _k
+    lda $10
+    bbs7 $30, @e
+    lda #0
+    sta $34
+@e:
+    bbs6 $30, @t
+    bra @d
+@t:
+    lda #0
+    sta $34
+@d:
+    lda #0
+    sta $0400
+    rts
+endproc
+END
+D=$($AS -c build/test_bbs_label.s45 -o build/test_bbs_label.o45 2>&1 >/dev/null && ./bin/objdump45 -d build/test_bbs_label.o45 | awk -F'\t' '{print $3, $4}')
+if [ $(grep -c 'lda #\$00' <<< "$D") -ge 3 ]; then
+    echo "SUCCESS: a label a bit branch reaches is a merge point"
+    passed=$((passed + 1))
+else
+    echo "FAIL: bit-branch label knowledge (#350): $(tr '\n' ';' <<< "$D")"
+    failed=$((failed + 1))
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All assembler feature tests passed!"
     exit 0
