@@ -926,6 +926,50 @@ bool AssemblerOptimizer::optimizeInternal(
     // BEQ/BNE/BMI/BPL or PHP, no once both are set again; anything else that
     // ends the search (a jump, a call, a return, data, an op the scan does
     // not know) counts as a read
+    // does the caller read N / Z after the rts at statement j? Not in a cc45
+    // proc (.var cc45.fp) without .var cc45.retnz (#351); else assumed
+    // what the caller reads after the rts at statement j: N / Z (bit 1), X
+    // (bit 2). A cc45 proc (.var cc45.fp) says: .var cc45.retnz (a char's
+    // result is tested by the flags), .var cc45.retx (X part of the result);
+    // any other proc: both (#351)
+    std::map<const AssemblerParser::Statement*, int> procRet;
+    std::set<std::string> bsrCalled;
+    bool bsrTargetsKnown = false;
+    auto rtsReads = [&](size_t j) -> int {
+        size_t p = j;
+        while (p > 0 && !(parser->statements[p]->type == AssemblerParser::Statement::INSTRUCTION &&
+                          (parser->statements[p]->instr.mnemonic == "proc" || parser->statements[p]->instr.mnemonic == "endproc")))
+            --p;
+        auto* ps = parser->statements[p].get();
+        if (ps->type != AssemblerParser::Statement::INSTRUCTION || ps->instr.mnemonic != "proc") return 3;
+        auto c = procRet.find(ps);
+        if (c != procRet.end()) return c->second;
+        bool cc45 = false, retnz = false, retx = false, routine = false;
+        // (a routine a bsr calls, SeqExtract's: its rts returns into code,
+        // not to the caller: everything read)
+        if (!bsrTargetsKnown) {
+            for (const auto& t : parser->statements)
+                if (!t->deleted && t->type == AssemblerParser::Statement::INSTRUCTION && upper(t->instr.mnemonic) == "BSR")
+                    bsrCalled.insert(t->instr.operand);
+            bsrTargetsKnown = true;
+        }
+        for (size_t k = p + 1; k < parser->statements.size(); ++k) {
+            auto* t = parser->statements[k].get();
+            if (t->type == AssemblerParser::Statement::INSTRUCTION &&
+                (t->instr.mnemonic == "endproc" || t->instr.mnemonic == "proc")) break;
+            if (!t->deleted && !t->label.empty()) {
+                size_t c = t->label.rfind(':');
+                if (bsrCalled.count(t->label) || (c != std::string::npos && bsrCalled.count(t->label.substr(c + 1))))
+                    routine = true;
+            }
+            if (t->deleted || t->type != AssemblerParser::Statement::DIRECTIVE || t->dir.name != "var") continue;
+            if (t->dir.varName.find("cc45.fp") != std::string::npos) cc45 = true;
+            if (t->dir.varName.find("cc45.retnz") != std::string::npos) retnz = true;
+            if (t->dir.varName.find("cc45.retx") != std::string::npos) retx = true;
+        }
+        return procRet[ps] = !cc45 || routine ? 3 : (retnz ? 1 : 0) | (retx ? 2 : 0);
+    };
+    auto rtsReadsNZ = [&](size_t j) { return (rtsReads(j) & 1) != 0; };
     auto nzLiveAfter = [&](size_t i, std::string& why) -> bool {
         static const std::set<std::string> setsNZ = {
             "LDA", "LDX", "LDY", "LDZ", "LDQ", "TAX", "TXA", "TAY", "TYA", "TAZ", "TZA", "TBA",
@@ -941,6 +985,9 @@ bool AssemblerOptimizer::optimizeInternal(
         for (size_t j = i + 1; j < parser->statements.size() && j < i + 64; ++j) {
             auto* n = parser->statements[j].get();
             if (n->deleted) continue;
+            // (a cc45 function's rts: N / Z reach the caller only from one
+            // returning a char, .var cc45.retnz, #351)
+            if (n->type == AssemblerParser::Statement::INSTRUCTION && upper(n->instr.mnemonic) == "RTS" && !rtsReadsNZ(j)) return false;
             if (n->type == AssemblerParser::Statement::NONE && !n->label.empty()) continue;
             if (n->type == AssemblerParser::Statement::DIRECTIVE) {
                 std::string d = n->dir.name;
@@ -1365,6 +1412,7 @@ bool AssemblerOptimizer::optimizeInternal(
                 // paths): reached by falling in and by one earlier branch,
                 // a register keeps what both paths agree it holds (the same
                 // base-page byte or the same constant)
+                bool merged = false;
                 if (fallsInto && !took && parser->optFlags.redundantLoad && !loc.empty() && loc[0] == '@') {
                     size_t ob = onlyBranch(l);
                     if (ob != SIZE_MAX && ob < i && snap != parser->branchRegs.end() &&
@@ -1375,18 +1423,22 @@ bool AssemblerOptimizer::optimizeInternal(
                             bool agree = (f.isConst() && g.isConst() && f.constVal == g.constVal) ||
                                          (f.kind == ValueInfo::SAME_AS_MEM && g.kind == ValueInfo::SAME_AS_MEM &&
                                           f.mirrorAddr == g.mirrorAddr && f.mirrorAddr < 256);
-                            if (agree) ms.reg[r] = f;   // (still a reset: only part of the state is known)
+                            if (agree) { ms.reg[r] = f; merged = true; }
                             // (both stored it to the same byte: it holds that byte,
                             // whatever each path's value: a ?: result)
                             else {
                                 std::bitset<256> both = fallStored[r] & snap->second.stored[r];
                                 for (int a = 0; a < 256; a++)
-                                    if (both.test(a)) { ms.reg[r] = ValueInfo::sameAsMem((uint16_t)a); break; }
+                                    if (both.test(a)) { ms.reg[r] = ValueInfo::sameAsMem((uint16_t)a); merged = true; break; }
                             }
                         }
                     }
                 }
-                if (!took) lastReset = i;
+                // (a merge is no reset: what it kept depends on the code
+                // before it, which a later branch's fingerprint does not
+                // cover, so a branch after it takes nothing back)
+                if (merged) lastReset = SIZE_MAX;
+                else if (!took) lastReset = i;
             }
         }
         // what the registers hold at a branch to a local label
@@ -1786,9 +1838,14 @@ bool AssemblerOptimizer::optimizeInternal(
                         std::string tm = upper(t->instr.mnemonic);
                         std::string to = upper(t->instr.operand);
                         int64_t ta = 0;
-                        bool tzp = (t->instr.mode == AddressingMode::BASE_PAGE ||
-                                    t->instr.mode == AddressingMode::ABSOLUTE) &&
-                                   parseNum(t->instr.operand, ta) && ta == zpAddr;
+                        bool plainOp = (t->instr.mode == AddressingMode::BASE_PAGE ||
+                                        t->instr.mode == AddressingMode::ABSOLUTE) && parseNum(t->instr.operand, ta);
+                        // (the bytes it reaches: a word instruction's two, a Q
+                        // one's four: inw $30 changes $31 too, #351)
+                        int tw = tm.size() >= 3 && tm.back() == 'Q' ? 4
+                               : (tm == "INW" || tm == "DEW" || tm == "ASW" || tm == "ROW" || tm == "PHW") ? 2 : 1;
+                        bool tzp = plainOp && ta == zpAddr;
+                        if (plainOp && !tzp && zpAddr >= ta && zpAddr < ta + tw) { ok = false; break; }
                         if (tzp && tm.size() == 3 && tm.compare(0, 2, "ST") == 0 && tm[2] != rn[0] &&
                             std::string("AXYZ").find(tm[2]) != std::string::npos && t->label.empty()) {
                             st = k;
@@ -2277,6 +2334,13 @@ bool AssemblerOptimizer::optimizeInternal(
             }
             bool rmbSmb = m.size() == 4 && (m.compare(0, 3, "rmb") == 0 || m.compare(0, 3, "smb") == 0);
             if (rmbSmb) { e = FALL; continue; }
+            // (a cc45 function's rts reads X / the flags only when its result
+            // has them, #351)
+            if (m == "rts") {
+                int rr = rtsReads(i);
+                e = (rr & 2 ? RX : 0) | (rr & 1 ? RF : 0);
+                continue;
+            }
             if (readsX.count(m)) e |= RX;
             if (writesX.count(m)) e |= WX;
             if (readsNZ.count(m)) e |= RF;

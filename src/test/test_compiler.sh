@@ -650,6 +650,24 @@ else
     failed=$((failed + 1))
 fi
 
+# #351: a global struct's array member at a constant index is one absolute
+# address (was 22 and 33 bytes through a pointer built at run time)
+cs=build/test/const_chain
+mkdir -p $cs
+printf 'struct player { unsigned char x, y, hp, maxhp, mp, maxmp, level, wdice, wsides, wplus, def; unsigned char items[20]; };\nstruct player pl;\nunsigned char out;\nvoid get_item(void) { out = pl.items[7]; }\nvoid dec_item(void) { pl.items[7]--; }\n' > $cs/p.c
+if ./bin/cc45 -O2 -c $cs/p.c -o $cs/p.o45 >/dev/null 2>&1; then
+    CS_DEC=$((16#$(./bin/nm45 $cs/p.o45 | awk '$3 == "_dec_item" {print $1}')))
+    CS_END=$((16#$(./bin/objdump45 -h $cs/p.o45 | awk '$2 == "TEXT" {print $3}')))
+else
+    CS_DEC=999; CS_END=0
+fi
+if [ $CS_DEC -le 7 ] && [ $((CS_END - CS_DEC)) -le 9 ] && ./bin/objdump45 -d $cs/p.o45 | grep -q 'lda.*\$0012'; then
+    echo "SUCCESS: a constant-index element of a struct's array member is an absolute address ($CS_DEC and $((CS_END - CS_DEC)) bytes)"
+else
+    echo "FAIL: constant-index struct array element (#351): get_item $CS_DEC bytes (<= 7), dec_item $((CS_END - CS_DEC)) (<= 9)"
+    failed=$((failed + 1))
+fi
+
 # A bitfield wider than its type is an error, also after a comma and unnamed
 # (int e : 17 kept 16 bits without a word)
 bf_ok=1
