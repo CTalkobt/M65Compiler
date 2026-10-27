@@ -163,7 +163,7 @@ it: a 32-bit add copies the low bytes where the constant has 0s and stores
 the constant's own bytes where the source is a zero-extension's 0
 (`base + index` for a base `$xxxx0000`), and an `int`'s `x + c` stored
 through a far pointer next (its only use) is added byte by byte as it is
-stored. A game's map accessors: 89 → 68 and 278 → 170 bytes
+stored. A game's map accessors: 89 → 70 and 278 → 170 bytes
 (`test_compiler.sh`; runtime `test_far_offsets_xemu.c`).
 
 `foldGlobalOffsetAccess` (`IROptimizer.cpp`, after `foldElemIndexOffset`;
@@ -446,7 +446,7 @@ order after `-O`). `-Roptimizer` prints every change
 | `BranchInvert` | `branch-invert` | `Bcc skip / BRA target / skip:` → inverted branch |
 | `JmpBra` | `jmp-bra` | `JMP` → `BRA` when in range |
 | `CmpElimination` | `cmp-repeat` | A `CMP`/`CPX`/`CPY`/`CPZ` at a label that only one conditional branch reaches, that branch right after the same compare, with no fall into the label: the flags are still that compare's (#341) |
-| `RedundantLoad` | `dead-store` (base page) | A store into the proc's own base-page block (`.zar`), or in a cc45 proc into the register pool, that nothing in the proc reads is dropped (#341), and one that the straight path from it overwrites or leaves the proc by `rts`/`rti` before reading (#348; not in a proc with subroutines of its own, `bsr __seqx_N`: their `rts` returns into it). 16/32-bit operations (`ora.16 .AX, $34`) read their operands. Registers known at a branch include a byte they were stored to (`sta k` then `bne @l`: at `@l`, A is `k`) |
+| `RedundantLoad` | `dead-store` (base page) | A store into the proc's own base-page block (`.zar`), or in a cc45 proc into the register pool, that nothing in the proc reads is dropped (#341), and one that the straight path from it overwrites or leaves the proc by `rts`/`rti` before reading (#348; not in a proc with subroutines of its own, `bsr __seqx_N`: their `rts` returns into it). 16/32-bit operations (`ora.16 .AX, $34`) read their operands. A labelled store stays (its label may start a SeqExtract routine). Registers known at a branch include a byte they were stored to (`sta k` then `bne @l`: at `@l`, A is `k`) |
 | `JmpBra` | `jump-rts`, `jump-chain`, `dead-rts` | Jump threading (#340): a `BRA`/`JMP` to an `RTS` becomes the `RTS`; a branch to a `BRA`/`JMP` goes to its target (a relative one when in range); an `RTS` right after a `JMP`/`BRA`/`RTS` whose labels are local and named nowhere is dropped (not in a proc that branches by `*+n`). `endproc` adds no `RTS` after a final `JMP`/`BRA` either |
 | `JSRRelocate` | `jsr-bsr` | `JSR` → `BSR` when the target is a resolved, non-relocatable label within ±32 KB (rare in `-c` objects) |
 | `DeadStore` | `dead-store` | Removes dead `STW.SP` stores |

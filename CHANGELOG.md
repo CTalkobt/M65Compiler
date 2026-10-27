@@ -15,11 +15,12 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   index`: no carries); `x + c` stored through a far pointer is added as it
   is stored.
 - `byte << n` without a scratch byte (`pha; lsr...; tax; pla; asl...`),
-  `x << 9` without a dead `lda #0`; no `ora #0` (flags of a dropped load)
-  before `rts`.
+  `x << 9` without a dead `lda #0`. (The `ora #0` before a `char`
+  function's `rts` stays: callers test the result by the flags.)
 - ca45: a pool / `.zar` store not read before the proc returns or the byte
-  is stored again is dropped; 16/32-bit operations no longer stop the pass.
-- A game's map accessors: 89 → 68 and 278 → 170 bytes. Tests:
+  is stored again is dropped; 16/32-bit operations no longer stop the pass;
+  a labelled store is never dropped (it took a SeqExtract routine's label).
+- A game's map accessors: 89 → 70 and 278 → 170 bytes. Tests:
   `test_far_offsets_xemu.c` (both conventions), sizes in `test_compiler.sh`.
 
 ### Arrays of arrays through far pointers (#347)

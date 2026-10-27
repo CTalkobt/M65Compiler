@@ -2992,7 +2992,8 @@ void IRCodeGen::emitFunctionPruned(const ir::Function& fn, bool relocMode, bool 
 
 // The N/Z flags of a dropped load restored on the fall-through into a label
 // (restoreFlags: ora #0, or inx / dex; marked kFlagRestore): not needed when
-// the code that follows sets N/Z before anything reads them, or returns. Stores and the
+// the code that follows sets N/Z before anything reads them. (Not dropped
+// before rts: a caller tests the result by the flags the call leaves.) Stores and the
 // carry instructions are skipped; a branch, call, jump, return, php or an
 // unknown (simulated) instruction keeps them (Issue #297).
 std::string IRCodeGen::pruneDeadFlagRestores(const std::string& text) {
@@ -3038,9 +3039,7 @@ std::string IRCodeGen::pruneDeadFlagRestores(const std::string& text) {
             if (t == 0 || t == 3) continue;
             if (t != 1) break;
             if (leaves.count(mn)) continue;
-            // (a return: N/Z are not part of the convention, #348; an
-            // interrupt handler's rti pulls the flags)
-            dead = sets.count(mn) > 0 || mn == "rts" || mn == "rti";
+            dead = sets.count(mn) > 0;
             break;
         }
         if (dead) for (size_t k = j; k < j + n; k++) drop[k] = true;

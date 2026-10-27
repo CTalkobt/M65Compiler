@@ -465,22 +465,15 @@ bool AssemblerOptimizer::optimizeInternal(
                 }
             };
             auto simReads = [&](const AssemblerParser::Statement* t, std::set<int>& out) {
-                int ti = t->instr.operandTokenIndex;
-                if (ti < 0) return true;   // (no operand)
-                const auto& tk = parser->tokens;
-                bool start = true;   // (at an operand's first token)
-                for (size_t i = (size_t)ti; i < tk.size(); i++) {
-                    if (tk[i].type == AssemblerTokenType::NEWLINE || tk[i].type == AssemblerTokenType::END_OF_FILE) break;
-                    if (tk[i].type == AssemblerTokenType::COMMA) { start = true; continue; }
-                    if (!start) continue;
-                    start = false;
-                    const std::string& v0 = tk[i].value;
-                    if (!v0.empty() && (v0[0] == '.' || v0[0] == '#')) continue;   // (registers, an immediate)
-                    uint32_t v;
-                    try { v = parser->evaluateExpressionAt((int)i, t->scopePrefix); }
-                    catch (...) { return false; }
-                    for (uint32_t x = v; x < v + 4; x++) out.insert((int)x);
-                }
+                // (the operand after the register: ora.16 .AX, <expr>)
+                int ti = t->exprTokenIndex;
+                if (ti < 0 || ti >= (int)parser->tokens.size()) return false;
+                const auto& tok = parser->tokens[ti];
+                if (tok.type == AssemblerTokenType::HASH || tok.value == "#") return true;   // (an immediate)
+                uint32_t v;
+                try { v = parser->evaluateExpressionAt(ti, t->scopePrefix); }
+                catch (...) { return false; }
+                for (uint32_t x = v; x < v + 4; x++) out.insert((int)x);
                 return true;
             };
             for (size_t k = p + 1; k < end && !unknown; ++k) {
@@ -509,10 +502,7 @@ bool AssemblerOptimizer::optimizeInternal(
                     break;
                 }
                 if (t->noOpt) { unknown = true; break; }
-                if (t->isSimulatedOp()) {
-                    if (!simReads(t, read)) { unknown = true; break; }
-                    continue;
-                }
+                if (t->isSimulatedOp()) { unknown = true; break; }
                 if (t->instr.mode == AddressingMode::IMPLIED || t->instr.mode == AddressingMode::ACCUMULATOR) continue;
                 std::string tm = upper(t->instr.mnemonic);
                 if (t->instr.mode == AddressingMode::IMMEDIATE || t->instr.mode == AddressingMode::IMMEDIATE16) {
@@ -579,12 +569,7 @@ bool AssemblerOptimizer::optimizeInternal(
                         continue;
                     }
                     if (t->noOpt) return false;
-                    if (t->isSimulatedOp()) {
-                        std::set<int> r;
-                        if (!simReads(t, r)) return false;
-                        for (int x = 0; x < w0; x++) if (live[x] && r.count(b0 + x)) return false;
-                        continue;
-                    }
+                    if (t->isSimulatedOp()) return false;
                     std::string tm = upper(t->instr.mnemonic);
                     if (tm == "RTS" || tm == "RTI") return true;
                     if ((tm.size() == 3 && tm[0] == 'B' && tm != "BIT") || tm == "JMP" || tm == "JSR" || tm == "BSR")
@@ -621,7 +606,9 @@ bool AssemblerOptimizer::optimizeInternal(
                 bool used = false;
                 for (int x = b; x < b + w; x++) used |= read.count(x) > 0;
                 if (used && deadAhead(k, b, w)) used = false;
-                if (used || t->noOpt) continue;
+                // (a labelled store keeps its place: the label is a branch
+                // target, or a SeqExtract routine's start, __seqx_N)
+                if (used || t->noOpt || !t->label.empty()) continue;
                 report("dead-store", t, upper(t->instr.mnemonic) + " " + t->instr.operand + " eliminated (its base-page byte is never read)");
                 t->deleted = true;
                 t->size = 0;

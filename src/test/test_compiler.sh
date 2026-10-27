@@ -598,7 +598,7 @@ fi
 # #348: far accesses at constant offsets (Z from the offset, p + $100
 # shared), a base with a zero low word added without carries, the far
 # pointer in the base page: a game's map accessors stay small (were 89 and
-# 278 bytes; now 68 and 170)
+# 278 bytes; now 70 and 170)
 fo=build/test/far_off
 mkdir -p $fo
 cat > $fo/r.c << 'EOF2'
