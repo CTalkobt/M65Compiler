@@ -887,6 +887,98 @@ else
     failed=$((failed + 1))
 fi
 
+# Pass 1h (#350): base-page liveness in cc45 procs. Kept: a store a shared
+# SeqExtract-style routine makes for its caller in another proc, stores
+# reaching a merge label from two paths, a store before a computed goto
+# (jmp $0000 with its operand modified). Changed: a byte reloaded after A
+# was used is kept in Y (tay / tya); a store overwritten on every path
+# before any read goes.
+cat > build/test_live.s45 << 'END'
+    .segment "code"
+    .global __rt
+proc _a
+    .var cc45.fp = 0
+    lda $10
+    bsr __rt
+    ldy #0
+    lda ($32),y
+    sta $0400
+    rts
+endproc
+proc _b
+    .var cc45.fp = 0
+    lda $11
+    bne @x
+    sta $3E
+    bra @m
+@x:
+    lda #0
+    sta $3E
+@m:
+    lda #7
+    sta $0401
+    lda $3E
+    sta $0402
+    lda $12
+    sta $30
+    lda #<@t
+    sta @site+1
+    lda #>@t
+    sta @site+2
+@site:
+    jmp $0000
+@t:
+    lda $30
+    sta $0403
+    rts
+__rt:
+    ora #$30
+    sta $32
+    lda #$c0
+    sta $33
+    rts
+endproc
+proc _c
+    .var cc45.fp = 0
+    lda $13
+    sta $36
+    lda #9
+    sta $0404
+    lda $36
+    sta $0405
+    ldy #0
+    lda $14
+    sta $37
+    beq @y
+    lda #1
+    sta $37
+    bra @z
+@y:
+    lda #2
+    sta $37
+@z:
+    lda $37
+    sta $0406
+    rts
+endproc
+END
+D=$($AS -c build/test_live.s45 -o build/test_live.o45 2>&1 >/dev/null && ./bin/objdump45 -d build/test_live.o45 | awk -F'\t' '{print $3, $4}')
+lv_ok=1
+grep -q 'sta \$32' <<< "$D" || lv_ok=0                      # the routine's store, read by _a
+[ $(grep -c 'sta \$3e' <<< "$D") -eq 2 ] || lv_ok=0          # both paths' stores
+grep -q 'lda \$3e' <<< "$D" || lv_ok=0                       # the load at the merge
+grep -q 'sta \$30' <<< "$D" || lv_ok=0                       # before the computed goto
+grep -q '^tay' <<< "$D" && grep -q '^tya' <<< "$D" || lv_ok=0 # $36 kept in Y
+grep -q 'sta \$36' <<< "$D" && lv_ok=0
+[ $(grep -c 'sta \$37' <<< "$D") -eq 2 ] || lv_ok=0          # the first store to $37 is dead
+if [ $lv_ok -eq 1 ]; then
+    echo "SUCCESS: base-page liveness: shared routines, merges, computed gotos kept; Y keeps a byte; dead stores go"
+    passed=$((passed + 1))
+else
+    echo "FAIL: base-page liveness (#350): $(tr '\n' ';' <<< "$D")"
+    failed=$((failed + 1))
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All assembler feature tests passed!"
     exit 0

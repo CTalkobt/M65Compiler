@@ -449,6 +449,21 @@ bool AssemblerOptimizer::optimizeInternal(
                     cc45Proc = true;
             auto inBlock = [&](int a) { return (lo >= 0 && a >= lo && a <= hi) || (cc45Proc && a >= 0x30 && a < 0x80); };
             if (ps->procCtx->zarLen <= 0 && !cc45Proc) continue;
+            // (a routine another proc calls, bsr: SeqExtract's, shared: its
+            // stores are read by the caller, #350)
+            {
+                bool shared = false;
+                for (size_t k = p + 1; k < end && !shared; ++k) {
+                    if (st[k]->deleted || st[k]->label.empty()) continue;
+                    for (const auto& t : st)
+                        if (!t->deleted && t->type == AssemblerParser::Statement::INSTRUCTION &&
+                            upper(t->instr.mnemonic) == "BSR" &&
+                            (t->instr.operand == st[k]->label ||
+                             (st[k]->label.find(':') != std::string::npos &&
+                              t->instr.operand == st[k]->label.substr(st[k]->label.find(':') + 1)))) { shared = true; break; }
+                }
+                if (shared) continue;
+            }
             std::vector<std::pair<size_t, int>> stores;   // (statement, its byte)
             std::set<int> read;
             bool unknown = false;
@@ -989,6 +1004,8 @@ bool AssemblerOptimizer::optimizeInternal(
         for (const auto& t : st)
             if (!t->deleted && t->type == AssemblerParser::Statement::INSTRUCTION && upper(t->instr.mnemonic) == "BSR")
                 bsrTargets.insert(t->instr.operand);
+        // (a label is kept as "proc:name"; operands name it "name")
+        auto bare = [](const std::string& l) { size_t c = l.find(':'); return c == std::string::npos ? l : l.substr(c + 1); };
         for (size_t p = 0; p < st.size(); ++p) {
             auto* ps = st[p].get();
             if (ps->deleted || ps->type != AssemblerParser::Statement::INSTRUCTION || ps->instr.mnemonic != "proc" ||
@@ -1004,7 +1021,7 @@ bool AssemblerOptimizer::optimizeInternal(
                 if (st[k]->type == AssemblerParser::Statement::DIRECTIVE && st[k]->dir.name == "var" &&
                     st[k]->dir.varName.find("cc45.fp") != std::string::npos)
                     cc45Proc = true;
-                if (!st[k]->deleted && !st[k]->label.empty() && bsrTargets.count(st[k]->label)) holdsRoutine = true;
+                if (!st[k]->deleted && !st[k]->label.empty() && bsrTargets.count(bare(st[k]->label))) holdsRoutine = true;
             }
             int lo = ps->procCtx->zarStart, hi = lo + ps->procCtx->zarLen - 1;
             auto inBlock = [&](int a) { return (lo >= 0 && a >= lo && a <= hi) || (cc45Proc && a >= 0x30 && a < 0x80); };
@@ -1024,7 +1041,7 @@ bool AssemblerOptimizer::optimizeInternal(
             for (size_t k = p + 1; k < end; ++k) {
                 auto* t = st[k].get();
                 if (t->deleted) continue;
-                if (!t->label.empty()) pending.push_back(t->label);
+                if (!t->label.empty()) pending.push_back(bare(t->label));
                 if (!live(t)) continue;
                 for (const auto& l : pending) labelPos[l] = at.size();
                 pending.clear();
@@ -1059,8 +1076,15 @@ bool AssemblerOptimizer::optimizeInternal(
                     // (successors after the bsrs: below)
                 } else if (tm == "JMP") {
                     if (md == AddressingMode::ABSOLUTE) {
-                        auto it = labelPos.find(t->instr.operand);
-                        if (it != labelPos.end()) succ[i].push_back(it->second);   // (else out of the proc)
+                        // a label of the proc; a symbol: out of it (a tail
+                        // call); anything else (jmp $0000, a computed goto's
+                        // self-modified operand): not known, all live
+                        const std::string& o = t->instr.operand;
+                        auto it = labelPos.find(o);
+                        bool sym = !o.empty() && (std::isalpha((unsigned char)o[0]) || o[0] == '_') &&
+                                   o.find_first_of("+-*/()<>") == std::string::npos;
+                        if (it != labelPos.end()) succ[i].push_back(it->second);
+                        else if (!sym) toAll[i] = true;
                     } else {
                         toAll[i] = true;   // (through a pointer)
                     }
