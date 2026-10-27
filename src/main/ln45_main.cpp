@@ -60,6 +60,8 @@ static void printUsage(const char* progName) {
     std::cout << "  --overlay-map         Map overlays into a window of 8 KB blocks (MAP) instead of copying them" << std::endl;
     std::cout << "  --overlay-fast-stubs  Overlay call stubs of 21 bytes (default 6: jsr __ovl_calli and the data)," << std::endl;
     std::cout << "                        a few cycles faster per call" << std::endl;
+    std::cout << "  --pack-overlays       Write the overlay files packed (pack45's format; <unpack.h>): the" << std::endl;
+    std::cout << "                        program's __ovl_init unpacks them at start" << std::endl;
     std::cout << "  --zp-plan-out=FILE    Write the program-wide choice of base-page block variables, for a" << std::endl;
     std::cout << "                        second build with cc45 -fzp-plan=FILE" << std::endl;
     std::cout << "                 (default 4096; $1000, 0x1000 or decimal)" << std::endl;
@@ -86,6 +88,7 @@ int main(int argc, char** argv) {
     bool ovlMap = false;
     std::string zpPlanOut;   // --zp-plan-out: the program-wide base-page plan (#304)
     bool ovlFastStubs = false;   // --overlay-fast-stubs: 21-byte overlay call stubs (#332)
+    bool packOverlays = false;   // --pack-overlays: the overlay files packed (#345)
     int ovlStaging = 5;   // --overlay-staging: the bank attic RAM's files are loaded into first
     bool isBasic = false;
     bool printMap = false;
@@ -229,6 +232,7 @@ int main(int argc, char** argv) {
         else if (arg == "--overlay-map") { ovlMap = true; }
         else if (arg.rfind("--zp-plan-out=", 0) == 0) { zpPlanOut = arg.substr(14); }
         else if (arg == "--overlay-fast-stubs") { ovlFastStubs = true; }
+        else if (arg == "--pack-overlays") { packOverlays = true; }
         else if (arg.rfind("--overlay-out=", 0) == 0) { ovlOut = arg.substr(14); }
         else if (arg.rfind("--bss-fill=", 0) == 0) {
             std::string v = arg.substr(11);
@@ -310,6 +314,7 @@ int main(int argc, char** argv) {
         linker.setOverlayMap(ovlMap);
         if (!zpPlanOut.empty()) linker.setZpPlanOut(zpPlanOut);
         linker.setOverlayFastStubs(ovlFastStubs);
+        linker.setPackOverlays(packOverlays);
         linker.setOverlayStaging(ovlStaging);
     }
 

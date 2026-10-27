@@ -1511,7 +1511,9 @@ for ovmode in "zp|$STDLIB||" "stack|$STDLIB_STACK|-fno-zpcall|" \
               "zp_map|$STDLIB||--overlay-map" "stack_map|$STDLIB_STACK|-fno-zpcall|--overlay-map" \
               "zp_two|$STDLIB||$OV2" "stack_two_map|$STDLIB_STACK|-fno-zpcall|--overlay-map $OV2" \
               "zp_attic|$STDLIB||--overlay-store=0x8000000-0x800FFFF" "stack_attic_two|$STDLIB_STACK|-fno-zpcall|$OVA" \
-              "zp_fast|$STDLIB||--overlay-fast-stubs" "stack_fast_map|$STDLIB_STACK|-fno-zpcall|--overlay-fast-stubs --overlay-map"; do
+              "zp_fast|$STDLIB||--overlay-fast-stubs" "stack_fast_map|$STDLIB_STACK|-fno-zpcall|--overlay-fast-stubs --overlay-map" \
+              "zp_pack|$STDLIB||--pack-overlays" "stack_pack_map|$STDLIB_STACK|-fno-zpcall|--pack-overlays --overlay-map" \
+              "zp_pack_two|$STDLIB||--pack-overlays $OV2" "stack_pack_attic_two|$STDLIB_STACK|-fno-zpcall|--pack-overlays $OVA"; do
     IFS='|' read -r ovname ovlib ovflags ovlink <<< "$ovmode"
     echo "Testing code overlays ($ovname)..."
     ovd=build/test/overlay_$ovname
@@ -1561,6 +1563,14 @@ else
     echo "FAIL: mapped overlays in attic RAM are not a link error"
     failed=$((failed + 1))
 fi
+# <unpack.h> (#345): streams pack45 made from a pattern, unpacked into chip
+# RAM, in place and into attic RAM
+bash src/test/gen_unpack_stream.sh build/test
+for upmode in "stack|-fno-zpcall" "zp|"; do
+    IFS='|' read -r upname upflags <<< "$upmode"
+    xemu_case "FAIL: test_unpack_xemu.c $upname (compilation/linking failed)" "src/test-resources/test_unpack_xemu.c" "build/test/test_unpack_${upname}_xemu.prg" "$upflags -Ibuild/test" -- "test_unpack_$upname" "build/test/test_unpack_${upname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
+done
+
 # __bank(n) (#69): variables and functions kept in banks 4, 5 and attic
 # RAM, in the overlay files (three: bank 5, attic RAM through bank 5, bank
 # 4); a 16-bit reference to one is a link error

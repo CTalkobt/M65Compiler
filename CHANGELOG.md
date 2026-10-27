@@ -4,6 +4,19 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Packed data: pack45, `<unpack.h>`, `ln45 --pack-overlays` (#345)
+
+- `pack45` packs a file into a stream (format 1: a byte-oriented LZ with
+  fills, 28-bit destination in the header, a format byte) and prints the
+  in-place load address; `-x` unpacks one on the host. `<unpack.h>`'s
+  `unpack(src)` unpacks a stream by DMA (literals and repeats copied,
+  fills filled) to chip or attic RAM, also in place.
+- `ln45 --pack-overlays` writes the overlay files packed: `__ovl_init`
+  loads each in place (chip RAM) or into the staging bank (attic RAM) and
+  unpacks it; nm45 and objdump45 read packed files (the `.ovd` says so).
+- Tests: pack45 round trips (`test_compiler.sh`), `test_unpack_xemu.c`,
+  and the overlay test packed (copied, mapped, two files, attic RAM).
+
 ### Smaller code (#340-#344)
 
 - ca45 jump threading (#340): a `BRA`/`JMP` to an `RTS` becomes the

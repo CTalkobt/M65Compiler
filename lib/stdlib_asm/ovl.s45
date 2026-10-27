@@ -51,7 +51,12 @@
 ;                  to, its address (bits 0-15, both; each file starts with
 ;                  it) and length. Attic RAM's come first: they are loaded
 ;                  into one staging bank (ln45 --overlay-staging), which
-;                  chip RAM's files may use too
+;                  chip RAM's files may use too. A packed file (ln45
+;                  --pack-overlays, #345) has $FF for the megabyte: it is
+;                  unpacked from where it was loaded (in place in chip
+;                  RAM, from the staging bank into attic RAM) by
+;   __ovl_unpacker the address of __ovl_unpack (ovl_unpack.s45; 0 when the
+;                  files are not packed)
 ;
 ; Mapped overlays (ln45 --overlay-map) run where they are kept: the window
 ; (8 KB blocks of $4000-$7FFF, the lower half of the map) is mapped to the
@@ -72,7 +77,7 @@ cc45.icall.__ovl_call = 1
 .global __ovl_init, __ovl_call, __ovl_calli, __ovl_ret, __ovl_load, __ovl_rom_leave, __ovl_exit
 .global __ovl_sa, __ovl_want, __ovl_tgt, __ovl_cur, ___ovl_current
 .global __ovl_jsave, __ovl_jrestore, __ovl_dma_fix
-.extern __ovl_region, __ovl_region_end, __ovl_file, __ovl_mapped
+.extern __ovl_region, __ovl_region_end, __ovl_file, __ovl_mapped, __ovl_unpacker
 .extern __ovl_table0, __ovl_table1, __ovl_table2, __ovl_table3, __ovl_table4, __ovl_table5
 .extern ___cbm_target, __rom_call, _abort, __dma_job
 
@@ -426,6 +431,22 @@ proc __ovl_init
     ldy __ovl_rec
     lda __ovl_file+2,y
     beq @next
+    cmp #$FF
+    bne @attic
+    ; a packed file: unpacked from where it was loaded (its bank, address)
+    lda __ovl_file+4,y
+    sta __ovl_q
+    lda __ovl_file+5,y
+    sta __ovl_q+1
+    lda __ovl_file+1,y
+    and #$0F
+    sta __ovl_q+2
+    lda #0
+    sta __ovl_q+3
+    ldq __ovl_q
+    jsr __ovl_unpacker
+    bra @next
+@attic:
     sta __ovl_job+4         ; destination megabyte
     lda #0
     sta __ovl_job+2         ; source megabyte: chip RAM

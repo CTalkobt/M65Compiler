@@ -361,6 +361,10 @@ dma_fill((void *)0x0800, 1000, 0x20);
 dma_copy((void *)0x0800, (void *)src_data, 1000);
 ```
 
+### Packed data (`unpack.h`)
+
+`unsigned long unpack(unsigned long src)` (#345, `lib/stdlib/unpack.c`, `__fastcall__`: the ZP convention in either library) unpacks the stream at the 28-bit address `src` to the address in its header (chip or attic RAM) and returns the number of bytes written; 0 for a stream of another format. The streams are made by [pack45](../bin/pack45.md) (format 1: literals, fills and repeats, each one DMA job) and by `ln45 --pack-overlays`. A stream can be loaded inside the area it unpacks into, as far in as pack45 reports, and unpacked there. Test: `src/test-resources/test_unpack_xemu.c`.
+
 ### rom_ram.h
 
 Unused parts of the ROM area ($20000-$3FFFF of chip RAM) as RAM (#339). In C65 mode the C64 BASIC and KERNAL images there are never used: 16 KB for characters, samples, DMA buffers. The hypervisor write-protects the area (CPU and DMA writes are ignored): its memory trap, `$D641`, lifts the protection (`A = $02`) or sets it again (`A = $00`); `$D67D` bit 2 shows it.

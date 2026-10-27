@@ -1,4 +1,5 @@
 #include "O45Linker.hpp"
+#include "Pack45.hpp"
 #include "O45OverlayFile.hpp"
 #include <algorithm>
 #include <fstream>
@@ -1171,6 +1172,8 @@ bool O45Linker::resolveSymbols(std::string& errorMsg) {
         def("__ovl_mapped", ovlMap_ ? 1 : 0);
         for (int k = 0; k < 6; k++) def("__ovl_table" + std::to_string(k), ovlTableAddr_[k]);
         def("__ovl_file", ovlFileAddr_);
+        // the routine __ovl_init unpacks packed files with (0: not packed)
+        def("__ovl_unpacker", packOverlays_ && globalSymbols_.count("__ovl_unpack") ? globalSymbols_["__ovl_unpack"] : 0);
         // the far memory the overlay files take (C: __ovl_store_bank, ...,
         // __ovl_store2_bank, ... in banks 4 and 5, where far_malloc hands
         // memory out; __ovl_attic_bank, _first, _last_bank, _last: from the
@@ -1691,6 +1694,20 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
         }
         for (const char* k : {"__ovl_call", "__ovl_init", "__ovl_sa", "__ovl_jsave", "__ovl_jrestore"})
             if (std::find(keepSymbols_.begin(), keepSymbols_.end(), k) == keepSymbols_.end()) keepSymbols_.push_back(k);
+        // packed overlay files: their unpacking (lib/stdlib_asm/ovl_unpack.s45, unpack())
+        if (packOverlays_) {
+            bool have = false;
+            for (const auto& input : objects_)
+                for (const auto& exp : input.obj.exports)
+                    if (exp.name == "__ovl_unpack") have = true;
+            if (!have) {
+                forcedUndefined_ = {"__ovl_unpack"};
+                if (!resolveLibraries(errorMsg)) return {};
+                forcedUndefined_.clear();
+            }
+            if (std::find(keepSymbols_.begin(), keepSymbols_.end(), "__ovl_unpack") == keepSymbols_.end())
+                keepSymbols_.push_back("__ovl_unpack");
+        }
     }
     if (gcObjectsOn_) {
         gcSections(numCommandLine);
@@ -3536,11 +3553,13 @@ bool O45Linker::generateOverlayStubs(std::string& errorMsg) {
     t.push_back((uint8_t)nfiles);
     t.push_back((uint8_t)name.size());
     for (char c : name) t.push_back((uint8_t)c);
+    ovlFileRecOff_.assign(nfiles, 0);
     for (int pass = 0; pass < 2; pass++)
         for (size_t f = 0; f < nfiles; f++) {
             uint32_t first = ovlFileRange_[f].first, len = ovlFileEnd_[f] - first;
             bool up = first >= 0x8000000;
             if (up != (pass == 0)) continue;
+            ovlFileRecOff_[f] = t.size();   // (a packed file's: patched by buildOverlayFile)
             t.push_back((uint8_t)ovlFileNameOf(f).back());
             t.push_back(up ? (uint8_t)ovlStaging_ : (uint8_t)(first >> 16));
             t.push_back(up ? (uint8_t)(first >> 20) : 0);
@@ -3574,11 +3593,44 @@ void O45Linker::buildOverlayFile() {
         while (start + f.size() - 2 < ovlAt_[i]) f.push_back(0);
         f.insert(f.end(), ovlText_[i].begin(), ovlText_[i].end());
     }
+    // --pack-overlays (#345): each file packed to unpack where its image is
+    // kept; loaded in place in chip RAM (inside its store range, as far in as
+    // the stream needs), into the staging bank for attic RAM, and its record
+    // in __ovl_file marked ($FF) with where it is loaded. One that does not
+    // fit in its range in place stays as it is
+    bool anyPacked = false;
+    packNotes_.clear();
+    for (size_t r = 0; packOverlays_ && r < nfiles; r++) {
+        uint32_t first = ovlFileRange_[r].first;
+        std::vector<uint8_t> img(ovlFiles_[r].begin() + 2, ovlFiles_[r].end());
+        pack45::Packed p = pack45::pack(img, first);
+        bool attic = first >= 0x8000000;
+        uint32_t load = attic ? first : first + p.inPlace;   // (attic: the staging bank's same address)
+        uint32_t loadEnd = load + (uint32_t)p.stream.size() - 1;
+        if (p.stream.size() >= img.size()) {
+            packNotes_.push_back(ovlFileNameOf(r) + ": not smaller packed");
+            continue;
+        }
+        if (!attic && (loadEnd > ovlFileRange_[r].second || (loadEnd >> 16) != (first >> 16))) {
+            packNotes_.push_back(ovlFileNameOf(r) + ": no room to load it in place in its range");
+            continue;
+        }
+        size_t rec = ovlFileRecOff_[r];
+        mergedText_[rec + 2] = 0xFF;                       // packed
+        mergedText_[rec + 4] = load & 0xFF;
+        mergedText_[rec + 5] = (load >> 8) & 0xFF;
+        mergedText_[rec + 6] = p.stream.size() & 0xFF;
+        mergedText_[rec + 7] = (p.stream.size() >> 8) & 0xFF;
+        ovlFiles_[r] = {(uint8_t)load, (uint8_t)(load >> 8)};
+        ovlFiles_[r].insert(ovlFiles_[r].end(), p.stream.begin(), p.stream.end());
+        anyPacked = true;
+    }
     // the description, for nm45 and objdump45: the overlays and their
     // symbols at the addresses they run at
     O45OverlayFile d;
     d.region = ovlBase_;
     d.mapped = ovlMap_;
+    d.packed = anyPacked;
     for (size_t i = 0; i < ovlText_.size(); i++)
         d.overlays.push_back({ovlNames_[i], ovlAt_[i], (uint32_t)ovlText_[i].size(), ovlFileOf_[i] + 1,
                               2 + (ovlAt_[i] - ovlFileRange_[ovlFileOf_[i]].first)});

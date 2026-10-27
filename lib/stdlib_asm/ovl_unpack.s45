@@ -1,0 +1,12 @@
+; ovl_unpack.s45 — the overlay loader's unpacking (#345): ln45
+; --pack-overlays links it and points __ovl_unpacker at it. Q: the 28-bit
+; address the packed file was loaded at; unpack() (<unpack.h>, the ZP
+; convention in either library) unpacks it to the address in its header.
+.global __ovl_unpack
+.extern _unpack
+
+proc __ovl_unpack
+    stq $10
+    jmp _unpack
+    .func_flags zp_call
+endproc
