@@ -5794,11 +5794,38 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                         // before the first)
                         int w = nb * 8;
                         uint64_t ma = kb_.maxOf(inst.src1, w), mb = kb_.maxOf(inst.src2, w);
+                        // in place (the result in x's bytes, #350): the bytes
+                        // an add does not change are left; + (1 << 8k): inc
+                        bool inPlace = true;
+                        for (int k = 0; k < nb && inPlace; k++) inPlace = directByte(inst.src1, k) == byteOf(dst, k);
+                        if (inPlace && directByte(inst.src2, 0)[0] == '#') {
+                            int one = -1;
+                            bool single = true;
+                            for (int k = 0; k < nb && single; k++) {
+                                std::string b = directByte(inst.src2, k);
+                                if (b == "#0") continue;
+                                if (b == "#1" && one < 0) one = k; else single = false;
+                            }
+                            if (single && one >= 0) {
+                                std::string l = "@__inc_" + std::to_string(labelCounter_++);
+                                for (int k = one; k < nb; k++) {
+                                    emit("inc " + byteOf(dst, k), k == one ? r : "");
+                                    if (k + 1 < nb) emit("bne " + l);
+                                }
+                                if (one + 1 < nb) emitLabel(l);
+                                ms_.invalidateAll();
+                                storeCache_.vreg = UINT32_MAX;
+                                resultInAX_ = skipStore ? -2 : -1;
+                                break;
+                            }
+                        }
                         bool carryIn = false, cleared = false;
                         for (int k = 0; k < nb; k++) {
                             unsigned a = (ma >> (8 * k)) & 0xFF, b = (mb >> (8 * k)) & 0xFF;
                             std::string sa = a ? directByte(inst.src1, k) : "#0", sb = b ? directByte(inst.src2, k) : "#0";
-                            if (!carryIn && (!a || !b)) {
+                            if (!carryIn && !b && inPlace) {
+                                continue;   // (the byte as it is)
+                            } else if (!carryIn && (!a || !b)) {
                                 emit("lda " + (a ? sa : sb), k == 0 ? r : "");
                                 carryIn = false;
                             } else if (!carryIn && (a & b) == 0 && sb[0] == '#') {

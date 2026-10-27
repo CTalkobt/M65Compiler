@@ -896,7 +896,7 @@ bool AssemblerOptimizer::optimizeInternal(
             "ASL", "LSR", "ROL", "ROR", "ASR", "INC", "DEC", "NEG", "INX", "DEX", "INY", "DEY",
             "INZ", "DEZ", "INW", "DEW", "ASW", "ROW", "CMP", "CPX", "CPY", "CPZ", "BIT",
             "ADCQ", "SBCQ", "ANDQ", "ORQ", "EORQ", "ASLQ", "LSRQ", "ROLQ", "RORQ", "ASRQ",
-            "INQ", "DEQ", "NEGQ", "CMPQ", "BITQ"};
+            "INQ", "DEQ", "INCQ", "DECQ", "NEGQ", "CMPQ", "BITQ"};
         static const std::set<std::string> keepsNZ = {
             "STA", "STX", "STY", "STZ", "STQ", "PHA", "PHX", "PHY", "PHZ", "PHW",
             "CLC", "SEC", "CLD", "SED", "CLI", "SEI", "CLV", "NOP", "EOM", "TXS", "TYS",
@@ -1684,6 +1684,9 @@ bool AssemblerOptimizer::optimizeInternal(
             else if (m == "LDQ" || m == "STQ" || m == "ADCQ" || m == "SBCQ" || m == "ANDQ" ||
                      m == "ORQ" || m == "EORQ" || m == "ASLQ" || m == "LSRQ" || m == "ROLQ" ||
                      m == "RORQ" || m == "ASRQ" || m == "INQ" || m == "DEQ" || m == "NEGQ" ||
+                     // (the lexer's names for inq / deq, #350: an inq $nn in
+                     // place left what A held of $nn known)
+                     m == "INCQ" || m == "DECQ" ||
                      m == "CMPQ" || m == "BITQ") {
                 bool regOnly = (mode == AddressingMode::ACCUMULATOR || mode == AddressingMode::IMPLIED);
                 bool writesMem = !regOnly && m != "LDQ" && m != "ADCQ" && m != "SBCQ" && m != "ANDQ" &&
@@ -2470,7 +2473,7 @@ bool AssemblerOptimizer::optimizeInternal(
                 "lda", "ldx", "ldy", "ldz", "ldq", "adc", "sbc", "and", "ora", "eor", "cmp", "cpx", "cpy", "cpz",
                 "inc", "dec", "inx", "iny", "inz", "dex", "dey", "dez", "tax", "tay", "taz", "txa", "tya", "tza",
                 "tsx", "tsy", "pla", "plx", "ply", "plz", "asl", "lsr", "rol", "ror", "asr", "neg", "bit", "inw", "dew",
-                "adcq", "sbcq", "andq", "orq", "eorq", "cpq", "aslq", "lsrq", "rolq", "rorq", "asrq", "inq", "deq"};
+                "adcq", "sbcq", "andq", "orq", "eorq", "cpq", "aslq", "lsrq", "rolq", "rorq", "asrq", "inq", "deq", "incq", "decq"};
             static const std::set<std::string> neutral = {
                 "sta", "stx", "sty", "stz", "stq", "clc", "sec", "cld", "sed", "clv", "nop", "pha", "phx", "phy", "phz"};
             for (size_t j = next(i); j < st.size(); j = next(j)) {

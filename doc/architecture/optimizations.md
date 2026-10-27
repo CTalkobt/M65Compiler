@@ -188,6 +188,17 @@ just before (the first is not) takes it as its first, which code
 generation loads into A/X: it is still there, so ca45 drops its store and
 reload. Examples: 346 bytes more; the accessors 60 and 160 bytes.
 
+**A result in its dying operand's bytes** (#350, `VRegAllocator`;
+`CC45_NO_INPLACE=1` turns it off): `x + c` / `x - c` whose `x` (a temporary,
+or a local kept in the register pool; not a parameter or a fixed slot) is
+not used after it takes `x`'s base-page slot, which passes to it. The add
+is then in place: bytes it does not change are left alone, and
+`+ (1 << 8k)` is `inc` (with `bne` past the higher bytes): #348's `p + 256`
+is `inc p+1; bne; inc p+2; bne; inc p+3`. Examples: 284 bytes more; the
+accessors 59 and 147 bytes. (It showed a ca45 bug: the lexer names `inq` /
+`deq` `incq` / `decq`, which the optimizer's register tracking did not
+know, so a load after an in-place `inq $nn` was dropped as A's old value.)
+
 `foldGlobalOffsetAccess` (`IROptimizer.cpp`, after `foldElemIndexOffset`;
 tag `globaloff`; under `addr-elem-fusion`'s switch) gives a load or store
 through `%p = add ptr @g, c` (`%p` defined once and used only as such

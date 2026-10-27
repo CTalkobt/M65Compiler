@@ -856,6 +856,37 @@ else
     failed=$((failed + 1))
 fi
 
+# inq / deq on memory change it (#350): the lexer names them incq / decq,
+# which the optimizer did not know, so a load of the byte after an in-place
+# inq was taken as A's earlier value and dropped
+cat > build/test_inq_mem.s45 << 'END'
+    .segment "code"
+proc _t
+    ldz #0
+    ldq [$30],z
+    sta $38
+    stx $39
+    sty $3A
+    stz $3B
+    inq $38
+    lda $38
+    sta $40
+    ldx $38
+    deq $38
+    ldx $38
+    stx $41
+    rts
+endproc
+END
+D=$($AS -c build/test_inq_mem.s45 -o build/test_inq_mem.o45 2>&1 >/dev/null && ./bin/objdump45 -d build/test_inq_mem.o45)
+if grep -q 'lda.*\$38' <<< "$D" && [ $(grep -c 'ldx.*\$38' <<< "$D") -eq 2 ]; then
+    echo "SUCCESS: inq / deq on memory: the loads after them stay"
+    passed=$((passed + 1))
+else
+    echo "FAIL: inq / deq on memory ($(grep -E 'inq|deq|lda|ldx' <<< "$D" | tr -s ' \t' ' ' | tr '\n' ';'))"
+    failed=$((failed + 1))
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All assembler feature tests passed!"
     exit 0
