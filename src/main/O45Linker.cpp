@@ -2380,7 +2380,7 @@ void O45Linker::validateImmediateRelocations() {
 }
 
 void O45Linker::buildCallGraph(std::map<std::string, std::set<std::string>>& graph,
-                               std::set<std::string>& addrTaken) {
+                               std::set<std::string>& addrTaken, bool pointerCalls) {
     auto sacBase = [this](std::string n) {
         if (n.size() > 5 && n.compare(n.size() - 5, 5, "__sac") == 0 &&
             funcAttrs_.count(n.substr(0, n.size() - 5)))
@@ -2532,6 +2532,7 @@ void O45Linker::buildCallGraph(std::map<std::string, std::set<std::string>>& gra
     for (const auto& t : addrTaken)
         Logger::stream(LogLevel::DEBUG) << "call graph: address of " << t << " used"
                     << (funcSig.count(t) ? ", parameters " + funcSig[t] : std::string()) << "\n";
+    if (!pointerCalls) return;
     for (const auto& c : icallers)
         for (const auto& t : addrTaken)
             if (c != t) graph[c].insert(t);
@@ -3428,8 +3429,13 @@ bool O45Linker::generateOverlayStubs(std::string& errorMsg) {
         // Nor may the overlay loader (__ovl_init, run before main) reach an
         // overlay's function: no overlay is loaded yet (Issue #346: a
         // program's own unpack() in an overlay took __ovl_unpack's call)
+        // (direct calls: the loader's calls through pointers, __rom_call's
+        // to the ROM, reach no function of the program)
         {
-            if (packOverlays_) graph["__ovl_unpacker"].insert("__ovl_unpack");   // (ln45 defines it)
+            std::map<std::string, std::set<std::string>> direct;
+            std::set<std::string> taken;
+            buildCallGraph(direct, taken, false);
+            if (packOverlays_) direct["__ovl_unpacker"].insert("__ovl_unpack");   // (ln45 defines it)
             const std::string root = "__ovl_init";
             std::map<std::string, std::string> from;
             std::vector<std::string> queue = {root};
@@ -3447,8 +3453,8 @@ bool O45Linker::generateOverlayStubs(std::string& errorMsg) {
                 // (the overlay runtime's calls load their overlay: ovl.s45's
                 // labels follow one another in the graph, __ovl_init's too)
                 if (cur.rfind("__ovl_call", 0) == 0) continue;
-                auto g = graph.find(cur);
-                if (g == graph.end()) continue;
+                auto g = direct.find(cur);
+                if (g == direct.end()) continue;
                 for (const auto& next : g->second)
                     if (!from.count(next)) { from[next] = cur; queue.push_back(next); }
             }

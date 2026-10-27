@@ -751,7 +751,9 @@ private:
     void validateImmediateRelocations(); // Phase 78.4: Validate immediate relocation symbols
     void computeSacOverlay();          // place SAC blocks so inactive functions share storage
     // the calls between functions (JSR/JMP) and the functions whose address is used otherwise
-    void buildCallGraph(std::map<std::string, std::set<std::string>>& graph, std::set<std::string>& addrTaken);
+    // (pointerCalls false: direct calls only, no edges for calls through pointers)
+    void buildCallGraph(std::map<std::string, std::set<std::string>>& graph, std::set<std::string>& addrTaken,
+                        bool pointerCalls = true);
     // place the functions' private base-page blocks (cc45 .zar) in $80-$E9 of
     // the program's base page, sharing between functions never active together
     bool computeZarOverlay(std::string& errorMsg);
