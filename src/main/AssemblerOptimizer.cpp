@@ -1162,11 +1162,32 @@ bool AssemblerOptimizer::optimizeInternal(
                          tm == "INW" || tm == "DEW" || tm == "ASW" || tm == "ROW" || tm == "PHW") ? 2 : 1;
                 for (uint32_t b = v; b < v + (uint32_t)w && b < 256; b++) gen[i].set(b);
             }
+            // (with subroutines of its own: an rts reached from a bsr's
+            // target returns after the bsrs; one the proc's own code reaches
+            // only is its exit, #350)
+            std::vector<bool> fromRoutine(n, false);
+            if (hasBsr) {
+                std::vector<size_t> todo;
+                for (size_t i = 0; i < n; ++i) {
+                    auto* t = st[at[i]].get();
+                    if (t->type == AssemblerParser::Statement::INSTRUCTION && upper(t->instr.mnemonic) == "BSR") {
+                        auto it = labelPos.find(t->instr.operand);
+                        if (it != labelPos.end() && it->second < n) todo.push_back(it->second);
+                    }
+                }
+                while (!todo.empty()) {
+                    size_t x = todo.back();
+                    todo.pop_back();
+                    if (x >= n || fromRoutine[x]) continue;
+                    fromRoutine[x] = true;
+                    for (size_t y : succ[x]) todo.push_back(y);
+                }
+            }
             for (size_t i = 0; i < n; ++i) {
                 std::string tm = st[at[i]]->type == AssemblerParser::Statement::INSTRUCTION ? upper(st[at[i]]->instr.mnemonic) : "";
                 if (tm != "RTS" && tm != "RTI" && tm != "RTN") continue;
                 if (holdsRoutine) toAll[i] = true;   // (a routine's rts: back into whichever proc called it)
-                else if (hasBsr) for (size_t a : afterBsr) succ[i].push_back(a);
+                else if (hasBsr && fromRoutine[i]) for (size_t a : afterBsr) succ[i].push_back(a);
             }
             for (bool more = true; more;) {
                 more = false;

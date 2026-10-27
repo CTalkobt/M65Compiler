@@ -211,8 +211,9 @@ a jump through a pointer, or a `jmp $0000` whose operand a computed goto
 modifies: everything live); `rts`/`rti` and a tail call leave the proc (the
 register pool and the block are dead there), except in a proc holding a
 routine another proc calls (SeqExtract's shared `bsr __seqx_N`: its `rts`
-returns into the caller) or with `bsr`s of its own (an `rts` may return
-after any of them); a call reads none of them. Then: a plain store to a
+returns into the caller) or with `bsr`s of its own (an `rts` a `bsr`'s
+target reaches returns after any of them; one only the proc's own code
+reaches is its exit); a call reads none of them. Then: a plain store to a
 pool / block byte that is not live after it goes (`dead-store`), and
 `sta zp ... lda zp` with A overwritten between becomes `tay ... tya` (or
 `taz ... tza`) when the byte is dead after the load, Y (Z) is untouched

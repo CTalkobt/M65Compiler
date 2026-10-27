@@ -17,6 +17,9 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   933 bytes over the examples. The check for routines shared between procs
   no longer scans the file for each label (a 12,000-line file assembled in
   1.9 s, was 5.9 s).
+- `byte << 2` without the scratch byte (`pha; rol; rol; rol; and #3; tax;
+  pla; asl; asl`), also where known bits say the high byte is 0; Pass 1h
+  tells a proc's own `rts` from its subroutines'. 149 bytes.
 - Known bits for a local assigned once (`unsigned c = 0x1010 + k * 4;`
   then `c + 1` is `ora #1`, the high byte copied): #348's `vm_set` 145 → 128
   bytes.
