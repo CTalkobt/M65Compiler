@@ -61,6 +61,9 @@ void foldGlobalOffsetAccess(Module& mod);
 // p[c] through a far pointer: the access at p with the byte offset c (its
 // Z index; c >= 256: p + (c & $FF00) shared by the accesses in a block)
 void foldFarOffset(Module& mod);
+// a commutative operation whose second operand is the instruction just
+// before's result: that operand first (it is still in A/X, #350)
+void orderCommutativeOperands(Module& mod);
 // const / pure functions of the module, inferred (-fipa-pure-const)
 void inferPurity(Module& mod);
 // the cold blocks (__unlikely branches) moved to the function's end

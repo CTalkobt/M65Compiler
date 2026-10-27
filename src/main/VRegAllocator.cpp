@@ -542,6 +542,30 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
             // Try ZP for:
             // - medium-lived non-local vRegs that don't cross calls, OR
             // - register variables (even if they're locals, register keyword overrides frame allocation)
+            // x +/- c where x is not used after: the result in x's bytes
+            // (#350: p + 256 is inc p+1). Its slot passes to the result.
+            if (!isLocal && !isParam) {
+                const ir::Inst* d = lr.firstDef >= 0 && lr.firstDef < (int)flatInsts_.size()
+                                    ? flatInsts_[lr.firstDef].inst : nullptr;
+                if (d && d->dest.isVreg() && d->dest.vregId == lr.vregId &&
+                    (d->op == ir::Op::ADD || d->op == ir::Op::SUB) && d->src2.isImm() && d->src1.isVreg() &&
+                    d->src1.vregId != lr.vregId && !getenv("CC45_NO_INPLACE")) {
+                    uint32_t v = d->src1.vregId;
+                    auto va = allocs_.find(v);
+                    auto vr = std::find_if(ranges_.begin(), ranges_.end(),
+                                           [v](const LiveRange& r) { return r.vregId == v; });
+                    auto zm = zpAllocMap.find(v);
+                    if (va != allocs_.end() && va->second.loc == IN_ZP && zm != zpAllocMap.end() &&
+                        ir::typeSize(va->second.type) == ir::typeSize(lr.type) && vr != ranges_.end() &&
+                        vr->lastUse == lr.firstDef && v >= paramCount && !fixedZpVregs_.count(v) &&
+                        (!localVarVregs.count(v) || registerVregs_.count(v))) {
+                        allocs_[lr.vregId] = {IN_ZP, va->second.offset, lr.type};
+                        zpAllocMap.erase(zm);
+                        zpAllocMap[lr.vregId] = va->second.offset;
+                        continue;
+                    }
+                }
+            }
             int zpAddr = allocZpSlot(lr.type);
             if (zpAddr >= 0) {
                 allocs_[lr.vregId] = {IN_ZP, zpAddr, lr.type};

@@ -27,7 +27,7 @@ static void forgetUnmodelledEffects(MachineState& ms, const std::string& mnemoni
         }
         if (M != "STQ") ms.flags.invalidate();
         if (!regMode && (M == "STQ" || M == "ASLQ" || M == "LSRQ" || M == "ROLQ" || M == "RORQ" ||
-                         M == "ASRQ" || M == "INQ" || M == "DEQ"))
+                         M == "ASRQ" || M == "INQ" || M == "DEQ" || M == "INCQ" || M == "DECQ"))
             ms.invalidateAllMem();
         return;
     }

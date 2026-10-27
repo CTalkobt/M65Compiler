@@ -4138,6 +4138,32 @@ void foldGlobalOffsetAccess(Module& mod) {
     }
 }
 
+// x op y with op commutative (add, and, or, xor, mul) and y the result of
+// the instruction just before (x not): y op x, so the operand loaded into
+// A/X first is the one already there; ca45 then drops its store and reload
+// (#350: y << 9 | x << 2 stored x << 2 and loaded y << 9 back). Runs last,
+// on the order code generation sees. Under AlgebraicSimplify's switch.
+void orderCommutativeOperands(Module& mod) {
+    for (auto& fn : mod.functions) {
+        if (!runOn(fn, "AlgebraicSimplify")) continue;
+        for (auto& b : fn.blocks) {
+            const Inst* prev = nullptr;
+            for (auto& in : b.insts) {
+                if (in.op == Op::NOP) continue;
+                bool comm = in.op == Op::ADD || in.op == Op::AND || in.op == Op::OR || in.op == Op::XOR ||
+                            in.op == Op::MUL || in.op == Op::MUL_U;
+                if (comm && prev && prev->dest.isVreg() && in.src1.isVreg() && in.src2.isVreg() &&
+                    in.src2.vregId == prev->dest.vregId && in.src1.vregId != prev->dest.vregId &&
+                    in.args.empty()) {
+                    trace("commute", fn.name, "v" + std::to_string(in.src2.vregId) + " (just computed) first", in.loc);
+                    std::swap(in.src1, in.src2);
+                }
+                prev = &in;
+            }
+        }
+    }
+}
+
 // p[c] through a far pointer (#348): a FAR_LOAD / FAR_STORE whose address
 // is p + c (an add of a constant, or a copy of p) is the access at p with
 // the byte offset c in its elemOffset, Z's start (the far pointer is not

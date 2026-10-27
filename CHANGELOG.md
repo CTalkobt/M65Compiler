@@ -4,6 +4,22 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Known bits in code generation (#350, first part)
+
+- cc45 computes the bits of each value known to be 0 (`KnownBits.cpp`) and
+  builds 16-bit `and`/`or`/`xor` byte by byte where a byte is known 0, adds
+  without carries that cannot happen (copied bytes, `ora` for bits that
+  cannot overlap), and far stores of `x + c` with `ora #c`. 351 bytes over
+  the examples; test `test_known_bits_xemu.c` (both conventions).
+- A commutative operation whose second operand was just computed takes it
+  first (still in A/X: no store and reload). 346 bytes more.
+- `x + c` whose `x` is not used after it is computed in `x`'s bytes: bytes
+  it does not change are left, `+ (1 << 8k)` is an `inc` chain (`p + 256`:
+  `inc p+1`). 284 bytes more.
+- ca45: `inq` / `deq` on memory (the lexer's `incq` / `decq`) were not seen
+  as writing it, so a load of the byte after an in-place `inq` could be
+  dropped (`test_assembler.sh`).
+
 ### `__bank` variables out of the call graph (#349)
 
 - ln45 counted a `__bank(n)` variable (a data overlay, never run) as a

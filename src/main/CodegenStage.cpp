@@ -212,6 +212,7 @@ void CodegenStage::optimizeIR() {
         ir::foldGlobalOffsetAccess(*irModule_);
         ir::foldFarOffset(*irModule_);
         ir::removeDeadTemps(*irModule_);
+        ir::orderCommutativeOperands(*irModule_);
     }
     // last: the blocks __unlikely / __likely say are cold at the end (loop
     // rotation follows in generateAssembly)

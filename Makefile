@@ -67,7 +67,7 @@ $(LIB_DIR)/lib45-ir.a: $(addprefix $(OBJ_DIR)/, \
 
 # lib45-opt: Optimization passes + code generation
 $(LIB_DIR)/lib45-opt.a: $(addprefix $(OBJ_DIR)/, \
-    IRCodeGen.o SacSlotShare.o ConstantFolder.o LoopInterchange.o FunctionAnalyzer.o \
+    IRCodeGen.o KnownBits.o SacSlotShare.o ConstantFolder.o LoopInterchange.o FunctionAnalyzer.o \
     OptimizationCatalog.o AddressTemplateDetector.o)
 	@mkdir -p $(LIB_DIR)
 	@rm -f $@

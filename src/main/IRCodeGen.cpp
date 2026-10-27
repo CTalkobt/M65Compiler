@@ -3257,21 +3257,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // char and int locals live there like register variables (a dereference
     // uses the pointer in place, a loop counter is a ZP access).
     regVregs_ = fn.registerVregs;
-    zextBytes_.clear();
-    {
-        std::map<uint32_t, int> defs;
-        for (const auto& blk : fn.blocks)
-            for (const auto& in : blk.insts)
-                if (in.dest.isVreg()) defs[in.dest.vregId]++;
-        for (const auto& blk : fn.blocks)
-            for (const auto& in : blk.insts)
-                if (in.op == ir::Op::ZEXT && in.resultType == ir::Type::I32 && in.dest.isVreg() &&
-                    defs[in.dest.vregId] == 1 && !fn.localSlotVregs.count(in.dest.vregId)) {
-                    ir::Type st = in.src1.type;
-                    if (st == ir::Type::I8) zextBytes_[in.dest.vregId] = 1;
-                    else if (st == ir::Type::I16 || st == ir::Type::PTR) zextBytes_[in.dest.vregId] = 2;
-                }
-    }
+    kb_ = getenv("CC45_NO_KNOWN_BITS") ? ir::KnownBits{} : ir::computeKnownBits(fn);
     {
         bool leaf = true;
         for (const auto& blk : fn.blocks)
@@ -5800,28 +5786,68 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                         emit("inz");
                         emitLabel(l);
                         emit("stq " + dst);
-                    } else {
-                        // a constant's low 0 bytes (+ $100, + $08300000): those
-                        // bytes copied, the carry from the first other one;
-                        // where the source is 0 (a zero-extension) from there
-                        // on, the constant's bytes (#348)
-                        int first = 0;
-                        if (add && directByte(inst.src2, 0)[0] == '#')
-                            while (first < nb - 1 && directByte(inst.src2, first) == "#0") first++;
-                        auto zx = inst.src1.isVreg() ? zextBytes_.find(inst.src1.vregId) : zextBytes_.end();
-                        bool constHigh = first > 0 && zx != zextBytes_.end() && zx->second <= first;
-                        for (int k = 0; k < nb; k++) {
-                            std::string sb = directByte(inst.src1, k);
-                            if (zx != zextBytes_.end() && k >= zx->second) sb = "#0";
-                            if (k < first) {
-                                emit("lda " + sb, k == 0 ? r : "");
-                            } else if (constHigh) {
-                                emit("lda " + directByte(inst.src2, k), k == 0 ? r : "");
-                            } else {
-                                emit("lda " + sb, k == 0 ? r : "");
-                                if (k == first) emit(add ? "clc" : "sec");
-                                emit((add ? "adc " : "sbc ") + directByte(inst.src2, k));
+                    } else if (add) {
+                        // byte by byte with what is known (#348, #350): a byte
+                        // where one side is 0 and no carry comes in is the
+                        // other's (both 0: 0); bits that cannot overlap are
+                        // or'ed; an adc only where a carry can arrive (clc
+                        // before the first)
+                        int w = nb * 8;
+                        uint64_t ma = kb_.maxOf(inst.src1, w), mb = kb_.maxOf(inst.src2, w);
+                        // in place (the result in x's bytes, #350): the bytes
+                        // an add does not change are left; + (1 << 8k): inc
+                        bool inPlace = true;
+                        for (int k = 0; k < nb && inPlace; k++) inPlace = directByte(inst.src1, k) == byteOf(dst, k);
+                        if (inPlace && directByte(inst.src2, 0)[0] == '#') {
+                            int one = -1;
+                            bool single = true;
+                            for (int k = 0; k < nb && single; k++) {
+                                std::string b = directByte(inst.src2, k);
+                                if (b == "#0") continue;
+                                if (b == "#1" && one < 0) one = k; else single = false;
                             }
+                            if (single && one >= 0) {
+                                std::string l = "@__inc_" + std::to_string(labelCounter_++);
+                                for (int k = one; k < nb; k++) {
+                                    emit("inc " + byteOf(dst, k), k == one ? r : "");
+                                    if (k + 1 < nb) emit("bne " + l);
+                                }
+                                if (one + 1 < nb) emitLabel(l);
+                                ms_.invalidateAll();
+                                storeCache_.vreg = UINT32_MAX;
+                                resultInAX_ = skipStore ? -2 : -1;
+                                break;
+                            }
+                        }
+                        bool carryIn = false, cleared = false;
+                        for (int k = 0; k < nb; k++) {
+                            unsigned a = (ma >> (8 * k)) & 0xFF, b = (mb >> (8 * k)) & 0xFF;
+                            std::string sa = a ? directByte(inst.src1, k) : "#0", sb = b ? directByte(inst.src2, k) : "#0";
+                            if (!carryIn && !b && inPlace) {
+                                continue;   // (the byte as it is)
+                            } else if (!carryIn && (!a || !b)) {
+                                emit("lda " + (a ? sa : sb), k == 0 ? r : "");
+                                carryIn = false;
+                            } else if (!carryIn && (a & b) == 0 && sb[0] == '#') {
+                                emit("lda " + sa, k == 0 ? r : "");
+                                emit("ora " + sb);
+                            } else {
+                                emit("lda " + sa, k == 0 ? r : "");
+                                if (!carryIn && !cleared) { emit("clc"); cleared = true; }
+                                else if (!carryIn) emit("clc");
+                                emit("adc " + sb);
+                                carryIn = a + b + 1 > 255;
+                                emit("sta " + byteOf(dst, k));
+                                continue;
+                            }
+                            carryIn = false;
+                            emit("sta " + byteOf(dst, k));
+                        }
+                    } else {
+                        for (int k = 0; k < nb; k++) {
+                            emit("lda " + directByte(inst.src1, k), k == 0 ? r : "");
+                            if (k == 0) emit("sec");
+                            emit("sbc " + directByte(inst.src2, k));
                             emit("sta " + byteOf(dst, k));
                         }
                     }
@@ -6176,6 +6202,35 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                     lastCmp_.valid = false;
                 }
                 break;
+            }
+
+            // an int's bytes known 0 on one side (#350: y << 9 | x << 2): the
+            // result's byte is the other side's (and: 0), built in A/X
+            if ((inst.resultType == ir::Type::I16 || inst.resultType == ir::Type::PTR) && inst.dest.isVreg()) {
+                std::string byteCode[2];   // "" = an operation; "#0" / an operand = a plain load
+                bool simpler = false, ok = true;
+                for (int k = 0; k < 2 && ok; k++) {
+                    bool za = kb_.byteZero(inst.src1, 16, k), zb = kb_.byteZero(inst.src2, 16, k);
+                    std::string ba = directByte(inst.src1, k), bb = directByte(inst.src2, k);
+                    if (inst.op == ir::Op::AND && (za || zb)) { byteCode[k] = "#0"; simpler = true; }
+                    else if (inst.op != ir::Op::AND && za) { byteCode[k] = zb ? "#0" : bb; simpler = true; }
+                    else if (inst.op != ir::Op::AND && zb) { byteCode[k] = ba; simpler = true; }
+                    if (ba.empty() || bb.empty()) ok = false;
+                }
+                if (ok && simpler) {
+                    const char* mn8 = inst.op == ir::Op::AND ? "and " : inst.op == ir::Op::OR ? "ora " : "eor ";
+                    auto byteTo = [&](int k) {
+                        if (!byteCode[k].empty()) { emit("lda " + byteCode[k], k ? irDesc("bytes known 0") : ""); return; }
+                        emit("lda " + directByte(inst.src1, k), k ? irDesc("bytes known 0") : "");
+                        emit(mn8 + directByte(inst.src2, k));
+                    };
+                    byteTo(1);
+                    emit("tax");
+                    byteTo(0);
+                    ms_.invalidateAll();
+                    storeVreg(inst.dest.vregId);
+                    break;
+                }
             }
 
             // Commutative: if src2 is in frame, swap to avoid scratch conflict
@@ -7805,6 +7860,19 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                 const ir::Inst& a = *farAddPending_;
                 farAddPending_ = nullptr;
                 bool add = a.op == ir::Op::ADD;
+                // (x's low bits known 0 and c within them: no carry, ora; #350)
+                int c0 = (int)(a.src2.immVal & 0xFFFF);
+                if (add && c0 < 256 && (kb_.of(a.src1, 16) & c0) == (uint64_t)c0) {
+                    emit("lda " + directByte(a.src1, 0), irDesc("x + c stored through a far pointer (no carry)"));
+                    if (c0) emit("ora #" + std::to_string(c0));
+                    emit(z(0));
+                    emit("sta [" + bp + "],z");
+                    emit("lda " + directByte(a.src1, 1));
+                    emit("inz");
+                    emit("sta [" + bp + "],z");
+                    ms_.invalidateAll();
+                    break;
+                }
                 for (int k = 0; k < 2; k++) {
                     emit("lda " + directByte(a.src1, k), k ? "" : irDesc(add ? "x + c stored through a far pointer" : "x - c stored through a far pointer"));
                     if (k == 0) emit(add ? "clc" : "sec");

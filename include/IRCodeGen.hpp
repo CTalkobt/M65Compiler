@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdlib>
 #include "IR.hpp"
+#include "KnownBits.hpp"
 #include "VRegAllocator.hpp"
 #include "MachineState.hpp"
 #include "O45IRSerializer.hpp"
@@ -302,9 +303,10 @@ private:
     // A byte ZEXT used once by a 16-bit add/sub, and/xor or compare: not
     // emitted; the use reads the byte where it lives and 0 above it
     std::map<uint32_t, ir::Operand> zextAlias_;
-    // a long defined once by a zero-extension: its low bytes from the source
-    // (1 or 2), the rest 0 (#348: + $xxxx0000 needs no carries there)
-    std::map<uint32_t, int> zextBytes_;
+    // the bits of the function's values known to be 0 (#350; #348's
+    // zero-extended longs among them): byte-wise operations, no carries
+    // where none can happen
+    ir::KnownBits kb_;
     // A long loaded from a global whose one use is the next instruction (an
     // add, sub, compare or store): the load is not emitted, the use reads
     // the global (loadVreg, directBase, src2MemOperand)
