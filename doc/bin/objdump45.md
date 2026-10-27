@@ -124,7 +124,15 @@ Disassembly of section TEXT (autil.o45):
     0010:	60          	rts
 ```
 
-Limitations for objects: addresses are object-relative (the not yet relocated operand bytes are shown, usually `$0000` for external references), the label table mixes the exports of all segments (so a BSS or absolute symbol whose offset matches a code address is shown as a label/annotation in TEXT), and the DATA section is disassembled as if it were code. Disassemble the linked PRG with its map for real addresses and names.
+In an object, a section's labels are its own exports (not the other sections' or absolute symbols), and an operand is named from its relocation, not from its bytes: an import (`; <__divu16>`, with the addend: `; <_x+2>`), or the export of the target segment at or before the address (`; <_pl+18>`; a static has no symbol of its own, so it shows as the export before it plus an offset, or `BSS+$4` with none before it); a byte of an address is `; <_pl> lo` / `; <_pl> hi`. Operands without a relocation (base-page bytes, I/O addresses) are not named.
+
+```
+    0016:	20 00 00    	jsr	$0000	; <__modu16>
+    0019:	8d 00 00    	sta	$0000	; <_a>
+    0020:	a9 00       	lda	#$00	; <_pl> lo
+```
+
+Limitations for objects: addresses are object-relative (the not yet relocated operand bytes are shown, usually `$0000` for external references), and the DATA section is disassembled as if it were code. Disassemble the linked PRG with its map for real addresses.
 
 ## Examples
 

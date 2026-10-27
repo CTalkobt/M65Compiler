@@ -473,21 +473,83 @@ static size_t detectBasicStub(const std::vector<uint8_t>& body, uint32_t base,
 
 // ─── Disassembly ────────────────────────────────────────────────────────────
 
-// Build symbol map: address → name (for branch/call target annotation)
-// Adds the appropriate segment base to each export offset.
-static std::map<uint32_t, std::string> buildSymbolMap(const O45File& obj) {
+// One section's labels: the exports defined in it (not those of the other
+// sections or absolute ones, which would land at their numbers in it, #354)
+static std::map<uint32_t, std::string> sectionSymbols(const O45File& obj, uint8_t seg) {
     std::map<uint32_t, std::string> syms;
-    for (const auto& exp : obj.exports) {
-        uint32_t base = 0;
-        switch (exp.segmentId()) {
-            case SEG_TEXT: base = obj.tbase; break;
-            case SEG_DATA: base = obj.dbase; break;
-            case SEG_BSS:  base = obj.bbase; break;
-            case SEG_ZP:   base = obj.zbase; break;
-        }
-        syms[base + exp.offset] = exp.name;
-    }
+    uint32_t base = seg == SEG_TEXT ? obj.tbase : obj.dbase;
+    for (const auto& exp : obj.exports)
+        if (exp.segmentId() == seg && !syms.count(base + exp.offset)) syms[base + exp.offset] = exp.name;
     return syms;
+}
+
+// What each relocated operand refers to, by the address of its first byte:
+// the relocation's own symbol (an import, or the export of the target
+// segment at or below the placeholder's address), not whatever symbol has
+// the placeholder's value (#354)
+static std::map<uint32_t, std::string> relocationNames(const O45File& obj, const std::vector<uint8_t>& raw,
+                                                       const std::vector<uint8_t>& body, uint32_t base) {
+    std::map<uint32_t, std::string> names;
+    auto word = [&](uint32_t o) -> uint32_t { return o + 1 < body.size() ? body[o] | (body[o + 1] << 8) : 0; };
+    auto plus = [](std::string n, int32_t k) {
+        if (k == 0) return n;
+        char b[16];
+        snprintf(b, sizeof b, k > 0 ? "+%d" : "%d", k);
+        return n + b;
+    };
+    for (const auto& r : O45RelocDecoder::decode(raw)) {
+        if (r.offset >= body.size()) continue;
+        // the value the placeholder holds (a full one where the type keeps it)
+        uint32_t v;
+        const char* part = "";   // (" lo" / " hi": a byte of it)
+        switch (r.type) {
+            case R_WORD: v = word(r.offset); break;
+            case R_LOW: v = body[r.offset]; part = " lo"; break;
+            case R_LOWX: v = body[r.offset] | (r.extra << 8); part = " lo"; break;
+            case R_HIGH: v = (body[r.offset] << 8) | r.extra; part = " hi"; break;
+            case R_LINEAR24: case R_LINEAR32: case R_SEGADR:
+                v = word(r.offset) | (r.offset + 2 < body.size() ? body[r.offset + 2] << 16 : 0); break;
+            default: continue;
+        }
+        std::string n;
+        if (r.segment == SEG_EXTERNAL) {
+            if (r.symbolIndex >= obj.imports.size()) continue;
+            // (a byte keeps only part of the addend: named without it)
+            n = r.type == R_LOW ? obj.imports[r.symbolIndex].name : plus(obj.imports[r.symbolIndex].name, (int16_t)v);
+        } else {
+            uint32_t sb = 0;
+            const char* sn = "?";
+            switch (r.segment) {
+                case SEG_TEXT: sb = obj.tbase; sn = "TEXT"; break;
+                case SEG_DATA: sb = obj.dbase; sn = "DATA"; break;
+                case SEG_BSS:  sb = obj.bbase; sn = "BSS"; break;
+                case SEG_ZP:   sb = obj.zbase; sn = "ZP"; break;
+                default: continue;
+            }
+            if (r.type == R_LOW) {
+                names[base + r.offset] = std::string("<") + sn + "> lo";   // (the low byte of an address in it)
+                continue;
+            }
+            // (the export at or before it, plus the offset: a static has no
+            // symbol, so one shows as the export before it)
+            int64_t off = (int64_t)v - sb, best = -1;
+            for (const auto& e : obj.exports)
+                if (e.segmentId() == r.segment && (int64_t)e.offset <= off &&
+                    ((int64_t)e.offset > best || ((int64_t)e.offset == best && e.name < n))) {
+                    best = e.offset;
+                    n = e.name;
+                }
+            if (best < 0) {
+                char b[24];
+                snprintf(b, sizeof b, "%s+$%x", sn, (unsigned)off);
+                n = b;
+            } else {
+                n = plus(n, (int32_t)(off - best));
+            }
+        }
+        names[base + r.offset] = "<" + n + ">" + part;
+    }
+    return names;
 }
 
 // Parse symbols from a linker map file (ln45 -M output).
@@ -706,7 +768,8 @@ static void disassembleSection(const std::vector<uint8_t>& body, uint32_t base,
                                const std::map<uint8_t, OpcodeInfo>& opcodeTable,
                                const std::map<uint32_t, std::string>& symbols,
                                const std::string& filename,
-                               const SourceLineMap& sourceLines = {}) {
+                               const SourceLineMap& sourceLines = {},
+                               const std::map<uint32_t, std::string>* relocNames = nullptr) {
     if (body.empty()) return;
     std::cout << std::endl;
     printf("Disassembly of section %s (%s):\n", sectionName, filename.c_str());
@@ -802,9 +865,16 @@ static void disassembleSection(const std::vector<uint8_t>& body, uint32_t base,
         const uint8_t* operandBytes = (opSize > 0) ? &body[o + 1] : nullptr;
         std::string operand = formatOperand(info.mode, operandBytes, opSize, pc);
 
-        // Annotate operands with symbol names where the address matches
+        // Annotate operands with symbol names where the address matches (in
+        // an object: a relocated operand by its relocation, any other by none)
         std::string annotation;
-        if (info.mode == AddressingMode::RELATIVE ||
+        if (relocNames && opSize > 0 && info.mode != AddressingMode::RELATIVE &&
+            info.mode != AddressingMode::RELATIVE16 && info.mode != AddressingMode::BASE_PAGE_RELATIVE) {
+            for (int b = 0; b < opSize && annotation.empty(); b++) {
+                auto rn = relocNames->find(pc + (uint32_t)pre + 1 + b);
+                if (rn != relocNames->end()) annotation = "\t; " + rn->second;
+            }
+        } else if (info.mode == AddressingMode::RELATIVE ||
             info.mode == AddressingMode::RELATIVE16) {
             uint32_t target;
             if (info.mode == AddressingMode::RELATIVE) {
@@ -1315,12 +1385,13 @@ int main(int argc, char** argv) {
             if (showContents)   printSectionContents(obj);
             if (showDebug)      printDebugInfo(obj, filename);
             if (showDisasm) {
-                auto symbols = buildSymbolMap(obj);
                 auto srcLines = buildSourceLineMap(obj);
+                auto textNames = relocationNames(obj, obj.textRelocs, obj.textBody, obj.tbase);
+                auto dataNames = relocationNames(obj, obj.dataRelocs, obj.dataBody, obj.dbase);
                 disassembleSection(obj.textBody, obj.tbase, "TEXT", opcodeTable,
-                                 symbols, filename, srcLines);
+                                 sectionSymbols(obj, SEG_TEXT), filename, srcLines, &textNames);
                 disassembleSection(obj.dataBody, obj.dbase, "DATA", opcodeTable,
-                                 symbols, filename);
+                                 sectionSymbols(obj, SEG_DATA), filename, {}, &dataNames);
             }
         } else {
             // ── Raw binary or PRG ──
