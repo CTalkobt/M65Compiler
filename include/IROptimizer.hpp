@@ -58,6 +58,8 @@ void foldElemIndexOffset(Module& mod);
 // a load / store through add ptr @g, c: at @g+c itself (a member of a global
 // struct, a constant-index element; after the passes)
 void foldGlobalOffsetAccess(Module& mod);
+// x / c and x % c in one block: one divide, x % c = x - (x / c) * c (#352)
+void optimizeShareDivMod(Module& mod);
 // p[c] through a far pointer: the access at p with the byte offset c (its
 // Z index; c >= 256: p + (c & $FF00) shared by the accesses in a block)
 void foldFarOffset(Module& mod);

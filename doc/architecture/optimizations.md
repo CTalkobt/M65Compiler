@@ -236,6 +236,17 @@ stored from a register holding a constant becomes a transfer from another
 register holding the same constant (`ldx #0; stx $35 ... lda $35` is
 `txa`). Examples: 933 bytes (#350).
 
+**Byte division** (#352): an unsigned 16-bit `/` or `%` whose operands both
+have a known-zero high byte (an `unsigned char` promoted: `k / 3`, `k % 3`)
+calls `__divmodu8` (`stdlib_asm/divmod.s45`: 8 iterations, the quotient in
+A, the remainder in X, Y untouched) instead of the 16-bit routine.
+`optimizeShareDivMod` (after CSE; tag `divmod`; under `strength-reduction`'s
+switch) computes `x / c` and `x % c` of the same `x` and constant `c` in a
+block with one divide, before both, and the remainder as `x - (x / c) * c`
+(C's truncating division: signed values too); a byte times a constant is
+shifts and adds in A. The issue's `a = k % 3; b = k / 3;`: 55 → 41 bytes,
+one call. Examples: 311 bytes. Test: `test_divmod8_xemu.c`.
+
 `foldGlobalOffsetAccess` (`IROptimizer.cpp`, after `foldElemIndexOffset`;
 tag `globaloff`; under `addr-elem-fusion`'s switch) gives a load or store
 through `%p = add ptr @g, c` (`%p` defined once and used only as such

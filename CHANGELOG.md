@@ -4,6 +4,14 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Byte division (#352)
+
+- An `unsigned char` divided or taken modulo a byte uses an 8-bit routine
+  (`__divmodu8`: quotient in A, remainder in X); `x / c` and `x % c` of the
+  same value share one divide (`x % c = x - (x / c) * c`); a byte times a
+  constant is shifts and adds in A. 311 bytes over the examples; test
+  `test_divmod8_xemu.c` (both conventions).
+
 ### Known bits in code generation (#350, first part)
 
 - cc45 computes the bits of each value known to be 0 (`KnownBits.cpp`) and
