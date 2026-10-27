@@ -4,6 +4,18 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### `__bank` variables out of the call graph (#349)
+
+- ln45 counted a `__bank(n)` variable (a data overlay, never run) as a
+  function: an extern one, whose address another file reaches through an
+  import, was a target of every call through a pointer, so `__noescape`
+  checks warned "can call into code overlay bank834 (... -> _mon_names)".
+  Banked variables now take no part in the call graph.
+- The map's overlay symbol list gives a banked variable's own bank and
+  offset (it applied the code region's arithmetic: "bank 1067 $7BC4" for
+  `$83405C4`).
+- Test: `test_compiler.sh`.
+
 ### Far pointer code (#348)
 
 - `p[c]` through a far pointer uses `p` with Z from `c` (`ldz #c`, `inz`);
