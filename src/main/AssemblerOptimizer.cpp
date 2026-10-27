@@ -1193,6 +1193,23 @@ bool AssemblerOptimizer::optimizeInternal(
                     if (!t->label.empty() || (pj != posOf.end() && (gen[pj->second].test(b) || kill[pj->second].test(b)))) break;
                 }
                 if (s < 0) continue;
+                // (A left alone between: the load is simply redundant, the
+                // register tracking drops it; a spill would only clobber Y/Z)
+                {
+                    static const std::set<std::string> keepsA = {"STA", "STX", "STY", "STZ", "STQ", "LDX", "LDY", "LDZ",
+                        "INX", "INY", "INZ", "DEX", "DEY", "DEZ", "TAX", "TAY", "TAZ", "CPX", "CPY", "CPZ", "CMP", "BIT",
+                        "CLC", "SEC", "CLV", "NOP", "PHA", "PHX", "PHY", "PHZ", "EOM"};
+                    bool aWritten = false;
+                    for (size_t j = s + 1; j < k && !aWritten; ++j) {
+                        auto* t = st[j].get();
+                        if (!live(t)) continue;
+                        std::string tm = upper(t->instr.mnemonic);
+                        bool rmwMem = (tm == "INC" || tm == "DEC" || tm == "ASL" || tm == "LSR" || tm == "ROL" || tm == "ROR") &&
+                                      t->instr.mode != AddressingMode::ACCUMULATOR && t->instr.mode != AddressingMode::IMPLIED;
+                        if (!keepsA.count(tm) && !rmwMem) aWritten = true;
+                    }
+                    if (!aWritten) continue;
+                }
                 // a register neither used between nor read after the load
                 char R = 0;
                 for (char c : {'Y', 'Z'}) {
