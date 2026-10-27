@@ -2,11 +2,15 @@
 ; --pack-overlays links it and points __ovl_unpacker at it. Q: the 28-bit
 ; address the packed file was loaded at; unpack() (<unpack.h>, the ZP
 ; convention in either library) unpacks it to the address in its header.
+; (__unpack: a program's own unpack() cannot take the call, #346)
+; ln45's call graph: no calls through pointers
+.weak cc45.icallinfo
+cc45.icallinfo = 1
 .global __ovl_unpack
-.extern _unpack
+.extern ___unpack
 
 proc __ovl_unpack
     stq $10
-    jmp _unpack
+    jmp ___unpack
     .func_flags zp_call
 endproc

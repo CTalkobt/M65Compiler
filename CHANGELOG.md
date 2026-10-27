@@ -4,6 +4,20 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### The overlay loader's unpacker and library overrides (#346)
+
+- `<unpack.h>`'s `unpack` is a macro for the library's `__unpack`, which the
+  overlay loader (`__ovl_unpack`) calls: a program's own `unpack()` (even in
+  an overlay) no longer takes the call and crashes the start-up.
+- ln45 refuses a link in which the overlay loader (`__ovl_init`, before
+  `main`) reaches a function in a code overlay.
+- ln45 warns when a library object's reference binds to the program's own
+  definition of a library function (`'_putchar' of main.o45 overrides the
+  library's ...`); `-Wno-override` silences it.
+- Tests: a program's own `unpack()` with packed overlays (both conventions,
+  attic RAM; `test_xemu.sh`), the link error and the warning
+  (`test_compiler.sh`).
+
 ### Packed data: pack45, `<unpack.h>`, `ln45 --pack-overlays` (#345)
 
 - `pack45` packs a file into a stream (format 1: a byte-oriented LZ with

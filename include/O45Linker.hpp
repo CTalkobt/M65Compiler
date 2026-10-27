@@ -338,6 +338,9 @@ public:
     // Calling convention thunk mode
     enum ThunkMode { THUNK_AUTO, THUNK_WARN, THUNK_ERROR };
     void setThunkMode(ThunkMode m) { thunkMode_ = m; }
+    // warn when a library object's reference binds to the program's own
+    // definition of a library function (#346; -Wno-override)
+    void setWarnOverride(bool on) { warnOverride_ = on; }
     void setSacOverlay(bool on) { sacOverlayOn_ = on; }
     // Drop pulled library members nothing live references (default on)
     void setGcObjects(bool on) { gcObjectsOn_ = on; }
@@ -509,6 +512,7 @@ private:
 
     // Warning stream (nullptr to suppress)
     std::ostream* warnStream_ = &std::cerr;
+    bool warnOverride_ = true;
 
     // Thunk mode and generated thunks
     ThunkMode thunkMode_ = THUNK_AUTO;

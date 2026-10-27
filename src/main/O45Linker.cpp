@@ -136,6 +136,45 @@ bool O45Linker::resolveLibraries(std::string& errorMsg) {
         }
     }
 
+    // A library member's reference bound to the program's own definition of
+    // a name a library defines (not weak: those are meant to be replaced),
+    // e.g. a program's unpack() taking the overlay loader's call (#346)
+    if (warnStream_ && warnOverride_ && !pulledMembers.empty()) {
+        std::map<std::string, std::string> progDef;   // strong definitions of the objects given
+        for (const auto& input : objects_) {
+            if (input.filename.find(".lib(") != std::string::npos) continue;
+            for (const auto& exp : input.obj.exports)
+                if (!exp.isWeak() && exp.segmentId() != SEG_ABSOLUTE) progDef.emplace(exp.name, input.filename);
+        }
+        std::set<std::string> warned;
+        for (const auto& input : objects_) {
+            if (input.filename.find(".lib(") == std::string::npos) continue;
+            for (const auto& imp : input.obj.imports) {
+                auto d = progDef.find(imp.name);
+                if (d == progDef.end() || warned.count(imp.name)) continue;
+                std::string libDef;   // the library member defining it (not weak)
+                for (const auto& libEntry : libraries_) {
+                    for (const auto& sym : libEntry.lib.symbols) {
+                        if (sym.name != imp.name) continue;
+                        const auto& member = libEntry.lib.members[sym.memberIndex];
+                        O45File obj;
+                        std::string err;
+                        if (!O45Reader::read(member.data, obj, err)) continue;
+                        for (const auto& exp : obj.exports)
+                            if (exp.name == imp.name && !exp.isWeak())
+                                libDef = libEntry.filename + "(" + member.name + ")";
+                        if (!libDef.empty()) break;
+                    }
+                    if (!libDef.empty()) break;
+                }
+                if (libDef.empty()) continue;
+                warned.insert(imp.name);
+                *warnStream_ << "ln45: warning: '" << imp.name << "' of " << d->second << " overrides the library's ("
+                             << libDef << "), which " << input.filename << " uses" << std::endl;
+            }
+        }
+    }
+
     (void)errorMsg;
     return true;
 }
@@ -3380,6 +3419,34 @@ bool O45Linker::generateOverlayStubs(std::string& errorMsg) {
                                "): the overlay runtime is not reentrant; keep what an interrupt handler calls resident";
                     return false;
                 }
+                auto g = graph.find(cur);
+                if (g == graph.end()) continue;
+                for (const auto& next : g->second)
+                    if (!from.count(next)) { from[next] = cur; queue.push_back(next); }
+            }
+        }
+        // Nor may the overlay loader (__ovl_init, run before main) reach an
+        // overlay's function: no overlay is loaded yet (Issue #346: a
+        // program's own unpack() in an overlay took __ovl_unpack's call)
+        {
+            if (packOverlays_) graph["__ovl_unpacker"].insert("__ovl_unpack");   // (ln45 defines it)
+            const std::string root = "__ovl_init";
+            std::map<std::string, std::string> from;
+            std::vector<std::string> queue = {root};
+            from[root] = "";
+            for (size_t q = 0; q < queue.size(); q++) {
+                const std::string cur = queue[q];
+                if (ovlOf(cur) && !isDataOvl(ovlOf(cur))) {
+                    std::string chain = cur;
+                    for (std::string p = from[cur]; !p.empty(); p = from[p]) chain = p + " -> " + chain;
+                    errorMsg = "'" + cur + "' (code overlay " + ovlNames_[ovlOf(cur) - 1] +
+                               ") is reachable from the overlay loader (" + chain +
+                               "), which runs before main, when no overlay is loaded; keep it resident";
+                    return false;
+                }
+                // (the overlay runtime's calls load their overlay: ovl.s45's
+                // labels follow one another in the graph, __ovl_init's too)
+                if (cur.rfind("__ovl_call", 0) == 0) continue;
                 auto g = graph.find(cur);
                 if (g == graph.end()) continue;
                 for (const auto& next : g->second)
