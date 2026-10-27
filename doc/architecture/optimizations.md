@@ -236,6 +236,24 @@ stored from a register holding a constant becomes a transfer from another
 register holding the same constant (`ldx #0; stx $35 ... lda $35` is
 `txa`). Examples: 933 bytes (#350).
 
+**Constant chains** (`optimizeAlgebraic`, #351, #353): `(x + c1) + c2` and
+the forms with subtracts are `x + (c1 + c2)`, the constant wrapped to the
+type (modular arithmetic: the same result at every width). Only when the
+inner operation is defined once and its own operand is a global, a constant
+or a value defined once (a local's slot could change between them).
+`pl.items[7]` (`@_pl + 11 + 7`) is then `@_pl + 18`, which
+`foldGlobalOffsetAccess` makes the load's address: `lda _pl+18` (22 bytes
+→ 7); `x - 25 + 23` is `x - 2`.
+
+**What a function's return carries** (#351): cc45 marks a function whose
+caller may read the flags after it (`.var cc45.retnz = 1`: a `char` result,
+tested by them) and one whose result has X (`.var cc45.retx = 1`: wider than
+a byte), and any with inline asm, `__cpu` / `__flags` writes or an
+interrupt's `rti` both ways. ca45 takes the `rts` of any other cc45 proc as
+reading neither: a reload kept for its N / Z before a `void` / `int`
+function's return goes, and so does a dead `ldx #0` (the dead-LDX pass).
+Examples: 882 bytes.
+
 `foldGlobalOffsetAccess` (`IROptimizer.cpp`, after `foldElemIndexOffset`;
 tag `globaloff`; under `addr-elem-fusion`'s switch) gives a load or store
 through `%p = add ptr @g, c` (`%p` defined once and used only as such

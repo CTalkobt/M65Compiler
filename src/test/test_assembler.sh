@@ -970,7 +970,8 @@ grep -q 'lda \$3e' <<< "$D" || lv_ok=0                       # the load at the m
 grep -q 'sta \$30' <<< "$D" || lv_ok=0                       # before the computed goto
 grep -q '^tay' <<< "$D" && grep -q '^tya' <<< "$D" || lv_ok=0 # $36 kept in Y
 grep -q 'sta \$36' <<< "$D" && lv_ok=0
-[ $(grep -c 'sta \$37' <<< "$D") -eq 2 ] || lv_ok=0          # the first store to $37 is dead
+[ $(grep -c 'sta \$37' <<< "$D") -le 2 ] || lv_ok=0          # the first store to $37 is dead (the
+grep -q 'sta \$0406' <<< "$D" || lv_ok=0                     # others too once the merge holds A)
 if [ $lv_ok -eq 1 ]; then
     echo "SUCCESS: base-page liveness: shared routines, merges, computed gotos kept; Y keeps a byte; dead stores go"
     passed=$((passed + 1))

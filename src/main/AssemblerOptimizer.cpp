@@ -926,6 +926,35 @@ bool AssemblerOptimizer::optimizeInternal(
     // BEQ/BNE/BMI/BPL or PHP, no once both are set again; anything else that
     // ends the search (a jump, a call, a return, data, an op the scan does
     // not know) counts as a read
+    // does the caller read N / Z after the rts at statement j? Not in a cc45
+    // proc (.var cc45.fp) without .var cc45.retnz (#351); else assumed
+    // what the caller reads after the rts at statement j: N / Z (bit 1), X
+    // (bit 2). A cc45 proc (.var cc45.fp) says: .var cc45.retnz (a char's
+    // result is tested by the flags), .var cc45.retx (X part of the result);
+    // any other proc: both (#351)
+    std::map<const AssemblerParser::Statement*, int> procRet;
+    auto rtsReads = [&](size_t j) -> int {
+        size_t p = j;
+        while (p > 0 && !(parser->statements[p]->type == AssemblerParser::Statement::INSTRUCTION &&
+                          (parser->statements[p]->instr.mnemonic == "proc" || parser->statements[p]->instr.mnemonic == "endproc")))
+            --p;
+        auto* ps = parser->statements[p].get();
+        if (ps->type != AssemblerParser::Statement::INSTRUCTION || ps->instr.mnemonic != "proc") return 3;
+        auto c = procRet.find(ps);
+        if (c != procRet.end()) return c->second;
+        bool cc45 = false, retnz = false, retx = false;
+        for (size_t k = p + 1; k < parser->statements.size(); ++k) {
+            auto* t = parser->statements[k].get();
+            if (t->type == AssemblerParser::Statement::INSTRUCTION &&
+                (t->instr.mnemonic == "endproc" || t->instr.mnemonic == "proc")) break;
+            if (t->deleted || t->type != AssemblerParser::Statement::DIRECTIVE || t->dir.name != "var") continue;
+            if (t->dir.varName.find("cc45.fp") != std::string::npos) cc45 = true;
+            if (t->dir.varName.find("cc45.retnz") != std::string::npos) retnz = true;
+            if (t->dir.varName.find("cc45.retx") != std::string::npos) retx = true;
+        }
+        return procRet[ps] = !cc45 ? 3 : (retnz ? 1 : 0) | (retx ? 2 : 0);
+    };
+    auto rtsReadsNZ = [&](size_t j) { return (rtsReads(j) & 1) != 0; };
     auto nzLiveAfter = [&](size_t i, std::string& why) -> bool {
         static const std::set<std::string> setsNZ = {
             "LDA", "LDX", "LDY", "LDZ", "LDQ", "TAX", "TXA", "TAY", "TYA", "TAZ", "TZA", "TBA",
@@ -941,6 +970,9 @@ bool AssemblerOptimizer::optimizeInternal(
         for (size_t j = i + 1; j < parser->statements.size() && j < i + 64; ++j) {
             auto* n = parser->statements[j].get();
             if (n->deleted) continue;
+            // (a cc45 function's rts: N / Z reach the caller only from one
+            // returning a char, .var cc45.retnz, #351)
+            if (n->type == AssemblerParser::Statement::INSTRUCTION && upper(n->instr.mnemonic) == "RTS" && !rtsReadsNZ(j)) return false;
             if (n->type == AssemblerParser::Statement::NONE && !n->label.empty()) continue;
             if (n->type == AssemblerParser::Statement::DIRECTIVE) {
                 std::string d = n->dir.name;
@@ -2277,6 +2309,13 @@ bool AssemblerOptimizer::optimizeInternal(
             }
             bool rmbSmb = m.size() == 4 && (m.compare(0, 3, "rmb") == 0 || m.compare(0, 3, "smb") == 0);
             if (rmbSmb) { e = FALL; continue; }
+            // (a cc45 function's rts reads X / the flags only when its result
+            // has them, #351)
+            if (m == "rts") {
+                int rr = rtsReads(i);
+                e = (rr & 2 ? RX : 0) | (rr & 1 ? RF : 0);
+                continue;
+            }
             if (readsX.count(m)) e |= RX;
             if (writesX.count(m)) e |= WX;
             if (readsNZ.count(m)) e |= RF;
