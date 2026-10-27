@@ -1412,6 +1412,7 @@ bool AssemblerOptimizer::optimizeInternal(
                 // paths): reached by falling in and by one earlier branch,
                 // a register keeps what both paths agree it holds (the same
                 // base-page byte or the same constant)
+                bool merged = false;
                 if (fallsInto && !took && parser->optFlags.redundantLoad && !loc.empty() && loc[0] == '@') {
                     size_t ob = onlyBranch(l);
                     if (ob != SIZE_MAX && ob < i && snap != parser->branchRegs.end() &&
@@ -1422,18 +1423,22 @@ bool AssemblerOptimizer::optimizeInternal(
                             bool agree = (f.isConst() && g.isConst() && f.constVal == g.constVal) ||
                                          (f.kind == ValueInfo::SAME_AS_MEM && g.kind == ValueInfo::SAME_AS_MEM &&
                                           f.mirrorAddr == g.mirrorAddr && f.mirrorAddr < 256);
-                            if (agree) ms.reg[r] = f;   // (still a reset: only part of the state is known)
+                            if (agree) { ms.reg[r] = f; merged = true; }
                             // (both stored it to the same byte: it holds that byte,
                             // whatever each path's value: a ?: result)
                             else {
                                 std::bitset<256> both = fallStored[r] & snap->second.stored[r];
                                 for (int a = 0; a < 256; a++)
-                                    if (both.test(a)) { ms.reg[r] = ValueInfo::sameAsMem((uint16_t)a); break; }
+                                    if (both.test(a)) { ms.reg[r] = ValueInfo::sameAsMem((uint16_t)a); merged = true; break; }
                             }
                         }
                     }
                 }
-                if (!took) lastReset = i;
+                // (a merge is no reset: what it kept depends on the code
+                // before it, which a later branch's fingerprint does not
+                // cover, so a branch after it takes nothing back)
+                if (merged) lastReset = SIZE_MAX;
+                else if (!took) lastReset = i;
             }
         }
         // what the registers hold at a branch to a local label
