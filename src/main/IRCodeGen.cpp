@@ -6652,7 +6652,7 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                 (inst.op == ir::Op::CMP_EQ || inst.op == ir::Op::CMP_NE) &&
                 inst.src1.type != ir::Type::I32) {
                 if (inst.src1.type == ir::Type::I8) {
-                    loadOperand(inst.src1);
+                    loadOperandA(inst.src1);   // (a byte: A only, no ldx #0, #341)
                     emit("cmp #0");
                 } else if (inst.src1.isVreg() && globalLoadAlias_.count(inst.src1.vregId)) {
                     emit("lda " + directByte(inst.src1, 0));

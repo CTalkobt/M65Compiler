@@ -10,6 +10,11 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   `RTS`; branches to a `BRA`/`JMP` go straight to its target; an `RTS`
   after a tail `JMP` that nothing reaches is dropped, and `endproc` adds no
   `RTS` after a final `JMP`/`BRA`.
+- #341: a `char` compared with 0 loads A only (no dead `ldx #0`); ca45
+  knows at a label reached by one branch that a register still holds the
+  base-page byte it was stored to (the reload goes), drops a store into
+  the function's base-page block that nothing reads, and a compare that
+  repeats the one before the only branch to its label.
 
 ### `__bank(n)` (#69)
 

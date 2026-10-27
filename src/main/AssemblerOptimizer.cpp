@@ -347,6 +347,155 @@ bool AssemblerOptimizer::optimizeInternal(
         }
     }
 
+    // --- Pass 1f: a compare repeated at a label that only one branch
+    // reaches, the branch right after the same compare (no fall into the
+    // label): the flags are still that compare's (#341) ---
+    if (parser->optFlags.cmpElimination) {
+        auto& st = parser->statements;
+        auto upper = [](std::string m) { std::transform(m.begin(), m.end(), m.begin(), ::toupper); return m; };
+        static const std::set<std::string> cmps = {"CMP", "CPX", "CPY", "CPZ"};
+        static const std::set<std::string> condBranches = {"BEQ", "BNE", "BCC", "BCS", "BMI", "BPL", "BVC", "BVS"};
+        auto prevAt = [&](size_t k) -> long {
+            while (k-- > 0) {
+                auto* t = st[k].get();
+                if (t->deleted || isLocDirective(t)) continue;
+                return (long)k;
+            }
+            return -1;
+        };
+        auto localOf = [](const std::string& lbl) {
+            size_t c = lbl.rfind(':');
+            return c == std::string::npos ? lbl : lbl.substr(c + 1);
+        };
+        for (size_t i = 0; i < st.size(); ++i) {
+            auto* s = st[i].get();
+            if (s->deleted || s->noOpt || s->type != AssemblerParser::Statement::INSTRUCTION) continue;
+            if (!cmps.count(upper(s->instr.mnemonic))) continue;
+            // the labels just before it (its own too)
+            std::vector<std::string> labels;
+            if (!s->label.empty()) labels.push_back(s->label);
+            long k = prevAt(i);
+            while (k >= 0 && st[k]->type == AssemblerParser::Statement::NONE && !st[k]->label.empty()) {
+                labels.push_back(st[k]->label);
+                k = prevAt((size_t)k);
+            }
+            if (labels.size() != 1 || k < 0) continue;
+            // no way in by falling through
+            auto* before = st[k].get();
+            std::string bm = upper(before->instr.mnemonic);
+            if (before->type != AssemblerParser::Statement::INSTRUCTION ||
+                !(bm == "RTS" || bm == "RTI" || bm == "BRA" || (bm == "JMP" && before->instr.mode == AddressingMode::ABSOLUTE)))
+                continue;
+            std::string local = localOf(labels[0]);
+            if (local.empty() || local[0] != '@') continue;
+            // its one reference: a conditional branch right after the same compare
+            long branch = -1;
+            int refs = 0;
+            for (size_t j = 0; j < st.size(); ++j) {
+                auto* t = st[j].get();
+                if (t->deleted) continue;
+                bool named = t->instr.operand.find(local) != std::string::npos;
+                for (const auto& a : t->dir.arguments) named |= a.find(local) != std::string::npos;
+                if (!named) continue;
+                refs++;
+                if (t->type == AssemblerParser::Statement::INSTRUCTION && t->instr.operand == local &&
+                    condBranches.count(upper(t->instr.mnemonic)) && t->scopePrefix == s->scopePrefix)
+                    branch = (long)j;
+            }
+            if (refs != 1 || branch < 0 || !st[branch]->label.empty()) continue;
+            long c = prevAt((size_t)branch);
+            if (c < 0) continue;
+            auto* first = st[c].get();
+            if (first->type != AssemblerParser::Statement::INSTRUCTION || first->noOpt ||
+                upper(first->instr.mnemonic) != upper(s->instr.mnemonic) || first->instr.mode != s->instr.mode ||
+                first->instr.operand != s->instr.operand || first->scopePrefix != s->scopePrefix ||
+                first->isSimulatedOp() || s->isSimulatedOp())
+                continue;
+            report("cmp-repeat", s, upper(s->instr.mnemonic) + " " + s->instr.operand +
+                   " eliminated (the only branch here follows the same compare)");
+            s->deleted = true;
+            s->size = 0;
+            changed = true;
+        }
+    }
+
+    // --- Pass 1e: a store into the proc's own base-page block (.zar) that
+    // nothing in the proc reads (#341: the reloads went): dropped. The block
+    // is the proc's alone while it runs; any statement but a plain store
+    // that names one of its bytes (or the byte before: a pointer) counts as
+    // a read, and one whose operand cannot be evaluated keeps them all ---
+    if (parser->optFlags.redundantLoad) {
+        auto& st = parser->statements;
+        auto upper = [](std::string m) { std::transform(m.begin(), m.end(), m.begin(), ::toupper); return m; };
+        static const std::set<std::string> plainStores = {"STA", "STX", "STY", "STZ", "STQ"};
+        for (size_t p = 0; p < st.size(); ++p) {
+            auto* ps = st[p].get();
+            if (ps->deleted || ps->type != AssemblerParser::Statement::INSTRUCTION || ps->instr.mnemonic != "proc" ||
+                !ps->procCtx || ps->procCtx->zarLen <= 0)
+                continue;
+            int lo = ps->procCtx->zarStart, hi = lo + ps->procCtx->zarLen - 1;
+            size_t end = p + 1;
+            while (end < st.size() && !(st[end]->type == AssemblerParser::Statement::INSTRUCTION &&
+                                        (st[end]->instr.mnemonic == "endproc" || st[end]->instr.mnemonic == "proc")))
+                ++end;
+            if (end < st.size() && st[end]->instr.mnemonic == "proc") continue;   // (a nested proc: left alone)
+            std::vector<std::pair<size_t, int>> stores;   // (statement, its byte)
+            std::set<int> read;
+            bool unknown = false;
+            for (size_t k = p + 1; k < end && !unknown; ++k) {
+                auto* t = st[k].get();
+                if (t->deleted || t->type == AssemblerParser::Statement::NONE) continue;
+                if (t->type != AssemblerParser::Statement::INSTRUCTION) {
+                    if (t->type == AssemblerParser::Statement::DIRECTIVE && t->size == 0) continue;
+                    unknown = true;   // (data in the proc, a simulated op: not followed)
+                    break;
+                }
+                if (t->noOpt || t->isSimulatedOp()) { unknown = true; break; }
+                if (t->instr.mode == AddressingMode::IMPLIED || t->instr.mode == AddressingMode::ACCUMULATOR) continue;
+                std::string tm = upper(t->instr.mnemonic);
+                if (t->instr.mode == AddressingMode::IMMEDIATE || t->instr.mode == AddressingMode::IMMEDIATE16) {
+                    // (#<x of a block byte: its address taken)
+                    if (t->instr.operand.find('<') != std::string::npos || t->instr.operand.find('>') != std::string::npos) {
+                        unknown = true; break;
+                    }
+                    continue;
+                }
+                if (tm.size() == 3 && tm[0] == 'B' && tm != "BIT" && tm != "BRK") continue;   // (a branch)
+                if ((tm == "JMP" || tm == "JSR" || tm == "BSR") && t->instr.mode == AddressingMode::ABSOLUTE) continue;
+                if (t->instr.operandTokenIndex < 0) { unknown = true; break; }
+                uint32_t v;
+                try { v = parser->evaluateExpressionAt(t->instr.operandTokenIndex, t->scopePrefix); }
+                catch (...) { unknown = true; break; }
+                bool plain = plainStores.count(tm) && t->instr.mode == AddressingMode::BASE_PAGE;
+                // the bytes it reads: a 32-bit pointer or Q 4, a pointer or a
+                // 16-bit operation 2, else 1
+                AddressingMode md = t->instr.mode;
+                int w = tm.back() == 'Q' || md == AddressingMode::FLAT_INDIRECT_Z ? 4
+                      : (md == AddressingMode::BASE_PAGE_INDIRECT_Y || md == AddressingMode::BASE_PAGE_INDIRECT_Z ||
+                         md == AddressingMode::BASE_PAGE_X_INDIRECT || md == AddressingMode::BASE_PAGE_INDIRECT_SP_Y ||
+                         tm == "INW" || tm == "DEW" || tm == "ASW" || tm == "ROW" || tm == "PHW") ? 2 : 1;
+                // (indexed: any byte of the block)
+                if (md == AddressingMode::BASE_PAGE_X || md == AddressingMode::BASE_PAGE_Y ||
+                    md == AddressingMode::ABSOLUTE_X || md == AddressingMode::ABSOLUTE_Y || md == AddressingMode::BASE_PAGE_X_INDIRECT)
+                    w = 256;
+                if (plain && (int)v >= lo && (int)v <= hi) { stores.push_back({k, (int)v}); continue; }
+                for (int b = (int)v; b < (int)v + w; b++) read.insert(b);
+            }
+            if (unknown) continue;
+            for (const auto& [k, b] : stores) {
+                auto* t = st[k].get();
+                int w = upper(t->instr.mnemonic) == "STQ" ? 4 : 1;
+                bool used = false;
+                for (int x = b; x < b + w; x++) used |= read.count(x) > 0;
+                if (used || t->noOpt) continue;
+                report("dead-store", t, upper(t->instr.mnemonic) + " " + t->instr.operand + " eliminated (its base-page byte is never read)");
+                t->deleted = true;
+                t->size = 0;
+                changed = true;
+            }
+        }
+    }
+
     // --- Pass 1c: Invert conditional branch over BRA ---
     {
         auto invertBranch = [](const std::string& mnemonic) -> std::string {
@@ -736,7 +885,14 @@ bool AssemblerOptimizer::optimizeInternal(
             br.branch = s;
             br.reset = lastReset != SIZE_MAX ? parser->statements[lastReset].get() : nullptr;
             br.code = lastReset != SIZE_MAX ? fingerprint(lastReset, i) : 0;
-            for (int r = 0; r < 4; r++) br.regs[r] = ms.reg[r];
+            for (int r = 0; r < 4; r++) {
+                br.regs[r] = ms.reg[r];
+                // (a register stored to a base-page byte: it holds that byte,
+                // which the label keeps when only this branch reaches it, #341)
+                if (br.regs[r].isUnknown())
+                    for (int a = 0; a < 256; a++)
+                        if (ms.getZP((uint8_t)a).isSameAs((RegId)r)) { br.regs[r] = ValueInfo::sameAsMem((uint16_t)a); break; }
+            }
         }
         if (s->type == AssemblerParser::Statement::INSTRUCTION || s->isSimulatedOp()) prevInstr = s;
         else if (s->type == AssemblerParser::Statement::DIRECTIVE && !isLocDirective(s)) prevInstr = nullptr;
