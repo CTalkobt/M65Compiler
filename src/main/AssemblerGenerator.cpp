@@ -248,7 +248,8 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                     // No prologue — frame pointer removed
                     continue;
                 } else if (stmt->instr.mnemonic == "endproc") {
-                    if (!isDeadCode) {
+                    // (none after a final JMP/BRA either: its size is 0, #340)
+                    if (!isDeadCode && stmt->size > 0) {
                         // Always emit plain RTS — caller handles stack cleanup via PLZ
                         // (RTS #N opcode $62 is unreliable on some 45GS02 hardware)
                         e.emitInstruction("rts", AddressingMode::IMPLIED);

@@ -210,6 +210,143 @@ bool AssemblerOptimizer::optimizeInternal(
         }
     }
 
+    // --- Pass 1d: Jump threading (#340): a BRA/JMP to an RTS is that RTS;
+    // a branch to a BRA/JMP goes straight to its target; an RTS after a
+    // JMP/BRA/RTS that nothing refers to is dropped ---
+    if (parser->optFlags.jmpBra) {
+        auto& st = parser->statements;
+        auto upper = [](std::string m) { std::transform(m.begin(), m.end(), m.begin(), ::toupper); return m; };
+        // the first instruction at each address of each segment
+        std::map<std::pair<std::string, uint32_t>, size_t> at;
+        for (size_t k = 0; k < st.size(); ++k) {
+            const auto* t = st[k].get();
+            if (t->deleted || t->type != AssemblerParser::Statement::INSTRUCTION || t->size == 0) continue;
+            at.emplace(std::make_pair(t->segmentName, t->address), k);
+        }
+        // a branch's target in its own segment (a label of this file, not
+        // weak): the statement there
+        auto targetOf = [&](const AssemblerParser::Statement* s, uint32_t& addr) -> long {
+            std::string op = s->instr.operand;
+            if (op.empty() && s->instr.operandTokenIndex >= 0 && s->instr.operandTokenIndex < (int)parser->tokens.size())
+                op = parser->tokens[s->instr.operandTokenIndex].value;
+            if (op.empty() || !(std::isalpha((unsigned char)op[0]) || op[0] == '_' || op[0] == '@')) return -1;
+            if (op.find_first_of("+-*/<>()") != std::string::npos) return -1;
+            auto* sym = parser->resolveSymbol(op, s->scopePrefix);
+            if (!sym || sym->segment.empty() || sym->segment != s->segmentName || parser->isWeakSymbol(op)) return -1;
+            addr = sym->value;
+            auto it = at.find({s->segmentName, addr});
+            return it == at.end() ? -1 : (long)it->second;
+        };
+        auto isRts = [&](const AssemblerParser::Statement* t) {
+            return upper(t->instr.mnemonic) == "RTS" && t->instr.mode == AddressingMode::IMPLIED;
+        };
+        // (a branch's mode is decided when it is encoded: by its mnemonic)
+        auto isBranchMode = [](AddressingMode md) {
+            return md == AddressingMode::RELATIVE || md == AddressingMode::ABSOLUTE;
+        };
+        auto isUncond = [&](const AssemblerParser::Statement* t) {
+            std::string tm = upper(t->instr.mnemonic);
+            return (tm == "BRA" && isBranchMode(t->instr.mode)) ||
+                   (tm == "JMP" && t->instr.mode == AddressingMode::ABSOLUTE);
+        };
+        static const std::set<std::string> condBranches = {"BEQ", "BNE", "BCC", "BCS", "BMI", "BPL", "BVC", "BVS"};
+        for (size_t i = 0; i < st.size(); ++i) {
+            auto* s = st[i].get();
+            if (s->deleted || s->noOpt || s->type != AssemblerParser::Statement::INSTRUCTION) continue;
+            std::string m = upper(s->instr.mnemonic);
+            bool uncond = isUncond(s);
+            bool cond = condBranches.count(m) && isBranchMode(s->instr.mode);
+            if (!uncond && !cond) continue;
+            uint32_t addr;
+            long t = targetOf(s, addr);
+            if (t < 0 || (size_t)t == i) continue;
+            auto* ts = st[t].get();
+            if (uncond && isRts(ts)) {
+                report("jump-rts", s, m + " " + s->instr.operand + " → RTS (saved " + std::to_string(s->size - 1) + " bytes)");
+                s->instr.mnemonic = "rts";
+                s->instr.mode = AddressingMode::IMPLIED;
+                s->instr.operand.clear();
+                s->instr.operandTokenIndex = -1;
+                s->size = 1;
+                changed = true;
+                continue;
+            }
+            // a chain: the final target, when this branch reaches it (a
+            // relative one within its 8-bit range) from the same scope
+            if (!isUncond(ts) || ts->scopePrefix != s->scopePrefix) continue;
+            uint32_t final;
+            if (targetOf(ts, final) < 0 || final == addr || final == s->address) continue;
+            if (m != "JMP") {
+                int32_t off = (int32_t)final - (int32_t)(s->address + 2);
+                if (off < -128 || off > 127) continue;
+            }
+            report("jump-chain", s, m + " " + s->instr.operand + " → " + ts->instr.operand + " (a branch to a branch)");
+            s->instr.operand = ts->instr.operand;
+            s->instr.operandTokenIndex = ts->instr.operandTokenIndex;
+            changed = true;
+        }
+        // an RTS no one reaches: right after a JMP/BRA/RTS (labels and
+        // listing directives between), its labels all local (@name: no other
+        // file names them) and named nowhere here
+        auto mentioned = [&](const std::string& lbl) {
+            std::string local = lbl.substr(lbl.rfind(':') == std::string::npos ? 0 : lbl.rfind(':') + 1);
+            if (local.empty() || local[0] != '@') return true;
+            for (const auto& u : st) {
+                if (u->deleted) continue;
+                if (u->instr.operand.find(local) != std::string::npos) return true;
+                for (const auto& a : u->dir.arguments)
+                    if (a.find(local) != std::string::npos) return true;
+            }
+            return false;
+        };
+        for (size_t i = 0; i < st.size(); ++i) {
+            auto* s = st[i].get();
+            if (s->deleted || s->noOpt || s->type != AssemblerParser::Statement::INSTRUCTION || !isRts(s)) continue;
+            std::vector<std::string> labels;
+            std::vector<size_t> labelLines;   // (label-only statements: dropped with it)
+            if (!s->label.empty()) labels.push_back(s->label);
+            size_t j = i;
+            bool after = false;
+            while (j-- > 0) {
+                auto* p = st[j].get();
+                if (p->deleted) continue;
+                if (p->type == AssemblerParser::Statement::NONE && !p->label.empty()) {
+                    labels.push_back(p->label);
+                    labelLines.push_back(j);
+                    continue;
+                }
+                if (p->type == AssemblerParser::Statement::DIRECTIVE && p->size == 0) {
+                    std::string d = p->dir.name;
+                    if (d == "loc" || d == "file") continue;
+                    break;
+                }
+                if (p->type == AssemblerParser::Statement::INSTRUCTION && p->size > 0) {
+                    std::string pm = upper(p->instr.mnemonic);
+                    after = isUncond(p) || isRts(p) ||
+                            (pm == "JMP" && p->instr.mode == AddressingMode::ABSOLUTE_INDIRECT);
+                }
+                break;
+            }
+            if (!after) continue;
+            bool used = false;
+            for (const auto& l : labels) used |= mentioned(l);
+            if (used) continue;
+            // nor when the proc branches by *+n: that may land after the jump
+            bool star = false;
+            for (size_t k = i; k-- > 0 && !star;) {
+                auto* p = st[k].get();
+                if (p->type == AssemblerParser::Statement::INSTRUCTION && p->instr.mnemonic == "proc") break;
+                if (!p->deleted && p->instr.operand.find('*') != std::string::npos) star = true;
+            }
+            if (star) continue;
+            report("dead-rts", s, "RTS after an unconditional jump, not reached (saved 1 byte)");
+            s->deleted = true;
+            s->size = 0;
+            for (size_t k : labelLines) { st[k]->deleted = true; st[k]->size = 0; }
+            changed = true;
+        }
+    }
+
     // --- Pass 1c: Invert conditional branch over BRA ---
     {
         auto invertBranch = [](const std::string& mnemonic) -> std::string {
