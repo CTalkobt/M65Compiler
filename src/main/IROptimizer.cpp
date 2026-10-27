@@ -1219,6 +1219,55 @@ void optimizeAlgebraic(Module& mod) {
         for (auto& block : fn.blocks)
             for (auto& inst : block.insts) constantSecond(inst, constVals);
 
+        // (x + c1) + c2 as x + (c1 + c2), likewise with subtracts (#351:
+        // pl.items[7] is @_pl + 11 + 7, one address @_pl+18; #353: x - 25 +
+        // 23 is x - 2). Modular arithmetic: the same at any width, the
+        // constant wrapped to the type. Only when the inner operation is
+        // defined once and its own operand (x) is a global, a constant or a
+        // value defined once: a local's slot could change between the two.
+        {
+            std::map<uint32_t, Inst*> def1;
+            for (auto& b : fn.blocks)
+                for (auto& in : b.insts)
+                    if (in.dest.isVreg() && defCount[in.dest.vregId] == 1 && !fn.localSlotVregs.count(in.dest.vregId) &&
+                        !fn.memoryVregs.count(in.dest.vregId))
+                        def1[in.dest.vregId] = &in;
+            auto stable = [&](const Operand& o) {
+                return o.kind == OperandKind::GLOBAL || o.isImm() ||
+                       (o.isVreg() && defCount[o.vregId] == 1 && !fn.localSlotVregs.count(o.vregId) &&
+                        !fn.memoryVregs.count(o.vregId) && o.vregId >= fn.paramTypes.size());
+            };
+            // an add / sub of a constant: its operand and the signed constant
+            auto split = [&](const Inst& in, Operand& x, int64_t& c) {
+                if (in.op == Op::ADD && in.src2.isImm()) { x = in.src1; c = in.src2.immVal; return true; }
+                if (in.op == Op::ADD && in.src1.isImm()) { x = in.src2; c = in.src1.immVal; return true; }
+                if (in.op == Op::SUB && in.src2.isImm()) { x = in.src1; c = -in.src2.immVal; return true; }
+                return false;
+            };
+            auto width = [](Type t) { return t == Type::I8 ? 8 : t == Type::I32 ? 32 : t == Type::I16 || t == Type::PTR ? 16 : 0; };
+            for (auto& b : fn.blocks)
+                for (auto& in : b.insts) {
+                    Operand x, y;
+                    int64_t c2, c1;
+                    if (!split(in, x, c2) || !x.isVreg() || !in.args.empty()) continue;
+                    auto d = def1.find(x.vregId);
+                    if (d == def1.end() || !d->second->args.empty() || !split(*d->second, y, c1) || !stable(y)) continue;
+                    int w = width(in.resultType);
+                    if (!w || width(d->second->resultType) != w) continue;
+                    if (y.isVreg() && width(y.type) && width(y.type) != w) continue;   // (no width change between)
+                    uint64_t m = w == 32 ? 0xFFFFFFFFull : ((1ull << w) - 1);
+                    int64_t c = c1 + c2;
+                    trace("algebraic", fn.name, "v" + std::to_string(in.dest.vregId) + " = (x " +
+                          (c1 < 0 ? "- " + std::to_string(-c1) : "+ " + std::to_string(c1)) + ") " +
+                          (c2 < 0 ? "- " + std::to_string(-c2) : "+ " + std::to_string(c2)) + " → x " +
+                          (c < 0 ? "- " + std::to_string(-c) : "+ " + std::to_string(c)), in.loc);
+                    Type ct = in.resultType == Type::PTR ? Type::I16 : in.resultType;
+                    in.src1 = y;
+                    if (c < 0) { in.op = Op::SUB; in.src2 = Operand::imm((int64_t)((uint64_t)(-c) & m), ct); }
+                    else { in.op = Op::ADD; in.src2 = Operand::imm((int64_t)((uint64_t)c & m), ct); }
+                }
+        }
+
         // Helper: get constant value of an operand, if known
         auto getConst = [&](const Operand& op, int64_t& out) -> bool {
             if (op.isImm()) { out = op.immVal; return true; }

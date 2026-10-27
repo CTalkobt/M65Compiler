@@ -4712,6 +4712,22 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
 
     // Frame pointer variable ("cc45.fp" can't clash with a C global named fp)
     emit(".var cc45.fp = 0");
+    // A caller may test the result by the flags its rts leaves: a char's
+    // (#348), or what inline asm sets; ca45 takes any other cc45 function's
+    // rts as reading no N / Z (#351)
+    {
+        bool asmBody = false;   // (inline asm, or __cpu / __flags written: left for the caller perhaps)
+        for (const auto& blk : fn.blocks)
+            for (const auto& in : blk.insts)
+                if (in.op == ir::Op::ASM_INLINE || in.op == ir::Op::CPU_REG_WRITE || in.op == ir::Op::CPU_FLAG_WRITE)
+                    asmBody = true;
+        if (fn.returnType == ir::Type::I8 || asmBody || fn.isInterrupt) emit(".var cc45.retnz = 1");
+        // (and X: any result, a char's too: a caller without its prototype,
+        // -fimplicit-function-declaration, takes it for an int; inline asm,
+        // an interrupt's)
+        if (fn.returnType != ir::Type::VOID || asmBody || fn.isInterrupt)
+            emit(".var cc45.retx = 1");
+    }
 
     // Emit .loc for function declaration line (before prologue and param loading,
     // so objdump attributes setup code to the function signature, not the first statement)

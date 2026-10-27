@@ -12,6 +12,18 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   constant is shifts and adds in A. 311 bytes over the examples; test
   `test_divmod8_xemu.c` (both conventions).
 
+### Constant chains, what a return carries (#351)
+
+- `(x + c1) + c2` is folded to `x + (c1 + c2)` (also with subtracts):
+  `pl.items[7]` of a global struct is `lda _pl+18` (22 bytes → 7), `x - 25
+  + 23` is `x - 2` (#353).
+- cc45 tells ca45 which functions' callers read the flags (a `char`
+  result: `.var cc45.retnz`) or X (`.var cc45.retx`) after the call; any
+  other cc45 function's `rts` reads neither, so reloads kept for their
+  flags and a dead `ldx #0` before it go. 737 bytes over the examples.
+- Test `test_const_chain_xemu.c` (both conventions); sizes in
+  `test_compiler.sh`.
+
 ### Known bits in code generation (#350, first part)
 
 - cc45 computes the bits of each value known to be 0 (`KnownBits.cpp`) and
