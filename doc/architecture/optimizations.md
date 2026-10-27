@@ -166,6 +166,21 @@ through a far pointer next (its only use) is added byte by byte as it is
 stored. A game's map accessors: 89 → 70 and 278 → 170 bytes
 (`test_compiler.sh`; runtime `test_far_offsets_xemu.c`).
 
+**Known bits** (#350, `KnownBits.cpp`, computed per function by
+`IRCodeGen`; `CC45_NO_KNOWN_BITS=1` turns it off): for each vreg defined
+once (not a local's slot) the bits known to be 0, from constants,
+zero-extensions, shifts and `and`/`or`/`xor`, and the bounds of adds and
+multiplications (`(unsigned)y << 9` has a zero low byte, `x << 2` of a char
+fits 10 bits, `k * 4` has its low two bits clear). Code generation uses it
+for a 16-bit `and`/`or`/`xor` with a byte known 0 on one side (the other
+side's byte, or 0, built in A/X), for adds into memory (a byte where one
+side is 0 and no carry can arrive is copied; bits that cannot overlap are
+`ora`ed; `adc` only where a carry can come; #348's `+ $08300000` to a
+zero-extended index is a case of it) and for `x + c` stored through a far
+pointer (`ora #c` when `c` fits in `x`'s known-zero low bits). Test:
+`test_known_bits_xemu.c`. Examples: 351 bytes (0.24 %); the map accessors of
+#348: 70 → 63 and 170 → 163.
+
 `foldGlobalOffsetAccess` (`IROptimizer.cpp`, after `foldElemIndexOffset`;
 tag `globaloff`; under `addr-elem-fusion`'s switch) gives a load or store
 through `%p = add ptr @g, c` (`%p` defined once and used only as such
