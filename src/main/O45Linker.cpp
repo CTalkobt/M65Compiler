@@ -136,6 +136,45 @@ bool O45Linker::resolveLibraries(std::string& errorMsg) {
         }
     }
 
+    // A library member's reference bound to the program's own definition of
+    // a name a library defines (not weak: those are meant to be replaced),
+    // e.g. a program's unpack() taking the overlay loader's call (#346)
+    if (warnStream_ && warnOverride_ && !pulledMembers.empty()) {
+        std::map<std::string, std::string> progDef;   // strong definitions of the objects given
+        for (const auto& input : objects_) {
+            if (input.filename.find(".lib(") != std::string::npos) continue;
+            for (const auto& exp : input.obj.exports)
+                if (!exp.isWeak() && exp.segmentId() != SEG_ABSOLUTE) progDef.emplace(exp.name, input.filename);
+        }
+        std::set<std::string> warned;
+        for (const auto& input : objects_) {
+            if (input.filename.find(".lib(") == std::string::npos) continue;
+            for (const auto& imp : input.obj.imports) {
+                auto d = progDef.find(imp.name);
+                if (d == progDef.end() || warned.count(imp.name)) continue;
+                std::string libDef;   // the library member defining it (not weak)
+                for (const auto& libEntry : libraries_) {
+                    for (const auto& sym : libEntry.lib.symbols) {
+                        if (sym.name != imp.name) continue;
+                        const auto& member = libEntry.lib.members[sym.memberIndex];
+                        O45File obj;
+                        std::string err;
+                        if (!O45Reader::read(member.data, obj, err)) continue;
+                        for (const auto& exp : obj.exports)
+                            if (exp.name == imp.name && !exp.isWeak())
+                                libDef = libEntry.filename + "(" + member.name + ")";
+                        if (!libDef.empty()) break;
+                    }
+                    if (!libDef.empty()) break;
+                }
+                if (libDef.empty()) continue;
+                warned.insert(imp.name);
+                *warnStream_ << "ln45: warning: '" << imp.name << "' of " << d->second << " overrides the library's ("
+                             << libDef << "), which " << input.filename << " uses" << std::endl;
+            }
+        }
+    }
+
     (void)errorMsg;
     return true;
 }
@@ -2341,7 +2380,7 @@ void O45Linker::validateImmediateRelocations() {
 }
 
 void O45Linker::buildCallGraph(std::map<std::string, std::set<std::string>>& graph,
-                               std::set<std::string>& addrTaken) {
+                               std::set<std::string>& addrTaken, bool pointerCalls) {
     auto sacBase = [this](std::string n) {
         if (n.size() > 5 && n.compare(n.size() - 5, 5, "__sac") == 0 &&
             funcAttrs_.count(n.substr(0, n.size() - 5)))
@@ -2493,6 +2532,7 @@ void O45Linker::buildCallGraph(std::map<std::string, std::set<std::string>>& gra
     for (const auto& t : addrTaken)
         Logger::stream(LogLevel::DEBUG) << "call graph: address of " << t << " used"
                     << (funcSig.count(t) ? ", parameters " + funcSig[t] : std::string()) << "\n";
+    if (!pointerCalls) return;
     for (const auto& c : icallers)
         for (const auto& t : addrTaken)
             if (c != t) graph[c].insert(t);
@@ -3382,6 +3422,39 @@ bool O45Linker::generateOverlayStubs(std::string& errorMsg) {
                 }
                 auto g = graph.find(cur);
                 if (g == graph.end()) continue;
+                for (const auto& next : g->second)
+                    if (!from.count(next)) { from[next] = cur; queue.push_back(next); }
+            }
+        }
+        // Nor may the overlay loader (__ovl_init, run before main) reach an
+        // overlay's function: no overlay is loaded yet (Issue #346: a
+        // program's own unpack() in an overlay took __ovl_unpack's call)
+        // (direct calls: the loader's calls through pointers, __rom_call's
+        // to the ROM, reach no function of the program)
+        {
+            std::map<std::string, std::set<std::string>> direct;
+            std::set<std::string> taken;
+            buildCallGraph(direct, taken, false);
+            if (packOverlays_) direct["__ovl_unpacker"].insert("__ovl_unpack");   // (ln45 defines it)
+            const std::string root = "__ovl_init";
+            std::map<std::string, std::string> from;
+            std::vector<std::string> queue = {root};
+            from[root] = "";
+            for (size_t q = 0; q < queue.size(); q++) {
+                const std::string cur = queue[q];
+                if (ovlOf(cur) && !isDataOvl(ovlOf(cur))) {
+                    std::string chain = cur;
+                    for (std::string p = from[cur]; !p.empty(); p = from[p]) chain = p + " -> " + chain;
+                    errorMsg = "'" + cur + "' (code overlay " + ovlNames_[ovlOf(cur) - 1] +
+                               ") is reachable from the overlay loader (" + chain +
+                               "), which runs before main, when no overlay is loaded; keep it resident";
+                    return false;
+                }
+                // (the overlay runtime's calls load their overlay: ovl.s45's
+                // labels follow one another in the graph, __ovl_init's too)
+                if (cur.rfind("__ovl_call", 0) == 0) continue;
+                auto g = direct.find(cur);
+                if (g == direct.end()) continue;
                 for (const auto& next : g->second)
                     if (!from.count(next)) { from[next] = cur; queue.push_back(next); }
             }

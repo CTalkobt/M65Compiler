@@ -21,7 +21,9 @@
 #define UNPACK_FORMAT 1
 
 /* (the ZP convention in either library: the overlay loader calls it from
-   assembly) */
-__fastcall__ unsigned long unpack(unsigned long src);
+   assembly). The library's name is __unpack, so a program's own function
+   named unpack cannot take the overlay loader's call (#346) */
+__fastcall__ unsigned long __unpack(unsigned long src);
+#define unpack __unpack
 
 #endif

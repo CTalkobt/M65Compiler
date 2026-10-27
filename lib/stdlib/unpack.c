@@ -5,7 +5,7 @@
 #include <unpack.h>
 #include <dma.h>
 
-__fastcall__ unsigned long unpack(unsigned long src) {
+__fastcall__ unsigned long __unpack(unsigned long src) {
     const unsigned char __far *p = (const unsigned char __far *)src;
     unsigned long dst, start;
     unsigned char t;

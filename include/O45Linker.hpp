@@ -338,6 +338,9 @@ public:
     // Calling convention thunk mode
     enum ThunkMode { THUNK_AUTO, THUNK_WARN, THUNK_ERROR };
     void setThunkMode(ThunkMode m) { thunkMode_ = m; }
+    // warn when a library object's reference binds to the program's own
+    // definition of a library function (#346; -Wno-override)
+    void setWarnOverride(bool on) { warnOverride_ = on; }
     void setSacOverlay(bool on) { sacOverlayOn_ = on; }
     // Drop pulled library members nothing live references (default on)
     void setGcObjects(bool on) { gcObjectsOn_ = on; }
@@ -509,6 +512,7 @@ private:
 
     // Warning stream (nullptr to suppress)
     std::ostream* warnStream_ = &std::cerr;
+    bool warnOverride_ = true;
 
     // Thunk mode and generated thunks
     ThunkMode thunkMode_ = THUNK_AUTO;
@@ -747,7 +751,9 @@ private:
     void validateImmediateRelocations(); // Phase 78.4: Validate immediate relocation symbols
     void computeSacOverlay();          // place SAC blocks so inactive functions share storage
     // the calls between functions (JSR/JMP) and the functions whose address is used otherwise
-    void buildCallGraph(std::map<std::string, std::set<std::string>>& graph, std::set<std::string>& addrTaken);
+    // (pointerCalls false: direct calls only, no edges for calls through pointers)
+    void buildCallGraph(std::map<std::string, std::set<std::string>>& graph, std::set<std::string>& addrTaken,
+                        bool pointerCalls = true);
     // place the functions' private base-page blocks (cc45 .zar) in $80-$E9 of
     // the program's base page, sharing between functions never active together
     bool computeZarOverlay(std::string& errorMsg);

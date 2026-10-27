@@ -1532,6 +1532,24 @@ for ovmode in "zp|$STDLIB||" "stack|$STDLIB_STACK|-fno-zpcall|" \
         failed=$((failed + 1))
     fi
 done
+# A program's own unpack() in an overlay, overlays packed (#346): the
+# loader unpacks with the library's __unpack (in attic RAM too)
+for oumode in "zp|$STDLIB||" "stack|$STDLIB_STACK|-fno-zpcall|" "zp_attic|$STDLIB||--overlay-store=0x8000000-0x800FFFF"; do
+    IFS='|' read -r ouname oulib ouflags oulink <<< "$oumode"
+    echo "Testing a program's own unpack() with packed overlays ($ouname)..."
+    oud=build/test/overlay_own_unpack_$ouname
+    rm -rf $oud; mkdir -p $oud
+    if $CC $ouflags -c src/test-resources/overlay/own_unpack_main.c -o $oud/main.o45 >/dev/null 2>&1 &&
+       $CC $ouflags -c src/test-resources/overlay/own_unpack_ovl.c -o $oud/ovl.o45 >/dev/null 2>&1 &&
+       $LD -basic --pack-overlays $oulink -o $oud/ownunp.prg $oud/main.o45 $oud/ovl.o45 $oulib >/dev/null 2>&1 &&
+       ./bin/disk45 create $oud/ou.d81 -n OWNUNP >/dev/null 2>&1 &&
+       ./bin/disk45 add $oud/ou.d81 $oud/ownunp.ov1 OWNUNP.OV1 >/dev/null 2>&1; then
+        run_xemu_test "test_overlay_own_unpack_$ouname" "$oud/ownunp.prg" "C0C0" 2 "01 AA" -8 "$PWD/$oud/ou.d81"
+    else
+        echo "FAIL: a program's own unpack() with packed overlays $ouname (build or link failed)"
+        failed=$((failed + 1))
+    fi
+done
 # Code overlays kept in attic RAM (#315), loaded through bank 4
 # (--overlay-staging): both overlays come back right after far_attic_enable
 # hands out the rest of the range (all of it written), which leaves the

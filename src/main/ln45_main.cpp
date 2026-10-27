@@ -66,6 +66,8 @@ static void printUsage(const char* progName) {
     std::cout << "                        second build with cc45 -fzp-plan=FILE" << std::endl;
     std::cout << "                 (default 4096; $1000, 0x1000 or decimal)" << std::endl;
     std::cout << "  -Wthunk        Warn (but still generate thunks) on convention mismatches" << std::endl;
+    std::cout << "  -Wno-override  No warning when the program's own definition of a library function" << std::endl;
+    std::cout << "                 takes a library object's call (a program's putchar for printf)" << std::endl;
     std::cout << "  -v             Log to stderr ([ln45:INFO] ...): the cross-module analysis and" << std::endl;
     std::cout << "                 informational warnings (unused global symbols, SAC overlay)" << std::endl;
     std::cout << "  -vv            As -v, plus the call graph's calls through pointers (DEBUG)" << std::endl;
@@ -109,6 +111,7 @@ int main(int argc, char** argv) {
     std::vector<std::string> libFiles;
     std::vector<std::string> libSearchPaths;
     O45Linker::ThunkMode thunkMode = O45Linker::THUNK_AUTO;
+    bool warnOverride = true;
     bool sacOverlay = true;
 
     // Add paths from CC45_LIB environment variable
@@ -245,6 +248,8 @@ int main(int argc, char** argv) {
             bssFill = (int)fv;
         }
         else if (arg == "-Wthunk") { thunkMode = O45Linker::THUNK_WARN; }
+        else if (arg == "-Wno-override") { warnOverride = false; }
+        else if (arg == "-Woverride") { warnOverride = true; }
         else if (arg.length() > 4 && arg.substr(arg.length() - 4) == ".lib") { libFiles.push_back(arg); }
         else inputFiles.push_back(arg);
     }
@@ -279,6 +284,7 @@ int main(int argc, char** argv) {
     if (bssBaseSet)  linker.setBssBase(bssBase);
     if (zpBaseSet)   linker.setZpBase(zpBase);
     linker.setThunkMode(thunkMode);
+    linker.setWarnOverride(warnOverride);
     linker.setSacOverlay(sacOverlay);
     linker.setGcObjects(gcObjects);
     linker.setGcInputs(gcInputs);

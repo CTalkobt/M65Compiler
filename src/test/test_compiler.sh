@@ -573,6 +573,28 @@ else
     failed=$((failed + 1))
 fi
 
+# #346: the overlay loader (__ovl_init, before main) reaching an overlay's
+# function is a link error (here a program's own __unpack in an overlay,
+# packed overlays); a program's own definition of a library function taking
+# a library object's call warns, unless -Wno-override
+ou=build/test/ovl_reach
+mkdir -p $ou
+printf 'int main(void) { return 0; }\n' > $ou/main.c
+printf '#pragma cc45 overlay(one)\nunsigned long __unpack(unsigned long s) { return s; }\n' > $ou/ovl.c
+printf '#include <stdio.h>\nint putchar(int c) { return c; }\nint main(void) { printf("%%d", 1); return 0; }\n' > $ou/pc.c
+OU_ERR=$(./bin/cc45 -O2 -c $ou/main.c -o $ou/main.o45 2>&1 && ./bin/cc45 -O2 -c $ou/ovl.c -o $ou/ovl.o45 2>&1 &&
+         ./bin/ln45 -basic --pack-overlays -o $ou/p.prg $ou/main.o45 $ou/ovl.o45 lib/build/c45.lib 2>&1)
+OU_W1=$(./bin/cc45 -O2 $ou/pc.c -o $ou/pc.prg 2>&1)
+OU_W2=$(./bin/cc45 -O2 -Wl,-Wno-override $ou/pc.c -o $ou/pc.prg 2>&1)
+if grep -q "'___unpack' (code overlay one) is reachable from the overlay loader (__ovl_init -> __ovl_unpacker -> __ovl_unpack -> ___unpack)" <<< "$OU_ERR" &&
+   grep -q "warning: '_putchar' of .* overrides the library's (.*asm_putchar.o45)), which .*vprintf.o45) uses" <<< "$OU_W1" &&
+   ! grep -q "overrides the library's" <<< "$OU_W2"; then
+    echo "SUCCESS: the overlay loader reaches no overlay; a program's library function overriding warns"
+else
+    echo "FAIL: overlay loader reach / override warning (#346): $OU_ERR | $OU_W1 | $OU_W2"
+    failed=$((failed + 1))
+fi
+
 # A bitfield wider than its type is an error, also after a comma and unnamed
 # (int e : 17 kept 16 bits without a word)
 bf_ok=1
