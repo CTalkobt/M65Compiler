@@ -1561,6 +1561,42 @@ else
     echo "FAIL: mapped overlays in attic RAM are not a link error"
     failed=$((failed + 1))
 fi
+# __bank(n) (#69): variables and functions kept in banks 4, 5 and attic
+# RAM, in the overlay files (three: bank 5, attic RAM through bank 5, bank
+# 4); a 16-bit reference to one is a link error
+for bkmode in "zp|$STDLIB|" "stack|$STDLIB_STACK|-fno-zpcall"; do
+    IFS='|' read -r bkname bklib bkflags <<< "$bkmode"
+    echo "Testing __bank(n) ($bkname)..."
+    bkd=build/test/bank_$bkname
+    rm -rf $bkd; mkdir -p $bkd
+    bkok=1
+    for f in bank_main bank_data; do
+        $CC $bkflags -c src/test-resources/bank/$f.c -o $bkd/$f.o45 >/dev/null 2>&1 || bkok=0
+    done
+    if [ $bkok = 1 ] && $LD -basic -o $bkd/bank.prg $bkd/bank_main.o45 $bkd/bank_data.o45 $bklib >/dev/null 2>&1 &&
+       ./bin/disk45 create $bkd/bank.d81 -n BANK >/dev/null 2>&1; then
+        for f in $bkd/bank.ov[0-9]; do
+            ./bin/disk45 add $bkd/bank.d81 $f "$(basename $f | tr a-z A-Z)" >/dev/null 2>&1 || bkok=0
+        done
+    else
+        bkok=0
+    fi
+    if [ $bkok = 1 ]; then
+        run_xemu_test "test_bank_$bkname" "$bkd/bank.prg" "C0C0" 6 "01 01 01 01 01 AA" -8 "$PWD/$bkd/bank.d81"
+    else
+        echo "FAIL: __bank(n) $bkname (build or link failed)"
+        failed=$((failed + 1))
+    fi
+done
+if $AS -c src/test-resources/bank/bank_ref16.s45 -o build/test/bank_zp/bank_ref16.o45 >/dev/null 2>&1 &&
+   $LD -basic -o build/test/bank_zp/ref16.prg build/test/bank_zp/bank_main.o45 build/test/bank_zp/bank_data.o45 \
+       build/test/bank_zp/bank_ref16.o45 $STDLIB 2>&1 | grep -q "'_cnt' is kept in bank 4 (__bank): .* 16-bit address"; then
+    echo "SUCCESS: a 16-bit reference to a __bank variable is a link error"
+    passed=$((passed + 1))
+else
+    echo "FAIL: a 16-bit reference to a __bank variable is not a link error"
+    failed=$((failed + 1))
+fi
 # Several objects in one code overlay (#328): two C files and an asm file
 # share overlay a (each exports its marker cc45.overlay.a: no duplicate
 # symbol), overlay b calls into it; copied and mapped, both conventions

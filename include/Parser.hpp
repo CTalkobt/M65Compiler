@@ -104,6 +104,10 @@ private:
     // section("NAME") seen in the declaration (Issue #70); the sections the
     // file declares (#pragma section: .cc45_section NAME [address])
     std::string pendingSection_;
+    int pendingBank_ = -1;                  // __bank(n) (#69)
+    size_t pendingBankTok_ = 0;
+    int takePendingBank();                  // a variable's / function's (and checked)
+    std::map<std::string, int> functionBanks_;   // a function's __bank (its prototype's)
     bool pendingSectionStrict_ = false;     // __section: the section must be declared
     size_t pendingSectionTok_ = 0;          // (its messages point at it)
     std::set<std::string> sections_;

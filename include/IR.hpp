@@ -243,6 +243,7 @@ struct Function {
     bool isNaked = false;
     bool isRegparm = false;
     bool isFar = false;      // __far: emitted in the "far" text segment
+    int bank = -1;           // __bank(n) (#69): "far.n", kept in bank n
     std::string section;     // __section("NAME") (Issue #70): emitted in the text segment "sect.NAME"
     bool isNested = false;
     bool coldAtEnd = false;  // the cold blocks are the last ones (optimizeBlockReorder)
@@ -370,6 +371,10 @@ struct Module {
         // __section("NAME") (Issue #70): ln45 places it in the section NAME
         // (no storage here; an initial value is copied there at startup)
         std::string section;
+        // __bank(n) (#69): kept in bank n, in the text sub-segment "bank.n"
+        int bank = -1;
+        // a 4-byte far address: initLabels[0] as a .dword (a banked object's)
+        bool farLabel = false;
     };
     std::vector<GlobalVar> globals;
     // #pragma section("NAME"[, address]): the sections the file declares

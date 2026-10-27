@@ -518,11 +518,13 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         }
     }
 
-    // Also check .word directives that reference symbols
+    // Also check .word (and .dword / .long: 32-bit, R_LINEAR32) directives
+    // that reference symbols
     for (const auto& stmt : parser.statements) {
         if (stmt->deleted || stmt->size == 0) continue;
         if (stmt->type != AssemblerParser::Statement::DIRECTIVE) continue;
-        if (stmt->dir.name != "word") continue;
+        if (stmt->dir.name != "word" && stmt->dir.name != "dword" && stmt->dir.name != "long") continue;
+        const uint32_t width = stmt->dir.name == "word" ? 2 : 4;
         parser.currentLocalScope_ = stmt->localLabelScope;
 
         std::string srcSeg = stmt->segmentName;
@@ -546,8 +548,8 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
             }
             Symbol* sym = parser.resolveSymbol(arg, stmt->scopePrefix);
             // For 32-bit symbols in .word directives, skip (they should use .dword)
-            if (!sym) { patchAddr += 2; continue; }
-            if (sym->value > 0xFFFF) {
+            if (!sym) { patchAddr += width; continue; }
+            if (sym->value > 0xFFFF && width == 2) {
                 // .word is 16-bit; 32-bit symbols require .dword
                 patchAddr += 2;
                 continue;
@@ -557,15 +559,15 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
             std::string targetSeg;
             if (!isExtern) {
                 targetSeg = sym->segment;
-                if (targetSeg.empty()) { patchAddr += 2; continue; }
+                if (targetSeg.empty()) { patchAddr += width; continue; }
                 // (blk_end-blk: a constant; 2*blk: an error)
                 if (ti >= 0 && parser.isRelocatableSymbolIn(arg, stmt->scopePrefix) &&
-                    !relocatedAs(stmt.get(), ti, targetSeg)) { patchAddr += 2; continue; }
+                    !relocatedAs(stmt.get(), ti, targetSeg)) { patchAddr += width; continue; }
             }
 
             O45Reloc reloc;
             reloc.offset = patchAddr - srcBase;
-            reloc.type = R_WORD;
+            reloc.type = width == 4 ? R_LINEAR32 : R_WORD;
 
             if (isExtern) {
                 reloc.segment = SEG_EXTERNAL;
@@ -575,7 +577,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
             }
 
             segRelocs[srcSeg].push_back(reloc);
-            patchAddr += 2;
+            patchAddr += width;
         }
     }
 
@@ -902,6 +904,13 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
                     }
                     case R_LOW:
                         body[r.offset] = (uint8_t)(body[r.offset] + delta);
+                        break;
+                    case R_LINEAR32:   // (.dword: a __bank variable's far address, #69)
+                        if (r.offset + 3 < body.size()) {
+                            uint32_t v = (uint32_t)(body[r.offset] | (body[r.offset + 1] << 8) | (body[r.offset + 2] << 16) |
+                                                    ((uint32_t)body[r.offset + 3] << 24)) + (uint32_t)delta;
+                            for (int k = 0; k < 4; k++) body[r.offset + k] = (uint8_t)(v >> (8 * k));
+                        }
                         break;
                     default: break;
                 }

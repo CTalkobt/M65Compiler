@@ -563,6 +563,19 @@ private:
     uint32_t textAddrOf(const struct InputObject& in, uint32_t origOff) const;
     size_t ovlUserCount_ = 0;     // overlays named by the objects (.overlay); the rest: __far code
     bool hasFar_ = false;         // some object has __far code (a "far" text sub-segment)
+    // __bank(n) (#69): the 64 KB bank an overlay must be kept in (-1: any;
+    // __bank(n) functions' "far.n" code), and data overlays (the "bank.n"
+    // variables: never run, their symbols at their far addresses)
+    std::vector<int> ovlBank_;
+    std::vector<bool> ovlData_;
+    bool hasBanked_ = false;      // some object has "bank.n" / "far.n" text
+    bool isDataOvl(int ovl) const { return ovl > 0 && (size_t)ovl <= ovlData_.size() && ovlData_[ovl - 1]; }
+    // where the overlays are kept: the store ranges cut at banks, how far
+    // each is filled, each overlay's part (placeOverlayStore)
+    std::vector<std::pair<uint32_t, uint32_t>> storeParts_;
+    std::vector<uint32_t> storeCur_;
+    std::vector<size_t> ovlPartOf_;
+    bool placeOverlayStore(std::string& errorMsg);
     void assignOverlays();
     bool placeOverlayRegion(std::string& errorMsg);
     bool generateOverlayStubs(std::string& errorMsg);

@@ -92,7 +92,10 @@ lines per overlay. Examples `examples/c/overlays` and
 test `src/test-resources/overlay/`. **`__far` functions**: cc45 emits them in the
 text sub-segment `far`; ln45 packs each object's `far` chunk into automatic
 mapped overlays `far1`, `far2`, … (8 KB, 16 KB if a chunk needs it; per-chunk
-overlay: `TextRemap::ovl`, `InputObject::ovlAt`); test `src/test-resources/far/`.
+overlay: `TextRemap::ovl`, `InputObject::ovlAt`); test `src/test-resources/far/`. **`__bank(n)`** (#69): a
+variable in bank 4/5 or attic RAM (text sub-segment `bank.n`: a data overlay `bankN`, never run, its symbols
+at their far addresses, reached in C as a far object through a hidden `.dword`) or a `__far` function whose
+overlay is kept in bank n (`far.n`); placed by `placeOverlayStore`; test `src/test-resources/bank/`.
 
 ### Calling Conventions (details: `doc/architecture/calling-conventions.md`)
 
@@ -231,7 +234,7 @@ not change what is tested; a test's own later `-O` still wins. Use an
 explicit `-O<n>` in ad-hoc test commands too.
 
 - `make test` — unit tests (no emulator).
-- `bash src/test/test_xemu.sh` (`make test-xemu`) — runtime tests on xemu (720 pass, about 1.5 minutes): each
+- `bash src/test/test_xemu.sh` (`make test-xemu`) — runtime tests on xemu (723 pass, about 1.5 minutes): each
   `*_xemu.c` writes results to `$C0C0` (01 = pass, `$AA` sentinel), built in
   both conventions. New runtime tests follow this pattern and are registered
   in `test_xemu.sh`, most as one line: `xemu_case "FAIL message" <compile_link_test

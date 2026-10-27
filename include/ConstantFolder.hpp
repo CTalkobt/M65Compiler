@@ -451,6 +451,7 @@ public:
         decl->addressSpace = node.addressSpace;  // Phase 97: Preserve address space qualifier
         decl->isNoescape = node.isNoescape;
         decl->section = node.section;
+        decl->bank = node.bank;
         decl->isStriped = node.isStriped;
         lastStmt = std::move(decl);
     }

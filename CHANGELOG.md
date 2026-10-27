@@ -4,6 +4,23 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### `__bank(n)` (#69)
+
+- `__bank(n)` keeps a file-scope variable in bank 4 or 5 or in attic RAM
+  (`$800`-`$87F`), or a function's code in bank 4 or 5. ln45 writes the
+  variables (initial values or zeros) into the overlay files as data
+  overlays kept in their bank, which the program loads at start; C reaches
+  them as far objects (`x[i]`, `x.m`, `x op= v`, `&x`, `sizeof x`) through a
+  hidden 4-byte address. A banked function is a `__far` function whose
+  overlay is kept in that bank. A 16-bit reference to a banked variable is
+  a link error. Test `src/test-resources/bank/`;
+  `doc/bin/cc45.md#__bankn`, `doc/bin/ln45.md#__bankn-variables-and-functions`.
+- ca45: `.dword sym` / `.long sym` make an `R_LINEAR32` relocation (the
+  symbol's 32-bit address; they were rejected).
+- ln45 places the overlays in far memory before resolving symbols
+  (`placeOverlayStore`); an overlay can be kept in a given bank.
+- cc45 warns when a far pointer becomes a 16-bit pointer without a cast.
+
 ### Far and near pointers (#68)
 
 - `T __far *p` (or `__far T *p`): a pointer to any of the MEGA65's 28-bit

@@ -541,6 +541,14 @@ private:
         bool near = false;       // reached through a near pointer (base page)
     };
     bool farUsed_ = false;            // a far pointer type was seen (mapType)
+    // __bank(n) variables (#69): reached as far objects through a hidden
+    // 4-byte address (a static global of this file, .dword <sym>)
+    struct BankedVar {
+        std::string ref;      // the hidden address's symbol
+        FarElem elem;
+    };
+    std::map<std::string, BankedVar> bankedVars_;
+    void declareBanked(VariableDeclaration& node);
     std::string farTempName_;         // the hidden far pointer of one operation
     std::string farTypeOf(Expression* e);
     FarElem farPointeeOf(const std::string& farType);

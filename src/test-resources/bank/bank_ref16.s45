@@ -1,0 +1,8 @@
+; bank_ref16.s45 — a 16-bit reference to a __bank(n) variable: a link error
+; (only its far address reaches it)
+        .extern _cnt
+        .global _ref16
+proc _ref16
+        lda _cnt
+        rts
+endproc
