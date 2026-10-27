@@ -2402,18 +2402,48 @@ void O45Linker::buildCallGraph(std::map<std::string, std::set<std::string>>& gra
             if (it != labels.end()) out = it->second;
         };
 
+        // A JSR/JMP into a function's body (ca45's tail deduplication: a
+        // tail shared with another function) runs the calls made from there
+        // on: they are calls of the jumping function too
+        std::map<uint32_t, std::vector<std::string>> callsAt;   // call site -> callees
+        std::vector<std::pair<uint32_t, uint32_t>> innerJumps;  // site -> target (no label there)
         std::vector<std::string> tgt;
         for (const auto& r : O45RelocDecoder::decode(input.obj.textRelocs)) {
             targets(r, input.obj.textBody, tgt);
-            if (tgt.empty()) continue;
             uint8_t op = (r.offset > 0 && r.offset - 1 < input.obj.textBody.size())
                          ? input.obj.textBody[r.offset - 1] : 0;
-            if (r.type == R_WORD && (op == 0x20 || op == 0x4C)) {   // JSR / JMP
+            bool call = r.type == R_WORD && (op == 0x20 || op == 0x4C);   // JSR / JMP
+            if (tgt.empty()) {
+                if (call && r.segment == SEG_TEXT && r.offset + 1 < input.obj.textBody.size())
+                    innerJumps.push_back({r.offset, (uint32_t)((input.obj.textBody[r.offset] |
+                        (input.obj.textBody[r.offset + 1] << 8)) - input.obj.tbase) & 0xFFFF});
+                continue;
+            }
+            if (call) {
+                callsAt[r.offset] = tgt;
                 if (const auto* own = owners(r.offset))
                     for (const auto& o : *own)
                         for (const auto& t : tgt) graph[o].insert(t);
             } else {
                 addrTaken.insert(tgt.begin(), tgt.end());
+            }
+        }
+        for (const auto& [site, target] : innerJumps) {
+            const auto* own = owners(site);
+            if (!own) continue;
+            std::set<uint32_t> seen;
+            std::vector<uint32_t> todo{target};
+            while (!todo.empty()) {
+                uint32_t from = todo.back();
+                todo.pop_back();
+                if (!seen.insert(from).second) continue;
+                auto next = labels.upper_bound(from);   // the end of the function jumped into
+                uint32_t end = next == labels.end() ? 0x10000 : next->first;
+                for (auto it = callsAt.lower_bound(from); it != callsAt.end() && it->first < end; ++it)
+                    for (const auto& o : *own)
+                        for (const auto& t : it->second) graph[o].insert(t);
+                for (const auto& [s2, t2] : innerJumps)
+                    if (s2 >= from && s2 < end) todo.push_back(t2);
             }
         }
         for (const auto& r : O45RelocDecoder::decode(input.obj.dataRelocs)) {

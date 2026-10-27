@@ -620,7 +620,7 @@ test-opcodes: all
 
 # O45 format unit test
 TEST_O45_TARGET = $(BIN_DIR)/test_o45
-TEST_O45_OBJECTS = $(OBJ_DIR)/test_o45.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45DebugSections.o $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45IRSerializer.o $(OBJ_DIR)/O45Linker.o $(OBJ_DIR)/Logger.o $(OBJ_DIR)/O45Archive.o
+TEST_O45_OBJECTS = $(OBJ_DIR)/test_o45.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45DebugSections.o $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45IRSerializer.o $(OBJ_DIR)/O45Linker.o $(OBJ_DIR)/Logger.o $(OBJ_DIR)/O45Archive.o $(OBJ_DIR)/Pack45.o
 
 $(TEST_O45_TARGET): $(TEST_O45_OBJECTS)
 	@mkdir -p $(BIN_DIR)
