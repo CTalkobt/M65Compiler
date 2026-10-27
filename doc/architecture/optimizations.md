@@ -168,7 +168,9 @@ stored. A game's map accessors: 89 → 70 and 278 → 170 bytes
 
 **Known bits** (#350, `KnownBits.cpp`, computed per function by
 `IRCodeGen`; `CC45_NO_KNOWN_BITS=1` turns it off): for each vreg defined
-once (not a local's slot) the bits known to be 0, from constants,
+once, and each local assigned once (one store, its address not taken, not
+a parameter: the stored value's bits; a read before the store reads an
+undefined value), the bits known to be 0, from constants,
 zero-extensions, shifts and `and`/`or`/`xor`, and the bounds of adds and
 multiplications (`(unsigned)y << 9` has a zero low byte, `x << 2` of a char
 fits 10 bits, `k * 4` has its low two bits clear). Code generation uses it

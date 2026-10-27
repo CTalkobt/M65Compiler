@@ -11,6 +11,9 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   without carries that cannot happen (copied bytes, `ora` for bits that
   cannot overlap), and far stores of `x + c` with `ora #c`. 351 bytes over
   the examples; test `test_known_bits_xemu.c` (both conventions).
+- Known bits for a local assigned once (`unsigned c = 0x1010 + k * 4;`
+  then `c + 1` is `ora #1`, the high byte copied): #348's `vm_set` 145 → 128
+  bytes.
 - A commutative operation whose second operand was just computed takes it
   first (still in A/X: no store and reload). 346 bytes more.
 - `x + c` whose `x` is not used after it is computed in `x`'s bytes: bytes

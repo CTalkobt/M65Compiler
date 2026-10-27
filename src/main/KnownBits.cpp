@@ -46,6 +46,33 @@ KnownBits computeKnownBits(const Function& fn) {
     auto known = [&](uint32_t v) {
         return defs[v] == 1 && !fn.localSlotVregs.count(v) && !fn.memoryVregs.count(v) && v >= fn.paramTypes.size();
     };
+    // a local assigned once (one store, nothing else writing it, its
+    // address not taken): its value's bits (#350: c = 0x1010 + k * 4, then
+    // c + 1). A read before the store reads an undefined value.
+    std::map<uint32_t, int> slotWrites;
+    std::map<uint32_t, Operand> slotValue;
+    std::set<uint32_t> addressed;
+    for (const auto& b : fn.blocks)
+        for (const auto& in : b.insts) {
+            if (in.op == Op::STORE && in.src2.isVreg() && in.args.empty() && fn.localSlotVregs.count(in.src2.vregId)) {
+                slotWrites[in.src2.vregId]++;
+                slotValue[in.src2.vregId] = in.src1;
+            } else if (in.op == Op::STORE && in.src2.isVreg() && fn.localSlotVregs.count(in.src2.vregId)) {
+                slotWrites[in.src2.vregId] += 2;   // (a fused element store: not the slot's value)
+            }
+            if (in.dest.isVreg() && in.op != Op::STORE && fn.localSlotVregs.count(in.dest.vregId)) slotWrites[in.dest.vregId] += 2;
+            if (in.op == Op::ADDR_LOCAL && in.src1.isVreg()) addressed.insert(in.src1.vregId);
+        }
+    for (auto it = slotValue.begin(); it != slotValue.end();) {
+        uint32_t v = it->first;
+        bool ok = slotWrites[v] == 1 && !addressed.count(v) && !fn.memoryVregs.count(v) && v >= fn.paramTypes.size() &&
+                  !fn.vregSizes.count(v);
+        it = ok ? std::next(it) : slotValue.erase(it);
+    }
+    auto slotType = [&](uint32_t v) {
+        auto t = fn.vregTypes.find(v);
+        return t == fn.vregTypes.end() ? Type::VOID : t->second;
+    };
     // (no cycle through single definitions but a loop's own value: an
     // iteration from "nothing known" only adds facts the operands give)
     for (int round = 0; round < 8; round++) {
@@ -110,6 +137,13 @@ KnownBits computeKnownBits(const Function& fn) {
                 auto it = kb.zero.find(in.dest.vregId);
                 if (it == kb.zero.end() ? z != 0 : it->second != z) { kb.zero[in.dest.vregId] = z; changed = true; }
             }
+        for (const auto& [v, val] : slotValue) {
+            int w = KnownBits::width(slotType(v));
+            if (w >= 64) continue;
+            uint64_t z = kb.of(val, w) & KnownBits::mask(w);
+            auto it = kb.zero.find(v);
+            if (it == kb.zero.end() ? z != 0 : it->second != z) { kb.zero[v] = z; changed = true; }
+        }
         if (!changed) break;
     }
     for (auto it = kb.zero.begin(); it != kb.zero.end();) it = it->second ? std::next(it) : kb.zero.erase(it);
