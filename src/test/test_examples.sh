@@ -297,7 +297,9 @@ test_text "tunes" "$EXAMPLES/c/tunes/tunescheck.prg" "TUNES CHECK OK: 30 TICKS" 
 
 unit_26() {   # glamlambs
 build_example "$EXAMPLES/c/glamlambs"
-test_text_disk "glamlambs" "$EXAMPLES/c/glamlambs/glamlambs.prg" "$EXAMPLES/c/glamlambs/glamlambs.d81" "SHEEP MAKEOVER GAME" 15
+# (the title is up within 2 s; after IDLE_T seconds the attract mode plays a
+# season and comes back: a later screen dump may show the field instead)
+test_text_disk "glamlambs" "$EXAMPLES/c/glamlambs/glamlambs.prg" "$EXAMPLES/c/glamlambs/glamlambs.d81" "SHEEP MAKEOVER GAME" 5
 # the self-playing build: a season in the field; its music loaded from the
 # disk into bank 5 and playing (the demo writes its state to $C0F0-$C0F3)
 make -C "$EXAMPLES/c/glamlambs" demo >/dev/null 2>&1
