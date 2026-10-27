@@ -23,6 +23,7 @@ Documents are separated by their function and scope:
 | `ln45` | Linker (`.o45` + `.lib` to PRG or flat binary) | [bin/ln45.md](bin/ln45.md) |
 | `ar45` | Archiver for `.lib` static libraries | [bin/ar45.md](bin/ar45.md) |
 | `nm45` | Symbol lister for `.o45`/`.o65` objects | [bin/nm45.md](bin/nm45.md) |
+| `pack45` | Packer for the library's `unpack()` (`<unpack.h>`) | [bin/pack45.md](bin/pack45.md) |
 | `objdump45` | Object file disassembler | [bin/objdump45.md](bin/objdump45.md) |
 | `disk45` | CBM disk/tape image utility | [bin/disk45.md](bin/disk45.md) |
 | `basic45` | BASIC program generator | [bin/basic45.md](bin/basic45.md) |
@@ -80,6 +81,7 @@ All documentation must follow these directory rules to keep it clean and avoid b
   - `ln45.md` (Linker)
   - `nm45.md` (Symbol Lister)
   - `objdump45.md` (Object Disassembler)
+  - `pack45.md` (Packer)
   - `CONFIGURATION.md` (Shared configuration file specification)
 - **`doc/architecture/`** contains only markdown files (`.md`); the only allowed subdirectory is `bug/`.
 - **`doc/architecture/bug/`** contains only bug reports and diagnostic logs ending in `.md`.

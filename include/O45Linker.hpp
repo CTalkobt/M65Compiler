@@ -371,6 +371,7 @@ public:
     void setZpPlanOut(const std::string& path) { zpPlanOut_ = path; }
     // overlay call stubs of 21 bytes, a few cycles faster than the 6-byte ones (#332)
     void setOverlayFastStubs(bool on) { ovlFastStubs_ = on; }
+    void setPackOverlays(bool on) { packOverlays_ = on; }
     void setOverlayFileName(const std::string& n) { ovlFileName_ = n; }
     const std::vector<std::vector<uint8_t>>& overlayFiles() const { return ovlFiles_; }
     const std::vector<uint8_t>& overlayDescription() const { return ovlDesc_; }   // the .ovd file
@@ -757,6 +758,11 @@ private:
     void buildZpPlan(std::map<std::string, std::set<std::string>>& reach, uint32_t area);
     std::string zpPlanOut_;
     bool ovlFastStubs_ = false;
+    // --pack-overlays (#345): the overlay files packed (Pack45.hpp), each
+    // file's record in __ovl_file at ovlFileRecOff_ (an offset in mergedText_)
+    bool packOverlays_ = false;
+    std::vector<size_t> ovlFileRecOff_;
+    std::vector<std::string> packNotes_;   // what was not packed, and why (verbose)
     // a function whose block shares bytes with a function active together
     // with it is reached through a wrapper that saves and restores them
     void generateZarWrappers();

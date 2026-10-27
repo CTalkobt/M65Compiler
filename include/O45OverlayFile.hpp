@@ -8,7 +8,10 @@
 //
 // <program>.ovd (the description, which the program never loads):
 //   "OVL45" 2                       signature, version
-//   region (2) flags (1) count (1)  where overlays run; bit 0: mapped
+//   region (2) flags (1) count (1)  where overlays run; bit 0: mapped,
+//                                   bit 1: code files packed (ln45
+//                                   --pack-overlays: load address, then a
+//                                   Pack45.hpp stream of the image)
 //   per overlay: file (1, 1: .ov1), offset in it (3), far address (3),
 //                length (2), name length (1), name
 //   symbol count (2)
@@ -21,6 +24,7 @@
 #include <iterator>
 #include <string>
 #include <vector>
+#include "Pack45.hpp"
 
 struct O45OverlayFile {
     struct Overlay {
@@ -34,6 +38,7 @@ struct O45OverlayFile {
     uint32_t loadAddress = 0;     // the far address of the first code file's first byte
     uint32_t region = 0;          // where the overlays run
     bool mapped = false;
+    bool packed = false;          // the code files are packed (Pack45.hpp): open() unpacks them
     std::vector<Overlay> overlays;
     std::vector<Symbol> symbols;
     std::vector<std::vector<uint8_t>> files;   // the code files read by open() (files[0]: .ov1)
@@ -48,7 +53,7 @@ struct O45OverlayFile {
         for (const char* p = kSig; *p; p++) d.push_back((uint8_t)*p);
         d.push_back(2);
         put(region, 2);
-        d.push_back(mapped ? 1 : 0);
+        d.push_back((mapped ? 1 : 0) | (packed ? 2 : 0));
         d.push_back((uint8_t)overlays.size());
         for (const auto& o : overlays) {
             d.push_back((uint8_t)o.file);
@@ -119,6 +124,16 @@ struct O45OverlayFile {
             std::vector<uint8_t> code;
             if (codeFileNumber(path) == i) code = f;
             else readFile(base + ".ov" + std::to_string(i), code);
+            // (a packed one: its load address and the image it unpacks to,
+            // starting with that address's low 16 bits)
+            if (out.packed && code.size() > 2 + pack45::kHeader && code[2] == pack45::kFormat) {
+                std::vector<uint8_t> img;
+                uint32_t dest = 0;
+                if (pack45::unpack(std::vector<uint8_t>(code.begin() + 2, code.end()), img, &dest)) {
+                    code = {(uint8_t)dest, (uint8_t)(dest >> 8)};
+                    code.insert(code.end(), img.begin(), img.end());
+                }
+            }
             out.files.push_back(code);
         }
         if (!out.files.empty() && out.files[0].size() >= 2 && !out.overlays.empty())
@@ -153,7 +168,9 @@ private:
             p += 5;
             if (get(1) != 2) { err = "unknown overlay file version"; return false; }
             out.region = get(2);
-            out.mapped = (get(1) & 1) != 0;
+            uint32_t fl = get(1);
+            out.mapped = (fl & 1) != 0;
+            out.packed = (fl & 2) != 0;
             uint32_t count = get(1);
             for (uint32_t i = 0; i < count; i++) {
                 Overlay o;
