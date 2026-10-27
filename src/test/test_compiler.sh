@@ -595,6 +595,27 @@ else
     failed=$((failed + 1))
 fi
 
+# #349: a __bank(n) variable is no function: an extern one (its address
+# through an import) was a target of every call through a pointer, so an
+# overlay passing __noescape data to a function reaching hand-written asm
+# warned "can call into code overlay bank5"; the map gives its bank and
+# offset (was the code region's arithmetic: "bank 9 $511F")
+bk=build/test/bank_cg
+mkdir -p $bk
+printf '__bank(5) const char names[] = "alpha";\n' > $bk/a.c
+printf 'extern __bank(5) const char names[];\nvoid asmhelp(void);\nchar first(void) { return names[0]; }\nvoid show(const char *s) { if (s[0]) asmhelp(); }\nint main(void) { return first() == 0x61 ? 0 : 1; }\n' > $bk/b.c
+printf '#pragma cc45 overlay(one)\nvoid show(const char *s);\n__noescape static const char msg[] = "hi";\nvoid in_ovl(void) { show(msg); }\n' > $bk/o.c
+printf '    .global _asmhelp\nproc _asmhelp\n    rts\nendproc\n' > $bk/h.s45
+BK_OUT=$(./bin/cc45 -O2 -c $bk/a.c -o $bk/a.o45 2>&1 && ./bin/cc45 -O2 -c $bk/b.c -o $bk/b.o45 2>&1 &&
+         ./bin/cc45 -O2 -c $bk/o.c -o $bk/o.o45 2>&1 && ./bin/ca45 -c $bk/h.s45 -o $bk/h.o45 2>&1 &&
+         ./bin/ln45 -basic -M $bk/m.map -o $bk/p.prg $bk/b.o45 $bk/a.o45 $bk/o.o45 $bk/h.o45 lib/build/c45.lib 2>&1)
+if [ -f $bk/p.prg ] && ! grep -q "__noescape" <<< "$BK_OUT" && grep -q '_names .*bank 5 \$0010' $bk/m.map; then
+    echo "SUCCESS: __bank variables take no part in the call graph; the map gives their bank"
+else
+    echo "FAIL: __bank variables in the call graph / map (#349): $BK_OUT $(grep _names $bk/m.map 2>/dev/null)"
+    failed=$((failed + 1))
+fi
+
 # #348: far accesses at constant offsets (Z from the offset, p + $100
 # shared), a base with a zero low word added without carries, the far
 # pointer in the base page: a game's map accessors stay small (were 89 and

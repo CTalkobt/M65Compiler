@@ -2490,6 +2490,20 @@ void O45Linker::buildCallGraph(std::map<std::string, std::set<std::string>>& gra
             addrTaken.insert(tgt.begin(), tgt.end());
         }
     }
+    // __bank(n) variables (a data overlay, never run, #69) are no functions:
+    // no calls to them, none of theirs, no address of a function (#349: an
+    // extern one, reached through an import, was a target of every call
+    // through a pointer)
+    auto dataSym = [this](const std::string& n) {
+        auto o = symOvl_.find(n);
+        return o != symOvl_.end() && isDataOvl(o->second);
+    };
+    for (auto it = addrTaken.begin(); it != addrTaken.end();) it = dataSym(*it) ? addrTaken.erase(it) : std::next(it);
+    for (auto it = graph.begin(); it != graph.end();) {
+        if (dataSym(it->first)) { it = graph.erase(it); continue; }
+        for (auto c = it->second.begin(); c != it->second.end();) c = dataSym(*c) ? it->second.erase(c) : std::next(c);
+        ++it;
+    }
 
     // Calls through pointers: a function that makes them (cc45:
     // cc45.icall.<f>; any label of an object not made by cc45, or made by a
@@ -4566,8 +4580,9 @@ void O45Linker::writeMap(std::ostream& out) const {
                 auto srcIt = symbolSource_.find(n);
                 auto st = ovlStubs_.find(n);
                 if (st != ovlStubs_.end()) snprintf(stub, sizeof(stub), "  (stub $%04X)", st->second);
+                // (a __bank variable's address is where it is kept, #349)
                 snprintf(buf, sizeof(buf), "    $%04X  %-30s %-14s %s%s\n", a, n.c_str(),
-                         far(ovlAt_[i] + (a - ovlBase_)).c_str(),
+                         far(isDataOvl((int)i + 1) ? a : ovlAt_[i] + (a - ovlBase_)).c_str(),
                          srcIt != symbolSource_.end() ? srcIt->second.c_str() : "", stub);
                 out << buf;
             }
