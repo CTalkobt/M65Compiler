@@ -13,8 +13,9 @@
  * Both show a VIC-IV full-colour (FCM) screen: a byte a pixel, the byte the
  * palette entry. A page is 64000 bytes in bank 4 or 5 (far_malloc, taken by
  * tgi_install, given back by tgi_uninstall: far_malloc, overlays and conio's
- * full-colour mode keep the rest); its screen (2000 bytes) comes from
- * malloc. The two-page driver takes most of both banks.
+ * full-colour mode keep the rest); so is its screen (2000 bytes).
+ * The two-page driver takes most of both banks: its screens come from
+ * malloc.
  *
  * Colours are palette indices 0-255 (tgi_getcolorcount returns 0: 256).
  * The palette at tgi_install is the default: entries 0-15 are the C64's

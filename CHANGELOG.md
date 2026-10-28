@@ -4,6 +4,18 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### `<tgi.h>` smaller
+
+- A program that only plots: 6,097 → 4,832 bytes. The one-page driver
+  links no `malloc` (the two-page driver's heap functions are in its own
+  member, `tgi_fcm2.c`; `tgi.c`'s weak defaults, in assembly: cc45 folds a
+  weak C body into its callers); `tgi_load_driver` is a member of its own
+  (`tgi_load.c`), so `tgi_static_stddrv` alone links one driver; the kernel
+  variables are one block (`stdlib_asm/tgi_vars.s45`): `tgi_install` is a
+  `memcpy` and a `memset`; the default palette is made when asked for (no
+  256-byte table), and `tgi_init` / `tgi_done` restore the saved palette only
+  after `tgi_setpalette`, so a program that sets none links neither.
+
 ### The chip RAM far heap in assembly
 
 - `far_malloc`, `far_free`, `far_size_long`, `far_reserve`, `bank_reset`
