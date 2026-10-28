@@ -257,10 +257,19 @@ Ethernet buffer at `$6800`, bank 4 at `$8000`, bank 1 at `$0000`-`$7FFF`
 (an offset moves only the slabs whose bit is set: the program says so when
 one is set and no slab uses it). Keys: CRSR up / down chooses
 a value, CRSR left / right or + / - changes it, 0-9 / A-F type it in hex, P
-the next preset, Q quits. `make check` builds a test of the decoder and the
-drawing (9 checks at `$C0C0`) and one that runs the editor by keys pressed
+the next preset, Q quits. Four pages (any key goes back): F1 or `?` the keys
+and a summary of the registers (MAP's A / X / Y / Z, `$01`'s bits, `$D030`'s
+ROM bits, the priority); F3 or CTRL+D each block in detail (the CPU range,
+the 28-bit address, which mechanism put it there, what is there); F5 or
+CTRL+B a BASIC 65 program that sets the configuration up (`BANK 128`, the
+routine POKEd to `$1600` from DATA, `SYS $1600`: dangerous, as BASIC 65 needs
+its own map); F7, CTRL+M, M or RETURN that routine as machine code (`$D030`,
+then `$01`, then a MAP for the megabytes if any, the MAP, EOM, RTS; interrupts
+left off). B and D are hex digits, so their pages take CTRL; CTRL+M arrives
+as 13, the same as RETURN. `make check` builds a test of the decoder and the
+drawing (10 checks at `$C0C0`, the routine's bytes among them) and one that runs the editor by keys pressed
 through the virtual key registers (`$D615`: through the keyboard scanner, as
-typed), then checks the values and the screen (4 checks).
+typed), then checks the values, the screen and the pages each key opens (5 checks).
 
 ![map_decode](images/map_decode.png)
 
