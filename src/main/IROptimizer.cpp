@@ -1219,6 +1219,94 @@ void optimizeAlgebraic(Module& mod) {
         for (auto& block : fn.blocks)
             for (auto& inst : block.insts) constantSecond(inst, constVals);
 
+        // (x + c1) + c2 as x + (c1 + c2), likewise with subtracts (#351:
+        // pl.items[7] is @_pl + 11 + 7, one address @_pl+18; #353: x - 25 +
+        // 23 is x - 2). Modular arithmetic: the same at any width, the
+        // constant wrapped to the type. Only when the inner operation is
+        // defined once and its own operand (x) is a global, a constant or a
+        // value defined once: a local's slot could change between the two.
+        {
+            std::map<uint32_t, Inst*> def1;
+            for (auto& b : fn.blocks)
+                for (auto& in : b.insts)
+                    if (in.dest.isVreg() && defCount[in.dest.vregId] == 1 && !fn.localSlotVregs.count(in.dest.vregId) &&
+                        !fn.memoryVregs.count(in.dest.vregId))
+                        def1[in.dest.vregId] = &in;
+            auto stable = [&](const Operand& o) {
+                return o.kind == OperandKind::GLOBAL || o.isImm() ||
+                       (o.isVreg() && defCount[o.vregId] == 1 && !fn.localSlotVregs.count(o.vregId) &&
+                        !fn.memoryVregs.count(o.vregId) && o.vregId >= fn.paramTypes.size());
+            };
+            // an add / sub of a constant: its operand and the signed constant
+            auto split = [&](const Inst& in, Operand& x, int64_t& c) {
+                if (in.op == Op::ADD && in.src2.isImm()) { x = in.src1; c = in.src2.immVal; return true; }
+                if (in.op == Op::ADD && in.src1.isImm()) { x = in.src2; c = in.src1.immVal; return true; }
+                if (in.op == Op::SUB && in.src2.isImm()) { x = in.src1; c = -in.src2.immVal; return true; }
+                return false;
+            };
+            auto width = [](Type t) { return t == Type::I8 ? 8 : t == Type::I32 ? 32 : t == Type::I16 || t == Type::PTR ? 16 : 0; };
+            for (auto& b : fn.blocks)
+                for (auto& in : b.insts) {
+                    Operand x, y;
+                    int64_t c2, c1;
+                    if (!split(in, x, c2) || !x.isVreg() || !in.args.empty()) continue;
+                    auto d = def1.find(x.vregId);
+                    if (d == def1.end() || !d->second->args.empty() || !split(*d->second, y, c1) || !stable(y)) continue;
+                    int w = width(in.resultType);
+                    if (!w || width(d->second->resultType) != w) continue;
+                    if (y.isVreg() && width(y.type) && width(y.type) != w) continue;   // (no width change between)
+                    uint64_t m = w == 32 ? 0xFFFFFFFFull : ((1ull << w) - 1);
+                    int64_t c = c1 + c2;
+                    trace("algebraic", fn.name, "v" + std::to_string(in.dest.vregId) + " = (x " +
+                          (c1 < 0 ? "- " + std::to_string(-c1) : "+ " + std::to_string(c1)) + ") " +
+                          (c2 < 0 ? "- " + std::to_string(-c2) : "+ " + std::to_string(c2)) + " → x " +
+                          (c < 0 ? "- " + std::to_string(-c) : "+ " + std::to_string(c)), in.loc);
+                    Type ct = in.resultType == Type::PTR ? Type::I16 : in.resultType;
+                    in.src1 = y;
+                    if (c < 0) { in.op = Op::SUB; in.src2 = Operand::imm((int64_t)((uint64_t)(-c) & m), ct); }
+                    else { in.op = Op::ADD; in.src2 = Operand::imm((int64_t)((uint64_t)c & m), ct); }
+                }
+            // (x & c1) & c2 as x & (c1 & c2), likewise | and ^; (x << c1) <<
+            // c2 as x << (c1 + c2), likewise >> (logical or arithmetic: the
+            // same operation both times), while the sum stays below the width
+            auto bitwise = [](Op o) { return o == Op::AND || o == Op::OR || o == Op::XOR; };
+            auto shift = [](Op o) { return o == Op::SHL || o == Op::LSL || o == Op::SHR || o == Op::LSR || o == Op::ASR; };
+            auto splitOp = [&](const Inst& in, Operand& x, int64_t& c) {
+                if (!bitwise(in.op) && !shift(in.op)) return false;
+                if (in.src2.isImm()) { x = in.src1; c = in.src2.immVal; return true; }
+                if (bitwise(in.op) && in.src1.isImm()) { x = in.src2; c = in.src1.immVal; return true; }
+                return false;
+            };
+            for (auto& b : fn.blocks)
+                for (auto& in : b.insts) {
+                    Operand x, y;
+                    int64_t c2, c1;
+                    if (!splitOp(in, x, c2) || !x.isVreg() || !in.args.empty()) continue;
+                    auto d = def1.find(x.vregId);
+                    if (d == def1.end() || d->second->op != in.op || !d->second->args.empty() ||
+                        !splitOp(*d->second, y, c1) || !stable(y))
+                        continue;
+                    int w = width(in.resultType);
+                    if (!w || width(d->second->resultType) != w) continue;
+                    if (y.isVreg() && width(y.type) && width(y.type) != w) continue;
+                    uint64_t m = w == 32 ? 0xFFFFFFFFull : ((1ull << w) - 1);
+                    int64_t c;
+                    if (shift(in.op)) {
+                        if (c1 < 0 || c2 < 0 || c1 + c2 >= w) continue;
+                        c = c1 + c2;
+                    } else {
+                        c = in.op == Op::AND ? (c1 & c2) : in.op == Op::OR ? (c1 | c2) : (c1 ^ c2);
+                        c = (int64_t)((uint64_t)c & m);
+                    }
+                    trace("algebraic", fn.name, "v" + std::to_string(in.dest.vregId) + " = a chain of " +
+                          opName(in.op) + " by constants → one, by " + std::to_string(c), in.loc);
+                    Type ct = in.resultType == Type::PTR ? Type::I16 : in.resultType;
+                    if (shift(in.op) && in.src2.isImm()) ct = in.src2.type;
+                    in.src1 = y;
+                    in.src2 = Operand::imm(c, ct);
+                }
+        }
+
         // Helper: get constant value of an operand, if known
         auto getConst = [&](const Operand& op, int64_t& out) -> bool {
             if (op.isImm()) { out = op.immVal; return true; }
@@ -4159,6 +4247,87 @@ void orderCommutativeOperands(Module& mod) {
                     std::swap(in.src1, in.src2);
                 }
                 prev = &in;
+            }
+        }
+    }
+}
+
+// x / c and x % c of the same x and constant c in a block (#352: k % 3, k
+// / 3 made two calls of the divide): the divide once, before both, and
+// x % c as x - (x / c) * c (C's truncating division: the same for signed
+// values), the multiply by a constant shifts and adds. Only when x is not
+// written between them and both results are defined once. Under
+// StrengthReduction's switch.
+void optimizeShareDivMod(Module& mod) {
+    for (auto& fn : mod.functions) {
+        if (!runOn(fn, "StrengthReduction")) continue;
+        std::map<uint32_t, int64_t> constVals = singleDefConsts(fn);
+        std::map<uint32_t, int> defCount;
+        for (const auto& b : fn.blocks)
+            for (const auto& in : b.insts) {
+                if (in.dest.isVreg()) defCount[in.dest.vregId]++;
+                if ((in.op == Op::STORE || in.op == Op::STORE_ZP) && in.src2.isVreg()) defCount[in.src2.vregId] += 2;
+            }
+        auto constOf = [&](const Operand& o, int64_t& v) {
+            if (o.isImm()) { v = o.immVal; return true; }
+            if (o.isVreg() && constVals.count(o.vregId)) { v = constVals[o.vregId]; return true; }
+            return false;
+        };
+        for (auto& b : fn.blocks) {
+            for (size_t i = 0; i < b.insts.size(); i++) {
+                Inst& a = b.insts[i];
+                bool aDiv = a.op == Op::DIV || a.op == Op::DIV_U, aMod = a.op == Op::MOD || a.op == Op::MOD_U;
+                if ((!aDiv && !aMod) || !a.src1.isVreg() || !a.dest.isVreg() || defCount[a.dest.vregId] != 1) continue;
+                int64_t c;
+                if (!constOf(a.src2, c) || c == 0) continue;
+                bool sg = a.op == Op::DIV || a.op == Op::MOD;
+                uint32_t x = a.src1.vregId;
+                for (size_t j = i + 1; j < b.insts.size(); j++) {
+                    Inst& w = b.insts[j];
+                    if ((w.dest.isVreg() && w.dest.vregId == x) ||
+                        ((w.op == Op::STORE || w.op == Op::STORE_ZP) && w.src2.isVreg() && w.src2.vregId == x))
+                        break;   // (x written: no longer the same value)
+                    bool wDiv = w.op == (sg ? Op::DIV : Op::DIV_U), wMod = w.op == (sg ? Op::MOD : Op::MOD_U);
+                    int64_t c2;
+                    if (!(wDiv && aMod) && !(wMod && aDiv)) continue;
+                    if (!w.src1.isVreg() || w.src1.vregId != x || !constOf(w.src2, c2) || c2 != c ||
+                        w.resultType != a.resultType || !w.dest.isVreg() || defCount[w.dest.vregId] != 1)
+                        continue;
+                    Type t = a.resultType;
+                    Inst div = aDiv ? a : w;
+                    Inst mod = aMod ? a : w;
+                    div.src2 = Operand::imm(c, t);   // (moved: the divisor's own constant may come after)
+                    uint32_t prod = fn.allocVreg();
+                    Inst mul;
+                    mul.op = sg ? Op::MUL : Op::MUL_U;
+                    mul.dest = Operand::vreg(prod, t);
+                    mul.src1 = div.dest;
+                    mul.src2 = Operand::imm(c, t);
+                    mul.resultType = t;
+                    mul.loc = mod.loc;
+                    Inst sub;
+                    sub.op = Op::SUB;
+                    sub.dest = mod.dest;
+                    sub.src1 = mod.src1;
+                    sub.src2 = Operand::vreg(prod, t);
+                    sub.resultType = t;
+                    sub.loc = mod.loc;
+                    fn.vregTypes[prod] = t;
+                    trace("divmod", fn.name, "v" + std::to_string(mod.dest.vregId) + " = x % " + std::to_string(c) +
+                          " as x - (x / " + std::to_string(c) + ") * " + std::to_string(c), mod.loc);
+                    Inst nop;
+                    nop.op = Op::NOP;
+                    if (aMod) {
+                        // the divide first, then the remainder from it
+                        b.insts[j] = nop;
+                        b.insts[i] = div;
+                        b.insts.insert(b.insts.begin() + i + 1, {mul, sub});
+                    } else {
+                        b.insts[j] = mul;
+                        b.insts.insert(b.insts.begin() + j + 1, sub);
+                    }
+                    break;
+                }
             }
         }
     }
