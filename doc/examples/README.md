@@ -235,6 +235,30 @@ test that runs 50 frames, then reports on the text screen.
 
 ![tgi_demo](images/tgi_demo.png)
 
+### map_decode
+
+[Source](https://github.com/CTalkobt/M65Compiler/tree/main/examples/c/map_decode) —
+what the 45GS02 sees in its 64 KB for a memory configuration you set up,
+drawn with TGI. The MEGA65 banks memory four ways, in order of priority (the
+MEGA65 Book, "CPU Memory Banking"): the C64's `$01` port (BASIC, KERNAL,
+the character ROM or I/O), the MAP instruction (each 8 KB slab of the lower
+and upper 32 KB moved by an offset, in a megabyte of the 28-bit space), the
+VIC-III's `$D030` ROM bits (C65 ROM at `$8000`, `$A000`, `$C000`, `$E000`),
+and I/O at `$D000` above them all. You edit the MAP offsets, slabs and
+megabytes, `$01` and `$D030` (nothing is actually remapped); the program
+decodes each 4 KB block and draws the CPU's 64 KB as a bar coloured by what
+is there, the first 384 KB of chip RAM (the ROMs in banks 2-3) with a line
+from each block to where it reads from, the A / X / Y / Z a MAP needs (and
+the first MAP that sets a megabyte), and the chosen block's 28-bit address
+and what is there. Presets: the C64's `$37`, `$34` and `$33`, a cc45
+program's `$35`, the C65 ROMs by `$D030`, the Book's MAP example and its
+Ethernet buffer at `$6800`, bank 4 at `$8000`. Keys: CRSR up / down chooses
+a value, CRSR left / right or + / - changes it, 0-9 / A-F type it in hex, P
+the next preset, Q quits. `make check` builds a test of the decoder and the
+drawing (8 checks at `$C0C0`).
+
+![map_decode](images/map_decode.png)
+
 ### glamlambs
 
 [Source](https://github.com/CTalkobt/M65Compiler/tree/main/examples/c/glamlambs) —
