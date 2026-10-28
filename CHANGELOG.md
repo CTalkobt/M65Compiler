@@ -11,6 +11,7 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   relocated operand from its relocation: `jsr $0000 ; <__divu16>`,
   `sta $0001 ; <_b>`, `; <_pl+2>`, `; <_pl> lo`; operands without one are
   not named. Test in `test_objdump45.sh`.
+
 ### Byte division (#352)
 
 - An `unsigned char` divided or taken modulo a byte uses an 8-bit routine
