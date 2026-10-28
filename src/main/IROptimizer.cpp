@@ -325,6 +325,55 @@ void optimizeCSE(Module& mod) {
             }
         if (allExposed) exposedSlots.insert(slots.begin(), slots.end());
         auto exposed = [&](uint32_t v) { return exposedSlots.count(v) && !restrictSlots.count(v); };
+        // Variables that keep their value through the whole function: never
+        // assigned, address not taken (a parameter only read)
+        std::set<uint32_t> fixedSlots;
+        for (uint32_t v : slots)
+            if (!exposedSlots.count(v) && !fn.memoryVregs.count(v)) fixedSlots.insert(v);
+        for (const auto& b : fn.blocks)
+            for (const auto& in : b.insts)
+                if ((in.op == Op::STORE || in.op == Op::STORE_ZP) && in.src2.isVreg()) fixedSlots.erase(in.src2.vregId);
+        // An operand by its value (#361): a temp defined once by cheap
+        // arithmetic (extensions, + - & | ^, shifts) of values that never
+        // change in the function (constants, globals' addresses, variables
+        // never assigned whose address is not taken, parameters only read)
+        // keys as that arithmetic, so &a[m - 1] computed in two blocks, each
+        // with its own zext and subtract of m, is the same expression
+        std::function<std::string(const Operand&, int)> vkey = [&](const Operand& o, int depth) -> std::string {
+            if (o.isImm()) return "#" + std::to_string(o.immVal) + ":" + std::to_string((int)o.type);
+            if (o.kind == OperandKind::GLOBAL) return "@" + o.name;
+            if (!o.isVreg() || depth > 5) return "";
+            if (slots.count(o.vregId)) return fixedSlots.count(o.vregId) ? "s" + std::to_string(o.vregId) : "";
+            auto n = nDefs.find(o.vregId);
+            if (n == nDefs.end())   // (a parameter not in a slot: defined by the call)
+                return o.vregId < fn.paramTypes.size() ? "p" + std::to_string(o.vregId) : "";
+            if (n->second != 1) return "";
+            const Inst& d = *defOf[o.vregId];
+            switch (d.op) {
+                case Op::ZEXT: case Op::SEXT: case Op::TRUNC: case Op::ADD: case Op::SUB: case Op::AND:
+                case Op::OR: case Op::XOR: case Op::SHL: case Op::SHR: case Op::LSL: case Op::LSR: case Op::ASR:
+                    break;
+                default: return "";
+            }
+            if (!d.args.empty()) return "";
+            std::string a = vkey(d.src1, depth + 1);
+            if (a.empty()) return "";
+            std::string b;
+            if (d.src2.kind != OperandKind::NONE) {
+                b = vkey(d.src2, depth + 1);
+                if (b.empty()) return "";
+            }
+            return std::to_string((int)d.op) + "(" + a + "," + b + "):" + std::to_string((int)d.resultType);
+        };
+        auto valueKey = [&](const Operand& o) -> Operand {
+            if (!o.isVreg() || slots.count(o.vregId) || !nDefs.count(o.vregId)) return o;
+            std::string k = vkey(o, 0);
+            if (k.empty()) return o;
+            Operand r = o;
+            r.vregId = 0xFFFFFFFFu;     // (names no vreg: nothing it reads ever changes)
+            r.name = "\x01" + k;
+            return r;
+        };
         std::function<std::string(const Operand&, int)> baseOf = [&](const Operand& o, int depth) -> std::string {
             if (o.kind == OperandKind::GLOBAL) return o.name;
             if (o.isVreg() && restrictSlots.count(o.vregId)) return "&r" + std::to_string(o.vregId);
@@ -695,8 +744,8 @@ void optimizeCSE(Module& mod) {
                     key.op = inst.op;
                     // (a constant operand by its value: each use has its own
                     // const vreg)
-                    key.src1 = argKey(inst.src1);
-                    key.src2 = argKey(inst.src2);
+                    key.src1 = valueKey(argKey(inst.src1));
+                    key.src2 = valueKey(argKey(inst.src2));
                     key.type = inst.resultType;
                     key.byteWidth = inst.resultByteWidth;
                     key.elemOffset = inst.elemOffset;
@@ -4182,14 +4231,17 @@ void removeDeadTemps(Module& mod) {
 // A member of a global struct or an element of a global array at a constant
 // index: %p = add ptr @g, c used only as the address of loads and stores
 // (and defined once) is @g+c in them, an absolute address, not a pointer
-// computed into a register (g.y = 5 is sta _g+2). Only for this file's
-// globals in the default address space (not __zp: base-page addressing;
-// not __far). Runs after the other passes, which see the add; the add is
-// then dead (removeDeadTemps). Under AddrElemFusion's switch.
+// computed into a register (g.y = 5 is sta _g+2). Only for globals in the
+// default address space (not __zp: base-page addressing; not __far): this
+// file's, and extern ones (#356: their address is a link-time constant
+// too; not an extern __zp). Runs after the other passes, which see the
+// add; the add is then dead (removeDeadTemps). Under AddrElemFusion's switch.
 void foldGlobalOffsetAccess(Module& mod) {
     std::set<std::string> plain;
     for (const auto& g : mod.globals)
         if (g.addressSpace == 0) plain.insert(g.name);
+    for (const auto& e : mod.externs)
+        if (!mod.zpExterns.count(e)) plain.insert(e);
     for (auto& fn : mod.functions) {
         if (!runOn(fn, "AddrElemFusion")) continue;
         std::map<uint32_t, int> defCount;

@@ -28,6 +28,39 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   clobbers:08,30-31,F2-F5`); the old `$FA` record is still read (base
   `$03`). An address over `$FF` is an error. Test in `test_assembler.sh`.
 
+### An element address computed once (#361)
+
+- CSE compares an operand by its value when it is cheap arithmetic of values
+  that never change in the function (constants, globals' addresses,
+  variables never assigned whose address is not taken, parameters only
+  read): `&mons[m - 1]` in two blocks, each with its own `zext` and subtract
+  of `m`, is computed once (the issue's function 69 → 48 bytes). With #356
+  the examples are 290 bytes smaller. A loop-invariant element address was
+  already hoisted (LICM); an extern struct's field is now a constant
+  (#356). ca45 relocates `ldax #(sym - n)`, which cc45 writes for an extern
+  array's `a[m - 1]` (it was an error). Test `test_cse_value_xemu.c`; the
+  extern array in `test_extern_field_xemu.c`.
+
+### A field of an extern struct is an absolute address (#356)
+
+- `foldGlobalOffsetAccess` folds `extern` globals too (not `extern __zp`
+  ones): a field of an extern struct or an extern array's element at a
+  constant index is `lda _pl+86` / `sta _pl+86`, as for one defined in the
+  file, not an address computed into a register pair (20 → 3 bytes a
+  read). Test `test_extern_field_xemu.c` (two files, both conventions); a
+  size check in `test_compiler.sh`.
+
+### ln45: a weak default is replaced only by a live member (#358)
+
+- A strong definition overrides a weak one only when its object is reached
+  from live code: ln45's reachability walk is repeated, counting the strong
+  definitions of the objects the walk before found live, until no more
+  become live. A library member pulled in only by a reference from code
+  that is then dropped no longer replaces a weak default (and brings in
+  what its strong definition needs): the issue's program is 310 bytes, was
+  2,315, and calls the default. Test `test_weak_member_xemu.c` (both
+  conventions, with the member live and not).
+
 ### Weak defaults replaced from another file (#357)
 
 - A `#pragma weak` function was inlined into the callers in its own file

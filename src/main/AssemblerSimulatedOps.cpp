@@ -691,12 +691,21 @@ void AssemblerSimulatedOps::emitLDWCode(AssemblerParser* parser, M65Emitter& e, 
                     emitLoadAddrConst(parser, e, srcName, 0, reg2, scopePrefix);
                 } else {
                     // An expression (#<lbl, #$12+1, #lbl+2): its value; "sym +/- n"
-                    // of a relocatable symbol keeps the relocation
+                    // of a relocatable symbol keeps the relocation, also in
+                    // parentheses: #(sym-7) (cc45's extern a[i - 1], #361)
                     uint32_t v = parser->evaluateExpressionAt(symIdx, scopePrefix);
+                    int s0 = symIdx, end = idx;
+                    if (end - s0 == 5 && parser->tokens[s0].type == AssemblerTokenType::OPEN_PAREN &&
+                        parser->tokens[end - 1].type == AssemblerTokenType::CLOSE_PAREN) {
+                        s0++;
+                        end--;
+                        srcName = parser->tokens[s0].value;
+                        firstIsSym = parser->tokens[s0].type == AssemblerTokenType::IDENTIFIER;
+                    }
                     Symbol* sym = firstIsSym ? parser->resolveSymbol(srcName, scopePrefix) : nullptr;
-                    bool symPlusN = firstIsSym && idx == symIdx + 3 &&
-                        (parser->tokens[symIdx + 1].type == AssemblerTokenType::PLUS ||
-                         parser->tokens[symIdx + 1].type == AssemblerTokenType::MINUS);
+                    bool symPlusN = firstIsSym && end == s0 + 3 &&
+                        (parser->tokens[s0 + 1].type == AssemblerTokenType::PLUS ||
+                         parser->tokens[s0 + 1].type == AssemblerTokenType::MINUS);
                     if (symPlusN && parser->isRelocatableSymbolIn(srcName, scopePrefix))
                         emitLoadAddrConst(parser, e, srcName, (uint16_t)(v - (sym ? sym->value : 0)), reg2, scopePrefix);
                     else {
