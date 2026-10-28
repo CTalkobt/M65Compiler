@@ -683,6 +683,16 @@ else
     failed=$((failed + 1))
 fi
 
+# #355: a program reading the clock links none of mktime's date arithmetic
+# (rtc_read called mktime for tm_wday / tm_yday: 4,176 bytes, now under 1,000)
+printf '#include <time.h>\nunsigned char d;\nint main(void) { struct tm t; rtc_read(&t); d = t.tm_mday; return 0; }\n' > $cs/rtc.c
+if ./bin/cc45 -O2 $cs/rtc.c -o $cs/rtc.prg >/dev/null 2>&1 && [ $(stat -c %s $cs/rtc.prg) -lt 1500 ]; then
+    echo "SUCCESS: rtc_read links without mktime ($(stat -c %s $cs/rtc.prg) bytes)"
+else
+    echo "FAIL: a program calling rtc_read is $(stat -c %s $cs/rtc.prg 2>/dev/null) bytes (#355: < 1500)"
+    failed=$((failed + 1))
+fi
+
 # A bitfield wider than its type is an error, also after a comma and unnamed
 # (int e : 17 kept 16 bits without a word)
 bf_ok=1
