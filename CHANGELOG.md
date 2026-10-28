@@ -4,6 +4,17 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### `<tgi.h>`'s arcs in assembly
+
+- `tgi_arc`, `tgi_pieslice` and `tgi_imulround` are assembly
+  (`stdlib_asm/tgi_arc.s45`, replacing `stdlib/tgi_arc.c`): an angle's
+  test is four products of the hardware multiplier, and the sines an 8.8
+  table. A program drawing a pie slice: 10,735 → 9,427 bytes; one with
+  vector-font text 180 bytes smaller (`tgi_imulround`). The same pixels
+  (old and new compared on random arcs and pie slices, both conventions).
+  They are `__fastcall__` in `<tgi.h>`, as the other assembly routines.
+- `tgi.c`'s weak heap defaults are C again (#357 fixed).
+
 ### Weak defaults replaced from another file (#357)
 
 - A `#pragma weak` function was inlined into the callers in its own file

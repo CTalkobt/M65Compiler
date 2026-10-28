@@ -195,14 +195,14 @@ __fastcall__ void tgi_ellipse(int x, int y, unsigned char rx, unsigned char ry);
 /* Draw an ellipse arc with center at x/y and radii rx/ry using the current
  * drawing color. The arc covers the angle between sa and ea (startangle and
  * endangle), which must be in the range 0..360. */
-void tgi_arc(int x, int y, unsigned char rx, unsigned char ry,
-             unsigned sa, unsigned ea);
+__fastcall__ void tgi_arc(int x, int y, unsigned char rx, unsigned char ry,
+                          unsigned sa, unsigned ea);
 
 /* Draw an ellipse pie slice with center at x/y and radii rx/ry using the
  * current drawing color. The pie slice covers the angle between sa and ea,
  * which must be in the range 0..360. */
-void tgi_pieslice(int x, int y, unsigned char rx, unsigned char ry,
-                  unsigned sa, unsigned ea);
+__fastcall__ void tgi_pieslice(int x, int y, unsigned char rx, unsigned char ry,
+                               unsigned sa, unsigned ea);
 
 /* Draw a bar (a filled rectangle) using the current color. */
 void tgi_bar(int x1, int y1, int x2, int y2);
@@ -240,4 +240,4 @@ unsigned tgi_ioctl(unsigned char code, void* data);
 
 /* Multiply two values, one being an 8.8 fixed point one, and return the
  * rounded and scaled result. */
-int tgi_imulround(int rhs, int lhs);
+__fastcall__ int tgi_imulround(int rhs, int lhs);

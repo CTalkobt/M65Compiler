@@ -61,15 +61,16 @@ __tgi_sx1:      .res 4  ; stopping x 2 ry^2 rx
 __tgi_xc2:      .res 4  ; pass 2 from (0, ry): x change ry^2
 __tgi_yc2:      .res 4  ; y change rx^2 (1 - 2 ry)
 __tgi_sy2:      .res 4  ; stopping y 2 rx^2 ry
-; an arc's (stdlib/tgi_arc.c sets them): c = y * k1 - x * k2 for its start
-; and end angles, c at each pass's start, the quarters' states shown
+; an arc's (stdlib_asm/tgi_arc.s45 sets them, in this order: a block of 16
+; bytes for each angle): c = y * k1 - x * k2 for its start and end angles,
+; c at each pass's start, the quarters' states shown
 ___tgi_ks1:     .res 4
 ___tgi_ks2:     .res 4
+___tgi_cs1:     .res 4
+___tgi_cs2:     .res 4
 ___tgi_ke1:     .res 4
 ___tgi_ke2:     .res 4
-___tgi_cs1:     .res 4
 ___tgi_ce1:     .res 4
-___tgi_cs2:     .res 4
 ___tgi_ce2:     .res 4
 ___tgi_allow:   .res 4  ; a quarter's points shown in the states (bit: c_s < 0 | c_e < 0 << 1)
 ___tgi_arcon:   .res 1  ; $80: keep c_s and c_e
@@ -1014,7 +1015,7 @@ endproc
 
 ; void __tgi_ellipse(int cx, int cy, unsigned char rx, unsigned char ry):
 ; Kennedy's midpoint ellipse (rx, ry > 0; ___tgi_allow and ___tgi_arcon set:
-; tgi_ellipse, stdlib/tgi_arc.c's tgi_arc): its numbers worked out by the
+; tgi_ellipse, stdlib_asm/tgi_arc.s45's tgi_arc): its numbers worked out by the
 ; hardware multiplier ($D770 * $D774 = $D778), pass 1 from (rx, 0) up while
 ; the slope is steeper than -1, pass 2 from (0, ry) right; with an arc, c for
 ; its two angles kept as the point moves (c = y * k1 - x * k2)

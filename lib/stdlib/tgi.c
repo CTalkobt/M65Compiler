@@ -34,23 +34,13 @@
 
 /* What does not fit in banks 4 and 5: from malloc with the two-page driver
  * (tgi_fcm2.c's __tgi_heap / __tgi_unheap), else nothing: the weak ones
- * here, so a one-page program links no malloc. They are assembly: cc45
- * folds a weak C body into its callers in the file; and here, not in
- * another member: ln45 would take the first member of the library that
- * defines the name, tgi_fcm2.c's. */
-__fastcall__ void *__tgi_heap(unsigned int size);
-__fastcall__ void __tgi_unheap(void *p);
-asm(".weak ___tgi_heap, ___tgi_unheap\n"
-    "proc ___tgi_heap\n"
-    "    lda #0\n"
-    "    tax\n"
-    "    rts\n"
-    "    .func_flags zp_call\n"
-    "endproc\n"
-    "proc ___tgi_unheap\n"
-    "    rts\n"
-    "    .func_flags zp_call\n"
-    "endproc\n");
+ * here, so a one-page program links no malloc (here, not in another
+ * member: ln45 would take the first member of the library that defines
+ * the name, tgi_fcm2.c's) */
+#pragma weak __tgi_heap
+__fastcall__ void *__tgi_heap(unsigned int size) { (void)size; return 0; }
+#pragma weak __tgi_unheap
+__fastcall__ void __tgi_unheap(void *p) { (void)p; }
 
 /* The kernel variables are stdlib_asm/tgi_vars.s45's (in a fixed order): a
  * driver's numbers from tgi_xres, a new driver's state from __tgi_state */

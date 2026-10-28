@@ -1,0 +1,614 @@
+; tgi_arc.s45 — <tgi.h>'s arcs and pie slices, and tgi_imulround
+;
+; An arc is the ellipse's points between its angles (tgi_pixel.s45's
+; __tgi_ellipse, Kennedy's midpoint ellipse): a point (x, y) of the first
+; quarter is at the angle t of (rx cos t, ry sin t), and
+;   c = y * rx * cos b - x * ry * sin b
+; is >= 0 when t >= b (b in 0..90); as the walk moves x or y by one, c
+; changes by one of the two products, so __tgi_ellipse keeps c for the
+; arc's start and end angles by adds too. Each quarter is drawn whole, not
+; at all, or where its one or two tests hold (an angle in a quarter maps to
+; the first quarter's t: 180 - t, t - 180, 360 - t). The products are the
+; hardware multiplier's ($D770 * $D774 = $D778): b is 0..90, so its sine
+; and cosine are >= 0 and only the results take a sign. Sines are an 8.8
+; table. An arc of an ellipse with a 0 radius is cc65's: lines between
+; points 12 degrees apart. Y grows downwards, so angles go anticlockwise on
+; the screen.
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.global _tgi_arc, _tgi_pieslice, _tgi_imulround
+.extern ___tgi_ellipse, _tgi_line, _tgi_drv
+.extern ___tgi_ks1, ___tgi_arcon, ___tgi_allow
+
+.segment "bss"
+__arc_cx:       .res 2  ; the arc's centre, radii and angles
+__arc_cy:       .res 2
+__arc_rx:       .res 1
+__arc_ry:       .res 1
+__arc_sa:       .res 2
+__arc_ea:       .res 2
+__arc_q:        .res 1  ; the quarter
+__arc_lo:       .res 2  ; its first angle: 90 q
+__arc_m:        .res 1  ; its states shown
+__arc_b:        .res 1  ; an angle's t (0..90)
+__arc_neg:      .res 1  ; $FF: the test is c <= 0
+__arc_mb:       .res 1  ; the multiplier's byte
+__arc_t:        .res 16 ; an angle's k1, k2, c1, c2 (tgi_pixel.s45's block)
+__arc_d:        .res 2  ; __tgi_isin's angle
+__arc_inc:      .res 1  ; the polygon's step
+__arc_done:     .res 1
+__arc_px:       .res 2  ; a point of the ellipse (__tgi_arcpt)
+__arc_py:       .res 2
+__arc_x1:       .res 2  ; the polygon's last point
+__arc_y1:       .res 2
+__arc_psa:      .res 2  ; tgi_pieslice's angles
+__arc_pea:      .res 2
+__imr_neg:      .res 1  ; tgi_imulround: the result's sign
+
+.segment "text"
+
+; A := round(256 * sin(A)) for A = 0..90 as A (low) / X (high): 0..256
+proc __tgi_sin90
+    cmp #87
+    bcs @one
+    tax
+    lda @tab,x
+    ldx #0
+    rts
+@one:
+    lda #0
+    ldx #1
+    rts
+; round(256 * sin(d)) for d = 0..86 (87..90 are 256)
+@tab:
+    .byte 0, 4, 9, 13, 18, 22, 27, 31, 36, 40, 44, 49, 53, 58, 62
+    .byte 66, 71, 75, 79, 83, 88, 92, 96, 100, 104, 108, 112, 116, 120, 124
+    .byte 128, 132, 136, 139, 143, 147, 150, 154, 158, 161, 165, 168, 171, 175, 178
+    .byte 181, 184, 187, 190, 193, 196, 199, 202, 204, 207, 210, 212, 215, 217, 219
+    .byte 222, 224, 226, 228, 230, 232, 234, 236, 237, 239, 241, 242, 243, 245, 246
+    .byte 247, 248, 249, 250, 251, 252, 253, 254, 254, 255, 255, 255
+endproc
+
+; A/X := sin(__arc_d) in 8.8 (signed), the angle in degrees (any unsigned)
+proc __tgi_isin
+@red:                       ; mod 360
+    sec
+    lda __arc_d
+    sbc #<360
+    tay
+    lda __arc_d+1
+    sbc #>360
+    bcc @in
+    sta __arc_d+1
+    sty __arc_d
+    bra @red
+@in:
+    lda __arc_d
+    ldx __arc_d+1
+    bne @hi                 ; 256..359
+    cmp #91
+    bcc @pos                ; 0..90: sin(d)
+    cmp #181
+    bcs @q3                 ; 181..255: -sin(d - 180)
+    sta __arc_mb            ; 91..180: sin(180 - d)
+    lda #180
+    sec
+    sbc __arc_mb
+@pos:
+    jmp __tgi_sin90
+@q3:
+    sec
+    sbc #180
+    bra @neg
+@hi:
+    cmp #15
+    bcs @q4                 ; 271..359: -sin(360 - d)
+    clc                     ; 256..270: -sin(d - 180)
+    adc #76
+    bra @neg
+@q4:
+    sta __arc_mb
+    lda #104
+    sec
+    sbc __arc_mb
+@neg:
+    jsr __tgi_sin90
+    sta __arc_mb            ; -(A/X)
+    txa
+    eor #$FF
+    tax
+    lda __arc_mb
+    eor #$FF
+    clc
+    adc #1
+    bne @out
+    inx
+@out:
+    rts
+endproc
+
+; Q := Q * __arc_mb (the low 32 bits)
+proc __tgi_mulb
+    stq $D770
+    lda #0
+    tax
+    tay
+    taz
+    lda __arc_mb
+    stq $D774
+    ldq $D778
+    rts
+endproc
+
+; Negate the long at __arc_t + X
+proc __tgi_negl
+    ldy #4
+    sec
+@l:
+    lda #0
+    sbc __arc_t,x
+    sta __arc_t,x
+    inx
+    dey
+    bne @l
+    rts
+endproc
+
+; The test for the angle __arc_b (0..90) into tgi_pixel.s45's block at
+; ___tgi_ks1 + X (0: the start's, 16: the end's): k1 = rx cos b (c per y),
+; k2 = ry sin b (c per x, subtracted), c1 = -rx k2 (c at (rx, 0)), c2 =
+; ry k1 (at (0, ry)); all negated when __arc_neg (the test is c <= 0)
+proc __tgi_angle
+    phx
+    lda __arc_b             ; k2 = ry sin b
+    jsr __tgi_sin90
+    ldy #0
+    ldz #0
+    jsr @byry
+    stq __arc_t+4
+    lda #90                 ; k1 = rx cos b
+    sec
+    sbc __arc_b
+    jsr __tgi_sin90
+    ldy #0
+    ldz #0
+    jsr @byrx
+    stq __arc_t
+    bit __arc_neg
+    bpl @pos
+    ldx #0
+    jsr __tgi_negl
+    ldx #4
+    jsr __tgi_negl
+@pos:
+    ldq __arc_t             ; c2 = ry k1
+    jsr @byry
+    stq __arc_t+12
+    ldq __arc_t+4           ; c1 = -(rx k2)
+    jsr @byrx
+    stq __arc_t+8
+    ldx #8
+    jsr __tgi_negl
+    plx                     ; into the block
+    ldy #0
+@copy:
+    lda __arc_t,y
+    sta ___tgi_ks1,x
+    inx
+    iny
+    cpy #16
+    bne @copy
+    lda #$80
+    sta ___tgi_arcon
+    rts
+@byrx:
+    pha
+    lda __arc_rx
+    bra @by
+@byry:
+    pha
+    lda __arc_ry
+@by:
+    sta __arc_mb
+    pla
+    jmp __tgi_mulb
+endproc
+
+; __arc_b := angle A/X of quarter __arc_q as the first quarter's t (0..90):
+; a, 180 - a, a - 180, 360 - a
+proc __tgi_base
+    ldy __arc_q
+    beq @q0
+    cpy #2
+    beq @q2
+    sta __arc_mb            ; 180 - a, 360 - a: lo + 90 - a (the low bytes:
+    lda __arc_lo            ; a and lo + 90 have the same high byte)
+    clc
+    adc #90
+    sec
+    sbc __arc_mb
+    sta __arc_b
+    rts
+@q2:
+    sec
+    sbc #180                ; (a 180..270: the low byte's difference)
+@q0:
+    sta __arc_b
+    rts
+endproc
+
+; void tgi_arc(int x, int y, unsigned char rx, unsigned char ry,
+;              unsigned sa, unsigned ea)
+proc _tgi_arc
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $1A, $1B, $1C, $1D, $1E, $1F
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    ldx #3                  ; (the parameters, kept: x, y)
+@save:
+    lda $10,x
+    sta __arc_cx,x
+    dex
+    bpl @save
+    lda $14
+    sta __arc_rx            ; (the radii: one byte each, slots of two)
+    lda $16
+    sta __arc_ry
+    lda $18
+    sta __arc_sa
+    lda $19
+    sta __arc_sa+1
+    lda $1A
+    sta __arc_ea
+    lda $1B
+    sta __arc_ea+1
+    sec                     ; sa > ea: nothing
+    lda __arc_ea
+    sbc __arc_sa
+    lda __arc_ea+1
+    sbc __arc_sa+1
+    bcc @out
+    lda _tgi_drv
+    ora _tgi_drv+1
+    beq @out
+    sec                     ; ea > 360: 360
+    lda #<360
+    sbc __arc_ea
+    lda #>360
+    sbc __arc_ea+1
+    bcs @ea
+    lda #<360
+    sta __arc_ea
+    lda #>360
+    sta __arc_ea+1
+@ea:
+    lda __arc_rx
+    beq @poly
+    lda __arc_ry
+    bne @ellipse
+@poly:
+    jmp __tgi_polyarc
+@out:
+    rts
+@ellipse:
+    lda #0
+    sta ___tgi_arcon
+    ldx #31                 ; no test: c 0 for both angles
+@zero:
+    sta ___tgi_ks1,x
+    dex
+    bpl @zero
+    sta __arc_q
+    sta __arc_lo
+    sta __arc_lo+1
+@quarter:
+    lda #0
+    sta __arc_m
+    sec                     ; ea >= lo
+    lda __arc_ea
+    sbc __arc_lo
+    lda __arc_ea+1
+    sbc __arc_lo+1
+    bcc @set
+    clc                     ; sa <= lo + 90
+    lda __arc_lo
+    adc #90
+    tax
+    lda __arc_lo+1
+    adc #0
+    tay
+    txa
+    sec
+    sbc __arc_sa
+    tya
+    sbc __arc_sa+1
+    bcc @set
+    lda #$0F                ; every state
+    sta __arc_m
+    sec                     ; sa > lo: the start in this quarter (angle >= sa)
+    lda __arc_lo
+    sbc __arc_sa
+    lda __arc_lo+1
+    sbc __arc_sa+1
+    bcs @end
+    lda __arc_sa
+    ldx __arc_sa+1
+    jsr __tgi_base
+    lda __arc_q             ; (c <= 0 in quarters 1 and 3)
+    lsr
+    lda #0
+    sbc #0
+    eor #$FF
+    sta __arc_neg
+    ldx #0
+    jsr __tgi_angle
+    lda __arc_m
+    and #$05                ; c_s >= 0
+    sta __arc_m
+@end:
+    clc                     ; ea < lo + 90: the end in it (angle <= ea)
+    lda __arc_lo
+    adc #90
+    tax
+    lda __arc_lo+1
+    adc #0
+    tay
+    txa
+    sec
+    sbc __arc_ea
+    tya
+    sbc __arc_ea+1
+    bcc @set
+    beq @nz
+@in:
+    lda __arc_ea
+    ldx __arc_ea+1
+    jsr __tgi_base
+    lda __arc_q             ; (c <= 0 in quarters 0 and 2)
+    lsr
+    lda #0
+    sbc #0
+    sta __arc_neg
+    ldx #16
+    jsr __tgi_angle
+    lda __arc_m
+    and #$03                ; c_e >= 0
+    sta __arc_m
+    bra @set
+@nz:
+    txa                     ; lo + 90 - ea: 0 (not in it) or more
+    sec
+    sbc __arc_ea
+    bne @in
+@set:
+    ldx __arc_q
+    lda __arc_m
+    sta ___tgi_allow,x
+    clc
+    lda __arc_lo
+    adc #90
+    sta __arc_lo
+    bcc @next
+    inc __arc_lo+1
+@next:
+    inx
+    stx __arc_q
+    cpx #4
+    bne @quarter
+    ldx #3                  ; the ellipse: (x, y, rx, ry) as here
+@load:
+    lda __arc_cx,x
+    sta $10,x
+    dex
+    bpl @load
+    lda __arc_rx
+    sta $14
+    lda __arc_ry
+    sta $16
+    jmp ___tgi_ellipse
+    .func_flags zp_call
+endproc
+
+; (__arc_px, __arc_py) := (cx + imulround(rx, cos a), cy - imulround(ry,
+; sin a)), a = A/X (cos a: sin (a + 90))
+proc __tgi_arcpt
+    sta __arc_px            ; (a, until x is worked out)
+    stx __arc_px+1
+    sta __arc_d
+    stx __arc_d+1
+    jsr __tgi_isin
+    sta $12
+    stx $13
+    lda __arc_ry
+    jsr @mul
+    sta __arc_mb
+    sec
+    lda __arc_cy
+    sbc __arc_mb
+    sta __arc_py
+    stx __arc_mb
+    lda __arc_cy+1
+    sbc __arc_mb
+    sta __arc_py+1
+    clc
+    lda __arc_px
+    adc #90
+    sta __arc_d
+    lda __arc_px+1
+    adc #0
+    sta __arc_d+1
+    jsr __tgi_isin
+    sta $12
+    stx $13
+    lda __arc_rx
+    jsr @mul
+    clc
+    adc __arc_cx
+    sta __arc_px
+    txa
+    adc __arc_cx+1
+    sta __arc_px+1
+    rts
+@mul:                       ; tgi_imulround(A, ($12))
+    sta $10
+    lda #0
+    sta $11
+    jmp _tgi_imulround
+endproc
+
+; cc65's arc: lines between points 12 degrees apart (24 when rx + ry < 25),
+; from sa to ea (an ellipse with a 0 radius: a line)
+proc __tgi_polyarc
+    clc
+    lda __arc_rx
+    adc __arc_ry
+    bcs @big
+    cmp #25
+    bcs @big
+    lda #24
+    bra @inc
+@big:
+    lda #12
+@inc:
+    sta __arc_inc
+    lda #0
+    sta __arc_done
+    lda __arc_sa
+    ldx __arc_sa+1
+    jsr __tgi_arcpt
+@next:
+    ldx #3                  ; (x1, y1) := the last point
+@keep:
+    lda __arc_px,x
+    sta __arc_x1,x
+    dex
+    bpl @keep
+    lda __arc_done
+    bne @out
+    clc                     ; sa += inc; at ea, the last
+    lda __arc_sa
+    adc __arc_inc
+    sta __arc_sa
+    bcc @cmp
+    inc __arc_sa+1
+@cmp:
+    lda __arc_sa
+    cmp __arc_ea
+    lda __arc_sa+1
+    sbc __arc_ea+1
+    bcc @pt
+    lda __arc_ea
+    sta __arc_sa
+    lda __arc_ea+1
+    sta __arc_sa+1
+    inc __arc_done
+@pt:
+    lda __arc_sa
+    ldx __arc_sa+1
+    jsr __tgi_arcpt
+    ldx #3
+@ends:
+    lda __arc_x1,x
+    sta $10,x
+    lda __arc_px,x
+    sta $14,x
+    dex
+    bpl @ends
+    jsr _tgi_line
+    bra @next
+@out:
+    rts
+endproc
+
+; void tgi_pieslice(int x, int y, unsigned char rx, unsigned char ry,
+;                   unsigned sa, unsigned ea): the arc and its two radii
+proc _tgi_pieslice
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $1A, $1B, $1C, $1D, $1E, $1F
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    ldx #3                  ; (the angles as given; tgi_arc keeps the rest)
+@save:
+    lda $18,x
+    sta __arc_psa,x
+    dex
+    bpl @save
+    jsr _tgi_arc
+    lda __arc_psa
+    ldx __arc_psa+1
+    jsr @radius
+    lda __arc_pea
+    ldx __arc_pea+1
+@radius:                    ; the line (x, y) to the point at angle A/X
+    jsr __tgi_arcpt
+    ldx #3
+@ends:
+    lda __arc_cx,x
+    sta $10,x
+    lda __arc_px,x
+    sta $14,x
+    dex
+    bpl @ends
+    jmp _tgi_line
+    .func_flags zp_call
+endproc
+
+; int tgi_imulround(int rhs, int lhs): (rhs * lhs) / 256, rounded (half
+; away from 0)
+proc _tgi_imulround
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $11
+    eor $13
+    sta __imr_neg
+    ldx #0                  ; |rhs|, |lhs|
+    jsr @abs
+    ldx #2
+    jsr @abs
+    ldy #0
+    ldz #0
+    lda $10
+    ldx $11
+    stq $D770
+    lda $12
+    ldx $13
+    stq $D774
+    ldq $D778
+    clc                     ; + 128, >> 8
+    adc #$80
+    txa
+    adc #0
+    sta $10
+    tya
+    adc #0
+    tax
+    lda $10
+    bit __imr_neg
+    bpl @out
+    eor #$FF                ; -(A/X)
+    clc
+    adc #1
+    pha
+    txa
+    eor #$FF
+    adc #0
+    tax
+    pla
+@out:
+    rts
+@abs:
+    lda $11,x
+    bpl @pos
+    sec
+    lda #0
+    sbc $10,x
+    sta $10,x
+    lda #0
+    sbc $11,x
+    sta $11,x
+@pos:
+    rts
+    .func_flags zp_call
+endproc
