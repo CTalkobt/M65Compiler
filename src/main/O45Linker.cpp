@@ -1935,6 +1935,9 @@ void O45Linker::buildFuncAttrs() {
             if (exp.name.rfind("cc45.zpcall.", 0) == 0) zpCalls.insert(exp.name.substr(12));
         for (const auto& exp : input.obj.exports) {
             if (exp.segmentId() != SEG_TEXT) continue;
+            // (a weak definition a strong one replaces: the call follows the
+            // strong one's convention, maybe of a hand-written object, #357)
+            if (exp.isWeak() && symbolWeak_.count(exp.name) && !symbolWeak_.at(exp.name)) continue;
             funcObjMode_[exp.name] = mode;
             if (!zpCalls.empty()) funcZpCalls_[exp.name] = zpCalls;
         }

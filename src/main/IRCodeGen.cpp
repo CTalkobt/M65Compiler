@@ -1836,6 +1836,9 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     // (Static Allocation Convention — uses __ar symbols instead of stack frame)
     sacFunctions_.clear();
     functionParameterNames_.clear();
+    weakDefaults_.clear();
+    for (const auto& fn : mod.functions)
+        if (fn.isWeak && !fn.isMethod) weakDefaults_.insert(fn.name);
     if (staticAllocMode) {
         for (const auto& fn : mod.functions) {
             // Pre-populate parameter names for all functions so SAC call sites
@@ -8713,7 +8716,8 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                 bool isCallingSAC = currentFunctionUseSAC_ &&
                                    (inst.op == ir::Op::CALL || inst.op == ir::Op::CALL_VOID) &&
                                    inst.src1.kind == ir::OperandKind::GLOBAL &&
-                                   sacFunctions_.count(inst.src1.name);
+                                   sacFunctions_.count(inst.src1.name) &&
+                                   !weakDefaults_.count(inst.src1.name);
 
                 if ((inst.op == ir::Op::CALL || inst.op == ir::Op::CALL_VOID) &&
                     inst.src1.kind == ir::OperandKind::GLOBAL) {
@@ -9625,7 +9629,7 @@ void IRCodeGen::analyzeConstantParameters(const ir::Module& mod) {
         for (const auto& block : fn.blocks) {
             for (const auto& inst : block.insts) {
                 if ((inst.op == ir::Op::CALL || inst.op == ir::Op::CALL_VOID) &&
-                    sacFunctions_.count(inst.src1.name)) {
+                    sacFunctions_.count(inst.src1.name) && !weakDefaults_.count(inst.src1.name)) {
 
                     // This is a call to a SAC function
                     const std::string& calleeFunc = inst.src1.name;

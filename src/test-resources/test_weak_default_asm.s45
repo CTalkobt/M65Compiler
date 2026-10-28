@@ -1,0 +1,32 @@
+; test_weak_default_asm.s45 — the strong definitions in assembly for
+; test_weak_default_xemu.c (the ZP convention; ln45 bridges a stack caller)
+
+.global _w_asm, _w_clobber
+
+; w_asm(a): a * 2 (no __sac entry, no static storage)
+proc _w_asm
+    lda $10
+    asl
+    pha
+    lda $11
+    rol
+    tax
+    pla
+    rts
+    .func_flags zp_call
+    .zp_uses $10, $11
+endproc
+
+; w_clobber(): A, X, Y, Z and the register pool $30-$7F
+proc _w_clobber
+    lda #$5A
+    ldx #$30
+@l: sta $00,x
+    inx
+    cpx #$80
+    bne @l
+    ldy #$A5
+    taz
+    rts
+    .func_flags zp_call
+endproc
