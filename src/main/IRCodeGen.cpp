@@ -6528,6 +6528,28 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                 if (o->isVreg() && suppressedVregs_.count(o->vregId) && vregConstVal_.count(o->vregId) &&
                     !localSlotVregs_.count(o->vregId))
                     *o = ir::Operand::imm(vregConstVal_[o->vregId], o->type);
+            // a byte times a constant (#352: x % c as x - (x / c) * c): in A,
+            // shifts and the adds of the bits below the top one (Horner)
+            if (inst.resultType == ir::Type::I8 && (mi.src2.isImm() || mi.src1.isImm())) {
+                const ir::Operand& f = mi.src2.isImm() ? mi.src1 : mi.src2;
+                int c = (int)((mi.src2.isImm() ? mi.src2.immVal : mi.src1.immVal) & 0xFF);
+                if (c == 0) {
+                    emit("lda #0", irDesc("a byte * 0"));
+                } else {
+                    int top = 7;
+                    while (!((c >> top) & 1)) top--;
+                    loadOperandA(f);
+                    bool adds = (c & ((1 << top) - 1)) != 0;
+                    if (adds) emit("sta __zp_scratch4", irDesc("a byte * " + std::to_string(c)));
+                    for (int b = top - 1; b >= 0; b--) {
+                        emit("asl", adds ? "" : irDesc("a byte * " + std::to_string(c)));
+                        if ((c >> b) & 1) { emit("clc"); emit("adc __zp_scratch4"); }
+                    }
+                }
+                ms_.invalidateAll();
+                if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
+                break;
+            }
             // A call of __mul16 / __mul32 (divmod.s45; the multiplier in
             // __zp_scratch2; __mul16y: a byte factor in Y) instead of the
             // inline multiply (22 / 50 bytes):
@@ -6642,6 +6664,24 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
             // (its load uses __zp_scratch2)
             bool frame32 = is32 && inst.src1.isVreg() &&
                            alloc_.getAlloc(inst.src1.vregId).loc == VRegAllocator::IN_FRAME && !currentFunctionUseSAC_;
+            // both operands bytes (their high bytes known 0, #352: k / 3,
+            // k % 3 of an unsigned char): the 8-bit routine, quotient in A,
+            // remainder in X; the result's high byte 0
+            if (relocMode_ && !is32 && !sg && kb_.byteZero(inst.src1, 16, 1) &&
+                ((inst.src2.isImm() && inst.src2.immVal > 0 && inst.src2.immVal < 256) ||
+                 (!inst.src2.isImm() && kb_.byteZero(inst.src2, 16, 1))) &&
+                !directByte(inst.src1, 0).empty() && !directByte(inst.src2, 0).empty()) {
+                emit("lda " + directByte(inst.src2, 0), irDesc(div ? "a byte / a byte" : "a byte % a byte"));
+                emit("sta __zp_scratch2");
+                emit("lda " + directByte(inst.src1, 0));
+                emit(".extern __divmodu8");
+                emit("jsr __divmodu8");
+                if (!div) emit("txa");
+                emit("ldx #0");
+                ms_.invalidateAll();
+                if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
+                break;
+            }
             if (relocMode_ && !frame32) {
                 int nb = is32 ? 4 : 2;
                 if (src2 != "__zp_scratch2") {

@@ -4,6 +4,14 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Byte division (#352)
+
+- An `unsigned char` divided or taken modulo a byte uses an 8-bit routine
+  (`__divmodu8`: quotient in A, remainder in X); `x / c` and `x % c` of the
+  same value share one divide (`x % c = x - (x / c) * c`); a byte times a
+  constant is shifts and adds in A. 311 bytes over the examples; test
+  `test_divmod8_xemu.c` (both conventions).
+
 ### Constant chains, what a return carries (#351)
 
 - `(x + c1) + c2` is folded to `x + (c1 + c2)` (also with subtracts):
