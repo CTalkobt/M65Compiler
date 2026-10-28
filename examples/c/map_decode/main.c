@@ -11,11 +11,15 @@
  * You edit the values; nothing is actually remapped. The program decodes
  * them for each 4 KB block and draws (TGI, 320x200):
  *   - the CPU's 64 KB as a bar of 16 blocks, coloured by what is there
- *     (RAM, moved RAM, a C64 ROM, a C65 ROM, the character ROM, I/O),
+ *     (RAM, moved RAM, a C64 ROM, a C65 ROM, the character ROM, I/O; chip
+ *     RAM labelled with its bank),
  *   - the first 384 KB of chip RAM (banks 0-5, the ROMs in banks 2-3) with
- *     a line from each block to where it reads from,
+ *     where each block reads from marked in its colour and a line to it,
  *   - the values, the A / X / Y / Z a MAP needs for them, and the selected
  *     block's 28-bit address.
+ *
+ * A MAP offset moves only the 8 KB slabs whose bit is set (SLABS): bank 1
+ * at $0000-$7FFF is LO OFS $100 with SLABS %1111.
  *
  * Keys: CRSR up / down chooses a value, CRSR left / right or + / - changes
  * it (the offsets by 8 KB), 0-9 and A-F type it in hex, P steps through the
@@ -152,6 +156,7 @@ static const struct preset presets[] = {
     { "The Book's MAP: $10000, $48000", { 0x100, 0x480, 0x1, 0x3, 0, 0, 0x35, 0 } },
     { "Ethernet buffer at $6800", { 0xD80, 0, 0x8, 0, 0xFF, 0, 0x35, 0 } },
     { "Bank 4 at $8000-$BFFF", { 0, 0x380, 0, 0x3, 0, 0, 0x35, 0 } },
+    { "Bank 1 at $0000-$7FFF", { 0x100, 0, 0xF, 0, 0, 0, 0x35, 0 } },
 };
 #define N_PRESETS (sizeof presets / sizeof presets[0])
 
@@ -230,6 +235,7 @@ static void set_field(unsigned char f, unsigned int v) {
 #define RULER_W 14
 
 /* a label for a block in the bar (at most 7 characters) */
+static char ram_name[] = "RAM 0";
 static const char *short_name(const struct block *k) {
     if (k->kind == K_IO) return "I/O";
     if (k->kind == K_CHAR) return "CHARSET";
@@ -242,7 +248,10 @@ static const char *short_name(const struct block *k) {
     if (k->phys >= 0xFF80000UL && k->phys < 0xFF88000UL) return "COLOUR";
     if (k->phys >= 0x8000000UL && k->phys < 0x8800000UL) return "ATTIC";
     if (k->phys >= 0xFFD0000UL && k->phys < 0xFFE0000UL) return "IO SPC";
-    if (k->phys < 0x60000UL) return "RAM";
+    if (k->phys < 0x60000UL) {
+        ram_name[4] = '0' + (unsigned char)(k->phys >> 16);   /* (its bank) */
+        return ram_name;
+    }
     return "-";
 }
 
@@ -300,11 +309,15 @@ static void draw(void) {
         tgi_bar(BAR_X, y, BAR_X + BAR_W - 1, y + ROW_H - 2);
         tgi_setcolor(TGI_COLOR_WHITE);
         tgi_outtextxy(BAR_X + 2, y + 1, short_name(&k));
-        /* where it reads from, when that is in the first 384 KB */
+        /* where it reads from, when that is in the first 384 KB: marked on
+         * the ruler in the block's colour, the line to the mark's middle */
         if (k.phys < 0x60000UL) {
             unsigned int unit = (unsigned int)(k.phys >> 12);
+            unsigned char m = TOP + unit + (unit >> 1);
+            tgi_setcolor(kind_colour[k.kind]);
+            tgi_bar(RULER_X + 1, m, RULER_X + RULER_W - 1, m + 1);
             tgi_setcolor(b == row ? TGI_COLOR_WHITE : kind_colour[k.kind]);
-            tgi_line(BAR_X + BAR_W, y + ROW_H / 2 - 1, RULER_X - 1, TOP + unit + (unit >> 1) + 1);
+            tgi_line(BAR_X + BAR_W, y + ROW_H / 2 - 1, RULER_X - 1, m + 1);
         }
     }
     /* the chosen block framed */
@@ -349,6 +362,10 @@ static void draw(void) {
     if (cfg.lo_mb || cfg.hi_mb) {
         put("FIRST MAP A=$"); hex(cfg.lo_mb, 2); put(" X=$0F Y=$"); hex(cfg.hi_mb, 2); put(" Z=$0F");
         text_at(192, TGI_COLOR_LIGHTGREEN);
+    } else if ((cfg.lo_off && !cfg.lo_en) || (cfg.hi_off && !cfg.hi_en)) {
+        /* (an offset moves nothing until a slab uses it) */
+        put("An offset moves only the SLABS set");
+        text_at(192, TGI_COLOR_ORANGE);
     } else {
         put(presets[preset].name);
         text_at(192, TGI_COLOR_GRAY2);
@@ -407,9 +424,19 @@ int main(void) {
     draw();
     OUT[7] = tgi_getpixel(BAR_X + BAR_W - 2, TOP + 8 * ROW_H + 1) == TGI_COLOR_GREEN &&
              tgi_getpixel(BAR_X + BAR_W - 2, TOP + 0xE * ROW_H + 1) == TGI_COLOR_GRAY2 &&
-             tgi_getpixel(BAR_X + BAR_W - 2, TOP + 0xD * ROW_H + 1) == TGI_COLOR_RED;
+             tgi_getpixel(BAR_X + BAR_W - 2, TOP + 0xD * ROW_H + 1) == TGI_COLOR_RED &&
+             tgi_getpixel(RULER_X + 2, TOP + 0x40 + 0x20) == TGI_COLOR_GREEN &&    /* $40000 marked */
+             tgi_getpixel(RULER_X + 2, TOP + 0x10 + 0x08 + 4) == TGI_COLOR_GRAY1;  /* bank 1 not */
+    /* bank 1 at $0000-$7FFF: labelled with its bank and marked in bank 1 */
+    use(8);
+    OUT[8] = is(0x0, K_MAPPED, 0x10000UL) && is(0x7, K_MAPPED, 0x17000UL) && is(0x8, K_RAM, 0x8000) &&
+             short_name(&(struct block){ 0x17000UL, K_MAPPED })[4] == '1';
+    preset = 8;
+    draw();
+    OUT[8] = OUT[8] && tgi_getpixel(RULER_X + 2, TOP + 0x10 + 0x08) == TGI_COLOR_GREEN &&
+             tgi_getpixel(RULER_X + 2, TOP + 0x17 + 0x0B) == TGI_COLOR_GREEN;
     tgi_unload();
-    OUT[8] = 0xAA;
+    OUT[9] = 0xAA;
     return 0;
 }
 #else
