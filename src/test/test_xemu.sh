@@ -517,7 +517,7 @@ for fpmode in "stack|-fno-zpcall" "zp|"; do
     # byte division (#352): the 8-bit routine, / and % sharing one divide
     xemu_case "FAIL: test_divmod8_xemu.c $fpname (compilation/linking failed)" "src/test-resources/test_divmod8_xemu.c" "build/test/test_divmod8_${fpname}_xemu.prg" "$fpflags" -- "test_divmod8_$fpname" "build/test/test_divmod8_${fpname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
     # constant add / subtract chains folded (#351, #353); return information
-    xemu_case "FAIL: test_const_chain_xemu.c $fpname (compilation/linking failed)" "src/test-resources/test_const_chain_xemu.c" "build/test/test_const_chain_${fpname}_xemu.prg" "$fpflags" -- "test_const_chain_$fpname" "build/test/test_const_chain_${fpname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
+    xemu_case "FAIL: test_const_chain_xemu.c $fpname (compilation/linking failed)" "src/test-resources/test_const_chain_xemu.c" "build/test/test_const_chain_${fpname}_xemu.prg" "$fpflags" -- "test_const_chain_$fpname" "build/test/test_const_chain_${fpname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
     # near pointers: base-page offsets to __zp variables
     xemu_case "FAIL: test_near_ptr_xemu.c $fpname (compilation/linking failed)" "src/test-resources/test_near_ptr_xemu.c" "build/test/test_near_ptr_${fpname}_xemu.prg" "$fpflags" -- "test_near_ptr_$fpname" "build/test/test_near_ptr_${fpname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
 done

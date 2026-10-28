@@ -16,7 +16,9 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 - `(x + c1) + c2` is folded to `x + (c1 + c2)` (also with subtracts):
   `pl.items[7]` of a global struct is `lda _pl+18` (22 bytes → 7), `x - 25
-  + 23` is `x - 2` (#353).
+  + 23` is `x - 2` (#353). So are `&`, `|`, `^` and shift chains by
+  constants: `(x & 0x3c) & 0x0f` is one `and #$0c`, `w >> 4 >> 4` is
+  `txa; ldx #0` (#353).
 - cc45 tells ca45 which functions' callers read the flags (a `char`
   result: `.var cc45.retnz`) or X (`.var cc45.retx`) after the call; any
   other cc45 function's `rts` reads neither, so reloads kept for their

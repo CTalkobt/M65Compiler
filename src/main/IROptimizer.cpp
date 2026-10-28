@@ -1266,6 +1266,45 @@ void optimizeAlgebraic(Module& mod) {
                     if (c < 0) { in.op = Op::SUB; in.src2 = Operand::imm((int64_t)((uint64_t)(-c) & m), ct); }
                     else { in.op = Op::ADD; in.src2 = Operand::imm((int64_t)((uint64_t)c & m), ct); }
                 }
+            // (x & c1) & c2 as x & (c1 & c2), likewise | and ^; (x << c1) <<
+            // c2 as x << (c1 + c2), likewise >> (logical or arithmetic: the
+            // same operation both times), while the sum stays below the width
+            auto bitwise = [](Op o) { return o == Op::AND || o == Op::OR || o == Op::XOR; };
+            auto shift = [](Op o) { return o == Op::SHL || o == Op::LSL || o == Op::SHR || o == Op::LSR || o == Op::ASR; };
+            auto splitOp = [&](const Inst& in, Operand& x, int64_t& c) {
+                if (!bitwise(in.op) && !shift(in.op)) return false;
+                if (in.src2.isImm()) { x = in.src1; c = in.src2.immVal; return true; }
+                if (bitwise(in.op) && in.src1.isImm()) { x = in.src2; c = in.src1.immVal; return true; }
+                return false;
+            };
+            for (auto& b : fn.blocks)
+                for (auto& in : b.insts) {
+                    Operand x, y;
+                    int64_t c2, c1;
+                    if (!splitOp(in, x, c2) || !x.isVreg() || !in.args.empty()) continue;
+                    auto d = def1.find(x.vregId);
+                    if (d == def1.end() || d->second->op != in.op || !d->second->args.empty() ||
+                        !splitOp(*d->second, y, c1) || !stable(y))
+                        continue;
+                    int w = width(in.resultType);
+                    if (!w || width(d->second->resultType) != w) continue;
+                    if (y.isVreg() && width(y.type) && width(y.type) != w) continue;
+                    uint64_t m = w == 32 ? 0xFFFFFFFFull : ((1ull << w) - 1);
+                    int64_t c;
+                    if (shift(in.op)) {
+                        if (c1 < 0 || c2 < 0 || c1 + c2 >= w) continue;
+                        c = c1 + c2;
+                    } else {
+                        c = in.op == Op::AND ? (c1 & c2) : in.op == Op::OR ? (c1 | c2) : (c1 ^ c2);
+                        c = (int64_t)((uint64_t)c & m);
+                    }
+                    trace("algebraic", fn.name, "v" + std::to_string(in.dest.vregId) + " = a chain of " +
+                          opName(in.op) + " by constants → one, by " + std::to_string(c), in.loc);
+                    Type ct = in.resultType == Type::PTR ? Type::I16 : in.resultType;
+                    if (shift(in.op) && in.src2.isImm()) ct = in.src2.type;
+                    in.src1 = y;
+                    in.src2 = Operand::imm(c, ct);
+                }
         }
 
         // Helper: get constant value of an operand, if known
