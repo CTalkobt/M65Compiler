@@ -4,6 +4,15 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### A field of an extern struct is an absolute address (#356)
+
+- `foldGlobalOffsetAccess` folds `extern` globals too (not `extern __zp`
+  ones): a field of an extern struct or an extern array's element at a
+  constant index is `lda _pl+86` / `sta _pl+86`, as for one defined in the
+  file, not an address computed into a register pair (20 → 3 bytes a
+  read). Test `test_extern_field_xemu.c` (two files, both conventions); a
+  size check in `test_compiler.sh`.
+
 ### ln45: a weak default is replaced only by a live member (#358)
 
 - A strong definition overrides a weak one only when its object is reached

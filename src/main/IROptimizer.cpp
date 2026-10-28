@@ -4182,14 +4182,17 @@ void removeDeadTemps(Module& mod) {
 // A member of a global struct or an element of a global array at a constant
 // index: %p = add ptr @g, c used only as the address of loads and stores
 // (and defined once) is @g+c in them, an absolute address, not a pointer
-// computed into a register (g.y = 5 is sta _g+2). Only for this file's
-// globals in the default address space (not __zp: base-page addressing;
-// not __far). Runs after the other passes, which see the add; the add is
-// then dead (removeDeadTemps). Under AddrElemFusion's switch.
+// computed into a register (g.y = 5 is sta _g+2). Only for globals in the
+// default address space (not __zp: base-page addressing; not __far): this
+// file's, and extern ones (#356: their address is a link-time constant
+// too; not an extern __zp). Runs after the other passes, which see the
+// add; the add is then dead (removeDeadTemps). Under AddrElemFusion's switch.
 void foldGlobalOffsetAccess(Module& mod) {
     std::set<std::string> plain;
     for (const auto& g : mod.globals)
         if (g.addressSpace == 0) plain.insert(g.name);
+    for (const auto& e : mod.externs)
+        if (!mod.zpExterns.count(e)) plain.insert(e);
     for (auto& fn : mod.functions) {
         if (!runOn(fn, "AddrElemFusion")) continue;
         std::map<uint32_t, int> defCount;

@@ -2108,22 +2108,23 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     };
     if (relocMode) {
         // Collect all symbol references from instructions and globals
+        // (an operand may be sym+offset: foldGlobalOffsetAccess, #356; its
+        // symbol part, as for initializer words)
+        auto symOf = [](const std::string& l) { return l.substr(0, l.find_first_of("+-", 1)); };
         std::set<std::string> referencedSymbols;
         for (const auto& fn : mod.functions) {
             for (const auto& blk : fn.blocks) {
                 for (const auto& inst : blk.insts) {
                     // Check operand names (GLOBAL/LABEL references)
-                    if (!inst.dest.name.empty()) referencedSymbols.insert(inst.dest.name);
-                    if (!inst.src1.name.empty()) referencedSymbols.insert(inst.src1.name);
-                    if (!inst.src2.name.empty()) referencedSymbols.insert(inst.src2.name);
+                    if (!inst.dest.name.empty()) referencedSymbols.insert(symOf(inst.dest.name));
+                    if (!inst.src1.name.empty()) referencedSymbols.insert(symOf(inst.src1.name));
+                    if (!inst.src2.name.empty()) referencedSymbols.insert(symOf(inst.src2.name));
                     for (const auto& arg : inst.args) {
-                        if (!arg.name.empty()) referencedSymbols.insert(arg.name);
+                        if (!arg.name.empty()) referencedSymbols.insert(symOf(arg.name));
                     }
                 }
             }
         }
-        // Initializer words may be label+offset: the symbol part
-        auto symOf = [](const std::string& l) { return l.substr(0, l.find_first_of("+-", 1)); };
         for (const auto& g : mod.globals) {
             for (const auto& lbl : g.initLabels) {
                 if (!lbl.empty()) referencedSymbols.insert(symOf(lbl));

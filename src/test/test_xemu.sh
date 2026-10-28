@@ -2411,6 +2411,14 @@ for wdmode in "zp|" "stack|-fno-zpcall"; do
     xemu_case "FAIL: test_weak_default_xemu.c $wdname (compilation/linking failed)" "src/test-resources/test_weak_default_xemu.c" "build/test/test_weak_default_${wdname}_xemu.prg" "$wdflags" "src/test-resources/test_weak_default_b.c src/test-resources/test_weak_default_asm.s45" -- "test_weak_default_$wdname" "build/test/test_weak_default_${wdname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
 done
 
+# Test: fields of an extern struct and elements of an extern array at
+# constant offsets as absolute addresses (lda _pl+86), two files (#356)
+for efmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r efname efflags <<< "$efmode"
+    echo "Testing test_extern_field_xemu.c ($efname)..."
+    xemu_case "FAIL: test_extern_field_xemu.c $efname (compilation/linking failed)" "src/test-resources/test_extern_field_xemu.c" "build/test/test_extern_field_${efname}_xemu.prg" "$efflags" "src/test-resources/test_extern_field_b.c" -- "test_extern_field_$efname" "build/test/test_extern_field_${efname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
+done
+
 # Test: a strong definition in a library member replaces a weak one only when
 # the member is reached from live code, not from code ln45 drops (#358);
 # without z() used the member (2000 bytes of data) is dropped too

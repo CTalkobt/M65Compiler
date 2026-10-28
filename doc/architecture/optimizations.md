@@ -273,9 +273,12 @@ tag `globaloff`; under `addr-elem-fusion`'s switch) gives a load or store
 through `%p = add ptr @g, c` (`%p` defined once and used only as such
 addresses) the address `@g+c` itself: a member of a global struct, an
 element at a constant index (`g.y = 5` is `sta _g+2`, not the address
-computed into a register pair and an indirect store). Only this file's
-globals in the default address space (not `__zp`, whose base-page
-addressing an absolute operand would miss, nor `__far`); where a `__noescape`
+computed into a register pair and an indirect store). Globals in the
+default address space: this file's and `extern` ones (#356: an extern's
+address is a link-time constant too, `lda _pl+86`; codegen declares the
+symbol part of a `sym+offset` operand `.extern`), not `__zp` (whose
+base-page addressing an absolute operand would miss, defined here or
+extern) nor `__far`; where a `__noescape`
 object goes counts `@g+c` as a use of `g`. The examples: 3.9 %
 less code with the changes below (150,159 → 144,291 bytes over 42
 objects). Validation: `test_peephole_xemu.c`.
