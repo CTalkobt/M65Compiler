@@ -28,7 +28,10 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   `$01` / `$D030` configuration you edit, decoded per 4 KB block in the
   MEGA65 Book's order of priority and drawn with TGI (the 64 KB as a
   coloured bar, lines into the first 384 KB of chip RAM, the MAP's A / X /
-  Y / Z). On the demos disk; `make check` (the decoder and the drawing, and
+  Y / Z). Pages: F1 / `?` the keys and the registers, F3 / CTRL+D each
+  block in detail, F5 / CTRL+B a BASIC 65 program that POKEs the routine to
+  `$1600` and SYSes it, F7 / CTRL+M / M the routine as machine code. On the
+  demos disk; `make check` (the decoder and the drawing, and
   the editor run by keys pressed through `$D615`) in `test_examples.sh`.
 
 ### `<tgi.h>` smaller
