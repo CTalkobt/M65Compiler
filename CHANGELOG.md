@@ -13,6 +13,10 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   vector-font text 180 bytes smaller (`tgi_imulround`). The same pixels
   (old and new compared on random arcs and pie slices, both conventions).
   They are `__fastcall__` in `<tgi.h>`, as the other assembly routines.
+- `tgi_init` sets the text style's defaults itself instead of calling
+  `tgi_settextstyle`, so a program without text links none of
+  `tgi_text.c`: 163 bytes less in every TGI program (one that only plots:
+  4,825 → 4,662).
 - `tgi.c`'s weak heap defaults are C again (#357 fixed).
 
 ### Weak defaults replaced from another file (#357)

@@ -249,7 +249,13 @@ void tgi_init(void) {
     if (palset) pal_default();          /* the default palette */
     tgi_error = TGI_ERR_OK;
     tgi_setcolor(TGI_COLOR_WHITE);
-    tgi_settextstyle(0x100, 0x100, TGI_TEXT_HORIZONTAL, TGI_FONT_BITMAP);
+    /* tgi_settextstyle(0x100, 0x100, TGI_TEXT_HORIZONTAL, TGI_FONT_BITMAP),
+     * without linking tgi_text.c */
+    tgi_font = TGI_FONT_BITMAP;
+    tgi_textdir = TGI_TEXT_HORIZONTAL;
+    tgi_textscalew[0] = tgi_textscalew[1] = tgi_textscaleh[0] = tgi_textscaleh[1] = 0x100;
+    tgi_charwidth = (unsigned)tgi_fontwidth << 8;
+    tgi_charheight = (unsigned)tgi_fontheight << 8;
 }
 
 void tgi_done(void) {
