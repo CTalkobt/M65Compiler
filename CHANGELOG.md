@@ -4,6 +4,14 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### objdump45: an object's labels and operand names (#354)
+
+- `-d` of an object shows only a section's own exports as its labels (not
+  BSS, base-page or absolute symbols at the same numbers), and names each
+  relocated operand from its relocation: `jsr $0000 ; <__divu16>`,
+  `sta $0001 ; <_b>`, `; <_pl+2>`, `; <_pl> lo`; operands without one are
+  not named. Test in `test_objdump45.sh`.
+
 ### Byte division (#352)
 
 - An `unsigned char` divided or taken modulo a byte uses an 8-bit routine
