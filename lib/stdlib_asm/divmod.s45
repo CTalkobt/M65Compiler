@@ -17,6 +17,32 @@ __zp_scratch2 = $0A
 .weak cc45.icallinfo
 cc45.icallinfo = 1
 
+    .split "__divmodu8"
+.global __divmodu8
+; a byte by a byte (#352): A the dividend, __zp_scratch2 the divisor; the
+; quotient comes back in A, the remainder in X (Y untouched). The
+; quotient is shifted in at __zp_scratch2+1; a remainder carried out of
+; 8 bits (a divisor over 128) is past the divisor: subtracted
+__divmodu8:
+    sta __zp_scratch2+1
+    lda #0
+    ldx #8
+@loop:
+    asl __zp_scratch2+1
+    rol a
+    bcs @sub
+    cmp __zp_scratch2
+    bcc @skip
+@sub:
+    sbc __zp_scratch2
+    inc __zp_scratch2+1
+@skip:
+    dex
+    bne @loop
+    tax
+    lda __zp_scratch2+1
+    rts
+
     .split "__divs16"
 .global __divs16
 __divs16:

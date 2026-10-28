@@ -514,6 +514,8 @@ for fpmode in "stack|-fno-zpcall" "zp|"; do
     # code from the bits known to be 0 (#350): byte-wise or/and/xor, adds
     # without impossible carries, far stores of x + c
     xemu_case "FAIL: test_known_bits_xemu.c $fpname (compilation/linking failed)" "src/test-resources/test_known_bits_xemu.c" "build/test/test_known_bits_${fpname}_xemu.prg" "$fpflags" -- "test_known_bits_$fpname" "build/test/test_known_bits_${fpname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+    # byte division (#352): the 8-bit routine, / and % sharing one divide
+    xemu_case "FAIL: test_divmod8_xemu.c $fpname (compilation/linking failed)" "src/test-resources/test_divmod8_xemu.c" "build/test/test_divmod8_${fpname}_xemu.prg" "$fpflags" -- "test_divmod8_$fpname" "build/test/test_divmod8_${fpname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
     # constant add / subtract chains folded (#351, #353); return information
     xemu_case "FAIL: test_const_chain_xemu.c $fpname (compilation/linking failed)" "src/test-resources/test_const_chain_xemu.c" "build/test/test_const_chain_${fpname}_xemu.prg" "$fpflags" -- "test_const_chain_$fpname" "build/test/test_const_chain_${fpname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
     # near pointers: base-page offsets to __zp variables
