@@ -535,6 +535,30 @@ else
     echo "  SKIP: ln45 not available"
 fi
 
+# ─── Object operands named by their relocations (#354) ──────────────────────
+
+echo "Object labels and relocated operands (#354)..."
+cat > "$BUILD/objdump_reloc.c" <<'EOF2'
+unsigned char a, b;
+struct player { unsigned char x, y, hp; unsigned char items[20]; } pl;
+void split(unsigned char k) { a = k % 3; b = k / 3; }
+void sethp(unsigned char v) { pl.hp = v; }
+EOF2
+if ./bin/cc45 -O2 -c "$BUILD/objdump_reloc.c" -o "$BUILD/objdump_reloc.o45" >/dev/null 2>&1; then
+    OUT=$($OD -d "$BUILD/objdump_reloc.o45" 2>&1)
+    T=$(printf '%s\n' "$OUT" | awk '/section TEXT/,/section DATA/')
+    assert_not_contains "no BSS label in TEXT" "$T" "<_b>:"
+    assert_not_contains "no ZP / absolute label in TEXT" "$T" "<__zp_scratch2>:"
+    assert_not_contains "no absolute label in TEXT" "$T" "<cc45.zeroPageStart>:"
+    assert_contains "a call named by its import" "$T" "; <__div"
+    assert_contains "a store named by its BSS export" "$T" "; <_a>"
+    assert_contains "the other store too" "$T" "; <_b>"
+    assert_contains "a member at its offset" "$T" "; <_pl+2>"
+    assert_not_contains "no operand named by its placeholder" "$T" "; <_split"
+else
+    fail "relocation names — compiling failed"
+fi
+
 # ─── Summary ─────────────────────────────────────────────────────────────────
 
 echo ""

@@ -67,6 +67,45 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   example `examples/c/tgi_demo` (on the demos disk); `make install` installs
   `include/cc45/tgi/`.
 
+### rtc_read reads the clock only (#355)
+
+- `rtc_read()` fills in only the fields the RTC registers hold (the date
+  and time, `tm_isdst` 0); `tm_wday` and `tm_yday` are -1, and a program
+  that wants them calls `mktime()` afterwards. It no longer calls `mktime`
+  itself, so a program reading the clock no longer links the 32-bit date
+  arithmetic: the issue's example is 987 bytes, was 4,176. `time()` is
+  unchanged (it calls `mktime`).
+
+### objdump45: an object's labels and operand names (#354)
+
+- `-d` of an object shows only a section's own exports as its labels (not
+  BSS, base-page or absolute symbols at the same numbers), and names each
+  relocated operand from its relocation: `jsr $0000 ; <__divu16>`,
+  `sta $0001 ; <_b>`, `; <_pl+2>`, `; <_pl> lo`; operands without one are
+  not named. Test in `test_objdump45.sh`.
+
+### Byte division (#352)
+
+- An `unsigned char` divided or taken modulo a byte uses an 8-bit routine
+  (`__divmodu8`: quotient in A, remainder in X); `x / c` and `x % c` of the
+  same value share one divide (`x % c = x - (x / c) * c`); a byte times a
+  constant is shifts and adds in A. 311 bytes over the examples; test
+  `test_divmod8_xemu.c` (both conventions).
+
+### Constant chains, what a return carries (#351)
+
+- `(x + c1) + c2` is folded to `x + (c1 + c2)` (also with subtracts):
+  `pl.items[7]` of a global struct is `lda _pl+18` (22 bytes → 7), `x - 25
+  + 23` is `x - 2` (#353). So are `&`, `|`, `^` and shift chains by
+  constants: `(x & 0x3c) & 0x0f` is one `and #$0c`, `w >> 4 >> 4` is
+  `txa; ldx #0` (#353).
+- cc45 tells ca45 which functions' callers read the flags (a `char`
+  result: `.var cc45.retnz`) or X (`.var cc45.retx`) after the call; any
+  other cc45 function's `rts` reads neither, so reloads kept for their
+  flags and a dead `ldx #0` before it go. 737 bytes over the examples.
+- Test `test_const_chain_xemu.c` (both conventions); sizes in
+  `test_compiler.sh`.
+
 ### Known bits in code generation (#350, first part)
 
 - cc45 computes the bits of each value known to be 0 (`KnownBits.cpp`) and

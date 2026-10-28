@@ -149,6 +149,8 @@ void CodegenStage::optimizeIR() {
         {"TypeNarrowing",     ir::optimizeTypeNarrowing},
         {"BranchFolding",     ir::optimizeBranchFold},
         {"CommonSubexprElim", ir::optimizeCSE},
+        // (after CSE: x / 3 and x % 3 of one x, one divide)
+        {"StrengthReduction", ir::optimizeShareDivMod},
         {"LICM",              ir::optimizeLICM},
         // after LICM: g[r] hoisted out of an inner loop is reduced in the outer one
         {"LoopStrengthReduction", ir::optimizeLoopStrengthReduction},
