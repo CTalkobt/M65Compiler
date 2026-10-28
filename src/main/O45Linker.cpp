@@ -288,11 +288,21 @@ void O45Linker::gcSections(size_t numRoots) {
                 if (dot != std::string::npos) strongDef.emplace(exp.name.substr(dot + 1), std::make_pair(i, e));
             }
         }
+    // A strong definition overrides a weak one only when its object is live
+    // (#358): a member pulled in by a reference from code that is then
+    // dropped must not replace a weak default. The walk is repeated, a strong
+    // definition counted only in an object the walk before found live (the
+    // first: the roots), until no more objects become live
+    std::vector<bool> strongOk(n, false);
     auto definer = [&](const std::string& name, std::pair<size_t, size_t>& out) {
         auto it = strongDef.find(name);
-        if (it == strongDef.end()) it = weakDef.find(name);
-        if (it == weakDef.end()) return false;
-        out = it->second;
+        auto wk = weakDef.find(name);
+        if (it != strongDef.end() && (strongOk[it->second.first] || wk == weakDef.end())) {
+            out = it->second;
+            return true;
+        }
+        if (wk == weakDef.end()) return false;
+        out = wk->second;
         return true;
     };
     auto exportUnit = [&](size_t i, size_t e) {
@@ -313,7 +323,6 @@ void O45Linker::gcSections(size_t numRoots) {
     };
 
     std::vector<std::vector<bool>> live(n);
-    for (size_t i = 0; i < n; i++) live[i].assign(maps[i].residual + 1, false);
     std::vector<std::pair<size_t, int>> work;
     auto mark = [&](size_t i, int u) {
         if (live[i][u]) return;
@@ -322,6 +331,7 @@ void O45Linker::gcSections(size_t numRoots) {
         int res = maps[i].residual;
         if (!live[i][res]) { live[i][res] = true; work.push_back({i, res}); }   // the residual comes along
     };
+    for (size_t i = 0; i < n && i < numRoots; i++) strongOk[i] = true;
     // --gc-inputs: the input objects are not roots themselves -- when there
     // is startup code to reach them from (else they stay whole)
     if (gcInputs_) {
@@ -330,6 +340,9 @@ void O45Linker::gcSections(size_t numRoots) {
             for (const auto& sa : objects_[i].obj.segAttrs) if (sa.name == "init") hasInit = true;
         if (hasInit) numRoots = 0;
     }
+    for (bool again = true; again; ) {
+    for (size_t i = 0; i < n; i++) live[i].assign(maps[i].residual + 1, false);
+    work.clear();
     for (const auto& name : keepSymbols_) {   // -u
         std::pair<size_t, size_t> d;
         if (definer(name, d)) mark(d.first, exportUnit(d.first, d.second));
@@ -393,6 +406,12 @@ void O45Linker::gcSections(size_t numRoots) {
                                                    o.imports[r.symbolIndex].name == imp.name) { used = true; break; }
                 if (found && !used) mark(d.first, exportUnit(d.first, d.second));
             }
+    }
+    // the objects found live now count their strong definitions: walk again
+    // when that adds any
+    again = false;
+    for (size_t i = 0; i < n; i++)
+        if (live[i][maps[i].residual] && !strongOk[i]) { strongOk[i] = true; again = true; }
     }
 
     std::vector<InputObject> kept;

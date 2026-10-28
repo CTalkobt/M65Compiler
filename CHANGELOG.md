@@ -4,6 +4,17 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### ln45: a weak default is replaced only by a live member (#358)
+
+- A strong definition overrides a weak one only when its object is reached
+  from live code: ln45's reachability walk is repeated, counting the strong
+  definitions of the objects the walk before found live, until no more
+  become live. A library member pulled in only by a reference from code
+  that is then dropped no longer replaces a weak default (and brings in
+  what its strong definition needs): the issue's program is 310 bytes, was
+  2,315, and calls the default. Test `test_weak_member_xemu.c` (both
+  conventions, with the member live and not).
+
 ### Weak defaults replaced from another file (#357)
 
 - A `#pragma weak` function was inlined into the callers in its own file

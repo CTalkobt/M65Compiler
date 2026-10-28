@@ -2411,6 +2411,34 @@ for wdmode in "zp|" "stack|-fno-zpcall"; do
     xemu_case "FAIL: test_weak_default_xemu.c $wdname (compilation/linking failed)" "src/test-resources/test_weak_default_xemu.c" "build/test/test_weak_default_${wdname}_xemu.prg" "$wdflags" "src/test-resources/test_weak_default_b.c src/test-resources/test_weak_default_asm.s45" -- "test_weak_default_$wdname" "build/test/test_weak_default_${wdname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
 done
 
+# Test: a strong definition in a library member replaces a weak one only when
+# the member is reached from live code, not from code ln45 drops (#358);
+# without z() used the member (2000 bytes of data) is dropped too
+for wmmode in "zp||lib/build/c45.lib" "stack|-fno-zpcall|lib/build/c45_stack.lib"; do
+    IFS='|' read -r wmname wmflags wmlib <<< "$wmmode"
+    echo "Testing test_weak_member_xemu.c ($wmname)..."
+    wmbase="build/test/test_weak_member_${wmname}"
+    rm -f ${wmbase}.lib
+    if $CC $wmflags -ffunction-sections -c src/test-resources/test_weak_member_x.c -o ${wmbase}_x.o45 2>/dev/null &&
+       $CC $wmflags -ffunction-sections -c src/test-resources/test_weak_member_z.c -o ${wmbase}_z.o45 2>/dev/null &&
+       ./bin/ar45 c ${wmbase}.lib ${wmbase}_x.o45 ${wmbase}_z.o45 >/dev/null 2>&1 &&
+       $CC $wmflags -c src/test-resources/test_weak_member_xemu.c -o ${wmbase}_m.o45 2>/dev/null &&
+       $CC $wmflags -DUSE_Z -c src/test-resources/test_weak_member_xemu.c -o ${wmbase}_mz.o45 2>/dev/null &&
+       $LD -basic -o ${wmbase}_xemu.prg $CRT0 ${wmbase}_m.o45 ${wmbase}.lib $wmlib >/dev/null 2>&1 &&
+       $LD -basic -o ${wmbase}_z_xemu.prg $CRT0 ${wmbase}_mz.o45 ${wmbase}.lib $wmlib >/dev/null 2>&1; then
+        if [ $(stat -c %s ${wmbase}_xemu.prg) -lt 1500 ]; then
+            run_xemu_test "test_weak_member_$wmname" "${wmbase}_xemu.prg" "C0C0" 3 "01 01 AA"
+        else
+            echo "FAIL: test_weak_member_xemu.c $wmname (the unused member linked: $(stat -c %s ${wmbase}_xemu.prg) bytes)"
+            failed=$((failed + 1))
+        fi
+        run_xemu_test "test_weak_member_z_$wmname" "${wmbase}_z_xemu.prg" "C0C0" 3 "01 01 AA"
+    else
+        echo "FAIL: test_weak_member_xemu.c $wmname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: pointer variables in functions' base-page blocks (placed by ln45
 # above the register pool the program uses), two modules
 for zlmode in "zp||lib/build/c45.lib" "stack|-fno-zpcall|lib/build/c45_stack.lib" "off|-fno-zp-locals|lib/build/c45.lib"; do
