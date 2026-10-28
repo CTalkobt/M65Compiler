@@ -2403,6 +2403,14 @@ for wsmode in "zp|||lib/build/c45.lib" "stack|-fno-zpcall||lib/build/c45_stack.l
     fi
 done
 
+# Test: #pragma weak defaults called from their own file and replaced by strong
+# ones from C and assembly: not inlined, nor called by their static storage (#357)
+for wdmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r wdname wdflags <<< "$wdmode"
+    echo "Testing test_weak_default_xemu.c ($wdname)..."
+    xemu_case "FAIL: test_weak_default_xemu.c $wdname (compilation/linking failed)" "src/test-resources/test_weak_default_xemu.c" "build/test/test_weak_default_${wdname}_xemu.prg" "$wdflags" "src/test-resources/test_weak_default_b.c src/test-resources/test_weak_default_asm.s45" -- "test_weak_default_$wdname" "build/test/test_weak_default_${wdname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+done
+
 # Test: pointer variables in functions' base-page blocks (placed by ln45
 # above the register pool the program uses), two modules
 for zlmode in "zp||lib/build/c45.lib" "stack|-fno-zpcall|lib/build/c45_stack.lib" "off|-fno-zp-locals|lib/build/c45.lib"; do

@@ -1668,6 +1668,9 @@ void IRBuilder::visit(FunctionDeclaration& node) {
             shouldInline = true;
         }
         if (noInlineNames_.count(node.name)) shouldInline = false;
+        // #pragma weak: the body is a default the link may replace, so no
+        // caller gets a copy of it (#357; a method's weak copies are all alike)
+        if (fn.isWeak && !node.isMethod) shouldInline = false;
         // A body that names its own symbols or must exist once is not copied
         // into callers (always_inline still forces it): inline asm (it may
         // name the parameters, @_p_x), labels and goto (a second copy in the

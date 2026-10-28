@@ -4,6 +4,24 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Weak defaults replaced from another file (#357)
+
+- A `#pragma weak` function was inlined into the callers in its own file
+  at `-O2`, so a strong definition linked from another file never
+  replaced those calls. It is no longer inlined. In the stack convention,
+  the calls in its file also stored their arguments in the weak
+  function's static storage and called its `__sac` entry, which a strong
+  replacement does not share (other parameter names; none at all in
+  assembly): they are ordinary calls now. Struct methods (weak copies,
+  all alike) are inlined as before.
+- ln45 took a function's calling convention from every object that
+  exports it, so a weak C default replaced by a hand-written routine of
+  the other convention got no bridge: the replaced weak definition no
+  longer counts.
+- Test `test_weak_default_xemu.c` (both conventions): small bodies,
+  parameters under other names, constant arguments, a replacement in
+  assembly and one that clobbers the register pool.
+
 ### Example: map_decode
 
 - `examples/c/map_decode`: what the CPU sees in its 64 KB for a MAP /

@@ -338,6 +338,9 @@ private:
     // Used to emit .global declarations for __ar symbols in preamble
     std::set<std::string> sacFunctions_;
     std::set<std::string> recursiveFunctions_;  // on a call cycle within the module
+    // #pragma weak functions (not methods): the link may replace the body, so
+    // a call from this unit is an ordinary call to it, as from another (#357)
+    std::set<std::string> weakDefaults_;
     int dataAlign_ = 1, bssAlign_ = 1;  // largest .align emitted in data / bss
     int textAlign_ = 1;                 // largest function alignment
     static std::string stringDirective(const std::string& value, const std::string& escMask, int encoding);
