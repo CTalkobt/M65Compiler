@@ -4,6 +4,15 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### rtc_read reads the clock only (#355)
+
+- `rtc_read()` fills in only the fields the RTC registers hold (the date
+  and time, `tm_isdst` 0); `tm_wday` and `tm_yday` are -1, and a program
+  that wants them calls `mktime()` afterwards. It no longer calls `mktime`
+  itself, so a program reading the clock no longer links the 32-bit date
+  arithmetic: the issue's example is 987 bytes, was 4,176. `time()` is
+  unchanged (it calls `mktime`).
+
 ### objdump45: an object's labels and operand names (#354)
 
 - `-d` of an object shows only a section's own exports as its labels (not

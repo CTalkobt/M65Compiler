@@ -47,5 +47,6 @@ time_t mktime(struct tm *tm);
 char *asctime(struct tm *tm);
 char *ctime(time_t *timer);
 
-/* MEGA65-specific: read RTC directly into struct tm */
+/* MEGA65-specific: read the RTC into a struct tm: the date and time only,
+ * tm_wday and tm_yday -1 (call mktime(tm) afterwards for them), tm_isdst 0 */
 void rtc_read(struct tm *tm);

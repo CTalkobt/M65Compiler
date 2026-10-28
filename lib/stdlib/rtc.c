@@ -20,8 +20,8 @@
  *   $FFD7116: day of week (1-7)
  */
 
-static int bcd_to_int(unsigned char bcd) {
-    return ((bcd >> 4) & 0x0F) * 10 + (bcd & 0x0F);
+static unsigned char bcd_to_int(unsigned char bcd) {
+    return (bcd >> 4) * 10 + (bcd & 0x0F);
 }
 
 /* Days from 2000-01-01 to y-m-d (m 1-12) */
@@ -68,7 +68,9 @@ static void tm_from_time(time_t t, struct tm *tm) {
 static struct tm __tm_buf;
 
 /* Read the RTC registers: they are at a 28-bit address (a 16-bit pointer
- * cannot reach them), so a DMA job copies the seven bytes */
+ * cannot reach them), so a DMA job copies the seven bytes. Only the fields
+ * the registers hold: tm_wday and tm_yday are -1 (mktime fills them in),
+ * so a program reading the clock links none of the date arithmetic (#355) */
 void rtc_read(struct tm *tm) {
     unsigned char r[7];   /* sec, min, hour, day, month, year, day of week */
     __dma_copy_far((unsigned long)(unsigned int)r, 0xFFD7110UL, 7);
@@ -79,9 +81,11 @@ void rtc_read(struct tm *tm) {
     tm->tm_mday = bcd_to_int(r[3] & 0x3F);
     tm->tm_mon  = bcd_to_int(r[4] & 0x1F) - 1; /* 0-based */
     tm->tm_year = bcd_to_int(r[5]) + 100; /* years since 1900; RTC year 00-99 → 2000-2099 */
-    /* the weekday and day of the year from the date (the register's
-     * numbering is not the same on every board and in emulators) */
-    mktime(tm);
+    /* (the weekday register's numbering is not the same on every board
+     * and in emulators: not used) */
+    tm->tm_wday = -1;
+    tm->tm_yday = -1;
+    tm->tm_isdst = 0;
 }
 
 struct tm *gmtime(time_t *timer) {
