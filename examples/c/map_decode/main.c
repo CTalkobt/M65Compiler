@@ -22,7 +22,10 @@
  * presets, Q quits.
  *
  * MAP_CHECK (make check): the decoder's cases and the drawing checked
- * without keys; each result byte at $C0C0 is 01, then $AA.
+ * without keys; each result byte at $C0C0 is 01, then $AA. MAP_KEYS (make
+ * check too): the editor run by keys pressed through the virtual key
+ * registers ($D615 / $D616: through the keyboard scanner and $D610, as
+ * typed), then the values and the screen checked the same way.
  */
 #include <tgi.h>
 #include <input.h>
@@ -410,6 +413,51 @@ int main(void) {
     return 0;
 }
 #else
+#ifdef MAP_KEYS
+#include <mega65.h>
+#define OUT ((volatile unsigned char *)0xC0C0)
+#define REG(a) (*(volatile unsigned char *)(a))
+/* the virtual key register's code: row * 8 + column (KEY_ is column * 8 + row) */
+#define VK(k) ((unsigned char)((((k) & 7) << 3) | ((k) >> 3)))
+#define SH 0x100    /* with SHIFT: CRSR up / left */
+
+/* Preset 2, then the Book's MAP typed in: LO OFS 100, SLABS 1, HI OFS 480,
+ * SLABS 3, $01 35; + and - on $D030, the block moved right, right, left
+ * and typed (A), back up to $D030, quit */
+static const unsigned int script[] = {
+    KEY_P, KEY_P,
+    KEY_1, KEY_0, KEY_0, KEY_DOWN, KEY_DOWN, KEY_1,
+    KEY_DOWN, KEY_4, KEY_8, KEY_0, KEY_DOWN, KEY_DOWN, KEY_3,
+    KEY_DOWN, KEY_3, KEY_5,
+    KEY_DOWN, KEY_PLUS, KEY_PLUS, KEY_MINUS,
+    KEY_DOWN, KEY_RIGHT, KEY_RIGHT, SH | KEY_RIGHT, KEY_A,
+    SH | KEY_DOWN,
+    KEY_Q
+};
+static unsigned char next_key;
+
+static void frames(unsigned char n) {
+    while (n--) {
+        while (REG(0xD012) != 0xF0) ;
+        while (REG(0xD012) == 0xF0) ;
+    }
+}
+
+/* the next key of the script pressed and let go, then read as typed */
+static unsigned char get_key(void) {
+    unsigned int k = next_key < sizeof script / sizeof script[0] ? script[next_key++] : KEY_Q;
+    if (k & SH) REG(0xD616) = VK(KEY_LSHIFT);
+    REG(0xD615) = VK(k & 0xFF);
+    frames(3);
+    REG(0xD615) = 0x7F;
+    REG(0xD616) = 0x7F;
+    frames(3);
+    return input_wait();
+}
+#else
+#define get_key input_wait
+#endif
+
 static unsigned char hexval(unsigned char k) {
     if (k >= '0' && k <= '9') return k - '0';
     if (k >= 'a' && k <= 'f') return k - 'a' + 10;
@@ -427,7 +475,7 @@ int main(void) {
     cfg = presets[preset].c;
     while (1) {
         draw();
-        k = input_wait();
+        k = get_key();
         step = field == F_LO_OFF || field == F_HI_OFF ? 0x20 : 1;   /* (the offsets by 8 KB) */
         if (k == 'q' || k == 'Q') break;
         if (k == 0x11) field = field + 1 < N_FIELDS ? field + 1 : 0;             /* CRSR down */
@@ -441,7 +489,21 @@ int main(void) {
             set_field(field, (get_field(field) << 4) | d);
         }
     }
+#ifdef MAP_KEYS
+    OUT[0] = next_key == sizeof script / sizeof script[0] && preset == 2;
+    OUT[1] = cfg.lo_off == 0x100 && cfg.lo_en == 1 && cfg.lo_mb == 0 &&
+             cfg.hi_off == 0x480 && cfg.hi_en == 3 && cfg.hi_mb == 0;
+    OUT[2] = cfg.port == 0x35 && cfg.d030 == 1 && row == 0xA && field == F_D030;
+    /* the screen drawn for them: $0000 and $8000 moved, $2000 RAM, $D000 I/O */
+    OUT[3] = tgi_getpixel(BAR_X + BAR_W - 2, TOP + 0x0 * ROW_H + 1) == TGI_COLOR_GREEN &&
+             tgi_getpixel(BAR_X + BAR_W - 2, TOP + 0x8 * ROW_H + 1) == TGI_COLOR_GREEN &&
+             tgi_getpixel(BAR_X + BAR_W - 2, TOP + 0x2 * ROW_H + 1) == TGI_COLOR_GRAY2 &&
+             tgi_getpixel(BAR_X + BAR_W - 2, TOP + 0xD * ROW_H + 1) == TGI_COLOR_RED;
+#endif
     tgi_unload();
+#ifdef MAP_KEYS
+    OUT[4] = 0xAA;
+#endif
     return 0;
 }
 #endif

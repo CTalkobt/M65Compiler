@@ -255,7 +255,9 @@ program's `$35`, the C65 ROMs by `$D030`, the Book's MAP example and its
 Ethernet buffer at `$6800`, bank 4 at `$8000`. Keys: CRSR up / down chooses
 a value, CRSR left / right or + / - changes it, 0-9 / A-F type it in hex, P
 the next preset, Q quits. `make check` builds a test of the decoder and the
-drawing (8 checks at `$C0C0`).
+drawing (8 checks at `$C0C0`) and one that runs the editor by keys pressed
+through the virtual key registers (`$D615`: through the keyboard scanner, as
+typed), then checks the values and the screen (4 checks).
 
 ![map_decode](images/map_decode.png)
 
