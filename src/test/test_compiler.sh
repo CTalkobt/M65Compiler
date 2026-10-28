@@ -683,6 +683,18 @@ else
     failed=$((failed + 1))
 fi
 
+# #361: an element address computed once when two blocks index with the
+# same value (&mons[m - 1]: each block has its own zext and subtract of m)
+printf 'struct mon { unsigned char x, y, kind, hp, awake, stun, carry; };\nstruct mon mons[24];\nunsigned char habits[16];\nunsigned char out;\nvoid f(unsigned char m) {\n    if (!mons[m - 1].awake && (habits[mons[m - 1].kind] & 16)) out = 1;\n}\n' > $cs/cse.c
+if ./bin/cc45 -O2 -c $cs/cse.c -o $cs/cse.o45 >/dev/null 2>&1 &&
+   [ $(./bin/objdump45 -d $cs/cse.o45 | grep -c 'mul\|<_mons') -le 2 ] &&
+   [ $((16#$(./bin/objdump45 -h $cs/cse.o45 | awk '$2 == "TEXT" {print $3}'))) -le 52 ]; then
+    echo "SUCCESS: &mons[m - 1] computed once in two blocks"
+else
+    echo "FAIL: &mons[m - 1] computed twice (#361): $((16#$(./bin/objdump45 -h $cs/cse.o45 2>/dev/null | awk '$2 == "TEXT" {print $3}'))) bytes"
+    failed=$((failed + 1))
+fi
+
 # #356: a field of an extern struct is an absolute address, as for one
 # defined in the file (lda _pl+86, 3 bytes; was 20 through a pointer)
 printf 'struct p { unsigned char a[86]; unsigned char x; };\nextern struct p pl;\nunsigned char out;\nvoid f(void) { out = pl.x; }\nvoid g(void) { pl.x = out; }\n' > $cs/ext.c

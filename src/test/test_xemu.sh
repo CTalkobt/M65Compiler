@@ -2419,6 +2419,14 @@ for efmode in "zp|" "stack|-fno-zpcall"; do
     xemu_case "FAIL: test_extern_field_xemu.c $efname (compilation/linking failed)" "src/test-resources/test_extern_field_xemu.c" "build/test/test_extern_field_${efname}_xemu.prg" "$efflags" "src/test-resources/test_extern_field_b.c" -- "test_extern_field_$efname" "build/test/test_extern_field_${efname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
 done
 
+# Test: an element address reused across blocks when its index is the same
+# value, not when it changes; hoisted out of a loop (#361)
+for cvmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r cvname cvflags <<< "$cvmode"
+    echo "Testing test_cse_value_xemu.c ($cvname)..."
+    xemu_case "FAIL: test_cse_value_xemu.c $cvname (compilation/linking failed)" "src/test-resources/test_cse_value_xemu.c" "build/test/test_cse_value_${cvname}_xemu.prg" "$cvflags" -- "test_cse_value_$cvname" "build/test/test_cse_value_${cvname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
+done
+
 # Test: a strong definition in a library member replaces a weak one only when
 # the member is reached from live code, not from code ln45 drops (#358);
 # without z() used the member (2000 bytes of data) is dropped too

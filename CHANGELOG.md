@@ -4,6 +4,19 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### An element address computed once (#361)
+
+- CSE compares an operand by its value when it is cheap arithmetic of values
+  that never change in the function (constants, globals' addresses,
+  variables never assigned whose address is not taken, parameters only
+  read): `&mons[m - 1]` in two blocks, each with its own `zext` and subtract
+  of `m`, is computed once (the issue's function 69 → 48 bytes). With #356
+  the examples are 290 bytes smaller. A loop-invariant element address was
+  already hoisted (LICM); an extern struct's field is now a constant
+  (#356). ca45 relocates `ldax #(sym - n)`, which cc45 writes for an extern
+  array's `a[m - 1]` (it was an error). Test `test_cse_value_xemu.c`; the
+  extern array in `test_extern_field_xemu.c`.
+
 ### A field of an extern struct is an absolute address (#356)
 
 - `foldGlobalOffsetAccess` folds `extern` globals too (not `extern __zp`

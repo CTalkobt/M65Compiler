@@ -7,14 +7,20 @@
  *   [0] fields read: a byte, the next one, an int
  *   [1] fields written, seen by the other file
  *   [2] read-modify-write (++, +=) of a field
- *   [3] an extern array's elements at constant indices
+ *   [3] an extern array's elements at constant indices; an extern array of
+ *       structs at [m - 1] (ldax #(_mons-3): ca45 relocates sym-n in
+ *       parentheses too, #361)
  *   [4] $AA sentinel
  */
 #define OUT ((volatile unsigned char *)0xC0C0)
 struct p { unsigned char a[86]; unsigned char x, y; unsigned int hp; };
 extern struct p pl;
 extern unsigned char tab[40];
+struct mon { unsigned char x, y, kind; };
+extern struct mon mons[8];
 unsigned char get_x(void);
+
+__attribute__((noinline)) unsigned char kind_of(unsigned char m) { return mons[m - 1].kind + mons[m - 1].x; }
 unsigned int get_hp(void);
 
 int main(void) {
@@ -28,7 +34,7 @@ int main(void) {
     pl.a[3] += 2;
     OUT[2] = pl.y == 10 && pl.hp == 0x1334 && pl.a[3] == 7;
     tab[39] = tab[3] + 10;
-    OUT[3] = tab[39] == 13 && tab[1] == 1;
+    OUT[3] = tab[39] == 13 && tab[1] == 1 && kind_of(2) == 6 + 4 && kind_of(3) == 9 + 7;
     OUT[4] = 0xAA;
     return 0;
 }
