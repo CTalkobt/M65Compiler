@@ -9892,7 +9892,8 @@ void IRBuilder::visit(AsmStatement& node) {
             std::string where = loc(node).valid() ? loc(node).file + ":" + std::to_string(loc(node).line) + ": " : "";
             if (!o) {
                 emitWarning(where + "warning: unknown optimization '" + name + "' in #pragma cc45 optimize");
-            } else if (o->impl == OptimizationImpl::IR_PASS) {
+            } else if (o->impl == OptimizationImpl::IR_PASS || o->name == "ZpArgs") {
+                // (ZpArgs: decided per function at code generation, #359)
                 target[o->name] = on;
             } else if (o->impl == OptimizationImpl::AST_PASS) {
                 // done before IR generation (the AST pass reads the pragma itself)

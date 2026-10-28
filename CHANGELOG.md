@@ -4,6 +4,17 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Parameter copies: size or speed (#359)
+
+- `-fzp-args` (a catalog entry): a static-allocation function's entry from
+  another file copies its parameters through `__zp_args` / `__sac_args` and
+  a list (smaller) at `-O1`, `-O2` and `-Os`, and inline with `lda` / `sta`
+  from `-O3` / `-Ospeed` (20,000 calls of the issue's function: 14 frames
+  → 6, about 320 cycles a call; 7 bytes larger). `-fno-zp-args` /
+  `-fzp-args` override the level, `#pragma cc45 optimize(no-zp-args)` one
+  function. Tests `test_zp_args_speed_xemu.c` (lists and inline, both
+  conventions), `test_zp_args_xemu.c` also at `-O3`; `test_compiler.sh`.
+
 ### Base-page masks as addresses (#360)
 
 - `.zp_uses` / `.zp_clobbers` / `.zp_release` record the addresses

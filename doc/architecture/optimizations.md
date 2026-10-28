@@ -589,6 +589,7 @@ implemented:
 | `inline-small-functions` | IRBuilder inlining (`-fno-` also overrides `-finline-functions`) | `-O2` |
 | `devirtualization` | IRBuilder | `-O0` |
 | `sac-slot-sharing` | Code generation: SAC locals never live together share storage ([IR passes](#ir-passes)); file-wide only | `-O1` |
+| `zp-args` | Code generation (#359): a SAC function's entry from another file copies its parameters into its storage through `__zp_args` / `__sac_args` and a list (3 bytes a parameter) instead of `lda` / `sta` (about 300 cycles a call faster); also per function by pragma (`optimize(no-zp-args)`) | `-O1`, off from `-O3` / `-Ospeed` |
 | `tail-call-optimization`, `branch-inversion`, `jump-optimization`, `redundant-load-elimination`, `dead-store-elimination`, `seq-extract` | ca45 pass: cc45 passes `-P<x>` / `-PNo<x>` (`TailCall`, `BranchInvert`, `JmpBra`, `RedundantLoad`, `DeadStore`, `SeqExtract`) to ca45; file-wide only | ca45's default (always) |
 | `constant-folding`, `dead-code-elimination`, `frame-pointer-optimization` | Part of code generation, always on: `-fno-` warns *"cannot be disabled"* | always |
 | `loop-interchange` | AST pass before IR generation ([Loop interchange](#loop-interchange)); also per function by pragma | `-O4` |
