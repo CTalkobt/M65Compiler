@@ -180,8 +180,8 @@ move the top. Hand-written asm must read the stack through a pointer
 
 `.o45` relocatable objects (`doc/architecture/lib45.md`): segments, exports
 (weak bit `$80`), imports, relocations (R_LOW/R_HIGH/R_ADDR16/R_ADDR24…),
-19-byte function attribute records (ZP-convention, leaf, static-alloc, ISR,
-zero-alloc flags; register/flag clobbers; ZP use masks; parameter and frame
+function attribute records (`$F9`: ZP-convention, leaf, static-alloc, ISR,
+zero-alloc flags; register/flag clobbers; base-page use masks as address ranges, #360; parameter and frame
 sizes), line info, debug types and variables (`OPT_DEBUG_TYPES`/`OPT_DEBUG_VARS`, for a debugger) and alignment markers (`cc45.align.data/bss`). A
 `.func_flags` record attaches only to the global symbol named by
 `proc <name>`; ca45 warns when `.func_flags` is in an unnamed `proc`.

@@ -2089,7 +2089,7 @@ void O45Linker::computeTransitiveClobbers() {
                 // Merge: union of clobber sets
                 uint8_t newRegClob = callerAttr.regClobbers | calleeAttr.regClobbers;
                 uint8_t newFlagClob = callerAttr.flagClobbers | calleeAttr.flagClobbers;
-                uint32_t newZpClob = callerAttr.zpClobbers | calleeAttr.zpClobbers;
+                ZpMask newZpClob = callerAttr.zpClobbers | calleeAttr.zpClobbers;
 
                 if (newRegClob != callerAttr.regClobbers ||
                     newFlagClob != callerAttr.flagClobbers ||
@@ -3949,15 +3949,14 @@ void O45Linker::generateThunks() {
             int copy = paramSize;
             if (calleeIt != funcAttrs_.end()) {
                 // Hand-written ZP routines declare their parameters with .zp_uses
-                // (bit 0 = $09): copy up to the highest parameter byte used
-                uint32_t uses = calleeIt->second.zpUses;
-                for (int bit = 31; bit >= 0; bit--) {
-                    int addr = 0x09 + bit;
-                    if ((uses & (1u << bit)) && addr >= zpParamBase && addr < zpParamBase + 32) {
+                // (the addresses themselves, #360): copy up to the highest
+                // parameter byte used
+                const ZpMask& uses = calleeIt->second.zpUses;
+                for (int addr = zpParamBase + 31; addr >= zpParamBase; addr--)
+                    if (uses.test((unsigned)addr)) {
                         copy = std::max(copy, addr - zpParamBase + 1);
                         break;
                     }
-                }
             }
             mergedText_.push_back(0xBA);                           // TSX
             mergedText_.push_back(0x0B);                           // TSY
@@ -4491,26 +4490,9 @@ void O45Linker::writeMap(std::ostream& out) const {
             const auto& fa = attrIt->second;
             out << "  [";
             // ZP mask formatter
-            auto fmtZp = [](uint32_t mask) -> std::string {
-                if (mask == 0) return "-";
-                int first = -1, last = -1;
-                for (int i = 0; i < 32; i++) {
-                    if (mask & (1u << i)) {
-                        if (first < 0) first = i;
-                        last = i;
-                    }
-                }
-                char b[16];
-                // ZP param slots start at $03 (zeroPageStart+1, default $02+1)
-                if (first == last)
-                    snprintf(b, sizeof(b), "%02X", 0x03 + first);
-                else
-                    snprintf(b, sizeof(b), "%02X-%02X", 0x03 + first, 0x03 + last);
-                return b;
-            };
-            out << "uses:" << fmtZp(fa.zpUses);
-            out << " clob:" << fmtZp(fa.zpClobbers);
-            out << " rel:" << fmtZp(fa.zpRelease);
+            out << "uses:" << fa.zpUses.str();       // (the addresses, #360)
+            out << " clob:" << fa.zpClobbers.str();
+            out << " rel:" << fa.zpRelease.str();
             std::string regs;
             if (fa.regClobbers & 0x01) regs += 'A';
             if (fa.regClobbers & 0x02) regs += 'X';
@@ -4537,23 +4519,7 @@ void O45Linker::writeMap(std::ostream& out) const {
             const auto& tc = transIt->second;
             const auto& fa = attrIt->second;
             if (tc.zpClobbers != fa.zpClobbers || tc.regClobbers != fa.regClobbers) {
-                auto fmtZp = [](uint32_t mask) -> std::string {
-                    if (mask == 0) return "-";
-                    int first = -1, last = -1;
-                    for (int i = 0; i < 32; i++) {
-                        if (mask & (1u << i)) {
-                            if (first < 0) first = i;
-                            last = i;
-                        }
-                    }
-                    char b[16];
-                    if (first == last)
-                        snprintf(b, sizeof(b), "%02X", 0x03 + first);
-                    else
-                        snprintf(b, sizeof(b), "%02X-%02X", 0x03 + first, 0x03 + last);
-                    return b;
-                };
-                out << " (trans: clob:" << fmtZp(tc.zpClobbers);
+                out << " (trans: clob:" << tc.zpClobbers.str();
                 std::string regs;
                 if (tc.regClobbers & 0x01) regs += 'A';
                 if (tc.regClobbers & 0x02) regs += 'X';

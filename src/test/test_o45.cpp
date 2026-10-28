@@ -968,8 +968,8 @@ void test_gc_sections_align() {
 void test_linker_funcattr_basic() {
     // Two objects: _main (no attrs) and _add (with attrs)
     O45FuncAttr addAttr;
-    addAttr.zpUses = 0x03;      // bits 0,1 -> ZP $03,$04
-    addAttr.zpClobbers = 0x03;
+    addAttr.zpUses = ZpMask::legacy(0x03);      // bits 0,1 -> ZP $03,$04
+    addAttr.zpClobbers = ZpMask::legacy(0x03);
     addAttr.regClobbers = 0x07; // A,X,Y
     addAttr.flagClobbers = 0x05; // C,Z
 
@@ -995,8 +995,8 @@ void test_linker_funcattr_basic() {
     CHECK(!attrs.count("_main"), "linker funcattr basic: _main has no attrs");
 
     if (attrs.count("_add")) {
-        CHECK(attrs.at("_add").zpUses == 0x03, "linker funcattr basic: zpUses match");
-        CHECK(attrs.at("_add").zpClobbers == 0x03, "linker funcattr basic: zpClobbers match");
+        CHECK(attrs.at("_add").zpUses == ZpMask::legacy(0x03), "linker funcattr basic: zpUses match");
+        CHECK(attrs.at("_add").zpClobbers == ZpMask::legacy(0x03), "linker funcattr basic: zpClobbers match");
         CHECK(attrs.at("_add").regClobbers == 0x07, "linker funcattr basic: regClobbers match");
         CHECK(attrs.at("_add").flagClobbers == 0x05, "linker funcattr basic: flagClobbers match");
     }
@@ -1031,15 +1031,15 @@ void test_linker_callgraph() {
         exp.segment = SEG_TEXT;
         exp.offset = 0;
         exp.hasFuncAttr = true;
-        exp.funcAttr.zpUses = 0;
-        exp.funcAttr.zpClobbers = 0x03;
+        exp.funcAttr.zpUses = ZpMask::legacy(0);
+        exp.funcAttr.zpClobbers = ZpMask::legacy(0x03);
         exp.funcAttr.regClobbers = 0x07;
         mainObj.exports.push_back(exp);
     }
 
     O45FuncAttr addAttr;
-    addAttr.zpUses = 0x03;
-    addAttr.zpClobbers = 0x0F; // clobbers more than main
+    addAttr.zpUses = ZpMask::legacy(0x03);
+    addAttr.zpClobbers = ZpMask::legacy(0x0F); // clobbers more than main
     addAttr.regClobbers = 0x0F; // AXYZ
     auto addObj = makeObjWithFunc("_add", 0, {0x60}, {}, {}, true, addAttr);
 
@@ -1077,7 +1077,7 @@ void test_linker_transitive_clobbers() {
         O45File::Export exp;
         exp.name = "_a"; exp.segment = SEG_TEXT; exp.offset = 0;
         exp.hasFuncAttr = true;
-        exp.funcAttr.zpClobbers = 0x03; // bits 0-1
+        exp.funcAttr.zpClobbers = ZpMask::legacy(0x03); // bits 0-1
         exp.funcAttr.regClobbers = 0x01; // A
         objA.exports.push_back(exp);
     }
@@ -1093,14 +1093,14 @@ void test_linker_transitive_clobbers() {
         O45File::Export exp;
         exp.name = "_b"; exp.segment = SEG_TEXT; exp.offset = 0;
         exp.hasFuncAttr = true;
-        exp.funcAttr.zpClobbers = 0x0C; // bits 2-3
+        exp.funcAttr.zpClobbers = ZpMask::legacy(0x0C); // bits 2-3
         exp.funcAttr.regClobbers = 0x02; // X
         objB.exports.push_back(exp);
     }
 
     // _c: just RTS (leaf)
     O45FuncAttr cAttr;
-    cAttr.zpClobbers = 0x30; // bits 4-5
+    cAttr.zpClobbers = ZpMask::legacy(0x30); // bits 4-5
     cAttr.regClobbers = 0x04; // Y
     auto objC = makeObjWithFunc("_c", 0, {0x60}, {}, {}, true, cAttr);
 
@@ -1120,21 +1120,21 @@ void test_linker_transitive_clobbers() {
     // _c: no callees, transitive == direct
     CHECK(tc.count("_c"), "linker trans clobber: _c present");
     if (tc.count("_c")) {
-        CHECK(tc.at("_c").zpClobbers == 0x30, "linker trans clobber: _c zpClob = 0x30");
+        CHECK(tc.at("_c").zpClobbers == ZpMask::legacy(0x30), "linker trans clobber: _c zpClob = 0x30");
         CHECK(tc.at("_c").regClobbers == 0x04, "linker trans clobber: _c regClob = Y");
     }
 
     // _b: direct 0x0C | _c's 0x30 = 0x3C
     CHECK(tc.count("_b"), "linker trans clobber: _b present");
     if (tc.count("_b")) {
-        CHECK(tc.at("_b").zpClobbers == 0x3C, "linker trans clobber: _b zpClob = 0x3C");
+        CHECK(tc.at("_b").zpClobbers == ZpMask::legacy(0x3C), "linker trans clobber: _b zpClob = 0x3C");
         CHECK(tc.at("_b").regClobbers == 0x06, "linker trans clobber: _b regClob = XY");
     }
 
     // _a: direct 0x03 | _b's transitive 0x3C = 0x3F
     CHECK(tc.count("_a"), "linker trans clobber: _a present");
     if (tc.count("_a")) {
-        CHECK(tc.at("_a").zpClobbers == 0x3F, "linker trans clobber: _a zpClob = 0x3F");
+        CHECK(tc.at("_a").zpClobbers == ZpMask::legacy(0x3F), "linker trans clobber: _a zpClob = 0x3F");
         CHECK(tc.at("_a").regClobbers == 0x07, "linker trans clobber: _a regClob = AXY");
     }
 }
@@ -1142,8 +1142,8 @@ void test_linker_transitive_clobbers() {
 void test_linker_map_funcattrs() {
     // Verify that writeMap includes function attributes
     O45FuncAttr attr;
-    attr.zpUses = 0x03;
-    attr.zpClobbers = 0x03;
+    attr.zpUses = ZpMask::legacy(0x03);
+    attr.zpClobbers = ZpMask::legacy(0x03);
     attr.regClobbers = 0x07;
     auto obj = makeObjWithFunc("_foo", 0, {0x60}, {}, {}, true, attr);
 

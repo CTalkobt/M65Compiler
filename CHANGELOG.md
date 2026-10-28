@@ -4,6 +4,19 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Base-page masks as addresses (#360)
+
+- `.zp_uses` / `.zp_clobbers` / `.zp_release` record the addresses
+  themselves, `$00`-`$FF`, in a new attribute record (`$F9`: the masks as
+  ranges). The old record's 32-bit masks were relative to
+  `cc45.zeroPageStart`, which the object did not record: ln45's bridge read
+  the library's masks 6 bytes high (copying 8 bytes for 2) and nm45 showed
+  cc45-based ones 6 low; and they covered only 32 bytes, so a routine could
+  not name the parameter block's end, the register pool or the library
+  temps. ln45, nm45 and objdump45 show the addresses (`uses:10-11
+  clobbers:08,30-31,F2-F5`); the old `$FA` record is still read (base
+  `$03`). An address over `$FF` is an error. Test in `test_assembler.sh`.
+
 ### Weak defaults replaced from another file (#357)
 
 - A `#pragma weak` function was inlined into the callers in its own file
