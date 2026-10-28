@@ -29,6 +29,7 @@ SUBDIRS = \
 	c/hanger \
 	c/fcm_graphics \
 	c/tgi_demo \
+	c/map_decode \
 	c/tunes \
 	c/glamlambs \
 	c/overlays \

@@ -364,6 +364,18 @@ make -C "$EXAMPLES/c/tgi_demo" check >/dev/null 2>&1
 test_text "tgi_demo" "$EXAMPLES/c/tgi_demo/tgicheck.prg" "TGI CHECK OK, 50 FRAMES" 20
 
 }
+unit_29() {   # map_decode
+build_example "$EXAMPLES/c/map_decode"
+test_screenshot "map_decode" "$EXAMPLES/c/map_decode/map_decode.prg" 10
+# the decoder's cases ($01, MAP, a megabyte, $D030 and I/O above them) and
+# the drawing's colours; the editor run by keys pressed through $D615
+if make -C "$EXAMPLES/c/map_decode" check >"$BUILDDIR/map_decode_check.txt" 2>&1; then
+    pass "map_decode check"
+else
+    fail "map_decode check" "$(tail -1 "$BUILDDIR/map_decode_check.txt")"
+fi
+
+}
 
 UNITS=$(declare -F | awk '{print $3}' | grep '^unit_' | sort)
 UD="$BUILDDIR/units"
