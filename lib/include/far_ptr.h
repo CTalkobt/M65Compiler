@@ -15,6 +15,9 @@
  * program keeps, far_reserve), and attic RAM when the program asks for it
  * (far_attic_init / far_attic_enable: power-of-two blocks).
  * Format: [BANK:8][OFFSET:16]
+ * far_malloc, far_free, far_size_long, far_reserve, bank_reset and
+ * bank_reset_all are assembly (lib/stdlib_asm/far_heap.s45): __fastcall__,
+ * the ZP convention in both libraries.
  * ========================================================================== */
 
 /* 24-bit far pointer type (3 bytes: bank + offset) */
@@ -96,10 +99,10 @@ bank_t bank_get(void);
 size_t bank_available(bank_t bank);
 
 /* Reset all bank allocators (clear all far allocations) */
-void bank_reset_all(void);
+__fastcall__ void bank_reset_all(void);
 
 /* Reset allocator for specific bank (frees all; far_reserve ranges stay) */
-void bank_reset(bank_t bank);
+__fastcall__ void bank_reset(bank_t bank);
 
 /* ============================================================================
  * Far Memory Allocation
@@ -107,7 +110,7 @@ void bank_reset(bank_t bank);
 
 /* Allocate memory in specified bank: BANK4, BANK5, or BANK_ATTIC (a
  * power-of-two block; far_malloc_long for more than 64 KB) */
-far_ptr_t far_malloc(size_t size, bank_t bank);
+__fastcall__ far_ptr_t far_malloc(size_t size, bank_t bank);
 
 /* Allocate and zero-initialize in specified bank */
 far_ptr_t far_calloc(size_t count, size_t size, bank_t bank);
@@ -116,7 +119,7 @@ far_ptr_t far_calloc(size_t count, size_t size, bank_t bank);
 far_ptr_t far_realloc(far_ptr_t ptr, size_t new_size, bank_t new_bank);
 
 /* Free allocation */
-void far_free(far_ptr_t ptr);
+__fastcall__ void far_free(far_ptr_t ptr);
 
 /* ============================================================================
  * Bank Allocation Variants (Use Current Bank)
@@ -206,12 +209,12 @@ unsigned long far_attic_size(far_ptr_t p);
  * chip RAM banks up to 65535 bytes. far_size_long gives its size (far_size
  * at most 65535). */
 far_ptr_t far_malloc_long(unsigned long size, bank_t bank);
-unsigned long far_size_long(far_ptr_t ptr);
+__fastcall__ unsigned long far_size_long(far_ptr_t ptr);
 
 /* Keep first..last (linear addresses in banks 4 and 5, $40000-$5FFFF) from
  * the far heap: a program's own buffers at fixed addresses. Call it before
  * the first allocation there (what is allocated already stays so);
  * bank_reset keeps it. At most 8 ranges; 0 when full or outside banks 4-5. */
-int far_reserve(unsigned long first, unsigned long last);
+__fastcall__ int far_reserve(unsigned long first, unsigned long last);
 
 #endif

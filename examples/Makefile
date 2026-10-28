@@ -28,6 +28,7 @@ SUBDIRS = \
 	c/rogue \
 	c/hanger \
 	c/fcm_graphics \
+	c/tgi_demo \
 	c/tunes \
 	c/glamlambs \
 	c/overlays \

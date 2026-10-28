@@ -4,6 +4,57 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### The chip RAM far heap in assembly
+
+- `far_malloc`, `far_free`, `far_size_long`, `far_reserve`, `bank_reset`
+  and `bank_reset_all` are assembly (`lib/stdlib_asm/far_heap.s45`,
+  `__fastcall__`): the same allocator (first fit over 32 records a bank in
+  address order, splits, merges, `far_reserve` ranges and the overlay store
+  carved out), its records arrays of bytes for banks 4 and 5 only (a 1-byte
+  state). A program using `far_malloc` / `far_free` links about 1.1 KB of
+  code and 412 bytes of BSS instead of 3.9 KB and 1.9 KB; attic RAM's
+  routes moved to `far_attic_hook.c`, so a program without attic RAM links
+  none of them. A `<tgi.h>` program that only plots: 9,025 → 6,097 bytes.
+  The rest of the API stays C (`far_malloc.c`). New test
+  `test_far_malloc_xemu.c` (both conventions), written against the C
+  version first: splits, merges, the 32-record limit, `far_reserve`,
+  `bank_reset`, `far_realloc` / `far_calloc` / `far_malloc_current`, and
+  1500 random operations compared with a model of the algorithm.
+
+### `<tgi.h>`: cc65's TGI graphics
+
+- cc65's Tiny Graphics Interface (https://cc65.github.io/doc/tgi.html), so
+  TGI programs port with their calls unchanged: every function, cc65's
+  constants (`TGI_COLOR_*` the C64's numbers), `<tgi/tgi-error.h>`,
+  `<tgi/tgi-kernel.h>`, `<tgi/tgi-vectorfont.h>` (`lib/stdlib/tgi*.c`).
+- Two linked-in drivers, 320x200 with 256 colours on VIC-IV full-colour
+  characters (a byte a pixel, the palette entry): `tgi_static_stddrv` /
+  `"mega65-fcm.tgi"` (one page, banks 4/5 through `far_malloc`, no heap) and
+  `tgi_static_fcm2` / `"mega65-fcm2.tgi"` (two pages for double buffering).
+  `tgi_done` puts the text screen and the palette back.
+- Clipped lines, DMA-filled bars and clears, cc65's arcs, bitmap text from
+  the VIC's font (both cases, magnified, turned) and cc65's `.vfn` vector
+  fonts (loaded with `fopen`).
+- `tgi_setpixel`, `tgi_getpixel`, `tgi_line`, `tgi_lineto`, the line loop
+  and 1x bitmap glyphs in assembly (`stdlib_asm/tgi_pixel.s45`); a line
+  wholly on the screen skips the clipping (and C's parameter thunks).
+  Circles, ellipses and arcs are Kennedy's midpoint ellipse in assembly
+  (32-bit Q-register adds; arcs keep the points between their angles by an
+  incremental cross product: sines only for the two angles) instead of
+  cc65's 12-degree polygons; `tgi_circle` / `tgi_ellipse` and the
+  ellipse's set-up (the hardware multiplier) are assembly, so a program
+  drawing circles links about 1.7 KB for them (the arcs' C only with
+  `tgi_arc` / `tgi_pieslice`). `src/test/bench_tgi.sh` times the workloads in
+  xemu with a checksum of what each drew; against the first C versions
+  (frames, ZP convention): 1x text 114 → 11, long lines 76 → 30, short lines
+  66 → 29, circles 53 → 10, setpixel 66 → 52, getpixel 63 → 49 (stack
+  convention: setpixel 158 → 86, getpixel 121 → 49: `<tgi.h>` declares the
+  assembly functions `__fastcall__`, also in cc45's list of the library's
+  ZP routines); the same pixels but the curves'.
+- Tests `test_tgi_xemu.c`, `test_tgi_vfn_xemu.c` (both conventions); new
+  example `examples/c/tgi_demo` (on the demos disk); `make install` installs
+  `include/cc45/tgi/`.
+
 ### Known bits in code generation (#350, first part)
 
 - cc45 computes the bits of each value known to be 0 (`KnownBits.cpp`) and

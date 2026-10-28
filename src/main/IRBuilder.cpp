@@ -3577,7 +3577,11 @@ bool IRBuilder::isLibraryZpRoutine(const std::string& fname) {
         "romram_enable", "romram_protect", "romram_ranges",
         // tune.s45
         "tune_detune", "tune_note", "tune_play", "tune_play_far", "tune_playing", "tune_stop",
-        "tune_seek", "tune_tempo", "tune_ticks", "tune_transpose", "tune_update", "tune_vibrato", "tune_voices"};
+        "tune_seek", "tune_tempo", "tune_ticks", "tune_transpose", "tune_update", "tune_vibrato", "tune_voices",
+        // far_heap.s45
+        "bank_reset", "bank_reset_all", "far_free", "far_malloc", "far_reserve", "far_size_long",
+        // tgi_pixel.s45
+        "tgi_circle", "tgi_ellipse", "tgi_getpixel", "tgi_line", "tgi_lineto", "tgi_setpixel"};
     return routines.count(fname) > 0;
 }
 

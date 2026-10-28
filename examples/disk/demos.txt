@@ -4,6 +4,7 @@ c/mandelbrot/mandelbrot.prg          | mandelbrot   | mandelbrot - the set, zoom
 c/musicgen/musicgen.prg              | musicgen     | musicgen - random music in 7 styles
 c/tunes/tunes.prg                    | tunes        | tunes - a game's music, from an irq
 c/fcm_graphics/fcm_graphics.prg      | fcm graphics | fcm graphics - full-colour characters
+c/tgi_demo/tgi_demo.prg              | tgi demo     | tgi demo - cc65 tgi graphics
 c/calc_graph/calc_graph.prg          | calc graph   | calc graph - a calculator that plots
 c/forth/forth.prg                    | forth        | forth - a tiny forth
 c/rtc_clock/rtc_clock.prg            | rtc clock    | rtc clock - the real-time clock

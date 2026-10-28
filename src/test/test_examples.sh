@@ -356,6 +356,15 @@ fi
 # order and their PASS / FAIL / SKIP lines counted. The examples disks
 # (made of the examples' programs) come after them.
 EXAMPLE_JOBS=${EXAMPLE_JOBS:-$(nproc 2>/dev/null || echo 2)}
+unit_28() {   # tgi_demo
+build_example "$EXAMPLES/c/tgi_demo"
+# the test build: the drawing, 50 frames on two pages, then tgi_unload and a
+# report on the text screen
+make -C "$EXAMPLES/c/tgi_demo" check >/dev/null 2>&1
+test_text "tgi_demo" "$EXAMPLES/c/tgi_demo/tgicheck.prg" "TGI CHECK OK, 50 FRAMES" 20
+
+}
+
 UNITS=$(declare -F | awk '{print $3}' | grep '^unit_' | sort)
 UD="$BUILDDIR/units"
 rm -rf "$UD"; mkdir -p "$UD"
