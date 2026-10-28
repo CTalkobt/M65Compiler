@@ -1,0 +1,851 @@
+; far_heap.s45 — <far_ptr.h>'s chip RAM heap in banks 4 and 5: far_malloc,
+; far_free, far_size_long, far_reserve, bank_reset, bank_reset_all (the rest
+; of the API, and attic RAM's pointers, are stdlib/far_malloc.c)
+;
+; A bank's heap is $0100-$FFFF, described by up to 32 records in address
+; order: offset, size and a state (0 allocated, 1 free, 2 kept: far_reserve's
+; ranges and the code overlays' store, carved out when the bank is first
+; used). The records are arrays of bytes, a bank's 32 after the other's
+; (record i of bank 4 + k at k * 32 + i), reached with X / Y. far_malloc is
+; first fit: a block bigger than asked for is split, the rest a free record
+; right after it (no record left: refused); far_free marks its record free
+; and merges free neighbours. Attic RAM (bank $80 up) goes to
+; far_attic_hook.c's routes (linked with far_attic_hook / far_attic_enable;
+; the weak ones here, without it, give nothing), which call far_attic.c
+; through the pointers far_attic_hook sets.
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+RECS = 32               ; records a bank
+
+.global _far_malloc, _far_free, _far_size_long, _far_reserve, _bank_reset, _bank_reset_all
+.global ___far_heap_avail
+.weak ___far_attic_alloc_route, ___far_attic_free_route, ___far_attic_size_route
+.extern ___ovl_store_bank, ___ovl_store_first, ___ovl_store_last
+.extern ___ovl_store2_bank, ___ovl_store2_first, ___ovl_store2_last
+
+.segment "bss"
+__fh_offl:      .res 64 ; the records: offset low, high
+__fh_offh:      .res 64
+__fh_sizl:      .res 64 ; size low, high
+__fh_sizh:      .res 64
+__fh_st:        .res 64 ; state: 0 allocated, 1 free, 2 kept
+__fh_n:         .res 2  ; records in use, bank 4, 5
+__fh_resf:      .res 32 ; far_reserve's ranges: first (linear, 4 bytes)
+__fh_resl:      .res 32 ; last
+__fh_resn:      .res 1  ; how many
+__fh_bank:      .res 1  ; the bank worked on (4, 5)
+__fh_base:      .res 1  ; its first record (0, 32)
+__fh_end:       .res 1  ; past its last
+__fh_i:         .res 1  ; a record
+__fh_need:      .res 1  ; records a carve adds
+__fh_size:      .res 2  ; far_malloc's size
+__fh_first:     .res 2  ; a range in the bank (carve), an offset (far_free)
+__fh_last:      .res 2
+__fh_lo:        .res 2  ; a free record's first, last byte (carve)
+__fh_hi:        .res 2
+__fh_lf:        .res 4  ; carve_linear's range
+__fh_ll:        .res 4
+__fh_t:         .res 2  ; a temporary
+
+.segment "code"
+
+; ----------------------------------------------------------------------------
+; Records
+; ----------------------------------------------------------------------------
+
+; A = a bank: carry clear for 4 and 5, __fh_bank / __fh_base / __fh_end set;
+; carry set for any other
+proc __fh_sel
+    .reg_clobbers A, X
+    .flag_clobbers C, N, Z, V
+    cmp #4
+    bcc @no
+    cmp #6
+    bcs @no
+    sta __fh_bank
+    and #1
+    tax                     ; (k: 0, 1)
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a
+    sta __fh_base
+    clc
+    adc __fh_n,x
+    sta __fh_end
+    clc
+    rts
+@no:
+    sec
+    rts
+endproc
+
+; __fh_end into the bank's count
+proc __fh_setn
+    .reg_clobbers A, X
+    .flag_clobbers C, N, Z, V
+    ldx __fh_bank
+    sec
+    lda __fh_end
+    sbc __fh_base
+    sta __fh_n-4,x
+    rts
+endproc
+
+; Records X .. __fh_end - 1 moved up by __fh_need (into slots past the end)
+proc __fh_up
+    .reg_clobbers A, Y
+    .flag_clobbers C, N, Z, V
+    stx __fh_i
+    ldy __fh_end
+    cpy __fh_i
+    beq @out
+@copy:
+    dey
+    phx
+    tya
+    clc
+    adc __fh_need
+    tax
+    lda __fh_offl,y
+    sta __fh_offl,x
+    lda __fh_offh,y
+    sta __fh_offh,x
+    lda __fh_sizl,y
+    sta __fh_sizl,x
+    lda __fh_sizh,y
+    sta __fh_sizh,x
+    lda __fh_st,y
+    sta __fh_st,x
+    plx
+    cpy __fh_i
+    bne @copy
+@out:
+    rts
+endproc
+
+; Record X removed: the ones after it moved down, one fewer
+proc __fh_down
+    .reg_clobbers A, Y
+    .flag_clobbers C, N, Z, V
+    phx
+@copy:
+    inx
+    cpx __fh_end
+    bcs @done
+    lda __fh_offl,x
+    sta __fh_offl-1,x
+    lda __fh_offh,x
+    sta __fh_offh-1,x
+    lda __fh_sizl,x
+    sta __fh_sizl-1,x
+    lda __fh_sizh,x
+    sta __fh_sizh-1,x
+    lda __fh_st,x
+    sta __fh_st-1,x
+    bra @copy
+@done:
+    dec __fh_end
+    jsr __fh_setn
+    plx
+    rts
+endproc
+
+; Keep __fh_first .. __fh_last (offsets) of the bank: the free records it
+; covers are split, its part marked kept (what is allocated stays so; no
+; record left: the rest not carved)
+proc __fh_carve
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    ldx __fh_base
+@rec:
+    cpx __fh_end
+    bcc @1
+    rts
+@1:
+    lda __fh_st,x
+    cmp #1
+    beq @2
+    jmp @next
+@2:
+    lda __fh_offl,x         ; lo = offset, hi = offset + size - 1
+    sta __fh_lo
+    lda __fh_offh,x
+    sta __fh_lo+1
+    clc
+    lda __fh_lo
+    adc __fh_sizl,x
+    sta __fh_hi
+    lda __fh_lo+1
+    adc __fh_sizh,x
+    sta __fh_hi+1
+    lda __fh_hi
+    bne @3
+    dec __fh_hi+1
+@3:
+    dec __fh_hi
+    lda __fh_last           ; last < lo: not this one
+    cmp __fh_lo
+    lda __fh_last+1
+    sbc __fh_lo+1
+    bcc @next
+    lda __fh_hi             ; first > hi: not this one
+    cmp __fh_first
+    lda __fh_hi+1
+    sbc __fh_first+1
+    bcc @next
+    ; need: first > lo (a record before), last < hi (one after)
+    lda #0
+    sta __fh_need
+    lda __fh_lo
+    cmp __fh_first
+    lda __fh_lo+1
+    sbc __fh_first+1
+    bcs @4
+    inc __fh_need
+@4:
+    lda __fh_last
+    cmp __fh_hi
+    lda __fh_last+1
+    sbc __fh_hi+1
+    bcs @5
+    inc __fh_need
+@5:
+    sec                     ; no record left: done
+    lda __fh_end
+    sbc __fh_base
+    clc
+    adc __fh_need
+    cmp #RECS+1
+    bcc @6
+    rts
+@6:
+    inx
+    jsr __fh_up             ; (records after this one)
+    dex
+    clc
+    lda __fh_end
+    adc __fh_need
+    sta __fh_end
+    jsr __fh_setn
+    ldx __fh_i
+    dex
+    ; a = max(first, lo): a record before when first > lo
+    lda __fh_lo
+    cmp __fh_first
+    lda __fh_lo+1
+    sbc __fh_first+1
+    bcs @kept               ; lo >= first: a = lo
+    sec                     ; the free part before: size first - lo
+    lda __fh_first
+    sbc __fh_lo
+    sta __fh_sizl,x
+    lda __fh_first+1
+    sbc __fh_lo+1
+    sta __fh_sizh,x
+    inx
+    lda __fh_first
+    sta __fh_lo
+    lda __fh_first+1
+    sta __fh_lo+1
+@kept:
+    ; the kept part: a .. b, b = min(last, hi)
+    lda __fh_lo
+    sta __fh_offl,x
+    lda __fh_lo+1
+    sta __fh_offh,x
+    lda #2
+    sta __fh_st,x
+    lda __fh_last
+    cmp __fh_hi
+    lda __fh_last+1
+    sbc __fh_hi+1
+    bcs @tohi               ; last >= hi: b = hi
+    sec                     ; size last - a + 1
+    lda __fh_last
+    sbc __fh_lo
+    sta __fh_t
+    lda __fh_last+1
+    sbc __fh_lo+1
+    sta __fh_t+1
+    inc __fh_t
+    bne @inc0
+    inc __fh_t+1
+@inc0:
+    lda __fh_t
+    sta __fh_sizl,x
+    lda __fh_t+1
+    sta __fh_sizh,x
+    inx                     ; the free part after: last + 1 .. hi
+    clc
+    lda __fh_last
+    adc #1
+    sta __fh_offl,x
+    lda __fh_last+1
+    adc #0
+    sta __fh_offh,x
+    sec                     ; size hi - last
+    lda __fh_hi
+    sbc __fh_last
+    sta __fh_sizl,x
+    lda __fh_hi+1
+    sbc __fh_last+1
+    sta __fh_sizh,x
+    lda #1
+    sta __fh_st,x
+    bra @next
+@tohi:
+    sec                     ; size hi - a + 1
+    lda __fh_hi
+    sbc __fh_lo
+    sta __fh_t
+    lda __fh_hi+1
+    sbc __fh_lo+1
+    sta __fh_t+1
+    inc __fh_t
+    bne @inc1
+    inc __fh_t+1
+@inc1:
+    lda __fh_t
+    sta __fh_sizl,x
+    lda __fh_t+1
+    sta __fh_sizh,x
+@next:
+    inx
+    jmp @rec
+endproc
+
+; Keep the part of __fh_lf .. __fh_ll (linear) in the bank (__fh_carve)
+proc __fh_carve_linear
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    lda __fh_lf+3           ; first above the bank: nothing
+    bne @out
+    lda __fh_bank
+    cmp __fh_lf+2
+    bcc @out
+    beq @fin
+    lda #0                  ; first below it: from 0
+    sta __fh_first
+    sta __fh_first+1
+    bra @last
+@fin:
+    lda __fh_lf
+    sta __fh_first
+    lda __fh_lf+1
+    sta __fh_first+1
+@last:
+    lda __fh_ll+3           ; last above it: to $FFFF
+    bne @top
+    lda __fh_ll+2
+    cmp __fh_bank
+    bcc @out                ; last below it: nothing
+    bne @top
+    lda __fh_ll
+    sta __fh_last
+    lda __fh_ll+1
+    sta __fh_last+1
+    jmp __fh_carve
+@top:
+    lda #$FF
+    sta __fh_last
+    sta __fh_last+1
+    jmp __fh_carve
+@out:
+    rts
+endproc
+
+; The bank's records at its first use: all of it free, the code overlays'
+; store and far_reserve's ranges carved out
+proc __fh_init
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    lda __fh_end
+    cmp __fh_base
+    beq @new
+    rts
+@new:
+    ldx __fh_base
+    lda #0
+    sta __fh_offl,x
+    sta __fh_sizl,x
+    lda #1
+    sta __fh_offh,x
+    sta __fh_st,x
+    lda #$FF
+    sta __fh_sizh,x
+    inc __fh_end
+    jsr __fh_setn
+    lda #<___ovl_store_bank
+    cmp __fh_bank
+    bne @s2
+    lda #<___ovl_store_first
+    sta __fh_first
+    lda #>___ovl_store_first
+    sta __fh_first+1
+    lda #<___ovl_store_last
+    sta __fh_last
+    lda #>___ovl_store_last
+    sta __fh_last+1
+    jsr __fh_carve
+@s2:
+    lda #<___ovl_store2_bank
+    beq @res
+    cmp __fh_bank
+    bne @res
+    lda #<___ovl_store2_first
+    sta __fh_first
+    lda #>___ovl_store2_first
+    sta __fh_first+1
+    lda #<___ovl_store2_last
+    sta __fh_last
+    lda #>___ovl_store2_last
+    sta __fh_last+1
+    jsr __fh_carve
+@res:
+    ldy #0                  ; far_reserve's ranges
+@range:
+    cpy __fh_resn
+    bcs @out
+    phy
+    tya
+    asl a
+    asl a
+    tay
+    ldx #0
+@copy:
+    lda __fh_resf,y
+    sta __fh_lf,x
+    lda __fh_resl,y
+    sta __fh_ll,x
+    iny
+    inx
+    cpx #4
+    bne @copy
+    jsr __fh_carve_linear
+    ply
+    iny
+    bra @range
+@out:
+    rts
+endproc
+
+; ----------------------------------------------------------------------------
+; The API
+; ----------------------------------------------------------------------------
+
+; far_ptr_t far_malloc(size_t size, bank_t bank): $10 the result's
+; address, $12 size, $14 bank
+proc _far_malloc
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $14
+    bmi @attic
+    jsr __fh_sel
+    bcs @null
+    lda $12
+    sta __fh_size
+    ora $13
+    beq @null
+    lda $13
+    sta __fh_size+1
+    jsr __fh_init
+    ldx __fh_base            ; first fit
+@find:
+    cpx __fh_end
+    bcs @null
+    lda __fh_st,x
+    cmp #1
+    bne @nx
+    lda __fh_sizl,x
+    cmp __fh_size
+    lda __fh_sizh,x
+    sbc __fh_size+1
+    bcs @found
+@nx:
+    inx
+    bra @find
+@found:
+    sec                     ; the rest: size - asked
+    lda __fh_sizl,x
+    sbc __fh_size
+    sta __fh_t
+    lda __fh_sizh,x
+    sbc __fh_size+1
+    sta __fh_t+1
+    ora __fh_t
+    beq @take
+    sec                     ; a split: a record left?
+    lda __fh_end
+    sbc __fh_base
+    cmp #RECS
+    bcs @null
+    lda #1
+    sta __fh_need
+    inx
+    jsr __fh_up
+    inc __fh_end
+    jsr __fh_setn
+    ldx __fh_i              ; the rest: offset + size, free
+    clc
+    lda __fh_offl-1,x
+    adc __fh_size
+    sta __fh_offl,x
+    lda __fh_offh-1,x
+    adc __fh_size+1
+    sta __fh_offh,x
+    lda __fh_t
+    sta __fh_sizl,x
+    lda __fh_t+1
+    sta __fh_sizh,x
+    lda #1
+    sta __fh_st,x
+    dex
+    lda __fh_size
+    sta __fh_sizl,x
+    lda __fh_size+1
+    sta __fh_sizh,x
+@take:
+    lda #0
+    sta __fh_st,x
+    ldy #0                  ; bank, offset
+    lda $14
+    sta ($10),y
+    iny
+    lda __fh_offl,x
+    sta ($10),y
+    iny
+    lda __fh_offh,x
+    sta ($10),y
+    bra @ret
+@null:
+    ldy #0
+    lda #0
+    sta ($10),y
+    iny
+    sta ($10),y
+    iny
+    sta ($10),y
+@ret:
+    lda $10
+    ldx $11
+    rts
+@attic:
+    lda #0                  ; (size as a long)
+    sta $14
+    sta $15
+    jsr ___far_attic_alloc_route
+    rts
+    .func_flags zp_call
+endproc
+
+; The far pointer at ($10): __fh_bank's A (the bank), __fh_first (the
+; offset); Z (flag) set for the null pointer
+proc __fh_ptr
+    .reg_clobbers A, Y
+    .flag_clobbers C, N, Z, V
+    ldy #1
+    lda ($10),y
+    sta __fh_first
+    iny
+    lda ($10),y
+    sta __fh_first+1
+    ldy #0
+    lda ($10),y
+    ora __fh_first
+    ora __fh_first+1
+    php
+    lda ($10),y
+    plp
+    rts
+endproc
+
+; X: the allocated record at offset __fh_first, carry clear; none: carry set
+proc __fh_find
+    .reg_clobbers A, X
+    .flag_clobbers C, N, Z, V
+    ldx __fh_base
+@rec:
+    cpx __fh_end
+    bcs @out
+    lda __fh_st,x
+    bne @nx
+    lda __fh_offl,x
+    cmp __fh_first
+    bne @nx
+    lda __fh_offh,x
+    cmp __fh_first+1
+    bne @nx
+    clc
+    rts
+@nx:
+    inx
+    bra @rec
+@out:
+    rts
+endproc
+
+; void far_free(far_ptr_t ptr): $10 the pointer's address
+proc _far_free
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr __fh_ptr
+    beq @out
+    tax
+    bmi @attic
+    jsr __fh_sel
+    bcs @out
+    jsr __fh_find
+    bcs @out
+    lda #1
+    sta __fh_st,x
+    ldx __fh_base            ; merge free neighbours
+@merge:
+    inx
+    cpx __fh_end
+    bcs @out
+    dex
+    lda __fh_st,x
+    cmp #1
+    bne @nx
+    lda __fh_st+1,x
+    cmp #1
+    bne @nx
+    clc                     ; adjacent: offset + size = the next's offset
+    lda __fh_offl,x
+    adc __fh_sizl,x
+    sta __fh_t
+    lda __fh_offh,x
+    adc __fh_sizh,x
+    cmp __fh_offh+1,x
+    bne @nx
+    lda __fh_t
+    cmp __fh_offl+1,x
+    bne @nx
+    clc
+    lda __fh_sizl,x
+    adc __fh_sizl+1,x
+    sta __fh_sizl,x
+    lda __fh_sizh,x
+    adc __fh_sizh+1,x
+    sta __fh_sizh,x
+    inx
+    jsr __fh_down
+    dex
+    bra @merge
+@nx:
+    inx
+    bra @merge
+@out:
+    rts
+@attic:
+    jsr ___far_attic_free_route
+    rts
+    .func_flags zp_call
+endproc
+
+; unsigned long far_size_long(far_ptr_t ptr): $10 the pointer's address
+proc _far_size_long
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr __fh_ptr
+    beq @zero
+    tax
+    bmi @attic
+    jsr __fh_sel
+    bcs @zero
+    jsr __fh_find
+    bcs @zero
+    lda __fh_sizl,x
+    ldy __fh_sizh,x
+    phy
+    plx
+    ldy #0
+    ldz #0
+    rts
+@zero:
+    lda #0
+    tax
+    tay
+    taz
+    rts
+@attic:
+    jsr ___far_attic_size_route
+    rts
+    .func_flags zp_call
+endproc
+
+; size_t __far_heap_avail(bank_t bank): $FF00 less the allocated and kept
+; bytes (far_malloc.c's bank_available); 0 for another bank
+proc ___far_heap_avail
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    lda $10
+    jsr __fh_sel
+    bcs @zero
+    lda #0
+    sta __fh_t
+    lda #$FF
+    sta __fh_t+1
+    ldx __fh_base
+@rec:
+    cpx __fh_end
+    bcs @done
+    lda __fh_st,x
+    cmp #1
+    beq @nx
+    sec
+    lda __fh_t
+    sbc __fh_sizl,x
+    sta __fh_t
+    lda __fh_t+1
+    sbc __fh_sizh,x
+    sta __fh_t+1
+@nx:
+    inx
+    bra @rec
+@done:
+    lda __fh_t
+    ldx __fh_t+1
+    rts
+@zero:
+    lda #0
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+; int far_reserve(unsigned long first, unsigned long last): $10, $14
+proc _far_reserve
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    ldq $14                 ; last < first: refused
+    sec
+    sbcq $10
+    bcc @no
+    lda __fh_resn
+    cmp #8
+    bcs @no
+    lda $17                 ; last below $40000, first above $5FFFF: refused
+    bne @l
+    lda $16
+    cmp #4
+    bcc @no
+@l:
+    lda $13
+    bne @no
+    lda $12
+    cmp #6
+    bcs @no
+    lda __fh_resn
+    asl a
+    asl a
+    tay
+    ldx #0
+@copy:
+    lda $10,x
+    sta __fh_resf,y
+    sta __fh_lf,x
+    lda $14,x
+    sta __fh_resl,y
+    sta __fh_ll,x
+    iny
+    inx
+    cpx #4
+    bne @copy
+    inc __fh_resn
+    lda #4                  ; banks already in use: carved now
+    jsr @bank
+    lda #5
+    jsr @bank
+    lda #1
+    ldx #0
+    rts
+@no:
+    lda #0
+    tax
+    rts
+@bank:
+    jsr __fh_sel
+    lda __fh_end
+    cmp __fh_base
+    beq @unused
+    jmp __fh_carve_linear
+@unused:
+    rts
+    .func_flags zp_call
+endproc
+
+; void bank_reset(bank_t bank): every block of bank 4 or 5 free (far_reserve's
+; ranges stay: carved again at the next far_malloc)
+proc _bank_reset
+    .zp_uses $10, $11
+    .reg_clobbers A, X
+    .flag_clobbers C, N, Z, V
+    lda $10
+    cmp #4
+    bcc @out
+    cmp #6
+    bcs @out
+    tax
+    lda #0
+    sta __fh_n-4,x
+@out:
+    rts
+    .func_flags zp_call
+endproc
+
+; void bank_reset_all(void)
+proc _bank_reset_all
+    .reg_clobbers A
+    .flag_clobbers N, Z
+    lda #0
+    sta __fh_n
+    sta __fh_n+1
+    rts
+    .func_flags zp_call
+endproc
+
+; Without far_attic_hook.c (no attic RAM): far_malloc(.., BANK_ATTIC) gives
+; the null pointer, far_free does nothing, far_size_long is 0
+proc ___far_attic_alloc_route
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y
+    .flag_clobbers N, Z
+    ldy #0
+    tya
+    sta ($10),y
+    iny
+    sta ($10),y
+    iny
+    sta ($10),y
+    lda $10
+    ldx $11
+    rts
+    .func_flags zp_call
+endproc
+
+proc ___far_attic_free_route
+    rts
+    .func_flags zp_call
+endproc
+
+proc ___far_attic_size_route
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers N, Z
+    lda #0
+    tax
+    tay
+    taz
+    rts
+    .func_flags zp_call
+endproc

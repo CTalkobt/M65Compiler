@@ -700,9 +700,10 @@ install: all lib
 	install -d $(DESTDIR)$(LIBDIR)
 	install -m 644 lib/build/c45.lib lib/build/c45_zp.lib lib/build/c45_stack.lib $(DESTDIR)$(LIBDIR)
 	install -m 644 lib/build/crt0*.o45 lib/build/tuneplay.o45 $(DESTDIR)$(LIBDIR)
-	install -d $(DESTDIR)$(INCDIR) $(DESTDIR)$(INCDIR)/sys
+	install -d $(DESTDIR)$(INCDIR) $(DESTDIR)$(INCDIR)/sys $(DESTDIR)$(INCDIR)/tgi
 	install -m 644 lib/include/*.h $(DESTDIR)$(INCDIR)
 	install -m 644 lib/include/sys/*.h $(DESTDIR)$(INCDIR)/sys
+	install -m 644 lib/include/tgi/*.h $(DESTDIR)$(INCDIR)/tgi
 	install -d $(DESTDIR)$(MANDIR)
 	if [ -d $(MAN_DIR) ] && ls $(MAN_DIR)/*.1 >/dev/null 2>&1; then \
 		install -m 644 $(MAN_DIR)/*.1 $(DESTDIR)$(MANDIR); \

@@ -18,6 +18,22 @@ static void free_at(unsigned long a) {
     far_attic_free(far_of_linear(a));
 }
 
+/* far_malloc / far_free / far_size_long of attic RAM: stdlib_asm/far_heap.s45
+ * calls these (__fastcall__: the ZP convention in both libraries; they call
+ * the pointers in this file's); its weak ones, linked without this member,
+ * give nothing */
+__fastcall__ far_ptr_t __far_attic_alloc_route(unsigned long size) {
+    return __far_attic_alloc && size ? __far_attic_alloc(size) : far_make(BANK0, 0);
+}
+
+__fastcall__ void __far_attic_free_route(far_ptr_t ptr) {
+    if (__far_attic_free) __far_attic_free(far_to_linear(ptr));
+}
+
+__fastcall__ unsigned long __far_attic_size_route(far_ptr_t ptr) {
+    return __far_attic_size ? __far_attic_size(far_to_linear(ptr)) : 0;
+}
+
 void far_attic_hook(void) {
     __far_attic_alloc = far_attic_malloc;
     __far_attic_size = size_at;

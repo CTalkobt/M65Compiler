@@ -2054,6 +2054,38 @@ for fcmode in "zp|" "stack|-fno-zpcall"; do
     xemu_case "FAIL: test_conio_fcm_xemu.c $fcname (compilation/linking failed)" "src/test-resources/test_conio_fcm_xemu.c" "build/test/test_conio_fcm_${fcname}_xemu.prg" "$fcflags" -- "test_conio_fcm_$fcname" "build/test/test_conio_fcm_${fcname}_xemu.prg" "C0C0" 10 "01 01 01 01 01 01 01 01 01 AA"
 done
 
+# Test: <far_ptr.h>'s chip RAM heap (stdlib_asm/far_heap.s45): first fit,
+# splits and merges, the 32-record limit, far_reserve, bank_reset, the API's
+# C part, 1500 random operations against a model of the algorithm
+for fmmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r fmname fmflags <<< "$fmmode"
+    echo "Testing test_far_malloc_xemu.c ($fmname)..."
+    xemu_case "FAIL: test_far_malloc_xemu.c $fmname (compilation/linking failed)" "src/test-resources/test_far_malloc_xemu.c" "build/test/test_far_malloc_${fmname}_xemu.prg" "$fmflags" -- "test_far_malloc_$fmname" "build/test/test_far_malloc_${fmname}_xemu.prg" "C0C0" 11 "01 01 01 01 01 01 01 01 01 01 AA"
+done
+
+# Test: <tgi.h> (cc65's TGI) on the VIC-IV full-colour screen: the driver,
+# pixels and the page layout, clipped lines, bars, arcs, bitmap and vector
+# text, errors, the palette, text mode back, the two-page driver
+for tgmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r tgname tgflags <<< "$tgmode"
+    echo "Testing test_tgi_xemu.c ($tgname)..."
+    xemu_case "FAIL: test_tgi_xemu.c $tgname (compilation/linking failed)" "src/test-resources/test_tgi_xemu.c" "build/test/test_tgi_${tgname}_xemu.prg" "$tgflags" -- "test_tgi_$tgname" "build/test/test_tgi_${tgname}_xemu.prg" "C0C0" 13 "01 01 01 01 01 01 01 01 01 01 01 01 AA"
+done
+
+# Test: <tgi.h>'s .vfn vector font files (written to an empty D81, loaded,
+# drawn; a missing file, a bad magic)
+for tvmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r tvname tvflags <<< "$tvmode"
+    echo "Testing test_tgi_vfn_xemu.c ($tvname)..."
+    rm -f "build/test/test_tgi_vfn_${tvname}.d81"
+    if ./bin/disk45 create "build/test/test_tgi_vfn_${tvname}.d81" -n "TGIVFN" >/dev/null 2>&1; then
+        xemu_case "FAIL: test_tgi_vfn_xemu.c $tvname (compilation/linking failed)" "src/test-resources/test_tgi_vfn_xemu.c" "build/test/test_tgi_vfn_${tvname}_xemu.prg" "$tvflags" -- "test_tgi_vfn_$tvname" "build/test/test_tgi_vfn_${tvname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA" -8 "$PWD/build/test/test_tgi_vfn_${tvname}.d81"
+    else
+        echo "FAIL: test_tgi_vfn_xemu.c $tvname (disk45 create failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: the code the size passes change (a global's member at its address,
 # sxt.8, constant masks byte by byte, 32-bit shifts by bytes and bits,
 # ca45's dropped flag tests and register transfers)
