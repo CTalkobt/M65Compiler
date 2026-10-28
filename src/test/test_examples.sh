@@ -398,8 +398,12 @@ done
 
 # The examples disks: the games and the rest on two D81s, each with its
 # menu (AUTOBOOT.C65, MENU); the menu shows the disk's title, and a program
-# DLOADed from each disk runs (Glam Lambs loading its music into bank 5)
-make -C "$EXAMPLES/disk" -B disks >"$BUILDDIR/disk.txt" 2>&1
+# DLOADed from each disk runs (Glam Lambs loading its music into bank 5).
+# Made again from the examples built above (not with -B, which every
+# example's make inherits: all rebuilt, and the library by palette_fade and
+# memset_screen, serially)
+make -C "$EXAMPLES/disk" clean >/dev/null 2>&1
+make -C "$EXAMPLES/disk" disks >"$BUILDDIR/disk.txt" 2>&1
 if [ "$(grep -c "Status: OK" "$BUILDDIR/disk.txt")" = 2 ] &&
    ./bin/disk45 list "$EXAMPLES/disk/games.d81" | grep -q '"CC45 GAMES"' &&
    ./bin/disk45 list "$EXAMPLES/disk/demos.d81" | grep -q '"CC45 DEMOS"' &&

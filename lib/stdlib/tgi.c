@@ -21,6 +21,8 @@
 #include <dma.h>
 #include <far_ptr.h>
 #include <stdlib.h>
+#include <string.h>
+#include <stddef.h>
 #include "tgi_drv.h"
 
 #define REG(a) (*(volatile unsigned char *)(a))
@@ -30,21 +32,29 @@
 #define PAGE_SIZE 64000u
 #define COL_SIZE 1600u          /* a character column: 25 characters */
 
-/* TGI kernel variables */
-const void *tgi_drv;
-unsigned char tgi_error;
-unsigned char tgi_gmode;
-signed int tgi_curx, tgi_cury;
-unsigned char tgi_color;
-unsigned char tgi_font;
-unsigned char tgi_textdir;
-const tgi_vectorfont *__tgi_vfont;
-unsigned tgi_xres, tgi_yres, tgi_xmax, tgi_ymax;
-unsigned char tgi_colorcount, tgi_pagecount, tgi_fontwidth, tgi_fontheight;
-unsigned tgi_aspectratio;
-unsigned char tgi_flags;
-unsigned tgi_textscalew[2], tgi_textscaleh[2];
-unsigned tgi_charwidth, tgi_charheight;
+/* What does not fit in banks 4 and 5: from malloc with the two-page driver
+ * (tgi_fcm2.c's __tgi_heap / __tgi_unheap), else nothing: the weak ones
+ * here, so a one-page program links no malloc. They are assembly: cc45
+ * folds a weak C body into its callers in the file; and here, not in
+ * another member: ln45 would take the first member of the library that
+ * defines the name, tgi_fcm2.c's. */
+__fastcall__ void *__tgi_heap(unsigned int size);
+__fastcall__ void __tgi_unheap(void *p);
+asm(".weak ___tgi_heap, ___tgi_unheap\n"
+    "proc ___tgi_heap\n"
+    "    lda #0\n"
+    "    tax\n"
+    "    rts\n"
+    "    .func_flags zp_call\n"
+    "endproc\n"
+    "proc ___tgi_unheap\n"
+    "    rts\n"
+    "    .func_flags zp_call\n"
+    "endproc\n");
+
+/* The kernel variables are stdlib_asm/tgi_vars.s45's (in a fixed order): a
+ * driver's numbers from tgi_xres, a new driver's state from __tgi_state */
+extern unsigned char __tgi_state[], __tgi_state_end[];
 
 /* The driver */
 unsigned long __tgi_draw;               /* the draw page */
@@ -55,7 +65,8 @@ static unsigned long page[2];           /* the pages */
 static unsigned long scr[2];            /* their screens */
 static unsigned long palsave;           /* the palette at tgi_install: R, G, B (768 bytes) */
 static unsigned char palset;            /* tgi_setpalette changed the palette */
-static unsigned char pal[256];          /* tgi_getpalette */
+static unsigned char pal[256];          /* tgi_getpalette (after tgi_setpalette) */
+static unsigned char defpal[256];       /* tgi_getdefpalette's */
 static unsigned char old[17];           /* the VIC registers tgi_init changes */
 
 /* The registers tgi_init sets, in the order tgi_done puts them back ($D031
@@ -103,21 +114,27 @@ static void free_pages(void) {
     for (k = 0; k < 5; k++) {
         if (!far_is_null(fblk[k])) far_free(fblk[k]);
         fblk[k] = 0;
-        free(hblk[k]);
+        if (hblk[k]) __tgi_unheap(hblk[k]);
         hblk[k] = 0;
     }
 }
 
-/* Block k: size bytes in bank 4 or 5, else (heap) from malloc; its address
- * (0: none) */
+/* Block k: size bytes in bank 4 or 5, else (heap) __tgi_heap's; its address
+ * (0: none). (A far_malloc block is in bank 4 or 5: its linear address is
+ * the pointer's bytes.) */
 static unsigned long take(unsigned char k, unsigned int size, unsigned char heap) {
     far_ptr_t m = far_malloc(size, BANK4);
     if (far_is_null(m)) m = far_malloc(size, BANK5);
     if (!far_is_null(m)) {
+        unsigned long a = 0;
+        unsigned char *b = (unsigned char *)&a;
         fblk[k] = m;
-        return far_to_linear(m);
+        b[0] = m.bytes[1];      /* offset, bank */
+        b[1] = m.bytes[2];
+        b[2] = m.bytes[0];
+        return a;
     }
-    if (heap && (hblk[k] = malloc(size)) != 0) return (unsigned long)(unsigned int)hblk[k];
+    if (heap && (hblk[k] = __tgi_heap(size)) != 0) return (unsigned long)(unsigned int)hblk[k];
     return 0;
 }
 
@@ -151,11 +168,19 @@ static unsigned char take_screen(unsigned char k) {
 }
 
 static void show_page(unsigned char k) {
-    unsigned long a = scr[k];
-    REG(0xD060) = (unsigned char)a;
-    REG(0xD061) = (unsigned char)(a >> 8);
-    REG(0xD062) = (unsigned char)(a >> 16);
-    REG(0xD063) = (REG(0xD063) & 0xF0) | ((unsigned char)(a >> 24) & 0x0F);
+    const unsigned char *a = (const unsigned char *)&scr[k];   /* (its bytes) */
+    REG(0xD060) = a[0];
+    REG(0xD061) = a[1];
+    REG(0xD062) = a[2];
+    REG(0xD063) = (REG(0xD063) & 0xF0) | (a[3] & 0x0F);
+}
+
+/* The palette as tgi_install found it (tgi_setpalette changed it) */
+static void pal_default(void) {
+    unsigned int k;
+    unsigned char __far *p = PIXP(palsave);
+    for (k = 0; k < 768; k++) REG(0xD100 + k) = p[k];
+    palset = 0;
 }
 
 /* ============================================================================
@@ -163,12 +188,12 @@ static void show_page(unsigned char k) {
  * ========================================================================== */
 
 unsigned char tgi_install(const void *driver) {
+    static const unsigned char sig[4] = { 0x74, 0x67, 0x69, TGI_API_VERSION };
     const tgi_driver_t *d = (const tgi_driver_t *)driver;
     unsigned int i;
     unsigned char __far *p;
     if (tgi_drv) return tgi_error = TGI_ERR_INSTALLED;
-    if (!d || d->sig[0] != 0x74 || d->sig[1] != 0x67 || d->sig[2] != 0x69 ||
-        d->sig[3] != TGI_API_VERSION || d->pagecount < 1 || d->pagecount > 2)
+    if (!d || memcmp(d->sig, sig, 4) || d->pagecount < 1 || d->pagecount > 2)
         return tgi_error = TGI_ERR_INV_DRIVER;
     /* the pages, then what fits beside them */
     if (!take_page(0) || (d->pagecount > 1 && !take_page(1)) ||
@@ -180,28 +205,13 @@ unsigned char tgi_install(const void *driver) {
     p = PIXP(palsave);
     for (i = 0; i < 768; i++) p[i] = REG(0xD100 + i);
     palset = 0;
-    for (i = 0; i < 256; i++) pal[i] = (unsigned char)i;
     tgi_drv = driver;
-    tgi_xres = d->xres;
-    tgi_yres = d->yres;
-    tgi_xmax = d->xres - 1;
-    tgi_ymax = d->yres - 1;
-    tgi_colorcount = d->colorcount;
-    tgi_pagecount = d->pagecount;
-    tgi_fontwidth = d->fontwidth;
-    tgi_fontheight = d->fontheight;
-    tgi_aspectratio = d->aspectratio;
-    tgi_flags = d->flags;
-    /* what a new driver starts with */
-    tgi_error = TGI_ERR_OK;
-    tgi_gmode = 0;
-    tgi_curx = tgi_cury = 0;
-    tgi_color = 0;
-    tgi_font = TGI_FONT_BITMAP;
-    tgi_textdir = TGI_TEXT_HORIZONTAL;
-    __tgi_vfont = 0;
-    tgi_textscalew[0] = tgi_textscalew[1] = tgi_charwidth = 0;
-    tgi_textscaleh[0] = tgi_textscaleh[1] = tgi_charheight = 0;
+    /* the driver's numbers (tgi_vars.s45 has them in tgi_driver_t's order),
+     * a new driver's state (all 0) */
+    memcpy(&tgi_xres, &d->xres, sizeof(tgi_driver_t) - offsetof(tgi_driver_t, xres));
+    tgi_xmax = tgi_xres - 1;
+    tgi_ymax = tgi_yres - 1;
+    memset(__tgi_state, 0, (unsigned int)(__tgi_state_end - __tgi_state));
     __tgi_draw = page[0];
     view = 0;
     return TGI_ERR_OK;
@@ -246,7 +256,7 @@ void tgi_init(void) {
     tgi_gmode = 1;
     tgi_setviewpage(0);
     tgi_setdrawpage(0);
-    tgi_setpalette(tgi_getdefpalette());
+    if (palset) pal_default();          /* the default palette */
     tgi_error = TGI_ERR_OK;
     tgi_setcolor(TGI_COLOR_WHITE);
     tgi_settextstyle(0x100, 0x100, TGI_TEXT_HORIZONTAL, TGI_FONT_BITMAP);
@@ -254,16 +264,10 @@ void tgi_init(void) {
 
 void tgi_done(void) {
     unsigned char i;
-    unsigned int k;
-    unsigned char __far *p;
     if (!tgi_gmode) return;
     REG(0xD054) = old[5];
     for (i = 0; i < 17; i++) REG(vicregs[i]) = old[i];
-    if (palset) {
-        p = PIXP(palsave);
-        for (k = 0; k < 768; k++) REG(0xD100 + k) = p[k];
-        palset = 0;
-    }
+    if (palset) pal_default();
     tgi_gmode = 0;
 }
 
@@ -360,18 +364,14 @@ void tgi_setpalette(const unsigned char *p) {
 }
 
 const unsigned char *tgi_getpalette(void) {
-    return pal;
+    return palset ? pal : tgi_getdefpalette();
 }
 
-/* The default palette: each entry its own colour */
-#define P16(n) n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7, \
-               n + 8, n + 9, n + 10, n + 11, n + 12, n + 13, n + 14, n + 15
-static const unsigned char defpal[256] = {
-    P16(0), P16(16), P16(32), P16(48), P16(64), P16(80), P16(96), P16(112),
-    P16(128), P16(144), P16(160), P16(176), P16(192), P16(208), P16(224), P16(240)
-};
-
+/* The default palette: each entry its own colour (made here: no 256-byte
+ * table in the program) */
 const unsigned char *tgi_getdefpalette(void) {
+    unsigned int i;
+    for (i = 0; i < 256; i++) defpal[i] = (unsigned char)i;
     return defpal;
 }
 

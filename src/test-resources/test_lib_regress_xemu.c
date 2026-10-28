@@ -52,7 +52,8 @@ int main(void) {
         struct tm t;
         rtc_read(&t);
         OUT[4] = t.tm_year >= 125 && t.tm_mon < 12 && t.tm_mday >= 1 && t.tm_mday <= 31 &&
-                 t.tm_hour < 24 && t.tm_min < 60 && t.tm_sec < 60 && t.tm_wday < 7;
+                 t.tm_hour < 24 && t.tm_min < 60 && t.tm_sec < 60 &&
+                 t.tm_wday == -1 && t.tm_yday == -1 && t.tm_isdst == 0;   /* (#355) */
     }
     OUT[5] = 0xAA;
     return 0;
