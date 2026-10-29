@@ -374,7 +374,7 @@ int play(const std::string& src, TuneFile f, const PlayOptions& o) {
     for (size_t ti = 0; ti < list.size() || (o.watch && (ti = 0, !list.empty())); ti++) {
         const Tune* t = list[ti];
         unsigned ticks = t->ticks();
-        double frames = ticks * (t->fpt / 256.0) * (o.ntsc ? 60.0 / 50.0 : 1.0);
+        double frames = t->frames(ticks) * (o.ntsc ? 60.0 / 50.0 : 1.0);
         unsigned total = t->loop ? (unsigned)(frames * o.loops + 0.5) : 0;
         char line[160];
         snprintf(line, sizeof line, "playing %s: %.1f s%s (via %s)\n", t->name.c_str(), frames / hz,
@@ -702,7 +702,7 @@ int list(const TuneFile& f) {
         auto b = TuneCompiler::blob(f, t);
         total += b.size();
         unsigned ticks = t.ticks();
-        double sec = ticks * (t.fpt / 256.0) / 50.0;   // PAL frames; NTSC plays as long
+        double sec = t.frames(ticks) / 50.0;   // PAL frames; NTSC plays as long
         char buf[160];
         snprintf(buf, sizeof buf, "%-12s %2zu voices %5zu bytes  %5u ticks  %6.1f s  %.2f frames/tick  %s\n",
                  t.name.c_str(), t.voices.size() + t.digi.size(), b.size(), ticks, sec, t.fpt / 256.0, t.loop ? "loop" : "once");

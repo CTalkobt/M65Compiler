@@ -82,7 +82,7 @@ bool TunePlayer::nextIsNote(const Voice& v) const {
     for (;;) {
         uint8_t b = byte(p);
         if (b == 0x81) p = (uint16_t)(p + 2);
-        else if (b == 0x83 || b == 0x84) p = (uint16_t)(p + 3);
+        else if (b == 0x83 || b == 0x84 || b == 0x85) p = (uint16_t)(p + 3);
         else if (b == 0xFE && !guard) { guard = true; p = v.start; }
         else return b < 0x80;
     }
@@ -249,6 +249,7 @@ void TunePlayer::next(Voice& v, int idx) {
         if (b == 0x82) { v.left = rd(v); return; }
         if (b == 0x83) { v.arpa = rd(v); v.arpb = rd(v); continue; }
         if (b == 0x84) { v.gsemi = (int8_t)rd(v); v.gpend = rd(v); continue; }
+        if (b == 0x85) { uint8_t lo = rd(v); fpt_ = (uint16_t)(lo | (rd(v) << 8)); continue; }
         if (b == 0xFE && !guard) { guard = true; v.pos = v.start; continue; }
         v.done = 1;
         v.gated = 0;

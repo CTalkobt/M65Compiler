@@ -30,7 +30,8 @@
 //       rest, ~:ticks the note held longer, @name an instrument,
 //       arp:4,7 / arp:off an arpeggio, | a bar line; g4^3:ticks glides up
 //       into the note from 3 semitones below (^-3 from above; ^3,2: a speed
-//       of 2, 1/4 of the distance a frame; the default 3, 1/8)
+//       of 2, 1/4 of the distance a frame; the default 3, 1/8); tempo:5
+//       the tune's frames per tick from there on
 // The data (lib/include/audio_tune.h, lib/stdlib_asm/tune.s45): a blob a
 // tune: header, the instruments it uses, a byte stream a voice.
 #pragma once
@@ -92,7 +93,21 @@ struct Tune {
     unsigned barTicks = 0;
     std::vector<TuneVoice> voices;
     std::vector<TuneVoice> digi;    // d1: .. d4:
+    std::vector<std::pair<unsigned, uint16_t>> tempos;   // tempo:, by tick: frames per tick from then
     unsigned ticks() const { return !voices.empty() ? voices[0].ticks : !digi.empty() ? digi[0].ticks : 0; }
+    // PAL frames from the start to tick (tempo: changes counted)
+    double frames(unsigned tick) const {
+        double f = 0;
+        unsigned at = 0;
+        uint16_t now = fpt;
+        for (const auto& [k, x] : tempos) {
+            if (k >= tick) break;
+            f += (k - at) * (now / 256.0);
+            at = k;
+            now = x;
+        }
+        return f + (tick - at) * (now / 256.0);
+    }
 };
 
 struct TuneFile {

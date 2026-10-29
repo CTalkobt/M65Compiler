@@ -35,6 +35,8 @@
  *   $84 s k       the next note glides: it starts s semitones below its pitch
  *                 (signed) and from its second frame moves (distance +
  *                 2^k - 1) >> k a frame towards it (k 1-7; 0: no glide)
+ *   $85 lo hi     the tune's frames per tick from now (8.8; tune45 puts the
+ *                 tune's own at voice 0's start, so a loop starts as it did)
  *   $FE           back to the voice's start (a tune that loops)
  *   $FF           the voice's end
  * A digi voice's: $00-$7F h d  hit h (the tune's sample table) for d

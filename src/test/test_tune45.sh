@@ -59,6 +59,14 @@ $TUNE convert $T/g.txt -o $T/g.c >/dev/null 2>&1 &&
     sed -n '/tune_g\[/,/};/p' $T/g.c | tr -d ' \n' | grep -q '132,3,3,60,4,132,251,1,67,4,128,2,254' &&
     grep -q "#define TUNE_G_TICKS 10" $T/g.h && pass || fail "glide bytes / TUNE_G_TICKS"
 
+# tempo: $85 lo hi (8.8 frames per tick); v1 starts with the tune's own (a
+# loop starts as it did); one tick, the later voice's wins (list's length:
+# 2 ticks at 10, 2 at 25 frames)
+printf 'instrument a pulse 09 a6 0600 0 0\ntune s 50 loop\nv1: c4:2 tempo:25 c4:2\nv2: tempo:10 r:4\n' > $T/s.txt
+$TUNE convert $T/s.txt -o $T/s.c >/dev/null 2>&1 &&
+    sed -n '/tune_s\[/,/};/p' $T/s.c | tr -d ' \n' | grep -q '133,0,50,60,2,133,0,25,60,2,254,133,0,10,128,4,254' &&
+    $TUNE list $T/s.txt | grep -q '4 ticks *1.4 s' && pass || fail "tempo: bytes / list length"
+
 # errors, with file and line
 err() {   # $1 the text, $2 a part of the message
     printf '%s\n' "$1" > $T/e.txt
@@ -78,6 +86,7 @@ err $'instrument a pulse 09 a6 0600 1 1\ntune t 5 once\nv2: @a c4:1' "v1: expect
 err $'tune 1x 5 once\ninstrument a pulse 09 a6 0600 1 1\nv1: @a c4:1' "C identifier"
 err $'instrument a pulse 09 a6 0600 1 1\ntune t 5 once\nv1: @a c4^0:1' "a glide is note^semitones"
 err $'instrument a pulse 09 a6 0600 1 1\ntune t 5 once\nv1: @a c4^3,8:1' "speed 1-7"
+err $'instrument a pulse 09 a6 0600 1 1\ntune t 5 once\nv1: @a tempo:0 c4:1' "tempo:frames per tick"
 
 # pfest's format as it is (its first tune's lines)
 cat > $T/pfest.txt <<'EOF'

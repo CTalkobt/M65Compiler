@@ -4,6 +4,18 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### The tune player: tempo changes
+
+- `tempo:f` in a voice (`v1:`...): the tune's frames per tick from that
+  tick on (`$85 lo hi` in the stream; the player and its model). A tune
+  with changes starts each time round at its own tempo (tune45 puts it at
+  `v1`'s start); `list`, `play` and the digi cut-short warning count the
+  changes. Tested byte by byte (`test_tune45.sh`) and in the synth tune's
+  trace against the player in xemu (`test_xemu.sh`).
+- `examples/c/drums`: the groove twice, speeding up a beat at a time under
+  a snare roll into a faster part (four on the floor, a pumping bass,
+  repeated notes, chords on every beat) twice, slowing back; round.
+
 ### The tune player: digi voices (samples on the audio DMA)
 
 - `sample <name> <file> [rate=] [gain=] [from=] [len=]` lines (WAV, AU,

@@ -33,7 +33,8 @@
 ; audio DMA's registers go to ___digi_regs ($D710; digi_regs.s45, weak).
 ; A glide ($84 s k before a note) starts the note s semitones below its
 ; pitch (signed: above when s is negative) and from its second frame moves
-; (distance + 2^k - 1) >> k a frame towards it, then stops.
+; (distance + 2^k - 1) >> k a frame towards it, then stops. $85 lo hi sets
+; the frames per tick (the next tick's count on).
 ; The streams' bytes: see <audio_tune.h>.
 ;
 ; tune_update: the tempo accumulator (8.8 frames; NTSC frames count 213/256
@@ -490,6 +491,8 @@ proc __tune_peek
     beq @skip
     cmp #$84
     beq @skip
+    cmp #$85
+    beq @skip
     cmp #$FE
     bne @is
     lda __tune_guard
@@ -646,6 +649,8 @@ proc __tune_next
     beq @arp
     cmp #$84
     beq @glide
+    cmp #$85
+    beq @tempo
     cmp #$FE
     bne @end
     lda __tune_guard    ; back to the start (once: an empty voice ends)
@@ -677,6 +682,12 @@ proc __tune_next
     sta __tv_gsemi,x
     jsr __tune_rd
     sta __tv_gpend,x
+    bra @read
+@tempo:
+    jsr __tune_rd
+    sta __tune_fpt
+    jsr __tune_rd
+    sta __tune_fpt+1
     bra @read
 @tie:
     jsr __tune_rd

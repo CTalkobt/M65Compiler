@@ -376,6 +376,19 @@ bool TuneCompiler::parse(const std::string& text, const std::string& file, TuneF
                     continue;
                 }
                 std::string lt = lower(tok);
+                if (lt.rfind("tempo:", 0) == 0) {
+                    char* end = nullptr;
+                    double x = std::strtod(lt.c_str() + 6, &end);
+                    if (lt.size() == 6 || !end || *end || x < 0.1 || x > 255) {
+                        error(file, ln, "tempo:frames per tick (0.1-255), not " + tok); continue;
+                    }
+                    uint16_t q = (uint16_t)std::lround(x * 256);
+                    v.stream.push_back(0x85);
+                    v.stream.push_back((uint8_t)(q & 0xFF));
+                    v.stream.push_back((uint8_t)(q >> 8));
+                    t.tempos.push_back({v.ticks, q});
+                    continue;
+                }
                 if (lt.rfind("arp:", 0) == 0) {
                     std::string a = lt.substr(4);
                     long x = 0, y = 0;
@@ -394,7 +407,7 @@ bool TuneCompiler::parse(const std::string& text, const std::string& file, TuneF
                 size_t colon = tok.find(':');
                 long d;
                 if (colon == std::string::npos || !parseInt(tok.substr(colon + 1), d)) {
-                    error(file, ln, "expected note:ticks, r:ticks, ~:ticks, @instrument, arp: or |, not " + tok); continue;
+                    error(file, ln, "expected note:ticks, r:ticks, ~:ticks, @instrument, arp:, tempo: or |, not " + tok); continue;
                 }
                 if (d < 1 || d > 4096) { error(file, ln, "a length of " + std::to_string(d) + " ticks: " + tok); continue; }
                 std::string what = lower(tok.substr(0, colon));
@@ -446,6 +459,8 @@ bool TuneCompiler::parse(const std::string& text, const std::string& file, TuneF
             error(file, ln, "what is " + w[0] + "? (instrument, wavetable, sample, tune, v1:..., d1:...)");
         }
     }
+    for (auto& t : out.tunes)           // (one tick: the later voice's wins, as the player reads them)
+        std::stable_sort(t.tempos.begin(), t.tempos.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
     for (const auto& t : out.tunes) {
         if (t.voices.empty() && t.digi.empty()) { error(file, t.line, "tune " + t.name + " has no voices"); continue; }
         unsigned len = t.voices.empty() ? t.digi[0].ticks : t.voices[0].ticks;
@@ -554,7 +569,7 @@ bool TuneCompiler::loadSamples(const std::string& file, TuneFile& f) {
             const auto& hs = t.digi[d].hits;
             std::map<int, std::pair<int, double>> cut;   // hit: times cut, the shortest it rang
             for (size_t k = 0; k + 1 < hs.size(); k++) {
-                double rang = (hs[k + 1].second - hs[k].second) * (t.fpt / 256.0) / 50.0;
+                double rang = (t.frames(hs[k + 1].second) - t.frames(hs[k].second)) / 50.0;
                 const TuneHit& h = f.hits[(size_t)hs[k].first];
                 if (rang < (double)h.len / h.rate) {
                     auto& c = cut[hs[k].first];
@@ -657,12 +672,17 @@ std::vector<uint8_t> TuneCompiler::blob(const TuneFile& f, const Tune& t) {
         b[8 + 2 * v] = (uint8_t)(at & 0xFF);
         b[9 + 2 * v] = (uint8_t)(at >> 8);
         const auto& s = t.voices[v].stream;
+        if (v == 0 && !t.tempos.empty()) {   // a tune with tempo: changes: its own again from the start (a loop)
+            b.push_back(0x85);
+            b.push_back((uint8_t)(t.fpt & 0xFF));
+            b.push_back((uint8_t)(t.fpt >> 8));
+        }
         for (size_t k = 0; k < s.size(); k++) {
             uint8_t c = s[k];
             b.push_back(c);
             if (c < 0x80 || c == 0x80 || c == 0x82) { b.push_back(s[++k]); }
             else if (c == 0x81) { b.push_back((uint8_t)renum[s[++k]]); }
-            else if (c == 0x83 || c == 0x84) { b.push_back(s[k + 1]); b.push_back(s[k + 2]); k += 2; }
+            else if (c == 0x83 || c == 0x84 || c == 0x85) { b.push_back(s[k + 1]); b.push_back(s[k + 2]); k += 2; }
         }
         b.push_back(t.loop ? 0xFE : 0xFF);
     }

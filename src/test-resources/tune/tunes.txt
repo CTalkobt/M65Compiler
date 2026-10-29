@@ -34,6 +34,6 @@ instrument snare pulse 00 f0 0800 0 0 hr=1 table=drum
 instrument slead saw 08 a8 0800 1 0 hr=2 table=buzz filter=bp+hp res=4 cutoff=500 fsweep=-9 vdelay=3
 instrument plain tri 00 f0 0800 0 0
 tune synth 2.5 loop
-v1: @bass c2:4 c2:4 ~:2 eb2:2 r:2 g1:2 @plain c3:4 @bass c2:4
+v1: @bass c2:4 c2:4 tempo:2 ~:2 eb2:2 r:2 g1:2 @plain c3:4 @bass c2:4
 v2: @snare c5:2 r:2 c5:1 c5:1 r:2 arp:3,7 c5:4 arp:off @plain e5:4 @snare c5:2 r:2 c5:4
-v3: @slead g4:6 ~:2 @plain c5:4 @slead g4^5,2:4 r:4 c4:4
+v3: @slead g4:6 ~:2 @plain c5:4 @slead g4^5,2:4 r:4 tempo:3.25 c4:4

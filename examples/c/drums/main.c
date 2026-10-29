@@ -6,7 +6,8 @@
  * 8-bit. The SID voices play a filtered bass (hard restart, a cutoff sweep
  * each note), a lead with a wave table and arpeggio chords; two digi voices
  * play the drums on the audio DMA's channels 2 and 3 (tune_digi_channels),
- * leaving 0 and 1 to the program (its sound effects).
+ * leaving 0 and 1 to the program (its sound effects). The tune is the groove
+ * twice, then faster (tempo: in music.txt) the drive twice, and round.
  *
  * The audio DMA reads chip RAM: the samples are in the program (bank 0);
  * tune_samples says where. Here the music is updated in the main loop,
@@ -55,6 +56,8 @@ static void draw(unsigned int f) {
     }
     for (v = 0; v < 2; v++)
         cprintfxy(2, 8 + v, "d%u  channel %u: the sample at +%04x", v + 1, DRUMS + v, sample_at((unsigned char)(DRUMS + v)));
+    /* the part: A A B B, 64 ticks each (music.txt) */
+    cprintfxy(2, 10, "%s", (tune_ticks() & 0x80) ? "drive  (b: 4.5 frames a tick)" : "groove (a: 6 frames a tick)  ");
     textcolor(12);
     cprintfxy(2, 11, "tick %5u  frame %5u", tune_ticks(), f);
 }
