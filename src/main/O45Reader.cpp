@@ -325,7 +325,25 @@ bool O45Reader::read(const std::vector<uint8_t>& data, O45File& out, std::string
 
         // Check for function attribute record ($FA marker)
         // Supports old (17 byte), current (18 byte with paramSize), and new (19 byte with frameSize) formats
-        if (off < data.size() && data[off] == O45_FUNCATTR_MARKER) {
+        if (off < data.size() && data[off] == O45_FUNCATTR2_MARKER) {
+            // #360: the masks as address ranges
+            off++;
+            if (off + 3 > data.size()) { errorMsg = "truncated function attribute record"; return false; }
+            exp.hasFuncAttr = true;
+            exp.funcAttr.flags = data[off++];
+            exp.funcAttr.regClobbers = data[off++];
+            exp.funcAttr.flagClobbers = data[off++];
+            for (ZpMask* m : {&exp.funcAttr.zpUses, &exp.funcAttr.zpClobbers, &exp.funcAttr.zpRelease}) {
+                if (off >= data.size()) { errorMsg = "truncated function attribute record"; return false; }
+                unsigned n = data[off++];
+                if (off + 2 * n > data.size()) { errorMsg = "truncated function attribute record"; return false; }
+                for (unsigned k = 0; k < n; k++, off += 2)
+                    for (unsigned a = data[off]; a <= data[off + 1]; a++) m->set(a);
+            }
+            if (off + 3 > data.size()) { errorMsg = "truncated function attribute record"; return false; }
+            exp.funcAttr.paramSize = data[off++];
+            exp.funcAttr.frameSize = readU16(&data[off]); off += 2;
+        } else if (off < data.size() && data[off] == O45_FUNCATTR_MARKER) {
             if (off + 16 > data.size()) {  // minimum 16 bytes (old format without marker)
                 errorMsg = "truncated function attribute record";
                 return false;
@@ -335,9 +353,10 @@ bool O45Reader::read(const std::vector<uint8_t>& data, O45File& out, std::string
             exp.funcAttr.flags = data[off++];
             exp.funcAttr.regClobbers = data[off++];
             exp.funcAttr.flagClobbers = data[off++];
-            exp.funcAttr.zpUses = readU32(&data[off]); off += 4;
-            exp.funcAttr.zpClobbers = readU32(&data[off]); off += 4;
-            exp.funcAttr.zpRelease = readU32(&data[off]); off += 4;
+            // (32-bit masks; the base was not recorded: ca45's default, $03)
+            exp.funcAttr.zpUses = ZpMask::legacy(readU32(&data[off])); off += 4;
+            exp.funcAttr.zpClobbers = ZpMask::legacy(readU32(&data[off])); off += 4;
+            exp.funcAttr.zpRelease = ZpMask::legacy(readU32(&data[off])); off += 4;
             // paramSize byte (always present in current format)
             if (off < data.size()) {
                 exp.funcAttr.paramSize = data[off++];

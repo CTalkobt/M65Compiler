@@ -253,6 +253,10 @@ struct Function {
     bool isRecurse = false;      // opt-out of static allocation (SAC)
     // #pragma cc45 optimize(...) in effect at the definition: catalog name -> on/off
     std::map<std::string, bool> optOverrides;
+    // The SAC entry copies the parameters through __zp_args / __sac_args and
+    // a list (smaller) rather than lda / sta (faster): -fzp-args, CodegenStage
+    // decides (#359)
+    bool argLists = true;
     // Labels whose address (&&label) is used from data, e.g. a static
     // table for goto *: their blocks are kept and get a global alias
     // (labelAlias()) the data can refer to

@@ -298,6 +298,13 @@ void CodegenStage::generateAssembly() {
         return out;
     };
 
+    // Parameter copy lists (#359): a pragma, then -fzp-args / -fno-zp-args,
+    // then the level (off from -O3 / -Ospeed: the copies inline, faster)
+    for (auto& fn : irModule_->functions) {
+        auto it = fn.optOverrides.find("ZpArgs");
+        fn.argLists = it != fn.optOverrides.end() ? it->second : optOn("ZpArgs");
+    }
+
     // Loop rotation (#138): forced for the functions -frotate-loops / a
     // pragma names; otherwise (on from -O1, not -Os) kept for a function only
     // when its code is no larger, both ways assembled by ca45 (and the file's

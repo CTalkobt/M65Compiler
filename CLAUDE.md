@@ -180,8 +180,8 @@ move the top. Hand-written asm must read the stack through a pointer
 
 `.o45` relocatable objects (`doc/architecture/lib45.md`): segments, exports
 (weak bit `$80`), imports, relocations (R_LOW/R_HIGH/R_ADDR16/R_ADDR24…),
-19-byte function attribute records (ZP-convention, leaf, static-alloc, ISR,
-zero-alloc flags; register/flag clobbers; ZP use masks; parameter and frame
+function attribute records (`$F9`: ZP-convention, leaf, static-alloc, ISR,
+zero-alloc flags; register/flag clobbers; base-page use masks as address ranges, #360; parameter and frame
 sizes), line info, debug types and variables (`OPT_DEBUG_TYPES`/`OPT_DEBUG_VARS`, for a debugger) and alignment markers (`cc45.align.data/bss`). A
 `.func_flags` record attaches only to the global symbol named by
 `proc <name>`; ca45 warns when `.func_flags` is in an unnamed `proc`.
@@ -237,7 +237,7 @@ not change what is tested; a test's own later `-O` still wins. Use an
 explicit `-O<n>` in ad-hoc test commands too.
 
 - `make test` — unit tests (no emulator).
-- `bash src/test/test_xemu.sh` (`make test-xemu`) — runtime tests on xemu (750 pass, about 1.5 minutes): each
+- `bash src/test/test_xemu.sh` (`make test-xemu`) — runtime tests on xemu (764 pass, about 1.5 minutes): each
   `*_xemu.c` writes results to `$C0C0` (01 = pass, `$AA` sentinel), built in
   both conventions. New runtime tests follow this pattern and are registered
   in `test_xemu.sh`, most as one line: `xemu_case "FAIL message" <compile_link_test

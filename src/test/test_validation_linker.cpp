@@ -856,8 +856,8 @@ void test_func_attrs_extraction() {
     attr.flags = FUNC_FLAG_ZP_CONV | FUNC_FLAG_LEAF;
     attr.regClobbers = 0x03; // A, X
     attr.flagClobbers = 0x01; // C
-    attr.zpUses = 0x07; // bits 0-2
-    attr.zpClobbers = 0x03; // bits 0-1
+    attr.zpUses = ZpMask::legacy(0x07); // bits 0-2
+    attr.zpClobbers = ZpMask::legacy(0x03); // bits 0-1
     attr.paramSize = 4;
     w.setFuncAttr("_myfunc", attr);
     O45File f = makeFile(w);
@@ -1020,8 +1020,8 @@ void test_map_file_func_attrs() {
     O45FuncAttr attr;
     attr.flags = FUNC_FLAG_ZP_CONV;
     attr.regClobbers = 0x03; // A, X
-    attr.zpUses = 0x01;
-    attr.zpClobbers = 0x01;
+    attr.zpUses = ZpMask::legacy(0x01);
+    attr.zpClobbers = ZpMask::legacy(0x01);
     w.setFuncAttr("_myfunc", attr);
     O45File f = makeFile(w);
 

@@ -236,6 +236,12 @@ inline bool o45DecodeSectRefs(const std::vector<uint8_t>& d, std::vector<O45Sect
 // Phase 2 addition: frameSize tracks activation record size for call-graph overlay coloring.
 constexpr uint8_t  O45_FUNCATTR_MARKER = 0xFA;
 constexpr int      O45_FUNCATTR_SIZE   = 19;   // total bytes per record (including marker, now with frameSize)
+// #360: the record with the base-page masks as addresses: $F9, flags,
+// register and flag clobbers, then for uses, clobbers and release a count of
+// ranges and (first, last) address pairs, then paramSize and frameSize
+// (u16). The $FA record (32-bit masks, bit n = zeroPageStart + 1 + n, the
+// base not recorded) is read with ca45's default base, $03
+constexpr uint8_t  O45_FUNCATTR2_MARKER = 0xF9;
 
 // Phase 49: Content flag record for exports
 // Appended after an export entry to indicate what type of content it has (native code, IR, etc.)
@@ -261,13 +267,47 @@ struct O45SACMetadata {
     std::vector<O45SACParam> parameters;  // parameter list
 };
 
+// A set of base-page addresses $00-$FF, a bit each (#360: the address
+// itself, so no base is needed and the whole page fits)
+struct ZpMask {
+    uint32_t w[8] = {};
+    void set(unsigned a) { if (a < 256) w[a >> 5] |= 1u << (a & 31); }
+    bool test(unsigned a) const { return a < 256 && ((w[a >> 5] >> (a & 31)) & 1); }
+    bool any() const { for (uint32_t x : w) if (x) return true; return false; }
+    ZpMask& operator|=(const ZpMask& o) { for (int i = 0; i < 8; i++) w[i] |= o.w[i]; return *this; }
+    friend ZpMask operator|(ZpMask a, const ZpMask& b) { a |= b; return a; }
+    bool operator==(const ZpMask& o) const { for (int i = 0; i < 8; i++) if (w[i] != o.w[i]) return false; return true; }
+    bool operator!=(const ZpMask& o) const { return !(*this == o); }
+    // the old 32-bit mask (the $FA record): bit n is base + n
+    static ZpMask legacy(uint32_t bits, unsigned base = 0x03) {
+        ZpMask m;
+        for (unsigned n = 0; n < 32; n++) if (bits & (1u << n)) m.set(base + n);
+        return m;
+    }
+    // "10-11,F2-F5" ("-" when empty)
+    std::string str() const {
+        std::string s;
+        for (unsigned a = 0; a < 256; a++) {
+            if (!test(a)) continue;
+            unsigned e = a;
+            while (e + 1 < 256 && test(e + 1)) e++;
+            char b[8];
+            if (e == a) snprintf(b, sizeof b, "%02X", a); else snprintf(b, sizeof b, "%02X-%02X", a, e);
+            if (!s.empty()) s += ",";
+            s += b;
+            a = e;
+        }
+        return s.empty() ? "-" : s;
+    }
+};
+
 struct O45FuncAttr {
     uint8_t flags = 0;           // see FUNC_FLAG_* constants
     uint8_t regClobbers = 0;     // bit 0=A, 1=X, 2=Y, 3=Z
     uint8_t flagClobbers = 0;    // bit 0=C, 1=N, 2=Z, 3=V
-    uint32_t zpUses = 0;         // bitmask: ZP slots read as params
-    uint32_t zpClobbers = 0;     // bitmask: ZP slots written
-    uint32_t zpRelease = 0;      // bitmask: ZP slots consumed
+    ZpMask zpUses;               // base-page bytes read as parameters
+    ZpMask zpClobbers;           // base-page bytes written
+    ZpMask zpRelease;            // base-page bytes consumed
     uint8_t paramSize = 0;       // total parameter bytes (for thunk generation)
     uint16_t frameSize = 0;      // activation record / frame size in bytes (Phase 2)
     O45SACMetadata sacMetadata;  // SAC parameter metadata (Phase 3)

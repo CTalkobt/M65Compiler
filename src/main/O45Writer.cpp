@@ -300,13 +300,22 @@ void O45Writer::emitExports(std::vector<uint8_t>& out) const {
         auto it = funcAttrs_.find(exp.name);
         if (it != funcAttrs_.end()) {
             const auto& fa = it->second;
-            out.push_back(O45_FUNCATTR_MARKER);  // $FA marker
+            out.push_back(O45_FUNCATTR2_MARKER);  // $F9: the masks as address ranges (#360)
             out.push_back(fa.flags);
             out.push_back(fa.regClobbers);
             out.push_back(fa.flagClobbers);
-            writeU32(out, fa.zpUses);
-            writeU32(out, fa.zpClobbers);
-            writeU32(out, fa.zpRelease);
+            for (const ZpMask* m : {&fa.zpUses, &fa.zpClobbers, &fa.zpRelease}) {
+                std::vector<std::pair<uint8_t, uint8_t>> ranges;
+                for (unsigned a = 0; a < 256; a++) {
+                    if (!m->test(a)) continue;
+                    unsigned e = a;
+                    while (e + 1 < 256 && m->test(e + 1)) e++;
+                    ranges.push_back({(uint8_t)a, (uint8_t)e});
+                    a = e;
+                }
+                out.push_back((uint8_t)ranges.size());
+                for (const auto& r : ranges) { out.push_back(r.first); out.push_back(r.second); }
+            }
             out.push_back(fa.paramSize);
             writeU16(out, fa.frameSize);  // Phase 2: frame size for overlay coloring
 

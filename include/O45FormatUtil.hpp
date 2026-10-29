@@ -4,7 +4,7 @@
 #include "O45Types.hpp"
 
 // Format function attributes for display (used by nm45 and objdump45)
-inline std::string formatFuncAttr(const O45FuncAttr& fa, uint32_t zpStart) {
+inline std::string formatFuncAttr(const O45FuncAttr& fa) {
     std::string result = "[";
 
     // Convention and function flags
@@ -16,30 +16,10 @@ inline std::string formatFuncAttr(const O45FuncAttr& fa, uint32_t zpStart) {
     if (fa.flags & FUNC_FLAG_ZERO_ALLOC) result += "zeroalloc ";
     if (fa.flags & FUNC_FLAG_ISR)      result += "isr ";
 
-    // Format ZP mask as address range
-    auto fmtZpMask = [&](uint32_t mask) -> std::string {
-        if (mask == 0) return "-";
-        std::string s;
-        int first = -1, last = -1;
-        for (int i = 0; i < 32; i++) {
-            if (mask & (1u << i)) {
-                if (first < 0) first = i;
-                last = i;
-            }
-        }
-        char buf[16];
-        uint32_t base = zpStart + 1;
-        if (first == last) {
-            snprintf(buf, sizeof(buf), "%02X", (unsigned)(base + first));
-        } else {
-            snprintf(buf, sizeof(buf), "%02X-%02X", (unsigned)(base + first), (unsigned)(base + last));
-        }
-        return buf;
-    };
-
-    result += "uses:" + fmtZpMask(fa.zpUses);
-    result += " clobbers:" + fmtZpMask(fa.zpClobbers);
-    result += " releases:" + fmtZpMask(fa.zpRelease);
+    // the base-page addresses (#360)
+    result += "uses:" + fa.zpUses.str();
+    result += " clobbers:" + fa.zpClobbers.str();
+    result += " releases:" + fa.zpRelease.str();
 
     // Registers
     std::string regs;

@@ -683,6 +683,30 @@ else
     failed=$((failed + 1))
 fi
 
+# #361: an element address computed once when two blocks index with the
+# same value (&mons[m - 1]: each block has its own zext and subtract of m)
+printf 'struct mon { unsigned char x, y, kind, hp, awake, stun, carry; };\nstruct mon mons[24];\nunsigned char habits[16];\nunsigned char out;\nvoid f(unsigned char m) {\n    if (!mons[m - 1].awake && (habits[mons[m - 1].kind] & 16)) out = 1;\n}\n' > $cs/cse.c
+if ./bin/cc45 -O2 -c $cs/cse.c -o $cs/cse.o45 >/dev/null 2>&1 &&
+   [ $(./bin/objdump45 -d $cs/cse.o45 | grep -c 'mul\|<_mons') -le 2 ] &&
+   [ $((16#$(./bin/objdump45 -h $cs/cse.o45 | awk '$2 == "TEXT" {print $3}'))) -le 52 ]; then
+    echo "SUCCESS: &mons[m - 1] computed once in two blocks"
+else
+    echo "FAIL: &mons[m - 1] computed twice (#361): $((16#$(./bin/objdump45 -h $cs/cse.o45 2>/dev/null | awk '$2 == "TEXT" {print $3}'))) bytes"
+    failed=$((failed + 1))
+fi
+
+# #356: a field of an extern struct is an absolute address, as for one
+# defined in the file (lda _pl+86, 3 bytes; was 20 through a pointer)
+printf 'struct p { unsigned char a[86]; unsigned char x; };\nextern struct p pl;\nunsigned char out;\nvoid f(void) { out = pl.x; }\nvoid g(void) { pl.x = out; }\n' > $cs/ext.c
+if ./bin/cc45 -O2 -c $cs/ext.c -o $cs/ext.o45 >/dev/null 2>&1 &&
+   [ $(./bin/objdump45 -d $cs/ext.o45 | grep -c '; <_pl+86>') = 2 ] &&
+   [ $((16#$(./bin/objdump45 -h $cs/ext.o45 | awk '$2 == "TEXT" {print $3}'))) -le 14 ]; then
+    echo "SUCCESS: an extern struct's field is lda / sta _pl+86"
+else
+    echo "FAIL: an extern struct's field not an absolute address (#356): $(./bin/objdump45 -d $cs/ext.o45 2>&1 | grep -E 'lda|sta' | tr '\n' ' ')"
+    failed=$((failed + 1))
+fi
+
 # #355: a program reading the clock links none of mktime's date arithmetic
 # (rtc_read called mktime for tm_wday / tm_yday: 4,176 bytes, now under 1,000)
 printf '#include <time.h>\nunsigned char d;\nint main(void) { struct tm t; rtc_read(&t); d = t.tm_mday; return 0; }\n' > $cs/rtc.c
@@ -690,6 +714,24 @@ if ./bin/cc45 -O2 $cs/rtc.c -o $cs/rtc.prg >/dev/null 2>&1 && [ $(stat -c %s $cs
     echo "SUCCESS: rtc_read links without mktime ($(stat -c %s $cs/rtc.prg) bytes)"
 else
     echo "FAIL: a program calling rtc_read is $(stat -c %s $cs/rtc.prg 2>/dev/null) bytes (#355: < 1500)"
+    failed=$((failed + 1))
+fi
+
+# #359: the parameter copy lists (__zp_args) at -O2 / -Os, inline copies at
+# -O3 / -Ospeed; -fno-zp-args / -fzp-args and the pragma per function
+printf 'void g(unsigned int v);\nvoid f(unsigned int x, unsigned int y, unsigned char c) { g(x); g(y); g(c); }\n#pragma cc45 optimize(no-zp-args)\nvoid h(unsigned int x, unsigned int y, unsigned char c) { g(x); g(y); g(c); }\n' > build/test/zpargs.c
+za_ok=1
+za_n() { ./bin/cc45 "$@" -c build/test/zpargs.c -o build/test/zpargs.o45 >/dev/null 2>&1 && ./bin/objdump45 -d build/test/zpargs.o45 | grep -c 'jsr.*<__zp_args>'; }
+[ "$(za_n -O2)" = 1 ] || za_ok=0               # f lists, h (pragma) inline
+[ "$(za_n -Os)" = 1 ] || za_ok=0
+[ "$(za_n -O3)" = 0 ] || za_ok=0
+[ "$(za_n -Ospeed)" = 0 ] || za_ok=0
+[ "$(za_n -O2 -fno-zp-args)" = 0 ] || za_ok=0
+[ "$(za_n -O3 -fzp-args)" = 1 ] || za_ok=0     # (h's pragma still wins)
+if [ $za_ok -eq 1 ]; then
+    echo "SUCCESS: parameter copy lists at -O2 / -Os, inline at -O3 / -Ospeed, by switch and pragma"
+else
+    echo "FAIL: -fzp-args by level / switch / pragma (#359)"
     failed=$((failed + 1))
 fi
 

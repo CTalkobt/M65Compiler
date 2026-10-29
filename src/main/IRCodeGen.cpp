@@ -2108,22 +2108,23 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     };
     if (relocMode) {
         // Collect all symbol references from instructions and globals
+        // (an operand may be sym+offset: foldGlobalOffsetAccess, #356; its
+        // symbol part, as for initializer words)
+        auto symOf = [](const std::string& l) { return l.substr(0, l.find_first_of("+-", 1)); };
         std::set<std::string> referencedSymbols;
         for (const auto& fn : mod.functions) {
             for (const auto& blk : fn.blocks) {
                 for (const auto& inst : blk.insts) {
                     // Check operand names (GLOBAL/LABEL references)
-                    if (!inst.dest.name.empty()) referencedSymbols.insert(inst.dest.name);
-                    if (!inst.src1.name.empty()) referencedSymbols.insert(inst.src1.name);
-                    if (!inst.src2.name.empty()) referencedSymbols.insert(inst.src2.name);
+                    if (!inst.dest.name.empty()) referencedSymbols.insert(symOf(inst.dest.name));
+                    if (!inst.src1.name.empty()) referencedSymbols.insert(symOf(inst.src1.name));
+                    if (!inst.src2.name.empty()) referencedSymbols.insert(symOf(inst.src2.name));
                     for (const auto& arg : inst.args) {
-                        if (!arg.name.empty()) referencedSymbols.insert(arg.name);
+                        if (!arg.name.empty()) referencedSymbols.insert(symOf(arg.name));
                     }
                 }
             }
         }
-        // Initializer words may be label+offset: the symbol part
-        auto symOf = [](const std::string& l) { return l.substr(0, l.find_first_of("+-", 1)); };
         for (const auto& g : mod.globals) {
             for (const auto& lbl : g.initLabels) {
                 if (!lbl.empty()) referencedSymbols.insert(symOf(lbl));
@@ -4606,14 +4607,16 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                         ? fn.name + "__zar+" + std::to_string(zv->second - ZAR_START)
                         : fn.name + "__param_" + pName));
                 }
-                if (relocMode_ && listBytes < inlineBytes) {
+                // (-fno-zp-args, -O3 / -Ospeed: the copies inline, #359)
+                bool lists = relocMode_ && listBytes < inlineBytes && fn.argLists;
+                if (lists) {
                     emit(".extern __zp_args");
                     emit("jsr __zp_args");
                     for (const auto& l : list) emit(l);
                     emit(".byte 0");
                 }
                 int zpOff = (int)zeroPageStart_ + 8;
-                for (size_t i = 0; !(relocMode_ && listBytes < inlineBytes) && i < fn.paramTypes.size(); i++) {
+                for (size_t i = 0; !lists && i < fn.paramTypes.size(); i++) {
                     std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
                         ? fn.paramNames[i] : std::to_string(i);
                     std::string sym = fn.name + "__param_" + pName;
@@ -4633,7 +4636,8 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             // Read through a pointer to SP so the stack may be on any page
             bool anyParamBytes = fn.isVariadic;
             for (auto t : fn.paramTypes) if (ir::typeSize(t) > 0) anyParamBytes = true;
-            if (anyParamBytes && !fn.isVariadic && relocMode_) {
+            bool lists = anyParamBytes && !fn.isVariadic && relocMode_ && fn.argLists;   // (#359)
+            if (lists) {
                 // __sac_args (stdlib_asm/sac_args.s45) copies them, from a
                 // list of the parameters' sizes and storage: 3 bytes each
                 // instead of 7 per byte (-S output, assembled without the
@@ -4657,7 +4661,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 emit("sty $09");
             }
             int stackOff = 2; // past return address
-            for (size_t i = 0; (fn.isVariadic || !relocMode_) && i < fn.paramTypes.size(); i++) {
+            for (size_t i = 0; !lists && i < fn.paramTypes.size(); i++) {
                 if (fn.isRegparm && i == 0) continue;  // in A/A:X, stored above
                 std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
                     ? fn.paramNames[i] : std::to_string(i);
