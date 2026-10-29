@@ -116,12 +116,14 @@ void TunePlayer::silence() {
         v_[k].gated = 0;
         ctrl(v_[k]);
     }
+    for (int j = 0; j < nd_; j++) dput((uint8_t)(0x10 + (dfirst_ + j) * 16), 0);   // (the channels stopped)
 }
 
 void TunePlayer::play(const std::vector<uint8_t>& tune) {
     silence();
     tune_ = tune;
-    uint8_t nv = byte(1);
+    uint8_t nvd = byte(1), ndd = (uint8_t)((byte(0) >> 1) & 7);   // the voices in the data
+    uint8_t nv = nvd;
     if (nv) {
         if (nv > 12) nv = 12;
         uint8_t room = (uint8_t)(12 - first_);
@@ -150,9 +152,58 @@ void TunePlayer::play(const std::vector<uint8_t>& tune) {
         v.fbit = (uint8_t)(1 << ((first_ + k) % 3));
         inst(v, 0);
     }
+    // the digi voices: as many as channels from the first
+    nd_ = ndd;
+    if (nd_ > 4 - dfirst_) nd_ = (uint8_t)(4 - dfirst_);
+    stab_ = (uint16_t)(byte(8 + 2 * (nvd + ndd)) | (byte(9 + 2 * (nvd + ndd)) << 8));
+    for (int j = 0; j < nd_; j++) {
+        Voice& v = v_[12 + j];
+        v.start = v.pos = (uint16_t)(byte(8 + 2 * (nvd + j)) | (byte(9 + 2 * (nvd + j)) << 8));
+        v.left = 1;
+        v.gated = v.done = 0;
+    }
     acc_ = fpt_ >= step_ ? (uint16_t)(fpt_ - step_) : 0;
     ticks_ = 0;
-    active_ = n_ != 0;
+    active_ = n_ + nd_ != 0;
+}
+
+// A digi voice's next event: a hit (its sample on the voice's channel, as
+// digi_play sets one up: stopped, the addresses, the rate, the end, the
+// volume on both sides, then on: 8-bit unsigned, once), or a rest or tie
+// (the sample rings on)
+void TunePlayer::dnext(Voice& v, int idx) {
+    bool guard = false;
+    for (;;) {
+        uint8_t b = rd(v);
+        if (b < 0x80) {
+            v.left = rd(v);
+            unsigned e = stab_ + b * 7u;
+            uint32_t addr = (sbank_ + (byte(e) | (byte(e + 1) << 8))) & 0xFFFFFF;
+            uint16_t end = (uint16_t)(addr + (byte(e + 2) | (byte(e + 3) << 8)));
+            uint8_t c = (uint8_t)(0x10 + (dfirst_ + idx - 12) * 16);
+            dput(c, 0);
+            dput((uint8_t)(c + 1), (uint8_t)addr);
+            dput((uint8_t)(c + 2), (uint8_t)(addr >> 8));
+            dput((uint8_t)(c + 3), (uint8_t)(addr >> 16));
+            dput((uint8_t)(c + 0xA), (uint8_t)addr);
+            dput((uint8_t)(c + 0xB), (uint8_t)(addr >> 8));
+            dput((uint8_t)(c + 0xC), (uint8_t)(addr >> 16));
+            dput((uint8_t)(c + 4), byte(e + 4));
+            dput((uint8_t)(c + 5), byte(e + 5));
+            dput((uint8_t)(c + 6), byte(e + 6));
+            dput((uint8_t)(c + 7), (uint8_t)end);
+            dput((uint8_t)(c + 8), (uint8_t)(end >> 8));
+            dput((uint8_t)(c + 9), dvol_);
+            dput((uint8_t)(0x0C + dfirst_ + idx - 12), dvol_);
+            dput(c, 0xA2);
+            dput(0x01, 0x80);
+            return;
+        }
+        if (b == 0x80 || b == 0x82) { v.left = rd(v); return; }
+        if (b == 0xFE && !guard) { guard = true; v.pos = v.start; continue; }
+        v.done = 1;
+        return;
+    }
 }
 
 void TunePlayer::stop() { silence(); }
@@ -220,7 +271,15 @@ void TunePlayer::tick() {
             ctrl(v);
         }
     }
-    if (done == n_) active_ = false;
+    for (int k = 12; k < 12 + nd_; k++) {
+        Voice& v = v_[k];
+        if (v.done) { done++; continue; }
+        if (--v.left == 0) {
+            dnext(v, k);
+            if (v.done) done++;
+        }
+    }
+    if (done == n_ + nd_) active_ = false;
 }
 
 void TunePlayer::effects() {

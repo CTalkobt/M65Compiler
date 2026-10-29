@@ -23,6 +23,14 @@
 ; The filter is a chip's: a note of a filtered instrument sets the cutoff
 ; and its sweep, the resonance, the mode (the volume in $18 kept) and routes
 ; the voice; a note of another instrument takes the voice out.
+; Digi voices (flags bits 1-3: 0-4 of them) play samples on the audio DMA:
+; their streams' offsets follow the SID voices', then the sample table's
+; (7 bytes a hit: its offset in the samples (tune_samples' address), its
+; bytes, the DMA's rate value (3)). A digi stream: $00-$7F h d a hit for d
+; ticks, $80 / $82 d the sample rings on, $FE, $FF. A hit sets the voice's
+; channel (tune_digi_channels' first + the voice) up as digi_play does and
+; starts it (8-bit unsigned, once); the next hit on it cuts it short. The
+; audio DMA's registers go to ___digi_regs ($D710; digi_regs.s45, weak).
 ; A glide ($84 s k before a note) starts the note s semitones below its
 ; pitch (signed: above when s is negative) and from its second frame moves
 ; (distance + 2^k - 1) >> k a frame towards it, then stops.
@@ -48,14 +56,15 @@ cc45.icallinfo = 1
 
 .global _tune_play, _tune_play_far, _tune_stop, _tune_update, _tune_playing
 .global _tune_voices, _tune_tempo, _tune_vibrato, _tune_transpose, _tune_detune, _tune_ticks, _tune_note
-.global _tune_seek
-.extern ___sid_put, ___sid_shadow
+.global _tune_seek, _tune_samples, _tune_digi_channels, _tune_digi_volume
+.extern ___sid_put, ___sid_shadow, ___digi_regs
 
 P  = $F6
 T0 = $FA
 T1 = $FB
 T2 = $FC
 NV = 12                         ; voices at most
+NVT = 16                        ;   and the digi voices (12-15) in the streams' state
 
 .segment "bss"
 __tune_base:    .res 4          ; the tune's address
@@ -78,17 +87,24 @@ __tune_mute:    .res 1          ; $80: no register writes (tune_seek)
 __tune_rsize:   .res 1          ; an instrument's bytes (10 or 17)
 __tune_soon:    .res 1          ; frames to the next tick (1-4: hard restart)
 __tune_c:       .res 1          ; (a saved chip)
+__tune_nd:      .res 1          ; digi voices
+__tune_nt:      .res 1          ; voices and digi voices
+__tune_nvd:     .res 1          ; (the tune's voices, before tune_voices' limit)
+__tune_stab:    .res 2          ; the sample table's offset
+__tune_dt:      .res 8          ; a hit: its address (3), end (2), rate (3)
+__tune_dc:      .res 1          ;   its channel
+__tune_r:       .res 1          ;   its registers ($10 + channel * 16)
 __tune_cut_lo:  .res 4          ; each chip's cutoff (11 bits)
 __tune_cut_hi:  .res 4
 __tune_csw:     .res 4          ;   and its sweep a frame
 ; each voice's state
-__tv_pos_lo:    .res NV
-__tv_pos_hi:    .res NV
-__tv_start_lo:  .res NV
-__tv_start_hi:  .res NV
-__tv_left:      .res NV         ; ticks to its next event (0: 256)
+__tv_pos_lo:    .res NVT
+__tv_pos_hi:    .res NVT
+__tv_start_lo:  .res NVT
+__tv_start_hi:  .res NVT
+__tv_left:      .res NVT        ; ticks to its next event (0: 256)
 __tv_gated:     .res NV         ; 1 while its gate is on
-__tv_done:      .res NV
+__tv_done:      .res NVT
 __tv_note:      .res NV
 __tv_freq_lo:   .res NV         ; the note's frequency (slide moves it)
 __tv_freq_hi:   .res NV
@@ -136,6 +152,9 @@ __tune_scale:   .word $0100     ; tempo (8.8)
 __tune_vibx:    .byte 0         ; vibrato added
 __tv_transp:    .byte 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 __tv_detune:    .byte 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+__tune_dfirst:  .byte 0         ; the digi voices' first channel
+__tune_dvol:    .byte 255       ; their volume
+__tune_sbank:   .byte 0, 0, 0   ; the samples' address (chip RAM)
 
 .segment "code"
 
@@ -608,6 +627,10 @@ endproc
 
 ; Voice X's next event
 proc __tune_next
+    cpx #12
+    bcc @sid
+    jmp __tune_dnext
+@sid:
     lda #0
     sta __tune_guard
 @read:
@@ -738,6 +761,187 @@ proc __tune_next
     jmp __tune_ctrl
 endproc
 
+; A to audio DMA register Y (from $D710); A, X, Y kept
+proc __tune_wd
+    bit __tune_mute
+    bmi @muted
+    sta ___digi_regs,y
+@muted:
+    rts
+endproc
+
+; Digi voice X's next event: a hit, or the sample ringing on
+proc __tune_dnext
+    lda #0
+    sta __tune_guard
+@read:
+    jsr __tune_rd
+    cmp #$80
+    bcc @hit
+    beq @wait
+    cmp #$82
+    beq @wait
+    cmp #$FE
+    bne @end
+    lda __tune_guard    ; back to the start (once: an empty voice ends)
+    bne @end
+    inc __tune_guard
+    lda __tv_start_lo,x
+    sta __tv_pos_lo,x
+    lda __tv_start_hi,x
+    sta __tv_pos_hi,x
+    bra @read
+@end:
+    lda #1
+    sta __tv_done,x
+    rts
+@wait:
+    jsr __tune_rd
+    sta __tv_left,x
+    rts
+@hit:
+    pha
+    jsr __tune_rd
+    sta __tv_left,x
+    pla
+    jmp __tune_hit
+endproc
+
+; Digi voice X's hit A: its sample on the voice's channel, set up as
+; digi_play does (stopped, the start and current addresses, the rate, the
+; end, the volume on both sides, then on: 8-bit unsigned, once)
+proc __tune_hit
+    ; T1:T0 = the sample table + A * 7
+    sta T2
+    sta T0
+    lda #0
+    sta T1
+    asl T0
+    rol T1
+    asl T0
+    rol T1
+    asl T0
+    rol T1
+    sec
+    lda T0
+    sbc T2
+    sta T0
+    lda T1
+    sbc #0
+    sta T1
+    clc
+    lda T0
+    adc __tune_stab
+    sta T0
+    lda T1
+    adc __tune_stab+1
+    sta T1
+    jsr __tune_at
+    ; its address: the samples' + its offset; its end: the address's low
+    ; 16 bits + its bytes; its rate
+    ldz #0
+    clc
+    lda [P],z
+    adc __tune_sbank
+    sta __tune_dt
+    inz
+    lda [P],z
+    adc __tune_sbank+1
+    sta __tune_dt+1
+    lda __tune_sbank+2
+    adc #0
+    sta __tune_dt+2
+    inz
+    clc
+    lda [P],z
+    adc __tune_dt
+    sta __tune_dt+3
+    inz
+    lda [P],z
+    adc __tune_dt+1
+    sta __tune_dt+4
+    inz
+    lda [P],z
+    sta __tune_dt+5
+    inz
+    lda [P],z
+    sta __tune_dt+6
+    inz
+    lda [P],z
+    sta __tune_dt+7
+    ; its channel: the first + the digi voice
+    txa
+    sec
+    sbc #12
+    clc
+    adc __tune_dfirst
+    sta __tune_dc
+    asl a
+    asl a
+    asl a
+    asl a
+    clc
+    adc #$10
+    sta __tune_r
+    tay
+    lda #0
+    jsr __tune_wd       ; stopped
+    iny
+    lda __tune_dt
+    jsr __tune_wd       ; 1-3: the start
+    iny
+    lda __tune_dt+1
+    jsr __tune_wd
+    iny
+    lda __tune_dt+2
+    jsr __tune_wd
+    tya
+    clc
+    adc #7
+    tay
+    lda __tune_dt
+    jsr __tune_wd       ; A-C: the current address
+    iny
+    lda __tune_dt+1
+    jsr __tune_wd
+    iny
+    lda __tune_dt+2
+    jsr __tune_wd
+    tya
+    sec
+    sbc #8
+    tay
+    lda __tune_dt+5
+    jsr __tune_wd       ; 4-6: the rate
+    iny
+    lda __tune_dt+6
+    jsr __tune_wd
+    iny
+    lda __tune_dt+7
+    jsr __tune_wd
+    iny
+    lda __tune_dt+3
+    jsr __tune_wd       ; 7-8: the end
+    iny
+    lda __tune_dt+4
+    jsr __tune_wd
+    iny
+    lda __tune_dvol
+    jsr __tune_wd       ; 9: the volume
+    lda __tune_dc
+    clc
+    adc #$0C
+    tay
+    lda __tune_dvol
+    jsr __tune_wd       ; $D71C + channel: on the other side too
+    ldy __tune_r
+    lda #$A2
+    jsr __tune_wd       ; on: 8-bit unsigned, once
+    ldy #1
+    lda #$80
+    jmp __tune_wd       ; ($D711: the audio DMA on)
+endproc
+
 ; A tick: each voice's event counted down
 proc __tune_tick
     inc __tune_ticks
@@ -775,8 +979,31 @@ proc __tune_tick
     inx
     bra @voice
 @end:
+    ; the digi voices
+    ldx #12
+@dvoice:
+    txa
+    sec
+    sbc #12
+    cmp __tune_nd
+    bcs @dend
+    lda __tv_done,x
+    beq @dlive
+    inc __tune_ndone
+    bra @dnext
+@dlive:
+    dec __tv_left,x
+    bne @dnext
+    jsr __tune_next
+    lda __tv_done,x
+    beq @dnext
+    inc __tune_ndone
+@dnext:
+    inx
+    bra @dvoice
+@dend:
     lda __tune_ndone
-    cmp __tune_n
+    cmp __tune_nt
     bne @playing
     lda #0
     sta __tune_active
@@ -1177,8 +1404,14 @@ proc __tune_start
     sta T0
     sta T1
     jsr __tune_at
+    ldz #0
+    lda [P],z
+    lsr a
+    and #7
+    sta __tune_nd       ; (the tune's digi voices, before the channels' limit)
     ldz #1
     lda [P],z
+    sta __tune_nvd
     beq @ok             ; (no voices: nothing to play)
     cmp #NV + 1
     bcc @n
@@ -1283,6 +1516,66 @@ proc __tune_start
     inx
     bra @voice
 @go:
+    ; the digi voices: the sample table (its offset after every voice's),
+    ; then as many voices as channels from the first
+    lda __tune_nvd
+    clc
+    adc __tune_nd
+    asl a
+    clc
+    adc #8
+    sta T0
+    lda #0
+    sta T1
+    jsr __tune_at
+    ldz #0
+    lda [P],z
+    sta __tune_stab
+    inz
+    lda [P],z
+    sta __tune_stab+1
+    lda #4
+    sec
+    sbc __tune_dfirst
+    cmp __tune_nd
+    bcs @dmax
+    sta __tune_nd
+@dmax:
+    ldx #12
+@dvoice:
+    txa
+    sec
+    sbc #12
+    cmp __tune_nd
+    bcs @dset
+    clc
+    adc __tune_nvd      ; its offset: the header's word at 8 + 2 * (voices + it)
+    asl a
+    clc
+    adc #8
+    sta T0
+    lda #0
+    sta T1
+    jsr __tune_at
+    ldz #0
+    lda [P],z
+    sta __tv_start_lo,x
+    sta __tv_pos_lo,x
+    inz
+    lda [P],z
+    sta __tv_start_hi,x
+    sta __tv_pos_hi,x
+    lda #1
+    sta __tv_left,x
+    lda #0
+    sta __tv_done,x
+    inx
+    bra @dvoice
+@dset:
+    lda __tune_n
+    clc
+    adc __tune_nd
+    sta __tune_nt
     ; the first tick on the first tune_update: a tick less one frame's step
     ; (0 when a frame is several ticks)
     sec
@@ -1300,7 +1593,7 @@ proc __tune_start
     lda #0
     sta __tune_ticks
     sta __tune_ticks+1
-    lda __tune_n
+    lda __tune_nt
     beq @off
     lda #1
 @off:
@@ -1370,6 +1663,26 @@ proc __tune_silence
     inx
     bra @voice
 @done:
+    ; the digi voices' channels stopped
+    ldx #0
+@digi:
+    cpx __tune_nd
+    bcs @end
+    txa
+    clc
+    adc __tune_dfirst
+    asl a
+    asl a
+    asl a
+    asl a
+    clc
+    adc #$10
+    tay
+    lda #0
+    jsr __tune_wd
+    inx
+    bra @digi
+@end:
     rts
 endproc
 
@@ -1616,6 +1929,45 @@ proc _tune_transpose
     lda $12
     sta __tv_transp,x
 @no:
+    rts
+    .func_flags zp_call, leaf
+endproc
+
+; void tune_samples(unsigned long addr): where the digi voices' samples are
+proc _tune_samples
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A
+    lda $10
+    sta __tune_sbank
+    lda $11
+    sta __tune_sbank+1
+    lda $12
+    sta __tune_sbank+2
+    rts
+    .func_flags zp_call, leaf
+endproc
+
+; void tune_digi_channels(unsigned char first)
+proc _tune_digi_channels
+    .zp_uses $10, $11
+    .reg_clobbers A
+    .flag_clobbers C, N, Z
+    lda $10
+    cmp #4
+    bcc @ok
+    lda #3
+@ok:
+    sta __tune_dfirst
+    rts
+    .func_flags zp_call, leaf
+endproc
+
+; void tune_digi_volume(unsigned char volume)
+proc _tune_digi_volume
+    .zp_uses $10, $11
+    .reg_clobbers A
+    lda $10
+    sta __tune_dvol
     rts
     .func_flags zp_call, leaf
 endproc

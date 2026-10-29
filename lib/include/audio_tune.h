@@ -24,7 +24,8 @@
  * in; the voices a tune plays are its own while it plays.
  *
  * Tune voice i plays on SID voice first + i (tune_voices; 0 at first, 12
- * voices: SID 1 voices 0-2, SID 2 3-5, SID 3 6-8, SID 4 9-11).
+ * voices: SID 1 voices 0-2, SID 2 3-5, SID 3 6-8, SID 4 9-11). Digi voice i
+ * (samples) plays on audio DMA channel first + i (tune_digi_channels).
  *
  * Stream bytes (tune45 writes them; docs: doc/bin/tune45.md):
  *   $00-$7F n d   note n (MIDI, 60 = middle C) for d ticks (d 0 = 256)
@@ -36,6 +37,8 @@
  *                 2^k - 1) >> k a frame towards it (k 1-7; 0: no glide)
  *   $FE           back to the voice's start (a tune that loops)
  *   $FF           the voice's end
+ * A digi voice's: $00-$7F h d  hit h (the tune's sample table) for d
+ * ticks; $80 d / $82 d  the sample rings on; $FE, $FF.
  */
 #pragma once
 
@@ -77,3 +80,20 @@ __fastcall__ void tune_seek(unsigned int ticks);
 /* The note tune voice voice sounds (MIDI, before its transpose), 0xFF when
  * it is silent (a rest, released, over) */
 __fastcall__ unsigned char tune_note(unsigned char voice);
+
+/* Digi voices (tune45's d1: .. d4:): samples on the audio DMA. A hit sets
+ * its channel up and starts it (8-bit unsigned, once, at the volume on both
+ * sides); the next hit on the channel cuts it short (tune45 mixes samples
+ * hit together into one, and warns of tails cut short). The audio DMA
+ * reads chip RAM only:
+ *   tune_samples        where the tunes' samples are (tune45's
+ *                       tune_sample_bank, or its --samples file loaded):
+ *                       chip RAM, not across a 64 KB boundary
+ *   tune_digi_channels  the audio DMA channel (0-3) of digi voice 0 (before
+ *                       tune_play; voices past channel 3 are left out): the
+ *                       others stay the program's, for its sound effects
+ *   tune_digi_volume    0-255 (255 at first)
+ * They stay set across tune_play. */
+__fastcall__ void tune_samples(unsigned long addr);
+__fastcall__ void tune_digi_channels(unsigned char first);
+__fastcall__ void tune_digi_volume(unsigned char volume);

@@ -12,6 +12,12 @@
 //       next note the gate off and the release at its fastest; filter: the
 //       chip's filter for its notes (res 0-15, cutoff hex 0-7ff, fsweep the
 //       cutoff's change a frame); table: a wave table
+//   sample <name> <file> [rate=hz] [gain=percent]
+//       a sound (WAV, AU, MP3; others by ffmpeg) for the digi voices, made
+//       8-bit at rate (default: the lowest that keeps it, at most 12000)
+//   d1: ... d4:  a digi voice (the audio DMA): name:ticks a sample,
+//       a+b:ticks samples at once (tune45 mixes them into one), r:ticks
+//       and ~:ticks (the sample rings on), | a bar line
 //   wavetable <name> <step> ... [loop <n>]
 //       a step a frame from the note's start: a waveform (tri, saw, pulse,
 //       noise, a+b, or hex) and :semitones from the note (pulse:-12); after
@@ -60,6 +66,20 @@ struct TuneVoice {
     unsigned ticks = 0;
     bool defaultInstrument = false; // plays before its first @instrument
     std::vector<int> instruments;   // file instruments it names, in order
+    std::vector<std::pair<int, unsigned>> hits;   // a digi voice's: the hit, its tick
+};
+
+struct TuneSample {
+    std::string name, path;
+    int line = 0;
+    uint32_t rate = 0;              // 0: the lowest that keeps it (at most 12000)
+    int gain = 100;                 // per cent
+};
+
+// A hit: samples sounding at once, mixed into one in the sample bank
+struct TuneHit {
+    std::vector<int> samples;       // TuneFile::samples, sorted
+    uint32_t at = 0, len = 0, rate = 0;   // its place in the bank, bytes, Hz
 };
 
 struct Tune {
@@ -69,11 +89,16 @@ struct Tune {
     bool loop = false;
     unsigned barTicks = 0;
     std::vector<TuneVoice> voices;
+    std::vector<TuneVoice> digi;    // d1: .. d4:
+    unsigned ticks() const { return !voices.empty() ? voices[0].ticks : !digi.empty() ? digi[0].ticks : 0; }
 };
 
 struct TuneFile {
     std::vector<TuneInstrument> instruments;
     std::vector<TuneTable> tables;
+    std::vector<TuneSample> samples;
+    std::vector<TuneHit> hits;      // every hit the tunes play
+    std::vector<uint8_t> bank;      // the hits' samples: 8-bit unsigned, at most 64 KB
     std::vector<Tune> tunes;
 };
 
@@ -84,19 +109,28 @@ public:
     static constexpr uint8_t kInstrumentSize = 17;
 
     // Parse text (file names the diagnostics); false with errors() set
+    // (and the samples read, mixed into the bank, beside file)
     bool parse(const std::string& text, const std::string& file, TuneFile& out);
     const std::vector<std::string>& errors() const { return errors_; }
+    const std::vector<std::string>& warnings() const { return warnings_; }
 
     // The player's blob of a tune (its instruments renumbered: those it uses)
     static std::vector<uint8_t> blob(const TuneFile& f, const Tune& t);
     // The file's instruments a tune uses, as the blob numbers them
     static std::vector<int> usedInstruments(const TuneFile& f, const Tune& t);
+    // The file's hits a tune plays, as the blob numbers them
+    static std::vector<int> usedHits(const Tune& t);
+    // A hit's name: its samples joined by +
+    static std::string hitName(const TuneFile& f, int hit);
+    // The audio DMA's rate register value of a rate in Hz (Hz * 2^24 / 40.5 MHz)
+    static uint32_t dmaRate(uint32_t hz);
 
     // MIDI note of "c4", "c#4", "eb4" (c4 = 60), or -1
     static int noteNumber(const std::string& tok);
     static std::string noteName(int n);
 
 private:
-    std::vector<std::string> errors_;
+    std::vector<std::string> errors_, warnings_;
     void error(const std::string& file, int line, const std::string& msg);
+    bool loadSamples(const std::string& file, TuneFile& f);
 };

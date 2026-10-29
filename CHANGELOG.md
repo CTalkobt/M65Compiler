@@ -4,6 +4,30 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### The tune player: digi voices (samples on the audio DMA)
+
+- `sample <name> <file> [rate=] [gain=]` lines (WAV, AU, MP3; more by
+  ffmpeg; made 8-bit at the lowest rate that keeps them, at most 12000 Hz,
+  unless `rate=`) and `d1:`-`d4:` voices: `kick:2`, `kick+snare:2` (samples
+  hit together, mixed by tune45 into one, each combination once), `r:` and
+  `~:` letting a sample ring on. A channel plays one sample, so the next
+  hit cuts the last short: tune45 warns of each such hit and by how much.
+- The player: a digi voice's hit sets its channel (`tune_digi_channels`'
+  first + the voice; the rest stay the program's) up as `digi_play` does
+  and starts it, from the samples at `tune_samples(addr)` (chip RAM, at
+  most 64 KB, not across a bank), at `tune_digi_volume`. tune_stop stops
+  the channels. The data: the digi voices' count in the flags' bits 1-3
+  (0 in all older data), their streams and a sample table after the SID
+  voices'. Code 3236 bytes (583 more), state 622.
+- tune45: `convert` writes the samples (`tune_sample_bank` in C and asm,
+  `--samples <file>` with `--bin`); `play` mixes them in as the audio DMA
+  plays them; `list` shows the hits; `trace` the audio DMA's registers
+  (`--samples-at`, `--digi-first`); the `--emulator` player sets them up.
+- Tests: the data, `--samples`, the warning, the mix, the errors
+  (`test_tune45.sh`); the model's audio DMA registers against the player's
+  in xemu (`___digi_regs`, weak, into RAM), from channel 2 with a voice
+  left out, in both conventions (`test_xemu.sh`).
+
 ### The tune player: filter, wave tables, hard restart
 
 - Instruments take `hr=n` (hard restart: n frames, 1-3, before the voice's

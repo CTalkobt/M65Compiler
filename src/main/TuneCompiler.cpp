@@ -1,6 +1,9 @@
 // TuneCompiler.cpp — tune45's music text and the player's data (see TuneCompiler.hpp)
 #include "TuneCompiler.hpp"
+#include "PackAudio.hpp"
 #include <algorithm>
+#include <fstream>
+#include <iterator>
 #include <cctype>
 #include <cmath>
 #include <map>
@@ -55,6 +58,7 @@ std::string TuneCompiler::noteName(int n) {
 
 bool TuneCompiler::parse(const std::string& text, const std::string& file, TuneFile& out) {
     errors_.clear();
+    warnings_.clear();
     out = TuneFile();
     // lines: comments off, continuations joined (the line where it began)
     std::vector<std::pair<int, std::string>> lines;
@@ -77,7 +81,8 @@ bool TuneCompiler::parse(const std::string& text, const std::string& file, TuneF
         }
         if (!cont.empty()) lines.push_back({first, cont});
     }
-    std::map<std::string, int> instId, tableId;
+    std::map<std::string, int> instId, tableId, sampleId;
+    std::map<std::vector<int>, int> hitId;
     static const std::map<std::string, int> waves = {{"tri", 0x10}, {"saw", 0x20}, {"pulse", 0x40}, {"noise", 0x80}};
     // a waveform: a name, names joined by + (pulse+saw), or a hex control value
     auto waveOf = [&](const std::string& tok, uint8_t& out) {
@@ -178,6 +183,103 @@ bool TuneCompiler::parse(const std::string& text, const std::string& file, TuneF
             if (instId.count(ins.name)) { error(file, ln, "instrument " + ins.name + " defined twice"); continue; }
             instId[ins.name] = (int)out.instruments.size();
             out.instruments.push_back(ins);
+        } else if (kw == "sample") {
+            if (w.size() < 3) { error(file, ln, "sample <name> <file> [rate=hz] [gain=percent]"); continue; }
+            TuneSample sm;
+            sm.name = w[1];
+            sm.path = w[2];
+            sm.line = ln;
+            bool ok = true;
+            for (size_t k = 3; k < w.size(); k++) {
+                size_t eq = w[k].find('=');
+                long v;
+                std::string key = lower(w[k].substr(0, eq));
+                if (eq == std::string::npos || !parseInt(w[k].substr(eq + 1), v)) { error(file, ln, "expected key=number: " + w[k]); ok = false; }
+                else if (key == "rate" && v >= 1000 && v <= 48000) sm.rate = (uint32_t)v;
+                else if (key == "gain" && v >= 1 && v <= 1000) sm.gain = (int)v;
+                else { error(file, ln, "unknown or out of range: " + w[k] + " (rate 1000-48000, gain 1-1000 per cent)"); ok = false; }
+            }
+            if (!ok) continue;
+            if (sm.name.find('+') != std::string::npos || sm.name.find(':') != std::string::npos ||
+                lower(sm.name) == "r") { error(file, ln, "a sample's name has no + or : and is not r: " + sm.name); continue; }
+            if (sampleId.count(sm.name)) { error(file, ln, "sample " + sm.name + " defined twice"); continue; }
+            sampleId[sm.name] = (int)out.samples.size();
+            out.samples.push_back(sm);
+        } else if (kw.size() >= 3 && kw[0] == 'd' && kw.back() == ':' && std::isdigit((unsigned char)kw[1])) {
+            long dn;
+            if (!parseInt(kw.substr(1, kw.size() - 2), dn) || dn < 1 || dn > 4) { error(file, ln, "a digi voice is d1: to d4:, not " + w[0]); continue; }
+            if (out.tunes.empty()) { error(file, ln, "a voice before any tune"); continue; }
+            Tune& t = out.tunes.back();
+            if ((size_t)dn != t.digi.size() + 1) {
+                error(file, ln, "tune " + t.name + ": d" + std::to_string(t.digi.size() + 1) + ": expected, not " + w[0]);
+                continue;
+            }
+            TuneVoice v;
+            v.line = ln;
+            unsigned bar = 0;
+            int barNo = 1;
+            for (size_t k = 1; k < w.size(); k++) {
+                const std::string& tok = w[k];
+                if (tok == "|") {
+                    if (t.barTicks && bar != t.barTicks)
+                        error(file, ln, "tune " + t.name + " d" + std::to_string(dn) + ": bar " + std::to_string(barNo) + " is " +
+                              std::to_string(bar) + " ticks, not " + std::to_string(t.barTicks));
+                    bar = 0;
+                    barNo++;
+                    continue;
+                }
+                size_t colon = tok.rfind(':');
+                long d;
+                if (colon == std::string::npos || colon == 0 || !parseInt(tok.substr(colon + 1), d)) {
+                    error(file, ln, "expected sample:ticks, a+b:ticks, r:ticks, ~:ticks or |, not " + tok); continue;
+                }
+                if (d < 1 || d > 4096) { error(file, ln, "a length of " + std::to_string(d) + " ticks: " + tok); continue; }
+                std::string what = tok.substr(0, colon);
+                int code;
+                if (lower(what) == "r") code = 0x80;
+                else if (what == "~") code = 0x82;
+                else {
+                    // the samples sounding at once: one hit, mixed
+                    std::vector<int> ids;
+                    bool good = true;
+                    size_t at = 0;
+                    while (good) {
+                        size_t plus = what.find('+', at);
+                        auto it = sampleId.find(what.substr(at, plus == std::string::npos ? std::string::npos : plus - at));
+                        if (it == sampleId.end()) { error(file, ln, "unknown sample in " + tok + " (a sample line before the voice)"); good = false; break; }
+                        if (std::find(ids.begin(), ids.end(), it->second) == ids.end()) ids.push_back(it->second);
+                        if (plus == std::string::npos) break;
+                        at = plus + 1;
+                    }
+                    if (!good) continue;
+                    std::sort(ids.begin(), ids.end());
+                    auto h = hitId.find(ids);
+                    if (h == hitId.end()) {
+                        if (out.hits.size() >= 128) { error(file, ln, "over 128 different hits in the file"); continue; }
+                        h = hitId.emplace(ids, (int)out.hits.size()).first;
+                        TuneHit nh;
+                        nh.samples = ids;
+                        out.hits.push_back(nh);
+                    }
+                    code = h->second;
+                    v.hits.push_back({code, v.ticks});
+                }
+                long left = d;
+                bool first = true;
+                while (left > 0) {
+                    long part = std::min(left, 255L);
+                    v.stream.push_back((uint8_t)(first ? code : (code == 0x80 ? 0x80 : 0x82)));
+                    v.stream.push_back((uint8_t)part);
+                    left -= part;
+                    first = false;
+                }
+                v.ticks += (unsigned)d;
+                bar += (unsigned)d;
+            }
+            if (t.barTicks && bar != 0 && bar != t.barTicks)
+                error(file, ln, "tune " + t.name + " d" + std::to_string(dn) + ": the last bar is " + std::to_string(bar) +
+                      " ticks, not " + std::to_string(t.barTicks));
+            t.digi.push_back(v);
         } else if (kw == "wavetable") {
             if (w.size() < 3) { error(file, ln, "wavetable <name> <waveform[:semitones]> ... [loop <step>]"); continue; }
             TuneTable tb;
@@ -330,17 +432,21 @@ bool TuneCompiler::parse(const std::string& text, const std::string& file, TuneF
                       " ticks, not " + std::to_string(t.barTicks));
             t.voices.push_back(v);
         } else {
-            error(file, ln, "what is " + w[0] + "? (instrument, wavetable, tune, v1:...)");
+            error(file, ln, "what is " + w[0] + "? (instrument, wavetable, sample, tune, v1:..., d1:...)");
         }
     }
     for (const auto& t : out.tunes) {
-        if (t.voices.empty()) { error(file, t.line, "tune " + t.name + " has no voices"); continue; }
+        if (t.voices.empty() && t.digi.empty()) { error(file, t.line, "tune " + t.name + " has no voices"); continue; }
+        unsigned len = t.voices.empty() ? t.digi[0].ticks : t.voices[0].ticks;
         bool same = true;
-        for (const auto& v : t.voices) if (v.ticks != t.voices[0].ticks) same = false;
+        for (const auto& v : t.voices) if (v.ticks != len) same = false;
+        for (const auto& v : t.digi) if (v.ticks != len) same = false;
         if (!same) {
             std::string l;
             for (size_t k = 0; k < t.voices.size(); k++)
                 l += (k ? ", " : "") + std::string("v") + std::to_string(k + 1) + " " + std::to_string(t.voices[k].ticks);
+            for (size_t k = 0; k < t.digi.size(); k++)
+                l += (l.empty() ? "" : ", ") + std::string("d") + std::to_string(k + 1) + " " + std::to_string(t.digi[k].ticks);
             error(file, t.line, "tune " + t.name + ": the voices are not as long (ticks: " + l + ")");
         }
         bool needDefault = false;
@@ -348,7 +454,96 @@ bool TuneCompiler::parse(const std::string& text, const std::string& file, TuneF
         if (needDefault && out.instruments.empty())
             error(file, t.line, "tune " + t.name + " plays notes but no instrument is defined");
     }
+    if (errors_.empty() && !out.hits.empty()) loadSamples(file, out);
     return errors_.empty();
+}
+
+uint32_t TuneCompiler::dmaRate(uint32_t hz) { return (uint32_t)std::lround((double)hz * 16777216.0 / 40500000.0); }
+
+std::string TuneCompiler::hitName(const TuneFile& f, int hit) {
+    std::string n;
+    for (int s : f.hits[(size_t)hit].samples) n += (n.empty() ? "" : "+") + f.samples[(size_t)s].name;
+    return n;
+}
+
+// The samples the hits use, read (beside the text file) and made 8-bit at
+// their rates; each hit mixed (its samples at the highest of their rates,
+// added, clipped) into the bank. Then each digi voice's hits that the next
+// cuts short (the next hit on a channel stops the one before): a warning
+bool TuneCompiler::loadSamples(const std::string& file, TuneFile& f) {
+    std::string dir;
+    size_t slash = file.find_last_of('/');
+    if (slash != std::string::npos) dir = file.substr(0, slash + 1);
+    std::vector<pack45::Wav> wav(f.samples.size());
+    std::vector<bool> used(f.samples.size(), false);
+    for (const auto& h : f.hits) for (int s : h.samples) used[(size_t)s] = true;
+    for (size_t k = 0; k < f.samples.size(); k++) {
+        if (!used[k]) continue;
+        TuneSample& sm = f.samples[k];
+        std::string path = !sm.path.empty() && sm.path[0] == '/' ? sm.path : dir + sm.path;
+        std::ifstream in(path, std::ios::binary);
+        if (!in) { error(file, sm.line, "cannot read " + path); continue; }
+        std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        std::string err;
+        if (!pack45::readSound(path, bytes, wav[k], &err) || wav[k].samples.empty()) {
+            error(file, sm.line, path + ": " + (err.empty() ? "no samples" : err));
+            continue;
+        }
+        if (!sm.rate) {
+            uint32_t top = std::min<uint32_t>(12000, wav[k].rate);
+            sm.rate = pack45::rateFor(pack45::energyBelow(wav[k], 0.999, top < wav[k].rate ? 0.45 * top : 0), top);
+        }
+        for (double& x : wav[k].samples) x *= sm.gain / 100.0;
+    }
+    if (!errors_.empty()) return false;
+    f.bank.clear();
+    for (size_t hk = 0; hk < f.hits.size(); hk++) {
+        TuneHit& h = f.hits[hk];
+        h.rate = 0;
+        for (int s : h.samples) h.rate = std::max(h.rate, f.samples[(size_t)s].rate);
+        std::vector<double> mix;
+        for (int s : h.samples) {
+            auto part = pack45::resample(wav[(size_t)s], h.rate);
+            if (part.size() > mix.size()) mix.resize(part.size(), 0.0);
+            for (size_t i = 0; i < part.size(); i++) mix[i] += part[i];
+        }
+        auto b = pack45::toBytes(mix, true, false);
+        if (b.size() > 0xFFFF) {
+            error(file, f.samples[(size_t)h.samples[0]].line, hitName(f, (int)hk) + ": over 65535 samples (" +
+                  std::to_string(b.size()) + ") at " + std::to_string(h.rate) + " Hz");
+            return false;
+        }
+        h.at = (uint32_t)f.bank.size();
+        h.len = (uint32_t)b.size();
+        f.bank.insert(f.bank.end(), b.begin(), b.end());
+    }
+    if (f.bank.size() > 0x10000) {
+        error(file, f.samples[0].line, "the samples are " + std::to_string(f.bank.size()) + " bytes: over 64 KB (one bank)");
+        return false;
+    }
+    for (const auto& t : f.tunes)
+        for (size_t d = 0; d < t.digi.size(); d++) {
+            const auto& hs = t.digi[d].hits;
+            std::map<int, std::pair<int, double>> cut;   // hit: times cut, the shortest it rang
+            for (size_t k = 0; k + 1 < hs.size(); k++) {
+                double rang = (hs[k + 1].second - hs[k].second) * (t.fpt / 256.0) / 50.0;
+                const TuneHit& h = f.hits[(size_t)hs[k].first];
+                if (rang < (double)h.len / h.rate) {
+                    auto& c = cut[hs[k].first];
+                    c.second = c.first ? std::min(c.second, rang) : rang;
+                    c.first++;
+                }
+            }
+            for (const auto& [hit, c] : cut) {
+                const TuneHit& h = f.hits[(size_t)hit];
+                char m[256];
+                snprintf(m, sizeof m, "tune %s d%zu: %s (%.2f s) is cut short by the next hit %d time%s (after %.2f s at least)",
+                         t.name.c_str(), d + 1, hitName(f, hit).c_str(), (double)h.len / h.rate, c.first,
+                         c.first == 1 ? "" : "s", c.second);
+                warnings_.push_back(file + ":" + std::to_string(t.digi[d].line) + ": warning: " + m);
+            }
+        }
+    return true;
 }
 
 std::vector<int> TuneCompiler::usedInstruments(const TuneFile& f, const Tune& t) {
@@ -362,14 +557,27 @@ std::vector<int> TuneCompiler::usedInstruments(const TuneFile& f, const Tune& t)
     return used;
 }
 
+std::vector<int> TuneCompiler::usedHits(const Tune& t) {
+    std::vector<int> used;
+    for (const auto& v : t.digi)
+        for (const auto& h : v.hits)
+            if (std::find(used.begin(), used.end(), h.first) == used.end()) used.push_back(h.first);
+    return used;
+}
+
 std::vector<uint8_t> TuneCompiler::blob(const TuneFile& f, const Tune& t) {
     std::vector<int> used = usedInstruments(f, t);
     std::map<int, int> renum;
     for (size_t k = 0; k < used.size(); k++) renum[used[k]] = (int)k;
-    size_t nv = t.voices.size();
-    size_t insAt = 8 + 2 * nv;
+    std::vector<int> hits = usedHits(t);
+    std::map<int, int> hitNum;
+    for (size_t k = 0; k < hits.size(); k++) hitNum[hits[k]] = (int)k;
+    size_t nv = t.voices.size(), nd = t.digi.size();
+    // the header, each voice's offset (the SID voices', the digi voices'),
+    // and with digi voices the sample table's
+    size_t insAt = 8 + 2 * (nv + nd) + (nd ? 2 : 0);
     std::vector<uint8_t> b(insAt, 0);
-    b[0] = t.loop ? 1 : 0;
+    b[0] = (uint8_t)((t.loop ? 1 : 0) | (nd << 1));
     b[1] = (uint8_t)nv;
     b[2] = (uint8_t)(t.fpt & 0xFF);
     b[3] = (uint8_t)(t.fpt >> 8);
@@ -402,6 +610,20 @@ std::vector<uint8_t> TuneCompiler::blob(const TuneFile& f, const Tune& t) {
         b.insert(b.end(), r, r + kInstrumentSize);
     }
     b.insert(b.end(), tables.begin(), tables.end());
+    // the sample table: each hit's place in the bank, its bytes, its rate
+    // (the audio DMA's register value)
+    if (nd) {
+        size_t st = b.size();
+        b[8 + 2 * (nv + nd)] = (uint8_t)(st & 0xFF);
+        b[9 + 2 * (nv + nd)] = (uint8_t)(st >> 8);
+        for (int h : hits) {
+            const TuneHit& th = f.hits[(size_t)h];
+            uint32_t r = dmaRate(th.rate);
+            uint8_t e[7] = {(uint8_t)th.at, (uint8_t)(th.at >> 8), (uint8_t)th.len, (uint8_t)(th.len >> 8),
+                            (uint8_t)r, (uint8_t)(r >> 8), (uint8_t)(r >> 16)};
+            b.insert(b.end(), e, e + 7);
+        }
+    }
     for (size_t v = 0; v < nv; v++) {
         size_t at = b.size();
         b[8 + 2 * v] = (uint8_t)(at & 0xFF);
@@ -413,6 +635,17 @@ std::vector<uint8_t> TuneCompiler::blob(const TuneFile& f, const Tune& t) {
             if (c < 0x80 || c == 0x80 || c == 0x82) { b.push_back(s[++k]); }
             else if (c == 0x81) { b.push_back((uint8_t)renum[s[++k]]); }
             else if (c == 0x83 || c == 0x84) { b.push_back(s[k + 1]); b.push_back(s[k + 2]); k += 2; }
+        }
+        b.push_back(t.loop ? 0xFE : 0xFF);
+    }
+    for (size_t d = 0; d < nd; d++) {
+        size_t at = b.size();
+        b[8 + 2 * (nv + d)] = (uint8_t)(at & 0xFF);
+        b[9 + 2 * (nv + d)] = (uint8_t)(at >> 8);
+        const auto& s = t.digi[d].stream;
+        for (size_t k = 0; k + 1 < s.size(); k += 2) {
+            b.push_back(s[k] < 0x80 ? (uint8_t)hitNum[s[k]] : s[k]);
+            b.push_back(s[k + 1]);
         }
         b.push_back(t.loop ? 0xFE : 0xFF);
     }

@@ -163,5 +163,45 @@ EOF
 then pass; else fail "sample"; fi
 $TUNE sample $T/s.pak >/dev/null 2>&1 && fail "sample: no --rate" || pass
 
+# digi voices: a sample (a quarter second at 4000 Hz: 1000 bytes), hit,
+# ringing on, hit together with itself (one hit: a+a is a); the data: flags
+# 2 (a digi voice), no SID voices, its stream after the sample table (at 12:
+# offset 0, 1000 bytes, the DMA's rate $000679)
+cat > $T/dg.txt <<EOF
+sample a $PWD/src/test-resources/pack45/tone.wav rate=4000
+tune t 1 once
+d1: a:2 r:1 a+a:1
+EOF
+$TUNE convert $T/dg.txt -o $T/dg.c >/dev/null 2>&1 &&
+    [ "$(sed -n '/tune_t\[/,/};/p' $T/dg.c | tr -d ' \n' | sed 's/.*{//; s/,}.*//')" = \
+      "2,0,0,1,0,17,12,0,19,0,12,0,0,0,232,3,121,6,0,0,2,128,1,0,1,255" ] &&
+    grep -q "#define TUNE_SAMPLES_SIZE 1000" $T/dg.h && grep -q "tune_sample_bank\[TUNE_SAMPLES_SIZE\] = {" $T/dg.c &&
+    pass || fail "digi voices: the data"
+# --bin needs --samples, and writes the samples there
+$TUNE convert $T/dg.txt --bin -o $T/dg.bin >/dev/null 2>&1 && fail "digi --bin without --samples" || pass
+$TUNE convert $T/dg.txt --bin -o $T/dg.bin --samples $T/dg.smp >/dev/null 2>&1 &&
+    [ $(stat -c %s $T/dg.smp) = 1000 ] && pass || fail "digi --bin --samples"
+# a hit cut short by the next: a warning; play mixes the samples in
+cat > $T/dw.txt <<EOF
+sample a $PWD/src/test-resources/pack45/tone.wav rate=4000
+tune t 2 once
+d1: a:2 a:30
+EOF
+$TUNE list $T/dw.txt 2>&1 | grep -q "warning: tune t d1: a (0.25 s) is cut short by the next hit 1 time" && pass || fail "digi: the cut-short warning"
+if $TUNE play $T/dw.txt --wav $T/dw.wav >/dev/null 2>&1 && python3 - $T/dw.wav <<'EOF'
+import sys, wave, struct
+w = wave.open(sys.argv[1])
+n = w.getnframes()
+s = struct.unpack('<%dh' % (n * 2), w.readframes(n))
+assert max(abs(v) for v in s) > 5000
+EOF
+then pass; else fail "digi: play mixes the samples in"; fi
+err $'sample a x.wav\ntune t 1 once\nd1: b:1' "unknown sample"
+err $'sample a x.wav\ntune t 1 once\nd2: a:1' "d1: expected"
+err $'sample a x.wav\ntune t 1 once\nd5: a:1' "d1: to d4:"
+err $'sample a x.wav\nsample a y.wav' "defined twice"
+err $'sample a nothere.wav\ntune t 1 once\nd1: a:1' "cannot read"
+err $'instrument i pulse 00 f0 0800 0 0\nsample a x.wav\ntune t 1 once\nv1: c4:2\nd1: r:1' "d1 1"
+
 echo "tune45 tests: $passed passed, $failed failed"
 [ $failed -eq 0 ]

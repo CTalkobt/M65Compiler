@@ -20,6 +20,8 @@ extern const unsigned char tune_count;
 extern const char *const tune_names[];
 extern const char tune_file[];
 extern const unsigned char tune_start;
+extern const unsigned int tune_sample_size;      /* the digi voices' samples */
+extern const unsigned char tune_sample_bank[];
 
 #define REG(a) (*(volatile unsigned char *)(a))
 #define LISTY 3
@@ -70,6 +72,7 @@ int main(void) {
     int key;
     sid_init();
     sid_set_mirror(1);
+    if (tune_sample_size) tune_samples((unsigned long)(unsigned int)tune_sample_bank);
     textcolor(1);
     clrscr();
     cprintfxy(0, 0, "tune45 play  %s", tune_file);

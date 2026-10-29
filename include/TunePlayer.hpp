@@ -14,6 +14,13 @@ public:
 
     explicit TunePlayer(Write w) : write_(std::move(w)) {}
 
+    // The digi voices' audio DMA writes: index from $D710 ($D711 the
+    // enable, $D71C + ch the other side's volume, $D720 + ch * 16 + r)
+    void setDigiWrite(Write w) { dwrite_ = std::move(w); }
+    void setSamples(uint32_t addr) { sbank_ = addr & 0xFFFFFF; }   // tune_samples
+    void setDigiChannels(uint8_t first) { dfirst_ = first > 3 ? 3 : first; }
+    void setDigiVolume(uint8_t v) { dvol_ = v; }
+
     void setNtsc(bool ntsc) { ntsc_ = ntsc; }
     void setMirror(bool m) { mirror_ = m; }
     void setFirstVoice(uint8_t first) { first_ = first > 11 ? 11 : first; }
@@ -54,9 +61,9 @@ private:
         uint8_t cw = 0, wti = 0, hrdone = 0, fbit = 0;
         int8_t wsemi = 0;
     };
-    Write write_;
+    Write write_, dwrite_;
     std::vector<uint8_t> tune_;
-    Voice v_[12];
+    Voice v_[16];                     // 12-15: the digi voices
     int8_t transp_[12] = {}, detune_[12] = {};
     bool ntsc_ = false, mirror_ = false, active_ = false, mute_ = false;
     uint8_t first_ = 0, vibx_ = 0, n_ = 0, ninst_ = 0;
@@ -65,6 +72,9 @@ private:
     uint16_t cut_[4] = {};            // each chip's filter cutoff
     int8_t csw_[4] = {};              //   and its sweep a frame
     uint8_t shadow_[128] = {};
+    uint8_t nd_ = 0, dfirst_ = 0, dvol_ = 255;   // digi voices; the first channel; volume
+    uint16_t stab_ = 0;               // the sample table
+    uint32_t sbank_ = 0;              // the samples' address
     unsigned ticks_ = 0;
 
     uint8_t byte(unsigned at) const { return at < tune_.size() ? tune_[at] : 0xFF; }
@@ -81,6 +91,8 @@ private:
     uint16_t freq(uint8_t note) const;
     uint16_t notef(const Voice& v, int idx, uint8_t add) const;
     void next(Voice& v, int idx);
+    void dnext(Voice& v, int idx);
+    void dput(uint8_t idx, uint8_t val) { if (!mute_ && dwrite_) dwrite_(idx, val); }
     void tick();
     void effects();
     void rate();
