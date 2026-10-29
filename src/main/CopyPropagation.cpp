@@ -1,5 +1,6 @@
 #include "CopyPropagation.hpp"
 #include <algorithm>
+#include <iterator>
 
 CopyPropagation::CopyPropagation()
     : OptimizationPassBase(OptimizationType::COPY_PROPAGATION,

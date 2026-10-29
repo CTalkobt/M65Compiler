@@ -11,6 +11,7 @@
 #include <filesystem>
 #include <mutex>
 #include <chrono>
+#include <cctype>
 
 // Macro invocation detection and expansion
 struct MacroInvocation {

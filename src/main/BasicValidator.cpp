@@ -4,6 +4,7 @@
 #include <sstream>
 #include <regex>
 #include <cctype>
+#include <iterator>
 
 void BasicValidator::analyze(const std::string& sourceCode, uint16_t lineIncrement) {
     // Parse label-based source code

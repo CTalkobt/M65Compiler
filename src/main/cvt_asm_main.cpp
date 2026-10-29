@@ -32,6 +32,7 @@
 #include "ConfigFile.hpp"
 #include <chrono>
 #include <atomic>
+#include <cstdlib>
 
 static void registerFormats() {
     // Register ca45 parser

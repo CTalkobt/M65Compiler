@@ -10,6 +10,7 @@
 #include <map>
 #include <algorithm>
 #include <iostream>
+#include <cctype>
 
 BasicEmitter::BasicEmitter(uint16_t loadAddr, uint16_t lineInc)
     : loadAddress(loadAddr), lineIncrement(lineInc) {}

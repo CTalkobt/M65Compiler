@@ -4,6 +4,22 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Builds with GCC 14-16, clang and musl
+
+- The tree did not build with GCC 14 or newer, clang, or on Alpine (musl):
+  files used `int64_t`, `uint16_t`, `std::isdigit`, `std::runtime_error`,
+  `std::istreambuf_iterator` and others with their headers only included
+  through other standard headers, which newer libraries no longer do. 44
+  files include `<cstdint>`, `<cctype>`, `<stdexcept>`, `<iterator>`,
+  `<cstdlib>`, ... themselves now.
+- `src/test/test_distro_builds.sh` (`make test-distros`, needs Docker): a
+  clean build (`make all`, `make lib`) in Ubuntu 22.04/24.04, Debian 12/13,
+  Fedora (GCC and clang), Arch, Alpine, openSUSE Tumbleweed and Rocky 9
+  containers; the compile-check workflow runs it per distribution.
+- README: a "Building from Source" section with each distribution's
+  packages (including what `make test` uses: `xxd`, `hexdump`, `zip`).
+- Makefile: `CXX ?= g++` (was a misspelt `CX`).
+
 ### ca45, ln45 and cc45 fixes (#363-#367)
 
 - ca45: a number followed directly by letters or `_` is an error

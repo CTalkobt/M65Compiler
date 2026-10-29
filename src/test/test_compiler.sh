@@ -1069,20 +1069,30 @@ rm -rf build/test_cc45_kill/tmp/* build/test_cc45_kill/w
 mkdir -p build/test_cc45_kill/w
 cp src/test-resources/test_tgi_xemu.c build/test_cc45_kill/w/big.c
 kd=$(cd build/test_cc45_kill && pwd)
+# the ca45s running on its temp files (from /proc: no ps in minimal systems)
+count_ca45s() {
+    local n=0 p a
+    for p in /proc/[0-9]*; do
+        a=$(tr '\0' ' ' < "$p/cmdline" 2>/dev/null)
+        case "$a" in *ca45\ "$kd"/tmp/cc45-*) n=$((n + 1)) ;; esac
+    done
+    echo $n
+}
+kseen=0
 (cd build/test_cc45_kill/w && TMPDIR=$kd/tmp exec ../../../bin/cc45 -O2 -c big.c -o big.o45 >/dev/null 2>&1) & KP=$!
 for i in $(seq 1 300); do
-    ps -eo args | grep -q "^[^ ]*ca45 $kd/tmp/cc45-" && break
+    [ "$(count_ca45s)" != 0 ] && { kseen=1; break; }
     sleep 0.1
 done
 kill -TERM $KP 2>/dev/null; wait $KP; krc=$?
 sleep 0.5
 kleft="$(ls build/test_cc45_kill/w | grep -v '^big.c$') $(ls -A build/test_cc45_kill/tmp)"
-kca=$(ps -eo args | grep -c "^[^ ]*ca45 $kd/tmp/cc45-")
-if [ "$krc" = 143 ] && [ -z "${kleft// /}" ] && [ "$kca" = 0 ]; then
+kca=$(count_ca45s)
+if [ "$kseen" = 1 ] && [ "$krc" = 143 ] && [ -z "${kleft// /}" ] && [ "$kca" = 0 ]; then
     echo "SUCCESS: cc45 stopped during its trial assemblies leaves no files or ca45 behind"
     passed=$((passed + 1))
 else
-    echo "FAIL: cc45 stopped (#367): status $krc, left '$kleft', $kca ca45 running"
+    echo "FAIL: cc45 stopped (#367): trial ca45 seen $kseen, status $krc, left '$kleft', $kca ca45 running"
     failed=$((failed + 1))
 fi
 

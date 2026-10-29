@@ -10,6 +10,7 @@
 #include <fstream>
 #include <sstream>
 #include <csignal>
+#include <cctype>
 #include "ConfigLoader.hpp"
 #include "CompilationPipeline.hpp"
 #include "Lexer.hpp"

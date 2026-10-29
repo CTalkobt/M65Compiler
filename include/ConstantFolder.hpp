@@ -12,6 +12,7 @@
 #include <iostream>
 #include <cstdint>
 #include <algorithm>
+#include <stdexcept>
 
 class ConstantFolder : public ASTVisitor {
 public:

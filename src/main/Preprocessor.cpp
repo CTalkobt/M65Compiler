@@ -14,6 +14,9 @@ namespace fs = std::filesystem;
 #include <ctime>
 #include <iomanip>
 #include <functional>
+#include <cctype>
+#include <iterator>
+#include <stdexcept>
 
 Preprocessor::Preprocessor(bool isCompiler) : isCompiler(isCompiler) {
     std::time_t t = std::time(nullptr);

@@ -7,6 +7,8 @@
 #include <sstream>
 #include <algorithm>
 #include <cmath>
+#include <string>
+#include <vector>
 
 namespace cc45 {
 

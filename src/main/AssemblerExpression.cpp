@@ -6,6 +6,7 @@
 #include <stdexcept>
 #include <algorithm>
 #include <iostream>
+#include <cctype>
 
 // Phase 1.4: Operator precedence hint helper
 namespace {

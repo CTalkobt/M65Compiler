@@ -122,6 +122,86 @@ after `.basicUpstart`); any other name is a flat binary.
 Every tool prints its options with `-?` (`./bin/cc45 -?`; disk45 when run
 without arguments); the reference pages are in [doc/bin/](doc/bin/).
 
+## Building from Source
+
+The tools are C++17 with no third-party libraries beyond SQLite and zlib (disk45's catalog and compressed
+images) and, optionally, FUSE 3 (`disk45 mount`; left out when `pkg-config` does not find it). Building needs
+GNU make and a C++17 compiler: GCC 11 or newer, or clang. `make test` also uses `python3`, `xxd`,
+`hexdump`, `diff`/`cmp` and `zip`/`unzip`.
+
+### Dependencies
+
+**Debian / Ubuntu** (also Mint, Pop!_OS, Raspberry Pi OS):
+```bash
+sudo apt-get install build-essential pkg-config libsqlite3-dev zlib1g-dev libfuse3-dev git \
+                     python3 xxd bsdextrautils zip unzip
+```
+(Ubuntu 22.04 and Debian 12 have `xxd` in `xxd`; on older releases it is in `vim-common`.)
+
+**Fedora**:
+```bash
+sudo dnf install gcc-c++ make pkgconf-pkg-config sqlite-devel zlib-ng-compat-devel fuse3-devel git \
+                 python3 xxd util-linux diffutils zip unzip
+```
+
+**RHEL / Rocky / AlmaLinux 9** (`fuse3-devel` is in CRB):
+```bash
+sudo dnf install dnf-plugins-core && sudo dnf config-manager --set-enabled crb
+sudo dnf install gcc-c++ make pkgconf-pkg-config sqlite-devel zlib-devel fuse3-devel git \
+                 python3 vim-common util-linux diffutils zip unzip
+```
+
+**Arch Linux / Manjaro**:
+```bash
+sudo pacman -S --needed base-devel sqlite zlib fuse3 git python tinyxxd util-linux diffutils zip unzip
+```
+
+**openSUSE Tumbleweed / Leap**:
+```bash
+sudo zypper install gcc-c++ make pkgconf sqlite3-devel zlib-devel fuse3-devel git python3 xxd util-linux \
+                    diffutils findutils gawk zip unzip
+```
+
+**Alpine Linux**:
+```bash
+sudo apk add build-base pkgconf sqlite-dev zlib-dev fuse3-dev git python3 linux-headers bash xxd hexdump zip unzip
+```
+
+Optional:
+- `pandoc`, for `make man`.
+- [xemu](https://github.com/lgblgblgb/xemu)'s `xemu-xmega65`, for the runtime tests (`make test-xemu`) and
+  dbg45. The Docker images build it for you (`make docker-runtime`, see
+  [doc/architecture/DOCKER.md](doc/architecture/DOCKER.md)).
+- `pw-play`, `paplay` or `aplay`, for `tune45 play` (it can write a `.wav` without them).
+
+### Build
+
+```bash
+git clone https://github.com/CTalkobt/M65Compiler.git
+cd M65Compiler
+make -j"$(nproc)"     # the tools, in bin/
+make lib              # the standard libraries, in lib/build/ (built with bin/cc45 and bin/ca45)
+make test             # optional: unit tests and examples (about 6 minutes)
+```
+
+`make CXX=clang++` builds with clang. `make install` (below) builds everything first.
+
+These distributions build the tree from a clean checkout with the packages above (`make test-distros`, which
+needs Docker, repeats the check; the CI runs it on each push):
+
+| Distribution | Compiler |
+|---|---|
+| Ubuntu 22.04, Rocky Linux 9 | GCC 11 |
+| Debian 12 | GCC 12 |
+| Ubuntu 24.04 | GCC 13 |
+| Debian 13 | GCC 14 |
+| Alpine (musl) | GCC 15 |
+| Fedora, Arch, openSUSE Tumbleweed | GCC 16 |
+| Fedora | clang 22 |
+
+If the build fails with a newer compiler (for example `'int64_t' does not name a type`), please open an issue
+with the compiler's version (`g++ --version`) and the first error.
+
 ## Installation
 
 Install the toolchain binaries, standard library, C headers, and man pages:

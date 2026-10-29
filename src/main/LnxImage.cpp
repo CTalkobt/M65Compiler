@@ -2,6 +2,7 @@
 #include <cstring>
 #include <algorithm>
 #include <sstream>
+#include <cstdlib>
 
 // ============================================================================
 // LNX format detection

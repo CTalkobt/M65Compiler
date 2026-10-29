@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <ctime>
 #include <cstring>
+#include <iterator>
 
 // ==================== BasicArkFormat ====================
 

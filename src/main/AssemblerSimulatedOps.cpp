@@ -9,6 +9,7 @@
 #include <stdexcept>
 #include <sstream>
 #include <iostream>
+#include <cctype>
 
 // name when it is an address in a relocatable segment (its operand bytes
 // need a relocation: M65Emitter::relocNext), else ""

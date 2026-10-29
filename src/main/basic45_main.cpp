@@ -28,6 +28,7 @@
 #include <sys/wait.h>
 #include <csignal>
 #include <unistd.h>
+#include <iterator>
 
 namespace fs = std::filesystem;
 

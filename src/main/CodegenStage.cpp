@@ -12,6 +12,7 @@
 #include <iostream>
 #include <sstream>
 #include <memory>
+#include <algorithm>
 
 Stage::Result CodegenStage::execute() {
     if (verboseLevel_ >= 1) {

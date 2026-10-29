@@ -4,6 +4,7 @@
 #include "FarAddressMemorySupport.hpp"
 #include <sstream>
 #include <iomanip>
+#include <cctype>
 
 namespace phase98 {
 
