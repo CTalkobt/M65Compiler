@@ -1,0 +1,33 @@
+; drums: a SID band with a sampled drum kit (doc/bin/tune45.md has the format)
+;
+; The SID voices show the instruments' newer parts: a bass through the
+; low-pass filter, its cutoff sweeping up each note (a "wah"), with hard
+; restart so every note starts alike; a lead whose wave table flips
+; pulse and saw and an octave a frame (a buzz); arpeggio chords with a
+; pulse-width sweep. The drums are digi voices (the audio DMA): kick and
+; snare on one, the hi-hats on another, cut out of one CC0 kit
+; (samples/SOURCE.txt) by from= and len=. tune45 makes them 8-bit: the kick
+; and snare at the lowest rate that keeps them, the hats at 16 kHz (a
+; hi-hat is all high frequencies: lower, there is nothing left of it).
+
+sample kick  samples/lucia_kit_013.mp3 from=0 len=0.45
+sample snare samples/lucia_kit_013.mp3 from=1 len=0.22
+sample hat   samples/lucia_kit_013.mp3 from=6 len=0.08 rate=16000 gain=300
+sample ohat  samples/lucia_kit_013.mp3 from=7 len=0.22 rate=16000 gain=200
+
+wavetable buzz pulse saw pulse:12 saw:12 loop 1
+
+instrument bass  saw   00 c9 0800 0 1 hr=2 filter=lp res=10 cutoff=100 fsweep=24
+instrument lead  pulse 0a a8 0600 1 0 hr=1 table=buzz vdelay=8
+instrument pad   pulse 00 f0 0400 0 0 pwm=24
+
+; A minor, Am F C G; a tick is a 16th (6 frames: 125 beats a minute)
+tune groove 6 loop 16
+v1: @bass a1:2 a1:2 a2:2 a1:2 a1:2 a2:2 e2:2 g2:2 | f1:2 f1:2 f2:2 f1:2 f1:2 f2:2 c2:2 e2:2 | \
+    c2:2 c2:2 c3:2 c2:2 c2:2 c3:2 g2:2 b2:2 | g1:2 g1:2 g2:2 g1:2 g1:2 g2:2 b1:2 d2:2
+v2: @lead e5:6 d5:2 c5:4 a4:4 | a4:6 c5:2 f5:4 e5:4 | e5:6 g5:2 e5:4 c5:4 | d5:6 b4:2 g4:4 b4:4
+v3: @pad arp:3,7 a3:16 | arp:4,7 f3:16 | arp:4,7 c4:16 | arp:4,7 g3:16
+d1: kick:4 snare:4 kick:4 snare:4 | kick:4 snare:4 kick:4 snare:4 | \
+    kick:4 snare:4 kick:4 snare:4 | kick:4 snare:4 kick:4 snare:2 snare:2
+d2: hat:2 hat:2 hat:2 hat:2 hat:2 hat:2 ohat:2 hat:2 | hat:2 hat:2 hat:2 hat:2 hat:2 hat:2 ohat:2 hat:2 | \
+    hat:2 hat:2 hat:2 hat:2 hat:2 hat:2 ohat:2 hat:2 | hat:2 hat:2 hat:2 hat:2 ohat:2 hat:2 ohat:2 hat:2

@@ -1,0 +1,11 @@
+lucia_kit_013.mp3: "Lucia Drum Kit #013" by bassimat, freesound.org
+https://freesound.org/people/bassimat/sounds/829441/  (pack 44411)
+Licence: Creative Commons 0 (CC0 1.0, public domain dedication)
+https://creativecommons.org/publicdomain/zero/1.0/
+
+Freesound's HQ preview of it (128 kbps MP3, 48 kHz, stereo), downloaded
+2026-10-29. The author's description: "Self contained drum kit made of 8
+samples equally spaced. It has kick, snare, woodblock, rimshot, thwack,
+cowbell, closed hihat and open hihat. It was created with the Ruismaker
+app." A hit a second: kick 0 s, snare 1 s, ..., closed hi-hat 6 s, open
+hi-hat 7 s (music.txt's sample lines cut them out: from=, len=).

@@ -6,9 +6,10 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### The tune player: digi voices (samples on the audio DMA)
 
-- `sample <name> <file> [rate=] [gain=]` lines (WAV, AU, MP3; more by
-  ffmpeg; made 8-bit at the lowest rate that keeps them, at most 12000 Hz,
-  unless `rate=`) and `d1:`-`d4:` voices: `kick:2`, `kick+snare:2` (samples
+- `sample <name> <file> [rate=] [gain=] [from=] [len=]` lines (WAV, AU,
+  MP3; more by ffmpeg; made 8-bit at the lowest rate that keeps them, at
+  most 12000 Hz, unless `rate=`; from/len in seconds cut one hit out of a
+  kit) and `d1:`-`d4:` voices: `kick:2`, `kick+snare:2` (samples
   hit together, mixed by tune45 into one, each combination once), `r:` and
   `~:` letting a sample ring on. A channel plays one sample, so the next
   hit cuts the last short: tune45 warns of each such hit and by how much.
@@ -27,6 +28,11 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   (`test_tune45.sh`); the model's audio DMA registers against the player's
   in xemu (`___digi_regs`, weak, into RAM), from channel 2 with a voice
   left out, in both conventions (`test_xemu.sh`).
+- Example `examples/c/drums`: a filtered bass, a wave-table lead, chords and
+  two digi voices of a CC0 kit (freesound, `samples/SOURCE.txt`); its check
+  reads the drum channels' sample addresses back from the audio DMA in
+  xemu (`test_examples.sh`). (xemu leaves a channel's "stopped" bit clear
+  when its sample ends, so `digi_playing` stays 1 there.)
 
 ### The tune player: filter, wave tables, hard restart
 

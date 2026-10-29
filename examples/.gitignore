@@ -23,6 +23,8 @@ c/hanger/preview.png
 # tunes: tune45 convert's output
 c/tunes/music.c
 c/tunes/music.h
+c/drums/music.c
+c/drums/music.h
 c/hanger/sounds.c
 c/hanger/sounds.h
 

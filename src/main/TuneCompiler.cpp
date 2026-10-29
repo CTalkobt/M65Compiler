@@ -184,7 +184,7 @@ bool TuneCompiler::parse(const std::string& text, const std::string& file, TuneF
             instId[ins.name] = (int)out.instruments.size();
             out.instruments.push_back(ins);
         } else if (kw == "sample") {
-            if (w.size() < 3) { error(file, ln, "sample <name> <file> [rate=hz] [gain=percent]"); continue; }
+            if (w.size() < 3) { error(file, ln, "sample <name> <file> [rate=hz] [gain=percent] [from=s] [len=s]"); continue; }
             TuneSample sm;
             sm.name = w[1];
             sm.path = w[2];
@@ -194,10 +194,21 @@ bool TuneCompiler::parse(const std::string& text, const std::string& file, TuneF
                 size_t eq = w[k].find('=');
                 long v;
                 std::string key = lower(w[k].substr(0, eq));
+                if (eq != std::string::npos && (key == "from" || key == "len")) {
+                    // seconds, with a fraction
+                    char* end = nullptr;
+                    std::string val = w[k].substr(eq + 1);
+                    double secs = std::strtod(val.c_str(), &end);
+                    if (val.empty() || !end || *end || secs < 0 || secs > 3600 || (key == "len" && secs <= 0)) {
+                        error(file, ln, key + "=seconds (0.25), not " + val);
+                        ok = false;
+                    } else (key == "from" ? sm.from : sm.len) = secs;
+                    continue;
+                }
                 if (eq == std::string::npos || !parseInt(w[k].substr(eq + 1), v)) { error(file, ln, "expected key=number: " + w[k]); ok = false; }
                 else if (key == "rate" && v >= 1000 && v <= 48000) sm.rate = (uint32_t)v;
                 else if (key == "gain" && v >= 1 && v <= 1000) sm.gain = (int)v;
-                else { error(file, ln, "unknown or out of range: " + w[k] + " (rate 1000-48000, gain 1-1000 per cent)"); ok = false; }
+                else { error(file, ln, "unknown or out of range: " + w[k] + " (rate 1000-48000, gain 1-1000 per cent, from, len)"); ok = false; }
             }
             if (!ok) continue;
             if (sm.name.find('+') != std::string::npos || sm.name.find(':') != std::string::npos ||
@@ -488,6 +499,23 @@ bool TuneCompiler::loadSamples(const std::string& file, TuneFile& f) {
         if (!pack45::readSound(path, bytes, wav[k], &err) || wav[k].samples.empty()) {
             error(file, sm.line, path + ": " + (err.empty() ? "no samples" : err));
             continue;
+        }
+        // a part of it (from, len), its end faded over 5 ms (no click where it is cut)
+        if (sm.from > 0 || sm.len > 0) {
+            auto& a = wav[k].samples;
+            size_t at = (size_t)std::lround(sm.from * wav[k].rate);
+            if (at >= a.size()) {
+                char m[96];
+                snprintf(m, sizeof m, ": from=%g is past its end (%.2f s)", sm.from, (double)a.size() / wav[k].rate);
+                error(file, sm.line, path + m);
+                continue;
+            }
+            size_t n = sm.len > 0 ? std::min(a.size() - at, (size_t)std::lround(sm.len * wav[k].rate)) : a.size() - at;
+            a = std::vector<double>(a.begin() + (long)at, a.begin() + (long)(at + n));
+            if (sm.len > 0) {
+                size_t fade = std::min(n, (size_t)(wav[k].rate / 200));
+                for (size_t i = 0; i < fade; i++) a[n - 1 - i] *= (double)i / fade;
+            }
         }
         if (!sm.rate) {
             uint32_t top = std::min<uint32_t>(12000, wav[k].rate);

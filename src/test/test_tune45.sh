@@ -196,6 +196,16 @@ s = struct.unpack('<%dh' % (n * 2), w.readframes(n))
 assert max(abs(v) for v in s) > 5000
 EOF
 then pass; else fail "digi: play mixes the samples in"; fi
+# from= and len=: a part of the file (0.1 s from 0.05 s: 400 bytes at 4000 Hz)
+cat > $T/dp.txt <<EOF
+sample a $PWD/src/test-resources/pack45/tone.wav rate=4000 from=0.05 len=0.1
+tune t 1 once
+d1: a:2
+EOF
+$TUNE list $T/dp.txt 2>&1 | grep -q "hits: a (400 bytes, 4000 Hz)" && pass || fail "digi: from= len="
+err $'sample a x.wav from=x' "from=seconds"
+err $'sample a x.wav len=0' "len=seconds"
+err "sample a $PWD/src/test-resources/pack45/tone.wav from=5"$'\ntune t 1 once\nd1: a:1' "past its end"
 err $'sample a x.wav\ntune t 1 once\nd1: b:1' "unknown sample"
 err $'sample a x.wav\ntune t 1 once\nd2: a:1' "d1: expected"
 err $'sample a x.wav\ntune t 1 once\nd5: a:1' "d1: to d4:"

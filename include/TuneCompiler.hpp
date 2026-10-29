@@ -12,9 +12,10 @@
 //       next note the gate off and the release at its fastest; filter: the
 //       chip's filter for its notes (res 0-15, cutoff hex 0-7ff, fsweep the
 //       cutoff's change a frame); table: a wave table
-//   sample <name> <file> [rate=hz] [gain=percent]
+//   sample <name> <file> [rate=hz] [gain=percent] [from=s] [len=s]
 //       a sound (WAV, AU, MP3; others by ffmpeg) for the digi voices, made
-//       8-bit at rate (default: the lowest that keeps it, at most 12000)
+//       8-bit at rate (default: the lowest that keeps it, at most 12000);
+//       from, len: a part of the file (seconds; one hit of a kit)
 //   d1: ... d4:  a digi voice (the audio DMA): name:ticks a sample,
 //       a+b:ticks samples at once (tune45 mixes them into one), r:ticks
 //       and ~:ticks (the sample rings on), | a bar line
@@ -74,6 +75,7 @@ struct TuneSample {
     int line = 0;
     uint32_t rate = 0;              // 0: the lowest that keeps it (at most 12000)
     int gain = 100;                 // per cent
+    double from = 0, len = 0;       // the part of the file (seconds; len 0: to its end)
 };
 
 // A hit: samples sounding at once, mixed into one in the sample bank
