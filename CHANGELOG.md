@@ -4,6 +4,20 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### `<tgi.h>`: clipping and text in assembly
+
+- Clipping in assembly (`tgi_pixel.s45`'s `__tgi_clipline_c`, was C in
+  `tgi.c`): the same 32-bit Cohen-Sutherland intersections (the hardware
+  multiplier's product, the library's signed division), the same pixels
+  (random lines with ends out to +-32767, both drivers and conventions).
+  624 bytes less in every program drawing lines.
+- Text in assembly (`stdlib_asm/tgi_text.s45`, replacing `stdlib/tgi_text.c`):
+  the bitmap and vector fonts, the scales, widths and heights, the same
+  pixels and numbers (random strings, scales, directions and vector fonts,
+  both drivers and conventions); the text functions and `tgi_bar` are
+  `__fastcall__` in `<tgi.h>`. A program with text: 9,725 -> 8,318 bytes
+  with the clipping; text at 2x 68 -> 60 frames (640x200: 54 -> 46).
+
 ### `<tgi.h>`: a 640x200, 16-colour driver
 
 - `tgi_static_ncm640` (`"mega65-ncm640.tgi"`, `stdlib_asm/tgi_ncm.s45`):

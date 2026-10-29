@@ -1,0 +1,837 @@
+; tgi_text.s45 — <tgi.h>'s text: the bitmap font and vector fonts
+;
+; Bitmap text is the lower/upper case half of the VIC's current font
+; (CHARPTR; the character ROM for the VIC-II's $1000/$1800/$9000/$9800),
+; 8x8, so a PETSCII string shows in both cases whichever half the screen
+; shows (control characters take their place but draw nothing), magnified
+; by the 8.8 scales rounded to whole numbers (tgi_flags bit 7 is clear). The
+; cursor is the text's top left; TGI_TEXT_VERTICAL turns it anticlockwise:
+; the cursor at its bottom left, the text going up. A character wholly on
+; the screen at 1x is the driver's glyph; else each row's runs of set pixels
+; are bars.
+;
+; Vector text is as cc65's tgi_vectorchar: a character's points are offsets
+; from the cursor (on the baseline, Y up) times the 8.8 scales;
+; TGI_TEXT_VERTICAL turns it anticlockwise. The string is converted from
+; PETSCII to ASCII.
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.global _tgi_settextscale, _tgi_settextdir, _tgi_settextstyle, _tgi_install_vectorfont
+.global _tgi_gettextwidth, _tgi_gettextheight, _tgi_vectorchar, _tgi_outtext, _tgi_outtextxy
+.extern _tgi_font, _tgi_textdir, _tgi_flags, _tgi_textscalew, _tgi_textscaleh
+.extern _tgi_charwidth, _tgi_charheight, _tgi_fontwidth, _tgi_fontheight, ___tgi_vfont
+.extern _tgi_curx, _tgi_cury, _tgi_xmax, _tgi_ymax
+.extern _tgi_imulround, ___tgi_clipline, ___tgi_glyph, _tgi_bar
+
+FIRST = $20             ; TGI_VF_FIRSTCHAR
+LAST = $7E              ; TGI_VF_LASTCHAR
+PTR = $0E               ; a pointer read through (set before each use)
+GA = $08                ; a glyph's address (32 bits)
+
+.segment "bss"
+__x_s:          .res 2  ; the string
+__x_w:          .res 2  ; a width; a product
+__x_ops:        .res 2  ; a vector character's operations
+__x_bx:         .res 1  ; an operation's bytes
+__x_by:         .res 1
+__x_x1:         .res 2  ; its line: from (x1, y1) to (x2, y2)
+__x_y1:         .res 2
+__x_x2:         .res 2
+__x_y2:         .res 2
+__x_xs:         .res 2  ; the scaled offsets
+__x_ys:         .res 2
+__x_mx:         .res 1  ; the bitmap font's magnification
+__x_my:         .res 1
+__x_font:       .res 4  ; the bitmap font's address
+__x_ga:         .res 4  ; a glyph's
+__x_c:          .res 1  ; a run's first pixel, its end
+__x_e:          .res 1
+__x_r:          .res 1  ; the glyph's row
+__x_bits:       .res 1  ; its pixels left
+
+.segment "code"
+
+; A/X := A * Y (bytes)
+proc __x_mul
+    ldx #0
+    phy
+    ldy #0
+    ldz #0
+    stq $D770
+    pla
+    stq $D774
+    ldq $D778
+    rts
+endproc
+
+; void tgi_settextscale(unsigned width, unsigned height): each dimension's
+; vector scale, the bitmap font's (rounded to a whole number unless the
+; driver scales finely: tgi_flags bit 7) and the character's size (8.8)
+proc _tgi_settextscale
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    ldx #0
+    jsr @dim
+    lda $12
+    sta $10
+    lda $13
+    sta $11
+    ldx #1
+@dim:                       ; dimension X (0: width, 1: height) from $10
+    txa
+    asl a
+    asl a
+    tay                     ; (its scales: tgi_textscalew + 4 X)
+    lda $10
+    sta _tgi_textscalew,y
+    lda $11
+    sta _tgi_textscalew+1,y
+    bit _tgi_flags
+    bmi @fine
+    lda $10                 ; (s + $80) & $FF00
+    cmp #$80
+    lda $11
+    adc #0
+    sta _tgi_textscalew+3,y
+    lda #0
+    sta _tgi_textscalew+2,y
+    bra @size
+@fine:
+    lda $10
+    sta _tgi_textscalew+2,y
+    lda $11
+    sta _tgi_textscalew+3,y
+@size:                      ; the size: the font's pixels * the bitmap scale
+    phx
+    lda _tgi_textscalew+2,y
+    sta $D774
+    lda _tgi_textscalew+3,y
+    sta $D775
+    lda #0
+    sta $D776
+    sta $D777
+    sta $D771
+    sta $D772
+    sta $D773
+    lda _tgi_fontwidth,x
+    sta $D770
+    txa
+    asl a
+    tax
+    lda $D778
+    sta _tgi_charwidth,x
+    lda $D779
+    sta _tgi_charwidth+1,x
+    plx
+    rts
+    .func_flags zp_call
+endproc
+
+; void tgi_settextdir(unsigned char dir)
+proc _tgi_settextdir
+    .zp_uses $10
+    .reg_clobbers A
+    lda $10
+    sta _tgi_textdir
+    rts
+    .func_flags zp_call
+endproc
+
+; void tgi_settextstyle(unsigned width, unsigned height, unsigned char dir,
+;                       unsigned char font)
+proc _tgi_settextstyle
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $16
+    sta _tgi_font
+    lda $14
+    sta _tgi_textdir
+    jmp _tgi_settextscale
+    .func_flags zp_call
+endproc
+
+; void tgi_install_vectorfont(const tgi_vectorfont *font)
+proc _tgi_install_vectorfont
+    .zp_uses $10, $11
+    .reg_clobbers A
+    lda $10
+    sta ___tgi_vfont
+    lda $11
+    sta ___tgi_vfont+1
+    rts
+    .func_flags zp_call
+endproc
+
+; A := PETSCII A as ASCII (as cc65's toascii for the CBM machines)
+proc __x_ascii
+    cmp #$41
+    bcc @out
+    cmp #$5B
+    bcs @hi
+    adc #$20                ; (C clear)
+    rts
+@hi:
+    cmp #$C1
+    bcc @out
+    cmp #$DB
+    bcs @out
+    and #$7F                ; ($C1..$DA: - $80)
+@out:
+    rts
+endproc
+
+; A := the vector font's width of ASCII A (0: not in the font)
+proc __x_vwidth
+    cmp #FIRST
+    bcc @none
+    cmp #LAST + 1
+    bcs @none
+    tay
+    sec                     ; widths at the font + 3: PTR = font + 3 - FIRST
+    lda ___tgi_vfont
+    sbc #<(FIRST - 3)
+    sta PTR
+    lda ___tgi_vfont+1
+    sbc #>(FIRST - 3)
+    sta PTR+1
+    lda (PTR),y
+    rts
+@none:
+    lda #0
+    rts
+endproc
+
+; A/X := imulround(A/X, the scale at tgi_textscalew + Y)
+proc __x_scale
+    sta $10
+    stx $11
+    lda _tgi_textscalew,y
+    sta $12
+    lda _tgi_textscalew+1,y
+    sta $13
+    jmp _tgi_imulround
+endproc
+
+; A := the string's next character (__x_s), Z set at its end
+proc __x_next
+    lda __x_s
+    sta PTR
+    lda __x_s+1
+    sta PTR+1
+    inc __x_s
+    bne @r
+    inc __x_s+1
+@r:
+    ldy #0
+    lda (PTR),y
+    rts
+endproc
+
+; unsigned tgi_gettextwidth(const char *s)
+proc _tgi_gettextwidth
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $10
+    sta __x_s
+    lda $11
+    sta __x_s+1
+    lda #0
+    sta __x_w
+    sta __x_w+1
+    lda _tgi_font
+    bne @vector
+@len:                       ; the bitmap font: strlen(s) * (charwidth >> 8)
+    jsr __x_next
+    beq @blen
+    inc __x_w
+    bne @len
+    inc __x_w+1
+    bra @len
+@blen:
+    lda __x_w
+    sta $D770
+    lda __x_w+1
+    sta $D771
+    lda #0
+    sta $D772
+    sta $D773
+    sta $D775
+    sta $D776
+    sta $D777
+    lda _tgi_charwidth+1
+    sta $D774
+    lda $D778
+    ldx $D779
+    rts
+@vector:
+    lda ___tgi_vfont
+    ora ___tgi_vfont+1
+    beq @zero
+@sum:                       ; the widths, then scaled
+    jsr __x_next
+    beq @scaled
+    jsr __x_ascii
+    jsr __x_vwidth
+    clc
+    adc __x_w
+    sta __x_w
+    bcc @sum
+    inc __x_w+1
+    bra @sum
+@scaled:
+    lda __x_w
+    ldx __x_w+1
+    ldy #0
+    jmp __x_scale
+@zero:
+    lda #0
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+; unsigned tgi_gettextheight(const char *s)
+proc _tgi_gettextheight
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda _tgi_font
+    bne @vector
+    lda _tgi_charheight+1
+    ldx #0
+    rts
+@vector:
+    lda ___tgi_vfont
+    sta PTR
+    lda ___tgi_vfont+1
+    sta PTR+1
+    ora PTR
+    bne @top
+    tax
+    rts
+@top:
+    ldy #0                  ; the font's top
+    lda (PTR),y
+    ldx #0
+    ldy #4                  ; (tgi_textscaleh[0])
+    jmp __x_scale
+    .func_flags zp_call
+endproc
+
+; An operation's 7-bit signed value: A := (signed char)(A << 1) >> 1, X its
+; high byte
+proc __x_opval
+    asl a
+    cmp #$80
+    ror a
+    ldx #0
+    cmp #$80
+    bcc @p
+    dex
+@p:
+    rts
+endproc
+
+; void tgi_vectorchar(char c): the character at the cursor, at the scales
+; and direction (the cursor does not move)
+proc _tgi_vectorchar
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda ___tgi_vfont
+    ora ___tgi_vfont+1
+    bne @font
+@out:
+    rts
+@font:
+    lda $10
+    cmp #FIRST
+    bcc @out
+    cmp #LAST + 1
+    bcs @out
+    asl a                   ; its operations: chars at the font + 3 + 95:
+    tay                     ; PTR = font + 98 - 2 FIRST, Y = 2 c
+    clc
+    lda ___tgi_vfont
+    adc #<(98 - 2 * FIRST)
+    sta PTR
+    lda ___tgi_vfont+1
+    adc #>(98 - 2 * FIRST)
+    sta PTR+1
+    lda (PTR),y
+    sta __x_ops
+    iny
+    lda (PTR),y
+    sta __x_ops+1
+    ldx #3                  ; (x1, y1) := the cursor
+@cur:
+    lda _tgi_curx,x
+    sta __x_x1,x
+    dex
+    bpl @cur
+@op:
+    lda __x_ops
+    sta PTR
+    lda __x_ops+1
+    sta PTR+1
+    ldy #0
+    lda (PTR),y
+    sta __x_bx
+    iny
+    lda (PTR),y
+    sta __x_by
+    clc
+    lda __x_ops
+    adc #2
+    sta __x_ops
+    bcc @o1
+    inc __x_ops+1
+@o1:
+    lda __x_bx              ; xs, ys: the offsets scaled
+    jsr __x_opval
+    ldy #0
+    jsr __x_scale
+    sta __x_xs
+    stx __x_xs+1
+    lda __x_by
+    jsr __x_opval
+    ldy #4
+    jsr __x_scale
+    sta __x_ys
+    stx __x_ys+1
+    lda _tgi_textdir
+    bne @vert
+    clc                     ; x2 = curx + xs, y2 = cury - ys
+    lda _tgi_curx
+    adc __x_xs
+    sta __x_x2
+    lda _tgi_curx+1
+    adc __x_xs+1
+    sta __x_x2+1
+    sec
+    lda _tgi_cury
+    sbc __x_ys
+    sta __x_y2
+    lda _tgi_cury+1
+    sbc __x_ys+1
+    sta __x_y2+1
+    bra @line
+@vert:
+    sec                     ; y2 = cury - xs, x2 = curx - ys
+    lda _tgi_cury
+    sbc __x_xs
+    sta __x_y2
+    lda _tgi_cury+1
+    sbc __x_xs+1
+    sta __x_y2+1
+    sec
+    lda _tgi_curx
+    sbc __x_ys
+    sta __x_x2
+    lda _tgi_curx+1
+    sbc __x_ys+1
+    sta __x_x2+1
+@line:
+    bit __x_by              ; (bit 7: a line to the point)
+    bpl @move
+    ldx #7
+@args:
+    lda __x_x1,x
+    sta $10,x
+    dex
+    bpl @args
+    jsr ___tgi_clipline
+@move:
+    ldx #3                  ; (x1, y1) := (x2, y2)
+@mv:
+    lda __x_x2,x
+    sta __x_x1,x
+    dex
+    bpl @mv
+    bit __x_bx              ; (bit 7: the last operation)
+    bmi @done
+    jmp @op
+@done:
+    rts
+    .func_flags zp_call
+endproc
+
+; Move the cursor along the text by A/X pixels
+proc __x_advance
+    ldy _tgi_textdir
+    bne @up
+    clc
+    adc _tgi_curx
+    sta _tgi_curx
+    txa
+    adc _tgi_curx+1
+    sta _tgi_curx+1
+    rts
+@up:
+    sta __x_w
+    stx __x_w+1
+    sec
+    lda _tgi_cury
+    sbc __x_w
+    sta _tgi_cury
+    lda _tgi_cury+1
+    sbc __x_w+1
+    sta _tgi_cury+1
+    rts
+endproc
+
+; void tgi_outtextxy(int x, int y, const char *s)
+proc _tgi_outtextxy
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    ldx #3
+@cur:
+    lda $10,x
+    sta _tgi_curx,x
+    dex
+    bpl @cur
+    lda $14
+    sta $10
+    lda $15
+    sta $11
+    jmp _tgi_outtext
+    .func_flags zp_call
+endproc
+
+; void tgi_outtext(const char *s): at the cursor, moving it
+proc _tgi_outtext
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $10
+    sta __x_s
+    lda $11
+    sta __x_s+1
+    lda _tgi_font
+    beq @bitmap
+    lda ___tgi_vfont
+    ora ___tgi_vfont+1
+    beq @out
+@vchar:
+    jsr __x_next
+    beq @out
+    jsr __x_ascii
+    pha
+    sta $10
+    jsr _tgi_vectorchar
+    pla
+    jsr __x_vwidth
+    ldx #0
+    ldy #0
+    jsr __x_scale
+    jsr __x_advance
+    bra @vchar
+@out:
+    rts
+@bitmap:
+    lda _tgi_textscalew+3   ; the magnification: the bitmap scales' whole part
+    sta __x_mx
+    lda _tgi_textscaleh+3
+    sta __x_my
+    jsr __x_fontaddr
+@bchar:
+    jsr __x_next
+    beq @out
+    jsr __x_scrcode
+    cmp #$FF
+    beq @adv
+    ldx __x_mx
+    beq @adv
+    ldx __x_my
+    beq @adv
+    jsr __x_char
+@adv:
+    lda _tgi_charwidth+1
+    ldx #0
+    jsr __x_advance
+    bra @bchar
+    .func_flags zp_call
+endproc
+
+; __x_font := the font's lower/upper case half: CHARPTR (the character ROM
+; for the VIC-II's $1000/$1800/$9000/$9800), its second 2 KB
+proc __x_fontaddr
+    lda $D068
+    sta __x_font
+    lda $D069
+    sta __x_font+1
+    lda $D06A
+    sta __x_font+2
+    lda #0
+    sta __x_font+3
+    lda __x_font+2
+    bne @half
+    lda __x_font+1
+    and #$70
+    cmp #$10
+    bne @half               ; ($1xxx or $9xxx: the character ROM)
+    lda __x_font+1
+    and #$0F
+    ora #$E0                ; $FF7E000 + (a & $FFF)
+    sta __x_font+1
+    lda #$F7
+    sta __x_font+2
+    lda #$0F
+    sta __x_font+3
+@half:
+    lda #0                  ; (a & ~$7FF) | $800
+    sta __x_font
+    lda __x_font+1
+    and #$F8
+    ora #$08
+    sta __x_font+1
+    rts
+endproc
+
+; A := PETSCII A's screen code, $FF for a control character
+proc __x_scrcode
+    cmp #$20
+    bcc @ctl
+    cmp #$40
+    bcc @out                ; $20..$3F: itself
+    cmp #$60
+    bcc @m40                ; $40..$5F: - $40
+    cmp #$80
+    bcc @m20                ; $60..$7F: - $20
+    cmp #$A0
+    bcc @ctl                ; $80..$9F: control
+    cmp #$C0
+    bcc @m40                ; $A0..$BF: - $40
+    cmp #$FF
+    beq @pi                 ; $FF: $5E
+    and #$7F                ; $C0..$FE: - $80
+@out:
+    rts
+@m40:
+    sec
+    sbc #$40
+    rts
+@m20:
+    sec
+    sbc #$20
+    rts
+@pi:
+    lda #$5E
+    rts
+@ctl:
+    lda #$FF
+    rts
+endproc
+
+; Bitmap character A (a screen code) at the cursor: wholly on the screen at
+; 1x the driver's glyph, else each row's runs of set pixels a bar
+proc __x_char
+    ldx #0                  ; ga = the font + code * 8
+    stx __x_w+1
+    asl a
+    rol __x_w+1
+    asl a
+    rol __x_w+1
+    asl a
+    rol __x_w+1
+    clc
+    adc __x_font
+    sta __x_ga
+    lda __x_w+1
+    adc __x_font+1
+    sta __x_ga+1
+    lda __x_font+2
+    adc #0
+    sta __x_ga+2
+    lda __x_font+3
+    adc #0
+    sta __x_ga+3
+    lda __x_mx              ; at 1x, horizontal, wholly on the screen: the glyph
+    cmp #1
+    bne @runs
+    lda __x_my
+    cmp #1
+    bne @runs
+    lda _tgi_textdir
+    bne @runs
+    lda _tgi_curx+1         ; x >= 0, y >= 0
+    ora _tgi_cury+1
+    bmi @runs
+    sec                     ; x <= xmax - 7
+    lda _tgi_xmax
+    sbc #7
+    tax
+    lda _tgi_xmax+1
+    sbc #0
+    tay
+    cpx _tgi_curx
+    tya
+    sbc _tgi_curx+1
+    bcc @runs
+    sec                     ; y <= ymax - 7
+    lda _tgi_ymax
+    sbc #7
+    tax
+    lda _tgi_ymax+1
+    sbc #0
+    tay
+    cpx _tgi_cury
+    tya
+    sbc _tgi_cury+1
+    bcc @runs
+    ldx #3
+@g:
+    lda _tgi_curx,x
+    sta $10,x
+    lda __x_ga,x
+    sta $14,x
+    dex
+    bpl @g
+    jmp ___tgi_glyph
+@runs:
+    lda #0
+    sta __x_r
+@row:
+    ldx #3                  ; the row's pixels
+@ga:
+    lda __x_ga,x
+    sta GA,x
+    dex
+    bpl @ga
+    ldz __x_r
+    lda [GA],z
+    sta __x_bits
+    lda #0
+    sta __x_c
+@run:
+    lda __x_bits
+    beq @next
+    bmi @set
+    asl __x_bits            ; (a pixel not set)
+    inc __x_c
+    bra @run
+@set:
+    lda __x_c               ; pixels c .. e - 1
+    sta __x_e
+@e:
+    asl __x_bits
+    inc __x_e
+    bit __x_bits
+    bmi @e
+    jsr @bar
+    lda __x_e
+    sta __x_c
+    bra @run
+@next:
+    inc __x_r
+    lda __x_r
+    cmp #8
+    bne @row
+    rts
+@bar:
+    lda _tgi_textdir
+    bne @vbar
+    lda __x_r               ; a = y + r * my
+    ldy __x_my
+    jsr __x_mul
+    clc
+    adc _tgi_cury
+    sta $12
+    txa
+    adc _tgi_cury+1
+    sta $13
+    clc                     ; a + my - 1
+    lda $12
+    adc __x_my
+    sta $16
+    lda $13
+    adc #0
+    sta $17
+    lda $16
+    bne @h1
+    dec $17
+@h1:
+    dec $16
+    lda __x_c               ; x + c * mx
+    ldy __x_mx
+    jsr __x_mul
+    clc
+    adc _tgi_curx
+    sta $10
+    txa
+    adc _tgi_curx+1
+    sta $11
+    lda __x_e               ; x + e * mx - 1
+    ldy __x_mx
+    jsr __x_mul
+    clc
+    adc _tgi_curx
+    sta $14
+    txa
+    adc _tgi_curx+1
+    sta $15
+    lda $14
+    bne @h2
+    dec $15
+@h2:
+    dec $14
+    jmp _tgi_bar
+@vbar:
+    lda __x_r               ; b = x + r * my
+    ldy __x_my
+    jsr __x_mul
+    clc
+    adc _tgi_curx
+    sta $10
+    txa
+    adc _tgi_curx+1
+    sta $11
+    clc                     ; b + my - 1
+    lda $10
+    adc __x_my
+    sta $14
+    lda $11
+    adc #0
+    sta $15
+    lda $14
+    bne @v1
+    dec $15
+@v1:
+    dec $14
+    lda __x_e               ; y - e * mx + 1
+    ldy __x_mx
+    jsr __x_mul
+    sta __x_w
+    stx __x_w+1
+    sec
+    lda _tgi_cury
+    sbc __x_w
+    sta $12
+    lda _tgi_cury+1
+    sbc __x_w+1
+    sta $13
+    inc $12
+    bne @v2
+    inc $13
+@v2:
+    lda __x_c               ; y - c * mx
+    ldy __x_mx
+    jsr __x_mul
+    sta __x_w
+    stx __x_w+1
+    sec
+    lda _tgi_cury
+    sbc __x_w
+    sta $16
+    lda _tgi_cury+1
+    sbc __x_w+1
+    sta $17
+    jmp _tgi_bar
+endproc

@@ -1,6 +1,6 @@
 ; tgi_pixel.s45 — <tgi.h>'s pixels in assembly: tgi_setpixel, tgi_getpixel,
 ; tgi_line, tgi_lineto, a line on the screen and a bitmap glyph at 1x (for
-; stdlib/tgi.c and tgi_text.c), the ellipse. A line wholly on the screen is
+; stdlib/tgi.c and tgi_text.s45), the ellipse. A line wholly on the screen is
 ; drawn without a C call (cc45's parameter thunks cost more than a short
 ; line); one off it goes to stdlib/tgi.c's clipping. What depends on the
 ; screen goes to the installed driver's routines (___tgi_mode): the 320x200
@@ -42,10 +42,22 @@ P3 = $1C                ; (cx + x, cy + y)
 ; the 320x200 drivers' (tgi_fcm.s45, linked with them; ___tgi_mode 0)
 .global ___tgi_f_line, ___tgi_f_exstep, ___tgi_f_eplot, ___tgi_f_eset, ___tgi_f_glyph
 .weak ___tgi_f_line, ___tgi_f_exstep, ___tgi_f_eplot, ___tgi_f_eset, ___tgi_f_glyph
-.extern _tgi_curx, _tgi_cury, ___tgi_clipline_c
+.extern _tgi_curx, _tgi_cury, __divs32
 
 .segment "bss"
 __tgi_col:      .res 1  ; the ellipse's colour
+__c_pt:         .res 16 ; a clipped line's ends: x1, y1, x2, y2 (32 bits)
+__c_c1:         .res 1  ; their outcodes
+__c_c2:         .res 1
+__c_ou:         .res 1  ; the intersection: the coordinate worked out (0: x,
+__c_ov:         .res 1  ; 4: y), the one at the edge
+__c_au:         .res 4  ; (the ends' coordinates)
+__c_av:         .res 4
+__c_bu:         .res 4
+__c_bv:         .res 4
+__c_edge:       .res 4  ; the edge: 0, xmax or ymax
+__c_t:          .res 4
+__c_end:        .res 1  ; the end moved: 0 or 8
 __tgi_ecx:      .res 2  ; the ellipse: its centre
 __tgi_ecy:      .res 2
 __tgi_ex:       .res 1  ; the walk's point (the first quarter's)
@@ -303,9 +315,235 @@ proc _tgi_line
     .func_flags zp_call
 endproc
 
+; void __tgi_clipline_c(int x1, int y1, int x2, int y2): a line with an end
+; off the screen, clipped (Cohen-Sutherland, 32-bit): while an end is off,
+; the first one off goes to the edge its outcode names (y > ymax, y < 0,
+; x > xmax, then x < 0): u = a.u + (b.u - a.u) * (edge - a.v) / (b.v - a.v)
+; (the product's low 32 bits, the quotient truncated: as C's signed long);
+; nothing when both ends are off on one side
+proc ___tgi_clipline_c
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    ldx #0                  ; the ends, sign-extended
+    ldy #0
+@ext:
+    lda $10,x
+    sta __c_pt,y
+    lda $11,x
+    sta __c_pt+1,y
+    asl a
+    lda #0
+    sbc #0
+    eor #$FF
+    sta __c_pt+2,y
+    sta __c_pt+3,y
+    inx
+    inx
+    iny
+    iny
+    iny
+    iny
+    cpy #16
+    bne @ext
+    ldx #0
+    jsr @outcode
+    sta __c_c1
+    ldx #8
+    jsr @outcode
+    sta __c_c2
+@loop:
+    lda __c_c1
+    ora __c_c2
+    beq @draw
+    lda __c_c1
+    and __c_c2
+    beq @clip
+    rts                     ; (both off on one side)
+@clip:
+    ldy #0                  ; the end moved (0: the first, 8: the second)
+    lda __c_c1
+    bne @end
+    ldy #8
+    lda __c_c2
+@end:
+    sty __c_end
+    ldx #0
+    stx __c_edge+1
+    stx __c_edge+2
+    stx __c_edge+3
+    bit #8
+    beq @top
+    lda _tgi_ymax           ; y > ymax: y := ymax
+    ldx _tgi_ymax+1
+    bra @yedge
+@top:
+    bit #4
+    beq @right
+    lda #0                  ; y < 0: y := 0
+@yedge:
+    sta __c_edge
+    stx __c_edge+1
+    lda #0                  ; (x worked out)
+    ldx #4
+    bra @isect
+@right:
+    bit #2
+    beq @left
+    lda _tgi_xmax           ; x > xmax: x := xmax
+    ldx _tgi_xmax+1
+    bra @xedge
+@left:
+    lda #0                  ; x < 0: x := 0
+@xedge:
+    sta __c_edge
+    stx __c_edge+1
+    lda #4                  ; (y worked out)
+    ldx #0
+@isect:
+    sta __c_ou
+    stx __c_ov
+    ldx __c_ou              ; the ends' coordinates
+    ldy #0
+@cu:
+    lda __c_pt,x
+    sta __c_au,y
+    lda __c_pt+8,x
+    sta __c_bu,y
+    inx
+    iny
+    cpy #4
+    bne @cu
+    ldx __c_ov
+    ldy #0
+@cv:
+    lda __c_pt,x
+    sta __c_av,y
+    lda __c_pt+8,x
+    sta __c_bv,y
+    inx
+    iny
+    cpy #4
+    bne @cv
+    ldq __c_bu              ; (b.u - a.u) * (edge - a.v)
+    sec
+    sbcq __c_au
+    stq $D770
+    ldq __c_edge
+    sec
+    sbcq __c_av
+    stq $D774
+    ldq $D778
+    stq __c_t
+    ldq __c_bv              ; / (b.v - a.v)
+    sec
+    sbcq __c_av
+    stq $0A
+    ldq __c_t
+    jsr __divs32
+    clc                     ; + a.u
+    adcq __c_au
+    stq __c_t
+    lda __c_end             ; the end moved: u, v := the point, the edge
+    clc
+    adc __c_ou
+    tax
+    ldy #0
+@su:
+    lda __c_t,y
+    sta __c_pt,x
+    inx
+    iny
+    cpy #4
+    bne @su
+    lda __c_end
+    clc
+    adc __c_ov
+    tax
+    ldy #0
+@sv:
+    lda __c_edge,y
+    sta __c_pt,x
+    inx
+    iny
+    cpy #4
+    bne @sv
+    ldx __c_end
+    jsr @outcode
+    ldy __c_end
+    bne @second
+    sta __c_c1
+    jmp @loop
+@second:
+    sta __c_c2
+    jmp @loop
+@draw:
+    ldx #0                  ; (the ends' low 16 bits)
+    ldy #0
+@lo:
+    lda __c_pt,y
+    sta $10,x
+    lda __c_pt+1,y
+    sta $11,x
+    inx
+    inx
+    iny
+    iny
+    iny
+    iny
+    cpy #16
+    bne @lo
+    jmp ___tgi_line_on_screen
+@outcode:                   ; A := the outcode of the end at __c_pt + X
+    lda #0
+    sta __c_t
+    lda __c_pt+3,x          ; x < 0: 1
+    bpl @ox
+    lda #1
+    sta __c_t
+    bra @oy
+@ox:
+    sec                     ; x > xmax: xmax - x < 0: 2
+    lda _tgi_xmax
+    sbc __c_pt,x
+    lda _tgi_xmax+1
+    sbc __c_pt+1,x
+    lda #0
+    sbc __c_pt+2,x
+    lda #0
+    sbc __c_pt+3,x
+    bpl @oy
+    lda #2
+    sta __c_t
+@oy:
+    lda __c_pt+7,x          ; y < 0: 4
+    bpl @oy2
+    lda #4
+    bra @oyset
+@oy2:
+    sec                     ; y > ymax: 8
+    lda _tgi_ymax
+    sbc __c_pt+4,x
+    lda _tgi_ymax+1
+    sbc __c_pt+5,x
+    lda #0
+    sbc __c_pt+6,x
+    lda #0
+    sbc __c_pt+7,x
+    bpl @odone
+    lda #8
+@oyset:
+    ora __c_t
+    sta __c_t
+@odone:
+    lda __c_t
+    rts
+    .func_flags zp_call
+endproc
+
 ; void __tgi_clipline(int x1, int y1, int x2, int y2): a line clipped to
 ; the screen; both ends on it (unsigned compares: a negative one is not):
-; drawn here, else clipped by tgi.c's __tgi_clipline_c
+; drawn here, else clipped by __tgi_clipline_c
 proc ___tgi_clipline
     .zp_uses $10, $11, $12, $13, $14, $15, $16, $17
     .reg_clobbers A, X, Y, Z

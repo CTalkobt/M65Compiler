@@ -37,4 +37,4 @@ struct tgi_vectorfont {
 
 /* Draw one character of the vector font at the graphics cursor, at the
  * current text scale and direction (the cursor does not move) */
-void tgi_vectorchar(char c);
+__fastcall__ void tgi_vectorchar(char c);

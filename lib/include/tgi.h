@@ -116,7 +116,7 @@ __fastcall__ void tgi_done(void);
 const tgi_vectorfont* tgi_load_vectorfont(const char* name);
 
 /* Install a vector font for use (NULL: none). */
-void tgi_install_vectorfont(const tgi_vectorfont* font);
+__fastcall__ void tgi_install_vectorfont(const tgi_vectorfont* font);
 
 /* Free a vector font that was previously loaded into memory. */
 void tgi_free_vectorfont(const tgi_vectorfont* font);
@@ -216,34 +216,34 @@ __fastcall__ void tgi_pieslice(int x, int y, unsigned char rx, unsigned char ry,
                                unsigned sa, unsigned ea);
 
 /* Draw a bar (a filled rectangle) using the current color. */
-void tgi_bar(int x1, int y1, int x2, int y2);
+__fastcall__ void tgi_bar(int x1, int y1, int x2, int y2);
 
 /* Set the direction for text output (TGI_TEXT_*). */
-void tgi_settextdir(unsigned char dir);
+__fastcall__ void tgi_settextdir(unsigned char dir);
 
 /* Set the scaling for text output: 8.8 fixed point ($100 = 1, $200 = 2). */
-void tgi_settextscale(unsigned width, unsigned height);
+__fastcall__ void tgi_settextscale(unsigned width, unsigned height);
 
 /* Set the style for text output: scales as tgi_settextscale, dir one of
  * TGI_TEXT_*, font one of TGI_FONT_*. */
-void tgi_settextstyle(unsigned width, unsigned height,
+__fastcall__ void tgi_settextstyle(unsigned width, unsigned height,
                       unsigned char dir, unsigned char font);
 
 /* Calculate the width of the text in pixels according to the current text
  * style. */
-unsigned tgi_gettextwidth(const char* s);
+__fastcall__ unsigned tgi_gettextwidth(const char* s);
 
 /* Calculate the height of the text in pixels according to the current text
  * style. */
-unsigned tgi_gettextheight(const char* s);
+__fastcall__ unsigned tgi_gettextheight(const char* s);
 
 /* Output text at the current graphics cursor position. The graphics cursor
  * is moved to the end of the text. */
-void tgi_outtext(const char* s);
+__fastcall__ void tgi_outtext(const char* s);
 
 /* Output text at the given cursor position. The graphics cursor is moved to
  * the end of the text. */
-void tgi_outtextxy(int x, int y, const char* s);
+__fastcall__ void tgi_outtextxy(int x, int y, const char* s);
 
 /* Call the driver specific control function (TGI_IOCTL_*); unknown codes
  * set TGI_ERR_INV_FUNC. */

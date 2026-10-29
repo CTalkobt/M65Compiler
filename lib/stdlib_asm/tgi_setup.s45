@@ -682,7 +682,7 @@ proc _tgi_init
     lda #1
     sta _tgi_color
 @text:                      ; tgi_settextstyle(0x100, 0x100, TGI_TEXT_HORIZONTAL,
-    lda #0                  ; TGI_FONT_BITMAP), without linking tgi_text.c
+    lda #0                  ; TGI_FONT_BITMAP), without linking tgi_text.s45
     sta _tgi_font
     sta _tgi_textdir
     ldx #6
