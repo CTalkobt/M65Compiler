@@ -31,8 +31,9 @@ struct Packed {
     uint32_t inPlace = 0;          // the least offset from the destination to load it at, in place
 };
 
-// data packed to unpack at dest
-Packed pack(const std::vector<uint8_t>& data, uint32_t dest);
+// data packed to unpack at dest. best: the parse that makes the shortest
+// stream (pack45 --best; slower) rather than the greedy one
+Packed pack(const std::vector<uint8_t>& data, uint32_t dest, bool best = false);
 
 // The decoder's model: the bytes a stream unpacks to (false: not a valid
 // format-1 stream; err says why)

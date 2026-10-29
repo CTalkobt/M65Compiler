@@ -563,9 +563,31 @@ for f in rand zero text code; do
     ./bin/pack45 -d 0x40000 build/test/pack_$f.bin build/test/pack_$f.pak >/dev/null 2>&1 &&
     ./bin/pack45 -x build/test/pack_$f.pak build/test/pack_$f.out >/dev/null 2>&1 &&
     cmp -s build/test/pack_$f.bin build/test/pack_$f.out || pk_ok=0
+    # --best: the same round trip, and never longer than the greedy stream
+    ./bin/pack45 --best -d 0x40000 build/test/pack_$f.bin build/test/pack_$f.pkb >/dev/null 2>&1 &&
+    ./bin/pack45 -x build/test/pack_$f.pkb build/test/pack_$f.out >/dev/null 2>&1 &&
+    cmp -s build/test/pack_$f.bin build/test/pack_$f.out || pk_ok=0
+    [ $(stat -c %s build/test/pack_$f.pkb) -le $(stat -c %s build/test/pack_$f.pak) ] || pk_ok=0
 done
 # (text packs to under 60%)
 [ $(stat -c %s build/test/pack_text.pak) -lt 24000 ] || pk_ok=0
+# --suggest-rate: a 300 Hz tone needs only the lowest rate, noise its own
+# (or the --max-rate cap); a file that is no WAV is an error
+pr=src/test-resources/pack45
+./bin/pack45 --suggest-rate $pr/tone.wav 2>&1 | grep -q ": 4000 Hz keeps it" || pk_ok=0
+./bin/pack45 --suggest-rate $pr/noise.wav 2>&1 | grep -q ": 11025 Hz keeps it" || pk_ok=0
+./bin/pack45 --suggest-rate --max-rate 8000 $pr/noise.wav 2>&1 | grep -q ": 8000 Hz keeps it" || pk_ok=0
+./bin/pack45 --suggest-rate Makefile >/dev/null 2>&1 && pk_ok=0
+# AU (mu-law) and MP3 read; --sound to samples at a rate (2000 at 8000 Hz
+# for a quarter of a second), and packed with -d (round trip)
+./bin/pack45 --suggest-rate $pr/tone.au 2>&1 | grep -q ": 4000 Hz keeps it" || pk_ok=0
+./bin/pack45 --suggest-rate $pr/tone.mp3 2>&1 | grep -q ": 4000 Hz keeps it" || pk_ok=0
+./bin/pack45 --sound --rate 8000 $pr/tone.au build/test/pack_au.raw >/dev/null 2>&1 &&
+    [ $(stat -c %s build/test/pack_au.raw) = 2000 ] || pk_ok=0
+./bin/pack45 --sound -d 0x40000 $pr/tone.mp3 build/test/pack_mp3.pak >/dev/null 2>&1 &&
+    ./bin/pack45 --sound $pr/tone.mp3 build/test/pack_mp3.raw >/dev/null 2>&1 &&
+    ./bin/pack45 -x build/test/pack_mp3.pak build/test/pack_mp3.out >/dev/null 2>&1 &&
+    cmp -s build/test/pack_mp3.raw build/test/pack_mp3.out || pk_ok=0
 if [ $pk_ok = 1 ]; then
     echo "SUCCESS: pack45 round trips"
 else

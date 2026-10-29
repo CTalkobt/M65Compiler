@@ -32,6 +32,7 @@ SUBDIRS = \
 	c/tgi_demo \
 	c/map_decode \
 	c/tunes \
+	c/drums \
 	c/glamlambs \
 	c/overlays \
 	c/mapped_overlays \

@@ -75,6 +75,116 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - `src/test/make_tap.py` writes TAPs in the format (C64, VIC-20, C16, speed,
   jitter, damaged copies) for the new `test_disk45.sh` checks.
 
+### The tune player: tempo changes
+
+- `tempo:f` in a voice (`v1:`...): the tune's frames per tick from that
+  tick on (`$85 lo hi` in the stream; the player and its model). A tune
+  with changes starts each time round at its own tempo (tune45 puts it at
+  `v1`'s start); `list`, `play` and the digi cut-short warning count the
+  changes. Tested byte by byte (`test_tune45.sh`) and in the synth tune's
+  trace against the player in xemu (`test_xemu.sh`).
+- `examples/c/drums`: the groove twice, speeding up a beat at a time under
+  a snare roll into a faster part (four on the floor, a pumping bass,
+  repeated notes, chords on every beat) twice, slowing back; round.
+
+### The tune player: digi voices (samples on the audio DMA)
+
+- `sample <name> <file> [rate=] [gain=] [from=] [len=]` lines (WAV, AU,
+  MP3; more by ffmpeg; made 8-bit at the lowest rate that keeps them, at
+  most 12000 Hz, unless `rate=`; from/len in seconds cut one hit out of a
+  kit) and `d1:`-`d4:` voices: `kick:2`, `kick+snare:2` (samples
+  hit together, mixed by tune45 into one, each combination once), `r:` and
+  `~:` letting a sample ring on. A channel plays one sample, so the next
+  hit cuts the last short: tune45 warns of each such hit and by how much.
+- The player: a digi voice's hit sets its channel (`tune_digi_channels`'
+  first + the voice; the rest stay the program's) up as `digi_play` does
+  and starts it, from the samples at `tune_samples(addr)` (chip RAM, at
+  most 64 KB, not across a bank), at `tune_digi_volume`. tune_stop stops
+  the channels. The data: the digi voices' count in the flags' bits 1-3
+  (0 in all older data), their streams and a sample table after the SID
+  voices'. Code 3236 bytes (583 more), state 622.
+- tune45: `convert` writes the samples (`tune_sample_bank` in C and asm,
+  `--samples <file>` with `--bin`); `play` mixes them in as the audio DMA
+  plays them; `list` shows the hits; `trace` the audio DMA's registers
+  (`--samples-at`, `--digi-first`); the `--emulator` player sets them up.
+- Tests: the data, `--samples`, the warning, the mix, the errors
+  (`test_tune45.sh`); the model's audio DMA registers against the player's
+  in xemu (`___digi_regs`, weak, into RAM), from channel 2 with a voice
+  left out, in both conventions (`test_xemu.sh`).
+- Example `examples/c/drums`: a filtered bass, a wave-table lead, chords and
+  two digi voices of a CC0 kit (freesound, `samples/SOURCE.txt`); its check
+  reads the drum channels' sample addresses back from the audio DMA in
+  xemu (`test_examples.sh`). (xemu leaves a channel's "stopped" bit clear
+  when its sample ends, so `digi_playing` stays 1 there.)
+
+### The tune player: filter, wave tables, hard restart
+
+- Instruments take `hr=n` (hard restart: n frames, 1-3, before the voice's
+  next note, not a tie or a rest, the gate off and AD/SR 0, so every attack
+  starts from rest), `filter=lp|bp|hp|notch` (or joined by `+`) with
+  `res=`, `cutoff=` (hex) and `fsweep=` (a frame, stopping at the ends): a
+  note sets its chip's filter and routes its voice, the volume in $D418
+  kept from the shadow; an unfiltered note takes its voice out), and
+  `table=` a wave table: `wavetable <name> <wave[:semitones]> ... [loop n]`,
+  a waveform and pitch a frame from the note's start. Waveforms may be
+  joined by `+` (`pulse+saw`).
+- The data: instruments of 17 bytes, their size in the header's byte 5
+  (0, as all data before, is 10 bytes: older tunes and `--bin` blobs still
+  play), the wave tables after them. The player's code grows 750 bytes
+  (to 2653), its state 159 (to 583).
+- tune45's model (play, trace) does the same; `trace` starts from
+  sid_init's volume. Tests: the data and the errors (`test_tune45.sh`);
+  the model against the player in xemu, SID 1's 25 registers now, with a
+  tune of all three, in both conventions; the hand-made tunes of 10-byte
+  instruments (`test_xemu.sh`).
+
+### pack45 --best: an optimal parse
+
+- `pack45 --best` packs with an optimal parse (the cheapest way to the
+  end from each position: a fill, a repeat of any length up to the longest
+  near and far ones, or literals) instead of the greedy one: a few per cent
+  smaller (2.7% on The Fading Deep's art), about five times slower. The same
+  format 1, unpacked by the same `unpack()`; the in-place offset is worked
+  out as before. `pack45::pack(data, dest, best)`.
+- Test: the round trips again with `--best`, never longer than greedy
+  (`test_compiler.sh`).
+
+### pack45 --suggest-rate: how low a sound's sample rate can go
+
+- Sampled sound does not pack (LZ finds no repeats; a coder spends the same
+  bytes on every sample): fewer samples is what makes it smaller.
+  `pack45 --suggest-rate <sound.wav> ...` reads each WAV (PCM 8/16/24/32
+  bits, 32-bit float, mixed to mono), measures its spectrum and names the
+  lowest usual rate (4000 .. 48000 Hz) whose pass band holds 99.9% of its
+  energy (`--keep PCT`), with its size at 8 bits and the audio DMA's rate
+  value. `--max-rate HZ`: the rate the program plays at, so that a
+  recording's hiss above it does not count.
+- Test: a tone, noise, the cap and a file that is not a WAV
+  (`test_compiler.sh`, `src/test-resources/pack45/`).
+
+### tune45 sample: sampled sound as the audio DMA plays it
+
+- `tune45 sample <file>` plays 8-bit samples at their rate (`--rate`),
+  each held to the next as the audio DMA does, through the same players as
+  `play` or into a WAV (`--wav`): a pack45 stream unpacked, raw samples, or
+  a sound file (WAV, AU, MP3; MP4 and more by ffmpeg) made into samples as
+  `pack45 --sound` does, at the suggested rate unless `--rate`.
+  `--unsigned`, `--max-rate`.
+- Test: a sound and its samples packed by pack45 play the same, a quarter
+  of a second at 48 kHz; the error without `--rate` (`test_tune45.sh`).
+
+### pack45 --sound: AU, MP3 and MP4 to samples for the audio DMA
+
+- `pack45 --sound <sound> <output>` converts a sound to 8-bit samples at
+  `--rate HZ` or the suggested rate (mixed to mono, low-passed at 0.45 of
+  the rate, resampled); `--unsigned`, `--normalise`; with `-d` packed as
+  any file. `--suggest-rate` reads the same formats.
+- Reads WAV and AU (mu-law, A-law, PCM, float) itself, MP3 by minimp3
+  (CC0, `third_party/minimp3`, built in), and MP4/M4A or anything else
+  through `ffmpeg` when it is on the PATH.
+- Test: AU and MP3 tones, the samples' count, a packed sound's round trip
+  (`test_compiler.sh`).
+
 ### cvt_asm is now asmCvt45
 
 - The assembler source converter follows the toolchain's `<name>45` naming:
