@@ -17,6 +17,7 @@
 #include <cstring>
 #include <fstream>
 #include <sstream>
+#include <iterator>
 
 static bool isCall(uint8_t op) { return op == 0x20 || op == 0x22 || op == 0x23 || op == 0x63; }
 

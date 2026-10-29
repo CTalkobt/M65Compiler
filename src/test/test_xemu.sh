@@ -634,6 +634,36 @@ for bsmode in "plain|" "minify|--minify" "spaces|--preserve-spaces"; do
         failed=$((failed + 1))
     fi
 done
+# basic45 --data-loader (#370): machine code POKEd from DATA lines and SYSed,
+# as decimal with a checksum per line and as hex; a mistyped DATA value
+# stops the loader before the SYS (the results stay 0)
+echo "Testing basic45 --data-loader..."
+L=build/test/basic45_loader
+mkdir -p "$L"
+if ./bin/ca45 -c src/test-resources/basic45_loader/code.s45 -o "$L/code.o45" >/dev/null 2>&1 &&
+   ./bin/ln45 -prg -t 7000 -o "$L/code.prg" "$L/code.o45" >/dev/null 2>&1 &&
+   ./bin/basic45 --strict --data-loader --checksum "$L/code.prg" -o "$L/dec.prg" >/dev/null 2>&1 &&
+   ./bin/basic45 --strict --data-loader --hex "$L/code.prg" -o "$L/hex.prg" >/dev/null 2>&1 &&
+   ./bin/basic45 --data-loader --checksum "$L/code.prg" -o "$L/typo.bas" >/dev/null 2>&1 &&
+   sed -i 's/^80 data 141,194/80 data 141,195/' "$L/typo.bas" &&
+   ./bin/basic45 --strict "$L/typo.bas" -o "$L/typo.prg" >/dev/null 2>&1; then
+    run_xemu_test "basic45_loader_dec" "$L/dec.prg" "C0C0" 4 "01 01 01 AA"
+    run_xemu_test "basic45_loader_hex" "$L/hex.prg" "C0C0" 4 "01 01 01 AA"
+    run_xemu_test "basic45_loader_typo" "$L/typo.prg" "C0C0" 4 "00 00 00 00"
+else
+    echo "FAIL: basic45 --data-loader (building the loaders failed)"
+fi
+
+# basic45: a numbered program; BASIC 65's $CE functions and $FE tokens
+# (MOD, LOG10, WPEEK, POINTER, WPOKE, << >>) as the ROM's tables have them
+echo "Testing test_basic45_numbered_xemu.bas..."
+if ./bin/basic45 --strict src/test-resources/test_basic45_numbered_xemu.bas \
+       -o build/test/test_basic45_numbered_xemu.prg >/dev/null 2>&1; then
+    run_xemu_test "test_basic45_numbered" "build/test/test_basic45_numbered_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
+else
+    echo "FAIL: test_basic45_numbered_xemu.bas (basic45 failed)"
+fi
+
 # basic45 extensions: long names, block if, proc/call, FN (run by BASIC);
 # the same program decompiled and rebuilt; --list, --source-map, --disk
 echo "Testing test_basic45_features_xemu.bas..."

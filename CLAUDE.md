@@ -26,7 +26,7 @@ dependencies (SQLite and FUSE only for disk45):
 - **basic45** — BASIC 65 program generator (label-based source, PETSCII tokenizer, preprocessor,
   long variable names, block IF / proc, `--link` C functions, `--decompile`, `--disk`, `--emulator`)
 - **disk45** — CBM disk/tape/archive image utility (25 formats, FUSE mount, SQLite catalog)
-- **cvt_asm** — assembler source converter between 7 dialects
+- **asmCvt45** — assembler source converter between 7 dialects
 - **pack45** — packs data into a stream the library's `unpack()` (`<unpack.h>`) unpacks by DMA to any 28-bit
   address, in place if loaded inside the area (`include/Pack45.hpp`, format 1); `ln45 --pack-overlays` packs the
   overlay files with it (#345)
@@ -268,7 +268,7 @@ explicit `-O<n>` in ad-hoc test commands too.
 Only these read configuration (`doc/bin/CONFIGURATION.md`):
 - cc45/cp45: `~/.config/m65/cc45.conf` / `cp45.conf` (options before the command line; `#` comment lines)
 - ca45: `~/.config/m65/ca45.conf`, `./.ca45rc`, `CA45_OPTIMIZE`, `CA45_WARNINGS`
-- cvt_asm: `.cvtasmrc`
+- asmCvt45: `.asmCvt45rc`
 
 ln45, ar45, nm45, objdump45, disk45 and tune45 have no config files. Environment:
 `CC45_INCLUDE`, `CC45_LIB` (ln45 library search), `CC45_DUMP_IR=1` (IR to stderr),

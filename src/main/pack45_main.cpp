@@ -5,6 +5,7 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <iterator>
 #include "Logger.hpp"
 #include "Pack45.hpp"
 #include "Version.hpp"

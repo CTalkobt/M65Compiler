@@ -14,6 +14,8 @@
 #include "LinkerLog.hpp"
 #include <iostream>
 #include <streambuf>
+#include <cstdlib>
+#include <iterator>
 
 // Phase 4.3 — Aggregate inter-TU optimization hints from all input objects
 // Merges IPO hints with global call counts and creates global optimization metadata

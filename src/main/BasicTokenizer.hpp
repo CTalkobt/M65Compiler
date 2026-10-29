@@ -43,10 +43,13 @@ public:
     uint8_t getEscapeKeywordByte(const std::string& keyword) const;
     const std::unordered_map<std::string, uint8_t>& getKeywords() const;
     const std::unordered_map<std::string, uint8_t>& getEscapeKeywords() const;
+    // BASIC 65's functions with the $CE prefix (POT, MOD, LOG10, ...)
+    const std::unordered_map<std::string, uint8_t>& getCeKeywords() const { return ceKeywords; }
 
 private:
     std::unordered_map<std::string, uint8_t> keywords;
     std::unordered_map<std::string, uint8_t> escapeKeywords;
+    std::unordered_map<std::string, uint8_t> ceKeywords;
 
     void initializeKeywords();
     BasicToken parseString(const std::string& source, size_t& pos);

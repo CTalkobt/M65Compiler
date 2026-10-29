@@ -33,6 +33,107 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   program (`--raw` and ca45 `.incbin`), calling the decoder from assembly;
   pack45 in the README's tool list.
 
+### ca45: .extern after a label; .align at link time (#372, #373)
+
+- An `.extern` after the file's own definition of the label replaced the
+  label's symbol with an import placeholder: the label moved into the code
+  segment and its references were relocated against it (#372). It is the
+  definition now, as with the `.extern` first.
+- `.align` in an object's text, data or bss aligned only within the object:
+  ln45 aligns an object's part of a segment by the weak absolute
+  `cc45.align.<segment>`, which cc45 exported for `_Alignas` but ca45 not
+  for `.align` (#373). ca45 exports it now (the largest `.align` per segment).
+
+### basic45 --data-loader (#370)
+
+- `basic45 --data-loader game.prg` writes a BASIC program that POKEs the
+  machine code from `DATA` lines and SYSes it (a type-in listing):
+  `--hex`, `--checksum` (per line, a mistyped line stops the loader before
+  the SYS), `--per-line`, `--start`, `--increment`, `--no-sys`,
+  `--load-at` (a raw binary, or the code elsewhere). Built like any program
+  or written as source (`-o x.bas`). The loader sets `BANK 0` (BASIC 65's
+  POKE and SYS use the bank); code over the loader is refused.
+- `--load` takes `$2001` too (a `$` read as 0 before).
+
+### disk45: TAP images decoded as the KERNAL writes them (#142)
+
+- TAP reading did not work: the decoder looked for a pilot tone of long
+  pulses (it is short pulses), ignored the byte markers, the countdowns and
+  the checksums, and found no files on a tape in the KERNAL's format. It is
+  rewritten from the format: byte markers, odd parity per byte, the
+  `$89..$81` / `$09..$01` countdowns, the checksum per block, the two copies
+  of each block.
+- C64, VIC-20 and C16 / Plus 4 tapes (TAP version 2, half-waves): the
+  pulse classes are calibrated from each pilot tone, in the platform's
+  ratios (1 : 1.4 : 1.8, or 1 : 2 : 4 for the C16), so NTSC machines and
+  fast or slow tapes read too; `--tap-timing=c64|vic20|c16` overrides.
+- A block bad in its first copy is read from its second; bad in both, the
+  file is damaged: `list` shows `*PRG`, `info` says why, `extract` refuses
+  it. `info` shows each file's state and the timing used (and the data size,
+  which was 0).
+- SEQ files on tape (a type-4 header and type-2 blocks) are read.
+- `src/test/make_tap.py` writes TAPs in the format (C64, VIC-20, C16, speed,
+  jitter, damaged copies) for the new `test_disk45.sh` checks.
+
+### cvt_asm is now asmCvt45
+
+- The assembler source converter follows the toolchain's `<name>45` naming:
+  `bin/asmCvt45` (was `cvt_asm`), `doc/bin/asmCvt45.md`,
+  `doc/architecture/asmCvt45-guide.md`, `src/main/asmCvt45_main.cpp`, the
+  tests `src/test/test_asmCvt45.sh` and `src/test-resources/asmCvt45*/`, the
+  man page `asmCvt45.1`, log lines `[asmCvt45:LEVEL]`.
+- Its configuration file is `.asmCvt45rc`; a `.cvtasmrc` is still read when
+  there is no `.asmCvt45rc`. `make uninstall` also removes an installed
+  `cvt_asm` and its man page. Scripts calling `cvt_asm` need the new name.
+
+### basic45: numbered programs; BASIC 65's $CE functions
+
+- A classic numbered listing (`10 PRINT "HI"`) was stored with its number
+  as part of the line's text (line 10 holding `10 PRINT "HI"`, a
+  `?SYNTAX ERROR`), without a message. A program whose lines start with
+  numbers is now a numbered program: the lines keep their numbers, which
+  must ascend; a line without one and a jump to a line that does not exist
+  are errors. Labels still work in it.
+- BASIC 65's two-byte functions (`$CE xx`) were missing, and were written as
+  variable names without a message (`print pot(1)` became the array
+  `PO(1)`): `POT`, `BUMP`, `LPEN`, `RSPPOS`, `RSPRITE`, `RSPCOLOR`, `LOG10`,
+  `RWINDOW`, `POINTER`, `MOD`, `PIXEL`, `RPALETTE`, `RSPEED`, `RPLAY`,
+  `WPEEK`, `DECBIN`, `STRBIN$`, `HASBIT`, `RPT$`, `RDISK`, `LOG2`,
+  `RSPRSYS`; and the `$FE` keywords `BIT`, `UNLOCK`, `LOCK`, `MKDIR`,
+  `VSYNC` and the shifts `<<` / `>>`. The tables are the ROM's own (BASIC 65
+  V920422). `GO64` is `GO 64` as BASIC stores it. The decompiler, `--list`,
+  objdump45 `-bas` and the formatter read them.
+- A statement that starts with a name but is not an assignment is a warning
+  (a typo, or a keyword BASIC 65 does not have: `slow` gets "BASIC 65 has
+  SPEED", the MEGA65 Book's `PEEKW`/`POKEW` the ROM's `WPEEK`/`WPOKE`).
+- Tests: `test_basic45_numbered_xemu.bas` (run by BASIC 65 on xemu),
+  `src/test/test_basic45.sh` (`make test`).
+
+### Builds with GCC 14-16, clang and musl
+
+- The tree did not build with GCC 14 or newer, clang, or on Alpine (musl):
+  files used `int64_t`, `uint16_t`, `std::isdigit`, `std::runtime_error`,
+  `std::istreambuf_iterator` and others with their headers only included
+  through other standard headers, which newer libraries no longer do. 44
+  files include `<cstdint>`, `<cctype>`, `<stdexcept>`, `<iterator>`,
+  `<cstdlib>`, ... themselves now.
+- `src/test/test_distro_builds.sh` (`make test-distros`, needs Docker): a
+  clean build (`make all`, `make lib`) in Ubuntu 22.04/24.04, Debian 12/13,
+  Fedora (GCC and clang), Arch, Alpine, openSUSE Tumbleweed and Rocky 9
+  containers; the compile-check workflow runs it per distribution.
+- README: a "Building from Source" section with each distribution's
+  packages (including what `make test` uses: `xxd`, `hexdump`, `zip`).
+- Makefile: `CXX ?= g++` (was a misspelt `CX`).
+
+### TGI: 640x200 text and circles faster
+
+- The 640x200 drivers' 1x glyph goes a byte column at a time down its rows
+  (two pixels a byte, no shifts in memory, stopping when no bits are left):
+  text at 1x 20 → 13 frames in `bench_tgi.sh` (the 320x200 driver: 11). A
+  whole ellipse's points are plotted without the arc's quarter tests:
+  circles 15 → 13 (11). The same pixels (the benchmark's checksums; random
+  scenes against the 320x200 driver, odd and even x).
+
 ### ca45, ln45 and cc45 fixes (#363-#367)
 
 - ca45: a number followed directly by letters or `_` is an error
@@ -62,9 +163,9 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   `tgi_demo640.prg` is the 640x200 part alone (its screenshot in
   `doc/examples`).
 
-### cvt_asm: conversions checked against ca65, ACME and KickAssembler (#223, #224)
+### asmCvt45: conversions checked against ca65, ACME and KickAssembler (#223, #224)
 
-- `doc/architecture/cvt_asm-guide.md`: what each format keeps, translates
+- `doc/architecture/asmCvt45-guide.md`: what each format keeps, translates
   and loses, the instruction sets per target, and worked conversions (a
   cc65 module into a MEGA65 program, ACME ↔ KickAssembler, 6502 code ported
   to the 45GS02). Checked byte for byte with ca65 2.18, ACME 0.97 and
@@ -84,9 +185,9 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - The ca45 reader takes line numbers from the preprocessor's `#line` markers
   (a macro's expansion matched to its call) and warns on each line kept as
   written.
-- `test_cvt_asm.sh`: round trips compare unoptimized bytes; programs in
+- `test_asmCvt45.sh`: round trips compare unoptimized bytes; programs in
   ca65's, ACME's and KickAssembler's idioms are checked against the bytes
-  their own assemblers made (`src/test-resources/cvt_asm/native_*`).
+  their own assemblers made (`src/test-resources/asmCvt45/native_*`).
 
 ### `<tgi.h>`: clipping and text in assembly
 
@@ -856,14 +957,14 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   macros, `\@` for labels of their own in each use, a recursion limit
   (64), messages at the line of the use. ca45 had only C `#define`
   (one line; nested `#define` composition is fixed by #233).
-- cvt_asm: ca45 input's `.macro` is expanded as ca45 does; a macro's
+- asmCvt45: ca45 input's `.macro` is expanded as ca45 does; a macro's
   parameters in the other dialects are replaced as whole words (a
   parameter `a` turned `sta` into `st7`; #235).
 - ca45 fix: an error in an `#include`d file named the main source (with
   the included file's line number, and an excerpt from the main source);
   it names the included file now (the lexer keeps `#line`'s file name).
 - Tests in `test_assembler.sh` (`test_ca45_macro.s45`, errors in an
-  `#include`d file) and `test_cvt_asm.sh`.
+  `#include`d file) and `test_asmCvt45.sh`.
 
 ### Two more benchmarks
 
@@ -925,10 +1026,10 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - ln45: `-v` … `-vvvv`; `ln45info()` / `ln45debug()` write log lines; the
   relocation trace is `-vvv` (was `-vv`), the call graph and the layout
   (base-page blocks, SAC overlay) stay at `-vv`.
-- ar45, nm45, objdump45, disk45, cvt_asm, basic45, tune45 and dbg45 log
+- ar45, nm45, objdump45, disk45, asmCvt45, basic45, tune45 and dbg45 log
   the same way (`-v` … `-vvvv` anywhere among their arguments): ar45 the
   members, nm45 / objdump45 each file's kind, disk45 the images opened and
-  written, cvt_asm and basic45 their former verbose output (basic45's
+  written, asmCvt45 and basic45 their former verbose output (basic45's
   moved from stdout to stderr), tune45 the tunes and files, dbg45 xemu's
   start and every monitor command and reply. disk45's lone `-v` first
   stays `--version`.

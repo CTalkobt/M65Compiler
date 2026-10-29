@@ -41,9 +41,9 @@ union U {
 };
 int main() { return 0; }
 )";
-    auto [ret, stderr] = runCC45(code);
+    auto [ret, err] = runCC45(code);
     CHECK(ret != 0, "FAM in union compilation fails");
-    CHECK(stderr.find("not allowed in union") != std::string::npos,
+    CHECK(err.find("not allowed in union") != std::string::npos,
           "FAM in union error message correct");
 }
 
@@ -56,9 +56,9 @@ struct S {
 };
 int main() { return 0; }
 )";
-    auto [ret, stderr] = runCC45(code);
+    auto [ret, err] = runCC45(code);
     CHECK(ret != 0, "FAM not last compilation fails");
-    CHECK(stderr.find("must be the last member") != std::string::npos,
+    CHECK(err.find("must be the last member") != std::string::npos,
           "FAM not last error message correct");
 }
 
@@ -70,9 +70,9 @@ struct S {
 };
 int main() { return 0; }
 )";
-    auto [ret, stderr] = runCC45(code);
+    auto [ret, err] = runCC45(code);
     CHECK(ret != 0, "Struct with only FAM compilation fails");
-    CHECK(stderr.find("must have at least one other member") != std::string::npos,
+    CHECK(err.find("must have at least one other member") != std::string::npos,
           "Struct only FAM error message correct");
 }
 
@@ -84,9 +84,9 @@ struct S {
 };
 int main() { return 0; }
 )";
-    auto [ret, stderr] = runCC45(code);
+    auto [ret, err] = runCC45(code);
     CHECK(ret != 0, "Unknown struct member compilation fails");
-    CHECK(stderr.find("Unknown struct/union type") != std::string::npos,
+    CHECK(err.find("Unknown struct/union type") != std::string::npos,
           "Unknown struct member error message correct");
 }
 
@@ -99,9 +99,9 @@ int main() {
     return 0;
 }
 )";
-    auto [ret, stderr] = runCC45(code);
+    auto [ret, err] = runCC45(code);
     CHECK(ret != 0, "Dot on non-struct compilation fails");
-    CHECK(stderr.find("not found in struct") != std::string::npos,
+    CHECK(err.find("not found in struct") != std::string::npos,
           "Dot on non-struct error message correct");
 }
 
@@ -114,9 +114,9 @@ int main() {
     return 0;
 }
 )";
-    auto [ret, stderr] = runCC45(code);
+    auto [ret, err] = runCC45(code);
     CHECK(ret != 0, "Unknown struct access compilation fails");
-    CHECK(stderr.find("Unknown struct/union type") != std::string::npos,
+    CHECK(err.find("Unknown struct/union type") != std::string::npos,
           "Unknown struct access error message correct");
 }
 
@@ -132,9 +132,9 @@ int main() {
     return 0;
 }
 )";
-    auto [ret, stderr] = runCC45(code);
+    auto [ret, err] = runCC45(code);
     CHECK(ret != 0, "Member not found compilation fails");
-    CHECK(stderr.find("not found") != std::string::npos,
+    CHECK(err.find("not found") != std::string::npos,
           "Member not found error message correct");
 }
 
@@ -146,9 +146,9 @@ int main() {
     return 0;
 }
 )";
-    auto [ret, stderr] = runCC45(code);
+    auto [ret, err] = runCC45(code);
     CHECK(ret != 0, "Unknown struct compound literal compilation fails");
-    CHECK(stderr.find("Unknown struct") != std::string::npos,
+    CHECK(err.find("Unknown struct") != std::string::npos,
           "Unknown struct compound literal error message correct");
 }
 
@@ -160,9 +160,9 @@ int main() {
     return 0;
 }
 )";
-    auto [ret, stderr] = runCC45(code);
+    auto [ret, err] = runCC45(code);
     CHECK(ret != 0, "Unknown struct decl init compilation fails");
-    CHECK(stderr.find("Unknown struct/union type:") != std::string::npos,
+    CHECK(err.find("Unknown struct/union type:") != std::string::npos,
           "Unknown struct decl init error message correct");
 }
 
@@ -181,7 +181,7 @@ int main() {
     return p.x + p.y;
 }
 )";
-    auto [ret, stderr] = runCC45(code);
+    auto [ret, err] = runCC45(code);
     CHECK(ret == 0, "Valid struct compilation succeeds");
 }
 
@@ -197,7 +197,7 @@ int main() {
     return 0;
 }
 )";
-    auto [ret, stderr] = runCC45(code);
+    auto [ret, err] = runCC45(code);
     CHECK(ret == 0, "Valid FAM compilation succeeds");
 }
 
@@ -215,7 +215,7 @@ int main() {
     return 0;
 }
 )";
-    auto [ret, stderr] = runCC45(code);
+    auto [ret, err] = runCC45(code);
     CHECK(ret == 0, "Valid union compilation succeeds");
 }
 

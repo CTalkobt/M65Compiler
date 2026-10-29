@@ -85,17 +85,21 @@ BasicListing listBasic(const std::vector<uint8_t>& prg, BasicDialect dialect) {
     r.dialect = dialect;
 
     // BASIC 65: basic45's tokens ($FE xx: its escape keywords)
-    std::map<uint8_t, std::string> kw65, kw65fe;
+    std::map<uint8_t, std::string> kw65, kw65fe, kw65ce;
     if (dialect == BasicDialect::B65) {
         BasicTokenizer t;
         for (const auto& [name, tok] : t.getKeywords()) kw65[tok] = name;
         for (const auto& [name, tok] : t.getEscapeKeywords()) kw65fe[tok] = name;
+        for (const auto& [name, tok] : t.getCeKeywords()) kw65ce[tok] = name;
+        kw65fe[0x52] = "<<";
+        kw65fe[0x53] = ">>";
     }
     auto keyword = [&](const std::vector<uint8_t>& p, size_t& i, std::string& out) -> bool {
         uint8_t b = p[i];
         if (b == 0xFF) { out = "{pi}"; i++; return true; }
         if (dialect == BasicDialect::B65) {
             if (b == 0xFE && i + 1 < p.size() && kw65fe.count(p[i + 1])) { out = kw65fe[p[i + 1]]; i += 2; return true; }
+            if (b == 0xCE && i + 1 < p.size() && kw65ce.count(p[i + 1])) { out = kw65ce[p[i + 1]]; i += 2; return true; }
             if (kw65.count(b)) { out = kw65[b]; i++; return true; }
             return false;
         }

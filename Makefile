@@ -1,4 +1,4 @@
-CX = g++
+CXX ?= g++
 GIT_HASH := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 EXTRA_CXXFLAGS ?=
 CXXFLAGS = -std=c++17 -Wall -Wextra -Iinclude -MMD -MP -DGIT_HASH='"$(GIT_HASH)"' $(EXTRA_CXXFLAGS)
@@ -25,7 +25,7 @@ TUNE_TARGET = $(BIN_DIR)/tune45
 DBG45_TARGET = $(BIN_DIR)/dbg45
 OD_TARGET = $(BIN_DIR)/objdump45
 DISK_TARGET = $(BIN_DIR)/disk45
-CVT_ASM_TARGET = $(BIN_DIR)/cvt_asm
+ASMCVT45_TARGET = $(BIN_DIR)/asmCvt45
 BASIC_TARGET = $(BIN_DIR)/basic45
 
 MAN_DIR = man
@@ -140,7 +140,7 @@ $(LIB_DIR)/lib45-basic.a: $(addprefix $(OBJ_DIR)/, \
     SymbolExpressionEvaluator.o BasicMinifier.o BasicTooling.o \
     BasicCharacterMap.o BasicDocumentationGenerator.o BasicStructures.o \
     BasicArchiveSupport.o BasicStandardLibrary.o BasicVarRenamer.o BasicStructured.o \
-    BasicDecompiler.o BasicFormatter.o BasicLister.o)
+    BasicDecompiler.o BasicFormatter.o BasicLister.o BasicDataLoader.o)
 	@mkdir -p $(LIB_DIR)
 	@rm -f $@
 	$(AR) rcs $@ $^
@@ -186,14 +186,14 @@ $(LIB_DIR)/lib45-tools.a: $(LIB45_TOOLS_OBJS)
 # ============================================================================
 
 all: $(CC_TARGET) $(CA_TARGET) $(CP_TARGET) $(NM_TARGET) $(PACK_TARGET) $(LN_TARGET) \
-     $(AR_TARGET) $(OD_TARGET) $(DISK_TARGET) $(CVT_ASM_TARGET) $(BASIC_TARGET) $(TUNE_TARGET) $(DBG45_TARGET) stdlib | $(LIB_DIR)/lib45-audio.a $(LIB_DIR)/lib45-phases.a
+     $(AR_TARGET) $(OD_TARGET) $(DISK_TARGET) $(ASMCVT45_TARGET) $(BASIC_TARGET) $(TUNE_TARGET) $(DBG45_TARGET) stdlib | $(LIB_DIR)/lib45-audio.a $(LIB_DIR)/lib45-phases.a
 
 # Rebuild stdlib whenever cc45 or ca45 changes
 stdlib: $(CC_TARGET) $(CA_TARGET) $(AR_TARGET)
 	$(MAKE) -C lib
 
 man: $(MAN_DIR)/cc45.1 $(MAN_DIR)/ca45.1 $(MAN_DIR)/cp45.1 $(MAN_DIR)/ln45.1 $(MAN_DIR)/nm45.1 $(MAN_DIR)/ar45.1 $(MAN_DIR)/objdump45.1 \
-     $(MAN_DIR)/disk45.1 $(MAN_DIR)/basic45.1 $(MAN_DIR)/cvt_asm.1 $(MAN_DIR)/tune45.1 $(MAN_DIR)/dbg45.1 $(MAN_DIR)/pack45.1
+     $(MAN_DIR)/disk45.1 $(MAN_DIR)/basic45.1 $(MAN_DIR)/asmCvt45.1 $(MAN_DIR)/tune45.1 $(MAN_DIR)/dbg45.1 $(MAN_DIR)/pack45.1
 
 $(MAN_DIR)/%.1: doc/bin/%.md
 	@mkdir -p $(MAN_DIR)
@@ -289,12 +289,12 @@ $(DISK_TARGET): $(LIB_DIR)/lib45-tools.a $(LIB_DIR)/lib45-basic.a $(LIB_DIR)/lib
 	@mkdir -p $(BIN_DIR)
 	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/disk45_main.o $(LIB_DIR)/lib45-tools.a $(LIB_DIR)/lib45-basic.a $(LIB_DIR)/lib45-common.a -lz -lsqlite3 $(FUSE3_LIBS)
 
-# Assembly Format Converter (cvt_asm) - uses tools, codegen, opt + common
-$(CVT_ASM_TARGET): $(OBJ_DIR)/cvt_asm_main.o | $(LIB_DIR)
-$(CVT_ASM_TARGET): $(LIB_DIR)/lib45-tools.a $(LIB_DIR)/lib45-codegen.a \
+# Assembly Format Converter (asmCvt45) - uses tools, codegen, opt + common
+$(ASMCVT45_TARGET): $(OBJ_DIR)/asmCvt45_main.o | $(LIB_DIR)
+$(ASMCVT45_TARGET): $(LIB_DIR)/lib45-tools.a $(LIB_DIR)/lib45-codegen.a \
                    $(LIB_DIR)/lib45-common.a
 	@mkdir -p $(BIN_DIR)
-	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/cvt_asm_main.o $(LIB_DIR)/lib45-tools.a $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-common.a
+	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/asmCvt45_main.o $(LIB_DIR)/lib45-tools.a $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-common.a
 
 # BASIC Compiler (basic45) - uses basic + tools + common
 $(BASIC_TARGET): $(OBJ_DIR)/basic45_main.o | $(LIB_DIR)
@@ -452,7 +452,7 @@ $(LIB_DIR):
 .PHONY: test-validation-linker test-segment-emission test-validation-assembler
 .PHONY: test-validation-simops test-validation-directives test-validation-symbols
 .PHONY: test-validation-segments test-validation-proc test-validation-addressing
-.PHONY: test-validation-simops-extended test-objdump45 test-examples test-xemu test-validation
+.PHONY: test-validation-simops-extended test-objdump45 test-examples test-xemu test-validation test-distros
 .PHONY: test-phase12 test-phase13 test-phase14 test-phase15 test-phase16 test-phase17 test-phase18
 
 # Build all lib45 libraries
@@ -483,7 +483,7 @@ show-lib-deps:
 	@echo "ar45      : lib45-common"
 	@echo "objdump45 : lib45-codegen lib45-common"
 	@echo "disk45    : lib45-tools lib45-common"
-	@echo "cvt_asm   : lib45-tools lib45-codegen lib45-opt lib45-common"
+	@echo "asmCvt45   : lib45-tools lib45-codegen lib45-opt lib45-common"
 	@echo "basic45   : lib45-basic lib45-tools lib45-common"
 
 # Display library file sizes
@@ -519,6 +519,11 @@ test: all lib $(BIN_DIR)/test_o45 $(BIN_DIR)/test_ast_walker $(BIN_DIR)/test_con
 # the runtime tests in xemu (parallel runs: XEMU_JOBS)
 test-xemu: all lib
 	@bash src/test/test_xemu.sh
+
+# a clean build (make all, make lib) in a container of each common Linux
+# distribution, with the packages README.md lists (needs Docker; DISTROS=...)
+test-distros:
+	@bash src/test/test_distro_builds.sh $(DISTROS)
 
 # The validation tests (#96): one program, bin/test_validation, a category
 # per source (its main() compiled as tv_<category>_main); test-validation and
@@ -698,7 +703,7 @@ coverage: coverage-build
 
 install: all lib
 	install -d $(DESTDIR)$(BINDIR)
-	install -m 755 $(CC_TARGET) $(CA_TARGET) $(NM_TARGET) $(PACK_TARGET) $(LN_TARGET) $(AR_TARGET) $(OD_TARGET) $(DISK_TARGET) $(CVT_ASM_TARGET) $(BASIC_TARGET) $(TUNE_TARGET) $(DBG45_TARGET) $(DESTDIR)$(BINDIR)
+	install -m 755 $(CC_TARGET) $(CA_TARGET) $(NM_TARGET) $(PACK_TARGET) $(LN_TARGET) $(AR_TARGET) $(OD_TARGET) $(DISK_TARGET) $(ASMCVT45_TARGET) $(BASIC_TARGET) $(TUNE_TARGET) $(DBG45_TARGET) $(DESTDIR)$(BINDIR)
 	ln -sf cc45 $(DESTDIR)$(BINDIR)/cp45
 	install -d $(DESTDIR)$(LIBDIR)
 	install -m 644 lib/build/c45.lib lib/build/c45_zp.lib lib/build/c45_stack.lib $(DESTDIR)$(LIBDIR)
@@ -826,11 +831,11 @@ docker-runtime:
 uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/cc45 $(DESTDIR)$(BINDIR)/ca45 $(DESTDIR)$(BINDIR)/cp45
 	rm -f $(DESTDIR)$(BINDIR)/nm45 $(DESTDIR)$(BINDIR)/pack45 $(DESTDIR)$(BINDIR)/ln45 $(DESTDIR)$(BINDIR)/ar45
-	rm -f $(DESTDIR)$(BINDIR)/objdump45 $(DESTDIR)$(BINDIR)/disk45 $(DESTDIR)$(BINDIR)/cvt_asm
+	rm -f $(DESTDIR)$(BINDIR)/objdump45 $(DESTDIR)$(BINDIR)/disk45 $(DESTDIR)$(BINDIR)/asmCvt45 $(DESTDIR)$(BINDIR)/cvt_asm
 	rm -f $(DESTDIR)$(BINDIR)/basic45 $(DESTDIR)$(BINDIR)/tune45 $(DESTDIR)$(BINDIR)/dbg45
 	rm -rf $(DESTDIR)$(LIBDIR)
 	rm -rf $(DESTDIR)$(INCDIR)
 	rm -f $(DESTDIR)$(MANDIR)/cc45.1 $(DESTDIR)$(MANDIR)/ca45.1 $(DESTDIR)$(MANDIR)/cp45.1
 	rm -f $(DESTDIR)$(MANDIR)/ln45.1 $(DESTDIR)$(MANDIR)/nm45.1 $(DESTDIR)$(MANDIR)/ar45.1
 	rm -f $(DESTDIR)$(MANDIR)/objdump45.1 $(DESTDIR)$(MANDIR)/disk45.1
-	rm -f $(DESTDIR)$(MANDIR)/basic45.1 $(DESTDIR)$(MANDIR)/cvt_asm.1 $(DESTDIR)$(MANDIR)/tune45.1 $(DESTDIR)$(MANDIR)/dbg45.1
+	rm -f $(DESTDIR)$(MANDIR)/basic45.1 $(DESTDIR)$(MANDIR)/asmCvt45.1 $(DESTDIR)$(MANDIR)/cvt_asm.1 $(DESTDIR)$(MANDIR)/tune45.1 $(DESTDIR)$(MANDIR)/dbg45.1

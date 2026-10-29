@@ -10,6 +10,9 @@
 #include <set>
 #include <bitset>
 #include <fstream>
+#include <cctype>
+#include <cstdlib>
+#include <iterator>
 
 // A .loc line (source line info, no label): the passes look past it, so a
 // file assembles to the same code with or without line info

@@ -63,6 +63,7 @@ Without `-o` the output is the input name with its extension replaced by `.prg` 
 | `--link <file>` | Link a C (`.c`, compiled with `cc45 -c -O2`), assembly (`.s45`) or object (`.o45`) file after the program; repeatable ([Calling C Functions](#calling-c-functions-link)) |
 | `--lib <file>` | The library for `--link` (default: `c45.lib` next to the tools, else `ln45`'s `CC45_LIB` search) |
 | `--decompile` | Turn a tokenized BASIC `.prg` into basic45 source ([Listing, Source Map and Decompiling](#listing-source-map-and-decompiling)) |
+| `--data-loader` | The input is machine code (a `.prg`, or a binary with `--load-at`): write a BASIC program that POKEs it from `DATA` lines and SYSes it, a type-in listing ([DATA Loaders](#data-loaders-data-loader)); with `--hex`, `--checksum`, `--per-line <n>`, `--start <line>`, `--increment <n>`, `--no-sys`, `--load-at <addr>` |
 | `--list-tokens` | List all keywords with their token values and exit |
 | `-v`, `--verbose` (… `-vvvv`, `-v0`) | Log on stderr as `[basic45:LEVEL] …` (the toolchain's format, `include/Logger.hpp`); cumulative, at most `-vvvv`; `-v0` off: the files, load address, included files, the ca45/ln45 commands of `--link`, the variable renames (`--list` prints those on stdout instead); notes for unused labels |
 | `--version` | Show version |
@@ -96,6 +97,17 @@ loop: print "x"
 - Lines starting with `'` or upper-case `REM` are dropped. Lines starting with `#` that are not preprocessor directives are dropped by the preprocessor, so `#` works as a comment.
 - Leading/trailing whitespace is removed; blank lines are ignored.
 
+### Numbered Programs
+
+A classic listing, each line starting with its number, is a **numbered program**: its lines keep their numbers (`--increment` does not apply), and `GOTO 100`, `GOSUB`, `THEN`, `ELSE`, `RESTORE`, `TRAP`, `RESUME`, `RUN` and `ON ... GOTO` lists with numbers jump to them.
+
+```basic
+10 print "hello"
+20 goto 10
+```
+
+A program is numbered when any line starts with a number (no BASIC statement starts with a digit), and then every line with code needs one (`20print` works too). The numbers must ascend and stay at or below 63999, and every line a number jumps to must exist (BASIC's `?UNDEF'D STATEMENT`); a number alone on a line is an error (BASIC deletes such a line). Labels still work in a numbered program: a label names its line's number, a label alone the next line's.
+
 ### Validation
 
 Validation messages have the form `file:line:col: error|warning: message`.
@@ -105,6 +117,9 @@ Validation messages have the form `file:line:col: error|warning: message`.
 | A name used as a label (see above) that is not defined, at the line using it | error |
 | Label defined more than once (in any case) | error |
 | More lines than line numbers up to 63999 allow | error |
+| A numbered program: line numbers not ascending, above 63999 or alone on a line, a line without one, a jump to a line that does not exist | error |
+| A statement that starts with a name but is not an assignment: a word BASIC 65 does not know (a typo, `slow`, a BASIC 7.0 keyword such as `draw`), a `?SYNTAX ERROR` when run; the name of BASIC 65's keyword where it has one under another name (`SPEED` for `SLOW`, `WPOKE` for `POKEW`) | warning |
+| A function under the MEGA65 Book's name or of BASIC 7.0 / 3.5 used in an expression (`peekw(a)`, `rdot(x)`), which is read as an array | warning |
 | A `{...}` left in the source after symbol substitution that is not a PETSCII escape (`{clear}` is fine) | warning |
 | Estimated program size above ~28 KB | warning |
 | A variable read but never assigned (a typo?) | warning |
@@ -120,9 +135,9 @@ Errors stop compilation (exit status 1); warnings do too with `--strict`. `--val
 
 ### Keywords
 
-Keywords are recognised case-insensitively as whole words: `print`, `PRINT` and `Print` all tokenize, `printx` does not. `PRINT#1` and `INPUT#1` are `PRINT#` / `INPUT#` followed by `1`; `GETKEY` is the two tokens `GET KEY`, as BASIC stores it. Numbers keep their exponent (`1E5`, `2.5E-3`). Run `basic45 --list-tokens` for the table (115 single-byte tokens `$80`-`$FD`, 73 two-byte tokens `$FE xx` such as `BANK`, `SPRITE`, `DMA`, `FAST`, `PALETTE`).
+Keywords are recognised case-insensitively as whole words: `print`, `PRINT` and `Print` all tokenize, `printx` does not. `PRINT#1` and `INPUT#1` are `PRINT#` / `INPUT#` followed by `1`; `GETKEY` is the two tokens `GET KEY`, as BASIC stores it. Numbers keep their exponent (`1E5`, `2.5E-3`). Run `basic45 --list-tokens` for the table: 117 single-byte tokens `$80`-`$FD`, 78 two-byte keywords `$FE xx` such as `BANK`, `SPRITE`, `DMA`, `FAST`, `PALETTE`, `VSYNC`, and 22 two-byte functions `$CE xx`: `POT`, `BUMP`, `LPEN`, `RSPPOS`, `RSPRITE`, `RSPCOLOR`, `LOG10`, `RWINDOW`, `POINTER`, `MOD`, `PIXEL`, `RPALETTE`, `RSPEED`, `RPLAY`, `WPEEK`, `DECBIN`, `STRBIN$`, `HASBIT`, `RPT$`, `RDISK`, `LOG2`, `RSPRSYS`. The tables are the ROM's own (BASIC 65 V920422; `HASBIT` to `RSPRSYS` are not in V920413). The MEGA65 Book's `SLOW`, `PEEKW` and `POKEW` are `SPEED`, `WPEEK` and `WPOKE` in these ROMs (basic45 warns about the Book's names, which tokenize as variables). `GO64` is `GO` followed by `64`, as BASIC stores it.
 
-The operators `+ - * / ^ > = <` are tokens (`$AA`-`$B3`), as BASIC stores them; `?` is `PRINT`, and `TAB(` / `SPC(` are tokens. After `REM` the rest of the line, and after `DATA` the items up to the next `:` outside quotes, are stored as text (not tokenized). Variable names and other text outside strings are converted to PETSCII upper case. A space is inserted after a keyword that is followed by a name, number or operator.
+The operators `+ - * / ^ > = <` are tokens (`$AA`-`$B3`) and the shifts `<<` and `>>` are `$FE $52` / `$FE $53`, as BASIC stores them; `?` is `PRINT`, and `TAB(` / `SPC(` are tokens. After `REM` the rest of the line, and after `DATA` the items up to the next `:` outside quotes, are stored as text (not tokenized). Variable names and other text outside strings are converted to PETSCII upper case. A space is inserted after a keyword that is followed by a name, number or operator.
 
 ### Strings and Escape Sequences
 
@@ -290,6 +305,35 @@ basic45 --link routines.c menu.bas -o menu.prg
 
 `basic45 --format prog.bas` prints the source with keywords in lower case, one space between words outside strings, code indented two spaces plus two per open block (`if … then`/`else`/`endif`, `proc`/`endproc`, `select`/`case`/`endselect`, `for`/`next`, `do`/`loop`) and labels in column 0. Strings, `REM` and `DATA` text, `#` lines, `'` comments (re-indented) and `asm` blocks are kept as written. With `-o` the result goes to a file. The formatted source builds to the same program, and formatting it again changes nothing.
 
+## DATA Loaders (`--data-loader`)
+
+`--data-loader` turns a machine-code program into a BASIC program that holds it in `DATA` lines, `POKE`s it into memory and `SYS`es it: the type-in listing of magazines and tutorials, one BASIC file with its machine code.
+
+```bash
+basic45 --data-loader game.prg                 # game-loader.prg, ready to run
+basic45 --data-loader --checksum game.prg -o game.bas   # the listing, as source
+basic45 --data-loader --load-at 7000 code.bin -o -      # a raw binary, to stdout
+```
+
+```basic
+10 bank 0:a=28672:n=17
+20 for i=0 to n-1:read v:poke a+i,v:next i
+30 sys a
+40 rem game.prg - $7000, 17 bytes
+50 data 169,1,141,192,192,141,193,192
+60 data 141,194,192,169,170,141,195,192
+70 data 96
+```
+
+- The input is a `.prg` (its first two bytes the load address) or, with `--load-at <addr>` (hex: `7000`, `$7000`, `0x7000`), a raw binary; `--load-at` also moves a `.prg`'s code elsewhere.
+- The output is built like any program (`-o x.prg`, default `<input>-loader.prg`; `--disk`, `--emulator`, `--list` work), or written as basic45 source with `-o x.bas` or `-o -`.
+- The loader starts with `BANK 0`: BASIC 65's `POKE` and `SYS` use the current bank, and the default, 128, is the system mapping, where most addresses are not RAM.
+- `--per-line <n>` bytes per `DATA` line (default 8, at most 30), lines from `--start <line>` (default: the increment) by `--increment <n>` (default 10). `--hex` writes the bytes in hex (`a9,01,60`, read with `DEC()`). `--no-sys` only loads the code.
+- `--checksum` adds a checksum to each `DATA` line (the sum of its bytes `AND 255`), checked while loading: a mistyped line prints `DATA ERROR IN LINE n` and stops before the code runs.
+- The code must not overwrite the loader itself, the BASIC program at `$2001`: that is an error (link the code elsewhere, e.g. `ln45 -prg -t 7000`). Code below `$2000` (BASIC 65's system and screen memory) is a warning.
+
+`test_xemu.sh` runs loaders on BASIC 65 (decimal with checksums, hex, and a mistyped line that must stop before `SYS`); `src/test/test_basic45.sh` checks the source and the errors.
+
 ## Listing, Source Map and Decompiling
 
 `--list` prints, for each BASIC line, its number, address, source file and line, and the source text:
@@ -379,7 +423,7 @@ A label is recognised when `name:` is followed by a space or the end of the line
 - `--link` uses the ZP calling convention and `c45.lib`; for stack-convention C, declare the called functions `__fastcall__`.
 - `--send`'s default commands (`etherload -r`, `m65 -F -r`) are untested; use `--send-cmd` with the options your tools need.
 
-`test_basic45_xemu.bas` (as is, `--minify` and `--preserve-spaces`), `test_basic45_features_xemu.bas` (as is, decompiled and rebuilt, and formatted) and `test_basic45_link_xemu.bas` (C, asm, incbin, datainc) are run by BASIC 65 on xemu.
+`test_basic45_xemu.bas` (as is, `--minify` and `--preserve-spaces`), `test_basic45_features_xemu.bas` (as is, decompiled and rebuilt, and formatted), `test_basic45_link_xemu.bas` (C, asm, incbin, datainc) and `test_basic45_numbered_xemu.bas` (a numbered program; `MOD`, `LOG10`, `WPEEK`, `POINTER`, `WPOKE`, `<<`, `>>`) are run by BASIC 65 on xemu; `src/test/test_basic45.sh` (`make test`) checks the tokens and messages.
 
 ## See Also
 

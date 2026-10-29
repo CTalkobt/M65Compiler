@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <cstdint>
 
 class ASTVisitor;
 class FunctionDeclaration; // forward declaration for StructDefinition::methods

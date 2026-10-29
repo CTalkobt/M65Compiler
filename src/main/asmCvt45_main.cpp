@@ -32,6 +32,7 @@
 #include "ConfigFile.hpp"
 #include <chrono>
 #include <atomic>
+#include <cstdlib>
 
 static void registerFormats() {
     // Register ca45 parser
@@ -106,8 +107,8 @@ static void registerFormats() {
 }
 
 static void showUsage(const char* progName) {
-    std::cerr << "cvt_asm - Assembler format converter\n";
-    std::cerr << suiteVersionString("cvt_asm") << "\n\n";
+    std::cerr << "asmCvt45 - Assembler format converter\n";
+    std::cerr << suiteVersionString("asmCvt45") << "\n\n";
     std::cerr << "Usage: " << progName << " [options] <input-file> [<input-file> ...]\n\n";
     std::cerr << "Options:\n";
     std::cerr << "  -f <format>    Input format (default: auto-detect from extension/modeline)\n";
@@ -116,7 +117,7 @@ static void showUsage(const char* progName) {
     std::cerr << "  --validate     Verify round-trip conversion (A → target → A)\n";
     std::cerr << "  --stats        Show detailed conversion statistics and loss analysis\n";
     std::cerr << "  -l             List supported formats and exit\n";
-    std::cerr << "  -v ... -vvvv   Log to stderr ([cvt_asm:INFO] ...): each file's formats, parse and\n"
+    std::cerr << "  -v ... -vvvv   Log to stderr ([asmCvt45:INFO] ...): each file's formats, parse and\n"
               << "                 write steps, the summary; -v0 off\n";
     std::cerr << "  --help         Show this help message\n";
     std::cerr << "  --version      Show version information\n";
@@ -776,7 +777,7 @@ int main(int argc, char** argv) {
     std::string outputDir = configSettings.output_dir;  // Use config default
     bool verbose = false;
     int verbosity = 0;
-    Logger::setTool("cvt_asm");
+    Logger::setTool("asmCvt45");
     bool validateMode = configSettings.validate_round_trip;  // Use config default
     bool statsMode = false;
     bool metricsMode = configSettings.metrics_default;  // Phase 5a: Use config default
@@ -807,8 +808,8 @@ int main(int argc, char** argv) {
         } else if (arg == "--threads" && i + 1 < argc) {  // Phase 4b
             numThreads = std::atoi(argv[++i]);
         } else if (arg == "--init-config") {  // Phase 5a
-            ConfigFile::writeDefault(".cvtasmrc");
-            std::cout << "Created .cvtasmrc with default configuration.\n";
+            ConfigFile::writeDefault(".asmCvt45rc");
+            std::cout << "Created .asmCvt45rc with default configuration.\n";
             return 0;
         } else if (arg == "--show-config") {  // Phase 5a
             config.printConfig();
@@ -823,7 +824,7 @@ int main(int argc, char** argv) {
             showUsage(argv[0]);
             return 0;
         } else if (arg == "--version") {
-            std::cout << suiteVersionString("cvt_asm") << "\n";
+            std::cout << suiteVersionString("asmCvt45") << "\n";
             return 0;
         } else if (arg[0] != '-') {
             inputFiles.push_back(arg);

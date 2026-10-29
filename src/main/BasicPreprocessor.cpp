@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <ctime>
 #include <cstring>
+#include <stdexcept>
 
 namespace fs = std::filesystem;
 

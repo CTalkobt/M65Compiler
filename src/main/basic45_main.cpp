@@ -19,6 +19,7 @@
 #include "Version.hpp"
 #include "BasicStructured.hpp"
 #include "BasicDecompiler.hpp"
+#include "BasicDataLoader.hpp"
 #include "BasicFormatter.hpp"
 #include <filesystem>
 #include <map>
@@ -28,6 +29,7 @@
 #include <sys/wait.h>
 #include <csignal>
 #include <unistd.h>
+#include <iterator>
 
 namespace fs = std::filesystem;
 
@@ -69,6 +71,9 @@ struct Options {
     std::string sendCmd;                  // --send-cmd: the command, {prg} = the program
     bool format = false;                  // --format: rewrite the source, do not build
     bool outputGiven = false;             // -o was given
+    bool dataLoader = false;              // --data-loader: machine code as a DATA loader (#370)
+    DataLoaderOptions loader;             // its options
+    int loaderStart = -1;                 // --start
 };
 
 class SymbolTable {
@@ -200,11 +205,24 @@ static void printUsage(const char* progName) {
     std::cout << "                      after the program; SYS {name} calls its function name" << std::endl;
     std::cout << "  --lib <file>        The C library for --link (default: c45.lib)" << std::endl;
     std::cout << "  --decompile         Turn a BASIC .prg into basic45 source (also for a .prg input)" << std::endl;
+    std::cout << "  --data-loader       The input (machine code: a .prg, or a binary with --load-at) as a" << std::endl;
+    std::cout << "                      BASIC program that POKEs it from DATA lines and SYSes it; -o x.bas" << std::endl;
+    std::cout << "                      or -o - writes the source. With --hex, --checksum, --per-line <n>," << std::endl;
+    std::cout << "                      --start <line>, --increment <n>, --no-sys, --load-at <addr>" << std::endl;
     std::cout << "  --list-tokens       List all supported BASIC keywords and exit" << std::endl;
     std::cout << "  -v, --verbose       Log to stderr ([basic45:INFO] ...): files, addresses, steps;" << std::endl;
     std::cout << "                      -vv ... -vvvv more detail, -v0 off" << std::endl;
     std::cout << "  --version           Show version" << std::endl;
     std::cout << "  -h, --help          Show this help" << std::endl;
+}
+
+// a hex address: 2001, $2001 or 0x2001 (-1 if it is not one, or above $FFFF)
+static int32_t parseHexAddress(const std::string& s) {
+    std::string v = s;
+    if (!v.empty() && v[0] == '$') v = v.substr(1);
+    else if (v.size() > 2 && v[0] == '0' && (v[1] == 'x' || v[1] == 'X')) v = v.substr(2);
+    if (v.empty() || v.size() > 4 || v.find_first_not_of("0123456789abcdefABCDEF") != std::string::npos) return -1;
+    return (int32_t)std::stoul(v, nullptr, 16);
 }
 
 static Options parseArgs(int argc, char* argv[]) {
@@ -219,8 +237,24 @@ static Options parseArgs(int argc, char* argv[]) {
         } else if (arg == "--symbols" && i + 1 < argc) {
             opts.symbolFile = argv[++i];
         } else if (arg == "--load" && i + 1 < argc) {
-            std::istringstream iss(argv[++i]);
-            iss >> std::hex >> opts.loadAddress;
+            int32_t a = parseHexAddress(argv[++i]);
+            if (a < 0) { std::cerr << "basic45: --load takes a hex address (2001, $2001, 0x2001)" << std::endl; exit(1); }
+            opts.loadAddress = (uint16_t)a;
+        } else if (arg == "--data-loader") {
+            opts.dataLoader = true;
+        } else if (arg == "--load-at" && i + 1 < argc) {
+            opts.loader.loadAt = parseHexAddress(argv[++i]);
+            if (opts.loader.loadAt < 0) { std::cerr << "basic45: --load-at takes a hex address (7000, $7000, 0x7000)" << std::endl; exit(1); }
+        } else if (arg == "--per-line" && i + 1 < argc) {
+            opts.loader.perLine = std::atoi(argv[++i]);
+        } else if (arg == "--start" && i + 1 < argc) {
+            opts.loaderStart = std::atoi(argv[++i]);
+        } else if (arg == "--hex") {
+            opts.loader.hex = true;
+        } else if (arg == "--checksum") {
+            opts.loader.checksum = true;
+        } else if (arg == "--no-sys") {
+            opts.loader.sys = false;
         } else if (arg == "--verbose" || Logger::parseFlag(arg, opts.verbosity)) {
             if (arg == "--verbose") opts.verbosity = std::max(opts.verbosity, 1);
             Logger::setLevel(opts.verbosity);   // -v ... -vvvv, -v0
@@ -295,8 +329,8 @@ static Options parseArgs(int argc, char* argv[]) {
         }
     }
 
-    // a .prg input is decompiled
-    if (opts.inputFile.size() > 4 &&
+    // a .prg input is decompiled (not the machine code of --data-loader)
+    if (!opts.dataLoader && opts.inputFile.size() > 4 &&
         opts.inputFile.compare(opts.inputFile.size() - 4, 4, ".prg") == 0)
         opts.decompile = true;
 
@@ -306,7 +340,7 @@ static Options parseArgs(int argc, char* argv[]) {
         if (dot != std::string::npos) {
             opts.outputFile = opts.outputFile.substr(0, dot);
         }
-        opts.outputFile += opts.decompile ? ".bas" : ".prg";
+        opts.outputFile += opts.decompile ? ".bas" : opts.dataLoader ? "-loader.prg" : ".prg";
     }
 
     return opts;
@@ -420,6 +454,19 @@ static void printTokens() {
     if (col % 3 != 0) {
         std::cout << std::endl;
     }
+
+    std::vector<std::pair<uint8_t, std::string>> ceSorted;
+    for (const auto& kw : tokenizer.getCeKeywords()) ceSorted.push_back({kw.second, kw.first});
+    std::sort(ceSorted.begin(), ceSorted.end());
+    std::cout << std::endl;
+    std::cout << "MEGA65 BASIC 65 Two-byte Functions (0xCE + byte, total: " << ceSorted.size() << ")" << std::endl;
+    std::cout << std::endl;
+    col = 0;
+    for (const auto& token : ceSorted) {
+        printf("0xCE%02X %-14s  ", token.first, token.second.c_str());
+        if (++col % 3 == 0) std::cout << std::endl;
+    }
+    if (col % 3 != 0) std::cout << std::endl;
 }
 
 
@@ -523,6 +570,37 @@ int main(int argc, char* argv[]) {
     }
 
     // --format: the source re-laid out (standard output, or -o)
+    // --data-loader: the machine code as a BASIC loader (DATA lines, POKE,
+    // SYS); written as source (-o x.bas, -o -) or built as any program
+    std::string loaderSource;
+    uint32_t loaderAddr = 0, loaderCount = 0;
+    if (opts.dataLoader) {
+        if (opts.inputFile.empty()) { std::cerr << "basic45: --data-loader needs the machine-code program" << std::endl; return 1; }
+        if (!opts.linkFiles.empty()) { std::cerr << "basic45: --data-loader and --link do not go together" << std::endl; return 1; }
+        auto lower = [](std::string s) { for (auto& c : s) c = (char)std::tolower((unsigned char)c); return s; };
+        std::string in = lower(opts.inputFile);
+        opts.loader.isPrg = in.size() > 4 && in.compare(in.size() - 4, 4, ".prg") == 0;
+        opts.loader.name = fs::path(opts.inputFile).filename().string();
+        opts.loader.increment = opts.lineIncrement ? opts.lineIncrement : 10;
+        opts.loader.start = opts.loaderStart >= 0 ? opts.loaderStart : opts.loader.increment;
+        auto r = makeDataLoader(readBinary(opts.inputFile), opts.loader);
+        if (!r.ok) { std::cerr << opts.inputFile << ": error: " << r.error << std::endl; return 1; }
+        loaderAddr = r.address;
+        loaderCount = r.count;
+        if (loaderAddr < 0x2000)
+            std::cerr << opts.inputFile << ": warning: the code goes to $" << std::hex << loaderAddr << std::dec
+                      << ", below $2000: BASIC 65's system and screen memory" << std::endl;
+        std::string out = lower(opts.outputFile);
+        if (opts.outputFile == "-" || (out.size() > 4 && out.compare(out.size() - 4, 4, ".bas") == 0)) {
+            if (opts.outputFile == "-") { std::cout << r.source; return 0; }
+            std::ofstream f(opts.outputFile);
+            if (!f) { std::cerr << "Error: Could not write " << opts.outputFile << std::endl; return 1; }
+            f << r.source;
+            return 0;
+        }
+        loaderSource = r.source;
+    }
+
     if (opts.format) {
         std::string formatted = formatBasic(readFile(opts.inputFile));
         if (!opts.outputGiven || opts.outputFile == "-") {
@@ -563,7 +641,7 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    std::string originalSource = readFile(opts.inputFile);
+    std::string originalSource = opts.dataLoader ? loaderSource : readFile(opts.inputFile);
     std::string sourceCode;
 
     // Preprocess (handle #include, #define, #ifdef, etc.)
@@ -754,6 +832,14 @@ int main(int argc, char* argv[]) {
         result = build(symbols);
         if (!result.ok) return 1;
         binary = result.binary;
+        // the loaded code must not overwrite the loader (BASIC's program text)
+        uint32_t basicEnd = opts.loadAddress + (uint32_t)binary.size() - 2;
+        if (opts.dataLoader && loaderAddr < basicEnd && loaderAddr + loaderCount > opts.loadAddress) {
+            std::cerr << opts.inputFile << ": error: the code ($" << std::hex << loaderAddr << "-$"
+                      << loaderAddr + loaderCount - 1 << ") would overwrite the loader ($" << opts.loadAddress
+                      << "-$" << basicEnd - 1 << ")" << std::dec << std::endl;
+            return 1;
+        }
     } else {
         // Pass 1: every symbol not yet known as $FFFF (the most digits), to
         // place the code after the program

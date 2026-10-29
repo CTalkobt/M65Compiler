@@ -3,6 +3,7 @@
 #include <vector>
 #include <string>
 #include <algorithm>
+#include <iterator>
 #include "O45Archive.hpp"
 #include "O45Reader.hpp"
 #include "Version.hpp"

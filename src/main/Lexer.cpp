@@ -5,6 +5,7 @@
 #include <map>
 #include <cstdint>
 #include <iostream>
+#include <stdexcept>
 
 Lexer::Lexer(const std::string& source) : source(source), pos(0), line(1), column(1), absLine(1), sourceFile("") {
     // Initialize with the main file context

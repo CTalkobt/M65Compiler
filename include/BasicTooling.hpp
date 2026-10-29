@@ -6,6 +6,7 @@
 #include <functional>
 #include <memory>
 #include <chrono>
+#include <cstdint>
 
 // Dry-run mode - compile but don't write files
 class DryRunMode {

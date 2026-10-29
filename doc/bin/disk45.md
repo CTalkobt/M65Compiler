@@ -232,7 +232,7 @@ Change the disk name and/or ID (at least one option is required).
 disk45 info <image>
 ```
 
-Show metadata. TAP images show version, platform, data size and file count; GEOS CVT files show GEOS name, type, structure (VLIR/sequential, record count), class, author and description; disk images formatted for GEOS also show the `GEOS format` signature; other images show format, name, ID, tracks, total/free sectors, image size and file count.
+Show metadata. TAP images show version, platform, the timing they are decoded with, data size, file count and each file's state (`verified`, `repaired` with why, `DAMAGED` with why; see [Tape Formats](#tape-formats)); GEOS CVT files show GEOS name, type, structure (VLIR/sequential, record count), class, author and description; disk images formatted for GEOS also show the `GEOS format` signature; other images show format, name, ID, tracks, total/free sectors, image size and file count.
 
 #### validate / check
 
@@ -750,8 +750,16 @@ NIB, NBZ and Zipcode are read-only: `create` refuses them and changes are refuse
 
 | Extension | Format | R/W | Notes |
 |-----------|--------|-----|-------|
-| `.tap` | TAP | R | Raw tape pulses, decoded with CBM ROM loader rules. |
+| `.tap` | TAP | R | Raw tape pulses in the KERNAL's tape format: C64, VIC-20 and C16 / Plus 4 tapes; versions 0, 1 and 2 (half-waves). |
 | `.t64` | T64 | R/W | Tape container. |
+
+**TAP decoding.** A tape holds each block twice: a pilot tone of short pulses, a countdown (`$89`…`$81`, then `$09`…`$01` for the second copy), the bytes (each a long+medium marker, 8 bits least significant first, each bit a short and a medium pulse, and an odd parity bit), and a checksum (the EOR of the bytes). disk45 reads it as the KERNAL does:
+
+- **Timing:** the pulses' boundaries (short, medium, long) are calibrated from each pilot tone, so NTSC machines and tapes running fast or slow read too. The ratios between the pulses come from the platform in the TAP header: 1 : 1.4 : 1.8 for the C64 and VIC-20, 1 : 2 : 4 for the C16 / Plus 4 (whose TAPs, version 2, store half-waves). `--tap-timing=c64|vic20|c16` (anywhere on the command line) uses another machine's ratios.
+- **Checks:** each byte's parity, each block's checksum, the countdown. A block bad in its first copy is read from its second (the file is *repaired*); bad in both, the file is *damaged*: `list` shows it as not closed (`*PRG`), `info` says why, and `extract` refuses it rather than write wrong data.
+- **Files:** a program (header types 1 and 3) is its header and one data block, extracted as a PRG with its load address; a SEQ file (type 4) is its header and its type-2 blocks of 191 bytes, the last one's `$00` padding dropped. An end-of-tape block (type 5) is skipped.
+
+`src/test/make_tap.py` writes TAPs in this format (C64, VIC-20, C16; a speed factor, jitter, a damaged copy of a block) for `test_disk45.sh`.
 
 ### Archives & Containers
 

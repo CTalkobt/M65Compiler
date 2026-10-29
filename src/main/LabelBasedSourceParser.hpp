@@ -16,6 +16,7 @@ struct SourceLine {
     std::string pragma;         // a #pragma line ("encoding petscii"), no code
     int sourceLineNum;          // Original line number in source
     uint16_t basicLineNum = 0;  // its BASIC line number (0: no line of its own)
+    uint16_t writtenNum = 0;    // a numbered program: the line's own number (0: none written)
 };
 
 struct LabelInfo {
@@ -41,6 +42,10 @@ public:
     void assignLineNumbers(uint16_t startLineNum, uint16_t lineIncrement);
     uint16_t getTrailingLineNum() const { return trailingLineNum; }
 
+    // A numbered program (a line starts with its number, as a classic
+    // listing): the lines keep their numbers, assignLineNumbers checks them
+    bool isNumbered() const { return numbered; }
+
     // Validate all label references (and the line numbers): errors as
     // (source line, message), source line 0 when there is none
     bool validate(std::vector<std::pair<int, std::string>>& errors);
@@ -62,6 +67,12 @@ public:
                                 const std::function<bool(const std::string&)>& isLabel,
                                 const std::function<void(size_t, const std::string&)>& f);
 
+    // The line numbers a line's tokens jump to: the number after GOTO, GOSUB,
+    // GO TO (and each further one of an ON ... GOTO/GOSUB list), THEN, ELSE,
+    // RESTORE, TRAP, RESUME and RUN; f(tokenIndex, number)
+    static void forEachLineNumberRef(const std::vector<BasicToken>& tokens,
+                                     const std::function<void(size_t, uint16_t)>& f);
+
     static std::string upper(const std::string& s);
 
 private:
@@ -74,6 +85,8 @@ private:
     std::unordered_map<std::string, int> labelLine;      // label -> its first definition's source line
     uint16_t trailingLineNum = 0;
     bool lineNumberOverflow = false;
+    bool numbered = false;
+    std::vector<std::pair<int, std::string>> numberErrors;   // (source line, message)
 
     // Helper methods
     void extractLabelsAndReferences();

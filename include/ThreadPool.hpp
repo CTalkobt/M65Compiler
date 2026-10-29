@@ -8,6 +8,7 @@
 #include <memory>
 #include <atomic>
 #include <future>
+#include <stdexcept>
 
 // Phase 4b: Thread pool for parallel batch conversion
 class ThreadPool {

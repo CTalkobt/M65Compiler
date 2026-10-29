@@ -6,6 +6,7 @@
 #include <cassert>
 #include <iostream>
 #include <string>
+#include <cstdlib>
 
 // Test 1: Feedback recorder initializes correctly
 void testFeedbackRecorderInitialization() {

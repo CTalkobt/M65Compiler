@@ -19,7 +19,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential
+          sudo apt-get install -y build-essential pkg-config libsqlite3-dev zlib1g-dev libfuse3-dev
 
       - name: Build compiler suite
         run: make all
@@ -50,3 +50,18 @@ jobs:
       - name: Clean build artifacts
         run: make clean
         if: always()
+
+  # A clean build with each distribution's compiler (newer GCC, musl, clang):
+  # src/test/test_distro_builds.sh, one distribution per job
+  distros:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        distro: [ubuntu2204, debian13, fedora, fedora-clang, arch, alpine, opensuse, rocky9]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build in ${{ matrix.distro }}
+        run: bash src/test/test_distro_builds.sh ${{ matrix.distro }}

@@ -12,6 +12,7 @@
 #include <iomanip>
 #include <iostream>
 #include <sstream>
+#include <cctype>
 
 static const std::map<std::string, size_t>& printfLikeFunctions();
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-# cvt_asm tests (make test): ca45 input converted to each dialect
+# asmCvt45 tests (make test): ca45 input converted to each dialect
 #
 # - ca45 -> ca45 round trip: every src/test-resources/*.s45 that ca45 assembles
 #   as a flat binary assembles to the same bytes after conversion
@@ -10,7 +10,7 @@
 #   directives and ca45-only syntax are reported
 
 cd "$(dirname "$0")/../.."
-CVT=./bin/cvt_asm
+CVT=./bin/asmCvt45
 CA45=./bin/ca45
 T=$(mktemp -d)
 trap 'rm -rf "$T"' EXIT
@@ -19,7 +19,7 @@ failed=0
 pass() { echo "  PASS: $1"; passed=$((passed + 1)); }
 fail() { echo "  FAIL: $1"; failed=$((failed + 1)); }
 
-echo "=== cvt_asm ==="
+echo "=== asmCvt45 ==="
 
 # ca45 -> ca45 round trip over the test sources
 n=0; bad=""
@@ -308,9 +308,9 @@ grep -q "unknown directive '.bogus'" <<< "$W" && grep -q "kept as written: ca45 
 # .if/.rodata/.asciiz/.lobytes; ACME !zone .locals, + - anonymous labels, !macro with .params,
 # !if { } else { }, !pet/!scr, !align mask; KickAssembler .macro(params),
 # !: multi-labels, ((zp)),z, .if () { }) convert to ca45 that assembles to
-# the bytes the real assembler made of them (src/test-resources/cvt_asm/
+# the bytes the real assembler made of them (src/test-resources/asmCvt45/
 # *.bin: ca65 2.18 + ld65 at $2000, ACME 0.97, KickAssembler 65CE02, #224)
-NV=src/test-resources/cvt_asm
+NV=src/test-resources/asmCvt45
 nbad=""
 for spec in "ca65|native_ca65.s65" "acme|native_acme.a65" "kickassembler|native_kick.ka"; do
     IFS='|' read -r nd nf <<< "$spec"
@@ -329,11 +329,11 @@ done
     fail "native programs:$nbad"
 
 # the older format tests
-if bash src/test-resources/test_cvt_asm.sh >"$T/old.log" 2>&1; then
-    pass "test_cvt_asm.sh (format pairs)"
+if bash src/test-resources/test_asmCvt45.sh >"$T/old.log" 2>&1; then
+    pass "test_asmCvt45.sh (format pairs)"
 else
-    fail "test_cvt_asm.sh"; tail -5 "$T/old.log"
+    fail "test_asmCvt45.sh"; tail -5 "$T/old.log"
 fi
 
-echo "cvt_asm tests: $passed passed, $failed failed"
+echo "asmCvt45 tests: $passed passed, $failed failed"
 [ "$failed" -eq 0 ]

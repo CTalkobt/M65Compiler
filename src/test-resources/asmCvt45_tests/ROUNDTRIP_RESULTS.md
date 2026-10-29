@@ -1,4 +1,4 @@
-# cvt_asm Round-Trip Preservation Test Results
+# asmCvt45 Round-Trip Preservation Test Results
 
 ## Test Overview
 
@@ -103,7 +103,7 @@ Some formats have unique features not representable in other formats:
 
 Run preservation tests:
 ```bash
-python3 src/test-resources/test_cvt_asm_roundtrip.py
+python3 src/test-resources/test_asmCvt45_roundtrip.py
 ```
 
 Test files analyzed:

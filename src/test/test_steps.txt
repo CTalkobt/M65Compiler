@@ -25,7 +25,7 @@ Running function-local state tests...|bash src/test/test_function_locals.sh
 Running string escape tests...|bash src/test/test_string_escapes.sh
 Running signedness tests...|bash src/test/test_signedness.sh
 Running installed toolchain tests...|bash src/test/test_install.sh
-Running cvt_asm tests...|bash src/test/test_cvt_asm.sh
+Running asmCvt45 tests...|bash src/test/test_asmCvt45.sh
 Running shadow execution tests (cc45 vs host gcc)...|bash src/test/test_shadow_ir.sh
 Running clobber tracking tests...|bash src/test/test_clobber.sh
 Running library call convention tests...|bash src/test/test_libcall_conv.sh
@@ -34,3 +34,4 @@ Running disk45 tests...|bash src/test/test_disk45.sh
 Running new stdlib tests...|bash src/test/test_stdlib_new.sh
 Running the validation tests (bin/test_validation: 16 categories)...|mkdir -p src/test/build && ./bin/test_validation
 Running opcode tests...|make --no-print-directory test-opcodes
+Running basic45 tests...|bash src/test/test_basic45.sh

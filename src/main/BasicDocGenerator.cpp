@@ -1,6 +1,7 @@
 #include "BasicDocGenerator.hpp"
 #include <sstream>
 #include <algorithm>
+#include <cctype>
 
 std::string BasicDocGenerator::generateMarkdown(const std::string& source, const std::string& title) {
     entries.clear();

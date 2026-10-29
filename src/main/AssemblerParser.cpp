@@ -966,6 +966,10 @@ void AssemblerParser::pass1() {
                 while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) {
                     if (peek().type == AssemblerTokenType::COMMA) { advance(); continue; }
                     std::string sym = expect(AssemblerTokenType::IDENTIFIER, "Expected symbol name after .extern").value;
+                    // already defined above (a label, a constant): that is the
+                    // definition, as with .extern first; its entry (and its
+                    // segment) is kept (#372)
+                    if (symbolTable.count(sym) && symbolTable[sym].segment != "__extern__") continue;
                     if (!externIndex.count(sym)) {
                         uint32_t idx = (uint32_t)externSymbols.size();
                         externSymbols.push_back(sym);
@@ -2091,6 +2095,35 @@ void AssemblerParser::pass1() {
             externIndex.clear();
             for (uint32_t i = 0; i < externSymbols.size(); i++) externIndex[externSymbols[i]] = i;
         }
+    }
+    // .align in an object's text, data or bss: ln45 places an object's part
+    // of a segment on a boundary only for the weak absolute
+    // cc45.align.<segment> (lib45.md), which cc45 exports for _Alignas;
+    // exported here for .align too, the largest per segment (#373)
+    std::map<std::string, uint32_t> aligns;
+    for (const auto& s : statements) {
+        if (s->type != Statement::DIRECTIVE || (s->dir.name != "align" && s->dir.name != "balign") ||
+            s->dir.arguments.empty())
+            continue;
+        const std::string& seg = s->segmentName;
+        std::string key = seg == "data" ? "data" : seg == "bss" ? "bss"
+                        : (seg == "code" || seg == "text" || seg == "init" || seg == "default") ? "text" : "";
+        if (key.empty()) continue;   // zp, and the far / bank sub-segments (placed on their own)
+        uint32_t a = 0;
+        try { a = parseNumericLiteral(s->dir.arguments[0]); } catch (...) { continue; }
+        if (a > aligns[key]) aligns[key] = a;
+    }
+    for (const auto& [key, a] : aligns) {
+        if (a < 2) continue;
+        std::string name = "cc45.align." + key;
+        auto it = symbolTable.find(name);
+        if (it != symbolTable.end()) {
+            if (it->second.value < a) it->second.value = it->second.initialValue = a;
+            continue;
+        }
+        symbolTable[name] = {a, false, 2, false, false, a, false, 0, false, 0, ""};
+        globalSymbols.insert(name);
+        weakSymbols.insert(name);
     }
 }
 
