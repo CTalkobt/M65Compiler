@@ -4,6 +4,15 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### TGI: 640x200 text and circles faster
+
+- The 640x200 drivers' 1x glyph goes a byte column at a time down its rows
+  (two pixels a byte, no shifts in memory, stopping when no bits are left):
+  text at 1x 20 → 13 frames in `bench_tgi.sh` (the 320x200 driver: 11). A
+  whole ellipse's points are plotted without the arc's quarter tests:
+  circles 15 → 13 (11). The same pixels (the benchmark's checksums; random
+  scenes against the 320x200 driver, odd and even x).
+
 ### Example: tgi_demo at 640x200
 
 - `examples/c/tgi_demo` runs twice: at 320x200 in 256 colours, then at

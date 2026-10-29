@@ -60,13 +60,14 @@ __n_err:        .res 2  ; Bresenham's error
 __n_cnt:        .res 2  ; pixels left
 __n_sx:         .res 1  ; $FF: x goes left
 __n_sy:         .res 1  ; $FF: y goes up
-__n_row:        .res 1  ; the glyph's row
-__n_bits:       .res 1  ; its pixels left
+__n_row:        .res 1  ; a glyph's byte in its row of the character column
+__n_bits:       .res 1  ; its x odd
 __n_xe:         .res 2  ; a bar's last x, last y, height
 __n_ye:         .res 1
 __n_h:          .res 1
 __n_cc:         .res 1  ; the colour in both nibbles
 __n_t:          .res 2  ; a temporary
+__n_rows:       .res 8  ; a glyph's rows (its bits left)
 
 .segment "code"
 
@@ -761,9 +762,53 @@ proc ___tgi_n_eplot
     .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z, V
     ldz #0
-    ldy #$0F                ; Y: the quarters (bit q)
     bit ___tgi_arcon
-    bpl @plot
+    bmi @arc
+    lda __tgi_xbr           ; a whole ellipse: the 4 points, the right side's
+    lsr a                   ; nibble, then the left side's
+    bcs @rh
+    lda [P0],z
+    and #$F0
+    ora __n_cl
+    sta [P0],z
+    lda [P3],z
+    and #$F0
+    ora __n_cl
+    sta [P3],z
+    bra @left
+@rh:
+    lda [P0],z
+    and #$0F
+    ora __n_ch
+    sta [P0],z
+    lda [P3],z
+    and #$0F
+    ora __n_ch
+    sta [P3],z
+@left:
+    lda __tgi_xbl
+    lsr a
+    bcs @lh
+    lda [P1],z
+    and #$F0
+    ora __n_cl
+    sta [P1],z
+    lda [P2],z
+    and #$F0
+    ora __n_cl
+    sta [P2],z
+    rts
+@lh:
+    lda [P1],z
+    and #$0F
+    ora __n_ch
+    sta [P1],z
+    lda [P2],z
+    and #$0F
+    ora __n_ch
+    sta [P2],z
+    rts
+@arc:
     ldx #0                  ; the state's bit
     lda __tgi_ecs+3
     bpl @s1
@@ -843,108 +888,133 @@ proc ___tgi_n_eplot
 endproc
 
 ; __tgi_glyph(x, y, glyph): an 8x8 bitmap glyph (8 bytes at the 28-bit
-; address glyph, $14) with its top left at (x, y), on the screen. A row's
-; pixels go two at a time, a byte's (the row's bits from the left, after a
-; 0 when x is odd: 4 or 5 bytes); each byte is stored when both its pixels
-; are set, read, changed and written when one is, skipped when neither
+; address glyph, $14) with its top left at (x, y), on the screen. It goes a
+; byte column at a time (two pixels: the rows' two bits from the left, after
+; a lone right pixel first when x is odd), down its 8 rows (+8 each), until
+; no bits are left; a byte is stored when both its pixels are set, read,
+; changed and written when one is, skipped when neither
 proc ___tgi_n_glyph
     .zp_uses $10, $11, $12, $13, $14, $15, $16, $17
-    .reg_clobbers A, X, Y, Z
+    .reg_clobbers A, X, Z
     .flag_clobbers C, N, Z, V
     jsr __n_colour
     ora __n_cl
     sta __n_cc
-    jsr __n_addr            ; the top left
+    ldz #7                  ; the rows (the glyph's bits left)
+@copy:
+    tza
+    tax
+    lda [$14],z
+    sta __n_rows,x
+    dez
+    bpl @copy
     lda $10
     lsr a
     and #7
-    sta __n_x               ; (its byte in the character column's row)
+    sta __n_row             ; (the byte in its row of the character column)
     lda $10
     and #1
-    sta __n_x+1             ; (x odd: a 0 first)
-    lda #0
-    sta __n_row
-@row:
-    ldz __n_row
-    lda [$14],z
-    sta __n_t+1             ; the row's bits: (__n_t+1, __n_t) from the top
-    lda #0
-    sta __n_t
-    ldx #4                  ; (bytes)
-    lda __n_x+1
-    beq @even
-    lsr __n_t+1             ; a 0 first, a fifth byte
-    ror __n_t
-    inx
-@even:
-    stx __n_h
-    clc                     ; Q ($10) := PIX + row * 8 (the rows of a
-    lda __n_row             ; character column follow each other)
-    asl a
-    asl a
-    asl a
-    adc PIX
-    sta $10
-    lda PIX+1
-    adc #0
-    sta $11
-    lda PIX+2
-    sta $12
-    lda PIX+3
-    sta $13
-    ldx __n_x               ; X: the byte in its row of the character column
+    sta __n_bits            ; (x odd)
+    jsr __n_addr            ; the top left
     ldz #0
-@byte:
-    lda #0                  ; the next two bits
-    asl __n_t
-    rol __n_t+1
-    rol a
-    asl __n_t
-    rol __n_t+1
-    rol a
-    tay
-    beq @next               ; (neither)
-    lda @mask,y
-    cmp #$FF
-    beq @both
-    tay
-    and __n_cc
-    sta __n_y               ; (a temporary)
-    tya
-    eor #$FF
-    and [$10],z
-    ora __n_y
-    sta [$10],z
-    bra @next
-@both:
-    lda __n_cc
-    sta [$10],z
-@next:
-    dec __n_h
-    beq @rowend
-    cpx #7                  ; the next byte: + 1, or the next character column
+    lda __n_bits
     beq @col
-    inx
-    inw $10
-    bra @byte
-@col:
+    ldq PIX                 ; x odd: bit 7 the first byte's right pixel
+    stq $10
     ldx #0
+@o:
+    lda __n_rows,x
+    asl a
+    sta __n_rows,x
+    bcc @on
+    lda [$10],z
+    and #$0F
+    ora __n_ch
+    sta [$10],z
+@on:
+    inx
+    cpx #8
+    beq @ocol
     clc
     lda $10
-    adc #<XNEXT
+    adc #8
     sta $10
-    lda $11
-    adc #>XNEXT
-    sta $11
-    bra @byte
-@rowend:
-    inc __n_row
-    lda __n_row
-    cmp #8
-    bne @row
+    bcc @o
+    inc $11
+    bra @o
+@ocol:
+    jsr @next
+@col:
+    lda #0                  ; any bits left?
+    ldx #7
+@any:
+    ora __n_rows,x
+    dex
+    bpl @any
+    cmp #0
+    beq @out
+    ldq PIX
+    stq $10
+    ldx #0
+@r:
+    lda __n_rows,x
+    beq @rn
+    asl a
+    bcs @l
+    asl a
+    sta __n_rows,x
+    bcc @rn                 ; (neither)
+    lda [$10],z             ; the right pixel: the high nibble
+    and #$0F
+    ora __n_ch
+    sta [$10],z
+    bra @rn
+@l:
+    asl a
+    sta __n_rows,x
+    bcc @lo
+    lda __n_cc              ; both
+    sta [$10],z
+    bra @rn
+@lo:
+    lda [$10],z             ; the left pixel: the low nibble
+    and #$F0
+    ora __n_cl
+    sta [$10],z
+@rn:
+    inx
+    cpx #8
+    beq @cend
+    clc
+    lda $10
+    adc #8
+    sta $10
+    bcc @r
+    inc $11
+    bra @r
+@cend:
+    jsr @next
+    bra @col
+@out:
     rts
-@mask:                      ; (left, right): the left pixel the low nibble
-    .byte $00, $F0, $0F, $FF
+@next:                      ; PIX: the next byte column, + 1 or the next
+    lda __n_row             ; character column
+    cmp #7
+    beq @nc
+    inc __n_row
+    inw PIX
+    rts
+@nc:
+    lda #0
+    sta __n_row
+    clc
+    lda PIX
+    adc #<XNEXT
+    sta PIX
+    lda PIX+1
+    adc #>XNEXT
+    sta PIX+1
+    rts
     .func_flags zp_call
 endproc
 
