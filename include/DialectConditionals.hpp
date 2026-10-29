@@ -1,5 +1,5 @@
 #pragma once
-// Conditional assembly in a dialect's own syntax, resolved for cvt_asm's
+// Conditional assembly in a dialect's own syntax, resolved for asmCvt45's
 // readers (#224): ca45 has no conditional assembly, so the readers keep the
 // lines of the branches taken and drop the others.
 //

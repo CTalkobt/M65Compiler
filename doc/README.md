@@ -27,7 +27,7 @@ Documents are separated by their function and scope:
 | `objdump45` | Object file disassembler | [bin/objdump45.md](bin/objdump45.md) |
 | `disk45` | CBM disk/tape image utility | [bin/disk45.md](bin/disk45.md) |
 | `basic45` | BASIC program generator | [bin/basic45.md](bin/basic45.md) |
-| `cvt_asm` | Assembly source format converter | [bin/cvt_asm.md](bin/cvt_asm.md) |
+| `asmCvt45` | Assembly source format converter | [bin/asmCvt45.md](bin/asmCvt45.md) |
 
 Shared configuration files (`~/.config/m65/<tool>.conf`): [bin/CONFIGURATION.md](bin/CONFIGURATION.md).
 
@@ -76,7 +76,7 @@ All documentation must follow these directory rules to keep it clean and avoid b
   - `ca45.md` (Assembler)
   - `cc45.md` (Compiler)
   - `cp45.md` (Preprocessor)
-  - `cvt_asm.md` (Format Converter)
+  - `asmCvt45.md` (Format Converter)
   - `disk45.md` (Disk Utility)
   - `ln45.md` (Linker)
   - `nm45.md` (Symbol Lister)

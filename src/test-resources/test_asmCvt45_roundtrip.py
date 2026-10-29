@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-cvt_asm label and symbol round-trip preservation tests.
+asmCvt45 label and symbol round-trip preservation tests.
 
 Validates that labels and symbols are preserved when converting
 between different assembler formats and back.
@@ -75,10 +75,10 @@ class AssemblyAnalyzer:
 
 
 def run_conversion(input_fmt, output_fmt, input_file):
-    """Run cvt_asm format conversion and return output."""
+    """Run asmCvt45 format conversion and return output."""
     try:
         result = subprocess.run(
-            ['./bin/cvt_asm', '-f', input_fmt, '-t', output_fmt, str(input_file)],
+            ['./bin/asmCvt45', '-f', input_fmt, '-t', output_fmt, str(input_file)],
             capture_output=True,
             text=True,
             timeout=5
@@ -122,7 +122,7 @@ def test_roundtrip_preservation(input_fmt, output_fmt, test_file):
 def main():
     """Run label and symbol preservation tests."""
 
-    test_dir = Path('src/test-resources/cvt_asm_tests')
+    test_dir = Path('src/test-resources/asmCvt45_tests')
     if not test_dir.exists():
         print("Error: test directory not found")
         return 1
@@ -131,7 +131,7 @@ def main():
     passed = 0
     failed = 0
 
-    print("=== cvt_asm Label and Symbol Round-Trip Preservation Tests ===\n")
+    print("=== asmCvt45 Label and Symbol Round-Trip Preservation Tests ===\n")
 
     for input_fmt in formats:
         test_file = test_dir / f'{input_fmt}_test.asm'

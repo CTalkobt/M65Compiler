@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-// The reader the non-ca45 cvt_asm input formats share (ca65, ACME,
+// The reader the non-ca45 asmCvt45 input formats share (ca65, ACME,
 // KickAssembler, Merlin 64, Oscar, x65). A line is read as ca45's own reader
 // reads ca45 (Ca45Parser): a label, then a constant, an origin, a directive
 // or an instruction, its comment kept. An instruction's addressing mode comes
@@ -13,7 +13,7 @@
 // of another form is kept as written (RAW), so it reaches ca45 unchanged.
 // Each dialect gives its comment and label conventions and its directive
 // names; a directive written ".name" (or the dialect's prefix) that the
-// table does not know is kept with that name, as cvt_asm's writers pass on
+// table does not know is kept with that name, as asmCvt45's writers pass on
 // ca45-only directives.
 struct DialectSyntax {
     std::string name;                  // for messages

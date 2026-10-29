@@ -1,6 +1,6 @@
-# cvt_asm — Assembler Format Converter
+# asmCvt45 — Assembler Format Converter
 
-`cvt_asm` converts 6502/45GS02 assembly source between assembler syntaxes. Each input format has a parser that builds a common semantic representation (`AsmIR`), and each output format has a writer that prints it.
+`asmCvt45` converts 6502/45GS02 assembly source between assembler syntaxes. Each input format has a parser that builds a common semantic representation (`AsmIR`), and each output format has a writer that prints it.
 
 ## Formats
 
@@ -14,28 +14,28 @@
 | `oscar` | Oscar (Commodore 6502 assembler) | `.s6502` | `.s6502` |
 | `x65` | x65 | `.x65` | `.x65` |
 
-`cvt_asm -l` (or `--list-formats`) prints the registered parsers and writers. See [Readers and writers](#readers-and-writers) for what each format's reader takes and [Limitations](#limitations) for what does not convert. The [conversion guide](../architecture/cvt_asm-guide.md) lists what each format keeps, translates and loses, checked against ca65, ACME and KickAssembler, with worked examples (a cc65 module into a MEGA65 program, ACME ↔ KickAssembler, 6502 code ported to the 45GS02).
+`asmCvt45 -l` (or `--list-formats`) prints the registered parsers and writers. See [Readers and writers](#readers-and-writers) for what each format's reader takes and [Limitations](#limitations) for what does not convert. The [conversion guide](../architecture/asmCvt45-guide.md) lists what each format keeps, translates and loses, checked against ca65, ACME and KickAssembler, with worked examples (a cc65 module into a MEGA65 program, ACME ↔ KickAssembler, 6502 code ported to the 45GS02).
 
 ## Usage
 
 ```bash
-cvt_asm [options] <input-file> [<input-file> ...]
+asmCvt45 [options] <input-file> [<input-file> ...]
 ```
 
 | Option | Description |
 |--------|-------------|
 | `-f <format>` | Input format (default: auto-detect, see below). Must be a canonical name from the table |
-| `-t <format>` | Target format (default: `ca45`, or `default_format` from `.cvtasmrc`) |
+| `-t <format>` | Target format (default: `ca45`, or `default_format` from `.asmCvt45rc`) |
 | `-o <path>` | Output file for one input (unless `<path>` is an existing directory); for several inputs a directory (created if needed) receiving `<basename><target extension>` |
 | `-l`, `--list-formats` | List supported formats and exit |
-| `-v` … `-vvvv`, `-v0` | Log on stderr as `[cvt_asm:LEVEL] …` (the toolchain's format, `include/Logger.hpp`); cumulative, at most `-vvvv`; `-v0` off: detection, parse/write progress and the batch summaries; with `-v` the performance summary too (stderr) |
+| `-v` … `-vvvv`, `-v0` | Log on stderr as `[asmCvt45:LEVEL] …` (the toolchain's format, `include/Logger.hpp`); cumulative, at most `-vvvv`; `-v0` off: detection, parse/write progress and the batch summaries; with `-v` the performance summary too (stderr) |
 | `--stats` | Print conversion statistics (source/target counts, losses, preservation %) instead of the output |
 | `--validate` | Convert to the target and back, and report how much was preserved (`LOSSLESS` at ≥95%) instead of the output |
 | `--metrics` | Print the performance summary (time, files, include-cache hits) after converting |
 | `--parallel` | Convert several files in parallel |
 | `--threads <n>` | Worker threads for `--parallel` (0 = number of cores) |
 | `--clear-cache` | Clear the include-file cache before the batch |
-| `--init-config` | Write a default `.cvtasmrc` in the current directory and exit |
+| `--init-config` | Write a default `.asmCvt45rc` in the current directory and exit |
 | `--show-config` | Print the configuration in effect and exit |
 | `--help` | Show usage |
 | `--version` | Show version |
@@ -44,20 +44,20 @@ With one input and no `-o`, the result goes to stdout. With several inputs and n
 
 ### Input format detection
 
-Without `-f`, cvt_asm looks for an editor modeline in the first or last five lines — `vim: ft=<name>` / `vim: filetype=<name>` or `-*- mode: <name> -*-` — then falls back to the file extension. Modeline names may also be aliases: `45gs02`/`mega65` (ca45), `cc65`/`c65` (ca65), `a65` (acme), `merlin`/`m64`/`m6502` (merlin64), `commodore` (oscar), `kickass`/`ka` (kickassembler).
+Without `-f`, asmCvt45 looks for an editor modeline in the first or last five lines — `vim: ft=<name>` / `vim: filetype=<name>` or `-*- mode: <name> -*-` — then falls back to the file extension. Modeline names may also be aliases: `45gs02`/`mega65` (ca45), `cc65`/`c65` (ca65), `a65` (acme), `merlin`/`m64`/`m6502` (merlin64), `commodore` (oscar), `kickass`/`ka` (kickassembler).
 
 ```bash
-cvt_asm input.s45                       # ca45 -> ca45 (normalise) to stdout
-cvt_asm -t kickassembler input.s45 -o out.ka
-cvt_asm -f ca65 -t acme *.s65           # batch: writes <name>.a65 files
-cvt_asm -t ca65 -o converted/ a.s45 b.s45
-cvt_asm --stats -t acme input.s45
-cvt_asm --validate -t ca65 input.s45
+asmCvt45 input.s45                       # ca45 -> ca45 (normalise) to stdout
+asmCvt45 -t kickassembler input.s45 -o out.ka
+asmCvt45 -f ca65 -t acme *.s65           # batch: writes <name>.a65 files
+asmCvt45 -t ca65 -o converted/ a.s45 b.s45
+asmCvt45 --stats -t acme input.s45
+asmCvt45 --validate -t ca65 input.s45
 ```
 
-## Configuration File (`.cvtasmrc`)
+## Configuration File (`.asmCvt45rc`)
 
-cvt_asm looks for `.cvtasmrc` in the current directory and then in each parent directory, and uses the first one found. Lines starting with `;` or `#` are comments; settings are `key = value` in sections. Command-line options override them.
+asmCvt45 looks for `.asmCvt45rc` in the current directory and then in each parent directory, and uses the first one found (a `.cvtasmrc`, the file's name when the tool was `cvt_asm`, is read too). Lines starting with `;` or `#` are comments; settings are `key = value` in sections. Command-line options override them.
 
 ```ini
 [general]
@@ -91,7 +91,7 @@ The ca45 parser runs the real ca45 preprocessor and parser (`Preprocessor`, `Ass
 
 ## Architecture
 
-Parsers and writers are registered by name in `registerFormats()` in `src/main/cvt_asm_main.cpp`:
+Parsers and writers are registered by name in `registerFormats()` in `src/main/asmCvt45_main.cpp`:
 
 ```cpp
 ParserRegistry::getInstance().registerParser("ca65", []() -> AsmParser* { return new Ca65Parser(); });
@@ -103,7 +103,7 @@ A parser derives from `AsmParser` (`include/AsmParser.hpp`) and implements `AsmI
 To add a format:
 1. Add `include/XyzParser.hpp`/`src/main/XyzParser.cpp` and `include/XyzWriter.hpp`/`src/main/XyzWriter.cpp`.
 2. Register both in `registerFormats()`.
-3. Add `XyzParser.o XyzWriter.o` to `LIB45_TOOLS_OBJS` in the `Makefile` (cvt_asm links `lib45-tools.a`).
+3. Add `XyzParser.o XyzWriter.o` to `LIB45_TOOLS_OBJS` in the `Makefile` (asmCvt45 links `lib45-tools.a`).
 4. Optionally map its extension and aliases in `src/main/FormatDetection.cpp` and its output extension in `getFormatExtension()`.
 
 ## Conversion Examples
@@ -137,7 +137,7 @@ main:
         rts
 !endnamespace
 ```
-→ (`cvt_asm n.ka`)
+→ (`asmCvt45 n.ka`)
 ```asm
 game.main:
   LDA #$42
@@ -159,11 +159,11 @@ The six non-ca45 readers share one line-based reader (`DialectReader`), set up p
 
 Strings and character constants keep their bytes: a reader writes a dialect's strings as ca45 `.ascii` (plain ASCII) or `.byte` lists in that dialect's encoding, and `'c'` constants as numbers; the writers write ca45's `.text` (PETSCII), `.screencode` and `.ascii` as `.byte` lists of the bytes ca45 makes (the string in the comment), and its `'c'` (PETSCII: `'a'` is `$41`) as numbers. The Merlin 64 writer uses Merlin's keywords (`DFB`, `DW`, `ASC`, `DS`, `ENT`, `EXT`, directives indented out of the label column); a ca45 directive with no keyword in Merlin or Oscar is written `.name`.
 
-`test_cvt_asm.sh` (in `make test`) converts every test source that ca45 assembles as a flat binary to each dialect and back, and checks that it assembles to the same bytes; converts a program written in each dialect's own syntax (ca65, ACME, Merlin 64, KickAssembler, x65) and checks it against the same program written for ca45; and converts programs in ca65's, ACME's and KickAssembler's idioms (`src/test-resources/cvt_asm/native_*`: procedures, zones, macros, conditionals, anonymous labels) to ca45 and checks them against the bytes their own assemblers made.
+`test_asmCvt45.sh` (in `make test`) converts every test source that ca45 assembles as a flat binary to each dialect and back, and checks that it assembles to the same bytes; converts a program written in each dialect's own syntax (ca65, ACME, Merlin 64, KickAssembler, x65) and checks it against the same program written for ca45; and converts programs in ca65's, ACME's and KickAssembler's idioms (`src/test-resources/asmCvt45/native_*`: procedures, zones, macros, conditionals, anonymous labels) to ca45 and checks them against the bytes their own assemblers made.
 
 ## Limitations
 
-**ca45 input** is read from the (preprocessed) source as written: labels keep their spelling, operands and directive arguments their expressions and commas, constants (`name = expr`) and comments stay in place, and a label and a statement on one line both survive. ca45's own parse supplies the addressing modes. What only ca45 understands — simulated instructions (`add.16`), `proc`/`endproc`, `.repeat`, stack-relative operands — and the 65CE02/45GS02 addressing modes the reader has no IR form for (`(zp),z`, `[zp],z`) are written out as they were, with a warning (`'lda ($20),z' is kept as written: ca45 syntax or an addressing mode only 65CE02/45GS02 assemblers have`); KickAssembler gets `[zp],z` as `((zp)),z`. `#define` macros are expanded by the preprocessor and `.macro` … `.endmacro` as ca45 expands them; their definitions are not reproduced. ca45 → ca45 is lossless: `test_cvt_asm.sh` (in `make test`) converts every test source that ca45 assembles as a flat binary and checks that it assembles to the same bytes.
+**ca45 input** is read from the (preprocessed) source as written: labels keep their spelling, operands and directive arguments their expressions and commas, constants (`name = expr`) and comments stay in place, and a label and a statement on one line both survive. ca45's own parse supplies the addressing modes. What only ca45 understands — simulated instructions (`add.16`), `proc`/`endproc`, `.repeat`, stack-relative operands — and the 65CE02/45GS02 addressing modes the reader has no IR form for (`(zp),z`, `[zp],z`) are written out as they were, with a warning (`'lda ($20),z' is kept as written: ca45 syntax or an addressing mode only 65CE02/45GS02 assemblers have`); KickAssembler gets `[zp],z` as `((zp)),z`. `#define` macros are expanded by the preprocessor and `.macro` … `.endmacro` as ca45 expands them; their definitions are not reproduced. ca45 → ca45 is lossless: `test_asmCvt45.sh` (in `make test`) converts every test source that ca45 assembles as a flat binary and checks that it assembles to the same bytes.
 
 **Writers**: `.global`/`.extern`/`.weak` are written once, from the symbol table (`.export`/`.import` for ca65 and x65, `GLOBAL`/`EXTERN` for merlin64 and oscar). ACME and KickAssembler assemble one program without a linker, so they get comments (`; global: start`, `; extern: putc (define it before assembling)`), and segment switches become comments too (`; segment: data`, read back as segments); a program without an origin gets a `*= <address>` comment and a warning for ACME. Constants are `name = expr` (`.const name = expr` for KickAssembler). The CPU is written first, from the instructions used: `.setcpu "4510"` (ca65), `!cpu m65` (ACME), `.cpu _45gs02` (KickAssembler), or the 6502/65C02 forms. Data directives get each dialect's spelling (`.dword`/`!32`, `.res`/`!fill`/`.fill n, v`, `.align`/`!align m, 0, f`, `.fillto` as a fill up to the address, `.incbin`/`!binary`/`.import binary`); Merlin 64, Oscar and x65 get numeric `.dword`/`.fill` as byte lists and a warning for what they have no form for. `@local` labels become `<label>__name` where the dialect's `@` names are global (KickAssembler, Merlin 64, Oscar); ca65's `*` in a data list (the item's address) is replaced by a label of the line; instructions the target lacks (45GS02 32-bit and flat-memory ones in ca65, `ldq [zp],z` in ACME) are warned.
 
@@ -183,7 +183,7 @@ Warnings (unknown directives, constructs kept as written) always go to stderr; `
 Parse errors are printed per file and the file counts as failed:
 
 ```
-$ cvt_asm bad.s45
+$ asmCvt45 bad.s45
   Parse error: :2:1: error: Error parsing instruction 'lda': :2:11: error: Expected )
 ```
 
@@ -192,7 +192,7 @@ Other errors: `Error: Could not auto-detect input format for 'X'. Specify with -
 ## Build
 
 ```bash
-make bin/cvt_asm
+make bin/asmCvt45
 ```
 
 ## See Also

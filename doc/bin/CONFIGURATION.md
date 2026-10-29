@@ -9,7 +9,7 @@ This document describes the configuration files and environment variables the to
 | `cc45` | `~/.config/m65/cc45.conf` | Command-line arguments, whitespace-separated, quotes allowed |
 | `cp45` | `~/.config/m65/cp45.conf` | Same as cc45 (`cp45` is `cc45` under another name; the file is chosen by the program name) |
 | `ca45` | `~/.config/m65/ca45.conf`, then `./.ca45rc` | One command-line argument per line |
-| `cvt_asm` | `.cvtasmrc` in the current directory or the nearest parent directory | INI sections with `key = value` (see [cvt_asm](cvt_asm.md#configuration-file-cvtasmrc)) |
+| `asmCvt45` | `.asmCvt45rc` in the current directory or the nearest parent directory | INI sections with `key = value` (see [asmCvt45](asmCvt45.md#configuration-file-asmcvt45rc)) |
 
 `ln45`, `ar45`, `nm45`, `objdump45`, `basic45` and `disk45` read no configuration file.
 
@@ -76,9 +76,9 @@ For the options cc45 accepts see [cc45](cc45.md) (`cc45 -?`). Besides the `-O` l
 
 ca45 also accepts `StrengthReduction`, `AlgebraicSimplify`, `TypeNarrowing`, `BranchFold`, `CSE`, `LICM`, `CopyChains` and `AddrElemFusion`, but they have no effect in the assembler. Unknown names are ignored silently.
 
-## cvt_asm: `.cvtasmrc`
+## asmCvt45: `.asmCvt45rc`
 
-See [cvt_asm](cvt_asm.md#configuration-file-cvtasmrc). `cvt_asm --init-config` writes a default file and `--show-config` prints the settings in effect.
+See [asmCvt45](asmCvt45.md#configuration-file-asmcvt45rc). `asmCvt45 --init-config` writes a default file and `--show-config` prints the settings in effect.
 
 ## Environment Variables
 
@@ -111,4 +111,4 @@ To disable a file, rename it (`mv ~/.config/m65/cc45.conf{,.off}`); for ca45 als
 - [cc45.md](cc45.md) — C compiler
 - [ca45.md](ca45.md) — Assembler
 - [ln45.md](ln45.md) — Linker
-- [cvt_asm.md](cvt_asm.md) — Assembler format converter
+- [asmCvt45.md](asmCvt45.md) — Assembler format converter

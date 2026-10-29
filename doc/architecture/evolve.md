@@ -1,6 +1,6 @@
 # Evolution of the MEGA65 C Compiler Suite: A LLM-Assisted Development History
 
-**Project**: MEGA65 C Compiler Suite (cc45, ca45, ln45, ar45, nm45, objdump45, disk45, basic45, cvt_asm; cp45 is cc45 under another name)  
+**Project**: MEGA65 C Compiler Suite (cc45, ca45, ln45, ar45, nm45, objdump45, disk45, basic45, asmCvt45; cp45 is cc45 under another name)  
 **Period covered**: 2026-05-31 to 2026-08-23 (the narrative ends there; development continued afterwards)  
 **LLM**: Claude (Haiku 4.5, Opus 5, Sonnet 5)  
 **Status when written**: "v1.0.10" in `CLAUDE.md`; the tools' version string (`include/Version.hpp`) is `1.0.4`  
@@ -1000,7 +1000,7 @@ A complete C compiler toolchain for the MEGA65:
 7. **disk45**: Disk image utility (25 formats supported)
 8. **basic45**: BASIC program generator with preprocessing
 9. **cp45**: C preprocessor (the cc45 binary run as `cp45`)
-10. **cvt_asm**: converter between 6502 assembler source formats
+10. **asmCvt45**: converter between 6502 assembler source formats
 
 ### Capabilities Delivered
 

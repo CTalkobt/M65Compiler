@@ -11,7 +11,7 @@ BUG_DIR = os.path.join(ARCH_DIR, "bug")
 
 # Set of allowed tools/programs for doc/bin
 ALLOWED_BIN_DOCS = {
-    "ar45.md", "ca45.md", "cc45.md", "cp45.md", "cvt_asm.md",
+    "ar45.md", "ca45.md", "cc45.md", "cp45.md", "asmCvt45.md",
     "disk45.md", "ln45.md", "nm45.md", "objdump45.md", "pack45.md", "basic45.md", "tune45.md", "dbg45.md", "CONFIGURATION.md"
 }
 
