@@ -1,0 +1,45 @@
+// a KickAssembler program in KickAssembler's idioms
+.cpu _45gs02
+*= $2000
+.const SCREEN = $0400
+.const DEBUG = 0
+.const zpptr = $40
+.label border = $d020
+
+.macro setBorder(col) {
+        lda #col
+        sta border
+}
+
+main:   setBorder(2)
+        ldx #0
+loop:   lda msg,x
+        beq done
+        sta SCREEN,x
+        inx
+        bne loop
+done:   jsr helper
+        rts
+
+helper:
+        ldy #3
+!:      dey
+        bne !-
+        ldz #1
+        lda ((zpptr)),z
+        rts
+
+dbg:
+.if (DEBUG == 1) {
+        lda #1
+} else {
+        lda #2
+}
+
+msg:    .text "hello"
+        .byte 0
+        .word main, helper
+        .dword $12345678
+        .fill 3, $ea
+        .align $10
+        .byte 1, 2

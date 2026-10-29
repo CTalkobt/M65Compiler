@@ -304,6 +304,30 @@ W=$($CVT -t acme "$T/w.s45" 2>&1 >/dev/null)
 grep -q "unknown directive '.bogus'" <<< "$W" && grep -q "kept as written: ca45 syntax or an addressing mode only 65CE02/45GS02" <<< "$W" &&
     pass "unknown directives and ca45-only syntax are reported" || fail "warnings ($W)"
 
+# Native programs in each dialect's idioms (ca65 .proc/@locals/.define/
+# .if/.rodata/.asciiz/.lobytes; ACME !zone .locals, !macro with .params,
+# !if { } else { }, !pet/!scr, !align mask; KickAssembler .macro(params),
+# !: multi-labels, ((zp)),z, .if () { }) convert to ca45 that assembles to
+# the bytes the real assembler made of them (src/test-resources/cvt_asm/
+# *.bin: ca65 2.18 + ld65 at $2000, ACME 0.97, KickAssembler 65CE02, #224)
+NV=src/test-resources/cvt_asm
+nbad=""
+for spec in "ca65|native_ca65.s65" "acme|native_acme.a65" "kickassembler|native_kick.ka"; do
+    IFS='|' read -r nd nf <<< "$spec"
+    nb="${nf%.*}"
+    $CVT -f "$nd" -t ca45 "$NV/$nf" -o "$T/$nb.s45" 2>/dev/null
+    if [ "$nd" = ca65 ]; then
+        # (relocatable, as ca65 code is: linked at $2000, code then data)
+        (cd "$T" && CA45_OPTIMIZE=0 "$OLDPWD/$CA45" -c "$nb.s45" -o "$nb.o45" >/dev/null 2>&1 &&
+            "$OLDPWD/bin/ln45" -prg -t 2000 -o "$nb.prg" "$nb.o45" >/dev/null 2>&1 && tail -c +3 "$nb.prg" > "$nb.bin")
+    else
+        (cd "$T" && CA45_OPTIMIZE=0 "$OLDPWD/$CA45" "$nb.s45" -o "$nb.bin" >/dev/null 2>&1)
+    fi
+    cmp -s "$NV/$nb.bin" "$T/$nb.bin" || nbad="$nbad $nd"
+done
+[ -z "$nbad" ] && pass "native ca65, ACME and KickAssembler programs convert to the bytes their assemblers made" ||
+    fail "native programs:$nbad"
+
 # the older format tests
 if bash src/test-resources/test_cvt_asm.sh >"$T/old.log" 2>&1; then
     pass "test_cvt_asm.sh (format pairs)"
