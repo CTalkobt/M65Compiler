@@ -2072,6 +2072,14 @@ for tgmode in "zp|" "stack|-fno-zpcall"; do
     xemu_case "FAIL: test_tgi_xemu.c $tgname (compilation/linking failed)" "src/test-resources/test_tgi_xemu.c" "build/test/test_tgi_${tgname}_xemu.prg" "$tgflags" -- "test_tgi_$tgname" "build/test/test_tgi_${tgname}_xemu.prg" "C0C0" 13 "01 01 01 01 01 01 01 01 01 01 01 01 AA"
 done
 
+# Test: <tgi.h>'s 640x200, 16-colour driver (nibble-colour characters at
+# H640): the mode, pixels as nibbles, lines, bars, text, a circle, the palette
+for tnmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r tnname tnflags <<< "$tnmode"
+    echo "Testing test_tgi_ncm_xemu.c ($tnname)..."
+    xemu_case "FAIL: test_tgi_ncm_xemu.c $tnname (compilation/linking failed)" "src/test-resources/test_tgi_ncm_xemu.c" "build/test/test_tgi_ncm_${tnname}_xemu.prg" "$tnflags" -- "test_tgi_ncm_$tnname" "build/test/test_tgi_ncm_${tnname}_xemu.prg" "C0C0" 11 "01 01 01 01 01 01 01 01 01 01 AA"
+done
+
 # Test: <tgi.h>'s .vfn vector font files (written to an empty D81, loaded,
 # drawn; a missing file, a bad magic)
 for tvmode in "zp|" "stack|-fno-zpcall"; do

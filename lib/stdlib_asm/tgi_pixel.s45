@@ -26,8 +26,11 @@ P3 = $1C                ; (cx + x, cy + y)
 .global _tgi_setpixel, _tgi_getpixel, ___tgi_line_on_screen, ___tgi_glyph
 .global _tgi_line, _tgi_lineto, ___tgi_clipline, ___tgi_ellipse, _tgi_ellipse, _tgi_circle
 .global ___tgi_ks1, ___tgi_ks2, ___tgi_ke1, ___tgi_ke2, ___tgi_cs1, ___tgi_ce1, ___tgi_cs2, ___tgi_ce2
-.global ___tgi_allow, ___tgi_arcon
-.extern ___tgi_draw, _tgi_xmax, _tgi_ymax, _tgi_color, _tgi_drv
+.global ___tgi_allow, ___tgi_arcon, ___tgi_coll, ___tgi_colh, __tgi_onscreen
+.extern ___tgi_draw, _tgi_xmax, _tgi_ymax, _tgi_color, _tgi_drv, ___tgi_mode
+; the 640x200 driver's drawing (tgi_ncm.s45, linked with it; ___tgi_mode $80)
+.global ___tgi_n_setpixel, ___tgi_n_getpixel, ___tgi_n_line, ___tgi_n_plotc, ___tgi_n_glyph
+.weak ___tgi_n_setpixel, ___tgi_n_getpixel, ___tgi_n_line, ___tgi_n_plotc, ___tgi_n_glyph
 .extern _tgi_curx, _tgi_cury, ___tgi_clipline_c
 
 .segment "bss"
@@ -77,10 +80,10 @@ ___tgi_arcon:   .res 1  ; $80: keep c_s and c_e
 
 .segment "code"
 ; (c * 1600) for the character columns c = 0..39
-__tgi_coll:
+___tgi_coll:
     .byte $00, $40, $80, $C0, $00, $40, $80, $C0, $00, $40, $80, $C0, $00, $40, $80, $C0, $00, $40, $80, $C0
     .byte $00, $40, $80, $C0, $00, $40, $80, $C0, $00, $40, $80, $C0, $00, $40, $80, $C0, $00, $40, $80, $C0
-__tgi_colh:
+___tgi_colh:
     .byte $00, $06, $0C, $12, $19, $1F, $25, $2B, $32, $38, $3E, $44, $4B, $51, $57, $5D, $64, $6A, $70, $76
     .byte $7D, $83, $89, $8F, $96, $9C, $A2, $A8, $AF, $B5, $BB, $C1, $C8, $CE, $D4, $DA, $E1, $E7, $ED, $F3
 
@@ -112,10 +115,10 @@ proc __tgi_addr
     asl a
     ora PIX                 ; (y * 8) & 255 | x & 7
     clc
-    adc __tgi_coll,x
+    adc ___tgi_coll,x
     sta PIX
     lda PIX+1
-    adc __tgi_colh,x
+    adc ___tgi_colh,x
     sta PIX+1
     clc                     ; + the page (no carry out of its bank)
     lda PIX
@@ -154,6 +157,26 @@ proc __tgi_onscreen
 @off:
     sec
     rts
+    .func_flags zp_call
+endproc
+
+; The 640x200 driver's routines when it is not linked: nothing
+proc ___tgi_n_setpixel
+    rts
+endproc
+proc ___tgi_n_getpixel
+    lda #0
+    tax
+    rts
+endproc
+proc ___tgi_n_line
+    rts
+endproc
+proc ___tgi_n_plotc
+    rts
+endproc
+proc ___tgi_n_glyph
+    rts
 endproc
 
 ; void tgi_setpixel(int x, int y)
@@ -161,6 +184,10 @@ proc _tgi_setpixel
     .zp_uses $10, $11, $12, $13
     .reg_clobbers A, X, Z
     .flag_clobbers C, N, Z, V
+    bit ___tgi_mode
+    bpl @fcm
+    jmp ___tgi_n_setpixel
+@fcm:
     jsr __tgi_onscreen
     bcs @out
     jsr __tgi_addr
@@ -177,6 +204,10 @@ proc _tgi_getpixel
     .zp_uses $10, $11, $12, $13
     .reg_clobbers A, X, Z
     .flag_clobbers C, N, Z, V
+    bit ___tgi_mode
+    bpl @fcm
+    jmp ___tgi_n_getpixel
+@fcm:
     jsr __tgi_onscreen
     lda #0
     bcs @out
@@ -207,6 +238,10 @@ proc ___tgi_line_on_screen
     .zp_uses $10, $11, $12, $13, $14, $15, $16, $17
     .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z, V
+    bit ___tgi_mode
+    bpl @fcm
+    jmp ___tgi_n_line
+@fcm:
     ; dx (over x2), the way x goes
     lda #0
     sta __tgi_sx
@@ -538,6 +573,10 @@ endproc
 proc __tgi_plotc
     .reg_clobbers A, X, Z
     .flag_clobbers C, N, Z, V
+    bit ___tgi_mode
+    bpl @fcm
+    jmp ___tgi_n_plotc
+@fcm:
     lda _tgi_xmax           ; x <= xmax (unsigned: a negative x is off)
     cmp $10
     lda _tgi_xmax+1
@@ -1133,7 +1172,9 @@ proc ___tgi_ellipse
     lda _tgi_ymax+1
     sbc __tgi_xbr
     bcc @box
-    lda #$80
+    lda #$80                ; (not the 640x200 driver's: a pixel's address
+    bit ___tgi_mode         ; is not a byte's)
+    bmi @box
     sta __tgi_efast
 @box:
     lda $16
@@ -1342,6 +1383,10 @@ proc ___tgi_glyph
     .zp_uses $10, $11, $12, $13, $14, $15, $16, $17
     .reg_clobbers A, X, Z
     .flag_clobbers C, N, Z, V
+    bit ___tgi_mode
+    bpl @fcm
+    jmp ___tgi_n_glyph
+@fcm:
     jsr __tgi_addr
     lda $10
     and #7

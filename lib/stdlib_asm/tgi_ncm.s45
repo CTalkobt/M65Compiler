@@ -1,0 +1,537 @@
+; tgi_ncm.s45 — <tgi.h>'s 640x200, 16-colour driver (tgi_static_ncm640,
+; "mega65-ncm640.tgi") and its drawing
+;
+; The screen is the VIC-IV's nibble-colour characters (NCM: colour RAM byte 0
+; bit 3) at H640: 40x25 characters of 16x8 pixels, 4 bits a pixel (the left
+; one the low nibble), 64 bytes each, a page's 1000 a column of 25 after
+; another as the 320x200 driver's, so pixel (x, y) is nibble x & 1 of
+;   page + (x >> 4) * 1600 + y * 8 + ((x >> 1) & 7)
+; Nibble 0 shows $D021 (0) and nibble 15 colour RAM byte 1 ($0F); the others
+; palette entry (byte 1's high nibble, 0) * 16 + nibble: colour c is entry c.
+; tgi_setup.s45 sets the mode (___tgi_mode $80); tgi_pixel.s45's and
+; tgi.c's routines call the ones here then (their weak defaults do nothing:
+; this member, linked with the driver, replaces them). Lines and the
+; ellipse's points are the 320x200 driver's (the same Bresenham, the same
+; walk), plotted a pixel at a time.
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.global _tgi_static_ncm640, ___tgi_ncm640_name
+.global ___tgi_n_setpixel, ___tgi_n_getpixel, ___tgi_n_line, ___tgi_n_plotc
+.global ___tgi_n_glyph, ___tgi_n_bar
+.extern ___tgi_draw, ___tgi_coll, ___tgi_colh, __tgi_onscreen
+.extern _tgi_color, _tgi_xmax, _tgi_ymax, ___dma_fill_far, ___dma_fill_far_step
+
+PIX = $08               ; a pixel's address (32 bits)
+
+.segment "data"
+; the driver (stdlib/tgi_drv.h's tgi_driver_t)
+_tgi_static_ncm640:
+    .byte $74, $67, $69, $05        ; 't' 'g' 'i' TGI_API_VERSION
+    .word ___tgi_ncm640_name
+    .word 640, 200                  ; xres, yres
+    .byte 16, 1                     ; colours, pages
+    .byte 8, 8                      ; the bitmap font
+    .word $006A                     ; aspect ratio: 200 / 640 * 4 / 3 (8.8)
+    .byte 0                         ; flags
+    .byte $80                       ; mode: 640x200, nibble colour
+; "mega65-ncm640.tgi" (as a C string: PETSCII)
+___tgi_ncm640_name:
+    .byte $4D, $45, $47, $41, $36, $35, $2D, $4E, $43, $4D, $36, $34, $30
+    .byte $2E, $54, $47, $49, 0
+
+.segment "bss"
+__n_cl:         .res 1  ; the colour (low nibble)
+__n_ch:         .res 1  ; (high nibble)
+__n_x:          .res 2  ; a line's point, a glyph's or a bar's x
+__n_y:          .res 1  ; its y
+__n_dx:         .res 2  ; a line's |dx|, |dy|
+__n_dy:         .res 2
+__n_err:        .res 2  ; Bresenham's error
+__n_cnt:        .res 2  ; pixels left
+__n_sx:         .res 1  ; $FF: x goes left
+__n_sy:         .res 1  ; $FF: y goes up
+__n_row:        .res 1  ; the glyph's row
+__n_bits:       .res 1  ; its pixels left
+__n_xe:         .res 2  ; a bar's last x, last y, height
+__n_ye:         .res 1
+__n_h:          .res 1
+
+.segment "code"
+
+; The colour's nibbles
+proc __n_colour
+    lda _tgi_color
+    and #$0F
+    sta __n_cl
+    asl a
+    asl a
+    asl a
+    asl a
+    sta __n_ch
+    rts
+endproc
+
+; PIX := the address of pixel ($10, $12) (x 0..639, y 0..199) of the draw
+; page
+proc __n_addr
+    lda $10                 ; (x >> 1) & 7
+    lsr a
+    and #7
+    sta PIX
+    lda $12                 ; y * 8
+    asl a
+    asl a
+    asl a
+    ora PIX
+    sta PIX
+    lda $12
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    sta PIX+1
+    lda $11                 ; x >> 4: the character column
+    asl a
+    asl a
+    asl a
+    asl a
+    sta PIX+2
+    lda $10
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    ora PIX+2
+    tax
+    clc
+    lda PIX
+    adc ___tgi_coll,x
+    sta PIX
+    lda PIX+1
+    adc ___tgi_colh,x
+    sta PIX+1
+    clc                     ; + the page (no carry out of its bank)
+    lda PIX
+    adc ___tgi_draw
+    sta PIX
+    lda PIX+1
+    adc ___tgi_draw+1
+    sta PIX+1
+    lda ___tgi_draw+2
+    sta PIX+2
+    lda ___tgi_draw+3
+    sta PIX+3
+    rts
+endproc
+
+; Plot pixel ($10, $12) (on the screen) in the colour (__n_colour)
+proc __n_plot
+    jsr __n_addr
+    ldz #0
+    lda $10
+    lsr a
+    lda [PIX],z
+    bcs @odd
+    and #$F0
+    ora __n_cl
+    sta [PIX],z
+    rts
+@odd:
+    and #$0F
+    ora __n_ch
+    sta [PIX],z
+    rts
+endproc
+
+; $10/$11 := __n_x, $12/$13 := __n_y
+proc __n_xy
+    lda __n_x
+    sta $10
+    lda __n_x+1
+    sta $11
+    lda __n_y
+    sta $12
+    lda #0
+    sta $13
+    rts
+endproc
+
+; tgi_setpixel(x, y)
+proc ___tgi_n_setpixel
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Z
+    .flag_clobbers C, N, Z, V
+    jsr __tgi_onscreen
+    bcs @out
+    jsr __n_colour
+    jsr __n_plot
+@out:
+    rts
+    .func_flags zp_call
+endproc
+
+; tgi_getpixel(x, y): 0 off the screen
+proc ___tgi_n_getpixel
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Z
+    .flag_clobbers C, N, Z, V
+    jsr __tgi_onscreen
+    lda #0
+    bcs @out
+    jsr __n_addr
+    ldz #0
+    lda $10
+    lsr a
+    lda [PIX],z
+    bcc @even
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+@even:
+    and #$0F
+@out:
+    ldx #0
+    rts
+    .func_flags zp_call
+endproc
+
+; __tgi_plotc: pixel ($10, $12) (signed) in the colour if it is on the
+; screen (the ellipse's points)
+proc ___tgi_n_plotc
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Z
+    .flag_clobbers C, N, Z, V
+    lda _tgi_xmax           ; x <= xmax (unsigned: a negative x is off)
+    cmp $10
+    lda _tgi_xmax+1
+    sbc $11
+    bcc @out
+    lda _tgi_ymax
+    cmp $12
+    lda _tgi_ymax+1
+    sbc $13
+    bcc @out
+    jsr __n_colour
+    jsr __n_plot
+@out:
+    rts
+    .func_flags zp_call
+endproc
+
+; __tgi_line_on_screen(x1, y1, x2, y2): both ends on the screen; the 320x200
+; driver's Bresenham (x-major when dx >= dy, the error half the major
+; difference), a pixel at a time
+proc ___tgi_n_line
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr __n_colour
+    lda $10
+    sta __n_x
+    lda $11
+    sta __n_x+1
+    lda $12
+    sta __n_y
+    lda #0                  ; dx, the way x goes
+    sta __n_sx
+    sec
+    lda $14
+    sbc $10
+    sta __n_dx
+    lda $15
+    sbc $11
+    sta __n_dx+1
+    bpl @dxpos
+    lda #0
+    sec
+    sbc __n_dx
+    sta __n_dx
+    lda #0
+    sbc __n_dx+1
+    sta __n_dx+1
+    dec __n_sx
+@dxpos:
+    lda #0                  ; dy (y 0..199), the way y goes
+    sta __n_sy
+    sta __n_dy+1
+    lda $16
+    sec
+    sbc $12
+    bcs @dypos
+    eor #$FF                ; (C clear: + 1)
+    adc #1
+    dec __n_sy
+@dypos:
+    sta __n_dy
+    lda __n_dx              ; dx >= dy: a step along x for each pixel
+    cmp __n_dy
+    lda __n_dx+1
+    sbc __n_dy+1
+    bcc @steep
+    ldx #0                  ; (the major difference: dx)
+    jsr @start
+@xmaj:
+    jsr @plot
+    beq @done
+    jsr @xstep
+    ldx #2                  ; err -= dy
+    jsr @sub
+    bpl @xmaj
+    ldx #0                  ; err < 0: err += dx, y one step
+    jsr @add
+    jsr @ystep
+    bra @xmaj
+@steep:
+    ldx #2                  ; (dy)
+    jsr @start
+@ymaj:
+    jsr @plot
+    beq @done
+    jsr @ystep
+    ldx #0                  ; err -= dx
+    jsr @sub
+    bpl @ymaj
+    ldx #2                  ; err < 0: err += dy, x one step
+    jsr @add
+    jsr @xstep
+    bra @ymaj
+@done:
+    rts
+@start:                     ; cnt = d + 1, err = d / 2 (d: __n_dx + X)
+    clc
+    lda __n_dx,x
+    adc #1
+    sta __n_cnt
+    lda __n_dx+1,x
+    adc #0
+    sta __n_cnt+1
+    lda __n_dx+1,x
+    lsr a
+    sta __n_err+1
+    lda __n_dx,x
+    ror a
+    sta __n_err
+    rts
+@plot:                      ; the point; Z set: the last
+    jsr __n_xy
+    jsr __n_plot
+    lda __n_cnt
+    bne @c1
+    dec __n_cnt+1
+@c1:
+    dec __n_cnt
+    lda __n_cnt
+    ora __n_cnt+1
+    rts
+@sub:                       ; err -= __n_dx + X (N: < 0)
+    sec
+    lda __n_err
+    sbc __n_dx,x
+    sta __n_err
+    lda __n_err+1
+    sbc __n_dx+1,x
+    sta __n_err+1
+    rts
+@add:
+    clc
+    lda __n_err
+    adc __n_dx,x
+    sta __n_err
+    lda __n_err+1
+    adc __n_dx+1,x
+    sta __n_err+1
+    rts
+@xstep:
+    bit __n_sx
+    bmi @xl
+    inc __n_x
+    bne @xr
+    inc __n_x+1
+@xr:
+    rts
+@xl:
+    lda __n_x
+    bne @xl1
+    dec __n_x+1
+@xl1:
+    dec __n_x
+    rts
+@ystep:
+    bit __n_sy
+    bmi @yu
+    inc __n_y
+    rts
+@yu:
+    dec __n_y
+    rts
+    .func_flags zp_call
+endproc
+
+; __tgi_glyph(x, y, glyph): an 8x8 bitmap glyph (8 bytes at the 28-bit
+; address glyph, $14) with its top left at (x, y), on the screen
+proc ___tgi_n_glyph
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17
+    .reg_clobbers A, X, Z
+    .flag_clobbers C, N, Z, V
+    jsr __n_colour
+    lda $10
+    sta __n_x
+    lda $11
+    sta __n_x+1
+    lda $12
+    sta __n_y
+    lda #0
+    sta __n_row
+@row:
+    ldz __n_row
+    lda [$14],z
+    sta __n_bits
+    jsr __n_xy
+    clc
+    lda $12
+    adc __n_row
+    sta $12
+@bit:
+    lda __n_bits
+    beq @next
+    asl __n_bits
+    bcc @skip
+    jsr __n_plot
+@skip:
+    inw $10
+    bra @bit
+@next:
+    inc __n_row
+    lda __n_row
+    cmp #8
+    bne @row
+    rts
+    .func_flags zp_call
+endproc
+
+; tgi_bar's fill (tgi.c: clipped, x1 <= x2, y1 <= y2): a whole character
+; column (16 pixels) is one run of its rows, a byte column (2 pixels) a fill
+; every 8th byte, a pixel's column its pixels
+proc ___tgi_n_bar
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr __n_colour
+    lda $10
+    sta __n_x
+    lda $11
+    sta __n_x+1
+    lda $12
+    sta __n_y
+    lda $14
+    sta __n_xe
+    lda $15
+    sta __n_xe+1
+    lda $16
+    sta __n_ye
+    sec
+    sbc __n_y
+    clc
+    adc #1
+    sta __n_h               ; (1..200)
+@col:
+    lda __n_xe              ; x <= xe
+    cmp __n_x
+    lda __n_xe+1
+    sbc __n_x+1
+    bcs @more
+    rts
+@more:
+    lda __n_x
+    and #$0F
+    bne @byte
+    clc                     ; x + 15 <= xe: the character column
+    lda __n_x
+    adc #15
+    sta __n_cnt
+    lda __n_x+1
+    adc #0
+    sta __n_cnt+1
+    lda __n_xe
+    cmp __n_cnt
+    lda __n_xe+1
+    sbc __n_cnt+1
+    bcc @byte
+    jsr @dst
+    lda __n_h               ; its rows: h * 8 bytes
+    asl a
+    sta $14
+    lda #0
+    rol a
+    asl $14
+    rol a
+    asl $14
+    rol a
+    sta $15
+    jsr @val
+    jsr ___dma_fill_far
+    lda #16
+    bra @adv
+@byte:
+    lda __n_x
+    lsr a
+    bcs @pixel
+    lda __n_x               ; x even, x + 1 <= xe: a byte column
+    cmp __n_xe
+    lda __n_x+1
+    sbc __n_xe+1
+    bcs @pixel
+    jsr @dst
+    lda __n_h
+    sta $14
+    lda #0
+    sta $15
+    sta $19
+    lda #8
+    sta $18
+    jsr @val
+    jsr ___dma_fill_far_step
+    lda #2
+    bra @adv
+@pixel:
+    lda __n_y               ; (y1, kept)
+    pha
+@p:
+    jsr __n_xy
+    jsr __n_plot
+    lda __n_y
+    cmp __n_ye
+    inc __n_y
+    bcc @p
+    pla
+    sta __n_y
+    lda #1
+@adv:
+    clc
+    adc __n_x
+    sta __n_x
+    bcc @col
+    inc __n_x+1
+    bra @col
+@dst:                       ; $10-$13 := (x, y1)'s address
+    jsr __n_xy
+    jsr __n_addr
+    ldx #3
+@d:
+    lda PIX,x
+    sta $10,x
+    dex
+    bpl @d
+    rts
+@val:                       ; $16 := the colour in both nibbles
+    lda __n_cl
+    ora __n_ch
+    sta $16
+    rts
+    .func_flags zp_call
+endproc

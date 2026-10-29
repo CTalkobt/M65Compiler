@@ -25,7 +25,7 @@ cc45.icallinfo = 1
 .extern _tgi_drv, _tgi_xres, _tgi_yres, _tgi_xmax, _tgi_ymax, _tgi_pagecount
 .extern _tgi_colorcount, _tgi_fontwidth, _tgi_fontheight, _tgi_error, _tgi_gmode
 .extern _tgi_color, _tgi_font, _tgi_textdir, _tgi_textscalew, _tgi_textscaleh
-.extern _tgi_charwidth, _tgi_charheight, ___tgi_state, ___tgi_state_size
+.extern _tgi_charwidth, _tgi_charheight, ___tgi_state, ___tgi_state_size, ___tgi_mode
 
 P = $08                 ; a far address (32 bits)
 Q = $0C                 ; a near one (16 bits)
@@ -503,11 +503,11 @@ proc _tgi_install
     lda Q+1
     sta _tgi_drv+1
     ldy #6                  ; the driver's numbers (tgi_vars.s45 has them in
-@num:                       ; tgi_driver_t's order, from xres: 11 bytes)
+@num:                       ; tgi_driver_t's order, from xres: 12 bytes)
     lda (Q),y
     sta _tgi_xres-6,y
     iny
-    cpy #17
+    cpy #18
     bne @num
     sec
     lda _tgi_xres
@@ -590,8 +590,12 @@ proc _tgi_init
     inx
     cpx #17
     bne @save
-    lda __ts_old            ; 320x200: H640, V400 off
+    lda __ts_old            ; 320x200: H640, V400 off; 640x200: H640 on
     and #$77
+    bit ___tgi_mode
+    bpl @h320
+    ora #$80
+@h320:
     sta $D031
     lda __ts_old+1          ; text: no bitmap, no ECM
     and #$9F
@@ -614,8 +618,8 @@ proc _tgi_init
     sta $D064
     lda #>TGI_COLOURS
     sta $D065
-    ldx #3                  ; the colour RAM: 0, every second byte $FF
-@cr:
+    ldx #3                  ; the colour RAM: 0 ($08: nibble colour), every
+@cr:                        ; second byte $FF ($0F)
     lda @crad,x
     sta $10,x
     dex
@@ -624,7 +628,11 @@ proc _tgi_init
     sta $14
     lda #>2000
     sta $15
-    lda #0
+    lda ___tgi_mode
+    lsr a
+    lsr a
+    lsr a
+    lsr a                   ; ($80: $08)
     sta $16
     jsr ___dma_fill_far
     ldx #3
@@ -639,6 +647,10 @@ proc _tgi_init
     lda #>1000
     sta $15
     lda #$FF
+    bit ___tgi_mode
+    bpl @fcm
+    lda #$0F
+@fcm:
     sta $16
     lda #2
     sta $18

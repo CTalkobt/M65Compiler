@@ -38,6 +38,12 @@ static void stop(unsigned char k) {
     OUT[4 * k + 3] = (unsigned char)(s >> 8);
 }
 
+/* the driver (bench_tgi.sh -DTGI_DRIVER=tgi_static_ncm640: the 640x200 one,
+ * drawing the same in its left half) */
+#ifndef TGI_DRIVER
+#define TGI_DRIVER tgi_static_stddrv
+#endif
+
 /* A pseudo-random number (the same each run) */
 static unsigned int seed = 12345;
 static unsigned int rnd(void) {
@@ -51,7 +57,7 @@ int main(void) {
     unsigned char k;
     for (k = 0; k < 4 * NBENCH; k++) OUT[k] = 0;
     OUT[4 * NBENCH] = 0xAA;
-    tgi_install(tgi_static_stddrv);
+    tgi_install(TGI_DRIVER);
     tgi_init();
 
     /* 0: tgi_setpixel, every pixel of the screen, twice */

@@ -4,6 +4,18 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### `<tgi.h>`: a 640x200, 16-colour driver
+
+- `tgi_static_ncm640` (`"mega65-ncm640.tgi"`, `stdlib_asm/tgi_ncm.s45`):
+  the VIC-IV's nibble-colour characters at H640, a page of 64000 bytes
+  laid out as the 320x200 driver's (16x8-pixel characters of 4 bits a
+  pixel); colour c is palette entry c, `tgi_setpalette` reads 16 entries.
+  Lines, ellipses, arcs, bars and text are the 320x200 driver's pixels
+  (compared on random scenes, both conventions). A 320x200 program links
+  none of it (30-60 bytes of tests in the generic routines).
+  `tgi_load_driver` knows its name. Test `test_tgi_ncm_xemu.c` (both
+  conventions).
+
 ### `<tgi.h>`'s arcs in assembly
 
 - `tgi_arc`, `tgi_pieslice` and `tgi_imulround` are assembly

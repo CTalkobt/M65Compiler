@@ -2,12 +2,12 @@
  *
  * The drivers are linked in: tgi_load_driver finds one by its name (any
  * case, PETSCII or ASCII) instead of loading a file, and installs it (so it
- * links both drivers).
+ * links every driver).
  */
 #include <tgi/tgi-error.h>
 #include "tgi_drv.h"
 
-unsigned char tgi_install(const void *driver);
+__fastcall__ unsigned char tgi_install(const void *driver);
 extern unsigned char tgi_error;
 extern const void *tgi_drv;
 extern const char tgi_stddrv[];
@@ -16,6 +16,10 @@ extern const tgi_driver_t tgi_static_stddrv;
 /* the two-page driver: tgi_fcm2.c (with the heap its screens need) */
 extern const tgi_driver_t tgi_static_fcm2;
 extern const char __tgi_fcm2_name[];
+
+/* 640x200, 16 colours: tgi_ncm.s45 (with its drawing) */
+extern const tgi_driver_t tgi_static_ncm640;
+extern const char __tgi_ncm640_name[];
 
 /* A letter in one case and encoding: PETSCII's upper case and ASCII's lower
  * case as PETSCII's lower case (ASCII's upper case) */
@@ -43,6 +47,8 @@ void tgi_load_driver(const char *name) {
         tgi_install(&tgi_static_stddrv);
     else if (name && same(name, __tgi_fcm2_name))
         tgi_install(&tgi_static_fcm2);
+    else if (name && same(name, __tgi_ncm640_name))
+        tgi_install(&tgi_static_ncm640);
     else
         tgi_error = TGI_ERR_CANNOT_LOAD;
 }

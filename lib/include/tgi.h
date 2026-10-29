@@ -9,9 +9,11 @@
  *
  *   tgi_stddrv / tgi_static_stddrv  "mega65-fcm.tgi"   320x200, 256 colours, 1 page
  *   tgi_static_fcm2                 "mega65-fcm2.tgi"  320x200, 256 colours, 2 pages
+ *   tgi_static_ncm640               "mega65-ncm640.tgi" 640x200, 16 colours, 1 page
  *
- * Both show a VIC-IV full-colour (FCM) screen: a byte a pixel, the byte the
- * palette entry. A page is 64000 bytes in bank 4 or 5 (far_malloc, taken by
+ * The 320x200 ones show a VIC-IV full-colour (FCM) screen: a byte a pixel,
+ * the byte the palette entry; the 640x200 one nibble-colour characters (NCM):
+ * 4 bits a pixel. A page is 64000 bytes in bank 4 or 5 (far_malloc, taken by
  * tgi_install, given back by tgi_uninstall: far_malloc, overlays and conio's
  * full-colour mode keep the rest); so is its screen (2000 bytes).
  * The two-page driver takes most of both banks: its screens come from
@@ -73,6 +75,11 @@ extern const void tgi_static_stddrv[];
 
 /* The two-page (double-buffering) driver */
 extern const void tgi_static_fcm2[];
+
+/* 640x200 in 16 colours, one page: the VIC-IV's nibble-colour characters at
+ * H640, a page as one of the 320x200 driver's (64000 bytes); colour c is
+ * palette entry c. */
+extern const void tgi_static_ncm640[];
 
 /* A vector font definition (cc45 needs the struct complete for pointers) */
 typedef struct tgi_vectorfont tgi_vectorfont;

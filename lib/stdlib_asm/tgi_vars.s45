@@ -6,7 +6,7 @@
 
 .global _tgi_drv, _tgi_xmax, _tgi_ymax
 .global _tgi_xres, _tgi_yres, _tgi_colorcount, _tgi_pagecount, _tgi_fontwidth
-.global _tgi_fontheight, _tgi_aspectratio, _tgi_flags
+.global _tgi_fontheight, _tgi_aspectratio, _tgi_flags, ___tgi_mode
 .global ___tgi_state, _tgi_error, _tgi_gmode, _tgi_curx, _tgi_cury, _tgi_color
 .global _tgi_font, _tgi_textdir, ___tgi_vfont, _tgi_textscalew, _tgi_textscaleh
 .global _tgi_charwidth, _tgi_charheight, ___tgi_state_end, ___tgi_state_size
@@ -24,6 +24,7 @@ _tgi_fontwidth:     .res 1
 _tgi_fontheight:    .res 1
 _tgi_aspectratio:   .res 2  ; 8.8
 _tgi_flags:         .res 1
+___tgi_mode:        .res 1  ; $80: 640x200, nibble colour (tgi_ncm.s45)
 ; a new driver's state: all 0 (TGI_ERR_OK, TGI_FONT_BITMAP,
 ; TGI_TEXT_HORIZONTAL, no vector font)
 ___tgi_state:
