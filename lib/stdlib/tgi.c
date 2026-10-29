@@ -189,64 +189,10 @@ void tgi_gotoxy(int x, int y) {
     tgi_cury = y;
 }
 
-/* tgi_setpixel, tgi_getpixel and the line on the screen are assembly
- * (stdlib_asm/tgi_pixel.s45) */
-__fastcall__ void __tgi_line_on_screen(int x1, int y1, int x2, int y2);
+/* tgi_setpixel, tgi_getpixel, tgi_line and tgi_lineto (with the clipping)
+ * are assembly (stdlib_asm/tgi_pixel.s45) */
 
-/* Cohen-Sutherland outcode */
-static unsigned char outcode(signed long x, signed long y) {
-    unsigned char c = 0;
-    if (x < 0) c = 1;
-    else if (x > (signed long)tgi_xmax) c = 2;
-    if (y < 0) c |= 4;
-    else if (y > (signed long)tgi_ymax) c |= 8;
-    return c;
-}
-
-/* A line with an end off the screen, clipped (tgi_pixel.s45's
- * __tgi_clipline draws one wholly on the screen itself; tgi_line and
- * tgi_lineto are there too) */
-__fastcall__ void __tgi_clipline_c(int x1, int y1, int x2, int y2) {
-    signed long ax, ay, bx, by, x, y, xm, ym;
-    unsigned char c1, c2, c;
-    ax = x1;
-    ay = y1;
-    bx = x2;
-    by = y2;
-    xm = (signed long)tgi_xmax;
-    ym = (signed long)tgi_ymax;
-    c1 = outcode(ax, ay);
-    c2 = outcode(bx, by);
-    while (c1 | c2) {
-        if (c1 & c2) return;
-        c = c1 ? c1 : c2;
-        if (c & 8) {
-            y = ym;
-            x = ax + (bx - ax) * (ym - ay) / (by - ay);
-        } else if (c & 4) {
-            y = 0;
-            x = ax + (bx - ax) * (0 - ay) / (by - ay);
-        } else if (c & 2) {
-            x = xm;
-            y = ay + (by - ay) * (xm - ax) / (bx - ax);
-        } else {
-            x = 0;
-            y = ay + (by - ay) * (0 - ax) / (bx - ax);
-        }
-        if (c == c1) {
-            ax = x;
-            ay = y;
-            c1 = outcode(ax, ay);
-        } else {
-            bx = x;
-            by = y;
-            c2 = outcode(bx, by);
-        }
-    }
-    __tgi_line_on_screen((int)ax, (int)ay, (int)bx, (int)by);
-}
-
-void tgi_bar(int x1, int y1, int x2, int y2) {
+__fastcall__ void tgi_bar(int x1, int y1, int x2, int y2) {
     int t;
     if (!tgi_drv) return;
     if (x1 > x2) { t = x1; x1 = x2; x2 = t; }

@@ -3583,10 +3583,12 @@ bool IRBuilder::isLibraryZpRoutine(const std::string& fname) {
         "tune_seek", "tune_tempo", "tune_ticks", "tune_transpose", "tune_update", "tune_vibrato", "tune_voices",
         // far_heap.s45
         "bank_reset", "bank_reset_all", "far_free", "far_malloc", "far_reserve", "far_size_long",
-        // tgi_pixel.s45, tgi_arc.s45, tgi_setup.s45
-        "tgi_arc", "tgi_circle", "tgi_done", "tgi_ellipse", "tgi_getpixel", "tgi_imulround", "tgi_init",
-        "tgi_install", "tgi_line", "tgi_lineto", "tgi_pieslice", "tgi_setdrawpage", "tgi_setpixel",
-        "tgi_setviewpage", "tgi_uninstall"};
+        // tgi_pixel.s45, tgi_arc.s45, tgi_setup.s45, tgi_text.s45
+        "tgi_arc", "tgi_circle", "tgi_done", "tgi_ellipse", "tgi_getpixel", "tgi_gettextheight",
+        "tgi_gettextwidth", "tgi_imulround", "tgi_init", "tgi_install", "tgi_install_vectorfont",
+        "tgi_line", "tgi_lineto", "tgi_outtext", "tgi_outtextxy", "tgi_pieslice", "tgi_setdrawpage",
+        "tgi_setpixel", "tgi_settextdir", "tgi_settextscale", "tgi_settextstyle", "tgi_setviewpage",
+        "tgi_uninstall", "tgi_vectorchar"};
     return routines.count(fname) > 0;
 }
 

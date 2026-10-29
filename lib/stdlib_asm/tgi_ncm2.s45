@@ -1,0 +1,28 @@
+; tgi_ncm2.s45 — <tgi.h>'s two-page 640x200, 16-colour driver
+; (tgi_static_ncm2, "mega65-ncm2.tgi")
+;
+; A member of its own: its description refers to tgi_ncm.s45 (its drawing)
+; and tgi_heap.c (the heap its screens come from: they do not fit in banks
+; 4 and 5 beside two pages), so a program with the one-page driver links
+; neither this nor malloc.
+
+.global _tgi_static_ncm2, ___tgi_ncm2_name
+.extern ___tgi_ncm, ___tgi_heapm
+
+.segment "data"
+; the driver (stdlib/tgi_drv.h's tgi_driver_t)
+_tgi_static_ncm2:
+    .byte $74, $67, $69, $05        ; 't' 'g' 'i' TGI_API_VERSION
+    .word ___tgi_ncm2_name
+    .word 640, 200                  ; xres, yres
+    .byte 16, 2                     ; colours, pages
+    .byte 8, 8                      ; the bitmap font
+    .word $006A                     ; aspect ratio: 200 / 640 * 4 / 3 (8.8)
+    .byte 0                         ; flags
+    .byte $80                       ; mode: 640x200, nibble colour
+    .word ___tgi_ncm                ; draw
+    .word ___tgi_heapm              ; heap
+; "mega65-ncm2.tgi" (as a C string: PETSCII)
+___tgi_ncm2_name:
+    .byte $4D, $45, $47, $41, $36, $35, $2D, $4E, $43, $4D, $32, $2E, $54
+    .byte $47, $49, 0
