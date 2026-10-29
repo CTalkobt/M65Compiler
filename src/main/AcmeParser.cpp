@@ -38,6 +38,69 @@ AsmIR::Module AcmeParser::parse(const std::string& source) {
         std::string processedSource = MacroUtils::processConditionals(withIncludes, module);
         // the dialect's own conditional assembly, resolved (ca45 has none, #224)
         processedSource = dialectcond::resolve(processedSource, "acme", warnings_);
+        // anonymous labels (#224): a line starting with "+" / "-" (or "++",
+        // "--", ...) defines one; "+" in an operand is the next one with as
+        // many signs, "-" the previous one. Each gets a name of its own.
+        {
+            std::vector<std::string> lines;
+            {
+                std::istringstream in(processedSource);
+                std::string l;
+                while (std::getline(in, l)) lines.push_back(l);
+            }
+            static const std::regex defRe(R"re(^([+]+|[-]+)(\s.*|$))re");
+            std::map<std::string, std::vector<size_t>> defs;
+            std::map<size_t, std::string> defName;
+            for (size_t n = 0; n < lines.size(); n++) {
+                std::smatch m;
+                if (std::regex_match(lines[n], m, defRe)) {
+                    std::string sg = m[1].str();
+                    auto& v = defs[sg];
+                    defName[n] = std::string("__acme_") + (sg[0] == '+' ? "f" : "b") + std::to_string(sg.size()) +
+                                 "_" + std::to_string(v.size() + 1);
+                    v.push_back(n);
+                }
+            }
+            static const std::regex refRe(R"re((^|[\s,(])([+]+|[-]+)(?=\s*($|[,);])))re");
+            std::ostringstream out;
+            for (size_t n = 0; n < lines.size(); n++) {
+                std::string l = lines[n];
+                std::smatch m;
+                std::string head;
+                if (defName.count(n) && std::regex_match(l, m, defRe)) {
+                    head = defName[n] + ":";
+                    l = m[2].str();
+                }
+                // references in the code part (not the comment, not strings)
+                std::string code = l, cmt;
+                {
+                    char q = 0;
+                    for (size_t i = 0; i < l.size(); i++) {
+                        if (q) { if (l[i] == q) q = 0; continue; }
+                        if (l[i] == '"' || l[i] == '\'') { q = l[i]; continue; }
+                        if (l[i] == ';') { code = l.substr(0, i); cmt = l.substr(i); break; }
+                    }
+                }
+                std::string r;
+                auto it = code.cbegin();
+                for (std::sregex_iterator rx(code.cbegin(), code.cend(), refRe), end; rx != end; ++rx) {
+                    const std::smatch& mm = *rx;
+                    std::string sg = mm[2].str();
+                    std::string target;
+                    auto d = defs.find(sg);
+                    if (d != defs.end()) {
+                        if (sg[0] == '-') { for (size_t j = d->second.size(); j-- > 0;) if (d->second[j] <= n) { target = defName[d->second[j]]; break; } }
+                        else { for (size_t j = 0; j < d->second.size(); j++) if (d->second[j] > n) { target = defName[d->second[j]]; break; } }
+                    }
+                    r.append(it, mm[2].first);
+                    r += target.empty() ? sg : target;
+                    it = mm[2].second;
+                }
+                r.append(it, code.cend());
+                out << head << r << cmt << "\n";
+            }
+            processedSource = out.str();
+        }
         // zone-local labels (.name: from one !zone to the next) as
         // <zone>__name, unique in ca45, whose @locals scope per label (#224):
         // only names a line of that zone defines (a .name at its start), not

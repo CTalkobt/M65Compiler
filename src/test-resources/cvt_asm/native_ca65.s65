@@ -26,6 +26,15 @@ SCREEN  = $0400
         rts
 .endproc
 
+inc16:  inc count
+        bne :+
+        inc count+1
+:       rts
+wait:   ldx #10
+:       dex
+        bne :-
+        rts
+
 ifblk:
 .if 1
         lda #1
@@ -41,3 +50,4 @@ msg:    .byte "hello", 0
         .res 3, $ea
         .lobytes main, helper
         .hibytes main, helper
+count:  .word 0

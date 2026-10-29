@@ -28,6 +28,15 @@ helper:
         bne @cheap
         rts
 
+inc16:  inc count
+        bne +
+        inc count+1
++       rts
+wait:   ldx #10
+-       dex
+        bne -
+        rts
+
 dbg:
 !if DEBUG = 1 {
         lda #1
@@ -44,3 +53,4 @@ msg:    !text "hello"
         !fill 3, $ea
         !align 15, 0, $ff
         !8 1, 2
+count:  !16 0

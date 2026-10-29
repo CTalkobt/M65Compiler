@@ -3,6 +3,8 @@
 #include "MacroUtils.hpp"
 #include "DialectConditionals.hpp"
 #include <regex>
+#include <map>
+#include <vector>
 #include <algorithm>
 #include <sstream>
 
@@ -34,6 +36,62 @@ AsmIR::Module Ca65Parser::parse(const std::string& source) {
         // macros: their definitions are skipped, their calls expanded
         MacroUtils::extractCa65Macros(processedSource, module);
         static const DialectSyntax syn = syntax();
+        // unnamed labels (#224): ":" at the start of a line (alone or before
+        // an instruction); ":-" / ":+" the previous / next one, ":--" / ":++"
+        // the second, ... Each gets a name of its own.
+        {
+            std::vector<std::string> lines;
+            {
+                std::istringstream in(processedSource);
+                std::string l;
+                while (std::getline(in, l)) lines.push_back(l);
+            }
+            static const std::regex defRe(R"re(^(\s*):(\s.*|$))re");
+            std::vector<size_t> defs;
+            std::map<size_t, std::string> defName;
+            for (size_t n = 0; n < lines.size(); n++)
+                if (std::regex_match(lines[n], defRe)) {
+                    defName[n] = "__ca65_anon_" + std::to_string(defs.size() + 1);
+                    defs.push_back(n);
+                }
+            static const std::regex refRe(R"re(:([+]+|[-]+))re");
+            std::ostringstream out;
+            for (size_t n = 0; n < lines.size(); n++) {
+                std::string l = lines[n];
+                std::smatch m;
+                if (defName.count(n) && std::regex_match(l, m, defRe)) l = m[1].str() + defName[n] + ":" + m[2].str();
+                std::string code = l, cmt;
+                {
+                    char q = 0;
+                    for (size_t i = 0; i < l.size(); i++) {
+                        if (q) { if (l[i] == q) q = 0; continue; }
+                        if (l[i] == '"' || l[i] == '\'') { q = l[i]; continue; }
+                        if (l[i] == ';') { code = l.substr(0, i); cmt = l.substr(i); break; }
+                    }
+                }
+                std::string r;
+                auto it = code.cbegin();
+                for (std::sregex_iterator rx(code.cbegin(), code.cend(), refRe), end; rx != end; ++rx) {
+                    const std::smatch& mm = *rx;
+                    std::string sg = mm[1].str();
+                    int count = (int)sg.size();
+                    std::string target;
+                    if (sg[0] == '-') {
+                        int seen = 0;
+                        for (size_t j = defs.size(); j-- > 0;) if (defs[j] <= n && ++seen == count) { target = defName[defs[j]]; break; }
+                    } else {
+                        int seen = 0;
+                        for (size_t j = 0; j < defs.size(); j++) if (defs[j] > n && ++seen == count) { target = defName[defs[j]]; break; }
+                    }
+                    r.append(it, mm[0].first);
+                    r += target.empty() ? mm[0].str() : target;
+                    it = mm[0].second;
+                }
+                r.append(it, code.cend());
+                out << r << cmt << "\n";
+            }
+            processedSource = out.str();
+        }
         // .define NAME value (a constant): NAME = value
         {
             std::string out, line;

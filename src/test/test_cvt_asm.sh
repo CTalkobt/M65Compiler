@@ -304,8 +304,8 @@ W=$($CVT -t acme "$T/w.s45" 2>&1 >/dev/null)
 grep -q "unknown directive '.bogus'" <<< "$W" && grep -q "kept as written: ca45 syntax or an addressing mode only 65CE02/45GS02" <<< "$W" &&
     pass "unknown directives and ca45-only syntax are reported" || fail "warnings ($W)"
 
-# Native programs in each dialect's idioms (ca65 .proc/@locals/.define/
-# .if/.rodata/.asciiz/.lobytes; ACME !zone .locals, !macro with .params,
+# Native programs in each dialect's idioms (ca65 .proc/@locals/.define/: :- :+/
+# .if/.rodata/.asciiz/.lobytes; ACME !zone .locals, + - anonymous labels, !macro with .params,
 # !if { } else { }, !pet/!scr, !align mask; KickAssembler .macro(params),
 # !: multi-labels, ((zp)),z, .if () { }) convert to ca45 that assembles to
 # the bytes the real assembler made of them (src/test-resources/cvt_asm/
