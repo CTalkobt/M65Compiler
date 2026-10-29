@@ -21,6 +21,8 @@ typedef struct {
     unsigned aspectratio;       /* 8.8 */
     unsigned char flags;
     unsigned char mode;         /* 0: 320x200, full colour; $80: 640x200, nibble colour */
+    const void *draw;           /* the member with its drawing (tgi_fcm.s45's
+                                 * ___tgi_fcm): installing the driver links it */
 } tgi_driver_t;
 
 /* The drivers are tgi_drivers.c's tgi_static_stddrv and tgi_static_fcm2

@@ -39,6 +39,7 @@ _tgi_static_ncm640:
     .word $006A                     ; aspect ratio: 200 / 640 * 4 / 3 (8.8)
     .byte 0                         ; flags
     .byte $80                       ; mode: 640x200, nibble colour
+    .word 0                         ; draw (its drawing is here)
 ; "mega65-ncm640.tgi" (as a C string: PETSCII)
 ___tgi_ncm640_name:
     .byte $4D, $45, $47, $41, $36, $35, $2D, $4E, $43, $4D, $36, $34, $30
