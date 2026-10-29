@@ -4,6 +4,26 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### disk45: TAP images decoded as the KERNAL writes them (#142)
+
+- TAP reading did not work: the decoder looked for a pilot tone of long
+  pulses (it is short pulses), ignored the byte markers, the countdowns and
+  the checksums, and found no files on a tape in the KERNAL's format. It is
+  rewritten from the format: byte markers, odd parity per byte, the
+  `$89..$81` / `$09..$01` countdowns, the checksum per block, the two copies
+  of each block.
+- C64, VIC-20 and C16 / Plus 4 tapes (TAP version 2, half-waves): the
+  pulse classes are calibrated from each pilot tone, in the platform's
+  ratios (1 : 1.4 : 1.8, or 1 : 2 : 4 for the C16), so NTSC machines and
+  fast or slow tapes read too; `--tap-timing=c64|vic20|c16` overrides.
+- A block bad in its first copy is read from its second; bad in both, the
+  file is damaged: `list` shows `*PRG`, `info` says why, `extract` refuses
+  it. `info` shows each file's state and the timing used (and the data size,
+  which was 0).
+- SEQ files on tape (a type-4 header and type-2 blocks) are read.
+- `src/test/make_tap.py` writes TAPs in the format (C64, VIC-20, C16, speed,
+  jitter, damaged copies) for the new `test_disk45.sh` checks.
+
 ### cvt_asm is now asmCvt45
 
 - The assembler source converter follows the toolchain's `<name>45` naming:
