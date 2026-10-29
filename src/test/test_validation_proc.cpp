@@ -228,7 +228,8 @@ proc foo
     lda #$42
 endproc
 )";
-    bool failed = assemblyFailedWithError(code, "out of range");
+    // (#360: any of $00-$FF; above that is no base-page address)
+    bool failed = assemblyFailedWithError(code, "is not a base-page address");
     CHECK(failed, "ZP address $FFFF out of range fails with expected error");
 }
 
