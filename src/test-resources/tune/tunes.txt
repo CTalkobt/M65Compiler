@@ -21,3 +21,19 @@ tune glides 1 once
 v1: @chip c4^3:12 ~:8 g4^-5:20 c5^12,1:40 r:4 e4^2,7:6 r:110
 v2: @lead c3^7:30 c3:10 eb3^-3,2:60 r:100
 v3: @kick c2^-30,2:8 r:8 c2^-30,2:8 r:8 @hat c6^1:8 @chip arp:4,7 c4^5:20 arp:off c4:140
+
+; filter, wave tables and hard restart: two filtered instruments on one chip
+; (a cutoff sweep up to its end, one down), an unfiltered one taking its
+; voice out; a wave table held at its last step and one that loops, with
+; a glide and an arpeggio; hard restart of 1 and 2 frames before notes,
+; not before ties or rests, after instrument changes, across the loop
+wavetable drum noise pulse:-12 pulse:-19 pulse:-24
+wavetable buzz pulse saw pulse:12 saw:12 loop 2
+instrument bass  pulse 00 f8 0400 0 0 hr=2 filter=lp res=12 cutoff=700 fsweep=40
+instrument snare pulse 00 f0 0800 0 0 hr=1 table=drum
+instrument slead saw 08 a8 0800 1 0 hr=2 table=buzz filter=bp+hp res=4 cutoff=500 fsweep=-9 vdelay=3
+instrument plain tri 00 f0 0800 0 0
+tune synth 2.5 loop
+v1: @bass c2:4 c2:4 ~:2 eb2:2 r:2 g1:2 @plain c3:4 @bass c2:4
+v2: @snare c5:2 r:2 c5:1 c5:1 r:2 arp:3,7 c5:4 arp:off @plain e5:4 @snare c5:2 r:2 c5:4
+v3: @slead g4:6 ~:2 @plain c5:4 @slead g4^5,2:4 r:4 c4:4

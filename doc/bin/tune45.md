@@ -40,8 +40,11 @@ The pfest game's `music.txt` format, which `tune45` accepts unchanged, with opti
 
 ```
 ; a comment                        (a line ending in \ goes on)
+wavetable snare noise pulse:-12 pulse:-19 pulse:-24
 instrument calliope pulse 09 a6 0600 1 1
 instrument kick     pulse 08 00 0800 0 0 slide=-47
+instrument drum     pulse 00 f0 0800 0 0 hr=1 table=snare
+instrument fbass    saw   00 f8 0800 0 0 hr=2 filter=lp res=12 cutoff=200 fsweep=12
 tune march 5 loop 8
 v1: @calliope c5:2 e5:2 g5:2 e5:2 | f5:2 a5:2 g5:4 | ...
 v2: @bass c3:4 g2:4 | ...
@@ -50,7 +53,8 @@ v3: @stab r:2 e4:2 r:2 g4:2 | ...
 
 | Line | Meaning |
 |------|---------|
-| `instrument <name> <wave> <ad> <sr> <pulse> <vibrato> <gap> [pwm=n] [vdelay=n] [slide=n]` | `wave`: `tri`, `saw`, `pulse`, `noise` (or a hex control value). `ad`, `sr`: the envelope's nibble pairs, hex. `pulse`: pulse width, hex `0`-`fff`. `vibrato`: depth 0-15 (`(frequency >> 8) * depth * triangle / 2`, a triangle over 8 frames). `gap`: ticks the note is released before the next event (staccato). `pwm`: pulse-width change a frame, signed (bouncing between `$200` and `$E00`). `vdelay`: frames before the vibrato starts. `slide`: pitch change a frame, signed, in 16ths of the frequency register (stopping at 0 and `$FFFF`; a falling kick drum) |
+| `instrument <name> <wave> <ad> <sr> <pulse> <vibrato> <gap> [pwm=n] [vdelay=n] [slide=n] [hr=n] [filter=m res=n cutoff=x fsweep=n] [table=name]` | `wave`: `tri`, `saw`, `pulse`, `noise`, joined by `+` (`pulse+saw`), or a hex control value. `ad`, `sr`: the envelope's nibble pairs, hex. `pulse`: pulse width, hex `0`-`fff`. `vibrato`: depth 0-15 (`(frequency >> 8) * depth * triangle / 2`, a triangle over 8 frames). `gap`: ticks the note is released before the next event (staccato). `pwm`: pulse-width change a frame, signed (bouncing between `$200` and `$E00`). `vdelay`: frames before the vibrato starts. `slide`: pitch change a frame, signed, in 16ths of the frequency register (stopping at 0 and `$FFFF`; a falling kick drum). `hr`: hard restart, 0-3 frames: that many frames before the voice's next note (not a tie or a rest) its gate goes off and AD/SR to 0, so the envelope is at rest when the note starts (no ADSR bug: every note's attack the same). `filter`: `lp`, `bp`, `hp`, `notch`, or joined by `+`: a note of the instrument sets its chip's filter (`cutoff` hex `0`-`7ff`, default `400`; `res` 0-15; `fsweep` the cutoff's change a frame, signed, stopping at `0` and `7ff`) and routes the voice through it; a note of an unfiltered instrument takes its voice out. The filter is the chip's (three voices): the last filtered note on it sets it. `table`: a wave table |
+| `wavetable <name> <step> ... [loop <n>]` | A step a frame from the note's start (1-64): a waveform (as an instrument's) and `:semitones` from the note (`pulse:-12`; signed). After the last step, step `n` (from 1) again, or the last held. A step's waveform replaces the instrument's; semitones other than 0 set the pitch from the note (with an arpeggio, added to it), 0 leaves the pitch to the glide, slide and vibrato. A drum: `noise pulse:-12 pulse:-19`; a chord buzz: `pulse saw pulse:12 saw:12 loop 1`. Defined before an instrument names it |
 | `tune <name> <frames per tick> loop\|once [ticks a bar]` | The name is a C identifier. Frames per tick may have a fraction (`6.25`: 8.8 fixed point). With ticks a bar, every bar between `\|` marks must be that long |
 | `v1:` ... `v12:` | A voice, in order. Tokens: `note:ticks` (`c4` is MIDI 60, middle C; `c#4`, `eb4`, octaves -1 to 9), `r:ticks` a rest, `~:ticks` the note held longer (a tie), `@name` an instrument, `arp:a,b` an arpeggio (the note, +a, +b semitones, a frame each; `arp:off`), `note^s[,k]:ticks` a glide, `\|` a bar line |
 
@@ -67,7 +71,7 @@ A voice plays instrument 0 (the file's first) until it names one. A duration ove
 | `--load-at <addr>` | With `--bin`: the file starts with a 2-byte load address, as a KERNAL LOAD reads it (`cbm_load` skips it; offsets stay from the blob's start) |
 | `--asm -o music.s45` | ca45 source of the same data (`_tune_<name>`, `_tunes`) |
 
-The data of a tune (`lib/stdlib_asm/tune.s45` reads it): a header (flags: bit 0 loops; voices; frames per tick, 8.8; the number of instruments and their table's offset; a 16-bit offset per voice's stream), the instruments it uses (10 bytes: waveform, AD, SR, pulse width, vibrato, gap, pulse-width sweep, vibrato delay, slide; renumbered), and a byte stream a voice: `$00`-`$7F n d` note n for d ticks, `$80 d` a rest, `$81 i` instrument i, `$82 d` a tie, `$83 a b` an arpeggio, `$84 s k` the next note's glide, `$FE` back to the start (a tune that loops), `$FF` the end.
+The data of a tune (`lib/stdlib_asm/tune.s45` reads it): a header (flags: bit 0 loops; voices; frames per tick, 8.8; the number of instruments, an instrument's bytes (17; 0 in data of before hard restart, filters and wave tables, whose instruments are 10 bytes and still play) and their table's offset; a 16-bit offset per voice's stream), the instruments it uses (17 bytes: waveform, AD, SR, pulse width, vibrato, gap, pulse-width sweep, vibrato delay, slide, hard restart, filter (mode bits 4-6, resonance 0-3), cutoff, cutoff sweep, the wave table's offset; renumbered), the wave tables they use (steps, the step to loop to or `$FF`, a waveform and semitones a step), and a byte stream a voice: `$00`-`$7F n d` note n for d ticks, `$80 d` a rest, `$81 i` instrument i, `$82 d` a tie, `$83 a b` an arpeggio, `$84 s k` the next note's glide, `$FE` back to the start (a tune that loops), `$FF` the end.
 
 ## list
 
@@ -136,4 +140,4 @@ So a sound can be heard as it will be, its rate and 8 bits and all, before it go
 
 ## Tests
 
-`src/test/test_tune45.sh` (`make test`): the data of a tune byte by byte, glides, `TUNE_<NAME>_TICKS`, `--bin`, `--asm`, the errors, pfest's format, `list`, `create --check` and its options, `import` of a MIDI file made by the test, `play --wav`, `sample` (a sound and the same samples packed by pack45, played into a WAV, and the error without `--rate`). `src/test/test_xemu.sh`: the player (`test_tune_xemu.c`) and `tune45 trace` (the model's registers) against the player's in xemu for 300 frames: a tune with every effect, and one of glides after a `tune_seek`. `examples/c/tunes` and `examples/c/glamlambs` (`test_examples.sh`).
+`src/test/test_tune45.sh` (`make test`): the data of a tune byte by byte, glides, `TUNE_<NAME>_TICKS`, `--bin`, `--asm`, the errors, pfest's format, `list`, `create --check` and its options, the data of hard restart, a filter and a wave table and their errors, `import` of a MIDI file made by the test, `play --wav`, `sample` (a sound and the same samples packed by pack45, played into a WAV, and the error without `--rate`). `src/test/test_xemu.sh`: the player (`test_tune_xemu.c`, its tunes in the 10-byte instruments of older data) and `tune45 trace` (the model's registers, voices and filter) against the player's in xemu for 300 frames: a tune with every effect, one of glides after a `tune_seek`, and one of the filter, wave tables and hard restart. `examples/c/tunes` and `examples/c/glamlambs` (`test_examples.sh`).

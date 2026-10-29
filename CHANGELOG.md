@@ -4,6 +4,27 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### The tune player: filter, wave tables, hard restart
+
+- Instruments take `hr=n` (hard restart: n frames, 1-3, before the voice's
+  next note, not a tie or a rest, the gate off and AD/SR 0, so every attack
+  starts from rest), `filter=lp|bp|hp|notch` (or joined by `+`) with
+  `res=`, `cutoff=` (hex) and `fsweep=` (a frame, stopping at the ends): a
+  note sets its chip's filter and routes its voice, the volume in $D418
+  kept from the shadow; an unfiltered note takes its voice out), and
+  `table=` a wave table: `wavetable <name> <wave[:semitones]> ... [loop n]`,
+  a waveform and pitch a frame from the note's start. Waveforms may be
+  joined by `+` (`pulse+saw`).
+- The data: instruments of 17 bytes, their size in the header's byte 5
+  (0, as all data before, is 10 bytes: older tunes and `--bin` blobs still
+  play), the wave tables after them. The player's code grows 750 bytes
+  (to 2653), its state 159 (to 583).
+- tune45's model (play, trace) does the same; `trace` starts from
+  sid_init's volume. Tests: the data and the errors (`test_tune45.sh`);
+  the model against the player in xemu, SID 1's 25 registers now, with a
+  tune of all three, in both conventions; the hand-made tunes of 10-byte
+  instruments (`test_xemu.sh`).
+
 ### pack45 --best: an optimal parse
 
 - `pack45 --best` packs with an optimal parse (the cheapest way to the

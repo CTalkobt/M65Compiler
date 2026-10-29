@@ -3,11 +3,19 @@
 // The text (pfest's music.txt format, which it accepts unchanged):
 //   ; a comment                        a line ending in \ goes on
 //   instrument <name> <wave> <ad> <sr> <pulse> <vibrato> <gap> [pwm=n] [vdelay=n] [slide=n]
+//              [hr=n] [filter=lp|bp|hp|notch|lp+bp.. res=n cutoff=hex fsweep=n] [table=name]
 //       wave: tri, saw, pulse, noise (or a hex control value); ad, sr,
 //       pulse: hex; vibrato: depth; gap: ticks released before the next
 //       event; pwm: pulse-width change a frame (signed); vdelay: frames
 //       before the vibrato; slide: pitch change a frame (signed, 16ths of
-//       the frequency register)
+//       the frequency register); hr: hard restart, frames (1-3) before the
+//       next note the gate off and the release at its fastest; filter: the
+//       chip's filter for its notes (res 0-15, cutoff hex 0-7ff, fsweep the
+//       cutoff's change a frame); table: a wave table
+//   wavetable <name> <step> ... [loop <n>]
+//       a step a frame from the note's start: a waveform (tri, saw, pulse,
+//       noise, a+b, or hex) and :semitones from the note (pulse:-12); after
+//       the last, step n again (from 1) or the last held
 //   tune <name> <frames per tick> loop|once [ticks a bar]
 //       frames per tick may have a fraction (6.25); with ticks a bar, the
 //       "|" marks are checked
@@ -32,6 +40,18 @@ struct TuneInstrument {
     int8_t pwm = 0;
     uint8_t vdelay = 0;
     int8_t slide = 0;
+    uint8_t hr = 0;                 // hard restart: frames before the next note
+    uint8_t filt = 0;               // filter: mode bits 4-6 ($10 LP, $20 BP, $40 HP), resonance 0-3
+    uint16_t cutoff = 0x400;
+    int8_t fsweep = 0;
+    int table = -1;                 // its wave table (TuneFile::tables), -1 none
+};
+
+struct TuneTable {
+    std::string name;
+    int line = 0;
+    std::vector<std::pair<uint8_t, int8_t>> steps;   // a frame each: waveform, semitones
+    int loop = -1;                  // the step to go on from after the last (-1: the last held)
 };
 
 struct TuneVoice {
@@ -53,11 +73,16 @@ struct Tune {
 
 struct TuneFile {
     std::vector<TuneInstrument> instruments;
+    std::vector<TuneTable> tables;
     std::vector<Tune> tunes;
 };
 
 class TuneCompiler {
 public:
+    // an instrument's bytes in the data (header byte 5; 0 in a tune of
+    // before the hard restart, filter and wave tables: 10)
+    static constexpr uint8_t kInstrumentSize = 17;
+
     // Parse text (file names the diagnostics); false with errors() set
     bool parse(const std::string& text, const std::string& file, TuneFile& out);
     const std::vector<std::string>& errors() const { return errors_; }

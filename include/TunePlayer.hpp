@@ -21,6 +21,9 @@ public:
     void setVibrato(uint8_t extra) { vibx_ = extra; }
     void setTranspose(int voice, int8_t s) { if (voice >= 0 && voice < 12) transp_[voice] = s; }
     void setDetune(int voice, int8_t a) { if (voice >= 0 && voice < 12) detune_[voice] = a; }
+    // a register as the program left it (sid_init's volume in $18): the
+    // filter keeps the bits of $17 and $18 it does not set
+    void setShadow(uint8_t idx, uint8_t val) { shadow_[idx & 0x7F] = val; }
 
     void play(const std::vector<uint8_t>& tune);
     void stop();
@@ -42,6 +45,14 @@ private:
         int8_t gsemi = 0;
         uint8_t gpend = 0, glide = 0;
         uint16_t tgt = 0;
+        // the instrument's hard restart, filter and wave table
+        uint8_t hr = 0, filt = 0;
+        int8_t fsweep = 0;
+        uint16_t cutoff = 0, table = 0;
+        // its control register's waveform now, the table's step and pitch,
+        // the hard restart done, its bit in the filter routing ($17)
+        uint8_t cw = 0, wti = 0, hrdone = 0, fbit = 0;
+        int8_t wsemi = 0;
     };
     Write write_;
     std::vector<uint8_t> tune_;
@@ -50,16 +61,23 @@ private:
     bool ntsc_ = false, mirror_ = false, active_ = false, mute_ = false;
     uint8_t first_ = 0, vibx_ = 0, n_ = 0, ninst_ = 0;
     uint16_t scale_ = 0x100, step_ = 0x100, fpt_ = 0x100, acc_ = 0, ins_ = 0;
+    uint8_t rsize_ = 10, soon_ = 4;   // an instrument's bytes; frames to the next tick (1-4)
+    uint16_t cut_[4] = {};            // each chip's filter cutoff
+    int8_t csw_[4] = {};              //   and its sweep a frame
+    uint8_t shadow_[128] = {};
     unsigned ticks_ = 0;
 
     uint8_t byte(unsigned at) const { return at < tune_.size() ? tune_[at] : 0xFF; }
     uint8_t rd(Voice& v) { return byte(v.pos++); }
     void put(uint8_t idx, uint8_t val);
     void w(const Voice& v, uint8_t reg, uint8_t val) { put((uint8_t)(v.base + reg), val); }
-    void ctrl(const Voice& v) { w(v, 4, (uint8_t)((v.wave & 0xFE) | v.gated)); }
+    void ctrl(const Voice& v) { w(v, 4, (uint8_t)((v.cw & 0xFE) | v.gated)); }
     void wf(const Voice& v, uint16_t f) { w(v, 0, (uint8_t)f); w(v, 1, (uint8_t)(f >> 8)); }
     void wpw(const Voice& v) { w(v, 2, (uint8_t)v.pw); w(v, 3, (uint8_t)(v.pw >> 8)); }
     void inst(Voice& v, uint8_t i);
+    void filter(Voice& v);
+    void wcut(int chip);
+    bool nextIsNote(const Voice& v) const;
     uint16_t freq(uint8_t note) const;
     uint16_t notef(const Voice& v, int idx, uint8_t add) const;
     void next(Voice& v, int idx);

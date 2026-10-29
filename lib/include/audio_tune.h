@@ -13,7 +13,11 @@
  * waveform and pulse width; the note's frequency at the PAL or NTSC clock),
  * releases them early by the instrument's staccato gap and runs the
  * per-frame effects: vibrato (after its delay), pulse-width sweep, pitch
- * slide and arpeggio. It is in assembly with no static allocation: it may be
+ * slide, arpeggio, the instrument's wave table (a waveform and pitch a
+ * frame), its hard restart (the gate off and the envelope at its fastest
+ * release a frame or few before the next note) and the filter (a filtered
+ * instrument's note sets its chip's cutoff, sweep, resonance and mode and
+ * routes the voice; the volume bits of $D418 are kept). It is in assembly with no static allocation: it may be
  * called from an __interrupt handler (a raster interrupt, as most games
  * play their music). The registers go through <audio_sid.h>'s shadow copy
  * and stereo mirror (sid_set_mirror), so sound effects on other voices mix

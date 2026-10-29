@@ -294,7 +294,10 @@ int play(const std::string& src, TuneFile f, const PlayOptions& o) {
     player.setNtsc(o.ntsc);
     player.setMirror(!o.mono);
     // the volume up (as sid_init: the player leaves it to the program)
-    for (uint8_t c = 0; c < 4; c++) audio.write((uint8_t)(c * 0x20 + 0x18), 15);
+    for (uint8_t c = 0; c < 4; c++) {
+        audio.write((uint8_t)(c * 0x20 + 0x18), 15);
+        player.setShadow((uint8_t)(c * 0x20 + 0x18), 15);
+    }
     AudioSink sink;
     if (!sink.open(o.wav, audio.rate())) { std::cerr << "tune45: " << sink.error() << "\n"; return 1; }
     const double hz = o.ntsc ? 60.0 : 50.0;
@@ -351,6 +354,10 @@ int trace(const TuneFile& f, const PlayOptions& o) {
     if (!chosen(f, o, list) || list.empty()) return 1;
     uint8_t regs[128] = {};
     TunePlayer player([&](uint8_t i, uint8_t v) { regs[i & 0x7F] = v; });
+    for (uint8_t c = 0; c < 4; c++) {   // (as sid_init leaves them: the volume up)
+        regs[c * 0x20 + 0x18] = 15;
+        player.setShadow((uint8_t)(c * 0x20 + 0x18), 15);
+    }
     player.setNtsc(o.ntsc);
     player.setMirror(!o.mono);
     player.play(TuneCompiler::blob(f, *list[0]));

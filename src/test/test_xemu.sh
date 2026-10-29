@@ -2007,12 +2007,14 @@ for tumode in "zp|" "stack|-fno-zpcall"; do
     xemu_case "FAIL: test_tune_xemu.c $tuname (compilation/linking failed)" "src/test-resources/test_tune_xemu.c" "build/test/test_tune_${tuname}_xemu.prg" "$tuflags" -- "test_tune_$tuname" "build/test/test_tune_${tuname}_xemu.prg" "C0C0" 9 "01 01 01 01 01 01 01 01 AA"
 done
 
-# Test: tune45's model of the tune player against the player itself: the
-# registers of voices 0-2 after each of 300 frames (a tune with every
-# effect; one of glides, after a tune_seek), in both conventions
+# Test: tune45's model of the tune player against the player itself: SID
+# 1's registers (voices 0-2, the filter) after each of 300 frames (a tune
+# with every effect; one of glides, after a tune_seek; one of the filter,
+# wave tables and hard restart), in both conventions
 mkdir -p build/test/tune
 for trmode in "zp|$STDLIB||effects|0|0" "stack|$STDLIB_STACK|-fno-zpcall|effects|0|0" \
-              "zp|$STDLIB||glides|1|40" "stack|$STDLIB_STACK|-fno-zpcall|glides|1|40"; do
+              "zp|$STDLIB||glides|1|40" "stack|$STDLIB_STACK|-fno-zpcall|glides|1|40" \
+              "zp|$STDLIB||synth|2|0" "stack|$STDLIB_STACK|-fno-zpcall|synth|2|0"; do
     IFS='|' read -r trname trlib trflags trtune trn trseek <<< "$trmode"
     trname=${trtune}_$trname
     echo "Testing tune45 trace against the tune player ($trname)..."
@@ -2028,10 +2030,10 @@ for trmode in "zp|$STDLIB||effects|0|0" "stack|$STDLIB_STACK|-fno-zpcall|effects
         if python3 - $TD/trace_$trname.mem $TD/model.txt <<'PY'
 import sys
 mem = open(sys.argv[1], 'rb').read()
-model = [bytes.fromhex(l.strip())[:21] for l in open(sys.argv[2])]
+model = [bytes.fromhex(l.strip())[:25] for l in open(sys.argv[2])]
 if mem[0xC0C0] != 0xAA or len(model) != 300:
     sys.exit("did not finish")
-bad = [f for f in range(300) if mem[0x8000 + 21 * f:0x8000 + 21 * f + 21] != model[f]]
+bad = [f for f in range(300) if mem[0x8000 + 25 * f:0x8000 + 25 * f + 25] != model[f]]
 if bad:
     sys.exit("they differ from frame %d (%d frames)" % (bad[0] + 1, len(bad)))
 PY

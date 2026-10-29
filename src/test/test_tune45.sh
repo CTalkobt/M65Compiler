@@ -24,14 +24,27 @@ v2: r:8 c3:308
 EOF
 $TUNE convert $T/a.txt -o $T/a.c >/dev/null 2>&1 && pass || fail "convert a.txt"
 bytes=$(sed -n '/tune_t\[/,/};/p' $T/a.c | tr -d ' \n' | sed 's/.*{//; s/,}.*//')
-#  header: once, 2 voices, fpt 2.5 = $0280, 2 instruments at 12 (v2 plays
-#  before naming one: the file's first, "unused", is instrument 0; lead 1),
-#  the streams at 32 and 57; g4:300 is 255 and a tie of 45
-want="0,2,128,2,2,0,12,0,32,0,57,0"
-want="$want,32,0,240,0,8,0,0,0,0,0,64,9,166,0,6,1,2,253,4,5"
+#  header: once, 2 voices, fpt 2.5 = $0280, 2 instruments of 17 bytes at 12
+#  (v2 plays before naming one: the file's first, "unused", is instrument 0;
+#  lead 1), the streams at 46 and 71; g4:300 is 255 and a tie of 45
+want="0,2,128,2,2,17,12,0,46,0,71,0"
+want="$want,32,0,240,0,8,0,0,0,0,0,0,0,0,0,0,0,0,64,9,166,0,6,1,2,253,4,5,0,0,0,0,0,0,0"
 want="$want,129,1,60,2,128,2,63,1,130,3,131,4,7,67,255,130,45,131,0,0,61,4,128,4,255"
 want="$want,128,8,48,255,130,53,255"
 [ "$bytes" = "$want" ] && pass || fail "the blob: $bytes (expected $want)"
+# hard restart, filter and a wave table: the instrument's last 7 bytes (hr
+# 2, LP+BP ($30) with resonance 9, cutoff $3A0, sweep -6, the table at 27),
+# then the table: 3 steps, looping to the second; noise, pulse -12, -24
+cat > $T/f.txt <<'EOF'
+wavetable drum noise pulse:-12 pulse:-24 loop 2
+instrument snare pulse 00 f0 0800 0 0 hr=2 filter=lp+bp res=9 cutoff=3a0 fsweep=-6 table=drum
+tune d 1 once
+v1: @snare c4:2
+EOF
+$TUNE convert $T/f.txt -o $T/f.c >/dev/null 2>&1 &&
+    [ "$(sed -n '/tune_d\[/,/};/p' $T/f.c | tr -d ' \n' | sed 's/.*{//; s/,}.*//')" = \
+      "0,1,0,1,1,17,10,0,35,0,64,0,240,0,8,0,0,0,0,0,2,57,160,3,250,27,0,3,1,128,0,64,244,64,232,129,0,60,2,255" ] &&
+    pass || fail "the blob: hard restart, filter, wave table"
 grep -q "#define TUNE_T 0" $T/a.h && grep -q "extern const unsigned char tune_t\[" $T/a.h && pass || fail "the header"
 
 # --bin: [tunes][offsets] then the blobs; --asm
@@ -54,6 +67,10 @@ err() {   # $1 the text, $2 a part of the message
 }
 err $'instrument a pulse 09 a6 0600 1 1\ntune t 5 once\nv1: @b c4:1' "e.txt:3: error: unknown instrument b"
 err $'instrument a pulse 09 a6 0600 1 1\ntune t 5 once\nv1: @a h4:1' "not a note"
+err $'instrument a pulse 00 f0 0800 0 0 res=4' "need filter="
+err $'instrument a pulse 00 f0 0800 0 0 table=none' "no wave table"
+err $'wavetable w pulse loop 2' "loop <step>"
+err $'instrument a pulse 00 f0 0800 0 0 filter=xx' "filter=lp"
 err $'instrument a pulse 09 a6 0600 1 1\ntune t 5 once\nv1: @a c4:2\nv2: @a c4:3' "the voices are not as long (ticks: v1 2, v2 3)"
 err $'instrument a pulse 09 a6 0600 1 1\ntune t 5 once 4\nv1: @a c4:3 | c4:4' "bar 1 is 3 ticks, not 4"
 err $'instrument a wobble 09 a6 0600 1 1' "not a waveform"
