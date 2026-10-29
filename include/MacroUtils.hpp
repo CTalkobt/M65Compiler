@@ -182,8 +182,8 @@ public:
             lineNum++;
             std::string trimmed = trimLine(line);
 
-            // Check for .macro or macro definition
-            if (trimmed.find(".macro") == 0 || trimmed.find("macro") == 0) {
+            // Check for .macro or macro definition (ACME: !macro, #224)
+            if (trimmed.find(".macro") == 0 || trimmed.find("macro") == 0 || trimmed.find("!macro") == 0) {
                 inMacro = true;
                 parseACMEMacroHeader(trimmed, currentMacro);
                 currentMacro.definitionLine = lineNum;
@@ -267,8 +267,11 @@ public:
                     size_t n = std::stoul(line.substr(k + 1, e - k - 1));
                     out += n >= 1 && n <= arguments.size() ? arguments[n - 1] : line.substr(k, e - k);
                     k = e;
-                } else if ((std::isalpha((unsigned char)c) || c == '_') && (k == 0 || !isId(line[k - 1]))) {
-                    size_t e = k;
+                } else if ((std::isalpha((unsigned char)c) || c == '_' ||
+                            // (ACME's parameters start with '.': .col, #224)
+                            (c == '.' && k + 1 < line.size() && std::isalpha((unsigned char)line[k + 1]))) &&
+                           (k == 0 || !isId(line[k - 1]))) {
+                    size_t e = k + 1;
                     while (e < line.size() && isId(line[e])) e++;
                     std::string w = line.substr(k, e - k);
                     size_t i = 0;
@@ -886,8 +889,24 @@ private:
         std::string header = line.substr(macroPos + 5,
                                         (bracePos != std::string::npos ? bracePos : line.length()) - (macroPos + 5));
 
-        // Extract name (first non-whitespace token)
-        std::istringstream iss(header);
-        iss >> macro.name;
+        // Extract name (first non-whitespace token), then the parameters:
+        // ACME "!macro name .a, .b {", KickAssembler ".macro name(a, b) {"
+        // (#224: they were not read, so none was substituted)
+        size_t p = header.find_first_not_of(" \t");
+        if (p == std::string::npos) return;
+        size_t e = p;
+        while (e < header.size() && !std::isspace((unsigned char)header[e]) && header[e] != '(') e++;
+        macro.name = header.substr(p, e - p);
+        std::string rest = header.substr(e);
+        for (char& c : rest) if (c == '(' || c == ')') c = ' ';
+        macro.parameters.clear();
+        std::string cur;
+        auto flush = [&]() {
+            size_t a = cur.find_first_not_of(" \t"), b = cur.find_last_not_of(" \t");
+            if (a != std::string::npos) macro.parameters.push_back(cur.substr(a, b - a + 1));
+            cur.clear();
+        };
+        for (char c : rest) { if (c == ',') flush(); else cur += c; }
+        flush();
     }
 };

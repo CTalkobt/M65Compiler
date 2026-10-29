@@ -132,6 +132,22 @@ std::string X65Writer::formatDirective(const AsmIR::Directive& dir) {
     std::stringstream ss;
     if (dir.type == AsmIR::DirectiveType::CONST && dir.arguments.size() == 2)
         return dir.arguments[0] + " = " + dir.arguments[1];
+    auto args = [&](size_t from) {   // the arguments from 'from', comma-separated
+        std::string r;
+        for (size_t i = from; i < dir.arguments.size(); i++) r += (i > from ? ", " : "") + dir.arguments[i];
+        return r;
+    };
+    // (#223: data directives this writer has no checked form for are written
+    // as ca45 has them, with a warning)
+    const std::string kind = dataKind(dir.name);
+    if (kind == "dword") return ".long " + args(0);
+    // (numbers: the bytes themselves, which any assembler takes)
+    if (kind == "dword" || kind == "fill") {
+        std::string b = literalBytes(dir);
+        if (!b.empty()) return ".byte " + b;
+    }
+    if (kind == "fill" || kind == "align" || kind == "fillto" || kind == "incbin" || kind == "float")
+        return noEquivalent(dir, "x65", "." + dir.name + (dir.arguments.empty() ? "" : " " + args(0)));
     ss << "." << dir.name;
 
     for (size_t i = 0; i < dir.arguments.size(); i++) ss << (i ? ", " : " ") << dir.arguments[i];

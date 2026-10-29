@@ -276,6 +276,7 @@ struct Reader {
     bool directive(const std::string& word, const std::string& args, const std::string& comment, bool prefixed) {
         std::string w = lower(word);
         auto it = syn.directives.find(w);
+        if (syn.handled.count(w) && (prefixed || syn.keywords || syn.bare.count(w))) return true;
         if (syn.ignored.count(w) && (prefixed || syn.keywords || syn.bare.count(w))) {
             warn("'" + word + "' has no ca45 equivalent and is left out");
             return true;
@@ -387,9 +388,17 @@ struct Reader {
         if (trim(code).empty()) {
             // the symbols ACME and KickAssembler output names in comments
             static const std::regex symRe(R"(^\s*(global|extern|weak):\s*([A-Za-z_@.][A-Za-z0-9_@.]*).*$)");
+            // (and the segment switches the ACME / KickAssembler writers keep
+            // as comments: "segment: data", "segment: segment \"zp\"", #224)
+            static const std::regex segRe(R"re(^\s*segment:\s*([A-Za-z_][A-Za-z0-9_]*)\s*(.*?)\s*$)re");
             std::smatch m;
             AsmIR::Statement st;
-            if (std::regex_match(comment, m, symRe)) {
+            if (std::regex_match(comment, m, segRe)) {
+                st.type = AsmIR::Statement::Type::DIRECTIVE;
+                st.dir.name = m[1].str();
+                st.dir.type = AsmIR::DirectiveType::SEGMENT;
+                if (!m[2].str().empty()) st.dir.arguments = {m[2].str()};
+            } else if (std::regex_match(comment, m, symRe)) {
                 std::string kind = m[1].str();
                 st.type = AsmIR::Statement::Type::DIRECTIVE;
                 st.dir.name = kind;

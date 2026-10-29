@@ -1,0 +1,56 @@
+; an ACME program in ACME's idioms
+        !cpu 6502
+        *= $2000
+SCREEN = $0400
+DEBUG = 0
+
+!macro border .col {
+        lda #.col
+        sta $d020
+}
+
+!zone main
+main:   +border 2
+        ldx #0
+.loop:  lda msg,x
+        beq .done
+        sta SCREEN,x
+        inx
+        bne .loop
+.done:  jsr helper
+        rts
+
+!zone helper
+helper:
+.loop:  dey
+        bne .loop
+@cheap: dex
+        bne @cheap
+        rts
+
+inc16:  inc count
+        bne +
+        inc count+1
++       rts
+wait:   ldx #10
+-       dex
+        bne -
+        rts
+
+dbg:
+!if DEBUG = 1 {
+        lda #1
+} else {
+        lda #2
+}
+
+msg:    !text "hello"
+        !8 0
+        !pet "Hi"
+        !scr "ab"
+        !16 main, helper
+        !32 $12345678
+        !fill 3, $ea
+        !align 15, 0, $ff
+        !8 1, 2
+count:  !16 0

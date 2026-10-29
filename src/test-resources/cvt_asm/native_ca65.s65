@@ -1,0 +1,53 @@
+; a ca65 program in ca65's idioms
+        .setcpu "6502"
+SCREEN  = $0400
+.define COLOR 2
+
+.macro  border col
+        lda #col
+        sta $d020
+.endmacro
+
+.proc   main
+        border COLOR
+        ldx #0
+@loop:  lda msg,x
+        beq @done
+        sta SCREEN,x
+        inx
+        bne @loop
+@done:  jsr helper
+        rts
+.endproc
+
+.proc   helper
+@loop:  dey
+        bne @loop
+        rts
+.endproc
+
+inc16:  inc count
+        bne :+
+        inc count+1
+:       rts
+wait:   ldx #10
+:       dex
+        bne :-
+        rts
+
+ifblk:
+.if 1
+        lda #1
+.else
+        lda #2
+.endif
+
+.rodata
+msg:    .byte "hello", 0
+        .asciiz "world"
+        .word main, helper
+        .addr msg
+        .res 3, $ea
+        .lobytes main, helper
+        .hibytes main, helper
+count:  .word 0
