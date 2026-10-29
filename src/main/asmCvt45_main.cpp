@@ -23,6 +23,8 @@
 #include "Merlin64Writer.hpp"
 #include "X65Parser.hpp"
 #include "X65Writer.hpp"
+#include "BsaParser.hpp"
+#include "BsaWriter.hpp"
 #include "KickAssemblerParser.hpp"
 #include "KickAssemblerWriter.hpp"
 #include "FormatDetection.hpp"
@@ -103,6 +105,14 @@ static void registerFormats() {
     // Register x65 writer
     WriterRegistry::getInstance().registerWriter("x65", []() -> AsmWriter* {
         return new X65Writer();
+    });
+
+    // Register BSA (the Bit Shift Assembler, #371) parser and writer
+    ParserRegistry::getInstance().registerParser("bsa", []() -> AsmParser* {
+        return new BsaParser();
+    });
+    WriterRegistry::getInstance().registerWriter("bsa", []() -> AsmWriter* {
+        return new BsaWriter();
     });
 }
 
@@ -367,6 +377,7 @@ static std::string getFormatExtension(const std::string& format) {
     if (fmt == "merlin64") return ".m64";
     if (fmt == "x65") return ".x65";
     if (fmt == "kickassembler") return ".ka";
+    if (fmt == "bsa") return ".bsa";   // (BSA reads any 3-letter extension: bsa prog.bsa)
     return ".asm";
 }
 

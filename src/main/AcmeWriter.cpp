@@ -79,8 +79,10 @@ std::string AcmeWriter::write(const AsmIR::Module& input) {
     return out.str();
 }
 
-std::string AcmeWriter::formatInstruction(const AsmIR::Instruction& instr) {
+std::string AcmeWriter::formatInstruction(const AsmIR::Instruction& in) {
     std::stringstream ss;
+    AsmIR::Instruction instr = in;
+    if (forcedAbs(instr.mnemonic)) instr.mnemonic += "+2";
     // (ACME 0.97's m65 has the 32-bit instructions and [zp],z, but not both together, #223)
     if (isQInstruction(instr.mnemonic) && !flatOperand(instr.operand.text).empty())
         addWarning("'" + instr.mnemonic + " " + instr.operand.text +
