@@ -1062,6 +1062,30 @@ else
     failed=$((failed + 1))
 fi
 
+# #367: cc45 stopped while its trial assemblies run leaves no files behind
+# (its temporary files are in a private directory under $TMPDIR) and no ca45
+mkdir -p build/test_cc45_kill/tmp
+rm -rf build/test_cc45_kill/tmp/* build/test_cc45_kill/w
+mkdir -p build/test_cc45_kill/w
+cp src/test-resources/test_tgi_xemu.c build/test_cc45_kill/w/big.c
+kd=$(cd build/test_cc45_kill && pwd)
+(cd build/test_cc45_kill/w && TMPDIR=$kd/tmp exec ../../../bin/cc45 -O2 -c big.c -o big.o45 >/dev/null 2>&1) & KP=$!
+for i in $(seq 1 300); do
+    ps -eo args | grep -q "^[^ ]*ca45 $kd/tmp/cc45-" && break
+    sleep 0.1
+done
+kill -TERM $KP 2>/dev/null; wait $KP; krc=$?
+sleep 0.5
+kleft="$(ls build/test_cc45_kill/w | grep -v '^big.c$') $(ls -A build/test_cc45_kill/tmp)"
+kca=$(ps -eo args | grep -c "^[^ ]*ca45 $kd/tmp/cc45-")
+if [ "$krc" = 143 ] && [ -z "${kleft// /}" ] && [ "$kca" = 0 ]; then
+    echo "SUCCESS: cc45 stopped during its trial assemblies leaves no files or ca45 behind"
+    passed=$((passed + 1))
+else
+    echo "FAIL: cc45 stopped (#367): status $krc, left '$kleft', $kca ca45 running"
+    failed=$((failed + 1))
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All tests passed!"
     exit 0

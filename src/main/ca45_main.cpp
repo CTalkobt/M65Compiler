@@ -642,6 +642,7 @@ int main(int argc, char** argv) {
     AssemblerParser parser(tokens, predefinedSymbols); if (functionSections) parser.functionSections = true;
     parser.setSourceFile(input_file);
     parser.setTokenFiles(tokenFiles);
+    parser.setBadNumbers(lexer.badNumbers());
     parser.verboseOptimizer = verboseOptimizer;
     parser.traceMachState = traceMachState;
     parser.enableExperimental = enableExperimental;
@@ -845,6 +846,7 @@ int main(int argc, char** argv) {
 
                     AssemblerParser parser(tokens, predefinedSymbols); if (functionSections) parser.functionSections = true;
                     parser.setTokenFiles(lexer.files());
+                    parser.setBadNumbers(lexer.badNumbers());
                     parser.setSourceFile(input_file);
                     parser.verboseOptimizer = verboseOptimizer;
                     parser.traceMachState = traceMachState;

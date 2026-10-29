@@ -1144,6 +1144,45 @@ else
     failed=$((failed + 1))
 fi
 
+# #363: a number running into letters or '_' is an error; #364: * (the PC)
+# before & | ^ >> ...; #365: code after a return kept at -O0 (left out and
+# reported when optimizing); #366: ln45 -t $2000
+mkdir -p build/test_numexpr
+nx_ok=1; nx_why=""
+for l in 'lda #$12junk' 'lda #10xyz' 'lda #%1010_0101' '.byte $1_2'; do
+    printf '  .org $1000\n  %s\n' "$l" > build/test_numexpr/bad.s45
+    CA45_OPTIMIZE=0 $AS build/test_numexpr/bad.s45 -o build/test_numexpr/bad.bin 2>&1 | grep -q "error: unexpected '" || { nx_ok=0; nx_why+=" [$l]"; }
+done
+printf '  .cpu 45gs02\n  .org $1000\n  lda #1\n' > build/test_numexpr/cpu.s45
+CA45_OPTIMIZE=0 $AS build/test_numexpr/cpu.s45 -o build/test_numexpr/cpu.bin >/dev/null 2>&1 || { nx_ok=0; nx_why+=" [.cpu 45gs02]"; }
+printf '  .org $200b\n  .byte * & 3, * | 3, (*) & 3, 3 & *, * >> 8, * ^ 1\n  .fill (4-(*&3))&3, $ff\n  .byte $ee\n' > build/test_numexpr/pc.s45
+CA45_OPTIMIZE=0 $AS build/test_numexpr/pc.s45 -o build/test_numexpr/pc.bin >/dev/null 2>&1
+[ "$(xxd -p build/test_numexpr/pc.bin 2>/dev/null)" = "030b0303200affffffee" ] || { nx_ok=0; nx_why+=" [pc: $(xxd -p build/test_numexpr/pc.bin 2>/dev/null)]"; }
+printf '  .org $2000\nstart: rts\n  lda #1\n  .byte 7\n  lda #2\n  rts\n  lda #3\nmsg: .byte 7\n  .word msg\n' > build/test_numexpr/dead.s45
+CA45_OPTIMIZE=0 $AS build/test_numexpr/dead.s45 -o build/test_numexpr/d0.bin >/dev/null 2>&1
+[ "$(xxd -p build/test_numexpr/d0.bin 2>/dev/null)" = "60a90107a90260a903070920" ] || { nx_ok=0; nx_why+=" [O0: $(xxd -p build/test_numexpr/d0.bin 2>/dev/null)]"; }
+dr=$(CA45_OPTIMIZE=2 $AS -Roptimizer build/test_numexpr/dead.s45 -o build/test_numexpr/d2.bin 2>&1 | grep -c 'unreachable after a return')
+[ "$(xxd -p build/test_numexpr/d2.bin 2>/dev/null)" = "6007a90260070520" ] && [ "$dr" = 2 ] || { nx_ok=0; nx_why+=" [O2: $(xxd -p build/test_numexpr/d2.bin 2>/dev/null), $dr reported]"; }
+printf '  .org $2000\n  proc f\n  rts\n  lda #1\n  endproc\n' > build/test_numexpr/proc.s45
+CA45_OPTIMIZE=0 $AS build/test_numexpr/proc.s45 -o build/test_numexpr/p0.bin >/dev/null 2>&1
+[ "$(xxd -p build/test_numexpr/p0.bin 2>/dev/null)" = "60a90160" ] || { nx_ok=0; nx_why+=" [proc O0: $(xxd -p build/test_numexpr/p0.bin 2>/dev/null)]"; }
+printf 'start: lda #1\n  rts\n' > build/test_numexpr/t.s45
+$AS -c build/test_numexpr/t.s45 -o build/test_numexpr/t.o45 >/dev/null 2>&1
+for a in '$2000' '0x2000' '2000'; do
+    rm -f build/test_numexpr/t.prg
+    ./bin/ln45 -prg -t "$a" -o build/test_numexpr/t.prg build/test_numexpr/t.o45 >/dev/null 2>&1
+    [ "$(xxd -p build/test_numexpr/t.prg 2>/dev/null)" = "0020a90160" ] || { nx_ok=0; nx_why+=" [ln45 -t $a]"; }
+done
+ln_err=$(./bin/ln45 -prg -t 'zz' -o build/test_numexpr/t.prg build/test_numexpr/t.o45 2>&1); ln_rc=$?
+[ $ln_rc = 1 ] && grep -q "invalid address 'zz'" <<< "$ln_err" || { nx_ok=0; nx_why+=" [ln45 -t zz: $ln_rc $ln_err]"; }
+if [ $nx_ok -eq 1 ]; then
+    echo "SUCCESS: malformed numbers rejected, * before & | ^ >>, code after rts kept at -O0, ln45 -t \$2000"
+    passed=$((passed + 1))
+else
+    echo "FAIL: numbers / * / code after rts / ln45 -t (#363-#366):$nx_why"
+    failed=$((failed + 1))
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All assembler feature tests passed!"
     exit 0

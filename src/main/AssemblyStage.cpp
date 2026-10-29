@@ -1,5 +1,6 @@
 #include "AssemblyStage.hpp"
 #include "Logger.hpp"
+#include "CcTemp.hpp"
 #include <iostream>
 #include <fstream>
 #include <cstdlib>
@@ -31,7 +32,9 @@ Stage::Result AssemblyStage::execute() {
         }
 
         // Write assembly input to temporary file
-        std::string tempAsmFile = "temp_" + std::to_string(getpid()) + ".s45";
+        // (--save-temps: in the current directory, else cc45's temp directory, #367)
+        tempAsmFile_ = keepTemp_ ? "temp_" + std::to_string(getpid()) + ".s45" : cctemp::path("temp.s45");
+        const std::string& tempAsmFile = tempAsmFile_;
         std::ofstream asmOut(tempAsmFile);
         if (!asmOut) {
             return {false, "Failed to write temporary assembly file"};
@@ -72,7 +75,7 @@ int AssemblyStage::invokeAssembler() {
 
     // Build ca45 command line
     // Format: ca45 input.s45 [-c] -o output.o45
-    std::string cmd = toolDir_ + "ca45 temp_" + std::to_string(getpid()) + ".s45";
+    std::string cmd = toolDir_ + "ca45 " + tempAsmFile_;
 
     // Add -c flag if relocatable object requested
     if (relocatable_) {

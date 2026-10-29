@@ -4,6 +4,26 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### ca45, ln45 and cc45 fixes (#363-#367)
+
+- ca45: a number followed directly by letters or `_` is an error
+  (`lda #$12junk`, `%1010_0101`: `unexpected '_0101' after the number
+  '%1010'`), where the rest was ignored (#363); a float's exponent is part of
+  its literal (`.float 2.5E-3`).
+- ca45: `*` (the PC) before `&`, `|`, `^`, `<<`, `>>`, `*`, `/`, `&&`, `||` is
+  the PC (`.fill (4-(*&3))&3` was 4 bytes) (#364).
+- ca45: code after `rts`/`rti` without a label is kept at `-O0` and in
+  `.noopt` regions; when optimizing it is left out up to the next label or
+  data (as the generator always did: an instruction after a table was
+  assembled with no room for it), and `-Roptimizer` reports each (#365).
+- ln45: `-t`/`-d`/`-b`/`-z` take `$2000` and `0x2000` as well as `2000`;
+  another value is an error, where `$2000` aborted (#366).
+- cc45: temporary files in a private directory under `$TMPDIR`, removed at
+  exit and on SIGINT/SIGTERM/SIGHUP (re-raised); the trial `ca45` runs are
+  started without a shell and stopped with cc45 (on Linux also when it is
+  killed), so a stopped build leaves no `temp_<pid>_trial*` files (#367).
+  Two such files committed in `examples/c/glamlambs/` removed.
+
 ### cvt_asm: conversions checked against ca65, ACME and KickAssembler (#223, #224)
 
 - `doc/architecture/cvt_asm-guide.md`: what each format keeps, translates

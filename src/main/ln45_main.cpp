@@ -25,7 +25,7 @@ static void printUsage(const char* progName) {
     std::cout << "  -o <file>      Output filename (default: a.out, or a.prg if -prg)" << std::endl;
     std::cout << "  -prg           Output as PRG with 2-byte load address header" << std::endl;
     std::cout << "  -basic         Output as PRG with BASIC SYS stub (loads at $2001, code at $200D)" << std::endl;
-    std::cout << "  -t <addr>      Set text segment base address (hex, e.g., -t 2000)" << std::endl;
+    std::cout << "  -t <addr>      Set text segment base address (hex: 2000, $2000 or 0x2000)" << std::endl;
     std::cout << "  -d <addr>      Set data segment base address (hex; default: after text)" << std::endl;
     std::cout << "  -b <addr>      Set BSS segment base address (hex; default: after data)" << std::endl;
     std::cout << "  -z <addr>      Set zero page base address (hex; default: 02)" << std::endl;
@@ -75,8 +75,18 @@ static void printUsage(const char* progName) {
     std::cout << "  -?             Display this help message" << std::endl;
 }
 
-static uint32_t parseAddr(const std::string& s) {
-    return (uint32_t)std::stoul(s, nullptr, 16);
+// -t/-d/-b/-z: hex, written 2000, $2000 or 0x2000 (#366)
+static uint32_t parseAddr(const std::string& opt, const std::string& s) {
+    std::string v = s;
+    if (!v.empty() && v[0] == '$') v = v.substr(1);
+    else if (v.size() > 2 && v[0] == '0' && (v[1] == 'x' || v[1] == 'X')) v = v.substr(2);
+    unsigned long a = 0;
+    try { size_t used = 0; a = std::stoul(v, &used, 16); if (used != v.size() || a > 0xFFFFFFF) throw 0; }
+    catch (...) {
+        std::cerr << "ln45: error: invalid address '" << s << "' for " << opt << " (hex: 2000, $2000, 0x2000)" << std::endl;
+        std::exit(1);
+    }
+    return (uint32_t)a;
 }
 
 int main(int argc, char** argv) {
@@ -137,10 +147,10 @@ int main(int argc, char** argv) {
         else if (arg == "-g") { debugFile = true; }
         else if (arg == "-L" && i + 1 < argc) { libSearchPaths.push_back(argv[++i]); }
         else if (arg == "-l" && i + 1 < argc) { libFiles.push_back(argv[++i]); }
-        else if (arg == "-t" && i + 1 < argc) { textBase = parseAddr(argv[++i]); textBaseSet = true; }
-        else if (arg == "-d" && i + 1 < argc) { dataBase = parseAddr(argv[++i]); dataBaseSet = true; }
-        else if (arg == "-b" && i + 1 < argc) { bssBase = parseAddr(argv[++i]); bssBaseSet = true; }
-        else if (arg == "-z" && i + 1 < argc) { zpBase = parseAddr(argv[++i]); zpBaseSet = true; }
+        else if (arg == "-t" && i + 1 < argc) { textBase = parseAddr(arg, argv[++i]); textBaseSet = true; }
+        else if (arg == "-d" && i + 1 < argc) { dataBase = parseAddr(arg, argv[++i]); dataBaseSet = true; }
+        else if (arg == "-b" && i + 1 < argc) { bssBase = parseAddr(arg, argv[++i]); bssBaseSet = true; }
+        else if (arg == "-z" && i + 1 < argc) { zpBase = parseAddr(arg, argv[++i]); zpBaseSet = true; }
         else if (arg == "--no-thunks") { thunkMode = O45Linker::THUNK_ERROR; }
         else if (arg == "--no-sac-overlay") { sacOverlay = false; }
         else if (arg == "--no-gc") { gcObjects = false; }

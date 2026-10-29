@@ -1,7 +1,7 @@
 # The steps of make test, run in parallel by run_parallel.sh (title|command):
 # each must leave other steps' files alone and use a directory of its own for
-# what it globs (cc45 --save-temps and the loop-rotation trial write their
-# temporary files to the current directory). test_xemu.sh is make test-xemu;
+# what it globs (cc45 --save-temps writes temp_<pid>.s45 to the current
+# directory; cc45's other temporary files are under $TMPDIR). test_xemu.sh is make test-xemu;
 # test_examples.sh runs after these (it is parallel itself).
 
 Running .o45 format and linker unit tests...|./bin/test_o45
