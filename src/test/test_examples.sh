@@ -375,6 +375,15 @@ test_text "drums" "$EXAMPLES/c/drums/drumscheck.prg" "DRUMS CHECK OK: 40 TICKS, 
 
 }
 
+unit_31() {   # sprite_demo
+build_example "$EXAMPLES/c/sprite_demo"
+# the test build: the movie once (2100 frames: the fish caught, the
+# registers back after sprite_done), then a report on the text screen
+make -C "$EXAMPLES/c/sprite_demo" check >/dev/null 2>&1
+test_text "sprite_demo" "$EXAMPLES/c/sprite_demo/spritecheck.prg" "SPRITE CHECK OK, 2100 FRAMES" 60
+
+}
+
 unit_29() {   # map_decode
 build_example "$EXAMPLES/c/map_decode"
 test_screenshot "map_decode" "$EXAMPLES/c/map_decode/map_decode.prg" 10

@@ -1621,12 +1621,17 @@ else
     echo "FAIL: mapped overlays in attic RAM are not a link error"
     failed=$((failed + 1))
 fi
+# <sprites.h>: the hardware sprites' registers, positions, boxes, a collision
+for sprmode in "stack|-fno-zpcall" "zp|"; do
+    IFS='|' read -r sprname sprflags <<< "$sprmode"
+    xemu_case "FAIL: test_sprites_xemu.c $sprname (compilation/linking failed)" "src/test-resources/test_sprites_xemu.c" "build/test/test_sprites_${sprname}_xemu.prg" "$sprflags" -- "test_sprites_$sprname" "build/test/test_sprites_${sprname}_xemu.prg" "C0C0" 13 "01 01 01 01 01 01 01 01 01 01 01 01 AA"
+done
 # <unpack.h> (#345): streams pack45 made from a pattern, unpacked into chip
 # RAM, in place and into attic RAM
 bash src/test/gen_unpack_stream.sh build/test
 for upmode in "stack|-fno-zpcall" "zp|"; do
     IFS='|' read -r upname upflags <<< "$upmode"
-    xemu_case "FAIL: test_unpack_xemu.c $upname (compilation/linking failed)" "src/test-resources/test_unpack_xemu.c" "build/test/test_unpack_${upname}_xemu.prg" "$upflags -Ibuild/test" -- "test_unpack_$upname" "build/test/test_unpack_${upname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
+    xemu_case "FAIL: test_unpack_xemu.c $upname (compilation/linking failed)" "src/test-resources/test_unpack_xemu.c" "build/test/test_unpack_${upname}_xemu.prg" "$upflags -Ibuild/test" -- "test_unpack_$upname" "build/test/test_unpack_${upname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
 done
 
 # __bank(n) (#69): variables and functions kept in banks 4, 5 and attic

@@ -14,6 +14,12 @@
  * Format 1 (Pack45.hpp): the format byte, the destination (4 bytes), then
  * tokens: literals, fills (DMA fill) and repeats (DMA copy). unpack returns
  * the number of bytes it wrote, 0 for a stream of another format.
+ *
+ * Assembly (stdlib_asm/unpack.s45), from a program's own .s45 too: the
+ * stream's address in $10-$13 (unpack_to: the destination in $14-$17), then
+ *   jsr ___unpack          (jsr ___unpack_to)
+ * the count comes back in Q (A, X, Y, Z: bits 0-7 ... 24-31); $08-$19 and
+ * the registers are changed.
  */
 #ifndef _UNPACK_H
 #define _UNPACK_H
@@ -25,5 +31,10 @@
    named unpack cannot take the overlay loader's call (#346) */
 __fastcall__ unsigned long __unpack(unsigned long src);
 #define unpack __unpack
+
+/* The same to dst, the stream's own destination ignored: a stream unpacked
+   to more than one place, or made with any -d */
+__fastcall__ unsigned long __unpack_to(unsigned long src, unsigned long dst);
+#define unpack_to __unpack_to
 
 #endif

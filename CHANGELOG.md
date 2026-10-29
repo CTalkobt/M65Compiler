@@ -4,6 +4,35 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### sprites.h: the hardware sprites
+
+- `<sprites.h>` is now a library for the VIC-IV's 8 hardware sprites
+  (`lib/stdlib_asm/sprites.s45`, assembly, linked per function): images
+  anywhere in the first 4 MB through 16-bit pointers (`sprite_image`),
+  positions with their 9th and 10th bits (`sprite_pos`, `sprite_move`),
+  show/hide, colours, hi-res / multicolour / 16-colour, expanded, 64-wide and
+  tall sprites, priority, SPR640, V400 rows, tiling, the second colour set,
+  alpha blending, the sprites' palette bank, the hardware collisions and a
+  box test (`sprite_overlap`); `sprite_init` / `sprite_done` save and restore
+  the registers. The earlier header declared an unimplemented software-sprite
+  API. `examples/c/invaders` and `text_scroller` use it; the new
+  `examples/c/sprite_demo` is a short movie using every feature ("The
+  Farmer and the Fish": a lake rippling by palette changes, the sun and its
+  glint, a fish caught; `make check`). Test:
+  `test_sprites_xemu.c`.
+
+### unpack() in assembly; unpack_to; pack45 documented
+
+- `<unpack.h>`'s decoder is assembly (`lib/stdlib_asm/unpack.s45`, was
+  `stdlib/unpack.c`): literals up to 16 bytes copied by the CPU, longer ones,
+  fills and repeats one DMA job each; about 30% faster on the test stream and
+  214 bytes smaller. New `unpack_to(src, dst)` unpacks to `dst`, the stream's
+  own destination ignored. Both are callable from assembly (the addresses in
+  `$10`-`$13` / `$14`-`$17`, `jsr ___unpack` / `___unpack_to`, the count in Q).
+- `doc/bin/pack45.md`: a file unpacked in place, packed data inside a
+  program (`--raw` and ca45 `.incbin`), calling the decoder from assembly;
+  pack45 in the README's tool list.
+
 ### asmCvt45: BSA, the Bit Shift Assembler (#371)
 
 - `asmCvt45 -f bsa` / `-t bsa` (`.bsa`, `.src`): BSA's syntax read by its own

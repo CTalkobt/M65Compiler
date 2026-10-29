@@ -1,0 +1,268 @@
+; unpack.s45 — the decoder of packed streams, format 1 (#345, <unpack.h>,
+; include/Pack45.hpp; was stdlib/unpack.c): literals up to 16 bytes copied by
+; the CPU, longer ones, fills and repeats DMA jobs at 28-bit addresses. In
+; place, the stream is ahead of the writing: copying forwards is right.
+;
+; unsigned long __unpack(unsigned long src)
+;   to the destination in the stream's header
+; unsigned long __unpack_to(unsigned long src, unsigned long dst)
+;   to dst (the header's destination ignored)
+; Both return the bytes written, 0 for a stream of another format (nothing
+; written). The ZP convention in either library (the overlay loader calls
+; __unpack from assembly); from assembly:
+;   src in $10-$13 (and dst in $14-$17), jsr ___unpack (___unpack_to): the
+;   count in Q (A, X, Y, Z: bits 0-7 ... 24-31); $08-$19 changed
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.global ___unpack, ___unpack_to
+.extern ___dma_copy_far, ___dma_fill_far
+
+P = $08                 ; the stream (32 bits)
+D = $0C                 ; where it writes (32 bits)
+CPU_MAX = 16            ; literals up to this long: the CPU, a byte at a time
+
+.segment "bss"
+__u_start:      .res 4  ; the first byte written
+__u_n:          .res 1  ; a token's length
+
+.segment "code"
+
+; __unpack(src): src $10-$13
+proc ___unpack
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
+    .zp_clobbers $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    ldq $10
+    stq P
+    ldz #0
+    lda [P],z
+    cmp #1
+    bne @none
+    ldz #1                  ; the header's destination
+    lda [P],z
+    sta D
+    inz
+    lda [P],z
+    sta D+1
+    inz
+    lda [P],z
+    sta D+2
+    inz
+    lda [P],z
+    sta D+3
+    jmp __u_go
+@none:                      ; not format 1: 0
+    lda #0
+    tax
+    tay
+    taz
+    rts
+    .func_flags zp_call
+endproc
+
+; __unpack_to(src, dst): src $10-$13, dst $14-$17
+proc ___unpack_to
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
+    .zp_clobbers $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    ldq $10
+    stq P
+    ldz #0
+    lda [P],z
+    cmp #1
+    bne @none
+    ldq $14
+    stq D
+    jmp __u_go
+@none:
+    lda #0
+    tax
+    tay
+    taz
+    rts
+    .func_flags zp_call
+endproc
+
+; The tokens from P + 5 to D
+proc __u_go
+    ldq D
+    stq __u_start
+    lda #5
+    jsr __u_skip
+@tok:
+    ldz #0
+    lda [P],z               ; t
+    tax
+    and #$3F
+    sta __u_n
+    txa
+    bmi @rep
+    and #$40
+    bne @fill
+    inc __u_n               ; $00-$3F: n + 1 bytes as they are
+    lda #1
+    jsr __u_skip
+    ldx __u_n
+    cpx #CPU_MAX + 1
+    bcs @lit_dma
+@lit:                       ; (Z: 0)
+    lda [P],z
+    sta [D],z
+    inc P
+    bne @l1
+    jsr __u_pc
+@l1:
+    inc D
+    bne @l2
+    jsr __u_dc
+@l2:
+    dex
+    bne @lit
+    bra @tok
+@lit_dma:
+    jsr __u_dst
+    ldq P
+    stq $14
+    jsr ___dma_copy_far
+    lda __u_n
+    jsr __u_skip
+    bra @adv
+@fill:                      ; $40-$7F: n + 3 bytes of one
+    jsr __u_n3
+    ldz #1
+    lda [P],z
+    sta $16
+    jsr __u_dst
+    lda __u_n
+    sta $14
+    lda #0
+    sta $15
+    jsr ___dma_fill_far
+    lda #2
+    jsr __u_skip
+    bra @adv
+@rep:                       ; $80-$FF: n + 3 bytes from o back
+    and #$40
+    bne @far
+    ldz #1                  ; $80-$BF: o = the byte + 1
+    lda [P],z
+    clc
+    adc #1
+    sta $14
+    lda #0
+    adc #0
+    sta $15
+    lda #2
+    bra @copy
+@far:
+    ldz #1                  ; $C0-$FF: o = 2 bytes
+    lda [P],z
+    sta $14
+    inz
+    lda [P],z
+    sta $15
+    ora $14
+    ora __u_n
+    beq @end                ; ($C0 $00 $00)
+    lda #3
+@copy:
+    jsr __u_skip
+    jsr __u_n3
+    sec                     ; the source: D - o
+    lda D
+    sbc $14
+    sta $14
+    lda D+1
+    sbc $15
+    sta $15
+    lda D+2
+    sbc #0
+    sta $16
+    lda D+3
+    sbc #0
+    sta $17
+    jsr __u_dst
+    jsr ___dma_copy_far
+@adv:                       ; D + n
+    clc
+    lda D
+    adc __u_n
+    sta D
+    bcc @tok
+    jsr __u_dc
+    bra @tok
+@end:
+    sec                     ; the count: D - the start
+    lda D
+    sbc __u_start
+    pha
+    lda D+1
+    sbc __u_start+1
+    tax
+    lda D+2
+    sbc __u_start+2
+    tay
+    lda D+3
+    sbc __u_start+3
+    taz
+    pla
+    rts
+endproc
+
+; P + A
+proc __u_skip
+    clc
+    adc P
+    sta P
+    bcc @out
+    jmp __u_pc
+@out:
+    rts
+endproc
+
+; the carry out of P's low byte into the others
+proc __u_pc
+    inc P+1
+    bne @out
+    inc P+2
+    bne @out
+    inc P+3
+@out:
+    rts
+endproc
+
+; (D's)
+proc __u_dc
+    inc D+1
+    bne @out
+    inc D+2
+    bne @out
+    inc D+3
+@out:
+    rts
+endproc
+
+; n + 3
+proc __u_n3
+    lda __u_n
+    clc
+    adc #3
+    sta __u_n
+    rts
+endproc
+
+; $10-$13 := D, $18/$19 := n (the DMA job's destination and length)
+proc __u_dst
+    ldq D
+    stq $10
+    lda __u_n
+    sta $18
+    lda #0
+    sta $19
+    rts
+endproc

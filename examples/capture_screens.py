@@ -19,6 +19,10 @@ import tempfile
 import time
 
 DELAY = 2.5
+# the examples to catch later than DELAY (seconds)
+DELAYS = {
+    "sprite_demo": 18.0,    # the fish on the line
+}
 OUT = "doc/examples/images"
 
 # name: the PRG (the examples' build outputs), or (PRG, D81) for one that
@@ -34,6 +38,7 @@ EXAMPLES = {
     "game_of_life": "examples/c/game_of_life/life.prg",
     "memset_screen": "examples/c/memset_screen/memset_screen.prg",
     "text_scroller": "examples/c/text_scroller/scroller.prg",
+    "sprite_demo": "examples/c/sprite_demo/sprite_demo.prg",
     "vic4_colors": "examples/c/vic4_colors/vic4_colors.prg",
     "far_scroller": "examples/c/far_scroller/far_scroller.prg",
     "invaders": "examples/c/invaders/invaders.prg",
@@ -130,7 +135,7 @@ def capture(name, prg):
         if started is None:
             print("%s: the program never appeared at $%04X" % (name, addr))
             return False
-        time.sleep(max(0, started + DELAY - time.time()))
+        time.sleep(max(0, started + float(os.environ.get("CAPTURE_DELAY", DELAYS.get(name, DELAY))) - time.time()))
         sock.close()
         xemu.send_signal(signal.SIGTERM)
         xemu.wait(timeout=15)

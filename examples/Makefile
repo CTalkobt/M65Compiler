@@ -15,6 +15,7 @@ SUBDIRS = \
 	c/game_of_life \
 	c/memset_screen \
 	c/text_scroller \
+	c/sprite_demo \
 	c/vic4_colors \
 	c/far_scroller \
 	c/invaders \

@@ -13,6 +13,7 @@ c/keyboard_viewer/keyboard_viewer.prg | keyboard    | keyboard - the keys you ho
 c/sample_player/sample_player.prg    | sample player | sample player - drums on the audio dma
 c/far_scroller/far_scroller.prg      | far scroller | far scroller - a dma landscape
 c/text_scroller/scroller.prg         | text scroller | text scroller - a sprite and a message
+c/sprite_demo/sprite_demo.prg        | sprite demo  | sprite demo - the farmer and the fish
 c/game_of_life/life.prg              | game of life | game of life - conway's cellular world
 c/palette_fade/palette_fade.prg      | palette fade | palette fade - c and assembly
 c/vic4_colors/vic4_colors.prg        | vic4 colors  | vic4 colors - registers as a struct
