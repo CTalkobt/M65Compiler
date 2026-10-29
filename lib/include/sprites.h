@@ -1,529 +1,106 @@
-/* sprites.h — Unified Sprite System for MEGA65
+/* sprites.h — the VIC-IV's 8 hardware sprites (lib/stdlib_asm/sprites.s45)
  *
- * Provides resolution-agnostic sprite management for both 320-pixel (standard)
- * and 640-pixel (H640) display modes. Uses polymorphism to automatically
- * select the appropriate implementation (Sprite320 or Sprite640) based on
- * current display resolution.
+ *   sprite_init();                              16-bit pointers: images anywhere
+ *   dma_copy_far(0x40000UL, ship, 64);          an image in bank 4 (64-byte aligned)
+ *   sprite_image(0, 0x40000UL);
+ *   sprite_color(0, 1);
+ *   sprite_pos(0, SPRITE_X0 + 100, SPRITE_Y0 + 80);
+ *   sprite_show(0);
+ *   ...
+ *   sprite_done();                              the registers as they were
  *
- * Design Pattern: Virtual methods via function pointers allow resolution-specific
- * optimizations while maintaining a unified public API. The sprite_create()
- * function returns the appropriate sprite type for the current mode.
+ * Positions are sprite coordinates: the screen's top left is (SPRITE_X0,
+ * SPRITE_Y0); a sprite pixel is two physical pixels wide unless sprite_h640(1)
+ * (then x counts the 640-wide display's pixels, the left edge at
+ * SPRITE_X0_H640). x and y can be up to 1023: bit 8 goes to $D010 / $D077,
+ * bit 9 to $D05F / $D078.
  *
- * Usage:
- *   #include <sprites.h>
- *   sprite_init();
- *   sprite_t sprite = sprite_create(100, 100, 32, 32);
- *   sprite_set_position(sprite, 150, 150);
- *   sprite_render_all();
+ * Images: 63 bytes (24 x 21, a bit a pixel; multicolour: 12 x 21 of two
+ * bits), SPRITE_WIDE 8 bytes a row (64 pixels), SPRITE_16COLOR 8 bytes a row
+ * of 16 pixels of 4 bits (colour c of sprite n is palette entry n * 16 + c;
+ * 0 transparent). SPRITE_TALL sprites are sprite_height() rows.
+ *
+ * Every function is assembly with the ZP convention in either library; a
+ * program links the ones it calls (about 1 KB for all). sprite_init and
+ * sprite_done save and restore every register (of $D049, $D04B, $D04D,
+ * $D04F and $D070 only the sprites' bits); SPRITE_TALL sprites share one
+ * height ($D056: the hardware's).
  */
+#ifndef _SPRITES_H
+#define _SPRITES_H
 
-#ifndef SPRITES_H
-#define SPRITES_H
+#define SPRITE_COUNT     8
 
-#include <stdint.h>
+/* the screen's top left in sprite coordinates (a 40/80-column screen with
+   its borders as the KERNAL sets them) */
+#define SPRITE_X0        24
+#define SPRITE_Y0        50
+#define SPRITE_X0_H640   48
 
-/* ============================================================================
- * SPRITE TYPE DEFINITION
- * ========================================================================== */
+/* sprite_mode */
+#define SPRITE_HIRES     0      /* one colour (sprite_color) */
+#define SPRITE_MULTICOLOR 1     /* pairs of bits: transparent, sprite_multicolors' first, sprite_color, its second */
+#define SPRITE_16COLOR   2      /* 4 bits a pixel, 16 wide (64 bits a row) */
 
-typedef void *sprite_t;  /* Opaque sprite handle (Sprite320 or Sprite640) */
+/* sprite_size: flags or'd */
+#define SPRITE_NORMAL    0
+#define SPRITE_EXPAND_X  1      /* pixels twice as wide */
+#define SPRITE_EXPAND_Y  2      /* twice as high */
+#define SPRITE_WIDE      4      /* 8 bytes a row: 64 pixels */
+#define SPRITE_TALL      8      /* sprite_height() rows instead of 21 */
 
-#define INVALID_SPRITE  NULL
+/* Start: the registers saved; 16-bit sprite pointers in the library's table;
+   every sprite off at (0, 0), hi-res, normal size, in front, image 0, not
+   tiled, blended or in V400 rows (the palette bank as it was) */
+__fastcall__ void sprite_init(void);
+/* Every sprite off, the registers sprite_init saved put back */
+__fastcall__ void sprite_done(void);
 
-/* ============================================================================
- * SPRITE INFORMATION STRUCTURE
- * ========================================================================== */
+/* Sprite n's image: its data at the 28-bit address addr (a multiple of 64,
+   below 4 MB: chip RAM) */
+__fastcall__ void sprite_image(unsigned char n, unsigned long addr);
 
-typedef struct {
-    sprite_t id;            /* Sprite handle */
-    int x, y;               /* Position (pixels, resolution-aware) */
-    int width, height;      /* Dimensions (pixels) */
-    int visible;            /* Visibility flag (0-1) */
-    int layer;              /* Z-order layer (0-255) */
-    int color;              /* Primary color (0-15) */
-    uint8_t *bitmap;        /* Bitmap data pointer */
-    int bitmap_stride;      /* Bytes per row in bitmap */
-    int is_sprite640;       /* 1 if Sprite640, 0 if Sprite320 */
-} sprite_info_t;
+/* Position */
+__fastcall__ void sprite_pos(unsigned char n, unsigned int x, unsigned int y);
+__fastcall__ void sprite_move(unsigned char n, signed int dx, signed int dy);
+__fastcall__ unsigned int sprite_x(unsigned char n);
+__fastcall__ unsigned int sprite_y(unsigned char n);
 
-/* ============================================================================
- * INITIALIZATION & MODE CONTROL
- * ========================================================================== */
+/* On and off */
+__fastcall__ void sprite_show(unsigned char n);
+__fastcall__ void sprite_hide(unsigned char n);
 
-/**
- * sprite_init - Initialize sprite system
- *
- * Must be called before any other sprite functions.
- * Auto-detects current display resolution and initializes accordingly.
- *
- * Returns:
- *   1 if successful, 0 on error
- */
-int sprite_init(void);
+/* Looks */
+__fastcall__ void sprite_color(unsigned char n, unsigned char c);  /* SPRITE_16COLOR: the transparent colour */
+__fastcall__ void sprite_multicolors(unsigned char c1, unsigned char c2);
+__fastcall__ void sprite_mode(unsigned char n, unsigned char mode);
+__fastcall__ void sprite_size(unsigned char n, unsigned char flags);
+__fastcall__ void sprite_height(unsigned char rows);              /* every SPRITE_TALL sprite's */
+__fastcall__ void sprite_behind(unsigned char n, unsigned char on); /* behind the foreground */
+__fastcall__ void sprite_h640(unsigned char on);                  /* positions and pixels at 640 */
+__fastcall__ void sprite_v400(unsigned char n, unsigned char on);  /* rows one physical pixel high */
+__fastcall__ void sprite_tile(unsigned char n, unsigned char on);  /* repeated to the end of its line */
 
-/**
- * sprite_shutdown - Disable sprite system and release resources
- */
-void sprite_shutdown(void);
+/* Colours: the palette bank (0-3) sprites take their colours from ($D070
+   SPRPALSEL; sprite_init keeps the current one: the KERNAL's $D070 is $FF,
+   bank 3 for everything). The text and graphics keep theirs; fill the
+   sprites' with <palette.h> after mapping it at $D100 ($D070 bits 6-7, then
+   back). A 16-colour sprite's second set of colours: entries n * 16 + c +
+   128 (SPRBPMEN) */
+__fastcall__ void sprite_palette_bank(unsigned char bank);
+__fastcall__ void sprite_altcolors(unsigned char n, unsigned char on);
 
-/**
- * sprite_is_initialized - Check if sprite system is active
- *
- * Returns:
- *   1 if initialized, 0 otherwise
- */
-int sprite_is_initialized(void);
+/* Alpha blending with what is behind the sprite (the hardware's; xemu does
+   not show it): on for sprite n, and the level (0-255) for all */
+__fastcall__ void sprite_alpha(unsigned char n, unsigned char on);
+__fastcall__ void sprite_alpha_level(unsigned char level);
 
-/**
- * sprite_set_resolution - Set display resolution
- *
- * Switches between 320-pixel (standard) and 640-pixel (H640) modes.
- * Requires Phase 30 feature detection for H640 support.
- *
- * Parameters:
- *   width — Display width (320 for standard, 640 for H640)
- *
- * Returns:
- *   1 if resolution set, 0 if unavailable
- */
-int sprite_set_resolution(int width);
-
-/**
- * sprite_get_resolution - Get current display resolution
- *
- * Returns:
- *   Display width in pixels (320 or 640)
- */
-int sprite_get_resolution(void);
-
-/**
- * sprite_get_height - Get current display height
- *
- * Returns:
- *   Display height in pixels (200 for NTSC, 224+ for PAL)
- */
-int sprite_get_height(void);
-
-/* ============================================================================
- * SPRITE CREATION & DESTRUCTION
- * ========================================================================== */
-
-/**
- * sprite_create - Create a new sprite
- *
- * Allocates sprite with specified dimensions. The sprite type (Sprite320
- * or Sprite640) is automatically selected based on current resolution.
- * Sprite bitmap is allocated and cleared to transparent (0).
- *
- * Parameters:
- *   x, y — Initial position (pixels, resolution-aware)
- *   width, height — Sprite dimensions (pixels)
- *
- * Returns:
- *   Sprite handle on success, INVALID_SPRITE on error
- *
- * Note: Sprite coordinates are clamped to current resolution bounds.
- *       Creating 640-pixel sprite in 320-pixel mode will fail.
- */
-sprite_t sprite_create(int x, int y, int width, int height);
-
-/**
- * sprite_destroy - Delete a sprite
- *
- * Frees sprite bitmap and removes from display.
- *
- * Parameters:
- *   sprite — Sprite handle to destroy
- */
-void sprite_destroy(sprite_t sprite);
-
-/**
- * sprite_get_info - Get sprite information
- *
- * Reads current sprite properties including resolution type.
- *
- * Parameters:
- *   sprite — Sprite handle
- *   info — Pointer to sprite_info_t to receive data
- *
- * Returns:
- *   1 if successful, 0 if sprite invalid
- */
-int sprite_get_info(sprite_t sprite, sprite_info_t *info);
-
-/* ============================================================================
- * SPRITE POSITIONING
- * ========================================================================== */
-
-/**
- * sprite_set_position - Move sprite to new position
- *
- * Position is clamped to current resolution bounds.
- *
- * Parameters:
- *   sprite — Sprite handle
- *   x, y — New position (pixels, resolution-aware)
- */
-void sprite_set_position(sprite_t sprite, int x, int y);
-
-/**
- * sprite_move - Move sprite by relative offset
- *
- * Parameters:
- *   sprite — Sprite handle
- *   dx, dy — Relative movement (pixels)
- */
-void sprite_move(sprite_t sprite, int dx, int dy);
-
-/**
- * sprite_get_position - Get sprite position
- *
- * Parameters:
- *   sprite — Sprite handle
- *   x, y — Pointers to receive position
- *
- * Returns:
- *   1 if successful, 0 if sprite invalid
- */
-int sprite_get_position(sprite_t sprite, int *x, int *y);
-
-/**
- * sprite_get_bounds - Get sprite bounding box
- *
- * Parameters:
- *   sprite — Sprite handle
- *   x1, y1 — Pointers for top-left corner
- *   x2, y2 — Pointers for bottom-right corner
- *
- * Returns:
- *   1 if successful, 0 if sprite invalid
- */
-int sprite_get_bounds(sprite_t sprite, int *x1, int *y1, int *x2, int *y2);
-
-/* ============================================================================
- * SPRITE VISIBILITY & ATTRIBUTES
- * ========================================================================== */
-
-/**
- * sprite_set_visible - Show or hide sprite
- *
- * Parameters:
- *   sprite — Sprite handle
- *   visible — 1 to show, 0 to hide
- */
-void sprite_set_visible(sprite_t sprite, int visible);
-
-/**
- * sprite_is_visible - Check if sprite is visible
- *
- * Returns:
- *   1 if visible, 0 if hidden
- */
-int sprite_is_visible(sprite_t sprite);
-
-/**
- * sprite_set_color - Set sprite color
- *
- * Parameters:
- *   sprite — Sprite handle
- *   color — Color index (0-15)
- */
-void sprite_set_color(sprite_t sprite, int color);
-
-/**
- * sprite_get_color - Get sprite color
- *
- * Returns:
- *   Color index (0-15) or -1 if invalid
- */
-int sprite_get_color(sprite_t sprite);
-
-/**
- * sprite_set_layer - Set Z-order layer
- *
- * Higher layer values appear on top.
- *
- * Parameters:
- *   sprite — Sprite handle
- *   layer — Layer index (0-255, lower = behind)
- */
-void sprite_set_layer(sprite_t sprite, int layer);
-
-/**
- * sprite_get_layer - Get sprite layer
- *
- * Returns:
- *   Layer index (0-255)
- */
-int sprite_get_layer(sprite_t sprite);
-
-/* ============================================================================
- * SPRITE BITMAP OPERATIONS
- * ========================================================================== */
-
-/**
- * sprite_set_bitmap - Set sprite bitmap data
- *
- * Copies bitmap data into sprite's memory.
- *
- * Parameters:
- *   sprite — Sprite handle
- *   bitmap — Source bitmap data
- *   stride — Bytes per row in source
- *
- * Returns:
- *   1 if successful, 0 if sprite invalid
- */
-int sprite_set_bitmap(sprite_t sprite, const uint8_t *bitmap, int stride);
-
-/**
- * sprite_get_bitmap - Get pointer to sprite bitmap
- *
- * Returns pointer to internal sprite bitmap for direct manipulation.
- *
- * Parameters:
- *   sprite — Sprite handle
- *
- * Returns:
- *   Pointer to bitmap data, NULL if sprite invalid
- */
-uint8_t *sprite_get_bitmap(sprite_t sprite);
-
-/**
- * sprite_clear - Clear sprite bitmap to transparent
- *
- * Parameters:
- *   sprite — Sprite handle
- */
-void sprite_clear(sprite_t sprite);
-
-/**
- * sprite_fill - Fill sprite with solid color
- *
- * Parameters:
- *   sprite — Sprite handle
- *   color — Color to fill with (0-15)
- */
-void sprite_fill(sprite_t sprite, int color);
-
-/**
- * sprite_draw_rect - Draw rectangle within sprite
- *
- * Parameters:
- *   sprite — Sprite handle
- *   x1, y1, x2, y2 — Rectangle bounds (relative to sprite origin)
- *   color — Color to draw with (0-15)
- */
-void sprite_draw_rect(sprite_t sprite, int x1, int y1, int x2, int y2,
-                      int color);
-
-/**
- * sprite_draw_line - Draw line within sprite
- *
- * Parameters:
- *   sprite — Sprite handle
- *   x1, y1, x2, y2 — Line endpoints (relative to sprite origin)
- *   color — Color to draw with (0-15)
- */
-void sprite_draw_line(sprite_t sprite, int x1, int y1, int x2, int y2,
-                      int color);
-
-/**
- * sprite_draw_circle - Draw circle within sprite
- *
- * Parameters:
- *   sprite — Sprite handle
- *   cx, cy — Center (relative to sprite origin)
- *   radius — Circle radius (pixels)
- *   color — Color to draw with (0-15)
- */
-void sprite_draw_circle(sprite_t sprite, int cx, int cy, int radius,
-                        int color);
-
-/* ============================================================================
- * COLLISION DETECTION
- * ========================================================================== */
-
-/**
- * sprite_collides_point - Check if sprite contains point
- *
- * Tests if a screen coordinate is within sprite bounds.
- *
- * Parameters:
- *   sprite — Sprite handle
- *   x, y — Screen coordinates (pixels)
- *
- * Returns:
- *   1 if point inside sprite, 0 otherwise
- */
-int sprite_collides_point(sprite_t sprite, int x, int y);
-
-/**
- * sprite_collides_sprite - Check collision between two sprites
- *
- * Tests if two sprites' bounding boxes overlap.
- *
- * Parameters:
- *   sprite1, sprite2 — Sprite handles
- *
- * Returns:
- *   1 if sprites overlap, 0 otherwise
- */
-int sprite_collides_sprite(sprite_t sprite1, sprite_t sprite2);
-
-/**
- * sprite_collides_rect - Check if sprite overlaps rectangle
- *
- * Parameters:
- *   sprite — Sprite handle
- *   x1, y1, x2, y2 — Rectangle bounds (screen coordinates)
- *
- * Returns:
- *   1 if sprite overlaps rectangle, 0 otherwise
- */
-int sprite_collides_rect(sprite_t sprite, int x1, int y1, int x2, int y2);
-
-/* ============================================================================
- * LIGHTPEN INTEGRATION (Phase 33)
- * ========================================================================== */
-
-/**
- * sprite_at_lightpen - Get sprite at light pen position
- *
- * Finds the topmost sprite at the current light pen coordinates.
- * Requires Phase 33 (Light Pen) to be initialized.
- *
- * Returns:
- *   Sprite handle if found, INVALID_SPRITE if none at position
- */
-sprite_t sprite_at_lightpen(void);
-
-/**
- * sprite_hit_test - Find sprite containing point
- *
- * Finds topmost sprite containing the specified screen coordinates.
- * Considers Z-order (layer).
- *
- * Parameters:
- *   x, y — Screen coordinates (pixels)
- *
- * Returns:
- *   Sprite handle if found, INVALID_SPRITE otherwise
- */
-sprite_t sprite_hit_test(int x, int y);
-
-/* ============================================================================
- * SPRITE ENUMERATION
- * ========================================================================== */
-
-/**
- * sprite_count - Get number of active sprites
- *
- * Returns:
- *   Number of allocated sprites
- */
-int sprite_count(void);
-
-/**
- * sprite_get_by_index - Get sprite by enumeration index
- *
- * Parameters:
- *   index — Sprite index (0 to sprite_count()-1)
- *
- * Returns:
- *   Sprite handle, or INVALID_SPRITE if index out of range
- */
-sprite_t sprite_get_by_index(int index);
-
-/* ============================================================================
- * RENDERING & DISPLAY
- * ========================================================================== */
-
-/**
- * sprite_render_all - Render all sprites to screen
- *
- * Draws all visible sprites in Z-order to VIC-IV hardware.
- * Should be called once per frame.
- *
- * Returns:
- *   1 if successful, 0 on error
- */
-int sprite_render_all(void);
-
-/**
- * sprite_clear_all - Clear all sprites from screen
- *
- * Removes all rendered sprites but keeps sprite objects.
- */
-void sprite_clear_all(void);
-
-/**
- * sprite_set_background - Set background color
- *
- * Parameters:
- *   color — Color index (0-15)
- */
-void sprite_set_background(int color);
-
-/**
- * sprite_get_background - Get current background color
- *
- * Returns:
- *   Background color index
- */
-int sprite_get_background(void);
-
-/* ============================================================================
- * PERFORMANCE & OPTIMIZATION
- * ========================================================================== */
-
-/**
- * sprite_mark_dirty - Mark sprite as modified
- *
- * Hints to renderer that sprite has changed and needs redraw.
- *
- * Parameters:
- *   sprite — Sprite handle
- */
-void sprite_mark_dirty(sprite_t sprite);
-
-/**
- * sprite_enable_caching - Enable sprite caching for performance
- *
- * Parameters:
- *   enabled — 1 to enable, 0 to disable
- */
-void sprite_enable_caching(int enabled);
-
-/**
- * sprite_cache_all - Cache all sprites for maximum performance
- */
-void sprite_cache_all(void);
-
-/* ============================================================================
- * DEBUGGING & INSPECTION
- * ========================================================================== */
-
-/**
- * sprite_print_status - Print sprite system status (debug)
- */
-void sprite_print_status(void);
-
-/**
- * sprite_print_info - Print sprite information (debug)
- *
- * Parameters:
- *   sprite — Sprite handle
- */
-void sprite_print_info(sprite_t sprite);
-
-/**
- * sprite_dump_bitmap - Print sprite bitmap to console (debug)
- *
- * Parameters:
- *   sprite — Sprite handle
- *   max_rows — Maximum rows to print
- */
-void sprite_dump_bitmap(sprite_t sprite, int max_rows);
+/* Collisions: a bit per sprite, since the last read (the hardware's: pixels
+   touching another sprite's / the foreground's; reading clears them) */
+__fastcall__ unsigned char sprite_collisions(void);
+__fastcall__ unsigned char sprite_bg_collisions(void);
+/* 1 when the boxes of sprites a and b overlap (their positions and sizes;
+   shown or not) */
+__fastcall__ unsigned char sprite_overlap(unsigned char a, unsigned char b);
 
 #endif

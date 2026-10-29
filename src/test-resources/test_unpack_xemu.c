@@ -6,7 +6,9 @@
  *   +0 unpacked to bank 4 from bank 0, the bytes and the count
  *   +1 in place: the stream copied into bank 4 at its in-place offset
  *   +2 to attic RAM ($8000000)
- *   +3 a stream of another format: 0, nothing written      +4 $AA
+ *   +3 a stream of another format: 0, nothing written
+ *   +4 unpack_to: the chip stream to $50000 (its header's $40000 ignored)
+ *   +5 unpack_to of another format: 0                        +6 $AA
  */
 #include <unpack.h>
 #include <dma.h>
@@ -44,6 +46,11 @@ int main(void) {
     dma_fill_far(0x40000UL, 16, 0x77);
     OUT[3] = unpack((unsigned long)(unsigned int)bad) == 0 && *(unsigned char __far *)0x40000UL == 0x77;
 
-    OUT[4] = 0xAA;
+    dma_fill_far(0x40000UL, N, 0);
+    OUT[4] = unpack_to((unsigned long)(unsigned int)stream_chip, 0x50000UL) == N && check(0x50000UL)
+             && *(unsigned char __far *)0x40000UL == 0;
+    OUT[5] = unpack_to((unsigned long)(unsigned int)bad, 0x50000UL) == 0;
+
+    OUT[6] = 0xAA;
     return 0;
 }

@@ -7,7 +7,7 @@
  * The message scrolls continuously across row 7 of the MEGA65's 80x25
  * text screen, between two banner rows (3 and 11).
  * Border colour cycles through a palette on each full scroll.
- * A ball (hardware sprite 0) bounces between the banners, passing in
+ * A ball (hardware sprite 0, through <sprites.h>) bounces between the banners, passing in
  * front of the text on one crossing and behind it on the next. The
  * message is in reverse video: a sprite behind text is hidden only by the
  * characters' set pixels, so a solid band shows the difference.
@@ -16,6 +16,7 @@
 
 #include <cbm.h>
 #include <string.h>
+#include <sprites.h>
 
 /* Assembly routines from scroll_hw.s45; their arguments go through the
  * variables it defines */
@@ -41,20 +42,6 @@ extern char fill_color;
 #define BORDER  (*(char *)0xD020)
 #define BGCOLOR (*(char *)0xD021)
 
-/* Sprite registers (VIC-II, kept by the VIC-IV) */
-#define REG(a)     (*(volatile unsigned char *)(a))
-#define SPR0_X     REG(0xD000)
-#define SPR0_Y     REG(0xD001)
-#define SPR_X_MSB  REG(0xD010)   /* bit 8 of each sprite's X */
-#define SPR_ENABLE REG(0xD015)
-#define SPR_PRIO   REG(0xD01B)   /* bit set: the sprite is behind text */
-#define SPR0_COLOR REG(0xD027)
-/* VIC-IV sprite pointer table address; $D06E bit 7: 16-bit pointers, so a
- * sprite's data can be on any 64-byte boundary (pointer = address / 64) */
-#define SPRPTR_LO  REG(0xD06C)
-#define SPRPTR_HI  REG(0xD06D)
-#define SPRPTR_BNK REG(0xD06E)
-
 /* Ball limits in sprite coordinates: X across the visible width; Y between
  * the banner lines (text row r starts at sprite Y 50 + 8r; the ball's
  * pixels are sprite rows 1-19) */
@@ -72,25 +59,18 @@ static _Alignas(64) unsigned char ball[64] = {
     0x07, 0xFF, 0xE0, 0x03, 0xFF, 0xC0, 0x01, 0xFF, 0x80, 0x00, 0x7E, 0x00,
     0x00, 0x00, 0x00, 0x00,
 };
-/* 16-bit sprite pointers; the VIC-IV ignores the low 4 bits of the table
- * address in 16-bit pointer mode, so the table is 16-byte aligned */
-static _Alignas(16) unsigned int sprite_ptrs[8];
-static unsigned char saved_ptr[3];    /* the pointer table address BASIC uses */
 
 /* Ball position and velocity (signed: it moves both ways) */
 static signed int ball_x = 100, ball_y = BALL_YMIN;
 static signed int ball_dx = 3, ball_dy = 2;
+static unsigned char ball_behind;
 
 static void ball_init(void) {
-    saved_ptr[0] = SPRPTR_LO;
-    saved_ptr[1] = SPRPTR_HI;
-    saved_ptr[2] = SPRPTR_BNK;
-    sprite_ptrs[0] = (unsigned int)ball / 64;
-    SPRPTR_LO = (unsigned int)sprite_ptrs & 0xFF;
-    SPRPTR_HI = (unsigned int)sprite_ptrs >> 8;
-    SPRPTR_BNK = 0x80;            /* bank 0, 16-bit pointers */
-    SPR0_COLOR = 7;               /* yellow */
-    SPR_ENABLE = SPR_ENABLE | 0x01;
+    sprite_init();                /* (sprite_done puts BASIC's sprite registers back) */
+    sprite_image(0, (unsigned long)(unsigned int)ball);
+    sprite_color(0, 7);           /* yellow */
+    sprite_pos(0, (unsigned int)ball_x, (unsigned int)ball_y);
+    sprite_show(0);
 }
 
 static void ball_move(void) {
@@ -100,22 +80,16 @@ static void ball_move(void) {
     if (ball_x <= BALL_XMIN || ball_x >= BALL_XMAX) {
         ball_x = ball_x <= BALL_XMIN ? BALL_XMIN : BALL_XMAX;
         ball_dx = -ball_dx;
-        SPR_PRIO = SPR_PRIO ^ 0x01;
+        ball_behind ^= 1;
+        sprite_behind(0, ball_behind);
     }
     if (ball_y <= BALL_YMIN) { ball_y = BALL_YMIN; ball_dy = -ball_dy; }
     if (ball_y >= BALL_YMAX) { ball_y = BALL_YMAX; ball_dy = -ball_dy; }
-    SPR0_X = ball_x & 0xFF;
-    if (ball_x > 255) SPR_X_MSB = SPR_X_MSB | 0x01;
-    else SPR_X_MSB = SPR_X_MSB & 0xFE;
-    SPR0_Y = ball_y;
+    sprite_pos(0, (unsigned int)ball_x, (unsigned int)ball_y);
 }
 
 static void ball_done(void) {
-    SPR_ENABLE = SPR_ENABLE & 0xFE;
-    SPR_PRIO = SPR_PRIO & 0xFE;
-    SPRPTR_LO = saved_ptr[0];
-    SPRPTR_HI = saved_ptr[1];
-    SPRPTR_BNK = saved_ptr[2];
+    sprite_done();
 }
 
 /* PETSCII colour codes for colour RAM */

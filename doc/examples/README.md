@@ -406,10 +406,33 @@ at half speed: parallax); colours written straight into colour RAM at
 [Source](https://github.com/CTalkobt/M65Compiler/tree/main/examples/c/text_scroller) —
 A horizontal text scroller in C and assembly (arguments through shared
 variables, so both calling conventions work), with a bouncing ball (hardware
-sprite 0, VIC-IV 16-bit sprite pointers) that passes in front of and behind
-the reverse-video message.
+sprite 0 through `<sprites.h>`) that passes in front of and behind the
+reverse-video message.
 
 ![text_scroller](images/text_scroller.png)
+
+### sprite_demo
+
+[Source](https://github.com/CTalkobt/M65Compiler/tree/main/examples/c/sprite_demo) —
+"The Farmer and the Fish", a short and silly movie: the VIC-IV's 8 hardware
+sprites through `<sprites.h>` over a TGI picture drawn once. The lake ripples
+by changing its 16 water colours every few frames; the sky follows the time
+of day (a violet and orange dawn, near-white light from mid-morning to noon,
+an orange sunset, dusk). The sun rises from behind the left hills and sets
+behind the right ones (its image clipped where the land is in front: a sprite
+behind the picture would be behind the whole sky too), with a silver glint
+on the water below it (16 colours in V400 rows, twinkling through its second
+colour set); a farmer (16 colours, expanded) walks onto the
+dock and casts: the line is a tall sprite whose length is `sprite_height`; a
+fish bites when its box meets the line's (`sprite_overlap`) and is reeled in;
+the farmer cheers and leaves; night falls: THE END. A cloud
+(64 wide, expanded) and thin wisps repeated across the sky (`sprite_tile`) are
+alpha-blended on a MEGA65 (xemu does not show it); a bird flaps by. The sprites
+take their colours from a palette bank of their own (`sprite_palette_bank`),
+so the picture keeps its 256. It plays again until RUN/STOP; `make check`
+plays it once and reports.
+
+![sprite_demo](images/sprite_demo.png)
 
 ### game_of_life
 

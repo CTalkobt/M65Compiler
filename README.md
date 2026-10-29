@@ -8,6 +8,7 @@ A modern development toolchain for the MEGA65 (45GS02) home computer. It consist
 - **ca45** — 45GS02 assembler (assembly to binary or `.o45` relocatable objects)
 - **ln45** — Linker (links `.o45` objects and `.lib` archives into flat binaries or PRG executables)
 - **ar45** — Archiver (creates `.lib` static library archives from `.o45` objects)
+- **pack45** — Packer: data packed for the library's `unpack()` (DMA, to any 28-bit address, in place); `ln45 --pack-overlays` uses it too
 - **tune45** — Music for the tune player: text (or MIDI) to data, play on the PC / in xemu / on a MEGA65, compose
 - **dbg45** — Source-level debugger: a cc45 program in xemu by its C source (breakpoints, stepping, the stack, variables); VS Code through `--dap`
 - **nm45** — Symbol lister for `.o45` / `.o65` object files (and ln45's `.ovl` overlay files)
@@ -188,6 +189,7 @@ For detailed information on each tool, refer to:
 - [doc/architecture/lib45.md](doc/architecture/lib45.md) — `.o45` Relocatable Object Format Specification
 - [doc/bin/ln45.md](doc/bin/ln45.md) — Linker Usage and Reference
 - [doc/bin/ar45.md](doc/bin/ar45.md) — Archiver Usage and Reference
+- [doc/bin/pack45.md](doc/bin/pack45.md) — Packer for `unpack()`: Files, Data in a Program, Assembly
 - [doc/bin/tune45.md](doc/bin/tune45.md) — Tune Player Data, Playing, Composing, MIDI Import
 - [doc/bin/dbg45.md](doc/bin/dbg45.md) — Debugging in xemu: Commands, VS Code
 - [doc/bin/disk45.md](doc/bin/disk45.md) — Disk/Tape/Archive Image Utility

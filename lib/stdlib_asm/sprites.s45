@@ -1,0 +1,711 @@
+; sprites.s45 — <sprites.h>: the VIC-IV's 8 hardware sprites
+;
+; sprite_init moves the sprite pointers to 16-bit mode (SPRPTR16, $D06E bit
+; 7) and to the library's table (__spr_ptr, 16 bytes in bank 0, 16-byte
+; aligned: in that mode the VIC ignores the address's bits 0-3), so an
+; image can be anywhere in the first 4 MB (on a 64-byte boundary); it saves
+; the registers it changes, which sprite_done puts back. Positions are kept
+; (__spr_xl ...) for sprite_move, sprite_x/y and sprite_overlap; a position's
+; bit 8 goes to $D010, bit 9 to $D05F (SPR640's X super-MSBs), the Y's bits 8
+; and 9 to $D077/$D078 (the V400 MSBs).
+;
+; All the ZP convention (__fastcall__ in either library): n in $10, the rest
+; from $12; each proc its own section, so a program links what it calls.
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+; the BSS 16-byte aligned (ln45 places it so: __spr_ptr)
+.weak cc45.align.bss
+cc45.align.bss = 16
+
+.global _sprite_init, _sprite_done, _sprite_image, _sprite_pos, _sprite_move
+.global _sprite_x, _sprite_y, _sprite_show, _sprite_hide, _sprite_color
+.global _sprite_mode, _sprite_size, _sprite_height, _sprite_behind
+.global _sprite_multicolors, _sprite_h640, _sprite_collisions
+.global _sprite_bg_collisions, _sprite_overlap
+.global _sprite_palette_bank, _sprite_v400, _sprite_tile, _sprite_altcolors
+.global _sprite_alpha, _sprite_alpha_level
+
+.segment "data"
+__spr_bit:      .byte $01, $02, $04, $08, $10, $20, $40, $80
+; the registers sprite_init saves ($D0xx): sprite_done puts them back
+; ($D015 first: off before the rest changes; $D054 only its bit 4)
+__spr_regs:     .byte $15, $10, $17, $1B, $1C, $1D, $25, $26
+                .byte $27, $28, $29, $2A, $2B, $2C, $2D, $2E
+                .byte $55, $56, $57, $5F, $6B, $6C, $6D, $6E
+                .byte $77, $78, $74, $75, $76
+NREGS = 29
+; registers sprites share with others: the bits that are theirs ($D049,
+; $D04B: SPRBPMEN; $D04D, $D04F: SPRTILEN; $D070: SPRPALSEL)
+__spr_part:     .byte $49, $4B, $4D, $4F, $70
+__spr_pmask:    .byte $F0, $F0, $F0, $F0, $0C
+NPART = 5
+
+.segment "bss"
+    .align 16               ; (16-bit pointer mode ignores the table address's bits 0-3)
+__spr_ptr:      .res 16 ; the sprite pointers (image address / 64)
+__spr_xl:       .res 8  ; the positions
+__spr_xh:       .res 8
+__spr_yl:       .res 8
+__spr_yh:       .res 8
+__spr_w:        .res 8  ; sprite_overlap's widths, heights
+__spr_hl:       .res 8
+__spr_hh:       .res 8
+__spr_save:     .res NREGS
+__spr_s54:      .res 1  ; $D054's bit 4
+__spr_spart:    .res NPART ; (__spr_part's bits)
+__spr_m:        .res 1  ; a sprite's bit
+__spr_nm:       .res 1  ; (the others)
+__spr_t:        .res 2  ; a temporary
+__spr_a:        .res 1  ; sprite_overlap's two sprites
+__spr_b:        .res 1
+
+.segment "code"
+
+; sprite_init(): the registers saved; 16-bit pointers at __spr_ptr; every
+; sprite off, at 0, hi-res, normal size, in front, pointer 0
+proc _sprite_init
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    ldx #NREGS - 1
+@save:
+    ldy __spr_regs,x
+    lda $D000,y
+    sta __spr_save,x
+    dex
+    bpl @save
+    lda $D054
+    and #$10
+    sta __spr_s54
+    ldx #NPART - 1          ; the shared registers' sprite bits: saved, cleared
+@part:                      ; (but $D070's: the sprites keep their palette bank)
+    ldy __spr_part,x
+    lda $D000,y
+    and __spr_pmask,x
+    sta __spr_spart,x
+    cpx #NPART - 1
+    beq @keep
+    lda __spr_pmask,x
+    eor #$FF
+    and $D000,y
+    sta $D000,y
+@keep:
+    dex
+    bpl @part
+    lda #0
+    sta $D015
+    ldx #NREGS - 1          ; the rest 0 but the colours and the pointer base
+@clr:
+    ldy __spr_regs,x
+    cpy #$25
+    bcc @z
+    cpy #$2F
+    bcc @next
+    cpy #$6C
+    bcc @z
+    cpy #$6F
+    bcc @next
+    cpy #$75                ; (the alpha level kept)
+    beq @next
+@z:
+    lda #0
+    sta $D000,y
+@next:
+    dex
+    bpl @clr
+    lda $D054               ; SPR640 off
+    and #$EF
+    sta $D054
+    ldx #15                 ; positions, pointers
+    lda #0
+@pos:
+    sta $D000,x
+    sta __spr_ptr,x
+    dex
+    bpl @pos
+    ldx #7
+@sh:
+    sta __spr_xl,x
+    sta __spr_xh,x
+    sta __spr_yl,x
+    sta __spr_yh,x
+    dex
+    bpl @sh
+    lda #<__spr_ptr         ; the pointer table: bank 0, 16-bit pointers
+    sta $D06C
+    lda #>__spr_ptr
+    sta $D06D
+    lda #$80
+    sta $D06E
+    lda $D01E               ; (the collisions cleared)
+    lda $D01F
+    rts
+    .func_flags zp_call
+endproc
+
+; sprite_done(): every sprite off, the registers sprite_init saved back
+proc _sprite_done
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    lda #0
+    sta $D015
+    ldx #NREGS - 1
+@put:
+    ldy __spr_regs,x
+    lda __spr_save,x
+    sta $D000,y
+    dex
+    bpl @put
+    lda $D054
+    and #$EF
+    ora __spr_s54
+    sta $D054
+    ldx #NPART - 1
+@part:
+    ldy __spr_part,x
+    lda __spr_pmask,x
+    eor #$FF
+    and $D000,y
+    ora __spr_spart,x
+    sta $D000,y
+    dex
+    bpl @part
+    rts
+    .func_flags zp_call
+endproc
+
+; X := n (0-7), __spr_m := its bit, __spr_nm := the others
+proc __spr_n
+    lda $10
+    and #7
+    tax
+    lda __spr_bit,x
+    sta __spr_m
+    eor #$FF
+    sta __spr_nm
+    rts
+endproc
+
+; The bit of sprite __spr_m in register $D000 + Y: set when C
+proc __spr_setbit
+    lda $D000,y
+    and __spr_nm
+    bcc @out
+    ora __spr_m
+@out:
+    sta $D000,y
+    rts
+endproc
+
+; sprite_image(n, addr): its image at the 28-bit address addr (a multiple of
+; 64, below 4 MB)
+proc _sprite_image
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .zp_clobbers $12, $13, $14, $15
+    .reg_clobbers A, X
+    .flag_clobbers C, N, Z
+    asl $12                 ; addr << 2: bytes 1 and 2 are addr >> 6
+    rol $13
+    rol $14
+    asl $12
+    rol $13
+    rol $14
+    lda $10
+    and #7
+    asl a
+    tax
+    lda $13
+    sta __spr_ptr,x
+    lda $14
+    sta __spr_ptr+1,x
+    rts
+    .func_flags zp_call
+endproc
+
+; sprite_pos(n, x, y)
+proc _sprite_pos
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    jsr __spr_n
+    lda $12
+    sta __spr_xl,x
+    lda $13
+    sta __spr_xh,x
+    lda $14
+    sta __spr_yl,x
+    lda $15
+    sta __spr_yh,x
+    jmp __spr_put
+    .func_flags zp_call
+endproc
+
+; sprite_move(n, dx, dy): the position plus (dx, dy)
+proc _sprite_move
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    jsr __spr_n
+    clc
+    lda __spr_xl,x
+    adc $12
+    sta __spr_xl,x
+    lda __spr_xh,x
+    adc $13
+    sta __spr_xh,x
+    clc
+    lda __spr_yl,x
+    adc $14
+    sta __spr_yl,x
+    lda __spr_yh,x
+    adc $15
+    sta __spr_yh,x
+    jmp __spr_put
+    .func_flags zp_call
+endproc
+
+; Sprite X's position (__spr_m / __spr_nm its bit) into the registers
+proc __spr_put
+    txa
+    asl a
+    tay
+    lda __spr_xl,x
+    sta $D000,y
+    lda __spr_yl,x
+    sta $D001,y
+    lda __spr_xh,x
+    sta __spr_t
+    lda __spr_yh,x
+    sta __spr_t+1
+    lsr __spr_t             ; x bit 8: $D010
+    ldy #$10
+    jsr __spr_setbit
+    lsr __spr_t             ; x bit 9: $D05F
+    ldy #$5F
+    jsr __spr_setbit
+    lsr __spr_t+1           ; y bit 8: $D077
+    ldy #$77
+    jsr __spr_setbit
+    lsr __spr_t+1           ; y bit 9: $D078
+    ldy #$78
+    jmp __spr_setbit
+endproc
+
+; unsigned int sprite_x(n), sprite_y(n): the position last set
+proc _sprite_x
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y
+    .flag_clobbers N, Z
+    lda $10
+    and #7
+    tay
+    lda __spr_xl,y
+    ldx __spr_xh,y
+    rts
+    .func_flags zp_call
+endproc
+
+proc _sprite_y
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y
+    .flag_clobbers N, Z
+    lda $10
+    and #7
+    tay
+    lda __spr_yl,y
+    ldx __spr_yh,y
+    rts
+    .func_flags zp_call
+endproc
+
+; sprite_show(n), sprite_hide(n): $D015
+proc _sprite_show
+    .zp_uses $10, $11
+    .reg_clobbers A, X
+    .flag_clobbers N, Z
+    lda $10
+    and #7
+    tax
+    lda $D015
+    ora __spr_bit,x
+    sta $D015
+    rts
+    .func_flags zp_call
+endproc
+
+proc _sprite_hide
+    .zp_uses $10, $11
+    .reg_clobbers A, X
+    .flag_clobbers N, Z
+    lda $10
+    and #7
+    tax
+    lda __spr_bit,x
+    eor #$FF
+    and $D015
+    sta $D015
+    rts
+    .func_flags zp_call
+endproc
+
+; sprite_color(n, c): $D027 + n (a 16-colour sprite: the colour that is
+; transparent)
+proc _sprite_color
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X
+    .flag_clobbers N, Z
+    lda $10
+    and #7
+    tax
+    lda $12
+    sta $D027,x
+    rts
+    .func_flags zp_call
+endproc
+
+; sprite_multicolors(c1, c2): the colours of a multicolour sprite's 01 and
+; 11 pixels ($D025, $D026)
+proc _sprite_multicolors
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A
+    lda $10
+    sta $D025
+    lda $12
+    sta $D026
+    rts
+    .func_flags zp_call
+endproc
+
+; sprite_mode(n, mode): SPRITE_HIRES (0), SPRITE_MULTICOLOR (1: $D01C),
+; SPRITE_16COLOR (2: $D06B; its colour register, the transparent colour, 0)
+proc _sprite_mode
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    jsr __spr_n
+    lda $12
+    cmp #1
+    beq @c                  ; (C: multicolour)
+    clc
+@c:
+    ldy #$1C
+    jsr __spr_setbit
+    lda $12
+    cmp #2
+    beq @c16
+    clc
+    ldy #$6B
+    jmp __spr_setbit
+@c16:
+    lda #0
+    sta $D027,x
+    sec
+    ldy #$6B
+    jmp __spr_setbit
+    .func_flags zp_call
+endproc
+
+; sprite_size(n, flags): SPRITE_EXPAND_X ($D01D), SPRITE_EXPAND_Y ($D017),
+; SPRITE_WIDE (64 pixels, 8 bytes a row: $D057), SPRITE_TALL (sprite_height's
+; rows: $D055)
+proc _sprite_size
+    .zp_uses $10, $11, $12, $13
+    .zp_clobbers $12
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    jsr __spr_n
+    lsr $12
+    ldy #$1D
+    jsr __spr_setbit
+    lsr $12
+    ldy #$17
+    jsr __spr_setbit
+    lsr $12
+    ldy #$57
+    jsr __spr_setbit
+    lsr $12
+    ldy #$55
+    jmp __spr_setbit
+    .func_flags zp_call
+endproc
+
+; sprite_height(rows): the height of SPRITE_TALL sprites ($D056)
+proc _sprite_height
+    .zp_uses $10, $11
+    .reg_clobbers A
+    lda $10
+    sta $D056
+    rts
+    .func_flags zp_call
+endproc
+
+; sprite_behind(n, on): behind the text or graphics' foreground ($D01B)
+proc _sprite_behind
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    jsr __spr_n
+    lda $12
+    cmp #1                  ; (C: on)
+    ldy #$1B
+    jmp __spr_setbit
+    .func_flags zp_call
+endproc
+
+; sprite_h640(on): positions and pixels at the full horizontal resolution
+; (SPR640, $D054 bit 4)
+proc _sprite_h640
+    .zp_uses $10, $11
+    .reg_clobbers A, X
+    .flag_clobbers N, Z
+    lda $D054
+    and #$EF
+    ldx $10
+    beq @off
+    ora #$10
+@off:
+    sta $D054
+    rts
+    .func_flags zp_call
+endproc
+
+; unsigned char sprite_collisions(), sprite_bg_collisions(): the sprites
+; that touched another sprite / the foreground since the last read (the
+; read clears them: $D01E, $D01F)
+proc _sprite_collisions
+    .reg_clobbers A
+    .flag_clobbers N, Z
+    lda $D01E
+    rts
+    .func_flags zp_call
+endproc
+
+proc _sprite_bg_collisions
+    .reg_clobbers A
+    .flag_clobbers N, Z
+    lda $D01F
+    rts
+    .func_flags zp_call
+endproc
+
+; sprite_palette_bank(bank): the palette bank (0-3) sprites take their
+; colours from ($D070 bits 2-3, SPRPALSEL); the text and graphics keep theirs
+proc _sprite_palette_bank
+    .zp_uses $10, $11
+    .reg_clobbers A
+    .flag_clobbers N, Z
+    lda $10
+    and #3
+    asl a
+    asl a
+    sta __spr_t
+    lda $D070
+    and #$F3
+    ora __spr_t
+    sta $D070
+    rts
+    .func_flags zp_call
+endproc
+
+; sprite_v400(n, on): rows one physical pixel high ($D076, SPRENV400)
+proc _sprite_v400
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    jsr __spr_n
+    lda $12
+    cmp #1
+    ldy #$76
+    jmp __spr_setbit
+    .func_flags zp_call
+endproc
+
+; sprite_alpha(n, on): blended with what is behind it ($D074, SPRENALPHA);
+; sprite_alpha_level(level): how much (0-255, $D075)
+proc _sprite_alpha
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    jsr __spr_n
+    lda $12
+    cmp #1
+    ldy #$74
+    jmp __spr_setbit
+    .func_flags zp_call
+endproc
+
+proc _sprite_alpha_level
+    .zp_uses $10, $11
+    .reg_clobbers A
+    lda $10
+    sta $D075
+    rts
+    .func_flags zp_call
+endproc
+
+; sprite_tile(n, on): the sprite repeated to the end of its raster line
+; (SPRTILEN: $D04D bits 4-7 sprites 0-3, $D04F bits 4-7 sprites 4-7)
+proc _sprite_tile
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    ldy #$4D
+    jmp __spr_nib
+    .func_flags zp_call
+endproc
+
+; sprite_altcolors(n, on): a 16-colour sprite's colours from entries
+; n * 16 + c + 128 (SPRBPMEN: $D049 bits 4-7 sprites 0-3, $D04B 4-7)
+proc _sprite_altcolors
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    ldy #$49
+    jmp __spr_nib
+    .func_flags zp_call
+endproc
+
+; Sprite $10's bit in the high nibbles of $D000 + Y (0-3) and Y + 2 (4-7):
+; set when $12 is not 0
+proc __spr_nib
+    lda $10
+    and #7
+    cmp #4
+    bcc @lo
+    iny                     ; sprites 4-7: the next register but one, bit n
+    iny
+    bra @m
+@lo:
+    adc #4                  ; sprites 0-3: bit n + 4 (C clear)
+@m:
+    tax
+    lda __spr_bit,x
+    sta __spr_m
+    eor #$FF
+    sta __spr_nm
+    lda $12
+    cmp #1
+    jmp __spr_setbit
+endproc
+
+; unsigned char sprite_overlap(a, b): 1 when the two sprites' boxes (their
+; positions, sizes from the registers) overlap
+proc _sprite_overlap
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    lda $12
+    and #7
+    sta __spr_b
+    lda $10
+    and #7
+    sta __spr_a
+    tax
+    jsr __spr_wh
+    ldx __spr_b
+    jsr __spr_wh
+    ldx __spr_a             ; xa < xb + wb
+    ldy __spr_b
+    jsr __spr_xlt
+    bcs @no
+    ldx __spr_b             ; xb < xa + wa
+    ldy __spr_a
+    jsr __spr_xlt
+    bcs @no
+    ldx __spr_a             ; ya < yb + hb
+    ldy __spr_b
+    jsr __spr_ylt
+    bcs @no
+    ldx __spr_b             ; yb < ya + ha
+    ldy __spr_a
+    jsr __spr_ylt
+    bcs @no
+    lda #1
+    rts
+@no:
+    lda #0
+    rts
+    .func_flags zp_call
+endproc
+
+; Sprite X's width (__spr_w) and height (__spr_hl/hh): 16 pixels for a
+; 16-colour one, 64 wide, else 24; 21 rows, or $D056 tall; doubled expanded
+proc __spr_wh
+    lda __spr_bit,x
+    sta __spr_m
+    lda #24
+    sta __spr_t
+    lda __spr_m
+    and $D057
+    beq @n64
+    lda #64
+    sta __spr_t
+@n64:
+    lda __spr_m
+    and $D06B
+    beq @n16
+    lda #16
+    sta __spr_t
+@n16:
+    lda __spr_m
+    and $D01D
+    beq @nx
+    asl __spr_t
+@nx:
+    lda __spr_t
+    sta __spr_w,x
+    lda #21                 ; the height
+    sta __spr_t
+    lda #0
+    sta __spr_t+1
+    lda __spr_m
+    and $D055
+    beq @nt
+    lda $D056
+    sta __spr_t
+@nt:
+    lda __spr_m
+    and $D017
+    beq @ny
+    asl __spr_t
+    rol __spr_t+1
+@ny:
+    lda __spr_t
+    sta __spr_hl,x
+    lda __spr_t+1
+    sta __spr_hh,x
+    rts
+endproc
+
+; X: xa, Y: b — C clear when x(X) < x(Y) + w(Y)
+proc __spr_xlt
+    clc
+    lda __spr_xl,y
+    adc __spr_w,y
+    sta __spr_t
+    lda __spr_xh,y
+    adc #0
+    sta __spr_t+1
+    lda __spr_xl,x
+    cmp __spr_t
+    lda __spr_xh,x
+    sbc __spr_t+1
+    rts
+endproc
+
+; (y and the height)
+proc __spr_ylt
+    clc
+    lda __spr_yl,y
+    adc __spr_hl,y
+    sta __spr_t
+    lda __spr_yh,y
+    adc __spr_hh,y
+    sta __spr_t+1
+    lda __spr_yl,x
+    cmp __spr_t
+    lda __spr_yh,x
+    sbc __spr_t+1
+    rts
+endproc

@@ -5,9 +5,9 @@
  *     objects derived from an Entity base with virtual update() / draw(),
  *     updated through Entity pointers
  *   - VIC-IV graphics: the character set copied into bank 4 with
- *     dma_copy_far and redefined (aliens, shields), 16-colour sprites (the
- *     cannon, the UFO) with their own palette entries, 16-bit sprite
- *     pointers to images in bank 4, colour RAM written with dma_fill_far
+ *     dma_copy_far and redefined (aliens, shields), hardware sprites through
+ *     <sprites.h>: 16-colour ones (the cannon, the UFO) with their own palette
+ *     entries, images in bank 4, colour RAM written with dma_fill_far
  *   - input: joystick port 2 or the keyboard (Z/X or , . to move, SPACE to
  *     fire), through <input.h> (input_joy, input_key, input_pressed)
  *   - sound: SID effects (shot, explosion, UFO) and the marching beat,
@@ -25,6 +25,7 @@
  */
 #include <stdio.h>
 #include <dma.h>
+#include <sprites.h>
 #include <mega65.h>
 #include <audio_sid.h>
 #include <input.h>
@@ -85,7 +86,7 @@
 #define C_YELLOW 7
 
 /* ------------------------------------------------------------------------ */
-/* Sprite data and pointers (16-bit pointer mode: any 64-byte boundary)      */
+/* Sprite data (<sprites.h>: 16-bit pointers, any 64-byte boundary)          */
 
 /* The images: in bank 4, below the character set (a 16-bit pointer is the
  * image's address / 64, anywhere in chip RAM), copied there by DMA at the
@@ -97,7 +98,6 @@
 #define SPRD_SHOT        576
 #define SPRD_BOMB_A      640
 #define SPRD_BOMB_B      704
-static _Alignas(16) unsigned int sprite_ptr[8];
 static unsigned char saved_regs[8];
 
 /* A 16-colour sprite takes its colours from palette entries n * 16 ..
@@ -132,19 +132,15 @@ static const struct { const unsigned char *data; unsigned int at, size; } sprite
     {spr_shot, SPRD_SHOT, 64}, {spr_bomb_a, SPRD_BOMB_A, 64}, {spr_bomb_b, SPRD_BOMB_B, 64},
 };
 
-static void sprite_image(unsigned char n, unsigned int image) {
-    sprite_ptr[n] = (unsigned int)((SPRITE_LIN + image) / 64);
+static void set_image(unsigned char n, unsigned int image) {
+    sprite_image(n, SPRITE_LIN + image);
 }
 
-/* position a sprite (X above 255 through $D010) and show or hide it */
+/* position a sprite and show it, or hide it */
 static void sprite_place(unsigned char n, signed int x, signed int y, unsigned char on) {
-    unsigned char bit = (unsigned char)(1 << n);
-    if (!on) { REG(0xD015) = REG(0xD015) & (unsigned char)~bit; return; }
-    REG(0xD000 + n * 2) = (unsigned char)x;
-    REG(0xD001 + n * 2) = (unsigned char)y;
-    if (x > 255) REG(0xD010) = REG(0xD010) | bit;
-    else REG(0xD010) = REG(0xD010) & (unsigned char)~bit;
-    REG(0xD015) = REG(0xD015) | bit;
+    if (!on) { sprite_hide(n); return; }
+    sprite_pos(n, (unsigned int)x, (unsigned int)y);
+    sprite_show(n);
 }
 
 /* ------------------------------------------------------------------------ */
@@ -535,8 +531,8 @@ struct Cannon : Entity {
     unsigned char dying;             /* frames of the explosion left */
     virtual void update() {
         if (this->dying) {
-            sprite_image(SPR_CANNON, (this->dying & 4) ? SPRD_CANNON_BOOM : SPRD_CANNON);
-            if (--this->dying == 0) sprite_image(SPR_CANNON, SPRD_CANNON);
+            set_image(SPR_CANNON, (this->dying & 4) ? SPRD_CANNON_BOOM : SPRD_CANNON);
+            if (--this->dying == 0) set_image(SPR_CANNON, SPRD_CANNON);
             return;
         }
         this->vel.x = 0;
@@ -575,7 +571,7 @@ struct Bomb : Entity {
         if (hit_shield(row, col) || this->pos.y > SY(GROUND_ROW)) this->active = 0;
     }
     virtual void draw() {
-        sprite_image(this->sprite, (this->frame & 4) ? SPRD_BOMB_A : SPRD_BOMB_B);
+        set_image(this->sprite, (this->frame & 4) ? SPRD_BOMB_A : SPRD_BOMB_B);
         sprite_place(this->sprite, this->pos.x, this->pos.y, this->active);
     }
 };
@@ -659,7 +655,7 @@ static void hide_objects(void) {
     cannon.dying = 0;
     cannon.pos.x = SX(38);
     cannon.pos.y = SY(CANNON_ROW) - 12;     /* the art is in the sprite's rows 12-19 */
-    sprite_image(SPR_CANNON, SPRD_CANNON);
+    set_image(SPR_CANNON, SPRD_CANNON);
     snd_ufo(0, 0);
 }
 
@@ -894,7 +890,6 @@ static void setup(void) {
     unsigned char r;
     /* save what we change */
     saved_regs[0] = REG(0xD068); saved_regs[1] = REG(0xD069); saved_regs[2] = REG(0xD06A);
-    saved_regs[3] = REG(0xD06C); saved_regs[4] = REG(0xD06D); saved_regs[5] = REG(0xD06E);
     saved_regs[6] = REG(0xD020); saved_regs[7] = REG(0xD021);
 
     /* the character set: the ROM's copied to bank 4, our glyphs over CH_BASE.. */
@@ -904,26 +899,22 @@ static void setup(void) {
     REG(0xD069) = (unsigned char)(CHARSET_LIN >> 8);
     REG(0xD06A) = (unsigned char)(CHARSET_LIN >> 16);
 
-    /* sprites: data, 16-bit pointers, 16-colour cannon and UFO */
+    /* sprites: data, 16-colour cannon and UFO */
+    sprite_init();
     for (r = 0; r < 6; r++)
         dma_copy_far(SPRITE_LIN + sprite_images[r].at, (unsigned long)(unsigned int)sprite_images[r].data,
                      sprite_images[r].size);
-    sprite_image(SPR_CANNON, SPRD_CANNON);
-    sprite_image(SPR_SHOT, SPRD_SHOT);
-    for (r = 0; r < NBOMBS; r++) sprite_image(SPR_BOMB + r, SPRD_BOMB_A);
-    sprite_image(SPR_UFO, SPRD_UFO);
-    REG(0xD06C) = (unsigned char)(unsigned int)sprite_ptr;
-    REG(0xD06D) = (unsigned char)((unsigned int)sprite_ptr >> 8);
-    REG(0xD06E) = 0x80;                                   /* bank 0, 16-bit pointers */
-    REG(0xD06B) = (1 << SPR_CANNON) | (1 << SPR_UFO);     /* 16-colour sprites */
-    REG(0xD057) = (1 << SPR_CANNON) | (1 << SPR_UFO);     /* 8 bytes a row */
-    REG(0xD027 + SPR_CANNON) = 0;                         /* transparent colour 0 */
-    REG(0xD027 + SPR_UFO) = 0;
+    set_image(SPR_CANNON, SPRD_CANNON);
+    set_image(SPR_SHOT, SPRD_SHOT);
+    for (r = 0; r < NBOMBS; r++) set_image(SPR_BOMB + r, SPRD_BOMB_A);
+    set_image(SPR_UFO, SPRD_UFO);
+    sprite_mode(SPR_CANNON, SPRITE_16COLOR);              /* transparent colour 0 */
+    sprite_size(SPR_CANNON, SPRITE_WIDE);                 /* 8 bytes a row */
+    sprite_mode(SPR_UFO, SPRITE_16COLOR);
+    sprite_size(SPR_UFO, SPRITE_WIDE);
     ufo_palette();
-    REG(0xD027 + SPR_SHOT) = C_WHITE;
-    for (r = 0; r < NBOMBS; r++) REG(0xD027 + SPR_BOMB + r) = C_YELLOW;
-    REG(0xD01B) = 0;                                      /* sprites in front */
-    REG(0xD015) = 0;
+    sprite_color(SPR_SHOT, C_WHITE);
+    for (r = 0; r < NBOMBS; r++) sprite_color(SPR_BOMB + r, C_YELLOW);
 
     /* objects */
     cannon.sprite = SPR_CANNON;
@@ -949,11 +940,8 @@ static void setup(void) {
 }
 
 static void restore(void) {
-    REG(0xD015) = 0;
-    REG(0xD06B) = 0;
-    REG(0xD057) = 0;
+    sprite_done();
     REG(0xD068) = saved_regs[0]; REG(0xD069) = saved_regs[1]; REG(0xD06A) = saved_regs[2];
-    REG(0xD06C) = saved_regs[3]; REG(0xD06D) = saved_regs[4]; REG(0xD06E) = saved_regs[5];
     REG(0xD020) = saved_regs[6]; REG(0xD021) = saved_regs[7];
     snd_off();
     restore_palette();

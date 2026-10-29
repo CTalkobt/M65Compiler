@@ -68,9 +68,10 @@ The C99 prototypes take `restrict` where the standard has it (`<string.h>`: `mem
 | `seam.h` | screens of two-byte cells: full-colour characters among text ([§13](#13-mega65-hardware-mega65h-and-dma-dmah)) | library (`stdlib/seam.c`) |
 | `tgi.h`, `tgi/tgi-error.h`, `tgi/tgi-kernel.h`, `tgi/tgi-vectorfont.h` | cc65's TGI graphics: 320x200, 256 colours, one or two pages ([§12a](#12a-graphics-tgih)) | library (`stdlib/tgi*.c`) |
 | `input.h` | see [§11a](#11a-keyboard-and-joysticks-inputh) | library |
+| `sprites.h` | the VIC-IV's 8 hardware sprites ([§13](#hardware-sprites-spritesh)) | library (`stdlib_asm/sprites.s45`) |
 | `overlay.h` | `__ovl_current` (the code overlay in the region), `__ovl_region`: in a program with code overlays (the runtime `stdlib_asm/ovl.s45`; [ln45: Code Overlays](../bin/ln45.md#code-overlays)) | library / ln45 |
 | `conio.h`, `far_ptr.h`, `far_ops.h`, `far_string.h`, `dma_controller.h`, `audio_digi.h`, `audio_midi.h`, `audio_sid.h`, `intwide.h`, `complex.h` | see [§12](#12-other-library-backed-headers) | library / compiler |
-| `uart.h` and the graphics, sprite, hardware-helper and game-framework headers | see [§14](#14-headers-without-a-library-implementation) | **no library implementation** |
+| `uart.h` and the graphics, `sprite_*`, hardware-helper and game-framework headers | see [§14](#14-headers-without-a-library-implementation) | **no library implementation** |
 
 ## 3. Core Headers & Types
 
@@ -387,9 +388,23 @@ dma_fill((void *)0x0800, 1000, 0x20);
 dma_copy((void *)0x0800, (void *)src_data, 1000);
 ```
 
+### Hardware sprites (`sprites.h`)
+
+The VIC-IV's 8 sprites (`lib/stdlib_asm/sprites.s45`: every function assembly, `__fastcall__`, the ZP convention in either library, each in its own section, so a program links the ones it calls; about 1 KB for all). The header was earlier an unimplemented software-sprite API; it is now the hardware's.
+
+- `sprite_init()` saves the sprite registers it changes, turns 16-bit sprite pointers on (SPRPTR16, `$D06E` bit 7) with the pointer table in the library (16 bytes, 16-byte aligned: in that mode the VIC ignores the table address's bits 0-3), and sets every sprite off at (0, 0), hi-res, normal size, in front, image 0. `sprite_done()` turns them off and puts the saved registers back (`$D054` only its bit 4).
+- `sprite_image(n, addr)`: the sprite's data at the 28-bit address `addr` (a multiple of 64, below 4 MB): images can be in banks 4-5 and take no room in bank 0.
+- `sprite_pos(n, x, y)`, `sprite_move(n, dx, dy)`, `sprite_x(n)`, `sprite_y(n)`: sprite coordinates (the screen's top left `SPRITE_X0`, `SPRITE_Y0` = 24, 50); bit 8 goes to `$D010` / `$D077`, bit 9 to `$D05F` / `$D078` (the H640 and V400 MSBs). The library keeps the positions.
+- `sprite_show(n)`, `sprite_hide(n)` (`$D015`); `sprite_color(n, c)` (`$D027`+n; a 16-colour sprite's transparent colour), `sprite_multicolors(c1, c2)` (`$D025`/`$D026`).
+- `sprite_mode(n, SPRITE_HIRES / SPRITE_MULTICOLOR / SPRITE_16COLOR)` (`$D01C`, `$D06B`; 16-colour: colour c of sprite n is palette entry n·16 + c, the transparent colour set to 0); `sprite_size(n, flags)`: `SPRITE_EXPAND_X` (`$D01D`), `SPRITE_EXPAND_Y` (`$D017`), `SPRITE_WIDE` (8 bytes a row, 64 pixels: `$D057`), `SPRITE_TALL` (`sprite_height(rows)` rows: `$D055`/`$D056`); `sprite_behind(n, on)` (`$D01B`); `sprite_h640(on)` (SPR640, `$D054` bit 4: positions and pixels at the 640-wide resolution).
+- `sprite_palette_bank(bank)`: the palette bank (0-3) sprites take their colours from (`$D070` bits 2-3, SPRPALSEL), so the text and graphics keep theirs; `sprite_init` keeps the current one (the KERNAL's `$D070` is `$FF`: bank 3 shown, mapped and for sprites). Fill a bank with `<palette.h>` after mapping it at `$D100` (`$D070` bits 6-7), then map the shown one back. `sprite_altcolors(n, on)`: a 16-colour sprite's second set, entries n·16 + c + 128 (SPRBPMEN: `$D049` / `$D04B` bits 4-7). `sprite_v400(n, on)`: rows one physical pixel high (`$D076`; y then counts physical lines). `sprite_tile(n, on)`: the sprite repeated to the end of its raster line (SPRTILEN: `$D04D` / `$D04F` bits 4-7). `sprite_alpha(n, on)`, `sprite_alpha_level(level)`: blended with what is behind (`$D074`, `$D075`; the hardware's: xemu does not show it). `sprite_init` / `sprite_done` save and restore these too, of the shared registers only the sprites' bits. `SPRITE_TALL` sprites share one height (`$D056`).
+- `sprite_collisions()`, `sprite_bg_collisions()`: the hardware's collision bits since the last read (`$D01E`, `$D01F`; reading clears them). `sprite_overlap(a, b)`: 1 when the two sprites' boxes overlap (positions and sizes: 24, 64 wide or 16 for 16-colour, 21 or the tall height, doubled when expanded; shown or not).
+
+Test: `test_sprites_xemu.c` (the registers, the pointer table, positions with their MSBs, the boxes, a real sprite-sprite collision, the registers back). Examples: `examples/c/sprite_demo` (a short movie using every function), `examples/c/invaders` (16-colour, wide sprites in bank 4), `examples/c/text_scroller` (a sprite in front of and behind text).
+
 ### Packed data (`unpack.h`)
 
-`unsigned long unpack(unsigned long src)` (#345, `lib/stdlib/unpack.c`, `__fastcall__`: the ZP convention in either library; a macro for the library's `__unpack`, #346, so a program's own function named `unpack`, written without `<unpack.h>`, is a separate function and the overlay loader keeps calling the library's) unpacks the stream at the 28-bit address `src` to the address in its header (chip or attic RAM) and returns the number of bytes written; 0 for a stream of another format. The streams are made by [pack45](../bin/pack45.md) (format 1: literals, fills and repeats, each one DMA job) and by `ln45 --pack-overlays`. A stream can be loaded inside the area it unpacks into, as far in as pack45 reports, and unpacked there. Test: `src/test-resources/test_unpack_xemu.c`.
+`unsigned long unpack(unsigned long src)` (#345, `lib/stdlib_asm/unpack.s45`, `__fastcall__`: the ZP convention in either library; a macro for the library's `__unpack`, #346, so a program's own function named `unpack`, written without `<unpack.h>`, is a separate function and the overlay loader keeps calling the library's) unpacks the stream at the 28-bit address `src` to the address in its header (chip or attic RAM) and returns the number of bytes written; 0 for a stream of another format. The streams are made by [pack45](../bin/pack45.md) (format 1: literals, fills and repeats, each one DMA job) and by `ln45 --pack-overlays`. A stream can be loaded inside the area it unpacks into, as far in as pack45 reports, and unpacked there. `unsigned long unpack_to(unsigned long src, unsigned long dst)` (`__unpack_to`) unpacks to `dst` instead of the header's destination (a stream used in more than one place). Both are assembly (about 30% faster than the earlier C on the test stream, and 214 bytes smaller): literals up to 16 bytes copied by the CPU, longer ones, fills and repeats one DMA job each; from assembly, the addresses in `$10`-`$13` / `$14`-`$17` and `jsr ___unpack` / `___unpack_to`, the count in Q (pack45.md: examples with `.incbin` and from assembly). Test: `src/test-resources/test_unpack_xemu.c`.
 
 ### rom_ram.h
 
@@ -406,7 +421,7 @@ A program that leaves the area writable has it protected again when it ends: crt
 
 ## 14. Headers Without a Library Implementation
 
-These headers declare functions whose sources (`lib/src/*.c`, `lib/stdlib/uart.s`) are not built into any archive, so calls to them fail to link: `uart.h`, `audio.h`, `cache_opt.h`, `data_structures.h`, `event_system.h`, `graphics.h`, `graphics_hal.h`, `graphics_particles.h`, `graphics_rrb.h`, `graphics_sprites.h`, `graphics_sprites_advanced.h`, `graphics_text80x50.h`, `hw_audio_mixer.h`, `hw_io.h`, `hw_peripherals.h`, `hw_raster.h`, `hw_scroll.h`, `joystick.h`, `lightpen.h`, `mega65_version.h`, `mem_pool.h`, `paddle_mouse.h`, `persistence.h`, `procedural_content.h`, `resource_manager.h`, `scripting.h`, `simd.h`, `sprites.h`, `sprite_*.h`, `test_harness.h`, `ui.h`, `world.h`. `sincos.h` and `sincos16.h` contain only `static` code and tables and work without the library.
+These headers declare functions whose sources (`lib/src/*.c`, `lib/stdlib/uart.s`) are not built into any archive, so calls to them fail to link: `uart.h`, `audio.h`, `cache_opt.h`, `data_structures.h`, `event_system.h`, `graphics.h`, `graphics_hal.h`, `graphics_particles.h`, `graphics_rrb.h`, `graphics_sprites.h`, `graphics_sprites_advanced.h`, `graphics_text80x50.h`, `hw_audio_mixer.h`, `hw_io.h`, `hw_peripherals.h`, `hw_raster.h`, `hw_scroll.h`, `joystick.h`, `lightpen.h`, `mega65_version.h`, `mem_pool.h`, `paddle_mouse.h`, `persistence.h`, `procedural_content.h`, `resource_manager.h`, `scripting.h`, `simd.h`, `sprite_*.h`, `test_harness.h`, `ui.h`, `world.h`. `sincos.h` and `sincos16.h` contain only `static` code and tables and work without the library.
 
 ## 15. Runtime Startup (`crt0_zp.s45` / `crt0.s45`)
 
