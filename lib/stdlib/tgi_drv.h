@@ -20,6 +20,7 @@ typedef struct {
     unsigned char fontwidth, fontheight;
     unsigned aspectratio;       /* 8.8 */
     unsigned char flags;
+    unsigned char mode;         /* 0: 320x200, full colour; $80: 640x200, nibble colour */
 } tgi_driver_t;
 
 /* The drivers are tgi_drivers.c's tgi_static_stddrv and tgi_static_fcm2

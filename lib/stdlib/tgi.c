@@ -29,6 +29,11 @@ extern unsigned char __tgi_view;        /* the view page */
 extern unsigned long __tgi_page[2];     /* the pages */
 extern unsigned long __tgi_palsave;     /* the palette at tgi_install: R, G, B (768 bytes) */
 extern unsigned char __tgi_palset;      /* tgi_setpalette changed the palette */
+extern unsigned char __tgi_mode;        /* tgi_vars.s45's: $80, the 640x200 driver */
+
+/* The 640x200 driver's bar (tgi_ncm.s45, linked with it) */
+#pragma weak __tgi_n_bar
+__fastcall__ void __tgi_n_bar(int x1, int y1, int x2, int y2) { (void)x1; (void)y1; (void)x2; (void)y2; }
 static unsigned char pal[256];          /* tgi_getpalette (after tgi_setpalette) */
 static unsigned char defpal[256];       /* tgi_getdefpalette's */
 
@@ -131,12 +136,12 @@ unsigned char tgi_getcolor(void) {
 }
 
 void tgi_setpalette(const unsigned char *p) {
-    unsigned int i;
+    unsigned int i, n = tgi_colorcount ? tgi_colorcount : 256;   /* (its entries) */
     unsigned char c, k;
     unsigned char __far *s = PIXP(__tgi_palsave);
     if (!tgi_drv) return;
     for (i = 0; i < 256; i++) {
-        c = p[i];
+        c = i < n ? p[i] : (unsigned char)i;
         pal[i] = c;
         if (c != (unsigned char)i) __tgi_palset = 1;
     }
@@ -265,6 +270,10 @@ void tgi_bar(int x1, int y1, int x2, int y2) {
     if (y1 < 0) y1 = 0;
     if (x2 > (int)tgi_xmax) x2 = (int)tgi_xmax;
     if (y2 > (int)tgi_ymax) y2 = (int)tgi_ymax;
+    if (__tgi_mode) {
+        __tgi_n_bar(x1, y1, x2, y2);
+        return;
+    }
     h = (unsigned int)(y2 - y1 + 1);
     while (x1 <= x2) {
         if (!(x1 & 7) && x1 + 7 <= x2) {
