@@ -4,6 +4,17 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### ca45: .extern after a label; .align at link time (#372, #373)
+
+- An `.extern` after the file's own definition of the label replaced the
+  label's symbol with an import placeholder: the label moved into the code
+  segment and its references were relocated against it (#372). It is the
+  definition now, as with the `.extern` first.
+- `.align` in an object's text, data or bss aligned only within the object:
+  ln45 aligns an object's part of a segment by the weak absolute
+  `cc45.align.<segment>`, which cc45 exported for `_Alignas` but ca45 not
+  for `.align` (#373). ca45 exports it now (the largest `.align` per segment).
+
 ### basic45 --data-loader (#370)
 
 - `basic45 --data-loader game.prg` writes a BASIC program that POKEs the
