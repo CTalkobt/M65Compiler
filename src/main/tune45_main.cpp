@@ -14,6 +14,7 @@
 #include <climits>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <unistd.h>     // (readlink, rmdir: not pulled in by other headers with musl)
 #include <thread>
 #include <chrono>
 #include "Version.hpp"

@@ -1,0 +1,58 @@
+# Alpine image of the MEGA65 C Compiler Suite with the xemu emulator (#99)
+#
+# Build:  docker build -f src/Docker/Dockerfile.runtime -t mega65-cc45:runtime .
+#         (make docker-runtime)
+# Use:    the MEGA65 ROM is not included: mount yours at /rom/MEGA65.ROM
+#   R="-v /path/to/MEGA65.ROM:/rom/MEGA65.ROM:ro -v $PWD:/work --user $(id -u):$(id -g)"
+#   docker run --rm $R mega65-cc45:runtime cc45 -O2 hello.c -o hello.prg
+#   docker run --rm $R mega65-cc45:runtime m65run -d 0xC0C0:8 hello.prg
+#   docker run --rm $R mega65-cc45:runtime xemu-xmega65 -headless ... -prg hello.prg
+#
+# The toolchain as src/Docker/Dockerfile installs it (/app), xemu-xmega65
+# (CTalkobt/xemu cc45-dev, pinned below), m65run (run a program headless,
+# report its exit status and memory). xemu does not run as root: the image's
+# user is m65 (or yours, with --user); its preferences go to /tmp/xemu-pref,
+# set up from the ROM on first use (src/Docker/xemu-wrapper.sh).
+
+# --- The toolchain ---
+FROM alpine:3.20 AS builder
+
+RUN apk add --no-cache g++ make zlib-dev fuse3-dev sqlite-dev pkgconf
+
+WORKDIR /build
+COPY . .
+
+RUN make clean && make -j"$(nproc)" all && make -C lib -j"$(nproc)" && \
+    make install PREFIX=/app
+
+# --- xemu ---
+FROM alpine:3.20 AS xemu
+
+RUN apk add --no-cache build-base sdl2-dev git bash python3 linux-headers
+
+# CTalkobt/xemu cc45-dev: upstream dev (XEMU_PREF_DIR), the monitor's
+# breakpoint list (dbg45), the hardware divider as the core computes it
+ARG XEMU_REPO=https://github.com/CTalkobt/xemu.git
+ARG XEMU_REF=06408fca8b16f3896b542836814fddb6ab4a0f02
+RUN git clone --filter=blob:none "$XEMU_REPO" /xemu && cd /xemu && git checkout -q "$XEMU_REF" && \
+    make -C targets/mega65 -j"$(nproc)" && test -x build/bin/xmega65.native
+
+# --- Runtime ---
+FROM alpine:3.20
+
+# (eudev-libs: SDL2 cannot initialize without libudev)
+RUN apk add --no-cache libstdc++ libgcc zlib fuse3 sqlite-libs sdl2 eudev-libs && \
+    adduser -D -u 1000 m65
+
+COPY --from=builder /app /app
+COPY --from=xemu /xemu/build/bin/xmega65.native /usr/local/libexec/xmega65
+COPY src/Docker/xemu-wrapper.sh /usr/local/bin/xemu-xmega65
+COPY src/Docker/m65run src/Docker/m65-entry.sh /usr/local/bin/
+ENV PATH="/app/bin:$PATH" XEMU_PREF_DIR=/tmp/xemu-pref
+
+USER m65
+VOLUME /work
+WORKDIR /work
+
+ENTRYPOINT ["m65-entry.sh"]
+CMD ["sh"]

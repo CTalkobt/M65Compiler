@@ -8,7 +8,7 @@
 #   test_dbg45.sh [-fno-zpcall]
 #
 # It needs an xemu whose monitor has the breakpoint list ('k'; CTalkobt/xemu,
-# branch feat/monitor-breakpoints): $DBG45_XEMU, else xemu-xmega65. Without
+# branch cc45-dev): $DBG45_XEMU, else xemu-xmega65. Without
 # one it prints SKIP and exits 2.
 cd "$(dirname "$0")/../.." || exit 1
 flags="$1"
@@ -27,7 +27,7 @@ printf 'int main(void) { return 0; }\n' > $T/probe.c
 ./bin/cc45 -O2 -g $T/probe.c -o $T/probe.prg >/dev/null 2>&1
 if ! timeout 60 ./bin/dbg45 --xemu "$XEMU" --headless --fast --timeout 20 --batch -ex run $T/probe.prg 2>&1 |
      grep -q "exited with status 0"; then
-    echo "SKIP: dbg45 ($XEMU has no monitor breakpoint list: set DBG45_XEMU to an xemu built from CTalkobt/xemu's feat/monitor-breakpoints)"
+    echo "SKIP: dbg45 ($XEMU has no monitor breakpoint list: set DBG45_XEMU to an xemu built from CTalkobt/xemu's cc45-dev)"
     exit 2
 fi
 

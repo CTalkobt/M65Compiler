@@ -442,7 +442,7 @@ $(LIB_DIR):
 .PHONY: all clean test man test-regression stdlib
 .PHONY: lib install install_local uninstall
 .PHONY: uninstall_local cppcheck coverage coverage-build coverage-clean
-.PHONY: coverage-report docker test-assembler test-const
+.PHONY: coverage-report docker docker-runtime test-assembler test-const
 .PHONY: test-restrict test-register test-cast-fold test-o45 test-move-fill
 .PHONY: test-validation-parser test-validation-struct test-validation-const
 .PHONY: test-validation-semantic test-validation-preprocessor test-opcodes
@@ -815,6 +815,10 @@ docker:
 	@docker save mega65-cc45:latest -o $(BIN_DIR)/mega65-cc45.tar
 	@echo "✓ Docker image exported to $(BIN_DIR)/mega65-cc45.tar"
 	@ls -lh $(BIN_DIR)/mega65-cc45.tar
+
+# the Alpine image with the xemu emulator (#99): the MEGA65 ROM is mounted at run time
+docker-runtime:
+	@docker build -f src/Docker/Dockerfile.runtime -t mega65-cc45:runtime .
 
 uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/cc45 $(DESTDIR)$(BINDIR)/ca45 $(DESTDIR)$(BINDIR)/cp45
