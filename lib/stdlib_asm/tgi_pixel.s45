@@ -1,8 +1,12 @@
 ; tgi_pixel.s45 — <tgi.h>'s pixels in assembly: tgi_setpixel, tgi_getpixel,
 ; tgi_line, tgi_lineto, a line on the screen and a bitmap glyph at 1x (for
-; stdlib/tgi.c and tgi_text.c). A line wholly on the screen is drawn here
-; without a C call (cc45's parameter thunks cost more than a short line);
-; one off it goes to stdlib/tgi.c's clipping.
+; stdlib/tgi.c and tgi_text.c), the ellipse. A line wholly on the screen is
+; drawn without a C call (cc45's parameter thunks cost more than a short
+; line); one off it goes to stdlib/tgi.c's clipping. What depends on the
+; screen goes to the installed driver's routines (___tgi_mode): the 320x200
+; drivers' (tgi_fcm.s45, ___tgi_f_*) or the 640x200 one's (tgi_ncm.s45,
+; ___tgi_n_*); each set replaces weak defaults here and is linked only with
+; its drivers.
 ;
 ; Pixel (x, y) of the draw page (tgi.c's 320x200 full-colour screen) is at
 ;   __tgi_draw + (x >> 3) * 1600 + y * 8 + (x & 7)
@@ -16,7 +20,6 @@
 cc45.icallinfo = 1
 
 PIX = $08               ; a pixel's address (32 bits)
-PIX2 = $0C              ; the glyph: the next character column's (32 bits)
 XNEXT = 1593            ; x + 1 from a character column's last pixel: 1600 - 7
 P0 = $0C                ; the ellipse's 4 points' addresses: (cx + x, cy - y)
 P1 = $14                ; (cx - x, cy - y) (over rx, ry: read by then)
@@ -35,17 +38,14 @@ P3 = $1C                ; (cx + x, cy + y)
 .weak ___tgi_n_eset, ___tgi_n_exstep, ___tgi_n_eplot
 ; (the ellipse's walk, for tgi_ncm.s45's)
 .global __tgi_ecx, __tgi_ecy, __tgi_ex, __tgi_ey, __tgi_xbr, __tgi_xbl, __tgi_ecs, __tgi_ece
-.global __tgi_statebit
+.global __tgi_statebit, __tgi_addr, __tgi_col
+; the 320x200 drivers' (tgi_fcm.s45, linked with them; ___tgi_mode 0)
+.global ___tgi_f_line, ___tgi_f_exstep, ___tgi_f_eplot, ___tgi_f_eset, ___tgi_f_glyph
+.weak ___tgi_f_line, ___tgi_f_exstep, ___tgi_f_eplot, ___tgi_f_eset, ___tgi_f_glyph
 .extern _tgi_curx, _tgi_cury, ___tgi_clipline_c
 
 .segment "bss"
-__tgi_sx:       .res 1  ; the line: $FF when x goes left
-__tgi_ys:       .res 1  ; $FF when y goes up
-__tgi_xb:       .res 1  ; the glyph: x & 7
-__tgi_col:      .res 1  ; its colour
-__tgi_bits:     .res 1  ; a row's pixels left
-__tgi_row:      .res 1  ; its row
-__tgi_n1:       .res 1  ; its pixels in the first character column
+__tgi_col:      .res 1  ; the ellipse's colour
 __tgi_ecx:      .res 2  ; the ellipse: its centre
 __tgi_ecy:      .res 2
 __tgi_ex:       .res 1  ; the walk's point (the first quarter's)
@@ -137,6 +137,7 @@ proc __tgi_addr
     lda ___tgi_draw+3
     sta PIX+3
     rts
+    .func_flags zp_call
 endproc
 
 ; C (carry) clear when pixel ($10, $12) is on the screen of an installed
@@ -165,7 +166,22 @@ proc __tgi_onscreen
     .func_flags zp_call
 endproc
 
-; The 640x200 driver's routines when it is not linked: nothing
+; The drivers' routines when they are not linked: nothing
+proc ___tgi_f_line
+    rts
+endproc
+proc ___tgi_f_exstep
+    rts
+endproc
+proc ___tgi_f_eplot
+    rts
+endproc
+proc ___tgi_f_eset
+    rts
+endproc
+proc ___tgi_f_glyph
+    rts
+endproc
 proc ___tgi_n_setpixel
     rts
 endproc
@@ -235,19 +251,8 @@ proc _tgi_getpixel
 endproc
 
 ; void __tgi_line_on_screen(int x1, int y1, int x2, int y2): a line with
-; both ends on the screen, in the current colour (Bresenham). The loop for
-; the line's major axis and x's way keeps the colour in Y, x & 7 in X, its
-; numbers in the base page (the parameters' slots, once read) and steps the
-; offset: x +-1 in a character column, +-1593 across one; y +-8. Bresenham's
-; error is >= 0 at the top of the loop, so its high byte changes only on a
-; borrow. A minor step is at most 199 (dy for an x-major line, dx for a
-; y-major one): one byte.
-ERR = $0C               ; Bresenham's error
-CNT = $0E               ; pixels left
-YS = $10                ; the offset's y step: 8 or -8 (over x1, once read)
-DX = $14                ; |x2 - x1|
-DY = $16                ; |y2 - y1|
-
+; both ends on the screen, in the current colour: the driver's (tgi_fcm.s45,
+; tgi_ncm.s45)
 proc ___tgi_line_on_screen
     .zp_uses $10, $11, $12, $13, $14, $15, $16, $17
     .reg_clobbers A, X, Y, Z
@@ -256,253 +261,7 @@ proc ___tgi_line_on_screen
     bpl @fcm
     jmp ___tgi_n_line
 @fcm:
-    ; dx (over x2), the way x goes
-    lda #0
-    sta __tgi_sx
-    sec
-    lda $14
-    sbc $10
-    sta DX
-    lda $15
-    sbc $11
-    sta DX+1
-    bpl @dxpos
-    lda #0
-    sec
-    sbc DX
-    sta DX
-    lda #0
-    sbc DX+1
-    sta DX+1
-    dec __tgi_sx
-@dxpos:
-    ; dy (over y2; y is 0..199), the way y goes
-    lda #0
-    sta __tgi_ys
-    sta DY+1
-    lda $16
-    sec
-    sbc $12
-    bcs @dypos
-    eor #$FF                ; (C clear: + 1)
-    adc #1
-    dec __tgi_ys
-@dypos:
-    sta DY
-    jsr __tgi_addr          ; (x1, y1)
-    lda $10
-    and #7
-    taz                     ; (x & 7, before YS goes over x1)
-    lda #8                  ; YS over x1
-    ldx #0
-    bit __tgi_ys
-    bpl @ysdown
-    lda #$F8
-    ldx #$FF
-@ysdown:
-    sta YS
-    stx YS+1
-    tza
-    tax                     ; X: x & 7
-    ldy _tgi_color          ; Y: the colour
-    ldz #0
-    lda DX                  ; dx >= dy: a step along x for each pixel
-    cmp DY
-    lda DX+1
-    sbc DY+1
-    bcc @steep
-    ; CNT = dx + 1, ERR = dx / 2
-    lda DX
-    clc
-    adc #1
-    sta CNT
-    lda DX+1
-    adc #0
-    sta CNT+1
-    lda DX+1
-    lsr a
-    sta ERR+1
-    lda DX
-    ror a
-    sta ERR
-    bit __tgi_sx
-    bmi @xleft
-@xright:
-    tya
-    sta [PIX],z
-    dew CNT
-    beq @done
-    inx                     ; x + 1
-    cpx #8
-    bne @xr1
-    ldx #0
-    clc
-    lda PIX
-    adc #<(XNEXT - 1)
-    sta PIX
-    lda PIX+1
-    adc #>(XNEXT - 1)
-    sta PIX+1
-@xr1:
-    inw PIX
-    lda ERR                 ; err -= dy
-    sec
-    sbc DY
-    sta ERR
-    bcs @xright
-    dec ERR+1
-    bpl @xright
-    clc                     ; err < 0: err += dx, y + 1
-    lda ERR
-    adc DX
-    sta ERR
-    lda ERR+1
-    adc DX+1
-    sta ERR+1
-    clc
-    lda PIX
-    adc YS
-    sta PIX
-    lda PIX+1
-    adc YS+1
-    sta PIX+1
-    bra @xright
-@xleft:
-    tya
-    sta [PIX],z
-    dew CNT
-    beq @done
-    dex                     ; x - 1
-    bpl @xl1
-    ldx #7
-    sec
-    lda PIX
-    sbc #<(XNEXT - 1)
-    sta PIX
-    lda PIX+1
-    sbc #>(XNEXT - 1)
-    sta PIX+1
-@xl1:
-    dew PIX
-    lda ERR
-    sec
-    sbc DY
-    sta ERR
-    bcs @xleft
-    dec ERR+1
-    bpl @xleft
-    clc
-    lda ERR
-    adc DX
-    sta ERR
-    lda ERR+1
-    adc DX+1
-    sta ERR+1
-    clc
-    lda PIX
-    adc YS
-    sta PIX
-    lda PIX+1
-    adc YS+1
-    sta PIX+1
-    bra @xleft
-@done:
-    rts
-@steep:
-    ; CNT = dy + 1, ERR = dy / 2
-    lda DY
-    clc
-    adc #1
-    sta CNT
-    lda #0
-    adc #0
-    sta CNT+1
-    lda DY
-    lsr a
-    sta ERR
-    lda #0
-    sta ERR+1
-    bit __tgi_sx
-    bmi @yleft
-@yright:
-    tya
-    sta [PIX],z
-    dew CNT
-    beq @done
-    clc                     ; y + 1
-    lda PIX
-    adc YS
-    sta PIX
-    lda PIX+1
-    adc YS+1
-    sta PIX+1
-    lda ERR                 ; err -= dx
-    sec
-    sbc DX
-    sta ERR
-    bcs @yright
-    dec ERR+1
-    bpl @yright
-    clc                     ; err < 0: err += dy, x + 1
-    lda ERR
-    adc DY
-    sta ERR
-    lda ERR+1
-    adc DY+1
-    sta ERR+1
-    inx
-    cpx #8
-    bne @yr1
-    ldx #0
-    clc
-    lda PIX
-    adc #<(XNEXT - 1)
-    sta PIX
-    lda PIX+1
-    adc #>(XNEXT - 1)
-    sta PIX+1
-@yr1:
-    inw PIX
-    bra @yright
-@yleft:
-    tya
-    sta [PIX],z
-    dew CNT
-    beq @done
-    clc
-    lda PIX
-    adc YS
-    sta PIX
-    lda PIX+1
-    adc YS+1
-    sta PIX+1
-    lda ERR
-    sec
-    sbc DX
-    sta ERR
-    bcs @yleft
-    dec ERR+1
-    bpl @yleft
-    clc
-    lda ERR
-    adc DY
-    sta ERR
-    lda ERR+1
-    adc DY+1
-    sta ERR+1
-    dex                     ; x - 1
-    bpl @yl1
-    ldx #7
-    sec
-    lda PIX
-    sbc #<(XNEXT - 1)
-    sta PIX
-    lda PIX+1
-    sbc #>(XNEXT - 1)
-    sta PIX+1
-@yl1:
-    dew PIX
-    bra @yleft
+    jmp ___tgi_f_line
     .func_flags zp_call
 endproc
 
@@ -703,109 +462,7 @@ proc __tgi_exstep
     bpl @fcm
     jmp ___tgi_n_exstep
 @fcm:
-    cpx #1
-    bne @rleft
-    ; the right side right, the left side left
-    lda __tgi_xbr
-    cmp #7
-    beq @r1
-    inc __tgi_xbr
-    inw P0
-    inw P3
-    bra @l1
-@r1:
-    lda #0
-    sta __tgi_xbr
-    clc
-    lda P0
-    adc #<XNEXT
-    sta P0
-    lda P0+1
-    adc #>XNEXT
-    sta P0+1
-    clc
-    lda P3
-    adc #<XNEXT
-    sta P3
-    lda P3+1
-    adc #>XNEXT
-    sta P3+1
-@l1:
-    lda __tgi_xbl
-    beq @l1col
-    dec __tgi_xbl
-    dew P1
-    dew P2
-    rts
-@l1col:
-    lda #7
-    sta __tgi_xbl
-    sec
-    lda P1
-    sbc #<XNEXT
-    sta P1
-    lda P1+1
-    sbc #>XNEXT
-    sta P1+1
-    sec
-    lda P2
-    sbc #<XNEXT
-    sta P2
-    lda P2+1
-    sbc #>XNEXT
-    sta P2+1
-    rts
-@rleft:
-    ; the right side left, the left side right
-    lda __tgi_xbr
-    beq @r2col
-    dec __tgi_xbr
-    dew P0
-    dew P3
-    bra @l2
-@r2col:
-    lda #7
-    sta __tgi_xbr
-    sec
-    lda P0
-    sbc #<XNEXT
-    sta P0
-    lda P0+1
-    sbc #>XNEXT
-    sta P0+1
-    sec
-    lda P3
-    sbc #<XNEXT
-    sta P3
-    lda P3+1
-    sbc #>XNEXT
-    sta P3+1
-@l2:
-    lda __tgi_xbl
-    cmp #7
-    beq @l2col
-    inc __tgi_xbl
-    inw P1
-    inw P2
-    rts
-@l2col:
-    lda #0
-    sta __tgi_xbl
-    clc
-    lda P1
-    adc #<XNEXT
-    sta P1
-    lda P1+1
-    adc #>XNEXT
-    sta P1+1
-    clc
-    lda P2
-    adc #<XNEXT
-    sta P2
-    lda P2+1
-    adc #>XNEXT
-    sta P2+1
-    rts
+    jmp ___tgi_f_exstep
 endproc
 
 ; The 4 points a step in y: y + 1 (X: 1: the upper ones up, the lower ones
@@ -889,53 +546,7 @@ proc __tgi_eplot
     bpl @fcm
     jmp ___tgi_n_eplot
 @fcm:
-    ldz #0
-    ldy __tgi_col
-    bit ___tgi_arcon
-    bmi @arc
-    tya
-    sta [P0],z
-    sta [P1],z
-    sta [P2],z
-    sta [P3],z
-    rts
-@arc:
-    ldx #0                  ; the state's bit (as __tgi_plot4)
-    lda __tgi_ecs+3
-    bpl @s1
-    inx
-@s1:
-    lda __tgi_ece+3
-    bpl @s2
-    inx
-    inx
-@s2:
-    lda __tgi_statebit,x
-    tax
-    and ___tgi_allow
-    beq @q1
-    tya
-    sta [P0],z
-@q1:
-    txa
-    and ___tgi_allow+1
-    beq @q2
-    tya
-    sta [P1],z
-@q2:
-    txa
-    and ___tgi_allow+2
-    beq @q3
-    tya
-    sta [P2],z
-@q3:
-    txa
-    and ___tgi_allow+3
-    beq @out
-    tya
-    sta [P3],z
-@out:
-    rts
+    jmp ___tgi_f_eplot
 endproc
 
 ; The 4 points' addresses for the walk's point (the box on the screen)
@@ -946,62 +557,7 @@ proc __tgi_eset
     bpl @fcm
     jmp ___tgi_n_eset
 @fcm:
-    ; the upper ones: $12 = cy - y
-    sec
-    lda __tgi_ecy
-    sbc __tgi_ey
-    sta $12
-    lda __tgi_ecy+1
-    sbc #0
-    sta $13
-    jsr @right
-    jsr __tgi_addr
-    ldq PIX
-    stq P0
-    lda $10
-    and #7
-    sta __tgi_xbr
-    jsr @left
-    jsr __tgi_addr
-    ldq PIX
-    stq P1
-    lda $10
-    and #7
-    sta __tgi_xbl
-    ; the lower ones: $12 = cy + y
-    clc
-    lda __tgi_ecy
-    adc __tgi_ey
-    sta $12
-    lda __tgi_ecy+1
-    adc #0
-    sta $13
-    jsr __tgi_addr          ; ($10: still cx - x)
-    ldq PIX
-    stq P2
-    jsr @right
-    jsr __tgi_addr
-    ldq PIX
-    stq P3
-    rts
-@right:
-    clc
-    lda __tgi_ecx
-    adc __tgi_ex
-    sta $10
-    lda __tgi_ecx+1
-    adc #0
-    sta $11
-    rts
-@left:
-    sec
-    lda __tgi_ecx
-    sbc __tgi_ex
-    sta $10
-    lda __tgi_ecx+1
-    sbc #0
-    sta $11
-    rts
+    jmp ___tgi_f_eset
 endproc
 
 ; void tgi_circle(int x, int y, unsigned char radius)
@@ -1400,9 +956,8 @@ proc ___tgi_ellipse
 endproc
 
 ; void __tgi_glyph(int x, int y, unsigned long glyph): an 8x8 bitmap glyph
-; (8 bytes at the 28-bit address glyph) with its top left at (x, y), x
-; 0..312, y 0..192, its set pixels in the current colour. A row is 8 bytes
-; in one or two character columns: PIX the first's, PIX2 the next's.
+; (8 bytes at the 28-bit address glyph) with its top left at (x, y), on the
+; screen, in the current colour: the driver's
 proc ___tgi_glyph
     .zp_uses $10, $11, $12, $13, $14, $15, $16, $17
     .reg_clobbers A, X, Z
@@ -1411,83 +966,6 @@ proc ___tgi_glyph
     bpl @fcm
     jmp ___tgi_n_glyph
 @fcm:
-    jsr __tgi_addr
-    lda $10
-    and #7
-    sta __tgi_xb
-    lda #8
-    sec
-    sbc __tgi_xb
-    sta __tgi_n1            ; 8 - (x & 7) in the first column
-    lda #<1600              ; PIX2 = PIX + 1600 - (x & 7)
-    sec
-    sbc __tgi_xb
-    tax
-    lda #>1600
-    sbc #0
-    sta PIX2+1
-    txa
-    clc
-    adc PIX
-    sta PIX2
-    lda PIX2+1
-    adc PIX+1
-    sta PIX2+1
-    lda PIX+2
-    sta PIX2+2
-    lda PIX+3
-    sta PIX2+3
-    lda _tgi_color
-    sta __tgi_col
-    lda #0
-    sta __tgi_row
-@row:
-    ldz __tgi_row
-    lda [$14],z
-    beq @next
-    sta __tgi_bits
-    ldz #0
-    ldx __tgi_n1
-@first:
-    asl __tgi_bits
-    bcc @f0
-    lda __tgi_col
-    sta [PIX],z
-@f0:
-    inz
-    dex
-    bne @first
-    lda __tgi_bits          ; the rest in the next column
-    beq @next
-    ldz #0
-@second:
-    asl __tgi_bits
-    bcc @s0
-    lda __tgi_col
-    sta [PIX2],z
-@s0:
-    inz
-    lda __tgi_bits
-    bne @second
-@next:
-    clc                     ; the next row: 8 bytes on in both columns
-    lda PIX
-    adc #8
-    sta PIX
-    bcc @p1
-    inc PIX+1
-@p1:
-    clc
-    lda PIX2
-    adc #8
-    sta PIX2
-    bcc @p2
-    inc PIX2+1
-@p2:
-    inc __tgi_row
-    lda __tgi_row
-    cmp #8
-    bne @row
-    rts
+    jmp ___tgi_f_glyph
     .func_flags zp_call
 endproc

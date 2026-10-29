@@ -21,7 +21,6 @@
 #define REG(a) (*(volatile unsigned char *)(a))
 #define PIXP(a) ((unsigned char __far *)(a))
 #define PAGE_SIZE 64000u
-#define COL_SIZE 1600u          /* a character column: 25 characters */
 
 /* tgi_setup.s45's */
 extern unsigned long __tgi_draw;        /* the draw page */
@@ -31,25 +30,14 @@ extern unsigned long __tgi_palsave;     /* the palette at tgi_install: R, G, B (
 extern unsigned char __tgi_palset;      /* tgi_setpalette changed the palette */
 extern unsigned char __tgi_mode;        /* tgi_vars.s45's: $80, the 640x200 driver */
 
-/* The 640x200 driver's bar (tgi_ncm.s45, linked with it) */
+/* The drivers' bars (tgi_fcm.s45, tgi_ncm.s45, each linked with its
+ * drivers; without one, nothing) */
+#pragma weak __tgi_f_bar
+__fastcall__ void __tgi_f_bar(int x1, int y1, int x2, int y2) { (void)x1; (void)y1; (void)x2; (void)y2; }
 #pragma weak __tgi_n_bar
 __fastcall__ void __tgi_n_bar(int x1, int y1, int x2, int y2) { (void)x1; (void)y1; (void)x2; (void)y2; }
 static unsigned char pal[256];          /* tgi_getpalette (after tgi_setpalette) */
 static unsigned char defpal[256];       /* tgi_getdefpalette's */
-
-static const unsigned int coloff[40] = {
-    0u * COL_SIZE, 1u * COL_SIZE, 2u * COL_SIZE, 3u * COL_SIZE, 4u * COL_SIZE,
-    5u * COL_SIZE, 6u * COL_SIZE, 7u * COL_SIZE, 8u * COL_SIZE, 9u * COL_SIZE,
-    10u * COL_SIZE, 11u * COL_SIZE, 12u * COL_SIZE, 13u * COL_SIZE, 14u * COL_SIZE,
-    15u * COL_SIZE, 16u * COL_SIZE, 17u * COL_SIZE, 18u * COL_SIZE, 19u * COL_SIZE,
-    20u * COL_SIZE, 21u * COL_SIZE, 22u * COL_SIZE, 23u * COL_SIZE, 24u * COL_SIZE,
-    25u * COL_SIZE, 26u * COL_SIZE, 27u * COL_SIZE, 28u * COL_SIZE, 29u * COL_SIZE,
-    30u * COL_SIZE, 31u * COL_SIZE, 32u * COL_SIZE, 33u * COL_SIZE, 34u * COL_SIZE,
-    35u * COL_SIZE, 36u * COL_SIZE, 37u * COL_SIZE, 38u * COL_SIZE, 39u * COL_SIZE
-};
-
-/* Pixel (x, y)'s offset in a page (x, y on the screen) */
-#define OFF(x, y) (coloff[(unsigned)(x) >> 3] + ((unsigned)(y) << 3) + ((unsigned)(x) & 7u))
 
 static const char *const msgs[] = {
     "No error",
@@ -260,8 +248,6 @@ __fastcall__ void __tgi_clipline_c(int x1, int y1, int x2, int y2) {
 
 void tgi_bar(int x1, int y1, int x2, int y2) {
     int t;
-    unsigned int h;
-    unsigned char c = tgi_color;
     if (!tgi_drv) return;
     if (x1 > x2) { t = x1; x1 = x2; x2 = t; }
     if (y1 > y2) { t = y1; y1 = y2; y2 = t; }
@@ -270,19 +256,6 @@ void tgi_bar(int x1, int y1, int x2, int y2) {
     if (y1 < 0) y1 = 0;
     if (x2 > (int)tgi_xmax) x2 = (int)tgi_xmax;
     if (y2 > (int)tgi_ymax) y2 = (int)tgi_ymax;
-    if (__tgi_mode) {
-        __tgi_n_bar(x1, y1, x2, y2);
-        return;
-    }
-    h = (unsigned int)(y2 - y1 + 1);
-    while (x1 <= x2) {
-        if (!(x1 & 7) && x1 + 7 <= x2) {
-            /* a whole character column: its rows are one run */
-            dma_fill_far(__tgi_draw + OFF(x1, y1), h << 3, c);
-            x1 += 8;
-        } else {
-            dma_fill_far_step(__tgi_draw + OFF(x1, y1), 8, h, c);
-            x1++;
-        }
-    }
+    if (__tgi_mode) __tgi_n_bar(x1, y1, x2, y2);
+    else __tgi_f_bar(x1, y1, x2, y2);
 }

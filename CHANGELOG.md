@@ -21,6 +21,12 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   (a byte) at a time. Frames (`bench_tgi.sh -DTGI_DRIVER=tgi_static_ncm640`):
   long lines 125 → 37, short ones 58 → 33, circles 35 → 15, text 1x 26 →
   21 (the 320x200 driver: 30, 29, 11, 11).
+- Each driver's drawing is linked only with it: the 320x200 drivers' line,
+  glyph, ellipse steps and `tgi_bar` fill (now assembly) are
+  `stdlib_asm/tgi_fcm.s45`, replacing weak defaults as the 640x200 one's
+  do; a driver's description refers to its member. A 640x200 program with
+  text: 11,604 → 10,176 bytes (lines −491, ellipses −814); a 320x200 one
+  3-15 bytes more, 264 less with text; its bars 67 → 57 frames.
 
 ### `<tgi.h>`'s arcs in assembly
 

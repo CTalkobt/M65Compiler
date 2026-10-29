@@ -9,9 +9,11 @@
 #include <tgi/tgi-error.h>
 #include "tgi_drv.h"
 
+extern const unsigned char __tgi_fcm[];     /* tgi_fcm.s45: its drawing */
+
 const char tgi_stddrv[] = "mega65-fcm.tgi";
 
 const tgi_driver_t tgi_static_stddrv = {
     { 0x74, 0x67, 0x69, TGI_API_VERSION }, tgi_stddrv,
-    320, 200, 0, 1, 8, 8, 0x00D4, 0
+    320, 200, 0, 1, 8, 8, 0x00D4, 0, 0, __tgi_fcm
 };
