@@ -1,6 +1,6 @@
-# cvt_asm Conversion Guide
+# asmCvt45 Conversion Guide
 
-What [`cvt_asm`](../bin/cvt_asm.md) keeps, translates and loses for each assembler format (#223), and three worked conversions (#224). The tool's options are in its reference page; this page is about the result.
+What [`asmCvt45`](../bin/asmCvt45.md) keeps, translates and loses for each assembler format (#223), and three worked conversions (#224). The tool's options are in its reference page; this page is about the result.
 
 **How it was checked.** For ca65, ACME and KickAssembler every statement below was checked against the real assembler, byte for byte:
 
@@ -8,7 +8,7 @@ What [`cvt_asm`](../bin/cvt_asm.md) keeps, translates and loses for each assembl
 - **dialect → ca45:** a program in each of those dialects' own idioms assembled natively and, converted, by ca45.
 - **dialect → dialect:** each of those native programs converted to the other two and assembled there.
 
-The native programs and their bytes are test fixtures (`src/test-resources/cvt_asm/`), checked by `test_cvt_asm.sh` in `make test`. Merlin 64, Oscar and x65 could not be checked against their assemblers: what is written for them follows their documented syntax, and anything not certain is written with a warning.
+The native programs and their bytes are test fixtures (`src/test-resources/asmCvt45/`), checked by `test_asmCvt45.sh` in `make test`. Merlin 64, Oscar and x65 could not be checked against their assemblers: what is written for them follows their documented syntax, and anything not certain is written with a warning.
 
 ## How a conversion works
 
@@ -113,7 +113,7 @@ Comments and blank lines are kept. Warnings go to stderr and name the line; a co
 
 ### 1. A cc65 module into a MEGA65 program
 
-A ca65 source in cc65's style: procedures with their own `@loop`s, a macro, `.define`, an `.if`, unnamed labels, read-only data. (It is the fixture `src/test-resources/cvt_asm/native_ca65.s65`.)
+A ca65 source in cc65's style: procedures with their own `@loop`s, a macro, `.define`, an `.if`, unnamed labels, read-only data. (It is the fixture `src/test-resources/asmCvt45/native_ca65.s65`.)
 
 ```asm
 .define COLOR 2
@@ -153,7 +153,7 @@ msg:    .byte "hello", 0
 ```
 
 ```bash
-cvt_asm -f ca65 -t ca45 game.s65 -o game.s45
+asmCvt45 -f ca65 -t ca45 game.s65 -o game.s45
 ca45 -c game.s45 -o game.o45          # relocatable, as the ca65 object was
 ln45 -basic -o game.prg game.o45 c45.lib    # or with cc45-compiled C objects
 ```
@@ -199,7 +199,7 @@ Each `.proc` is a label, so its `@loop` is its own in ca45 too; the macro is exp
 
 ### 2. Between ACME and KickAssembler
 
-A converted program can go straight from one dialect to the other: `cvt_asm -f acme -t kickassembler`. From the ACME fixture (`native_acme.a65`):
+A converted program can go straight from one dialect to the other: `asmCvt45 -f acme -t kickassembler`. From the ACME fixture (`native_acme.a65`):
 
 ```asm
 !zone main
@@ -267,7 +267,7 @@ The other directions: ACME → ca65 and KickAssembler → ACME also assemble to 
 
 ### 3. Porting 6502 code to the 45GS02
 
-A 6502 program from any of these dialects converts to ca45 unchanged in meaning (a 6502 program is a 45GS02 program). Then the 45GS02's instructions can replace common 6502 idioms. Two routines, after `cvt_asm -t ca45`:
+A 6502 program from any of these dialects converts to ca45 unchanged in meaning (a 6502 program is a 45GS02 program). Then the 45GS02's instructions can replace common 6502 idioms. Two routines, after `asmCvt45 -t ca45`:
 
 ```asm
 count   = $40           ; a 16-bit counter in the base page

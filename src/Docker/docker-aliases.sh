@@ -20,13 +20,13 @@ fi
 # the current directory are yours, not root's)
 _M65RUN="docker run --rm --user \$(id -u):\$(id -g) -v \$(pwd):/work"
 alias cc45="$_M65RUN $IMAGE"
-for _t in ca45 cp45 nm45 ln45 ar45 objdump45 disk45 basic45 cvt_asm; do
+for _t in ca45 cp45 nm45 ln45 ar45 objdump45 disk45 basic45 asmCvt45; do
     alias $_t="$_M65RUN --entrypoint $_t $IMAGE"
 done
 unset _t
 
 echo "✓ Docker aliases created for MEGA65 toolchain"
-echo "  Available commands: cc45, ca45, cp45, nm45, ln45, ar45, objdump45, disk45, basic45, cvt_asm"
+echo "  Available commands: cc45, ca45, cp45, nm45, ln45, ar45, objdump45, disk45, basic45, asmCvt45"
 echo ""
 echo "Examples:"
 echo "  cc45 hello.c -o hello.s       # Compile C to assembly"

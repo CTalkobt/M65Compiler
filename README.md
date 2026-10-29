@@ -15,7 +15,7 @@ A modern development toolchain for the MEGA65 (45GS02) home computer. It consist
 - **cp45** — C preprocessor (standalone)
 - **disk45** — CBM disk, tape and archive image utility (D64/D71/D81/D65 and 20 more formats)
 - **basic45** — BASIC 65 program generator (label-based source to a tokenized `.prg`)
-- **cvt_asm** — Assembly source converter between assembler dialects
+- **asmCvt45** — Assembly source converter between assembler dialects
 
 
 ## Project Intent
@@ -272,5 +272,5 @@ For detailed information on each tool, refer to:
 - [doc/bin/dbg45.md](doc/bin/dbg45.md) — Debugging in xemu: Commands, VS Code
 - [doc/bin/disk45.md](doc/bin/disk45.md) — Disk/Tape/Archive Image Utility
 - [doc/bin/basic45.md](doc/bin/basic45.md) — BASIC 65 Program Generator
-- [doc/bin/cvt_asm.md](doc/bin/cvt_asm.md) — Assembly Dialect Converter
+- [doc/bin/asmCvt45.md](doc/bin/asmCvt45.md) — Assembly Dialect Converter
 - [doc/bin/CONFIGURATION.md](doc/bin/CONFIGURATION.md) — Configuration Files and Environment

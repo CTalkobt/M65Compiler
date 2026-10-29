@@ -1,6 +1,6 @@
-# cvt_asm Format Conversion Test Suite
+# asmCvt45 Format Conversion Test Suite
 
-Comprehensive test coverage for all assembler format conversions in the cvt_asm utility.
+Comprehensive test coverage for all assembler format conversions in the asmCvt45 utility.
 
 ## Test Files
 
@@ -46,7 +46,7 @@ Each test file covers:
 
 ### Quick Test (All Pairs)
 ```bash
-bash src/test-resources/test_cvt_asm.sh
+bash src/test-resources/test_asmCvt45.sh
 ```
 
 Runs all 20 format-pair conversions:
@@ -55,7 +55,7 @@ Runs all 20 format-pair conversions:
 
 ### Detailed Test Suite
 ```bash
-bash src/test-resources/cvt_asm_test.sh
+bash src/test-resources/asmCvt45_test.sh
 ```
 
 More comprehensive testing with detailed output.
@@ -95,7 +95,7 @@ More comprehensive testing with detailed output.
 
 ## Adding New Format Pair Tests
 
-1. Create test file: `src/test-resources/cvt_asm_tests/<format>_test.asm`
+1. Create test file: `src/test-resources/asmCvt45_tests/<format>_test.asm`
 2. Include coverage from this README
-3. Test manually: `./bin/cvt_asm -f <format> -t <other> <file>`
+3. Test manually: `./bin/asmCvt45 -f <format> -t <other> <file>`
 4. Run test suite to verify integration

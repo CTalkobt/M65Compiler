@@ -8,7 +8,7 @@
 #include <algorithm>
 #include <iostream>
 
-// Phase 5a: Configuration file support for .cvtasmrc
+// Phase 5a: Configuration file support for .asmCvt45rc
 class ConfigFile {
 public:
     struct Settings {
@@ -56,14 +56,14 @@ public:
 
     // Find and load config file
     bool load() {
-        // Search for .cvtasmrc in current directory and parent directories
+        // Search for .asmCvt45rc in current directory and parent directories
+        // (.cvtasmrc, its name before cvt_asm became asmCvt45, still read)
         std::filesystem::path searchPath = std::filesystem::current_path();
 
         while (true) {
-            std::filesystem::path configCandidate = searchPath / ".cvtasmrc";
-
-            if (std::filesystem::exists(configCandidate)) {
-                return loadFile(configCandidate.string());
+            for (const char* name : {".asmCvt45rc", ".cvtasmrc"}) {
+                std::filesystem::path configCandidate = searchPath / name;
+                if (std::filesystem::exists(configCandidate)) return loadFile(configCandidate.string());
             }
 
             // Move to parent directory
@@ -162,13 +162,13 @@ public:
     const std::string& getConfigPath() const { return configPath; }
 
     // Write default config file
-    static bool writeDefault(const std::string& path = ".cvtasmrc") {
+    static bool writeDefault(const std::string& path = ".asmCvt45rc") {
         std::ofstream file(path);
         if (!file.is_open()) {
             return false;
         }
 
-        file << "; cvt_asm configuration file (.cvtasmrc)\n";
+        file << "; asmCvt45 configuration file (.asmCvt45rc)\n";
         file << "; Place this file in your project root or any parent directory\n\n";
 
         file << "[general]\n";

@@ -28,7 +28,7 @@ make clean && make bin/cc45
 make clean && make
 ```
 
-`make` (`all`) builds the ten tools in `bin/` — `cc45`, `cp45`, `ca45`, `ln45`, `ar45`, `nm45`, `objdump45`, `disk45`, `cvt_asm`, `basic45` — and runs `make -C lib`, which builds `lib/build/c45.lib` (ZP convention), `c45_zp.lib` (a copy of it) and `c45_stack.lib` (stack convention).
+`make` (`all`) builds the ten tools in `bin/` — `cc45`, `cp45`, `ca45`, `ln45`, `ar45`, `nm45`, `objdump45`, `disk45`, `asmCvt45`, `basic45` — and runs `make -C lib`, which builds `lib/build/c45.lib` (ZP convention), `c45_zp.lib` (a copy of it) and `c45_stack.lib` (stack convention).
 
 ---
 
@@ -87,7 +87,7 @@ Review:
 
 ```bash
 make install_local          # PREFIX=~/.local
-for t in cc45 cp45 ca45 ln45 ar45 nm45 objdump45 cvt_asm disk45 basic45; do ~/.local/bin/$t --version; done
+for t in cc45 cp45 ca45 ln45 ar45 nm45 objdump45 asmCvt45 disk45 basic45; do ~/.local/bin/$t --version; done
 ls ~/.local/lib/cc45        # c45.lib c45_zp.lib c45_stack.lib
 ls ~/.local/include/cc45    # headers
 ```

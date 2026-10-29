@@ -25,7 +25,7 @@ The builder stage runs `make clean && make all && make -C lib` (with FUSE3, SQLi
 
 | Path | Contents |
 |------|----------|
-| `/usr/local/bin/` | everything in `bin/`: `cc45`, `cp45`, `ca45`, `ln45`, `ar45`, `nm45`, `objdump45`, `disk45`, `cvt_asm`, `basic45` (plus the C++ test binaries) |
+| `/usr/local/bin/` | everything in `bin/`: `cc45`, `cp45`, `ca45`, `ln45`, `ar45`, `nm45`, `objdump45`, `disk45`, `asmCvt45`, `basic45` (plus the C++ test binaries) |
 | `/usr/local/lib/cc45/` | `lib/build/`: `c45.lib` (ZP convention), `c45_zp.lib` (copy), `c45_stack.lib` (stack convention) and the `.o45` members |
 | `/usr/local/include/cc45/` | `lib/include/` (including `sys/`) |
 | `/opt/cc45/` | the full source tree (working directory) |
@@ -72,7 +72,7 @@ docker run --rm -v "$PWD":/work --user $(id -u):$(id -g) mega65-cc45 -O2 hello.c
 docker run --rm -v "$PWD":/work --entrypoint disk45 mega65-cc45 list game.d81
 ```
 
-`src/Docker/docker-aliases.sh` defines shell aliases (`cc45`, `ca45`, `cp45`, `nm45`, `ln45`, `ar45`, `objdump45`, `disk45`, `basic45`, `cvt_asm`) that run this image with the current directory mounted at `/work`, as the calling user.
+`src/Docker/docker-aliases.sh` defines shell aliases (`cc45`, `ca45`, `cp45`, `nm45`, `ln45`, `ar45`, `objdump45`, `disk45`, `basic45`, `asmCvt45`) that run this image with the current directory mounted at `/work`, as the calling user.
 
 ## Runtime Image with xemu (`make docker-runtime`)
 

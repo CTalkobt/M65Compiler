@@ -3,7 +3,7 @@
 # -v ... -vvvv levels (cumulative, capped at 4, -v0 off) in cc45, ca45 and
 # ln45; every log line on stderr as "[tool:LEVEL] ...", none on stdout;
 # cc45 runs ca45 and ln45 at its own level; the program the same whatever
-# the level. ar45, nm45, objdump45, disk45, cvt_asm, basic45 and tune45 log
+# the level. ar45, nm45, objdump45, disk45, asmCvt45, basic45 and tune45 log
 # with -v and write the same output (dbg45: test_dbg45.sh needs xemu)
 cd "$(dirname "$0")/../.." || exit 1
 BIN=./bin
@@ -93,7 +93,7 @@ other nm45 "" "\"$TMP/t.o45\""
 other objdump45 "-f" "\"$TMP/t.o45\""
 $BIN/disk45 create "$TMP/d.d81" -n LOGTEST >/dev/null 2>&1
 other disk45 "list" "\"$TMP/d.d81\""
-other cvt_asm "-t acme" "\"$TMP/t.s45\""
+other asmCvt45 "-t acme" "\"$TMP/t.s45\""
 other basic45 "src/test-resources/test_basic45_xemu.bas" "-o \"$TMP/b.prg\""
 other tune45 "list" "examples/c/tunes/music.txt"
 # disk45: a lone -v first is still --version

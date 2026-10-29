@@ -1,11 +1,11 @@
 #!/bin/bash
-# cvt_asm format conversion test suite
+# asmCvt45 format conversion test suite
 # Tests all N×N format conversions for correctness
 
 set -e
 
-CVT_ASM="./bin/cvt_asm"
-TEST_DIR="src/test-resources/cvt_asm_tests"
+ASMCVT45="./bin/asmCvt45"
+TEST_DIR="src/test-resources/asmCvt45_tests"
 PASS=0
 FAIL=0
 SKIP=0
@@ -25,8 +25,8 @@ die() {
 }
 
 check_binary() {
-    if [[ ! -f "$CVT_ASM" ]]; then
-        die "cvt_asm binary not found at $CVT_ASM. Run 'make bin/cvt_asm' first."
+    if [[ ! -f "$ASMCVT45" ]]; then
+        die "asmCvt45 binary not found at $ASMCVT45. Run 'make bin/asmCvt45' first."
     fi
 }
 
@@ -50,7 +50,7 @@ test_conversion() {
         return 0
     fi
 
-    local output=$("$CVT_ASM" -f "$input_fmt" -t "$output_fmt" "$test_file" 2>&1)
+    local output=$("$ASMCVT45" -f "$input_fmt" -t "$output_fmt" "$test_file" 2>&1)
     local exit_code=$?
 
     if [[ $exit_code -ne 0 ]]; then
@@ -82,7 +82,7 @@ test_conversion() {
 
 # Run all tests
 run_all_tests() {
-    echo "=== cvt_asm Format Conversion Test Suite ==="
+    echo "=== asmCvt45 Format Conversion Test Suite ==="
     echo ""
 
     # Test each format against all test files

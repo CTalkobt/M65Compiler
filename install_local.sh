@@ -1,5 +1,5 @@
 #!/bin/bash
-# install_local.sh - Install cvt_asm and IDE extensions locally
+# install_local.sh - Install asmCvt45 and IDE extensions locally
 # Installs to ~/.local and copies extensions to Visual Studio and CLion if installed
 
 set -e
@@ -7,7 +7,7 @@ set -e
 INSTALL_PREFIX="$HOME/.local"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-echo "Installing cvt_asm to $INSTALL_PREFIX..."
+echo "Installing asmCvt45 to $INSTALL_PREFIX..."
 make -C "$SCRIPT_DIR" install_local
 
 echo ""
@@ -175,7 +175,7 @@ install_jetbrains_extensions() {
 
 # Main installation
 echo "================================"
-echo "cvt_asm Local Installation"
+echo "asmCvt45 Local Installation"
 echo "================================"
 
 # Try installing extensions (don't fail if any fail)

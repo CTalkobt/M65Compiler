@@ -4,6 +4,17 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cvt_asm is now asmCvt45
+
+- The assembler source converter follows the toolchain's `<name>45` naming:
+  `bin/asmCvt45` (was `cvt_asm`), `doc/bin/asmCvt45.md`,
+  `doc/architecture/asmCvt45-guide.md`, `src/main/asmCvt45_main.cpp`, the
+  tests `src/test/test_asmCvt45.sh` and `src/test-resources/asmCvt45*/`, the
+  man page `asmCvt45.1`, log lines `[asmCvt45:LEVEL]`.
+- Its configuration file is `.asmCvt45rc`; a `.cvtasmrc` is still read when
+  there is no `.asmCvt45rc`. `make uninstall` also removes an installed
+  `cvt_asm` and its man page. Scripts calling `cvt_asm` need the new name.
+
 ### basic45: numbered programs; BASIC 65's $CE functions
 
 - A classic numbered listing (`10 PRINT "HI"`) was stored with its number
@@ -72,9 +83,9 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   `tgi_demo640.prg` is the 640x200 part alone (its screenshot in
   `doc/examples`).
 
-### cvt_asm: conversions checked against ca65, ACME and KickAssembler (#223, #224)
+### asmCvt45: conversions checked against ca65, ACME and KickAssembler (#223, #224)
 
-- `doc/architecture/cvt_asm-guide.md`: what each format keeps, translates
+- `doc/architecture/asmCvt45-guide.md`: what each format keeps, translates
   and loses, the instruction sets per target, and worked conversions (a
   cc65 module into a MEGA65 program, ACME ↔ KickAssembler, 6502 code ported
   to the 45GS02). Checked byte for byte with ca65 2.18, ACME 0.97 and
@@ -94,9 +105,9 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - The ca45 reader takes line numbers from the preprocessor's `#line` markers
   (a macro's expansion matched to its call) and warns on each line kept as
   written.
-- `test_cvt_asm.sh`: round trips compare unoptimized bytes; programs in
+- `test_asmCvt45.sh`: round trips compare unoptimized bytes; programs in
   ca65's, ACME's and KickAssembler's idioms are checked against the bytes
-  their own assemblers made (`src/test-resources/cvt_asm/native_*`).
+  their own assemblers made (`src/test-resources/asmCvt45/native_*`).
 
 ### `<tgi.h>`: clipping and text in assembly
 
@@ -866,14 +877,14 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   macros, `\@` for labels of their own in each use, a recursion limit
   (64), messages at the line of the use. ca45 had only C `#define`
   (one line; nested `#define` composition is fixed by #233).
-- cvt_asm: ca45 input's `.macro` is expanded as ca45 does; a macro's
+- asmCvt45: ca45 input's `.macro` is expanded as ca45 does; a macro's
   parameters in the other dialects are replaced as whole words (a
   parameter `a` turned `sta` into `st7`; #235).
 - ca45 fix: an error in an `#include`d file named the main source (with
   the included file's line number, and an excerpt from the main source);
   it names the included file now (the lexer keeps `#line`'s file name).
 - Tests in `test_assembler.sh` (`test_ca45_macro.s45`, errors in an
-  `#include`d file) and `test_cvt_asm.sh`.
+  `#include`d file) and `test_asmCvt45.sh`.
 
 ### Two more benchmarks
 
@@ -935,10 +946,10 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - ln45: `-v` … `-vvvv`; `ln45info()` / `ln45debug()` write log lines; the
   relocation trace is `-vvv` (was `-vv`), the call graph and the layout
   (base-page blocks, SAC overlay) stay at `-vv`.
-- ar45, nm45, objdump45, disk45, cvt_asm, basic45, tune45 and dbg45 log
+- ar45, nm45, objdump45, disk45, asmCvt45, basic45, tune45 and dbg45 log
   the same way (`-v` … `-vvvv` anywhere among their arguments): ar45 the
   members, nm45 / objdump45 each file's kind, disk45 the images opened and
-  written, cvt_asm and basic45 their former verbose output (basic45's
+  written, asmCvt45 and basic45 their former verbose output (basic45's
   moved from stdout to stderr), tune45 the tunes and files, dbg45 xemu's
   start and every monitor command and reply. disk45's lone `-v` first
   stays `--version`.
