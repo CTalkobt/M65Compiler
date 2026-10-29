@@ -69,8 +69,15 @@ public:
     // the files tokens come from (AssemblerToken::file): [0] "" (the main
     // source), then each #line "file" in turn
     const std::vector<std::string>& files() const { return files_; }
+    // numbers followed directly by letters, digits or '_' ($12junk, %1010_0101):
+    // the number's token (value the whole text, `.column` where it starts),
+    // which ca45 reports as an error (#363)
+    const std::vector<std::pair<AssemblerToken, std::string>>& badNumbers() const { return badNumbers_; }
 
 private:
+    std::vector<std::pair<AssemblerToken, std::string>> badNumbers_;
+    std::string lineDirective_;   // the current line's directive, lower case, without '.'
+    AssemblerToken checkNumberEnd(AssemblerToken tok);
     std::vector<std::string> files_{""};
     int curFile_ = 0;
     std::string source;

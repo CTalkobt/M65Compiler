@@ -916,10 +916,16 @@ std::unique_ptr<ExprAST> parseExprAST(const std::vector<AssemblerToken>& tokens,
             return std::make_unique<VariableNode>(varName, scopePrefix);
         }
         if (t.type == AssemblerTokenType::STAR) {
-            // * as current PC when followed by +, -, or end of expression
+            // * as current PC when followed by a binary operator or the end of
+            // the expression (* & 3, * | 1, * >> 8 too: #364)
             if (idx >= (int)tokens.size() ||
                 tokens[idx].type == AssemblerTokenType::PLUS ||
                 tokens[idx].type == AssemblerTokenType::MINUS ||
+                tokens[idx].type == AssemblerTokenType::STAR || tokens[idx].type == AssemblerTokenType::SLASH ||
+                tokens[idx].type == AssemblerTokenType::AMPERSAND || tokens[idx].type == AssemblerTokenType::PIPE ||
+                tokens[idx].type == AssemblerTokenType::CARET ||
+                tokens[idx].type == AssemblerTokenType::LSHIFT || tokens[idx].type == AssemblerTokenType::RSHIFT ||
+                tokens[idx].type == AssemblerTokenType::AND || tokens[idx].type == AssemblerTokenType::OR ||
                 tokens[idx].type == AssemblerTokenType::NEWLINE ||
                 tokens[idx].type == AssemblerTokenType::END_OF_FILE ||
                 tokens[idx].type == AssemblerTokenType::COMMA ||

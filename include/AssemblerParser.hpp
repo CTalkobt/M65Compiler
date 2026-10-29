@@ -59,6 +59,9 @@ public:
     void setSourceFile(const std::string& filename) { currentSourceFile_ = filename; }
     // the lexer's files() (an #include's tokens name theirs in messages)
     void setTokenFiles(const std::vector<std::string>& files) { tokenFiles_ = files; }
+    // AssemblerLexer::badNumbers(): reported as errors by pass1 (#363)
+    void setBadNumbers(const std::vector<std::pair<AssemblerToken, std::string>>& b) { badNumbers_ = b; }
+    std::vector<std::pair<AssemblerToken, std::string>> badNumbers_;
     // the file a message about line `line` names: the include file of the
     // token being parsed there, else currentSourceFile_
     std::string fileForLine(int line) const;
@@ -330,6 +333,7 @@ public:
         bool deleted = false;
         bool seqRoutine = false;   // part of a routine SeqExtract made (not extracted again)
         bool noOpt = false;        // between .noopt_start and .noopt_end: no pass changes it
+        bool reportedDead = false; // -Roptimizer has reported it left out after a return (#365)
         std::vector<uint8_t> bytes; // Captured machine code for listing
 
         // Branch offset resolved during pass2 convergence — used by generator

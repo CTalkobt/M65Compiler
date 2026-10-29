@@ -696,6 +696,12 @@ void AssemblerParser::emitPHWStackCode(std::vector<uint8_t>& binary, int tokenIn
 }
 
 void AssemblerParser::pass1() {
+    for (const auto& [t, rest] : badNumbers_) {
+        std::string f = includeFileOf(t);
+        addError(formatDiagnostic(f.empty() ? currentSourceFile_ : f, t.line, t.column, Severity::Error,
+                                  "unexpected '" + rest + "' after the number '" + t.value.substr(0, t.value.size() - rest.size()) + "'"));
+    }
+    badNumbers_.clear();
     segments.clear();
     segmentOrder.clear();
     segmentStack.clear();
@@ -2664,7 +2670,10 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
             pass2PCs[name] = 0xFFFFFFFF; // sentinel = never visited
             seg->startAddress = 0xFFFFFFFF; // reset for recalculation
         }
-        std::string activeSegment = "default"; uint32_t cP = 0; bool isDeadCode = false;
+        // isDeadCode: after an RTS/RTI with no label since, code is left out
+        // (an optimization: not at -O0 or in .noopt, and -Roptimizer reports it,
+        // #365); afterReturn: the same position for endproc, whose RTS is never needed then
+        std::string activeSegment = "default"; uint32_t cP = 0; bool isDeadCode = false, afterReturn = false;
         // the code so far ends in a JMP/BRA (no label after it): endproc adds
         // no RTS then, unless the proc branches by *+n (to after the jump, #340)
         bool endsInJump = false, procStar = false;
@@ -2714,6 +2723,7 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
             currentLocalScope_ = s->localLabelScope;
             if (!s->label.empty()) {
                 isDeadCode = false;
+                afterReturn = false;
                 endsInJump = false;
                 // a label the optimizer inserted (tail-dedup's shared tails): an
                 // address in this segment, so a JMP to it is relocated
@@ -2737,11 +2747,20 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
             int oS = s->size;
             if (s->type == Statement::INSTRUCTION && s->instr.mnemonic == "proc") { s->size = 0; procStar = false; }
             else if (s->type == Statement::INSTRUCTION && s->instr.mnemonic == "endproc") {
-                if (isDeadCode || (endsInJump && !procStar)) s->size = 0; else s->size = 1; // always plain RTS
+                if (isDeadCode || afterReturn || (endsInJump && !procStar)) s->size = 0; else s->size = 1; // always plain RTS
                 isDeadCode = false;
+                afterReturn = false;
                 endsInJump = false;
-            } else if (isDeadCode && s->type != Statement::DIRECTIVE && s->type != Statement::BASIC_UPSTART) s->size = 0;
+            } else if (isDeadCode && s->type != Statement::DIRECTIVE && s->type != Statement::BASIC_UPSTART) {
+                s->size = 0;
+                if (verboseOptimizer && !s->reportedDead) {
+                    s->reportedDead = true;
+                    std::cerr << "opt: unreachable after a return, left out: line " << s->line << ": "
+                              << (s->type == Statement::INSTRUCTION ? s->instr.mnemonic : std::string("(statement)")) << std::endl;
+                }
+            }
             else {
+                if (s->type != Statement::DIRECTIVE) afterReturn = false; // code kept after the return
                 if (s->type == Statement::INSTRUCTION) s->size = calculateInstructionSize(s->instr, cP, s->scopePrefix, s.get());
                 else if (s->isSimulatedOp()) {
                     // Unified sizing via emitFn dispatch
@@ -2760,6 +2779,9 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
             if (s->size != oS) {
                 addressRecalculationMadeChanges = true;
             }
+            // data after a return (a table) and .noopt_start end the code left
+            // out, as the generator emits them (AssemblerGenerator)
+            if (s->type == Statement::DIRECTIVE && (s->size > 0 || s->dir.name == "noopt_start")) isDeadCode = false;
             if (s->size > 0 && !(s->type == Statement::INSTRUCTION && s->instr.mnemonic == "endproc")) {
                 std::string mnl = s->type == Statement::INSTRUCTION ? s->instr.mnemonic : "";
                 std::transform(mnl.begin(), mnl.end(), mnl.begin(), ::tolower);
@@ -2816,7 +2838,7 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
                         s->hasBranchOffset = true;
                     }
                 }
-                if (mn == "rts" || mn == "rtn" || mn == "rti") isDeadCode = true;
+                if (mn == "rts" || mn == "rtn" || mn == "rti") { afterReturn = true; isDeadCode = optimizationLevel > 0 && !s->noOpt; }
             }
         }
         // Update segment end addresses from this pass
