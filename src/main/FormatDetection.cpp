@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <sstream>
 #include <fstream>
+#include <vector>
 
 std::optional<std::string> FormatDetection::detectFormat(const std::string& filePath) {
     // Try modeline detection first (more specific)

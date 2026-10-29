@@ -6,6 +6,7 @@
 #include <fstream>
 #include <sstream>
 #include <algorithm>
+#include <iostream>
 
 // Phase 5a: Configuration file support for .cvtasmrc
 class ConfigFile {

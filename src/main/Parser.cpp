@@ -9,6 +9,7 @@
 #include "Diagnostic.hpp"
 #include <stdexcept>
 #include <iostream>
+#include <cctype>
 
 // C11 lets an alignment specifier appear anywhere among the declaration
 // specifiers (_Alignas(8) static int x; static int _Alignas(8) x;). The

@@ -5,6 +5,7 @@
 #include <chrono>
 #include <iostream>
 #include <iomanip>
+#include <algorithm>
 
 // Phase 5d: Detailed performance profiling and analysis
 class PerformanceProfiler {

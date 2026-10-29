@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <functional>
 #include <set>
+#include <cctype>
 
 // Map ca45 segment names to O45 segment IDs.
 // Offset of an instruction's 16-bit operand: after the opcode, or after the

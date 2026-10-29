@@ -1,5 +1,6 @@
 #include "ConstantFolder.hpp"
 #include <algorithm>
+#include <stdexcept>
 
 ConstantFolder::ConstantFolder() {
 }

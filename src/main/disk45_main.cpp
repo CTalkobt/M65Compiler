@@ -24,6 +24,8 @@
 #include <cerrno>
 #include <sstream>
 #include <algorithm>
+#include <cctype>
+#include <cstdio>
 
 static const char* VERSION = SUITE_VERSION;
 

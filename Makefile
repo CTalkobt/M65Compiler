@@ -1,4 +1,4 @@
-CX = g++
+CXX ?= g++
 GIT_HASH := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 EXTRA_CXXFLAGS ?=
 CXXFLAGS = -std=c++17 -Wall -Wextra -Iinclude -MMD -MP -DGIT_HASH='"$(GIT_HASH)"' $(EXTRA_CXXFLAGS)
@@ -452,7 +452,7 @@ $(LIB_DIR):
 .PHONY: test-validation-linker test-segment-emission test-validation-assembler
 .PHONY: test-validation-simops test-validation-directives test-validation-symbols
 .PHONY: test-validation-segments test-validation-proc test-validation-addressing
-.PHONY: test-validation-simops-extended test-objdump45 test-examples test-xemu test-validation
+.PHONY: test-validation-simops-extended test-objdump45 test-examples test-xemu test-validation test-distros
 .PHONY: test-phase12 test-phase13 test-phase14 test-phase15 test-phase16 test-phase17 test-phase18
 
 # Build all lib45 libraries
@@ -519,6 +519,11 @@ test: all lib $(BIN_DIR)/test_o45 $(BIN_DIR)/test_ast_walker $(BIN_DIR)/test_con
 # the runtime tests in xemu (parallel runs: XEMU_JOBS)
 test-xemu: all lib
 	@bash src/test/test_xemu.sh
+
+# a clean build (make all, make lib) in a container of each common Linux
+# distribution, with the packages README.md lists (needs Docker; DISTROS=...)
+test-distros:
+	@bash src/test/test_distro_builds.sh $(DISTROS)
 
 # The validation tests (#96): one program, bin/test_validation, a category
 # per source (its main() compiled as tv_<category>_main); test-validation and

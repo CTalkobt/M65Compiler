@@ -11,6 +11,7 @@
 #include <filesystem>
 #include <random>
 #include <vector>
+#include <cstdlib>
 
 namespace {
 

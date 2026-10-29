@@ -8,6 +8,8 @@
 #include <sstream>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <cctype>
+#include <iterator>
 #include "O45Reader.hpp"
 #include "O45Linker.hpp"
 #include "O45Archive.hpp"

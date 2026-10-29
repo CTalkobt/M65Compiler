@@ -2,6 +2,7 @@
 // KnownBits.hpp.
 #include "KnownBits.hpp"
 #include <set>
+#include <iterator>
 
 namespace ir {
 

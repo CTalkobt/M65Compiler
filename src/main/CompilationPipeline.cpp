@@ -20,6 +20,7 @@
 #include <cstdlib>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <stdexcept>
 
 // from to to (rename, or a copy across file systems)
 static bool moveFile(const std::string& from, const std::string& to) {

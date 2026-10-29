@@ -14,6 +14,7 @@
 #include <sys/stat.h>
 #include <pwd.h>
 #include <unistd.h>
+#include <cctype>
 #include "AssemblerLexer.hpp"
 #include "AssemblerParser.hpp"
 #include "Preprocessor.hpp"

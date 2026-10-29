@@ -10,6 +10,8 @@
 #include <fstream>
 #include <algorithm>
 #include <set>
+#include <cctype>
+#include <stdexcept>
 
 #include "CBMFloat.hpp"
 

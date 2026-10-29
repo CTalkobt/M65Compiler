@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cctype>
 #include <iostream>
+#include <stdexcept>
 
 M65Emitter::M65Emitter(std::ostream& out, uint32_t zpStart) : out(&out), mode(Mode::TEXT), zeroPageStart(zpStart) {
     scratchZP_ = (uint8_t)zpStart;
