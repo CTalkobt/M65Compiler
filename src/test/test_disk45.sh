@@ -100,6 +100,45 @@ $DISK45 extract "$TMPDIR/test.t64" TFILE "$TMPDIR/t64out.prg" >/dev/null 2>&1
 [ -f "$TMPDIR/t64out.prg" ] && pass "T64 extract" || fail "T64 extract"
 
 # ============================================================================
+echo "=== TAP tape images (#142) ==="
+# tapes made by src/test/make_tap.py (the KERNAL's format): a C64, a VIC-20
+# and a C16 tape (version 2, half-waves), at 5% off speed with 4% jitter
+MT="python3 src/test/make_tap.py"
+head -c 700 /dev/urandom > "$TMPDIR/tprog.bin"
+printf 'HELLO TAPE\rLINE TWO\r' > "$TMPDIR/tseq.txt"
+for plat in c64 vic20 c16; do
+    $MT "$TMPDIR/$plat.tap" --platform $plat --speed 1.05 --jitter 0.04 \
+        --prg game:0801:"$TMPDIR/tprog.bin" --seq notes:"$TMPDIR/tseq.txt"
+    $DISK45 extract "$TMPDIR/$plat.tap" game "$TMPDIR/tg.prg" >/dev/null 2>&1
+    $DISK45 extract "$TMPDIR/$plat.tap" notes "$TMPDIR/tn.seq" >/dev/null 2>&1
+    if tail -c +3 "$TMPDIR/tg.prg" 2>/dev/null | cmp -s - "$TMPDIR/tprog.bin" && cmp -s "$TMPDIR/tn.seq" "$TMPDIR/tseq.txt" &&
+       [ "$($DISK45 info "$TMPDIR/$plat.tap" | grep -c ': verified')" = 2 ]; then
+        pass "TAP $plat: a program and a SEQ file decode and verify"
+    else
+        fail "TAP $plat: $($DISK45 info "$TMPDIR/$plat.tap" 2>&1 | tail -3 | tr '\n' ' ')"
+    fi
+    rm -f "$TMPDIR/tg.prg" "$TMPDIR/tn.seq"
+done
+# a bad first copy: repaired from the second; both bad: damaged, not extracted
+$MT "$TMPDIR/rep.tap" --jitter 0.03 --damage 1:1 --prg game:0801:"$TMPDIR/tprog.bin"
+$DISK45 extract "$TMPDIR/rep.tap" game "$TMPDIR/tr.prg" >/dev/null 2>&1
+tail -c +3 "$TMPDIR/tr.prg" 2>/dev/null | cmp -s - "$TMPDIR/tprog.bin" &&
+    $DISK45 info "$TMPDIR/rep.tap" | grep -q 'repaired (a block.s first copy has 1 parity error: its second copy is used)' &&
+    pass "TAP: a block bad in its first copy is read from the second" || fail "TAP repaired: $($DISK45 info "$TMPDIR/rep.tap" | tail -1)"
+$MT "$TMPDIR/bad.tap" --jitter 0.03 --damage 1:1 --damage 1:2 --prg game:0801:"$TMPDIR/tprog.bin"
+if ! $DISK45 extract "$TMPDIR/bad.tap" game "$TMPDIR/tb.prg" >/dev/null 2>"$TMPDIR/tb.err" &&
+   grep -q 'damaged on the tape: a block has 1 parity error in both copies' "$TMPDIR/tb.err" &&
+   $DISK45 list "$TMPDIR/bad.tap" | grep -q '\*PRG'; then
+    pass "TAP: a block bad in both copies is reported (*PRG, extract refused)"
+else
+    fail "TAP damaged: $(cat "$TMPDIR/tb.err")"
+fi
+# --tap-timing: a C16 tape read with the C64's pulse ratios finds nothing
+[ "$($DISK45 --tap-timing=c64 list "$TMPDIR/c16.tap" | grep -c 'PRG\|SEQ')" = 0 ] &&
+    [ "$($DISK45 --tap-timing=c16 list "$TMPDIR/c16.tap" | grep -c 'PRG\|SEQ')" = 2 ] &&
+    pass "TAP: --tap-timing chooses the pulse ratios" || fail "TAP --tap-timing"
+
+# ============================================================================
 echo "=== D80 PET format ==="
 
 $DISK45 create "$TMPDIR/test.d80" -n "PET" >/dev/null 2>&1

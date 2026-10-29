@@ -107,6 +107,8 @@ static void usage() {
               << "Options (anywhere): -v ... -vvvv  log to stderr ([disk45:INFO] ...): the images\n"
               << "  opened and written (-v), partitions and archive members (-vv); -v0 off.\n"
               << "  A lone -v as the first argument is --version.\n"
+              << "  --tap-timing=c64|vic20|c16  decode TAP images with that machine's pulse ratios\n"
+              << "  (default: the TAP header's platform)\n"
               << "\n"
               << "Supported formats (auto-detected from extension):\n"
               << "  .d64  C64 1541 (170KB, 35 tracks)\n"
@@ -823,11 +825,20 @@ static int cmdInfo(int argc, char** argv) {
     auto* tap = dynamic_cast<TapImage*>(img.get());
     auto* cvt = dynamic_cast<GeosCvtImage*>(img.get());
     if (tap) {
+        static const char* timing[] = {"C64 (pulses 1 : 1.4 : 1.8)", "VIC-20 (pulses 1 : 1.4 : 1.8)",
+                                       "C16/Plus4 (pulses 1 : 2 : 4)"};
+        auto files = tap->report();
         std::cout << "Format:       TAP (tape image)\n"
-                  << "TAP version:  " << tap->tapVersion() << "\n"
+                  << "TAP version:  " << tap->tapVersion() << (tap->tapVersion() == 2 ? " (half-waves)" : "") << "\n"
                   << "Platform:     " << tap->platformName() << "\n"
-                  << "Data size:    " << (img->totalBytes()) << " bytes\n"
-                  << "Files:        " << img->listFiles().size() << "\n";
+                  << "Timing:       " << timing[tap->timingPlatform()] << ", calibrated from each pilot tone\n"
+                  << "Data size:    " << tap->dataSize() << " bytes\n"
+                  << "Files:        " << files.size() << "\n";
+        for (const auto& f : files)
+            std::cout << "  \"" << f.name << "\" " << (f.type == CbmFileType::SEQ ? "SEQ" : "PRG") << ": "
+                      << (f.state == TapImage::FileState::Verified ? "verified"
+                          : f.state == TapImage::FileState::Repaired ? "repaired (" + f.detail + ")"
+                          : "DAMAGED (" + f.detail + ")") << "\n";
     } else if (cvt) {
         std::cout << "Format:       GEOS CVT (Convert)\n"
                   << "GEOS name:    " << cvt->geosFileName() << "\n"
@@ -983,6 +994,12 @@ static int cmdExtract(int argc, char** argv) {
     auto data = img->readFile(cbmName);
     if (data.empty() && !img->fileExists(cbmName)) {
         std::cerr << "Error: file \"" << cbmName << "\" not found\n";
+        return 1;
+    }
+    // a tape file with no good copy of a block: its data is not trusted
+    if (auto* tap = dynamic_cast<TapImage*>(img.get()); tap && tap->isDamaged(cbmName)) {
+        for (const auto& r : tap->report())
+            if (r.name == cbmName) std::cerr << "Error: \"" << cbmName << "\" is damaged on the tape: " << r.detail << "\n";
         return 1;
     }
 
@@ -2835,6 +2852,19 @@ int main(int argc, char** argv) {
     // -v ... -vvvv anywhere: the log (a lone -v first stays --version)
     Logger::setTool("disk45");
     if (std::string(argv[1]) != "-v") argc = Logger::takeFlags(argc, argv);
+    // --tap-timing=c64|vic20|c16 anywhere: decode TAP images with that
+    // machine's pulse ratios instead of the header's platform
+    for (int i = 1; i < argc; i++) {
+        std::string a = argv[i];
+        if (a.rfind("--tap-timing=", 0) != 0) continue;
+        std::string v = a.substr(13);
+        int p = v == "c64" ? 0 : v == "vic20" ? 1 : v == "c16" || v == "plus4" ? 2 : -2;
+        if (p == -2) { std::cerr << "Error: --tap-timing takes c64, vic20 or c16 (not '" << v << "')\n"; return 1; }
+        TapImage::setTimingOverride(p);
+        for (int k = i; k + 1 < argc; k++) argv[k] = argv[k + 1];
+        argc--;
+        i--;
+    }
     if (argc < 2) { usage(); return 1; }
 
     // Batch script mode: disk45 batch <scriptfile>
