@@ -203,6 +203,39 @@ void BasicTokenizer::initializeKeywords() {
         {"CHDIR", 0x4B},
         {"DOT", 0x4C},
         {"INFO", 0x4D},
+        {"BIT", 0x4E},
+        {"UNLOCK", 0x4F},
+        {"LOCK", 0x50},
+        {"MKDIR", 0x51},
+        // $52 << and $53 >> are operators (tokenize)
+        {"VSYNC", 0x54},
+    };
+
+    // BASIC 65's two-byte functions (0xCE + byte), as the ROM's table has
+    // them (BASIC 65 V920422; HASBIT to RSPRSYS are not in V920413)
+    ceKeywords = {
+        {"POT", 0x02},
+        {"BUMP", 0x03},
+        {"LPEN", 0x04},
+        {"RSPPOS", 0x05},
+        {"RSPRITE", 0x06},
+        {"RSPCOLOR", 0x07},
+        {"LOG10", 0x08},
+        {"RWINDOW", 0x09},
+        {"POINTER", 0x0A},
+        {"MOD", 0x0B},
+        {"PIXEL", 0x0C},
+        {"RPALETTE", 0x0D},
+        {"RSPEED", 0x0E},
+        {"RPLAY", 0x0F},
+        {"WPEEK", 0x10},
+        {"DECBIN", 0x11},
+        {"STRBIN$", 0x12},
+        {"HASBIT", 0x13},
+        {"RPT$", 0x14},
+        {"RDISK", 0x15},
+        {"LOG2", 0x16},
+        {"RSPRSYS", 0x17},
     };
 }
 
@@ -318,7 +351,14 @@ std::vector<BasicToken> BasicTokenizer::tokenize(const std::string& source) {
             op.type = BasicToken::OPERATOR;
             op.value = c;
             // the arithmetic and comparison operators are tokens in BASIC
-            switch (c) {
+            // << and >> (shifts) are BASIC 65 tokens of their own: $FE $52 / $FE $53
+            if ((c == '<' || c == '>') && pos + 1 < source.length() && source[pos + 1] == c) {
+                op.value = std::string(2, c);
+                op.tokenByte = 0xFE;
+                op.escapeByte = c == '<' ? 0x52 : 0x53;
+                pos++;
+            }
+            else switch (c) {
                 case '+': op.tokenByte = 0xAA; break;
                 case '-': op.tokenByte = 0xAB; break;
                 case '*': op.tokenByte = 0xAC; break;
@@ -453,6 +493,11 @@ BasicToken BasicTokenizer::parseIdentifier(const std::string& source, size_t& po
         pos -= 3;
         upper = "GET";
     }
+    // GO64 is GO and 64 (the C64 mode switch; BASIC crunches GO, then 64)
+    if (upper == "GO64") {
+        pos -= 2;
+        upper = "GO";
+    }
     // TAB( and SPC( are tokens that include the parenthesis
     if ((upper == "TAB" || upper == "SPC") && pos < source.length() && source[pos] == '(') {
         upper += '(';
@@ -469,6 +514,11 @@ BasicToken BasicTokenizer::parseIdentifier(const std::string& source, size_t& po
         token.value = upper;
         token.tokenByte = 0xFE;
         token.escapeByte = getEscapeKeywordByte(upper);
+    } else if (ceKeywords.count(upper)) {
+        token.type = BasicToken::KEYWORD;
+        token.value = upper;
+        token.tokenByte = 0xCE;
+        token.escapeByte = ceKeywords.at(upper);
     } else {
         token.type = BasicToken::IDENTIFIER;
         token.value = word;

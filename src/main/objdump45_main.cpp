@@ -949,19 +949,20 @@ static std::vector<BasicToken> bytesToTokens(const std::vector<uint8_t>& bytes, 
 
         if (byte >= 0x80) {
             // Keyword token
-            if (byte == 0xFE && i + 1 < bytes.size()) {
-                // Escape keyword (two-byte sequence)
+            if ((byte == 0xFE || byte == 0xCE) && i + 1 < bytes.size()) {
+                // Escape keyword (two-byte sequence: $FE or BASIC 65's $CE functions)
                 uint8_t escapeByte = bytes[i + 1];
                 token.type = BasicToken::KEYWORD;
-                token.tokenByte = 0xFE;
+                token.tokenByte = byte;
                 token.escapeByte = escapeByte;
                 // Find keyword name
-                for (const auto& [name, code] : escapeKeywords) {
+                for (const auto& [name, code] : byte == 0xFE ? escapeKeywords : tokenizer.getCeKeywords()) {
                     if (code == escapeByte) {
                         token.value = name;
                         break;
                     }
                 }
+                if (byte == 0xFE && (escapeByte == 0x52 || escapeByte == 0x53)) token.value = escapeByte == 0x52 ? "<<" : ">>";
                 i++;  // Skip next byte since we consumed it
             } else {
                 // Single-byte keyword
@@ -1075,8 +1076,8 @@ static void dumpBasicProgram(const std::string& filename, bool showHex) {
         if (showHex) {
             printf("%5u [HEX] ", line.lineNumber);
             for (const auto& token : line.tokens) {
-                if (token.tokenByte == 0xFE && token.escapeByte != 0) {
-                    printf("FE%02X ", token.escapeByte);
+                if ((token.tokenByte == 0xFE || token.tokenByte == 0xCE) && token.escapeByte != 0) {
+                    printf("%02X%02X ", token.tokenByte, token.escapeByte);
                 } else if (token.tokenByte != 0) {
                     printf("%02X ", token.tokenByte);
                 } else {
@@ -1096,8 +1097,8 @@ static void dumpBasicProgram(const std::string& filename, bool showHex) {
             // Print token value or raw representation
             if (!token.value.empty()) {
                 printf("%s ", token.value.c_str());
-            } else if (token.tokenByte == 0xFE && token.escapeByte != 0) {
-                printf("[FE%02X] ", token.escapeByte);
+            } else if ((token.tokenByte == 0xFE || token.tokenByte == 0xCE) && token.escapeByte != 0) {
+                printf("[%02X%02X] ", token.tokenByte, token.escapeByte);
             } else if (token.tokenByte != 0) {
                 printf("[%02X] ", token.tokenByte);
             }
