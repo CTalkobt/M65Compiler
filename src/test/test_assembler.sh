@@ -1103,6 +1103,47 @@ else
     failed=$((failed + 1))
 fi
 
+# #360: .zp_uses / .zp_clobbers / .zp_release record the addresses
+# themselves (no base: cc45.zeroPageStart does not change them; the whole
+# base page), nm45 shows them, an address over $FF is an error, and ln45's
+# stack-to-ZP bridge copies only the parameter bytes .zp_uses names
+cat > build/test_zpmask.s45 <<'END'
+    cc45.zeroPageStart = $08
+.global _two
+proc _two
+    lda $10
+    ldx $11
+    rts
+    .func_flags zp_call
+    .zp_uses $10, $11
+    .zp_clobbers $30, $31, $7F, $F2, $F3, $F4, $F5, $08
+    .zp_release $FC
+endproc
+END
+printf '.global _b\nproc _b\n    rts\n    .zp_uses $100\nendproc\n' > build/test_zpmask_bad.s45
+printf 'unsigned int two(unsigned int v);\nint main(void) { *(volatile unsigned int *)0xC0C0 = two(0x1234); return 0; }\n' > build/test_zpmask_c.c
+zm_ok=1
+$AS -c build/test_zpmask.s45 -o build/test_zpmask.o45 >/dev/null 2>&1 || zm_ok=0
+NM=$(./bin/nm45 -f build/test_zpmask.o45 2>&1 | grep _two)
+grep -q 'uses:10-11 clobbers:08,30-31,7F,F2-F5 releases:FC' <<< "$NM" || zm_ok=0
+$AS -c build/test_zpmask_bad.s45 -o build/test_zpmask_bad.o45 2>&1 | grep -q 'not a base-page address' || zm_ok=0
+TH=""
+if ./bin/cc45 -O2 -fno-zpcall -c build/test_zpmask_c.c -o build/test_zpmask_c.o45 >/dev/null 2>&1 &&
+   ./bin/ln45 -basic -M build/test_zpmask.map -o build/test_zpmask.prg build/test_zpmask_c.o45 build/test_zpmask.o45 lib/build/c45_stack.lib >/dev/null 2>&1; then
+    TA=$(grep '__thunk_s2z__two' build/test_zpmask.map | grep -o '\$[0-9A-F]\{4\}' | head -1 | tr -d '$' | tr A-F a-f)
+    TH=$(./bin/objdump45 -d build/test_zpmask.prg 2>/dev/null | awk -v a="$TA" '$1 == a":" {p=1} p && /jmp/ {exit} p' | grep -c 'lda	(\$08),y')
+else
+    zm_ok=0
+fi
+[ "$TH" = 2 ] || zm_ok=0
+if [ $zm_ok -eq 1 ]; then
+    echo "SUCCESS: base-page masks as addresses (whatever the base); the bridge copies the 2 parameter bytes"
+    passed=$((passed + 1))
+else
+    echo "FAIL: base-page masks (#360): nm45 '$NM', bridge copies '$TH' bytes"
+    failed=$((failed + 1))
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All assembler feature tests passed!"
     exit 0

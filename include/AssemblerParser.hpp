@@ -1,4 +1,5 @@
 #pragma once
+#include "O45Types.hpp"   // (ZpMask)
 #include <stdexcept>
 #include <vector>
 #include <string>
@@ -163,9 +164,9 @@ public:
         std::map<std::string, int> localArgs;
 
         // Function attribute metadata (ZP calling convention)
-        uint32_t zpUsesMask = 0;
-        uint32_t zpClobbersMask = 0;
-        uint32_t zpReleaseMask = 0;
+        ZpMask zpUsesMask;              // (#360: the addresses themselves)
+        ZpMask zpClobbersMask;
+        ZpMask zpReleaseMask;
         uint8_t regClobbersMask = 0;   // bit 0=A, 1=X, 2=Y, 3=Z
         uint8_t flagClobbersMask = 0;  // bit 0=C, 1=N, 2=Z, 3=V
         uint8_t funcFlags = 0;         // bit 0=leaf, bit 1=interrupt-safe

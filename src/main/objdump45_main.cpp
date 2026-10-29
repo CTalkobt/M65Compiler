@@ -364,7 +364,7 @@ static void printSymbolTable(const O45File& obj, const std::string& filename) {
         char letter = exp.isWeak() ? 'W' : segmentLetter(exp.segmentId());
         printf("%08X %c %s", exp.offset, letter, exp.name.c_str());
         if (exp.hasFuncAttr) {
-            printf("  %s", formatFuncAttr(exp.funcAttr, obj.zbase).c_str());
+            printf("  %s", formatFuncAttr(exp.funcAttr).c_str());
         }
         printf("\n");
     }

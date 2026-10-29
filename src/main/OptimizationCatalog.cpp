@@ -101,6 +101,14 @@ void OptimizationCatalog::initializeCatalog() {
     });
 
     catalog_.push_back({
+        "ZpArgs", "Parameter Copy Lists",
+        "A static-allocation function's entry copies its parameters into its storage through __zp_args / "
+        "__sac_args and a list (3 bytes a parameter; about 300 cycles a call more) instead of lda / sta: "
+        "on at -O1, -O2 and -Os, off from -O3 / -Ospeed (#359)",
+        OptimizationCategory::SPACE, 1, 3, "-fzp-args", false, 2
+    });
+
+    catalog_.push_back({
         "TailCallOptimization", "Tail Call Optimization",
         "Convert tail calls to jumps (JSR + RTS → JMP)",
         OptimizationCategory::BOTH, 2, -1, "-ftail-call-optimization", true, 4
@@ -291,6 +299,7 @@ void OptimizationCatalog::initializeCatalog() {
         {"Devirtualization",     OptimizationImpl::BUILDER,   "", 0},
         {"Builtin",              OptimizationImpl::BUILDER,   "", 0},
         {"SacSlotSharing",       OptimizationImpl::BUILDER,   "", 1},
+        {"ZpArgs",               OptimizationImpl::BUILDER,   "", 1},
         {"StrengthReduction",    OptimizationImpl::IR_PASS,   "", 1},
         {"AlgebraicSimplify",    OptimizationImpl::IR_PASS,   "", 1},
         {"ParamNarrowing",       OptimizationImpl::IR_PASS,   "", 1},

@@ -1021,17 +1021,19 @@ void AssemblerParser::pass1() {
                 if (!currentProc) {
                     errors.push_back("Error: ." + stmt->dir.name + " outside proc/endproc block");
                 } else {
-                    uint32_t mask = 0;
+                    // (#360: the addresses themselves, $00-$FF: no base, the
+                    // whole base page)
+                    ZpMask mask;
                     while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) {
                         if (peek().type == AssemblerTokenType::COMMA) { advance(); continue; }
                         uint32_t addr = evaluateExpressionAt((int)pos, stmt->scopePrefix);
                         while (peek().type != AssemblerTokenType::COMMA && peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
-                        // Convert ZP address to bit position relative to zeroPageStart+1
-                        uint32_t zpStart = getZPStart();
-                        if (addr > zpStart) {
-                            uint32_t bit = addr - (zpStart + 1);
-                            if (bit < 32) mask |= (1u << bit);
-                            else errors.push_back("Error: ZP address $" + std::to_string(addr) + " out of range for function attributes");
+                        if (addr > 0xFF) {
+                            char b[16];
+                            snprintf(b, sizeof b, "$%X", (unsigned)addr);
+                            errors.push_back(std::string("Error: .") + stmt->dir.name + " " + b + " is not a base-page address ($00-$FF)");
+                        } else {
+                            mask.set(addr);
                         }
                     }
                     if (stmt->dir.name == "zp_uses") currentProc->zpUsesMask |= mask;

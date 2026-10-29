@@ -448,9 +448,6 @@ int main(int argc, char** argv) {
 
             std::string prefix = prependFilename ? (filename + ":") : "";
 
-            // Determine zpStart for attribute display (default $02)
-            uint32_t zpStart = 0x02;
-
             for (const auto& s : syms) {
                 if (s.isUndefined) {
                     std::cout << prefix << "         U " << s.name << std::endl;
@@ -459,7 +456,7 @@ int main(int argc, char** argv) {
                               << std::setfill('0') << std::setw(8) << std::hex << s.offset
                               << " " << s.type << " " << s.name;
                     if (showFuncAttrs && s.hasFuncAttr) {
-                        std::cout << "  " << formatFuncAttr(s.funcAttr, zpStart);
+                        std::cout << "  " << formatFuncAttr(s.funcAttr);
                     }
                     std::cout << std::endl;
                 }

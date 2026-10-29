@@ -4,6 +4,30 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Parameter copies: size or speed (#359)
+
+- `-fzp-args` (a catalog entry): a static-allocation function's entry from
+  another file copies its parameters through `__zp_args` / `__sac_args` and
+  a list (smaller) at `-O1`, `-O2` and `-Os`, and inline with `lda` / `sta`
+  from `-O3` / `-Ospeed` (20,000 calls of the issue's function: 14 frames
+  → 6, about 320 cycles a call; 7 bytes larger). `-fno-zp-args` /
+  `-fzp-args` override the level, `#pragma cc45 optimize(no-zp-args)` one
+  function. Tests `test_zp_args_speed_xemu.c` (lists and inline, both
+  conventions), `test_zp_args_xemu.c` also at `-O3`; `test_compiler.sh`.
+
+### Base-page masks as addresses (#360)
+
+- `.zp_uses` / `.zp_clobbers` / `.zp_release` record the addresses
+  themselves, `$00`-`$FF`, in a new attribute record (`$F9`: the masks as
+  ranges). The old record's 32-bit masks were relative to
+  `cc45.zeroPageStart`, which the object did not record: ln45's bridge read
+  the library's masks 6 bytes high (copying 8 bytes for 2) and nm45 showed
+  cc45-based ones 6 low; and they covered only 32 bytes, so a routine could
+  not name the parameter block's end, the register pool or the library
+  temps. ln45, nm45 and objdump45 show the addresses (`uses:10-11
+  clobbers:08,30-31,F2-F5`); the old `$FA` record is still read (base
+  `$03`). An address over `$FF` is an error. Test in `test_assembler.sh`.
+
 ### An element address computed once (#361)
 
 - CSE compares an operand by its value when it is cheap arithmetic of values

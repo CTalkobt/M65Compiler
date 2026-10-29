@@ -717,6 +717,24 @@ else
     failed=$((failed + 1))
 fi
 
+# #359: the parameter copy lists (__zp_args) at -O2 / -Os, inline copies at
+# -O3 / -Ospeed; -fno-zp-args / -fzp-args and the pragma per function
+printf 'void g(unsigned int v);\nvoid f(unsigned int x, unsigned int y, unsigned char c) { g(x); g(y); g(c); }\n#pragma cc45 optimize(no-zp-args)\nvoid h(unsigned int x, unsigned int y, unsigned char c) { g(x); g(y); g(c); }\n' > build/test/zpargs.c
+za_ok=1
+za_n() { ./bin/cc45 "$@" -c build/test/zpargs.c -o build/test/zpargs.o45 >/dev/null 2>&1 && ./bin/objdump45 -d build/test/zpargs.o45 | grep -c 'jsr.*<__zp_args>'; }
+[ "$(za_n -O2)" = 1 ] || za_ok=0               # f lists, h (pragma) inline
+[ "$(za_n -Os)" = 1 ] || za_ok=0
+[ "$(za_n -O3)" = 0 ] || za_ok=0
+[ "$(za_n -Ospeed)" = 0 ] || za_ok=0
+[ "$(za_n -O2 -fno-zp-args)" = 0 ] || za_ok=0
+[ "$(za_n -O3 -fzp-args)" = 1 ] || za_ok=0     # (h's pragma still wins)
+if [ $za_ok -eq 1 ]; then
+    echo "SUCCESS: parameter copy lists at -O2 / -Os, inline at -O3 / -Ospeed, by switch and pragma"
+else
+    echo "FAIL: -fzp-args by level / switch / pragma (#359)"
+    failed=$((failed + 1))
+fi
+
 # A bitfield wider than its type is an error, also after a comma and unnamed
 # (int e : 17 kept 16 bits without a word)
 bf_ok=1

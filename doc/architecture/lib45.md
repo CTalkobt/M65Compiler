@@ -368,18 +368,18 @@ Exports come from `.global` and `.weak` (weak bit set).
 Follows an export when the function's `proc` carries metadata (`.func_flags`, `.zp_uses`, `.zp_clobbers`, `.zp_release`, `.reg_clobbers`, `.flag_clobbers`). cc45 emits it for every function.
 
 ```
-$FA                         ; marker
+$F9                         ; marker
 flags         (1 byte)      ; FUNC_FLAG_* below
 regClobbers   (1 byte)      ; bit 0=A, 1=X, 2=Y, 3=Z
 flagClobbers  (1 byte)      ; bit 0=C, 1=N, 2=Z, 3=V
-zpUses        (4 bytes LE)  ; ZP slots read as parameters
-zpClobbers    (4 bytes LE)  ; ZP slots written
-zpRelease     (4 bytes LE)  ; ZP slots consumed (caller need not restore)
+zpUses        (1 + 2n bytes); base-page bytes read as parameters: n, then n (first, last) address ranges
+zpClobbers    (1 + 2n bytes); base-page bytes written, the same way
+zpRelease     (1 + 2n bytes); base-page bytes consumed (caller need not restore), the same way
 paramSize     (1 byte)      ; parameter bytes (used for thunks)
 frameSize     (2 bytes LE)  ; activation record / frame size
 ```
 
-**Total size**: 19 bytes including the marker. ZP masks: bit *n* = address `cc45.zeroPageStart + 1 + n` (`zeroPageStart` defaults to `$02`; cc45 objects define it as `$08`, so bit 0 = `$09`). Addresses at or below `zeroPageStart` cannot be expressed.
+The masks are the base-page addresses themselves (`$00`–`$FF`, #360), as ranges: 9 bytes plus 2 a range. ca45 writes this record. The older `$FA` record (19 bytes) had three 32-bit masks, bit *n* = `cc45.zeroPageStart + 1 + n`, with the base not recorded (ln45 assumed `$09`, nm45 `$03`) and only 32 bytes of the page; it is still read, with ca45's default base `$03`.
 
 | Bit | Constant | Meaning |
 |-----|----------|---------|
@@ -412,7 +412,7 @@ The writer API can also put a content-flag record (`$FB`, flags byte; `O45_CONTE
 | Data relocation table         |  terminated by $00
 +-------------------------------+
 | Import table                  |  count + NUL-terminated names
-| Export table                  |  count + (name, segment, value [, $FA record])
+| Export table                  |  count + (name, segment, value [, $F9 record])
 +-------------------------------+
 | [debug sections]              |  writer API only: .debug_info/.debug_line/.debug_str,
 |                               |  each as size (4 LE, incl. itself) + data; not written
@@ -475,6 +475,6 @@ cc45 objects also contain:
 | `R_IMM8` | — | type bits `000` |
 | Symbol index / counts | 2 bytes | 4 bytes |
 | Weak exports | — | bit 7 of the export segment byte |
-| Function attributes | — | `$FA` record after an export |
+| Function attributes | — | `$F9` record after an export (`$FA`: the older one, still read) |
 | Extra options | — | `$10`, `$11`, `$12`, `$50` |
 | Fixed header size | 26 bytes (16-bit mode) | 41 bytes |

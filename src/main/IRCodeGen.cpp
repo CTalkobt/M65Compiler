@@ -4607,14 +4607,16 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                         ? fn.name + "__zar+" + std::to_string(zv->second - ZAR_START)
                         : fn.name + "__param_" + pName));
                 }
-                if (relocMode_ && listBytes < inlineBytes) {
+                // (-fno-zp-args, -O3 / -Ospeed: the copies inline, #359)
+                bool lists = relocMode_ && listBytes < inlineBytes && fn.argLists;
+                if (lists) {
                     emit(".extern __zp_args");
                     emit("jsr __zp_args");
                     for (const auto& l : list) emit(l);
                     emit(".byte 0");
                 }
                 int zpOff = (int)zeroPageStart_ + 8;
-                for (size_t i = 0; !(relocMode_ && listBytes < inlineBytes) && i < fn.paramTypes.size(); i++) {
+                for (size_t i = 0; !lists && i < fn.paramTypes.size(); i++) {
                     std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
                         ? fn.paramNames[i] : std::to_string(i);
                     std::string sym = fn.name + "__param_" + pName;
@@ -4634,7 +4636,8 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             // Read through a pointer to SP so the stack may be on any page
             bool anyParamBytes = fn.isVariadic;
             for (auto t : fn.paramTypes) if (ir::typeSize(t) > 0) anyParamBytes = true;
-            if (anyParamBytes && !fn.isVariadic && relocMode_) {
+            bool lists = anyParamBytes && !fn.isVariadic && relocMode_ && fn.argLists;   // (#359)
+            if (lists) {
                 // __sac_args (stdlib_asm/sac_args.s45) copies them, from a
                 // list of the parameters' sizes and storage: 3 bytes each
                 // instead of 7 per byte (-S output, assembled without the
@@ -4658,7 +4661,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 emit("sty $09");
             }
             int stackOff = 2; // past return address
-            for (size_t i = 0; (fn.isVariadic || !relocMode_) && i < fn.paramTypes.size(); i++) {
+            for (size_t i = 0; !lists && i < fn.paramTypes.size(); i++) {
                 if (fn.isRegparm && i == 0) continue;  // in A/A:X, stored above
                 std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
                     ? fn.paramNames[i] : std::to_string(i);

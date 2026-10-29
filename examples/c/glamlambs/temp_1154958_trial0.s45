@@ -1,0 +1,3904 @@
+    .org $2000
+    .weak __sp_base
+    __sp_base = $0101
+    .extern __bp_rom
+    .extern __bp_prog
+    .overlay title
+    .weak __static_chain
+    .weak __zp_scratch
+    .weak __zp_scratch2
+    .weak __zp_scratch3
+    .weak __zp_scratch4
+    .weak cc45.zeroPageStart
+    __static_chain = $06
+    __zp_scratch = $08
+    __zp_scratch2 = $0A
+    __zp_scratch3 = $0C
+    __zp_scratch4 = $0E
+    cc45.zeroPageStart = $08
+    .weak cc45.mode_zp
+    cc45.mode_zp = 1
+    .weak cc45.icallinfo
+    cc45.icallinfo = 1
+
+    .extern _clr
+    .extern _rnd_state
+    .extern _trend
+    .extern _s_x
+    .extern _s_flags
+    .extern _s_look
+    .extern _studio
+    .extern _s_age
+    .extern _s_wool
+    .extern _p_x
+    .extern _p_y
+    .extern _carry
+    .extern _sh_on
+    .extern _mode
+    .extern _fps
+    .extern _season
+    .extern _score
+    .extern _hiscore
+    .extern _hiscore_was
+    .extern _over_t
+    .extern _lambs
+    .extern _glam_lambs
+    .extern _lamb_pts
+    .extern _wool_bags
+    .extern _income
+    .extern _attract
+    .extern _idle_t
+    .extern _pal_idx
+    .extern _pal_rgb
+    .extern _saved_pal
+    .extern _saved_regs
+    .extern ___dma_copy_far
+    .extern ___dma_fill_far
+    .extern _clear_flock
+    .extern _clear_span
+    .extern _draw_sheep_at
+    .extern _fence_box
+    .extern _input_pressed
+    .extern _memset
+    .extern _music_for
+    .extern _music_restart
+    .extern _put
+    .extern _put_ascii
+    .extern _put_number
+    .extern _put_text
+    .extern _rnd
+    .extern _rnd_n
+    .extern _salon_off
+    .extern _set_charset
+    .extern _show
+    .extern _sid_init
+    .extern _snd_click
+    .extern _start_season
+    .extern _start_studio
+    .extern _strlen
+
+    .global _title_line__title
+    .global _logo_index__title
+    .global _draw_logo__title
+    .global _draw_title_page__title
+    .global _title_frame
+    .global _title_input
+    .global _title
+    .global _setup
+    .global _make_background__title
+    .global _set_palette__title
+    .global _restore_palette__title
+    .global _swap_nib__title
+    .global _restore
+    .global _draw_over_box
+    .global _box_line__title
+    .global _box_number__title
+
+    .segment "data"
+    .byte 0
+_glyph_data:
+    .byte 0, 15, 63, 255, 255, 255, 255, 255, 0, 240, 252, 255, 255, 255, 255, 255
+    .byte 0, 63, 255, 255, 255, 255, 255, 255, 0, 252, 255, 255, 255, 255, 255, 255
+    .byte 0, 60, 255, 255, 255, 255, 255, 255, 0, 60, 255, 255, 255, 255, 255, 255
+    .byte 255, 255, 63, 15, 5, 5, 5, 21, 255, 255, 252, 240, 80, 80, 80, 84
+    .byte 255, 255, 255, 255, 0, 0, 0, 1, 255, 255, 255, 255, 0, 0, 0, 64
+    .byte 255, 255, 255, 255, 80, 80, 80, 80, 255, 255, 255, 255, 5, 5, 5, 5
+    .byte 255, 255, 63, 15, 1, 1, 5, 20, 255, 255, 252, 240, 64, 64, 80, 20
+    .byte 255, 255, 255, 255, 65, 65, 0, 1, 255, 255, 255, 255, 65, 65, 0, 64
+    .byte 255, 255, 255, 255, 64, 64, 80, 64, 255, 255, 255, 255, 1, 1, 5, 1
+    .byte 0, 0, 15, 63, 255, 255, 255, 255, 0, 0, 240, 252, 255, 255, 255, 255
+    .byte 0, 0, 60, 255, 255, 255, 255, 255, 0, 0, 60, 255, 255, 255, 255, 255
+    .byte 0, 0, 240, 255, 255, 255, 255, 255, 0, 0, 15, 255, 255, 255, 255, 255
+    .byte 255, 63, 15, 5, 5, 5, 5, 21, 255, 252, 240, 80, 80, 80, 80, 84
+    .byte 255, 255, 255, 0, 0, 0, 0, 1, 255, 255, 255, 0, 0, 0, 0, 64
+    .byte 255, 255, 255, 80, 80, 80, 80, 80, 255, 255, 255, 5, 5, 5, 5, 5
+    .byte 255, 63, 15, 1, 1, 1, 5, 20, 255, 252, 240, 64, 64, 64, 80, 20
+    .byte 255, 255, 255, 65, 65, 65, 0, 1, 255, 255, 255, 65, 65, 65, 0, 64
+    .byte 255, 255, 255, 64, 64, 64, 80, 64, 255, 255, 255, 1, 1, 1, 5, 1
+    .byte 0, 0, 0, 0, 0, 3, 15, 60, 0, 0, 0, 0, 0, 192, 240, 60
+    .byte 0, 0, 0, 0, 0, 255, 255, 204, 0, 0, 0, 0, 0, 255, 255, 51
+    .byte 0, 0, 0, 0, 0, 255, 255, 255, 0, 0, 0, 0, 0, 255, 255, 255
+    .byte 63, 15, 3, 1, 1, 1, 1, 5, 252, 240, 192, 64, 64, 64, 64, 80
+    .byte 255, 255, 255, 0, 0, 0, 0, 0, 255, 255, 255, 0, 0, 0, 0, 0
+    .byte 255, 255, 255, 16, 16, 16, 16, 80, 255, 255, 255, 4, 4, 4, 4, 5
+    .byte 63, 15, 3, 0, 0, 1, 1, 4, 252, 240, 192, 0, 0, 64, 64, 16
+    .byte 255, 255, 255, 64, 64, 0, 0, 0, 255, 255, 255, 1, 1, 0, 0, 0
+    .byte 255, 255, 255, 64, 64, 16, 16, 64, 255, 255, 255, 1, 1, 4, 4, 1
+    .byte 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 192
+    .byte 0, 0, 0, 0, 0, 60, 255, 255, 0, 0, 0, 0, 0, 60, 255, 255
+    .byte 0, 0, 0, 0, 0, 240, 255, 255, 0, 0, 0, 0, 0, 15, 255, 255
+    .byte 3, 3, 0, 0, 0, 0, 0, 0, 192, 192, 0, 0, 0, 0, 0, 0
+    .byte 255, 255, 255, 16, 16, 16, 16, 80, 255, 255, 255, 4, 4, 4, 4, 5
+    .byte 255, 255, 255, 16, 16, 16, 16, 80, 255, 255, 255, 4, 4, 4, 4, 5
+    .byte 3, 3, 0, 0, 0, 0, 0, 0, 192, 192, 0, 0, 0, 0, 0, 0
+    .byte 255, 255, 255, 4, 4, 16, 16, 64, 255, 255, 255, 16, 16, 4, 4, 1
+    .byte 255, 255, 255, 64, 64, 16, 16, 64, 255, 255, 255, 1, 1, 4, 4, 1
+    .byte 0, 80, 20, 85, 125, 85, 85, 85, 0, 5, 20, 85, 125, 85, 85, 85
+    .byte 51, 92, 20, 85, 125, 85, 85, 85, 204, 53, 20, 85, 125, 85, 85, 85
+    .byte 240, 204, 205, 213, 125, 85, 85, 85, 15, 51, 115, 87, 125, 85, 85, 85
+    .byte 243, 204, 205, 213, 125, 85, 85, 85, 207, 51, 115, 87, 125, 85, 85, 85
+    .byte 0, 0, 0, 0, 0, 80, 20, 85, 0, 0, 0, 0, 0, 5, 20, 85
+    .byte 0, 0, 0, 0, 0, 83, 23, 85, 0, 0, 0, 0, 0, 197, 212, 85
+    .byte 85, 21, 5, 5, 0, 0, 0, 0, 85, 84, 80, 80, 0, 0, 0, 0
+    .byte 85, 21, 15, 7, 0, 0, 0, 0, 85, 84, 240, 208, 0, 0, 0, 0
+    .byte 85, 205, 53, 197, 0, 0, 0, 0, 85, 115, 92, 83, 0, 0, 0, 0
+    .byte 85, 197, 63, 199, 0, 0, 0, 0, 85, 83, 252, 211, 0, 0, 0, 0
+    .byte 69, 85, 21, 5, 0, 0, 0, 0, 81, 85, 84, 80, 0, 0, 0, 0
+    .byte 69, 85, 31, 5, 0, 0, 0, 0, 81, 85, 244, 80, 0, 0, 0, 0
+    .byte 69, 85, 205, 53, 192, 0, 0, 0, 81, 85, 115, 92, 3, 0, 0, 0
+    .byte 69, 85, 207, 53, 192, 0, 0, 0, 81, 85, 243, 92, 3, 0, 0, 0
+    .byte 15, 63, 245, 213, 209, 21, 5, 1, 240, 252, 127, 87, 71, 84, 80, 64
+    .byte 63, 255, 127, 127, 63, 60, 20, 80, 252, 255, 253, 253, 252, 60, 20, 5
+    .byte 15, 63, 245, 213, 209, 21, 5, 1, 240, 252, 127, 87, 71, 84, 80, 64
+    .byte 63, 255, 127, 127, 63, 15, 1, 5, 252, 255, 253, 253, 252, 240, 64, 80
+    .byte 0, 0, 255, 66, 255, 66, 66, 0, 24, 60, 24, 24, 60, 24, 24, 24
+    .byte 60, 126, 126, 60, 60, 60, 60, 60, 0, 16, 40, 16, 20, 48, 16, 0
+    .byte 108, 254, 254, 124, 56, 16, 0, 0, 170, 0, 85, 0, 170, 0, 85, 0
+    .byte 255, 255, 255, 255, 255, 255, 255, 255, 0, 0, 56, 124, 124, 56, 0, 0
+    .byte 8, 8, 42, 28, 127, 28, 42, 8, 0, 0, 0, 0, 32, 136, 32, 0
+    .byte 0, 8, 34, 8, 0, 0, 0, 0, 0, 3, 15, 63, 255, 255, 255, 255
+    .byte 60, 255, 255, 255, 255, 255, 255, 255, 60, 255, 255, 255, 255, 255, 255, 255
+    .byte 240, 252, 255, 255, 255, 255, 255, 255, 0, 5, 21, 81, 85, 213, 213, 85
+    .byte 0, 0, 64, 80, 84, 253, 253, 85, 255, 255, 255, 255, 63, 15, 3, 1
+    .byte 255, 255, 255, 255, 255, 255, 255, 79, 255, 255, 255, 255, 255, 255, 255, 255
+    .byte 255, 255, 255, 255, 255, 255, 255, 20, 213, 213, 213, 213, 197, 193, 0, 0
+    .byte 85, 85, 85, 85, 85, 85, 85, 21, 1, 1, 1, 1, 1, 1, 5, 0
+    .byte 64, 64, 64, 64, 64, 64, 64, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    .byte 20, 20, 20, 20, 20, 20, 84, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    .byte 85, 255, 125, 60, 0, 0, 0, 0, 63, 192, 207, 204, 49, 53, 21, 85
+    .byte 0, 192, 52, 84, 84, 127, 127, 85, 0, 0, 5, 21, 81, 21, 21, 85
+    .byte 0, 51, 12, 76, 116, 253, 253, 85, 0, 0, 240, 252, 255, 252, 240, 0
+    .byte 0, 0, 15, 63, 255, 63, 15, 0
+
+    .segment "bss"
+_pick:
+    .res 1
+    .segment "data"
+_logo_text:
+    .text "glam lambs"
+    .byte 0
+_logo_letters:
+    .text "glambs"
+    .byte 0
+_logo_w:
+    .byte 3, 3, 3, 5, 3, 3
+_logo_font:
+    .byte 7, 4, 5, 5, 7, 4, 4, 4, 4, 7, 2, 5, 7, 5, 5, 17
+    .byte 27, 21, 17, 17, 6, 5, 6, 5, 6, 7, 4, 7, 1, 7
+_logo_color:
+    .byte 6, 7, 1, 3
+_title_left:
+    .word __str_10
+    .word __str_11
+    .word __str_12
+    .word __str_13
+    .word __str_14
+    .word __str_15
+    .word __str_16
+    .word __str_17
+    .word __str_18
+    .word __str_19
+    .word __str_20
+    .word __str_21
+_title_right:
+    .word __str_22
+    .word __str_23
+    .word __str_24
+    .word __str_25
+    .word __str_26
+    .word __str_27
+    .word __str_28
+    .word __str_29
+    .word __str_30
+    .word __str_31
+    .word __str_32
+    .word __str_33
+
+    .segment "bss"
+_parade_t:
+    .res 1
+    .segment "data"
+__title__local_parade_look:
+    .byte 49, 6, 27, 45
+
+    .dbg_var "static - glyph_data [1144]char sym:_glyph_data"
+    .dbg_var "static - pick char sym:_pick"
+    .dbg_var "static - logo_text [11]char sym:_logo_text"
+    .dbg_var "static - logo_letters [7]char sym:_logo_letters"
+    .dbg_var "static - logo_w [6]char sym:_logo_w"
+    .dbg_var "static - logo_font [6][5]char sym:_logo_font"
+    .dbg_var "static - logo_color [4]char sym:_logo_color"
+    .dbg_var "static - title_left [12]*char sym:_title_left"
+    .dbg_var "static - title_right [12]*char sym:_title_right"
+    .dbg_var "static - parade_t char sym:_parade_t"
+    .dbg_var "static _title parade_look [4]char sym:__title__local_parade_look"
+    .segment "code"
+
+; function _title_line__title
+    .global cc45.zc._title_line__title__param_s
+    cc45.zc._title_line__title__param_s = 1554
+    .global cc45.zc._title_line__title__param_x
+    cc45.zc._title_line__title__param_x = 1025
+    .global cc45.zc._title_line__title__param_y
+    cc45.zc._title_line__title__param_y = 1025
+; SAC storage: 0 bytes (in BSS)
+    .segment "bss"
+    .res 1
+    .global _title_line__title__ar
+_title_line__title__ar:
+    .global _title_line__title__param_x
+_title_line__title__param_x:
+    .res 2
+    .global _title_line__title__param_y
+_title_line__title__param_y:
+    .res 2
+    .global _title_line__title__param_s
+_title_line__title__param_s:
+    .res 2
+_title_line__title__local_4:
+    .res 2
+_title_line__title__local_5:
+    .res 2
+_title_line__title__local_6:
+    .res 2
+_title_line__title__local_8:
+    .res 2
+_title_line__title__local_10:
+    .res 2
+_title_line__title__local_13:
+    .res 2
+_title_line__title__local_14:
+    .res 2
+_title_line__title__local_15:
+    .res 2
+_title_line__title__local_17:
+    .res 2
+_title_line__title__local_18:
+    .res 2
+_title_line__title__local_21:
+    .res 2
+_title_line__title__local_22:
+    .res 2
+_title_line__title__local_23:
+    .res 2
+_title_line__title__local_25:
+    .res 2
+_title_line__title__local_26:
+    .res 2
+_title_line__title__local_28:
+    .res 2
+_title_line__title__local_31:
+    .res 2
+_title_line__title__local_32:
+    .res 2
+_title_line__title__local_33:
+    .res 2
+_title_line__title__local_35:
+    .res 2
+_title_line__title__local_36:
+    .res 2
+_title_line__title__local_38:
+    .res 2
+    .res 1
+    .global cc45.sacsize._title_line__title
+    cc45.sacsize._title_line__title = 51
+    .segment "code"
+    .weak cc45.fsig._title_line__title.s2_2_2
+    cc45.fsig._title_line__title.s2_2_2 = 1
+    .extern _title_line__title__zar
+    .global cc45.zarsize._title_line__title
+    cc45.zarsize._title_line__title = 4
+    proc _title_line__title, B#@_p_x, B#@_p_y, W#@_p_s
+    .zar $80, 4
+    .sac
+; SAC thunk: load ZP params into SAC storage
+    .extern __zp_args
+    jsr __zp_args
+    .byte 1
+    .word _title_line__title__zar+2
+    .byte 1
+    .word _title_line__title__zar+3
+    .byte 2
+    .word _title_line__title__zar+0
+    .byte 0
+    .global _title_line__title__sac
+_title_line__title__sac:
+    .var cc45.fp = 0
+    .loc "title.c", 65
+    .var @_p_x = $10
+    .var @_p_y = $12
+    .var @_p_s = $14
+
+@entry:
+    .loc "title.c", 66
+    ldy #0
+    lda ($80),y
+    cmp #35
+    beq @if_then34
+    bra @if_else35
+@if_then34:
+    lda $80
+    clc
+    adc #1
+    sta $14
+    lda $81
+    adc #0
+    sta $15
+    lda $82
+    sta $10
+    lda $83
+    sta $12
+    lda #7
+    sta $16
+    jsr _put_ascii
+    bra @if_end36
+@if_else35:
+    .loc "title.c", 67
+    ldy #0
+    lda ($80),y
+    cmp #42
+    beq @if_then37
+    bra @if_else38
+@if_then37:
+    .loc "title.c", 68
+    lda $82
+    sta $10
+    lda $83
+    sta $12
+    lda #211
+    sta $14
+    lda #6
+    sta $16
+    jsr _put
+    .loc "title.c", 69
+    lda $82
+    clc
+    adc #2
+    sta $10
+    lda $80
+    clc
+    adc #1
+    sta $14
+    lda $81
+    adc #0
+    sta $15
+    lda $83
+    sta $12
+    lda #1
+    sta $16
+    jsr _put_ascii
+    bra @if_end36
+@if_else38:
+    .loc "title.c", 70
+    ldy #0
+    lda ($80),y
+    bne @if_then40
+    bra @if_end36
+@if_then40:
+    lda $82
+    clc
+    adc #2
+    sta $10
+    lda $80
+    clc
+    adc #1
+    sta $14
+    lda $81
+    adc #0
+    sta $15
+    lda $83
+    sta $12
+    lda #1
+    sta $16
+    jsr _put_ascii
+@if_end36:
+@__return:
+    rts
+    .func_flags zp_call, static_alloc
+    .param_sizes 2, 2, 2
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    .frame_size 0
+    endproc
+    .dbg_var "param _title_line__title x char sym:_title_line__title__zar+2"
+    .dbg_var "param _title_line__title y char sym:_title_line__title__zar+3"
+    .dbg_var "param _title_line__title s *char sym:_title_line__title__zar+0"
+
+; function _logo_index__title
+; SAC storage: 0 bytes (in BSS)
+    .segment "bss"
+    .global _logo_index__title__ar
+_logo_index__title__ar:
+    .global _logo_index__title__param_ch
+_logo_index__title__param_ch:
+    .res 2
+_logo_index__title__local_2:
+_logo_index__title__local_6:
+_logo_index__title__local_7:
+_logo_index__title__local_9:
+    .res 2
+    .res 1
+    .global cc45.sacsize._logo_index__title
+    cc45.sacsize._logo_index__title = 5
+    .segment "code"
+    .weak cc45.fsig._logo_index__title.s2
+    cc45.fsig._logo_index__title.s2 = 1
+    proc _logo_index__title, B#@_p_ch
+    .sac
+; SAC thunk: load ZP params into SAC storage
+    .global _logo_index__title__sac
+_logo_index__title__sac:
+    .var cc45.fp = 0
+    .var cc45.retnz = 1
+    .var cc45.retx = 1
+    .loc "title.c", 73
+    .var @_l_f = $30
+    .var @_p_ch = $10
+
+@entry:
+    lda #0
+    sta $30
+    .loc "title.c", 74
+@while_cond43:
+    .loc "title.c", 75
+    ldy $30
+    lda _logo_letters,y
+    ldx #0
+    cmp $10
+    bne @while_body44
+    bra @while_end45
+@while_body44:
+    inc $30
+    bra @while_cond43
+@while_end45:
+    .loc "title.c", 76
+    lda $30
+@__return:
+    rts
+    .func_flags zp_call, static_alloc, leaf
+    .param_sizes 2
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    .frame_size 0
+    endproc
+    .dbg_var "local _logo_index__title f char zp:$30"
+    .dbg_var "param _logo_index__title ch char zp:$10"
+
+; function _draw_logo__title
+    .global cc45.zc._draw_logo__title__local_0
+    cc45.zc._draw_logo__title__local_0 = 2305
+    .global cc45.zc._draw_logo__title__local_1
+    cc45.zc._draw_logo__title__local_1 = 1537
+    .global cc45.zc._draw_logo__title__local_2
+    cc45.zc._draw_logo__title__local_2 = 1537
+    .global cc45.zc._draw_logo__title__local_47
+    cc45.zc._draw_logo__title__local_47 = 1025
+    .global cc45.zc._draw_logo__title__local_6
+    cc45.zc._draw_logo__title__local_6 = 1537
+    .global cc45.zc._draw_logo__title__local_46
+    cc45.zc._draw_logo__title__local_46 = 769
+    .global cc45.zc._draw_logo__title__local_48
+    cc45.zc._draw_logo__title__local_48 = 769
+    .global cc45.zc._draw_logo__title__local_3
+    cc45.zc._draw_logo__title__local_3 = 1025
+; SAC storage: 10 bytes (in BSS)
+    .segment "bss"
+    .global _draw_logo__title__ar
+_draw_logo__title__ar:
+_draw_logo__title__local_4:
+_draw_logo__title__local_10:
+_draw_logo__title__local_11:
+_draw_logo__title__local_12:
+_draw_logo__title__local_13:
+_draw_logo__title__local_14:
+_draw_logo__title__local_16:
+_draw_logo__title__local_18:
+_draw_logo__title__local_19:
+_draw_logo__title__local_23:
+_draw_logo__title__local_24:
+_draw_logo__title__local_25:
+_draw_logo__title__local_27:
+_draw_logo__title__local_28:
+_draw_logo__title__local_31:
+_draw_logo__title__local_33:
+_draw_logo__title__local_34:
+_draw_logo__title__local_38:
+_draw_logo__title__local_40:
+_draw_logo__title__local_49:
+_draw_logo__title__local_50:
+_draw_logo__title__local_51:
+_draw_logo__title__local_55:
+_draw_logo__title__local_56:
+_draw_logo__title__local_57:
+_draw_logo__title__local_58:
+_draw_logo__title__local_59:
+_draw_logo__title__local_61:
+_draw_logo__title__local_63:
+_draw_logo__title__local_64:
+_draw_logo__title__local_69:
+_draw_logo__title__local_70:
+_draw_logo__title__local_71:
+_draw_logo__title__local_74:
+_draw_logo__title__local_75:
+_draw_logo__title__local_77:
+_draw_logo__title__local_81:
+_draw_logo__title__local_82:
+_draw_logo__title__local_83:
+_draw_logo__title__local_90:
+_draw_logo__title__local_91:
+_draw_logo__title__local_92:
+_draw_logo__title__local_94:
+_draw_logo__title__local_96:
+_draw_logo__title__local_97:
+_draw_logo__title__local_98:
+_draw_logo__title__local_99:
+_draw_logo__title__local_100:
+_draw_logo__title__local_101:
+_draw_logo__title__local_102:
+_draw_logo__title__local_103:
+_draw_logo__title__local_105:
+_draw_logo__title__local_106:
+_draw_logo__title__local_107:
+_draw_logo__title__local_108:
+_draw_logo__title__local_109:
+_draw_logo__title__local_110:
+_draw_logo__title__local_111:
+_draw_logo__title__local_113:
+_draw_logo__title__local_114:
+_draw_logo__title__local_115:
+_draw_logo__title__local_116:
+_draw_logo__title__local_117:
+_draw_logo__title__local_118:
+_draw_logo__title__local_119:
+_draw_logo__title__local_120:
+_draw_logo__title__local_122:
+_draw_logo__title__local_124:
+_draw_logo__title__local_126:
+_draw_logo__title__local_127:
+_draw_logo__title__local_128:
+_draw_logo__title__local_130:
+_draw_logo__title__local_132:
+_draw_logo__title__local_134:
+_draw_logo__title__local_137:
+_draw_logo__title__local_138:
+_draw_logo__title__local_141:
+    .res 2
+_draw_logo__title__local_78:
+    .res 2
+_draw_logo__title__local_84:
+    .res 2
+_draw_logo__title__local_95:
+    .res 2
+_draw_logo__title__local_139:
+    .res 2
+    .res 1
+    .global cc45.sacsize._draw_logo__title
+    cc45.sacsize._draw_logo__title = 11
+    .segment "code"
+    .weak cc45.fsig._draw_logo__title.s
+    cc45.fsig._draw_logo__title.s = 1
+    .extern _draw_logo__title__zar
+    .global cc45.zarsize._draw_logo__title
+    cc45.zarsize._draw_logo__title = 8
+    proc _draw_logo__title
+    .zar $80, 8
+; Phase 51: zero-alloc leaf (all parameters constant)
+    .global _draw_logo__title__sac
+_draw_logo__title__sac:
+    .var cc45.fp = 0
+    .loc "title.c", 79
+    .var @_l_b = $82
+    .var @_l_c = $86
+    .var @_l_f = $85
+    .var @_l_k = $80
+    .var @_l_lw = $83
+    .var @_l_r = $81
+    .var @_l_w = $87
+    .var @_l_x = $84
+
+@entry:
+    lda #0
+    sta $87
+    .loc "title.c", 80
+    .loc "title.c", 81
+    lda #0
+    sta $80
+@for_cond46:
+    ldy $80
+    lda _logo_text,y
+    ldx #0
+    sta $32
+    ora #0
+    bne @for_body47
+    bra @for_end49
+@for_body47:
+    .loc "title.c", 82
+    lda $32
+    cmp #32
+    beq @tern_then50
+    bra @tern_else51
+@tern_then50:
+    lda #4
+    ldx #0
+    sta $30
+    sta _draw_logo__title__local_16
+    bra @tern_end52
+@tern_else51:
+    lda $32
+    sta $10
+    jsr _logo_index__title
+    sta $30
+    ldy $30
+    lda _logo_w,y
+    ldx #0
+    sta $34
+    ldx #0
+    asl
+    ldx #0
+    sta $30
+    inc a
+    sta _draw_logo__title__local_16
+@tern_end52:
+    lda _draw_logo__title__local_16
+    sta $30
+    clc
+    adc $87
+    sta $32
+    sta $87
+@for_inc48:
+    .loc "title.c", 81
+    inc $80
+    bra @for_cond46
+@for_end49:
+    lda #80
+    ldx #0
+    sta $30
+    .loc "title.c", 83
+    lda #80
+    sec
+    sbc $87
+    sta $34
+    lda #0
+    sbc #0
+    sta $35
+    inc $34
+    bne @__inc_0
+    inc $35
+@__inc_0:
+    lda $34
+    ldx $35
+    lsr.16 .AX
+    sta $30
+    sta $84
+    .loc "title.c", 84
+    lda #0
+    sta $80
+@for_cond53:
+    ldy $80
+    lda _logo_text,y
+    ldx #0
+    sta $32
+    ora #0
+    bne @for_body54
+    bra @for_end56
+@for_body54:
+    .loc "title.c", 85
+    lda $80
+    and #3
+    sta $30
+    ldx #0
+    ldx #0
+    sta $34
+    stx $35
+    tay
+    lda _logo_color,y
+    ldx #0
+    sta $86
+    .loc "title.c", 86
+    lda $32
+    cmp #32
+    beq @if_then57
+    bra @if_end59
+@if_then57:
+    lda $84
+    clc
+    adc #4
+    sta $30
+    sta $84
+    bra @for_inc55
+@if_end59:
+    .loc "title.c", 87
+    lda $32
+    sta $10
+    jsr _logo_index__title
+    sta $85
+    .loc "title.c", 88
+    ldy $85
+    lda _logo_w,y
+    ldx #0
+    sta $83
+    .loc "title.c", 89
+    lda #0
+    sta $81
+@for_cond60_ph:
+    .loc "title.c", 91
+    lda $85
+    ldx #0
+    ldx #0
+    sta __zp_scratch4
+    stx __zp_scratch4+1
+    asl
+    rol __zp_scratch4+1
+    asl
+    rol __zp_scratch4+1
+    clc
+    adc __zp_scratch4
+    bcc @__mulc_1
+    inc __zp_scratch4+1
+@__mulc_1:
+    ldx __zp_scratch4+1
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    ldax #_logo_font
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta _draw_logo__title__local_77
+    stx _draw_logo__title__local_77+1
+    lda $83
+    sec
+    sbc #1
+    sta _draw_logo__title__local_84
+    lda #0
+    sbc #0
+    sta _draw_logo__title__local_84+1
+@for_cond60:
+    .loc "title.c", 89
+    lda $81
+    cmp #5
+    bcc @for_body61
+    bra @for_end63
+@for_body61:
+    .loc "title.c", 90
+    lda #0
+    sta $82
+@for_cond64_ph:
+    lda $81
+    sta _draw_logo__title__local_139
+    .loc "title.c", 91
+    lda $81
+    ldx #0
+    ldx #0
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda _draw_logo__title__local_77
+    ldx _draw_logo__title__local_77+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta _draw_logo__title__local_78
+    stx _draw_logo__title__local_78+1
+    .loc "title.c", 92
+    .loc "title.c", 93
+@for_cond64:
+    .loc "title.c", 90
+    lda $82
+    cmp $83
+    bcc @for_body65
+    bra @for_end67
+@for_body65:
+    .loc "title.c", 91
+    lda _draw_logo__title__local_78
+    ldx _draw_logo__title__local_78+1
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    lda (__zp_scratch),y
+    sta $30
+    lda #1
+    ldx #0
+    sta $32
+    stx $33
+    lda _draw_logo__title__local_84
+    sec
+    sbc $82
+    sta $36
+    lda _draw_logo__title__local_84+1
+    sbc #0
+    lda $32
+    ldx $33
+    lda $36
+    sta __zp_scratch4
+    lda $32
+    ldx $33
+    inc __zp_scratch4
+    dec __zp_scratch4
+    beq @__shl_done_3
+@__shl_loop_2:
+    lsl.16 .AX
+    dec __zp_scratch4
+    bne @__shl_loop_2
+@__shl_done_3:
+    sta $34
+    stx $35
+    lda $34
+    ldx #0
+    and $30
+    sta $30
+    stx __zp_scratch
+    ora __zp_scratch
+    bne @if_then68
+    bra @if_end70
+@if_then68:
+    .loc "title.c", 92
+    lda $82
+    ldx #0
+    asl
+    sta $30
+    clc
+    adc $84
+    sta _draw_logo__title__local_95
+    sta $10
+    lda _draw_logo__title__local_139
+    sta $12
+    lda #210
+    sta $14
+    lda $86
+    sta $16
+    jsr _put
+    .loc "title.c", 93
+    lda _draw_logo__title__local_95
+    inc a
+    sta $10
+    lda _draw_logo__title__local_139
+    sta $12
+    lda #210
+    sta $14
+    lda $86
+    sta $16
+    jsr _put
+@if_end70:
+@for_inc66:
+    .loc "title.c", 90
+    inc $82
+    bra @for_cond64
+@for_end67:
+@for_inc62:
+    .loc "title.c", 89
+    inc $81
+    bra @for_cond60
+@for_end63:
+    .loc "title.c", 95
+    lda $83
+    ldx #0
+    asl
+    ldx #0
+    inc a
+    sta $30
+    clc
+    adc $84
+    sta $32
+    sta $84
+@for_inc55:
+    .loc "title.c", 84
+    inc $80
+    bra @for_cond53
+@for_end56:
+@__return:
+    rts
+    .func_flags zp_call, static_alloc
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    .frame_size 10
+    endproc
+    .dbg_var "local _draw_logo__title k char sym:_draw_logo__title__zar+0"
+    .dbg_var "local _draw_logo__title r char sym:_draw_logo__title__zar+1"
+    .dbg_var "local _draw_logo__title b char sym:_draw_logo__title__zar+2"
+    .dbg_var "local _draw_logo__title w char sym:_draw_logo__title__zar+7"
+    .dbg_var "local _draw_logo__title x char sym:_draw_logo__title__zar+4"
+    .dbg_var "local _draw_logo__title f char sym:_draw_logo__title__zar+5"
+    .dbg_var "local _draw_logo__title lw char sym:_draw_logo__title__zar+3"
+    .dbg_var "local _draw_logo__title c char sym:_draw_logo__title__zar+6"
+
+; function _draw_title_page__title
+    .global cc45.zc._draw_title_page__title__local_0
+    cc45.zc._draw_title_page__title__local_0 = 3329
+; SAC storage: 2 bytes (in BSS)
+    .segment "bss"
+    .global _draw_title_page__title__ar
+_draw_title_page__title__ar:
+_draw_title_page__title__local_8:
+_draw_title_page__title__local_9:
+_draw_title_page__title__local_11:
+_draw_title_page__title__local_15:
+_draw_title_page__title__local_16:
+_draw_title_page__title__local_18:
+_draw_title_page__title__local_23:
+_draw_title_page__title__local_24:
+_draw_title_page__title__local_25:
+_draw_title_page__title__local_27:
+_draw_title_page__title__local_28:
+_draw_title_page__title__local_29:
+_draw_title_page__title__local_30:
+_draw_title_page__title__local_31:
+_draw_title_page__title__local_32:
+_draw_title_page__title__local_33:
+_draw_title_page__title__local_37:
+_draw_title_page__title__local_38:
+_draw_title_page__title__local_39:
+_draw_title_page__title__local_40:
+_draw_title_page__title__local_41:
+_draw_title_page__title__local_42:
+_draw_title_page__title__local_43:
+_draw_title_page__title__local_47:
+_draw_title_page__title__local_50:
+_draw_title_page__title__local_51:
+_draw_title_page__title__local_52:
+_draw_title_page__title__local_54:
+_draw_title_page__title__local_55:
+_draw_title_page__title__local_56:
+_draw_title_page__title__local_60:
+_draw_title_page__title__local_61:
+_draw_title_page__title__local_62:
+_draw_title_page__title__local_66:
+    .res 2
+    .res 1
+    .global cc45.sacsize._draw_title_page__title
+    cc45.sacsize._draw_title_page__title = 3
+    .segment "code"
+    .weak cc45.fsig._draw_title_page__title.s
+    cc45.fsig._draw_title_page__title.s = 1
+    .extern _draw_title_page__title__zar
+    .global cc45.zarsize._draw_title_page__title
+    cc45.zarsize._draw_title_page__title = 1
+    proc _draw_title_page__title
+    .zar $80, 1
+; Phase 51: zero-alloc leaf (all parameters constant)
+    .global _draw_title_page__title__sac
+_draw_title_page__title__sac:
+    .var cc45.fp = 0
+    .loc "title.c", 99
+    .var @_l_i = $80
+
+@entry:
+    .loc "title.c", 101
+    lda #0
+    ldx #8
+    sta $10
+    stx $11
+    lda #32
+    ldx #0
+    sta $12
+    stx $13
+    lda #208
+    ldx #7
+    sta $14
+    stx $15
+    jsr _memset
+    .loc "title.c", 102
+    ldax #_clr
+    sta $10
+    stx $11
+    lda #1
+    ldx #0
+    sta $12
+    stx $13
+    lda #208
+    ldx #7
+    sta $14
+    stx $15
+    jsr _memset
+    .loc "title.c", 103
+    jsr _draw_logo__title
+    .loc "title.c", 104
+    ldax #__str_71
+    sta $14
+    stx $15
+    lda #22
+    sta $10
+    lda #6
+    sta $12
+    lda #3
+    sta $16
+    jsr _put_ascii
+    .loc "title.c", 105
+    ldax #__str_72
+    sta $14
+    stx $15
+    lda #31
+    sta $10
+    lda #7
+    sta $12
+    lda #6
+    sta $16
+    jsr _put_ascii
+    .loc "title.c", 106
+    lda #0
+    sta $80
+@for_cond73:
+    lda $80
+    cmp #12
+    bcc @for_body74
+    bra @for_end76
+@for_body74:
+    .loc "title.c", 107
+    lda $80
+    clc
+    adc #9
+    sta _draw_title_page__title__local_32
+    lda $80
+    ldx #0
+    asl
+    tay
+    lda _title_left,y
+    ldx _title_left+1,y
+    sta $14
+    stx $15
+    lda #3
+    sta $10
+    lda _draw_title_page__title__local_32
+    sta $12
+    jsr _title_line__title
+    .loc "title.c", 108
+    lda $80
+    ldx #0
+    asl
+    tay
+    lda _title_right,y
+    ldx _title_right+1,y
+    sta $14
+    stx $15
+    lda #43
+    sta $10
+    lda _draw_title_page__title__local_32
+    sta $12
+    jsr _title_line__title
+@for_inc75:
+    .loc "title.c", 106
+    inc $80
+    bra @for_cond73
+@for_end76:
+    .loc "title.c", 110
+    lda #0
+    sta $80
+@for_cond77:
+    lda $80
+    cmp #80
+    bcc @for_body78
+    bra @for_end80
+@for_body78:
+    .loc "title.c", 111
+    lda $80
+    sta $10
+    lda #8
+    sta $12
+    lda #204
+    sta $14
+    lda #5
+    sta $16
+    jsr _put
+    .loc "title.c", 112
+    lda $80
+    sta $10
+    lda #23
+    sta $12
+    lda #204
+    sta $14
+    lda #5
+    sta $16
+    jsr _put
+@for_inc79:
+    .loc "title.c", 110
+    inc $80
+    bra @for_cond77
+@for_end80:
+@__return:
+    rts
+    .func_flags zp_call, static_alloc
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    .frame_size 2
+    endproc
+    .dbg_var "local _draw_title_page__title i char sym:_draw_title_page__title__zar+0"
+
+; function _title_frame
+    .global cc45.zc._title_frame__local_0
+    cc45.zc._title_frame__local_0 = 3073
+; SAC storage: 0 bytes (in BSS)
+    .segment "bss"
+    .global _title_frame__ar
+_title_frame__ar:
+_title_frame__local_1:
+_title_frame__local_2:
+_title_frame__local_3:
+_title_frame__local_7:
+_title_frame__local_8:
+_title_frame__local_9:
+_title_frame__local_15:
+_title_frame__local_16:
+_title_frame__local_17:
+_title_frame__local_21:
+_title_frame__local_22:
+_title_frame__local_23:
+_title_frame__local_27:
+_title_frame__local_28:
+_title_frame__local_29:
+_title_frame__local_33:
+_title_frame__local_34:
+_title_frame__local_35:
+_title_frame__local_36:
+_title_frame__local_37:
+_title_frame__local_38:
+_title_frame__local_40:
+_title_frame__local_41:
+_title_frame__local_45:
+_title_frame__local_46:
+_title_frame__local_49:
+_title_frame__local_50:
+_title_frame__local_51:
+_title_frame__local_55:
+_title_frame__local_57:
+_title_frame__local_59:
+_title_frame__local_60:
+_title_frame__local_61:
+_title_frame__local_68:
+_title_frame__local_69:
+_title_frame__local_70:
+_title_frame__local_71:
+_title_frame__local_72:
+_title_frame__local_73:
+_title_frame__local_75:
+_title_frame__local_85:
+_title_frame__local_86:
+_title_frame__local_87:
+_title_frame__local_88:
+_title_frame__local_89:
+_title_frame__local_90:
+_title_frame__local_92:
+_title_frame__local_103:
+_title_frame__local_104:
+_title_frame__local_105:
+_title_frame__local_110:
+_title_frame__local_111:
+_title_frame__local_113:
+    .res 2
+    .res 1
+    .global cc45.sacsize._title_frame
+    cc45.sacsize._title_frame = 3
+    .segment "code"
+    .weak cc45.fsig._title_frame.s
+    cc45.fsig._title_frame.s = 1
+    .extern _title_frame__zar
+    .global cc45.zarsize._title_frame
+    cc45.zarsize._title_frame = 1
+    proc _title_frame
+    .zar $80, 1
+; Phase 51: zero-alloc leaf (all parameters constant)
+    .global _title_frame__sac
+_title_frame__sac:
+    .var cc45.fp = 0
+    .loc "title.c", 119
+    .var @_l_i = $80
+
+@entry:
+    .loc "title.c", 121
+    lda #0
+    sta $10
+    lda #21
+    sta $12
+    lda #80
+    sta $14
+    jsr _clear_span
+    .loc "title.c", 122
+    lda #0
+    sta $10
+    lda #22
+    sta $12
+    lda #80
+    sta $14
+    jsr _clear_span
+    .loc "title.c", 123
+    lda _parade_t
+    inc a
+    sta $30
+    lda $30
+    sta _parade_t
+    lda $30
+    cmp #10
+    bcs @if_then81
+    bra @if_end83
+@if_then81:
+    .loc "title.c", 124
+    lda #0
+    sta _parade_t
+    .loc "title.c", 125
+    lda #0
+    sta $80
+@for_cond84:
+    lda $80
+    cmp #4
+    bcc @for_body85
+    bra @if_end83
+@for_body85:
+    .loc "title.c", 126
+    lda $80
+    ldx #0
+    ldx #0
+    clc
+    adc #<_s_x
+    sta $30
+    txa
+    adc #>_s_x
+    sta $30+1
+    ldy #0
+    lda ($30),y
+    sta $32
+    cmp #76
+    bcs @tern_then88
+    bra @tern_else89
+@tern_then88:
+    lda #0
+    sta $34
+    sta $35
+    ldx $35
+    sta $36
+    bra @tern_end90
+@tern_else89:
+    lda $32
+    inc a
+    sta $36
+@tern_end90:
+    lda $36
+    sta $32
+    lda $32
+    ldy #0
+    sta ($30),y
+    .loc "title.c", 127
+    ldy $80
+    lda _s_flags,y
+    ldx #0
+    sta $32
+    eor #16
+    sta $34
+    ldx #0
+    ldy $80
+    sta _s_flags,y
+@for_inc86:
+    .loc "title.c", 125
+    inc $80
+    bra @for_cond84
+@if_end83:
+    .loc "title.c", 130
+    lda #0
+    sta $80
+@for_cond91:
+    lda $80
+    cmp #4
+    bcc @for_body92
+    bra @for_end94
+@for_body92:
+    ldy $80
+    lda _s_x,y
+    sta $10
+    lda #21
+    sta $12
+    lda $80
+    sta $14
+    jsr _draw_sheep_at
+@for_inc93:
+    inc $80
+    bra @for_cond91
+@for_end94:
+    .loc "title.c", 132
+    lda #0
+    sta $10
+    lda #24
+    sta $12
+    lda #80
+    sta $14
+    jsr _clear_span
+    .loc "title.c", 133
+    lda _pick
+    ldx #0
+    sta $30
+    ora #0
+    bne @or_rhs98
+    bra @if_then95
+@or_rhs98:
+    lda $D7FA
+    ldx #0
+    sta $34
+    and #32
+    sta $32
+    bne @if_then95
+    bra @if_end97
+@if_then95:
+    ldax #__str_99
+    sta $32
+    stx $33
+    lda $30
+    bne @tern_then100
+    bra @tern_else101
+@tern_then100:
+    lda #3
+    ldx #0
+    sta $30
+    stx $31
+    sta $34
+    stx $35
+    bra @tern_end102
+@tern_else101:
+    lda #7
+    ldx #0
+    sta $30
+    stx $31
+    sta $34
+    stx $35
+@tern_end102:
+    lda $34
+    ldx $35
+    sta $16
+    lda #4
+    sta $10
+    lda #24
+    sta $12
+    lda $32
+    ldx $33
+    sta $14
+    stx $15
+    jsr _put_ascii
+@if_end97:
+    .loc "title.c", 134
+    lda _pick
+    ldx #0
+    sta $30
+    ora #0
+    bne @if_then103
+; @or_rhs106 (reached by falling through only)
+    lda $D7FA
+    ldx #0
+    sta $34
+    and #32
+    sta $32
+    bne @if_then103
+    bra @if_end105
+@if_then103:
+    ldax #__str_107
+    sta $32
+    stx $33
+    lda $30
+    bne @tern_then108
+    bra @tern_else109
+@tern_then108:
+    lda #7
+    ldx #0
+    sta $30
+    stx $31
+    sta $34
+    stx $35
+    bra @tern_end110
+@tern_else109:
+    lda #3
+    ldx #0
+    sta $30
+    stx $31
+    sta $34
+    stx $35
+@tern_end110:
+    lda $34
+    ldx $35
+    sta $16
+    lda #22
+    sta $10
+    lda #24
+    sta $12
+    lda $32
+    ldx $33
+    sta $14
+    stx $15
+    jsr _put_ascii
+@if_end105:
+    .loc "title.c", 135
+    lda _pick
+    ldx #0
+    sta $30
+    ora #0
+    bne @tern_then111
+    bra @tern_else112
+@tern_then111:
+    lda #20
+    ldx #0
+    sta $30
+    stx $31
+    sta $32
+    stx $33
+    bra @tern_end113
+@tern_else112:
+    lda #2
+    ldx #0
+    sta $30
+    stx $31
+    sta $32
+    stx $33
+@tern_end113:
+    lda $32
+    sta $10
+    lda #24
+    sta $12
+    lda #62
+    sta $14
+    lda #7
+    sta $16
+    jsr _put
+    .loc "title.c", 136
+    ldax #__str_114
+    sta $14
+    stx $15
+    lda #41
+    sta $10
+    lda #24
+    sta $12
+    lda #1
+    sta $16
+    jsr _put_ascii
+@__return:
+    rts
+    .func_flags zp_call, static_alloc
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    .frame_size 0
+    endproc
+    .dbg_var "local _title_frame i char sym:_title_frame__zar+0"
+
+; function _title_input
+    .global cc45.zc._title_input__param_pressed
+    cc45.zc._title_input__param_pressed = 513
+; SAC storage: 0 bytes (in BSS)
+    .segment "bss"
+    .global _title_input__ar
+_title_input__ar:
+    .global _title_input__param_pressed
+_title_input__param_pressed:
+    .res 2
+_title_input__local_1:
+_title_input__local_2:
+_title_input__local_3:
+_title_input__local_4:
+_title_input__local_5:
+_title_input__local_9:
+_title_input__local_13:
+_title_input__local_14:
+_title_input__local_15:
+_title_input__local_16:
+    .res 2
+    .res 1
+    .global cc45.sacsize._title_input
+    cc45.sacsize._title_input = 5
+    .segment "code"
+    .weak cc45.fsig._title_input.s2
+    cc45.fsig._title_input.s2 = 1
+    .extern _title_input__zar
+    .global cc45.zarsize._title_input
+    cc45.zarsize._title_input = 1
+    proc _title_input, B#@_p_pressed
+    .zar $80, 1
+    .sac
+; SAC thunk: load ZP params into SAC storage
+    lda $10
+    sta $80
+    .global _title_input__sac
+_title_input__sac:
+    .var cc45.fp = 0
+    .loc "title.c", 140
+    .var @_p_pressed = $10
+
+@entry:
+    .loc "title.c", 141
+    lda $80
+    and #15
+    bne @if_then115
+    bra @if_end117
+@if_then115:
+    .loc "title.c", 142
+    lda _pick
+    ldx #0
+    eor #1
+    sta $32
+    lda $32
+    sta _pick
+    .loc "title.c", 143
+    lda #0
+    ldx #24
+    sta $10
+    stx $11
+    jsr _snd_click
+@if_end117:
+    .loc "title.c", 145
+    lda #41
+    sta $10
+    jsr _input_pressed
+    sta $32
+    ora #0
+    bne @if_then118
+    bra @if_end120
+@if_then118:
+    lda #1
+    sta _pick
+@if_end120:
+    .loc "title.c", 146
+    lda $80
+    and #16
+    bne @if_then121
+    bra @if_end123
+@if_then121:
+    .loc "title.c", 147
+    lda _pick
+    ldx #0
+    ora #0
+    bne @if_then124
+    bra @if_else125
+@if_then124:
+    jsr _start_studio
+    bra @if_end123
+@if_else125:
+    .loc "title.c", 148
+    jsr _start_season
+@if_end123:
+@__return:
+    rts
+    .func_flags zp_call, static_alloc
+    .param_sizes 2
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    .frame_size 0
+    endproc
+    .dbg_var "param _title_input pressed char sym:_title_input__zar+0"
+
+; function _title
+    .global cc45.zc._title__local_0
+    cc45.zc._title__local_0 = 3073
+; SAC storage: 0 bytes (in BSS)
+    .segment "bss"
+    .global _title__ar
+_title__ar:
+_title__local_11:
+_title__local_14:
+_title__local_18:
+_title__local_19:
+_title__local_20:
+_title__local_22:
+_title__local_23:
+_title__local_24:
+_title__local_25:
+_title__local_26:
+_title__local_31:
+_title__local_34:
+_title__local_35:
+_title__local_37:
+_title__local_46:
+    .res 2
+    .res 1
+    .global cc45.sacsize._title
+    cc45.sacsize._title = 3
+    .segment "code"
+    .weak cc45.fsig._title.s
+    cc45.fsig._title.s = 1
+    .extern _title__zar
+    .global cc45.zarsize._title
+    cc45.zarsize._title = 1
+    proc _title
+    .zar $80, 1
+; Phase 51: zero-alloc leaf (all parameters constant)
+    .global _title__sac
+_title__sac:
+    .var cc45.fp = 0
+    .loc "title.c", 152
+    .var @_l_i = $80
+
+@entry:
+    .loc "title.c", 156
+    jsr _salon_off
+    .loc "title.c", 157
+    lda #0
+    sta _mode
+    .loc "title.c", 158
+    lda #0
+    sta _studio
+    .loc "title.c", 160
+    lda #1
+    sta _pick
+    .loc "title.c", 162
+    lda #0
+    sta _attract
+    .loc "title.c", 163
+    lda #0
+    sta _season
+    .loc "title.c", 164
+    lda #0
+    ldx #0
+    sta _idle_t
+    stx _idle_t+1
+    .loc "title.c", 165
+    lda #255
+    sta _carry
+    .loc "title.c", 166
+    lda #0
+    sta _p_x
+    lda #0
+    sta _p_y
+    .loc "title.c", 167
+    lda #0
+    sta _sh_on
+    .loc "title.c", 168
+    lda #8
+    sta $10
+    jsr _rnd_n
+    sta $32
+    lda $32
+    sta _trend
+    .loc "title.c", 169
+    jsr _music_restart
+    .loc "title.c", 170
+    lda #0
+    sta $10
+    jsr _music_for
+    .loc "title.c", 171
+    jsr _clear_flock
+    .loc "title.c", 172
+    lda #0
+    ldx #240
+    ldy #4
+    ldz #0
+    stq $10
+    jsr _set_charset
+    .loc "title.c", 173
+    lda #0
+    sta $80
+@for_cond127:
+    lda $80
+    cmp #4
+    bcc @for_body128
+    bra @for_end130
+@for_body128:
+    .loc "title.c", 174
+    lda $80
+    and #1
+    sta $30
+    bne @tern_then131
+    bra @tern_else132
+@tern_then131:
+    lda #2
+    ldx #0
+    sta $30
+    stx $31
+    sta $32
+    stx $33
+    bra @tern_end133
+@tern_else132:
+    lda #0
+    sta $30
+    sta $31
+    ldx $31
+    sta $32
+    stx $33
+@tern_end133:
+    lda $32
+    ldx $33
+    ora #9
+    sta $30
+    ldy $80
+    lda $30
+    ldx #0
+    sta _s_flags,y
+    .loc "title.c", 175
+    lda $80
+    sta __zp_scratch4
+    asl
+    asl
+    clc
+    adc __zp_scratch4
+    asl
+    asl
+    sta $32
+    ldy $80
+    lda $32
+    ldx #0
+    sta _s_x,y
+    .loc "title.c", 176
+    ldy $80
+    lda __title__local_parade_look,y
+    ldx #0
+    sta $32
+    ldy $80
+    lda $32
+    ldx #0
+    sta _s_look,y
+    .loc "title.c", 177
+    ldy $80
+    lda #12
+    sta _s_age,y
+    .loc "title.c", 178
+    ldy $80
+    lda #3
+    sta _s_wool,y
+@for_inc129:
+    .loc "title.c", 173
+    inc $80
+    bra @for_cond127
+@for_end130:
+    .loc "title.c", 180
+    jsr _draw_title_page__title
+@__return:
+    rts
+    .func_flags zp_call, static_alloc
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    .frame_size 0
+    endproc
+    .dbg_var "local _title i char sym:_title__zar+0"
+
+; function _setup
+    .global cc45.zc._setup__local_0
+    cc45.zc._setup__local_0 = 1281
+; SAC storage: 4 bytes (in BSS)
+    .segment "bss"
+    .global _setup__ar
+_setup__ar:
+_setup__local_3:
+_setup__local_6:
+_setup__local_9:
+_setup__local_12:
+_setup__local_15:
+_setup__local_18:
+_setup__local_21:
+_setup__local_24:
+_setup__local_27:
+_setup__local_29:
+_setup__local_30:
+_setup__local_31:
+_setup__local_33:
+_setup__local_37:
+_setup__local_38:
+_setup__local_39:
+_setup__local_40:
+_setup__local_41:
+_setup__local_43:
+_setup__local_47:
+_setup__local_57:
+_setup__local_58:
+_setup__local_59:
+_setup__local_61:
+_setup__local_67:
+_setup__local_73:
+_setup__local_86:
+_setup__local_87:
+_setup__local_88:
+_setup__local_89:
+_setup__local_103:
+_setup__local_104:
+_setup__local_105:
+_setup__local_107:
+_setup__local_111:
+_setup__local_112:
+_setup__local_113:
+_setup__local_115:
+    .res 4
+    .res 1
+    .global cc45.sacsize._setup
+    cc45.sacsize._setup = 5
+    .segment "code"
+    .weak cc45.fsig._setup.s
+    cc45.fsig._setup.s = 1
+    .extern _setup__zar
+    .global cc45.zarsize._setup
+    cc45.zarsize._setup = 1
+    proc _setup
+    .zar $80, 1
+; Phase 51: zero-alloc leaf (all parameters constant)
+    .global _setup__sac
+_setup__sac:
+    .var cc45.fp = 0
+    .loc "title.c", 185
+    .var @_l_i = $80
+
+@entry:
+    .loc "title.c", 187
+    lda $D068
+    ldx #0
+    sta $32
+    lda $32
+    sta _saved_regs
+    lda $D069
+    ldx #0
+    sta $32
+    lda $32
+    sta _saved_regs+1
+    lda $D06A
+    ldx #0
+    sta $32
+    lda $32
+    sta _saved_regs+2
+    .loc "title.c", 188
+    lda $D020
+    ldx #0
+    sta $32
+    lda $32
+    sta _saved_regs+3
+    lda $D021
+    ldx #0
+    sta $32
+    lda $32
+    sta _saved_regs+4
+    .loc "title.c", 189
+    lda $D022
+    ldx #0
+    sta $32
+    lda $32
+    sta _saved_regs+5
+    lda $D023
+    ldx #0
+    sta $32
+    lda $32
+    sta _saved_regs+6
+    lda $D016
+    ldx #0
+    sta $32
+    lda $32
+    sta _saved_regs+7
+    .loc "title.c", 190
+    lda $D05D
+    ldx #0
+    sta $32
+    lda $32
+    sta _saved_regs+8
+    .loc "title.c", 191
+    lda #0
+    sta $80
+@for_cond134:
+    lda $80
+    cmp #4
+    bcc @for_body135
+    bra @for_end137
+@for_body135:
+    lda $80
+    ldx #0
+    ldx #0
+    sta $30
+    stx $31
+    lda $30
+    clc
+    adc #96
+    sta $32
+    lda #0
+    adc #208
+    sta $33
+    ldy #0
+    lda ($32),y
+    sta $34
+    lda $30
+    ldx $31
+    clc
+    adc #<(_saved_regs+9)
+    sta __zp_scratch
+    txa
+    adc #>(_saved_regs+9)
+    sta __zp_scratch+1
+    lda $34
+    ldx #0
+    ldy #0
+    sta (__zp_scratch),y
+@for_inc136:
+    inc $80
+    bra @for_cond134
+@for_end137:
+    .loc "title.c", 193
+    lda #0
+    ldx #224
+    ldy #5
+    ldz #0
+    stq $10
+    lda #208
+    ldx #7
+    sta $14
+    stx $15
+    lda #32
+    sta $16
+    jsr ___dma_fill_far
+    .loc "title.c", 194
+    lda #0
+    sta $D060
+    .loc "title.c", 195
+    lda #224
+    sta $D061
+    .loc "title.c", 196
+    lda #5
+    sta $D062
+    .loc "title.c", 197
+    lda $D063
+    ldx #0
+    sta $32
+    and #240
+    sta $30
+    sta $D063
+    .loc "title.c", 200
+    lda #0
+    ldx #248
+    ldy #4
+    ldz #0
+    stq $10
+    lda #0
+    ldx #224
+    ldy #247
+    ldz #15
+    stq $14
+    lda #0
+    ldx #8
+    sta $18
+    stx $19
+    jsr ___dma_copy_far
+    .loc "title.c", 201
+    ldax #_glyph_data
+    ldy #0
+    ldz #0
+    sta _setup__local_67
+    stx _setup__local_67+1
+    sty _setup__local_67+2
+    stz _setup__local_67+3
+    lda #0
+    ldx #251
+    ldy #4
+    ldz #0
+    stq $10
+    lda _setup__local_67
+    ldx _setup__local_67+1
+    ldy _setup__local_67+2
+    ldz _setup__local_67+3
+    stq $14
+    lda #120
+    ldx #4
+    sta $18
+    stx $19
+    jsr ___dma_copy_far
+    .loc "title.c", 202
+    lda #0
+    ldx #240
+    ldy #4
+    ldz #0
+    stq $10
+    lda #0
+    ldx #232
+    ldy #247
+    ldz #15
+    stq $14
+    lda #0
+    ldx #8
+    sta $18
+    stx $19
+    jsr ___dma_copy_far
+    .loc "title.c", 203
+    lda #0
+    ldx #243
+    ldy #4
+    ldz #0
+    stq $10
+    lda _setup__local_67
+    ldx _setup__local_67+1
+    ldy _setup__local_67+2
+    ldz _setup__local_67+3
+    stq $14
+    lda #120
+    ldx #4
+    sta $18
+    stx $19
+    jsr ___dma_copy_far
+    .loc "title.c", 204
+    lda #0
+    ldx #248
+    ldy #4
+    ldz #0
+    stq $10
+    jsr _set_charset
+    .loc "title.c", 205
+    jsr _set_palette__title
+    .loc "title.c", 206
+    lda #11
+    sta $D020
+    .loc "title.c", 207
+    lda #12
+    sta $D021
+    .loc "title.c", 208
+    lda #11
+    sta $D022
+    .loc "title.c", 209
+    lda #13
+    sta $D023
+    .loc "title.c", 210
+    lda $D06F
+    ldx #0
+    sta $32
+    and #128
+    sta $30
+    bne @tern_then138
+    bra @tern_else139
+@tern_then138:
+    lda #60
+    ldx #0
+    sta $30
+    stx $31
+    sta $32
+    stx $33
+    bra @tern_end140
+@tern_else139:
+    lda #50
+    ldx #0
+    sta $30
+    stx $31
+    sta $32
+    stx $33
+@tern_end140:
+    lda $32
+    ldx $33
+    sta $30
+    lda $30
+    sta _fps
+    .loc "title.c", 211
+    lda #0
+    ldx #8
+    sta $10
+    stx $11
+    lda #32
+    ldx #0
+    sta $12
+    stx $13
+    lda #208
+    ldx #7
+    sta $14
+    stx $15
+    jsr _memset
+    .loc "title.c", 212
+    ldax #_clr
+    sta $10
+    stx $11
+    lda #1
+    ldx #0
+    sta $12
+    stx $13
+    lda #208
+    ldx #7
+    sta $14
+    stx $15
+    jsr _memset
+    .loc "title.c", 213
+    jsr _show
+    .loc "title.c", 216
+    lda $D05D
+    ldx #0
+    and #127
+    sta $D05D
+    .loc "title.c", 217
+    lda $D016
+    ldx #0
+    ora #16
+    sta $D016
+    .loc "title.c", 218
+    lda $D7FA
+    ldx #0
+    sta $32
+    lda $D012
+    ldx #0
+    sta $36
+    ldx $32
+    lda $36
+    sta $38
+    stx $39
+    lda _rnd_state
+    ldx _rnd_state+1
+    sta $30
+    stx $31
+    eor.16 .AX, $38
+    sta $32
+    stx $33
+    sta _rnd_state
+    stx _rnd_state+1
+    .loc "title.c", 219
+    lda _rnd_state
+    ldx _rnd_state+1
+    sta $30
+    stx $31
+    stx __zp_scratch
+    ora __zp_scratch
+    bne @if_end143
+; @if_then141 (reached by falling through only)
+    lda #225
+    ldx #172
+    sta _rnd_state
+    stx _rnd_state+1
+@if_end143:
+    .loc "title.c", 220
+    jsr _make_background__title
+    .loc "title.c", 221
+    jsr _sid_init
+@__return:
+    rts
+    .func_flags zp_call, static_alloc
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    .frame_size 4
+    endproc
+    .dbg_var "local _setup i char sym:_setup__zar+0"
+
+; function _make_background__title
+    .global cc45.zc._make_background__title__local_1
+    cc45.zc._make_background__title__local_1 = 2817
+    .global cc45.zc._make_background__title__local_0
+    cc45.zc._make_background__title__local_0 = 2817
+    .global cc45.zc._make_background__title__local_27
+    cc45.zc._make_background__title__local_27 = 1793
+    .global cc45.zc._make_background__title__local_167
+    cc45.zc._make_background__title__local_167 = 1026
+    .global cc45.zc._make_background__title__local_133
+    cc45.zc._make_background__title__local_133 = 770
+    .global cc45.zc._make_background__title__local_21
+    cc45.zc._make_background__title__local_21 = 2305
+    .global cc45.zc._make_background__title__local_24
+    cc45.zc._make_background__title__local_24 = 2305
+    .global cc45.zc._make_background__title__local_93
+    cc45.zc._make_background__title__local_93 = 1025
+; SAC storage: 6 bytes (in BSS)
+    .segment "bss"
+    .global _make_background__title__ar
+_make_background__title__ar:
+_make_background__title__local_3:
+_make_background__title__local_4:
+_make_background__title__local_5:
+_make_background__title__local_8:
+_make_background__title__local_9:
+_make_background__title__local_10:
+_make_background__title__local_12:
+_make_background__title__local_13:
+_make_background__title__local_14:
+_make_background__title__local_15:
+_make_background__title__local_17:
+_make_background__title__local_22:
+_make_background__title__local_25:
+_make_background__title__local_28:
+_make_background__title__local_29:
+_make_background__title__local_30:
+_make_background__title__local_32:
+_make_background__title__local_33:
+_make_background__title__local_34:
+_make_background__title__local_35:
+_make_background__title__local_37:
+_make_background__title__local_38:
+_make_background__title__local_39:
+_make_background__title__local_41:
+_make_background__title__local_42:
+_make_background__title__local_43:
+_make_background__title__local_46:
+_make_background__title__local_47:
+_make_background__title__local_48:
+_make_background__title__local_55:
+_make_background__title__local_56:
+_make_background__title__local_57:
+_make_background__title__local_59:
+_make_background__title__local_60:
+_make_background__title__local_61:
+_make_background__title__local_63:
+_make_background__title__local_64:
+_make_background__title__local_65:
+_make_background__title__local_67:
+_make_background__title__local_68:
+_make_background__title__local_69:
+_make_background__title__local_71:
+_make_background__title__local_72:
+_make_background__title__local_73:
+_make_background__title__local_77:
+_make_background__title__local_78:
+_make_background__title__local_79:
+_make_background__title__local_81:
+_make_background__title__local_82:
+_make_background__title__local_83:
+_make_background__title__local_85:
+_make_background__title__local_86:
+_make_background__title__local_87:
+_make_background__title__local_94:
+_make_background__title__local_97:
+_make_background__title__local_98:
+_make_background__title__local_99:
+_make_background__title__local_103:
+_make_background__title__local_104:
+_make_background__title__local_105:
+_make_background__title__local_109:
+_make_background__title__local_110:
+_make_background__title__local_111:
+_make_background__title__local_115:
+_make_background__title__local_124:
+_make_background__title__local_126:
+_make_background__title__local_129:
+_make_background__title__local_130:
+_make_background__title__local_131:
+_make_background__title__local_134:
+_make_background__title__local_136:
+_make_background__title__local_140:
+_make_background__title__local_141:
+_make_background__title__local_142:
+_make_background__title__local_144:
+_make_background__title__local_146:
+_make_background__title__local_150:
+_make_background__title__local_151:
+_make_background__title__local_152:
+_make_background__title__local_153:
+_make_background__title__local_154:
+_make_background__title__local_159:
+    .res 4
+_make_background__title__local_18:
+    .res 2
+_make_background__title__local_31:
+    .res 2
+    .res 1
+    .global cc45.sacsize._make_background__title
+    cc45.sacsize._make_background__title = 9
+    .segment "code"
+    .weak cc45.fsig._make_background__title.s
+    cc45.fsig._make_background__title.s = 1
+    .extern _make_background__title__zar
+    .global cc45.zarsize._make_background__title
+    cc45.zarsize._make_background__title = 10
+    proc _make_background__title
+    .zar $80, 10
+; Phase 51: zero-alloc leaf (all parameters constant)
+    .global _make_background__title__sac
+_make_background__title__sac:
+    .var cc45.fp = 0
+    .loc "title.c", 225
+    .var @_l___lsr_167 = $83
+    .var @_l_c = $88
+    .var @_l_ch = $87
+    .var @_l_o = $85
+    .var @_l_r = $89
+    .var @_l_row = $82
+    .var @_l_x = $81
+    .var @_l_y = $80
+
+@entry:
+    .loc "title.c", 227
+    lda #0
+    sta $80
+@for_cond144:
+    lda $80
+    cmp #23
+    bcc @for_body145
+    bra @for_end147
+@for_body145:
+    .loc "title.c", 228
+    lda #0
+    sta $81
+@for_cond148_ph:
+    .loc "title.c", 229
+    lda $80
+    clc
+    adc #1
+    sta $30
+    lda #0
+    adc #0
+    sta $31
+    lda $30
+    ldx $31
+    mul.16 .AX, #80
+    sta _make_background__title__local_18
+    stx _make_background__title__local_18+1
+    .loc "title.c", 230
+    lda $80
+    inc a
+    sta _make_background__title__local_31
+@for_cond148:
+    .loc "title.c", 228
+    lda $81
+    cmp #60
+    bcc @for_body149
+    bra @for_end151
+@for_body149:
+    .loc "title.c", 229
+    lda $81
+    clc
+    adc _make_background__title__local_18
+    sta _make_background__title__local_12
+    lda #0
+    adc _make_background__title__local_18+1
+    sta _make_background__title__local_12+1
+    lda #32
+    sta $87
+    .loc "title.c", 230
+    lda #1
+    sta $88
+    lda _make_background__title__local_31
+    sta $82
+    .loc "title.c", 231
+    cmp #1
+    beq @if_then152
+; @or_rhs155 (reached by falling through only)
+    lda $82
+    cmp #23
+    beq @if_then152
+    bra @if_else153
+@if_then152:
+    .loc "title.c", 232
+    lda $81
+    cmp #0
+    beq @sc_short157
+; @sc_merge156 (reached by falling through only)
+    lda $81
+    cmp #59
+    php
+    pla
+    lsr
+    and #1
+    ldx #0
+    sta $30
+    sta $32
+    bra @sc_done158
+@sc_short157:
+    lda #1
+    sta $32
+@sc_done158:
+    lda $32
+    bne @tern_then159
+    bra @tern_else160
+@tern_then159:
+    lda #206
+    ldx #0
+    sta $30
+    stx $31
+    sta $32
+    stx $33
+    bra @tern_end161
+@tern_else160:
+    lda #204
+    ldx #0
+    sta $30
+    stx $31
+    sta $32
+    stx $33
+@tern_end161:
+    lda $32
+    ldx $33
+    sta $87
+    .loc "title.c", 233
+    lda #5
+    sta $88
+    bra @if_end154
+@if_else153:
+    .loc "title.c", 234
+    lda $81
+    cmp #0
+    beq @if_then162
+; @or_rhs165 (reached by falling through only)
+    lda $81
+    cmp #59
+    beq @if_then162
+    bra @if_else163
+@if_then162:
+    .loc "title.c", 235
+    lda $81
+    cmp #59
+    beq @and_rhs170
+    bra @if_else167
+@and_rhs170:
+    lda $82
+    cmp #11
+    bcs @and_rhs169
+    bra @if_else167
+@and_rhs169:
+    lda $82
+    cmp #13
+    bcc @if_then166
+    beq @if_then166
+    bra @if_else167
+@if_then166:
+    lda #209
+    sta $87
+    lda #7
+    sta $88
+    bra @if_end154
+@if_else167:
+    .loc "title.c", 236
+    lda $81
+    cmp #59
+    beq @and_rhs174
+    bra @if_else172
+@and_rhs174:
+    lda $82
+    cmp #10
+    beq @if_then171
+; @or_rhs175 (reached by falling through only)
+    lda $82
+    cmp #14
+    beq @if_then171
+    bra @if_else172
+@if_then171:
+    lda #206
+    sta $87
+    lda #5
+    sta $88
+    bra @if_end154
+@if_else172:
+    .loc "title.c", 237
+    lda #205
+    sta $87
+    lda #5
+    sta $88
+    bra @if_end154
+@if_else163:
+    .loc "title.c", 239
+    lda #32
+    sta $10
+    jsr _rnd_n
+    sta $89
+    .loc "title.c", 240
+    cmp #2
+    bcc @if_then176
+    bra @if_else177
+@if_then176:
+    lda #213
+    sta $87
+    lda #8
+    sta $88
+    bra @if_end154
+@if_else177:
+    .loc "title.c", 241
+    lda $89
+    cmp #4
+    bcc @if_then179
+    bra @if_else180
+@if_then179:
+    lda #214
+    sta $87
+    lda #8
+    sta $88
+    bra @if_end154
+@if_else180:
+    .loc "title.c", 242
+    lda $89
+    cmp #4
+    beq @if_then182
+    bra @if_end154
+@if_then182:
+    lda #207
+    sta $87
+    jsr _rnd
+    sta $30
+    stx $31
+    lda #0
+    tax
+    lda $30
+    and #1
+    sta $32
+    stx $33
+    stx __zp_scratch
+    ora __zp_scratch
+    bne @tern_then185
+    bra @tern_else186
+@tern_then185:
+    lda #7
+    ldx #0
+    sta $30
+    stx $31
+    sta $32
+    stx $33
+    bra @tern_end187
+@tern_else186:
+    lda #1
+    ldx #0
+    sta $30
+    stx $31
+    sta $32
+    stx $33
+@tern_end187:
+    lda $32
+    ldx $33
+    sta $88
+@if_end154:
+    .loc "title.c", 244
+    lda #0
+    ldx #8
+    sta $30
+    stx $31
+    lda _make_background__title__local_12
+    ldx _make_background__title__local_12+1
+    clc
+    adc $30
+    sta __zp_scratch
+    txa
+    adc $30+1
+    sta __zp_scratch+1
+    lda $87
+    ldx #0
+    ldy #0
+    sta (__zp_scratch),y
+    .loc "title.c", 245
+    lda _make_background__title__local_12
+    ldx _make_background__title__local_12+1
+    clc
+    adc #<_clr
+    sta __zp_scratch
+    txa
+    adc #>_clr
+    sta __zp_scratch+1
+    lda $88
+    ldx #0
+    ldy #0
+    sta (__zp_scratch),y
+@for_inc150:
+    .loc "title.c", 228
+    inc $81
+    bra @for_cond148
+@for_end151:
+@for_inc146:
+    .loc "title.c", 227
+    inc $80
+    bra @for_cond144
+@for_end147:
+    .loc "title.c", 247
+    lda #0
+    sta $80
+    .loc "title.c", 249
+    lda #0
+    sta $83
+    sta $84
+@for_cond188:
+    .loc "title.c", 247
+    lda $80
+    cmp #23
+    bcc @for_body189
+    bra @for_end191
+@for_body189:
+    .loc "title.c", 248
+    lda $80
+    clc
+    adc #1
+    sta $30
+    lda #0
+    adc #0
+    sta $31
+    lda $30
+    ldx $31
+    mul.16 .AX, #80
+    sta $85
+    stx $86
+    .loc "title.c", 249
+    lda $83
+    ldx $84
+    ldy #0
+    ldz #0
+    sta _make_background__title__local_144
+    stx _make_background__title__local_144+1
+    sty _make_background__title__local_144+2
+    stz _make_background__title__local_144+3
+    lda _make_background__title__local_144
+    sta $10
+    lda _make_background__title__local_144+1
+    clc
+    adc #32
+    sta $11
+    lda #0
+    adc #248
+    sta $12
+    lda #15
+    sta $13
+    lda $85
+    sta $30
+    lda $86
+    clc
+    adc #8
+    sta $31
+    lda $30
+    ldx $31
+    ldy #0
+    ldz #0
+    sta $14
+    stx $15
+    sty $16
+    stz $17
+    lda #60
+    ldx #0
+    sta $18
+    stx $19
+    jsr ___dma_copy_far
+    .loc "title.c", 250
+    lda _make_background__title__local_144
+    sta $10
+    lda _make_background__title__local_144+1
+    clc
+    adc #40
+    sta $11
+    lda #0
+    adc #248
+    sta $12
+    lda #15
+    sta $13
+    ldax #_clr
+    clc
+    adc $85
+    sta $30
+    txa
+    adc $85+1
+    sta $31
+    lda $30
+    ldx $31
+    ldy #0
+    ldz #0
+    sta $14
+    stx $15
+    sty $16
+    stz $17
+    lda #60
+    ldx #0
+    sta $18
+    stx $19
+    jsr ___dma_copy_far
+@for_inc190:
+    .loc "title.c", 247
+    inc $80
+    lda $83
+    clc
+    adc #60
+    sta $83
+    lda $84
+    adc #0
+    sta $84
+    bra @for_cond188
+@for_end191:
+    .loc "title.c", 252
+    lda #0
+    ldx #8
+    sta $10
+    stx $11
+    lda #32
+    ldx #0
+    sta $12
+    stx $13
+    lda #208
+    ldx #7
+    sta $14
+    stx $15
+    jsr _memset
+@__return:
+    rts
+    .func_flags zp_call, static_alloc
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    .frame_size 6
+    endproc
+    .dbg_var "local _make_background__title x char sym:_make_background__title__zar+1"
+    .dbg_var "local _make_background__title y char sym:_make_background__title__zar+0"
+    .dbg_var "local _make_background__title o u16 sym:_make_background__title__zar+5"
+    .dbg_var "local _make_background__title ch char sym:_make_background__title__zar+7"
+    .dbg_var "local _make_background__title c char sym:_make_background__title__zar+8"
+    .dbg_var "local _make_background__title row char sym:_make_background__title__zar+2"
+    .dbg_var "local _make_background__title r char sym:_make_background__title__zar+9"
+    .dbg_var "local _make_background__title o u16 sym:_make_background__title__zar+5"
+
+; function _set_palette__title
+    .global cc45.zc._set_palette__title__local_0
+    cc45.zc._set_palette__title__local_0 = 2817
+    .global cc45.zc._set_palette__title__local_1
+    cc45.zc._set_palette__title__local_1 = 1281
+    .global cc45.zc._set_palette__title__local_41
+    cc45.zc._set_palette__title__local_41 = 513
+; SAC storage: 4 bytes (in BSS)
+    .segment "bss"
+    .global _set_palette__title__ar
+_set_palette__title__ar:
+_set_palette__title__local_2:
+_set_palette__title__local_5:
+_set_palette__title__local_6:
+_set_palette__title__local_7:
+_set_palette__title__local_9:
+_set_palette__title__local_14:
+_set_palette__title__local_15:
+_set_palette__title__local_18:
+_set_palette__title__local_19:
+_set_palette__title__local_20:
+_set_palette__title__local_21:
+_set_palette__title__local_22:
+_set_palette__title__local_24:
+_set_palette__title__local_25:
+_set_palette__title__local_28:
+_set_palette__title__local_29:
+_set_palette__title__local_30:
+_set_palette__title__local_31:
+_set_palette__title__local_32:
+_set_palette__title__local_34:
+_set_palette__title__local_37:
+_set_palette__title__local_38:
+_set_palette__title__local_39:
+_set_palette__title__local_47:
+_set_palette__title__local_48:
+_set_palette__title__local_50:
+_set_palette__title__local_52:
+_set_palette__title__local_53:
+_set_palette__title__local_57:
+_set_palette__title__local_58:
+_set_palette__title__local_60:
+_set_palette__title__local_61:
+_set_palette__title__local_62:
+_set_palette__title__local_63:
+_set_palette__title__local_67:
+_set_palette__title__local_68:
+_set_palette__title__local_70:
+_set_palette__title__local_72:
+    .res 2
+_set_palette__title__local_51:
+    .res 2
+    .res 1
+    .global cc45.sacsize._set_palette__title
+    cc45.sacsize._set_palette__title = 5
+    .segment "code"
+    .weak cc45.fsig._set_palette__title.s
+    cc45.fsig._set_palette__title.s = 1
+    .extern _set_palette__title__zar
+    .global cc45.zarsize._set_palette__title
+    cc45.zarsize._set_palette__title = 3
+    proc _set_palette__title
+    .zar $80, 3
+; Phase 51: zero-alloc leaf (all parameters constant)
+    .global _set_palette__title__sac
+_set_palette__title__sac:
+    .var cc45.fp = 0
+    .loc "title.c", 256
+    .var @_l_i = $80
+    .var @_l_k = $81
+    .var @_l_n = $82
+
+@entry:
+    lda #0
+    sta $81
+    .loc "title.c", 257
+    .loc "title.c", 258
+    lda #0
+    sta $80
+@for_cond192:
+    lda $80
+    cmp #16
+    bcc @for_body193
+    bra @for_end195
+@for_body193:
+    lda $80
+    ldx #0
+    ldx #0
+    sta $30
+    stx $31
+    .loc "title.c", 259
+    lda $30
+    sta $32
+    lda #209
+    sta $33
+    ldy #0
+    lda ($32),y
+    sta $34
+    ldy $80
+    lda $34
+    ldx #0
+    sta _saved_pal,y
+    lda $30
+    sta $32
+    lda #210
+    sta $33
+    ldy #0
+    lda ($32),y
+    sta $34
+    lda $30
+    ldx $31
+    clc
+    adc #<(_saved_pal+16)
+    sta __zp_scratch
+    txa
+    adc #>(_saved_pal+16)
+    sta __zp_scratch+1
+    lda $34
+    ldx #0
+    ldy #0
+    sta (__zp_scratch),y
+    lda $30
+    sta $32
+    lda #211
+    sta $33
+    ldy #0
+    lda ($32),y
+    sta $34
+    lda $30
+    ldx $31
+    clc
+    adc #<(_saved_pal+32)
+    sta __zp_scratch
+    txa
+    adc #>(_saved_pal+32)
+    sta __zp_scratch+1
+    lda $34
+    ldx #0
+    ldy #0
+    sta (__zp_scratch),y
+@for_inc194:
+    .loc "title.c", 258
+    inc $80
+    bra @for_cond192
+@for_end195:
+    .loc "title.c", 261
+    lda #0
+    sta $80
+@for_cond196:
+    lda $80
+    cmp #12
+    bcc @for_body197
+    bra @for_end199
+@for_body197:
+    .loc "title.c", 262
+    ldy $80
+    lda _pal_idx,y
+    ldx #0
+    sta $82
+    .loc "title.c", 263
+    ldy $81
+    lda _pal_rgb,y
+    sta $10
+    jsr _swap_nib__title
+    sta $30
+    lda $82
+    ldx #0
+    ldx #0
+    sta _set_palette__title__local_48
+    stx _set_palette__title__local_48+1
+    lda _set_palette__title__local_48
+    sta $32
+    lda #209
+    sta $33
+    lda $30
+    ldy #0
+    sta ($32),y
+    lda $81
+    ldx #0
+    ldx #0
+    sta _set_palette__title__local_51
+    stx _set_palette__title__local_51+1
+    .loc "title.c", 264
+    clc
+    adc #<(_pal_rgb+1)
+    sta __zp_scratch
+    txa
+    adc #>(_pal_rgb+1)
+    sta __zp_scratch+1
+    ldy #0
+    lda (__zp_scratch),y
+    sta $10
+    jsr _swap_nib__title
+    sta $30
+    lda _set_palette__title__local_48
+    sta $32
+    lda #210
+    sta $33
+    lda $30
+    ldy #0
+    sta ($32),y
+    .loc "title.c", 265
+    lda _set_palette__title__local_51
+    ldx _set_palette__title__local_51+1
+    clc
+    adc #<(_pal_rgb+2)
+    sta __zp_scratch
+    txa
+    adc #>(_pal_rgb+2)
+    sta __zp_scratch+1
+    ldy #0
+    lda (__zp_scratch),y
+    sta $10
+    jsr _swap_nib__title
+    sta $30
+    lda _set_palette__title__local_48
+    sta $32
+    lda #211
+    sta $33
+    lda $30
+    ldy #0
+    sta ($32),y
+@for_inc198:
+    .loc "title.c", 261
+    inc $80
+    lda $81
+    clc
+    adc #3
+    sta $30
+    sta $81
+    bra @for_cond196
+@for_end199:
+@__return:
+    rts
+    .func_flags zp_call, static_alloc
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    .frame_size 4
+    endproc
+    .dbg_var "local _set_palette__title i char sym:_set_palette__title__zar+0"
+    .dbg_var "local _set_palette__title k char sym:_set_palette__title__zar+1"
+    .dbg_var "local _set_palette__title n char sym:_set_palette__title__zar+2"
+
+; function _restore_palette__title
+; SAC storage: 0 bytes (in BSS)
+    .segment "bss"
+    .global _restore_palette__title__ar
+_restore_palette__title__ar:
+_restore_palette__title__local_2:
+_restore_palette__title__local_3:
+_restore_palette__title__local_4:
+_restore_palette__title__local_8:
+_restore_palette__title__local_11:
+_restore_palette__title__local_12:
+_restore_palette__title__local_13:
+_restore_palette__title__local_14:
+_restore_palette__title__local_15:
+_restore_palette__title__local_18:
+_restore_palette__title__local_19:
+_restore_palette__title__local_21:
+_restore_palette__title__local_22:
+_restore_palette__title__local_23:
+_restore_palette__title__local_24:
+_restore_palette__title__local_25:
+_restore_palette__title__local_28:
+_restore_palette__title__local_29:
+_restore_palette__title__local_31:
+    .res 2
+    .res 1
+    .global cc45.sacsize._restore_palette__title
+    cc45.sacsize._restore_palette__title = 3
+    .segment "code"
+    .weak cc45.fsig._restore_palette__title.s
+    cc45.fsig._restore_palette__title.s = 1
+    proc _restore_palette__title
+; Phase 51: zero-alloc leaf (all parameters constant)
+    .global _restore_palette__title__sac
+_restore_palette__title__sac:
+    .var cc45.fp = 0
+    .loc "title.c", 270
+    .var @_l_i = $30
+
+@entry:
+    .loc "title.c", 272
+    lda #0
+    sta $30
+@for_cond200:
+    lda $30
+    cmp #16
+    bcc @for_body201
+    bra @for_end203
+@for_body201:
+    .loc "title.c", 273
+    ldy $30
+    lda _saved_pal,y
+    ldx #0
+    sta $34
+    lda $30
+    ldx #0
+    ldx #0
+    sta $32
+    stx $33
+    lda $32
+    sta $36
+    lda #209
+    sta $37
+    lda $34
+    ldy #0
+    sta ($36),y
+    lda $32
+    ldx $33
+    clc
+    adc #<(_saved_pal+16)
+    sta __zp_scratch
+    txa
+    adc #>(_saved_pal+16)
+    sta __zp_scratch+1
+    ldy #0
+    lda (__zp_scratch),y
+    ldx #0
+    sta $36
+    lda $32
+    sta $34
+    lda #210
+    sta $35
+    lda $36
+    ldy #0
+    sta ($34),y
+    lda $32
+    ldx $33
+    clc
+    adc #<(_saved_pal+32)
+    sta __zp_scratch
+    txa
+    adc #>(_saved_pal+32)
+    sta __zp_scratch+1
+    ldy #0
+    lda (__zp_scratch),y
+    ldx #0
+    sta $36
+    lda #211
+    sta $33
+    lda $36
+    ldy #0
+    sta ($32),y
+@for_inc202:
+    .loc "title.c", 272
+    inc $30
+    bra @for_cond200
+@for_end203:
+@__return:
+    rts
+    .func_flags zp_call, static_alloc, leaf
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    .frame_size 0
+    endproc
+    .dbg_var "local _restore_palette__title i char zp:$30"
+
+; function _swap_nib__title
+; SAC storage: 0 bytes (in BSS)
+    .segment "bss"
+    .global _swap_nib__title__ar
+_swap_nib__title__ar:
+    .global _swap_nib__title__param_v
+_swap_nib__title__param_v:
+    .res 2
+_swap_nib__title__local_1:
+_swap_nib__title__local_3:
+_swap_nib__title__local_6:
+    .res 2
+    .res 1
+    .global cc45.sacsize._swap_nib__title
+    cc45.sacsize._swap_nib__title = 5
+    .segment "code"
+    .weak cc45.fsig._swap_nib__title.s2
+    cc45.fsig._swap_nib__title.s2 = 1
+    proc _swap_nib__title, B#@_p_v
+    .sac
+; SAC thunk: load ZP params into SAC storage
+    .global _swap_nib__title__sac
+_swap_nib__title__sac:
+    .var cc45.fp = 0
+    .var cc45.retnz = 1
+    .var cc45.retx = 1
+    .loc "title.c", 278
+    .var @_p_v = $10
+
+@entry:
+    .loc "title.c", 279
+    lda $10
+    ldx #0
+    asl
+    asl
+    asl
+    asl
+    ldx #0
+    sta $30
+    lda $10
+    ldx #0
+    lsr
+    lsr
+    lsr
+    lsr
+    ldx #0
+    ora $30
+@__return:
+    rts
+    .func_flags zp_call, static_alloc, leaf
+    .param_sizes 2
+    .reg_clobbers A, X
+    .flag_clobbers C, N, Z
+    .frame_size 0
+    endproc
+    .dbg_var "param _swap_nib__title v char zp:$10"
+
+; function _restore
+    .global cc45.zc._restore__local_0
+    cc45.zc._restore__local_0 = 1281
+; SAC storage: 0 bytes (in BSS)
+    .segment "bss"
+    .global _restore__ar
+_restore__ar:
+_restore__local_1:
+_restore__local_4:
+_restore__local_7:
+_restore__local_10:
+_restore__local_13:
+_restore__local_16:
+_restore__local_19:
+_restore__local_22:
+_restore__local_25:
+_restore__local_29:
+_restore__local_30:
+_restore__local_31:
+_restore__local_33:
+_restore__local_34:
+_restore__local_35:
+_restore__local_37:
+_restore__local_40:
+_restore__local_41:
+_restore__local_43:
+_restore__local_47:
+_restore__local_51:
+    .res 2
+    .res 1
+    .global cc45.sacsize._restore
+    cc45.sacsize._restore = 3
+    .segment "code"
+    .weak cc45.fsig._restore.s
+    cc45.fsig._restore.s = 1
+    .extern _restore__zar
+    .global cc45.zarsize._restore
+    cc45.zarsize._restore = 1
+    proc _restore
+    .zar $80, 1
+; Phase 51: zero-alloc leaf (all parameters constant)
+    .global _restore__sac
+_restore__sac:
+    .var cc45.fp = 0
+    .loc "title.c", 283
+    .var @_l_i = $80
+
+@entry:
+    .loc "title.c", 285
+    jsr _sid_init
+    .loc "title.c", 286
+    lda _saved_regs+7
+    ldx #0
+    sta $D016
+    .loc "title.c", 287
+    lda _saved_regs+8
+    ldx #0
+    sta $D05D
+    .loc "title.c", 288
+    lda _saved_regs
+    sta $D068
+    lda _saved_regs+1
+    ldx #0
+    sta $D069
+    lda _saved_regs+2
+    ldx #0
+    sta $D06A
+    .loc "title.c", 289
+    lda _saved_regs+3
+    ldx #0
+    sta $D020
+    lda _saved_regs+4
+    ldx #0
+    sta $D021
+    .loc "title.c", 290
+    lda _saved_regs+5
+    ldx #0
+    sta $D022
+    lda _saved_regs+6
+    ldx #0
+    sta $30
+    sta $D023
+    .loc "title.c", 291
+    lda #0
+    sta $80
+@for_cond204:
+    lda $80
+    cmp #4
+    bcc @for_body205
+    bra @for_end207
+@for_body205:
+    lda $80
+    ldx #0
+    ldx #0
+    sta $30
+    clc
+    adc #<(_saved_regs+9)
+    sta __zp_scratch
+    txa
+    adc #>(_saved_regs+9)
+    sta __zp_scratch+1
+    ldy #0
+    lda (__zp_scratch),y
+    ldx #0
+    sta $34
+    lda $30
+    clc
+    adc #96
+    sta $30
+    lda #0
+    adc #208
+    sta $31
+    lda $34
+    ldy #0
+    sta ($30),y
+@for_inc206:
+    inc $80
+    bra @for_cond204
+@for_end207:
+    .loc "title.c", 292
+    jsr _restore_palette__title
+    .loc "title.c", 293
+    lda #0
+    ldx #8
+    ldy #0
+    ldz #0
+    stq $10
+    lda #208
+    ldx #7
+    sta $14
+    stx $15
+    lda #32
+    sta $16
+    jsr ___dma_fill_far
+    .loc "title.c", 294
+    lda #0
+    ldx #0
+    ldy #248
+    ldz #15
+    stq $10
+    lda #208
+    ldx #7
+    sta $14
+    stx $15
+    lda #1
+    sta $16
+    jsr ___dma_fill_far
+@__return:
+    rts
+    .func_flags zp_call, static_alloc
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    .frame_size 0
+    endproc
+    .dbg_var "local _restore i char sym:_restore__zar+0"
+
+; function _draw_over_box
+; SAC storage: 0 bytes (in BSS)
+    .segment "bss"
+    .global _draw_over_box__ar
+_draw_over_box__ar:
+_draw_over_box__local_0:
+_draw_over_box__local_1:
+_draw_over_box__local_2:
+_draw_over_box__local_3:
+_draw_over_box__local_8:
+_draw_over_box__local_9:
+_draw_over_box__local_11:
+_draw_over_box__local_15:
+_draw_over_box__local_16:
+_draw_over_box__local_18:
+_draw_over_box__local_19:
+_draw_over_box__local_20:
+_draw_over_box__local_21:
+_draw_over_box__local_26:
+_draw_over_box__local_33:
+_draw_over_box__local_34:
+_draw_over_box__local_35:
+_draw_over_box__local_40:
+_draw_over_box__local_42:
+_draw_over_box__local_46:
+_draw_over_box__local_50:
+_draw_over_box__local_54:
+_draw_over_box__local_58:
+_draw_over_box__local_62:
+_draw_over_box__local_66:
+_draw_over_box__local_70:
+_draw_over_box__local_77:
+_draw_over_box__local_79:
+_draw_over_box__local_82:
+_draw_over_box__local_84:
+_draw_over_box__local_87:
+_draw_over_box__local_89:
+_draw_over_box__local_92:
+_draw_over_box__local_94:
+_draw_over_box__local_98:
+_draw_over_box__local_100:
+    .res 2
+    .res 1
+    .global cc45.sacsize._draw_over_box
+    cc45.sacsize._draw_over_box = 3
+    .segment "code"
+    .weak cc45.fsig._draw_over_box.s
+    cc45.fsig._draw_over_box.s = 1
+    proc _draw_over_box
+; Phase 51: zero-alloc leaf (all parameters constant)
+    .global _draw_over_box__sac
+_draw_over_box__sac:
+    .var cc45.fp = 0
+    .loc "title.c", 298
+
+@entry:
+    .loc "title.c", 299
+    lda #21
+    sta $10
+    lda #3
+    sta $12
+    lda #58
+    sta $14
+    lda #21
+    sta $16
+    jsr _fence_box
+    .loc "title.c", 300
+    ldax #__str_208
+    sta $14
+    stx $15
+    lda #31
+    sta $10
+    lda #5
+    sta $12
+    lda #7
+    sta $16
+    jsr _put_text
+    .loc "title.c", 301
+    lda _season
+    ldx #0
+    sta $30
+    cmp #10
+    bcc @tern_then209
+    bra @tern_else210
+@tern_then209:
+    lda #1
+    ldx #0
+    sta $32
+    stx $33
+    sta $34
+    stx $35
+    bra @tern_end211
+@tern_else210:
+    lda #2
+    ldx #0
+    sta $32
+    stx $33
+    sta $34
+    stx $35
+@tern_end211:
+    lda $30
+    ldx #0
+    ldx #0
+    sta $14
+    stx $15
+    lda $34
+    sta $16
+    lda #38
+    sta $10
+    lda #5
+    sta $12
+    lda #7
+    sta $18
+    jsr _put_number
+    .loc "title.c", 302
+    lda _season
+    cmp #10
+    bcc @tern_then212
+    bra @tern_else213
+@tern_then212:
+    lda #40
+    ldx #0
+    sta $30
+    sta $32
+    stx $33
+    bra @tern_end214
+@tern_else213:
+    lda #41
+    ldx #0
+    sta $30
+    sta $32
+    stx $33
+@tern_end214:
+    ldax #__str_215
+    sta $14
+    stx $15
+    lda $32
+    sta $10
+    lda #5
+    sta $12
+    lda #7
+    sta $16
+    jsr _put_text
+    .loc "title.c", 303
+    ldax #__str_216
+    sta $12
+    stx $13
+    lda _lambs
+    ldx _lambs+1
+    sta $14
+    stx $15
+    lda #7
+    sta $10
+    jsr _box_number__title
+    .loc "title.c", 304
+    ldax #__str_217
+    sta $12
+    stx $13
+    lda _glam_lambs
+    ldx _glam_lambs+1
+    sta $14
+    stx $15
+    lda #8
+    sta $10
+    jsr _box_number__title
+    .loc "title.c", 305
+    ldax #__str_218
+    sta $12
+    stx $13
+    lda _lamb_pts
+    ldx _lamb_pts+1
+    sta $14
+    stx $15
+    lda #9
+    sta $10
+    jsr _box_number__title
+    .loc "title.c", 306
+    ldax #__str_219
+    sta $12
+    stx $13
+    lda _wool_bags
+    ldx _wool_bags+1
+    sta $14
+    stx $15
+    lda #10
+    sta $10
+    jsr _box_number__title
+    .loc "title.c", 307
+    ldax #__str_220
+    sta $12
+    stx $13
+    lda _income
+    ldx _income+1
+    sta $14
+    stx $15
+    lda #11
+    sta $10
+    jsr _box_number__title
+    .loc "title.c", 308
+    ldax #__str_221
+    sta $12
+    stx $13
+    lda _score
+    ldx _score+1
+    sta $14
+    stx $15
+    lda #12
+    sta $10
+    jsr _box_number__title
+    .loc "title.c", 309
+    ldax #__str_222
+    sta $12
+    stx $13
+    lda _hiscore
+    ldx _hiscore+1
+    sta $14
+    stx $15
+    lda #13
+    sta $10
+    jsr _box_number__title
+    .loc "title.c", 310
+    lda _score
+    ldx _score+1
+    sta $30
+    cmp.16 .AX, _hiscore_was
+    beq @if_end225
+    bcs @if_then223
+    bra @if_end225
+@if_then223:
+    ldax #__str_226
+    sta $12
+    stx $13
+    lda #14
+    sta $10
+    lda #6
+    sta $14
+    jsr _box_line__title
+@if_end225:
+    .loc "title.c", 311
+    ldax #__str_227
+    sta $12
+    stx $13
+    lda #16
+    sta $10
+    lda #3
+    sta $14
+    jsr _box_line__title
+    .loc "title.c", 312
+    ldax #__str_228
+    sta $12
+    stx $13
+    lda #17
+    sta $10
+    lda #3
+    sta $14
+    jsr _box_line__title
+    .loc "title.c", 313
+    ldax #__str_229
+    sta $12
+    stx $13
+    lda #18
+    sta $10
+    lda #3
+    sta $14
+    jsr _box_line__title
+    .loc "title.c", 314
+    lda _over_t
+    ldx #0
+    sta $30
+    ora #0
+    bne @if_end232
+; @if_then230 (reached by falling through only)
+    ldax #__str_233
+    sta $12
+    stx $13
+    lda #20
+    sta $10
+    lda #1
+    sta $14
+    jsr _box_line__title
+@if_end232:
+@__return:
+    rts
+    .func_flags zp_call, static_alloc
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    .frame_size 0
+    endproc
+
+; function _box_line__title
+    .global cc45.zc._box_line__title__param_s
+    cc45.zc._box_line__title__param_s = 530
+    .global cc45.zc._box_line__title__param_y
+    cc45.zc._box_line__title__param_y = 257
+    .global cc45.zc._box_line__title__param_c
+    cc45.zc._box_line__title__param_c = 257
+; SAC storage: 2 bytes (in BSS)
+    .segment "bss"
+    .global _box_line__title__ar
+_box_line__title__ar:
+    .global _box_line__title__param_y
+_box_line__title__param_y:
+    .res 2
+    .global _box_line__title__param_s
+_box_line__title__param_s:
+    .res 2
+    .global _box_line__title__param_c
+_box_line__title__param_c:
+    .res 2
+_box_line__title__local_3:
+    .res 2
+_box_line__title__local_4:
+    .res 2
+_box_line__title__local_7:
+    .res 2
+_box_line__title__local_10:
+    .res 2
+    .res 1
+    .global cc45.sacsize._box_line__title
+    cc45.sacsize._box_line__title = 15
+    .segment "code"
+    .weak cc45.fsig._box_line__title.s2_2_2
+    cc45.fsig._box_line__title.s2_2_2 = 1
+    .extern _box_line__title__zar
+    .global cc45.zarsize._box_line__title
+    cc45.zarsize._box_line__title = 4
+    proc _box_line__title, B#@_p_y, W#@_p_s, B#@_p_c
+    .zar $80, 4
+    .sac
+; SAC thunk: load ZP params into SAC storage
+    .extern __zp_args
+    jsr __zp_args
+    .byte 1
+    .word _box_line__title__zar+2
+    .byte 2
+    .word _box_line__title__zar+0
+    .byte 1
+    .word _box_line__title__zar+3
+    .byte 0
+    .global _box_line__title__sac
+_box_line__title__sac:
+    .var cc45.fp = 0
+    .loc "title.c", 318
+    .var @_p_y = $10
+    .var @_p_s = $12
+    .var @_p_c = $14
+
+@entry:
+    .loc "title.c", 319
+    lda #38
+    ldx #0
+    sta _box_line__title__local_4
+    stx _box_line__title__local_4+1
+    lda $80
+    ldx $81
+    sta $10
+    stx $11
+    jsr _strlen
+    sta $30
+    stx $31
+    lda #38
+    sec
+    sbc $30
+    sta $32
+    lda #0
+    sbc $31
+    sta $33
+    lda $32
+    ldx $33
+    lsr.16 .AX
+    sta $30
+    stx $31
+    clc
+    adc #21
+    sta $10
+    lda $82
+    sta $12
+    lda $80
+    ldx $81
+    sta $14
+    stx $15
+    lda $83
+    sta $16
+    jsr _put_text
+@__return:
+    rts
+    .func_flags zp_call, static_alloc
+    .param_sizes 2, 2, 2
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    .frame_size 2
+    endproc
+    .dbg_var "param _box_line__title y char sym:_box_line__title__zar+2"
+    .dbg_var "param _box_line__title s *char sym:_box_line__title__zar+0"
+    .dbg_var "param _box_line__title c char sym:_box_line__title__zar+3"
+
+; function _box_number__title
+    .global cc45.zc._box_number__title__param_s
+    cc45.zc._box_number__title__param_s = 274
+    .global cc45.zc._box_number__title__param_y
+    cc45.zc._box_number__title__param_y = 513
+    .global cc45.zc._box_number__title__param_v
+    cc45.zc._box_number__title__param_v = 258
+; SAC storage: 0 bytes (in BSS)
+    .segment "bss"
+    .global _box_number__title__ar
+_box_number__title__ar:
+    .global _box_number__title__param_y
+_box_number__title__param_y:
+    .res 2
+    .global _box_number__title__param_s
+_box_number__title__param_s:
+    .res 2
+    .global _box_number__title__param_v
+_box_number__title__param_v:
+    .res 2
+_box_number__title__local_3:
+    .res 2
+_box_number__title__local_4:
+    .res 2
+_box_number__title__local_7:
+    .res 2
+_box_number__title__local_8:
+    .res 2
+_box_number__title__local_9:
+    .res 2
+    .res 1
+    .global cc45.sacsize._box_number__title
+    cc45.sacsize._box_number__title = 17
+    .segment "code"
+    .weak cc45.fsig._box_number__title.s2_2_2
+    cc45.fsig._box_number__title.s2_2_2 = 1
+    .extern _box_number__title__zar
+    .global cc45.zarsize._box_number__title
+    cc45.zarsize._box_number__title = 5
+    proc _box_number__title, B#@_p_y, W#@_p_s, W#@_p_v
+    .zar $80, 5
+    .sac
+; SAC thunk: load ZP params into SAC storage
+    .extern __zp_args
+    jsr __zp_args
+    .byte 1
+    .word _box_number__title__zar+2
+    .byte 2
+    .word _box_number__title__zar+0
+    .byte 2
+    .word _box_number__title__zar+3
+    .byte 0
+    .global _box_number__title__sac
+_box_number__title__sac:
+    .var cc45.fp = 0
+    .loc "title.c", 323
+    .var @_p_y = $10
+    .var @_p_s = $12
+    .var @_p_v = $14
+
+@entry:
+    .loc "title.c", 324
+    lda #29
+    sta $10
+    lda $82
+    sta $12
+    lda $80
+    ldx $81
+    sta $14
+    stx $15
+    lda #1
+    sta $16
+    jsr _put_text
+    .loc "title.c", 325
+    lda #46
+    sta $10
+    lda $82
+    sta $12
+    lda $83
+    ldx $84
+    sta $14
+    stx $15
+    lda #5
+    sta $16
+    lda #7
+    sta $18
+    jsr _put_number
+@__return:
+    rts
+    .func_flags zp_call, static_alloc
+    .param_sizes 2, 2, 2
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    .frame_size 0
+    endproc
+    .dbg_var "param _box_number__title y char sym:_box_number__title__zar+2"
+    .dbg_var "param _box_number__title s *char sym:_box_number__title__zar+0"
+    .dbg_var "param _box_number__title v u16 sym:_box_number__title__zar+3"
+
+
+    .segment "data"
+__str_10:
+    .text "#How to play"
+    .byte 0
+__str_11:
+    .byte 0
+__str_12:
+    .text "*Catch a sheep: walk up, press fire"
+    .byte 0
+__str_13:
+    .text "*Carry it to the salon door"
+    .byte 0
+__str_14:
+    .text " in the right-hand fence"
+    .byte 0
+__str_15:
+    .text "*Style it: wool, lipstick, lashes,"
+    .byte 0
+__str_16:
+    .text " eyeshadow, hats, pearls and more"
+    .byte 0
+__str_17:
+    .text "*Let it go: its lambs inherit"
+    .byte 0
+__str_18:
+    .text " the look"
+    .byte 0
+__str_19:
+    .text "*Farmer Fergus shears full fleeces"
+    .byte 0
+__str_20:
+    .text " (the makeup goes too)."
+    .byte 0
+__str_21:
+    .text " Fire beside him: shoo!"
+    .byte 0
+__str_22:
+    .text "#Scoring"
+    .byte 0
+__str_23:
+    .byte 0
+__str_24:
+    .text "*Glam lamb: 5 a trait x generation"
+    .byte 0
+__str_25:
+    .text "*On the trend: double points"
+    .byte 0
+__str_26:
+    .text "*All four traits: +50"
+    .byte 0
+__str_27:
+    .text "*Wool sold: 10 a bag, dyed 25"
+    .byte 0
+__str_28:
+    .text "#Styling studio"
+    .byte 0
+__str_29:
+    .text "*No clock, no score: style any"
+    .byte 0
+__str_30:
+    .text " sheep you like, as long as you like"
+    .byte 0
+__str_31:
+    .text "#Controls"
+    .byte 0
+__str_32:
+    .text "*Joystick, cursor keys or WASD"
+    .byte 0
+__str_33:
+    .text "*Fire, Space or Return"
+    .byte 0
+__str_71:
+    .text "A sheep makeover game for the MEGA65"
+    .byte 0
+__str_72:
+    .text "by Kimberly Taylor"
+    .byte 0
+__str_99:
+    .text "Play a season"
+    .byte 0
+__str_107:
+    .text "Styling studio"
+    .byte 0
+__str_114:
+    .text "<> pick  Fire: go  M: music  Stop: quit"
+    .byte 0
+__str_208:
+    .screencode "season"
+    .byte 0
+__str_215:
+    .screencode "is over!"
+    .byte 0
+__str_216:
+    .screencode "lambs born"
+    .byte 0
+__str_217:
+    .screencode "glam lambs"
+    .byte 0
+__str_218:
+    .screencode "lamb points"
+    .byte 0
+__str_219:
+    .screencode "wool bags"
+    .byte 0
+__str_220:
+    .screencode "wool income"
+    .byte 0
+__str_221:
+    .screencode "score"
+    .byte 0
+__str_222:
+    .screencode "high score"
+    .byte 0
+__str_226:
+    .screencode "a new high score!"
+    .byte 0
+__str_227:
+    .screencode "your flock goes to market."
+    .byte 0
+__str_228:
+    .screencode "next season starts afresh"
+    .byte 0
+__str_229:
+    .screencode "with a plain, unstyled flock."
+    .byte 0
+__str_233:
+    .screencode "return or fire to go on"
+    .byte 0

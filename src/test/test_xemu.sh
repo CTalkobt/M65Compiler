@@ -1359,8 +1359,8 @@ done
 # Test: the table-driven parameter thunk of ZP-convention SAC functions
 # (__zp_args, #292): static and base-page homes, skipped slots, floats,
 # pointers, a recursive caller, calls through pointers, a struct return;
-# also without base-page locals
-for zamode in "zp|" "zp_nolocals|-fno-zp-locals" "stack|-fno-zpcall"; do
+# also without base-page locals, and copied inline (-O3: no lists, #359)
+for zamode in "zp|" "zp_nolocals|-fno-zp-locals" "stack|-fno-zpcall" "zp_inline|-O3" "stack_inline|-O3 -fno-zpcall"; do
     IFS='|' read -r zaname zaflags <<< "$zamode"
     echo "Testing test_zp_args_xemu.c ($zaname)..."
     xemu_case "FAIL: test_zp_args_xemu.c $zaname (compilation/linking failed)" "src/test-resources/test_zp_args_xemu.c" "build/test/test_zp_args_${zaname}_xemu.prg" "$zaflags" -- "test_zp_args_$zaname" "build/test/test_zp_args_${zaname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
@@ -2409,6 +2409,14 @@ for wdmode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r wdname wdflags <<< "$wdmode"
     echo "Testing test_weak_default_xemu.c ($wdname)..."
     xemu_case "FAIL: test_weak_default_xemu.c $wdname (compilation/linking failed)" "src/test-resources/test_weak_default_xemu.c" "build/test/test_weak_default_${wdname}_xemu.prg" "$wdflags" "src/test-resources/test_weak_default_b.c src/test-resources/test_weak_default_asm.s45" -- "test_weak_default_$wdname" "build/test/test_weak_default_${wdname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+done
+
+# Test: parameters copied on entry from another file by a list (-O2) or
+# inline (-O3, -Ospeed: faster), both conventions (#359)
+for zsmode in "zp_lists|-O2" "zp_inline|-O3" "stack_lists|-O2 -fno-zpcall" "stack_inline|-O3 -fno-zpcall"; do
+    IFS='|' read -r zsname zsflags <<< "$zsmode"
+    echo "Testing test_zp_args_speed_xemu.c ($zsname)..."
+    xemu_case "FAIL: test_zp_args_speed_xemu.c $zsname (compilation/linking failed)" "src/test-resources/test_zp_args_speed_xemu.c" "build/test/test_zp_args_speed_${zsname}_xemu.prg" "$zsflags" "src/test-resources/test_zp_args_speed_b.c" -- "test_zp_args_speed_$zsname" "build/test/test_zp_args_speed_${zsname}_xemu.prg" "C0C0" 4 "01 01 01 AA"
 done
 
 # Test: fields of an extern struct and elements of an extern array at
