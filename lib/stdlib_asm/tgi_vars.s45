@@ -1,14 +1,15 @@
 ; tgi_vars.s45 — <tgi.h>'s kernel variables (tgi/tgi-kernel.h) in a fixed
-; order, so stdlib/tgi.c's tgi_install copies a driver's numbers in one
-; memcpy (the order of tgi_driver_t's from xres, stdlib/tgi_drv.h) and
-; clears a new driver's state in one memset (___tgi_state .. ___tgi_state_end)
+; order, so tgi_setup.s45's tgi_install copies a driver's numbers in one
+; loop (the order of tgi_driver_t's from xres, stdlib/tgi_drv.h) and clears
+; a new driver's state in one (___tgi_state .. ___tgi_state_end:
+; ___tgi_state_size bytes)
 
 .global _tgi_drv, _tgi_xmax, _tgi_ymax
 .global _tgi_xres, _tgi_yres, _tgi_colorcount, _tgi_pagecount, _tgi_fontwidth
 .global _tgi_fontheight, _tgi_aspectratio, _tgi_flags
 .global ___tgi_state, _tgi_error, _tgi_gmode, _tgi_curx, _tgi_cury, _tgi_color
 .global _tgi_font, _tgi_textdir, ___tgi_vfont, _tgi_textscalew, _tgi_textscaleh
-.global _tgi_charwidth, _tgi_charheight, ___tgi_state_end
+.global _tgi_charwidth, _tgi_charheight, ___tgi_state_end, ___tgi_state_size
 
 .segment "bss"
 _tgi_drv:           .res 2  ; the installed driver
@@ -39,3 +40,4 @@ _tgi_textscaleh:    .res 4
 _tgi_charwidth:     .res 2  ; the scaled bitmap character (8.8)
 _tgi_charheight:    .res 2
 ___tgi_state_end:
+___tgi_state_size = ___tgi_state_end - ___tgi_state   ; (tgi_setup.s45's tgi_install)

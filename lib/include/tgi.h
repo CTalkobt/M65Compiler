@@ -86,18 +86,18 @@ void tgi_load_driver(const char* name);
 void tgi_unload(void);
 
 /* Install an already loaded driver. Returns the error code (TGI_ERR_OK). */
-unsigned char tgi_install(const void* driver);
+__fastcall__ unsigned char tgi_install(const void* driver);
 
 /* Uninstall the currently loaded driver but do not unload it. Will call
  * tgi_done if necessary. */
-void tgi_uninstall(void);
+__fastcall__ void tgi_uninstall(void);
 
 /* Initialize the already loaded graphics driver. */
-void tgi_init(void);
+__fastcall__ void tgi_init(void);
 
 /* End graphics mode, switch back to text mode. Will NOT uninstall or unload
  * the driver! */
-void tgi_done(void);
+__fastcall__ void tgi_done(void);
 
 /* Load a vector font into memory and return it. In case of errors, NULL is
  * returned and an error is set, which can be retrieved using tgi_geterror.
@@ -124,10 +124,10 @@ void tgi_clear(void);
 unsigned tgi_getpagecount(void);
 
 /* Set the visible page. Will set an error if the page is not available. */
-void tgi_setviewpage(unsigned char page);
+__fastcall__ void tgi_setviewpage(unsigned char page);
 
 /* Set the drawable page. Will set an error if the page is not available. */
-void tgi_setdrawpage(unsigned char page);
+__fastcall__ void tgi_setdrawpage(unsigned char page);
 
 /* Get the number of available colors. Zero means 256 colors. */
 unsigned char tgi_getcolorcount(void);
