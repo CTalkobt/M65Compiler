@@ -79,6 +79,8 @@ check kickassembler "tab:" "tax" ".byte 1, 2, \$03" "*= \$2000" ".const vector =
 check x65 "tab:" "tax" ".byte 1, 2, \$03" ".export start" ".import putc"
 check merlin64 "tab" "tax" "DFB 1, 2, \$03" "ENT start" "EXT putc"
 check oscar "tab" "tax" "BYTE 1, 2, \$03" "EXTERN putc"
+check bsa ".CPU 45GS02" ".STORE __bsa_start,__bsa_end-__bsa_start" "tab:" "tax" ".BYTE 1,2,\$03" "* = \$2000" \
+    "vector = \$3000" "; global: start" "; extern: putc"
 OUT=$($CVT -t acme "$T/rt.s45" 2>/dev/null)
 ! grep -qE '^!(global|extern)|^TAB' <<< "$OUT" && pass "no bare !global/!extern, label case kept" ||
     fail "bare declarations or upper-cased label"
@@ -102,7 +104,7 @@ rtd() {
     done
     echo "$n$bad" > "$T/rt_$d.result"
 }
-DIALECTS="ca65 acme kickassembler merlin64 oscar x65"
+DIALECTS="ca65 acme kickassembler merlin64 oscar x65 bsa"
 for d in $DIALECTS; do rtd "$d" & done
 wait
 for d in $DIALECTS; do
@@ -309,10 +311,12 @@ grep -q "unknown directive '.bogus'" <<< "$W" && grep -q "kept as written: ca45 
 # !if { } else { }, !pet/!scr, !align mask; KickAssembler .macro(params),
 # !: multi-labels, ((zp)),z, .if () { }) convert to ca45 that assembles to
 # the bytes the real assembler made of them (src/test-resources/asmCvt45/
-# *.bin: ca65 2.18 + ld65 at $2000, ACME 0.97, KickAssembler 65CE02, #224)
+# *.bin: ca65 2.18 + ld65 at $2000, ACME 0.97, KickAssembler 65CE02, #224;
+# BSA 03-Mar-2025: MACRO, MODULE _locals, & / .BSS, #if, its data forms and
+# expression priorities, ^ and LBNE, #371)
 NV=src/test-resources/asmCvt45
 nbad=""
-for spec in "ca65|native_ca65.s65" "acme|native_acme.a65" "kickassembler|native_kick.ka"; do
+for spec in "ca65|native_ca65.s65" "acme|native_acme.a65" "kickassembler|native_kick.ka" "bsa|native_bsa.bsa"; do
     IFS='|' read -r nd nf <<< "$spec"
     nb="${nf%.*}"
     $CVT -f "$nd" -t ca45 "$NV/$nf" -o "$T/$nb.s45" 2>/dev/null
@@ -325,7 +329,7 @@ for spec in "ca65|native_ca65.s65" "acme|native_acme.a65" "kickassembler|native_
     fi
     cmp -s "$NV/$nb.bin" "$T/$nb.bin" || nbad="$nbad $nd"
 done
-[ -z "$nbad" ] && pass "native ca65, ACME and KickAssembler programs convert to the bytes their assemblers made" ||
+[ -z "$nbad" ] && pass "native ca65, ACME, KickAssembler and BSA programs convert to the bytes their assemblers made" ||
     fail "native programs:$nbad"
 
 # the older format tests

@@ -33,6 +33,16 @@ AsmIR::Module Ca65Parser::parse(const std::string& source) {
         std::string processedSource = MacroUtils::processConditionals(withIncludes, module);
         // the dialect's own conditional assembly, resolved (ca45 has none, #224)
         processedSource = dialectcond::resolve(processedSource, "ca65", warnings_);
+        // a forced 16-bit operand, a:$12, is ca45's lda.abs $12 (#371)
+        {
+            // (the mnemonic: first on the line, or after a label)
+            static const std::regex absRe(R"re(^(\s*(?:[A-Za-z_@.][A-Za-z0-9_]*:\s*)?)([A-Za-z]{3,4})(\s+)a:(.*)$)re");
+            std::istringstream in(processedSource);
+            std::ostringstream o;
+            std::string l;
+            while (std::getline(in, l)) o << std::regex_replace(l, absRe, "$1$2.abs$3$4") << "\n";
+            processedSource = o.str();
+        }
         // macros: their definitions are skipped, their calls expanded
         MacroUtils::extractCa65Macros(processedSource, module);
         static const DialectSyntax syn = syntax();

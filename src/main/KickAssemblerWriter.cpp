@@ -63,6 +63,17 @@ std::string KickAssemblerWriter::write(const AsmIR::Module& input) {
 
 std::string KickAssemblerWriter::formatInstruction(const AsmIR::Instruction& instr) {
     std::stringstream ss;
+    // (KickAssembler's comparisons give booleans, which are no numbers: an
+    // operand using one as a value does not assemble there, #371)
+    {
+        const std::string& o = instr.operand.text;
+        for (const char* cmp : {"==", "!=", "<=", ">="})
+            if (o.find(cmp) != std::string::npos) {
+                addWarning("'" + instr.mnemonic + " " + o + "': a comparison is a boolean in KickAssembler, "
+                           "not a number (write (c) ? 1 : 0): kept as written");
+                break;
+            }
+    }
     // (the 45GS02's [zp],z is ((zp)),z in KickAssembler, #223)
     std::string flat = flatOperand(instr.operand.text);
     if (instr.mode == AsmIR::AddressingMode::RAW && !flat.empty()) return instr.mnemonic + " ((" + flat + ")),z";

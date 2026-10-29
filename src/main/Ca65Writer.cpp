@@ -94,8 +94,10 @@ std::string Ca65Writer::write(const AsmIR::Module& input) {
     return out.str();
 }
 
-std::string Ca65Writer::formatInstruction(const AsmIR::Instruction& instr) {
+std::string Ca65Writer::formatInstruction(const AsmIR::Instruction& in) {
     std::stringstream ss;
+    AsmIR::Instruction instr = in;
+    if (forcedAbs(instr.mnemonic)) instr.operand.text = "a:" + instr.operand.text;
     // (ca65's 4510 is the 65CE02 with MAP: no 32-bit or flat-memory instructions, #223)
     if (isQInstruction(instr.mnemonic) || !flatOperand(instr.operand.text).empty())
         addWarning("'" + instr.mnemonic + " " + instr.operand.text +

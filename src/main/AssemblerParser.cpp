@@ -2427,8 +2427,11 @@ int AssemblerParser::calculateInstructionSize(const Instruction& instr, uint32_t
     if (instr.mnemonic == "bsr") return 3;
 
     if (instr.mnemonic == "rtn") {
-        // rtn #0 optimizes to just RTS (1 byte); rtn #N is RTS + immediate (2 bytes)
-        if (!instr.operand.empty()) {
+        // rtn #0 optimizes to just RTS (1 byte); rtn #N is RTS + immediate (2 bytes);
+        // a bare rtn is rtn #0 (the generator writes RTS: sized 2, it left a
+        // stray $00 before whatever followed)
+        if (instr.operand.empty()) return 1;
+        {
             Symbol* sym = resolveSymbol(instr.operand, scopePrefix);
             uint32_t v = 0;
             if (sym) {

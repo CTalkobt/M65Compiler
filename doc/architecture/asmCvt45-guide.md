@@ -2,11 +2,11 @@
 
 What [`asmCvt45`](../bin/asmCvt45.md) keeps, translates and loses for each assembler format (#223), and three worked conversions (#224). The tool's options are in its reference page; this page is about the result.
 
-**How it was checked.** For ca65, ACME and KickAssembler every statement below was checked against the real assembler, byte for byte:
+**How it was checked.** For ca65, ACME, KickAssembler and BSA every statement below was checked against the real assembler, byte for byte:
 
-- **ca45 → dialect:** sample programs (data directives, expressions, macros, local labels, 65CE02 and 45GS02 instructions) assembled by ca45 and, converted, by ca65 2.18 (+ ld65), ACME 0.97 and KickAssembler (the 65CE02/45GS02 build, `KickAss65CE02.jar`).
+- **ca45 → dialect:** sample programs (data directives, expressions, macros, local labels, 65CE02 and 45GS02 instructions) assembled by ca45 and, converted, by ca65 2.18 (+ ld65), ACME 0.97, KickAssembler (the 65CE02/45GS02 build, `KickAss65CE02.jar`) and BSA (the Bit Shift Assembler, 03-Mar-2025).
 - **dialect → ca45:** a program in each of those dialects' own idioms assembled natively and, converted, by ca45.
-- **dialect → dialect:** each of those native programs converted to the other two and assembled there.
+- **dialect → dialect:** each of those native programs converted to the others and assembled there.
 
 The native programs and their bytes are test fixtures (`src/test-resources/asmCvt45/`), checked by `test_asmCvt45.sh` in `make test`. Merlin 64, Oscar and x65 could not be checked against their assemblers: what is written for them follows their documented syntax, and anything not certain is written with a warning.
 
@@ -91,6 +91,26 @@ Comments and blank lines are kept. Warnings go to stderr and name the line; a co
 | **Changed** | `@local` labels → `<label>__name` (KickAssembler's `@` names are global: two `@loop`s in a file are an error); imports, exports and segment switches become comments, as for ACME. |
 | **Note** | KickAssembler's `bsr` (16-bit relative `jsr`) is missing from the 65CE02 build used here; the rest of the 65CE02 and 45GS02 instruction set assembled. |
 
+### BSA (the Bit Shift Assembler)
+
+**Reading BSA:**
+
+| | |
+|---|---|
+| **Kept** | Labels (any word that is no mnemonic or macro, `:` optional), constants, `* =` / `.ORG`, `.BYTE` / `.WORD`, `.FILL n (v)`, `.CPU`, the 45GS02 instructions in BSA's spelling (`LDQ`, `[zp],Z`, `BSR`, `ASW`, …). |
+| **Translated** | Expressions: parsed by BSA's priorities (comparisons above `&` `^` `|`, `<` and `>` taking only the next operand, `[ ]` as brackets) and written with ca45's; `<x+1` is `lo(x) + 1`. `MODULE` / `ENDMOD` locals (`_loop`, `.loop`) as `module_loop`; BSO-style `nn$` labels with their scope; `MACRO NAME(a)` … `ENDMAC` expanded; `#if` / `#ifdef` / `#else` / `#endif` resolved; `& =` / `NAME .BSS n` as constants; `^x` as `lda.abs`; `LBNE` (always 16-bit; ca45 sizes branches itself) as its bytes; every data form BSA has as the bytes it makes (`.PET`, `.DISP`, `.BHEX`, `.BIGW`, `.QUAD` big-endian, `.REAL` / `.REAL4` rounded as BSA rounds, `.HEX4`, `.DEC4`, `.BITS`, `.LITS`, packed `<"BRK"`), the BSA line kept in the comment. |
+| **Lost** | `.LOAD` / `.STORE` (BSA's binary output is chosen in the source, ca45's on its command line: comments), `.BASE`, `.CASE`, the listing directives. |
+| **Not converted** | `?sym` (the length of a `.BYTE` line), `#error` (a warning). |
+
+**Writing BSA:**
+
+| | |
+|---|---|
+| **Written** | `.CPU 45GS02` and a `.STORE` of the whole program (`asmcvt45.bin`: BSA writes no binary without one); `.BYTE`, `.WORD`, `.FILL n (v)` (for `.fill`/`.res`, `.fillto` as `.FILL (a)-* (v)`, `.align` as a `.FILL` of the padding), `.REAL`; `.dword` as `.BYTE` (BSA's `.QUAD` is one big-endian literal). |
+| **Changed** | ca45's `<x` / `>x` take the rest of the expression, BSA's only the next operand: `<(...)`, and `>(...)&255` (BSA's `>` is a shift, not masked: `>$AABBCC` is `$AABB`); `0x1F` / `0b101` as `$1F` / `%101`; `@local` labels as `label__name`; imports, exports and segments as comments; a forced 16-bit operand as `^`. |
+| **Needs a hand** | An origin, for relocatable source (ca65's): a `* = <address>` comment marks where, with a warning. Assemble with `bsa -b` when a branch is out of 8-bit range (ca45 makes it 16-bit itself; BSA's `-b` does the same). |
+| **Not available, warned** | `.incbin` (no binary include in BSA). |
+
 ### Merlin 64, Oscar, x65 (not checked against their assemblers)
 
 | | Merlin 64 | Oscar | x65 |
@@ -108,6 +128,7 @@ Comments and blank lines are kept. Warnings go to stderr and name the line; a co
 | ca65 2.18 (`.setcpu "4510"`) | yes | yes | no (warned) | no (warned) | no (warned) |
 | ACME 0.97 (`!cpu m65`) | yes | yes | yes | yes | no (warned) |
 | KickAssembler (`.cpu _45gs02`) | yes | yes (`bsr` not in the build tested) | yes | yes, as `((zp)),z` | yes, as `((zp)),z` |
+| BSA (`.CPU 45GS02`) | yes | yes | yes | yes | yes |
 
 ## Worked examples
 

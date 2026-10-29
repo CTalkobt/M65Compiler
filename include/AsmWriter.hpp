@@ -40,6 +40,16 @@ protected:
     // (45GS02, m65, _45gs02, 4510, 65CE02), "6502" (6502, _6502), "65c02",
     // else "" (#224)
     static std::string cpuFamily(const std::string& arg);
+    // ca45's forced 16-bit operand (lda.abs $12): true, and the mnemonic
+    // without its ".abs"; each target spells it its own way (ACME lda+2,
+    // ca65 a:$12, BSA ^$12, KickAssembler lda.abs as ca45, #371)
+    static bool forcedAbs(std::string& mnemonic) {
+        if (mnemonic.size() > 4 && mnemonic.compare(mnemonic.size() - 4, 4, ".abs") == 0) {
+            mnemonic.resize(mnemonic.size() - 4);
+            return true;
+        }
+        return false;
+    }
     // a directive the target has no equivalent of: written as given, warned
     std::string noEquivalent(const AsmIR::Directive& dir, const std::string& target, const std::string& written) {
         addWarning("." + dir.name + " has no " + target + " equivalent here: written as '" + written + "'");

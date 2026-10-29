@@ -1212,6 +1212,18 @@ else
     failed=$((failed + 1))
 fi
 
+# a bare rtn is rtn #0, one byte (RTS): it was sized as two, the following
+# code a byte late after a stray $00 (found by asmCvt45's BSA round trip, #371)
+printf '  .org $2000\n  rtn\nend:\n  .byte $ee\n' > build/test/rtn_bare.s45
+CA45_OPTIMIZE=0 $AS build/test/rtn_bare.s45 -o build/test/rtn_bare.bin >/dev/null 2>&1
+if [ "$(xxd -p build/test/rtn_bare.bin 2>/dev/null)" = "60ee" ]; then
+    echo "SUCCESS: a bare rtn is one byte"
+    passed=$((passed + 1))
+else
+    echo "FAIL: bare rtn: $(xxd -p build/test/rtn_bare.bin 2>/dev/null)"
+    failed=$((failed + 1))
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All assembler feature tests passed!"
     exit 0

@@ -33,6 +33,25 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   program (`--raw` and ca45 `.incbin`), calling the decoder from assembly;
   pack45 in the README's tool list.
 
+### asmCvt45: BSA, the Bit Shift Assembler (#371)
+
+- `asmCvt45 -f bsa` / `-t bsa` (`.bsa`, `.src`): BSA's syntax read by its own
+  rules (bsa.c 03-Mar-2025): its expression priorities and tight `<` / `>`,
+  MODULE locals, BSO `nn$` labels, MACRO / ENDMAC, `#if` / `#ifdef`, the BSS
+  pointer, every data form as the bytes BSA makes (`.PET`, `.DISP`, `.QUAD`,
+  `.REAL`, `.BITS`, packed words, ...), `^` forced 16-bit operands, `LBNE`.
+  Written with `.CPU`, a `.STORE` of the program, `.FILL n (v)`, and ca45's
+  `<` / `>` made BSA's. Checked byte for byte with BSA itself, both ways and
+  with ca65, ACME and KickAssembler; a native BSA program and its bytes are a
+  `test_asmCvt45.sh` fixture, and every test source round-trips through BSA.
+- All writers: a forced 16-bit operand (`lda.abs`) in each target's spelling
+  (ACME `lda+2`, ca65 `a:`, BSA `^`; the ca65 and ACME readers take theirs
+  back); ca45's `lo()` / `hi()` / `bank()` / `bit()` / `bits()` as operators
+  (they reached the other assemblers as unknown functions). KickAssembler:
+  a comparison used as a number is warned (it is a boolean there).
+- ca45: a bare `rtn` was sized as two bytes and written as one: the code after
+  it came a byte late, after a stray `$00`.
+
 ### ca45: .extern after a label; .align at link time (#372, #373)
 
 - An `.extern` after the file's own definition of the label replaced the
