@@ -949,7 +949,7 @@ fi
 # Test: an SD card image made by disk45: xemu boots from it (the ROM from the
 # card), BASIC reads and writes the card's MEGA65.D81; disk45 then finds the
 # file BASIC wrote. Needs xemu's MEGA65.ROM
-XEMU_ROM="$HOME/.local/share/xemu-lgb/mega65/MEGA65.ROM"
+XEMU_ROM="${XEMU_PREF_DIR:-$HOME/.local/share/xemu-lgb/mega65}/MEGA65.ROM"   # (the Docker images: $XEMU_PREF_DIR, #99)
 if [ -f "$XEMU_ROM" ]; then
     echo "Testing test_disk45_sd_xemu.bas..."
     SDC=build/test/test_disk45_sd.img

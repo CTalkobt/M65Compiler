@@ -4,6 +4,21 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Docker images with xemu (#99)
+
+- `src/Docker/Dockerfile.runtime` (`make docker-runtime`, Alpine, 51 MB):
+  the toolchain and xemu, with `m65run` (run a program headless; its exit
+  status from `$FD/$FE`, memory bytes, a screenshot). The root (Ubuntu)
+  image has xemu too: `make test-xemu` runs in it (764 pass). xemu is
+  CTalkobt/xemu `cc45-dev` (upstream dev with `XEMU_PREF_DIR`, the
+  monitor's breakpoint list for dbg45, the hardware divider), pinned. The
+  MEGA65 ROM is not included: mount yours at `/rom/MEGA65.ROM`; the
+  `xemu-xmega65` wrapper sets xemu up from it on first use (an SD card made
+  by `disk45 sd create --onboarded`, the ROM on it). The images run as the
+  user `m65` (xemu refuses root). `doc/architecture/DOCKER.md`.
+- tune45 compiles with musl (`<unistd.h>`): the Alpine images built again.
+- `test_disk45_sd_xemu.bas` finds the ROM in `$XEMU_PREF_DIR`.
+
 ### Parameter copies: size or speed (#359)
 
 - `-fzp-args` (a catalog entry): a static-allocation function's entry from

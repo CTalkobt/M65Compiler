@@ -149,7 +149,7 @@ Dbg45::Stop Dbg45::run(bool toMain, std::string& err) {
     if (!mon.launch(opt.xemu, prg_, 0, opt.headless, opt.fast, opt.xemuArgs, err)) return ERROR;
     if (!mon.hasBreakpointList()) {
         err = "this xemu (" + opt.xemu + ") has no breakpoint list (its monitor's 'k' command): dbg45 needs "
-              "CTalkobt/xemu's (branch feat/monitor-breakpoints)";
+              "CTalkobt/xemu's (branch cc45-dev)";
         kill();
         return ERROR;
     }
