@@ -29,6 +29,10 @@ bool readMp3(const std::vector<uint8_t>& file, Wav& w, std::string* err);
 // WAV: ffmpeg must be on the PATH
 bool readFfmpeg(const std::string& path, Wav& w, std::string* err);
 
+// a sound file, not samples: WAV, AU or MP3 by its first bytes, or by its
+// name one ffmpeg reads (.mp3 .mp4 .m4a .aac .ogg .oga .opus .flac)
+bool isSoundFile(const std::string& path, const std::vector<uint8_t>& file);
+
 // a sound by what it is (its first bytes): WAV, AU, MP3, else ffmpeg's
 bool readSound(const std::string& path, const std::vector<uint8_t>& file, Wav& w, std::string* err);
 

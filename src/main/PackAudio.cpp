@@ -209,6 +209,18 @@ bool readFfmpeg(const std::string& path, Wav& w, std::string* err) {
     return readWav(out, w, err);
 }
 
+bool isSoundFile(const std::string& path, const std::vector<uint8_t>& f) {
+    if (f.size() >= 12 && !std::memcmp(f.data(), "RIFF", 4) && !std::memcmp(f.data() + 8, "WAVE", 4)) return true;
+    if (f.size() >= 4 && !std::memcmp(f.data(), ".snd", 4)) return true;
+    if (f.size() >= 3 && !std::memcmp(f.data(), "ID3", 3)) return true;
+    size_t dot = path.find_last_of('.');
+    std::string ext = dot == std::string::npos ? "" : path.substr(dot);
+    for (auto& c : ext) c = (char)tolower((unsigned char)c);
+    for (const char* e : {".mp3", ".mp4", ".m4a", ".aac", ".ogg", ".oga", ".opus", ".flac", ".au", ".snd", ".wav"})
+        if (ext == e) return true;
+    return false;
+}
+
 bool readSound(const std::string& path, const std::vector<uint8_t>& f, Wav& w, std::string* err) {
     if (f.size() >= 12 && !std::memcmp(f.data(), "RIFF", 4) && !std::memcmp(f.data() + 8, "WAVE", 4)) return readWav(f, w, err);
     if (f.size() >= 4 && !std::memcmp(f.data(), ".snd", 4)) return readAu(f, w, err);

@@ -3,6 +3,7 @@
 //   tune45 convert music.txt -o music.c     C source and header (or --bin, --asm)
 //   tune45 list music.txt                   each tune's size and length
 //   tune45 play music.txt [--tune name]     on the PC (reSIDfp), or a .wav
+//   tune45 sample sound.pak --rate 8000     sampled sound as the audio DMA plays it
 // (create and import: see doc/bin/tune45.md)
 #include "TuneCompiler.hpp"
 #include "TunePlayer.hpp"
@@ -10,6 +11,8 @@
 #include "TuneCreate.hpp"
 #include "TuneMidi.hpp"
 #include "BasicTooling.hpp"
+#include "Pack45.hpp"
+#include "PackAudio.hpp"
 #include <csignal>
 #include <climits>
 #include <sys/stat.h>
@@ -42,6 +45,9 @@ void usage(std::ostream& o) {
          "            paplay or aplay, or into a .wav file\n"
          "  create    compose a tune (the text format): --genre, --tempo, --length, ...\n"
          "  import    a Standard MIDI File as text (convert and play take a .mid too)\n"
+         "  sample    play sampled sound as the MEGA65's audio DMA does: 8-bit samples, packed\n"
+         "            by pack45 or as they are (--rate), or a WAV, AU, MP3 (MP4 ... by ffmpeg)\n"
+         "            made so first (as pack45 --sound)\n"
          "Options:\n"
          "  -o <file>          output file\n"
          "  --bin, --asm       convert: a binary blob / ca45 source instead of C\n"
@@ -52,6 +58,10 @@ void usage(std::ostream& o) {
          "  --wav <file>       play: into a WAV file instead of the speakers\n"
          "  --ntsc             play: an NTSC machine (60 Hz, its SID clock)\n"
          "  --6581             play: the MOS 6581 SID (default: the 8580)\n"
+         "  --rate <hz>        sample: the samples' rate (a sound file: default the rate\n"
+         "                     pack45 --suggest-rate names)\n"
+         "  --max-rate <hz>    sample: a sound file: the highest rate to suggest\n"
+         "  --unsigned         sample: unsigned samples (offset by 128; default signed)\n"
          "  --mono             play: SIDs 1-2 only (without the mirror on SIDs 3-4)\n"
          "  --emulator         play: on the MEGA65 in xemu (a player program with the tunes)\n"
          "  --emulator-path <f> the xemu-xmega65 binary (default: on PATH)\n"
@@ -216,6 +226,63 @@ bool chosen(const TuneFile& f, const PlayOptions& o, std::vector<const Tune*>& o
         out.push_back(found);
     }
     return true;
+}
+
+// tune45 sample: the 8-bit samples (a pack45 stream unpacked, the file as it
+// is, or a sound file made into them as pack45 --sound does) played at their
+// rate, each held until the next as the audio DMA does, to 48 kHz
+int playSample(const std::string& path, uint32_t rate, uint32_t maxRate, bool isUnsigned, const std::string& wav) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in) { std::cerr << "tune45: cannot read " << path << "\n"; return 1; }
+    std::vector<uint8_t> f((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    std::vector<uint8_t> samples;
+    std::string what;
+    // a pack45 stream, with its load address in front or without
+    for (size_t skip : {(size_t)2, (size_t)0}) {
+        if (f.size() < skip + pack45::kHeader + 3 || f[skip] != pack45::kFormat) continue;
+        std::vector<uint8_t> s(f.begin() + (long)skip, f.end()), out;
+        if (pack45::unpack(s, out, nullptr)) {
+            samples = out;
+            what = "packed, " + std::to_string(f.size()) + " bytes";
+            break;
+        }
+    }
+    if (samples.empty() && pack45::isSoundFile(path, f)) {
+        pack45::Wav w;
+        std::string err;
+        if (!pack45::readSound(path, f, w, &err)) { std::cerr << "tune45: " << path << ": " << err << "\n"; return 1; }
+        if (!rate) {
+            uint32_t top = maxRate && maxRate < w.rate ? maxRate : w.rate;
+            rate = pack45::rateFor(pack45::energyBelow(w, 0.999, top < w.rate ? 0.45 * top : 0), top);
+        }
+        samples = pack45::toBytes(pack45::resample(w, rate), isUnsigned, false);
+        char line[96];
+        snprintf(line, sizeof line, "%u Hz, %d channel%s", (unsigned)w.rate, w.channels, w.channels == 1 ? "" : "s");
+        what = line;
+    } else if (samples.empty()) {
+        samples = f;
+        what = "as they are";
+    }
+    if (!rate) { std::cerr << "tune45: " << path << ": at what rate? --rate <hz> (pack45 --sound printed it)\n"; return 1; }
+    if (samples.empty()) { std::cerr << "tune45: " << path << ": no samples\n"; return 1; }
+    const int out = 48000;
+    AudioSink sink;
+    if (!sink.open(wav, out)) { std::cerr << "tune45: " << sink.error() << "\n"; return 1; }
+    char line[96];
+    snprintf(line, sizeof line, "%zu samples at %u Hz, %.2f s", samples.size(), (unsigned)rate, (double)samples.size() / rate);
+    std::cout << "playing " << path << " (" << what << "): " << line << " (via " << sink.via() << ")" << std::endl;
+    std::vector<int16_t> buf;
+    double step = (double)rate / out;
+    for (double t = 0; t < (double)samples.size(); t += step) {
+        uint8_t b = samples[(size_t)t];
+        int v = isUnsigned ? b - 128 : (int8_t)b;
+        buf.push_back((int16_t)(v * 256));
+        buf.push_back((int16_t)(v * 256));
+        if (buf.size() >= 8192) { sink.put(buf); buf.clear(); }
+    }
+    sink.put(buf);
+    sink.close();
+    return 0;
 }
 
 int play(const std::string& src, TuneFile f, const PlayOptions& o) {
@@ -581,6 +648,8 @@ int main(int argc, char** argv) {
     CreateCli cc;
     MidiImportOptions mo;
     bool loopFlag = false;   // (import: --loop; a tune made of a MIDI file ends by default)
+    uint32_t sampleRate = 0, sampleMax = 0;   // sample: --rate, --max-rate
+    bool sampleUnsigned = false;
     for (int i = 2; i < argc; i++) {
         std::string a = argv[i];
         if (a == "-o" && i + 1 < argc) out = argv[++i];
@@ -591,6 +660,9 @@ int main(int argc, char** argv) {
         else if (a == "--wav" && i + 1 < argc) po.wav = argv[++i];
         else if (a == "--ntsc") po.ntsc = true;
         else if (a == "--6581") po.mos6581 = true;
+        else if (a == "--rate" && i + 1 < argc) sampleRate = (uint32_t)std::max(0L, strtol(argv[++i], nullptr, 0));
+        else if (a == "--max-rate" && i + 1 < argc) sampleMax = (uint32_t)std::max(0L, strtol(argv[++i], nullptr, 0));
+        else if (a == "--unsigned") sampleUnsigned = true;
         else if (a == "--mono") po.mono = true;
         else if (a == "--emulator") po.emulator = true;
         else if (a == "--emulator-path" && i + 1 < argc) { po.emulator = true; po.emulatorPath = argv[++i]; }
@@ -631,6 +703,10 @@ int main(int argc, char** argv) {
         else input = a;
     }
     if (cmd == "create") return create(cc, out, po);
+    if (cmd == "sample") {
+        if (input.empty()) { std::cerr << "tune45: no sample file\n"; return 1; }
+        return playSample(input, sampleRate, sampleMax, sampleUnsigned, po.wav);
+    }
     if (cmd == "import") {
         if (input.empty()) { std::cerr << "tune45: no MIDI file\n"; return 1; }
         if (!cc.o.name.empty()) mo.name = cc.o.name;

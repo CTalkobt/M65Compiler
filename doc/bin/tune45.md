@@ -10,6 +10,7 @@ tune45 list music.txt                        # each tune's size and length
 tune45 play music.txt [--tune march]         # on the PC (reSIDfp), --emulator, --send, --wav
 tune45 create --genre jazz --length 16 -o song.txt
 tune45 import song.mid -o song.txt           # convert, list and play take a .mid too
+tune45 sample growl.pak --rate 8000          # sampled sound as the audio DMA plays it
 tune45 -V | --version
 tune45 -h | --help
 ```
@@ -110,10 +111,29 @@ Composes a tune in the text format: the composer of `examples/c/musicgen`, porte
 
 Reads a Standard MIDI File (format 0 or 1; ticks a quarter note, not SMPTE time) and writes tune45 text: up to `--voices` (default 3) monophonic voices from the first tracks with notes (format 1) or channels (format 0, or `--channels`); `--tracks a,b,c` / `--channels a,b` choose them. Where notes overlap the newest wins. Times are quantised to `--ticks-per-beat` (default 4: 16ths); the first tempo gives the frames per tick and the first time signature the bar length (notes across a bar line are tied). Channel 10 (drums) only with `--drums`. `--transpose <n>`, `--name <n>`, `--loop`. Instruments: `--instruments <file>` gives instrument lines (`voice1`, `voice2`... a voice's; `gm<program>` used at a program change); otherwise each voice gets one of three of tune45's. `convert`, `list` and `play` read a `.mid` file directly (by its `MThd` header).
 
+## sample
+
+Plays sampled sound as the MEGA65's audio DMA plays it: 8-bit samples at their rate, each held until the next (the DMA does not interpolate), on the PC through `pw-play`, `paplay` or `aplay` as `play` does, or into a 48 kHz WAV (`--wav`). What it plays:
+
+| The file | Played |
+|----------|--------|
+| A pack45 stream (with its load address or `--raw`) | Unpacked: the samples `pack45 --sound -d ...` packed |
+| A sound: WAV, AU, MP3; MP4, M4A, OGG, FLAC ... by `ffmpeg` | Made into samples first as `pack45 --sound` does: mixed to mono, low-passed, resampled to `--rate` or the rate `pack45 --suggest-rate` names (`--max-rate <hz>` its cap) |
+| Anything else | The bytes as samples |
+
+| Option | Meaning |
+|--------|---------|
+| `--rate <hz>` | The samples' rate (needed for samples: they do not say it; `pack45 --sound` prints it) |
+| `--max-rate <hz>` | A sound file: the highest rate to suggest |
+| `--unsigned` | Unsigned samples, offset by 128 (default signed, as `pack45 --sound` makes them) |
+| `--wav <file>` | A 48 kHz WAV file instead of the speakers |
+
+So a sound can be heard as it will be, its rate and 8 bits and all, before it goes on a disk: `tune45 sample --max-rate 12000 dragon.wav` plays it at the rate pack45 would choose. See [pack45](pack45.md#sounds---suggest-rate---sound).
+
 ## Exit Codes
 
 0 on success, 1 on an error (the messages on stderr).
 
 ## Tests
 
-`src/test/test_tune45.sh` (`make test`): the data of a tune byte by byte, glides, `TUNE_<NAME>_TICKS`, `--bin`, `--asm`, the errors, pfest's format, `list`, `create --check` and its options, `import` of a MIDI file made by the test, `play --wav`. `src/test/test_xemu.sh`: the player (`test_tune_xemu.c`) and `tune45 trace` (the model's registers) against the player's in xemu for 300 frames: a tune with every effect, and one of glides after a `tune_seek`. `examples/c/tunes` and `examples/c/glamlambs` (`test_examples.sh`).
+`src/test/test_tune45.sh` (`make test`): the data of a tune byte by byte, glides, `TUNE_<NAME>_TICKS`, `--bin`, `--asm`, the errors, pfest's format, `list`, `create --check` and its options, `import` of a MIDI file made by the test, `play --wav`, `sample` (a sound and the same samples packed by pack45, played into a WAV, and the error without `--rate`). `src/test/test_xemu.sh`: the player (`test_tune_xemu.c`) and `tune45 trace` (the model's registers) against the player's in xemu for 300 frames: a tune with every effect, and one of glides after a `tune_seek`. `examples/c/tunes` and `examples/c/glamlambs` (`test_examples.sh`).

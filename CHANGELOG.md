@@ -28,6 +28,17 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - Test: a tone, noise, the cap and a file that is not a WAV
   (`test_compiler.sh`, `src/test-resources/pack45/`).
 
+### tune45 sample: sampled sound as the audio DMA plays it
+
+- `tune45 sample <file>` plays 8-bit samples at their rate (`--rate`),
+  each held to the next as the audio DMA does, through the same players as
+  `play` or into a WAV (`--wav`): a pack45 stream unpacked, raw samples, or
+  a sound file (WAV, AU, MP3; MP4 and more by ffmpeg) made into samples as
+  `pack45 --sound` does, at the suggested rate unless `--rate`.
+  `--unsigned`, `--max-rate`.
+- Test: a sound and its samples packed by pack45 play the same, a quarter
+  of a second at 48 kHz; the error without `--rate` (`test_tune45.sh`).
+
 ### pack45 --sound: AU, MP3 and MP4 to samples for the audio DMA
 
 - `pack45 --sound <sound> <output>` converts a sound to 8-bit samples at

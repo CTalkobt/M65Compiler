@@ -129,5 +129,22 @@ assert max(abs(v) for v in s) > 2000
 EOF
 then pass; else fail "play --wav"; fi
 
+# sample: a sound (AU) at 8000 Hz, held to 48 kHz: a quarter of a second,
+# loud; the same samples packed by pack45 play the same
+P=src/test-resources/pack45
+if $TUNE sample --rate 8000 $P/tone.au --wav $T/s1.wav >/dev/null 2>&1 &&
+   ./bin/pack45 --sound --rate 8000 -d 0x40000 $P/tone.au $T/s.pak >/dev/null 2>&1 &&
+   $TUNE sample --rate 8000 $T/s.pak --wav $T/s2.wav >/dev/null 2>&1 && cmp -s $T/s1.wav $T/s2.wav &&
+   python3 - $T/s1.wav <<'EOF'
+import sys, wave, struct
+w = wave.open(sys.argv[1])
+n = w.getnframes()
+s = struct.unpack('<%dh' % (n * 2), w.readframes(n))
+assert w.getframerate() == 48000 and n == 12000, n
+assert max(abs(v) for v in s) > 15000
+EOF
+then pass; else fail "sample"; fi
+$TUNE sample $T/s.pak >/dev/null 2>&1 && fail "sample: no --rate" || pass
+
 echo "tune45 tests: $passed passed, $failed failed"
 [ $failed -eq 0 ]
