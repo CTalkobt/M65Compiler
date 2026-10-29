@@ -29,7 +29,9 @@ dependencies (SQLite and FUSE only for disk45):
 - **asmCvt45** — assembler source converter between 7 dialects
 - **pack45** — packs data into a stream the library's `unpack()` (`<unpack.h>`) unpacks by DMA to any 28-bit
   address, in place if loaded inside the area (`include/Pack45.hpp`, format 1); `ln45 --pack-overlays` packs the
-  overlay files with it (#345)
+  overlay files with it (#345); `--best` an optimal parse; `--suggest-rate` / `--sound` turn WAV, AU, MP3
+  (minimp3, `third_party/minimp3`) or MP4 (ffmpeg) into 8-bit samples at the lowest rate that keeps them
+  (`src/main/PackAudio.cpp`)
 - **tune45** — music for the tune player (`<audio_tune.h>`): text (pfest's format) or MIDI → data;
   plays on the PC (reSIDfp, `third_party/libresidfp`), in xemu or on a MEGA65; composes (`create`)
 - **dbg45** — source-level debugger in xemu (#202): the program's debug file (`cc45 -g` / `ln45 -g`:

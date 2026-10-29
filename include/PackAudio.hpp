@@ -19,6 +19,27 @@ struct Wav {
 // a WAV file's samples: PCM of 8, 16, 24 or 32 bits, or 32-bit float
 bool readWav(const std::vector<uint8_t>& file, Wav& w, std::string* err);
 
+// a Sun/NeXT .au file's: mu-law, A-law, PCM of 8, 16, 24 or 32 bits, float
+bool readAu(const std::vector<uint8_t>& file, Wav& w, std::string* err);
+
+// an MP3's (minimp3, third_party/minimp3)
+bool readMp3(const std::vector<uint8_t>& file, Wav& w, std::string* err);
+
+// any sound ffmpeg reads (MP4/M4A, and whatever else), decoded by it to a
+// WAV: ffmpeg must be on the PATH
+bool readFfmpeg(const std::string& path, Wav& w, std::string* err);
+
+// a sound by what it is (its first bytes): WAV, AU, MP3, else ffmpeg's
+bool readSound(const std::string& path, const std::vector<uint8_t>& file, Wav& w, std::string* err);
+
+// the samples at another rate: a windowed-sinc low-pass at 0.45 of the
+// lower of the two rates, then interpolated
+std::vector<double> resample(const Wav& w, uint32_t rate);
+
+// to 8-bit samples for the audio DMA: signed (two's complement), or
+// unsigned (offset by 128). normalise: the loudest sample to full scale
+std::vector<uint8_t> toBytes(std::vector<double> samples, bool isUnsigned, bool normalise);
+
 // the frequency (Hz) below which `keep` (0..1) of the sound's energy lies,
 // of the energy below `band` Hz (what the rate it is played at can hold;
 // 0: all of it)

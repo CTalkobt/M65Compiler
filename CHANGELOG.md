@@ -28,6 +28,18 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - Test: a tone, noise, the cap and a file that is not a WAV
   (`test_compiler.sh`, `src/test-resources/pack45/`).
 
+### pack45 --sound: AU, MP3 and MP4 to samples for the audio DMA
+
+- `pack45 --sound <sound> <output>` converts a sound to 8-bit samples at
+  `--rate HZ` or the suggested rate (mixed to mono, low-passed at 0.45 of
+  the rate, resampled); `--unsigned`, `--normalise`; with `-d` packed as
+  any file. `--suggest-rate` reads the same formats.
+- Reads WAV and AU (mu-law, A-law, PCM, float) itself, MP3 by minimp3
+  (CC0, `third_party/minimp3`, built in), and MP4/M4A or anything else
+  through `ffmpeg` when it is on the PATH.
+- Test: AU and MP3 tones, the samples' count, a packed sound's round trip
+  (`test_compiler.sh`).
+
 ### cvt_asm is now asmCvt45
 
 - The assembler source converter follows the toolchain's `<name>45` naming:
