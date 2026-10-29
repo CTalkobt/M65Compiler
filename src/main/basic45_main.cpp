@@ -421,6 +421,19 @@ static void printTokens() {
     if (col % 3 != 0) {
         std::cout << std::endl;
     }
+
+    std::vector<std::pair<uint8_t, std::string>> ceSorted;
+    for (const auto& kw : tokenizer.getCeKeywords()) ceSorted.push_back({kw.second, kw.first});
+    std::sort(ceSorted.begin(), ceSorted.end());
+    std::cout << std::endl;
+    std::cout << "MEGA65 BASIC 65 Two-byte Functions (0xCE + byte, total: " << ceSorted.size() << ")" << std::endl;
+    std::cout << std::endl;
+    col = 0;
+    for (const auto& token : ceSorted) {
+        printf("0xCE%02X %-14s  ", token.first, token.second.c_str());
+        if (++col % 3 == 0) std::cout << std::endl;
+    }
+    if (col % 3 != 0) std::cout << std::endl;
 }
 
 

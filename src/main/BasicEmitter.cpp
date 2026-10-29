@@ -189,6 +189,7 @@ std::vector<uint8_t> BasicEmitter::emitToken(const BasicToken& token) {
         case BasicToken::OPERATOR: {
             if (token.tokenByte != 0) {
                 result.push_back(token.tokenByte);   // + - * / ^ > = <
+                if (token.escapeByte) result.push_back(token.escapeByte);   // << >>: $FE $52/$53
             } else if (token.value == ":") {
                 result.push_back(0x3A);
             } else {
@@ -232,6 +233,8 @@ std::vector<uint8_t> BasicEmitter::emitLineWithSpaces(const BasicLine& line, uin
             const auto& nextToken = line.tokens[i + 1];
             if (token.value.back() == '(') {
                 // TAB( SPC(: the parenthesis is part of the token
+            } else if (token.value == "GO" && nextToken.type == BasicToken::NUMBER && nextToken.value == "64") {
+                // GO64, as BASIC stores it
             } else if (nextToken.type == BasicToken::RAW) {
                 // REM text keeps its own spacing; DATA items follow a space
                 if (token.value == "DATA") result.push_back(0x20);
@@ -332,6 +335,13 @@ size_t BasicEmitter::listedLength(const std::vector<uint8_t>& d) const {
         std::map<uint8_t, size_t> m;
         BasicTokenizer t;
         for (const auto& [name, tok] : t.getEscapeKeywords()) m[tok] = name.size();
+        m[0x52] = m[0x53] = 2;   // << >>
+        return m;
+    }();
+    static const std::map<uint8_t, size_t> kwCe = [] {
+        std::map<uint8_t, size_t> m;
+        BasicTokenizer t;
+        for (const auto& [name, tok] : t.getCeKeywords()) m[tok] = name.size();
         return m;
     }();
     size_t n = 0;
@@ -340,15 +350,32 @@ size_t BasicEmitter::listedLength(const std::vector<uint8_t>& d) const {
         uint8_t b = d[i];
         if (b == 0x22) inString = !inString;
         if (inString || b < 0x80) { n++; continue; }
-        if (b == 0xFE && i + 1 < d.size()) {
-            auto it = kwEsc.find(d[++i]);
-            n += it != kwEsc.end() ? it->second : 2;
+        if ((b == 0xFE || b == 0xCE) && i + 1 < d.size()) {
+            const auto& m = b == 0xFE ? kwEsc : kwCe;
+            auto it = m.find(d[++i]);
+            n += it != m.end() ? it->second : 2;
             continue;
         }
         auto it = kw.find(b);
         n += it != kw.end() ? it->second : 1;
     }
     return n;
+}
+
+// A word that is a keyword in another BASIC (7.0, 3.5) or under the MEGA65
+// Book's name, and what the ROM's BASIC 65 has instead: " (BASIC 65 has
+// SPEED)", or ""
+std::string BasicEmitter::otherKeywordHint(const std::string& word) {
+    static const std::map<std::string, std::string> other = {
+        {"SLOW", "SPEED"}, {"PEEKW", "WPEEK"}, {"POKEW", "WPOKE"},          // the MEGA65 Book's names
+        {"DRAW", "LINE"}, {"LOCATE", ""}, {"SCALE", ""}, {"RDOT", "PIXEL"},   // BASIC 7.0 / 3.5
+        {"RCLR", "RCOLOR"}, {"RLUM", ""}, {"RGR", "RGRAPHIC"}, {"SSHAPE", ""}, {"GSHAPE", ""},
+        {"WIDTH", ""}, {"SPRDEF", ""}, {"PUDEF", ""}, {"QUIT", ""},
+        {"STASH", "EDMA"}, {"FETCH", "EDMA"}, {"SWAP", "EDMA"},
+    };
+    auto it = other.find(word);
+    if (it == other.end()) return "";
+    return it->second.empty() ? " (a keyword of BASIC 7.0 / 3.5)" : " (BASIC 65 has " + it->second + ")";
 }
 
 void BasicEmitter::checkVariables(const std::vector<std::vector<BasicToken>>& lines,
@@ -371,6 +398,29 @@ void BasicEmitter::checkVariables(const std::vector<std::vector<BasicToken>>& li
             if (s < end && t[s].type == BasicToken::KEYWORD && (t[s].value == "THEN" || t[s].value == "ELSE")) s++;
             if (s < end && t[s].type == BasicToken::KEYWORD && t[s].value == "LET") s++;
             std::string kw = (s < end && t[s].type == BasicToken::KEYWORD) ? t[s].value : "";
+            // a statement that starts with a name is an assignment; anything
+            // else is a word BASIC 65 does not know (?SYNTAX ERROR when run):
+            // a typo, or a keyword of another BASIC or ROM version
+            if (s < end && t[s].type == BasicToken::IDENTIFIER && std::isalpha((unsigned char)t[s].value[0])) {
+                size_t q = s + 1;
+                if (q < end && t[q].type == BasicToken::OPERATOR && (t[q].value == "%" || t[q].value == "&")) q++;
+                if (q < end && t[q].type == BasicToken::OPERATOR && t[q].value == "(") {
+                    int d = 0;
+                    for (; q < end; q++) {
+                        if (t[q].type == BasicToken::OPERATOR && t[q].value == "(") d++;
+                        if (t[q].type == BasicToken::OPERATOR && t[q].value == ")" && --d == 0) { q++; break; }
+                    }
+                }
+                if (!(q < end && t[q].type == BasicToken::OPERATOR && t[q].value == "="))
+                    diagnostics.push_back({sourceOf[li], "'" + t[s].value + "' is not a BASIC 65 keyword" +
+                                           otherKeywordHint(up(t[s].value)) +
+                                           ": the statement is a ?SYNTAX ERROR when run", false});
+            }
+            for (size_t k = s + 1; k + 1 < end; k++)   // PEEKW(...) in an expression
+                if (t[k].type == BasicToken::IDENTIFIER && t[k + 1].type == BasicToken::OPERATOR &&
+                    t[k + 1].value == "(" && !otherKeywordHint(up(t[k].value)).empty())
+                    diagnostics.push_back({sourceOf[li], "'" + t[k].value + "' is not a BASIC 65 function" +
+                                           otherKeywordHint(up(t[k].value)) + ": it is read as an array", false});
             bool listAssign = kw == "INPUT" || kw == "INPUT#" || kw == "READ" || kw == "GET" || kw == "RREG";
             int depth = 0;
             bool expectTarget = listAssign;   // the next name at depth 0 is assigned
@@ -581,6 +631,9 @@ std::vector<uint8_t> BasicEmitter::emitFromLabels(const LabelBasedSourceParser& 
     {
         std::set<uint16_t> targets;
         for (const auto& [l, n] : labels) targets.insert(n);
+        // and the lines jumped to by number (GOSUB 300: a numbered program)
+        for (const auto& tl : tokenLines)
+            LabelBasedSourceParser::forEachLineNumberRef(tl, [&](size_t, uint16_t n) { targets.insert(n); });
         checkReachable(lines.empty() ? lines : [&] {
             std::vector<BasicLine> withTokens = lines;
             for (size_t i = 0; i < withTokens.size(); i++) withTokens[i].tokens = tokenLines[i];

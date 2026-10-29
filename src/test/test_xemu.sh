@@ -634,6 +634,16 @@ for bsmode in "plain|" "minify|--minify" "spaces|--preserve-spaces"; do
         failed=$((failed + 1))
     fi
 done
+# basic45: a numbered program; BASIC 65's $CE functions and $FE tokens
+# (MOD, LOG10, WPEEK, POINTER, WPOKE, << >>) as the ROM's tables have them
+echo "Testing test_basic45_numbered_xemu.bas..."
+if ./bin/basic45 --strict src/test-resources/test_basic45_numbered_xemu.bas \
+       -o build/test/test_basic45_numbered_xemu.prg >/dev/null 2>&1; then
+    run_xemu_test "test_basic45_numbered" "build/test/test_basic45_numbered_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
+else
+    echo "FAIL: test_basic45_numbered_xemu.bas (basic45 failed)"
+fi
+
 # basic45 extensions: long names, block if, proc/call, FN (run by BASIC);
 # the same program decompiled and rebuilt; --list, --source-map, --disk
 echo "Testing test_basic45_features_xemu.bas..."

@@ -74,6 +74,7 @@ private:
     std::vector<BasicLine> processLabels(std::vector<BasicLine>& lines);
     // Warnings: variables read but never assigned / assigned but never read,
     // code after an unconditional jump, lines too long to edit
+    static std::string otherKeywordHint(const std::string& word);
     void checkVariables(const std::vector<std::vector<BasicToken>>& lines, const std::vector<int>& sourceOf);
     void checkReachable(const std::vector<BasicLine>& lines, const std::vector<int>& sourceOf,
                         const std::set<uint16_t>& targets);

@@ -67,9 +67,10 @@ BasicDecompileResult decompileBasic(const std::vector<uint8_t>& prg) {
 
     BasicTokenizer tokenizer;
     PETSCIIEncoder petscii;
-    std::map<uint8_t, std::string> kw, kwEsc;
+    std::map<uint8_t, std::string> kw, kwEsc, kwCe;
     for (const auto& [name, tok] : tokenizer.getKeywords()) kw[tok] = name;
     for (const auto& [name, tok] : tokenizer.getEscapeKeywords()) kwEsc[tok] = name;
+    for (const auto& [name, tok] : tokenizer.getCeKeywords()) kwCe[tok] = name;
     static const std::map<uint8_t, std::string> ops = {
         {0xAA, "+"}, {0xAB, "-"}, {0xAC, "*"}, {0xAD, "/"}, {0xAE, "^"},
         {0xB1, ">"}, {0xB2, "="}, {0xB3, "<"},
@@ -115,9 +116,15 @@ BasicDecompileResult decompileBasic(const std::vector<uint8_t>& prg) {
                 text += textChar(b, false);
                 continue;
             }
-            if (b == 0xFE && p < prg.size() && kwEsc.count(prg[p])) {
+            if (b == 0xFE && p < prg.size() && (prg[p] == 0x52 || prg[p] == 0x53)) {
+                flush();
+                line.pieces.push_back({false, prg[p++] == 0x52 ? "<<" : ">>"});
+            } else if (b == 0xFE && p < prg.size() && kwEsc.count(prg[p])) {
                 flush();
                 line.pieces.push_back({true, kwEsc[prg[p++]]});
+            } else if (b == 0xCE && p < prg.size() && kwCe.count(prg[p])) {
+                flush();
+                line.pieces.push_back({true, kwCe[prg[p++]]});
             } else if (ops.count(b)) {
                 flush();
                 line.pieces.push_back({false, ops.at(b)});
