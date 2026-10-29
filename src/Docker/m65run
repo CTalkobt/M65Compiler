@@ -1,0 +1,58 @@
+#!/bin/sh
+# m65run — run a MEGA65 program in xemu, headless, and report how it ended
+# (the cc45 Docker images with xemu, #99)
+#
+#   m65run [-t SECONDS] [-d ADDR:LEN]... [-s FILE.png] [-8 DISK.d81] [-c64] PROG.prg
+#
+# The program is loaded in C65 mode (-c64: C64 mode) and run; xemu stops at
+# BASIC's READY. after it (or after SECONDS, default 15). Printed:
+#   exit status N    a cc45 program's status (main's return / exit()) from
+#                    $FD/$FE: 65535 when it never reached __exit (a hang, a
+#                    crash, the time ran out), 65534 after abort()
+#   ADDR: bytes      for each -d (address and length: decimal, or hex as 0xC0C0)
+# -s saves a screenshot; -8 mounts a disk image on drive 8.
+# The exit code is 0 for status 0, 1 for another status, 2 for an error.
+
+usage() {
+    sed -n '4,15p' "$0" | sed 's/^# \{0,1\}//' >&2
+    exit 2
+}
+
+secs=15 mode=65 shot= disk= dumps=
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -t) secs=$2; shift 2 ;;
+        -d) dumps="$dumps $2"; shift 2 ;;
+        -s) shot=$2; shift 2 ;;
+        -8) disk=$2; shift 2 ;;
+        -c64) mode=64; shift ;;
+        -h|--help) usage ;;
+        -*) echo "m65run: unknown option $1" >&2; usage ;;
+        *) break ;;
+    esac
+done
+[ $# -eq 1 ] || usage
+prg=$1
+[ -r "$prg" ] || { echo "m65run: cannot read $prg" >&2; exit 2; }
+
+tmp=$(mktemp -d) || exit 2
+trap 'rm -rf "$tmp"' EXIT
+set -- -headless -besure -sleepless -prgmode "$mode" -prgexit -dumpmem "$tmp/mem" -prg "$prg"
+[ -n "$shot" ] && set -- "$@" -screenshot "$shot"
+[ -n "$disk" ] && set -- "$@" -8 "$disk"
+timeout "$secs" xemu-xmega65 "$@" </dev/null >"$tmp/log" 2>&1
+rc=$?
+if [ ! -s "$tmp/mem" ]; then
+    [ $rc -eq 124 ] && echo "m65run: no result after ${secs}s (the program did not end)" >&2 ||
+        { echo "m65run: xemu failed (exit code $rc):" >&2; tail -5 "$tmp/log" >&2; }
+    exit 2
+fi
+
+byte() { od -An -tu1 -j "$1" -N 1 "$tmp/mem" | tr -d ' '; }
+status=$(( $(byte 253) + 256 * $(byte 254) ))
+echo "exit status $status"
+for d in $dumps; do
+    addr=$(( ${d%%:*} )) len=$(( ${d#*:} ))
+    printf '%04X:%s\n' "$addr" "$(od -An -tx1 -v -j "$addr" -N "$len" "$tmp/mem" | tr -s ' \n' ' ' | sed 's/ $//')"
+done
+[ "$status" -eq 0 ]

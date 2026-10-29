@@ -34,7 +34,7 @@ dependencies (SQLite and FUSE only for disk45):
   plays on the PC (reSIDfp, `third_party/libresidfp`), in xemu or on a MEGA65; composes (`create`)
 - **dbg45** — source-level debugger in xemu (#202): the program's debug file (`cc45 -g` / `ln45 -g`:
   `<prog>.dbg`, JSON), breakpoints by line / function, stepping, the stack, variables by type; drives
-  xemu's monitor socket (needs its `k` breakpoint list: CTalkobt/xemu `monitor-breakpoints`);
+  xemu's monitor socket (needs its `k` breakpoint list: CTalkobt/xemu `cc45-dev`, which the Docker images build);
   `--dap` for VS Code (`tools/ide/vscode-extension`, debug type `cc45`)
 
 ## Architecture
@@ -220,7 +220,7 @@ doc/examples/        the examples with screenshots (examples/capture_screens.py)
   their checks from `src/test/test_harness.hpp`; `bin/test_validation parser linker` runs some,
   `-l` lists them, `TV_VERBOSE=1` shows the PASS lines; `make test-validation-<x>` runs one
 - `make clean`, `make install` (PREFIX=/usr/local: `bin/`, `lib/cc45/`, `include/cc45/`), `make install_local`, `make man`
-- `make coverage`, `make test-o45`, `make docker` (Alpine `src/Docker/Dockerfile`: `make install PREFIX=/app`, entrypoint cc45; `src/Docker/docker-aliases.sh`; the root `Dockerfile` is Ubuntu, with the source tree for `make test`)
+- `make coverage`, `make test-o45`, `make docker` (Alpine `src/Docker/Dockerfile`: `make install PREFIX=/app`, entrypoint cc45; `src/Docker/docker-aliases.sh`), `make docker-runtime` (`src/Docker/Dockerfile.runtime`: the toolchain and xemu, `m65run`; #99); the root `Dockerfile` is Ubuntu, with the source tree for `make test` and xemu for `make test-xemu`. The images' xemu is CTalkobt/xemu `cc45-dev` (pinned); the MEGA65 ROM is mounted at `/rom/MEGA65.ROM` (`doc/architecture/DOCKER.md`)
 - `bench-optimizer` (a size benchmark) still uses mmemu — **runtime tests are run on xemu-xmega65, never mmemu**.
 
 The tools find headers and libraries relative to their own location, in the
