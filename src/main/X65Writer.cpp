@@ -141,6 +141,11 @@ std::string X65Writer::formatDirective(const AsmIR::Directive& dir) {
     // as ca45 has them, with a warning)
     const std::string kind = dataKind(dir.name);
     if (kind == "dword") return ".long " + args(0);
+    // (numbers: the bytes themselves, which any assembler takes)
+    if (kind == "dword" || kind == "fill") {
+        std::string b = literalBytes(dir);
+        if (!b.empty()) return ".byte " + b;
+    }
     if (kind == "fill" || kind == "align" || kind == "fillto" || kind == "incbin" || kind == "float")
         return noEquivalent(dir, "x65", "." + dir.name + (dir.arguments.empty() ? "" : " " + args(0)));
     ss << "." << dir.name;

@@ -32,6 +32,10 @@ protected:
     static bool isQInstruction(const std::string& mnemonic);
     // a 45GS02 flat-memory operand, [zp],z: its zp part (else "")
     static std::string flatOperand(const std::string& operand);
+    // a .dword / .fill whose arguments are numbers, as the bytes ca45 makes
+    // of it ("$78, $56, $34, $12"); "" when they are not numbers (or a fill
+    // over 256 bytes)
+    static std::string literalBytes(const AsmIR::Directive& dir);
     // a directive the target has no equivalent of: written as given, warned
     std::string noEquivalent(const AsmIR::Directive& dir, const std::string& target, const std::string& written) {
         addWarning("." + dir.name + " has no " + target + " equivalent here: written as '" + written + "'");

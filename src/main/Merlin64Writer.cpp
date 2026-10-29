@@ -148,6 +148,11 @@ std::string Merlin64Writer::formatDirective(const AsmIR::Directive& dir) {
     // (#223: data directives this writer has no checked form for are written
     // as ca45 has them, with a warning)
     const std::string kind = dataKind(dir.name);
+    // (numbers: the bytes themselves, which any assembler takes)
+    if (kind == "dword" || kind == "fill") {
+        std::string b = literalBytes(dir);
+        if (!b.empty()) return "DFB " + b;
+    }
     if (kind == "dword") return noEquivalent(dir, "Merlin 64", ".dword " + args(0));
     if (kind == "fill" || kind == "align" || kind == "fillto" || kind == "incbin" || kind == "float")
         return noEquivalent(dir, "Merlin 64", "." + dir.name + (dir.arguments.empty() ? "" : " " + args(0)));

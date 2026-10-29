@@ -90,6 +90,42 @@ std::string AsmWriter::flatOperand(const std::string& operand) {
     return r == ",z" ? operand.substr(a + 1, b - a - 1) : "";
 }
 
+std::string AsmWriter::literalBytes(const AsmIR::Directive& dir) {
+    auto num = [](std::string a, long& v) {
+        size_t b = a.find_first_not_of(" \t"), e = a.find_last_not_of(" \t");
+        if (b == std::string::npos) return false;
+        a = a.substr(b, e - b + 1);
+        char* end = nullptr;
+        if (a[0] == '$') v = std::strtol(a.c_str() + 1, &end, 16);
+        else if (a[0] == '%') v = std::strtol(a.c_str() + 1, &end, 2);
+        else v = std::strtol(a.c_str(), &end, 10);
+        return end && !*end && end != a.c_str();
+    };
+    std::vector<long> bytes;
+    std::string kind = dataKind(dir.name);
+    if (kind == "dword") {
+        for (const auto& a : dir.arguments) {
+            long v;
+            if (!num(a, v)) return "";
+            for (int k = 0; k < 4; k++) bytes.push_back((v >> (8 * k)) & 0xFF);
+        }
+    } else if (kind == "fill" && !dir.arguments.empty()) {
+        long n, f = 0;
+        if (!num(dir.arguments[0], n) || n < 0 || n > 256 || (dir.arguments.size() > 1 && !num(dir.arguments[1], f)))
+            return "";
+        for (long k = 0; k < n; k++) bytes.push_back(f & 0xFF);
+    } else {
+        return "";
+    }
+    std::string r;
+    for (size_t k = 0; k < bytes.size(); k++) {
+        char b[8];
+        std::snprintf(b, sizeof b, "%s$%02lX", k ? ", " : "", bytes[k]);
+        r += b;
+    }
+    return r;
+}
+
 std::string AsmWriter::dataKind(const std::string& name) {
     std::string n;
     for (char c : name) n += (char)std::tolower((unsigned char)c);
