@@ -1183,6 +1183,35 @@ else
     failed=$((failed + 1))
 fi
 
+# #372: .extern after a label's definition keeps the label where it is; #373:
+# .align in an object's bss / data / text is kept at link time (ca45 exports
+# cc45.align.<segment>, as cc45 does for _Alignas)
+mkdir -p build/test_extalign
+xa_ok=1; xa_why=""
+printf '.global _d\n.segment "data"\n    .byte 1, 2\n_d:\n    .byte 3\n.extern _d\n.segment "code"\nproc _f\n    lda _d\n    rts\nendproc\n' > build/test_extalign/ext.s45
+$AS -c build/test_extalign/ext.s45 -o build/test_extalign/ext.o45 >/dev/null 2>&1
+./bin/nm45 build/test_extalign/ext.o45 | grep -q '^00000002 D _d$' || { xa_ok=0; xa_why+=" [.extern after _d: $(./bin/nm45 build/test_extalign/ext.o45 | grep _d)]"; }
+./bin/nm45 -r build/test_extalign/ext.o45 | grep -q 'R_WORD *DATA' || { xa_ok=0; xa_why+=" [relocation not against DATA]"; }
+printf '.segment "bss"\n    .res 3\n    .align 16\n_t: .res 16\n.global _t\n.segment "data"\n    .byte 1, 2, 3\n    .align 32\n_u: .byte 9\n.global _u\n.segment "code"\n    rts\n    .align 64\nproc _h\n    rts\nendproc\n.global _h\n' > build/test_extalign/al.s45
+printf 'extern unsigned char t[16], u; extern void h(void);\nunsigned char b[5], c[3] = {1, 2, 3};\nint main(void) { b[0] = 1; h(); return ((unsigned int)t & 15) | ((unsigned int)&u & 31) | ((unsigned int)h & 63); }\n' > build/test_extalign/m.c
+if $AS -c build/test_extalign/al.s45 -o build/test_extalign/al.o45 >/dev/null 2>&1 &&
+   ./bin/cc45 -O2 -c build/test_extalign/m.c -o build/test_extalign/m.o45 >/dev/null 2>&1 &&
+   ./bin/ln45 -basic -M build/test_extalign/m.map -o build/test_extalign/m.prg lib/build/crt0_zp.o45 build/test_extalign/m.o45 build/test_extalign/al.o45 lib/build/c45.lib >/dev/null 2>&1; then
+    for sa in _t:16 _u:32 _h:64; do
+        a=$(awk -v n="${sa%%:*}" '$2 == n && $1 ~ /^\$/ {print substr($1, 2); exit}' build/test_extalign/m.map)
+        [ -n "$a" ] && [ $(( 0x$a % ${sa##*:} )) = 0 ] || { xa_ok=0; xa_why+=" [${sa%%:*} at \$$a]"; }
+    done
+else
+    xa_ok=0; xa_why+=" [the .align program did not build]"
+fi
+if [ $xa_ok -eq 1 ]; then
+    echo "SUCCESS: .extern after a label keeps its segment; .align in an object's bss/data/text survives linking"
+    passed=$((passed + 1))
+else
+    echo "FAIL: .extern after a label / .align at link time (#372, #373):$xa_why"
+    failed=$((failed + 1))
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All assembler feature tests passed!"
     exit 0

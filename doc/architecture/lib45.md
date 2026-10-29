@@ -453,7 +453,7 @@ cc45 objects also contain:
 | `_f__param_x` | BSS | Static parameter slot `x` of SAC function `f` |
 | `cc45.mode_zp` / `cc45.mode_stack` | weak absolute (1) | Calling convention of the object (used by ln45) |
 | `cc45.zeroPageStart` | weak absolute | First ZP address of the code generator (`$08`); base of the ZP masks |
-| `cc45.align.text` / `.data` / `.bss` | weak absolute | Largest alignment in that segment (only when > 1) |
+| `cc45.align.text` / `.data` / `.bss` | weak absolute | Largest alignment in that segment (only when > 1): cc45's `_Alignas` / `aligned(N)`, ca45's `.align` |
 | `cc45.icallinfo` | weak absolute | The object marks its functions' calls through pointers (below); an object without it: each label calls through any pointer |
 | `cc45.icall.<f>` | absolute | `f` calls through a pointer of unknown type, or has inline asm |
 | `cc45.isig.<f>.<sig>` | weak absolute | `f` calls through a prototyped pointer with parameter slots `<sig>` (`s2_4`, `v` variadic) |
