@@ -15,9 +15,6 @@
 ; no calls through pointers here (ln45's call graph)
 .weak cc45.icallinfo
 cc45.icallinfo = 1
-; the BSS 16-byte aligned (ln45 places it so: __spr_ptr)
-.weak cc45.align.bss
-cc45.align.bss = 16
 
 .global _sprite_init, _sprite_done, _sprite_image, _sprite_pos, _sprite_move
 .global _sprite_x, _sprite_y, _sprite_show, _sprite_hide, _sprite_color
