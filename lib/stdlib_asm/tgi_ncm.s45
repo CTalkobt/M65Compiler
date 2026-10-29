@@ -12,7 +12,7 @@
 ; tgi.c's routines call the ones here then (their weak defaults do nothing:
 ; this member, linked with the driver, replaces them). Lines and the
 ; ellipse's points are the 320x200 driver's (the same Bresenham, the same
-; walk), plotted a pixel at a time.
+; walk), their addresses stepped as there, a nibble at a time.
 
 ; no calls through pointers here (ln45's call graph)
 .weak cc45.icallinfo
@@ -20,8 +20,10 @@ cc45.icallinfo = 1
 
 .global _tgi_static_ncm640, ___tgi_ncm640_name
 .global ___tgi_n_setpixel, ___tgi_n_getpixel, ___tgi_n_line, ___tgi_n_plotc
-.global ___tgi_n_glyph, ___tgi_n_bar
+.global ___tgi_n_glyph, ___tgi_n_bar, ___tgi_n_eset, ___tgi_n_exstep, ___tgi_n_eplot
 .extern ___tgi_draw, ___tgi_coll, ___tgi_colh, __tgi_onscreen
+.extern __tgi_ecx, __tgi_ecy, __tgi_ex, __tgi_ey, __tgi_xbr, __tgi_xbl
+.extern __tgi_ecs, __tgi_ece, __tgi_statebit, ___tgi_arcon, ___tgi_allow
 .extern _tgi_color, _tgi_xmax, _tgi_ymax, ___dma_fill_far, ___dma_fill_far_step
 
 PIX = $08               ; a pixel's address (32 bits)
@@ -58,6 +60,8 @@ __n_bits:       .res 1  ; its pixels left
 __n_xe:         .res 2  ; a bar's last x, last y, height
 __n_ye:         .res 1
 __n_h:          .res 1
+__n_cc:         .res 1  ; the colour in both nibbles
+__n_t:          .res 2  ; a temporary
 
 .segment "code"
 
@@ -225,40 +229,47 @@ endproc
 
 ; __tgi_line_on_screen(x1, y1, x2, y2): both ends on the screen; the 320x200
 ; driver's Bresenham (x-major when dx >= dy, the error half the major
-; difference), a pixel at a time
+; difference), its address stepped as there: x +-1 a nibble (a byte every
+; second pixel, +-1593 across a character column), y +-8. Along x a byte's
+; two pixels on one row are stored at once (no read); a pixel alone in its
+; byte is read, changed and written. X: x & 15 (the pixel in its character
+; column).
+ERR = $0C               ; Bresenham's error
+CNT = $0E               ; pixels left
+YS = $10                ; the y step: 8 or -8 (over x1, once read)
+DX = $14                ; |x2 - x1|
+DY = $16                ; |y2 - y1|
+XNEXT = 1593            ; x + 1 from a character column's last byte: 1600 - 7
+
 proc ___tgi_n_line
     .zp_uses $10, $11, $12, $13, $14, $15, $16, $17
     .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z, V
     jsr __n_colour
-    lda $10
-    sta __n_x
-    lda $11
-    sta __n_x+1
-    lda $12
-    sta __n_y
-    lda #0                  ; dx, the way x goes
+    ora __n_cl
+    sta __n_cc
+    lda #0                  ; dx (over x2), the way x goes
     sta __n_sx
     sec
     lda $14
     sbc $10
-    sta __n_dx
+    sta DX
     lda $15
     sbc $11
-    sta __n_dx+1
+    sta DX+1
     bpl @dxpos
     lda #0
     sec
-    sbc __n_dx
-    sta __n_dx
+    sbc DX
+    sta DX
     lda #0
-    sbc __n_dx+1
-    sta __n_dx+1
+    sbc DX+1
+    sta DX+1
     dec __n_sx
 @dxpos:
-    lda #0                  ; dy (y 0..199), the way y goes
+    lda #0                  ; dy (over y2; y 0..199), the way y goes
     sta __n_sy
-    sta __n_dy+1
+    sta DY+1
     lda $16
     sec
     sbc $12
@@ -267,150 +278,668 @@ proc ___tgi_n_line
     adc #1
     dec __n_sy
 @dypos:
-    sta __n_dy
-    lda __n_dx              ; dx >= dy: a step along x for each pixel
-    cmp __n_dy
-    lda __n_dx+1
-    sbc __n_dy+1
+    sta DY
+    jsr __n_addr            ; (x1, y1)
+    lda $10
+    and #15
+    tax                     ; X: x & 15
+    lda #8                  ; YS over x1
+    ldy #0
+    bit __n_sy
+    bpl @ysdown
+    lda #$F8
+    ldy #$FF
+@ysdown:
+    sta YS
+    sty YS+1
+    lda DX                  ; dx >= dy: a step along x for each pixel
+    cmp DY
+    lda DX+1
+    sbc DY+1
     bcc @steep
-    ldx #0                  ; (the major difference: dx)
-    jsr @start
-@xmaj:
-    jsr @plot
-    beq @done
-    jsr @xstep
-    ldx #2                  ; err -= dy
-    jsr @sub
-    bpl @xmaj
-    ldx #0                  ; err < 0: err += dx, y one step
-    jsr @add
-    jsr @ystep
-    bra @xmaj
-@steep:
-    ldx #2                  ; (dy)
-    jsr @start
-@ymaj:
-    jsr @plot
-    beq @done
-    jsr @ystep
-    ldx #0                  ; err -= dx
-    jsr @sub
-    bpl @ymaj
-    ldx #2                  ; err < 0: err += dy, x one step
-    jsr @add
-    jsr @xstep
-    bra @ymaj
-@done:
-    rts
-@start:                     ; cnt = d + 1, err = d / 2 (d: __n_dx + X)
+    lda DX                  ; CNT = dx + 1, ERR = dx / 2
     clc
-    lda __n_dx,x
     adc #1
-    sta __n_cnt
-    lda __n_dx+1,x
+    sta CNT
+    lda DX+1
     adc #0
-    sta __n_cnt+1
-    lda __n_dx+1,x
+    sta CNT+1
+    lda DX+1
     lsr a
-    sta __n_err+1
-    lda __n_dx,x
+    sta ERR+1
+    lda DX
     ror a
-    sta __n_err
-    rts
-@plot:                      ; the point; Z set: the last
-    jsr __n_xy
-    jsr __n_plot
-    lda __n_cnt
-    bne @c1
-    dec __n_cnt+1
-@c1:
-    dec __n_cnt
-    lda __n_cnt
-    ora __n_cnt+1
-    rts
-@sub:                       ; err -= __n_dx + X (N: < 0)
-    sec
-    lda __n_err
-    sbc __n_dx,x
-    sta __n_err
-    lda __n_err+1
-    sbc __n_dx+1,x
-    sta __n_err+1
-    rts
-@add:
-    clc
-    lda __n_err
-    adc __n_dx,x
-    sta __n_err
-    lda __n_err+1
-    adc __n_dx+1,x
-    sta __n_err+1
-    rts
-@xstep:
+    sta ERR
+    ldz #0
     bit __n_sx
-    bmi @xl
-    inc __n_x
-    bne @xr
-    inc __n_x+1
-@xr:
+    bmi @xleft
+    ; x right: a byte's pixels are an even one, then an odd one. From an
+    ; even pixel, when the error does not step y the odd one is in the same
+    ; byte and row: the byte is stored with both (no read); else each is
+    ; read, changed and written alone
+    txa
+    lsr a
+    bcs @ro                 ; (an odd first pixel: alone)
+@re:                        ; X even: the byte's first pixel
+    dew CNT
+    beq @rlast
+    inx                     ; x + 1: the odd pixel, the same byte
+    lda ERR                 ; err -= dy
+    sec
+    sbc DY
+    sta ERR
+    bcs @rpair
+    dec ERR+1
+    bpl @rpair
+    jsr @errdx              ; err < 0: err += dx, the even pixel alone, y
+    jsr @lo
+    jsr @ystep
+    bra @ro
+@rpair:
+    lda __n_cc
+    sta [PIX],z
+    bra @rnext
+@rlast:
+    jmp @lo
+@ro:                        ; X odd: the byte's second pixel, alone
+    jsr @hi
+@rnext:
+    dew CNT
+    beq @out
+    cpx #15                 ; x + 1: the next byte
+    beq @rcol
+    inx
+    inw PIX
+    bra @rerr
+@rcol:
+    ldx #0
+    clc
+    lda PIX
+    adc #<XNEXT
+    sta PIX
+    lda PIX+1
+    adc #>XNEXT
+    sta PIX+1
+@rerr:
+    lda ERR
+    sec
+    sbc DY
+    sta ERR
+    bcs @re
+    dec ERR+1
+    bpl @re
+    jsr @errdx
+    jsr @ystep
+    bra @re
+@xleft:
+    ; x left: the same from an odd pixel to the even one before it
+    txa
+    lsr a
+    bcc @le                 ; (an even first pixel: alone)
+@lo1:                       ; X odd: the byte's first pixel going left
+    dew CNT
+    beq @llast
+    dex
+    lda ERR
+    sec
+    sbc DY
+    sta ERR
+    bcs @lpair
+    dec ERR+1
+    bpl @lpair
+    jsr @errdx
+    jsr @hi
+    jsr @ystep
+    bra @le
+@lpair:
+    lda __n_cc
+    sta [PIX],z
+    bra @lnext
+@llast:
+    jmp @hi
+@le:                        ; X even: alone
+    jsr @lo
+@lnext:
+    dew CNT
+    beq @out
+    cpx #0                  ; x - 1: the byte before
+    beq @lcol
+    dex
+    dew PIX
+    bra @lerr
+@lcol:
+    ldx #15
+    sec
+    lda PIX
+    sbc #<XNEXT
+    sta PIX
+    lda PIX+1
+    sbc #>XNEXT
+    sta PIX+1
+@lerr:
+    lda ERR
+    sec
+    sbc DY
+    sta ERR
+    bcs @lo1
+    dec ERR+1
+    bpl @lo1
+    jsr @errdx
+    jsr @ystep
+    bra @lo1
+@out:
     rts
-@xl:
-    lda __n_x
-    bne @xl1
-    dec __n_x+1
-@xl1:
-    dec __n_x
+@lo:                        ; the colour into the byte's low nibble
+    lda [PIX],z
+    and #$F0
+    ora __n_cl
+    sta [PIX],z
+    rts
+@hi:
+    lda [PIX],z
+    and #$0F
+    ora __n_ch
+    sta [PIX],z
+    rts
+@steep:
+    ldz #0
+    lda DY                  ; CNT = dy + 1, ERR = dy / 2
+    clc
+    adc #1
+    sta CNT
+    lda #0
+    adc #0
+    sta CNT+1
+    lda DY
+    lsr a
+    sta ERR
+    lda #0
+    sta ERR+1
+@ymaj:                      ; (each pixel in a row of its own)
+    txa
+    lsr a
+    bcs @yhi
+    jsr @lo
+    bra @ynext
+@yhi:
+    jsr @hi
+@ynext:
+    dew CNT
+    beq @out
+    jsr @ystep
+    lda ERR                 ; err -= dx
+    sec
+    sbc DX
+    sta ERR
+    bcs @ymaj
+    dec ERR+1
+    bpl @ymaj
+    clc                     ; err < 0: err += dy, x one step
+    lda ERR
+    adc DY
+    sta ERR
+    lda ERR+1
+    adc DY+1
+    sta ERR+1
+    bit __n_sx
+    bmi @yl
+    jsr @xinc
+    bra @ymaj
+@yl:
+    jsr @xdec
+    bra @ymaj
+@xinc:                      ; x + 1 (the byte flushed when it changes)
+    txa
+    lsr a
+    bcs @xi1
+    inx
+    rts
+@xi1:
+    cpx #15
+    beq @xi2
+    inx
+    inw PIX
+    rts
+@xi2:
+    ldx #0
+    clc
+    lda PIX
+    adc #<XNEXT
+    sta PIX
+    lda PIX+1
+    adc #>XNEXT
+    sta PIX+1
+    rts
+@xdec:                      ; x - 1
+    txa
+    lsr a
+    bcc @xd1
+    dex
+    rts
+@xd1:
+    cpx #0
+    beq @xd2
+    dex
+    dew PIX
+    rts
+@xd2:
+    ldx #15
+    sec
+    lda PIX
+    sbc #<XNEXT
+    sta PIX
+    lda PIX+1
+    sbc #>XNEXT
+    sta PIX+1
     rts
 @ystep:
-    bit __n_sy
-    bmi @yu
-    inc __n_y
+    clc
+    lda PIX
+    adc YS
+    sta PIX
+    lda PIX+1
+    adc YS+1
+    sta PIX+1
     rts
-@yu:
-    dec __n_y
+@errdx:
+    clc
+    lda ERR
+    adc DX
+    sta ERR
+    lda ERR+1
+    adc DX+1
+    sta ERR+1
+    rts
+    .func_flags zp_call
+endproc
+
+; The ellipse's 4 points by address (tgi_pixel.s45's __tgi_efast: its box
+; on the screen), as the 320x200 driver's: __tgi_eset, __tgi_exstep and
+; __tgi_eplot for nibbles (__tgi_xbr, __tgi_xbl: x & 15 of the right
+; points, P0 and P3, and of the left ones, P1 and P2)
+P0 = $0C
+P1 = $14
+P2 = $18
+P3 = $1C
+
+; The 4 points' addresses for the walk's point
+proc ___tgi_n_eset
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr __n_colour
+    sec                     ; the upper ones: $12 = cy - y
+    lda __tgi_ecy
+    sbc __tgi_ey
+    sta $12
+    lda __tgi_ecy+1
+    sbc #0
+    sta $13
+    jsr @right
+    jsr __n_addr
+    ldq PIX
+    stq P0
+    lda $10
+    and #15
+    sta __tgi_xbr
+    jsr @left
+    jsr __n_addr
+    ldq PIX
+    stq P1
+    lda $10
+    and #15
+    sta __tgi_xbl
+    clc                     ; the lower ones: $12 = cy + y
+    lda __tgi_ecy
+    adc __tgi_ey
+    sta $12
+    lda __tgi_ecy+1
+    adc #0
+    sta $13
+    jsr __n_addr            ; ($10: still cx - x)
+    ldq PIX
+    stq P2
+    jsr @right
+    jsr __n_addr
+    ldq PIX
+    stq P3
+    rts
+@right:
+    clc
+    lda __tgi_ecx
+    adc __tgi_ex
+    sta $10
+    lda __tgi_ecx+1
+    adc #0
+    sta $11
+    rts
+@left:
+    sec
+    lda __tgi_ecx
+    sbc __tgi_ex
+    sta $10
+    lda __tgi_ecx+1
+    sbc #0
+    sta $11
+    rts
+    .func_flags zp_call
+endproc
+
+; Each of the 4 points a step in x: the right side (P0, P3) one pixel right
+; (X: 1) or left (X: $FF); the left side (P1, P2) the other way. A pixel to
+; an odd one stays in its byte; from 15 / to 15 crosses a character column
+proc ___tgi_n_exstep
+    .reg_clobbers A
+    .flag_clobbers C, N, Z, V
+    cpx #1
+    bne @rleft
+    jsr @rinc
+    bra @ldec
+@rleft:
+    jsr @rdec
+    ; (the left side right)
+    clc
+    lda __tgi_xbl
+    adc #1
+    and #15
+    sta __tgi_xbl
+    beq @lcol
+    and #1
+    bne @out
+    inw P1
+    inw P2
+@out:
+    rts
+@lcol:
+    clc
+    lda P1
+    adc #<XNEXT
+    sta P1
+    lda P1+1
+    adc #>XNEXT
+    sta P1+1
+    clc
+    lda P2
+    adc #<XNEXT
+    sta P2
+    lda P2+1
+    adc #>XNEXT
+    sta P2+1
+    rts
+@ldec:                      ; the left side left
+    lda __tgi_xbl
+    beq @ldcol
+    dec __tgi_xbl
+    and #1
+    bne @out                ; (from an odd pixel: the same byte)
+    dew P1
+    dew P2
+    rts
+@ldcol:
+    lda #15
+    sta __tgi_xbl
+    sec
+    lda P1
+    sbc #<XNEXT
+    sta P1
+    lda P1+1
+    sbc #>XNEXT
+    sta P1+1
+    sec
+    lda P2
+    sbc #<XNEXT
+    sta P2
+    lda P2+1
+    sbc #>XNEXT
+    sta P2+1
+    rts
+@rinc:                      ; the right side right
+    clc
+    lda __tgi_xbr
+    adc #1
+    and #15
+    sta __tgi_xbr
+    beq @rcol
+    and #1
+    bne @out
+    inw P0
+    inw P3
+    rts
+@rcol:
+    clc
+    lda P0
+    adc #<XNEXT
+    sta P0
+    lda P0+1
+    adc #>XNEXT
+    sta P0+1
+    clc
+    lda P3
+    adc #<XNEXT
+    sta P3
+    lda P3+1
+    adc #>XNEXT
+    sta P3+1
+    rts
+@rdec:                      ; the right side left
+    lda __tgi_xbr
+    beq @rdcol
+    dec __tgi_xbr
+    and #1
+    bne @out
+    dew P0
+    dew P3
+    rts
+@rdcol:
+    lda #15
+    sta __tgi_xbr
+    sec
+    lda P0
+    sbc #<XNEXT
+    sta P0
+    lda P0+1
+    sbc #>XNEXT
+    sta P0+1
+    sec
+    lda P3
+    sbc #<XNEXT
+    sta P3
+    lda P3+1
+    sbc #>XNEXT
+    sta P3+1
+    rts
+    .func_flags zp_call
+endproc
+
+; The walk's point at the 4 addresses (an arc: in the quarters __tgi_allow
+; shows it in for its state, as tgi_pixel.s45's __tgi_eplot)
+proc ___tgi_n_eplot
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    ldz #0
+    ldy #$0F                ; Y: the quarters (bit q)
+    bit ___tgi_arcon
+    bpl @plot
+    ldx #0                  ; the state's bit
+    lda __tgi_ecs+3
+    bpl @s1
+    inx
+@s1:
+    lda __tgi_ece+3
+    bpl @s2
+    inx
+    inx
+@s2:
+    lda __tgi_statebit,x
+    sta __n_t
+    ldy #0
+    ldx #3
+@q:
+    tya
+    asl a
+    tay
+    lda __n_t
+    and ___tgi_allow,x
+    beq @qn
+    iny
+@qn:
+    dex
+    bpl @q
+@plot:
+    tya
+    lsr a
+    tay
+    bcc @p1
+    lda __tgi_xbr           ; P0: the right side
+    lsr a
+    lda [P0],z
+    jsr @put
+    sta [P0],z
+@p1:
+    tya
+    lsr a
+    tay
+    bcc @p2
+    lda __tgi_xbl
+    lsr a
+    lda [P1],z
+    jsr @put
+    sta [P1],z
+@p2:
+    tya
+    lsr a
+    tay
+    bcc @p3
+    lda __tgi_xbl
+    lsr a
+    lda [P2],z
+    jsr @put
+    sta [P2],z
+@p3:
+    tya
+    lsr a
+    bcc @out
+    lda __tgi_xbr
+    lsr a
+    lda [P3],z
+    jsr @put
+    sta [P3],z
+@out:
+    rts
+@put:                       ; the colour into the nibble (C: the high one)
+    bcs @hi
+    and #$F0
+    ora __n_cl
+    rts
+@hi:
+    and #$0F
+    ora __n_ch
     rts
     .func_flags zp_call
 endproc
 
 ; __tgi_glyph(x, y, glyph): an 8x8 bitmap glyph (8 bytes at the 28-bit
-; address glyph, $14) with its top left at (x, y), on the screen
+; address glyph, $14) with its top left at (x, y), on the screen. A row's
+; pixels go two at a time, a byte's (the row's bits from the left, after a
+; 0 when x is odd: 4 or 5 bytes); each byte is stored when both its pixels
+; are set, read, changed and written when one is, skipped when neither
 proc ___tgi_n_glyph
     .zp_uses $10, $11, $12, $13, $14, $15, $16, $17
-    .reg_clobbers A, X, Z
+    .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z, V
     jsr __n_colour
+    ora __n_cl
+    sta __n_cc
+    jsr __n_addr            ; the top left
     lda $10
-    sta __n_x
-    lda $11
-    sta __n_x+1
-    lda $12
-    sta __n_y
+    lsr a
+    and #7
+    sta __n_x               ; (its byte in the character column's row)
+    lda $10
+    and #1
+    sta __n_x+1             ; (x odd: a 0 first)
     lda #0
     sta __n_row
 @row:
     ldz __n_row
     lda [$14],z
-    sta __n_bits
-    jsr __n_xy
-    clc
-    lda $12
-    adc __n_row
+    sta __n_t+1             ; the row's bits: (__n_t+1, __n_t) from the top
+    lda #0
+    sta __n_t
+    ldx #4                  ; (bytes)
+    lda __n_x+1
+    beq @even
+    lsr __n_t+1             ; a 0 first, a fifth byte
+    ror __n_t
+    inx
+@even:
+    stx __n_h
+    clc                     ; Q ($10) := PIX + row * 8 (the rows of a
+    lda __n_row             ; character column follow each other)
+    asl a
+    asl a
+    asl a
+    adc PIX
+    sta $10
+    lda PIX+1
+    adc #0
+    sta $11
+    lda PIX+2
     sta $12
-@bit:
-    lda __n_bits
-    beq @next
-    asl __n_bits
-    bcc @skip
-    jsr __n_plot
-@skip:
-    inw $10
-    bra @bit
+    lda PIX+3
+    sta $13
+    ldx __n_x               ; X: the byte in its row of the character column
+    ldz #0
+@byte:
+    lda #0                  ; the next two bits
+    asl __n_t
+    rol __n_t+1
+    rol a
+    asl __n_t
+    rol __n_t+1
+    rol a
+    tay
+    beq @next               ; (neither)
+    lda @mask,y
+    cmp #$FF
+    beq @both
+    tay
+    and __n_cc
+    sta __n_y               ; (a temporary)
+    tya
+    eor #$FF
+    and [$10],z
+    ora __n_y
+    sta [$10],z
+    bra @next
+@both:
+    lda __n_cc
+    sta [$10],z
 @next:
+    dec __n_h
+    beq @rowend
+    cpx #7                  ; the next byte: + 1, or the next character column
+    beq @col
+    inx
+    inw $10
+    bra @byte
+@col:
+    ldx #0
+    clc
+    lda $10
+    adc #<XNEXT
+    sta $10
+    lda $11
+    adc #>XNEXT
+    sta $11
+    bra @byte
+@rowend:
     inc __n_row
     lda __n_row
     cmp #8
     bne @row
     rts
+@mask:                      ; (left, right): the left pixel the low nibble
+    .byte $00, $F0, $0F, $FF
     .func_flags zp_call
 endproc
 

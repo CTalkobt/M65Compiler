@@ -30,7 +30,12 @@ P3 = $1C                ; (cx + x, cy + y)
 .extern ___tgi_draw, _tgi_xmax, _tgi_ymax, _tgi_color, _tgi_drv, ___tgi_mode
 ; the 640x200 driver's drawing (tgi_ncm.s45, linked with it; ___tgi_mode $80)
 .global ___tgi_n_setpixel, ___tgi_n_getpixel, ___tgi_n_line, ___tgi_n_plotc, ___tgi_n_glyph
+.global ___tgi_n_eset, ___tgi_n_exstep, ___tgi_n_eplot
 .weak ___tgi_n_setpixel, ___tgi_n_getpixel, ___tgi_n_line, ___tgi_n_plotc, ___tgi_n_glyph
+.weak ___tgi_n_eset, ___tgi_n_exstep, ___tgi_n_eplot
+; (the ellipse's walk, for tgi_ncm.s45's)
+.global __tgi_ecx, __tgi_ecy, __tgi_ex, __tgi_ey, __tgi_xbr, __tgi_xbl, __tgi_ecs, __tgi_ece
+.global __tgi_statebit
 .extern _tgi_curx, _tgi_cury, ___tgi_clipline_c
 
 .segment "bss"
@@ -54,7 +59,7 @@ __tgi_esty:     .res 4
 __tgi_ecs:      .res 4  ; c for the arc's start angle (>= 0: past it)
 __tgi_ece:      .res 4  ; for its end angle
 __tgi_efast:    .res 1  ; $80: the ellipse's box on the screen (the 4 points by address)
-__tgi_xbr:      .res 1  ; then: (cx + x) & 7
+__tgi_xbr:      .res 1  ; then: (cx + x) & 7 (640x200: & 15)
 __tgi_xbl:      .res 1  ; (cx - x) & 7
 __tgi_ta2:      .res 4  ; Kennedy's numbers (__tgi_ellipse works them out): 2 rx^2
 __tgi_tb2:      .res 4  ; 2 ry^2
@@ -176,6 +181,15 @@ proc ___tgi_n_plotc
     rts
 endproc
 proc ___tgi_n_glyph
+    rts
+endproc
+proc ___tgi_n_eset
+    rts
+endproc
+proc ___tgi_n_exstep
+    rts
+endproc
+proc ___tgi_n_eplot
     rts
 endproc
 
@@ -685,6 +699,10 @@ endproc
 proc __tgi_exstep
     .reg_clobbers A, X
     .flag_clobbers C, N, Z, V
+    bit ___tgi_mode
+    bpl @fcm
+    jmp ___tgi_n_exstep
+@fcm:
     cpx #1
     bne @rleft
     ; the right side right, the left side left
@@ -867,6 +885,10 @@ proc __tgi_eplot
     bmi @fast
     jmp __tgi_plot4
 @fast:
+    bit ___tgi_mode
+    bpl @fcm
+    jmp ___tgi_n_eplot
+@fcm:
     ldz #0
     ldy __tgi_col
     bit ___tgi_arcon
@@ -920,6 +942,10 @@ endproc
 proc __tgi_eset
     .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z, V
+    bit ___tgi_mode
+    bpl @fcm
+    jmp ___tgi_n_eset
+@fcm:
     ; the upper ones: $12 = cy - y
     sec
     lda __tgi_ecy
@@ -1172,9 +1198,7 @@ proc ___tgi_ellipse
     lda _tgi_ymax+1
     sbc __tgi_xbr
     bcc @box
-    lda #$80                ; (not the 640x200 driver's: a pixel's address
-    bit ___tgi_mode         ; is not a byte's)
-    bmi @box
+    lda #$80
     sta __tgi_efast
 @box:
     lda $16

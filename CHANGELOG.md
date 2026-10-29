@@ -15,6 +15,12 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   none of it (30-60 bytes of tests in the generic routines).
   `tgi_load_driver` knows its name. Test `test_tgi_ncm_xemu.c` (both
   conventions).
+- Its lines, ellipses and 1x glyphs step addresses as the 320x200
+  driver's, a nibble at a time; a line along x stores a byte's two pixels
+  at once (no read) when they are on one row, the glyph a row two pixels
+  (a byte) at a time. Frames (`bench_tgi.sh -DTGI_DRIVER=tgi_static_ncm640`):
+  long lines 125 → 37, short ones 58 → 33, circles 35 → 15, text 1x 26 →
+  21 (the 320x200 driver: 30, 29, 11, 11).
 
 ### `<tgi.h>`'s arcs in assembly
 
