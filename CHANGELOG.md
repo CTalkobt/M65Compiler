@@ -4,6 +4,17 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --data-loader (#370)
+
+- `basic45 --data-loader game.prg` writes a BASIC program that POKEs the
+  machine code from `DATA` lines and SYSes it (a type-in listing):
+  `--hex`, `--checksum` (per line, a mistyped line stops the loader before
+  the SYS), `--per-line`, `--start`, `--increment`, `--no-sys`,
+  `--load-at` (a raw binary, or the code elsewhere). Built like any program
+  or written as source (`-o x.bas`). The loader sets `BANK 0` (BASIC 65's
+  POKE and SYS use the bank); code over the loader is refused.
+- `--load` takes `$2001` too (a `$` read as 0 before).
+
 ### cvt_asm is now asmCvt45
 
 - The assembler source converter follows the toolchain's `<name>45` naming:

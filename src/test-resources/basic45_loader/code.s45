@@ -1,0 +1,10 @@
+; basic45 --data-loader (#370): machine code that a BASIC DATA loader
+; POKEs to $7000 and SYSes: results at $C0C0 (01 01 01, $AA sentinel)
+    .org $7000
+    lda #1
+    sta $c0c0
+    sta $c0c1
+    sta $c0c2
+    lda #$aa
+    sta $c0c3
+    rts

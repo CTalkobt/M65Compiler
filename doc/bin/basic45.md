@@ -63,6 +63,7 @@ Without `-o` the output is the input name with its extension replaced by `.prg` 
 | `--link <file>` | Link a C (`.c`, compiled with `cc45 -c -O2`), assembly (`.s45`) or object (`.o45`) file after the program; repeatable ([Calling C Functions](#calling-c-functions-link)) |
 | `--lib <file>` | The library for `--link` (default: `c45.lib` next to the tools, else `ln45`'s `CC45_LIB` search) |
 | `--decompile` | Turn a tokenized BASIC `.prg` into basic45 source ([Listing, Source Map and Decompiling](#listing-source-map-and-decompiling)) |
+| `--data-loader` | The input is machine code (a `.prg`, or a binary with `--load-at`): write a BASIC program that POKEs it from `DATA` lines and SYSes it, a type-in listing ([DATA Loaders](#data-loaders-data-loader)); with `--hex`, `--checksum`, `--per-line <n>`, `--start <line>`, `--increment <n>`, `--no-sys`, `--load-at <addr>` |
 | `--list-tokens` | List all keywords with their token values and exit |
 | `-v`, `--verbose` (… `-vvvv`, `-v0`) | Log on stderr as `[basic45:LEVEL] …` (the toolchain's format, `include/Logger.hpp`); cumulative, at most `-vvvv`; `-v0` off: the files, load address, included files, the ca45/ln45 commands of `--link`, the variable renames (`--list` prints those on stdout instead); notes for unused labels |
 | `--version` | Show version |
@@ -303,6 +304,35 @@ basic45 --link routines.c menu.bas -o menu.prg
 ## Formatting
 
 `basic45 --format prog.bas` prints the source with keywords in lower case, one space between words outside strings, code indented two spaces plus two per open block (`if … then`/`else`/`endif`, `proc`/`endproc`, `select`/`case`/`endselect`, `for`/`next`, `do`/`loop`) and labels in column 0. Strings, `REM` and `DATA` text, `#` lines, `'` comments (re-indented) and `asm` blocks are kept as written. With `-o` the result goes to a file. The formatted source builds to the same program, and formatting it again changes nothing.
+
+## DATA Loaders (`--data-loader`)
+
+`--data-loader` turns a machine-code program into a BASIC program that holds it in `DATA` lines, `POKE`s it into memory and `SYS`es it: the type-in listing of magazines and tutorials, one BASIC file with its machine code.
+
+```bash
+basic45 --data-loader game.prg                 # game-loader.prg, ready to run
+basic45 --data-loader --checksum game.prg -o game.bas   # the listing, as source
+basic45 --data-loader --load-at 7000 code.bin -o -      # a raw binary, to stdout
+```
+
+```basic
+10 bank 0:a=28672:n=17
+20 for i=0 to n-1:read v:poke a+i,v:next i
+30 sys a
+40 rem game.prg - $7000, 17 bytes
+50 data 169,1,141,192,192,141,193,192
+60 data 141,194,192,169,170,141,195,192
+70 data 96
+```
+
+- The input is a `.prg` (its first two bytes the load address) or, with `--load-at <addr>` (hex: `7000`, `$7000`, `0x7000`), a raw binary; `--load-at` also moves a `.prg`'s code elsewhere.
+- The output is built like any program (`-o x.prg`, default `<input>-loader.prg`; `--disk`, `--emulator`, `--list` work), or written as basic45 source with `-o x.bas` or `-o -`.
+- The loader starts with `BANK 0`: BASIC 65's `POKE` and `SYS` use the current bank, and the default, 128, is the system mapping, where most addresses are not RAM.
+- `--per-line <n>` bytes per `DATA` line (default 8, at most 30), lines from `--start <line>` (default: the increment) by `--increment <n>` (default 10). `--hex` writes the bytes in hex (`a9,01,60`, read with `DEC()`). `--no-sys` only loads the code.
+- `--checksum` adds a checksum to each `DATA` line (the sum of its bytes `AND 255`), checked while loading: a mistyped line prints `DATA ERROR IN LINE n` and stops before the code runs.
+- The code must not overwrite the loader itself, the BASIC program at `$2001`: that is an error (link the code elsewhere, e.g. `ln45 -prg -t 7000`). Code below `$2000` (BASIC 65's system and screen memory) is a warning.
+
+`test_xemu.sh` runs loaders on BASIC 65 (decimal with checksums, hex, and a mistyped line that must stop before `SYS`); `src/test/test_basic45.sh` checks the source and the errors.
 
 ## Listing, Source Map and Decompiling
 
