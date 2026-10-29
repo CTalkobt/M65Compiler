@@ -1,4 +1,5 @@
 #include "AcmeWriter.hpp"
+#include <cstdlib>
 #include "MacroUtils.hpp"
 #include <sstream>
 #include <iomanip>
@@ -6,6 +7,12 @@
 std::string AcmeWriter::write(const AsmIR::Module& input) {
     const AsmIR::Module module = textAsBytes(input);
     std::stringstream out;
+    // (#223: ca45 is a 45GS02 assembler: the target told the CPU, unless
+    // the source names one; else it rejects ldz, (zp),z, map, ...)
+    bool cpuStated = false;
+    for (const auto& st : module.statements)
+        if (st.type == AsmIR::Statement::Type::DIRECTIVE && st.dir.type == AsmIR::DirectiveType::CPU) cpuStated = true;
+    if (!cpuStated && (module.cpu == "45GS02" || module.cpu == "45gs02")) out << "!cpu m65\n";
 
     // Emit macros first
     if (!module.macros.empty()) {
@@ -62,6 +69,10 @@ std::string AcmeWriter::write(const AsmIR::Module& input) {
 
 std::string AcmeWriter::formatInstruction(const AsmIR::Instruction& instr) {
     std::stringstream ss;
+    // (ACME 0.97's m65 has the 32-bit instructions and [zp],z, but not both together, #223)
+    if (isQInstruction(instr.mnemonic) && !flatOperand(instr.operand.text).empty())
+        addWarning("'" + instr.mnemonic + " " + instr.operand.text +
+                   "': ACME 0.97 has no 32-bit flat-memory form: kept as written");
     if (instr.mode == AsmIR::AddressingMode::RAW)
         return instr.operand.text.empty() ? instr.mnemonic : instr.mnemonic + " " + instr.operand.text;
     ss << instr.mnemonic;
@@ -81,6 +92,28 @@ std::string AcmeWriter::formatDirective(const AsmIR::Directive& dir) {
         return std::string("!") + "cpu m65";
     if (dir.type == AsmIR::DirectiveType::CONST && dir.arguments.size() == 2)
         return dir.arguments[0] + " = " + dir.arguments[1];
+    auto args = [&](size_t from) {   // the arguments from 'from', comma-separated
+        std::string r;
+        for (size_t i = from; i < dir.arguments.size(); i++) r += (i > from ? ", " : "") + dir.arguments[i];
+        return r;
+    };
+    // (#223: the data directives in ACME's spelling; !align takes a mask:
+    // n - 1 for a power of two n, and its fill byte, else ACME pads with NOP $EA)
+    const std::string kind = dataKind(dir.name);
+    const size_t n = dir.arguments.size();
+    if (kind == "dword") return "!32 " + args(0);
+    if (kind == "fill" && n >= 1) return "!fill " + args(0);
+    if (kind == "align" && n >= 1) {
+        // (ca45's alignment is a literal: the mask as a number)
+        const std::string& a = dir.arguments[0];
+        char* end = nullptr;
+        long v = a[0] == '$' ? std::strtol(a.c_str() + 1, &end, 16) : std::strtol(a.c_str(), &end, 0);
+        std::string mask = (end && !*end && v > 0) ? std::to_string(v - 1) : "(" + a + ")-1";
+        return "!align " + mask + ", 0, " + (n > 1 ? args(1) : "0");
+    }
+    if (kind == "fillto" && n >= 1) return "!fill (" + dir.arguments[0] + ")-*" + (n > 1 ? ", " + args(1) : "");
+    if (kind == "incbin") return "!binary " + args(0);
+    if (kind == "float") return noEquivalent(dir, "ACME", "!float " + args(0));
 
     if (dir.type == AsmIR::DirectiveType::ORG) {
         ss << "*=";

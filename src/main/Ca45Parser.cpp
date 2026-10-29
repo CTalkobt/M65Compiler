@@ -340,7 +340,7 @@ void Ca45Parser::extractStatements(const AssemblerParser& parser, AsmIR::Module&
                 // (each such line, up to 20; then how many more)
                 if (++rawWarnings <= 20)
                     addWarning((curFile.empty() ? "" : curFile + ": ") + "line " + std::to_string(lineNo) + ": '" +
-                               trim(code) + "' is ca45-specific and kept as written (other assemblers will not accept it)");
+                               trim(code) + "' is kept as written: ca45 syntax or an addressing mode only 65CE02/45GS02 assemblers have");
             }
         } else {
             st.type = AsmIR::Statement::Type::INSTRUCTION;
@@ -351,5 +351,5 @@ void Ca45Parser::extractStatements(const AssemblerParser& parser, AsmIR::Module&
         add(st);
     }
     if (rawWarnings > 20)
-        addWarning(std::to_string(rawWarnings - 20) + " more ca45-specific lines kept as written");
+        addWarning(std::to_string(rawWarnings - 20) + " more lines kept as written");
 }

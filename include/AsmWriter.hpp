@@ -20,6 +20,23 @@ protected:
     // character constants ('A' is PETSCII $C1) as numbers: the other
     // assemblers encode both differently
     static AsmIR::Module textAsBytes(const AsmIR::Module& module);
+    // A data directive's kind, whatever ca45 spelling it has: "dword" (.dword,
+    // .long), "fill" (.res, .fill, .space, .ds), "align" (.align, .balign),
+    // "byte" (.byte, .db), "word" (.word, .dw); any other its own name
+    static std::string dataKind(const std::string& name);
+    // ca45's @local labels as globals, <enclosing label>__<name> (in their
+    // definitions and in operands and arguments), for the dialects whose own
+    // local labels scope differently or are not known here
+    static AsmIR::Module localsAsGlobals(const AsmIR::Module& module);
+    // the 45GS02's 32-bit instructions (ldq, adcq, ...: the Q register)
+    static bool isQInstruction(const std::string& mnemonic);
+    // a 45GS02 flat-memory operand, [zp],z: its zp part (else "")
+    static std::string flatOperand(const std::string& operand);
+    // a directive the target has no equivalent of: written as given, warned
+    std::string noEquivalent(const AsmIR::Directive& dir, const std::string& target, const std::string& written) {
+        addWarning("." + dir.name + " has no " + target + " equivalent here: written as '" + written + "'");
+        return written;
+    }
 
     std::vector<std::string> errors_;
     std::vector<std::string> warnings_;

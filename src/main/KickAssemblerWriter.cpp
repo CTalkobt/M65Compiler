@@ -1,11 +1,19 @@
 #include "KickAssemblerWriter.hpp"
+#include <cstdlib>
 #include <sstream>
 #include <iomanip>
 #include <algorithm>
 
 std::string KickAssemblerWriter::write(const AsmIR::Module& input) {
-    const AsmIR::Module module = textAsBytes(input);
+    // (@local labels: KickAssembler's local labels scope by braces, #223)
+    const AsmIR::Module module = localsAsGlobals(textAsBytes(input));
     std::stringstream out;
+    // (#223: ca45 is a 45GS02 assembler: the target told the CPU, unless
+    // the source names one; else it rejects ldz, (zp),z, map, ...)
+    bool cpuStated = false;
+    for (const auto& st : module.statements)
+        if (st.type == AsmIR::Statement::Type::DIRECTIVE && st.dir.type == AsmIR::DirectiveType::CPU) cpuStated = true;
+    if (!cpuStated && (module.cpu == "45GS02" || module.cpu == "45gs02")) out << ".cpu _45gs02\n";
 
     // KickAssembler assembles one program, without a linker: imports and
     // exports become comments (an imported symbol must be defined first)
@@ -55,6 +63,9 @@ std::string KickAssemblerWriter::write(const AsmIR::Module& input) {
 
 std::string KickAssemblerWriter::formatInstruction(const AsmIR::Instruction& instr) {
     std::stringstream ss;
+    // (the 45GS02's [zp],z is ((zp)),z in KickAssembler, #223)
+    std::string flat = flatOperand(instr.operand.text);
+    if (instr.mode == AsmIR::AddressingMode::RAW && !flat.empty()) return instr.mnemonic + " ((" + flat + ")),z";
     if (instr.mode == AsmIR::AddressingMode::RAW)
         return instr.operand.text.empty() ? instr.mnemonic : instr.mnemonic + " " + instr.operand.text;
     ss << instr.mnemonic;
@@ -75,6 +86,31 @@ std::string KickAssemblerWriter::formatDirective(const AsmIR::Directive& dir) {
     if (dir.type == AsmIR::DirectiveType::CONST && dir.arguments.size() == 2)
         return ".const " + dir.arguments[0] + " = " + dir.arguments[1];
 
+    // (#223: the data directives in KickAssembler's spelling; its .fill
+    // needs the value)
+    auto args = [&](size_t from) {   // the arguments from 'from', comma-separated
+        std::string r;
+        for (size_t i = from; i < dir.arguments.size(); i++) r += (i > from ? ", " : "") + dir.arguments[i];
+        return r;
+    };
+    const std::string kind = dataKind(dir.name);
+    const size_t n = dir.arguments.size();
+    if (kind == "dword") return ".dword " + args(0);
+    if (kind == "fill" && n >= 1) return ".fill " + dir.arguments[0] + ", " + (n > 1 ? args(1) : "0");
+    if (kind == "align" && n == 1) return ".align " + dir.arguments[0];
+    // (.align takes no fill byte: the padding as a .fill, n a power of two)
+    if (kind == "align" && n > 1) {
+        long a = std::strtol(dir.arguments[0].c_str(), nullptr, 0);
+        if (dir.arguments[0][0] == '$') a = std::strtol(dir.arguments[0].c_str() + 1, nullptr, 16);
+        if (a <= 0 || (a & (a - 1)))
+            return noEquivalent(dir, "KickAssembler (.align takes no fill byte)", ".align " + dir.arguments[0]);
+        std::string m = std::to_string(a - 1);
+        // ((*): ca45 reads "* &" as 0, so the round trip needs the parentheses)
+        return ".fill (" + std::to_string(a) + "-((*)&" + m + "))&" + m + ", " + args(1);
+    }
+    if (kind == "fillto" && n >= 1) return ".fill (" + dir.arguments[0] + ")-*, " + (n > 1 ? args(1) : "0");
+    if (kind == "incbin") return ".import binary " + args(0);
+    if (kind == "float") return noEquivalent(dir, "KickAssembler", ".float " + args(0));
     // KickAssembler: *= for the origin, otherwise .name (.byte, .word, ...)
     if (dir.type == AsmIR::DirectiveType::ORG) {
         ss << "*=";

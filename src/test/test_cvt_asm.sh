@@ -25,10 +25,12 @@ echo "=== cvt_asm ==="
 n=0; bad=""
 for f in src/test-resources/*.s45; do
     b=$(basename "$f" .s45)
-    $CA45 "$f" -o "$T/$b.orig" >/dev/null 2>&1 || continue
+    # (unoptimized: a conversion may turn a @local label into a global one,
+    # which changes what ca45's optimizer may do, not what the code means)
+    CA45_OPTIMIZE=0 $CA45 "$f" -o "$T/$b.orig" >/dev/null 2>&1 || continue
     n=$((n + 1))
     $CVT -t ca45 "$f" -o "$T/$b.rt.s45" 2>/dev/null
-    if ! (cd "$(dirname "$f")" && "$OLDPWD/$CA45" "$T/$b.rt.s45" -o "$T/$b.rt" >/dev/null 2>&1) ||
+    if ! (cd "$(dirname "$f")" && CA45_OPTIMIZE=0 "$OLDPWD/$CA45" "$T/$b.rt.s45" -o "$T/$b.rt" >/dev/null 2>&1) ||
        ! cmp -s "$T/$b.orig" "$T/$b.rt"; then
         bad="$bad $b"
     fi
@@ -93,7 +95,7 @@ rtd() {
         n=$((n + 1))
         $CVT -t "$d" "$f" -o "$T/rt_$d/$b.x" 2>/dev/null
         $CVT -f "$d" -t ca45 "$T/rt_$d/$b.x" -o "$T/rt_$d/$b.s45" 2>/dev/null
-        if ! (cd "$(dirname "$f")" && "$OLDPWD/$CA45" "$T/rt_$d/$b.s45" -o "$T/rt_$d/$b.bin" >/dev/null 2>&1) ||
+        if ! (cd "$(dirname "$f")" && CA45_OPTIMIZE=0 "$OLDPWD/$CA45" "$T/rt_$d/$b.s45" -o "$T/rt_$d/$b.bin" >/dev/null 2>&1) ||
            ! cmp -s "$T/$b.orig" "$T/rt_$d/$b.bin"; then
             bad="$bad $b"
         fi
@@ -299,7 +301,7 @@ M=$($CVT -f ca65 -t ca45 "$T/nm.s" 2>/dev/null | tr -s ' \n' ' ')
 # warnings: unknown directives, ca45-only syntax
 printf '    .org $2000\n    .bogus 1\n    lda ($20),z\n' > "$T/w.s45"
 W=$($CVT -t acme "$T/w.s45" 2>&1 >/dev/null)
-grep -q "unknown directive '.bogus'" <<< "$W" && grep -q "ca45-specific and kept as written" <<< "$W" &&
+grep -q "unknown directive '.bogus'" <<< "$W" && grep -q "kept as written: ca45 syntax or an addressing mode only 65CE02/45GS02" <<< "$W" &&
     pass "unknown directives and ca45-only syntax are reported" || fail "warnings ($W)"
 
 # the older format tests

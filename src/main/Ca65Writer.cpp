@@ -1,4 +1,5 @@
 #include "Ca65Writer.hpp"
+#include <cstring>
 #include "MacroUtils.hpp"
 #include <sstream>
 #include <iomanip>
@@ -6,6 +7,12 @@
 std::string Ca65Writer::write(const AsmIR::Module& input) {
     const AsmIR::Module module = textAsBytes(input);
     std::stringstream out;
+    // (#223: ca45 is a 45GS02 assembler: the target told the CPU, unless
+    // the source names one; else it rejects ldz, (zp),z, map, ...)
+    bool cpuStated = false;
+    for (const auto& st : module.statements)
+        if (st.type == AsmIR::Statement::Type::DIRECTIVE && st.dir.type == AsmIR::DirectiveType::CPU) cpuStated = true;
+    if (!cpuStated && (module.cpu == "45GS02" || module.cpu == "45gs02")) out << ".setcpu \"4510\"\n";
 
     // Emit imports/exports
     for (const auto& [name, sym] : module.symbols) {
@@ -47,7 +54,20 @@ std::string Ca65Writer::write(const AsmIR::Module& input) {
                     stmt.dir.type == AsmIR::DirectiveType::WEAK) {
                     continue;
                 }
-                out << formatDirective(stmt.dir) << (stmt.comment.empty() ? "" : " ;" + stmt.comment) << "\n";
+                // (in a data list ca65's * is the item's own address, ca45's the
+                // line's: a label for the line in its place, #223)
+                AsmIR::Directive d = stmt.dir;
+                std::string kind = dataKind(d.name);
+                if (kind == "byte" || kind == "word" || kind == "dword") {
+                    std::string pc = "__cvt_pc_" + std::to_string(pcLabels_ + 1);
+                    bool used = false;
+                    for (auto& a : d.arguments) used = replacePc(a, pc) || used;
+                    if (used) {
+                        pcLabels_++;
+                        out << pc << ":\n";
+                    }
+                }
+                out << formatDirective(d) << (stmt.comment.empty() ? "" : " ;" + stmt.comment) << "\n";
                 break;
             }
 
@@ -66,6 +86,10 @@ std::string Ca65Writer::write(const AsmIR::Module& input) {
 
 std::string Ca65Writer::formatInstruction(const AsmIR::Instruction& instr) {
     std::stringstream ss;
+    // (ca65's 4510 is the 65CE02 with MAP: no 32-bit or flat-memory instructions, #223)
+    if (isQInstruction(instr.mnemonic) || !flatOperand(instr.operand.text).empty())
+        addWarning("'" + instr.mnemonic + " " + instr.operand.text +
+                   "' is a 45GS02 instruction ca65 (4510) does not have: kept as written");
     if (instr.mode == AsmIR::AddressingMode::RAW)
         return instr.operand.text.empty() ? instr.mnemonic : instr.mnemonic + " " + instr.operand.text;
     ss << instr.mnemonic;
@@ -81,6 +105,22 @@ std::string Ca65Writer::formatDirective(const AsmIR::Directive& dir) {
     std::stringstream ss;
     if (dir.type == AsmIR::DirectiveType::CONST && dir.arguments.size() == 2)
         return dir.arguments[0] + " = " + dir.arguments[1];
+    auto args = [&](size_t from) {   // the arguments from 'from', comma-separated
+        std::string r;
+        for (size_t i = from; i < dir.arguments.size(); i++) r += (i > from ? ", " : "") + dir.arguments[i];
+        return r;
+    };
+    if (dir.type == AsmIR::DirectiveType::CPU && !dir.arguments.empty() &&
+        (dir.arguments[0] == "45GS02" || dir.arguments[0] == "45gs02"))
+        return ".setcpu \"4510\"";
+    // (#223: the data directives in ca65's spelling)
+    const std::string kind = dataKind(dir.name);
+    const size_t n = dir.arguments.size();
+    if (kind == "dword") return ".dword " + args(0);
+    if (kind == "fill" && n >= 1) return ".res " + args(0);
+    if (kind == "align" && n >= 1) return ".align " + args(0);
+    if (kind == "fillto" && n >= 1) return ".res (" + dir.arguments[0] + ")-*" + (n > 1 ? ", " + args(1) : "");
+    if (kind == "float") return noEquivalent(dir, "ca65", ".float " + args(0));
     ss << "." << formatDirectiveName(dir.name);
 
     for (size_t i = 0; i < dir.arguments.size(); i++) ss << (i ? ", " : " ") << dir.arguments[i];
@@ -174,4 +214,27 @@ std::string Ca65Writer::formatDirectiveName(const std::string& irName) {
     if (irName == "extern") return "import";
     if (irName == "global") return "export";
     return irName;
+}
+
+bool Ca65Writer::replacePc(std::string& e, const std::string& label) {
+    std::string out;
+    bool any = false;
+    char quote = 0;
+    char prev = 0;   // the last non-blank character outside strings (0: the start)
+    for (size_t i = 0; i < e.size(); i++) {
+        char c = e[i];
+        if (quote) { out += c; if (c == quote) quote = 0; continue; }
+        if (c == '"' || c == '\'') { quote = c; out += c; prev = c; continue; }
+        // (an operand position: the start, or after an operator or '(')
+        if (c == '*' && (prev == 0 || std::strchr("(+-*/&|^<>=!,~", prev))) {
+            out += label;
+            any = true;
+            prev = 'x';
+            continue;
+        }
+        out += c;
+        if (c != ' ' && c != '\t') prev = c;
+    }
+    if (any) e = out;
+    return any;
 }

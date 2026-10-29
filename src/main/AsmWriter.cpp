@@ -1,5 +1,8 @@
 #include "AsmWriter.hpp"
 #include "AssemblerLexer.hpp"
+#include <cctype>
+#include <set>
+#include <cstdlib>
 #include <cstdio>
 
 WriterRegistry& WriterRegistry::getInstance() {
@@ -28,6 +31,25 @@ std::vector<std::string> WriterRegistry::getAvailableWriters() const {
 }
 
 namespace {
+// A data value written as a negative literal (.byte -1) as the unsigned value
+// ca45 stores ($FF): ca65 rejects it out of the type's range (#223)
+std::string negativeAsUnsigned(const std::string& a, int bytes) {
+    size_t i = a.find_first_not_of(" \t");
+    if (i == std::string::npos || a[i] != '-') return a;
+    std::string num = a.substr(i + 1);
+    while (!num.empty() && (num.back() == ' ' || num.back() == '\t')) num.pop_back();
+    if (num.empty()) return a;
+    long v;
+    char* end = nullptr;
+    if (num[0] == '$') v = std::strtol(num.c_str() + 1, &end, 16);
+    else if (num[0] == '%') v = std::strtol(num.c_str() + 1, &end, 2);
+    else v = std::strtol(num.c_str(), &end, 10);
+    if (!end || *end || end == num.c_str() || v <= 0 || v > (1L << (8 * bytes - 1))) return a;
+    char buf[16];
+    std::snprintf(buf, sizeof buf, bytes == 1 ? "$%02lX" : "$%04lX", ((1L << (8 * bytes)) - v));
+    return buf;
+}
+
 // 'c' in an expression (outside "strings") as the number ca45 gives it
 std::string charsAsNumbers(const std::string& e) {
     std::string out;
@@ -49,14 +71,99 @@ std::string charsAsNumbers(const std::string& e) {
 }
 }  // namespace
 
+bool AsmWriter::isQInstruction(const std::string& mnemonic) {
+    static const char* const q[] = {"ldq", "stq", "adcq", "sbcq", "andq", "orq", "eorq", "aslq", "lsrq",
+                                    "rolq", "rorq", "asrq", "inq", "deq", "cpq", "bitq"};
+    std::string m;
+    for (char c : mnemonic) m += (char)std::tolower((unsigned char)c);
+    for (const char* x : q) if (m == x) return true;
+    return false;
+}
+
+std::string AsmWriter::flatOperand(const std::string& operand) {
+    size_t a = operand.find_first_not_of(" \t");
+    size_t b = operand.rfind(']');
+    if (a == std::string::npos || operand[a] != '[' || b == std::string::npos || b < a) return "";
+    std::string rest = operand.substr(b + 1);
+    std::string r;
+    for (char c : rest) if (c != ' ' && c != '\t') r += (char)std::tolower((unsigned char)c);
+    return r == ",z" ? operand.substr(a + 1, b - a - 1) : "";
+}
+
+std::string AsmWriter::dataKind(const std::string& name) {
+    std::string n;
+    for (char c : name) n += (char)std::tolower((unsigned char)c);
+    if (n == "long" || n == "dword" || n == "dd") return "dword";
+    if (n == "res" || n == "fill" || n == "space" || n == "ds") return "fill";
+    if (n == "balign" || n == "align") return "align";
+    if (n == "db") return "byte";
+    if (n == "dw") return "word";
+    return n;
+}
+
+AsmIR::Module AsmWriter::localsAsGlobals(const AsmIR::Module& module) {
+    AsmIR::Module out = module;
+    // the enclosing (non-@) label of each statement
+    std::vector<std::string> scope(out.statements.size());
+    std::string cur = "_top";
+    for (size_t i = 0; i < out.statements.size(); i++) {
+        const auto& st = out.statements[i];
+        if (st.type == AsmIR::Statement::Type::LABEL && !st.label.empty() && st.label[0] != '@') cur = st.label;
+        scope[i] = cur;
+    }
+    // (only names defined as labels here: ca45's .local / .var names such as
+    // @_l_a are frame offsets and variables, not labels)
+    std::set<std::string> labels;
+    for (const auto& st : out.statements)
+        if (st.type == AsmIR::Statement::Type::LABEL && !st.label.empty() && st.label[0] == '@') labels.insert(st.label);
+    // @name as a whole word outside string literals
+    auto rename = [&labels](const std::string& text, const std::string& sc) {
+        std::string r;
+        char quote = 0;
+        for (size_t i = 0; i < text.size(); i++) {
+            char c = text[i];
+            if (quote) { r += c; if (c == quote) quote = 0; continue; }
+            if (c == '"' || c == '\'') { quote = c; r += c; continue; }
+            bool start = i == 0 || !(std::isalnum((unsigned char)text[i - 1]) || text[i - 1] == '_');
+            if (c == '@' && start && i + 1 < text.size() &&
+                (std::isalpha((unsigned char)text[i + 1]) || text[i + 1] == '_')) {
+                size_t e = i + 1;
+                while (e < text.size() && (std::isalnum((unsigned char)text[e]) || text[e] == '_')) e++;
+                if (labels.count(text.substr(i, e - i))) {
+                    r += sc + "__" + text.substr(i + 1, e - i - 1);
+                    i = e - 1;
+                    continue;
+                }
+            }
+            r += c;
+        }
+        return r;
+    };
+    for (size_t i = 0; i < out.statements.size(); i++) {
+        auto& st = out.statements[i];
+        if (st.type == AsmIR::Statement::Type::LABEL && !st.label.empty() && st.label[0] == '@')
+            st.label = scope[i] + "__" + st.label.substr(1);
+        if (st.type == AsmIR::Statement::Type::INSTRUCTION) st.instr.operand.text = rename(st.instr.operand.text, scope[i]);
+        if (st.type == AsmIR::Statement::Type::DIRECTIVE)
+            for (auto& a : st.dir.arguments) a = rename(a, scope[i]);
+    }
+    return out;
+}
+
 AsmIR::Module AsmWriter::textAsBytes(const AsmIR::Module& module) {
     AsmIR::Module out = module;
     for (auto& st : out.statements) {
         if (st.type == AsmIR::Statement::Type::INSTRUCTION && st.instr.mode != AsmIR::AddressingMode::RAW)
             st.instr.operand.text = charsAsNumbers(st.instr.operand.text);
         if (st.type == AsmIR::Statement::Type::DIRECTIVE && st.dir.name != "text" &&
-            st.dir.name != "screencode" && st.dir.name != "ascii")
-            for (auto& a : st.dir.arguments) a = charsAsNumbers(a);
+            st.dir.name != "screencode" && st.dir.name != "ascii") {
+            std::string kind = dataKind(st.dir.name);
+            for (auto& a : st.dir.arguments) {
+                a = charsAsNumbers(a);
+                if (kind == "byte") a = negativeAsUnsigned(a, 1);
+                if (kind == "word") a = negativeAsUnsigned(a, 2);
+            }
+        }
         if (st.type != AsmIR::Statement::Type::DIRECTIVE || st.dir.arguments.size() != 1) continue;
         const std::string& name = st.dir.name;
         if (name != "text" && name != "screencode" && name != "ascii") continue;
