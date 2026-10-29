@@ -1,6 +1,8 @@
 // pack45 — packs a file into a format-1 stream (#345, Pack45.hpp) for the
 // library's unpack() (<unpack.h>): its load address (cbm_load / cbm_load_far
 // skip it), then the stream. Unpacks one (-x) to check it.
+#include <cmath>
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <string>
@@ -8,6 +10,7 @@
 #include <iterator>
 #include "Logger.hpp"
 #include "Pack45.hpp"
+#include "PackAudio.hpp"
 #include "Version.hpp"
 
 static bool readFile(const std::string& path, std::vector<uint8_t>& out) {
@@ -43,6 +46,7 @@ static bool parseAddr(const std::string& s, uint32_t& v) {
 static void usage() {
     std::cout << "Usage: pack45 [options] <input> <output>\n"
                  "       pack45 -x <packed> <output>\n"
+                 "       pack45 --suggest-rate [--keep PCT] [--max-rate HZ] <sound.wav> ...\n"
                  "Packs <input> into a stream unpack() (<unpack.h>) unpacks, written with a\n"
                  "two-byte load address in front (cbm_load / cbm_load_far skip it).\n"
                  "  -d, --dest ADDR   where it unpacks to: a 28-bit address ($40000, 0x8000000);\n"
@@ -53,16 +57,52 @@ static void usage() {
                  "  --best            the shortest stream (an optimal parse; slower)\n"
                  "  --prg             the input has a two-byte load address (also: a .prg name)\n"
                  "  -x                unpack <packed> (with its load address, or --raw) to <output>\n"
+                 "  --suggest-rate    for each WAV: the lowest sample rate that keeps PCT of its\n"
+                 "                    energy (fewer samples is what makes a sound smaller)\n"
+                 "  --keep PCT        the energy kept, per cent (default 99.9)\n"
+                 "  --max-rate HZ     the highest rate it will be played at: only the energy\n"
+                 "                    that rate can hold counts, and no rate above it is suggested\n"
                  "  -V, --version     the version\n"
                  "  -v ... -vvvv      log to stderr\n"
                  "Prints the sizes, where it unpacks to and the in-place load address.\n";
+}
+
+// --suggest-rate: each sound's energy below which keep per cent lies, and
+// the lowest usual rate whose pass band holds it; the bytes at 8 bits a
+// sample, and the MEGA65 audio DMA's rate for it (Hz * 2^24 /
+// 40.5 MHz)
+static int suggestRates(const std::vector<std::string>& files, double keep, uint32_t maxRate) {
+    if (files.empty()) { usage(); return 1; }
+    int status = 0;
+    for (const auto& f : files) {
+        std::vector<uint8_t> in;
+        pack45::Wav w;
+        std::string err;
+        if (!readFile(f, in)) { std::cerr << "pack45: cannot read " << f << "\n"; status = 1; continue; }
+        if (!pack45::readWav(in, w, &err)) { std::cerr << "pack45: " << f << ": " << err << "\n"; status = 1; continue; }
+        uint32_t top = maxRate && maxRate < w.rate ? maxRate : w.rate;
+        double hz = pack45::energyBelow(w, keep / 100, top < w.rate ? 0.45 * top : 0);
+        uint32_t r = pack45::rateFor(hz, top);
+        double secs = (double)w.samples.size() / w.rate;
+        char line[512];
+        snprintf(line, sizeof line,
+                 "pack45: %s: %u Hz, %d-bit, %d channel%s, %.2f s; %g%% of its energy below %.0f Hz: "
+                 "%u Hz keeps it (%.0f bytes at 8 bits, %.0f%% of %u Hz); audio DMA rate $%06lX",
+                 f.c_str(), (unsigned)w.rate, w.bits, w.channels, w.channels == 1 ? "" : "s", secs, keep, hz,
+                 (unsigned)r, secs * r, 100.0 * r / w.rate, (unsigned)w.rate,
+                 (unsigned long)std::lround((double)r * (1 << 24) / 40500000.0));
+        std::cout << line << std::endl;
+    }
+    return status;
 }
 
 int main(int argc, char** argv) {
     Logger::setTool("pack45");
     argc = Logger::takeFlags(argc, argv);
     uint32_t dest = 0, load = 0;
-    bool haveDest = false, haveLoad = false, raw = false, prg = false, extract = false, best = false;
+    bool haveDest = false, haveLoad = false, raw = false, prg = false, extract = false, best = false, suggest = false;
+    double keep = 99.9;
+    uint32_t maxRate = 0;
     std::vector<std::string> files;
     for (int i = 1; i < argc; i++) {
         std::string a = argv[i];
@@ -81,9 +121,21 @@ int main(int argc, char** argv) {
         else if (a == "--best") best = true;
         else if (a == "--prg") prg = true;
         else if (a == "-x") extract = true;
+        else if (a == "--suggest-rate") suggest = true;
+        else if (a == "--max-rate") { value(maxRate); if (!maxRate) { std::cerr << "pack45: --max-rate needs a rate in Hz\n"; return 1; } }
+        else if (a == "--keep") {
+            char* end = nullptr;
+            keep = i + 1 < argc ? strtod(argv[i + 1], &end) : 0;
+            if (!end || *end || keep <= 0 || keep > 100) {
+                std::cerr << "pack45: --keep needs a per cent (0 < PCT <= 100: 99.9)\n";
+                return 1;
+            }
+            i++;
+        }
         else if (!a.empty() && a[0] == '-' && a.size() > 1) { std::cerr << "pack45: unknown option " << a << "\n"; return 1; }
         else files.push_back(a);
     }
+    if (suggest) return suggestRates(files, keep, maxRate);
     if (files.size() != 2) { usage(); return 1; }
     std::vector<uint8_t> in;
     if (!readFile(files[0], in)) { std::cerr << "pack45: cannot read " << files[0] << "\n"; return 1; }

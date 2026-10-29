@@ -15,6 +15,19 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - Test: the round trips again with `--best`, never longer than greedy
   (`test_compiler.sh`).
 
+### pack45 --suggest-rate: how low a sound's sample rate can go
+
+- Sampled sound does not pack (LZ finds no repeats; a coder spends the same
+  bytes on every sample): fewer samples is what makes it smaller.
+  `pack45 --suggest-rate <sound.wav> ...` reads each WAV (PCM 8/16/24/32
+  bits, 32-bit float, mixed to mono), measures its spectrum and names the
+  lowest usual rate (4000 .. 48000 Hz) whose pass band holds 99.9% of its
+  energy (`--keep PCT`), with its size at 8 bits and the audio DMA's rate
+  value. `--max-rate HZ`: the rate the program plays at, so that a
+  recording's hiss above it does not count.
+- Test: a tone, noise, the cap and a file that is not a WAV
+  (`test_compiler.sh`, `src/test-resources/pack45/`).
+
 ### cvt_asm is now asmCvt45
 
 - The assembler source converter follows the toolchain's `<name>45` naming:

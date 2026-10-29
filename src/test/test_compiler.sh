@@ -571,6 +571,13 @@ for f in rand zero text code; do
 done
 # (text packs to under 60%)
 [ $(stat -c %s build/test/pack_text.pak) -lt 24000 ] || pk_ok=0
+# --suggest-rate: a 300 Hz tone needs only the lowest rate, noise its own
+# (or the --max-rate cap); a file that is no WAV is an error
+pr=src/test-resources/pack45
+./bin/pack45 --suggest-rate $pr/tone.wav 2>&1 | grep -q ": 4000 Hz keeps it" || pk_ok=0
+./bin/pack45 --suggest-rate $pr/noise.wav 2>&1 | grep -q ": 11025 Hz keeps it" || pk_ok=0
+./bin/pack45 --suggest-rate --max-rate 8000 $pr/noise.wav 2>&1 | grep -q ": 8000 Hz keeps it" || pk_ok=0
+./bin/pack45 --suggest-rate Makefile >/dev/null 2>&1 && pk_ok=0
 if [ $pk_ok = 1 ]; then
     echo "SUCCESS: pack45 round trips"
 else
