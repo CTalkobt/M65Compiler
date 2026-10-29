@@ -365,6 +365,16 @@ make -C "$EXAMPLES/c/tgi_demo" check >/dev/null 2>&1
 test_text "tgi_demo" "$EXAMPLES/c/tgi_demo/tgicheck.prg" "TGI CHECK OK, 50 FRAMES" 20
 
 }
+unit_30() {   # drums
+build_example "$EXAMPLES/c/drums"
+# the test build: 240 frames; the drum channels programmed (their samples'
+# addresses read back from the audio DMA, within the samples) as the music
+# says, the tune 40 ticks in
+make -C "$EXAMPLES/c/drums" check >/dev/null 2>&1
+test_text "drums" "$EXAMPLES/c/drums/drumscheck.prg" "DRUMS CHECK OK: 40 TICKS, THE SAMPLES CHANGED 9 AND 4 TIMES" 20
+
+}
+
 unit_29() {   # map_decode
 build_example "$EXAMPLES/c/map_decode"
 test_screenshot "map_decode" "$EXAMPLES/c/map_decode/map_decode.prg" 10

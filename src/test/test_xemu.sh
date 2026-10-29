@@ -2020,6 +2020,49 @@ for comode in "zp|" "stack|-fno-zpcall"; do
     xemu_case "FAIL: test_conio_xemu.c $coname (compilation/linking failed)" "src/test-resources/test_conio_xemu.c" "build/test/test_conio_${coname}_xemu.prg" "$coflags" -- "test_conio_$coname" "build/test/test_conio_${coname}_xemu.prg" "C0C0" 10 "01 01 01 01 01 01 01 01 01 AA"
 done
 
+# Test: the tune player's digi voices against tune45's model: SID 1 and
+# the audio DMA's registers (channels 2-3: tune_digi_channels(2), the third
+# voice left out) after each of 150 frames, in both conventions
+for drmode in "zp|$STDLIB|" "stack|$STDLIB_STACK|-fno-zpcall"; do
+    IFS='|' read -r drname drlib drflags <<< "$drmode"
+    echo "Testing tune45 trace against the tune player (digi_$drname)..."
+    TD=build/test/tune
+    mkdir -p $TD/digi
+    if ./bin/tune45 convert src/test-resources/tune/digi.txt -o $TD/digi/music.c >/dev/null 2>&1 &&
+       ./bin/cc45 -O2 $drflags -I$TD/digi -DDIGI -DFRAMES=150 -DTUNE=0 -c src/test-resources/tune/trace_xemu.c -o $TD/dtrace_$drname.o45 &&
+       ./bin/cc45 -O2 $drflags -I$TD/digi -c $TD/digi/music.c -o $TD/digi_$drname.o45 &&
+       ./bin/ln45 -basic -o $TD/dtrace_$drname.prg $TD/dtrace_$drname.o45 $TD/digi_$drname.o45 $drlib >/dev/null; then
+        rm -f $TD/dtrace_$drname.mem
+        timeout 60 xemu-xmega65 -headless -besure -sleepless -prgmode 65 -prgexit -dumpmem $TD/dtrace_$drname.mem \
+            -prg $TD/dtrace_$drname.prg >/dev/null 2>&1
+        ./bin/tune45 trace src/test-resources/tune/digi.txt --samples-at 0x40000 --digi-first 2 --mono --frames 150 \
+            > $TD/dmodel.txt 2>/dev/null
+        if python3 - $TD/dtrace_$drname.mem $TD/dmodel.txt <<'PY'
+import sys
+mem = open(sys.argv[1], 'rb').read()
+lines = [bytes.fromhex(l.strip()) for l in open(sys.argv[2])]
+model = [l[:25] + l[128 + 0x30:128 + 0x50] + bytes([l[128 + 1], l[128 + 0x0E], l[128 + 0x0F]]) for l in lines]
+if mem[0xC0C0] != 0xAA or len(model) != 150:
+    sys.exit("did not finish")
+if not any(m[25] == 0xA2 for m in model) or not any(m[41] == 0xA2 for m in model):
+    sys.exit("the model's digi voices never played")
+bad = [f for f in range(150) if mem[0x8000 + 60 * f:0x8000 + 60 * f + 60] != model[f]]
+if bad:
+    sys.exit("they differ from frame %d (%d frames)" % (bad[0] + 1, len(bad)))
+PY
+        then
+            echo "SUCCESS: tune45 trace = the tune player (digi_$drname)"
+            passed=$((passed + 1))
+        else
+            echo "FAIL: tune45 trace differs from the tune player (digi_$drname)"
+            failed=$((failed + 1))
+        fi
+    else
+        echo "FAIL: tune45 trace test (digi_$drname): build failed"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: <audio_tune.h>, the tune player (its SID writes into a RAM buffer)
 for tumode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r tuname tuflags <<< "$tumode"
@@ -2027,12 +2070,14 @@ for tumode in "zp|" "stack|-fno-zpcall"; do
     xemu_case "FAIL: test_tune_xemu.c $tuname (compilation/linking failed)" "src/test-resources/test_tune_xemu.c" "build/test/test_tune_${tuname}_xemu.prg" "$tuflags" -- "test_tune_$tuname" "build/test/test_tune_${tuname}_xemu.prg" "C0C0" 9 "01 01 01 01 01 01 01 01 AA"
 done
 
-# Test: tune45's model of the tune player against the player itself: the
-# registers of voices 0-2 after each of 300 frames (a tune with every
-# effect; one of glides, after a tune_seek), in both conventions
+# Test: tune45's model of the tune player against the player itself: SID
+# 1's registers (voices 0-2, the filter) after each of 300 frames (a tune
+# with every effect; one of glides, after a tune_seek; one of the filter,
+# wave tables and hard restart), in both conventions
 mkdir -p build/test/tune
 for trmode in "zp|$STDLIB||effects|0|0" "stack|$STDLIB_STACK|-fno-zpcall|effects|0|0" \
-              "zp|$STDLIB||glides|1|40" "stack|$STDLIB_STACK|-fno-zpcall|glides|1|40"; do
+              "zp|$STDLIB||glides|1|40" "stack|$STDLIB_STACK|-fno-zpcall|glides|1|40" \
+              "zp|$STDLIB||synth|2|0" "stack|$STDLIB_STACK|-fno-zpcall|synth|2|0"; do
     IFS='|' read -r trname trlib trflags trtune trn trseek <<< "$trmode"
     trname=${trtune}_$trname
     echo "Testing tune45 trace against the tune player ($trname)..."
@@ -2048,10 +2093,10 @@ for trmode in "zp|$STDLIB||effects|0|0" "stack|$STDLIB_STACK|-fno-zpcall|effects
         if python3 - $TD/trace_$trname.mem $TD/model.txt <<'PY'
 import sys
 mem = open(sys.argv[1], 'rb').read()
-model = [bytes.fromhex(l.strip())[:21] for l in open(sys.argv[2])]
+model = [bytes.fromhex(l.strip())[:25] for l in open(sys.argv[2])]
 if mem[0xC0C0] != 0xAA or len(model) != 300:
     sys.exit("did not finish")
-bad = [f for f in range(300) if mem[0x8000 + 21 * f:0x8000 + 21 * f + 21] != model[f]]
+bad = [f for f in range(300) if mem[0x8000 + 25 * f:0x8000 + 25 * f + 25] != model[f]]
 if bad:
     sys.exit("they differ from frame %d (%d frames)" % (bad[0] + 1, len(bad)))
 PY

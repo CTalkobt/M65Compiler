@@ -235,10 +235,10 @@ $(NM_TARGET): $(LIB_DIR)/lib45-common.a
 	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/nm45_main.o $(LIB_DIR)/lib45-common.a
 
 # Packer (pack45, #345) - uses common
-$(PACK_TARGET): $(OBJ_DIR)/pack45_main.o | $(LIB_DIR)
+$(PACK_TARGET): $(OBJ_DIR)/pack45_main.o $(OBJ_DIR)/PackAudio.o | $(LIB_DIR)
 $(PACK_TARGET): $(LIB_DIR)/lib45-common.a
 	@mkdir -p $(BIN_DIR)
-	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/pack45_main.o $(LIB_DIR)/lib45-common.a
+	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/pack45_main.o $(OBJ_DIR)/PackAudio.o $(LIB_DIR)/lib45-common.a
 
 # Linker (ln45) - uses linker + opt + common
 $(LN_TARGET): $(OBJ_DIR)/ln45_main.o | $(LIB_DIR)
@@ -261,7 +261,7 @@ $(LIB_DIR)/lib45-residfp.a: $(RESIDFP_OBJS) | $(LIB_DIR)
 $(OBJ_DIR)/TuneAudio.o: CXXFLAGS += -I$(RESIDFP_DIR)
 TUNE_OBJS = $(OBJ_DIR)/tune45_main.o $(OBJ_DIR)/TuneCompiler.o $(OBJ_DIR)/TunePlayer.o $(OBJ_DIR)/TuneAudio.o \
             $(OBJ_DIR)/TuneCreate.o $(OBJ_DIR)/TuneMidi.o \
-            $(OBJ_DIR)/BasicTooling.o $(OBJ_DIR)/Logger.o
+            $(OBJ_DIR)/BasicTooling.o $(OBJ_DIR)/Logger.o $(OBJ_DIR)/Pack45.o $(OBJ_DIR)/PackAudio.o
 $(TUNE_TARGET): $(TUNE_OBJS) $(LIB_DIR)/lib45-residfp.a
 	@mkdir -p $(BIN_DIR)
 	$(CXX) $(CXXFLAGS) -pthread -o $@ $(TUNE_OBJS) $(LIB_DIR)/lib45-residfp.a

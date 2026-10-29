@@ -1,0 +1,7 @@
+; digi_regs.s45 — where the tune player writes the audio DMA's registers
+; ($D710: $D711 the enable, $D71C-$D71F the other side's volumes, the
+; channels at $D720 + ch * 16). Weak, and alone in its library member: a
+; test that defines __digi_regs (an $50-byte RAM buffer) sees every write.
+
+.weak ___digi_regs
+___digi_regs = $D710

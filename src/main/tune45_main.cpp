@@ -3,6 +3,7 @@
 //   tune45 convert music.txt -o music.c     C source and header (or --bin, --asm)
 //   tune45 list music.txt                   each tune's size and length
 //   tune45 play music.txt [--tune name]     on the PC (reSIDfp), or a .wav
+//   tune45 sample sound.pak --rate 8000     sampled sound as the audio DMA plays it
 // (create and import: see doc/bin/tune45.md)
 #include "TuneCompiler.hpp"
 #include "TunePlayer.hpp"
@@ -10,6 +11,8 @@
 #include "TuneCreate.hpp"
 #include "TuneMidi.hpp"
 #include "BasicTooling.hpp"
+#include "Pack45.hpp"
+#include "PackAudio.hpp"
 #include <csignal>
 #include <climits>
 #include <sys/stat.h>
@@ -42,6 +45,9 @@ void usage(std::ostream& o) {
          "            paplay or aplay, or into a .wav file\n"
          "  create    compose a tune (the text format): --genre, --tempo, --length, ...\n"
          "  import    a Standard MIDI File as text (convert and play take a .mid too)\n"
+         "  sample    play sampled sound as the MEGA65's audio DMA does: 8-bit samples, packed\n"
+         "            by pack45 or as they are (--rate), or a WAV, AU, MP3 (MP4 ... by ffmpeg)\n"
+         "            made so first (as pack45 --sound)\n"
          "Options:\n"
          "  -o <file>          output file\n"
          "  --bin, --asm       convert: a binary blob / ca45 source instead of C\n"
@@ -52,6 +58,13 @@ void usage(std::ostream& o) {
          "  --wav <file>       play: into a WAV file instead of the speakers\n"
          "  --ntsc             play: an NTSC machine (60 Hz, its SID clock)\n"
          "  --6581             play: the MOS 6581 SID (default: the 8580)\n"
+         "  --rate <hz>        sample: the samples' rate (a sound file: default the rate\n"
+         "                     pack45 --suggest-rate names)\n"
+         "  --max-rate <hz>    sample: a sound file: the highest rate to suggest\n"
+         "  --unsigned         sample: unsigned samples (offset by 128; default signed)\n"
+         "  --samples <file>   convert --bin: the digi voices' samples (to load into chip RAM)\n"
+         "  --samples-at <a>   trace: where the samples are (tune_samples)\n"
+         "  --digi-first <n>   trace: the digi voices' first channel (tune_digi_channels)\n"
          "  --mono             play: SIDs 1-2 only (without the mirror on SIDs 3-4)\n"
          "  --emulator         play: on the MEGA65 in xemu (a player program with the tunes)\n"
          "  --emulator-path <f> the xemu-xmega65 binary (default: on PATH)\n"
@@ -129,7 +142,7 @@ std::string bytes(const std::vector<uint8_t>& b, const char* lead, const char* s
 }
 
 int convert(const TuneFile& f, const std::string& src, const std::string& outPath, const std::string& mode,
-            std::string header, long loadAt) {
+            std::string header, long loadAt, const std::string& samplesPath) {
     for (const auto& t : f.tunes)
         if (!isIdent(t.name)) {
             std::cerr << src << ":" << t.line << ": error: a tune's name must be a C identifier: " << t.name << "\n";
@@ -143,7 +156,9 @@ int convert(const TuneFile& f, const std::string& src, const std::string& outPat
     for (size_t k = 0; k < f.tunes.size(); k++) h << "#define TUNE_" << upper(f.tunes[k].name) << " " << k << "\n";
     // each tune's ticks once through (tune_seek: a looping tune's position)
     for (const auto& t : f.tunes)
-        h << "#define TUNE_" << upper(t.name) << "_TICKS " << (t.voices.empty() ? 0 : t.voices[0].ticks) << "\n";
+        h << "#define TUNE_" << upper(t.name) << "_TICKS " << t.ticks() << "\n";
+    // the digi voices' samples: one bank, in chip RAM (tune_samples)
+    if (!f.bank.empty()) h << "#define TUNE_SAMPLES_SIZE " << f.bank.size() << "\n";
 
     if (mode == "bin") {
         // [tunes][offset (2) each] then the blobs; offsets from the start
@@ -161,6 +176,18 @@ int convert(const TuneFile& f, const std::string& src, const std::string& outPat
             h << "#define TUNE_" << upper(f.tunes[k].name) << "_AT " << buf << "\n";
         }
         if (out.size() > 0xFFFF) { std::cerr << "tune45: over 64 KB of tunes\n"; return 1; }
+        if (!f.bank.empty()) {
+            // the samples: their own file, to load into chip RAM (tune_samples)
+            if (samplesPath.empty()) { std::cerr << "tune45: the tunes have digi voices: --samples <file> for their samples\n"; return 1; }
+            std::ofstream so(samplesPath, std::ios::binary);
+            if (loadAt >= 0) {
+                char la[2] = {(char)(loadAt & 0xFF), (char)((loadAt >> 8) & 0xFF)};
+                so.write(la, 2);
+            }
+            so.write((const char*)f.bank.data(), (std::streamsize)f.bank.size());
+            if (!so) { std::cerr << "tune45: cannot write " << samplesPath << "\n"; return 1; }
+            h << "/* " << baseName(samplesPath) << ": in chip RAM, not across a 64 KB boundary: tune_samples(<its address>) */\n";
+        }
         h << "#define TUNES_SIZE " << out.size() << "\n";
         std::ofstream o(outPath, std::ios::binary);
         if (loadAt >= 0) {      // a load address first, as a KERNAL LOAD reads it
@@ -175,6 +202,8 @@ int convert(const TuneFile& f, const std::string& src, const std::string& outPat
     for (const auto& t : f.tunes)
         h << "extern const unsigned char tune_" << t.name << "[" << TuneCompiler::blob(f, t).size() << "];\n";
     h << "extern const unsigned char *const tunes[NTUNES];   /* tune_play(tunes[TUNE_...]) */\n";
+    if (!f.bank.empty())
+        h << "extern const unsigned char tune_sample_bank[TUNE_SAMPLES_SIZE];   /* tune_samples((unsigned int)tune_sample_bank) */\n";
     std::ofstream o(outPath);
     if (!o) { std::cerr << "tune45: cannot write " << outPath << "\n"; return 1; }
     if (mode == "asm") {
@@ -184,6 +213,7 @@ int convert(const TuneFile& f, const std::string& src, const std::string& outPat
         for (const auto& t : f.tunes) o << "\n_tune_" << t.name << ":\n" << bytes(TuneCompiler::blob(f, t), "    .byte ", ", ", "") << "\n";
         o << "\n_tunes:\n";
         for (const auto& t : f.tunes) o << "    .word _tune_" << t.name << "\n";
+        if (!f.bank.empty()) o << "\n.global _tune_sample_bank\n_tune_sample_bank:\n" << bytes(f.bank, "    .byte ", ", ", "") << "\n";
     } else {
         o << guardNote << "#include \"" << baseName(header) << "\"\n";
         for (const auto& t : f.tunes) {
@@ -193,6 +223,8 @@ int convert(const TuneFile& f, const std::string& src, const std::string& outPat
         o << "\nconst unsigned char *const tunes[NTUNES] = {";
         for (size_t k = 0; k < f.tunes.size(); k++) o << (k ? ", " : " ") << "tune_" << f.tunes[k].name;
         o << " };\n";
+        if (!f.bank.empty())
+            o << "\nconst unsigned char tune_sample_bank[TUNE_SAMPLES_SIZE] = {\n" << bytes(f.bank, "    ", ", ", ",") << ",\n};\n";
     }
     return o ? 0 : 1;
 }
@@ -202,6 +234,8 @@ time_t mtime(const std::string& p);
 struct PlayOptions {
     std::vector<std::string> tunes;
     unsigned loops = 1, frames = 0, seek = 0;
+    uint32_t samplesAt = 0;      // trace: tune_samples' address
+    uint8_t digiFirst = 0;       // trace: tune_digi_channels
     std::string wav, emulatorPath, sendCmd, prg;
     bool ntsc = false, mos6581 = false, mono = false, emulator = false, send = false, watch = false;
 };
@@ -218,24 +252,129 @@ bool chosen(const TuneFile& f, const PlayOptions& o, std::vector<const Tune*>& o
     return true;
 }
 
+// tune45 sample: the 8-bit samples (a pack45 stream unpacked, the file as it
+// is, or a sound file made into them as pack45 --sound does) played at their
+// rate, each held until the next as the audio DMA does, to 48 kHz
+int playSample(const std::string& path, uint32_t rate, uint32_t maxRate, bool isUnsigned, const std::string& wav) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in) { std::cerr << "tune45: cannot read " << path << "\n"; return 1; }
+    std::vector<uint8_t> f((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    std::vector<uint8_t> samples;
+    std::string what;
+    // a pack45 stream, with its load address in front or without
+    for (size_t skip : {(size_t)2, (size_t)0}) {
+        if (f.size() < skip + pack45::kHeader + 3 || f[skip] != pack45::kFormat) continue;
+        std::vector<uint8_t> s(f.begin() + (long)skip, f.end()), out;
+        if (pack45::unpack(s, out, nullptr)) {
+            samples = out;
+            what = "packed, " + std::to_string(f.size()) + " bytes";
+            break;
+        }
+    }
+    if (samples.empty() && pack45::isSoundFile(path, f)) {
+        pack45::Wav w;
+        std::string err;
+        if (!pack45::readSound(path, f, w, &err)) { std::cerr << "tune45: " << path << ": " << err << "\n"; return 1; }
+        if (!rate) {
+            uint32_t top = maxRate && maxRate < w.rate ? maxRate : w.rate;
+            rate = pack45::rateFor(pack45::energyBelow(w, 0.999, top < w.rate ? 0.45 * top : 0), top);
+        }
+        samples = pack45::toBytes(pack45::resample(w, rate), isUnsigned, false);
+        char line[96];
+        snprintf(line, sizeof line, "%u Hz, %d channel%s", (unsigned)w.rate, w.channels, w.channels == 1 ? "" : "s");
+        what = line;
+    } else if (samples.empty()) {
+        samples = f;
+        what = "as they are";
+    }
+    if (!rate) { std::cerr << "tune45: " << path << ": at what rate? --rate <hz> (pack45 --sound printed it)\n"; return 1; }
+    if (samples.empty()) { std::cerr << "tune45: " << path << ": no samples\n"; return 1; }
+    const int out = 48000;
+    AudioSink sink;
+    if (!sink.open(wav, out)) { std::cerr << "tune45: " << sink.error() << "\n"; return 1; }
+    char line[96];
+    snprintf(line, sizeof line, "%zu samples at %u Hz, %.2f s", samples.size(), (unsigned)rate, (double)samples.size() / rate);
+    std::cout << "playing " << path << " (" << what << "): " << line << " (via " << sink.via() << ")" << std::endl;
+    std::vector<int16_t> buf;
+    double step = (double)rate / out;
+    for (double t = 0; t < (double)samples.size(); t += step) {
+        uint8_t b = samples[(size_t)t];
+        int v = isUnsigned ? b - 128 : (int8_t)b;
+        buf.push_back((int16_t)(v * 256));
+        buf.push_back((int16_t)(v * 256));
+        if (buf.size() >= 8192) { sink.put(buf); buf.clear(); }
+    }
+    sink.put(buf);
+    sink.close();
+    return 0;
+}
+
+// The audio DMA as the digi voices drive it, for play: a channel started
+// (its control register on) reads the bank from its current address to its
+// end at its rate, each sample held to the next, at its volume on its side
+// (channels 0-1 left, 2-3 right) and the other side's; the samples are at
+// address 0
+struct DigiMix {
+    const std::vector<uint8_t>* bank = nullptr;
+    uint8_t regs[0x50] = {};
+    struct Ch { bool on = false; double pos = 0, step = 0; uint32_t end = 0; } ch[4];
+    int rate = 48000;
+    void write(uint8_t i, uint8_t v) {
+        if (i >= 0x50) return;
+        regs[i] = v;
+        if (i < 0x10 || (i - 0x10) % 16) return;
+        int c = (i - 0x10) / 16;
+        const uint8_t* r = &regs[0x10 + c * 16];
+        ch[c].on = (v & 0x80) != 0;
+        if (!ch[c].on) return;
+        uint32_t cur = r[0xA] | (r[0xB] << 8) | ((uint32_t)r[0xC] << 16);
+        ch[c].pos = cur;
+        ch[c].end = (cur & 0xFF0000) | r[7] | (r[8] << 8);
+        ch[c].step = (r[4] | (r[5] << 8) | ((uint32_t)r[6] << 16)) * (40500000.0 / 16777216.0) / rate;
+    }
+    // added to n stereo frames (L, R ...)
+    void mix(int16_t* lr, size_t n) {
+        for (size_t k = 0; k < n; k++)
+            for (int c = 0; c < 4; c++) {
+                Ch& h = ch[c];
+                if (!h.on) continue;
+                uint32_t at = (uint32_t)h.pos;
+                if (at >= h.end || !bank || at >= bank->size()) { h.on = false; continue; }
+                int s = (*bank)[at] - 128;
+                int own = s * regs[0x10 + c * 16 + 9] / 2, other = s * regs[0x0C + c] / 2;   // (half scale: room for the SIDs)
+                int l = lr[2 * k] + (c < 2 ? own : other), rr = lr[2 * k + 1] + (c < 2 ? other : own);
+                lr[2 * k] = (int16_t)std::max(-32768, std::min(32767, l));
+                lr[2 * k + 1] = (int16_t)std::max(-32768, std::min(32767, rr));
+                h.pos += h.step;
+            }
+    }
+};
+
 int play(const std::string& src, TuneFile f, const PlayOptions& o) {
     std::vector<const Tune*> list;
     if (!chosen(f, o, list)) return 1;
     time_t seen = mtime(src);
     TuneAudio audio(o.ntsc, o.mos6581);
     TunePlayer player([&](uint8_t i, uint8_t v) { audio.write(i, v); });
+    DigiMix digi;
+    digi.bank = &f.bank;
+    digi.rate = audio.rate();
+    player.setDigiWrite([&](uint8_t i, uint8_t v) { digi.write(i, v); });
     player.setNtsc(o.ntsc);
     player.setMirror(!o.mono);
     // the volume up (as sid_init: the player leaves it to the program)
-    for (uint8_t c = 0; c < 4; c++) audio.write((uint8_t)(c * 0x20 + 0x18), 15);
+    for (uint8_t c = 0; c < 4; c++) {
+        audio.write((uint8_t)(c * 0x20 + 0x18), 15);
+        player.setShadow((uint8_t)(c * 0x20 + 0x18), 15);
+    }
     AudioSink sink;
     if (!sink.open(o.wav, audio.rate())) { std::cerr << "tune45: " << sink.error() << "\n"; return 1; }
     const double hz = o.ntsc ? 60.0 : 50.0;
     std::vector<int16_t> buf;
     for (size_t ti = 0; ti < list.size() || (o.watch && (ti = 0, !list.empty())); ti++) {
         const Tune* t = list[ti];
-        unsigned ticks = t->voices[0].ticks;
-        double frames = ticks * (t->fpt / 256.0) * (o.ntsc ? 60.0 / 50.0 : 1.0);
+        unsigned ticks = t->ticks();
+        double frames = t->frames(ticks) * (o.ntsc ? 60.0 / 50.0 : 1.0);
         unsigned total = t->loop ? (unsigned)(frames * o.loops + 0.5) : 0;
         char line[160];
         snprintf(line, sizeof line, "playing %s: %.1f s%s (via %s)\n", t->name.c_str(), frames / hz,
@@ -245,7 +384,9 @@ int play(const std::string& src, TuneFile f, const PlayOptions& o) {
         bool changed = false;
         for (unsigned n = 0; (t->loop ? n < total || o.watch : player.playing()); n++) {
             player.update();
+            size_t was = buf.size();
             audio.frame(buf);
+            digi.mix(buf.data() + was, (buf.size() - was) / 2);
             if (buf.size() >= 4096) { sink.put(buf); buf.clear(); }
             // --watch: the text changed: the tunes again, from the start
             if (o.watch && n % 25 == 0 && mtime(src) != seen) { changed = true; break; }
@@ -269,7 +410,7 @@ int play(const std::string& src, TuneFile f, const PlayOptions& o) {
             continue;
         }
         player.stop();
-        for (unsigned n = 0; n < (unsigned)hz; n++) audio.frame(buf);   // a second for the release
+        for (unsigned n = 0; n < (unsigned)hz; n++) audio.frame(buf);   // a second for the release (the samples stopped)
         sink.put(buf);
         buf.clear();
     }
@@ -278,12 +419,20 @@ int play(const std::string& src, TuneFile f, const PlayOptions& o) {
 }
 
 // The model's registers after each frame (the tests compare them with the
-// real player's): a line a frame, 128 bytes in hex
+// real player's): a line a frame, the SIDs' 128 bytes and the audio DMA's
+// $50 (from $D710) in hex
 int trace(const TuneFile& f, const PlayOptions& o) {
     std::vector<const Tune*> list;
     if (!chosen(f, o, list) || list.empty()) return 1;
-    uint8_t regs[128] = {};
+    uint8_t regs[128 + 0x50] = {};
     TunePlayer player([&](uint8_t i, uint8_t v) { regs[i & 0x7F] = v; });
+    player.setDigiWrite([&](uint8_t i, uint8_t v) { if (i < 0x50) regs[128 + i] = v; });
+    player.setSamples(o.samplesAt);
+    player.setDigiChannels(o.digiFirst);
+    for (uint8_t c = 0; c < 4; c++) {   // (as sid_init leaves them: the volume up)
+        regs[c * 0x20 + 0x18] = 15;
+        player.setShadow((uint8_t)(c * 0x20 + 0x18), 15);
+    }
     player.setNtsc(o.ntsc);
     player.setMirror(!o.mono);
     player.play(TuneCompiler::blob(f, *list[0]));
@@ -342,6 +491,8 @@ std::string buildPlayer(const TuneFile& f, const std::string& src, const PlayOpt
         for (size_t k = 0; k < f.tunes.size(); k++) out << (k ? ", " : " ") << "\"" << f.tunes[k].name << "\"";
         out << " };\nconst unsigned char tune_count = " << f.tunes.size() << ";\nconst unsigned char tune_start = " << start
             << ";\nconst char tune_file[] = \"" << baseName(src) << "\";\n";
+        out << "const unsigned int tune_sample_size = " << f.bank.size() << ";\nconst unsigned char tune_sample_bank["
+            << std::max<size_t>(1, f.bank.size()) << "] = {\n" << (f.bank.empty() ? "    0" : bytes(f.bank, "    ", ", ", ",")) << "\n};\n";
     }
     std::string out = prg.empty() ? dir + "/tuneplay.prg" : prg;
     std::string cmd = quote(bin + "cc45") + " -O2 -c " + quote(c) + " -o " + quote(obj) + " && " +
@@ -550,19 +701,32 @@ int list(const TuneFile& f) {
     for (const auto& t : f.tunes) {
         auto b = TuneCompiler::blob(f, t);
         total += b.size();
-        unsigned ticks = t.voices.empty() ? 0 : t.voices[0].ticks;
-        double sec = ticks * (t.fpt / 256.0) / 50.0;   // PAL frames; NTSC plays as long
+        unsigned ticks = t.ticks();
+        double sec = t.frames(ticks) / 50.0;   // PAL frames; NTSC plays as long
         char buf[160];
         snprintf(buf, sizeof buf, "%-12s %2zu voices %5zu bytes  %5u ticks  %6.1f s  %.2f frames/tick  %s\n",
-                 t.name.c_str(), t.voices.size(), b.size(), ticks, sec, t.fpt / 256.0, t.loop ? "loop" : "once");
+                 t.name.c_str(), t.voices.size() + t.digi.size(), b.size(), ticks, sec, t.fpt / 256.0, t.loop ? "loop" : "once");
         std::cout << buf;
         std::cout << "             voices:";
         for (size_t v = 0; v < t.voices.size(); v++) std::cout << " v" << v + 1 << " " << t.voices[v].stream.size() + 1;
+        for (size_t v = 0; v < t.digi.size(); v++) std::cout << " d" << v + 1 << " " << t.digi[v].stream.size() + 1;
         std::cout << " bytes\n             instruments:";
         for (int i : TuneCompiler::usedInstruments(f, t)) std::cout << " " << f.instruments[(size_t)i].name;
         std::cout << "\n";
+        if (!t.digi.empty()) {
+            std::cout << "             hits:";
+            for (int h : TuneCompiler::usedHits(t)) {
+                char hb[96];
+                snprintf(hb, sizeof hb, " %s (%u bytes, %u Hz)", TuneCompiler::hitName(f, h).c_str(),
+                         (unsigned)f.hits[(size_t)h].len, (unsigned)f.hits[(size_t)h].rate);
+                std::cout << hb;
+            }
+            std::cout << "\n";
+        }
     }
-    std::cout << f.tunes.size() << " tunes, " << total << " bytes\n";
+    std::cout << f.tunes.size() << " tunes, " << total << " bytes";
+    if (!f.bank.empty()) std::cout << "; samples " << f.bank.size() << " bytes";
+    std::cout << "\n";
     return 0;
 }
 
@@ -581,6 +745,9 @@ int main(int argc, char** argv) {
     CreateCli cc;
     MidiImportOptions mo;
     bool loopFlag = false;   // (import: --loop; a tune made of a MIDI file ends by default)
+    uint32_t sampleRate = 0, sampleMax = 0;   // sample: --rate, --max-rate
+    std::string samplesOut;                  // convert --bin: --samples <file>
+    bool sampleUnsigned = false;
     for (int i = 2; i < argc; i++) {
         std::string a = argv[i];
         if (a == "-o" && i + 1 < argc) out = argv[++i];
@@ -591,6 +758,12 @@ int main(int argc, char** argv) {
         else if (a == "--wav" && i + 1 < argc) po.wav = argv[++i];
         else if (a == "--ntsc") po.ntsc = true;
         else if (a == "--6581") po.mos6581 = true;
+        else if (a == "--rate" && i + 1 < argc) sampleRate = (uint32_t)std::max(0L, strtol(argv[++i], nullptr, 0));
+        else if (a == "--max-rate" && i + 1 < argc) sampleMax = (uint32_t)std::max(0L, strtol(argv[++i], nullptr, 0));
+        else if (a == "--unsigned") sampleUnsigned = true;
+        else if (a == "--samples" && i + 1 < argc) samplesOut = argv[++i];
+        else if (a == "--samples-at" && i + 1 < argc) po.samplesAt = (uint32_t)strtoul(argv[++i], nullptr, 0);
+        else if (a == "--digi-first" && i + 1 < argc) po.digiFirst = (uint8_t)std::min(3, std::max(0, atoi(argv[++i])));
         else if (a == "--mono") po.mono = true;
         else if (a == "--emulator") po.emulator = true;
         else if (a == "--emulator-path" && i + 1 < argc) { po.emulator = true; po.emulatorPath = argv[++i]; }
@@ -631,6 +804,10 @@ int main(int argc, char** argv) {
         else input = a;
     }
     if (cmd == "create") return create(cc, out, po);
+    if (cmd == "sample") {
+        if (input.empty()) { std::cerr << "tune45: no sample file\n"; return 1; }
+        return playSample(input, sampleRate, sampleMax, sampleUnsigned, po.wav);
+    }
     if (cmd == "import") {
         if (input.empty()) { std::cerr << "tune45: no MIDI file\n"; return 1; }
         if (!cc.o.name.empty()) mo.name = cc.o.name;
@@ -656,6 +833,7 @@ int main(int argc, char** argv) {
         for (const auto& e : c.errors()) std::cerr << e << "\n";
         return 1;
     }
+    for (const auto& w : c.warnings()) std::cerr << w << "\n";
     LOG_INFO("tune45", input << ": " << f.tunes.size() << " tune(s), " << f.instruments.size() << " instrument(s)");
     for (const auto& t : f.tunes)
         LOG_DEBUG("tune45", "tune \"" << t.name << "\" (line " << t.line << "): " << t.voices.size() << " voice(s), "
@@ -665,5 +843,5 @@ int main(int argc, char** argv) {
     if (cmd == "trace") return trace(f, po);
     if (out.empty()) out = stem(input) + (mode == "bin" ? ".bin" : mode == "asm" ? ".s45" : ".c");
     LOG_INFO("tune45", "writing " << out << " (" << (mode == "c" ? "C" : mode) << ")");
-    return convert(f, input, out, mode, header, loadAt);
+    return convert(f, input, out, mode, header, loadAt, samplesOut);
 }
