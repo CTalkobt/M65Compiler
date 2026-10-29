@@ -38,5 +38,6 @@ private:
     // Helper methods
     int invokeAssembler();
     bool keepTemp_ = false;
+    std::string tempAsmFile_;   // the assembly input ca45 reads
     std::string extraArgs_;
 };

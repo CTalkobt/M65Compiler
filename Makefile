@@ -202,7 +202,7 @@ $(MAN_DIR)/%.1: doc/bin/%.md
 # Define pipeline object files (compiler-only)
 PIPELINE_OBJECTS = $(addprefix $(OBJ_DIR)/, \
     CompilationPipeline.o PreprocessStage.o ParseStage.o OptimizeStage.o \
-    CodegenStage.o AssemblyStage.o LinkingStage.o)
+    CodegenStage.o AssemblyStage.o LinkingStage.o CcTemp.o)
 
 # C Compiler (cc45) - uses all libraries plus pipeline objects
 # Note: Link order matters - list libraries twice to resolve circular dependencies
@@ -331,6 +331,9 @@ $(OBJ_DIR)/CodegenStage.o: $(SRC_DIR)/CodegenStage.cpp | $(OBJ_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 $(OBJ_DIR)/AssemblyStage.o: $(SRC_DIR)/AssemblyStage.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(OBJ_DIR)/CcTemp.o: $(SRC_DIR)/CcTemp.cpp | $(OBJ_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 $(OBJ_DIR)/LinkingStage.o: $(SRC_DIR)/LinkingStage.cpp | $(OBJ_DIR)

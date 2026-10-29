@@ -10,6 +10,7 @@
 #include "LinkingStage.hpp"
 #include "OptimizationCatalog.hpp"
 #include "O45Reader.hpp"
+#include "CcTemp.hpp"
 #include <iterator>
 #include <thread>
 #include <cstdio>
@@ -167,7 +168,9 @@ CompilationResult CompilationPipeline::compile() {
         auto analyzer = optimizeStage.getFunctionAnalyzer();
 
         // Stage 4: Codegen
-        std::string tempAsmFile = "temp_" + std::to_string(getpid()) + ".s45";
+        // (--save-temps keeps it in the current directory; else in cc45's
+        // private temp directory, removed when cc45 exits or is stopped, #367)
+        std::string tempAsmFile = config_.saveTemps ? "temp_" + std::to_string(getpid()) + ".s45" : cctemp::path("temp.s45");
         CodegenStage codegenStage(ast, analyzer, config_.optimizationLevel,
                                  config_.verboseLevel, config_.inlineSmallFunctions,
                                  config_.staticAllocMode, config_.zpCallMode, config_.saveTemps,
@@ -214,18 +217,23 @@ CompilationResult CompilationPipeline::compile() {
             std::vector<std::thread> runs;
             std::vector<int> rcs(texts.size(), -1);
             for (size_t k = 0; k < texts.size(); k++) {
-                std::string stem = "temp_" + std::to_string(getpid()) + "_trial" + std::to_string(trialCount++);
+                std::string stem = cctemp::path("trial" + std::to_string(trialCount++));
                 stems.push_back(stem);
                 std::ofstream f(stem + ".s45");
                 f << texts[k];
                 if (!f) return false;
             }
+            // (ca45 run without a shell, so it is stopped with cc45)
+            std::vector<std::string> extra;
+            {
+                std::istringstream as(asmArgs);
+                for (std::string a; as >> a;) extra.push_back(a);
+            }
             for (size_t k = 0; k < texts.size(); k++)
                 runs.emplace_back([&, k] {
-                    std::string cmd = config_.toolDir + "ca45 " + stems[k] + ".s45 -c -o " + stems[k] + ".o45";
-                    if (!asmArgs.empty()) cmd += " " + asmArgs;
-                    cmd += " >/dev/null 2>&1";
-                    rcs[k] = system(cmd.c_str());
+                    std::vector<std::string> argv{config_.toolDir + "ca45", stems[k] + ".s45", "-c", "-o", stems[k] + ".o45"};
+                    argv.insert(argv.end(), extra.begin(), extra.end());
+                    rcs[k] = cctemp::run(argv);
                 });
             for (auto& t : runs) t.join();
             bool ok = true;
@@ -297,7 +305,7 @@ CompilationResult CompilationPipeline::compile() {
 
         // Stage 5: Assembly
         std::string objectFile = config_.objectOnly ? config_.outputFile :
-                                (std::string("temp_") + std::to_string(getpid()) + ".o45");
+                                cctemp::path("temp.o45");
         // Always use relocatable mode (-c) when producing .o45 for linker
         AssemblyStage asmStage(irOutput, objectFile, config_.verboseLevel,
                               needRelocatable, config_.toolDir);

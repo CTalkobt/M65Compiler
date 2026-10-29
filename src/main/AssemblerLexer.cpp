@@ -12,6 +12,13 @@ std::vector<AssemblerToken> AssemblerLexer::tokenize() {
         skipWhitespaceAndComments();
         AssemblerToken token = nextToken();
         token.file = curFile_;
+        // the line's directive (.cpu 45gs02: a name, not a number, for checkNumberEnd)
+        if (token.type == AssemblerTokenType::NEWLINE) lineDirective_.clear();
+        else if (token.type == AssemblerTokenType::DIRECTIVE && lineDirective_.empty()) {
+            lineDirective_ = token.value;
+            if (!lineDirective_.empty() && lineDirective_[0] == '.') lineDirective_.erase(0, 1);
+            for (auto& ch : lineDirective_) ch = (char)std::tolower((unsigned char)ch);
+        }
         tokens.push_back(token);
         if (token.type == AssemblerTokenType::END_OF_FILE) {
             break;
@@ -296,6 +303,21 @@ AssemblerToken AssemblerLexer::lexIdentifierOrInstruction() {
     return {AssemblerTokenType::IDENTIFIER, value, startLine, startCol};
 }
 
+// A number runs into letters, digits or '_' ($12junk, 10xyz, %1010_0101,
+// $1_2): the rest is consumed and recorded, so ca45 reports it instead of
+// reading the number alone (#363)
+AssemblerToken AssemblerLexer::checkNumberEnd(AssemblerToken tok) {
+    std::string rest;
+    while (std::isalnum((unsigned char)peek()) || peek() == '_') rest += get();
+    if (!rest.empty() && lineDirective_ != "cpu") {
+        AssemblerToken bad = tok;
+        bad.file = curFile_;
+        bad.value = tok.value + rest;
+        badNumbers_.push_back({bad, rest});
+    }
+    return tok;
+}
+
 AssemblerToken AssemblerLexer::lexNumber() {
     int startLine = line;
     int startCol = column;
@@ -305,12 +327,12 @@ AssemblerToken AssemblerLexer::lexNumber() {
     
     if (prefix == '$') {
         while (std::isxdigit(peek())) value += get();
-        return {AssemblerTokenType::HEX_LITERAL, value, startLine, startCol};
+        return checkNumberEnd({AssemblerTokenType::HEX_LITERAL, value, startLine, startCol});
     }
     
     if (prefix == '%') {
         while (peek() == '0' || peek() == '1') value += get();
-        return {AssemblerTokenType::BINARY_LITERAL, value, startLine, startCol};
+        return checkNumberEnd({AssemblerTokenType::BINARY_LITERAL, value, startLine, startCol});
     }
 
     // 0x1F / 0b101: C-style hex and binary, as $1F / %101
@@ -319,14 +341,14 @@ AssemblerToken AssemblerLexer::lexNumber() {
         get();
         value = "$";
         while (std::isxdigit(peek())) value += get();
-        return {AssemblerTokenType::HEX_LITERAL, value, startLine, startCol};
+        return checkNumberEnd({AssemblerTokenType::HEX_LITERAL, value, startLine, startCol});
     }
     if (prefix == '0' && (peek() == 'b' || peek() == 'B') && pos + 1 < source.length() &&
         (source[pos + 1] == '0' || source[pos + 1] == '1')) {
         get();
         value = "%";
         while (peek() == '0' || peek() == '1') value += get();
-        return {AssemblerTokenType::BINARY_LITERAL, value, startLine, startCol};
+        return checkNumberEnd({AssemblerTokenType::BINARY_LITERAL, value, startLine, startCol});
     }
 
     bool hasDot = (prefix == '.');
@@ -334,7 +356,17 @@ AssemblerToken AssemblerLexer::lexNumber() {
         if (peek() == '.') hasDot = true;
         value += get();
     }
-    return {AssemblerTokenType::DECIMAL_LITERAL, value, startLine, startCol};
+    // a float's exponent (.float 1.0e20, 2.5E-3)
+    if (hasDot && (peek() == 'e' || peek() == 'E')) {
+        size_t k = pos + 1;
+        if (k < source.length() && (source[k] == '+' || source[k] == '-')) k++;
+        if (k < source.length() && std::isdigit((unsigned char)source[k])) {
+            value += get();
+            if (peek() == '+' || peek() == '-') value += get();
+            while (std::isdigit(peek())) value += get();
+        }
+    }
+    return checkNumberEnd({AssemblerTokenType::DECIMAL_LITERAL, value, startLine, startCol});
 }
 
 AssemblerToken AssemblerLexer::lexString() {

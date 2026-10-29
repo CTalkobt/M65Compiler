@@ -582,7 +582,9 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                             }
                         }
                     }
-                    if (stmt->instr.mnemonic == "rts" || stmt->instr.mnemonic == "rtn" || stmt->instr.mnemonic == "rti") isDeadCode = true;
+                    // (as pass 2 sized it: code after a return is left out only when optimizing, #365)
+                    if ((stmt->instr.mnemonic == "rts" || stmt->instr.mnemonic == "rtn" || stmt->instr.mnemonic == "rti") &&
+                        parser->optimizationLevel > 0 && !stmt->noOpt) isDeadCode = true;
                 }
             } else if (stmt->type == AssemblerParser::Statement::DIRECTIVE) {
                 // Reset isDeadCode for .noopt_start (indicates executable code ahead).
