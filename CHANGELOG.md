@@ -30,6 +30,20 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   ca65's, ACME's and KickAssembler's idioms are checked against the bytes
   their own assemblers made (`src/test-resources/cvt_asm/native_*`).
 
+### `<tgi.h>`: clipping and text in assembly
+
+- Clipping in assembly (`tgi_pixel.s45`'s `__tgi_clipline_c`, was C in
+  `tgi.c`): the same 32-bit Cohen-Sutherland intersections (the hardware
+  multiplier's product, the library's signed division), the same pixels
+  (random lines with ends out to +-32767, both drivers and conventions).
+  624 bytes less in every program drawing lines.
+- Text in assembly (`stdlib_asm/tgi_text.s45`, replacing `stdlib/tgi_text.c`):
+  the bitmap and vector fonts, the scales, widths and heights, the same
+  pixels and numbers (random strings, scales, directions and vector fonts,
+  both drivers and conventions); the text functions and `tgi_bar` are
+  `__fastcall__` in `<tgi.h>`. A program with text: 9,725 -> 8,318 bytes
+  with the clipping; text at 2x 68 -> 60 frames (640x200: 54 -> 46).
+
 ### `<tgi.h>`: a 640x200, 16-colour driver
 
 - `tgi_static_ncm640` (`"mega65-ncm640.tgi"`, `stdlib_asm/tgi_ncm.s45`):
@@ -53,6 +67,12 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   do; a driver's description refers to its member. A 640x200 program with
   text: 11,604 → 10,176 bytes (lines −491, ellipses −814); a 320x200 one
   3-15 bytes more, 264 less with text; its bars 67 → 57 frames.
+- A two-page 640x200 driver, `tgi_static_ncm2` (`"mega65-ncm2.tgi"`,
+  `stdlib_asm/tgi_ncm2.s45`): double buffering, its screens from `malloc`
+  as the 320x200 two-page driver's. The heap functions are a member of
+  their own (`stdlib/tgi_heap.c`), which a two-page driver's description
+  refers to (`tgi_driver_t`'s `heap`), so both two-page drivers can be
+  linked together and a one-page program still links no `malloc`.
 
 ### `<tgi.h>`'s arcs in assembly
 

@@ -1,5 +1,5 @@
-/* test_tgi_ncm_xemu.c — <tgi.h>'s 640x200, 16-colour driver
- * (tgi_static_ncm640: nibble-colour characters at H640)
+/* test_tgi_ncm_xemu.c — <tgi.h>'s 640x200, 16-colour drivers
+ * (tgi_static_ncm640, tgi_static_ncm2: nibble-colour characters at H640)
  *
  * Results at $C0C0 (01 = pass):
  *   [0] tgi_install: its numbers (640x200, 16 colours, 1 page)
@@ -13,7 +13,9 @@
  *   [7] a circle's points
  *   [8] tgi_setpalette: 16 entries (the others the default)
  *   [9] tgi_uninstall: H640 as it was; the 320x200 driver after it
- *   [10] $AA sentinel
+ *   [10] the two-page driver: two pages in banks 4 and 5, drawn and shown
+ *        apart (the screen pointer, the pixels of each), by name too
+ *   [11] $AA sentinel
  */
 #include <tgi.h>
 #include <tgi/tgi-kernel.h>
@@ -141,6 +143,36 @@ int main(void) {
     tgi_uninstall();
     OUT[9] = ok;
 
-    OUT[10] = 0xAA;
+    /* two pages */
+    {
+        unsigned long p0 = 0, p1 = 0, v = 0;
+        unsigned char s0[3];
+        ok = tgi_install(tgi_static_ncm2) == TGI_ERR_OK && tgi_getpagecount() == 2 && tgi_getmaxx() == 639;
+        tgi_init();
+        tgi_ioctl(TGI_IOCTL_DRAWPAGE_ADDR, &p0);
+        tgi_setcolor(9); tgi_setpixel(101, 7); tgi_line(0, 199, 639, 199);
+        s0[0] = R(0xD060); s0[1] = R(0xD061); s0[2] = R(0xD062);
+        tgi_setdrawpage(1);
+        tgi_ioctl(TGI_IOCTL_DRAWPAGE_ADDR, &p1);
+        tgi_setcolor(4); tgi_setpixel(102, 7);
+        ok = ok && p1 != p0 && (unsigned char)(p0 >> 16) >= 4 && (unsigned char)(p1 >> 16) >= 4 &&
+             tgi_getpixel(102, 7) == 4 && tgi_getpixel(101, 7) == 0 && tgi_getpixel(5, 199) == 0;
+        tgi_setdrawpage(0);
+        ok = ok && tgi_getpixel(101, 7) == 9 && tgi_getpixel(102, 7) == 0 && count(0, 199, 639, 199, 9) == 640;
+        tgi_setviewpage(1);
+        tgi_ioctl(TGI_IOCTL_VIEWPAGE_ADDR, &v);
+        ok = ok && v == p1 && (R(0xD060) != s0[0] || R(0xD061) != s0[1] || R(0xD062) != s0[2]) &&
+             (R(0xD031) & 0x80);
+        tgi_setviewpage(0);
+        ok = ok && R(0xD060) == s0[0] && R(0xD061) == s0[1] && R(0xD062) == s0[2];
+        tgi_uninstall();
+        tgi_load_driver("mega65-ncm2.tgi");
+        ok = ok && tgi_geterror() == TGI_ERR_OK && tgi_getpagecount() == 2 && tgi_getmaxx() == 639;
+        tgi_uninstall();
+        ok = ok && R(0xD031) == d031;
+    }
+    OUT[10] = ok;
+
+    OUT[11] = 0xAA;
     return 0;
 }
