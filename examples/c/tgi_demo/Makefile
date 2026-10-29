@@ -1,9 +1,10 @@
 # tgi_demo — cc65's TGI on the MEGA65: the drawing functions, then a
-# double-buffered animation
+# double-buffered animation, at 320x200 in 256 colours and 640x200 in 16
 #
 # Usage:
 #   make              Build tgi_demo.prg
-#   make check        Build tgicheck.prg (draws, animates 50 frames, then reports)
+#   make check        Build tgicheck.prg (both modes, 50 frames each, then reports)
+#   make demo640      Build tgi_demo640.prg (the 640x200 part only)
 #   make clean        Remove build artifacts
 #   make run          Build and run in xemu (if available)
 
@@ -16,9 +17,9 @@ XEMU = xemu-xmega65
 
 TARGET = tgi_demo.prg
 
-.PHONY: all clean run check
+.PHONY: all clean run check demo640
 
-all: $(TARGET)
+all: $(TARGET) tgi_demo640.prg
 
 main.o45: main.c
 	$(CC45) -O2 $(INCLUDES) -c main.c -o main.o45
@@ -29,8 +30,13 @@ $(TARGET): main.o45 $(STDLIB)
 check: main.c $(STDLIB)
 	$(CC45) -O2 -DTGI_CHECK $(INCLUDES) main.c -o tgicheck.prg
 
+demo640: tgi_demo640.prg
+
+tgi_demo640.prg: main.c $(STDLIB)
+	$(CC45) -O2 -DTGI_640_ONLY $(INCLUDES) main.c -o tgi_demo640.prg
+
 clean:
-	rm -f main.o45 main.o45.s45 $(TARGET) tgi_demo.map tgicheck.prg
+	rm -f main.o45 main.o45.s45 $(TARGET) tgi_demo.map tgicheck.prg tgi_demo640.prg
 
 run: $(TARGET)
 	$(XEMU) -prgmode 65 -prg $(TARGET)

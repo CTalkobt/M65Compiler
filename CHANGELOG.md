@@ -24,6 +24,15 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   killed), so a stopped build leaves no `temp_<pid>_trial*` files (#367).
   Two such files committed in `examples/c/glamlambs/` removed.
 
+### Example: tgi_demo at 640x200
+
+- `examples/c/tgi_demo` runs twice: at 320x200 in 256 colours, then at
+  640x200 in 16 (`tgi_static_ncm640`, then `"mega65-ncm2.tgi"` for the
+  turning star); the drawing follows the driver's resolution and colours
+  (`tgi_getmaxx`, `tgi_getcolorcount`). `make check` runs both modes;
+  `tgi_demo640.prg` is the 640x200 part alone (its screenshot in
+  `doc/examples`).
+
 ### cvt_asm: conversions checked against ca65, ACME and KickAssembler (#223, #224)
 
 - `doc/architecture/cvt_asm-guide.md`: what each format keeps, translates

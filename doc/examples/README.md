@@ -222,18 +222,26 @@ runs 100 frames, then reads cells back and reports on the screen.
 [Source](https://github.com/CTalkobt/M65Compiler/tree/main/examples/c/tgi_demo) —
 cc65's TGI (`<tgi.h>`) on the MEGA65, written as a cc65 TGI program is: the
 driver installed (`tgi_install(tgi_static_stddrv)`), `tgi_init`, then only
-`tgi_*` calls, so it ports to and from the other TGI platforms unchanged.
-The standard driver is 320x200 with 256 colours (VIC-IV full-colour
-characters, a byte a pixel). The first screen shows the drawing functions:
-the first 32 palette entries as bars, lines clipped at the screen's edge,
-circle, ellipse, arc and pie slice, and bitmap text at 1x, 2x and turned
+`tgi_*` calls, so it ports to and from the other TGI platforms unchanged; the
+drawing follows the driver's resolution and colours (`tgi_getmaxx`,
+`tgi_getcolorcount`). It runs twice: on the standard driver, 320x200 with
+256 colours (VIC-IV full-colour characters, a byte a pixel), then on the
+640x200 one with 16 (`tgi_static_ncm640`: nibble-colour characters, 4 bits
+a pixel). The first screen of each shows the drawing functions: the first
+32 palette entries (or all 16) as bars, lines clipped at the screen's edge,
+circle, ellipse, arc and pie slice (the circle's x radius doubled at 640,
+its pixels being half as wide), and bitmap text at 1x, 2x and turned
 (`TGI_TEXT_VERTICAL`). A key loads the two-page driver by name
-(`tgi_load_driver("mega65-fcm2.tgi")`) and turns two stars, each frame drawn
-on the page not shown, then shown (`tgi_setdrawpage` / `tgi_setviewpage`). A
-key ends it; `tgi_unload` puts the text screen back. `make check` builds a
-test that runs 50 frames, then reports on the text screen.
+(`tgi_load_driver("mega65-fcm2.tgi")`, `"mega65-ncm2.tgi"`) and turns two
+stars, each frame drawn on the page not shown, then shown
+(`tgi_setdrawpage` / `tgi_setviewpage`). A key goes on; `tgi_unload` puts
+the text screen back. `make check` builds a test that runs both modes, 50
+frames each, then reports on the text screen; `tgi_demo640.prg` is the
+640x200 part alone.
 
 ![tgi_demo](images/tgi_demo.png)
+
+![tgi_demo at 640x200](images/tgi_demo_640.png)
 
 ### map_decode
 
