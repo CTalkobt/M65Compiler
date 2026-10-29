@@ -1,0 +1,784 @@
+; tgi_setup.s45 — <tgi.h>'s driver set-up (stdlib/tgi.c has the rest):
+; tgi_install, tgi_uninstall, tgi_init, tgi_done, tgi_setviewpage,
+; tgi_setdrawpage, and the memory they take
+;
+; tgi_install takes far_malloc blocks in bank 4 or 5: a page (64000 bytes,
+; 64-byte aligned; such a block starts low enough in its bank that the page
+; never crosses into the next one), the palette as it was (768 bytes:
+; tgi_setpalette's entries are colours of that one) and a page's screen
+; (2000 bytes, the characters' numbers). One page leaves room for the
+; others; with two, what does not fit comes from __tgi_heap (tgi_fcm2.c's:
+; malloc; the weak one here, so a one-page program links no malloc, gives
+; none). A block's linear address is its far pointer's bytes (bank 4 or 5)
+; or, from the heap, its address in bank 0.
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.global _tgi_install, _tgi_uninstall, _tgi_init, _tgi_done
+.global _tgi_setviewpage, _tgi_setdrawpage
+.global ___tgi_draw, ___tgi_view, ___tgi_page, ___tgi_palsave, ___tgi_palset
+.global ___tgi_heap, ___tgi_unheap
+.weak ___tgi_heap, ___tgi_unheap
+.extern _far_malloc, _far_free, ___dma_fill_far, ___dma_fill_far_step
+.extern _tgi_drv, _tgi_xres, _tgi_yres, _tgi_xmax, _tgi_ymax, _tgi_pagecount
+.extern _tgi_colorcount, _tgi_fontwidth, _tgi_fontheight, _tgi_error, _tgi_gmode
+.extern _tgi_color, _tgi_font, _tgi_textdir, _tgi_textscalew, _tgi_textscaleh
+.extern _tgi_charwidth, _tgi_charheight, ___tgi_state, ___tgi_state_size
+
+P = $08                 ; a far address (32 bits)
+Q = $0C                 ; a near one (16 bits)
+
+COLOUR_RAM = $FF80000   ; the screen's colour RAM: COLOUR_RAM + $3000
+TGI_COLOURS = $3000
+PAGE_SIZE = 64000
+ERR_NO_DRIVER = 1
+ERR_INV_DRIVER = 3
+ERR_INV_ARG = 5
+ERR_NO_RES = 8
+ERR_INSTALLED = 9
+
+.segment "bss"
+___tgi_draw:    .res 4  ; the draw page
+___tgi_view:    .res 1  ; the view page
+___tgi_page:    .res 8  ; the pages
+___tgi_scr:     .res 8  ; their screens
+___tgi_palsave: .res 4  ; the palette at tgi_install: R, G, B (768 bytes)
+___tgi_palset:  .res 1  ; tgi_setpalette changed the palette
+__ts_fblk:      .res 15 ; the memory (far pointers): pages, screens, palette
+__ts_hblk:      .res 10 ; (from the heap)
+__ts_old:       .res 17 ; the VIC registers tgi_init changes
+__ts_fp:        .res 3  ; far_malloc's result
+__ts_size:      .res 2  ; take's
+__ts_heap:      .res 1
+__ts_k:         .res 1
+__ts_addr:      .res 4  ; its result
+__ts_n:         .res 2  ; take_screen's character number
+__ts_col:       .res 1
+__ts_drv:       .res 2  ; tgi_install's driver
+
+.segment "code"
+
+; The weak __tgi_heap / __tgi_unheap: no heap
+proc ___tgi_heap
+    lda #0
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+proc ___tgi_unheap
+    rts
+    .func_flags zp_call
+endproc
+
+; The registers tgi_init sets, in the order tgi_done puts them back ($D031
+; first: writing it sets the VIC-IV's layout for the mode, which the others
+; then change)
+__ts_vicregs:
+    .word $D031, $D011, $D016, $D020, $D021, $D054, $D058, $D059, $D05E
+    .word $D060, $D061, $D062, $D063, $D064, $D065, $D04C, $D04E
+
+; Free the blocks
+proc __ts_free
+    ldx #0
+@blk:
+    lda __ts_fblk,x         ; a far pointer (k = X / 3)
+    ora __ts_fblk+1,x
+    ora __ts_fblk+2,x
+    beq @heap
+    phx
+    txa
+    clc
+    adc #<__ts_fblk
+    sta $10
+    lda #>__ts_fblk
+    adc #0
+    sta $11
+    jsr _far_free
+    plx
+    lda #0
+    sta __ts_fblk,x
+    sta __ts_fblk+1,x
+    sta __ts_fblk+2,x
+@heap:
+    inx
+    inx
+    inx
+    cpx #15
+    bne @blk
+    ldx #0
+@hblk:
+    lda __ts_hblk,x
+    ora __ts_hblk+1,x
+    beq @next
+    lda __ts_hblk,x
+    sta $10
+    lda __ts_hblk+1,x
+    sta $11
+    phx
+    jsr ___tgi_unheap
+    plx
+    lda #0
+    sta __ts_hblk,x
+    sta __ts_hblk+1,x
+@next:
+    inx
+    inx
+    cpx #10
+    bne @hblk
+    rts
+endproc
+
+; Block X (0..4): __ts_size bytes in bank 4 or 5, else (__ts_heap) the
+; heap's; its address in __ts_addr, Z clear (0: none, Z set)
+proc __ts_take
+    stx __ts_k
+    lda #4
+    jsr @far
+    beq @heap
+@got:
+    lda #1
+    rts
+@heap:
+    lda #5
+    jsr @far
+    bne @got
+    lda __ts_heap
+    beq @none
+    lda __ts_size
+    sta $10
+    lda __ts_size+1
+    sta $11
+    jsr ___tgi_heap
+    pha
+    lda __ts_k
+    asl a
+    tay
+    pla
+    sta __ts_hblk,y
+    sta __ts_addr
+    txa
+    sta __ts_hblk+1,y
+    sta __ts_addr+1
+    ora __ts_addr
+    beq @none
+    lda #0
+    sta __ts_addr+2
+    sta __ts_addr+3
+    bra @got
+@none:
+    lda #0                  ; (Z set)
+    sta __ts_addr
+    sta __ts_addr+1
+    sta __ts_addr+2
+    sta __ts_addr+3
+    rts
+@far:                       ; far_malloc(__ts_size, A): Z clear when taken
+    sta $14
+    lda #0
+    sta $15
+    lda __ts_size
+    sta $12
+    lda __ts_size+1
+    sta $13
+    lda #<__ts_fp
+    sta $10
+    lda #>__ts_fp
+    sta $11
+    jsr _far_malloc
+    lda __ts_fp
+    ora __ts_fp+1
+    ora __ts_fp+2
+    beq @out
+    lda __ts_k              ; kept as block k
+    asl a
+    adc __ts_k              ; (C clear: k < 128)
+    tax
+    lda __ts_fp
+    sta __ts_fblk,x
+    sta __ts_addr+2         ; (bank)
+    lda __ts_fp+1
+    sta __ts_fblk+1,x
+    sta __ts_addr           ; (offset)
+    lda __ts_fp+2
+    sta __ts_fblk+2,x
+    sta __ts_addr+1
+    lda #0
+    sta __ts_addr+3
+    lda #1
+@out:
+    rts
+endproc
+
+; Page X (0, 1), cleared: Z clear when taken
+proc __ts_take_page
+    phx
+    lda #<(PAGE_SIZE + 63)
+    sta __ts_size
+    lda #>(PAGE_SIZE + 63)
+    sta __ts_size+1
+    lda #0
+    sta __ts_heap
+    jsr __ts_take
+    plx
+    cmp #0
+    beq @out
+    txa                     ; page[k] = (a + 63) & ~63
+    asl a
+    asl a
+    tax
+    clc
+    lda __ts_addr
+    adc #63
+    and #$C0
+    sta ___tgi_page,x
+    sta $10
+    lda __ts_addr+1
+    adc #0
+    sta ___tgi_page+1,x
+    sta $11
+    lda __ts_addr+2
+    adc #0
+    sta ___tgi_page+2,x
+    sta $12
+    lda #0
+    sta ___tgi_page+3,x
+    sta $13
+    sta $16                 ; dma_fill_far(page[k], PAGE_SIZE, 0)
+    lda #<PAGE_SIZE
+    sta $14
+    lda #>PAGE_SIZE
+    sta $15
+    jsr ___dma_fill_far
+    lda #1
+@out:
+    rts
+endproc
+
+; Page X's screen: its characters' numbers, a column of 25 after another
+; (page / 64 up): Z clear when taken
+proc __ts_take_screen
+    phx
+    txa
+    asl a
+    asl a
+    tax
+    lda ___tgi_page+1,x     ; n = page[k] >> 6
+    sta __ts_n
+    lda ___tgi_page+2,x
+    sta __ts_n+1
+    lda ___tgi_page,x
+    ldy #2
+@shift:
+    asl a
+    rol __ts_n
+    rol __ts_n+1
+    dey
+    bne @shift
+    lda #<2000
+    sta __ts_size
+    lda #>2000
+    sta __ts_size+1
+    lda #1
+    sta __ts_heap
+    pla
+    pha
+    clc
+    adc #2
+    tax
+    jsr __ts_take           ; block 2 + k
+    plx
+    cmp #0
+    beq @out
+    txa
+    asl a
+    asl a
+    tax
+    ldy #0
+@addr:
+    lda __ts_addr,y
+    sta ___tgi_scr,x
+    inx
+    iny
+    cpy #4
+    bne @addr
+    lda #0
+    sta __ts_col
+@col:
+    lda __ts_col            ; P = the screen + 2 col
+    asl a
+    clc
+    adc __ts_addr
+    sta P
+    lda __ts_addr+1
+    adc #0
+    sta P+1
+    lda __ts_addr+2
+    adc #0
+    sta P+2
+    lda #0
+    sta P+3
+    ldx #25
+@row:
+    ldz #0
+    lda __ts_n
+    sta [P],z
+    inz
+    lda __ts_n+1
+    sta [P],z
+    inc __ts_n
+    bne @next
+    inc __ts_n+1
+@next:
+    clc                     ; the next row: 80 bytes on
+    lda P
+    adc #80
+    sta P
+    bcc @same
+    inc P+1
+    bne @same
+    inc P+2
+@same:
+    dex
+    bne @row
+    inc __ts_col
+    lda __ts_col
+    cmp #40
+    bne @col
+    lda #1
+@out:
+    rts
+endproc
+
+; P := the saved palette, Q := $D100, X Y Z 3, 0, 0
+proc __ts_palptr
+    ldx #3
+@p:
+    lda ___tgi_palsave,x
+    sta P,x
+    dex
+    bpl @p
+    lda #<$D100
+    sta Q
+    lda #>$D100
+    sta Q+1
+    ldx #3
+    ldy #0
+    ldz #0
+    rts
+endproc
+
+; The palette as tgi_install found it (tgi_setpalette changed it)
+proc __ts_pal_default
+    jsr __ts_palptr
+@l:
+    lda [P],z
+    sta (Q),y
+    iny
+    inz
+    bne @l
+    inc P+1
+    inc Q+1
+    dex
+    bne @l
+    lda #0
+    sta ___tgi_palset
+    rts
+endproc
+
+; Show page A's screen
+proc __ts_show
+    asl a
+    asl a
+    tax
+    lda ___tgi_scr,x
+    sta $D060
+    lda ___tgi_scr+1,x
+    sta $D061
+    lda ___tgi_scr+2,x
+    sta $D062
+    lda ___tgi_scr+3,x
+    and #$0F
+    sta Q
+    lda $D063
+    and #$F0
+    ora Q
+    sta $D063
+    rts
+endproc
+
+; unsigned char tgi_install(const void *driver)
+proc _tgi_install
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda _tgi_drv
+    ora _tgi_drv+1
+    beq @free
+    lda #ERR_INSTALLED
+    bra @err
+@free:
+    lda $10                 ; Q = the driver (kept: calls take $10 up and Q)
+    sta Q
+    sta __ts_drv
+    lda $11
+    sta Q+1
+    sta __ts_drv+1
+    ora Q
+    beq @inv
+    ldy #3                  ; 't' 'g' 'i' TGI_API_VERSION
+@sig:
+    lda (Q),y
+    cmp @tgi,y
+    bne @inv
+    dey
+    bpl @sig
+    ldy #11                 ; pagecount 1 or 2
+    lda (Q),y
+    beq @inv
+    cmp #3
+    bcc @pages
+@inv:
+    lda #ERR_INV_DRIVER
+@err:
+    sta _tgi_error
+    rts
+@tgi:
+    .byte $74, $67, $69, $05
+@pages:
+    ldx #0                  ; the pages, then what fits beside them
+    jsr __ts_take_page
+    beq @nores
+    jsr @count
+    bcc @pal
+    ldx #1
+    jsr __ts_take_page
+    beq @nores
+@pal:
+    lda #<768
+    sta __ts_size
+    lda #>768
+    sta __ts_size+1
+    lda #1
+    sta __ts_heap
+    ldx #4
+    jsr __ts_take
+    beq @nores
+    ldx #3
+@ps:
+    lda __ts_addr,x
+    sta ___tgi_palsave,x
+    dex
+    bpl @ps
+    ldx #0
+    jsr __ts_take_screen
+    beq @nores
+    jsr @count
+    bcc @ok
+    ldx #1
+    jsr __ts_take_screen
+    bne @ok
+@nores:
+    jsr __ts_free
+    lda #ERR_NO_RES
+    bra @err
+@ok:
+    jsr __ts_palptr         ; the palette as it is
+@save:
+    lda (Q),y
+    sta [P],z
+    iny
+    inz
+    bne @save
+    inc P+1
+    inc Q+1
+    dex
+    bne @save
+    lda #0
+    sta ___tgi_palset
+    jsr @drvq               ; tgi_drv = driver
+    sta _tgi_drv
+    lda Q+1
+    sta _tgi_drv+1
+    ldy #6                  ; the driver's numbers (tgi_vars.s45 has them in
+@num:                       ; tgi_driver_t's order, from xres: 11 bytes)
+    lda (Q),y
+    sta _tgi_xres-6,y
+    iny
+    cpy #17
+    bne @num
+    sec
+    lda _tgi_xres
+    sbc #1
+    sta _tgi_xmax
+    lda _tgi_xres+1
+    sbc #0
+    sta _tgi_xmax+1
+    sec
+    lda _tgi_yres
+    sbc #1
+    sta _tgi_ymax
+    lda _tgi_yres+1
+    sbc #0
+    sta _tgi_ymax+1
+    ldx #0                  ; a new driver's state: all 0
+    lda #0
+@state:
+    sta ___tgi_state,x
+    inx
+    cpx #<___tgi_state_size
+    bne @state
+    ldx #3
+@draw:
+    lda ___tgi_page,x
+    sta ___tgi_draw,x
+    dex
+    bpl @draw
+    lda #0
+    sta ___tgi_view
+    rts
+@count:                     ; C set: two pages
+    jsr @drvq
+    ldy #11
+    lda (Q),y
+    cmp #2
+    rts
+@drvq:                      ; Q := the driver (A its low byte)
+    lda __ts_drv+1
+    sta Q+1
+    lda __ts_drv
+    sta Q
+    rts
+    .func_flags zp_call
+endproc
+
+; void tgi_uninstall(void)
+proc _tgi_uninstall
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr _tgi_done
+    jsr __ts_free
+    lda #0
+    sta _tgi_drv
+    sta _tgi_drv+1
+    sta _tgi_error
+    rts
+    .func_flags zp_call
+endproc
+
+; void tgi_init(void)
+proc _tgi_init
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda _tgi_drv
+    ora _tgi_drv+1
+    bne @drv
+    lda #ERR_NO_DRIVER
+    sta _tgi_error
+    rts
+@drv:
+    jsr _tgi_done
+    ldx #0                  ; the registers as they are
+@save:
+    jsr __ts_reg
+    lda (Q),y
+    sta __ts_old,x
+    inx
+    cpx #17
+    bne @save
+    lda __ts_old            ; 320x200: H640, V400 off
+    and #$77
+    sta $D031
+    lda __ts_old+1          ; text: no bitmap, no ECM
+    and #$9F
+    sta $D011
+    lda __ts_old+2          ; multicolour: 8-bit colour RAM colours
+    ora #$10
+    sta $D016
+    lda #0
+    sta $D020
+    sta $D021
+    sta $D059
+    lda __ts_old+5          ; CHR16, FCLRHI
+    ora #$05
+    sta $D054
+    lda #80                 ; 2 bytes a character
+    sta $D058
+    lda #40
+    sta $D05E
+    lda #<TGI_COLOURS
+    sta $D064
+    lda #>TGI_COLOURS
+    sta $D065
+    ldx #3                  ; the colour RAM: 0, every second byte $FF
+@cr:
+    lda @crad,x
+    sta $10,x
+    dex
+    bpl @cr
+    lda #<2000
+    sta $14
+    lda #>2000
+    sta $15
+    lda #0
+    sta $16
+    jsr ___dma_fill_far
+    ldx #3
+@cr2:
+    lda @crad,x
+    sta $10,x
+    dex
+    bpl @cr2
+    inc $10
+    lda #<1000
+    sta $14
+    lda #>1000
+    sta $15
+    lda #$FF
+    sta $16
+    lda #2
+    sta $18
+    lda #0
+    sta $19
+    jsr ___dma_fill_far_step
+    lda #1
+    sta _tgi_gmode
+    lda #0
+    sta $10
+    jsr _tgi_setviewpage
+    lda #0
+    sta $10
+    jsr _tgi_setdrawpage
+    lda ___tgi_palset       ; the default palette
+    beq @pal
+    jsr __ts_pal_default
+@pal:
+    lda #0
+    sta _tgi_error
+    lda _tgi_colorcount     ; tgi_setcolor(TGI_COLOR_WHITE)
+    beq @white
+    cmp #2
+    bcs @white
+    lda #ERR_INV_ARG
+    sta _tgi_error
+    bra @text
+@white:
+    lda #1
+    sta _tgi_color
+@text:                      ; tgi_settextstyle(0x100, 0x100, TGI_TEXT_HORIZONTAL,
+    lda #0                  ; TGI_FONT_BITMAP), without linking tgi_text.c
+    sta _tgi_font
+    sta _tgi_textdir
+    ldx #6
+@scale:
+    lda #0
+    sta _tgi_textscalew,x
+    lda #1
+    sta _tgi_textscalew+1,x
+    dex
+    dex
+    bpl @scale
+    lda #0
+    sta _tgi_charwidth
+    sta _tgi_charheight
+    lda _tgi_fontwidth
+    sta _tgi_charwidth+1
+    lda _tgi_fontheight
+    sta _tgi_charheight+1
+    rts
+@crad:
+    .byte $00, $30, $F8, $0F    ; COLOUR_RAM + TGI_COLOURS ($FF83000)
+    .func_flags zp_call
+endproc
+
+; Q := register X's address (__ts_vicregs), Y 0
+proc __ts_reg
+    txa
+    asl a
+    tay
+    lda __ts_vicregs,y
+    sta Q
+    lda __ts_vicregs+1,y
+    sta Q+1
+    ldy #0
+    rts
+endproc
+
+; void tgi_done(void)
+proc _tgi_done
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda _tgi_gmode
+    beq @out
+    lda __ts_old+5
+    sta $D054
+    ldx #0
+@put:
+    jsr __ts_reg
+    lda __ts_old,x
+    sta (Q),y
+    inx
+    cpx #17
+    bne @put
+    lda ___tgi_palset
+    beq @pal
+    jsr __ts_pal_default
+@pal:
+    lda #0
+    sta _tgi_gmode
+@out:
+    rts
+    .func_flags zp_call
+endproc
+
+; void tgi_setviewpage(unsigned char page)
+proc _tgi_setviewpage
+    .zp_uses $10
+    .reg_clobbers A, X
+    .flag_clobbers C, N, Z
+    lda $10
+    cmp _tgi_pagecount
+    bcs @inv
+    sta ___tgi_view
+    ldx _tgi_gmode
+    beq @out
+    jsr __ts_show
+@out:
+    rts
+@inv:
+    lda #ERR_INV_ARG
+    sta _tgi_error
+    rts
+    .func_flags zp_call
+endproc
+
+; void tgi_setdrawpage(unsigned char page)
+proc _tgi_setdrawpage
+    .zp_uses $10
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    lda $10
+    cmp _tgi_pagecount
+    bcs @inv
+    asl a
+    asl a
+    tax
+    ldy #0
+@copy:
+    lda ___tgi_page,x
+    sta ___tgi_draw,y
+    inx
+    iny
+    cpy #4
+    bne @copy
+    rts
+@inv:
+    lda #ERR_INV_ARG
+    sta _tgi_error
+    rts
+    .func_flags zp_call
+endproc

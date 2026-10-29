@@ -86,18 +86,18 @@ void tgi_load_driver(const char* name);
 void tgi_unload(void);
 
 /* Install an already loaded driver. Returns the error code (TGI_ERR_OK). */
-unsigned char tgi_install(const void* driver);
+__fastcall__ unsigned char tgi_install(const void* driver);
 
 /* Uninstall the currently loaded driver but do not unload it. Will call
  * tgi_done if necessary. */
-void tgi_uninstall(void);
+__fastcall__ void tgi_uninstall(void);
 
 /* Initialize the already loaded graphics driver. */
-void tgi_init(void);
+__fastcall__ void tgi_init(void);
 
 /* End graphics mode, switch back to text mode. Will NOT uninstall or unload
  * the driver! */
-void tgi_done(void);
+__fastcall__ void tgi_done(void);
 
 /* Load a vector font into memory and return it. In case of errors, NULL is
  * returned and an error is set, which can be retrieved using tgi_geterror.
@@ -124,10 +124,10 @@ void tgi_clear(void);
 unsigned tgi_getpagecount(void);
 
 /* Set the visible page. Will set an error if the page is not available. */
-void tgi_setviewpage(unsigned char page);
+__fastcall__ void tgi_setviewpage(unsigned char page);
 
 /* Set the drawable page. Will set an error if the page is not available. */
-void tgi_setdrawpage(unsigned char page);
+__fastcall__ void tgi_setdrawpage(unsigned char page);
 
 /* Get the number of available colors. Zero means 256 colors. */
 unsigned char tgi_getcolorcount(void);
@@ -195,14 +195,14 @@ __fastcall__ void tgi_ellipse(int x, int y, unsigned char rx, unsigned char ry);
 /* Draw an ellipse arc with center at x/y and radii rx/ry using the current
  * drawing color. The arc covers the angle between sa and ea (startangle and
  * endangle), which must be in the range 0..360. */
-void tgi_arc(int x, int y, unsigned char rx, unsigned char ry,
-             unsigned sa, unsigned ea);
+__fastcall__ void tgi_arc(int x, int y, unsigned char rx, unsigned char ry,
+                          unsigned sa, unsigned ea);
 
 /* Draw an ellipse pie slice with center at x/y and radii rx/ry using the
  * current drawing color. The pie slice covers the angle between sa and ea,
  * which must be in the range 0..360. */
-void tgi_pieslice(int x, int y, unsigned char rx, unsigned char ry,
-                  unsigned sa, unsigned ea);
+__fastcall__ void tgi_pieslice(int x, int y, unsigned char rx, unsigned char ry,
+                               unsigned sa, unsigned ea);
 
 /* Draw a bar (a filled rectangle) using the current color. */
 void tgi_bar(int x1, int y1, int x2, int y2);
@@ -240,4 +240,4 @@ unsigned tgi_ioctl(unsigned char code, void* data);
 
 /* Multiply two values, one being an 8.8 fixed point one, and return the
  * rounded and scaled result. */
-int tgi_imulround(int rhs, int lhs);
+__fastcall__ int tgi_imulround(int rhs, int lhs);

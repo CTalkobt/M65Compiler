@@ -2,7 +2,7 @@
  *
  * Two pages take most of banks 4 and 5: their screens (2000 bytes each) come
  * from malloc. Here, with the driver, so a program with the one-page driver
- * links no malloc (tgi.c's weak __tgi_heap / __tgi_unheap give nothing).
+ * links no malloc (tgi_setup.s45's weak __tgi_heap / __tgi_unheap give nothing).
  * __fastcall__: the ZP convention in both libraries, as the weak ones.
  */
 #include <stdlib.h>
