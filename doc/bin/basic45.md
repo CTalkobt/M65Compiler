@@ -96,6 +96,17 @@ loop: print "x"
 - Lines starting with `'` or upper-case `REM` are dropped. Lines starting with `#` that are not preprocessor directives are dropped by the preprocessor, so `#` works as a comment.
 - Leading/trailing whitespace is removed; blank lines are ignored.
 
+### Numbered Programs
+
+A classic listing, each line starting with its number, is a **numbered program**: its lines keep their numbers (`--increment` does not apply), and `GOTO 100`, `GOSUB`, `THEN`, `ELSE`, `RESTORE`, `TRAP`, `RESUME`, `RUN` and `ON ... GOTO` lists with numbers jump to them.
+
+```basic
+10 print "hello"
+20 goto 10
+```
+
+A program is numbered when any line starts with a number (no BASIC statement starts with a digit), and then every line with code needs one (`20print` works too). The numbers must ascend and stay at or below 63999, and every line a number jumps to must exist (BASIC's `?UNDEF'D STATEMENT`); a number alone on a line is an error (BASIC deletes such a line). Labels still work in a numbered program: a label names its line's number, a label alone the next line's.
+
 ### Validation
 
 Validation messages have the form `file:line:col: error|warning: message`.
@@ -105,6 +116,9 @@ Validation messages have the form `file:line:col: error|warning: message`.
 | A name used as a label (see above) that is not defined, at the line using it | error |
 | Label defined more than once (in any case) | error |
 | More lines than line numbers up to 63999 allow | error |
+| A numbered program: line numbers not ascending, above 63999 or alone on a line, a line without one, a jump to a line that does not exist | error |
+| A statement that starts with a name but is not an assignment: a word BASIC 65 does not know (a typo, `slow`, a BASIC 7.0 keyword such as `draw`), a `?SYNTAX ERROR` when run; the name of BASIC 65's keyword where it has one under another name (`SPEED` for `SLOW`, `WPOKE` for `POKEW`) | warning |
+| A function under the MEGA65 Book's name or of BASIC 7.0 / 3.5 used in an expression (`peekw(a)`, `rdot(x)`), which is read as an array | warning |
 | A `{...}` left in the source after symbol substitution that is not a PETSCII escape (`{clear}` is fine) | warning |
 | Estimated program size above ~28 KB | warning |
 | A variable read but never assigned (a typo?) | warning |
@@ -120,9 +134,9 @@ Errors stop compilation (exit status 1); warnings do too with `--strict`. `--val
 
 ### Keywords
 
-Keywords are recognised case-insensitively as whole words: `print`, `PRINT` and `Print` all tokenize, `printx` does not. `PRINT#1` and `INPUT#1` are `PRINT#` / `INPUT#` followed by `1`; `GETKEY` is the two tokens `GET KEY`, as BASIC stores it. Numbers keep their exponent (`1E5`, `2.5E-3`). Run `basic45 --list-tokens` for the table (115 single-byte tokens `$80`-`$FD`, 73 two-byte tokens `$FE xx` such as `BANK`, `SPRITE`, `DMA`, `FAST`, `PALETTE`).
+Keywords are recognised case-insensitively as whole words: `print`, `PRINT` and `Print` all tokenize, `printx` does not. `PRINT#1` and `INPUT#1` are `PRINT#` / `INPUT#` followed by `1`; `GETKEY` is the two tokens `GET KEY`, as BASIC stores it. Numbers keep their exponent (`1E5`, `2.5E-3`). Run `basic45 --list-tokens` for the table: 117 single-byte tokens `$80`-`$FD`, 78 two-byte keywords `$FE xx` such as `BANK`, `SPRITE`, `DMA`, `FAST`, `PALETTE`, `VSYNC`, and 22 two-byte functions `$CE xx`: `POT`, `BUMP`, `LPEN`, `RSPPOS`, `RSPRITE`, `RSPCOLOR`, `LOG10`, `RWINDOW`, `POINTER`, `MOD`, `PIXEL`, `RPALETTE`, `RSPEED`, `RPLAY`, `WPEEK`, `DECBIN`, `STRBIN$`, `HASBIT`, `RPT$`, `RDISK`, `LOG2`, `RSPRSYS`. The tables are the ROM's own (BASIC 65 V920422; `HASBIT` to `RSPRSYS` are not in V920413). The MEGA65 Book's `SLOW`, `PEEKW` and `POKEW` are `SPEED`, `WPEEK` and `WPOKE` in these ROMs (basic45 warns about the Book's names, which tokenize as variables). `GO64` is `GO` followed by `64`, as BASIC stores it.
 
-The operators `+ - * / ^ > = <` are tokens (`$AA`-`$B3`), as BASIC stores them; `?` is `PRINT`, and `TAB(` / `SPC(` are tokens. After `REM` the rest of the line, and after `DATA` the items up to the next `:` outside quotes, are stored as text (not tokenized). Variable names and other text outside strings are converted to PETSCII upper case. A space is inserted after a keyword that is followed by a name, number or operator.
+The operators `+ - * / ^ > = <` are tokens (`$AA`-`$B3`) and the shifts `<<` and `>>` are `$FE $52` / `$FE $53`, as BASIC stores them; `?` is `PRINT`, and `TAB(` / `SPC(` are tokens. After `REM` the rest of the line, and after `DATA` the items up to the next `:` outside quotes, are stored as text (not tokenized). Variable names and other text outside strings are converted to PETSCII upper case. A space is inserted after a keyword that is followed by a name, number or operator.
 
 ### Strings and Escape Sequences
 
@@ -379,7 +393,7 @@ A label is recognised when `name:` is followed by a space or the end of the line
 - `--link` uses the ZP calling convention and `c45.lib`; for stack-convention C, declare the called functions `__fastcall__`.
 - `--send`'s default commands (`etherload -r`, `m65 -F -r`) are untested; use `--send-cmd` with the options your tools need.
 
-`test_basic45_xemu.bas` (as is, `--minify` and `--preserve-spaces`), `test_basic45_features_xemu.bas` (as is, decompiled and rebuilt, and formatted) and `test_basic45_link_xemu.bas` (C, asm, incbin, datainc) are run by BASIC 65 on xemu.
+`test_basic45_xemu.bas` (as is, `--minify` and `--preserve-spaces`), `test_basic45_features_xemu.bas` (as is, decompiled and rebuilt, and formatted), `test_basic45_link_xemu.bas` (C, asm, incbin, datainc) and `test_basic45_numbered_xemu.bas` (a numbered program; `MOD`, `LOG10`, `WPEEK`, `POINTER`, `WPOKE`, `<<`, `>>`) are run by BASIC 65 on xemu; `src/test/test_basic45.sh` (`make test`) checks the tokens and messages.
 
 ## See Also
 

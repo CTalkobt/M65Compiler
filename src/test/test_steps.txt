@@ -34,3 +34,4 @@ Running disk45 tests...|bash src/test/test_disk45.sh
 Running new stdlib tests...|bash src/test/test_stdlib_new.sh
 Running the validation tests (bin/test_validation: 16 categories)...|mkdir -p src/test/build && ./bin/test_validation
 Running opcode tests...|make --no-print-directory test-opcodes
+Running basic45 tests...|bash src/test/test_basic45.sh

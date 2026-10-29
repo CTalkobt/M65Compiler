@@ -76,6 +76,7 @@ std::string formatBasic(const std::string& source) {
         BasicTokenizer t;
         for (const auto& [k, v] : t.getKeywords()) keywords.insert(k);
         for (const auto& [k, v] : t.getEscapeKeywords()) keywords.insert(k);
+        for (const auto& [k, v] : t.getCeKeywords()) keywords.insert(k);
         for (const char* k : {"ENDIF", "PROC", "ENDPROC", "CALL", "SELECT", "CASE", "ENDSELECT", "IS",
                               "ASM", "ENDASM", "INCBIN", "DATAINC", "AS"})
             keywords.insert(k);

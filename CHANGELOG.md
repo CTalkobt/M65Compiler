@@ -15,6 +15,29 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   there is no `.asmCvt45rc`. `make uninstall` also removes an installed
   `cvt_asm` and its man page. Scripts calling `cvt_asm` need the new name.
 
+### basic45: numbered programs; BASIC 65's $CE functions
+
+- A classic numbered listing (`10 PRINT "HI"`) was stored with its number
+  as part of the line's text (line 10 holding `10 PRINT "HI"`, a
+  `?SYNTAX ERROR`), without a message. A program whose lines start with
+  numbers is now a numbered program: the lines keep their numbers, which
+  must ascend; a line without one and a jump to a line that does not exist
+  are errors. Labels still work in it.
+- BASIC 65's two-byte functions (`$CE xx`) were missing, and were written as
+  variable names without a message (`print pot(1)` became the array
+  `PO(1)`): `POT`, `BUMP`, `LPEN`, `RSPPOS`, `RSPRITE`, `RSPCOLOR`, `LOG10`,
+  `RWINDOW`, `POINTER`, `MOD`, `PIXEL`, `RPALETTE`, `RSPEED`, `RPLAY`,
+  `WPEEK`, `DECBIN`, `STRBIN$`, `HASBIT`, `RPT$`, `RDISK`, `LOG2`,
+  `RSPRSYS`; and the `$FE` keywords `BIT`, `UNLOCK`, `LOCK`, `MKDIR`,
+  `VSYNC` and the shifts `<<` / `>>`. The tables are the ROM's own (BASIC 65
+  V920422). `GO64` is `GO 64` as BASIC stores it. The decompiler, `--list`,
+  objdump45 `-bas` and the formatter read them.
+- A statement that starts with a name but is not an assignment is a warning
+  (a typo, or a keyword BASIC 65 does not have: `slow` gets "BASIC 65 has
+  SPEED", the MEGA65 Book's `PEEKW`/`POKEW` the ROM's `WPEEK`/`WPOKE`).
+- Tests: `test_basic45_numbered_xemu.bas` (run by BASIC 65 on xemu),
+  `src/test/test_basic45.sh` (`make test`).
+
 ### Builds with GCC 14-16, clang and musl
 
 - The tree did not build with GCC 14 or newer, clang, or on Alpine (musl):
