@@ -38,6 +38,16 @@ AsmIR::Module AcmeParser::parse(const std::string& source) {
         std::string processedSource = MacroUtils::processConditionals(withIncludes, module);
         // the dialect's own conditional assembly, resolved (ca45 has none, #224)
         processedSource = dialectcond::resolve(processedSource, "acme", warnings_);
+        // a forced 16-bit operand, lda+2 $12, is ca45's lda.abs $12 (#371)
+        {
+            // (the mnemonic: first on the line, or after a label)
+            static const std::regex absRe(R"re(^(\s*(?:[A-Za-z_.][A-Za-z0-9_]*:?\s+)?)([A-Za-z]{3,4})\+2(\s.*)$)re");
+            std::istringstream in(processedSource);
+            std::ostringstream o;
+            std::string l;
+            while (std::getline(in, l)) o << std::regex_replace(l, absRe, "$1$2.abs$3") << "\n";
+            processedSource = o.str();
+        }
         // anonymous labels (#224): a line starting with "+" / "-" (or "++",
         // "--", ...) defines one; "+" in an operand is the next one with as
         // many signs, "-" the previous one. Each gets a name of its own.

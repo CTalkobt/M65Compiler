@@ -1,0 +1,83 @@
+; native_bsa.bsa -- a program in BSA's own idioms (asmCvt45, #371): MACRO,
+; MODULE _locals, the BSS pointer, #if / #ifdef, every data form, BSA's
+; expression priorities, 45GS02 instructions, a forced 16-bit operand, LBNE.
+; native_bsa.bin: what BSA (Bit Shift Assembler 03-Mar-2025) made of it.
+.CPU 45GS02
+.STORE start,finish-start,"native_bsa.bin"
+COLOR   = 2
+DEBUG   = 1
+SCREEN  = $0800
+  & = $0400
+BUF   .BSS 4
+PTR   .BSS 2
+
+MACRO BORDER(col)
+   LDA #col
+   STA $D020
+ENDMAC
+
+   * = $2000
+start
+   BORDER(COLOR)
+   LDX #0
+MODULE main
+_loop LDA msg,X
+   BEQ _done
+   STA SCREEN,X
+   INX
+   BNE _loop
+_done: JSR helper
+   RTS
+ENDMOD
+MODULE helper
+_loop DEY
+   BNE _loop
+   LDA #<BUF+1          ; BSA: (<BUF)+1
+   LDA #>PTR
+   LDA #[2+3]*4
+   LDA #2+3*4
+   LDA #1|2==2          ; BSA: 1 | (2==2)
+   LDA #'A'
+   LDA #%..**..*.
+   LDZ #3
+   LDA ($40),Z
+   LDA [$40],Z
+   LDQ [$40],Z
+   LDQ $40
+   INW $40
+   ASW $1234
+   LDA ^$12
+   BSR helper
+   LBNE helper
+   RTS
+ENDMOD
+#if DEBUG
+   LDA #1
+#else
+   LDA #2
+#endif
+#ifdef COLOR
+   LDA #3
+#endif
+msg  .BYTE "hello",0
+     .BYTE 'Q'^,"\r"
+     .PET "Hello"
+     .DISP "abc"
+     .BYTE 300,<300,>300
+     .BHEX 20,1f,ff
+     .WORD start,msg+1
+     .BIGW $1234
+     .QUAD 100000
+     .QUAD $DEADBEEF
+     .REAL 3.1415926
+     .REAL4 -1.5
+     .BITS ..**..*.
+     .LITS ..**..*.
+     .HEX4 $2a
+     .DEC4 42
+     .BYTE <"BRK"
+     .BYTE >"BRK"
+     .BYTE #"BRK"
+     .FILL 3 ($EA)
+     .FILL $2100-* (0)
+finish

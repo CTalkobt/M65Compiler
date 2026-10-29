@@ -169,7 +169,7 @@ LIB45_TOOLS_OBJS = $(addprefix $(OBJ_DIR)/, \
     Gcr.o GcrTracks.o Lz77.o ZipArchive.o \
     GzipHelper.o AsmParser.o AsmWriter.o Ca45Parser.o Ca45Writer.o \
     Ca65Parser.o Ca65Writer.o AcmeParser.o AcmeWriter.o OscarParser.o \
-    OscarWriter.o Merlin64Parser.o Merlin64Writer.o X65Parser.o X65Writer.o \
+    OscarWriter.o Merlin64Parser.o Merlin64Writer.o X65Parser.o X65Writer.o BsaParser.o BsaWriter.o \
     FormatDetection.o KickAssemblerParser.o KickAssemblerWriter.o DialectReader.o)
 
 ifeq ($(HAVE_FUSE3),1)

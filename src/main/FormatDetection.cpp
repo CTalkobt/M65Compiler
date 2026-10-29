@@ -39,6 +39,7 @@ std::optional<std::string> FormatDetection::detectFromExtension(const std::strin
     if (ext == "m64" || ext == "m6502") return "merlin64";
     if (ext == "s6502") return "oscar";
     if (ext == "x65") return "x65";
+    if (ext == "bsa" || ext == "src") return "bsa";   // .src: BSA's BSO mode (the C65 / MEGA65 sources)
     if (ext == "asm" || ext == "ka") return "kickassembler";  // .asm is ambiguous, treat as kickassembler
 
     return std::nullopt;
@@ -105,6 +106,7 @@ std::string FormatDetection::canonicalizeFormat(const std::string& format) {
     if (fmt == "merlin64" || fmt == "merlin" || fmt == "m64" || fmt == "m6502") return "merlin64";
     if (fmt == "oscar" || fmt == "commodore") return "oscar";
     if (fmt == "x65") return "x65";
+    if (fmt == "bsa" || fmt == "bitshift") return "bsa";
     if (fmt == "kickassembler" || fmt == "kickass" || fmt == "ka") return "kickassembler";
 
     // If no alias matches, return as-is (might be a valid format)
