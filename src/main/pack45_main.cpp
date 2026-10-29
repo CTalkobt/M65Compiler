@@ -50,6 +50,7 @@ static void usage() {
                  "  --load ADDR       the load address written (default: dest + the in-place\n"
                  "                    offset, so it can be loaded and unpacked in place)\n"
                  "  --raw             no load address: the stream alone\n"
+                 "  --best            the shortest stream (an optimal parse; slower)\n"
                  "  --prg             the input has a two-byte load address (also: a .prg name)\n"
                  "  -x                unpack <packed> (with its load address, or --raw) to <output>\n"
                  "  -V, --version     the version\n"
@@ -61,7 +62,7 @@ int main(int argc, char** argv) {
     Logger::setTool("pack45");
     argc = Logger::takeFlags(argc, argv);
     uint32_t dest = 0, load = 0;
-    bool haveDest = false, haveLoad = false, raw = false, prg = false, extract = false;
+    bool haveDest = false, haveLoad = false, raw = false, prg = false, extract = false, best = false;
     std::vector<std::string> files;
     for (int i = 1; i < argc; i++) {
         std::string a = argv[i];
@@ -77,6 +78,7 @@ int main(int argc, char** argv) {
         else if (a == "-d" || a == "--dest") { value(dest); haveDest = true; }
         else if (a == "--load") { value(load); haveLoad = true; }
         else if (a == "--raw") raw = true;
+        else if (a == "--best") best = true;
         else if (a == "--prg") prg = true;
         else if (a == "-x") extract = true;
         else if (!a.empty() && a[0] == '-' && a.size() > 1) { std::cerr << "pack45: unknown option " << a << "\n"; return 1; }
@@ -107,7 +109,7 @@ int main(int argc, char** argv) {
         in.erase(in.begin(), in.begin() + 2);
     }
     if (!haveDest) { std::cerr << "pack45: where does it unpack to? -d ADDR (or a .prg input)\n"; return 1; }
-    pack45::Packed p = pack45::pack(in, dest);
+    pack45::Packed p = pack45::pack(in, dest, best);
     LOG_INFO("pack45", files[0] << ": in-place offset " << p.inPlace);
     // (the packer's own check: the model unpacks it, in place too)
     std::vector<uint8_t> back;

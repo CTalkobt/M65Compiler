@@ -16,6 +16,7 @@ pack45 -? | --help
 | `-d`, `--dest ADDR` | Where it unpacks to: a 28-bit address (`$40000`, `0x8000000`, decimal). A `.prg` input's load address is the default |
 | `--load ADDR` | The load address written in front of the stream. Default: the destination plus the in-place offset, so the file can be loaded and unpacked in place |
 | `--raw` | No load address: the stream alone (to include in a program) |
+| `--best` | The shortest stream: an optimal parse instead of the greedy one. A few per cent smaller, about five times slower; the same format, for the same `unpack()` |
 | `--prg` | The input starts with a two-byte load address (also when its name ends in `.prg`); it is left out |
 | `-x` | Unpack `<packed>` (with its load address, or `--raw`) to `<output>`: a check on the host |
 | `-v` … `-vvvv` | Log on stderr as `[pack45:LEVEL] …` |
@@ -53,7 +54,7 @@ tokens, n = t & $3F:
   $C0 $00 $00  the end
 ```
 
-A repeat is never closer than it is long, so one forward DMA copy does it. The packer is greedy with hash chains (256 candidates a position) and looks one byte ahead. The format byte keeps the door open to denser formats later; `unpack()` returns 0 for a stream of another format.
+A repeat is never closer than it is long, so one forward DMA copy does it. The packer is greedy with hash chains (256 candidates a position) and looks one byte ahead. With `--best` it parses from the end instead: at each position the cheapest way on to the end, over a fill, a repeat of any length up to the longest near (1-byte offset) and far (2-byte offset) one found, or literals. On a game's art (760 KB of character sets and screens) that is 2.7% smaller, at about five times the time than the greedy stream. The format byte keeps the door open to denser formats later; `unpack()` returns 0 for a stream of another format.
 
 **In place:** while unpacking, the bytes written must stay behind the bytes still to be read. The packer computes the least offset from the destination at which the stream can start for that to hold (its largest lead of writing over reading); loaded there or further in, `unpack()` reads each literal block before overwriting it (a forward copy, downwards).
 

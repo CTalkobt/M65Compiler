@@ -4,6 +4,17 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### pack45 --best: an optimal parse
+
+- `pack45 --best` packs with an optimal parse (the cheapest way to the
+  end from each position: a fill, a repeat of any length up to the longest
+  near and far ones, or literals) instead of the greedy one: a few per cent
+  smaller (2.7% on The Fading Deep's art), about five times slower. The same
+  format 1, unpacked by the same `unpack()`; the in-place offset is worked
+  out as before. `pack45::pack(data, dest, best)`.
+- Test: the round trips again with `--best`, never longer than greedy
+  (`test_compiler.sh`).
+
 ### cvt_asm is now asmCvt45
 
 - The assembler source converter follows the toolchain's `<name>45` naming:
