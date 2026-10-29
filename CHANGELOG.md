@@ -4,6 +4,15 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Example: tgi_demo at 640x200
+
+- `examples/c/tgi_demo` runs twice: at 320x200 in 256 colours, then at
+  640x200 in 16 (`tgi_static_ncm640`, then `"mega65-ncm2.tgi"` for the
+  turning star); the drawing follows the driver's resolution and colours
+  (`tgi_getmaxx`, `tgi_getcolorcount`). `make check` runs both modes;
+  `tgi_demo640.prg` is the 640x200 part alone (its screenshot in
+  `doc/examples`).
+
 ### `<tgi.h>`: clipping and text in assembly
 
 - Clipping in assembly (`tgi_pixel.s45`'s `__tgi_clipline_c`, was C in
