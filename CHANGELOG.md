@@ -4,6 +4,32 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cvt_asm: conversions checked against ca65, ACME and KickAssembler (#223, #224)
+
+- `doc/architecture/cvt_asm-guide.md`: what each format keeps, translates
+  and loses, the instruction sets per target, and worked conversions (a
+  cc65 module into a MEGA65 program, ACME ↔ KickAssembler, 6502 code ported
+  to the 45GS02). Checked byte for byte with ca65 2.18, ACME 0.97 and
+  KickAssembler's 65CE02 build.
+- Readers: ca65 `.proc`, unnamed labels (`:`, `:-`, `:+`), `.define`,
+  `.asciiz`, `.lobytes`/`.hibytes`, `.if` family; ACME zones (`.local` →
+  `<zone>__local`), anonymous `+`/`-` labels, `!if`, `!macro` parameters,
+  `!align`; KickAssembler multi-labels (`!:`, `!-`), `((zp)),z`, `.if`,
+  `.import binary`. Conditionals are resolved from the constants above them.
+- Writers: each dialect's CPU first (`.setcpu "4510"`, `!cpu m65`,
+  `.cpu _45gs02`); `.dword`, fills, `.align`, `.fillto` and `.incbin` in each
+  dialect's spelling (Merlin 64 / Oscar / x65 numeric ones as byte lists);
+  `@local` labels made unique where `@` names are global (KickAssembler);
+  ca65's `*` in data lists; negative data literals; ca45's default segment
+  for ca65; segment switches as comments for ACME / KickAssembler (read back);
+  instructions a target lacks are warned; macro definitions no longer written.
+- The ca45 reader takes line numbers from the preprocessor's `#line` markers
+  (a macro's expansion matched to its call) and warns on each line kept as
+  written.
+- `test_cvt_asm.sh`: round trips compare unoptimized bytes; programs in
+  ca65's, ACME's and KickAssembler's idioms are checked against the bytes
+  their own assemblers made (`src/test-resources/cvt_asm/native_*`).
+
 ### `<tgi.h>`'s arcs in assembly
 
 - `tgi_arc`, `tgi_pieslice` and `tgi_imulround` are assembly
