@@ -17,4 +17,9 @@ private:
     std::string formatDirective(const AsmIR::Directive& dir);
     std::string formatAddressingMode(const AsmIR::Instruction& instr);
     std::string formatDirectiveName(const std::string& irName);
+    // * as the program counter (not a multiplication) in e replaced by label;
+    // whether there was one
+    static bool replacePc(std::string& e, const std::string& label);
+    int pcLabels_ = 0;
+    bool defaultSegment_ = false;   // (ca45's default segment named DEFAULT)
 };

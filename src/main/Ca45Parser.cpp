@@ -226,25 +226,38 @@ void Ca45Parser::extractStatements(const AssemblerParser& parser, AsmIR::Module&
     std::string line;
     while (std::getline(ss, line)) lines.push_back(line);
 
-    // ca45's parse of each line: the instruction and its addressing mode
-    std::map<int, const AssemblerParser::Statement*> instrAt;
+    // ca45's parse of each line: the instruction and its addressing mode, by
+    // (file, line) as ca45's lexer numbers them: a '#line N "file"' marker
+    // of the preprocessor (after an #include, a macro's expansion) makes the
+    // next line line N of that file ("" the main source). A macro's expanded
+    // lines all have the line of its call: a line's statements in order
+    std::map<std::pair<std::string, int>, std::vector<const AssemblerParser::Statement*>> instrAt;
+    std::map<std::pair<std::string, int>, size_t> instrNext;
     for (const auto& stmt : parser.statements)
         if (stmt->type != AssemblerParser::Statement::Type::NONE &&
-            stmt->type != AssemblerParser::Statement::Type::DIRECTIVE && !instrAt.count(stmt->line))
-            instrAt[stmt->line] = stmt.get();
+            stmt->type != AssemblerParser::Statement::Type::DIRECTIVE)
+            instrAt[{stmt->asmFile, stmt->line}].push_back(stmt.get());
+    static const std::regex lineMarkRe(R"re(^#line\s+(\d+)(?:\s+"([^"]*)")?\s*$)re");
+    std::string curFile;
+    int curLine = 0;
+    int rawWarnings = 0;
 
     static const std::regex labelRe(R"(^\s*([A-Za-z_@.][A-Za-z0-9_@.]*)\s*:(.*)$)");
     static const std::regex constRe(R"(^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$)");
     static const std::regex orgRe(R"(^\s*\*\s*=\s*(.+)$)");
     static const std::regex directiveRe(R"(^\s*\.([A-Za-z_][A-Za-z0-9_]*)\b\s*(.*)$)");
     static const std::regex instrRe(R"(^\s*([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)*)\b\s*(.*)$)");
-    bool warnedRaw = false;
-
     for (size_t n = 0; n < lines.size(); n++) {
-        int lineNo = (int)n + 1;
+        std::smatch m;
+        // (the preprocessor's markers: not part of the program)
+        if (std::regex_match(lines[n], m, lineMarkRe)) {
+            curLine = std::stoi(m[1].str()) - 1;
+            if (m[2].matched) curFile = m[2].str();
+            continue;
+        }
+        int lineNo = ++curLine;
         std::string code, comment;
         splitComment(lines[n], code, comment);
-        std::smatch m;
         auto add = [&](AsmIR::Statement st) {
             st.source_line = lineNo;
             module.statements.push_back(std::move(st));
@@ -307,11 +320,16 @@ void Ca45Parser::extractStatements(const AssemblerParser& parser, AsmIR::Module&
             std::string operand = trim(m[2].str());
             st.type = AsmIR::Statement::Type::INSTRUCTION;
             st.instr.mnemonic = mnemonic;
-            auto it = instrAt.find(lineNo);
+            const AssemblerParser::Statement* ps = nullptr;
+            auto it = instrAt.find({curFile, lineNo});
+            if (it != instrAt.end()) {
+                size_t& k = instrNext[{curFile, lineNo}];
+                if (k < it->second.size()) ps = it->second[k++];
+            }
             AsmIR::AddressingMode mode = AsmIR::AddressingMode::RAW;
-            if (it != instrAt.end() && it->second->type == AssemblerParser::Statement::Type::INSTRUCTION &&
+            if (ps && ps->type == AssemblerParser::Statement::Type::INSTRUCTION &&
                 mnemonic.find('.') == std::string::npos)
-                mode = mapAddressingMode(it->second->instr.mode);
+                mode = mapAddressingMode(ps->instr.mode);
             std::string core;
             if (mode != AsmIR::AddressingMode::RAW && operandCore(mode, operand, core)) {
                 st.instr.mode = mode;
@@ -319,11 +337,10 @@ void Ca45Parser::extractStatements(const AssemblerParser& parser, AsmIR::Module&
             } else {
                 st.instr.mode = AsmIR::AddressingMode::RAW;
                 st.instr.operand.text = operand;
-                if (!warnedRaw) {
-                    addWarning("line " + std::to_string(lineNo) + ": '" + trim(code) +
-                               "' is ca45-specific and kept as written (other assemblers will not accept it)");
-                    warnedRaw = true;
-                }
+                // (each such line, up to 20; then how many more)
+                if (++rawWarnings <= 20)
+                    addWarning((curFile.empty() ? "" : curFile + ": ") + "line " + std::to_string(lineNo) + ": '" +
+                               trim(code) + "' is kept as written: ca45 syntax or an addressing mode only 65CE02/45GS02 assemblers have");
             }
         } else {
             st.type = AsmIR::Statement::Type::INSTRUCTION;
@@ -333,4 +350,6 @@ void Ca45Parser::extractStatements(const AssemblerParser& parser, AsmIR::Module&
         if (!comment.empty()) st.comment = comment;
         add(st);
     }
+    if (rawWarnings > 20)
+        addWarning(std::to_string(rawWarnings - 20) + " more lines kept as written");
 }
