@@ -126,6 +126,15 @@ std::string AsmWriter::literalBytes(const AsmIR::Directive& dir) {
     return r;
 }
 
+std::string AsmWriter::cpuFamily(const std::string& arg) {
+    std::string a;
+    for (char c : arg) if (c != '"' && c != '_' && c != ' ') a += (char)std::tolower((unsigned char)c);
+    if (a == "45gs02" || a == "m65" || a == "4510" || a == "65ce02" || a == "mega65") return "45gs02";
+    if (a == "6502" || a == "6510" || a == "nmos6502") return "6502";
+    if (a == "65c02" || a == "65sc02") return "65c02";
+    return "";
+}
+
 std::string AsmWriter::dataKind(const std::string& name) {
     std::string n;
     for (char c : name) n += (char)std::tolower((unsigned char)c);

@@ -80,9 +80,21 @@ std::string KickAssemblerWriter::formatInstruction(const AsmIR::Instruction& ins
 std::string KickAssemblerWriter::formatDirective(const AsmIR::Directive& dir) {
     std::stringstream ss;
     // the 45GS02 is "_45gs02" there
-    if (dir.type == AsmIR::DirectiveType::CPU && !dir.arguments.empty() &&
-        (dir.arguments[0] == "45GS02" || dir.arguments[0] == "45gs02"))
-        return std::string(".") + "cpu _45gs02";
+    // (one program in source order, no segments like ca65's: a comment, #224)
+    if (dir.type == AsmIR::DirectiveType::SEGMENT) {
+        if (!segmentWarned_)
+            addWarning("segments are not kept (the target assembles one program in source order): ." + dir.name +
+                       " written as a comment");
+        segmentWarned_ = true;
+        return "// segment: " + dir.name + (dir.arguments.empty() ? "" : " " + dir.arguments[0]);
+    }
+    // (a CPU by its family, as the target names it, #224)
+    if (dir.type == AsmIR::DirectiveType::CPU && !dir.arguments.empty()) {
+        std::string fam = cpuFamily(dir.arguments[0]);
+        if (fam == "45gs02") return ".cpu _45gs02";
+        if (fam == "6502") return ".cpu _6502";
+        if (fam == "65c02") return ".cpu _65c02";
+    }
     if (dir.type == AsmIR::DirectiveType::CONST && dir.arguments.size() == 2)
         return ".const " + dir.arguments[0] + " = " + dir.arguments[1];
 

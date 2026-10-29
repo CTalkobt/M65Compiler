@@ -14,12 +14,24 @@ std::string AcmeWriter::write(const AsmIR::Module& input) {
         if (st.type == AsmIR::Statement::Type::DIRECTIVE && st.dir.type == AsmIR::DirectiveType::CPU) cpuStated = true;
     if (!cpuStated && (module.cpu == "45GS02" || module.cpu == "45gs02")) out << "!cpu m65\n";
 
-    // Emit macros first
-    if (!module.macros.empty()) {
-        for (const auto& [name, macro] : module.macros) {
-            out << MacroUtils::formatACMEMacro(macro);
+    // (no macro definitions: the readers expand every call in place, #224)
+
+    // ACME needs an origin before any code; relocatable source (ca65's,
+    // linked by ld65) has none (#224)
+    {
+        bool org = false, code = false;
+        for (const auto& st : module.statements) {
+            if (st.type == AsmIR::Statement::Type::DIRECTIVE && st.dir.type == AsmIR::DirectiveType::ORG) { org = true; break; }
+            if (st.type == AsmIR::Statement::Type::INSTRUCTION ||
+                (st.type == AsmIR::Statement::Type::DIRECTIVE && st.dir.type != AsmIR::DirectiveType::CONST &&
+                 st.dir.type != AsmIR::DirectiveType::CPU && st.dir.type != AsmIR::DirectiveType::SEGMENT &&
+                 st.dir.type != AsmIR::DirectiveType::GLOBAL && st.dir.type != AsmIR::DirectiveType::EXTERN &&
+                 st.dir.type != AsmIR::DirectiveType::WEAK)) { code = true; break; }
         }
-        out << "\n";
+        if (code && !org) {
+            addWarning("no origin (the source was linked elsewhere): ACME needs one, add '*= <address>' at the start");
+            out << "; *= <address>  (ACME needs an origin here: the source had none)\n";
+        }
     }
 
     // ACME assembles one program, without a linker: imports and exports
@@ -87,9 +99,21 @@ std::string AcmeWriter::formatInstruction(const AsmIR::Instruction& instr) {
 std::string AcmeWriter::formatDirective(const AsmIR::Directive& dir) {
     std::stringstream ss;
     // the 45GS02 is "m65" there
-    if (dir.type == AsmIR::DirectiveType::CPU && !dir.arguments.empty() &&
-        (dir.arguments[0] == "45GS02" || dir.arguments[0] == "45gs02"))
-        return std::string("!") + "cpu m65";
+    // (one program in source order, no segments like ca65's: a comment, #224)
+    if (dir.type == AsmIR::DirectiveType::SEGMENT) {
+        if (!segmentWarned_)
+            addWarning("segments are not kept (the target assembles one program in source order): ." + dir.name +
+                       " written as a comment");
+        segmentWarned_ = true;
+        return "; segment: " + dir.name + (dir.arguments.empty() ? "" : " " + dir.arguments[0]);
+    }
+    // (a CPU by its family, as the target names it, #224)
+    if (dir.type == AsmIR::DirectiveType::CPU && !dir.arguments.empty()) {
+        std::string fam = cpuFamily(dir.arguments[0]);
+        if (fam == "45gs02") return "!cpu m65";
+        if (fam == "6502") return "!cpu 6502";
+        if (fam == "65c02") return "!cpu 65c02";
+    }
     if (dir.type == AsmIR::DirectiveType::CONST && dir.arguments.size() == 2)
         return dir.arguments[0] + " = " + dir.arguments[1];
     auto args = [&](size_t from) {   // the arguments from 'from', comma-separated

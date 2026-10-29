@@ -43,13 +43,7 @@ std::string Ca65Writer::write(const AsmIR::Module& input) {
         out << "\n";
     }
 
-    // Emit macros
-    if (!module.macros.empty()) {
-        for (const auto& [name, macro] : module.macros) {
-            out << MacroUtils::formatCa65Macro(macro);
-        }
-        out << "\n";
-    }
+    // (no macro definitions: the readers expand every call in place, #224)
 
     // Emit statements
     for (const auto& stmt : module.statements) {
@@ -126,9 +120,13 @@ std::string Ca65Writer::formatDirective(const AsmIR::Directive& dir) {
         for (size_t i = from; i < dir.arguments.size(); i++) r += (i > from ? ", " : "") + dir.arguments[i];
         return r;
     };
-    if (dir.type == AsmIR::DirectiveType::CPU && !dir.arguments.empty() &&
-        (dir.arguments[0] == "45GS02" || dir.arguments[0] == "45gs02"))
-        return ".setcpu \"4510\"";
+    // (a CPU by its family, as the target names it, #224)
+    if (dir.type == AsmIR::DirectiveType::CPU && !dir.arguments.empty()) {
+        std::string fam = cpuFamily(dir.arguments[0]);
+        if (fam == "45gs02") return ".setcpu \"4510\"";
+        if (fam == "6502") return ".setcpu \"6502\"";
+        if (fam == "65c02") return ".setcpu \"65C02\"";
+    }
     // (#223: the data directives in ca65's spelling)
     const std::string kind = dataKind(dir.name);
     const size_t n = dir.arguments.size();

@@ -36,6 +36,10 @@ protected:
     // of it ("$78, $56, $34, $12"); "" when they are not numbers (or a fill
     // over 256 bytes)
     static std::string literalBytes(const AsmIR::Directive& dir);
+    // a .cpu argument's family, whatever the dialect called it: "45gs02"
+    // (45GS02, m65, _45gs02, 4510, 65CE02), "6502" (6502, _6502), "65c02",
+    // else "" (#224)
+    static std::string cpuFamily(const std::string& arg);
     // a directive the target has no equivalent of: written as given, warned
     std::string noEquivalent(const AsmIR::Directive& dir, const std::string& target, const std::string& written) {
         addWarning("." + dir.name + " has no " + target + " equivalent here: written as '" + written + "'");

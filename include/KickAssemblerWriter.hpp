@@ -17,4 +17,5 @@ private:
     std::string formatDirective(const AsmIR::Directive& dir);
     std::string formatAddressingMode(const AsmIR::Instruction& instr);
     std::string formatImmediateValue(uint32_t value, int width);
+    bool segmentWarned_ = false;
 };
