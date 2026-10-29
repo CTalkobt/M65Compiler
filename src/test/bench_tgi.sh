@@ -3,7 +3,7 @@
 # src/test-resources/benchmark_tgi.c and a checksum of what it drew (equal
 # checksums: the same pixels). Not part of make test.
 #
-# Usage: bash src/test/bench_tgi.sh [-fno-zpcall] [> results.txt]
+# Usage: bash src/test/bench_tgi.sh ["-fno-zpcall -DTGI_DRIVER=tgi_static_ncm640"] [> results.txt]
 #   (the lib must be built: make lib)
 set -e
 cd "$(dirname "$0")/../.."

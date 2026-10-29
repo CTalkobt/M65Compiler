@@ -30,6 +30,30 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   ca65's, ACME's and KickAssembler's idioms are checked against the bytes
   their own assemblers made (`src/test-resources/cvt_asm/native_*`).
 
+### `<tgi.h>`: a 640x200, 16-colour driver
+
+- `tgi_static_ncm640` (`"mega65-ncm640.tgi"`, `stdlib_asm/tgi_ncm.s45`):
+  the VIC-IV's nibble-colour characters at H640, a page of 64000 bytes
+  laid out as the 320x200 driver's (16x8-pixel characters of 4 bits a
+  pixel); colour c is palette entry c, `tgi_setpalette` reads 16 entries.
+  Lines, ellipses, arcs, bars and text are the 320x200 driver's pixels
+  (compared on random scenes, both conventions). A 320x200 program links
+  none of it (30-60 bytes of tests in the generic routines).
+  `tgi_load_driver` knows its name. Test `test_tgi_ncm_xemu.c` (both
+  conventions).
+- Its lines, ellipses and 1x glyphs step addresses as the 320x200
+  driver's, a nibble at a time; a line along x stores a byte's two pixels
+  at once (no read) when they are on one row, the glyph a row two pixels
+  (a byte) at a time. Frames (`bench_tgi.sh -DTGI_DRIVER=tgi_static_ncm640`):
+  long lines 125 → 37, short ones 58 → 33, circles 35 → 15, text 1x 26 →
+  21 (the 320x200 driver: 30, 29, 11, 11).
+- Each driver's drawing is linked only with it: the 320x200 drivers' line,
+  glyph, ellipse steps and `tgi_bar` fill (now assembly) are
+  `stdlib_asm/tgi_fcm.s45`, replacing weak defaults as the 640x200 one's
+  do; a driver's description refers to its member. A 640x200 program with
+  text: 11,604 → 10,176 bytes (lines −491, ellipses −814); a 320x200 one
+  3-15 bytes more, 264 less with text; its bars 67 → 57 frames.
+
 ### `<tgi.h>`'s arcs in assembly
 
 - `tgi_arc`, `tgi_pieslice` and `tgi_imulround` are assembly
@@ -52,6 +76,21 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   addresses, VIC registers, colour RAM, screens, the palette saved and put
   back, the two-page driver; both conventions).
 - `tgi.c`'s weak heap defaults are C again (#357 fixed).
+
+### Docker images with xemu (#99)
+
+- `src/Docker/Dockerfile.runtime` (`make docker-runtime`, Alpine, 51 MB):
+  the toolchain and xemu, with `m65run` (run a program headless; its exit
+  status from `$FD/$FE`, memory bytes, a screenshot). The root (Ubuntu)
+  image has xemu too: `make test-xemu` runs in it (764 pass). xemu is
+  CTalkobt/xemu `cc45-dev` (upstream dev with `XEMU_PREF_DIR`, the
+  monitor's breakpoint list for dbg45, the hardware divider), pinned. The
+  MEGA65 ROM is not included: mount yours at `/rom/MEGA65.ROM`; the
+  `xemu-xmega65` wrapper sets xemu up from it on first use (an SD card made
+  by `disk45 sd create --onboarded`, the ROM on it). The images run as the
+  user `m65` (xemu refuses root). `doc/architecture/DOCKER.md`.
+- tune45 compiles with musl (`<unistd.h>`): the Alpine images built again.
+- `test_disk45_sd_xemu.bas` finds the ROM in `$XEMU_PREF_DIR`.
 
 ### Parameter copies: size or speed (#359)
 

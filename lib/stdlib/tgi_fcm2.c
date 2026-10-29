@@ -10,9 +10,11 @@
 
 const char __tgi_fcm2_name[] = "mega65-fcm2.tgi";
 
+extern const unsigned char __tgi_fcm[];     /* tgi_fcm.s45: its drawing */
+
 const tgi_driver_t tgi_static_fcm2 = {
     { 0x74, 0x67, 0x69, TGI_API_VERSION }, __tgi_fcm2_name,
-    320, 200, 0, 2, 8, 8, 0x00D4, 0
+    320, 200, 0, 2, 8, 8, 0x00D4, 0, 0, __tgi_fcm
 };
 
 __fastcall__ void *__tgi_heap(unsigned int size) {

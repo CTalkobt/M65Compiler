@@ -949,7 +949,7 @@ fi
 # Test: an SD card image made by disk45: xemu boots from it (the ROM from the
 # card), BASIC reads and writes the card's MEGA65.D81; disk45 then finds the
 # file BASIC wrote. Needs xemu's MEGA65.ROM
-XEMU_ROM="$HOME/.local/share/xemu-lgb/mega65/MEGA65.ROM"
+XEMU_ROM="${XEMU_PREF_DIR:-$HOME/.local/share/xemu-lgb/mega65}/MEGA65.ROM"   # (the Docker images: $XEMU_PREF_DIR, #99)
 if [ -f "$XEMU_ROM" ]; then
     echo "Testing test_disk45_sd_xemu.bas..."
     SDC=build/test/test_disk45_sd.img
@@ -2070,6 +2070,14 @@ for tgmode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r tgname tgflags <<< "$tgmode"
     echo "Testing test_tgi_xemu.c ($tgname)..."
     xemu_case "FAIL: test_tgi_xemu.c $tgname (compilation/linking failed)" "src/test-resources/test_tgi_xemu.c" "build/test/test_tgi_${tgname}_xemu.prg" "$tgflags" -- "test_tgi_$tgname" "build/test/test_tgi_${tgname}_xemu.prg" "C0C0" 13 "01 01 01 01 01 01 01 01 01 01 01 01 AA"
+done
+
+# Test: <tgi.h>'s 640x200, 16-colour driver (nibble-colour characters at
+# H640): the mode, pixels as nibbles, lines, bars, text, a circle, the palette
+for tnmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r tnname tnflags <<< "$tnmode"
+    echo "Testing test_tgi_ncm_xemu.c ($tnname)..."
+    xemu_case "FAIL: test_tgi_ncm_xemu.c $tnname (compilation/linking failed)" "src/test-resources/test_tgi_ncm_xemu.c" "build/test/test_tgi_ncm_${tnname}_xemu.prg" "$tnflags" -- "test_tgi_ncm_$tnname" "build/test/test_tgi_ncm_${tnname}_xemu.prg" "C0C0" 11 "01 01 01 01 01 01 01 01 01 01 AA"
 done
 
 # Test: <tgi.h>'s .vfn vector font files (written to an empty D81, loaded,

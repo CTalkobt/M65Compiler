@@ -34,7 +34,7 @@ dependencies (SQLite and FUSE only for disk45):
   plays on the PC (reSIDfp, `third_party/libresidfp`), in xemu or on a MEGA65; composes (`create`)
 - **dbg45** — source-level debugger in xemu (#202): the program's debug file (`cc45 -g` / `ln45 -g`:
   `<prog>.dbg`, JSON), breakpoints by line / function, stepping, the stack, variables by type; drives
-  xemu's monitor socket (needs its `k` breakpoint list: CTalkobt/xemu `monitor-breakpoints`);
+  xemu's monitor socket (needs its `k` breakpoint list: CTalkobt/xemu `cc45-dev`, which the Docker images build);
   `--dap` for VS Code (`tools/ide/vscode-extension`, debug type `cc45`)
 
 ## Architecture
@@ -220,7 +220,7 @@ doc/examples/        the examples with screenshots (examples/capture_screens.py)
   their checks from `src/test/test_harness.hpp`; `bin/test_validation parser linker` runs some,
   `-l` lists them, `TV_VERBOSE=1` shows the PASS lines; `make test-validation-<x>` runs one
 - `make clean`, `make install` (PREFIX=/usr/local: `bin/`, `lib/cc45/`, `include/cc45/`), `make install_local`, `make man`
-- `make coverage`, `make test-o45`, `make docker` (Alpine `src/Docker/Dockerfile`: `make install PREFIX=/app`, entrypoint cc45; `src/Docker/docker-aliases.sh`; the root `Dockerfile` is Ubuntu, with the source tree for `make test`)
+- `make coverage`, `make test-o45`, `make docker` (Alpine `src/Docker/Dockerfile`: `make install PREFIX=/app`, entrypoint cc45; `src/Docker/docker-aliases.sh`), `make docker-runtime` (`src/Docker/Dockerfile.runtime`: the toolchain and xemu, `m65run`; #99); the root `Dockerfile` is Ubuntu, with the source tree for `make test` and xemu for `make test-xemu`. The images' xemu is CTalkobt/xemu `cc45-dev` (pinned); the MEGA65 ROM is mounted at `/rom/MEGA65.ROM` (`doc/architecture/DOCKER.md`)
 - `bench-optimizer` (a size benchmark) still uses mmemu — **runtime tests are run on xemu-xmega65, never mmemu**.
 
 The tools find headers and libraries relative to their own location, in the
@@ -237,7 +237,7 @@ not change what is tested; a test's own later `-O` still wins. Use an
 explicit `-O<n>` in ad-hoc test commands too.
 
 - `make test` — unit tests (no emulator).
-- `bash src/test/test_xemu.sh` (`make test-xemu`) — runtime tests on xemu (764 pass, about 1.5 minutes): each
+- `bash src/test/test_xemu.sh` (`make test-xemu`) — runtime tests on xemu (766 pass, about 1.5 minutes): each
   `*_xemu.c` writes results to `$C0C0` (01 = pass, `$AA` sentinel), built in
   both conventions. New runtime tests follow this pattern and are registered
   in `test_xemu.sh`, most as one line: `xemu_case "FAIL message" <compile_link_test
@@ -382,7 +382,8 @@ it, `far_attic_init`/`far_attic_enable`: a buddy allocator in `far_attic.c`,
 power-of-two blocks aligned to their size, `far_malloc_long` over 64 KB) and
 `dma_controller.h`, `rom_ram.h` (the unused C64 ROM space, `$2A000`-`$2BFFF` and `$2E000`-`$2FFFF`, as RAM: the hypervisor's `$D641` write protection lifted; `__exit` protects it again). `conio.h` has a full-colour mode (a background colour per character:
 glyphs made from the font, cached in bank 4/5). `tgi.h` is cc65's TGI (320x200, 256 colours, one or two
-pages of VIC-IV full-colour characters in bank 4/5; `stdlib/tgi*.c`, `stdlib_asm/tgi_*.s45`). Many other headers (graphics,
+pages of VIC-IV full-colour characters in bank 4/5; 640x200, 16 colours, nibble-colour characters;
+`stdlib/tgi*.c`, `stdlib_asm/tgi_*.s45`). Many other headers (graphics,
 sprites, hw_*, uart) declare functions that no library implements.
 
 ## Known Bugs (found in the 2026-10-11 doc audit; not yet fixed unless noted)
