@@ -276,6 +276,7 @@ struct Reader {
     bool directive(const std::string& word, const std::string& args, const std::string& comment, bool prefixed) {
         std::string w = lower(word);
         auto it = syn.directives.find(w);
+        if (syn.handled.count(w) && (prefixed || syn.keywords || syn.bare.count(w))) return true;
         if (syn.ignored.count(w) && (prefixed || syn.keywords || syn.bare.count(w))) {
             warn("'" + word + "' has no ca45 equivalent and is left out");
             return true;

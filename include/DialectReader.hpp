@@ -20,6 +20,7 @@ struct DialectSyntax {
     char prefix = '.';                 // directive prefix ('!' for ACME); keyword directives also work
     std::map<std::string, std::string> directives;  // dialect name (lower case) -> ca45 name
     std::set<std::string> ignored;     // directives with no ca45 meaning: dropped with a warning
+    std::set<std::string> handled;     // dropped silently: the reader has dealt with them (ACME's !zone)
     bool keywords = false;             // directives without the prefix (Merlin, Oscar: ORG, DFB)
     std::set<std::string> bare;        // ... only these (x65's dc.b, xdef)
     bool slashComments = false;        // // and /* */ (KickAssembler)

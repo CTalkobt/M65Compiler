@@ -1,6 +1,7 @@
 #include "KickAssemblerParser.hpp"
 #include "DialectReader.hpp"
 #include "MacroUtils.hpp"
+#include "DialectConditionals.hpp"
 #include <regex>
 
 namespace {
@@ -29,6 +30,8 @@ AsmIR::Module KickAssemblerParser::parse(const std::string& source) {
         std::string withIncludes = MacroUtils::processIncludes(source, module, processedFiles, includeErrors);
         for (const auto& err : includeErrors) addWarning(err);
         std::string processedSource = MacroUtils::processConditionals(withIncludes, module);
+        // the dialect's own conditional assembly, resolved (ca45 has none, #224)
+        processedSource = dialectcond::resolve(processedSource, "kickassembler", warnings_);
         // macros: their definitions are skipped, their calls expanded
         MacroUtils::extractKickAssemblerMacros(processedSource, module);
         static const DialectSyntax syn = syntax();

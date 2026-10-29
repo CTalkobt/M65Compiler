@@ -9,10 +9,26 @@ std::string Ca65Writer::write(const AsmIR::Module& input) {
     std::stringstream out;
     // (#223: ca45 is a 45GS02 assembler: the target told the CPU, unless
     // the source names one; else it rejects ldz, (zp),z, map, ...)
+    // (ca45's statements before any segment switch are in its "default"
+    // segment, which it writes after code and data; ca65 would take them as
+    // CODE: named DEFAULT when the program switches segments, #224)
+    {
+        bool content = false, switches = false;
+        for (const auto& st : module.statements) {
+            if (st.type == AsmIR::Statement::Type::DIRECTIVE && st.dir.type == AsmIR::DirectiveType::SEGMENT) { switches = true; break; }
+            if (st.type == AsmIR::Statement::Type::INSTRUCTION || st.type == AsmIR::Statement::Type::LABEL ||
+                (st.type == AsmIR::Statement::Type::DIRECTIVE && st.dir.type != AsmIR::DirectiveType::CONST &&
+                 st.dir.type != AsmIR::DirectiveType::GLOBAL && st.dir.type != AsmIR::DirectiveType::EXTERN &&
+                 st.dir.type != AsmIR::DirectiveType::WEAK && st.dir.type != AsmIR::DirectiveType::CPU))
+                content = true;
+        }
+        if (content && switches) defaultSegment_ = true;
+    }
     bool cpuStated = false;
     for (const auto& st : module.statements)
         if (st.type == AsmIR::Statement::Type::DIRECTIVE && st.dir.type == AsmIR::DirectiveType::CPU) cpuStated = true;
     if (!cpuStated && (module.cpu == "45GS02" || module.cpu == "45gs02")) out << ".setcpu \"4510\"\n";
+    if (defaultSegment_) out << ".segment \"DEFAULT\"\n";
 
     // Emit imports/exports
     for (const auto& [name, sym] : module.symbols) {
