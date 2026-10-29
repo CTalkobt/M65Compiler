@@ -27,6 +27,12 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   do; a driver's description refers to its member. A 640x200 program with
   text: 11,604 → 10,176 bytes (lines −491, ellipses −814); a 320x200 one
   3-15 bytes more, 264 less with text; its bars 67 → 57 frames.
+- A two-page 640x200 driver, `tgi_static_ncm2` (`"mega65-ncm2.tgi"`,
+  `stdlib_asm/tgi_ncm2.s45`): double buffering, its screens from `malloc`
+  as the 320x200 two-page driver's. The heap functions are a member of
+  their own (`stdlib/tgi_heap.c`), which a two-page driver's description
+  refers to (`tgi_driver_t`'s `heap`), so both two-page drivers can be
+  linked together and a one-page program still links no `malloc`.
 
 ### `<tgi.h>`'s arcs in assembly
 

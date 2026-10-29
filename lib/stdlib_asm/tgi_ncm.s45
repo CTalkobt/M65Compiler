@@ -1,5 +1,6 @@
 ; tgi_ncm.s45 — <tgi.h>'s 640x200, 16-colour driver (tgi_static_ncm640,
-; "mega65-ncm640.tgi") and its drawing
+; "mega65-ncm640.tgi", one page) and the drawing of both 640x200 drivers
+; (tgi_ncm2.s45's two-page one refers to ___tgi_ncm)
 ;
 ; The screen is the VIC-IV's nibble-colour characters (NCM: colour RAM byte 0
 ; bit 3) at H640: 40x25 characters of 16x8 pixels, 4 bits a pixel (the left
@@ -18,7 +19,7 @@
 .weak cc45.icallinfo
 cc45.icallinfo = 1
 
-.global _tgi_static_ncm640, ___tgi_ncm640_name
+.global _tgi_static_ncm640, ___tgi_ncm640_name, ___tgi_ncm
 .global ___tgi_n_setpixel, ___tgi_n_getpixel, ___tgi_n_line, ___tgi_n_plotc
 .global ___tgi_n_glyph, ___tgi_n_bar, ___tgi_n_eset, ___tgi_n_exstep, ___tgi_n_eplot
 .extern ___tgi_draw, ___tgi_coll, ___tgi_colh, __tgi_onscreen
@@ -40,10 +41,13 @@ _tgi_static_ncm640:
     .byte 0                         ; flags
     .byte $80                       ; mode: 640x200, nibble colour
     .word 0                         ; draw (its drawing is here)
+    .word 0                         ; heap: none
 ; "mega65-ncm640.tgi" (as a C string: PETSCII)
 ___tgi_ncm640_name:
     .byte $4D, $45, $47, $41, $36, $35, $2D, $4E, $43, $4D, $36, $34, $30
     .byte $2E, $54, $47, $49, 0
+; (what the two-page driver's description refers to: tgi_ncm2.s45)
+___tgi_ncm:     .byte 0
 
 .segment "bss"
 __n_cl:         .res 1  ; the colour (low nibble)

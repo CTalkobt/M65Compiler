@@ -7,7 +7,7 @@
 ; never crosses into the next one), the palette as it was (768 bytes:
 ; tgi_setpalette's entries are colours of that one) and a page's screen
 ; (2000 bytes, the characters' numbers). One page leaves room for the
-; others; with two, what does not fit comes from __tgi_heap (tgi_fcm2.c's:
+; others; with two, what does not fit comes from __tgi_heap (tgi_heap.c's:
 ; malloc; the weak one here, so a one-page program links no malloc, gives
 ; none). A block's linear address is its far pointer's bytes (bank 4 or 5)
 ; or, from the heap, its address in bank 0.

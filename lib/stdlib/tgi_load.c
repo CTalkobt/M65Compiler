@@ -13,13 +13,15 @@ extern const void *tgi_drv;
 extern const char tgi_stddrv[];
 extern const tgi_driver_t tgi_static_stddrv;
 
-/* the two-page driver: tgi_fcm2.c (with the heap its screens need) */
+/* the two-page driver: tgi_fcm2.c (its screens from tgi_heap.c's heap) */
 extern const tgi_driver_t tgi_static_fcm2;
 extern const char __tgi_fcm2_name[];
 
 /* 640x200, 16 colours: tgi_ncm.s45 (with its drawing) */
 extern const tgi_driver_t tgi_static_ncm640;
 extern const char __tgi_ncm640_name[];
+extern const tgi_driver_t tgi_static_ncm2;
+extern const char __tgi_ncm2_name[];
 
 /* A letter in one case and encoding: PETSCII's upper case and ASCII's lower
  * case as PETSCII's lower case (ASCII's upper case) */
@@ -49,6 +51,8 @@ void tgi_load_driver(const char *name) {
         tgi_install(&tgi_static_fcm2);
     else if (name && same(name, __tgi_ncm640_name))
         tgi_install(&tgi_static_ncm640);
+    else if (name && same(name, __tgi_ncm2_name))
+        tgi_install(&tgi_static_ncm2);
     else
         tgi_error = TGI_ERR_CANNOT_LOAD;
 }
