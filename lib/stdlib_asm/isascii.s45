@@ -1,0 +1,40 @@
+; isascii.s45 — isascii / toascii (<ctype.h>; the header has them inline too)
+;
+;   int isascii(int c)      1 for 0-127
+;   int toascii(int c)      c & $7F
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.global _isascii, _toascii
+
+.segment "code"
+
+proc _isascii
+    .zp_uses $10, $11
+    .reg_clobbers A, X
+    .flag_clobbers C, N, Z
+    ldx #0
+    lda $11
+    bne @no
+    lda $10
+    bmi @no
+    lda #1
+    rts
+@no:
+    txa
+    rts
+    .func_flags zp_call
+endproc
+
+proc _toascii
+    .zp_uses $10, $11
+    .reg_clobbers A, X
+    .flag_clobbers N, Z
+    lda $10
+    and #$7F
+    ldx #0
+    rts
+    .func_flags zp_call
+endproc

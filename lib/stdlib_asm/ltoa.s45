@@ -1,8 +1,9 @@
 ; ltoa.s — Convert 32-bit long to string (ZP calling convention)
 ;
 ; char *ltoa(long value, char *str, int base);
-;   Converts a 32-bit integer to a NUL-terminated string.
-;   Returns str.
+; char *ultoa(unsigned long value, char *str, int base);
+;   Converts a 32-bit integer to a NUL-terminated string (ltoa: a '-' for a
+;   negative value in base 10; ultoa: none). Returns str.
 ;
 ;   Uses MEGA65 hardware divider at $D770-$D773.
 ;   ZP param layout: value=$10-$13, str=$14/$15, base=$16/$17
@@ -12,9 +13,24 @@
 .weak cc45.icallinfo
 cc45.icallinfo = 1
 
-.global _ltoa
+.global _ltoa, _ultoa
+
+.segment "bss"
+__ltoa_signed:  .res 1  ; 0: ultoa
 
 .segment "code"
+
+proc _ultoa
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17
+    .zp_clobbers $10, $11, $12, $13, $14, $15, $16, $17
+    .zp_release $10, $11, $12, $13, $16, $17
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    lda #0
+    sta __ltoa_signed
+    jmp __ltoa
+    .func_flags zp_call
+endproc
 
 proc _ltoa
     .zp_uses $10, $11, $12, $13, $14, $15, $16, $17
@@ -22,7 +38,14 @@ proc _ltoa
     .zp_release $10, $11, $12, $13, $16, $17
     .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z
+    lda #1
+    sta __ltoa_signed
+    jmp __ltoa
+    .func_flags zp_call
+endproc
 
+; the conversion (__ltoa_signed set)
+proc __ltoa
     ; value=$10-$13, str=$14/$15, base=$16/$17
     ; value is modified in-place during division
     lda #0
@@ -46,7 +69,9 @@ proc _ltoa
     rts
 
 @valid:
-    ; --- Handle negative for base 10 only ---
+    ; --- Handle negative for base 10 only (not ultoa) ---
+    lda __ltoa_signed
+    beq @poscheck
     lda $16
     cmp #10
     bne @poscheck
@@ -173,5 +198,4 @@ proc _ltoa
     lda $14
     ldx $15
     rts
-    .func_flags zp_call
     endproc

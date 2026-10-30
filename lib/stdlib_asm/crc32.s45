@@ -1,0 +1,99 @@
+; crc32.s45 — unsigned long crc32(unsigned long crc, const unsigned char *buf,
+;                                   unsigned len)        $10-$13, $14, $16
+;
+; zlib's CRC-32 (<zlib.h>, as cc65's): the polynomial $EDB88320 (reflected),
+; crc the value so far (0 to start; crc32(0, NULL, 0) is 0), inverted
+; before and after. A byte is two steps of a 16-entry table (64 bytes; a
+; byte-wide table would be 1 KB): crc = (crc >> 4) ^ table[crc & 15].
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.global _crc32
+
+.segment "code"
+
+__crc32_tab:
+    .dword $00000000, $1DB71064, $3B6E20C8, $26D930AC
+    .dword $76DC4190, $6B6B51F4, $4DB26158, $5005713C
+    .dword $EDB88320, $F00F9344, $D6D6A3E8, $CB61B38C
+    .dword $9B64C2B0, $86D3D2D4, $A00AE278, $BDBDF21C
+
+proc _crc32
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17
+    .zp_clobbers $10, $11, $12, $13, $14, $15, $16, $17
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z
+    lda $14
+    ora $15
+    bne @go
+    lda #0              ; NULL: the initial value, 0
+    tax
+    tay
+    taz
+    rts
+@go:
+    jsr @invert
+@byte:
+    lda $16
+    ora $17
+    beq @end
+    ldy #0
+    lda ($14),y
+    eor $10
+    sta $10
+    inw $14
+    jsr @nibble
+    jsr @nibble
+    lda $16
+    bne @dec
+    dec $17
+@dec:
+    dec $16
+    bra @byte
+@end:
+    jsr @invert
+    ldq $10
+    rts
+
+; crc = (crc >> 4) ^ table[crc & 15]
+@nibble:
+    lda $10
+    and #$0F
+    asl a
+    asl a
+    tay
+    ldx #4
+@shift:
+    lsr $13
+    ror $12
+    ror $11
+    ror $10
+    dex
+    bne @shift
+    lda $10
+    eor __crc32_tab,y
+    sta $10
+    lda $11
+    eor __crc32_tab+1,y
+    sta $11
+    lda $12
+    eor __crc32_tab+2,y
+    sta $12
+    lda $13
+    eor __crc32_tab+3,y
+    sta $13
+    rts
+
+@invert:
+    ldx #3
+@inv:
+    lda $10,x
+    eor #$FF
+    sta $10,x
+    dex
+    bpl @inv
+    rts
+    .func_flags zp_call
+endproc

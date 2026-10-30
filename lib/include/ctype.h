@@ -119,3 +119,13 @@ static inline int tolower(int c) {
     }
     return c;
 }
+
+/* 1 for 0-127 */
+static inline int isascii(int c) {
+    return ((unsigned int)c < 0x80) ? 1 : 0;
+}
+
+/* The low 7 bits */
+static inline int toascii(int c) {
+    return c & 0x7F;
+}

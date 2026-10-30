@@ -2034,6 +2034,26 @@ for ccmode in "zp|" "stack|-fno-zpcall"; do
     xemu_case "FAIL: test_conio_cc65_xemu.c $ccname (compilation/linking failed)" "src/test-resources/test_conio_cc65_xemu.c" "build/test/test_conio_cc65_${ccname}_xemu.prg" "$ccflags" -- "test_conio_cc65_$ccname" "build/test/test_conio_cc65_${ccname}_xemu.prg" "C0C0" 11 "01 01 01 01 01 01 01 01 01 01 AA"
 done
 
+# Test: cc65's string / stdlib / ctype / inttypes / signal / locale / time
+# functions and crc32
+for gmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r gname gflags <<< "$gmode"
+    echo "Testing test_cc65_gaps_xemu.c ($gname)..."
+    xemu_case "FAIL: test_cc65_gaps_xemu.c $gname (compilation/linking failed)" "src/test-resources/test_cc65_gaps_xemu.c" "build/test/test_cc65_gaps_${gname}_xemu.prg" "$gflags" -- "test_cc65_gaps_$gname" "build/test/test_cc65_gaps_${gname}_xemu.prg" "C0C0" 14 "01 01 01 01 01 01 01 01 01 01 01 01 01 AA"
+done
+
+# Test: <serial.h> on the buffered UART, xemu's -serialtcp connected to
+# serial_echo.py (a byte back XOR $55 for each one sent)
+for smode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r sname sflags <<< "$smode"
+    echo "Testing test_serial_xemu.c ($sname)..."
+    sport="build/test/serial_echo_${sname}.port"
+    rm -f "$sport"
+    python3 src/test/serial_echo.py "$sport" 30 &
+    for i in $(seq 50); do [ -s "$sport" ] && break; sleep 0.1; done
+    xemu_case "FAIL: test_serial_xemu.c $sname (compilation/linking failed)" "src/test-resources/test_serial_xemu.c" "build/test/test_serial_${sname}_xemu.prg" "$sflags" -- "test_serial_$sname" "build/test/test_serial_${sname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA" -serialtcp "127.0.0.1:$(cat "$sport" 2>/dev/null)"
+done
+
 # Test: the tune player's digi voices against tune45's model: SID 1 and
 # the audio DMA's registers (channels 2-3: tune_digi_channels(2), the third
 # voice left out) after each of 150 frames, in both conventions

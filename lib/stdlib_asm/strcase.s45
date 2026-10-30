@@ -1,0 +1,257 @@
+; strcase.s45 — case-insensitive string functions and case changes
+; (<string.h>, as cc65's)
+;
+;   int strcasecmp(const char *s1, const char *s2)               $10, $12
+;   int strncasecmp(const char *s1, const char *s2, size_t n)    $10, $12, $14
+;   char *strcasestr(const char *haystack, const char *needle)   $10, $12
+;   char *strlwr(char *s), char *strupr(char *s)                 $10
+; and cc65's other names: stricmp, strnicmp, strlower, strupper.
+;
+; Letters fold as tolower does: PETSCII $C1-$DA ('A'-'Z' as cc45 writes
+; them) and $61-$7A to $41-$5A ('a'-'z'); the compares return the sign of
+; the difference of the folded characters. strupr changes $41-$5A to
+; $C1-$DA (toupper). strcasestr compares at most 255 characters of the
+; needle. Each function its own section.
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.global _strcasecmp, _strncasecmp, _stricmp, _strnicmp, _strcasestr
+.global _strlwr, _strupr, _strlower, _strupper
+
+.segment "code"
+
+; A folded to lower case (X, Y kept)
+proc __strfold
+    cmp #$61
+    bcc @c1
+    cmp #$7B
+    bcs @c1
+    sbc #$1F            ; (C clear: - $20)
+    rts
+@c1:
+    cmp #$C1
+    bcc @done
+    cmp #$DB
+    bcs @done
+    and #$7F
+@done:
+    rts
+endproc
+
+; int strcasecmp(const char *s1, const char *s2)
+proc _strcasecmp
+    .zp_uses $10, $11, $12, $13
+    .zp_clobbers $10, $11, $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    ldy #0
+@loop:
+    lda ($12),y
+    jsr __strfold
+    sta $08
+    lda ($10),y
+    jsr __strfold
+    cmp $08
+    bne @diff
+    tax
+    beq @equal
+    iny
+    bne @loop
+    inc $11
+    inc $13
+    bra @loop
+@equal:
+    lda #0
+    tax
+    rts
+@diff:
+    bcs @greater
+    lda #$FF
+    tax
+    rts
+@greater:
+    lda #1
+    ldx #0
+    rts
+    .func_flags zp_call
+endproc
+
+; int stricmp(const char *s1, const char *s2): strcasecmp
+proc _stricmp
+    .zp_uses $10, $11, $12, $13
+    .zp_clobbers $10, $11, $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    jmp _strcasecmp
+    .func_flags zp_call
+endproc
+
+; int strncasecmp(const char *s1, const char *s2, size_t n)
+proc _strncasecmp
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .zp_clobbers $10, $11, $12, $13, $14, $15
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    ldy #0
+@loop:
+    lda $14
+    ora $15
+    beq @equal
+    lda ($12),y
+    jsr __strfold
+    sta $08
+    lda ($10),y
+    jsr __strfold
+    cmp $08
+    bne @diff
+    tax
+    beq @equal
+    lda $14
+    bne @dec
+    dec $15
+@dec:
+    dec $14
+    iny
+    bne @loop
+    inc $11
+    inc $13
+    bra @loop
+@equal:
+    lda #0
+    tax
+    rts
+@diff:
+    bcs @greater
+    lda #$FF
+    tax
+    rts
+@greater:
+    lda #1
+    ldx #0
+    rts
+    .func_flags zp_call
+endproc
+
+; int strnicmp(const char *s1, const char *s2, size_t n): strncasecmp
+proc _strnicmp
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .zp_clobbers $10, $11, $12, $13, $14, $15
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    jmp _strncasecmp
+    .func_flags zp_call
+endproc
+
+; char *strcasestr(const char *haystack, const char *needle): the first
+; place the needle is in the haystack, ignoring case; NULL if nowhere (the
+; haystack for an empty needle)
+proc _strcasestr
+    .zp_uses $10, $11, $12, $13
+    .zp_clobbers $10, $11
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+@outer:
+    ldy #0
+@cmp:
+    lda ($12),y
+    beq @found
+    jsr __strfold
+    sta $08
+    lda ($10),y
+    beq @none           ; the haystack ends first
+    jsr __strfold
+    cmp $08
+    bne @next
+    iny
+    bne @cmp
+    bra @found
+@next:
+    inw $10
+    bra @outer
+@found:
+    lda $10
+    ldx $11
+    rts
+@none:
+    lda #0
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+; char *strlwr(char *s): s in lower case; s
+proc _strlwr
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    lda $10
+    sta $08
+    lda $11
+    sta $09
+    ldy #0
+@loop:
+    lda ($08),y
+    beq @done
+    jsr __strfold
+    sta ($08),y
+    iny
+    bne @loop
+    inc $09
+    bra @loop
+@done:
+    lda $10
+    ldx $11
+    rts
+    .func_flags zp_call
+endproc
+
+; char *strlower(char *s): strlwr
+proc _strlower
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    jmp _strlwr
+    .func_flags zp_call
+endproc
+
+; char *strupr(char *s): s in upper case ($41-$5A to $C1-$DA); s
+proc _strupr
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    lda $10
+    sta $08
+    lda $11
+    sta $09
+    ldy #0
+@loop:
+    lda ($08),y
+    beq @done
+    cmp #$41
+    bcc @next
+    cmp #$5B
+    bcs @next
+    ora #$80
+    sta ($08),y
+@next:
+    iny
+    bne @loop
+    inc $09
+    bra @loop
+@done:
+    lda $10
+    ldx $11
+    rts
+    .func_flags zp_call
+endproc
+
+; char *strupper(char *s): strupr
+proc _strupper
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    jmp _strupr
+    .func_flags zp_call
+endproc
