@@ -1,0 +1,65 @@
+; sleep.s45 — unsigned int sleep(unsigned int seconds) (<unistd.h>): waits
+; seconds * CLOCKS_PER_SEC frames of clock() (50 PAL, 60 NTSC: $D06F bit
+; 7), the product by the hardware multiplier; returns 0
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.global _sleep
+.extern _clock
+
+.segment "bss"
+__sleep_goal:   .res 4
+__sleep_now:    .res 4
+
+.segment "code"
+
+proc _sleep
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $10
+    sta $D770
+    lda $11
+    sta $D771
+    lda #0
+    sta $D772
+    sta $D773
+    sta $D775
+    sta $D776
+    sta $D777
+    lda #50
+    bit $D06F
+    bpl @pal
+    lda #60
+@pal:
+    sta $D774
+@busy:
+    bit $D70F           ; bit 6 -> V: the multiplier is busy
+    bvs @busy
+    ldq $D778
+    stq __sleep_goal
+    jsr _clock
+    clc
+    adcq __sleep_goal
+    stq __sleep_goal
+@wait:
+    jsr _clock          ; until (long)(goal - now) <= 0
+    stq __sleep_now
+    ldq __sleep_goal
+    sec
+    sbcq __sleep_now
+    stq __sleep_now
+    lda __sleep_now+3
+    bmi @done
+    ora __sleep_now+2
+    ora __sleep_now+1
+    ora __sleep_now
+    bne @wait
+@done:
+    lda #0
+    tax
+    rts
+    .func_flags zp_call
+endproc

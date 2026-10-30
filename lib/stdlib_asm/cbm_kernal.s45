@@ -1,0 +1,426 @@
+; cbm_kernal.s45 — cc65's cbm_k_ KERNAL wrappers (<cbm.h>) that stdio's
+; stdlib/stdio_kernal.c does not have, and cbm_load / cbm_save
+;
+; Each calls the KERNAL routine through __rom_calli (rom_call.s45: the ROM's
+; base page and page-1 stack, as the disk code needs) with its registers
+; from the parameters ($10, $12: the ZP convention in both libraries). A
+; KERNAL error (carry set) goes to _oserror for cbm_k_load / cbm_k_save /
+; cbm_load / cbm_save, as in cc65.
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.global _cbm_k_acptr, _cbm_k_basin, _cbm_k_getin, _cbm_k_bsout, _cbm_k_ciout
+.global _cbm_k_listen, _cbm_k_talk, _cbm_k_second, _cbm_k_tksa, _cbm_k_clall
+.global _cbm_k_clrch, _cbm_k_scnkey, _cbm_k_udtim, _cbm_k_unlsn, _cbm_k_untlk
+.global _cbm_k_ckout, _cbm_k_iobase, _cbm_k_settim, _cbm_k_load, _cbm_k_save
+.global _cbm_load, _cbm_save, __oserror, _get_tv, _waitvsync
+.extern __rom_calli, __bp_rom, __bp_prog
+
+SAVEPTR = $FB           ; SAVE's start pointer, in the ROM's page 0 (its two
+                        ; bytes kept and put back)
+
+.segment "bss"
+__oserror:      .res 1  ; the last KERNAL error of a load or save (0: none)
+__cbm_keep:     .res 2  ; SAVEPTR's bytes
+__cbm_data:     .res 2  ; cbm_load / cbm_save: the data's address
+__cbm_size:     .res 2  ;   cbm_save: its size
+
+.segment "code"
+
+; unsigned char cbm_k_acptr(void): a byte from the serial bus
+proc _cbm_k_acptr
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr __rom_calli
+    .word $FF13
+    ldx #0
+    rts
+    .func_flags zp_call
+endproc
+
+; unsigned char cbm_k_basin(void): a byte from the input channel (CHRIN)
+proc _cbm_k_basin
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr __rom_calli
+    .word $FFCF
+    ldx #0
+    rts
+    .func_flags zp_call
+endproc
+
+; unsigned char cbm_k_getin(void): a key from the keyboard buffer (0: none), or a byte from the input channel
+proc _cbm_k_getin
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr __rom_calli
+    .word $FFE4
+    ldx #0
+    rts
+    .func_flags zp_call
+endproc
+
+; void cbm_k_bsout(unsigned char c): a byte to the output channel (CHROUT)
+proc _cbm_k_bsout
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $10
+    jsr __rom_calli
+    .word $FFD2
+    rts
+    .func_flags zp_call
+endproc
+
+; void cbm_k_ciout(unsigned char c): a byte to the serial bus
+proc _cbm_k_ciout
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $10
+    jsr __rom_calli
+    .word $FFA8
+    rts
+    .func_flags zp_call
+endproc
+
+; void cbm_k_listen(unsigned char dev): LISTEN to a serial device
+proc _cbm_k_listen
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $10
+    jsr __rom_calli
+    .word $FFB1
+    rts
+    .func_flags zp_call
+endproc
+
+; void cbm_k_talk(unsigned char dev): TALK to a serial device
+proc _cbm_k_talk
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $10
+    jsr __rom_calli
+    .word $FFB4
+    rts
+    .func_flags zp_call
+endproc
+
+; void cbm_k_second(unsigned char addr): the secondary address after LISTEN
+proc _cbm_k_second
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $10
+    jsr __rom_calli
+    .word $FF93
+    rts
+    .func_flags zp_call
+endproc
+
+; void cbm_k_tksa(unsigned char addr): the secondary address after TALK
+proc _cbm_k_tksa
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $10
+    jsr __rom_calli
+    .word $FF96
+    rts
+    .func_flags zp_call
+endproc
+
+; void cbm_k_clall(void): every file closed, the channels reset
+proc _cbm_k_clall
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr __rom_calli
+    .word $FFE7
+    rts
+    .func_flags zp_call
+endproc
+
+; void cbm_k_clrch(void): the channels back to the keyboard and screen (CLRCHN)
+proc _cbm_k_clrch
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr __rom_calli
+    .word $FFCC
+    rts
+    .func_flags zp_call
+endproc
+
+; void cbm_k_scnkey(void): the keyboard scanned
+proc _cbm_k_scnkey
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr __rom_calli
+    .word $FF9F
+    rts
+    .func_flags zp_call
+endproc
+
+; void cbm_k_udtim(void): the clock advanced a tick
+proc _cbm_k_udtim
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr __rom_calli
+    .word $FFEA
+    rts
+    .func_flags zp_call
+endproc
+
+; void cbm_k_unlsn(void): UNLISTEN
+proc _cbm_k_unlsn
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr __rom_calli
+    .word $FFAE
+    rts
+    .func_flags zp_call
+endproc
+
+; void cbm_k_untlk(void): UNTALK
+proc _cbm_k_untlk
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr __rom_calli
+    .word $FFAB
+    rts
+    .func_flags zp_call
+endproc
+
+; unsigned char cbm_k_ckout(unsigned char lfn): output to file lfn (CHKOUT); 0, or the KERNAL's error
+proc _cbm_k_ckout
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    ldx $10
+    jsr __rom_calli
+    .word $FFC9
+    ldx #0
+    bcs @err
+    txa
+@err:
+    rts
+    .func_flags zp_call
+endproc
+
+; unsigned cbm_k_iobase(void): the I/O base address (X/Y)
+proc _cbm_k_iobase
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr __rom_calli
+    .word $FFF3
+    txa
+    phy
+    plx
+    rts
+    .func_flags zp_call
+endproc
+
+; void cbm_k_settim(unsigned long timer): the clock set (A the low byte,
+; X, Y the next)
+proc _cbm_k_settim
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $10
+    ldx $11
+    ldy $12
+    jsr __rom_calli
+    .word $FFDB
+    rts
+    .func_flags zp_call
+endproc
+
+; unsigned int cbm_k_load(unsigned char flag, unsigned addr): LOAD (flag 0)
+; or VERIFY (1) the file SETLFS / SETNAM set up, to addr with secondary
+; address 0. The end address; on an error _oserror and addr.
+proc _cbm_k_load
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda #0
+    sta __oserror
+    lda $10
+    ldx $12
+    ldy $13
+    jsr __rom_calli
+    .word $FFD5
+    bcc @ok
+    sta __oserror
+    ldx $12
+    ldy $13
+@ok:
+    txa
+    phy
+    plx
+    rts
+    .func_flags zp_call
+endproc
+
+; unsigned char cbm_k_save(unsigned int start, unsigned int end): SAVE
+; start up to end (not included) to the file SETLFS / SETNAM set up; 0, or
+; the KERNAL's error
+proc _cbm_k_save
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    ldx $10
+    ldy $11
+    jsr __bp_rom        ; (the ROM's page 0 for the pointer)
+    lda SAVEPTR
+    sta __cbm_keep
+    lda SAVEPTR+1
+    sta __cbm_keep+1
+    stx SAVEPTR
+    sty SAVEPTR+1
+    jsr __bp_prog
+    lda #SAVEPTR
+    ldx $12
+    ldy $13
+    jsr __rom_calli
+    .word $FFD8
+    ldx #0
+    bcs @err
+    txa
+@err:
+    pha
+    jsr __bp_rom
+    lda __cbm_keep
+    sta SAVEPTR
+    lda __cbm_keep+1
+    sta SAVEPTR+1
+    jsr __bp_prog
+    pla
+    ldx #0
+    rts
+    .func_flags zp_call
+endproc
+
+; SETLFS(0, device $12, secondary A) and SETNAM(the name at $10, its length
+; counted)
+proc __cbm_lfsnam
+    tay
+    lda #0
+    ldx $12
+    jsr __rom_calli
+    .word $FFBA
+    ldy #0
+@len:
+    lda ($10),y
+    beq @counted
+    iny
+    bne @len
+@counted:
+    tya
+    ldx $10
+    ldy $11
+    jsr __rom_calli
+    .word $FFBD
+    rts
+endproc
+
+; unsigned int cbm_load(const char *name, unsigned char device, void *data):
+; the file loaded to data (to the address in the file for NULL); the bytes
+; loaded (0 on an error, _oserror set)
+proc _cbm_load
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $14
+    sta __cbm_data
+    lda $15
+    sta __cbm_data+1
+    ora $14
+    beq @sa1
+    lda #0
+    bra @set
+@sa1:
+    lda #1              ; NULL: the file's own address
+@set:
+    jsr __cbm_lfsnam
+    lda #0
+    sta $10
+    lda __cbm_data
+    sta $12
+    lda __cbm_data+1
+    sta $13
+    jsr _cbm_k_load
+    sec
+    sbc __cbm_data
+    pha
+    txa
+    sbc __cbm_data+1
+    tax
+    pla
+    rts
+    .func_flags zp_call
+endproc
+
+; unsigned char cbm_save(const char *name, unsigned char device,
+; const void *data, unsigned int size): 0, or the KERNAL's error (also in
+; _oserror)
+proc _cbm_save
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $14
+    sta __cbm_data
+    lda $15
+    sta __cbm_data+1
+    lda $16
+    sta __cbm_size
+    lda $17
+    sta __cbm_size+1
+    lda #0
+    jsr __cbm_lfsnam
+    lda __cbm_data
+    sta $10
+    clc
+    adc __cbm_size
+    sta $12
+    lda __cbm_data+1
+    sta $11
+    adc __cbm_size+1
+    sta $13
+    jsr _cbm_k_save
+    sta __oserror
+    rts
+    .func_flags zp_call
+endproc
+
+; unsigned char get_tv(void): TV_NTSC (0) or TV_PAL (1): $D06F bit 7
+proc _get_tv
+    .reg_clobbers A, X
+    .flag_clobbers N, Z
+    ldx #0
+    lda $D06F
+    bmi @ntsc
+    lda #1
+    rts
+@ntsc:
+    txa
+    rts
+    .func_flags zp_call
+endproc
+
+; void waitvsync(void): until the raster starts the next frame (the
+; raster's bit 8, $D011 bit 7, set and then clear)
+proc _waitvsync
+    .reg_clobbers A
+    .flag_clobbers N, Z, V
+@low:
+    bit $D011
+    bpl @low
+@high:
+    bit $D011
+    bmi @high
+    rts
+    .func_flags zp_call
+endproc

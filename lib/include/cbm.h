@@ -89,13 +89,6 @@ static void cbm_setnam(char *name, char len) { __jsr(KERNAL_SETNAM, .A = len, .X
  */
 static void cbm_setbnk(char data_bank, char name_bank) { __jsr(0xFF6B, .A = data_bank, .X = name_bank); }
 
-/* Load a file (call cbm_setbnk, cbm_setnam and cbm_setlfs first): with
- * secondary address 0 to addr in cbm_setbnk's bank, with 1 to the address
- * the file starts with (its first two bytes, in either case not loaded).
- * Returns 0 on success, 1 on error (carry set)
- */
-static int cbm_load(unsigned int addr) { return __jsr(KERNAL_LOAD, .A = 0, .XY = addr).Carry; }
-
 /* Load a file from device to a linear address in chip RAM (banks 0-5:
  * $0000000-$005FFFF), skipping its two-byte header: name (in bank 0) of
  * len characters. Returns 0 on success, 1 on error. The next LOAD's banks
@@ -106,7 +99,7 @@ static int cbm_load_far(char *name, char len, char device, unsigned long lin) {
     cbm_setbnk((char)(lin >> 16), 0);
     cbm_setnam(name, len);
     cbm_setlfs(0, device, 0);
-    err = cbm_load((unsigned int)lin);
+    err = __jsr(KERNAL_LOAD, .A = 0, .XY = (unsigned int)lin).Carry;
     cbm_setbnk(0, 0);
     return err;
 }
@@ -196,6 +189,65 @@ static void cbm_ciout(char data) { __jsr(KERNAL_CIOUT, .A = data); }
 static int cbm_acptr(void) { return __jsr(KERNAL_ACPTR).A; }
 
 /* ===== PETSCII Control Codes ===== */
+
+/* ----------------------------------------------------------------------------
+ * cc65's KERNAL functions (library: stdlib_asm/cbm_kernal.s45 and
+ * stdlib/stdio_kernal.c; through __rom_call, so disk I/O works on the
+ * relocated base page and 16-bit stack)
+ * ------------------------------------------------------------------------- */
+
+__fastcall__ unsigned char cbm_k_acptr(void);
+__fastcall__ unsigned char cbm_k_basin(void);
+__fastcall__ void cbm_k_bsout(unsigned char c);
+__fastcall__ void cbm_k_ciout(unsigned char c);
+__fastcall__ unsigned char cbm_k_ckout(unsigned char lfn);
+__fastcall__ void cbm_k_clall(void);
+__fastcall__ void cbm_k_clrch(void);
+__fastcall__ unsigned char cbm_k_getin(void);
+__fastcall__ unsigned int cbm_k_iobase(void);
+__fastcall__ void cbm_k_listen(unsigned char dev);
+/* LOAD (flag 0) or VERIFY (1) the file cbm_k_setlfs / cbm_k_setnam set up
+ * to addr: the end address, or addr on an error (_oserror set) */
+__fastcall__ unsigned int cbm_k_load(unsigned char flag, unsigned int addr);
+/* SAVE start up to end (not included): 0, or the KERNAL's error */
+__fastcall__ unsigned char cbm_k_save(unsigned int start, unsigned int end);
+__fastcall__ void cbm_k_scnkey(void);
+__fastcall__ void cbm_k_second(unsigned char addr);
+__fastcall__ void cbm_k_settim(unsigned long timer);
+__fastcall__ void cbm_k_talk(unsigned char dev);
+__fastcall__ void cbm_k_tksa(unsigned char addr);
+__fastcall__ void cbm_k_udtim(void);
+__fastcall__ void cbm_k_unlsn(void);
+__fastcall__ void cbm_k_untlk(void);
+/* (also in <stdio.h>) */
+unsigned char cbm_k_chkin(unsigned char fd);
+unsigned char cbm_k_chkout(unsigned char fd);
+unsigned char cbm_k_clrchn(void);
+unsigned char cbm_k_readst(void);
+unsigned char cbm_k_setlfs(unsigned char fd, unsigned char device, unsigned char secondary);
+unsigned char cbm_k_setnam(const char *filename);
+unsigned char cbm_k_open(void);
+unsigned char cbm_k_close(unsigned char fd);
+unsigned char cbm_k_chrin(void);
+void cbm_k_chrout(unsigned char c);
+
+/* The file name loaded from device to data (NULL: to the address in the
+ * file); the bytes loaded, 0 on an error (_oserror set) */
+__fastcall__ unsigned int cbm_load(const char *name, unsigned char device, void *data);
+/* size bytes at data saved to device as name: 0, or the KERNAL's error
+ * (also in _oserror) */
+__fastcall__ unsigned char cbm_save(const char *name, unsigned char device, const void *data,
+                                    unsigned int size);
+/* The last KERNAL error of cbm_load / cbm_save / cbm_k_load (0: none) */
+extern unsigned char _oserror;
+
+#define TV_NTSC     0
+#define TV_PAL      1
+#define TV_OTHER    2
+/* TV_NTSC or TV_PAL ($D06F bit 7) */
+__fastcall__ unsigned char get_tv(void);
+/* Until the raster starts the next frame */
+__fastcall__ void waitvsync(void);
 
 #define CH_RETURN       0x0D
 #define CH_DELETE        0x14

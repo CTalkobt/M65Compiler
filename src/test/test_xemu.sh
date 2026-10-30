@@ -2054,6 +2054,22 @@ for smode in "zp|" "stack|-fno-zpcall"; do
     xemu_case "FAIL: test_serial_xemu.c $sname (compilation/linking failed)" "src/test-resources/test_serial_xemu.c" "build/test/test_serial_${sname}_xemu.prg" "$sflags" -- "test_serial_$sname" "build/test/test_serial_${sname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA" -serialtcp "127.0.0.1:$(cat "$sport" 2>/dev/null)"
 done
 
+# Test: adler32, joystick.h, sleep, getopt, cc65's cbm_k_ / cbm_load /
+# cbm_save (an empty D81 as drive 8)
+for mmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r mname mflags <<< "$mmode"
+    echo "Testing test_cc65_more_xemu.c ($mname)..."
+    compile_link_test "src/test-resources/test_cc65_more_xemu.c" "build/test/test_cc65_more_${mname}_xemu.prg" "$mflags"
+    if [ $? -eq 0 ] && rm -f "build/test/test_cc65_more_${mname}.d81" &&
+       ./bin/disk45 create "build/test/test_cc65_more_${mname}.d81" -n "MORE" >/dev/null 2>&1; then
+        run_xemu_test "test_cc65_more_$mname" "build/test/test_cc65_more_${mname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA" \
+            -8 "$PWD/build/test/test_cc65_more_${mname}.d81"
+    else
+        echo "FAIL: test_cc65_more_xemu.c $mname (build failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: the tune player's digi voices against tune45's model: SID 1 and
 # the audio DMA's registers (channels 2-3: tune_digi_channels(2), the third
 # voice left out) after each of 150 frames, in both conventions

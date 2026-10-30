@@ -1,0 +1,102 @@
+; adler32.s45 — unsigned long adler32(unsigned long adler,
+;                   const unsigned char *buf, unsigned len)  $10-$13, $14, $16
+;
+; zlib's Adler-32 (<zlib.h>, as cc65's): a = 1 + the bytes, b = the sum of
+; the a's, both mod 65521, the result b << 16 | a; adler the value so far
+; (1 to start; adler32(0, NULL, 0) is 1). A sum over 65520 (with the carry
+; out of 16 bits too) less 65521 is the sum plus 15 in 16 bits.
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.global _adler32
+
+.segment "code"
+
+proc _adler32
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17
+    .zp_clobbers $10, $11, $12, $13, $14, $15, $16, $17
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $14
+    ora $15
+    bne @byte
+    lda #1              ; NULL: the initial value, 1
+    ldx #0
+    ldy #0
+    ldz #0
+    rts
+@byte:
+    lda $16
+    ora $17
+    beq @end
+    ldy #0              ; a += the byte
+    lda ($14),y
+    clc
+    adc $10
+    sta $10
+    lda $11
+    adc #0
+    sta $11
+    jsr @mod_a
+    lda $12             ; b += a
+    clc
+    adc $10
+    sta $12
+    lda $13
+    adc $11
+    sta $13
+    jsr @mod_b
+    inw $14
+    lda $16
+    bne @dec
+    dec $17
+@dec:
+    dec $16
+    bra @byte
+@end:
+    ldq $10
+    rts
+
+; a (at $10, carry from its sum in C) reduced mod 65521
+@mod_a:
+    bcs @a_sub
+    lda $11
+    cmp #$FF
+    bne @a_ok
+    lda $10
+    cmp #$F1
+    bcc @a_ok
+@a_sub:
+    lda $10
+    clc
+    adc #15
+    sta $10
+    lda $11
+    adc #0
+    sta $11
+@a_ok:
+    rts
+
+; the same for b ($12)
+@mod_b:
+    bcs @b_sub
+    lda $13
+    cmp #$FF
+    bne @b_ok
+    lda $12
+    cmp #$F1
+    bcc @b_ok
+@b_sub:
+    lda $12
+    clc
+    adc #15
+    sta $12
+    lda $13
+    adc #0
+    sta $13
+@b_ok:
+    rts
+    .func_flags zp_call
+endproc

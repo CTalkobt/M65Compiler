@@ -4,8 +4,10 @@
  * crc32(0, NULL, 0)) and pass each piece of the data with the value so far:
  *   unsigned long c = crc32(0, NULL, 0);
  *   c = crc32(c, buf, len);
- * cc65's inflatemem / uncompress / adler32 are not here (pack45 and
- * <unpack.h> are the library's compression).
+ * adler32 (lib/stdlib_asm/adler32.s45): zlib's Adler-32, used the same
+ * way, starting from 1 (adler32(0, NULL, 0)).
+ * cc65's inflatemem / uncompress are not here (pack45 and <unpack.h> are
+ * the library's compression).
  */
 #pragma once
 
@@ -14,3 +16,4 @@
 #endif
 
 __fastcall__ unsigned long crc32(unsigned long crc, const unsigned char *buf, unsigned int len);
+__fastcall__ unsigned long adler32(unsigned long adler, const unsigned char *buf, unsigned int len);
