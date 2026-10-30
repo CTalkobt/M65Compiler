@@ -61,10 +61,10 @@
 
 /* The next key (above), or 0 when none is waiting */
 unsigned char input_key(void);
-/* The next key, waiting for one */
-unsigned char input_wait(void);
+/* The next key, waiting for one (__fastcall__, as the next: conio.s45 calls them) */
+__fastcall__ unsigned char input_wait(void);
 /* 1 when a key is waiting */
-unsigned char input_waiting(void);
+__fastcall__ unsigned char input_waiting(void);
 /* Discard the keys waiting */
 void input_flush(void);
 /* 1 while the key (a KEY_ matrix code of <mega65.h>) is held down */

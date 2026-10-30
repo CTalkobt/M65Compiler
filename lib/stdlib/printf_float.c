@@ -17,6 +17,10 @@ void printf_float(void) {}
 /* the float formatter (stdlib_asm/pf_format.s45), ZP convention */
 __fastcall__ int __pf_format(char *buf, float val, int conv, int prec, int alt);
 
+/* conio's vcprintf (stdlib_asm/conio.s45) formats floats with it: this
+ * replaces the weak null pointer there */
+__fastcall__ int (*const __conio_ffmt)(char *, float, int, int, int) = __pf_format;
+
 /* --- printf with %f support (strong, overrides weak integer-only version) --- */
 
 /* __vformat (stdlib_asm/__vformat.s45) and its callbacks use the ZP convention */

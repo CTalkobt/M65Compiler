@@ -7624,7 +7624,8 @@ normal_call:
             fpBool.push_back(p.pointerLevel == 0 && isBoolType(p.type));
         }
     }
-    if (!fpSig && (node.name == "vscanf" || node.name == "vfscanf" || node.name == "vsscanf"))
+    if (!fpSig && (node.name == "vscanf" || node.name == "vfscanf" || node.name == "vsscanf" ||
+                    node.name == "vcscanf"))
         module_.callsVscanf = true;
     auto const& pTypes = fpSig ? fpTypes : functionParamTypes_[node.name];
     auto const& pSigned = fpSig ? fpSigned : functionParamSigned_[node.name];
@@ -7676,7 +7677,7 @@ normal_call:
             }
             // scanf reading a float: link the %f-aware scanf family
             if (!fpSig && args[i].type == ir::Type::PTR && ai < node.arguments.size() &&
-                (node.name == "scanf" || node.name == "fscanf" || node.name == "sscanf") &&
+                (node.name == "scanf" || node.name == "fscanf" || node.name == "sscanf" || node.name == "cscanf") &&
                 getExprTypeInfo(node.arguments[ai].get()).pointedToType == ir::Type::F32)
                 module_.floatScanfArg = true;
             if (args[i].type == ir::Type::I8 && (fpSig ? fpSig->isVariadic : variadicFunctions_.count(node.name) > 0) &&
@@ -8092,7 +8093,7 @@ static const std::map<std::string, size_t>& printfLikeFunctions() {
     static const std::map<std::string, size_t> m = {
         {"printf", 0}, {"vprintf", 0}, {"fprintf", 1}, {"vfprintf", 1},
         {"sprintf", 1}, {"vsprintf", 1}, {"snprintf", 2}, {"vsnprintf", 2},
-        {"cprintf", 0}, {"cprintfxy", 2}, {"fcm_cprintf", 4}};
+        {"cprintf", 0}, {"vcprintf", 0}, {"cprintfxy", 2}, {"fcm_cprintf", 4}};
     return m;
 }
 

@@ -2025,6 +2025,15 @@ for comode in "zp|" "stack|-fno-zpcall"; do
     xemu_case "FAIL: test_conio_xemu.c $coname (compilation/linking failed)" "src/test-resources/test_conio_xemu.c" "build/test/test_conio_${coname}_xemu.prg" "$coflags" -- "test_conio_$coname" "build/test/test_conio_${coname}_xemu.prg" "C0C0" 10 "01 01 01 01 01 01 01 01 01 AA"
 done
 
+# Test: the rest of cc65's conio (gotox/gotoy, cputcxy, lines, hex,
+# cpeek*, vcprintf with %f, cgets / cscanf from the KERNAL keyboard buffer,
+# conio_set_width, the earlier names)
+for ccmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r ccname ccflags <<< "$ccmode"
+    echo "Testing test_conio_cc65_xemu.c ($ccname)..."
+    xemu_case "FAIL: test_conio_cc65_xemu.c $ccname (compilation/linking failed)" "src/test-resources/test_conio_cc65_xemu.c" "build/test/test_conio_cc65_${ccname}_xemu.prg" "$ccflags" -- "test_conio_cc65_$ccname" "build/test/test_conio_cc65_${ccname}_xemu.prg" "C0C0" 11 "01 01 01 01 01 01 01 01 01 01 AA"
+done
+
 # Test: the tune player's digi voices against tune45's model: SID 1 and
 # the audio DMA's registers (channels 2-3: tune_digi_channels(2), the third
 # voice left out) after each of 150 frames, in both conventions

@@ -1,39 +1,42 @@
-/* conio_printf.c — formatted console output (<conio.h>)
+/* conio_printf.c — the variadic part of <conio.h>: cprintf, cprintfxy,
+ * cscanf
  *
- * The rest of conio — the screen, the cursor, putch / cputs, getch — is in
+ * They hand their arguments to vcprintf / vcscanf; the rest of conio is in
  * assembly: lib/stdlib_asm/conio.s45.
  */
 
 #pragma cc45 signed_default
 
 #include <conio.h>
-#include <stdio.h>
 #include <stdarg.h>
 
 int cprintf(const char *format, ...) {
     va_list ap;
-    char buffer[256];
     int count;
 
     va_start(ap, format);
-    count = vsprintf(buffer, (char *)format, ap);
+    count = vcprintf(format, ap);
     va_end(ap);
-
-    cputs(buffer);
-
     return count;
 }
 
 int cprintfxy(int x, int y, const char *format, ...) {
     va_list ap;
-    char buffer[256];
+    int count;
+
+    gotoxy(x, y);
+    va_start(ap, format);
+    count = vcprintf(format, ap);
+    va_end(ap);
+    return count;
+}
+
+int cscanf(const char *format, ...) {
+    va_list ap;
     int count;
 
     va_start(ap, format);
-    count = vsprintf(buffer, (char *)format, ap);
+    count = vcscanf(format, ap);
     va_end(ap);
-
-    cputsxy(x, y, buffer);
-
     return count;
 }
