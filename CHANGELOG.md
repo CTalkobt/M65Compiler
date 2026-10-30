@@ -4,6 +4,14 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### conio's full-colour mode in assembly
+
+- `fcm_enable`, `fcm_disable`, `fcm_putch`, `fcm_cputs`, `fcm_fill_rect`,
+  `fcm_set_line_color`, `fcm_putglyph`, `fcm_getattr_xy`,
+  `fcm_set_cache_size` and `fcm_is_enabled` are assembly
+  (`stdlib_asm/conio_fcm.s45`, `__fastcall__`): 2.7 KB of code and 1 KB of
+  BSS instead of 4.7 KB and 1.5 KB. `fcm_cprintf` stays a C wrapper.
+
 ### cbm.h's cc65 KERNAL functions, joystick.h, sleep, getopt, adler32
 
 - `<cbm.h>`: cc65's `cbm_k_acptr`, `cbm_k_basin`, `cbm_k_bsout`,

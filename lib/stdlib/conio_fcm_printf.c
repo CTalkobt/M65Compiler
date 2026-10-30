@@ -1,5 +1,5 @@
-/* conio_fcm_printf.c — fcm_cprintf (<conio.h>; apart from conio_fcm.c for
- * vsprintf) */
+/* conio_fcm_printf.c — fcm_cprintf (<conio.h>): the variadic part of the
+ * full-colour mode, which is in assembly (stdlib_asm/conio_fcm.s45) */
 #include <conio.h>
 #include <stdio.h>
 #include <stdarg.h>

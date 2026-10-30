@@ -230,26 +230,26 @@ __fastcall__ int getattr_xy(int x, int y);
 
 /* Enable it, keeping what is on the screen. 1, or 0 when far_malloc finds
  * no room in banks 4 and 5. */
-int fcm_enable(void);
+__fastcall__ int fcm_enable(void);
 
 /* Back to the screen as it was (one byte a cell), with what is on it; the
  * cache's memory is freed. */
-void fcm_disable(void);
+__fastcall__ void fcm_disable(void);
 
 /* 1 while enabled */
-int fcm_is_enabled(void);
+__fastcall__ int fcm_is_enabled(void);
 
 /* The cache's size (1-256 glyphs) for the next fcm_enable; 0 while enabled
  * or out of range. */
-int fcm_set_cache_size(int glyphs);
+__fastcall__ int fcm_set_cache_size(int glyphs);
 
 /* PETSCII character ch at (x, y) in colour fg on background bg (without
  * fcm_enable, on the screen's background). The cursor stays; revers applies. */
-void fcm_putch(int x, int y, int ch, int fg, int bg);
+__fastcall__ void fcm_putch(int x, int y, int ch, int fg, int bg);
 
 /* A string from (x, y), wrapping at the right edge, '\n' starting the next
  * row; it stops at the bottom. 0, or -1 for NULL. */
-int fcm_cputs(int x, int y, const char *str, int fg, int bg);
+__fastcall__ int fcm_cputs(int x, int y, const char *str, int fg, int bg);
 
 /* fcm_cputs of printf-formatted text (up to 255 characters); the count
  * vsnprintf gives */
@@ -257,20 +257,20 @@ int fcm_cprintf(int x, int y, int fg, int bg, const char *format, ...);
 
 /* The rectangle (x1, y1)-(x2, y2), corners included and clipped to the
  * screen, filled with ch in fg on bg */
-void fcm_fill_rect(int x1, int y1, int x2, int y2, int ch, int fg, int bg);
+__fastcall__ void fcm_fill_rect(int x1, int y1, int x2, int y2, int ch, int fg, int bg);
 
 /* Row y's characters recoloured: fg on bg */
-void fcm_set_line_color(int y, int fg, int bg);
+__fastcall__ void fcm_set_line_color(int y, int fg, int bg);
 
 /* (bg << 4) | fg at (x, y) */
-int fcm_getattr_xy(int x, int y);
+__fastcall__ int fcm_getattr_xy(int x, int y);
 
 /* The program's own full-colour character n (256 or more: its 64 bytes, a
  * byte a pixel, at n * 64 in the first 512 KB of chip RAM, such as bank 4
  * through far_malloc; pixel $00 the screen's background, $FF colour fg,
  * others that palette entry) at (x, y); nothing without fcm_enable.
  * getch_xy / fcm_getattr_xy do not know it; fcm_disable leaves a space. */
-void fcm_putglyph(int x, int y, unsigned int n, int fg);
+__fastcall__ void fcm_putglyph(int x, int y, unsigned int n, int fg);
 
 /* ============================================================================
  * SCREEN WIDTH

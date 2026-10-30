@@ -58,7 +58,7 @@ __conio_under:  .res 1  ; the cell under the cursor (getch)
 __conio_key:    .res 1  ; getch's key
 __conio_save:   .res 4  ; row 0's colour RAM address (scrolling)
 __conio_c16:    .res 1  ; 1: two bytes a cell (CHR16), set by __conio_row
-___conio_chtab: .res 2  ; full-colour glyphs' characters by the number's low byte (conio_fcm.c), or 0
+___conio_chtab: .res 2  ; full-colour glyphs' characters by the number's low byte (conio_fcm.s45), or 0
 __conio_n:      .res 2  ; count (lines, cpeeks)
 __conio_px:     .res 1  ; cpeeks' column and row
 __conio_py:     .res 1
@@ -959,7 +959,7 @@ proc _getattr_xy
 endproc
 
 ; ----------------------------------------------------------------------------
-; For conio_fcm.c (CHR16 screens)
+; For conio_fcm.s45 (CHR16 screens)
 ; ----------------------------------------------------------------------------
 
 ; void __conio_put16(int x, int y, unsigned int n, unsigned char color):
