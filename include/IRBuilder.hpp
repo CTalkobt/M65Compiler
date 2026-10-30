@@ -15,6 +15,10 @@
 // (the context of ConstEval, cc45's constant evaluator: sizes and alignments)
 class IRBuilder : public ASTVisitor, public ConstEvalContext {
 public:
+    // the library's ZP-convention routines (C names), read from the library
+    // by the pipeline (CompilationPipeline.cpp, #374)
+    static void setLibraryZpRoutines(std::set<std::string> names);
+
     IRBuilder();
 
     void generate(TranslationUnit& unit);
@@ -272,6 +276,7 @@ private:
     void needAllFormats();
     std::set<std::string> stackCalledFunctions_;  // stack-mode: callees called with the stack convention
     static bool isLibraryZpRoutine(const std::string& fname);
+    static std::set<std::string> libraryZpRoutines_;   // (setLibraryZpRoutines)
     std::map<std::string, std::string> staticRenames_;  // static function -> module-unique symbol
     std::string staticFunctionName(const std::string& name);
     std::string resolvedFunctionName(const std::string& name) const;

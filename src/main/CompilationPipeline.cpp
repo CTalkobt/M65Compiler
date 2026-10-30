@@ -10,6 +10,8 @@
 #include "LinkingStage.hpp"
 #include "OptimizationCatalog.hpp"
 #include "O45Reader.hpp"
+#include "O45Archive.hpp"
+#include "IRBuilder.hpp"
 #include "CcTemp.hpp"
 #include <iterator>
 #include <thread>
@@ -33,6 +35,53 @@ static bool moveFile(const std::string& from, const std::string& to) {
     if (!out) return false;
     std::remove(from.c_str());
     return true;
+}
+
+
+// The library's routines that use the ZP convention in both libraries (#374):
+// the exports c45_stack.lib (the stack-convention library, where only the
+// assembly routines and __fastcall__ functions are ZP) marks zp_call, by
+// their C names. From the build tree, an installed tree, then CC45_LIB, as
+// ln45 finds the library; empty when there is none. (key_pressed is
+// __regparm: its argument is in A, so a call without its declaration cannot
+// work in either convention.)
+static std::set<std::string> libraryZpRoutines(const std::string& toolDir) {
+    std::vector<std::string> candidates;
+    for (const char* dir : {"../lib/build/", "../lib/cc45/"}) candidates.push_back(toolDir + dir + "c45_stack.lib");
+    if (const char* env = std::getenv("CC45_LIB")) {
+        std::string s(env);
+        size_t pos = 0;
+        while (pos <= s.size()) {
+            size_t c = s.find(':', pos);
+            std::string d = s.substr(pos, c == std::string::npos ? std::string::npos : c - pos);
+            if (!d.empty()) candidates.push_back(d + "/c45_stack.lib");
+            if (c == std::string::npos) break;
+            pos = c + 1;
+        }
+    }
+    std::set<std::string> names;
+    for (const auto& path : candidates) {
+        std::ifstream in(path, std::ios::binary);
+        if (!in) continue;
+        std::vector<uint8_t> data((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        Ar45Archive lib;
+        std::string err;
+        if (!Ar45Reader::read(data, lib, err)) continue;
+        for (const auto& m : lib.members) {
+            O45File obj;
+            if (!O45Reader::read(m.data, obj, err)) continue;
+            for (const auto& e : obj.exports) {
+                if (!e.hasFuncAttr || !(e.funcAttr.flags & FUNC_FLAG_ZP_CONV) || e.segmentId() != SEG_TEXT) continue;
+                if (e.name.size() < 2 || e.name[0] != '_' || e.name[1] == '_') continue;   // C names only
+                std::string n = e.name.substr(1);
+                if (n != "key_pressed") names.insert(n);
+            }
+        }
+        Logger::stream(LogLevel::DEBUG) << "library ZP routines: " << names.size() << " from " << path << std::endl;
+        for (const auto& n : names) Logger::stream(LogLevel::TRACE) << "library ZP routine: " << n << std::endl;
+        break;
+    }
+    return names;
 }
 
 std::string CompilationPipeline::loadSourceFile(const std::string& filename) {
@@ -172,6 +221,8 @@ CompilationResult CompilationPipeline::compile() {
         // (--save-temps keeps it in the current directory; else in cc45's
         // private temp directory, removed when cc45 exits or is stopped, #367)
         std::string tempAsmFile = config_.saveTemps ? "temp_" + std::to_string(getpid()) + ".s45" : cctemp::path("temp.s45");
+        // which undeclared calls go to the library's ZP routines (#374)
+        IRBuilder::setLibraryZpRoutines(libraryZpRoutines(config_.toolDir));
         CodegenStage codegenStage(ast, analyzer, config_.optimizationLevel,
                                  config_.verboseLevel, config_.inlineSmallFunctions,
                                  config_.staticAllocMode, config_.zpCallMode, config_.saveTemps,

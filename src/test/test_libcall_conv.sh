@@ -2,8 +2,8 @@
 # Calls to the library's ZP assembly routines from stack-convention code
 # (doc/architecture/calling-conventions.md §3.4):
 #  1. cc45's list of those routines (IRBuilder::isLibraryZpRoutine), used for
-#     calls without a declaration, matches the zp_call functions the library
-#     builds from lib/stdlib_asm/*.s45
+#     calls without a declaration, read from c45_stack.lib, has the zp_call
+#     functions the library builds from lib/stdlib_asm/*.s45
 #  2. a stack-mode file calling them with no declaration (__builtin_alloca,
 #     __builtin_setjmp, implicit alloca...) links with ln45 --no-thunks
 #  3. a __fastcall__ declaration after a stack-convention call to the same
@@ -20,16 +20,19 @@ failed=0
 pass() { echo "PASS: $1"; passed=$((passed + 1)); }
 fail() { echo "FAIL: $1"; failed=$((failed + 1)); }
 
-# 1. the routine list (key_pressed is __regparm: its argument is in A, so a
-# call without its declaration cannot work in either convention)
+# 1. the routine list, read by cc45 from c45_stack.lib (#374; -vvvv names
+# each one): every zp_call function of the asm library is on it, and C
+# __fastcall__ functions (tgi_bar) too. key_pressed is __regparm: its argument
+# is in A, so a call without its declaration cannot work in either convention
 $NM -f lib/build/asm_*.o45 2>/dev/null | awk '($2 == "T" || $2 == "W") && /zp_call/ {print $3}' |
     sed 's/^_//' | grep -v '^_' | grep -vx 'key_pressed' | sort -u > $T/lib.txt
-sed -n '/^bool IRBuilder::isLibraryZpRoutine/,/};/p' src/main/IRBuilder.cpp | grep -o '"[^"]*"' | tr -d '"' |
-    sort -u > $T/cc45.txt
-if [ -s $T/lib.txt ] && diff $T/lib.txt $T/cc45.txt > $T/diff.txt; then
-    pass "isLibraryZpRoutine lists the library's ZP assembly functions ($(wc -l < $T/lib.txt))"
+echo 'int main(void) { return 0; }' > $T/empty.c
+$CC -vvvv -fno-zpcall -c $T/empty.c -o $T/empty.o45 2>&1 | sed -n 's/.*library ZP routine: //p' | sort -u > $T/cc45.txt
+comm -23 $T/lib.txt $T/cc45.txt > $T/diff.txt
+if [ -s $T/lib.txt ] && [ ! -s $T/diff.txt ] && grep -qx tgi_bar $T/cc45.txt && ! grep -qx key_pressed $T/cc45.txt; then
+    pass "cc45 reads the library's ZP routines from c45_stack.lib ($(wc -l < $T/cc45.txt))"
 else
-    fail "isLibraryZpRoutine differs from lib/build/asm_*.o45 (< library, > cc45):"
+    fail "cc45's library ZP routines ($(wc -l < $T/cc45.txt)) miss these of lib/build/asm_*.o45 (or tgi_bar / have key_pressed):"
     cat $T/diff.txt
 fi
 

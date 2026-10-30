@@ -134,14 +134,20 @@ These are keywords written before the return type, for example
   declare its assembly functions `__fastcall__`, so `c45_stack.lib` and
   stack-mode programs call them without thunks. A call to one of those
   assembly routines (`lib/stdlib_asm/*.s45`: `alloca`, `setjmp`, `longjmp`,
-  `abs`, `labs`, `mem*`, `str*`, `malloc`... — the list is
-  `IRBuilder::isLibraryZpRoutine`) that sees no declaration at all — an
+  `abs`, `labs`, `mem*`, `str*`, `malloc`..., and the library's C
+  `__fastcall__` functions) that sees no declaration at all — an
   implicit declaration, or `__builtin_alloca`, `__builtin_setjmp`,
   `__builtin_longjmp`, `__builtin_abs`..., which name the library function —
   also uses the ZP convention, unless the file declares or defines a function
   of that name itself (then the file's declaration decides).
-  `src/test/test_libcall_conv.sh` (`make test`) checks the list against the
-  library. A `__fastcall__` declaration that follows a stack-convention call
+  cc45 reads the list from the `c45_stack.lib` it would link (`lib/build/`
+  or `lib/cc45/` beside its `bin/`, then `CC45_LIB`): its text exports
+  marked ZP-convention in their function attributes, except `__` names and
+  `__regparm` `key_pressed` (`-vv` logs the count, `-vvvv` the names; #374),
+  so a new ZP routine needs no change to cc45. Without the library the list
+  is empty and such calls use the stack convention, which ln45 bridges.
+  `src/test/test_libcall_conv.sh` (`make test`) checks it has every ZP
+  routine of `lib/stdlib_asm`. A `__fastcall__` declaration that follows a stack-convention call
   to the same function in a `-fno-zpcall` file is an error: ln45 learns per
   object, not per call, that the object calls it the ZP way, so it could not
   bridge the earlier call.
