@@ -114,6 +114,7 @@ __tv_ret_hi:    .res NVT
 __tv_pat_lo:    .res NVT        ;   its start
 __tv_pat_hi:    .res NVT
 __tv_rep:       .res NVT        ;   and the times it plays yet
+__tv_ptr:       .res NVT        ;   and its transposition ($8B: semitones added to its notes)
 __tv_held:      .res NV         ; 1: the voice lent to the program (tune_borrow): no writes
 __tv_hold_lo:   .res NV         ;   frames to its return (0: tune_return)
 __tv_hold_hi:   .res NV
@@ -690,6 +691,8 @@ proc __tune_peek
     beq @skip
     cmp #$86
     beq @into
+    cmp #$8B
+    beq @into
     cmp #$87
     beq @out
     cmp #$FE
@@ -859,12 +862,19 @@ endproc
 ; Voice X's pattern call ($86 lo hi n, the $86 read): the stream on at the
 ; pattern, n times, then after the call
 proc __tune_call
+    lda #0
+    sta __tv_ptr,x
     jsr __tune_rd
     sta __tv_pat_lo,x
     jsr __tune_rd
     sta __tv_pat_hi,x
     jsr __tune_rd
     sta __tv_rep,x
+    cpy #$8B            ; (the call's byte in Y: $8B a transposition after)
+    bne @ret
+    jsr __tune_rd
+    sta __tv_ptr,x
+@ret:
     lda __tv_pos_lo,x
     sta __tv_ret_lo,x
     lda __tv_pos_hi,x
@@ -885,6 +895,8 @@ proc __tune_back
     beq @after
     jmp __tune_again
 @after:
+    lda #0
+    sta __tv_ptr,x      ; (out of it: untransposed)
     lda __tv_ret_lo,x
     sta __tv_pos_lo,x
     lda __tv_ret_hi,x
@@ -930,6 +942,9 @@ endproc
 ; the note going on (no new envelope, instrument or wave table)
 proc __tune_legato
     jsr __tune_rd
+    clc
+    adc __tv_ptr,x      ; (a pattern's transposition)
+    and #$7F
     sta __tv_note,x
     jsr __tune_rd
     sta __tv_left,x
@@ -966,6 +981,8 @@ proc __tune_next
     cmp #$85
     beq @tempo
     cmp #$86
+    beq @call
+    cmp #$8B
     beq @call
     cmp #$87
     beq @back
@@ -1022,6 +1039,7 @@ proc __tune_next
     sta __tune_fpt+1
     bra @read
 @call:
+    tay                 ; (the call's byte)
     jsr __tune_call
     bra @read
 @back:
@@ -1038,6 +1056,9 @@ proc __tune_next
     sta __tv_gated,x
     jmp __tune_ctrl
 @note:
+    clc
+    adc __tv_ptr,x      ; (a pattern's transposition)
+    and #$7F
     sta __tv_note,x
     jsr __tune_rd
     sta __tv_left,x
@@ -1177,6 +1198,7 @@ proc __tune_dnext
     jsr __tune_dvset    ; (at once: a sample sounding too)
     bra @read
 @call:
+    tay                 ; (the call's byte)
     jsr __tune_call
     bra @read
 @back:

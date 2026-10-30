@@ -47,6 +47,7 @@ private:
         uint8_t vspd = 0, vph = 0, vcnt = 0;   // the vibrato's speed (frames a step less 1), its step, frames to the next
         uint16_t ret = 0, pat = 0;      // a pattern called: where the stream goes on after it, its start
         uint8_t rep = 0;                //   and the times it plays yet
+        uint8_t ptr = 0;                //   and its transposition (semitones; $8B)
         uint16_t freq = 0, pw = 0;
         int8_t pwdir = 0;
         uint8_t arpa = 0, arpb = 0, arpi = 0;
@@ -99,9 +100,12 @@ private:
     uint16_t notef(const Voice& v, int idx, uint8_t add) const;
     void next(Voice& v, int idx);
     void dnext(Voice& v, int idx);
-    void call(Voice& v);
+    void call(Voice& v, uint8_t b);
     void pwstep(Voice& v);
-    void back(Voice& v) { v.pos = --v.rep ? v.pat : v.ret; }
+    void back(Voice& v) {
+        if (--v.rep) v.pos = v.pat;
+        else { v.pos = v.ret; v.ptr = 0; }
+    }
     void dhit(Voice& v, int idx, uint8_t h);
     void dvset(Voice& v, int idx);
     void dput(uint8_t idx, uint8_t val) { if (!mute_ && dwrite_) dwrite_(idx, val); }

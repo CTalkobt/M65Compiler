@@ -39,6 +39,8 @@
  *                 tune's own at voice 0's start, so a loop starts as it did)
  *   $86 lo hi n   a pattern: the stream at offset lo hi, n times (to its
  *                 $87 each time), then on after the call (no calls in one)
+ *   $8B lo hi n t a pattern called transposed: its notes and legato notes
+ *                 t semitones up (signed; within 0-127)
  *   $87           a pattern's end
  *   $88 n d       a legato note: the pitch n for d ticks, the note going on
  *   $89 lo hi s   the pulse width and its sweep a frame (signed)

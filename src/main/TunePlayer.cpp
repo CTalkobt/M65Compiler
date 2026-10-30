@@ -91,7 +91,7 @@ bool TunePlayer::nextIsNote(const Voice& v) const {
         if (b == 0x81) p = (uint16_t)(p + 2);
         else if (b == 0x83 || b == 0x84 || b == 0x85) p = (uint16_t)(p + 3);
         else if (b == 0x89 || b == 0x8A) p = (uint16_t)(p + 4);
-        else if (b == 0x86) p = (uint16_t)(byte(p + 1u) | (byte(p + 2u) << 8));   // into a pattern
+        else if (b == 0x86 || b == 0x8B) p = (uint16_t)(byte(p + 1u) | (byte(p + 2u) << 8));   // into a pattern
         else if (b == 0x87 && !out) { out = true; p = v.rep >= 2 ? v.pat : v.ret; }   // its end (once)
         else if (b == 0xFE && !guard) { guard = true; p = v.start; }
         else return b < 0x80;
@@ -195,7 +195,7 @@ void TunePlayer::dnext(Voice& v, int idx) {
         if (b == 0x80 || b == 0x82) { v.left = rd(v); return; }
         if (b == 0x81) { dput(c, 0); v.left = rd(v); return; }   // stopped
         if (b == 0x83) { v.dvol = rd(v); dvset(v, idx); continue; }
-        if (b == 0x86) { call(v); continue; }
+        if (b == 0x86) { call(v, b); continue; }
         if (b == 0x87) { back(v); continue; }
         if (b == 0xFE && !guard) { guard = true; v.pos = v.start; continue; }
         v.done = 1;
@@ -216,9 +216,10 @@ void TunePlayer::pwstep(Voice& v) {
 }
 
 // a pattern call ($86 lo hi n, the $86 read): on at it, n times, then after
-void TunePlayer::call(Voice& v) {
+void TunePlayer::call(Voice& v, uint8_t b) {
     uint8_t lo = rd(v), hi = rd(v);
     v.rep = rd(v);
+    v.ptr = b == 0x8B ? rd(v) : 0;   // ($8B: its transposition)
     v.ret = v.pos;
     v.pat = v.pos = (uint16_t)(lo | (hi << 8));
 }
@@ -266,7 +267,7 @@ void TunePlayer::next(Voice& v, int idx) {
     for (;;) {
         uint8_t b = rd(v);
         if (b < 0x80) {
-            v.note = b;
+            v.note = (uint8_t)((b + v.ptr) & 0x7F);   // (a pattern's transposition)
             v.left = rd(v);
             v.gated = 0;
             v.t = 0;
@@ -307,7 +308,7 @@ void TunePlayer::next(Voice& v, int idx) {
         if (b == 0x83) { v.arpa = rd(v); v.arpb = rd(v); continue; }
         if (b == 0x84) { v.gsemi = (int8_t)rd(v); v.gpend = rd(v); continue; }
         if (b == 0x85) { uint8_t lo = rd(v); fpt_ = (uint16_t)(lo | (rd(v) << 8)); continue; }
-        if (b == 0x86) { call(v); continue; }
+        if (b == 0x86 || b == 0x8B) { call(v, b); continue; }
         if (b == 0x87) { back(v); continue; }
         if (b == 0x89) {   // the pulse width and its sweep
             uint8_t lo = rd(v), hi = rd(v);
@@ -326,7 +327,7 @@ void TunePlayer::next(Voice& v, int idx) {
             continue;
         }
         if (b == 0x88) {   // legato: the pitch, the note going on
-            v.note = rd(v);
+            v.note = (uint8_t)((rd(v) + v.ptr) & 0x7F);
             v.left = rd(v);
             v.glide = 0;
             v.freq = notef(v, idx, 0);

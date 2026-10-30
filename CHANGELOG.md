@@ -4,6 +4,17 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### tune45 patterns called transposed
+
+- `*name+5`, `*name-2*4`: a pattern played so many semitones up or down
+  (`$8B offset n t`; its notes and legato notes; SID voices). The player
+  and its model checked in xemu; `pwrun` and `cutrun` instruments too (a
+  note leaves the pulse width or cutoff as it is).
+- The .sid import finds repeats by their notes' intervals: a phrase at
+  another pitch is called transposed. Its search is by bytes, made with and
+  without transposition, the smaller kept: 3 minutes of the four test
+  tunes 7-9% smaller again (one alike), their traces unchanged.
+
 ### tune45 import of a .sid: its repeats as patterns
 
 - The runs of tokens repeated (a suffix array's maximal repeats, the one

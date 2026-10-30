@@ -371,6 +371,14 @@ printf 'instrument a pulse 09 a6 0600 0 0 pwrun cutrun filter=lp\ntune t 1 once\
 $TUNE convert $T/pr.txt -o $T/pr.c >/dev/null 2>&1 && sed -n '/tune_t\[/,/};/p' $T/pr.c | tr -d ' \n' | grep -q '64,9,166,0,6,0,0,0,0,0,48,16,0,4,0,0,0,' &&
     pass || fail "pwrun, cutrun"
 
+# a pattern called transposed: $8B offset times semitones (a note and a
+# legato note in it shifted by the player)
+printf 'instrument a pulse 09 a6 0600 0 0\npattern p: c4:2 ~e4:1\ntune t 1 once\nv1: *p *p+5 *p-2*2\n' > $T/tp.txt
+$TUNE convert $T/tp.txt -o $T/tp.c >/dev/null 2>&1 && sed -n '/tune_t\[/,/};/p' $T/tp.c | tr -d ' \n' |
+    grep -q '134,42,0,1,139,42,0,1,5,139,42,0,2,254,255,60,2,136,64,1,135,}' && pass || fail "a pattern called transposed"
+err $'instrument a pulse 09 a6 0600 1 1\npattern p: c4:1\ntune t 5 once\nv1: *p+200' "semitones (-127..127)"
+err $'sample a x.wav\npattern p: a:1\ntune t 5 once\nd1: *p+2' "a digi voice calls a pattern untransposed"
+
 # patterns: in the data once ($86 offset times a call, $87 their end), after
 # the voices; the ticks and bars counted through them
 printf 'instrument a pulse 09 a6 0600 0 0\npattern p: c4:2 e4:2\npattern q: g4:1\ntune t 1 loop 4\nv1: *p | *q*3 r:1 | *p\n' > $T/pt.txt
@@ -510,11 +518,12 @@ w(4, 14 + 5, 0x08); w(4, 14 + 6, 0xC4)
 w(4, 14, reg(57) & 255); w(4, 15, reg(57) >> 8); w(4, 14 + 4, 0x21)
 w(10, 14, reg(60) & 255); w(10, 15, reg(60) >> 8)
 w(20, 14 + 4, 0x20)
-if len(sys.argv) > 2 and sys.argv[2] == "rep":   # instead: a phrase of four notes, four times (patterns)
-    frames = [[] for _ in range(120)]
+if len(sys.argv) > 2 and sys.argv[2] in ("rep", "trep"):   # instead: a phrase of four notes, four times
+    frames = [[] for _ in range(120)]                         # (trep: up 5, 7, back: transposed)
     w(0, 0x18, 0x0F); w(0, 5, 0x09); w(0, 6, 0xA0)
     for r in range(4):
-        for q, n in enumerate((60, 64, 67, 72)):
+        up = (0, 5, 7, 0)[r] if sys.argv[2] == "trep" else 0
+        for q, n in enumerate((60 + up, 64 + up, 67 + up, 72 + up)):
             f = r * 16 + q * 4
             w(f, 0, reg(n) & 255); w(f, 1, reg(n) >> 8); w(f, 4, 0x11); w(f + 3, 4, 0x10)
 data = b"".join(bytes(sum(([r, v] for r, v in fr), [])) + b"\xff" for fr in frames)
@@ -556,10 +565,17 @@ $TUNE import $T/n_cia.sid --seconds 0.8 -o $T/n_cia.txt >/dev/null 2>&1 &&
 # times running), playing as the text written out does (--no-patterns)
 python3 $T/gen_sid.py $T/n_rep.sid rep 2>/dev/null
 $TUNE import $T/n_rep.sid --seconds 1.28 -o $T/np.txt >/dev/null 2>&1
+python3 $T/gen_sid.py $T/n_trep.sid trep 2>/dev/null
+$TUNE import $T/n_trep.sid --seconds 1.28 -o $T/tnp.txt >/dev/null 2>&1
+$TUNE import $T/n_trep.sid --seconds 1.28 --no-patterns -o $T/tnf.txt >/dev/null 2>&1
 $TUNE import $T/n_rep.sid --seconds 1.28 --no-patterns -o $T/nf.txt >/dev/null 2>&1
 grep -q "^pattern p1: c4:3 r:1 e4:3 r:1 g4:3 r:1 c5:3 r:1$" $T/np.txt && grep -q "^v1: @i01 \*p1\*4$" $T/np.txt &&
     [ "$($TUNE trace $T/np.txt --frames 64 2>/dev/null | md5sum)" = "$($TUNE trace $T/nf.txt --frames 64 2>/dev/null | md5sum)" ] &&
     pass || fail "import of a .sid: its repeats as patterns ($(sed -n '/^pattern/p;/^v1/p' $T/np.txt | tr '\n' '/'))"
+# (a phrase played at other pitches: one pattern, called transposed)
+grep -q "^pattern p1: c4:3 r:1 e4:3 r:1 g4:3 r:1 c5:3 r:1$" $T/tnp.txt && grep -q "^v1: @i01 \*p1 \*p1+5 \*p1+7 \*p1$" $T/tnp.txt &&
+    [ "$($TUNE trace $T/tnp.txt --frames 64 2>/dev/null | md5sum)" = "$($TUNE trace $T/tnf.txt --frames 64 2>/dev/null | md5sum)" ] &&
+    pass || fail "import of a .sid: repeats transposed ($(sed -n '/^pattern/p;/^v1/p' $T/tnp.txt | tr '\n' '/'))"
 python3 -c "
 import struct, sys
 h = bytearray(0x7C); h[0:4] = b'PSID'; struct.pack_into('>HHHHHHHI', h, 4, 2, 0x7C, 0x1000, 0x1000, 0x1003, 1, 1, 0)

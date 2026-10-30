@@ -90,17 +90,26 @@ bool TuneCompiler::parse(const std::string& text, const std::string& file, TuneF
         std::vector<std::string> o = {w[0]};
         for (size_t k = 1; k < w.size(); k++) {
             if (w[k].size() < 2 || w[k][0] != '*') { o.push_back(w[k]); continue; }
+            // *name[+t|-t][*times]: transposed t semitones, so many times running
             std::string n = w[k].substr(1);
-            long times = 1;
+            long times = 1, tr = 0;
             size_t star = n.find('*');
             if (star != std::string::npos) {
                 if (!parseInt(n.substr(star + 1), times) || times < 1 || times > 255) { error(file, ln, "*pattern*1-255, not " + w[k]); continue; }
                 n = n.substr(0, star);
             }
+            size_t sign = n.find_first_of("+-");
+            if (sign != std::string::npos) {
+                if (!parseInt(n.substr(sign + (n[sign] == '+')), tr) || tr < -127 || tr > 127) {
+                    error(file, ln, "*pattern+semitones (-127..127), not " + w[k]);
+                    continue;
+                }
+                n = n.substr(0, sign);
+            }
             auto it = patternId.find(n);
             if (it == patternId.end()) { error(file, ln, "unknown pattern " + n + " (a pattern line before the voice)"); continue; }
             const auto& body = out.patterns[(size_t)it->second].tokens;
-            o.push_back("\001C " + std::to_string(it->second) + " " + std::to_string(times));
+            o.push_back("\001C " + std::to_string(it->second) + " " + std::to_string(times) + " " + std::to_string(tr));
             o.insert(o.end(), body.begin(), body.end());
             o.push_back("\001M");
             for (long r = 1; r < times; r++) o.insert(o.end(), body.begin(), body.end());
@@ -113,12 +122,13 @@ bool TuneCompiler::parse(const std::string& text, const std::string& file, TuneF
     struct Call { int id = -1; std::vector<uint8_t> saved; };
     auto marker = [&](const std::string& tok, TuneVoice& v, Call& c, int mode) {
         if (tok[1] == 'C') {
-            int id, times;
-            sscanf(tok.c_str() + 3, "%d %d", &id, &times);
-            v.stream.push_back(0x86);
+            int id, times, tr;
+            sscanf(tok.c_str() + 3, "%d %d %d", &id, &times, &tr);
+            v.stream.push_back(tr ? 0x8B : 0x86);   // ($8B: transposed)
             v.stream.push_back((uint8_t)(id & 0xFF));
             v.stream.push_back((uint8_t)(id >> 8));
             v.stream.push_back((uint8_t)times);
+            if (tr) v.stream.push_back((uint8_t)(int8_t)tr);
             c.id = id;
             c.saved.swap(v.stream);
             v.stream.clear();
@@ -317,7 +327,11 @@ bool TuneCompiler::parse(const std::string& text, const std::string& file, TuneF
             Call call;
             for (size_t k = 1; k < w.size(); k++) {
                 const std::string& tok = w[k];
-                if (tok[0] == '\x01') { marker(tok, v, call, 1); continue; }
+                if (tok[0] == '\x01') {
+                    if (tok[1] == 'C' && tok.substr(tok.rfind(' ')) != " 0") error(file, ln, "a digi voice calls a pattern untransposed");
+                    marker(tok, v, call, 1);
+                    continue;
+                }
                 if (tok == "|") {
                     if (t.barTicks && bar != t.barTicks)
                         error(file, ln, "tune " + t.name + " d" + std::to_string(dn) + ": bar " + std::to_string(barNo) + " is " +
@@ -846,10 +860,11 @@ std::vector<uint8_t> TuneCompiler::blob(const TuneFile& f, const Tune& t) {
             else if (c == 0x81) { b.push_back((uint8_t)renum[s[++k]]); }
             else if (c == 0x83 || c == 0x84 || c == 0x85 || c == 0x88) { b.push_back(s[k + 1]); b.push_back(s[k + 2]); k += 2; }
             else if (c == 0x89 || c == 0x8A) { b.push_back(s[k + 1]); b.push_back(s[k + 2]); b.push_back(s[k + 3]); k += 3; }
-            else if (c == 0x86) {
+            else if (c == 0x86 || c == 0x8B) {
                 calls.push_back({b.size(), (s[k + 1] | s[k + 2] << 8) * 2});
                 b.push_back(0); b.push_back(0); b.push_back(s[k + 3]);
-                k += 3;
+                if (c == 0x8B) b.push_back(s[k + 4]);
+                k += c == 0x8B ? 4 : 3;
             }
         }
     };
