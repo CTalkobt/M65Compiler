@@ -46,6 +46,7 @@ struct TuneInstrument {
     uint16_t pw = 0x800;
     uint8_t vib = 0, gap = 0;
     uint8_t vspeed = 1;             // frames a step of the vibrato's triangle (1-16; the vib byte's high nibble + 1)
+    uint16_t pwlo = 0, pwhi = 0;    // its pulse-width cycle's limits (pwhi 0: none; 19-byte instruments)
     int8_t pwm = 0;
     uint8_t vdelay = 0;
     int8_t slide = 0;

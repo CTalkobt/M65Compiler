@@ -5,6 +5,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <map>
 #include <set>
 
@@ -159,6 +160,177 @@ std::string sidImport(const PsidFile& p, const SidImportOptions& o, std::string&
     std::map<std::string, std::string> instOf, tableOf;
     std::vector<std::string> instLines, tableLines;
     std::vector<std::vector<std::pair<size_t, size_t>>> audible((size_t)nv);   // each note's span sounding
+    // a voice's pulse width (a voice playing a pulse): one cycle running on
+    // across its notes (pwrun; its limits pwlo= pwhi= where it turns at
+    // steady ones), or begun again at each note (the instrument's pw and pwm);
+    // either simulated a frame at a time as the player runs it, a pw: where
+    // it strays from the tune's (by the tolerance of the lines above): the way
+    // with fewer kept. Its instruments named then.
+    struct Span { size_t at, gate, end; bool tail; };
+    auto pulse = [&](int v, const std::vector<Span>& spans) {
+        const auto& F = fr[(size_t)v];
+        auto& R = rows[(size_t)v];
+        // (the error let pass: a 16th of the way to the nearer end, at most $100: finer where it is thin)
+        auto tol = [](double pw) { return std::max(2.0, std::min(256.0, std::min(pw, 4095 - pw) / 16)); };
+        bool usesPulse = false;
+        for (const auto& sp : spans) for (size_t k = sp.at; k < sp.end; k++) usesPulse |= (F[k].ctrl & 0x40) != 0;
+        std::string none;
+        auto name = [&](auto pwField, auto extra) {   // (each note's: its pw field, the rest)
+            for (size_t i = 0; i < spans.size(); i++) {
+                const auto& sp = spans[i];
+                std::string l = R[sp.at].inst;
+                l.replace(l.find("@PW@"), 4, pwField(i));
+                l.replace(l.find("@PX@"), 4, extra(i));
+                auto it = instOf.find(l);
+                if (it == instOf.end()) {
+                    char nb[16];
+                    snprintf(nb, sizeof nb, "i%02zu", instOf.size() + 1);
+                    it = instOf.emplace(l, nb).first;
+                    instLines.push_back("instrument " + it->second + " " + l);
+                }
+                R[sp.at].inst = it->second;
+            }
+        };
+        if (!usesPulse || spans.empty()) { name([](size_t) { return std::string("000"); }, [](size_t) { return std::string(); }); return; }
+        // the cycles it may have: a triangle (the width turning at steady
+        // limits) and a sawtooth (jumping back from a steady top to a steady
+        // bottom), from where the width turns and jumps
+        auto median = [](std::vector<double> x) { std::sort(x.begin(), x.end()); return x[x.size() / 2]; };
+        struct Cycle { int lo = 0, hi = 0; bool saw = false; int rate = 0; };   // (rate: its step a frame)
+        std::vector<Cycle> cycles = {Cycle()};
+        {
+            std::vector<double> peaks, troughs, tops, bottoms, rts;
+            int dir = 0;
+            double turnAt = F[0].pw;
+            for (size_t k = 1; k < frames; k++) {
+                int dpw = (int)F[k].pw - (int)F[k - 1].pw;
+                if (dir > 0 && dpw <= -0x40) { tops.push_back(F[k - 1].pw); bottoms.push_back(F[k].pw); continue; }   // (a jump back)
+                if (!dpw || std::abs(dpw) >= 0x40) continue;
+                int sd = dpw > 0 ? 1 : -1;
+                if (dir && sd != dir && std::fabs(F[k - 1].pw - turnAt) >= 0x40) (dir > 0 ? peaks : troughs).push_back(F[k - 1].pw);
+                if (sd != dir) turnAt = F[k - 1].pw;
+                dir = sd;
+                rts.push_back(std::abs(dpw) * cpf);
+            }
+            auto steadyAt = [&](const std::vector<double>& a, double m) {
+                int n = 0;
+                for (double x : a) n += std::fabs(x - m) <= 0x60;
+                return n * 10 >= (int)a.size() * 8;
+            };
+            if (peaks.size() >= 2 && troughs.size() >= 2) {
+                double pk = median(peaks), tr = median(troughs);
+                if (steadyAt(peaks, pk) && steadyAt(troughs, tr) && pk - tr >= 0x40) {
+                    Cycle c;
+                    c.lo = std::max(0, (int)std::lround(tr) >> 4);
+                    c.hi = std::min(255, std::max(c.lo + 1, (int)std::lround(pk) >> 4));
+                    c.rate = (int)std::min(127L, std::lround(median(rts)));
+                    cycles.push_back(c);
+                }
+            }
+            if (tops.size() >= 3 && !rts.empty()) {
+                double tp = median(tops), bt = median(bottoms), rt = median(rts);
+                if (steadyAt(tops, tp) && steadyAt(bottoms, bt) && tp - bt >= 0x40) {
+                    Cycle c;
+                    c.saw = true;
+                    c.lo = std::max(0, (int)std::lround(bt) >> 4);
+                    c.hi = std::min(255, std::max(c.lo + 1, (int)std::lround(tp + rt / cpf / 2) >> 4));
+                    c.rate = (int)std::min(127L, std::lround(rt));
+                    cycles.push_back(c);
+                }
+            }
+        }
+        int lo = 0, hi = 0, rate = 0;
+        bool saw = false;
+        auto slopeAt = [&](size_t k) {   // the width's change a frame from k (near a cycle's rate: its rate)
+            size_t n = std::max<size_t>(1, (size_t)std::lround(cpf)), e = std::min(frames - 1, k + n);
+            if (e == k) return 0;
+            double d = ((double)F[e].pw - (double)F[k].pw) * cpf / (double)(e - k);
+            if (rate && std::fabs(std::fabs(d) - rate) <= rate * 0.3) return d > 0 ? rate : -rate;
+            return (int)std::max(-127L, std::min(127L, std::lround(d)));
+        };
+        // one way simulated: its pw: tokens (tick, value, sweep); keep: the cycle runs on
+        auto simulate = [&](bool keep, const std::vector<int>& ipw, const std::vector<int>& ipwm) {
+            std::vector<std::tuple<size_t, int, int>> toks;
+            std::vector<char> snd(frames, 0);
+            for (const auto& sp : spans) for (size_t k = sp.at; k < (sp.tail ? sp.end : sp.gate); k++) snd[k] = 1;
+            int p = 0, d = 0;
+            bool begun = false;
+            size_t si = 0;
+            for (size_t k = 0; k < frames; k++) {
+                bool onset = si < spans.size() && spans[si].at == k;
+                if (onset) si++;
+                if (onset) begun = true;
+                if (onset && !keep) { p = ipw[si - 1]; d = ipwm[si - 1]; }
+                int steps = (int)(std::floor((double)(k + 1) / cpf) - std::floor((double)k / cpf));
+                auto step = [&](int& x, int& dir) {
+                    if (!dir) return;
+                    x += dir;
+                    if (hi) {
+                        x = std::max(0, std::min(0xFFF, x));
+                        if (dir > 0 ? (x >> 4) >= hi : (x >> 4) <= lo) {
+                            if (saw) x = (dir > 0 ? lo : hi) << 4;
+                            else dir = -dir;
+                        }
+                    } else if (x < 0 || x > 0xFFF) { x = std::max(0, std::min(0xFFF, x)); dir = 0; }
+                };
+                bool stepping = begun && (keep || snd[k]);
+                int q = p, qd = d;
+                if (stepping) for (int n = 0; n < steps; n++) step(q, qd);
+                bool matters = begun && snd[k] && (F[k].ctrl & 0x40);   // (where a pulse is heard)
+                if (matters && std::fabs(q - F[k].pw) > tol(F[k].pw)) {
+                    int s = slopeAt(k), v0 = std::max(0, std::min(0xFFF, (int)F[k].pw - s * steps));
+                    toks.push_back({k, v0, s});
+                    p = v0;
+                    d = s;
+                    q = p;
+                    qd = d;
+                    if (stepping) for (int n = 0; n < steps; n++) step(q, qd);
+                }
+                p = q;
+                d = qd;
+            }
+            return toks;
+        };
+        // the begun-again way: each note's instrument its start and its first sweep
+        std::vector<int> ipw, ipwm;
+        for (const auto& sp : spans) {
+            ipw.push_back((int)F[sp.at].pw & (F[sp.at].pw < 0x100 || F[sp.at].pw > 0xEFF ? 0xFFF : 0xFF0));
+            ipwm.push_back(slopeAt(sp.at));
+        }
+        // every way: no cycle or a cycle found; running on, or begun again at notes
+        std::vector<std::tuple<size_t, int, int>> use;
+        bool keep = true;
+        Cycle chosen;
+        size_t bestN = SIZE_MAX;
+        for (const auto& c : cycles)
+            for (bool kp : {true, false}) {
+                lo = c.lo;
+                hi = c.hi;
+                saw = c.saw;
+                rate = c.rate;
+                ipwm.clear();
+                for (const auto& sp : spans) ipwm.push_back(slopeAt(sp.at));
+                auto t = simulate(kp, ipw, ipwm);
+                if (t.size() < bestN) { bestN = t.size(); use = t; keep = kp; chosen = c; }
+            }
+        lo = chosen.lo;
+        hi = chosen.hi;
+        saw = chosen.saw;
+        rate = chosen.rate;
+        ipwm.clear();
+        for (const auto& sp : spans) ipwm.push_back(slopeAt(sp.at));
+        char xb[96];
+        std::string limits;
+        if (hi) { snprintf(xb, sizeof xb, " pwlo=%x pwhi=%x%s", lo << 4, hi << 4, saw ? " pwsaw" : ""); limits = xb; }
+        for (const auto& [k, val, sw] : use) {
+            snprintf(xb, sizeof xb, "pw:%x,%d ", val, sw);
+            R[k].tokens += xb;
+        }
+        if (keep) name([](size_t) { return std::string("000"); }, [&](size_t) { return " pwrun" + limits; });
+        else
+            name([&](size_t i) { char w[8]; snprintf(w, sizeof w, "%03x", ipw[i]); return std::string(w); },
+                 [&](size_t i) { return (ipwm[i] ? " pwm=" + std::to_string(ipwm[i]) : std::string()) + (hi ? limits : std::string(" free")); });
+    };
     char b[512];
     for (int v = 0; v < nv; v++) {
         const auto& F = fr[(size_t)v];
@@ -166,6 +338,7 @@ std::string sidImport(const PsidFile& p, const SidImportOptions& o, std::string&
         for (size_t k = 0; k < frames; k++) R[k].gate = F[k].gate;
         std::vector<size_t> starts;
         for (size_t k = 0; k < frames; k++) if (F[k].onset || (k == 0 && F[k].gate)) starts.push_back(k);
+        std::vector<Span> spans;
         for (size_t si = 0; si < starts.size(); si++) {
             size_t k = starts[si], end = si + 1 < starts.size() ? starts[si + 1] : frames;
             size_t g = k;
@@ -268,14 +441,10 @@ std::string sidImport(const PsidFile& p, const SidImportOptions& o, std::string&
             // the instrument: its registers at the start, its pulse width's and
             // cutoff's lines then, its wave table, vibrato; tail when it moves or
             // changes after the gate goes off
+            // (the pulse width's part, @PW@ and @PX@, filled in below: the voice's way)
             const Frame& on = F[k];
-            Line pl = lineAt(pwLines[(size_t)v], k);
-            int pw = (int)std::lround(pl.value + pl.slope * (double)(k - pl.at));
-            pw = std::max(0, std::min(0xFFF, pw));
-            pw &= pw < 0x100 || pw > 0xEFF ? 0xFFF : 0xFC0;   // (finer where it is thin)
-            snprintf(b, sizeof b, "%s %02x %02x %03x %d 0", waveName(steady).c_str(), on.ad, on.sr, pw, vib);
+            snprintf(b, sizeof b, "%s %02x %02x @PW@ %d 0", waveName(steady).c_str(), on.ad, on.sr, vib);
             std::string l = b;
-            if (perFrame(pl.slope)) l += " pwm=" + std::to_string(perFrame(pl.slope)) + " free";
             if (vdel) l += " vdelay=" + std::to_string(vdel);
             if (vib && vspeed > 1) l += " vspeed=" + std::to_string(vspeed);
             if (on.filtered && on.mode) {
@@ -310,30 +479,17 @@ std::string sidImport(const PsidFile& p, const SidImportOptions& o, std::string&
             if (end < frames)
                 while (hr < 3 && end - 1 - hr > k && !F[end - 1 - hr].gate && !F[end - 1 - hr].ad && !F[end - 1 - hr].sr) hr++;
             if (hr) l += " hr=" + std::to_string(hr);
-            if (a > g && after) l += " tail";
-            auto it = instOf.find(l);
-            if (it == instOf.end()) {
-                snprintf(b, sizeof b, "i%02zu", instOf.size() + 1);
-                it = instOf.emplace(l, b).first;
-                instLines.push_back("instrument " + it->second + " " + l);
-            }
+            bool tail = a > g && after;
+            if (tail) l += " tail";
             R[k].start = true;
-            R[k].inst = it->second;
+            R[k].inst = l + "@PX@";
             R[k].note = base;
             R[k].arp = arp.empty() ? "arp:off" : arp;
+            spans.push_back({k, g, a, tail});
         }
+        pulse(v, spans);
     }
-    // pw: and cut: where a line starts inside a note (at its start the instrument has it)
-    auto inside = [&](int v, size_t k) {
-        for (const auto& [s0, s1] : audible[(size_t)v]) if (k > s0 && k < s1) return true;
-        return false;
-    };
-    for (int v = 0; v < nv; v++)
-        for (const auto& ln : pwLines[(size_t)v])
-            if (ln.at < frames && inside(v, ln.at)) {
-                snprintf(b, sizeof b, "pw:%x,%d ", (int)std::lround(ln.value) & 0xFFF, perFrame(ln.slope));
-                rows[(size_t)v][ln.at].tokens += b;
-            }
+    // cut: where a chip's cutoff line starts (inside a note: at its start the instrument has it)
     for (int c = 0; c < chips; c++) {
         bool routed = false;   // (a chip whose filter a voice uses)
         for (int v = c * 3; v < c * 3 + 3; v++) for (const auto& f : fr[(size_t)v]) routed |= f.filtered && f.mode;
@@ -395,8 +551,8 @@ std::string sidImport(const PsidFile& p, const SidImportOptions& o, std::string&
         bool sounding = false;   // (a note begun: what follows its gate rings on)
         for (size_t k = 0; k < frames;) {
             size_t e = k + 1;
-            while (e < frames && !R[e].start && R[e].legato < 0 && R[e].tokens.empty() && R[e].gate == R[k].gate) e++;
-            std::string n = std::to_string(e - k);
+            while (e < frames && e - k < 4000 && !R[e].start && R[e].legato < 0 && R[e].tokens.empty() && R[e].gate == R[k].gate) e++;
+            std::string n = std::to_string(e - k);   // (at most 4000 ticks: a long one goes on as ties or rests)
             if (!R[k].tokens.empty()) {
                 std::string tk = R[k].tokens;
                 tk.pop_back();

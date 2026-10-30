@@ -33,7 +33,7 @@ v3: @kick c2^-30,2:8 r:8 c2^-30,2:8 r:8 @hat c6^1:8 @chip arp:4,7 c4^5:20 arp:of
 ; instrument (its two-note arpeggio on through the release), pw: and cut:;
 ; pwrun (the pulse width on across notes and rests) and cutrun (a note
 ; leaving the cutoff as cut: set it); patterns called transposed (a legato
-; note in one too)
+; note in one too); a pulse-width cycle (its limits: 19-byte instruments), a sawtooth one
 wavetable drum noise pulse:-12 pulse:-19 pulse:-24
 wavetable buzz pulse saw pulse:12 saw:12 loop 2
 instrument bass  pulse 00 f8 0400 0 0 hr=2 filter=lp res=12 cutoff=700 fsweep=40
@@ -42,11 +42,13 @@ instrument slead saw 08 a8 0800 3 0 hr=2 table=buzz filter=bp+hp res=4 cutoff=50
 instrument plain tri 00 f0 0800 0 0
 instrument tl pulse 00 f9 0080 0 0 tail pwm=-60 free pwrun
 instrument cr saw 00 f0 0800 0 0 filter=lp res=8 cutrun pwrun
+instrument cy pulse 00 f0 0600 0 0 pwm=48 pwlo=5c0 pwhi=680
+instrument cs pulse 00 f0 0600 0 0 pwm=48 pwlo=5c0 pwhi=640 pwsaw
 tune synth 2.5 loop
 pattern pb: c2:4
 pattern ps: c5:1
 pattern pv: @slead g4:6 ~:2
 pattern pl: eb2:1 ~f2:1
 v1: @bass *pb*2 tempo:2 ~:2 *pl+2 r:2 g1:2 @cr cut:300,5 c3:2 c3:2 @bass *pb
-v2: @snare c5:2 r:2 *ps *ps-5 r:2 arp:3,7 c5:4 arp:off @plain e5:4 @snare c5:2 r:2 c5:4
+v2: @snare c5:2 r:2 *ps *ps-5 r:2 arp:3,7 c5:4 arp:off @cy e5:2 r:1 @cs e5:1 @snare c5:2 r:2 c5:4
 v3: *pv @tl arp2:12 c5:1 pw:600,20 r:1 cut:300,-9 r:2 arp:off @slead g4^5,2:4 r:4 tempo:3.25 c4:4

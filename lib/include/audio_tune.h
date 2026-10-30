@@ -49,7 +49,9 @@
  * bit 7: its effects go on through the release; bit 6: its pulse-width
  * sweep free (no bounce; stopped at 0 and $FFF, as pw:'s); bit 5: a note
  * leaves the pulse width as it is, swept in rests too; bit 4: its note
- * leaves its chip's cutoff as it is. Its vibrato
+ * leaves its chip's cutoff as it is; bit 2: its pulse-width cycle a
+ * sawtooth. In 19-byte instruments (header byte 5) two more: the cycle's
+ * limits / 16 (the high 0: none), the sweep turning at them. Its vibrato
  * byte's high nibble: frames a step of the triangle, less 1.)
  *   $FE           back to the voice's start (a tune that loops)
  *   $FF           the voice's end

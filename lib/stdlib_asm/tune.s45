@@ -86,7 +86,7 @@ __tune_f:       .res 2          ; a frequency being worked out
 __tune_sum:     .res 3          ; (__tune_rate)
 __tune_k:       .res 1
 __tune_mute:    .res 1          ; $80: no register writes (tune_seek)
-__tune_rsize:   .res 1          ; an instrument's bytes (10 or 17)
+__tune_rsize:   .res 1          ; an instrument's bytes (10, 17, or 19: a pulse-width cycle's limits)
 __tune_soon:    .res 1          ; frames to the next tick (1-4: hard restart)
 __tune_c:       .res 1          ; (a saved chip)
 __tune_nd:      .res 1          ; digi voices
@@ -164,6 +164,12 @@ __ti_tail:      .res NV         ; $80: its effects go on through the release (th
 __ti_free:      .res NV         ; $40: its pulse-width sweep free (no bounce; stops at 0 and $FFF; bit 6)
 __ti_pwrun:     .res NV         ; $20: its pulse width runs on: not set by a note, swept in rests (bit 5)
 __ti_cutrun:    .res NV         ; $10: its chip's cutoff runs on: not set by its note (bit 4)
+__ti_pwsaw:     .res NV         ; $04: its pulse-width cycle a sawtooth (from its top back to its bottom; bit 2)
+__tv_pwsaw:     .res NV         ;   the voice's
+__ti_pwlo:      .res NV         ; its pulse-width cycle's limits (/ 16; the high 0: none)
+__ti_pwhi:      .res NV
+__tv_pwlo:      .res NV         ; the voice's (its instrument's at a note)
+__tv_pwhi:      .res NV
 __tv_pwfree:    .res NV         ; the voice's sweep free (the instrument's at a note; pw: sets it)
 __ti_filt:      .res NV
 __ti_cut_lo:    .res NV
@@ -316,6 +322,9 @@ proc __tune_inst
     sta __ti_free,x
     sta __ti_pwrun,x
     sta __ti_cutrun,x
+    sta __ti_pwlo,x
+    sta __ti_pwhi,x
+    sta __ti_pwsaw,x
     sta __ti_filt,x
     sta __ti_cut_lo,x
     sta __ti_cut_hi,x
@@ -343,6 +352,10 @@ proc __tune_inst
     and #$10
     sta __ti_cutrun,x
     pla
+    pha
+    and #$04
+    sta __ti_pwsaw,x
+    pla
     and #$03
     sta __ti_hr,x
     inz
@@ -363,6 +376,15 @@ proc __tune_inst
     inz
     lda [P],z
     sta __ti_tab_hi,x
+    lda __tune_rsize
+    cmp #19
+    bcc @none
+    inz
+    lda [P],z
+    sta __ti_pwlo,x
+    inz
+    lda [P],z
+    sta __ti_pwhi,x
 @none:
     rts
 endproc
@@ -1086,6 +1108,12 @@ proc __tune_next
     lda __ti_free,x
     sta __tv_pwfree,x
 @pwkeep:
+    lda __ti_pwlo,x     ; (its cycle's limits)
+    sta __tv_pwlo,x
+    lda __ti_pwhi,x
+    sta __tv_pwhi,x
+    lda __ti_pwsaw,x
+    sta __tv_pwsaw,x
     jsr __tune_wpw
     lda __ti_ad,x
     ldy #5
@@ -1547,6 +1575,8 @@ proc __tune_pwstep
     tya
     adc __tv_pw_hi,x
     sta __tv_pw_hi,x
+    ldy __tv_pwhi,x     ; (a cycle: turning at its limits)
+    bne @cycle
     bit __tv_pwfree,x   ; (free: on to 0 or $FFF, and stopped there)
     bvc @bounce
     cmp #$10
@@ -1565,6 +1595,64 @@ proc __tune_pwstep
 @stop:
     lda #0
     sta __tv_pwdir,x
+    bra @pwset
+@cycle:
+    cmp #$10            ; (kept within 0-$FFF)
+    bcc @within
+    and #$80
+    beq @ctop
+    lda #0
+    sta __tv_pw_lo,x
+    sta __tv_pw_hi,x
+    bra @within
+@ctop:
+    lda #$FF
+    sta __tv_pw_lo,x
+    lda #$0F
+    sta __tv_pw_hi,x
+@within:
+    lda __tv_pw_lo,x    ; T0 = the width / 16
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    sta T0
+    lda __tv_pw_hi,x
+    asl a
+    asl a
+    asl a
+    asl a
+    ora T0
+    sta T0
+    lda __tv_pwdir,x
+    bmi @cdown
+    lda T0
+    cmp __tv_pwhi,x
+    bcc @pwset          ; (up, below its top)
+    lda __tv_pwsaw,x    ; (a sawtooth: back to its bottom)
+    beq @turn
+    lda __tv_pwlo,x
+    bra @jump
+@cdown:
+    lda __tv_pwlo,x
+    cmp T0
+    bcc @pwset          ; (down, above its bottom: at it, it turns)
+    lda __tv_pwsaw,x    ; (a sawtooth down: back to its top)
+    beq @turn
+    lda __tv_pwhi,x
+@jump:
+    sta T0              ; the width = the limit * 16
+    asl a
+    asl a
+    asl a
+    asl a
+    sta __tv_pw_lo,x
+    lda T0
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    sta __tv_pw_hi,x
     bra @pwset
 @bounce:
     cmp #$0E

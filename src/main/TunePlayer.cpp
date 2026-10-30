@@ -40,7 +40,7 @@ void TunePlayer::inst(Voice& v, uint8_t i) {
     v.vdel = byte(at + 8);
     v.slide = (int8_t)byte(at + 9);
     v.cw = v.wave;
-    v.hr = v.filt = v.tail = v.free = v.pwrun = v.cutrun = 0;
+    v.hr = v.filt = v.tail = v.free = v.pwrun = v.cutrun = v.ipwsaw = 0;
     v.fsweep = 0;
     v.cutoff = v.table = 0;
     if (rsize_ >= 17) {   // (10: a tune of before the hard restart, filter and wave tables)
@@ -49,11 +49,14 @@ void TunePlayer::inst(Voice& v, uint8_t i) {
         v.free = byte(at + 10) & 0x40;
         v.pwrun = byte(at + 10) & 0x20;
         v.cutrun = byte(at + 10) & 0x10;
+        v.ipwsaw = byte(at + 10) & 0x04;
         v.filt = byte(at + 11);
         v.cutoff = (uint16_t)(byte(at + 12) | (byte(at + 13) << 8));
         v.fsweep = (int8_t)byte(at + 14);
         v.table = (uint16_t)(byte(at + 15) | (byte(at + 16) << 8));
     }
+    v.ipwlo = rsize_ >= 19 ? byte(at + 17) : 0;   // (19: a pulse-width cycle's limits)
+    v.ipwhi = rsize_ >= 19 ? byte(at + 18) : 0;
 }
 
 // a chip's cutoff to its registers: $15 the low 3 bits, $16 the high 8
@@ -209,7 +212,14 @@ void TunePlayer::pwstep(Voice& v) {
     if (!v.pwdir) return;
     v.pw = (uint16_t)(v.pw + v.pwdir);
     uint8_t hi = (uint8_t)(v.pw >> 8);
-    if (v.pwfree) {
+    if (v.pwhi) {   // a cycle: within 0-$FFF, turning at its limits
+        if (hi >= 0x10) v.pw = (hi & 0x80) ? 0 : 0xFFF;
+        uint8_t p4 = (uint8_t)(v.pw >> 4);
+        if (v.pwdir > 0 ? p4 >= v.pwhi : p4 <= v.pwlo) {   // (at a limit: it turns)
+            if (v.pwsaw) v.pw = (uint16_t)((v.pwdir > 0 ? v.pwlo : v.pwhi) << 4);   // (a sawtooth: back)
+            else v.pwdir = (int8_t)(0 - v.pwdir);
+        }
+    } else if (v.pwfree) {
         if (hi >= 0x10) { v.pw = (hi & 0x80) ? 0 : 0xFFF; v.pwdir = 0; }
     } else if (hi >= 0x0E || hi < 0x02) v.pwdir = (int8_t)(0 - v.pwdir);
     wpw(v);
@@ -282,6 +292,9 @@ void TunePlayer::next(Voice& v, int idx) {
                 v.pwdir = v.pwm;
                 v.pwfree = v.free;
             }
+            v.pwlo = v.ipwlo;   // (its cycle's limits)
+            v.pwhi = v.ipwhi;
+            v.pwsaw = v.ipwsaw;
             wpw(v);
             w(v, 5, v.ad);
             w(v, 6, v.sr);

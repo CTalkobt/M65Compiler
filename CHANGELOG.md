@@ -4,6 +4,19 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Pulse-width cycles
+
+- Instruments: `pwlo=` / `pwhi=` a pulse-width cycle's limits (its sweep
+  turning at them; 19-byte instruments in a tune using one), `pwsaw` a
+  sawtooth (from the top back to the bottom); with `pwrun` running on
+  across notes. Player and model checked in xemu.
+- The .sid import finds a voice's cycle (a triangle or a sawtooth) and
+  simulates its pulse width as the player would run it, running on or
+  begun again at each note, a `pw:` where it strays: the way with fewest.
+  The pulse width 3-6 times closer to the original's on three of the four
+  test tunes (the fourth as close); their data from 19% larger to 23%
+  smaller.
+
 ### tune45 patterns called transposed
 
 - `*name+5`, `*name-2*4`: a pattern played so many semitones up or down

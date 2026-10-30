@@ -379,6 +379,17 @@ $TUNE convert $T/tp.txt -o $T/tp.c >/dev/null 2>&1 && sed -n '/tune_t\[/,/};/p' 
 err $'instrument a pulse 09 a6 0600 1 1\npattern p: c4:1\ntune t 5 once\nv1: *p+200' "semitones (-127..127)"
 err $'sample a x.wav\npattern p: a:1\ntune t 5 once\nd1: *p+2' "a digi voice calls a pattern untransposed"
 
+# a pulse-width cycle: pwlo=, pwhi= (19-byte instruments: its limits / 16 at the end)
+printf 'instrument a pulse 09 a6 0600 0 0 pwm=32 pwlo=400 pwhi=c00 pwrun\ntune t 1 once\nv1: c4:2\n' > $T/pc.txt
+$TUNE convert $T/pc.txt -o $T/pc.c >/dev/null 2>&1 && sed -n '/tune_t\[/,/};/p' $T/pc.c | tr -d ' \n' |
+    grep -q '{0,1,0,1,1,19,10,0,29,0,64,9,166,0,6,0,0,32,0,0,32,0,0,0,0,0,0,64,192,60,2,255,}' && pass || fail "a pulse-width cycle"
+err $'instrument a pulse 09 a6 0600 0 0 pwhi=1000' "pwhi=hex 0-fff"
+
+# a sawtooth pulse-width cycle (the hr byte's bit 2: from its top back to its bottom)
+printf 'instrument a pulse 09 a6 0600 0 0 pwm=32 pwlo=400 pwhi=c00 pwsaw\ntune t 1 once\nv1: c4:2\n' > $T/ps.txt
+$TUNE convert $T/ps.txt -o $T/ps.c >/dev/null 2>&1 && sed -n '/tune_t\[/,/};/p' $T/ps.c | tr -d ' \n' |
+    grep -q ',4,0,0,0,0,0,0,64,192,60,2,255,}' && pass || fail "a sawtooth pulse-width cycle"
+
 # patterns: in the data once ($86 offset times a call, $87 their end), after
 # the voices; the ticks and bars counted through them
 printf 'instrument a pulse 09 a6 0600 0 0\npattern p: c4:2 e4:2\npattern q: g4:1\ntune t 1 loop 4\nv1: *p | *q*3 r:1 | *p\n' > $T/pt.txt
@@ -556,7 +567,7 @@ EOF
 for v in vbi cia; do python3 $T/gen_sid.py $T/n_$v.sid $v 2>/dev/null; done
 $TUNE import $T/n_vbi.sid --seconds 0.8 -o $T/n_vbi.txt >/dev/null 2>&1
 v=$(sed -n '/^wavetable/p;/^instrument/p;/^tune/,$p' $T/n_vbi.txt | tr '\n' '/')
-[ "$v" = "wavetable t01 pulse noise pulse/instrument i01 pulse 06 4b 180 0 0 table=t01 hr=3 tail/instrument i02 pulse 06 4b 180 0 0 table=t01 tail/instrument i03 pulse 09 a0 400 0 0 pwm=64 free/instrument i04 saw 08 c4 000 0 0 filter=lp res=15 cutoff=200/tune sid_notes 1 once/v1: arp2:12 @i01 c2:1 r:15 c2:1 r:15 @i02 c2:1 r:7/v2: arp:4,7 @i03 c4:12 pw:700,-64 ~:11 pw:440,0 ~:1 r:16/v3: r:4 @i04 a3:6 ~c4:10 r:20/" ] &&
+[ "$v" = "wavetable t01 pulse noise pulse/instrument i01 pulse 06 4b 180 0 0 table=t01 hr=3 tail free/instrument i02 pulse 06 4b 180 0 0 table=t01 tail free/instrument i03 pulse 09 a0 400 0 0 pwm=64 free/instrument i04 saw 08 c4 000 0 0 filter=lp res=15 cutoff=200/tune sid_notes 1 once/v1: arp2:12 @i01 c2:1 r:15 c2:1 r:15 @i02 c2:1 r:7/v2: arp:4,7 @i03 c4:13 pw:700,-64 ~:11 r:16/v3: r:4 @i04 a3:6 ~c4:10 r:20/" ] &&
     $TUNE list $T/n_vbi.txt 2>/dev/null | grep -q "40 ticks *0.8 s" && pass || fail "import of a .sid: $v"
 $TUNE import $T/n_cia.sid --seconds 0.8 -o $T/n_cia.txt >/dev/null 2>&1 &&
     grep -q "by its CIA timer, 100.88 calls a second" $T/n_cia.txt && grep -q "^tune sid_notes 0.49609375 once" $T/n_cia.txt &&

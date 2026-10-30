@@ -209,6 +209,7 @@ bool TuneCompiler::parse(const std::string& text, const std::string& file, TuneF
                 if (key == "free" && eq == std::string::npos) { ins.hr |= 0x40; continue; }   // (its pulse-width sweep without bounces)
                 if (key == "pwrun" && eq == std::string::npos) { ins.hr |= 0x20; continue; }   // (its pulse width not set by a note)
                 if (key == "cutrun" && eq == std::string::npos) { ins.hr |= 0x10; continue; }   // (its chip's cutoff not set by its note)
+                if (key == "pwsaw" && eq == std::string::npos) { ins.hr |= 0x04; continue; }   // (its pulse-width cycle a sawtooth)
                 if (eq == std::string::npos) { error(file, ln, "expected key=value: " + w[k]); ok = false; continue; }
                 std::string val = w[k].substr(eq + 1);
                 // the keys with a word for a value
@@ -237,6 +238,12 @@ bool TuneCompiler::parse(const std::string& text, const std::string& file, TuneF
                     ins.table = it->second;
                     continue;
                 }
+                if (key == "pwlo" || key == "pwhi") {   // a pulse-width cycle's limits (hex)
+                    long c;
+                    if (!parseInt(val, c, 16) || c < 0 || c > 0xFFF) { error(file, ln, key + "=hex 0-fff, not " + val); ok = false; continue; }
+                    (key == "pwlo" ? ins.pwlo : ins.pwhi) = (uint16_t)c;
+                    continue;
+                }
                 if (key == "cutoff") {
                     long c;
                     if (!parseInt(val, c, 16) || c < 0 || c > 0x7FF) { error(file, ln, "cutoff=hex 0-7ff, not " + val); ok = false; continue; }
@@ -250,12 +257,12 @@ bool TuneCompiler::parse(const std::string& text, const std::string& file, TuneF
                 else if (key == "vdelay" && v2 >= 0 && v2 <= 255) ins.vdelay = (uint8_t)v2;
                 else if (key == "vspeed" && v2 >= 1 && v2 <= 16) ins.vspeed = (uint8_t)v2;
                 else if (key == "slide" && v2 >= -128 && v2 <= 127) ins.slide = (int8_t)v2;
-                else if (key == "hr" && v2 >= 0 && v2 <= 3) ins.hr = (uint8_t)((ins.hr & 0xF0) | v2);
+                else if (key == "hr" && v2 >= 0 && v2 <= 3) ins.hr = (uint8_t)((ins.hr & 0xFC) | v2);
                 else if (key == "res" && v2 >= 0 && v2 <= 15) { res = v2; filterTuned = true; }
                 else if (key == "fsweep" && v2 >= -128 && v2 <= 127) { ins.fsweep = (int8_t)v2; filterTuned = true; }
                 else {
                     error(file, ln, "unknown or out of range: " + w[k] +
-                                    " (pwm, vdelay, vspeed 1-16, slide, hr 0-3, tail, free, pwrun, cutrun, filter, res 0-15, cutoff, fsweep, table)");
+                                    " (pwm, vdelay, vspeed 1-16, slide, hr 0-3, tail, free, pwrun, cutrun, pwlo, pwhi, pwsaw, filter, res 0-15, cutoff, fsweep, table)");
                     ok = false;
                 }
             }
@@ -805,13 +812,16 @@ std::vector<uint8_t> TuneCompiler::blob(const TuneFile& f, const Tune& t) {
     b[2] = (uint8_t)(t.fpt & 0xFF);
     b[3] = (uint8_t)(t.fpt >> 8);
     b[4] = (uint8_t)used.size();
-    b[5] = kInstrumentSize;
+    // (19 bytes an instrument where one has a pulse-width cycle)
+    uint8_t isize = kInstrumentSize;
+    for (int i : used) if (f.instruments[(size_t)i].pwhi) isize = 19;
+    b[5] = isize;
     b[6] = (uint8_t)(insAt & 0xFF);
     b[7] = (uint8_t)(insAt >> 8);
     // the wave tables the instruments use, after them: length, loop ($FF
     // none), a waveform and semitones a step
     std::map<int, size_t> tableAt;
-    size_t at = insAt + used.size() * kInstrumentSize;
+    size_t at = insAt + used.size() * isize;
     std::vector<uint8_t> tables;
     for (int i : used) {
         int tb = f.instruments[(size_t)i].table;
@@ -831,6 +841,7 @@ std::vector<uint8_t> TuneCompiler::blob(const TuneFile& f, const Tune& t) {
                                       in.hr, in.filt, (uint8_t)(cut & 0xFF), (uint8_t)(cut >> 8),
                                       (uint8_t)in.fsweep, (uint8_t)(ta & 0xFF), (uint8_t)(ta >> 8)};
         b.insert(b.end(), r, r + kInstrumentSize);
+        if (isize == 19) { b.push_back((uint8_t)(in.pwlo >> 4)); b.push_back((uint8_t)(in.pwhi ? std::max(1, in.pwhi >> 4) : 0)); }
     }
     b.insert(b.end(), tables.begin(), tables.end());
     // the sample table: each hit's place in the bank, its bytes, its rate

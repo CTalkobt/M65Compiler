@@ -61,6 +61,8 @@ private:
         uint8_t hr = 0, filt = 0, tail = 0;   // tail: its effects through the release (the hr byte's bit 7)
         uint8_t free = 0, pwfree = 0;   // its pulse-width sweep free (bit 6); the voice's now (pw: sets it)
         uint8_t pwrun = 0, cutrun = 0;  // its pulse width / its chip's cutoff run on: not set by a note (bits 5, 4)
+        uint8_t ipwlo = 0, ipwhi = 0, pwlo = 0, pwhi = 0;   // its pulse-width cycle's limits (/ 16; 0: none); the voice's
+        uint8_t ipwsaw = 0, pwsaw = 0;  // the cycle a sawtooth (bit 2); the voice's
         int8_t fsweep = 0;
         uint16_t cutoff = 0, table = 0;
         // its control register's waveform now, the table's step and pitch,
