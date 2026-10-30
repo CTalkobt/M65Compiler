@@ -45,7 +45,7 @@ void usage(std::ostream& o) {
          "  play      play the tunes on the PC (reSIDfp: four SIDs, stereo) through pw-play,\n"
          "            paplay or aplay, or into a .wav file\n"
          "  create    compose a tune (the text format): --genre, --tempo, --length, ...\n"
-         "  import    a Standard MIDI File as text (convert and play take a .mid too)\n"
+         "  import    a Standard MIDI File or a MOD as text (convert and play take a .mid too)\n"
          "  sample    play sampled sound as the MEGA65's audio DMA does: 8-bit samples, packed\n"
          "            by pack45 or as they are (--rate), or a WAV, AU, MP3 (MP4 ... by ffmpeg)\n"
          "            made so first (as pack45 --sound)\n"
@@ -1042,9 +1042,76 @@ int main(int argc, char** argv) {
                 applyModChoices(r, c);
             }
             if (!modReportFlag && modExtract.empty() && modAudition < 0) {
-                std::cerr << "tune45: " << input << ": a MOD: --report (the samples weighed for the SID), --extract <dir> and --audition"
-                             " so far; its music as text is to come\n";
-                return 1;
+                // the song as text; the kept samples' WAVs beside it, in <name>_samples
+                ModImportOptions io;
+                io.name = cc.o.name;
+                io.source = baseName(input);
+                io.choices = modChoices;
+                // (to the output: beside the MOD, named as from here)
+                std::string base = out.empty() ? stem(input) : stem(out);
+                io.samplesDir = base + "_samples";
+                io.samplesRef = out.empty() ? io.samplesDir : baseName(base) + "_samples";
+                std::vector<std::string> written;
+                std::map<int, double> kept;
+                io.keptBytes = &kept;
+                std::string text = modImport(m, r, io, written, err);
+                if (text.empty()) { std::cerr << "tune45: " << input << ": " << err << "\n"; return 1; }
+                // the best guess (no choices): kept samples over the 64 KB bank
+                // made SID instruments, the biggest first, the drums last
+                auto bankBytes = [&]() { double t = 0; for (const auto& [k, v] : kept) t += v; return t; };
+                std::vector<std::string> fitted;
+                while (modChoices.empty() && bankBytes() > 0x10000) {
+                    int pick = -1;
+                    for (int pass = 0; pass < 2 && pick < 0; pass++)
+                        for (const auto& [k, v] : kept)
+                            if ((pass == 1 || r[(size_t)k].kind == "tone") && (pick < 0 || v > kept[pick])) pick = k;
+                    if (pick < 0) break;
+                    char line[160];
+                    snprintf(line, sizeof line, "%d %s (%.0f KB)", pick + 1, m.samples[(size_t)pick].name.c_str(), kept[pick] / 1024);
+                    fitted.push_back(line);
+                    r[(size_t)pick].verdict = "sid~";
+                    r[(size_t)pick].fitted = true;
+                    kept.clear();
+                    std::vector<std::string> before = written;
+                    written.clear();
+                    text = modImport(m, r, io, written, err);
+                    if (text.empty()) { std::cerr << "tune45: " << input << ": " << err << "\n"; return 1; }
+                    for (const auto& f : before)   // (the files of the samples made the SID's)
+                        if (std::find(written.begin(), written.end(), f) == written.end()) std::remove(f.c_str());
+                }
+                if (!fitted.empty()) {
+                    std::cerr << "tune45: the kept samples did not fit in 64 KB: made SID instruments of";
+                    for (size_t k = 0; k < fitted.size(); k++) std::cerr << (k ? ", " : " ") << fitted[k];
+                    std::cerr << " (--audition to choose)\n";
+                }
+                if (out.empty()) std::cout << text;
+                else {
+                    std::ofstream of(out);
+                    of << text;
+                    if (!of) { std::cerr << "tune45: cannot write " << out << "\n"; return 1; }
+                }
+                std::cerr << "tune45: " << written.size() << " sample file" << (written.size() == 1 ? "" : "s") << " in " << io.samplesDir << "\n";
+                // the text as convert reads it (the samples' bank included)
+                TuneFile chk;
+                TuneCompiler tc;
+                if (!tc.parse(text, out.empty() ? "./-" : out, chk)) {
+                    std::cerr << "tune45: the text is written, but convert will say:\n";
+                    for (const auto& e : tc.errors()) std::cerr << "  " << e << "\n";
+                    if (!kept.empty()) {
+                        std::cerr << "the kept samples, about:";
+                        for (const auto& [k, v] : kept) std::cerr << " " << k + 1 << " " << (int)(v / 1024 + 0.5) << " KB";
+                        std::cerr << " (make some SID instruments with --audition, or shorten them: len= on a sample line)\n";
+                    }
+                    return 1;
+                }
+                // (a hit cut short by the next: as the MOD has it)
+                int cutShort = 0;
+                for (const auto& w : tc.warnings())
+                    if (w.find("is cut short by the next hit") != std::string::npos) cutShort++;
+                    else std::cerr << w << "\n";
+                if (cutShort)
+                    std::cerr << "tune45: samples cut short by the next hit on their channel, as in the MOD (tune45 list says where)\n";
+                return 0;
             }
             if (modReportFlag) std::cout << modReport(m, r);
             if (!modExtract.empty()) {

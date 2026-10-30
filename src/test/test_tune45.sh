@@ -193,7 +193,10 @@ $TUNE import $T/song.mod --extract $T/modx >/dev/null 2>&1 && [ "$(ls $T/modx | 
     grep -q smpl $T/modx/01_saw.wav &&
     printf 'sample b modx/05_bell.wav\ntune t 6 once\nd1: b:8\n' > $T/modx.txt && $TUNE list $T/modx.txt 2>&1 | grep -q "hits: b" &&
     pass || fail "import --extract of a MOD ($(ls $T/modx 2>&1 | tr '\n' ' '))"
-$TUNE import $T/song.mod 2>&1 | grep -q "a MOD: --report" && pass || fail "import of a MOD without --report"
+# (without -o: the text to the output, the WAVs beside the MOD, named from here)
+rm -rf $T/song_samples
+$TUNE import $T/song.mod 2>/dev/null | grep -q "^sample s04_c2 $T/song_samples/04_noise_c2.wav" && [ -f $T/song_samples/04_noise_c2.wav ] &&
+    pass || fail "import of a MOD to the output"
 # --audition: a sample's original, its SID stand-in, then both (the original
 # left, the SID right), each as loud: three parts, the last two channels apart
 out=$($TUNE import $T/song.mod --audition 1 --wav $T/aud.wav 2>&1)
@@ -233,6 +236,66 @@ $TUNE import $T/song.mod --extract $T/modc --choices $T/song.choices >/dev/null 
     [ "$(ls $T/modc | tr '\n' ' ')" = "01_saw.wav 05_bell.wav " ] && pass || fail "import --extract --choices ($(ls $T/modc 2>&1 | tr '\n' ' '))"
 printf '2 maybe\n' > $T/bad.choices
 $TUNE import $T/song.mod --report --choices $T/bad.choices 2>&1 | grep -q "bad.choices:1: expected <sample> sid|sample" && pass || fail "a bad choices file"
+
+# import of a MOD as text: the rows in play order a tick each; the speed
+# (the tune's frames a tick) and a BPM change (tempo:); an arpeggio on a row,
+# a slide to a note (a glide), vibrato (the instrument's), a note cut, a
+# pattern break; a kept sample (a digi voice: a WAV a note) stopped by a SID
+# note on its channel (the silent cut)
+python3 - $T/fx.mod <<'EOF'
+import sys, random
+random.seed(2)
+saw = bytes([(i * 8 - 128) & 255 for i in range(32)])
+noise = bytes([int(random.uniform(-1, 1) * 120 * (1 - i / 2000)) & 255 for i in range(2000)])
+bell = bytes([0]) * 2
+h = b"fx test".ljust(20, b"\0")
+h += b"saw".ljust(22, b"\0") + bytes([0, 16, 0, 64, 0, 0, 0, 16])
+h += b"snare".ljust(22, b"\0") + bytes([3, 232, 0, 64, 0, 0, 0, 1])
+h += (bytes(22) + bytes([0, 0, 0, 0, 0, 0, 0, 1])) * 29
+h += bytes([2, 127, 0, 1]) + bytes(126) + b"M.K."
+def cell(smp, per, fx, prm): return bytes([(smp & 0xF0) | per >> 8, per & 255, (smp & 15) << 4 | fx, prm])
+p0 = bytearray(1024); p1 = bytearray(1024)
+def put(p, row, ch, c): p[(row * 4 + ch) * 4:(row * 4 + ch) * 4 + 4] = c
+put(p0, 0, 0, cell(1, 428, 0xF, 3))      # C-2, speed 3
+put(p0, 1, 0, cell(0, 0, 0x0, 0x37))     # arpeggio 3,7
+put(p0, 3, 0, cell(0, 320, 0x3, 8))      # slide to F-2
+put(p0, 4, 0, cell(0, 0, 0x4, 0x84))     # vibrato, depth 4
+put(p0, 5, 0, cell(0, 0, 0xE, 0xC0))     # note cut
+put(p0, 7, 0, cell(1, 254, 0, 0))        # A-2
+put(p0, 6, 1, cell(2, 428, 0, 0))        # the snare (kept), ringing...
+put(p0, 8, 1, cell(1, 428, 0, 0))        # ...a SID note on its channel stops it
+put(p0, 9, 0, cell(0, 0, 0xD, 0))        # pattern break
+put(p1, 0, 0, cell(1, 214, 0xF, 150))    # C-3, 150 BPM
+open(sys.argv[1], "wb").write(h + bytes(p0) + bytes(p1) + saw + noise)
+EOF
+rm -rf $T/fx_samples
+$TUNE import $T/fx.mod -o $T/fx.txt >/dev/null 2>&1
+v=$(sed -n '/^tune/,$p' $T/fx.txt | tr -d '\\\n' | tr -s ' ')
+[ "$v" = "tune fx_test 3 loopv1: @s01 c4:1 arp:3,7 ~:1 arp:off ~:1 @s01v4 f4^5:2 r:2 @s01 a4:3 | tempo:2.5 c5:64v2: r:8 @s01 c4:2 | ~:64d1: r:6 s02_c2:2 cut:2 | r:64" ] &&
+    grep -q "^instrument s01v4 saw 00 f3 800 4 0 hr=1 " $T/fx.txt && grep -q "^sample s02_c2 fx_samples/02_snare_c2.wav " $T/fx.txt &&
+    [ "$(ls $T/fx_samples | tr '\n' ' ')" = "00_cut.wav 02_snare_c2.wav " ] && $TUNE list $T/fx.txt 2>/dev/null | grep -q "74 ticks" &&
+    pass || fail "import of a MOD: $v"
+# a SID note's pitch from the sample's own (song.mod: a 32-byte saw at C-2 is c4, a 64-byte square c3)
+$TUNE import $T/song.mod -o $T/songmod.txt >/dev/null 2>&1 && grep -q "^v1: @s01 c4:4 @s02 d3:4 @s03 e3:4 " $T/songmod.txt &&
+    grep -q "^v2: @s02 c3:16 g3:16 c3:16 g3:16$" $T/songmod.txt && pass || fail "import of a MOD: the notes ($(grep '^v' $T/songmod.txt))"
+# the kept samples over 64 KB: the biggest made the SID's (no choices); with
+# choices, kept, and convert's error and their sizes said
+python3 - $T/big.mod <<'EOF'
+import sys, math
+bell = bytes([int(sum(math.sin(2 * math.pi * f * i / 8287) / (k + 1) for k, f in enumerate([523, 1443, 2826, 4672])) * 40) & 255 for i in range(40000)])
+h = b"big".ljust(20, b"\0") + b"bell".ljust(22, b"\0") + bytes([len(bell) // 2 >> 8, len(bell) // 2 & 255, 0, 64, 0, 0, 0, 1])
+h += (bytes(22) + bytes([0, 0, 0, 0, 0, 0, 0, 1])) * 30 + bytes([1, 127]) + bytes(128) + b"M.K."
+p = bytearray(1024)
+for row, per in ((0, 428), (16, 381), (32, 339)):
+    p[row * 16:row * 16 + 4] = bytes([0x00 | per >> 8, per & 255, 0x10, 0])
+open(sys.argv[1], "wb").write(h + bytes(p) + bell)
+EOF
+out=$($TUNE import $T/big.mod -o $T/big.txt 2>&1)
+echo "$out" | grep -q "did not fit in 64 KB: made SID instruments of 1 bell" && grep -q "^instrument s01 .*made the SID's so the samples fit in 64 KB" $T/big.txt &&
+    $TUNE list $T/big.txt >/dev/null 2>&1 && pass || fail "import of a MOD: fitting 64 KB: $out"
+printf '1 sample\n' > $T/big.choices
+out=$($TUNE import $T/big.mod -o $T/big2.txt --choices $T/big.choices 2>&1); rc=$?
+[ $rc -ne 0 ] && echo "$out" | grep -q "over 64 KB" && echo "$out" | grep -q "the kept samples, about: 1 [0-9]* KB" && pass || fail "import of a MOD with choices over 64 KB: $out"
 
 # play into a WAV: as long as the tune, and not silent
 if $TUNE play $T/pfest.txt --wav $T/p.wav >/dev/null 2>&1 && python3 - $T/p.wav <<'EOF'

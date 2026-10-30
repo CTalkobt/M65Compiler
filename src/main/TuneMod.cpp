@@ -744,6 +744,64 @@ namespace {
 void le(std::vector<uint8_t>& b, uint32_t v, int n) { for (int k = 0; k < n; k++) b.push_back((uint8_t)(v >> (8 * k))); }
 }
 
+namespace {
+
+// an 8-bit WAV of a sample's bytes, at rate, its loop (if any) and the note
+// it sounds at in a smpl chunk
+bool writeWav8(const std::string& path, const std::vector<int8_t>& data, uint32_t rate, bool looped, uint32_t loopStart,
+               uint32_t loopLen, int unity, std::string& error) {
+    std::vector<uint8_t> pcm;
+    for (int8_t v : data) pcm.push_back((uint8_t)(v + 128));
+    std::vector<uint8_t> smpl;
+    le(smpl, 0, 4); le(smpl, 0, 4);
+    le(smpl, (uint32_t)std::lround(1e9 / rate), 4);
+    le(smpl, (uint32_t)unity, 4);
+    le(smpl, 0, 4); le(smpl, 0, 4); le(smpl, 0, 4);
+    le(smpl, looped ? 1 : 0, 4);
+    le(smpl, 0, 4);
+    if (looped) {
+        le(smpl, 0, 4); le(smpl, 0, 4);
+        le(smpl, loopStart, 4);
+        le(smpl, loopStart + loopLen - 1, 4);
+        le(smpl, 0, 4); le(smpl, 0, 4);
+    }
+    std::vector<uint8_t> w = {'R', 'I', 'F', 'F'};
+    uint32_t size = 4 + (8 + 16) + (8 + (uint32_t)pcm.size() + (pcm.size() & 1)) + (8 + (uint32_t)smpl.size());
+    le(w, size, 4);
+    for (char c : std::string("WAVEfmt ")) w.push_back((uint8_t)c);
+    le(w, 16, 4); le(w, 1, 2); le(w, 1, 2); le(w, rate, 4); le(w, rate, 4); le(w, 1, 2); le(w, 8, 2);
+    for (char c : std::string("data")) w.push_back((uint8_t)c);
+    le(w, (uint32_t)pcm.size(), 4);
+    w.insert(w.end(), pcm.begin(), pcm.end());
+    if (pcm.size() & 1) w.push_back(0);
+    for (char c : std::string("smpl")) w.push_back((uint8_t)c);
+    le(w, (uint32_t)smpl.size(), 4);
+    w.insert(w.end(), smpl.begin(), smpl.end());
+    std::ofstream out(path, std::ios::binary);
+    out.write((const char*)w.data(), (std::streamsize)w.size());
+    if (!out) { error = "cannot write " + path; return false; }
+    return true;
+}
+
+// NN_name: a sample's file name, without the extension
+std::string fileStem(const ModSampleReport& R, const ModSample& S) {
+    std::string name;
+    for (char c : S.name) name += std::isalnum((unsigned char)c) ? (char)std::tolower((unsigned char)c) : '_';
+    while (name.find("__") != std::string::npos) name.erase(name.find("__"), 1);
+    while (!name.empty() && name.back() == '_') name.pop_back();
+    while (!name.empty() && name[0] == '_') name.erase(0, 1);
+    char fn[64];
+    snprintf(fn, sizeof fn, "%02d_%s", R.index, name.empty() ? "sample" : name.substr(0, 40).c_str());
+    return fn;
+}
+
+int unityNote(const ModSampleReport& R, double period) {
+    if (R.tonal && R.periodSamples > 0) return std::max(0, std::min(127, (int)std::lround(soundingNote(R.periodSamples, period))));
+    return 60;
+}
+
+}  // namespace
+
 bool extractModSamples(const ModFile& m, const std::vector<ModSampleReport>& r, const std::string& dir, bool all,
                        std::vector<std::string>& written, std::string& error) {
     mkdir(dir.c_str(), 0777);
@@ -751,48 +809,386 @@ bool extractModSamples(const ModFile& m, const std::vector<ModSampleReport>& r, 
         if (R.verdict == "empty" || R.verdict == "unused") continue;
         if (!all && R.verdict != "sample") continue;
         const ModSample& S = m.samples[(size_t)R.index - 1];
-        uint32_t rate = (uint32_t)std::lround(kPaula / R.medianPeriod);
-        std::vector<uint8_t> pcm;
-        for (int8_t v : S.data) pcm.push_back((uint8_t)(v + 128));
-        std::vector<uint8_t> smpl;
-        le(smpl, 0, 4); le(smpl, 0, 4);
-        le(smpl, (uint32_t)std::lround(1e9 / rate), 4);
-        int unity = 60;
-        if (R.tonal && R.periodSamples > 0) unity = std::max(0, std::min(127, (int)std::lround(soundingNote(R.periodSamples, R.medianPeriod))));
-        le(smpl, (uint32_t)unity, 4);
-        le(smpl, 0, 4); le(smpl, 0, 4); le(smpl, 0, 4);
-        le(smpl, S.looped() ? 1 : 0, 4);
-        le(smpl, 0, 4);
-        if (S.looped()) {
-            le(smpl, 0, 4); le(smpl, 0, 4);
-            le(smpl, S.loopStart, 4);
-            le(smpl, S.loopStart + S.loopLen - 1, 4);
-            le(smpl, 0, 4); le(smpl, 0, 4);
-        }
-        std::vector<uint8_t> w = {'R', 'I', 'F', 'F'};
-        uint32_t size = 4 + (8 + 16) + (8 + (uint32_t)pcm.size() + (pcm.size() & 1)) + (8 + (uint32_t)smpl.size());
-        le(w, size, 4);
-        for (char c : std::string("WAVEfmt ")) w.push_back((uint8_t)c);
-        le(w, 16, 4); le(w, 1, 2); le(w, 1, 2); le(w, rate, 4); le(w, rate, 4); le(w, 1, 2); le(w, 8, 2);
-        for (char c : std::string("data")) w.push_back((uint8_t)c);
-        le(w, (uint32_t)pcm.size(), 4);
-        w.insert(w.end(), pcm.begin(), pcm.end());
-        if (pcm.size() & 1) w.push_back(0);
-        for (char c : std::string("smpl")) w.push_back((uint8_t)c);
-        le(w, (uint32_t)smpl.size(), 4);
-        w.insert(w.end(), smpl.begin(), smpl.end());
-        std::string name;
-        for (char c : S.name) name += std::isalnum((unsigned char)c) ? (char)std::tolower((unsigned char)c) : '_';
-        while (name.find("__") != std::string::npos) name.erase(name.find("__"), 1);
-        while (!name.empty() && name.back() == '_') name.pop_back();
-        while (!name.empty() && name[0] == '_') name.erase(0, 1);
-        char fn[64];
-        snprintf(fn, sizeof fn, "%02d_%s.wav", R.index, name.empty() ? "sample" : name.substr(0, 40).c_str());
-        std::string path = dir + "/" + fn;
-        std::ofstream out(path, std::ios::binary);
-        out.write((const char*)w.data(), (std::streamsize)w.size());
-        if (!out) { error = "cannot write " + path; return false; }
+        std::string path = dir + "/" + fileStem(R, S) + ".wav";
+        if (!writeWav8(path, S.data, (uint32_t)std::lround(kPaula / R.medianPeriod), S.looped(), S.loopStart, S.loopLen,
+                       unityNote(R, R.medianPeriod), error))
+            return false;
         written.push_back(path);
     }
     return true;
+}
+
+namespace {
+
+// a tracker note as part of a name: C#2 -> cs2
+std::string ptName(uint16_t period) {
+    std::string n;
+    for (char c : ptNote(period)) {
+        if (c == '#') n += 's';
+        else if (c != '-') n += (char)std::tolower((unsigned char)c);
+    }
+    return n;
+}
+
+std::string fmtNum(double v) {
+    char b[32];
+    snprintf(b, sizeof b, "%.2f", v);
+    std::string s = b;
+    while (s.back() == '0') s.pop_back();
+    if (s.back() == '.') s.pop_back();
+    return s;
+}
+
+struct SidRow {
+    int kind = 2;                   // 0 a note, 1 held, 2 a rest
+    int note = 0, sample = -1, glide = 0, gk = 3, vib = 0;
+    std::string tokens;
+};
+
+struct DigiRow { std::vector<std::string> hits; };
+
+}  // namespace
+
+std::string modImport(const ModFile& m, const std::vector<ModSampleReport>& r, const ModImportOptions& o,
+                      std::vector<std::string>& written, std::string& error) {
+    // the rows in the order the song plays them
+    struct Row { size_t pat; int row, pos, speed, bpm, delay; bool patStart; };
+    std::vector<Row> rows;
+    {
+        std::set<std::pair<int, int>> seen;
+        int pos = 0, row = 0, speed = 6, bpm = 125;
+        while (pos < m.songLen && pos < (int)m.order.size() && rows.size() < 100000) {
+            if (!seen.insert({pos, row}).second) break;   // (played before: the song loops here)
+            size_t pat = m.order[(size_t)pos];
+            if (pat >= m.patterns.size()) { pos++; row = 0; continue; }
+            int nextPos = pos + 1, nextRow = 0, loopRow = 0, loopCount = 0;
+            bool first = true;
+            for (int rr = row; rr < 64; rr++) {
+                int delay = 0, brk = -1, jump = -1, loopTo = -1;
+                for (int ch = 0; ch < m.channels; ch++) {
+                    const ModCell& c = m.patterns[pat][(size_t)(rr * m.channels + ch)];
+                    if (c.effect == 0xF && c.param) { if (c.param < 32) speed = c.param; else bpm = c.param; }
+                    if (c.effect == 0xD) brk = std::min(63, (c.param >> 4) * 10 + (c.param & 15));
+                    if (c.effect == 0xB) jump = c.param;
+                    if (c.effect == 0xE) {
+                        int x = c.param >> 4, y = c.param & 15;
+                        if (x == 0xE) delay = y;
+                        if (x == 0x6) {
+                            if (!y) loopRow = rr;
+                            else if (!loopCount) { loopCount = y; loopTo = loopRow; }
+                            else if (--loopCount) loopTo = loopRow;
+                        }
+                    }
+                }
+                rows.push_back({pat, rr, pos, speed, bpm, delay, first});
+                first = false;
+                if (loopTo >= 0) { rr = loopTo - 1; continue; }
+                if (brk >= 0 || jump >= 0) { nextPos = jump >= 0 ? jump : pos + 1; nextRow = brk >= 0 ? brk : 0; break; }
+            }
+            pos = nextPos;
+            row = nextRow;
+        }
+    }
+    if (rows.empty()) { error = "the song plays no rows"; return ""; }
+
+    // a tick a row (and each of a pattern delay's): what each channel does
+    const int nc = m.channels;
+    std::vector<std::vector<SidRow>> sid((size_t)nc);
+    std::vector<std::vector<DigiRow>> digi((size_t)nc);
+    std::vector<double> fpt;        // each tick's frames
+    std::vector<bool> barAt;        // a pattern starts at the tick
+    struct Ch { int cur = 0; bool sid = false; int note = -1; size_t noteAt = 0; int vibDepth = 0, porta = 3; bool arp = false;
+                int arpA = 0, arpB = 0; double digiEnd = 0, digiStart = 0; std::string digiHit; };
+    std::vector<Ch> chs((size_t)nc);
+    std::map<std::string, std::pair<int, uint16_t>> hitOf;   // a hit's name: its sample, its period
+    std::map<std::string, double> held;                     // the longest each hit sounds
+    std::map<std::string, int> lost;
+    bool needCut = false;
+    double now = 0;
+    auto endHit = [&](Ch& c) {
+        if (!c.digiHit.empty()) held[c.digiHit] = std::max(held[c.digiHit], now - c.digiStart);
+        c.digiHit.clear();
+    };
+    for (const Row& w : rows) {
+        double dt = w.speed * 2.5 / w.bpm;
+        for (int rep = 0; rep <= w.delay; rep++) {
+            fpt.push_back(w.speed * 125.0 / w.bpm);
+            barAt.push_back(w.patStart && rep == 0);
+            for (int ch = 0; ch < nc; ch++) {
+                Ch& c = chs[(size_t)ch];
+                SidRow sr;
+                DigiRow dr;
+                sr.kind = c.sid ? 1 : 2;
+                if (rep == 0) {
+                    const ModCell& cell = m.patterns[w.pat][(size_t)(w.row * nc + ch)];
+                    if (cell.sample && cell.sample <= m.samples.size()) c.cur = cell.sample;
+                    int s = c.cur - 1;
+                    const ModSampleReport* R = s >= 0 ? &r[(size_t)s] : nullptr;
+                    bool playable = R && R->verdict != "unused" && R->verdict != "empty";
+                    bool isSid = playable && (R->verdict == "sid" || R->verdict == "sid~");
+                    bool porta = cell.period && (cell.effect == 3 || cell.effect == 5);
+                    bool note = cell.period && playable && !porta;
+                    bool cut = (cell.effect == 0xC && cell.param == 0) || (cell.effect == 0xE && (cell.param >> 4) == 0xC);
+                    double per = playable ? cell.period * std::pow(2.0, -m.samples[(size_t)s].finetune / 96.0) : cell.period;
+                    if (cell.effect == 3 && cell.param) c.porta = cell.param;
+                    if (note && isSid) {
+                        sr.kind = 0;
+                        sr.note = modSidNote(*R, per);
+                        sr.sample = s;
+                        c.sid = true;
+                        c.note = sr.note;
+                        c.noteAt = sid[(size_t)ch].size();
+                        if (c.digiEnd > now) { dr.hits = {"cut"}; needCut = true; }
+                        endHit(c);
+                        c.digiEnd = 0;
+                    } else if (note) {
+                        std::string h = "s" + std::string(R->index < 10 ? "0" : "") + std::to_string(R->index) + "_" + ptName(cell.period);
+                        hitOf[h] = {s, cell.period};
+                        dr.hits = {h};
+                        endHit(c);
+                        const ModSample& S = m.samples[(size_t)s];
+                        c.digiStart = now;
+                        c.digiHit = h;
+                        c.digiEnd = now + (S.looped() ? 3600 : S.data.size() / modRate(per));
+                        if (c.sid) { sr.kind = 2; c.sid = false; }
+                        if (cell.effect == 9) lost["sample offsets"]++;
+                    } else if (porta && c.sid && isSid) {
+                        int target = modSidNote(*R, per);
+                        if (target != c.note && std::abs(target - c.note) <= 127) {
+                            sr.kind = 0;
+                            sr.note = target;
+                            sr.sample = s;
+                            sr.glide = target - c.note;
+                            sr.gk = c.porta >= 32 ? 1 : c.porta >= 16 ? 2 : c.porta >= 8 ? 3 : c.porta >= 4 ? 4 : 5;
+                            c.note = target;
+                            c.noteAt = sid[(size_t)ch].size();
+                        }
+                    } else if (cut || (note && !playable)) {
+                        if (c.sid) { sr.kind = 2; c.sid = false; }
+                        if (c.digiEnd > now) { dr.hits = {"cut"}; needCut = true; c.digiEnd = 0; }
+                        endHit(c);
+                    }
+                    if (porta && !c.sid) lost["slides to a note not sounding on the SID"]++;
+                    // arpeggio: this row's (off where a row has none)
+                    if (c.sid) {
+                        bool want = cell.effect == 0 && cell.param;
+                        int a = cell.param >> 4, b = cell.param & 15;
+                        if (want && (!c.arp || a != c.arpA || b != c.arpB)) {
+                            sr.tokens += "arp:" + std::to_string(a) + "," + std::to_string(b) + " ";
+                            c.arp = true; c.arpA = a; c.arpB = b;
+                        } else if (!want && c.arp) {
+                            sr.tokens += "arp:off ";
+                            c.arp = false;
+                        }
+                    }
+                    // vibrato: the note's instrument's (the deepest asked)
+                    if ((cell.effect == 4 || cell.effect == 6) && c.sid) {
+                        if (cell.effect == 4 && (cell.param & 15)) c.vibDepth = cell.param & 15;
+                        int d = std::max(1, c.vibDepth);
+                        if (sr.kind == 0) sr.vib = d;
+                        else if (c.noteAt < sid[(size_t)ch].size()) sid[(size_t)ch][c.noteAt].vib = std::max(sid[(size_t)ch][c.noteAt].vib, d);
+                    }
+                    switch (cell.effect) {
+                    case 0x1: case 0x2: lost["pitch slides"]++; break;
+                    case 0x5: case 0x6: case 0xA: lost["volume changes"]++; break;
+                    case 0x7: lost["tremolo"]++; break;
+                    case 0xC: if (cell.param) lost["volume changes"]++; break;
+                    case 0xE:
+                        if ((cell.param >> 4) == 0xA || (cell.param >> 4) == 0xB) lost["volume changes"]++;
+                        if ((cell.param >> 4) == 0x9) lost["retriggers"]++;
+                        if ((cell.param >> 4) == 0xD) lost["note delays"]++;
+                        if ((cell.param >> 4) == 0x1 || (cell.param >> 4) == 0x2) lost["pitch slides"]++;
+                        break;
+                    default: break;
+                    }
+                }
+                sid[(size_t)ch].push_back(sr);
+                digi[(size_t)ch].push_back(dr);
+            }
+            now += dt;
+        }
+    }
+    for (auto& c : chs) endHit(c);
+    const size_t ticks = fpt.size();
+
+    // the voices: a channel's SID notes, a channel's samples
+    std::vector<int> sidCh, digiCh;
+    for (int ch = 0; ch < nc; ch++) {
+        bool anyS = false, anyD = false;
+        for (const auto& x : sid[(size_t)ch]) anyS |= x.kind == 0;
+        for (const auto& x : digi[(size_t)ch]) for (const auto& h : x.hits) anyD |= h != "cut";
+        if (anyS) sidCh.push_back(ch);
+        if (anyD) digiCh.push_back(ch);
+    }
+    if (sidCh.size() > 12) { error = std::to_string(sidCh.size()) + " channels play SID notes: the player has 12 voices"; return ""; }
+    // more than 4 channels of samples: the rest folded onto d1-d4 (hits at
+    // once mixed: a+b)
+    std::vector<std::vector<DigiRow>> dv;
+    for (size_t k = 0; k < digiCh.size(); k++) {
+        const auto& src = digi[(size_t)digiCh[k]];
+        if (k < 4) { dv.push_back(src); continue; }
+        lost["sample channels folded onto d1-d4 (more than the audio DMA's 4)"]++;
+        auto& dst = dv[k % 4];
+        for (size_t t = 0; t < ticks; t++) {
+            auto& hs = dst[t].hits;
+            for (const auto& h : src[t].hits) if (h != "cut") hs.push_back(h);
+            if (hs.size() > 1) hs.erase(std::remove(hs.begin(), hs.end(), std::string("cut")), hs.end());
+            std::sort(hs.begin(), hs.end());
+            hs.erase(std::unique(hs.begin(), hs.end()), hs.end());
+        }
+    }
+
+    // the instruments: a SID sample's (with vibrato, a variant a depth)
+    std::map<int, std::set<int>> inst;   // sample: its vibrato depths (0: none)
+    for (int ch : sidCh)
+        for (const auto& x : sid[(size_t)ch]) if (x.kind == 0) inst[x.sample].insert(x.vib);
+    auto instName = [](int s, int vib) {
+        char b[16];
+        snprintf(b, sizeof b, vib ? "s%02dv%d" : "s%02d", s + 1, vib);
+        return std::string(b);
+    };
+
+    // the text
+    std::string t;
+    char b[512];
+    auto ident = [](std::string n) {
+        for (auto& c : n) if (!std::isalnum((unsigned char)c)) c = '_';
+        while (n.find("__") != std::string::npos) n.erase(n.find("__"), 1);
+        while (!n.empty() && n.back() == '_') n.pop_back();
+        while (!n.empty() && n[0] == '_') n.erase(0, 1);
+        if (n.empty() || std::isdigit((unsigned char)n[0])) n = "mod_" + n;
+        for (auto& c : n) c = (char)std::tolower((unsigned char)c);
+        return n;
+    };
+    std::string name = ident(o.name.empty() ? m.title : o.name);
+    snprintf(b, sizeof b, "; %s: tune45 text of %s (tune45 import: a MOD, %s, %d channels, %d positions)\n",
+             m.title.empty() ? "(untitled)" : m.title.c_str(), o.source.c_str(), m.tag.c_str(), nc, m.songLen);
+    t += b;
+    t += "; Its samples: SID instruments (s01...), or kept as samples on the digi voices (the\n"
+         ";  WAVs in " + o.samplesRef + "/, one a note it is played at), by " +
+         (o.choices.empty() ? std::string("the measured verdicts (tune45 import --report)") : "the choices in " + o.choices) + ".\n"
+         "; A row is a tick; v voices are channels' SID notes, d voices channels' samples.\n";
+    if (!lost.empty()) {
+        t += "; Not carried over:";
+        bool first = true;
+        for (const auto& [what, n] : lost) { t += (first ? " " : ", ") + std::to_string(n) + " " + what; first = false; }
+        t += "\n";
+    }
+    t += "\n";
+    for (const auto& [s, vibs] : inst) {
+        const ModSampleReport& R = r[(size_t)s];
+        for (int v : vibs) {
+            std::string l = modInstrumentLine(R, instName(s, v));
+            if (v) {   // the vibrato: the line's 7th word
+                std::vector<std::string> w;
+                size_t at = 0;
+                while (at < l.size()) {
+                    size_t e = l.find(' ', at);
+                    if (e == std::string::npos) e = l.size();
+                    w.push_back(l.substr(at, e - at));
+                    at = e + 1;
+                }
+                if (w.size() > 6) w[6] = std::to_string(v);
+                l.clear();
+                for (size_t k = 0; k < w.size(); k++) l += (k ? " " : "") + w[k];
+            }
+            snprintf(b, sizeof b, "%-56s ; %d %s (%s%s, %d)%s\n", (l + " hr=1").c_str(), R.index,
+                     m.samples[(size_t)s].name.c_str(), R.verdict.c_str(), R.chosen ? " chosen" : "", R.score,
+                     R.fitted ? ": made the SID's so the samples fit in 64 KB" : "");
+            t += b;
+        }
+    }
+    // the kept samples: a WAV a note (its rate the note's, so tune45 keeps
+    // the pitch), a loop unrolled to the longest the song holds it
+    if (!hitOf.empty() || needCut) {
+        mkdir(o.samplesDir.c_str(), 0777);
+        t += "\n";
+    }
+    if (needCut) {
+        std::string path = o.samplesDir + "/00_cut.wav";
+        if (!writeWav8(path, std::vector<int8_t>(16, 0), 8000, false, 0, 0, 60, error)) return "";
+        written.push_back(path);
+        t += "sample cut " + o.samplesRef + "/00_cut.wav   ; silence: a sample stopped (a note cut, or the channel's SID note)\n";
+    }
+    for (const auto& [h, sp] : hitOf) {
+        const ModSampleReport& R = r[(size_t)sp.first];
+        const ModSample& S = m.samples[(size_t)sp.first];
+        double per = sp.second * std::pow(2.0, -S.finetune / 96.0);
+        uint32_t rate = (uint32_t)std::lround(modRate(per));
+        std::vector<int8_t> data = S.data;
+        if (S.looped()) {
+            size_t want = (size_t)(std::min(2.0, std::max(0.1, held[h])) * rate);
+            data.resize(S.loopStart + S.loopLen);
+            while (data.size() < want) data.push_back(S.data[S.loopStart + (data.size() - S.loopStart) % S.loopLen]);
+            data.resize(std::min(data.size(), std::max(want, (size_t)S.loopStart + S.loopLen)));
+        }
+        std::string file = fileStem(R, S) + "_" + ptName(sp.second) + ".wav";
+        if (!writeWav8(o.samplesDir + "/" + file, data, rate, false, 0, 0, unityNote(R, per), error)) return "";
+        written.push_back(o.samplesDir + "/" + file);
+        std::string rateOpt = R.kind == "hat" && rate >= 16000 ? " rate=16000" : "";
+        if (o.keptBytes) (*o.keptBytes)[sp.first] += data.size() * std::min(1.0, (rateOpt.empty() ? 12000.0 : 16000.0) / rate);
+        snprintf(b, sizeof b, "%-56s ; %d %s (%s%s, %d)%s\n", ("sample " + h + " " + o.samplesRef + "/" + file + rateOpt).c_str(),
+                 R.index, S.name.c_str(), R.verdict.c_str(), R.chosen ? " chosen" : "", R.score, S.looped() ? ": its loop unrolled" : "");
+        t += b;
+    }
+    t += "\n";
+    t += "; voices:";
+    for (size_t k = 0; k < sidCh.size(); k++) t += " v" + std::to_string(k + 1) + " channel " + std::to_string(sidCh[k] + 1) + ",";
+    for (size_t k = 0; k < dv.size(); k++) t += " d" + std::to_string(k + 1) + " channel " + std::to_string(digiCh[k] + 1) + ",";
+    if (t.back() == ',') t.pop_back();
+    t += "\n";
+    t += "tune " + name + " " + fmtNum(fpt[0]) + " loop\n";
+    // a voice's text: segments, a line a pattern
+    auto voiceText = [&](const std::string& head, auto segStart, auto event) {
+        std::string v = head;
+        size_t k = 0;
+        bool firstLine = true;
+        while (k < ticks) {
+            if (barAt[k] && !firstLine) v += " | \\\n   ";
+            firstLine = false;
+            size_t e = k + 1;
+            while (e < ticks && !segStart(e) && !barAt[e]) e++;
+            v += event(k, e - k);
+            k = e;
+        }
+        return v + "\n";
+    };
+    std::vector<size_t> tempoAt;
+    for (size_t k = 1; k < ticks; k++) if (std::fabs(fpt[k] - fpt[k - 1]) > 1e-9) tempoAt.push_back(k);
+    auto tempoHere = [&](size_t k) { return std::binary_search(tempoAt.begin(), tempoAt.end(), k); };
+    auto tempoTok = [&](size_t k, bool first) { return first && tempoHere(k) ? "tempo:" + fmtNum(fpt[k]) + " " : std::string(); };
+    if (sidCh.empty()) {   // (the tempo needs a v voice: one of rests)
+        t += voiceText("v1:", [&](size_t k) { return tempoHere(k); },
+                       [&](size_t k, size_t n) { return " " + tempoTok(k, true) + "r:" + std::to_string(n); });
+    }
+    for (size_t vi = 0; vi < sidCh.size(); vi++) {
+        const auto& tr = sid[(size_t)sidCh[vi]];
+        std::string cur;
+        bool v1 = vi == 0;
+        t += voiceText("v" + std::to_string(vi + 1) + ":",
+            [&](size_t k) {
+                return tr[k].kind == 0 || !tr[k].tokens.empty() || (v1 && tempoHere(k)) || (tr[k].kind == 2) != (tr[k - 1].kind == 2);
+            },
+            [&](size_t k, size_t n) {
+                const SidRow& x = tr[k];
+                std::string s = " " + tempoTok(k, v1) + x.tokens;
+                if (x.kind == 0) {
+                    std::string in = instName(x.sample, x.vib);
+                    if (in != cur) { s += "@" + in + " "; cur = in; }
+                    s += TuneCompiler::noteName(x.note);
+                    if (x.glide) s += "^" + std::to_string(x.glide) + (x.gk != 3 ? "," + std::to_string(x.gk) : "");
+                } else s += x.kind == 1 ? "~" : "r";
+                return s + ":" + std::to_string(n);
+            });
+    }
+    for (size_t di = 0; di < dv.size(); di++) {
+        const auto& tr = dv[di];
+        t += voiceText("d" + std::to_string(di + 1) + ":", [&](size_t k) { return !tr[k].hits.empty(); },
+            [&](size_t k, size_t n) {
+                std::string s;
+                for (const auto& h : tr[k].hits) s += (s.empty() ? "" : "+") + h;
+                return " " + (s.empty() ? std::string("r") : s) + ":" + std::to_string(n);
+            });
+    }
+    return t;
 }

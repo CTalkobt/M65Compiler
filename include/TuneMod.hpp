@@ -74,6 +74,7 @@ struct ModSampleReport {
     int score = 0;
     std::string verdict;            // sid, sid~ (approximately), sample, unused, empty
     bool chosen = false;            // the verdict is the user's (a choices file)
+    bool fitted = false;            // made a SID instrument so the kept samples fit in 64 KB
     std::vector<std::string> reasons;
 };
 
@@ -95,6 +96,29 @@ bool readModChoices(const std::string& path, std::map<int, std::string>& c, std:
 bool writeModChoices(const std::string& path, const ModFile& m, const std::map<int, std::string>& c, std::string& error);
 // the choices as the verdicts (chosen set, the measured verdict kept in the reasons)
 void applyModChoices(std::vector<ModSampleReport>& r, const std::map<int, std::string>& c);
+
+// The song as tune45 text: tune45 import song.mod
+struct ModImportOptions {
+    std::string name;               // the tune's (a C identifier)
+    std::string source;             // the MOD's file name (the text's first line)
+    std::string samplesDir;         // where the kept samples' WAVs are written
+    std::string samplesRef;         // that directory as the text names it (from the text's own)
+    std::string choices;            // the choices file the verdicts came from ("": measured)
+    std::map<int, double>* keptBytes = nullptr;   // out: each kept sample's bytes in the bank, about
+                                                  // (its notes, at the rate tune45 will choose)
+};
+// The song's rows in the order it plays them (position jumps, pattern breaks,
+// loops and delays followed; it stops where it would play a position again,
+// the tune looping there) a tick each, at speed * 125 / BPM frames a tick
+// (tempo: where they change). A channel is a SID voice for its notes on
+// samples whose verdict is sid or sid~ (the report's instrument, hr=1), and
+// a digi voice for those kept as samples (a WAV a note it is played at, a
+// loop unrolled to the longest it is held); a channel with both has one of
+// each. Arpeggios, tone portamento (a glide), vibrato (the instrument's),
+// note cuts and C00 carry over; what does not is counted in a comment.
+// Written: the WAVs; "" with error set.
+std::string modImport(const ModFile& m, const std::vector<ModSampleReport>& r, const ModImportOptions& o,
+                      std::vector<std::string>& written, std::string& error);
 
 // the report as text: the song, a line a sample, the reasons, a summary
 std::string modReport(const ModFile& m, const std::vector<ModSampleReport>& r);

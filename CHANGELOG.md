@@ -6,6 +6,16 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### tune45 import of a MOD: the samples weighed for the SID
 
+- `tune45 import song.mod -o song.txt`: the MOD as tune45 text. The rows
+  in play order (jumps, breaks, pattern loops and delays) a tick each,
+  speed and BPM as the frames a tick and `tempo:`; a channel a `v` voice
+  for its SID instruments' notes (at the sample's own pitch, the report's
+  instrument with hr=1) and a `d` voice for its kept samples (a WAV a note,
+  in `song_samples/`; a silent hit stops one at the channel's SID note);
+  arpeggio, tone portamento (a glide), vibrato (an instrument variant),
+  note cuts carried over, the rest counted in a comment. The verdicts are
+  the best guess, or `--choices`; the best guess makes SID instruments of
+  the biggest kept samples while they are over the 64 KB bank.
 - `tune45 import song.mod --report`: a MOD (ProTracker and its kin, the
   15-sample Soundtracker files) read, and each sample measured at the
   period the song plays it at most: its pitch and how clear it is, how
