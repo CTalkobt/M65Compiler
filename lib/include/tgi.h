@@ -215,8 +215,24 @@ __fastcall__ void tgi_arc(int x, int y, unsigned char rx, unsigned char ry,
 __fastcall__ void tgi_pieslice(int x, int y, unsigned char rx, unsigned char ry,
                                unsigned sa, unsigned ea);
 
-/* Draw a bar (a filled rectangle) using the current color. */
+/* Draw a bar (a filled rectangle) using the current color, or the fill
+ * pattern tgi_setpattern / tgi_setpattern_mono set. */
 __fastcall__ void tgi_bar(int x1, int y1, int x2, int y2);
+
+/* Fill patterns for tgi_bar (a cc45 extension; lib/stdlib_asm/tgi_pattern.s45,
+ * linked only by a program that sets one). A pattern is 8x8 pixels anchored
+ * to the screen (pixel (x, y) takes the pattern's (x & 7, y & 7)), so bars
+ * side by side meet seamlessly; it is copied by DMA, a character column at a
+ * time. tgi_setpattern: 64 colours, row by row (the 640x200 driver uses
+ * their low nibbles); pixels of colour transparent (0-255) are left as they
+ * are (TGI_TRANSPARENT: none). tgi_setpattern_mono: 8 bytes, a row each,
+ * bit 7 the left pixel: set bits fg, clear ones bg or, for TGI_TRANSPARENT,
+ * left as they are. tgi_setsolid: the current colour again. In 640x200 a
+ * transparent pattern is drawn a pixel at a time. */
+#define TGI_TRANSPARENT (-1)
+__fastcall__ void tgi_setpattern(const unsigned char *pattern, int transparent);
+__fastcall__ void tgi_setpattern_mono(const unsigned char *bits, unsigned char fg, int bg);
+__fastcall__ void tgi_setsolid(void);
 
 /* Set the direction for text output (TGI_TEXT_*). */
 __fastcall__ void tgi_settextdir(unsigned char dir);

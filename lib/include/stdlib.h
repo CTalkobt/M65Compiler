@@ -26,6 +26,8 @@ __fastcall__ char *itoa(signed int value, char *str, int base);
 __fastcall__ char *utoa(unsigned int value, char *str, int base);
 __fastcall__ char *ltoa(signed long value, char *str, int base);
 __fastcall__ char *ultoa(unsigned long value, char *str, int base);
+/* f as printf's %g writes it, at s (oscar64's) */
+void ftoa(float f, char *s);
 
 /* short aliases — cast through atoi/itoa (short == int on this target) */
 #define atos(s) ((short)atoi(s))
@@ -82,6 +84,8 @@ __fastcall__ size_t _heapmemavail(void);
 __fastcall__ size_t _heapmaxavail(void);
 __fastcall__ size_t _heapblocksize(const void *block);
 __fastcall__ void _heapadd(void *mem, size_t size);
+/* oscar64's name for _heapmemavail */
+__fastcall__ unsigned int heapfree(void);
 
 /* The environment (empty at the start; putenv's "NAME=value" strings) */
 char *getenv(const char *name);

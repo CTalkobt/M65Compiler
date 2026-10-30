@@ -1,7 +1,8 @@
 ; heapinfo.s45 — cc65's heap functions (<stdlib.h>) on malloc.s45's heap
 ;
 ;   size_t _heapmemavail(void)                   the free bytes (blocks' sizes
-;                                                less their 2-byte headers)
+;                                                less their 2-byte headers);
+;                                                heapfree (oscar64's) too
 ;   size_t _heapmaxavail(void)                   the largest malloc that can
 ;                                                succeed now
 ;   size_t _heapblocksize(const void *block)     $10: a malloc'd block's size
@@ -20,7 +21,7 @@
 .weak cc45.icallinfo
 cc45.icallinfo = 1
 
-.global __heapmemavail, __heapmaxavail, __heapblocksize, __heapadd
+.global __heapmemavail, __heapmaxavail, __heapblocksize, __heapadd, _heapfree
 .extern __heap_ptr, _heap_init, _free
 
 .segment "bss"
@@ -100,6 +101,15 @@ proc __heapmemavail
     lda $14
     ldx $15
     rts
+    .func_flags zp_call
+endproc
+
+; unsigned heapfree(void): _heapmemavail
+proc _heapfree
+    .zp_clobbers $10, $11, $12, $13, $14, $15
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    jmp __heapmemavail
     .func_flags zp_call
 endproc
 
