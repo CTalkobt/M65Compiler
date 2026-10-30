@@ -7,12 +7,14 @@
 ;
 ;   int rand(void)
 ;   void srand(unsigned int seed)      seed at $10/$11
+;   void _randomize(void)              srand with a seed from the hardware
+;                                      generator (cc65's)
 
 ; no calls through pointers here (ln45's call graph)
 .weak cc45.icallinfo
 cc45.icallinfo = 1
 
-.global _rand, _srand
+.global _rand, _srand, __randomize
 
 .segment "bss"
 __rand_next:    .res 4
@@ -79,6 +81,24 @@ proc _srand
     lda #0
     sta __rand_next+2
     sta __rand_next+3
+    lda #1
+    sta __rand_seeded
+    rts
+    .func_flags zp_call
+endproc
+
+proc __randomize
+    .reg_clobbers A, X
+    .flag_clobbers N, Z
+    ldx #0
+@byte:
+    bit $D7FE           ; the next random byte, ready when bit 7 is clear
+    bmi @byte
+    lda $D7EF
+    sta __rand_next,x
+    inx
+    cpx #4
+    bne @byte
     lda #1
     sta __rand_seeded
     rts

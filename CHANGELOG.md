@@ -4,6 +4,28 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc65's string, stdlib, ctype and standard-C gaps; crc32; serial.h
+
+- `<string.h>`: `strcasecmp`, `strncasecmp`, `stricmp`, `strnicmp`,
+  `strcasestr`, `strlwr`/`strlower`, `strupr`/`strupper`, `stpcpy`,
+  `bzero`, `strcoll`, `strxfrm` (assembly), `strndup`, `strqtok` (C).
+- `<stdlib.h>`: `ultoa` (an entry of `ltoa`), `posix_memalign`, cc65's
+  `_heapmemavail`, `_heapmaxavail`, `_heapblocksize`, `_heapadd`,
+  `_randomize`, `_swap`, `getenv`/`putenv`, `system` (none to run),
+  `EXIT_SUCCESS`/`EXIT_FAILURE`. `<ctype.h>`: `isascii`, `toascii`.
+- New headers: `<inttypes.h>` (the `PRI`/`SCN` macros, `imaxabs`, `imaxdiv`,
+  `strtoimax`, `strtoumax`), `<signal.h>` (`signal`, `raise`; `abort` raises
+  `SIGABRT` in a program that uses them), `<locale.h>` (the "C" locale).
+- `<time.h>`: `strftime` (all of C99's conversions, ISO weeks too),
+  `clock_gettime` / `clock_getres` / `clock_settime` (`CLOCK_REALTIME` the
+  RTC, `CLOCK_MONOTONIC` the frame counter), `tzset`.
+- `<zlib.h>`: `crc32` in assembly (zlib's CRC-32, a 64-byte table).
+- `<serial.h>`: cc65's serial API in assembly on the MEGA65's buffered UART
+  at `$D0E0` (every `SER_BAUD_` rate, 8N1), which xemu's `-serialtcp`
+  connects to a TCP socket.
+- Tests: `test_cc65_gaps_xemu.c`, `test_serial_xemu.c` (an echo server,
+  `src/test/serial_echo.py`).
+
 ### conio: all of cc65's conio, in assembly
 
 - `<conio.h>` has the rest of cc65's conio: `gotox`, `gotoy`, `cputc`,

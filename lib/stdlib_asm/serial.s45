@@ -1,0 +1,308 @@
+; serial.s45 — <serial.h>: cc65's serial API on the MEGA65's buffered UART
+;
+; The buffered UART at $D0E0-$D0E6 (the one xemu connects to a TCP socket
+; with -serialtcp HOST:PORT): $D0E1 status (bit 3 the transmit buffer full,
+; bit 4 the receive buffer full, bit 5 the transmit buffer empty, bit 6 the
+; receive buffer empty), $D0E2 the received byte (writing it takes the byte
+; off the buffer), $D0E3 the byte to send, $D0E4-$D0E6 the bit rate's
+; divisor: 80 MHz / (divisor + 1). 8 data bits, 1 stop bit, no parity, no
+; handshake: the only frame it sends.
+;
+; The driver is built in (static): ser_load_driver and ser_install install
+; it, whatever their argument. All __fastcall__ (the ZP convention in both
+; libraries); the results are cc65's SER_ERR_ codes.
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.global _ser_load_driver, _ser_unload, _ser_install, _ser_uninstall
+.global _ser_open, _ser_close, _ser_get, _ser_put, _ser_status, _ser_ioctl
+.global _ser_stddrv, _ser_static_stddrv
+
+ERR_OK          = $00
+ERR_NO_DRIVER   = $01
+ERR_BAUD_UNAVAIL = $05
+ERR_NO_DATA     = $06
+ERR_OVERFLOW    = $07
+ERR_INIT_FAILED = $08
+ERR_INV_IOCTL   = $09
+ERR_INSTALLED   = $0A
+ERR_NOT_OPEN    = $0B
+
+ST_TXFULL       = $08
+ST_RXEMPTY      = $40
+
+.segment "bss"
+__ser_state:    .res 1  ; bit 0 installed, bit 1 open
+
+.segment "code"
+_ser_stddrv:    .text "m65-uart.ser"
+                .byte 0
+_ser_static_stddrv:
+                .byte 0
+
+; the divisors of SER_BAUD_45_5 ... SER_BAUD_56_875 (80 MHz / baud - 1)
+__ser_div:
+    .byte $21, $D4, $1A   ;  0: 45.5 baud
+    .byte $FF, $69, $18   ;  1: 50 baud
+    .byte $AA, $46, $10   ;  2: 75 baud
+    .byte $E8, $18, $0B   ;  3: 110 baud
+    .byte $6B, $13, $09   ;  4: 134.5 baud
+    .byte $54, $23, $08   ;  5: 150 baud
+    .byte $AA, $11, $04   ;  6: 300 baud
+    .byte $D4, $08, $02   ;  7: 600 baud
+    .byte $6A, $04, $01   ;  8: 1200 baud
+    .byte $9B, $AD, $00   ;  9: 1800 baud
+    .byte $34, $82, $00   ; 10: 2400 baud
+    .byte $CD, $56, $00   ; 11: 3600 baud
+    .byte $1A, $41, $00   ; 12: 4800 baud
+    .byte $66, $2B, $00   ; 13: 7200 baud
+    .byte $8C, $20, $00   ; 14: 9600 baud
+    .byte $46, $10, $00   ; 15: 19200 baud
+    .byte $22, $08, $00   ; 16: 38400 baud
+    .byte $6C, $05, $00   ; 17: 57600 baud
+    .byte $B5, $02, $00   ; 18: 115200 baud
+    .byte $5A, $01, $00   ; 19: 230400 baud
+    .byte $FF, $09, $00   ; 20: 31250 baud
+    .byte $FF, $04, $00   ; 21: 62500 baud
+    .byte $80, $76, $15   ; 22: 56.875 baud
+
+; A = ERR_OK in A/X (the result)
+proc __ser_ok
+    lda #ERR_OK
+    ldx #0
+    rts
+endproc
+
+; Empty the receive buffer
+proc __ser_flush
+@more:
+    lda $D0E1
+    and #ST_RXEMPTY
+    bne @done
+    sta $D0E2           ; (any write takes the byte off)
+    bra @more
+@done:
+    rts
+endproc
+
+; unsigned char ser_install(const void *driver) / ser_load_driver(name)
+proc _ser_install
+    .zp_uses $10, $11
+    .reg_clobbers A, X
+    .flag_clobbers N, Z
+    lda __ser_state
+    and #1
+    beq @inst
+    lda #ERR_INSTALLED
+    ldx #0
+    rts
+@inst:
+    lda #1
+    sta __ser_state
+    jmp __ser_ok
+    .func_flags zp_call
+endproc
+
+proc _ser_load_driver
+    .zp_uses $10, $11
+    .reg_clobbers A, X
+    .flag_clobbers N, Z
+    jmp _ser_install
+    .func_flags zp_call
+endproc
+
+; unsigned char ser_uninstall(void) / ser_unload(void): closed too
+proc _ser_uninstall
+    .reg_clobbers A, X
+    .flag_clobbers N, Z
+    lda __ser_state
+    bne @un
+    lda #ERR_NO_DRIVER
+    ldx #0
+    rts
+@un:
+    lda #0
+    sta __ser_state
+    jmp __ser_ok
+    .func_flags zp_call
+endproc
+
+proc _ser_unload
+    .reg_clobbers A, X
+    .flag_clobbers N, Z
+    jmp _ser_uninstall
+    .func_flags zp_call
+endproc
+
+; unsigned char ser_open(const struct ser_params *params): baudrate,
+; databits, stopbits, parity, handshake
+proc _ser_open
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    lda __ser_state
+    bne @drv
+    lda #ERR_NO_DRIVER
+    ldx #0
+    rts
+@drv:
+    ldy #1
+    lda ($10),y         ; SER_BITS_8
+    cmp #3
+    bne @fail
+    iny
+    lda ($10),y         ; SER_STOP_1, SER_PAR_NONE, SER_HS_NONE
+    iny
+    ora ($10),y
+    iny
+    ora ($10),y
+    bne @fail
+    ldy #0
+    lda ($10),y
+    cmp #23
+    bcs @baud
+    sta $08             ; divisor = table + 3 * code
+    asl a
+    adc $08
+    tax
+    lda __ser_div,x
+    sta $D0E4
+    lda __ser_div+1,x
+    sta $D0E5
+    lda __ser_div+2,x
+    sta $D0E6
+    jsr __ser_flush
+    lda #3
+    sta __ser_state
+    jmp __ser_ok
+@baud:
+    lda #ERR_BAUD_UNAVAIL
+    ldx #0
+    rts
+@fail:
+    lda #ERR_INIT_FAILED
+    ldx #0
+    rts
+    .func_flags zp_call
+endproc
+
+; ERR_NOT_OPEN (and C set) unless open
+proc __ser_isopen
+    lda __ser_state
+    and #2
+    bne @open
+    lda #ERR_NOT_OPEN
+    ldx #0
+    sec
+    rts
+@open:
+    clc
+    rts
+endproc
+
+; unsigned char ser_close(void): the receive buffer emptied
+proc _ser_close
+    .reg_clobbers A, X
+    .flag_clobbers C, N, Z
+    jsr __ser_isopen
+    bcs @ret
+    jsr __ser_flush
+    lda #1
+    sta __ser_state
+    jmp __ser_ok
+@ret:
+    rts
+    .func_flags zp_call
+endproc
+
+; unsigned char ser_get(char *b): ERR_NO_DATA when nothing came
+proc _ser_get
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    jsr __ser_isopen
+    bcs @ret
+    lda $D0E1
+    and #ST_RXEMPTY
+    beq @byte
+    lda #ERR_NO_DATA
+    ldx #0
+    rts
+@byte:
+    lda $D0E2
+    ldy #0
+    sta ($10),y
+    sta $D0E2           ; taken off the buffer
+    jmp __ser_ok
+@ret:
+    rts
+    .func_flags zp_call
+endproc
+
+; unsigned char ser_put(char b): ERR_OVERFLOW while the transmit buffer is
+; full
+proc _ser_put
+    .zp_uses $10, $11
+    .reg_clobbers A, X
+    .flag_clobbers C, N, Z
+    jsr __ser_isopen
+    bcs @ret
+    lda $D0E1
+    and #ST_TXFULL
+    beq @send
+    lda #ERR_OVERFLOW
+    ldx #0
+    rts
+@send:
+    lda $10
+    sta $D0E3
+    jmp __ser_ok
+@ret:
+    rts
+    .func_flags zp_call
+endproc
+
+; unsigned char ser_status(unsigned char *status): 0 (no errors, carrier
+; and data set ready: the UART has neither line)
+proc _ser_status
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    jsr __ser_isopen
+    bcs @ret
+    lda #0
+    tay
+    sta ($10),y
+    jmp __ser_ok
+@ret:
+    rts
+    .func_flags zp_call
+endproc
+
+; unsigned char ser_ioctl(unsigned char code, void *data): code 0
+; (SER_IOCTL_DIVISOR) sets the divisor from the unsigned long at data
+; (80 MHz / (divisor + 1) baud: rates the table lacks, up to megabauds)
+proc _ser_ioctl
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    lda $10
+    beq @div
+    lda #ERR_INV_IOCTL
+    ldx #0
+    rts
+@div:
+    ldy #0
+    lda ($12),y
+    sta $D0E4
+    iny
+    lda ($12),y
+    sta $D0E5
+    iny
+    lda ($12),y
+    sta $D0E6
+    jmp __ser_ok
+    .func_flags zp_call
+endproc

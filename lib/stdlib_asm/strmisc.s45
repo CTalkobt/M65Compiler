@@ -1,0 +1,116 @@
+; strmisc.s45 — stpcpy, bzero, strcoll, strxfrm (<string.h>)
+;
+;   char *stpcpy(char *dest, const char *src)                 $10, $12
+;   void bzero(void *p, size_t n)                             $10, $12
+;   int strcoll(const char *s1, const char *s2)               $10, $12
+;   size_t strxfrm(char *dest, const char *src, size_t n)     $10, $12, $14
+;
+; The "C" locale is the only one: strcoll is strcmp, strxfrm copies.
+; Each function its own section.
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.global _stpcpy, _bzero, _strcoll, _strxfrm
+.extern _memset, _strcmp
+
+.segment "code"
+
+; char *stpcpy(char *dest, const char *src): strcpy, returning the end of
+; dest (its NUL)
+proc _stpcpy
+    .zp_uses $10, $11, $12, $13
+    .zp_clobbers $10, $11, $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    ldy #0
+@loop:
+    lda ($12),y
+    sta ($10),y
+    beq @end
+    iny
+    bne @loop
+    inc $11
+    inc $13
+    bra @loop
+@end:
+    tya
+    clc
+    adc $10
+    sta $08
+    lda $11
+    adc #0
+    tax
+    lda $08
+    rts
+    .func_flags zp_call
+endproc
+
+; void bzero(void *p, size_t n): memset(p, 0, n)
+proc _bzero
+    .zp_uses $10, $11, $12, $13
+    .zp_clobbers $10, $11, $12, $13, $14, $15
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $12
+    sta $14
+    lda $13
+    sta $15
+    lda #0
+    sta $12
+    sta $13
+    jmp _memset
+    .func_flags zp_call
+endproc
+
+; int strcoll(const char *s1, const char *s2): strcmp
+proc _strcoll
+    .zp_uses $10, $11, $12, $13
+    .zp_clobbers $10, $11, $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    jmp _strcmp
+    .func_flags zp_call
+endproc
+
+; size_t strxfrm(char *dest, const char *src, size_t n): src's length;
+; src copied to dest when it fits in n bytes with its NUL
+proc _strxfrm
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .zp_clobbers $10, $11, $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    lda $12
+    sta $0A
+    lda $13
+    sta $0B
+    lda #0
+    sta $08
+    sta $09
+    tay
+@len:
+    lda ($0A),y
+    beq @counted
+    inw $0A
+    inw $08
+    bra @len
+@counted:
+    lda $08             ; length < n: copy
+    cmp $14
+    lda $09
+    sbc $15
+    bcs @ret
+@copy:
+    lda ($12),y
+    sta ($10),y
+    beq @ret
+    inw $12
+    inw $10
+    bra @copy
+@ret:
+    lda $08
+    ldx $09
+    rts
+    .func_flags zp_call
+endproc

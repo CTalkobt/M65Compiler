@@ -4,6 +4,9 @@
 
 #include <stddef.h>
 
+#define EXIT_SUCCESS    0
+#define EXIT_FAILURE    1
+
 __fastcall__ _Noreturn void exit(int status);
 _Noreturn void _exit(int status);
 __fastcall__ _Noreturn void abort(void);
@@ -22,6 +25,7 @@ signed long atol(char *s);
 __fastcall__ char *itoa(signed int value, char *str, int base);
 __fastcall__ char *utoa(unsigned int value, char *str, int base);
 __fastcall__ char *ltoa(signed long value, char *str, int base);
+__fastcall__ char *ultoa(unsigned long value, char *str, int base);
 
 /* short aliases — cast through atoi/itoa (short == int on this target) */
 #define atos(s) ((short)atoi(s))
@@ -68,6 +72,27 @@ __fastcall__ void *malloc(size_t size);
 __fastcall__ void free(void *ptr);
 __fastcall__ void *calloc(size_t nmemb, size_t size);
 __fastcall__ void *realloc(void *ptr, size_t size);
+/* size bytes at a multiple of alignment (a power of two) in *memptr, freed
+ * with free; 0, EINVAL or ENOMEM */
+int posix_memalign(void **memptr, size_t alignment, size_t size);
+
+/* cc65's heap functions: the free bytes, the largest malloc that can
+ * succeed, a block's size, and memory given to the heap */
+__fastcall__ size_t _heapmemavail(void);
+__fastcall__ size_t _heapmaxavail(void);
+__fastcall__ size_t _heapblocksize(const void *block);
+__fastcall__ void _heapadd(void *mem, size_t size);
+
+/* The environment (empty at the start; putenv's "NAME=value" strings) */
+char *getenv(const char *name);
+int putenv(char *string);
+/* No command processor: 0 for NULL, -1 for a command */
+int system(const char *command);
+
+/* srand with a seed from the hardware random number generator */
+__fastcall__ void _randomize(void);
+/* The size bytes at p and q exchanged */
+__fastcall__ void _swap(void *p, void *q, size_t size);
 
 /* Sorting and searching */
 void qsort(void *base, int nmemb, int size, int (*cmpfunc)());

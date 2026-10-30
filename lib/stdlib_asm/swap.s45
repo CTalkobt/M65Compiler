@@ -1,0 +1,41 @@
+; swap.s45 — void _swap(void *p, void *q, size_t size) (<stdlib.h>, cc65's):
+; the size bytes at p and q exchanged (p $10, q $12, size $14)
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.global __swap
+
+.segment "code"
+
+proc __swap
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .zp_clobbers $10, $11, $12, $13, $14, $15
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    ldy #0
+@loop:
+    lda $14
+    ora $15
+    beq @done
+    lda ($10),y
+    tax
+    lda ($12),y
+    sta ($10),y
+    txa
+    sta ($12),y
+    lda $14
+    bne @dec
+    dec $15
+@dec:
+    dec $14
+    iny
+    bne @loop
+    inc $11
+    inc $13
+    bra @loop
+@done:
+    rts
+    .func_flags zp_call
+endproc

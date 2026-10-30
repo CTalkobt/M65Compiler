@@ -1,0 +1,214 @@
+; heapinfo.s45 — cc65's heap functions (<stdlib.h>) on malloc.s45's heap
+;
+;   size_t _heapmemavail(void)                   the free bytes (blocks' sizes
+;                                                less their 2-byte headers)
+;   size_t _heapmaxavail(void)                   the largest malloc that can
+;                                                succeed now
+;   size_t _heapblocksize(const void *block)     $10: a malloc'd block's size
+;                                                (its request rounded up)
+;   void _heapadd(void *mem, size_t size)        $10, $12: memory given to
+;                                                the heap (ignored under 4
+;                                                bytes after evening it out)
+;
+; malloc.s45's heap is a list of free blocks sorted by address (__heap_ptr):
+; a block is its size (bit 0 set while allocated, header included) and, when
+; free, the next free block. The first three set the heap up as malloc would
+; when it has not run yet; _heapadd makes mem an allocated block and frees
+; it (so it joins neighbours).
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.global __heapmemavail, __heapmaxavail, __heapblocksize, __heapadd
+.extern __heap_ptr, _heap_init, _free
+
+.segment "bss"
+__heapadd_mem:  .res 2
+__heapadd_size: .res 2
+
+.segment "code"
+
+; The heap set up (malloc's first-use initialisation); $10 = the first free
+; block (Z set when none)
+proc __heapfirst
+    lda __heap_ptr
+    ora __heap_ptr+1
+    bne @ready
+    jsr _heap_init
+@ready:
+    lda __heap_ptr
+    sta $10
+    lda __heap_ptr+1
+    sta $11
+    ora $10
+    rts
+endproc
+
+; $12 = the size of the free block at $10, less its header
+proc __heapfree_size
+    ldy #0
+    lda ($10),y
+    and #$FE
+    sec
+    sbc #2
+    sta $12
+    iny
+    lda ($10),y
+    sbc #0
+    sta $13
+    rts
+endproc
+
+; $10 = the next free block (Z set at the end)
+proc __heapnext
+    ldy #2
+    lda ($10),y
+    tax
+    iny
+    lda ($10),y
+    stx $10
+    sta $11
+    ora $10
+    rts
+endproc
+
+; size_t _heapmemavail(void)
+proc __heapmemavail
+    .zp_clobbers $10, $11, $12, $13, $14, $15
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    jsr __heapfirst
+    php
+    lda #0
+    sta $14
+    sta $15
+    plp
+    beq @done
+@block:
+    jsr __heapfree_size
+    lda $14
+    clc
+    adc $12
+    sta $14
+    lda $15
+    adc $13
+    sta $15
+    jsr __heapnext
+    bne @block
+@done:
+    lda $14
+    ldx $15
+    rts
+    .func_flags zp_call
+endproc
+
+; size_t _heapmaxavail(void)
+proc __heapmaxavail
+    .zp_clobbers $10, $11, $12, $13, $14, $15
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    jsr __heapfirst
+    php
+    lda #0
+    sta $14
+    sta $15
+    plp
+    beq @done
+@block:
+    jsr __heapfree_size
+    lda $12             ; bigger than the largest so far?
+    cmp $14
+    lda $13
+    sbc $15
+    bcc @next
+    lda $12
+    sta $14
+    lda $13
+    sta $15
+@next:
+    jsr __heapnext
+    bne @block
+@done:
+    lda $14
+    ldx $15
+    rts
+    .func_flags zp_call
+endproc
+
+; size_t _heapblocksize(const void *block)
+proc __heapblocksize
+    .zp_uses $10, $11
+    .zp_clobbers $10, $11
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    lda $10
+    sec
+    sbc #2
+    sta $10
+    bcs @hdr
+    dec $11
+@hdr:
+    ldy #0
+    lda ($10),y
+    and #$FE
+    sec
+    sbc #2
+    pha
+    iny
+    lda ($10),y
+    sbc #0
+    tax
+    pla
+    rts
+    .func_flags zp_call
+endproc
+
+; void _heapadd(void *mem, size_t size)
+proc __heapadd
+    .zp_uses $10, $11, $12, $13
+    .zp_clobbers $10, $11, $12, $13, $14, $15, $16, $17
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    lda $10             ; an even start
+    and #1
+    beq @even
+    inw $10
+    lda $12
+    bne @dec
+    dec $13
+@dec:
+    dec $12
+@even:
+    lda $12
+    and #$FE            ; an even size, 4 or more
+    sta __heapadd_size
+    lda $13
+    sta __heapadd_size+1
+    bne @big
+    lda __heapadd_size
+    cmp #4
+    bcs @big
+    rts
+@big:
+    lda $10
+    sta __heapadd_mem
+    lda $11
+    sta __heapadd_mem+1
+    jsr __heapfirst     ; (the heap's own memory first)
+    lda __heapadd_mem
+    sta $10
+    lda __heapadd_mem+1
+    sta $11
+    ldy #0
+    lda __heapadd_size
+    ora #1              ; allocated
+    sta ($10),y
+    iny
+    lda __heapadd_size+1
+    sta ($10),y
+    inw $10
+    inw $10
+    jmp _free
+    .func_flags zp_call
+endproc

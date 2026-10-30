@@ -3,6 +3,9 @@
  *
  * Direct UART hardware access for serial communication.
  * Used primarily for test output via xemu -serialtcp.
+ *
+ * No library implements these: <serial.h> is the library's serial port
+ * (cc65's API on the buffered UART at $D0E0, which xemu -serialtcp uses).
  */
 
 #ifndef _UART_H
