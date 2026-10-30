@@ -51,6 +51,8 @@ EXAMPLES = {
     "fcm_graphics": "examples/c/fcm_graphics/fcm_graphics.prg",
     "tgi_demo": "examples/c/tgi_demo/tgi_demo.prg",
     "tgi_demo_640": "examples/c/tgi_demo/tgi_demo640.prg",
+    "tgi_patterns": "examples/c/tgi_demo/tgi_patterns.prg",
+    "tgi_patterns_640": "examples/c/tgi_demo/tgi_patterns640.prg",
     "map_decode": "examples/c/map_decode/map_decode.prg",
     "tunes": "examples/c/tunes/tunes.prg",
     "glamlambs": ("examples/c/glamlambs/glamlambs.prg", "examples/c/glamlambs/glamlambs.d81"),

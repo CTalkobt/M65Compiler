@@ -14,7 +14,7 @@ CRT0 = $(ROOT)/lib/build/crt0.o45
 STDLIB = $(ROOT)/lib/build/c45.lib
 INCLUDES = -I$(ROOT)/lib/include
 
-TESTS = test_atoi test_itoa
+TESTS = test_atoi test_itoa test_gets test_ftoa
 TARGETS = $(addsuffix .prg,$(TESTS))
 
 .PHONY: all clean
