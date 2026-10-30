@@ -4,6 +4,27 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### conio: all of cc65's conio, in assembly
+
+- `<conio.h>` has the rest of cc65's conio: `gotox`, `gotoy`, `cputc`,
+  `cputcxy`, `vcprintf`, `cgetc`, `cgets`, `cscanf`, `vcscanf`, `cpeekc`,
+  `cpeekcolor`, `cpeekrevers`, `cpeeks`, `cursor`, `bgcolor`, `bordercolor`,
+  `chline`, `chlinexy`, `cvline`, `cvlinexy`, `cclear`, `cclearxy`,
+  `screensize`, `cputhex8`, `cputhex16`, and the `CH_HLINE`... line
+  characters; `textcolor` returns the old colour. All in assembly
+  (`stdlib_asm/conio.s45`, linked per function) but the variadic `cprintf`,
+  `cprintfxy` and `cscanf`; `conio_set_width` moved there from C.
+- The earlier names are entries of the cc65 functions: `putch` is `cputc`,
+  `getch` `cgetc`, `textbackground` `bgcolor` (it returns the old colour
+  now, and keeps all 8 bits), `cursoron`/`cursoroff` `cursor`.
+- `cprintf` formats through `vcprintf` at the cursor: no 256-character
+  limit, and `%f`/`%e`/`%g` work (before, they printed nothing).
+- `'\r'` goes to column 0 instead of starting a new row, so cc65's
+  `"\r\n"` is one new row; `'\n'` still starts a new row at column 0.
+- `input_wait` and `input_waiting` are `__fastcall__`: stack-mode programs
+  using `cgetc`/`kbhit` no longer get two thunks.
+- Test: `test_conio_cc65_xemu.c`.
+
 ### cc45 reads the library's ZP routines from c45_stack.lib (#374)
 
 - The routines a call without a declaration (an implicit declaration,

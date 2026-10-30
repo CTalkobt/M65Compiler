@@ -1,15 +1,24 @@
 /* conio.h — Console I/O for MEGA65 (Text Mode)
  *
- * conio-compatible console I/O (as in cc65) on the text screen the VIC-IV
- * shows: 80x25 in MEGA65 mode, 40 columns, 50 rows or a moved screen too
- * (screenwidth/screenheight read the VIC-IV). Text is PETSCII (what cc45
- * makes of C strings), shown as screen codes. Colour is per character
- * (colour RAM); the background is the screen's ($D021).
+ * cc65's conio, all of it (lib/stdlib_asm/conio.s45, in assembly; cprintf,
+ * cprintfxy and cscanf in lib/stdlib/conio_printf.c), on the text screen the
+ * VIC-IV shows: 80x25 in MEGA65 mode, 40 columns, 50 rows or a moved screen
+ * too (screenwidth/screenheight read the VIC-IV). Text is PETSCII (what cc45
+ * makes of C strings), shown as screen codes: '\n' starts the next row,
+ * '\r' goes to column 0 (cc65's "\r\n" is one new row); other control
+ * characters are not shown. Colour is per character (colour RAM); the
+ * background is the screen's ($D021). The output scrolls at the bottom.
+ *
+ * The earlier cc45 names stay: putch is cputc, getch cgetc, textbackground
+ * bgcolor, cursoron / cursoroff cursor(1) / cursor(0), screenwidth /
+ * screenheight screensize's; cputch (x, y, ch) writes without moving the
+ * cursor (cputcxy moves it).
  */
 
 #pragma once
 
 #include <stddef.h>
+#include <stdarg.h>
 
 /* ============================================================================
  * TEXT COLOR CONSTANTS
@@ -44,265 +53,161 @@
 #define CONIO_ROWS      25      /* (screenheight()) */
 
 /* ============================================================================
- * SCREEN CONTROL FUNCTIONS
+ * LINE DRAWING CHARACTERS (PETSCII, as cc65's <cbm.h>)
  * ============================================================================ */
 
-/**
- * clrscr - Clear screen and home cursor
+#ifndef CH_HLINE
+#define CH_HLINE        192
+#define CH_VLINE        221
+#define CH_ULCORNER     176
+#define CH_URCORNER     174
+#define CH_LLCORNER     173
+#define CH_LRCORNER     189
+#define CH_TTEE         178
+#define CH_BTEE         177
+#define CH_LTEE         171
+#define CH_RTEE         179
+#define CH_CROSS        219
+#endif
+#ifndef CH_DEL
+#define CH_DEL          20      /* DEL, as cgetc gives it */
+#endif
+
+/* ============================================================================
+ * SCREEN AND CURSOR
  *
- * Clears the entire screen with the current background color
- * and positions the cursor at (0, 0).
- */
+ * Positions are clamped to the screen. All __fastcall__ (the ZP convention in
+ * either library).
+ * ============================================================================ */
+
+/* Clear the screen (spaces in the text colour) and home the cursor */
 __fastcall__ void clrscr(void);
 
-/**
- * gotoxy - Position cursor
- *
- * Moves the cursor to the specified (x, y) position.
- * (0, 0) is the top-left corner.
- *
- * Parameters:
- *   x — Column (0 to screenwidth() - 1; clamped)
- *   y — Row (0 to screenheight() - 1; clamped)
- */
+/* The cursor to (x, y), (0, 0) the top left corner */
 __fastcall__ void gotoxy(int x, int y);
+/* The cursor's column / row only */
+__fastcall__ void gotox(unsigned char x);
+__fastcall__ void gotoy(unsigned char y);
 
-/**
- * wherex - Get cursor column
- *
- * Returns the current cursor column.
- */
+/* The cursor's column / row */
 __fastcall__ int wherex(void);
-
-/**
- * wherey - Get cursor row
- *
- * Returns the current cursor row.
- */
 __fastcall__ int wherey(void);
 
-/* ============================================================================
- * TEXT ATTRIBUTE FUNCTIONS
- * ============================================================================ */
-
-/**
- * textcolor - Set text foreground color
- *
- * Sets the color for subsequent text output.
- *
- * Parameters:
- *   color — Color index (0-15 standard, 0-255 in enhanced mode)
- */
-__fastcall__ void textcolor(int color);
-
-/**
- * textbackground - Set the screen's background color ($D021)
- *
- * Text mode has no per-character background: this sets the whole screen's.
- *
- * Parameters:
- *   color — Background color index (0-15)
- */
-__fastcall__ void textbackground(int color);
-
-/**
- * textattr - Set combined text attributes
- *
- * textcolor(attr & 15) and textbackground(attr >> 4).
- * attr = (background << 4) | foreground
- *
- * Parameters:
- *   attr — Combined attribute byte
- */
-__fastcall__ void textattr(int attr);
-
-/**
- * revers - Reversed characters from now on (onoff 1) or not (0)
- *
- * Returns the previous setting.
- */
-__fastcall__ unsigned char revers(unsigned char onoff);
-
-/* ============================================================================
- * CHARACTER OUTPUT
- * ============================================================================ */
-
-/**
- * putch - Write character at cursor position
- *
- * Writes a character at the current cursor position
- * and advances the cursor.
- *
- * Parameters:
- *   ch — Character to write
- *
- * Returns:
- *   The character written
- */
-__fastcall__ int putch(int ch);
-
-/**
- * cputch - Write character with explicit position
- *
- * Writes a character at position (x, y).
- *
- * Parameters:
- *   x — Column
- *   y — Row
- *   ch — Character to write
- */
-__fastcall__ void cputch(int x, int y, int ch);
-
-/**
- * cputs - Write string at cursor position
- *
- * Writes a string starting at the current cursor position.
- *
- * Parameters:
- *   str — Null-terminated string
- *
- * Returns:
- *   0 on success, -1 on error
- */
-__fastcall__ int cputs(const char *str);
-
-/**
- * cputsxy - Write string at explicit position
- *
- * Writes a string starting at position (x, y).
- *
- * Parameters:
- *   x — Column
- *   y — Row
- *   str — Null-terminated string
- *
- * Returns:
- *   0 on success, -1 on error
- */
-__fastcall__ int cputsxy(int x, int y, const char *str);
-
-/* ============================================================================
- * FORMATTED OUTPUT
- * ============================================================================ */
-
-/**
- * cprintf - Formatted console output
- *
- * Like printf, but outputs to current cursor position.
- *
- * Parameters:
- *   format — Format string (printf-compatible)
- *   ... — Variable arguments
- *
- * Returns:
- *   Number of characters written
- */
-int cprintf(const char *format, ...);
-
-/**
- * cprintfxy - Formatted output at explicit position
- *
- * Like cprintf, but outputs to position (x, y).
- *
- * Parameters:
- *   x — Column
- *   y — Row
- *   format — Format string
- *   ... — Variable arguments
- *
- * Returns:
- *   Number of characters written
- */
-int cprintfxy(int x, int y, const char *format, ...);
-
-/* ============================================================================
- * KEYBOARD INPUT
- * ============================================================================ */
-
-/**
- * getch - Read character from keyboard (blocking)
- *
- * Waits for a key press (no echo) and returns its code as <input.h>'s
- * input_key gives it: PETSCII letters, RUN/STOP 3, F1-F14 $F1-$FE. After cursoron() the cursor cell shows reversed while
- * it waits.
- */
-__fastcall__ int getch(void);
-
-/**
- * kbhit - Check if key is available (non-blocking)
- *
- * Returns whether a key press is waiting: in the KERNAL keyboard buffer or
- * in the keyboard's hardware queue ($D610), where typed keys wait.
- *
- * Returns:
- *   1 if key available, 0 if no key
- */
-__fastcall__ int kbhit(void);
-
-/* ============================================================================
- * SCREEN SIZE FUNCTIONS
- * ============================================================================ */
-
-/**
- * screenwidth - Get screen width in columns
- *
- * Returns:
- *   The VIC-IV's characters per row ($D05E): 80 in MEGA65 mode
- */
+/* The screen's columns and rows (the VIC-IV's $D05E and $D07B + 1) */
+__fastcall__ void screensize(unsigned char *x, unsigned char *y);
 __fastcall__ int screenwidth(void);
-
-/**
- * screenheight - Get screen height in rows
- *
- * Returns:
- *   The VIC-IV's text rows ($D07B + 1): 25, or 50
- */
 __fastcall__ int screenheight(void);
 
 /* ============================================================================
- * CURSOR VISIBILITY
+ * COLOURS AND ATTRIBUTES
  * ============================================================================ */
 
-/**
- * cursoron - Show the cursor while getch waits
- */
-__fastcall__ void cursoron(void);
+/* The text colour (0-15) from now on; the old one */
+__fastcall__ unsigned char textcolor(unsigned char color);
 
-/**
- * cursoroff - getch shows no cursor (the default)
- */
-__fastcall__ void cursoroff(void);
+/* The screen's background ($D021: text mode has no background per
+ * character; the full-colour mode below has); the old one */
+__fastcall__ unsigned char bgcolor(unsigned char color);
+/* bgcolor */
+__fastcall__ unsigned char textbackground(int color);
+
+/* The border ($D020); the old one */
+__fastcall__ unsigned char bordercolor(unsigned char color);
+
+/* textcolor(attr & 15) and the background attr >> 4 */
+__fastcall__ void textattr(int attr);
+
+/* Reversed characters from now on (onoff 1) or not (0); the old setting */
+__fastcall__ unsigned char revers(unsigned char onoff);
 
 /* ============================================================================
- * SCREEN BUFFER FUNCTIONS
+ * OUTPUT (at the cursor, which advances: wrapping, scrolling at the bottom)
  * ============================================================================ */
 
-/**
- * getch_xy - Read character from screen position
- *
- * Reads the character currently displayed at position (x, y).
- *
- * Parameters:
- *   x — Column
- *   y — Row
- *
- * Returns:
- *   Character code
- */
-__fastcall__ int getch_xy(int x, int y);
+/* A character */
+__fastcall__ void cputc(char c);
+/* cputc, returning ch */
+__fastcall__ int putch(int ch);
+/* gotoxy(x, y), then cputc(c) */
+__fastcall__ void cputcxy(unsigned char x, unsigned char y, char c);
+/* ch at (x, y); the cursor stays */
+__fastcall__ void cputch(int x, int y, int ch);
 
-/**
- * getattr_xy - Read attribute from screen position
- *
- * Reads the color attribute at position (x, y).
- *
- * Parameters:
- *   x — Column
- *   y — Row
- *
- * Returns:
- *   Attribute byte (background << 4 | foreground)
- */
+/* A string: 0, or -1 for NULL */
+__fastcall__ int cputs(const char *str);
+/* gotoxy(x, y), then cputs(str) */
+__fastcall__ int cputsxy(int x, int y, const char *str);
+
+/* printf to the cursor (no length limit; %f %e %g as printf's); the
+ * number of characters */
+int cprintf(const char *format, ...);
+__fastcall__ int vcprintf(const char *format, va_list ap);
+/* gotoxy(x, y), then cprintf */
+int cprintfxy(int x, int y, const char *format, ...);
+
+/* Two / four hex digits */
+__fastcall__ void cputhex8(unsigned char val);
+__fastcall__ void cputhex16(unsigned val);
+
+/* A horizontal line (CH_HLINE) of length characters from the cursor */
+__fastcall__ void chline(unsigned char length);
+__fastcall__ void chlinexy(unsigned char x, unsigned char y, unsigned char length);
+/* A vertical line (CH_VLINE) down from the cursor (to the bottom row at
+ * most); the cursor ends below it */
+__fastcall__ void cvline(unsigned char length);
+__fastcall__ void cvlinexy(unsigned char x, unsigned char y, unsigned char length);
+/* length spaces from the cursor */
+__fastcall__ void cclear(unsigned char length);
+__fastcall__ void cclearxy(unsigned char x, unsigned char y, unsigned char length);
+
+/* ============================================================================
+ * KEYBOARD
+ * ============================================================================ */
+
+/* The next key, waiting for one, without echo: <input.h>'s codes (PETSCII
+ * letters, RETURN 13, DEL 20, RUN/STOP 3, F1-F14 $F1-$FE). With cursor(1)
+ * the cursor cell shows reversed while it waits. */
+__fastcall__ char cgetc(void);
+/* cgetc */
+__fastcall__ int getch(void);
+
+/* 1 when a key is waiting (in the KERNAL's buffer or the keyboard's queue
+ * at $D610) */
+__fastcall__ int kbhit(void);
+
+/* cgetc shows the cursor (onoff 1) or not (0, the default); the old setting */
+__fastcall__ unsigned char cursor(unsigned char onoff);
+__fastcall__ void cursoron(void);
+__fastcall__ void cursoroff(void);
+
+/* A line typed at the cursor, echoed with the cursor shown: up to size - 1
+ * characters, or until RETURN (echoed as a new row, not stored); DEL takes
+ * the last character back. buffer, or NULL when nothing was typed (or for
+ * a NULL buffer or a size below 2), as cc65's. */
+__fastcall__ char *cgets(char *buffer, int size);
+
+/* scanf of a line typed as cgets reads it (80 characters at most); what the
+ * format does not use is dropped. The items assigned, or EOF (-1). */
+int cscanf(const char *format, ...);
+__fastcall__ int vcscanf(const char *format, va_list ap);
+
+/* ============================================================================
+ * READING THE SCREEN
+ * ============================================================================ */
+
+/* The character at the cursor (PETSCII, as cputc writes it), its colour,
+ * and whether it is reversed (1) */
+__fastcall__ char cpeekc(void);
+__fastcall__ unsigned char cpeekcolor(void);
+__fastcall__ unsigned char cpeekrevers(void);
+
+/* length characters from the cursor on (into the next row after the last
+ * column; none past the bottom), then a NUL; the cursor stays */
+__fastcall__ void cpeeks(char *s, unsigned int length);
+
+/* The screen code at (x, y) (with its reverse bit) */
+__fastcall__ int getch_xy(int x, int y);
+/* The colour RAM byte at (x, y) */
 __fastcall__ int getattr_xy(int x, int y);
 
 /* ============================================================================
@@ -375,8 +280,8 @@ void fcm_putglyph(int x, int y, unsigned int n, int fg);
  * address is kept and the screen cleared. 1, or 0 for another width. The
  * ROM's screen editor is not told: set the width back before returning to
  * BASIC. */
-int conio_set_width(int width);
+__fastcall__ int conio_set_width(int width);
 
 /* screenwidth() */
-int conio_get_width(void);
+__fastcall__ int conio_get_width(void);
 
