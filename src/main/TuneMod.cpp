@@ -108,8 +108,8 @@ Use walk(const ModFile& m) {
                     default: break;
                     }
                 }
-                if (c.effect == 0xF && c.param) {
-                    if (c.param < 32) speed = c.param; else bpm = c.param;
+                if ((c.effect == 0xF || c.effect == 0x10) && c.param) {
+                    if (c.param < 32 || c.effect == 0x10) speed = c.param; else bpm = c.param;
                     if (first && t == 0) { u.speed = speed; u.bpm = bpm; }
                 }
                 if (c.effect == 0xD) { brk = true; startRow = (c.param >> 4) * 10 + (c.param & 15); }
@@ -871,7 +871,9 @@ std::string modImport(const ModFile& m, const std::vector<ModSampleReport>& r, c
                 int delay = 0, brk = -1, jump = -1, loopTo = -1;
                 for (int ch = 0; ch < m.channels; ch++) {
                     const ModCell& c = m.patterns[pat][(size_t)(rr * m.channels + ch)];
-                    if (c.effect == 0xF && c.param) { if (c.param < 32) speed = c.param; else bpm = c.param; }
+                    if ((c.effect == 0xF || c.effect == 0x10) && c.param) {
+                        if (c.param < 32 || c.effect == 0x10) speed = c.param; else bpm = c.param;
+                    }
                     if (c.effect == 0xD) brk = (c.param >> 4) * 10 + (c.param & 15);
                     if (c.effect == 0xB) jump = c.param;
                     if (c.effect == 0xE) {
@@ -1024,7 +1026,22 @@ std::string modImport(const ModFile& m, const std::vector<ModSampleReport>& r, c
         if (anyS) sidCh.push_back(ch);
         if (anyD) digiCh.push_back(ch);
     }
-    if (sidCh.size() > 12) { error = std::to_string(sidCh.size()) + " channels play SID notes: the player has 12 voices"; return ""; }
+    if (sidCh.size() > 12) {   // (the player has 12 voices: the channels with the most notes)
+        std::vector<std::pair<int, int>> busy;
+        for (int ch : sidCh) {
+            int n = 0;
+            for (const auto& x : sid[(size_t)ch]) n += x.kind == 0;
+            busy.push_back({-n, ch});
+        }
+        std::sort(busy.begin(), busy.end());
+        std::vector<int> keep;
+        for (size_t k = 0; k < busy.size(); k++) {
+            if (k < 12) keep.push_back(busy[k].second);
+            else lost["notes of channels past the SIDs' 12 voices"] -= busy[k].first;
+        }
+        std::sort(keep.begin(), keep.end());
+        sidCh = keep;
+    }
     // more than 4 channels of samples: the rest folded onto d1-d4 (a hit
     // where the voice has none at that row; else left out, counted)
     std::vector<std::vector<DigiRow>> dv;
@@ -1061,9 +1078,11 @@ std::string modImport(const ModFile& m, const std::vector<ModSampleReport>& r, c
         for (auto& c : n) c = (char)std::tolower((unsigned char)c);
         return n;
     };
-    std::string name = ident(o.name.empty() ? m.title : o.name);
-    snprintf(b, sizeof b, "; %s: tune45 text of %s (tune45 import: a MOD, %s, %d channels, %d positions)\n",
-             m.title.empty() ? "(untitled)" : m.title.c_str(), o.source.c_str(), m.tag.c_str(), nc, m.songLen);
+    std::string stemName = o.source.substr(0, o.source.find_last_of('.'));
+    std::string name = ident(!o.name.empty() ? o.name : !m.title.empty() ? m.title : stemName);
+    bool other = m.tag == "XM" || m.tag == "S3M" || m.tag == "IT";
+    snprintf(b, sizeof b, "; %s: tune45 text of %s (tune45 import: %s%s, %d channels, %d positions)\n",
+             m.title.empty() ? "(untitled)" : m.title.c_str(), o.source.c_str(), other ? "" : "a MOD, ", m.tag.c_str(), nc, m.songLen);
     t += b;
     t += "; Its samples: SID instruments (s01...), or kept as samples on the digi voices (the\n"
          ";  WAVs in " + o.samplesRef + "/, one a note it is played at), by " +

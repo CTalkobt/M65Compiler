@@ -31,7 +31,8 @@ struct ModSample {
 // A cell as a MOD has it; the other formats' readers translate theirs to
 // it: a note as the Amiga period it would have (C-2, as ProTracker names
 // it, is 428; a note n semitones higher 428 / 2^(n/12), rounded), and the
-// effect as ProTracker's (0-F, E0-EF)
+// effect as ProTracker's (0-F, E0-EF), and 0x10: the speed, any (1-255;
+// F takes 32 and over as the BPM)
 struct ModCell {
     uint8_t sample = 0;             // 0: none (the channel's last)
     uint16_t period = 0;            // 0: no note

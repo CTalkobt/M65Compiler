@@ -4,6 +4,18 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### tune45 import of XM, S3M and IT
+
+- `tune45 import` reads FastTracker 2 XM, Scream Tracker 3 S3M and Impulse
+  Tracker IT (`TuneTracker.cpp`) into the MOD structures: notes as MOD
+  periods with each sample's tuning, 16-bit/stereo/delta/IT-compressed
+  samples to 8-bit mono, ping-pong loops unrolled, instruments' note maps
+  resolved, effects and the volume column as ProTracker's (speed over 31 as
+  its own effect), patterns of any length; then `--report`, `--audition`,
+  `--extract` and the text as for a MOD. Over 12 channels of SID notes: the
+  busiest 12. Checked against libopenmpt on 24 public-domain modules
+  (lengths and sample data); tests: an XM, S3M and IT made by the test.
+
 ### The tune player: controls for a game
 
 - `tune_volume(0-15)` and `tune_fade(frames, volume)` / `tune_fading`: the

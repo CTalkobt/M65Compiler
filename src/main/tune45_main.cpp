@@ -11,6 +11,7 @@
 #include "TuneCreate.hpp"
 #include "TuneMidi.hpp"
 #include "TuneMod.hpp"
+#include "TuneTracker.hpp"
 #include "BasicTooling.hpp"
 #include "Pack45.hpp"
 #include "PackAudio.hpp"
@@ -45,7 +46,7 @@ void usage(std::ostream& o) {
          "  play      play the tunes on the PC (reSIDfp: four SIDs, stereo) through pw-play,\n"
          "            paplay or aplay, or into a .wav file\n"
          "  create    compose a tune (the text format): --genre, --tempo, --length, ...\n"
-         "  import    a Standard MIDI File or a MOD as text (convert and play take a .mid too)\n"
+         "  import    a Standard MIDI File, a MOD, XM, S3M or IT as text (convert and play take a .mid too)\n"
          "  sample    play sampled sound as the MEGA65's audio DMA does: 8-bit samples, packed\n"
          "            by pack45 or as they are (--rate), or a WAV, AU, MP3 (MP4 ... by ffmpeg)\n"
          "            made so first (as pack45 --sound)\n"
@@ -1024,14 +1025,19 @@ int main(int argc, char** argv) {
         return playSample(input, sampleRate, sampleMax, sampleUnsigned, po.wav);
     }
     if (cmd == "import") {
-        if (input.empty()) { std::cerr << "tune45: no MIDI or MOD file\n"; return 1; }
+        if (input.empty()) { std::cerr << "tune45: no MIDI, MOD, XM, S3M or IT file\n"; return 1; }
         std::string raw;
         if (!readFile(input, raw)) { std::cerr << "tune45: cannot read " << input << "\n"; return 1; }
         std::vector<uint8_t> bytes(raw.begin(), raw.end());
-        if (raw.compare(0, 4, "MThd") != 0 && isMod(input, bytes)) {
+        bool tracker = isTrackerModule(bytes);
+        if (raw.compare(0, 4, "MThd") != 0 && (tracker || isMod(input, bytes))) {
+            // a MOD, or an XM, S3M or IT read as one
             ModFile m;
             std::string err;
-            if (!readMod(bytes, m, err)) { std::cerr << "tune45: " << input << ": " << err << "\n"; return 1; }
+            if (!(tracker ? readTracker(bytes, m, err) : readMod(bytes, m, err))) {
+                std::cerr << "tune45: " << input << ": " << err << "\n";
+                return 1;
+            }
             auto r = analyseMod(m);
             // the choices: given, or (asking) beside the MOD
             std::string choicesPath = modChoices;
@@ -1096,7 +1102,8 @@ int main(int argc, char** argv) {
                     of << text;
                     if (!of) { std::cerr << "tune45: cannot write " << out << "\n"; return 1; }
                 }
-                std::cerr << "tune45: " << written.size() << " sample file" << (written.size() == 1 ? "" : "s") << " in " << io.samplesDir << "\n";
+                if (!written.empty())
+                    std::cerr << "tune45: " << written.size() << " sample file" << (written.size() == 1 ? "" : "s") << " in " << io.samplesDir << "\n";
                 // the text as convert reads it (the samples' bank included)
                 TuneFile chk;
                 TuneCompiler tc;

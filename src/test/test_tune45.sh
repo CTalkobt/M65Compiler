@@ -357,6 +357,94 @@ err $'pattern p: c4:1 *p' "a pattern calls no pattern"
 err $'instrument a pulse 09 a6 0600 1 1\npattern p: c4:1\ntune t 5 once\nv1: *p*0' "1-255, not"
 err $'pattern p: c4:1\npattern p: c4:2' "pattern p defined twice"
 
+# import of an XM, S3M and IT: the same song in each, read as a MOD is (the
+# middle note on a 16-bit saw tuned to 8363 Hz sounds c4; speed 3, 125 BPM;
+# an arpeggio, a note cut or note-off, 150 BPM, a pattern break; S3M and IT
+# with +++ and --- in their orders)
+python3 - $T/fx.xm <<'EOF'
+# fx.xm: one channel, speed 3 at 125 BPM; C-4 (the middle) on a 16-bit
+# 32-sample saw (8363 Hz: c4), an arpeggio (037), a note-off, E-4 at 150 BPM
+# (F96), a pattern break (D00) on row 7
+import sys, struct
+saw = [-32768 + 2048 * i for i in range(32)]
+delta, prev = b"", 0
+for v in saw: delta += struct.pack("<h", (v - prev + 32768) % 65536 - 32768); prev = v
+h = b"Extended Module: " + b"fx xm".ljust(20, b"\0") + b"\x1a" + b"gen".ljust(20, b"\0") + struct.pack("<H", 0x104)
+h += struct.pack("<I", 276) + struct.pack("<8H", 1, 0, 1, 1, 1, 1, 3, 125) + bytes(256)
+rows = [b"\x80"] * 16
+rows[0] = bytes([0x9B, 49, 1, 0x0F, 3])      # C-4, instrument 1, speed 3
+rows[1] = bytes([0x98, 0x00, 0x37])          # arpeggio 3,7
+rows[3] = bytes([0x81, 97])                  # note off
+rows[4] = bytes([0x99, 53, 0x0F, 150])       # E-4, 150 BPM
+rows[7] = bytes([0x88, 0x0D])                # pattern break
+pat = b"".join(rows)
+h += struct.pack("<IBHH", 9, 0, 16, len(pat)) + pat
+ins = struct.pack("<I", 263) + b"saw".ljust(22, b"\0") + bytes([0]) + struct.pack("<HI", 1, 40)
+ins += bytes(263 - len(ins))
+smp = struct.pack("<III", 64, 0, 64) + bytes([64, 0, 0x11, 128, 0, 0]) + b"saw16".ljust(22, b"\0")
+open(sys.argv[1], "wb").write(h + ins + smp + delta)
+EOF
+python3 - $T/fx.s3m <<'EOF'
+# fx.s3m: one channel, speed 3 at 125 BPM; C-4 (ST3's middle) on a 16-bit
+# unsigned 32-sample saw (C2 speed 8363: c4), an arpeggio (J37), a note cut
+# (^^), E-4 at 150 BPM (T96), a pattern break (C00) on row 7; the orders
+# 0, +++, ---
+import sys, struct
+saw = b"".join(struct.pack("<H", 2048 * i) for i in range(32))   # (unsigned)
+h = bytearray(b"fx s3m".ljust(28, b"\0") + bytes([0x1A, 16, 0, 0]) + struct.pack("<6H", 4, 1, 1, 0, 0x1320, 2) + b"SCRM")
+h += bytes([64, 3, 125, 0xB0, 0, 0]) + bytes(10) + bytes([0] + [255] * 31)
+h += bytes([0, 254, 255, 255]) + struct.pack("<HH", 7, 12)     # orders; the paragraphs: sample 0x70, pattern 0xC0
+h += bytes(0x70 - len(h))
+h += bytes([1]) + b"saw.raw".ljust(12, b"\0") + bytes([0]) + struct.pack("<H", 0x12)   # data at 0x120
+h += struct.pack("<III", 32, 0, 32) + bytes([64, 0, 0, 5]) + struct.pack("<I", 8363) + bytes(12)
+h += b"saw16".ljust(28, b"\0") + b"SCRS"
+pat = bytes([0x20 | 0x80, 0x40, 1, 1, 3, 0])      # C-4, instrument 1, A03
+pat += bytes([0x80, 10, 0x37, 0])                 # J37
+pat += bytes([0]) + bytes([0x20, 254, 0, 0])      # (row 2) ^^ on row 3
+pat += bytes([0x20 | 0x80, 0x44, 0, 20, 0x96, 0]) # E-4, T96
+pat += bytes([0, 0]) + bytes([0x80, 3, 0, 0])     # (rows 5, 6) C00 on row 7
+pat += bytes(64 - 7)
+h += struct.pack("<H", len(pat) + 2) + pat
+h += bytes(0x120 - len(h))
+open(sys.argv[1], "wb").write(bytes(h) + saw)
+EOF
+python3 - $T/fx.it <<'EOF'
+# fx.it: instrument mode (its keyboard: every note the sample), one
+# channel, speed 3 at 125 BPM; C-5 (IT's middle) on a 16-bit 32-sample saw
+# (C5 speed 8363: c4), an arpeggio (J37), a note cut (^^^), E-5 at 150 BPM
+# (T96), a pattern break (C00) on row 7; the orders 0, +++, ---
+import sys, struct
+saw = b"".join(struct.pack("<h", -32768 + 2048 * i) for i in range(32))
+h = b"IMPM" + b"fx it".ljust(26, b"\0") + bytes(2)
+h += struct.pack("<4H", 3, 1, 1, 1) + struct.pack("<4H", 0x214, 0x214, 0x0D, 0) + bytes([128, 48, 3, 125, 128, 0])
+h += struct.pack("<HII", 0, 0, 0) + bytes([32] * 64) + bytes([64] * 64) + bytes([0, 254, 255])
+o_ins = len(h) + 12
+ins = b"IMPI" + b"saw.iti".ljust(12, b"\0") + bytes([0, 0, 0, 0]) + struct.pack("<H", 0) + bytes([0, 0, 128, 32, 0, 0])
+ins += struct.pack("<H", 0x214) + bytes([1, 0]) + b"saw".ljust(26, b"\0") + bytes(6)
+ins += b"".join(bytes([n, 1]) for n in range(120))
+ins += bytes(554 - len(ins))
+o_smp = o_ins + len(ins)
+o_pat = o_smp + 0x50
+pat = bytes([0x81, 0x0B, 60, 1, 1, 3, 0])         # C-5, instrument 1, A03
+pat += bytes([0x81, 0x08, 10, 0x37, 0])           # J37
+pat += bytes([0]) + bytes([0x81, 0x01, 254, 0])   # (row 2) ^^^ on row 3
+pat += bytes([0x81, 0x09, 64, 20, 0x96, 0])       # E-5, T96
+pat += bytes([0, 0]) + bytes([0x81, 0x08, 3, 0, 0])   # (rows 5, 6) C00 on row 7
+pat += bytes(16 - 7)
+o_dat = o_pat + 8 + len(pat)
+smp = b"IMPS" + b"saw.raw".ljust(12, b"\0") + bytes([0, 64, 0x13, 64]) + b"saw16".ljust(26, b"\0") + bytes([1, 32])
+smp += struct.pack("<IIIIIII", 32, 0, 32, 8363, 0, 0, o_dat) + bytes(4)
+h += struct.pack("<III", o_ins, o_smp, o_pat) + ins + smp + struct.pack("<HH", len(pat), 16) + bytes(4) + pat
+open(sys.argv[1], "wb").write(h + saw)
+EOF
+for x in xm s3m it; do
+    $TUNE import $T/fx.$x -o $T/fx_$x.txt >/dev/null 2>&1
+    v=$(sed -n '/^tune/,$p' $T/fx_$x.txt | tr '\n' '/')
+    [ "$v" = "tune fx_$x 3 loop/v1: @s01 c4:1 arp:3,7 ~:1 arp:off ~:1 r:1 tempo:2.5 e4:4/" ] &&
+        grep -q "^instrument s01 saw 00 f3 800 0 0 hr=1 " $T/fx_$x.txt && head -1 $T/fx_$x.txt | grep -qi "(tune45 import: $x, 1 channels" &&
+        $TUNE list $T/fx_$x.txt 2>/dev/null | grep -q "8 ticks *0.4 s" && pass || fail "import of an $x: $v"
+done
+
 # play into a WAV: as long as the tune, and not silent
 if $TUNE play $T/pfest.txt --wav $T/p.wav >/dev/null 2>&1 && python3 - $T/p.wav <<'EOF'
 import sys, wave, struct
