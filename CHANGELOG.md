@@ -18,6 +18,8 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   `getchar`, echoed, DEL, RETURN), so `fgets(stdin)`, `fgetc(stdin)` and
   `scanf` work too.
 - `<stdlib.h>`: oscar64's `heapfree` (`_heapmemavail`) and `ftoa` (`%g`).
+- Examples: `tgi_demo`'s fill pattern page (`make patterns` for it alone;
+  screenshots in `doc/examples`); `stdlib_h`'s `test_gets` and `test_ftoa`.
 - Test: `test_tgi_pattern_xemu.c`.
 ### conio's full-colour mode in assembly
 

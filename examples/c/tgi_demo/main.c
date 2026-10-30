@@ -9,14 +9,18 @@
  * and at 640x200 in 16 ("mega65-ncm640.tgi", "mega65-ncm2.tgi"): first the
  * drawing functions on the one-page driver (the palette, lines clipped at
  * the screen's edge, circle, ellipse, arc and pie slice, bitmap text
- * magnified and turned); a key goes on to a star turning on the two-page
+ * magnified and turned); a key goes on to tgi_bar's fill patterns (a cc45
+ * extension: mono patterns, a colour pattern, bars side by side meeting
+ * seamlessly, a transparent pattern over stripes; copied by DMA); a key goes
+ * on to a star turning on the two-page
  * driver: each frame is drawn on the page not shown, then shown
  * (tgi_setdrawpage / tgi_setviewpage), so no frame is seen half drawn. A
  * key goes on; tgi_unload puts the text screen back at the end.
  *
  * TGI_CHECK (make check) runs without keys: both modes, 50 frames each,
  * then reports on the text screen. TGI_640_ONLY (make demo640): the
- * 640x200 part only.
+ * 640x200 part only. TGI_PATTERNS (make patterns): the fill patterns' page
+ * alone (tgi_patterns.prg; tgi_patterns640.prg with TGI_640_ONLY).
  */
 #include <tgi.h>
 #include <conio.h>
@@ -86,6 +90,76 @@ static void showcase(void) {
     tgi_outtextxy(X(110), 188, "Press a key");
 }
 
+/* tgi_bar's fill patterns (cc45's tgi_setpattern / tgi_setpattern_mono /
+ * tgi_setsolid): 8x8, anchored to the screen */
+static const unsigned char monos[8][8] = {
+    { 0xAA, 0x55, 0xAA, 0x55, 0xAA, 0x55, 0xAA, 0x55 },     /* checks */
+    { 0xFF, 0x80, 0x80, 0x80, 0xFF, 0x08, 0x08, 0x08 },     /* bricks */
+    { 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80 },     /* diagonal */
+    { 0x00, 0x22, 0x00, 0x88, 0x00, 0x22, 0x00, 0x88 },     /* dots */
+    { 0xFF, 0x88, 0x88, 0x88, 0xFF, 0x88, 0x88, 0x88 },     /* grid */
+    { 0x18, 0x24, 0x42, 0x81, 0x81, 0x42, 0x24, 0x18 },     /* diamonds */
+    { 0x81, 0x42, 0x24, 0x18, 0x18, 0x24, 0x42, 0x81 },     /* crosses */
+    { 0xF0, 0xF0, 0xF0, 0xF0, 0x0F, 0x0F, 0x0F, 0x0F },     /* big checks */
+};
+static unsigned char colours[64];
+
+static void patterns(void) {
+    unsigned char i;
+    tgi_clear();
+    tgi_setcolor(TGI_COLOR_WHITE);
+    tgi_outtextxy(8, 4, "Fill patterns, copied by DMA");
+    /* mono patterns, a colour and a background each */
+    tgi_outtextxy(8, 16, "Mono");
+    for (i = 0; i < 8; i++) {
+        tgi_setpattern_mono(monos[i], (unsigned char)(2 + i), (unsigned char)(i & 1 ? 11 : 0));
+        tgi_bar(X(8 + i * 38), 26, X(39 + i * 38) + (wide ? 1 : 0), 62);
+    }
+    /* a colour pattern (64 colours: the 640x200 driver's low nibbles) */
+    for (i = 0; i < 64; i++) colours[i] = (unsigned char)(2 + ((i >> 3) + (i & 7)) % 14);
+    tgi_setcolor(TGI_COLOR_WHITE);
+    tgi_outtextxy(8, 70, "Colour");
+    tgi_setpattern(colours, TGI_TRANSPARENT);
+    tgi_bar(X(8), 80, X(150), 118);
+    /* two bars side by side: one pattern, no seam */
+    tgi_outtextxy(X(164), 70, "Side by side");
+    tgi_setpattern_mono(monos[5], TGI_COLOR_YELLOW, TGI_COLOR_BLUE);
+    tgi_bar(X(164), 80, X(235), 118);
+    tgi_setpattern_mono(monos[5], TGI_COLOR_YELLOW, TGI_COLOR_BLUE);
+    tgi_bar(X(235) + 1, 80, X(311), 118);
+    /* a transparent pattern over stripes: the clear bits show them */
+    tgi_setsolid();
+    tgi_outtextxy(8, 126, "Transparent");
+    for (i = 0; i < 16; i++) {
+        tgi_setcolor((unsigned char)(2 + i % 14));
+        tgi_bar(X(8 + i * 19), 136, X(26 + i * 19) + (wide ? 1 : 0), 180);
+    }
+    tgi_setpattern_mono(monos[6], TGI_COLOR_WHITE, TGI_TRANSPARENT);
+    tgi_bar(X(30), 142, X(290), 174);
+    tgi_setsolid();
+    tgi_setcolor(TGI_COLOR_GRAY3);
+    tgi_outtextxy(X(110), 188, "Press a key");
+}
+
+/* The pattern page's pixels where the patterns put them (make check) */
+static unsigned char patterns_ok(void) {
+    int x, y;
+    unsigned char bit;
+    for (y = 30; y < 38; y++)                   /* the checks: 2 on 0 */
+        for (x = X(12); x < X(12) + 8; x++) {
+            bit = monos[0][y & 7] & (0x80 >> (x & 7));
+            if (tgi_getpixel(x, y) != (bit ? 2 : 0)) return 0;
+        }
+    for (x = X(160) - 8; x < X(240) + 8; x++) { /* across the seam */
+        bit = monos[5][90 & 7] & (0x80 >> (x & 7));
+        if (x >= X(164) && tgi_getpixel(x, 90) != (bit ? TGI_COLOR_YELLOW : TGI_COLOR_BLUE)) return 0;
+    }
+    /* the transparent pattern: white where its bits are, a stripe where not */
+    bit = monos[6][150 & 7] & (0x80 >> (X(100) & 7));
+    return tgi_getpixel(X(100), 150) == (bit ? TGI_COLOR_WHITE : (unsigned char)(2 + ((X(100) - X(8)) / X(19)) % 14)) &&
+           tgi_getpixel(X(8) + 2, 70 + 40) == colours[((110 & 7) << 3) + ((X(8) + 2) & 7)];
+}
+
 /* A five-pointed star turned by a (of 64): 10 corners, points and
  * notches */
 static void star(unsigned char a, unsigned char colour) {
@@ -135,11 +209,26 @@ static unsigned char demo(const void *one, const char *two) {
     }
     wide = tgi_getmaxx() > 319;
     tgi_init();
+#ifdef TGI_PATTERNS
+    patterns();
+    while (!kbhit()) ;
+    getch();
+    tgi_unload();
+    (void)two;
+    (void)frames;
+    (void)ok;
+    return 1;
+#endif
     showcase();
 #ifdef TGI_CHECK
     ok = tgi_getpixel(X(60), 110) == TGI_COLOR_YELLOW && tgi_getpixel(0, 0) == TGI_COLOR_WHITE;
+    patterns();
+    ok = ok && patterns_ok();
 #else
     ok = 1;
+    while (!kbhit()) ;
+    getch();
+    patterns();
     while (!kbhit()) ;
     getch();
 #endif

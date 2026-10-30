@@ -231,17 +231,26 @@ a pixel). The first screen of each shows the drawing functions: the first
 32 palette entries (or all 16) as bars, lines clipped at the screen's edge,
 circle, ellipse, arc and pie slice (the circle's x radius doubled at 640,
 its pixels being half as wide), and bitmap text at 1x, 2x and turned
-(`TGI_TEXT_VERTICAL`). A key loads the two-page driver by name
+(`TGI_TEXT_VERTICAL`). A key goes on to `tgi_bar`'s fill patterns (a
+cc45 extension: `tgi_setpattern_mono` for eight one-colour patterns,
+`tgi_setpattern` for a pattern of colours, two bars side by side meeting
+without a seam, a transparent pattern over stripes; `tgi_setsolid` back to
+the colour), copied by DMA. A key loads the two-page driver by name
 (`tgi_load_driver("mega65-fcm2.tgi")`, `"mega65-ncm2.tgi"`) and turns two
 stars, each frame drawn on the page not shown, then shown
 (`tgi_setdrawpage` / `tgi_setviewpage`). A key goes on; `tgi_unload` puts
 the text screen back. `make check` builds a test that runs both modes, 50
 frames each, then reports on the text screen; `tgi_demo640.prg` is the
-640x200 part alone.
+640x200 part alone, and `make patterns` builds the pattern page alone
+(`tgi_patterns.prg`, `tgi_patterns640.prg`).
 
 ![tgi_demo](images/tgi_demo.png)
 
+![tgi_demo's fill patterns](images/tgi_patterns.png)
+
 ![tgi_demo at 640x200](images/tgi_demo_640.png)
+
+![tgi_demo's fill patterns at 640x200](images/tgi_patterns_640.png)
 
 ### map_decode
 
@@ -602,6 +611,8 @@ their screen is BASIC's `READY.`.
 |---------|--------|--------|
 | test_atoi | `atoi` | [stdlib_h](https://github.com/CTalkobt/M65Compiler/blob/main/examples/c/stdlib/stdlib_h/test_atoi.c) |
 | test_itoa | `itoa` | [stdlib_h](https://github.com/CTalkobt/M65Compiler/blob/main/examples/c/stdlib/stdlib_h/test_itoa.c) |
+| test_gets | `gets`, `gets_s` (a typed line: the keys preloaded) | [stdlib_h](https://github.com/CTalkobt/M65Compiler/blob/main/examples/c/stdlib/stdlib_h/test_gets.c) |
+| test_ftoa | `ftoa`, `heapfree` | [stdlib_h](https://github.com/CTalkobt/M65Compiler/blob/main/examples/c/stdlib/stdlib_h/test_ftoa.c) |
 | test_memops | `memset`, `memcpy`, `memcmp` | [string_h](https://github.com/CTalkobt/M65Compiler/blob/main/examples/c/stdlib/string_h/test_memops.c) |
 | test_strchr | `strchr`, `strrchr` | [string_h](https://github.com/CTalkobt/M65Compiler/blob/main/examples/c/stdlib/string_h/test_strchr.c) |
 | test_strcmp | `strcmp` | [string_h](https://github.com/CTalkobt/M65Compiler/blob/main/examples/c/stdlib/string_h/test_strcmp.c) |
