@@ -826,16 +826,6 @@ bool extractModSamples(const ModFile& m, const std::vector<ModSampleReport>& r, 
 
 namespace {
 
-// a tracker note as part of a name: C#2 -> cs2
-std::string ptName(uint16_t period) {
-    std::string n;
-    for (char c : ptNote(period)) {
-        if (c == '#') n += 's';
-        else if (c != '-') n += (char)std::tolower((unsigned char)c);
-    }
-    return n;
-}
-
 std::string fmtNum(double v) {
     char b[32];
     snprintf(b, sizeof b, "%.2f", v);
@@ -851,7 +841,14 @@ struct SidRow {
     std::string tokens;
 };
 
-struct DigiRow { std::vector<std::string> hits; };
+struct DigiRow {
+    std::string hit;                // "s08:c4": sample 8 at that note, or ""
+    bool stop = false;              // the channel stopped (a note cut, the channel's SID note)
+    int vol = -1;                   // the volume from here (0-64; -1 as it was)
+};
+
+// a tracker period as the note tune45 names (C-2, period 428, as c4)
+int periodNote(double period) { return std::max(0, std::min(127, (int)std::lround(60 + 12 * std::log2(428.0 / period)))); }
 
 }  // namespace
 
@@ -905,17 +902,11 @@ std::string modImport(const ModFile& m, const std::vector<ModSampleReport>& r, c
     std::vector<double> fpt;        // each tick's frames
     std::vector<bool> barAt;        // a pattern starts at the tick
     struct Ch { int cur = 0; bool sid = false; int note = -1; size_t noteAt = 0; int vibDepth = 0, porta = 3; bool arp = false;
-                int arpA = 0, arpB = 0; double digiEnd = 0, digiStart = 0; std::string digiHit; };
+                int arpA = 0, arpB = 0; double digiEnd = 0; int vol = 64, volSaid = 64; };
     std::vector<Ch> chs((size_t)nc);
-    std::map<std::string, std::pair<int, uint16_t>> hitOf;   // a hit's name: its sample, its period
-    std::map<std::string, double> held;                     // the longest each hit sounds
+    std::set<int> keptUsed;         // the kept samples the song plays
     std::map<std::string, int> lost;
-    bool needCut = false;
     double now = 0;
-    auto endHit = [&](Ch& c) {
-        if (!c.digiHit.empty()) held[c.digiHit] = std::max(held[c.digiHit], now - c.digiStart);
-        c.digiHit.clear();
-    };
     for (const Row& w : rows) {
         double dt = w.speed * 2.5 / w.bpm;
         for (int rep = 0; rep <= w.delay; rep++) {
@@ -945,18 +936,15 @@ std::string modImport(const ModFile& m, const std::vector<ModSampleReport>& r, c
                         c.sid = true;
                         c.note = sr.note;
                         c.noteAt = sid[(size_t)ch].size();
-                        if (c.digiEnd > now) { dr.hits = {"cut"}; needCut = true; }
-                        endHit(c);
+                        if (c.digiEnd > now) dr.stop = true;
                         c.digiEnd = 0;
                     } else if (note) {
-                        std::string h = "s" + std::string(R->index < 10 ? "0" : "") + std::to_string(R->index) + "_" + ptName(cell.period);
-                        hitOf[h] = {s, cell.period};
-                        dr.hits = {h};
-                        endHit(c);
+                        char hn[16];
+                        snprintf(hn, sizeof hn, "s%02d", R->index);
+                        dr.hit = std::string(hn) + ":" + TuneCompiler::noteName(periodNote(cell.period));
+                        keptUsed.insert(s);
                         const ModSample& S = m.samples[(size_t)s];
-                        c.digiStart = now;
-                        c.digiHit = h;
-                        c.digiEnd = now + (S.looped() ? 3600 : S.data.size() / modRate(per));
+                        c.digiEnd = now + (S.looped() ? 1e9 : S.data.size() / modRate(per));
                         if (c.sid) { sr.kind = 2; c.sid = false; }
                         if (cell.effect == 9) lost["sample offsets"]++;
                     } else if (porta && c.sid && isSid) {
@@ -972,9 +960,19 @@ std::string modImport(const ModFile& m, const std::vector<ModSampleReport>& r, c
                         }
                     } else if (cut || (note && !playable)) {
                         if (c.sid) { sr.kind = 2; c.sid = false; }
-                        if (c.digiEnd > now) { dr.hits = {"cut"}; needCut = true; c.digiEnd = 0; }
-                        endHit(c);
+                        if (c.digiEnd > now) { dr.stop = true; c.digiEnd = 0; }
                     }
+                    // the volume (a digi voice's: vol:; a SID voice has none): a
+                    // sample's own at its number, C, slides (the row's end)
+                    if (playable && cell.sample) c.vol = m.samples[(size_t)s].volume;
+                    int slide = 0;
+                    if (cell.effect == 0xC) c.vol = std::min<int>(64, cell.param);
+                    if (cell.effect == 0xA || cell.effect == 0x5 || cell.effect == 0x6)
+                        slide = ((cell.param >> 4) ? (cell.param >> 4) : -(cell.param & 15)) * (w.speed - 1);
+                    if (cell.effect == 0xE && (cell.param >> 4) == 0xA) slide = cell.param & 15;
+                    if (cell.effect == 0xE && (cell.param >> 4) == 0xB) slide = -(cell.param & 15);
+                    c.vol = std::max(0, std::min(64, c.vol + slide));
+                    if (c.vol != c.volSaid && (c.digiEnd > now || !dr.hit.empty())) { dr.vol = c.vol; c.volSaid = c.vol; }
                     if (porta && !c.sid) lost["slides to a note not sounding on the SID"]++;
                     // arpeggio: this row's (off where a row has none)
                     if (c.sid) {
@@ -997,11 +995,11 @@ std::string modImport(const ModFile& m, const std::vector<ModSampleReport>& r, c
                     }
                     switch (cell.effect) {
                     case 0x1: case 0x2: lost["pitch slides"]++; break;
-                    case 0x5: case 0x6: case 0xA: lost["volume changes"]++; break;
+                    case 0x5: case 0x6: case 0xA: if (c.sid) lost["volume changes on SID voices"]++; break;
                     case 0x7: lost["tremolo"]++; break;
-                    case 0xC: if (cell.param) lost["volume changes"]++; break;
+                    case 0xC: if (cell.param && c.sid) lost["volume changes on SID voices"]++; break;
                     case 0xE:
-                        if ((cell.param >> 4) == 0xA || (cell.param >> 4) == 0xB) lost["volume changes"]++;
+                        if (((cell.param >> 4) == 0xA || (cell.param >> 4) == 0xB) && c.sid) lost["volume changes on SID voices"]++;
                         if ((cell.param >> 4) == 0x9) lost["retriggers"]++;
                         if ((cell.param >> 4) == 0xD) lost["note delays"]++;
                         if ((cell.param >> 4) == 0x1 || (cell.param >> 4) == 0x2) lost["pitch slides"]++;
@@ -1015,7 +1013,6 @@ std::string modImport(const ModFile& m, const std::vector<ModSampleReport>& r, c
             now += dt;
         }
     }
-    for (auto& c : chs) endHit(c);
     const size_t ticks = fpt.size();
 
     // the voices: a channel's SID notes, a channel's samples
@@ -1023,25 +1020,22 @@ std::string modImport(const ModFile& m, const std::vector<ModSampleReport>& r, c
     for (int ch = 0; ch < nc; ch++) {
         bool anyS = false, anyD = false;
         for (const auto& x : sid[(size_t)ch]) anyS |= x.kind == 0;
-        for (const auto& x : digi[(size_t)ch]) for (const auto& h : x.hits) anyD |= h != "cut";
+        for (const auto& x : digi[(size_t)ch]) anyD |= !x.hit.empty();
         if (anyS) sidCh.push_back(ch);
         if (anyD) digiCh.push_back(ch);
     }
     if (sidCh.size() > 12) { error = std::to_string(sidCh.size()) + " channels play SID notes: the player has 12 voices"; return ""; }
-    // more than 4 channels of samples: the rest folded onto d1-d4 (hits at
-    // once mixed: a+b)
+    // more than 4 channels of samples: the rest folded onto d1-d4 (a hit
+    // where the voice has none at that row; else left out, counted)
     std::vector<std::vector<DigiRow>> dv;
     for (size_t k = 0; k < digiCh.size(); k++) {
         const auto& src = digi[(size_t)digiCh[k]];
         if (k < 4) { dv.push_back(src); continue; }
-        lost["sample channels folded onto d1-d4 (more than the audio DMA's 4)"]++;
         auto& dst = dv[k % 4];
         for (size_t t = 0; t < ticks; t++) {
-            auto& hs = dst[t].hits;
-            for (const auto& h : src[t].hits) if (h != "cut") hs.push_back(h);
-            if (hs.size() > 1) hs.erase(std::remove(hs.begin(), hs.end(), std::string("cut")), hs.end());
-            std::sort(hs.begin(), hs.end());
-            hs.erase(std::unique(hs.begin(), hs.end()), hs.end());
+            if (src[t].hit.empty()) continue;
+            if (dst[t].hit.empty()) { dst[t].hit = src[t].hit; dst[t].stop = false; dst[t].vol = src[t].vol; }
+            else lost["hits of more sample channels than the audio DMA's 4"]++;
         }
     }
 
@@ -1105,37 +1099,36 @@ std::string modImport(const ModFile& m, const std::vector<ModSampleReport>& r, c
             t += b;
         }
     }
-    // the kept samples: a WAV a note (its rate the note's, so tune45 keeps
-    // the pitch), a loop unrolled to the longest the song holds it
-    if (!hitOf.empty() || needCut) {
+    // the kept samples: a WAV each, at the rate of its note (note=: the
+    // note played most, the sample's tuning in); its hits at their notes
+    // (pitched: one copy); a loop as loop= (the WAV's smpl chunk too)
+    if (!keptUsed.empty()) {
         mkdir(o.samplesDir.c_str(), 0777);
         t += "\n";
     }
-    if (needCut) {
-        std::string path = o.samplesDir + "/00_cut.wav";
-        if (!writeWav8(path, std::vector<int8_t>(16, 0), 8000, false, 0, 0, 60, error)) return "";
-        written.push_back(path);
-        t += "sample cut " + o.samplesRef + "/00_cut.wav   ; silence: a sample stopped (a note cut, or the channel's SID note)\n";
-    }
-    for (const auto& [h, sp] : hitOf) {
-        const ModSampleReport& R = r[(size_t)sp.first];
-        const ModSample& S = m.samples[(size_t)sp.first];
-        double per = sp.second * std::pow(2.0, -S.tuneSemis() / 12);
-        uint32_t rate = (uint32_t)std::lround(modRate(per));
-        std::vector<int8_t> data = S.data;
-        if (S.looped()) {
-            size_t want = (size_t)(std::min(2.0, std::max(0.1, held[h])) * rate);
-            data.resize(S.loopStart + S.loopLen);
-            while (data.size() < want) data.push_back(S.data[S.loopStart + (data.size() - S.loopStart) % S.loopLen]);
-            data.resize(std::min(data.size(), std::max(want, (size_t)S.loopStart + S.loopLen)));
-        }
-        std::string file = fileStem(R, S) + "_" + ptName(sp.second) + ".wav";
-        if (!writeWav8(o.samplesDir + "/" + file, data, rate, false, 0, 0, unityNote(R, per), error)) return "";
+    for (int k : keptUsed) {
+        const ModSampleReport& R = r[(size_t)k];
+        const ModSample& S = m.samples[(size_t)k];
+        int n0 = (int)std::lround(60 + 12 * std::log2(428.0 / R.medianPeriod) - S.tuneSemis());
+        double rateD = modRate(428.0 * std::pow(2.0, -(n0 - 60) / 12.0) * std::pow(2.0, -S.tuneSemis() / 12));
+        uint32_t rate = (uint32_t)std::lround(rateD);
+        std::string file = fileStem(R, S) + ".wav";
+        if (!writeWav8(o.samplesDir + "/" + file, S.data, rate, S.looped(), S.loopStart, S.loopLen,
+                       unityNote(R, R.medianPeriod), error))
+            return "";
         written.push_back(o.samplesDir + "/" + file);
-        std::string rateOpt = R.kind == "hat" && rate >= 16000 ? " rate=16000" : "";
-        if (o.keptBytes) (*o.keptBytes)[sp.first] += data.size() * std::min(1.0, (rateOpt.empty() ? 12000.0 : 16000.0) / rate);
-        snprintf(b, sizeof b, "%-56s ; %d %s (%s%s, %d)%s\n", ("sample " + h + " " + o.samplesRef + "/" + file + rateOpt).c_str(),
-                 R.index, S.name.c_str(), R.verdict.c_str(), R.chosen ? " chosen" : "", R.score, S.looped() ? ": its loop unrolled" : "");
+        std::string opts = " note=" + TuneCompiler::noteName(n0);
+        if (S.looped()) {
+            char lb[32];
+            snprintf(lb, sizeof lb, " loop=%.4f", S.loopStart / (double)rate);
+            opts += lb;
+        }
+        if (R.kind == "hat" && rate >= 16000) opts += " rate=16000";
+        if (o.keptBytes) (*o.keptBytes)[k] += S.data.size() * std::min(1.0, (R.kind == "hat" ? 16000.0 : 12000.0) / rate);
+        char hn[16];
+        snprintf(hn, sizeof hn, "s%02d", R.index);
+        snprintf(b, sizeof b, "%-56s ; %d %s (%s%s, %d)\n", ("sample " + std::string(hn) + " " + o.samplesRef + "/" + file + opts).c_str(),
+                 R.index, S.name.c_str(), R.verdict.c_str(), R.chosen ? " chosen" : "", R.score);
         t += b;
     }
     t += "\n";
@@ -1190,11 +1183,11 @@ std::string modImport(const ModFile& m, const std::vector<ModSampleReport>& r, c
     }
     for (size_t di = 0; di < dv.size(); di++) {
         const auto& tr = dv[di];
-        t += voiceText("d" + std::to_string(di + 1) + ":", [&](size_t k) { return !tr[k].hits.empty(); },
+        t += voiceText("d" + std::to_string(di + 1) + ":", [&](size_t k) { return !tr[k].hit.empty() || tr[k].stop || tr[k].vol >= 0; },
             [&](size_t k, size_t n) {
-                std::string s;
-                for (const auto& h : tr[k].hits) s += (s.empty() ? "" : "+") + h;
-                return " " + (s.empty() ? std::string("r") : s) + ":" + std::to_string(n);
+                const DigiRow& x = tr[k];
+                std::string s = x.vol >= 0 ? " vol:" + std::to_string(x.vol) : "";
+                return s + " " + (!x.hit.empty() ? x.hit : x.stop ? "-" : "r") + ":" + std::to_string(n);
             });
     }
     return t;

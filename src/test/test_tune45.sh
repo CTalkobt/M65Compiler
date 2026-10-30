@@ -195,7 +195,7 @@ $TUNE import $T/song.mod --extract $T/modx >/dev/null 2>&1 && [ "$(ls $T/modx | 
     pass || fail "import --extract of a MOD ($(ls $T/modx 2>&1 | tr '\n' ' '))"
 # (without -o: the text to the output, the WAVs beside the MOD, named from here)
 rm -rf $T/song_samples
-$TUNE import $T/song.mod 2>/dev/null | grep -q "^sample s04_c2 $T/song_samples/04_noise_c2.wav" && [ -f $T/song_samples/04_noise_c2.wav ] &&
+$TUNE import $T/song.mod 2>/dev/null | grep -q "^sample s04 $T/song_samples/04_noise.wav" && [ -f $T/song_samples/04_noise.wav ] &&
     pass || fail "import of a MOD to the output"
 # --audition: a sample's original, its SID stand-in, then both (the original
 # left, the SID right), each as loud: three parts, the last two channels apart
@@ -240,8 +240,9 @@ $TUNE import $T/song.mod --report --choices $T/bad.choices 2>&1 | grep -q "bad.c
 # import of a MOD as text: the rows in play order a tick each; the speed
 # (the tune's frames a tick) and a BPM change (tempo:); an arpeggio on a row,
 # a slide to a note (a glide), vibrato (the instrument's), a note cut, a
-# pattern break; a kept sample (a digi voice: a WAV a note) stopped by a SID
-# note on its channel (the silent cut)
+# pattern break; kept samples (digi voices: a WAV each, hit at its note)
+# stopped by a SID note on their channel and by a cut (-), a loop (loop=),
+# the sample's volume and C (vol:)
 python3 - $T/fx.mod <<'EOF'
 import sys, random
 random.seed(2)
@@ -251,7 +252,8 @@ bell = bytes([0]) * 2
 h = b"fx test".ljust(20, b"\0")
 h += b"saw".ljust(22, b"\0") + bytes([0, 16, 0, 64, 0, 0, 0, 16])
 h += b"snare".ljust(22, b"\0") + bytes([3, 232, 0, 64, 0, 0, 0, 1])
-h += (bytes(22) + bytes([0, 0, 0, 0, 0, 0, 0, 1])) * 29
+h += b"wind".ljust(22, b"\0") + bytes([1, 244, 0, 48, 0, 150, 1, 94])
+h += (bytes(22) + bytes([0, 0, 0, 0, 0, 0, 0, 1])) * 28
 h += bytes([2, 127, 0, 1]) + bytes(126) + b"M.K."
 def cell(smp, per, fx, prm): return bytes([(smp & 0xF0) | per >> 8, per & 255, (smp & 15) << 4 | fx, prm])
 p0 = bytearray(1024); p1 = bytearray(1024)
@@ -264,16 +266,21 @@ put(p0, 5, 0, cell(0, 0, 0xE, 0xC0))     # note cut
 put(p0, 7, 0, cell(1, 254, 0, 0))        # A-2
 put(p0, 6, 1, cell(2, 428, 0, 0))        # the snare (kept), ringing...
 put(p0, 8, 1, cell(1, 428, 0, 0))        # ...a SID note on its channel stops it
+put(p0, 7, 1, cell(0, 0, 0xC, 0x20))     # its volume 32
+put(p0, 2, 2, cell(3, 428, 0, 0))        # wind (kept, looped, volume 48)...
+put(p0, 9, 2, cell(0, 0, 0xE, 0xC0))     # ...cut
 put(p0, 9, 0, cell(0, 0, 0xD, 0))        # pattern break
 put(p1, 0, 0, cell(1, 214, 0xF, 150))    # C-3, 150 BPM
-open(sys.argv[1], "wb").write(h + bytes(p0) + bytes(p1) + saw + noise)
+wind = bytes([int(random.uniform(-1, 1) * 100) & 255 for i in range(1000)])
+open(sys.argv[1], "wb").write(h + bytes(p0) + bytes(p1) + saw + noise + wind)
 EOF
 rm -rf $T/fx_samples
 $TUNE import $T/fx.mod -o $T/fx.txt >/dev/null 2>&1
 v=$(sed -n '/^tune/,$p' $T/fx.txt | tr -d '\\\n' | tr -s ' ')
-[ "$v" = "tune fx_test 3 loopv1: @s01 c4:1 arp:3,7 ~:1 arp:off ~:1 @s01v4 f4^5:2 r:2 @s01 a4:3 | tempo:2.5 c5:64v2: r:8 @s01 c4:2 | ~:64d1: r:6 s02_c2:2 cut:2 | r:64" ] &&
-    grep -q "^instrument s01v4 saw 00 f3 800 4 0 hr=1 " $T/fx.txt && grep -q "^sample s02_c2 fx_samples/02_snare_c2.wav " $T/fx.txt &&
-    [ "$(ls $T/fx_samples | tr '\n' ' ')" = "00_cut.wav 02_snare_c2.wav " ] && $TUNE list $T/fx.txt 2>/dev/null | grep -q "74 ticks" &&
+[ "$v" = "tune fx_test 3 loopv1: @s01 c4:1 arp:3,7 ~:1 arp:off ~:1 @s01v4 f4^5:2 r:2 @s01 a4:3 | tempo:2.5 c5:64v2: r:8 @s01 c4:2 | ~:64d1: r:6 s02:c4:1 vol:32 r:1 -:2 | r:64d2: r:2 vol:48 s03:c4:7 -:1 | r:64" ] &&
+    grep -q "^instrument s01v4 saw 00 f3 800 4 0 hr=1 " $T/fx.txt && grep -q "^sample s02 fx_samples/02_snare.wav note=c4 " $T/fx.txt &&
+    grep -q "^sample s03 fx_samples/03_wind.wav note=c4 loop=0.0362 " $T/fx.txt &&
+    [ "$(ls $T/fx_samples | tr '\n' ' ')" = "02_snare.wav 03_wind.wav " ] && $TUNE list $T/fx.txt 2>/dev/null | grep -q "74 ticks" &&
     pass || fail "import of a MOD: $v"
 # a SID note's pitch from the sample's own (song.mod: a 32-byte saw at C-2 is c4, a 64-byte square c3)
 $TUNE import $T/song.mod -o $T/songmod.txt >/dev/null 2>&1 && grep -q "^v1: @s01 c4:4 @s02 d3:4 @s03 e3:4 " $T/songmod.txt &&
@@ -282,20 +289,62 @@ $TUNE import $T/song.mod -o $T/songmod.txt >/dev/null 2>&1 && grep -q "^v1: @s01
 # choices, kept, and convert's error and their sizes said
 python3 - $T/big.mod <<'EOF'
 import sys, math
-bell = bytes([int(sum(math.sin(2 * math.pi * f * i / 8287) / (k + 1) for k, f in enumerate([523, 1443, 2826, 4672])) * 40) & 255 for i in range(40000)])
-h = b"big".ljust(20, b"\0") + b"bell".ljust(22, b"\0") + bytes([len(bell) // 2 >> 8, len(bell) // 2 & 255, 0, 64, 0, 0, 0, 1])
-h += (bytes(22) + bytes([0, 0, 0, 0, 0, 0, 0, 1])) * 30 + bytes([1, 127]) + bytes(128) + b"M.K."
+def bell(fs): return bytes([int(sum(math.sin(2 * math.pi * f * i / 8287) / (k + 1) for k, f in enumerate(fs)) * 40) & 255 for i in range(40000)])
+b1, b2 = bell([523, 1443, 2826, 4672]), bell([440, 1270, 2510, 3990])
+h = b"big".ljust(20, b"\0")
+for n, d in ((b"bell", b1), (b"gong", b2)):
+    h += n.ljust(22, b"\0") + bytes([len(d) // 2 >> 8, len(d) // 2 & 255, 0, 64, 0, 0, 0, 1])
+h += (bytes(22) + bytes([0, 0, 0, 0, 0, 0, 0, 1])) * 29 + bytes([1, 127]) + bytes(128) + b"M.K."
 p = bytearray(1024)
-for row, per in ((0, 428), (16, 381), (32, 339)):
-    p[row * 16:row * 16 + 4] = bytes([0x00 | per >> 8, per & 255, 0x10, 0])
-open(sys.argv[1], "wb").write(h + bytes(p) + bell)
+for row, ch, smp, per in ((0, 0, 1, 428), (16, 0, 1, 381), (32, 1, 2, 339)):
+    c = (row * 4 + ch) * 4
+    p[c:c + 4] = bytes([per >> 8, per & 255, smp << 4, 0])
+open(sys.argv[1], "wb").write(h + bytes(p) + b1 + b2)
 EOF
 out=$($TUNE import $T/big.mod -o $T/big.txt 2>&1)
-echo "$out" | grep -q "did not fit in 64 KB: made SID instruments of 1 bell" && grep -q "^instrument s01 .*made the SID's so the samples fit in 64 KB" $T/big.txt &&
+echo "$out" | grep -q "did not fit in 64 KB: made SID instruments of 2 gong" && grep -q "^instrument s02 .*made the SID.s so the samples fit in 64 KB" $T/big.txt &&
     $TUNE list $T/big.txt >/dev/null 2>&1 && pass || fail "import of a MOD: fitting 64 KB: $out"
-printf '1 sample\n' > $T/big.choices
+printf '1 sample\n2 sample\n' > $T/big.choices
 out=$($TUNE import $T/big.mod -o $T/big2.txt --choices $T/big.choices 2>&1); rc=$?
 [ $rc -ne 0 ] && echo "$out" | grep -q "over 64 KB" && echo "$out" | grep -q "the kept samples, about: 1 [0-9]* KB" && pass || fail "import of a MOD with choices over 64 KB: $out"
+
+# pitched hits (one copy of the samples, a table entry a note at its rate),
+# a loop (the entry's last word: from the start), vol: ($83 v: 0-64 as
+# 0-255), a stop ($81 d); past 127 hits: $84 h d
+cat > $T/dp.txt <<EOF
+sample a $PWD/src/test-resources/pack45/tone.wav rate=4000 note=c4 loop=0.05
+tune t 1 once
+d1: a:2 a:g4:1 vol:32 -:1 a:c5:1
+EOF
+$TUNE convert $T/dp.txt -o $T/dp.c >/dev/null 2>&1 && grep -q "#define TUNE_SAMPLES_SIZE 1000" $T/dp.h &&
+python3 - $T/dp.c <<'EOF' && pass || fail "digi voices: pitched hits, a loop, vol:, a stop"
+import sys, re
+src = open(sys.argv[1]).read()
+b = [int(x) for x in re.search(r'tune_t\[\d+\] = \{([^}]*)\}', src).group(1).replace('\n', '').split(',') if x.strip()]
+assert b[0] == 0x12 and b[1] == 0, b[:2]
+st = b[10] | b[11] << 8
+rate = lambda hz: round(hz * (1 << 24) / 40500000)
+want = [(0, 1000, rate(4000), 200), (0, 1000, rate(4000 * 2 ** (7 / 12)), 200), (0, 1000, rate(4000 * 2), 200)]
+for k, (at, n, r, lp) in enumerate(want):
+    e = b[st + 9 * k:st + 9 * k + 9]
+    got = (e[0] | e[1] << 8, e[2] | e[3] << 8, e[4] | e[5] << 8 | e[6] << 16, e[7] | e[8] << 8)
+    assert abs(got[2] - r) <= 1 and got[:2] == (at, n) and got[3] == lp, (k, got, (at, n, r, lp))
+s = b[8] | b[9] << 8
+assert b[s:] == [0, 2, 1, 1, 0x83, 128, 0x81, 1, 2, 1, 0xFF], b[s:]
+EOF
+python3 - $T/df.txt $PWD/src/test-resources/pack45/tone.wav <<'EOF'
+import sys
+notes = ['c', 'c#', 'd', 'd#', 'e', 'f', 'f#', 'g', 'g#', 'a', 'a#', 'b']
+hits = ['%s:%s%d:1' % (s, notes[n % 12], 2 + n // 12) for s in 'abcd' for n in range(37)]
+open(sys.argv[1], 'w').write(''.join('sample %s %s rate=4000 note=c4\n' % (s, sys.argv[2]) for s in 'abcd') +
+                              'tune t 1 once\nd1: ' + ' '.join(hits) + '\n')
+EOF
+$TUNE convert $T/df.txt -o $T/df.c >/dev/null 2>&1 && grep -q "#define TUNE_SAMPLES_SIZE 4000" $T/df.h &&
+    sed -n '/tune_t\[/,/};/p' $T/df.c | tr -d ' \n' | grep -q ',127,1,132,128,1,132,129,1,' && pass || fail "digi voices: hits past 127 (\$84 h d)"
+err $'sample a x.wav\ntune t 5 once\nd1: vol:65 a:1' "vol:0-64"
+err $'sample a x.wav\ntune t 5 once\nd1: a:h4:1' "not a note"
+err $'sample vol x.wav' "is not r, - or vol"
+err $'sample a x.wav note=h2' "note=<note>"
 
 # play into a WAV: as long as the tune, and not silent
 if $TUNE play $T/pfest.txt --wav $T/p.wav >/dev/null 2>&1 && python3 - $T/p.wav <<'EOF'
@@ -328,8 +377,9 @@ $TUNE sample $T/s.pak >/dev/null 2>&1 && fail "sample: no --rate" || pass
 
 # digi voices: a sample (a quarter second at 4000 Hz: 1000 bytes), hit,
 # ringing on, hit together with itself (one hit: a+a is a); the data: flags
-# 2 (a digi voice), no SID voices, its stream after the sample table (at 12:
-# offset 0, 1000 bytes, the DMA's rate $000679)
+# $12 (a digi voice, 9-byte sample entries), no SID voices, its stream after
+# the sample table (at 12: offset 0, 1000 bytes, the DMA's rate $000679, no
+# loop $FFFF)
 cat > $T/dg.txt <<EOF
 sample a $PWD/src/test-resources/pack45/tone.wav rate=4000
 tune t 1 once
@@ -337,7 +387,7 @@ d1: a:2 r:1 a+a:1
 EOF
 $TUNE convert $T/dg.txt -o $T/dg.c >/dev/null 2>&1 &&
     [ "$(sed -n '/tune_t\[/,/};/p' $T/dg.c | tr -d ' \n' | sed 's/.*{//; s/,}.*//')" = \
-      "2,0,0,1,0,17,12,0,19,0,12,0,0,0,232,3,121,6,0,0,2,128,1,0,1,255" ] &&
+      "18,0,0,1,0,17,12,0,21,0,12,0,0,0,232,3,121,6,0,255,255,0,2,128,1,0,1,255" ] &&
     grep -q "#define TUNE_SAMPLES_SIZE 1000" $T/dg.h && grep -q "tune_sample_bank\[TUNE_SAMPLES_SIZE\] = {" $T/dg.c &&
     pass || fail "digi voices: the data"
 # --bin needs --samples, and writes the samples there

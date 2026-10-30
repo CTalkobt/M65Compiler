@@ -68,7 +68,7 @@ struct TuneVoice {
     unsigned ticks = 0;
     bool defaultInstrument = false; // plays before its first @instrument
     std::vector<int> instruments;   // file instruments it names, in order
-    std::vector<std::pair<int, unsigned>> hits;   // a digi voice's: the hit, its tick
+    std::vector<std::pair<int, unsigned>> hits;   // a digi voice's: the hit (-1 a stop), its tick
 };
 
 struct TuneSample {
@@ -77,12 +77,18 @@ struct TuneSample {
     uint32_t rate = 0;              // 0: the lowest that keeps it (at most 12000)
     int gain = 100;                 // per cent
     double from = 0, len = 0;       // the part of the file (seconds; len 0: to its end)
+    int note = 60;                  // the note it sounds at its rate (a pitched hit's from it)
+    double loop = -1;               // the loop's start (seconds; -1: played once)
 };
 
-// A hit: samples sounding at once, mixed into one in the sample bank
+// A hit: samples sounding at once, mixed into one in the sample bank, at a
+// pitch (semitones from the first sample's note: the same bytes, at a rate
+// so much higher)
 struct TuneHit {
     std::vector<int> samples;       // TuneFile::samples, sorted
+    int semis = 0;
     uint32_t at = 0, len = 0, rate = 0;   // its place in the bank, bytes, Hz
+    int32_t loop = -1;              // the loop's start, bytes from at (-1: none)
 };
 
 struct Tune {

@@ -40,7 +40,11 @@
  *   $FE           back to the voice's start (a tune that loops)
  *   $FF           the voice's end
  * A digi voice's: $00-$7F h d  hit h (the tune's sample table) for d
- * ticks; $80 d / $82 d  the sample rings on; $FE, $FF.
+ * ticks; $84 h d  hit h, 0-255; $80 d / $82 d  the sample rings on; $81 d
+ * the channel stopped; $83 v  the voice's volume (0-255: times
+ * tune_digi_volume's / 256; no time); $FE, $FF. A sample table entry: its
+ * offset and bytes, the rate, and (flags bit 4) its loop's start from it
+ * ($FFFF: played once).
  */
 #pragma once
 

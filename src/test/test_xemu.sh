@@ -2027,7 +2027,8 @@ done
 
 # Test: the tune player's digi voices against tune45's model: SID 1 and
 # the audio DMA's registers (channels 2-3: tune_digi_channels(2), the third
-# voice left out) after each of 150 frames, in both conventions
+# voice left out) after each of 150 frames, in both conventions (hits alone
+# and mixed, pitched, looping; a voice's volume; a stop)
 for drmode in "zp|$STDLIB|" "stack|$STDLIB_STACK|-fno-zpcall"; do
     IFS='|' read -r drname drlib drflags <<< "$drmode"
     echo "Testing tune45 trace against the tune player (digi_$drname)..."
@@ -2049,8 +2050,10 @@ lines = [bytes.fromhex(l.strip()) for l in open(sys.argv[2])]
 model = [l[:25] + l[128 + 0x30:128 + 0x50] + bytes([l[128 + 1], l[128 + 0x0E], l[128 + 0x0F]]) for l in lines]
 if mem[0xC0C0] != 0xAA or len(model) != 150:
     sys.exit("did not finish")
-if not any(m[25] == 0xA2 for m in model) or not any(m[41] == 0xA2 for m in model):
+if not any(m[25] in (0xA2, 0xE2) for m in model) or not any(m[41] in (0xA2, 0xE2) for m in model):
     sys.exit("the model's digi voices never played")
+if not any(m[41] == 0xE2 for m in model) or not any(m[25 + 9] == 0x7F for m in model):
+    sys.exit("the model's loop or volume never came")
 bad = [f for f in range(150) if mem[0x8000 + 60 * f:0x8000 + 60 * f + 60] != model[f]]
 if bad:
     sys.exit("they differ from frame %d (%d frames)" % (bad[0] + 1, len(bad)))

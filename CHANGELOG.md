@@ -4,6 +4,23 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### The tune player: pitched and looping samples, a voice's volume, a stop
+
+- Digi voices: `name:note:ticks` plays a sample at a note (`sample ...
+  note=c4` the note it sounds at its rate): one copy in the bank, a table
+  entry a pitch at its rate. `sample ... loop[=s]` loops it (the audio DMA's
+  loop: from the loop's start to its end) until `-:ticks` (the channel
+  stopped) or the next hit. `vol:0-64` the voice's volume (times
+  `tune_digi_volume`'s), at once for the sample sounding. Hits past 127
+  (`$84 h d`, up to 256). The data: 9-byte sample entries (flags bit 4; the
+  7-byte ones of before still play). The player and its model, checked
+  against each other in xemu (`digi.txt`).
+- MOD import uses them: a kept sample is one WAV, hit at its notes; its loop
+  a loop; a cut or a SID note on its channel a stop; the sample's volume, C
+  and the volume slides `vol:` (only volume on SID voices is lost now). The
+  64 KB is far further: of the four test MODs, two kept every sample, the
+  others one sample less.
+
 ### tune45 import of a MOD: the samples weighed for the SID
 
 - `tune45 import song.mod -o song.txt`: the MOD as tune45 text. The rows

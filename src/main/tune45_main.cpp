@@ -512,7 +512,7 @@ int audition(const ModFile& m, const std::vector<ModSampleReport>& r, int only, 
 struct DigiMix {
     const std::vector<uint8_t>* bank = nullptr;
     uint8_t regs[0x50] = {};
-    struct Ch { bool on = false; double pos = 0, step = 0; uint32_t end = 0; } ch[4];
+    struct Ch { bool on = false, loop = false; double pos = 0, step = 0; uint32_t end = 0, loopAt = 0; } ch[4];
     int rate = 48000;
     void write(uint8_t i, uint8_t v) {
         if (i >= 0x50) return;
@@ -525,6 +525,8 @@ struct DigiMix {
         uint32_t cur = r[0xA] | (r[0xB] << 8) | ((uint32_t)r[0xC] << 16);
         ch[c].pos = cur;
         ch[c].end = (cur & 0xFF0000) | r[7] | (r[8] << 8);
+        ch[c].loop = (v & 0x40) != 0;   // (looping: from the end back to 1-3)
+        ch[c].loopAt = r[1] | (r[2] << 8) | ((uint32_t)r[3] << 16);
         ch[c].step = (r[4] | (r[5] << 8) | ((uint32_t)r[6] << 16)) * (40500000.0 / 16777216.0) / rate;
     }
     // added to n stereo frames (L, R ...)
@@ -534,6 +536,7 @@ struct DigiMix {
                 Ch& h = ch[c];
                 if (!h.on) continue;
                 uint32_t at = (uint32_t)h.pos;
+                if (at >= h.end && h.loop && h.loopAt < h.end) { h.pos = h.loopAt + (h.pos - h.end); at = (uint32_t)h.pos; }
                 if (at >= h.end || !bank || at >= bank->size()) { h.on = false; continue; }
                 int s = (*bank)[at] - 128;
                 int own = s * regs[0x10 + c * 16 + 9] / 2, other = s * regs[0x0C + c] / 2;   // (half scale: room for the SIDs)
