@@ -194,6 +194,29 @@ $TUNE import $T/song.mod --extract $T/modx >/dev/null 2>&1 && [ "$(ls $T/modx | 
     printf 'sample b modx/05_bell.wav\ntune t 6 once\nd1: b:8\n' > $T/modx.txt && $TUNE list $T/modx.txt 2>&1 | grep -q "hits: b" &&
     pass || fail "import --extract of a MOD ($(ls $T/modx 2>&1 | tr '\n' ' '))"
 $TUNE import $T/song.mod 2>&1 | grep -q "a MOD: --report" && pass || fail "import of a MOD without --report"
+# --audition: a sample's original, its SID stand-in, then both (the original
+# left, the SID right), each as loud: three parts, the last two channels apart
+out=$($TUNE import $T/song.mod --audition 1 --wav $T/aud.wav 2>&1)
+echo "$out" | grep -q "^ 1  saw .* original, SID (saw 00 f3 800 0 0), both" &&
+python3 - $T/aud.wav <<'EOF' && pass || fail "import --audition of a MOD: $out"
+import sys, wave, struct, math
+w = wave.open(sys.argv[1]); n = w.getnframes(); d = struct.unpack('<%dh' % (2 * n), w.readframes(n))
+assert w.getnchannels() == 2 and w.getframerate() == 48000
+parts, cur, quiet = [], None, 0
+for b in range(0, n, 2400):
+    L, R = d[2 * b:2 * (b + 2400):2], d[2 * b + 1:2 * (b + 2400):2]
+    if max(map(abs, L + R)) > 300:
+        cur = cur or [[], []]; cur[0] += L; cur[1] += R; quiet = 0
+    else:
+        quiet += 1
+        if cur and quiet >= 3: parts.append(cur); cur = None
+if cur: parts.append(cur)
+rms = lambda v: math.sqrt(sum(x * x for x in v) / len(v)) / 32768
+assert len(parts) == 3, len(parts)
+for L, R in parts: assert 0.1 < rms(L) < 0.25 and 0.1 < rms(R) < 0.25
+assert parts[0][0] == parts[0][1] and parts[1][0] == parts[1][1] and parts[2][0] != parts[2][1]
+EOF
+$TUNE import $T/song.mod --audition 6 --wav $T/aud6.wav 2>&1 | grep -q "sample 6 is not one the song plays" && pass || fail "import --audition of an unused sample"
 
 # play into a WAV: as long as the tune, and not silent
 if $TUNE play $T/pfest.txt --wav $T/p.wav >/dev/null 2>&1 && python3 - $T/p.wav <<'EOF'

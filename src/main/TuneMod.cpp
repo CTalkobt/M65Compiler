@@ -567,6 +567,41 @@ std::vector<ModSampleReport> analyseMod(const ModFile& m) {
     return u.r;
 }
 
+double modRate(double period) { return kPaula / period; }
+
+int modSidNote(const ModSampleReport& r, double period) {
+    if (r.kind == "tone" && r.periodSamples > 0)
+        return std::max(0, std::min(127, (int)std::lround(soundingNote(r.periodSamples, period))));
+    // a drum: the tracker's note on the SID's (C-2 as c4), a hat higher
+    int n = 60 + (int)std::lround(12 * std::log2(428.0 / period));
+    if (r.kind == "hat") n += 36;
+    else if (r.kind == "kick") n -= 12;
+    return std::max(0, std::min(127, n));
+}
+
+std::string modInstrumentLine(const ModSampleReport& r, const std::string& name) {
+    char b[200];
+    if (r.kind == "tone") {
+        snprintf(b, sizeof b, "instrument %s %s %02x %02x %03x 0 0", name.c_str(), r.wave.c_str(), r.ad, r.sr, r.pulseWidth);
+        std::string l = b;
+        if (r.lpTimes > 0 && r.periodSamples > 0) {
+            // the cutoff at lpTimes the fundamental of the note played most
+            // (the 8580's: about 5.9 Hz a step)
+            double hz = r.lpTimes * modRate(r.medianPeriod) / r.periodSamples;
+            int cut = std::max(1, std::min(0x7FF, (int)std::lround(hz / 5.86)));
+            snprintf(b, sizeof b, " filter=lp res=0 cutoff=%x", cut);
+            l += b;
+        }
+        return l;
+    }
+    // the drums' stand-ins (as the report's reasons say)
+    int dn = r.ad & 15;
+    if (r.kind == "kick") snprintf(b, sizeof b, "instrument %s pulse 00 %x0 0800 0 0 slide=-40", name.c_str(), std::max(dn, 6));
+    else if (r.kind == "texture") snprintf(b, sizeof b, "instrument %s noise %02x %02x 0800 0 0", name.c_str(), r.ad, r.sr);
+    else snprintf(b, sizeof b, "instrument %s noise 00 %x0 0800 0 0", name.c_str(), std::max(dn, r.kind == "hat" ? 3 : 6));
+    return b;
+}
+
 std::string modReport(const ModFile& m, const std::vector<ModSampleReport>& r) {
     Use u = walk(m);
     std::string o;

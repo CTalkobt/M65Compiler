@@ -11,6 +11,7 @@ tune45 play music.txt [--tune march]         # on the PC (reSIDfp), --emulator, 
 tune45 create --genre jazz --length 16 -o song.txt
 tune45 import song.mid -o song.txt           # convert, list and play take a .mid too
 tune45 import song.mod --report              # a MOD's samples weighed for the SID; --extract <dir>
+tune45 import song.mod --audition [n]        # each sample: the original, the SID's stand-in, both
 tune45 sample growl.pak --rate 8000          # sampled sound as the audio DMA plays it
 tune45 -V | --version
 tune45 -h | --help
@@ -146,6 +147,8 @@ A score from 0 (easy) to 100 gives the verdict: `sid` (up to 25), `sid~` (approx
 
 `--extract <dir>` writes the samples kept (`--all`: every one the song uses) as WAV files, `NN_name.wav`: 8-bit at the rate of the period played most, the loop and the note it sounds at in a `smpl` chunk; a `sample` line reads them.
 
+`--audition [n]` plays each sample the song uses (or sample `n`) to compare by ear: the original as the audio DMA plays it (8-bit, its loop, each sample held to the next), then the SID's stand-in (the report's waveform, pulse width, low-pass and envelope through the player's model and reSIDfp; a drum's: noise, or a falling pulse for a kick), then both at once, **the original on the left and the SID on the right**. Each at up to four of the notes the song plays it at (the lowest, the highest, between), as long as the sample sounds (a looped one 0.8 s); each part scaled to the same loudness (the SID's offset and the click of its volume left out), so the sound is compared, not the level. A line a sample says its verdict and the instrument. `--wav <file>` writes it to a file.
+
 ## sample
 
 Plays sampled sound as the MEGA65's audio DMA plays it: 8-bit samples at their rate, each held until the next (the DMA does not interpolate), on the PC through `pw-play`, `paplay` or `aplay` as `play` does, or into a 48 kHz WAV (`--wav`). What it plays:
@@ -171,4 +174,4 @@ So a sound can be heard as it will be, its rate and 8 bits and all, before it go
 
 ## Tests
 
-`src/test/test_tune45.sh` (`make test`): the data of a tune byte by byte, glides, `TUNE_<NAME>_TICKS`, `--bin`, `--asm`, the errors, pfest's format, `list`, `create --check` and its options, the data of hard restart, a filter and a wave table and their errors, digi voices (the data, `--samples`, the cut-short warning, play's mix, the errors), `import` of a MIDI file made by the test, `import --report` and `--extract` of a MOD made by the test (a saw, a pulse and a triangle the SID plays, a noise and a bell it does not), `play --wav`, `sample` (a sound and the same samples packed by pack45, played into a WAV, and the error without `--rate`). `src/test/test_xemu.sh`: the player (`test_tune_xemu.c`, its tunes in the 10-byte instruments of older data) and `tune45 trace` (the model's registers, voices and filter) against the player's in xemu for 300 frames: a tune with every effect, one of glides after a `tune_seek`, one of the filter, wave tables and hard restart, and one of digi voices (`digi.txt`: the audio DMA's registers too, from channel 2, a third voice left out). `examples/c/tunes` and `examples/c/glamlambs` (`test_examples.sh`).
+`src/test/test_tune45.sh` (`make test`): the data of a tune byte by byte, glides, `TUNE_<NAME>_TICKS`, `--bin`, `--asm`, the errors, pfest's format, `list`, `create --check` and its options, the data of hard restart, a filter and a wave table and their errors, digi voices (the data, `--samples`, the cut-short warning, play's mix, the errors), `import` of a MIDI file made by the test, `import --report`, `--extract` and `--audition` of a MOD made by the test (a saw, a pulse and a triangle the SID plays, a noise and a bell it does not), `play --wav`, `sample` (a sound and the same samples packed by pack45, played into a WAV, and the error without `--rate`). `src/test/test_xemu.sh`: the player (`test_tune_xemu.c`, its tunes in the 10-byte instruments of older data) and `tune45 trace` (the model's registers, voices and filter) against the player's in xemu for 300 frames: a tune with every effect, one of glides after a `tune_seek`, one of the filter, wave tables and hard restart, and one of digi voices (`digi.txt`: the audio DMA's registers too, from channel 2, a third voice left out). `examples/c/tunes` and `examples/c/glamlambs` (`test_examples.sh`).

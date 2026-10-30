@@ -16,6 +16,10 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   chords, timbres the SID is far from); the summary counts the digi
   voices the kept samples need. `--extract <dir>` writes the kept samples
   (`--all`: every used one) as WAVs with their loop, for `sample` lines.
+- `--audition [n]`: each sample (or sample n) at up to four of its notes:
+  the original as the audio DMA plays it, the SID's stand-in (the report's
+  instrument through the player's model and reSIDfp), then both, the
+  original left and the SID right; each part as loud as the others.
 - Tested on a MOD made by the test (`test_tune45.sh`).
 
 ### sprites.h: the hardware sprites

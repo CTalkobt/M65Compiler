@@ -77,6 +77,16 @@ struct ModSampleReport {
 
 std::vector<ModSampleReport> analyseMod(const ModFile& m);
 
+// the rate a period plays a sample at (Hz, the Amiga's PAL clock)
+double modRate(double period);
+
+// the SID's stand-in for a sample, as a tune45 instrument line named name:
+// the waveform, pulse width, low-pass and envelope the report found (for a
+// drum: noise, or a falling pulse for a kick); and the MIDI note it plays
+// for the sample at period
+std::string modInstrumentLine(const ModSampleReport& r, const std::string& name);
+int modSidNote(const ModSampleReport& r, double period);
+
 // the report as text: the song, a line a sample, the reasons, a summary
 std::string modReport(const ModFile& m, const std::vector<ModSampleReport>& r);
 
