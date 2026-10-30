@@ -360,6 +360,12 @@ err $'instrument a pulse 09 a6 0600 1 1\ntune t 5 once\nv1: pw:1000 c4:1' "pw:he
 err $'instrument a pulse 09 a6 0600 1 1\ntune t 5 once\nv1: cut:200,200 c4:1' "cut:hex 0-7ff"
 err $'instrument a pulse 09 a6 0600 1 1\ntune t 5 once\nv1: arp2:30 c4:1' "arp2:a"
 
+# free (the hr byte's bit 6) and vspeed (the vibrato byte's high nibble + 1)
+printf 'instrument a pulse 09 a6 0600 5 0 vspeed=3 free hr=1\ntune t 1 once\nv1: c4:2\n' > $T/fr.txt
+$TUNE convert $T/fr.txt -o $T/fr.c >/dev/null 2>&1 && sed -n '/tune_t\[/,/};/p' $T/fr.c | tr -d ' \n' | grep -q '64,9,166,0,6,37,0,0,0,0,65,' &&
+    pass || fail "free, vspeed"
+err $'instrument a pulse 09 a6 0600 5 0 vspeed=17' "vspeed 1-16"
+
 # patterns: in the data once ($86 offset times a call, $87 their end), after
 # the voices; the ticks and bars counted through them
 printf 'instrument a pulse 09 a6 0600 0 0\npattern p: c4:2 e4:2\npattern q: g4:1\ntune t 1 loop 4\nv1: *p | *q*3 r:1 | *p\n' > $T/pt.txt
@@ -461,9 +467,11 @@ done
 
 # import of a .sid: a PSID whose player plays back a list of SID register
 # writes a call (a frame's: register, value ... $FF), so what it writes is
-# known: a drum (a noise frame, then a pulse an octave down: a wave table)
-# hit three times, an arpeggio (c4 e4 g4 a frame each), a saw through the
-# low-pass (resonance 15) going from a3 to c4 without a new gate (legato);
+# known: a bass as Hubbard's (a frame gated, noise, an octave bounce through
+# the release: a wave table, arp2:, tail; AD/SR 0 before the next: hr=3),
+# an arpeggio (c4 e4 g4 a frame each) whose pulse width rises then falls
+# (pwm free, then pw:), a saw through the low-pass (resonance 15) going
+# from a3 to c4 without a new gate (legato);
 # called a frame (vbi), or by its own interrupt on CIA 1's timer ($2626:
 # 100.88 calls a second, a tick each)
 cat > $T/gen_sid.py <<'EOF'
@@ -472,17 +480,25 @@ def reg(n): return round(440 * 2 ** ((n - 69) / 12) * 16777216 / 985248)
 frames = [[] for _ in range(120)]
 def w(f, r, v): frames[f].append((r, v))
 w(0, 0x18, 0x1F); w(0, 0x15, 0); w(0, 0x16, 0x40); w(0, 0x17, 0xF4)
-# voice 1: a drum, a noise frame at c3 then a pulse at c2, hit at 0, 16, 32
+# voice 1: a bass as Hubbard's: the gate a frame, a noise frame, then the
+# pulse an octave up and down a frame through the release; AD/SR 0 for the
+# last 3 frames before the next (a hard restart); hit at 0, 16, 32
 for at in (0, 16, 32):
-    w(at, 5, 0); w(at, 6, 0xF0); w(at, 2, 0); w(at, 3, 8)
-    w(at, 0, reg(48) & 255); w(at, 1, reg(48) >> 8); w(at, 4, 0x81)
-    w(at + 1, 0, reg(36) & 255); w(at + 1, 1, reg(36) >> 8); w(at + 1, 4, 0x41)
-    w(at + 8, 4, 0x40)
-# voice 2: an arpeggio c4 e4 g4, a frame each, 24 frames
-w(0, 7 + 5, 0x09); w(0, 7 + 6, 0xA0); w(0, 7 + 2, 0); w(0, 7 + 3, 8)
+    w(at, 5, 0x06); w(at, 6, 0x4B); w(at, 2, 0x80); w(at, 3, 1)
+    w(at, 0, reg(36) & 255); w(at, 1, reg(36) >> 8); w(at, 4, 0x41)
+    w(at + 1, 4, 0x80)
+    w(at + 2, 4, 0x40)
+    for f in range(2, 16):
+        n = 36 if f % 2 else 48
+        w(at + f, 0, reg(n) & 255); w(at + f, 1, reg(n) >> 8)
+    w(at + 13, 5, 0); w(at + 13, 6, 0)
+# voice 2: an arpeggio c4 e4 g4, a frame each, 24 frames; its pulse width
+# up $40 a frame, then down from frame 12
+w(0, 7 + 5, 0x09); w(0, 7 + 6, 0xA0)
 for f in range(24):
     n = (60, 64, 67)[f % 3]
-    w(f, 7, reg(n) & 255); w(f, 8, reg(n) >> 8)
+    pw = 0x400 + 0x40 * min(f, 12) - 0x40 * max(0, f - 12)
+    w(f, 7, reg(n) & 255); w(f, 8, reg(n) >> 8); w(f, 7 + 2, pw & 255); w(f, 7 + 3, pw >> 8)
 w(0, 7 + 4, 0x41); w(24, 7 + 4, 0x40)
 # voice 3: a saw through the low-pass, a3 then c4 legato (no new gate), 16 frames
 w(4, 14 + 5, 0x08); w(4, 14 + 6, 0xC4)
@@ -519,11 +535,11 @@ EOF
 for v in vbi cia; do python3 $T/gen_sid.py $T/n_$v.sid $v 2>/dev/null; done
 $TUNE import $T/n_vbi.sid --seconds 0.8 -o $T/n_vbi.txt >/dev/null 2>&1
 v=$(sed -n '/^wavetable/p;/^instrument/p;/^tune/,$p' $T/n_vbi.txt | tr '\n' '/')
-[ "$v" = "wavetable t01 noise:12 pulse/instrument i01 pulse 00 f0 800 0 0 table=t01/instrument i02 pulse 09 a0 800 0 0/instrument i03 saw 08 c4 000 0 0 filter=lp res=15 cutoff=200/tune sid_notes 1 once/v1: @i01 c2:8 r:8 c2:8 r:8 c2:8/v2: arp:4,7 @i02 c4:24 r:16/v3: r:4 @i03 a3:6 ~c4:10 r:20/" ] &&
+[ "$v" = "wavetable t01 pulse noise pulse/instrument i01 pulse 06 4b 180 0 0 table=t01 hr=3 tail/instrument i02 pulse 06 4b 180 0 0 table=t01 tail/instrument i03 pulse 09 a0 400 0 0 pwm=64 free/instrument i04 saw 08 c4 000 0 0 filter=lp res=15 cutoff=200/tune sid_notes 1 once/v1: arp2:12 @i01 c2:1 r:15 c2:1 r:15 @i02 c2:1 r:7/v2: arp:4,7 @i03 c4:12 pw:700,-64 ~:11 pw:440,0 ~:1 r:16/v3: r:4 @i04 a3:6 ~c4:10 r:20/" ] &&
     $TUNE list $T/n_vbi.txt 2>/dev/null | grep -q "40 ticks *0.8 s" && pass || fail "import of a .sid: $v"
 $TUNE import $T/n_cia.sid --seconds 0.8 -o $T/n_cia.txt >/dev/null 2>&1 &&
-    grep -q "by its CIA timer, 100.88 calls a second" $T/n_cia.txt && grep -q "^tune sid_notes 0.4957 once" $T/n_cia.txt &&
-    grep -q "^v1: @i01 c2:8 r:8 c2:8 r:8 c2:8 r:41$" $T/n_cia.txt && pass || fail "import of a .sid timed by the CIA"
+    grep -q "by its CIA timer, 100.88 calls a second" $T/n_cia.txt && grep -q "^tune sid_notes 0.49609375 once" $T/n_cia.txt &&
+    grep -q "^v1: arp2:12 @i01 c2:1 r:15 c2:1 r:15 @i02 c2:1 r:48$" $T/n_cia.txt && pass || fail "import of a .sid timed by the CIA"
 python3 -c "
 import struct, sys
 h = bytearray(0x7C); h[0:4] = b'PSID'; struct.pack_into('>HHHHHHHI', h, 4, 2, 0x7C, 0x1000, 0x1000, 0x1003, 1, 1, 0)

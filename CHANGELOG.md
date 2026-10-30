@@ -4,6 +4,22 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### tune45 import of a .sid: closer to the original
+
+- Measured against the originals' own register writes played through the
+  same reSIDfp (four classic tunes, tested locally, not in the repo): notes
+  0.90-0.97 alike, loudness 0.94-0.99 (were 0.84-0.90 and 0.53-0.98).
+- A note lasts to the next, its release included (what a player does to it
+  then is kept; the instrument `tail`); a player's hard restart is `hr=`
+  (a one-frame note's attack no longer lost to the SID's envelope);
+  two-note arpeggios; legato notes at the pitch's jumps; vibrato with its
+  depth and speed; the pulse width and cutoff as straight lines (`pwm`
+  `free`, `fsweep`; `pw:` and `cut:` where they turn); sweeps of players
+  called several times a frame scaled; their timing kept by `tempo:`.
+- The tune player: `tail` (effects through the release), `free` (a pulse
+  width sweep without bounces), `vspeed=1-16` (a slower vibrato), `arp2:`,
+  `pw:` and `cut:`. Player and model checked in xemu.
+
 ### tune45 import of a C64 tune (.sid); legato notes
 
 - `tune45 import tune.sid` (`--song`, `--seconds`): a PSID (or simple

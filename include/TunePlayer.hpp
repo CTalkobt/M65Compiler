@@ -44,6 +44,7 @@ private:
         uint16_t pos = 0, start = 0;
         uint8_t left = 0, gated = 0, done = 0, note = 0, t = 0, base = 0;
         uint8_t dvol = 255;             // a digi voice's volume (vol:)
+        uint8_t vspd = 0, vph = 0, vcnt = 0;   // the vibrato's speed (frames a step less 1), its step, frames to the next
         uint16_t ret = 0, pat = 0;      // a pattern called: where the stream goes on after it, its start
         uint8_t rep = 0;                //   and the times it plays yet
         uint16_t freq = 0, pw = 0;
@@ -57,6 +58,7 @@ private:
         uint16_t tgt = 0;
         // the instrument's hard restart, filter and wave table
         uint8_t hr = 0, filt = 0, tail = 0;   // tail: its effects through the release (the hr byte's bit 7)
+        uint8_t free = 0, pwfree = 0;   // its pulse-width sweep free (bit 6); the voice's now (pw: sets it)
         int8_t fsweep = 0;
         uint16_t cutoff = 0, table = 0;
         // its control register's waveform now, the table's step and pitch,

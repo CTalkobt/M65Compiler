@@ -196,6 +196,7 @@ bool TuneCompiler::parse(const std::string& text, const std::string& file, TuneF
                 size_t eq = w[k].find('=');
                 std::string key = lower(w[k].substr(0, eq));
                 if (key == "tail" && eq == std::string::npos) { ins.hr |= 0x80; continue; }   // (its effects through the release)
+                if (key == "free" && eq == std::string::npos) { ins.hr |= 0x40; continue; }   // (its pulse-width sweep without bounces)
                 if (eq == std::string::npos) { error(file, ln, "expected key=value: " + w[k]); ok = false; continue; }
                 std::string val = w[k].substr(eq + 1);
                 // the keys with a word for a value
@@ -235,13 +236,14 @@ bool TuneCompiler::parse(const std::string& text, const std::string& file, TuneF
                 if (!parseInt(val, v2)) { error(file, ln, "expected key=number: " + w[k]); ok = false; continue; }
                 if (key == "pwm" && v2 >= -128 && v2 <= 127) ins.pwm = (int8_t)v2;
                 else if (key == "vdelay" && v2 >= 0 && v2 <= 255) ins.vdelay = (uint8_t)v2;
+                else if (key == "vspeed" && v2 >= 1 && v2 <= 16) ins.vspeed = (uint8_t)v2;
                 else if (key == "slide" && v2 >= -128 && v2 <= 127) ins.slide = (int8_t)v2;
-                else if (key == "hr" && v2 >= 0 && v2 <= 3) ins.hr = (uint8_t)((ins.hr & 0x80) | v2);
+                else if (key == "hr" && v2 >= 0 && v2 <= 3) ins.hr = (uint8_t)((ins.hr & 0xC0) | v2);
                 else if (key == "res" && v2 >= 0 && v2 <= 15) { res = v2; filterTuned = true; }
                 else if (key == "fsweep" && v2 >= -128 && v2 <= 127) { ins.fsweep = (int8_t)v2; filterTuned = true; }
                 else {
                     error(file, ln, "unknown or out of range: " + w[k] +
-                                    " (pwm, vdelay, slide, hr 0-3, tail, filter, res 0-15, cutoff, fsweep, table)");
+                                    " (pwm, vdelay, vspeed 1-16, slide, hr 0-3, tail, free, filter, res 0-15, cutoff, fsweep, table)");
                     ok = false;
                 }
             }
@@ -809,7 +811,7 @@ std::vector<uint8_t> TuneCompiler::blob(const TuneFile& f, const Tune& t) {
         uint16_t ta = in.table < 0 ? 0 : (uint16_t)tableAt[in.table];
         uint16_t cut = in.filt ? in.cutoff : 0;
         uint8_t r[kInstrumentSize] = {in.wave, in.ad, in.sr, (uint8_t)(in.pw & 0xFF), (uint8_t)(in.pw >> 8),
-                                      in.vib, in.gap, (uint8_t)in.pwm, in.vdelay, (uint8_t)in.slide,
+                                      (uint8_t)(in.vib | (in.vspeed - 1) << 4), in.gap, (uint8_t)in.pwm, in.vdelay, (uint8_t)in.slide,
                                       in.hr, in.filt, (uint8_t)(cut & 0xFF), (uint8_t)(cut >> 8),
                                       (uint8_t)in.fsweep, (uint8_t)(ta & 0xFF), (uint8_t)(ta >> 8)};
         b.insert(b.end(), r, r + kInstrumentSize);

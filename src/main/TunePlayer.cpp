@@ -33,18 +33,20 @@ void TunePlayer::inst(Voice& v, uint8_t i) {
     v.ad = byte(at + 1);
     v.sr = byte(at + 2);
     v.ipw = (uint16_t)(byte(at + 3) | (byte(at + 4) << 8));
-    v.vib = byte(at + 5);
+    v.vib = byte(at + 5) & 15;
+    v.vspd = byte(at + 5) >> 4;
     v.gap = byte(at + 6);
     v.pwm = (int8_t)byte(at + 7);
     v.vdel = byte(at + 8);
     v.slide = (int8_t)byte(at + 9);
     v.cw = v.wave;
-    v.hr = v.filt = v.tail = 0;
+    v.hr = v.filt = v.tail = v.free = 0;
     v.fsweep = 0;
     v.cutoff = v.table = 0;
     if (rsize_ >= 17) {   // (10: a tune of before the hard restart, filter and wave tables)
         v.hr = byte(at + 10) & 3;
         v.tail = byte(at + 10) & 0x80;
+        v.free = byte(at + 10) & 0x40;
         v.filt = byte(at + 11);
         v.cutoff = (uint16_t)(byte(at + 12) | (byte(at + 13) << 8));
         v.fsweep = (int8_t)byte(at + 14);
@@ -252,6 +254,7 @@ void TunePlayer::next(Voice& v, int idx) {
             v.left = rd(v);
             v.gated = 0;
             v.t = 0;
+            v.vph = v.vcnt = 0;
             v.arpi = 0;
             v.hrdone = v.wti = 0;
             v.wsemi = 0;
@@ -259,6 +262,7 @@ void TunePlayer::next(Voice& v, int idx) {
             ctrl(v);
             v.pw = v.ipw;
             v.pwdir = v.pwm;
+            v.pwfree = v.free;
             wpw(v);
             w(v, 5, v.ad);
             w(v, 6, v.sr);
@@ -291,6 +295,7 @@ void TunePlayer::next(Voice& v, int idx) {
             uint8_t lo = rd(v), hi = rd(v);
             v.pw = (uint16_t)(lo | (hi << 8));
             v.pwdir = (int8_t)rd(v);
+            v.pwfree = 0x40;   // (free)
             wpw(v);
             continue;
         }
@@ -360,7 +365,9 @@ void TunePlayer::effects() {
         if (v.pwdir) {
             v.pw = (uint16_t)(v.pw + v.pwdir);
             uint8_t hi = (uint8_t)(v.pw >> 8);
-            if (hi >= 0x0E || hi < 0x02) v.pwdir = (int8_t)(0 - v.pwdir);
+            if (v.pwfree) {   // free: on to 0 or $FFF, stopped there
+                if (hi >= 0x10) { v.pw = (hi & 0x80) ? 0 : 0xFFF; v.pwdir = 0; }
+            } else if (hi >= 0x0E || hi < 0x02) v.pwdir = (int8_t)(0 - v.pwdir);
             wpw(v);
         }
         if (v.glide && v.t >= 2) {   // (distance + 2^k - 1) >> k towards the target
@@ -392,8 +399,14 @@ void TunePlayer::effects() {
         }
         uint16_t f = v.freq;
         uint8_t depth = (uint8_t)(v.vib + vibx_);
-        if (depth && v.t > v.vdel && tri[v.t & 7]) {
-            int tr = tri[v.t & 7];
+        uint8_t step = v.t;
+        if (depth && v.t > v.vdel && v.vspd) {   // (slower: a step every speed + 1 frames)
+            if (!v.vcnt) { v.vcnt = v.vspd; v.vph++; }
+            else v.vcnt--;
+            step = v.vph;
+        }
+        if (depth && v.t > v.vdel && tri[step & 7]) {
+            int tr = tri[step & 7];
             uint16_t prod = (uint16_t)((v.freq >> 8) * depth);
             if (tr & 1) prod >>= 1;
             f = (uint16_t)(tr > 0 ? f + prod : f - prod);

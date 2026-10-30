@@ -107,85 +107,193 @@ std::string sidImport(const PsidFile& p, const SidImportOptions& o, std::string&
         return hz < 8 ? -1.0 : 69 + 12 * std::log2(hz / 440.0);
     };
 
-    // the notes, their instruments and wave tables
-    std::map<std::string, std::string> instOf;     // its line's text (without the name): the name
+    const double cpf = run.callsPerSecond / 50.0;   // calls a frame (tune45's effects run a frame)
+    auto perFrame = [&](double perCall) { return (int)std::max(-127L, std::min(127L, std::lround(perCall * cpf))); };
+
+    // a value over the calls as straight lines (within tol): each line's
+    // start, value and change a call
+    struct Line { size_t at; double value, slope; };
+    // (tol: the error allowed at a value; a pulse near 0 or $FFF is thin: there
+    // a little matters)
+    auto fit = [](const std::vector<double>& x, auto tol) {
+        std::vector<Line> out;
+        size_t i = 0;
+        while (i < x.size()) {
+            double slope = 0;
+            size_t j = i + 1;
+            for (; j < x.size(); j++) {
+                double s = (x[j] - x[i]) / (double)(j - i);
+                bool ok = true;
+                for (size_t q = i + 1; q <= j && ok; q++) ok = std::fabs(x[q] - (x[i] + s * (q - i))) <= tol(x[q]);
+                if (!ok) break;
+                slope = s;
+            }
+            out.push_back({i, x[i], slope});
+            i = j > i + 1 ? j - 1 : i + 1;
+            if (i + 1 >= x.size()) break;
+        }
+        return out;
+    };
+    auto lineAt = [](const std::vector<Line>& ls, size_t k) {
+        size_t a = 0;
+        for (size_t q = 0; q < ls.size() && ls[q].at <= k; q++) a = q;
+        return ls[a];
+    };
+    // each voice's pulse width, each chip's cutoff
+    std::vector<std::vector<Line>> pwLines((size_t)nv), cutLines((size_t)chips);
+    for (int v = 0; v < nv; v++) {
+        std::vector<double> x;
+        for (const auto& f : fr[(size_t)v]) x.push_back(f.pw);
+        pwLines[(size_t)v] = fit(x, [](double pw) { return std::max(1.0, std::min(48.0, std::min(pw, 4095 - pw) / 8)); });
+    }
+    for (int c = 0; c < chips; c++) {
+        std::vector<double> x;
+        for (const auto& f : fr[(size_t)c * 3]) x.push_back(f.cutoff);
+        cutLines[(size_t)c] = fit(x, [](double) { return 16.0; });
+    }
+
+    // a voice's ticks: a note's start (its instrument, note, arpeggio), its
+    // gate, a legato pitch, pw:/cut: tokens
+    struct Row { bool start = false, gate = false; int legato = -1, note = 0; std::string inst, arp, tokens; };
+    std::vector<std::vector<Row>> rows((size_t)nv, std::vector<Row>(frames));
+    std::map<std::string, std::string> instOf, tableOf;
     std::vector<std::string> instLines, tableLines;
-    std::map<std::string, std::string> tableOf;
-    std::vector<std::vector<Note>> notes((size_t)nv);
+    std::vector<std::vector<std::pair<size_t, size_t>>> audible((size_t)nv);   // each note's span sounding
+    char b[512];
     for (int v = 0; v < nv; v++) {
         const auto& F = fr[(size_t)v];
-        for (size_t k = 0; k < frames;) {
-            if (!(F[k].onset || (k == 0 && F[k].gate))) { k++; continue; }
-            Note n;
-            n.at = k;
-            size_t e = k + 1;
-            while (e < frames && F[e].gate && !F[e].onset) e++;
-            n.len = e - k;
-            // the first frames: a waveform or a pitch of their own (a table)
-            uint8_t steady = F[std::min(e - 1, k + 8)].ctrl & 0xFE;
+        auto& R = rows[(size_t)v];
+        for (size_t k = 0; k < frames; k++) R[k].gate = F[k].gate;
+        std::vector<size_t> starts;
+        for (size_t k = 0; k < frames; k++) if (F[k].onset || (k == 0 && F[k].gate)) starts.push_back(k);
+        for (size_t si = 0; si < starts.size(); si++) {
+            size_t k = starts[si], end = si + 1 < starts.size() ? starts[si + 1] : frames;
+            size_t g = k;
+            while (g < end && F[g].gate) g++;
+            // sounding until the test bit, or the envelope zeroed with the gate off (a hard restart)
+            size_t a = k + 1;
+            while (a < end && !(F[a].ctrl & 8) && (F[a].gate || F[a].ad || F[a].sr)) a++;
+            audible[(size_t)v].push_back({k, a});
+            // the first frames: a waveform of their own (a table)
+            uint8_t steady = F[std::min(a - 1, k + 8)].ctrl & 0xF6;
             size_t T = 0;
-            for (size_t i = 0; i < std::min<size_t>(8, n.len); i++)
-                if ((F[k + i].ctrl & 0xFE) != steady) T = i + 1;
-            double basePitch = pitch(F[std::min(e - 1, k + T)].freq);
-            // the pitch after them: an arpeggio, or legato notes
-            std::vector<int> semi;
-            for (size_t i = T; i < n.len; i++) {
-                double pp = pitch(F[k + i].freq);
-                semi.push_back(pp < 0 ? 0 : (int)std::lround(pp - basePitch));
+            for (size_t i = 0; i < std::min<size_t>(8, a - k); i++)
+                if ((F[k + i].ctrl & 0xF6) != steady) T = i + 1;
+            // the pitch after them
+            std::vector<double> p;
+            for (size_t i = k + T; i < a; i++) {
+                double pp = pitch(F[i].freq);
+                p.push_back(pp < 0 ? (p.empty() ? 60 : p.back()) : pp);
             }
-            int base = basePitch < 0 ? 60 : (int)std::lround(basePitch);
-            std::set<int> distinct(semi.begin(), semi.end());
+            if (p.empty()) p.push_back(std::max(0.0, pitch(F[k].freq)));
+            std::vector<int> rd;
+            for (double x : p) rd.push_back((int)std::lround(x));
+            // after the gate goes off: does the pitch or the waveform still change? (tail)
+            size_t gi = g > k + T ? g - k - T : 0;   // (the gate's end in p)
+            bool after = false;
+            for (size_t i = std::max<size_t>(gi, 1); i < rd.size(); i++) after |= rd[i] != rd[i - 1];
+            for (size_t i = std::max(g, k + 1); i < a; i++) after |= (F[i].ctrl & 0xF6) != (F[i - 1].ctrl & 0xF6);
+            // an arpeggio: two or three notes in turn, most frames changing (in the
+            // gate's frames when there are enough of them)
+            size_t n = gi >= 4 ? gi : rd.size();
+            std::set<int> distinct(rd.begin(), rd.begin() + (long)n);
             int changes = 0;
-            for (size_t i = 1; i < semi.size(); i++) changes += semi[i] != semi[i - 1];
-            if (distinct.size() >= 2 && distinct.size() <= 3 && semi.size() >= 4 && changes * 10 >= (int)(semi.size() - 1) * 6) {
-                int lo = *distinct.begin();   // (the arpeggio's root: its lowest)
+            for (size_t i = 1; i < n; i++) changes += rd[i] != rd[i - 1];
+            int base;
+            std::string arp;
+            int vib = 0, vdel = 0, vspeed = 1;
+            bool narrow = !distinct.empty() && *distinct.rbegin() - *distinct.begin() <= 24;   // (tune45's arpeggios)
+            if (narrow && distinct.size() >= 2 && distinct.size() <= 3 && n >= 4 && changes * 10 >= (int)(n - 1) * 6) {
+                base = *distinct.begin();   // (its lowest the note)
                 std::vector<int> up;
-                for (int d : distinct) if (d != lo) up.push_back(d - lo);
-                base += lo;
-                n.arpA = up[0];
-                n.arpB = up.size() > 1 ? up[1] : up[0];
+                for (int d : distinct) if (d != base) up.push_back(d - base);
+                arp = up.size() == 1 ? "arp2:" + std::to_string(up[0]) : "arp:" + std::to_string(up[0]) + "," + std::to_string(up[1]);
             } else {
-                // legato: a pitch held two frames or more where it differs
-                int cur = 0;
-                size_t i = 0;
-                while (i < semi.size()) {
-                    size_t j = i;
-                    while (j < semi.size() && semi[j] == semi[i]) j++;
-                    if (semi[i] != cur && j - i >= 2 && i > 0) {
-                        n.legato.push_back({base + semi[i], T + i});   // (its frame from the note's start; lengths below)
-                        cur = semi[i];
+                // the pitch's median over a vibrato's time (8 frames): legato notes
+                // where it moves on (a jump stays a jump); what is left a vibrato
+                size_t w = std::max<size_t>(3, (size_t)std::lround(8 * cpf));
+                std::vector<double> m(p.size());
+                for (size_t i = 0; i < p.size(); i++) {
+                    size_t lo = i >= w / 2 ? i - w / 2 : 0, hi = std::min(p.size(), i + w / 2 + 1);
+                    std::vector<double> win(p.begin() + (long)lo, p.begin() + (long)hi);
+                    std::nth_element(win.begin(), win.begin() + (long)win.size() / 2, win.end());
+                    m[i] = win[win.size() / 2];
+                }
+                base = (int)std::lround(m[0]);
+                int cur = base;
+                std::vector<int> at(m.size(), base);   // the note sounding at each frame
+                size_t last = 0;   // (the last change: the pitch's jump, not where the median turned)
+                for (size_t i = 1; i < m.size(); i++) {
+                    if (std::fabs(m[i] - cur) > 0.6) {
+                        cur = (int)std::lround(m[i]);
+                        size_t j = i;
+                        if (std::lround(p[j]) != cur) { while (j + 1 < p.size() && std::lround(p[j]) != cur) j++; }
+                        else { while (j > last + 1 && std::lround(p[j - 1]) == cur) j--; }
+                        for (size_t q = j; q < i; q++) at[q] = cur;
+                        for (size_t q = i; q < j; q++) at[q] = at[i - 1];
+                        R[k + T + j].legato = std::max(0, std::min(127, cur));
+                        last = j;
+                        if (j > i) {   // (on to it: the frames between keep the old)
+                            for (size_t q = i; q < j; q++) at[q] = at[i - 1];
+                            i = j;
+                        }
                     }
-                    i = j;
+                    at[i] = cur;
+                }
+                // what is left: a vibrato when it swings round its mean (the
+                // swings' time its speed, their size its depth)
+                std::vector<double> dev(p.size());
+                double mean = 0;
+                for (size_t i = 0; i < p.size(); i++) mean += (dev[i] = p[i] - at[i]);
+                mean /= p.size();
+                for (double& d : dev) d -= mean;
+                std::vector<double> sorted;
+                for (double d : dev) sorted.push_back(std::fabs(d));
+                std::sort(sorted.begin(), sorted.end());
+                double amp = sorted[sorted.size() * 9 / 10];
+                std::vector<size_t> cross;   // where it crosses its mean (with a margin)
+                int side = 0;
+                for (size_t i = 0; i < dev.size(); i++) {
+                    int sd = dev[i] > amp / 3 ? 1 : dev[i] < -amp / 3 ? -1 : 0;
+                    if (sd && sd != side) { if (side) cross.push_back(i); side = sd; }
+                }
+                if (amp >= 0.15 && cross.size() >= 3) {
+                    double period = 2.0 * (double)(cross.back() - cross.front()) / (double)(cross.size() - 1) / cpf;   // frames
+                    vib = std::max(1, std::min(15, (int)std::lround(256 * (std::pow(2.0, amp / 12) - 1))));
+                    vspeed = std::max(1, std::min(16, (int)std::lround(period / 8)));
+                    vdel = (int)std::min(255.0, (T + cross.front()) / cpf / 2);
                 }
             }
-            n.base = std::max(0, std::min(127, base));
-            for (auto& l : n.legato) l.first = std::max(0, std::min(127, l.first));
-            // the instrument
+            base = std::max(0, std::min(127, base));
+            // the instrument: its registers at the start, its pulse width's and
+            // cutoff's lines then, its wave table, vibrato; tail when it moves or
+            // changes after the gate goes off
             const Frame& on = F[k];
-            char b[200];
-            snprintf(b, sizeof b, "%s %02x %02x %03x 0 0", waveName(steady).c_str(), on.ad, on.sr, on.pw & 0xFF0);
+            Line pl = lineAt(pwLines[(size_t)v], k);
+            int pw = (int)std::lround(pl.value + pl.slope * (double)(k - pl.at));
+            pw = std::max(0, std::min(0xFFF, pw));
+            pw &= pw < 0x100 || pw > 0xEFF ? 0xFFF : 0xFC0;   // (finer where it is thin)
+            snprintf(b, sizeof b, "%s %02x %02x %03x %d 0", waveName(steady).c_str(), on.ad, on.sr, pw, vib);
             std::string l = b;
-            if (n.len > 2) {
-                int d = (int)F[k + 1].pw - (int)on.pw;
-                if (d && std::abs(d) < 128 && (int)F[k + 2].pw - (int)F[k + 1].pw == d) l += " pwm=" + std::to_string(d);
-            }
+            if (perFrame(pl.slope)) l += " pwm=" + std::to_string(perFrame(pl.slope)) + " free";
+            if (vdel) l += " vdelay=" + std::to_string(vdel);
+            if (vib && vspeed > 1) l += " vspeed=" + std::to_string(vspeed);
             if (on.filtered && on.mode) {
-                std::string m;
+                std::string md;
                 static const char* modes[3] = {"lp", "bp", "hp"};
-                for (int q = 0; q < 3; q++) if (on.mode & (0x10 << q)) m += (m.empty() ? "" : "+") + std::string(modes[q]);
-                snprintf(b, sizeof b, " filter=%s res=%d cutoff=%x", m.c_str(), on.res, on.cutoff);
+                for (int q = 0; q < 3; q++) if (on.mode & (0x10 << q)) md += (md.empty() ? "" : "+") + std::string(modes[q]);
+                Line cl = lineAt(cutLines[(size_t)v / 3], k);
+                int cut = std::max(0, std::min(0x7FF, (int)std::lround(cl.value + cl.slope * (double)(k - cl.at)))) & 0x7F0;
+                snprintf(b, sizeof b, " filter=%s res=%d cutoff=%x", md.c_str(), on.res, cut);
                 l += b;
-                if (n.len > 1) {
-                    int d = (int)F[k + 1].cutoff - (int)on.cutoff;
-                    if (d && std::abs(d) < 128) l += " fsweep=" + std::to_string(d);
-                }
+                if (perFrame(cl.slope)) l += " fsweep=" + std::to_string(perFrame(cl.slope));
             }
             if (T) {
                 std::string tb;
                 for (size_t i = 0; i < T; i++) {
                     double pp = pitch(F[k + i].freq);
-                    int s = pp < 0 ? 0 : std::max(-127, std::min(127, (int)std::lround(pp) - n.base));
-                    tb += " " + waveName(F[k + i].ctrl & 0xFE) + (s ? ":" + std::to_string(s) : "");
+                    int st = pp < 0 ? 0 : std::max(-127, std::min(127, (int)std::lround(pp) - base));
+                    tb += " " + waveName(F[k + i].ctrl & 0xF6) + (st ? ":" + std::to_string(st) : "");
                 }
                 tb += " " + waveName(steady);   // (the last held)
                 auto it = tableOf.find(tb);
@@ -196,24 +304,53 @@ std::string sidImport(const PsidFile& p, const SidImportOptions& o, std::string&
                 }
                 l += " table=" + it->second;
             }
+            // hard restart: the frames before the next note with AD and SR 0 (as the
+            // player did it: else the SID's envelope may not start a short note)
+            int hr = 0;
+            if (end < frames)
+                while (hr < 3 && end - 1 - hr > k && !F[end - 1 - hr].gate && !F[end - 1 - hr].ad && !F[end - 1 - hr].sr) hr++;
+            if (hr) l += " hr=" + std::to_string(hr);
+            if (a > g && after) l += " tail";
             auto it = instOf.find(l);
             if (it == instOf.end()) {
                 snprintf(b, sizeof b, "i%02zu", instOf.size() + 1);
                 it = instOf.emplace(l, b).first;
                 instLines.push_back("instrument " + it->second + " " + l);
             }
-            n.inst = it->second;
-            notes[(size_t)v].push_back(n);
-            k = e;
+            R[k].start = true;
+            R[k].inst = it->second;
+            R[k].note = base;
+            R[k].arp = arp.empty() ? "arp:off" : arp;
         }
     }
+    // pw: and cut: where a line starts inside a note (at its start the instrument has it)
+    auto inside = [&](int v, size_t k) {
+        for (const auto& [s0, s1] : audible[(size_t)v]) if (k > s0 && k < s1) return true;
+        return false;
+    };
+    for (int v = 0; v < nv; v++)
+        for (const auto& ln : pwLines[(size_t)v])
+            if (ln.at < frames && inside(v, ln.at)) {
+                snprintf(b, sizeof b, "pw:%x,%d ", (int)std::lround(ln.value) & 0xFFF, perFrame(ln.slope));
+                rows[(size_t)v][ln.at].tokens += b;
+            }
+    for (int c = 0; c < chips; c++) {
+        bool routed = false;   // (a chip whose filter a voice uses)
+        for (int v = c * 3; v < c * 3 + 3; v++) for (const auto& f : fr[(size_t)v]) routed |= f.filtered && f.mode;
+        if (!routed) continue;
+        for (const auto& ln : cutLines[(size_t)c])
+            if (ln.at > 0 && ln.at < frames) {
+                snprintf(b, sizeof b, "cut:%x,%d ", std::max(0, std::min(0x7FF, (int)std::lround(ln.value))), perFrame(ln.slope));
+                rows[(size_t)c * 3][ln.at].tokens += b;
+            }
+    }
     int last = -1;
-    for (int v = 0; v < nv; v++) if (!notes[(size_t)v].empty()) last = v;
+    for (int v = 0; v < nv; v++) if (!audible[(size_t)v].empty()) last = v;
     if (last < 0) { error = "the tune played no notes in " + std::to_string((int)o.seconds) + " s"; return ""; }
+    last = std::max(last, (chips - 1) * 3);   // (a chip's cut: tokens on its first voice)
 
     // the text
     std::string t;
-    char b[512];
     std::string name = ident(!o.name.empty() ? o.name : !p.name.empty() ? p.name : o.source.substr(0, o.source.find_last_of('.')));
     std::string who = p.name.empty() ? "(untitled)" : p.name;
     if (!p.author.empty()) who += " by " + p.author;
@@ -228,35 +365,55 @@ std::string sidImport(const PsidFile& p, const SidImportOptions& o, std::string&
     t += "\n";
     for (const auto& l : tableLines) t += l + "\n";
     for (const auto& l : instLines) t += l + "\n";
-    snprintf(b, sizeof b, "\ntune %s %.4g once\n", name.c_str(), 50.0 / run.callsPerSecond);
+    // a tick's frames: as near as 8.8 holds them; where that drifts, the two
+    // nearest in turn (tempo:), kept within a quarter of a frame of the tune's
+    double want = 50.0 / run.callsPerSecond;
+    int lo = std::max(26, (int)std::floor(want * 256)), hi = std::max(26, (int)std::ceil(want * 256));
+    int now = (int)std::lround(want * 256);
+    if (lo != hi) {
+        double ideal = 0, played = 0;
+        for (size_t k = 0; k < frames; k++) {
+            int use = played - ideal > 0.25 ? lo : ideal - played > 0.25 ? hi : now;
+            if (use != now) {
+                snprintf(b, sizeof b, "tempo:%.8g ", use / 256.0);
+                rows[0][k].tokens = b + rows[0][k].tokens;
+                now = use;
+            }
+            ideal += want;
+            played += now / 256.0;
+        }
+    }
+    snprintf(b, sizeof b, "\ntune %s %.8g once\n", name.c_str(), std::lround(want * 256) / 256.0);
     t += b;
     for (int v = 0; v <= last; v++) {
+        const auto& R = rows[(size_t)v];
         std::string line = "v" + std::to_string(v + 1) + ":";
-        std::string cur;
-        int arpA = 0, arpB = 0;
-        size_t at = 0;
+        std::string cur, curArp = "arp:off";
         int count = 0;
         auto add = [&](const std::string& tok) {
             line += " " + tok;
             if (++count % 16 == 0) line += " \\\n   ";
         };
-        for (const auto& n : notes[(size_t)v]) {
-            if (n.at > at) add("r:" + std::to_string(n.at - at));
-            if (n.arpA != arpA || n.arpB != arpB) {
-                add(n.arpA ? "arp:" + std::to_string(n.arpA) + "," + std::to_string(n.arpB) : std::string("arp:off"));
-                arpA = n.arpA;
-                arpB = n.arpB;
+        bool sounding = false;   // (a note begun: what follows its gate rings on)
+        for (size_t k = 0; k < frames;) {
+            size_t e = k + 1;
+            while (e < frames && !R[e].start && R[e].legato < 0 && R[e].tokens.empty() && R[e].gate == R[k].gate) e++;
+            std::string n = std::to_string(e - k);
+            if (!R[k].tokens.empty()) {
+                std::string tk = R[k].tokens;
+                tk.pop_back();
+                add(tk);
             }
-            if (n.inst != cur) { add("@" + n.inst); cur = n.inst; }
-            size_t first = n.legato.empty() ? n.len : n.legato[0].second;
-            add(TuneCompiler::noteName(n.base) + ":" + std::to_string(first));
-            for (size_t k = 0; k < n.legato.size(); k++) {
-                size_t end = k + 1 < n.legato.size() ? n.legato[k + 1].second : n.len;
-                add("~" + TuneCompiler::noteName(n.legato[k].first) + ":" + std::to_string(end - n.legato[k].second));
-            }
-            at = n.at + n.len;
+            if (R[k].start) {
+                if (R[k].arp != curArp) { add(R[k].arp); curArp = R[k].arp; }
+                if (R[k].inst != cur) { add("@" + R[k].inst); cur = R[k].inst; }
+                add(TuneCompiler::noteName(R[k].note) + ":" + n);
+                sounding = true;
+            } else if (R[k].legato >= 0 && sounding) add("~" + TuneCompiler::noteName(R[k].legato) + ":" + n);
+            else if (R[k].gate && sounding) add("~:" + n);
+            else add("r:" + n);
+            k = e;
         }
-        if (at < frames) add("r:" + std::to_string(frames - at));
         while (line.size() > 4 && line.substr(line.size() - 5) == " \\\n   ") line.erase(line.size() - 5);
         t += line + "\n";
     }

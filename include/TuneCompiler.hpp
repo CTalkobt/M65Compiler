@@ -45,6 +45,7 @@ struct TuneInstrument {
     uint8_t wave = 0x40, ad = 0, sr = 0xF0;
     uint16_t pw = 0x800;
     uint8_t vib = 0, gap = 0;
+    uint8_t vspeed = 1;             // frames a step of the vibrato's triangle (1-16; the vib byte's high nibble + 1)
     int8_t pwm = 0;
     uint8_t vdelay = 0;
     int8_t slide = 0;

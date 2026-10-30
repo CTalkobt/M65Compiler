@@ -35,9 +35,9 @@ wavetable drum noise pulse:-12 pulse:-19 pulse:-24
 wavetable buzz pulse saw pulse:12 saw:12 loop 2
 instrument bass  pulse 00 f8 0400 0 0 hr=2 filter=lp res=12 cutoff=700 fsweep=40
 instrument snare pulse 00 f0 0800 0 0 hr=1 table=drum
-instrument slead saw 08 a8 0800 1 0 hr=2 table=buzz filter=bp+hp res=4 cutoff=500 fsweep=-9 vdelay=3
+instrument slead saw 08 a8 0800 3 0 hr=2 table=buzz filter=bp+hp res=4 cutoff=500 fsweep=-9 vdelay=3 vspeed=3
 instrument plain tri 00 f0 0800 0 0
-instrument tl pulse 00 f9 0400 0 0 tail
+instrument tl pulse 00 f9 0080 0 0 tail pwm=-60 free
 tune synth 2.5 loop
 pattern pb: c2:4
 pattern ps: c5:1

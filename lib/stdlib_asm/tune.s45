@@ -150,13 +150,18 @@ __ti_ad:        .res NV
 __ti_sr:        .res NV
 __ti_pw_lo:     .res NV
 __ti_pw_hi:     .res NV
-__ti_vib:       .res NV
+__ti_vib:       .res NV         ; the vibrato's depth (0-15)
+__ti_vspd:      .res NV         ;   its speed: frames a step of its triangle, less 1 (0: a step a frame)
+__tv_vph:       .res NV         ; the vibrato's step (speed above 0)
+__tv_vcnt:      .res NV         ;   frames to the next
 __ti_gap:       .res NV
 __ti_pwm:       .res NV
 __ti_vdel:      .res NV
 __ti_slide:     .res NV
 __ti_hr:        .res NV
 __ti_tail:      .res NV         ; $80: its effects go on through the release (the hr byte's bit 7)
+__ti_free:      .res NV         ; $40: its pulse-width sweep free (no bounce; stops at 0 and $FFF; bit 6)
+__tv_pwfree:    .res NV         ; the voice's sweep free (the instrument's at a note; pw: sets it)
 __ti_filt:      .res NV
 __ti_cut_lo:    .res NV
 __ti_cut_hi:    .res NV
@@ -278,7 +283,15 @@ proc __tune_inst
     sta __ti_pw_hi,x
     inz
     lda [P],z
+    pha
+    and #$0F
     sta __ti_vib,x
+    pla
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    sta __ti_vspd,x
     inz
     lda [P],z
     sta __ti_gap,x
@@ -297,6 +310,7 @@ proc __tune_inst
     lda #0
     sta __ti_hr,x
     sta __ti_tail,x
+    sta __ti_free,x
     sta __ti_filt,x
     sta __ti_cut_lo,x
     sta __ti_cut_hi,x
@@ -311,6 +325,10 @@ proc __tune_inst
     pha
     and #$80
     sta __ti_tail,x
+    pla
+    pha
+    and #$40
+    sta __ti_free,x
     pla
     and #$03
     sta __ti_hr,x
@@ -867,6 +885,8 @@ proc __tune_setpw
     sta __tv_pw_hi,x
     jsr __tune_rd
     sta __tv_pwdir,x
+    lda #$40
+    sta __tv_pwfree,x   ; (its sweep free)
     jmp __tune_wpw
 endproc
 
@@ -1011,6 +1031,8 @@ proc __tune_next
     sta __tv_gated,x
     sta __tv_t,x
     sta __tv_arpi,x
+    sta __tv_vph,x
+    sta __tv_vcnt,x
     sta __tv_hrdone,x
     sta __tv_wti,x
     sta __tv_wsemi,x
@@ -1023,6 +1045,8 @@ proc __tune_next
     sta __tv_pw_hi,x
     lda __ti_pwm,x
     sta __tv_pwdir,x
+    lda __ti_free,x
+    sta __tv_pwfree,x
     jsr __tune_wpw
     lda __ti_ad,x
     ldy #5
@@ -1528,6 +1552,26 @@ proc __tune_effects
     tya
     adc __tv_pw_hi,x
     sta __tv_pw_hi,x
+    bit __tv_pwfree,x   ; (free: on to 0 or $FFF, and stopped there)
+    bvc @bounce
+    cmp #$10
+    bcc @pwset
+    and #$80            ; (past $FFF: $10xx; below 0: $FFxx)
+    beq @top
+    lda #0
+    sta __tv_pw_lo,x
+    sta __tv_pw_hi,x
+    bra @stop
+@top:
+    lda #$FF
+    sta __tv_pw_lo,x
+    lda #$0F
+    sta __tv_pw_hi,x
+@stop:
+    lda #0
+    sta __tv_pwdir,x
+    bra @pwset
+@bounce:
     cmp #$0E
     bcs @turn           ; >= $0E00
     cmp #$02
@@ -1722,6 +1766,19 @@ proc __tune_effects
     cmp __ti_vdel,x
     beq @write
     bcc @write
+    ldy __ti_vspd,x     ; (a slower vibrato: a step every speed + 1 frames)
+    beq @fast
+    lda __tv_vcnt,x
+    bne @vc
+    tya
+    sta __tv_vcnt,x
+    inc __tv_vph,x
+    bra @vstep
+@vc:
+    dec __tv_vcnt,x
+@vstep:
+    lda __tv_vph,x
+@fast:
     and #7
     tay
     lda __tune_tri,y

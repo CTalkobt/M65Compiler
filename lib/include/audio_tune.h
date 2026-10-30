@@ -44,7 +44,9 @@
  *   $89 lo hi s   the pulse width and its sweep a frame (signed)
  *   $8A lo hi s   the voice's chip's cutoff (11 bits) and its sweep a frame
  * ($83 a $80: a two-note arpeggio, the note and +a. An instrument's hr byte's
- * bit 7: its effects go on through the release.)
+ * bit 7: its effects go on through the release; bit 6: its pulse-width
+ * sweep free (no bounce; stopped at 0 and $FFF, as pw:'s). Its vibrato
+ * byte's high nibble: frames a step of the triangle, less 1.)
  *   $FE           back to the voice's start (a tune that loops)
  *   $FF           the voice's end
  * A digi voice's: $00-$7F h d  hit h (the tune's sample table) for d
