@@ -21,10 +21,17 @@ struct ModSample {
     std::string name;
     std::vector<int8_t> data;
     int finetune = 0, volume = 64;
+    double transpose = 0;           // semitones it sounds above a MOD sample at a period (XM, S3M, IT: their tuning)
     uint32_t loopStart = 0, loopLen = 0;   // bytes
     bool looped() const { return loopLen > 2 && loopStart + loopLen <= data.size(); }
+    // its tuning in semitones (finetune in eighths, and the transpose)
+    double tuneSemis() const { return finetune / 8.0 + transpose; }
 };
 
+// A cell as a MOD has it; the other formats' readers translate theirs to
+// it: a note as the Amiga period it would have (C-2, as ProTracker names
+// it, is 428; a note n semitones higher 428 / 2^(n/12), rounded), and the
+// effect as ProTracker's (0-F, E0-EF)
 struct ModCell {
     uint8_t sample = 0;             // 0: none (the channel's last)
     uint16_t period = 0;            // 0: no note
@@ -32,11 +39,14 @@ struct ModCell {
 };
 
 struct ModFile {
-    std::string title, tag;
+    std::string title, tag;         // tag: a MOD's, or the format (XM, S3M, IT)
     int channels = 4;
+    int speed = 6, bpm = 125;       // at the start (a MOD's: 6 and 125)
     int songLen = 0;
     std::vector<uint8_t> order;     // the pattern at each position
-    std::vector<std::vector<ModCell>> patterns;   // 64 rows * channels each
+    std::vector<std::vector<ModCell>> patterns;   // rows * channels each (row-major)
+    std::vector<int> rows;          // each pattern's rows (a MOD's: 64)
+    int rowsOf(size_t p) const { return p < rows.size() ? rows[p] : 64; }
     std::vector<ModSample> samples; // 31 (or 15)
 };
 

@@ -60,17 +60,20 @@ Use walk(const ModFile& m) {
     std::vector<int> open((size_t)m.channels, -1);   // the channel's sounding hit
     std::vector<std::set<uint16_t>> periods(m.samples.size());
     std::vector<std::vector<uint16_t>> all(m.samples.size());
-    int speed = 6, bpm = 125;
+    int speed = m.speed, bpm = m.bpm;
+    u.speed = speed;
+    u.bpm = bpm;
     bool first = true;
     double t = 0;
     int startRow = 0;
     for (int pos = 0; pos < m.songLen && pos < (int)m.order.size(); pos++) {
         size_t pat = m.order[(size_t)pos];
         if (pat >= m.patterns.size()) continue;
+        if (startRow >= m.rowsOf(pat)) startRow = 0;
         const auto& P = m.patterns[pat];
-        int row = startRow;
+        int row = startRow, nrows = m.rowsOf(pat);
         startRow = 0;
-        for (; row < 64; row++) {
+        for (; row < nrows; row++) {
             bool brk = false;
             for (int ch = 0; ch < m.channels; ch++) {
                 const ModCell& c = P[(size_t)(row * m.channels + ch)];
@@ -81,13 +84,15 @@ Use walk(const ModFile& m) {
                     auto& R = u.r[(size_t)s];
                     R.notes++;
                     R.channelsMask |= 1 << std::min(ch, 30);
-                    periods[(size_t)s].insert(c.period);
-                    all[(size_t)s].push_back(c.period);
+                    // (the period it plays at, the sample's tuning in)
+                    uint16_t per = (uint16_t)std::max(1L, std::lround(c.period * std::pow(2.0, -m.samples[(size_t)s].tuneSemis() / 12)));
+                    periods[(size_t)s].insert(per);
+                    all[(size_t)s].push_back(per);
                     if (open[(size_t)ch] >= 0) u.hits[(size_t)open[(size_t)ch]].end = std::min(u.hits[(size_t)open[(size_t)ch]].end, t);
                     const ModSample& S = m.samples[(size_t)s];
-                    double len = S.looped() ? 1e9 : S.data.size() / (kPaula / c.period);
+                    double len = S.looped() ? 1e9 : S.data.size() / (kPaula / per);
                     open[(size_t)ch] = (int)u.hits.size();
-                    u.hits.push_back({t, ch, s, c.period, t + len});
+                    u.hits.push_back({t, ch, s, per, t + len});
                 }
                 if (s >= 0) {
                     auto& R = u.r[(size_t)s];
@@ -107,7 +112,7 @@ Use walk(const ModFile& m) {
                     if (c.param < 32) speed = c.param; else bpm = c.param;
                     if (first && t == 0) { u.speed = speed; u.bpm = bpm; }
                 }
-                if (c.effect == 0xD) { brk = true; startRow = std::min(63, (c.param >> 4) * 10 + (c.param & 15)); }
+                if (c.effect == 0xD) { brk = true; startRow = (c.param >> 4) * 10 + (c.param & 15); }
                 if (c.effect == 0xB) brk = true;   // (a jump: the song is taken in order, once)
             }
             t += speed * 2.5 / bpm;
@@ -551,6 +556,7 @@ bool readMod(const std::vector<uint8_t>& f, ModFile& m, std::string& error) {
             cells[c].param = b[3];
         }
         m.patterns.push_back(cells);
+        m.rows.push_back(64);
     }
     for (auto& s : m.samples) {
         size_t n = std::min(s.data.size(), f.size() > at ? f.size() - at : 0);
@@ -856,19 +862,20 @@ std::string modImport(const ModFile& m, const std::vector<ModSampleReport>& r, c
     std::vector<Row> rows;
     {
         std::set<std::pair<int, int>> seen;
-        int pos = 0, row = 0, speed = 6, bpm = 125;
+        int pos = 0, row = 0, speed = m.speed, bpm = m.bpm;
         while (pos < m.songLen && pos < (int)m.order.size() && rows.size() < 100000) {
             if (!seen.insert({pos, row}).second) break;   // (played before: the song loops here)
             size_t pat = m.order[(size_t)pos];
             if (pat >= m.patterns.size()) { pos++; row = 0; continue; }
-            int nextPos = pos + 1, nextRow = 0, loopRow = 0, loopCount = 0;
+            int nextPos = pos + 1, nextRow = 0, loopRow = 0, loopCount = 0, nrows = m.rowsOf(pat);
             bool first = true;
-            for (int rr = row; rr < 64; rr++) {
+            if (row >= nrows) row = 0;
+            for (int rr = row; rr < nrows; rr++) {
                 int delay = 0, brk = -1, jump = -1, loopTo = -1;
                 for (int ch = 0; ch < m.channels; ch++) {
                     const ModCell& c = m.patterns[pat][(size_t)(rr * m.channels + ch)];
                     if (c.effect == 0xF && c.param) { if (c.param < 32) speed = c.param; else bpm = c.param; }
-                    if (c.effect == 0xD) brk = std::min(63, (c.param >> 4) * 10 + (c.param & 15));
+                    if (c.effect == 0xD) brk = (c.param >> 4) * 10 + (c.param & 15);
                     if (c.effect == 0xB) jump = c.param;
                     if (c.effect == 0xE) {
                         int x = c.param >> 4, y = c.param & 15;
@@ -929,7 +936,7 @@ std::string modImport(const ModFile& m, const std::vector<ModSampleReport>& r, c
                     bool porta = cell.period && (cell.effect == 3 || cell.effect == 5);
                     bool note = cell.period && playable && !porta;
                     bool cut = (cell.effect == 0xC && cell.param == 0) || (cell.effect == 0xE && (cell.param >> 4) == 0xC);
-                    double per = playable ? cell.period * std::pow(2.0, -m.samples[(size_t)s].finetune / 96.0) : cell.period;
+                    double per = playable ? cell.period * std::pow(2.0, -m.samples[(size_t)s].tuneSemis() / 12) : cell.period;
                     if (cell.effect == 3 && cell.param) c.porta = cell.param;
                     if (note && isSid) {
                         sr.kind = 0;
@@ -1113,7 +1120,7 @@ std::string modImport(const ModFile& m, const std::vector<ModSampleReport>& r, c
     for (const auto& [h, sp] : hitOf) {
         const ModSampleReport& R = r[(size_t)sp.first];
         const ModSample& S = m.samples[(size_t)sp.first];
-        double per = sp.second * std::pow(2.0, -S.finetune / 96.0);
+        double per = sp.second * std::pow(2.0, -S.tuneSemis() / 12);
         uint32_t rate = (uint32_t)std::lround(modRate(per));
         std::vector<int8_t> data = S.data;
         if (S.looped()) {
