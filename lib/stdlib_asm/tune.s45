@@ -58,6 +58,7 @@ cc45.icallinfo = 1
 .global _tune_play, _tune_play_far, _tune_stop, _tune_update, _tune_playing
 .global _tune_voices, _tune_tempo, _tune_vibrato, _tune_transpose, _tune_detune, _tune_ticks, _tune_note
 .global _tune_seek, _tune_samples, _tune_digi_channels, _tune_digi_volume
+.global _tune_volume, _tune_fade, _tune_fading, _tune_borrow, _tune_return, _tune_queue, _tune_queue_far, _tune_queued
 .extern ___sid_put, ___sid_shadow, ___digi_regs
 
 P  = $F6
@@ -113,6 +114,15 @@ __tv_ret_hi:    .res NVT
 __tv_pat_lo:    .res NVT        ;   its start
 __tv_pat_hi:    .res NVT
 __tv_rep:       .res NVT        ;   and the times it plays yet
+__tv_held:      .res NV         ; 1: the voice lent to the program (tune_borrow): no writes
+__tv_hold_lo:   .res NV         ;   frames to its return (0: tune_return)
+__tv_hold_hi:   .res NV
+__tune_fstep:   .res 2          ; a fade's step a frame (8.8, signed)
+__tune_fleft:   .res 2          ;   frames to go
+__tune_fto:     .res 1          ;   the volume it ends at
+__tune_queued:  .res 1          ; 1: a tune to start at a bar line (tune_queue)
+__tune_qbase:   .res 4          ;   its address
+__tune_qleft:   .res 2          ;   ticks to the bar line
 __tv_note:      .res NV
 __tv_freq_lo:   .res NV         ; the note's frequency (slide moves it)
 __tv_freq_hi:   .res NV
@@ -162,6 +172,9 @@ __tv_transp:    .byte 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 __tv_detune:    .byte 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 __tune_dfirst:  .byte 0         ; the digi voices' first channel
 __tune_dvol:    .byte 255       ; their volume
+__tune_mvol:    .word $0F00     ; the music's volume (tune_volume, 8.8: 0-15)
+__tune_mnow:    .byte 15        ;   as the SIDs have it
+__tune_dmaster: .byte 255       ;   the digi voices': 17 a step
 __tune_sbank:   .byte 0, 0, 0   ; the samples' address (chip RAM)
 
 .segment "code"
@@ -324,8 +337,14 @@ endproc
 proc __tune_w
     bit __tune_mute
     bmi @muted
-    stx __tune_x
     pha
+    lda __tv_held,x     ; (lent to the program: not written)
+    beq @write
+    pla
+@muted:
+    rts
+@write:
+    stx __tune_x
     tya
     clc
     adc __tv_base,x
@@ -333,7 +352,6 @@ proc __tune_w
     pla
     jsr ___sid_put
     ldx __tune_x
-@muted:
     rts
 endproc
 
@@ -350,6 +368,126 @@ proc __tune_wr
     ldx __tune_x
 @muted:
     rts
+endproc
+
+; Each frame: a fade's step (the volume's whole steps to the SIDs and the
+; digi voices), the voices lent counted down to their return
+proc __tune_frame
+    lda __tune_fleft
+    ora __tune_fleft+1
+    beq @holds
+    clc
+    lda __tune_mvol
+    adc __tune_fstep
+    sta __tune_mvol
+    lda __tune_mvol+1
+    adc __tune_fstep+1
+    sta __tune_mvol+1
+    lda __tune_fleft
+    bne @flo
+    dec __tune_fleft+1
+@flo:
+    dec __tune_fleft
+    lda __tune_fleft
+    ora __tune_fleft+1
+    bne @apply
+    lda __tune_fto      ; (the end: exactly where it was going)
+    sta __tune_mvol+1
+    lda #0
+    sta __tune_mvol
+@apply:
+    jsr __tune_master
+@holds:
+    ldx #0
+@h:
+    lda __tv_held,x
+    beq @hn
+    lda __tv_hold_lo,x
+    ora __tv_hold_hi,x
+    beq @hn             ; (0: until tune_return)
+    lda __tv_hold_lo,x
+    bne @hlo
+    dec __tv_hold_hi,x
+@hlo:
+    dec __tv_hold_lo,x
+    lda __tv_hold_lo,x
+    ora __tv_hold_hi,x
+    bne @hn
+    sta __tv_held,x     ; (back to the music)
+@hn:
+    inx
+    cpx #NV
+    bne @h
+    rts
+endproc
+
+; The music's volume (__tune_mvol's whole part, 0-15) where it changed: the
+; four SIDs' $18 volume (the rest of it kept), the digi voices' (17 a step)
+proc __tune_master
+    lda __tune_mvol+1
+    cmp #16
+    bcc @ok
+    lda #15
+@ok:
+    cmp __tune_mnow
+    beq @same
+    sta __tune_mnow
+    sta T2
+    asl a
+    asl a
+    asl a
+    asl a
+    ora T2
+    sta __tune_dmaster  ; (n * 17: 0-255)
+    ldy #$18
+@chip:
+    lda ___sid_shadow,y
+    and #$F0
+    ora T2
+    phy
+    pha
+    tya
+    tax
+    pla
+    jsr ___sid_put
+    ply
+    tya
+    clc
+    adc #$20
+    tay
+    cmp #$98
+    bne @chip
+    ; the digi voices sounding: their volume again
+    lda __tune_active
+    beq @same
+    ldx #12
+@d:
+    txa
+    sec
+    sbc #12
+    cmp __tune_nd
+    bcs @same
+    jsr __tune_dreg
+    jsr __tune_dvset
+    inx
+    bra @d
+@same:
+    rts
+endproc
+
+; the queued tune started
+proc __tune_qstart
+    lda #0
+    sta __tune_queued
+    lda __tune_qbase
+    sta __tune_base
+    lda __tune_qbase+1
+    sta __tune_base+1
+    lda __tune_qbase+2
+    sta __tune_base+2
+    lda __tune_qbase+3
+    sta __tune_base+3
+    jmp __tune_start
 endproc
 
 ; Voice X's control register: its waveform and gate
@@ -420,6 +558,10 @@ endproc
 ; sweep, the resonance and mode, and routes the voice (the volume and the
 ; others' routing kept, from the shadow); another takes the voice out
 proc __tune_filter
+    lda __tv_held,x     ; (lent: its routing the program's)
+    beq @mine
+    rts
+@mine:
     lda __tv_base,x
     and #$60
     sta T2
@@ -975,6 +1117,24 @@ proc __tune_dvset
     dey
     bne @bit
 @set:
+    ldy __tune_dmaster  ; and the music's volume (tune_volume, a fade)
+    cpy #255
+    beq @put
+    sta T2
+    sty T1
+    lda #0
+    ldy #8
+@mbit:
+    lsr T1
+    bcc @mno
+    clc
+    adc T2
+@mno:
+    ror a
+    ror T0
+    dey
+    bne @mbit
+@put:
     pha
     lda __tune_r
     clc
@@ -1958,6 +2118,7 @@ endproc
 proc _tune_update
     .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z, V
+    jsr __tune_frame    ; (a fade, the voices lent: every frame)
     lda __tune_active
     bne @run
     rts
@@ -1986,6 +2147,21 @@ proc _tune_update
     lda __tune_acc+1
     sbc __tune_fpt+1
     sta __tune_acc+1
+    ; a tune queued: at the bar line, started instead of the tick
+    lda __tune_queued
+    beq @tk
+    lda __tune_qleft
+    ora __tune_qleft+1
+    bne @dq
+    jsr __tune_qstart
+    bra @ticks
+@dq:
+    lda __tune_qleft
+    bne @dlo
+    dec __tune_qleft+1
+@dlo:
+    dec __tune_qleft
+@tk:
     jsr __tune_tick
     lda __tune_active
     bne @ticks
@@ -2205,6 +2381,276 @@ proc _tune_detune
     lda $12
     sta __tv_detune,x
 @no:
+    rts
+    .func_flags zp_call, leaf
+endproc
+
+
+
+; void tune_volume(unsigned char volume): the music's, 0-15 (15 at first),
+; at once (a fade stopped)
+proc _tune_volume
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    php
+    sei
+    lda #0
+    sta __tune_fleft
+    sta __tune_fleft+1
+    sta __tune_mvol
+    lda $10
+    sta __tune_mvol+1
+    jsr __tune_master
+    plp
+    rts
+    .func_flags zp_call
+endproc
+
+; void tune_fade(unsigned int frames, unsigned char volume): to that volume
+; over so many frames (tune_update counts them)
+proc _tune_fade
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    lda $10
+    ora $11
+    bne @fade
+    lda $12
+    sta $10
+    jmp _tune_volume
+@fade:
+    php
+    sei
+    lda $12
+    sta __tune_fto
+    ; the step: (volume * 256 - now) / frames, signed (shift and subtract)
+    sec
+    lda #0
+    sbc __tune_mvol
+    sta T0
+    lda $12
+    sbc __tune_mvol+1
+    sta T1              ; T1:T0 the distance (signed)
+    php                 ; (its sign)
+    bpl @pos
+    sec
+    lda #0
+    sbc T0
+    sta T0
+    lda #0
+    sbc T1
+    sta T1
+@pos:
+    ; T1:T0 / $11:$10 -> __tune_fstep (16 bits), the remainder in T2:Y
+    lda #0
+    sta T2
+    ldy #0
+    ldx #16
+@div:
+    asl T0
+    rol T1
+    rol T2
+    tya
+    rol a
+    tay
+    sec
+    lda T2
+    sbc $10
+    sta __tune_x
+    tya
+    sbc $11
+    bcc @less
+    tay
+    lda __tune_x
+    sta T2
+    inc T0
+@less:
+    dex
+    bne @div
+    plp
+    bpl @set
+    sec
+    lda #0
+    sbc T0
+    sta T0
+    lda #0
+    sbc T1
+    sta T1
+@set:
+    lda T0
+    sta __tune_fstep
+    lda T1
+    sta __tune_fstep+1
+    lda $10
+    sta __tune_fleft
+    lda $11
+    sta __tune_fleft+1
+    plp
+    rts
+    .func_flags zp_call
+endproc
+
+; unsigned char tune_fading(void): 1 while a fade goes on
+proc _tune_fading
+    .reg_clobbers A, X
+    .flag_clobbers N, Z
+    ldx #0
+    lda __tune_fleft
+    ora __tune_fleft+1
+    beq @no
+    lda #1
+@no:
+    rts
+    .func_flags zp_call, leaf
+endproc
+
+; void tune_borrow(unsigned char voice, unsigned int frames): the voice (a
+; tune voice, as tune_note's) lent to the program: the music goes on but
+; writes none of its registers, for so many frames (0: until tune_return)
+proc _tune_borrow
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X
+    .flag_clobbers C, N, Z
+    ldx $10
+    cpx #NV
+    bcs @no
+    php
+    sei
+    lda $12             ; (frames + 1: counted down at each frame's start)
+    sta __tv_hold_lo,x
+    lda $13
+    sta __tv_hold_hi,x
+    ora $12
+    beq @keep
+    inc __tv_hold_lo,x
+    bne @keep
+    inc __tv_hold_hi,x
+@keep:
+    lda #1
+    sta __tv_held,x
+    plp
+@no:
+    rts
+    .func_flags zp_call, leaf
+endproc
+
+; void tune_return(unsigned char voice): back to the music (it sounds again
+; from its next note)
+proc _tune_return
+    .zp_uses $10, $11
+    .reg_clobbers A, X
+    .flag_clobbers C, N, Z
+    ldx $10
+    cpx #NV
+    bcs @no
+    lda #0
+    sta __tv_held,x
+    sta __tv_hold_lo,x
+    sta __tv_hold_hi,x
+@no:
+    rts
+    .func_flags zp_call, leaf
+endproc
+
+; void tune_queue(const unsigned char *tune, unsigned int bar): the tune
+; started at the playing one's next bar line (its ticks a multiple of bar;
+; at once if it is on one); tune_queue_far(unsigned long addr, bar)
+proc _tune_queue
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $12
+    sta $14
+    lda $13
+    sta $15
+    lda #0
+    sta $12
+    sta $13
+    jmp _tune_queue_far
+    .func_flags zp_call
+endproc
+
+proc _tune_queue_far
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    php
+    sei
+    lda $10
+    sta __tune_qbase
+    lda $11
+    sta __tune_qbase+1
+    lda $12
+    sta __tune_qbase+2
+    lda $13
+    and #$0F
+    sta __tune_qbase+3
+    ; ticks to the bar line: (bar - ticks % bar) % bar (shift and subtract)
+    lda __tune_ticks
+    sta T0
+    lda __tune_ticks+1
+    sta T1
+    lda #0
+    sta T2
+    ldy #0
+    ldx #16
+@div:
+    asl T0
+    rol T1
+    rol T2
+    tya
+    rol a
+    tay
+    sec
+    lda T2
+    sbc $14
+    sta __tune_x
+    tya
+    sbc $15
+    bcc @less
+    tay
+    lda __tune_x
+    sta T2
+@less:
+    dex
+    bne @div
+    ; Y:T2 = ticks % bar
+    lda T2
+    sty T0
+    ora T0
+    beq @now
+    sec
+    lda $14
+    sbc T2
+    sta __tune_qleft
+    lda $15
+    sbc T0
+    sta __tune_qleft+1
+    bra @set
+@now:
+    lda #0
+    sta __tune_qleft
+    sta __tune_qleft+1
+@set:
+    lda #1
+    sta __tune_queued
+    lda __tune_active   ; (nothing playing: at once)
+    bne @wait
+    jsr __tune_qstart
+@wait:
+    plp
+    rts
+    .func_flags zp_call
+endproc
+
+
+; unsigned char tune_queued(void): 1 while a tune waits for the bar line
+proc _tune_queued
+    .reg_clobbers A, X
+    .flag_clobbers N, Z
+    ldx #0
+    lda __tune_queued
     rts
     .func_flags zp_call, leaf
 endproc

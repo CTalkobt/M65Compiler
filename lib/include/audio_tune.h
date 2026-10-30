@@ -106,3 +106,30 @@ __fastcall__ unsigned char tune_note(unsigned char voice);
 __fastcall__ void tune_samples(unsigned long addr);
 __fastcall__ void tune_digi_channels(unsigned char first);
 __fastcall__ void tune_digi_volume(unsigned char volume);
+
+/* For a game: the music's volume, voices lent to the program's sound
+ * effects, the next tune at a bar line.
+ *   tune_volume   the music's volume 0-15 (15 at first): the SIDs' (their
+ *                 $D418 volume, the rest of it kept) and the digi voices'
+ *                 (17 a step, times tune_digi_volume's); at once
+ *   tune_fade     to a volume over so many frames (tune_update steps it);
+ *                 tune_fading: 1 until it gets there. A fade out and the
+ *                 next tune: tune_fade(50, 0) ... tune_play ... tune_fade(50, 15)
+ *   tune_borrow   a tune voice (0-11) lent to the program for so many
+ *                 frames (0: until tune_return): the music goes on but
+ *                 writes none of its registers (nor its filter routing), so
+ *                 a sound effect can play on it (audio_sid.h); back, it
+ *                 sounds again from its next note
+ *   tune_queue    the tune started at the playing one's next bar line (its
+ *                 ticks a multiple of bar: tune45 gives TUNE_<NAME>_BAR for
+ *                 a tune with ticks a bar), or at once if on one or nothing
+ *                 plays; tune_queued: 1 while it waits
+ * The volume stays set across tune_play. */
+__fastcall__ void tune_volume(unsigned char volume);
+__fastcall__ void tune_fade(unsigned int frames, unsigned char volume);
+__fastcall__ unsigned char tune_fading(void);
+__fastcall__ void tune_borrow(unsigned char voice, unsigned int frames);
+__fastcall__ void tune_return(unsigned char voice);
+__fastcall__ void tune_queue(const unsigned char *tune, unsigned int bar);
+__fastcall__ void tune_queue_far(unsigned long addr, unsigned int bar);
+__fastcall__ unsigned char tune_queued(void);

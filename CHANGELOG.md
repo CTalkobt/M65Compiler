@@ -4,6 +4,18 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### The tune player: controls for a game
+
+- `tune_volume(0-15)` and `tune_fade(frames, volume)` / `tune_fading`: the
+  music's volume (the four SIDs' $D418 volume, the rest kept; the digi
+  voices', 17 a step), a fade stepped by `tune_update`.
+- `tune_borrow(voice, frames)` / `tune_return`: a voice lent to the
+  program's sound effects (no register or filter routing writes from the
+  music meanwhile; back, it sounds from its next note).
+- `tune_queue(tune, bar)` / `tune_queue_far` / `tune_queued`: the next tune
+  started at the playing one's bar line; tune45 writes `TUNE_<NAME>_BAR`.
+- Tested in xemu in both conventions (`api_xemu.c`).
+
 ### tune45 patterns
 
 - `pattern <name>: <tokens>` and `*name` / `*name*3` in a voice (SID or

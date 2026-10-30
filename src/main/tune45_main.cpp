@@ -162,9 +162,12 @@ int convert(const TuneFile& f, const std::string& src, const std::string& outPat
     if (!h) { std::cerr << "tune45: cannot write " << header << "\n"; return 1; }
     h << guardNote << "#pragma once\n\n#define NTUNES " << f.tunes.size() << "\n";
     for (size_t k = 0; k < f.tunes.size(); k++) h << "#define TUNE_" << upper(f.tunes[k].name) << " " << k << "\n";
-    // each tune's ticks once through (tune_seek: a looping tune's position)
-    for (const auto& t : f.tunes)
+    // each tune's ticks once through (tune_seek: a looping tune's
+    // position), and a bar's (tune_queue)
+    for (const auto& t : f.tunes) {
         h << "#define TUNE_" << upper(t.name) << "_TICKS " << t.ticks() << "\n";
+        if (t.barTicks) h << "#define TUNE_" << upper(t.name) << "_BAR " << t.barTicks << "\n";
+    }
     // the digi voices' samples: one bank, in chip RAM (tune_samples)
     if (!f.bank.empty()) h << "#define TUNE_SAMPLES_SIZE " << f.bank.size() << "\n";
 

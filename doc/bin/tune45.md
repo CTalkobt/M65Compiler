@@ -78,7 +78,7 @@ A voice plays instrument 0 (the file's first) until it names one. A duration ove
 
 | Option | Output |
 |--------|--------|
-| `-o music.c` (default) | C source: `const unsigned char tune_<name>[]` a tune, `tunes[]` of them all; `music.h` (or `--header <file>`) declares them with `#define TUNE_<NAME> <index>`, `TUNE_<NAME>_TICKS` (its ticks once through: `tune_seek` back to where a looping tune was) and `NTUNES` |
+| `-o music.c` (default) | C source: `const unsigned char tune_<name>[]` a tune, `tunes[]` of them all; `music.h` (or `--header <file>`) declares them with `#define TUNE_<NAME> <index>`, `TUNE_<NAME>_TICKS` (its ticks once through: `tune_seek` back to where a looping tune was), `TUNE_<NAME>_BAR` (a tune with ticks a bar: its bar, for `tune_queue`) and `NTUNES` |
 | `--bin -o music.bin` | One blob to load into far memory: the number of tunes, a 16-bit offset each, then the tunes; the header gives `TUNE_<NAME>_AT` (its offset) and `TUNES_SIZE`. `tune_play_far(<where it was loaded> + TUNE_MARCH_AT)` |
 | `--load-at <addr>` | With `--bin`: the file starts with a 2-byte load address, as a KERNAL LOAD reads it (`cbm_load` skips it; offsets stay from the blob's start) |
 | `--asm -o music.s45` | ca45 source of the same data (`_tune_<name>`, `_tunes`) |

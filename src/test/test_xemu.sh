@@ -2025,6 +2025,26 @@ for comode in "zp|" "stack|-fno-zpcall"; do
     xemu_case "FAIL: test_conio_xemu.c $coname (compilation/linking failed)" "src/test-resources/test_conio_xemu.c" "build/test/test_conio_${coname}_xemu.prg" "$coflags" -- "test_conio_$coname" "build/test/test_conio_${coname}_xemu.prg" "C0C0" 10 "01 01 01 01 01 01 01 01 01 AA"
 done
 
+# Test: the tune player's controls for a game (api_xemu.c): tune_volume
+# (the SIDs' and the digi voices'), tune_fade and tune_fading, tune_borrow
+# (the voice left alone, then the music's), tune_queue (the next tune at
+# the bar line, not before), in both conventions
+for apmode in "zp|$STDLIB|" "stack|$STDLIB_STACK|-fno-zpcall"; do
+    IFS='|' read -r apname aplib apflags <<< "$apmode"
+    echo "Testing the tune player's controls (api_$apname)..."
+    TD=build/test/tune
+    mkdir -p $TD/api
+    if ./bin/tune45 convert src/test-resources/tune/api.txt -o $TD/api/music.c >/dev/null 2>&1 &&
+       ./bin/cc45 -O2 $apflags -I$TD/api -c src/test-resources/tune/api_xemu.c -o $TD/api_$apname.o45 &&
+       ./bin/cc45 -O2 $apflags -I$TD/api -c $TD/api/music.c -o $TD/apimusic_$apname.o45 &&
+       ./bin/ln45 -basic -o $TD/api_$apname.prg $TD/api_$apname.o45 $TD/apimusic_$apname.o45 $aplib >/dev/null; then
+        run_xemu_test "tune_api_$apname" "$TD/api_$apname.prg" "C0C0" 10 "01 01 01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: the tune player's controls (api_$apname): build failed"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: the tune player's digi voices against tune45's model: SID 1 and
 # the audio DMA's registers (channels 2-3: tune_digi_channels(2), the third
 # voice left out) after each of 150 frames, in both conventions (hits alone
