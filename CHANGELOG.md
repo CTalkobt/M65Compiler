@@ -4,6 +4,21 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### tune45 import of a C64 tune (.sid); legato notes
+
+- `tune45 import tune.sid` (`--song`, `--seconds`): a PSID (or simple
+  RSID) run on an emulated C64 (`SidFile.cpp`: an NMOS 6502 with the
+  undocumented opcodes and decimal mode, passing Klaus Dormann's functional
+  and decimal tests; the I/O players read; KERNAL stubs), init then play
+  or the interrupt handler init installed, at 50/60 Hz or the CIA timer's
+  rate; the SID writes made text (`TuneSid.cpp`): notes by the gate (hard
+  restarts too), instruments by the registers at a note's start (pulse
+  sweep, the filter), wave tables of a note's first frames (drums),
+  arpeggios, legato notes. Tests: PSIDs made by the test (a frame and CIA
+  timed).
+- `~note:ticks` in a SID voice: a legato note (`$88 n d`: the pitch
+  changes, the note goes on). Player and model checked in xemu.
+
 ### tune45 import of XM, S3M and IT
 
 - `tune45 import` reads FastTracker 2 XM, Scream Tracker 3 S3M and Impulse

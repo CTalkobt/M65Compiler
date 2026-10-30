@@ -12,6 +12,7 @@
 #include "TuneMidi.hpp"
 #include "TuneMod.hpp"
 #include "TuneTracker.hpp"
+#include "TuneSid.hpp"
 #include "BasicTooling.hpp"
 #include "Pack45.hpp"
 #include "PackAudio.hpp"
@@ -46,7 +47,7 @@ void usage(std::ostream& o) {
          "  play      play the tunes on the PC (reSIDfp: four SIDs, stereo) through pw-play,\n"
          "            paplay or aplay, or into a .wav file\n"
          "  create    compose a tune (the text format): --genre, --tempo, --length, ...\n"
-         "  import    a Standard MIDI File, a MOD, XM, S3M or IT as text (convert and play take a .mid too)\n"
+         "  import    a Standard MIDI File, a MOD, XM, S3M, IT or C64 .sid as text (convert and play take a .mid too)\n"
          "  sample    play sampled sound as the MEGA65's audio DMA does: 8-bit samples, packed\n"
          "            by pack45 or as they are (--rate), or a WAV, AU, MP3 (MP4 ... by ffmpeg)\n"
          "            made so first (as pack45 --sound)\n"
@@ -98,6 +99,7 @@ void usage(std::ostream& o) {
          "  --audition [n]     import of a MOD: each sample (or n): the original, the SID's stand-in, then both\n"
          "                     (the original left, the SID right), asking sid or sample after each (at a\n"
          "                     terminal, or --ask); --wav <file> to a file\n"
+         "  --song <n>, --seconds <s>  import of a .sid: the song (default its start song), how long (180)\n"
          "  --choices <file>   import of a MOD: the choices --audition saves (default: beside the MOD,\n"
          "                     .choices); with --report and --extract: the verdicts\n"
          "  -v ... -vvvv       log to stderr ([tune45:INFO] ...): the tunes read, the files written,\n"
@@ -952,6 +954,7 @@ int main(int argc, char** argv) {
     bool sampleUnsigned = false;
     bool modReportFlag = false, modAll = false;   // import of a MOD: --report, --extract <dir>, --all, --audition [n]
     int modAudition = -1;
+    SidImportOptions sio;   // import of a .sid: --song, --seconds
     bool modAsk = false;
     std::string modChoices;
     std::string modExtract;
@@ -1006,6 +1009,8 @@ int main(int argc, char** argv) {
         else if (a == "--extract" && i + 1 < argc) modExtract = argv[++i];
         else if (a == "--all") modAll = true;
         else if (a == "--ask") modAsk = true;
+        else if (a == "--song" && i + 1 < argc) sio.song = std::max(1, atoi(argv[++i]));
+        else if (a == "--seconds" && i + 1 < argc) sio.seconds = std::max(0.1, atof(argv[++i]));
         else if (a == "--choices" && i + 1 < argc) modChoices = argv[++i];
         else if (a == "--audition") {
             modAudition = 0;
@@ -1025,10 +1030,34 @@ int main(int argc, char** argv) {
         return playSample(input, sampleRate, sampleMax, sampleUnsigned, po.wav);
     }
     if (cmd == "import") {
-        if (input.empty()) { std::cerr << "tune45: no MIDI, MOD, XM, S3M or IT file\n"; return 1; }
+        if (input.empty()) { std::cerr << "tune45: no MIDI, MOD, XM, S3M, IT or SID file\n"; return 1; }
         std::string raw;
         if (!readFile(input, raw)) { std::cerr << "tune45: cannot read " << input << "\n"; return 1; }
         std::vector<uint8_t> bytes(raw.begin(), raw.end());
+        if (raw.compare(0, 4, "PSID") == 0 || raw.compare(0, 4, "RSID") == 0) {
+            // a C64 tune: its player run, the registers it writes as text
+            PsidFile pf;
+            std::string err;
+            if (!readPsid(bytes, pf, err)) { std::cerr << "tune45: " << input << ": " << err << "\n"; return 1; }
+            sio.name = cc.o.name;
+            sio.source = baseName(input);
+            std::string text = sidImport(pf, sio, err);
+            if (text.empty()) { std::cerr << "tune45: " << input << ": " << err << "\n"; return 1; }
+            if (out.empty()) std::cout << text;
+            else {
+                std::ofstream of(out);
+                of << text;
+                if (!of) { std::cerr << "tune45: cannot write " << out << "\n"; return 1; }
+            }
+            TuneFile chk;
+            TuneCompiler tc;
+            if (!tc.parse(text, out.empty() ? "./-" : out, chk)) {
+                std::cerr << "tune45: the text is written, but convert will say:\n";
+                for (const auto& e : tc.errors()) std::cerr << "  " << e << "\n";
+                return 1;
+            }
+            return 0;
+        }
         bool tracker = isTrackerModule(bytes);
         if (raw.compare(0, 4, "MThd") != 0 && (tracker || isMod(input, bytes))) {
             // a MOD, or an XM, S3M or IT read as one

@@ -285,6 +285,14 @@ void TunePlayer::next(Voice& v, int idx) {
         if (b == 0x85) { uint8_t lo = rd(v); fpt_ = (uint16_t)(lo | (rd(v) << 8)); continue; }
         if (b == 0x86) { call(v); continue; }
         if (b == 0x87) { back(v); continue; }
+        if (b == 0x88) {   // legato: the pitch, the note going on
+            v.note = rd(v);
+            v.left = rd(v);
+            v.glide = 0;
+            v.freq = notef(v, idx, 0);
+            wf(v, v.freq);
+            return;
+        }
         if (b == 0xFE && !guard) { guard = true; v.pos = v.start; continue; }
         v.done = 1;
         v.gated = 0;

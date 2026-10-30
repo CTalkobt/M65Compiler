@@ -346,6 +346,12 @@ err $'sample a x.wav\ntune t 5 once\nd1: a:h4:1' "not a note"
 err $'sample vol x.wav' "is not r, - or vol"
 err $'sample a x.wav note=h2' "note=<note>"
 
+# a legato note: $88 n d (the pitch, the note going on)
+printf 'instrument a pulse 09 a6 0600 0 0\ntune t 1 once\nv1: c4:2 ~e4:3\n' > $T/lg.txt
+$TUNE convert $T/lg.txt -o $T/lg.c >/dev/null 2>&1 && sed -n '/tune_t\[/,/};/p' $T/lg.c | tr -d ' \n' | grep -q '60,2,136,64,3,255,}' &&
+    grep -q "#define TUNE_T_TICKS 5" $T/lg.h && pass || fail "a legato note"
+err $'instrument a pulse 09 a6 0600 1 1\ntune t 5 once\nv1: ~e4^3:1' "a legato note is"
+
 # patterns: in the data once ($86 offset times a call, $87 their end), after
 # the voices; the ticks and bars counted through them
 printf 'instrument a pulse 09 a6 0600 0 0\npattern p: c4:2 e4:2\npattern q: g4:1\ntune t 1 loop 4\nv1: *p | *q*3 r:1 | *p\n' > $T/pt.txt
@@ -444,6 +450,77 @@ for x in xm s3m it; do
         grep -q "^instrument s01 saw 00 f3 800 0 0 hr=1 " $T/fx_$x.txt && head -1 $T/fx_$x.txt | grep -qi "(tune45 import: $x, 1 channels" &&
         $TUNE list $T/fx_$x.txt 2>/dev/null | grep -q "8 ticks *0.4 s" && pass || fail "import of an $x: $v"
 done
+
+# import of a .sid: a PSID whose player plays back a list of SID register
+# writes a call (a frame's: register, value ... $FF), so what it writes is
+# known: a drum (a noise frame, then a pulse an octave down: a wave table)
+# hit three times, an arpeggio (c4 e4 g4 a frame each), a saw through the
+# low-pass (resonance 15) going from a3 to c4 without a new gate (legato);
+# called a frame (vbi), or by its own interrupt on CIA 1's timer ($2626:
+# 100.88 calls a second, a tick each)
+cat > $T/gen_sid.py <<'EOF'
+import sys, struct
+def reg(n): return round(440 * 2 ** ((n - 69) / 12) * 16777216 / 985248)
+frames = [[] for _ in range(120)]
+def w(f, r, v): frames[f].append((r, v))
+w(0, 0x18, 0x1F); w(0, 0x15, 0); w(0, 0x16, 0x40); w(0, 0x17, 0xF4)
+# voice 1: a drum, a noise frame at c3 then a pulse at c2, hit at 0, 16, 32
+for at in (0, 16, 32):
+    w(at, 5, 0); w(at, 6, 0xF0); w(at, 2, 0); w(at, 3, 8)
+    w(at, 0, reg(48) & 255); w(at, 1, reg(48) >> 8); w(at, 4, 0x81)
+    w(at + 1, 0, reg(36) & 255); w(at + 1, 1, reg(36) >> 8); w(at + 1, 4, 0x41)
+    w(at + 8, 4, 0x40)
+# voice 2: an arpeggio c4 e4 g4, a frame each, 24 frames
+w(0, 7 + 5, 0x09); w(0, 7 + 6, 0xA0); w(0, 7 + 2, 0); w(0, 7 + 3, 8)
+for f in range(24):
+    n = (60, 64, 67)[f % 3]
+    w(f, 7, reg(n) & 255); w(f, 8, reg(n) >> 8)
+w(0, 7 + 4, 0x41); w(24, 7 + 4, 0x40)
+# voice 3: a saw through the low-pass, a3 then c4 legato (no new gate), 16 frames
+w(4, 14 + 5, 0x08); w(4, 14 + 6, 0xC4)
+w(4, 14, reg(57) & 255); w(4, 15, reg(57) >> 8); w(4, 14 + 4, 0x21)
+w(10, 14, reg(60) & 255); w(10, 15, reg(60) >> 8)
+w(20, 14 + 4, 0x20)
+data = b"".join(bytes(sum(([r, v] for r, v in fr), [])) + b"\xff" for fr in frames)
+# the player at $1000: init (the frames' pointer; then SETUP), play (a
+# frame's writes: register, value ... $FF), SETUP (cia: $0314 at HANDLER,
+# CIA 1 timer A at $2626 with its interrupt), HANDLER (JSR play, ack, JMP $EA31)
+cia = len(sys.argv) > 2 and sys.argv[2] == "cia"
+PLAY = 0x100B
+play = [0xA0, 0x00, 0xB1, 0xFB, 0xC9, 0xFF, 0xF0, 0x0A, 0xAA, 0xC8, 0xB1, 0xFB,
+        0x9D, 0x00, 0xD4, 0xC8, 0xD0, 0xF0,
+        0xC8, 0x98, 0x18, 0x65, 0xFB, 0x85, 0xFB, 0x90, 0x02, 0xE6, 0xFC, 0x60]
+SETUP = PLAY + len(play)
+setup = [0x60]
+if cia:
+    HANDLER = SETUP + 32
+    setup = [0x78, 0xA9, HANDLER & 255, 0x8D, 0x14, 0x03, 0xA9, HANDLER >> 8, 0x8D, 0x15, 0x03,
+             0xA9, 0x81, 0x8D, 0x0D, 0xDC, 0xA9, 0x26, 0x8D, 0x04, 0xDC, 0x8D, 0x05, 0xDC,
+             0xA9, 0x11, 0x8D, 0x0E, 0xDC, 0x60]
+    setup += [0xEA] * (32 - len(setup)) + [0x20, PLAY & 255, PLAY >> 8, 0xAD, 0x0D, 0xDC, 0x4C, 0x31, 0xEA]
+DATA = SETUP + len(setup)
+code = bytes([0xA9, DATA & 255, 0x85, 0xFB, 0xA9, DATA >> 8, 0x85, 0xFC, 0x4C, SETUP & 255, SETUP >> 8]) + bytes(play) + bytes(setup)
+assert len(code) == DATA - 0x1000
+h = bytearray(0x7C)
+h[0:4] = b"PSID"
+struct.pack_into(">HHHHHHHI", h, 4, 2, 0x7C, 0x1000, 0x1000, 0 if cia else PLAY, 1, 1, 1 if cia else 0)   # (cia: its speed bit)
+h[0x16:0x16 + 9] = b"sid notes"
+struct.pack_into(">H", h, 0x76, 0x14)
+open(sys.argv[1], "wb").write(bytes(h) + code + data)
+EOF
+for v in vbi cia; do python3 $T/gen_sid.py $T/n_$v.sid $v 2>/dev/null; done
+$TUNE import $T/n_vbi.sid --seconds 0.8 -o $T/n_vbi.txt >/dev/null 2>&1
+v=$(sed -n '/^wavetable/p;/^instrument/p;/^tune/,$p' $T/n_vbi.txt | tr '\n' '/')
+[ "$v" = "wavetable t01 noise:12 pulse/instrument i01 pulse 00 f0 800 0 0 table=t01/instrument i02 pulse 09 a0 800 0 0/instrument i03 saw 08 c4 000 0 0 filter=lp res=15 cutoff=200/tune sid_notes 1 once/v1: @i01 c2:8 r:8 c2:8 r:8 c2:8/v2: arp:4,7 @i02 c4:24 r:16/v3: r:4 @i03 a3:6 ~c4:10 r:20/" ] &&
+    $TUNE list $T/n_vbi.txt 2>/dev/null | grep -q "40 ticks *0.8 s" && pass || fail "import of a .sid: $v"
+$TUNE import $T/n_cia.sid --seconds 0.8 -o $T/n_cia.txt >/dev/null 2>&1 &&
+    grep -q "by its CIA timer, 100.88 calls a second" $T/n_cia.txt && grep -q "^tune sid_notes 0.4957 once" $T/n_cia.txt &&
+    grep -q "^v1: @i01 c2:8 r:8 c2:8 r:8 c2:8 r:41$" $T/n_cia.txt && pass || fail "import of a .sid timed by the CIA"
+python3 -c "
+import struct, sys
+h = bytearray(0x7C); h[0:4] = b'PSID'; struct.pack_into('>HHHHHHHI', h, 4, 2, 0x7C, 0x1000, 0x1000, 0x1003, 1, 1, 0)
+open(sys.argv[1], 'wb').write(bytes(h) + bytes([0x4C, 0x00, 0x10, 0x60]))" $T/loop.sid
+$TUNE import $T/loop.sid 2>&1 | grep -q "init" && pass || fail "import of a .sid whose init does not return"
 
 # play into a WAV: as long as the tune, and not silent
 if $TUNE play $T/pfest.txt --wav $T/p.wav >/dev/null 2>&1 && python3 - $T/p.wav <<'EOF'

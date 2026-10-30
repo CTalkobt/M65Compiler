@@ -514,7 +514,7 @@ bool TuneCompiler::parse(const std::string& text, const std::string& file, TuneF
                 size_t colon = tok.find(':');
                 long d;
                 if (colon == std::string::npos || !parseInt(tok.substr(colon + 1), d)) {
-                    error(file, ln, "expected note:ticks, r:ticks, ~:ticks, @instrument, arp:, tempo: or |, not " + tok); continue;
+                    error(file, ln, "expected note:ticks, ~note:ticks, r:ticks, ~:ticks, @instrument, arp:, tempo: or |, not " + tok); continue;
                 }
                 if (d < 1 || d > 4096) { error(file, ln, "a length of " + std::to_string(d) + " ticks: " + tok); continue; }
                 std::string what = lower(tok.substr(0, colon));
@@ -532,10 +532,14 @@ bool TuneCompiler::parse(const std::string& text, const std::string& file, TuneF
                         continue;
                     }
                 }
-                int code;
+                int code, legato = -1;
                 if (what == "r") code = 0x80;
                 else if (what == "~") code = 0x82;
-                else {
+                else if (what.size() > 1 && what[0] == '~') {   // ~e4: legato (the pitch; the note goes on)
+                    legato = noteNumber(what.substr(1));
+                    if (legato < 0 || gk) { error(file, ln, "a legato note is ~note:ticks (no glide): " + tok); continue; }
+                    code = 0x88;
+                } else {
                     code = noteNumber(what);
                     if (code < 0) { error(file, ln, "not a note (c4 is middle C; c#4, eb4): " + tok); continue; }
                     if (!named) v.defaultInstrument = true;
@@ -551,6 +555,7 @@ bool TuneCompiler::parse(const std::string& text, const std::string& file, TuneF
                 while (left > 0) {
                     long part = std::min(left, 255L);
                     v.stream.push_back((uint8_t)(first ? code : (code == 0x80 ? 0x80 : 0x82)));
+                    if (first && code == 0x88) v.stream.push_back((uint8_t)legato);
                     v.stream.push_back((uint8_t)part);
                     left -= part;
                     first = false;
@@ -809,7 +814,7 @@ std::vector<uint8_t> TuneCompiler::blob(const TuneFile& f, const Tune& t) {
             b.push_back(c);
             if (c < 0x80 || c == 0x80 || c == 0x82) { b.push_back(s[++k]); }
             else if (c == 0x81) { b.push_back((uint8_t)renum[s[++k]]); }
-            else if (c == 0x83 || c == 0x84 || c == 0x85) { b.push_back(s[k + 1]); b.push_back(s[k + 2]); k += 2; }
+            else if (c == 0x83 || c == 0x84 || c == 0x85 || c == 0x88) { b.push_back(s[k + 1]); b.push_back(s[k + 2]); k += 2; }
             else if (c == 0x86) {
                 calls.push_back({b.size(), (s[k + 1] | s[k + 2] << 8) * 2});
                 b.push_back(0); b.push_back(0); b.push_back(s[k + 3]);
