@@ -13,6 +13,7 @@
 // 8-bit signed.
 #pragma once
 #include <cstdint>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -72,6 +73,7 @@ struct ModSampleReport {
     // the verdict: 0 easy .. 100 hardest
     int score = 0;
     std::string verdict;            // sid, sid~ (approximately), sample, unused, empty
+    bool chosen = false;            // the verdict is the user's (a choices file)
     std::vector<std::string> reasons;
 };
 
@@ -86,6 +88,13 @@ double modRate(double period);
 // for the sample at period
 std::string modInstrumentLine(const ModSampleReport& r, const std::string& name);
 int modSidNote(const ModSampleReport& r, double period);
+
+// The user's choices (tune45 import --audition asks them): a line a sample,
+// its number and "sid" or "sample" (; a comment)
+bool readModChoices(const std::string& path, std::map<int, std::string>& c, std::string& error);
+bool writeModChoices(const std::string& path, const ModFile& m, const std::map<int, std::string>& c, std::string& error);
+// the choices as the verdicts (chosen set, the measured verdict kept in the reasons)
+void applyModChoices(std::vector<ModSampleReport>& r, const std::map<int, std::string>& c);
 
 // the report as text: the song, a line a sample, the reasons, a summary
 std::string modReport(const ModFile& m, const std::vector<ModSampleReport>& r);

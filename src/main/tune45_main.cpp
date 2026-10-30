@@ -95,7 +95,10 @@ void usage(std::ostream& o) {
          "  --report           import of a MOD: each sample weighed for the SID (an instrument, or kept as a sample)\n"
          "  --extract <dir>    import of a MOD: the samples too far from the SID as WAVs (--all: every used one)\n"
          "  --audition [n]     import of a MOD: each sample (or n): the original, the SID's stand-in, then both\n"
-         "                     (the original left, the SID right); --wav <file> to a file\n"
+         "                     (the original left, the SID right), asking sid or sample after each (at a\n"
+         "                     terminal, or --ask); --wav <file> to a file\n"
+         "  --choices <file>   import of a MOD: the choices --audition saves (default: beside the MOD,\n"
+         "                     .choices); with --report and --extract: the verdicts\n"
          "  -v ... -vvvv       log to stderr ([tune45:INFO] ...): the tunes read, the files written,\n"
          "                     the player built (-v); each tune and the commands run (-vv); -v0 off\n"
          "  -V, --version      version\n"
@@ -314,109 +317,190 @@ int playSample(const std::string& path, uint32_t rate, uint32_t maxRate, bool is
     return 0;
 }
 
-// tune45 import song.mod --audition [n]: each sample the song uses (or
-// sample n) at up to four of the notes it is played at: the original as the
-// audio DMA plays it (8-bit, its loop, each sample held to the next), the
-// SID's stand-in (the report's instrument, through the player's model and
-// reSIDfp), then both at once, the original left and the SID right. Each is
-// scaled to the same loudness (the comparison is of the sound, not the level).
-int audition(const ModFile& m, const std::vector<ModSampleReport>& r, int only, const PlayOptions& o) {
+// tune45 import song.mod --audition: each sample the song uses (or one) at
+// up to four of the notes it is played at: the original as the audio DMA
+// plays it (8-bit, its loop, each sample held to the next), the SID's
+// stand-in (the report's instrument, through the player's model and
+// reSIDfp), then both at once, the original left and the SID right; each
+// as loud as the other (the sound compared, not the level).
+
+// A sample's two parts, mono, as long as each other (false: the
+// instrument line did not parse, its errors printed)
+bool auditionParts(const ModFile& m, const ModSampleReport& R, const PlayOptions& o, std::vector<double>& orig,
+                   std::vector<double>& sid) {
     const int out = 48000;
-    AudioSink sink;
-    if (!sink.open(o.wav, out)) { std::cerr << "tune45: " << sink.error() << "\n"; return 1; }
-    std::cout << "each sample: the original, the SID, then both (the original left, the SID right) (via " << sink.via() << ")\n";
-    int done = 0;
-    for (const auto& R : r) {
-        if (only && R.index != only) continue;
-        if (R.verdict != "sid" && R.verdict != "sid~" && R.verdict != "sample") continue;
-        const ModSample& S = m.samples[(size_t)R.index - 1];
-        // the notes: the lowest, the highest and between (at most four)
-        std::vector<uint16_t> ps;
-        size_t n = R.periods.size();
-        for (size_t k = 0; k < std::min<size_t>(n, 4); k++) ps.push_back(R.periods[n - 1 - (n <= 4 ? k : k * (n - 1) / 3)]);
-        // the original, and the SID's tune: a note a period, as long as the
-        // sample sounds (a loop: 0.8 s), 40 ms between
-        std::vector<double> orig;
-        std::string text = modInstrumentLine(R, "a") + "\ntune t 1 once\nv1: @a";
-        size_t loopEnd = S.loopStart + S.loopLen;
-        for (uint16_t p : ps) {
-            double rate = modRate(p);
-            double d = S.looped() ? 0.8 : std::max(0.25, std::min(1.5, S.data.size() / rate));
-            int ticks = (int)std::lround(d * 50);
-            d = ticks / 50.0;
-            double pos = 0, step = rate / out;
-            for (int i = 0; i < (int)(d * out); i++, pos += step) {
-                if (S.looped() && pos >= loopEnd) pos = S.loopStart + std::fmod(pos - loopEnd, (double)S.loopLen);
-                orig.push_back(pos < S.data.size() ? S.data[(size_t)pos] / 128.0 * S.volume / 64.0 : 0);
-            }
-            orig.insert(orig.end(), (size_t)(0.04 * out), 0.0);
-            text += " " + TuneCompiler::noteName(modSidNote(R, p)) + ":" + std::to_string(ticks) + " r:2";
+    const ModSample& S = m.samples[(size_t)R.index - 1];
+    // the notes: the lowest, the highest and between (at most four)
+    std::vector<uint16_t> ps;
+    size_t n = R.periods.size();
+    for (size_t k = 0; k < std::min<size_t>(n, 4); k++) ps.push_back(R.periods[n - 1 - (n <= 4 ? k : k * (n - 1) / 3)]);
+    // the original, and the SID's tune: a note a period, as long as the
+    // sample sounds (a loop: 0.8 s), 40 ms between
+    orig.clear();
+    std::string text = modInstrumentLine(R, "a") + "\ntune t 1 once\nv1: @a";
+    size_t loopEnd = S.loopStart + S.loopLen;
+    for (uint16_t p : ps) {
+        double rate = modRate(p);
+        double d = S.looped() ? 0.8 : std::max(0.25, std::min(1.5, S.data.size() / rate));
+        int ticks = (int)std::lround(d * 50);
+        d = ticks / 50.0;
+        double pos = 0, step = rate / out;
+        for (int i = 0; i < (int)(d * out); i++, pos += step) {
+            if (S.looped() && pos >= loopEnd) pos = S.loopStart + std::fmod(pos - loopEnd, (double)S.loopLen);
+            orig.push_back(pos < S.data.size() ? S.data[(size_t)pos] / 128.0 * S.volume / 64.0 : 0);
         }
-        TuneFile f;
-        TuneCompiler tc;
-        if (!tc.parse(text + "\n", "audition", f)) {
-            for (const auto& e : tc.errors()) std::cerr << e << "\n";
-            return 1;
-        }
-        TuneAudio audio(o.ntsc, o.mos6581, out);
-        TunePlayer player([&](uint8_t i, uint8_t v) { audio.write(i, v); });
-        player.setNtsc(o.ntsc);
-        player.setMirror(true);
-        for (uint8_t c = 0; c < 4; c++) {
-            audio.write((uint8_t)(c * 0x20 + 0x18), 15);
-            player.setShadow((uint8_t)(c * 0x20 + 0x18), 15);
-        }
-        std::vector<int16_t> buf;
-        for (int k = 0; k < 25; k++) audio.frame(buf);   // (the volume's click settles: left out)
-        buf.clear();
-        player.play(TuneCompiler::blob(f, f.tunes[0]));
-        while (player.playing()) { player.update(); audio.frame(buf); }
-        for (int k = 0; k < 15; k++) audio.frame(buf);   // (the release)
-        std::vector<double> sid;
-        double x1 = buf.empty() ? 0 : buf[0] / 32768.0, y1 = 0;
-        for (size_t k = 0; k < buf.size(); k += 2) {     // the SID's offset taken out (a DC blocker)
-            double x = buf[k] / 32768.0;
-            y1 = x - x1 + 0.999 * y1;
-            x1 = x;
-            sid.push_back(y1);
-        }
-        // the same loudness: each to an RMS of 0.15, its peak at most 0.95
-        auto level = [](std::vector<double>& v) {
-            double e = 0, pk = 0;
-            for (double x : v) { e += x * x; pk = std::max(pk, std::fabs(x)); }
-            double rms = v.empty() ? 0 : std::sqrt(e / v.size());
-            if (rms < 1e-6) return;
-            double g = std::min(0.15 / rms, 0.95 / pk);
-            for (double& x : v) x *= g;
-        };
-        size_t len = std::max(orig.size(), sid.size());
-        orig.resize(len, 0.0);
-        sid.resize(len, 0.0);
-        level(orig);
-        level(sid);
-        std::string what = R.verdict == "sample" ? "kept as a sample" : "the SID";
-        std::string inst = modInstrumentLine(R, "a").substr(13);
-        printf("%2d  %-22.22s %-6s %3d  original, SID (%s), both\n", R.index, S.name.c_str(), R.verdict.c_str(), R.score, inst.c_str());
-        fflush(stdout);
-        std::vector<int16_t> o16;
-        auto put = [&](double l, double rr) {
-            o16.push_back((int16_t)std::lround(std::max(-1.0, std::min(1.0, l)) * 32767));
-            o16.push_back((int16_t)std::lround(std::max(-1.0, std::min(1.0, rr)) * 32767));
-        };
-        for (size_t k = 0; k < len; k++) put(orig[k], orig[k]);
-        for (int k = 0; k < out * 4 / 10; k++) put(0, 0);
-        for (size_t k = 0; k < len; k++) put(sid[k], sid[k]);
-        for (int k = 0; k < out * 4 / 10; k++) put(0, 0);
-        for (size_t k = 0; k < len; k++) put(orig[k], sid[k]);
-        for (int k = 0; k < out; k++) put(0, 0);
-        sink.put(o16);
-        done++;
+        orig.insert(orig.end(), (size_t)(0.04 * out), 0.0);
+        text += " " + TuneCompiler::noteName(modSidNote(R, p)) + ":" + std::to_string(ticks) + " r:2";
     }
-    sink.close();
-    if (!done) {
+    TuneFile f;
+    TuneCompiler tc;
+    if (!tc.parse(text + "\n", "audition", f)) {
+        for (const auto& e : tc.errors()) std::cerr << e << "\n";
+        return false;
+    }
+    TuneAudio audio(o.ntsc, o.mos6581, out);
+    TunePlayer player([&](uint8_t i, uint8_t v) { audio.write(i, v); });
+    player.setNtsc(o.ntsc);
+    player.setMirror(true);
+    for (uint8_t c = 0; c < 4; c++) {
+        audio.write((uint8_t)(c * 0x20 + 0x18), 15);
+        player.setShadow((uint8_t)(c * 0x20 + 0x18), 15);
+    }
+    std::vector<int16_t> buf;
+    for (int k = 0; k < 25; k++) audio.frame(buf);   // (the volume's click settles: left out)
+    buf.clear();
+    player.play(TuneCompiler::blob(f, f.tunes[0]));
+    while (player.playing()) { player.update(); audio.frame(buf); }
+    for (int k = 0; k < 15; k++) audio.frame(buf);   // (the release)
+    sid.clear();
+    double x1 = buf.empty() ? 0 : buf[0] / 32768.0, y1 = 0;
+    for (size_t k = 0; k < buf.size(); k += 2) {     // the SID's offset taken out (a DC blocker)
+        double x = buf[k] / 32768.0;
+        y1 = x - x1 + 0.999 * y1;
+        x1 = x;
+        sid.push_back(y1);
+    }
+    // the same loudness: each to an RMS of 0.15, its peak at most 0.95
+    auto level = [](std::vector<double>& v) {
+        double e = 0, pk = 0;
+        for (double x : v) { e += x * x; pk = std::max(pk, std::fabs(x)); }
+        double rms = v.empty() ? 0 : std::sqrt(e / v.size());
+        if (rms < 1e-6) return;
+        double g = std::min(0.15 / rms, 0.95 / pk);
+        for (double& x : v) x *= g;
+    };
+    size_t len = std::max(orig.size(), sid.size());
+    orig.resize(len, 0.0);
+    sid.resize(len, 0.0);
+    level(orig);
+    level(sid);
+    return true;
+}
+
+// the parts as 16-bit stereo: 1 the original, 2 the SID, 3 both (the
+// original left, the SID right); 0 the three, 0.4 s apart, and a second after
+std::vector<int16_t> auditionAudio(const std::vector<double>& orig, const std::vector<double>& sid, int which) {
+    const int out = 48000;
+    std::vector<int16_t> o16;
+    auto put = [&](double l, double r) {
+        o16.push_back((int16_t)std::lround(std::max(-1.0, std::min(1.0, l)) * 32767));
+        o16.push_back((int16_t)std::lround(std::max(-1.0, std::min(1.0, r)) * 32767));
+    };
+    auto pause = [&](int ms) { for (int k = 0; k < out * ms / 1000; k++) put(0, 0); };
+    for (int part = 1; part <= 3; part++) {
+        if (which && part != which) continue;
+        for (size_t k = 0; k < orig.size(); k++)
+            put(part == 2 ? sid[k] : orig[k], part == 1 ? orig[k] : sid[k]);
+        pause(which ? 200 : part < 3 ? 400 : 1000);
+    }
+    return o16;
+}
+
+// played now, to the end (false: no player, the error printed)
+bool playNow(const std::vector<int16_t>& s) {
+    AudioSink k;
+    if (!k.open("", 48000)) { std::cerr << "tune45: " << k.error() << "\n"; return false; }
+    k.put(s);
+    k.close();   // (waits for the player)
+    return true;
+}
+
+// ask: after each sample, sid or sample (saved to choices as they are
+// given; those already there are the defaults). Without a terminal (or
+// with --ask) the answers are read from the input; with --wav the
+// audition is written there first and nothing is played.
+int audition(const ModFile& m, const std::vector<ModSampleReport>& r, int only, const PlayOptions& o, bool ask,
+             const std::string& choicesPath) {
+    std::vector<size_t> list;
+    for (size_t k = 0; k < r.size(); k++)
+        if ((!only || r[k].index == only) && (r[k].verdict == "sid" || r[k].verdict == "sid~" || r[k].verdict == "sample"))
+            list.push_back(k);
+    if (list.empty()) {
         std::cerr << "tune45: " << (only ? "sample " + std::to_string(only) + " is not one the song plays" : std::string("no sample the song plays")) << "\n";
         return 1;
     }
+    auto line = [&](const ModSampleReport& R) {
+        char b[256];
+        snprintf(b, sizeof b, "%2d  %-22.22s %-6s %3d  SID: %s", R.index, m.samples[(size_t)R.index - 1].name.c_str(),
+                 R.verdict.c_str(), R.score, modInstrumentLine(R, "a").substr(13).c_str());
+        return std::string(b);
+    };
+    std::vector<std::vector<double>> origs(list.size()), sids(list.size());
+    for (size_t i = 0; i < list.size(); i++)
+        if (!auditionParts(m, r[list[i]], o, origs[i], sids[i])) return 1;
+    // a file, or the speakers without asking
+    if (!o.wav.empty() || !ask) {
+        AudioSink sink;
+        if (!sink.open(o.wav, 48000)) { std::cerr << "tune45: " << sink.error() << "\n"; return 1; }
+        std::cout << "each sample: the original, the SID, then both (the original left, the SID right) (via " << sink.via() << ")\n";
+        for (size_t i = 0; i < list.size(); i++) {
+            std::cout << line(r[list[i]]) << std::endl;
+            sink.put(auditionAudio(origs[i], sids[i], 0));
+        }
+        sink.close();
+        if (!ask) return 0;
+    }
+    std::map<int, std::string> choices;
+    std::string err;
+    std::ifstream probe(choicesPath);
+    if (probe && !readModChoices(choicesPath, choices, err)) { std::cerr << "tune45: " << err << "\n"; return 1; }
+    bool play = o.wav.empty();
+    std::cout << "For each sample: the original, the SID, then both (the original left, the SID right); then:\n"
+                 "  Enter as shown  d the SID  s keep the sample  r again  1 original  2 SID  3 both  b back  q quit\n"
+                 "(the choices go to " << choicesPath << " as they are made)\n";
+    size_t i = 0;
+    bool replay = true;
+    while (i < list.size()) {
+        const ModSampleReport& R = r[list[i]];
+        auto it = choices.find(R.index);
+        std::string def = it != choices.end() ? it->second : R.verdict == "sample" ? "sample" : "sid";
+        if (replay) {
+            std::cout << "\n" << line(R) << std::endl;
+            if (play && !playNow(auditionAudio(origs[i], sids[i], 0))) return 1;
+        }
+        replay = false;
+        std::cout << "  " << R.index << ": [" << def << "] d s r 1 2 3 b q > " << std::flush;
+        std::string a;
+        if (!std::getline(std::cin, a)) { std::cout << "\n"; break; }
+        a.erase(0, a.find_first_not_of(" \t"));
+        char c = a.empty() ? '\n' : (char)std::tolower((unsigned char)a[0]);
+        if (c == 'q') break;
+        if (c == 'r') { replay = true; continue; }
+        if (c == '1' || c == '2' || c == '3') {
+            if (play && !playNow(auditionAudio(origs[i], sids[i], c - '0'))) return 1;
+            continue;
+        }
+        if (c == 'b') { if (i) i--; replay = true; continue; }
+        if (c != '\n' && c != 'd' && c != 's') { std::cout << "  (d, s, r, 1, 2, 3, b or q)\n"; continue; }
+        choices[R.index] = c == 'd' ? "sid" : c == 's' ? "sample" : def;
+        if (!writeModChoices(choicesPath, m, choices, err)) { std::cerr << "tune45: " << err << "\n"; return 1; }
+        i++;
+        replay = true;
+    }
+    int ns = 0, nk = 0;
+    for (const auto& [n, w] : choices) (w == "sid" ? ns : nk)++;
+    std::cout << "\n" << choicesPath << ": " << ns << " SID instrument" << (ns == 1 ? "" : "s") << ", " << nk << " kept as sample"
+              << (nk == 1 ? "" : "s") << " (the report with them: --report --choices " << choicesPath << ")\n";
     return 0;
 }
 
@@ -861,6 +945,8 @@ int main(int argc, char** argv) {
     bool sampleUnsigned = false;
     bool modReportFlag = false, modAll = false;   // import of a MOD: --report, --extract <dir>, --all, --audition [n]
     int modAudition = -1;
+    bool modAsk = false;
+    std::string modChoices;
     std::string modExtract;
     for (int i = 2; i < argc; i++) {
         std::string a = argv[i];
@@ -912,6 +998,8 @@ int main(int argc, char** argv) {
         else if (a == "--report") modReportFlag = true;
         else if (a == "--extract" && i + 1 < argc) modExtract = argv[++i];
         else if (a == "--all") modAll = true;
+        else if (a == "--ask") modAsk = true;
+        else if (a == "--choices" && i + 1 < argc) modChoices = argv[++i];
         else if (a == "--audition") {
             modAudition = 0;
             if (i + 1 < argc && std::isdigit((unsigned char)argv[i + 1][0])) modAudition = atoi(argv[++i]);
@@ -939,6 +1027,20 @@ int main(int argc, char** argv) {
             std::string err;
             if (!readMod(bytes, m, err)) { std::cerr << "tune45: " << input << ": " << err << "\n"; return 1; }
             auto r = analyseMod(m);
+            // the choices: given, or (asking) beside the MOD
+            std::string choicesPath = modChoices;
+            if (choicesPath.empty()) {
+                choicesPath = input;
+                size_t dot = choicesPath.find_last_of('.'), slash = choicesPath.find_last_of('/');
+                if (dot != std::string::npos && (slash == std::string::npos || dot > slash)) choicesPath.erase(dot);
+                choicesPath += ".choices";
+            }
+            bool ask = modAudition >= 0 && (modAsk || (isatty(0) && po.wav.empty()));
+            if (!modChoices.empty() && !ask) {
+                std::map<int, std::string> c;
+                if (!readModChoices(modChoices, c, err)) { std::cerr << "tune45: " << err << "\n"; return 1; }
+                applyModChoices(r, c);
+            }
             if (!modReportFlag && modExtract.empty() && modAudition < 0) {
                 std::cerr << "tune45: " << input << ": a MOD: --report (the samples weighed for the SID), --extract <dir> and --audition"
                              " so far; its music as text is to come\n";
@@ -950,7 +1052,7 @@ int main(int argc, char** argv) {
                 if (!extractModSamples(m, r, modExtract, modAll, written, err)) { std::cerr << "tune45: " << err << "\n"; return 1; }
                 for (const auto& w : written) std::cout << "wrote " << w << "\n";
             }
-            if (modAudition >= 0) return audition(m, r, modAudition, po);
+            if (modAudition >= 0) return audition(m, r, modAudition, po, ask, choicesPath);
             return 0;
         }
         if (!cc.o.name.empty()) mo.name = cc.o.name;

@@ -19,7 +19,11 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - `--audition [n]`: each sample (or sample n) at up to four of its notes:
   the original as the audio DMA plays it, the SID's stand-in (the report's
   instrument through the player's model and reSIDfp), then both, the
-  original left and the SID right; each part as loud as the others.
+  original left and the SID right; each part as loud as the others. At a
+  terminal (or `--ask`) it asks after each sample: a SID instrument or
+  keep the sample (again, each part alone, back, quit), the answers saved
+  as given to `--choices <file>` (default `song.choices`); `--report` and
+  `--extract` take the choices as the verdicts.
 - Tested on a MOD made by the test (`test_tune45.sh`).
 
 ### sprites.h: the hardware sprites

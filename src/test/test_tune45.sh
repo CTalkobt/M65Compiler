@@ -197,7 +197,7 @@ $TUNE import $T/song.mod 2>&1 | grep -q "a MOD: --report" && pass || fail "impor
 # --audition: a sample's original, its SID stand-in, then both (the original
 # left, the SID right), each as loud: three parts, the last two channels apart
 out=$($TUNE import $T/song.mod --audition 1 --wav $T/aud.wav 2>&1)
-echo "$out" | grep -q "^ 1  saw .* original, SID (saw 00 f3 800 0 0), both" &&
+echo "$out" | grep -q "^ 1  saw .* SID: saw 00 f3 800 0 0$" &&
 python3 - $T/aud.wav <<'EOF' && pass || fail "import --audition of a MOD: $out"
 import sys, wave, struct, math
 w = wave.open(sys.argv[1]); n = w.getnframes(); d = struct.unpack('<%dh' % (2 * n), w.readframes(n))
@@ -217,6 +217,22 @@ for L, R in parts: assert 0.1 < rms(L) < 0.25 and 0.1 < rms(R) < 0.25
 assert parts[0][0] == parts[0][1] and parts[1][0] == parts[1][1] and parts[2][0] != parts[2][1]
 EOF
 $TUNE import $T/song.mod --audition 6 --wav $T/aud6.wav 2>&1 | grep -q "sample 6 is not one the song plays" && pass || fail "import --audition of an unused sample"
+# asking (--ask: the answers from the input; with --wav nothing is played):
+# 1 kept as a sample, 2 as shown (SID), back, 2 the SID, 3 as shown, 4 the
+# SID, quit; the choices saved as made, then the verdicts of --report and
+# --extract
+rm -f $T/song.choices
+out=$(printf 's\n\nb\nd\n\nd\nq\n' | $TUNE import $T/song.mod --audition --ask --wav $T/aud.wav 2>&1)
+[ "$(grep -v '^;' $T/song.choices | sed 's/ *;.*//' | tr '\n' ' ')" = "1 sample 2 sid 3 sid 4 sid " ] &&
+    echo "$out" | grep -q "song.choices: 3 SID instruments, 1 kept as sample" && pass || fail "import --audition --ask: $out"
+rep=$($TUNE import $T/song.mod --report --choices $T/song.choices 2>&1)
+echo "$rep" | grep -qE "^ 1  saw .* sample\* .*\(keep the sample\)" && echo "$rep" | grep -qE "^ 4  noise .* sid\* .*noise 00 [0-9a-f]{2} 0800 0 0 \(a stand-in\)" &&
+    echo "$rep" | grep -qE "^ 5  bell .* sample " && echo "$rep" | grep -q "your choice: sample (measured: sid, 0)" && pass || fail "import --report --choices: $rep"
+rm -rf $T/modc
+$TUNE import $T/song.mod --extract $T/modc --choices $T/song.choices >/dev/null 2>&1 &&
+    [ "$(ls $T/modc | tr '\n' ' ')" = "01_saw.wav 05_bell.wav " ] && pass || fail "import --extract --choices ($(ls $T/modc 2>&1 | tr '\n' ' '))"
+printf '2 maybe\n' > $T/bad.choices
+$TUNE import $T/song.mod --report --choices $T/bad.choices 2>&1 | grep -q "bad.choices:1: expected <sample> sid|sample" && pass || fail "a bad choices file"
 
 # play into a WAV: as long as the tune, and not silent
 if $TUNE play $T/pfest.txt --wav $T/p.wav >/dev/null 2>&1 && python3 - $T/p.wav <<'EOF'

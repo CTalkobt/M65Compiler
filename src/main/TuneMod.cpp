@@ -602,6 +602,50 @@ std::string modInstrumentLine(const ModSampleReport& r, const std::string& name)
     return b;
 }
 
+bool readModChoices(const std::string& path, std::map<int, std::string>& c, std::string& error) {
+    std::ifstream in(path);
+    if (!in) { error = "cannot read " + path; return false; }
+    std::string line;
+    int ln = 0;
+    while (std::getline(in, line)) {
+        ln++;
+        line = line.substr(0, line.find(';'));
+        int n;
+        char w[16];
+        if (line.find_first_not_of(" \t\r") == std::string::npos) continue;
+        if (sscanf(line.c_str(), "%d %15s", &n, w) != 2 || n < 1 || n > 31 || (std::string(w) != "sid" && std::string(w) != "sample")) {
+            error = path + ":" + std::to_string(ln) + ": expected <sample> sid|sample, not " + line;
+            return false;
+        }
+        c[n] = w;
+    }
+    return true;
+}
+
+bool writeModChoices(const std::string& path, const ModFile& m, const std::map<int, std::string>& c, std::string& error) {
+    std::ofstream out(path);
+    out << "; tune45 import's choices for " << (m.title.empty() ? "(untitled)" : m.title)
+        << ": a sample and sid (a SID instrument) or sample (kept as a sample)\n";
+    for (const auto& [n, w] : c) {
+        std::string name = n <= (int)m.samples.size() ? m.samples[(size_t)n - 1].name : "";
+        out << n << " " << w << (name.empty() ? "" : "   ; " + name) << "\n";
+    }
+    if (!out) { error = "cannot write " + path; return false; }
+    return true;
+}
+
+void applyModChoices(std::vector<ModSampleReport>& r, const std::map<int, std::string>& c) {
+    for (auto& R : r) {
+        auto it = c.find(R.index);
+        if (it == c.end() || R.verdict == "unused" || R.verdict == "empty") continue;
+        bool sid = it->second == "sid";
+        if (sid == (R.verdict != "sample")) { R.chosen = true; continue; }   // (as measured)
+        R.reasons.push_back("your choice: " + it->second + " (measured: " + R.verdict + ", " + std::to_string(R.score) + ")");
+        R.verdict = sid ? "sid" : "sample";
+        R.chosen = true;
+    }
+}
+
 std::string modReport(const ModFile& m, const std::vector<ModSampleReport>& r) {
     Use u = walk(m);
     std::string o;
@@ -623,7 +667,9 @@ std::string modReport(const ModFile& m, const std::vector<ModSampleReport>& r) {
             played = lo == hi ? lo : lo + ".." + hi;
         }
         std::string nearS;
-        if (R.verdict == "sid" || R.verdict == "sid~") {
+        if ((R.verdict == "sid" || R.verdict == "sid~") && R.kind != "tone") {
+            nearS = modInstrumentLine(R, "x").substr(13) + " (a stand-in)";
+        } else if (R.verdict == "sid" || R.verdict == "sid~") {
             snprintf(b, sizeof b, "pulse %03x", R.pulseWidth);
             nearS = R.wave == "pulse" ? std::string(b) : R.wave;
             if (R.lpTimes > 0) nearS += fmt(" lp %gx", R.lpTimes);
@@ -634,7 +680,7 @@ std::string modReport(const ModFile& m, const std::vector<ModSampleReport>& r) {
             if (l >= 0 && h <= 127) nearS += ", sounds " + TuneCompiler::noteName(l) + (l == h ? "" : ".." + TuneCompiler::noteName(h));
         } else if (R.verdict == "sample") nearS = R.kind == "tone" ? "(keep the sample)" : "(keep the sample: " + R.kind + ")";
         snprintf(b, sizeof b, "%2d  %-22.22s %6zu  %-12s %6d  %-12s %-7s %5s  %s\n", R.index, S.name.c_str(), S.data.size(),
-                 loop.c_str(), R.notes, played.c_str(), R.verdict.c_str(),
+                 loop.c_str(), R.notes, played.c_str(), (R.verdict + (R.chosen ? "*" : "")).c_str(),
                  R.verdict == "unused" ? "" : std::to_string(R.score).c_str(), nearS.c_str());
         o += b;
         if (R.verdict == "sid") nsid++;
@@ -648,6 +694,8 @@ std::string modReport(const ModFile& m, const std::vector<ModSampleReport>& r) {
             }
         }
     }
+    for (const auto& R : r)
+        if (R.chosen) { o += "(* your choice: a choices file)\n"; break; }
     o += "\nWhy:\n";
     for (const auto& R : r) {
         if (R.reasons.empty()) continue;

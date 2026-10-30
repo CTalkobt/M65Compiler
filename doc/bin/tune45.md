@@ -11,7 +11,7 @@ tune45 play music.txt [--tune march]         # on the PC (reSIDfp), --emulator, 
 tune45 create --genre jazz --length 16 -o song.txt
 tune45 import song.mid -o song.txt           # convert, list and play take a .mid too
 tune45 import song.mod --report              # a MOD's samples weighed for the SID; --extract <dir>
-tune45 import song.mod --audition [n]        # each sample: the original, the SID's stand-in, both
+tune45 import song.mod --audition [n]        # each sample: the original, the SID, both; then sid or sample?
 tune45 sample growl.pak --rate 8000          # sampled sound as the audio DMA plays it
 tune45 -V | --version
 tune45 -h | --help
@@ -147,7 +147,23 @@ A score from 0 (easy) to 100 gives the verdict: `sid` (up to 25), `sid~` (approx
 
 `--extract <dir>` writes the samples kept (`--all`: every one the song uses) as WAV files, `NN_name.wav`: 8-bit at the rate of the period played most, the loop and the note it sounds at in a `smpl` chunk; a `sample` line reads them.
 
-`--audition [n]` plays each sample the song uses (or sample `n`) to compare by ear: the original as the audio DMA plays it (8-bit, its loop, each sample held to the next), then the SID's stand-in (the report's waveform, pulse width, low-pass and envelope through the player's model and reSIDfp; a drum's: noise, or a falling pulse for a kick), then both at once, **the original on the left and the SID on the right**. Each at up to four of the notes the song plays it at (the lowest, the highest, between), as long as the sample sounds (a looped one 0.8 s); each part scaled to the same loudness (the SID's offset and the click of its volume left out), so the sound is compared, not the level. A line a sample says its verdict and the instrument. `--wav <file>` writes it to a file.
+`--audition [n]` plays each sample the song uses (or sample `n`) to compare by ear: the original as the audio DMA plays it (8-bit, its loop, each sample held to the next), then the SID's stand-in (the report's waveform, pulse width, low-pass and envelope through the player's model and reSIDfp; a drum's: noise, or a falling pulse for a kick), then both at once, **the original on the left and the SID on the right**. Each at up to four of the notes the song plays it at (the lowest, the highest, between), as long as the sample sounds (a looped one 0.8 s); each part scaled to the same loudness (the SID's offset and the click of its volume left out), so the sound is compared, not the level.
+
+At a terminal it then asks, after each sample:
+
+```
+ 6  in sample bank 1f      sid~    35  SID: pulse a1 c3 733 0 0
+  6: [sid] d s r 1 2 3 b q >
+```
+
+| Key | |
+|-----|--|
+| Enter | as shown in brackets: the verdict (`sid` for `sid` and `sid~`), or the choice made before |
+| `d` / `s` | a SID instrument / keep the sample |
+| `r`, `1`, `2`, `3` | all three again; the original, the SID, both alone |
+| `b`, `q` | back a sample; quit (the choices made are kept) |
+
+The choices are saved as they are made to `--choices <file>` (default: beside the MOD, `song.choices`), a line a sample (`6 sid`, `8 sample`; `;` comments), and are the defaults the next time, so an audition can be taken up again or redone. `--report --choices <file>` and `--extract <dir> --choices <file>` use them as the verdicts (marked `*`; the measured verdict stays among the reasons). `--wav <file>` writes the audition to a file instead (and asks nothing); `--ask` asks without a terminal, the answers read from the input (with `--wav`: the file written first, nothing played).
 
 ## sample
 
