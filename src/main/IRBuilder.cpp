@@ -3556,48 +3556,23 @@ bool IRBuilder::usesZpConv(const std::string& fname) {
     return it == functionParamTypes_.end() || zpParamBytes(it->second) <= ZP_PARAM_BYTES;
 }
 
-// The library's hand-written assembly routines (lib/stdlib_asm/*.s45): they use
-// the ZP convention in both c45.lib and c45_stack.lib. Their headers declare
-// them __fastcall__; a call without any declaration (an implicit declaration,
-// or __builtin_alloca/__builtin_setjmp/__builtin_abs..., which name the
-// library function) calls them with the ZP convention as well, so a
-// stack-convention program needs no bridge thunk.
-// src/test/test_libcall_conv.sh checks this list against the library.
+// The library's routines that use the ZP convention in both libraries (its
+// hand-written assembly, lib/stdlib_asm/*.s45, and any __fastcall__
+// function). Their headers declare them __fastcall__; a call without any
+// declaration (an implicit declaration, or __builtin_alloca /
+// __builtin_setjmp / __builtin_abs..., which name the library function)
+// calls them with the ZP convention as well, so a stack-convention program
+// needs no bridge thunk. The list is the library's own (#374): cc45's
+// pipeline reads it from c45_stack.lib (CompilationPipeline.cpp,
+// libraryZpRoutines) and sets it here; none, when no library is found (the
+// call is then a stack call, which ln45 bridges).
+// src/test/test_libcall_conv.sh checks it against the library.
+std::set<std::string> IRBuilder::libraryZpRoutines_;
+
+void IRBuilder::setLibraryZpRoutines(std::set<std::string> names) { libraryZpRoutines_ = std::move(names); }
+
 bool IRBuilder::isLibraryZpRoutine(const std::string& fname) {
-    static const std::set<std::string> routines = {
-        "abs", "alloca", "assert_fail_abort", "atoi", "calloc", "cbm_drive_status", "exit", "free",
-        "getchar", "isalnum", "isalpha", "isblank", "iscntrl", "isdigit", "isgraph", "islower",
-        "isprint", "ispunct", "isspace", "isupper", "isxdigit", "itoa", "labs", "longjmp", "ltoa",
-        "malloc", "memcmp", "memcpy", "memmove", "memset", "putchar", "puts", "realloc",
-        "setjmp", "strcat", "strchr", "strcmp", "strcpy", "strlen", "strncat", "strncmp",
-        "strncpy", "strrchr", "tolower", "toupper", "utoa", "putstr",
-        // conio (stdlib_asm/conio.s45)
-        "clrscr", "cputch", "cputs", "cputsxy", "cursoroff", "cursoron", "getattr_xy", "getch",
-        "getch_xy", "gotoxy", "kbhit", "putch", "revers", "screenheight", "screenwidth",
-        "textattr", "textbackground", "textcolor", "wherex", "wherey",
-        // clock.s45, rand.s45, strtok.s45, strtoul.s45
-        "clock", "rand", "srand", "strtok", "strtok_r", "strtol", "strtoul",
-        // rom_ram.s45 (#339)
-        "romram_enable", "romram_protect", "romram_ranges",
-        // tune.s45
-        "tune_detune", "tune_note", "tune_play", "tune_play_far", "tune_playing", "tune_stop",
-        "tune_seek", "tune_tempo", "tune_ticks", "tune_transpose", "tune_update", "tune_vibrato", "tune_voices",
-        "tune_samples", "tune_digi_channels", "tune_digi_volume",
-        // far_heap.s45
-        "bank_reset", "bank_reset_all", "far_free", "far_malloc", "far_reserve", "far_size_long",
-        // sprites.s45
-        "sprite_alpha", "sprite_alpha_level", "sprite_altcolors", "sprite_behind", "sprite_bg_collisions",
-        "sprite_collisions", "sprite_color", "sprite_done", "sprite_h640", "sprite_height", "sprite_hide",
-        "sprite_image", "sprite_init", "sprite_mode", "sprite_move", "sprite_multicolors", "sprite_overlap",
-        "sprite_palette_bank", "sprite_pos", "sprite_show", "sprite_size", "sprite_tile", "sprite_v400",
-        "sprite_x", "sprite_y",
-        // tgi_pixel.s45, tgi_arc.s45, tgi_setup.s45, tgi_text.s45
-        "tgi_arc", "tgi_circle", "tgi_done", "tgi_ellipse", "tgi_getpixel", "tgi_gettextheight",
-        "tgi_gettextwidth", "tgi_imulround", "tgi_init", "tgi_install", "tgi_install_vectorfont",
-        "tgi_line", "tgi_lineto", "tgi_outtext", "tgi_outtextxy", "tgi_pieslice", "tgi_setdrawpage",
-        "tgi_setpixel", "tgi_settextdir", "tgi_settextscale", "tgi_settextstyle", "tgi_setviewpage",
-        "tgi_uninstall", "tgi_vectorchar"};
-    return routines.count(fname) > 0;
+    return libraryZpRoutines_.count(fname) > 0;
 }
 
 bool IRBuilder::usesZpConvSig(const FuncPtrSignature& sig) {

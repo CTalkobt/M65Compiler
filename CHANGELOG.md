@@ -4,6 +4,17 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45 reads the library's ZP routines from c45_stack.lib (#374)
+
+- The routines a call without a declaration (an implicit declaration,
+  `__builtin_alloca`, `__builtin_setjmp`...) calls the ZP way in a
+  `-fno-zpcall` file are no longer a hand-kept list in `IRBuilder.cpp`
+  (`isLibraryZpRoutine`), which fell behind when the tune player added
+  routines: cc45 reads them from the `c45_stack.lib` it links, the text
+  exports whose function attributes say ZP convention (`-vvvv` names them).
+  `test_libcall_conv.sh` checks the list has every ZP routine of
+  `lib/stdlib_asm`.
+
 ### sprites.h: the hardware sprites
 
 - `<sprites.h>` is now a library for the VIC-IV's 8 hardware sprites
