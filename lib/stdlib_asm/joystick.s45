@@ -1,0 +1,83 @@
+; joystick.s45 — <joystick.h>: cc65's joystick API over <input.h>'s
+; input_joy (stdlib/input.c, __fastcall__ in both libraries)
+;
+; The driver is built in: joy_install / joy_load_driver install it whatever
+; their argument (JOY_ERR_OK; again: JOY_ERR_OK too, as there is nothing
+; else to install), joy_uninstall / joy_unload remove it. joy_read reads
+; the port either way: joy_read(n) is input_joy(n + 1).
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.global _joy_load_driver, _joy_unload, _joy_install, _joy_uninstall
+.global _joy_count, _joy_read, _joy_stddrv, _joy_static_stddrv
+.extern _input_joy
+
+.segment "code"
+_joy_stddrv:    .text "m65-stdjoy.joy"
+                .byte 0
+_joy_static_stddrv:
+                .byte 0
+
+; JOY_ERR_OK in A/X (for the install functions)
+proc _joy_install
+    .zp_uses $10, $11
+    .reg_clobbers A, X
+    .flag_clobbers N, Z
+    lda #0
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+proc _joy_load_driver
+    .zp_uses $10, $11
+    .reg_clobbers A, X
+    .flag_clobbers N, Z
+    lda #0
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+proc _joy_uninstall
+    .reg_clobbers A, X
+    .flag_clobbers N, Z
+    lda #0
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+proc _joy_unload
+    .reg_clobbers A, X
+    .flag_clobbers N, Z
+    lda #0
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+; unsigned char joy_count(void): 2
+proc _joy_count
+    .reg_clobbers A, X
+    .flag_clobbers N, Z
+    lda #2
+    ldx #0
+    rts
+    .func_flags zp_call
+endproc
+
+; unsigned char joy_read(unsigned char joystick): input_joy(joystick + 1)
+proc _joy_read
+    .zp_uses $10, $11
+    .zp_clobbers $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    inc $10
+    lda #0
+    sta $11
+    jmp _input_joy
+    .func_flags zp_call
+endproc

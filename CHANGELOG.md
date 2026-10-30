@@ -4,6 +4,26 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cbm.h's cc65 KERNAL functions, joystick.h, sleep, getopt, adler32
+
+- `<cbm.h>`: cc65's `cbm_k_acptr`, `cbm_k_basin`, `cbm_k_bsout`,
+  `cbm_k_ciout`, `cbm_k_ckout`, `cbm_k_clall`, `cbm_k_clrch`, `cbm_k_getin`,
+  `cbm_k_iobase`, `cbm_k_listen`, `cbm_k_load`, `cbm_k_save`,
+  `cbm_k_scnkey`, `cbm_k_second`, `cbm_k_settim`, `cbm_k_talk`,
+  `cbm_k_tksa`, `cbm_k_udtim`, `cbm_k_unlsn`, `cbm_k_untlk`, `cbm_load`,
+  `cbm_save`, `get_tv`, `waitvsync` and `_oserror`, in assembly through
+  `__rom_call`; the header declares the existing `cbm_k_` functions of
+  `stdio.h` too. The header's earlier `cbm_load(addr)` is gone: cc65's
+  `cbm_load(name, device, data)` has its name (`cbm_k_load(0, addr)` does
+  what it did).
+- `<joystick.h>` is cc65's API over `input_joy` (assembly): `joy_install`,
+  `joy_read`, `joy_count`..., the `JOY_UP(v)` macros. It replaces the
+  unimplemented `sprite_joystick_*` declarations. `input_joy` is
+  `__fastcall__`.
+- `<unistd.h>`: `sleep` (assembly, frames of `clock()`) and POSIX `getopt`.
+- `<zlib.h>`: `adler32` in assembly.
+- Test: `test_cc65_more_xemu.c` (`cbm_save`/`cbm_load` on a D81).
+
 ### cc65's string, stdlib, ctype and standard-C gaps; crc32; serial.h
 
 - `<string.h>`: `strcasecmp`, `strncasecmp`, `stricmp`, `strnicmp`,

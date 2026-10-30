@@ -1,104 +1,59 @@
-/* sprite_joystick.h — Joystick Input Library
+/* joystick.h — cc65's joystick API on the MEGA65's two joystick ports
+ * (lib/stdlib_asm/joystick.s45, over <input.h>'s input_joy)
  *
- * Support for 4-5 button joystick protocols with debouncing and event callbacks.
- *
- * Supported Protocols:
- * - Atari 2600 (4-way + fire)
- * - Sega Genesis (6-button)
- * - Custom MEGA65 protocol
+ * The driver is built in: joy_install(joy_static_stddrv) or
+ * joy_load_driver(any name) installs it (joy_read works either way).
+ * joy_read(JOY_1) is port 1, joy_read(JOY_2) port 2; the bits are
+ * input_joy's: up, down, left, right, the fire button, and the second and
+ * third buttons on the paddle lines once input_joy_type says what is
+ * connected. The JOY_UP(v) ... macros test them, as cc65's: this header
+ * redefines <input.h>'s JOY_UP ... masks as those macros (use the _MASK
+ * names for the bits).
  */
+#pragma once
 
-#ifndef JOYSTICK_H
-#define JOYSTICK_H
+#define JOY_ERR_OK              0
+#define JOY_ERR_NO_DRIVER       1
+#define JOY_ERR_CANNOT_LOAD     2
+#define JOY_ERR_INV_DRIVER      3
+#define JOY_ERR_NO_DEVICE       4
 
-typedef void *sprite_joystick_manager_t;
-typedef void *sprite_joystick_t;
+#define JOY_1                   0
+#define JOY_2                   1
 
-#define INVALID_JOYSTICK_MANAGER NULL
-#define INVALID_JOYSTICK NULL
+#define JOY_UP_MASK             0x01
+#define JOY_DOWN_MASK           0x02
+#define JOY_LEFT_MASK           0x04
+#define JOY_RIGHT_MASK          0x08
+#define JOY_BTN_1_MASK          0x10
+#define JOY_BTN_2_MASK          0x20
+#define JOY_BTN_3_MASK          0x40
+#define JOY_BTN_4_MASK          0x00    /* (none) */
+#define JOY_FIRE_MASK           JOY_BTN_1_MASK
 
-typedef enum {
-    JOYSTICK_PROTOCOL_ATARI = 0,
-    JOYSTICK_PROTOCOL_SEGA = 1,
-    JOYSTICK_PROTOCOL_CUSTOM = 2,
-    JOYSTICK_PROTOCOL_SEGA_FULL = 3,  /* R6 boards: 6-button with bidirectional SELECT */
-} sprite_joystick_protocol_t;
+#undef JOY_UP
+#undef JOY_DOWN
+#undef JOY_LEFT
+#undef JOY_RIGHT
+#undef JOY_FIRE
+#define JOY_UP(v)               ((v) & JOY_UP_MASK)
+#define JOY_DOWN(v)             ((v) & JOY_DOWN_MASK)
+#define JOY_LEFT(v)             ((v) & JOY_LEFT_MASK)
+#define JOY_RIGHT(v)            ((v) & JOY_RIGHT_MASK)
+#define JOY_BTN_1(v)            ((v) & JOY_BTN_1_MASK)
+#define JOY_BTN_2(v)            ((v) & JOY_BTN_2_MASK)
+#define JOY_BTN_3(v)            ((v) & JOY_BTN_3_MASK)
+#define JOY_BTN_4(v)            ((v) & JOY_BTN_4_MASK)
+#define JOY_FIRE(v)             ((v) & JOY_FIRE_MASK)
 
-typedef enum {
-    JOYSTICK_UP = 0x01,
-    JOYSTICK_DOWN = 0x02,
-    JOYSTICK_LEFT = 0x04,
-    JOYSTICK_RIGHT = 0x08,
-    JOYSTICK_BUTTON_A = 0x10,
-    JOYSTICK_BUTTON_B = 0x20,
-    JOYSTICK_BUTTON_C = 0x40,
-    JOYSTICK_BUTTON_X = 0x80,
-    JOYSTICK_BUTTON_Y = 0x100,
-    JOYSTICK_BUTTON_Z = 0x200,
-} sprite_joystick_button_t;
+extern const char joy_stddrv[];
+extern const unsigned char joy_static_stddrv[];
 
-typedef struct {
-    int buttons;
-    int prev_buttons;
-    int debounce_time;
-    int debounce_counter;
-    int buttons_select_0;  /* Sega: buttons read with SELECT=0 (A,B,C) */
-    int buttons_select_1;  /* Sega: buttons read with SELECT=1 (X,Y,Z) */
-    int is_r6_board;       /* 1 if R6 with bidirectional joystick support */
-} sprite_joystick_state_t;
-
-typedef void (*sprite_joystick_callback_t)(int joystick_id,
-                                            int button,
-                                            int pressed,
-                                            void *user_data);
-
-/* Manager */
-sprite_joystick_manager_t sprite_joystick_manager_create(int max_joysticks);
-void sprite_joystick_manager_destroy(sprite_joystick_manager_t manager);
-
-/* Joystick Detection & Initialization */
-sprite_joystick_t sprite_joystick_init(sprite_joystick_manager_t manager,
-                                        int port,
-                                        sprite_joystick_protocol_t protocol);
-int sprite_joystick_detect(sprite_joystick_manager_t manager);
-int sprite_joystick_get_count(sprite_joystick_manager_t manager);
-
-/* R6 Board Detection (for bidirectional joystick support) */
-int sprite_joystick_is_r6_board(void);
-int sprite_joystick_enable_sega_full(sprite_joystick_t joystick, int port);
-
-/* Button Reading */
-int sprite_joystick_read_buttons(sprite_joystick_t joystick);
-int sprite_joystick_is_pressed(sprite_joystick_t joystick, int button);
-int sprite_joystick_was_pressed(sprite_joystick_t joystick, int button);
-int sprite_joystick_get_direction(sprite_joystick_t joystick,
-                                   int *x, int *y);
-
-/* Debouncing */
-void sprite_joystick_set_debounce_time(sprite_joystick_t joystick, int ms);
-int sprite_joystick_update(sprite_joystick_t joystick, int delta_ms);
-int sprite_joystick_manager_update(sprite_joystick_manager_t manager, int delta_ms);
-
-/* Callbacks */
-int sprite_joystick_set_callback(sprite_joystick_t joystick,
-                                  int button_mask,
-                                  sprite_joystick_callback_t callback,
-                                  void *user_data);
-int sprite_joystick_remove_callback(sprite_joystick_t joystick, int button_mask);
-
-/* Mapping & Configuration */
-int sprite_joystick_remap_button(sprite_joystick_t joystick,
-                                  int physical_button,
-                                  int logical_button);
-int sprite_joystick_invert_axis(sprite_joystick_t joystick, int axis, int invert);
-
-/* Status & Info */
-int sprite_joystick_is_connected(sprite_joystick_t joystick);
-const char *sprite_joystick_get_name(sprite_joystick_t joystick);
-int sprite_joystick_get_button_count(sprite_joystick_t joystick);
-
-/* Utility */
-const char *sprite_joystick_button_name(int button);
-int sprite_joystick_button_from_name(const char *name);
-
-#endif
+__fastcall__ unsigned char joy_load_driver(const char *driver);
+__fastcall__ unsigned char joy_unload(void);
+__fastcall__ unsigned char joy_install(const void *driver);
+__fastcall__ unsigned char joy_uninstall(void);
+/* 2 */
+__fastcall__ unsigned char joy_count(void);
+/* The bits of what is held on JOY_1 or JOY_2 (0 for another) */
+__fastcall__ unsigned char joy_read(unsigned char joystick);

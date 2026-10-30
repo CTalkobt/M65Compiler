@@ -13,6 +13,9 @@
 
 extern int errno;
 extern char _errnoc;
+/* The last KERNAL error of <cbm.h>'s cbm_load / cbm_save / cbm_k_load
+ * (0: none), as cc65's */
+extern unsigned char _oserror;
 
 /* Standard error codes */
 #define ERANGE  1   /* Result out of range (strtol, strtoul, strtof, math functions) */

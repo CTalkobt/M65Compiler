@@ -91,4 +91,4 @@ unsigned char input_modifiers(void);
 /* What is connected to port 1 or 2 (JOYTYPE_1BUTTON by default) */
 void input_joy_type(unsigned char port, unsigned char type);
 /* Port 1 or 2: JOY_ bits of what is held down */
-unsigned char input_joy(unsigned char port);
+__fastcall__ unsigned char input_joy(unsigned char port);
