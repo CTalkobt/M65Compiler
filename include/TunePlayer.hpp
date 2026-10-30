@@ -59,6 +59,7 @@ private:
         // the instrument's hard restart, filter and wave table
         uint8_t hr = 0, filt = 0, tail = 0;   // tail: its effects through the release (the hr byte's bit 7)
         uint8_t free = 0, pwfree = 0;   // its pulse-width sweep free (bit 6); the voice's now (pw: sets it)
+        uint8_t pwrun = 0, cutrun = 0;  // its pulse width / its chip's cutoff run on: not set by a note (bits 5, 4)
         int8_t fsweep = 0;
         uint16_t cutoff = 0, table = 0;
         // its control register's waveform now, the table's step and pitch,
@@ -99,6 +100,7 @@ private:
     void next(Voice& v, int idx);
     void dnext(Voice& v, int idx);
     void call(Voice& v);
+    void pwstep(Voice& v);
     void back(Voice& v) { v.pos = --v.rep ? v.pat : v.ret; }
     void dhit(Voice& v, int idx, uint8_t h);
     void dvset(Voice& v, int idx);

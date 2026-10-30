@@ -197,6 +197,8 @@ bool TuneCompiler::parse(const std::string& text, const std::string& file, TuneF
                 std::string key = lower(w[k].substr(0, eq));
                 if (key == "tail" && eq == std::string::npos) { ins.hr |= 0x80; continue; }   // (its effects through the release)
                 if (key == "free" && eq == std::string::npos) { ins.hr |= 0x40; continue; }   // (its pulse-width sweep without bounces)
+                if (key == "pwrun" && eq == std::string::npos) { ins.hr |= 0x20; continue; }   // (its pulse width not set by a note)
+                if (key == "cutrun" && eq == std::string::npos) { ins.hr |= 0x10; continue; }   // (its chip's cutoff not set by its note)
                 if (eq == std::string::npos) { error(file, ln, "expected key=value: " + w[k]); ok = false; continue; }
                 std::string val = w[k].substr(eq + 1);
                 // the keys with a word for a value
@@ -238,12 +240,12 @@ bool TuneCompiler::parse(const std::string& text, const std::string& file, TuneF
                 else if (key == "vdelay" && v2 >= 0 && v2 <= 255) ins.vdelay = (uint8_t)v2;
                 else if (key == "vspeed" && v2 >= 1 && v2 <= 16) ins.vspeed = (uint8_t)v2;
                 else if (key == "slide" && v2 >= -128 && v2 <= 127) ins.slide = (int8_t)v2;
-                else if (key == "hr" && v2 >= 0 && v2 <= 3) ins.hr = (uint8_t)((ins.hr & 0xC0) | v2);
+                else if (key == "hr" && v2 >= 0 && v2 <= 3) ins.hr = (uint8_t)((ins.hr & 0xF0) | v2);
                 else if (key == "res" && v2 >= 0 && v2 <= 15) { res = v2; filterTuned = true; }
                 else if (key == "fsweep" && v2 >= -128 && v2 <= 127) { ins.fsweep = (int8_t)v2; filterTuned = true; }
                 else {
                     error(file, ln, "unknown or out of range: " + w[k] +
-                                    " (pwm, vdelay, vspeed 1-16, slide, hr 0-3, tail, free, filter, res 0-15, cutoff, fsweep, table)");
+                                    " (pwm, vdelay, vspeed 1-16, slide, hr 0-3, tail, free, pwrun, cutrun, filter, res 0-15, cutoff, fsweep, table)");
                     ok = false;
                 }
             }

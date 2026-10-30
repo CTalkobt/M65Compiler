@@ -45,7 +45,9 @@
  *   $8A lo hi s   the voice's chip's cutoff (11 bits) and its sweep a frame
  * ($83 a $80: a two-note arpeggio, the note and +a. An instrument's hr byte's
  * bit 7: its effects go on through the release; bit 6: its pulse-width
- * sweep free (no bounce; stopped at 0 and $FFF, as pw:'s). Its vibrato
+ * sweep free (no bounce; stopped at 0 and $FFF, as pw:'s); bit 5: a note
+ * leaves the pulse width as it is, swept in rests too; bit 4: its note
+ * leaves its chip's cutoff as it is. Its vibrato
  * byte's high nibble: frames a step of the triangle, less 1.)
  *   $FE           back to the voice's start (a tune that loops)
  *   $FF           the voice's end

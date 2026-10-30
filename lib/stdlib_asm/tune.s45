@@ -161,6 +161,8 @@ __ti_slide:     .res NV
 __ti_hr:        .res NV
 __ti_tail:      .res NV         ; $80: its effects go on through the release (the hr byte's bit 7)
 __ti_free:      .res NV         ; $40: its pulse-width sweep free (no bounce; stops at 0 and $FFF; bit 6)
+__ti_pwrun:     .res NV         ; $20: its pulse width runs on: not set by a note, swept in rests (bit 5)
+__ti_cutrun:    .res NV         ; $10: its chip's cutoff runs on: not set by its note (bit 4)
 __tv_pwfree:    .res NV         ; the voice's sweep free (the instrument's at a note; pw: sets it)
 __ti_filt:      .res NV
 __ti_cut_lo:    .res NV
@@ -311,6 +313,8 @@ proc __tune_inst
     sta __ti_hr,x
     sta __ti_tail,x
     sta __ti_free,x
+    sta __ti_pwrun,x
+    sta __ti_cutrun,x
     sta __ti_filt,x
     sta __ti_cut_lo,x
     sta __ti_cut_hi,x
@@ -329,6 +333,14 @@ proc __tune_inst
     pha
     and #$40
     sta __ti_free,x
+    pla
+    pha
+    and #$20
+    sta __ti_pwrun,x
+    pla
+    pha
+    and #$10
+    sta __ti_cutrun,x
     pla
     and #$03
     sta __ti_hr,x
@@ -611,6 +623,8 @@ proc __tune_filter
     lsr a
     lsr a
     tay
+    lda __ti_cutrun,x   ; (cutrun: the cutoff as it is)
+    bne @cutkeep
     lda __ti_cut_lo,x
     sta __tune_cut_lo,y
     lda __ti_cut_hi,x
@@ -618,6 +632,7 @@ proc __tune_filter
     lda __ti_fsw,x
     sta __tune_csw,y
     jsr __tune_wcut
+@cutkeep:
     ; $17: the resonance, the chip's routing and this voice
     lda T2
     ora #$17
@@ -1039,6 +1054,8 @@ proc __tune_next
     lda __ti_wave,x
     sta __tv_cw,x
     jsr __tune_ctrl
+    lda __ti_pwrun,x    ; (pwrun: the pulse width as it is)
+    bne @pwkeep
     lda __ti_pw_lo,x
     sta __tv_pw_lo,x
     lda __ti_pw_hi,x
@@ -1047,6 +1064,7 @@ proc __tune_next
     sta __tv_pwdir,x
     lda __ti_free,x
     sta __tv_pwfree,x
+@pwkeep:
     jsr __tune_wpw
     lda __ti_ad,x
     ldy #5
@@ -1490,57 +1508,12 @@ endproc
 ; Each frame's effects
 ; ----------------------------------------------------------------------------
 
-proc __tune_effects
-    ldx #0
-@voice:
-    cpx __tune_n
-    bcc @one
-    jmp __tune_fsweep
-@one:
-    ; hard restart: hr frames before a note, the gate off and AD/SR 0
-    lda __ti_hr,x
-    beq @gate
-    lda __tv_hrdone,x
-    ora __tv_done,x
-    bne @gate
-    lda __tv_left,x
-    cmp #1
-    bne @gate
-    lda __tune_soon
-    cmp __ti_hr,x
-    beq @hrpeek
-    bcs @gate           ; (more frames to the tick than hr)
-@hrpeek:
-    jsr __tune_peek
-    bcc @gate
-    lda #1
-    sta __tv_hrdone,x
-    lda #0
-    sta __tv_gated,x
-    jsr __tune_ctrl
-    lda #0
-    ldy #5
-    jsr __tune_w
-    iny
-    jsr __tune_w
-@gate:
-    lda __tv_gated,x
-    bne @sounding
-    lda __ti_tail,x     ; (tail: its effects through the release too)
-    beq @still
-    lda __tv_done,x
-    beq @sounding
-@still:
-    jmp @next
-@sounding:
-    lda __tv_t,x
-    cmp #255
-    beq @pwm
-    inc __tv_t,x
-@pwm:
+; Voice X's pulse-width sweep a frame: bouncing between $0200 and $0E00, or
+; free (on to 0 or $FFF, stopped there)
+proc __tune_pwstep
     ; pulse-width sweep, bouncing between $0200 and $0E00
     lda __tv_pwdir,x
-    beq @glide
+    beq @done
     ldy #0
     ora #0
     bpl @pw
@@ -1582,7 +1555,66 @@ proc __tune_effects
     sbc __tv_pwdir,x
     sta __tv_pwdir,x
 @pwset:
-    jsr __tune_wpw
+    jmp __tune_wpw
+@done:
+    rts
+endproc
+
+proc __tune_effects
+    ldx #0
+@voice:
+    cpx __tune_n
+    bcc @one
+    jmp __tune_fsweep
+@one:
+    ; hard restart: hr frames before a note, the gate off and AD/SR 0
+    lda __ti_hr,x
+    beq @gate
+    lda __tv_hrdone,x
+    ora __tv_done,x
+    bne @gate
+    lda __tv_left,x
+    cmp #1
+    bne @gate
+    lda __tune_soon
+    cmp __ti_hr,x
+    beq @hrpeek
+    bcs @gate           ; (more frames to the tick than hr)
+@hrpeek:
+    jsr __tune_peek
+    bcc @gate
+    lda #1
+    sta __tv_hrdone,x
+    lda #0
+    sta __tv_gated,x
+    jsr __tune_ctrl
+    lda #0
+    ldy #5
+    jsr __tune_w
+    iny
+    jsr __tune_w
+@gate:
+    lda __tv_gated,x
+    bne @sounding
+    lda __ti_tail,x     ; (tail: its effects through the release too)
+    beq @still
+    lda __tv_done,x
+    beq @sounding
+@still:
+    lda __ti_pwrun,x    ; (pwrun: its pulse width swept in rests too)
+    beq @nx
+    lda __tv_done,x
+    bne @nx
+    jsr __tune_pwstep
+@nx:
+    jmp @next
+@sounding:
+    lda __tv_t,x
+    cmp #255
+    beq @pwm
+    inc __tv_t,x
+@pwm:
+    jsr __tune_pwstep
 @glide:
     ; glide: (distance + 2^k - 1) >> k towards the target, from the note's
     ; second frame

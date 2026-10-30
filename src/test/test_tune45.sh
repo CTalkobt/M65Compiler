@@ -366,6 +366,11 @@ $TUNE convert $T/fr.txt -o $T/fr.c >/dev/null 2>&1 && sed -n '/tune_t\[/,/};/p' 
     pass || fail "free, vspeed"
 err $'instrument a pulse 09 a6 0600 5 0 vspeed=17' "vspeed 1-16"
 
+# pwrun, cutrun (the hr byte's bits 5 and 4)
+printf 'instrument a pulse 09 a6 0600 0 0 pwrun cutrun filter=lp\ntune t 1 once\nv1: c4:2\n' > $T/pr.txt
+$TUNE convert $T/pr.txt -o $T/pr.c >/dev/null 2>&1 && sed -n '/tune_t\[/,/};/p' $T/pr.c | tr -d ' \n' | grep -q '64,9,166,0,6,0,0,0,0,0,48,16,0,4,0,0,0,' &&
+    pass || fail "pwrun, cutrun"
+
 # patterns: in the data once ($86 offset times a call, $87 their end), after
 # the voices; the ticks and bars counted through them
 printf 'instrument a pulse 09 a6 0600 0 0\npattern p: c4:2 e4:2\npattern q: g4:1\ntune t 1 loop 4\nv1: *p | *q*3 r:1 | *p\n' > $T/pt.txt

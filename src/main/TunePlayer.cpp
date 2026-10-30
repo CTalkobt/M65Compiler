@@ -40,13 +40,15 @@ void TunePlayer::inst(Voice& v, uint8_t i) {
     v.vdel = byte(at + 8);
     v.slide = (int8_t)byte(at + 9);
     v.cw = v.wave;
-    v.hr = v.filt = v.tail = v.free = 0;
+    v.hr = v.filt = v.tail = v.free = v.pwrun = v.cutrun = 0;
     v.fsweep = 0;
     v.cutoff = v.table = 0;
     if (rsize_ >= 17) {   // (10: a tune of before the hard restart, filter and wave tables)
         v.hr = byte(at + 10) & 3;
         v.tail = byte(at + 10) & 0x80;
         v.free = byte(at + 10) & 0x40;
+        v.pwrun = byte(at + 10) & 0x20;
+        v.cutrun = byte(at + 10) & 0x10;
         v.filt = byte(at + 11);
         v.cutoff = (uint16_t)(byte(at + 12) | (byte(at + 13) << 8));
         v.fsweep = (int8_t)byte(at + 14);
@@ -70,9 +72,11 @@ void TunePlayer::filter(Voice& v) {
         if (shadow_[r17] & v.fbit) put(r17, (uint8_t)(shadow_[r17] & ~v.fbit));
         return;
     }
-    cut_[c] = v.cutoff;
-    csw_[c] = v.fsweep;
-    wcut(c);
+    if (!v.cutrun) {   // (cutrun: the cutoff as it is)
+        cut_[c] = v.cutoff;
+        csw_[c] = v.fsweep;
+        wcut(c);
+    }
     put(r17, (uint8_t)((v.filt << 4) | (shadow_[r17] & 0x0F) | v.fbit));
     put(r18, (uint8_t)((shadow_[r18] & 0x8F) | (v.filt & 0x70)));
 }
@@ -199,6 +203,18 @@ void TunePlayer::dnext(Voice& v, int idx) {
     }
 }
 
+// the pulse-width sweep a frame: bouncing between $200 and $E00, or free
+// (on to 0 or $FFF, stopped there)
+void TunePlayer::pwstep(Voice& v) {
+    if (!v.pwdir) return;
+    v.pw = (uint16_t)(v.pw + v.pwdir);
+    uint8_t hi = (uint8_t)(v.pw >> 8);
+    if (v.pwfree) {
+        if (hi >= 0x10) { v.pw = (hi & 0x80) ? 0 : 0xFFF; v.pwdir = 0; }
+    } else if (hi >= 0x0E || hi < 0x02) v.pwdir = (int8_t)(0 - v.pwdir);
+    wpw(v);
+}
+
 // a pattern call ($86 lo hi n, the $86 read): on at it, n times, then after
 void TunePlayer::call(Voice& v) {
     uint8_t lo = rd(v), hi = rd(v);
@@ -260,9 +276,11 @@ void TunePlayer::next(Voice& v, int idx) {
             v.wsemi = 0;
             v.cw = v.wave;
             ctrl(v);
-            v.pw = v.ipw;
-            v.pwdir = v.pwm;
-            v.pwfree = v.free;
+            if (!v.pwrun) {   // (pwrun: the pulse width as it is)
+                v.pw = v.ipw;
+                v.pwdir = v.pwm;
+                v.pwfree = v.free;
+            }
             wpw(v);
             w(v, 5, v.ad);
             w(v, 6, v.sr);
@@ -360,16 +378,12 @@ void TunePlayer::effects() {
             w(v, 5, 0);
             w(v, 6, 0);
         }
-        if (!v.gated && !(v.tail && !v.done)) continue;   // (tail: on through the release)
-        if (v.t != 255) v.t++;
-        if (v.pwdir) {
-            v.pw = (uint16_t)(v.pw + v.pwdir);
-            uint8_t hi = (uint8_t)(v.pw >> 8);
-            if (v.pwfree) {   // free: on to 0 or $FFF, stopped there
-                if (hi >= 0x10) { v.pw = (hi & 0x80) ? 0 : 0xFFF; v.pwdir = 0; }
-            } else if (hi >= 0x0E || hi < 0x02) v.pwdir = (int8_t)(0 - v.pwdir);
-            wpw(v);
+        if (!v.gated && !(v.tail && !v.done)) {   // (tail: on through the release)
+            if (v.pwrun && !v.done) pwstep(v);   // (pwrun: the pulse width swept in rests too)
+            continue;
         }
+        if (v.t != 255) v.t++;
+        pwstep(v);
         if (v.glide && v.t >= 2) {   // (distance + 2^k - 1) >> k towards the target
             uint32_t mask = (1u << v.glide) - 1;
             if (v.tgt == v.freq) v.glide = 0;
