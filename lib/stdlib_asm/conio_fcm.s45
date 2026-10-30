@@ -1,0 +1,1442 @@
+; conio_fcm.s45 — <conio.h>'s full-colour text mode: a background colour for
+; each character
+;
+; The VIC-IV's text mode has one background colour, the screen's ($D021).
+; fcm_enable makes the screen two bytes a cell (CHR16) with full-colour
+; characters for the character numbers from 256 (FCLRHI): such a character
+; is 64 bytes, a byte a pixel, at its number * 64; pixel $00 shows the
+; screen's background, $FF the cell's colour (colour RAM), others that
+; palette entry. A cell on the screen's background shows the font's
+; character as before; a cell on another background a glyph made from the
+; font's 8 bytes, its clear pixels in that colour. The glyphs are kept in a
+; cache (fcm_set_cache_size, 256 by default) in bank 4 or 5 (far_malloc),
+; after the screen (room for 80 columns); when it is full, the glyphs no cell
+; shows are dropped. The colours are in colour RAM from $1000, above the
+; ROM's screen. fcm_disable puts the screen back as it was, with what is on
+; it.
+;
+; A glyph's character and background are kept by the low byte of its number
+; (glyph i is number __fcm_first + i: at most 256 glyphs, so one byte tells
+; them apart; getch_xy reads the characters through __conio_chtab). The
+; cells are written with conio.s45's __conio_put16, the bytes moved by DMA
+; jobs of 28-bit addresses (__fcm_copy). All __fastcall__ (the ZP convention
+; in both libraries); fcm_cprintf is in stdlib/conio_fcm_printf.c.
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.global _fcm_enable, _fcm_disable, _fcm_is_enabled, _fcm_set_cache_size
+.global _fcm_putch, _fcm_cputs, _fcm_fill_rect, _fcm_set_line_color
+.global _fcm_putglyph, _fcm_getattr_xy
+.extern ___conio_put16, ___conio_get16, ___conio_code, ___conio_chtab
+.extern _screenwidth, _screenheight, _getch_xy, _getattr_xy
+.extern _far_malloc, _far_free
+
+FCM_BLACK = $FE         ; the palette entry of a black background (pixel $00
+                        ; is the screen's)
+FCM_EMPTY = $FF         ; __fcm_bg of a free cache entry
+
+.segment "bss"
+__fcm_on:       .res 1
+__fcm_mem:      .res 3  ; far_ptr_t: bank, offset (the screen, then the glyphs)
+__fcm_glyphs:   .res 4  ; glyph 0's address
+__fcm_first:    .res 2  ; its character number
+__fcm_w:        .res 1  ; the width fcm_enable found
+__fcm_old:      .res 9  ; $D058/$D059, $D060-$D065, $D054
+__fcm_font:     .res 4  ; the font the glyphs are made from
+__fcm_chs:      .res 256 ; a glyph's character, by its number's low byte
+__fcm_bg:       .res 256 ; its background (FCM_EMPTY: free)
+__fcm_row:      .res 80
+__fcm_row2:     .res 80
+__fcm_big:      .res 160
+__fcm_pix:      .res 64
+__fcm_used:     .res 32 ; the glyphs on the screen (a bit each)
+; put: the cell
+__pc_x:         .res 1
+__pc_y:         .res 1
+__pc_c:         .res 1  ; screen code
+__pc_fg:        .res 1
+__pc_bg:        .res 1
+__pc_n:         .res 2  ; the character number written
+; the glyph search
+__g_cnt:        .res 2
+__g_free:       .res 1
+__g_hasfree:    .res 1
+__g_pix:        .res 1
+__g_t:          .res 1
+; free_unused
+__fu_x:         .res 1
+__fu_y:         .res 1
+__fu_w:         .res 1
+__fu_h:         .res 1
+__fu_d:         .res 2
+__fu_k:         .res 1
+; the DMA copy
+__fd_src:       .res 4
+__fd_dst:       .res 4
+__fd_len:       .res 2
+; convert
+__cv_scr:       .res 4
+__cv_col:       .res 4
+__cv_scr2:      .res 4
+__cv_col2:      .res 4
+__cv_stride:    .res 4
+__cv_w2:        .res 4  ; 2 * w (32 bits, for adcq)
+__cv_w:         .res 1
+__cv_h:         .res 1
+__cv_y:         .res 1
+__cv_wide:      .res 1
+__cv_t:         .res 2
+; the API's arguments
+__a_x:          .res 2
+__a_y:          .res 2
+__a_x2:         .res 2
+__a_y2:         .res 2
+__a_str:        .res 2
+__a_w:          .res 1
+__a_h:          .res 1
+__a_t:          .res 4
+__a_bg:         .res 1  ; the background asked for
+
+.segment "code"
+__fcm_slots:    .word 256 ; cache entries
+__fcm_bits:     .byte 1, 2, 4, 8, 16, 32, 64, 128
+
+; An enhanced (F018B) DMA job: options (F018B format, source and destination
+; megabyte), then a copy; the addresses and the length filled in
+__fcm_job:
+    .byte $0B, $80, 0, $81, 0, $00
+    .byte 0                 ; command: copy
+    .byte 0, 0              ; length
+    .byte 0, 0, 0           ; source bits 0-15, bank (bits 16-19)
+    .byte 0, 0, 0           ; destination
+    .byte 0, 0, 0           ; sub-command, modulo
+
+; ----------------------------------------------------------------------------
+; Internal routines
+; ----------------------------------------------------------------------------
+
+; A = the megabyte (address bits 20-27) of the address whose byte 2 is A and
+; byte 3 X
+proc __fcm_mb
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    sta __g_t
+    txa
+    asl a
+    asl a
+    asl a
+    asl a
+    ora __g_t
+    rts
+endproc
+
+; __fd_len bytes from __fd_src to __fd_dst (28-bit addresses), by DMA
+; (interrupts held off while the DMA registers are set)
+proc __fcm_copy
+    lda __fd_len
+    sta __fcm_job+7
+    lda __fd_len+1
+    sta __fcm_job+8
+    lda __fd_src
+    sta __fcm_job+9
+    lda __fd_src+1
+    sta __fcm_job+10
+    lda __fd_src+2
+    and #$0F
+    sta __fcm_job+11
+    lda __fd_src+2
+    ldx __fd_src+3
+    jsr __fcm_mb
+    sta __fcm_job+2
+    lda __fd_dst
+    sta __fcm_job+12
+    lda __fd_dst+1
+    sta __fcm_job+13
+    lda __fd_dst+2
+    and #$0F
+    sta __fcm_job+14
+    lda __fd_dst+2
+    ldx __fd_dst+3
+    jsr __fcm_mb
+    sta __fcm_job+4
+    php
+    sei
+    lda #0
+    sta $D702           ; list in bank 0
+    sta $D704           ; megabyte 0
+    lda #>__fcm_job
+    sta $D701
+    lda #<__fcm_job
+    sta $D705           ; start (enhanced job)
+    plp
+    rts
+endproc
+
+; Y = byte k >> 3 of __fcm_used, A = k's bit (k in A; X kept)
+proc __fcm_bit
+    pha
+    lsr a
+    lsr a
+    lsr a
+    tay
+    pla
+    and #7
+    phx
+    tax
+    lda __fcm_bits,x
+    plx
+    rts
+endproc
+
+; Drop the glyphs no cell shows: __g_hasfree / __g_free the first free entry
+proc __fcm_free_unused
+    ldx #31
+    lda #0
+@zero:
+    sta __fcm_used,x
+    dex
+    bpl @zero
+    jsr _screenwidth
+    sta __fu_w
+    jsr _screenheight
+    sta __fu_h
+    lda #0
+    sta __fu_y
+@row:
+    lda __fu_y
+    cmp __fu_h
+    bcs @marked
+    lda #0
+    sta __fu_x
+@cell:
+    lda __fu_x
+    cmp __fu_w
+    bcs @nextrow
+    sta $10
+    lda #0
+    sta $11
+    sta $13
+    lda __fu_y
+    sta $12
+    jsr ___conio_get16
+    sec                 ; d = n - first, under the cache's size?
+    sbc __fcm_first
+    sta __fu_d
+    txa
+    sbc __fcm_first+1
+    sta __fu_d+1
+    bcc @skip
+    lda __fu_d
+    cmp __fcm_slots
+    lda __fu_d+1
+    sbc __fcm_slots+1
+    bcs @skip
+    lda __fu_d          ; k = n's low byte
+    clc
+    adc __fcm_first
+    jsr __fcm_bit
+    ora __fcm_used,y
+    sta __fcm_used,y
+@skip:
+    inc __fu_x
+    bra @cell
+@nextrow:
+    inc __fu_y
+    bra @row
+@marked:
+    lda #0
+    sta __g_hasfree
+    lda __fcm_slots
+    sta __g_cnt
+    lda __fcm_slots+1
+    sta __g_cnt+1
+    ldx #0
+@slot:
+    lda __g_cnt
+    ora __g_cnt+1
+    beq @done
+    txa
+    clc
+    adc __fcm_first
+    sta __fu_k
+    jsr __fcm_bit
+    and __fcm_used,y
+    bne @next
+    ldy __fu_k          ; not on the screen: free
+    lda #FCM_EMPTY
+    sta __fcm_bg,y
+    lda __g_hasfree
+    bne @next
+    stx __g_free
+    inc __g_hasfree
+@next:
+    inx
+    lda __g_cnt
+    bne @dec
+    dec __g_cnt+1
+@dec:
+    dec __g_cnt
+    bra @slot
+@done:
+    rts
+endproc
+
+; The glyph of screen code __pc_c on background __pc_bg: a cached one, or a
+; new one; its number in __pc_n (left alone when the cache is full of
+; glyphs on the screen)
+proc __fcm_glyph
+    lda #0
+    sta __g_hasfree
+    lda __fcm_slots
+    sta __g_cnt
+    lda __fcm_slots+1
+    sta __g_cnt+1
+    ldx #0
+@scan:
+    lda __g_cnt
+    ora __g_cnt+1
+    beq @scanned
+    txa
+    clc
+    adc __fcm_first
+    tay                 ; Y = k
+    lda __fcm_bg,y
+    cmp __pc_bg
+    bne @notbg
+    lda __fcm_chs,y
+    cmp __pc_c
+    bne @next
+    txa                 ; found: number first + s
+    jmp @number
+@notbg:
+    cmp #FCM_EMPTY
+    bne @next
+    lda __g_hasfree
+    bne @next
+    stx __g_free
+    inc __g_hasfree
+@next:
+    inx
+    lda __g_cnt
+    bne @dec
+    dec __g_cnt+1
+@dec:
+    dec __g_cnt
+    bra @scan
+@scanned:
+    lda __g_hasfree
+    bne @build
+    jsr __fcm_free_unused
+    lda __g_hasfree
+    bne @build
+    rts                 ; none: the screen's background
+@build:
+    ; the font's 8 bytes (font + c * 8) to __fcm_row
+    lda __pc_c
+    sta __fd_src
+    lda #0
+    sta __fd_src+1
+    asl __fd_src
+    rol __fd_src+1
+    asl __fd_src
+    rol __fd_src+1
+    asl __fd_src
+    rol __fd_src+1
+    lda #0
+    sta __fd_src+2
+    sta __fd_src+3
+    ldq __fd_src
+    clc
+    adcq __fcm_font
+    stq __fd_src
+    lda #<__fcm_row
+    ldx #>__fcm_row
+    ldy #0
+    ldz #0
+    stq __fd_dst
+    lda #8
+    sta __fd_len
+    lda #0
+    sta __fd_len+1
+    jsr __fcm_copy
+    ; a byte a pixel: set $FF (the colour), clear the background
+    lda __pc_bg
+    bne @pix
+    lda #FCM_BLACK
+@pix:
+    sta __g_pix
+    ldx #0              ; the font's row
+    ldy #0              ; the pixel
+@byte:
+    lda __fcm_row,x
+    sta __g_t
+    ldz #8
+@bit:
+    asl __g_t
+    lda #$FF
+    bcs @set
+    lda __g_pix
+@set:
+    sta __fcm_pix,y
+    iny
+    dez
+    bne @bit
+    inx
+    cpx #8
+    bne @byte
+    ; to glyphs + free * 64 (free >> 2 high, its low 2 bits << 6 low)
+    lda __g_free
+    lsr a
+    lsr a
+    sta __a_t+1
+    lda __g_free
+    and #$03
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a
+    sta __a_t
+    lda #0
+    sta __a_t+2
+    sta __a_t+3
+    ldq __a_t
+    clc
+    adcq __fcm_glyphs
+    stq __fd_dst
+    lda #<__fcm_pix
+    ldx #>__fcm_pix
+    ldy #0
+    ldz #0
+    stq __fd_src
+    lda #64
+    sta __fd_len
+    lda #0
+    sta __fd_len+1
+    jsr __fcm_copy
+    ; the tables
+    lda __g_free
+    clc
+    adc __fcm_first
+    tay
+    lda __pc_c
+    sta __fcm_chs,y
+    lda __pc_bg
+    sta __fcm_bg,y
+    lda __g_free
+@number:
+    clc
+    adc __fcm_first
+    sta __pc_n
+    lda __fcm_first+1
+    adc #0
+    sta __pc_n+1
+    rts
+endproc
+
+; Screen code __pc_c in colour __pc_fg on background __pc_bg at (__pc_x,
+; __pc_y)
+proc __fcm_put
+    lda __pc_c
+    sta __pc_n
+    lda #0
+    sta __pc_n+1
+    lda __pc_bg
+    and #$0F
+    sta __pc_bg
+    lda __fcm_on
+    beq @put
+    lda __pc_bg
+    cmp $D021
+    beq @put
+    jsr __fcm_glyph
+@put:
+    lda __pc_x
+    sta $10
+    lda __pc_y
+    sta $12
+    lda #0
+    sta $11
+    sta $13
+    sta $17
+    lda __pc_n
+    sta $14
+    lda __pc_n+1
+    sta $15
+    lda __pc_fg
+    and #$0F
+    sta $16
+    jmp ___conio_put16
+endproc
+
+; The w x h cells of the one-byte screen (__cv_scr, __cv_col, a row every
+; __cv_stride bytes) to the two-byte one at __fcm_mem / colour RAM $1000 (a
+; row every 2 * w), or back (__cv_wide 0)
+proc __fcm_convert
+    lda __fcm_mem+1     ; the far pointer's linear address (bank 4 or 5)
+    sta __cv_scr2
+    lda __fcm_mem+2
+    sta __cv_scr2+1
+    lda __fcm_mem
+    sta __cv_scr2+2
+    lda #0
+    sta __cv_scr2+3
+    sta __cv_col2       ; colour RAM + $1000
+    lda #$10
+    sta __cv_col2+1
+    lda #$F8
+    sta __cv_col2+2
+    lda #$0F
+    sta __cv_col2+3
+    lda __cv_w
+    asl a
+    sta __cv_w2
+    lda #0
+    sta __cv_w2+1
+    sta __cv_w2+2
+    sta __cv_w2+3
+    sta __cv_y
+    sta __fd_len+1
+@row:
+    lda __cv_y
+    cmp __cv_h
+    bcc @go
+    rts
+@go:
+    lda __cv_wide
+    bne @wide
+    jmp @narrow
+@wide:
+    ; the characters: scr -> row, row -> big's even bytes -> scr2
+    ldq __cv_scr
+    stq __fd_src
+    lda #<__fcm_row
+    ldx #>__fcm_row
+    jsr @dst16
+    lda __cv_w
+    sta __fd_len
+    jsr __fcm_copy
+    ldq __cv_col
+    stq __fd_src
+    lda #<__fcm_row2
+    ldx #>__fcm_row2
+    jsr @dst16
+    jsr __fcm_copy
+    ldx #0
+    ldy #0
+@w1:
+    cpx __cv_w
+    bcs @w1d
+    lda __fcm_row,x
+    sta __fcm_big,y
+    iny
+    lda #0
+    sta __fcm_big,y
+    iny
+    inx
+    bra @w1
+@w1d:
+    ldq __cv_scr2
+    stq __fd_dst
+    lda #<__fcm_big
+    ldx #>__fcm_big
+    jsr @src16
+    lda __cv_w2
+    sta __fd_len
+    jsr __fcm_copy
+    ; the colours: row2 -> big's odd bytes -> col2
+    ldx #0
+    ldy #0
+@w2:
+    cpx __cv_w
+    bcs @w2d
+    lda #0
+    sta __fcm_big,y
+    iny
+    lda __fcm_row2,x
+    sta __fcm_big,y
+    iny
+    inx
+    bra @w2
+@w2d:
+    ldq __cv_col2
+    stq __fd_dst
+    jsr __fcm_copy
+    jmp @advance
+@narrow:
+    ; the characters: scr2 -> big -> row (a glyph's character; the
+    ; program's own full-colour character a space) -> scr
+    ldq __cv_scr2
+    stq __fd_src
+    lda #<__fcm_big
+    ldx #>__fcm_big
+    jsr @dst16
+    lda __cv_w2
+    sta __fd_len
+    jsr __fcm_copy
+    ldx #0
+    ldy #0
+@n1:
+    cpx __cv_w
+    bcs @n1d
+    lda __fcm_big+1,y
+    bne @high
+    lda __fcm_big,y
+    bra @store
+@high:
+    lda __fcm_big,y     ; n - first under the cache's size: a glyph
+    sec
+    sbc __fcm_first
+    sta __cv_t
+    lda __fcm_big+1,y
+    sbc __fcm_first+1
+    sta __cv_t+1
+    bcc @space
+    lda __cv_t
+    cmp __fcm_slots
+    lda __cv_t+1
+    sbc __fcm_slots+1
+    bcs @space
+    lda __fcm_big,y
+    phx
+    tax
+    lda __fcm_chs,x
+    plx
+    bra @store
+@space:
+    lda #$20
+@store:
+    sta __fcm_row,x
+    iny
+    iny
+    inx
+    bra @n1
+@n1d:
+    ; the colours: col2 -> big -> row2
+    ldq __cv_col2
+    stq __fd_src
+    jsr __fcm_copy
+    ldx #0
+    ldy #1
+@n2:
+    cpx __cv_w
+    bcs @n2d
+    lda __fcm_big,y
+    sta __fcm_row2,x
+    iny
+    iny
+    inx
+    bra @n2
+@n2d:
+    lda #<__fcm_row
+    ldx #>__fcm_row
+    jsr @src16
+    ldq __cv_scr
+    stq __fd_dst
+    lda __cv_w
+    sta __fd_len
+    jsr __fcm_copy
+    lda #<__fcm_row2
+    ldx #>__fcm_row2
+    jsr @src16
+    ldq __cv_col
+    stq __fd_dst
+    jsr __fcm_copy
+@advance:
+    ldq __cv_scr
+    clc
+    adcq __cv_stride
+    stq __cv_scr
+    ldq __cv_col
+    clc
+    adcq __cv_stride
+    stq __cv_col
+    ldq __cv_scr2
+    clc
+    adcq __cv_w2
+    stq __cv_scr2
+    ldq __cv_col2
+    clc
+    adcq __cv_w2
+    stq __cv_col2
+    inc __cv_y
+    jmp @row
+
+; __fd_src / __fd_dst = the bank 0 address X:A
+@src16:
+    sta __fd_src
+    stx __fd_src+1
+    lda #0
+    sta __fd_src+2
+    sta __fd_src+3
+    rts
+@dst16:
+    sta __fd_dst
+    stx __fd_dst+1
+    lda #0
+    sta __fd_dst+2
+    sta __fd_dst+3
+    rts
+endproc
+
+; __a_w / __a_h = the screen's size
+proc __fcm_size
+    jsr _screenwidth
+    sta __a_w
+    jsr _screenheight
+    sta __a_h
+    rts
+endproc
+
+; __cv_scr = the screen pointer ($D060-$D063, 28 bits), __cv_col = colour
+; RAM's ($FF80000 + $D064/$D065)
+proc __fcm_regs
+    lda $D060
+    sta __cv_scr
+    lda $D061
+    sta __cv_scr+1
+    lda $D062
+    sta __cv_scr+2
+    lda $D063
+    and #$0F
+    sta __cv_scr+3
+    lda $D064
+    sta __cv_col
+    lda $D065
+    sta __cv_col+1
+    lda #$F8
+    sta __cv_col+2
+    lda #$0F
+    sta __cv_col+3
+    rts
+endproc
+
+; ----------------------------------------------------------------------------
+; The API
+; ----------------------------------------------------------------------------
+
+; int fcm_set_cache_size(int glyphs): 1-256 for the next fcm_enable; 1, or 0
+; while enabled or out of range
+proc _fcm_set_cache_size
+    .zp_uses $10, $11
+    .reg_clobbers A, X
+    .flag_clobbers C, N, Z
+    lda __fcm_on
+    bne @no
+    lda $11
+    beq @low            ; 1-255
+    cmp #1
+    bne @no
+    lda $10             ; 256
+    bne @no
+    bra @set
+@low:
+    lda $10
+    beq @no
+@set:
+    lda $10
+    sta __fcm_slots
+    lda $11
+    sta __fcm_slots+1
+    lda #1
+    ldx #0
+    rts
+@no:
+    lda #0
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+; int fcm_is_enabled(void)
+proc _fcm_is_enabled
+    .reg_clobbers A, X
+    .flag_clobbers N, Z
+    lda __fcm_on
+    ldx #0
+    rts
+    .func_flags zp_call
+endproc
+
+; int fcm_enable(void): 1, or 0 when far_malloc finds no room in banks 4/5
+proc _fcm_enable
+    .zp_clobbers $10, $11, $12, $13, $14, $15, $16, $17
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda __fcm_on
+    beq @start
+    jmp @yes
+@start:
+    jsr __fcm_size
+    ; the size: the screen (2 bytes a cell, 80 columns), the glyphs (64-byte
+    ; aligned): 160 * h + slots * 64 + 63
+    lda #160
+    sta $D770
+    lda #0
+    sta $D771
+    sta $D772
+    sta $D773
+    sta $D775
+    sta $D776
+    sta $D777
+    lda __a_h
+    sta $D774
+@busy:
+    bit $D70F
+    bvs @busy
+    lda $D778
+    sta __a_x           ; 160 * h
+    lda $D779
+    sta __a_x+1
+    lda __fcm_slots     ; slots * 64
+    sta __a_y
+    lda __fcm_slots+1
+    sta __a_y+1
+    ldx #6
+@x64:
+    asl __a_y
+    rol __a_y+1
+    dex
+    bne @x64
+    lda __a_x
+    clc
+    adc __a_y
+    sta $12
+    lda __a_x+1
+    adc __a_y+1
+    sta $13
+    lda $12
+    clc
+    adc #63
+    sta $12
+    sta __a_x2
+    lda $13
+    adc #0
+    sta $13
+    sta __a_x2+1
+    lda #4
+    jsr @alloc
+    bne @got
+    lda __a_x2
+    sta $12
+    lda __a_x2+1
+    sta $13
+    lda #5
+    jsr @alloc
+    bne @got
+    lda #0
+    tax
+    rts
+@got:
+    ; glyphs = (screen + 160 * h + 63) & ~63, first = glyphs >> 6
+    lda __fcm_mem+1
+    sta __a_t
+    lda __fcm_mem+2
+    sta __a_t+1
+    lda __fcm_mem
+    sta __a_t+2
+    lda #0
+    sta __a_t+3
+    lda __a_x
+    clc
+    adc #63
+    sta __fcm_glyphs
+    lda __a_x+1
+    adc #0
+    sta __fcm_glyphs+1
+    lda #0
+    sta __fcm_glyphs+2
+    sta __fcm_glyphs+3
+    ldq __fcm_glyphs
+    clc
+    adcq __a_t
+    stq __fcm_glyphs
+    lda __fcm_glyphs
+    and #$C0
+    sta __fcm_glyphs
+    ldq __fcm_glyphs
+    stq __a_t
+    ldx #6
+@div64:
+    lsr __a_t+3
+    ror __a_t+2
+    ror __a_t+1
+    ror __a_t
+    dex
+    bne @div64
+    lda __a_t
+    sta __fcm_first
+    lda __a_t+1
+    sta __fcm_first+1
+    ; the registers it changes
+    lda $D058
+    sta __fcm_old
+    lda $D059
+    sta __fcm_old+1
+    ldx #5
+@old:
+    lda $D060,x
+    sta __fcm_old+2,x
+    dex
+    bpl @old
+    lda $D054
+    sta __fcm_old+8
+    lda __a_w
+    sta __fcm_w
+    ; the font: CHARPTR, the character ROM for the VIC-II's $1000/$1800/
+    ; $9000/$9800
+    lda $D068
+    sta __fcm_font
+    lda $D069
+    sta __fcm_font+1
+    lda $D06A
+    sta __fcm_font+2
+    lda #0
+    sta __fcm_font+3
+    lda __fcm_font+2
+    bne @font
+    lda __fcm_font+1
+    and #$70
+    cmp #$10
+    bne @font
+    lda __fcm_font+1    ; $FF7E000 + (a & $0FFF)
+    and #$0F
+    ora #$E0
+    sta __fcm_font+1
+    lda #$F7
+    sta __fcm_font+2
+    lda #$0F
+    sta __fcm_font+3
+@font:
+    ldx #0
+    lda #FCM_EMPTY
+@empty:
+    sta __fcm_bg,x
+    inx
+    bne @empty
+    ; the screen as it is, to the two-byte one
+    jsr __fcm_regs
+    lda __fcm_old
+    sta __cv_stride
+    lda __fcm_old+1
+    sta __cv_stride+1
+    lda #0
+    sta __cv_stride+2
+    sta __cv_stride+3
+    lda __a_w
+    sta __cv_w
+    lda __a_h
+    sta __cv_h
+    lda #1
+    sta __cv_wide
+    jsr __fcm_convert
+    lda #0              ; the black background's palette entry
+    sta $D1FE
+    sta $D2FE
+    sta $D3FE
+    lda __fcm_mem+1     ; the screen
+    sta $D060
+    lda __fcm_mem+2
+    sta $D061
+    lda __fcm_mem
+    sta $D062
+    lda __fcm_old+5
+    and #$F0
+    sta $D063
+    lda #$00            ; colour RAM from $1000
+    sta $D064
+    lda #$10
+    sta $D065
+    lda __a_w
+    asl a
+    sta $D058
+    lda #0
+    sta $D059
+    lda __fcm_old+8
+    ora #$05            ; CHR16, FCLRHI
+    sta $D054
+    lda #<__fcm_chs
+    sta ___conio_chtab
+    lda #>__fcm_chs
+    sta ___conio_chtab+1
+    lda #1
+    sta __fcm_on
+@yes:
+    lda #1
+    ldx #0
+    rts
+
+; far_malloc($12 bytes, bank A) into __fcm_mem; Z clear when it gave some
+@alloc:
+    sta $14
+    lda #0
+    sta $15
+    sta __fcm_mem
+    sta __fcm_mem+1
+    sta __fcm_mem+2
+    lda #<__fcm_mem
+    sta $10
+    lda #>__fcm_mem
+    sta $11
+    jsr _far_malloc
+    lda __fcm_mem
+    ora __fcm_mem+1
+    ora __fcm_mem+2
+    rts
+    .func_flags zp_call
+endproc
+
+; void fcm_disable(void): the screen as it was (one byte a cell), with what
+; is on it; the memory freed
+proc _fcm_disable
+    .zp_clobbers $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda __fcm_on
+    bne @on
+    rts
+@on:
+    jsr __fcm_size
+    lda __fcm_old+8
+    sta $D054
+    lda __a_w
+    cmp __fcm_w
+    bne @width
+    lda __fcm_old
+    sta $D058
+    lda __fcm_old+1
+    sta $D059
+    ldx #5
+@regs:
+    lda __fcm_old+2,x
+    sta $D060,x
+    dex
+    bpl @regs
+    bra @back
+@width:
+    lda $D031           ; (conio_set_width since: the VIC's own layout for it)
+    sta $D031
+@back:
+    jsr __fcm_regs
+    lda $D058
+    sta __cv_stride
+    lda $D059
+    sta __cv_stride+1
+    lda #0
+    sta __cv_stride+2
+    sta __cv_stride+3
+    lda __a_w
+    sta __cv_w
+    lda __a_h
+    sta __cv_h
+    lda #0
+    sta __cv_wide
+    jsr __fcm_convert
+    lda #0
+    sta ___conio_chtab
+    sta ___conio_chtab+1
+    lda #<__fcm_mem
+    sta $10
+    lda #>__fcm_mem
+    sta $11
+    jsr _far_free
+    lda #0
+    sta __fcm_on
+    rts
+    .func_flags zp_call
+endproc
+
+; void fcm_putch(int x, int y, int ch, int fg, int bg): the cursor stays
+proc _fcm_putch
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
+    .zp_clobbers $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $10
+    sta __pc_x
+    lda $11
+    sta __a_x+1
+    lda $12
+    sta __pc_y
+    lda $13
+    sta __a_y+1
+    lda $16
+    sta __pc_fg
+    lda $18
+    sta __pc_bg
+    lda $14
+    sta $10
+    jsr ___conio_code
+    cmp #$FF
+    beq @out
+    sta __pc_c
+    jsr __fcm_size
+    lda __a_x+1         ; (unsigned) x < w, y < h
+    bne @out
+    lda __a_y+1
+    bne @out
+    lda __pc_x
+    cmp __a_w
+    bcs @out
+    lda __pc_y
+    cmp __a_h
+    bcs @out
+    jmp __fcm_put
+@out:
+    rts
+    .func_flags zp_call
+endproc
+
+; int fcm_cputs(int x, int y, const char *str, int fg, int bg): wrapping at
+; the right edge, '\n' (or '\r') starting the next row; it stops at the
+; bottom. 0, or -1 for NULL.
+proc _fcm_cputs
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
+    .zp_clobbers $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $14
+    ora $15
+    bne @go
+    lda #$FF
+    tax
+    rts
+@go:
+    lda $10
+    sta __a_x
+    lda $11
+    sta __a_x+1
+    lda $12
+    sta __a_y
+    lda $13
+    sta __a_y+1
+    lda $14
+    sta __a_str
+    lda $15
+    sta __a_str+1
+    lda $16
+    sta __pc_fg
+    lda $18
+    sta __a_bg          ; (__fcm_put masks __pc_bg)
+    jsr __fcm_size
+@char:
+    lda __a_str
+    sta $08
+    lda __a_str+1
+    sta $09
+    ldy #0
+    lda ($08),y
+    bne @row
+    jmp @done
+@row:
+    ldx __a_y+1         ; y < h (signed)
+    bmi @in
+    bne @done1
+    ldx __a_y
+    cpx __a_h
+    bcs @done1
+@in:
+    cmp #$0D
+    beq @newline
+    cmp #$0A
+    beq @newline
+    sta $10
+    lda #0
+    sta $11
+    jsr ___conio_code
+    cmp #$FF
+    beq @advance
+    ldx __a_x+1         ; x >= 0, y >= 0
+    bne @advance
+    ldx __a_y+1
+    bne @advance
+    sta __pc_c
+    lda __a_x
+    sta __pc_x
+    lda __a_y
+    sta __pc_y
+    lda __a_bg
+    sta __pc_bg
+    jsr __fcm_put
+@advance:
+    inc __a_x
+    bne @wrap
+    inc __a_x+1
+    bra @wrap
+@newline:
+    lda __a_w
+    sta __a_x
+    lda #0
+    sta __a_x+1
+@wrap:
+    lda __a_x+1         ; x >= w (signed): the next row
+    bmi @next
+    bne @nl
+    lda __a_x
+    cmp __a_w
+    bcc @next
+@nl:
+    lda #0
+    sta __a_x
+    sta __a_x+1
+    inc __a_y
+    bne @next
+    inc __a_y+1
+@next:
+    inc __a_str
+    bne @more
+    inc __a_str+1
+@more:
+    jmp @char
+@done1:
+@done:
+    lda #0
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+; void fcm_fill_rect(int x1, int y1, int x2, int y2, int ch, int fg, int bg):
+; corners included, clipped to the screen
+; (the indexed loads are of the parameter block, $10-$17)
+    .bpindex 8
+proc _fcm_fill_rect
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $1A, $1B, $1C, $1D
+    .zp_clobbers $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $1A, $1B, $1C, $1D
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    ldx #7
+@args:
+    lda $10,x
+    sta __a_x,x         ; __a_x, __a_y, __a_x2, __a_y2 (in that order)
+    dex
+    bpl @args
+    lda $1A
+    sta __pc_fg
+    lda $1C
+    sta __a_bg
+    lda $18
+    sta $10
+    lda #0
+    sta $11
+    jsr ___conio_code
+    cmp #$FF
+    bne @code
+    rts
+@code:
+    sta __pc_c
+    jsr __fcm_size
+    ; x1, y1 below 0: 0
+    lda __a_x+1
+    bpl @x1
+    lda #0
+    sta __a_x
+    sta __a_x+1
+@x1:
+    lda __a_y+1
+    bpl @y1
+    lda #0
+    sta __a_y
+    sta __a_y+1
+@y1:
+    ; x2 >= w: w - 1 (y2 the same); then empty unless 0 <= x1 <= x2
+    ldx #0
+    lda __a_w
+    jsr @clip
+    ldx #2
+    lda __a_h
+    jsr @clip
+    lda __a_x2+1
+    bne @none
+    lda __a_y2+1
+    bne @none
+    lda __a_x+1
+    bne @none
+    lda __a_y+1
+    bne @none
+    lda __a_x2
+    cmp __a_x
+    bcc @none
+    lda __a_y2
+    cmp __a_y
+    bcc @none
+    lda __a_y
+    sta __pc_y
+@rows:
+    lda __a_x
+    sta __pc_x
+@cells:
+    lda __a_bg
+    sta __pc_bg
+    jsr __fcm_put
+    lda __pc_x
+    cmp __a_x2
+    beq @rowdone
+    inc __pc_x
+    bra @cells
+@rowdone:
+    lda __pc_y
+    cmp __a_y2
+    beq @none
+    inc __pc_y
+    bra @rows
+@none:
+    rts
+
+; __a_x2 (X 0) or __a_y2 (X 2) at most A - 1 (the limit A; a negative one
+; stays)
+@clip:
+    sta __g_t
+    lda __a_x2+1,x
+    bmi @kept
+    bne @limit
+    lda __a_x2,x
+    cmp __g_t
+    bcc @kept
+@limit:
+    lda __g_t
+    sec
+    sbc #1
+    sta __a_x2,x
+    lda #0
+    sta __a_x2+1,x
+@kept:
+    rts
+    .func_flags zp_call
+    .bpindex 0
+endproc
+
+; void fcm_set_line_color(int y, int fg, int bg): row y's characters fg on bg
+proc _fcm_set_line_color
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .zp_clobbers $10, $11, $12, $13, $14, $15, $16, $17
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $11
+    bne @out
+    lda $10
+    sta __pc_y
+    lda $12
+    sta __pc_fg
+    lda $14
+    sta __a_bg
+    jsr __fcm_size
+    lda __pc_y
+    cmp __a_h
+    bcs @out
+    lda #0
+    sta __pc_x
+@cell:
+    lda __pc_x
+    cmp __a_w
+    bcs @out
+    sta $10
+    lda #0
+    sta $11
+    sta $13
+    lda __pc_y
+    sta $12
+    jsr _getch_xy
+    sta __pc_c
+    lda __a_bg
+    sta __pc_bg
+    jsr __fcm_put
+    inc __pc_x
+    bra @cell
+@out:
+    rts
+    .func_flags zp_call
+endproc
+
+; void fcm_putglyph(int x, int y, unsigned int n, int fg): the program's own
+; full-colour character n (256 or more) at (x, y); nothing without
+; fcm_enable
+proc _fcm_putglyph
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17
+    .zp_clobbers $10, $11, $12, $13, $14, $15, $16, $17
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda __fcm_on
+    beq @out
+    lda $15             ; n >= 256
+    beq @out
+    lda $11
+    bne @out
+    lda $13
+    bne @out
+    lda $10
+    sta __pc_x
+    lda $12
+    sta __pc_y
+    jsr __fcm_size
+    lda __pc_x
+    cmp __a_w
+    bcs @out
+    lda __pc_y
+    cmp __a_h
+    bcs @out
+    lda #0              ; (__conio_put16's x, y, n, colour as they came)
+    sta $17
+    jmp ___conio_put16
+@out:
+    rts
+    .func_flags zp_call
+endproc
+
+; int fcm_getattr_xy(int x, int y): (bg << 4) | fg at (x, y)
+proc _fcm_getattr_xy
+    .zp_uses $10, $11, $12, $13
+    .zp_clobbers $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $10
+    sta __a_x
+    lda $11
+    sta __a_x+1
+    lda $12
+    sta __a_y
+    lda $13
+    sta __a_y+1
+    jsr _getattr_xy
+    and #$0F
+    sta __pc_fg
+    lda $D021
+    and #$0F
+    sta __pc_bg
+    lda __fcm_on
+    beq @attr
+    lda __a_x
+    sta $10
+    lda __a_x+1
+    sta $11
+    lda __a_y
+    sta $12
+    lda __a_y+1
+    sta $13
+    jsr ___conio_get16
+    cpx #0
+    beq @attr
+    tax                 ; a glyph: its background
+    lda __fcm_bg,x
+    sta __pc_bg
+@attr:
+    lda __pc_bg         ; (bg << 4) | fg, 16 bits
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    tax
+    lda __pc_bg
+    asl a
+    asl a
+    asl a
+    asl a
+    ora __pc_fg
+    rts
+    .func_flags zp_call
+endproc
