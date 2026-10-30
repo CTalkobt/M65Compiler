@@ -4,6 +4,20 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### tune45 import of a MOD: the samples weighed for the SID
+
+- `tune45 import song.mod --report`: a MOD (ProTracker and its kin, the
+  15-sample Soundtracker files) read, and each sample measured at the
+  period the song plays it at most: its pitch and how clear it is, how
+  much of it repeats, its harmonics against the SID's waveforms (and
+  through the low-pass), its timbre and pitch over time, its envelope as
+  AD/SR, and what the song does with it. A score gives the verdict: a SID
+  instrument, approximately one, or a sample to keep (drums, voices,
+  chords, timbres the SID is far from); the summary counts the digi
+  voices the kept samples need. `--extract <dir>` writes the kept samples
+  (`--all`: every used one) as WAVs with their loop, for `sample` lines.
+- Tested on a MOD made by the test (`test_tune45.sh`).
+
 ### sprites.h: the hardware sprites
 
 - `<sprites.h>` is now a library for the VIC-IV's 8 hardware sprites

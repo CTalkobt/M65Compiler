@@ -10,6 +10,7 @@ tune45 list music.txt                        # each tune's size and length
 tune45 play music.txt [--tune march]         # on the PC (reSIDfp), --emulator, --send, --wav
 tune45 create --genre jazz --length 16 -o song.txt
 tune45 import song.mid -o song.txt           # convert, list and play take a .mid too
+tune45 import song.mod --report              # a MOD's samples weighed for the SID; --extract <dir>
 tune45 sample growl.pak --rate 8000          # sampled sound as the audio DMA plays it
 tune45 -V | --version
 tune45 -h | --help
@@ -124,6 +125,27 @@ Composes a tune in the text format: the composer of `examples/c/musicgen`, porte
 
 Reads a Standard MIDI File (format 0 or 1; ticks a quarter note, not SMPTE time) and writes tune45 text: up to `--voices` (default 3) monophonic voices from the first tracks with notes (format 1) or channels (format 0, or `--channels`); `--tracks a,b,c` / `--channels a,b` choose them. Where notes overlap the newest wins. Times are quantised to `--ticks-per-beat` (default 4: 16ths); the first tempo gives the frames per tick and the first time signature the bar length (notes across a bar line are tied). Channel 10 (drums) only with `--drums`. `--transpose <n>`, `--name <n>`, `--loop`. Instruments: `--instruments <file>` gives instrument lines (`voice1`, `voice2`... a voice's; `gm<program>` used at a program change); otherwise each voice gets one of three of tune45's. `convert`, `list` and `play` read a `.mid` file directly (by its `MThd` header).
 
+### A MOD: which samples the SID can play
+
+`tune45 import song.mod --report` reads a MOD (ProTracker's `M.K.`, `4CHN`, `6CHN`, `8CHN`, `FLT4`... and the old 15-sample Soundtracker files) and weighs each sample for the SID: whether one of tune45's instruments can stand in for it, or it is too far from the SID and is best kept as a sample on a digi voice. (The music itself as tune45 text is to come.)
+
+Each sample is measured at the period the song plays it at most (the Amiga's PAL clock: 3546894.6 / period Hz):
+
+| Measured | How | Counts against the SID |
+|----------|-----|------------------------|
+| Pitch | the normalised square difference function's first key maximum (McLeod): its height is the *clarity*; a loop of up to 512 bytes is read round (a single cycle) | no steady pitch (clarity under 0.75): a drum or a noise |
+| Repetition | the periods folded into one (up to 16), and the share of the energy not in it | breath, noise, chorus, a chord or a voice |
+| Timbre | the folded period's harmonics against the SID's waveforms' (triangle, saw, pulse at 5%-50%, each also through a 12 dB low-pass at 1-8 times the note): the nearest by cosine, the *fit* | a timbre none comes near |
+| Change | the harmonics after the attack against the loop's (or later on) | a timbre that changes as it sounds |
+| Pitch over time | the pitch every half window | vibrato or a slide in the sample |
+| Loudness | 20 ms frames: attack, decay, sustain (the loop's level) as the SID's nearest AD and SR; swells after the peak | several hits, tremolo or an echo in the sample |
+| The song | notes, periods, channels; vibrato, slides, arpeggios, volume changes and sample offsets on it | many volume changes (a SID voice has no volume of its own) |
+| The name | drum words make a sound with a doubtful pitch a drum; voice words count against it | |
+
+A score from 0 (easy) to 100 gives the verdict: `sid` (up to 25), `sid~` (approximately, up to 55), `sample` above, and every unpitched sound (`kick`, `snare`, `hat` by its name or brightness, `texture` when it is held in a loop). The table gives each sample's bytes, loop, notes, the notes it is played at (as the tracker names them), the verdict and score, and for the SID its waveform, pulse width (`pulse 400`: 25%), low-pass, AD and SR and the notes it sounds at; then each sample's measurements and the reasons, and a summary: the instruments, the samples kept and their bytes, how many of them sound at once (the digi voices they need: the audio DMA has 4 channels), and those played at several notes (a digi voice plays a hit at one rate: a hit a note until the player has pitched hits).
+
+`--extract <dir>` writes the samples kept (`--all`: every one the song uses) as WAV files, `NN_name.wav`: 8-bit at the rate of the period played most, the loop and the note it sounds at in a `smpl` chunk; a `sample` line reads them.
+
 ## sample
 
 Plays sampled sound as the MEGA65's audio DMA plays it: 8-bit samples at their rate, each held until the next (the DMA does not interpolate), on the PC through `pw-play`, `paplay` or `aplay` as `play` does, or into a 48 kHz WAV (`--wav`). What it plays:
@@ -149,4 +171,4 @@ So a sound can be heard as it will be, its rate and 8 bits and all, before it go
 
 ## Tests
 
-`src/test/test_tune45.sh` (`make test`): the data of a tune byte by byte, glides, `TUNE_<NAME>_TICKS`, `--bin`, `--asm`, the errors, pfest's format, `list`, `create --check` and its options, the data of hard restart, a filter and a wave table and their errors, digi voices (the data, `--samples`, the cut-short warning, play's mix, the errors), `import` of a MIDI file made by the test, `play --wav`, `sample` (a sound and the same samples packed by pack45, played into a WAV, and the error without `--rate`). `src/test/test_xemu.sh`: the player (`test_tune_xemu.c`, its tunes in the 10-byte instruments of older data) and `tune45 trace` (the model's registers, voices and filter) against the player's in xemu for 300 frames: a tune with every effect, one of glides after a `tune_seek`, one of the filter, wave tables and hard restart, and one of digi voices (`digi.txt`: the audio DMA's registers too, from channel 2, a third voice left out). `examples/c/tunes` and `examples/c/glamlambs` (`test_examples.sh`).
+`src/test/test_tune45.sh` (`make test`): the data of a tune byte by byte, glides, `TUNE_<NAME>_TICKS`, `--bin`, `--asm`, the errors, pfest's format, `list`, `create --check` and its options, the data of hard restart, a filter and a wave table and their errors, digi voices (the data, `--samples`, the cut-short warning, play's mix, the errors), `import` of a MIDI file made by the test, `import --report` and `--extract` of a MOD made by the test (a saw, a pulse and a triangle the SID plays, a noise and a bell it does not), `play --wav`, `sample` (a sound and the same samples packed by pack45, played into a WAV, and the error without `--rate`). `src/test/test_xemu.sh`: the player (`test_tune_xemu.c`, its tunes in the 10-byte instruments of older data) and `tune45 trace` (the model's registers, voices and filter) against the player's in xemu for 300 frames: a tune with every effect, one of glides after a `tune_seek`, one of the filter, wave tables and hard restart, and one of digi voices (`digi.txt`: the audio DMA's registers too, from channel 2, a third voice left out). `examples/c/tunes` and `examples/c/glamlambs` (`test_examples.sh`).

@@ -143,6 +143,58 @@ echo "$out" | grep -q "^tune song 7.50 once 12$" &&
 $TUNE import $T/song.mid --drums 2>/dev/null | grep -q "^v3:" && pass || fail "import --drums"
 $TUNE list $T/song.mid 2>/dev/null | grep -q "^song .*36 ticks" && pass || fail "list of a .mid"
 
+# import of a MOD --report: samples of known kinds (a saw, a 25% pulse and a
+# triangle, single cycles looped; a noise burst; a bell of inharmonic
+# partials; one unused), each played by the one pattern
+python3 - $T/song.mod <<'EOF'
+import sys, math, random
+random.seed(1)
+def s8(v): return max(-128, min(127, int(round(v)))) & 0xFF
+samples = [
+    ("saw", [s8(-128 + 255 * i / 32) for i in range(32)], 0, 16),
+    ("square", [s8(100 if i < 16 else -100) for i in range(64)], 0, 32),
+    ("tri", [s8((1 - abs(i - 32) / 16) * 100) for i in range(64)], 0, 32),
+    ("noise", [s8(random.uniform(-1, 1) * 120 * math.exp(-i / 400)) for i in range(2000)], 0, 1),
+    ("bell", [s8(sum(math.sin(2 * math.pi * f * i / 8287) / (k + 1) for k, f in enumerate([523, 1443, 2826, 4672])) * 60 * math.exp(-i / 1500)) for i in range(4000)], 0, 1),
+    ("spare", [s8(100 * math.sin(2 * math.pi * i / 32)) for i in range(32)], 0, 16),
+]
+h = b"test song".ljust(20, b"\0")
+for k in range(31):
+    if k < len(samples):
+        n, d, ls, ll = samples[k]
+        h += n.encode().ljust(22, b"\0") + bytes([len(d) // 2 >> 8, len(d) // 2 & 255, 0, 64, ls >> 8, ls & 255, ll >> 8, ll & 255])
+    else:
+        h += bytes(22) + bytes([0, 0, 0, 0, 0, 0, 0, 1])
+h += bytes([1, 127]) + bytes(128) + b"M.K."
+periods = [428, 381, 339, 320, 285, 254, 226, 214]
+pat = bytearray(64 * 16)
+for row in range(0, 64, 4):
+    for ch, smp in enumerate([1 + (row // 4) % 3, 4, 5, 2]):
+        if ch == 3 and row % 16: continue
+        p = periods[(row // 4) % len(periods)]
+        c = (row * 4 + ch) * 4
+        pat[c:c + 4] = bytes([(smp & 0xF0) | p >> 8, p & 255, (smp & 15) << 4, 0])
+data = b"".join(bytes(d) for _, d, _, _ in samples)
+open(sys.argv[1], "wb").write(h + bytes(pat) + data)
+EOF
+rep=$($TUNE import $T/song.mod --report 2>&1)
+echo "$rep" | grep -qE "^ 1  saw .* sid +[0-9]+  saw," &&
+    echo "$rep" | grep -qE "^ 2  square .* sid +[0-9]+  pulse 400," &&
+    echo "$rep" | grep -qE "^ 3  tri .* sid +[0-9]+  tri," &&
+    echo "$rep" | grep -qE "^ 4  noise .* sample .*\(keep the sample: (hat|snare)\)" &&
+    echo "$rep" | grep -qE "^ 5  bell .* sample " &&
+    echo "$rep" | grep -qE "^ 6  spare .* unused" &&
+    echo "$rep" | grep -q "^SID instruments: 3 (0 of them approximately); samples kept: 2" && pass || fail "import --report of a MOD: $rep"
+# --extract: the samples kept as WAVs (8-bit, the rate of their most played
+# period; a loop in a smpl chunk), --all every one used; they read as samples
+rm -rf $T/modx
+$TUNE import $T/song.mod --extract $T/modx >/dev/null 2>&1 && [ "$(ls $T/modx | tr '\n' ' ')" = "04_noise.wav 05_bell.wav " ] &&
+    $TUNE import $T/song.mod --extract $T/modx --all >/dev/null 2>&1 && [ "$(ls $T/modx | wc -l)" = 5 ] &&
+    grep -q smpl $T/modx/01_saw.wav &&
+    printf 'sample b modx/05_bell.wav\ntune t 6 once\nd1: b:8\n' > $T/modx.txt && $TUNE list $T/modx.txt 2>&1 | grep -q "hits: b" &&
+    pass || fail "import --extract of a MOD ($(ls $T/modx 2>&1 | tr '\n' ' '))"
+$TUNE import $T/song.mod 2>&1 | grep -q "a MOD: --report" && pass || fail "import of a MOD without --report"
+
 # play into a WAV: as long as the tune, and not silent
 if $TUNE play $T/pfest.txt --wav $T/p.wav >/dev/null 2>&1 && python3 - $T/p.wav <<'EOF'
 import sys, wave, struct

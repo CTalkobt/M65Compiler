@@ -10,6 +10,7 @@
 #include "TuneAudio.hpp"
 #include "TuneCreate.hpp"
 #include "TuneMidi.hpp"
+#include "TuneMod.hpp"
 #include "BasicTooling.hpp"
 #include "Pack45.hpp"
 #include "PackAudio.hpp"
@@ -91,6 +92,8 @@ void usage(std::ostream& o) {
          "  --ticks-per-beat <n> import: the grid, ticks a quarter note (default 4: 16ths)\n"
          "  --transpose <n>    import: semitones\n"
          "  --instruments <f>  import: instrument lines (voice1.., gm<program> for a program change)\n"
+         "  --report           import of a MOD: each sample weighed for the SID (an instrument, or kept as a sample)\n"
+         "  --extract <dir>    import of a MOD: the samples too far from the SID as WAVs (--all: every used one)\n"
          "  -v ... -vvvv       log to stderr ([tune45:INFO] ...): the tunes read, the files written,\n"
          "                     the player built (-v); each tune and the commands run (-vv); -v0 off\n"
          "  -V, --version      version\n"
@@ -748,6 +751,8 @@ int main(int argc, char** argv) {
     uint32_t sampleRate = 0, sampleMax = 0;   // sample: --rate, --max-rate
     std::string samplesOut;                  // convert --bin: --samples <file>
     bool sampleUnsigned = false;
+    bool modReportFlag = false, modAll = false;   // import of a MOD: --report, --extract <dir>, --all
+    std::string modExtract;
     for (int i = 2; i < argc; i++) {
         std::string a = argv[i];
         if (a == "-o" && i + 1 < argc) out = argv[++i];
@@ -795,6 +800,9 @@ int main(int argc, char** argv) {
         else if (a == "--instruments" && i + 1 < argc) {
             if (!readFile(argv[++i], mo.instruments)) { std::cerr << "tune45: cannot read " << argv[i] << "\n"; return 1; }
         }
+        else if (a == "--report") modReportFlag = true;
+        else if (a == "--extract" && i + 1 < argc) modExtract = argv[++i];
+        else if (a == "--all") modAll = true;
         else if (a == "--bin") mode = "bin";
         else if (a == "--asm") mode = "asm";
         else if (a == "--header" && i + 1 < argc) header = argv[++i];
@@ -809,7 +817,28 @@ int main(int argc, char** argv) {
         return playSample(input, sampleRate, sampleMax, sampleUnsigned, po.wav);
     }
     if (cmd == "import") {
-        if (input.empty()) { std::cerr << "tune45: no MIDI file\n"; return 1; }
+        if (input.empty()) { std::cerr << "tune45: no MIDI or MOD file\n"; return 1; }
+        std::string raw;
+        if (!readFile(input, raw)) { std::cerr << "tune45: cannot read " << input << "\n"; return 1; }
+        std::vector<uint8_t> bytes(raw.begin(), raw.end());
+        if (raw.compare(0, 4, "MThd") != 0 && isMod(input, bytes)) {
+            ModFile m;
+            std::string err;
+            if (!readMod(bytes, m, err)) { std::cerr << "tune45: " << input << ": " << err << "\n"; return 1; }
+            auto r = analyseMod(m);
+            if (!modReportFlag && modExtract.empty()) {
+                std::cerr << "tune45: " << input << ": a MOD: --report (the samples weighed for the SID) and --extract <dir>"
+                             " so far; its music as text is to come\n";
+                return 1;
+            }
+            if (modReportFlag) std::cout << modReport(m, r);
+            if (!modExtract.empty()) {
+                std::vector<std::string> written;
+                if (!extractModSamples(m, r, modExtract, modAll, written, err)) { std::cerr << "tune45: " << err << "\n"; return 1; }
+                for (const auto& w : written) std::cout << "wrote " << w << "\n";
+            }
+            return 0;
+        }
         if (!cc.o.name.empty()) mo.name = cc.o.name;
         mo.loop = loopFlag;
         mo.voices = std::max(1, std::min(12, cc.o.voices));
