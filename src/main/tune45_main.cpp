@@ -100,6 +100,7 @@ void usage(std::ostream& o) {
          "                     (the original left, the SID right), asking sid or sample after each (at a\n"
          "                     terminal, or --ask); --wav <file> to a file\n"
          "  --song <n>, --seconds <s>  import of a .sid: the song (default its start song), how long (180)\n"
+         "  --no-patterns      import of a .sid: its repeats written out (no patterns)\n"
          "  --choices <file>   import of a MOD: the choices --audition saves (default: beside the MOD,\n"
          "                     .choices); with --report and --extract: the verdicts\n"
          "  -v ... -vvvv       log to stderr ([tune45:INFO] ...): the tunes read, the files written,\n"
@@ -1011,6 +1012,7 @@ int main(int argc, char** argv) {
         else if (a == "--ask") modAsk = true;
         else if (a == "--song" && i + 1 < argc) sio.song = std::max(1, atoi(argv[++i]));
         else if (a == "--seconds" && i + 1 < argc) sio.seconds = std::max(0.1, atof(argv[++i]));
+        else if (a == "--no-patterns") sio.patterns = false;
         else if (a == "--choices" && i + 1 < argc) modChoices = argv[++i];
         else if (a == "--audition") {
             modAudition = 0;

@@ -17,6 +17,7 @@ struct SidImportOptions {
     std::string source;             // the .sid's file name (the text's first line)
     int song = 0;                   // from 1 (0: the file's start song)
     double seconds = 180;           // how long to run it
+    bool patterns = true;           // its repeats as patterns
 };
 
 // The text, or "" with error set

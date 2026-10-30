@@ -4,6 +4,14 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### tune45 import of a .sid: its repeats as patterns
+
+- The runs of tokens repeated (a suffix array's maximal repeats, the one
+  that saves most first, its non-overlapping copies called; `*p*n` for
+  copies running on) become patterns; the text plays as written out
+  (register traces alike over 3 minutes of four tunes). Their data: 39-61%
+  over 3 minutes (packed, about as before). `--no-patterns` writes it out.
+
 ### tune45 import of a .sid: closer to the original
 
 - Measured against the originals' own register writes played through the

@@ -384,16 +384,13 @@ std::string sidImport(const PsidFile& p, const SidImportOptions& o, std::string&
         }
     }
     snprintf(b, sizeof b, "\ntune %s %.8g once\n", name.c_str(), std::lround(want * 256) / 256.0);
-    t += b;
+    std::string tuneLine = b;
+    // each voice's tokens
+    std::vector<std::vector<std::string>> vt((size_t)last + 1);
     for (int v = 0; v <= last; v++) {
         const auto& R = rows[(size_t)v];
-        std::string line = "v" + std::to_string(v + 1) + ":";
+        auto& out = vt[(size_t)v];
         std::string cur, curArp = "arp:off";
-        int count = 0;
-        auto add = [&](const std::string& tok) {
-            line += " " + tok;
-            if (++count % 16 == 0) line += " \\\n   ";
-        };
         bool sounding = false;   // (a note begun: what follows its gate rings on)
         for (size_t k = 0; k < frames;) {
             size_t e = k + 1;
@@ -402,20 +399,117 @@ std::string sidImport(const PsidFile& p, const SidImportOptions& o, std::string&
             if (!R[k].tokens.empty()) {
                 std::string tk = R[k].tokens;
                 tk.pop_back();
-                add(tk);
+                out.push_back(tk);
             }
             if (R[k].start) {
-                if (R[k].arp != curArp) { add(R[k].arp); curArp = R[k].arp; }
-                if (R[k].inst != cur) { add("@" + R[k].inst); cur = R[k].inst; }
-                add(TuneCompiler::noteName(R[k].note) + ":" + n);
+                if (R[k].arp != curArp) { out.push_back(R[k].arp); curArp = R[k].arp; }
+                if (R[k].inst != cur) { out.push_back("@" + R[k].inst); cur = R[k].inst; }
+                out.push_back(TuneCompiler::noteName(R[k].note) + ":" + n);
                 sounding = true;
-            } else if (R[k].legato >= 0 && sounding) add("~" + TuneCompiler::noteName(R[k].legato) + ":" + n);
-            else if (R[k].gate && sounding) add("~:" + n);
-            else add("r:" + n);
+            } else if (R[k].legato >= 0 && sounding) out.push_back("~" + TuneCompiler::noteName(R[k].legato) + ":" + n);
+            else if (R[k].gate && sounding) out.push_back("~:" + n);
+            else out.push_back("r:" + n);
             k = e;
         }
-        while (line.size() > 4 && line.substr(line.size() - 5) == " \\\n   ") line.erase(line.size() - 5);
-        t += line + "\n";
     }
+    // the repeats: patterns (each the run of tokens that saves the most, all
+    // its copies that do not overlap called, again while one saves something;
+    // a call's text is the text it stands for, so the tune plays as before)
+    std::vector<std::vector<std::string>> pats;
+    if (o.patterns) {
+        std::map<std::string, int> idOf;
+        std::vector<std::vector<int>> ids((size_t)last + 1);   // (a call: -1 - the pattern)
+        for (int v = 0; v <= last; v++)
+            for (const auto& tk : vt[(size_t)v]) ids[(size_t)v].push_back(idOf.emplace(tk, (int)idOf.size()).first->second);
+        std::vector<std::string> nameOf(idOf.size());
+        for (const auto& [tk, id] : idOf) nameOf[(size_t)id] = tk;
+        for (int round = 0; round < 400; round++) {
+            // the best run: (count - 1) * length - (count + 1) (a call, the end:
+            // about a token each), among the maximal repeats (a suffix array of
+            // the voices one after another, calls and the voices' ends unique)
+            long bestGain = 0;
+            std::vector<int> best;
+            std::vector<int> all;
+            std::vector<std::pair<int, size_t>> from;   // each position's voice and place
+            int unique = -1000000;
+            for (int v = 0; v <= last; v++) {
+                for (size_t i = 0; i < ids[(size_t)v].size(); i++) {
+                    int x = ids[(size_t)v][i];
+                    all.push_back(x < 0 ? unique-- : x);
+                    from.push_back({v, i});
+                }
+                all.push_back(unique--);
+                from.push_back({v, ids[(size_t)v].size()});
+            }
+            std::vector<size_t> sa(all.size());
+            for (size_t i = 0; i < sa.size(); i++) sa[i] = i;
+            std::sort(sa.begin(), sa.end(), [&](size_t a, size_t b) {
+                return std::lexicographical_compare(all.begin() + (long)a, all.end(), all.begin() + (long)b, all.end());
+            });
+            std::vector<size_t> lcp(sa.size(), 0);   // with the one before
+            for (size_t k = 1; k < sa.size(); k++) {
+                size_t a = sa[k - 1], b = sa[k], n = 0;
+                while (a + n < all.size() && b + n < all.size() && all[a + n] == all[b + n] && all[a + n] >= 0) n++;
+                lcp[k] = n;
+            }
+            std::set<std::pair<size_t, size_t>> tried;   // (length, the group's first)
+            for (size_t k = 1; k < sa.size(); k++) {
+                size_t len = std::min<size_t>(lcp[k], 512);
+                if (len < 4) continue;
+                size_t lo = k - 1, hi = k;   // the suffixes sharing len tokens
+                while (lo > 0 && lcp[lo] >= len) lo--;
+                while (hi + 1 < sa.size() && lcp[hi + 1] >= len) hi++;
+                if (!tried.insert({len, lo}).second) continue;
+                std::vector<size_t> pos(sa.begin() + (long)lo, sa.begin() + (long)hi + 1);
+                std::sort(pos.begin(), pos.end());
+                int count = 0;
+                size_t end = 0;
+                for (size_t q : pos)
+                    if (!count || q >= end) { count++; end = q + len; }   // (not overlapping)
+                long gain = (long)(count - 1) * (long)len - (count + 1);
+                if (gain > bestGain) {
+                    bestGain = gain;
+                    best.assign(all.begin() + (long)sa[k], all.begin() + (long)(sa[k] + len));
+                }
+            }
+            if (best.empty()) break;
+            int pid = (int)pats.size();
+            std::vector<std::string> body;
+            for (int id : best) body.push_back(nameOf[(size_t)id]);
+            pats.push_back(body);
+            for (auto& x : ids) {
+                std::vector<int> y;
+                for (size_t i = 0; i < x.size();) {
+                    if (i + best.size() <= x.size() && std::equal(best.begin(), best.end(), x.begin() + (long)i)) {
+                        y.push_back(-1 - pid);
+                        i += best.size();
+                    } else y.push_back(x[i++]);
+                }
+                x = y;
+            }
+        }
+        // the voices again: calls (one again at once: *p*n)
+        for (int v = 0; v <= last; v++) {
+            auto& out = vt[(size_t)v];
+            out.clear();
+            const auto& x = ids[(size_t)v];
+            for (size_t i = 0; i < x.size();) {
+                if (x[i] >= 0) { out.push_back(nameOf[(size_t)x[i++]]); continue; }
+                size_t n = 1;
+                while (i + n < x.size() && x[i + n] == x[i] && n < 255) n++;
+                out.push_back("*p" + std::to_string(-x[i]) + (n > 1 ? "*" + std::to_string(n) : ""));
+                i += n;
+            }
+        }
+    }
+    auto lines = [](const std::string& head, const std::vector<std::string>& toks) {
+        std::string line = head;
+        for (size_t k = 0; k < toks.size(); k++) line += (k && k % 16 == 0 ? " \\\n    " : " ") + toks[k];
+        return line + "\n";
+    };
+    if (!pats.empty()) t += "\n; the tune's repeats\n";
+    for (size_t k = 0; k < pats.size(); k++) t += lines("pattern p" + std::to_string(k + 1) + ":", pats[k]);
+    t += tuneLine;
+    for (int v = 0; v <= last; v++) t += lines("v" + std::to_string(v + 1) + ":", vt[(size_t)v]);
     return t;
 }

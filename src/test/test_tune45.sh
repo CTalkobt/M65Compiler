@@ -505,6 +505,13 @@ w(4, 14 + 5, 0x08); w(4, 14 + 6, 0xC4)
 w(4, 14, reg(57) & 255); w(4, 15, reg(57) >> 8); w(4, 14 + 4, 0x21)
 w(10, 14, reg(60) & 255); w(10, 15, reg(60) >> 8)
 w(20, 14 + 4, 0x20)
+if len(sys.argv) > 2 and sys.argv[2] == "rep":   # instead: a phrase of four notes, four times (patterns)
+    frames = [[] for _ in range(120)]
+    w(0, 0x18, 0x0F); w(0, 5, 0x09); w(0, 6, 0xA0)
+    for r in range(4):
+        for q, n in enumerate((60, 64, 67, 72)):
+            f = r * 16 + q * 4
+            w(f, 0, reg(n) & 255); w(f, 1, reg(n) >> 8); w(f, 4, 0x11); w(f + 3, 4, 0x10)
 data = b"".join(bytes(sum(([r, v] for r, v in fr), [])) + b"\xff" for fr in frames)
 # the player at $1000: init (the frames' pointer; then SETUP), play (a
 # frame's writes: register, value ... $FF), SETUP (cia: $0314 at HANDLER,
@@ -540,6 +547,14 @@ v=$(sed -n '/^wavetable/p;/^instrument/p;/^tune/,$p' $T/n_vbi.txt | tr '\n' '/')
 $TUNE import $T/n_cia.sid --seconds 0.8 -o $T/n_cia.txt >/dev/null 2>&1 &&
     grep -q "by its CIA timer, 100.88 calls a second" $T/n_cia.txt && grep -q "^tune sid_notes 0.49609375 once" $T/n_cia.txt &&
     grep -q "^v1: arp2:12 @i01 c2:1 r:15 c2:1 r:15 @i02 c2:1 r:48$" $T/n_cia.txt && pass || fail "import of a .sid timed by the CIA"
+# its repeats as patterns (a phrase four times: one pattern, called four
+# times running), playing as the text written out does (--no-patterns)
+python3 $T/gen_sid.py $T/n_rep.sid rep 2>/dev/null
+$TUNE import $T/n_rep.sid --seconds 1.28 -o $T/np.txt >/dev/null 2>&1
+$TUNE import $T/n_rep.sid --seconds 1.28 --no-patterns -o $T/nf.txt >/dev/null 2>&1
+grep -q "^pattern p1: c4:3 r:1 e4:3 r:1 g4:3 r:1 c5:3 r:1$" $T/np.txt && grep -q "^v1: @i01 \*p1\*4$" $T/np.txt &&
+    [ "$($TUNE trace $T/np.txt --frames 64 2>/dev/null | md5sum)" = "$($TUNE trace $T/nf.txt --frames 64 2>/dev/null | md5sum)" ] &&
+    pass || fail "import of a .sid: its repeats as patterns ($(sed -n '/^pattern/p;/^v1/p' $T/np.txt | tr '\n' '/'))"
 python3 -c "
 import struct, sys
 h = bytearray(0x7C); h[0:4] = b'PSID'; struct.pack_into('>HHHHHHHI', h, 4, 2, 0x7C, 0x1000, 0x1000, 0x1003, 1, 1, 0)
