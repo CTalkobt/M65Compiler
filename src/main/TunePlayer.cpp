@@ -39,11 +39,12 @@ void TunePlayer::inst(Voice& v, uint8_t i) {
     v.vdel = byte(at + 8);
     v.slide = (int8_t)byte(at + 9);
     v.cw = v.wave;
-    v.hr = v.filt = 0;
+    v.hr = v.filt = v.tail = 0;
     v.fsweep = 0;
     v.cutoff = v.table = 0;
     if (rsize_ >= 17) {   // (10: a tune of before the hard restart, filter and wave tables)
-        v.hr = byte(at + 10);
+        v.hr = byte(at + 10) & 3;
+        v.tail = byte(at + 10) & 0x80;
         v.filt = byte(at + 11);
         v.cutoff = (uint16_t)(byte(at + 12) | (byte(at + 13) << 8));
         v.fsweep = (int8_t)byte(at + 14);
@@ -83,6 +84,7 @@ bool TunePlayer::nextIsNote(const Voice& v) const {
         uint8_t b = byte(p);
         if (b == 0x81) p = (uint16_t)(p + 2);
         else if (b == 0x83 || b == 0x84 || b == 0x85) p = (uint16_t)(p + 3);
+        else if (b == 0x89 || b == 0x8A) p = (uint16_t)(p + 4);
         else if (b == 0x86) p = (uint16_t)(byte(p + 1u) | (byte(p + 2u) << 8));   // into a pattern
         else if (b == 0x87 && !out) { out = true; p = v.rep >= 2 ? v.pat : v.ret; }   // its end (once)
         else if (b == 0xFE && !guard) { guard = true; p = v.start; }
@@ -285,6 +287,21 @@ void TunePlayer::next(Voice& v, int idx) {
         if (b == 0x85) { uint8_t lo = rd(v); fpt_ = (uint16_t)(lo | (rd(v) << 8)); continue; }
         if (b == 0x86) { call(v); continue; }
         if (b == 0x87) { back(v); continue; }
+        if (b == 0x89) {   // the pulse width and its sweep
+            uint8_t lo = rd(v), hi = rd(v);
+            v.pw = (uint16_t)(lo | (hi << 8));
+            v.pwdir = (int8_t)rd(v);
+            wpw(v);
+            continue;
+        }
+        if (b == 0x8A) {   // the chip's cutoff and its sweep
+            int c = v.base / 0x20;
+            uint8_t lo = rd(v), hi = rd(v);
+            cut_[c] = (uint16_t)(lo | (hi << 8));
+            csw_[c] = (int8_t)rd(v);
+            wcut(c);
+            continue;
+        }
         if (b == 0x88) {   // legato: the pitch, the note going on
             v.note = rd(v);
             v.left = rd(v);
@@ -338,7 +355,7 @@ void TunePlayer::effects() {
             w(v, 5, 0);
             w(v, 6, 0);
         }
-        if (!v.gated) continue;
+        if (!v.gated && !(v.tail && !v.done)) continue;   // (tail: on through the release)
         if (v.t != 255) v.t++;
         if (v.pwdir) {
             v.pw = (uint16_t)(v.pw + v.pwdir);
@@ -364,7 +381,7 @@ void TunePlayer::effects() {
             if (wave != v.cw) { v.cw = wave; ctrl(v); }
         }
         if (v.arpa | v.arpb) {
-            v.arpi = (uint8_t)(v.arpi + 1 >= 3 ? 0 : v.arpi + 1);
+            v.arpi = (uint8_t)(v.arpi + 1 >= (v.arpb == 0x80 ? 2 : 3) ? 0 : v.arpi + 1);   // (b $80: two notes)
             uint8_t add = v.arpi == 0 ? 0 : v.arpi == 1 ? v.arpa : v.arpb;
             wf(v, notef(v, k, (uint8_t)(add + (uint8_t)v.wsemi)));
             continue;

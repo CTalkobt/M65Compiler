@@ -352,6 +352,14 @@ $TUNE convert $T/lg.txt -o $T/lg.c >/dev/null 2>&1 && sed -n '/tune_t\[/,/};/p' 
     grep -q "#define TUNE_T_TICKS 5" $T/lg.h && pass || fail "a legato note"
 err $'instrument a pulse 09 a6 0600 1 1\ntune t 5 once\nv1: ~e4^3:1' "a legato note is"
 
+# tail (the hr byte's bit 7), arp2: ($83 a $80), pw: ($89 lo hi s), cut: ($8A lo hi s)
+printf 'instrument a pulse 09 a6 0600 0 0 hr=2 tail\ntune t 1 once\nv1: arp2:12 c4:2 pw:6a0,-16 cut:1f0,9 ~:1\n' > $T/tl.txt
+$TUNE convert $T/tl.txt -o $T/tl.c >/dev/null 2>&1 && sed -n '/tune_t\[/,/};/p' $T/tl.c | tr -d ' \n' |
+    grep -q '64,9,166,0,6,0,0,0,0,0,130,0,0,0,0,0,0,131,12,128,60,2,137,160,6,240,138,240,1,9,130,1,255,}' && pass || fail "tail, arp2:, pw:, cut:"
+err $'instrument a pulse 09 a6 0600 1 1\ntune t 5 once\nv1: pw:1000 c4:1' "pw:hex 0-fff"
+err $'instrument a pulse 09 a6 0600 1 1\ntune t 5 once\nv1: cut:200,200 c4:1' "cut:hex 0-7ff"
+err $'instrument a pulse 09 a6 0600 1 1\ntune t 5 once\nv1: arp2:30 c4:1' "arp2:a"
+
 # patterns: in the data once ($86 offset times a call, $87 their end), after
 # the voices; the ticks and bars counted through them
 printf 'instrument a pulse 09 a6 0600 0 0\npattern p: c4:2 e4:2\npattern q: g4:1\ntune t 1 loop 4\nv1: *p | *q*3 r:1 | *p\n' > $T/pt.txt

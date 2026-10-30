@@ -156,6 +156,7 @@ __ti_pwm:       .res NV
 __ti_vdel:      .res NV
 __ti_slide:     .res NV
 __ti_hr:        .res NV
+__ti_tail:      .res NV         ; $80: its effects go on through the release (the hr byte's bit 7)
 __ti_filt:      .res NV
 __ti_cut_lo:    .res NV
 __ti_cut_hi:    .res NV
@@ -295,6 +296,7 @@ proc __tune_inst
     ; hard restart, filter, wave table (none in a tune of 10-byte instruments)
     lda #0
     sta __ti_hr,x
+    sta __ti_tail,x
     sta __ti_filt,x
     sta __ti_cut_lo,x
     sta __ti_cut_hi,x
@@ -306,6 +308,11 @@ proc __tune_inst
     bcc @none
     inz
     lda [P],z
+    pha
+    and #$80
+    sta __ti_tail,x
+    pla
+    and #$03
     sta __ti_hr,x
     inz
     lda [P],z
@@ -643,6 +650,11 @@ proc __tune_peek
     beq @skip
     cmp #$85
     beq @skip
+    iny
+    cmp #$89
+    beq @skip
+    cmp #$8A
+    beq @skip
     cmp #$86
     beq @into
     cmp #$87
@@ -847,6 +859,38 @@ proc __tune_back
     rts
 endproc
 
+; Voice X's pulse width and its sweep ($89 lo hi s, the $89 read)
+proc __tune_setpw
+    jsr __tune_rd
+    sta __tv_pw_lo,x
+    jsr __tune_rd
+    sta __tv_pw_hi,x
+    jsr __tune_rd
+    sta __tv_pwdir,x
+    jmp __tune_wpw
+endproc
+
+; Voice X's chip's cutoff (11 bits) and its sweep a frame ($8A lo hi s, the
+; $8A read)
+proc __tune_setcut
+    lda __tv_base,x
+    and #$60
+    sta T2
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    tay
+    jsr __tune_rd
+    sta __tune_cut_lo,y
+    jsr __tune_rd
+    sta __tune_cut_hi,y
+    jsr __tune_rd
+    sta __tune_csw,y
+    jmp __tune_wcut
+endproc
+
 ; Voice X's legato note ($88 n d, the $88 read): the pitch n for d ticks,
 ; the note going on (no new envelope, instrument or wave table)
 proc __tune_legato
@@ -892,6 +936,10 @@ proc __tune_next
     beq @back
     cmp #$88
     beq @legato
+    cmp #$89
+    beq @pwset
+    cmp #$8A
+    beq @cutset
     cmp #$FE
     bne @end
     lda __tune_guard    ; back to the start (once: an empty voice ends)
@@ -910,6 +958,12 @@ proc __tune_next
     jmp __tune_ctrl
 @legato:
     jmp __tune_legato
+@pwset:
+    jsr __tune_setpw
+    jmp @read
+@cutset:
+    jsr __tune_setcut
+    jmp @read
 @inst:
     jsr __tune_rd
     jsr __tune_inst
@@ -1448,6 +1502,11 @@ proc __tune_effects
 @gate:
     lda __tv_gated,x
     bne @sounding
+    lda __ti_tail,x     ; (tail: its effects through the release too)
+    beq @still
+    lda __tv_done,x
+    beq @sounding
+@still:
     jmp @next
 @sounding:
     lda __tv_t,x
@@ -1613,9 +1672,16 @@ proc __tune_effects
     lda __tv_arpa,x
     ora __tv_arpb,x
     beq @wsemi
+    ldy #3              ; (three notes; two when b is $80)
+    lda __tv_arpb,x
+    cmp #$80
+    bne @an
+    dey
+@an:
+    sty T2
     lda __tv_arpi,x
     inc a
-    cmp #3
+    cmp T2
     bcc @ai
     lda #0
 @ai:

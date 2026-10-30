@@ -195,6 +195,7 @@ bool TuneCompiler::parse(const std::string& text, const std::string& file, TuneF
             for (size_t k = 8; k < w.size(); k++) {
                 size_t eq = w[k].find('=');
                 std::string key = lower(w[k].substr(0, eq));
+                if (key == "tail" && eq == std::string::npos) { ins.hr |= 0x80; continue; }   // (its effects through the release)
                 if (eq == std::string::npos) { error(file, ln, "expected key=value: " + w[k]); ok = false; continue; }
                 std::string val = w[k].substr(eq + 1);
                 // the keys with a word for a value
@@ -235,12 +236,12 @@ bool TuneCompiler::parse(const std::string& text, const std::string& file, TuneF
                 if (key == "pwm" && v2 >= -128 && v2 <= 127) ins.pwm = (int8_t)v2;
                 else if (key == "vdelay" && v2 >= 0 && v2 <= 255) ins.vdelay = (uint8_t)v2;
                 else if (key == "slide" && v2 >= -128 && v2 <= 127) ins.slide = (int8_t)v2;
-                else if (key == "hr" && v2 >= 0 && v2 <= 3) ins.hr = (uint8_t)v2;
+                else if (key == "hr" && v2 >= 0 && v2 <= 3) ins.hr = (uint8_t)((ins.hr & 0x80) | v2);
                 else if (key == "res" && v2 >= 0 && v2 <= 15) { res = v2; filterTuned = true; }
                 else if (key == "fsweep" && v2 >= -128 && v2 <= 127) { ins.fsweep = (int8_t)v2; filterTuned = true; }
                 else {
                     error(file, ln, "unknown or out of range: " + w[k] +
-                                    " (pwm, vdelay, slide, hr 0-3, filter, res 0-15, cutoff, fsweep, table)");
+                                    " (pwm, vdelay, slide, hr 0-3, tail, filter, res 0-15, cutoff, fsweep, table)");
                     ok = false;
                 }
             }
@@ -496,6 +497,31 @@ bool TuneCompiler::parse(const std::string& text, const std::string& file, TuneF
                     t.tempos.push_back({v.ticks, q});
                     continue;
                 }
+                if (lt.rfind("arp2:", 0) == 0) {   // two notes in turn: the note, +a
+                    long x;
+                    if (!parseInt(lt.substr(5), x) || x < 0 || x > 24) { error(file, ln, "arp2:a (semitones 0-24), not " + tok); continue; }
+                    v.stream.push_back(0x83);
+                    v.stream.push_back((uint8_t)x);
+                    v.stream.push_back(0x80);
+                    continue;
+                }
+                if (lt.rfind("pw:", 0) == 0 || lt.rfind("cut:", 0) == 0) {   // pw:hex,sweep / cut:hex,sweep
+                    bool pwTok = lt[0] == 'p';
+                    std::string a = lt.substr(pwTok ? 3 : 4);
+                    size_t c = a.find(',');
+                    long val, sw = 0;
+                    long max = pwTok ? 0xFFF : 0x7FF;
+                    if (!parseInt(a.substr(0, c), val, 16) || val < 0 || val > max ||
+                        (c != std::string::npos && !parseInt(a.substr(c + 1), sw)) || sw < -128 || sw > 127) {
+                        error(file, ln, std::string(pwTok ? "pw:hex 0-fff" : "cut:hex 0-7ff") + "[,sweep -128..127], not " + tok);
+                        continue;
+                    }
+                    v.stream.push_back(pwTok ? 0x89 : 0x8A);
+                    v.stream.push_back((uint8_t)(val & 0xFF));
+                    v.stream.push_back((uint8_t)(val >> 8));
+                    v.stream.push_back((uint8_t)(int8_t)sw);
+                    continue;
+                }
                 if (lt.rfind("arp:", 0) == 0) {
                     std::string a = lt.substr(4);
                     long x = 0, y = 0;
@@ -514,7 +540,7 @@ bool TuneCompiler::parse(const std::string& text, const std::string& file, TuneF
                 size_t colon = tok.find(':');
                 long d;
                 if (colon == std::string::npos || !parseInt(tok.substr(colon + 1), d)) {
-                    error(file, ln, "expected note:ticks, ~note:ticks, r:ticks, ~:ticks, @instrument, arp:, tempo: or |, not " + tok); continue;
+                    error(file, ln, "expected note:ticks, ~note:ticks, r:ticks, ~:ticks, @instrument, arp:, arp2:, pw:, cut:, tempo: or |, not " + tok); continue;
                 }
                 if (d < 1 || d > 4096) { error(file, ln, "a length of " + std::to_string(d) + " ticks: " + tok); continue; }
                 std::string what = lower(tok.substr(0, colon));
@@ -815,6 +841,7 @@ std::vector<uint8_t> TuneCompiler::blob(const TuneFile& f, const Tune& t) {
             if (c < 0x80 || c == 0x80 || c == 0x82) { b.push_back(s[++k]); }
             else if (c == 0x81) { b.push_back((uint8_t)renum[s[++k]]); }
             else if (c == 0x83 || c == 0x84 || c == 0x85 || c == 0x88) { b.push_back(s[k + 1]); b.push_back(s[k + 2]); k += 2; }
+            else if (c == 0x89 || c == 0x8A) { b.push_back(s[k + 1]); b.push_back(s[k + 2]); b.push_back(s[k + 3]); k += 3; }
             else if (c == 0x86) {
                 calls.push_back({b.size(), (s[k + 1] | s[k + 2] << 8) * 2});
                 b.push_back(0); b.push_back(0); b.push_back(s[k + 3]);

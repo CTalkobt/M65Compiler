@@ -56,7 +56,7 @@ private:
         uint8_t gpend = 0, glide = 0;
         uint16_t tgt = 0;
         // the instrument's hard restart, filter and wave table
-        uint8_t hr = 0, filt = 0;
+        uint8_t hr = 0, filt = 0, tail = 0;   // tail: its effects through the release (the hr byte's bit 7)
         int8_t fsweep = 0;
         uint16_t cutoff = 0, table = 0;
         // its control register's waveform now, the table's step and pitch,

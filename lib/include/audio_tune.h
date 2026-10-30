@@ -41,6 +41,10 @@
  *                 $87 each time), then on after the call (no calls in one)
  *   $87           a pattern's end
  *   $88 n d       a legato note: the pitch n for d ticks, the note going on
+ *   $89 lo hi s   the pulse width and its sweep a frame (signed)
+ *   $8A lo hi s   the voice's chip's cutoff (11 bits) and its sweep a frame
+ * ($83 a $80: a two-note arpeggio, the note and +a. An instrument's hr byte's
+ * bit 7: its effects go on through the release.)
  *   $FE           back to the voice's start (a tune that loops)
  *   $FF           the voice's end
  * A digi voice's: $00-$7F h d  hit h (the tune's sample table) for d
