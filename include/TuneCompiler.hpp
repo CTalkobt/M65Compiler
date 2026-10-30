@@ -116,7 +116,19 @@ struct Tune {
     }
 };
 
+// A pattern: tokens a voice plays where it says *name (*name*3: three
+// times); in the data once (for SID voices and for digi voices, as used),
+// called ($86 offset times) and returning ($87)
+struct TunePattern {
+    std::string name;
+    int line = 0;
+    std::vector<std::string> tokens;
+    std::vector<uint8_t> body[2];   // its stream (a SID voice's, a digi voice's: as a voice's, without the end)
+    bool have[2] = {false, false};
+};
+
 struct TuneFile {
+    std::vector<TunePattern> patterns;
     std::vector<TuneInstrument> instruments;
     std::vector<TuneTable> tables;
     std::vector<TuneSample> samples;

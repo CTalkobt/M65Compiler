@@ -4,6 +4,16 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### tune45 patterns
+
+- `pattern <name>: <tokens>` and `*name` / `*name*3` in a voice (SID or
+  digi): in the data once, called ($86 offset times) and returning ($87);
+  the hard restart looks into, round and out of them. The player and its
+  model checked against each other in xemu (the synth and digi tunes).
+- MOD import: a voice's part of a MOD pattern played more than once is a
+  pattern, called where it plays; the four test MODs' data to 27-63%, their
+  register traces unchanged.
+
 ### The tune player: pitched and looping samples, a voice's volume, a stop
 
 - Digi voices: `name:note:ticks` plays a sample at a note (`sample ...

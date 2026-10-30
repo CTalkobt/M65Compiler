@@ -346,6 +346,17 @@ err $'sample a x.wav\ntune t 5 once\nd1: a:h4:1' "not a note"
 err $'sample vol x.wav' "is not r, - or vol"
 err $'sample a x.wav note=h2' "note=<note>"
 
+# patterns: in the data once ($86 offset times a call, $87 their end), after
+# the voices; the ticks and bars counted through them
+printf 'instrument a pulse 09 a6 0600 0 0\npattern p: c4:2 e4:2\npattern q: g4:1\ntune t 1 loop 4\nv1: *p | *q*3 r:1 | *p\n' > $T/pt.txt
+$TUNE convert $T/pt.txt -o $T/pt.c >/dev/null 2>&1 && grep -q "#define TUNE_T_TICKS 12" $T/pt.h &&
+    sed -n '/tune_t\[/,/};/p' $T/pt.c | tr -d ' \n' | grep -q '134,42,0,1,134,47,0,3,128,1,134,42,0,1,254,60,2,64,2,135,67,1,135,}' &&
+    pass || fail "patterns: the data"
+err $'instrument a pulse 09 a6 0600 1 1\ntune t 5 once\nv1: *nope' "unknown pattern nope"
+err $'pattern p: c4:1 *p' "a pattern calls no pattern"
+err $'instrument a pulse 09 a6 0600 1 1\npattern p: c4:1\ntune t 5 once\nv1: *p*0' "1-255, not"
+err $'pattern p: c4:1\npattern p: c4:2' "pattern p defined twice"
+
 # play into a WAV: as long as the tune, and not silent
 if $TUNE play $T/pfest.txt --wav $T/p.wav >/dev/null 2>&1 && python3 - $T/p.wav <<'EOF'
 import sys, wave, struct

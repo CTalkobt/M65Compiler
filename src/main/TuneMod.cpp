@@ -1137,35 +1137,35 @@ std::string modImport(const ModFile& m, const std::vector<ModSampleReport>& r, c
     for (size_t k = 0; k < dv.size(); k++) t += " d" + std::to_string(k + 1) + " channel " + std::to_string(digiCh[k] + 1) + ",";
     if (t.back() == ',') t.pop_back();
     t += "\n";
-    t += "tune " + name + " " + fmtNum(fpt[0]) + " loop\n";
-    // a voice's text: segments, a line a pattern
+    std::string tuneLine = "tune " + name + " " + fmtNum(fpt[0]) + " loop\n";
+    // a voice's text: segments, a chunk a MOD pattern
+    std::vector<std::pair<std::string, std::vector<std::string>>> vlist;
     auto voiceText = [&](const std::string& head, auto segStart, auto event) {
-        std::string v = head;
+        std::vector<std::string> chunks;
         size_t k = 0;
-        bool firstLine = true;
         while (k < ticks) {
-            if (barAt[k] && !firstLine) v += " | \\\n   ";
-            firstLine = false;
+            if (barAt[k] || chunks.empty()) chunks.push_back("");
             size_t e = k + 1;
             while (e < ticks && !segStart(e) && !barAt[e]) e++;
-            v += event(k, e - k);
+            chunks.back() += event(k, e - k);
             k = e;
         }
-        return v + "\n";
+        for (auto& c : chunks) c.erase(0, 1);   // (each event's leading space)
+        vlist.push_back({head, chunks});
     };
     std::vector<size_t> tempoAt;
     for (size_t k = 1; k < ticks; k++) if (std::fabs(fpt[k] - fpt[k - 1]) > 1e-9) tempoAt.push_back(k);
     auto tempoHere = [&](size_t k) { return std::binary_search(tempoAt.begin(), tempoAt.end(), k); };
     auto tempoTok = [&](size_t k, bool first) { return first && tempoHere(k) ? "tempo:" + fmtNum(fpt[k]) + " " : std::string(); };
     if (sidCh.empty()) {   // (the tempo needs a v voice: one of rests)
-        t += voiceText("v1:", [&](size_t k) { return tempoHere(k); },
+        voiceText("v1:", [&](size_t k) { return tempoHere(k); },
                        [&](size_t k, size_t n) { return " " + tempoTok(k, true) + "r:" + std::to_string(n); });
     }
     for (size_t vi = 0; vi < sidCh.size(); vi++) {
         const auto& tr = sid[(size_t)sidCh[vi]];
         std::string cur;
         bool v1 = vi == 0;
-        t += voiceText("v" + std::to_string(vi + 1) + ":",
+        voiceText("v" + std::to_string(vi + 1) + ":",
             [&](size_t k) {
                 return tr[k].kind == 0 || !tr[k].tokens.empty() || (v1 && tempoHere(k)) || (tr[k].kind == 2) != (tr[k - 1].kind == 2);
             },
@@ -1183,12 +1183,41 @@ std::string modImport(const ModFile& m, const std::vector<ModSampleReport>& r, c
     }
     for (size_t di = 0; di < dv.size(); di++) {
         const auto& tr = dv[di];
-        t += voiceText("d" + std::to_string(di + 1) + ":", [&](size_t k) { return !tr[k].hit.empty() || tr[k].stop || tr[k].vol >= 0; },
+        voiceText("d" + std::to_string(di + 1) + ":", [&](size_t k) { return !tr[k].hit.empty() || tr[k].stop || tr[k].vol >= 0; },
             [&](size_t k, size_t n) {
                 const DigiRow& x = tr[k];
                 std::string s = x.vol >= 0 ? " vol:" + std::to_string(x.vol) : "";
                 return s + " " + (!x.hit.empty() ? x.hit : x.stop ? "-" : "r") + ":" + std::to_string(n);
             });
+    }
+    // a chunk played more than once (4 tokens or more): a pattern, called
+    // (*p3; again at once: *p3*2); the rest as they are, a line a chunk
+    std::map<std::string, int> seen;
+    for (const auto& v : vlist)
+        for (const auto& c : v.second)
+            if (std::count(c.begin(), c.end(), ' ') >= 3) seen[c]++;
+    std::map<std::string, std::string> pat;
+    std::string defs;
+    for (const auto& v : vlist)
+        for (const auto& c : v.second)
+            if (seen.count(c) && seen[c] > 1 && !pat.count(c)) {
+                pat[c] = "p" + std::to_string(pat.size() + 1);
+                defs += "pattern " + pat[c] + ": " + c + "\n";
+            }
+    if (!defs.empty()) t += "; the MOD's patterns played more than once (a voice's part of one each)\n" + defs;
+    t += tuneLine;
+    for (const auto& [head, chunks] : vlist) {
+        t += head;
+        for (size_t k = 0; k < chunks.size();) {
+            if (k) t += " | \\\n   ";
+            auto it = pat.find(chunks[k]);
+            if (it == pat.end()) { t += " " + chunks[k++]; continue; }
+            size_t n = 1;
+            while (k + n < chunks.size() && chunks[k + n] == chunks[k] && n < 255) n++;
+            t += " *" + it->second + (n > 1 ? "*" + std::to_string(n) : "");
+            k += n;
+        }
+        t += "\n";
     }
     return t;
 }

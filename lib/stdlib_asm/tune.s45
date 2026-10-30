@@ -108,6 +108,11 @@ __tv_left:      .res NVT        ; ticks to its next event (0: 256)
 __tv_gated:     .res NV         ; 1 while its gate is on
 __tv_done:      .res NVT
 __tv_dvol:      .res NVT        ; a digi voice's volume (vol:, 0-255)
+__tv_ret_lo:    .res NVT        ; a pattern called ($86): where the stream goes on after it,
+__tv_ret_hi:    .res NVT
+__tv_pat_lo:    .res NVT        ;   its start
+__tv_pat_hi:    .res NVT
+__tv_rep:       .res NVT        ;   and the times it plays yet
 __tv_note:      .res NV
 __tv_freq_lo:   .res NV         ; the note's frequency (slide moves it)
 __tv_freq_hi:   .res NV
@@ -481,6 +486,7 @@ proc __tune_peek
     sta T1
     lda #0
     sta __tune_guard
+    sta T2              ; (a pattern's end passed: once)
 @look:
     jsr __tune_at
     ldz #0
@@ -495,6 +501,10 @@ proc __tune_peek
     beq @skip
     cmp #$85
     beq @skip
+    cmp #$86
+    beq @into
+    cmp #$87
+    beq @out
     cmp #$FE
     bne @is
     lda __tune_guard
@@ -512,6 +522,34 @@ proc __tune_peek
 @s:
     dey
     bne @skip
+    bra @look
+@into:
+    ldz #1              ; a call: into the pattern
+    lda [P],z
+    pha
+    inz
+    lda [P],z
+    sta T1
+    pla
+    sta T0
+    bra @look
+@out:
+    lda T2              ; its end: again (more times to go), or after the call
+    bne @no
+    inc T2
+    lda __tv_rep,x
+    cmp #2
+    bcc @after
+    lda __tv_pat_lo,x
+    sta T0
+    lda __tv_pat_hi,x
+    sta T1
+    bra @look
+@after:
+    lda __tv_ret_lo,x
+    sta T0
+    lda __tv_ret_hi,x
+    sta T1
     bra @look
 @is:
     cmp #$80
@@ -631,6 +669,42 @@ endproc
 ; ----------------------------------------------------------------------------
 
 ; Voice X's next event
+; Voice X's pattern call ($86 lo hi n, the $86 read): the stream on at the
+; pattern, n times, then after the call
+proc __tune_call
+    jsr __tune_rd
+    sta __tv_pat_lo,x
+    jsr __tune_rd
+    sta __tv_pat_hi,x
+    jsr __tune_rd
+    sta __tv_rep,x
+    lda __tv_pos_lo,x
+    sta __tv_ret_lo,x
+    lda __tv_pos_hi,x
+    sta __tv_ret_hi,x
+    jmp __tune_again
+endproc
+; ...its end ($87): again from its start, or on after the call
+proc __tune_again
+    lda __tv_pat_lo,x
+    sta __tv_pos_lo,x
+    lda __tv_pat_hi,x
+    sta __tv_pos_hi,x
+    rts
+endproc
+
+proc __tune_back
+    dec __tv_rep,x
+    beq @after
+    jmp __tune_again
+@after:
+    lda __tv_ret_lo,x
+    sta __tv_pos_lo,x
+    lda __tv_ret_hi,x
+    sta __tv_pos_hi,x
+    rts
+endproc
+
 proc __tune_next
     cpx #12
     bcc @sid
@@ -653,6 +727,10 @@ proc __tune_next
     beq @glide
     cmp #$85
     beq @tempo
+    cmp #$86
+    beq @call
+    cmp #$87
+    beq @back
     cmp #$FE
     bne @end
     lda __tune_guard    ; back to the start (once: an empty voice ends)
@@ -690,6 +768,12 @@ proc __tune_next
     sta __tune_fpt
     jsr __tune_rd
     sta __tune_fpt+1
+    bra @read
+@call:
+    jsr __tune_call
+    bra @read
+@back:
+    jsr __tune_back
     bra @read
 @tie:
     jsr __tune_rd
@@ -800,6 +884,10 @@ proc __tune_dnext
     beq @vol
     cmp #$84
     beq @far
+    cmp #$86
+    beq @call
+    cmp #$87
+    beq @back
     cmp #$FE
     bne @end
     lda __tune_guard    ; back to the start (once: an empty voice ends)
@@ -828,6 +916,12 @@ proc __tune_dnext
     sta __tv_dvol,x
     jsr __tune_dreg
     jsr __tune_dvset    ; (at once: a sample sounding too)
+    bra @read
+@call:
+    jsr __tune_call
+    bra @read
+@back:
+    jsr __tune_back
     bra @read
 @far:
     jsr __tune_rd       ; $84 h d: hit h (0-255)

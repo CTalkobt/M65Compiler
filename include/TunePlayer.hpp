@@ -44,6 +44,8 @@ private:
         uint16_t pos = 0, start = 0;
         uint8_t left = 0, gated = 0, done = 0, note = 0, t = 0, base = 0;
         uint8_t dvol = 255;             // a digi voice's volume (vol:)
+        uint16_t ret = 0, pat = 0;      // a pattern called: where the stream goes on after it, its start
+        uint8_t rep = 0;                //   and the times it plays yet
         uint16_t freq = 0, pw = 0;
         int8_t pwdir = 0;
         uint8_t arpa = 0, arpb = 0, arpi = 0;
@@ -94,6 +96,8 @@ private:
     uint16_t notef(const Voice& v, int idx, uint8_t add) const;
     void next(Voice& v, int idx);
     void dnext(Voice& v, int idx);
+    void call(Voice& v);
+    void back(Voice& v) { v.pos = --v.rep ? v.pat : v.ret; }
     void dhit(Voice& v, int idx, uint8_t h);
     void dvset(Voice& v, int idx);
     void dput(uint8_t idx, uint8_t val) { if (!mute_ && dwrite_) dwrite_(idx, val); }

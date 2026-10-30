@@ -37,12 +37,15 @@
  *                 2^k - 1) >> k a frame towards it (k 1-7; 0: no glide)
  *   $85 lo hi     the tune's frames per tick from now (8.8; tune45 puts the
  *                 tune's own at voice 0's start, so a loop starts as it did)
+ *   $86 lo hi n   a pattern: the stream at offset lo hi, n times (to its
+ *                 $87 each time), then on after the call (no calls in one)
+ *   $87           a pattern's end
  *   $FE           back to the voice's start (a tune that loops)
  *   $FF           the voice's end
  * A digi voice's: $00-$7F h d  hit h (the tune's sample table) for d
  * ticks; $84 h d  hit h, 0-255; $80 d / $82 d  the sample rings on; $81 d
  * the channel stopped; $83 v  the voice's volume (0-255: times
- * tune_digi_volume's / 256; no time); $FE, $FF. A sample table entry: its
+ * tune_digi_volume's / 256; no time); $86 / $87 as above; $FE, $FF. A sample table entry: its
  * offset and bytes, the rate, and (flags bit 4) its loop's start from it
  * ($FFFF: played once).
  */

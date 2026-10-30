@@ -81,7 +81,56 @@ bool TuneCompiler::parse(const std::string& text, const std::string& file, TuneF
         }
         if (!cont.empty()) lines.push_back({first, cont});
     }
-    std::map<std::string, int> instId, tableId, sampleId;
+    std::map<std::string, int> instId, tableId, sampleId, patternId;
+    // a voice's tokens with its pattern calls (*name, *name*n) expanded for
+    // the counting (ticks, bars, hits), between markers: \x01C id n (the
+    // call; the first time through its stream is the pattern's), \x01M (the
+    // rest of the times: counted only), \x01E
+    auto expand = [&](std::vector<std::string>& w, int ln) {
+        std::vector<std::string> o = {w[0]};
+        for (size_t k = 1; k < w.size(); k++) {
+            if (w[k].size() < 2 || w[k][0] != '*') { o.push_back(w[k]); continue; }
+            std::string n = w[k].substr(1);
+            long times = 1;
+            size_t star = n.find('*');
+            if (star != std::string::npos) {
+                if (!parseInt(n.substr(star + 1), times) || times < 1 || times > 255) { error(file, ln, "*pattern*1-255, not " + w[k]); continue; }
+                n = n.substr(0, star);
+            }
+            auto it = patternId.find(n);
+            if (it == patternId.end()) { error(file, ln, "unknown pattern " + n + " (a pattern line before the voice)"); continue; }
+            const auto& body = out.patterns[(size_t)it->second].tokens;
+            o.push_back("\001C " + std::to_string(it->second) + " " + std::to_string(times));
+            o.insert(o.end(), body.begin(), body.end());
+            o.push_back("\001M");
+            for (long r = 1; r < times; r++) o.insert(o.end(), body.begin(), body.end());
+            o.push_back("\001E");
+        }
+        w = o;
+    };
+    // a marker in a voice's tokens: the call put in its stream, the stream
+    // turned to the pattern's body, the junk, or back (mode 0 SID, 1 digi)
+    struct Call { int id = -1; std::vector<uint8_t> saved; };
+    auto marker = [&](const std::string& tok, TuneVoice& v, Call& c, int mode) {
+        if (tok[1] == 'C') {
+            int id, times;
+            sscanf(tok.c_str() + 3, "%d %d", &id, &times);
+            v.stream.push_back(0x86);
+            v.stream.push_back((uint8_t)(id & 0xFF));
+            v.stream.push_back((uint8_t)(id >> 8));
+            v.stream.push_back((uint8_t)times);
+            c.id = id;
+            c.saved.swap(v.stream);
+            v.stream.clear();
+        } else if (tok[1] == 'M') {
+            auto& p = out.patterns[(size_t)c.id];
+            if (!p.have[mode]) { p.body[mode] = v.stream; p.have[mode] = true; }
+            v.stream.clear();
+        } else {
+            v.stream.swap(c.saved);
+            c.saved.clear();
+        }
+    };
     std::map<std::pair<std::vector<int>, int>, int> hitId;   // (samples, semitones): the hit
     static const std::map<std::string, int> waves = {{"tri", 0x10}, {"saw", 0x20}, {"pulse", 0x40}, {"noise", 0x80}};
     // a waveform: a name, names joined by + (pulse+saw), or a hex control value
@@ -105,6 +154,26 @@ bool TuneCompiler::parse(const std::string& text, const std::string& file, TuneF
     for (const auto& [ln, line] : lines) {
         auto w = words(line);
         std::string kw = lower(w[0]);
+        if (kw == "pattern") {
+            // pattern <name>: tokens (as a voice's; no pattern calls)
+            std::string n = w.size() > 1 ? w[1] : "";
+            size_t k = 2;
+            if (!n.empty() && n.back() == ':') n.pop_back();
+            else if (w.size() > 2 && w[2] == ":") k = 3;
+            if (n.empty() || n.find('*') != std::string::npos) { error(file, ln, "pattern <name>: <tokens>"); continue; }
+            if (patternId.count(n)) { error(file, ln, "pattern " + n + " defined twice"); continue; }
+            TunePattern pt;
+            pt.name = n;
+            pt.line = ln;
+            for (; k < w.size(); k++) {
+                if (w[k][0] == '*') { error(file, ln, "a pattern calls no pattern: " + w[k]); continue; }
+                pt.tokens.push_back(w[k]);
+            }
+            if (pt.tokens.empty()) { error(file, ln, "pattern " + n + " is empty"); continue; }
+            patternId[n] = (int)out.patterns.size();
+            out.patterns.push_back(pt);
+            continue;
+        }
         if (kw == "instrument") {
             if (w.size() < 8) { error(file, ln, "instrument <name> <wave> <ad> <sr> <pulse> <vibrato> <gap>"); continue; }
             TuneInstrument ins;
@@ -239,8 +308,11 @@ bool TuneCompiler::parse(const std::string& text, const std::string& file, TuneF
             v.line = ln;
             unsigned bar = 0;
             int barNo = 1;
+            expand(w, ln);
+            Call call;
             for (size_t k = 1; k < w.size(); k++) {
                 const std::string& tok = w[k];
+                if (tok[0] == '\x01') { marker(tok, v, call, 1); continue; }
                 if (tok == "|") {
                     if (t.barTicks && bar != t.barTicks)
                         error(file, ln, "tune " + t.name + " d" + std::to_string(dn) + ": bar " + std::to_string(barNo) + " is " +
@@ -388,8 +460,11 @@ bool TuneCompiler::parse(const std::string& text, const std::string& file, TuneF
             bool named = false;
             unsigned bar = 0;
             int barNo = 1;
+            expand(w, ln);
+            Call call;
             for (size_t k = 1; k < w.size(); k++) {
                 const std::string& tok = w[k];
+                if (tok[0] == '\x01') { marker(tok, v, call, 0); continue; }
                 if (tok == "|") {
                     if (t.barTicks && bar != t.barTicks)
                         error(file, ln, "tune " + t.name + " v" + std::to_string(vn) + ": bar " + std::to_string(barNo) + " is " +
@@ -488,7 +563,7 @@ bool TuneCompiler::parse(const std::string& text, const std::string& file, TuneF
                       " ticks, not " + std::to_string(t.barTicks));
             t.voices.push_back(v);
         } else {
-            error(file, ln, "what is " + w[0] + "? (instrument, wavetable, sample, tune, v1:..., d1:...)");
+            error(file, ln, "what is " + w[0] + "? (instrument, wavetable, sample, pattern, tune, v1:..., d1:...)");
         }
     }
     for (auto& t : out.tunes)           // (one tick: the later voice's wins, as the player reads them)
@@ -724,30 +799,25 @@ std::vector<uint8_t> TuneCompiler::blob(const TuneFile& f, const Tune& t) {
             b.insert(b.end(), e, e + 9);
         }
     }
-    for (size_t v = 0; v < nv; v++) {
-        size_t at = b.size();
-        b[8 + 2 * v] = (uint8_t)(at & 0xFF);
-        b[9 + 2 * v] = (uint8_t)(at >> 8);
-        const auto& s = t.voices[v].stream;
-        if (v == 0 && !t.tempos.empty()) {   // a tune with tempo: changes: its own again from the start (a loop)
-            b.push_back(0x85);
-            b.push_back((uint8_t)(t.fpt & 0xFF));
-            b.push_back((uint8_t)(t.fpt >> 8));
-        }
+    // a stream into the data: a SID voice's (instruments renumbered) or a
+    // digi voice's (hits numbered in the tune's table); a pattern call's
+    // offset filled in once its body is placed
+    std::vector<std::pair<size_t, int>> calls;   // where an offset goes; the pattern (id * 2 + mode)
+    auto emitSid = [&](const std::vector<uint8_t>& s) {
         for (size_t k = 0; k < s.size(); k++) {
             uint8_t c = s[k];
             b.push_back(c);
             if (c < 0x80 || c == 0x80 || c == 0x82) { b.push_back(s[++k]); }
             else if (c == 0x81) { b.push_back((uint8_t)renum[s[++k]]); }
             else if (c == 0x83 || c == 0x84 || c == 0x85) { b.push_back(s[k + 1]); b.push_back(s[k + 2]); k += 2; }
+            else if (c == 0x86) {
+                calls.push_back({b.size(), (s[k + 1] | s[k + 2] << 8) * 2});
+                b.push_back(0); b.push_back(0); b.push_back(s[k + 3]);
+                k += 3;
+            }
         }
-        b.push_back(t.loop ? 0xFE : 0xFF);
-    }
-    for (size_t d = 0; d < nd; d++) {
-        size_t at = b.size();
-        b[8 + 2 * (nv + d)] = (uint8_t)(at & 0xFF);
-        b[9 + 2 * (nv + d)] = (uint8_t)(at >> 8);
-        const auto& s = t.digi[d].stream;
+    };
+    auto emitDigi = [&](const std::vector<uint8_t>& s) {
         for (size_t k = 0; k + 1 < s.size();) {
             if (s[k] == 0x01) {   // a hit: its number in the tune's table ($84 h d past 127)
                 int n = hitNum[s[k + 1] | s[k + 2] << 8];
@@ -755,13 +825,51 @@ std::vector<uint8_t> TuneCompiler::blob(const TuneFile& f, const Tune& t) {
                 b.push_back((uint8_t)n);
                 b.push_back(s[k + 3]);
                 k += 4;
+            } else if (s[k] == 0x86) {
+                b.push_back(0x86);
+                calls.push_back({b.size(), (s[k + 1] | s[k + 2] << 8) * 2 + 1});
+                b.push_back(0); b.push_back(0); b.push_back(s[k + 3]);
+                k += 4;
             } else {
                 b.push_back(s[k]);
                 b.push_back(s[k + 1]);
                 k += 2;
             }
         }
+    };
+    for (size_t v = 0; v < nv; v++) {
+        size_t at = b.size();
+        b[8 + 2 * v] = (uint8_t)(at & 0xFF);
+        b[9 + 2 * v] = (uint8_t)(at >> 8);
+        if (v == 0 && !t.tempos.empty()) {   // a tune with tempo: changes: its own again from the start (a loop)
+            b.push_back(0x85);
+            b.push_back((uint8_t)(t.fpt & 0xFF));
+            b.push_back((uint8_t)(t.fpt >> 8));
+        }
+        emitSid(t.voices[v].stream);
         b.push_back(t.loop ? 0xFE : 0xFF);
+    }
+    for (size_t d = 0; d < nd; d++) {
+        size_t at = b.size();
+        b[8 + 2 * (nv + d)] = (uint8_t)(at & 0xFF);
+        b[9 + 2 * (nv + d)] = (uint8_t)(at >> 8);
+        emitDigi(t.digi[d].stream);
+        b.push_back(t.loop ? 0xFE : 0xFF);
+    }
+    // the patterns called, once each, each ending $87
+    std::map<int, size_t> placed;
+    for (size_t k = 0; k < calls.size(); k++) {   // (a body places none of its own: no calls in patterns)
+        int key = calls[k].second;
+        if (placed.count(key)) continue;
+        placed[key] = b.size();
+        const auto& p = f.patterns[(size_t)key / 2];
+        if (key % 2) emitDigi(p.body[1]);
+        else emitSid(p.body[0]);
+        b.push_back(0x87);
+    }
+    for (const auto& [at, key] : calls) {
+        b[at] = (uint8_t)(placed[key] & 0xFF);
+        b[at + 1] = (uint8_t)(placed[key] >> 8);
     }
     return b;
 }
