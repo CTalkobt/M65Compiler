@@ -175,6 +175,32 @@ int cbm_close(fd_t fd) {
  */
 
 int cbm_read(fd_t fd, void *buffer, unsigned int length) {
+    /* stdin: a line typed on the keyboard (getchar: GETIN, waiting), echoed
+       through the ROM (putchar), DEL taking a character back, RETURN ending
+       it: its '\n' ($0D) included; control characters other than those
+       are dropped */
+    if (fd == STDIN_FILENO && buffer && length) {
+        unsigned char *line = (unsigned char *)buffer;
+        unsigned int n = 0;
+        while (n < length) {
+            unsigned char c = (unsigned char)getchar();
+            if (c == '\n') {
+                putchar('\n');
+                line[n++] = c;
+                break;
+            }
+            if (c == 0x14) {
+                if (n) {
+                    n--;
+                    putchar(0x14);
+                }
+            } else if ((c & 0x7F) >= 0x20) {
+                putchar(c);
+                line[n++] = c;
+            }
+        }
+        return (int)n;
+    }
     if (fd < 3 || fd > 14 || !buffer || length == 0) {
         return -1;
     }

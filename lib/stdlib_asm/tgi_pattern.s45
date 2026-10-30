@@ -1,0 +1,576 @@
+; tgi_pattern.s45 — <tgi.h>'s fill patterns (a cc45 extension: cc65's TGI
+; has none): tgi_setpattern, tgi_setpattern_mono, tgi_setsolid, and
+; tgi_bar's patterned fill (__tgi_pbar, replacing tgi.c's weak one, which
+; leaves the bar to the drivers' solid fills)
+;
+; The pattern is 8x8 pixels anchored to the screen: pixel (x, y) takes
+; pattern byte (y & 7) * 8 + (x & 7), so fills side by side meet seamlessly.
+; Both drivers keep a character column's pixel rows as 8 bytes each, one
+; column after another (tgi_pixel.s45's __tgi_addr: a column is 1600
+; bytes): the 320x200 one a byte a pixel (8 pixels a row), the 640x200 one
+; a nibble (16; pixel x at __tgi_addr(x >> 1, y), the left one the low
+; nibble). So the pattern repeated down 200 rows (__tp_strip, 1600 bytes,
+; built for the screen's mode when the pattern or the mode changes) has the
+; screen's own layout: a whole character column of the bar is one DMA copy
+; from the strip's row y1, a column of single pixels (or the 640x200
+; driver's pixel pairs) one copy of every 8th byte. A transparent colour is
+; the DMA's transparency (a byte equal to it is not written); in 640x200 a
+; byte holds two pixels, so a transparent pattern is plotted a pixel at a
+; time there, as are a bar's single-pixel columns.
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.global _tgi_setpattern, _tgi_setpattern_mono, _tgi_setsolid, ___tgi_pbar
+.extern ___tgi_mode, __tgi_addr, _tgi_setpixel, _tgi_color
+
+PIX = $08               ; __tgi_addr's result (32 bits)
+
+.segment "bss"
+__tp_on:        .res 1  ; 1: tgi_bar fills with the pattern
+__tp_pat:       .res 64 ; the pattern's colours, row by row
+__tp_tron:      .res 1  ; 1: a transparent colour
+__tp_tval:      .res 1  ;   it
+__tp_built:     .res 1  ; ___tgi_mode the strip is built for ($FF: none)
+__tp_blk:       .res 64 ; the 640x200 rows (two nibbles a byte)
+__tp_strip:     .res 1600
+; the copy
+__tp_src:       .res 4
+__tp_dst:       .res 4
+__tp_len:       .res 2
+; the bar
+__tp_x:         .res 2
+__tp_xe:        .res 2
+__tp_y:         .res 1
+__tp_ye:        .res 1
+__tp_h:         .res 1
+__tp_soff:      .res 2  ; y1 * 8: the strip's offset
+__tp_t:         .res 2
+__tp_py:        .res 1
+__tp_col:       .res 1
+
+.segment "code"
+; An enhanced (F018B) DMA job: options (format, megabytes, source and
+; destination step, transparency), then a copy
+__tp_job:
+    .byte $0B
+    .byte $80, 0            ; source megabyte (+2)
+    .byte $81, 0            ; destination megabyte (+4)
+    .byte $83, 1            ; source step (+6)
+    .byte $85, 1            ; destination step (+8)
+    .byte $06               ; transparency: $06 off, $07 on (+9)
+    .byte $86, 0            ; the transparent byte (+11)
+    .byte $00
+    .byte 0                 ; command: copy (+13)
+    .byte 0, 0              ; length (+14)
+    .byte 0, 0, 0           ; source bits 0-15, bank (+16)
+    .byte 0, 0, 0           ; destination (+19)
+    .byte 0, 0, 0           ; sub-command, modulo
+
+; ----------------------------------------------------------------------------
+; Internal routines
+; ----------------------------------------------------------------------------
+
+; A = the megabyte (bits 20-27) of the address whose byte 2 is A, byte 3 X
+proc __tp_mb
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    sta __tp_t
+    txa
+    asl a
+    asl a
+    asl a
+    asl a
+    ora __tp_t
+    rts
+endproc
+
+; __tp_len bytes from __tp_src to __tp_dst, both stepping A (1 or 8), with
+; the pattern's transparency
+proc __tp_copy
+    sta __tp_job+6
+    sta __tp_job+8
+    lda #$06
+    ldx __tp_tron
+    beq @tr
+    lda #$07
+@tr:
+    sta __tp_job+9
+    lda __tp_tval
+    sta __tp_job+11
+    lda __tp_len
+    sta __tp_job+14
+    lda __tp_len+1
+    sta __tp_job+15
+    lda __tp_src
+    sta __tp_job+16
+    lda __tp_src+1
+    sta __tp_job+17
+    lda __tp_src+2
+    and #$0F
+    sta __tp_job+18
+    lda __tp_src+2
+    ldx __tp_src+3
+    jsr __tp_mb
+    sta __tp_job+2
+    lda __tp_dst
+    sta __tp_job+19
+    lda __tp_dst+1
+    sta __tp_job+20
+    lda __tp_dst+2
+    and #$0F
+    sta __tp_job+21
+    lda __tp_dst+2
+    ldx __tp_dst+3
+    jsr __tp_mb
+    sta __tp_job+4
+    php
+    sei
+    lda #0
+    sta $D702           ; list in bank 0
+    sta $D704           ; megabyte 0
+    lda #>__tp_job
+    sta $D701
+    lda #<__tp_job
+    sta $D705           ; start (enhanced job)
+    plp
+    rts
+endproc
+
+; The strip for the screen's mode, unless it is built: the pattern's 8 rows
+; (8 bytes each: the 320x200 driver's pixels, or the 640x200 driver's
+; pairs) 25 times
+proc __tp_build
+    lda __tp_built
+    cmp ___tgi_mode
+    bne @build
+    rts
+@build:
+    lda ___tgi_mode
+    sta __tp_built
+    bmi @ncm
+    ldx #63             ; 320x200: the pattern itself
+@copy:
+    lda __tp_pat,x
+    sta __tp_blk,x
+    dex
+    bpl @copy
+    bra @fill
+@ncm:
+    ldx #0              ; 640x200: byte b of a row is pixels 2b and 2b + 1
+@pair:                  ; (both & 7 in the pattern's row)
+    txa
+    and #$38            ; the row's start
+    sta __tp_t
+    txa
+    asl a
+    and #$06            ; (2b) & 7
+    ora __tp_t
+    tay
+    lda __tp_pat,y
+    and #$0F
+    sta __tp_t+1
+    lda __tp_pat+1,y
+    asl a
+    asl a
+    asl a
+    asl a
+    ora __tp_t+1
+    sta __tp_blk,x
+    inx
+    cpx #64
+    bne @pair
+@fill:
+    lda #<__tp_strip
+    sta $08
+    lda #>__tp_strip
+    sta $09
+    ldx #25
+@block:
+    ldy #63
+@b:
+    lda __tp_blk,y
+    sta ($08),y
+    dey
+    bpl @b
+    lda $08
+    clc
+    adc #64
+    sta $08
+    bcc @next
+    inc $09
+@next:
+    dex
+    bne @block
+    rts
+endproc
+
+; __tp_dst = pixel ($10/$11, __tp_y)'s address (__tgi_addr; x already
+; halved for 640x200)
+proc __tp_addr
+    lda __tp_y
+    sta $12
+    lda #0
+    sta $13
+    jsr __tgi_addr
+    ldq PIX
+    stq __tp_dst
+    rts
+endproc
+
+; __tp_src = the strip + __tp_soff + A
+proc __tp_srcat
+    clc
+    adc __tp_soff
+    sta __tp_src
+    lda __tp_soff+1
+    adc #0
+    sta __tp_src+1
+    lda __tp_src
+    clc
+    adc #<__tp_strip
+    sta __tp_src
+    lda __tp_src+1
+    adc #>__tp_strip
+    sta __tp_src+1
+    lda #0
+    sta __tp_src+2
+    sta __tp_src+3
+    rts
+endproc
+
+; __tp_len = __tp_h * 8 (A 8) or __tp_h (A 1); the copy stepping 1 or 8
+proc __tp_whole
+    lda __tp_h
+    sta __tp_len
+    lda #0
+    sta __tp_len+1
+    asl __tp_len
+    rol __tp_len+1
+    asl __tp_len
+    rol __tp_len+1
+    asl __tp_len
+    rol __tp_len+1
+    lda #1
+    jmp __tp_copy
+endproc
+
+proc __tp_column
+    lda __tp_h
+    sta __tp_len
+    lda #0
+    sta __tp_len+1
+    lda #8
+    jmp __tp_copy
+endproc
+
+; Pixel (__tp_x, __tp_py) in its pattern colour (tgi_setpixel), unless it
+; is the transparent one
+proc __tp_plot
+    lda __tp_py
+    and #7
+    asl a
+    asl a
+    asl a
+    sta __tp_t
+    lda __tp_x
+    and #7
+    ora __tp_t
+    tax
+    lda __tp_pat,x
+    ldx __tp_tron
+    beq @draw
+    cmp __tp_tval
+    beq @skip
+@draw:
+    ldx _tgi_color
+    stx __tp_col
+    sta _tgi_color
+    lda __tp_x
+    sta $10
+    lda __tp_x+1
+    sta $11
+    lda __tp_py
+    sta $12
+    lda #0
+    sta $13
+    jsr _tgi_setpixel
+    lda __tp_col
+    sta _tgi_color
+@skip:
+    rts
+endproc
+
+; Rows __tp_y .. __tp_ye of column __tp_x, a pixel at a time
+proc __tp_pixcol
+    lda __tp_y
+    sta __tp_py
+@row:
+    jsr __tp_plot
+    lda __tp_py
+    cmp __tp_ye
+    beq @done
+    inc __tp_py
+    bra @row
+@done:
+    rts
+endproc
+
+; __tp_x += A
+proc __tp_adv
+    clc
+    adc __tp_x
+    sta __tp_x
+    bcc @done
+    inc __tp_x+1
+@done:
+    rts
+endproc
+
+; C set when __tp_x + A <= __tp_xe
+proc __tp_fits
+    clc
+    adc __tp_x
+    sta __tp_t
+    lda __tp_x+1
+    adc #0
+    sta __tp_t+1
+    lda __tp_xe
+    cmp __tp_t
+    lda __tp_xe+1
+    sbc __tp_t+1
+    rts
+endproc
+
+; ----------------------------------------------------------------------------
+; The API
+; ----------------------------------------------------------------------------
+
+; void tgi_setpattern(const unsigned char *pattern, int transparent): tgi_bar
+; fills with the 8x8 colours at pattern (64 bytes, row by row; the 640x200
+; driver uses their low nibbles), transparent (0-255) left as it is
+; (TGI_TRANSPARENT, -1: none); NULL: solid fills again
+proc _tgi_setpattern
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, Y
+    .flag_clobbers N, Z
+    lda $10
+    ora $11
+    bne @go
+    jmp _tgi_setsolid
+@go:
+    ldy #63
+@copy:
+    lda ($10),y
+    sta __tp_pat,y
+    dey
+    bpl @copy
+    lda $12
+    sta __tp_tval
+    lda $13
+    eor #$FF            ; (-1: off; 0-255: on)
+    beq @off
+    lda #1
+@off:
+    sta __tp_tron
+    jmp __tp_set
+    .func_flags zp_call
+endproc
+
+; The pattern set: tgi_bar uses it, the strip to be built
+proc __tp_set
+    lda #1
+    sta __tp_on
+    lda #$FF
+    sta __tp_built
+    rts
+endproc
+
+; void tgi_setpattern_mono(const unsigned char *bits, unsigned char fg,
+; int bg): an 8x8 one-colour pattern (8 bytes, a row each, bit 7 the left
+; pixel): set bits fg, clear ones bg (TGI_TRANSPARENT, -1: left as they are)
+proc _tgi_setpattern_mono
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    lda $15
+    bpl @opaque         ; bg -1: clear bits fg ^ 1, the transparent byte
+    lda $12
+    eor #1
+    sta __tp_tval
+    lda #1
+    sta __tp_tron
+    bra @bits
+@opaque:
+    lda #0
+    sta __tp_tron
+    lda $14
+    sta __tp_tval
+@bits:
+    ldy #0              ; the row
+    ldx #0              ; the pixel
+@row:
+    lda ($10),y
+    sta __tp_t
+    lda #8
+    sta __tp_t+1
+@pix:
+    asl __tp_t
+    lda $12
+    bcs @set
+    lda __tp_tval
+@set:
+    sta __tp_pat,x
+    inx
+    dec __tp_t+1
+    bne @pix
+    iny
+    cpy #8
+    bne @row
+    jmp __tp_set
+    .func_flags zp_call
+endproc
+
+; void tgi_setsolid(void): tgi_bar fills in the colour again
+proc _tgi_setsolid
+    .reg_clobbers A
+    .flag_clobbers N, Z
+    lda #0
+    sta __tp_on
+    rts
+    .func_flags zp_call
+endproc
+
+; int __tgi_pbar(int x1, int y1, int x2, int y2) (tgi.c's tgi_bar: clipped,
+; x1 <= x2, y1 <= y2): 1 when it filled the bar with the pattern, 0 without
+; one (the solid fill's then)
+proc ___tgi_pbar
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17
+    .zp_clobbers $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda __tp_on
+    bne @on
+    tax
+    rts
+@on:
+    lda $10
+    sta __tp_x
+    lda $11
+    sta __tp_x+1
+    lda $14
+    sta __tp_xe
+    lda $15
+    sta __tp_xe+1
+    lda $12
+    sta __tp_y
+    lda $16
+    sta __tp_ye
+    sec
+    sbc __tp_y
+    clc
+    adc #1
+    sta __tp_h          ; (1..200)
+    lda __tp_y          ; the strip's row y1
+    sta __tp_soff
+    lda #0
+    sta __tp_soff+1
+    asl __tp_soff
+    rol __tp_soff+1
+    asl __tp_soff
+    rol __tp_soff+1
+    asl __tp_soff
+    rol __tp_soff+1
+    jsr __tp_build
+    bit ___tgi_mode
+    bmi @ncm
+@fcm:
+    lda __tp_xe         ; x <= xe
+    cmp __tp_x
+    lda __tp_xe+1
+    sbc __tp_x+1
+    bcc @done
+    lda __tp_x
+    sta $10
+    lda __tp_x+1
+    sta $11
+    jsr __tp_addr
+    lda __tp_x
+    and #7
+    bne @fpix
+    lda #7              ; x + 7 <= xe: the whole character column
+    jsr __tp_fits
+    bcc @fpix
+    lda #0
+    jsr __tp_srcat
+    jsr __tp_whole
+    lda #8
+    jsr __tp_adv
+    jmp @fcm
+@fpix:
+    lda __tp_x          ; a column of pixels: every 8th byte
+    and #7
+    jsr __tp_srcat
+    jsr __tp_column
+    lda #1
+    jsr __tp_adv
+    jmp @fcm
+@done:
+    lda #1
+    ldx #0
+    rts
+@ncm:
+    lda __tp_xe         ; x <= xe
+    cmp __tp_x
+    lda __tp_xe+1
+    sbc __tp_x+1
+    bcs @nmore
+    jmp @done
+@nmore:
+    lda __tp_tron       ; transparent: a pixel at a time
+    bne @npix
+    lda __tp_x+1        ; the address of x >> 1
+    lsr a
+    sta $11
+    lda __tp_x
+    ror a
+    sta $10
+    lda __tp_x
+    and #$0F
+    bne @npair
+    lda #15             ; x + 15 <= xe: the whole character column
+    jsr __tp_fits
+    bcc @npair
+    jsr __tp_addr
+    lda #0
+    jsr __tp_srcat
+    jsr __tp_whole
+    lda #16
+    jsr __tp_adv
+    jmp @ncm
+@npair:
+    lda __tp_x          ; x even, x + 1 <= xe: a byte column
+    lsr a
+    bcs @npix
+    lda #1
+    jsr __tp_fits
+    bcc @npix
+    jsr __tp_addr
+    lda __tp_x
+    lsr a
+    and #7
+    jsr __tp_srcat
+    jsr __tp_column
+    lda #2
+    jsr __tp_adv
+    jmp @ncm
+@npix:
+    jsr __tp_pixcol
+    lda #1
+    jsr __tp_adv
+    jmp @ncm
+    .func_flags zp_call
+endproc

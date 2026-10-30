@@ -104,6 +104,12 @@ int fflush(FILE *stream);
 int fgetc(FILE *stream);
 int fputc(int c, FILE *stream);
 char *fgets(char *restrict str, int size, FILE *restrict stream);
+/* A line from stdin without its '\n' (no bound: prefer gets_s or fgets);
+ * NULL at EOF with nothing read */
+char *gets(char *s);
+/* C11's: at most n - 1 characters; a longer line is read to its end and
+ * gives "" and NULL (as s NULL or n 0) */
+char *gets_s(char *s, size_t n);
 int fputs(const char *restrict str, FILE *restrict stream);
 int ungetc(int c, FILE *stream);
 void perror(const char *s);

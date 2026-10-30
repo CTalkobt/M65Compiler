@@ -36,6 +36,10 @@ extern unsigned char __tgi_mode;        /* tgi_vars.s45's: $80, the 640x200 driv
 __fastcall__ void __tgi_f_bar(int x1, int y1, int x2, int y2) { (void)x1; (void)y1; (void)x2; (void)y2; }
 #pragma weak __tgi_n_bar
 __fastcall__ void __tgi_n_bar(int x1, int y1, int x2, int y2) { (void)x1; (void)y1; (void)x2; (void)y2; }
+/* The patterned fill (tgi_pattern.s45, linked with tgi_setpattern /
+ * tgi_setpattern_mono): 1 when it filled the bar; without it, 0 */
+#pragma weak __tgi_pbar
+__fastcall__ int __tgi_pbar(int x1, int y1, int x2, int y2) { (void)x1; (void)y1; (void)x2; (void)y2; return 0; }
 static unsigned char pal[256];          /* tgi_getpalette (after tgi_setpalette) */
 static unsigned char defpal[256];       /* tgi_getdefpalette's */
 
@@ -202,6 +206,7 @@ __fastcall__ void tgi_bar(int x1, int y1, int x2, int y2) {
     if (y1 < 0) y1 = 0;
     if (x2 > (int)tgi_xmax) x2 = (int)tgi_xmax;
     if (y2 > (int)tgi_ymax) y2 = (int)tgi_ymax;
+    if (__tgi_pbar(x1, y1, x2, y2)) return;
     if (__tgi_mode) __tgi_n_bar(x1, y1, x2, y2);
     else __tgi_f_bar(x1, y1, x2, y2);
 }

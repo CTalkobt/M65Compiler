@@ -4,6 +4,21 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### TGI fill patterns; gets, gets_s, heapfree, ftoa; stdin reads the keyboard
+
+- `<tgi.h>`: `tgi_setpattern` (8x8 colours, a transparent colour or none),
+  `tgi_setpattern_mono` (8 bytes of bits, fg and bg or transparent) and
+  `tgi_setsolid` choose what `tgi_bar` fills with (a cc45 extension,
+  `stdlib_asm/tgi_pattern.s45`, linked only when a pattern is set). The
+  pattern, anchored to the screen, is copied by DMA from a strip in the
+  screen's layout: a character column a job, single pixels by the DMA's
+  step options, a transparent colour by its transparency; both drivers.
+- `<stdio.h>`: `gets`, `gets_s` (C11's). stdin could not be read at all
+  (`cbm_read` refused handle 0): it now reads a typed line (keys by
+  `getchar`, echoed, DEL, RETURN), so `fgets(stdin)`, `fgetc(stdin)` and
+  `scanf` work too.
+- `<stdlib.h>`: oscar64's `heapfree` (`_heapmemavail`) and `ftoa` (`%g`).
+- Test: `test_tgi_pattern_xemu.c`.
 ### conio's full-colour mode in assembly
 
 - `fcm_enable`, `fcm_disable`, `fcm_putch`, `fcm_cputs`, `fcm_fill_rect`,

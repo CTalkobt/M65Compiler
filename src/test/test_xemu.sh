@@ -2070,6 +2070,14 @@ for mmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: tgi_bar's fill patterns (both drivers), gets / gets_s from the
+# KERNAL's keyboard buffer, heapfree, ftoa
+for tpmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r tpname tpflags <<< "$tpmode"
+    echo "Testing test_tgi_pattern_xemu.c ($tpname)..."
+    xemu_case "FAIL: test_tgi_pattern_xemu.c $tpname (compilation/linking failed)" "src/test-resources/test_tgi_pattern_xemu.c" "build/test/test_tgi_pattern_${tpname}_xemu.prg" "$tpflags" -- "test_tgi_pattern_$tpname" "build/test/test_tgi_pattern_${tpname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+done
+
 # Test: the tune player's digi voices against tune45's model: SID 1 and
 # the audio DMA's registers (channels 2-3: tune_digi_channels(2), the third
 # voice left out) after each of 150 frames, in both conventions
