@@ -347,6 +347,16 @@ xemu_case "FAIL: test_stdlib_signed_xemu.c (compilation/linking failed)" "src/te
 echo "Testing test_struct_copy_xemu.c (struct copy)..."
 xemu_case "FAIL: test_struct_copy_xemu.c (compilation/linking failed)" "src/test-resources/test_struct_copy_xemu.c" "build/test/test_struct_copy_xemu.prg" -- "test_struct_copy" "build/test/test_struct_copy_xemu.prg" "C0C0" 10 "07 08 09 0A 03 03 07 0A 08 AA"
 
+# Test: a declarator's name in parentheses, void (f)(int), past a macro f (#376)
+# Test: a signed operand with a narrower unsigned one stays signed (#377)
+for pdmode in "stack|-fno-zpcall" "zp|"; do
+    IFS='|' read -r pdname pdflags <<< "$pdmode"
+    echo "Testing test_paren_declarator_xemu.c ($pdname)..."
+    xemu_case "FAIL: test_paren_declarator_xemu.c $pdname (compilation/linking failed)" "src/test-resources/test_paren_declarator_xemu.c" "build/test/test_paren_declarator_${pdname}_xemu.prg" "$pdflags" -- "test_paren_declarator_$pdname" "build/test/test_paren_declarator_${pdname}_xemu.prg" "C0C0" 8 "01 03 02 05 07 09 0B AA"
+    echo "Testing test_signed_mixed_xemu.c ($pdname)..."
+    xemu_case "FAIL: test_signed_mixed_xemu.c $pdname (compilation/linking failed)" "src/test-resources/test_signed_mixed_xemu.c" "build/test/test_signed_mixed_${pdname}_xemu.prg" "$pdflags" -- "test_signed_mixed_$pdname" "build/test/test_signed_mixed_${pdname}_xemu.prg" "C0C0" 14 "F0 FF 70 FE FF FC FF F0 FF 01 01 3D FF AA"
+done
+
 # Test: members of a struct at a cast constant address, (*(struct s *)ADDR).m (#378)
 echo "Testing test_struct_at_addr_xemu.c (struct at a constant address)..."
 xemu_case "FAIL: test_struct_at_addr_xemu.c (compilation/linking failed)" "src/test-resources/test_struct_at_addr_xemu.c" "build/test/test_struct_at_addr_xemu.prg" -- "test_struct_at_addr" "build/test/test_struct_at_addr_xemu.prg" "C0C0" 11 "65 01 78 56 34 12 66 03 65 01 AA"

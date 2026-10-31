@@ -44,6 +44,7 @@ private:
     // tokens has spare capacity reserved by the constructor, so references to
     // tokens held by callers stay valid; beyond it this is an error.
     void insertTokens(size_t at, const std::vector<Token>& v);
+    void unparenName(size_t at);
     size_t pos;
 
     const Token& peek() const;

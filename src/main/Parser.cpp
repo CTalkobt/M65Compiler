@@ -580,6 +580,9 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
             while (look < tokens.size()) {
                 if (tokens[look].type == TokenType::STAR) {
                     look++;
+                } else if (tokens[look].type == TokenType::FASTCALL) {   // void __fastcall__ f(...)
+                    isFC = true;
+                    look++;
                 } else if (tokens[look].type == TokenType::CONST || tokens[look].type == TokenType::VOLATILE ||
                            tokens[look].type == TokenType::RESTRICT || tokens[look].type == TokenType::EXTENSION) {
                     look++;
@@ -595,6 +598,8 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     }
                 } else break;
             }
+
+            unparenName(look);   // void (f)(int), int (x)
 
             // Check for parenthesized declarator (e.g., function pointer: type (*name)(params)) — treat as variable
             if (look < tokens.size() && tokens[look].type == TokenType::OPEN_PAREN) {
@@ -1002,6 +1007,22 @@ void Parser::insertTokens(size_t at, const std::vector<Token>& v) {
     tokens.insert(tokens.begin() + at, v.begin(), v.end());
 }
 
+// A declarator's name in parentheses, (f) or ((f)): they only group (C17
+// 6.7.6), and are dropped. void (f)(int) declares f as void f(int) does; the
+// parentheses keep a function-like macro f from expanding there (#376). A
+// typedef name in them is a parameter list, int (T), and stays.
+void Parser::unparenName(size_t at) {
+    size_t k = 0;
+    while (at + k < tokens.size() && tokens[at + k].type == TokenType::OPEN_PAREN) k++;
+    if (k == 0 || at + 2 * k >= tokens.size()) return;
+    const Token& id = tokens[at + k];
+    if (id.type != TokenType::IDENTIFIER || isTypedef(id.value)) return;
+    for (size_t j = 1; j <= k; j++)
+        if (tokens[at + k + j].type != TokenType::CLOSE_PAREN) return;
+    tokens.erase(tokens.begin() + at + k + 1, tokens.begin() + at + 2 * k + 1);
+    tokens.erase(tokens.begin() + at, tokens.begin() + at + k);
+}
+
 std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     const Token& startToken = peek();
     // Start of the declaration's specifiers: the caller has consumed the
@@ -1065,6 +1086,10 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     int returnPtrLevel = basePtrLevel;
     while (true) {
         if (tryParseAttribute() || match(TokenType::EXTENSION)) {
+            continue;
+        }
+        if (match(TokenType::FASTCALL)) {    // void __fastcall__ f(...)
+            isFC = true;
             continue;
         }
         if (match(TokenType::STAR)) {
@@ -1274,6 +1299,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
                 pos = save;   // (a function pointer)
             }
 
+            unparenName(pos);   // int (x)
             // Check for function pointer parameter: type (*name)(params), also
             // with the declarator in extra parentheses: type ((*name)(params))
             size_t fpParens = 0;
@@ -2487,6 +2513,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
         return decl;
     }
 
+    unparenName(pos);   // int (x)
     std::string name = expect(TokenType::IDENTIFIER, "Expected variable name").value;
     std::vector<int> arrayDims;
     std::vector<std::shared_ptr<Expression>> vlaDimExprs;
@@ -2646,6 +2673,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
                     else match(TokenType::RESTRICT);
                 }
             }
+            unparenName(pos);   // int a, (b)
             std::string extraName = expect(TokenType::IDENTIFIER, "Expected variable name").value;
             declTypes_[extraName] = {type, extraPtr, isSigned};
             std::vector<int> extraDims;
@@ -5198,7 +5226,7 @@ bool Parser::isFunctionDeclaration() {
         // Skip any pointers, qualifiers, and attributes interleaved (and the
         // rest of a multi-word type: unsigned long int, long long, long double)
         while (look < tokens.size()) {
-            if (tokens[look].type == TokenType::STAR) {
+            if (tokens[look].type == TokenType::STAR || tokens[look].type == TokenType::FASTCALL) {
                 look++;
             } else if (t != TokenType::IDENTIFIER && t != TokenType::STRUCT && t != TokenType::UNION &&
                        t != TokenType::ENUM &&
@@ -5224,6 +5252,7 @@ bool Parser::isFunctionDeclaration() {
             } else break;
         }
         
+        unparenName(look);   // void (f)(int)
         // Check for identifier followed by (
         if (look + 1 < tokens.size() && tokens[look].type == TokenType::IDENTIFIER &&
             tokens[look+1].type == TokenType::OPEN_PAREN) {
