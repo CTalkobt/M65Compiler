@@ -4,6 +4,21 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cp45: #if evaluates C's whole expression grammar (#375)
+
+- `#if` (cc45, cp45, and ca45 through the same preprocessor) parsed only
+  `! - + * / + - == != < > <= >= && ||`: at `%`, `&`, `|`, `^` or `~` it
+  stopped and took the left operand (`#if 150 & 1` was true), and `<<`/`>>`
+  were read as two relational operators. Now C's grammar (C11 6.10.1, 6.6):
+  `~ % << >> & ^ | ?:` too, with C's precedence; `intmax_t` values, or
+  `uintmax_t` for an unsigned constant (`-1 > 0u`); character constants;
+  `0b` constants. `&& || ?:` evaluate only the operand that decides.
+- What the grammar doesn't take is an error naming the line (`#if 1 +`, an
+  unknown operator, a call of an undefined macro, a string, `1.5`, a zero
+  divisor) instead of being ignored. A skipped group's `#if`/`#elif` is not
+  evaluated.
+- Test: `test_pp_if_ops.c` (`test_compiler.sh`).
+
 ### TGI fill patterns; gets, gets_s, heapfree, ftoa; stdin reads the keyboard
 
 - `<tgi.h>`: `tgi_setpattern` (8x8 colours, a transparent colour or none),
