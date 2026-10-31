@@ -357,6 +357,10 @@ for pdmode in "stack|-fno-zpcall" "zp|"; do
     xemu_case "FAIL: test_signed_mixed_xemu.c $pdname (compilation/linking failed)" "src/test-resources/test_signed_mixed_xemu.c" "build/test/test_signed_mixed_${pdname}_xemu.prg" "$pdflags" -- "test_signed_mixed_$pdname" "build/test/test_signed_mixed_${pdname}_xemu.prg" "C0C0" 14 "F0 FF 70 FE FF FC FF F0 FF 01 01 3D FF AA"
 done
 
+# Test: members of a struct at a cast constant address, (*(struct s *)ADDR).m (#378)
+echo "Testing test_struct_at_addr_xemu.c (struct at a constant address)..."
+xemu_case "FAIL: test_struct_at_addr_xemu.c (compilation/linking failed)" "src/test-resources/test_struct_at_addr_xemu.c" "build/test/test_struct_at_addr_xemu.prg" -- "test_struct_at_addr" "build/test/test_struct_at_addr_xemu.prg" "C0C0" 11 "65 01 78 56 34 12 66 03 65 01 AA"
+
 # Test: struct results via the hidden result pointer, struct arguments by copy
 echo "Testing test_sret_xemu.c (struct results/arguments)..."
 xemu_case "FAIL: test_sret_xemu.c (compilation/linking failed)" "src/test-resources/test_sret_xemu.c" "build/test/test_sret_xemu.prg" -- "test_sret" "build/test/test_sret_xemu.prg" "C0C0" 22 "44 11 88 55 07 08 09 07 08 09 0A 14 0B 0D 0F 02 06 05 07 06 07 AA"
