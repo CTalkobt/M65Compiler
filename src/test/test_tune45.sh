@@ -501,7 +501,7 @@ done
 cat > $T/gen_sid.py <<'EOF'
 import sys, struct
 def reg(n): return round(440 * 2 ** ((n - 69) / 12) * 16777216 / 985248)
-frames = [[] for _ in range(120)]
+frames = [[] for _ in range(600)]
 def w(f, r, v): frames[f].append((r, v))
 w(0, 0x18, 0x1F); w(0, 0x15, 0); w(0, 0x16, 0x40); w(0, 0x17, 0xF4)
 # voice 1: a bass as Hubbard's: the gate a frame, a noise frame, then the
@@ -529,14 +529,17 @@ w(4, 14 + 5, 0x08); w(4, 14 + 6, 0xC4)
 w(4, 14, reg(57) & 255); w(4, 15, reg(57) >> 8); w(4, 14 + 4, 0x21)
 w(10, 14, reg(60) & 255); w(10, 15, reg(60) >> 8)
 w(20, 14 + 4, 0x20)
-if len(sys.argv) > 2 and sys.argv[2] in ("rep", "trep"):   # instead: a phrase of four notes, four times
-    frames = [[] for _ in range(120)]                         # (trep: up 5, 7, back: transposed)
-    w(0, 0x18, 0x0F); w(0, 5, 0x09); w(0, 6, 0xA0)
-    for r in range(4):
-        up = (0, 5, 7, 0)[r] if sys.argv[2] == "trep" else 0
+if len(sys.argv) > 2 and sys.argv[2] in ("rep", "trep", "loop"):   # instead: a phrase of four notes, four times
+    frames = [[] for _ in range(600)]                                 # (trep: up 5, 7, back: transposed; loop:
+    w(0, 0x18, 0x0F); w(0, 5, 0x09); w(0, 6, 0xA0)                    # after a note, the four again and again)
+    at = 8 if sys.argv[2] == "loop" else 0
+    if at: w(0, 0, reg(48) & 255); w(0, 1, reg(48) >> 8); w(0, 4, 0x11); w(6, 4, 0x10)
+    for r in range(8 if at else 4):
+        up = (0, 5, 7, 0)[r % 4] if sys.argv[2] != "rep" else 0
         for q, n in enumerate((60 + up, 64 + up, 67 + up, 72 + up)):
-            f = r * 16 + q * 4
+            f = at + r * 16 + q * 4
             w(f, 0, reg(n) & 255); w(f, 1, reg(n) >> 8); w(f, 4, 0x11); w(f + 3, 4, 0x10)
+    if at: frames = frames[:at] + frames[at:at + 64] * 9
 data = b"".join(bytes(sum(([r, v] for r, v in fr), [])) + b"\xff" for fr in frames)
 # the player at $1000: init (the frames' pointer; then SETUP), play (a
 # frame's writes: register, value ... $FF), SETUP (cia: $0314 at HANDLER,
@@ -565,21 +568,21 @@ struct.pack_into(">H", h, 0x76, 0x14)
 open(sys.argv[1], "wb").write(bytes(h) + code + data)
 EOF
 for v in vbi cia; do python3 $T/gen_sid.py $T/n_$v.sid $v 2>/dev/null; done
-$TUNE import $T/n_vbi.sid --seconds 0.8 -o $T/n_vbi.txt >/dev/null 2>&1
+$TUNE import $T/n_vbi.sid --seconds 0.8 --no-loop -o $T/n_vbi.txt >/dev/null 2>&1
 v=$(sed -n '/^wavetable/p;/^instrument/p;/^tune/,$p' $T/n_vbi.txt | tr '\n' '/')
 [ "$v" = "wavetable t01 pulse noise pulse/instrument i01 pulse 06 4b 180 0 0 table=t01 hr=3 tail free/instrument i02 pulse 06 4b 180 0 0 table=t01 tail free/instrument i03 pulse 09 a0 400 0 0 pwm=64 free/instrument i04 saw 08 c4 000 0 0 filter=lp res=15 cutoff=200/tune sid_notes 1 once/v1: arp2:12 @i01 c2:1 r:15 c2:1 r:15 @i02 c2:1 r:7/v2: arp:4,7 @i03 c4:13 pw:700,-64 ~:11 r:16/v3: r:4 @i04 a3:6 ~c4:10 r:20/" ] &&
     $TUNE list $T/n_vbi.txt 2>/dev/null | grep -q "40 ticks *0.8 s" && pass || fail "import of a .sid: $v"
-$TUNE import $T/n_cia.sid --seconds 0.8 -o $T/n_cia.txt >/dev/null 2>&1 &&
+$TUNE import $T/n_cia.sid --seconds 0.8 --no-loop -o $T/n_cia.txt >/dev/null 2>&1 &&
     grep -q "by its CIA timer, 100.88 calls a second" $T/n_cia.txt && grep -q "^tune sid_notes 0.49609375 once" $T/n_cia.txt &&
     grep -q "^v1: arp2:12 @i01 c2:1 r:15 c2:1 r:15 @i02 c2:1 r:48$" $T/n_cia.txt && pass || fail "import of a .sid timed by the CIA"
 # its repeats as patterns (a phrase four times: one pattern, called four
 # times running), playing as the text written out does (--no-patterns)
 python3 $T/gen_sid.py $T/n_rep.sid rep 2>/dev/null
-$TUNE import $T/n_rep.sid --seconds 1.28 -o $T/np.txt >/dev/null 2>&1
+$TUNE import $T/n_rep.sid --seconds 1.28 --no-loop -o $T/np.txt >/dev/null 2>&1
 python3 $T/gen_sid.py $T/n_trep.sid trep 2>/dev/null
-$TUNE import $T/n_trep.sid --seconds 1.28 -o $T/tnp.txt >/dev/null 2>&1
-$TUNE import $T/n_trep.sid --seconds 1.28 --no-patterns -o $T/tnf.txt >/dev/null 2>&1
-$TUNE import $T/n_rep.sid --seconds 1.28 --no-patterns -o $T/nf.txt >/dev/null 2>&1
+$TUNE import $T/n_trep.sid --seconds 1.28 --no-loop -o $T/tnp.txt >/dev/null 2>&1
+$TUNE import $T/n_trep.sid --seconds 1.28 --no-loop --no-patterns -o $T/tnf.txt >/dev/null 2>&1
+$TUNE import $T/n_rep.sid --seconds 1.28 --no-loop --no-patterns -o $T/nf.txt >/dev/null 2>&1
 grep -q "^pattern p1: c4:3 r:1 e4:3 r:1 g4:3 r:1 c5:3 r:1$" $T/np.txt && grep -q "^v1: @i01 \*p1\*4$" $T/np.txt &&
     [ "$($TUNE trace $T/np.txt --frames 64 2>/dev/null | md5sum)" = "$($TUNE trace $T/nf.txt --frames 64 2>/dev/null | md5sum)" ] &&
     pass || fail "import of a .sid: its repeats as patterns ($(sed -n '/^pattern/p;/^v1/p' $T/np.txt | tr '\n' '/'))"
@@ -587,11 +590,39 @@ grep -q "^pattern p1: c4:3 r:1 e4:3 r:1 g4:3 r:1 c5:3 r:1$" $T/np.txt && grep -q
 grep -q "^pattern p1: c4:3 r:1 e4:3 r:1 g4:3 r:1 c5:3 r:1$" $T/tnp.txt && grep -q "^v1: @i01 \*p1 \*p1+5 \*p1+7 \*p1$" $T/tnp.txt &&
     [ "$($TUNE trace $T/tnp.txt --frames 64 2>/dev/null | md5sum)" = "$($TUNE trace $T/tnf.txt --frames 64 2>/dev/null | md5sum)" ] &&
     pass || fail "import of a .sid: repeats transposed ($(sed -n '/^pattern/p;/^v1/p' $T/tnp.txt | tr '\n' '/'))"
+# where it plays again as before: a tune that loops there (|: after the
+# first note, a period of 64 calls), or, gone silent, one that ends (a
+# second of release after)
+python3 $T/gen_sid.py $T/n_loop.sid loop 2>/dev/null
+$TUNE import $T/n_loop.sid --seconds 10 --search 10 -o $T/nl.txt >/dev/null 2>&1
+grep -q "it loops from 0.2 s, every 1.3 s" $T/nl.txt && grep -q "^tune sid_notes 1 loop" $T/nl.txt &&
+    grep -q "^v1: @i01 c3:6 r:2 |: \*p1 \*p1+5 \*p1+7 \*p1$" $T/nl.txt &&
+    $TUNE list $T/nl.txt 2>/dev/null | grep -q " 72 ticks" && pass || fail "import of a .sid that loops ($(sed -n '1p;/^tune/,$p' $T/nl.txt | tr '\n' '/'))"
+$TUNE import $T/n_rep.sid --search 10 -o $T/ne.txt >/dev/null 2>&1
+grep -q "it ends at 1.3 s" $T/ne.txt && grep -q "^tune sid_notes 1 once" $T/ne.txt &&
+    $TUNE list $T/ne.txt 2>/dev/null | grep -q " 113 ticks" && pass || fail "import of a .sid that ends ($(sed -n '1p;/^tune/,$p' $T/ne.txt | tr '\n' '/'))"
 python3 -c "
 import struct, sys
 h = bytearray(0x7C); h[0:4] = b'PSID'; struct.pack_into('>HHHHHHHI', h, 4, 2, 0x7C, 0x1000, 0x1000, 0x1003, 1, 1, 0)
 open(sys.argv[1], 'wb').write(bytes(h) + bytes([0x4C, 0x00, 0x10, 0x60]))" $T/loop.sid
 $TUNE import $T/loop.sid 2>&1 | grep -q "init" && pass || fail "import of a .sid whose init does not return"
+
+# coded data (read as it plays): a tune made by create, plain by default
+# (list says what coding would make of it), coded with --coded (a third of
+# the plain at most), playing as the plain data does (the model's trace
+# alike over the tune and round its loop); --coded leaves a small tune
+# plain (the codes' tables cost more), --coded-all does not
+$TUNE create --genre chiptune --length 64 --seed 5 -o $T/cr.txt >/dev/null 2>&1
+cp=$($TUNE list $T/cr.txt 2>/dev/null | awk 'NR==1 && /\(coded [0-9]+\)$/{print $4}')
+cc=$($TUNE list --coded $T/cr.txt 2>/dev/null | awk 'NR==1 && / coded$/{print $4}')
+[ -n "$cp" ] && [ -n "$cc" ] && [ "$cc" -lt $((cp / 3)) ] &&
+    [ "$($TUNE trace $T/cr.txt --frames 6000 2>/dev/null | md5sum)" = "$($TUNE trace --coded $T/cr.txt --frames 6000 2>/dev/null | md5sum)" ] &&
+    pass || fail "coded data: $cc bytes (plain $cp), or its trace differs"
+$TUNE convert --bin --coded $T/cr.txt -o $T/cr.bin >/dev/null 2>&1 && $TUNE convert --bin $T/cr.txt -o $T/crp.bin >/dev/null 2>&1 &&
+    [ "$(od -An -tx1 -j3 -N1 $T/cr.bin | tr -d ' ')" = "21" ] && [ "$(od -An -tx1 -j3 -N1 $T/crp.bin | tr -d ' ')" = "01" ] &&
+    ! $TUNE list --coded $T/pfest.txt 2>/dev/null | grep -q " coded$" && $TUNE list --coded-all $T/pfest.txt 2>/dev/null | grep -q " coded$" &&
+    grep -q "define tune_play(t) (tune_codec(), tune_play(t))" $T/cr.h && ! grep -q "tune_codec" $T/crp.h 2>/dev/null &&
+    pass || fail "coded data: --coded, plain by default, --coded-all, music.h's tune_codec"
 
 # play into a WAV: as long as the tune, and not silent
 if $TUNE play $T/pfest.txt --wav $T/p.wav >/dev/null 2>&1 && python3 - $T/p.wav <<'EOF'

@@ -3,6 +3,8 @@
 // 16-bit arithmetic
 #include "TunePlayer.hpp"
 
+using namespace tunepack;
+
 namespace {
 const uint8_t vreg[12] = {0x00, 0x07, 0x0E, 0x20, 0x27, 0x2E, 0x40, 0x47, 0x4E, 0x60, 0x67, 0x6E};
 const uint16_t oct[24] = {
@@ -28,35 +30,41 @@ void TunePlayer::rate() {
 
 void TunePlayer::inst(Voice& v, uint8_t i) {
     if (i >= ninst_) return;
-    unsigned at = (uint16_t)(ins_ + i * rsize_);
-    v.wave = byte(at);
-    v.ad = byte(at + 1);
-    v.sr = byte(at + 2);
-    v.ipw = (uint16_t)(byte(at + 3) | (byte(at + 4) << 8));
-    v.vib = byte(at + 5) & 15;
-    v.vspd = byte(at + 5) >> 4;
-    v.gap = byte(at + 6);
-    v.pwm = (int8_t)byte(at + 7);
-    v.vdel = byte(at + 8);
-    v.slide = (int8_t)byte(at + 9);
+    // its bytes: as they are, or (coded) its groups' entries
+    uint8_t r[19] = {};
+    if (coded_) code_.instrument((uint16_t)(ins_ + i * (rsize_ >= 19 ? 6 : 5)), rsize_, r);
+    else {
+        unsigned at = (uint16_t)(ins_ + i * rsize_);
+        for (int k = 0; k < rsize_; k++) r[k] = byte(at + k);
+    }
+    v.wave = r[0];
+    v.ad = r[1];
+    v.sr = r[2];
+    v.ipw = (uint16_t)(r[3] | (r[4] << 8));
+    v.vib = r[5] & 15;
+    v.vspd = r[5] >> 4;
+    v.gap = r[6];
+    v.pwm = (int8_t)r[7];
+    v.vdel = r[8];
+    v.slide = (int8_t)r[9];
     v.cw = v.wave;
     v.hr = v.filt = v.tail = v.free = v.pwrun = v.cutrun = v.ipwsaw = 0;
     v.fsweep = 0;
     v.cutoff = v.table = 0;
     if (rsize_ >= 17) {   // (10: a tune of before the hard restart, filter and wave tables)
-        v.hr = byte(at + 10) & 3;
-        v.tail = byte(at + 10) & 0x80;
-        v.free = byte(at + 10) & 0x40;
-        v.pwrun = byte(at + 10) & 0x20;
-        v.cutrun = byte(at + 10) & 0x10;
-        v.ipwsaw = byte(at + 10) & 0x04;
-        v.filt = byte(at + 11);
-        v.cutoff = (uint16_t)(byte(at + 12) | (byte(at + 13) << 8));
-        v.fsweep = (int8_t)byte(at + 14);
-        v.table = (uint16_t)(byte(at + 15) | (byte(at + 16) << 8));
+        v.hr = r[10] & 3;
+        v.tail = r[10] & 0x80;
+        v.free = r[10] & 0x40;
+        v.pwrun = r[10] & 0x20;
+        v.cutrun = r[10] & 0x10;
+        v.ipwsaw = r[10] & 0x04;
+        v.filt = r[11];
+        v.cutoff = (uint16_t)(r[12] | (r[13] << 8));
+        v.fsweep = (int8_t)r[14];
+        v.table = (uint16_t)(r[15] | (r[16] << 8));
     }
-    v.ipwlo = rsize_ >= 19 ? byte(at + 17) : 0;   // (19: a pulse-width cycle's limits)
-    v.ipwhi = rsize_ >= 19 ? byte(at + 18) : 0;
+    v.ipwlo = rsize_ >= 19 ? r[17] : 0;   // (19: a pulse-width cycle's limits)
+    v.ipwhi = rsize_ >= 19 ? r[18] : 0;
 }
 
 // a chip's cutoff to its registers: $15 the low 3 bits, $16 the high 8
@@ -84,19 +92,25 @@ void TunePlayer::filter(Voice& v) {
     put(r18, (uint8_t)((shadow_[r18] & 0x8F) | (v.filt & 0x70)));
 }
 
-// the voice's next event a note (after instruments, arpeggios and glides,
-// and from the start of a loop)?
-bool TunePlayer::nextIsNote(const Voice& v) const {
-    uint16_t p = v.pos;
-    bool guard = false, out = false;
+// the voice's next event a note (after instruments, arpeggios, glides,
+// pulse widths and cutoffs, through pattern calls and ends, and from the
+// loop point once)? Read on a copy of the voice
+bool TunePlayer::nextIsNote(const Voice& voice) const {
+    Voice v = voice;
+    TunePlayer& self = const_cast<TunePlayer&>(*this);   // (reads only: the copy moves)
+    bool guard = false;
     for (;;) {
-        uint8_t b = byte(p);
-        if (b == 0x81) p = (uint16_t)(p + 2);
-        else if (b == 0x83 || b == 0x84 || b == 0x85) p = (uint16_t)(p + 3);
-        else if (b == 0x89 || b == 0x8A) p = (uint16_t)(p + 4);
-        else if (b == 0x86 || b == 0x8B) p = (uint16_t)(byte(p + 1u) | (byte(p + 2u) << 8));   // into a pattern
-        else if (b == 0x87 && !out) { out = true; p = v.rep >= 2 ? v.pat : v.ret; }   // its end (once)
-        else if (b == 0xFE && !guard) { guard = true; p = v.start; }
+        uint8_t b = self.rd(v, OP);
+        if (b == 0x81) self.rd(v, INST);
+        else if (b == 0x83) { self.rd(v, ARPA); self.rd(v, ARPB); }
+        else if (b == 0x84) { self.rd(v, GLS); self.rd(v, GLK); }
+        else if (b == 0x85) { self.rd(v, TLO); self.rd(v, THI); }
+        else if (b == 0x89) { self.rd(v, PWLO); self.rd(v, PWHI); self.rd(v, PWS); }
+        else if (b == 0x8A) { self.rd(v, CLO); self.rd(v, CHI); self.rd(v, CS); }
+        else if (b == 0x86 || b == 0x8B) self.call(v, b, false);
+        else if (b == 0x87) self.back(v);
+        else if (b == 0x8C) continue;
+        else if (b == 0xFE && !guard) { guard = true; v.pos = v.start; v.bit = v.sbit; }
         else return b < 0x80;
     }
 }
@@ -145,6 +159,12 @@ void TunePlayer::play(const std::vector<uint8_t>& tune) {
     n_ = nv;
     fpt_ = (uint16_t)(byte(2) | (byte(3) << 8));
     if (!fpt_) fpt_ = 0x100;
+    coded_ = (byte(0) & 0x20) != 0;
+    if (coded_) {   // (the code tables; the pattern table's offset after the voices')
+        code_.init(tune_);
+        unsigned h = 8 + 2 * (nvd + ndd) + (ndd ? 2 : 0);
+        pats_ = (uint16_t)(byte(h + 2) | (byte(h + 3) << 8));
+    }
     ninst_ = byte(4);
     rsize_ = byte(5) ? byte(5) : 10;
     for (int c = 0; c < 4; c++) { cut_[c] = 0; csw_[c] = 0; }
@@ -154,6 +174,7 @@ void TunePlayer::play(const std::vector<uint8_t>& tune) {
         Voice& v = v_[k];
         v.base = vreg[first_ + k];
         v.start = v.pos = (uint16_t)(byte(8 + 2 * k) | (byte(9 + 2 * k) << 8));
+        v.bit = v.sbit = v.sp = v.ptr = 0;
         v.left = 1;
         v.gated = v.done = 0;
         v.arpa = v.arpb = 0;
@@ -173,6 +194,7 @@ void TunePlayer::play(const std::vector<uint8_t>& tune) {
     for (int j = 0; j < nd_; j++) {
         Voice& v = v_[12 + j];
         v.start = v.pos = (uint16_t)(byte(8 + 2 * (nvd + j)) | (byte(9 + 2 * (nvd + j)) << 8));
+        v.bit = v.sbit = v.sp = v.ptr = 0;
         v.left = 1;
         v.gated = v.done = 0;
         v.dvol = 255;
@@ -188,19 +210,20 @@ void TunePlayer::dnext(Voice& v, int idx) {
     bool guard = false;
     uint8_t c = (uint8_t)(0x10 + (dfirst_ + idx - 12) * 16);
     for (;;) {
-        uint8_t b = rd(v);
+        uint8_t b = rd(v, DOP);
         if (b < 0x80 || b == 0x84) {
-            if (b == 0x84) b = rd(v);
-            v.left = rd(v);
+            if (b == 0x84) b = rd(v, DHIT);
+            v.left = rd(v, DUR);
             dhit(v, idx, b);
             return;
         }
-        if (b == 0x80 || b == 0x82) { v.left = rd(v); return; }
-        if (b == 0x81) { dput(c, 0); v.left = rd(v); return; }   // stopped
-        if (b == 0x83) { v.dvol = rd(v); dvset(v, idx); continue; }
-        if (b == 0x86) { call(v, b); continue; }
+        if (b == 0x80 || b == 0x82) { v.left = rd(v, DUR); return; }
+        if (b == 0x81) { dput(c, 0); v.left = rd(v, DUR); return; }   // stopped
+        if (b == 0x83) { v.dvol = rd(v, DVOL); dvset(v, idx); continue; }
+        if (b == 0x86) { call(v, b, true); continue; }
         if (b == 0x87) { back(v); continue; }
-        if (b == 0xFE && !guard) { guard = true; v.pos = v.start; continue; }
+        if (b == 0x8C) { v.start = v.pos; v.sbit = v.bit; continue; }   // the loop point: back to here at the end
+        if (b == 0xFE && !guard) { guard = true; v.pos = v.start; v.bit = v.sbit; continue; }
         v.done = 1;
         return;
     }
@@ -225,13 +248,30 @@ void TunePlayer::pwstep(Voice& v) {
     wpw(v);
 }
 
-// a pattern call ($86 lo hi n, the $86 read): on at it, n times, then after
-void TunePlayer::call(Voice& v, uint8_t b) {
-    uint8_t lo = rd(v), hi = rd(v);
-    v.rep = rd(v);
-    v.ptr = b == 0x8B ? rd(v) : 0;   // ($8B: its transposition)
-    v.ret = v.pos;
-    v.pat = v.pos = (uint16_t)(lo | (hi << 8));
+// a pattern call ($86 lo hi n, the $86 read; coded: its number, n): on at
+// it, n times, then after; $8B: transposed t more (two deep: a third call
+// is passed over)
+void TunePlayer::call(Voice& v, uint8_t b, bool digi) {
+    uint16_t at;
+    if (coded_) {
+        uint8_t n = rd(v, PAT);
+        at = (uint16_t)(byte(pats_ + 2u * n) | (byte(pats_ + 2u * n + 1) << 8));
+    } else {
+        uint8_t lo = rd(v, PAT), hi = rd(v, PAT);
+        at = (uint16_t)(lo | (hi << 8));
+    }
+    uint8_t rep = rd(v, REP);
+    uint8_t t = b == 0x8B && !digi ? rd(v, TR) : 0;
+    if (v.sp >= kDepth) return;
+    auto& l = v.lv[v.sp++];
+    l.ret = v.pos;
+    l.rbit = v.bit;
+    l.pat = at;
+    l.rep = rep;
+    l.optr = v.ptr;
+    v.ptr = (uint8_t)(v.ptr + t);
+    v.pos = at;
+    v.bit = 0;
 }
 
 // the voice's volume on its channel: tune_digi_volume's times the voice's
@@ -275,10 +315,10 @@ void TunePlayer::stop() { silence(); }
 void TunePlayer::next(Voice& v, int idx) {
     bool guard = false;
     for (;;) {
-        uint8_t b = rd(v);
+        uint8_t b = rd(v, OP);
         if (b < 0x80) {
             v.note = (uint8_t)((b + v.ptr) & 0x7F);   // (a pattern's transposition)
-            v.left = rd(v);
+            v.left = rd(v, DUR);
             v.gated = 0;
             v.t = 0;
             v.vph = v.vcnt = 0;
@@ -315,39 +355,40 @@ void TunePlayer::next(Voice& v, int idx) {
             ctrl(v);
             return;
         }
-        if (b == 0x80) { v.left = rd(v); v.gated = 0; ctrl(v); return; }
-        if (b == 0x81) { inst(v, rd(v)); continue; }
-        if (b == 0x82) { v.left = rd(v); return; }
-        if (b == 0x83) { v.arpa = rd(v); v.arpb = rd(v); continue; }
-        if (b == 0x84) { v.gsemi = (int8_t)rd(v); v.gpend = rd(v); continue; }
-        if (b == 0x85) { uint8_t lo = rd(v); fpt_ = (uint16_t)(lo | (rd(v) << 8)); continue; }
-        if (b == 0x86 || b == 0x8B) { call(v, b); continue; }
+        if (b == 0x80) { v.left = rd(v, DUR); v.gated = 0; ctrl(v); return; }
+        if (b == 0x81) { inst(v, rd(v, INST)); continue; }
+        if (b == 0x82) { v.left = rd(v, DUR); return; }
+        if (b == 0x83) { v.arpa = rd(v, ARPA); v.arpb = rd(v, ARPB); continue; }
+        if (b == 0x84) { v.gsemi = (int8_t)rd(v, GLS); v.gpend = rd(v, GLK); continue; }
+        if (b == 0x85) { uint8_t lo = rd(v, TLO); fpt_ = (uint16_t)(lo | (rd(v, THI) << 8)); continue; }
+        if (b == 0x86 || b == 0x8B) { call(v, b, false); continue; }
         if (b == 0x87) { back(v); continue; }
         if (b == 0x89) {   // the pulse width and its sweep
-            uint8_t lo = rd(v), hi = rd(v);
+            uint8_t lo = rd(v, PWLO), hi = rd(v, PWHI);
             v.pw = (uint16_t)(lo | (hi << 8));
-            v.pwdir = (int8_t)rd(v);
+            v.pwdir = (int8_t)rd(v, PWS);
             v.pwfree = 0x40;   // (free)
             wpw(v);
             continue;
         }
         if (b == 0x8A) {   // the chip's cutoff and its sweep
             int c = v.base / 0x20;
-            uint8_t lo = rd(v), hi = rd(v);
+            uint8_t lo = rd(v, CLO), hi = rd(v, CHI);
             cut_[c] = (uint16_t)(lo | (hi << 8));
-            csw_[c] = (int8_t)rd(v);
+            csw_[c] = (int8_t)rd(v, CS);
             wcut(c);
             continue;
         }
         if (b == 0x88) {   // legato: the pitch, the note going on
-            v.note = (uint8_t)((rd(v) + v.ptr) & 0x7F);
-            v.left = rd(v);
+            v.note = (uint8_t)((rd(v, LNOTE) + v.ptr) & 0x7F);
+            v.left = rd(v, DUR);
             v.glide = 0;
             v.freq = notef(v, idx, 0);
             wf(v, v.freq);
             return;
         }
-        if (b == 0xFE && !guard) { guard = true; v.pos = v.start; continue; }
+        if (b == 0x8C) { v.start = v.pos; v.sbit = v.bit; continue; }   // the loop point: back to here at the end
+        if (b == 0xFE && !guard) { guard = true; v.pos = v.start; v.bit = v.sbit; continue; }
         v.done = 1;
         v.gated = 0;
         ctrl(v);

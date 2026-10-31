@@ -1,0 +1,776 @@
+; tune_code.s45 — the tune player's reader of coded data (TunePack.hpp,
+; <audio_tune.h>): tune_codec (a call the program makes, through tune45's
+; music.h, before it plays coded tunes) sets the player's routines for them
+; (tune.s45's vectors) to these, so a program with plain tunes alone has
+; none of it. The streams' fields as symbols of canonical Huffman codes
+; read bit by bit where the data lies (a voice's place: a byte's offset and
+; a bit, the byte there kept shifted); pattern calls by number, nested two
+; deep (the first level in the player's arrays, the second here); the
+; instruments' groups of fields from their dictionaries. Base page as the
+; player's: P the read pointer, T0-T2.
+
+; (called through the player's vectors, from tune_codec's addresses)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.global _tune_codec
+.extern __tune_at, __tune_rd, __tune_coded, __tune_guard, __tune_ins, __tune_rsize, __tune_nvd, __tune_nd, __tune_ibuf
+.extern __tv_pos_lo, __tv_pos_hi, __tv_start_lo, __tv_start_hi, __tv_ptr
+.extern __tv_ret_lo, __tv_ret_hi, __tv_pat_lo, __tv_pat_hi, __tv_rep
+.extern __tune_vdec, __tune_vcall, __tune_vback, __tune_vmark, __tune_vrest, __tune_vpeek, __tune_vinst, __tune_vinit, __tune_vcodes
+
+P  = $F6
+T0 = $FA
+T1 = $FB
+T2 = $FC
+NVT = 16
+RD = NVT                        ; (the reader's place after the voices')
+NS = NVT + 1
+C_OP = 0
+C_DUR = 1
+C_INST = 2
+C_LNOTE = 3
+C_ARPA = 4
+C_GLS = 6
+C_TLO = 8
+C_PWLO = 10
+C_CLO = 13
+C_PAT = 16
+C_REP = 17
+C_TR = 18
+C_DOP = 19
+NCTX = 22
+
+.segment "bss"
+__tv_bit:       .res NS         ; the bits of the byte at a voice's place read (from bit 7)
+__tv_sb:        .res NS         ;   that byte, its bits read shifted out
+__tv_sbit:      .res NVT        ; the loop point's bit
+__tv_sp:        .res NS         ; patterns called (0-2)
+__tv_rbit0:     .res NS         ; the first one's return's bit, the transposition before it
+__tv_optr0:     .res NS
+__tv_ret_lo1:   .res NS         ; the second: where the stream goes on after it,
+__tv_ret_hi1:   .res NS
+__tv_rbit1:     .res NS
+__tv_pat_lo1:   .res NS         ;   its start,
+__tv_pat_hi1:   .res NS
+__tv_rep1:      .res NS         ;   the times it plays yet,
+__tv_optr1:     .res NS         ;   the transposition before it
+__tune_pats:    .res 2          ; the pattern table
+__tune_ctl:     .res NCTX       ; each code's table
+__tune_cth:     .res NCTX
+__tune_cx:      .res 1          ; (a symbol being read: its code,
+__tune_tp:      .res 2          ;   its table,
+__tune_hl:      .res 1          ;   its longest code, the length so far,
+__tune_hn:      .res 1
+__tune_hk:      .res 1          ;   the codes of that length,
+__tune_hc:      .res 2          ;   the bits read,
+__tune_hf:      .res 2          ;   the first code of the length,
+__tune_hi:      .res 2          ;   the symbols before it)
+__tune_ng:      .res 1          ; the instruments' groups of fields (5, or 6);
+__tune_gdl:     .res 6          ;   each group's dictionary,
+__tune_gdh:     .res 6
+__tune_gi:      .res 6          ;   an instrument's entries,
+__tune_gf:      .res 1          ;   (a field, a group, a count)
+__tune_gg:      .res 1
+__tune_gk:      .res 1
+__tune_cb:      .res 1          ; (a call: its byte, offset, times, transposition)
+__tune_ct:      .res 2
+__tune_crep:    .res 1
+__tune_ctr:     .res 1
+__tune_px:      .res 1          ; (the voice looked ahead of)
+
+.segment "code"
+
+; an instrument's groups of fields: their bytes, and the fields they fill
+; (the envelope, pulse width, vibrato, filter, wave table, cycle)
+__tune_gsize:
+    .byte 6, 3, 2, 4, 2, 2
+__tune_gfield:
+    .byte 0, 1, 2, 6, 9, 10, 3, 4, 7, 5, 8, 11, 12, 13, 14, 15, 16, 17, 18
+
+; The player's routines for coded data, these
+proc _tune_codec
+    lda #<__tune_cdec
+    sta __tune_vdec
+    lda #>__tune_cdec
+    sta __tune_vdec+1
+    lda #<__tune_ccall
+    sta __tune_vcall
+    lda #>__tune_ccall
+    sta __tune_vcall+1
+    lda #<__tune_cback
+    sta __tune_vback
+    lda #>__tune_cback
+    sta __tune_vback+1
+    lda #<__tune_cmark
+    sta __tune_vmark
+    lda #>__tune_cmark
+    sta __tune_vmark+1
+    lda #<__tune_crest
+    sta __tune_vrest
+    lda #>__tune_crest
+    sta __tune_vrest+1
+    lda #<__tune_cpeek
+    sta __tune_vpeek
+    lda #>__tune_cpeek
+    sta __tune_vpeek+1
+    lda #<__tune_cinst
+    sta __tune_vinst
+    lda #>__tune_cinst
+    sta __tune_vinst+1
+    lda #<__tune_cvinit
+    sta __tune_vinit
+    lda #>__tune_cvinit
+    sta __tune_vinit+1
+    lda #<__tune_ccodes
+    sta __tune_vcodes
+    lda #>__tune_ccodes
+    sta __tune_vcodes+1
+    rts
+endproc
+
+proc __tune_cdec
+    sty __tune_cx
+    lda __tune_ctl,y
+    sta __tune_tp
+    lda __tune_cth,y
+    sta __tune_tp+1
+    jsr __tune_dtab
+    ldz #0
+    lda [P],z           ; its longest code (0: one symbol, no bits)
+    bne @code
+    inz
+    lda [P],z
+    ldy __tune_cx
+    rts
+@code:
+    sta __tune_hl
+    lda #0
+    sta __tune_hc
+    sta __tune_hc+1
+    sta __tune_hf
+    sta __tune_hf+1
+    sta __tune_hi
+    sta __tune_hi+1
+    ldz #1              ; (the length)
+@bit:
+    asl __tv_sb,x       ; the next bit into the code
+    rol __tune_hc
+    rol __tune_hc+1
+    inc __tv_bit,x
+    lda __tv_bit,x
+    cmp #8
+    bcc @in
+    lda #0              ; (the byte read: the next, and P back on the table)
+    sta __tv_bit,x
+    inc __tv_pos_lo,x
+    bne @load
+    inc __tv_pos_hi,x
+@load:
+    stz __tune_hn
+    jsr __tune_dsync
+    jsr __tune_dtab
+    ldz __tune_hn
+@in:
+    sec                 ; within the codes of this length: code - first < count
+    lda __tune_hc
+    sbc __tune_hf
+    sta T0
+    lda __tune_hc+1
+    sbc __tune_hf+1
+    bne @next
+    lda [P],z
+    sta __tune_hk
+    lda T0
+    cmp __tune_hk
+    bcc @found
+    bra @past
+@next:
+    lda [P],z
+    sta __tune_hk
+@past:
+    clc                 ; past them: the symbols before, the next length's first code
+    lda __tune_hi
+    adc __tune_hk
+    sta __tune_hi
+    bcc @i
+    inc __tune_hi+1
+@i:
+    clc
+    lda __tune_hf
+    adc __tune_hk
+    sta __tune_hf
+    bcc @f
+    inc __tune_hf+1
+@f:
+    asl __tune_hf
+    rol __tune_hf+1
+    inz
+    cpz __tune_hl
+    bcc @bit
+    beq @bit
+    lda #$FF            ; (no code)
+    ldy __tune_cx
+    rts
+@found:
+    ; the symbol: the table + 1 + L + the symbols before + code - first
+    clc
+    lda T0
+    adc __tune_hi
+    sta T0
+    lda __tune_hi+1
+    adc #0
+    sta T1
+    sec
+    lda T0
+    adc __tune_hl
+    sta T0
+    bcc @l
+    inc T1
+@l:
+    lda T1              ; (within 256 of the table: P is on it)
+    bne @far
+    lda T0
+    taz
+    lda [P],z
+    ldy __tune_cx
+    rts
+@far:
+    clc
+    lda T0
+    adc __tune_tp
+    sta T0
+    lda T1
+    adc __tune_tp+1
+    sta T1
+    jsr __tune_at
+    ldz #0
+    lda [P],z
+    ldy __tune_cx
+    rts
+endproc
+
+; P = the code's table (__tune_tp)
+proc __tune_dtab
+    lda __tune_tp
+    sta T0
+    lda __tune_tp+1
+    sta T1
+    jmp __tune_at
+endproc
+
+; __tv_sb = the byte at voice X's place, its bits read shifted out; X kept
+proc __tune_dsync
+    lda __tv_pos_lo,x
+    sta T0
+    lda __tv_pos_hi,x
+    sta T1
+    jsr __tune_at
+    ldz #0
+    lda [P],z
+    ldy __tv_bit,x
+    beq @set
+@shift:
+    asl a
+    dey
+    bne @shift
+@set:
+    sta __tv_sb,x
+    rts
+endproc
+
+; Voice X's place set up (tune_play): its bit, loop point's, no calls
+proc __tune_cvinit
+    lda #0
+    sta __tv_bit,x
+    sta __tv_sbit,x
+    sta __tv_sp,x
+    jmp __tune_dsync
+endproc
+
+; Voice X's instrument A's bytes into the player's buffer: its entries (a
+; byte a group: the instruments + A * the groups), each group's bytes from
+; its dictionary to their fields
+proc __tune_cinst
+    ; its entries (a byte a group: the instruments + A * the groups), each
+    ; group's bytes from its dictionary to their fields
+    sta T2
+    sta T0
+    lda #0
+    sta T1
+    asl T0              ; (A * 5, or 6)
+    rol T1
+    asl T0
+    rol T1
+    ldy __tune_ng
+@times:
+    clc
+    lda T0
+    adc T2
+    sta T0
+    bcc @t
+    inc T1
+@t:
+    dey
+    cpy #4
+    bne @times
+    clc
+    lda T0
+    adc __tune_ins
+    sta T0
+    lda T1
+    adc __tune_ins+1
+    sta T1
+    jsr __tune_at
+    ldy #0
+@entries:
+    tya
+    taz
+    lda [P],z
+    sta __tune_gi,y
+    iny
+    cpy __tune_ng
+    bcc @entries
+    lda #0
+    sta __tune_gf
+    ldy #0
+@group:
+    lda __tune_gdl,y    ; the entry: the dictionary + its number * the group's bytes
+    sta T0
+    lda __tune_gdh,y
+    sta T1
+    lda __tune_gsize,y
+    sta __tune_gk
+@gmul:
+    clc
+    lda T0
+    adc __tune_gi,y
+    sta T0
+    bcc @gm
+    inc T1
+@gm:
+    dec __tune_gk
+    bne @gmul
+    sty __tune_gg
+    jsr __tune_at
+    ldz #0
+@field:
+    ldy __tune_gf
+    lda __tune_gfield,y
+    tay
+    lda [P],z
+    sta __tune_ibuf,y
+    inc __tune_gf
+    inz
+    ldy __tune_gg
+    tza
+    cmp __tune_gsize,y
+    bcc @field
+    iny
+    cpy __tune_ng
+    bcc @group
+    rts
+endproc
+
+; Voice X's pattern call (A: $86 / $8B, read): its number (the pattern
+; table), times, $8B a transposition more; two deep, one past that passed
+; over
+proc __tune_ccall
+    sta __tune_cb
+    ldy #C_PAT
+    jsr __tune_rd
+    asl a
+    sta T0
+    lda #0
+    rol a
+    sta T1
+    clc
+    lda T0
+    adc __tune_pats
+    sta T0
+    lda T1
+    adc __tune_pats+1
+    sta T1
+    jsr __tune_at
+    ldz #0
+    lda [P],z
+    sta __tune_ct
+    inz
+    lda [P],z
+    sta __tune_ct+1
+    ldy #C_REP
+    jsr __tune_rd
+    sta __tune_crep
+    lda #0
+    sta __tune_ctr
+    lda __tune_cb
+    cmp #$8B
+    bne @push
+    ldy #C_TR
+    jsr __tune_rd
+    sta __tune_ctr
+@push:
+    ldy __tv_sp,x
+    beq @l0
+    cpy #1
+    beq @l1
+    rts
+@l0:
+    lda __tv_pos_lo,x
+    sta __tv_ret_lo,x
+    lda __tv_pos_hi,x
+    sta __tv_ret_hi,x
+    lda __tv_bit,x
+    sta __tv_rbit0,x
+    lda __tune_ct
+    sta __tv_pat_lo,x
+    lda __tune_ct+1
+    sta __tv_pat_hi,x
+    lda __tune_crep
+    sta __tv_rep,x
+    lda __tv_ptr,x
+    sta __tv_optr0,x
+    bra @go
+@l1:
+    lda __tv_pos_lo,x
+    sta __tv_ret_lo1,x
+    lda __tv_pos_hi,x
+    sta __tv_ret_hi1,x
+    lda __tv_bit,x
+    sta __tv_rbit1,x
+    lda __tune_ct
+    sta __tv_pat_lo1,x
+    lda __tune_ct+1
+    sta __tv_pat_hi1,x
+    lda __tune_crep
+    sta __tv_rep1,x
+    lda __tv_ptr,x
+    sta __tv_optr1,x
+@go:
+    clc
+    lda __tv_ptr,x
+    adc __tune_ctr
+    sta __tv_ptr,x
+    lda __tune_ct
+    sta __tv_pos_lo,x
+    lda __tune_ct+1
+    sta __tv_pos_hi,x
+    lda #0
+    sta __tv_bit,x
+    inc __tv_sp,x
+    jmp __tune_dsync
+endproc
+
+; ...its end ($87): again from its start, or on after the call (its
+; transposition as before)
+proc __tune_cback
+    ldy __tv_sp,x
+    bne @in
+    rts
+@in:
+    cpy #1
+    bne @second
+    dec __tv_rep,x
+    beq @out0
+    lda __tv_pat_lo,x
+    sta __tv_pos_lo,x
+    lda __tv_pat_hi,x
+    sta __tv_pos_hi,x
+    lda #0
+    sta __tv_bit,x
+    jmp __tune_dsync
+@out0:
+    lda __tv_ret_lo,x
+    sta __tv_pos_lo,x
+    lda __tv_ret_hi,x
+    sta __tv_pos_hi,x
+    lda __tv_rbit0,x
+    sta __tv_bit,x
+    lda __tv_optr0,x
+    sta __tv_ptr,x
+    dec __tv_sp,x
+    jmp __tune_dsync
+@second:
+    dec __tv_rep1,x
+    beq @out1
+    lda __tv_pat_lo1,x
+    sta __tv_pos_lo,x
+    lda __tv_pat_hi1,x
+    sta __tv_pos_hi,x
+    lda #0
+    sta __tv_bit,x
+    jmp __tune_dsync
+@out1:
+    lda __tv_ret_lo1,x
+    sta __tv_pos_lo,x
+    lda __tv_ret_hi1,x
+    sta __tv_pos_hi,x
+    lda __tv_rbit1,x
+    sta __tv_bit,x
+    lda __tv_optr1,x
+    sta __tv_ptr,x
+    dec __tv_sp,x
+    jmp __tune_dsync
+endproc
+
+; Voice X's loop point ($8C): its place and bit, $FE's from now
+proc __tune_cmark
+    lda __tv_pos_lo,x
+    sta __tv_start_lo,x
+    lda __tv_pos_hi,x
+    sta __tv_start_hi,x
+    lda __tv_bit,x
+    sta __tv_sbit,x
+    rts
+endproc
+
+; Voice X back to its start or loop point ($FE)
+proc __tune_crest
+    lda __tv_start_lo,x
+    sta __tv_pos_lo,x
+    lda __tv_start_hi,x
+    sta __tv_pos_hi,x
+    lda __tv_sbit,x
+    sta __tv_bit,x
+    jmp __tune_dsync
+endproc
+
+; C set when voice X's next event is a note (as the player's look ahead),
+; read at the reader's place: a copy of the voice's; X kept
+proc __tune_cpeek
+    stx __tune_px
+    lda __tv_pos_lo,x
+    sta __tv_pos_lo+RD
+    lda __tv_pos_hi,x
+    sta __tv_pos_hi+RD
+    lda __tv_bit,x
+    sta __tv_bit+RD
+    lda __tv_sp,x
+    sta __tv_sp+RD
+    lda __tv_ptr,x
+    sta __tv_ptr+RD
+    lda __tv_ret_lo,x
+    sta __tv_ret_lo+RD
+    lda __tv_ret_hi,x
+    sta __tv_ret_hi+RD
+    lda __tv_rbit0,x
+    sta __tv_rbit0+RD
+    lda __tv_pat_lo,x
+    sta __tv_pat_lo+RD
+    lda __tv_pat_hi,x
+    sta __tv_pat_hi+RD
+    lda __tv_rep,x
+    sta __tv_rep+RD
+    lda __tv_optr0,x
+    sta __tv_optr0+RD
+    lda __tv_ret_lo1,x
+    sta __tv_ret_lo1+RD
+    lda __tv_ret_hi1,x
+    sta __tv_ret_hi1+RD
+    lda __tv_rbit1,x
+    sta __tv_rbit1+RD
+    lda __tv_pat_lo1,x
+    sta __tv_pat_lo1+RD
+    lda __tv_pat_hi1,x
+    sta __tv_pat_hi1+RD
+    lda __tv_rep1,x
+    sta __tv_rep1+RD
+    lda __tv_optr1,x
+    sta __tv_optr1+RD
+    ldx #RD
+    jsr __tune_dsync
+    lda #0
+    sta __tune_guard
+@look:
+    ldy #C_OP
+    jsr __tune_rd
+    ldy #C_INST
+    cmp #$81
+    beq @one
+    ldy #C_ARPA
+    cmp #$83
+    beq @two
+    ldy #C_GLS
+    cmp #$84
+    beq @two
+    ldy #C_TLO
+    cmp #$85
+    beq @two
+    ldy #C_PWLO
+    cmp #$89
+    beq @three
+    ldy #C_CLO
+    cmp #$8A
+    beq @three
+    cmp #$86
+    beq @call
+    cmp #$8B
+    beq @call
+    cmp #$87
+    beq @back
+    cmp #$8C
+    beq @look
+    cmp #$FE
+    bne @is
+    lda __tune_guard    ; (from the voice's start or loop point, once)
+    bne @no
+    inc __tune_guard
+    ldy __tune_px
+    lda __tv_start_lo,y
+    sta __tv_pos_lo+RD
+    lda __tv_start_hi,y
+    sta __tv_pos_hi+RD
+    lda __tv_sbit,y
+    sta __tv_bit+RD
+    jsr __tune_dsync
+    bra @look
+@three:
+    jsr __tune_rd
+    iny
+@two:
+    jsr __tune_rd
+    iny
+@one:
+    jsr __tune_rd
+    bra @look
+@call:
+    jsr __tune_ccall
+    bra @look
+@back:
+    jsr __tune_cback
+    bra @look
+@is:
+    cmp #$80
+    bcs @no
+    ldx __tune_px
+    sec
+    rts
+@no:
+    ldx __tune_px
+    clc
+    rts
+endproc
+
+proc __tune_ccodes
+    lda __tune_nvd
+    clc
+    adc __tune_nd
+    asl a
+    clc
+    adc #8
+    ldy __tune_nd
+    beq @h
+    clc
+    adc #2
+@h:
+    sta T0
+    lda #0
+    sta T1
+    jsr __tune_at
+    ldz #0
+    lda [P],z
+    pha
+    inz
+    lda [P],z
+    pha
+    inz
+    lda [P],z
+    sta __tune_pats
+    inz
+    lda [P],z
+    sta __tune_pats+1
+    pla
+    sta T1
+    pla
+    sta T0
+    ldy #0
+@table:
+    lda T0
+    sta __tune_ctl,y
+    lda T1
+    sta __tune_cth,y
+    jsr __tune_at
+    ldz #0
+    lda [P],z
+    bne @sum
+    lda #2              ; (one symbol: L and it)
+    bra @next
+@sum:
+    sta __tune_hl       ; 1 + L + the symbols (each length's count)
+    inc a
+    sta __tune_hi
+    lda #0
+    sta __tune_hi+1
+@count:
+    inz
+    lda [P],z
+    clc
+    adc __tune_hi
+    sta __tune_hi
+    bcc @c
+    inc __tune_hi+1
+@c:
+    cpz __tune_hl
+    bcc @count
+    clc
+    lda T0
+    adc __tune_hi
+    sta T0
+    lda T1
+    adc __tune_hi+1
+    sta T1
+    bra @on
+@next:
+    clc
+    adc T0
+    sta T0
+    bcc @on
+    inc T1
+@on:
+    iny
+    cpy #NCTX
+    bcc @table
+    ; the groups' dictionaries (their entries: 0 for 256; then theirs)
+    lda #5
+    ldy __tune_rsize
+    cpy #19
+    bcc @ng
+    lda #6
+@ng:
+    sta __tune_ng
+    ldy #0
+@dict:
+    jsr __tune_at
+    ldz #0
+    lda [P],z
+    sta __tune_gk       ; (its entries)
+    clc
+    lda T0
+    adc #1
+    sta T0
+    sta __tune_gdl,y
+    lda T1
+    adc #0
+    sta T1
+    sta __tune_gdh,y
+    lda __tune_gsize,y  ; past them: entries * bytes
+    sta __tune_gg
+@past:
+    lda __tune_gk
+    bne @add
+    inc T1              ; (256)
+    bra @next2
+@add:
+    clc
+    adc T0
+    sta T0
+    bcc @next2
+    inc T1
+@next2:
+    dec __tune_gg
+    bne @past
+    iny
+    cpy __tune_ng
+    bcc @dict
+    rts
+endproc

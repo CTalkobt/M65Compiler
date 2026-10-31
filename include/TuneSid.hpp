@@ -16,7 +16,9 @@ struct SidImportOptions {
     std::string name;               // the tune's (a C identifier; default from the file's)
     std::string source;             // the .sid's file name (the text's first line)
     int song = 0;                   // from 1 (0: the file's start song)
-    double seconds = 180;           // how long to run it
+    double seconds = 180;           // how long to run it (without a loop found)
+    bool findLoop = true;           // where it plays again as before: a tune that loops there (|:)
+    double search = 900;            //   looked for so far (seconds)
     bool patterns = true;           // its repeats as patterns
 };
 

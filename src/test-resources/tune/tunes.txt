@@ -49,6 +49,6 @@ pattern pb: c2:4
 pattern ps: c5:1
 pattern pv: @slead g4:6 ~:2
 pattern pl: eb2:1 ~f2:1
-v1: @bass *pb*2 tempo:2 ~:2 *pl+2 r:2 g1:2 @cr cut:300,5 c3:2 c3:2 @bass *pb
-v2: @snare c5:2 r:2 *ps *ps-5 r:2 arp:3,7 c5:4 arp:off @cy e5:2 r:1 @cs e5:1 @snare c5:2 r:2 c5:4
-v3: *pv @tl arp2:12 c5:1 pw:600,20 r:1 cut:300,-9 r:2 arp:off @slead g4^5,2:4 r:4 tempo:3.25 c4:4
+v1: @bass *pb*2 |: tempo:2 ~:2 *pl+2 r:2 g1:2 @cr cut:300,5 c3:2 c3:2 @bass *pb
+v2: @snare c5:2 r:2 *ps *ps-5 r:2 |: arp:3,7 c5:4 arp:off @cy e5:2 r:1 @cs e5:1 @snare c5:2 r:2 c5:4
+v3: *pv |: @tl arp2:12 c5:1 pw:600,20 r:1 cut:300,-9 r:2 arp:off @slead g4^5,2:4 r:4 tempo:3.25 c4:4

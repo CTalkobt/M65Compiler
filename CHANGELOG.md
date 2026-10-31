@@ -4,6 +4,49 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### tune45 coded data: the player reads it as it plays
+
+- `tune45 convert --coded` writes each tune's data coded where that is
+  smaller (`--coded-all`: every tune's; plain by default, `list` giving
+  what coding would make of it): its events' repeats found again as
+  patterns across the voices (transposed, nested two deep, called by
+  number), each kind of field Huffman-coded in its own code, instruments
+  as entries of their groups' dictionaries. The player decodes it bit by
+  bit where it lies, nothing unpacked: a voice's place is a byte and a bit
+  (its pattern returns and loop point too).
+- The four .sid test tunes, each its whole song: Commando 10.3 KB (23.5
+  plain), Monty on the Run 9.2 KB (20.0), Cybernoid II 10.0 KB (24.3),
+  Wizball 6.3 KB (14.0): about pack45's size of the plain data. A
+  generated tune: 424 bytes (2872).
+- The reader is a library member of its own (`tune_code.s45`: 1438 bytes,
+  306 of RAM), linked by `tune_codec`, which `music.h` has `tune_play` /
+  `tune_play_far` / `tune_queue` call when a tune is coded; the player
+  reaches it through vectors (a coded tune without it plays nothing). A
+  program with plain tunes alone: the player 321 bytes larger (the codes'
+  numbers at its reads, loop points, the vectors). An update on coded data
+  1.25-2.6 times as long on average, at most 1.4 ms at 40 MHz (plain 0.5).
+  The xemu traces run each tune plain and coded; the four .sid imports
+  checked in xemu too (from their start and across their loop points).
+- The hard restart's look ahead now follows pattern calls and ends exactly
+  (a copy of the voice's pattern), in plain data too.
+
+### tune45 loop points; the .sid import finds the tune's loop
+
+- `|:` in a voice: its loop point (`$8C`): a looping tune goes on from
+  there at its end, an intro before it; voices may loop from different
+  ticks, their loops as long. v1's has the tempo there after it. Player
+  and model checked in xemu (the synth and digi test tunes).
+- The .sid import runs the player up to `--search` seconds (900) and looks
+  for the shortest period that what plays keeps to the end (gates,
+  waveforms, envelopes, filter; the pitch within a semitone, free-running
+  vibratos, arpeggios and sweeps let pass; the pulse width not compared):
+  the tune loops there, each voice from its first note in the period, its
+  instrument, arpeggio, pulse width, cutoff and tempo restated. Gone silent,
+  it ends. The four test tunes: Commando every 236.2 s, Monty on the Run
+  350.7 s, Cybernoid II 345.6 s, Wizball 214.9 s; each now its whole song,
+  playing on for ever (14-24 KB of data written out). `--no-loop`: as
+  before.
+
 ### Pulse-width cycles
 
 - Instruments: `pwlo=` / `pwhi=` a pulse-width cycle's limits (its sweep

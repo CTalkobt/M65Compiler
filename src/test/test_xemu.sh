@@ -2048,20 +2048,22 @@ done
 # Test: the tune player's digi voices against tune45's model: SID 1 and
 # the audio DMA's registers (channels 2-3: tune_digi_channels(2), the third
 # voice left out) after each of 150 frames, in both conventions (hits alone
-# and mixed, pitched, looping; a voice's volume; a stop)
-for drmode in "zp|$STDLIB|" "stack|$STDLIB_STACK|-fno-zpcall"; do
-    IFS='|' read -r drname drlib drflags <<< "$drmode"
+# and mixed, pitched, looping; a voice's volume; a stop), its data plain and
+# coded (read as it plays)
+for drmode in "zp|$STDLIB||" "stack|$STDLIB_STACK|-fno-zpcall|" "zp|$STDLIB||coded-all" "stack|$STDLIB_STACK|-fno-zpcall|coded-all"; do
+    IFS='|' read -r drname drlib drflags drdata <<< "$drmode"
+    drname=${drname}${drdata:+_coded}
     echo "Testing tune45 trace against the tune player (digi_$drname)..."
     TD=build/test/tune
     mkdir -p $TD/digi
-    if ./bin/tune45 convert src/test-resources/tune/digi.txt -o $TD/digi/music.c >/dev/null 2>&1 &&
+    if ./bin/tune45 convert ${drdata:+--$drdata} src/test-resources/tune/digi.txt -o $TD/digi/music.c >/dev/null 2>&1 &&
        ./bin/cc45 -O2 $drflags -I$TD/digi -DDIGI -DFRAMES=150 -DTUNE=0 -c src/test-resources/tune/trace_xemu.c -o $TD/dtrace_$drname.o45 &&
        ./bin/cc45 -O2 $drflags -I$TD/digi -c $TD/digi/music.c -o $TD/digi_$drname.o45 &&
        ./bin/ln45 -basic -o $TD/dtrace_$drname.prg $TD/dtrace_$drname.o45 $TD/digi_$drname.o45 $drlib >/dev/null; then
         rm -f $TD/dtrace_$drname.mem
         timeout 60 xemu-xmega65 -headless -besure -sleepless -prgmode 65 -prgexit -dumpmem $TD/dtrace_$drname.mem \
             -prg $TD/dtrace_$drname.prg >/dev/null 2>&1
-        ./bin/tune45 trace src/test-resources/tune/digi.txt --samples-at 0x40000 --digi-first 2 --mono --frames 150 \
+        ./bin/tune45 trace ${drdata:+--$drdata} src/test-resources/tune/digi.txt --samples-at 0x40000 --digi-first 2 --mono --frames 150 \
             > $TD/dmodel.txt 2>/dev/null
         if python3 - $TD/dtrace_$drname.mem $TD/dmodel.txt <<'PY'
 import sys
@@ -2101,23 +2103,25 @@ done
 # Test: tune45's model of the tune player against the player itself: SID
 # 1's registers (voices 0-2, the filter) after each of 300 frames (a tune
 # with every effect; one of glides, after a tune_seek; one of the filter,
-# wave tables and hard restart), in both conventions
+# wave tables and hard restart, patterns and loop points), in both
+# conventions, the data plain and coded (read as it plays: patterns nested)
 mkdir -p build/test/tune
 for trmode in "zp|$STDLIB||effects|0|0" "stack|$STDLIB_STACK|-fno-zpcall|effects|0|0" \
               "zp|$STDLIB||glides|1|40" "stack|$STDLIB_STACK|-fno-zpcall|glides|1|40" \
               "zp|$STDLIB||synth|2|0" "stack|$STDLIB_STACK|-fno-zpcall|synth|2|0"; do
+  for trdata in "" coded-all; do
     IFS='|' read -r trname trlib trflags trtune trn trseek <<< "$trmode"
-    trname=${trtune}_$trname
+    trname=${trtune}_${trname}${trdata:+_coded}
     echo "Testing tune45 trace against the tune player ($trname)..."
     TD=build/test/tune
-    if ./bin/tune45 convert src/test-resources/tune/tunes.txt -o $TD/music.c >/dev/null &&
+    if ./bin/tune45 convert ${trdata:+--$trdata} src/test-resources/tune/tunes.txt -o $TD/music.c >/dev/null &&
        ./bin/cc45 -O2 $trflags -I$TD -DTUNE=$trn -DSEEK=$trseek -c src/test-resources/tune/trace_xemu.c -o $TD/trace_$trname.o45 &&
        ./bin/cc45 -O2 $trflags -I$TD -c $TD/music.c -o $TD/music_$trname.o45 &&
        ./bin/ln45 -basic -o $TD/trace_$trname.prg $TD/trace_$trname.o45 $TD/music_$trname.o45 $trlib >/dev/null; then
         rm -f $TD/trace_$trname.mem
         timeout 60 xemu-xmega65 -headless -besure -sleepless -prgmode 65 -prgexit -dumpmem $TD/trace_$trname.mem \
             -prg $TD/trace_$trname.prg >/dev/null 2>&1
-        ./bin/tune45 trace src/test-resources/tune/tunes.txt --tune $trtune --seek $trseek --mono --frames 300 > $TD/model.txt
+        ./bin/tune45 trace ${trdata:+--$trdata} src/test-resources/tune/tunes.txt --tune $trtune --seek $trseek --mono --frames 300 > $TD/model.txt
         if python3 - $TD/trace_$trname.mem $TD/model.txt <<'PY'
 import sys
 mem = open(sys.argv[1], 'rb').read()
@@ -2139,6 +2143,7 @@ PY
         echo "FAIL: tune45 trace test ($trname): build failed"
         failed=$((failed + 1))
     fi
+  done
 done
 
 # Test: #pragma cc45 optimize(off) / (on): functions compiled as written still

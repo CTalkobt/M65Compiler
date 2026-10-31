@@ -59,7 +59,7 @@ std::string sidImport(const PsidFile& p, const SidImportOptions& o, std::string&
     SidRun run;
     // (a first call to learn the rate, then as many as the seconds take)
     if (!runPsid(p, song, 1, run, error)) return "";
-    int calls = std::max(1, (int)std::lround(o.seconds * run.callsPerSecond));
+    int calls = std::max(1, (int)std::lround((o.findLoop ? std::max(o.seconds, o.search) : o.seconds) * run.callsPerSecond));
     if (!runPsid(p, song, calls, run, error)) return "";
     int chips = 1 + (p.sid2 ? 1 : 0) + (p.sid3 ? 1 : 0);
     int nv = chips * 3;
@@ -102,7 +102,105 @@ std::string sidImport(const PsidFile& p, const SidImportOptions& o, std::string&
             fr[(size_t)v].push_back(f);
         }
     }
-    const size_t frames = run.calls.size();
+    // the loop: the shortest period L the registers keep from a call on to
+    // the end (twice over and 20 s more, at least: a tenth of the search's
+    // time if that is less), from its earliest call;
+    // silent: the tune's end. Each voice's loop point then its first note
+    // in the period from that call (or the call after it: no note crosses
+    // it, and its last note ends where its first begins again), its text a
+    // period past it
+    size_t frames = run.calls.size();
+    size_t loopFrom = SIZE_MAX, period = 0;
+    bool ends = false;
+    std::vector<size_t> lp((size_t)nv, SIZE_MAX), endAt((size_t)nv, frames);
+    if (o.findLoop) {
+        // what plays: the gate, waveform, envelope, filter alike, the cutoff
+        // within 64, the pitch within a semitone (or its median over 8
+        // frames, or the pitch two calls either way: a free-running vibrato,
+        // arpeggio or sweep); the pulse width not (a sweep running freely);
+        // a few calls amiss (a glitch) let pass
+        std::vector<uint64_t> key(frames, 0);
+        std::vector<std::vector<double>> pt((size_t)nv, std::vector<double>(frames)), pm = pt;
+        for (size_t k = 0; k < frames; k++)
+            for (int v = 0; v < nv; v++) {
+                const Frame& f = fr[(size_t)v][k];
+                uint64_t x = (uint64_t)f.onset | (uint64_t)(f.ctrl & 0xF7) << 1 | (uint64_t)f.ad << 9 | (uint64_t)f.sr << 17 |
+                             (uint64_t)f.filtered << 25 | (uint64_t)f.mode << 26 | (uint64_t)f.res << 34;
+                key[k] = (key[k] ^ x) * 0x100000001B3ull + (uint64_t)v;
+                double hz = f.freq * clock / 16777216.0;
+                pt[(size_t)v][k] = hz < 8 ? -100 : 69 + 12 * std::log2(hz / 440.0);
+            }
+        size_t w = std::max<size_t>(4, (size_t)std::lround(4 * run.callsPerSecond / 50));
+        for (int v = 0; v < nv; v++)
+            for (size_t k = 0; k < frames; k++) {
+                size_t a = k >= w ? k - w : 0, e = std::min(frames, k + w + 1);
+                std::vector<double> win(pt[(size_t)v].begin() + (long)a, pt[(size_t)v].begin() + (long)e);
+                std::nth_element(win.begin(), win.begin() + (long)win.size() / 2, win.end());
+                pm[(size_t)v][k] = win[win.size() / 2];
+            }
+        auto same = [&](size_t a, size_t b) {
+            if (key[a] != key[b]) return false;
+            for (int c = 0; c < chips; c++)
+                if (std::abs((int)fr[(size_t)c * 3][a].cutoff - (int)fr[(size_t)c * 3][b].cutoff) > 64) return false;
+            for (int v = 0; v < nv; v++) {
+                const auto &P = pt[(size_t)v], &M = pm[(size_t)v];
+                if (std::fabs(P[a] - P[b]) <= 1 || std::fabs(M[a] - M[b]) <= 1) continue;
+                bool near = false;
+                for (size_t j = b >= 2 ? b - 2 : 0; j <= std::min(frames - 1, b + 2) && !near; j++) near = std::fabs(P[a] - P[j]) <= 1;
+                if (!near) return false;
+            }
+            return true;
+        };
+        // (a period of a second at least, with 8 notes begun in it: a held
+        // sound changing slowly is no loop)
+        size_t margin = (size_t)std::lround(std::min(20.0, o.search / 10) * run.callsPerSecond);
+        std::vector<size_t> onsets(frames + 1, 0);   // (begun before each call)
+        for (size_t k = 0; k < frames; k++) {
+            onsets[k + 1] = onsets[k];
+            for (int v = 0; v < nv; v++) onsets[k + 1] += fr[(size_t)v][k].onset;
+        }
+        // silent from a call to the end (the margin at least): it ends there
+        size_t quiet = frames;
+        while (quiet > 0) {
+            bool g = false;
+            for (int v = 0; v < nv; v++) g |= fr[(size_t)v][quiet - 1].gate;
+            if (g) break;
+            quiet--;
+        }
+        if (frames - quiet >= margin) { loopFrom = quiet; period = 1; }
+        for (size_t L = std::max<size_t>(1, (size_t)std::lround(run.callsPerSecond)); !period && 2 * L + margin <= frames; L++) {
+            size_t s = frames - L, miss = 0;
+            while (s > 0) {
+                if (!same(s - 1, s - 1 + L) && ++miss > 4 + (frames - L - s) / 5000) break;
+                s--;
+            }
+            while (s < frames - L && !same(s, s + L)) s++;   // (from a call that plays as before)
+            if (frames - s >= 2 * L + margin && onsets[s + L] - onsets[s] >= 8) { loopFrom = s; period = L; }
+        }
+    }
+    if (period) {
+        bool sound = false;
+        for (int v = 0; v < nv; v++)
+            for (size_t k = loopFrom; k < loopFrom + period && !sound; k++) sound |= fr[(size_t)v][k].gate;
+        if (!sound) {   // (silent from there: it ends, its last release a second long at most)
+            ends = true;
+            frames = std::min(frames, loopFrom + (size_t)std::lround(run.callsPerSecond));
+            period = 0;
+        } else {
+            size_t most = 0;
+            for (int v = 0; v < nv; v++) {
+                size_t at = loopFrom + 1;
+                for (size_t k = loopFrom; k < loopFrom + period; k++)
+                    if (fr[(size_t)v][k].onset) { at = k; break; }
+                lp[(size_t)v] = at;
+                endAt[(size_t)v] = at + period;
+                most = std::max(most, at + period);
+            }
+            frames = std::min(frames, most + 64);   // (a little past: the last notes' ends seen)
+        }
+    } else frames = std::min(frames, (size_t)std::max(1L, std::lround(o.seconds * run.callsPerSecond)));
+    for (auto& f : fr) f.resize(frames);
+    for (auto& e : endAt) e = std::min(e, frames);
     auto pitch = [&](uint16_t freq) {   // the note a frequency register sounds (fractional)
         double hz = freq * clock / 16777216.0;
         return hz < 8 ? -1.0 : 69 + 12 * std::log2(hz / 440.0);
@@ -256,10 +354,11 @@ std::string sidImport(const PsidFile& p, const SidImportOptions& o, std::string&
             int p = 0, d = 0;
             bool begun = false;
             size_t si = 0;
-            for (size_t k = 0; k < frames; k++) {
+            for (size_t k = 0; k < endAt[(size_t)v]; k++) {
                 bool onset = si < spans.size() && spans[si].at == k;
                 if (onset) si++;
                 if (onset) begun = true;
+                if (k == lp[(size_t)v]) { p = -0x10000; d = 0; }   // (the loop point: the width as the period's end left it)
                 if (onset && !keep) { p = ipw[si - 1]; d = ipwm[si - 1]; }
                 int steps = (int)(std::floor((double)(k + 1) / cpf) - std::floor((double)k / cpf));
                 auto step = [&](int& x, int& dir) {
@@ -494,15 +593,24 @@ std::string sidImport(const PsidFile& p, const SidImportOptions& o, std::string&
         bool routed = false;   // (a chip whose filter a voice uses)
         for (int v = c * 3; v < c * 3 + 3; v++) for (const auto& f : fr[(size_t)v]) routed |= f.filtered && f.mode;
         if (!routed) continue;
+        bool atLoop = false;
         for (const auto& ln : cutLines[(size_t)c])
             if (ln.at > 0 && ln.at < frames) {
                 snprintf(b, sizeof b, "cut:%x,%d ", std::max(0, std::min(0x7FF, (int)std::lround(ln.value))), perFrame(ln.slope));
                 rows[(size_t)c * 3][ln.at].tokens += b;
+                atLoop |= ln.at == lp[(size_t)c * 3];
             }
+        size_t at = lp[(size_t)c * 3];
+        if (period && !atLoop) {   // (its loop point: the cutoff as it was there)
+            Line ln = lineAt(cutLines[(size_t)c], at);
+            int x = std::max(0, std::min(0x7FF, (int)std::lround(ln.value + ln.slope * (double)(at - ln.at))));
+            snprintf(b, sizeof b, "cut:%x,%d ", x, perFrame(ln.slope));
+            rows[(size_t)c * 3][at].tokens = b + rows[(size_t)c * 3][at].tokens;
+        }
     }
     int last = -1;
     for (int v = 0; v < nv; v++) if (!audible[(size_t)v].empty()) last = v;
-    if (last < 0) { error = "the tune played no notes in " + std::to_string((int)o.seconds) + " s"; return ""; }
+    if (last < 0) { error = "the tune played no notes in " + std::to_string((int)(frames / run.callsPerSecond)) + " s"; return ""; }
     last = std::max(last, (chips - 1) * 3);   // (a chip's cut: tokens on its first voice)
 
     // the text
@@ -511,7 +619,15 @@ std::string sidImport(const PsidFile& p, const SidImportOptions& o, std::string&
     std::string who = p.name.empty() ? "(untitled)" : p.name;
     if (!p.author.empty()) who += " by " + p.author;
     if (!p.released.empty()) who += " (" + p.released + ")";
-    snprintf(b, sizeof b, "; %s: tune45 text of %s, song %d of %d, %g s\n", who.c_str(), o.source.c_str(), song, p.songs, o.seconds);
+    if (period)
+        snprintf(b, sizeof b, "; %s: tune45 text of %s, song %d of %d: it loops from %.1f s, every %.1f s\n", who.c_str(),
+                 o.source.c_str(), song, p.songs, loopFrom / run.callsPerSecond, period / run.callsPerSecond);
+    else if (ends)
+        snprintf(b, sizeof b, "; %s: tune45 text of %s, song %d of %d: it ends at %.1f s\n", who.c_str(), o.source.c_str(), song,
+                 p.songs, loopFrom / run.callsPerSecond);
+    else
+        snprintf(b, sizeof b, "; %s: tune45 text of %s, song %d of %d, %g s%s\n", who.c_str(), o.source.c_str(), song, p.songs,
+                 o.seconds, o.findLoop ? " (no loop found)" : "");
     t += b;
     snprintf(b, sizeof b, "; (tune45 import: a %s, its player run %s, %.2f calls a second, a tick each; %d SID%s)\n", p.magic.c_str(),
              run.cia ? "by its CIA timer" : "a frame", run.callsPerSecond, chips, chips > 1 ? "s" : "");
@@ -539,7 +655,7 @@ std::string sidImport(const PsidFile& p, const SidImportOptions& o, std::string&
             played += now / 256.0;
         }
     }
-    snprintf(b, sizeof b, "\ntune %s %.8g once\n", name.c_str(), std::lround(want * 256) / 256.0);
+    snprintf(b, sizeof b, "\ntune %s %.8g %s\n", name.c_str(), std::lround(want * 256) / 256.0, period ? "loop" : "once");
     std::string tuneLine = b;
     // each voice's tokens (a note's or a legato note's: its note beside it)
     struct Tok { std::string text; int note = -1; };
@@ -549,9 +665,17 @@ std::string sidImport(const PsidFile& p, const SidImportOptions& o, std::string&
         auto& out = tv[(size_t)v];
         std::string cur, curArp = "arp:off";
         bool sounding = false;   // (a note begun: what follows its gate rings on)
-        for (size_t k = 0; k < frames;) {
+        size_t end = endAt[(size_t)v], mark = lp[(size_t)v];
+        std::set<std::string> insts, arps;   // (named again after the loop point where the voice changes them)
+        for (size_t k = 0; k < end; k++) if (R[k].start) { insts.insert(R[k].inst); arps.insert(R[k].arp); }
+        for (size_t k = 0; k < end;) {
+            if (k == mark) {   // the loop point: the instrument and arpeggio named again after it
+                out.push_back({"|:"});
+                if (insts.size() > 1) cur.clear();
+                if (arps.size() > 1 || (arps.size() == 1 && *arps.begin() != "arp:off")) curArp.clear();
+            }
             size_t e = k + 1;
-            while (e < frames && e - k < 4000 && !R[e].start && R[e].legato < 0 && R[e].tokens.empty() && R[e].gate == R[k].gate) e++;
+            while (e < end && e != mark && e - k < 4000 && !R[e].start && R[e].legato < 0 && R[e].tokens.empty() && R[e].gate == R[k].gate) e++;
             std::string n = std::to_string(e - k);   // (at most 4000 ticks: a long one goes on as ties or rests)
             if (!R[k].tokens.empty()) {
                 std::string tk = R[k].tokens;
@@ -618,7 +742,7 @@ std::string sidImport(const PsidFile& p, const SidImportOptions& o, std::string&
                 int prev = -1;
                 for (size_t i = 0; i < seq[(size_t)v].size(); i++) {
                     const El& e = seq[(size_t)v][i];
-                    if (e.call >= 0) { all.push_back({unique--, 0, false}); prev = -1; }
+                    if (e.call >= 0 || tokOf(v, e).text == "|:") { all.push_back({unique--, 0, false}); prev = -1; }   // (a call, the loop point)
                     else {
                         const Tok& t = tokOf(v, e);
                         long long id = tmplId.emplace(t.text, (int)tmplId.size()).first->second;

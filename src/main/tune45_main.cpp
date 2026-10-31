@@ -6,6 +6,7 @@
 //   tune45 sample sound.pak --rate 8000     sampled sound as the audio DMA plays it
 // (create and import: see doc/bin/tune45.md)
 #include "TuneCompiler.hpp"
+#include "TunePack.hpp"
 #include "TunePlayer.hpp"
 #include "TuneAudio.hpp"
 #include "TuneCreate.hpp"
@@ -54,6 +55,9 @@ void usage(std::ostream& o) {
          "Options:\n"
          "  -o <file>          output file\n"
          "  --bin, --asm       convert: a binary blob / ca45 source instead of C\n"
+         "  --coded            each tune's data coded where that is smaller (the player reads it as it\n"
+         "                     plays, nothing unpacked; the program links its reader, tune_codec: about\n"
+         "                     1.7 KB, and more time a frame); --coded-all: every tune's (default: plain)\n"
          "  --header <file>    convert: the header's name (default: the output's, .h)\n"
          "  --load-at <addr>   convert --bin: a 2-byte load address first (a KERNAL LOAD skips it)\n"
          "  --tune <name>      play: that tune (again for more; default: all, in order)\n"
@@ -99,7 +103,10 @@ void usage(std::ostream& o) {
          "  --audition [n]     import of a MOD: each sample (or n): the original, the SID's stand-in, then both\n"
          "                     (the original left, the SID right), asking sid or sample after each (at a\n"
          "                     terminal, or --ask); --wav <file> to a file\n"
-         "  --song <n>, --seconds <s>  import of a .sid: the song (default its start song), how long (180)\n"
+         "  --song <n>, --seconds <s>  import of a .sid: the song (default its start song), how long (180) when\n"
+         "                     it has no loop: where its registers play again as before it loops (|:)\n"
+         "  --search <s>       import of a .sid: how far to look for its loop (900 s)\n"
+         "  --no-loop          import of a .sid: no loop looked for: --seconds of it, played once\n"
          "  --no-patterns      import of a .sid: its repeats written out (no patterns)\n"
          "  --choices <file>   import of a MOD: the choices --audition saves (default: beside the MOD,\n"
          "                     .choices); with --report and --extract: the verdicts\n"
@@ -174,6 +181,18 @@ int convert(const TuneFile& f, const std::string& src, const std::string& outPat
     }
     // the digi voices' samples: one bank, in chip RAM (tune_samples)
     if (!f.bank.empty()) h << "#define TUNE_SAMPLES_SIZE " << f.bank.size() << "\n";
+    // coded tunes: the player's reader of them linked and set up wherever
+    // the program starts a tune (tune_codec before it)
+    bool coded = false;
+    for (const auto& t : f.tunes) coded |= (TuneCompiler::blob(f, t)[0] & 0x20) != 0;
+    if (coded)
+        h << "\n/* coded tunes: the player reads them with tune_codec's routines, set up\n"
+             "   wherever a tune starts */\n"
+             "#include <audio_tune.h>\n"
+             "#define tune_play(t) (tune_codec(), tune_play(t))\n"
+             "#define tune_play_far(a) (tune_codec(), tune_play_far(a))\n"
+             "#define tune_queue(t, b) (tune_codec(), tune_queue((t), (b)))\n"
+             "#define tune_queue_far(a, b) (tune_codec(), tune_queue_far((a), (b)))\n";
 
     if (mode == "bin") {
         // [tunes][offset (2) each] then the blobs; offsets from the start
@@ -909,8 +928,14 @@ int list(const TuneFile& f) {
         unsigned ticks = t.ticks();
         double sec = t.frames(ticks) / 50.0;   // PAL frames; NTSC plays as long
         char buf[160];
-        snprintf(buf, sizeof buf, "%-12s %2zu voices %5zu bytes  %5u ticks  %6.1f s  %.2f frames/tick  %s\n",
-                 t.name.c_str(), t.voices.size() + t.digi.size(), b.size(), ticks, sec, t.fpt / 256.0, t.loop ? "loop" : "once");
+        std::string form = (b[0] & 0x20) ? "  coded" : "";
+        if (!TuneCompiler::dataMode) {   // (plain: what coding would make of it)
+            auto c = tunepack::pack(b);
+            if (!c.empty() && c.size() < b.size()) form = "  (coded " + std::to_string(c.size()) + ")";
+        }
+        snprintf(buf, sizeof buf, "%-12s %2zu voices %5zu bytes  %5u ticks  %6.1f s  %.2f frames/tick  %s%s\n",
+                 t.name.c_str(), t.voices.size() + t.digi.size(), b.size(), ticks, sec, t.fpt / 256.0, t.loop ? "loop" : "once",
+                 form.c_str());
         std::cout << buf;
         std::cout << "             voices:";
         for (size_t v = 0; v < t.voices.size(); v++) std::cout << " v" << v + 1 << " " << t.voices[v].stream.size() + 1;
@@ -1013,11 +1038,15 @@ int main(int argc, char** argv) {
         else if (a == "--song" && i + 1 < argc) sio.song = std::max(1, atoi(argv[++i]));
         else if (a == "--seconds" && i + 1 < argc) sio.seconds = std::max(0.1, atof(argv[++i]));
         else if (a == "--no-patterns") sio.patterns = false;
+        else if (a == "--search" && i + 1 < argc) sio.search = std::max(1.0, atof(argv[++i]));
+        else if (a == "--no-loop") sio.findLoop = false;
         else if (a == "--choices" && i + 1 < argc) modChoices = argv[++i];
         else if (a == "--audition") {
             modAudition = 0;
             if (i + 1 < argc && std::isdigit((unsigned char)argv[i + 1][0])) modAudition = atoi(argv[++i]);
         }
+        else if (a == "--coded") TuneCompiler::dataMode = 1;
+        else if (a == "--coded-all") TuneCompiler::dataMode = 2;
         else if (a == "--bin") mode = "bin";
         else if (a == "--asm") mode = "asm";
         else if (a == "--header" && i + 1 < argc) header = argv[++i];
