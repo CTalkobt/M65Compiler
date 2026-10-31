@@ -4,6 +4,17 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: a signed operand with a narrower unsigned one stays signed (#377)
+
+- `(signed long)s * uc / 48` divided unsigned (21829 for -16), and
+  `((signed long)c * u) >> 3` shifted unsigned: the product itself was
+  computed as signed (a wider signed type holds every value of a narrower
+  unsigned one), but the type the operation reported to the one around it
+  was unsigned. It is signed now, as the code computes it, and a shift has
+  its left operand's signedness. Folded constants the same:
+  `(signed int)-80 / (unsigned char)20` is -4 (was 3272).
+- Test: `test_signed_mixed_xemu.c` (both conventions).
+
 ### cc45: a declarator's name in parentheses, void (f)(int) (#376)
 
 - `void (f)(int);` and `int (x);` were errors ("Expected variable name"):
