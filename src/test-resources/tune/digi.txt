@@ -1,12 +1,16 @@
 ; test_xemu.sh: digi voices, the model against the player. Three digi
 ; voices from channel 2 (tune_digi_channels(2)): the third is left out.
-; Hits alone and together (mixed), rests and ties ringing on, a loop.
+; Hits alone and together (mixed), rests and ties ringing on, a loop; a
+; sample played at notes (pitched: its rate) and looping, a voice's volume,
+; a stop, a pattern.
 sample tone ../pack45/tone.wav rate=4000
 sample noise ../pack45/noise.wav rate=5000 gain=60
 sample au ../pack45/tone.au
+sample held ../pack45/tone.wav rate=4000 note=c4 loop=0.1
 instrument lead pulse 09 a6 0600 1 1
 tune drums 2 loop
-v1: @lead c4:4 e4:4 g4:4 r:4
-d1: tone:2 noise:2 tone+noise:2 r:2 noise+tone:4 ~:2 tone:2
-d2: r:1 au:3 noise:4 au+tone+noise:6 r:2
+v1: @lead c4:4 |: e4:4 g4:4 r:4 c4:4
+d1: tone:2 noise:2 |: tone+noise:2 r:2 vol:32 noise+tone:4 ~:2 vol:64 held:g4:2 ~:4
+pattern pd: noise:2
+d2: r:1 held:c4:3 *pd*2 au+tone+noise:6 -:2
 d3: tone:16

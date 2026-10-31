@@ -2070,6 +2070,26 @@ for mmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: the tune player's controls for a game (api_xemu.c): tune_volume
+# (the SIDs' and the digi voices'), tune_fade and tune_fading, tune_borrow
+# (the voice left alone, then the music's), tune_queue (the next tune at
+# the bar line, not before), in both conventions
+for apmode in "zp|$STDLIB|" "stack|$STDLIB_STACK|-fno-zpcall"; do
+    IFS='|' read -r apname aplib apflags <<< "$apmode"
+    echo "Testing the tune player's controls (api_$apname)..."
+    TD=build/test/tune
+    mkdir -p $TD/api
+    if ./bin/tune45 convert src/test-resources/tune/api.txt -o $TD/api/music.c >/dev/null 2>&1 &&
+       ./bin/cc45 -O2 $apflags -I$TD/api -c src/test-resources/tune/api_xemu.c -o $TD/api_$apname.o45 &&
+       ./bin/cc45 -O2 $apflags -I$TD/api -c $TD/api/music.c -o $TD/apimusic_$apname.o45 &&
+       ./bin/ln45 -basic -o $TD/api_$apname.prg $TD/api_$apname.o45 $TD/apimusic_$apname.o45 $aplib >/dev/null; then
+        run_xemu_test "tune_api_$apname" "$TD/api_$apname.prg" "C0C0" 10 "01 01 01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: the tune player's controls (api_$apname): build failed"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: tgi_bar's fill patterns (both drivers), gets / gets_s from the
 # KERNAL's keyboard buffer, heapfree, ftoa
 for tpmode in "zp|" "stack|-fno-zpcall"; do
@@ -2080,20 +2100,23 @@ done
 
 # Test: the tune player's digi voices against tune45's model: SID 1 and
 # the audio DMA's registers (channels 2-3: tune_digi_channels(2), the third
-# voice left out) after each of 150 frames, in both conventions
-for drmode in "zp|$STDLIB|" "stack|$STDLIB_STACK|-fno-zpcall"; do
-    IFS='|' read -r drname drlib drflags <<< "$drmode"
+# voice left out) after each of 150 frames, in both conventions (hits alone
+# and mixed, pitched, looping; a voice's volume; a stop), its data plain and
+# coded (read as it plays)
+for drmode in "zp|$STDLIB||" "stack|$STDLIB_STACK|-fno-zpcall|" "zp|$STDLIB||coded-all" "stack|$STDLIB_STACK|-fno-zpcall|coded-all"; do
+    IFS='|' read -r drname drlib drflags drdata <<< "$drmode"
+    drname=${drname}${drdata:+_coded}
     echo "Testing tune45 trace against the tune player (digi_$drname)..."
     TD=build/test/tune
     mkdir -p $TD/digi
-    if ./bin/tune45 convert src/test-resources/tune/digi.txt -o $TD/digi/music.c >/dev/null 2>&1 &&
+    if ./bin/tune45 convert ${drdata:+--$drdata} src/test-resources/tune/digi.txt -o $TD/digi/music.c >/dev/null 2>&1 &&
        ./bin/cc45 -O2 $drflags -I$TD/digi -DDIGI -DFRAMES=150 -DTUNE=0 -c src/test-resources/tune/trace_xemu.c -o $TD/dtrace_$drname.o45 &&
        ./bin/cc45 -O2 $drflags -I$TD/digi -c $TD/digi/music.c -o $TD/digi_$drname.o45 &&
        ./bin/ln45 -basic -o $TD/dtrace_$drname.prg $TD/dtrace_$drname.o45 $TD/digi_$drname.o45 $drlib >/dev/null; then
         rm -f $TD/dtrace_$drname.mem
         timeout 60 xemu-xmega65 -headless -besure -sleepless -prgmode 65 -prgexit -dumpmem $TD/dtrace_$drname.mem \
             -prg $TD/dtrace_$drname.prg >/dev/null 2>&1
-        ./bin/tune45 trace src/test-resources/tune/digi.txt --samples-at 0x40000 --digi-first 2 --mono --frames 150 \
+        ./bin/tune45 trace ${drdata:+--$drdata} src/test-resources/tune/digi.txt --samples-at 0x40000 --digi-first 2 --mono --frames 150 \
             > $TD/dmodel.txt 2>/dev/null
         if python3 - $TD/dtrace_$drname.mem $TD/dmodel.txt <<'PY'
 import sys
@@ -2102,8 +2125,10 @@ lines = [bytes.fromhex(l.strip()) for l in open(sys.argv[2])]
 model = [l[:25] + l[128 + 0x30:128 + 0x50] + bytes([l[128 + 1], l[128 + 0x0E], l[128 + 0x0F]]) for l in lines]
 if mem[0xC0C0] != 0xAA or len(model) != 150:
     sys.exit("did not finish")
-if not any(m[25] == 0xA2 for m in model) or not any(m[41] == 0xA2 for m in model):
+if not any(m[25] in (0xA2, 0xE2) for m in model) or not any(m[41] in (0xA2, 0xE2) for m in model):
     sys.exit("the model's digi voices never played")
+if not any(m[41] == 0xE2 for m in model) or not any(m[25 + 9] == 0x7F for m in model):
+    sys.exit("the model's loop or volume never came")
 bad = [f for f in range(150) if mem[0x8000 + 60 * f:0x8000 + 60 * f + 60] != model[f]]
 if bad:
     sys.exit("they differ from frame %d (%d frames)" % (bad[0] + 1, len(bad)))
@@ -2131,23 +2156,25 @@ done
 # Test: tune45's model of the tune player against the player itself: SID
 # 1's registers (voices 0-2, the filter) after each of 300 frames (a tune
 # with every effect; one of glides, after a tune_seek; one of the filter,
-# wave tables and hard restart), in both conventions
+# wave tables and hard restart, patterns and loop points), in both
+# conventions, the data plain and coded (read as it plays: patterns nested)
 mkdir -p build/test/tune
 for trmode in "zp|$STDLIB||effects|0|0" "stack|$STDLIB_STACK|-fno-zpcall|effects|0|0" \
               "zp|$STDLIB||glides|1|40" "stack|$STDLIB_STACK|-fno-zpcall|glides|1|40" \
               "zp|$STDLIB||synth|2|0" "stack|$STDLIB_STACK|-fno-zpcall|synth|2|0"; do
+  for trdata in "" coded-all; do
     IFS='|' read -r trname trlib trflags trtune trn trseek <<< "$trmode"
-    trname=${trtune}_$trname
+    trname=${trtune}_${trname}${trdata:+_coded}
     echo "Testing tune45 trace against the tune player ($trname)..."
     TD=build/test/tune
-    if ./bin/tune45 convert src/test-resources/tune/tunes.txt -o $TD/music.c >/dev/null &&
+    if ./bin/tune45 convert ${trdata:+--$trdata} src/test-resources/tune/tunes.txt -o $TD/music.c >/dev/null &&
        ./bin/cc45 -O2 $trflags -I$TD -DTUNE=$trn -DSEEK=$trseek -c src/test-resources/tune/trace_xemu.c -o $TD/trace_$trname.o45 &&
        ./bin/cc45 -O2 $trflags -I$TD -c $TD/music.c -o $TD/music_$trname.o45 &&
        ./bin/ln45 -basic -o $TD/trace_$trname.prg $TD/trace_$trname.o45 $TD/music_$trname.o45 $trlib >/dev/null; then
         rm -f $TD/trace_$trname.mem
         timeout 60 xemu-xmega65 -headless -besure -sleepless -prgmode 65 -prgexit -dumpmem $TD/trace_$trname.mem \
             -prg $TD/trace_$trname.prg >/dev/null 2>&1
-        ./bin/tune45 trace src/test-resources/tune/tunes.txt --tune $trtune --seek $trseek --mono --frames 300 > $TD/model.txt
+        ./bin/tune45 trace ${trdata:+--$trdata} src/test-resources/tune/tunes.txt --tune $trtune --seek $trseek --mono --frames 300 > $TD/model.txt
         if python3 - $TD/trace_$trname.mem $TD/model.txt <<'PY'
 import sys
 mem = open(sys.argv[1], 'rb').read()
@@ -2169,6 +2196,7 @@ PY
         echo "FAIL: tune45 trace test ($trname): build failed"
         failed=$((failed + 1))
     fi
+  done
 done
 
 # Test: #pragma cc45 optimize(off) / (on): functions compiled as written still

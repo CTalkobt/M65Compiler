@@ -103,6 +103,195 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   `test_libcall_conv.sh` checks the list has every ZP routine of
   `lib/stdlib_asm`.
 
+### tune45 coded data: the player reads it as it plays
+
+- `tune45 convert --coded` writes each tune's data coded where that is
+  smaller (`--coded-all`: every tune's; plain by default, `list` giving
+  what coding would make of it): its events' repeats found again as
+  patterns across the voices (transposed, nested two deep, called by
+  number), each kind of field Huffman-coded in its own code, instruments
+  as entries of their groups' dictionaries. The player decodes it bit by
+  bit where it lies, nothing unpacked: a voice's place is a byte and a bit
+  (its pattern returns and loop point too).
+- The four .sid test tunes, each its whole song: Commando 10.3 KB (23.5
+  plain), Monty on the Run 9.2 KB (20.0), Cybernoid II 10.0 KB (24.3),
+  Wizball 6.3 KB (14.0): about pack45's size of the plain data. A
+  generated tune: 424 bytes (2872).
+- The reader is a library member of its own (`tune_code.s45`: 1438 bytes,
+  306 of RAM), linked by `tune_codec`, which `music.h` has `tune_play` /
+  `tune_play_far` / `tune_queue` call when a tune is coded; the player
+  reaches it through vectors (a coded tune without it plays nothing). A
+  program with plain tunes alone: the player 321 bytes larger (the codes'
+  numbers at its reads, loop points, the vectors). An update on coded data
+  1.25-2.6 times as long on average, at most 1.4 ms at 40 MHz (plain 0.5).
+  The xemu traces run each tune plain and coded; the four .sid imports
+  checked in xemu too (from their start and across their loop points).
+- The hard restart's look ahead now follows pattern calls and ends exactly
+  (a copy of the voice's pattern), in plain data too.
+
+### tune45 loop points; the .sid import finds the tune's loop
+
+- `|:` in a voice: its loop point (`$8C`): a looping tune goes on from
+  there at its end, an intro before it; voices may loop from different
+  ticks, their loops as long. v1's has the tempo there after it. Player
+  and model checked in xemu (the synth and digi test tunes).
+- The .sid import runs the player up to `--search` seconds (900) and looks
+  for the shortest period that what plays keeps to the end (gates,
+  waveforms, envelopes, filter; the pitch within a semitone, free-running
+  vibratos, arpeggios and sweeps let pass; the pulse width not compared):
+  the tune loops there, each voice from its first note in the period, its
+  instrument, arpeggio, pulse width, cutoff and tempo restated. Gone silent,
+  it ends. The four test tunes: Commando every 236.2 s, Monty on the Run
+  350.7 s, Cybernoid II 345.6 s, Wizball 214.9 s; each now its whole song,
+  playing on for ever (14-24 KB of data written out). `--no-loop`: as
+  before.
+
+### Pulse-width cycles
+
+- Instruments: `pwlo=` / `pwhi=` a pulse-width cycle's limits (its sweep
+  turning at them; 19-byte instruments in a tune using one), `pwsaw` a
+  sawtooth (from the top back to the bottom); with `pwrun` running on
+  across notes. Player and model checked in xemu.
+- The .sid import finds a voice's cycle (a triangle or a sawtooth) and
+  simulates its pulse width as the player would run it, running on or
+  begun again at each note, a `pw:` where it strays: the way with fewest.
+  The pulse width 3-6 times closer to the original's on three of the four
+  test tunes (the fourth as close); their data from 19% larger to 23%
+  smaller.
+
+### tune45 patterns called transposed
+
+- `*name+5`, `*name-2*4`: a pattern played so many semitones up or down
+  (`$8B offset n t`; its notes and legato notes; SID voices). The player
+  and its model checked in xemu; `pwrun` and `cutrun` instruments too (a
+  note leaves the pulse width or cutoff as it is).
+- The .sid import finds repeats by their notes' intervals: a phrase at
+  another pitch is called transposed. Its search is by bytes, made with and
+  without transposition, the smaller kept: 3 minutes of the four test
+  tunes 7-9% smaller again (one alike), their traces unchanged.
+
+### tune45 import of a .sid: its repeats as patterns
+
+- The runs of tokens repeated (a suffix array's maximal repeats, the one
+  that saves most first, its non-overlapping copies called; `*p*n` for
+  copies running on) become patterns; the text plays as written out
+  (register traces alike over 3 minutes of four tunes). Their data: 39-61%
+  over 3 minutes (packed, about as before). `--no-patterns` writes it out.
+
+### tune45 import of a .sid: closer to the original
+
+- Measured against the originals' own register writes played through the
+  same reSIDfp (four classic tunes, tested locally, not in the repo): notes
+  0.90-0.97 alike, loudness 0.94-0.99 (were 0.84-0.90 and 0.53-0.98).
+- A note lasts to the next, its release included (what a player does to it
+  then is kept; the instrument `tail`); a player's hard restart is `hr=`
+  (a one-frame note's attack no longer lost to the SID's envelope);
+  two-note arpeggios; legato notes at the pitch's jumps; vibrato with its
+  depth and speed; the pulse width and cutoff as straight lines (`pwm`
+  `free`, `fsweep`; `pw:` and `cut:` where they turn); sweeps of players
+  called several times a frame scaled; their timing kept by `tempo:`.
+- The tune player: `tail` (effects through the release), `free` (a pulse
+  width sweep without bounces), `vspeed=1-16` (a slower vibrato), `arp2:`,
+  `pw:` and `cut:`. Player and model checked in xemu.
+
+### tune45 import of a C64 tune (.sid); legato notes
+
+- `tune45 import tune.sid` (`--song`, `--seconds`): a PSID (or simple
+  RSID) run on an emulated C64 (`SidFile.cpp`: an NMOS 6502 with the
+  undocumented opcodes and decimal mode, passing Klaus Dormann's functional
+  and decimal tests; the I/O players read; KERNAL stubs), init then play
+  or the interrupt handler init installed, at 50/60 Hz or the CIA timer's
+  rate; the SID writes made text (`TuneSid.cpp`): notes by the gate (hard
+  restarts too), instruments by the registers at a note's start (pulse
+  sweep, the filter), wave tables of a note's first frames (drums),
+  arpeggios, legato notes. Tests: PSIDs made by the test (a frame and CIA
+  timed).
+- `~note:ticks` in a SID voice: a legato note (`$88 n d`: the pitch
+  changes, the note goes on). Player and model checked in xemu.
+
+### tune45 import of XM, S3M and IT
+
+- `tune45 import` reads FastTracker 2 XM, Scream Tracker 3 S3M and Impulse
+  Tracker IT (`TuneTracker.cpp`) into the MOD structures: notes as MOD
+  periods with each sample's tuning, 16-bit/stereo/delta/IT-compressed
+  samples to 8-bit mono, ping-pong loops unrolled, instruments' note maps
+  resolved, effects and the volume column as ProTracker's (speed over 31 as
+  its own effect), patterns of any length; then `--report`, `--audition`,
+  `--extract` and the text as for a MOD. Over 12 channels of SID notes: the
+  busiest 12. Checked against libopenmpt on 24 public-domain modules
+  (lengths and sample data); tests: an XM, S3M and IT made by the test.
+
+### The tune player: controls for a game
+
+- `tune_volume(0-15)` and `tune_fade(frames, volume)` / `tune_fading`: the
+  music's volume (the four SIDs' $D418 volume, the rest kept; the digi
+  voices', 17 a step), a fade stepped by `tune_update`.
+- `tune_borrow(voice, frames)` / `tune_return`: a voice lent to the
+  program's sound effects (no register or filter routing writes from the
+  music meanwhile; back, it sounds from its next note).
+- `tune_queue(tune, bar)` / `tune_queue_far` / `tune_queued`: the next tune
+  started at the playing one's bar line; tune45 writes `TUNE_<NAME>_BAR`.
+- Tested in xemu in both conventions (`api_xemu.c`).
+
+### tune45 patterns
+
+- `pattern <name>: <tokens>` and `*name` / `*name*3` in a voice (SID or
+  digi): in the data once, called ($86 offset times) and returning ($87);
+  the hard restart looks into, round and out of them. The player and its
+  model checked against each other in xemu (the synth and digi tunes).
+- MOD import: a voice's part of a MOD pattern played more than once is a
+  pattern, called where it plays; the four test MODs' data to 27-63%, their
+  register traces unchanged.
+
+### The tune player: pitched and looping samples, a voice's volume, a stop
+
+- Digi voices: `name:note:ticks` plays a sample at a note (`sample ...
+  note=c4` the note it sounds at its rate): one copy in the bank, a table
+  entry a pitch at its rate. `sample ... loop[=s]` loops it (the audio DMA's
+  loop: from the loop's start to its end) until `-:ticks` (the channel
+  stopped) or the next hit. `vol:0-64` the voice's volume (times
+  `tune_digi_volume`'s), at once for the sample sounding. Hits past 127
+  (`$84 h d`, up to 256). The data: 9-byte sample entries (flags bit 4; the
+  7-byte ones of before still play). The player and its model, checked
+  against each other in xemu (`digi.txt`).
+- MOD import uses them: a kept sample is one WAV, hit at its notes; its loop
+  a loop; a cut or a SID note on its channel a stop; the sample's volume, C
+  and the volume slides `vol:` (only volume on SID voices is lost now). The
+  64 KB is far further: of the four test MODs, two kept every sample, the
+  others one sample less.
+
+### tune45 import of a MOD: the samples weighed for the SID
+
+- `tune45 import song.mod -o song.txt`: the MOD as tune45 text. The rows
+  in play order (jumps, breaks, pattern loops and delays) a tick each,
+  speed and BPM as the frames a tick and `tempo:`; a channel a `v` voice
+  for its SID instruments' notes (at the sample's own pitch, the report's
+  instrument with hr=1) and a `d` voice for its kept samples (a WAV a note,
+  in `song_samples/`; a silent hit stops one at the channel's SID note);
+  arpeggio, tone portamento (a glide), vibrato (an instrument variant),
+  note cuts carried over, the rest counted in a comment. The verdicts are
+  the best guess, or `--choices`; the best guess makes SID instruments of
+  the biggest kept samples while they are over the 64 KB bank.
+- `tune45 import song.mod --report`: a MOD (ProTracker and its kin, the
+  15-sample Soundtracker files) read, and each sample measured at the
+  period the song plays it at most: its pitch and how clear it is, how
+  much of it repeats, its harmonics against the SID's waveforms (and
+  through the low-pass), its timbre and pitch over time, its envelope as
+  AD/SR, and what the song does with it. A score gives the verdict: a SID
+  instrument, approximately one, or a sample to keep (drums, voices,
+  chords, timbres the SID is far from); the summary counts the digi
+  voices the kept samples need. `--extract <dir>` writes the kept samples
+  (`--all`: every used one) as WAVs with their loop, for `sample` lines.
+- `--audition [n]`: each sample (or sample n) at up to four of its notes:
+  the original as the audio DMA plays it, the SID's stand-in (the report's
+  instrument through the player's model and reSIDfp), then both, the
+  original left and the SID right; each part as loud as the others. At a
+  terminal (or `--ask`) it asks after each sample: a SID instrument or
+  keep the sample (again, each part alone, back, quit), the answers saved
+  as given to `--choices <file>` (default `song.choices`); `--report` and
+  `--extract` take the choices as the verdicts.
+- Tested on a MOD made by the test (`test_tune45.sh`).
+
 ### sprites.h: the hardware sprites
 
 - `<sprites.h>` is now a library for the VIC-IV's 8 hardware sprites

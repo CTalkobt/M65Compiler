@@ -28,13 +28,14 @@
 //       "|" marks are checked
 //   v1: ... v12:  a voice: note:ticks (c4 is MIDI 60; c#4, eb4), r:ticks a
 //       rest, ~:ticks the note held longer, @name an instrument,
-//       arp:4,7 / arp:off an arpeggio, | a bar line; g4^3:ticks glides up
+//       arp:4,7 / arp:off an arpeggio, | a bar line, |: the loop point; g4^3:ticks glides up
 //       into the note from 3 semitones below (^-3 from above; ^3,2: a speed
 //       of 2, 1/4 of the distance a frame; the default 3, 1/8); tempo:5
 //       the tune's frames per tick from there on
 // The data (lib/include/audio_tune.h, lib/stdlib_asm/tune.s45): a blob a
 // tune: header, the instruments it uses, a byte stream a voice.
 #pragma once
+#include <algorithm>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -45,6 +46,8 @@ struct TuneInstrument {
     uint8_t wave = 0x40, ad = 0, sr = 0xF0;
     uint16_t pw = 0x800;
     uint8_t vib = 0, gap = 0;
+    uint8_t vspeed = 1;             // frames a step of the vibrato's triangle (1-16; the vib byte's high nibble + 1)
+    uint16_t pwlo = 0, pwhi = 0;    // its pulse-width cycle's limits (pwhi 0: none; 19-byte instruments)
     int8_t pwm = 0;
     uint8_t vdelay = 0;
     int8_t slide = 0;
@@ -66,9 +69,10 @@ struct TuneVoice {
     int line = 0;
     std::vector<uint8_t> stream;    // without the end byte
     unsigned ticks = 0;
+    int loopAt = -1;                // its loop point's tick (|:; -1: it loops from its start)
     bool defaultInstrument = false; // plays before its first @instrument
     std::vector<int> instruments;   // file instruments it names, in order
-    std::vector<std::pair<int, unsigned>> hits;   // a digi voice's: the hit, its tick
+    std::vector<std::pair<int, unsigned>> hits;   // a digi voice's: the hit (-1 a stop), its tick
 };
 
 struct TuneSample {
@@ -77,12 +81,18 @@ struct TuneSample {
     uint32_t rate = 0;              // 0: the lowest that keeps it (at most 12000)
     int gain = 100;                 // per cent
     double from = 0, len = 0;       // the part of the file (seconds; len 0: to its end)
+    int note = 60;                  // the note it sounds at its rate (a pitched hit's from it)
+    double loop = -1;               // the loop's start (seconds; -1: played once)
 };
 
-// A hit: samples sounding at once, mixed into one in the sample bank
+// A hit: samples sounding at once, mixed into one in the sample bank, at a
+// pitch (semitones from the first sample's note: the same bytes, at a rate
+// so much higher)
 struct TuneHit {
     std::vector<int> samples;       // TuneFile::samples, sorted
+    int semis = 0;
     uint32_t at = 0, len = 0, rate = 0;   // its place in the bank, bytes, Hz
+    int32_t loop = -1;              // the loop's start, bytes from at (-1: none)
 };
 
 struct Tune {
@@ -94,7 +104,19 @@ struct Tune {
     std::vector<TuneVoice> voices;
     std::vector<TuneVoice> digi;    // d1: .. d4:
     std::vector<std::pair<unsigned, uint16_t>> tempos;   // tempo:, by tick: frames per tick from then
-    unsigned ticks() const { return !voices.empty() ? voices[0].ticks : !digi.empty() ? digi[0].ticks : 0; }
+    // its ticks once through (with loop points: the longest voice's)
+    unsigned ticks() const {
+        unsigned n = 0;
+        for (const auto& v : voices) n = std::max(n, v.ticks);
+        for (const auto& v : digi) n = std::max(n, v.ticks);
+        return n;
+    }
+    // the frames per tick at tick (tempo: changes counted)
+    uint16_t tempoAt(unsigned tick) const {
+        uint16_t now = fpt;
+        for (const auto& [k, x] : tempos) if (k <= tick) now = x;
+        return now;
+    }
     // PAL frames from the start to tick (tempo: changes counted)
     double frames(unsigned tick) const {
         double f = 0;
@@ -110,7 +132,19 @@ struct Tune {
     }
 };
 
+// A pattern: tokens a voice plays where it says *name (*name*3: three
+// times); in the data once (for SID voices and for digi voices, as used),
+// called ($86 offset times) and returning ($87)
+struct TunePattern {
+    std::string name;
+    int line = 0;
+    std::vector<std::string> tokens;
+    std::vector<uint8_t> body[2];   // its stream (a SID voice's, a digi voice's: as a voice's, without the end)
+    bool have[2] = {false, false};
+};
+
 struct TuneFile {
+    std::vector<TunePattern> patterns;
     std::vector<TuneInstrument> instruments;
     std::vector<TuneTable> tables;
     std::vector<TuneSample> samples;
@@ -132,7 +166,13 @@ public:
     const std::vector<std::string>& warnings() const { return warnings_; }
 
     // The player's blob of a tune (its instruments renumbered: those it uses)
+    // The data the player plays: plain (plainBlob; dataMode 0, the
+    // default), or coded (TunePack.hpp: read as it plays, no copy unpacked;
+    // the program links its reader): dataMode 1 where that is smaller, 2
+    // wherever it can be
     static std::vector<uint8_t> blob(const TuneFile& f, const Tune& t);
+    static std::vector<uint8_t> plainBlob(const TuneFile& f, const Tune& t);
+    static int dataMode;
     // The file's instruments a tune uses, as the blob numbers them
     static std::vector<int> usedInstruments(const TuneFile& f, const Tune& t);
     // The file's hits a tune plays, as the blob numbers them

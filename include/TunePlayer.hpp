@@ -3,6 +3,7 @@
 // tune45 play feeds them to reSIDfp; the tests compare them with the real
 // player's in xemu, so the two must stay the same.
 #pragma once
+#include "TunePack.hpp"
 #include <cstdint>
 #include <functional>
 #include <vector>
@@ -42,7 +43,15 @@ public:
 private:
     struct Voice {
         uint16_t pos = 0, start = 0;
+        uint8_t bit = 0, sbit = 0;      // (coded data: the next bit in the byte at pos; the loop point's)
         uint8_t left = 0, gated = 0, done = 0, note = 0, t = 0, base = 0;
+        uint8_t dvol = 255;             // a digi voice's volume (vol:)
+        uint8_t vspd = 0, vph = 0, vcnt = 0;   // the vibrato's speed (frames a step less 1), its step, frames to the next
+        // the patterns called (two deep): where the stream goes on after
+        // each, its start, the times it plays yet, the transposition before
+        struct Level { uint16_t ret = 0, pat = 0; uint8_t rbit = 0, rep = 0, optr = 0; } lv[tunepack::kDepth];
+        uint8_t sp = 0;                 //   how many
+        uint8_t ptr = 0;                // the transposition now (semitones; $8B)
         uint16_t freq = 0, pw = 0;
         int8_t pwdir = 0;
         uint8_t arpa = 0, arpb = 0, arpi = 0;
@@ -53,7 +62,11 @@ private:
         uint8_t gpend = 0, glide = 0;
         uint16_t tgt = 0;
         // the instrument's hard restart, filter and wave table
-        uint8_t hr = 0, filt = 0;
+        uint8_t hr = 0, filt = 0, tail = 0;   // tail: its effects through the release (the hr byte's bit 7)
+        uint8_t free = 0, pwfree = 0;   // its pulse-width sweep free (bit 6); the voice's now (pw: sets it)
+        uint8_t pwrun = 0, cutrun = 0;  // its pulse width / its chip's cutoff run on: not set by a note (bits 5, 4)
+        uint8_t ipwlo = 0, ipwhi = 0, pwlo = 0, pwhi = 0;   // its pulse-width cycle's limits (/ 16; 0: none); the voice's
+        uint8_t ipwsaw = 0, pwsaw = 0;  // the cycle a sawtooth (bit 2); the voice's
         int8_t fsweep = 0;
         uint16_t cutoff = 0, table = 0;
         // its control register's waveform now, the table's step and pitch,
@@ -74,11 +87,17 @@ private:
     uint8_t shadow_[128] = {};
     uint8_t nd_ = 0, dfirst_ = 0, dvol_ = 255;   // digi voices; the first channel; volume
     uint16_t stab_ = 0;               // the sample table
+    bool e9_ = false;                 // its entries 9 bytes (a loop's), else 7
     uint32_t sbank_ = 0;              // the samples' address
     unsigned ticks_ = 0;
 
+    bool coded_ = false;              // its data coded (TunePack.hpp)
+    tunepack::Reader code_;
+    uint16_t pats_ = 0;               //   its pattern table
+
     uint8_t byte(unsigned at) const { return at < tune_.size() ? tune_[at] : 0xFF; }
-    uint8_t rd(Voice& v) { return byte(v.pos++); }
+    // the next byte of a voice's stream (coded: the symbol in context c)
+    uint8_t rd(Voice& v, int c) { return coded_ ? code_.symbol(c, v.pos, v.bit) : byte(v.pos++); }
     void put(uint8_t idx, uint8_t val);
     void w(const Voice& v, uint8_t reg, uint8_t val) { put((uint8_t)(v.base + reg), val); }
     void ctrl(const Voice& v) { w(v, 4, (uint8_t)((v.cw & 0xFE) | v.gated)); }
@@ -92,6 +111,16 @@ private:
     uint16_t notef(const Voice& v, int idx, uint8_t add) const;
     void next(Voice& v, int idx);
     void dnext(Voice& v, int idx);
+    void call(Voice& v, uint8_t b, bool digi);
+    void pwstep(Voice& v);
+    void back(Voice& v) {   // a pattern's end: again, or on after its call
+        if (!v.sp) return;
+        auto& l = v.lv[v.sp - 1];
+        if (--l.rep) { v.pos = l.pat; v.bit = 0; }
+        else { v.pos = l.ret; v.bit = l.rbit; v.ptr = l.optr; v.sp--; }
+    }
+    void dhit(Voice& v, int idx, uint8_t h);
+    void dvset(Voice& v, int idx);
     void dput(uint8_t idx, uint8_t val) { if (!mute_ && dwrite_) dwrite_(idx, val); }
     void tick();
     void effects();

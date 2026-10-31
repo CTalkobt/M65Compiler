@@ -27,6 +27,17 @@
  * voices: SID 1 voices 0-2, SID 2 3-5, SID 3 6-8, SID 4 9-11). Digi voice i
  * (samples) plays on audio DMA channel first + i (tune_digi_channels).
  *
+ * The data may be coded (tune45 convert --coded): the player reads it as
+ * it plays, nothing unpacked (TunePack.hpp: each field Huffman-coded,
+ * repeats as patterns nested two deep). Its reader (stdlib_asm/
+ * tune_code.s45: 1438 bytes, 306 of RAM) is linked and set up by
+ * tune_codec(), which tune45's music.h has tune_play, tune_play_far and
+ * tune_queue call first when a tune is coded (a coded tune started without
+ * it plays nothing); a program with plain tunes alone has none of it. It
+ * costs more time a frame (on four long C64 tunes 1.25-2.6 times the plain
+ * data's, at most 1.4 ms at 40 MHz) and tune_seek takes 1.6-3.2 times as
+ * long.
+ *
  * Stream bytes (tune45 writes them; docs: doc/bin/tune45.md):
  *   $00-$7F n d   note n (MIDI, 60 = middle C) for d ticks (d 0 = 256)
  *   $80 d         rest          $81 i   instrument i
@@ -37,10 +48,33 @@
  *                 2^k - 1) >> k a frame towards it (k 1-7; 0: no glide)
  *   $85 lo hi     the tune's frames per tick from now (8.8; tune45 puts the
  *                 tune's own at voice 0's start, so a loop starts as it did)
+ *   $86 lo hi n   a pattern: the stream at offset lo hi, n times (to its
+ *                 $87 each time), then on after the call (a call in one too:
+ *                 two deep; tune45 makes them in coded data)
+ *   $8B lo hi n t a pattern called transposed: its notes and legato notes
+ *                 t semitones up (signed; within 0-127)
+ *   $87           a pattern's end
+ *   $8C           the loop point (|:): the voice's start from now ($FE goes
+ *                 back here); v1's has $85 after it in a tune with tempo:
+ *   $88 n d       a legato note: the pitch n for d ticks, the note going on
+ *   $89 lo hi s   the pulse width and its sweep a frame (signed)
+ *   $8A lo hi s   the voice's chip's cutoff (11 bits) and its sweep a frame
+ * ($83 a $80: a two-note arpeggio, the note and +a. An instrument's hr byte's
+ * bit 7: its effects go on through the release; bit 6: its pulse-width
+ * sweep free (no bounce; stopped at 0 and $FFF, as pw:'s); bit 5: a note
+ * leaves the pulse width as it is, swept in rests too; bit 4: its note
+ * leaves its chip's cutoff as it is; bit 2: its pulse-width cycle a
+ * sawtooth. In 19-byte instruments (header byte 5) two more: the cycle's
+ * limits / 16 (the high 0: none), the sweep turning at them. Its vibrato
+ * byte's high nibble: frames a step of the triangle, less 1.)
  *   $FE           back to the voice's start (a tune that loops)
  *   $FF           the voice's end
  * A digi voice's: $00-$7F h d  hit h (the tune's sample table) for d
- * ticks; $80 d / $82 d  the sample rings on; $FE, $FF.
+ * ticks; $84 h d  hit h, 0-255; $80 d / $82 d  the sample rings on; $81 d
+ * the channel stopped; $83 v  the voice's volume (0-255: times
+ * tune_digi_volume's / 256; no time); $86 / $87 / $8C as above; $FE, $FF. A sample table entry: its
+ * offset and bytes, the rate, and (flags bit 4) its loop's start from it
+ * ($FFFF: played once).
  */
 #pragma once
 
@@ -48,6 +82,9 @@
  * playing stops */
 __fastcall__ void tune_play(const unsigned char *tune);
 __fastcall__ void tune_play_far(unsigned long addr);
+
+/* The player's reader of coded data, linked and set up (music.h calls it) */
+__fastcall__ void tune_codec(void);
 
 /* Silence the tune's voices (their gates off) */
 __fastcall__ void tune_stop(void);
@@ -99,3 +136,30 @@ __fastcall__ unsigned char tune_note(unsigned char voice);
 __fastcall__ void tune_samples(unsigned long addr);
 __fastcall__ void tune_digi_channels(unsigned char first);
 __fastcall__ void tune_digi_volume(unsigned char volume);
+
+/* For a game: the music's volume, voices lent to the program's sound
+ * effects, the next tune at a bar line.
+ *   tune_volume   the music's volume 0-15 (15 at first): the SIDs' (their
+ *                 $D418 volume, the rest of it kept) and the digi voices'
+ *                 (17 a step, times tune_digi_volume's); at once
+ *   tune_fade     to a volume over so many frames (tune_update steps it);
+ *                 tune_fading: 1 until it gets there. A fade out and the
+ *                 next tune: tune_fade(50, 0) ... tune_play ... tune_fade(50, 15)
+ *   tune_borrow   a tune voice (0-11) lent to the program for so many
+ *                 frames (0: until tune_return): the music goes on but
+ *                 writes none of its registers (nor its filter routing), so
+ *                 a sound effect can play on it (audio_sid.h); back, it
+ *                 sounds again from its next note
+ *   tune_queue    the tune started at the playing one's next bar line (its
+ *                 ticks a multiple of bar: tune45 gives TUNE_<NAME>_BAR for
+ *                 a tune with ticks a bar), or at once if on one or nothing
+ *                 plays; tune_queued: 1 while it waits
+ * The volume stays set across tune_play. */
+__fastcall__ void tune_volume(unsigned char volume);
+__fastcall__ void tune_fade(unsigned int frames, unsigned char volume);
+__fastcall__ unsigned char tune_fading(void);
+__fastcall__ void tune_borrow(unsigned char voice, unsigned int frames);
+__fastcall__ void tune_return(unsigned char voice);
+__fastcall__ void tune_queue(const unsigned char *tune, unsigned int bar);
+__fastcall__ void tune_queue_far(unsigned long addr, unsigned int bar);
+__fastcall__ unsigned char tune_queued(void);

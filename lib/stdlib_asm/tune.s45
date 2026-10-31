@@ -36,6 +36,13 @@
 ; (distance + 2^k - 1) >> k a frame towards it, then stops. $85 lo hi sets
 ; the frames per tick (the next tick's count on).
 ; The streams' bytes: see <audio_tune.h>.
+; Coded data (flags bit 5; TunePack.hpp): the same events, each field a
+; symbol of its own Huffman code (C_OP ...: Y names it at each read). Its
+; reader is tune_code.s45's (tune_codec sets this player's vectors to its
+; routines: reading, calls nested two deep, the loop point, the look ahead,
+; instruments); until then a coded tune plays nothing, and a program with
+; plain tunes alone links none of it. Its look ahead reads from a copy of
+; a voice's place after theirs (NS).
 ;
 ; tune_update: the tempo accumulator (8.8 frames; NTSC frames count 213/256
 ; of a PAL one, so a tune takes as long) runs whole ticks; a tick counts
@@ -58,7 +65,13 @@ cc45.icallinfo = 1
 .global _tune_play, _tune_play_far, _tune_stop, _tune_update, _tune_playing
 .global _tune_voices, _tune_tempo, _tune_vibrato, _tune_transpose, _tune_detune, _tune_ticks, _tune_note
 .global _tune_seek, _tune_samples, _tune_digi_channels, _tune_digi_volume
+.global _tune_volume, _tune_fade, _tune_fading, _tune_borrow, _tune_return, _tune_queue, _tune_queue_far, _tune_queued
 .extern ___sid_put, ___sid_shadow, ___digi_regs
+; (for tune_code.s45: coded data's reader)
+.global __tune_at, __tune_rd, __tune_coded, __tune_guard, __tune_ins, __tune_rsize, __tune_nvd, __tune_nd, __tune_ibuf
+.global __tv_pos_lo, __tv_pos_hi, __tv_start_lo, __tv_start_hi, __tv_ptr
+.global __tv_ret_lo, __tv_ret_hi, __tv_pat_lo, __tv_pat_hi, __tv_rep
+.global __tune_vdec, __tune_vcall, __tune_vback, __tune_vmark, __tune_vrest, __tune_vpeek, __tune_vinst, __tune_vinit, __tune_vcodes
 
 P  = $F6
 T0 = $FA
@@ -66,6 +79,24 @@ T1 = $FB
 T2 = $FC
 NV = 12                         ; voices at most
 NVT = 16                        ;   and the digi voices (12-15) in the streams' state
+NS = NVT + 1                    ;   (and a reader's place after them: coded data's look ahead)
+; coded data (TunePack.hpp, tune_code.s45): each field's code (its context)
+C_OP = 0
+C_DUR = 1
+C_INST = 2
+C_LNOTE = 3
+C_ARPA = 4
+C_GLS = 6
+C_TLO = 8
+C_PWLO = 10
+C_CLO = 13
+C_PAT = 16
+C_REP = 17
+C_TR = 18
+C_DOP = 19
+C_DHIT = 20
+C_DVOL = 21
+NCTX = 22
 
 .segment "bss"
 __tune_base:    .res 4          ; the tune's address
@@ -85,27 +116,50 @@ __tune_f:       .res 2          ; a frequency being worked out
 __tune_sum:     .res 3          ; (__tune_rate)
 __tune_k:       .res 1
 __tune_mute:    .res 1          ; $80: no register writes (tune_seek)
-__tune_rsize:   .res 1          ; an instrument's bytes (10 or 17)
+__tune_rsize:   .res 1          ; an instrument's bytes (10, 17, or 19: a pulse-width cycle's limits)
 __tune_soon:    .res 1          ; frames to the next tick (1-4: hard restart)
 __tune_c:       .res 1          ; (a saved chip)
 __tune_nd:      .res 1          ; digi voices
 __tune_nt:      .res 1          ; voices and digi voices
 __tune_nvd:     .res 1          ; (the tune's voices, before tune_voices' limit)
 __tune_stab:    .res 2          ; the sample table's offset
-__tune_dt:      .res 8          ; a hit: its address (3), end (2), rate (3)
+__tune_dt:      .res 10         ; a hit: its address (3), end (2), rate (3), loop (2: from its start; $FFFF none)
+__tune_e9:      .res 1          ; $10: the sample table's entries are 9 bytes (a loop's), else 7
 __tune_dc:      .res 1          ;   its channel
 __tune_r:       .res 1          ;   its registers ($10 + channel * 16)
 __tune_cut_lo:  .res 4          ; each chip's cutoff (11 bits)
 __tune_cut_hi:  .res 4
 __tune_csw:     .res 4          ;   and its sweep a frame
 ; each voice's state
-__tv_pos_lo:    .res NVT
-__tv_pos_hi:    .res NVT
-__tv_start_lo:  .res NVT
+__tv_pos_lo:    .res NS         ; its place in the stream
+__tv_pos_hi:    .res NS
+__tv_start_lo:  .res NVT        ; where $FE goes back to (its start, or its loop point)
 __tv_start_hi:  .res NVT
 __tv_left:      .res NVT        ; ticks to its next event (0: 256)
 __tv_gated:     .res NV         ; 1 while its gate is on
 __tv_done:      .res NVT
+__tv_dvol:      .res NVT        ; a digi voice's volume (vol:, 0-255)
+__tv_ret_lo:    .res NS         ; a pattern called ($86): where the stream goes on after it,
+__tv_ret_hi:    .res NS
+__tv_pat_lo:    .res NS         ;   its start
+__tv_pat_hi:    .res NS
+__tv_rep:       .res NS         ;   and the times it plays yet
+__tv_ptr:       .res NS         ;   and its transposition ($8B: semitones added to its notes)
+__tv_held:      .res NV         ; 1: the voice lent to the program (tune_borrow): no writes
+__tv_hold_lo:   .res NV         ;   frames to its return (0: tune_return)
+__tv_hold_hi:   .res NV
+__tune_fstep:   .res 2          ; a fade's step a frame (8.8, signed)
+__tune_fleft:   .res 2          ;   frames to go
+__tune_fto:     .res 1          ;   the volume it ends at
+__tune_coded:   .res 1          ; $80: the tune's data coded (TunePack.hpp)
+__tune_ibuf:    .res 19         ; an instrument's bytes
+__tune_cb:      .res 1          ; (a call's byte; the look ahead's pattern: where on after it,
+__tune_pr:      .res 2          ;   its start, times)
+__tune_pa:      .res 2
+__tune_prep:    .res 1
+__tune_queued:  .res 1          ; 1: a tune to start at a bar line (tune_queue)
+__tune_qbase:   .res 4          ;   its address
+__tune_qleft:   .res 2          ;   ticks to the bar line
 __tv_note:      .res NV
 __tv_freq_lo:   .res NV         ; the note's frequency (slide moves it)
 __tv_freq_hi:   .res NV
@@ -133,12 +187,26 @@ __ti_ad:        .res NV
 __ti_sr:        .res NV
 __ti_pw_lo:     .res NV
 __ti_pw_hi:     .res NV
-__ti_vib:       .res NV
+__ti_vib:       .res NV         ; the vibrato's depth (0-15)
+__ti_vspd:      .res NV         ;   its speed: frames a step of its triangle, less 1 (0: a step a frame)
+__tv_vph:       .res NV         ; the vibrato's step (speed above 0)
+__tv_vcnt:      .res NV         ;   frames to the next
 __ti_gap:       .res NV
 __ti_pwm:       .res NV
 __ti_vdel:      .res NV
 __ti_slide:     .res NV
 __ti_hr:        .res NV
+__ti_tail:      .res NV         ; $80: its effects go on through the release (the hr byte's bit 7)
+__ti_free:      .res NV         ; $40: its pulse-width sweep free (no bounce; stops at 0 and $FFF; bit 6)
+__ti_pwrun:     .res NV         ; $20: its pulse width runs on: not set by a note, swept in rests (bit 5)
+__ti_cutrun:    .res NV         ; $10: its chip's cutoff runs on: not set by its note (bit 4)
+__ti_pwsaw:     .res NV         ; $04: its pulse-width cycle a sawtooth (from its top back to its bottom; bit 2)
+__tv_pwsaw:     .res NV         ;   the voice's
+__ti_pwlo:      .res NV         ; its pulse-width cycle's limits (/ 16; the high 0: none)
+__ti_pwhi:      .res NV
+__tv_pwlo:      .res NV         ; the voice's (its instrument's at a note)
+__tv_pwhi:      .res NV
+__tv_pwfree:    .res NV         ; the voice's sweep free (the instrument's at a note; pw: sets it)
 __ti_filt:      .res NV
 __ti_cut_lo:    .res NV
 __ti_cut_hi:    .res NV
@@ -147,6 +215,17 @@ __ti_tab_lo:    .res NV
 __ti_tab_hi:    .res NV
 
 .segment "data"
+; coded data's routines (tune_codec, tune_code.s45, sets them to its own;
+; until then a coded tune plays nothing)
+__tune_vdec:    .word __tune_nop
+__tune_vcall:   .word __tune_nop
+__tune_vback:   .word __tune_nop
+__tune_vmark:   .word __tune_nop
+__tune_vrest:   .word __tune_nop
+__tune_vpeek:   .word __tune_nop
+__tune_vinst:   .word __tune_nop
+__tune_vinit:   .word __tune_nop
+__tune_vcodes:  .word __tune_nocode
 ; the run-time controls (they stay set across tune_play)
 __tune_first:   .byte 0         ; the SID voice of tune voice 0
 __tune_scale:   .word $0100     ; tempo (8.8)
@@ -155,6 +234,9 @@ __tv_transp:    .byte 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 __tv_detune:    .byte 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 __tune_dfirst:  .byte 0         ; the digi voices' first channel
 __tune_dvol:    .byte 255       ; their volume
+__tune_mvol:    .word $0F00     ; the music's volume (tune_volume, 8.8: 0-15)
+__tune_mnow:    .byte 15        ;   as the SIDs have it
+__tune_dmaster: .byte 255       ;   the digi voices': 17 a step
 __tune_sbank:   .byte 0, 0, 0   ; the samples' address (chip RAM)
 
 .segment "code"
@@ -198,8 +280,13 @@ proc __tune_at
     rts
 endproc
 
-; A = the next byte of voice X's stream; X kept
+; A = the next byte of voice X's stream (coded data: its symbol in code Y);
+; X, Y kept
 proc __tune_rd
+    bit __tune_coded
+    bpl @plain
+    jmp (__tune_vdec)
+@plain:
     lda __tv_pos_lo,x
     sta T0
     lda __tv_pos_hi,x
@@ -214,13 +301,37 @@ proc __tune_rd
     rts
 endproc
 
+; Coded data without tune_codec: nothing (no voices: __tune_nocode)
+proc __tune_nop
+    clc
+    rts
+endproc
+proc __tune_nocode
+    lda #0
+    sta __tune_n
+    sta __tune_nd
+    rts
+endproc
+; (calls through the vectors)
+proc __tune_jinst
+    jmp (__tune_vinst)
+endproc
+proc __tune_jinit
+    jmp (__tune_vinit)
+endproc
+proc __tune_jcodes
+    jmp (__tune_vcodes)
+endproc
+
 ; Voice X's instrument: number A (one past the table: ignored); X kept
 proc __tune_inst
     cmp __tune_ninst
     bcc @find
     rts
 @find:
-    ; the table + A * an instrument's bytes
+    bit __tune_coded
+    bmi @coded
+    ; the table + A * an instrument's bytes, copied
     tay
     lda __tune_ins
     sta T0
@@ -240,41 +351,58 @@ proc __tune_inst
     bra @mul
 @at:
     jsr __tune_at
-    ldz #0
+    ldy #0
+@copy:
+    tya
+    taz
     lda [P],z
+    sta __tune_ibuf,y
+    iny
+    cpy __tune_rsize
+    bcc @copy
+    bra @fill
+@coded:
+    jsr __tune_jinst    ; (its bytes into __tune_ibuf)
+@fill:
+    lda __tune_ibuf
     sta __ti_wave,x
-    inz
-    lda [P],z
+    lda __tune_ibuf+1
     sta __ti_ad,x
-    inz
-    lda [P],z
+    lda __tune_ibuf+2
     sta __ti_sr,x
-    inz
-    lda [P],z
+    lda __tune_ibuf+3
     sta __ti_pw_lo,x
-    inz
-    lda [P],z
+    lda __tune_ibuf+4
     sta __ti_pw_hi,x
-    inz
-    lda [P],z
+    lda __tune_ibuf+5
+    and #$0F
     sta __ti_vib,x
-    inz
-    lda [P],z
+    lda __tune_ibuf+5
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    sta __ti_vspd,x
+    lda __tune_ibuf+6
     sta __ti_gap,x
-    inz
-    lda [P],z
+    lda __tune_ibuf+7
     sta __ti_pwm,x
-    inz
-    lda [P],z
+    lda __tune_ibuf+8
     sta __ti_vdel,x
-    inz
-    lda [P],z
+    lda __tune_ibuf+9
     sta __ti_slide,x
     lda __ti_wave,x
     sta __tv_cw,x
     ; hard restart, filter, wave table (none in a tune of 10-byte instruments)
     lda #0
     sta __ti_hr,x
+    sta __ti_tail,x
+    sta __ti_free,x
+    sta __ti_pwrun,x
+    sta __ti_cutrun,x
+    sta __ti_pwlo,x
+    sta __ti_pwhi,x
+    sta __ti_pwsaw,x
     sta __ti_filt,x
     sta __ti_cut_lo,x
     sta __ti_cut_hi,x
@@ -284,27 +412,48 @@ proc __tune_inst
     lda __tune_rsize
     cmp #17
     bcc @none
-    inz
-    lda [P],z
+    lda __tune_ibuf+10
+    pha
+    and #$80
+    sta __ti_tail,x
+    pla
+    pha
+    and #$40
+    sta __ti_free,x
+    pla
+    pha
+    and #$20
+    sta __ti_pwrun,x
+    pla
+    pha
+    and #$10
+    sta __ti_cutrun,x
+    pla
+    pha
+    and #$04
+    sta __ti_pwsaw,x
+    pla
+    and #$03
     sta __ti_hr,x
-    inz
-    lda [P],z
+    lda __tune_ibuf+11
     sta __ti_filt,x
-    inz
-    lda [P],z
+    lda __tune_ibuf+12
     sta __ti_cut_lo,x
-    inz
-    lda [P],z
+    lda __tune_ibuf+13
     sta __ti_cut_hi,x
-    inz
-    lda [P],z
+    lda __tune_ibuf+14
     sta __ti_fsw,x
-    inz
-    lda [P],z
+    lda __tune_ibuf+15
     sta __ti_tab_lo,x
-    inz
-    lda [P],z
+    lda __tune_ibuf+16
     sta __ti_tab_hi,x
+    lda __tune_rsize
+    cmp #19
+    bcc @none
+    lda __tune_ibuf+17
+    sta __ti_pwlo,x
+    lda __tune_ibuf+18
+    sta __ti_pwhi,x
 @none:
     rts
 endproc
@@ -317,8 +466,14 @@ endproc
 proc __tune_w
     bit __tune_mute
     bmi @muted
-    stx __tune_x
     pha
+    lda __tv_held,x     ; (lent to the program: not written)
+    beq @write
+    pla
+@muted:
+    rts
+@write:
+    stx __tune_x
     tya
     clc
     adc __tv_base,x
@@ -326,7 +481,6 @@ proc __tune_w
     pla
     jsr ___sid_put
     ldx __tune_x
-@muted:
     rts
 endproc
 
@@ -343,6 +497,126 @@ proc __tune_wr
     ldx __tune_x
 @muted:
     rts
+endproc
+
+; Each frame: a fade's step (the volume's whole steps to the SIDs and the
+; digi voices), the voices lent counted down to their return
+proc __tune_frame
+    lda __tune_fleft
+    ora __tune_fleft+1
+    beq @holds
+    clc
+    lda __tune_mvol
+    adc __tune_fstep
+    sta __tune_mvol
+    lda __tune_mvol+1
+    adc __tune_fstep+1
+    sta __tune_mvol+1
+    lda __tune_fleft
+    bne @flo
+    dec __tune_fleft+1
+@flo:
+    dec __tune_fleft
+    lda __tune_fleft
+    ora __tune_fleft+1
+    bne @apply
+    lda __tune_fto      ; (the end: exactly where it was going)
+    sta __tune_mvol+1
+    lda #0
+    sta __tune_mvol
+@apply:
+    jsr __tune_master
+@holds:
+    ldx #0
+@h:
+    lda __tv_held,x
+    beq @hn
+    lda __tv_hold_lo,x
+    ora __tv_hold_hi,x
+    beq @hn             ; (0: until tune_return)
+    lda __tv_hold_lo,x
+    bne @hlo
+    dec __tv_hold_hi,x
+@hlo:
+    dec __tv_hold_lo,x
+    lda __tv_hold_lo,x
+    ora __tv_hold_hi,x
+    bne @hn
+    sta __tv_held,x     ; (back to the music)
+@hn:
+    inx
+    cpx #NV
+    bne @h
+    rts
+endproc
+
+; The music's volume (__tune_mvol's whole part, 0-15) where it changed: the
+; four SIDs' $18 volume (the rest of it kept), the digi voices' (17 a step)
+proc __tune_master
+    lda __tune_mvol+1
+    cmp #16
+    bcc @ok
+    lda #15
+@ok:
+    cmp __tune_mnow
+    beq @same
+    sta __tune_mnow
+    sta T2
+    asl a
+    asl a
+    asl a
+    asl a
+    ora T2
+    sta __tune_dmaster  ; (n * 17: 0-255)
+    ldy #$18
+@chip:
+    lda ___sid_shadow,y
+    and #$F0
+    ora T2
+    phy
+    pha
+    tya
+    tax
+    pla
+    jsr ___sid_put
+    ply
+    tya
+    clc
+    adc #$20
+    tay
+    cmp #$98
+    bne @chip
+    ; the digi voices sounding: their volume again
+    lda __tune_active
+    beq @same
+    ldx #12
+@d:
+    txa
+    sec
+    sbc #12
+    cmp __tune_nd
+    bcs @same
+    jsr __tune_dreg
+    jsr __tune_dvset
+    inx
+    bra @d
+@same:
+    rts
+endproc
+
+; the queued tune started
+proc __tune_qstart
+    lda #0
+    sta __tune_queued
+    lda __tune_qbase
+    sta __tune_base
+    lda __tune_qbase+1
+    sta __tune_base+1
+    lda __tune_qbase+2
+    sta __tune_base+2
+    lda __tune_qbase+3
+    sta __tune_base+3
+    jmp __tune_start
 endproc
 
 ; Voice X's control register: its waveform and gate
@@ -413,6 +687,10 @@ endproc
 ; sweep, the resonance and mode, and routes the voice (the volume and the
 ; others' routing kept, from the shadow); another takes the voice out
 proc __tune_filter
+    lda __tv_held,x     ; (lent: its routing the program's)
+    beq @mine
+    rts
+@mine:
     lda __tv_base,x
     and #$60
     sta T2
@@ -437,6 +715,8 @@ proc __tune_filter
     lsr a
     lsr a
     tay
+    lda __ti_cutrun,x   ; (cutrun: the cutoff as it is)
+    bne @cutkeep
     lda __ti_cut_lo,x
     sta __tune_cut_lo,y
     lda __ti_cut_hi,x
@@ -444,6 +724,7 @@ proc __tune_filter
     lda __ti_fsw,x
     sta __tune_csw,y
     jsr __tune_wcut
+@cutkeep:
     ; $17: the resonance, the chip's routing and this voice
     lda T2
     ora #$17
@@ -470,9 +751,25 @@ proc __tune_filter
     jmp __tune_wr
 endproc
 
-; C set when voice X's next event is a note (past instruments, arpeggios
-; and glides, and from the start of a loop); X kept
+; C set when voice X's next event is a note (past instruments, arpeggios,
+; glides, pulse widths and cutoffs, through pattern calls and ends, from
+; the loop point once); X kept. Plain data: read from a copy of its place
+; (and its pattern's)
 proc __tune_peek
+    bit __tune_coded
+    bpl @plain
+    jmp (__tune_vpeek)
+@plain:
+    lda __tv_ret_lo,x
+    sta __tune_pr
+    lda __tv_ret_hi,x
+    sta __tune_pr+1
+    lda __tv_pat_lo,x
+    sta __tune_pa
+    lda __tv_pat_hi,x
+    sta __tune_pa+1
+    lda __tv_rep,x
+    sta __tune_prep
     lda __tv_pos_lo,x
     sta T0
     lda __tv_pos_hi,x
@@ -493,6 +790,20 @@ proc __tune_peek
     beq @skip
     cmp #$85
     beq @skip
+    iny
+    cmp #$89
+    beq @skip
+    cmp #$8A
+    beq @skip
+    cmp #$86
+    beq @into
+    cmp #$8B
+    beq @into
+    cmp #$87
+    beq @out
+    ldy #1
+    cmp #$8C
+    beq @skip
     cmp #$FE
     bne @is
     lda __tune_guard
@@ -510,6 +821,45 @@ proc __tune_peek
 @s:
     dey
     bne @skip
+    bra @look
+@into:
+    ldy #4              ; a call: where on after it ($8B: a byte more), its start, times
+    cmp #$86
+    beq @args
+    iny
+@args:
+    tya
+    clc
+    adc T0
+    sta __tune_pr
+    lda T1
+    adc #0
+    sta __tune_pr+1
+    ldz #3
+    lda [P],z
+    sta __tune_prep
+    ldz #1
+    lda [P],z
+    sta __tune_pa
+    sta T0
+    inz
+    lda [P],z
+    sta __tune_pa+1
+    sta T1
+    bra @look
+@out:
+    dec __tune_prep     ; its end: again, or on after the call
+    beq @after
+    lda __tune_pa
+    sta T0
+    lda __tune_pa+1
+    sta T1
+    bra @look
+@after:
+    lda __tune_pr
+    sta T0
+    lda __tune_pr+1
+    sta T1
     bra @look
 @is:
     cmp #$80
@@ -628,7 +978,160 @@ endproc
 ; Events
 ; ----------------------------------------------------------------------------
 
-; Voice X's next event
+; Voice X's pattern call (A: $86 / $8B, read): $86 lo hi n, the stream on
+; at the pattern, n times, then after the call; $8B ... t transposed t
+; (coded data: tune_code.s45's)
+proc __tune_call
+    bit __tune_coded
+    bpl @plain
+    jmp (__tune_vcall)
+@plain:
+    sta __tune_cb
+    ldy #C_PAT
+    jsr __tune_rd
+    sta __tv_pat_lo,x
+    jsr __tune_rd
+    sta __tv_pat_hi,x
+    ldy #C_REP
+    jsr __tune_rd
+    sta __tv_rep,x
+    lda #0
+    sta __tv_ptr,x
+    lda __tune_cb
+    cmp #$8B
+    bne @ret
+    ldy #C_TR
+    jsr __tune_rd
+    sta __tv_ptr,x
+@ret:
+    lda __tv_pos_lo,x
+    sta __tv_ret_lo,x
+    lda __tv_pos_hi,x
+    sta __tv_ret_hi,x
+    lda __tv_pat_lo,x
+    sta __tv_pos_lo,x
+    lda __tv_pat_hi,x
+    sta __tv_pos_hi,x
+    rts
+endproc
+
+; ...its end ($87): again from its start, or on after the call
+proc __tune_back
+    bit __tune_coded
+    bpl @plain
+    jmp (__tune_vback)
+@plain:
+    dec __tv_rep,x
+    beq @after
+    lda __tv_pat_lo,x
+    sta __tv_pos_lo,x
+    lda __tv_pat_hi,x
+    sta __tv_pos_hi,x
+    rts
+@after:
+    lda #0
+    sta __tv_ptr,x      ; (out of it: untransposed)
+    lda __tv_ret_lo,x
+    sta __tv_pos_lo,x
+    lda __tv_ret_hi,x
+    sta __tv_pos_hi,x
+    rts
+endproc
+
+; Voice X's loop point ($8C): the stream goes back here at its end
+proc __tune_mark
+    bit __tune_coded
+    bpl @plain
+    jmp (__tune_vmark)
+@plain:
+    lda __tv_pos_lo,x
+    sta __tv_start_lo,x
+    lda __tv_pos_hi,x
+    sta __tv_start_hi,x
+    rts
+endproc
+
+; Voice X back to its start or loop point ($FE)
+proc __tune_restart
+    bit __tune_coded
+    bpl @plain
+    jmp (__tune_vrest)
+@plain:
+    lda __tv_start_lo,x
+    sta __tv_pos_lo,x
+    lda __tv_start_hi,x
+    sta __tv_pos_hi,x
+    rts
+endproc
+
+; Voice X's pulse width and its sweep ($89 lo hi s, the $89 read)
+proc __tune_setpw
+    ldy #C_PWLO
+    jsr __tune_rd
+    sta __tv_pw_lo,x
+    iny
+    jsr __tune_rd
+    sta __tv_pw_hi,x
+    iny
+    jsr __tune_rd
+    sta __tv_pwdir,x
+    lda #$40
+    sta __tv_pwfree,x   ; (its sweep free)
+    jmp __tune_wpw
+endproc
+
+; Voice X's chip's cutoff (11 bits) and its sweep a frame ($8A lo hi s, the
+; $8A read)
+proc __tune_setcut
+    ldy #C_CLO
+    jsr __tune_rd
+    pha
+    iny
+    jsr __tune_rd
+    pha
+    iny
+    jsr __tune_rd
+    pha
+    lda __tv_base,x
+    and #$60
+    sta T2
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    tay
+    pla
+    sta __tune_csw,y
+    pla
+    sta __tune_cut_hi,y
+    pla
+    sta __tune_cut_lo,y
+    jmp __tune_wcut
+endproc
+
+; Voice X's legato note ($88 n d, the $88 read): the pitch n for d ticks,
+; the note going on (no new envelope, instrument or wave table)
+proc __tune_legato
+    ldy #C_LNOTE
+    jsr __tune_rd
+    clc
+    adc __tv_ptr,x      ; (a pattern's transposition)
+    and #$7F
+    sta __tv_note,x
+    ldy #C_DUR
+    jsr __tune_rd
+    sta __tv_left,x
+    lda #0
+    sta __tv_glide,x
+    jsr __tune_notef
+    lda __tune_f
+    sta __tv_freq_lo,x
+    lda __tune_f+1
+    sta __tv_freq_hi,x
+    jmp __tune_wf
+endproc
+
 proc __tune_next
     cpx #12
     bcc @sid
@@ -637,6 +1140,7 @@ proc __tune_next
     lda #0
     sta __tune_guard
 @read:
+    ldy #C_OP
     jsr __tune_rd
     cmp #$80
     bcc @note
@@ -651,15 +1155,26 @@ proc __tune_next
     beq @glide
     cmp #$85
     beq @tempo
+    cmp #$86
+    beq @call
+    cmp #$8B
+    beq @call
+    cmp #$87
+    beq @back
+    cmp #$88
+    beq @legato
+    cmp #$89
+    beq @pwset
+    cmp #$8A
+    beq @cutset
+    cmp #$8C
+    beq @mark
     cmp #$FE
     bne @end
     lda __tune_guard    ; back to the start (once: an empty voice ends)
     bne @end
     inc __tune_guard
-    lda __tv_start_lo,x
-    sta __tv_pos_lo,x
-    lda __tv_start_hi,x
-    sta __tv_pos_hi,x
+    jsr __tune_restart
     bra @read
 @end:
     lda #1
@@ -667,40 +1182,70 @@ proc __tune_next
     lda #0
     sta __tv_gated,x
     jmp __tune_ctrl
+@legato:
+    jmp __tune_legato
+@mark:
+    jsr __tune_mark
+    jmp @read
+@pwset:
+    jsr __tune_setpw
+    jmp @read
+@cutset:
+    jsr __tune_setcut
+    jmp @read
 @inst:
+    ldy #C_INST
     jsr __tune_rd
     jsr __tune_inst
     bra @read
 @arp:
+    ldy #C_ARPA
     jsr __tune_rd
     sta __tv_arpa,x
+    iny
     jsr __tune_rd
     sta __tv_arpb,x
     bra @read
 @glide:
+    ldy #C_GLS
     jsr __tune_rd
     sta __tv_gsemi,x
+    iny
     jsr __tune_rd
     sta __tv_gpend,x
     bra @read
 @tempo:
+    ldy #C_TLO
     jsr __tune_rd
     sta __tune_fpt
+    iny
     jsr __tune_rd
     sta __tune_fpt+1
     bra @read
+@call:
+    jsr __tune_call     ; (A: the call's byte)
+    bra @read
+@back:
+    jsr __tune_back
+    bra @read
 @tie:
+    ldy #C_DUR
     jsr __tune_rd
     sta __tv_left,x
     rts
 @rest:
+    ldy #C_DUR
     jsr __tune_rd
     sta __tv_left,x
     lda #0
     sta __tv_gated,x
     jmp __tune_ctrl
 @note:
+    clc
+    adc __tv_ptr,x      ; (a pattern's transposition)
+    and #$7F
     sta __tv_note,x
+    ldy #C_DUR
     jsr __tune_rd
     sta __tv_left,x
     ; the envelope again: gate off, the instrument, the frequency, gate on
@@ -708,18 +1253,31 @@ proc __tune_next
     sta __tv_gated,x
     sta __tv_t,x
     sta __tv_arpi,x
+    sta __tv_vph,x
+    sta __tv_vcnt,x
     sta __tv_hrdone,x
     sta __tv_wti,x
     sta __tv_wsemi,x
     lda __ti_wave,x
     sta __tv_cw,x
     jsr __tune_ctrl
+    lda __ti_pwrun,x    ; (pwrun: the pulse width as it is)
+    bne @pwkeep
     lda __ti_pw_lo,x
     sta __tv_pw_lo,x
     lda __ti_pw_hi,x
     sta __tv_pw_hi,x
     lda __ti_pwm,x
     sta __tv_pwdir,x
+    lda __ti_free,x
+    sta __tv_pwfree,x
+@pwkeep:
+    lda __ti_pwlo,x     ; (its cycle's limits)
+    sta __tv_pwlo,x
+    lda __ti_pwhi,x
+    sta __tv_pwhi,x
+    lda __ti_pwsaw,x
+    sta __tv_pwsaw,x
     jsr __tune_wpw
     lda __ti_ad,x
     ldy #5
@@ -786,43 +1344,155 @@ proc __tune_dnext
     lda #0
     sta __tune_guard
 @read:
+    ldy #C_DOP
     jsr __tune_rd
     cmp #$80
     bcc @hit
     beq @wait
     cmp #$82
     beq @wait
+    cmp #$81
+    beq @stop
+    cmp #$83
+    beq @vol
+    cmp #$84
+    beq @far
+    cmp #$86
+    beq @call
+    cmp #$87
+    beq @back
+    cmp #$8C
+    beq @mark
     cmp #$FE
     bne @end
     lda __tune_guard    ; back to the start (once: an empty voice ends)
     bne @end
     inc __tune_guard
-    lda __tv_start_lo,x
-    sta __tv_pos_lo,x
-    lda __tv_start_hi,x
-    sta __tv_pos_hi,x
+    jsr __tune_restart
+    bra @read
+@mark:
+    jsr __tune_mark
     bra @read
 @end:
     lda #1
     sta __tv_done,x
     rts
 @wait:
+    ldy #C_DUR
     jsr __tune_rd
     sta __tv_left,x
     rts
+@stop:
+    jsr __tune_dreg
+    lda #0
+    jsr __tune_wd       ; the channel stopped
+    bra @wait
+@vol:
+    ldy #C_DVOL
+    jsr __tune_rd
+    sta __tv_dvol,x
+    jsr __tune_dreg
+    jsr __tune_dvset    ; (at once: a sample sounding too)
+    bra @read
+@call:
+    jsr __tune_call     ; (A: the call's byte)
+    bra @read
+@back:
+    jsr __tune_back
+    bra @read
+@far:
+    ldy #C_DHIT
+    jsr __tune_rd       ; $84 h d: hit h (0-255)
 @hit:
     pha
+    ldy #C_DUR
     jsr __tune_rd
     sta __tv_left,x
     pla
     jmp __tune_hit
 endproc
 
+; Digi voice X's channel (__tune_dc) and its registers' index (__tune_r,
+; Y: $10 + channel * 16)
+proc __tune_dreg
+    txa
+    sec
+    sbc #12
+    clc
+    adc __tune_dfirst
+    sta __tune_dc
+    asl a
+    asl a
+    asl a
+    asl a
+    clc
+    adc #$10
+    sta __tune_r
+    tay
+    rts
+endproc
+
+; Digi voice X's volume on its channel (__tune_dc, __tune_r): tune_digi_volume
+; times the voice's (vol:) / 256, on both sides
+proc __tune_dvset
+    lda __tune_dvol
+    ldy __tv_dvol,x
+    cpy #255
+    beq @set            ; (all of it: tune_digi_volume's as it is)
+    ; A = __tune_dvol * __tv_dvol,x >> 8 (shift and add, the high byte)
+    sty T1
+    lda #0
+    ldy #8
+@bit:
+    lsr T1
+    bcc @no
+    clc
+    adc __tune_dvol
+@no:
+    ror a
+    ror T0
+    dey
+    bne @bit
+@set:
+    ldy __tune_dmaster  ; and the music's volume (tune_volume, a fade)
+    cpy #255
+    beq @put
+    sta T2
+    sty T1
+    lda #0
+    ldy #8
+@mbit:
+    lsr T1
+    bcc @mno
+    clc
+    adc T2
+@mno:
+    ror a
+    ror T0
+    dey
+    bne @mbit
+@put:
+    pha
+    lda __tune_r
+    clc
+    adc #9
+    tay
+    pla
+    jsr __tune_wd       ; 9: the volume
+    pha
+    lda __tune_dc
+    clc
+    adc #$0C
+    tay
+    pla
+    jmp __tune_wd       ; $D71C + channel: the other side
+endproc
+
 ; Digi voice X's hit A: its sample on the voice's channel, set up as
 ; digi_play does (stopped, the start and current addresses, the rate, the
 ; end, the volume on both sides, then on: 8-bit unsigned, once)
 proc __tune_hit
-    ; T1:T0 = the sample table + A * 7
+    ; T1:T0 = the sample table + A * 9 (or 7, data of before loops)
     sta T2
     sta T0
     lda #0
@@ -833,6 +1503,8 @@ proc __tune_hit
     rol T1
     asl T0
     rol T1
+    lda __tune_e9
+    bne @nine
     sec
     lda T0
     sbc T2
@@ -840,6 +1512,16 @@ proc __tune_hit
     lda T1
     sbc #0
     sta T1
+    bra @entry
+@nine:
+    clc
+    lda T0
+    adc T2
+    sta T0
+    lda T1
+    adc #0
+    sta T1
+@entry:
     clc
     lda T0
     adc __tune_stab
@@ -849,7 +1531,7 @@ proc __tune_hit
     sta T1
     jsr __tune_at
     ; its address: the samples' + its offset; its end: the address's low
-    ; 16 bits + its bytes; its rate
+    ; 16 bits + its bytes; its rate; its loop
     ldz #0
     clc
     lda [P],z
@@ -880,38 +1562,60 @@ proc __tune_hit
     inz
     lda [P],z
     sta __tune_dt+7
-    ; its channel: the first + the digi voice
-    txa
-    sec
-    sbc #12
-    clc
-    adc __tune_dfirst
-    sta __tune_dc
-    asl a
-    asl a
-    asl a
-    asl a
-    clc
-    adc #$10
-    sta __tune_r
-    tay
+    lda #$FF
+    sta __tune_dt+8
+    sta __tune_dt+9
+    lda __tune_e9
+    beq @noloop
+    inz
+    lda [P],z
+    sta __tune_dt+8
+    inz
+    lda [P],z
+    sta __tune_dt+9
+@noloop:
+    jsr __tune_dreg     ; its channel: the first + the digi voice
     lda #0
     jsr __tune_wd       ; stopped
-    iny
+    ; 1-3: where it loops to (its start, or the loop's)
+    lda __tune_dt+8
+    and __tune_dt+9
+    cmp #$FF
+    beq @once
+    clc
     lda __tune_dt
-    jsr __tune_wd       ; 1-3: the start
-    iny
+    adc __tune_dt+8
+    sta T0
     lda __tune_dt+1
+    adc __tune_dt+9
+    sta T1
+    lda __tune_dt+2
+    adc #0
+    sta T2
+    bra @where
+@once:
+    lda __tune_dt
+    sta T0
+    lda __tune_dt+1
+    sta T1
+    lda __tune_dt+2
+    sta T2
+@where:
+    iny
+    lda T0
     jsr __tune_wd
     iny
-    lda __tune_dt+2
+    lda T1
+    jsr __tune_wd
+    iny
+    lda T2
     jsr __tune_wd
     tya
     clc
     adc #7
     tay
     lda __tune_dt
-    jsr __tune_wd       ; A-C: the current address
+    jsr __tune_wd       ; A-C: the current address (its start)
     iny
     lda __tune_dt+1
     jsr __tune_wd
@@ -936,18 +1640,16 @@ proc __tune_hit
     iny
     lda __tune_dt+4
     jsr __tune_wd
-    iny
-    lda __tune_dvol
-    jsr __tune_wd       ; 9: the volume
-    lda __tune_dc
-    clc
-    adc #$0C
-    tay
-    lda __tune_dvol
-    jsr __tune_wd       ; $D71C + channel: on the other side too
+    jsr __tune_dvset    ; 9 and $D71C + channel: the volume
     ldy __tune_r
-    lda #$A2
-    jsr __tune_wd       ; on: 8-bit unsigned, once
+    lda __tune_dt+8
+    and __tune_dt+9
+    cmp #$FF
+    lda #$A2            ; on: 8-bit unsigned, once
+    bcs @on
+    lda #$E2            ;   or looping
+@on:
+    jsr __tune_wd
     ldy #1
     lda #$80
     jmp __tune_wd       ; ($D711: the audio DMA on)
@@ -1026,6 +1728,118 @@ endproc
 ; Each frame's effects
 ; ----------------------------------------------------------------------------
 
+; Voice X's pulse-width sweep a frame: bouncing between $0200 and $0E00, or
+; free (on to 0 or $FFF, stopped there)
+proc __tune_pwstep
+    ; pulse-width sweep, bouncing between $0200 and $0E00
+    lda __tv_pwdir,x
+    beq @done
+    ldy #0
+    ora #0
+    bpl @pw
+    dey                 ; (sign extension)
+@pw:
+    clc
+    adc __tv_pw_lo,x
+    sta __tv_pw_lo,x
+    tya
+    adc __tv_pw_hi,x
+    sta __tv_pw_hi,x
+    ldy __tv_pwhi,x     ; (a cycle: turning at its limits)
+    bne @cycle
+    bit __tv_pwfree,x   ; (free: on to 0 or $FFF, and stopped there)
+    bvc @bounce
+    cmp #$10
+    bcc @pwset
+    and #$80            ; (past $FFF: $10xx; below 0: $FFxx)
+    beq @top
+    lda #0
+    sta __tv_pw_lo,x
+    sta __tv_pw_hi,x
+    bra @stop
+@top:
+    lda #$FF
+    sta __tv_pw_lo,x
+    lda #$0F
+    sta __tv_pw_hi,x
+@stop:
+    lda #0
+    sta __tv_pwdir,x
+    bra @pwset
+@cycle:
+    cmp #$10            ; (kept within 0-$FFF)
+    bcc @within
+    and #$80
+    beq @ctop
+    lda #0
+    sta __tv_pw_lo,x
+    sta __tv_pw_hi,x
+    bra @within
+@ctop:
+    lda #$FF
+    sta __tv_pw_lo,x
+    lda #$0F
+    sta __tv_pw_hi,x
+@within:
+    lda __tv_pw_lo,x    ; T0 = the width / 16
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    sta T0
+    lda __tv_pw_hi,x
+    asl a
+    asl a
+    asl a
+    asl a
+    ora T0
+    sta T0
+    lda __tv_pwdir,x
+    bmi @cdown
+    lda T0
+    cmp __tv_pwhi,x
+    bcc @pwset          ; (up, below its top)
+    lda __tv_pwsaw,x    ; (a sawtooth: back to its bottom)
+    beq @turn
+    lda __tv_pwlo,x
+    bra @jump
+@cdown:
+    lda __tv_pwlo,x
+    cmp T0
+    bcc @pwset          ; (down, above its bottom: at it, it turns)
+    lda __tv_pwsaw,x    ; (a sawtooth down: back to its top)
+    beq @turn
+    lda __tv_pwhi,x
+@jump:
+    sta T0              ; the width = the limit * 16
+    asl a
+    asl a
+    asl a
+    asl a
+    sta __tv_pw_lo,x
+    lda T0
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    sta __tv_pw_hi,x
+    bra @pwset
+@bounce:
+    cmp #$0E
+    bcs @turn           ; >= $0E00
+    cmp #$02
+    bcs @pwset          ; >= $0200
+@turn:
+    lda #0
+    sec
+    sbc __tv_pwdir,x
+    sta __tv_pwdir,x
+@pwset:
+    jmp __tune_wpw
+@done:
+    rts
+endproc
+
 proc __tune_effects
     ldx #0
 @voice:
@@ -1062,6 +1876,17 @@ proc __tune_effects
 @gate:
     lda __tv_gated,x
     bne @sounding
+    lda __ti_tail,x     ; (tail: its effects through the release too)
+    beq @still
+    lda __tv_done,x
+    beq @sounding
+@still:
+    lda __ti_pwrun,x    ; (pwrun: its pulse width swept in rests too)
+    beq @nx
+    lda __tv_done,x
+    bne @nx
+    jsr __tune_pwstep
+@nx:
     jmp @next
 @sounding:
     lda __tv_t,x
@@ -1069,31 +1894,7 @@ proc __tune_effects
     beq @pwm
     inc __tv_t,x
 @pwm:
-    ; pulse-width sweep, bouncing between $0200 and $0E00
-    lda __tv_pwdir,x
-    beq @glide
-    ldy #0
-    ora #0
-    bpl @pw
-    dey                 ; (sign extension)
-@pw:
-    clc
-    adc __tv_pw_lo,x
-    sta __tv_pw_lo,x
-    tya
-    adc __tv_pw_hi,x
-    sta __tv_pw_hi,x
-    cmp #$0E
-    bcs @turn           ; >= $0E00
-    cmp #$02
-    bcs @pwset          ; >= $0200
-@turn:
-    lda #0
-    sec
-    sbc __tv_pwdir,x
-    sta __tv_pwdir,x
-@pwset:
-    jsr __tune_wpw
+    jsr __tune_pwstep
 @glide:
     ; glide: (distance + 2^k - 1) >> k towards the target, from the note's
     ; second frame
@@ -1227,9 +2028,16 @@ proc __tune_effects
     lda __tv_arpa,x
     ora __tv_arpb,x
     beq @wsemi
+    ldy #3              ; (three notes; two when b is $80)
+    lda __tv_arpb,x
+    cmp #$80
+    bne @an
+    dey
+@an:
+    sty T2
     lda __tv_arpi,x
     inc a
-    cmp #3
+    cmp T2
     bcc @ai
     lda #0
 @ai:
@@ -1270,6 +2078,19 @@ proc __tune_effects
     cmp __ti_vdel,x
     beq @write
     bcc @write
+    ldy __ti_vspd,x     ; (a slower vibrato: a step every speed + 1 frames)
+    beq @fast
+    lda __tv_vcnt,x
+    bne @vc
+    tya
+    sta __tv_vcnt,x
+    inc __tv_vph,x
+    bra @vstep
+@vc:
+    dec __tv_vcnt,x
+@vstep:
+    lda __tv_vph,x
+@fast:
     and #7
     tay
     lda __tune_tri,y
@@ -1417,6 +2238,16 @@ proc __tune_start
     jsr __tune_at
     ldz #0
     lda [P],z
+    pha
+    and #$10
+    sta __tune_e9
+    pla
+    pha
+    and #$20            ; (coded: $80)
+    asl a
+    asl a
+    sta __tune_coded
+    pla
     lsr a
     and #7
     sta __tune_nd       ; (the tune's digi voices, before the channels' limit)
@@ -1479,6 +2310,10 @@ proc __tune_start
     sta __tune_csw,y
     dey
     bpl @chips
+    bit __tune_coded
+    bpl @plain
+    jsr __tune_jcodes   ; (its code tables; without tune_codec no voices)
+@plain:
     ; the voices
     ldx #0
 @voice:
@@ -1512,6 +2347,12 @@ proc __tune_start
     lda #1
     sta __tv_left,x     ; the first event on the first tick
     lda #0
+    sta __tv_ptr,x
+    bit __tune_coded
+    bpl @vplain
+    jsr __tune_jinit    ; (coded: its bit, no calls)
+    lda #0
+@vplain:
     sta __tv_gated,x
     sta __tv_done,x
     sta __tv_arpa,x
@@ -1579,7 +2420,15 @@ proc __tune_start
     lda #1
     sta __tv_left,x
     lda #0
+    sta __tv_ptr,x
+    bit __tune_coded
+    bpl @dplain
+    jsr __tune_jinit
+    lda #0
+@dplain:
     sta __tv_done,x
+    lda #255
+    sta __tv_dvol,x
     inx
     bra @dvoice
 @dset:
@@ -1747,6 +2596,7 @@ endproc
 proc _tune_update
     .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z, V
+    jsr __tune_frame    ; (a fade, the voices lent: every frame)
     lda __tune_active
     bne @run
     rts
@@ -1775,6 +2625,21 @@ proc _tune_update
     lda __tune_acc+1
     sbc __tune_fpt+1
     sta __tune_acc+1
+    ; a tune queued: at the bar line, started instead of the tick
+    lda __tune_queued
+    beq @tk
+    lda __tune_qleft
+    ora __tune_qleft+1
+    bne @dq
+    jsr __tune_qstart
+    bra @ticks
+@dq:
+    lda __tune_qleft
+    bne @dlo
+    dec __tune_qleft+1
+@dlo:
+    dec __tune_qleft
+@tk:
     jsr __tune_tick
     lda __tune_active
     bne @ticks
@@ -1994,6 +2859,276 @@ proc _tune_detune
     lda $12
     sta __tv_detune,x
 @no:
+    rts
+    .func_flags zp_call, leaf
+endproc
+
+
+
+; void tune_volume(unsigned char volume): the music's, 0-15 (15 at first),
+; at once (a fade stopped)
+proc _tune_volume
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    php
+    sei
+    lda #0
+    sta __tune_fleft
+    sta __tune_fleft+1
+    sta __tune_mvol
+    lda $10
+    sta __tune_mvol+1
+    jsr __tune_master
+    plp
+    rts
+    .func_flags zp_call
+endproc
+
+; void tune_fade(unsigned int frames, unsigned char volume): to that volume
+; over so many frames (tune_update counts them)
+proc _tune_fade
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    lda $10
+    ora $11
+    bne @fade
+    lda $12
+    sta $10
+    jmp _tune_volume
+@fade:
+    php
+    sei
+    lda $12
+    sta __tune_fto
+    ; the step: (volume * 256 - now) / frames, signed (shift and subtract)
+    sec
+    lda #0
+    sbc __tune_mvol
+    sta T0
+    lda $12
+    sbc __tune_mvol+1
+    sta T1              ; T1:T0 the distance (signed)
+    php                 ; (its sign)
+    bpl @pos
+    sec
+    lda #0
+    sbc T0
+    sta T0
+    lda #0
+    sbc T1
+    sta T1
+@pos:
+    ; T1:T0 / $11:$10 -> __tune_fstep (16 bits), the remainder in T2:Y
+    lda #0
+    sta T2
+    ldy #0
+    ldx #16
+@div:
+    asl T0
+    rol T1
+    rol T2
+    tya
+    rol a
+    tay
+    sec
+    lda T2
+    sbc $10
+    sta __tune_x
+    tya
+    sbc $11
+    bcc @less
+    tay
+    lda __tune_x
+    sta T2
+    inc T0
+@less:
+    dex
+    bne @div
+    plp
+    bpl @set
+    sec
+    lda #0
+    sbc T0
+    sta T0
+    lda #0
+    sbc T1
+    sta T1
+@set:
+    lda T0
+    sta __tune_fstep
+    lda T1
+    sta __tune_fstep+1
+    lda $10
+    sta __tune_fleft
+    lda $11
+    sta __tune_fleft+1
+    plp
+    rts
+    .func_flags zp_call
+endproc
+
+; unsigned char tune_fading(void): 1 while a fade goes on
+proc _tune_fading
+    .reg_clobbers A, X
+    .flag_clobbers N, Z
+    ldx #0
+    lda __tune_fleft
+    ora __tune_fleft+1
+    beq @no
+    lda #1
+@no:
+    rts
+    .func_flags zp_call, leaf
+endproc
+
+; void tune_borrow(unsigned char voice, unsigned int frames): the voice (a
+; tune voice, as tune_note's) lent to the program: the music goes on but
+; writes none of its registers, for so many frames (0: until tune_return)
+proc _tune_borrow
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X
+    .flag_clobbers C, N, Z
+    ldx $10
+    cpx #NV
+    bcs @no
+    php
+    sei
+    lda $12             ; (frames + 1: counted down at each frame's start)
+    sta __tv_hold_lo,x
+    lda $13
+    sta __tv_hold_hi,x
+    ora $12
+    beq @keep
+    inc __tv_hold_lo,x
+    bne @keep
+    inc __tv_hold_hi,x
+@keep:
+    lda #1
+    sta __tv_held,x
+    plp
+@no:
+    rts
+    .func_flags zp_call, leaf
+endproc
+
+; void tune_return(unsigned char voice): back to the music (it sounds again
+; from its next note)
+proc _tune_return
+    .zp_uses $10, $11
+    .reg_clobbers A, X
+    .flag_clobbers C, N, Z
+    ldx $10
+    cpx #NV
+    bcs @no
+    lda #0
+    sta __tv_held,x
+    sta __tv_hold_lo,x
+    sta __tv_hold_hi,x
+@no:
+    rts
+    .func_flags zp_call, leaf
+endproc
+
+; void tune_queue(const unsigned char *tune, unsigned int bar): the tune
+; started at the playing one's next bar line (its ticks a multiple of bar;
+; at once if it is on one); tune_queue_far(unsigned long addr, bar)
+proc _tune_queue
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $12
+    sta $14
+    lda $13
+    sta $15
+    lda #0
+    sta $12
+    sta $13
+    jmp _tune_queue_far
+    .func_flags zp_call
+endproc
+
+proc _tune_queue_far
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    php
+    sei
+    lda $10
+    sta __tune_qbase
+    lda $11
+    sta __tune_qbase+1
+    lda $12
+    sta __tune_qbase+2
+    lda $13
+    and #$0F
+    sta __tune_qbase+3
+    ; ticks to the bar line: (bar - ticks % bar) % bar (shift and subtract)
+    lda __tune_ticks
+    sta T0
+    lda __tune_ticks+1
+    sta T1
+    lda #0
+    sta T2
+    ldy #0
+    ldx #16
+@div:
+    asl T0
+    rol T1
+    rol T2
+    tya
+    rol a
+    tay
+    sec
+    lda T2
+    sbc $14
+    sta __tune_x
+    tya
+    sbc $15
+    bcc @less
+    tay
+    lda __tune_x
+    sta T2
+@less:
+    dex
+    bne @div
+    ; Y:T2 = ticks % bar
+    lda T2
+    sty T0
+    ora T0
+    beq @now
+    sec
+    lda $14
+    sbc T2
+    sta __tune_qleft
+    lda $15
+    sbc T0
+    sta __tune_qleft+1
+    bra @set
+@now:
+    lda #0
+    sta __tune_qleft
+    sta __tune_qleft+1
+@set:
+    lda #1
+    sta __tune_queued
+    lda __tune_active   ; (nothing playing: at once)
+    bne @wait
+    jsr __tune_qstart
+@wait:
+    plp
+    rts
+    .func_flags zp_call
+endproc
+
+
+; unsigned char tune_queued(void): 1 while a tune waits for the bar line
+proc _tune_queued
+    .reg_clobbers A, X
+    .flag_clobbers N, Z
+    ldx #0
+    lda __tune_queued
     rts
     .func_flags zp_call, leaf
 endproc

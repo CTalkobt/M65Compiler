@@ -1,0 +1,13 @@
+; test_xemu.sh: the tune player's controls for a game (api_xemu.c): the
+; music's volume and a fade, a voice lent, the next tune at a bar line.
+; A tick a frame.
+sample tone ../pack45/tone.wav rate=4000
+instrument i pulse 00 f0 0800 0 0
+tune a 1 loop 4
+v1: @i c4:2 e4:2 | g4:2 c4:2
+v2: @i c3:4 | e3:4
+d1: tone:4 | r:4
+tune b 1 loop 4
+v1: @i a4:4
+v2: @i a3:4
+d1: tone:4
