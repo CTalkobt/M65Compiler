@@ -9135,10 +9135,13 @@ void IRBuilder::visit(MemberAccess& node) {
     computeAddressOnly_ = oldAddrMode;
 
     // f().m, (a + b).m of a small struct returned in registers: the value
-    // has no address; it is stored into a hidden local first
+    // has no address; it is stored into a hidden local first. (*p).m is an
+    // lvalue: base is already the address p holds (an integer constant cast
+    // to a pointer is not typed ptr, #378)
+    auto* uo = dynamic_cast<UnaryOperation*>(node.structExpr.get());
     if (!node.isArrow && (dynamic_cast<FunctionCall*>(node.structExpr.get()) ||
                           dynamic_cast<BinaryOperation*>(node.structExpr.get()) ||
-                          dynamic_cast<UnaryOperation*>(node.structExpr.get())))
+                          (uo && uo->op != "*")))
         base = addressOfValue(base, loc(node));
 
     IRTypeInfo baseInfo = getExprTypeInfo(node.structExpr.get());
