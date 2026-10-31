@@ -79,9 +79,11 @@
 #pragma once
 
 /* Start a tune (in bank 0 / anywhere in memory, a 28-bit address); a tune
- * playing stops */
-__fastcall__ void tune_play(const unsigned char *tune);
-__fastcall__ void tune_play_far(unsigned long addr);
+ * playing stops. (The names in parentheses: tune45's music.h for coded
+ * tunes defines macros of these four names, and an include of this header
+ * after it still declares them.) */
+__fastcall__ void (tune_play)(const unsigned char *tune);
+__fastcall__ void (tune_play_far)(unsigned long addr);
 
 /* The player's reader of coded data, linked and set up (music.h calls it) */
 __fastcall__ void tune_codec(void);
@@ -160,6 +162,6 @@ __fastcall__ void tune_fade(unsigned int frames, unsigned char volume);
 __fastcall__ unsigned char tune_fading(void);
 __fastcall__ void tune_borrow(unsigned char voice, unsigned int frames);
 __fastcall__ void tune_return(unsigned char voice);
-__fastcall__ void tune_queue(const unsigned char *tune, unsigned int bar);
-__fastcall__ void tune_queue_far(unsigned long addr, unsigned int bar);
+__fastcall__ void (tune_queue)(const unsigned char *tune, unsigned int bar);
+__fastcall__ void (tune_queue_far)(unsigned long addr, unsigned int bar);
 __fastcall__ unsigned char tune_queued(void);

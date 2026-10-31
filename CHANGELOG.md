@@ -4,6 +4,21 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: a declarator's name in parentheses, void (f)(int) (#376)
+
+- `void (f)(int);` and `int (x);` were errors ("Expected variable name"):
+  the parentheses around a declarator's name only group (C17 6.7.6) and
+  are dropped, for functions (prototypes and definitions, at file and
+  block scope), variables (each declarator of a list) and parameters. They
+  keep a function-like macro `f` from expanding: the usual way to declare
+  the function a macro of its name wraps.
+- `__fastcall__` may follow the return type: `void __fastcall__ f(int)`,
+  `void __fastcall__ (f)(int)`.
+- `<audio_tune.h>` declares `(tune_play)`, `(tune_play_far)`, `(tune_queue)`
+  and `(tune_queue_far)` so: tune45's macros of those names for coded tunes
+  (its `music.h`) no longer depend on the order of the includes.
+- Test: `test_paren_declarator_xemu.c` (both conventions).
+
 ### cp45: #if evaluates C's whole expression grammar (#375)
 
 - `#if` (cc45, cp45, and ca45 through the same preprocessor) parsed only
