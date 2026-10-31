@@ -4,6 +4,13 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: assignment to a member of a struct at a cast constant address (#378)
+
+- `(*(struct s *)ADDR).m = v` stored through the address of a temporary
+  holding the pointer (corrupting another variable) instead of through the
+  pointer: `(*p).m` took the by-value path of `f().m` / `(a + b).m`.
+  Reading the member was right. Test: `test_struct_at_addr_xemu.c`.
+
 ### TGI fill patterns; gets, gets_s, heapfree, ftoa; stdin reads the keyboard
 
 - `<tgi.h>`: `tgi_setpattern` (8x8 colours, a transparent colour or none),
