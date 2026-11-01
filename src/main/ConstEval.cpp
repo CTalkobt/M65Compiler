@@ -95,11 +95,14 @@ bool binary(const std::string& op, const ConstValue& left, const ConstValue& rig
     int wl = litWidth(left), wr = litWidth(right);
     bool sl = litSigned(left), sr = litSigned(right);
     int64_t lv = normalize(left.value, wl, sl), rv = normalize(right.value, wr, sr);
+    // (a wider signed type holds every value of a narrower unsigned one: a
+    // signed int and an unsigned char are signed, as they are at run time, #377)
+    bool widerSigned = (sl && wl > wr) || (sr && wr > wl);
     if (wl < 2) wl = 2;
     if (wr < 2) wr = 2;
     bool isShift = op == "<<" || op == ">>";
     int w = isShift ? wl : std::max(wl, wr);
-    bool sg = isShift ? sl : (wl == wr ? (sl && sr) : (wl > wr ? sl : sr));
+    bool sg = isShift ? sl : (wl == wr ? (sl && sr) || widerSigned : (wl > wr ? sl : sr));
     if (plain) { w = 8; sg = true; }
     lv = normalize(lv, w, sg);
     if (!isShift) rv = normalize(rv, w, sg);

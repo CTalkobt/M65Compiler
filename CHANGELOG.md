@@ -21,6 +21,53 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - Tests: the `ca45lib` category of `bin/test_validation`, which assembles
   every instruction of the opcode table through the library; `test_install.sh`
   links a program against the installed library.
+### cc45: a signed operand with a narrower unsigned one stays signed (#377)
+
+- `(signed long)s * uc / 48` divided unsigned (21829 for -16), and
+  `((signed long)c * u) >> 3` shifted unsigned: the product itself was
+  computed as signed (a wider signed type holds every value of a narrower
+  unsigned one), but the type the operation reported to the one around it
+  was unsigned. It is signed now, as the code computes it, and a shift has
+  its left operand's signedness. Folded constants the same:
+  `(signed int)-80 / (unsigned char)20` is -4 (was 3272).
+- Test: `test_signed_mixed_xemu.c` (both conventions).
+
+### cc45: a declarator's name in parentheses, void (f)(int) (#376)
+
+- `void (f)(int);` and `int (x);` were errors ("Expected variable name"):
+  the parentheses around a declarator's name only group (C17 6.7.6) and
+  are dropped, for functions (prototypes and definitions, at file and
+  block scope), variables (each declarator of a list) and parameters. They
+  keep a function-like macro `f` from expanding: the usual way to declare
+  the function a macro of its name wraps.
+- `__fastcall__` may follow the return type: `void __fastcall__ f(int)`,
+  `void __fastcall__ (f)(int)`.
+- `<audio_tune.h>` declares `(tune_play)`, `(tune_play_far)`, `(tune_queue)`
+  and `(tune_queue_far)` so: tune45's macros of those names for coded tunes
+  (its `music.h`) no longer depend on the order of the includes.
+- Test: `test_paren_declarator_xemu.c` (both conventions).
+
+### cp45: #if evaluates C's whole expression grammar (#375)
+
+- `#if` (cc45, cp45, and ca45 through the same preprocessor) parsed only
+  `! - + * / + - == != < > <= >= && ||`: at `%`, `&`, `|`, `^` or `~` it
+  stopped and took the left operand (`#if 150 & 1` was true), and `<<`/`>>`
+  were read as two relational operators. Now C's grammar (C11 6.10.1, 6.6):
+  `~ % << >> & ^ | ?:` too, with C's precedence; `intmax_t` values, or
+  `uintmax_t` for an unsigned constant (`-1 > 0u`); character constants;
+  `0b` constants. `&& || ?:` evaluate only the operand that decides.
+- What the grammar doesn't take is an error naming the line (`#if 1 +`, an
+  unknown operator, a call of an undefined macro, a string, `1.5`, a zero
+  divisor) instead of being ignored. A skipped group's `#if`/`#elif` is not
+  evaluated.
+- Test: `test_pp_if_ops.c` (`test_compiler.sh`).
+
+### cc45: assignment to a member of a struct at a cast constant address (#378)
+
+- `(*(struct s *)ADDR).m = v` stored through the address of a temporary
+  holding the pointer (corrupting another variable) instead of through the
+  pointer: `(*p).m` took the by-value path of `f().m` / `(a + b).m`.
+  Reading the member was right. Test: `test_struct_at_addr_xemu.c`.
 
 ### TGI fill patterns; gets, gets_s, heapfree, ftoa; stdin reads the keyboard
 

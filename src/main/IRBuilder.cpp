@@ -1043,7 +1043,20 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
                 sig = true;
             else if (rhs.isSigned && !lhs.isSigned && lhsLit && lhsLit->castType.empty() && lhsLit->value >= 0 && lhsLit->value <= 32767)
                 sig = true;
+            // A wider signed type holds every value of a narrower unsigned
+            // one: the common type is the signed one, as visit(BinaryOperation)
+            // computes it ((signed long)s * uc / 48 stays signed, #377)
+            if (!sig && lhs.type != ir::Type::PTR && rhs.type != ir::Type::PTR &&
+                lhs.type != ir::Type::F32 && rhs.type != ir::Type::F32) {
+                int ls = (int)ir::typeSize(lhs.type), rs = (int)ir::typeSize(rhs.type);
+                if ((lhs.isSigned && ls > rs) || (rhs.isSigned && rs > ls)) sig = true;
+            }
+            // a char / or % of a signed and an unsigned char: done in int
+            if (lhs.type == ir::Type::I8 && rhs.type == ir::Type::I8 && (bin->op == "/" || bin->op == "%"))
+                sig = true;
         }
+        // A shift has the signedness of its left operand
+        if (bin->op == "<<" || bin->op == ">>") sig = lhs.isSigned;
         ir::Type t = (ir::typeSize(lhs.type) >= ir::typeSize(rhs.type)) ? lhs.type : rhs.type;
         // + - * << of chars are ints (the value is computed in 16 bits and
         // can need them): a char type here would let an enclosing char
@@ -9135,10 +9148,13 @@ void IRBuilder::visit(MemberAccess& node) {
     computeAddressOnly_ = oldAddrMode;
 
     // f().m, (a + b).m of a small struct returned in registers: the value
-    // has no address; it is stored into a hidden local first
+    // has no address; it is stored into a hidden local first. (*p).m is an
+    // lvalue: base is already the address p holds (an integer constant cast
+    // to a pointer is not typed ptr, #378)
+    auto* uo = dynamic_cast<UnaryOperation*>(node.structExpr.get());
     if (!node.isArrow && (dynamic_cast<FunctionCall*>(node.structExpr.get()) ||
                           dynamic_cast<BinaryOperation*>(node.structExpr.get()) ||
-                          dynamic_cast<UnaryOperation*>(node.structExpr.get())))
+                          (uo && uo->op != "*")))
         base = addressOfValue(base, loc(node));
 
     IRTypeInfo baseInfo = getExprTypeInfo(node.structExpr.get());

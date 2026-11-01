@@ -262,6 +262,27 @@ else
     failed=$((failed + 1))
 fi
 
+# #if's operators (#375): ~ % << >> & ^ | ?: with C's precedence, and the
+# same through ca45; a malformed expression, a zero divisor or an unknown
+# operator is an error naming the line; a skipped group's #if is not read
+printf '#if DRAW & 1\n  lda #1\n#endif\n#if (1 << 3) == 8\n  rts\n#endif\n' > build/test/test_pp_if_ops.s45
+printf 'int a;\n#if 1 +\n#endif\n' > build/test/test_pp_if_e1.c
+printf 'int a;\n#if 1\n#elif 2\n#endif\n#if 0\n#elif 4 / (2 - 2)\n#endif\n' > build/test/test_pp_if_e2.c
+printf '#if 1 @ 2\n#endif\n' > build/test/test_pp_if_e3.c
+printf '#if FOO(3)\n#endif\n' > build/test/test_pp_if_e4.c
+if ./bin/cp45 src/test-resources/test_pp_if_ops.c -o build/test/test_pp_if_ops.i >/dev/null 2>&1 &&
+   grep -qx 'int x = 1;' build/test/test_pp_if_ops.i &&
+   ./bin/ca45 -c build/test/test_pp_if_ops.s45 -o build/test/test_pp_if_ops.o45 >/dev/null 2>&1 &&
+   ./bin/cp45 build/test/test_pp_if_e1.c -o /dev/null 2>&1 | grep -q "test_pp_if_e1.c:2: error: #if: expression expected in '1 +'" &&
+   ./bin/cp45 build/test/test_pp_if_e2.c -o /dev/null 2>&1 | grep -q "test_pp_if_e2.c:6: error: #elif: division by zero" &&
+   ./bin/cp45 build/test/test_pp_if_e3.c -o /dev/null 2>&1 | grep -q "test_pp_if_e3.c:1: error: #if: unexpected '@'" &&
+   ./bin/cp45 build/test/test_pp_if_e4.c -o /dev/null 2>&1 | grep -q "test_pp_if_e4.c:1: error: #if: unexpected '('"; then
+    echo "SUCCESS: #if operators and errors (#375)"
+else
+    echo "FAIL: #if operators (#375): $(./bin/cp45 src/test-resources/test_pp_if_ops.c -o /dev/null 2>&1 | head -1)"
+    failed=$((failed + 1))
+fi
+
 # __bit / __bits (#204; the runtime test is test_bits_xemu.c): a volatile
 # register written with one load and one store (lda/and/ora/sta), a bit
 # test without shifts (bbs7), and the errors: not an integer, a bit outside

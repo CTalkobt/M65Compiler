@@ -1,4 +1,5 @@
 #include <cstring>
+#include <climits>
 #include <cstdio>
 #include "Preprocessor.hpp"
 #include <fstream>
@@ -566,7 +567,8 @@ std::string Preprocessor::expandMacros(const std::string& line) {
 }
 
 
-// Simple recursive descent evaluator for #if expressions
+// The tokens of an #if expression (after defined, the macros and the
+// identifiers are replaced): pp-numbers, character constants, punctuators
 struct ExprPath {
     std::string s;
     size_t pos = 0;
@@ -578,25 +580,46 @@ struct ExprPath {
     std::string nextToken() {
         skipWhitespace();
         if (pos >= s.length()) return "";
+        size_t start = pos;
         if (std::isalpha((unsigned char)s[pos]) || s[pos] == '_') {
-            size_t start = pos;
             while (pos < s.length() && (std::isalnum((unsigned char)s[pos]) || s[pos] == '_')) pos++;
+            // L'a', u'a', U'a', u8'a': the prefix of a character constant
+            if (pos < s.length() && s[pos] == '\'') {
+                std::string pre = s.substr(start, pos - start);
+                if (pre == "L" || pre == "u" || pre == "U" || pre == "u8") return pre + charConstant();
+            }
             return s.substr(start, pos - start);
         }
-        if (std::isdigit((unsigned char)s[pos])) {
-            // A whole pp-number: 0x7fffffff, 100UL
-            size_t start = pos;
-            while (pos < s.length() && (std::isalnum((unsigned char)s[pos]) || s[pos] == '_')) pos++;
+        if (std::isdigit((unsigned char)s[pos]) ||
+            (s[pos] == '.' && pos + 1 < s.length() && std::isdigit((unsigned char)s[pos + 1]))) {
+            // A whole pp-number: 0x7fffffff, 100UL, 1'000 (1.5, 1e+3 too, refused)
+            while (pos < s.length()) {
+                char c = s[pos];
+                if ((c == '+' || c == '-') && std::strchr("eEpP", s[pos - 1])) pos++;
+                else if (c == '\'' && pos + 1 < s.length() && std::isalnum((unsigned char)s[pos + 1])) pos++;
+                else if (std::isalnum((unsigned char)c) || c == '_' || c == '.') pos++;
+                else break;
+            }
             return s.substr(start, pos - start);
         }
+        if (s[pos] == '\'') return charConstant();
         if (pos + 1 < s.length()) {
             std::string op2 = s.substr(pos, 2);
-            if (op2 == "&&" || op2 == "||" || op2 == "==" || op2 == "!=" || op2 == "<=" || op2 == ">=") {
+            if (op2 == "&&" || op2 == "||" || op2 == "==" || op2 == "!=" || op2 == "<=" || op2 == ">=" ||
+                op2 == "<<" || op2 == ">>") {
                 pos += 2;
                 return op2;
             }
         }
         return std::string(1, s[pos++]);
+    }
+
+    // '...' at pos, as written (an unterminated one as far as it goes)
+    std::string charConstant() {
+        size_t start = pos++;
+        while (pos < s.length() && s[pos] != '\'') pos += (s[pos] == '\\' && pos + 1 < s.length()) ? 2 : 1;
+        if (pos < s.length()) pos++;
+        return s.substr(start, pos - start);
     }
     
     std::string peekToken() {
@@ -651,113 +674,217 @@ long Preprocessor::evaluateExpression(const std::string& expr) {
     // Replace any remaining undefined identifiers with 0 (C standard: undefined = 0 in #if)
     {
         std::string cleaned;
-        for (size_t i = 0; i < e.length(); ) {
-            if (std::isdigit((unsigned char)e[i])) {
-                // Numbers stay as written (0x7fffffff, 10UL)
-                while (i < e.length() && (std::isalnum((unsigned char)e[i]) || e[i] == '_')) cleaned += e[i++];
-            } else if (std::isalpha((unsigned char)e[i]) || e[i] == '_') {
-                size_t start = i;
-                while (i < e.length() && (std::isalnum((unsigned char)e[i]) || e[i] == '_')) i++;
-                std::string ident = e.substr(start, i - start);
-                // Unknown identifiers in #if evaluate to 0 per C standard
-                cleaned += "0";
-            } else {
-                cleaned += e[i++];
-            }
+        ExprPath q{e};
+        for (std::string t; !(t = q.nextToken()).empty(); ) {
+            if ((std::isalpha((unsigned char)t[0]) || t[0] == '_') && t.find('\'') == std::string::npos)
+                t = "0";
+            cleaned += t + " ";
         }
         e = cleaned;
     }
 
-    // 2. Simple Recursive Descent (Logical OR -> AND -> Relational -> Additive -> Multiplicative -> Unary -> Primary)
+    // 2. Recursive descent, C's grammar (6.10.1, 6.6): ?: || && | ^ & ==
+    // relational shifts additive multiplicative unary. Values are intmax_t,
+    // or uintmax_t when unsigned (the usual conversions); the side of && ||
+    // ?: that is not evaluated is parsed but not checked for a zero divisor.
+    struct Val { long long v; bool u; };
     ExprPath p{e};
-    
-    std::function<long()> parseOr;
-    std::function<long()> parseAnd;
-    std::function<long()> parseRel;
-    std::function<long()> parseAdd;
-    std::function<long()> parseMul;
-    std::function<long()> parseUnary;
-    std::function<long()> parsePrimary;
-
-    parsePrimary = [&]() -> long {
+    auto fail = [&](const std::string& why) -> Val {
+        throw std::runtime_error(why + " in '" + trim(expr) + "'");
+    };
+    auto expect = [&](const char* tok) {
         std::string t = p.nextToken();
-        if (t == "(") {
-            long val = parseOr();
-            if (p.nextToken() != ")") {} // Error
-            return val;
+        if (t != tok) fail("expected '" + std::string(tok) + "'" + (t.empty() ? "" : " before '" + t + "'"));
+    };
+    auto truth = [](const Val& a) { return a.v != 0; };
+    auto both = [](const Val& a, const Val& b) { return a.u || b.u; };
+    bool live = true;                  // the operand is evaluated
+
+    std::function<Val()> parseCond;
+
+    auto number = [&](const std::string& t) -> Val {
+        std::string d;
+        for (char c : t) if (c != '\'') d += c;
+        size_t end = d.size();
+        bool u = false;
+        int ls = 0;
+        while (end > 0 && std::strchr("uUlL", d[end - 1])) {
+            if (d[end - 1] == 'u' || d[end - 1] == 'U') u = true; else ls++;
+            end--;
         }
-        if (t.empty()) return 0;
-        if (isdigit((unsigned char)t[0])) {
-            // Integer constant: decimal, octal or hex, U/L suffixes ignored
-            std::string d = t;
-            while (!d.empty() && std::strchr("uUlL", d.back())) d.pop_back();
-            try { return (long)std::stoull(d, nullptr, 0); } catch (...) { return 0; }
+        if (ls > 2) fail("invalid integer constant '" + t + "'");
+        d.resize(end);
+        int base = 10;
+        size_t i = 0;
+        if (d.size() > 1 && d[0] == '0' && (d[1] == 'x' || d[1] == 'X')) { base = 16; i = 2; }
+        else if (d.size() > 1 && d[0] == '0' && (d[1] == 'b' || d[1] == 'B')) { base = 2; i = 2; }
+        else if (d.size() > 1 && d[0] == '0') { base = 8; i = 1; }
+        if (i >= d.size() && base != 8) fail("invalid integer constant '" + t + "'");
+        unsigned long long v = 0;
+        bool over = false;
+        for (; i < d.size(); i++) {
+            int x = std::isdigit((unsigned char)d[i]) ? d[i] - '0'
+                  : std::isxdigit((unsigned char)d[i]) ? std::tolower((unsigned char)d[i]) - 'a' + 10 : 99;
+            if (x >= base) fail("invalid integer constant '" + t + "'");
+            if (v > (~0ULL - x) / base) over = true;
+            v = v * base + x;
         }
-        // Symbols not in defined() but in #if are treated as 0
-        if (macros.count(t)) {
-            try { return std::stol(macros[t].body, nullptr, 0); } catch(...) { return 0; }
-        }
-        return 0;
+        if (over) fail("integer constant '" + t + "' is too large");
+        // too large for intmax_t: uintmax_t (a hex or octal constant's type)
+        if (v > (unsigned long long)LLONG_MAX) u = true;
+        return {(long long)v, u};
     };
 
-    parseUnary = [&]() -> long {
-        std::string t = p.peekToken();
-        if (t == "!") { p.nextToken(); return !parseUnary(); }
-        if (t == "-") { p.nextToken(); return -parseUnary(); }
-        if (t == "+") { p.nextToken(); return parseUnary(); }
-        return parsePrimary();
+    auto character = [&](const std::string& t) -> Val {
+        size_t q = t.find('\'');
+        if (t.size() < q + 3 || t.back() != '\'') fail("invalid character constant " + t);
+        std::string b = t.substr(q + 1, t.size() - q - 2);
+        long long v = 0;
+        for (size_t i = 0; i < b.size(); ) {
+            unsigned c = (unsigned char)b[i++];
+            if (c == '\\' && i < b.size()) {
+                char e2 = b[i++];
+                switch (e2) {
+                case 'n': c = '\n'; break; case 't': c = '\t'; break; case 'r': c = '\r'; break;
+                case 'a': c = '\a'; break; case 'b': c = '\b'; break; case 'f': c = '\f'; break;
+                case 'v': c = '\v'; break; case 'e': c = 27; break;
+                case 'x': c = 0; while (i < b.size() && std::isxdigit((unsigned char)b[i]))
+                              c = c * 16 + (std::isdigit((unsigned char)b[i]) ? b[i] - '0' : std::tolower((unsigned char)b[i]) - 'a' + 10), i++;
+                          break;
+                default:
+                    if (e2 >= '0' && e2 <= '7') {
+                        c = e2 - '0';
+                        for (int k = 0; k < 2 && i < b.size() && b[i] >= '0' && b[i] <= '7'; k++) c = c * 8 + (b[i++] - '0');
+                    } else c = (unsigned char)e2;    // \\ \' \" \?
+                }
+            }
+            v = q ? (long long)c : (v << 8) | (c & 0xFF);
+        }
+        return {v, false};
     };
 
-    parseMul = [&]() -> long {
-        long left = parseUnary();
-        while (true) {
-            std::string t = p.peekToken();
-            if (t == "*") { p.nextToken(); left *= parseUnary(); }
-            else if (t == "/") { p.nextToken(); long right = parseUnary(); left = right ? left / right : 0; }
-            else break;
+    std::function<Val()> parseUnary = [&]() -> Val {
+        std::string t = p.nextToken();
+        if (t == "!") { Val a = parseUnary(); return {!truth(a), false}; }
+        if (t == "-") { Val a = parseUnary(); return {(long long)(0ULL - (unsigned long long)a.v), a.u}; }
+        if (t == "+") return parseUnary();
+        if (t == "~") { Val a = parseUnary(); return {~a.v, a.u}; }
+        if (t == "(") { Val a = parseCond(); expect(")"); return a; }
+        if (t.empty()) fail("expression expected");
+        if (std::isdigit((unsigned char)t[0]) || t[0] == '.') return number(t);
+        if (t.find('\'') != std::string::npos) return character(t);
+        return fail("'" + t + "' is not allowed");
+    };
+
+    // a binary level: its operators and how each combines two values
+    using Op = std::function<Val(Val, Val)>;
+    auto level = [&](std::function<Val()> next, std::vector<std::pair<std::string, Op>> ops) {
+        return [&p, next, ops]() -> Val {
+            Val left = next();
+            for (;;) {
+                std::string t = p.peekToken();
+                auto it = std::find_if(ops.begin(), ops.end(), [&](auto& o) { return o.first == t; });
+                if (it == ops.end()) return left;
+                p.nextToken();
+                left = it->second(left, next());
+            }
+        };
+    };
+    // + - * & | ^ in two's complement (wrapping as the target would)
+    auto arith = [&](auto f) -> Op {
+        return [both, f](Val a, Val b) -> Val {
+            return {(long long)f((unsigned long long)a.v, (unsigned long long)b.v), both(a, b)};
+        };
+    };
+    auto compare = [&](auto f) -> Op {
+        return [both, f](Val a, Val b) -> Val {
+            return {both(a, b) ? f((unsigned long long)a.v, (unsigned long long)b.v) : f(a.v, b.v), false};
+        };
+    };
+    auto divide = [&](bool rem) -> Op {
+        return [&, rem](Val a, Val b) -> Val {
+            bool u = both(a, b);
+            if (b.v == 0) { if (live) fail(rem ? "remainder by zero" : "division by zero"); return {0, u}; }
+            if (u) {
+                unsigned long long x = a.v, y = b.v;
+                return {(long long)(rem ? x % y : x / y), true};
+            }
+            if (a.v == LLONG_MIN && b.v == -1) return {rem ? 0 : LLONG_MIN, false};
+            return {rem ? a.v % b.v : a.v / b.v, false};
+        };
+    };
+    auto shift = [](bool leftShift) -> Op {
+        return [leftShift](Val a, Val b) -> Val {
+            long long n = b.v;
+            if (b.u ? (unsigned long long)n >= 64 : (n < 0 || n >= 64))
+                return {(!leftShift && !a.u && a.v < 0) ? -1 : 0, a.u};
+            if (leftShift) return {(long long)((unsigned long long)a.v << n), a.u};
+            return {a.u ? (long long)((unsigned long long)a.v >> n) : a.v >> n, a.u};
+        };
+    };
+
+    auto parseMul = level(parseUnary, {
+        {"*", arith([](auto x, auto y) { return x * y; })},
+        {"/", divide(false)},
+        {"%", divide(true)}});
+    auto parseAdd = level(parseMul, {
+        {"+", arith([](auto x, auto y) { return x + y; })},
+        {"-", arith([](auto x, auto y) { return x - y; })}});
+    auto parseShift = level(parseAdd, {{"<<", shift(true)}, {">>", shift(false)}});
+    auto parseRel = level(parseShift, {
+        {"<", compare([](auto x, auto y) { return x < y; })},
+        {">", compare([](auto x, auto y) { return x > y; })},
+        {"<=", compare([](auto x, auto y) { return x <= y; })},
+        {">=", compare([](auto x, auto y) { return x >= y; })}});
+    auto parseEq = level(parseRel, {
+        {"==", compare([](auto x, auto y) { return x == y; })},
+        {"!=", compare([](auto x, auto y) { return x != y; })}});
+    auto parseBitAnd = level(parseEq, {{"&", arith([](auto x, auto y) { return x & y; })}});
+    auto parseXor = level(parseBitAnd, {{"^", arith([](auto x, auto y) { return x ^ y; })}});
+    auto parseBitOr = level(parseXor, {{"|", arith([](auto x, auto y) { return x | y; })}});
+
+    // && || ?: evaluate an operand only when it decides the value
+    auto lazily = [&](bool evaluate, auto parse) {
+        bool was = live;
+        live = live && evaluate;
+        Val v = parse();
+        live = was;
+        return v;
+    };
+    std::function<Val()> parseAnd = [&]() -> Val {
+        Val left = parseBitOr();
+        while (p.peekToken() == "&&") {
+            p.nextToken();
+            Val right = lazily(truth(left), parseBitOr);
+            left = {truth(left) && truth(right), false};
         }
         return left;
     };
-
-    parseAdd = [&]() -> long {
-        long left = parseMul();
-        while (true) {
-            std::string t = p.peekToken();
-            if (t == "+") { p.nextToken(); left += parseMul(); }
-            else if (t == "-") { p.nextToken(); left -= parseMul(); }
-            else break;
+    std::function<Val()> parseOr = [&]() -> Val {
+        Val left = parseAnd();
+        while (p.peekToken() == "||") {
+            p.nextToken();
+            Val right = lazily(!truth(left), parseAnd);
+            left = {truth(left) || truth(right), false};
         }
         return left;
     };
-
-    parseRel = [&]() -> long {
-        long left = parseAdd();
-        while (true) {
-            std::string t = p.peekToken();
-            if (t == "==") { p.nextToken(); left = (left == parseAdd()); }
-            else if (t == "!=") { p.nextToken(); left = (left != parseAdd()); }
-            else if (t == "<") { p.nextToken(); left = (left < parseAdd()); }
-            else if (t == ">") { p.nextToken(); left = (left > parseAdd()); }
-            else if (t == "<=") { p.nextToken(); left = (left <= parseAdd()); }
-            else if (t == ">=") { p.nextToken(); left = (left >= parseAdd()); }
-            else break;
-        }
-        return left;
+    parseCond = [&]() -> Val {
+        Val c = parseOr();
+        if (p.peekToken() != "?") return c;
+        p.nextToken();
+        Val a = lazily(truth(c), parseCond);
+        expect(":");
+        Val b = lazily(!truth(c), parseCond);
+        bool u = both(a, b);
+        Val r = truth(c) ? a : b;
+        return {r.v, u};
     };
 
-    parseAnd = [&]() -> long {
-        long left = parseRel();
-        while (p.peekToken() == "&&") { p.nextToken(); left = (parseRel() && left); }
-        return left;
-    };
-
-    parseOr = [&]() -> long {
-        long left = parseAnd();
-        while (p.peekToken() == "||") { p.nextToken(); left = (parseAnd() || left); }
-        return left;
-    };
-
-    return parseOr();
+    Val r = parseCond();
+    std::string rest = p.nextToken();
+    if (!rest.empty()) fail("unexpected '" + rest + "'");
+    return (long)r.v;
 }
 
 // The source with comments and string/character literals blanked
@@ -1319,6 +1446,14 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
     int joinedLines = 0;   // lines of an open macro call joined so far
     bool inBlockComment = false;
     bool hasSeenNonWhitespace = false;
+    // an #if's or #elif's expression, its errors at the directive
+    auto condition = [&](const std::string& cmd, const std::string& expr) {
+        try {
+            return evaluateExpression(expr) != 0;
+        } catch (const std::runtime_error& e) {
+            throw std::runtime_error(reportedFile + ":" + std::to_string(lineNum) + ": error: " + cmd + ": " + e.what());
+        }
+    };
 
     while (std::getline(input, line)) {
         lineNum++;
@@ -1473,8 +1608,9 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
             } else if (cmd == "#if") {
                 std::string expr;
                 std::getline(ss, expr);
-                bool val = evaluateExpression(expr);
+                // (a skipped group's #if is not evaluated: only its nesting counts)
                 bool parentActive = isConditionTrue();
+                bool val = parentActive && condition(cmd, expr);
                 stateStack.push_back({parentActive && val, val, false});
                 output << "\n";
             } else if (cmd == "#elif") {
@@ -1489,9 +1625,9 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
 
                 std::string expr;
                 std::getline(ss, expr);
-                bool val = evaluateExpression(expr);
+                bool val = !top.hasSeenTrueBranch && parentActive && condition(cmd, expr);
 
-                if (!top.hasSeenTrueBranch && parentActive && val) {
+                if (val) {
                     top.active = true;
                     top.hasSeenTrueBranch = true;
                 } else {
