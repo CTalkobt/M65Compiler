@@ -3306,6 +3306,12 @@ xemu_case "FAIL: test_logical_value_xemu.c (compilation/linking failed)" "src/te
 echo "Testing test_dma_xemu.c (DMA fill and copy)..."
 xemu_case "FAIL: test_dma_xemu.c (compilation/linking failed)" "src/test-resources/test_dma_xemu.c" "build/test/test_dma_xemu.prg" -- "test_dma" "build/test/test_dma_xemu.prg" "C0C0" 3 "01 01 AA"
 
+# for (;;) keeps its branch back; *p = *p + 1 adds to the loaded byte (#385)
+for fe in "zp|" "stack|-fno-zpcall" "O0|-O0" "O0stack|-O0 -fno-zpcall"; do
+    fename=${fe%%|*}; feflags=${fe#*|}
+    xemu_case "FAIL: test_for_ever_xemu.c $fename (compilation/linking failed)" "src/test-resources/test_for_ever_xemu.c" "build/test/test_for_ever_${fename}_xemu.prg" "$feflags" -- "test_for_ever_$fename" "build/test/test_for_ever_${fename}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+done
+
 # Test: ca45 simulated instructions (assembled directly with ca45, no linker)
 # Test: ca45 forgets register/base-page knowledge after Q, indexed/indirect and RMW instructions
 echo "Testing test_ca45_tracking_xemu.s45 (ca45 machine-state tracking)..."
