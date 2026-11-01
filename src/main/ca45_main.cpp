@@ -15,6 +15,8 @@
 #include <pwd.h>
 #include <unistd.h>
 #include <cctype>
+#include <filesystem>
+#include <map>
 #include "AssemblerLexer.hpp"
 #include "AssemblerParser.hpp"
 #include "Preprocessor.hpp"
@@ -245,52 +247,60 @@ static bool launchEmulatorWithBinary(const std::string& binaryPath, const std::s
     return false;
 }
 
-static void writeSourceMap(const std::string& filename, const AssemblerParser& parser, const std::string& source) {
-    std::ofstream out(filename);
-    if (!out.is_open()) return;
-
-    std::vector<std::string> sourceLines;
-    std::stringstream ss(source);
-    std::string line;
-    while (std::getline(ss, line)) sourceLines.push_back(line);
-
-    out << "Source Map — Binary Address to Source Line Mapping\n";
-    out << "=====================================================\n\n";
-    out << std::hex;
-    out << std::setfill('0');
-
-    for (const auto& stmt : parser.statements) {
-        if (stmt->deleted || stmt->bytes.empty()) continue;
-
-        // Address
-        out << std::setw(8) << stmt->address << "  ";
-
-        // Line number
-        if (stmt->line > 0) {
-            out << std::dec << "Line " << stmt->line << "  " << std::hex;
-        } else {
-            out << "(no line info)  ";
-        }
-
-        // Source line text
-        if (stmt->line > 0 && stmt->line <= (int)sourceLines.size()) {
-            std::string srcLine = sourceLines[stmt->line - 1];
-            // Trim leading whitespace for display
-            size_t start = srcLine.find_first_not_of(" \t");
-            if (start != std::string::npos) {
-                srcLine = srcLine.substr(start);
-            }
-            // Limit line length for readability
-            if (srcLine.length() > 60) {
-                srcLine = srcLine.substr(0, 57) + "...";
-            }
-            out << srcLine;
-        }
-        out << "\n";
+// The source files of the statements, for the map and the listing (#381):
+// a statement's line is a line of its own file (Statement::asmFile, an
+// #include's / .include's; empty for the main source), so its text is read
+// from that file, not from the preprocessed source (where an include's lines
+// are in the middle and the main file's numbers no longer match)
+class SourceFiles {
+public:
+    explicit SourceFiles(const std::string& mainFile) : mainFile_(mainFile) {
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        mainDir_ = fs::absolute(fs::path(mainFile), ec).parent_path();
     }
+    const std::string& file(const AssemblerParser::Statement& st) const {
+        return st.asmFile.empty() ? mainFile_ : st.asmFile;
+    }
+    // the file's name as the map shows it: relative to the main source's directory
+    std::string display(const std::string& f) {
+        namespace fs = std::filesystem;
+        auto it = names_.find(f);
+        if (it != names_.end()) return it->second;
+        std::error_code ec;
+        fs::path abs = fs::absolute(fs::path(f), ec);
+        std::string name = f;
+        if (!ec) {
+            fs::path rel = abs.lexically_normal().lexically_relative(mainDir_.lexically_normal());
+            if (!rel.empty() && *rel.begin() != "..") name = rel.generic_string();
+            else name = abs.lexically_normal().generic_string();
+        }
+        return names_[f] = name;
+    }
+    // line n (from 1) of the file, "" when there is none
+    const std::string& line(const std::string& f, int n) {
+        static const std::string none;
+        auto it = lines_.find(f);
+        if (it == lines_.end()) {
+            std::vector<std::string> v;
+            std::ifstream in(f);
+            std::string l;
+            while (std::getline(in, l)) {
+                if (!l.empty() && l.back() == '\r') l.pop_back();
+                v.push_back(l);
+            }
+            it = lines_.emplace(f, std::move(v)).first;
+        }
+        return n > 0 && n <= (int)it->second.size() ? it->second[n - 1] : none;
+    }
+private:
+    std::string mainFile_;
+    std::filesystem::path mainDir_;
+    std::map<std::string, std::vector<std::string>> lines_;
+    std::map<std::string, std::string> names_;
+};
 
-    out << "\n\nSymbol Table\n";
-    out << "============\n";
+static void writeSymbolTable(std::ofstream& out, const AssemblerParser& parser) {
     std::map<std::string, Symbol> sortedSymbols = parser.getSymbolTable();
     for (const auto& [name, sym] : sortedSymbols) {
         out << std::setw(32) << std::left << std::setfill(' ') << name << " ";
@@ -302,24 +312,59 @@ static void writeSourceMap(const std::string& filename, const AssemblerParser& p
     }
 }
 
-static void writeListing(const std::string& filename, const AssemblerParser& parser, const std::string& source) {
+// Each row: the address, file:line (the file relative to the main source's
+// directory), the line's text
+static void writeSourceMap(const std::string& filename, const AssemblerParser& parser, const std::string& mainFile) {
     std::ofstream out(filename);
     if (!out.is_open()) return;
+    SourceFiles files(mainFile);
 
-    std::vector<std::string> sourceLines;
-    std::stringstream ss(source);
-    std::string line;
-    while (std::getline(ss, line)) sourceLines.push_back(line);
+    out << "Source Map — Binary Address to Source Line Mapping\n";
+    out << "=====================================================\n\n";
+
+    for (const auto& stmt : parser.statements) {
+        if (stmt->deleted || stmt->bytes.empty()) continue;
+
+        out << std::hex << std::setw(8) << std::setfill('0') << stmt->address << std::dec << "  ";
+        if (stmt->line <= 0) {
+            out << "(no line info)\n";
+            continue;
+        }
+        const std::string& f = files.file(*stmt);
+        out << files.display(f) << ":" << stmt->line << "  ";
+
+        std::string srcLine = files.line(f, stmt->line);
+        size_t start = srcLine.find_first_not_of(" \t");
+        srcLine = start == std::string::npos ? std::string() : srcLine.substr(start);
+        if (srcLine.length() > 60) srcLine = srcLine.substr(0, 57) + "...";
+        out << srcLine << "\n";
+    }
+
+    out << "\n\nSymbol Table\n";
+    out << "============\n";
+    writeSymbolTable(out, parser);
+}
+
+static void writeListing(const std::string& filename, const AssemblerParser& parser, const std::string& mainFile) {
+    std::ofstream out(filename);
+    if (!out.is_open()) return;
+    SourceFiles files(mainFile);
 
     out << "ca45 Assembly Listing\n";
     out << "====================\n\n";
 
+    std::string lastFile;
     for (const auto& stmt : parser.statements) {
         if (stmt->deleted) continue;
-        
-        // Address
+
         if (stmt->type == AssemblerParser::Statement::DIRECTIVE && (stmt->dir.name == "segment" || stmt->dir.name == "code" || stmt->dir.name == "data" || stmt->dir.name == "bss")) {
             out << "\nSegment: " << stmt->segmentName << "\n";
+        }
+        // an included file's lines: a heading where the file changes
+        const std::string& f = files.file(*stmt);
+        if (stmt->line > 0 && f != lastFile) {
+            if (!lastFile.empty()) out << "\nFile: " << files.display(f) << "\n";
+            lastFile = f;
         }
 
         out << std::hex << std::setw(8) << std::setfill('0') << stmt->address << ": ";
@@ -334,10 +379,7 @@ static void writeListing(const std::string& filename, const AssemblerParser& par
             }
         }
 
-        // Source line
-        if (stmt->line > 0 && stmt->line <= (int)sourceLines.size()) {
-            out << "  " << sourceLines[stmt->line - 1];
-        }
+        if (stmt->line > 0) out << "  " << files.line(f, stmt->line);
         out << "\n";
 
         // Extra bytes
@@ -358,16 +400,7 @@ static void writeListing(const std::string& filename, const AssemblerParser& par
 
     out << "\nSymbol Table\n";
     out << "============\n";
-    // Sort symbols by name for consistent output
-    std::map<std::string, Symbol> sortedSymbols = parser.getSymbolTable();
-    for (const auto& [name, sym] : sortedSymbols) {
-        out << std::setw(32) << std::left << std::setfill(' ') << name << " ";
-        out << std::hex << std::setw(8) << std::right << std::setfill('0') << sym.value;
-        if (sym.isConstant) out << " (CONST)";
-        else if (sym.isVariable) out << " (VAR)";
-        else if (sym.isAddress) out << " (ADDR)";
-        out << "\n";
-    }
+    writeSymbolTable(out, parser);
 }
 
 int main(int argc, char** argv) {
@@ -615,6 +648,10 @@ int main(int argc, char** argv) {
     std::string source;
     try {
         source = preprocessor.process(sourceRaw, initialSymbols, includePaths, input_file);
+    } catch (const PreprocessError& e) {
+        // at its line: a missing #include / .include file at the line naming it
+        std::cerr << formatDiagnostic(e.file, e.line, 1, Severity::Error, e.message) << std::endl;
+        return 1;
     } catch (const std::exception& e) {
         std::cerr << formatDiagnostic(input_file, 1, 1, Severity::Error, e.what()) << std::endl;
         return 1;
@@ -713,12 +750,12 @@ int main(int argc, char** argv) {
                 out.write(reinterpret_cast<const char*>(o45.data()), o45.size());
                 std::cout << "Object file: " << output_file << " (" << o45.size() << " bytes)" << std::endl;
                 if (!listing_file.empty()) {
-                    writeListing(listing_file, parser, source);
+                    writeListing(listing_file, parser, input_file);
                     std::cout << "Listing generated to " << listing_file << std::endl;
                 }
                 // Phase 3.2: Generate source map if requested
                 if (!sourceMapFile.empty()) {
-                    writeSourceMap(sourceMapFile, parser, source);
+                    writeSourceMap(sourceMapFile, parser, input_file);
                     std::cout << "Source map generated to " << sourceMapFile << std::endl;
                 }
             }
@@ -730,7 +767,7 @@ int main(int argc, char** argv) {
             std::cout << "Expanded listing generated to " << output_file << std::endl;
             // Phase 3.2: Generate source map if requested
             if (!sourceMapFile.empty()) {
-                writeSourceMap(sourceMapFile, parser, source);
+                writeSourceMap(sourceMapFile, parser, input_file);
                 std::cout << "Source map generated to " << sourceMapFile << std::endl;
             }
         } else {
@@ -779,12 +816,12 @@ int main(int argc, char** argv) {
                 out.write(reinterpret_cast<const char*>(binary.data()), binary.size());
                 std::cout << "Assembled to " << output_file << " (" << binary.size() << " bytes)" << std::endl;
                 if (!listing_file.empty()) {
-                    writeListing(listing_file, parser, source);
+                    writeListing(listing_file, parser, input_file);
                     std::cout << "Listing generated to " << listing_file << std::endl;
                 }
                 // Phase 3.2: Generate source map if requested
                 if (!sourceMapFile.empty()) {
-                    writeSourceMap(sourceMapFile, parser, source);
+                    writeSourceMap(sourceMapFile, parser, input_file);
                     std::cout << "Source map generated to " << sourceMapFile << std::endl;
                 }
                 // Phase 3.3: Launch emulator if requested

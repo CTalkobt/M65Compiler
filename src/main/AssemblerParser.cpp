@@ -2494,9 +2494,16 @@ void AssemblerParser::warnUnknownDirective(const AssemblerToken& tok) {
     if (!warnedDirectives_.insert(tok.value + ":" + std::to_string(tok.line)).second) return;
     std::string lower = tok.value;
     std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+    // an .include the preprocessor did not take (after a label, not lower
+    // case): an error, as leaving the file's code out would be (#382)
+    if (lower == "include") {
+        addError(formatDiagnostic(tokenFile(tok), tok.line, tok.column, Severity::Error,
+            tok.value == "include" ? "'.include \"file\"' must start its line (a label goes on a line of its own)"
+                                   : "directives are lower case: '.include'"));
+        return;
+    }
     std::string msg = "unknown directive '." + tok.value + "' is ignored";
     if (lower != tok.value && known.count(lower)) msg += " (directives are lower case: '." + lower + "')";
-    else if (tok.value == "include") msg += " (use #include \"file\")";
     else if (tok.value == "if" || tok.value == "ifdef" || tok.value == "ifndef" || tok.value == "else" ||
              tok.value == "endif")
         msg += " (ca45 has no conditional assembly)";
