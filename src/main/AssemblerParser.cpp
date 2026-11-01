@@ -319,6 +319,20 @@ Symbol* AssemblerParser::resolveFrameVar(const std::string& scopePrefix) {
     return resolveSymbol("_fp", scopePrefix);
 }
 
+bool AssemblerParser::bitBranchTargetValue(const std::string& target, const std::string& scopePrefix, uint32_t& value) {
+    if (Symbol* sym = resolveSymbol(target, scopePrefix)) { value = sym->value; return true; }
+    // a number: it was taken for an undefined symbol, so the branch went to $0000
+    try {
+        size_t used = 0;
+        if (target.size() > 1 && target[0] == '$') value = std::stoul(target.substr(1), &used, 16), used++;
+        else if (target.size() > 1 && target[0] == '%') value = std::stoul(target.substr(1), &used, 2), used++;
+        else if (!target.empty() && std::isdigit((unsigned char)target[0])) value = std::stoul(target, &used, 10);
+        return used != 0 && used == target.size();
+    } catch (...) {
+        return false;
+    }
+}
+
 Symbol* AssemblerParser::resolveSymbol(const std::string& name, const std::string& scopePrefix) {
     // For @ local labels outside proc scope, try auto-scope under last global label
     if (!name.empty() && name[0] == '@' && !currentLocalScope_.empty() && scopePrefix.empty()) {
@@ -2437,9 +2451,12 @@ int AssemblerParser::calculateInstructionSize(const Instruction& instr, uint32_t
             if (sym) {
                 v = sym->value;
             } else {
-                // Try parsing as numeric literal
+                // A number or expression ($12, %10, 2*4): as the generator
+                // evaluates it (std::stoul took only decimal: rtn #$12 failed)
                 try {
-                    v = std::stoul(instr.operand);
+                    v = instr.operandTokenIndex != -1
+                        ? evaluateExpressionAt(instr.operandTokenIndex, scopePrefix)
+                        : (uint32_t)std::stoul(instr.operand);
                 } catch (...) {
                     errorAtStmt(stmt, "RTN instruction: undefined operand '" + instr.operand +
                         "' (not a symbol or numeric literal)");
@@ -2868,9 +2885,9 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
                     } catch (...) {}
                 } else if (s->instr.mode == AddressingMode::BASE_PAGE_RELATIVE &&
                            !s->instr.bitBranchTarget.empty()) {
-                    Symbol* tsym = resolveSymbol(s->instr.bitBranchTarget, s->scopePrefix);
-                    if (tsym) {
-                        s->resolvedBranchOffset = (int32_t)tsym->value - (int32_t)(s->address + 3);
+                    uint32_t t;
+                    if (bitBranchTargetValue(s->instr.bitBranchTarget, s->scopePrefix, t)) {
+                        s->resolvedBranchOffset = (int32_t)t - (int32_t)(s->address + 3);
                         s->hasBranchOffset = true;
                     }
                 }

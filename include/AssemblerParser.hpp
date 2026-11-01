@@ -96,6 +96,9 @@ public:
     bool hasFramePointer() const { return framePointerZP != 0; }
     bool getSACMode() const { return sacMode; }
     Symbol* resolveSymbol(const std::string& name, const std::string& scopePrefix = "");
+    // A bit branch's target (bbr0 $12,target): a symbol or a number ($2010,
+    // %..., decimal); false while a symbol is not defined
+    bool bitBranchTargetValue(const std::string& target, const std::string& scopePrefix, uint32_t& value);
     // The proc's frame-pointer variable: cc45 emits ".var cc45.fp" (a name no C
     // identifier can take); hand-written assembly may use ".var _fp"
     Symbol* resolveFrameVar(const std::string& scopePrefix);
