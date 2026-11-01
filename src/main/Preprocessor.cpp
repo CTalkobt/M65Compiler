@@ -1451,10 +1451,13 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
         try {
             return evaluateExpression(expr) != 0;
         } catch (const std::runtime_error& e) {
-            throw std::runtime_error(reportedFile + ":" + std::to_string(lineNum) + ": error: " + cmd + ": " + e.what());
+            throw PreprocessError(reportedFile, lineNum, cmd + ": " + e.what());
         }
     };
 
+    // (an error at a line: at that line of this file, #382; one from an
+    // #include's lines is already at its own)
+    try {
     while (std::getline(input, line)) {
         lineNum++;
         
@@ -1509,6 +1512,16 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                 output << "\n"; // Maintain line numbers
             }
             continue;
+        }
+
+        // ca45: `.include "file"` is `#include "file"` (#382: it was an
+        // unknown directive, ignored with a warning, so the file's code was
+        // left out). Lower case, as every directive; `.include` after a
+        // label is not one (the parser's warning says so)
+        if (!isCompiler && trimmed.size() > 8 && trimmed.compare(0, 8, ".include") == 0) {
+            char after = trimmed[8];
+            if (after == ' ' || after == '\t' || after == '"' || after == '<')
+                trimmed = "#include " + trimmed.substr(8);
         }
 
         if (!trimmed.empty() && trimmed[0] == '#') {
@@ -1661,7 +1674,6 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                            return bin;
                        }())) {
                 if (isConditionTrue()) {
-                    std::string where = reportedFile + ":" + std::to_string(lineNum) + ": ";
                     std::string lineRest;
                     std::getline(ss, lineRest);
                     lineRest = trim(lineRest);
@@ -1683,14 +1695,14 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                     std::string err, path;
                     std::vector<unsigned char> bytes;
                     if (!parseEmbed(lineRest, spec, err)) {
-                        if (err.empty()) throw std::runtime_error(where + cmd + ": unknown parameter '" + spec.file + "'");
-                        throw std::runtime_error(where + cmd + ": " + err);
+                        if (err.empty()) throw PreprocessError(reportedFile, lineNum, cmd + ": unknown parameter '" + spec.file + "'");
+                        throw PreprocessError(reportedFile, lineNum, cmd + ": " + err);
                     }
                     if (cmd == "#include" && (spec.limit >= 0 || spec.offset || spec.hasPrefix || spec.hasSuffix || spec.hasIfEmpty))
-                        throw std::runtime_error(where + "#include binary takes no parameters (use #embed)");
-                    if (!readEmbed(spec, bytes, path)) throw std::runtime_error(where + "Could not find embed file: " + spec.file);
+                        throw PreprocessError(reportedFile, lineNum, "#include binary takes no parameters (use #embed)");
+                    if (!readEmbed(spec, bytes, path)) throw PreprocessError(reportedFile, lineNum, "Could not find embed file: " + spec.file);
                     if (bytes.size() % (size_t)width)
-                        std::cerr << where << "warning: " << path << ": " << bytes.size() << " bytes is not a whole number of "
+                        std::cerr << reportedFile << ":" << lineNum << ": warning: " << path << ": " << bytes.size() << " bytes is not a whole number of "
                                   << (width == 2 ? "words" : "longs") << "; the last one is padded with zero bytes\n";
                     std::string text;
                     if (bytes.empty()) {
@@ -1856,6 +1868,11 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                 output << "\n";
             }
         }
+    }
+    } catch (const PreprocessError&) {
+        throw;
+    } catch (const std::runtime_error& e) {
+        throw PreprocessError(reportedFile, lineNum, e.what());
     }
 
     return output.str();

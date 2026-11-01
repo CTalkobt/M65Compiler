@@ -1224,6 +1224,50 @@ else
     failed=$((failed + 1))
 fi
 
+# .include "file" is #include "file" (#382: it was an unknown directive,
+# ignored with a warning, so the file's code was left out); a missing file is
+# an error at the line naming it, a .include ca45 cannot take is an error
+mkdir -p build/test/include382/lib
+printf '        * = $2000\nstart:  lda #$01\n        jsr sub\n        rts\n.include "sub.s"\n' > build/test/include382/main.s
+printf 'sub:    ldx #$05\n        jsr deep\n        rts\n.include "lib/deep.s"\n' > build/test/include382/sub.s
+printf 'deep:   inc $d020\n        rts\n' > build/test/include382/lib/deep.s
+sed 's/^\.include/#include/' build/test/include382/main.s > build/test/include382/main_hash.s
+printf '        * = $2000\n        inx\n.include "nofile.s"\n' > build/test/include382/missing.s
+printf '        * = $2000\nx: .include "sub.s"\n' > build/test/include382/label.s
+printf '        * = $2000\n.INCLUDE "sub.s"\n' > build/test/include382/upper.s
+I=build/test/include382
+if $AS -O0 $I/main.s -o $I/main.bin >/dev/null 2>&1 && $AS -O0 $I/main_hash.s -o $I/main_hash.bin >/dev/null 2>&1 &&
+   [ "$(xxd -p $I/main.bin)" = "a90120062060a205200c2060ee20d060" ] && cmp -s $I/main.bin $I/main_hash.bin &&
+   OUT=$($AS $I/missing.s -o $I/x.bin 2>&1); [ $? -ne 0 ] && echo "$OUT" | grep -q "missing.s:3:1: error: Could not find include file: nofile.s" &&
+   OUT=$($AS $I/label.s -o $I/x.bin 2>&1); [ $? -ne 0 ] && echo "$OUT" | grep -q "label.s:2:4: error: '.include \"file\"' must start its line" &&
+   OUT=$($AS $I/upper.s -o $I/x.bin 2>&1); [ $? -ne 0 ] && echo "$OUT" | grep -q "upper.s:2:1: error: directives are lower case: '.include'"; then
+    echo "SUCCESS: .include assembles the file in place; its errors name the line"
+    passed=$((passed + 1))
+else
+    echo "FAIL: .include ($(xxd -p $I/main.bin 2>/dev/null)) $OUT"
+    failed=$((failed + 1))
+fi
+
+# --source-map rows are <address>  <file>:<line>  <text>: an included file's
+# lines with its name (relative to the main source's directory) and its own
+# text (#381: "Line N" and the main file's text at that number); -L too
+if (cd build && ../$AS -O0 test/include382/main.s -o test/include382/map.bin \
+        --source-map test/include382/main.map -L test/include382/main.lst >/dev/null 2>&1) &&
+   grep -q '^00002000  main.s:2  start:  lda #\$01$' $I/main.map &&
+   grep -q '^00002005  main.s:4  rts$' $I/main.map &&
+   grep -q '^00002006  sub.s:1  sub:    ldx #\$05$' $I/main.map &&
+   grep -q '^0000200b  sub.s:3  rts$' $I/main.map &&
+   grep -q '^0000200c  lib/deep.s:1  deep:   inc \$d020$' $I/main.map &&
+   ! grep -q '  Line [0-9]' $I/main.map &&
+   grep -q '^File: lib/deep.s$' $I/main.lst &&
+   grep -q '^00002006: a2 05         sub:    ldx #\$05$' $I/main.lst; then
+    echo "SUCCESS: source map and listing name each line's file"
+    passed=$((passed + 1))
+else
+    echo "FAIL: source map / listing of included files:"; cat $I/main.map $I/main.lst 2>/dev/null | head -30
+    failed=$((failed + 1))
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All assembler feature tests passed!"
     exit 0

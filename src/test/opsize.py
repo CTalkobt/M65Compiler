@@ -46,7 +46,8 @@ for f in files:
         tag[i] = cur
     rows = []
     for line in open(smap):
-        m = re.match(r"([0-9a-f]{8})\s+Line (\d+)\s+(.*)", line)
+        # (rows: "<address>  <file>:<line>  <text>"; earlier ca45s "Line <line>")
+        m = re.match(r"([0-9a-f]{8})\s+(?:Line |\S+:)(\d+)\s+(.*)", line)
         if m:
             rows.append((int(m.group(1), 16), int(m.group(2)), m.group(3).strip()))
     fc = collections.Counter()

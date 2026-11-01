@@ -4,6 +4,26 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### ca45: .include, located include errors, source maps of included files (#381, #382)
+
+- ca45: `.include "file"` inserts the file as `#include "file"` does. It was
+  an unknown directive, ignored with a warning, so the file's code was left
+  out. Like every directive it is lower case, and it must start its line: an
+  upper-case `.INCLUDE` or one after a label is an error, not a dropped file.
+- cc45, cp45, ca45: a preprocessor error is at the line it is about. A
+  missing `#include` / `.include` / `#embed` file is reported at the line
+  that names it, in that file. ca45 reported it at line 1 of the main
+  source, cc45 with no location at all. The `#embed` errors now read
+  `file:line: error: ...` like the `#if` ones.
+- ca45 `--source-map`: each row is `<address>  <file>:<line>  <text>` (was
+  `Line <n>`), the file relative to the main source's directory. A line of
+  an included file was shown with the main file's text at that number, in
+  the map and in the `-L` listing. The listing now puts a `File: <name>`
+  heading before an included file's lines. `src/test/opsize.py` reads both
+  forms.
+- Tests: `test_assembler.sh` (`.include`, nested, missing, misplaced; the map
+  and listing of included files).
+
 ### libca45: ca45's assembler as a C++ library (#117)
 
 - `lib45/libca45.a` (`make libca45`; `make install` puts it in `$(PREFIX)/lib`,
