@@ -1079,8 +1079,8 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
                 int64_t target = -1;
                 try {
                     if (bitBranch) {
-                        Symbol* t = parser.resolveSymbol(stmt->instr.bitBranchTarget, stmt->scopePrefix);
-                        if (t) target = t->value;
+                        uint32_t t;
+                        if (parser.bitBranchTargetValue(stmt->instr.bitBranchTarget, stmt->scopePrefix, t)) target = t;
                     } else if (stmt->instr.operandTokenIndex >= 0) {
                         target = parser.evaluateExpressionAt(stmt->instr.operandTokenIndex, stmt->scopePrefix);
                     } else if (!stmt->instr.operand.empty()) {

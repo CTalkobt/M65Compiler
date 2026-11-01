@@ -34,6 +34,9 @@ PREFIX ?= /usr/local
 BINDIR ?= $(PREFIX)/bin
 LIBDIR ?= $(PREFIX)/lib/cc45
 INCDIR ?= $(PREFIX)/include/cc45
+# libca45 (the assembler as a C++ library) and its header include/ca45/ca45.hpp
+CXXLIBDIR ?= $(PREFIX)/lib
+CXXINCDIR ?= $(PREFIX)/include
 MANDIR ?= $(PREFIX)/share/man/man1
 
 # ============================================================================
@@ -81,6 +84,21 @@ $(LIB_DIR)/lib45-codegen.a: $(addprefix $(OBJ_DIR)/, \
 	@mkdir -p $(LIB_DIR)
 	@rm -f $@
 	$(AR) rcs $@ $^
+
+# libca45: ca45's assembler as a library (#117; include/ca45/ca45.hpp, an
+# installed library: `make install` puts it in $(CXXLIBDIR)). Self-contained:
+# a program links only this archive. ca45 itself links it.
+LIBCA45 = $(LIB_DIR)/libca45.a
+LIBCA45_OBJS = $(addprefix $(OBJ_DIR)/, \
+    Ca45Lib.o AsmMacro.o AssemblerLexer.o AssemblerParser.o AssemblerExpression.o \
+    AssemblerOptimizer.o AssemblerSimulatedOps.o AssemblerGenerator.o AssemblerOpcodeDatabase.o \
+    OpEffect.o SymbolSuggester.o M65Emitter.o Logger.o O45Reader.o)
+$(LIBCA45): $(LIBCA45_OBJS)
+	@mkdir -p $(LIB_DIR)
+	@rm -f $@
+	$(AR) rcs $@ $^
+
+libca45: $(LIBCA45)
 
 # lib45-phases: code of earlier development phases that no tool links (IPO,
 # bank assignment, link-time optimization coordination, benchmarking, learning
@@ -222,11 +240,12 @@ $(CP_TARGET): $(CC_TARGET)
 	@mkdir -p $(BIN_DIR)
 	ln -sf cc45 $(CP_TARGET)
 
-# Assembler (ca45) - uses codegen + common
+# Assembler (ca45) - the assembler from libca45, its preprocessor and .o45
+# output from codegen + common
 $(CA_TARGET): $(OBJ_DIR)/ca45_main.o | $(LIB_DIR)
-$(CA_TARGET): $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-common.a
+$(CA_TARGET): $(LIBCA45) $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-common.a
 	@mkdir -p $(BIN_DIR)
-	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/ca45_main.o $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-common.a
+	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/ca45_main.o $(LIBCA45) $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-common.a
 
 # Symbol Inspector (nm45) - uses common
 $(NM_TARGET): $(OBJ_DIR)/nm45_main.o | $(LIB_DIR)
@@ -441,7 +460,7 @@ $(LIB_DIR):
 # CONVENIENCE TARGETS
 # ============================================================================
 
-.PHONY: lib45-libraries lib45-sizes lib45-clean show-lib-deps parallel-build
+.PHONY: libca45 lib45-libraries lib45-sizes lib45-clean show-lib-deps parallel-build
 .PHONY: all clean test man test-regression stdlib
 .PHONY: lib install install_local uninstall
 .PHONY: uninstall_local cppcheck coverage coverage-build coverage-clean
@@ -495,7 +514,7 @@ lib45-sizes: lib45-libraries
 
 # Clean lib45 libraries only
 lib45-clean:
-	@rm -f $(LIB_DIR)/lib45-*.a
+	@rm -f $(LIB_DIR)/lib45-*.a $(LIBCA45)
 	@rmdir $(LIB_DIR) 2>/dev/null || true
 
 # Parallel build (useful for multi-core systems)
@@ -529,16 +548,17 @@ test-distros:
 # per source (its main() compiled as tv_<category>_main); test-validation and
 # the targets below run all of them or one category
 TV_TARGET = $(BIN_DIR)/test_validation
-TV_SOURCES = src/test/test_validation_parser.cpp src/test/test_validation_struct.cpp src/test/test_validation_const.cpp src/test/test_validation_semantic.cpp src/test/test_validation_preprocessor.cpp src/test/test_validation_linker.cpp src/test/test_segment_emission.cpp src/test/test_validation_assembler.cpp src/test/test_validation_simops.cpp src/test/test_validation_directives.cpp src/test/test_validation_symbols.cpp src/test/test_validation_segments.cpp src/test/test_validation_proc.cpp src/test/test_validation_addressing.cpp src/test/test_validation_simops_extended.cpp src/test/test_move_fill.cpp
+TV_SOURCES = src/test/test_validation_parser.cpp src/test/test_validation_struct.cpp src/test/test_validation_const.cpp src/test/test_validation_semantic.cpp src/test/test_validation_preprocessor.cpp src/test/test_validation_linker.cpp src/test/test_segment_emission.cpp src/test/test_validation_assembler.cpp src/test/test_validation_simops.cpp src/test/test_validation_directives.cpp src/test/test_validation_symbols.cpp src/test/test_validation_segments.cpp src/test/test_validation_proc.cpp src/test/test_validation_addressing.cpp src/test/test_validation_simops_extended.cpp src/test/test_move_fill.cpp src/test/test_validation_ca45lib.cpp
 TV_OBJECTS = $(patsubst src/test/%.cpp,$(OBJ_DIR)/tv_%.o,$(TV_SOURCES)) $(OBJ_DIR)/test_validation_main.o
 
 # (the linker category calls O45Linker itself)
 TV_LIB_OBJECTS = $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45DebugSections.o $(OBJ_DIR)/O45IRSerializer.o \
                  $(OBJ_DIR)/O45Linker.o $(OBJ_DIR)/Logger.o $(OBJ_DIR)/O45Archive.o $(OBJ_DIR)/AssemblerOpcodeDatabase.o $(OBJ_DIR)/Pack45.o
 
-$(TV_TARGET): $(TV_OBJECTS) $(TV_LIB_OBJECTS)
+# (the ca45lib category calls libca45)
+$(TV_TARGET): $(TV_OBJECTS) $(TV_LIB_OBJECTS) $(LIBCA45)
 	@mkdir -p $(BIN_DIR)
-	$(CXX) $(CXXFLAGS) -o $@ $(TV_OBJECTS) $(TV_LIB_OBJECTS)
+	$(CXX) $(CXXFLAGS) -o $@ $(TV_OBJECTS) $(TV_LIB_OBJECTS) $(LIBCA45)
 
 # (the category's name: test_validation_parser -> parser, test_move_fill -> move_fill)
 $(OBJ_DIR)/tv_%.o: src/test/%.cpp src/test/test_harness.hpp
@@ -586,6 +606,8 @@ test-validation-simops-extended: $(TV_TARGET) all
 	@$(TV_TARGET) simops_extended
 test-move-fill: $(TV_TARGET) all
 	@$(TV_TARGET) move_fill
+test-validation-ca45lib: $(TV_TARGET) all
+	@$(TV_TARGET) ca45lib
 
 test-examples: all
 	@bash src/test/test_examples.sh
@@ -712,6 +734,9 @@ install: all lib
 	install -m 644 lib/include/*.h $(DESTDIR)$(INCDIR)
 	install -m 644 lib/include/sys/*.h $(DESTDIR)$(INCDIR)/sys
 	install -m 644 lib/include/tgi/*.h $(DESTDIR)$(INCDIR)/tgi
+	install -d $(DESTDIR)$(CXXLIBDIR) $(DESTDIR)$(CXXINCDIR)/ca45
+	install -m 644 $(LIBCA45) $(DESTDIR)$(CXXLIBDIR)
+	install -m 644 include/ca45/ca45.hpp $(DESTDIR)$(CXXINCDIR)/ca45
 	install -d $(DESTDIR)$(MANDIR)
 	if [ -d $(MAN_DIR) ] && ls $(MAN_DIR)/*.1 >/dev/null 2>&1; then \
 		install -m 644 $(MAN_DIR)/*.1 $(DESTDIR)$(MANDIR); \
@@ -835,6 +860,8 @@ uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/basic45 $(DESTDIR)$(BINDIR)/tune45 $(DESTDIR)$(BINDIR)/dbg45
 	rm -rf $(DESTDIR)$(LIBDIR)
 	rm -rf $(DESTDIR)$(INCDIR)
+	rm -f $(DESTDIR)$(CXXLIBDIR)/libca45.a
+	rm -rf $(DESTDIR)$(CXXINCDIR)/ca45
 	rm -f $(DESTDIR)$(MANDIR)/cc45.1 $(DESTDIR)$(MANDIR)/ca45.1 $(DESTDIR)$(MANDIR)/cp45.1
 	rm -f $(DESTDIR)$(MANDIR)/ln45.1 $(DESTDIR)$(MANDIR)/nm45.1 $(DESTDIR)$(MANDIR)/ar45.1
 	rm -f $(DESTDIR)$(MANDIR)/objdump45.1 $(DESTDIR)$(MANDIR)/disk45.1

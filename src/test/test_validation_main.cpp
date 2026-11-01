@@ -17,7 +17,7 @@
 #define TV_CATEGORIES(X) \
     X(parser) X(struct) X(const) X(semantic) X(preprocessor) X(linker) X(segment_emission) \
     X(assembler) X(simops) X(directives) X(symbols) X(segments) X(proc) X(addressing) \
-    X(simops_extended) X(move_fill)
+    X(simops_extended) X(move_fill) X(ca45lib)
 
 #define TV_DECLARE(n) int tv_##n##_main();
 TV_CATEGORIES(TV_DECLARE)

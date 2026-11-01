@@ -83,6 +83,25 @@ if build zp3; then pass "ZP build links c45.lib"; else fail "ZP build without c4
 if build stack3 -fno-zpcall; then fail "-fno-zpcall linked without c45_stack.lib"; else pass "-fno-zpcall needs c45_stack.lib"; fi
 mv "$WORK/c45_stack.lib" "$PREFIX/lib/cc45/c45_stack.lib"
 
+# libca45 (#117): a C++ program built against only the installed header and
+# archive (-I PREFIX/include, PREFIX/lib/libca45.a) assembles a 45GS02 line
+cat > ca45lib.cpp <<'EOF'
+#include <ca45/ca45.hpp>
+#include <cstdio>
+int main() {
+    unsigned char b[8];
+    int n = ca45::assembleLine("LDA [$6C],Z", b, sizeof b, 0x2000);
+    std::printf("%d %02X %02X %02X\n", n, b[0], b[1], b[2]);
+    return n == 3 && b[0] == 0xEA && b[1] == 0xB2 && b[2] == 0x6C ? 0 : 1;
+}
+EOF
+if ${CXX:-g++} -std=c++17 -I"$PREFIX/include" ca45lib.cpp "$PREFIX/lib/libca45.a" -o ca45lib >ca45lib.log 2>&1 \
+   && ./ca45lib >>ca45lib.log 2>&1; then
+    pass "a program linked with the installed libca45.a"
+else
+    fail "libca45: $(tail -3 ca45lib.log)"
+fi
+
 if make -C "$ROOT" --no-print-directory uninstall PREFIX="$PREFIX" >"$WORK/uninstall.log" 2>&1 \
    && [ -z "$(find "$PREFIX" -type f -o -type l)" ]; then
     pass "make uninstall removes every installed file"

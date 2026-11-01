@@ -18,7 +18,9 @@ dependencies (SQLite and FUSE only for disk45):
 
 - **cc45** — C compiler (one input file per run; `-S`, `-c`, or a one-step build to a `.prg`)
 - **cp45** — the C preprocessor (a link to cc45, selected by program name)
-- **ca45** — 45GS02 assembler (flat binaries or relocatable `.o45` objects with `-c`)
+- **ca45** — 45GS02 assembler (flat binaries or relocatable `.o45` objects with `-c`); its
+  assembler is also a C++ library, `lib45/libca45.a` (`include/ca45/ca45.hpp`: `ca45::assemble`,
+  `ca45::assembleLine`, for mmsim's dot-assembly; #117), which ca45 itself links
 - **ln45** — linker (`.o45` objects + `.lib` archives → PRG or flat binary)
 - **ar45** — archiver for `.lib` static libraries
 - **nm45** — symbol/attribute/relocation inspector for `.o45` and `.lib` (and ln45's `.ovd`/`.ov1` overlay files)

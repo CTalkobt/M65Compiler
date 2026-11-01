@@ -4,6 +4,24 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### libca45: ca45's assembler as a C++ library (#117)
+
+- `lib45/libca45.a` (`make libca45`; `make install` puts it in `$(PREFIX)/lib`,
+  with `include/ca45/ca45.hpp` in `$(PREFIX)/include/ca45`) assembles 45GS02
+  source held in memory. `ca45::assembleLine(line, buf, bufsz, currentAddr, &err)`
+  assembles one line: the interface mmsim's ca45 back end needs for its
+  dot-assembly. `ca45::assemble(source, options)` assembles a whole source
+  (an origin, symbols, the optimizer's level: 0 by default). It is
+  self-contained, prints nothing and reads no files, and ca45 itself is
+  linked with it (`doc/bin/ca45.md#using-ca45-as-a-library-libca45`).
+- ca45: `rtn #$12` (and `#%...`, `#2*4`) failed with "undefined operand":
+  RTN's size check took only a decimal number.
+- ca45: `bbr0 $12,$2010` (a bit branch to a number, not a label) branched
+  as if to `$0000`.
+- Tests: the `ca45lib` category of `bin/test_validation`, which assembles
+  every instruction of the opcode table through the library; `test_install.sh`
+  links a program against the installed library.
+
 ### TGI fill patterns; gets, gets_s, heapfree, ftoa; stdin reads the keyboard
 
 - `<tgi.h>`: `tgi_setpattern` (8x8 colours, a transparent colour or none),
