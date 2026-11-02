@@ -1311,6 +1311,7 @@ bool AssemblerOptimizer::optimizeInternal(
                 // a register neither used between nor read after the load
                 char R = 0;
                 for (char c : {'Y', 'Z'}) {
+                    if (c == 'Z' && parser->cpu6502) continue;   // (no Z register on the 6502, #384)
                     bool free = true;
                     for (size_t j = s + 1; j < k && free; ++j)
                         if (live(st[j].get()) && regUse(st[j].get(), c)) free = false;
@@ -1807,13 +1808,15 @@ bool AssemblerOptimizer::optimizeInternal(
                     };
                     const char* direct = nullptr;
                     RegId from = REG_A;
+                    // (no Z register on the 6502: no TAZ / TZA, #384)
+                    auto zOk = [&](const auto& t) { return !parser->cpu6502 || (t.from != REG_Z && t.to != REG_Z); };
                     for (const auto& t : tr)
-                        if (t.to == r && ms.getZP(zpAddr).isSameAs(t.from)) { direct = t.mn; from = t.from; }
+                        if (zOk(t) && t.to == r && ms.getZP(zpAddr).isSameAs(t.from)) { direct = t.mn; from = t.from; }
                     // (the byte a constant another register holds too: ldx #0;
                     // stx $35 ... lda $35 is txa, #350)
                     if (!direct && ms.getZP(zpAddr).isConst())
                         for (const auto& t : tr)
-                            if (t.to == r && ms.reg[t.from].isConst() &&
+                            if (zOk(t) && t.to == r && ms.reg[t.from].isConst() &&
                                 (ms.reg[t.from].constVal & 0xFF) == (ms.getZP(zpAddr).constVal & 0xFF)) {
                                 direct = t.mn; from = t.from;
                             }

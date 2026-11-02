@@ -309,7 +309,9 @@ AssemblerToken AssemblerLexer::lexIdentifierOrInstruction() {
 AssemblerToken AssemblerLexer::checkNumberEnd(AssemblerToken tok) {
     std::string rest;
     while (std::isalnum((unsigned char)peek()) || peek() == '_') rest += get();
-    if (!rest.empty() && lineDirective_ != "cpu") {
+    // (.cpu 45gs02 / 65c02: a name, the token all of it, #384)
+    if (!rest.empty() && lineDirective_ == "cpu") tok.value += rest;
+    else if (!rest.empty()) {
         AssemblerToken bad = tok;
         bad.file = curFile_;
         bad.value = tok.value + rest;
