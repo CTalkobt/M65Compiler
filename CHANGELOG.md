@@ -4,6 +4,26 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### objdump45 --cpu: 6502, 6510 and 65CE02 code (#144)
+
+- `objdump45 --cpu=6502|6510|65ce02|45gs02` (`--cpu CPU`) chooses the
+  instruction set. objdump45 decoded only the 45GS02, which uses the 6510's
+  undocumented opcodes for its own instructions: a C64 program's `LAX $10`
+  came out as `smb2 $10`.
+  - `6502`: the 151 documented opcodes (the ones `ca45 --cpu 6502` accepts);
+    any other byte is `.byte`.
+  - `6510`: those plus the 105 undocumented opcodes, each marked
+    `; undocumented` (`lax`, `sax`, `dcp`, `isc`, `slo`, `rla`, `sre`, `rra`,
+    `anc`, `alr`, `arr`, `sbx`, `ane`, `lxa`, `sha`, `shx`, `shy`, `tas`,
+    `las`, `jam`, the `nop`s).
+  - `65ce02`: no quad prefix; `$5C` is `aug`, `$EA` is `nop`.
+  - Without `--cpu`, a `.prg` loading at `$0801` is decoded as 6510 code,
+    with a note in the output.
+- objdump45: a 16-bit branch's target is named (`bne $00cb ; <far>`).
+  The name was looked up one byte past the target: `pc + 3` instead of
+  `pc + 2`.
+- `doc/bin/objdump45.md`: *CPU modes*. Tests: `test_objdump45.sh`.
+
 ### libca45: usable from a shared object and beside classes of the same name
 
 - `lib45/libca45.a` is compiled with `-fPIC`, so a shared object can link it,

@@ -32,6 +32,7 @@ At least one display option (`-f`, `-h`, `-t`, `-r`, `-s`, `-d`, `-a` or `-bas`)
 | `-a` | All of `-f -h -t -r -s -d -g` |
 | `-b ADDR` | Base address for raw binaries (default `$0000`); overrides the load address of a `.prg`. `$C000` and `0xC000` are hex; a plain number is decimal (`2048`), and a leading `0` makes it octal |
 | `-m FILE` | Load symbols and source lines from an `ln45 -M` map file for PRG/binary disassembly. For `foo.prg`, `foo.map` is used automatically when it exists, else `foo.dbg` (ln45 `-g`: function names and source lines). With code overlays, a call into an overlay is labelled with the function's name at its stub; the overlays' own symbols are in the `.ovd` file |
+| `--cpu=CPU` | The CPU to decode for (`--cpu CPU` too): `45gs02` (the default; `4510`), `65ce02`, `6502` or `6510` (see [CPU modes](#cpu-modes)). Without it a `.prg` loading at `$0801` (a C64 program) is decoded as `6510`, with a note |
 | `-bas` | List the BASIC program of a `.prg` (line numbers, detokenised text) |
 | `-x` | With `-bas`: also show each line's bytes in hex |
 | `-D` | Binary diff of exactly two files (any format, compared byte by byte) |
@@ -130,6 +131,27 @@ In an object, a section's labels are its own exports (not the other sections' or
     0016:	20 00 00    	jsr	$0000	; <__modu16>
     0019:	8d 00 00    	sta	$0000	; <_a>
     0020:	a9 00       	lda	#$00	; <_pl> lo
+```
+
+#### CPU modes
+
+The 45GS02 uses the opcodes that are undocumented on the 6510 for its own instructions. A C64 program's `LAX $10` (`$A7 $10`) would be decoded as `smb2 $10`. `--cpu` selects the instruction set:
+
+| CPU | Decodes |
+|-----|---------|
+| `45gs02` | The 45GS02 (the default): all 256 opcodes; `NEG NEG` before an instruction with a Q form is that form (`ldq`); `$5C` is `map`, `$EA` is `eom` |
+| `65ce02` | As the 45GS02 without the quad (`$42 $42`) prefix: `$5C` is `aug` (four bytes), `$EA` is `nop` |
+| `6502` | The 151 documented NMOS opcodes (those `ca45 --cpu 6502` accepts); any other byte is `.byte` |
+| `6510` | The documented opcodes and the 105 undocumented ones, each marked `; undocumented`: `slo`, `rla`, `sre`, `rra`, `dcp`, `isc` (7 modes each), `sax`, `lax`, `anc`, `alr`, `arr`, `sbx`, `sbc #` (`$EB`), `ane`, `lxa`, `sha`, `shx`, `shy`, `tas`, `las`, `jam`, and the `nop`s with an operand |
+
+A `.prg` that loads at `$0801` is decoded as `6510` code when `--cpu` (and `-b`) are not given. The disassembly says so: `; loaded at $0801: decoded as 6510 (C64) code; --cpu=45gs02 for MEGA65 code`.
+
+```
+$ objdump45 -d c64.prg
+Disassembly of section PRG (c64.prg):
+; loaded at $0801: decoded as 6510 (C64) code; --cpu=45gs02 for MEGA65 code
+    0801:	a7 10       	lax	$10	; undocumented
+    0803:	60          	rts
 ```
 
 Limitations for objects: addresses are object-relative (the not yet relocated operand bytes are shown, usually `$0000` for external references), and the DATA section is disassembled as if it were code. Disassemble the linked PRG with its map for real addresses.

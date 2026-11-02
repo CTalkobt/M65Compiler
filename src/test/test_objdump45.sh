@@ -559,6 +559,66 @@ else
     fail "relocation names — compiling failed"
 fi
 
+# ─── --cpu: 6502 / 6510 / 65CE02 (#144) ─────────────────────────────────────
+
+echo ""
+echo "--- Test: --cpu ---"
+C=$BUILD/cpu144
+mkdir -p $C
+# every opcode at a multiple of 4, padded with $00 (BRK, one byte for every CPU)
+python3 -c "open('$C/all.bin','wb').write(bytes(b for op in range(256) for b in (op,0,0,0)))"
+opcount() {     # opcount CPU WHAT: lines at a multiple of 4 that are instructions / undocumented
+    local out
+    out=$($OD -d --cpu=$1 -b 0x1000 $C/all.bin | grep -E '^    1[0-3][0-9a-f][048c]:')
+    if [ "$2" = undoc ]; then echo "$out" | grep -c 'undocumented'; else echo "$out" | grep -vc '\.byte'; fi
+}
+[ "$(opcount 6502 ops)" = 151 ] && [ "$(opcount 6502 undoc)" = 0 ] &&
+    pass "--cpu=6502: the 151 documented opcodes, the others .byte" || fail "--cpu=6502 decodes $(opcount 6502 ops) opcodes"
+[ "$(opcount 6510 ops)" = 256 ] && [ "$(opcount 6510 undoc)" = 105 ] &&
+    pass "--cpu=6510: all 256, the 105 undocumented ones marked" || fail "--cpu=6510 decodes $(opcount 6510 ops), $(opcount 6510 undoc) marked"
+[ "$(opcount 45gs02 ops)" = 256 ] && [ "$(opcount 65ce02 ops)" = 256 ] &&
+    pass "--cpu=45gs02 / 65ce02 decode all 256" || fail "--cpu=45gs02 / 65ce02 decode $(opcount 45gs02 ops) / $(opcount 65ce02 ops)"
+
+# a C64 program's LAX $10 (#144: it was smb2 $10); a quad prefix only on the 45GS02
+printf '\xa7\x10\x42\x42\xa5\x12\x5c\x00\x00\x00\xea\x60' > $C/code.bin
+OUT=$($OD -d --cpu=6510 -b 0x1000 $C/code.bin)
+assert_contains "6510: lax \$10 marked" "$OUT" "lax	\$10	; undocumented"
+assert_contains "6510: \$42 is jam" "$OUT" "jam"
+assert_contains "6510: no quad prefix (lda \$12)" "$OUT" "lda	\$12"
+assert_contains "6510: \$EA is nop" "$OUT" "nop"
+OUT=$($OD -d -b 0x1000 $C/code.bin)
+assert_contains "45gs02 (default): smb2 \$10" "$OUT" "smb2	\$10"
+assert_contains "45gs02: ldq \$12" "$OUT" "ldq	\$12"
+assert_contains "45gs02: map" "$OUT" "map"
+OUT=$($OD -d --cpu 65ce02 -b 0x1000 $C/code.bin)
+assert_contains "65ce02: \$5C is aug, 4 bytes" "$OUT" "5c 00 00 00	aug"
+assert_not_contains "65ce02: no ldq" "$OUT" "ldq"
+OUT=$($OD -d --cpu=6502 -b 0x1000 $C/code.bin)
+assert_contains "6502: \$A7 is .byte" "$OUT" ".byte	\$a7"
+
+# a PRG loading at $0801 (a C64 program) is 6510 code with a note; --cpu decides
+printf '\x01\x08\xa7\x10\x60' > $C/c64.prg
+OUT=$($OD -d $C/c64.prg)
+assert_contains "\$0801 PRG: 6510 by default" "$OUT" "lax	\$10	; undocumented"
+assert_contains "\$0801 PRG: the note" "$OUT" "decoded as 6510 (C64) code; --cpu=45gs02 for MEGA65 code"
+OUT=$($OD -d --cpu=45gs02 $C/c64.prg)
+assert_contains "\$0801 PRG --cpu=45gs02: smb2" "$OUT" "smb2	\$10"
+assert_not_contains "\$0801 PRG --cpu=45gs02: no note" "$OUT" "decoded as 6510"
+printf '\x01\x20\xa7\x10\x60' > $C/m65.prg
+assert_contains "\$2001 PRG: 45gs02" "$($OD -d $C/m65.prg)" "smb2	\$10"
+
+$OD -d --cpu=z80 -b 0 $C/code.bin >/dev/null 2>$C/err.txt; RC=$?
+assert_exit "--cpu=z80 refused" $RC 1
+assert_contains "--cpu=z80: the message" "$(cat $C/err.txt)" "unknown CPU 'z80'"
+
+# a 16-bit branch's target is named (it was computed from pc + 3, a byte past it)
+printf '        .global start, far\nstart:  bne far\n        .fill 200, 0\nfar:    rts\n' > $C/far.s
+if $AS -c $C/far.s -o $C/far.o45 >/dev/null 2>&1; then
+    assert_contains "16-bit branch: target named" "$($OD -d $C/far.o45)" "bne	\$00cb	; <far>"
+else
+    fail "16-bit branch: assembling failed"
+fi
+
 # ─── Summary ─────────────────────────────────────────────────────────────────
 
 echo ""
