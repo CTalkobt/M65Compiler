@@ -24,7 +24,7 @@ dependencies (SQLite and FUSE only for disk45):
 - **ln45** — linker (`.o45` objects + `.lib` archives → PRG or flat binary)
 - **ar45** — archiver for `.lib` static libraries
 - **nm45** — symbol/attribute/relocation inspector for `.o45` and `.lib` (and ln45's `.ovd`/`.ov1` overlay files)
-- **objdump45** — object/PRG/binary/`.ovd`/`.ov1` inspector and disassembler (also BASIC listing with `-bas`)
+- **objdump45** — object/PRG/binary/`.ovd`/`.ov1` inspector and disassembler (45GS02, or 65CE02 / 6502 / 6510 with `--cpu`; a `$0801` PRG is 6510; also BASIC listing with `-bas`)
 - **basic45** — BASIC 65 program generator (label-based source, PETSCII tokenizer, preprocessor,
   long variable names, block IF / proc, `--link` C functions, `--decompile`, `--disk`, `--emulator`)
 - **disk45** — CBM disk/tape/archive image utility (25 formats, FUSE mount, SQLite catalog)

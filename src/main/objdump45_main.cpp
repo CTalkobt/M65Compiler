@@ -97,7 +97,32 @@ static const char* cpuName(uint8_t id) {
 struct OpcodeInfo {
     std::string mnemonic;
     AddressingMode mode;
+    bool undocumented = false;  // a 6510 opcode outside the documented set
 };
+
+// The CPU objdump45 decodes for (#144): the 45GS02 (the default), the 65CE02
+// (no quad or flat-memory prefixes; $5C is AUG, $EA NOP), the 6502 (the
+// documented opcodes only) and the 6510 (with the NMOS undocumented ones)
+enum class DisCpu { CPU45GS02, CPU65CE02, CPU6502, CPU6510 };
+
+static bool parseDisCpu(std::string name, DisCpu& cpu) {
+    std::transform(name.begin(), name.end(), name.begin(), ::tolower);
+    if (name == "45gs02" || name == "4510" || name == "m65") cpu = DisCpu::CPU45GS02;
+    else if (name == "65ce02") cpu = DisCpu::CPU65CE02;
+    else if (name == "6502") cpu = DisCpu::CPU6502;
+    else if (name == "6510" || name == "6502x") cpu = DisCpu::CPU6510;
+    else return false;
+    return true;
+}
+
+static const char* disCpuName(DisCpu cpu) {
+    switch (cpu) {
+        case DisCpu::CPU65CE02: return "65ce02";
+        case DisCpu::CPU6502:   return "6502";
+        case DisCpu::CPU6510:   return "6510";
+        default:                return "45gs02";
+    }
+}
 
 // Returns the number of operand bytes for a given addressing mode
 static int operandSize(AddressingMode mode) {
@@ -162,6 +187,70 @@ static std::map<uint8_t, OpcodeInfo> buildReverseOpcodeTable() {
     }
 
     return table;
+}
+
+// The NMOS 6502's undocumented opcodes (the 6510's: 105, with the 151
+// documented ones all 256), named as in the "NMOS 6510 Unintended Opcodes"
+// reference (groepaz): the read-modify-write combinations, the immediate
+// ones, the unstable stores, JAM and the NOPs
+static void addUndocumented6510(std::map<uint8_t, OpcodeInfo>& table) {
+    using M = AddressingMode;
+    auto add = [&](uint8_t op, const char* mn, M mode) { table[op] = {mn, mode, true}; };
+    // SLO RLA SRE RRA DCP ISC: zp, zp,x, abs, abs,x, abs,y, (zp,x), (zp),y
+    const struct { const char* mn; uint8_t base; } rmw[] = {
+        {"slo", 0x00}, {"rla", 0x20}, {"sre", 0x40}, {"rra", 0x60}, {"dcp", 0xC0}, {"isc", 0xE0}};
+    for (const auto& r : rmw) {
+        add(r.base + 0x07, r.mn, M::BASE_PAGE);
+        add(r.base + 0x17, r.mn, M::BASE_PAGE_X);
+        add(r.base + 0x0F, r.mn, M::ABSOLUTE);
+        add(r.base + 0x1F, r.mn, M::ABSOLUTE_X);
+        add(r.base + 0x1B, r.mn, M::ABSOLUTE_Y);
+        add(r.base + 0x03, r.mn, M::BASE_PAGE_X_INDIRECT);
+        add(r.base + 0x13, r.mn, M::BASE_PAGE_INDIRECT_Y);
+    }
+    add(0x87, "sax", M::BASE_PAGE); add(0x97, "sax", M::BASE_PAGE_Y);
+    add(0x8F, "sax", M::ABSOLUTE);  add(0x83, "sax", M::BASE_PAGE_X_INDIRECT);
+    add(0xA7, "lax", M::BASE_PAGE); add(0xB7, "lax", M::BASE_PAGE_Y);
+    add(0xAF, "lax", M::ABSOLUTE);  add(0xBF, "lax", M::ABSOLUTE_Y);
+    add(0xA3, "lax", M::BASE_PAGE_X_INDIRECT); add(0xB3, "lax", M::BASE_PAGE_INDIRECT_Y);
+    add(0x0B, "anc", M::IMMEDIATE); add(0x2B, "anc", M::IMMEDIATE);
+    add(0x4B, "alr", M::IMMEDIATE); add(0x6B, "arr", M::IMMEDIATE);
+    add(0xCB, "sbx", M::IMMEDIATE); add(0xEB, "sbc", M::IMMEDIATE);
+    add(0x8B, "ane", M::IMMEDIATE); add(0xAB, "lxa", M::IMMEDIATE);
+    add(0x9F, "sha", M::ABSOLUTE_Y); add(0x93, "sha", M::BASE_PAGE_INDIRECT_Y);
+    add(0x9E, "shx", M::ABSOLUTE_Y); add(0x9C, "shy", M::ABSOLUTE_X);
+    add(0x9B, "tas", M::ABSOLUTE_Y); add(0xBB, "las", M::ABSOLUTE_Y);
+    for (uint8_t op : {0x02, 0x12, 0x22, 0x32, 0x42, 0x52, 0x62, 0x72, 0x92, 0xB2, 0xD2, 0xF2})
+        add(op, "jam", M::IMPLIED);
+    for (uint8_t op : {0x1A, 0x3A, 0x5A, 0x7A, 0xDA, 0xFA}) add(op, "nop", M::IMPLIED);
+    for (uint8_t op : {0x80, 0x82, 0x89, 0xC2, 0xE2}) add(op, "nop", M::IMMEDIATE);
+    for (uint8_t op : {0x04, 0x44, 0x64}) add(op, "nop", M::BASE_PAGE);
+    for (uint8_t op : {0x14, 0x34, 0x54, 0x74, 0xD4, 0xF4}) add(op, "nop", M::BASE_PAGE_X);
+    add(0x0C, "nop", M::ABSOLUTE);
+    for (uint8_t op : {0x1C, 0x3C, 0x5C, 0x7C, 0xDC, 0xFC}) add(op, "nop", M::ABSOLUTE_X);
+}
+
+// The opcode table of a CPU
+static std::map<uint8_t, OpcodeInfo> buildOpcodeTable(DisCpu cpu) {
+    std::map<uint8_t, OpcodeInfo> table = buildReverseOpcodeTable();
+    if (cpu == DisCpu::CPU45GS02) return table;
+    if (cpu == DisCpu::CPU65CE02) {
+        // the 4510's MAP is the 65CE02's AUG (a 4-byte no-op), its EOM a NOP
+        table[0x5C] = {"aug", AddressingMode::LINEAR_ABSOLUTE};
+        table[0xEA] = {"nop", AddressingMode::IMPLIED};
+        return table;
+    }
+    // the 6502: the 45GS02's opcodes that are the 6502's documented ones (ca45 --cpu 6502)
+    std::map<uint8_t, OpcodeInfo> nmos;
+    for (const auto& e : AssemblerOpcodeDatabase::getOpcodeMap()) {
+        if (!AssemblerOpcodeDatabase::isOn6502(e.first.first, e.first.second)) continue;
+        std::string mn = e.first.first;
+        std::transform(mn.begin(), mn.end(), mn.begin(), ::tolower);
+        if (mn == "eom") mn = "nop";
+        nmos[e.second] = {mn, e.first.second};
+    }
+    if (cpu == DisCpu::CPU6510) addUndocumented6510(nmos);
+    return nmos;
 }
 
 // Format an operand based on addressing mode and raw bytes
@@ -769,10 +858,13 @@ static void disassembleSection(const std::vector<uint8_t>& body, uint32_t base,
                                const std::map<uint32_t, std::string>& symbols,
                                const std::string& filename,
                                const SourceLineMap& sourceLines = {},
-                               const std::map<uint32_t, std::string>* relocNames = nullptr) {
+                               const std::map<uint32_t, std::string>* relocNames = nullptr,
+                               DisCpu cpu = DisCpu::CPU45GS02, const char* note = nullptr) {
     if (body.empty()) return;
     std::cout << std::endl;
     printf("Disassembly of section %s (%s):\n", sectionName, filename.c_str());
+    if (note) printf("; %s\n", note);
+    LOG_INFO("objdump45", sectionName << ": decoded for the " << disCpuName(cpu));
 
     int lastSourceLine = -1;
     std::string lastSourceFile;
@@ -808,7 +900,7 @@ static void disassembleSection(const std::vector<uint8_t>& body, uint32_t base,
         // that has a Q form (ldq, stq, adcq, cpq, aslq, ...)
         size_t pre = 0;
         std::string qname;
-        if (i + 2 < body.size() && body[i] == 0x42 && body[i + 1] == 0x42) {
+        if (cpu == DisCpu::CPU45GS02 && i + 2 < body.size() && body[i] == 0x42 && body[i + 1] == 0x42) {
             auto qit = opcodeTable.find(body[i + 2]);
             if (qit != opcodeTable.end()) {
                 std::string m = qit->second.mnemonic;
@@ -882,7 +974,7 @@ static void disassembleSection(const std::vector<uint8_t>& body, uint32_t base,
                 target = pc + (uint32_t)pre + 2 + offset;
             } else {
                 int16_t offset = (int16_t)(body[o + 1] | (body[o + 2] << 8));
-                target = pc + (uint32_t)pre + 3 + offset;
+                target = pc + (uint32_t)pre + 2 + offset;     // as formatOperand: from pc + 2
             }
             target &= 0xFFFF;
             auto tgtSym = symbols.find(target);
@@ -914,6 +1006,8 @@ static void disassembleSection(const std::vector<uint8_t>& body, uint32_t base,
             }
         }
 
+        if (info.undocumented)
+            annotation += annotation.empty() ? "\t; undocumented" : " (undocumented)";
         printf("    %04x:\t%s\t%s\t%s%s\n",
                pc, hexCol, pre ? qname.c_str() : info.mnemonic.c_str(), operand.c_str(),
                annotation.c_str());
@@ -1179,6 +1273,8 @@ static void printUsage(const char* progName) {
     std::cout << "  -x       Show hex dump (with -bas option)" << std::endl;
     std::cout << "  -b ADDR  Set base address for raw binary files (default: $0000)" << std::endl;
     std::cout << "  -m FILE  Load symbols from linker map file (ln45 -M output)" << std::endl;
+    std::cout << "  --cpu=CPU  Decode for 45gs02 (the default), 65ce02, 6502 (documented opcodes; others as" << std::endl;
+    std::cout << "           .byte) or 6510 (with the undocumented ones, marked); a .prg loading at $0801 is 6510" << std::endl;
     std::cout << "  -V       Display version" << std::endl;
     std::cout << "  -?       Display this help message" << std::endl;
     std::cout << "  -v ... -vvvv  Log to stderr ([objdump45:INFO] ...): each file's format, the map or" << std::endl;
@@ -1206,6 +1302,8 @@ int main(int argc, char** argv) {
     uint32_t baseAddr = 0;
     bool baseAddrSet = false;
     std::string mapFile;
+    DisCpu cpu = DisCpu::CPU45GS02;
+    bool cpuSet = false;
     std::vector<std::string> files;
     int verbosity = 0;
     Logger::setTool("objdump45");
@@ -1237,6 +1335,22 @@ int main(int argc, char** argv) {
                 return 1;
             }
             mapFile = argv[++i];
+        } else if (arg == "--cpu" || arg.rfind("--cpu=", 0) == 0) {
+            std::string name;
+            if (arg == "--cpu") {
+                if (i + 1 >= argc) {
+                    std::cerr << "objdump45: --cpu requires a CPU (45gs02, 65ce02, 6502, 6510)" << std::endl;
+                    return 1;
+                }
+                name = argv[++i];
+            } else {
+                name = arg.substr(6);
+            }
+            if (!parseDisCpu(name, cpu)) {
+                std::cerr << "objdump45: unknown CPU '" << name << "' (45gs02, 65ce02, 6502, 6510)" << std::endl;
+                return 1;
+            }
+            cpuSet = true;
         } else if (arg == "-bas") {
             showBasic = true;
         } else if (arg == "-D") {
@@ -1295,8 +1409,9 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // Build reverse opcode table once
-    auto opcodeTable = buildReverseOpcodeTable();
+    // The opcode table of the CPU (--cpu); a C64 PRG's own when no --cpu is given
+    auto opcodeTable = buildOpcodeTable(cpu);
+    std::map<uint8_t, OpcodeInfo> table6510;
 
     int exitCode = 0;
 
@@ -1364,7 +1479,7 @@ int main(int argc, char** argv) {
                     std::map<uint32_t, std::string> syms;
                     for (const auto& s : ov.symbols)
                         if (s.overlay == (int)i + 1 && !syms.count(s.address)) syms[s.address] = s.name;
-                    disassembleSection(body, ov.region, label.c_str(), opcodeTable, syms, filename);
+                    disassembleSection(body, ov.region, label.c_str(), opcodeTable, syms, filename, {}, nullptr, cpu);
                 }
             }
             continue;
@@ -1390,9 +1505,9 @@ int main(int argc, char** argv) {
                 auto textNames = relocationNames(obj, obj.textRelocs, obj.textBody, obj.tbase);
                 auto dataNames = relocationNames(obj, obj.dataRelocs, obj.dataBody, obj.dbase);
                 disassembleSection(obj.textBody, obj.tbase, "TEXT", opcodeTable,
-                                 sectionSymbols(obj, SEG_TEXT), filename, srcLines, &textNames);
+                                 sectionSymbols(obj, SEG_TEXT), filename, srcLines, &textNames, cpu);
                 disassembleSection(obj.dataBody, obj.dbase, "DATA", opcodeTable,
-                                 sectionSymbols(obj, SEG_DATA), filename, {}, &dataNames);
+                                 sectionSymbols(obj, SEG_DATA), filename, {}, &dataNames, cpu);
             }
         } else {
             // ── Raw binary or PRG ──
@@ -1488,9 +1603,14 @@ int main(int argc, char** argv) {
                 }
                 std::vector<uint8_t> codeBody(body.begin() + stubSkip, body.begin() + stubSkip + codeLen);
                 uint32_t codeBase = base + (uint32_t)stubSkip;
+                // a C64 program (loaded at $0801) is 6510 code unless --cpu says otherwise
+                bool c64 = isPrg && !cpuSet && !baseAddrSet && base == 0x0801;
+                if (c64 && table6510.empty()) table6510 = buildOpcodeTable(DisCpu::CPU6510);
                 disassembleSection(codeBody, codeBase,
                                  stubSkip ? "code" : (isPrg ? "PRG" : "BIN"),
-                                 opcodeTable, prgSymbols, filename, srcLines);
+                                 c64 ? table6510 : opcodeTable, prgSymbols, filename, srcLines, nullptr,
+                                 c64 ? DisCpu::CPU6510 : cpu,
+                                 c64 ? "loaded at $0801: decoded as 6510 (C64) code; --cpu=45gs02 for MEGA65 code" : nullptr);
             }
             // -h, -t, -r silently produce no output for raw binaries
         }
