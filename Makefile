@@ -1,6 +1,8 @@
 CXX ?= g++
 GIT_HASH := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 EXTRA_CXXFLAGS ?=
+NM ?= nm
+OBJCOPY ?= objcopy
 CXXFLAGS = -std=c++17 -Wall -Wextra -Iinclude -MMD -MP -DGIT_HASH='"$(GIT_HASH)"' $(EXTRA_CXXFLAGS)
 
 # Optional FUSE3 support for disk45 mount command
@@ -93,7 +95,25 @@ LIBCA45_OBJS = $(addprefix $(OBJ_DIR)/, \
     Ca45Lib.o AsmMacro.o AssemblerLexer.o AssemblerParser.o AssemblerExpression.o \
     AssemblerOptimizer.o AssemblerSimulatedOps.o AssemblerGenerator.o AssemblerOpcodeDatabase.o \
     OpEffect.o SymbolSuggester.o M65Emitter.o Logger.o O45Reader.o)
+# Position-independent, so a shared object (mmsim's 45GS02 plugin) can link it
+$(LIBCA45_OBJS): CXXFLAGS += -fPIC
+# The archive is one object whose only global names are the ca45:: API: every
+# other symbol it defines (AssemblerParser, MachineState, Logger, the std
+# templates it instantiates...) is renamed __ca45_<name>, so a program with a
+# class of the same name links (and a plugin host's symbols cannot replace
+# ca45's own). Its section groups (COMDAT) are removed too: a group keeps its
+# original name, so the linker would drop ca45's copy of an inline function
+# for the program's, and the renamed symbols with it (a call to address 0).
+# ca45 and the tests use the internals: libca45-int.a, the plain objects.
+LIBCA45_INT = $(LIB_DIR)/libca45-int.a
 $(LIBCA45): $(LIBCA45_OBJS)
+	@mkdir -p $(LIB_DIR)
+	@rm -f $@
+	$(LD) -r -o $(OBJ_DIR)/libca45.o $^
+	$(NM) -g --defined-only $(OBJ_DIR)/libca45.o | awk '$$3 !~ /^_ZNK?4ca45/ { print $$3, "__ca45_" $$3 }' > $(OBJ_DIR)/libca45.syms
+	$(OBJCOPY) --redefine-syms=$(OBJ_DIR)/libca45.syms --remove-section=.group $(OBJ_DIR)/libca45.o
+	$(AR) rcs $@ $(OBJ_DIR)/libca45.o
+$(LIBCA45_INT): $(LIBCA45_OBJS)
 	@mkdir -p $(LIB_DIR)
 	@rm -f $@
 	$(AR) rcs $@ $^
@@ -243,9 +263,9 @@ $(CP_TARGET): $(CC_TARGET)
 # Assembler (ca45) - the assembler from libca45, its preprocessor and .o45
 # output from codegen + common
 $(CA_TARGET): $(OBJ_DIR)/ca45_main.o | $(LIB_DIR)
-$(CA_TARGET): $(LIBCA45) $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-common.a
+$(CA_TARGET): $(LIBCA45_INT) $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-common.a
 	@mkdir -p $(BIN_DIR)
-	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/ca45_main.o $(LIBCA45) $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-common.a
+	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/ca45_main.o $(LIBCA45_INT) $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-common.a
 
 # Symbol Inspector (nm45) - uses common
 $(NM_TARGET): $(OBJ_DIR)/nm45_main.o | $(LIB_DIR)
@@ -514,7 +534,7 @@ lib45-sizes: lib45-libraries
 
 # Clean lib45 libraries only
 lib45-clean:
-	@rm -f $(LIB_DIR)/lib45-*.a $(LIBCA45)
+	@rm -f $(LIB_DIR)/lib45-*.a $(LIBCA45) $(LIBCA45_INT)
 	@rmdir $(LIB_DIR) 2>/dev/null || true
 
 # Parallel build (useful for multi-core systems)

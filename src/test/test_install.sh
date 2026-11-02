@@ -102,6 +102,49 @@ else
     fail "libca45: $(tail -3 ca45lib.log)"
 fi
 
+# ...and into a shared object (mmsim's 45GS02 plugin is one): the archive is
+# position-independent
+cat > ca45so.cpp <<'EOF'
+#include <ca45/ca45.hpp>
+extern "C" int ca45so_map(unsigned char* b, int n) { return ca45::assembleLine("map", b, n, 0x2000); }
+EOF
+if ${CXX:-g++} -std=c++17 -fPIC -shared -I"$PREFIX/include" ca45so.cpp "$PREFIX/lib/libca45.a" -o ca45so.so >ca45so.log 2>&1; then
+    pass "a shared object linked with the installed libca45.a"
+else
+    fail "libca45 in a shared object: $(grep -m2 -i 'error\|fPIC' ca45so.log)"
+fi
+
+# Only the ca45:: names are global: a program with classes of the names ca45
+# uses inside (MachineState, Logger, as mmsim's MCP server has) links, and
+# ca45 keeps its own (with them merged, ca45's optimizer ran the program's
+# ~MachineState and crashed)
+cat > ca45names.cpp <<'EOF'
+#include <ca45/ca45.hpp>
+#include <cstdio>
+#include <cstdlib>
+struct MachineState { int pc; ~MachineState(); };
+MachineState::~MachineState() { std::puts("the program's ~MachineState ran"); std::abort(); }
+struct Logger { static void init(); };
+void Logger::init() { std::abort(); }
+int main() {
+    unsigned char b[8];
+    // -O2 runs the optimizer (its MachineState)
+    ca45::AssembleOptions o;
+    o.origin = 0x2000;
+    o.optimizationLevel = 2;
+    ca45::AssembleResult r = ca45::assemble("  lda #1\n  sta $d020\n  lda #1\n  rts\n", o);
+    int n = ca45::assembleLine("BNE $3000", b, sizeof b, 0x2000);
+    std::printf("%d %zu\n", n, r.bytes.size());
+    return r.ok() && n == 3 && b[0] == 0xD3 ? 0 : 1;
+}
+EOF
+if ${CXX:-g++} -std=c++17 -I"$PREFIX/include" ca45names.cpp "$PREFIX/lib/libca45.a" -o ca45names >ca45names.log 2>&1 \
+   && ./ca45names >>ca45names.log 2>&1; then
+    pass "a program with its own MachineState and Logger links libca45.a"
+else
+    fail "libca45 names: $(tail -3 ca45names.log)"
+fi
+
 if make -C "$ROOT" --no-print-directory uninstall PREFIX="$PREFIX" >"$WORK/uninstall.log" 2>&1 \
    && [ -z "$(find "$PREFIX" -type f -o -type l)" ]; then
     pass "make uninstall removes every installed file"

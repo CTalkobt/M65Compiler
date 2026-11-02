@@ -4,6 +4,20 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### libca45: usable from a shared object and beside classes of the same name
+
+- `lib45/libca45.a` is compiled with `-fPIC`, so a shared object can link it,
+  such as mmsim's 45GS02 plugin for its dot-assembly (#117). The link failed
+  with "relocation ... can not be used when making a shared object".
+- Its only global names are the `ca45::` API. The archive is one object
+  (`ld -r`), its other symbols renamed `__ca45_<name>` and its section groups
+  removed. All of ca45's internal names were global. A program with a class of
+  the same name (mmsim's MCP server has a `MachineState`) had the two merged:
+  ca45's optimizer ran the program's `~MachineState` and crashed. ca45 links
+  the plain objects (`lib45/libca45-int.a`).
+- Tests: `test_install.sh` links the installed archive into a shared object
+  and into a program with its own `MachineState` and `Logger`.
+
 ### ca45 --cpu 6502: output for the 6502 / 6510 (#384)
 
 - `ca45 --cpu 6502` (or `6510`) and `.cpu 6502` in the source (the `.cpu`
