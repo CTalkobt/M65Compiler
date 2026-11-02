@@ -254,8 +254,8 @@ if ./bin/cp45 build/test/test_embed_ok.c -o build/test/test_embed_ok.i 2>build/t
    grep -qx '0x0201, 0x0003' build/test/test_embed_ok.i && grep -qx 'int e = 7;' build/test/test_embed_ok.i &&
    grep -q 'test_embed_ok.c:2: warning: .*3 bytes is not a whole number of words' build/test/test_embed_ok.err &&
    ./bin/cp45 build/test/test_embed_e1.c -o /dev/null 2>&1 | grep -q 'test_embed_e1.c:2: .*nowhere.bin' &&
-   ./bin/cp45 build/test/test_embed_e2.c -o /dev/null 2>&1 | grep -q "test_embed_e2.c:3: #embed: unknown parameter 'vendor::thing'" &&
-   ./bin/cp45 build/test/test_embed_e3.c -o /dev/null 2>&1 | grep -q 'test_embed_e3.c:2: #include binary takes no parameters'; then
+   ./bin/cp45 build/test/test_embed_e2.c -o /dev/null 2>&1 | grep -q "test_embed_e2.c:3: error: #embed: unknown parameter 'vendor::thing'" &&
+   ./bin/cp45 build/test/test_embed_e3.c -o /dev/null 2>&1 | grep -q 'test_embed_e3.c:2: error: #include binary takes no parameters'; then
     echo "SUCCESS: #embed / #include binary lines and errors"
 else
     echo "FAIL: #embed / #include binary ($(cat build/test/test_embed_ok.err 2>/dev/null; ./bin/cp45 build/test/test_embed_e2.c -o /dev/null 2>&1 | head -2))"

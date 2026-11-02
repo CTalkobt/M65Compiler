@@ -5,6 +5,17 @@
 #include <map>
 #include <set>
 #include <iosfwd>
+#include <stdexcept>
+
+// An error at a line of a source (the file the line is in: an #include's):
+// what() is "file:line: error: message"
+struct PreprocessError : std::runtime_error {
+    std::string file;
+    int line;
+    std::string message;
+    PreprocessError(const std::string& f, int l, const std::string& m)
+        : std::runtime_error(f + ":" + std::to_string(l) + ": error: " + m), file(f), line(l), message(m) {}
+};
 
 class Preprocessor {
 public:
