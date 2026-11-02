@@ -1224,6 +1224,36 @@ else
     failed=$((failed + 1))
 fi
 
+# --cpu 6502 / .cpu 6502 (#384): JSR and JMP stay (no BSR / BRA), nop is
+# allowed, 45GS02 instructions, simulated ones and far branches are errors
+C=build/test/cpu384
+mkdir -p $C
+printf '        * = $2000\nstart:  jsr flash\n        jmp start\nflash:  inc $d020\n        rts\n' > $C/j.s
+printf '        .cpu 6502\n        * = $2000\nstart:  jsr flash\n        jmp start\nflash:  inc $d020\n        nop\n        rts\n' > $C/d.s
+printf '        * = $2000\n        ldz #1\n        lda ($12),z\n        bra x\n        add.16 $10, $12\nx:      rts\n' > $C/bad.s
+printf '        * = $2000\nl:      bne far\n        .fill 200, 0\nfar:    rts\n' > $C/far.s
+$AS -O2 -o $C/j45.bin $C/j.s >/dev/null 2>&1
+$AS -O2 --cpu 6502 -o $C/j65.bin $C/j.s >/dev/null 2>&1
+$AS -O2 -o $C/d.bin $C/d.s >/dev/null 2>&1
+BAD=$($AS --cpu 6502 -o $C/x.bin $C/bad.s 2>&1); BADRC=$?
+FAR=$($AS --cpu=6510 -o $C/x.bin $C/far.s 2>&1); FARRC=$?
+if [ "$(xxd -p $C/j45.bin)" = "63030080fbee20d060" ] &&
+   [ "$(xxd -p $C/j65.bin)" = "2006204c0020ee20d060" ] &&
+   [ "$(xxd -p $C/d.bin)" = "2006204c0020ee20d0ea60" ] &&
+   [ $BADRC -ne 0 ] && echo "$BAD" | grep -q "bad.s:2:1: error: 'ldz' is not a 6502 instruction" &&
+   echo "$BAD" | grep -q "bad.s:3:1: error: the 6502 has no 'lda' with this addressing mode" &&
+   echo "$BAD" | grep -q "bad.s:4:1: error: 'bra' is not a 6502 instruction" &&
+   echo "$BAD" | grep -q "bad.s:5:1: error: a simulated instruction is 45GS02 code" &&
+   [ $FARRC -ne 0 ] && echo "$FAR" | grep -q "far.s:2:1: error: 'bne' is out of range: the 6502 has no 16-bit branch" &&
+   ! $AS --cpu z80 -o $C/x.bin $C/j.s >/dev/null 2>&1; then
+    echo "SUCCESS: --cpu 6502 / .cpu 6502 keep to the 6502"
+    passed=$((passed + 1))
+else
+    echo "FAIL: --cpu 6502: 45gs02 $(xxd -p $C/j45.bin) 6502 $(xxd -p $C/j65.bin) .cpu $(xxd -p $C/d.bin)"
+    echo "$BAD" | grep error; echo "$FAR" | grep error
+    failed=$((failed + 1))
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All assembler feature tests passed!"
     exit 0

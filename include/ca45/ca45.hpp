@@ -25,6 +25,10 @@ struct AssembleOptions {
     int optimizationLevel = 0;
     // symbols the source may use (ca45 -D NAME=VALUE), e.g. a debugger's labels
     std::map<std::string, uint32_t> symbols;
+    // the CPU (ca45 --cpu): "45gs02" (the default; "4510") or "6502" ("6510"):
+    // only the 6502's instructions, none of the optimizer's 45GS02 ones. A
+    // .cpu directive in the source overrides it; an unknown name is an error.
+    std::string cpu = "45gs02";
 };
 
 struct AssembleResult {
@@ -45,6 +49,10 @@ AssembleResult assemble(const std::string& source, const AssembleOptions& option
 // when given, receives the message.
 int assembleLine(const std::string& line, uint8_t* buf, int bufsz,
                  uint32_t currentAddr = 0, std::string* error = nullptr);
+
+// The same for a CPU (as AssembleOptions::cpu): "6502" for a 6502 / 6510 machine.
+int assembleLine(const std::string& line, uint8_t* buf, int bufsz,
+                 uint32_t currentAddr, std::string* error, const std::string& cpu);
 
 // The toolchain version the library comes from (e.g. "1.1.0.dev").
 const char* version();

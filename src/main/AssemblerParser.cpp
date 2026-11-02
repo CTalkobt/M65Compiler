@@ -4,6 +4,7 @@
 #include "AssemblerOptimizer.hpp"
 #include "AssemblerSimulatedOps.hpp"
 #include "AssemblerGenerator.hpp"
+#include "AssemblerOpcodeDatabase.hpp"
 #include "M65Emitter.hpp"
 #include "O45Types.hpp"
 #include "StringUtil.hpp"
@@ -1463,7 +1464,14 @@ void AssemblerParser::pass1() {
                     stmt->address = pc;
                     stmt->size = 0;
                 }
-                else if (stmt->dir.name == "cpu") stmt->size = 0;
+                else if (stmt->dir.name == "cpu") {
+                    // .cpu 6502: the 6502's instructions from here (#384); a
+                    // name ca45 doesn't know (65c02, 65816) is accepted, unchecked
+                    stmt->size = 0;
+                    bool is6502;
+                    if (!stmt->dir.arguments.empty() && cpuByName(stmt->dir.arguments[0], is6502))
+                        cpu6502 = is6502;
+                }
                 else stmt->size = calculateDirectiveSize(stmt->dir, pc, stmt.get());
             }
         }
@@ -1803,7 +1811,11 @@ void AssemblerParser::pass1() {
                     else if (suffix == "sp") stmt->instr.mode = AddressingMode::STACK_RELATIVE;
                     else { stmt->instr.mnemonic = fullMnemonic; stmt->instr.forceMode = false; }
                 }
-                if (stmt->instr.mnemonic == "nop") throwAt(stmt->line, 1, "nop disallowed");
+                // ($EA is the 6502's NOP, the 45GS02's EOM: nop only on the 6502, #384)
+                if (stmt->instr.mnemonic == "nop") {
+                    if (!cpu6502) throwAt(stmt->line, 1, "nop disallowed (it is eom on the 45GS02; .cpu 6502 allows it)");
+                    stmt->instr.mnemonic = "eom";
+                }
                 if (stmt->instr.mnemonic == "proc") {
                     if (currentProc != nullptr) {
                         addError(formatDiagnostic(stmtFile(*stmt), stmt->line, 1, Severity::Error,
@@ -2687,6 +2699,14 @@ int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t curre
 
 std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
     isPass1_ = false;
+    // .cpu 6502: none of the optimizer's rewrites to 45GS02 instructions (#384):
+    // JSR -> BSR, JMP -> BRA, SeqExtract's BSR routines, quad moves
+    if (cpu6502) {
+        optFlags.jsrRelocate = false;
+        optFlags.jmpBra = false;
+        optFlags.seqExtract = false;
+        optFlags.quadMove = false;
+    }
     bool overallChanged;
     int pass2Iterations = 0;
     const int maxPass2Iterations = 100;
@@ -2915,7 +2935,67 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
         if (addressRecalculationMadeChanges) overallChanged = true;
     } while (overallChanged);
     finalizeAddresses();
+    if (cpu6502) {
+        std::vector<std::string> cpuErrors = check6502();
+        if (!cpuErrors.empty()) {
+            for (const auto& e : cpuErrors) errors.push_back(e);
+            throw AsmDiagnostics(cpuErrors);
+        }
+    }
     return AssemblerGenerator::generate(this, isPrg);
+}
+
+bool AssemblerParser::cpuByName(const std::string& name, bool& is6502) {
+    std::string n = name;
+    std::transform(n.begin(), n.end(), n.begin(), ::tolower);
+    if (!n.empty() && n[0] == '_') n.erase(0, 1);   // (KickAssembler's _6502, _45gs02)
+    if (n == "6502" || n == "6510") { is6502 = true; return true; }
+    if (n == "45gs02" || n == "4510" || n == "m65") { is6502 = false; return true; }
+    return false;
+}
+
+// .cpu 6502: every instruction left is the 6502's, its branches 8-bit
+std::vector<std::string> AssemblerParser::check6502() {
+    std::vector<std::string> out;
+    auto err = [&](const Statement& st, const std::string& m) {
+        out.push_back(formatDiagnostic(stmtFile(st), st.line, 1, Severity::Error, m));
+    };
+    for (const auto& sp : statements) {
+        const Statement& st = *sp;
+        if (st.deleted) continue;
+        if (st.type == Statement::NONE || st.type == Statement::DIRECTIVE || st.type == Statement::BASIC_UPSTART)
+            continue;
+        if (st.type != Statement::INSTRUCTION) {
+            err(st, "a simulated instruction is 45GS02 code, not the 6502's (.cpu 6502)");
+            continue;
+        }
+        std::string mn = st.instr.mnemonic;
+        std::transform(mn.begin(), mn.end(), mn.begin(), ::tolower);
+        if (mn == "proc" || mn == "endproc") continue;
+        AddressingMode m = st.instr.mode;
+        static const std::set<std::string> branches = {"bcc", "bcs", "beq", "bmi", "bne", "bpl", "bvc", "bvs"};
+        if (branches.count(mn)) {
+            if (st.size > 2) err(st, "'" + mn + "' is out of range: the 6502 has no 16-bit branch (.cpu 6502)");
+            continue;
+        }
+        // (base page or absolute: as the generator picks, the absolute form
+        // when there is no base-page one)
+        auto absOf = [](AddressingMode a) {
+            if (a == AddressingMode::BASE_PAGE) return AddressingMode::ABSOLUTE;
+            if (a == AddressingMode::BASE_PAGE_X) return AddressingMode::ABSOLUTE_X;
+            if (a == AddressingMode::BASE_PAGE_Y) return AddressingMode::ABSOLUTE_Y;
+            return a;
+        };
+        if (AssemblerOpcodeDatabase::isOn6502(mn, m) || AssemblerOpcodeDatabase::isOn6502(mn, absOf(m))) continue;
+        bool known = false;
+        for (AddressingMode a : {AddressingMode::IMPLIED, AddressingMode::IMMEDIATE, AddressingMode::ABSOLUTE,
+                                 AddressingMode::RELATIVE, AddressingMode::BASE_PAGE})
+            if (AssemblerOpcodeDatabase::isOn6502(mn, a)) known = true;
+        err(st, known ? "the 6502 has no '" + mn + "' with this addressing mode (" +
+                            AssemblerOpcodeDatabase::AddressingModeToString(m) + ") (.cpu 6502)"
+                      : "'" + mn + "' is not a 6502 instruction (.cpu 6502)");
+    }
+    return out;
 }
 
 uint32_t AssemblerParser::getExternIndex(const std::string& name) const {

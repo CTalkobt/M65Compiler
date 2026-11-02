@@ -4,6 +4,23 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### ca45 --cpu 6502: output for the 6502 / 6510 (#384)
+
+- `ca45 --cpu 6502` (or `6510`) and `.cpu 6502` in the source (the `.cpu`
+  directive was ignored) make the output 6502 code. The optimizer rewrites
+  only to the 6502's instructions: no `JSR` → `BSR`, `JMP` → `BRA`,
+  SeqExtract routines, quad moves or `TAZ`/`TZA`. Every instruction must be
+  one of the 6502's 151 documented opcodes. The 45GS02's own instructions
+  and addressing modes, simulated instructions and a branch out of 8-bit
+  range (which became a 16-bit branch) are errors at their line. `nop` is
+  allowed (`$EA`; on the 45GS02 it is `eom` and refused).
+- libca45: `AssembleOptions::cpu` and an `assembleLine` with a CPU, so a
+  6502 machine's monitor can assemble with it.
+- `doc/bin/ca45.md`: *Assembling for the 6502*; the JSR → BSR and JMP → BRA
+  rewrites are documented there.
+- Tests: `test_assembler.sh`; the `ca45lib` category checks the 6502 table
+  against the 151 documented opcodes.
+
 ### libca45: ca45's assembler as a C++ library (#117)
 
 - `lib45/libca45.a` (`make libca45`; `make install` puts it in `$(PREFIX)/lib`,

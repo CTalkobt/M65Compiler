@@ -85,7 +85,7 @@ static void printHelpGeneral() {
     std::cout << "ca45 — 45GS02 Assembler for MEGA65\n\n";
     std::cout << "Usage: ca45 [options] <input_file.s>\n\n";
     std::cout << "Options by category:\n";
-    std::cout << "  Input/Output:    -c, -o, -L, -l, --dry-run, --source-map, --watch\n";
+    std::cout << "  Input/Output:    -c, -o, -L, -l, --dry-run, --source-map, --watch, --cpu\n";
     std::cout << "  Optimization:    -O, -P, --experimental\n";
     std::cout << "  Debugging:       -v ... -vvvv, -Roptimizer, -Rmachstate, --emulator\n";
     std::cout << "  Preprocessor:    -D, -I\n";
@@ -129,6 +129,11 @@ static void printHelpInputOutput() {
     std::cout << "                     Maps binary addresses back to source lines for debugging\n";
     std::cout << "                     Shows address, source location, and original source code\n";
     std::cout << "                     Example: ca45 --source-map map.txt input.s45\n\n";
+    std::cout << "  --cpu <name>       The CPU the code is for: 45gs02 (default; 4510) or 6502 (6510)\n";
+    std::cout << "                     6502: only its instructions (others are errors), and none of the\n";
+    std::cout << "                     optimizer's 45GS02 rewrites (JSR -> BSR, JMP -> BRA, 16-bit branches)\n";
+    std::cout << "                     A .cpu directive in the source overrides it\n";
+    std::cout << "                     Example: ca45 --cpu 6502 -o c64.prg input.s\n\n";
     std::cout << "  --emulator          Launch emulator with assembled output\n";
     std::cout << "                     Automatically detects available emulator (VICE, etc.)\n";
     std::cout << "                     Output file must be .prg format for emulator loading\n";
@@ -388,6 +393,7 @@ int main(int argc, char** argv) {
     bool launchEmulator = false; // Phase 3.3: launch emulator after assembly
     std::string emulatorPath;    // Phase 3.3: path to emulator executable
     bool watchMode = false;      // Phase 3.4: watch file for changes and reassemble
+    bool cpu6502 = false;        // --cpu 6502 (#384); a .cpu directive in the source wins
     int optimizationLevel = 2;  // Default to -O2
     OptimizationFlags optFlags = OptimizationFlags::fromLevel(2);  // Default to -O2
     int verboseLevel = 0;
@@ -555,6 +561,12 @@ int main(int argc, char** argv) {
             launchEmulator = true;  // Phase 3.3: launch emulator after assembly
         } else if (arg == "--emulator-path" && i + 1 < (int)allArgs.size()) {
             emulatorPath = allArgs[++i];  // Phase 3.3: custom emulator path
+        } else if ((arg == "--cpu" && i + 1 < (int)allArgs.size()) || arg.rfind("--cpu=", 0) == 0) {
+            std::string name = arg == "--cpu" ? allArgs[++i] : arg.substr(6);
+            if (!AssemblerParser::cpuByName(name, cpu6502)) {
+                std::cerr << "ca45: error: unknown CPU '" << name << "' (6502, 6510, 45gs02, 4510)" << std::endl;
+                return 1;
+            }
         } else if (arg == "--watch") {
             watchMode = true;  // Phase 3.4: watch file for changes
         } else if (Logger::parseFlag(arg, verboseLevel)) {
@@ -641,6 +653,7 @@ int main(int argc, char** argv) {
             LOG_TRACE("ca45", "Token: " << token.typeToString() << " (" << token.value << ") at " << token.line << ":" << token.column);
 
     AssemblerParser parser(tokens, predefinedSymbols); if (functionSections) parser.functionSections = true;
+    parser.cpu6502 = cpu6502;
     parser.setSourceFile(input_file);
     parser.setTokenFiles(tokenFiles);
     parser.setBadNumbers(lexer.badNumbers());
@@ -796,6 +809,9 @@ int main(int argc, char** argv) {
             }
         }
         for (const auto& w : parser.getWarnings()) std::cerr << w << std::endl;
+    } catch (const AsmDiagnostics& e) {
+        for (const auto& l : e.lines) std::cerr << l << std::endl;   // (each at its line)
+        return 1;
     } catch (const AsmFileError& e) {
         std::cerr << e.file << ": " << e.what() << std::endl;   // (a line of an #include'd file)
         return 1;
@@ -846,6 +862,7 @@ int main(int argc, char** argv) {
                     std::vector<AssemblerToken> tokens = lexer.tokenize();
 
                     AssemblerParser parser(tokens, predefinedSymbols); if (functionSections) parser.functionSections = true;
+    parser.cpu6502 = cpu6502;
                     parser.setTokenFiles(lexer.files());
                     parser.setBadNumbers(lexer.badNumbers());
                     parser.setSourceFile(input_file);

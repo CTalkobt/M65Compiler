@@ -43,6 +43,13 @@ struct Directive {
 
 // An error about a statement of an #include'd file: the file it names
 // (ca45 prints it in place of the main source's name)
+// Errors pass 2 found (formatted diagnostics, one per line of source)
+struct AsmDiagnostics : std::runtime_error {
+    std::vector<std::string> lines;
+    explicit AsmDiagnostics(const std::vector<std::string>& l)
+        : std::runtime_error(l.empty() ? std::string() : l.front()), lines(l) {}
+};
+
 struct AsmFileError : std::runtime_error {
     std::string file;
     AsmFileError(const std::string& f, const std::string& msg) : std::runtime_error(msg), file(f) {}
@@ -84,6 +91,15 @@ public:
     bool warnOverflow = false;   // Warn on immediate/address value overflows (default: off)
     bool functionSections = false; // .function_sections / -ffunction-sections: write a section table
     bool warnUnderflow = false;  // Warn on negative values (underflows) (default: off)
+    // The CPU the code is for (#384): ca45 --cpu, a .cpu directive. On the
+    // 6502 (6510) only its instructions, none of the optimizer's 45GS02 ones
+    // (BSR, BRA, the Z register, quad), no 16-bit branches, no simulated
+    // instructions; nop is allowed ($EA)
+    bool cpu6502 = false;
+    // a CPU name: true (and is6502 set) for one ca45 knows: 6502 / 6510, 45gs02 / 4510
+    static bool cpuByName(const std::string& name, bool& is6502);
+    // .cpu 6502: the lines whose instructions the 6502 does not have (diagnostics)
+    std::vector<std::string> check6502();
     int optimizationLevel = 2;  // 0=none, 1=basic, 2=default, 3=aggressive
     OptimizationFlags optFlags = OptimizationFlags::fromLevel(2);  // Named optimization flags
     std::vector<uint8_t> pass2(bool isPrg = false);

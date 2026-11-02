@@ -1,5 +1,6 @@
 #include "AssemblerOpcodeDatabase.hpp"
 #include <map>
+#include <set>
 #include <algorithm>
 #include <cctype>
 
@@ -377,4 +378,37 @@ std::string AssemblerOpcodeDatabase::AddressingModeToString(AddressingMode mode)
         case AddressingMode::NONE: return "None";
         default: return "Unknown";
     }
+}
+
+bool AssemblerOpcodeDatabase::isOn6502(const std::string& mnemonic, AddressingMode mode) {
+    using M = AddressingMode;
+    static const std::set<M> alu = {M::IMMEDIATE, M::BASE_PAGE, M::BASE_PAGE_X, M::ABSOLUTE, M::ABSOLUTE_X,
+                                    M::ABSOLUTE_Y, M::BASE_PAGE_X_INDIRECT, M::BASE_PAGE_INDIRECT_Y};
+    static const std::set<M> store = {M::BASE_PAGE, M::BASE_PAGE_X, M::ABSOLUTE, M::ABSOLUTE_X,
+                                      M::ABSOLUTE_Y, M::BASE_PAGE_X_INDIRECT, M::BASE_PAGE_INDIRECT_Y};
+    static const std::set<M> shift = {M::ACCUMULATOR, M::IMPLIED, M::BASE_PAGE, M::BASE_PAGE_X, M::ABSOLUTE, M::ABSOLUTE_X};
+    static const std::set<M> incdec = {M::BASE_PAGE, M::BASE_PAGE_X, M::ABSOLUTE, M::ABSOLUTE_X};
+    static const std::map<std::string, std::set<M>> modes = {
+        {"adc", alu}, {"and", alu}, {"cmp", alu}, {"eor", alu}, {"lda", alu}, {"ora", alu}, {"sbc", alu},
+        {"sta", store},
+        {"asl", shift}, {"lsr", shift}, {"rol", shift}, {"ror", shift},
+        {"inc", incdec}, {"dec", incdec},
+        {"bit", {M::BASE_PAGE, M::ABSOLUTE}},
+        {"cpx", {M::IMMEDIATE, M::BASE_PAGE, M::ABSOLUTE}}, {"cpy", {M::IMMEDIATE, M::BASE_PAGE, M::ABSOLUTE}},
+        {"ldx", {M::IMMEDIATE, M::BASE_PAGE, M::BASE_PAGE_Y, M::ABSOLUTE, M::ABSOLUTE_Y}},
+        {"ldy", {M::IMMEDIATE, M::BASE_PAGE, M::BASE_PAGE_X, M::ABSOLUTE, M::ABSOLUTE_X}},
+        {"stx", {M::BASE_PAGE, M::BASE_PAGE_Y, M::ABSOLUTE}},
+        {"sty", {M::BASE_PAGE, M::BASE_PAGE_X, M::ABSOLUTE}},
+        {"jmp", {M::ABSOLUTE, M::ABSOLUTE_INDIRECT, M::INDIRECT}},
+        {"jsr", {M::ABSOLUTE}},
+    };
+    static const std::set<std::string> branches = {"bcc", "bcs", "beq", "bmi", "bne", "bpl", "bvc", "bvs"};
+    static const std::set<std::string> implied = {"brk", "clc", "cld", "cli", "clv", "dex", "dey", "eom", "inx",
+        "iny", "pha", "php", "pla", "plp", "rti", "rts", "sec", "sed", "sei", "tax", "tay", "tsx", "txa", "txs", "tya"};
+    std::string mn = mnemonic;
+    std::transform(mn.begin(), mn.end(), mn.begin(), ::tolower);
+    if (branches.count(mn)) return mode == M::RELATIVE;
+    if (implied.count(mn)) return mode == M::IMPLIED;
+    auto it = modes.find(mn);
+    return it != modes.end() && it->second.count(mode);
 }

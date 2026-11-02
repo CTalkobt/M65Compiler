@@ -67,7 +67,13 @@ AssembleResult assemble(const std::string& source, const AssembleOptions& option
         AssemblerLexer lexer(expanded);
         std::vector<AssemblerToken> sourceTokens = lexer.tokenize();
         tokens.insert(tokens.end(), sourceTokens.begin(), sourceTokens.end());
+        bool is6502 = false;
+        if (!AssemblerParser::cpuByName(options.cpu, is6502)) {
+            result.errors.push_back("error: unknown CPU '" + options.cpu + "' (6502, 6510, 45gs02, 4510)");
+            return result;
+        }
         AssemblerParser parser(tokens, options.symbols);
+        parser.cpu6502 = is6502;
         parser.setSourceFile(kSourceName);
         parser.setTokenFiles(lexer.files());
         parser.setBadNumbers(lexer.badNumbers());
@@ -83,6 +89,9 @@ AssembleResult assemble(const std::string& source, const AssembleOptions& option
             result.errors = cleanErrors(parser.getErrors());
             result.bytes.clear();
         }
+    } catch (const AsmDiagnostics& e) {
+        result.errors = cleanErrors(e.lines);
+        result.bytes.clear();
     } catch (const std::exception& e) {
         result.errors = cleanErrors({e.what()});
         result.bytes.clear();
@@ -95,12 +104,18 @@ AssembleResult assemble(const std::string& source, const AssembleOptions& option
 
 int assembleLine(const std::string& line, uint8_t* buf, int bufsz,
                  uint32_t currentAddr, std::string* error) {
+    return assembleLine(line, buf, bufsz, currentAddr, error, "45gs02");
+}
+
+int assembleLine(const std::string& line, uint8_t* buf, int bufsz,
+                 uint32_t currentAddr, std::string* error, const std::string& cpu) {
     if (error) error->clear();
     // a line starting in column 1 is the instruction (`LDA #$03`), not a label
     std::string text = line;
     if (!text.empty() && text[0] != ' ' && text[0] != '\t') text = "    " + text;
     AssembleOptions options;
     options.origin = currentAddr;
+    options.cpu = cpu;
     AssembleResult r = assemble(text, options);
     if (!r.ok()) {
         if (error) {
