@@ -1316,6 +1316,48 @@ else
     failed=$((failed + 1))
 fi
 
+# SeqExtract (#394): runs in a loop stay inline, .opt NoSeqExtract keeps a
+# region inline, a self-modified instruction is neither moved nor trusted,
+# and what the code knows ends at a .noopt region; the listing names the
+# extracted routine and its call sites
+C=build/test/seqx394
+mkdir -p $C
+BLK='        lda $40\n        sta $d020\n        lda $41\n        sta $d021\n'
+printf "        * = \$2000\n        proc f\n$BLK$BLK$BLK        ldx #10\n@loop:\n$BLK$BLK$BLK        dex\n        bne @loop\n        rts\n        endproc\n" > $C/loop.s
+printf "        * = \$2000\n        proc f\n$BLK$BLK$BLK        .opt NoSeqExtract\n$BLK$BLK        .opt SeqExtract\n        rts\n        endproc\n" > $C/opt.s
+B2='        lda #$00\n        sta $d020\n        ldz #1\n        sta ($20),z\n'
+printf "        * = \$2000\n        proc f\n        lda #5\n        sta smc+1\nsmc:\n$B2$B2$B2        rts\n        endproc\n" > $C/smc.s
+printf '        * = $2000\n        ldx #0\n        stx $d020\n        .noopt_start\n        ldx #5\n        .noopt_end\n        ldx #0\n        stx $d021\n        rts\n' > $C/noopt.s
+$AS -O2 -L $C/loop.lst -o $C/loop.bin $C/loop.s >/dev/null 2>&1
+$AS -O2 -o $C/opt.bin $C/opt.s >/dev/null 2>&1
+$AS -O2 -PNoRedundantLoad -o $C/smc.bin $C/smc.s >/dev/null 2>&1
+$AS -O2 -o $C/smc2.bin $C/smc.s >/dev/null 2>&1
+$AS -O2 -o $C/noopt.bin $C/noopt.s >/dev/null 2>&1
+hexof() { xxd -p "$1" | tr -d '\n'; }
+INL=a5408d20d0a5418d21d0
+ok=1
+# loop: the runs before it extracted (BSR), its body inline up to dex
+hexof $C/loop.bin | grep -q "^63" || ok=0
+hexof $C/loop.bin | grep -q "a20a${INL}${INL}${INL}ca" || ok=0
+grep -q '__seqx_0:   ; repeated code moved here by SeqExtract' $C/loop.lst || ok=0
+grep -q 'bsr __seqx_0: this instruction and the 3 after it' $C/loop.lst || ok=0
+# .opt: the two runs in the region inline
+hexof $C/opt.bin | grep -q "$INL$INL" || ok=0
+# self-modified: sta smc+1 still lands on the lda's operand ($2006), not a BSR;
+# with RedundantLoad the next lda #$00 stays (A holds what was patched in),
+# the one after it goes (A is 0 then)
+hexof $C/smc.bin | grep -q '^a9058d0620a9008d20d0a3019220' || ok=0
+[ "$(hexof $C/smc2.bin)" = "a9058d0620a9008d20d0a3019220a9008d20d092208d20d0a301922060" ] || ok=0
+# noopt: the ldx #0 after the region stays
+[ "$(hexof $C/noopt.bin)" = "a2008e20d0a205a2008e21d060" ] || ok=0
+if [ $ok = 1 ]; then
+    echo "SUCCESS: SeqExtract leaves loops, .opt NoSeqExtract regions and self-modified code inline (#394)"
+    passed=$((passed + 1))
+else
+    echo "FAIL: #394: loop $(hexof $C/loop.bin) opt $(hexof $C/opt.bin) smc $(hexof $C/smc.bin) smc2 $(hexof $C/smc2.bin) noopt $(hexof $C/noopt.bin)"
+    failed=$((failed + 1))
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All assembler feature tests passed!"
     exit 0

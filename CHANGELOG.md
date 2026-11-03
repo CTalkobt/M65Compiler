@@ -17,6 +17,26 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   tempo and pitch. `SidFile`: `PsidRunner` (a call at a time) and each
   write's cycle; `TuneAudio`: `SidChips`.
 
+### ca45 SeqExtract: loops stay inline, .opt NoSeqExtract, self-modifying code (#394)
+
+- Runs inside a loop (a label to a branch or `jmp` back to it in the same
+  proc) are no longer moved into `BSR` routines: each time round the loop
+  paid a `BSR` and an `RTS` for every run. `-Roptimizer` names each loop left
+  inline. The library's code is 238 bytes (ZP) / 349 bytes (stack) larger.
+- `.opt NoSeqExtract` … `.opt SeqExtract` keeps a region's runs inline while
+  the rest of the file is still made smaller (other names are warned about).
+- The listing (`-L`) shows each `bsr __seqx_N` call site and the routine
+  under its name, instead of the source lines the runs came from.
+- Self-modifying code: an instruction a store (or `inc`, …) writes into as
+  `label+n` is left as written by every pass. SeqExtract moved it into a
+  routine and put a `BSR` in its place, so `sta smc+1` patched the `BSR`'s
+  offset (a call to a wild address), and the redundant-load pass trusted its
+  operand (`lda #$00` patched to `lda #5`: a later `lda #$00` was dropped).
+- What the registers hold is no longer carried across a `.noopt_start` /
+  `.noopt_end` region: an `ldx #0` before it, `ldx #5` inside, and the
+  `ldx #0` after it was dropped.
+- Tests in `src/test/test_assembler.sh`.
+
 ### ca45: loads after instructions written as data are kept
 
 - The optimiser kept what it knew of the registers across a `.byte` or

@@ -372,6 +372,11 @@ static void writeListing(const std::string& filename, const AssemblerParser& par
             lastFile = f;
         }
 
+        // a routine SeqExtract made: its name on a line of its own (#394)
+        if (stmt->seqRoutine && !stmt->label.empty())
+            out << std::hex << std::setw(8) << std::setfill('0') << stmt->address << ":" << std::string(23, ' ')
+                << stmt->label << ":   ; repeated code moved here by SeqExtract\n";
+
         out << std::hex << std::setw(8) << std::setfill('0') << stmt->address << ": ";
 
         // Bytes (up to 4 bytes per line to match common listing formats)
@@ -384,7 +389,12 @@ static void writeListing(const std::string& filename, const AssemblerParser& par
             }
         }
 
-        if (stmt->line > 0) out << "  " << files.line(f, stmt->line);
+        // (SeqExtract's work: what was emitted, as the source line no longer says)
+        bool seqCall = stmt->type == AssemblerParser::Statement::INSTRUCTION && stmt->instr.mnemonic == "bsr" &&
+                       stmt->instr.operand.compare(0, 7, "__seqx_") == 0;
+        if (stmt->seqRoutine && stmt->instr.mnemonic == "rts") out << "          rts";
+        else if (stmt->line > 0) out << "  " << files.line(f, stmt->line);
+        if (seqCall) out << "    ; bsr " << stmt->instr.operand << ": this instruction and the 3 after it (SeqExtract)";
         out << "\n";
 
         // Extra bytes

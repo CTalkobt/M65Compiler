@@ -128,16 +128,94 @@ bool AssemblerOptimizer::optimizeInternal(
 
     // The statements between .noopt_start and .noopt_end (cc45's #pragma cc45
     // optimize(off)): no pass changes, removes or moves them
+    // (and those between .opt NoSeqExtract and .opt SeqExtract: not
+    // extracted, #394)
     {
-        bool inNo = false;
+        bool inNo = false, noSeqx = false;
         for (auto& st : parser->statements) {
             if (st->type == AssemblerParser::Statement::DIRECTIVE) {
                 std::string d = st->dir.name;
                 std::transform(d.begin(), d.end(), d.begin(), ::tolower);
                 if (d == "noopt_start") inNo = true;
                 else if (d == "noopt_end") inNo = false;
+                else if (d == "opt" && !st->dir.arguments.empty()) {
+                    std::string a = st->dir.arguments[0];
+                    std::transform(a.begin(), a.end(), a.begin(), ::tolower);
+                    if (a == "noseqextract") noSeqx = true;
+                    else if (a == "seqextract") noSeqx = false;
+                }
             }
-            st->noOpt = inNo;
+            st->noOpt = inNo || st->selfModified;
+            st->noSeqExtract = noSeqx;
+        }
+    }
+
+    // Self-modifying code (#394): an instruction a store writes into
+    // (sta lbl+1, inc lbl+2, ... with lbl a label of the code) is not what
+    // it says when it runs. It keeps its place and bytes (no pass moves,
+    // removes or rewrites it: a BSR SeqExtract put in its place took the
+    // store, and the routine's copy was never patched) and what it loads
+    // is unknown afterwards (noOpt: see the MachineState pass)
+    {
+        auto& st = parser->statements;
+        static const std::set<std::string> writers = {
+            "sta", "stx", "sty", "stz", "stq", "inc", "dec", "asl", "lsr", "rol", "ror", "asr",
+            "tsb", "trb", "inw", "dew", "asw", "row", "incq", "decq", "aslq", "lsrq", "rolq", "rorq", "asrq",
+            "stw", "inc16", "dec16"};
+        std::map<std::string, size_t> labelAt;
+        for (size_t i = 0; i < st.size(); ++i) {
+            const std::string& l = st[i]->label;
+            if (st[i]->deleted || l.empty()) continue;
+            size_t c = l.rfind(':');
+            labelAt.emplace(l, i);
+            labelAt.emplace(st[i]->scopePrefix + (c == std::string::npos ? l : l.substr(c + 1)), i);
+        }
+        for (size_t i = 0; i < st.size(); ++i) {
+            auto* s = st[i].get();
+            if (s->deleted || (s->type != AssemblerParser::Statement::INSTRUCTION && !s->isSimulatedOp())) continue;
+            std::string m = s->instr.mnemonic;
+            std::transform(m.begin(), m.end(), m.begin(), ::tolower);
+            size_t dot = m.find('.');
+            std::string base = dot == std::string::npos ? m : m.substr(0, dot);
+            if (!writers.count(base) && !(base.size() == 4 && (base.compare(0, 3, "rmb") == 0 || base.compare(0, 3, "smb") == 0)))
+                continue;
+            // the operand: name [+|- n] [,index]
+            std::string op = s->instr.operand;
+            size_t comma = op.find(',');
+            if (comma != std::string::npos) op = op.substr(0, comma);
+            op.erase(std::remove_if(op.begin(), op.end(), [](char c) { return c == ' ' || c == '\t'; }), op.end());
+            if (op.empty() || op[0] == '#' || op[0] == '(' || op[0] == '[') continue;
+            int64_t off = 0;
+            size_t sign = op.find_first_of("+-", 1);
+            std::string name = op;
+            if (sign != std::string::npos) {
+                if (!parseNum(op.substr(sign + 1), off)) continue;
+                if (op[sign] == '-') off = -off;
+                name = op.substr(0, sign);
+            }
+            long at = -1;
+            for (const std::string& k : {s->scopePrefix + name, s->localLabelScope + ":" + name, name}) {
+                auto it = labelAt.find(k);
+                if (it != labelAt.end()) { at = (long)it->second; break; }
+            }
+            if (at < 0 || off < 0) continue;
+            const std::string& seg = st[at]->segmentName;
+            if (seg == "data" || seg == "bss" || seg == "zp") continue;
+            // the instruction holding byte lbl + off
+            int64_t acc = 0;
+            for (size_t j = (size_t)at; j < st.size(); ++j) {
+                auto* t = st[j].get();
+                if (t->deleted || t->size <= 0) continue;
+                if (t->type != AssemblerParser::Statement::INSTRUCTION && !t->isSimulatedOp()) break;
+                if (off < acc + t->size) {
+                    if (!t->selfModified) report("self-modified", t, t->instr.mnemonic + " " + t->instr.operand +
+                                          " is written by the " + s->instr.mnemonic + " " + s->instr.operand +
+                                          ": left as written");
+                    t->noOpt = t->selfModified = true;
+                    break;
+                }
+                acc += t->size;
+            }
         }
     }
 
@@ -1477,9 +1555,13 @@ bool AssemblerOptimizer::optimizeInternal(
         if (s->type == AssemblerParser::Statement::INSTRUCTION || s->isSimulatedOp()) prevInstr = s;
         else if (s->type == AssemblerParser::Statement::DIRECTIVE && !isLocDirective(s)) prevInstr = nullptr;
 
-        // Skip all optimizations for statements in no-optimize regions
-        if (inNoOptRegion) {
-            // Statement will be emitted as-is, unoptimized
+        // Skip all optimizations for statements in no-optimize regions and
+        // self-modified instructions: emitted as written, and what they do
+        // is not tracked, so nothing is known after them (the code after a
+        // .noopt_end kept what it knew before the region, #394)
+        if (inNoOptRegion || s->noOpt) {
+            ms.invalidateAll();
+            stackVarLastValue.clear();
             continue;
         }
 
@@ -2737,7 +2819,7 @@ bool AssemblerOptimizer::optimizeInternal(
             "bsr", "proc", "endproc", "map", "eom"};
         auto movable = [&](const AssemblerParser::Statement* s) {
             if (s->type != AssemblerParser::Statement::INSTRUCTION || !s->label.empty() || s->size <= 0) return false;
-            if (s->noOpt) return false;
+            if (s->noOpt || s->noSeqExtract) return false;
             // (not a routine made by an earlier iteration)
             if (s->seqRoutine) return false;
             std::string m = lower(s->instr.mnemonic);
@@ -2798,6 +2880,65 @@ bool AssemblerOptimizer::optimizeInternal(
             }
         }
 
+        // The statements in a loop, from a label to a branch or jump back to
+        // it later in the same proc, are left inline (#394: a BSR and an RTS
+        // each time round a hot loop cost far more than the bytes are worth).
+        // loopBack[k]: the branch closing the innermost loop k is in, or -1
+        std::vector<long> loopBack(st.size(), -1);
+        {
+            std::map<std::string, size_t> labelAt;
+            for (size_t i = 0; i < st.size(); ++i) {
+                const std::string& l = st[i]->label;
+                if (st[i]->deleted || l.empty()) continue;
+                size_t c = l.rfind(':');
+                labelAt.emplace(l, i);
+                labelAt.emplace(st[i]->scopePrefix + (c == std::string::npos ? l : l.substr(c + 1)), i);
+            }
+            for (size_t i = 0; i < st.size(); ++i) {
+                auto* s = st[i].get();
+                if (s->deleted || (s->type != AssemblerParser::Statement::INSTRUCTION && !s->isSimulatedOp())) continue;
+                AddressingMode md = s->instr.mode;
+                std::string m = lower(s->instr.mnemonic);
+                // (a branch's mode is not yet RELATIVE here: by its name)
+                static const std::set<std::string> branches = {
+                    "bcc", "bcs", "beq", "bne", "bmi", "bpl", "bvc", "bvs", "bra", "brl",
+                    "lbcc", "lbcs", "lbeq", "lbne", "lbmi", "lbpl", "lbvc", "lbvs", "lbra"};
+                bool branch = branches.count(m) || !s->instr.bitBranchTarget.empty() ||
+                              s->type == AssemblerParser::Statement::BRANCH16 ||
+                              (m == "jmp" && md != AddressingMode::INDIRECT && md != AddressingMode::ABSOLUTE_INDIRECT &&
+                               md != AddressingMode::ABSOLUTE_X_INDIRECT);
+                if (!branch || m == "bsr") continue;
+                std::string op = !s->instr.bitBranchTarget.empty() ? s->instr.bitBranchTarget : s->instr.operand;
+                size_t c = op.rfind(',');
+                if (c != std::string::npos) op = op.substr(c + 1);
+                op.erase(std::remove_if(op.begin(), op.end(), [](char ch) { return ch == ' ' || ch == '\t'; }), op.end());
+                long t = -1;
+                if (op.size() > 2 && op[0] == '*' && op[1] == '-') {
+                    long n = std::strtol(op.c_str() + 2, nullptr, 0), acc = 0;
+                    size_t j = i;
+                    while (j > 0 && acc < n) { --j; if (!st[j]->deleted) acc += st[j]->size; }
+                    if (acc == n) t = (long)j;
+                } else {
+                    for (const std::string& k : {s->scopePrefix + op, s->localLabelScope + ":" + op, op}) {
+                        auto it = labelAt.find(k);
+                        if (it != labelAt.end()) { t = (long)it->second; break; }
+                    }
+                }
+                if (t < 0 || (size_t)t > i) continue;
+                bool sameProc = true;
+                for (size_t k = (size_t)t; k < i && sameProc; ++k)
+                    if (!st[k]->deleted && st[k]->type == AssemblerParser::Statement::INSTRUCTION &&
+                        (st[k]->instr.mnemonic == "proc" || st[k]->instr.mnemonic == "endproc"))
+                        sameProc = false;
+                if (!sameProc) continue;
+                for (size_t k = (size_t)t; k <= i; ++k)
+                    if (loopBack[k] < 0 || loopBack[k] > (long)i) loopBack[k] = (long)i;
+            }
+        }
+        // (-Roptimizer: the loops a repeated run was left inline in)
+        std::map<std::string, std::set<long>> loopRuns;
+        std::map<std::string, int> sigCount;
+
         struct Run { std::vector<size_t> idx; };
         struct ProcRuns { size_t endproc = 0; std::map<std::string, std::vector<Run>> bySig; };
         std::vector<ProcRuns> procs;
@@ -2830,7 +2971,23 @@ bool AssemblerOptimizer::optimizeInternal(
                 bytes += t->size;
             }
             if (r.idx.size() < 4 || bytes < 8) continue;
+            sigCount[sig]++;
+            long loop = -1;
+            for (size_t k : r.idx) if (loopBack[k] >= 0) { loop = loopBack[k]; break; }
+            if (loop >= 0) { loopRuns[sig].insert(loop); continue; }
             procs.back().bySig[sig].push_back(r);
+        }
+        if (verbose) {
+            std::set<long> loops;
+            for (const auto& [sig, ls] : loopRuns)
+                if (sigCount[sig] >= 2) loops.insert(ls.begin(), ls.end());
+            for (long b : loops) {
+                auto* br = st[(size_t)b].get();
+                if (br->reportedLoopInline) continue;
+                br->reportedLoopInline = true;
+                report("seq-extract", br, "loop closed by " + br->instr.mnemonic + " " + br->instr.operand +
+                       ": repeated runs in it left inline (a BSR and RTS each time round)");
+            }
         }
         // the windows overlap: per proc, the most repeated run first takes
         // its non-overlapping occurrences, left to right

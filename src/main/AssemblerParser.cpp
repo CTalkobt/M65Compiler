@@ -1472,6 +1472,17 @@ void AssemblerParser::pass1() {
                     if (!stmt->dir.arguments.empty() && cpuByName(stmt->dir.arguments[0], is6502))
                         cpu6502 = is6502;
                 }
+                else if (stmt->dir.name == "opt") {
+                    // .opt NoSeqExtract / .opt SeqExtract: the region between
+                    // keeps its repeated runs inline (#394)
+                    stmt->size = 0;
+                    std::string a = stmt->dir.arguments.empty() ? std::string() : stmt->dir.arguments[0];
+                    std::transform(a.begin(), a.end(), a.begin(), ::tolower);
+                    if (stmt->dir.arguments.size() != 1 || (a != "seqextract" && a != "noseqextract"))
+                        addWarning(formatDiagnostic(stmtFile(*stmt), stmt->line, 1, Severity::Warning,
+                            ".opt takes SeqExtract or NoSeqExtract (the only pass switched per region; "
+                            "-P<Name> / -PNo<Name> for the whole file, .noopt_start / .noopt_end for every pass)"));
+                }
                 else stmt->size = calculateDirectiveSize(stmt->dir, pc, stmt.get());
             }
         }
@@ -2497,7 +2508,7 @@ void AssemblerParser::warnUnknownDirective(const AssemblerToken& tok) {
         "align", "array", "array_dims", "ascii", "assert", "balign", "basicUpstart", "bpindex", "bptop", "bss", "byte", "cleanup", "code", "const",
         "cpu", "data", "dword", "endrepeat", "extern", "field_class", "field_count", "fill", "fillto",
         "fixed_prefix_size", "flag_clobbers", "float", "frame_size", "zar", "frameptr_zp", "func_flags", "function_sections",
-        "keep", "nosplit", "overlay", "ref", "split",
+        "keep", "nosplit", "opt", "overlay", "ref", "split",
         "dbg_type", "dbg_var", "global", "import", "incbin", "init", "loc", "local", "long", "noopt_start", "noopt_end", "org",
         "param_const", "param_sizes", "reg_clobbers", "repeat", "res", "sac", "screencode", "segment",
         "segmentOrder", "space", "text", "var", "var_field_array", "vtable_entry", "weak", "word", "zp", "zp_clobbers", "zpsym",
