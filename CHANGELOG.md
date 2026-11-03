@@ -40,6 +40,10 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   stands again as the addresses settle (`* - 1` its own address - 1) and
   holds from there on. Found assembling Commodore's C64 ROM source (#144),
   which now assembles to the ROMs' bytes. The library is unchanged.
+- QuadMove (`lda`/`ldx`/`ldy`/`ldz` of four bytes → `ldq`) ignored
+  `.noopt_start` / `.noopt_end`.
+- A forward branch of exactly +127 was kept 16-bit (sized long at first, its
+  target measured a byte further while it was); with `--cpu 6502` an error.
 - `--cpu 6502` refused `sty zp,x` and `stx zp,y` (it checked their absolute
   forms, which only the 45GS02 has).
 - `cbm_acptr()` / `cbm_k_acptr()` (`KERNAL_ACPTR`) called `$FF13`, where the

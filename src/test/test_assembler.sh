@@ -1384,6 +1384,40 @@ else
     failed=$((failed + 1))
 fi
 
+# A forward branch of +127 stays 8-bit (it was kept 16-bit, measured while
+# long: with --cpu 6502 an error); +128 is 16-bit on the 45GS02
+C=build/test/br127
+mkdir -p $C
+python3 - $C <<'PYEOF'
+import sys
+d = sys.argv[1]
+open(d + "/b.s", "w").write("        * = $2000\n        bvs far\n" + "        inx\n" * 127 + "far:    rts\n")
+open(d + "/g.s", "w").write("        * = $2000\n        bra far\n" + "        inx\n" * 128 + "far:    rts\n")
+PYEOF
+$AS --cpu 6502 -O0 -o $C/b.bin $C/b.s >/dev/null 2>&1
+$AS -O0 -o $C/g.bin $C/g.s >/dev/null 2>&1
+if [ "$(head -c 2 $C/b.bin | xxd -p)" = "707f" ] && [ "$(head -c 3 $C/g.bin | xxd -p)" = "838100" ]; then
+    echo "SUCCESS: a +127 branch stays 8-bit, +128 is 16-bit"
+    passed=$((passed + 1))
+else
+    echo "FAIL: branch at +127: $(head -c 2 $C/b.bin 2>/dev/null | xxd -p) +128: $(head -c 3 $C/g.bin | xxd -p)"
+    failed=$((failed + 1))
+fi
+
+# QuadMove leaves .noopt code as written (lda/ldx/ldy/ldz of 4 bytes there
+# became ldq)
+C=build/test/qmnoopt
+mkdir -p $C
+printf '        * = $2000\n        .noopt_start\n        lda $30fc\n        ldx $30fd\n        ldy $30fe\n        ldz $30ff\n        .noopt_end\n        rts\n' > $C/q.s
+$AS -O2 -o $C/q.bin $C/q.s >/dev/null 2>&1
+if [ "$(xxd -p $C/q.bin)" = "adfc30aefd30acfe30abff3060" ]; then
+    echo "SUCCESS: QuadMove leaves .noopt code as written"
+    passed=$((passed + 1))
+else
+    echo "FAIL: QuadMove in .noopt: $(xxd -p $C/q.bin)"
+    failed=$((failed + 1))
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All assembler feature tests passed!"
     exit 0

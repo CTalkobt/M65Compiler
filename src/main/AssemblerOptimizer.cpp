@@ -3135,7 +3135,7 @@ bool AssemblerOptimizer::optimizeInternal(
         static const char* loads[4] = {"lda", "ldx", "ldy", "ldz"};
         for (size_t i = 0; i < st.size(); ++i) {
             auto* s0 = st[i].get();
-            if (s0->deleted || s0->type != AssemblerParser::Statement::INSTRUCTION) continue;
+            if (s0->deleted || s0->noOpt || s0->type != AssemblerParser::Statement::INSTRUCTION) continue;
             std::string m0 = s0->instr.mnemonic;
             std::transform(m0.begin(), m0.end(), m0.begin(), ::tolower);
             const char** set = m0 == "sta" ? stores : m0 == "lda" ? loads : nullptr;
@@ -3162,6 +3162,7 @@ bool AssemblerOptimizer::optimizeInternal(
                 if (!ok && sk->type == AssemblerParser::Statement::INSTRUCTION && sk->label.empty() && mk == set[k] &&
                     sk->instr.mode == mode && b0.empty() && parseNum(sk->instr.operand, o) && o == o0 + k)
                     ok = true;
+                if (sk->noOpt) ok = false;   // (.noopt: left as written)
                 idx[k] = j;
             }
             if (!ok) continue;
