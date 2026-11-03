@@ -16,9 +16,10 @@
 
 // A .loc line (source line info, no label): the passes look past it, so a
 // file assembles to the same code with or without line info
+// line info, or an equate (NAME = expr): no code, nothing the code does
 static bool isLocDirective(const AssemblerParser::Statement* s) {
     if (s->type != AssemblerParser::Statement::DIRECTIVE || !s->label.empty()) return false;
-    return s->dir.name == "loc" || s->dir.name == "LOC";
+    return s->dir.name == "loc" || s->dir.name == "LOC" || s->dir.name == "equ";
 }
 
 bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose, bool traceMachState) {
@@ -2375,7 +2376,7 @@ bool AssemblerOptimizer::optimizeInternal(
             "lbcc", "lbcs", "lbeq", "lbne", "lbmi", "lbpl", "lbvc", "lbvs"};
         static const std::set<std::string> quietDirs = {
             "loc", "global", "extern", "weak", "func_flags", "flag_clobbers", "reg_clobbers", "frame_size",
-            "zp_uses", "zp_clobbers", "keep", "var", "bpindex", "bptop", "ref"};
+            "zp_uses", "zp_clobbers", "keep", "var", "bpindex", "bptop", "ref", "equ"};
         auto& st = parser->statements;
         const size_t n = st.size();
         std::map<std::string, size_t> labelAt;

@@ -1358,6 +1358,32 @@ else
     failed=$((failed + 1))
 fi
 
+# Equates follow the labels they name: lbl - 1 after forward branches (sized
+# 16-bit at first) is the final lbl - 1, a redefined name holds from where it
+# stands, *-1 defined after its use is its own address - 1; --cpu 6502 takes
+# sty zp,x / stx zp,y (an absolute address there is refused: the 6502 has none)
+C=build/test/equ
+mkdir -p $C
+printf '        * = $2000\n        bne fwd\n        bne fwd\nlbl:    rts\nzz = lbl-1\n        lda #<zz\nfwd:    rts\n' > $C/fwd.s
+printf '        * = $2000\nV = 1\n        lda #V\nV = 2\n        lda #V\n        rts\n' > $C/redef.s
+printf '        * = $2000\n        lda #<here\n        nop\n        nop\nhere = *-1\n        rts\n' > $C/star.s
+printf '        * = $2000\n        sty $d9,x\n        stx $d9,y\n        rts\n' > $C/zp.s
+printf '        * = $2000\n        sty $1234,x\n' > $C/abs.s
+$AS -O0 -o $C/fwd.bin $C/fwd.s >/dev/null 2>&1
+$AS -O0 -o $C/redef.bin $C/redef.s >/dev/null 2>&1
+$AS --cpu 6502 -O0 -o $C/star.bin $C/star.s >/dev/null 2>&1
+$AS --cpu 6502 -O0 -o $C/zp.bin $C/zp.s >/dev/null 2>&1
+ABS=$($AS --cpu 6502 -O0 -o $C/abs.bin $C/abs.s 2>&1)
+if [ "$(xxd -p $C/fwd.bin)" = "d005d00360a90360" ] && [ "$(xxd -p $C/redef.bin)" = "a901a90260" ] &&
+   [ "$(xxd -p $C/star.bin)" = "a903eaea60" ] && [ "$(xxd -p $C/zp.bin)" = "94d996d960" ] &&
+   echo "$ABS" | grep -q "the 6502 has no 'sty' with this addressing mode"; then
+    echo "SUCCESS: equates follow labels and redefinitions; --cpu 6502 sty zp,x / stx zp,y"
+    passed=$((passed + 1))
+else
+    echo "FAIL: equates: fwd $(xxd -p $C/fwd.bin) redef $(xxd -p $C/redef.bin) star $(xxd -p $C/star.bin) zp $(xxd -p $C/zp.bin) abs: $ABS"
+    failed=$((failed + 1))
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All assembler feature tests passed!"
     exit 0

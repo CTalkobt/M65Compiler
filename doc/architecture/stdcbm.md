@@ -136,7 +136,7 @@ void print_at(char col, char row, char *msg) {
 | `cbm_second` | `void cbm_second(char sa)` | Send secondary address after LISTEN (KERNAL `$FF93`) |
 | `cbm_tksa` | `void cbm_tksa(char sa)` | Send secondary address after TALK (KERNAL `$FF96`) |
 | `cbm_ciout` | `void cbm_ciout(char data)` | Send a byte on the serial bus (KERNAL `$FFA8`) |
-| `cbm_acptr` | `int cbm_acptr(void)` | Get a byte from the serial bus (KERNAL `$FF13`) |
+| `cbm_acptr` | `int cbm_acptr(void)` | Get a byte from the serial bus (KERNAL `$FFA5`) |
 
 ## cc65's `cbm_k_` Functions
 
@@ -189,7 +189,7 @@ All addresses are available as `#define` constants with the `KERNAL_` prefix:
 
 | Constant | Address | Description |
 |----------|---------|-------------|
-| `KERNAL_ACPTR` | `$FF13` | Get byte from serial bus |
+| `KERNAL_ACPTR` | `$FFA5` | Get byte from serial bus |
 | `KERNAL_CHKIN` | `$FFC6` | Open channel for input |
 | `KERNAL_CHKOUT` | `$FFC9` | Open channel for output |
 | `KERNAL_CHRIN` | `$FFCF` | Get character from input channel |

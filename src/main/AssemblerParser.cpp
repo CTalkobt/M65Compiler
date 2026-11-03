@@ -791,6 +791,17 @@ void AssemblerParser::pass1() {
                 errors.push_back("Error: Redefinition of constant symbol '" + fullSymName + "'");
             }
             symbolTable[fullSymName] = {val, false, 2, false, false, val, false, 0, false, 0, ""};
+            // kept as a statement (an internal .equ): pass 2 and the generator
+            // evaluate it again where it stands, so it follows the labels it
+            // names as their addresses settle (lbl - 1 kept lbl's first-pass
+            // address) and a redefinition holds from its place on
+            stmt->type = Statement::DIRECTIVE;
+            stmt->dir.name = "equ";
+            stmt->dir.varName = fullSymName;
+            stmt->dir.varType = Directive::ASSIGN;
+            stmt->dir.tokenIndex = (int)pos;
+            stmt->size = 0;
+            statements.push_back(std::move(stmt));
             while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
             continue;
         }
@@ -2812,6 +2823,18 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
             pc = cP; s->address = cP;
             // Restore auto-scope for @ label resolution from per-statement data
             currentLocalScope_ = s->localLabelScope;
+            // NAME = expr: evaluated again here (* its address), so it follows
+            // the labels it names as they settle
+            if (s->type == Statement::DIRECTIVE && s->dir.name == "equ") {
+                try {
+                    uint32_t newVal = evaluateExpressionAt(s->dir.tokenIndex, s->scopePrefix);
+                    if (symbolTable[s->dir.varName].value != newVal) {
+                        symbolTable[s->dir.varName].value = newVal;
+                        symbolTable[s->dir.varName].initialValue = newVal;
+                        addressRecalculationMadeChanges = true;
+                    }
+                } catch (...) {}
+            }
             if (!s->label.empty()) {
                 isDeadCode = false;
                 afterReturn = false;
@@ -3004,7 +3027,17 @@ std::vector<std::string> AssemblerParser::check6502() {
             if (a == AddressingMode::BASE_PAGE_Y) return AddressingMode::ABSOLUTE_Y;
             return a;
         };
-        if (AssemblerOpcodeDatabase::isOn6502(mn, m) || AssemblerOpcodeDatabase::isOn6502(mn, absOf(m))) continue;
+        // (an absolute operand assembled in 2 bytes is the base-page form:
+        // sty $d9,x / stx $d9,y, whose absolute forms the 6502 has not)
+        auto bpOf = [](AddressingMode a) {
+            if (a == AddressingMode::ABSOLUTE) return AddressingMode::BASE_PAGE;
+            if (a == AddressingMode::ABSOLUTE_X) return AddressingMode::BASE_PAGE_X;
+            if (a == AddressingMode::ABSOLUTE_Y) return AddressingMode::BASE_PAGE_Y;
+            return a;
+        };
+        if (AssemblerOpcodeDatabase::isOn6502(mn, m) || AssemblerOpcodeDatabase::isOn6502(mn, absOf(m)) ||
+            (st.size == 2 && AssemblerOpcodeDatabase::isOn6502(mn, bpOf(m))))
+            continue;
         bool known = false;
         for (AddressingMode a : {AddressingMode::IMPLIED, AddressingMode::IMMEDIATE, AddressingMode::ABSOLUTE,
                                  AddressingMode::RELATIVE, AddressingMode::BASE_PAGE})
