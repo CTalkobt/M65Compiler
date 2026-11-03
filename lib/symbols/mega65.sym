@@ -1,0 +1,471 @@
+# objdump45 symbols (-S mega65): MEGA65: the KERNAL jump table and the I/O registers of <mega65.h>
+# made by tools/symbols/gen_symbols.py; $addr NAME comment
+$D000 VIC4_SPRITE0_X X position (low 8 bits)
+$D001 VIC4_SPRITE0_Y Y position
+$D002 VIC4_SPRITE1_X X position (low 8 bits)
+$D003 VIC4_SPRITE1_Y Y position
+$D004 VIC4_SPRITE2_X X position (low 8 bits)
+$D005 VIC4_SPRITE2_Y Y position
+$D006 VIC4_SPRITE3_X X position (low 8 bits)
+$D007 VIC4_SPRITE3_Y Y position
+$D008 VIC4_SPRITE4_X X position (low 8 bits)
+$D009 VIC4_SPRITE4_Y Y position
+$D00A VIC4_SPRITE5_X X position (low 8 bits)
+$D00B VIC4_SPRITE5_Y Y position
+$D00C VIC4_SPRITE6_X X position (low 8 bits)
+$D00D VIC4_SPRITE6_Y Y position
+$D00E VIC4_SPRITE7_X X position (low 8 bits)
+$D00F VIC4_SPRITE7_Y Y position
+$D010 VIC4_SPRITE_X_MSB sprite X position bit 8
+$D011 VIC4_CTRL1 RST8|ECM|BMM|DEN|RSEL|YSCROLL
+$D012 VIC4_RASTER raster counter (low 8 bits)
+$D013 VIC4_LIGHTPEN_X light pen X
+$D014 VIC4_LIGHTPEN_Y light pen Y
+$D015 VIC4_SPRITE_ENABLE sprite enable bits
+$D016 VIC4_CTRL2 RES|MCM|CSEL|XSCROLL
+$D017 VIC4_SPRITE_Y_EXPAND sprite Y expansion
+$D018 VIC4_MEMPTR screen/char memory pointers
+$D019 VIC4_IRQ_STATUS interrupt status (write to ack)
+$D01A VIC4_IRQ_ENABLE interrupt enable mask
+$D01B VIC4_SPRITE_PRIORITY sprite-to-bg priority
+$D01C VIC4_SPRITE_MULTICOLOR sprite multicolor enable
+$D01D VIC4_SPRITE_X_EXPAND sprite X expansion
+$D01E VIC4_SPRITE_COLL sprite-sprite collision (read clears)
+$D01F VIC4_SPRITE_BG_COLL sprite-bg collision (read clears)
+$D020 VIC4_BORDER border colour
+$D021 VIC4_BG0 background colour 0
+$D022 VIC4_BG1 background colour 1
+$D023 VIC4_BG2 background colour 2
+$D024 VIC4_BG3 background colour 3
+$D025 VIC4_SPRITE_MCOL0 sprite multicolour 0
+$D026 VIC4_SPRITE_MCOL1 sprite multicolour 1
+$D027 VIC4_SPRITE_COLOR0 sprite colours 0-7
+$D028 VIC4_SPRITE_COLOR1 sprite colours 0-7
+$D029 VIC4_SPRITE_COLOR2 sprite colours 0-7
+$D02A VIC4_SPRITE_COLOR3 sprite colours 0-7
+$D02B VIC4_SPRITE_COLOR4 sprite colours 0-7
+$D02C VIC4_SPRITE_COLOR5 sprite colours 0-7
+$D02D VIC4_SPRITE_COLOR6 sprite colours 0-7
+$D02E VIC4_SPRITE_COLOR7 sprite colours 0-7
+$D02F VIC4_KEY VIC-III key (write $A5 then $96)
+$D030 VIC4_CTRL_A VIC-III control A
+$D031 VIC4_CTRL_B VIC-III/IV control B
+$D032 VIC4_BITPLANE_ENABLE bitplane enable
+$D033 VIC4_BITPLANE_ADDR0 bitplane 0-7 addresses
+$D034 VIC4_BITPLANE_ADDR1 bitplane 0-7 addresses
+$D035 VIC4_BITPLANE_ADDR2 bitplane 0-7 addresses
+$D036 VIC4_BITPLANE_ADDR3 bitplane 0-7 addresses
+$D037 VIC4_BITPLANE_ADDR4 bitplane 0-7 addresses
+$D038 VIC4_BITPLANE_ADDR5 bitplane 0-7 addresses
+$D039 VIC4_BITPLANE_ADDR6 bitplane 0-7 addresses
+$D03A VIC4_BITPLANE_ADDR7 bitplane 0-7 addresses
+$D03B VIC4_BITPLANE_COMP bitplane companion bits
+$D03C VIC4_BITPLANE_X bitplane X offset
+$D03D VIC4_BITPLANE_Y bitplane Y offset
+$D03E VIC4_BITPLANES_X_START bitplanes X start screen offset
+$D03F VIC4_BITPLANES_Y_START bitplanes Y start screen offset
+$D040 VIC4_C65_DAC0 Unimplemented C65 DACs (read $FF)
+$D041 VIC4_C65_DAC1 Unimplemented C65 DACs (read $FF)
+$D042 VIC4_C65_DAC2 Unimplemented C65 DACs (read $FF)
+$D043 VIC4_C65_DAC3 Unimplemented C65 DACs (read $FF)
+$D044 VIC4_C65_DAC4 Unimplemented C65 DACs (read $FF)
+$D045 VIC4_C65_DAC5 Unimplemented C65 DACs (read $FF)
+$D046 VIC4_C65_DAC6 Unimplemented C65 DACs (read $FF)
+$D047 VIC4_C65_DAC7 Unimplemented C65 DACs (read $FF)
+$D048 VIC4_BORDER_Y_TOP_LO top border position LSB
+$D049 VIC4_BORDER_Y_TOP_HI top border MSB & sprite bitplane enables
+$D04A VIC4_BORDER_Y_BOT_LO bottom border position LSB
+$D04B VIC4_BORDER_Y_BOT_HI bottom border MSB & sprite bitplane enables
+$D04C VIC4_X_CHARGEN_LO char generator X offset LSB
+$D04D VIC4_X_CHARGEN_HI char generator X offset MSB & sprite tile enables
+$D04E VIC4_Y_CHARGEN_LO char generator Y offset LSB
+$D04F VIC4_Y_CHARGEN_HI char generator Y offset MSB & sprite tile enables
+$D050 VIC4_XPOS_LO physical scanline X position LSB (read)
+$D051 VIC4_XPOS_HI physical scanline X MSB & double raster flags
+$D052 VIC4_YPOS_LO physical scanline Y position LSB (read)
+$D053 VIC4_YPOS_HI physical scanline Y MSB & upscaler/bold flags
+$D054 VIC4_CTRL_C VIC-IV mode control C
+$D055 VIC4_SPRITE_EXTHEIGHT_EN sprite extended height enables
+$D056 VIC4_SPRITE_EXTHEIGHT_SZ sprite extended height size
+$D057 VIC4_SPRITE_EXTWIDTH_EN sprite extended width enables
+$D058 VIC4_VIRTUAL_ROW_WIDTH_LO memory row width/step LSB
+$D059 VIC4_VIRTUAL_ROW_WIDTH_HI memory row width/step MSB
+$D05A VIC4_CHARGEN_X_SCALE character generator X scale factor
+$D05B VIC4_CHARGEN_Y_SCALE character generator Y scale factor
+$D05C VIC4_SIDE_BORDER_LO left side border position LSB
+$D05D VIC4_SIDE_BORDER_HI left side border MSB & hot regs enable
+$D05E VIC4_DISPLAY_ROW_WIDTH_LO active display row width LSB
+$D05F VIC4_SPRITE_H640_MSBS sprite H640 position MSBs
+$D060 VIC4_SCREEN_RAM_BASE_LO screen RAM base bits 0-7
+$D061 VIC4_SCREEN_RAM_BASE_MID screen RAM base bits 8-15
+$D062 VIC4_SCREEN_RAM_BASE_HI screen RAM base bits 16-23
+$D063 VIC4_SCREEN_RAM_BASE_BANK screen RAM bank, row width MSB & FCM_MCM
+$D064 VIC4_COLOUR_RAM_BASE_LO colour RAM base bits 0-7
+$D065 VIC4_COLOUR_RAM_BASE_HI colour RAM base bits 8-15
+$D066 VIC4_XCOUNTER_DELAY xcounter pipeline delay / test pattern
+$D067 VIC4_SPRITE_FIRST_X sprite start X coordinate LSB
+$D068 VIC4_CHARSET_BASE_LO character generator base bits 0-7
+$D069 VIC4_CHARSET_BASE_MID character generator base bits 8-15
+$D06A VIC4_CHARSET_BASE_HI character generator base bits 16-23
+$D06B VIC4_SPRITE_16COL_EN sprite 16-colour mode enables
+$D06C VIC4_SPRITE_PTR_LO sprite pointer base bits 0-7
+$D06D VIC4_SPRITE_PTR_MID sprite pointer base bits 8-15
+$D06E VIC4_SPRITE_PTR_HI sprite pointer base bits 16-23
+$D06F VIC4_FIRST_RASTER_VGA60 first raster line & VGA60/NTSC select
+$D070 VIC4_PALETTE_SEL palette bank select routing
+$D071 VIC4_BITPLANE_16COL_EN bitplane 16-colour mode flags
+$D072 VIC4_SPRITE_Y_ADJUST sprite Y adjust offset
+$D073 VIC4_ALPHA_DELAY_SCALE alpha delay (0-3) & ycounter scale (4-7)
+$D074 VIC4_SPRITE_ALPHA_BLEND sprite alpha blend enables
+$D075 VIC4_SPRITE_ALPHA_VAL sprite alpha blend global value
+$D076 VIC4_SPRITE_V400_EN sprite V400 enables
+$D077 VIC4_SPRITE_V400_Y_MSB sprite V400 Y position MSBs
+$D078 VIC4_SPRITE_V400_Y_SMSB sprite V400 Y position super MSBs
+$D079 VIC4_RASTER_COMPARE_LO raster compare LSB
+$D07A VIC4_RASTER_COMPARE_HI raster compare MSB & source select
+$D07B VIC4_DISPLAY_ROW_COUNT number of text rows to display
+$D07C VIC4_BITPLANE_BANK bitplane bank select & HSYNC/VSYNC polarity
+$D07D VIC4_DEBUG_X_LO debug X position LSB
+$D07E VIC4_DEBUG_Y_LO debug Y position LSB
+$D07F VIC4_DEBUG_HI debug X/Y MSB & out-of-frame
+$D080 FDC_CONTROL FDC control / status
+$D081 FDC_COMMAND FDC command register
+$D082 FDC_STAT2 FDC status 2
+$D083 FDC_SWAP FDC swap (side/density)
+$D084 FDC_TRACK current track
+$D085 FDC_SECTOR current sector
+$D086 FDC_SIDE current side
+$D087 FDC_DATA data register
+$D088 FDC_CLOCK clock divider
+$D089 FDC_STEP step rate
+$D08A FDC__RESERVED0 $D08A-$D08F
+$D08B FDC__RESERVED1 $D08A-$D08F
+$D08C FDC__RESERVED2 $D08A-$D08F
+$D08D FDC__RESERVED3 $D08A-$D08F
+$D08E FDC__RESERVED4 $D08A-$D08F
+$D08F FDC__RESERVED5 $D08A-$D08F
+$D400 SID1_VOICE0_FREQ_LO frequency low
+$D401 SID1_VOICE0_FREQ_HI frequency high
+$D402 SID1_VOICE0_PW_LO pulse width low
+$D403 SID1_VOICE0_PW_HI pulse width high (bits 3:0)
+$D404 SID1_VOICE0_CTRL waveform/gate control
+$D405 SID1_VOICE0_ATTACK_DECAY attack (hi nybble) / decay (lo nybble)
+$D406 SID1_VOICE0_SUSTAIN_RELEASE sustain (hi nybble) / release (lo nybble)
+$D407 SID1_VOICE1_FREQ_LO frequency low
+$D408 SID1_VOICE1_FREQ_HI frequency high
+$D409 SID1_VOICE1_PW_LO pulse width low
+$D40A SID1_VOICE1_PW_HI pulse width high (bits 3:0)
+$D40B SID1_VOICE1_CTRL waveform/gate control
+$D40C SID1_VOICE1_ATTACK_DECAY attack (hi nybble) / decay (lo nybble)
+$D40D SID1_VOICE1_SUSTAIN_RELEASE sustain (hi nybble) / release (lo nybble)
+$D40E SID1_VOICE2_FREQ_LO frequency low
+$D40F SID1_VOICE2_FREQ_HI frequency high
+$D410 SID1_VOICE2_PW_LO pulse width low
+$D411 SID1_VOICE2_PW_HI pulse width high (bits 3:0)
+$D412 SID1_VOICE2_CTRL waveform/gate control
+$D413 SID1_VOICE2_ATTACK_DECAY attack (hi nybble) / decay (lo nybble)
+$D414 SID1_VOICE2_SUSTAIN_RELEASE sustain (hi nybble) / release (lo nybble)
+$D415 SID1_FILTER_LO filter cutoff low (bits 2:0)
+$D416 SID1_FILTER_HI filter cutoff high
+$D417 SID1_FILTER_CTRL filter routing / resonance
+$D418 SID1_VOLUME volume / filter mode
+$D419 SID1_POT_X paddle X (read only)
+$D41A SID1_POT_Y paddle Y (read only)
+$D41B SID1_OSC3 oscillator 3 output (read only)
+$D41C SID1_ENV3 envelope 3 output (read only)
+$D420 SID2_VOICE0_FREQ_LO frequency low
+$D421 SID2_VOICE0_FREQ_HI frequency high
+$D422 SID2_VOICE0_PW_LO pulse width low
+$D423 SID2_VOICE0_PW_HI pulse width high (bits 3:0)
+$D424 SID2_VOICE0_CTRL waveform/gate control
+$D425 SID2_VOICE0_ATTACK_DECAY attack (hi nybble) / decay (lo nybble)
+$D426 SID2_VOICE0_SUSTAIN_RELEASE sustain (hi nybble) / release (lo nybble)
+$D427 SID2_VOICE1_FREQ_LO frequency low
+$D428 SID2_VOICE1_FREQ_HI frequency high
+$D429 SID2_VOICE1_PW_LO pulse width low
+$D42A SID2_VOICE1_PW_HI pulse width high (bits 3:0)
+$D42B SID2_VOICE1_CTRL waveform/gate control
+$D42C SID2_VOICE1_ATTACK_DECAY attack (hi nybble) / decay (lo nybble)
+$D42D SID2_VOICE1_SUSTAIN_RELEASE sustain (hi nybble) / release (lo nybble)
+$D42E SID2_VOICE2_FREQ_LO frequency low
+$D42F SID2_VOICE2_FREQ_HI frequency high
+$D430 SID2_VOICE2_PW_LO pulse width low
+$D431 SID2_VOICE2_PW_HI pulse width high (bits 3:0)
+$D432 SID2_VOICE2_CTRL waveform/gate control
+$D433 SID2_VOICE2_ATTACK_DECAY attack (hi nybble) / decay (lo nybble)
+$D434 SID2_VOICE2_SUSTAIN_RELEASE sustain (hi nybble) / release (lo nybble)
+$D435 SID2_FILTER_LO filter cutoff low (bits 2:0)
+$D436 SID2_FILTER_HI filter cutoff high
+$D437 SID2_FILTER_CTRL filter routing / resonance
+$D438 SID2_VOLUME volume / filter mode
+$D439 SID2_POT_X paddle X (read only)
+$D43A SID2_POT_Y paddle Y (read only)
+$D43B SID2_OSC3 oscillator 3 output (read only)
+$D43C SID2_ENV3 envelope 3 output (read only)
+$D440 SID3_VOICE0_FREQ_LO frequency low
+$D441 SID3_VOICE0_FREQ_HI frequency high
+$D442 SID3_VOICE0_PW_LO pulse width low
+$D443 SID3_VOICE0_PW_HI pulse width high (bits 3:0)
+$D444 SID3_VOICE0_CTRL waveform/gate control
+$D445 SID3_VOICE0_ATTACK_DECAY attack (hi nybble) / decay (lo nybble)
+$D446 SID3_VOICE0_SUSTAIN_RELEASE sustain (hi nybble) / release (lo nybble)
+$D447 SID3_VOICE1_FREQ_LO frequency low
+$D448 SID3_VOICE1_FREQ_HI frequency high
+$D449 SID3_VOICE1_PW_LO pulse width low
+$D44A SID3_VOICE1_PW_HI pulse width high (bits 3:0)
+$D44B SID3_VOICE1_CTRL waveform/gate control
+$D44C SID3_VOICE1_ATTACK_DECAY attack (hi nybble) / decay (lo nybble)
+$D44D SID3_VOICE1_SUSTAIN_RELEASE sustain (hi nybble) / release (lo nybble)
+$D44E SID3_VOICE2_FREQ_LO frequency low
+$D44F SID3_VOICE2_FREQ_HI frequency high
+$D450 SID3_VOICE2_PW_LO pulse width low
+$D451 SID3_VOICE2_PW_HI pulse width high (bits 3:0)
+$D452 SID3_VOICE2_CTRL waveform/gate control
+$D453 SID3_VOICE2_ATTACK_DECAY attack (hi nybble) / decay (lo nybble)
+$D454 SID3_VOICE2_SUSTAIN_RELEASE sustain (hi nybble) / release (lo nybble)
+$D455 SID3_FILTER_LO filter cutoff low (bits 2:0)
+$D456 SID3_FILTER_HI filter cutoff high
+$D457 SID3_FILTER_CTRL filter routing / resonance
+$D458 SID3_VOLUME volume / filter mode
+$D459 SID3_POT_X paddle X (read only)
+$D45A SID3_POT_Y paddle Y (read only)
+$D45B SID3_OSC3 oscillator 3 output (read only)
+$D45C SID3_ENV3 envelope 3 output (read only)
+$D460 SID4_VOICE0_FREQ_LO frequency low
+$D461 SID4_VOICE0_FREQ_HI frequency high
+$D462 SID4_VOICE0_PW_LO pulse width low
+$D463 SID4_VOICE0_PW_HI pulse width high (bits 3:0)
+$D464 SID4_VOICE0_CTRL waveform/gate control
+$D465 SID4_VOICE0_ATTACK_DECAY attack (hi nybble) / decay (lo nybble)
+$D466 SID4_VOICE0_SUSTAIN_RELEASE sustain (hi nybble) / release (lo nybble)
+$D467 SID4_VOICE1_FREQ_LO frequency low
+$D468 SID4_VOICE1_FREQ_HI frequency high
+$D469 SID4_VOICE1_PW_LO pulse width low
+$D46A SID4_VOICE1_PW_HI pulse width high (bits 3:0)
+$D46B SID4_VOICE1_CTRL waveform/gate control
+$D46C SID4_VOICE1_ATTACK_DECAY attack (hi nybble) / decay (lo nybble)
+$D46D SID4_VOICE1_SUSTAIN_RELEASE sustain (hi nybble) / release (lo nybble)
+$D46E SID4_VOICE2_FREQ_LO frequency low
+$D46F SID4_VOICE2_FREQ_HI frequency high
+$D470 SID4_VOICE2_PW_LO pulse width low
+$D471 SID4_VOICE2_PW_HI pulse width high (bits 3:0)
+$D472 SID4_VOICE2_CTRL waveform/gate control
+$D473 SID4_VOICE2_ATTACK_DECAY attack (hi nybble) / decay (lo nybble)
+$D474 SID4_VOICE2_SUSTAIN_RELEASE sustain (hi nybble) / release (lo nybble)
+$D475 SID4_FILTER_LO filter cutoff low (bits 2:0)
+$D476 SID4_FILTER_HI filter cutoff high
+$D477 SID4_FILTER_CTRL filter routing / resonance
+$D478 SID4_VOLUME volume / filter mode
+$D479 SID4_POT_X paddle X (read only)
+$D47A SID4_POT_Y paddle Y (read only)
+$D47B SID4_OSC3 oscillator 3 output (read only)
+$D47C SID4_ENV3 envelope 3 output (read only)
+$D610 ASCII_KEY_QUEUE ASCII key (0=empty)
+$D611 KEY_MODIFIERS_REG Modifier key state
+$D619 PETSCII_KEY_QUEUE PETSCII key (0xFF=empty)
+$D640 HYPER_TRAP0 hypervisor trap registers
+$D641 HYPER_TRAP1 hypervisor trap registers
+$D642 HYPER_TRAP2 hypervisor trap registers
+$D643 HYPER_TRAP3 hypervisor trap registers
+$D644 HYPER_TRAP4 hypervisor trap registers
+$D645 HYPER_TRAP5 hypervisor trap registers
+$D646 HYPER_TRAP6 hypervisor trap registers
+$D647 HYPER_TRAP7 hypervisor trap registers
+$D648 HYPER_TRAP8 hypervisor trap registers
+$D649 HYPER_TRAP9 hypervisor trap registers
+$D64A HYPER_TRAP10 hypervisor trap registers
+$D64B HYPER_TRAP11 hypervisor trap registers
+$D64C HYPER_TRAP12 hypervisor trap registers
+$D64D HYPER_TRAP13 hypervisor trap registers
+$D64E HYPER_TRAP14 hypervisor trap registers
+$D64F HYPER_TRAP15 hypervisor trap registers
+$D650 HYPER_TRAP16 hypervisor trap registers
+$D651 HYPER_TRAP17 hypervisor trap registers
+$D652 HYPER_TRAP18 hypervisor trap registers
+$D653 HYPER_TRAP19 hypervisor trap registers
+$D654 HYPER_TRAP20 hypervisor trap registers
+$D655 HYPER_TRAP21 hypervisor trap registers
+$D656 HYPER_TRAP22 hypervisor trap registers
+$D657 HYPER_TRAP23 hypervisor trap registers
+$D658 HYPER_TRAP24 hypervisor trap registers
+$D659 HYPER_TRAP25 hypervisor trap registers
+$D65A HYPER_TRAP26 hypervisor trap registers
+$D65B HYPER_TRAP27 hypervisor trap registers
+$D65C HYPER_TRAP28 hypervisor trap registers
+$D65D HYPER_TRAP29 hypervisor trap registers
+$D65E HYPER_TRAP30 hypervisor trap registers
+$D65F HYPER_TRAP31 hypervisor trap registers
+$D660 HYPER_TRAP32 hypervisor trap registers
+$D661 HYPER_TRAP33 hypervisor trap registers
+$D662 HYPER_TRAP34 hypervisor trap registers
+$D663 HYPER_TRAP35 hypervisor trap registers
+$D664 HYPER_TRAP36 hypervisor trap registers
+$D665 HYPER_TRAP37 hypervisor trap registers
+$D666 HYPER_TRAP38 hypervisor trap registers
+$D667 HYPER_TRAP39 hypervisor trap registers
+$D668 HYPER_TRAP40 hypervisor trap registers
+$D669 HYPER_TRAP41 hypervisor trap registers
+$D66A HYPER_TRAP42 hypervisor trap registers
+$D66B HYPER_TRAP43 hypervisor trap registers
+$D66C HYPER_TRAP44 hypervisor trap registers
+$D66D HYPER_TRAP45 hypervisor trap registers
+$D66E HYPER_TRAP46 hypervisor trap registers
+$D66F HYPER_TRAP47 hypervisor trap registers
+$D670 HYPER_TRAP48 hypervisor trap registers
+$D671 HYPER_TRAP49 hypervisor trap registers
+$D672 HYPER_TRAP50 hypervisor trap registers
+$D673 HYPER_TRAP51 hypervisor trap registers
+$D674 HYPER_TRAP52 hypervisor trap registers
+$D675 HYPER_TRAP53 hypervisor trap registers
+$D676 HYPER_TRAP54 hypervisor trap registers
+$D677 HYPER_TRAP55 hypervisor trap registers
+$D678 HYPER_TRAP56 hypervisor trap registers
+$D679 HYPER_TRAP57 hypervisor trap registers
+$D67A HYPER_TRAP58 hypervisor trap registers
+$D67B HYPER_TRAP59 hypervisor trap registers
+$D67C HYPER_TRAP60 hypervisor trap registers
+$D67D HYPER_TRAP61 hypervisor trap registers
+$D67E HYPER_TRAP62 hypervisor trap registers
+$D67F HYPER_TRAP63 hypervisor trap registers
+$D680 SD_STATUS SD status / bus select
+$D681 SD_COMMAND SD command
+$D682 SD_ADDR0 sector address byte 0 (LSB)
+$D683 SD_ADDR1 sector address byte 1
+$D684 SD_ADDR2 sector address byte 2
+$D685 SD_ADDR3 sector address byte 3 (MSB)
+$D686 SD__RESERVED0 $D686-$D687
+$D687 SD__RESERVED1 $D686-$D687
+$D688 SD_BUF_ADDR_LO buffer address low (within SD sector buffer)
+$D689 SD_BUF_ADDR_HI buffer address high
+$D68A SD__RESERVED20 $D68A-$D68F
+$D68B SD__RESERVED21 $D68A-$D68F
+$D68C SD__RESERVED22 $D68A-$D68F
+$D68D SD__RESERVED23 $D68A-$D68F
+$D68E SD__RESERVED24 $D68A-$D68F
+$D68F SD__RESERVED25 $D68A-$D68F
+$D690 SD_RDATA read data (from sector buffer)
+$D6E0 ETH_CTRL control (bit 0=reset, 1=TX reset, 7=TX idle)
+$D6E1 ETH_IRQ_CTRL interrupt status/control & RX buffer count
+$D6E2 ETH_TXSZ_LO TX frame size LSB
+$D6E3 ETH_TXSZ_HI TX frame size MSB
+$D6E4 ETH_CMD command ($01 = trigger transmit)
+$D6E5 ETH_MODE promiscuous, CRC check, phase adjust
+$D6E6 ETH_MIIM_REG MIIM register & PHY select
+$D6E7 ETH_MIIM_VAL_LO MIIM value LSB
+$D6E8 ETH_MIIM_VAL_HI MIIM value MSB
+$D6E9 ETH_MAC0 MAC address (6 bytes)
+$D6EA ETH_MAC1 MAC address (6 bytes)
+$D6EB ETH_MAC2 MAC address (6 bytes)
+$D6EC ETH_MAC3 MAC address (6 bytes)
+$D6ED ETH_MAC4 MAC address (6 bytes)
+$D6EE ETH_MAC5 MAC address (6 bytes)
+$D6F4 AUDIO_MIX_SEL Mixer register select
+$D6F5 AUDIO_MIX_DATA Mixer register data
+$D6F8 AUDIO_DIGI_LEFT 16-bit PCM left channel
+$D6FA AUDIO_DIGI_RIGHT 16-bit PCM right channel
+$D6FC AUDIO_READBACK Audio loopback read-back
+$D700 DMA_ADDR_LSB_TRIG DMA list addr bits 0-7 (write TRIGGERS DMA)
+$D701 DMA_ADDR_MSB DMA list addr bits 8-15
+$D702 DMA_ADDR_BANK DMA list addr bank bits 16-22
+$D703 DMA_MODE DMA mode/control (bit 0 = F018B mode)
+$D704 DMA_ADDR_MB DMA list addr megabyte bits 20-27
+$D705 DMA_ETRIG enhanced trigger (flat 28-bit addr LSB)
+$D70E DMA_ADDR_LSB_NOTRIG DMA command bytes (for DMA job lists)
+$D70F MATH_BUSY
+$D768 MATH_FRAC0 fractional quotient (32-bit)
+$D769 MATH_FRAC1 fractional quotient (32-bit)
+$D76A MATH_FRAC2 fractional quotient (32-bit)
+$D76B MATH_FRAC3 fractional quotient (32-bit)
+$D76C MATH_QUOTIENT0 integer quotient (32-bit)
+$D76D MATH_QUOTIENT1 integer quotient (32-bit)
+$D76E MATH_QUOTIENT2 integer quotient (32-bit)
+$D76F MATH_QUOTIENT3 integer quotient (32-bit)
+$D770 MATH_ARG10 dividend / multiplicand (32-bit)
+$D771 MATH_ARG11 dividend / multiplicand (32-bit)
+$D772 MATH_ARG12 dividend / multiplicand (32-bit)
+$D773 MATH_ARG13 dividend / multiplicand (32-bit)
+$D774 MATH_ARG20 divisor / multiplier (32-bit)
+$D775 MATH_ARG21 divisor / multiplier (32-bit)
+$D776 MATH_ARG22 divisor / multiplier (32-bit)
+$D777 MATH_ARG23 divisor / multiplier (32-bit)
+$D778 MATH_PRODUCT0 64-bit product result
+$D779 MATH_PRODUCT1 64-bit product result
+$D77A MATH_PRODUCT2 64-bit product result
+$D77B MATH_PRODUCT3 64-bit product result
+$D77C MATH_PRODUCT4 64-bit product result
+$D77D MATH_PRODUCT5 64-bit product result
+$D77E MATH_PRODUCT6 64-bit product result
+$D77F MATH_PRODUCT7 64-bit product result
+$D7EF HW_RANDOM
+$D7FE HW_RNG_READY ===== Audio Mixer & Digital Audio ($D6F4-$D6FD) — per MEGA65 VHDL =====
+$DC00 CIA1_PRA port A data (keyboard col / joy 2)
+$DC01 CIA1_PRB port B data (keyboard row / joy 1)
+$DC02 CIA1_DDRA port A data direction
+$DC03 CIA1_DDRB port B data direction
+$DC04 CIA1_TIMER_A_LO timer A low byte
+$DC05 CIA1_TIMER_A_HI timer A high byte
+$DC06 CIA1_TIMER_B_LO timer B low byte
+$DC07 CIA1_TIMER_B_HI timer B high byte
+$DC08 CIA1_TOD_10THS TOD tenths of seconds
+$DC09 CIA1_TOD_SEC TOD seconds
+$DC0A CIA1_TOD_MIN TOD minutes
+$DC0B CIA1_TOD_HR TOD hours
+$DC0C CIA1_SDR serial data register
+$DC0D CIA1_ICR interrupt control (read: status, write: mask)
+$DC0E CIA1_CRA control register A
+$DC0F CIA1_CRB control register B
+$DD00 CIA2_PRA port A data (keyboard col / joy 2)
+$DD01 CIA2_PRB port B data (keyboard row / joy 1)
+$DD02 CIA2_DDRA port A data direction
+$DD03 CIA2_DDRB port B data direction
+$DD04 CIA2_TIMER_A_LO timer A low byte
+$DD05 CIA2_TIMER_A_HI timer A high byte
+$DD06 CIA2_TIMER_B_LO timer B low byte
+$DD07 CIA2_TIMER_B_HI timer B high byte
+$DD08 CIA2_TOD_10THS TOD tenths of seconds
+$DD09 CIA2_TOD_SEC TOD seconds
+$DD0A CIA2_TOD_MIN TOD minutes
+$DD0B CIA2_TOD_HR TOD hours
+$DD0C CIA2_SDR serial data register
+$DD0D CIA2_ICR interrupt control (read: status, write: mask)
+$DD0E CIA2_CRA control register A
+$DD0F CIA2_CRB control register B
+$FF81 CINT KERNAL jump table
+$FF84 IOINIT KERNAL jump table
+$FF87 RAMTAS KERNAL jump table
+$FF8A RESTOR KERNAL jump table
+$FF8D VECTOR KERNAL jump table
+$FF90 SETMSG KERNAL jump table
+$FF93 SECOND KERNAL jump table
+$FF96 TKSA KERNAL jump table
+$FF99 MEMTOP KERNAL jump table
+$FF9C MEMBOT KERNAL jump table
+$FF9F SCNKEY KERNAL jump table
+$FFA2 SETTMO KERNAL jump table
+$FFA5 ACPTR KERNAL jump table
+$FFA8 CIOUT KERNAL jump table
+$FFAB UNTLK KERNAL jump table
+$FFAE UNLSN KERNAL jump table
+$FFB1 LISTEN KERNAL jump table
+$FFB4 TALK KERNAL jump table
+$FFB7 READST KERNAL jump table
+$FFBA SETLFS KERNAL jump table
+$FFBD SETNAM KERNAL jump table
+$FFC0 OPEN KERNAL jump table
+$FFC3 CLOSE KERNAL jump table
+$FFC6 CHKIN KERNAL jump table
+$FFC9 CHKOUT KERNAL jump table
+$FFCC CLRCHN KERNAL jump table
+$FFCF CHRIN KERNAL jump table
+$FFD2 CHROUT KERNAL jump table
+$FFD5 LOAD KERNAL jump table
+$FFD8 SAVE KERNAL jump table
+$FFDB SETTIM KERNAL jump table
+$FFDE RDTIM KERNAL jump table
+$FFE1 STOP KERNAL jump table
+$FFE4 GETIN KERNAL jump table
+$FFE7 CLALL KERNAL jump table
+$FFEA UDTIM KERNAL jump table
+$FFED SCREEN KERNAL jump table
+$FFF0 PLOT KERNAL jump table
+$FFF3 IOBASE KERNAL jump table

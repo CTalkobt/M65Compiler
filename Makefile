@@ -746,13 +746,15 @@ coverage: coverage-build
 	@echo ""
 	@$(MAKE) coverage-report
 
-install: all lib
+install: all lib $(LIBCA45)
 	install -d $(DESTDIR)$(BINDIR)
 	install -m 755 $(CC_TARGET) $(CA_TARGET) $(NM_TARGET) $(PACK_TARGET) $(LN_TARGET) $(AR_TARGET) $(OD_TARGET) $(DISK_TARGET) $(ASMCVT45_TARGET) $(BASIC_TARGET) $(TUNE_TARGET) $(DBG45_TARGET) $(DESTDIR)$(BINDIR)
 	ln -sf cc45 $(DESTDIR)$(BINDIR)/cp45
 	install -d $(DESTDIR)$(LIBDIR)
 	install -m 644 lib/build/c45.lib lib/build/c45_zp.lib lib/build/c45_stack.lib $(DESTDIR)$(LIBDIR)
 	install -m 644 lib/build/crt0*.o45 lib/build/tuneplay.o45 $(DESTDIR)$(LIBDIR)
+	install -d $(DESTDIR)$(LIBDIR)/symbols
+	install -m 644 lib/symbols/*.sym $(DESTDIR)$(LIBDIR)/symbols
 	install -d $(DESTDIR)$(INCDIR) $(DESTDIR)$(INCDIR)/sys $(DESTDIR)$(INCDIR)/tgi
 	install -m 644 lib/include/*.h $(DESTDIR)$(INCDIR)
 	install -m 644 lib/include/sys/*.h $(DESTDIR)$(INCDIR)/sys

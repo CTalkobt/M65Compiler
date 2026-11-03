@@ -28,7 +28,8 @@ else
 fi
 
 for f in bin/cc45 bin/cp45 bin/ln45 bin/ca45 include/cc45/stdio.h include/cc45/sys/types.h \
-         lib/cc45/c45.lib lib/cc45/c45_stack.lib lib/cc45/crt0.o45 lib/cc45/crt0_zp.o45; do
+         lib/cc45/c45.lib lib/cc45/c45_stack.lib lib/cc45/crt0.o45 lib/cc45/crt0_zp.o45 \
+         lib/cc45/symbols/c64.sym lib/cc45/symbols/mega65.sym; do
     if [ -e "$PREFIX/$f" ]; then pass "installed $f"; else fail "missing $f"; fi
 done
 
@@ -82,6 +83,14 @@ mv "$PREFIX/lib/cc45/c45_stack.lib" "$WORK/c45_stack.lib"
 if build zp3; then pass "ZP build links c45.lib"; else fail "ZP build without c45_stack.lib: $(head -3 zp3.log)"; fi
 if build stack3 -fno-zpcall; then fail "-fno-zpcall linked without c45_stack.lib"; else pass "-fno-zpcall needs c45_stack.lib"; fi
 mv "$WORK/c45_stack.lib" "$PREFIX/lib/cc45/c45_stack.lib"
+
+# The installed objdump45 finds its symbol sets (lib/cc45/symbols, #144)
+printf '\x00\x20\x20\xd2\xff\x60' > sym.prg
+if "$PREFIX/bin/objdump45" -d sym.prg 2>&1 | grep -q "jsr	CHROUT"; then
+    pass "the installed objdump45 names jsr CHROUT"
+else
+    fail "installed objdump45 -S: $("$PREFIX/bin/objdump45" -d sym.prg 2>&1 | tail -2)"
+fi
 
 # libca45 (#117): a C++ program built against only the installed header and
 # archive (-I PREFIX/include, PREFIX/lib/libca45.a) assembles a 45GS02 line
