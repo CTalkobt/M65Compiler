@@ -1404,6 +1404,20 @@ else
     failed=$((failed + 1))
 fi
 
+# QuadMove leaves .noopt code as written (lda/ldx/ldy/ldz of 4 bytes there
+# became ldq)
+C=build/test/qmnoopt
+mkdir -p $C
+printf '        * = $2000\n        .noopt_start\n        lda $30fc\n        ldx $30fd\n        ldy $30fe\n        ldz $30ff\n        .noopt_end\n        rts\n' > $C/q.s
+$AS -O2 -o $C/q.bin $C/q.s >/dev/null 2>&1
+if [ "$(xxd -p $C/q.bin)" = "adfc30aefd30acfe30abff3060" ]; then
+    echo "SUCCESS: QuadMove leaves .noopt code as written"
+    passed=$((passed + 1))
+else
+    echo "FAIL: QuadMove in .noopt: $(xxd -p $C/q.bin)"
+    failed=$((failed + 1))
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All assembler feature tests passed!"
     exit 0
