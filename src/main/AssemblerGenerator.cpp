@@ -601,7 +601,12 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                 if (stmt->size > 0) isDeadCode = false;
                 // .var / .local: each assignment holds from its position on
                 // (in dead code too, as pass 2 tracks them)
-                if (stmt->dir.name == "var") {
+                if (stmt->dir.name == "equ") {   // (NAME = expr: from its place on)
+                    try {
+                        parser->symbolTable[stmt->dir.varName].value =
+                            parser->evaluateExpressionAt(stmt->dir.tokenIndex, stmt->scopePrefix);
+                    } catch (...) {}
+                } else if (stmt->dir.name == "var") {
                     if (stmt->dir.varType == Directive::ASSIGN)
                         parser->symbolTable[stmt->dir.varName].value =
                             parser->evaluateExpressionAt(stmt->dir.tokenIndex, stmt->scopePrefix);

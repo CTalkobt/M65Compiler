@@ -17,6 +17,24 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   tempo and pitch. `SidFile`: `PsidRunner` (a call at a time) and each
   write's cycle; `TuneAudio`: `SidChips`.
 
+### ca45: equates follow the labels they name; --cpu 6502 sty zp,x; cbm_acptr
+
+- `NAME = expr` was evaluated once, when first read: a label in it had its
+  first-pass address, so after code before it shrank (forward branches sized
+  16-bit at first) `lbl - 1` was off by the bytes saved; a redefined name
+  took its last value everywhere. Each equate is now evaluated where it
+  stands again as the addresses settle (`* - 1` its own address - 1) and
+  holds from there on. Found assembling Commodore's C64 ROM source (#144),
+  which now assembles to the ROMs' bytes. The library is unchanged.
+- QuadMove (`lda`/`ldx`/`ldy`/`ldz` of four bytes → `ldq`) ignored
+  `.noopt_start` / `.noopt_end`.
+- A forward branch of exactly +127 was kept 16-bit (sized long at first, its
+  target measured a byte further while it was); with `--cpu 6502` an error.
+- `--cpu 6502` refused `sty zp,x` and `stx zp,y` (it checked their absolute
+  forms, which only the 45GS02 has).
+- `cbm_acptr()` / `cbm_k_acptr()` (`KERNAL_ACPTR`) called `$FF13`, where the
+  MEGA65's ROM has nothing (`$FF $FF $FF`): ACPTR is `$FFA5`.
+
 ### ca45 SeqExtract: loops stay inline, .opt NoSeqExtract, self-modifying code (#394)
 
 - Runs inside a loop (a label to a branch or `jmp` back to it in the same

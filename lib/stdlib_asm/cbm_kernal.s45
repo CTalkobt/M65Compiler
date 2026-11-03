@@ -34,7 +34,7 @@ proc _cbm_k_acptr
     .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z, V
     jsr __rom_calli
-    .word $FF13
+    .word $FFA5
     ldx #0
     rts
     .func_flags zp_call

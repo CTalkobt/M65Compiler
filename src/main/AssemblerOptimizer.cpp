@@ -16,9 +16,10 @@
 
 // A .loc line (source line info, no label): the passes look past it, so a
 // file assembles to the same code with or without line info
+// line info, or an equate (NAME = expr): no code, nothing the code does
 static bool isLocDirective(const AssemblerParser::Statement* s) {
     if (s->type != AssemblerParser::Statement::DIRECTIVE || !s->label.empty()) return false;
-    return s->dir.name == "loc" || s->dir.name == "LOC";
+    return s->dir.name == "loc" || s->dir.name == "LOC" || s->dir.name == "equ";
 }
 
 bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose, bool traceMachState) {
@@ -2375,7 +2376,7 @@ bool AssemblerOptimizer::optimizeInternal(
             "lbcc", "lbcs", "lbeq", "lbne", "lbmi", "lbpl", "lbvc", "lbvs"};
         static const std::set<std::string> quietDirs = {
             "loc", "global", "extern", "weak", "func_flags", "flag_clobbers", "reg_clobbers", "frame_size",
-            "zp_uses", "zp_clobbers", "keep", "var", "bpindex", "bptop", "ref"};
+            "zp_uses", "zp_clobbers", "keep", "var", "bpindex", "bptop", "ref", "equ"};
         auto& st = parser->statements;
         const size_t n = st.size();
         std::map<std::string, size_t> labelAt;
@@ -2806,8 +2807,14 @@ bool AssemblerOptimizer::optimizeInternal(
     if (parser->optFlags.seqExtract) {
         auto& st = parser->statements;
         std::set<std::string> varNames;
+        // (an equate, NAME = expr, counts only when assigned again: then the
+        // same name may have other values at the routine's place)
+        std::map<std::string, int> equates;
         for (const auto& s : st)
-            if (s->type == AssemblerParser::Statement::DIRECTIVE && !s->dir.varName.empty()) {
+            if (s->type == AssemblerParser::Statement::DIRECTIVE && s->dir.name == "equ") equates[s->dir.varName]++;
+        for (const auto& s : st)
+            if (s->type == AssemblerParser::Statement::DIRECTIVE && !s->dir.varName.empty() &&
+                (s->dir.name != "equ" || equates[s->dir.varName] > 1)) {
                 varNames.insert(s->dir.varName);   // scoped, and as the source names it
                 if (s->dir.varName.compare(0, s->scopePrefix.size(), s->scopePrefix) == 0)
                     varNames.insert(s->dir.varName.substr(s->scopePrefix.size()));
@@ -3128,7 +3135,7 @@ bool AssemblerOptimizer::optimizeInternal(
         static const char* loads[4] = {"lda", "ldx", "ldy", "ldz"};
         for (size_t i = 0; i < st.size(); ++i) {
             auto* s0 = st[i].get();
-            if (s0->deleted || s0->type != AssemblerParser::Statement::INSTRUCTION) continue;
+            if (s0->deleted || s0->noOpt || s0->type != AssemblerParser::Statement::INSTRUCTION) continue;
             std::string m0 = s0->instr.mnemonic;
             std::transform(m0.begin(), m0.end(), m0.begin(), ::tolower);
             const char** set = m0 == "sta" ? stores : m0 == "lda" ? loads : nullptr;
@@ -3155,6 +3162,7 @@ bool AssemblerOptimizer::optimizeInternal(
                 if (!ok && sk->type == AssemblerParser::Statement::INSTRUCTION && sk->label.empty() && mk == set[k] &&
                     sk->instr.mode == mode && b0.empty() && parseNum(sk->instr.operand, o) && o == o0 + k)
                     ok = true;
+                if (sk->noOpt) ok = false;   // (.noopt: left as written)
                 idx[k] = j;
             }
             if (!ok) continue;

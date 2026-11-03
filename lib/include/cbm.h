@@ -17,7 +17,7 @@
 
 /* ===== KERNAL Jump Table Addresses ===== */
 
-#define KERNAL_ACPTR    0xFF13  /* Get byte from serial bus */
+#define KERNAL_ACPTR    0xFFA5  /* Get byte from serial bus */
 #define KERNAL_CHKIN    0xFFC6  /* Open channel for input */
 #define KERNAL_CHKOUT   0xFFC9  /* Open channel for output */
 #define KERNAL_CHRIN    0xFFCF  /* Get character from input channel */
