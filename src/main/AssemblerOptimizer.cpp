@@ -2807,8 +2807,14 @@ bool AssemblerOptimizer::optimizeInternal(
     if (parser->optFlags.seqExtract) {
         auto& st = parser->statements;
         std::set<std::string> varNames;
+        // (an equate, NAME = expr, counts only when assigned again: then the
+        // same name may have other values at the routine's place)
+        std::map<std::string, int> equates;
         for (const auto& s : st)
-            if (s->type == AssemblerParser::Statement::DIRECTIVE && !s->dir.varName.empty()) {
+            if (s->type == AssemblerParser::Statement::DIRECTIVE && s->dir.name == "equ") equates[s->dir.varName]++;
+        for (const auto& s : st)
+            if (s->type == AssemblerParser::Statement::DIRECTIVE && !s->dir.varName.empty() &&
+                (s->dir.name != "equ" || equates[s->dir.varName] > 1)) {
                 varNames.insert(s->dir.varName);   // scoped, and as the source names it
                 if (s->dir.varName.compare(0, s->scopePrefix.size(), s->scopePrefix) == 0)
                     varNames.insert(s->dir.varName.substr(s->scopePrefix.size()));
