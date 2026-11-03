@@ -1,6 +1,7 @@
 // TuneAudio.cpp — four reSIDfp chips and the sound's way out (see TuneAudio.hpp)
 #include "TuneAudio.hpp"
 #include "residfp/residfp.h"
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <unistd.h>
@@ -41,6 +42,54 @@ void TuneAudio::frame(std::vector<int16_t>& stereo) {
     for (int k = 0; k < m; k++) {
         stereo.push_back((int16_t)(((int)buf[0][k] + buf[1][k]) / 2));
         stereo.push_back((int16_t)(((int)buf[2][k] + buf[3][k]) / 2));
+    }
+}
+
+struct SidChips::Chips {
+    reSIDfp::residfp sid[3];
+};
+
+SidChips::SidChips(const std::vector<bool>& mos6581, double clock, int rate)
+    : chips_(new Chips), n_((int)std::max<size_t>(1, std::min<size_t>(3, mos6581.size()))), rate_(rate), clock_(clock) {
+    for (int c = 0; c < n_; c++) {
+        auto& s = chips_->sid[c];
+        s.setChipModel(mos6581[c] ? reSIDfp::MOS6581 : reSIDfp::CSG8580);
+        s.setSamplingParameters(clock, reSIDfp::RESAMPLE, rate);
+        s.reset();
+    }
+}
+
+SidChips::~SidChips() = default;
+
+void SidChips::write(int chip, uint8_t reg, uint8_t value) {
+    if (chip >= 0 && chip < n_) chips_->sid[chip].write(reg & 0x1F, value);
+}
+
+void SidChips::clock(uint32_t cycles, bool mono, std::vector<int16_t>& stereo) {
+    while (cycles) {
+        unsigned step = std::min<uint32_t>(cycles, 20000);   // (a buffer's worth at a time)
+        cycles -= step;
+        size_t room = (size_t)std::ceil(step / clock_ * rate_) + 64;
+        std::vector<short> buf[3];
+        int n[3] = {0, 0, 0};
+        for (int c = 0; c < n_; c++) {
+            buf[c].resize(room);
+            n[c] = chips_->sid[c].clock(step, buf[c].data());
+        }
+        int m = n[0];
+        for (int c = 1; c < n_; c++) if (n[c] < m) m = n[c];
+        for (int k = 0; k < m; k++) {
+            int l, r;
+            if (n_ == 1) l = r = buf[0][k];
+            else if (mono) {
+                int sum = 0;
+                for (int c = 0; c < n_; c++) sum += buf[c][k];
+                l = r = sum / n_;
+            } else if (n_ == 2) { l = buf[0][k]; r = buf[1][k]; }
+            else { l = (buf[0][k] + buf[2][k]) / 2; r = (buf[1][k] + buf[2][k]) / 2; }
+            stereo.push_back((int16_t)l);
+            stereo.push_back((int16_t)r);
+        }
     }
 }
 

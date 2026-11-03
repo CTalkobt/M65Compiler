@@ -4,6 +4,19 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### tune45 play of a C64 .sid (#393)
+
+- `tune45 play tune.sid [--song n] [--length s|m:ss] [--wav f]` plays a PSID
+  (or a simple RSID) as it is: its player runs as `import` runs it, and each
+  SID write goes to reSIDfp at the cycle the tune made it. Raster tunes are
+  called every 312 x 63 cycles (50.12 Hz PAL; 59.83 Hz NTSC) as on a C64, CIA
+  tunes at their timer's rate. The header's SID model per chip (`--6581`,
+  `--8580`) and clock (`--ntsc`); a second and third SID as their own chips
+  (the second on the right; `--mono`). Until Ctrl-C without `--length` (a
+  WAV is finished then). The four .sid test tunes match `sidplayfp` in
+  tempo and pitch. `SidFile`: `PsidRunner` (a call at a time) and each
+  write's cycle; `TuneAudio`: `SidChips`.
+
 ### ca45 SeqExtract: loops stay inline, .opt NoSeqExtract, self-modifying code (#394)
 
 - Runs inside a loop (a label to a branch or `jmp` back to it in the same

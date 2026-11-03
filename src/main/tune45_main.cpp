@@ -46,7 +46,7 @@ void usage(std::ostream& o) {
          "            (one blob for far memory; music.h gives each tune's offset), --asm -o music.s45\n"
          "  list      each tune: voices, bytes, ticks, seconds (PAL / NTSC), instruments\n"
          "  play      play the tunes on the PC (reSIDfp: four SIDs, stereo) through pw-play,\n"
-         "            paplay or aplay, or into a .wav file\n"
+         "            paplay or aplay, or into a .wav file; a C64 .sid as it is (its player run)\n"
          "  create    compose a tune (the text format): --genre, --tempo, --length, ...\n"
          "  import    a Standard MIDI File, a MOD, XM, S3M, IT or C64 .sid as text (convert and play take a .mid too)\n"
          "  sample    play sampled sound as the MEGA65's audio DMA does: 8-bit samples, packed\n"
@@ -64,7 +64,9 @@ void usage(std::ostream& o) {
          "  --loops <n>        play: times through a looping tune (default 1)\n"
          "  --wav <file>       play: into a WAV file instead of the speakers\n"
          "  --ntsc             play: an NTSC machine (60 Hz, its SID clock)\n"
-         "  --6581             play: the MOS 6581 SID (default: the 8580)\n"
+         "  --6581, --8580     play: the SID model (default: the 8580; a .sid: its header's)\n"
+         "  --song <n>, --length <s>  play of a .sid: the song (default its start song), seconds or m:ss\n"
+         "                     (default: until Ctrl-C)\n"
          "  --rate <hz>        sample: the samples' rate (a sound file: default the rate\n"
          "                     pack45 --suggest-rate names)\n"
          "  --max-rate <hz>    sample: a sound file: the highest rate to suggest\n"
@@ -272,6 +274,7 @@ struct PlayOptions {
     uint8_t digiFirst = 0;       // trace: tune_digi_channels
     std::string wav, emulatorPath, sendCmd, prg;
     bool ntsc = false, mos6581 = false, mono = false, emulator = false, send = false, watch = false;
+    bool mos8580 = false;        // play of a .sid: --8580 (default: its header's model)
 };
 
 // The tunes named (all when none), or an error
@@ -642,6 +645,85 @@ int play(const std::string& src, TuneFile f, const PlayOptions& o) {
     return 0;
 }
 
+// tune45 play of a C64 .sid (#393): its player run as import runs it (init,
+// then play at the header's rate), each SID write sent to reSIDfp at the
+// cycle the tune made it. seconds 0: until Ctrl-C
+volatile std::sig_atomic_t sidStop = 0;
+
+int playSid(const std::string& path, const std::vector<uint8_t>& bytes, int song, double seconds, const PlayOptions& o) {
+    PsidFile pf;
+    std::string err;
+    if (!readPsid(bytes, pf, err)) { std::cerr << "tune45: " << path << ": " << err << "\n"; return 1; }
+    if (o.ntsc) pf.flags = uint16_t((pf.flags & ~0x0C) | 0x08);
+    if (song == 0) song = pf.startSong;
+    PsidRunner run;
+    SidRun info;
+    if (!run.start(pf, song, info, err, true)) { std::cerr << "tune45: " << path << ": " << err << "\n"; return 1; }
+    // the chips: the header's model for each (bits 4-5, 6-7, 8-9: 1 the 6581, 2 the 8580;
+    // a second or third SID's "unknown" is the first's), --6581 / --8580 for all
+    std::vector<bool> models;
+    int chips = 1 + (pf.sid2 ? 1 : 0) + (pf.sid3 ? 1 : 0);
+    for (int c = 0; c < chips; c++) {
+        int bits = (pf.flags >> (4 + 2 * c)) & 3;
+        bool m6581 = c == 0 ? bits != 2 : bits == 0 ? (bool)models[0] : bits != 2;
+        if (o.mos6581) m6581 = true;
+        if (o.mos8580) m6581 = false;
+        models.push_back(m6581);
+    }
+    SidChips sids(models, info.clock);
+    AudioSink sink;
+    if (!sink.open(o.wav, sids.rate())) { std::cerr << "tune45: " << sink.error() << "\n"; return 1; }
+    char rate[64];
+    if (info.cia) snprintf(rate, sizeof rate, "CIA timer, %.2f calls a second", info.callsPerSecond);
+    else snprintf(rate, sizeof rate, "%.2f Hz", info.callsPerSecond);
+    std::string what = pf.name.empty() ? baseName(path) : pf.name;
+    if (!pf.author.empty()) what += " by " + pf.author;
+    std::cout << "playing " << what << ", song " << song << " of " << pf.songs << " (" << rate << ", "
+              << (models[0] ? "6581" : "8580") << (chips > 1 ? " x" + std::to_string(chips) : "") << ", "
+              << (info.clock > 1000000 ? "NTSC" : "PAL");
+    if (seconds > 0) { char l[32]; snprintf(l, sizeof l, ", %.1f s", seconds); std::cout << l; }
+    else std::cout << ", Ctrl-C stops";
+    std::cout << ") via " << sink.via() << "\n" << std::flush;
+
+    // Ctrl-C ends it (a WAV file is finished); a player that went away too
+    sidStop = 0;
+    auto oldInt = std::signal(SIGINT, [](int) { sidStop = 1; });
+    auto oldPipe = std::signal(SIGPIPE, SIG_IGN);
+    const uint64_t end = seconds > 0 ? (uint64_t)(seconds * info.clock + 0.5) : UINT64_MAX;
+    uint64_t now = 0;
+    std::vector<int16_t> buf;
+    auto upTo = [&](uint64_t t) {
+        if (t > end) t = end;
+        while (now < t) {
+            uint32_t step = (uint32_t)std::min<uint64_t>(t - now, 50000);
+            sids.clock(step, o.mono, buf);
+            now += step;
+            if (buf.size() >= 8192) { sink.put(buf); buf.clear(); }
+        }
+    };
+    auto send = [&](const SidCall& c) {
+        for (const auto& w : c.writes) {
+            upTo(c.at + w.cycle);
+            if (now >= end) return;
+            sids.write(w.chip, w.reg, w.value);
+        }
+    };
+    send(info.init);
+    int rc = 0;
+    while (!sidStop && now < end) {
+        SidCall c;
+        if (!run.next(c, err)) { std::cerr << "tune45: " << path << ": " << err << "\n"; rc = 1; break; }
+        upTo(c.at);
+        send(c);
+    }
+    if (rc == 0 && !sidStop) upTo(end);
+    sink.put(buf);
+    sink.close();
+    std::signal(SIGINT, oldInt);
+    std::signal(SIGPIPE, oldPipe);
+    return rc;
+}
+
 // The model's registers after each frame (the tests compare them with the
 // real player's): a line a frame, the SIDs' 128 bytes and the audio DMA's
 // $50 (from $D710) in hex
@@ -994,6 +1076,7 @@ int main(int argc, char** argv) {
         else if (a == "--wav" && i + 1 < argc) po.wav = argv[++i];
         else if (a == "--ntsc") po.ntsc = true;
         else if (a == "--6581") po.mos6581 = true;
+        else if (a == "--8580") po.mos8580 = true;
         else if (a == "--rate" && i + 1 < argc) sampleRate = (uint32_t)std::max(0L, strtol(argv[++i], nullptr, 0));
         else if (a == "--max-rate" && i + 1 < argc) sampleMax = (uint32_t)std::max(0L, strtol(argv[++i], nullptr, 0));
         else if (a == "--unsigned") sampleUnsigned = true;
@@ -1210,6 +1293,24 @@ int main(int argc, char** argv) {
     }
     if (cmd != "convert" && cmd != "list" && cmd != "play" && cmd != "trace") { std::cerr << "tune45: unknown command " << cmd << "\n"; usage(std::cerr); return 1; }
     if (input.empty()) { std::cerr << "tune45: no input file\n"; return 1; }
+    if (cmd == "play") {   // a C64 .sid: its own player run (#393)
+        std::string raw;
+        if (readFile(input, raw) && (raw.compare(0, 4, "PSID") == 0 || raw.compare(0, 4, "RSID") == 0)) {
+            if (po.emulator || po.send) {
+                std::cerr << "tune45: a .sid plays on the PC only (it needs a C64-mode player on the MEGA65): "
+                             "tune45 import it to play it there\n";
+                return 1;
+            }
+            double seconds = 0;
+            if (!cc.length.empty()) {   // s, or m:ss
+                size_t c = cc.length.find(':');
+                seconds = c == std::string::npos ? atof(cc.length.c_str())
+                                                 : atof(cc.length.substr(0, c).c_str()) * 60 + atof(cc.length.substr(c + 1).c_str());
+                if (seconds <= 0) { std::cerr << "tune45: --length " << cc.length << ": seconds, or m:ss\n"; return 1; }
+            }
+            return playSid(input, std::vector<uint8_t>(raw.begin(), raw.end()), sio.song, seconds, po);
+        }
+    }
     std::string text;
     if (!loadMusic(input, mo, text)) return 1;
     TuneFile f;

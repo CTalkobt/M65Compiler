@@ -598,6 +598,43 @@ $TUNE import $T/n_loop.sid --seconds 10 --search 10 -o $T/nl.txt >/dev/null 2>&1
 grep -q "it loops from 0.2 s, every 1.3 s" $T/nl.txt && grep -q "^tune sid_notes 1 loop" $T/nl.txt &&
     grep -q "^v1: @i01 c3:6 r:2 |: \*p1 \*p1+5 \*p1+7 \*p1$" $T/nl.txt &&
     $TUNE list $T/nl.txt 2>/dev/null | grep -q " 72 ticks" && pass || fail "import of a .sid that loops ($(sed -n '1p;/^tune/,$p' $T/nl.txt | tr '\n' '/'))"
+
+# play of a .sid (#393): its player run, the writes into reSIDfp at their
+# cycle; a raster tune each 312 x 63 cycles (50.12 Hz PAL, 59.83 NTSC), the
+# CIA one at its timer's rate; the header's model (these: 6581), --8580;
+# --length seconds; the same samples each time; one SID on both sides, a
+# second SID's (header v3, $D420: silent here) on the right
+cat > $T/wavinfo.py <<'EOF'
+import sys, wave, struct
+w = wave.open(sys.argv[1]); n = w.getnframes()
+s = struct.unpack("<%dh" % (2 * n), w.readframes(n))
+l, r = s[0::2], s[1::2]
+def sounds(x):   # (varies in its last 1/2 s: a silent 6581 settles to a DC level first)
+    x = x[24000:]; m = sum(x) / len(x); return (sum((v - m) ** 2 for v in x) / len(x)) ** 0.5 > 200
+m0 = sum(l[:480]) / 480
+first = next((i for i, v in enumerate(l) if abs(v - m0) > 500), -1)
+# (the frames: reSIDfp's resampler gives about 0.02% more than the seconds)
+print(round(n / w.getframerate(), 2), sounds(l), sounds(r), l == r, round(first / 48000, 3))
+EOF
+pv=$($TUNE play $T/n_vbi.sid --length 1 --wav $T/pv.wav 2>&1)
+pi=$(python3 $T/wavinfo.py $T/pv.wav)
+$TUNE play $T/n_vbi.sid --length 1 --wav $T/pv2.wav >/dev/null 2>&1
+echo "$pv" | grep -q "playing sid notes, song 1 of 1 (50.12 Hz, 6581, PAL, 1.0 s) via $T/pv.wav" &&
+    [ "${pi% *}" = "1.0 True True True" ] && awk -v f="${pi##* }" 'BEGIN { exit !(f >= 0 && f < 0.05) }' &&
+    cmp -s $T/pv.wav $T/pv2.wav && pass || fail "play of a .sid: $pv / $pi"
+$TUNE play $T/n_cia.sid --length 0:01 --8580 --wav $T/pc.wav 2>&1 | grep -q "(CIA timer, 100.88 calls a second, 8580, PAL, 1.0 s)" &&
+    $TUNE play $T/n_vbi.sid --length 0.5 --ntsc --wav $T/pn.wav 2>&1 | grep -q "(59.83 Hz, 6581, NTSC, 0.5 s)" &&
+    [ "$(python3 $T/wavinfo.py $T/pn.wav | cut -d' ' -f1)" = "0.5" ] && pass || fail "play of a .sid: CIA, --8580, --ntsc"
+python3 - $T/n_vbi.sid $T/n_2sid.sid <<'EOF'
+import sys
+b = bytearray(open(sys.argv[1], "rb").read()); b[5] = 3; b[0x7A] = 0x42
+open(sys.argv[2], "wb").write(b)
+EOF
+p2=$($TUNE play $T/n_2sid.sid --length 1 --wav $T/p2.wav 2>&1)
+echo "$p2" | grep -q "6581 x2, PAL" && [ "$(python3 $T/wavinfo.py $T/p2.wav | cut -d' ' -f2-4)" = "True False False" ] && pass || fail "play of a 2-SID .sid: $p2"
+$TUNE play $T/n_vbi.sid --length 1 --emulator 2>&1 | grep -q "a .sid plays on the PC only" &&
+    $TUNE play $T/n_vbi.sid --song 2 --length 1 --wav $T/px.wav 2>&1 | grep -q "song 2: the tune has 1" &&
+    $TUNE play $T/n_vbi.sid --length x --wav $T/px.wav 2>&1 | grep -q "seconds, or m:ss" && pass || fail "play of a .sid: errors"
 $TUNE import $T/n_rep.sid --search 10 -o $T/ne.txt >/dev/null 2>&1
 grep -q "it ends at 1.3 s" $T/ne.txt && grep -q "^tune sid_notes 1 once" $T/ne.txt &&
     $TUNE list $T/ne.txt 2>/dev/null | grep -q " 113 ticks" && pass || fail "import of a .sid that ends ($(sed -n '1p;/^tune/,$p' $T/ne.txt | tr '\n' '/'))"

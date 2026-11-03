@@ -24,6 +24,27 @@ private:
     double cyclesPerFrame_, carry_ = 0;
 };
 
+// A C64 tune's SIDs (tune45 play of a .sid): 1-3 reSIDfp chips at the
+// C64's clock, each written at the cycle the tune wrote it. Mixed: one SID
+// on both sides; two the first left, the second right; three the first
+// left, the second right, the third on both (mono: all on both)
+class SidChips {
+public:
+    // models: true the 6581, per chip; clock 985248 PAL, 1022727 NTSC
+    SidChips(const std::vector<bool>& mos6581, double clock, int rate = 48000);
+    ~SidChips();
+    void write(int chip, uint8_t reg, uint8_t value);
+    void clock(uint32_t cycles, bool mono, std::vector<int16_t>& stereo);   // appends L, R, L, R...
+    int rate() const { return rate_; }
+    int chips() const { return n_; }
+
+private:
+    struct Chips;
+    std::unique_ptr<Chips> chips_;
+    int n_, rate_;
+    double clock_;
+};
+
 // Where the samples go: a raw-audio player on the PATH (pw-play, paplay,
 // aplay), or a WAV file
 class AudioSink {

@@ -35,7 +35,7 @@ dependencies (SQLite and FUSE only for disk45):
   (minimp3, `third_party/minimp3`) or MP4 (ffmpeg) into 8-bit samples at the lowest rate that keeps them
   (`src/main/PackAudio.cpp`)
 - **tune45** — music for the tune player (`<audio_tune.h>`): text (pfest's format) or MIDI → data;
-  plays on the PC (reSIDfp, `third_party/libresidfp`), in xemu or on a MEGA65; composes (`create`); filter, wave
+  plays on the PC (reSIDfp, `third_party/libresidfp`), in xemu or on a MEGA65; plays a C64 `.sid` as it is (`play tune.sid`: its player run, #393); composes (`create`); filter, wave
   tables, hard restart; digi voices (`d1:`, samples on the audio DMA, hits together mixed by tune45); plays
   sampled sound as the audio DMA does (`sample`: pack45 streams, raw samples, sound files)
 - **dbg45** — source-level debugger in xemu (#202): the program's debug file (`cc45 -g` / `ln45 -g`:

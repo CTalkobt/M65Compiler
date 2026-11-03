@@ -47,6 +47,7 @@
 //   and play are called, and the stack and PC set up for them.
 #pragma once
 #include <array>
+#include <memory>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -82,10 +83,14 @@ bool readPsid(const std::vector<uint8_t>& file, PsidFile& p, std::string& error)
 struct SidWrite {
     uint8_t reg, value;              // reg 0-0x1C (the $D400 mirrors folded; $1D-$1F are not recorded)
     uint8_t chip = 0;                // 0 the SID at $D400; 1/2 the header's second/third SID
+    uint32_t cycle = 0;              // when, in cycles from the start of the call (the end of the
+                                     // writing instruction's step; tune45 play of a .sid)
 };
 struct SidCall {
     std::vector<SidWrite> writes;    // the writes of one call of the routine, in order
     uint32_t cycles = 0;             // the cycles it took (to its RTS/RTI or KERNAL exit)
+    uint64_t at = 0;                 // the cycle it started at, counted from init's start (init: 0)
+    uint16_t routine = 0;            // the address called
 };
 struct SidRun {
     double callsPerSecond = 50;      // 50 PAL VBI, 60 NTSC VBI, or CIA 1 timer A's rate: clock / (latch + 1)
@@ -120,6 +125,25 @@ constexpr uint64_t kSidPlayCycleLimit = 50000;
 // refused. false with `error` set: a bad song, no play routine, a JAM, a
 // cycle limit hit, a jump into ROM that is not there.
 bool runPsid(const PsidFile& p, int song, int calls, SidRun& out, std::string& error);
+
+// The same run a call at a time, for as long as wanted (tune45 play of a
+// .sid): start() runs init (out as runPsid's, without calls), next() each
+// play call in turn, at its time (SidCall::at, a period of 1/callsPerSecond
+// after the one before)
+class PsidRunner {
+public:
+    PsidRunner();
+    ~PsidRunner();
+    // raster: a raster-timed tune called each 312 x 63 cycles (PAL: 50.125 Hz;
+    // NTSC 263 x 65, 59.83 Hz) as on a C64, not 50 / 60 times a second as
+    // import has it (callsPerSecond then the real rate)
+    bool start(const PsidFile& p, int song, SidRun& out, std::string& error, bool raster = false);
+    bool next(SidCall& call, std::string& error);
+
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+};
 
 // The 6502 itself, for tests (Klaus Dormann's functional test runs on it).
 class Cpu6502 {

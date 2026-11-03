@@ -400,6 +400,7 @@ public:
     uint8_t ciaMask[2]{};
     uint32_t lfsr = 0x7FFFF8;
     SidCall* rec = nullptr;
+    uint64_t recStart = 0;           // the cycle the recorded call started
 
     bool ioVisible() const {
         uint8_t port = uint8_t((mem[1] | ~mem[0]) & 7);   // inputs read as pulled up
@@ -470,7 +471,7 @@ protected:
         if (chip >= 0) {
             int r = addr & 0x1F;
             if (chip == 0) sidRegs[r] = v;
-            if (rec && r <= 0x1C) rec->writes.push_back(SidWrite{uint8_t(r), v, uint8_t(chip)});
+            if (rec && r <= 0x1C) rec->writes.push_back(SidWrite{uint8_t(r), v, uint8_t(chip), uint32_t(cycles - recStart)});
             return;
         }
         if (addr < 0xD400) { vic[addr & 0x3F] = v; return; }
@@ -517,6 +518,9 @@ public:
         pc = to;
         rec = &call;
         uint64_t start = cycles;
+        recStart = start;
+        call.at = start;
+        call.routine = to;
         bool ok = true;
         for (;;) {
             if (cycles - start > limit) {
@@ -548,8 +552,20 @@ public:
 
 } // namespace
 
-bool runPsid(const PsidFile& tune, int song, int calls, SidRun& out, std::string& error) {
+struct PsidRunner::Impl {
+    std::unique_ptr<C64> m;
+    PsidFile tune;
+    uint64_t period = 0, t0 = 0;
+    int n = 0;
+};
+
+PsidRunner::PsidRunner() : impl_(new Impl) {}
+PsidRunner::~PsidRunner() = default;
+
+bool PsidRunner::start(const PsidFile& tune, int song, SidRun& out, std::string& error, bool raster) {
     out = SidRun();
+    impl_->tune = tune;
+    impl_->n = 0;
     if (tune.mus()) { error = "Compute!'s Sidplayer MUS data needs its player: not supported"; return false; }
     if (tune.basic()) { error = "an RSID in C64 BASIC needs a real C64: not supported"; return false; }
     if (tune.rsid() && tune.init == 0) { error = "an RSID without an init address needs a real C64: not supported"; return false; }
@@ -559,8 +575,8 @@ bool runPsid(const PsidFile& tune, int song, int calls, SidRun& out, std::string
     }
     if (tune.data.empty() || tune.load + tune.data.size() > 0x10000) { error = "no data, or past $FFFF"; return false; }
 
-    auto m = std::make_unique<C64>();
-    C64& c = *m;
+    impl_->m = std::make_unique<C64>();
+    C64& c = *impl_->m;
     c.ntsc = tune.ntsc();
     c.sid2 = tune.sid2;
     c.sid3 = tune.sid3;
@@ -625,9 +641,21 @@ bool runPsid(const PsidFile& tune, int song, int calls, SidRun& out, std::string
     if (cia) {
         out.ciaLatch = c.latchA[0];
         out.callsPerSecond = out.clock / (double(c.latchA[0]) + 1);
-    } else
+    } else if (raster)
+        out.callsPerSecond = out.clock / (c.ntsc ? 263.0 * 65 : 312.0 * 63);
+    else
         out.callsPerSecond = c.ntsc ? 60 : 50;
 
+    impl_->period = uint64_t(out.clock / out.callsPerSecond + 0.5);
+    impl_->t0 = (c.cycles / impl_->period + 1) * impl_->period;
+    return true;
+}
+
+bool PsidRunner::next(SidCall& call, std::string& error) {
+    if (!impl_->m) { error = "not started"; return false; }
+    C64& c = *impl_->m;
+    const PsidFile& tune = impl_->tune;
+    int i = impl_->n++;
     // where the interrupt goes: the hardware vector when the KERNAL is banked out and init set it; else $0314
     auto handler = [&](uint16_t& to, C64::Call& how) -> bool {
         uint16_t hw = c.vec(0xFFFE), sw = c.vec(0x0314);
@@ -638,23 +666,26 @@ bool runPsid(const PsidFile& tune, int song, int calls, SidRun& out, std::string
         if (hwSet) { to = hw; how = C64::Call::Irq; return true; }
         return false;
     };
+    uint16_t to = tune.play;
+    C64::Call how = C64::Call::Jsr;
+    if (tune.play == 0 && !handler(to, how)) {
+        error = "no play routine: play is 0 and " + std::string(i ? "the tune's handler" : "init") +
+                " left no interrupt handler ($0314 and $FFFE are the KERNAL's)";
+        return false;
+    }
+    c.cycles = impl_->t0 + uint64_t(i) * impl_->period;
+    c.p = 0x24;
+    call = SidCall();
+    return c.run(to, how, kSidPlayCycleLimit, call, "play call " + std::to_string(i + 1) + " (" + hex4(to) + ")", error);
+}
 
-    uint64_t period = uint64_t(out.clock / out.callsPerSecond + 0.5);
-    uint64_t t0 = (c.cycles / period + 1) * period;
+bool runPsid(const PsidFile& tune, int song, int calls, SidRun& out, std::string& error) {
+    PsidRunner r;
+    if (!r.start(tune, song, out, error)) return false;
     for (int i = 0; i < calls; i++) {
-        uint16_t to = tune.play;
-        C64::Call how = C64::Call::Jsr;
-        if (tune.play == 0 && !handler(to, how)) {
-            error = "no play routine: play is 0 and " + std::string(i ? "the tune's handler" : "init") +
-                    " left no interrupt handler ($0314 and $FFFE are the KERNAL's)";
-            return false;
-        }
-        if (i == 0) out.playAddress = to;
-        c.cycles = t0 + uint64_t(i) * period;
-        c.p = 0x24;
         out.calls.emplace_back();
-        if (!c.run(to, how, kSidPlayCycleLimit, out.calls.back(), "play call " + std::to_string(i + 1) + " (" + hex4(to) + ")", error))
-            return false;
+        if (!r.next(out.calls.back(), error)) return false;
+        if (i == 0) out.playAddress = out.calls.back().routine;
     }
     return true;
 }
