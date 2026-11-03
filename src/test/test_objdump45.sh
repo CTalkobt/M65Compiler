@@ -671,6 +671,79 @@ for set in c64 mega65; do
         pass "-S $set: its $n symbols" || fail "-S $set does not load its $n symbols"
 done
 
+# ─── --source: assemblable ca45 source (#144) ──────────────────────────────
+echo "--- Test: --source ---"
+C=$BUILD/odsrc
+mkdir -p $C
+# every opcode of each CPU, an instruction each 4 bytes (each an --entry:
+# decoded as code), its operand bytes at random; the 45GS02's again after
+# NEG NEG (ldq ...): assembled back (CA45_OPTIMIZE=0) to the same bytes
+python3 - $C <<'PYEOF'
+import random, sys
+d = sys.argv[1]
+random.seed(144)
+for name, pre in (("all", b""), ("quad", b"\x42\x42")):
+    body = bytearray()
+    for op in range(256):
+        body += pre + bytes([op]) + bytes(random.randrange(256) for _ in range(3))
+    open(d + "/" + name + ".bin", "wb").write(body)
+    step = len(pre) + 4
+    open(d + "/" + name + ".entries", "w").write(" ".join("--entry $%04x" % (0x2000 + step * k) for k in range(256)))
+PYEOF
+roundtrip() {   # roundtrip <name> <bin> <entries file> <cpu>
+    $OD --source --cpu=$4 -S none -b '$2000' $(cat $3) $2 > $C/$1.s45 2>$C/$1.err &&
+        CA45_OPTIMIZE=0 $AS $C/$1.s45 -o $C/$1.rt.bin >$C/$1.log 2>&1 && cmp -s $2 $C/$1.rt.bin
+}
+for cpu in 45gs02 65ce02 6502 6510; do
+    roundtrip all_$cpu $C/all.bin $C/all.entries $cpu && pass "--source --cpu=$cpu: every opcode assembles back" ||
+        fail "--source --cpu=$cpu round trip: $(grep -m2 error $C/all_$cpu.log; cmp $C/all.bin $C/all_$cpu.rt.bin 2>&1 | head -1)"
+done
+roundtrip quad $C/quad.bin $C/quad.entries 45gs02 && [ "$(grep -cE '^        (ldq|stq|adcq|sbcq|andq|eorq|oraq|cmpq|aslq|lsrq|rolq|rorq|inq|deq) ' $C/quad.s45)" -ge 10 ] &&
+    pass "--source: NEG NEG and an instruction with a Q form: ldq ..., assembled back" ||
+    fail "--source quad round trip: $(grep -m2 error $C/quad.log; cmp $C/quad.bin $C/quad.rt.bin 2>&1 | head -1)"
+# programs cc45 made (both conventions, with their maps: the functions' names)
+for t in test_cmpvalue_xemu test_bss_fill_xemu; do
+    for conv in "" -fno-zpcall; do
+        n=$t$conv
+        ./bin/cc45 -O2 $conv -Wl,-M,$C/$n.map src/test-resources/$t.c -o $C/$n.prg >/dev/null 2>&1
+        $OD --source $C/$n.prg > $C/$n.s45 2>/dev/null && CA45_OPTIMIZE=0 $AS $C/$n.s45 -o $C/$n.rt.prg >/dev/null 2>&1 &&
+            cmp -s $C/$n.prg $C/$n.rt.prg && grep -q '^_main' $C/$n.s45 && pass "--source of $n.prg assembles back" ||
+            fail "--source of $n.prg: $(cmp $C/$n.prg $C/$n.rt.prg 2>&1 | head -1)"
+    done
+done
+# a C64 program: its BASIC stub and a table as .byte (--data), lax as .byte
+# with its name, the KERNAL's names as equates, a routine only a pointer
+# reaches (--entry), labels; a 16-bit branch an 8-bit one would do as .byte
+printf '        .cpu 6502\n        * = $0801\n        .byte $0b, $08, $0a, $00, $9e, $32, $30, $36, $31, $00, $00, $00\nstart:  ldx #0\nloop:   lda msg,x\n        beq done\n        jsr $ffd2\n        inx\n        bne loop\ndone:   .byte $a7, $10\n        rts\nmsg:    .byte $48, $49, $00\nother:  inc $d020\n        rts\n' > $C/c64.s
+$AS -O0 $C/c64.s -o $C/c64.prg >/dev/null 2>&1
+out=$($OD --source --data '$081d-$081f' --entry '$0820' $C/c64.prg)
+echo "$out" > $C/c64.s45
+CA45_OPTIMIZE=0 $AS $C/c64.s45 -o $C/c64.rt.prg >/dev/null 2>&1 && cmp -s $C/c64.prg $C/c64.rt.prg &&
+    pass "--source of a C64 program assembles back" || fail "--source c64: $(cmp $C/c64.prg $C/c64.rt.prg 2>&1)"
+assert_contains "--source: .cpu 6502 for 6510 code" "$out" "        .cpu 6502"
+assert_contains "--source: a name outside as an equate" "$out" "CHROUT = \$FFD2"
+assert_contains "--source: the name in the operand" "$out" "jsr CHROUT"
+assert_contains "--source: the BASIC stub as .byte" "$out" ".byte \$0b, \$08, \$0a, \$00, \$9e, \$32, \$30, \$36"
+assert_contains "--source: an undocumented opcode as .byte, named" "$out" "; lax \$10 (undocumented)"
+assert_contains "--source: a label at a target" "$out" "L_080F:"
+assert_contains "--source: an operand naming it" "$out" "bne L_080F"
+assert_contains "--source: --data as .byte" "$out" ".byte \$48, \$49, \$00"
+assert_contains "--source: an --entry's code" "$out" "inc VIC_BORDERCOL"
+printf '        * = $2000\n        .byte $d3, $02, $00\n        inx\n        inx\n        rts\n' > $C/b16.s
+$AS -O0 $C/b16.s -o $C/b16.bin >/dev/null 2>&1
+out=$($OD --source -S none -b '$2000' $C/b16.bin)
+echo "$out" > $C/b16.s45
+CA45_OPTIMIZE=0 $AS $C/b16.s45 -o $C/b16.rt.bin >/dev/null 2>&1 && cmp -s $C/b16.bin $C/b16.rt.bin &&
+    echo "$out" | grep -q ".byte \$d3, \$02, \$00 .*; bne \$2004 (16-bit)" &&
+    pass "--source: a 16-bit branch an 8-bit one reaches as .byte" || fail "--source 16-bit branch: $out"
+# the errors: an object, a bad --data range
+printf '        rts\n' > $C/o.s
+$AS -c $C/o.s -o $C/o.o45 >/dev/null 2>&1
+err=$($OD --source $C/o.o45 2>&1); rc=$?
+[ $rc -ne 0 ] && echo "$err" | grep -q "takes a PRG or a binary" && pass "--source: an object refused" || fail "--source o.o45: $rc $err"
+err=$($OD --source --data '$0900' $C/c64.prg 2>&1); rc=$?
+[ $rc -ne 0 ] && echo "$err" | grep -q "not a range" && pass "--source: --data without a range" || fail "--data \$0900: $rc $err"
+
 echo "objdump45 tests: $passed passed, $failed failed"
 echo "========================================"
 

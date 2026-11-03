@@ -8,6 +8,7 @@
 #include <iomanip>
 #include <algorithm>
 #include <map>
+#include <set>
 #include <cstdio>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -1125,6 +1126,300 @@ static void disassembleSection(const std::vector<uint8_t>& body, uint32_t base,
     }
 }
 
+// ─── --source: assemblable ca45 source (#144) ──────────────────────────────
+// The PRG or binary as ca45 source that assembles back to its bytes
+// (ca45 out.s45 -o same.prg): the code reachable from its entry points
+// (a BASIC stub's SYS target, else its start, and --entry) as instructions,
+// labels L_xxxx (or the program's / a symbol file's name) at the targets
+// inside it, the names outside it as equates; the rest (and --data ranges)
+// as .byte. Where ca45 would assemble an instruction otherwise it is .byte
+// with the instruction in a comment: a 16-bit branch whose target an 8-bit
+// one reaches (ca45 picks the shorter), an undocumented 6510 opcode, the
+// 65CE02's AUG. An absolute operand below $100 gets .abs (ca45 would use the
+// base-page form). All of it between .noopt_start and .noopt_end; 6502/6510
+// code under .cpu 6502.
+struct SourceRange { uint32_t lo, hi; };   // [lo, hi]
+
+static void writeSource(const std::vector<uint8_t>& body, uint32_t base, bool isPrg, size_t stubSize,
+                        uint32_t sysTarget, const std::map<uint8_t, OpcodeInfo>& table, DisCpu cpu,
+                        const std::map<uint32_t, std::string>& programSyms, const std::vector<SourceRange>& dataRanges,
+                        const std::vector<uint32_t>& entries, const std::string& filename) {
+    const uint32_t end = base + (uint32_t)body.size();
+    auto inRange = [&](uint32_t a) { return a >= base && a < end; };
+    auto isData = [&](uint32_t a) {
+        if (a < base + stubSize) return true;
+        for (const auto& r : dataRanges) if (a >= r.lo && a <= r.hi) return true;
+        return false;
+    };
+    struct Ins { bool ok = false; int size = 1; int pre = 0; OpcodeInfo info; };
+    // (the 45GS02's NEG NEG before an instruction with a Q form: one
+    // instruction, ldq $12; the round trips of every mode check ca45 takes it)
+    static const std::map<std::string, std::string> qform = {
+        {"lda", "ldq"}, {"sta", "stq"}, {"cmp", "cmpq"}, {"ora", "oraq"}, {"inc", "inq"}, {"dec", "deq"},
+        {"adc", "adcq"}, {"sbc", "sbcq"}, {"and", "andq"}, {"eor", "eorq"},
+        {"asl", "aslq"}, {"lsr", "lsrq"}, {"rol", "rolq"}, {"ror", "rorq"}};
+    // (ca45's names: cmpq, oraq for CPQ, ORQ; it has no BITQ or ASRQ: NEG NEG BIT stays so)
+    auto decode = [&](uint32_t a) {
+        Ins in;
+        size_t i = a - base;
+        int pre = 0;
+        std::string q;
+        if (cpu == DisCpu::CPU45GS02 && i + 2 < body.size() && body[i] == 0x42 && body[i + 1] == 0x42) {
+            auto qi = table.find(body[i + 2]);
+            if (qi != table.end()) {
+                std::string m = qi->second.mnemonic;
+                std::transform(m.begin(), m.end(), m.begin(), ::tolower);
+                auto f = qform.find(m);
+                // (and that mode: ca45's opcode for the Q form there is this one)
+                if (f != qform.end() && AssemblerOpcodeDatabase::getOpcode(f->second, qi->second.mode) == body[i + 2]) {
+                    pre = 2;
+                    q = f->second;
+                }
+            }
+        }
+        auto it = table.find(body[i + pre]);
+        if (it == table.end()) return in;
+        int sz = pre + 1 + operandSize(it->second.mode);
+        if (i + sz > body.size()) return in;
+        in.ok = true;
+        in.size = sz;
+        in.pre = pre;
+        in.info = it->second;
+        if (pre) in.info.mnemonic = q;
+        return in;
+    };
+    auto lower = [](std::string m) { std::transform(m.begin(), m.end(), m.begin(), ::tolower); return m; };
+    // where a branch, jump or call goes (-1: nowhere known)
+    auto target = [&](uint32_t a, const Ins& in) -> long {
+        size_t i = a - base + in.pre;
+        a += in.pre;
+        switch (in.info.mode) {
+        case AddressingMode::RELATIVE: return (long)((a + 2 + (int8_t)body[i + 1]) & 0xFFFF);
+        case AddressingMode::RELATIVE16: return (long)((a + 2 + (int16_t)(body[i + 1] | body[i + 2] << 8)) & 0xFFFF);
+        case AddressingMode::BASE_PAGE_RELATIVE: return (long)((a + 3 + (int8_t)body[i + 2]) & 0xFFFF);
+        default: break;
+        }
+        std::string m = lower(in.info.mnemonic);
+        if ((m == "jmp" || m == "jsr") && in.info.mode == AddressingMode::ABSOLUTE) return body[i + 1] | body[i + 2] << 8;
+        return -1;
+    };
+
+    // the code: what the entry points reach
+    std::vector<uint8_t> kind(body.size(), 0);   // 0 data, 1 an instruction's first byte, 2 its others
+    std::vector<uint32_t> work;
+    if (stubSize && inRange(sysTarget)) work.push_back(sysTarget);
+    for (uint32_t e : entries) if (inRange(e)) work.push_back(e);
+    if (work.empty() && !stubSize) work.push_back(base);
+    while (!work.empty()) {
+        uint32_t a = work.back();
+        work.pop_back();
+        while (inRange(a) && !isData(a) && kind[a - base] == 0) {
+            Ins in = decode(a);
+            if (!in.ok || in.info.undocumented && cpu == DisCpu::CPU6502) break;
+            bool fits = true;
+            for (int k = 0; k < in.size; k++)
+                if (!inRange(a + k) || kind[a + k - base] || isData(a + k)) fits = false;
+            if (!fits) break;
+            kind[a - base] = 1;
+            for (int k = 1; k < in.size; k++) kind[a + k - base] = 2;
+            std::string m = lower(in.info.mnemonic);
+            long t = target(a, in);
+            if (t >= 0 && inRange((uint32_t)t)) work.push_back((uint32_t)t);
+            if (m == "rts" || m == "rti" || m == "rtn" || m == "brk" || m == "bra" || m == "brl" || m == "jmp" ||
+                in.info.mode == AddressingMode::NONE)
+                break;
+            a += in.size;
+        }
+    }
+
+    // the names: a label where an operand points inside, an equate outside
+    std::map<uint32_t, std::string> labels;     // at a unit's first byte
+    std::map<uint32_t, std::string> equates;
+    auto unitStart = [&](uint32_t a) {          // the instruction holding a (data: a itself)
+        while (a > base && kind[a - base] == 2) a--;
+        return a;
+    };
+    auto nameAt = [&](uint32_t a) -> std::string {
+        auto p = programSyms.find(a);
+        if (p != programSyms.end()) return p->second;
+        auto f = g_fileSyms.find(a);
+        if (f != g_fileSyms.end()) return f->second;
+        return "";
+    };
+    auto valid = [](const std::string& n) {     // (a name ca45 takes: not a map's "file.c:12" or the like)
+        if (n.empty() || !(std::isalpha((unsigned char)n[0]) || n[0] == '_')) return false;
+        for (char c : n) if (!(std::isalnum((unsigned char)c) || c == '_' || c == '.')) return false;
+        return true;
+    };
+    std::set<std::string> used;
+    auto labelFor = [&](uint32_t a) -> std::string {   // a's operand text: L_xxxx, a name, +n
+        uint32_t u = unitStart(a);
+        if (!labels.count(u)) {
+            std::string n = nameAt(u);
+            if (!valid(n) || used.count(n)) {
+                char b[16];
+                snprintf(b, sizeof b, "L_%04X", u);
+                n = b;
+            }
+            used.insert(n);
+            labels[u] = n;
+        }
+        return labels[u] + (a == u ? "" : "+" + std::to_string(a - u));
+    };
+    auto outside = [&](uint32_t a) -> std::string {   // a name outside the range, as an equate
+        std::string n = nameAt(a);
+        if (!valid(n)) return "";
+        if (!equates.count(a)) {
+            if (used.count(n)) return "";
+            used.insert(n);
+            equates[a] = n;
+        }
+        return equates[a];
+    };
+    // (the entry points: labelled, after the program's own names)
+    std::vector<uint32_t> starts = entries;
+    if (stubSize && inRange(sysTarget)) starts.insert(starts.begin(), sysTarget);
+    // (the labels of the program's own symbols at units, first, so they win)
+    for (uint32_t a = base; a < end; a++)
+        if ((kind[a - base] != 2) && valid(nameAt(a)) && !labels.count(a) && !used.count(nameAt(a))) {
+            labels[a] = nameAt(a);
+            used.insert(labels[a]);
+        }
+
+    for (uint32_t e : starts) if (inRange(e) && kind[e - base] == 1) labelFor(e);
+    // each unit's text: instruction or .byte
+    struct Line { uint32_t at; int size; std::string text; };
+    std::vector<Line> lines;
+    std::vector<uint8_t> dataRun;
+    uint32_t dataAt = 0;
+    auto flushData = [&]() {
+        for (size_t k = 0; k < dataRun.size(); k += 8) {
+            std::string t = ".byte ";
+            for (size_t j = k; j < dataRun.size() && j < k + 8; j++) {
+                char b[8];
+                snprintf(b, sizeof b, "%s$%02x", j > k ? ", " : "", dataRun[j]);
+                t += b;
+            }
+            lines.push_back({dataAt + (uint32_t)k, (int)std::min<size_t>(8, dataRun.size() - k), t});
+        }
+        dataRun.clear();
+    };
+    auto rawBytes = [&](uint32_t a, int n) {
+        std::string t = ".byte ";
+        for (int k = 0; k < n; k++) {
+            char b[8];
+            snprintf(b, sizeof b, "%s$%02x", k ? ", " : "", body[a - base + k]);
+            t += b;
+        }
+        return t;
+    };
+    // (first pass: the labels operands need, so data runs split at them)
+    std::vector<std::pair<uint32_t, std::string>> texts;   // instruction start → text
+    for (uint32_t a = base; a < end; a++) {
+        if (kind[a - base] != 1) continue;
+        Ins in = decode(a);
+        size_t i = a - base + in.pre;    // (the instruction after a NEG NEG prefix)
+        const OpcodeInfo& info = in.info;
+        std::string m = lower(info.mnemonic);
+        int opSize = in.size - 1 - in.pre;
+        std::string operand = formatOperand(info.mode, opSize ? &body[i + 1] : nullptr, opSize, a + in.pre);
+        std::string comment;
+        bool raw = false;
+        // the operand's address, and the text of it in the operand
+        long addr = -1;
+        char hex[8] = "";
+        switch (info.mode) {
+        case AddressingMode::RELATIVE: case AddressingMode::RELATIVE16: case AddressingMode::BASE_PAGE_RELATIVE:
+            addr = target(a, in);
+            snprintf(hex, sizeof hex, "$%04lx", addr);
+            break;
+        case AddressingMode::ABSOLUTE: case AddressingMode::ABSOLUTE_X: case AddressingMode::ABSOLUTE_Y:
+        case AddressingMode::ABSOLUTE_INDIRECT: case AddressingMode::ABSOLUTE_X_INDIRECT:
+            addr = body[i + 1] | body[i + 2] << 8;
+            snprintf(hex, sizeof hex, "$%04lx", addr);
+            break;
+        case AddressingMode::BASE_PAGE: case AddressingMode::BASE_PAGE_X: case AddressingMode::BASE_PAGE_Y:
+        case AddressingMode::BASE_PAGE_X_INDIRECT: case AddressingMode::BASE_PAGE_INDIRECT_Y:
+        case AddressingMode::BASE_PAGE_INDIRECT_Z: case AddressingMode::FLAT_INDIRECT_Z:
+        case AddressingMode::BASE_PAGE_INDIRECT_SP_Y:
+            addr = body[i + 1];
+            snprintf(hex, sizeof hex, "$%02lx", addr);
+            break;
+        default: break;
+        }
+        bool absForm = info.mode == AddressingMode::ABSOLUTE || info.mode == AddressingMode::ABSOLUTE_X ||
+                       info.mode == AddressingMode::ABSOLUTE_Y;
+        if (info.undocumented || info.mode == AddressingMode::LINEAR_ABSOLUTE || info.mode == AddressingMode::NONE ||
+            info.mode == AddressingMode::STACK_RELATIVE || info.mode == AddressingMode::STACK_RELATIVE_INDIRECT_Y)
+            raw = true;
+        if (info.mode == AddressingMode::RELATIVE16 && m != "bsr") {   // (ca45 makes it 8-bit when it can)
+            long off = addr - (long)(a + 2);
+            if (off >= -128 && off <= 127) raw = true;
+        }
+        if (addr >= 0 && hex[0] && !raw) {
+            std::string name;
+            if (inRange((uint32_t)addr) && info.mode != AddressingMode::BASE_PAGE &&
+                info.mode != AddressingMode::BASE_PAGE_X && info.mode != AddressingMode::BASE_PAGE_Y &&
+                info.mode != AddressingMode::BASE_PAGE_X_INDIRECT && info.mode != AddressingMode::BASE_PAGE_INDIRECT_Y &&
+                info.mode != AddressingMode::BASE_PAGE_INDIRECT_Z && info.mode != AddressingMode::FLAT_INDIRECT_Z &&
+                info.mode != AddressingMode::BASE_PAGE_INDIRECT_SP_Y)
+                name = labelFor((uint32_t)addr);
+            else if (!inRange((uint32_t)addr))
+                name = outside((uint32_t)addr);
+            // (ca45 takes no expression as a BBR/BBS target: label+n stays an address)
+            if (info.mode == AddressingMode::BASE_PAGE_RELATIVE && name.find('+') != std::string::npos) name.clear();
+            size_t at = operand.find(hex);
+            if (!name.empty() && at != std::string::npos) {
+                operand = operand.substr(0, at) + name + operand.substr(at + strlen(hex));
+                comment = hex;
+            }
+        }
+        std::string t;
+        if (raw) {
+            t = rawBytes(a, in.size);
+            comment = info.mnemonic + (operand.empty() ? "" : " " + operand) +
+                      (info.undocumented ? " (undocumented)" : info.mode == AddressingMode::RELATIVE16 ? " (16-bit)" : "");
+        } else if (m == "nop" && cpu != DisCpu::CPU6502 && cpu != DisCpu::CPU6510) {
+            t = "eom";                 // ($EA: ca45 writes the 65CE02's NOP as the 45GS02's EOM)
+            comment = "nop";
+        } else {
+            t = m + (absForm && addr >= 0 && addr < 0x100 ? ".abs" : "");
+            if (!operand.empty()) t += " " + operand;
+        }
+        if (!comment.empty()) t += std::string(t.size() < 24 ? 24 - t.size() : 1, ' ') + "; " + comment;
+        texts.push_back({a, t});
+    }
+    // (then every unit in order: instructions, data runs split at labels)
+    size_t ti = 0;
+    for (uint32_t a = base; a < end;) {
+        if (kind[a - base] == 1) {
+            flushData();
+            const auto& tx = texts[ti++];
+            lines.push_back({a, decode(a).size, tx.second});
+            a += decode(a).size;
+            continue;
+        }
+        if (labels.count(a) && !dataRun.empty()) flushData();
+        if (dataRun.empty()) dataAt = a;
+        dataRun.push_back(body[a - base]);
+        a++;
+    }
+    flushData();
+
+    printf("; %s as ca45 source (objdump45 --source, %s): ca45 %s -o <out>%s assembles it back\n",
+           filename.c_str(), disCpuName(cpu), "<this>", isPrg ? ".prg" : ".bin");
+    if (cpu == DisCpu::CPU6502 || cpu == DisCpu::CPU6510) printf("        .cpu 6502\n");
+    for (const auto& [a, n] : equates) printf("%s = $%04X\n", n.c_str(), a);
+    printf("        * = $%04X\n        .noopt_start\n", base);
+    for (const auto& l : lines) {
+        // a label inside a line (data: a unit is a byte) cannot be: lines split at labels
+        auto lb = labels.find(l.at);
+        if (lb != labels.end()) printf("%s:\n", lb->second.c_str());
+        printf("        %s\n", l.text.c_str());
+    }
+    printf("        .noopt_end\n");
+}
+
 // ─── Main ───────────────────────────────────────────────────────────────────
 
 // ─── Raw binary / PRG support ───────────────────────────────────────────────
@@ -1385,6 +1680,9 @@ static void printUsage(const char* progName) {
     std::cout << "  -S FILE  Name ROM routines and I/O registers from a symbol file ($addr NAME lines, VICE's" << std::endl;
     std::cout << "           al C:addr .name, or NAME = $addr; again for more): jsr CHROUT ; $ffd2. The shipped" << std::endl;
     std::cout << "           sets: -S c64, -S mega65 (default: the CPU's, a $0801 PRG's c64); -S none: none" << std::endl;
+    std::cout << "  --source Disassemble a PRG or binary as ca45 source that assembles back to its bytes:" << std::endl;
+    std::cout << "           labels, .org, the code reachable from its SYS / start / --entry ADDR, the rest" << std::endl;
+    std::cout << "           (and --data A-B ranges) as .byte" << std::endl;
     std::cout << "  --cpu=CPU  Decode for 45gs02 (the default), 65ce02, 6502 (documented opcodes; others as" << std::endl;
     std::cout << "           .byte) or 6510 (with the undocumented ones, marked); a .prg loading at $0801 is 6510" << std::endl;
     std::cout << "  -V       Display version" << std::endl;
@@ -1418,6 +1716,17 @@ int main(int argc, char** argv) {
     bool cpuSet = false;
     std::vector<std::string> symFiles;   // -S (none: no symbol file)
     bool symNone = false;
+    bool sourceMode = false;             // --source
+    std::vector<SourceRange> dataRanges; // --data A-B
+    std::vector<uint32_t> entries;       // --entry A
+    auto parseAddr = [](std::string t, uint32_t& v) -> bool {
+        try {
+            size_t used = 0;
+            if (!t.empty() && t[0] == '$') { v = (uint32_t)std::stoul(t.substr(1), &used, 16); return used == t.size() - 1; }
+            v = (uint32_t)std::stoul(t, &used, 0);
+            return used == t.size();
+        } catch (...) { return false; }
+    };
     std::vector<std::string> files;
     int verbosity = 0;
     Logger::setTool("objdump45");
@@ -1449,6 +1758,28 @@ int main(int argc, char** argv) {
                 return 1;
             }
             mapFile = argv[++i];
+        } else if (arg == "--source") {
+            sourceMode = true;
+        } else if (arg == "--data" || arg == "--entry") {
+            if (i + 1 >= argc) {
+                std::cerr << "objdump45: " << arg << " requires " << (arg == "--data" ? "a range (A-B)" : "an address") << std::endl;
+                return 1;
+            }
+            std::string v = argv[++i];
+            if (arg == "--entry") {
+                uint32_t a;
+                if (!parseAddr(v, a)) { std::cerr << "objdump45: --entry " << v << ": not an address" << std::endl; return 1; }
+                entries.push_back(a);
+            } else {
+                size_t dash = v.find('-', 1);
+                SourceRange r;
+                if (dash == std::string::npos || !parseAddr(v.substr(0, dash), r.lo) || !parseAddr(v.substr(dash + 1), r.hi) ||
+                    r.hi < r.lo) {
+                    std::cerr << "objdump45: --data " << v << ": not a range (A-B, as $0900-$09ff)" << std::endl;
+                    return 1;
+                }
+                dataRanges.push_back(r);
+            }
         } else if (arg == "-S") {
             if (i + 1 >= argc) {
                 std::cerr << "objdump45: -S requires a symbol file (a file, c64, mega65 or none)" << std::endl;
@@ -1517,6 +1848,7 @@ int main(int argc, char** argv) {
         return diffBinaries(files[0], files[1]) ? 0 : 1;
     }
 
+    if (sourceMode) showDisasm = true;
     // If no display options given, default to showing file header (unless -bas is specified)
     if (!showFileHeader && !showSections && !showSymbols && !showRelocs &&
         !showContents && !showDisasm && !showBasic && !showDebug) {
@@ -1577,6 +1909,16 @@ int main(int argc, char** argv) {
                                    std::istreambuf_iterator<char>());
         in.close();
 
+        // (--source: a PRG or binary only: an object's code is not yet at its address)
+        if (sourceMode) {
+            O45File probe;
+            std::string perr;
+            if (O45OverlayFile::is(filename, data) || O45Reader::read(data, probe, perr)) {
+                std::cerr << "objdump45: " << filename << ": --source takes a PRG or a binary (link the object first)" << std::endl;
+                exitCode = 1;
+                continue;
+            }
+        }
         // A code overlay file (ln45 <program>.ovd / .ov1, or a version 1 .ovl): a section per overlay,
         // at the address it runs at
         if (O45OverlayFile::is(filename, data)) {
@@ -1726,6 +2068,21 @@ int main(int argc, char** argv) {
                 if (isPrg) {
                     uint32_t sysTarget = 0;
                     size_t stubSize = detectBasicStub(body, base, sysTarget);
+                    if (stubSize > 0 && sourceMode) {
+                        bool c64 = isPrg && !cpuSet && !baseAddrSet && base == 0x0801;
+                        if (c64 && table6510.empty()) table6510 = buildOpcodeTable(DisCpu::CPU6510);
+                        std::map<uint32_t, std::string> kept;
+                        bool swap = c64 && symFiles.empty() && !symNone;
+                        if (swap) {
+                            if (!c64Loaded) { loadSyms("c64", c64Syms, true); c64Loaded = true; }
+                            kept.swap(g_fileSyms);
+                            g_fileSyms = c64Syms;
+                        }
+                        writeSource(body, base, isPrg, stubSize, sysTarget, c64 ? table6510 : opcodeTable,
+                                    c64 ? DisCpu::CPU6510 : cpu, prgSymbols, dataRanges, entries, filename);
+                        if (swap) g_fileSyms.swap(kept);
+                        continue;
+                    }
                     if (stubSize > 0) {
                         stubSkip = stubSize;
                         std::cout << std::endl;
@@ -1751,6 +2108,19 @@ int main(int argc, char** argv) {
                 // a C64 program (loaded at $0801) is 6510 code unless --cpu says otherwise
                 bool c64 = isPrg && !cpuSet && !baseAddrSet && base == 0x0801;
                 if (c64 && table6510.empty()) table6510 = buildOpcodeTable(DisCpu::CPU6510);
+                if (sourceMode) {   // (no BASIC stub: all of it)
+                    std::map<uint32_t, std::string> kept;
+                    bool swap = c64 && symFiles.empty() && !symNone;
+                    if (swap) {
+                        if (!c64Loaded) { loadSyms("c64", c64Syms, true); c64Loaded = true; }
+                        kept.swap(g_fileSyms);
+                        g_fileSyms = c64Syms;
+                    }
+                    writeSource(body, base, isPrg, 0, 0, c64 ? table6510 : opcodeTable, c64 ? DisCpu::CPU6510 : cpu,
+                                prgSymbols, dataRanges, entries, filename);
+                    if (swap) g_fileSyms.swap(kept);
+                    continue;
+                }
                 // (its symbols: the C64's, unless -S named some)
                 std::map<uint32_t, std::string> kept;
                 bool swap = c64 && symFiles.empty() && !symNone;
