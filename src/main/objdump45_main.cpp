@@ -10,6 +10,9 @@
 #include <map>
 #include <cstdio>
 #include <sys/stat.h>
+#include <unistd.h>
+#include <cstring>
+#include <cctype>
 #include "O45Reader.hpp"
 #include "O45OverlayFile.hpp"
 #include "O45Linker.hpp"
@@ -852,6 +855,84 @@ static std::string getSourceLine(const std::string& file, int lineNum) {
     return "";
 }
 
+// ─── Symbol files (-S, #144) ────────────────────────────────────────────────
+// The names a symbol file gives addresses (ROM routines, I/O registers): an
+// operand that is one of them is shown by its name (jsr CHROUT ; $ffd2), and
+// a disassembled address that has one is labelled with it. The program's own
+// symbols (an object's, a map's, a debug file's) come first.
+static std::map<uint32_t, std::string> g_fileSyms;
+
+// "$addr NAME [comment]" (also 0xaddr, or plain hex), VICE's "al C:addr .name",
+// or "NAME = $addr"; # and ; start comment lines. false: cannot be read
+static bool loadSymbolFile(const std::string& path, std::map<uint32_t, std::string>& out, std::string& error) {
+    std::ifstream in(path);
+    if (!in) { error = "cannot read " + path; return false; }
+    auto number = [](std::string t, uint32_t& v) -> bool {
+        int radix = 16;
+        if (!t.empty() && t[0] == '$') t = t.substr(1);
+        else if (t.size() > 2 && t[0] == '0' && (t[1] == 'x' || t[1] == 'X')) t = t.substr(2);
+        else if (t.find_first_not_of("0123456789abcdefABCDEF") != std::string::npos) return false;
+        if (t.empty() || t.size() > 8 || t.find_first_not_of("0123456789abcdefABCDEF") != std::string::npos) return false;
+        v = (uint32_t)std::stoul(t, nullptr, radix);
+        return true;
+    };
+    auto isName = [](const std::string& n) {
+        if (n.empty() || !(std::isalpha((unsigned char)n[0]) || n[0] == '_' || n[0] == '.')) return false;
+        for (char c : n) if (!(std::isalnum((unsigned char)c) || c == '_' || c == '.')) return false;
+        return true;
+    };
+    std::string line;
+    int lineNo = 0;
+    while (std::getline(in, line)) {
+        lineNo++;
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        size_t f = line.find_first_not_of(" \t");
+        if (f == std::string::npos || line[f] == '#' || line[f] == ';') continue;
+        std::istringstream ls(line);
+        std::string a, b, c;
+        ls >> a >> b;
+        uint32_t v;
+        if (a == "al" && ls >> c) {                       // VICE: al C:ffd2 .chrout
+            size_t colon = b.find(':');
+            std::string addr = colon == std::string::npos ? b : b.substr(colon + 1);
+            if (!c.empty() && c[0] == '.') c = c.substr(1);
+            if (number(addr, v) && isName(c)) { out[v] = c; continue; }
+        } else if (b == "=" || (b.size() > 1 && b[0] == '=') || (a.find('=') != std::string::npos)) {
+            std::string rest = line.substr(f);           // NAME = $addr
+            size_t eq = rest.find('=');
+            std::string n = rest.substr(0, eq), val = rest.substr(eq + 1);
+            n.erase(n.find_last_not_of(" \t") + 1);
+            std::istringstream vs(val);
+            std::string vt;
+            vs >> vt;
+            if (isName(n) && number(vt, v)) { out[v] = n; continue; }
+        } else if (number(a, v) && isName(b)) {          // $addr NAME [comment]
+            out[v] = b;
+            continue;
+        }
+        error = path + ":" + std::to_string(lineNo) + ": not a symbol line (\"$addr NAME\", \"al C:addr .name\" or \"NAME = $addr\")";
+        return false;
+    }
+    return true;
+}
+
+// -S NAME without a file of that name: lib/symbols/NAME.sym beside the tools
+// (the build tree, or an installed one's lib/cc45/symbols)
+static std::string shippedSymbolFile(const std::string& name) {
+    if (name.find('/') != std::string::npos) return "";
+    char buf[4096];
+    ssize_t n = readlink("/proc/self/exe", buf, sizeof buf - 1);
+    if (n <= 0) return "";
+    buf[n] = 0;
+    std::string bin = buf;
+    bin = bin.substr(0, bin.find_last_of('/') + 1);
+    for (const char* d : {"../lib/symbols/", "../lib/cc45/symbols/"}) {
+        std::string p = bin + d + name + ".sym";
+        if (std::ifstream(p)) return p;
+    }
+    return "";
+}
+
 static void disassembleSection(const std::vector<uint8_t>& body, uint32_t base,
                                const char* sectionName,
                                const std::map<uint8_t, OpcodeInfo>& opcodeTable,
@@ -873,11 +954,14 @@ static void disassembleSection(const std::vector<uint8_t>& body, uint32_t base,
     while (i < body.size()) {
         uint32_t pc = base + (uint32_t)i;
 
-        // Print label if a symbol exists at this address
+        // Print label if a symbol exists at this address (else a symbol file's name)
         auto symIt = symbols.find(pc);
         if (symIt != symbols.end()) {
             std::cout << std::endl;
             printf("%08x <%s>:\n", pc, symIt->second.c_str());
+        } else if (g_fileSyms.count(pc)) {
+            std::cout << std::endl;
+            printf("%08x <%s>:\n", pc, g_fileSyms.at(pc).c_str());
         }
 
         // Print source line comment when location changes (range-based lookup)
@@ -1006,6 +1090,31 @@ static void disassembleSection(const std::vector<uint8_t>& body, uint32_t base,
             }
         }
 
+        // a symbol file's name for the address the operand names (not an
+        // immediate), when the program has none there: jsr CHROUT ; $ffd2
+        if (!g_fileSyms.empty() && annotation.empty() && opSize > 0 && info.mode != AddressingMode::IMMEDIATE &&
+            info.mode != AddressingMode::IMMEDIATE16 && info.mode != AddressingMode::BASE_PAGE_RELATIVE) {
+            uint32_t addr;
+            char hex[8];
+            if (info.mode == AddressingMode::RELATIVE || info.mode == AddressingMode::RELATIVE16) {
+                int off = info.mode == AddressingMode::RELATIVE ? (int8_t)body[o + 1]
+                                                                : (int16_t)(body[o + 1] | (body[o + 2] << 8));
+                addr = (pc + (uint32_t)pre + 2 + off) & 0xFFFF;
+                snprintf(hex, sizeof hex, "$%04x", addr);
+            } else if (opSize == 1) {
+                addr = body[o + 1];
+                snprintf(hex, sizeof hex, "$%02x", addr);
+            } else {
+                addr = body[o + 1] | (body[o + 2] << 8);
+                snprintf(hex, sizeof hex, "$%04x", addr);
+            }
+            auto fs = g_fileSyms.find(addr);
+            size_t at = operand.find(hex);
+            if (fs != g_fileSyms.end() && !symbols.count(addr) && at != std::string::npos) {
+                operand = operand.substr(0, at) + fs->second + operand.substr(at + strlen(hex));
+                annotation = std::string("\t; ") + hex;
+            }
+        }
         if (info.undocumented)
             annotation += annotation.empty() ? "\t; undocumented" : " (undocumented)";
         printf("    %04x:\t%s\t%s\t%s%s\n",
@@ -1273,6 +1382,9 @@ static void printUsage(const char* progName) {
     std::cout << "  -x       Show hex dump (with -bas option)" << std::endl;
     std::cout << "  -b ADDR  Set base address for raw binary files (default: $0000)" << std::endl;
     std::cout << "  -m FILE  Load symbols from linker map file (ln45 -M output)" << std::endl;
+    std::cout << "  -S FILE  Name ROM routines and I/O registers from a symbol file ($addr NAME lines, VICE's" << std::endl;
+    std::cout << "           al C:addr .name, or NAME = $addr; again for more): jsr CHROUT ; $ffd2. The shipped" << std::endl;
+    std::cout << "           sets: -S c64, -S mega65 (default: the CPU's, a $0801 PRG's c64); -S none: none" << std::endl;
     std::cout << "  --cpu=CPU  Decode for 45gs02 (the default), 65ce02, 6502 (documented opcodes; others as" << std::endl;
     std::cout << "           .byte) or 6510 (with the undocumented ones, marked); a .prg loading at $0801 is 6510" << std::endl;
     std::cout << "  -V       Display version" << std::endl;
@@ -1304,6 +1416,8 @@ int main(int argc, char** argv) {
     std::string mapFile;
     DisCpu cpu = DisCpu::CPU45GS02;
     bool cpuSet = false;
+    std::vector<std::string> symFiles;   // -S (none: no symbol file)
+    bool symNone = false;
     std::vector<std::string> files;
     int verbosity = 0;
     Logger::setTool("objdump45");
@@ -1335,6 +1449,14 @@ int main(int argc, char** argv) {
                 return 1;
             }
             mapFile = argv[++i];
+        } else if (arg == "-S") {
+            if (i + 1 >= argc) {
+                std::cerr << "objdump45: -S requires a symbol file (a file, c64, mega65 or none)" << std::endl;
+                return 1;
+            }
+            std::string f = argv[++i];
+            if (f == "none") symNone = true;
+            else symFiles.push_back(f);
         } else if (arg == "--cpu" || arg.rfind("--cpu=", 0) == 0) {
             std::string name;
             if (arg == "--cpu") {
@@ -1412,6 +1534,29 @@ int main(int argc, char** argv) {
     // The opcode table of the CPU (--cpu); a C64 PRG's own when no --cpu is given
     auto opcodeTable = buildOpcodeTable(cpu);
     std::map<uint8_t, OpcodeInfo> table6510;
+
+    // Symbol files (-S, #144): the ones named (a file, or a shipped set: c64,
+    // mega65), else the CPU's shipped set (6502/6510: c64, else mega65; a
+    // $0801 PRG's: c64); -S none: none
+    auto loadSyms = [&](const std::string& name, std::map<uint32_t, std::string>& into, bool quiet) -> bool {
+        std::string path = std::ifstream(name) ? name : shippedSymbolFile(name);
+        if (path.empty()) {
+            if (!quiet) std::cerr << "objdump45: -S " << name << ": no such file, and no shipped set of that name (c64, mega65)" << std::endl;
+            return false;
+        }
+        std::string err;
+        if (!loadSymbolFile(path, into, err)) { std::cerr << "objdump45: " << err << std::endl; return false; }
+        LOG_INFO("objdump45", "symbols from " << path << " (" << into.size() << ")");
+        return true;
+    };
+    std::map<uint32_t, std::string> c64Syms;
+    bool c64Loaded = false;
+    if (!symFiles.empty()) {
+        for (const auto& f : symFiles)
+            if (!loadSyms(f, g_fileSyms, false)) return 1;
+    } else if (!symNone) {
+        loadSyms(cpu == DisCpu::CPU6502 || cpu == DisCpu::CPU6510 ? "c64" : "mega65", g_fileSyms, true);
+    }
 
     int exitCode = 0;
 
@@ -1606,11 +1751,20 @@ int main(int argc, char** argv) {
                 // a C64 program (loaded at $0801) is 6510 code unless --cpu says otherwise
                 bool c64 = isPrg && !cpuSet && !baseAddrSet && base == 0x0801;
                 if (c64 && table6510.empty()) table6510 = buildOpcodeTable(DisCpu::CPU6510);
+                // (its symbols: the C64's, unless -S named some)
+                std::map<uint32_t, std::string> kept;
+                bool swap = c64 && symFiles.empty() && !symNone;
+                if (swap) {
+                    if (!c64Loaded) { loadSyms("c64", c64Syms, true); c64Loaded = true; }
+                    kept.swap(g_fileSyms);
+                    g_fileSyms = c64Syms;
+                }
                 disassembleSection(codeBody, codeBase,
                                  stubSkip ? "code" : (isPrg ? "PRG" : "BIN"),
                                  c64 ? table6510 : opcodeTable, prgSymbols, filename, srcLines, nullptr,
                                  c64 ? DisCpu::CPU6510 : cpu,
                                  c64 ? "loaded at $0801: decoded as 6510 (C64) code; --cpu=45gs02 for MEGA65 code" : nullptr);
+                if (swap) g_fileSyms.swap(kept);
             }
             // -h, -t, -r silently produce no output for raw binaries
         }

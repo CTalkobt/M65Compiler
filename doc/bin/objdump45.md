@@ -32,6 +32,7 @@ At least one display option (`-f`, `-h`, `-t`, `-r`, `-s`, `-d`, `-a` or `-bas`)
 | `-a` | All of `-f -h -t -r -s -d -g` |
 | `-b ADDR` | Base address for raw binaries (default `$0000`); overrides the load address of a `.prg`. `$C000` and `0xC000` are hex; a plain number is decimal (`2048`), and a leading `0` makes it octal |
 | `-m FILE` | Load symbols and source lines from an `ln45 -M` map file for PRG/binary disassembly. For `foo.prg`, `foo.map` is used automatically when it exists, else `foo.dbg` (ln45 `-g`: function names and source lines). With code overlays, a call into an overlay is labelled with the function's name at its stub; the overlays' own symbols are in the `.ovd` file |
+| `-S FILE` | Name ROM routines and I/O registers from a symbol file (again for more; see [Symbol files](#symbol-files)): `jsr CHROUT ; $ffd2`. `-S c64` and `-S mega65` are the shipped sets, the CPU's by default; `-S none` uses none |
 | `--cpu=CPU` | The CPU to decode for (`--cpu CPU` too): `45gs02` (the default; `4510`), `65ce02`, `6502` or `6510` (see [CPU modes](#cpu-modes)). Without it a `.prg` loading at `$0801` (a C64 program) is decoded as `6510`, with a note |
 | `-bas` | List the BASIC program of a `.prg` (line numbers, detokenised text) |
 | `-x` | With `-bas`: also show each line's bytes in hex |
@@ -153,6 +154,18 @@ Disassembly of section PRG (c64.prg):
     0801:	a7 10       	lax	$10	; undocumented
     0803:	60          	rts
 ```
+
+#### Symbol files
+
+An operand that names an address a symbol file names is shown by that name, the address after it (`jsr CHROUT ; $ffd2`, `sta VIC_SPR0COL,x ; $d027`, `jmp (CINV) ; $0314`; not an immediate), and a disassembled address with a name is labelled with it. The program's own symbols (an object's, a map's or a debug file's) come first.
+
+| `-S` | Symbols |
+|------|---------|
+| `c64` | `lib/symbols/c64.sym` (603): the KERNAL jump table under the names of Commodore's *Programmer's Reference Guide* (`CHROUT`, `CHKOUT` ...), the BASIC V2 and KERNAL routines a `JSR` or `JMP` in Commodore's ROM source reaches (its names, upper case; a routine a jump table entry reaches as `KRN_CINT`, BASIC's own `STOP` and `RESTOR` as `BAS_`), the RAM vectors `$0300`-`$0333` (`CINV` ...), the hardware vectors, the 6510's port (`D6510`, `R6510`) and the I/O registers: VIC-II (`VIC_BORDERCOL`, `VIC_SPR0X` ...), SID (`SID_V1FREQLO` ...), CIA 1 and 2 (`CIA1_PRA` ...), `COLORRAM`. The default for `--cpu=6502`/`6510` and a `$0801` PRG |
+| `mega65` | `lib/symbols/mega65.sym` (469): the KERNAL jump table (the C65 KERNAL keeps the C64's: `CHROUT` ...) and the I/O registers as `<mega65.h>` names them, its struct overlays' fields (`VIC4_BORDER`, `SID1_VOICE0_FREQ_LO`, `DMA_ADDR_LSB_TRIG`, `CIA1_PRA`, `HYPER_TRAP0`, array elements numbered) and its register `#define`s (`ASCII_KEY_QUEUE`). The default for the 45GS02 and 65CE02 |
+| a file | Lines of `$addr NAME [comment]` (also `0xaddr`, or plain hex), VICE's `al C:addr .name`, or `NAME = $addr`; `#` and `;` start comment lines. A line that is none of them is an error |
+
+Several `-S` add up (a later name for an address wins). The shipped sets are in `lib/symbols` (installed in `lib/cc45/symbols`), made by `tools/symbols/gen_symbols.py`: the C64's from Commodore's source (github.com/mist64/c64rom), converted with asmCvt45 and assembled with `ca45 --cpu 6502`, written only when the bytes are the ROMs' (901226-01, 901227-03); the MEGA65's from `<mega65.h>`. BASIC 65's entry points are not in the MEGA65 set (no documented list).
 
 Limitations for objects: addresses are object-relative (the not yet relocated operand bytes are shown, usually `$0000` for external references), and the DATA section is disassembled as if it were code. Disassemble the linked PRG with its map for real addresses.
 

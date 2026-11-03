@@ -4,6 +4,20 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### objdump45 -S: ROM and I/O symbol files (#144)
+
+- `-S FILE` (again for more): a symbol file's names for the operands and
+  labels: `jsr CHROUT ; $ffd2`, `sta VIC4_BORDER ; $d020`. Lines of `$addr
+  NAME [comment]`, VICE's `al C:addr .name`, or `NAME = $addr`.
+- Shipped sets, the CPU's by default (`-S none`: none): `-S c64` (603: the
+  KERNAL jump table, the BASIC V2 and KERNAL routines from Commodore's ROM
+  source, assembled with ca45 to the ROMs' bytes, the RAM vectors and the
+  I/O registers) and `-S mega65` (469: the jump table and every register of
+  `<mega65.h>`), in `lib/symbols` (installed in `lib/cc45/symbols`), made by
+  `tools/symbols/gen_symbols.py`.
+- `make install` builds `lib45/libca45.a` first (a fresh tree's install
+  failed: nothing built it).
+
 ### tune45 play of a C64 .sid (#393)
 
 - `tune45 play tune.sid [--song n] [--length s|m:ss] [--wav f]` plays a PSID

@@ -623,6 +623,54 @@ fi
 
 echo ""
 echo "========================================"
+# ─── -S: symbol files (#144) ───────────────────────────────────────────────
+echo "--- Test: -S symbol files ---"
+C=$BUILD/odsym
+mkdir -p $C
+# a C64 program: the shipped c64 set by default (jsr CHROUT, the VIC-II, a
+# RAM vector, the 6510's port); -S none: the addresses
+printf '        * = $0801\n        jsr $ffd2\n        sta $d020\n        sta $d027,x\n        jmp ($0314)\n        lda $01\n        rts\n' > $C/c64.s
+$AS --cpu 6502 -O0 $C/c64.s -o $C/c64.bin >/dev/null 2>&1
+(printf '\x01\x08'; cat $C/c64.bin) > $C/c64.prg
+out=$($OD -d $C/c64.prg)
+assert_contains "-S default for a \$0801 PRG: jsr CHROUT" "$out" "jsr	CHROUT	; \$ffd2"
+assert_contains "-S c64: sta VIC_BORDERCOL" "$out" "sta	VIC_BORDERCOL	; \$d020"
+assert_contains "-S c64: an indexed operand" "$out" "sta	VIC_SPR0COL,x	; \$d027"
+assert_contains "-S c64: jmp (CINV)" "$out" "jmp	(CINV)	; \$0314"
+assert_contains "-S c64: lda R6510" "$out" "lda	R6510	; \$01"
+assert_contains "-S none: the address" "$($OD -d -S none $C/c64.prg)" "jsr	\$ffd2"
+# MEGA65 code: the mega65 set (<mega65.h>'s names)
+printf '        * = $2000\n        jsr $ffd2\n        sta $d020\n        lda $d610\n        rts\n' > $C/m.s
+$AS -O0 $C/m.s -o $C/m.bin >/dev/null 2>&1
+out=$($OD -d -b '$2000' $C/m.bin)
+assert_contains "-S default for the 45GS02: jsr CHROUT" "$out" "jsr	CHROUT	; \$ffd2"
+assert_contains "-S mega65: sta VIC4_BORDER" "$out" "sta	VIC4_BORDER	; \$d020"
+assert_contains "-S mega65: a #define's name" "$out" "lda	ASCII_KEY_QUEUE	; \$d610"
+assert_contains "-S c64 on MEGA65 code" "$($OD -d -b '$2000' -S c64 $C/m.bin)" "sta	VIC_BORDERCOL"
+# a file of each format, a label where a name is in the range, and the
+# program's own symbols (a map's) before the file's
+printf '# mine\n$c000 MYROUT the first\nal C:c003 .other\nthird = $c006\n' > $C/my.sym
+printf '        * = $c000\n        jsr $c003\n        jsr $c006\n        rts\n        jsr $c000\n' > $C/r.s
+$AS -O0 $C/r.s -o $C/r.bin >/dev/null 2>&1
+out=$($OD -d -b '$c000' -S $C/my.sym $C/r.bin)
+assert_contains "-S file: a label where a name is" "$out" "0000c000 <MYROUT>:"
+assert_contains "-S file: VICE's al lines" "$out" "jsr	other	; \$c003"
+assert_contains "-S file: NAME = \$addr lines" "$out" "jsr	third	; \$c006"
+assert_contains "-S file: the label as an operand" "$out" "jsr	MYROUT	; \$c000"
+assert_not_contains "-S file: only the file's (not the CPU's set)" "$($OD -d -b '$2000' -S $C/my.sym $C/m.bin)" "CHROUT"
+# the errors
+err=$($OD -d -b '$c000' -S $C/nosuch $C/r.bin 2>&1); rc=$?
+[ $rc -ne 0 ] && echo "$err" | grep -q "no such file, and no shipped set of that name" && pass "-S: a missing file" || fail "-S nosuch: rc $rc: $err"
+printf '$c000 MYROUT\nthis is not one\n' > $C/bad.sym
+err=$($OD -d -b '$c000' -S $C/bad.sym $C/r.bin 2>&1); rc=$?
+[ $rc -ne 0 ] && echo "$err" | grep -q "bad.sym:2: not a symbol line" && pass "-S: a bad line" || fail "-S bad.sym: rc $rc: $err"
+# the shipped sets load, every line
+for set in c64 mega65; do
+    n=$(grep -c '^\$' lib/symbols/$set.sym)
+    $OD -v -d -b '$2000' -S $set $C/m.bin 2>&1 | grep -q "symbols from .*lib/symbols/$set.sym ($n)" &&
+        pass "-S $set: its $n symbols" || fail "-S $set does not load its $n symbols"
+done
+
 echo "objdump45 tests: $passed passed, $failed failed"
 echo "========================================"
 
