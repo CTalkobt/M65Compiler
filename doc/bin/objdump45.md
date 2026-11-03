@@ -33,6 +33,7 @@ At least one display option (`-f`, `-h`, `-t`, `-r`, `-s`, `-d`, `-a` or `-bas`)
 | `-b ADDR` | Base address for raw binaries (default `$0000`); overrides the load address of a `.prg`. `$C000` and `0xC000` are hex; a plain number is decimal (`2048`), and a leading `0` makes it octal |
 | `-m FILE` | Load symbols and source lines from an `ln45 -M` map file for PRG/binary disassembly. For `foo.prg`, `foo.map` is used automatically when it exists, else `foo.dbg` (ln45 `-g`: function names and source lines). With code overlays, a call into an overlay is labelled with the function's name at its stub; the overlays' own symbols are in the `.ovd` file |
 | `-S FILE` | Name ROM routines and I/O registers from a symbol file (again for more; see [Symbol files](#symbol-files)): `jsr CHROUT ; $ffd2`. `-S c64` and `-S mega65` are the shipped sets, the CPU's by default; `-S none` uses none |
+| `--source` | A PRG or binary as ca45 source that assembles back to its bytes (see [Assemblable source](#assemblable-source)); `--entry ADDR` (again for more) code a pointer reaches, `--data A-B` a range that is data |
 | `--cpu=CPU` | The CPU to decode for (`--cpu CPU` too): `45gs02` (the default; `4510`), `65ce02`, `6502` or `6510` (see [CPU modes](#cpu-modes)). Without it a `.prg` loading at `$0801` (a C64 program) is decoded as `6510`, with a note |
 | `-bas` | List the BASIC program of a `.prg` (line numbers, detokenised text) |
 | `-x` | With `-bas`: also show each line's bytes in hex |
@@ -166,6 +167,42 @@ An operand that names an address a symbol file names is shown by that name, the 
 | a file | Lines of `$addr NAME [comment]` (also `0xaddr`, or plain hex), VICE's `al C:addr .name`, or `NAME = $addr`; `#` and `;` start comment lines. A line that is none of them is an error |
 
 Several `-S` add up (a later name for an address wins). The shipped sets are in `lib/symbols` (installed in `lib/cc45/symbols`), made by `tools/symbols/gen_symbols.py`: the C64's from Commodore's source (github.com/mist64/c64rom), converted with asmCvt45 and assembled with `ca45 --cpu 6502`, written only when the bytes are the ROMs' (901226-01, 901227-03); the MEGA65's from `<mega65.h>`. BASIC 65's entry points are not in the MEGA65 set (no documented list).
+
+#### Assemblable source
+
+`objdump45 --source prog.prg > prog.s45` writes the PRG (or a binary, `-b ADDR`) as ca45 source; `ca45 prog.s45 -o same.prg` gives back its bytes (at any `-O`: the code is between `.noopt_start` and `.noopt_end`).
+
+- **Code** is what the entry points reach: a BASIC stub's `SYS` target (else the start), and `--entry ADDR`, following branches, jumps and calls to the end of each path (`rts`, `rti`, `jmp`, `bra`, `brk`). Everything else, and `--data A-B` ranges, is `.byte` (8 a line), the BASIC stub too: code reached only through a pointer needs its `--entry`.
+- **Labels** at the targets inside the file: the program's names (an object's, the map's `foo.map`, `-m`, or the debug file's), a symbol file's (`-S`), else `L_xxxx`; an operand into the middle of an instruction (self-modifying code) is `L_xxxx+n`. Names outside the file are equates before the code (`CHROUT = $FFD2`).
+- **Exact bytes**: an absolute operand below `$100` is `lda.abs $0012` (ca45 would pick the base-page form); the 45GS02's NEG NEG before an instruction with a Q form is that instruction (`ldq $12`, ca45's names `cmpq`, `oraq`; not BITQ, ASRQ, which ca45 has not); written as `.byte` with the instruction in a comment: a 16-bit branch whose target an 8-bit one reaches (ca45 would shorten it), the 6510's undocumented opcodes (`; lax $10 (undocumented)`), the 65CE02's `aug`; the 65CE02's `nop` is `eom` (its byte, `$EA`). 6502/6510 code is under `.cpu 6502`.
+- Not for objects (link them first) or overlay files.
+
+Tested by `test_objdump45.sh`: every opcode of each CPU (and the 45GS02's after NEG NEG), random operands, each an entry, assembled back with `CA45_OPTIMIZE=0`; programs cc45 made, in both conventions; a C64 program with a BASIC stub, `--data` and `--entry`.
+
+```
+$ objdump45 --source c64.prg
+; c64.prg as ca45 source (objdump45 --source, 6510): ca45 <this> -o <out>.prg assembles it back
+        .cpu 6502
+CHROUT = $FFD2
+        * = $0801
+        .noopt_start
+        .byte $0b, $08, $0a, $00, $9e, $32, $30, $36
+        .byte $31, $00, $00, $00
+L_080D:
+        ldx #$00
+L_080F:
+        lda L_081D,x            ; $081d
+        beq L_081A              ; $081a
+        jsr CHROUT              ; $ffd2
+        inx
+        bne L_080F              ; $080f
+L_081A:
+        .byte $a7, $10          ; lax $10 (undocumented)
+        rts
+L_081D:
+        .byte $48, $49, $00
+        .noopt_end
+```
 
 Limitations for objects: addresses are object-relative (the not yet relocated operand bytes are shown, usually `$0000` for external references), and the DATA section is disassembled as if it were code. Disassemble the linked PRG with its map for real addresses.
 

@@ -4,6 +4,18 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### objdump45 --source: assemblable ca45 source (#144)
+
+- `objdump45 --source prog.prg` writes a PRG or binary as ca45 source that
+  assembles back to its bytes: the code reachable from its BASIC stub's SYS
+  target (else its start, and `--entry ADDR`) as instructions, labels
+  (`L_xxxx`, or the program's / `-S` names; `L_xxxx+n` into an instruction),
+  the names outside it as equates, the rest (and `--data A-B`) as `.byte`.
+  `.abs` where ca45 would pick a base-page form, `ldq ...` for NEG NEG, and
+  as `.byte` with the instruction in a comment: a 16-bit branch an 8-bit one
+  reaches, the 6510's undocumented opcodes, `aug`. Checked on every opcode of
+  each CPU and on programs cc45 made.
+
 ### objdump45 -S: ROM and I/O symbol files (#144)
 
 - `-S FILE` (again for more): a symbol file's names for the operands and
