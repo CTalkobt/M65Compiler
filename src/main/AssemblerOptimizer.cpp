@@ -1360,6 +1360,18 @@ bool AssemblerOptimizer::optimizeInternal(
             } else if (dir == "noopt_end") {
                 inNoOptRegion = false;
             }
+            // Data among the code may be instructions written as bytes
+            // (.byte $42,$42,$ea,$b2,$20 is ldq [$20],z): what the registers,
+            // flags and memory hold is no longer known. (Not in the data, bss
+            // and zp segments: never run)
+            static const std::set<std::string> dataDirs = {
+                "byte", "word", "dword", "long", "float", "text", "ascii", "screencode",
+                "res", "fill", "fillto", "space", "incbin"};
+            const std::string& seg = s->segmentName;
+            if (dataDirs.count(dir) && seg != "data" && seg != "bss" && seg != "zp") {
+                ms.invalidateAll();
+                stackVarLastValue.clear();
+            }
             // Directives don't need optimization, skip to next statement
             continue;
         }

@@ -1,3 +1,6 @@
+# `make` with no target builds every tool (the library rules come before `all:`)
+.DEFAULT_GOAL := all
+
 CXX ?= g++
 GIT_HASH := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 EXTRA_CXXFLAGS ?=

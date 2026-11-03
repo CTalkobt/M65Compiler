@@ -4,6 +4,20 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### ca45: loads after instructions written as data are kept
+
+- The optimiser kept what it knew of the registers across a `.byte` or
+  `.word` among the code, so an instruction written as bytes went unseen:
+  after `.byte $42,$42,$ea,$b2,$20` (`ldq [$20],z`, which loads X and Z) it
+  dropped the `ldx #0` / `ldz #0` that followed as redundant (at `-O1` and
+  up; mmsim's `tests/45gs02/quad.s` stored X=$BB and its ADCQ test failed).
+  A data directive outside the `data`, `bss` and `zp` segments now ends what
+  the passes know, as a label does. The standard library assembles to the
+  same bytes. Test in `src/test/test_assembler.sh`.
+- `make` with no target builds every tool again (`.DEFAULT_GOAL := all`):
+  since the library rules came before `all:` (2026-08-23) it built only
+  `lib45/lib45-common.a`.
+
 ### objdump45 --cpu: 6502, 6510 and 65CE02 code (#144)
 
 - `objdump45 --cpu=6502|6510|65ce02|45gs02` (`--cpu CPU`) chooses the

@@ -1298,6 +1298,24 @@ else
     failed=$((failed + 1))
 fi
 
+# Instructions written as data: .byte $42,$42,$ea,$b2,$20 is ldq [$20],z,
+# which loads X and Z, so the ldx #0 / ldz #0 after it stay (-O2 dropped
+# them: mmsim's tests/45gs02/quad.s stored X=$BB)
+C=build/test/databytes
+mkdir -p $C
+printf '        * = $2000\n        ldx #0\n        ldz #0\n        .byte $42,$42,$ea,$b2,$20\n        ldx #0\n        ldz #0\n        stq $10\n        rts\n' > $C/b.s
+printf '        * = $2000\n        ldx #0\n        ldz #0\n        .word $4242\n        .byte $ea,$b2,$20\n        ldx #0\n        ldz #0\n        stq $10\n        rts\n' > $C/w.s
+$AS -O2 -o $C/b.bin $C/b.s >/dev/null 2>&1
+$AS -O2 -o $C/w.bin $C/w.s >/dev/null 2>&1
+WANT=a200a3004242eab220a200a3004242851060
+if [ "$(xxd -p $C/b.bin | tr -d '\n')" = "$WANT" ] && [ "$(xxd -p $C/w.bin | tr -d '\n')" = "$WANT" ]; then
+    echo "SUCCESS: loads after instructions written as .byte / .word are kept"
+    passed=$((passed + 1))
+else
+    echo "FAIL: data in code: .byte $(xxd -p $C/b.bin | tr -d '\n') .word $(xxd -p $C/w.bin | tr -d '\n')"
+    failed=$((failed + 1))
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All assembler feature tests passed!"
     exit 0
