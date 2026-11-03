@@ -2468,6 +2468,11 @@ int AssemblerParser::calculateInstructionSize(const Instruction& instr, uint32_t
             }
             int32_t diff = (int32_t)target - (int32_t)(currentAddr + 2);
             if (diff >= -128 && diff <= 127) return 2;
+            // a forward target measured while this branch is 16-bit is a byte
+            // nearer once it is not: an offset of 127 fits (both sizes hold
+            // then, and the long one was kept: bra/bvs +127 grew to 16 bits,
+            // an error with --cpu 6502)
+            if (stmt && stmt->size == 3 && diff == 128) return 2;
         } catch (...) {}
         return 3;
     }
