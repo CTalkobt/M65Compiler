@@ -352,6 +352,9 @@ public:
         bool deleted = false;
         bool seqRoutine = false;   // part of a routine SeqExtract made (not extracted again)
         bool noOpt = false;        // between .noopt_start and .noopt_end: no pass changes it
+        bool selfModified = false; // a store writes into it (sta lbl+1): left as written, #394
+        bool noSeqExtract = false; // between .opt NoSeqExtract and .opt SeqExtract (#394)
+        bool reportedLoopInline = false; // -Roptimizer said SeqExtract left its loop inline
         bool reportedDead = false; // -Roptimizer has reported it left out after a return (#365)
         std::vector<uint8_t> bytes; // Captured machine code for listing
 
