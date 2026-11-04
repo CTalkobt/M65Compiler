@@ -2795,7 +2795,9 @@ IRCodeGen::FuncClobbers IRCodeGen::computeFuncClobbers(const ir::Function& fn) {
                 case ir::Op::DIV_U:
                 case ir::Op::MOD:
                 case ir::Op::MOD_U:
-                    fc.regs |= A | X;    // hardware math, result in AX
+                    // hardware math, result in AX; Y too: a constant factor
+                    // is a call of __mul16y / __mul16 with it in Y
+                    fc.regs |= A | X | Y;
                     fc.flags |= C | N | ZF | V;
                     if (inst.resultType == ir::Type::I32) fc.regs |= Y | Z;
                     break;
@@ -2870,7 +2872,7 @@ IRCodeGen::FuncClobbers IRCodeGen::computeFuncClobbers(const ir::Function& fn) {
                     break;
 
                 case ir::Op::ADDR_ELEM:
-                    fc.regs |= A | X;    // mul.16 + add.16
+                    fc.regs |= A | X | Y;    // mul.16 (or __mul16y: Y) + add.16
                     fc.flags |= C | N | ZF | V;
                     break;
 
