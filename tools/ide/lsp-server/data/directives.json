@@ -1,160 +1,365 @@
 {
-  "directives": [
-    {
-      "name": "byte",
-      "description": "Emit one or more bytes",
-      "syntax": ".byte <expr> [, <expr>...]",
-      "example": ".byte 0x42, 0x43"
-    },
-    {
-      "name": "word",
-      "description": "Emit one or more 16-bit words (little-endian)",
-      "syntax": ".word <expr> [, <expr>...]",
-      "example": ".word 0x1234, 0x5678"
-    },
-    {
-      "name": "long",
-      "description": "Emit one or more 32-bit values (little-endian)",
-      "syntax": ".long <expr> [, <expr>...]",
-      "example": ".long 0x12345678"
-    },
-    {
-      "name": "ascii",
-      "description": "Emit ASCII string (no null terminator)",
-      "syntax": ".ascii \"text\"",
-      "example": ".ascii \"hello\""
-    },
-    {
-      "name": "asciiz",
-      "description": "Emit null-terminated ASCII string",
-      "syntax": ".asciiz \"text\"",
-      "example": ".asciiz \"hello\""
-    },
-    {
-      "name": "text",
-      "description": "Enter text/code section",
-      "syntax": ".text",
-      "example": ".text"
-    },
-    {
-      "name": "data",
-      "description": "Enter data section",
-      "syntax": ".data",
-      "example": ".data"
-    },
-    {
-      "name": "align",
-      "description": "Align to boundary",
-      "syntax": ".align <expr>",
-      "example": ".align 256"
-    },
-    {
-      "name": "global",
-      "description": "Make symbol globally visible (export)",
-      "syntax": ".global <label>",
-      "example": ".global main"
-    },
-    {
-      "name": "extern",
-      "description": "Reference external symbol (import)",
-      "syntax": ".extern <label>",
-      "example": ".extern malloc"
-    },
-    {
-      "name": "o45",
-      "description": "Generate .o45 relocatable object format",
-      "syntax": ".o45",
-      "example": ".o45"
-    },
-    {
-      "name": "func_flags",
-      "description": "Set function metadata flags",
-      "syntax": ".func_flags <flags>",
-      "example": ".func_flags leaf"
-    },
-    {
-      "name": "reg_clobbers",
-      "description": "Declare which registers are clobbered by function",
-      "syntax": ".reg_clobbers <mask>",
-      "example": ".reg_clobbers 0x03"
-    },
-    {
-      "name": "flag_clobbers",
-      "description": "Declare which CPU flags are clobbered",
-      "syntax": ".flag_clobbers <mask>",
-      "example": ".flag_clobbers 0xFF"
-    },
-    {
-      "name": "zp_uses",
-      "description": "Declare zero-page locations used by function",
-      "syntax": ".zp_uses <addr>",
-      "example": ".zp_uses 0x20"
-    },
-    {
-      "name": "zp_clobbers",
-      "description": "Declare zero-page locations clobbered by function",
-      "syntax": ".zp_clobbers <addr>",
-      "example": ".zp_clobbers 0x20-0x2F"
-    },
-    {
-      "name": "loc",
-      "description": "Emit debug location info (source line mapping)",
-      "syntax": ".loc <file> <line> <column>",
-      "example": ".loc main.c 42 0"
-    },
-    {
-      "name": "if",
-      "description": "Start conditional assembly block",
-      "syntax": ".if <expr>",
-      "example": ".if DEBUG"
-    },
-    {
-      "name": "else",
-      "description": "Else branch for conditional assembly",
-      "syntax": ".else",
-      "example": ".else"
-    },
-    {
-      "name": "endif",
-      "description": "End conditional assembly block",
-      "syntax": ".endif",
-      "example": ".endif"
-    },
-    {
-      "name": "ifdef",
-      "description": "Conditional assembly if symbol defined",
-      "syntax": ".ifdef <symbol>",
-      "example": ".ifdef DEBUG"
-    },
-    {
-      "name": "ifndef",
-      "description": "Conditional assembly if symbol not defined",
-      "syntax": ".ifndef <symbol>",
-      "example": ".ifndef RELEASE"
-    },
-    {
-      "name": "cpu",
-      "description": "Specify CPU type for assembler",
-      "syntax": ".cpu \"65c02\" or \"45gs02\"",
-      "example": ".cpu \"45gs02\""
-    },
-    {
-      "name": "screencode",
-      "description": "Emit screencode string",
-      "syntax": ".screencode \"text\"",
-      "example": ".screencode \"hello\""
-    },
-    {
-      "name": "fill",
-      "description": "Fill memory with value",
-      "syntax": ".fill <count>, <value>",
-      "example": ".fill 256, 0xFF"
-    },
-    {
-      "name": "space",
-      "description": "Reserve space (same as .fill with 0)",
-      "syntax": ".space <count>",
-      "example": ".space 256"
-    }
-  ]
+ "generatedFrom": "doc/bin/ca45.md",
+ "directives": [
+  {
+   "name": "byte",
+   "description": "One byte per argument: an expression or a character literal (-1 is $FF).",
+   "syntax": ".byte v, …",
+   "example": ".byte v, …"
+  },
+  {
+   "name": "word",
+   "description": "16-bit little-endian words; each argument is an expression. A relocatable symbol (lbl, lbl + n, lbl - n) gets a relocation in -c mode; a difference of two labels of one segment (end - start, end - start + 1) is a constant (see *Label expressions* under Relocatable Objects).",
+   "syntax": ".word v, …",
+   "example": ".word v, …"
+  },
+  {
+   "name": "dword",
+   "description": "32-bit little-endian; each argument is an expression (a symbol: an R_LINEAR32 relocation with -c).",
+   "syntax": ".dword v, …",
+   "example": ".dword v, … / .long v, …"
+  },
+  {
+   "name": "long",
+   "description": "32-bit little-endian; each argument is an expression (a symbol: an R_LINEAR32 relocation with -c).",
+   "syntax": ".long v, …",
+   "example": ".dword v, … / .long v, …"
+  },
+  {
+   "name": "float",
+   "description": "5-byte CBM floating point, rounded to nearest (.float 1.5 → 81 40 00 00 00; -1.0, 1.0e20).",
+   "syntax": ".float v, …",
+   "example": ".float v, …"
+  },
+  {
+   "name": "text",
+   "description": "PETSCII string (letters case-swapped: a-z → $41-$5A, A-Z → $C1-$DA; \\n → $0D). Exactly one string argument.",
+   "syntax": ".text \"s\"",
+   "example": ".text \"s\""
+  },
+  {
+   "name": "ascii",
+   "description": "Raw ASCII (\\n → $0A).",
+   "syntax": ".ascii \"s\"",
+   "example": ".ascii \"s\""
+  },
+  {
+   "name": "screencode",
+   "description": "Screen codes (@→0, A/a→1 …).",
+   "syntax": ".screencode \"s\"",
+   "example": ".screencode \"s\""
+  },
+  {
+   "name": "res",
+   "description": "Reserve n bytes of fill (default 0); both are expressions. In .bss no bytes are emitted.",
+   "syntax": ".res n[, fill]",
+   "example": ".res n[, fill], .fill n[, fill], .space n[, fill]"
+  },
+  {
+   "name": "fill",
+   "description": "Reserve n bytes of fill (default 0); both are expressions. In .bss no bytes are emitted.",
+   "syntax": ".fill n[, fill]",
+   "example": ".res n[, fill], .fill n[, fill], .space n[, fill]"
+  },
+  {
+   "name": "space",
+   "description": "Reserve n bytes of fill (default 0); both are expressions. In .bss no bytes are emitted.",
+   "syntax": ".space n[, fill]",
+   "example": ".res n[, fill], .fill n[, fill], .space n[, fill]"
+  },
+  {
+   "name": "align",
+   "description": "Pad to a multiple of n (n non-zero literal; fill an expression). In an object (-c) the padding counts from the object's part of the segment: ca45 exports the weak absolute cc45.align.text / .data / .bss (the largest n in that segment), so ln45 places that part on such a boundary ([lib45](../architecture/lib45.md)); zp and the far / bank sub-segments are not marked.",
+   "syntax": ".align n[, fill]",
+   "example": ".align n[, fill], .balign n[, fill]"
+  },
+  {
+   "name": "balign",
+   "description": "Pad to a multiple of n (n non-zero literal; fill an expression). In an object (-c) the padding counts from the object's part of the segment: ca45 exports the weak absolute cc45.align.text / .data / .bss (the largest n in that segment), so ln45 places that part on such a boundary ([lib45](../architecture/lib45.md)); zp and the far / bank sub-segments are not marked.",
+   "syntax": ".balign n[, fill]",
+   "example": ".align n[, fill], .balign n[, fill]"
+  },
+  {
+   "name": "fillto",
+   "description": "Pad up to addr; error if already past it.",
+   "syntax": ".fillto addr[, fill]",
+   "example": ".fillto addr[, fill]"
+  },
+  {
+   "name": "incbin",
+   "description": "Insert a file's bytes (path relative to the current directory).",
+   "syntax": ".incbin \"file\"",
+   "example": ".incbin \"file\", .import binary \"file\""
+  },
+  {
+   "name": "import",
+   "description": "Insert a file's bytes (path relative to the current directory).",
+   "syntax": ".import binary \"file\"",
+   "example": ".incbin \"file\", .import binary \"file\""
+  },
+  {
+   "name": "array",
+   "description": "Reserve a zero-filled row-major array; see *Arrays*.",
+   "syntax": ".array name, elsize, dim0[, dim1 …]",
+   "example": ".array name, elsize, dim0[, dim1 …]"
+  },
+  {
+   "name": "basicupstart",
+   "description": "BASIC line 10 SYS addr (8 bytes plus the address's decimal digits: 12 for $080D, 13 for an address of 10000 or more); sets the origin to $2001 if no .org came first. A label defined *after* the stub is assumed to have 4 digits (an error says so if it has 5).",
+   "syntax": ".basicUpstart addr",
+   "example": ".basicUpstart addr"
+  },
+  {
+   "name": "org",
+   "description": "Set the program counter (an expression of symbols defined before it: * = base + $10).",
+   "syntax": ".org addr",
+   "example": ".org addr, * = addr"
+  },
+  {
+   "name": "segment",
+   "description": "Switch segment; .segment \"name\" { … } switches back after the block. Text segments other than code (init, far — cc45's __far functions, which ln45 keeps in far memory) are text sub-segments of the .o45: references into them are relocated to their place in the object's text, and a call or jump into another segment is never shortened to a relative BSR/BRA.",
+   "syntax": ".segment name",
+   "example": ".segment name / .segment \"name\""
+  },
+  {
+   "name": "code",
+   "description": "Shortcuts for the segments code, data, bss. .segment \"zp\" holds base-page variables: in an object ln45 places them in the program's base page (see Relocatable Objects).",
+   "syntax": ".code",
+   "example": ".code, .data, .bss"
+  },
+  {
+   "name": "data",
+   "description": "Shortcuts for the segments code, data, bss. .segment \"zp\" holds base-page variables: in an object ln45 places them in the program's base page (see Relocatable Objects).",
+   "syntax": ".data",
+   "example": ".code, .data, .bss"
+  },
+  {
+   "name": "bss",
+   "description": "Shortcuts for the segments code, data, bss. .segment \"zp\" holds base-page variables: in an object ln45 places them in the program's base page (see Relocatable Objects).",
+   "syntax": ".bss",
+   "example": ".code, .data, .bss"
+  },
+  {
+   "name": "segmentorder",
+   "description": "Order in which segments are written (default init, code, data, bss, then the others in order of appearance, including default — the segment used before any switch).",
+   "syntax": ".segmentOrder a, b, …",
+   "example": ".segmentOrder a, b, …"
+  },
+  {
+   "name": "cpu",
+   "description": "The CPU the code is for, as --cpu (6502, 6510, 45gs02, _45gs02, 4510). Put it before the code. Other names (65c02, 65816) are accepted and ignored: the code is assembled for the 45GS02.",
+   "syntax": ".cpu name",
+   "example": ".cpu name"
+  },
+  {
+   "name": "const",
+   "description": "Constant; redefining it (or assigning it with =) is an error.",
+   "syntax": ".const NAME = expr",
+   "example": ".const NAME = expr"
+  },
+  {
+   "name": "var",
+   "description": "Assembler variable that can be reassigned; reassignments are tracked by position (++/-- change it by exactly one).",
+   "syntax": ".var NAME = expr",
+   "example": ".var NAME = expr, .var NAME++, .var NAME--"
+  },
+  {
+   "name": "global",
+   "description": "Export symbols from a .o45.",
+   "syntax": ".global a, b",
+   "example": ".global a, b"
+  },
+  {
+   "name": "weak",
+   "description": "Export as weak: a strong (.global) definition in another object wins at link time. In -c objects every reference to a weak *label*, also from the defining object, is relocated by name, so it reaches the strong definition when one is linked. A weak *absolute* symbol (.weak x / x = value) is used at its value in the defining object (so a base-page value keeps its base-page addressing); the object records the weak absolute symbols its code used (OPT_WEAKUSE), and ln45 refuses a program that defines one of them with another value (a default nothing in the object uses may be overridden freely). For a default that other code overrides, declare the symbol .extern where it is used and define the weak default in another object.",
+   "syntax": ".weak a, b",
+   "example": ".weak a, b"
+  },
+  {
+   "name": "extern",
+   "description": "Import symbols (value 0 until linked; one the file also defines, before or after the .extern, is that definition, as extern int x; int x; in C). An .extern base-page symbol is assembled as absolute. Only an object (-c) is linked: in a flat binary or .prg, using an .extern symbol that the source does not define is an error. An imported symbol can be used only in a form a relocation holds: sym, sym + n, n + sym, sym - n, < or > of those (as operands, .word/.long data); anything else (sym * 3, .word sym / 2), a use where the value is needed while assembling (.res, .fill, .align, .org, x = sym + 1), and a form the assembler cannot relocate (#(sym + 2), .byte <sym) are errors.",
+   "syntax": ".extern a, b",
+   "example": ".extern a, b"
+  },
+  {
+   "name": "local",
+   "description": "Name a frame offset for the .fp instructions.",
+   "syntax": ".local NAME = offset",
+   "example": ".local NAME = offset"
+  },
+  {
+   "name": "func_flags",
+   "description": "Function attribute flags: zp_call, stack_call, leaf, reentrant, static_alloc, zeroalloc, isr.",
+   "syntax": ".func_flags f, …",
+   "example": ".func_flags f, …"
+  },
+  {
+   "name": "reg_clobbers",
+   "description": "Registers not preserved.",
+   "syntax": ".reg_clobbers A, X, Y, Z",
+   "example": ".reg_clobbers A, X, Y, Z"
+  },
+  {
+   "name": "flag_clobbers",
+   "description": "Flags not preserved.",
+   "syntax": ".flag_clobbers C, N, Z, V",
+   "example": ".flag_clobbers C, N, Z, V"
+  },
+  {
+   "name": "zp_uses",
+   "description": "Base-page bytes read as parameters / overwritten / consumed: any of $00–$FF, recorded as the addresses themselves (#360; cc45.zeroPageStart does not change them); an address over $FF is an error (.zp_uses $100 is not a base-page address). ln45's stack-to-ZP bridge copies the parameter bytes up to the highest one .zp_uses names in $10–$2F.",
+   "syntax": ".zp_uses a, …",
+   "example": ".zp_uses a, … / .zp_clobbers a, … / .zp_release a, …"
+  },
+  {
+   "name": "zp_clobbers",
+   "description": "Base-page bytes read as parameters / overwritten / consumed: any of $00–$FF, recorded as the addresses themselves (#360; cc45.zeroPageStart does not change them); an address over $FF is an error (.zp_uses $100 is not a base-page address). ln45's stack-to-ZP bridge copies the parameter bytes up to the highest one .zp_uses names in $10–$2F.",
+   "syntax": ".zp_clobbers a, …",
+   "example": ".zp_uses a, … / .zp_clobbers a, … / .zp_release a, …"
+  },
+  {
+   "name": "zp_release",
+   "description": "Base-page bytes read as parameters / overwritten / consumed: any of $00–$FF, recorded as the addresses themselves (#360; cc45.zeroPageStart does not change them); an address over $FF is an error (.zp_uses $100 is not a base-page address). ln45's stack-to-ZP bridge copies the parameter bytes up to the highest one .zp_uses names in $10–$2F.",
+   "syntax": ".zp_release a, …",
+   "example": ".zp_uses a, … / .zp_clobbers a, … / .zp_release a, …"
+  },
+  {
+   "name": "frame_size",
+   "description": "Frame/activation record size (0–65535).",
+   "syntax": ".frame_size n",
+   "example": ".frame_size n"
+  },
+  {
+   "name": "param_sizes",
+   "description": "Parameter sizes in bytes (1–255).",
+   "syntax": ".param_sizes s, …",
+   "example": ".param_sizes s, …"
+  },
+  {
+   "name": "param_const",
+   "description": "Constant-argument hint for the linker.",
+   "syntax": ".param_const fn idx value",
+   "example": ".param_const fn idx value"
+  },
+  {
+   "name": "cleanup",
+   "description": "Add n bytes to the procedure's parameter size.",
+   "syntax": ".cleanup n",
+   "example": ".cleanup n"
+  },
+  {
+   "name": "frameptr_zp",
+   "description": "Base-page address of the frame pointer used by offset, sp and .fp accesses (default $FD).",
+   "syntax": ".frameptr_zp $nn",
+   "example": ".frameptr_zp $nn"
+  },
+  {
+   "name": "sac",
+   "description": "Mark the current procedure as statically allocated (compiler use).",
+   "syntax": ".sac",
+   "example": ".sac"
+  },
+  {
+   "name": "zpsym",
+   "description": "Base-page bytes start…start+len-1 stand for the linker-placed variable name (cc45 __zp globals; declare it .extern too). In -c mode every base-page operand in that range, in any procedure, gets an R_LOWX relocation against name (the offset in the range as its byte), and an operand of an instruction without a base-page mode (ldz, lda abs,y) an R_WORD against it: name is the variable's full address in the program's base page, so both reach the same byte. Ignored when assembling a flat binary.",
+   "syntax": ".zpsym name, start, len",
+   "example": ".zpsym name, start, len"
+  },
+  {
+   "name": "zar",
+   "description": "The procedure's own base-page bytes start…start+len-1 (cc45 uses $80). In -c mode every base-page operand in that range — plain, indexed, indirect, bbs/bbr, and inside simulated instructions — gets an R_LOWX relocation against the import <proc>__zar, with its offset in the block as the byte; ln45 defines <proc>__zar where it places the block (see ln45, base-page blocks). Ignored when assembling a flat binary.",
+   "syntax": ".zar start, len",
+   "example": ".zar start, len"
+  },
+  {
+   "name": "bptop",
+   "description": "The end of the register pool ($30–$7F) the object uses, $30–$80, instead of the one ca45 finds (see below). For code that names the ROM's page 0 while the base page is switched there (the library's float code reads the ROM's FAC at $63–$71 that way).",
+   "syntax": ".bptop $nn",
+   "example": ".bptop $nn"
+  },
+  {
+   "name": "bpindex",
+   "description": "The indexed base-page operands that follow ($nn,x, $nn,y, ($nn,x)) reach at most n bytes from theirs (0, the default: any byte above it), until the next .bpindex. cc45 says 5 around its float copies.",
+   "syntax": ".bpindex n",
+   "example": ".bpindex n"
+  },
+  {
+   "name": "loc",
+   "description": "Attribute following code to a source line (listings, -Roptimizer, debug info).",
+   "syntax": ".loc \"file\", line",
+   "example": ".loc \"file\", line"
+  },
+  {
+   "name": "dbg_var",
+   "description": "A C variable for a debugger (cc45 writes them after each endproc, and the module's after its data): an OPT_DEBUG_VARS entry in -c mode. A sym:NAME[+n] location is resolved to the object's segment and offset (seg:bss+12), an import (imp:NAME+n), an equate's value (abs:$XXXX) or none when the symbol is not defined (a local optimised away). No bytes. See lib45.md 1.12.",
+   "syntax": ".dbg_var \"kind scope name type location\"",
+   "example": ".dbg_var \"kind scope name type location\""
+  },
+  {
+   "name": "dbg_type",
+   "description": "A struct / union layout for the debug types (OPT_DEBUG_TYPES; a long one goes on in further entries). No bytes.",
+   "syntax": ".dbg_type \"struct NAME SIZE member@offset:type ...\"",
+   "example": ".dbg_type \"struct NAME SIZE member@offset:type ...\""
+  },
+  {
+   "name": "noopt_start",
+   "description": "The statements between them are left as written by every optimization pass (cc45's #pragma cc45 optimize(off)). The passes assume nothing about the registers after the region.",
+   "syntax": ".noopt_start",
+   "example": ".noopt_start, .noopt_end"
+  },
+  {
+   "name": "noopt_end",
+   "description": "The statements between them are left as written by every optimization pass (cc45's #pragma cc45 optimize(off)). The passes assume nothing about the registers after the region.",
+   "syntax": ".noopt_end",
+   "example": ".noopt_start, .noopt_end"
+  },
+  {
+   "name": "opt",
+   "description": "The statements between them keep their repeated runs inline (SeqExtract only; the other passes still run). For a hot routine or loop the rest of the file should still be made smaller around. Any other name is warned about and ignored.",
+   "syntax": ".opt NoSeqExtract",
+   "example": ".opt NoSeqExtract, .opt SeqExtract"
+  },
+  {
+   "name": "vtable_entry",
+   "description": "Compiler marker.",
+   "syntax": ".vtable_entry …",
+   "example": ".vtable_entry …"
+  },
+  {
+   "name": "function_sections",
+   "description": "Write a section table: one section per proc … endproc in a text segment, plus .split sections.",
+   "syntax": ".function_sections",
+   "example": ".function_sections"
+  },
+  {
+   "name": "overlay",
+   "description": "The object's code is in the code overlay name: exports cc45.overlay.name (ln45 [Code Overlays](ln45.md#code-overlays)).",
+   "syntax": ".overlay name",
+   "example": ".overlay name"
+  },
+  {
+   "name": "split",
+   "description": "Start a section in the current segment (text, data, BSS); it ends at the next .split/.nosplit of that segment or at the segment end.",
+   "syntax": ".split [\"name\"]",
+   "example": ".split [\"name\"]"
+  },
+  {
+   "name": "nosplit",
+   "description": "End the open section; what follows is residual (kept whenever anything of the object is).",
+   "syntax": ".nosplit",
+   "example": ".nosplit"
+  },
+  {
+   "name": "keep",
+   "description": "Always keep the current section (a root for ln45).",
+   "syntax": ".keep",
+   "example": ".keep"
+  },
+  {
+   "name": "ref",
+   "description": "The current section needs name (an import; no bytes, no relocation): ln45 links its definition only while the section is kept. Without sections it is an .extern. cc45 uses it for the printf digit hooks.",
+   "syntax": ".ref name, …",
+   "example": ".ref name, …"
+  }
+ ]
 }

@@ -4,6 +4,28 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### The language server works (#198)
+
+- The server never started: the standalone `lsp-server/dist/server.js`
+  imported files Node could not resolve (ES modules without extensions), and
+  the VS Code extension started a `dist/server.js` its build never made. Both
+  are now one esbuild bundle (CommonJS), the extension's with its data; the
+  server speaks stdio when started without a transport (`node server.js`).
+- Diagnostics come from the text being edited (cc45 `-c` / ca45 `-c` on a
+  copy; asynchronous), not the file last saved; cc45's source excerpts and
+  suggestions are no longer reported as errors; errors in an included file
+  appear on line 1 with its name.
+- The `m65.*` settings reach the server (`${workspaceFolder}` expanded; else
+  the workspace's `bin/`, else the `PATH`).
+- The workspace is indexed at start (go to definition and workspace symbols
+  across files) and again when files change; `m65.indexer.exclude` works
+  (`node_modules` was never excluded).
+- Hover and completion from tables generated from the sources
+  (`scripts/gen-data.mjs`): ca45's instructions with their modes, bytes and
+  40 MHz cycles, its simulated instructions and directives, cc45's pragmas,
+  the library's 670 functions; C keywords as cc45 has them (plain `int`
+  unsigned, 2 bytes) and its extensions.
+
 ### objdump45 --cycles and --vice (#144)
 
 - `--cycles[=MHZ]`: each instruction's cycles in the disassembly: the
