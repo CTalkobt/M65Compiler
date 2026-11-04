@@ -66,6 +66,7 @@ The C99 prototypes take `restrict` where the standard has it (`<string.h>`: `mem
 | `joystick.h` | cc65's joystick API over `input_joy` ([§12](#12-other-library-backed-headers)) | library (`stdlib_asm/joystick.s45`) |
 | `unistd.h` | `sleep`, `getopt` ([§12](#12-other-library-backed-headers)) | library (`stdlib_asm/sleep.s45`, `stdlib/getopt.c`) |
 | `serial.h` | cc65's serial API on the buffered UART ([§12](#12-other-library-backed-headers)) | library (`stdlib_asm/serial.s45`) |
+| `ringbuf.h`, `pqueue.h` | containers: a ring buffer (deque, queue, stack; a byte queue) and a priority queue ([§12b](#12b-containers-ringbufh-pqueueh)) | library (`stdlib_asm/ringbuf.s45`, `pqueue.s45`, `container.s45`) |
 | `cbm.h` | KERNAL wrappers ([stdcbm.md](stdcbm.md)) | `static` functions in the header |
 | `mega65.h` | hardware register overlays | header (+ `key_pressed` in the library) |
 | `dma.h` | `dma_copy`/`dma_fill` (16-bit, bank 0); `dma_copy_far`/`dma_fill_far` (28-bit); `dma_copy_far_step`/`dma_fill_far_step` (with a step) | compiler builtins; `lib/stdlib_asm/dma_far.s45`, `dma_step.s45` |
@@ -384,6 +385,40 @@ The first two are 320x200 with 256 colours (`tgi_getcolorcount` returns 0, cc65'
 **Fill patterns** (a cc45 extension; `stdlib_asm/tgi_pattern.s45`, linked only by a program that sets one): `tgi_setpattern(pattern, transparent)` (64 colours, 8x8 row by row; the 640x200 drivers use their low nibbles; `transparent` a colour left as it is, or `TGI_TRANSPARENT`), `tgi_setpattern_mono(bits, fg, bg)` (8 bytes, bit 7 the left pixel; `bg` `TGI_TRANSPARENT`: clear bits left as they are) and `tgi_setsolid()` (`tgi_setpattern(NULL, …)` too) choose what `tgi_bar` fills with. The pattern is anchored to the screen (pixel (x, y) takes the pattern's (x & 7, y & 7)), so bars side by side meet. The drivers keep a character column's pixel rows as 8 bytes each (a byte a pixel at 320x200, two at 640x200: pixel x at `__tgi_addr(x >> 1, y)`), so the pattern repeated down 200 rows (a 1600-byte strip, built when the pattern or the mode changes) has the screen's layout: a whole character column of the bar is one DMA copy from the strip's row y1, a column of single pixels (or 640x200's pixel pairs) a copy of every 8th byte (the DMA's source and destination steps, options `$83`/`$85`), and a transparent colour the DMA's transparency (`$07`, `$86`: a byte equal to it not written). At 640x200 a byte holds two pixels, so a transparent pattern there, and a bar's single-pixel columns, are plotted a pixel at a time (`tgi_setpixel` in the pattern's colours). `tgi_bar` asks `__tgi_pbar` first (`tgi.c`'s weak one does nothing); 1.7 KB of BSS and 0.9 KB of code. Test: `test_tgi_pattern_xemu.c` (ragged edges and whole columns, transparency, mono patterns, both drivers).
 
 Not as cc65: no loadable driver files; `tgi_geterrormsg(TGI_ERR_INSTALLED)` is "A driver is already installed" (cc65's table gives "Unknown error"); `tgi_gettextheight` of the bitmap font is the scaled height's whole pixels (cc65's returns the 8.8 value's low byte); `tgi_install` while a driver is installed returns `TGI_ERR_INSTALLED`; circles, ellipses and arcs are the curve's pixels (midpoint), not cc65's polygons, so they differ from cc65's by a pixel here and there. Tests: `test_tgi_xemu.c` (the driver's numbers, the page layout, clipping, lines, bars, arcs, bitmap and vector text, errors, the palette, text mode back, the memory freed, two pages) and `test_tgi_vfn_xemu.c` (`.vfn` files on a D81), both conventions; `examples/c/tgi_demo`. Speed: `src/test/bench_tgi.sh` (not in `make test`) runs `benchmark_tgi.c` in xemu and prints the frames each workload takes (pixels, long and short lines, circles, text at 1x and 2x, bars) with a checksum of the page it drew, so a faster version must give the same checksums.
+
+## 12b. Containers (`ringbuf.h`, `pqueue.h`)
+
+The container library (#409) is assembly, type-erased as `qsort` is: a container keeps its element size, and
+copies elements in and out by it. Nothing here allocates: the storage is the caller's (a static array or
+`malloc`'s). All functions are `__fastcall__` (both libraries), each its own section: a program links what it calls.
+
+**`<ringbuf.h>`** (#405; `stdlib_asm/ringbuf.s45`): `ringbuf_t` over `cap` elements of `esize` bytes —
+`rb_init(r, buf, esize, cap)`, `rb_push_back`, `rb_push_front`, `rb_pop_front(r, out)`, `rb_pop_back` (0, or -1
+when full / empty; `out` may be NULL), `rb_front`, `rb_back`, `rb_at(r, i)` (pointers into the buffer, NULL when
+there is none), `rb_count`, `rb_full`, `rb_empty`, `rb_clear`; a queue is `rb_enqueue`/`rb_dequeue`, a stack
+`rb_push`/`rb_pop`/`rb_top` (macros). All `cap` slots are used (any `cap` up to 32767): head and tail run over
+0 … 2·cap−1, so full and empty differ without a count both ends would write. **One producer and one consumer
+need no lock** — e.g. `rb_push_back` in an `__interrupt` handler and `rb_pop_front` in the program — when `cap` ≤
+128 (an index is one byte) and `esize` is a power of two (the element's address by shifts; the hardware
+multiplier would be shared): each side writes only its own index, after copying the element, and the routines
+keep nothing outside the zero page (the handler's own base page). The byte queue `rbb_t` (`rbb_init`, `rbb_put`
+0 / -1 full, `rbb_get` the byte / -1 empty, `rbb_peek`, `rbb_count`, `rbb_empty`, `rbb_full`): 256 bytes of storage,
+255 queued, byte indices (the wrap free); one producer and one consumer, any use. Sizes: `rb_push_back` with what it
+uses 307 bytes, the whole deque 699, the byte queue 130.
+
+**`<pqueue.h>`** (#405; `stdlib_asm/pqueue.s45`): a binary heap — `pq_init(q, buf, esize, cap, cmp)`, `pq_push`
+(0, or -1 full), `pq_pop(q, out)` (0, or -1 empty; `out` may be NULL), `pq_top` (NULL when empty), `pq_count`. The
+top is the element `cmp` puts first (`cmp(a, b) < 0`: `a` before `b`; reverse it for the largest first); `cmp`
+NULL compares the bytes, unsigned, the first first (a big-endian key). `cmp` is called through `stdlib/ct_shim.c`'s
+`__ct_cmp`, compiled in the library's convention (as `qsort`'s `__sort_cmp`): it must not use a priority queue
+itself, and the queue keeps its state in BSS (not from an `__interrupt` handler while the program uses one).
+869 bytes with what it uses.
+
+Shared (`stdlib_asm/container.s45`): an element's address (`base + i·esize`: shifts for a power of two, else the
+hardware multiplier; 96 bytes), copying (33), swapping (45) and comparing bytes (40). Tests: `test_ringbuf_xemu.c`
+(random operations against an array model for 1- and 3-byte elements, a 300-byte element, the byte queue, and a
+raster interrupt producing bytes and words while the program takes them: 3000 of each in order, the queues full now
+and then), `test_pqueue_xemu.c` (against sorting and a sorted-array model; with and without `cmp`, a 5-byte struct).
 
 ## 13. MEGA65 Hardware (`mega65.h`) and DMA (`dma.h`)
 
