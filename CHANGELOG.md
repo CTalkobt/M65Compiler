@@ -4,6 +4,22 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### ca45: the quad instructions as the MEGA65 Book has them; bbr/bbs targets
+
+- `orq`, `bitq` and `asrq` (the book's names; `oraq` stays), the book's
+  `($nn)` and `[$nn]` operands (`ldq ($10)`, `stq [$10]`).
+- A quad instruction takes only the book's modes: `adcq #5`, `ldq $36,x`,
+  `cmpq ($10),y` and the like were assembled as NEG NEG and the 8-bit
+  instruction, which the 45GS02 does not run as a 32-bit one; now an error.
+- `aslq [$10]` was assembled as `aslq` (the operand dropped), `lda [$10],y`
+  as `lda [$10],z`: errors now (`[$nn]` without `,z` only on a quad
+  instruction).
+- A `bbr`/`bbs` target can be an expression (`loop+3`, `*+5`); before, the
+  `+3` was taken for a new line.
+- objdump45 names them as the book does (`cmpq`, not `cpq`), joins NEG NEG
+  to an instruction only in a quad mode, and `--source` writes `bitq`,
+  `asrq`, `inq`, `deq` too.
+
 ### objdump45 --cycles and --vice (#144)
 
 - `--cycles[=MHZ]`: each instruction's cycles in the disassembly: the

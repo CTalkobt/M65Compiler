@@ -320,8 +320,16 @@ Symbol* AssemblerParser::resolveFrameVar(const std::string& scopePrefix) {
     return resolveSymbol("_fp", scopePrefix);
 }
 
-bool AssemblerParser::bitBranchTargetValue(const std::string& target, const std::string& scopePrefix, uint32_t& value) {
+bool AssemblerParser::bitBranchTargetValue(const std::string& target, const std::string& scopePrefix, uint32_t& value, int tokenIndex) {
     if (Symbol* sym = resolveSymbol(target, scopePrefix)) { value = sym->value; return true; }
+    // an expression (label+3, *+5): its symbols defined
+    if (tokenIndex >= 0 && tokenIndex < (int)tokens.size() && target.find_first_of("+-*/<>()&|^~") != std::string::npos) {
+        try {
+            if (!exprSymbolsDefined(tokenIndex, scopePrefix)) return false;
+            value = evaluateExpressionAt(tokenIndex, scopePrefix);
+            return true;
+        } catch (...) { return false; }
+    }
     // a number: it was taken for an undefined symbol, so the branch went to $0000
     try {
         size_t used = 0;
@@ -1949,6 +1957,11 @@ void AssemblerParser::pass1() {
                         }
                         return o;
                     };
+                    // a quad instruction (ldq, adcq, aslq...): the book writes (zp) and [zp]
+                    // for its (zp),z and [zp],z (its Q for the register is not taken:
+                    // q is a label's name in programs; A or nothing)
+                    const std::string& qm = stmt->instr.mnemonic;
+                    bool quadInstr = qm.size() >= 3 && qm.back() == 'q' && qm != "beq" && qm != "lbeq";
                     if (match(AssemblerTokenType::HASH)) {
                         stmt->instr.operandTokenIndex = (int)pos;
                         std::string o = operandToComma();
@@ -1994,6 +2007,8 @@ void AssemblerParser::pass1() {
                                     if (r == "Y" || r == "y") stmt->instr.mode = AddressingMode::BASE_PAGE_INDIRECT_Y;
                                     else if (r == "Z" || r == "z") stmt->instr.mode = AddressingMode::BASE_PAGE_INDIRECT_Z;
                                 }
+                            } else if (quadInstr) {
+                                if (!stmt->instr.forceMode) stmt->instr.mode = AddressingMode::BASE_PAGE_INDIRECT_Z;
                             } else {
                                 if (!stmt->instr.forceMode) {
                                     try {
@@ -2019,10 +2034,16 @@ void AssemblerParser::pass1() {
                         std::string o; while (peek().type != AssemblerTokenType::CLOSE_BRACKET && peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE && peek().type != AssemblerTokenType::COMMA) o += advance().value;
                         stmt->instr.operand = o; expect(AssemblerTokenType::CLOSE_BRACKET, "Expected ]");
                         if (match(AssemblerTokenType::COMMA)) {
-                            advance(); if (!stmt->instr.forceMode) stmt->instr.mode = AddressingMode::FLAT_INDIRECT_Z;
+                            std::string r = advance().value;
+                            if (r != "z" && r != "Z") throwAt(stmt->line, 1, "'[" + o + "]," + r + "': the flat indirect mode is [zp],z");
+                        } else if (!quadInstr) {
+                            throwAt(stmt->line, 1, "'[" + o + "]' needs ',z' ([zp],z)");
                         }
+                        if (!stmt->instr.forceMode) stmt->instr.mode = AddressingMode::FLAT_INDIRECT_Z;
                     }
-                    else if ((peek().type == AssemblerTokenType::REGISTER || peek().type == AssemblerTokenType::IDENTIFIER) && (peek().value == "A" || peek().value == "a") && (pos + 1 >= tokens.size() || tokens[pos+1].type == AssemblerTokenType::NEWLINE || tokens[pos+1].type == AssemblerTokenType::END_OF_FILE)) {
+                    else if ((peek().type == AssemblerTokenType::REGISTER || peek().type == AssemblerTokenType::IDENTIFIER) &&
+                             (peek().value == "A" || peek().value == "a") &&
+                             (pos + 1 >= tokens.size() || tokens[pos+1].type == AssemblerTokenType::NEWLINE || tokens[pos+1].type == AssemblerTokenType::END_OF_FILE)) {
                         advance(); if (!stmt->instr.forceMode) stmt->instr.mode = AddressingMode::ACCUMULATOR;
                     }
                     else {
@@ -2042,7 +2063,13 @@ void AssemblerParser::pass1() {
                                 if (r == "X" || r == "x") stmt->instr.mode = AddressingMode::ABSOLUTE_X;
                                 else if (r == "Y" || r == "y") stmt->instr.mode = AddressingMode::ABSOLUTE_Y;
                                 else if (r == "SP" || r == "sp") stmt->instr.mode = AddressingMode::STACK_RELATIVE;
-                                else { stmt->instr.bitBranchTarget = r; stmt->instr.mode = AddressingMode::BASE_PAGE_RELATIVE; }
+                                else {
+                                    // bbr/bbs zp, target: the target an expression (label+3, *+5)
+                                    stmt->instr.bitBranchTokenIndex = (int)pos - 1;
+                                    while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE)
+                                        r += advance().value;
+                                    stmt->instr.bitBranchTarget = r; stmt->instr.mode = AddressingMode::BASE_PAGE_RELATIVE;
+                                }
                             }
                         } else if (!stmt->instr.forceMode && !o.empty()) {
                             try {
@@ -2952,7 +2979,7 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
                 } else if (s->instr.mode == AddressingMode::BASE_PAGE_RELATIVE &&
                            !s->instr.bitBranchTarget.empty()) {
                     uint32_t t;
-                    if (bitBranchTargetValue(s->instr.bitBranchTarget, s->scopePrefix, t)) {
+                    if (bitBranchTargetValue(s->instr.bitBranchTarget, s->scopePrefix, t, s->instr.bitBranchTokenIndex)) {
                         s->resolvedBranchOffset = (int32_t)t - (int32_t)(s->address + 3);
                         s->hasBranchOffset = true;
                     }

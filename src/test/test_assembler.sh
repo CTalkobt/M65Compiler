@@ -1418,6 +1418,45 @@ else
     failed=$((failed + 1))
 fi
 
+# The quad instructions: the MEGA65 Book's names (orq, bitq, asrq, inq, deq)
+# and operand forms (ldq ($nn), [$nn]); only its modes: another
+# (ldq $36,x, adcq #5) is an error, not the 8-bit instruction with NEG NEG
+C=build/test/quad
+mkdir -p $C
+qhex() { printf '        * = $2000\n        %s\n' "$1" > $C/q.s; rm -f $C/q.bin; $AS -O0 -o $C/q.bin $C/q.s >/dev/null 2>&1 && xxd -p $C/q.bin | tr -d '\n'; }
+ok=1
+for t in 'ldq $10=4242a510' 'ldq ($10)=4242b210' 'ldq ($10),z=4242b210' 'stq [$10]=4242ea9210' 'stq [$10],z=4242ea9210' \
+         'orq $1234=42420d3412' 'oraq $10=42420510' 'cmpq [$10]=4242ead210' 'bitq $10=42422410' 'bitq $1234=42422c3412' \
+         'asrq a=424243' 'asrq=424243' 'asrq $10,x=42425410' 'aslq a=42420a' 'inq=42421a' 'deq $1234,x=4242de3412' \
+         'rorq $10,x=42427610'; do
+    got=$(qhex "${t%%=*}")
+    [ "$got" = "${t#*=}" ] || { echo "  quad: ${t%%=*} gave '$got', expected ${t#*=}"; ok=0; }
+done
+for t in 'ldq $36,x' 'adcq #5' 'andq $1234,y' 'eorq ($10),y' 'sbcq ($10,x)' 'cmpq $10,x' 'asrq $1234' 'bitq $10,x' \
+         'ldq a' 'lda [$10]' 'lda [$10],y' 'aslq [$10]'; do
+    got=$(qhex "$t")
+    [ -z "$got" ] || { echo "  quad: '$t' assembled ($got), expected an error"; ok=0; }
+done
+if [ $ok -eq 1 ]; then
+    echo "SUCCESS: quad instructions take the book's names and modes only"
+    passed=$((passed + 1))
+else
+    echo "FAIL: quad instruction names / modes"
+    failed=$((failed + 1))
+fi
+
+# bbr / bbs: the target an expression (label+3, *+5)
+C=build/test/bbrexpr
+mkdir -p $C
+printf '        * = $2000\nl:      bbr0 $10, l+3\n        bbs1 $10, *+5\n        bbr2 $10, fwd\n        bbs3 $10, fwd-1\n        rts\nfwd:    rts\n' > $C/b.s
+if $AS -O0 -o $C/b.bin $C/b.s >/dev/null 2>&1 && [ "$(xxd -p $C/b.bin)" = "0f10009f10022f1004bf10006060" ]; then
+    echo "SUCCESS: bbr/bbs targets are expressions"
+    passed=$((passed + 1))
+else
+    echo "FAIL: bbr/bbs target expressions: $(xxd -p $C/b.bin 2>&1)"
+    failed=$((failed + 1))
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All assembler feature tests passed!"
     exit 0

@@ -7,7 +7,7 @@ Supported inputs:
 - **`.prg`** — 2-byte load address + image: header summary, hex dump, disassembly (BASIC `SYS` stub recognised, `ln45 -M` map used for symbols), BASIC listing.
 - **raw binaries** — `.bin` extension or any file with `-b`: header summary, hex dump, disassembly.
 
-The disassembly shows the 45GS02's 32-bit instructions as such: `NEG NEG` ($42 $42) before an instruction with a Q form is `ldq`, `stq`, `adcq`, `sbcq`, `andq`, `orq`, `eorq`, `cpq`, `bitq`, `aslq`, `lsrq`, `rolq`, `rorq`, `asrq`, `inq` or `deq`.
+The disassembly shows the 45GS02's 32-bit instructions as such: `NEG NEG` ($42 $42) before an instruction with a Q form is `ldq`, `stq`, `adcq`, `sbcq`, `andq`, `orq`, `eorq`, `cmpq`, `bitq`, `aslq`, `lsrq`, `rolq`, `rorq`, `asrq`, `inq` or `deq` (the MEGA65 Book's names), in the modes the book lists for it; `NEG NEG` before the instruction in another mode (`lda $1234,x`) stays `neg`, `neg` and the instruction.
 - **`.ovd`, `.ov1`** — ln45's code overlay files, the description and the code (see [ln45 Code Overlays](ln45.md#code-overlays)); either one, with the other next to it: one section per overlay at the address it runs at (VMA) and where it is kept in far memory (LMA); `-f`, `-h`, `-t`, `-s` and `-d` (with the overlays' symbols as labels).
 
 ## Usage

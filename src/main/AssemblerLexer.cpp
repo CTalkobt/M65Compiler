@@ -240,7 +240,7 @@ AssemblerToken AssemblerLexer::lexIdentifierOrInstruction() {
         "STZ", "TAB", "TAY", "TAZ", "TBA", "TAX", "TAY", "TSX", "TSY", "TXA",
         "TXS", "TYA", "TYS", "TZA", "TRB", "TSB",
         "ADCQ", "SBCQ", "ANDQ", "ORAQ", "EORQ", "CMPQ", "INCQ", "DECQ",
-        "ASLQ", "LSRQ", "ROLQ", "RORQ", "NEGQ",
+        "ASLQ", "LSRQ", "ROLQ", "RORQ", "NEGQ", "ASRQ", "BITQ",
         "CALL", "PROC", "ENDPROC", "RTN", "EXPR", "MUL", "MUL.8", "MUL.16", "MUL.24", "MUL.32", "DIV", "DIV.8", "DIV.16", "DIV.24", "DIV.32",
         "MUL.S16", "MUL.S32", "DIV.S16", "DIV.S32", "MOD.16", "MOD.S16", "MOD.32", "MOD.S32",
         "LDAX", "LDAY", "LDAZ", "STAX", "STAY", "STAZ",
@@ -270,6 +270,7 @@ AssemblerToken AssemblerLexer::lexIdentifierOrInstruction() {
     // the 45GS02's names for the 32-bit increment / decrement (incq, decq)
     if (upperValue == "INQ") upperValue = "INCQ";
     else if (upperValue == "DEQ") upperValue = "DECQ";
+    else if (upperValue == "ORQ") upperValue = "ORAQ";   // the MEGA65 Book's name
 
     if (instructions.count(upperValue)) {
         return {AssemblerTokenType::INSTRUCTION, upperValue, startLine, startCol};
