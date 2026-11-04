@@ -1,0 +1,412 @@
+; pqueue.s45 — a priority queue: a binary heap in storage the caller gives
+; (<pqueue.h>, #405)
+;
+;   void pq_init(pqueue_t *q, void *buf, size_t esize, size_t cap,
+;                int (*cmp)(const void *, const void *))     $10 $12 $14 $16 $18
+;   int  pq_push(pqueue_t *q, const void *e)                 $10 $12   0, or -1 when full
+;   int  pq_pop(pqueue_t *q, void *out)                      $10 $12   0, or -1 when empty
+;   void *pq_top(pqueue_t *q)                                $10       NULL when empty
+;   size_t pq_count(pqueue_t *q)                             $10
+;
+; pqueue_t: buf (0), esize (2), cap (4), count (6), cmp (8). The top is the
+; element cmp puts first (cmp(a, b) < 0: a before b; a min-heap — reverse cmp
+; for the largest first); cmp NULL compares the elements' bytes, unsigned,
+; the first byte first. cmp is called through __ct_cmp (stdlib/ct_shim.c):
+; it may change any zero-page byte, so the state is in BSS (not reentrant;
+; not from an __interrupt handler while the program uses a queue).
+
+.global _pq_init, _pq_push, _pq_pop, _pq_top, _pq_count, __pq_less
+.extern __ct_addr, __ct_copy, __ct_swap, __ct_bytecmp
+.extern ___ct_cmp, ___ct_cmpf
+
+; the comparison through __ct_cmp (a C function: ln45's call graph knows it)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+CT_BASE = $08
+CT_ES   = $0A
+CT_P    = $0C
+CT_Q    = $0E
+
+.segment "bss"
+__pq_r:     .res 2      ; the queue
+__pq_buf:   .res 2      ; its fields: buf, esize, cap, count, cmp
+__pq_es:    .res 2
+__pq_cap:   .res 2
+__pq_n:     .res 2
+__pq_cmp:   .res 2
+__pq_e:     .res 2      ; the element given (push) / the place for it (pop)
+__pq_i:     .res 2
+__pq_j:     .res 2
+__pq_k:     .res 2
+__pq_pa:    .res 2      ; the two elements compared or swapped
+__pq_pb:    .res 2
+
+.segment "code"
+
+; the queue at $10 (and $12) into BSS
+proc __pq_load
+    lda $10
+    sta __pq_r
+    lda $11
+    sta __pq_r+1
+    lda $12
+    sta __pq_e
+    lda $13
+    sta __pq_e+1
+    ldy #0
+@copy:
+    lda ($10),y
+    sta __pq_buf,y
+    iny
+    cpy #10
+    bne @copy
+    rts
+endproc
+
+; A/X = the address of element A/X
+proc __pq_at
+    pha
+    lda __pq_buf
+    sta CT_BASE
+    lda __pq_buf+1
+    sta CT_BASE+1
+    lda __pq_es
+    sta CT_ES
+    lda __pq_es+1
+    sta CT_ES+1
+    pla
+    jmp __ct_addr
+endproc
+
+; __pq_pa / __pq_pb = the address of element A/X
+proc __pq_pa_at
+    jsr __pq_at
+    sta __pq_pa
+    stx __pq_pa+1
+    rts
+endproc
+
+proc __pq_pb_at
+    jsr __pq_at
+    sta __pq_pb
+    stx __pq_pb+1
+    rts
+endproc
+
+; CT_P, CT_Q, CT_ES = pa, pb, esize
+proc __pq_ptrs
+    lda __pq_pa
+    sta CT_P
+    lda __pq_pa+1
+    sta CT_P+1
+    lda __pq_pb
+    sta CT_Q
+    lda __pq_pb+1
+    sta CT_Q+1
+    lda __pq_es
+    sta CT_ES
+    lda __pq_es+1
+    sta CT_ES+1
+    rts
+endproc
+
+; C set when *pa comes before *pb (global, with its record: ln45 bridges its
+; call of __ct_cmp in c45_stack.lib)
+proc __pq_less
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda __pq_cmp
+    ora __pq_cmp+1
+    bne @fn
+    jsr __pq_ptrs
+    jsr __ct_bytecmp    ; (C clear: lower; Z: equal)
+    bcs @not
+    sec
+    rts
+@not:
+    clc
+    rts
+@fn:
+    lda __pq_cmp
+    sta ___ct_cmpf
+    lda __pq_cmp+1
+    sta ___ct_cmpf+1
+    lda __pq_pa
+    sta $10
+    lda __pq_pa+1
+    sta $11
+    lda __pq_pb
+    sta $12
+    lda __pq_pb+1
+    sta $13
+    jsr ___ct_cmp
+    cpx #$80            ; (negative: C set)
+    rts
+    .func_flags zp_call
+endproc
+
+proc __pq_swap
+    jsr __pq_ptrs
+    jmp __ct_swap
+endproc
+
+; the count into the queue
+proc __pq_store_n
+    lda __pq_r
+    sta CT_P
+    lda __pq_r+1
+    sta CT_P+1
+    ldy #6
+    lda __pq_n
+    sta (CT_P),y
+    iny
+    lda __pq_n+1
+    sta (CT_P),y
+    rts
+endproc
+
+; void pq_init(pqueue_t *q, void *buf, size_t esize, size_t cap, int (*cmp)(...))
+proc _pq_init
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    ldy #0
+    ldx #0
+@copy:
+    lda $12,x
+    sta ($10),y
+    iny
+    inx
+    cpx #6
+    bne @copy
+    lda #0
+    sta ($10),y         ; count
+    iny
+    sta ($10),y
+    iny
+    lda $18
+    sta ($10),y
+    iny
+    lda $19
+    sta ($10),y
+    rts
+    .func_flags zp_call
+endproc
+
+; int pq_push(pqueue_t *q, const void *e)
+proc _pq_push
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr __pq_load
+    lda __pq_n
+    cmp __pq_cap
+    bne @room
+    lda __pq_n+1
+    cmp __pq_cap+1
+    bne @room
+    lda #$FF
+    tax
+    rts
+@room:
+    lda __pq_n          ; the element at the end
+    sta __pq_i
+    ldx __pq_n+1
+    stx __pq_i+1
+    jsr __pq_at
+    lda __pq_e
+    sta CT_Q
+    lda __pq_e+1
+    sta CT_Q+1
+    jsr __ct_copy
+    inc __pq_n
+    bne @n
+    inc __pq_n+1
+@n:
+    jsr __pq_store_n
+@up:                    ; sift up: before its parent, change places
+    lda __pq_i
+    ora __pq_i+1
+    beq @done
+    sec                 ; j = (i - 1) / 2
+    lda __pq_i
+    sbc #1
+    sta __pq_j
+    lda __pq_i+1
+    sbc #0
+    lsr a
+    sta __pq_j+1
+    ror __pq_j
+    lda __pq_i
+    ldx __pq_i+1
+    jsr __pq_pa_at
+    lda __pq_j
+    ldx __pq_j+1
+    jsr __pq_pb_at
+    jsr __pq_less
+    bcc @done
+    jsr __pq_swap
+    lda __pq_j
+    sta __pq_i
+    lda __pq_j+1
+    sta __pq_i+1
+    bra @up
+@done:
+    lda #0
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+; int pq_pop(pqueue_t *q, void *out)
+proc _pq_pop
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr __pq_load
+    lda __pq_n
+    ora __pq_n+1
+    bne @some
+    lda #$FF
+    tax
+    rts
+@some:
+    lda __pq_e          ; the top into out
+    ora __pq_e+1
+    beq @nocopy
+    lda #0
+    tax
+    jsr __pq_at
+    sta CT_Q
+    stx CT_Q+1
+    lda __pq_e
+    sta CT_P
+    lda __pq_e+1
+    sta CT_P+1
+    jsr __ct_copy
+@nocopy:
+    lda __pq_n          ; one fewer
+    bne @n
+    dec __pq_n+1
+@n:
+    dec __pq_n
+    jsr __pq_store_n
+    lda __pq_n
+    ora __pq_n+1
+    beq @done
+    lda #0              ; the last element to the top
+    tax
+    jsr __pq_pa_at
+    lda __pq_n
+    ldx __pq_n+1
+    jsr __pq_at
+    sta CT_Q
+    stx CT_Q+1
+    lda __pq_pa
+    sta CT_P
+    lda __pq_pa+1
+    sta CT_P+1
+    jsr __ct_copy
+    lda #0
+    sta __pq_i
+    sta __pq_i+1
+@down:                  ; sift down: the child that comes first, if before it
+    lda __pq_i          ; j = 2i + 1
+    asl a
+    sta __pq_j
+    lda __pq_i+1
+    rol a
+    sta __pq_j+1
+    inc __pq_j
+    bne @j
+    inc __pq_j+1
+@j:
+    lda __pq_j+1        ; j >= n: no child
+    cmp __pq_n+1
+    bcc @child
+    bne @done
+    lda __pq_j
+    cmp __pq_n
+    bcs @done
+@child:
+    clc                 ; k = j + 1, the other child, when k < n
+    lda __pq_j
+    adc #1
+    sta __pq_k
+    lda __pq_j+1
+    adc #0
+    sta __pq_k+1
+    cmp __pq_n+1
+    bcc @two
+    bne @one
+    lda __pq_k
+    cmp __pq_n
+    bcs @one
+@two:
+    lda __pq_k
+    ldx __pq_k+1
+    jsr __pq_pa_at
+    lda __pq_j
+    ldx __pq_j+1
+    jsr __pq_pb_at
+    jsr __pq_less
+    bcc @one
+    lda __pq_k
+    sta __pq_j
+    lda __pq_k+1
+    sta __pq_j+1
+@one:
+    lda __pq_j
+    ldx __pq_j+1
+    jsr __pq_pa_at
+    lda __pq_i
+    ldx __pq_i+1
+    jsr __pq_pb_at
+    jsr __pq_less
+    bcc @done
+    jsr __pq_swap
+    lda __pq_j
+    sta __pq_i
+    lda __pq_j+1
+    sta __pq_i+1
+    bra @down
+@done:
+    lda #0
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+; void *pq_top(pqueue_t *q)
+proc _pq_top
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    jsr __pq_load
+    lda __pq_n
+    ora __pq_n+1
+    beq @empty
+    lda #0
+    tax
+    jmp __pq_at
+@empty:
+    lda #0
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+; size_t pq_count(pqueue_t *q)
+proc _pq_count
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y
+    .flag_clobbers N, Z
+    ldy #7
+    lda ($10),y
+    tax
+    dey
+    lda ($10),y
+    rts
+    .func_flags zp_call
+endproc

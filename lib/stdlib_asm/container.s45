@@ -1,0 +1,176 @@
+; container.s45 — what the container library's routines share (#409):
+; an element's address, copying, swapping and comparing elements.
+;
+; Called from assembly only, with their inputs in the scratch bytes:
+;   CT_BASE ($08/$09)  the elements' base address
+;   CT_ES   ($0A/$0B)  the element size
+;   CT_P    ($0C/$0D)  an element (address)
+;   CT_Q    ($0E/$0F)  another element
+; They use only these, A, X, Y and the stack: zero-page bytes are the
+; caller's base page, so an __interrupt handler (on its own base page) and
+; the main program can each use them. __ct_addr uses the hardware multiplier
+; for an element size that is not a power of two; for a power of two it shifts.
+; Each routine its own section.
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.global __ct_addr, __ct_copy, __ct_swap, __ct_bytecmp
+
+CT_BASE = $08
+CT_ES   = $0A
+CT_P    = $0C
+CT_Q    = $0E
+
+.segment "code"
+
+; A/X = CT_P = CT_BASE + (A/X) * CT_ES
+proc __ct_addr
+    sta CT_P
+    stx CT_P+1
+    lda CT_ES+1
+    bne @mul
+    lda CT_ES
+    sec
+    sbc #1
+    and CT_ES
+    bne @mul            ; not a power of two
+    ldy CT_ES
+@shift:
+    tya
+    lsr a
+    beq @add
+    tay
+    asl CT_P
+    rol CT_P+1
+    bra @shift
+@mul:
+    lda CT_P
+    sta $D770
+    lda CT_P+1
+    sta $D771
+    lda #0
+    sta $D772
+    sta $D773
+    sta $D776
+    sta $D777
+    lda CT_ES
+    sta $D774
+    lda CT_ES+1
+    sta $D775
+@busy:
+    bit $D70F
+    bvs @busy
+    lda $D778
+    sta CT_P
+    lda $D779
+    sta CT_P+1
+@add:
+    clc
+    lda CT_P
+    adc CT_BASE
+    sta CT_P
+    lda CT_P+1
+    adc CT_BASE+1
+    sta CT_P+1
+    tax
+    lda CT_P
+    rts
+endproc
+
+; CT_ES bytes from CT_Q to CT_P (CT_P, CT_Q changed)
+proc __ct_copy
+    ldy #0
+    ldx CT_ES+1
+    beq @rest
+@page:
+    lda (CT_Q),y
+    sta (CT_P),y
+    iny
+    bne @page
+    inc CT_Q+1
+    inc CT_P+1
+    dex
+    bne @page
+@rest:
+    ldx CT_ES
+    beq @done
+@byte:
+    lda (CT_Q),y
+    sta (CT_P),y
+    iny
+    dex
+    bne @byte
+@done:
+    rts
+endproc
+
+; the CT_ES bytes at CT_P and CT_Q exchanged (CT_P, CT_Q changed)
+proc __ct_swap
+    ldy #0
+    ldx CT_ES+1
+    beq @rest
+@page:
+    lda (CT_P),y
+    pha
+    lda (CT_Q),y
+    sta (CT_P),y
+    pla
+    sta (CT_Q),y
+    iny
+    bne @page
+    inc CT_Q+1
+    inc CT_P+1
+    dex
+    bne @page
+@rest:
+    ldx CT_ES
+    beq @done
+@byte:
+    lda (CT_P),y
+    pha
+    lda (CT_Q),y
+    sta (CT_P),y
+    pla
+    sta (CT_Q),y
+    iny
+    dex
+    bne @byte
+@done:
+    rts
+endproc
+
+; the CT_ES bytes at CT_P against those at CT_Q, unsigned, the first that
+; differs: C clear when CT_P's are lower (Z set when all are equal)
+; (CT_P, CT_Q changed)
+proc __ct_bytecmp
+    ldy #0
+    ldx CT_ES+1
+    beq @rest
+@page:
+    lda (CT_P),y
+    cmp (CT_Q),y
+    bne @done
+    iny
+    bne @page
+    inc CT_Q+1
+    inc CT_P+1
+    dex
+    bne @page
+@rest:
+    ldx CT_ES
+    beq @equal
+@byte:
+    lda (CT_P),y
+    cmp (CT_Q),y
+    bne @done
+    iny
+    dex
+    bne @byte
+@equal:
+    lda #0              ; (Z set, C set)
+    sec
+@done:
+    rts
+endproc

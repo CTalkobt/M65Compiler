@@ -1,0 +1,643 @@
+; ringbuf.s45 — ring buffers (<ringbuf.h>, #405): a deque of fixed capacity
+; in storage the caller gives, and a 256-byte byte queue.
+;
+;   void rb_init(ringbuf_t *r, void *buf, size_t esize, size_t cap)  $10 $12 $14 $16
+;   int  rb_push_back(ringbuf_t *r, const void *e)                     $10 $12
+;   int  rb_push_front(ringbuf_t *r, const void *e)
+;   int  rb_pop_front(ringbuf_t *r, void *out)        (out may be NULL)
+;   int  rb_pop_back(ringbuf_t *r, void *out)
+;   void *rb_front(ringbuf_t *r), *rb_back(ringbuf_t *r)               $10
+;   void *rb_at(ringbuf_t *r, size_t i)                                $10 $12
+;   size_t rb_count(ringbuf_t *r); int rb_full(..), rb_empty(..); void rb_clear(..)
+;
+; ringbuf_t: buf (0), esize (2), cap (4), head (6), tail (8). head and tail
+; run over 0 .. 2*cap-1 ("mirrored": the slot is the index, less cap when it
+; is cap or more), so head == tail is empty and head - tail == cap full: all
+; cap slots are used, with no count that both ends would write. push_back and
+; pop_back write head only, pop_front and push_front tail only; the element
+; is copied before the index is stored. With cap <= 128 an index is one byte
+; (its high byte stays 0), so one producer (push_back, in an __interrupt
+; handler) and one consumer (pop_front) need no lock — when the element size
+; is a power of two (__ct_addr shifts; the multiplier would be shared).
+;
+;   void rbb_init(rbb_t *q)                     $10
+;   int  rbb_put(rbb_t *q, unsigned char c)     $10 $12   0, or -1 when full
+;   int  rbb_get(rbb_t *q)                      $10       the byte, or -1 when empty
+;   int  rbb_peek(rbb_t *q); unsigned rbb_count(rbb_t *q)
+;
+; rbb_t: head (0), tail (1), buf[256] (2): byte indices, the wrap free; it
+; holds 255 bytes (head + 1 == tail is full). rbb_put writes head, rbb_get
+; tail: interrupt-safe the same way, for any element.
+;
+; Zero page only (the routines' own base page): no state in BSS.
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.global _rb_init, _rb_push_back, _rb_push_front, _rb_pop_front, _rb_pop_back
+.global _rb_front, _rb_back, _rb_at, _rb_count, _rb_full, _rb_empty, _rb_clear
+.global _rbb_init, _rbb_put, _rbb_get, _rbb_peek, _rbb_count
+.extern __ct_addr, __ct_copy
+
+CT_BASE = $08
+CT_ES   = $0A
+CT_P    = $0C
+CT_Q    = $0E
+RB_CAP  = $F6
+RB_H    = $F8
+RB_T    = $FA
+
+.segment "code"
+
+; the ring at $10: buf, esize -> CT_BASE, CT_ES; cap, head, tail -> RB_*
+proc __rb_load
+    ldy #0
+    ldx #0
+@a:
+    lda ($10),y
+    sta CT_BASE,x
+    iny
+    inx
+    cpx #4
+    bne @a
+    ldx #0
+@b:
+    lda ($10),y
+    sta RB_CAP,x
+    iny
+    inx
+    cpx #6
+    bne @b
+    rts
+endproc
+
+; CT_Q = 2 * cap
+proc __rb_2cap
+    lda RB_CAP
+    asl a
+    sta CT_Q
+    lda RB_CAP+1
+    rol a
+    sta CT_Q+1
+    rts
+endproc
+
+; A/X = head - tail (mod 2 * cap): the count
+proc __rb_count
+    jsr __rb_2cap
+    sec
+    lda RB_H
+    sbc RB_T
+    tay
+    lda RB_H+1
+    sbc RB_T+1
+    tax
+    bcs @done
+    clc                 ; (negative: + 2 * cap)
+    tya
+    adc CT_Q
+    tay
+    txa
+    adc CT_Q+1
+    tax
+@done:
+    tya
+    rts
+endproc
+
+; A/X: the index after A/X (mod 2 * cap)
+proc __rb_next
+    clc
+    adc #1
+    bne @1
+    inx
+@1:
+    pha
+    jsr __rb_2cap
+    pla
+    cmp CT_Q
+    bne @done
+    cpx CT_Q+1
+    bne @done
+    lda #0
+    tax
+@done:
+    rts
+endproc
+
+; A/X: the index before A/X (mod 2 * cap)
+proc __rb_prev
+    cmp #0
+    bne @dec
+    cpx #0
+    bne @dec
+    jsr __rb_2cap
+    lda CT_Q
+    ldx CT_Q+1
+@dec:
+    sec
+    sbc #1
+    bcs @done
+    dex
+@done:
+    rts
+endproc
+
+; A/X: the address of index A/X's element (the slot: the index, less cap)
+proc __rb_addr
+    cpx RB_CAP+1
+    bcc @slot
+    bne @sub
+    cmp RB_CAP
+    bcc @slot
+@sub:
+    sec
+    sbc RB_CAP
+    pha
+    txa
+    sbc RB_CAP+1
+    tax
+    pla
+@slot:
+    jmp __ct_addr
+endproc
+
+; C set when the ring is full (A/X: the count)
+proc __rb_isfull
+    jsr __rb_count
+    cmp RB_CAP
+    bne @no
+    cpx RB_CAP+1
+    bne @no
+    sec
+    rts
+@no:
+    clc
+    rts
+endproc
+
+; store A/X as head (Y = 6) or tail (Y = 8): the low byte first
+proc __rb_store
+    sta ($10),y
+    iny
+    txa
+    sta ($10),y
+    rts
+endproc
+
+; void rb_init(ringbuf_t *r, void *buf, size_t esize, size_t cap)
+proc _rb_init
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    ldy #0
+    ldx #0
+@copy:
+    lda $12,x
+    sta ($10),y
+    iny
+    inx
+    cpx #6
+    bne @copy
+    lda #0
+@zero:
+    sta ($10),y
+    iny
+    cpy #10
+    bne @zero
+    rts
+    .func_flags zp_call
+endproc
+
+; int rb_push_back(ringbuf_t *r, const void *e): 0, or -1 when full
+proc _rb_push_back
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    jsr __rb_load
+    jsr __rb_isfull
+    bcs @full
+    lda RB_H
+    ldx RB_H+1
+    jsr __rb_addr       ; (CT_P: the element)
+    lda $12
+    sta CT_Q
+    lda $13
+    sta CT_Q+1
+    jsr __ct_copy
+    lda RB_H
+    ldx RB_H+1
+    jsr __rb_next
+    ldy #6
+    jsr __rb_store
+    lda #0
+    tax
+    rts
+@full:
+    lda #$FF          ; (here, not a shared routine: a branch to one would tie
+    tax               ; the functions' sections together)
+    rts
+    .func_flags zp_call
+endproc
+
+; int rb_push_front(ringbuf_t *r, const void *e): 0, or -1 when full
+proc _rb_push_front
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    jsr __rb_load
+    jsr __rb_isfull
+    bcs @full
+    lda RB_T
+    ldx RB_T+1
+    jsr __rb_prev
+    sta RB_T
+    stx RB_T+1
+    jsr __rb_addr
+    lda $12
+    sta CT_Q
+    lda $13
+    sta CT_Q+1
+    jsr __ct_copy
+    lda RB_T
+    ldx RB_T+1
+    ldy #8
+    jsr __rb_store
+    lda #0
+    tax
+    rts
+@full:
+    lda #$FF          ; (here, not a shared routine: a branch to one would tie
+    tax               ; the functions' sections together)
+    rts
+    .func_flags zp_call
+endproc
+
+; int rb_pop_front(ringbuf_t *r, void *out): 0, or -1 when empty
+proc _rb_pop_front
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    jsr __rb_load
+    lda RB_H
+    cmp RB_T
+    bne @some
+    lda RB_H+1
+    cmp RB_T+1
+    beq @empty
+@some:
+    lda $12
+    ora $13
+    beq @next
+    lda RB_T
+    ldx RB_T+1
+    jsr __rb_addr
+    sta CT_Q
+    stx CT_Q+1
+    lda $12
+    sta CT_P
+    lda $13
+    sta CT_P+1
+    jsr __ct_copy
+@next:
+    lda RB_T
+    ldx RB_T+1
+    jsr __rb_next
+    ldy #8
+    jsr __rb_store
+    lda #0
+    tax
+    rts
+@empty:
+    lda #$FF          ; (here, not a shared routine: a branch to one would tie
+    tax               ; the functions' sections together)
+    rts
+    .func_flags zp_call
+endproc
+
+; int rb_pop_back(ringbuf_t *r, void *out): 0, or -1 when empty
+proc _rb_pop_back
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    jsr __rb_load
+    lda RB_H
+    cmp RB_T
+    bne @some
+    lda RB_H+1
+    cmp RB_T+1
+    beq @empty
+@some:
+    lda RB_H
+    ldx RB_H+1
+    jsr __rb_prev
+    sta RB_H
+    stx RB_H+1
+    lda $12
+    ora $13
+    beq @store
+    lda RB_H
+    ldx RB_H+1
+    jsr __rb_addr
+    sta CT_Q
+    stx CT_Q+1
+    lda $12
+    sta CT_P
+    lda $13
+    sta CT_P+1
+    jsr __ct_copy
+@store:
+    lda RB_H
+    ldx RB_H+1
+    ldy #6
+    jsr __rb_store
+    lda #0
+    tax
+    rts
+@empty:
+    lda #$FF          ; (here, not a shared routine: a branch to one would tie
+    tax               ; the functions' sections together)
+    rts
+    .func_flags zp_call
+endproc
+
+; void *rb_front(ringbuf_t *r): the first element, or NULL
+proc _rb_front
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    jsr __rb_load
+    lda RB_H
+    cmp RB_T
+    bne @some
+    lda RB_H+1
+    cmp RB_T+1
+    beq @empty
+@some:
+    lda RB_T
+    ldx RB_T+1
+    jmp __rb_addr
+@empty:
+    lda #0
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+; void *rb_back(ringbuf_t *r): the last element, or NULL
+proc _rb_back
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    jsr __rb_load
+    lda RB_H
+    cmp RB_T
+    bne @some
+    lda RB_H+1
+    cmp RB_T+1
+    beq @empty
+@some:
+    lda RB_H
+    ldx RB_H+1
+    jsr __rb_prev
+    jmp __rb_addr
+@empty:
+    lda #0
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+; void *rb_at(ringbuf_t *r, size_t i): element i from the front, or NULL
+proc _rb_at
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    jsr __rb_load
+    jsr __rb_count      ; (CT_Q: 2 * cap)
+    cpx $13
+    bcc @none           ; count < i
+    bne @in
+    cmp $12
+    bcc @none
+    beq @none           ; count == i
+@in:
+    clc                 ; tail + i, less 2 * cap when past it
+    lda RB_T
+    adc $12
+    tay
+    lda RB_T+1
+    adc $13
+    tax
+    tya
+    cpx CT_Q+1
+    bcc @addr
+    bne @wrap
+    cmp CT_Q
+    bcc @addr
+@wrap:
+    sec
+    sbc CT_Q
+    tay
+    txa
+    sbc CT_Q+1
+    tax
+    tya
+@addr:
+    jmp __rb_addr
+@none:
+    lda #0
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+; size_t rb_count(ringbuf_t *r)
+proc _rb_count
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    jsr __rb_load
+    jmp __rb_count
+    .func_flags zp_call
+endproc
+
+; int rb_full(ringbuf_t *r)
+proc _rb_full
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    jsr __rb_load
+    jsr __rb_isfull
+    lda #0
+    tax
+    rol a
+    rts
+    .func_flags zp_call
+endproc
+
+; int rb_empty(ringbuf_t *r)
+proc _rb_empty
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    jsr __rb_load
+    ldx #0
+    lda RB_H
+    cmp RB_T
+    bne @no
+    lda RB_H+1
+    cmp RB_T+1
+    bne @no
+    lda #1
+    rts
+@no:
+    txa
+    rts
+    .func_flags zp_call
+endproc
+
+; void rb_clear(ringbuf_t *r): head = tail = 0
+proc _rb_clear
+    .zp_uses $10, $11
+    .reg_clobbers A, Y
+    .flag_clobbers N, Z
+    lda #0
+    ldy #6
+@z:
+    sta ($10),y
+    iny
+    cpy #10
+    bne @z
+    rts
+    .func_flags zp_call
+endproc
+
+; --- the byte queue -------------------------------------------------------
+
+; CT_P = q + 2 (its buf)
+proc __rbb_buf
+    clc
+    lda $10
+    adc #2
+    sta CT_P
+    lda $11
+    adc #0
+    sta CT_P+1
+    rts
+endproc
+
+; void rbb_init(rbb_t *q)
+proc _rbb_init
+    .zp_uses $10, $11
+    .reg_clobbers A, Y
+    .flag_clobbers N, Z
+    lda #0
+    tay
+    sta ($10),y
+    iny
+    sta ($10),y
+    rts
+    .func_flags zp_call
+endproc
+
+; int rbb_put(rbb_t *q, unsigned char c): 0, or -1 when full
+proc _rbb_put
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    jsr __rbb_buf
+    ldy #0
+    lda ($10),y         ; head
+    tax
+    inx
+    txa
+    ldy #1
+    cmp ($10),y         ; head + 1 == tail: full
+    beq @full
+    dex
+    txa
+    tay
+    lda $12
+    sta (CT_P),y        ; the byte, then the index
+    iny
+    tya
+    ldy #0
+    sta ($10),y
+    lda #0
+    tax
+    rts
+@full:
+    lda #$FF
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+; int rbb_get(rbb_t *q): the byte, or -1 when empty
+proc _rbb_get
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    jsr __rbb_buf
+    ldy #1
+    lda ($10),y         ; tail
+    ldy #0
+    cmp ($10),y
+    beq @empty
+    tay
+    lda (CT_P),y        ; the byte, then the index
+    tax
+    iny
+    tya
+    ldy #1
+    sta ($10),y
+    txa
+    ldx #0
+    rts
+@empty:
+    lda #$FF
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+; int rbb_peek(rbb_t *q): the next byte, or -1 when empty
+proc _rbb_peek
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    jsr __rbb_buf
+    ldy #1
+    lda ($10),y
+    ldy #0
+    cmp ($10),y
+    beq @empty
+    tay
+    lda (CT_P),y
+    ldx #0
+    rts
+@empty:
+    lda #$FF
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+; unsigned rbb_count(rbb_t *q): head - tail (mod 256)
+proc _rbb_count
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    ldy #1
+    lda ($10),y
+    sta CT_P
+    ldy #0
+    lda ($10),y
+    sec
+    sbc CT_P
+    ldx #0
+    rts
+    .func_flags zp_call
+endproc

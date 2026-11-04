@@ -4,6 +4,19 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Containers: ring buffers and a priority queue (#405, #409)
+
+- `<ringbuf.h>`: a deque of fixed capacity in the caller's storage
+  (`rb_push_back`/`_front`, `rb_pop_front`/`_back`, `rb_front`, `rb_back`,
+  `rb_at`, `rb_count`, `rb_full`, `rb_empty`, `rb_clear`; queue and stack
+  macros), all `cap` slots used; and a 256-byte byte queue (`rbb_*`). One
+  producer and one consumer need no lock (an `__interrupt` handler filling it
+  while the program empties it: tested with a raster interrupt).
+- `<pqueue.h>`: a binary heap (`pq_push`, `pq_pop`, `pq_top`, `pq_count`)
+  with a comparator (called through a C shim, as `qsort`'s) or by bytes.
+- Assembly, a section per function; shared helpers in
+  `stdlib_asm/container.s45` (an element's address, copy, swap, compare).
+
 ### ca45: the quad instructions as the MEGA65 Book has them; bbr/bbs targets
 
 - `orq`, `bitq` and `asrq` (the book's names; `oraq` stays), the book's
