@@ -4,6 +4,20 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### objdump45 --cycles and --vice (#144)
+
+- `--cycles[=MHZ]`: each instruction's cycles in the disassembly: the
+  45GS02's at 40 MHz (MEGAcyc's measurements on a MEGA65, the prefixed quad
+  and `[$nn],z` instructions with their prefixes), 3.5 MHz (the 65CE02's),
+  1 / 2 MHz (the 6502's for its instructions), or the 6502's for `--cpu
+  6502`/`6510`; `2/3` a branch not taken / taken, `4*` one more on a page
+  crossing (at the 6502's speeds).
+- `--vice`: the disassembly as VICE's monitor shows it (`.C:0801  A9 00
+  LDA #$00`), to compare the two.
+- `-d` shows a NOP before a `($nn),z` instruction as the `[$nn],z` it
+  makes, one line (`ldq [$nn],z` after NEG NEG too).
+- The NMOS cycle table is shared with tune45's 6502 (`src/main/CpuCycles.cpp`).
+
 ### objdump45 --source: assemblable ca45 source (#144)
 
 - `objdump45 --source prog.prg` writes a PRG or binary as ca45 source that

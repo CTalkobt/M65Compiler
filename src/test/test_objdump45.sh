@@ -744,6 +744,60 @@ err=$($OD --source $C/o.o45 2>&1); rc=$?
 err=$($OD --source --data '$0900' $C/c64.prg 2>&1); rc=$?
 [ $rc -ne 0 ] && echo "$err" | grep -q "not a range" && pass "--source: --data without a range" || fail "--data \$0900: $rc $err"
 
+# --cycles and --vice (#144 part 4)
+echo "Testing --cycles and --vice..."
+printf '        * = $2000\nstart:  lda #$00\n        sta $d020\n        lda $1234,x\n        sta $1234,x\n        beq start\n        .byte $d3, $00, $00\n        bra start\n        ldq $10\n        lda [$10],z\n        ldq [$10],z\n        bbr0 $10,start\n        jsr $ffd2\n        rts\n' > $C/cyc.s
+$AS -O0 $C/cyc.s -o $C/cyc.bin >/dev/null 2>&1
+cyc() {     # cyc LABEL OUTPUT CYCLES MNEMONIC OPERAND
+    if printf '%s\n' "$2" | grep -qF "$(printf '\t%s\t%s\t%s' "$3" "$4" "$5")"; then pass "$1"; else fail "$1: no '$3 $4 $5'"; fi
+}
+out=$($OD --cycles -S none -b '$2000' $C/cyc.bin)
+assert_contains "--cycles: the 40 MHz legend" "$out" "; cycles: the 45GS02 at 40 MHz"
+cyc "--cycles 40 MHz: lda abs,x (measured)" "$out" 5 lda '$1234,x'
+cyc "--cycles 40 MHz: sta abs,x" "$out" 4 sta '$1234,x'
+cyc "--cycles 40 MHz: an 8-bit branch, +2 taken" "$out" 2/4 beq '$2000'
+cyc "--cycles 40 MHz: a 16-bit branch, +1 taken" "$out" 4/5 bne '$200f'
+cyc "--cycles 40 MHz: bra (always taken)" "$out" 4 bra '$2000'
+cyc "--cycles 40 MHz: ldq, the prefix included" "$out" 10 ldq '$10'
+cyc "--cycles 40 MHz: lda [\$nn],z (NOP prefix)" "$out" 13 lda '[$10],z'
+cyc "--cycles 40 MHz: ldq [\$nn],z (NEG NEG NOP)" "$out" 16 ldq '[$10],z'
+cyc "--cycles 40 MHz: bbr" "$out" 5/6 bbr0 '$10,$2000'
+out=$($OD --cycles=3.5 -S none -b '$2000' $C/cyc.bin)
+cyc "--cycles=3.5: lda abs,x (the 65CE02's)" "$out" 4 lda '$1234,x'
+cyc "--cycles=3.5: a branch, +1 taken" "$out" 2/3 beq '$2000'
+cyc "--cycles=3.5: jsr" "$out" 2 jsr '$ffd2'
+out=$($OD --cycles=1 -S none -b '$2000' $C/cyc.bin)
+cyc "--cycles=1: lda abs,x, +1 on a page crossing" "$out" '4*' lda '$1234,x'
+cyc "--cycles=1: sta abs,x (always 5)" "$out" 5 sta '$1234,x'
+cyc "--cycles=1: a branch as the 6502's" "$out" '2/3*' beq '$2000'
+cyc "--cycles=1: a 45GS02 instruction the 65CE02's" "$out" 3/4 bne '$200f'
+cyc "--cycles=1: jsr as the 6502's" "$out" 6 jsr '$ffd2'
+out=$($OD --cycles -S none $C/c64.prg)
+cyc "--cycles: a C64 program's 6510 counts" "$out" '4*' lda '$081d,x'
+cyc "--cycles: 6510 bne" "$out" '2/3*' bne '$080f'
+cyc "--cycles: 6510 jsr" "$out" 6 jsr '$ffd2'
+assert_contains "--cycles: the 6502 legend" "$out" "; cycles: the 6502"
+err=$($OD --cycles=8 $C/cyc.bin 2>&1); rc=$?
+[ $rc -ne 0 ] && echo "$err" | grep -q "not a 45GS02 speed" && pass "--cycles: an unknown speed refused" || fail "--cycles=8: $rc $err"
+err=$($OD --source --cycles $C/c64.prg 2>&1); rc=$?
+[ $rc -ne 0 ] && echo "$err" | grep -q "not --source" && pass "--cycles with --source refused" || fail "--source --cycles: $rc $err"
+# a flat [$nn],z instruction is one line in -d too
+out=$($OD -d -S none -b '$2000' $C/cyc.bin)
+assert_contains "-d: NOP + (\$nn),z is lda [\$nn],z" "$out" "$(printf 'ea b2 10    \tlda\t[$10],z')"
+assert_contains "-d: NEG NEG NOP + (\$nn),z is ldq [\$nn],z" "$out" "$(printf '42 42 ea b2 10\tldq\t[$10],z')"
+out=$($OD --vice -b '$2000' $C/cyc.bin)
+assert_contains "--vice: a 2-byte line" "$out" ".C:2000  A9 00       LDA #\$00"
+assert_contains "--vice: a 3-byte line, the address (no symbol file)" "$out" ".C:2002  8D 20 D0    STA \$D020"
+assert_contains "--vice: a 1-byte line" "$out" ".C:2024  60          RTS"
+assert_contains "--vice: a 4-byte line" "$out" ".C:2012  42 42 A5 10 LDQ \$10"
+assert_contains "--vice: a 5-byte line" "$out" ".C:2019  4242EA B210 LDQ [\$10],Z"
+assert_not_contains "--vice: no section header" "$out" "Disassembly of section"
+out=$($OD --vice -S c64 -b '$2000' $C/cyc.bin)
+assert_contains "--vice -S: names as VICE's labels" "$out" "JSR CHROUT"
+out=$($OD --vice --cycles $C/c64.prg)
+assert_contains "--vice: the BASIC stub as instructions too" "$out" ".C:0801  0B 08       *ANC #\$08  ; 2"
+assert_contains "--vice: an undocumented opcode with *, cycles" "$out" ".C:081a  A7 10       *LAX \$10  ; 3"
+
 echo "objdump45 tests: $passed passed, $failed failed"
 echo "========================================"
 

@@ -19,6 +19,7 @@
 #include "O45Linker.hpp"
 #include "O45FormatUtil.hpp"
 #include "AssemblerOpcodeDatabase.hpp"
+#include "CpuCycles.hpp"
 #include "AssemblerTypes.hpp"
 #include "BasicTokenizer.hpp"
 #include "BasicEmitter.hpp"
@@ -863,6 +864,27 @@ static std::string getSourceLine(const std::string& file, int lineNum) {
 // symbols (an object's, a map's, a debug file's) come first.
 static std::map<uint32_t, std::string> g_fileSyms;
 
+// --cycles (#144): a cycle count per instruction; the 45GS02's speed
+// (--cycles=40, 3.5, 2 or 1). --vice: lines as VICE's monitor shows them
+static bool g_cycles = false;
+static cpucycles::Clock g_clock45 = cpucycles::Clock::Fast;
+static bool g_vice = false;
+
+static cpucycles::Clock cycleClock(DisCpu cpu) {
+    if (cpu == DisCpu::CPU6502 || cpu == DisCpu::CPU6510) return cpucycles::Clock::Nmos;
+    if (cpu == DisCpu::CPU65CE02) return cpucycles::Clock::C65;
+    return g_clock45;
+}
+
+static const char* clockName(cpucycles::Clock c) {
+    switch (c) {
+        case cpucycles::Clock::Nmos: return "the 6502";
+        case cpucycles::Clock::Slow: return "the 45GS02 at 1/2 MHz";
+        case cpucycles::Clock::C65:  return "the 45GS02 at 3.5 MHz / the 65CE02";
+        default:                     return "the 45GS02 at 40 MHz";
+    }
+}
+
 // "$addr NAME [comment]" (also 0xaddr, or plain hex), VICE's "al C:addr .name",
 // or "NAME = $addr"; # and ; start comment lines. false: cannot be read
 static bool loadSymbolFile(const std::string& path, std::map<uint32_t, std::string>& out, std::string& error) {
@@ -943,9 +965,14 @@ static void disassembleSection(const std::vector<uint8_t>& body, uint32_t base,
                                const std::map<uint32_t, std::string>* relocNames = nullptr,
                                DisCpu cpu = DisCpu::CPU45GS02, const char* note = nullptr) {
     if (body.empty()) return;
-    std::cout << std::endl;
-    printf("Disassembly of section %s (%s):\n", sectionName, filename.c_str());
-    if (note) printf("; %s\n", note);
+    if (!g_vice) {
+        std::cout << std::endl;
+        printf("Disassembly of section %s (%s):\n", sectionName, filename.c_str());
+        if (note) printf("; %s\n", note);
+        if (g_cycles)
+            printf("; cycles: %s; n/m: a branch not taken / taken; *: one more when a page is crossed\n",
+                   clockName(cycleClock(cpu)));
+    }
     LOG_INFO("objdump45", sectionName << ": decoded for the " << disCpuName(cpu));
 
     int lastSourceLine = -1;
@@ -957,7 +984,9 @@ static void disassembleSection(const std::vector<uint8_t>& body, uint32_t base,
 
         // Print label if a symbol exists at this address (else a symbol file's name)
         auto symIt = symbols.find(pc);
-        if (symIt != symbols.end()) {
+        if (g_vice) {
+            // (no labels or source lines: VICE's lines only)
+        } else if (symIt != symbols.end()) {
             std::cout << std::endl;
             printf("%08x <%s>:\n", pc, symIt->second.c_str());
         } else if (g_fileSyms.count(pc)) {
@@ -966,7 +995,7 @@ static void disassembleSection(const std::vector<uint8_t>& body, uint32_t base,
         }
 
         // Print source line comment when location changes (range-based lookup)
-        if (!sourceLines.empty()) {
+        if (!sourceLines.empty() && !g_vice) {
             auto slIt = sourceLines.upper_bound(pc);
             if (slIt != sourceLines.begin()) {
                 --slIt; // most recent entry at or before pc
@@ -986,7 +1015,12 @@ static void disassembleSection(const std::vector<uint8_t>& body, uint32_t base,
         size_t pre = 0;
         std::string qname;
         if (cpu == DisCpu::CPU45GS02 && i + 2 < body.size() && body[i] == 0x42 && body[i + 1] == 0x42) {
-            auto qit = opcodeTable.find(body[i + 2]);
+            size_t q = i + 2;   // (past a NOP: ldq [$nn],z)
+            if (body[q] == 0xEA && q + 1 < body.size()) {
+                auto f = opcodeTable.find(body[q + 1]);
+                if (f != opcodeTable.end() && f->second.mode == AddressingMode::BASE_PAGE_INDIRECT_Z) q++;
+            }
+            auto qit = opcodeTable.find(body[q]);
             if (qit != opcodeTable.end()) {
                 std::string m = qit->second.mnemonic;
                 std::transform(m.begin(), m.end(), m.begin(), ::tolower);
@@ -1001,12 +1035,24 @@ static void disassembleSection(const std::vector<uint8_t>& body, uint32_t base,
                 }
             }
         }
+        // the 45GS02's flat-memory form: NOP ($EA) before a ($nn),z instruction
+        // makes it [$nn],z (a 32-bit pointer); after NEG NEG too (ldq [$nn],z)
+        bool flat = false;
+        if (cpu == DisCpu::CPU45GS02 && i + pre + 2 < body.size() && body[i + pre] == 0xEA) {
+            auto fit = opcodeTable.find(body[i + pre + 1]);
+            if (fit != opcodeTable.end() && fit->second.mode == AddressingMode::BASE_PAGE_INDIRECT_Z &&
+                (pre || fit->second.mnemonic != "eom")) {
+                flat = true;
+                pre++;
+            }
+        }
         uint8_t opcode = body[i + pre];
         auto it = opcodeTable.find(opcode);
 
         if (it == opcodeTable.end()) {
             // Unknown opcode — emit as .byte
-            printf("    %04x:\t%02x          \t.byte\t$%02x\n", pc, opcode, opcode);
+            if (g_vice) printf(".C:%04x  %02X          .BYTE $%02X\n", pc, opcode, opcode);
+            else printf("    %04x:\t%02x          \t%s.byte\t$%02x\n", pc, opcode, g_cycles ? "\t" : "", opcode);
             i++;
             continue;
         }
@@ -1019,8 +1065,9 @@ static void disassembleSection(const std::vector<uint8_t>& body, uint32_t base,
         if (i + instrSize > body.size()) {
             // Not enough bytes — dump remainder as .byte
             for (size_t j = i; j < body.size(); j++) {
-                printf("    %04x:\t%02x          \t.byte\t$%02x\n",
-                       (unsigned)(base + j), body[j], body[j]);
+                if (g_vice) printf(".C:%04x  %02X          .BYTE $%02X\n", (unsigned)(base + j), body[j], body[j]);
+                else printf("    %04x:\t%02x          \t%s.byte\t$%02x\n",
+                            (unsigned)(base + j), body[j], g_cycles ? "\t" : "", body[j]);
             }
             break;
         }
@@ -1040,7 +1087,7 @@ static void disassembleSection(const std::vector<uint8_t>& body, uint32_t base,
 
         size_t o = i + pre;     // the instruction after any prefix
         const uint8_t* operandBytes = (opSize > 0) ? &body[o + 1] : nullptr;
-        std::string operand = formatOperand(info.mode, operandBytes, opSize, pc);
+        std::string operand = formatOperand(flat ? AddressingMode::FLAT_INDIRECT_Z : info.mode, operandBytes, opSize, pc);
 
         // Annotate operands with symbol names where the address matches (in
         // an object: a relocated operand by its relocation, any other by none)
@@ -1116,10 +1163,38 @@ static void disassembleSection(const std::vector<uint8_t>& body, uint32_t base,
                 annotation = std::string("\t; ") + hex;
             }
         }
+        std::string mnemonic = qname.empty() ? info.mnemonic : qname;
+        std::string cycles;
+        if (g_cycles) {
+            std::string mn = info.mnemonic;
+            std::transform(mn.begin(), mn.end(), mn.begin(), ::tolower);
+            int prefix = (qname.empty() ? 0 : 2) + (flat ? 1 : 0);
+            cycles = cpucycles::format(cpucycles::timing(cycleClock(cpu), opcode, mn, info.mode, prefix));
+        }
+        if (g_vice) {
+            // .C:0801  A9 00       LDA #$00 (VICE's monitor: its byte columns, upper case)
+            static const char* cols[] = {"%02X          ", "%02X %02X       ", "%02X %02X %02X    ",
+                                         "%02X %02X %02X %02X ", "%02X%02X%02X %02X%02X "};
+            const uint8_t* b = &body[i];
+            char hx[32];
+            if (instrSize > 5) {
+                std::string h;
+                for (int k = 0; k < instrSize; k++) { char x[4]; snprintf(x, sizeof x, "%02X", b[k]); h += x; }
+                snprintf(hx, sizeof hx, "%s ", h.c_str());
+            } else snprintf(hx, sizeof hx, cols[instrSize - 1], b[0], instrSize > 1 ? b[1] : 0, instrSize > 2 ? b[2] : 0,
+                     instrSize > 3 ? b[3] : 0, instrSize > 4 ? b[4] : 0);
+            std::string text = (info.undocumented ? "*" : "") + mnemonic + (operand.empty() ? "" : " " + operand);
+            std::transform(text.begin(), text.end(), text.begin(), ::toupper);
+            if (g_cycles) text += "  ; " + cycles;
+            printf(".C:%04x  %s%s\n", pc, hx, text.c_str());
+            i += instrSize;
+            continue;
+        }
         if (info.undocumented)
             annotation += annotation.empty() ? "\t; undocumented" : " (undocumented)";
-        printf("    %04x:\t%s\t%s\t%s%s\n",
-               pc, hexCol, pre ? qname.c_str() : info.mnemonic.c_str(), operand.c_str(),
+        if (g_cycles) cycles += "\t";
+        printf("    %04x:\t%s\t%s%s\t%s%s\n",
+               pc, hexCol, cycles.c_str(), mnemonic.c_str(), operand.c_str(),
                annotation.c_str());
 
         i += instrSize;
@@ -1683,6 +1758,10 @@ static void printUsage(const char* progName) {
     std::cout << "  --source Disassemble a PRG or binary as ca45 source that assembles back to its bytes:" << std::endl;
     std::cout << "           labels, .org, the code reachable from its SYS / start / --entry ADDR, the rest" << std::endl;
     std::cout << "           (and --data A-B ranges) as .byte" << std::endl;
+    std::cout << "  --cycles[=MHZ]  -d with each instruction's cycles: the 6502's (--cpu 6502/6510), the 65CE02's," << std::endl;
+    std::cout << "           the 45GS02's at 40 MHz (the default; measured, MEGAcyc), 3.5, 2 or 1 MHz; 2/3: a branch" << std::endl;
+    std::cout << "           not taken / taken, 4*: one more when a page is crossed" << std::endl;
+    std::cout << "  --vice   -d as VICE's monitor shows it: .C:0801  A9 00       LDA #$00 (no labels)" << std::endl;
     std::cout << "  --cpu=CPU  Decode for 45gs02 (the default), 65ce02, 6502 (documented opcodes; others as" << std::endl;
     std::cout << "           .byte) or 6510 (with the undocumented ones, marked); a .prg loading at $0801 is 6510" << std::endl;
     std::cout << "  -V       Display version" << std::endl;
@@ -1760,6 +1839,20 @@ int main(int argc, char** argv) {
             mapFile = argv[++i];
         } else if (arg == "--source") {
             sourceMode = true;
+        } else if (arg == "--cycles" || arg.rfind("--cycles=", 0) == 0) {
+            g_cycles = true;
+            if (arg != "--cycles") {
+                std::string v = arg.substr(9);
+                if (v == "40") g_clock45 = cpucycles::Clock::Fast;
+                else if (v == "3.5") g_clock45 = cpucycles::Clock::C65;
+                else if (v == "1" || v == "2") g_clock45 = cpucycles::Clock::Slow;
+                else {
+                    std::cerr << "objdump45: --cycles=" << v << ": not a 45GS02 speed (40, 3.5, 2, 1)" << std::endl;
+                    return 1;
+                }
+            }
+        } else if (arg == "--vice") {
+            g_vice = true;
         } else if (arg == "--data" || arg == "--entry") {
             if (i + 1 >= argc) {
                 std::cerr << "objdump45: " << arg << " requires " << (arg == "--data" ? "a range (A-B)" : "an address") << std::endl;
@@ -1848,7 +1941,12 @@ int main(int argc, char** argv) {
         return diffBinaries(files[0], files[1]) ? 0 : 1;
     }
 
-    if (sourceMode) showDisasm = true;
+    if (sourceMode && (g_cycles || g_vice)) {
+        std::cerr << "objdump45: --cycles and --vice are for the disassembly (-d), not --source" << std::endl;
+        return 1;
+    }
+    if (sourceMode || g_cycles || g_vice) showDisasm = true;
+    if (g_vice && symFiles.empty()) symNone = true;   // VICE without labels: the addresses
     // If no display options given, default to showing file header (unless -bas is specified)
     if (!showFileHeader && !showSections && !showSymbols && !showRelocs &&
         !showContents && !showDisasm && !showBasic && !showDebug) {
@@ -2083,7 +2181,7 @@ int main(int argc, char** argv) {
                         if (swap) g_fileSyms.swap(kept);
                         continue;
                     }
-                    if (stubSize > 0) {
+                    if (stubSize > 0 && !g_vice) {   // (VICE: its bytes as instructions too)
                         stubSkip = stubSize;
                         std::cout << std::endl;
                         printf("Disassembly of section PRG (%s):\n", filename.c_str());

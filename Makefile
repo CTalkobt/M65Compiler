@@ -54,7 +54,7 @@ MANDIR ?= $(PREFIX)/share/man/man1
 # lib45-common: Object format, symbols, config, utilities, diagnostics, debug info, source tracking
 $(LIB_DIR)/lib45-common.a: $(addprefix $(OBJ_DIR)/, \
     O45Reader.o O45Writer.o O45DebugSections.o O45Emitter.o O45Archive.o \
-    O45Linker.o Logger.o AssemblerOpcodeDatabase.o ConfigLoader.o Pack45.o)
+    O45Linker.o Logger.o AssemblerOpcodeDatabase.o ConfigLoader.o Pack45.o CpuCycles.o)
 	@mkdir -p $(LIB_DIR)
 	@rm -f $@
 	$(AR) rcs $@ $^
@@ -302,7 +302,7 @@ $(LIB_DIR)/lib45-residfp.a: $(RESIDFP_OBJS) | $(LIB_DIR)
 	$(AR) rcs $@ $^
 $(OBJ_DIR)/TuneAudio.o: CXXFLAGS += -I$(RESIDFP_DIR)
 TUNE_OBJS = $(OBJ_DIR)/tune45_main.o $(OBJ_DIR)/TuneCompiler.o $(OBJ_DIR)/TunePlayer.o $(OBJ_DIR)/TunePack.o $(OBJ_DIR)/TuneAudio.o \
-            $(OBJ_DIR)/TuneCreate.o $(OBJ_DIR)/TuneMidi.o $(OBJ_DIR)/TuneMod.o $(OBJ_DIR)/TuneTracker.o $(OBJ_DIR)/TuneSid.o $(OBJ_DIR)/SidFile.o \
+            $(OBJ_DIR)/TuneCreate.o $(OBJ_DIR)/TuneMidi.o $(OBJ_DIR)/TuneMod.o $(OBJ_DIR)/TuneTracker.o $(OBJ_DIR)/TuneSid.o $(OBJ_DIR)/SidFile.o $(OBJ_DIR)/CpuCycles.o \
             $(OBJ_DIR)/BasicTooling.o $(OBJ_DIR)/Logger.o $(OBJ_DIR)/Pack45.o $(OBJ_DIR)/PackAudio.o
 $(TUNE_TARGET): $(TUNE_OBJS) $(LIB_DIR)/lib45-residfp.a
 	@mkdir -p $(BIN_DIR)
