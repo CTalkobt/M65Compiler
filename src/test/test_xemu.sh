@@ -1305,6 +1305,14 @@ for vvmode in "zp|" "stack|-fno-zpcall"; do
     xemu_case "FAIL: test_vec_xemu.c $vvname (compilation/linking failed)" "src/test-resources/test_vec_xemu.c" "build/test/test_vec_${vvname}_xemu.prg" "$vvflags" -- "test_vec_$vvname" "build/test/test_vec_${vvname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
 done
 
+# Test: <bitset.h> (#408) and <list.h> (#406) against models
+for bsmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r bsname bsflags <<< "$bsmode"
+    echo "Testing test_bitset_xemu.c / test_list_xemu.c ($bsname)..."
+    xemu_case "FAIL: test_bitset_xemu.c $bsname (compilation/linking failed)" "src/test-resources/test_bitset_xemu.c" "build/test/test_bitset_${bsname}_xemu.prg" "$bsflags" -- "test_bitset_$bsname" "build/test/test_bitset_${bsname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
+    xemu_case "FAIL: test_list_xemu.c $bsname (compilation/linking failed)" "src/test-resources/test_list_xemu.c" "build/test/test_list_${bsname}_xemu.prg" "$bsflags" -- "test_list_$bsname" "build/test/test_list_${bsname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
+done
+
 # Test: (*p)[i][j] through a pointer to a 2-D array (each subscript's stride)
 for pamode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r paname paflags <<< "$pamode"

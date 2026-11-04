@@ -4,6 +4,19 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Containers: bit arrays and intrusive lists (#408, #406)
+
+- `<bitset.h>`: `BITSET(name, nbits)`; `bs_set` / `bs_clear` / `bs_toggle` /
+  `bs_test` (a constant index an expression on its byte, another a library
+  call), `bs_set_all`, `bs_clear_all`, `bs_not`, `bs_set_range`,
+  `bs_clear_range`, `bs_count`, `bs_any`, `bs_find_first_set` /
+  `_clear`, `bs_and` / `bs_or` / `bs_xor`.
+- `<list.h>`: intrusive `dlist` (circular, a sentinel head: push, insert
+  after, remove without the list, pop, splice, foreach / foreach_safe) and
+  `slist` (push, pop, remove, reverse); `container_of`.
+- Assembly (`stdlib_asm/bitset.s45`, `list.s45`), zero page only, a section
+  per function.
+
 ### Containers: a growable array and views (#404)
 
 - `<vector.h>`: `vec_t` with `vec_push`, `vec_pop`, `vec_at`, `vec_back`,
