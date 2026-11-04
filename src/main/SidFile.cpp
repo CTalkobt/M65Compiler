@@ -1,6 +1,7 @@
 // SidFile.cpp — a PSID/RSID file read, and its tune run on an emulated
 // 6502 recording the SID writes (SidFile.hpp)
 #include "SidFile.hpp"
+#include "CpuCycles.hpp"
 #include <cstdio>
 #include <initializer_list>
 #include <memory>
@@ -14,16 +15,7 @@ enum Mode { IMP, ACC, IMM, ZP, ZPX, ZPY, ABS, ABX, ABY, IND, IZX, IZY, REL, JAM 
 enum : uint8_t { FC = 0x01, FZ = 0x02, FI = 0x04, FD = 0x08, FB = 0x10, FU = 0x20, FV = 0x40, FN = 0x80 };
 
 // the NMOS cycles, without page crossings and taken branches
-const uint8_t kCycles[256] = {
-    7,6,0,8,3,3,5,5,3,2,2,2,4,4,6,6,  2,5,0,8,4,4,6,6,2,4,2,7,4,4,7,7,
-    6,6,0,8,3,3,5,5,4,2,2,2,4,4,6,6,  2,5,0,8,4,4,6,6,2,4,2,7,4,4,7,7,
-    6,6,0,8,3,3,5,5,3,2,2,2,3,4,6,6,  2,5,0,8,4,4,6,6,2,4,2,7,4,4,7,7,
-    6,6,0,8,3,3,5,5,4,2,2,2,5,4,6,6,  2,5,0,8,4,4,6,6,2,4,2,7,4,4,7,7,
-    2,6,2,6,3,3,3,3,2,2,2,2,4,4,4,4,  2,6,0,6,4,4,4,4,2,5,2,5,5,5,5,5,
-    2,6,2,6,3,3,3,3,2,2,2,2,4,4,4,4,  2,5,0,5,4,4,4,4,2,4,2,4,4,4,4,4,
-    2,6,2,8,3,3,5,5,2,2,2,2,4,4,6,6,  2,5,0,8,4,4,6,6,2,4,2,7,4,4,7,7,
-    2,6,2,8,3,3,5,5,2,2,2,2,4,4,6,6,  2,5,0,8,4,4,6,6,2,4,2,7,4,4,7,7,
-};
+const uint8_t* const kCycles = cpucycles::kNmos6502;
 
 // the addressing mode of each opcode (the 6502's opcode matrix is regular)
 struct ModeTable {

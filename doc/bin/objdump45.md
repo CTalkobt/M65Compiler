@@ -34,6 +34,8 @@ At least one display option (`-f`, `-h`, `-t`, `-r`, `-s`, `-d`, `-a` or `-bas`)
 | `-m FILE` | Load symbols and source lines from an `ln45 -M` map file for PRG/binary disassembly. For `foo.prg`, `foo.map` is used automatically when it exists, else `foo.dbg` (ln45 `-g`: function names and source lines). With code overlays, a call into an overlay is labelled with the function's name at its stub; the overlays' own symbols are in the `.ovd` file |
 | `-S FILE` | Name ROM routines and I/O registers from a symbol file (again for more; see [Symbol files](#symbol-files)): `jsr CHROUT ; $ffd2`. `-S c64` and `-S mega65` are the shipped sets, the CPU's by default; `-S none` uses none |
 | `--source` | A PRG or binary as ca45 source that assembles back to its bytes (see [Assemblable source](#assemblable-source)); `--entry ADDR` (again for more) code a pointer reaches, `--data A-B` a range that is data |
+| `--cycles[=MHZ]` | `-d` with each instruction's cycle count (see [Cycle counts](#cycle-counts)): the 45GS02's at `40` MHz (the default), `3.5`, `2` or `1`; the 65CE02's or the 6502's with `--cpu` |
+| `--vice` | `-d` as VICE's monitor shows it: `.C:0801  A9 00       LDA #$00` (see [VICE format](#vice-format)) |
 | `--cpu=CPU` | The CPU to decode for (`--cpu CPU` too): `45gs02` (the default; `4510`), `65ce02`, `6502` or `6510` (see [CPU modes](#cpu-modes)). Without it a `.prg` loading at `$0801` (a C64 program) is decoded as `6510`, with a note |
 | `-bas` | List the BASIC program of a `.prg` (line numbers, detokenised text) |
 | `-x` | With `-bas`: also show each line's bytes in hex |
@@ -203,6 +205,44 @@ L_081D:
         .byte $48, $49, $00
         .noopt_end
 ```
+
+#### Cycle counts
+
+`--cycles` adds a column with each instruction's cycles, in the units of the CPU's clock:
+
+```
+$ objdump45 --cycles -b '$2000' code.bin
+; cycles: the 45GS02 at 40 MHz; n/m: a branch not taken / taken; *: one more when a page is crossed
+    2005:	bd 34 12    	5	lda	$1234,x
+    200b:	f0 f3       	2/4	beq	$2000
+    2012:	42 42 a5 10	10	ldq	$10
+    2016:	ea b2 10    	13	lda	[$10],z
+```
+
+| CPU / speed | Counts | Page crossing (`*`) | Taken branch |
+|---|---|---|---|
+| 45GS02, 40 MHz (`--cycles`, `--cycles=40`) | measured on a MEGA65 by LGB's [MEGAcyc](https://github.com/lgblgblgb/megacyc) (as xemu uses them), the prefixed instructions (`ldq`, `[$nn],z`) with their prefix bytes | none | 8-bit +2, 16-bit and `bbr`/`bbs` +1 |
+| 45GS02, 3.5 MHz (`--cycles=3.5`); `--cpu 65ce02` | the 65CE02's | none | +1 |
+| 45GS02, 1 or 2 MHz (`--cycles=1`, `=2`) | a 6502 instruction the 6502's (the dead cycles are put back), the 45GS02's own the 65CE02's, at least 2 | reads (`lda $nnnn,x`, `($nn),y` ...) | +1 |
+| 6502 / 6510 (`--cpu`, a `$0801` PRG) | the NMOS 6502's (the undocumented opcodes too; `JAM` `?`) | reads | +1 |
+
+`BRA` and `BSR` count as taken. The quad and flat-memory instructions have only the 40 MHz measurements, which are shown at every speed. Not counted: the extra cycle of a read-modify-write instruction on `$D019` (its dummy write), DMA, and the badlines and other waits of the slower speeds. The MEGA65 Book's own 40 MHz table has no counts for `$80`-`$FF` and is, where it has them, often a cycle below MEGAcyc's measurements (and has slips, such as `JMP $nnnn` at 3); the measurements are used.
+
+`-d` decodes a NOP (`$EA`) before a `($nn),z` instruction as the flat-memory form it makes, `lda [$nn],z` (also after NEG NEG: `ldq [$nn],z`), one line, with or without `--cycles`.
+
+#### VICE format
+
+`--vice` writes the disassembly as VICE's monitor (`d`) does, to compare the two: `.C:addr`, its byte columns, upper-case mnemonics and operands, `*` before an undocumented opcode; no headers, labels or source lines, and a BASIC stub disassembled like the rest. Addresses stay numbers unless `-S` names a symbol file (as VICE with its labels loaded). With `--cycles` the count follows as `; 4`.
+
+```
+$ objdump45 --vice c64.prg
+.C:080d  A2 00       LDX #$00
+.C:080f  BD 1D 08    LDA $081D,X
+.C:0814  20 D2 FF    JSR $FFD2
+.C:081a  A7 10       *LAX $10
+```
+
+The undocumented opcodes have the names objdump45 uses (groepaz's), which VICE spells differently for some (`ISC`).
 
 Limitations for objects: addresses are object-relative (the not yet relocated operand bytes are shown, usually `$0000` for external references), and the DATA section is disassembled as if it were code. Disassemble the linked PRG with its map for real addresses.
 
