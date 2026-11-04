@@ -4,6 +4,18 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: typedef'd function pointers and function types (#402)
+
+- A parameter of a typedef'd function-pointer type may go without a name in
+  a prototype (`void g(fp);`, `void g(int, const fp, char);`); it gave
+  "Expected parameter name".
+- `fp *` (a pointer to a typedef'd function pointer) is a pointer to the
+  2-byte function pointer: as a global or local (a parse error before) and as
+  a parameter (before, taken for the function pointer itself: `(*pp)(x)`
+  called the wrong address, `sizeof(fp *)` was wrong).
+- `typedef int fn(int);` (a function type) parses; a parameter of it is its
+  pointer, and `fn *p` is a function pointer.
+
 ### ca45: the quad instructions as the MEGA65 Book has them; bbr/bbs targets
 
 - `orq`, `bitq` and `asrq` (the book's names; `oraq` stays), the book's
