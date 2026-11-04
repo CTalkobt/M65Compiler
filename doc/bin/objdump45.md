@@ -16,7 +16,7 @@ The disassembly shows the 45GS02's 32-bit instructions as such: `NEG NEG` ($42 $
 objdump45 [options] <file> [...]
 ```
 
-At least one display option (`-f`, `-h`, `-t`, `-r`, `-s`, `-d`, `-a` or `-bas`) is required, or `-D` with two files.
+At least one display option (`-f`, `-h`, `-t`, `-r`, `-s`, `-d`, `-a`, `-bas`, `--html`, `--tree` or `--json`) is required, or `-D` with two files.
 
 ## Options
 
@@ -36,6 +36,10 @@ At least one display option (`-f`, `-h`, `-t`, `-r`, `-s`, `-d`, `-a` or `-bas`)
 | `--source` | A PRG or binary as ca45 source that assembles back to its bytes (see [Assemblable source](#assemblable-source)); `--entry ADDR` (again for more) code a pointer reaches, `--data A-B` a range that is data |
 | `--cycles[=MHZ]` | `-d` with each instruction's cycle count (see [Cycle counts](#cycle-counts)): the 45GS02's at `40` MHz (the default), `3.5`, `2` or `1`; the 65CE02's or the 6502's with `--cpu` |
 | `--vice` | `-d` as VICE's monitor shows it: `.C:0801  A9 00       LDA #$00` (see [VICE format](#vice-format)) |
+| `--html FILE` | One self-contained page (no other files) that shows everything there is in the files, to browse in any browser (`-` writes it to the standard output); see [HTML view](#html-view) |
+| `--tree` | The same as a tree in the terminal: arrow keys to move, open and close; not on a terminal, the whole tree as indented text; see [Tree view](#tree-view) |
+| `--json` | The files as one JSON document (what `--html` and `--tree` show); see [JSON model](#json-model) |
+| `--compare A B` | What changed from A to B: sizes, symbols, function attributes, relocations, each function's instructions; as text, or in `--html` / `--tree` / `--json`; see [Comparing two files](#comparing-two-files) |
 | `--cpu=CPU` | The CPU to decode for (`--cpu CPU` too): `45gs02` (the default; `4510`), `65ce02`, `6502` or `6510` (see [CPU modes](#cpu-modes)). Without it a `.prg` loading at `$0801` (a C64 program) is decoded as `6510`, with a note |
 | `-bas` | List the BASIC program of a `.prg` (line numbers, detokenised text) |
 | `-x` | With `-bas`: also show each line's bytes in hex |
@@ -245,6 +249,97 @@ $ objdump45 --vice c64.prg
 The undocumented opcodes have the names objdump45 uses (groepaz's), which VICE spells differently for some (`ISC`).
 
 Limitations for objects: addresses are object-relative (the not yet relocated operand bytes are shown, usually `$0000` for external references), and the DATA section is disassembled as if it were code. Disassemble the linked PRG with its map for real addresses.
+
+### HTML view
+
+`objdump45 --html out.html FILE...` writes one page with all the files given: objects, `.lib` archives (each
+member), PRGs (their `.map` or `.dbg` for names), raw binaries (`-b`) and overlay files. The other display options
+do not matter: it holds everything. On the left a tree: each file, then
+
+- **Header**: format, CPU, mode, the object's options; the segments drawn to scale
+- **Segments**, **Link sections** (the per-function sections ln45 keeps or drops), **Overlays**
+- **Symbols**: imports, exports (weak ones marked), with each function's convention; how often it is called
+- **Functions**: the attribute records: ZP or stack convention, leaf, static allocation, ISR; the registers and
+  flags they clobber; parameter and frame sizes; the base-page bytes used, clobbered and released; what they call
+- **Relocations**, linked to the instruction holding each
+- **Disassembly** per section, its labels below it in the tree: source lines, branches, jumps and calls with their
+  target a link (and its name), each label's callers; **Back** (Alt+Left) returns
+- **Data**: the bytes, with the labels and the relocated words
+- **Call graph**: `jsr`/`jmp`/`bsr` out of each function (in an object a relocated call by its symbol), who calls
+  it, the functions on a call cycle (recursion)
+
+The filter box narrows the table shown or marks the matching lines; a column heading sorts. The tree follows the
+arrow keys. Light or dark as the system is (the Theme button switches).
+
+```bash
+$ objdump45 --html hello.html hello.o45 hello.prg lib/build/c45.lib
+```
+
+### Tree view
+
+`objdump45 --tree FILE...` shows the same as a tree on the terminal (it switches to the alternate screen and
+back):
+
+| Key | |
+|---|---|
+| Up / Down, PgUp / PgDn, Home / End (also `k` `j` `g` `G`) | Move |
+| Right (`l`) | Open; on an open node, to its first child |
+| Left (`h`) | Close; on a closed one, to its parent |
+| Space | Open or close |
+| Enter | On an instruction marked `->` (a branch, jump or call) or a symbol: go to its target; else open or close |
+| Backspace (`b`) | Back to where Enter came from |
+| `/` text, `n`, `N` | Find the next line (anywhere in the tree, closed nodes too) holding the text; again; backwards |
+| `*`, `c` | Open, close everything below the node |
+| `q` | Quit |
+
+The bottom line shows the position and the path to the node. Not on a terminal (`objdump45 --tree x.o45 | less`,
+a file) the whole tree is written as indented text. The terminal is driven with standard (ANSI/VT100) sequences;
+there is no curses library to install.
+
+### Checks
+
+Each file in `--html`, `--tree` and `--json` has a list of checks: what may be wrong, found in its code and
+records.
+
+| Kind | |
+|---|---|
+| `self-modifying` | A store, `inc`/`dec`, shift or `tsb`/`trb` into the code itself (in an object: into a `TEXT` symbol through a relocation) — a note: often meant (crt0 keeps the caller's stack pointer in an operand) |
+| `mid-instruction` | A branch, jump or call into the middle of an instruction: overlapping code, or data decoded as code (objects, overlay files and PRGs with their map only: without one a PRG is decoded to its end, its data too) |
+| `undecodable` | Bytes in code that are no instruction (data among the code) — a note |
+| `relocation` | A relocation of a type the format does not have |
+| `isr-sac` | An `__interrupt` handler calling a function with static allocation: ln45 will reject the program (`#pragma cc45 recurse` before the function gives it a frame) |
+| `convention` | A call between the ZP and stack conventions: ln45 bridges it with a thunk — a note |
+| `unresolved` | In a library, a member's import that no member defines (names starting `__` and `cc45.` left out: the linker or crt0 defines them) — a note |
+
+The functions' attributes are taken from all the files given, so a call into another object is checked too.
+
+### Comparing two files
+
+`objdump45 --compare A B` writes what changed from A to B: each segment's size, the symbols added, removed and
+changed (segment, weak, the function's attribute record), the relocations against each symbol, and for each
+function its instructions in A against those in B (a diff that leaves out the addresses: an operand that is the
+code's own address shows as `<label>`, a relocated one by its symbol). With `--html FILE` the comparison is the first
+entry of the page, before the two files; with `--tree` the first node; with `--json` the first entry
+(`kind: comparison`).
+
+```bash
+$ objdump45 --compare build-O1/game.o45 build-O2/game.o45
+$ objdump45 --html diff.html --compare old.o45 new.o45
+```
+
+### JSON model
+
+`--json` writes a list, one entry per file: `kind` (`object`, `library`, `prg`, `binary`, `overlays`), `file`, and
+by kind `format`, `cpu`, `mode`, `options`, `segments` (`name`, `type`, `base`, `size`, `relocs`), `sections`,
+`symbols` (`name`, `value`, `seg` — `U` for an import —, `weak`, `attr`: `conv`, `flags`, `regs`, `cflags`, `zpUses`,
+`zpClobbers`, `zpRelease`, `params`, `frame`), `relocs` (`seg`, `offset`, `type`, `symbol` or `target`, `extra`),
+`disasm` (sections: `name`, `base`, `size`, `cpu`, `lines`), `data` (`name`, `base`, `hex`, `labels`); a library's
+`members` (each an object entry) and `index` (`name`, `member`); a PRG's `stub` and `map`; an overlay file's
+`overlays`; each file's `checks` (`severity`, `kind`, `message`, `a`). A comparison (`--compare`) has `a`, `b`,
+`segments` (`name`, `a`, `b`, `delta`), `added`, `removed`, `changed`, `relocs` and `functions` (`name`, `a`, `b`,
+`added`, `removed`, `lines`: `+ `, `- ` or two spaces before each instruction). A line in `lines` has `t` — `L` a label (`name`), `S` a source line (`file`, `line`, `text`), `I` an
+instruction (`b` its bytes, `m`, `o` the operand, `n` the note, `g` the address it branches, jumps or calls to,
+`c` the cycles with `--cycles`, `u` undocumented), `B` a byte — and `a`, its address.
 
 ## Examples
 

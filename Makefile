@@ -320,10 +320,10 @@ $(AR_TARGET): $(LIB_DIR)/lib45-common.a
 	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/ar45_main.o $(LIB_DIR)/lib45-common.a
 
 # Object Disassembler (objdump45) - uses codegen, basic, common
-$(OD_TARGET): $(OBJ_DIR)/objdump45_main.o | $(LIB_DIR)
+$(OD_TARGET): $(OBJ_DIR)/objdump45_main.o $(OBJ_DIR)/objdump45_html.o $(OBJ_DIR)/objdump45_tree.o $(OBJ_DIR)/objdump45_analysis.o | $(LIB_DIR)
 $(OD_TARGET): $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-basic.a $(LIB_DIR)/lib45-common.a
 	@mkdir -p $(BIN_DIR)
-	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/objdump45_main.o $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-basic.a $(LIB_DIR)/lib45-common.a
+	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/objdump45_main.o $(OBJ_DIR)/objdump45_html.o $(OBJ_DIR)/objdump45_tree.o $(OBJ_DIR)/objdump45_analysis.o $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-basic.a $(LIB_DIR)/lib45-common.a
 
 # Disk Utility (disk45) - uses tools + common
 $(DISK_TARGET): $(OBJ_DIR)/disk45_main.o | $(LIB_DIR)

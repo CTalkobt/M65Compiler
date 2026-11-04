@@ -798,6 +798,100 @@ out=$($OD --vice --cycles $C/c64.prg)
 assert_contains "--vice: the BASIC stub as instructions too" "$out" ".C:0801  0B 08       *ANC #\$08  ; 2"
 assert_contains "--vice: an undocumented opcode with *, cycles" "$out" ".C:081a  A7 10       *LAX \$10  ; 3"
 
+# --json / --html / --tree (#201): the files as one model, a page, a tree
+echo ""
+echo "--- --json, --html, --tree ---"
+C=$BUILD/od201
+mkdir -p $C
+cat > $C/m.c <<'CEOF'
+int sq(int x) { return x * x; }
+int twice(int x) { return sq(x) + sq(x); }
+const char msg[] = "hi";
+int main(void) { return twice(3) + msg[0]; }
+CEOF
+./bin/cc45 -O0 -c $C/m.c -o $C/m.o45 2>/dev/null && ./bin/cc45 -O0 $C/m.c -o $C/m.prg -Wl,-M,$C/m.map 2>/dev/null
+model() {   # model FILE... : a python expression over the --json output (m: its list)
+    local expr="$1"; shift
+    $OD --json "$@" | python3 -c "import json,sys; m=json.load(sys.stdin); print($expr)" 2>&1
+}
+[ "$(model "m[0]['kind'], [s['name'] for s in m[0]['segments']]" $C/m.o45)" = "object ['TEXT', 'DATA', 'BSS']" ] \
+    && pass "--json: an object's kind and segments" || fail "--json object: $(model "m[0].get('kind')" $C/m.o45)"
+[ "$(model "[s['attr']['conv'] for s in m[0]['symbols'] if s['name']=='_sq']" $C/m.o45)" = "['zp']" ] \
+    && pass "--json: a function's attributes" || fail "--json attr: $(model "[s for s in m[0]['symbols'] if s['name']=='_sq']" $C/m.o45)"
+[ "$(model "sorted({r['symbol'] for r in m[0]['relocs'] if 'symbol' in r} & {'_sq'}) or [l['n'] for l in m[0]['disasm'][0]['lines'] if l.get('m')=='jsr'][:2]" $C/m.o45)" != "" ] \
+    && pass "--json: relocations" || fail "--json relocs"
+# a relocated jsr goes to its symbol, not the address it holds unlinked
+[ "$(model "sorted({(l.get('g'), l.get('n')) for l in m[0]['disasm'][0]['lines'] if l.get('m')=='jsr'}, key=str)" $C/m.o45)" = "[(0, '<_sq>'), (18, '<_twice>'), (None, '<__mul16>')]" ] \
+    && pass "--json: a jsr to the object's own symbol, a relocated one to its import" \
+    || fail "--json jsr: $(model "[(l.get('g'), l.get('n')) for l in m[0]['disasm'][0]['lines'] if l.get('m')=='jsr']" $C/m.o45)"
+[ "$(model "m[0]['kind'], m[0]['stub']['sys'] > 2048, m[0]['map'].endswith('m.map'), any(s['name']=='_twice' for s in m[0]['symbols'])" $C/m.prg)" = "prg True True True" ] \
+    && pass "--json: a PRG (stub, map symbols)" || fail "--json prg: $(model "m[0].get('kind'), m[0].get('stub')" $C/m.prg)"
+[ "$(model "m[0]['kind'], len(m[0]['members']) > 50, any(e['name']=='_printf' for e in m[0]['index'])" lib/build/c45.lib)" = "library True True" ] \
+    && pass "--json: a .lib's members and index" || fail "--json lib"
+printf '\xa9\x01\x20\x00\x20\x60' > $C/r.bin
+[ "$(model "[(l['m'], l.get('g')) for l in m[0]['disasm'][0]['lines']]" -b 0x2000 $C/r.bin)" = "[('lda', None), ('jsr', 8192), ('rts', None)]" ] \
+    && pass "--json: a binary; a jsr's target" || fail "--json bin: $(model "m[0]" -b 0x2000 $C/r.bin)"
+$OD --html $C/m.html $C/m.o45 $C/m.prg
+out=$(cat $C/m.html)
+assert_contains "--html: the page's title" "$out" "<title>objdump45: 2 files</title>"
+assert_contains "--html: the model in the page" "$out" '"kind":"prg"'
+python3 -c "import re,sys; s=open('$C/m.html').read(); j=re.search(r'id=\"model\"[^>]*>(.*?)</script>', s, re.S).group(1); sys.exit('</' in j)" \
+    && pass "--html: no </ inside the model" || fail "--html: </ inside the model"
+if command -v node >/dev/null; then
+    python3 -c "import re,sys; s=open('$C/m.html').read(); open('$C/page.js','w').write(re.findall(r'<script>(.*?)</script>', s, re.S)[0])"
+    node --check $C/page.js 2>/dev/null && pass "--html: the page's script parses" || fail "--html: the page's script"
+fi
+out=$($OD --tree $C/m.o45)
+assert_contains "--tree: the file" "$out" "m.o45  (object, o45-32, 45GS02)"
+assert_contains "--tree: a function's convention" "$out" "Convention: zp_call"
+assert_contains "--tree: the disassembly by label" "$out" "<_twice>"
+assert_contains "--tree: the call graph" "$out" "calls: _sq x2"
+assert_contains "--tree: who calls" "$out" "called by: _twice"
+err=$($OD --tree --source $C/m.prg 2>&1); rc=$?
+[ $rc -ne 0 ] && echo "$err" | grep -q "not for --source" && pass "--tree with --source refused" || fail "--tree --source: $rc $err"
+
+# checks and --compare (#201)
+cat > $C/smc.s45 <<'SEOF'
+* = $2000
+start:
+    lda #5
+    sta patch+1
+patch:
+    ldx #0
+    bne start+1
+    rts
+SEOF
+$AS -c $C/smc.s45 -o $C/smc.o45 >/dev/null 2>&1
+out=$($OD --tree $C/smc.o45)
+assert_contains "checks: a store into the code (a note)" "$out" 'info    $2002  sta writes into the code (<TEXT+$6>)'
+assert_contains "checks: a branch into an instruction" "$out" 'bne to $2001, inside an instruction'
+$AS $C/smc.s45 -o $C/smc.bin >/dev/null 2>&1
+out=$($OD --tree -b 0x2000 $C/smc.bin)
+assert_contains "checks: a binary's store into its code" "$out" 'sta writes into the code ($2006)'
+assert_not_contains "checks: no branch checks without a map (data may be decoded)" "$out" 'inside an instruction'
+cat > $C/isr.c <<'CEOF'
+static int counter(int x) { return x + 1; }
+volatile int n;
+__interrupt void tick(void) { n = counter(n); }
+int main(void) { return 0; }
+CEOF
+./bin/cc45 -O0 -c $C/isr.c -o $C/isr.o45 2>/dev/null
+out=$($OD --tree $C/isr.o45)
+assert_contains "checks: an interrupt handler calling a function with static allocation (ln45 rejects it)" "$out" "the interrupt handler _tick calls _counter__isr, which has static allocation"
+out=$($OD --tree $C/m.o45)
+assert_contains "checks: none in a plain object" "$out" "Checks (0 warnings, 0 notes)"
+./bin/cc45 -O2 -c $C/m.c -o $C/m2.o45 2>/dev/null
+out=$($OD --compare $C/m.o45 $C/m2.o45)
+assert_contains "--compare: the two files" "$out" "m.o45 → $C/m2.o45  (comparison)"
+assert_contains "--compare: the sizes" "$out" "TEXT    "
+assert_contains "--compare: the functions changed" "$out" "Functions changed ("
+[ "$(model "m[0]['kind'], m[0]['a'].endswith('m.o45'), len(m)" --compare $C/m.o45 $C/m2.o45)" = "comparison True 3" ] \
+    && pass "--compare --json: the comparison first, then both files" || fail "--compare --json"
+same=$($OD --compare $C/m.o45 $C/m.o45)
+assert_contains "--compare: a file against itself: nothing changed" "$same" "Functions changed (0;"
+err=$($OD --compare $C/m.o45 2>&1); rc=$?
+[ $rc -ne 0 ] && echo "$err" | grep -q "takes two files" && pass "--compare needs two files" || fail "--compare one file: $rc $err"
+
 echo "objdump45 tests: $passed passed, $failed failed"
 echo "========================================"
 

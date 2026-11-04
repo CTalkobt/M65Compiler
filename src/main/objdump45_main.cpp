@@ -16,6 +16,7 @@
 #include <cctype>
 #include "O45Reader.hpp"
 #include "O45OverlayFile.hpp"
+#include "O45Archive.hpp"
 #include "O45Linker.hpp"
 #include "O45FormatUtil.hpp"
 #include "AssemblerOpcodeDatabase.hpp"
@@ -963,6 +964,19 @@ static std::string shippedSymbolFile(const std::string& name) {
     return "";
 }
 
+// --html / --json (#201): the disassembly as records instead of text
+struct DisRec {
+    char t = 0;             // 'L' a label, 'S' a source line, 'I' an instruction, 'B' a byte
+    uint32_t a = 0;         // its address
+    std::string name;       // L: the label; S: the file
+    int line = 0;           // S: the line
+    std::string text;       // S: the line's text
+    std::string bytes, m, op, note, cyc;   // I / B
+    long target = -1;       // I: the address a branch, jump or call goes to
+    bool undoc = false;
+};
+static std::vector<DisRec>* g_sink = nullptr;
+
 static void disassembleSection(const std::vector<uint8_t>& body, uint32_t base,
                                const char* sectionName,
                                const std::map<uint8_t, OpcodeInfo>& opcodeTable,
@@ -972,7 +986,7 @@ static void disassembleSection(const std::vector<uint8_t>& body, uint32_t base,
                                const std::map<uint32_t, std::string>* relocNames = nullptr,
                                DisCpu cpu = DisCpu::CPU45GS02, const char* note = nullptr) {
     if (body.empty()) return;
-    if (!g_vice) {
+    if (!g_vice && !g_sink) {
         std::cout << std::endl;
         printf("Disassembly of section %s (%s):\n", sectionName, filename.c_str());
         if (note) printf("; %s\n", note);
@@ -993,6 +1007,12 @@ static void disassembleSection(const std::vector<uint8_t>& body, uint32_t base,
         auto symIt = symbols.find(pc);
         if (g_vice) {
             // (no labels or source lines: VICE's lines only)
+        } else if (g_sink && (symIt != symbols.end() || g_fileSyms.count(pc))) {
+            DisRec r;
+            r.t = 'L';
+            r.a = pc;
+            r.name = symIt != symbols.end() ? symIt->second : g_fileSyms.at(pc);
+            g_sink->push_back(r);
         } else if (symIt != symbols.end()) {
             std::cout << std::endl;
             printf("%08x <%s>:\n", pc, symIt->second.c_str());
@@ -1012,7 +1032,12 @@ static void disassembleSection(const std::vector<uint8_t>& body, uint32_t base,
                     std::string srcText = getSourceLine(lastSourceFile, lastSourceLine);
                     size_t start = srcText.find_first_not_of(" \t");
                     if (start != std::string::npos) srcText = srcText.substr(start);
-                    printf("; %s:%d  %s\n", lastSourceFile.c_str(), lastSourceLine, srcText.c_str());
+                    if (g_sink) {
+                        DisRec r;
+            r.t = 'S';
+                        r.a = pc; r.name = lastSourceFile; r.line = lastSourceLine; r.text = srcText;
+                        g_sink->push_back(r);
+                    } else printf("; %s:%d  %s\n", lastSourceFile.c_str(), lastSourceLine, srcText.c_str());
                 }
             }
         }
@@ -1060,7 +1085,13 @@ static void disassembleSection(const std::vector<uint8_t>& body, uint32_t base,
 
         if (it == opcodeTable.end()) {
             // Unknown opcode — emit as .byte
-            if (g_vice) printf(".C:%04x  %02X          .BYTE $%02X\n", pc, opcode, opcode);
+            if (g_sink) {
+                DisRec r;
+            r.t = 'B';
+                char x[4]; snprintf(x, sizeof x, "%02x", opcode);
+                r.a = pc; r.bytes = x;
+                g_sink->push_back(r);
+            } else if (g_vice) printf(".C:%04x  %02X          .BYTE $%02X\n", pc, opcode, opcode);
             else printf("    %04x:\t%02x          \t%s.byte\t$%02x\n", pc, opcode, g_cycles ? "\t" : "", opcode);
             i++;
             continue;
@@ -1074,7 +1105,13 @@ static void disassembleSection(const std::vector<uint8_t>& body, uint32_t base,
         if (i + instrSize > body.size()) {
             // Not enough bytes — dump remainder as .byte
             for (size_t j = i; j < body.size(); j++) {
-                if (g_vice) printf(".C:%04x  %02X          .BYTE $%02X\n", (unsigned)(base + j), body[j], body[j]);
+                if (g_sink) {
+                    DisRec r;
+            r.t = 'B';
+                    char x[4]; snprintf(x, sizeof x, "%02x", body[j]);
+                    r.a = (uint32_t)(base + j); r.bytes = x;
+                    g_sink->push_back(r);
+                } else if (g_vice) printf(".C:%04x  %02X          .BYTE $%02X\n", (unsigned)(base + j), body[j], body[j]);
                 else printf("    %04x:\t%02x          \t%s.byte\t$%02x\n",
                             (unsigned)(base + j), body[j], g_cycles ? "\t" : "", body[j]);
             }
@@ -1196,6 +1233,35 @@ static void disassembleSection(const std::vector<uint8_t>& body, uint32_t base,
             std::transform(text.begin(), text.end(), text.begin(), ::toupper);
             if (g_cycles) text += "  ; " + cycles;
             printf(".C:%04x  %s%s\n", pc, hx, text.c_str());
+            i += instrSize;
+            continue;
+        }
+        if (g_sink) {
+            DisRec r;
+            r.t = 'I';
+            r.a = pc;
+            for (int b = 0; b < instrSize; b++) {
+                char x[4]; snprintf(x, sizeof x, b ? " %02x" : "%02x", body[i + b]);
+                r.bytes += x;
+            }
+            r.m = mnemonic;
+            std::transform(r.m.begin(), r.m.end(), r.m.begin(), ::tolower);
+            r.op = operand;
+            r.note = annotation;
+            size_t semi = r.note.find("; ");
+            if (semi != std::string::npos) r.note = r.note.substr(semi + 2);
+            r.cyc = cycles;
+            r.undoc = info.undocumented;
+            // where it goes: a branch's target, a jmp / jsr's address
+            if (info.mode == AddressingMode::RELATIVE)
+                r.target = (pc + (uint32_t)pre + 2 + (int8_t)body[o + 1]) & 0xFFFF;
+            else if (info.mode == AddressingMode::RELATIVE16)
+                r.target = (pc + (uint32_t)pre + 2 + (int16_t)(body[o + 1] | (body[o + 2] << 8))) & 0xFFFF;
+            else if (info.mode == AddressingMode::BASE_PAGE_RELATIVE)
+                r.target = (pc + 3 + (int8_t)body[o + 2]) & 0xFFFF;
+            else if (info.mode == AddressingMode::ABSOLUTE && (r.m == "jmp" || r.m == "jsr"))
+                r.target = body[o + 1] | (body[o + 2] << 8);
+            g_sink->push_back(r);
             i += instrSize;
             continue;
         }
@@ -1742,6 +1808,195 @@ static bool diffBinaries(const std::string& file1, const std::string& file2) {
     return true;
 }
 
+// ─── --html / --json: the file as one model (#201) ─────────────────────────
+// What -f -h -t -r -d -s show, as data: an object (header, segments, link
+// sections, symbols with their function attributes, relocations, the
+// disassembly as records, the data's bytes), a .lib (its members), a PRG or
+// binary, an overlay file. --json writes it; --html a page that shows it.
+
+static std::string hex2(const std::vector<uint8_t>& b) {
+    static const char* d = "0123456789abcdef";
+    std::string s;
+    s.reserve(b.size() * 2);
+    for (uint8_t c : b) { s += d[c >> 4]; s += d[c & 15]; }
+    return s;
+}
+
+// the disassembly of a section, as records
+static Json disasmModel(const std::vector<uint8_t>& body, uint32_t base, const std::string& name,
+                        const std::map<uint8_t, OpcodeInfo>& table, const std::map<uint32_t, std::string>& symbols,
+                        const std::string& filename, const SourceLineMap& src,
+                        const std::map<uint32_t, std::string>* relocNames, DisCpu cpu, const char* note = nullptr) {
+    std::vector<DisRec> recs;
+    g_sink = &recs;
+    disassembleSection(body, base, name.c_str(), table, symbols, filename, src, relocNames, cpu, note);
+    g_sink = nullptr;
+    // (in an object an operand a relocation names goes there, not to the
+    // address it holds before linking: jsr $0000 ; <__mul16>)
+    for (auto& r : recs) {
+        if (r.t != 'I' || r.target < 0 || r.note.size() < 3 || r.note[0] != '<' || r.m[0] == 'b' || r.m[0] == 'l') continue;
+        auto sy = symbols.find((uint32_t)r.target);
+        if (sy == symbols.end() || "<" + sy->second + ">" != r.note) r.target = -1;
+    }
+    Json sec = Json::object();
+    sec.set("name", name).set("base", (double)base).set("size", (double)body.size()).set("cpu", disCpuName(cpu));
+    if (note) sec.set("note", note);
+    Json lines = Json::array();
+    for (const auto& r : recs) {
+        Json l = Json::object();
+        l.set("t", std::string(1, r.t)).set("a", (double)r.a);
+        switch (r.t) {
+        case 'L': l.set("name", r.name); break;
+        case 'S': l.set("file", r.name).set("line", r.line).set("text", r.text); break;
+        case 'B': l.set("b", r.bytes); break;
+        default:
+            l.set("b", r.bytes).set("m", r.m);
+            if (!r.op.empty()) l.set("o", r.op);
+            if (!r.note.empty()) l.set("n", r.note);
+            if (r.target >= 0) l.set("g", (double)r.target);
+            if (!r.cyc.empty()) l.set("c", r.cyc);
+            if (r.undoc) l.set("u", true);
+        }
+        lines.push(std::move(l));
+    }
+    sec.set("lines", std::move(lines));
+    return sec;
+}
+
+static Json funcAttrModel(const O45FuncAttr& fa) {
+    Json a = Json::object();
+    a.set("conv", (fa.flags & FUNC_FLAG_ZP_CONV) ? "zp" : "stack");
+    Json flags = Json::array();
+    if (fa.flags & FUNC_FLAG_LEAF) flags.push(Json::string("leaf"));
+    if (fa.flags & FUNC_FLAG_REENTRANT) flags.push(Json::string("reentrant"));
+    if (fa.flags & FUNC_FLAG_STATIC_ALLOC) flags.push(Json::string("static_alloc"));
+    if (fa.flags & FUNC_FLAG_ZERO_ALLOC) flags.push(Json::string("zeroalloc"));
+    if (fa.flags & FUNC_FLAG_ISR) flags.push(Json::string("isr"));
+    a.set("flags", std::move(flags));
+    std::string regs, fl;
+    for (int i = 0; i < 4; i++) if (fa.regClobbers & (1 << i)) regs += "AXYZ"[i];
+    for (int i = 0; i < 4; i++) if (fa.flagClobbers & (1 << i)) fl += "CNZV"[i];
+    a.set("regs", regs).set("cflags", fl);
+    a.set("zpUses", fa.zpUses.str()).set("zpClobbers", fa.zpClobbers.str()).set("zpRelease", fa.zpRelease.str());
+    a.set("params", (int)fa.paramSize).set("frame", (int)fa.frameSize);
+    return a;
+}
+
+static Json objectModel(const O45File& obj, const std::string& filename,
+                        const std::map<uint8_t, OpcodeInfo>& table, DisCpu cpu) {
+    Json m = Json::object();
+    m.set("file", filename).set("kind", "object");
+    m.set("format", (obj.mode & O45_MODE_SIZE32) ? "o45-32" : "o65-16").set("cpu", cpuName(obj.cpuId));
+    m.set("mode", (double)obj.mode);
+    Json opts = Json::array();
+    for (const auto& opt : obj.options) {
+        static const std::map<int, const char*> names = {{OPT_FNAME, "FNAME"}, {OPT_OS, "OS"}, {OPT_ASM, "ASM"},
+            {OPT_AUTHOR, "AUTHOR"}, {OPT_CREATED, "CREATED"}, {OPT_LINEINFO, "LINEINFO"}, {OPT_DEBUG_SYMBOLS, "DEBUG_SYMBOLS"},
+            {OPT_DEBUG_TYPES, "DEBUG_TYPES"}, {OPT_DEBUG_VARS, "DEBUG_VARS"}};
+        auto n = names.find(opt.type);
+        Json o = Json::object();
+        o.set("name", n != names.end() ? n->second : "USER").set("size", (double)opt.data.size());
+        bool text = !opt.data.empty();
+        for (size_t i = 0; i < opt.data.size(); i++) {
+            uint8_t c = opt.data[i];
+            if (c == 0 && i == opt.data.size() - 1) continue;
+            if (c < 0x20 || c > 0x7E) { text = false; break; }
+        }
+        if (text) {
+            std::string s(opt.data.begin(), opt.data.end());
+            if (!s.empty() && s.back() == '\0') s.pop_back();
+            o.set("text", s);
+        }
+        opts.push(std::move(o));
+    }
+    m.set("options", std::move(opts));
+    Json segs = Json::array();
+    auto seg = [&](const char* name, const char* type, uint32_t base, uint32_t len, size_t relocs) {
+        if (!len) return;
+        Json s = Json::object();
+        s.set("name", name).set("type", type).set("base", (double)base).set("size", (double)len).set("relocs", (double)relocs);
+        segs.push(std::move(s));
+    };
+    auto textRel = O45RelocDecoder::decode(obj.textRelocs), dataRel = O45RelocDecoder::decode(obj.dataRelocs);
+    seg("TEXT", "code", obj.tbase, obj.tlen, textRel.size());
+    seg("DATA", "data", obj.dbase, obj.dlen, dataRel.size());
+    seg("BSS", "bss", obj.bbase, obj.blen, 0);
+    seg("ZP", "zp", obj.zbase, obj.zlen, 0);
+    m.set("segments", std::move(segs));
+    Json secs = Json::array();
+    static const char* segName[] = {"?", "?", "TEXT", "DATA", "BSS", "ZP"};
+    for (const auto& sc : obj.sections) {
+        Json s = Json::object();
+        s.set("name", sc.name).set("seg", sc.segId <= 5 ? segName[sc.segId] : "?").set("offset", (double)sc.offset)
+         .set("size", (double)sc.length).set("align", (double)(1u << sc.alignLog2)).set("keep", sc.keep);
+        secs.push(std::move(s));
+    }
+    m.set("sections", std::move(secs));
+    Json syms = Json::array();
+    for (const auto& imp : obj.imports) {
+        Json s = Json::object();
+        s.set("name", imp.name).set("seg", "U");
+        syms.push(std::move(s));
+    }
+    for (const auto& exp : obj.exports) {
+        Json s = Json::object();
+        s.set("name", exp.name).set("value", (double)exp.offset).set("seg", segmentName(exp.segmentId()));
+        if (exp.isWeak()) s.set("weak", true);
+        if (exp.hasFuncAttr) s.set("attr", funcAttrModel(exp.funcAttr));
+        syms.push(std::move(s));
+    }
+    m.set("symbols", std::move(syms));
+    Json rels = Json::array();
+    auto relocs = [&](const std::vector<O45Reloc>& list, const char* segLabel) {
+        for (const auto& r : list) {
+            Json j = Json::object();
+            j.set("seg", segLabel).set("offset", (double)r.offset).set("type", relocTypeName((uint8_t)r.type));
+            if (r.segment == SEG_EXTERNAL)
+                j.set("symbol", r.symbolIndex < obj.imports.size() ? obj.imports[r.symbolIndex].name : "[" + std::to_string(r.symbolIndex) + "]");
+            else j.set("target", segmentName((uint8_t)r.segment));
+            if (o45RelocHasExtra(r.type)) j.set("extra", (double)r.extra);
+            rels.push(std::move(j));
+        }
+    };
+    relocs(textRel, "TEXT");
+    relocs(dataRel, "DATA");
+    m.set("relocs", std::move(rels));
+    auto srcLines = buildSourceLineMap(obj);
+    auto textNames = relocationNames(obj, obj.textRelocs, obj.textBody, obj.tbase);
+    auto dataNames = relocationNames(obj, obj.dataRelocs, obj.dataBody, obj.dbase);
+    Json dis = Json::array();
+    if (!obj.textBody.empty())
+        dis.push(disasmModel(obj.textBody, obj.tbase, "TEXT", table, sectionSymbols(obj, SEG_TEXT), filename, srcLines, &textNames, cpu));
+    m.set("disasm", std::move(dis));
+    Json data = Json::array();
+    if (!obj.dataBody.empty()) {
+        Json d = Json::object();
+        d.set("name", "DATA").set("base", (double)obj.dbase).set("hex", hex2(obj.dataBody));
+        Json labels = Json::array();
+        for (const auto& [a, n] : sectionSymbols(obj, SEG_DATA)) {
+            Json l = Json::object();
+            l.set("a", (double)a).set("name", n);
+            labels.push(std::move(l));
+        }
+        d.set("labels", std::move(labels));
+        Json names = Json::array();
+        for (const auto& [a, n] : dataNames) {
+            Json l = Json::object();
+            l.set("a", (double)a).set("name", n);
+            names.push(std::move(l));
+        }
+        d.set("relocNames", std::move(names));
+        data.push(std::move(d));
+    }
+    m.set("data", std::move(data));
+    return m;
+}
+
+std::string objdump45HtmlPage(const std::string& title, const std::string& modelJson);   // objdump45_html.cpp
+int objdump45Tree(const Json& models);                                                     // objdump45_tree.cpp
+void objdump45Checks(Json& models);                                                        // objdump45_analysis.cpp
+Json objdump45Compare(const Json& a, const Json& b);
+
 static void printUsage(const char* progName) {
     std::cout << "Usage: " << progName << " [options] <file> [...]" << std::endl;
     std::cout << "Display information from .o45/.o65 object files, .prg, or raw binaries." << std::endl;
@@ -1770,6 +2025,10 @@ static void printUsage(const char* progName) {
     std::cout << "           the 45GS02's at 40 MHz (the default; measured, MEGAcyc), 3.5, 2 or 1 MHz; 2/3: a branch" << std::endl;
     std::cout << "           not taken / taken, 4*: one more when a page is crossed" << std::endl;
     std::cout << "  --vice   -d as VICE's monitor shows it: .C:0801  A9 00       LDA #$00 (no labels)" << std::endl;
+    std::cout << "  --html FILE  Everything in the files as one page to browse (- for the standard output)" << std::endl;
+    std::cout << "  --tree   The same as a tree in the terminal (arrow keys; Enter follows a jump; / finds; q quits)" << std::endl;
+    std::cout << "  --json   The same as JSON" << std::endl;
+    std::cout << "  --compare A B  What changed from A to B (sizes, symbols, relocations, each function's code)" << std::endl;
     std::cout << "  --cpu=CPU  Decode for 45gs02 (the default), 65ce02, 6502 (documented opcodes; others as" << std::endl;
     std::cout << "           .byte) or 6510 (with the undocumented ones, marked); a .prg loading at $0801 is 6510" << std::endl;
     std::cout << "  -V       Display version" << std::endl;
@@ -1806,6 +2065,10 @@ int main(int argc, char** argv) {
     bool sourceMode = false;             // --source
     std::vector<SourceRange> dataRanges; // --data A-B
     std::vector<uint32_t> entries;       // --entry A
+    bool jsonMode = false;               // --json: the files as data (#201)
+    bool treeMode = false;               // --tree: them as a tree to browse in the terminal
+    bool compareMode = false;            // --compare A B: what changed from A to B
+    std::string htmlOut;                 // --html FILE: a page showing them
     auto parseAddr = [](std::string t, uint32_t& v) -> bool {
         try {
             size_t used = 0;
@@ -1861,6 +2124,20 @@ int main(int argc, char** argv) {
             }
         } else if (arg == "--vice") {
             g_vice = true;
+        } else if (arg == "--json") {
+            jsonMode = true;
+        } else if (arg == "--tree") {
+            treeMode = true;
+        } else if (arg == "--compare") {
+            compareMode = true;
+        } else if (arg == "--html" || arg.rfind("--html=", 0) == 0) {
+            if (arg == "--html") {
+                if (i + 1 >= argc) {
+                    std::cerr << "objdump45: --html requires an output file (- for the standard output)" << std::endl;
+                    return 1;
+                }
+                htmlOut = argv[++i];
+            } else htmlOut = arg.substr(7);
         } else if (arg == "--data" || arg == "--entry") {
             if (i + 1 >= argc) {
                 std::cerr << "objdump45: " << arg << " requires " << (arg == "--data" ? "a range (A-B)" : "an address") << std::endl;
@@ -1953,12 +2230,27 @@ int main(int argc, char** argv) {
         std::cerr << "objdump45: --cycles and --vice are for the disassembly (-d), not --source" << std::endl;
         return 1;
     }
+    if (compareMode && !jsonMode && htmlOut.empty()) treeMode = true;   // (alone: the comparison as text)
+    if (compareMode && files.size() != 2) {
+        std::cerr << "objdump45: --compare takes two files" << std::endl;
+        return 1;
+    }
+    bool modelMode = jsonMode || treeMode || !htmlOut.empty();
+    if (modelMode && (sourceMode || g_vice || showBasic || showDiff)) {
+        std::cerr << "objdump45: --json, --html and --tree are not for --source, --vice, -bas or -D" << std::endl;
+        return 1;
+    }
+    if (modelMode) {   // (everything there is: the other display options do not matter)
+        showFileHeader = false;
+        showSections = showSymbols = showRelocs = showContents = showDebug = false;
+        showDisasm = true;
+    }
     if (sourceMode || g_cycles || g_vice) showDisasm = true;
     if (g_vice && symFiles.empty()) symNone = true;   // VICE without labels: the addresses
     // If no display options given, default to showing file header (unless -bas is specified)
     if (!showFileHeader && !showSections && !showSymbols && !showRelocs &&
         !showContents && !showDisasm && !showBasic && !showDebug) {
-        std::cerr << "objdump45: no display option specified (use -f, -h, -t, -r, -s, -d, -a, or -bas)" << std::endl;
+        std::cerr << "objdump45: no display option specified (use -f, -h, -t, -r, -s, -d, -a, -bas, --html, --tree or --json)" << std::endl;
         printUsage(argv[0]);
         return 1;
     }
@@ -1997,6 +2289,7 @@ int main(int argc, char** argv) {
     }
 
     int exitCode = 0;
+    Json models = Json::array();
 
     for (const auto& filename : files) {
         if (isDirectory(filename)) {
@@ -2037,6 +2330,33 @@ int main(int argc, char** argv) {
             }
             LOG_INFO("objdump45", filename << ": code overlay file (" << (ov.mapped ? "mapped" : "copied") << "), "
                                   << ov.overlays.size() << " overlay(s)");
+            if (modelMode) {
+                Json m = Json::object();
+                m.set("file", filename).set("kind", "overlays").set("mapped", ov.mapped)
+                 .set("region", (double)ov.region).set("loadAddress", (double)ov.loadAddress);
+                Json ovs = Json::array(), syms = Json::array(), dis = Json::array();
+                for (size_t i = 0; i < ov.overlays.size(); i++) {
+                    const auto& o = ov.overlays[i];
+                    Json j = Json::object();
+                    j.set("name", o.name).set("size", (double)o.length).set("at", (double)o.at);
+                    ovs.push(std::move(j));
+                    std::map<uint32_t, std::string> osyms;
+                    for (const auto& sy : ov.symbols)
+                        if (sy.overlay == (int)i + 1 && !osyms.count(sy.address)) osyms[sy.address] = sy.name;
+                    std::vector<uint8_t> body = ov.code(i);
+                    if (!body.empty())
+                        dis.push(disasmModel(body, ov.region, "overlay " + o.name, opcodeTable, osyms, filename, {}, nullptr, cpu));
+                }
+                for (const auto& sy : ov.symbols) {
+                    Json j = Json::object();
+                    j.set("name", sy.name).set("value", (double)sy.address)
+                     .set("seg", sy.overlay >= 1 && sy.overlay <= (int)ov.overlays.size() ? ov.overlays[sy.overlay - 1].name : "?");
+                    syms.push(std::move(j));
+                }
+                m.set("overlays", std::move(ovs)).set("symbols", std::move(syms)).set("disasm", std::move(dis));
+                models.push(std::move(m));
+                continue;
+            }
             if (showFileHeader) {
                 std::cout << std::endl;
                 std::cout << filename << ":     file format code overlays (" << (ov.mapped ? "mapped" : "copied") << ")" << std::endl;
@@ -2078,11 +2398,44 @@ int main(int argc, char** argv) {
             continue;
         }
 
+        // a .lib archive: its members (--html / --json)
+        if (modelMode && data.size() >= 4 && std::equal(AR45_MAGIC, AR45_MAGIC + 4, data.begin())) {
+            Ar45Archive ar;
+            std::string aerr;
+            if (!Ar45Reader::read(data, ar, aerr)) {
+                std::cerr << "objdump45: " << filename << ": " << aerr << std::endl;
+                exitCode = 1;
+                continue;
+            }
+            Json m = Json::object(), members = Json::array(), index = Json::array();
+            m.set("file", filename).set("kind", "library");
+            for (const auto& mem : ar.members) {
+                O45File mo;
+                std::string merr;
+                if (O45Reader::read(mem.data, mo, merr)) members.push(objectModel(mo, mem.name, opcodeTable, cpu));
+                else {
+                    Json bad = Json::object();
+                    bad.set("file", mem.name).set("kind", "unreadable").set("error", merr);
+                    members.push(std::move(bad));
+                }
+            }
+            for (const auto& e : ar.symbols) {
+                Json j = Json::object();
+                j.set("name", e.name).set("member", (double)e.memberIndex);
+                index.push(std::move(j));
+            }
+            m.set("members", std::move(members)).set("index", std::move(index));
+            models.push(std::move(m));
+            continue;
+        }
         // Try .o45/.o65 first
         O45File obj;
         std::string err;
         bool isObject = O45Reader::read(data, obj, err);
-
+        if (isObject && modelMode) {
+            models.push(objectModel(obj, filename, opcodeTable, cpu));
+            continue;
+        }
         if (isObject) {
             // ── .o45 / .o65 object file ──
             LOG_INFO("objdump45", filename << ": object, text " << obj.tlen << " bytes at $" << std::hex << obj.tbase
@@ -2137,6 +2490,72 @@ int main(int argc, char** argv) {
                 continue;
             }
 
+            if (modelMode) {
+                Json m = Json::object();
+                m.set("file", filename).set("kind", isPrg ? "prg" : "binary").set("base", (double)base).set("size", (double)body.size());
+                std::map<uint32_t, std::string> prgSymbols;
+                SourceLineMap srcLines;
+                uint32_t textEnd = 0;
+                std::string effectiveMap = mapFile;
+                if (effectiveMap.empty() && isPrg && std::ifstream(filename.substr(0, filename.size() - 4) + ".map").good())
+                    effectiveMap = filename.substr(0, filename.size() - 4) + ".map";
+                if (!effectiveMap.empty()) {
+                    prgSymbols = loadMapSymbols(effectiveMap);
+                    srcLines = loadMapSourceLines(effectiveMap);
+                    textEnd = loadMapTextEnd(effectiveMap);
+                    m.set("map", effectiveMap);
+                } else if (isPrg) {
+                    loadDebugFile(filename.substr(0, filename.size() - 4) + ".dbg", prgSymbols, srcLines);
+                }
+                size_t stubSkip = 0;
+                if (isPrg) {
+                    uint32_t sysTarget = 0;
+                    size_t stubSize = detectBasicStub(body, base, sysTarget);
+                    if (stubSize) {
+                        Json st = Json::object();
+                        st.set("size", (double)stubSize).set("line", (double)(body[2] | (body[3] << 8))).set("sys", (double)sysTarget)
+                          .set("hex", hex2(std::vector<uint8_t>(body.begin(), body.begin() + stubSize)));
+                        m.set("stub", std::move(st));
+                        stubSkip = stubSize;
+                    }
+                }
+                size_t codeLen = body.size() - stubSkip;
+                if (textEnd > 0 && textEnd > base + stubSkip && textEnd - (base + stubSkip) < codeLen) codeLen = textEnd - (base + stubSkip);
+                std::vector<uint8_t> codeBody(body.begin() + stubSkip, body.begin() + stubSkip + codeLen);
+                bool c64 = isPrg && !cpuSet && !baseAddrSet && base == 0x0801;
+                if (c64 && table6510.empty()) table6510 = buildOpcodeTable(DisCpu::CPU6510);
+                std::map<uint32_t, std::string> kept;
+                bool swap = c64 && symFiles.empty() && !symNone;
+                if (swap) {
+                    if (!c64Loaded) { loadSyms("c64", c64Syms, true); c64Loaded = true; }
+                    kept.swap(g_fileSyms);
+                    g_fileSyms = c64Syms;
+                }
+                Json dis = Json::array();
+                dis.push(disasmModel(codeBody, base + (uint32_t)stubSkip, stubSkip ? "code" : (isPrg ? "PRG" : "BIN"),
+                                     c64 ? table6510 : opcodeTable, prgSymbols, filename, srcLines, nullptr,
+                                     c64 ? DisCpu::CPU6510 : cpu,
+                                     c64 ? "loaded at $0801: decoded as 6510 (C64) code; --cpu=45gs02 for MEGA65 code" : nullptr));
+                if (swap) g_fileSyms.swap(kept);
+                m.set("disasm", std::move(dis));
+                Json syms = Json::array();
+                for (const auto& [a, n] : prgSymbols) {
+                    Json j = Json::object();
+                    j.set("name", n).set("value", (double)a);
+                    syms.push(std::move(j));
+                }
+                m.set("symbols", std::move(syms));
+                if (stubSkip + codeLen < body.size()) {   // (past the map's text: data)
+                    Json d = Json::object();
+                    d.set("name", "DATA").set("base", (double)(base + stubSkip + codeLen))
+                     .set("hex", hex2(std::vector<uint8_t>(body.begin() + stubSkip + codeLen, body.end())));
+                    Json arr = Json::array();
+                    arr.push(std::move(d));
+                    m.set("data", std::move(arr));
+                }
+                models.push(std::move(m));
+                continue;
+            }
             if (showFileHeader) {
                 std::cout << std::endl;
                 std::cout << filename << ":     file format "
@@ -2243,6 +2662,31 @@ int main(int argc, char** argv) {
                 if (swap) g_fileSyms.swap(kept);
             }
             // -h, -t, -r silently produce no output for raw binaries
+        }
+    }
+    if (modelMode) {
+        objdump45Checks(models);
+        if (compareMode && models.arr.size() == 2)
+            models.arr.insert(models.arr.begin(), objdump45Compare(models.arr[0], models.arr[1]));
+        std::string doc = models.dump();
+        if (jsonMode) std::cout << doc << std::endl;
+        if (treeMode) {
+            std::cout.flush();
+            objdump45Tree(models);
+        }
+        if (!htmlOut.empty()) {
+            std::string title = compareMode ? files[0] + " → " + files[1]
+                              : files.size() == 1 ? files[0] : std::to_string(files.size()) + " files";
+            std::string page = objdump45HtmlPage(title, doc);
+            if (htmlOut == "-") std::cout << page;
+            else {
+                std::ofstream out(htmlOut, std::ios::binary);
+                if (!out || !(out << page)) {
+                    std::cerr << "objdump45: " << htmlOut << ": cannot write" << std::endl;
+                    return 1;
+                }
+                LOG_INFO("objdump45", "wrote " << htmlOut << " (" << page.size() << " bytes)");
+            }
         }
     }
 
