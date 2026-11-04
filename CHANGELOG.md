@@ -4,6 +4,19 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### objdump45 --html, --tree, --json: an inspector for objects (#201)
+
+- `--html FILE`: one self-contained page showing everything in the files
+  (objects, `.lib` members, PRGs, binaries, overlay files): a tree, the
+  header, segments to scale, link sections, symbols, the functions' attribute
+  records (convention, clobbers, base page), relocations, the disassembly with
+  branches, jumps and calls followed by a click and each label's callers, the
+  data, the call graph (call cycles marked).
+- `--tree`: the same tree in the terminal, moved through with the arrow keys
+  (open, close, scroll, Enter to a branch's target, Backspace back, `/` find);
+  ANSI sequences, no curses library; not on a terminal, the tree as text.
+- `--json`: the model both show.
+
 ### objdump45 --cycles and --vice (#144)
 
 - `--cycles[=MHZ]`: each instruction's cycles in the disassembly: the
