@@ -136,6 +136,33 @@ void buildFile(int parent, const Json& m) {
         add(f, "not an object: " + m.strAt("error"));
         return;
     }
+    if (kind == "comparison") {
+        auto sign = [](double d) { return (d > 0 ? "+" : "") + std::to_string((long)d); };
+        int s = add(f, "Sizes");
+        for (const auto& g : arr(m, "segments"))
+            add(s, pad(g.strAt("name"), 8) + pad(std::to_string((long)g.numAt("a")), 8) + "-> " + pad(std::to_string((long)g.numAt("b")), 8) +
+                   "(" + sign(g.numAt("delta")) + ")");
+        auto list = [&](const char* key, const char* title) {
+            const auto& v = arr(m, key);
+            int n = add(f, std::string(title) + " (" + std::to_string(v.size()) + ")");
+            for (const auto& y : v)
+                add(n, pad(y.strAt("name"), 28) + (y.at("change") ? y.strAt("change") : pad(y.strAt("seg"), 6) + y.strAt("attr")));
+        };
+        list("added", "Symbols added");
+        list("removed", "Symbols removed");
+        list("changed", "Symbols changed");
+        int r = add(f, "Relocations changed (" + std::to_string(arr(m, "relocs").size()) + ")");
+        for (const auto& y : arr(m, "relocs"))
+            add(r, pad(y.strAt("name"), 28) + std::to_string((long)y.numAt("a")) + " -> " + std::to_string((long)y.numAt("b")));
+        int fn = add(f, "Functions changed (" + std::to_string(arr(m, "functions").size()) + "; " +
+                        std::to_string((long)m.numAt("unchanged")) + " unchanged)");
+        for (const auto& y : arr(m, "functions")) {
+            int n = add(fn, pad(y.strAt("name"), 28) + std::to_string((long)y.numAt("a")) + " -> " + std::to_string((long)y.numAt("b")) +
+                            " instructions  (+" + std::to_string((long)y.numAt("added")) + " -" + std::to_string((long)y.numAt("removed")) + ")");
+            for (const auto& l : arr(y, "lines")) add(n, l.str);
+        }
+        return;
+    }
     int h = add(f, "Header");
     if (!m.strAt("format").empty()) {
         add(h, "Format: " + m.strAt("format"));
@@ -199,6 +226,17 @@ void buildFile(int parent, const Json& m) {
         for (const auto& r : arr(m, "relocs"))
             add(s, pad(r.strAt("seg"), 6) + hx(r.numAt("offset")) + "  " + pad(r.strAt("type"), 12) +
                    (r.at("symbol") ? r.strAt("symbol") : r.strAt("target")));
+    }
+    if (m.at("checks")) {
+        const auto& cs = arr(m, "checks");
+        int warn = 0;
+        for (const auto& c : cs) warn += c.strAt("severity") == "warning";
+        int s = add(f, "Checks (" + std::to_string(warn) + " warning" + (warn == 1 ? "" : "s") + ", " +
+                       std::to_string(cs.size() - warn) + " note" + (cs.size() - warn == 1 ? "" : "s") + ")");
+        for (const auto& c : cs) {
+            int n = add(s, pad(c.strAt("severity"), 8) + pad(c.at("a") ? hx(c.numAt("a")) : "", 7) + c.strAt("message"));
+            if (c.at("a")) T[n].jumpAddr = (long)c.numAt("a");
+        }
     }
     for (const auto& sec : arr(m, "disasm")) buildDisasm(f, f, sec);
     for (const auto& d : arr(m, "data")) {

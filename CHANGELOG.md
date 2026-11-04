@@ -16,6 +16,12 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   (open, close, scroll, Enter to a branch's target, Backspace back, `/` find);
   ANSI sequences, no curses library; not on a terminal, the tree as text.
 - `--json`: the model both show.
+- Checks per file: stores into the code, branches into an instruction, bytes
+  in code that are no instruction, unknown relocation types, an interrupt
+  handler calling a function with static allocation (which ln45 rejects),
+  calls across conventions, a library's imports no member defines.
+- `--compare A B`: sizes, symbols added / removed / changed (attributes
+  too), relocations, each function's instructions diffed without addresses.
 
 ### objdump45 --cycles and --vice (#144)
 

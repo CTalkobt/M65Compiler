@@ -850,6 +850,48 @@ assert_contains "--tree: who calls" "$out" "called by: _twice"
 err=$($OD --tree --source $C/m.prg 2>&1); rc=$?
 [ $rc -ne 0 ] && echo "$err" | grep -q "not for --source" && pass "--tree with --source refused" || fail "--tree --source: $rc $err"
 
+# checks and --compare (#201)
+cat > $C/smc.s45 <<'SEOF'
+* = $2000
+start:
+    lda #5
+    sta patch+1
+patch:
+    ldx #0
+    bne start+1
+    rts
+SEOF
+$AS -c $C/smc.s45 -o $C/smc.o45 >/dev/null 2>&1
+out=$($OD --tree $C/smc.o45)
+assert_contains "checks: a store into the code (a note)" "$out" 'info    $2002  sta writes into the code (<TEXT+$6>)'
+assert_contains "checks: a branch into an instruction" "$out" 'bne to $2001, inside an instruction'
+$AS $C/smc.s45 -o $C/smc.bin >/dev/null 2>&1
+out=$($OD --tree -b 0x2000 $C/smc.bin)
+assert_contains "checks: a binary's store into its code" "$out" 'sta writes into the code ($2006)'
+assert_not_contains "checks: no branch checks without a map (data may be decoded)" "$out" 'inside an instruction'
+cat > $C/isr.c <<'CEOF'
+static int counter(int x) { return x + 1; }
+volatile int n;
+__interrupt void tick(void) { n = counter(n); }
+int main(void) { return 0; }
+CEOF
+./bin/cc45 -O0 -c $C/isr.c -o $C/isr.o45 2>/dev/null
+out=$($OD --tree $C/isr.o45)
+assert_contains "checks: an interrupt handler calling a function with static allocation (ln45 rejects it)" "$out" "the interrupt handler _tick calls _counter__isr, which has static allocation"
+out=$($OD --tree $C/m.o45)
+assert_contains "checks: none in a plain object" "$out" "Checks (0 warnings, 0 notes)"
+./bin/cc45 -O2 -c $C/m.c -o $C/m2.o45 2>/dev/null
+out=$($OD --compare $C/m.o45 $C/m2.o45)
+assert_contains "--compare: the two files" "$out" "m.o45 → $C/m2.o45  (comparison)"
+assert_contains "--compare: the sizes" "$out" "TEXT    "
+assert_contains "--compare: the functions changed" "$out" "Functions changed ("
+[ "$(model "m[0]['kind'], m[0]['a'].endswith('m.o45'), len(m)" --compare $C/m.o45 $C/m2.o45)" = "comparison True 3" ] \
+    && pass "--compare --json: the comparison first, then both files" || fail "--compare --json"
+same=$($OD --compare $C/m.o45 $C/m.o45)
+assert_contains "--compare: a file against itself: nothing changed" "$same" "Functions changed (0;"
+err=$($OD --compare $C/m.o45 2>&1); rc=$?
+[ $rc -ne 0 ] && echo "$err" | grep -q "takes two files" && pass "--compare needs two files" || fail "--compare one file: $rc $err"
+
 echo "objdump45 tests: $passed passed, $failed failed"
 echo "========================================"
 

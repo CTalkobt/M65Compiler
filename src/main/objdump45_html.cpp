@@ -160,12 +160,23 @@ MODELS.forEach(prepare);
 // ---- the tree ------------------------------------------------------------
 function children(m) {
   const k = [];
+  if (m.kind === 'comparison') {
+    k.push({ label: 'Sizes', show: () => cmpSizes(m) });
+    k.push({ label: 'Symbols added', count: m.added.length, show: () => cmpSyms(m, 'added', 'Symbols added') });
+    k.push({ label: 'Symbols removed', count: m.removed.length, show: () => cmpSyms(m, 'removed', 'Symbols removed') });
+    k.push({ label: 'Symbols changed', count: m.changed.length, show: () => cmpSyms(m, 'changed', 'Symbols changed') });
+    k.push({ label: 'Relocations changed', count: m.relocs.length, show: () => cmpRelocs(m) });
+    k.push({ label: 'Functions changed', count: m.functions.length, show: () => cmpFns(m),
+      kids: m.functions.map((f) => ({ label: f.name, show: () => cmpFn(m, f) })) });
+    return k;
+  }
   if (m.kind === 'library') {
     k.push({ label: 'Symbol index', count: (m.index || []).length, show: () => libIndex(m) });
     (m.members || []).forEach((mm) => k.push({ label: mm.file, file: mm, kids: children(mm), show: () => summary(mm) }));
     return k;
   }
   k.push({ label: 'Header', show: () => summary(m) });
+  if (m.checks) k.push({ label: 'Checks', count: m.checks.length, show: () => checks(m) });
   if (m.segments) k.push({ label: 'Segments', count: m.segments.length, show: () => segments(m) });
   if (m.sections && m.sections.length) k.push({ label: 'Link sections', count: m.sections.length, show: () => sections(m) });
   if (m.overlays) k.push({ label: 'Overlays', count: m.overlays.length, show: () => overlays(m) });
@@ -310,6 +321,7 @@ function findFileNode(m, nodes) {
 const addrLink = (m, a) => m.byAddr.has(a) ? '<a data-go="' + a + '">' + hx(a) + '</a>' : hx(a);
 
 function summary(m) {
+  if (m.kind === 'comparison') { cmpOverview(m); return; }
   if (m.kind === 'library') {
     const n = (m.members || []).length;
     page(m.file, 'library: ' + n + ' members, ' + (m.index || []).length + ' symbols in its index',
@@ -473,6 +485,62 @@ function callGraph(m) {
       { h: 'Calls', f: (r) => [...m.calls.get(r.f).entries()].map(([c, n]) => link(c) + (n > 1 ? ' ×' + n : '')).join(', ') },
       { h: 'Called by', f: (r) => (callersOf.get(r.f) || []).map(link).join(', '), k: (r) => (callersOf.get(r.f) || []).length },
     ]));
+}
+function checks(m) {
+  page('Checks', esc(m.file) + ' — what may go wrong: stores into the code, branches into an instruction, ' +
+    'interrupt handlers calling functions with static allocation, calls across conventions…',
+    table(m.checks.slice(), [
+      { h: 'Severity', f: (r) => '<span class="tag">' + r.severity + '</span>' },
+      { h: 'Where', mono: 1, f: (r) => r.a != null ? addrLink(m, r.a) : '', k: (r) => r.a == null ? -1 : r.a },
+      { h: 'Kind', f: (r) => r.kind },
+      { h: 'Message', f: (r) => esc(r.message) },
+    ], 'Nothing found.'));
+}
+const sgn = (d) => (d > 0 ? '+' : '') + d;
+function cmpOverview(m) {
+  const fnAdd = m.functions.reduce((a, f) => a + f.added, 0), fnRem = m.functions.reduce((a, f) => a + f.removed, 0);
+  page('Comparison', esc(m.a) + ' → ' + esc(m.b),
+    '<table class="kv">' + [
+      ['Symbols', m.added.length + ' added, ' + m.removed.length + ' removed, ' + m.changed.length + ' changed'],
+      ['Relocations', m.relocs.length + ' symbols with more or fewer'],
+      ['Functions', m.functions.length + ' changed (+' + fnAdd + ' −' + fnRem + ' instructions), ' + m.unchanged + ' unchanged'],
+    ].map((r) => '<tr><td>' + r[0] + '</td><td>' + esc(r[1]) + '</td></tr>').join('') + '</table>' +
+    '<h2 style="margin-top:18px">Sizes</h2>' + sizesTable(m));
+}
+function sizesTable(m) {
+  return table(m.segments.slice(), [
+    { h: 'Segment', f: (r) => esc(r.name) }, { h: esc(m.a), n: 1, f: (r) => r.a, k: (r) => r.a },
+    { h: esc(m.b), n: 1, f: (r) => r.b, k: (r) => r.b }, { h: 'Change', n: 1, f: (r) => sgn(r.delta), k: (r) => r.delta },
+  ]);
+}
+function cmpSizes(m) { page('Sizes', esc(m.a) + ' → ' + esc(m.b), sizesTable(m)); }
+function cmpSyms(m, key, title) {
+  const rows = m[key].slice();
+  const cols = key === 'changed'
+    ? [{ h: 'Symbol', f: (r) => esc(r.name) }, { h: 'Change', f: (r) => esc(r.change) }]
+    : [{ h: 'Symbol', f: (r) => esc(r.name) }, { h: 'Segment', f: (r) => esc(r.seg) }, { h: 'Function', mono: 1, f: (r) => esc(r.attr || '') }];
+  page(title, esc(m.a) + ' → ' + esc(m.b), table(rows, cols));
+}
+function cmpRelocs(m) {
+  page('Relocations changed', 'how many relocations against each symbol', table(m.relocs.slice(), [
+    { h: 'Against', f: (r) => esc(r.name) }, { h: esc(m.a), n: 1, f: (r) => r.a, k: (r) => r.a },
+    { h: esc(m.b), n: 1, f: (r) => r.b, k: (r) => r.b }, { h: 'Change', n: 1, f: (r) => sgn(r.b - r.a), k: (r) => r.b - r.a },
+  ]));
+}
+function cmpFns(m) {
+  page('Functions changed', m.unchanged + ' unchanged; instructions compared without their addresses', table(m.functions.slice(), [
+    { h: 'Function', f: (r) => esc(r.name) }, { h: 'Instructions', n: 1, f: (r) => r.a + ' → ' + r.b, k: (r) => r.b - r.a },
+    { h: 'Added', n: 1, f: (r) => '+' + r.added, k: (r) => r.added }, { h: 'Removed', n: 1, f: (r) => '−' + r.removed, k: (r) => r.removed },
+  ]));
+}
+function cmpFn(m, f) {
+  const rows = f.lines.map((l) => {
+    const k = l[0], t = esc(l.slice(2));
+    const st = k === '+' ? 'color:var(--code)' : k === '-' ? 'color:var(--zp)' : 'color:var(--muted)';
+    return '<div class="row" style="' + st + '">' + (k === ' ' ? '  ' : k + ' ') + t + '</div>';
+  });
+  page(f.name, esc(m.a) + ' → ' + esc(m.b) + ': ' + f.a + ' → ' + f.b + ' instructions (+' + f.added + ' −' + f.removed + ')',
+    '<div class="dis filterable-lines">' + rows.join('') + '</div>');
 }
 function libIndex(m) {
   page('Symbol index', m.file, table(m.index.slice(), [

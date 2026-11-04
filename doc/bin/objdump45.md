@@ -39,6 +39,7 @@ At least one display option (`-f`, `-h`, `-t`, `-r`, `-s`, `-d`, `-a`, `-bas`, `
 | `--html FILE` | One self-contained page (no other files) that shows everything there is in the files, to browse in any browser (`-` writes it to the standard output); see [HTML view](#html-view) |
 | `--tree` | The same as a tree in the terminal: arrow keys to move, open and close; not on a terminal, the whole tree as indented text; see [Tree view](#tree-view) |
 | `--json` | The files as one JSON document (what `--html` and `--tree` show); see [JSON model](#json-model) |
+| `--compare A B` | What changed from A to B: sizes, symbols, function attributes, relocations, each function's instructions; as text, or in `--html` / `--tree` / `--json`; see [Comparing two files](#comparing-two-files) |
 | `--cpu=CPU` | The CPU to decode for (`--cpu CPU` too): `45gs02` (the default; `4510`), `65ce02`, `6502` or `6510` (see [CPU modes](#cpu-modes)). Without it a `.prg` loading at `$0801` (a C64 program) is decoded as `6510`, with a note |
 | `-bas` | List the BASIC program of a `.prg` (line numbers, detokenised text) |
 | `-x` | With `-bas`: also show each line's bytes in hex |
@@ -295,6 +296,37 @@ The bottom line shows the position and the path to the node. Not on a terminal (
 a file) the whole tree is written as indented text. The terminal is driven with standard (ANSI/VT100) sequences;
 there is no curses library to install.
 
+### Checks
+
+Each file in `--html`, `--tree` and `--json` has a list of checks: what may be wrong, found in its code and
+records.
+
+| Kind | |
+|---|---|
+| `self-modifying` | A store, `inc`/`dec`, shift or `tsb`/`trb` into the code itself (in an object: into a `TEXT` symbol through a relocation) — a note: often meant (crt0 keeps the caller's stack pointer in an operand) |
+| `mid-instruction` | A branch, jump or call into the middle of an instruction: overlapping code, or data decoded as code (objects, overlay files and PRGs with their map only: without one a PRG is decoded to its end, its data too) |
+| `undecodable` | Bytes in code that are no instruction (data among the code) — a note |
+| `relocation` | A relocation of a type the format does not have |
+| `isr-sac` | An `__interrupt` handler calling a function with static allocation: ln45 will reject the program (`#pragma cc45 recurse` before the function gives it a frame) |
+| `convention` | A call between the ZP and stack conventions: ln45 bridges it with a thunk — a note |
+| `unresolved` | In a library, a member's import that no member defines (names starting `__` and `cc45.` left out: the linker or crt0 defines them) — a note |
+
+The functions' attributes are taken from all the files given, so a call into another object is checked too.
+
+### Comparing two files
+
+`objdump45 --compare A B` writes what changed from A to B: each segment's size, the symbols added, removed and
+changed (segment, weak, the function's attribute record), the relocations against each symbol, and for each
+function its instructions in A against those in B (a diff that leaves out the addresses: an operand that is the
+code's own address shows as `<label>`, a relocated one by its symbol). With `--html FILE` the comparison is the first
+entry of the page, before the two files; with `--tree` the first node; with `--json` the first entry
+(`kind: comparison`).
+
+```bash
+$ objdump45 --compare build-O1/game.o45 build-O2/game.o45
+$ objdump45 --html diff.html --compare old.o45 new.o45
+```
+
 ### JSON model
 
 `--json` writes a list, one entry per file: `kind` (`object`, `library`, `prg`, `binary`, `overlays`), `file`, and
@@ -303,7 +335,9 @@ by kind `format`, `cpu`, `mode`, `options`, `segments` (`name`, `type`, `base`, 
 `zpClobbers`, `zpRelease`, `params`, `frame`), `relocs` (`seg`, `offset`, `type`, `symbol` or `target`, `extra`),
 `disasm` (sections: `name`, `base`, `size`, `cpu`, `lines`), `data` (`name`, `base`, `hex`, `labels`); a library's
 `members` (each an object entry) and `index` (`name`, `member`); a PRG's `stub` and `map`; an overlay file's
-`overlays`. A line in `lines` has `t` — `L` a label (`name`), `S` a source line (`file`, `line`, `text`), `I` an
+`overlays`; each file's `checks` (`severity`, `kind`, `message`, `a`). A comparison (`--compare`) has `a`, `b`,
+`segments` (`name`, `a`, `b`, `delta`), `added`, `removed`, `changed`, `relocs` and `functions` (`name`, `a`, `b`,
+`added`, `removed`, `lines`: `+ `, `- ` or two spaces before each instruction). A line in `lines` has `t` — `L` a label (`name`), `S` a source line (`file`, `line`, `text`), `I` an
 instruction (`b` its bytes, `m`, `o` the operand, `n` the note, `g` the address it branches, jumps or calls to,
 `c` the cycles with `--cycles`, `u` undocumented), `B` a byte — and `a`, its address.
 

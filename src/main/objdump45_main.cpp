@@ -1986,6 +1986,8 @@ static Json objectModel(const O45File& obj, const std::string& filename,
 
 std::string objdump45HtmlPage(const std::string& title, const std::string& modelJson);   // objdump45_html.cpp
 int objdump45Tree(const Json& models);                                                     // objdump45_tree.cpp
+void objdump45Checks(Json& models);                                                        // objdump45_analysis.cpp
+Json objdump45Compare(const Json& a, const Json& b);
 
 static void printUsage(const char* progName) {
     std::cout << "Usage: " << progName << " [options] <file> [...]" << std::endl;
@@ -2018,6 +2020,7 @@ static void printUsage(const char* progName) {
     std::cout << "  --html FILE  Everything in the files as one page to browse (- for the standard output)" << std::endl;
     std::cout << "  --tree   The same as a tree in the terminal (arrow keys; Enter follows a jump; / finds; q quits)" << std::endl;
     std::cout << "  --json   The same as JSON" << std::endl;
+    std::cout << "  --compare A B  What changed from A to B (sizes, symbols, relocations, each function's code)" << std::endl;
     std::cout << "  --cpu=CPU  Decode for 45gs02 (the default), 65ce02, 6502 (documented opcodes; others as" << std::endl;
     std::cout << "           .byte) or 6510 (with the undocumented ones, marked); a .prg loading at $0801 is 6510" << std::endl;
     std::cout << "  -V       Display version" << std::endl;
@@ -2056,6 +2059,7 @@ int main(int argc, char** argv) {
     std::vector<uint32_t> entries;       // --entry A
     bool jsonMode = false;               // --json: the files as data (#201)
     bool treeMode = false;               // --tree: them as a tree to browse in the terminal
+    bool compareMode = false;            // --compare A B: what changed from A to B
     std::string htmlOut;                 // --html FILE: a page showing them
     auto parseAddr = [](std::string t, uint32_t& v) -> bool {
         try {
@@ -2116,6 +2120,8 @@ int main(int argc, char** argv) {
             jsonMode = true;
         } else if (arg == "--tree") {
             treeMode = true;
+        } else if (arg == "--compare") {
+            compareMode = true;
         } else if (arg == "--html" || arg.rfind("--html=", 0) == 0) {
             if (arg == "--html") {
                 if (i + 1 >= argc) {
@@ -2214,6 +2220,11 @@ int main(int argc, char** argv) {
 
     if (sourceMode && (g_cycles || g_vice)) {
         std::cerr << "objdump45: --cycles and --vice are for the disassembly (-d), not --source" << std::endl;
+        return 1;
+    }
+    if (compareMode && !jsonMode && htmlOut.empty()) treeMode = true;   // (alone: the comparison as text)
+    if (compareMode && files.size() != 2) {
+        std::cerr << "objdump45: --compare takes two files" << std::endl;
         return 1;
     }
     bool modelMode = jsonMode || treeMode || !htmlOut.empty();
@@ -2646,6 +2657,9 @@ int main(int argc, char** argv) {
         }
     }
     if (modelMode) {
+        objdump45Checks(models);
+        if (compareMode && models.arr.size() == 2)
+            models.arr.insert(models.arr.begin(), objdump45Compare(models.arr[0], models.arr[1]));
         std::string doc = models.dump();
         if (jsonMode) std::cout << doc << std::endl;
         if (treeMode) {
@@ -2653,7 +2667,8 @@ int main(int argc, char** argv) {
             objdump45Tree(models);
         }
         if (!htmlOut.empty()) {
-            std::string title = files.size() == 1 ? files[0] : std::to_string(files.size()) + " files";
+            std::string title = compareMode ? files[0] + " → " + files[1]
+                              : files.size() == 1 ? files[0] : std::to_string(files.size()) + " files";
             std::string page = objdump45HtmlPage(title, doc);
             if (htmlOut == "-") std::cout << page;
             else {
