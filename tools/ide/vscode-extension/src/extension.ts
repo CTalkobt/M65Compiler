@@ -48,8 +48,11 @@ export async function activate(context: vscode.ExtensionContext) {
       { scheme: 'file', language: 'm65-asm' },
     ],
     synchronize: {
-      fileEvents: vscode.workspace.createFileSystemWatcher('**/*.{c,h,s45,asm}'),
+      // the m65.* settings sent to the server when they change
+      configurationSection: 'm65',
+      fileEvents: vscode.workspace.createFileSystemWatcher('**/*.{c,h,s45,asm,inc}'),
     },
+    initializationOptions: { m65: vscode.workspace.getConfiguration('m65') },
   };
 
   client = new LanguageClient(

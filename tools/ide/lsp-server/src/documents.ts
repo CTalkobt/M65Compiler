@@ -7,9 +7,8 @@ import {
   DiagnosticSeverity,
 } from 'vscode-languageserver/node';
 import { TextDocument as TextDocumentType } from 'vscode-languageserver-textdocument';
-import * as path from 'path';
-import { runCompiler } from './diagnostics/runCompiler';
-import { runAssembler } from './diagnostics/runAssembler';
+import { fileURLToPath } from 'url';
+import { runTool } from './diagnostics/runTool';
 
 interface DocumentState {
   generationId: number;
@@ -24,6 +23,10 @@ export class DocumentManager {
   private ca45Path: string;
   private debounceMs: number;
   private workspacePath: string;
+  /** called when a document's text changed (the workspace index) */
+  onContent: ((doc: TextDocumentType) => void) | null = null;
+  /** called when a document is closed (its file on disk indexed again) */
+  onClose: ((uri: string) => void) | null = null;
 
   constructor(
     connection: Connection,
@@ -52,6 +55,19 @@ export class DocumentManager {
     return this.documents;
   }
 
+  /** New settings: the tools' paths and the debounce; open documents checked again */
+  setConfig(cc45Path: string, ca45Path: string, debounceMs: number): void {
+    const changed = cc45Path !== this.cc45Path || ca45Path !== this.ca45Path;
+    this.cc45Path = cc45Path;
+    this.ca45Path = ca45Path;
+    this.debounceMs = debounceMs;
+    if (changed) {
+      for (const doc of this.documents.all()) {
+        this.runDiagnostics(doc).catch((err) => console.error(`Error running diagnostics: ${err}`));
+      }
+    }
+  }
+
   private getDocumentState(uri: string): DocumentState {
     let state = this.docState.get(uri);
     if (!state) {
@@ -62,11 +78,13 @@ export class DocumentManager {
   }
 
   private async handleDidOpen(document: TextDocumentType): Promise<void> {
+    this.onContent?.(document);
     // Immediate diagnostic on open
     await this.runDiagnostics(document);
   }
 
   private handleDidChange(document: TextDocumentType): void {
+    this.onContent?.(document);
     // Debounced diagnostics on change
     const state = this.getDocumentState(document.uri);
 
@@ -107,6 +125,7 @@ export class DocumentManager {
     // Clear diagnostics for closed document
     this.connection.sendDiagnostics({ uri: document.uri, diagnostics: [] });
     this.docState.delete(document.uri);
+    this.onClose?.(document.uri);
   }
 
   private async runDiagnostics(document: TextDocumentType): Promise<void> {
@@ -132,24 +151,11 @@ export class DocumentManager {
     const filePath = this.uriToFilePath(uri);
     const language = this.detectLanguage(document.languageId, filePath);
 
-    let parsedDiags;
-    if (language === 'c') {
-      parsedDiags = runCompiler(this.cc45Path, filePath, this.workspacePath);
-    } else if (language === 'asm') {
-      parsedDiags = runAssembler(this.ca45Path, filePath, this.workspacePath);
-    } else {
-      // Unknown language
-      return [
-        {
-          range: {
-            start: { line: 0, character: 0 },
-            end: { line: 0, character: 1 },
-          },
-          severity: DiagnosticSeverity.Warning,
-          message: `Unknown file type: ${language}`,
-        },
-      ];
-    }
+    if (language !== 'c' && language !== 'asm') return [];
+    // (a header alone is not compiled: what includes it reports its errors)
+    if (language === 'c' && /\.h$/i.test(filePath)) return [];
+    const run = await runTool(language, language === 'c' ? this.cc45Path : this.ca45Path, filePath, document.getText());
+    const parsedDiags = run.diagnostics;
 
     // Convert parsed diagnostics to LSP format
     return parsedDiags.map((diag) => ({
@@ -160,7 +166,8 @@ export class DocumentManager {
         },
         end: {
           line: Math.max(0, diag.line - 1),
-          character: Math.max(0, diag.column),
+          // (to the end of the word at the column, or the line's end)
+          character: this.wordEnd(document, diag.line - 1, diag.column - 1),
         },
       },
       severity:
@@ -174,7 +181,16 @@ export class DocumentManager {
     }));
   }
 
-  private detectLanguage(languageId: string, filePath: string): string {
+  private wordEnd(document: TextDocumentType, line: number, col: number): number {
+    const text = document.getText({ start: { line: Math.max(0, line), character: 0 }, end: { line: Math.max(0, line) + 1, character: 0 } })
+      .replace(/\r?\n$/, '');
+    if (col >= text.length) return Math.max(col + 1, text.length);
+    let e = Math.max(0, col);
+    while (e < text.length && /[A-Za-z0-9_$#.]/.test(text[e])) e++;
+    return e > col ? e : col + 1;
+  }
+
+  private detectLanguage(languageId: string, filePath: string): 'c' | 'asm' | 'unknown' {
     if (languageId === 'c' || languageId === 'h') {
       return 'c';
     }
@@ -185,12 +201,6 @@ export class DocumentManager {
   }
 
   private uriToFilePath(uri: string): string {
-    // Convert file:// URI to filesystem path
-    if (uri.startsWith('file://')) {
-      // On Windows, file:///C:/path, on Unix, file:///path
-      const pathPart = uri.substring(7);
-      return decodeURIComponent(pathPart);
-    }
-    return uri;
+    return uri.startsWith('file:') ? fileURLToPath(uri) : uri;
   }
 }

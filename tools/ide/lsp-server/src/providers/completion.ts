@@ -1,162 +1,128 @@
 import {
-  Connection,
-  CompletionParams,
   CompletionItem,
   CompletionItemKind,
+  CompletionParams,
   InsertTextFormat,
-  TextDocument,
+  MarkupKind,
 } from 'vscode-languageserver/node';
-import * as fs from 'fs';
-import * as path from 'path';
+import { TextDocument } from 'vscode-languageserver-textdocument';
+import { ReferenceData, isAsm, opcodeMarkdown } from './data';
+import { WorkspaceIndex } from '../indexer/workspaceIndex';
+import { SymbolKind } from '../indexer/symbolTypes';
+
+const MAX_ITEMS = 200;
 
 export class CompletionProvider {
-  private cKeywords: CompletionItem[] = [];
-  private opcodes: CompletionItem[] = [];
-  private directives: CompletionItem[] = [];
-  private connection: Connection;
+  private cItems: CompletionItem[] = [];
+  private asmItems: CompletionItem[] = [];
+  private directiveItems: CompletionItem[] = [];
+  private pragmaItems: CompletionItem[] = [];
 
-  constructor(connection: Connection, dataDir: string) {
-    this.connection = connection;
-    this.loadCompletions(dataDir);
-  }
-
-  private loadCompletions(dataDir: string): void {
-    try {
-      // Load C keywords
-      const ckeywordsPath = path.join(dataDir, 'c-keywords.json');
-      if (fs.existsSync(ckeywordsPath)) {
-        const data = JSON.parse(fs.readFileSync(ckeywordsPath, 'utf-8'));
-        for (const kw of data.keywords) {
-          this.cKeywords.push({
-            label: kw.name,
-            kind: this.getCompletionKindForKeyword(kw.type),
-            detail: kw.type,
-            documentation: kw.description,
-            insertText: kw.name,
-            insertTextFormat: InsertTextFormat.PlainText,
-          });
-        }
-      }
-
-      // Load opcodes
-      const opcodesPath = path.join(dataDir, 'opcodes.json');
-      if (fs.existsSync(opcodesPath)) {
-        const data = JSON.parse(fs.readFileSync(opcodesPath, 'utf-8'));
-        for (const op of data.opcodes) {
-          this.opcodes.push({
-            label: op.mnemonic,
-            kind: CompletionItemKind.Method,
-            detail: `Modes: ${op.modes.join(', ')}`,
-            documentation: op.description,
-            insertText: op.mnemonic.toLowerCase(),
-            insertTextFormat: InsertTextFormat.PlainText,
-          });
-        }
-      }
-
-      // Load directives
-      const directivesPath = path.join(dataDir, 'directives.json');
-      if (fs.existsSync(directivesPath)) {
-        const data = JSON.parse(fs.readFileSync(directivesPath, 'utf-8'));
-        for (const dir of data.directives) {
-          this.directives.push({
-            label: `.${dir.name}`,
-            kind: CompletionItemKind.Keyword,
-            detail: dir.syntax,
-            documentation: dir.description,
-            insertText: `.${dir.name}`,
-            insertTextFormat: InsertTextFormat.PlainText,
-          });
-        }
-      }
-
-      console.error(
-        `[CompletionProvider] Loaded ${this.cKeywords.length} C completions, ${this.opcodes.length} opcodes, ${this.directives.length} directives`
-      );
-    } catch (err) {
-      console.error(`[CompletionProvider] Error loading completions: ${err}`);
+  constructor(data: ReferenceData, private index: WorkspaceIndex) {
+    for (const k of data.keywords.values()) {
+      this.cItems.push({
+        label: k.name,
+        kind: k.type === 'type' ? CompletionItemKind.TypeParameter : CompletionItemKind.Keyword,
+        detail: k.type,
+        documentation: k.description,
+      });
+    }
+    for (const f of data.functions.values()) {
+      this.cItems.push({
+        label: f.name,
+        kind: CompletionItemKind.Function,
+        detail: f.signature,
+        documentation: { kind: MarkupKind.Markdown, value: `${f.doc ? f.doc + '\n\n' : ''}<${f.header}>` },
+      });
+    }
+    for (const o of data.opcodes.values()) {
+      this.asmItems.push({
+        label: o.mnemonic.toLowerCase(),
+        kind: o.simulated ? CompletionItemKind.Snippet : CompletionItemKind.Keyword,
+        detail: o.description.length > 80 ? o.description.slice(0, 77) + '...' : o.description,
+        documentation: { kind: MarkupKind.Markdown, value: opcodeMarkdown(o) },
+      });
+    }
+    for (const d of data.directives.values()) {
+      this.directiveItems.push({
+        label: `.${d.name}`,
+        filterText: `.${d.name}`,
+        insertText: d.name,
+        kind: CompletionItemKind.Keyword,
+        detail: d.syntax,
+        documentation: d.description,
+      });
+    }
+    for (const p of data.pragmas) {
+      this.pragmaItems.push({
+        label: p.name,
+        kind: CompletionItemKind.Keyword,
+        detail: p.syntax,
+        documentation: p.description,
+        insertTextFormat: InsertTextFormat.PlainText,
+      });
     }
   }
 
-  async onCompletion(
-    params: CompletionParams,
-    document: TextDocument
-  ): Promise<CompletionItem[]> {
+  onCompletion(params: CompletionParams, document: TextDocument): CompletionItem[] {
     const { position } = params;
-    const line = document.getText().split('\n')[position.line] || '';
-    const character = position.character;
+    const line = document.getText({ start: { line: position.line, character: 0 }, end: position });
+    const prefix = /[A-Za-z0-9_.@]*$/.exec(line)?.[0] ?? '';
+    let items: CompletionItem[];
 
-    // Get the word being completed (partial word)
-    const partialWord = this.getPartialWordAtPosition(line, character);
-
-    // Determine language and return appropriate completions
-    const language = this.detectLanguage(document.languageId);
-    let completions: CompletionItem[] = [];
-
-    if (language === 'c') {
-      completions = this.cKeywords;
-    } else if (language === 'asm') {
-      // For assembly, offer both opcodes and directives
-      // Check if cursor is after a dot (directive context)
-      const beforeCursor = line.substring(0, character);
-      const lastDotIndex = beforeCursor.lastIndexOf('.');
-
-      if (lastDotIndex !== -1 && character - lastDotIndex <= 20) {
-        // In directive context
-        completions = this.directives;
-      } else {
-        // Mix both opcodes and directives
-        completions = [...this.opcodes, ...this.directives];
+    if (isAsm(document.languageId, document.uri)) {
+      if (prefix.startsWith('.')) {
+        // (the dot typed: the directive's name after it)
+        items = this.directiveItems;
+        return this.filter(items, prefix);
       }
+      const atStart = /^\s*([A-Za-z_@][\w.]*:\s*)?[A-Za-z0-9_.]*$/.test(line);
+      items = atStart ? [...this.asmItems, ...this.symbols(document.uri, true)] : this.symbols(document.uri, true);
+    } else {
+      const pragma = /^\s*#\s*pragma\s+([\w ]*)$/.exec(line);
+      if (pragma) {
+        const typed = pragma[1];
+        return this.pragmaItems
+          .filter((p) => p.label.startsWith(typed.trimStart()) || p.label.startsWith(`cc45 ${typed.trimStart()}`))
+          .map((p) => ({ ...p, insertText: typed.includes(' ') ? p.label.slice(p.label.lastIndexOf(' ') + 1) : p.label }));
+      }
+      if (/^\s*#\s*\w*$/.test(line)) return [];
+      items = [...this.cItems, ...this.symbols(document.uri, false)];
     }
-
-    // Filter by partial word if provided
-    if (partialWord) {
-      const lowerPartial = partialWord.toLowerCase();
-      completions = completions.filter((item) =>
-        item.label.toLowerCase().startsWith(lowerPartial)
-      );
-    }
-
-    // Sort by relevance (exact prefix match first, then alphabetical)
-    completions.sort((a, b) => {
-      const aLower = a.label.toLowerCase();
-      const bLower = b.label.toLowerCase();
-      return aLower.localeCompare(bLower);
-    });
-
-    return completions.slice(0, 50); // Limit to 50 results
+    return this.filter(items, prefix);
   }
 
-  private getPartialWordAtPosition(line: string, column: number): string {
-    let start = column - 1;
-
-    // Find start of word (skip backwards over alphanumeric/underscore/dot)
-    while (start >= 0 && /[a-zA-Z0-9_.]/.test(line[start])) {
-      start--;
+  private filter(items: CompletionItem[], prefix: string): CompletionItem[] {
+    const p = prefix.toLowerCase();
+    const seen = new Set<string>();
+    const out: CompletionItem[] = [];
+    for (const it of items) {
+      const key = it.label.toLowerCase();
+      if ((p && !key.startsWith(p)) || seen.has(key)) continue;
+      seen.add(key);
+      out.push(it);
     }
-    start++;
-
-    // Word is from start to column (we don't go forward, just use current position)
-    return line.substring(start, column);
+    out.sort((a, b) => a.label.localeCompare(b.label));
+    return out.slice(0, MAX_ITEMS);
   }
 
-  private detectLanguage(languageId: string): 'c' | 'asm' {
-    if (languageId === 'm65-asm' || languageId === 's45' || languageId === 'asm') {
-      return 'asm';
+  /** The workspace's symbols of the language (this file's first) */
+  private symbols(uri: string, asm: boolean): CompletionItem[] {
+    const ext = asm ? /\.(s45|asm|inc|s)$/i : /\.(c|h)$/i;
+    const out: CompletionItem[] = [];
+    for (const s of this.index.getAllSymbols()) {
+      if (!s.isDefinition || !ext.test(s.location.uri)) continue;
+      if (s.scope === 'local' && s.location.uri !== uri) continue;
+      out.push({
+        label: s.name,
+        kind: s.kind === SymbolKind.Function ? CompletionItemKind.Function
+          : s.kind === SymbolKind.Struct ? CompletionItemKind.Struct
+          : s.kind === SymbolKind.Constant ? CompletionItemKind.Constant
+          : CompletionItemKind.Variable,
+        detail: decodeURIComponent(s.location.uri.split('/').pop() || ''),
+        sortText: (s.location.uri === uri ? '0' : '1') + s.name,
+      });
     }
-    return 'c';
-  }
-
-  private getCompletionKindForKeyword(
-    type: string
-  ): CompletionItemKind {
-    if (type === 'type') {
-      return CompletionItemKind.Class;
-    }
-    if (type === 'qualifier') {
-      return CompletionItemKind.Keyword;
-    }
-    return CompletionItemKind.Keyword;
+    return out;
   }
 }

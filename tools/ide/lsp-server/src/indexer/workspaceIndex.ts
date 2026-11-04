@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { pathToFileURL, fileURLToPath } from 'url';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { Symbol, IndexedFile } from './symbolTypes';
 import { CSymbolScanner } from './cSymbolScanner';
@@ -11,16 +12,46 @@ export class WorkspaceIndex {
   private cScanner = new CSymbolScanner();
   private asmScanner = new AsmSymbolScanner();
   private workspacePath: string;
-  private excludePatterns: string[] = [
-    '**/node_modules/**',
-    '**/.git/**',
-    '**/bin/**',
-    '**/obj/**',
-    '**/dist/**',
-  ];
+  // m65.indexer.exclude: directory names (node_modules) or globs over the
+  // path from the workspace (build/**, **/*.gen.c)
+  private excludePatterns: string[] = ['node_modules', '.git', 'bin', 'obj', 'build', 'dist'];
+  private static readonly EXTENSIONS = ['.c', '.h', '.s45', '.asm', '.inc'];
+  private static readonly MAX_FILES = 20000;
+  private static readonly MAX_SIZE = 2 * 1024 * 1024;
 
   constructor(workspacePath: string) {
     this.workspacePath = workspacePath;
+  }
+
+  setExclude(patterns: string[]): void {
+    this.excludePatterns = patterns;
+  }
+
+  private scan(uri: string, content: string, asm: boolean): Symbol[] {
+    return asm ? this.asmScanner.scanFile(uri, content) : this.cScanner.scanFile(uri, content);
+  }
+
+  /** A file on disk indexed again (created or changed outside the editor) */
+  indexFile(fsPath: string): void {
+    const ext = path.extname(fsPath).toLowerCase();
+    if (!WorkspaceIndex.EXTENSIONS.includes(ext)) return;
+    if (this.isExcluded(path.relative(this.workspacePath, fsPath))) return;
+    let content: string;
+    try {
+      const st = fs.statSync(fsPath);
+      if (!st.isFile() || st.size > WorkspaceIndex.MAX_SIZE) return;
+      content = fs.readFileSync(fsPath, 'utf-8');
+    } catch {
+      this.removeDocument(pathToFileURL(fsPath).toString());
+      return;
+    }
+    const uri = pathToFileURL(fsPath).toString();
+    this.indexedFiles.set(uri, { uri, symbols: this.scan(uri, content, ext !== '.c' && ext !== '.h'), timestamp: Date.now() });
+    this.rebuildSymbolIndex();
+  }
+
+  static uriToPath(uri: string): string {
+    return uri.startsWith('file:') ? fileURLToPath(uri) : uri;
   }
 
   /**
@@ -152,17 +183,12 @@ export class WorkspaceIndex {
             scanDir(fullPath);
           } else if (entry.isFile()) {
             const ext = path.extname(entry.name);
-            if (['.c', '.h', '.s45', '.asm'].includes(ext)) {
+            if (WorkspaceIndex.EXTENSIONS.includes(ext.toLowerCase()) && fileCount < WorkspaceIndex.MAX_FILES) {
               try {
+                if (fs.statSync(fullPath).size > WorkspaceIndex.MAX_SIZE) continue;
                 const content = fs.readFileSync(fullPath, 'utf-8');
-                const uri = `file://${fullPath}`;
-
-                let symbols: Symbol[] = [];
-                if (ext === '.c' || ext === '.h') {
-                  symbols = this.cScanner.scanFile(uri, content);
-                } else if (ext === '.s45' || ext === '.asm') {
-                  symbols = this.asmScanner.scanFile(uri, content);
-                }
+                const uri = pathToFileURL(fullPath).toString();
+                const symbols = this.scan(uri, content, ext !== '.c' && ext !== '.h');
 
                 this.indexedFiles.set(uri, {
                   uri,
@@ -192,21 +218,35 @@ export class WorkspaceIndex {
   }
 
   private isExcluded(relPath: string): boolean {
+    const rel = relPath.split(path.sep).join('/');
+    const parts = rel.split('/');
     for (const pattern of this.excludePatterns) {
-      // Simple glob matching: convert pattern to regex
-      const regex = this.globToRegex(pattern);
-      if (regex.test(relPath)) {
+      if (!/[*?/]/.test(pattern)) {
+        if (parts.includes(pattern)) return true;   // a directory or file name
+      } else if (WorkspaceIndex.globToRegex(pattern).test(rel)) {
         return true;
       }
     }
     return false;
   }
 
-  private globToRegex(glob: string): RegExp {
-    const escaped = glob
-      .replace(/\./g, '\\.')
-      .replace(/\*/g, '[^/]*')
-      .replace(/\*\*/g, '.*');
-    return new RegExp(`^${escaped}$`);
+  /** ** any directories, * anything but /, ? one character */
+  static globToRegex(glob: string): RegExp {
+    let re = '';
+    for (let i = 0; i < glob.length; i++) {
+      const c = glob[i];
+      if (c === '*' && glob[i + 1] === '*') {
+        re += '.*';
+        i++;
+        if (glob[i + 1] === '/') i++;
+      } else if (c === '*') {
+        re += '[^/]*';
+      } else if (c === '?') {
+        re += '[^/]';
+      } else {
+        re += c.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+      }
+    }
+    return new RegExp(`^${re}$`);
   }
 }

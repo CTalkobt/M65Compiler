@@ -1,15 +1,14 @@
 {
   "name": "@m65/cc45-lsp-server",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Language Server Protocol server for MEGA65 C compiler (cc45) and assembler (ca45)",
   "main": "dist/server.js",
-  "type": "module",
-  "module": "dist/server.js",
   "scripts": {
-    "build": "tsc",
-    "watch": "tsc --watch",
+    "build": "tsc --noEmit -p . && esbuild src/server.ts --bundle --platform=node --target=node18 --format=cjs --sourcemap --outfile=dist/server.js && node -e \"require('fs').cpSync('data','dist/data',{recursive:true})\"",
+    "gen-data": "node scripts/gen-data.mjs",
+    "watch": "esbuild src/server.ts --bundle --platform=node --target=node18 --format=cjs --sourcemap --outfile=dist/server.js --watch",
     "lint": "eslint src/**/*.ts",
-    "test": "node --import tsx/esm --test src/**/*.test.ts",
+    "test": "node --import tsx --test \"src/**/*.test.ts\"",
     "prepack": "npm run build"
   },
   "keywords": [
@@ -37,5 +36,8 @@
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "bin": {
+    "m65-lsp": "dist/server.js"
   }
 }

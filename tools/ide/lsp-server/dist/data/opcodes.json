@@ -1,0 +1,3864 @@
+{
+ "generatedFrom": "src/main/AssemblerOpcodeDatabase.cpp, src/main/CpuCycles.cpp, doc/bin/ca45.md",
+ "opcodes": [
+  {
+   "mnemonic": "ADC",
+   "description": "Add memory to A with carry",
+   "flags": [
+    "N",
+    "V",
+    "Z",
+    "C"
+   ],
+   "modes": [
+    {
+     "mode": "#imm",
+     "opcode": 105,
+     "bytes": "69",
+     "cycles40": 2
+    },
+    {
+     "mode": "zp",
+     "opcode": 101,
+     "bytes": "65",
+     "cycles40": 4
+    },
+    {
+     "mode": "zp,X",
+     "opcode": 117,
+     "bytes": "75",
+     "cycles40": 4
+    },
+    {
+     "mode": "abs",
+     "opcode": 109,
+     "bytes": "6D",
+     "cycles40": 5
+    },
+    {
+     "mode": "abs,X",
+     "opcode": 125,
+     "bytes": "7D",
+     "cycles40": 5
+    },
+    {
+     "mode": "abs,Y",
+     "opcode": 121,
+     "bytes": "79",
+     "cycles40": 5
+    },
+    {
+     "mode": "(zp,X)",
+     "opcode": 97,
+     "bytes": "61",
+     "cycles40": 7
+    },
+    {
+     "mode": "(zp),Y",
+     "opcode": 113,
+     "bytes": "71",
+     "cycles40": 7
+    },
+    {
+     "mode": "(zp),Z",
+     "opcode": 114,
+     "bytes": "72",
+     "cycles40": 7
+    },
+    {
+     "mode": "[zp],Z",
+     "opcode": 114,
+     "bytes": "72",
+     "cycles40": 7
+    }
+   ]
+  },
+  {
+   "mnemonic": "AND",
+   "description": "AND memory with A",
+   "flags": [
+    "N",
+    "Z"
+   ],
+   "modes": [
+    {
+     "mode": "#imm",
+     "opcode": 41,
+     "bytes": "29",
+     "cycles40": 2
+    },
+    {
+     "mode": "zp",
+     "opcode": 37,
+     "bytes": "25",
+     "cycles40": 4
+    },
+    {
+     "mode": "zp,X",
+     "opcode": 53,
+     "bytes": "35",
+     "cycles40": 4
+    },
+    {
+     "mode": "abs",
+     "opcode": 45,
+     "bytes": "2D",
+     "cycles40": 5
+    },
+    {
+     "mode": "abs,X",
+     "opcode": 61,
+     "bytes": "3D",
+     "cycles40": 5
+    },
+    {
+     "mode": "abs,Y",
+     "opcode": 57,
+     "bytes": "39",
+     "cycles40": 5
+    },
+    {
+     "mode": "(zp,X)",
+     "opcode": 33,
+     "bytes": "21",
+     "cycles40": 7
+    },
+    {
+     "mode": "(zp),Y",
+     "opcode": 49,
+     "bytes": "31",
+     "cycles40": 7
+    },
+    {
+     "mode": "(zp),Z",
+     "opcode": 50,
+     "bytes": "32",
+     "cycles40": 7
+    },
+    {
+     "mode": "[zp],Z",
+     "opcode": 50,
+     "bytes": "32",
+     "cycles40": 7
+    }
+   ]
+  },
+  {
+   "mnemonic": "ASL",
+   "description": "Arithmetic shift left",
+   "flags": [
+    "N",
+    "Z",
+    "C"
+   ],
+   "modes": [
+    {
+     "mode": "A",
+     "opcode": 10,
+     "bytes": "0A",
+     "cycles40": 1
+    },
+    {
+     "mode": "zp",
+     "opcode": 6,
+     "bytes": "06",
+     "cycles40": 6
+    },
+    {
+     "mode": "zp,X",
+     "opcode": 22,
+     "bytes": "16",
+     "cycles40": 6
+    },
+    {
+     "mode": "abs",
+     "opcode": 14,
+     "bytes": "0E",
+     "cycles40": 7
+    },
+    {
+     "mode": "abs,X",
+     "opcode": 30,
+     "bytes": "1E",
+     "cycles40": 7
+    }
+   ]
+  },
+  {
+   "mnemonic": "ASR",
+   "description": "Arithmetic shift right",
+   "flags": [
+    "N",
+    "Z",
+    "C"
+   ],
+   "modes": [
+    {
+     "mode": "A",
+     "opcode": 67,
+     "bytes": "43",
+     "cycles40": 1
+    },
+    {
+     "mode": "zp",
+     "opcode": 68,
+     "bytes": "44",
+     "cycles40": 6
+    },
+    {
+     "mode": "zp,X",
+     "opcode": 84,
+     "bytes": "54",
+     "cycles40": 6
+    }
+   ]
+  },
+  {
+   "mnemonic": "ASW",
+   "description": "Arithmetic shift left a word in memory",
+   "flags": [
+    "N",
+    "Z",
+    "C"
+   ],
+   "modes": [
+    {
+     "mode": "abs",
+     "opcode": 203,
+     "bytes": "CB",
+     "cycles40": 9
+    }
+   ]
+  },
+  {
+   "mnemonic": "BBR0",
+   "description": "Branch if a bit of a base-page byte is 0",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "zp, label",
+     "opcode": 15,
+     "bytes": "0F",
+     "cycles40": 5
+    }
+   ]
+  },
+  {
+   "mnemonic": "BBR1",
+   "description": "Branch if a bit of a base-page byte is 0",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "zp, label",
+     "opcode": 31,
+     "bytes": "1F",
+     "cycles40": 5
+    }
+   ]
+  },
+  {
+   "mnemonic": "BBR2",
+   "description": "Branch if a bit of a base-page byte is 0",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "zp, label",
+     "opcode": 47,
+     "bytes": "2F",
+     "cycles40": 5
+    }
+   ]
+  },
+  {
+   "mnemonic": "BBR3",
+   "description": "Branch if a bit of a base-page byte is 0",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "zp, label",
+     "opcode": 63,
+     "bytes": "3F",
+     "cycles40": 5
+    }
+   ]
+  },
+  {
+   "mnemonic": "BBR4",
+   "description": "Branch if a bit of a base-page byte is 0",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "zp, label",
+     "opcode": 79,
+     "bytes": "4F",
+     "cycles40": 5
+    }
+   ]
+  },
+  {
+   "mnemonic": "BBR5",
+   "description": "Branch if a bit of a base-page byte is 0",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "zp, label",
+     "opcode": 95,
+     "bytes": "5F",
+     "cycles40": 5
+    }
+   ]
+  },
+  {
+   "mnemonic": "BBR6",
+   "description": "Branch if a bit of a base-page byte is 0",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "zp, label",
+     "opcode": 111,
+     "bytes": "6F",
+     "cycles40": 5
+    }
+   ]
+  },
+  {
+   "mnemonic": "BBR7",
+   "description": "Branch if a bit of a base-page byte is 0",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "zp, label",
+     "opcode": 127,
+     "bytes": "7F",
+     "cycles40": 5
+    }
+   ]
+  },
+  {
+   "mnemonic": "BBS0",
+   "description": "Branch if a bit of a base-page byte is 1",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "zp, label",
+     "opcode": 143,
+     "bytes": "8F",
+     "cycles40": 5
+    }
+   ]
+  },
+  {
+   "mnemonic": "BBS1",
+   "description": "Branch if a bit of a base-page byte is 1",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "zp, label",
+     "opcode": 159,
+     "bytes": "9F",
+     "cycles40": 5
+    }
+   ]
+  },
+  {
+   "mnemonic": "BBS2",
+   "description": "Branch if a bit of a base-page byte is 1",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "zp, label",
+     "opcode": 175,
+     "bytes": "AF",
+     "cycles40": 5
+    }
+   ]
+  },
+  {
+   "mnemonic": "BBS3",
+   "description": "Branch if a bit of a base-page byte is 1",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "zp, label",
+     "opcode": 191,
+     "bytes": "BF",
+     "cycles40": 5
+    }
+   ]
+  },
+  {
+   "mnemonic": "BBS4",
+   "description": "Branch if a bit of a base-page byte is 1",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "zp, label",
+     "opcode": 207,
+     "bytes": "CF",
+     "cycles40": 5
+    }
+   ]
+  },
+  {
+   "mnemonic": "BBS5",
+   "description": "Branch if a bit of a base-page byte is 1",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "zp, label",
+     "opcode": 223,
+     "bytes": "DF",
+     "cycles40": 5
+    }
+   ]
+  },
+  {
+   "mnemonic": "BBS6",
+   "description": "Branch if a bit of a base-page byte is 1",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "zp, label",
+     "opcode": 239,
+     "bytes": "EF",
+     "cycles40": 5
+    }
+   ]
+  },
+  {
+   "mnemonic": "BBS7",
+   "description": "Branch if a bit of a base-page byte is 1",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "zp, label",
+     "opcode": 255,
+     "bytes": "FF",
+     "cycles40": 5
+    }
+   ]
+  },
+  {
+   "mnemonic": "BCC",
+   "description": "Branch if carry clear",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "label",
+     "opcode": 144,
+     "bytes": "90",
+     "cycles40": 2
+    },
+    {
+     "mode": "label (16-bit)",
+     "opcode": 147,
+     "bytes": "93",
+     "cycles40": 4
+    }
+   ]
+  },
+  {
+   "mnemonic": "BCS",
+   "description": "Branch if carry set",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "label",
+     "opcode": 176,
+     "bytes": "B0",
+     "cycles40": 2
+    },
+    {
+     "mode": "label (16-bit)",
+     "opcode": 179,
+     "bytes": "B3",
+     "cycles40": 4
+    }
+   ]
+  },
+  {
+   "mnemonic": "BEQ",
+   "description": "Branch if equal (Z set)",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "label",
+     "opcode": 240,
+     "bytes": "F0",
+     "cycles40": 2
+    },
+    {
+     "mode": "label (16-bit)",
+     "opcode": 243,
+     "bytes": "F3",
+     "cycles40": 4
+    }
+   ]
+  },
+  {
+   "mnemonic": "BIT",
+   "description": "Test bits of memory with A",
+   "flags": [
+    "N",
+    "V",
+    "Z"
+   ],
+   "modes": [
+    {
+     "mode": "#imm",
+     "opcode": 137,
+     "bytes": "89",
+     "cycles40": 2
+    },
+    {
+     "mode": "zp",
+     "opcode": 36,
+     "bytes": "24",
+     "cycles40": 4
+    },
+    {
+     "mode": "zp,X",
+     "opcode": 52,
+     "bytes": "34",
+     "cycles40": 4
+    },
+    {
+     "mode": "abs",
+     "opcode": 44,
+     "bytes": "2C",
+     "cycles40": 5
+    },
+    {
+     "mode": "abs,X",
+     "opcode": 60,
+     "bytes": "3C",
+     "cycles40": 5
+    }
+   ]
+  },
+  {
+   "mnemonic": "BMI",
+   "description": "Branch if minus (N set)",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "label",
+     "opcode": 48,
+     "bytes": "30",
+     "cycles40": 2
+    },
+    {
+     "mode": "label (16-bit)",
+     "opcode": 51,
+     "bytes": "33",
+     "cycles40": 4
+    }
+   ]
+  },
+  {
+   "mnemonic": "BNE",
+   "description": "Branch if not equal (Z clear)",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "label",
+     "opcode": 208,
+     "bytes": "D0",
+     "cycles40": 2
+    },
+    {
+     "mode": "label (16-bit)",
+     "opcode": 211,
+     "bytes": "D3",
+     "cycles40": 4
+    }
+   ]
+  },
+  {
+   "mnemonic": "BPL",
+   "description": "Branch if plus (N clear)",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "label",
+     "opcode": 16,
+     "bytes": "10",
+     "cycles40": 2
+    },
+    {
+     "mode": "label (16-bit)",
+     "opcode": 19,
+     "bytes": "13",
+     "cycles40": 4
+    }
+   ]
+  },
+  {
+   "mnemonic": "BRA",
+   "description": "Branch always",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "label",
+     "opcode": 128,
+     "bytes": "80",
+     "cycles40": 4
+    },
+    {
+     "mode": "label (16-bit)",
+     "opcode": 131,
+     "bytes": "83",
+     "cycles40": 5
+    }
+   ]
+  },
+  {
+   "mnemonic": "BRK",
+   "description": "Break: software interrupt",
+   "flags": [
+    "B",
+    "I"
+   ],
+   "modes": [
+    {
+     "mode": "",
+     "opcode": 0,
+     "bytes": "00",
+     "cycles40": 9
+    }
+   ]
+  },
+  {
+   "mnemonic": "BSR",
+   "description": "Branch to subroutine (relative, 16-bit)",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "label (16-bit)",
+     "opcode": 99,
+     "bytes": "63",
+     "cycles40": 5
+    }
+   ]
+  },
+  {
+   "mnemonic": "BVC",
+   "description": "Branch if overflow clear",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "label",
+     "opcode": 80,
+     "bytes": "50",
+     "cycles40": 2
+    },
+    {
+     "mode": "label (16-bit)",
+     "opcode": 83,
+     "bytes": "53",
+     "cycles40": 4
+    }
+   ]
+  },
+  {
+   "mnemonic": "BVS",
+   "description": "Branch if overflow set",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "label",
+     "opcode": 112,
+     "bytes": "70",
+     "cycles40": 2
+    },
+    {
+     "mode": "label (16-bit)",
+     "opcode": 115,
+     "bytes": "73",
+     "cycles40": 4
+    }
+   ]
+  },
+  {
+   "mnemonic": "CLC",
+   "description": "Clear carry",
+   "flags": [
+    "C"
+   ],
+   "modes": [
+    {
+     "mode": "",
+     "opcode": 24,
+     "bytes": "18",
+     "cycles40": 1
+    }
+   ]
+  },
+  {
+   "mnemonic": "CLD",
+   "description": "Clear decimal mode",
+   "flags": [
+    "D"
+   ],
+   "modes": [
+    {
+     "mode": "",
+     "opcode": 216,
+     "bytes": "D8",
+     "cycles40": 1
+    }
+   ]
+  },
+  {
+   "mnemonic": "CLE",
+   "description": "Clear the stack-extend flag: 16-bit stack pointer",
+   "flags": [
+    "E"
+   ],
+   "modes": [
+    {
+     "mode": "",
+     "opcode": 2,
+     "bytes": "02",
+     "cycles40": 3
+    }
+   ]
+  },
+  {
+   "mnemonic": "CLI",
+   "description": "Clear interrupt disable",
+   "flags": [
+    "I"
+   ],
+   "modes": [
+    {
+     "mode": "",
+     "opcode": 88,
+     "bytes": "58",
+     "cycles40": 3
+    }
+   ]
+  },
+  {
+   "mnemonic": "CLV",
+   "description": "Clear overflow",
+   "flags": [
+    "V"
+   ],
+   "modes": [
+    {
+     "mode": "",
+     "opcode": 184,
+     "bytes": "B8",
+     "cycles40": 1
+    }
+   ]
+  },
+  {
+   "mnemonic": "CMP",
+   "description": "Compare memory with A",
+   "flags": [
+    "N",
+    "Z",
+    "C"
+   ],
+   "modes": [
+    {
+     "mode": "#imm",
+     "opcode": 201,
+     "bytes": "C9",
+     "cycles40": 2
+    },
+    {
+     "mode": "zp",
+     "opcode": 197,
+     "bytes": "C5",
+     "cycles40": 4
+    },
+    {
+     "mode": "zp,X",
+     "opcode": 213,
+     "bytes": "D5",
+     "cycles40": 4
+    },
+    {
+     "mode": "abs",
+     "opcode": 205,
+     "bytes": "CD",
+     "cycles40": 5
+    },
+    {
+     "mode": "abs,X",
+     "opcode": 221,
+     "bytes": "DD",
+     "cycles40": 5
+    },
+    {
+     "mode": "abs,Y",
+     "opcode": 217,
+     "bytes": "D9",
+     "cycles40": 5
+    },
+    {
+     "mode": "(zp,X)",
+     "opcode": 193,
+     "bytes": "C1",
+     "cycles40": 7
+    },
+    {
+     "mode": "(zp),Y",
+     "opcode": 209,
+     "bytes": "D1",
+     "cycles40": 7
+    },
+    {
+     "mode": "(zp),Z",
+     "opcode": 210,
+     "bytes": "D2",
+     "cycles40": 7
+    },
+    {
+     "mode": "[zp],Z",
+     "opcode": 210,
+     "bytes": "D2",
+     "cycles40": 7
+    }
+   ]
+  },
+  {
+   "mnemonic": "CPX",
+   "description": "Compare memory with X",
+   "flags": [
+    "N",
+    "Z",
+    "C"
+   ],
+   "modes": [
+    {
+     "mode": "#imm",
+     "opcode": 224,
+     "bytes": "E0",
+     "cycles40": 2
+    },
+    {
+     "mode": "zp",
+     "opcode": 228,
+     "bytes": "E4",
+     "cycles40": 4
+    },
+    {
+     "mode": "abs",
+     "opcode": 236,
+     "bytes": "EC",
+     "cycles40": 5
+    }
+   ]
+  },
+  {
+   "mnemonic": "CPY",
+   "description": "Compare memory with Y",
+   "flags": [
+    "N",
+    "Z",
+    "C"
+   ],
+   "modes": [
+    {
+     "mode": "#imm",
+     "opcode": 192,
+     "bytes": "C0",
+     "cycles40": 2
+    },
+    {
+     "mode": "zp",
+     "opcode": 196,
+     "bytes": "C4",
+     "cycles40": 4
+    },
+    {
+     "mode": "abs",
+     "opcode": 204,
+     "bytes": "CC",
+     "cycles40": 5
+    }
+   ]
+  },
+  {
+   "mnemonic": "CPZ",
+   "description": "Compare memory with Z",
+   "flags": [
+    "N",
+    "Z",
+    "C"
+   ],
+   "modes": [
+    {
+     "mode": "#imm",
+     "opcode": 194,
+     "bytes": "C2",
+     "cycles40": 2
+    },
+    {
+     "mode": "zp",
+     "opcode": 212,
+     "bytes": "D4",
+     "cycles40": 4
+    },
+    {
+     "mode": "abs",
+     "opcode": 220,
+     "bytes": "DC",
+     "cycles40": 5
+    }
+   ]
+  },
+  {
+   "mnemonic": "DEC",
+   "description": "Decrement memory or A",
+   "flags": [
+    "N",
+    "Z"
+   ],
+   "modes": [
+    {
+     "mode": "A",
+     "opcode": 58,
+     "bytes": "3A",
+     "cycles40": 1
+    },
+    {
+     "mode": "zp",
+     "opcode": 198,
+     "bytes": "C6",
+     "cycles40": 6
+    },
+    {
+     "mode": "zp,X",
+     "opcode": 214,
+     "bytes": "D6",
+     "cycles40": 6
+    },
+    {
+     "mode": "abs",
+     "opcode": 206,
+     "bytes": "CE",
+     "cycles40": 7
+    },
+    {
+     "mode": "abs,X",
+     "opcode": 222,
+     "bytes": "DE",
+     "cycles40": 7
+    }
+   ]
+  },
+  {
+   "mnemonic": "DEW",
+   "description": "Decrement a word in memory",
+   "flags": [
+    "N",
+    "Z"
+   ],
+   "modes": [
+    {
+     "mode": "zp",
+     "opcode": 195,
+     "bytes": "C3",
+     "cycles40": 8
+    }
+   ]
+  },
+  {
+   "mnemonic": "DEX",
+   "description": "Decrement X",
+   "flags": [
+    "N",
+    "Z"
+   ],
+   "modes": [
+    {
+     "mode": "",
+     "opcode": 202,
+     "bytes": "CA",
+     "cycles40": 1
+    }
+   ]
+  },
+  {
+   "mnemonic": "DEY",
+   "description": "Decrement Y",
+   "flags": [
+    "N",
+    "Z"
+   ],
+   "modes": [
+    {
+     "mode": "",
+     "opcode": 136,
+     "bytes": "88",
+     "cycles40": 1
+    }
+   ]
+  },
+  {
+   "mnemonic": "DEZ",
+   "description": "Decrement Z",
+   "flags": [
+    "N",
+    "Z"
+   ],
+   "modes": [
+    {
+     "mode": "",
+     "opcode": 59,
+     "bytes": "3B",
+     "cycles40": 1
+    }
+   ]
+  },
+  {
+   "mnemonic": "EOM",
+   "description": "End of mapping sequence (no operation; before (zp),Z: [zp],Z)",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "",
+     "opcode": 234,
+     "bytes": "EA",
+     "cycles40": 1
+    }
+   ]
+  },
+  {
+   "mnemonic": "EOR",
+   "description": "Exclusive-OR memory with A",
+   "flags": [
+    "N",
+    "Z"
+   ],
+   "modes": [
+    {
+     "mode": "#imm",
+     "opcode": 73,
+     "bytes": "49",
+     "cycles40": 2
+    },
+    {
+     "mode": "zp",
+     "opcode": 69,
+     "bytes": "45",
+     "cycles40": 4
+    },
+    {
+     "mode": "zp,X",
+     "opcode": 85,
+     "bytes": "55",
+     "cycles40": 4
+    },
+    {
+     "mode": "abs",
+     "opcode": 77,
+     "bytes": "4D",
+     "cycles40": 5
+    },
+    {
+     "mode": "abs,X",
+     "opcode": 93,
+     "bytes": "5D",
+     "cycles40": 5
+    },
+    {
+     "mode": "abs,Y",
+     "opcode": 89,
+     "bytes": "59",
+     "cycles40": 5
+    },
+    {
+     "mode": "(zp,X)",
+     "opcode": 65,
+     "bytes": "41",
+     "cycles40": 7
+    },
+    {
+     "mode": "(zp),Y",
+     "opcode": 81,
+     "bytes": "51",
+     "cycles40": 7
+    },
+    {
+     "mode": "(zp),Z",
+     "opcode": 82,
+     "bytes": "52",
+     "cycles40": 7
+    },
+    {
+     "mode": "[zp],Z",
+     "opcode": 82,
+     "bytes": "52",
+     "cycles40": 7
+    }
+   ]
+  },
+  {
+   "mnemonic": "INC",
+   "description": "Increment memory or A",
+   "flags": [
+    "N",
+    "Z"
+   ],
+   "modes": [
+    {
+     "mode": "A",
+     "opcode": 26,
+     "bytes": "1A",
+     "cycles40": 1
+    },
+    {
+     "mode": "zp",
+     "opcode": 230,
+     "bytes": "E6",
+     "cycles40": 6
+    },
+    {
+     "mode": "zp,X",
+     "opcode": 246,
+     "bytes": "F6",
+     "cycles40": 6
+    },
+    {
+     "mode": "abs",
+     "opcode": 238,
+     "bytes": "EE",
+     "cycles40": 7
+    },
+    {
+     "mode": "abs,X",
+     "opcode": 254,
+     "bytes": "FE",
+     "cycles40": 7
+    }
+   ]
+  },
+  {
+   "mnemonic": "INW",
+   "description": "Increment a word in memory",
+   "flags": [
+    "N",
+    "Z"
+   ],
+   "modes": [
+    {
+     "mode": "zp",
+     "opcode": 227,
+     "bytes": "E3",
+     "cycles40": 8
+    }
+   ]
+  },
+  {
+   "mnemonic": "INX",
+   "description": "Increment X",
+   "flags": [
+    "N",
+    "Z"
+   ],
+   "modes": [
+    {
+     "mode": "",
+     "opcode": 232,
+     "bytes": "E8",
+     "cycles40": 1
+    }
+   ]
+  },
+  {
+   "mnemonic": "INY",
+   "description": "Increment Y",
+   "flags": [
+    "N",
+    "Z"
+   ],
+   "modes": [
+    {
+     "mode": "",
+     "opcode": 200,
+     "bytes": "C8",
+     "cycles40": 1
+    }
+   ]
+  },
+  {
+   "mnemonic": "INZ",
+   "description": "Increment Z",
+   "flags": [
+    "N",
+    "Z"
+   ],
+   "modes": [
+    {
+     "mode": "",
+     "opcode": 27,
+     "bytes": "1B",
+     "cycles40": 1
+    }
+   ]
+  },
+  {
+   "mnemonic": "JMP",
+   "description": "Jump",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "abs",
+     "opcode": 76,
+     "bytes": "4C",
+     "cycles40": 5
+    },
+    {
+     "mode": "(abs)",
+     "opcode": 108,
+     "bytes": "6C",
+     "cycles40": 7
+    },
+    {
+     "mode": "(abs,X)",
+     "opcode": 124,
+     "bytes": "7C",
+     "cycles40": 7
+    }
+   ]
+  },
+  {
+   "mnemonic": "JSR",
+   "description": "Jump to subroutine",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "abs",
+     "opcode": 32,
+     "bytes": "20",
+     "cycles40": 5
+    },
+    {
+     "mode": "(abs)",
+     "opcode": 34,
+     "bytes": "22",
+     "cycles40": 8
+    },
+    {
+     "mode": "(abs,X)",
+     "opcode": 35,
+     "bytes": "23",
+     "cycles40": 8
+    }
+   ]
+  },
+  {
+   "mnemonic": "LDA",
+   "description": "Load A",
+   "flags": [
+    "N",
+    "Z"
+   ],
+   "modes": [
+    {
+     "mode": "#imm",
+     "opcode": 169,
+     "bytes": "A9",
+     "cycles40": 2
+    },
+    {
+     "mode": "zp",
+     "opcode": 165,
+     "bytes": "A5",
+     "cycles40": 4
+    },
+    {
+     "mode": "zp,X",
+     "opcode": 181,
+     "bytes": "B5",
+     "cycles40": 4
+    },
+    {
+     "mode": "abs",
+     "opcode": 173,
+     "bytes": "AD",
+     "cycles40": 5
+    },
+    {
+     "mode": "abs,X",
+     "opcode": 189,
+     "bytes": "BD",
+     "cycles40": 5
+    },
+    {
+     "mode": "abs,Y",
+     "opcode": 185,
+     "bytes": "B9",
+     "cycles40": 5
+    },
+    {
+     "mode": "(zp,X)",
+     "opcode": 161,
+     "bytes": "A1",
+     "cycles40": 7
+    },
+    {
+     "mode": "(zp),Y",
+     "opcode": 177,
+     "bytes": "B1",
+     "cycles40": 7
+    },
+    {
+     "mode": "(zp),Z",
+     "opcode": 178,
+     "bytes": "B2",
+     "cycles40": 7
+    },
+    {
+     "mode": "(zp,SP),Y",
+     "opcode": 226,
+     "bytes": "E2",
+     "cycles40": 8
+    },
+    {
+     "mode": "[zp],Z",
+     "opcode": 178,
+     "bytes": "B2",
+     "cycles40": 7
+    }
+   ]
+  },
+  {
+   "mnemonic": "LDQ",
+   "description": "Load Q (A, X, Y, Z: 32 bits; NEG NEG prefix)",
+   "flags": [
+    "N",
+    "Z"
+   ],
+   "modes": [
+    {
+     "mode": "zp",
+     "opcode": 165,
+     "bytes": "42 42 A5",
+     "cycles40": 4
+    },
+    {
+     "mode": "abs",
+     "opcode": 173,
+     "bytes": "42 42 AD",
+     "cycles40": 5
+    },
+    {
+     "mode": "(zp),Z",
+     "opcode": 178,
+     "bytes": "42 42 B2",
+     "cycles40": 7
+    },
+    {
+     "mode": "[zp],Z",
+     "opcode": 178,
+     "bytes": "42 42 B2",
+     "cycles40": 7
+    }
+   ]
+  },
+  {
+   "mnemonic": "LDX",
+   "description": "Load X",
+   "flags": [
+    "N",
+    "Z"
+   ],
+   "modes": [
+    {
+     "mode": "#imm",
+     "opcode": 162,
+     "bytes": "A2",
+     "cycles40": 2
+    },
+    {
+     "mode": "zp",
+     "opcode": 166,
+     "bytes": "A6",
+     "cycles40": 4
+    },
+    {
+     "mode": "zp,Y",
+     "opcode": 182,
+     "bytes": "B6",
+     "cycles40": 4
+    },
+    {
+     "mode": "abs",
+     "opcode": 174,
+     "bytes": "AE",
+     "cycles40": 5
+    },
+    {
+     "mode": "abs,Y",
+     "opcode": 190,
+     "bytes": "BE",
+     "cycles40": 5
+    }
+   ]
+  },
+  {
+   "mnemonic": "LDY",
+   "description": "Load Y",
+   "flags": [
+    "N",
+    "Z"
+   ],
+   "modes": [
+    {
+     "mode": "#imm",
+     "opcode": 160,
+     "bytes": "A0",
+     "cycles40": 2
+    },
+    {
+     "mode": "zp",
+     "opcode": 164,
+     "bytes": "A4",
+     "cycles40": 4
+    },
+    {
+     "mode": "zp,X",
+     "opcode": 180,
+     "bytes": "B4",
+     "cycles40": 4
+    },
+    {
+     "mode": "abs",
+     "opcode": 172,
+     "bytes": "AC",
+     "cycles40": 5
+    },
+    {
+     "mode": "abs,X",
+     "opcode": 188,
+     "bytes": "BC",
+     "cycles40": 5
+    }
+   ]
+  },
+  {
+   "mnemonic": "LDZ",
+   "description": "Load Z",
+   "flags": [
+    "N",
+    "Z"
+   ],
+   "modes": [
+    {
+     "mode": "#imm",
+     "opcode": 163,
+     "bytes": "A3",
+     "cycles40": 2
+    },
+    {
+     "mode": "abs",
+     "opcode": 171,
+     "bytes": "AB",
+     "cycles40": 5
+    },
+    {
+     "mode": "abs,X",
+     "opcode": 187,
+     "bytes": "BB",
+     "cycles40": 5
+    }
+   ]
+  },
+  {
+   "mnemonic": "LSR",
+   "description": "Logical shift right",
+   "flags": [
+    "N",
+    "Z",
+    "C"
+   ],
+   "modes": [
+    {
+     "mode": "A",
+     "opcode": 74,
+     "bytes": "4A",
+     "cycles40": 1
+    },
+    {
+     "mode": "zp",
+     "opcode": 70,
+     "bytes": "46",
+     "cycles40": 6
+    },
+    {
+     "mode": "zp,X",
+     "opcode": 86,
+     "bytes": "56",
+     "cycles40": 6
+    },
+    {
+     "mode": "abs",
+     "opcode": 78,
+     "bytes": "4E",
+     "cycles40": 7
+    },
+    {
+     "mode": "abs,X",
+     "opcode": 94,
+     "bytes": "5E",
+     "cycles40": 7
+    }
+   ]
+  },
+  {
+   "mnemonic": "MAP",
+   "description": "Set the memory map from A, X, Y, Z",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "",
+     "opcode": 92,
+     "bytes": "5C",
+     "cycles40": 3
+    }
+   ]
+  },
+  {
+   "mnemonic": "NEG",
+   "description": "Negate A (two's complement)",
+   "flags": [
+    "N",
+    "Z"
+   ],
+   "modes": [
+    {
+     "mode": "A",
+     "opcode": 66,
+     "bytes": "42",
+     "cycles40": 1
+    }
+   ]
+  },
+  {
+   "mnemonic": "ORA",
+   "description": "OR memory with A",
+   "flags": [
+    "N",
+    "Z"
+   ],
+   "modes": [
+    {
+     "mode": "#imm",
+     "opcode": 9,
+     "bytes": "09",
+     "cycles40": 2
+    },
+    {
+     "mode": "zp",
+     "opcode": 5,
+     "bytes": "05",
+     "cycles40": 4
+    },
+    {
+     "mode": "zp,X",
+     "opcode": 21,
+     "bytes": "15",
+     "cycles40": 4
+    },
+    {
+     "mode": "abs",
+     "opcode": 13,
+     "bytes": "0D",
+     "cycles40": 5
+    },
+    {
+     "mode": "abs,X",
+     "opcode": 29,
+     "bytes": "1D",
+     "cycles40": 5
+    },
+    {
+     "mode": "abs,Y",
+     "opcode": 25,
+     "bytes": "19",
+     "cycles40": 5
+    },
+    {
+     "mode": "(zp,X)",
+     "opcode": 1,
+     "bytes": "01",
+     "cycles40": 7
+    },
+    {
+     "mode": "(zp),Y",
+     "opcode": 17,
+     "bytes": "11",
+     "cycles40": 7
+    },
+    {
+     "mode": "(zp),Z",
+     "opcode": 18,
+     "bytes": "12",
+     "cycles40": 7
+    },
+    {
+     "mode": "[zp],Z",
+     "opcode": 18,
+     "bytes": "12",
+     "cycles40": 7
+    }
+   ]
+  },
+  {
+   "mnemonic": "PHA",
+   "description": "Push A",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "",
+     "opcode": 72,
+     "bytes": "48",
+     "cycles40": 3
+    }
+   ]
+  },
+  {
+   "mnemonic": "PHP",
+   "description": "Push the processor status",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "",
+     "opcode": 8,
+     "bytes": "08",
+     "cycles40": 3
+    }
+   ]
+  },
+  {
+   "mnemonic": "PHW",
+   "description": "Push a word",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "#imm16",
+     "opcode": 244,
+     "bytes": "F4",
+     "cycles40": 6
+    },
+    {
+     "mode": "abs",
+     "opcode": 252,
+     "bytes": "FC",
+     "cycles40": 9
+    }
+   ]
+  },
+  {
+   "mnemonic": "PHX",
+   "description": "Push X",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "",
+     "opcode": 218,
+     "bytes": "DA",
+     "cycles40": 3
+    }
+   ]
+  },
+  {
+   "mnemonic": "PHY",
+   "description": "Push Y",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "",
+     "opcode": 90,
+     "bytes": "5A",
+     "cycles40": 3
+    }
+   ]
+  },
+  {
+   "mnemonic": "PHZ",
+   "description": "Push Z",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "",
+     "opcode": 219,
+     "bytes": "DB",
+     "cycles40": 3
+    }
+   ]
+  },
+  {
+   "mnemonic": "PLA",
+   "description": "Pull A",
+   "flags": [
+    "N",
+    "Z"
+   ],
+   "modes": [
+    {
+     "mode": "",
+     "opcode": 104,
+     "bytes": "68",
+     "cycles40": 4
+    }
+   ]
+  },
+  {
+   "mnemonic": "PLP",
+   "description": "Pull the processor status",
+   "flags": [
+    "all"
+   ],
+   "modes": [
+    {
+     "mode": "",
+     "opcode": 40,
+     "bytes": "28",
+     "cycles40": 4
+    }
+   ]
+  },
+  {
+   "mnemonic": "PLX",
+   "description": "Pull X",
+   "flags": [
+    "N",
+    "Z"
+   ],
+   "modes": [
+    {
+     "mode": "",
+     "opcode": 250,
+     "bytes": "FA",
+     "cycles40": 4
+    }
+   ]
+  },
+  {
+   "mnemonic": "PLY",
+   "description": "Pull Y",
+   "flags": [
+    "N",
+    "Z"
+   ],
+   "modes": [
+    {
+     "mode": "",
+     "opcode": 122,
+     "bytes": "7A",
+     "cycles40": 4
+    }
+   ]
+  },
+  {
+   "mnemonic": "PLZ",
+   "description": "Pull Z",
+   "flags": [
+    "N",
+    "Z"
+   ],
+   "modes": [
+    {
+     "mode": "",
+     "opcode": 251,
+     "bytes": "FB",
+     "cycles40": 4
+    }
+   ]
+  },
+  {
+   "mnemonic": "RMB0",
+   "description": "Reset (clear) a bit of a base-page byte",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "zp",
+     "opcode": 7,
+     "bytes": "07",
+     "cycles40": 6
+    }
+   ]
+  },
+  {
+   "mnemonic": "RMB1",
+   "description": "Reset (clear) a bit of a base-page byte",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "zp",
+     "opcode": 23,
+     "bytes": "17",
+     "cycles40": 6
+    }
+   ]
+  },
+  {
+   "mnemonic": "RMB2",
+   "description": "Reset (clear) a bit of a base-page byte",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "zp",
+     "opcode": 39,
+     "bytes": "27",
+     "cycles40": 6
+    }
+   ]
+  },
+  {
+   "mnemonic": "RMB3",
+   "description": "Reset (clear) a bit of a base-page byte",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "zp",
+     "opcode": 55,
+     "bytes": "37",
+     "cycles40": 6
+    }
+   ]
+  },
+  {
+   "mnemonic": "RMB4",
+   "description": "Reset (clear) a bit of a base-page byte",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "zp",
+     "opcode": 71,
+     "bytes": "47",
+     "cycles40": 6
+    }
+   ]
+  },
+  {
+   "mnemonic": "RMB5",
+   "description": "Reset (clear) a bit of a base-page byte",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "zp",
+     "opcode": 87,
+     "bytes": "57",
+     "cycles40": 6
+    }
+   ]
+  },
+  {
+   "mnemonic": "RMB6",
+   "description": "Reset (clear) a bit of a base-page byte",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "zp",
+     "opcode": 103,
+     "bytes": "67",
+     "cycles40": 6
+    }
+   ]
+  },
+  {
+   "mnemonic": "RMB7",
+   "description": "Reset (clear) a bit of a base-page byte",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "zp",
+     "opcode": 119,
+     "bytes": "77",
+     "cycles40": 6
+    }
+   ]
+  },
+  {
+   "mnemonic": "ROL",
+   "description": "Rotate left through carry",
+   "flags": [
+    "N",
+    "Z",
+    "C"
+   ],
+   "modes": [
+    {
+     "mode": "A",
+     "opcode": 42,
+     "bytes": "2A",
+     "cycles40": 1
+    },
+    {
+     "mode": "zp",
+     "opcode": 38,
+     "bytes": "26",
+     "cycles40": 6
+    },
+    {
+     "mode": "zp,X",
+     "opcode": 54,
+     "bytes": "36",
+     "cycles40": 6
+    },
+    {
+     "mode": "abs",
+     "opcode": 46,
+     "bytes": "2E",
+     "cycles40": 7
+    },
+    {
+     "mode": "abs,X",
+     "opcode": 62,
+     "bytes": "3E",
+     "cycles40": 7
+    }
+   ]
+  },
+  {
+   "mnemonic": "ROR",
+   "description": "Rotate right through carry",
+   "flags": [
+    "N",
+    "Z",
+    "C"
+   ],
+   "modes": [
+    {
+     "mode": "A",
+     "opcode": 106,
+     "bytes": "6A",
+     "cycles40": 1
+    },
+    {
+     "mode": "zp",
+     "opcode": 102,
+     "bytes": "66",
+     "cycles40": 6
+    },
+    {
+     "mode": "zp,X",
+     "opcode": 118,
+     "bytes": "76",
+     "cycles40": 6
+    },
+    {
+     "mode": "abs",
+     "opcode": 110,
+     "bytes": "6E",
+     "cycles40": 7
+    },
+    {
+     "mode": "abs,X",
+     "opcode": 126,
+     "bytes": "7E",
+     "cycles40": 7
+    }
+   ]
+  },
+  {
+   "mnemonic": "ROW",
+   "description": "Rotate a word in memory left",
+   "flags": [
+    "N",
+    "Z",
+    "C"
+   ],
+   "modes": [
+    {
+     "mode": "abs",
+     "opcode": 235,
+     "bytes": "EB",
+     "cycles40": 9
+    }
+   ]
+  },
+  {
+   "mnemonic": "RTI",
+   "description": "Return from interrupt",
+   "flags": [
+    "all"
+   ],
+   "modes": [
+    {
+     "mode": "",
+     "opcode": 64,
+     "bytes": "40",
+     "cycles40": 6
+    }
+   ]
+  },
+  {
+   "mnemonic": "RTN",
+   "description": "",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "",
+     "opcode": 96,
+     "bytes": "60",
+     "cycles40": 5
+    },
+    {
+     "mode": "#imm",
+     "opcode": 98,
+     "bytes": "62",
+     "cycles40": 5
+    }
+   ]
+  },
+  {
+   "mnemonic": "RTS",
+   "description": "Return from subroutine (rts #n: also n bytes off the stack)",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "",
+     "opcode": 96,
+     "bytes": "60",
+     "cycles40": 5
+    },
+    {
+     "mode": "#imm",
+     "opcode": 98,
+     "bytes": "62",
+     "cycles40": 5
+    }
+   ]
+  },
+  {
+   "mnemonic": "SBC",
+   "description": "Subtract memory from A with borrow",
+   "flags": [
+    "N",
+    "V",
+    "Z",
+    "C"
+   ],
+   "modes": [
+    {
+     "mode": "#imm",
+     "opcode": 233,
+     "bytes": "E9",
+     "cycles40": 2
+    },
+    {
+     "mode": "zp",
+     "opcode": 229,
+     "bytes": "E5",
+     "cycles40": 4
+    },
+    {
+     "mode": "zp,X",
+     "opcode": 245,
+     "bytes": "F5",
+     "cycles40": 4
+    },
+    {
+     "mode": "abs",
+     "opcode": 237,
+     "bytes": "ED",
+     "cycles40": 5
+    },
+    {
+     "mode": "abs,X",
+     "opcode": 253,
+     "bytes": "FD",
+     "cycles40": 5
+    },
+    {
+     "mode": "abs,Y",
+     "opcode": 249,
+     "bytes": "F9",
+     "cycles40": 5
+    },
+    {
+     "mode": "(zp,X)",
+     "opcode": 225,
+     "bytes": "E1",
+     "cycles40": 7
+    },
+    {
+     "mode": "(zp),Y",
+     "opcode": 241,
+     "bytes": "F1",
+     "cycles40": 7
+    },
+    {
+     "mode": "(zp),Z",
+     "opcode": 242,
+     "bytes": "F2",
+     "cycles40": 7
+    },
+    {
+     "mode": "[zp],Z",
+     "opcode": 242,
+     "bytes": "F2",
+     "cycles40": 7
+    }
+   ]
+  },
+  {
+   "mnemonic": "SEC",
+   "description": "Set carry",
+   "flags": [
+    "C"
+   ],
+   "modes": [
+    {
+     "mode": "",
+     "opcode": 56,
+     "bytes": "38",
+     "cycles40": 1
+    }
+   ]
+  },
+  {
+   "mnemonic": "SED",
+   "description": "Set decimal mode",
+   "flags": [
+    "D"
+   ],
+   "modes": [
+    {
+     "mode": "",
+     "opcode": 248,
+     "bytes": "F8",
+     "cycles40": 1
+    }
+   ]
+  },
+  {
+   "mnemonic": "SEE",
+   "description": "Set the stack-extend flag: 8-bit stack pointer",
+   "flags": [
+    "E"
+   ],
+   "modes": [
+    {
+     "mode": "",
+     "opcode": 3,
+     "bytes": "03",
+     "cycles40": 1
+    }
+   ]
+  },
+  {
+   "mnemonic": "SEI",
+   "description": "Set interrupt disable",
+   "flags": [
+    "I"
+   ],
+   "modes": [
+    {
+     "mode": "",
+     "opcode": 120,
+     "bytes": "78",
+     "cycles40": 1
+    }
+   ]
+  },
+  {
+   "mnemonic": "SMB0",
+   "description": "Set a bit of a base-page byte",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "zp",
+     "opcode": 135,
+     "bytes": "87",
+     "cycles40": 6
+    }
+   ]
+  },
+  {
+   "mnemonic": "SMB1",
+   "description": "Set a bit of a base-page byte",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "zp",
+     "opcode": 151,
+     "bytes": "97",
+     "cycles40": 6
+    }
+   ]
+  },
+  {
+   "mnemonic": "SMB2",
+   "description": "Set a bit of a base-page byte",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "zp",
+     "opcode": 167,
+     "bytes": "A7",
+     "cycles40": 6
+    }
+   ]
+  },
+  {
+   "mnemonic": "SMB3",
+   "description": "Set a bit of a base-page byte",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "zp",
+     "opcode": 183,
+     "bytes": "B7",
+     "cycles40": 6
+    }
+   ]
+  },
+  {
+   "mnemonic": "SMB4",
+   "description": "Set a bit of a base-page byte",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "zp",
+     "opcode": 199,
+     "bytes": "C7",
+     "cycles40": 6
+    }
+   ]
+  },
+  {
+   "mnemonic": "SMB5",
+   "description": "Set a bit of a base-page byte",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "zp",
+     "opcode": 215,
+     "bytes": "D7",
+     "cycles40": 6
+    }
+   ]
+  },
+  {
+   "mnemonic": "SMB6",
+   "description": "Set a bit of a base-page byte",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "zp",
+     "opcode": 231,
+     "bytes": "E7",
+     "cycles40": 6
+    }
+   ]
+  },
+  {
+   "mnemonic": "SMB7",
+   "description": "Set a bit of a base-page byte",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "zp",
+     "opcode": 247,
+     "bytes": "F7",
+     "cycles40": 6
+    }
+   ]
+  },
+  {
+   "mnemonic": "STA",
+   "description": "Store A",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "zp",
+     "opcode": 133,
+     "bytes": "85",
+     "cycles40": 3
+    },
+    {
+     "mode": "zp,X",
+     "opcode": 149,
+     "bytes": "95",
+     "cycles40": 3
+    },
+    {
+     "mode": "abs",
+     "opcode": 141,
+     "bytes": "8D",
+     "cycles40": 4
+    },
+    {
+     "mode": "abs,X",
+     "opcode": 157,
+     "bytes": "9D",
+     "cycles40": 4
+    },
+    {
+     "mode": "abs,Y",
+     "opcode": 153,
+     "bytes": "99",
+     "cycles40": 4
+    },
+    {
+     "mode": "(zp,X)",
+     "opcode": 129,
+     "bytes": "81",
+     "cycles40": 6
+    },
+    {
+     "mode": "(zp),Y",
+     "opcode": 145,
+     "bytes": "91",
+     "cycles40": 6
+    },
+    {
+     "mode": "(zp),Z",
+     "opcode": 146,
+     "bytes": "92",
+     "cycles40": 6
+    },
+    {
+     "mode": "(zp,SP),Y",
+     "opcode": 130,
+     "bytes": "82",
+     "cycles40": 7
+    },
+    {
+     "mode": "[zp],Z",
+     "opcode": 146,
+     "bytes": "92",
+     "cycles40": 6
+    }
+   ]
+  },
+  {
+   "mnemonic": "STQ",
+   "description": "Store Q (32 bits)",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "zp",
+     "opcode": 133,
+     "bytes": "42 42 85",
+     "cycles40": 3
+    },
+    {
+     "mode": "abs",
+     "opcode": 141,
+     "bytes": "42 42 8D",
+     "cycles40": 4
+    },
+    {
+     "mode": "(zp),Z",
+     "opcode": 146,
+     "bytes": "42 42 92",
+     "cycles40": 6
+    },
+    {
+     "mode": "[zp],Z",
+     "opcode": 146,
+     "bytes": "42 42 92",
+     "cycles40": 6
+    }
+   ]
+  },
+  {
+   "mnemonic": "STX",
+   "description": "Store X",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "zp",
+     "opcode": 134,
+     "bytes": "86",
+     "cycles40": 3
+    },
+    {
+     "mode": "zp,Y",
+     "opcode": 150,
+     "bytes": "96",
+     "cycles40": 3
+    },
+    {
+     "mode": "abs",
+     "opcode": 142,
+     "bytes": "8E",
+     "cycles40": 4
+    },
+    {
+     "mode": "abs,Y",
+     "opcode": 155,
+     "bytes": "9B",
+     "cycles40": 4
+    }
+   ]
+  },
+  {
+   "mnemonic": "STY",
+   "description": "Store Y",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "zp",
+     "opcode": 132,
+     "bytes": "84",
+     "cycles40": 3
+    },
+    {
+     "mode": "zp,X",
+     "opcode": 148,
+     "bytes": "94",
+     "cycles40": 3
+    },
+    {
+     "mode": "abs",
+     "opcode": 140,
+     "bytes": "8C",
+     "cycles40": 4
+    },
+    {
+     "mode": "abs,X",
+     "opcode": 139,
+     "bytes": "8B",
+     "cycles40": 4
+    }
+   ]
+  },
+  {
+   "mnemonic": "STZ",
+   "description": "Store Z",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "zp",
+     "opcode": 100,
+     "bytes": "64",
+     "cycles40": 3
+    },
+    {
+     "mode": "zp,X",
+     "opcode": 116,
+     "bytes": "74",
+     "cycles40": 3
+    },
+    {
+     "mode": "abs",
+     "opcode": 156,
+     "bytes": "9C",
+     "cycles40": 4
+    },
+    {
+     "mode": "abs,X",
+     "opcode": 158,
+     "bytes": "9E",
+     "cycles40": 4
+    }
+   ]
+  },
+  {
+   "mnemonic": "TAB",
+   "description": "Transfer A to the base-page register B",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "",
+     "opcode": 91,
+     "bytes": "5B",
+     "cycles40": 1
+    }
+   ]
+  },
+  {
+   "mnemonic": "TAX",
+   "description": "Transfer A to X",
+   "flags": [
+    "N",
+    "Z"
+   ],
+   "modes": [
+    {
+     "mode": "",
+     "opcode": 170,
+     "bytes": "AA",
+     "cycles40": 1
+    }
+   ]
+  },
+  {
+   "mnemonic": "TAY",
+   "description": "Transfer A to Y",
+   "flags": [
+    "N",
+    "Z"
+   ],
+   "modes": [
+    {
+     "mode": "",
+     "opcode": 168,
+     "bytes": "A8",
+     "cycles40": 1
+    }
+   ]
+  },
+  {
+   "mnemonic": "TAZ",
+   "description": "Transfer A to Z",
+   "flags": [
+    "N",
+    "Z"
+   ],
+   "modes": [
+    {
+     "mode": "",
+     "opcode": 75,
+     "bytes": "4B",
+     "cycles40": 1
+    }
+   ]
+  },
+  {
+   "mnemonic": "TBA",
+   "description": "Transfer B to A",
+   "flags": [
+    "N",
+    "Z"
+   ],
+   "modes": [
+    {
+     "mode": "",
+     "opcode": 123,
+     "bytes": "7B",
+     "cycles40": 1
+    }
+   ]
+  },
+  {
+   "mnemonic": "TRB",
+   "description": "Test and reset memory bits with A",
+   "flags": [
+    "Z"
+   ],
+   "modes": [
+    {
+     "mode": "zp",
+     "opcode": 20,
+     "bytes": "14",
+     "cycles40": 6
+    },
+    {
+     "mode": "abs",
+     "opcode": 28,
+     "bytes": "1C",
+     "cycles40": 7
+    }
+   ]
+  },
+  {
+   "mnemonic": "TSB",
+   "description": "Test and set memory bits with A",
+   "flags": [
+    "Z"
+   ],
+   "modes": [
+    {
+     "mode": "zp",
+     "opcode": 4,
+     "bytes": "04",
+     "cycles40": 6
+    },
+    {
+     "mode": "abs",
+     "opcode": 12,
+     "bytes": "0C",
+     "cycles40": 7
+    }
+   ]
+  },
+  {
+   "mnemonic": "TSX",
+   "description": "Transfer the stack pointer (low) to X",
+   "flags": [
+    "N",
+    "Z"
+   ],
+   "modes": [
+    {
+     "mode": "",
+     "opcode": 186,
+     "bytes": "BA",
+     "cycles40": 1
+    }
+   ]
+  },
+  {
+   "mnemonic": "TSY",
+   "description": "Transfer the stack pointer (high) to Y",
+   "flags": [
+    "N",
+    "Z"
+   ],
+   "modes": [
+    {
+     "mode": "",
+     "opcode": 11,
+     "bytes": "0B",
+     "cycles40": 1
+    }
+   ]
+  },
+  {
+   "mnemonic": "TXA",
+   "description": "Transfer X to A",
+   "flags": [
+    "N",
+    "Z"
+   ],
+   "modes": [
+    {
+     "mode": "",
+     "opcode": 138,
+     "bytes": "8A",
+     "cycles40": 1
+    }
+   ]
+  },
+  {
+   "mnemonic": "TXS",
+   "description": "Transfer X to the stack pointer (low)",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "",
+     "opcode": 154,
+     "bytes": "9A",
+     "cycles40": 1
+    }
+   ]
+  },
+  {
+   "mnemonic": "TYA",
+   "description": "Transfer Y to A",
+   "flags": [
+    "N",
+    "Z"
+   ],
+   "modes": [
+    {
+     "mode": "",
+     "opcode": 152,
+     "bytes": "98",
+     "cycles40": 1
+    }
+   ]
+  },
+  {
+   "mnemonic": "TYS",
+   "description": "Transfer Y to the stack pointer (high)",
+   "flags": [],
+   "modes": [
+    {
+     "mode": "",
+     "opcode": 43,
+     "bytes": "2B",
+     "cycles40": 1
+    }
+   ]
+  },
+  {
+   "mnemonic": "TZA",
+   "description": "Transfer Z to A",
+   "flags": [
+    "N",
+    "Z"
+   ],
+   "modes": [
+    {
+     "mode": "",
+     "opcode": 107,
+     "bytes": "6B",
+     "cycles40": 1
+    }
+   ]
+  },
+  {
+   "mnemonic": "ADCQ",
+   "description": "Add memory to Q with carry (32 bits)",
+   "flags": [
+    "N",
+    "V",
+    "Z",
+    "C"
+   ],
+   "modes": [
+    {
+     "mode": "zp",
+     "opcode": 101,
+     "bytes": "42 42 65",
+     "cycles40": 4
+    },
+    {
+     "mode": "abs",
+     "opcode": 109,
+     "bytes": "42 42 6D",
+     "cycles40": 5
+    },
+    {
+     "mode": "(zp),Z",
+     "opcode": 114,
+     "bytes": "42 42 72",
+     "cycles40": 7
+    },
+    {
+     "mode": "[zp],Z",
+     "opcode": 114,
+     "bytes": "42 42 72",
+     "cycles40": 7
+    }
+   ]
+  },
+  {
+   "mnemonic": "SBCQ",
+   "description": "Subtract memory from Q with borrow (32 bits)",
+   "flags": [
+    "N",
+    "V",
+    "Z",
+    "C"
+   ],
+   "modes": [
+    {
+     "mode": "zp",
+     "opcode": 229,
+     "bytes": "42 42 E5",
+     "cycles40": 4
+    },
+    {
+     "mode": "abs",
+     "opcode": 237,
+     "bytes": "42 42 ED",
+     "cycles40": 5
+    },
+    {
+     "mode": "(zp),Z",
+     "opcode": 242,
+     "bytes": "42 42 F2",
+     "cycles40": 7
+    },
+    {
+     "mode": "[zp],Z",
+     "opcode": 242,
+     "bytes": "42 42 F2",
+     "cycles40": 7
+    }
+   ]
+  },
+  {
+   "mnemonic": "ANDQ",
+   "description": "AND memory with Q (32 bits)",
+   "flags": [
+    "N",
+    "Z"
+   ],
+   "modes": [
+    {
+     "mode": "zp",
+     "opcode": 37,
+     "bytes": "42 42 25",
+     "cycles40": 4
+    },
+    {
+     "mode": "abs",
+     "opcode": 45,
+     "bytes": "42 42 2D",
+     "cycles40": 5
+    },
+    {
+     "mode": "(zp),Z",
+     "opcode": 50,
+     "bytes": "42 42 32",
+     "cycles40": 7
+    },
+    {
+     "mode": "[zp],Z",
+     "opcode": 50,
+     "bytes": "42 42 32",
+     "cycles40": 7
+    }
+   ]
+  },
+  {
+   "mnemonic": "ORQ",
+   "description": "OR memory with Q (32 bits)",
+   "flags": [
+    "N",
+    "Z"
+   ],
+   "modes": [
+    {
+     "mode": "zp",
+     "opcode": 5,
+     "bytes": "42 42 05",
+     "cycles40": 4
+    },
+    {
+     "mode": "abs",
+     "opcode": 13,
+     "bytes": "42 42 0D",
+     "cycles40": 5
+    },
+    {
+     "mode": "(zp),Z",
+     "opcode": 18,
+     "bytes": "42 42 12",
+     "cycles40": 7
+    },
+    {
+     "mode": "[zp],Z",
+     "opcode": 18,
+     "bytes": "42 42 12",
+     "cycles40": 7
+    }
+   ]
+  },
+  {
+   "mnemonic": "EORQ",
+   "description": "Exclusive-OR memory with Q (32 bits)",
+   "flags": [
+    "N",
+    "Z"
+   ],
+   "modes": [
+    {
+     "mode": "zp",
+     "opcode": 69,
+     "bytes": "42 42 45",
+     "cycles40": 4
+    },
+    {
+     "mode": "abs",
+     "opcode": 77,
+     "bytes": "42 42 4D",
+     "cycles40": 5
+    },
+    {
+     "mode": "(zp),Z",
+     "opcode": 82,
+     "bytes": "42 42 52",
+     "cycles40": 7
+    },
+    {
+     "mode": "[zp],Z",
+     "opcode": 82,
+     "bytes": "42 42 52",
+     "cycles40": 7
+    }
+   ]
+  },
+  {
+   "mnemonic": "CMPQ",
+   "description": "Compare memory with Q (32 bits)",
+   "flags": [
+    "N",
+    "Z",
+    "C"
+   ],
+   "modes": [
+    {
+     "mode": "zp",
+     "opcode": 197,
+     "bytes": "42 42 C5",
+     "cycles40": 4
+    },
+    {
+     "mode": "abs",
+     "opcode": 205,
+     "bytes": "42 42 CD",
+     "cycles40": 5
+    },
+    {
+     "mode": "(zp),Z",
+     "opcode": 210,
+     "bytes": "42 42 D2",
+     "cycles40": 7
+    },
+    {
+     "mode": "[zp],Z",
+     "opcode": 210,
+     "bytes": "42 42 D2",
+     "cycles40": 7
+    }
+   ]
+  },
+  {
+   "mnemonic": "BITQ",
+   "description": "Test bits of memory with Q (32 bits)",
+   "flags": [
+    "N",
+    "V",
+    "Z"
+   ],
+   "modes": [
+    {
+     "mode": "zp",
+     "opcode": 36,
+     "bytes": "42 42 24",
+     "cycles40": 4
+    },
+    {
+     "mode": "abs",
+     "opcode": 44,
+     "bytes": "42 42 2C",
+     "cycles40": 5
+    }
+   ]
+  },
+  {
+   "mnemonic": "ASLQ",
+   "description": "Arithmetic shift left Q or memory (32 bits)",
+   "flags": [
+    "N",
+    "Z",
+    "C"
+   ],
+   "modes": [
+    {
+     "mode": "A",
+     "opcode": 10,
+     "bytes": "42 42 0A",
+     "cycles40": 1
+    },
+    {
+     "mode": "zp",
+     "opcode": 6,
+     "bytes": "42 42 06",
+     "cycles40": 6
+    },
+    {
+     "mode": "zp,X",
+     "opcode": 22,
+     "bytes": "42 42 16",
+     "cycles40": 6
+    },
+    {
+     "mode": "abs",
+     "opcode": 14,
+     "bytes": "42 42 0E",
+     "cycles40": 7
+    },
+    {
+     "mode": "abs,X",
+     "opcode": 30,
+     "bytes": "42 42 1E",
+     "cycles40": 7
+    }
+   ]
+  },
+  {
+   "mnemonic": "LSRQ",
+   "description": "Logical shift right Q or memory (32 bits)",
+   "flags": [
+    "N",
+    "Z",
+    "C"
+   ],
+   "modes": [
+    {
+     "mode": "A",
+     "opcode": 74,
+     "bytes": "42 42 4A",
+     "cycles40": 1
+    },
+    {
+     "mode": "zp",
+     "opcode": 70,
+     "bytes": "42 42 46",
+     "cycles40": 6
+    },
+    {
+     "mode": "zp,X",
+     "opcode": 86,
+     "bytes": "42 42 56",
+     "cycles40": 6
+    },
+    {
+     "mode": "abs",
+     "opcode": 78,
+     "bytes": "42 42 4E",
+     "cycles40": 7
+    },
+    {
+     "mode": "abs,X",
+     "opcode": 94,
+     "bytes": "42 42 5E",
+     "cycles40": 7
+    }
+   ]
+  },
+  {
+   "mnemonic": "ROLQ",
+   "description": "Rotate Q or memory left (32 bits)",
+   "flags": [
+    "N",
+    "Z",
+    "C"
+   ],
+   "modes": [
+    {
+     "mode": "A",
+     "opcode": 42,
+     "bytes": "42 42 2A",
+     "cycles40": 1
+    },
+    {
+     "mode": "zp",
+     "opcode": 38,
+     "bytes": "42 42 26",
+     "cycles40": 6
+    },
+    {
+     "mode": "zp,X",
+     "opcode": 54,
+     "bytes": "42 42 36",
+     "cycles40": 6
+    },
+    {
+     "mode": "abs",
+     "opcode": 46,
+     "bytes": "42 42 2E",
+     "cycles40": 7
+    },
+    {
+     "mode": "abs,X",
+     "opcode": 62,
+     "bytes": "42 42 3E",
+     "cycles40": 7
+    }
+   ]
+  },
+  {
+   "mnemonic": "RORQ",
+   "description": "Rotate Q or memory right (32 bits)",
+   "flags": [
+    "N",
+    "Z",
+    "C"
+   ],
+   "modes": [
+    {
+     "mode": "A",
+     "opcode": 106,
+     "bytes": "42 42 6A",
+     "cycles40": 1
+    },
+    {
+     "mode": "zp",
+     "opcode": 102,
+     "bytes": "42 42 66",
+     "cycles40": 6
+    },
+    {
+     "mode": "zp,X",
+     "opcode": 118,
+     "bytes": "42 42 76",
+     "cycles40": 6
+    },
+    {
+     "mode": "abs",
+     "opcode": 110,
+     "bytes": "42 42 6E",
+     "cycles40": 7
+    },
+    {
+     "mode": "abs,X",
+     "opcode": 126,
+     "bytes": "42 42 7E",
+     "cycles40": 7
+    }
+   ]
+  },
+  {
+   "mnemonic": "INQ",
+   "description": "Increment Q or memory (32 bits)",
+   "flags": [
+    "N",
+    "Z"
+   ],
+   "modes": [
+    {
+     "mode": "A",
+     "opcode": 26,
+     "bytes": "42 42 1A",
+     "cycles40": 1
+    },
+    {
+     "mode": "zp",
+     "opcode": 230,
+     "bytes": "42 42 E6",
+     "cycles40": 6
+    },
+    {
+     "mode": "zp,X",
+     "opcode": 246,
+     "bytes": "42 42 F6",
+     "cycles40": 6
+    },
+    {
+     "mode": "abs",
+     "opcode": 238,
+     "bytes": "42 42 EE",
+     "cycles40": 7
+    },
+    {
+     "mode": "abs,X",
+     "opcode": 254,
+     "bytes": "42 42 FE",
+     "cycles40": 7
+    }
+   ]
+  },
+  {
+   "mnemonic": "DEQ",
+   "description": "Decrement Q or memory (32 bits)",
+   "flags": [
+    "N",
+    "Z"
+   ],
+   "modes": [
+    {
+     "mode": "A",
+     "opcode": 58,
+     "bytes": "42 42 3A",
+     "cycles40": 1
+    },
+    {
+     "mode": "zp",
+     "opcode": 198,
+     "bytes": "42 42 C6",
+     "cycles40": 6
+    },
+    {
+     "mode": "zp,X",
+     "opcode": 214,
+     "bytes": "42 42 D6",
+     "cycles40": 6
+    },
+    {
+     "mode": "abs",
+     "opcode": 206,
+     "bytes": "42 42 CE",
+     "cycles40": 7
+    },
+    {
+     "mode": "abs,X",
+     "opcode": 222,
+     "bytes": "42 42 DE",
+     "cycles40": 7
+    }
+   ]
+  },
+  {
+   "mnemonic": "ASRQ",
+   "description": "Arithmetic shift right Q or memory (32 bits)",
+   "flags": [
+    "N",
+    "Z",
+    "C"
+   ],
+   "modes": [
+    {
+     "mode": "A",
+     "opcode": 67,
+     "bytes": "42 42 43",
+     "cycles40": 1
+    },
+    {
+     "mode": "zp",
+     "opcode": 68,
+     "bytes": "42 42 44",
+     "cycles40": 6
+    },
+    {
+     "mode": "zp,X",
+     "opcode": 84,
+     "bytes": "42 42 54",
+     "cycles40": 6
+    }
+   ]
+  },
+  {
+   "mnemonic": "NEGQ",
+   "description": "Negate Q (32 bits)",
+   "flags": [
+    "N",
+    "Z"
+   ],
+   "modes": []
+  },
+  {
+   "mnemonic": "LDAX",
+   "description": "#imm, label, param, sp — Load a 16-bit value (low byte in the first register). #expr is any constant expression; a relocatable symbol in it must be #sym, #sym ± n or #(sym ± n) (otherwise an error; #361: cc45 writes ldax #(_a-7) for an extern array's a[m - 1]), and an undefined name is an error.",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "ldax lday ldaz ldxy"
+  },
+  {
+   "mnemonic": "LDAY",
+   "description": "#imm, label, param, sp — Load a 16-bit value (low byte in the first register). #expr is any constant expression; a relocatable symbol in it must be #sym, #sym ± n or #(sym ± n) (otherwise an error; #361: cc45 writes ldax #(_a-7) for an extern array's a[m - 1]), and an undefined name is an error.",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "ldax lday ldaz ldxy"
+  },
+  {
+   "mnemonic": "LDAZ",
+   "description": "#imm, label, param, sp — Load a 16-bit value (low byte in the first register). #expr is any constant expression; a relocatable symbol in it must be #sym, #sym ± n or #(sym ± n) (otherwise an error; #361: cc45 writes ldax #(_a-7) for an extern array's a[m - 1]), and an undefined name is an error.",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "ldax lday ldaz ldxy"
+  },
+  {
+   "mnemonic": "LDXY",
+   "description": "#imm, label, param, sp — Load a 16-bit value (low byte in the first register). #expr is any constant expression; a relocatable symbol in it must be #sym, #sym ± n or #(sym ± n) (otherwise an error; #361: cc45 writes ldax #(_a-7) for an extern array's a[m - 1]), and an undefined name is an error.",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "ldax lday ldaz ldxy"
+  },
+  {
+   "mnemonic": "STAX",
+   "description": "label, param, sp — Store a register pair.",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "stax stay staz stxy"
+  },
+  {
+   "mnemonic": "STAY",
+   "description": "label, param, sp — Store a register pair.",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "stax stay staz stxy"
+  },
+  {
+   "mnemonic": "STAZ",
+   "description": "label, param, sp — Store a register pair.",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "stax stay staz stxy"
+  },
+  {
+   "mnemonic": "STXY",
+   "description": "label, param, sp — Store a register pair.",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "stax stay staz stxy"
+  },
+  {
+   "mnemonic": "LDW",
+   "description": ".ax\\ — .ay\\ — .az\\ — .xy, src — Like ldax…; .sp treats src as a frame offset.",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "ldw / ldw.sp"
+  },
+  {
+   "mnemonic": "LDW.SP",
+   "description": ".ax\\ — .ay\\ — .az\\ — .xy, src — Like ldax…; .sp treats src as a frame offset.",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "ldw / ldw.sp"
+  },
+  {
+   "mnemonic": "STW",
+   "description": ".ax\\ — .ay\\ — .az\\ — .xy\\ — #imm, dst — Store a pair or a 16-bit immediate (through A).",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "stw / stw.sp"
+  },
+  {
+   "mnemonic": "STW.SP",
+   "description": ".ax\\ — .ay\\ — .az\\ — .xy\\ — #imm, dst — Store a pair or a 16-bit immediate (through A).",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "stw / stw.sp"
+  },
+  {
+   "mnemonic": "LDA.SP",
+   "description": "offset — Same as lda offset, sp.",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "lda.sp / sta.sp"
+  },
+  {
+   "mnemonic": "STA.SP",
+   "description": "offset — Same as lda offset, sp.",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "lda.sp / sta.sp"
+  },
+  {
+   "mnemonic": "PHW.SP",
+   "description": "Push the word in frame slot offset (low byte at the lower address).",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "phw.sp offset"
+  },
+  {
+   "mnemonic": "PTRDEREF",
+   "description": "AX = 16-bit value pointed to by the pointer at bp (Y clobbered).",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "ptrderef bp"
+  },
+  {
+   "mnemonic": "PTRSTACK",
+   "description": "AX = address of name (immediate for a label; computed from the frame pointer or SP for a stack variable).",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "ptrstack name"
+  },
+  {
+   "mnemonic": "SWAP",
+   "description": "Exchange two of A/X/Y/Z through the stack (no other register changes).",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "swap r1, r2"
+  },
+  {
+   "mnemonic": "PUSH",
+   "description": ".a .x .y .z .ax .q … — Push/pull the named registers (pop in reverse).",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "push r… / pop r…"
+  },
+  {
+   "mnemonic": "POP",
+   "description": ".a .x .y .z .ax .q … — Push/pull the named registers (pop in reverse).",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "push r… / pop r…"
+  },
+  {
+   "mnemonic": "ZERO",
+   "description": ".a .x .y .z — Load 0 into each register.",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "zero r, …"
+  },
+  {
+   "mnemonic": "ADD.16",
+   "description": ".ax .ay .az, or an address (label, number or expression) — #imm or memory — clc/sec included. Register-pair sources are not supported.",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "add.16 sub.16 (add.s16 sub.s16 identical)"
+  },
+  {
+   "mnemonic": "SUB.16",
+   "description": ".ax .ay .az, or an address (label, number or expression) — #imm or memory — clc/sec included. Register-pair sources are not supported.",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "add.16 sub.16 (add.s16 sub.s16 identical)"
+  },
+  {
+   "mnemonic": "ADD.S16",
+   "description": ".ax .ay .az, or an address (label, number or expression) — #imm or memory — clc/sec included. Register-pair sources are not supported.",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "add.16 sub.16 (add.s16 sub.s16 identical)"
+  },
+  {
+   "mnemonic": "SUB.S16",
+   "description": ".ax .ay .az, or an address (label, number or expression) — #imm or memory — clc/sec included. Register-pair sources are not supported.",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "add.16 sub.16 (add.s16 sub.s16 identical)"
+  },
+  {
+   "mnemonic": "AND.16",
+   "description": ".ax only — #imm or memory — With #imm, byte by byte: a byte the constant leaves as it is is skipped, one it sets is loaded; N / Z from A",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "and.16 ora.16 eor.16"
+  },
+  {
+   "mnemonic": "ORA.16",
+   "description": ".ax only — #imm or memory — With #imm, byte by byte: a byte the constant leaves as it is is skipped, one it sets is loaded; N / Z from A",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "and.16 ora.16 eor.16"
+  },
+  {
+   "mnemonic": "EOR.16",
+   "description": ".ax only — #imm or memory — With #imm, byte by byte: a byte the constant leaves as it is is skipped, one it sets is loaded; N / Z from A",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "and.16 ora.16 eor.16"
+  },
+  {
+   "mnemonic": "CMP.16",
+   "description": ".ax — #imm or memory — Unsigned: compares X first, then A; use beq/bne/bcc/bcs.",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "cmp.16 (alias cpw)"
+  },
+  {
+   "mnemonic": "CPW",
+   "description": ".ax — #imm or memory — Unsigned: compares X first, then A; use beq/bne/bcc/bcs.",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "cmp.16 (alias cpw)"
+  },
+  {
+   "mnemonic": "CMP.S16",
+   "description": ".ax — #imm or memory — Signed (sign bit flipped); clobbers A and scratch $02.",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "cmp.s16"
+  },
+  {
+   "mnemonic": "NEG.16",
+   "description": ".ax, memory or n, sp — — — Two's / one's complement.",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "neg.16 not.16 (neg.s16)"
+  },
+  {
+   "mnemonic": "NOT.16",
+   "description": ".ax, memory or n, sp — — — Two's / one's complement.",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "neg.16 not.16 (neg.s16)"
+  },
+  {
+   "mnemonic": "NEG.S16",
+   "description": ".ax, memory or n, sp — — — Two's / one's complement.",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "neg.16 not.16 (neg.s16)"
+  },
+  {
+   "mnemonic": "ABS.16",
+   "description": ".ax, memory or n, sp — — — Absolute value.",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "abs.16 (abs.s16)"
+  },
+  {
+   "mnemonic": "ABS.S16",
+   "description": ".ax, memory or n, sp — — — Absolute value.",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "abs.16 (abs.s16)"
+  },
+  {
+   "mnemonic": "LSL.16",
+   "description": ".ax or memory — — — One-bit shift/rotate through C.",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "lsl.16 lsr.16 asr.16 rol.16 ror.16 (+ .s16 aliases)"
+  },
+  {
+   "mnemonic": "LSR.16",
+   "description": ".ax or memory — — — One-bit shift/rotate through C.",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "lsl.16 lsr.16 asr.16 rol.16 ror.16 (+ .s16 aliases)"
+  },
+  {
+   "mnemonic": "ASR.16",
+   "description": ".ax or memory — — — One-bit shift/rotate through C.",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "lsl.16 lsr.16 asr.16 rol.16 ror.16 (+ .s16 aliases)"
+  },
+  {
+   "mnemonic": "ROL.16",
+   "description": ".ax or memory — — — One-bit shift/rotate through C.",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "lsl.16 lsr.16 asr.16 rol.16 ror.16 (+ .s16 aliases)"
+  },
+  {
+   "mnemonic": "ROR.16",
+   "description": ".ax or memory — — — One-bit shift/rotate through C.",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "lsl.16 lsr.16 asr.16 rol.16 ror.16 (+ .s16 aliases)"
+  },
+  {
+   "mnemonic": "SXT.8",
+   "description": "— — — — X = sign extension of A ($00 or $FF); A kept, N and Z from A (7 bytes: ldx #0, ora #0, bpl, dex).",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "sxt.8"
+  },
+  {
+   "mnemonic": "SXT.16",
+   "description": "— — — — Y = Z = sign extension of X (AX → Q).",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "sxt.16"
+  },
+  {
+   "mnemonic": "CHKZERO.8",
+   "description": "— — — — A = 1 if A (AX) is zero, else 0.",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "chkzero.8 / chkzero.16"
+  },
+  {
+   "mnemonic": "CHKZERO.16",
+   "description": "— — — — A = 1 if A (AX) is zero, else 0.",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "chkzero.8 / chkzero.16"
+  },
+  {
+   "mnemonic": "CHKNONZERO.8",
+   "description": "— — — — A = 1 if A (AX) is non-zero, else 0.",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "chknonzero.8 / chknonzero.16"
+  },
+  {
+   "mnemonic": "CHKNONZERO.16",
+   "description": "— — — — A = 1 if A (AX) is non-zero, else 0.",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "chknonzero.8 / chknonzero.16"
+  },
+  {
+   "mnemonic": "SELECT",
+   "description": "— — — — A = t if Z is clear, else f (r is ignored).",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "select r, #t, #f"
+  },
+  {
+   "mnemonic": "ADD.32",
+   "description": ".q or a label — #imm or memory",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "add.32 sub.32 (.s32 aliases)"
+  },
+  {
+   "mnemonic": "SUB.32",
+   "description": ".q or a label — #imm or memory",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "add.32 sub.32 (.s32 aliases)"
+  },
+  {
+   "mnemonic": "AND.32",
+   "description": ".q — #imm or memory (#imm: byte by byte, as and.16)",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "and.32 ora.32 eor.32"
+  },
+  {
+   "mnemonic": "ORA.32",
+   "description": ".q — #imm or memory (#imm: byte by byte, as and.16)",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "and.32 ora.32 eor.32"
+  },
+  {
+   "mnemonic": "EOR.32",
+   "description": ".q — #imm or memory (#imm: byte by byte, as and.16)",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "and.32 ora.32 eor.32"
+  },
+  {
+   "mnemonic": "CMP.32",
+   "description": ".q — #imm or memory (cmp.32 with memory is cpq; otherwise compares from the high byte down, using scratch $02/$03)",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "cmp.32 / cmp.s32"
+  },
+  {
+   "mnemonic": "CMP.S32",
+   "description": ".q — #imm or memory (cmp.32 with memory is cpq; otherwise compares from the high byte down, using scratch $02/$03)",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "cmp.32 / cmp.s32"
+  },
+  {
+   "mnemonic": "NEG.32",
+   "description": ".q or a label — —",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "neg.32 not.32 abs.32 (.s32 aliases)"
+  },
+  {
+   "mnemonic": "NOT.32",
+   "description": ".q or a label — —",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "neg.32 not.32 abs.32 (.s32 aliases)"
+  },
+  {
+   "mnemonic": "ABS.32",
+   "description": ".q or a label — —",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "neg.32 not.32 abs.32 (.s32 aliases)"
+  },
+  {
+   "mnemonic": "LSL.32",
+   "description": ".q or a label — — (aslq lsrq asrq rolq rorq, 3 bytes on .q; on a label the same in memory, except asr.32: there is no absolute asrq)",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "lsl.32 lsr.32 asr.32 rol.32 ror.32 (.s32 aliases)"
+  },
+  {
+   "mnemonic": "LSR.32",
+   "description": ".q or a label — — (aslq lsrq asrq rolq rorq, 3 bytes on .q; on a label the same in memory, except asr.32: there is no absolute asrq)",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "lsl.32 lsr.32 asr.32 rol.32 ror.32 (.s32 aliases)"
+  },
+  {
+   "mnemonic": "ASR.32",
+   "description": ".q or a label — — (aslq lsrq asrq rolq rorq, 3 bytes on .q; on a label the same in memory, except asr.32: there is no absolute asrq)",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "lsl.32 lsr.32 asr.32 rol.32 ror.32 (.s32 aliases)"
+  },
+  {
+   "mnemonic": "ROL.32",
+   "description": ".q or a label — — (aslq lsrq asrq rolq rorq, 3 bytes on .q; on a label the same in memory, except asr.32: there is no absolute asrq)",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "lsl.32 lsr.32 asr.32 rol.32 ror.32 (.s32 aliases)"
+  },
+  {
+   "mnemonic": "ROR.32",
+   "description": ".q or a label — — (aslq lsrq asrq rolq rorq, 3 bytes on .q; on a label the same in memory, except asr.32: there is no absolute asrq)",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "lsl.32 lsr.32 asr.32 rol.32 ror.32 (.s32 aliases)"
+  },
+  {
+   "mnemonic": "MUL.S16",
+   "description": ".ax, #imm\\ — label — Signed (absolute values, then sign fix-up); Y is clobbered. Division truncates toward zero.",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "mul.s16, div.s16"
+  },
+  {
+   "mnemonic": "DIV.S16",
+   "description": ".ax, #imm\\ — label — Signed (absolute values, then sign fix-up); Y is clobbered. Division truncates toward zero.",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "mul.s16, div.s16"
+  },
+  {
+   "mnemonic": "MOD.16",
+   "description": ".ax, #imm\\ — label — Remainder = dividend − quotient × divisor (mod.s16: the dividend's sign).",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "mod.16, mod.s16"
+  },
+  {
+   "mnemonic": "MOD.S16",
+   "description": ".ax, #imm\\ — label — Remainder = dividend − quotient × divisor (mod.s16: the dividend's sign).",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "mod.16, mod.s16"
+  },
+  {
+   "mnemonic": "MUL.S32",
+   "description": ".q, #imm\\ — label — 32-bit variants.",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "mul.s32, div.s32, mod.32, mod.s32"
+  },
+  {
+   "mnemonic": "DIV.S32",
+   "description": ".q, #imm\\ — label — 32-bit variants.",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "mul.s32, div.s32, mod.32, mod.s32"
+  },
+  {
+   "mnemonic": "MOD.32",
+   "description": ".q, #imm\\ — label — 32-bit variants.",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "mul.s32, div.s32, mod.32, mod.s32"
+  },
+  {
+   "mnemonic": "MOD.S32",
+   "description": ".q, #imm\\ — label — 32-bit variants.",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "mul.s32, div.s32, mod.32, mod.s32"
+  },
+  {
+   "mnemonic": "BFEXT",
+   "description": "value in A — A = bits off…off+w-1 of A (right-aligned), X = 0",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "bfext #off, #w"
+  },
+  {
+   "mnemonic": "BFEXT16",
+   "description": "value in AX — AX = extracted field",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "bfext16 #off, #w"
+  },
+  {
+   "mnemonic": "BFEXT32",
+   "description": "value in Q — Q = extracted field",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "bfext32 #off, #w"
+  },
+  {
+   "mnemonic": "BFINS",
+   "description": "new value in A — Read-modify-write of the byte at addr (TRB/TSB); A = the updated byte",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "bfins addr, #off, #w"
+  },
+  {
+   "mnemonic": "BFINS.SP",
+   "description": "A — Same on a frame byte (Y clobbered)",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "bfins.sp offset, #off, #w"
+  },
+  {
+   "mnemonic": "BFINS.IND",
+   "description": "A — Same through the pointer at bp (Y clobbered)",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "bfins.ind bp, #off, #w"
+  },
+  {
+   "mnemonic": "BFINS16",
+   "description": "AX — 16-bit storage unit; AX = updated word",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "bfins16, bfins16.sp, bfins16.ind"
+  },
+  {
+   "mnemonic": "BFINS16.SP",
+   "description": "AX — 16-bit storage unit; AX = updated word",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "bfins16, bfins16.sp, bfins16.ind"
+  },
+  {
+   "mnemonic": "BFINS16.IND",
+   "description": "AX — 16-bit storage unit; AX = updated word",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "bfins16, bfins16.sp, bfins16.ind"
+  },
+  {
+   "mnemonic": "BFINS32",
+   "description": "Q — 32-bit storage unit",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "bfins32, bfins32.sp, bfins32.ind"
+  },
+  {
+   "mnemonic": "BFINS32.SP",
+   "description": "Q — 32-bit storage unit",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "bfins32, bfins32.sp, bfins32.ind"
+  },
+  {
+   "mnemonic": "BFINS32.IND",
+   "description": "Q — 32-bit storage unit",
+   "flags": [],
+   "modes": [],
+   "simulated": true,
+   "syntax": "bfins32, bfins32.sp, bfins32.ind"
+  }
+ ]
+}

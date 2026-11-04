@@ -1,12 +1,14 @@
 import {
   createConnection,
+  DidChangeConfigurationNotification,
+  FileChangeType,
   InitializeParams,
   InitializeResult,
+  ProposedFeatures,
   ServerCapabilities,
   TextDocumentSyncKind,
-  DidChangeConfigurationNotification,
 } from 'vscode-languageserver/node';
-import * as path from 'path';
+import { fileURLToPath } from 'url';
 
 import { DocumentManager } from './documents';
 import { HoverProvider } from './providers/hover';
@@ -14,8 +16,17 @@ import { CompletionProvider } from './providers/completion';
 import { DefinitionProvider } from './providers/definition';
 import { WorkspaceSymbolProvider } from './providers/workspaceSymbol';
 import { WorkspaceIndex } from './indexer/workspaceIndex';
+import { findDataDir, loadReferenceData } from './providers/data';
+import { M65Settings, resolveSettings } from './config';
 
-const connection = createConnection();
+// The language server: stdio (--stdio), node IPC (VS Code) or a socket, as
+// vscode-languageserver chooses from the command line; stdio when none is
+// given (node server.js, as editors other than VS Code run it)
+if (!process.argv.some((a) => /^--(stdio|node-ipc|socket|pipe|clientProcessId)/.test(a))) process.argv.push('--stdio');
+const connection = createConnection(ProposedFeatures.all);
+// (vscode-languageserver sends console output to the client; the server's
+// progress notes go as log messages, not errors)
+console.error = console.log;
 
 let documentManager: DocumentManager;
 let hoverProvider: HoverProvider;
@@ -23,108 +34,98 @@ let completionProvider: CompletionProvider;
 let definitionProvider: DefinitionProvider;
 let workspaceSymbolProvider: WorkspaceSymbolProvider;
 let workspaceIndex: WorkspaceIndex;
-let cc45Path = 'bin/cc45';
-let ca45Path = 'bin/ca45';
-let debounceMs = 500;
 let workspacePath = process.cwd();
+let hasConfiguration = false;
+let initialSettings: M65Settings | undefined;
+
+async function applySettings(): Promise<void> {
+  let s: M65Settings | undefined = initialSettings;
+  if (hasConfiguration) {
+    try {
+      s = (await connection.workspace.getConfiguration('m65')) ?? s;
+    } catch (err) {
+      console.error(`[LSP Server] workspace/configuration: ${err}`);
+    }
+  }
+  const r = resolveSettings(s, workspacePath);
+  documentManager.setConfig(r.cc45Path, r.ca45Path, r.debounceMs);
+  workspaceIndex.setExclude(r.exclude);
+  console.error(`[LSP Server] cc45=${r.cc45Path} ca45=${r.ca45Path} debounce=${r.debounceMs}ms`);
+}
 
 connection.onInitialize((params: InitializeParams): InitializeResult => {
-  console.error(`[LSP Server] Initialized with workspace: ${params.rootPath || params.rootUri}`);
+  const root = params.workspaceFolders?.[0]?.uri ?? params.rootUri;
+  if (root && root.startsWith('file:')) workspacePath = fileURLToPath(root);
+  else if (params.rootPath) workspacePath = params.rootPath;
+  hasConfiguration = !!params.capabilities.workspace?.configuration;
+  const opts = params.initializationOptions as { m65?: M65Settings } | M65Settings | undefined;
+  initialSettings = opts && 'm65' in opts ? opts.m65 : (opts as M65Settings | undefined);
+  console.error(`[LSP Server] workspace: ${workspacePath}`);
 
-  // Set workspace path from initialization
-  if (params.rootPath) {
-    workspacePath = params.rootPath;
-  } else if (params.rootUri) {
-    workspacePath = params.rootUri.replace('file://', '');
-  }
-
-  // Initialize providers
-  const dataDir = path.join(__dirname, '..', 'data');
+  const data = loadReferenceData(findDataDir(__dirname));
   workspaceIndex = new WorkspaceIndex(workspacePath);
-  documentManager = new DocumentManager(
-    connection,
-    cc45Path,
-    ca45Path,
-    debounceMs,
-    workspacePath
-  );
-  hoverProvider = new HoverProvider(connection, dataDir);
-  completionProvider = new CompletionProvider(connection, dataDir);
+  const r = resolveSettings(initialSettings, workspacePath);
+  workspaceIndex.setExclude(r.exclude);
+  documentManager = new DocumentManager(connection, r.cc45Path, r.ca45Path, r.debounceMs, workspacePath);
+  documentManager.onContent = (doc) => workspaceIndex.indexDocument(doc);
+  documentManager.onClose = (uri) => {
+    if (uri.startsWith('file:')) workspaceIndex.indexFile(fileURLToPath(uri));
+  };
+  hoverProvider = new HoverProvider(data, workspaceIndex);
+  completionProvider = new CompletionProvider(data, workspaceIndex);
   definitionProvider = new DefinitionProvider(connection, workspaceIndex);
   workspaceSymbolProvider = new WorkspaceSymbolProvider(connection, workspaceIndex);
 
   const capabilities: ServerCapabilities = {
     textDocumentSync: TextDocumentSyncKind.Full,
-    diagnosticProvider: {
-      interFileDependencies: false,
-      workspaceDiagnostics: false,
-    },
     hoverProvider: true,
-    completionProvider: {
-      resolveProvider: false,
-    },
+    completionProvider: { resolveProvider: false, triggerCharacters: ['.', '#', ' '] },
     definitionProvider: true,
     workspaceSymbolProvider: true,
   };
-
-  return {
-    capabilities,
-    serverInfo: {
-      name: 'MEGA65 CC45/CA45 Language Server',
-      version: '0.1.0',
-    },
-  };
+  return { capabilities, serverInfo: { name: 'MEGA65 CC45/CA45 Language Server', version: '0.2.0' } };
 });
 
 connection.onInitialized(() => {
-  console.error('[LSP Server] Initialization complete');
-
-  // Register for configuration changes
-  connection.client.register(DidChangeConfigurationNotification.type);
-
-  // Register provider handlers
-  connection.onHover((params) => {
-    const doc = documentManager.textDocuments.get(params.textDocument.uri);
-    if (!doc) return null;
-    return hoverProvider.onHover(params, doc);
-  });
-
-  connection.onCompletion((params) => {
-    const doc = documentManager.textDocuments.get(params.textDocument.uri);
-    if (!doc) return [];
-    return completionProvider.onCompletion(params, doc);
-  });
-
-  connection.onDefinition((params) => {
-    const doc = documentManager.textDocuments.get(params.textDocument.uri);
-    if (!doc) return null;
-
-    // Index the document first (for current file symbols)
-    workspaceIndex.indexDocument(doc);
-
-    return definitionProvider.onDefinition(params, doc);
-  });
-
-  connection.onWorkspaceSymbol((params) => {
-    return workspaceSymbolProvider.onWorkspaceSymbol(params);
-  });
-
-  connection.onDidChangeWatchedFiles(() => {
-    // Could implement file watcher handling here for incremental indexing
-  });
-
-  console.error('[LSP Server] All providers registered');
+  if (hasConfiguration) {
+    connection.client.register(DidChangeConfigurationNotification.type, { section: 'm65' }).catch(() => undefined);
+  }
+  applySettings().catch((err) => console.error(`[LSP Server] settings: ${err}`));
+  // the workspace's symbols for go to definition and workspace symbols
+  setTimeout(() => workspaceIndex.scanWorkspace(), 0);
 });
 
 connection.onDidChangeConfiguration((change) => {
-  const settings = change.settings.m65 || {};
-  cc45Path = settings.cc45Path || 'bin/cc45';
-  ca45Path = settings.ca45Path || 'bin/ca45';
-  debounceMs = settings.diagnostics?.debounceMs || 500;
+  if (!hasConfiguration) initialSettings = (change.settings && change.settings.m65) || initialSettings;
+  applySettings().catch((err) => console.error(`[LSP Server] settings: ${err}`));
+});
 
-  console.error(
-    `[LSP Server] Configuration updated: cc45=${cc45Path}, ca45=${ca45Path}, debounce=${debounceMs}ms`
-  );
+connection.onHover((params) => {
+  const doc = documentManager.textDocuments.get(params.textDocument.uri);
+  return doc ? hoverProvider.onHover(params, doc) : null;
+});
+
+connection.onCompletion((params) => {
+  const doc = documentManager.textDocuments.get(params.textDocument.uri);
+  return doc ? completionProvider.onCompletion(params, doc) : [];
+});
+
+connection.onDefinition((params) => {
+  const doc = documentManager.textDocuments.get(params.textDocument.uri);
+  return doc ? definitionProvider.onDefinition(params, doc) : null;
+});
+
+connection.onWorkspaceSymbol((params) => workspaceSymbolProvider.onWorkspaceSymbol(params));
+
+// files changed outside the editor (a checkout, a generator): indexed again
+connection.onDidChangeWatchedFiles((params) => {
+  for (const c of params.changes) {
+    if (!c.uri.startsWith('file:') || documentManager.textDocuments.get(c.uri)) continue;
+    const p = fileURLToPath(c.uri);
+    if (/\/\.[^/]*\.m65lsp\./.test(p)) continue;   // (the server's own copies)
+    if (c.type === FileChangeType.Deleted) workspaceIndex.removeDocument(c.uri);
+    else workspaceIndex.indexFile(p);
+  }
 });
 
 connection.listen();

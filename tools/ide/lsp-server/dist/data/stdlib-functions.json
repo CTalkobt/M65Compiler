@@ -1,0 +1,4025 @@
+{
+ "generatedFrom": "lib/include/*.h, lib/build/c45.lib",
+ "functions": [
+  {
+   "name": "__builtin_abs",
+   "header": "stdlib.h",
+   "signature": "int __builtin_abs(int x)",
+   "doc": ""
+  },
+  {
+   "name": "__builtin_alloca",
+   "header": "alloca.h",
+   "signature": "void *__builtin_alloca(unsigned int size)",
+   "doc": ""
+  },
+  {
+   "name": "__builtin_bswap16",
+   "header": "stdlib.h",
+   "signature": "unsigned int __builtin_bswap16(unsigned int x)",
+   "doc": ""
+  },
+  {
+   "name": "__builtin_clz",
+   "header": "stdlib.h",
+   "signature": "int __builtin_clz(unsigned int x)",
+   "doc": ""
+  },
+  {
+   "name": "__builtin_ctz",
+   "header": "stdlib.h",
+   "signature": "int __builtin_ctz(unsigned int x)",
+   "doc": ""
+  },
+  {
+   "name": "__builtin_ffs",
+   "header": "stdlib.h",
+   "signature": "int __builtin_ffs(int x)",
+   "doc": ""
+  },
+  {
+   "name": "__builtin_labs",
+   "header": "stdlib.h",
+   "signature": "long __builtin_labs(long x)",
+   "doc": ""
+  },
+  {
+   "name": "__builtin_memcmp",
+   "header": "string.h",
+   "signature": "signed int __builtin_memcmp(const void *s1, const void *s2, unsigned int n)",
+   "doc": ""
+  },
+  {
+   "name": "__builtin_memcpy",
+   "header": "string.h",
+   "signature": "void *__builtin_memcpy(void *restrict dest, const void *restrict src, unsigned int n)",
+   "doc": "GCC __builtin_* equivalents"
+  },
+  {
+   "name": "__builtin_memmove",
+   "header": "string.h",
+   "signature": "void *__builtin_memmove(void *dest, const void *src, unsigned int n)",
+   "doc": ""
+  },
+  {
+   "name": "__builtin_memset",
+   "header": "string.h",
+   "signature": "void *__builtin_memset(void *dest, int c, unsigned int n)",
+   "doc": ""
+  },
+  {
+   "name": "__builtin_popcount",
+   "header": "stdlib.h",
+   "signature": "int __builtin_popcount(unsigned int x)",
+   "doc": ""
+  },
+  {
+   "name": "__builtin_strcmp",
+   "header": "string.h",
+   "signature": "signed int __builtin_strcmp(const char *s1, const char *s2)",
+   "doc": ""
+  },
+  {
+   "name": "__builtin_strcpy",
+   "header": "string.h",
+   "signature": "char *__builtin_strcpy(char *restrict dest, const char *restrict src)",
+   "doc": ""
+  },
+  {
+   "name": "__builtin_strlen",
+   "header": "string.h",
+   "signature": "unsigned int __builtin_strlen(const char *s)",
+   "doc": ""
+  },
+  {
+   "name": "__builtin_trap",
+   "header": "stdlib.h",
+   "signature": "_Noreturn void __builtin_trap(void)",
+   "doc": ""
+  },
+  {
+   "name": "__dma_copy_far",
+   "header": "dma.h",
+   "signature": "__fastcall__ void __dma_copy_far(unsigned long dst, unsigned long src, unsigned int len)",
+   "doc": "Library functions: 28-bit linear addresses (lib/stdlib_asm/dma_far.s45: the ZP convention in either)"
+  },
+  {
+   "name": "__dma_copy_far_step",
+   "header": "dma.h",
+   "signature": "__fastcall__ void __dma_copy_far_step(unsigned long dst, unsigned long src, unsigned int len, unsigned char dst_step, unsigned char src_step)",
+   "doc": ""
+  },
+  {
+   "name": "__dma_fill_far",
+   "header": "dma.h",
+   "signature": "__fastcall__ void __dma_fill_far(unsigned long dst, unsigned int len, unsigned char val)",
+   "doc": ""
+  },
+  {
+   "name": "__dma_fill_far_step",
+   "header": "dma.h",
+   "signature": "__fastcall__ void __dma_fill_far_step(unsigned long dst, unsigned int len, unsigned char val, unsigned char dst_step)",
+   "doc": ""
+  },
+  {
+   "name": "__fpclassifyf",
+   "header": "math.h",
+   "signature": "int __fpclassifyf(float x)",
+   "doc": "Classification macros"
+  },
+  {
+   "name": "__fx32_div",
+   "header": "fixed.h",
+   "signature": "__fastcall__ signed long __fx32_div(signed long a, signed long b, unsigned char f)",
+   "doc": ""
+  },
+  {
+   "name": "__fx32_mul",
+   "header": "fixed.h",
+   "signature": "__fastcall__ signed long __fx32_mul(signed long a, signed long b, unsigned char f)",
+   "doc": "the integers of two fixed values of F fraction bits: (a * b) >> f and (a << f) / b (cc45 calls them for * and / of 32-bit fixed types)"
+  },
+  {
+   "name": "__intN_add",
+   "header": "intwide.h",
+   "signature": "void __intN_add(char *r, char *a, char *b, int n)",
+   "doc": "Runtime function declarations"
+  },
+  {
+   "name": "__intN_and",
+   "header": "intwide.h",
+   "signature": "void __intN_and(char *r, char *a, char *b, int n)",
+   "doc": ""
+  },
+  {
+   "name": "__intN_cmp_s",
+   "header": "intwide.h",
+   "signature": "signed int __intN_cmp_s(char *a, char *b, int n)",
+   "doc": "-1, 0, 1: signed whatever the default"
+  },
+  {
+   "name": "__intN_cmp_u",
+   "header": "intwide.h",
+   "signature": "signed int __intN_cmp_u(char *a, char *b, int n)",
+   "doc": ""
+  },
+  {
+   "name": "__intN_divmod_s",
+   "header": "intwide.h",
+   "signature": "void __intN_divmod_s(char *q, char *m, char *a, char *b, int n)",
+   "doc": ""
+  },
+  {
+   "name": "__intN_mul",
+   "header": "intwide.h",
+   "signature": "void __intN_mul(char *r, char *a, char *b, int n)",
+   "doc": ""
+  },
+  {
+   "name": "__intN_neg",
+   "header": "intwide.h",
+   "signature": "void __intN_neg(char *a, int n)",
+   "doc": ""
+  },
+  {
+   "name": "__intN_not",
+   "header": "intwide.h",
+   "signature": "void __intN_not(char *a, int n)",
+   "doc": ""
+  },
+  {
+   "name": "__intN_or",
+   "header": "intwide.h",
+   "signature": "void __intN_or(char *r, char *a, char *b, int n)",
+   "doc": ""
+  },
+  {
+   "name": "__intN_shl",
+   "header": "intwide.h",
+   "signature": "void __intN_shl(char *a, int n, int shift)",
+   "doc": ""
+  },
+  {
+   "name": "__intN_shr_s",
+   "header": "intwide.h",
+   "signature": "void __intN_shr_s(char *a, int n, int shift)",
+   "doc": ""
+  },
+  {
+   "name": "__intN_sub",
+   "header": "intwide.h",
+   "signature": "void __intN_sub(char *r, char *a, char *b, int n)",
+   "doc": ""
+  },
+  {
+   "name": "__intN_xor",
+   "header": "intwide.h",
+   "signature": "void __intN_xor(char *r, char *a, char *b, int n)",
+   "doc": ""
+  },
+  {
+   "name": "__isinff",
+   "header": "math.h",
+   "signature": "int __isinff(float x)",
+   "doc": ""
+  },
+  {
+   "name": "__isnanf",
+   "header": "math.h",
+   "signature": "int __isnanf(float x)",
+   "doc": ""
+  },
+  {
+   "name": "__stridx_table",
+   "header": "string.h",
+   "signature": "int __stridx_table(const char *s, const unsigned char *table)",
+   "doc": ""
+  },
+  {
+   "name": "__unpack",
+   "header": "unpack.h",
+   "signature": "__fastcall__ unsigned long __unpack(unsigned long src)",
+   "doc": "(the ZP convention in either library: the overlay loader calls it from assembly). The library's name is __unpack, so a program's own function named unpack cannot take the overlay loader's call (#346)"
+  },
+  {
+   "name": "__unpack_to",
+   "header": "unpack.h",
+   "signature": "__fastcall__ unsigned long __unpack_to(unsigned long src, unsigned long dst)",
+   "doc": "The same to dst, the stream's own destination ignored: a stream unpacked to more than one place, or made with any -d"
+  },
+  {
+   "name": "_exit",
+   "header": "stdlib.h",
+   "signature": "_Noreturn void _exit(int status)",
+   "doc": ""
+  },
+  {
+   "name": "_heapadd",
+   "header": "stdlib.h",
+   "signature": "__fastcall__ void _heapadd(void *mem, size_t size)",
+   "doc": ""
+  },
+  {
+   "name": "_heapblocksize",
+   "header": "stdlib.h",
+   "signature": "__fastcall__ size_t _heapblocksize(const void *block)",
+   "doc": ""
+  },
+  {
+   "name": "_heapmaxavail",
+   "header": "stdlib.h",
+   "signature": "__fastcall__ size_t _heapmaxavail(void)",
+   "doc": ""
+  },
+  {
+   "name": "_heapmemavail",
+   "header": "stdlib.h",
+   "signature": "__fastcall__ size_t _heapmemavail(void)",
+   "doc": "cc65's heap functions: the free bytes, the largest malloc that can succeed, a block's size, and memory given to the heap"
+  },
+  {
+   "name": "_randomize",
+   "header": "stdlib.h",
+   "signature": "__fastcall__ void _randomize(void)",
+   "doc": "srand with a seed from the hardware random number generator"
+  },
+  {
+   "name": "_swap",
+   "header": "stdlib.h",
+   "signature": "__fastcall__ void _swap(void *p, void *q, size_t size)",
+   "doc": "The size bytes at p and q exchanged"
+  },
+  {
+   "name": "abort",
+   "header": "stdlib.h",
+   "signature": "__fastcall__ _Noreturn void abort(void)",
+   "doc": ""
+  },
+  {
+   "name": "abs",
+   "header": "math.h",
+   "signature": "__fastcall__ signed int abs(signed int value)",
+   "doc": ""
+  },
+  {
+   "name": "adler32",
+   "header": "zlib.h",
+   "signature": "__fastcall__ unsigned long adler32(unsigned long adler, const unsigned char *buf, unsigned int len)",
+   "doc": ""
+  },
+  {
+   "name": "alloca",
+   "header": "alloca.h",
+   "signature": "__fastcall__ void *alloca(unsigned int size)",
+   "doc": ""
+  },
+  {
+   "name": "asctime",
+   "header": "time.h",
+   "signature": "char *asctime(struct tm *tm)",
+   "doc": ""
+  },
+  {
+   "name": "atan",
+   "header": "math.h",
+   "signature": "float atan(float x)  /* macro atan(x) */",
+   "doc": ""
+  },
+  {
+   "name": "atan2",
+   "header": "math.h",
+   "signature": "float atan2(float y, float x)  /* macro atan2(y,x) */",
+   "doc": ""
+  },
+  {
+   "name": "atan2f",
+   "header": "math.h",
+   "signature": "float atan2f(float y, float x)",
+   "doc": ""
+  },
+  {
+   "name": "atanf",
+   "header": "math.h",
+   "signature": "float atanf(float x)",
+   "doc": ""
+  },
+  {
+   "name": "atexit",
+   "header": "stdlib.h",
+   "signature": "int atexit(void (*func)())",
+   "doc": "Up to 32 functions, called in reverse order by exit() and by a return from main (not by _exit or abort)"
+  },
+  {
+   "name": "atof",
+   "header": "stdlib.h",
+   "signature": "float atof(char *nptr)",
+   "doc": ""
+  },
+  {
+   "name": "atoi",
+   "header": "stdlib.h",
+   "signature": "__fastcall__ signed int atoi(char *s)",
+   "doc": ""
+  },
+  {
+   "name": "atol",
+   "header": "stdlib.h",
+   "signature": "signed long atol(char *s)",
+   "doc": ""
+  },
+  {
+   "name": "bank_available",
+   "header": "far_ptr.h",
+   "signature": "size_t bank_available(bank_t bank)",
+   "doc": "Get available free space in a bank (in bytes)"
+  },
+  {
+   "name": "bank_get",
+   "header": "far_ptr.h",
+   "signature": "bank_t bank_get(void)",
+   "doc": "Get current memory bank"
+  },
+  {
+   "name": "bank_reset",
+   "header": "far_ptr.h",
+   "signature": "__fastcall__ void bank_reset(bank_t bank)",
+   "doc": "Reset allocator for specific bank (frees all; far_reserve ranges stay)"
+  },
+  {
+   "name": "bank_reset_all",
+   "header": "far_ptr.h",
+   "signature": "__fastcall__ void bank_reset_all(void)",
+   "doc": "Reset all bank allocators (clear all far allocations)"
+  },
+  {
+   "name": "bank_set",
+   "header": "far_ptr.h",
+   "signature": "void bank_set(bank_t bank)",
+   "doc": "Select the bank far_malloc_current / far_calloc_current allocate in (bank 4 at first; it maps nothing: far pointers carry their bank)"
+  },
+  {
+   "name": "bgcolor",
+   "header": "conio.h",
+   "signature": "__fastcall__ unsigned char bgcolor(unsigned char color)",
+   "doc": "The screen's background ($D021: text mode has no background per character; the full-colour mode below has); the old one"
+  },
+  {
+   "name": "bordercolor",
+   "header": "conio.h",
+   "signature": "__fastcall__ unsigned char bordercolor(unsigned char color)",
+   "doc": "The border ($D020); the old one"
+  },
+  {
+   "name": "bsearch",
+   "header": "stdlib.h",
+   "signature": "void *bsearch(const void *key, const void *base, int nmemb, int size, int (*cmpfunc)())",
+   "doc": ""
+  },
+  {
+   "name": "bzero",
+   "header": "string.h",
+   "signature": "__fastcall__ void bzero(void *p, unsigned int n)",
+   "doc": "memset(p, 0, n)"
+  },
+  {
+   "name": "calloc",
+   "header": "stdlib.h",
+   "signature": "__fastcall__ void *calloc(size_t nmemb, size_t size)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_close",
+   "header": "stdio.h",
+   "signature": "signed int cbm_close(fd_t fd)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_closedir",
+   "header": "stdio.h",
+   "signature": "int cbm_closedir(fd_t fd)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_delete",
+   "header": "stdio.h",
+   "signature": "int cbm_delete(unsigned char device, const char *filename)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_dir_get_type",
+   "header": "stdio.h",
+   "signature": "unsigned char cbm_dir_get_type(unsigned char type)",
+   "doc": "Get type name (handles flags)"
+  },
+  {
+   "name": "cbm_dir_is_closed",
+   "header": "stdio.h",
+   "signature": "int cbm_dir_is_closed(unsigned char type)",
+   "doc": "Check scratched/splat bit"
+  },
+  {
+   "name": "cbm_dir_is_locked",
+   "header": "stdio.h",
+   "signature": "int cbm_dir_is_locked(unsigned char type)",
+   "doc": "Extract pure type code"
+  },
+  {
+   "name": "cbm_dir_is_scratched",
+   "header": "stdio.h",
+   "signature": "int cbm_dir_is_scratched(unsigned char type)",
+   "doc": "Check locked bit"
+  },
+  {
+   "name": "cbm_dir_type_name",
+   "header": "stdio.h",
+   "signature": "const char *cbm_dir_type_name(unsigned char type)",
+   "doc": "Directory entry flag helpers"
+  },
+  {
+   "name": "cbm_drive_status",
+   "header": "stdio.h",
+   "signature": "__fastcall__ int cbm_drive_status(unsigned char device)",
+   "doc": "The drive's status number (its command channel 15): 0 OK, 1 files scratched, >= 20 an error (62 file not found, 63 file exists, ...); -1 if the channel can't be opened"
+  },
+  {
+   "name": "cbm_eof",
+   "header": "stdio.h",
+   "signature": "int cbm_eof(fd_t fd)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_format",
+   "header": "stdio.h",
+   "signature": "int cbm_format(unsigned char device, const char *name, const char *id)",
+   "doc": "Device operations"
+  },
+  {
+   "name": "cbm_k_acptr",
+   "header": "cbm.h",
+   "signature": "__fastcall__ unsigned char cbm_k_acptr(void)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_k_basin",
+   "header": "cbm.h",
+   "signature": "__fastcall__ unsigned char cbm_k_basin(void)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_k_bsout",
+   "header": "cbm.h",
+   "signature": "__fastcall__ void cbm_k_bsout(unsigned char c)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_k_chkin",
+   "header": "cbm.h",
+   "signature": "unsigned char cbm_k_chkin(unsigned char fd)",
+   "doc": "(also in <stdio.h>)"
+  },
+  {
+   "name": "cbm_k_chkout",
+   "header": "cbm.h",
+   "signature": "unsigned char cbm_k_chkout(unsigned char fd)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_k_chrin",
+   "header": "cbm.h",
+   "signature": "unsigned char cbm_k_chrin(void)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_k_chrout",
+   "header": "cbm.h",
+   "signature": "void cbm_k_chrout(unsigned char c)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_k_ciout",
+   "header": "cbm.h",
+   "signature": "__fastcall__ void cbm_k_ciout(unsigned char c)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_k_ckout",
+   "header": "cbm.h",
+   "signature": "__fastcall__ unsigned char cbm_k_ckout(unsigned char lfn)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_k_clall",
+   "header": "cbm.h",
+   "signature": "__fastcall__ void cbm_k_clall(void)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_k_close",
+   "header": "cbm.h",
+   "signature": "unsigned char cbm_k_close(unsigned char fd)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_k_clrch",
+   "header": "cbm.h",
+   "signature": "__fastcall__ void cbm_k_clrch(void)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_k_clrchn",
+   "header": "cbm.h",
+   "signature": "unsigned char cbm_k_clrchn(void)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_k_getin",
+   "header": "cbm.h",
+   "signature": "__fastcall__ unsigned char cbm_k_getin(void)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_k_iobase",
+   "header": "cbm.h",
+   "signature": "__fastcall__ unsigned int cbm_k_iobase(void)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_k_listen",
+   "header": "cbm.h",
+   "signature": "__fastcall__ void cbm_k_listen(unsigned char dev)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_k_load",
+   "header": "cbm.h",
+   "signature": "__fastcall__ unsigned int cbm_k_load(unsigned char flag, unsigned int addr)",
+   "doc": "LOAD (flag 0) or VERIFY (1) the file cbm_k_setlfs / cbm_k_setnam set up to addr: the end address, or addr on an error (_oserror set)"
+  },
+  {
+   "name": "cbm_k_open",
+   "header": "cbm.h",
+   "signature": "unsigned char cbm_k_open(void)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_k_readst",
+   "header": "cbm.h",
+   "signature": "unsigned char cbm_k_readst(void)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_k_save",
+   "header": "cbm.h",
+   "signature": "__fastcall__ unsigned char cbm_k_save(unsigned int start, unsigned int end)",
+   "doc": "SAVE start up to end (not included): 0, or the KERNAL's error"
+  },
+  {
+   "name": "cbm_k_scnkey",
+   "header": "cbm.h",
+   "signature": "__fastcall__ void cbm_k_scnkey(void)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_k_second",
+   "header": "cbm.h",
+   "signature": "__fastcall__ void cbm_k_second(unsigned char addr)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_k_setlfs",
+   "header": "cbm.h",
+   "signature": "unsigned char cbm_k_setlfs(unsigned char fd, unsigned char device, unsigned char secondary)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_k_setnam",
+   "header": "cbm.h",
+   "signature": "unsigned char cbm_k_setnam(const char *filename)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_k_settim",
+   "header": "cbm.h",
+   "signature": "__fastcall__ void cbm_k_settim(unsigned long timer)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_k_talk",
+   "header": "cbm.h",
+   "signature": "__fastcall__ void cbm_k_talk(unsigned char dev)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_k_tksa",
+   "header": "cbm.h",
+   "signature": "__fastcall__ void cbm_k_tksa(unsigned char addr)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_k_udtim",
+   "header": "cbm.h",
+   "signature": "__fastcall__ void cbm_k_udtim(void)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_k_unlsn",
+   "header": "cbm.h",
+   "signature": "__fastcall__ void cbm_k_unlsn(void)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_k_untlk",
+   "header": "cbm.h",
+   "signature": "__fastcall__ void cbm_k_untlk(void)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_load",
+   "header": "cbm.h",
+   "signature": "__fastcall__ unsigned int cbm_load(const char *name, unsigned char device, void *data)",
+   "doc": "The file name loaded from device to data (NULL: to the address in the file); the bytes loaded, 0 on an error (_oserror set)"
+  },
+  {
+   "name": "cbm_open",
+   "header": "stdio.h",
+   "signature": "fd_t cbm_open(unsigned char device, const char *filename, unsigned char type)",
+   "doc": "File handle operations"
+  },
+  {
+   "name": "cbm_open_ext",
+   "header": "stdio.h",
+   "signature": "fd_t cbm_open_ext(unsigned char device, const char *filename, unsigned char type, unsigned char secondary)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_opendir",
+   "header": "stdio.h",
+   "signature": "int cbm_opendir(unsigned char device)",
+   "doc": "Directory operations"
+  },
+  {
+   "name": "cbm_read",
+   "header": "stdio.h",
+   "signature": "signed int cbm_read(fd_t fd, void *buffer, unsigned int length)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_readdir",
+   "header": "stdio.h",
+   "signature": "int cbm_readdir(fd_t fd, char *filename, unsigned char *type, unsigned int *size)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_rel_append",
+   "header": "stdio.h",
+   "signature": "int cbm_rel_append(int handle, const void *buffer, unsigned int size)",
+   "doc": "Phase 4d: Extended Record Operations"
+  },
+  {
+   "name": "cbm_rel_close",
+   "header": "stdio.h",
+   "signature": "int cbm_rel_close(int handle)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_rel_delete",
+   "header": "stdio.h",
+   "signature": "int cbm_rel_delete(int handle, unsigned int record_num)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_rel_insert",
+   "header": "stdio.h",
+   "signature": "int cbm_rel_insert(int handle, unsigned int record_num, const void *buffer, unsigned int size)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_rel_is_open",
+   "header": "stdio.h",
+   "signature": "int cbm_rel_is_open(int handle)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_rel_lasterror",
+   "header": "stdio.h",
+   "signature": "int cbm_rel_lasterror(int handle)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_rel_open",
+   "header": "stdio.h",
+   "signature": "int cbm_rel_open(unsigned char device, const char *filename, unsigned char record_size, int mode)",
+   "doc": "REL (Relative) file operations — random-access record files"
+  },
+  {
+   "name": "cbm_rel_position",
+   "header": "stdio.h",
+   "signature": "int cbm_rel_position(int handle, unsigned int record_num)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_rel_read",
+   "header": "stdio.h",
+   "signature": "int cbm_rel_read(int handle, unsigned int record_num, void *buffer, unsigned int size)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_rel_record_size",
+   "header": "stdio.h",
+   "signature": "unsigned char cbm_rel_record_size(int handle)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_rel_size",
+   "header": "stdio.h",
+   "signature": "unsigned int cbm_rel_size(int handle)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_rel_strerror",
+   "header": "stdio.h",
+   "signature": "const char *cbm_rel_strerror(int error)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_rel_tell",
+   "header": "stdio.h",
+   "signature": "unsigned int cbm_rel_tell(int handle)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_rel_truncate",
+   "header": "stdio.h",
+   "signature": "int cbm_rel_truncate(int handle, unsigned int num_records)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_rel_update",
+   "header": "stdio.h",
+   "signature": "int cbm_rel_update(int handle, unsigned int record_num, const void *buffer, unsigned int size)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_rel_write",
+   "header": "stdio.h",
+   "signature": "int cbm_rel_write(int handle, unsigned int record_num, const void *buffer, unsigned int size)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_rename",
+   "header": "stdio.h",
+   "signature": "int cbm_rename(unsigned char device, const char *old_name, const char *new_name)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_save",
+   "header": "cbm.h",
+   "signature": "__fastcall__ unsigned char cbm_save(const char *name, unsigned char device, const void *data, unsigned int size)",
+   "doc": "size bytes at data saved to device as name: 0, or the KERNAL's error (also in _oserror)"
+  },
+  {
+   "name": "cbm_seek",
+   "header": "stdio.h",
+   "signature": "int cbm_seek(fd_t fd, unsigned long position)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_status",
+   "header": "stdio.h",
+   "signature": "int cbm_status(fd_t fd)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_tell",
+   "header": "stdio.h",
+   "signature": "unsigned long cbm_tell(fd_t fd)",
+   "doc": ""
+  },
+  {
+   "name": "cbm_write",
+   "header": "stdio.h",
+   "signature": "signed int cbm_write(fd_t fd, const void *buffer, unsigned int length)",
+   "doc": ""
+  },
+  {
+   "name": "cclear",
+   "header": "conio.h",
+   "signature": "__fastcall__ void cclear(unsigned char length)",
+   "doc": "length spaces from the cursor"
+  },
+  {
+   "name": "cclearxy",
+   "header": "conio.h",
+   "signature": "__fastcall__ void cclearxy(unsigned char x, unsigned char y, unsigned char length)",
+   "doc": ""
+  },
+  {
+   "name": "ceil",
+   "header": "math.h",
+   "signature": "float ceil(float x)  /* macro ceil(x) */",
+   "doc": ""
+  },
+  {
+   "name": "ceilf",
+   "header": "math.h",
+   "signature": "float ceilf(float x)",
+   "doc": ""
+  },
+  {
+   "name": "cgetc",
+   "header": "conio.h",
+   "signature": "__fastcall__ char cgetc(void)",
+   "doc": "The next key, waiting for one, without echo: <input.h>'s codes (PETSCII letters, RETURN 13, DEL 20, RUN/STOP 3, F1-F14 $F1-$FE). With cursor(1) the cursor cell shows reversed while it waits."
+  },
+  {
+   "name": "cgets",
+   "header": "conio.h",
+   "signature": "__fastcall__ char *cgets(char *buffer, int size)",
+   "doc": "A line typed at the cursor, echoed with the cursor shown: up to size - 1 characters, or until RETURN (echoed as a new row, not stored); DEL takes the last character back. buffer, or NULL when nothing was typed (or for a NULL buffer or a size below 2), as cc65's."
+  },
+  {
+   "name": "chline",
+   "header": "conio.h",
+   "signature": "__fastcall__ void chline(unsigned char length)",
+   "doc": "A horizontal line (CH_HLINE) of length characters from the cursor"
+  },
+  {
+   "name": "chlinexy",
+   "header": "conio.h",
+   "signature": "__fastcall__ void chlinexy(unsigned char x, unsigned char y, unsigned char length)",
+   "doc": ""
+  },
+  {
+   "name": "clearerr",
+   "header": "stdio.h",
+   "signature": "void clearerr(FILE *stream)",
+   "doc": ""
+  },
+  {
+   "name": "clock",
+   "header": "time.h",
+   "signature": "__fastcall__ clock_t clock(void)",
+   "doc": "Frames since power-on (wraps after 2^24, about 3.9 days at 50 Hz)"
+  },
+  {
+   "name": "clock_getres",
+   "header": "time.h",
+   "signature": "int clock_getres(clockid_t clock_id, struct timespec *res)",
+   "doc": "The clock's resolution: a second, or a frame (20 ms PAL, 16.67 ms NTSC)"
+  },
+  {
+   "name": "clock_gettime",
+   "header": "time.h",
+   "signature": "int clock_gettime(clockid_t clock_id, struct timespec *tp)",
+   "doc": "The clock's time in *tp: 0, or -1 (errno EINVAL) for another clock"
+  },
+  {
+   "name": "clock_settime",
+   "header": "time.h",
+   "signature": "int clock_settime(clockid_t clock_id, const struct timespec *tp)",
+   "doc": "CLOCK_REALTIME: the RTC set to tp's second (2000 to 2099; the RTC's registers, which the I2C controller writes to the clock chip; xemu keeps the host's time). 0, or -1 (errno EINVAL)"
+  },
+  {
+   "name": "clrscr",
+   "header": "conio.h",
+   "signature": "__fastcall__ void clrscr(void)",
+   "doc": "Clear the screen (spaces in the text colour) and home the cursor"
+  },
+  {
+   "name": "conio_get_width",
+   "header": "conio.h",
+   "signature": "__fastcall__ int conio_get_width(void)",
+   "doc": "screenwidth()"
+  },
+  {
+   "name": "conio_set_width",
+   "header": "conio.h",
+   "signature": "__fastcall__ int conio_set_width(int width)",
+   "doc": "40 or 80 columns (H640, $D031 bit 7; with fcm_enable too): the screen's address is kept and the screen cleared. 1, or 0 for another width. The ROM's screen editor is not told: set the width back before returning to BASIC."
+  },
+  {
+   "name": "copysign",
+   "header": "math.h",
+   "signature": "float copysign(float x, float y)  /* macro copysign(x,y) */",
+   "doc": ""
+  },
+  {
+   "name": "copysignf",
+   "header": "math.h",
+   "signature": "float copysignf(float x, float y)",
+   "doc": ""
+  },
+  {
+   "name": "cos",
+   "header": "math.h",
+   "signature": "float cos(float x)  /* macro cos(x) */",
+   "doc": ""
+  },
+  {
+   "name": "cosf",
+   "header": "math.h",
+   "signature": "float cosf(float x)",
+   "doc": ""
+  },
+  {
+   "name": "cpeekc",
+   "header": "conio.h",
+   "signature": "__fastcall__ char cpeekc(void)",
+   "doc": "The character at the cursor (PETSCII, as cputc writes it), its colour, and whether it is reversed (1)"
+  },
+  {
+   "name": "cpeekcolor",
+   "header": "conio.h",
+   "signature": "__fastcall__ unsigned char cpeekcolor(void)",
+   "doc": ""
+  },
+  {
+   "name": "cpeekrevers",
+   "header": "conio.h",
+   "signature": "__fastcall__ unsigned char cpeekrevers(void)",
+   "doc": ""
+  },
+  {
+   "name": "cpeeks",
+   "header": "conio.h",
+   "signature": "__fastcall__ void cpeeks(char *s, unsigned int length)",
+   "doc": "length characters from the cursor on (into the next row after the last column; none past the bottom), then a NUL; the cursor stays"
+  },
+  {
+   "name": "cprintf",
+   "header": "conio.h",
+   "signature": "int cprintf(const char *format, ...)",
+   "doc": "printf to the cursor (no length limit; %f %e %g as printf's); the number of characters"
+  },
+  {
+   "name": "cprintfxy",
+   "header": "conio.h",
+   "signature": "int cprintfxy(int x, int y, const char *format, ...)",
+   "doc": "gotoxy(x, y), then cprintf"
+  },
+  {
+   "name": "cputc",
+   "header": "conio.h",
+   "signature": "__fastcall__ void cputc(char c)",
+   "doc": "A character"
+  },
+  {
+   "name": "cputch",
+   "header": "conio.h",
+   "signature": "__fastcall__ void cputch(int x, int y, int ch)",
+   "doc": "ch at (x, y); the cursor stays"
+  },
+  {
+   "name": "cputcxy",
+   "header": "conio.h",
+   "signature": "__fastcall__ void cputcxy(unsigned char x, unsigned char y, char c)",
+   "doc": "gotoxy(x, y), then cputc(c)"
+  },
+  {
+   "name": "cputhex16",
+   "header": "conio.h",
+   "signature": "__fastcall__ void cputhex16(unsigned val)",
+   "doc": ""
+  },
+  {
+   "name": "cputhex8",
+   "header": "conio.h",
+   "signature": "__fastcall__ void cputhex8(unsigned char val)",
+   "doc": "Two / four hex digits"
+  },
+  {
+   "name": "cputs",
+   "header": "conio.h",
+   "signature": "__fastcall__ int cputs(const char *str)",
+   "doc": "A string: 0, or -1 for NULL"
+  },
+  {
+   "name": "cputsxy",
+   "header": "conio.h",
+   "signature": "__fastcall__ int cputsxy(int x, int y, const char *str)",
+   "doc": "gotoxy(x, y), then cputs(str)"
+  },
+  {
+   "name": "crc32",
+   "header": "zlib.h",
+   "signature": "__fastcall__ unsigned long crc32(unsigned long crc, const unsigned char *buf, unsigned int len)",
+   "doc": ""
+  },
+  {
+   "name": "cscanf",
+   "header": "conio.h",
+   "signature": "int cscanf(const char *format, ...)",
+   "doc": "scanf of a line typed as cgets reads it (80 characters at most); what the format does not use is dropped. The items assigned, or EOF (-1)."
+  },
+  {
+   "name": "ctime",
+   "header": "time.h",
+   "signature": "char *ctime(time_t *timer)",
+   "doc": ""
+  },
+  {
+   "name": "cursor",
+   "header": "conio.h",
+   "signature": "__fastcall__ unsigned char cursor(unsigned char onoff)",
+   "doc": "cgetc shows the cursor (onoff 1) or not (0, the default); the old setting"
+  },
+  {
+   "name": "cursoroff",
+   "header": "conio.h",
+   "signature": "__fastcall__ void cursoroff(void)",
+   "doc": ""
+  },
+  {
+   "name": "cursoron",
+   "header": "conio.h",
+   "signature": "__fastcall__ void cursoron(void)",
+   "doc": ""
+  },
+  {
+   "name": "cvline",
+   "header": "conio.h",
+   "signature": "__fastcall__ void cvline(unsigned char length)",
+   "doc": "A vertical line (CH_VLINE) down from the cursor (to the bottom row at most); the cursor ends below it"
+  },
+  {
+   "name": "cvlinexy",
+   "header": "conio.h",
+   "signature": "__fastcall__ void cvlinexy(unsigned char x, unsigned char y, unsigned char length)",
+   "doc": ""
+  },
+  {
+   "name": "difftime",
+   "header": "time.h",
+   "signature": "signed long difftime(time_t t2, time_t t1)",
+   "doc": ""
+  },
+  {
+   "name": "digi_done",
+   "header": "audio_digi.h",
+   "signature": "void digi_done(void)",
+   "doc": "Audio DMA off"
+  },
+  {
+   "name": "digi_init",
+   "header": "audio_digi.h",
+   "signature": "void digi_init(void)",
+   "doc": "Audio DMA on (it then feeds the audio mixer), all channels stopped"
+  },
+  {
+   "name": "digi_play",
+   "header": "audio_digi.h",
+   "signature": "void digi_play(unsigned char ch, const void *sample, unsigned int len, unsigned int rate, unsigned char volume, unsigned char flags)",
+   "doc": "Play len bytes from sample (in bank 0) / from a 24-bit chip RAM address on channel ch at rate Hz, volume 0-255 (the other side silent)"
+  },
+  {
+   "name": "digi_play_far",
+   "header": "audio_digi.h",
+   "signature": "void digi_play_far(unsigned char ch, unsigned long addr, unsigned int len, unsigned int rate, unsigned char volume, unsigned char flags)",
+   "doc": ""
+  },
+  {
+   "name": "digi_playing",
+   "header": "audio_digi.h",
+   "signature": "unsigned char digi_playing(unsigned char ch)",
+   "doc": "1 while the channel plays (enabled and not at the end of its sample)"
+  },
+  {
+   "name": "digi_position",
+   "header": "audio_digi.h",
+   "signature": "unsigned long digi_position(unsigned char ch)",
+   "doc": "The address the channel reads next (24 bits)"
+  },
+  {
+   "name": "digi_rate_to_reg",
+   "header": "audio_digi.h",
+   "signature": "unsigned long digi_rate_to_reg(unsigned int hz)",
+   "doc": "The rate register value of a sample rate in Hz (rate * 2^24 / 40.5 MHz)"
+  },
+  {
+   "name": "digi_set_rate",
+   "header": "audio_digi.h",
+   "signature": "void digi_set_rate(unsigned char ch, unsigned int rate)",
+   "doc": "A new rate (Hz) while it plays"
+  },
+  {
+   "name": "digi_set_volume",
+   "header": "audio_digi.h",
+   "signature": "void digi_set_volume(unsigned char ch, unsigned char volume, unsigned char other_side)",
+   "doc": "Volume 0-255 on the channel's side and on the other side (panning)"
+  },
+  {
+   "name": "digi_stop",
+   "header": "audio_digi.h",
+   "signature": "void digi_stop(unsigned char ch)",
+   "doc": "Stop the channel"
+  },
+  {
+   "name": "div",
+   "header": "stdlib.h",
+   "signature": "div_t div(signed int numer, signed int denom)",
+   "doc": ""
+  },
+  {
+   "name": "dma_available",
+   "header": "dma_controller.h",
+   "signature": "int dma_available(void)",
+   "doc": "Check if DMA controller is available on this MEGA65"
+  },
+  {
+   "name": "dma_copy_far",
+   "header": "dma.h",
+   "signature": "__fastcall__ void dma_copy_far(unsigned long dst, unsigned long src, unsigned int len)  /* macro dma_copy_far(dst, src, len) */",
+   "doc": "Library functions: 28-bit linear addresses (lib/stdlib_asm/dma_far.s45: the ZP convention in either)"
+  },
+  {
+   "name": "dma_disable",
+   "header": "dma_controller.h",
+   "signature": "void dma_disable(void)",
+   "doc": "Disable DMA controller"
+  },
+  {
+   "name": "dma_enable",
+   "header": "dma_controller.h",
+   "signature": "void dma_enable(void)",
+   "doc": "Enable DMA controller"
+  },
+  {
+   "name": "dma_execute",
+   "header": "dma_controller.h",
+   "signature": "void dma_execute(const dma_request_t* req)",
+   "doc": "Execute synchronous DMA transfer (blocks until complete)"
+  },
+  {
+   "name": "dma_fill",
+   "header": "dma_controller.h",
+   "signature": "void dma_fill( uint8_t dst_bank, uint16_t dst_addr, uint8_t pattern, size_t len )",
+   "doc": "Fill memory with pattern"
+  },
+  {
+   "name": "dma_fill_far",
+   "header": "dma.h",
+   "signature": "__fastcall__ void dma_fill_far(unsigned long dst, unsigned int len, unsigned char val)  /* macro dma_fill_far(dst, len, val) */",
+   "doc": ""
+  },
+  {
+   "name": "dma_get_status",
+   "header": "dma_controller.h",
+   "signature": "uint8_t dma_get_status(void)",
+   "doc": "Get current DMA status"
+  },
+  {
+   "name": "dma_is_busy",
+   "header": "dma_controller.h",
+   "signature": "int dma_is_busy(void)",
+   "doc": "Check if DMA is currently busy"
+  },
+  {
+   "name": "dma_print_status",
+   "header": "dma_controller.h",
+   "signature": "void dma_print_status(void)",
+   "doc": "Print DMA register state (debug)"
+  },
+  {
+   "name": "dma_set_interrupt_enable",
+   "header": "dma_controller.h",
+   "signature": "void dma_set_interrupt_enable(int enable)",
+   "doc": "Set interrupt-on-completion flag (future: async support)"
+  },
+  {
+   "name": "dma_speed_bytes_per_us",
+   "header": "dma_controller.h",
+   "signature": "int dma_speed_bytes_per_us(void)",
+   "doc": "Get DMA transfer speed (bytes per microsecond)"
+  },
+  {
+   "name": "dma_transfer_smart",
+   "header": "dma_controller.h",
+   "signature": "void dma_transfer_smart( uint8_t dst_bank, uint16_t dst_addr, uint8_t src_bank, uint16_t src_addr, size_t len )",
+   "doc": "Transfer with automatic strategy selection"
+  },
+  {
+   "name": "dma_wait",
+   "header": "dma_controller.h",
+   "signature": "void dma_wait(void)",
+   "doc": "Wait for current DMA operation to complete"
+  },
+  {
+   "name": "exit",
+   "header": "stdlib.h",
+   "signature": "__fastcall__ _Noreturn void exit(int status)",
+   "doc": ""
+  },
+  {
+   "name": "exp",
+   "header": "math.h",
+   "signature": "float exp(float x)  /* macro exp(x) */",
+   "doc": ""
+  },
+  {
+   "name": "expf",
+   "header": "math.h",
+   "signature": "float expf(float x)",
+   "doc": ""
+  },
+  {
+   "name": "fabs",
+   "header": "math.h",
+   "signature": "float fabs(float x)  /* macro fabs(x) */",
+   "doc": ""
+  },
+  {
+   "name": "fabsf",
+   "header": "math.h",
+   "signature": "float fabsf(float x)",
+   "doc": ""
+  },
+  {
+   "name": "far_add",
+   "header": "far_ops.h",
+   "signature": "far_ptr_t far_add(far_ptr_t ptr, int offset)",
+   "doc": "Add offset to far pointer (stays in same bank)"
+  },
+  {
+   "name": "far_alloc_bank",
+   "header": "far_ptr.h",
+   "signature": "bank_t far_alloc_bank(far_ptr_t ptr)",
+   "doc": "Get bank of allocation"
+  },
+  {
+   "name": "far_array_element",
+   "header": "far_ops.h",
+   "signature": "far_ptr_t far_array_element(far_ptr_t base, int index, size_t element_size)",
+   "doc": "Access array element: base_ptr[index * element_size]"
+  },
+  {
+   "name": "far_array_read",
+   "header": "far_ops.h",
+   "signature": "void far_array_read(far_ptr_t base, int index, size_t element_size, void* dst, size_t dst_size)",
+   "doc": "Read array element"
+  },
+  {
+   "name": "far_array_read_int16",
+   "header": "far_string.h",
+   "signature": "int16_t far_array_read_int16(far_ptr_t base, int index)",
+   "doc": "Typed elements of a far array (element index; any index up to 65535)"
+  },
+  {
+   "name": "far_array_read_uint32",
+   "header": "far_string.h",
+   "signature": "uint32_t far_array_read_uint32(far_ptr_t base, int index)",
+   "doc": ""
+  },
+  {
+   "name": "far_array_read_uint8",
+   "header": "far_string.h",
+   "signature": "uint8_t far_array_read_uint8(far_ptr_t base, int index)",
+   "doc": ""
+  },
+  {
+   "name": "far_array_write",
+   "header": "far_ops.h",
+   "signature": "void far_array_write(far_ptr_t base, int index, size_t element_size, const void* src, size_t src_size)",
+   "doc": "Write array element"
+  },
+  {
+   "name": "far_array_write_int16",
+   "header": "far_string.h",
+   "signature": "void far_array_write_int16(far_ptr_t base, int index, int16_t val)",
+   "doc": ""
+  },
+  {
+   "name": "far_array_write_uint32",
+   "header": "far_string.h",
+   "signature": "void far_array_write_uint32(far_ptr_t base, int index, uint32_t val)",
+   "doc": ""
+  },
+  {
+   "name": "far_array_write_uint8",
+   "header": "far_string.h",
+   "signature": "void far_array_write_uint8(far_ptr_t base, int index, uint8_t val)",
+   "doc": ""
+  },
+  {
+   "name": "far_attic_available",
+   "header": "far_ptr.h",
+   "signature": "unsigned long far_attic_available(void)",
+   "doc": "Bytes of attic RAM not handed out (0 when not enabled)"
+  },
+  {
+   "name": "far_attic_enable",
+   "header": "far_ptr.h",
+   "signature": "unsigned long far_attic_enable(unsigned long first, unsigned long last)",
+   "doc": ""
+  },
+  {
+   "name": "far_attic_free",
+   "header": "far_ptr.h",
+   "signature": "void far_attic_free(far_ptr_t p)",
+   "doc": ""
+  },
+  {
+   "name": "far_attic_hook",
+   "header": "far_ptr.h",
+   "signature": "void far_attic_hook(void)",
+   "doc": ""
+  },
+  {
+   "name": "far_attic_init",
+   "header": "far_ptr.h",
+   "signature": "unsigned long far_attic_init(unsigned long first, unsigned long last, unsigned char order, unsigned char *meta, unsigned int size)",
+   "doc": ""
+  },
+  {
+   "name": "far_attic_malloc",
+   "header": "far_ptr.h",
+   "signature": "far_ptr_t far_attic_malloc(unsigned long size)",
+   "doc": "Attic RAM directly (far_malloc(size, BANK_ATTIC), far_free, far_size_long without the chip RAM heap's code): a program that uses only attic RAM links just the attic allocator"
+  },
+  {
+   "name": "far_attic_size",
+   "header": "far_ptr.h",
+   "signature": "unsigned long far_attic_size(far_ptr_t p)",
+   "doc": ""
+  },
+  {
+   "name": "far_calloc",
+   "header": "far_ptr.h",
+   "signature": "far_ptr_t far_calloc(size_t count, size_t size, bank_t bank)",
+   "doc": "Allocate and zero-initialize in specified bank"
+  },
+  {
+   "name": "far_calloc_current",
+   "header": "far_ptr.h",
+   "signature": "far_ptr_t far_calloc_current(size_t count, size_t size)",
+   "doc": "Allocate and zero-initialize in current bank"
+  },
+  {
+   "name": "far_cmp",
+   "header": "far_ops.h",
+   "signature": "int far_cmp(far_ptr_t ptr1, far_ptr_t ptr2)",
+   "doc": "Compare two far pointers (equal, less than, greater than)"
+  },
+  {
+   "name": "far_dec",
+   "header": "far_ops.h",
+   "signature": "far_ptr_t far_dec(far_ptr_t ptr)",
+   "doc": "Decrement pointer by 1 byte"
+  },
+  {
+   "name": "far_diff",
+   "header": "far_ops.h",
+   "signature": "int far_diff(far_ptr_t ptr1, far_ptr_t ptr2)",
+   "doc": "Difference between two far pointers (must be same bank)"
+  },
+  {
+   "name": "far_eq",
+   "header": "far_ops.h",
+   "signature": "int far_eq(far_ptr_t ptr1, far_ptr_t ptr2)",
+   "doc": ""
+  },
+  {
+   "name": "far_free",
+   "header": "far_ptr.h",
+   "signature": "__fastcall__ void far_free(far_ptr_t ptr)",
+   "doc": "Free allocation"
+  },
+  {
+   "name": "far_gt",
+   "header": "far_ops.h",
+   "signature": "int far_gt(far_ptr_t ptr1, far_ptr_t ptr2)",
+   "doc": ""
+  },
+  {
+   "name": "far_inc",
+   "header": "far_ops.h",
+   "signature": "far_ptr_t far_inc(far_ptr_t ptr)",
+   "doc": "Increment pointer by 1 byte"
+  },
+  {
+   "name": "far_is_valid",
+   "header": "far_ptr.h",
+   "signature": "int far_is_valid(far_ptr_t ptr)",
+   "doc": "Check if pointer is valid (allocated)"
+  },
+  {
+   "name": "far_lt",
+   "header": "far_ops.h",
+   "signature": "int far_lt(far_ptr_t ptr1, far_ptr_t ptr2)",
+   "doc": ""
+  },
+  {
+   "name": "far_malloc",
+   "header": "far_ptr.h",
+   "signature": "__fastcall__ far_ptr_t far_malloc(size_t size, bank_t bank)",
+   "doc": "Allocate memory in specified bank: BANK4, BANK5, or BANK_ATTIC (a power-of-two block; far_malloc_long for more than 64 KB)"
+  },
+  {
+   "name": "far_malloc_current",
+   "header": "far_ptr.h",
+   "signature": "far_ptr_t far_malloc_current(size_t size)",
+   "doc": "Allocate in current bank (user responsible for bank context)"
+  },
+  {
+   "name": "far_malloc_long",
+   "header": "far_ptr.h",
+   "signature": "far_ptr_t far_malloc_long(unsigned long size, bank_t bank)",
+   "doc": "far_malloc for more than 64 KB: attic RAM (BANK_ATTIC) up to all of it, chip RAM banks up to 65535 bytes. far_size_long gives its size (far_size at most 65535)."
+  },
+  {
+   "name": "far_memcpy",
+   "header": "far_ops.h",
+   "signature": "void far_memcpy(far_ptr_t dst, far_ptr_t src, size_t len)",
+   "doc": "Copy from far source to far destination (may cross banks via DMA)"
+  },
+  {
+   "name": "far_memcpy_from_local",
+   "header": "far_ops.h",
+   "signature": "void far_memcpy_from_local(far_ptr_t dst, const void* src, size_t len)",
+   "doc": "Copy from local source to far destination (bank-aware)"
+  },
+  {
+   "name": "far_memcpy_smart",
+   "header": "far_ops.h",
+   "signature": "void far_memcpy_smart(far_ptr_t dst, far_ptr_t src, size_t len)",
+   "doc": "Fast copy if both in same bank, cross-bank copy otherwise"
+  },
+  {
+   "name": "far_memcpy_stream",
+   "header": "far_ops.h",
+   "signature": "void far_memcpy_stream(far_ptr_t dst, far_ptr_t src, size_t len)",
+   "doc": "Streaming copy (may be optimized by DMA hardware)"
+  },
+  {
+   "name": "far_memcpy_to_local",
+   "header": "far_ops.h",
+   "signature": "void far_memcpy_to_local(void* dst, far_ptr_t src, size_t len)",
+   "doc": "Copy from far source to local destination (bank-aware)"
+  },
+  {
+   "name": "far_memset",
+   "header": "far_ops.h",
+   "signature": "void far_memset(far_ptr_t ptr, int val, size_t len)",
+   "doc": "Fill far memory with pattern (bank-aware)"
+  },
+  {
+   "name": "far_memzero",
+   "header": "far_ops.h",
+   "signature": "void far_memzero(far_ptr_t ptr, size_t len)",
+   "doc": "Zero-initialize far memory"
+  },
+  {
+   "name": "far_policy_first_fit",
+   "header": "far_ptr.h",
+   "signature": "void far_policy_first_fit(void)",
+   "doc": "Bank 4, then bank 5 when bank 4 is full"
+  },
+  {
+   "name": "far_policy_fixed_bank",
+   "header": "far_ptr.h",
+   "signature": "void far_policy_fixed_bank(bank_t bank)",
+   "doc": "Always the given bank (the same as bank_set)"
+  },
+  {
+   "name": "far_policy_round_robin",
+   "header": "far_ptr.h",
+   "signature": "void far_policy_round_robin(void)",
+   "doc": "Alternate between banks 4 and 5 (the other one when a bank is full)"
+  },
+  {
+   "name": "far_read_double",
+   "header": "far_ops.h",
+   "signature": "double far_read_double(far_ptr_t ptr, int offset)",
+   "doc": ""
+  },
+  {
+   "name": "far_read_float",
+   "header": "far_ops.h",
+   "signature": "float far_read_float(far_ptr_t ptr, int offset)",
+   "doc": ""
+  },
+  {
+   "name": "far_read_int16",
+   "header": "far_ops.h",
+   "signature": "int16_t far_read_int16(far_ptr_t ptr, int offset)",
+   "doc": ""
+  },
+  {
+   "name": "far_read_int32",
+   "header": "far_ops.h",
+   "signature": "int32_t far_read_int32(far_ptr_t ptr, int offset)",
+   "doc": ""
+  },
+  {
+   "name": "far_read_int8",
+   "header": "far_ops.h",
+   "signature": "int8_t far_read_int8(far_ptr_t ptr, int offset)",
+   "doc": ""
+  },
+  {
+   "name": "far_read_uint16",
+   "header": "far_ops.h",
+   "signature": "uint16_t far_read_uint16(far_ptr_t ptr, int offset)",
+   "doc": ""
+  },
+  {
+   "name": "far_read_uint32",
+   "header": "far_ops.h",
+   "signature": "uint32_t far_read_uint32(far_ptr_t ptr, int offset)",
+   "doc": ""
+  },
+  {
+   "name": "far_read_uint8",
+   "header": "far_ops.h",
+   "signature": "uint8_t far_read_uint8(far_ptr_t ptr, int offset)",
+   "doc": "Read operations: fetch value from far memory"
+  },
+  {
+   "name": "far_realloc",
+   "header": "far_ptr.h",
+   "signature": "far_ptr_t far_realloc(far_ptr_t ptr, size_t new_size, bank_t new_bank)",
+   "doc": "Resize allocation (may move to different location/bank if necessary)"
+  },
+  {
+   "name": "far_reserve",
+   "header": "far_ptr.h",
+   "signature": "__fastcall__ int far_reserve(unsigned long first, unsigned long last)",
+   "doc": "Keep first..last (linear addresses in banks 4 and 5, $40000-$5FFFF) from the far heap: a program's own buffers at fixed addresses. Call it before the first allocation there (what is allocated already stays so); bank_reset keeps it. At most 8 ranges; 0 when full or outside banks 4-5."
+  },
+  {
+   "name": "far_size",
+   "header": "far_ptr.h",
+   "signature": "size_t far_size(far_ptr_t ptr)",
+   "doc": "Get size of allocation (or 0 if not allocated); in attic RAM the block's size, at most 65535 (far_size_long)"
+  },
+  {
+   "name": "far_size_long",
+   "header": "far_ptr.h",
+   "signature": "__fastcall__ unsigned long far_size_long(far_ptr_t ptr)",
+   "doc": ""
+  },
+  {
+   "name": "far_strcmp",
+   "header": "far_ops.h",
+   "signature": "int far_strcmp(far_ptr_t str1, const char* str2)",
+   "doc": "Compare null-terminated strings (one in far, one local)"
+  },
+  {
+   "name": "far_strcpy_from_local",
+   "header": "far_ops.h",
+   "signature": "void far_strcpy_from_local(far_ptr_t dst, const char* src, size_t max_len)",
+   "doc": "Copy null-terminated string from local to far"
+  },
+  {
+   "name": "far_strcpy_to_local",
+   "header": "far_ops.h",
+   "signature": "void far_strcpy_to_local(char* dst, far_ptr_t src, size_t max_len)",
+   "doc": "Copy null-terminated string from far to local"
+  },
+  {
+   "name": "far_strlen",
+   "header": "far_ops.h",
+   "signature": "size_t far_strlen(far_ptr_t str)",
+   "doc": "Get length of null-terminated string in far memory"
+  },
+  {
+   "name": "far_sub",
+   "header": "far_ops.h",
+   "signature": "far_ptr_t far_sub(far_ptr_t ptr, int offset)",
+   "doc": "Subtract offset from far pointer (stays in same bank)"
+  },
+  {
+   "name": "far_write_double",
+   "header": "far_ops.h",
+   "signature": "void far_write_double(far_ptr_t ptr, int offset, double val)",
+   "doc": ""
+  },
+  {
+   "name": "far_write_float",
+   "header": "far_ops.h",
+   "signature": "void far_write_float(far_ptr_t ptr, int offset, float val)",
+   "doc": ""
+  },
+  {
+   "name": "far_write_int16",
+   "header": "far_ops.h",
+   "signature": "void far_write_int16(far_ptr_t ptr, int offset, int16_t val)",
+   "doc": ""
+  },
+  {
+   "name": "far_write_int32",
+   "header": "far_ops.h",
+   "signature": "void far_write_int32(far_ptr_t ptr, int offset, int32_t val)",
+   "doc": ""
+  },
+  {
+   "name": "far_write_int8",
+   "header": "far_ops.h",
+   "signature": "void far_write_int8(far_ptr_t ptr, int offset, int8_t val)",
+   "doc": ""
+  },
+  {
+   "name": "far_write_uint16",
+   "header": "far_ops.h",
+   "signature": "void far_write_uint16(far_ptr_t ptr, int offset, uint16_t val)",
+   "doc": ""
+  },
+  {
+   "name": "far_write_uint32",
+   "header": "far_ops.h",
+   "signature": "void far_write_uint32(far_ptr_t ptr, int offset, uint32_t val)",
+   "doc": ""
+  },
+  {
+   "name": "far_write_uint8",
+   "header": "far_ops.h",
+   "signature": "void far_write_uint8(far_ptr_t ptr, int offset, uint8_t val)",
+   "doc": "Write operations: store value to far memory"
+  },
+  {
+   "name": "fclose",
+   "header": "stdio.h",
+   "signature": "int fclose(FILE *stream)",
+   "doc": ""
+  },
+  {
+   "name": "fcm_cprintf",
+   "header": "conio.h",
+   "signature": "int fcm_cprintf(int x, int y, int fg, int bg, const char *format, ...)",
+   "doc": "fcm_cputs of printf-formatted text (up to 255 characters); the count vsnprintf gives"
+  },
+  {
+   "name": "fcm_cputs",
+   "header": "conio.h",
+   "signature": "__fastcall__ int fcm_cputs(int x, int y, const char *str, int fg, int bg)",
+   "doc": "A string from (x, y), wrapping at the right edge, '\\n' starting the next row; it stops at the bottom. 0, or -1 for NULL."
+  },
+  {
+   "name": "fcm_disable",
+   "header": "conio.h",
+   "signature": "__fastcall__ void fcm_disable(void)",
+   "doc": "Back to the screen as it was (one byte a cell), with what is on it; the cache's memory is freed."
+  },
+  {
+   "name": "fcm_enable",
+   "header": "conio.h",
+   "signature": "__fastcall__ int fcm_enable(void)",
+   "doc": "Enable it, keeping what is on the screen. 1, or 0 when far_malloc finds no room in banks 4 and 5."
+  },
+  {
+   "name": "fcm_fill_rect",
+   "header": "conio.h",
+   "signature": "__fastcall__ void fcm_fill_rect(int x1, int y1, int x2, int y2, int ch, int fg, int bg)",
+   "doc": "The rectangle (x1, y1)-(x2, y2), corners included and clipped to the screen, filled with ch in fg on bg"
+  },
+  {
+   "name": "fcm_getattr_xy",
+   "header": "conio.h",
+   "signature": "__fastcall__ int fcm_getattr_xy(int x, int y)",
+   "doc": "(bg << 4) | fg at (x, y)"
+  },
+  {
+   "name": "fcm_is_enabled",
+   "header": "conio.h",
+   "signature": "__fastcall__ int fcm_is_enabled(void)",
+   "doc": "1 while enabled"
+  },
+  {
+   "name": "fcm_putch",
+   "header": "conio.h",
+   "signature": "__fastcall__ void fcm_putch(int x, int y, int ch, int fg, int bg)",
+   "doc": "PETSCII character ch at (x, y) in colour fg on background bg (without fcm_enable, on the screen's background). The cursor stays; revers applies."
+  },
+  {
+   "name": "fcm_putglyph",
+   "header": "conio.h",
+   "signature": "__fastcall__ void fcm_putglyph(int x, int y, unsigned int n, int fg)",
+   "doc": "The program's own full-colour character n (256 or more: its 64 bytes, a byte a pixel, at n * 64 in the first 512 KB of chip RAM, such as bank 4 through far_malloc; pixel $00 the screen's background, $FF colour fg, others that palette entry) at (x, y); nothing without fcm_enable. getch_xy / fcm_getattr_xy do not know it; fcm_disable leaves a space."
+  },
+  {
+   "name": "fcm_set_cache_size",
+   "header": "conio.h",
+   "signature": "__fastcall__ int fcm_set_cache_size(int glyphs)",
+   "doc": "The cache's size (1-256 glyphs) for the next fcm_enable; 0 while enabled or out of range."
+  },
+  {
+   "name": "fcm_set_line_color",
+   "header": "conio.h",
+   "signature": "__fastcall__ void fcm_set_line_color(int y, int fg, int bg)",
+   "doc": "Row y's characters recoloured: fg on bg"
+  },
+  {
+   "name": "fdim",
+   "header": "math.h",
+   "signature": "float fdim(float x, float y)  /* macro fdim(x,y) */",
+   "doc": ""
+  },
+  {
+   "name": "fdimf",
+   "header": "math.h",
+   "signature": "float fdimf(float x, float y)",
+   "doc": ""
+  },
+  {
+   "name": "feof",
+   "header": "stdio.h",
+   "signature": "int feof(FILE *stream)",
+   "doc": "File status"
+  },
+  {
+   "name": "ferror",
+   "header": "stdio.h",
+   "signature": "int ferror(FILE *stream)",
+   "doc": ""
+  },
+  {
+   "name": "fflush",
+   "header": "stdio.h",
+   "signature": "int fflush(FILE *stream)",
+   "doc": ""
+  },
+  {
+   "name": "fgetc",
+   "header": "stdio.h",
+   "signature": "int fgetc(FILE *stream)",
+   "doc": "Character I/O"
+  },
+  {
+   "name": "fgetpos",
+   "header": "stdio.h",
+   "signature": "int fgetpos(FILE *restrict stream, fpos_t *restrict pos)",
+   "doc": ""
+  },
+  {
+   "name": "fgets",
+   "header": "stdio.h",
+   "signature": "char *fgets(char *restrict str, int size, FILE *restrict stream)",
+   "doc": ""
+  },
+  {
+   "name": "floor",
+   "header": "math.h",
+   "signature": "float floor(float x)  /* macro floor(x) */",
+   "doc": ""
+  },
+  {
+   "name": "floorf",
+   "header": "math.h",
+   "signature": "float floorf(float x)",
+   "doc": ""
+  },
+  {
+   "name": "fmax",
+   "header": "math.h",
+   "signature": "float fmax(float x, float y)  /* macro fmax(x,y) */",
+   "doc": ""
+  },
+  {
+   "name": "fmaxf",
+   "header": "math.h",
+   "signature": "float fmaxf(float x, float y)",
+   "doc": ""
+  },
+  {
+   "name": "fmin",
+   "header": "math.h",
+   "signature": "float fmin(float x, float y)  /* macro fmin(x,y) */",
+   "doc": ""
+  },
+  {
+   "name": "fminf",
+   "header": "math.h",
+   "signature": "float fminf(float x, float y)",
+   "doc": ""
+  },
+  {
+   "name": "fmod",
+   "header": "math.h",
+   "signature": "float fmod(float x, float y)  /* macro fmod(x,y) */",
+   "doc": ""
+  },
+  {
+   "name": "fmodf",
+   "header": "math.h",
+   "signature": "float fmodf(float x, float y)",
+   "doc": ""
+  },
+  {
+   "name": "fopen",
+   "header": "stdio.h",
+   "signature": "FILE *fopen(const char *restrict filename, const char *restrict mode)",
+   "doc": "Stream file operations"
+  },
+  {
+   "name": "fprintf",
+   "header": "stdio.h",
+   "signature": "int fprintf(FILE *restrict stream, const char *restrict format, ...)",
+   "doc": "Formatted I/O"
+  },
+  {
+   "name": "fputc",
+   "header": "stdio.h",
+   "signature": "int fputc(int c, FILE *stream)",
+   "doc": ""
+  },
+  {
+   "name": "fputs",
+   "header": "stdio.h",
+   "signature": "int fputs(const char *restrict str, FILE *restrict stream)",
+   "doc": ""
+  },
+  {
+   "name": "fread",
+   "header": "stdio.h",
+   "signature": "size_t fread(void *restrict ptr, size_t size, size_t nmemb, FILE *restrict stream)",
+   "doc": "Block I/O"
+  },
+  {
+   "name": "free",
+   "header": "stdlib.h",
+   "signature": "__fastcall__ void free(void *ptr)",
+   "doc": ""
+  },
+  {
+   "name": "freopen",
+   "header": "stdio.h",
+   "signature": "FILE *freopen(const char *restrict filename, const char *restrict mode, FILE *restrict stream)",
+   "doc": ""
+  },
+  {
+   "name": "frexp",
+   "header": "math.h",
+   "signature": "float frexp(float x, signed int *exp)  /* macro frexp(x,e) */",
+   "doc": ""
+  },
+  {
+   "name": "frexpf",
+   "header": "math.h",
+   "signature": "float frexpf(float x, signed int *exp)",
+   "doc": ""
+  },
+  {
+   "name": "fscanf",
+   "header": "stdio.h",
+   "signature": "int fscanf(FILE *restrict stream, const char *restrict format, ...)",
+   "doc": ""
+  },
+  {
+   "name": "fseek",
+   "header": "stdio.h",
+   "signature": "int fseek(FILE *stream, long offset, int whence)",
+   "doc": "File positioning"
+  },
+  {
+   "name": "fsetpos",
+   "header": "stdio.h",
+   "signature": "int fsetpos(FILE *stream, const fpos_t *pos)",
+   "doc": ""
+  },
+  {
+   "name": "ftell",
+   "header": "stdio.h",
+   "signature": "long ftell(FILE *stream)",
+   "doc": ""
+  },
+  {
+   "name": "ftoa",
+   "header": "stdlib.h",
+   "signature": "void ftoa(float f, char *s)",
+   "doc": "f as printf's %g writes it, at s (oscar64's)"
+  },
+  {
+   "name": "fwrite",
+   "header": "stdio.h",
+   "signature": "size_t fwrite(const void *restrict ptr, size_t size, size_t nmemb, FILE *restrict stream)",
+   "doc": ""
+  },
+  {
+   "name": "gcd",
+   "header": "math.h",
+   "signature": "signed int gcd(signed int a, signed int b)",
+   "doc": ""
+  },
+  {
+   "name": "get_tv",
+   "header": "cbm.h",
+   "signature": "__fastcall__ unsigned char get_tv(void)",
+   "doc": "TV_NTSC or TV_PAL ($D06F bit 7)"
+  },
+  {
+   "name": "getattr_xy",
+   "header": "conio.h",
+   "signature": "__fastcall__ int getattr_xy(int x, int y)",
+   "doc": "The colour RAM byte at (x, y)"
+  },
+  {
+   "name": "getch",
+   "header": "conio.h",
+   "signature": "__fastcall__ int getch(void)",
+   "doc": "cgetc"
+  },
+  {
+   "name": "getch_xy",
+   "header": "conio.h",
+   "signature": "__fastcall__ int getch_xy(int x, int y)",
+   "doc": "The screen code at (x, y) (with its reverse bit)"
+  },
+  {
+   "name": "getchar",
+   "header": "stdio.h",
+   "signature": "__fastcall__ int getchar(void)",
+   "doc": ""
+  },
+  {
+   "name": "getenv",
+   "header": "stdlib.h",
+   "signature": "char *getenv(const char *name)",
+   "doc": "The environment (empty at the start; putenv's \"NAME=value\" strings)"
+  },
+  {
+   "name": "getopt",
+   "header": "unistd.h",
+   "signature": "int getopt(int argc, char *const argv[], const char *optstring)",
+   "doc": "POSIX getopt (lib/stdlib/getopt.c): the next option letter of argv (main's, see doc/bin/cc45.md: RUN : REM a, b ...) found in optstring, -1 after the last option (\"--\" ends them too); a letter followed by ':' takes an argument (optarg: the rest of the word, or the next one). '?' for an unknown option or a missing argument (':' for the latter when optstring starts with ':'), with a message on stderr unless opterr is 0 or optstring starts with ':'; optopt is the letter. optind: the next argv element."
+  },
+  {
+   "name": "gets",
+   "header": "stdio.h",
+   "signature": "char *gets(char *s)",
+   "doc": "A line from stdin without its '\\n' (no bound: prefer gets_s or fgets); NULL at EOF with nothing read"
+  },
+  {
+   "name": "gets_s",
+   "header": "stdio.h",
+   "signature": "char *gets_s(char *s, size_t n)",
+   "doc": "C11's: at most n - 1 characters; a longer line is read to its end and gives \"\" and NULL (as s NULL or n 0)"
+  },
+  {
+   "name": "gmtime",
+   "header": "time.h",
+   "signature": "struct tm *gmtime(time_t *timer)",
+   "doc": ""
+  },
+  {
+   "name": "gotox",
+   "header": "conio.h",
+   "signature": "__fastcall__ void gotox(unsigned char x)",
+   "doc": "The cursor's column / row only"
+  },
+  {
+   "name": "gotoxy",
+   "header": "conio.h",
+   "signature": "__fastcall__ void gotoxy(int x, int y)",
+   "doc": "The cursor to (x, y), (0, 0) the top left corner"
+  },
+  {
+   "name": "gotoy",
+   "header": "conio.h",
+   "signature": "__fastcall__ void gotoy(unsigned char y)",
+   "doc": ""
+  },
+  {
+   "name": "heapfree",
+   "header": "stdlib.h",
+   "signature": "__fastcall__ unsigned int heapfree(void)",
+   "doc": "oscar64's name for _heapmemavail"
+  },
+  {
+   "name": "imaxabs",
+   "header": "inttypes.h",
+   "signature": "intmax_t imaxabs(intmax_t j)",
+   "doc": ""
+  },
+  {
+   "name": "imaxdiv",
+   "header": "inttypes.h",
+   "signature": "imaxdiv_t imaxdiv(intmax_t numer, intmax_t denom)",
+   "doc": ""
+  },
+  {
+   "name": "input_flush",
+   "header": "input.h",
+   "signature": "void input_flush(void)",
+   "doc": "Discard the keys waiting"
+  },
+  {
+   "name": "input_joy",
+   "header": "input.h",
+   "signature": "__fastcall__ unsigned char input_joy(unsigned char port)",
+   "doc": "Port 1 or 2: JOY_ bits of what is held down"
+  },
+  {
+   "name": "input_joy_type",
+   "header": "input.h",
+   "signature": "void input_joy_type(unsigned char port, unsigned char type)",
+   "doc": "What is connected to port 1 or 2 (JOYTYPE_1BUTTON by default)"
+  },
+  {
+   "name": "input_key",
+   "header": "input.h",
+   "signature": "unsigned char input_key(void)",
+   "doc": "The next key (above), or 0 when none is waiting"
+  },
+  {
+   "name": "input_modifiers",
+   "header": "input.h",
+   "signature": "unsigned char input_modifiers(void)",
+   "doc": "The modifier keys held now: $D611 (bit 0 right SHIFT, 1 left SHIFT, 2 CTRL, 3 MEGA, 4 ALT, 5 NO SCROLL, 6 CAPS LOCK)"
+  },
+  {
+   "name": "input_pressed",
+   "header": "input.h",
+   "signature": "unsigned char input_pressed(unsigned char keycode)",
+   "doc": "1 while the key (a KEY_ matrix code of <mega65.h>) is held down"
+  },
+  {
+   "name": "input_wait",
+   "header": "input.h",
+   "signature": "__fastcall__ unsigned char input_wait(void)",
+   "doc": "The next key, waiting for one (__fastcall__, as the next: conio.s45 calls them)"
+  },
+  {
+   "name": "input_waiting",
+   "header": "input.h",
+   "signature": "__fastcall__ unsigned char input_waiting(void)",
+   "doc": "1 when a key is waiting"
+  },
+  {
+   "name": "isinf",
+   "header": "math.h",
+   "signature": "int isinf(float x)  /* macro isinf(x) */",
+   "doc": ""
+  },
+  {
+   "name": "isnan",
+   "header": "math.h",
+   "signature": "int isnan(float x)  /* macro isnan(x) */",
+   "doc": ""
+  },
+  {
+   "name": "itoa",
+   "header": "stdlib.h",
+   "signature": "__fastcall__ char *itoa(signed int value, char *str, int base)",
+   "doc": ""
+  },
+  {
+   "name": "joy_count",
+   "header": "joystick.h",
+   "signature": "__fastcall__ unsigned char joy_count(void)",
+   "doc": "2"
+  },
+  {
+   "name": "joy_install",
+   "header": "joystick.h",
+   "signature": "__fastcall__ unsigned char joy_install(const void *driver)",
+   "doc": ""
+  },
+  {
+   "name": "joy_load_driver",
+   "header": "joystick.h",
+   "signature": "__fastcall__ unsigned char joy_load_driver(const char *driver)",
+   "doc": ""
+  },
+  {
+   "name": "joy_read",
+   "header": "joystick.h",
+   "signature": "__fastcall__ unsigned char joy_read(unsigned char joystick)",
+   "doc": "The bits of what is held on JOY_1 or JOY_2 (0 for another)"
+  },
+  {
+   "name": "joy_uninstall",
+   "header": "joystick.h",
+   "signature": "__fastcall__ unsigned char joy_uninstall(void)",
+   "doc": ""
+  },
+  {
+   "name": "joy_unload",
+   "header": "joystick.h",
+   "signature": "__fastcall__ unsigned char joy_unload(void)",
+   "doc": ""
+  },
+  {
+   "name": "kbhit",
+   "header": "conio.h",
+   "signature": "__fastcall__ int kbhit(void)",
+   "doc": "1 when a key is waiting (in the KERNAL's buffer or the keyboard's queue at $D610)"
+  },
+  {
+   "name": "key_pressed",
+   "header": "mega65.h",
+   "signature": "__regparm unsigned char key_pressed(unsigned char keycode)",
+   "doc": "Direct keyboard matrix scan — returns 1 if key pressed, 0 if not. Scans CIA1 hardware directly; supports simultaneous multi-key detection. Requires linking with c45.lib (or c45_zp.lib)."
+  },
+  {
+   "name": "labs",
+   "header": "math.h",
+   "signature": "__fastcall__ signed long labs(signed long value)",
+   "doc": ""
+  },
+  {
+   "name": "lcm",
+   "header": "math.h",
+   "signature": "signed int lcm(signed int a, signed int b)",
+   "doc": ""
+  },
+  {
+   "name": "ldexp",
+   "header": "math.h",
+   "signature": "float ldexp(float x, signed int n)  /* macro ldexp(x,n) */",
+   "doc": ""
+  },
+  {
+   "name": "ldexpf",
+   "header": "math.h",
+   "signature": "float ldexpf(float x, signed int n)",
+   "doc": ""
+  },
+  {
+   "name": "ldiv",
+   "header": "stdlib.h",
+   "signature": "ldiv_t ldiv(signed long numer, signed long denom)",
+   "doc": ""
+  },
+  {
+   "name": "localeconv",
+   "header": "locale.h",
+   "signature": "struct lconv *localeconv(void)",
+   "doc": "The \"C\" locale's conventions: \".\" and CHAR_MAX (255) for the rest"
+  },
+  {
+   "name": "localtime",
+   "header": "time.h",
+   "signature": "struct tm *localtime(time_t *timer)",
+   "doc": ""
+  },
+  {
+   "name": "log",
+   "header": "math.h",
+   "signature": "float log(float x)  /* macro log(x) */",
+   "doc": ""
+  },
+  {
+   "name": "log10",
+   "header": "math.h",
+   "signature": "float log10(float x)  /* macro log10(x) */",
+   "doc": ""
+  },
+  {
+   "name": "log10f",
+   "header": "math.h",
+   "signature": "float log10f(float x)",
+   "doc": ""
+  },
+  {
+   "name": "log2",
+   "header": "math.h",
+   "signature": "float log2(float x)  /* macro log2(x) */",
+   "doc": ""
+  },
+  {
+   "name": "log2f",
+   "header": "math.h",
+   "signature": "float log2f(float x)",
+   "doc": ""
+  },
+  {
+   "name": "logf",
+   "header": "math.h",
+   "signature": "float logf(float x)",
+   "doc": ""
+  },
+  {
+   "name": "longjmp",
+   "header": "setjmp.h",
+   "signature": "__fastcall__ void longjmp(jmp_buf env, int val)",
+   "doc": ""
+  },
+  {
+   "name": "ltoa",
+   "header": "stdlib.h",
+   "signature": "__fastcall__ char *ltoa(signed long value, char *str, int base)",
+   "doc": ""
+  },
+  {
+   "name": "malloc",
+   "header": "stdlib.h",
+   "signature": "__fastcall__ void *malloc(size_t size)",
+   "doc": ""
+  },
+  {
+   "name": "max",
+   "header": "math.h",
+   "signature": "signed int max(signed int a, signed int b)",
+   "doc": ""
+  },
+  {
+   "name": "memchr",
+   "header": "string.h",
+   "signature": "void *memchr(const void *s, int c, int n)",
+   "doc": ""
+  },
+  {
+   "name": "memcmp",
+   "header": "string.h",
+   "signature": "__fastcall__ signed int memcmp(const void *s1, const void *s2, int n) __pure",
+   "doc": ""
+  },
+  {
+   "name": "memcmp__fpfz",
+   "header": "far_string.h",
+   "signature": "int memcmp__fpfz(far_ptr_t ptr1, far_ptr_t ptr2, size_t len)",
+   "doc": ""
+  },
+  {
+   "name": "memcmp__fpvz",
+   "header": "far_string.h",
+   "signature": "int memcmp__fpvz(far_ptr_t ptr1, const void *ptr2, size_t len)",
+   "doc": ""
+  },
+  {
+   "name": "memcmp__pvfz",
+   "header": "far_string.h",
+   "signature": "int memcmp__pvfz(const void *ptr1, far_ptr_t ptr2, size_t len)",
+   "doc": ""
+  },
+  {
+   "name": "memcmp__pvpvz",
+   "header": "far_string.h",
+   "signature": "int memcmp__pvpvz(const void *ptr1, const void *ptr2, size_t len)",
+   "doc": "memcmp"
+  },
+  {
+   "name": "memcpy",
+   "header": "string.h",
+   "signature": "__fastcall__ void *memcpy(void *restrict dest, const void *restrict src, int n)",
+   "doc": "Memory operations"
+  },
+  {
+   "name": "memcpy__fpfpst",
+   "header": "far_string.h",
+   "signature": "far_ptr_t memcpy__fpfpst(far_ptr_t dst, far_ptr_t src, size_t len)",
+   "doc": ""
+  },
+  {
+   "name": "memcpy__fpvst",
+   "header": "far_string.h",
+   "signature": "void *memcpy__fpvst(void *dst, far_ptr_t src, size_t len)",
+   "doc": ""
+  },
+  {
+   "name": "memcpy__pvfpst",
+   "header": "far_string.h",
+   "signature": "far_ptr_t memcpy__pvfpst(far_ptr_t dst, const void *src, size_t len)",
+   "doc": ""
+  },
+  {
+   "name": "memcpy__pvpvst",
+   "header": "far_string.h",
+   "signature": "void *memcpy__pvpvst(void *dst, const void *src, size_t len)",
+   "doc": "memcpy"
+  },
+  {
+   "name": "memmove",
+   "header": "string.h",
+   "signature": "__fastcall__ void *memmove(void *dest, const void *src, int n)",
+   "doc": ""
+  },
+  {
+   "name": "memset",
+   "header": "string.h",
+   "signature": "__fastcall__ void *memset(void *s, int c, int n)",
+   "doc": ""
+  },
+  {
+   "name": "memset__fpist",
+   "header": "far_string.h",
+   "signature": "far_ptr_t memset__fpist(far_ptr_t ptr, int val, size_t len)",
+   "doc": ""
+  },
+  {
+   "name": "memset__pvist",
+   "header": "far_string.h",
+   "signature": "void *memset__pvist(void *ptr, int val, size_t len)",
+   "doc": "memset"
+  },
+  {
+   "name": "midi_note_to_hz",
+   "header": "audio_midi.h",
+   "signature": "unsigned int midi_note_to_hz(unsigned char note)",
+   "doc": "The frequency in Hz of a MIDI note (69 = A4 = 440 Hz), rounded"
+  },
+  {
+   "name": "midi_parse",
+   "header": "audio_midi.h",
+   "signature": "unsigned char midi_parse(midi_parser_t *p, unsigned char b, midi_msg_t *msg)",
+   "doc": "Feed one byte; 1 when *msg holds a complete channel message"
+  },
+  {
+   "name": "midi_parser_init",
+   "header": "audio_midi.h",
+   "signature": "void midi_parser_init(midi_parser_t *p)",
+   "doc": ""
+  },
+  {
+   "name": "midi_synth_active",
+   "header": "audio_midi.h",
+   "signature": "unsigned char midi_synth_active(const midi_synth_t *s)",
+   "doc": "Voices sounding (playing or held by the pedal)"
+  },
+  {
+   "name": "midi_synth_all_off",
+   "header": "audio_midi.h",
+   "signature": "void midi_synth_all_off(midi_synth_t *s)",
+   "doc": "Release every note"
+  },
+  {
+   "name": "midi_synth_init",
+   "header": "audio_midi.h",
+   "signature": "void midi_synth_init(midi_synth_t *s, unsigned char first_voice, unsigned char num_voices, const sid_instrument_t *inst)",
+   "doc": "Voices first_voice .. first_voice + num_voices - 1, every channel playing inst"
+  },
+  {
+   "name": "midi_synth_message",
+   "header": "audio_midi.h",
+   "signature": "void midi_synth_message(midi_synth_t *s, const midi_msg_t *m)",
+   "doc": "Play a message"
+  },
+  {
+   "name": "midi_synth_set_instrument",
+   "header": "audio_midi.h",
+   "signature": "void midi_synth_set_instrument(midi_synth_t *s, unsigned char channel, const sid_instrument_t *inst)",
+   "doc": "The instrument of a channel"
+  },
+  {
+   "name": "midi_synth_set_programs",
+   "header": "audio_midi.h",
+   "signature": "void midi_synth_set_programs(midi_synth_t *s, const sid_instrument_t *programs, unsigned char count)",
+   "doc": "Program change n selects programs[n % count]"
+  },
+  {
+   "name": "min",
+   "header": "math.h",
+   "signature": "signed int min(signed int a, signed int b)",
+   "doc": ""
+  },
+  {
+   "name": "mktime",
+   "header": "time.h",
+   "signature": "time_t mktime(struct tm *tm)",
+   "doc": ""
+  },
+  {
+   "name": "modf",
+   "header": "math.h",
+   "signature": "float modf(float x, float *iptr)  /* macro modf(x,i) */",
+   "doc": ""
+  },
+  {
+   "name": "modff",
+   "header": "math.h",
+   "signature": "float modff(float x, float *iptr)",
+   "doc": ""
+  },
+  {
+   "name": "palette_get_color",
+   "header": "palette.h",
+   "signature": "int palette_get_color(int index, rgb_color_t *out)",
+   "doc": "Entry index's colour into *out; 0 (-1 for an index out of 0-255)"
+  },
+  {
+   "name": "palette_restore",
+   "header": "palette.h",
+   "signature": "void palette_restore(int first, int count, const uint8_t *buf)",
+   "doc": ""
+  },
+  {
+   "name": "palette_rotate",
+   "header": "palette.h",
+   "signature": "void palette_rotate(int start, int end, int direction)",
+   "doc": "Rotate entries start..end by one: direction > 0 moves each colour to the next entry (end's to start), < 0 the other way (colour cycling)"
+  },
+  {
+   "name": "palette_save",
+   "header": "palette.h",
+   "signature": "void palette_save(int first, int count, uint8_t *buf)",
+   "doc": "Copy count entries from first into buf (3 x count bytes: the registers as they are, all the reds, the greens, the blues) and put them back"
+  },
+  {
+   "name": "palette_set_color",
+   "header": "palette.h",
+   "signature": "void palette_set_color(int index, uint8_t r, uint8_t g, uint8_t b)",
+   "doc": "Set entry index (0-255) to r, g, b (0-255 each)"
+  },
+  {
+   "name": "palette_set_color_rgb",
+   "header": "palette.h",
+   "signature": "void palette_set_color_rgb(int index, rgb_color_t color)",
+   "doc": ""
+  },
+  {
+   "name": "palette_set_range",
+   "header": "palette.h",
+   "signature": "void palette_set_range(int first, int count, const uint8_t *rgb)",
+   "doc": "Set count entries from first: rgb holds r, g, b for each (3 x count bytes)"
+  },
+  {
+   "name": "perror",
+   "header": "stdio.h",
+   "signature": "void perror(const char *s)",
+   "doc": ""
+  },
+  {
+   "name": "posix_memalign",
+   "header": "stdlib.h",
+   "signature": "int posix_memalign(void **memptr, size_t alignment, size_t size)",
+   "doc": "size bytes at a multiple of alignment (a power of two) in *memptr, freed with free; 0, EINVAL or ENOMEM"
+  },
+  {
+   "name": "pow",
+   "header": "math.h",
+   "signature": "float pow(float x, float y)  /* macro pow(x,y) */",
+   "doc": "Additional float math functions (implemented in C using ROM primitives)"
+  },
+  {
+   "name": "powf",
+   "header": "math.h",
+   "signature": "float powf(float x, float y)",
+   "doc": "Additional float math functions (implemented in C using ROM primitives)"
+  },
+  {
+   "name": "printf",
+   "header": "stdio.h",
+   "signature": "int printf(char *restrict fmt, ...)",
+   "doc": ""
+  },
+  {
+   "name": "putch",
+   "header": "conio.h",
+   "signature": "__fastcall__ int putch(int ch)",
+   "doc": "cputc, returning ch"
+  },
+  {
+   "name": "putchar",
+   "header": "stdio.h",
+   "signature": "__fastcall__ int putchar(int c)",
+   "doc": ""
+  },
+  {
+   "name": "putenv",
+   "header": "stdlib.h",
+   "signature": "int putenv(char *string)",
+   "doc": ""
+  },
+  {
+   "name": "puts",
+   "header": "stdio.h",
+   "signature": "__fastcall__ int puts(char *s)",
+   "doc": ""
+  },
+  {
+   "name": "putstr",
+   "header": "stdio.h",
+   "signature": "__fastcall__ int putstr(const char *s)",
+   "doc": "puts without the newline (also __builtin_putstr); cc45 compiles printf(\"text\") -- no %, result unused -- as putstr(\"text\")"
+  },
+  {
+   "name": "qsort",
+   "header": "stdlib.h",
+   "signature": "void qsort(void *base, int nmemb, int size, int (*cmpfunc)())",
+   "doc": "Sorting and searching"
+  },
+  {
+   "name": "raise",
+   "header": "signal.h",
+   "signature": "int raise(int sig)",
+   "doc": "0, or nonzero for an unknown signal"
+  },
+  {
+   "name": "rand",
+   "header": "stdlib.h",
+   "signature": "__fastcall__ int rand(void)",
+   "doc": ""
+  },
+  {
+   "name": "realloc",
+   "header": "stdlib.h",
+   "signature": "__fastcall__ void *realloc(void *ptr, size_t size)",
+   "doc": ""
+  },
+  {
+   "name": "revers",
+   "header": "conio.h",
+   "signature": "__fastcall__ unsigned char revers(unsigned char onoff)",
+   "doc": "Reversed characters from now on (onoff 1) or not (0); the old setting"
+  },
+  {
+   "name": "rewind",
+   "header": "stdio.h",
+   "signature": "void rewind(FILE *stream)",
+   "doc": ""
+  },
+  {
+   "name": "romram_enable",
+   "header": "rom_ram.h",
+   "signature": "__fastcall__ unsigned char romram_enable(unsigned char regions)",
+   "doc": "Writes to the ROM area on; 1 when each of the regions (ROMRAM_... bits) takes a write (a byte of each changed and read back, then restored), 0 otherwise (an unknown region bit, or the protection stayed)"
+  },
+  {
+   "name": "romram_protect",
+   "header": "rom_ram.h",
+   "signature": "__fastcall__ void romram_protect(void)",
+   "doc": "Writes to the ROM area off again (the contents stay as they are)"
+  },
+  {
+   "name": "romram_ranges",
+   "header": "rom_ram.h",
+   "signature": "__fastcall__ const unsigned long *romram_ranges(unsigned char region)",
+   "doc": "A region's ranges: their count, then first / last address pairs (28-bit); NULL for an unknown region"
+  },
+  {
+   "name": "round",
+   "header": "math.h",
+   "signature": "float round(float x)  /* macro round(x) */",
+   "doc": ""
+  },
+  {
+   "name": "roundf",
+   "header": "math.h",
+   "signature": "float roundf(float x)",
+   "doc": ""
+  },
+  {
+   "name": "rtc_read",
+   "header": "time.h",
+   "signature": "void rtc_read(struct tm *tm)",
+   "doc": "MEGA65-specific: read the RTC into a struct tm: the date and time only, tm_wday and tm_yday -1 (call mktime(tm) afterwards for them), tm_isdst 0"
+  },
+  {
+   "name": "scanf",
+   "header": "stdio.h",
+   "signature": "int scanf(const char *restrict format, ...)",
+   "doc": ""
+  },
+  {
+   "name": "screenheight",
+   "header": "conio.h",
+   "signature": "__fastcall__ int screenheight(void)",
+   "doc": ""
+  },
+  {
+   "name": "screensize",
+   "header": "conio.h",
+   "signature": "__fastcall__ void screensize(unsigned char *x, unsigned char *y)",
+   "doc": "The screen's columns and rows (the VIC-IV's $D05E and $D07B + 1)"
+  },
+  {
+   "name": "screenwidth",
+   "header": "conio.h",
+   "signature": "__fastcall__ int screenwidth(void)",
+   "doc": ""
+  },
+  {
+   "name": "seam_cell",
+   "header": "seam.h",
+   "signature": "unsigned long seam_cell(const seam_screen_t *s, unsigned char x, unsigned char y)",
+   "doc": "the linear address of cell x, y's screen bytes; of its colour RAM bytes"
+  },
+  {
+   "name": "seam_cells",
+   "header": "seam.h",
+   "signature": "void seam_cells(const seam_screen_t *s, unsigned char x, unsigned char y, unsigned long numbers, unsigned int n)",
+   "doc": "n cells from x, y (along the row and on: the screen's cells are one run) from character numbers at a linear address (two bytes each, low byte first: a picture's cells); their colours stay"
+  },
+  {
+   "name": "seam_clear",
+   "header": "seam.h",
+   "signature": "void seam_clear(const seam_screen_t *s, unsigned char colour)",
+   "doc": "Fill it with spaces in colour"
+  },
+  {
+   "name": "seam_colour",
+   "header": "seam.h",
+   "signature": "unsigned long seam_colour(const seam_screen_t *s, unsigned char x, unsigned char y)",
+   "doc": ""
+  },
+  {
+   "name": "seam_hide",
+   "header": "seam.h",
+   "signature": "void seam_hide(seam_screen_t *s)",
+   "doc": ""
+  },
+  {
+   "name": "seam_init",
+   "header": "seam.h",
+   "signature": "void seam_init(seam_screen_t *s, unsigned long screen, unsigned int colour, unsigned char cols, unsigned char rows)",
+   "doc": "Describe a screen of cols x rows cells and clear it (spaces, colour 1)"
+  },
+  {
+   "name": "seam_put",
+   "header": "seam.h",
+   "signature": "void seam_put(const seam_screen_t *s, unsigned char x, unsigned char y, unsigned int ch, unsigned char colour)",
+   "doc": "A cell: character number ch, colour (0-15; a full-colour character's $FF pixels)"
+  },
+  {
+   "name": "seam_row",
+   "header": "seam.h",
+   "signature": "void seam_row(const seam_screen_t *s, unsigned char x, unsigned char y, unsigned char n, const void *codes, const void *colours)",
+   "doc": "n cells from x, y from a one-byte screen's characters and colours (bank 0: a row of a text screen's buffers)"
+  },
+  {
+   "name": "seam_show",
+   "header": "seam.h",
+   "signature": "void seam_show(seam_screen_t *s)",
+   "doc": "Show it (CHR16 and FCLRHI on); put back what was shown"
+  },
+  {
+   "name": "seam_text",
+   "header": "seam.h",
+   "signature": "void seam_text(const seam_screen_t *s, unsigned char x, unsigned char y, const void *codes, unsigned char n, unsigned char colour)",
+   "doc": "n screen codes (one byte each, characters 0-255, in bank 0) from x, y in colour"
+  },
+  {
+   "name": "ser_close",
+   "header": "serial.h",
+   "signature": "__fastcall__ unsigned char ser_close(void)",
+   "doc": ""
+  },
+  {
+   "name": "ser_get",
+   "header": "serial.h",
+   "signature": "__fastcall__ unsigned char ser_get(char *b)",
+   "doc": ""
+  },
+  {
+   "name": "ser_install",
+   "header": "serial.h",
+   "signature": "__fastcall__ unsigned char ser_install(const void *driver)",
+   "doc": ""
+  },
+  {
+   "name": "ser_ioctl",
+   "header": "serial.h",
+   "signature": "__fastcall__ unsigned char ser_ioctl(unsigned char code, void *data)",
+   "doc": ""
+  },
+  {
+   "name": "ser_load_driver",
+   "header": "serial.h",
+   "signature": "__fastcall__ unsigned char ser_load_driver(const char *driver)",
+   "doc": ""
+  },
+  {
+   "name": "ser_open",
+   "header": "serial.h",
+   "signature": "__fastcall__ unsigned char ser_open(const struct ser_params *params)",
+   "doc": ""
+  },
+  {
+   "name": "ser_put",
+   "header": "serial.h",
+   "signature": "__fastcall__ unsigned char ser_put(char b)",
+   "doc": ""
+  },
+  {
+   "name": "ser_status",
+   "header": "serial.h",
+   "signature": "__fastcall__ unsigned char ser_status(unsigned char *status)",
+   "doc": ""
+  },
+  {
+   "name": "ser_uninstall",
+   "header": "serial.h",
+   "signature": "__fastcall__ unsigned char ser_uninstall(void)",
+   "doc": ""
+  },
+  {
+   "name": "ser_unload",
+   "header": "serial.h",
+   "signature": "__fastcall__ unsigned char ser_unload(void)",
+   "doc": ""
+  },
+  {
+   "name": "setbuf",
+   "header": "stdio.h",
+   "signature": "void setbuf(FILE *restrict stream, char *restrict buffer)",
+   "doc": ""
+  },
+  {
+   "name": "setjmp",
+   "header": "setjmp.h",
+   "signature": "__fastcall__ int setjmp(jmp_buf env)",
+   "doc": ""
+  },
+  {
+   "name": "setlocale",
+   "header": "locale.h",
+   "signature": "char *setlocale(int category, const char *locale)",
+   "doc": "\"C\" for NULL (the current one), \"\", \"C\" or \"POSIX\"; NULL for another locale or category"
+  },
+  {
+   "name": "setvbuf",
+   "header": "stdio.h",
+   "signature": "int setvbuf(FILE *restrict stream, char *restrict buffer, int mode, size_t size)",
+   "doc": "Buffer control"
+  },
+  {
+   "name": "sid_all_off",
+   "header": "audio_sid.h",
+   "signature": "void sid_all_off(void)",
+   "doc": "Every voice released"
+  },
+  {
+   "name": "sid_gate",
+   "header": "audio_sid.h",
+   "signature": "void sid_gate(unsigned char v, unsigned char on)",
+   "doc": "Gate on (1: attack) or off (0: release)"
+  },
+  {
+   "name": "sid_get_reg",
+   "header": "audio_sid.h",
+   "signature": "unsigned char sid_get_reg(unsigned char chip, unsigned char reg)",
+   "doc": "The value last written to register reg (0-$18) of SID chip (0-3)"
+  },
+  {
+   "name": "sid_hz_to_reg",
+   "header": "audio_sid.h",
+   "signature": "unsigned int sid_hz_to_reg(unsigned int hz)",
+   "doc": "Frequency register values: of a frequency in Hz (up to about 3800 Hz), of a MIDI note (69 = A4 = 440 Hz; 0-106)"
+  },
+  {
+   "name": "sid_init",
+   "header": "audio_sid.h",
+   "signature": "void sid_init(void)",
+   "doc": "All four SIDs silent (gates off, registers 0), volume 15, no mirroring"
+  },
+  {
+   "name": "sid_note_off",
+   "header": "audio_sid.h",
+   "signature": "void sid_note_off(unsigned char v)",
+   "doc": "Release the note"
+  },
+  {
+   "name": "sid_note_on",
+   "header": "audio_sid.h",
+   "signature": "void sid_note_on(unsigned char v, unsigned char note)",
+   "doc": "The note (MIDI) with the envelope restarted (gate off, then on)"
+  },
+  {
+   "name": "sid_note_to_reg",
+   "header": "audio_sid.h",
+   "signature": "unsigned int sid_note_to_reg(unsigned char note)",
+   "doc": ""
+  },
+  {
+   "name": "sid_play",
+   "header": "audio_sid.h",
+   "signature": "void sid_play(unsigned char v, const sid_instrument_t *inst, unsigned char note)",
+   "doc": "Instrument, note and a restarted envelope"
+  },
+  {
+   "name": "sid_set_adsr",
+   "header": "audio_sid.h",
+   "signature": "void sid_set_adsr(unsigned char v, unsigned char attack, unsigned char decay, unsigned char sustain, unsigned char release)",
+   "doc": "Envelope, each 0-15"
+  },
+  {
+   "name": "sid_set_filter",
+   "header": "audio_sid.h",
+   "signature": "void sid_set_filter(unsigned char chip, unsigned int cutoff, unsigned char resonance, unsigned char mode, unsigned char voices)",
+   "doc": "A SID's filter: cutoff 0-2047, resonance 0-15, mode (SID_FILTER_LP...), the voices it filters (bits 0-2)"
+  },
+  {
+   "name": "sid_set_freq",
+   "header": "audio_sid.h",
+   "signature": "void sid_set_freq(unsigned char v, unsigned int hz)",
+   "doc": ""
+  },
+  {
+   "name": "sid_set_freq_reg",
+   "header": "audio_sid.h",
+   "signature": "void sid_set_freq_reg(unsigned char v, unsigned int reg)",
+   "doc": ""
+  },
+  {
+   "name": "sid_set_instrument",
+   "header": "audio_sid.h",
+   "signature": "void sid_set_instrument(unsigned char v, const sid_instrument_t *inst)",
+   "doc": "Waveform, envelope and pulse width of an instrument"
+  },
+  {
+   "name": "sid_set_mirror",
+   "header": "audio_sid.h",
+   "signature": "void sid_set_mirror(unsigned char on)",
+   "doc": "Writes to voices 0-5 also go to voices 6-11 (on: 1)"
+  },
+  {
+   "name": "sid_set_note",
+   "header": "audio_sid.h",
+   "signature": "void sid_set_note(unsigned char v, unsigned char note)",
+   "doc": ""
+  },
+  {
+   "name": "sid_set_pulse",
+   "header": "audio_sid.h",
+   "signature": "void sid_set_pulse(unsigned char v, unsigned int width)",
+   "doc": "Pulse width 0-4095 (2048: square)"
+  },
+  {
+   "name": "sid_set_volume",
+   "header": "audio_sid.h",
+   "signature": "void sid_set_volume(unsigned char volume)",
+   "doc": "Master volume 0-15 of all four SIDs (the filter mode bits are kept)"
+  },
+  {
+   "name": "sid_set_waveform",
+   "header": "audio_sid.h",
+   "signature": "void sid_set_waveform(unsigned char v, unsigned char wave)",
+   "doc": "Waveform bits (SID_PULSE | SID_RINGMOD...); the gate stays as it is"
+  },
+  {
+   "name": "sid_write",
+   "header": "audio_sid.h",
+   "signature": "void sid_write(unsigned char v, unsigned char reg, unsigned char val)",
+   "doc": "Register reg (0-6) of voice v; register reg (0-$18) of SID chip (0-3)"
+  },
+  {
+   "name": "sid_write_chip",
+   "header": "audio_sid.h",
+   "signature": "void sid_write_chip(unsigned char chip, unsigned char reg, unsigned char val)",
+   "doc": ""
+  },
+  {
+   "name": "signal",
+   "header": "signal.h",
+   "signature": "__sigfunc signal(int sig, __sigfunc func)",
+   "doc": "func for signal sig from now on; the earlier one, or SIG_ERR (errno EINVAL) for an unknown signal"
+  },
+  {
+   "name": "sin",
+   "header": "math.h",
+   "signature": "float sin(float x)  /* macro sin(x) */",
+   "doc": "Floating-point math functions (CBM 40-bit float via BASIC 65 ROM)"
+  },
+  {
+   "name": "sinf",
+   "header": "math.h",
+   "signature": "float sinf(float x)",
+   "doc": "Floating-point math functions (CBM 40-bit float via BASIC 65 ROM)"
+  },
+  {
+   "name": "sleep",
+   "header": "unistd.h",
+   "signature": "__fastcall__ unsigned int sleep(unsigned int seconds)",
+   "doc": "Waits seconds seconds (clock()'s frames); 0"
+  },
+  {
+   "name": "snprintf",
+   "header": "stdio.h",
+   "signature": "int snprintf(char *restrict buf, int size, char *restrict fmt, ...)",
+   "doc": ""
+  },
+  {
+   "name": "sprintf",
+   "header": "stdio.h",
+   "signature": "int sprintf(char *restrict buf, char *restrict fmt, ...)",
+   "doc": ""
+  },
+  {
+   "name": "sprite_alpha",
+   "header": "sprites.h",
+   "signature": "__fastcall__ void sprite_alpha(unsigned char n, unsigned char on)",
+   "doc": "Alpha blending with what is behind the sprite (the hardware's; xemu does not show it): on for sprite n, and the level (0-255) for all"
+  },
+  {
+   "name": "sprite_alpha_level",
+   "header": "sprites.h",
+   "signature": "__fastcall__ void sprite_alpha_level(unsigned char level)",
+   "doc": ""
+  },
+  {
+   "name": "sprite_altcolors",
+   "header": "sprites.h",
+   "signature": "__fastcall__ void sprite_altcolors(unsigned char n, unsigned char on)",
+   "doc": ""
+  },
+  {
+   "name": "sprite_behind",
+   "header": "sprites.h",
+   "signature": "__fastcall__ void sprite_behind(unsigned char n, unsigned char on)",
+   "doc": "every SPRITE_TALL sprite's"
+  },
+  {
+   "name": "sprite_bg_collisions",
+   "header": "sprites.h",
+   "signature": "__fastcall__ unsigned char sprite_bg_collisions(void)",
+   "doc": ""
+  },
+  {
+   "name": "sprite_collisions",
+   "header": "sprites.h",
+   "signature": "__fastcall__ unsigned char sprite_collisions(void)",
+   "doc": "Collisions: a bit per sprite, since the last read (the hardware's: pixels touching another sprite's / the foreground's; reading clears them)"
+  },
+  {
+   "name": "sprite_color",
+   "header": "sprites.h",
+   "signature": "__fastcall__ void sprite_color(unsigned char n, unsigned char c)",
+   "doc": "Looks"
+  },
+  {
+   "name": "sprite_done",
+   "header": "graphics.h",
+   "signature": "void sprite_done(sprite_t *spr)",
+   "doc": "sprite_done - Cleanup sprite Releases hardware sprite slot if applicable"
+  },
+  {
+   "name": "sprite_h640",
+   "header": "sprites.h",
+   "signature": "__fastcall__ void sprite_h640(unsigned char on)",
+   "doc": "behind the foreground"
+  },
+  {
+   "name": "sprite_height",
+   "header": "sprites.h",
+   "signature": "__fastcall__ void sprite_height(unsigned char rows)",
+   "doc": ""
+  },
+  {
+   "name": "sprite_hide",
+   "header": "graphics.h",
+   "signature": "void sprite_hide(sprite_t *spr)",
+   "doc": "sprite_hide - Hide sprite Parameters: spr — Sprite to hide"
+  },
+  {
+   "name": "sprite_image",
+   "header": "sprites.h",
+   "signature": "__fastcall__ void sprite_image(unsigned char n, unsigned long addr)",
+   "doc": "Sprite n's image: its data at the 28-bit address addr (a multiple of 64, below 4 MB: chip RAM)"
+  },
+  {
+   "name": "sprite_init",
+   "header": "graphics.h",
+   "signature": "int sprite_init(sprite_t *spr, int width, int height)",
+   "doc": "sprite_init - Initialize a sprite Allocates sprite structure and auto-detects render mode: - Hardware sprite if size ≤ 64×64 and HW available - Software sprite otherwise Parameters: spr — Sprite structure (caller-allocated) width, height — Sprite size in pixels Returns: 0 on success, -1 if no hardware sprites available (falls back to SW)"
+  },
+  {
+   "name": "sprite_mode",
+   "header": "sprites.h",
+   "signature": "__fastcall__ void sprite_mode(unsigned char n, unsigned char mode)",
+   "doc": ""
+  },
+  {
+   "name": "sprite_move",
+   "header": "sprites.h",
+   "signature": "__fastcall__ void sprite_move(unsigned char n, signed int dx, signed int dy)",
+   "doc": ""
+  },
+  {
+   "name": "sprite_multicolors",
+   "header": "sprites.h",
+   "signature": "__fastcall__ void sprite_multicolors(unsigned char c1, unsigned char c2)",
+   "doc": "SPRITE_16COLOR: the transparent colour"
+  },
+  {
+   "name": "sprite_overlap",
+   "header": "sprites.h",
+   "signature": "__fastcall__ unsigned char sprite_overlap(unsigned char a, unsigned char b)",
+   "doc": "1 when the boxes of sprites a and b overlap (their positions and sizes; shown or not)"
+  },
+  {
+   "name": "sprite_palette_bank",
+   "header": "sprites.h",
+   "signature": "__fastcall__ void sprite_palette_bank(unsigned char bank)",
+   "doc": "Colours: the palette bank (0-3) sprites take their colours from ($D070 SPRPALSEL; sprite_init keeps the current one: the KERNAL's $D070 is $FF, bank 3 for everything). The text and graphics keep theirs; fill the sprites' with <palette.h> after mapping it at $D100 ($D070 bits 6-7, then back). A 16-colour sprite's second set of colours: entries n * 16 + c + 128 (SPRBPMEN)"
+  },
+  {
+   "name": "sprite_pos",
+   "header": "sprites.h",
+   "signature": "__fastcall__ void sprite_pos(unsigned char n, unsigned int x, unsigned int y)",
+   "doc": "Position"
+  },
+  {
+   "name": "sprite_show",
+   "header": "graphics.h",
+   "signature": "void sprite_show(sprite_t *spr)",
+   "doc": "sprite_show - Make sprite visible Parameters: spr — Sprite to show"
+  },
+  {
+   "name": "sprite_size",
+   "header": "sprites.h",
+   "signature": "__fastcall__ void sprite_size(unsigned char n, unsigned char flags)",
+   "doc": ""
+  },
+  {
+   "name": "sprite_tile",
+   "header": "sprites.h",
+   "signature": "__fastcall__ void sprite_tile(unsigned char n, unsigned char on)",
+   "doc": "rows one physical pixel high"
+  },
+  {
+   "name": "sprite_v400",
+   "header": "sprites.h",
+   "signature": "__fastcall__ void sprite_v400(unsigned char n, unsigned char on)",
+   "doc": "positions and pixels at 640"
+  },
+  {
+   "name": "sprite_x",
+   "header": "sprites.h",
+   "signature": "__fastcall__ unsigned int sprite_x(unsigned char n)",
+   "doc": ""
+  },
+  {
+   "name": "sprite_y",
+   "header": "sprites.h",
+   "signature": "__fastcall__ unsigned int sprite_y(unsigned char n)",
+   "doc": ""
+  },
+  {
+   "name": "sqrt",
+   "header": "math.h",
+   "signature": "float sqrt(float x)  /* macro sqrt(x) */",
+   "doc": ""
+  },
+  {
+   "name": "sqrtf",
+   "header": "math.h",
+   "signature": "float sqrtf(float x)",
+   "doc": ""
+  },
+  {
+   "name": "srand",
+   "header": "stdlib.h",
+   "signature": "__fastcall__ void srand(unsigned int seed)",
+   "doc": ""
+  },
+  {
+   "name": "sscanf",
+   "header": "stdio.h",
+   "signature": "int sscanf(const char *restrict str, const char *restrict fmt, ...)",
+   "doc": ""
+  },
+  {
+   "name": "stoa",
+   "header": "stdlib.h",
+   "signature": "__fastcall__ char *stoa(signed int value, char *str, int base)  /* macro stoa(value, str, base) */",
+   "doc": ""
+  },
+  {
+   "name": "stpcpy",
+   "header": "string.h",
+   "signature": "__fastcall__ char *stpcpy(char *restrict dest, const char *restrict src)",
+   "doc": "strcpy, returning the end of dest (its NUL)"
+  },
+  {
+   "name": "strcasecmp",
+   "header": "string.h",
+   "signature": "__fastcall__ signed int strcasecmp(const char *s1, const char *s2) __pure",
+   "doc": "Ignoring case (letters fold as tolower does); stricmp / strnicmp are the same functions"
+  },
+  {
+   "name": "strcasestr",
+   "header": "string.h",
+   "signature": "__fastcall__ char *strcasestr(const char *haystack, const char *needle) __pure",
+   "doc": ""
+  },
+  {
+   "name": "strcat",
+   "header": "string.h",
+   "signature": "__fastcall__ char *strcat(char *restrict dest, const char *restrict src)",
+   "doc": ""
+  },
+  {
+   "name": "strcat__fpfp",
+   "header": "far_string.h",
+   "signature": "far_ptr_t strcat__fpfp(far_ptr_t dst, far_ptr_t src)",
+   "doc": ""
+  },
+  {
+   "name": "strcat__fppc",
+   "header": "far_string.h",
+   "signature": "far_ptr_t strcat__fppc(far_ptr_t dst, const char *src)",
+   "doc": ""
+  },
+  {
+   "name": "strcat__pcfp",
+   "header": "far_string.h",
+   "signature": "char *strcat__pcfp(char *dst, far_ptr_t src)",
+   "doc": ""
+  },
+  {
+   "name": "strcat__pcpc",
+   "header": "far_string.h",
+   "signature": "char *strcat__pcpc(char *dst, const char *src)",
+   "doc": "strcat"
+  },
+  {
+   "name": "strchr",
+   "header": "string.h",
+   "signature": "__fastcall__ char *strchr(const char *s, int c) __pure",
+   "doc": ""
+  },
+  {
+   "name": "strcmp",
+   "header": "string.h",
+   "signature": "__fastcall__ signed int strcmp(const char *s1, const char *s2) __pure",
+   "doc": ""
+  },
+  {
+   "name": "strcmp__fpfp",
+   "header": "far_string.h",
+   "signature": "int strcmp__fpfp(far_ptr_t str1, far_ptr_t str2)",
+   "doc": ""
+  },
+  {
+   "name": "strcmp__fppc",
+   "header": "far_string.h",
+   "signature": "int strcmp__fppc(far_ptr_t str1, const char *str2)",
+   "doc": ""
+  },
+  {
+   "name": "strcmp__pcfp",
+   "header": "far_string.h",
+   "signature": "int strcmp__pcfp(const char *str1, far_ptr_t str2)",
+   "doc": ""
+  },
+  {
+   "name": "strcmp__pcpc",
+   "header": "far_string.h",
+   "signature": "int strcmp__pcpc(const char *str1, const char *str2)",
+   "doc": "strcmp: <0, 0, >0 by the first differing (unsigned) byte"
+  },
+  {
+   "name": "strcoll",
+   "header": "string.h",
+   "signature": "__fastcall__ signed int strcoll(const char *s1, const char *s2) __pure",
+   "doc": "The \"C\" locale: strcoll is strcmp; strxfrm copies src when it fits in n bytes and returns its length"
+  },
+  {
+   "name": "strcpy",
+   "header": "string.h",
+   "signature": "__fastcall__ char *strcpy(char *restrict dest, const char *restrict src)",
+   "doc": ""
+  },
+  {
+   "name": "strcpy__fpfp",
+   "header": "far_string.h",
+   "signature": "far_ptr_t strcpy__fpfp(far_ptr_t dst, far_ptr_t src)",
+   "doc": ""
+  },
+  {
+   "name": "strcpy__fppc",
+   "header": "far_string.h",
+   "signature": "far_ptr_t strcpy__fppc(far_ptr_t dst, const char *src)",
+   "doc": ""
+  },
+  {
+   "name": "strcpy__pcfp",
+   "header": "far_string.h",
+   "signature": "char *strcpy__pcfp(char *dst, far_ptr_t src)",
+   "doc": ""
+  },
+  {
+   "name": "strcpy__pcpc",
+   "header": "far_string.h",
+   "signature": "char *strcpy__pcpc(char *dst, const char *src)",
+   "doc": "strcpy"
+  },
+  {
+   "name": "strcspn",
+   "header": "string.h",
+   "signature": "int strcspn(const char *s, const char *reject) __pure",
+   "doc": ""
+  },
+  {
+   "name": "strdup",
+   "header": "string.h",
+   "signature": "char *strdup(const char *s)",
+   "doc": ""
+  },
+  {
+   "name": "strerror",
+   "header": "string.h",
+   "signature": "char *strerror(int errnum)",
+   "doc": ""
+  },
+  {
+   "name": "strftime",
+   "header": "time.h",
+   "signature": "unsigned int strftime(char *restrict s, unsigned int max, const char *restrict format, const struct tm *restrict tm)",
+   "doc": "strftime: tm formatted into s (at most max bytes with the NUL) by the C99 conversions (%a %A %b %B %c %C %d %D %e %F %g %G %h %H %I %j %m %M %n %p %r %R %S %t %T %u %U %V %w %W %x %X %y %Y %z %Z %%; E and O modifiers ignored) in the \"C\" locale; %z is +0000 and %Z empty (no time zones). The characters written without the NUL, or 0 when they do not fit."
+  },
+  {
+   "name": "stricmp",
+   "header": "string.h",
+   "signature": "__fastcall__ signed int stricmp(const char *s1, const char *s2) __pure",
+   "doc": ""
+  },
+  {
+   "name": "stridx",
+   "header": "string.h",
+   "signature": "int stridx(const char *s, ...)",
+   "doc": "Which of several strings s is: 1 for the first equal one, 0 for none; the list ends with NULL (cc45 turns a call whose candidates are all string literals into __stridx_table, where the NULL may be left out)"
+  },
+  {
+   "name": "strlcpy",
+   "header": "string.h",
+   "signature": "int strlcpy(char *restrict dst, const char *restrict src, int size)",
+   "doc": ""
+  },
+  {
+   "name": "strlen",
+   "header": "string.h",
+   "signature": "__fastcall__ int strlen(const char *s) __pure",
+   "doc": "String operations"
+  },
+  {
+   "name": "strlen__fp",
+   "header": "far_string.h",
+   "signature": "size_t strlen__fp(far_ptr_t str)",
+   "doc": ""
+  },
+  {
+   "name": "strlen__pc",
+   "header": "far_string.h",
+   "signature": "size_t strlen__pc(const char *str)",
+   "doc": "strlen"
+  },
+  {
+   "name": "strlower",
+   "header": "string.h",
+   "signature": "__fastcall__ char *strlower(char *s)",
+   "doc": ""
+  },
+  {
+   "name": "strlwr",
+   "header": "string.h",
+   "signature": "__fastcall__ char *strlwr(char *s)",
+   "doc": "s changed to lower / upper case in place; s. strlower / strupper are the same"
+  },
+  {
+   "name": "strncasecmp",
+   "header": "string.h",
+   "signature": "__fastcall__ signed int strncasecmp(const char *s1, const char *s2, unsigned int n) __pure",
+   "doc": ""
+  },
+  {
+   "name": "strncat",
+   "header": "string.h",
+   "signature": "__fastcall__ char *strncat(char *restrict dest, const char *restrict src, int n)",
+   "doc": ""
+  },
+  {
+   "name": "strncmp",
+   "header": "string.h",
+   "signature": "__fastcall__ signed int strncmp(const char *s1, const char *s2, int n) __pure",
+   "doc": ""
+  },
+  {
+   "name": "strncpy",
+   "header": "string.h",
+   "signature": "__fastcall__ char *strncpy(char *restrict dest, const char *restrict src, int n)",
+   "doc": ""
+  },
+  {
+   "name": "strndup",
+   "header": "string.h",
+   "signature": "char *strndup(const char *s, unsigned int n)",
+   "doc": "At most n characters of s, NUL-terminated, in a malloc'd copy"
+  },
+  {
+   "name": "strnicmp",
+   "header": "string.h",
+   "signature": "__fastcall__ signed int strnicmp(const char *s1, const char *s2, unsigned int n) __pure",
+   "doc": ""
+  },
+  {
+   "name": "strnlen",
+   "header": "string.h",
+   "signature": "int strnlen(const char *s, int maxlen) __pure",
+   "doc": ""
+  },
+  {
+   "name": "strpbrk",
+   "header": "string.h",
+   "signature": "char *strpbrk(const char *s, const char *accept) __pure",
+   "doc": ""
+  },
+  {
+   "name": "strqtok",
+   "header": "string.h",
+   "signature": "char *strqtok(char *s, const char *delim)",
+   "doc": "strtok where a token may be in double quotes (delimiters inside kept, the quotes removed), as cc65's"
+  },
+  {
+   "name": "strrchr",
+   "header": "string.h",
+   "signature": "__fastcall__ char *strrchr(const char *s, int c) __pure",
+   "doc": ""
+  },
+  {
+   "name": "strspn",
+   "header": "string.h",
+   "signature": "int strspn(const char *s, const char *accept) __pure",
+   "doc": ""
+  },
+  {
+   "name": "strstr",
+   "header": "string.h",
+   "signature": "char *strstr(const char *haystack, const char *needle) __pure",
+   "doc": ""
+  },
+  {
+   "name": "strtof",
+   "header": "stdlib.h",
+   "signature": "float strtof(char *restrict nptr, char **restrict endptr)",
+   "doc": ""
+  },
+  {
+   "name": "strtoimax",
+   "header": "inttypes.h",
+   "signature": "intmax_t strtoimax(const char *restrict nptr, char **restrict endptr, int base)",
+   "doc": "strtol / strtoul (intmax_t is long)"
+  },
+  {
+   "name": "strtok",
+   "header": "string.h",
+   "signature": "__fastcall__ char *strtok(char *restrict s, const char *restrict delim)",
+   "doc": ""
+  },
+  {
+   "name": "strtok_r",
+   "header": "string.h",
+   "signature": "__fastcall__ char *strtok_r(char *restrict s, const char *restrict delim, char **restrict saveptr)",
+   "doc": ""
+  },
+  {
+   "name": "strtol",
+   "header": "stdlib.h",
+   "signature": "__fastcall__ signed long strtol(char *restrict nptr, char **restrict endptr, int base)",
+   "doc": ""
+  },
+  {
+   "name": "strtoul",
+   "header": "stdlib.h",
+   "signature": "__fastcall__ unsigned long strtoul(char *restrict nptr, char **restrict endptr, int base)",
+   "doc": ""
+  },
+  {
+   "name": "strtoumax",
+   "header": "inttypes.h",
+   "signature": "uintmax_t strtoumax(const char *restrict nptr, char **restrict endptr, int base)",
+   "doc": ""
+  },
+  {
+   "name": "strupper",
+   "header": "string.h",
+   "signature": "__fastcall__ char *strupper(char *s)",
+   "doc": ""
+  },
+  {
+   "name": "strupr",
+   "header": "string.h",
+   "signature": "__fastcall__ char *strupr(char *s)",
+   "doc": ""
+  },
+  {
+   "name": "strxfrm",
+   "header": "string.h",
+   "signature": "__fastcall__ unsigned int strxfrm(char *restrict dest, const char *restrict src, unsigned int n)",
+   "doc": ""
+  },
+  {
+   "name": "system",
+   "header": "stdlib.h",
+   "signature": "int system(const char *command)",
+   "doc": "No command processor: 0 for NULL, -1 for a command"
+  },
+  {
+   "name": "tan",
+   "header": "math.h",
+   "signature": "float tan(float x)  /* macro tan(x) */",
+   "doc": ""
+  },
+  {
+   "name": "tanf",
+   "header": "math.h",
+   "signature": "float tanf(float x)",
+   "doc": ""
+  },
+  {
+   "name": "textattr",
+   "header": "conio.h",
+   "signature": "__fastcall__ void textattr(int attr)",
+   "doc": "textcolor(attr & 15) and the background attr >> 4"
+  },
+  {
+   "name": "textbackground",
+   "header": "conio.h",
+   "signature": "__fastcall__ unsigned char textbackground(int color)",
+   "doc": "bgcolor"
+  },
+  {
+   "name": "textcolor",
+   "header": "conio.h",
+   "signature": "__fastcall__ unsigned char textcolor(unsigned char color)",
+   "doc": "The text colour (0-15) from now on; the old one"
+  },
+  {
+   "name": "tgi_arc",
+   "header": "tgi.h",
+   "signature": "__fastcall__ void tgi_arc(int x, int y, unsigned char rx, unsigned char ry, unsigned sa, unsigned ea)",
+   "doc": "Draw an ellipse arc with center at x/y and radii rx/ry using the current drawing color. The arc covers the angle between sa and ea (startangle and endangle), which must be in the range 0..360."
+  },
+  {
+   "name": "tgi_bar",
+   "header": "tgi.h",
+   "signature": "__fastcall__ void tgi_bar(int x1, int y1, int x2, int y2)",
+   "doc": "Draw a bar (a filled rectangle) using the current color, or the fill pattern tgi_setpattern / tgi_setpattern_mono set."
+  },
+  {
+   "name": "tgi_circle",
+   "header": "tgi.h",
+   "signature": "__fastcall__ void tgi_circle(int x, int y, unsigned char radius)",
+   "doc": "Draw a circle in the current drawing color."
+  },
+  {
+   "name": "tgi_clear",
+   "header": "tgi.h",
+   "signature": "void tgi_clear(void)",
+   "doc": "Clear the drawpage (to colour 0)."
+  },
+  {
+   "name": "tgi_done",
+   "header": "tgi.h",
+   "signature": "__fastcall__ void tgi_done(void)",
+   "doc": "End graphics mode, switch back to text mode. Will NOT uninstall or unload the driver!"
+  },
+  {
+   "name": "tgi_ellipse",
+   "header": "tgi.h",
+   "signature": "__fastcall__ void tgi_ellipse(int x, int y, unsigned char rx, unsigned char ry)",
+   "doc": "Draw a full ellipse with center at x/y and radii rx/ry using the current drawing color."
+  },
+  {
+   "name": "tgi_free_vectorfont",
+   "header": "tgi.h",
+   "signature": "void tgi_free_vectorfont(const tgi_vectorfont* font)",
+   "doc": "Free a vector font that was previously loaded into memory."
+  },
+  {
+   "name": "tgi_getaspectratio",
+   "header": "tgi.h",
+   "signature": "unsigned tgi_getaspectratio(void)",
+   "doc": "Returns the aspect ratio for the loaded driver (8.8 fixed point)."
+  },
+  {
+   "name": "tgi_getcolor",
+   "header": "tgi.h",
+   "signature": "unsigned char tgi_getcolor(void)",
+   "doc": "Return the current drawing color (palette index)."
+  },
+  {
+   "name": "tgi_getcolorcount",
+   "header": "tgi.h",
+   "signature": "unsigned char tgi_getcolorcount(void)",
+   "doc": "Get the number of available colors. Zero means 256 colors."
+  },
+  {
+   "name": "tgi_getdefpalette",
+   "header": "tgi.h",
+   "signature": "const unsigned char* tgi_getdefpalette(void)",
+   "doc": "Return the default palette."
+  },
+  {
+   "name": "tgi_geterror",
+   "header": "tgi.h",
+   "signature": "unsigned char tgi_geterror(void)",
+   "doc": "Return the error code for the last operation. This will also clear the error."
+  },
+  {
+   "name": "tgi_geterrormsg",
+   "header": "tgi.h",
+   "signature": "const char* tgi_geterrormsg(unsigned char code)",
+   "doc": "Get an error message describing the error in code."
+  },
+  {
+   "name": "tgi_getmaxcolor",
+   "header": "tgi.h",
+   "signature": "unsigned char tgi_getmaxcolor(void)",
+   "doc": "Return the maximum supported color number."
+  },
+  {
+   "name": "tgi_getmaxx",
+   "header": "tgi.h",
+   "signature": "unsigned tgi_getmaxx(void)",
+   "doc": "Return the maximum x coordinate (tgi_getxres() - 1)."
+  },
+  {
+   "name": "tgi_getmaxy",
+   "header": "tgi.h",
+   "signature": "unsigned tgi_getmaxy(void)",
+   "doc": "Return the maximum y coordinate (tgi_getyres() - 1)."
+  },
+  {
+   "name": "tgi_getpagecount",
+   "header": "tgi.h",
+   "signature": "unsigned tgi_getpagecount(void)",
+   "doc": "Returns the number of screen pages available."
+  },
+  {
+   "name": "tgi_getpalette",
+   "header": "tgi.h",
+   "signature": "const unsigned char* tgi_getpalette(void)",
+   "doc": "Return the current palette."
+  },
+  {
+   "name": "tgi_getpixel",
+   "header": "tgi.h",
+   "signature": "__fastcall__ unsigned char tgi_getpixel(int x, int y)",
+   "doc": "Get the color value of a pixel (0 outside the screen)."
+  },
+  {
+   "name": "tgi_gettextheight",
+   "header": "tgi.h",
+   "signature": "__fastcall__ unsigned tgi_gettextheight(const char* s)",
+   "doc": "Calculate the height of the text in pixels according to the current text style."
+  },
+  {
+   "name": "tgi_gettextwidth",
+   "header": "tgi.h",
+   "signature": "__fastcall__ unsigned tgi_gettextwidth(const char* s)",
+   "doc": "Calculate the width of the text in pixels according to the current text style."
+  },
+  {
+   "name": "tgi_getxres",
+   "header": "tgi.h",
+   "signature": "unsigned tgi_getxres(void)",
+   "doc": "Return the resolution in X direction."
+  },
+  {
+   "name": "tgi_getyres",
+   "header": "tgi.h",
+   "signature": "unsigned tgi_getyres(void)",
+   "doc": "Return the resolution in Y direction."
+  },
+  {
+   "name": "tgi_gotoxy",
+   "header": "tgi.h",
+   "signature": "void tgi_gotoxy(int x, int y)",
+   "doc": "Set the graphics cursor to the given position."
+  },
+  {
+   "name": "tgi_imulround",
+   "header": "tgi.h",
+   "signature": "__fastcall__ int tgi_imulround(int rhs, int lhs)",
+   "doc": "Multiply two values, one being an 8.8 fixed point one, and return the rounded and scaled result."
+  },
+  {
+   "name": "tgi_init",
+   "header": "tgi.h",
+   "signature": "__fastcall__ void tgi_init(void)",
+   "doc": "Initialize the already loaded graphics driver."
+  },
+  {
+   "name": "tgi_install",
+   "header": "tgi.h",
+   "signature": "__fastcall__ unsigned char tgi_install(const void* driver)",
+   "doc": "Install an already loaded driver. Returns the error code (TGI_ERR_OK)."
+  },
+  {
+   "name": "tgi_install_vectorfont",
+   "header": "tgi.h",
+   "signature": "__fastcall__ void tgi_install_vectorfont(const tgi_vectorfont* font)",
+   "doc": "Install a vector font for use (NULL: none)."
+  },
+  {
+   "name": "tgi_ioctl",
+   "header": "tgi.h",
+   "signature": "unsigned tgi_ioctl(unsigned char code, void* data)",
+   "doc": "Call the driver specific control function (TGI_IOCTL_*); unknown codes set TGI_ERR_INV_FUNC."
+  },
+  {
+   "name": "tgi_line",
+   "header": "tgi.h",
+   "signature": "__fastcall__ void tgi_line(int x1, int y1, int x2, int y2)",
+   "doc": "Draw a line in the current drawing color. The graphics cursor will be set to x2/y2 by this call."
+  },
+  {
+   "name": "tgi_lineto",
+   "header": "tgi.h",
+   "signature": "__fastcall__ void tgi_lineto(int x2, int y2)",
+   "doc": "Draw a line in the current drawing color from the graphics cursor to the new end point. The graphics cursor will be updated to x2/y2."
+  },
+  {
+   "name": "tgi_load_driver",
+   "header": "tgi.h",
+   "signature": "void tgi_load_driver(const char* name)",
+   "doc": "Load and install the given driver (by name: one of the drivers above)."
+  },
+  {
+   "name": "tgi_load_vectorfont",
+   "header": "tgi.h",
+   "signature": "const tgi_vectorfont* tgi_load_vectorfont(const char* name)",
+   "doc": "Load a vector font into memory and return it. In case of errors, NULL is returned and an error is set, which can be retrieved using tgi_geterror. To use the font, it has to be installed using tgi_install_vectorfont."
+  },
+  {
+   "name": "tgi_outtext",
+   "header": "tgi.h",
+   "signature": "__fastcall__ void tgi_outtext(const char* s)",
+   "doc": "Output text at the current graphics cursor position. The graphics cursor is moved to the end of the text."
+  },
+  {
+   "name": "tgi_outtextxy",
+   "header": "tgi.h",
+   "signature": "__fastcall__ void tgi_outtextxy(int x, int y, const char* s)",
+   "doc": "Output text at the given cursor position. The graphics cursor is moved to the end of the text."
+  },
+  {
+   "name": "tgi_pieslice",
+   "header": "tgi.h",
+   "signature": "__fastcall__ void tgi_pieslice(int x, int y, unsigned char rx, unsigned char ry, unsigned sa, unsigned ea)",
+   "doc": "Draw an ellipse pie slice with center at x/y and radii rx/ry using the current drawing color. The pie slice covers the angle between sa and ea, which must be in the range 0..360."
+  },
+  {
+   "name": "tgi_setaspectratio",
+   "header": "tgi.h",
+   "signature": "void tgi_setaspectratio(unsigned aspectratio)",
+   "doc": "Set a new aspect ratio for the loaded driver (8.8 fixed point)."
+  },
+  {
+   "name": "tgi_setcolor",
+   "header": "tgi.h",
+   "signature": "void tgi_setcolor(unsigned char color_index)",
+   "doc": "Set the current drawing color (palette index)."
+  },
+  {
+   "name": "tgi_setdrawpage",
+   "header": "tgi.h",
+   "signature": "__fastcall__ void tgi_setdrawpage(unsigned char page)",
+   "doc": "Set the drawable page. Will set an error if the page is not available."
+  },
+  {
+   "name": "tgi_setpalette",
+   "header": "tgi.h",
+   "signature": "void tgi_setpalette(const unsigned char* palette)",
+   "doc": "Set the palette: 256 entries, each a colour of the default palette."
+  },
+  {
+   "name": "tgi_setpattern",
+   "header": "tgi.h",
+   "signature": "__fastcall__ void tgi_setpattern(const unsigned char *pattern, int transparent)",
+   "doc": ""
+  },
+  {
+   "name": "tgi_setpattern_mono",
+   "header": "tgi.h",
+   "signature": "__fastcall__ void tgi_setpattern_mono(const unsigned char *bits, unsigned char fg, int bg)",
+   "doc": ""
+  },
+  {
+   "name": "tgi_setpixel",
+   "header": "tgi.h",
+   "signature": "__fastcall__ void tgi_setpixel(int x, int y)",
+   "doc": "Plot a pixel in the current drawing color."
+  },
+  {
+   "name": "tgi_setsolid",
+   "header": "tgi.h",
+   "signature": "__fastcall__ void tgi_setsolid(void)",
+   "doc": ""
+  },
+  {
+   "name": "tgi_settextdir",
+   "header": "tgi.h",
+   "signature": "__fastcall__ void tgi_settextdir(unsigned char dir)",
+   "doc": "Set the direction for text output (TGI_TEXT_*)."
+  },
+  {
+   "name": "tgi_settextscale",
+   "header": "tgi.h",
+   "signature": "__fastcall__ void tgi_settextscale(unsigned width, unsigned height)",
+   "doc": "Set the scaling for text output: 8.8 fixed point ($100 = 1, $200 = 2)."
+  },
+  {
+   "name": "tgi_settextstyle",
+   "header": "tgi.h",
+   "signature": "__fastcall__ void tgi_settextstyle(unsigned width, unsigned height, unsigned char dir, unsigned char font)",
+   "doc": "Set the style for text output: scales as tgi_settextscale, dir one of TGI_TEXT_*, font one of TGI_FONT_*."
+  },
+  {
+   "name": "tgi_setviewpage",
+   "header": "tgi.h",
+   "signature": "__fastcall__ void tgi_setviewpage(unsigned char page)",
+   "doc": "Set the visible page. Will set an error if the page is not available."
+  },
+  {
+   "name": "tgi_uninstall",
+   "header": "tgi.h",
+   "signature": "__fastcall__ void tgi_uninstall(void)",
+   "doc": "Uninstall the currently loaded driver but do not unload it. Will call tgi_done if necessary."
+  },
+  {
+   "name": "tgi_unload",
+   "header": "tgi.h",
+   "signature": "void tgi_unload(void)",
+   "doc": "Uninstall, then unload the currently loaded driver. Will call tgi_done if necessary."
+  },
+  {
+   "name": "time",
+   "header": "time.h",
+   "signature": "time_t time(time_t *tp)",
+   "doc": ""
+  },
+  {
+   "name": "tmpfile",
+   "header": "stdio.h",
+   "signature": "FILE *tmpfile(void)",
+   "doc": "Temporary files"
+  },
+  {
+   "name": "tmpnam",
+   "header": "stdio.h",
+   "signature": "char *tmpnam(char *str)",
+   "doc": ""
+  },
+  {
+   "name": "trunc",
+   "header": "math.h",
+   "signature": "float trunc(float x)  /* macro trunc(x) */",
+   "doc": ""
+  },
+  {
+   "name": "truncf",
+   "header": "math.h",
+   "signature": "float truncf(float x)",
+   "doc": ""
+  },
+  {
+   "name": "tune_borrow",
+   "header": "audio_tune.h",
+   "signature": "__fastcall__ void tune_borrow(unsigned char voice, unsigned int frames)",
+   "doc": ""
+  },
+  {
+   "name": "tune_codec",
+   "header": "audio_tune.h",
+   "signature": "__fastcall__ void tune_codec(void)",
+   "doc": "The player's reader of coded data, linked and set up (music.h calls it)"
+  },
+  {
+   "name": "tune_detune",
+   "header": "audio_tune.h",
+   "signature": "__fastcall__ void tune_detune(unsigned char voice, signed char amount)",
+   "doc": ""
+  },
+  {
+   "name": "tune_digi_channels",
+   "header": "audio_tune.h",
+   "signature": "__fastcall__ void tune_digi_channels(unsigned char first)",
+   "doc": ""
+  },
+  {
+   "name": "tune_digi_volume",
+   "header": "audio_tune.h",
+   "signature": "__fastcall__ void tune_digi_volume(unsigned char volume)",
+   "doc": ""
+  },
+  {
+   "name": "tune_fade",
+   "header": "audio_tune.h",
+   "signature": "__fastcall__ void tune_fade(unsigned int frames, unsigned char volume)",
+   "doc": ""
+  },
+  {
+   "name": "tune_fading",
+   "header": "audio_tune.h",
+   "signature": "__fastcall__ unsigned char tune_fading(void)",
+   "doc": ""
+  },
+  {
+   "name": "tune_note",
+   "header": "audio_tune.h",
+   "signature": "__fastcall__ unsigned char tune_note(unsigned char voice)",
+   "doc": "The note tune voice voice sounds (MIDI, before its transpose), 0xFF when it is silent (a rest, released, over)"
+  },
+  {
+   "name": "tune_playing",
+   "header": "audio_tune.h",
+   "signature": "__fastcall__ unsigned char tune_playing(void)",
+   "doc": "1 while playing; 0 once a tune that does not loop is over"
+  },
+  {
+   "name": "tune_queued",
+   "header": "audio_tune.h",
+   "signature": "__fastcall__ unsigned char tune_queued(void)",
+   "doc": ""
+  },
+  {
+   "name": "tune_return",
+   "header": "audio_tune.h",
+   "signature": "__fastcall__ void tune_return(unsigned char voice)",
+   "doc": ""
+  },
+  {
+   "name": "tune_samples",
+   "header": "audio_tune.h",
+   "signature": "__fastcall__ void tune_samples(unsigned long addr)",
+   "doc": "Digi voices (tune45's d1: .. d4:): samples on the audio DMA. A hit sets its channel up and starts it (8-bit unsigned, once, at the volume on both sides); the next hit on the channel cuts it short (tune45 mixes samples hit together into one, and warns of tails cut short). The audio DMA reads chip RAM only: tune_samples where the tunes' samples are (tune45's tune_sample_bank, or its --samples file loaded): chip RAM, not across a 64 KB boundary tune_digi_channels the audio DMA channel (0-3) of digi voice 0 (before tune_play; voices past channel 3 are left out): the others stay the program's, for its sound effects tune_digi_volume 0-255 (255 at first) They stay set across tune_play."
+  },
+  {
+   "name": "tune_seek",
+   "header": "audio_tune.h",
+   "signature": "__fastcall__ void tune_seek(unsigned int ticks)",
+   "doc": "On ticks ticks at once, silently (after tune_play: back where a tune was, from tune_ticks; tune45 gives a tune's TUNE_<NAME>_TICKS, once through, to keep a looping tune's position short). The voices sound again from their next events. Interrupts are held off while it runs (about 0.2 ms a thousand ticks of a voice)."
+  },
+  {
+   "name": "tune_stop",
+   "header": "audio_tune.h",
+   "signature": "__fastcall__ void tune_stop(void)",
+   "doc": "Silence the tune's voices (their gates off)"
+  },
+  {
+   "name": "tune_tempo",
+   "header": "audio_tune.h",
+   "signature": "__fastcall__ void tune_tempo(unsigned int scale)",
+   "doc": ""
+  },
+  {
+   "name": "tune_ticks",
+   "header": "audio_tune.h",
+   "signature": "__fastcall__ unsigned int tune_ticks(void)",
+   "doc": "The tune's position: ticks played since tune_play"
+  },
+  {
+   "name": "tune_transpose",
+   "header": "audio_tune.h",
+   "signature": "__fastcall__ void tune_transpose(unsigned char voice, signed char semitones)",
+   "doc": ""
+  },
+  {
+   "name": "tune_update",
+   "header": "audio_tune.h",
+   "signature": "__fastcall__ void tune_update(void)",
+   "doc": "Once a frame (50 Hz PAL, 60 Hz NTSC: the tempo is the same in time)"
+  },
+  {
+   "name": "tune_vibrato",
+   "header": "audio_tune.h",
+   "signature": "__fastcall__ void tune_vibrato(unsigned char extra)",
+   "doc": ""
+  },
+  {
+   "name": "tune_voices",
+   "header": "audio_tune.h",
+   "signature": "__fastcall__ void tune_voices(unsigned char first)",
+   "doc": "Run-time controls (they stay set across tune_play): tune_voices the SID voice of tune voice 0 (before tune_play) tune_tempo a tempo scale, 8.8: 0x100 as written, 0x140 1.25 times as fast tune_vibrato vibrato depth added to every note's (a wobble) tune_transpose / tune_detune per tune voice: semitones; frequency + amount/64 of itself (a chorus, out of tune)"
+  },
+  {
+   "name": "tune_volume",
+   "header": "audio_tune.h",
+   "signature": "__fastcall__ void tune_volume(unsigned char volume)",
+   "doc": "For a game: the music's volume, voices lent to the program's sound effects, the next tune at a bar line. tune_volume the music's volume 0-15 (15 at first): the SIDs' (their $D418 volume, the rest of it kept) and the digi voices' (17 a step, times tune_digi_volume's); at once tune_fade to a volume over so many frames (tune_update steps it); tune_fading: 1 until it gets there. A fade out and the next tune: tune_fade(50, 0) ... tune_play ... tune_fade(50, 15) tune_borrow a tune voice (0-11) lent to the program for so many frames (0: until tune_return): the music goes on but writes none of its registers (nor its filter routing), so a sound effect can play on it (audio_sid.h); back, it sounds again from its next note tune_queue the tune started at the playing one's next bar line (its ticks a multiple of bar: tune45 gives TUNE_<NAME>_BAR for a tune with ticks a bar), or at once if on one or nothing plays; tune_queued: 1 while it waits The volume stays set across tune_play."
+  },
+  {
+   "name": "tzset",
+   "header": "time.h",
+   "signature": "void tzset(void)",
+   "doc": "No time zones: nothing to set"
+  },
+  {
+   "name": "ultoa",
+   "header": "stdlib.h",
+   "signature": "__fastcall__ char *ultoa(unsigned long value, char *str, int base)",
+   "doc": ""
+  },
+  {
+   "name": "ungetc",
+   "header": "stdio.h",
+   "signature": "int ungetc(int c, FILE *stream)",
+   "doc": ""
+  },
+  {
+   "name": "unpack",
+   "header": "unpack.h",
+   "signature": "__fastcall__ unsigned long unpack(unsigned long src)",
+   "doc": "(the ZP convention in either library: the overlay loader calls it from assembly). The library's name is __unpack, so a program's own function named unpack cannot take the overlay loader's call (#346)"
+  },
+  {
+   "name": "unpack_to",
+   "header": "unpack.h",
+   "signature": "__fastcall__ unsigned long unpack_to(unsigned long src, unsigned long dst)",
+   "doc": "The same to dst, the stream's own destination ignored: a stream unpacked to more than one place, or made with any -d"
+  },
+  {
+   "name": "utoa",
+   "header": "stdlib.h",
+   "signature": "__fastcall__ char *utoa(unsigned int value, char *str, int base)",
+   "doc": ""
+  },
+  {
+   "name": "vcprintf",
+   "header": "conio.h",
+   "signature": "__fastcall__ int vcprintf(const char *format, va_list ap)",
+   "doc": ""
+  },
+  {
+   "name": "vcscanf",
+   "header": "conio.h",
+   "signature": "__fastcall__ int vcscanf(const char *format, va_list ap)",
+   "doc": ""
+  },
+  {
+   "name": "vfprintf",
+   "header": "stdio.h",
+   "signature": "int vfprintf(FILE *restrict stream, const char *restrict format, va_list ap)",
+   "doc": ""
+  },
+  {
+   "name": "vfscanf",
+   "header": "stdio.h",
+   "signature": "int vfscanf(FILE *stream, const char *format, va_list ap)",
+   "doc": ""
+  },
+  {
+   "name": "vscanf",
+   "header": "stdio.h",
+   "signature": "int vscanf(const char *format, va_list ap)",
+   "doc": ""
+  },
+  {
+   "name": "vsnprintf",
+   "header": "stdio.h",
+   "signature": "int vsnprintf(char *restrict buf, int size, char *restrict fmt, va_list ap)",
+   "doc": ""
+  },
+  {
+   "name": "vsprintf",
+   "header": "stdio.h",
+   "signature": "int vsprintf(char *restrict buf, char *restrict fmt, va_list ap)",
+   "doc": ""
+  },
+  {
+   "name": "vsscanf",
+   "header": "stdio.h",
+   "signature": "int vsscanf(const char *restrict str, const char *restrict fmt, va_list ap)",
+   "doc": ""
+  },
+  {
+   "name": "waitvsync",
+   "header": "cbm.h",
+   "signature": "__fastcall__ void waitvsync(void)",
+   "doc": "Until the raster starts the next frame"
+  },
+  {
+   "name": "wherex",
+   "header": "conio.h",
+   "signature": "__fastcall__ int wherex(void)",
+   "doc": "The cursor's column / row"
+  },
+  {
+   "name": "wherey",
+   "header": "conio.h",
+   "signature": "__fastcall__ int wherey(void)",
+   "doc": ""
+  }
+ ]
+}

@@ -3,7 +3,6 @@
   "displayName": "MEGA65 CC45/CA45 Compiler",
   "description": "Language support and a debugger for the MEGA65 C compiler (cc45) and assembler (ca45)",
   "version": "0.1.0",
-  "type": "module",
   "publisher": "m65",
   "license": "MIT",
   "repository": {
@@ -21,7 +20,7 @@
   ],
   "main": "./dist/extension.js",
   "scripts": {
-    "build": "tsc && esbuild src/extension.ts --bundle --platform=node --target=es2020 --external:vscode --outfile=dist/extension.js",
+    "build": "tsc --noEmit -p . && esbuild src/extension.ts --bundle --platform=node --target=es2020 --external:vscode --outfile=dist/extension.js && esbuild ../lsp-server/src/server.ts --bundle --platform=node --target=node18 --format=cjs --outfile=dist/server.js && node -e \"require('fs').cpSync('../lsp-server/data','dist/data',{recursive:true})\"",
     "watch": "tsc --watch",
     "lint": "eslint src/**/*.ts",
     "package": "npx @vscode/vsce package"
