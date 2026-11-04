@@ -4,6 +4,39 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### ca45: the quad instructions as the MEGA65 Book has them; bbr/bbs targets
+
+- `orq`, `bitq` and `asrq` (the book's names; `oraq` stays), the book's
+  `($nn)` and `[$nn]` operands (`ldq ($10)`, `stq [$10]`).
+- A quad instruction takes only the book's modes: `adcq #5`, `ldq $36,x`,
+  `cmpq ($10),y` and the like were assembled as NEG NEG and the 8-bit
+  instruction, which the 45GS02 does not run as a 32-bit one; now an error.
+- `aslq [$10]` was assembled as `aslq` (the operand dropped), `lda [$10],y`
+  as `lda [$10],z`: errors now (`[$nn]` without `,z` only on a quad
+  instruction).
+- A `bbr`/`bbs` target can be an expression (`loop+3`, `*+5`); before, the
+  `+3` was taken for a new line.
+- objdump45 names them as the book does (`cmpq`, not `cpq`), joins NEG NEG
+  to an instruction only in a quad mode, and `--source` writes `bitq`,
+  `asrq`, `inq`, `deq` too.
+
+### Benchmarks against the other 6502 C compilers (#129)
+
+- `make bench` (`src/bench/run_bench.py`): gglabs' bench8 benchmarks, as
+  c-bench-64 keeps them (downloaded at a pinned commit into `build/bench/`),
+  built with cc45 and run in xemu at 1, 3.5 or 40 MHz; each result checked;
+  sizes and times beside cc65's, llvm-mos's, Oscar64's, sdcc's, vbcc's and
+  Calypsi's published results. cc45's harness (`main45.c`, `out45.c`) times
+  with CIA 2's timers. doc/architecture/benchmarks.md.
+- cc45: a `typedef` with several declarators (`typedef struct {...} R, *RP;`,
+  `typedef int I, *IP, (*F)(int);`) gave "Expected ';' after typedef".
+- cc45: `(*p)[i][j]` through a pointer to a 2-D array (`T (*p)[N][M]`, a
+  `state_t *`) stepped the second subscript by 2 bytes, not by the element's
+  size.
+- cc45: a function whose multiply by a constant became a call of `__mul16y`
+  (the factor in Y) did not list Y in `.reg_clobbers`, so ca45 kept a caller's
+  index in Y across the call (seen at `-O0`).
+
 ### The language server works (#198)
 
 - The server never started: the standalone `lsp-server/dist/server.js`
@@ -25,6 +58,7 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   40 MHz cycles, its simulated instructions and directives, cc45's pragmas,
   the library's 670 functions; C keywords as cc45 has them (plain `int`
   unsigned, 2 bytes) and its extensions.
+
 
 ### objdump45 --cycles and --vice (#144)
 

@@ -870,6 +870,13 @@ static bool g_cycles = false;
 static cpucycles::Clock g_clock45 = cpucycles::Clock::Fast;
 static bool g_vice = false;
 
+// a quad instruction (the MEGA65 Book's name) in that mode: ca45 has it
+// with this opcode (the book's modes only)
+static bool quadModeOk(const std::string& q, AddressingMode mode, uint8_t op) {
+    std::string c = q == "inq" ? "incq" : q == "deq" ? "decq" : q == "orq" ? "oraq" : q;
+    return AssemblerOpcodeDatabase::getOpcode(c, mode) == op;
+}
+
 static cpucycles::Clock cycleClock(DisCpu cpu) {
     if (cpu == DisCpu::CPU6502 || cpu == DisCpu::CPU6510) return cpucycles::Clock::Nmos;
     if (cpu == DisCpu::CPU65CE02) return cpucycles::Clock::C65;
@@ -1011,7 +1018,8 @@ static void disassembleSection(const std::vector<uint8_t>& body, uint32_t base,
         }
 
         // the 45GS02's 32-bit instructions: NEG NEG ($42 $42) before one
-        // that has a Q form (ldq, stq, adcq, cpq, aslq, ...)
+        // that has a Q form in that mode (ldq, stq, adcq, cmpq, aslq, ...: the
+        // MEGA65 Book's names and modes; another mode stays neg, neg and the instruction)
         size_t pre = 0;
         std::string qname;
         if (cpu == DisCpu::CPU45GS02 && i + 2 < body.size() && body[i] == 0x42 && body[i + 1] == 0x42) {
@@ -1025,11 +1033,12 @@ static void disassembleSection(const std::vector<uint8_t>& body, uint32_t base,
                 std::string m = qit->second.mnemonic;
                 std::transform(m.begin(), m.end(), m.begin(), ::tolower);
                 static const std::map<std::string, std::string> qform = {
-                    {"lda", "ldq"}, {"sta", "stq"}, {"cmp", "cpq"}, {"ora", "orq"}, {"inc", "inq"}, {"dec", "deq"},
+                    {"lda", "ldq"}, {"sta", "stq"}, {"cmp", "cmpq"}, {"ora", "orq"}, {"inc", "inq"}, {"dec", "deq"},
                     {"adc", "adcq"}, {"sbc", "sbcq"}, {"and", "andq"}, {"eor", "eorq"}, {"bit", "bitq"},
                     {"asl", "aslq"}, {"lsr", "lsrq"}, {"rol", "rolq"}, {"ror", "rorq"}, {"asr", "asrq"}};
+                uint8_t qop = body[q];
                 auto q = qform.find(m);
-                if (q != qform.end()) {
+                if (q != qform.end() && quadModeOk(q->second, qit->second.mode, qop)) {
                     pre = 2;
                     qname = q->second;
                 }
@@ -1230,10 +1239,9 @@ static void writeSource(const std::vector<uint8_t>& body, uint32_t base, bool is
     // (the 45GS02's NEG NEG before an instruction with a Q form: one
     // instruction, ldq $12; the round trips of every mode check ca45 takes it)
     static const std::map<std::string, std::string> qform = {
-        {"lda", "ldq"}, {"sta", "stq"}, {"cmp", "cmpq"}, {"ora", "oraq"}, {"inc", "inq"}, {"dec", "deq"},
-        {"adc", "adcq"}, {"sbc", "sbcq"}, {"and", "andq"}, {"eor", "eorq"},
-        {"asl", "aslq"}, {"lsr", "lsrq"}, {"rol", "rolq"}, {"ror", "rorq"}};
-    // (ca45's names: cmpq, oraq for CPQ, ORQ; it has no BITQ or ASRQ: NEG NEG BIT stays so)
+        {"lda", "ldq"}, {"sta", "stq"}, {"cmp", "cmpq"}, {"ora", "orq"}, {"inc", "inq"}, {"dec", "deq"},
+        {"adc", "adcq"}, {"sbc", "sbcq"}, {"and", "andq"}, {"eor", "eorq"}, {"bit", "bitq"},
+        {"asl", "aslq"}, {"lsr", "lsrq"}, {"rol", "rolq"}, {"ror", "rorq"}, {"asr", "asrq"}};
     auto decode = [&](uint32_t a) {
         Ins in;
         size_t i = a - base;
@@ -1246,7 +1254,7 @@ static void writeSource(const std::vector<uint8_t>& body, uint32_t base, bool is
                 std::transform(m.begin(), m.end(), m.begin(), ::tolower);
                 auto f = qform.find(m);
                 // (and that mode: ca45's opcode for the Q form there is this one)
-                if (f != qform.end() && AssemblerOpcodeDatabase::getOpcode(f->second, qi->second.mode) == body[i + 2]) {
+                if (f != qform.end() && quadModeOk(f->second, qi->second.mode, body[i + 2])) {
                     pre = 2;
                     q = f->second;
                 }

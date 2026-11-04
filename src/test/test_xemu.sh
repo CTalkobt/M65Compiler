@@ -1274,6 +1274,29 @@ for fxmode in "zp|" "stack|-fno-zpcall"; do
     xemu_case "FAIL: test_fixed_any_xemu.c $fxname (compilation/linking failed)" "src/test-resources/test_fixed_any_xemu.c" "build/test/test_fixed_any_${fxname}_xemu.prg" "$fxflags" -- "test_fixed_any_$fxname" "build/test/test_fixed_any_${fxname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
 done
 
+# Test: a typedef with several declarators (typedef struct {...} R, *RP;)
+for tdmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r tdname tdflags <<< "$tdmode"
+    echo "Testing test_typedef_multi_xemu.c ($tdname)..."
+    xemu_case "FAIL: test_typedef_multi_xemu.c $tdname (compilation/linking failed)" "src/test-resources/test_typedef_multi_xemu.c" "build/test/test_typedef_multi_${tdname}_xemu.prg" "$tdflags" -- "test_typedef_multi_$tdname" "build/test/test_typedef_multi_${tdname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+done
+
+# Test: (*p)[i][j] through a pointer to a 2-D array (each subscript's stride)
+for pamode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r paname paflags <<< "$pamode"
+    echo "Testing test_ptr_array2d_xemu.c ($paname)..."
+    xemu_case "FAIL: test_ptr_array2d_xemu.c $paname (compilation/linking failed)" "src/test-resources/test_ptr_array2d_xemu.c" "build/test/test_ptr_array2d_${paname}_xemu.prg" "$paflags" -- "test_ptr_array2d_$paname" "build/test/test_ptr_array2d_${paname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+done
+
+# Test: Y among a function's clobbers when its constant multiply calls
+# __mul16y (a caller's index in Y not kept across the call); at -O0, where
+# the callee is not inlined
+for mymode in "zp|-O0" "stack|-O0 -fno-zpcall"; do
+    IFS='|' read -r myname myflags <<< "$mymode"
+    echo "Testing test_mul_clobber_y_xemu.c ($myname)..."
+    xemu_case "FAIL: test_mul_clobber_y_xemu.c $myname (compilation/linking failed)" "src/test-resources/test_mul_clobber_y_xemu.c" "build/test/test_mul_clobber_y_${myname}_xemu.prg" "$myflags" -- "test_mul_clobber_y_$myname" "build/test/test_mul_clobber_y_${myname}_xemu.prg" "C0C0" 3 "01 01 AA"
+done
+
 # Test: __attribute__((aligned(N))) / _Alignas on globals, locals, struct
 # members and struct types
 for almode in "zp|" "stack|-fno-zpcall"; do

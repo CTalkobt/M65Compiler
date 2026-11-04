@@ -327,7 +327,7 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                                 off = stmt->resolvedBranchOffset;
                             } else {
                                 uint32_t t = 0;
-                                parser->bitBranchTargetValue(stmt->instr.bitBranchTarget, stmt->scopePrefix, t);
+                                parser->bitBranchTargetValue(stmt->instr.bitBranchTarget, stmt->scopePrefix, t, stmt->instr.bitBranchTokenIndex);
                                 off = (int32_t)t - (int32_t)(stmt->address + 3);
                             }
                             e.emitByte((uint8_t)off);
