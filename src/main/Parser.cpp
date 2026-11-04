@@ -4727,6 +4727,10 @@ void Parser::parseTypedef() {
     // Skip __attribute__ after type: typedef short __attribute__((...)) T;
     while (tryParseAttribute()) {}
 
+    // each declarator: typedef struct {...} R, *RP; typedef int I, (*F)(int);
+    for (;;) {
+    std::string declBase = baseType;
+    bool declSigned = isSigned;
     int ptrLevel = basePtrLevel;
 
     // Check for function pointer typedef: typedef int (*name)(int, char);
@@ -4735,8 +4739,7 @@ void Parser::parseTypedef() {
         advance(); // consume '*'
         std::string newName = expect(TokenType::IDENTIFIER, "Expected alias name in function pointer typedef").value;
         expect(TokenType::CLOSE_PAREN, "Expected ')' after function pointer name");
-        auto sig = parseFuncPtrParams(baseType, ptrLevel, isSigned);
-        expect(TokenType::SEMICOLON, "Expected ';' after typedef");
+        auto sig = parseFuncPtrParams(declBase, ptrLevel, declSigned);
         TypeAlias alias;
         alias.baseType = "void"; // function pointers are pointer-sized
         alias.pointerLevel = 1;
@@ -4744,6 +4747,8 @@ void Parser::parseTypedef() {
         alias.isFunctionPointer = true;
         alias.funcPtrSig = sig;
         typedefs[newName] = alias;
+        if (match(TokenType::COMMA)) continue;
+        expect(TokenType::SEMICOLON, "Expected ';' after typedef");
         return;
     }
 
@@ -4782,11 +4787,10 @@ void Parser::parseTypedef() {
     }
     // Skip __attribute__ after alias: typedef int T __attribute__((unused));
     while (tryParseAttribute()) {}
-    expect(TokenType::SEMICOLON, "Expected ';' after typedef");
 
-    farPointer(baseType, ptrLevel, tdSpace, isSigned);   // typedef T __far *name
-    applyVectorMode(baseType, ptrLevel, isSigned);
-    TypeAlias ta{baseType, ptrLevel, isSigned, false, nullptr, arrayDims};
+    farPointer(declBase, ptrLevel, tdSpace, declSigned);   // typedef T __far *name
+    applyVectorMode(declBase, ptrLevel, declSigned);
+    TypeAlias ta{declBase, ptrLevel, declSigned, false, nullptr, arrayDims};
     bool anyVla = false;
     for (const auto& v : vlaDimVars) if (!v.empty()) anyVla = true;
     if (anyVla) {
@@ -4795,6 +4799,10 @@ void Parser::parseTypedef() {
         ta.vlaDimVars.insert(ta.vlaDimVars.end(), vlaDimVars.begin(), vlaDimVars.end());
     }
     typedefs[newName] = ta;
+    if (match(TokenType::COMMA)) continue;
+    expect(TokenType::SEMICOLON, "Expected ';' after typedef");
+    return;
+    }
 }
 
 // mode(QI/HI/SI/word) picks the integer of that width; vector_size(N) makes

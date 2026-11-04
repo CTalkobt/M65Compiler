@@ -8791,19 +8791,25 @@ void IRBuilder::visit(InitializerList& node) {
 void IRBuilder::visit(ArrayAccess& node) {
     if (farUsed_ && emitFarRead(node)) return;
     vecSubscript(node);
-    // (*p)[i] of a pointer to an array is p[0][i]
-    if (auto* u = dynamic_cast<UnaryOperation*>(node.arrayExpr.get());
-        u && u->op == "*" && ptrArrayRowSize(u->operand.get())) {
-        std::unique_ptr<Expression> deref = std::move(node.arrayExpr);
-        auto* du = static_cast<UnaryOperation*>(deref.get());
-        auto row = std::make_unique<ArrayAccess>(std::move(du->operand), std::make_unique<IntegerLiteral>(0));
-        row->line = node.line; row->column = node.column; row->sourceFile = node.sourceFile;
-        node.arrayExpr = std::move(row);
-        visit(node);
-        // Give the operand back to the original expression
-        du->operand = std::move(static_cast<ArrayAccess*>(node.arrayExpr.get())->arrayExpr);
-        node.arrayExpr = std::move(deref);
-        return;
+    // (*p)[i] of a pointer to an array is p[0][i]; also under further
+    // subscripts ((*p)[i][j] of a T (*p)[N][M]: the whole chain, so each
+    // subscript's stride comes from p's dimensions)
+    {
+        ArrayAccess* inner = &node;
+        while (auto* a = dynamic_cast<ArrayAccess*>(inner->arrayExpr.get())) inner = a;
+        if (auto* u = dynamic_cast<UnaryOperation*>(inner->arrayExpr.get());
+            u && u->op == "*" && ptrArrayRowSize(u->operand.get())) {
+            std::unique_ptr<Expression> deref = std::move(inner->arrayExpr);
+            auto* du = static_cast<UnaryOperation*>(deref.get());
+            auto row = std::make_unique<ArrayAccess>(std::move(du->operand), std::make_unique<IntegerLiteral>(0));
+            row->line = inner->line; row->column = inner->column; row->sourceFile = inner->sourceFile;
+            inner->arrayExpr = std::move(row);
+            visit(node);
+            // Give the operand back to the original expression
+            du->operand = std::move(static_cast<ArrayAccess*>(inner->arrayExpr.get())->arrayExpr);
+            inner->arrayExpr = std::move(deref);
+            return;
+        }
     }
     // i[p] is p[i]: put the pointer/array operand first
     {
