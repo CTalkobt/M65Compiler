@@ -484,7 +484,7 @@ $(LIB_DIR):
 # ============================================================================
 
 .PHONY: libca45 lib45-libraries lib45-sizes lib45-clean show-lib-deps parallel-build
-.PHONY: all clean test man test-regression stdlib
+.PHONY: all clean test man test-regression stdlib bench
 .PHONY: lib install install_local uninstall
 .PHONY: uninstall_local cppcheck coverage coverage-build coverage-clean
 .PHONY: coverage-report docker docker-runtime test-assembler test-const
@@ -663,6 +663,12 @@ test-regression: all lib
 
 bench-optimizer: all
 	@bash src/test/bench_optimizer.sh
+
+# The 6502 C compiler benchmarks (c-bench-64, downloaded into build/bench/)
+# in xemu, beside the other compilers' published results (#129);
+# BENCH_ARGS: run_bench.py's options (--speed 40, --cflags=-O3, crc8 pi ...)
+bench: all lib
+	@python3 src/bench/run_bench.py $(BENCH_ARGS)
 
 test-objdump45: all
 	@bash src/test/test_objdump45.sh

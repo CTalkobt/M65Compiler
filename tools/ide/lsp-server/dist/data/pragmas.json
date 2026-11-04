@@ -1,0 +1,155 @@
+{
+ "generatedFrom": "doc/bin/cc45.md",
+ "pragmas": [
+  {
+   "name": "once",
+   "syntax": "#pragma once",
+   "description": "Include the file only once."
+  },
+  {
+   "name": "push_macro",
+   "syntax": "#pragma push_macro(\"N\")",
+   "description": "Save / restore a macro definition."
+  },
+  {
+   "name": "pop_macro",
+   "syntax": "#pragma pop_macro(\"N\")",
+   "description": "Save / restore a macro definition."
+  },
+  {
+   "name": "weak",
+   "syntax": "#pragma weak",
+   "description": "The next function or global is a weak definition."
+  },
+  {
+   "name": "cc45 weak",
+   "syntax": "#pragma cc45 weak",
+   "description": "The next function or global is a weak definition."
+  },
+  {
+   "name": "cc45 recurse",
+   "syntax": "#pragma cc45 recurse",
+   "description": "The next function uses a stack frame instead of static allocation (needed for functions called both from an __interrupt handler and from mainline code; also silences the warning on recursive functions)."
+  },
+  {
+   "name": "cc45 signed_default",
+   "syntax": "#pragma cc45 signed_default",
+   "description": "Plain integer types signed / unsigned from here on."
+  },
+  {
+   "name": "cc45 unsigned_default",
+   "syntax": "#pragma cc45 unsigned_default",
+   "description": "Plain integer types signed / unsigned from here on."
+  },
+  {
+   "name": "cc45 no_stack16",
+   "syntax": "#pragma cc45 no_stack16",
+   "description": "As -fno-stack16."
+  },
+  {
+   "name": "cc45 stack_top",
+   "syntax": "#pragma cc45 stack_top(<addr>)",
+   "description": "As -fstack-top=<addr>."
+  },
+  {
+   "name": "cc45 stack_size",
+   "syntax": "#pragma cc45 stack_size(<n>)",
+   "description": "As -fstack-size=<n>."
+  },
+  {
+   "name": "section",
+   "syntax": "#pragma section(\"<name>\", <addr>)",
+   "description": "Declares a section for __section(\"<name>\") variables and functions, at <addr> (or where another file or ln45 --section puts it): see Sections."
+  },
+  {
+   "name": "cc45 section",
+   "syntax": "#pragma cc45 section(...)",
+   "description": "Declares a section for __section(\"<name>\") variables and functions, at <addr> (or where another file or ln45 --section puts it): see Sections."
+  },
+  {
+   "name": "cc45 overlay",
+   "syntax": "#pragma cc45 overlay(<name>)",
+   "description": "As -foverlay=<name>: this file's code is in the code overlay <name> (Code Overlays; <overlay.h>)."
+  },
+  {
+   "name": "cc45 max_inline_ir_size",
+   "syntax": "#pragma cc45 max_inline_ir_size(<N>)",
+   "description": "As -fmax-inline-ir-size=N."
+  },
+  {
+   "name": "cc45 max_unroll_bytes",
+   "syntax": "#pragma cc45 max_unroll_bytes(<N>)",
+   "description": "As -fmax-unroll-bytes=N."
+  },
+  {
+   "name": "cc45 optimize",
+   "syntax": "#pragma cc45 optimize(<name>, no-<name>, …)",
+   "description": "Switch IR optimization passes for the functions that follow (e.g. optimize(no-licm)); see optimizations.md."
+  },
+  {
+   "name": "encoding",
+   "syntax": "#pragma encoding <ascii/petscii/screencode>",
+   "description": "Encoding of the string and character literals that follow (a p/s/a/@ prefix overrides it) (see String and Character Encodings)."
+  },
+  {
+   "name": "cc45 no_zp_save",
+   "syntax": "#pragma cc45 no_zp_save",
+   "description": "-S (standalone) output only: do not relocate the base page. Linked programs always run on __zp_page."
+  },
+  {
+   "name": "no_zp_save",
+   "syntax": "#pragma no_zp_save",
+   "description": "-S (standalone) output only: do not relocate the base page. Linked programs always run on __zp_page."
+  },
+  {
+   "name": "cc45 set_bp",
+   "syntax": "#pragma cc45 set_bp <n>",
+   "description": "-S output only: set the base page to n (a **decimal** number; $40 is rejected)."
+  },
+  {
+   "name": "cc45 exit_rts",
+   "syntax": "#pragma cc45 exit_rts",
+   "description": "Accepted, without effect."
+  },
+  {
+   "name": "cc45 exit_halt",
+   "syntax": "#pragma cc45 exit_halt",
+   "description": "Accepted, without effect."
+  },
+  {
+   "name": "cc45 exit_brk",
+   "syntax": "#pragma cc45 exit_brk",
+   "description": "Accepted, without effect."
+  },
+  {
+   "name": "cc45 no_bssinit",
+   "syntax": "#pragma cc45 no_bssinit",
+   "description": "Accepted, without effect."
+  },
+  {
+   "name": "cc45 heap",
+   "syntax": "#pragma cc45 heap",
+   "description": "Accepted, without effect."
+  },
+  {
+   "name": "cc45 stdio",
+   "syntax": "#pragma cc45 stdio",
+   "description": "Accepted, without effect."
+  },
+  {
+   "name": "cc45 no_0100_stack",
+   "syntax": "#pragma cc45 no_0100_stack",
+   "description": "Accepted, without effect."
+  },
+  {
+   "name": "cc45 unroll",
+   "syntax": "#pragma cc45 unroll",
+   "description": "Accepted, without effect."
+  },
+  {
+   "name": "cc45 unroll_default",
+   "syntax": "#pragma cc45 unroll_default",
+   "description": "Accepted, without effect."
+  }
+ ]
+}

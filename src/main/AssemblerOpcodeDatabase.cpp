@@ -285,12 +285,32 @@ const std::map<std::pair<std::string, AddressingMode>, uint8_t>& AssemblerOpcode
     return opcodes;
 }
 
+// A quad instruction (NEG NEG and the 8-bit one) has only the modes the
+// MEGA65 Book lists for it; with the others the 45GS02 does not do a
+// 32-bit operation. Not a quad instruction: true.
+static bool quadModeAllowed(const std::string& lowerM, AddressingMode mode) {
+    if (lowerM.size() < 3 || lowerM.back() != 'q' || lowerM == "beq" || lowerM == "lbeq") return true;
+    using M = AddressingMode;
+    static const std::set<std::string> memory = {"ldq", "stq", "adcq", "sbcq", "andq", "oraq", "eorq", "cmpq"};
+    static const std::set<std::string> shifts = {"aslq", "lsrq", "rolq", "rorq", "incq", "decq"};
+    if (memory.count(lowerM))
+        return mode == M::BASE_PAGE || mode == M::ABSOLUTE || mode == M::BASE_PAGE_INDIRECT_Z || mode == M::FLAT_INDIRECT_Z;
+    if (shifts.count(lowerM))
+        return mode == M::ACCUMULATOR || mode == M::IMPLIED || mode == M::BASE_PAGE || mode == M::ABSOLUTE ||
+               mode == M::BASE_PAGE_X || mode == M::ABSOLUTE_X;
+    if (lowerM == "asrq")
+        return mode == M::ACCUMULATOR || mode == M::IMPLIED || mode == M::BASE_PAGE || mode == M::BASE_PAGE_X;
+    if (lowerM == "bitq") return mode == M::BASE_PAGE || mode == M::ABSOLUTE;
+    return true;
+}
+
 uint8_t AssemblerOpcodeDatabase::getOpcode(const std::string& m, AddressingMode mode) {
     std::string lowerM = m;
     std::transform(lowerM.begin(), lowerM.end(), lowerM.begin(), ::tolower);
     std::string baseM = lowerM;
     if (lowerM.size() > 1 && lowerM.back() == 'q' && lowerM != "ldq" && lowerM != "stq" && lowerM.substr(0, 3) != "beq" && lowerM.substr(0, 3) != "bne" && lowerM.substr(0, 3) != "bra" && lowerM.substr(0, 3) != "bsr") 
         baseM = lowerM.substr(0, lowerM.size() - 1);
+    if (!quadModeAllowed(lowerM, mode)) return 0;
 
     const auto& opMap = getOpcodeMap();
     auto it = opMap.find({baseM, mode});
@@ -330,7 +350,7 @@ std::vector<AddressingMode> AssemblerOpcodeDatabase::getValidAddressingModes(con
     std::vector<AddressingMode> modes;
     const auto& opMap = getOpcodeMap();
     for (const auto& entry : opMap) {
-        if (entry.first.first == baseM) modes.push_back(entry.first.second);
+        if (entry.first.first == baseM && quadModeAllowed(lowerM, entry.first.second)) modes.push_back(entry.first.second);
     }
     return modes;
 }
@@ -343,7 +363,7 @@ bool AssemblerOpcodeDatabase::isValidMode(const std::string& mnemonic, Addressin
         baseM = lowerM.substr(0, lowerM.size() - 1);
 
     const auto& opMap = getOpcodeMap();
-    return opMap.find({baseM, mode}) != opMap.end();
+    return quadModeAllowed(lowerM, mode) && opMap.find({baseM, mode}) != opMap.end();
 }
 
 std::string AssemblerOpcodeDatabase::AddressingModeToString(AddressingMode mode) {

@@ -86,7 +86,7 @@ This guide covers setup of the MEGA65 C Compiler (cc45) and Assembler (ca45) Lan
        "root": "${workspaceFolder}",
        "executable": "node",
        "arguments": [
-         "${extensionPath}/server/out/server.js"
+         "C:\\path\\to\\m65compiler\\tools\\ide\\lsp-server\\dist\\server.js"
        ],
        "languages": [
          { "languageId": "c", "scheme": "file" },
@@ -95,9 +95,10 @@ This guide covers setup of the MEGA65 C Compiler (cc45) and Assembler (ca45) Lan
      }
      ```
 
-3. **Copy LSP Server**:
+3. **Or copy the server elsewhere**: `tools\ide\lsp-server\dist` holds the server and its data (one
+   `server.js`, `data\`); copy the directory and point the arguments at its `server.js`:
    ```bash
-   xcopy /E /I tools\ide\lsp-server\dist  %USERPROFILE%\.vscode-server\extensions\mega65-lsp\server\out\
+   xcopy /E /I tools\ide\lsp-server\dist  %USERPROFILE%\mega65-lsp\
    ```
 
 4. **File Associations** (Tools → Options → Text Editor → File Extensions):

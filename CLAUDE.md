@@ -227,6 +227,7 @@ doc/examples/        the examples with screenshots (examples/capture_screens.py)
   `-l` lists them, `TV_VERBOSE=1` shows the PASS lines; `make test-validation-<x>` runs one
 - `make clean`, `make install` (PREFIX=/usr/local: `bin/`, `lib/cc45/`, `include/cc45/`), `make install_local`, `make man`
 - `make coverage`, `make test-o45`, `make docker` (Alpine `src/Docker/Dockerfile`: `make install PREFIX=/app`, entrypoint cc45; `src/Docker/docker-aliases.sh`), `make docker-runtime` (`src/Docker/Dockerfile.runtime`: the toolchain and xemu, `m65run`; #99); the root `Dockerfile` is Ubuntu, with the source tree for `make test` and xemu for `make test-xemu`. The images' xemu is CTalkobt/xemu `cc45-dev` (pinned); the MEGA65 ROM is mounted at `/rom/MEGA65.ROM` (`doc/architecture/DOCKER.md`)
+- `make bench` — the 6502 C compiler benchmarks (c-bench-64, downloaded into `build/bench/`) in xemu, beside cc65's, llvm-mos's, Oscar64's… published results (`src/bench/run_bench.py`, `BENCH_ARGS`; `doc/architecture/benchmarks.md`, #129)
 - `bench-optimizer` (a size benchmark) still uses mmemu — **runtime tests are run on xemu-xmega65, never mmemu**.
 
 The tools find headers and libraries relative to their own location, in the
