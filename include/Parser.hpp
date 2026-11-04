@@ -23,6 +23,7 @@ public:
         // typedef int T[n] in a function: the hidden variable holding each
         // run-time dimension ("" for a constant one)
         std::vector<std::string> vlaDimVars;
+        bool isFunctionType = false;   // typedef void fn(int): a function type (a parameter: its pointer)
     };
 
     Parser(const std::vector<Token>& tokens);
@@ -169,6 +170,8 @@ private:
         std::shared_ptr<FuncPtrSignature> funcPtrSig;
         bool valid = false;     // true if a type was successfully parsed
         bool fromTypedef = false; // signedness came from a typedef
+        bool fnPtrAlias = false;  // a function pointer's typedef (typedef int (*fp)(int))
+        bool fnTypeAlias = false; // a function type's typedef (typedef int fn(int))
         int addressSpace = 0;   // Phase 97: AddressSpace (0=DEFAULT, 1=ZP, 2=ABS, 3=FAR)
         bool farAfterType = false;  // __far after the base type (T __far *: a far pointer)
         int starsParsed = 0;    // '*'s after the type consumed here

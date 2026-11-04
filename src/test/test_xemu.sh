@@ -1281,6 +1281,13 @@ for tdmode in "zp|" "stack|-fno-zpcall"; do
     xemu_case "FAIL: test_typedef_multi_xemu.c $tdname (compilation/linking failed)" "src/test-resources/test_typedef_multi_xemu.c" "build/test/test_typedef_multi_${tdname}_xemu.prg" "$tdflags" -- "test_typedef_multi_$tdname" "build/test/test_typedef_multi_${tdname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
 done
 
+# Test: unnamed parameters of a typedef'd function pointer / function type,
+# pointers to such function pointers (#402)
+for tfmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r tfname tfflags <<< "$tfmode"
+    echo "Testing test_typedef_fnptr_param_xemu.c ($tfname)..."
+    xemu_case "FAIL: test_typedef_fnptr_param_xemu.c $tfname (compilation/linking failed)" "src/test-resources/test_typedef_fnptr_param_xemu.c" "build/test/test_typedef_fnptr_param_${tfname}_xemu.prg" "$tfflags" -- "test_typedef_fnptr_param_$tfname" "build/test/test_typedef_fnptr_param_${tfname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
+
 # Test: the containers (#405): <ringbuf.h> (with a raster interrupt as the
 # producer) and <pqueue.h>
 for ctmode in "zp|" "stack|-fno-zpcall"; do
@@ -1288,6 +1295,7 @@ for ctmode in "zp|" "stack|-fno-zpcall"; do
     echo "Testing test_ringbuf_xemu.c / test_pqueue_xemu.c ($ctname)..."
     xemu_case "FAIL: test_ringbuf_xemu.c $ctname (compilation/linking failed)" "src/test-resources/test_ringbuf_xemu.c" "build/test/test_ringbuf_${ctname}_xemu.prg" "$ctflags" -- "test_ringbuf_$ctname" "build/test/test_ringbuf_${ctname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
     xemu_case "FAIL: test_pqueue_xemu.c $ctname (compilation/linking failed)" "src/test-resources/test_pqueue_xemu.c" "build/test/test_pqueue_${ctname}_xemu.prg" "$ctflags" -- "test_pqueue_$ctname" "build/test/test_pqueue_${ctname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+
 done
 
 # Test: (*p)[i][j] through a pointer to a 2-D array (each subscript's stride)

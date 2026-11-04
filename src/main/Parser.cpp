@@ -1219,8 +1219,10 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
                         pTypeStars = ts.starsParsed;
                     }
                     if (ts.isFunctionPointer) {
-                        // Typedef'd function pointer parameter
-                        std::string pName = expect(TokenType::IDENTIFIER, "Expected parameter name").value;
+                        // Typedef'd function pointer parameter (the name optional in a
+                        // prototype: void g(fp);, #402)
+                        std::string pName = peek().type == TokenType::IDENTIFIER ? advance().value
+                                                                                  : "__unnamed_fp_" + std::to_string(pos);
                         Parameter p;
                         p.type = "void";
                         p.pointerLevel = 1;
@@ -2303,6 +2305,20 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
                         if (tokens[i].type == TokenType::VOLATILE) isVolatile = true;
                     }
                     basePtrLevel = 0; // stars will be re-counted below
+                    // a function pointer's typedef before them (fp *p): a pointer to the
+                    // 2-byte function pointer; a function type's (fn *p) takes its first
+                    // star as the function pointer itself (#402)
+                    if (ts.fnPtrAlias || ts.fnTypeAlias) {
+                        if (ts.fnTypeAlias && peek().type == TokenType::STAR) advance();
+                        if (peek().type == TokenType::STAR) {
+                            ts.isFunctionPointer = false;
+                            type = "void";
+                            basePtrLevel = 1;
+                        } else {
+                            ts.isFunctionPointer = true;
+                            type = "void";
+                        }
+                    }
                 } else {
                     // No stars consumed; safe to apply qualifiers directly
                     if (ts.isConst) isConst = true;
@@ -4259,6 +4275,7 @@ bool Parser::farPointer(std::string& type, int& ptrLevel, int& addressSpace, boo
 
 Parser::TypeSpec Parser::parseTypeSpecifierRaw() {
     TypeSpec ts;
+    bool fnTypeAlias = false;   // the type is a function type's typedef (typedef void fn(int))
 
     // Consume leading qualifiers (Phase 97: include address space qualifiers)
     while (match(TokenType::CONST) || match(TokenType::VOLATILE) || match(TokenType::RESTRICT) ||
@@ -4367,6 +4384,9 @@ Parser::TypeSpec Parser::parseTypeSpecifierRaw() {
         ts.vlaDimVars = ta.vlaDimVars;
         ts.isFunctionPointer = ta.isFunctionPointer;
         ts.funcPtrSig = ta.funcPtrSig;
+        fnTypeAlias = ta.isFunctionType;
+        ts.fnPtrAlias = ta.isFunctionPointer && !ta.isFunctionType;
+        ts.fnTypeAlias = ta.isFunctionType;
     }
     else {
         // No type found
@@ -4394,8 +4414,10 @@ Parser::TypeSpec Parser::parseTypeSpecifierRaw() {
         else ts.name = "struct _Complex_int";
     }
 
-    // Consume pointer stars
+    // Consume pointer stars (the first after a function type, typedef void fn(int):
+    // fn * is the function pointer it already is)
     while (match(TokenType::STAR)) {
+        if (fnTypeAlias) { fnTypeAlias = false; continue; }
         ts.pointerLevel++;
         ts.starsParsed++;
         ts.lastStarConst = false;
@@ -4404,6 +4426,12 @@ Parser::TypeSpec Parser::parseTypeSpecifierRaw() {
             if (tokens[pos-1].type == TokenType::CONST) { ts.isConst = true; ts.lastStarConst = true; }
             if (tokens[pos-1].type == TokenType::RESTRICT) ts.lastStarRestrict = true;
         }
+    }
+    // A pointer to a typedef'd function pointer (fp *p, #402): a pointer to a
+    // 2-byte object, as void ** (calling through *p is a call through a pointer)
+    if (ts.isFunctionPointer && ts.starsParsed > 0) {
+        ts.isFunctionPointer = false;
+        ts.name = "void";
     }
 
     return ts;
@@ -4758,6 +4786,23 @@ void Parser::parseTypedef() {
     while (tryParseAttribute()) {}
 
     std::string newName = expect(TokenType::IDENTIFIER, "Expected alias name in typedef").value;
+    // a function type: typedef int fn(int, char); (a parameter of it, and fn *, are
+    // pointers to such a function, #402)
+    if (peek().type == TokenType::OPEN_PAREN) {
+        auto sig = parseFuncPtrParams(declBase, ptrLevel, declSigned);
+        TypeAlias alias;
+        alias.baseType = "void";
+        alias.pointerLevel = 1;
+        alias.isSigned = false;
+        alias.isFunctionPointer = true;
+        alias.isFunctionType = true;
+        alias.funcPtrSig = sig;
+        typedefs[newName] = alias;
+        while (tryParseAttribute()) {}
+        if (match(TokenType::COMMA)) continue;
+        expect(TokenType::SEMICOLON, "Expected ';' after typedef");
+        return;
+    }
     std::vector<int> arrayDims = typedefArrayDims;
     std::vector<std::string> vlaDimVars;
     while (match(TokenType::OPEN_SQUARE)) {
