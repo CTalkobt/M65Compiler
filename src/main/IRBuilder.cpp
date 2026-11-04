@@ -3715,6 +3715,7 @@ void IRBuilder::emitMethodCall(const std::string& mangledName, std::vector<ir::O
                                const ir::Operand* sretBuf, const ir::Operand* sretAddr) {
     ir::Inst call;
     call.src1 = ir::Operand::global("_" + mangledName);
+    calledFunctions_.insert("_" + mangledName);   // (defined elsewhere: an extern)
     call.callConv = usesZpConv(mangledName) ? ir::CallConv::ZP : ir::CallConv::STACK;
     call.loc = sl;
     if (sretSize_.count(mangledName)) {
@@ -7243,6 +7244,9 @@ void IRBuilder::visit(FunctionCall& node) {
                     }
                     inst.op = ir::Op::CALL;
                     inst.src1 = ir::Operand::global(irName);
+                    // (a method only declared in the struct, defined elsewhere:
+                    // an extern, as a prototype's function)
+                    calledFunctions_.insert(irName);
                 }
 
                 if (mSret) {

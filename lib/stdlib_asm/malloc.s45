@@ -183,26 +183,29 @@ proc _malloc
 
 @exact_match_pop:
     pla                 ; discard remainder high from stack
-    ; Remove curr from free list
+    ; Remove curr from free list: $14/$15 = curr->next (not in Y:X: Y is
+    ; the index of the stores below, which lost the high byte)
     ldy #2
     lda ($10),y
-    tax
+    sta $14
     iny
     lda ($10),y
-    tay                 ; Y:X = curr->next
+    sta $15
 
     lda $12
     ora $13
     bne @update_prev_exact
-    stx __heap_ptr
-    sty __heap_ptr+1
+    lda $14
+    sta __heap_ptr
+    lda $15
+    sta __heap_ptr+1
     bra @mark_used
 @update_prev_exact:
     ldy #2
-    txa
+    lda $14
     sta ($12),y
     iny
-    tya
+    lda $15
     sta ($12),y
 
 @mark_used:
