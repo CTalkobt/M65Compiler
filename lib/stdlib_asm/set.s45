@@ -1,0 +1,468 @@
+; set.s45 — an ordered set in a sorted array: struct set's methods (<set.h>, #403)
+;
+;   void  set::init(size_t esize, int (*cmp)(const void *, const void *))   this $10, $12, $14
+;   int   set::insert(const void *key)      1 inserted, 0 there already, -1 no memory
+;   int   set::erase(const void *key)       1 erased, 0 not there
+;   void *set::find(const void *key)        the element, or NULL
+;   void *set::lower_bound(const void *key) the first element not before key, or NULL
+;   void *set::first(), *set::next(void *e) in order; NULL at the end
+;   size_t set::size(); void set::clear(), set::free()
+;
+; struct set: data (0), len (2), cap (4), esize (6) — a vec_t's layout: the
+; array is grown, inserted into and erased from by the vector's routines —
+; and cmp (8). cmp(a, b) < 0 when a comes before b; NULL compares the bytes,
+; unsigned, the first first. A binary search; insert and erase move the
+; elements after it (memmove). cmp is called through __ct_cmp
+; (stdlib/ct_shim.c): it may change any zero-page byte, so the state is in
+; BSS (not reentrant), and cmp must not use a set.
+
+.global _set__init, _set__insert, _set__erase, _set__find, _set__lower_bound
+.global _set__first, _set__next, _set__size, _set__clear, _set__free
+.global __set_compare
+.extern __ct_addr, __ct_bytecmp, ___ct_cmp, ___ct_cmpf
+.extern _vec_init, _vec_insert, _vec_erase, _vec_free
+
+; the comparison through __ct_cmp (a C function: ln45's call graph knows it)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+CT_BASE = $08
+CT_ES   = $0A
+CT_P    = $0C
+CT_Q    = $0E
+
+.segment "bss"
+__set_s:    .res 2      ; the set
+__set_data: .res 2      ; its fields
+__set_len:  .res 2
+__set_es:   .res 2
+__set_cmp:  .res 2
+__set_key:  .res 2
+__set_lo:   .res 2
+__set_hi:   .res 2
+__set_mid:  .res 2
+__set_pa:   .res 2      ; the element compared with the key
+__set_eq:   .res 1      ; the search found it
+__set_t:    .res 1
+
+.segment "code"
+
+; the set at $10 and the key at $12 into BSS
+proc __set_load
+    lda $10
+    sta __set_s
+    lda $11
+    sta __set_s+1
+    lda $12
+    sta __set_key
+    lda $13
+    sta __set_key+1
+    ldy #0
+    lda ($10),y
+    sta __set_data
+    iny
+    lda ($10),y
+    sta __set_data+1
+    iny
+    lda ($10),y
+    sta __set_len
+    iny
+    lda ($10),y
+    sta __set_len+1
+    ldy #6
+    lda ($10),y
+    sta __set_es
+    iny
+    lda ($10),y
+    sta __set_es+1
+    iny
+    lda ($10),y
+    sta __set_cmp
+    iny
+    lda ($10),y
+    sta __set_cmp+1
+    rts
+endproc
+
+; A/X = the address of element A/X
+proc __set_at
+    pha
+    lda __set_data
+    sta CT_BASE
+    lda __set_data+1
+    sta CT_BASE+1
+    lda __set_es
+    sta CT_ES
+    lda __set_es+1
+    sta CT_ES+1
+    pla
+    jmp __ct_addr
+endproc
+
+; the element at __set_pa against the key: A = $FF before, 0 equal, 1 after
+; (global, with its record: ln45 bridges its call of __ct_cmp in c45_stack.lib)
+proc __set_compare
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda __set_cmp
+    ora __set_cmp+1
+    bne @fn
+    lda __set_pa
+    sta CT_P
+    lda __set_pa+1
+    sta CT_P+1
+    lda __set_key
+    sta CT_Q
+    lda __set_key+1
+    sta CT_Q+1
+    lda __set_es
+    sta CT_ES
+    lda __set_es+1
+    sta CT_ES+1
+    jsr __ct_bytecmp    ; (Z equal, C clear lower)
+    beq @eq
+    bcc @lt
+    lda #1
+    rts
+@fn:
+    lda __set_cmp
+    sta ___ct_cmpf
+    lda __set_cmp+1
+    sta ___ct_cmpf+1
+    lda __set_pa
+    sta $10
+    lda __set_pa+1
+    sta $11
+    lda __set_key
+    sta $12
+    lda __set_key+1
+    sta $13
+    jsr ___ct_cmp
+    cpx #$80
+    bcs @lt
+    stx __set_t         ; (A | X: zero is equal)
+    ora __set_t
+    beq @eq
+    lda #1
+    rts
+@lt:
+    lda #$FF
+    rts
+@eq:
+    lda #0
+    rts
+    .func_flags zp_call
+endproc
+
+; the first index whose element is not before the key -> __set_lo (A/X);
+; __set_eq = 1 when that element equals it
+proc __set_search
+    lda #0
+    sta __set_lo
+    sta __set_lo+1
+    sta __set_eq
+    lda __set_len
+    sta __set_hi
+    lda __set_len+1
+    sta __set_hi+1
+@loop:
+    lda __set_lo+1      ; lo < hi
+    cmp __set_hi+1
+    bcc @mid
+    bne @end
+    lda __set_lo
+    cmp __set_hi
+    bcs @end
+@mid:
+    clc                 ; mid = (lo + hi) / 2
+    lda __set_lo
+    adc __set_hi
+    tay
+    lda __set_lo+1
+    adc __set_hi+1
+    ror a
+    tax
+    tya
+    ror a
+    sta __set_mid
+    stx __set_mid+1
+    jsr __set_at
+    sta __set_pa
+    stx __set_pa+1
+    jsr __set_compare
+    cmp #$FF
+    bne @high
+    clc                 ; before the key: lo = mid + 1
+    lda __set_mid
+    adc #1
+    sta __set_lo
+    lda __set_mid+1
+    adc #0
+    sta __set_lo+1
+    bra @loop
+@high:
+    lda __set_mid       ; hi = mid
+    sta __set_hi
+    lda __set_mid+1
+    sta __set_hi+1
+    bra @loop
+@end:
+    lda __set_lo+1      ; lo < len: is it the key?
+    cmp __set_len+1
+    bcc @check
+    bne @done
+    lda __set_lo
+    cmp __set_len
+    bcs @done
+@check:
+    lda __set_lo
+    ldx __set_lo+1
+    jsr __set_at
+    sta __set_pa
+    stx __set_pa+1
+    jsr __set_compare
+    cmp #0
+    bne @done
+    inc __set_eq
+@done:
+    lda __set_lo
+    ldx __set_lo+1
+    rts
+endproc
+
+; $10 = the set again (after a callback)
+proc __set_this
+    lda __set_s
+    sta $10
+    lda __set_s+1
+    sta $11
+    rts
+endproc
+
+; void set::init(size_t esize, int (*cmp)(...))
+proc _set__init
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .reg_clobbers A, Y
+    .flag_clobbers N, Z
+    jsr _vec_init
+    ldy #8
+    lda $14
+    sta ($10),y
+    iny
+    lda $15
+    sta ($10),y
+    rts
+    .func_flags zp_call
+endproc
+
+; int set::insert(const void *key)
+proc _set__insert
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr __set_load
+    jsr __set_search
+    lda __set_eq
+    bne @there
+    jsr __set_this      ; vec_insert(s, lo, key)
+    lda __set_lo
+    sta $12
+    lda __set_lo+1
+    sta $13
+    lda __set_key
+    sta $14
+    lda __set_key+1
+    sta $15
+    jsr _vec_insert
+    cmp #0
+    bne @ok
+    cpx #0
+    bne @ok
+    lda #$FF            ; no memory
+    tax
+    rts
+@ok:
+    lda #1
+    ldx #0
+    rts
+@there:
+    lda #0
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+; int set::erase(const void *key)
+proc _set__erase
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr __set_load
+    jsr __set_search
+    lda __set_eq
+    beq @absent
+    jsr __set_this      ; vec_erase(s, lo)
+    lda __set_lo
+    sta $12
+    lda __set_lo+1
+    sta $13
+    jsr _vec_erase
+    lda #1
+    ldx #0
+    rts
+@absent:
+    lda #0
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+; void *set::find(const void *key)
+proc _set__find
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr __set_load
+    jsr __set_search
+    lda __set_eq
+    beq @none
+    lda __set_pa
+    ldx __set_pa+1
+    rts
+@none:
+    lda #0
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+; void *set::lower_bound(const void *key)
+proc _set__lower_bound
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr __set_load
+    jsr __set_search    ; (A/X = lo)
+    cpx __set_len+1
+    bcc @in
+    bne @none
+    cmp __set_len
+    bcs @none
+@in:
+    jmp __set_at
+@none:
+    lda #0
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+; void *set::first()
+proc _set__first
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y
+    .flag_clobbers N, Z
+    ldy #2
+    lda ($10),y
+    iny
+    ora ($10),y
+    beq @none
+    ldy #1
+    lda ($10),y
+    tax
+    dey
+    lda ($10),y
+    rts
+@none:
+    lda #0
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+; void *set::next(void *e): the element after e, or NULL
+proc _set__next
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    ldy #0              ; CT_BASE, CT_ES: data, esize
+    lda ($10),y
+    sta CT_BASE
+    iny
+    lda ($10),y
+    sta CT_BASE+1
+    ldy #6
+    lda ($10),y
+    sta CT_ES
+    iny
+    lda ($10),y
+    sta CT_ES+1
+    ldy #2              ; the end: data + len * esize -> CT_Q
+    lda ($10),y
+    tax
+    iny
+    lda ($10),y
+    pha
+    txa
+    plx
+    jsr __ct_addr
+    sta CT_Q
+    stx CT_Q+1
+    clc                 ; e + esize
+    lda $12
+    adc CT_ES
+    tay
+    lda $13
+    adc CT_ES+1
+    tax
+    cpx CT_Q+1          ; < the end
+    bcc @in
+    bne @none
+    cpy CT_Q
+    bcs @none
+@in:
+    tya
+    rts
+@none:
+    lda #0
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+; size_t set::size()
+proc _set__size
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y
+    .flag_clobbers N, Z
+    ldy #3
+    lda ($10),y
+    tax
+    dey
+    lda ($10),y
+    rts
+    .func_flags zp_call
+endproc
+
+; void set::clear(): empty, the memory kept
+proc _set__clear
+    .zp_uses $10, $11
+    .reg_clobbers A, Y
+    .flag_clobbers N, Z
+    lda #0
+    ldy #2
+    sta ($10),y
+    iny
+    sta ($10),y
+    rts
+    .func_flags zp_call
+endproc
+
+; void set::free(): empty, the memory freed
+proc _set__free
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jmp _vec_free
+    .func_flags zp_call
+endproc

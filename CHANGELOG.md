@@ -4,6 +4,20 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Containers: ordered sets (#403)
+
+- `<set.h>`: `struct set` (a sorted array over `<vector.h>`) and `struct tset`
+  (a red-black tree, elements that stay put) with the same struct methods:
+  `init`, `insert`, `erase`, `find`, `lower_bound`, `first` / `next`,
+  `size`, `clear`, `free`; a comparator or bytewise order. Assembly
+  (`stdlib_asm/set.s45`, `tset.s45`).
+- cc45: a struct method only declared in the struct (defined in another
+  file or in assembly) is an extern of the calling file; the link failed
+  with an undefined symbol before.
+- `malloc`: taking a free block of exactly the size asked for lost the high
+  byte of the next free block's address (the free list then pointed at a
+  wrong page, and a later `malloc` / `realloc` failed or corrupted the heap).
+
 ### Containers: bit arrays and intrusive lists (#408, #406)
 
 - `<bitset.h>`: `BITSET(name, nbits)`; `bs_set` / `bs_clear` / `bs_toggle` /

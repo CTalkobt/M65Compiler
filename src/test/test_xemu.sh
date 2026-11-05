@@ -1313,6 +1313,13 @@ for bsmode in "zp|" "stack|-fno-zpcall"; do
     xemu_case "FAIL: test_list_xemu.c $bsname (compilation/linking failed)" "src/test-resources/test_list_xemu.c" "build/test/test_list_${bsname}_xemu.prg" "$bsflags" -- "test_list_$bsname" "build/test/test_list_${bsname}_xemu.prg" "C0C0" 5 "01 01 01 01 AA"
 done
 
+# Test: <set.h> (#403): struct set / struct tset against a model, the tree's rules
+for stmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r stname stflags <<< "$stmode"
+    echo "Testing test_set_xemu.c ($stname)..."
+    xemu_case "FAIL: test_set_xemu.c $stname (compilation/linking failed)" "src/test-resources/test_set_xemu.c" "build/test/test_set_${stname}_xemu.prg" "$stflags" -- "test_set_$stname" "build/test/test_set_${stname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+done
+
 # Test: (*p)[i][j] through a pointer to a 2-D array (each subscript's stride)
 for pamode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r paname paflags <<< "$pamode"

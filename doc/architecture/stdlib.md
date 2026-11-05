@@ -448,6 +448,20 @@ list over a pool. Zero page only. Sizes: the dlist 281 bytes (`dl_insert_after` 
 186. Calls beat inline functions here: cc45's C for `dl_remove` is 73 bytes and for the insert 65, and a call site
 about 17. `dl_sort` (#406's optional merge sort) is not there.
 
+**`<set.h>`** (#403): ordered sets of elements copied in by their size, ordered by a comparator (`cmp(a, b) < 0`:
+`a` first; NULL compares the bytes, unsigned, the first first — a big-endian key or a string), as struct methods:
+`struct set s; s.init(esize, cmp); s.insert(&e)` (1 inserted, 0 there already, -1 no memory), `s.erase(&key)` (1 /
+0), `s.find(&key)` (the element or NULL), `s.lower_bound(&key)` (the first element not before key, or NULL),
+`s.first()` / `s.next(e)` (in order, NULL at the end), `s.size()`, `s.clear()`, `s.free()` — the functions are
+`set__insert` & co. (`__fastcall__`, defined in assembly). Two kinds with the same methods: **`struct set`**
+(`stdlib_asm/set.s45`, 637 bytes, and `<vector.h>`'s routines: its first fields are a `vec_t`'s) is a sorted array —
+a binary search, insert and erase moving the elements after the place; small, for tens to a few hundred elements;
+**element addresses change** on insert and erase. **`struct tset`** (`stdlib_asm/tset.s45`, 2804 bytes) is a
+red-black tree of `malloc`'d nodes (two links, the parent, a colour byte, then the element: 7 bytes over the element)
+— O(log n) insert and erase, and an element stays where it is until it is erased; `clear` frees every node. `cmp` is
+called through `__ct_cmp`, as `<pqueue.h>`'s: it must not use a set itself, and the state is in BSS (not from an
+`__interrupt` handler while the program uses a set).
+
 Shared (`stdlib_asm/container.s45`): an element's address (`base + i·esize`: shifts for a power of two, else the
 hardware multiplier; 96 bytes), copying (33), swapping (45) and comparing bytes (40). Tests: `test_ringbuf_xemu.c`
 (random operations against an array model for 1- and 3-byte elements, a 300-byte element, the byte queue, and a
@@ -457,7 +471,9 @@ and then), `test_pqueue_xemu.c` (against sorting and a sorted-array model; with 
 shrink, sorting and searching, running out of memory, the views), `test_bitset_xemu.c` (random bit operations,
 constant indices, ranges, find from every place, and/or/xor, all against a byte-per-bit model),
 `test_list_xemu.c` (2000 random dlist operations against an array of ids, walked both ways; iteration with
-removal, splicing; slist operations and a free list).
+removal, splicing; slist operations and a free list), `test_set_xemu.c` (1500 random inserts and erases on each kind against a presence
+table, the tree's red-black rules checked after each; erasing every kind of tree node, addresses kept; struct elements,
+`cmp` NULL; running out of memory).
 
 ## 13. MEGA65 Hardware (`mega65.h`) and DMA (`dma.h`)
 
