@@ -5,11 +5,20 @@ var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __esm = (fn, res) => function __init() {
-  return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+var __esm = (fn, res, err) => function __init() {
+  if (err) throw err[0];
+  try {
+    return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+  } catch (e) {
+    throw err = [e], e;
+  }
 };
 var __commonJS = (cb, mod) => function __require() {
-  return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+  try {
+    return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+  } catch (e) {
+    throw mod = 0, e;
+  }
 };
 var __export = (target, all) => {
   for (var name in all)
@@ -117,9 +126,8 @@ var require_is2 = __commonJS({
 var require_messages = __commonJS({
   "../node_modules/vscode-jsonrpc/lib/common/messages.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -127,40 +135,34 @@ var require_messages = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.Message = exports2.NotificationType9 = exports2.NotificationType8 = exports2.NotificationType7 = exports2.NotificationType6 = exports2.NotificationType5 = exports2.NotificationType4 = exports2.NotificationType3 = exports2.NotificationType2 = exports2.NotificationType1 = exports2.NotificationType0 = exports2.NotificationType = exports2.RequestType9 = exports2.RequestType8 = exports2.RequestType7 = exports2.RequestType6 = exports2.RequestType5 = exports2.RequestType4 = exports2.RequestType3 = exports2.RequestType2 = exports2.RequestType1 = exports2.RequestType = exports2.RequestType0 = exports2.AbstractMessageSignature = exports2.ParameterStructures = exports2.ResponseError = exports2.ErrorCodes = void 0;
     var is = __importStar(require_is2());
@@ -1073,9 +1075,8 @@ var require_events = __commonJS({
 var require_cancellation = __commonJS({
   "../node_modules/vscode-jsonrpc/lib/common/cancellation.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -1083,40 +1084,34 @@ var require_cancellation = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     var __importDefault = exports2 && exports2.__importDefault || function(mod) {
       return mod && mod.__esModule ? mod : { "default": mod };
     };
@@ -1362,9 +1357,8 @@ var require_semaphore = __commonJS({
 var require_messageReader = __commonJS({
   "../node_modules/vscode-jsonrpc/lib/common/messageReader.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -1372,40 +1366,34 @@ var require_messageReader = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     var __importDefault = exports2 && exports2.__importDefault || function(mod) {
       return mod && mod.__esModule ? mod : { "default": mod };
     };
@@ -1611,9 +1599,8 @@ ${JSON.stringify(Object.fromEntries(headers))}`));
 var require_messageWriter = __commonJS({
   "../node_modules/vscode-jsonrpc/lib/common/messageWriter.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -1621,40 +1608,34 @@ var require_messageWriter = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     var __importDefault = exports2 && exports2.__importDefault || function(mod) {
       return mod && mod.__esModule ? mod : { "default": mod };
     };
@@ -1806,46 +1787,45 @@ var require_messageBuffer = __commonJS({
         let chunkIndex = 0;
         let offset = 0;
         let chunkBytesRead = 0;
-        row:
-          while (chunkIndex < this._chunks.length) {
-            const chunk = this._chunks[chunkIndex];
-            offset = 0;
-            while (offset < chunk.length) {
-              const value = chunk[offset];
-              switch (value) {
-                case CR:
-                  switch (state) {
-                    case 0:
-                      state = 1;
-                      break;
-                    case 2:
-                      state = 3;
-                      break;
-                    default:
-                      state = 0;
-                  }
-                  break;
-                case LF:
-                  switch (state) {
-                    case 1:
-                      state = 2;
-                      break;
-                    case 3:
-                      state = 4;
-                      offset++;
-                      break row;
-                    default:
-                      state = 0;
-                  }
-                  break;
-                default:
-                  state = 0;
-              }
-              offset++;
+        row: while (chunkIndex < this._chunks.length) {
+          const chunk = this._chunks[chunkIndex];
+          offset = 0;
+          while (offset < chunk.length) {
+            const value = chunk[offset];
+            switch (value) {
+              case CR:
+                switch (state) {
+                  case 0:
+                    state = 1;
+                    break;
+                  case 2:
+                    state = 3;
+                    break;
+                  default:
+                    state = 0;
+                }
+                break;
+              case LF:
+                switch (state) {
+                  case 1:
+                    state = 2;
+                    break;
+                  case 3:
+                    state = 4;
+                    offset++;
+                    break row;
+                  default:
+                    state = 0;
+                }
+                break;
+              default:
+                state = 0;
             }
-            chunkBytesRead += chunk.byteLength;
-            chunkIndex++;
+            offset++;
           }
+          chunkBytesRead += chunk.byteLength;
+          chunkIndex++;
+        }
         if (state !== 4) {
           return void 0;
         }
@@ -1928,9 +1908,8 @@ ${header}`);
 var require_connection = __commonJS({
   "../node_modules/vscode-jsonrpc/lib/common/connection.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -1938,40 +1917,34 @@ var require_connection = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     var __importDefault = exports2 && exports2.__importDefault || function(mod) {
       return mod && mod.__esModule ? mod : { "default": mod };
     };
@@ -2637,7 +2610,8 @@ ${JSON.stringify(message, null, 4)}`);
               }
             }
           }
-          tracer.log(`Sending response '${method} - (${message.id})'. Processing request took ${Date.now() - startTime}ms`, data);
+          const error = message.error ? ` Request failed: ${message.error.message} (${message.error.code}).` : "";
+          tracer.log(`Sending response '${method} - (${message.id})'. Processing request took ${Date.now() - startTime}ms.${error}`, data);
         } else {
           logLSPMessage("send-response", message);
         }
@@ -2977,7 +2951,6 @@ ${JSON.stringify(message, null, 4)}`);
               responsePromises.delete(id);
               responsePromise.reject(new messages_1.ResponseError(messages_1.ErrorCodes.MessageWriteError, error.message ? error.message : "Unknown reason"));
               logger.error(`Sending request failed.`);
-              throw error;
             }
           });
         },
@@ -5487,9 +5460,8 @@ var require_protocol_inlayHint = __commonJS({
 var require_protocol_diagnostic = __commonJS({
   "../node_modules/vscode-languageserver-protocol/lib/common/protocol.diagnostic.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -5497,40 +5469,34 @@ var require_protocol_diagnostic = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.DiagnosticRefreshRequest = exports2.WorkspaceDiagnosticRequest = exports2.DocumentDiagnosticRequest = exports2.DocumentDiagnosticReportKind = exports2.DiagnosticServerCancellationData = void 0;
     var vscode_jsonrpc_1 = require_api();
@@ -5579,9 +5545,8 @@ var require_protocol_diagnostic = __commonJS({
 var require_protocol_notebook = __commonJS({
   "../node_modules/vscode-languageserver-protocol/lib/common/protocol.notebook.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -5589,40 +5554,34 @@ var require_protocol_notebook = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.DidCloseNotebookDocumentNotification = exports2.DidSaveNotebookDocumentNotification = exports2.DidChangeNotebookDocumentNotification = exports2.NotebookCellArrayChange = exports2.DidOpenNotebookDocumentNotification = exports2.NotebookDocumentSyncRegistrationType = exports2.NotebookDocument = exports2.NotebookCell = exports2.ExecutionSummary = exports2.NotebookCellKind = void 0;
     var vscode_languageserver_types_1 = (init_main(), __toCommonJS(main_exports));
@@ -5852,9 +5811,8 @@ var require_protocol_textDocumentContent = __commonJS({
 var require_protocol = __commonJS({
   "../node_modules/vscode-languageserver-protocol/lib/common/protocol.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -5862,40 +5820,34 @@ var require_protocol = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.CodeActionRequest = exports2.DocumentSymbolRequest = exports2.DocumentHighlightRequest = exports2.ReferencesRequest = exports2.DefinitionRequest = exports2.SignatureHelpRequest = exports2.SignatureHelpTriggerKind = exports2.HoverRequest = exports2.CompletionResolveRequest = exports2.CompletionRequest = exports2.CompletionTriggerKind = exports2.PublishDiagnosticsNotification = exports2.WatchKind = exports2.GlobPattern = exports2.RelativePattern = exports2.FileChangeType = exports2.DidChangeWatchedFilesNotification = exports2.WillSaveTextDocumentWaitUntilRequest = exports2.WillSaveTextDocumentNotification = exports2.TextDocumentSaveReason = exports2.DidSaveTextDocumentNotification = exports2.DidCloseTextDocumentNotification = exports2.DidChangeTextDocumentNotification = exports2.TextDocumentContentChangeEvent = exports2.DidOpenTextDocumentNotification = exports2.TextDocumentSyncKind = exports2.TelemetryEventNotification = exports2.LogMessageNotification = exports2.ShowMessageRequest = exports2.ShowMessageNotification = exports2.MessageType = exports2.DidChangeConfigurationNotification = exports2.ExitNotification = exports2.ShutdownRequest = exports2.InitializedNotification = exports2.InitializeErrorCodes = exports2.InitializeRequest = exports2.WorkDoneProgressOptions = exports2.TextDocumentRegistrationOptions = exports2.StaticRegistrationOptions = exports2.PositionEncodingKind = exports2.RegularExpressionEngineKind = exports2.FailureHandlingKind = exports2.ResourceOperationKind = exports2.UnregistrationRequest = exports2.RegistrationRequest = exports2.DocumentSelector = exports2.NotebookCellTextDocumentFilter = exports2.NotebookDocumentFilter = exports2.TextDocumentFilter = void 0;
     exports2.UniquenessLevel = exports2.WillDeleteFilesRequest = exports2.DidDeleteFilesNotification = exports2.WillRenameFilesRequest = exports2.DidRenameFilesNotification = exports2.WillCreateFilesRequest = exports2.DidCreateFilesNotification = exports2.FileOperationPatternKind = exports2.LinkedEditingRangeRequest = exports2.ShowDocumentRequest = exports2.SemanticTokensRegistrationType = exports2.SemanticTokensRefreshRequest = exports2.SemanticTokensRangeRequest = exports2.SemanticTokensDeltaRequest = exports2.SemanticTokensRequest = exports2.TokenFormat = exports2.CallHierarchyPrepareRequest = exports2.CallHierarchyOutgoingCallsRequest = exports2.CallHierarchyIncomingCallsRequest = exports2.WorkDoneProgressCancelNotification = exports2.WorkDoneProgressCreateRequest = exports2.WorkDoneProgress = exports2.SelectionRangeRequest = exports2.DeclarationRequest = exports2.FoldingRangeRefreshRequest = exports2.FoldingRangeRequest = exports2.ColorPresentationRequest = exports2.DocumentColorRequest = exports2.ConfigurationRequest = exports2.DidChangeWorkspaceFoldersNotification = exports2.WorkspaceFoldersRequest = exports2.TypeDefinitionRequest = exports2.ImplementationRequest = exports2.ApplyWorkspaceEditRequest = exports2.ExecuteCommandRequest = exports2.PrepareRenameRequest = exports2.RenameRequest = exports2.PrepareSupportDefaultBehavior = exports2.DocumentOnTypeFormattingRequest = exports2.DocumentRangesFormattingRequest = exports2.DocumentRangeFormattingRequest = exports2.DocumentFormattingRequest = exports2.DocumentLinkResolveRequest = exports2.DocumentLinkRequest = exports2.CodeLensRefreshRequest = exports2.CodeLensResolveRequest = exports2.CodeLensRequest = exports2.WorkspaceSymbolResolveRequest = exports2.WorkspaceSymbolRequest = exports2.CodeActionResolveRequest = void 0;
@@ -6603,9 +6555,8 @@ var require_connection2 = __commonJS({
 var require_api2 = __commonJS({
   "../node_modules/vscode-languageserver-protocol/lib/common/api.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -6613,15 +6564,12 @@ var require_api2 = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
+    }));
     var __exportStar = exports2 && exports2.__exportStar || function(m, exports3) {
-      for (var p in m)
-        if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports3, p))
-          __createBinding(exports3, m, p);
+      for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports3, p)) __createBinding(exports3, m, p);
     };
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.LSPErrorCodes = exports2.createProtocolConnection = void 0;
@@ -6742,11 +6690,18 @@ var require_progress = __commonJS({
   "../node_modules/vscode-languageserver/lib/common/progress.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.ProgressFeature = void 0;
+    exports2.ProgressFeature = exports2.WorkDoneProgressReporter = void 0;
     exports2.attachWorkDone = attachWorkDone;
     exports2.attachPartialResult = attachPartialResult;
     var vscode_languageserver_protocol_1 = require_api2();
     var uuid_1 = require_uuid();
+    var WorkDoneProgressReporter;
+    (function(WorkDoneProgressReporter2) {
+      function isNullInstance(reporter) {
+        return reporter instanceof NullProgressReporter;
+      }
+      WorkDoneProgressReporter2.isNullInstance = isNullInstance;
+    })(WorkDoneProgressReporter || (exports2.WorkDoneProgressReporter = WorkDoneProgressReporter = {}));
     var WorkDoneProgressReporterImpl = class _WorkDoneProgressReporterImpl {
       _connection;
       _token;
@@ -6908,9 +6863,8 @@ var require_progress = __commonJS({
 var require_configuration = __commonJS({
   "../node_modules/vscode-languageserver/lib/common/configuration.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -6918,40 +6872,34 @@ var require_configuration = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.ConfigurationFeature = void 0;
     var vscode_languageserver_protocol_1 = require_api2();
@@ -7281,6 +7229,8 @@ var require_semanticTokens = __commonJS({
       previousResult(id) {
         if (this.id === id) {
           this._prevData = this.getFinalDataDelta();
+        } else {
+          this._prevData = void 0;
         }
         this.initialize();
       }
@@ -8069,9 +8019,8 @@ var require_textDocumentContent = __commonJS({
 var require_server = __commonJS({
   "../node_modules/vscode-languageserver/lib/common/server.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -8079,40 +8028,34 @@ var require_server = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2._NotebooksImpl = exports2._LanguagesImpl = exports2.BulkUnregistration = exports2.BulkRegistration = exports2.ErrorMessageTracker = void 0;
     exports2.combineConsoleFeatures = combineConsoleFeatures;
@@ -8763,6 +8706,9 @@ var require_server = __commonJS({
         onDocumentRangeFormatting: (handler) => connection2.onRequest(vscode_languageserver_protocol_1.DocumentRangeFormattingRequest.type, (params, cancel) => {
           return handler(params, cancel, (0, progress_1.attachWorkDone)(connection2, params), void 0);
         }),
+        onDocumentRangesFormatting: (handler) => connection2.onRequest(vscode_languageserver_protocol_1.DocumentRangesFormattingRequest.type, (params, cancel) => {
+          return handler(params, cancel, (0, progress_1.attachWorkDone)(connection2, params), void 0);
+        }),
         onDocumentOnTypeFormatting: (handler) => connection2.onRequest(vscode_languageserver_protocol_1.DocumentOnTypeFormattingRequest.type, (params, cancel) => {
           return handler(params, cancel);
         }),
@@ -8872,9 +8818,8 @@ var require_server = __commonJS({
 var require_files = __commonJS({
   "../node_modules/vscode-languageserver/lib/node/files.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -8882,40 +8827,34 @@ var require_files = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.FileSystem = void 0;
     exports2.uriToFilePath = uriToFilePath;
@@ -9305,9 +9244,8 @@ var require_ril = __commonJS({
 var require_main = __commonJS({
   "../node_modules/vscode-jsonrpc/lib/node/main.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -9315,44 +9253,36 @@ var require_main = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     var __exportStar = exports2 && exports2.__exportStar || function(m, exports3) {
-      for (var p in m)
-        if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports3, p))
-          __createBinding(exports3, m, p);
+      for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports3, p)) __createBinding(exports3, m, p);
     };
     var __importDefault = exports2 && exports2.__importDefault || function(mod) {
       return mod && mod.__esModule ? mod : { "default": mod };
@@ -9568,7 +9498,14 @@ var require_main = __commonJS({
         server.on("error", reject);
         server.listen(port, "127.0.0.1", () => {
           server.removeListener("error", reject);
+          const address = server.address();
+          if (address === null || typeof address === "string") {
+            reject(new Error(`Unexpected server address: ${address}`));
+            return;
+          }
+          const boundPort = address.port;
           resolve4({
+            port: () => boundPort,
             onConnected: () => {
               return connected;
             }
@@ -9609,9 +9546,8 @@ var require_main = __commonJS({
 var require_main2 = __commonJS({
   "../node_modules/vscode-languageserver-protocol/lib/node/main.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -9619,15 +9555,12 @@ var require_main2 = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
+    }));
     var __exportStar = exports2 && exports2.__exportStar || function(m, exports3) {
-      for (var p in m)
-        if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports3, p))
-          __createBinding(exports3, m, p);
+      for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports3, p)) __createBinding(exports3, m, p);
     };
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.createProtocolConnection = createProtocolConnection;
@@ -9644,9 +9577,8 @@ var require_main2 = __commonJS({
 var require_api3 = __commonJS({
   "../node_modules/vscode-languageserver/lib/common/api.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -9654,21 +9586,22 @@ var require_api3 = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
+    }));
     var __exportStar = exports2 && exports2.__exportStar || function(m, exports3) {
-      for (var p in m)
-        if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports3, p))
-          __createBinding(exports3, m, p);
+      for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports3, p)) __createBinding(exports3, m, p);
     };
     Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.ProposedFeatures = exports2.NotebookDocuments = exports2.TextDocuments = exports2.SemanticTokensBuilder = void 0;
+    exports2.ProposedFeatures = exports2.NotebookDocuments = exports2.TextDocuments = exports2.SemanticTokensBuilder = exports2.WorkDoneProgressReporter = void 0;
     var semanticTokens_1 = require_semanticTokens();
     Object.defineProperty(exports2, "SemanticTokensBuilder", { enumerable: true, get: function() {
       return semanticTokens_1.SemanticTokensBuilder;
+    } });
+    var progress_1 = require_progress();
+    Object.defineProperty(exports2, "WorkDoneProgressReporter", { enumerable: true, get: function() {
+      return progress_1.WorkDoneProgressReporter;
     } });
     __exportStar(require_api2(), exports2);
     var textDocuments_1 = require_textDocuments();
@@ -9693,9 +9626,8 @@ var require_api3 = __commonJS({
 var require_main3 = __commonJS({
   "../node_modules/vscode-languageserver/lib/node/main.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -9703,44 +9635,36 @@ var require_main3 = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     var __exportStar = exports2 && exports2.__exportStar || function(m, exports3) {
-      for (var p in m)
-        if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports3, p))
-          __createBinding(exports3, m, p);
+      for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports3, p)) __createBinding(exports3, m, p);
     };
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.Files = void 0;
@@ -9973,6 +9897,9 @@ ${stack}`);
       console.warn = function warn(...args) {
         logger.warn(serialize(args));
       };
+      console.info = function info(...args) {
+        logger.info(serialize(args));
+      };
     }
   }
 });
@@ -10019,6 +9946,13 @@ var FullTextDocument2 = class _FullTextDocument {
         const startOffset = this.offsetAt(range.start);
         const endOffset = this.offsetAt(range.end);
         this._content = this._content.substring(0, startOffset) + change.text + this._content.substring(endOffset, this._content.length);
+        const insertedEndOffset = startOffset + change.text.length;
+        const crlfAtStart = this._content.charCodeAt(startOffset - 1) === 13 && this._content.charCodeAt(startOffset) === 10;
+        const crlfAtEnd = this._content.charCodeAt(insertedEndOffset - 1) === 13 && this._content.charCodeAt(insertedEndOffset) === 10;
+        if (crlfAtStart || crlfAtEnd) {
+          this._lineOffsets = void 0;
+          continue;
+        }
         const startLine = Math.max(range.start.line, 0);
         const endLine = Math.max(range.end.line, 0);
         let lineOffsets = this._lineOffsets;
@@ -10291,8 +10225,7 @@ function parseDiagnostics(stderr) {
   const diagnostics = [];
   const lines = stderr.split("\n");
   for (const line of lines) {
-    if (!line.trim())
-      continue;
+    if (!line.trim()) continue;
     const parsed = parseDiagnosticLine(line);
     if (parsed) {
       diagnostics.push(parsed);
@@ -10312,8 +10245,7 @@ function parseDiagnostics(stderr) {
   const seen = /* @__PURE__ */ new Set();
   return diagnostics.filter((d) => {
     const key = `${d.file}:${d.line}:${d.column}:${d.severity}:${d.message}`;
-    if (seen.has(key))
-      return false;
+    if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
@@ -10402,8 +10334,7 @@ async function runTool(kind, toolPath, filePath, text) {
   }
 }
 async function compileToAssembly(toolPath, filePath, text) {
-  if (!toolPath || !fs.existsSync(toolPath))
-    return { error: `cc45 not found${toolPath ? ` at ${toolPath}` : ""}` };
+  if (!toolPath || !fs.existsSync(toolPath)) return { error: `cc45 not found${toolPath ? ` at ${toolPath}` : ""}` };
   const dir = path.dirname(filePath);
   const base = path.basename(filePath);
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "m65lsp-"));
@@ -10414,8 +10345,7 @@ async function compileToAssembly(toolPath, filePath, text) {
     fs.writeFileSync(src, text);
     const out = path.join(outDir, base.replace(/\.[^.]*$/, "") + ".s45");
     const r = await exec(toolPath, ["-S", src, "-o", out, "-I", dir], fs.existsSync(dir) ? dir : tmp);
-    if (r.err)
-      return { error: `could not run cc45: ${r.err.message}` };
+    if (r.err) return { error: `could not run cc45: ${r.err.message}` };
     if (r.code !== 0 || !fs.existsSync(out)) {
       const first = parseDiagnostics(r.out)[0];
       return { error: first ? `cc45: ${first.line}:${first.column}: ${first.message}` : `cc45 failed (exit status ${r.code})` };
@@ -10436,15 +10366,11 @@ function asmLineFor(asm, filePath, cLine) {
   let before2 = null;
   for (let i = 0; i < lines.length; i++) {
     const m = /^\s*\.loc\s+"([^"]+)"\s*,\s*(\d+)/.exec(lines[i]);
-    if (!m || path.resolve(m[1]) !== path.resolve(filePath))
-      continue;
+    if (!m || path.resolve(m[1]) !== path.resolve(filePath)) continue;
     const c = parseInt(m[2], 10) - 1;
-    if (c === cLine)
-      return i;
-    if (c > cLine && (!after || c < after.c))
-      after = { asm: i, c };
-    if (c < cLine && (!before2 || c > before2.c))
-      before2 = { asm: i, c };
+    if (c === cLine) return i;
+    if (c > cLine && (!after || c < after.c)) after = { asm: i, c };
+    if (c < cLine && (!before2 || c > before2.c)) before2 = { asm: i, c };
   }
   return after?.asm ?? before2?.asm ?? 0;
 }
@@ -10546,10 +10472,8 @@ var DocumentManager = class {
     const uri = document.uri;
     const filePath = this.uriToFilePath(uri);
     const language = this.detectLanguage(document.languageId, filePath);
-    if (language !== "c" && language !== "asm")
-      return [];
-    if (language === "c" && /\.h$/i.test(filePath))
-      return [];
+    if (language !== "c" && language !== "asm") return [];
+    if (language === "c" && /\.h$/i.test(filePath)) return [];
     const run = await runTool(language, language === "c" ? this.cc45Path : this.ca45Path, filePath, document.getText());
     const parsedDiags = run.diagnostics;
     return parsedDiags.map((diag) => ({
@@ -10571,11 +10495,9 @@ var DocumentManager = class {
   }
   wordEnd(document, line, col) {
     const text = document.getText({ start: { line: Math.max(0, line), character: 0 }, end: { line: Math.max(0, line) + 1, character: 0 } }).replace(/\r?\n$/, "");
-    if (col >= text.length)
-      return Math.max(col + 1, text.length);
+    if (col >= text.length) return Math.max(col + 1, text.length);
     let e = Math.max(0, col);
-    while (e < text.length && /[A-Za-z0-9_$#.]/.test(text[e]))
-      e++;
+    while (e < text.length && /[A-Za-z0-9_$#.]/.test(text[e])) e++;
     return e > col ? e : col + 1;
   }
   detectLanguage(languageId, filePath) {
@@ -10602,8 +10524,7 @@ var path2 = __toESM(require("path"));
 function load(dir, file, key) {
   try {
     const p = path2.join(dir, file);
-    if (!fs2.existsSync(p))
-      return [];
+    if (!fs2.existsSync(p)) return [];
     const v = JSON.parse(fs2.readFileSync(p, "utf-8"))[key];
     return Array.isArray(v) ? v : [];
   } catch (err) {
@@ -10613,8 +10534,7 @@ function load(dir, file, key) {
 }
 function findDataDir(serverDir) {
   for (const d of [path2.join(serverDir, "data"), path2.join(serverDir, "..", "data")]) {
-    if (fs2.existsSync(path2.join(d, "opcodes.json")))
-      return d;
+    if (fs2.existsSync(path2.join(d, "opcodes.json"))) return d;
   }
   return path2.join(serverDir, "..", "data");
 }
@@ -10626,14 +10546,10 @@ function loadReferenceData(dir) {
     functions: /* @__PURE__ */ new Map(),
     pragmas: []
   };
-  for (const k of load(dir, "c-keywords.json", "keywords"))
-    data.keywords.set(k.name, k);
-  for (const o of load(dir, "opcodes.json", "opcodes"))
-    data.opcodes.set(o.mnemonic.toLowerCase(), o);
-  for (const d of load(dir, "directives.json", "directives"))
-    data.directives.set(d.name.toLowerCase(), d);
-  for (const f of load(dir, "stdlib-functions.json", "functions"))
-    data.functions.set(f.name, f);
+  for (const k of load(dir, "c-keywords.json", "keywords")) data.keywords.set(k.name, k);
+  for (const o of load(dir, "opcodes.json", "opcodes")) data.opcodes.set(o.mnemonic.toLowerCase(), o);
+  for (const d of load(dir, "directives.json", "directives")) data.directives.set(d.name.toLowerCase(), d);
+  for (const f of load(dir, "stdlib-functions.json", "functions")) data.functions.set(f.name, f);
   data.pragmas = load(dir, "pragmas.json", "pragmas");
   console.error(`[data] ${data.keywords.size} keywords, ${data.opcodes.size} instructions, ${data.directives.size} directives, ${data.functions.size} library functions, ${data.pragmas.length} pragmas`);
   return data;
@@ -10645,22 +10561,17 @@ function wordAt(line, column) {
   const ch = /[A-Za-z0-9_.@]/;
   let start = Math.min(column, line.length);
   let end = start;
-  while (start > 0 && ch.test(line[start - 1]))
-    start--;
-  while (end < line.length && ch.test(line[end]))
-    end++;
-  if (start === end)
-    return null;
+  while (start > 0 && ch.test(line[start - 1])) start--;
+  while (end < line.length && ch.test(line[end])) end++;
+  if (start === end) return null;
   return { word: line.substring(start, end), start, end };
 }
 function opcodeMarkdown(o) {
   let s = `**${o.mnemonic}**${o.simulated ? " (ca45 simulated instruction)" : ""} \u2014 ${o.description}`;
-  if (o.syntax)
-    s += `
+  if (o.syntax) s += `
 
 \`${o.syntax}\``;
-  if (o.flags.length)
-    s += `
+  if (o.flags.length) s += `
 
 Flags: ${o.flags.join(" ")}`;
   if (o.modes.length) {
@@ -10673,15 +10584,11 @@ function identAt(line, column, asm) {
   const ch = asm ? /[A-Za-z0-9_.@]/ : /[A-Za-z0-9_]/;
   let start = Math.min(column, line.length);
   let end = start;
-  while (start > 0 && ch.test(line[start - 1]))
-    start--;
-  while (end < line.length && ch.test(line[end]))
-    end++;
+  while (start > 0 && ch.test(line[start - 1])) start--;
+  while (end < line.length && ch.test(line[end])) end++;
   let w = line.substring(start, end).replace(/^\.+|\.+$/g, "");
-  if (!w || /^\d/.test(w))
-    return null;
-  if (asm && w.startsWith("."))
-    w = w.slice(1);
+  if (!w || /^\d/.test(w)) return null;
+  if (asm && w.startsWith(".")) w = w.slice(1);
   return w;
 }
 
@@ -10696,16 +10603,13 @@ function cleanC(text) {
   let i = 0;
   const n = text.length;
   const blank = (from, to) => {
-    for (let k = from; k < to && k < n; k++)
-      if (out[k] !== "\n")
-        out[k] = " ";
+    for (let k = from; k < to && k < n; k++) if (out[k] !== "\n") out[k] = " ";
   };
   while (i < n) {
     const c = text[i];
     if (c === "/" && text[i + 1] === "/") {
       let j = i;
-      while (j < n && text[j] !== "\n")
-        j++;
+      while (j < n && text[j] !== "\n") j++;
       blank(i, j);
       i = j;
     } else if (c === "/" && text[i + 1] === "*") {
@@ -10715,8 +10619,7 @@ function cleanC(text) {
       i = j;
     } else if (c === '"' || c === "'") {
       let j = i + 1;
-      while (j < n && text[j] !== c && text[j] !== "\n")
-        j += text[j] === "\\" ? 2 : 1;
+      while (j < n && text[j] !== c && text[j] !== "\n") j += text[j] === "\\" ? 2 : 1;
       blank(i + 1, j);
       i = j + 1;
     } else {
@@ -10735,10 +10638,8 @@ function cleanAsm(text) {
       continue;
     }
     if (inStr) {
-      if (c === '"')
-        inStr = false;
-      else
-        out[i] = " ";
+      if (c === '"') inStr = false;
+      else out[i] = " ";
       continue;
     }
     if (c === '"') {
@@ -10747,8 +10648,7 @@ function cleanAsm(text) {
     }
     if (c === ";") {
       let j = i;
-      while (j < text.length && text[j] !== "\n")
-        out[j++] = " ";
+      while (j < text.length && text[j] !== "\n") out[j++] = " ";
       i = j - 1;
     }
   }
@@ -10757,19 +10657,15 @@ function cleanAsm(text) {
 var Positions = class {
   constructor(text) {
     this.starts = [0];
-    for (let i = 0; i < text.length; i++)
-      if (text[i] === "\n")
-        this.starts.push(i + 1);
+    for (let i = 0; i < text.length; i++) if (text[i] === "\n") this.starts.push(i + 1);
   }
   at(offset) {
     let lo = 0;
     let hi = this.starts.length - 1;
     while (lo < hi) {
       const mid = lo + hi + 1 >> 1;
-      if (this.starts[mid] <= offset)
-        lo = mid;
-      else
-        hi = mid - 1;
+      if (this.starts[mid] <= offset) lo = mid;
+      else hi = mid - 1;
     }
     return { line: lo, character: offset - this.starts[lo] };
   }
@@ -10781,9 +10677,7 @@ function words(clean) {
   const s = /* @__PURE__ */ new Set();
   for (const m of clean.matchAll(/[A-Za-z_@][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*/g)) {
     s.add(m[0]);
-    if (m[0].includes("."))
-      for (const part of m[0].split("."))
-        s.add(part);
+    if (m[0].includes(".")) for (const part of m[0].split(".")) s.add(part);
   }
   return s;
 }
@@ -10826,24 +10720,18 @@ function blankCalls(t) {
     const start = m.index ?? 0;
     let depth = 0;
     for (; i < t.length; i++) {
-      if (t[i] === "(")
-        depth++;
-      else if (t[i] === ")" && --depth === 0)
-        break;
+      if (t[i] === "(") depth++;
+      else if (t[i] === ")" && --depth === 0) break;
     }
-    for (let k = start; k <= i && k < t.length; k++)
-      if (out[k] !== "\n")
-        out[k] = " ";
+    for (let k = start; k <= i && k < t.length; k++) if (out[k] !== "\n") out[k] = " ";
   }
   return out.join("");
 }
 function matchBrace(t, open) {
   let depth = 0;
   for (let i = open; i < t.length; i++) {
-    if (t[i] === "{")
-      depth++;
-    else if (t[i] === "}" && --depth === 0)
-      return i;
+    if (t[i] === "{") depth++;
+    else if (t[i] === "}" && --depth === 0) return i;
   }
   return t.length - 1;
 }
@@ -10853,26 +10741,19 @@ var oneLine = (s, max = 160) => {
 };
 function functionName(header) {
   const h = header.trimEnd();
-  if (!h.endsWith(")"))
-    return null;
+  if (!h.endsWith(")")) return null;
   let depth = 0;
   let i = h.length - 1;
   for (; i >= 0; i--) {
-    if (h[i] === ")")
-      depth++;
-    else if (h[i] === "(" && --depth === 0)
-      break;
+    if (h[i] === ")") depth++;
+    else if (h[i] === "(" && --depth === 0) break;
   }
-  if (i <= 0)
-    return null;
+  if (i <= 0) return null;
   const m = /([A-Za-z_]\w*)$/.exec(h.slice(0, i).trimEnd());
-  if (!m || NOT_NAMES.has(m[1]))
-    return null;
+  if (!m || NOT_NAMES.has(m[1])) return null;
   const before2 = h.slice(0, m.index);
-  if (/\(\s*\*?$/.test(before2.trimEnd()))
-    return null;
-  if (/[=]/.test(before2))
-    return null;
+  if (/\(\s*\*?$/.test(before2.trimEnd())) return null;
+  if (/[=]/.test(before2)) return null;
   return { name: m[1], index: m.index };
 }
 function splitTop(p, sep2) {
@@ -10881,10 +10762,8 @@ function splitTop(p, sep2) {
   let from = 0;
   for (let i = 0; i <= p.text.length; i++) {
     const c = p.text[i];
-    if (c === "(" || c === "[" || c === "{")
-      depth++;
-    else if (c === ")" || c === "]" || c === "}")
-      depth--;
+    if (c === "(" || c === "[" || c === "{") depth++;
+    else if (c === ")" || c === "]" || c === "}") depth--;
     if (i === p.text.length || c === sep2 && depth === 0) {
       out.push({ text: p.text.slice(from, i), map: p.map.slice(from, i) });
       from = i + 1;
@@ -10897,10 +10776,8 @@ function declarator(p) {
   let depth = 0;
   for (let i = 0; i < t.length; i++) {
     const c = t[i];
-    if (c === "(" || c === "[" || c === "{")
-      depth++;
-    else if (c === ")" || c === "]" || c === "}")
-      depth--;
+    if (c === "(" || c === "[" || c === "{") depth++;
+    else if (c === ")" || c === "]" || c === "}") depth--;
     else if ((c === "=" || c === ":") && depth === 0) {
       t = t.slice(0, i);
       break;
@@ -10917,14 +10794,12 @@ function declarator(p) {
   let s = t.trimEnd();
   while (s.endsWith("]")) {
     const o = s.lastIndexOf("[");
-    if (o < 0)
-      break;
+    if (o < 0) break;
     s = s.slice(0, o).trimEnd();
     array = true;
   }
   const m = /([A-Za-z_]\w*)$/.exec(s);
-  if (!m)
-    return null;
+  if (!m) return null;
   const before2 = s.slice(0, m.index);
   return {
     decl: { name: m[1], nameAt: p.map[m.index], ptr: (before2.match(/\*/g) || []).length, array, fnptr: false },
@@ -10940,15 +10815,12 @@ function declarators(p, base) {
   let b = base ?? "";
   parts.forEach((part, k) => {
     const d = declarator(part);
-    if (!d)
-      return;
+    if (!d) return;
     if (k === 0 && base === void 0) {
       b = baseOf(d.before);
-      if (!b)
-        return;
+      if (!b) return;
     }
-    if (NOT_NAMES.has(d.decl.name) || /^(int|char|long|short|unsigned|signed|void|float|double)$/.test(d.decl.name))
-      return;
+    if (NOT_NAMES.has(d.decl.name) || /^(int|char|long|short|unsigned|signed|void|float|double)$/.test(d.decl.name)) return;
     list.push(d.decl);
   });
   return { base: b, list };
@@ -10987,9 +10859,7 @@ var CSymbolScanner = class {
               full: [off, end]
             }));
           }
-          for (let k = off; k < end; k++)
-            if (out[k] !== "\n")
-              out[k] = " ";
+          for (let k = off; k < end; k++) if (out[k] !== "\n") out[k] = " ";
           off = end + 1;
           li = lj;
           continue;
@@ -11010,8 +10880,7 @@ var CSymbolScanner = class {
     for (let i = 0; i < t.length; i++) {
       const c = t[i];
       if (start < 0) {
-        if (c === " " || c === "\n" || c === "	" || c === "\r")
-          continue;
+        if (c === " " || c === "\n" || c === "	" || c === "\r") continue;
         start = i;
       }
       if (c === "{") {
@@ -11051,8 +10920,7 @@ var CSymbolScanner = class {
       stmt.text += c;
       stmt.map.push(i);
     }
-    if (pending)
-      this.declaration(stmt, pending, uri, pos, start, t.length, symbols, types);
+    if (pending) this.declaration(stmt, pending, uri, pos, start, t.length, symbols, types);
     return { symbols, types };
   }
   /** struct/union/enum NAME { ... }: its symbol and members */
@@ -11061,8 +10929,7 @@ var CSymbolScanner = class {
     let agg;
     if (kind === "enum") {
       const body = { text: t.slice(open + 1, close), map: [] };
-      for (let k = open + 1; k < close; k++)
-        body.map.push(k);
+      for (let k = open + 1; k < close; k++) body.map.push(k);
       for (const part of splitTop(body, ",")) {
         const m = /^\s*([A-Za-z_]\w*)/.exec(part.text);
         if (m) {
@@ -11074,8 +10941,7 @@ var CSymbolScanner = class {
     } else {
       agg = { tag, kind, members: [], uri, line: pos.at(tagAt).line };
       this.members(t, open + 1, close, agg, children, uri, pos, types);
-      if (tag)
-        types.aggregates.push(agg);
+      if (tag) types.aggregates.push(agg);
     }
     const sym = this.sym(tag || `(anonymous ${kind})`, kind === "enum" ? 10 /* Enum */ : 23 /* Struct */, uri, pos, tagAt, {
       detail: `${kind} ${tag}`.trim(),
@@ -11116,12 +10982,10 @@ var CSymbolScanner = class {
             agg.members.push(...nested.agg.members);
             children.push(...nested.sym.children ?? []);
           }
-          for (const d of list)
-            this.member(d, `${nested.kind} ${ntag}`, text, agg, children, uri, pos);
+          for (const d of list) this.member(d, `${nested.kind} ${ntag}`, text, agg, children, uri, pos);
         } else {
           const { base, list } = declarators(cur);
-          for (const d of list)
-            this.member(d, base, text, agg, children, uri, pos);
+          for (const d of list) this.member(d, base, text, agg, children, uri, pos);
         }
       }
       cur = { text: "", map: [] };
@@ -11143,8 +11007,7 @@ var CSymbolScanner = class {
           nested = this.aggregate(m[1], m[2] ?? "", t, i, end, uri, pos, tagAt, i, types);
         }
         cur.text += " {} ";
-        for (let k = 0; k < 4; k++)
-          cur.map.push(i);
+        for (let k = 0; k < 4; k++) cur.map.push(i);
         i = end;
         continue;
       }
@@ -11182,8 +11045,7 @@ var CSymbolScanner = class {
       base = `${pending.kind} ${pending.tag}`;
     }
     if (isTypedef) {
-      if (!pending)
-        rest = { text: text.replace(/^\s*typedef\b/, (m) => " ".repeat(m.length)), map: stmt.map };
+      if (!pending) rest = { text: text.replace(/^\s*typedef\b/, (m) => " ".repeat(m.length)), map: stmt.map };
       const { base: b2, list: list2 } = declarators(rest, base);
       if (pending && !pending.tag && list2.length > 0) {
         pending.tag = list2[0].name;
@@ -11193,13 +11055,11 @@ var CSymbolScanner = class {
         }
         pending.sym.name = list2[0].name;
       }
-      if (pending)
-        symbols.push(pending.sym);
+      if (pending) symbols.push(pending.sym);
       const typeBase = pending ? `${pending.kind} ${pending.tag}` : b2;
       for (const d of list2) {
         types.typedefs.set(d.name, { base: typeBase, ptr: d.ptr });
-        if (pending && d.name === pending.tag && d.ptr === 0)
-          continue;
+        if (pending && d.name === pending.tag && d.ptr === 0) continue;
         symbols.push(this.sym(d.name, pending && pending.kind !== "enum" ? 23 /* Struct */ : 26 /* TypeParameter */, uri, pos, d.nameAt, {
           detail: oneLine(text.replace("{}", "{ ... }")),
           full: [start, end]
@@ -11207,8 +11067,7 @@ var CSymbolScanner = class {
       }
       return;
     }
-    if (pending)
-      symbols.push(pending.sym);
+    if (pending) symbols.push(pending.sym);
     if (!pending) {
       const fn = functionName(text);
       if (fn) {
@@ -11241,12 +11100,9 @@ var CSymbolScanner = class {
       isDefinition: o.definition ?? true,
       scope: o.scope ?? "global"
     };
-    if (o.detail)
-      sym.detail = o.detail;
-    if (o.full)
-      sym.fullRange = { start: pos.at(o.full[0]), end: pos.at(Math.max(o.full[0], o.full[1])) };
-    if (o.children && o.children.length)
-      sym.children = o.children;
+    if (o.detail) sym.detail = o.detail;
+    if (o.full) sym.fullRange = { start: pos.at(o.full[0]), end: pos.at(Math.max(o.full[0], o.full[1])) };
+    if (o.children && o.children.length) sym.children = o.children;
     return sym;
   }
 };
@@ -11260,8 +11116,7 @@ function aggregateOf(type, find, typedef) {
       return a ? { agg: a, ptr } : null;
     }
     const td = typedef(base.split(" ").pop() || base);
-    if (!td)
-      return null;
+    if (!td) return null;
     base = td.base;
     ptr += td.ptr;
   }
@@ -11280,17 +11135,14 @@ var AsmSymbolScanner = class {
       for (const m of lines[i].matchAll(/\.(global|globl|export|extern|import)\s+([^\n]*)/gi)) {
         const names = m[2].split(",").map((s) => s.trim()).filter((s) => /^[A-Za-z_][\w.]*$/.test(s));
         for (const n of names) {
-          if (/global|globl|export/i.test(m[1]))
-            globals.add(n);
-          else
-            externs.push({ name: n, line: i, col: lines[i].indexOf(n, (m.index ?? 0) + m[1].length + 1) });
+          if (/global|globl|export/i.test(m[1])) globals.add(n);
+          else externs.push({ name: n, line: i, col: lines[i].indexOf(n, (m.index ?? 0) + m[1].length + 1) });
         }
       }
     }
     let proc = null;
     const add = (s) => {
-      if (proc)
-        (proc.children ??= []).push(s);
+      if (proc) (proc.children ??= []).push(s);
       symbols.push(s);
     };
     for (let i = 0; i < lines.length; i++) {
@@ -11305,16 +11157,14 @@ var AsmSymbolScanner = class {
         continue;
       }
       if (/^\s*endproc\b/i.test(line)) {
-        if (proc && proc.fullRange)
-          proc.fullRange.end = { line: i, character: line.length };
+        if (proc && proc.fullRange) proc.fullRange.end = { line: i, character: line.length };
         proc = null;
         continue;
       }
       if (m = /^\s*\.macro\s+([A-Za-z_][\w.]*)/i.exec(line)) {
         const s = this.sym(m[1], 12 /* Function */, uri, i, line.indexOf(m[1]), "global", raw.trim());
         let j = i;
-        while (j + 1 < lines.length && !/^\s*\.endmacro\b|^\s*\.endm\b/i.test(lines[j]))
-          j++;
+        while (j + 1 < lines.length && !/^\s*\.endmacro\b|^\s*\.endm\b/i.test(lines[j])) j++;
         s.fullRange = { start: { line: i, character: 0 }, end: { line: j, character: (lines[j] || "").length } };
         symbols.push(s);
         continue;
@@ -11383,24 +11233,19 @@ var WorkspaceIndex = class _WorkspaceIndex {
       return { uri, symbols: this.asmScanner.scanFile(uri, content), timestamp: Date.now(), words: words(cleanAsm(content)), library };
     }
     const r = this.cScanner.scan(uri, content);
-    if (library)
-      for (const s of r.symbols)
-        s.library = true;
+    if (library) for (const s of r.symbols) s.library = true;
     return { uri, symbols: r.symbols, types: r.types, timestamp: Date.now(), words: words(cleanC(content)), library };
   }
   /** A file on disk indexed again (created or changed outside the editor) */
   indexFile(fsPath) {
     const ext = path3.extname(fsPath).toLowerCase();
-    if (!_WorkspaceIndex.EXTENSIONS.includes(ext))
-      return;
+    if (!_WorkspaceIndex.EXTENSIONS.includes(ext)) return;
     const library = this.libraryDirs.some((d) => fsPath.startsWith(d + path3.sep));
-    if (!library && this.isExcluded(path3.relative(this.workspacePath, fsPath)))
-      return;
+    if (!library && this.isExcluded(path3.relative(this.workspacePath, fsPath))) return;
     let content;
     try {
       const st = fs3.statSync(fsPath);
-      if (!st.isFile() || st.size > _WorkspaceIndex.MAX_SIZE)
-        return;
+      if (!st.isFile() || st.size > _WorkspaceIndex.MAX_SIZE) return;
       content = fs3.readFileSync(fsPath, "utf-8");
     } catch {
       this.removeDocument((0, import_url2.pathToFileURL)(fsPath).toString());
@@ -11418,8 +11263,7 @@ var WorkspaceIndex = class _WorkspaceIndex {
     const uri = document.uri;
     const c = document.languageId === "c" || document.languageId === "h" || /\.(c|h)$/i.test(uri);
     const asm = document.languageId === "m65-asm" || /\.(s45|asm|inc|s)$/i.test(uri);
-    if (!c && !asm)
-      return;
+    if (!c && !asm) return;
     const prev = this.indexedFiles.get(uri);
     this.indexedFiles.set(uri, this.build(uri, document.getText(), !c, prev?.library ?? false));
     this.rebuildSymbolIndex();
@@ -11427,18 +11271,14 @@ var WorkspaceIndex = class _WorkspaceIndex {
   /** The compiler's headers (lib/include): definitions, types and macros, not the workspace's symbols */
   setLibraryDirs(dirs) {
     const keep = dirs.filter((d) => fs3.existsSync(d));
-    if (keep.join("\n") === this.libraryDirs.join("\n"))
-      return;
-    for (const [uri, f] of this.indexedFiles)
-      if (f.library)
-        this.indexedFiles.delete(uri);
+    if (keep.join("\n") === this.libraryDirs.join("\n")) return;
+    for (const [uri, f] of this.indexedFiles) if (f.library) this.indexedFiles.delete(uri);
     this.libraryDirs = keep;
     for (const dir of keep) {
       const scan = (d) => {
         for (const e of fs3.readdirSync(d, { withFileTypes: true })) {
           const p = path3.join(d, e.name);
-          if (e.isDirectory())
-            scan(p);
+          if (e.isDirectory()) scan(p);
           else if (/\.h$/i.test(e.name)) {
             try {
               const uri = (0, import_url2.pathToFileURL)(p).toString();
@@ -11464,10 +11304,8 @@ var WorkspaceIndex = class _WorkspaceIndex {
     const lowerQuery = query.toLowerCase();
     const results = [];
     for (const [name, symbols] of this.symbolsByName) {
-      if (name.toLowerCase().includes(lowerQuery))
-        results.push(...symbols.filter((s) => !s.library));
-      if (results.length >= 200)
-        break;
+      if (name.toLowerCase().includes(lowerQuery)) results.push(...symbols.filter((s) => !s.library));
+      if (results.length >= 200) break;
     }
     return results.slice(0, 200);
   }
@@ -11478,8 +11316,7 @@ var WorkspaceIndex = class _WorkspaceIndex {
   }
   getAllSymbols() {
     const all = [];
-    for (const symbols of this.symbolsByName.values())
-      all.push(...symbols);
+    for (const symbols of this.symbolsByName.values()) all.push(...symbols);
     return all;
   }
   getFileSymbols(uri) {
@@ -11489,9 +11326,7 @@ var WorkspaceIndex = class _WorkspaceIndex {
   /** the indexed files that use a word (the files a reference search reads) */
   filesWithWord(word) {
     const out = [];
-    for (const f of this.indexedFiles.values())
-      if (f.words?.has(word))
-        out.push(f.uri);
+    for (const f of this.indexedFiles.values()) if (f.words?.has(word)) out.push(f.uri);
     return out;
   }
   isLibrary(uri) {
@@ -11500,47 +11335,39 @@ var WorkspaceIndex = class _WorkspaceIndex {
   // ---- C types (member completion): a document's own scan first, then the index
   typesIn(first) {
     const out = [];
-    if (first)
-      out.push(first);
-    for (const f of this.indexedFiles.values())
-      if (f.types)
-        out.push(f.types);
+    if (first) out.push(first);
+    for (const f of this.indexedFiles.values()) if (f.types) out.push(f.types);
     return out;
   }
   findAggregate(tag, first) {
     for (const t of this.typesIn(first)) {
       const a = t.aggregates.find((x) => x.tag === tag && x.members.length > 0);
-      if (a)
-        return a;
+      if (a) return a;
     }
     for (const t of this.typesIn(first)) {
       const a = t.aggregates.find((x) => x.tag === tag);
-      if (a)
-        return a;
+      if (a) return a;
     }
     return void 0;
   }
   findTypedef(name, first) {
     for (const t of this.typesIn(first)) {
       const v = t.typedefs.get(name);
-      if (v)
-        return v;
+      if (v) return v;
     }
     return void 0;
   }
   findVar(name, first) {
     for (const t of this.typesIn(first)) {
       const v = t.vars.get(name);
-      if (v)
-        return v;
+      if (v) return v;
     }
     return void 0;
   }
   findMacro(name, first) {
     for (const t of this.typesIn(first)) {
       const v = t.macros.get(name);
-      if (v !== void 0)
-        return v;
+      if (v !== void 0) return v;
     }
     return void 0;
   }
@@ -11553,16 +11380,13 @@ var WorkspaceIndex = class _WorkspaceIndex {
     this.symbolsByName.clear();
     const add = (s) => {
       let l = this.symbolsByName.get(s.name);
-      if (!l)
-        this.symbolsByName.set(s.name, l = []);
+      if (!l) this.symbolsByName.set(s.name, l = []);
       l.push(s);
     };
     for (const indexed of this.indexedFiles.values()) {
       for (const symbol of indexed.symbols) {
         add(symbol);
-        if (symbol.kind === 10 /* Enum */)
-          for (const c of symbol.children ?? [])
-            add({ ...c, library: symbol.library });
+        if (symbol.kind === 10 /* Enum */) for (const c of symbol.children ?? []) add({ ...c, library: symbol.library });
       }
     }
   }
@@ -11581,17 +11405,14 @@ var WorkspaceIndex = class _WorkspaceIndex {
       }
       for (const entry of entries) {
         const fullPath = path3.join(dir, entry.name);
-        if (this.isExcluded(path3.relative(this.workspacePath, fullPath)))
-          continue;
+        if (this.isExcluded(path3.relative(this.workspacePath, fullPath))) continue;
         if (entry.isDirectory()) {
           scanDir(fullPath);
         } else if (entry.isFile()) {
           const ext = path3.extname(entry.name).toLowerCase();
-          if (!_WorkspaceIndex.EXTENSIONS.includes(ext) || fileCount >= _WorkspaceIndex.MAX_FILES)
-            continue;
+          if (!_WorkspaceIndex.EXTENSIONS.includes(ext) || fileCount >= _WorkspaceIndex.MAX_FILES) continue;
           try {
-            if (fs3.statSync(fullPath).size > _WorkspaceIndex.MAX_SIZE)
-              continue;
+            if (fs3.statSync(fullPath).size > _WorkspaceIndex.MAX_SIZE) continue;
             const uri = (0, import_url2.pathToFileURL)(fullPath).toString();
             this.indexedFiles.set(uri, this.build(uri, fs3.readFileSync(fullPath, "utf-8"), _WorkspaceIndex.isAsmPath(fullPath)));
             fileCount++;
@@ -11610,8 +11431,7 @@ var WorkspaceIndex = class _WorkspaceIndex {
     const parts = rel.split("/");
     for (const pattern of this.excludePatterns) {
       if (!/[*?/]/.test(pattern)) {
-        if (parts.includes(pattern))
-          return true;
+        if (parts.includes(pattern)) return true;
       } else if (_WorkspaceIndex.globToRegex(pattern).test(rel)) {
         return true;
       }
@@ -11626,8 +11446,7 @@ var WorkspaceIndex = class _WorkspaceIndex {
       if (c === "*" && glob[i + 1] === "*") {
         re += ".*";
         i++;
-        if (glob[i + 1] === "/")
-          i++;
+        if (glob[i + 1] === "/") i++;
       } else if (c === "*") {
         re += "[^/]*";
       } else if (c === "?") {
@@ -11647,8 +11466,7 @@ var TypeResolver = class {
     this.doc = doc;
   }
   aggOf(t) {
-    if (!t)
-      return null;
+    if (!t) return null;
     const r = aggregateOf(t, (tag) => this.index.findAggregate(tag, this.doc), (n) => this.index.findTypedef(n, this.doc));
     return r ? r.agg : null;
   }
@@ -11657,19 +11475,16 @@ var TypeResolver = class {
     const from = Math.max(0, offset - 256);
     const before2 = clean.slice(from, offset);
     const m = /(\.|->)[ \t]*([A-Za-z_]\w*)?$/.exec(before2);
-    if (!m)
-      return null;
+    if (!m) return null;
     const lead = before2.slice(0, m.index).trimEnd();
-    if (m[1] === "." && /\d$/.test(lead) && !/[A-Za-z_]\w*$/.test(lead))
-      return null;
+    if (m[1] === "." && /\d$/.test(lead) && !/[A-Za-z_]\w*$/.test(lead)) return null;
     const agg = this.aggOf(this.exprType(clean, from + m.index));
     return agg ? { agg, prefix: m[2] ?? "" } : null;
   }
   /** the member a name at [start, end) names, when it follows . or -> */
   memberAt(clean, start, name) {
     const site = this.memberSite(clean, start);
-    if (!site)
-      return null;
+    if (!site) return null;
     const member = site.agg.members.find((x) => x.name === name);
     return member ? { agg: site.agg, member } : null;
   }
@@ -11677,8 +11492,7 @@ var TypeResolver = class {
   exprType(clean, end) {
     let i = end;
     const skipWs = () => {
-      while (i > 0 && /\s/.test(clean[i - 1]))
-        i--;
+      while (i > 0 && /\s/.test(clean[i - 1])) i--;
     };
     const chain = [];
     let head = null;
@@ -11688,10 +11502,8 @@ var TypeResolver = class {
       if (c === "]") {
         let depth = 0;
         for (i--; i >= 0; i--) {
-          if (clean[i] === "]")
-            depth++;
-          else if (clean[i] === "[" && --depth === 0)
-            break;
+          if (clean[i] === "]") depth++;
+          else if (clean[i] === "[" && --depth === 0) break;
         }
         continue;
       }
@@ -11699,20 +11511,16 @@ var TypeResolver = class {
         let depth = 0;
         let j = i - 1;
         for (; j >= 0; j--) {
-          if (clean[j] === ")")
-            depth++;
-          else if (clean[j] === "(" && --depth === 0)
-            break;
+          if (clean[j] === ")") depth++;
+          else if (clean[j] === "(" && --depth === 0) break;
         }
         const inner = clean.slice(j + 1, i - 1);
-        if (/[A-Za-z_]\w*$/.test(clean.slice(Math.max(0, j - 256), j).trimEnd()))
-          return null;
+        if (/[A-Za-z_]\w*$/.test(clean.slice(Math.max(0, j - 256), j).trimEnd())) return null;
         head = this.parenType(inner, clean, j + 1);
         break;
       }
       const id = /([A-Za-z_]\w*)$/.exec(clean.slice(0, i));
-      if (!id)
-        return null;
+      if (!id) return null;
       i -= id[1].length;
       skipWs();
       if (clean.slice(0, i).endsWith("->")) {
@@ -11745,8 +11553,7 @@ var TypeResolver = class {
     }
     const deref = /^\s*\*+\s*/.exec(inner);
     const t = this.exprType(clean, at + inner.trimEnd().length);
-    if (!t)
-      return null;
+    if (!t) return null;
     return deref ? { base: t.base, ptr: Math.max(0, t.ptr - (deref[0].match(/\*/g) || []).length) } : t;
   }
   /** a name's declared type: the last declaration before here, a variable, a macro */
@@ -11758,23 +11565,18 @@ var TypeResolver = class {
     let found = null;
     for (const m of clean.slice(0, at).matchAll(re)) {
       const t = { base: m[1] ? `${m[1]} ${m[2]}` : m[3], ptr: (m[4].match(/\*/g) || []).length };
-      if (this.aggOf(t))
-        found = t;
+      if (this.aggOf(t)) found = t;
     }
-    if (found)
-      return found;
+    if (found) return found;
     const v = this.index.findVar(name, this.doc);
-    if (v && this.aggOf(v))
-      return v;
+    if (v && this.aggOf(v)) return v;
     const body = this.index.findMacro(name, this.doc);
     if (body) {
       const deref = /^\s*\(?\s*\*\s*\(/.test(body) ? 1 : 0;
       const s = /\b(struct|union)\s+([A-Za-z_]\w*)\s*(\**)/.exec(body);
-      if (s)
-        return { base: `${s[1]} ${s[2]}`, ptr: Math.max(0, s[3].length - deref) };
+      if (s) return { base: `${s[1]} ${s[2]}`, ptr: Math.max(0, s[3].length - deref) };
       const a = /\(\s*(?:(?:volatile|const)\s+)*([A-Za-z_]\w*)\s*(\*+)\s*\)/.exec(body);
-      if (a && this.aggOf({ base: a[1], ptr: 0 }))
-        return { base: a[1], ptr: Math.max(0, a[2].length - deref) };
+      if (a && this.aggOf({ base: a[1], ptr: 0 })) return { base: a[1], ptr: Math.max(0, a[2].length - deref) };
     }
     return null;
   }
@@ -11793,27 +11595,22 @@ var HoverProvider = class _HoverProvider {
     const line = document.getText({ start: { line: position.line, character: 0 }, end: { line: position.line + 1, character: 0 } }).replace(/\r?\n$/, "");
     const asm = isAsm(document.languageId, document.uri);
     const w = wordAt(line, position.character);
-    if (!w)
-      return null;
+    if (!w) return null;
     const range = { start: { line: position.line, character: w.start }, end: { line: position.line, character: w.end } };
     let md = asm ? this.asm(w.word) : this.c(line, w.word);
-    if (!md && !asm)
-      md = this.member(document, position, line);
+    if (!md && !asm) md = this.member(document, position, line);
     if (!md) {
       const id = identAt(line, position.character, asm);
-      if (id)
-        md = this.symbol(id, document.uri);
+      if (id) md = this.symbol(id, document.uri);
     }
-    if (!md)
-      return null;
+    if (!md) return null;
     return { contents: { kind: import_node2.MarkupKind.Markdown, value: md }, range };
   }
   asm(word) {
     const lw = word.toLowerCase();
     if (lw.startsWith(".")) {
       const d = this.data.directives.get(lw.slice(1));
-      if (d)
-        return `**${d.syntax}**
+      if (d) return `**${d.syntax}**
 
 ${d.description}`;
       return null;
@@ -11826,19 +11623,16 @@ ${d.description}`;
     if (pragma) {
       const name = pragma[1].replace(/\s+/g, " ");
       const p = this.data.pragmas.find((x) => x.name === name || x.name === `cc45 ${name}`);
-      if (p && name.endsWith(word))
-        return `**${p.syntax}**
+      if (p && name.endsWith(word)) return `**${p.syntax}**
 
 ${p.description}`;
     }
     const k = this.data.keywords.get(word);
-    if (k)
-      return `**${k.name}** (${k.type})
+    if (k) return `**${k.name}** (${k.type})
 
 ${k.description}`;
     const f = this.data.functions.get(word);
-    if (f)
-      return `\`\`\`c
+    if (f) return `\`\`\`c
 ${f.signature}
 \`\`\`
 ${f.doc ? f.doc + "\n\n" : ""}<${f.header}>`;
@@ -11848,18 +11642,14 @@ ${f.doc ? f.doc + "\n\n" : ""}<${f.header}>`;
   member(document, position, line) {
     let s = Math.min(position.character, line.length);
     let e = s;
-    while (s > 0 && /\w/.test(line[s - 1]))
-      s--;
-    while (e < line.length && /\w/.test(line[e]))
-      e++;
-    if (s === e)
-      return null;
+    while (s > 0 && /\w/.test(line[s - 1])) s--;
+    while (e < line.length && /\w/.test(line[e])) e++;
+    if (s === e) return null;
     const name = line.slice(s, e);
     const text = document.getText();
     const start = document.offsetAt({ line: position.line, character: s });
     const r = new TypeResolver(this.index, this.scanner.scan(document.uri, text).types).memberAt(cleanC(text), start, name);
-    if (!r)
-      return null;
+    if (!r) return null;
     const file = decodeURIComponent(r.agg.uri.split("/").pop() || "");
     return `\`\`\`c
 ${r.member.decl}
@@ -11869,8 +11659,7 @@ ${r.member.method ? "method" : "member"} of ${r.agg.kind} ${r.agg.tag} (${file}:
   /** A symbol of the workspace or the library's headers: its declaration and the comment above it */
   symbol(word, uri) {
     const defs = this.index.findDefinitions(word);
-    if (defs.length === 0)
-      return null;
+    if (defs.length === 0) return null;
     const d = defs.find((s) => s.location.uri === uri) ?? defs[0];
     const lines = this.lines(d.location.uri);
     const at = d.location.range.start.line;
@@ -11884,8 +11673,7 @@ ${r.member.method ? "method" : "member"} of ${r.agg.kind} ${r.agg.tag} (${file}:
   }
   lines(uri) {
     const doc = this.open(uri);
-    if (doc)
-      return doc.getText().split("\n");
+    if (doc) return doc.getText().split("\n");
     try {
       return fs4.readFileSync(WorkspaceIndex.uriToPath(uri), "utf-8").split("\n");
     } catch {
@@ -11903,22 +11691,17 @@ ${r.member.method ? "method" : "member"} of ${r.agg.kind} ${r.agg.tag} (${file}:
     let i = line - 1;
     if (i >= 0 && /\*\/\s*$/.test(lines[i])) {
       const end = i;
-      while (i >= 0 && !/\/\*/.test(lines[i]))
-        i--;
-      if (i < 0)
-        return "";
+      while (i >= 0 && !/\/\*/.test(lines[i])) i--;
+      if (i < 0) return "";
       for (let k = i; k <= end; k++) {
         out.push(lines[k].replace(/^\s*\/\*+\s?/, "").replace(/\s*\*+\/\s*$/, "").replace(/^\s*\*\s?/, ""));
       }
     } else {
-      while (i >= 0 && /^\s*\/\//.test(lines[i]))
-        i--;
-      for (let k = i + 1; k < line; k++)
-        out.push(lines[k].replace(/^\s*\/\/+\s?/, ""));
+      while (i >= 0 && /^\s*\/\//.test(lines[i])) i--;
+      for (let k = i + 1; k < line; k++) out.push(lines[k].replace(/^\s*\/\/+\s?/, ""));
     }
     const text = out.join("\n").trim();
-    if (text)
-      return text;
+    if (text) return text;
     return trail ? (trail[1] ?? trail[2] ?? "").trim() : "";
   }
 };
@@ -11996,8 +11779,7 @@ var CompletionProvider = class {
         const typed = pragma[1];
         return this.pragmaItems.filter((p) => p.label.startsWith(typed.trimStart()) || p.label.startsWith(`cc45 ${typed.trimStart()}`)).map((p) => ({ ...p, insertText: typed.includes(" ") ? p.label.slice(p.label.lastIndexOf(" ") + 1) : p.label }));
       }
-      if (/^\s*#\s*\w*$/.test(line))
-        return [];
+      if (/^\s*#\s*\w*$/.test(line)) return [];
       const text = document.getText();
       const clean = cleanC(text);
       const offset = document.offsetAt(position);
@@ -12012,11 +11794,9 @@ var CompletionProvider = class {
             documentation: `${site.agg.kind} ${site.agg.tag}`
           })), site.prefix, false);
         }
-        if (params.context?.triggerCharacter === "." || params.context?.triggerCharacter === ">")
-          return [];
+        if (params.context?.triggerCharacter === "." || params.context?.triggerCharacter === ">") return [];
       }
-      if (params.context?.triggerCharacter === ">")
-        return [];
+      if (params.context?.triggerCharacter === ">") return [];
       items = [...this.cItems, ...this.symbols(document.uri, false)];
     }
     return this.filter(items, prefix);
@@ -12027,13 +11807,11 @@ var CompletionProvider = class {
     const out = [];
     for (const it of items) {
       const key = it.label.toLowerCase();
-      if (p && !key.startsWith(p) || seen.has(key))
-        continue;
+      if (p && !key.startsWith(p) || seen.has(key)) continue;
       seen.add(key);
       out.push(it);
     }
-    if (sort)
-      out.sort((a, b) => a.label.localeCompare(b.label));
+    if (sort) out.sort((a, b) => a.label.localeCompare(b.label));
     return out.slice(0, MAX_ITEMS);
   }
   /** The workspace's symbols of the language (this file's first) */
@@ -12041,10 +11819,8 @@ var CompletionProvider = class {
     const ext = asm ? /\.(s45|asm|inc|s)$/i : /\.(c|h)$/i;
     const out = [];
     for (const s of this.index.getAllSymbols()) {
-      if (!s.isDefinition || !ext.test(s.location.uri))
-        continue;
-      if (s.scope === "local" && s.location.uri !== uri)
-        continue;
+      if (!s.isDefinition || !ext.test(s.location.uri)) continue;
+      if (s.scope === "local" && s.location.uri !== uri) continue;
       const file = decodeURIComponent(s.location.uri.split("/").pop() || "");
       out.push({
         label: s.name,
@@ -12062,8 +11838,7 @@ var import_url3 = require("url");
 var path4 = __toESM(require("path"));
 function locTarget(line, asmPath) {
   const m = /^\s*\.loc\s+"([^"]+)"\s*,\s*(\d+)/.exec(line);
-  if (!m)
-    return null;
+  if (!m) return null;
   const file = path4.isAbsolute(m[1]) ? m[1] : path4.resolve(path4.dirname(asmPath), m[1]);
   const l = Math.max(0, parseInt(m[2], 10) - 1);
   return { uri: (0, import_url3.pathToFileURL)(file).toString(), range: { start: { line: l, character: 0 }, end: { line: l, character: 0 } } };
@@ -12079,16 +11854,13 @@ var DefinitionProvider = class {
     const asm = isAsm(document.languageId, document.uri);
     if (asm) {
       const loc = locTarget(line, WorkspaceIndex.uriToPath(document.uri));
-      if (loc)
-        return [loc];
+      if (loc) return [loc];
     }
     const word = identAt(line, position.character, asm);
-    if (!word)
-      return null;
+    if (!word) return null;
     if (!asm) {
       let s = Math.min(position.character, line.length);
-      while (s > 0 && /\w/.test(line[s - 1]))
-        s--;
+      while (s > 0 && /\w/.test(line[s - 1])) s--;
       const text = document.getText();
       const r = new TypeResolver(this.index, this.scanner.scan(document.uri, text).types).memberAt(cleanC(text), document.offsetAt({ line: position.line, character: s }), word);
       if (r) {
@@ -12097,8 +11869,7 @@ var DefinitionProvider = class {
       }
     }
     const definitions = this.index.findDefinitions(word);
-    if (definitions.length === 0)
-      return null;
+    if (definitions.length === 0) return null;
     const own = word.startsWith("@") ? definitions.filter((d) => d.location.uri === document.uri) : definitions;
     const work = own.filter((d) => !d.library);
     return (work.length ? work : own).map((sym) => ({ uri: sym.location.uri, range: sym.location.range }));
@@ -12179,10 +11950,8 @@ function toDocumentSymbol(s) {
     range,
     selectionRange: sel
   };
-  if (s.detail)
-    d.detail = s.detail;
-  if (s.children?.length)
-    d.children = s.children.map(toDocumentSymbol);
+  if (s.detail) d.detail = s.detail;
+  if (s.children?.length) d.children = s.children.map(toDocumentSymbol);
   return d;
 }
 var DocumentSymbolProvider = class {
@@ -12194,9 +11963,7 @@ var DocumentSymbolProvider = class {
     if (isAsm(document.languageId, document.uri)) {
       const all = this.asm.scanFile(document.uri, document.getText()).filter((s) => s.scope !== "extern");
       const inner = /* @__PURE__ */ new Set();
-      for (const s of all)
-        for (const c of s.children ?? [])
-          inner.add(c);
+      for (const s of all) for (const c of s.children ?? []) inner.add(c);
       return all.filter((s) => !inner.has(s)).map(toDocumentSymbol);
     }
     return this.c.scan(document.uri, document.getText()).symbols.map(toDocumentSymbol);
@@ -12215,8 +11982,7 @@ var ReferencesProvider = class {
     const p = params.position;
     const line = document.getText({ start: { line: p.line, character: 0 }, end: { line: p.line + 1, character: 0 } });
     const word = identAt(line.replace(/\r?\n$/, ""), p.character, isAsm(document.languageId, document.uri));
-    if (!word)
-      return [];
+    if (!word) return [];
     const uris = word.startsWith("@") ? [document.uri] : Array.from(/* @__PURE__ */ new Set([document.uri, ...this.index.filesWithWord(word)]));
     const re = new RegExp(`(?<![\\w@])${escapeRegex(word)}(?!\\w)`, "g");
     const defs = params.context.includeDeclaration ? null : new Set(this.index.findDefinitions(word).map((d) => `${d.location.uri}:${d.location.range.start.line}:${d.location.range.start.character}`));
@@ -12224,8 +11990,7 @@ var ReferencesProvider = class {
     for (const uri of uris) {
       let text;
       const doc = this.open(uri) ?? (uri === document.uri ? document : void 0);
-      if (doc)
-        text = doc.getText();
+      if (doc) text = doc.getText();
       else {
         try {
           text = fs5.readFileSync(WorkspaceIndex.uriToPath(uri), "utf-8");
@@ -12237,11 +12002,9 @@ var ReferencesProvider = class {
       const pos = new Positions(text);
       for (const m of clean.matchAll(re)) {
         const s = pos.at(m.index ?? 0);
-        if (defs?.has(`${uri}:${s.line}:${s.character}`))
-          continue;
+        if (defs?.has(`${uri}:${s.line}:${s.character}`)) continue;
         out.push({ uri, range: { start: s, end: { line: s.line, character: s.character + word.length } } });
-        if (out.length >= MAX)
-          return out;
+        if (out.length >= MAX) return out;
       }
     }
     return out;
@@ -12254,12 +12017,10 @@ var path5 = __toESM(require("path"));
 var DEFAULT_EXCLUDE = ["node_modules", ".git", "bin", "obj", "build"];
 function onPath(name) {
   for (const d of (process.env.PATH || "").split(path5.delimiter)) {
-    if (!d)
-      continue;
+    if (!d) continue;
     const p = path5.join(d, name);
     try {
-      if (fs6.statSync(p).isFile())
-        return p;
+      if (fs6.statSync(p).isFile()) return p;
     } catch {
     }
   }
@@ -12268,20 +12029,16 @@ function onPath(name) {
 function resolveTool(setting, tool, workspace) {
   const expand = (p) => {
     let s = p.replace(/\$\{workspaceFolder\}|\$\{workspaceRoot\}/g, workspace);
-    if (s.startsWith("~/"))
-      s = path5.join(process.env.HOME || "", s.slice(2));
+    if (s.startsWith("~/")) s = path5.join(process.env.HOME || "", s.slice(2));
     return path5.isAbsolute(s) ? s : path5.join(workspace, s);
   };
   if (setting && setting.trim()) {
     const p = expand(setting.trim());
-    if (fs6.existsSync(p))
-      return p;
-    if (!/\$\{workspace(Folder|Root)\}\/bin\//.test(setting) && setting.trim() !== `bin/${tool}`)
-      return p;
+    if (fs6.existsSync(p)) return p;
+    if (!/\$\{workspace(Folder|Root)\}\/bin\//.test(setting) && setting.trim() !== `bin/${tool}`) return p;
   }
   const local = path5.join(workspace, "bin", tool);
-  if (fs6.existsSync(local))
-    return local;
+  if (fs6.existsSync(local)) return local;
   return onPath(tool) || local;
 }
 function resolveSettings(s, workspace) {
@@ -12295,8 +12052,7 @@ function resolveSettings(s, workspace) {
 }
 
 // src/server.ts
-if (!process.argv.some((a) => /^--(stdio|node-ipc|socket|pipe|clientProcessId)/.test(a)))
-  process.argv.push("--stdio");
+if (!process.argv.some((a) => /^--(stdio|node-ipc|socket|pipe|clientProcessId)/.test(a))) process.argv.push("--stdio");
 var connection = (0, import_node5.createConnection)(import_node5.ProposedFeatures.all);
 console.error = console.log;
 var documentManager;
@@ -12329,8 +12085,7 @@ async function applySettings() {
 }
 function libraryDirs(cc45) {
   const out = [];
-  if (process.env.CC45_INCLUDE)
-    out.push(process.env.CC45_INCLUDE);
+  if (process.env.CC45_INCLUDE) out.push(process.env.CC45_INCLUDE);
   let real = cc45;
   try {
     real = fs7.realpathSync(cc45);
@@ -12348,10 +12103,8 @@ function libraryDirs(cc45) {
 }
 connection.onInitialize((params) => {
   const root = params.workspaceFolders?.[0]?.uri ?? params.rootUri;
-  if (root && root.startsWith("file:"))
-    workspacePath = (0, import_url4.fileURLToPath)(root);
-  else if (params.rootPath)
-    workspacePath = params.rootPath;
+  if (root && root.startsWith("file:")) workspacePath = (0, import_url4.fileURLToPath)(root);
+  else if (params.rootPath) workspacePath = params.rootPath;
   hasConfiguration = !!params.capabilities.workspace?.configuration;
   const opts = params.initializationOptions;
   initialSettings = opts && "m65" in opts ? opts.m65 : opts;
@@ -12363,8 +12116,7 @@ connection.onInitialize((params) => {
   documentManager = new DocumentManager(connection, r.cc45Path, r.ca45Path, r.debounceMs, workspacePath);
   documentManager.onContent = (doc) => workspaceIndex.indexDocument(doc);
   documentManager.onClose = (uri) => {
-    if (uri.startsWith("file:"))
-      workspaceIndex.indexFile((0, import_url4.fileURLToPath)(uri));
+    if (uri.startsWith("file:")) workspaceIndex.indexFile((0, import_url4.fileURLToPath)(uri));
   };
   const open = (uri) => documentManager.textDocuments.get(uri);
   hoverProvider = new HoverProvider(data, workspaceIndex, open);
@@ -12396,8 +12148,7 @@ connection.onInitialized(() => {
   }, 0);
 });
 connection.onDidChangeConfiguration((change) => {
-  if (!hasConfiguration)
-    initialSettings = change.settings && change.settings.m65 || initialSettings;
+  if (!hasConfiguration) initialSettings = change.settings && change.settings.m65 || initialSettings;
   applySettings().catch((err) => console.error(`[LSP Server] settings: ${err}`));
 });
 connection.onHover((params) => {
@@ -12426,8 +12177,7 @@ connection.onRequest("m65/assembly", async (p) => {
   const file = (0, import_url4.fileURLToPath)(p.uri);
   const text = doc ? doc.getText() : fs7.readFileSync(file, "utf-8");
   const r = await compileToAssembly(cc45Path, file, text);
-  if (!r.asmPath)
-    return { error: r.error };
+  if (!r.asmPath) return { error: r.error };
   return { uri: (0, import_url4.pathToFileURL)(r.asmPath).toString(), line: asmLineFor(fs7.readFileSync(r.asmPath, "utf-8"), file, p.line) };
 });
 connection.onRequest("m65/source", (p) => {
@@ -12435,22 +12185,17 @@ connection.onRequest("m65/source", (p) => {
   const lines = (doc ? doc.getText() : fs7.readFileSync((0, import_url4.fileURLToPath)(p.uri), "utf-8")).split("\n");
   for (let i = Math.min(p.line, lines.length - 1); i >= 0; i--) {
     const m = /^\s*\.loc\s+"([^"]+)"\s*,\s*(\d+)/.exec(lines[i]);
-    if (m)
-      return { uri: (0, import_url4.pathToFileURL)(path6.resolve(path6.dirname((0, import_url4.fileURLToPath)(p.uri)), m[1])).toString(), line: parseInt(m[2], 10) - 1 };
+    if (m) return { uri: (0, import_url4.pathToFileURL)(path6.resolve(path6.dirname((0, import_url4.fileURLToPath)(p.uri)), m[1])).toString(), line: parseInt(m[2], 10) - 1 };
   }
   return { error: "no .loc line before here (not cc45 output, or compiled without line information)" };
 });
 connection.onDidChangeWatchedFiles((params) => {
   for (const c of params.changes) {
-    if (!c.uri.startsWith("file:") || documentManager.textDocuments.get(c.uri))
-      continue;
+    if (!c.uri.startsWith("file:") || documentManager.textDocuments.get(c.uri)) continue;
     const p = (0, import_url4.fileURLToPath)(c.uri);
-    if (/\/\.[^/]*\.m65lsp\./.test(p))
-      continue;
-    if (c.type === import_node5.FileChangeType.Deleted)
-      workspaceIndex.removeDocument(c.uri);
-    else
-      workspaceIndex.indexFile(p);
+    if (/\/\.[^/]*\.m65lsp\./.test(p)) continue;
+    if (c.type === import_node5.FileChangeType.Deleted) workspaceIndex.removeDocument(c.uri);
+    else workspaceIndex.indexFile(p);
   }
 });
 connection.listen();
