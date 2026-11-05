@@ -4,6 +4,33 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --convert=basic7: BASIC 7.0 (C128) programs as BASIC 65 (#368)
+
+- A BASIC 7.0 `.prg` (read with BASIC 7.0's token tables) or text listing
+  as basic45 source with labels; warnings by line for what needs a hand.
+- The differences, checked against BASIC 65's own source and the C128
+  System Guide, the rules run on xemu (`doc/bin/basic45.md` has the table):
+  - variable names that are one C128 variable (two letters count) merged;
+    `DT$` (BASIC 65's date, reserved) renamed; `TI` (1/60 s → seconds) and
+    `TI$` (`HHMMSS` → `HH:MM:SS`, not settable) converted;
+  - colours 1-16 → 0-15 and sprites 1-8 → 0-7 throughout; `COLOR`'s
+    sources, `RCLR`, `PEN(` → `LPEN(`, `SLOW` → `SPEED 1`, `SCNCLR` by
+    mode, `FETCH`/`STASH`/`SWAP` → `EDMA` (attic RAM as the REU);
+  - the 40-column screen (BASIC 65 starts in 80); the graphics model:
+    `GRAPHIC` → `SCREEN`, `DRAW` → `LINE`, `PAINT`, `CHAR`,
+    `LOCATE`/`RDOT`, the colour sources and pixel cursor kept as
+    variables; `BOX` and `CIRCLE` in full (BASIC 7.0's `box.src` and
+    `circle.src`): a turned `BOX` by its rotated corners, `CIRCLE` as
+    `ELLIPSE`, as `POLYGON` (steps dividing 360, arcs of whole steps; its
+    real argument order, which the MEGA65 Book gets wrong), or else by a
+    subroutine running BASIC 7.0's own algorithm (turned ellipses, arcs
+    between steps) — within a pixel of the C128;
+  - music: `TEMPO` scaled (1152 against 1200/1440 counts: × 1.04 PAL,
+    × 1.25 `--ntsc`); a literal `PLAY` string split into one string per
+    voice (BASIC 65 has no `V`), with rests where BASIC 7.0 holds a voice
+    back, octave and length per voice, `U` 0-15 → BASIC 65's 0-9 table, `M`
+    dropped, and a wait before each `PLAY` (BASIC 65's returns at once).
+
 ### deploy45: programs and disk images to a MEGA65 or an Ultimate 64 (#145)
 
 - `deploy45 m65ether <prog>` (Ethernet: etherload), `deploy45 m65serial

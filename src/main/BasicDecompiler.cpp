@@ -1,4 +1,5 @@
 #include "BasicDecompiler.hpp"
+#include "BasicLister.hpp"
 #include "BasicTokenizer.hpp"
 #include "PETSCIIEncoder.hpp"
 #include <algorithm>
@@ -60,7 +61,8 @@ std::string textChar(uint8_t b, bool inString) {
 
 }  // namespace
 
-BasicDecompileResult decompileBasic(const std::vector<uint8_t>& prg) {
+BasicDecompileResult decompileBasic(const std::vector<uint8_t>& prg, const BasicDecompileOptions& options) {
+    const bool v7 = options.source == BasicSource::V7;
     BasicDecompileResult r;
     if (prg.size() < 4) { r.error = "not a BASIC program (too short)"; return r; }
     uint16_t load = prg[0] | (prg[1] << 8);
@@ -76,9 +78,8 @@ BasicDecompileResult decompileBasic(const std::vector<uint8_t>& prg) {
         {0xB1, ">"}, {0xB2, "="}, {0xB3, "<"},
     };
 
-    // One piece of a line: a keyword, or text (numbers, names, strings...)
-    struct Piece { bool isKw; std::string text; };
-    struct Line { uint16_t num; std::vector<Piece> pieces; };
+    using Piece = DecompiledPiece;
+    using Line = DecompiledLine;
     std::vector<Line> lines;
 
     size_t pos = 2;
@@ -116,7 +117,20 @@ BasicDecompileResult decompileBasic(const std::vector<uint8_t>& prg) {
                 text += textChar(b, false);
                 continue;
             }
-            if (b == 0xFE && p < prg.size() && (prg[p] == 0x52 || prg[p] == 0x53)) {
+            std::string v7kw;
+            size_t at = p - 1;
+            if (v7 && !ops.count(b) && b >= 0x80 && decodeV7Token(prg, at, v7kw)) {
+                // BASIC 7.0's token tables (its $CE / $FE numbering is not BASIC 65's)
+                flush();
+                p = at;
+                line.pieces.push_back({true, v7kw});
+                if (v7kw == "REM") mode = REM;
+                if (v7kw == "DATA") mode = DATA;
+            } else if (v7 && b >= 0x80 && !ops.count(b)) {
+                text += hexEscape(b);
+                r.warnings.push_back("line " + std::to_string(line.num) + ": unknown token $" +
+                                     hexEscape(b).substr(2, 2));
+            } else if (b == 0xFE && p < prg.size() && (prg[p] == 0x52 || prg[p] == 0x53)) {
                 flush();
                 line.pieces.push_back({false, prg[p++] == 0x52 ? "<<" : ">>"});
             } else if (b == 0xFE && p < prg.size() && kwEsc.count(prg[p])) {
@@ -156,6 +170,10 @@ BasicDecompileResult decompileBasic(const std::vector<uint8_t>& prg) {
         pos = next;
     }
 
+    // Another dialect: rewritten as BASIC 65
+    std::vector<std::string> notes;
+    if (options.source != BasicSource::B65) convertBasicLines(lines, options, r.warnings, notes);
+
     // Line-number references: the numbers after the jump keywords
     std::set<uint16_t> lineNums, targets;
     for (const auto& l : lines) lineNums.insert(l.num);
@@ -191,6 +209,7 @@ BasicDecompileResult decompileBasic(const std::vector<uint8_t>& prg) {
 
     // Text: a space between words, none around punctuation
     std::ostringstream out;
+    for (const auto& n : notes) out << "' " << n << "\n";
     for (const auto& l : lines) {
         std::string s;
         for (const auto& p : l.pieces) {
