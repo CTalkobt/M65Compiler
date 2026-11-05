@@ -38,6 +38,9 @@ dependencies (SQLite and FUSE only for disk45):
   plays on the PC (reSIDfp, `third_party/libresidfp`), in xemu or on a MEGA65; plays a C64 `.sid` as it is (`play tune.sid`: its player run, #393); composes (`create`); filter, wave
   tables, hard restart; digi voices (`d1:`, samples on the audio DMA, hits together mixed by tune45); plays
   sampled sound as the audio DMA does (`sample`: pack45 streams, raw samples, sound files)
+- **deploy45** — a program or disk image to real hardware (#145): `m65ether` / `m65serial` / `m65mount` run
+  mega65-tools' `etherload`, `m65` (the JTAG adapter's serial port), `mega65_ftp`; `u64` is the Ultimate 64's
+  HTTP API, built in (`src/main/deploy45_main.cpp`; `--dry-run` prints what it would do)
 - **dbg45** — source-level debugger in xemu (#202): the program's debug file (`cc45 -g` / `ln45 -g`:
   `<prog>.dbg`, JSON), breakpoints by line / function, stepping, the stack, variables by type; drives
   xemu's monitor socket (needs its `k` breakpoint list: CTalkobt/xemu `cc45-dev`, which the Docker images build);
@@ -277,7 +280,8 @@ Only these read configuration (`doc/bin/CONFIGURATION.md`):
 - ca45: `~/.config/m65/ca45.conf`, `./.ca45rc`, `CA45_OPTIMIZE`, `CA45_WARNINGS`
 - asmCvt45: `.asmCvt45rc`
 
-ln45, ar45, nm45, objdump45, disk45 and tune45 have no config files. Environment:
+ln45, ar45, nm45, objdump45, disk45, tune45 and deploy45 have no config files (deploy45: `M65_HOST`,
+`M65_DEVICE`, `M65_SPEED`, `U64_HOST`, `U64_PASSWORD`, `ETHERLOAD`, `M65`, `MEGA65_FTP`). Environment:
 `CC45_INCLUDE`, `CC45_LIB` (ln45 library search), `CC45_DUMP_IR=1` (IR to stderr),
 `CC45_OPMARK=1` (IR operation markers in the assembly; `src/test/opsize.py`
 totals code bytes by IR operation).

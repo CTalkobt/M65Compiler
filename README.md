@@ -10,6 +10,7 @@ A modern development toolchain for the MEGA65 (45GS02) home computer. It consist
 - **ar45** — Archiver (creates `.lib` static library archives from `.o45` objects)
 - **pack45** — Packer: data packed for the library's `unpack()` (DMA, to any 28-bit address, in place); `ln45 --pack-overlays` uses it too
 - **tune45** — Music for the tune player: text (or MIDI) to data, play on the PC / in xemu / on a MEGA65, compose
+- **deploy45** — A program or disk image to real hardware: a MEGA65 over Ethernet or the JTAG adapter's serial port (mega65-tools' etherload, m65, mega65_ftp), an Ultimate 64 over its HTTP API
 - **dbg45** — Source-level debugger: a cc45 program in xemu by its C source (breakpoints, stepping, the stack, variables); VS Code through `--dap`
 - **nm45** — Symbol lister for `.o45` / `.o65` object files (and ln45's `.ovl` overlay files)
 - **objdump45** — Object file inspector and 45GS02 disassembler (objects, PRGs, binaries, `.ovl` files)
@@ -272,6 +273,7 @@ For detailed information on each tool, refer to:
 - [doc/bin/pack45.md](doc/bin/pack45.md) — Packer for `unpack()`: Files, Data in a Program, Assembly
 - [doc/bin/tune45.md](doc/bin/tune45.md) — Tune Player Data, Playing, Composing, MIDI Import
 - [doc/bin/dbg45.md](doc/bin/dbg45.md) — Debugging in xemu: Commands, VS Code
+- [doc/bin/deploy45.md](doc/bin/deploy45.md) — Programs and Disk Images to a MEGA65 or an Ultimate 64
 - [doc/bin/disk45.md](doc/bin/disk45.md) — Disk/Tape/Archive Image Utility
 - [doc/bin/basic45.md](doc/bin/basic45.md) — BASIC 65 Program Generator
 - [doc/bin/asmCvt45.md](doc/bin/asmCvt45.md) — Assembly Dialect Converter

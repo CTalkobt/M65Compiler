@@ -4,6 +4,23 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### deploy45: programs and disk images to a MEGA65 or an Ultimate 64 (#145)
+
+- `deploy45 m65ether <prog>` (Ethernet: etherload), `deploy45 m65serial
+  <prog>` (the JTAG adapter's serial port: m65), `deploy45 m65mount
+  <image.d81>` (mega65_ftp: put on the SD card and mounted, over serial or
+  Ethernet; `--virtual`: m65 -d serves the local image; `--on-card`),
+  `deploy45 u64 <file>` (the Ultimate 64's HTTP API, built in: a PRG run or
+  loaded, a CRT, a SID, a d64/d71/d81/g64 mounted; `--info`, `--reset`).
+- The MEGA65 commands run the mega65-tools programs, as C64IDE does;
+  C64 or MEGA65 mode from the PRG's load address; a timeout (etherload
+  waits forever for a MEGA65 that is off); `--dry-run` prints the command
+  or request. Hosts, the serial port and the tools from the environment
+  (`M65_HOST`, `M65_DEVICE`, `U64_HOST`, `U64_PASSWORD`, …).
+- `doc/bin/deploy45.md` (and its man page); `src/test/test_deploy45.sh`
+  (33 checks: the commands run, against stand-ins, and the requests sent,
+  against a local server standing in for the U64).
+
 ### Containers: the tree set and the hash table smaller
 
 - `struct tset` / `struct tmap` (`tset.s45`): 1977 bytes (was 3006). The
