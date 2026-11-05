@@ -305,6 +305,8 @@ std::string IRBuilder::debugType(const std::string& type, int ptrLevel, const st
         debugStructs_.insert(s->name);
         return out + (s->isUnion ? "union:" : "struct:") + getAggregateName(s->name);
     }
+    if (TypeSystem::isAggregate(t))     // never defined here (only pointed to): its name
+        return out + (t.rfind("union ", 0) == 0 ? "union:" : "struct:") + TypeSystem::getAggregateName(t);
     if (t == "void") return out + "void";
     if (t == "_Bool" || t == "bool") return out + "bool";
     if (t == "float" || t == "double" || t == "long double") return out + "f40";
@@ -428,6 +430,11 @@ ir::Type IRBuilder::mapType(const std::string& typeName, int ptrLevel) {
         return ir::Type::I_N;
     }
 
+    // A struct/union never defined in this file (only pointed to, as C
+    // allows: `struct opaque *p`): no size, nothing loaded through it
+    if (TypeSystem::isAggregate(typeName) && !structs_.count(TypeSystem::getAggregateName(typeName)))
+        return ir::Type::I16;
+
     // Check for 4-byte structs/unions
     if (getTypeSize(typeName, 0) == 4) return ir::Type::I32;
 
@@ -524,7 +531,10 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
             t = ir::Type::I32;
             tn = "long";
         }
-        return {t, tn, isSigned, (t == ir::Type::PTR) ? mapType(lit->castType, 0) : ir::Type::VOID, ir::typeSize(t)};
+        // ((T **)n: a pointer to a pointer, one level less than the cast's)
+        IRTypeInfo r{t, tn, isSigned, (t == ir::Type::PTR) ? mapType(lit->castType, lit->castPointerLevel - 1) : ir::Type::VOID, ir::typeSize(t)};
+        if (t == ir::Type::PTR) r.ptrDepth = lit->castPointerLevel;
+        return r;
     }
     
     if (auto* str = dynamic_cast<StringLiteral*>(expr)) {
@@ -570,7 +580,11 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
 
     if (auto* cast = dynamic_cast<CastExpression*>(expr)) {
         ir::Type t = mapType(cast->targetType, cast->pointerLevel);
-        return {t, cast->targetType, cast->isSigned, (t == ir::Type::PTR) ? mapType(cast->targetType, 0) : ir::Type::VOID, ir::typeSize(t)};
+        // (T **)e points to a pointer: *(T **)e loads 16 bits (it took T's
+        // size: *(unsigned char **)p loaded one byte)
+        IRTypeInfo r{t, cast->targetType, cast->isSigned, (t == ir::Type::PTR) ? mapType(cast->targetType, cast->pointerLevel - 1) : ir::Type::VOID, ir::typeSize(t)};
+        if (t == ir::Type::PTR) r.ptrDepth = cast->pointerLevel;
+        return r;
     }
     
     if (auto* ref = dynamic_cast<VariableReference*>(expr)) {
@@ -802,6 +816,13 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
             }
             // General fallback for non-variable roots (e.g. member arrays, function returns, derefs)
             IRTypeInfo arrayTypeInfo = getExprTypeInfo(aa->arrayExpr.get());
+            // ((T **)e)[i]: a pointer, one level less
+            if (arrayTypeInfo.type == ir::Type::PTR && arrayTypeInfo.ptrDepth >= 2) {
+                IRTypeInfo r{ir::Type::PTR, arrayTypeInfo.typeName, arrayTypeInfo.isSigned,
+                             arrayTypeInfo.ptrDepth - 1 >= 2 ? ir::Type::PTR : mapType(arrayTypeInfo.typeName, 0), 2};
+                r.ptrDepth = arrayTypeInfo.ptrDepth - 1;
+                return r;
+            }
             ir::Type baseType = arrayTypeInfo.pointedToType;
             if (baseType == ir::Type::VOID) {
                 baseType = mapType(tn, 0);
@@ -2481,6 +2502,16 @@ int IRBuilder::ptrArrayRowSize(Expression* e) {
     int size = std::max(1, getTypeSize(tn, lvl));
     for (size_t i = 1; i < pit->second.size(); i++) size *= std::max(1, pit->second[i]);
     return size;
+}
+
+// p + n, p - q, ++p on a pointer to a struct/union never defined in this
+// file (C: an incomplete type, only pointed to): no size to step by, an error
+bool IRBuilder::completePointee(const IRTypeInfo& ti, const std::string& file, int line, int col) {
+    if (ti.type != ir::Type::PTR || ti.ptrDepth > 1) return true;
+    if (!TypeSystem::isAggregate(ti.typeName) || structs_.count(getAggregateName(ti.typeName))) return true;
+    errors_.push_back(formatDiagnostic(file, line, col, Severity::Error,
+        "Compile Error: arithmetic on a pointer to an incomplete type '" + ti.typeName + "'"));
+    return false;
 }
 
 int IRBuilder::pointeeStride(Expression* e) {
@@ -4546,7 +4577,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
         currentFunc_->memoryVregs.insert(vreg.vregId);
     }
 
-    if (getTypeSize(node.type, 0) > 2 && node.pointerLevel == 0 && node.arrayDims.empty() &&
+    if (node.pointerLevel == 0 && getTypeSize(node.type, 0) > 2 && node.arrayDims.empty() &&
         !isFarPointerType(node.type)) {
         // Large aggregates (non-array) must go to frame with correct byte size
         // (a far pointer is a 4-byte scalar: a leaf keeps it in the base
@@ -6250,6 +6281,7 @@ void IRBuilder::visit(BinaryOperation& node) {
     if ((node.op == "+" || node.op == "-") && resultType == ir::Type::PTR) {
         int elemSize = 1;
         IRTypeInfo ptrInfo = (lhsInfo.type == ir::Type::PTR) ? lhsInfo : rhsInfo;
+        completePointee(ptrInfo, node.sourceFile, node.line, node.column);
         if (ptrInfo.pointedToType != ir::Type::VOID)
             elemSize = ir::typeSize(ptrInfo.pointedToType);
         // Check for struct/union with larger sizes
@@ -6525,6 +6557,7 @@ void IRBuilder::visit(UnaryOperation& node) {
             bool isInc = node.op[0] == '+';
             int step = 1;
             if (info.type == ir::Type::PTR) {
+                completePointee(info, node.sourceFile, node.line, node.column);
                 if (info.pointedToType != ir::Type::VOID) step = std::max(1, (int)ir::typeSize(info.pointedToType));
                 if (const IRStructInfo* si = structOf(info.typeName)) step = si->totalSize;
             }
@@ -6793,6 +6826,7 @@ void IRBuilder::visit(UnaryOperation& node) {
         int incVal = 1;
         if (src.type == ir::Type::PTR) {
             auto info = getExprTypeInfo(node.operand.get());
+            completePointee(info, node.sourceFile, node.line, node.column);
             if (info.pointedToType != ir::Type::VOID) {
                 incVal = ir::typeSize(info.pointedToType);
             }
