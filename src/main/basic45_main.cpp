@@ -211,7 +211,7 @@ static void printUsage(const char* progName) {
     std::cout << "  --convert=<dialect> Another BASIC's program (a .prg, or a text listing) as BASIC 65 basic45" << std::endl;
     std::cout << "                      source: keywords renamed, statements rewritten, warnings for the rest;" << std::endl;
     std::cout << "                      basic7 (C128 BASIC 7.0), basic35 (C16 / Plus/4 BASIC 3.5), simons" << std::endl;
-    std::cout << "                      (C64 Simons' BASIC)" << std::endl;
+    std::cout << "                      (C64 Simons' BASIC and TSB), tsbneo (TSBneo: AT(row, column))" << std::endl;
     std::cout << "  --ntsc, --pal       --convert: the source machine's timing (TEMPO, SOUND; default --pal)" << std::endl;
     std::cout << "  --data-loader       The input (machine code: a .prg, or a binary with --load-at) as a" << std::endl;
     std::cout << "                      BASIC program that POKEs it from DATA lines and SYSes it; -o x.bas" << std::endl;
@@ -304,8 +304,8 @@ static Options parseArgs(int argc, char* argv[]) {
             opts.decompile = true;
         } else if (arg.rfind("--convert=", 0) == 0 || (arg == "--convert" && i + 1 < argc)) {
             opts.convert = arg == "--convert" ? argv[++i] : arg.substr(10);
-            if (opts.convert != "basic7" && opts.convert != "basic35" && opts.convert != "simons") {
-                std::cerr << "basic45: --convert=" << opts.convert << ": not a dialect it converts (basic7, basic35, simons)"
+            if (opts.convert != "basic7" && opts.convert != "basic35" && opts.convert != "simons" && opts.convert != "tsbneo") {
+                std::cerr << "basic45: --convert=" << opts.convert << ": not a dialect it converts (basic7, basic35, simons, tsbneo)"
                           << std::endl;
                 exit(1);
             }
@@ -638,7 +638,8 @@ int main(int argc, char* argv[]) {
         BasicDecompileOptions dopts;
         if (opts.convert == "basic7") dopts.source = BasicSource::V7;
         if (opts.convert == "basic35") dopts.source = BasicSource::V35;
-        if (opts.convert == "simons") dopts.source = BasicSource::SIMONS;
+        if (opts.convert == "simons" || opts.convert == "tsbneo") dopts.source = BasicSource::SIMONS;
+        dopts.tsbneo = opts.convert == "tsbneo";
         // the dialect's tokens and its machine's BASIC start
         const CbmBasic cbm = dopts.source == BasicSource::V35 ? CbmBasic::V35
                            : dopts.source == BasicSource::SIMONS ? CbmBasic::SIMONS : CbmBasic::V7;
@@ -651,7 +652,7 @@ int main(int argc, char* argv[]) {
         if (dopts.source != BasicSource::B65 && !isPrg) {
             // a text listing: tokenized as the dialect first
             std::vector<std::string> cw;
-            prg = crunchCbm(readFile(opts.inputFile), start, cw, cbm);
+            prg = crunchCbm(readFile(opts.inputFile), start, cw, cbm, dopts.tsbneo);
             for (const auto& w : cw) std::cerr << opts.inputFile << ": warning: " << w << std::endl;
         } else {
             prg = readBinary(opts.inputFile);

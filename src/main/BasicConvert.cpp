@@ -6,7 +6,8 @@
 // - keywords BASIC 65 has under another name are renamed (SLOW -> SPEED;
 //   PEN(0/1) -> LPEN(0/1); RCLR(n) -> RCOLOR(m), its colour sources
 //   renumbered); RGR( (BASIC 65's RGRAPHIC(screen, parameter) is another
-//   function) is warned about;
+//   function) reads the mode each GRAPHIC keeps in a variable; SCALE sets
+//   factors the drawing statements' coordinates are multiplied by;
 // - keywords BASIC 65 does not have are left as written, with a warning;
 //   statements whose arguments differ (the graphics model, BANK) are warned
 //   about;
@@ -235,6 +236,113 @@ PlayResult convertPlay(const std::string& src, PlayState& st) {
     return r;
 }
 
+// A Simons' MUSIC string (its text, the quotes removed) in BASIC 7.0's PLAY notation (convertV7
+// then makes BASIC 65's strings of it), and BASIC 65's TEMPO for MUSIC's tempo (jiffies a unit).
+// Simons' plays one note at a time ({clear}1-3 choose the voice it goes to): an M after each
+// note keeps the voices in turn. A unit is a whole note / m: m and TEMPO n (a whole note 24/n s)
+// chosen so that m units take m * tempo / 60 s.
+struct SimonsMusic {
+    std::string play;
+    int tempo = 0;
+    std::vector<std::string> warnings;
+};
+SimonsMusic simonsMusic(const std::string& src, int T) {
+    SimonsMusic r;
+    int m = 0;
+    double best = 1e9;
+    for (int mm : {16, 8, 4, 2, 1}) {
+        double nn = 1440.0 / (T * mm);
+        long ni = std::lround(nn);
+        if (ni < 1 || ni > 255) continue;
+        double err = std::fabs((double)ni - nn) / nn;
+        if (err <= 0.03) { m = mm; r.tempo = (int)ni; break; }
+        if (err < best) { best = err; m = mm; r.tempo = (int)ni; }
+    }
+    if (!m) { m = 1; r.tempo = 1; r.warnings.push_back("MUSIC's tempo " + std::to_string(T) + ": BASIC 65's slowest TEMPO 1 used"); }
+    else if (best < 1e9 && best > 0.03) r.warnings.push_back("MUSIC's tempo " + std::to_string(T) + ": BASIC 65's TEMPO " + std::to_string(r.tempo) + " is " +
+                                                            std::to_string((int)std::lround(best * 100)) + "% off");
+    // the string's characters (an escape is one)
+    std::vector<std::string> t;
+    for (size_t i = 0; i < src.size(); i++) {
+        if (src[i] == '{') {
+            size_t e = src.find('}', i);
+            if (e != std::string::npos) { t.push_back(src.substr(i, e - i + 1)); i = e; continue; }
+        }
+        t.push_back(std::string(1, src[i]));
+    }
+    static const int KEY[9] = {0, 1, 5, 2, 6, 3, 7, 4, 8};   // {f1}..{f8}: 1 5 2 6 3 7 4 8 units
+    static const std::pair<int, const char*> LEN[] = {{1728, "w."}, {1152, "w"}, {864, "h."}, {576, "h"}, {432, "q."}, {288, "q"},
+                                                      {216, "i."}, {144, "i"}, {108, "s."}, {72, "s"}};
+    int voice = 0, octave = -1;
+    std::string len;
+    bool noLen = false, sync = false, restart = false, high = false;
+    auto lengthTo = [&](const char* l) {
+        std::string base(1, l[0]);
+        if (base != len) { r.play += base; len = base; }
+        if (l[1]) r.play += '.';
+    };
+    for (size_t i = 0; i < t.size(); i++) {
+        std::string c = t[i];
+        auto units = [&]() {
+            int k = 0;
+            while (i + 1 < t.size() && t[i + 1].size() == 4 && t[i + 1].rfind("{f", 0) == 0 && t[i + 1][2] >= '1' && t[i + 1][2] <= '8')
+                k += KEY[t[++i][2] - '0'];
+            return k;
+        };
+        auto restOf = [&](long d) {
+            for (const auto& [n, l] : LEN)
+                while (d >= n) { lengthTo(l); r.play += 'r'; d -= n; }
+        };
+        if (c == "{clear}") {
+            std::string n = i + 1 < t.size() ? t[++i] : "";
+            if (n == "1" || n == "2" || n == "3") {
+                if (voice != n[0] - '0') { voice = n[0] - '0'; r.play += "v" + n; }
+            } else if (n == "t") sync = true;
+            else if (n == "r") restart = true;
+            continue;   // (G: the note released, C: the waveform cleared)
+        }
+        // a note: its letter (shifted: sharp; C=: flat), the octave, the units
+        std::string note;
+        int shift = 0;
+        if (c.size() == 1 && c[0] >= 'a' && c[0] <= 'g') note = c;
+        else if (c.size() == 9 && c.rfind("{shift-", 0) == 0 && std::string("cdfga").find(c[7]) != std::string::npos) note = "#" + c.substr(7, 1);
+        else if (c.size() == 7 && c.rfind("{cbm-", 0) == 0 && c[5] >= 'a' && c[5] <= 'g') {
+            note = c[5] == 'c' ? "b" : c[5] == 'f' ? "e" : "$" + c.substr(5, 1);
+            if (c[5] == 'c') shift = -1;
+        }
+        if (!note.empty()) {
+            int o = -1;
+            if (i + 1 < t.size() && t[i + 1].size() == 1 && std::isdigit((unsigned char)t[i + 1][0])) o = t[++i][0] - '0';
+            o += shift;
+            if (o > 6) { o = 6; high = true; }
+            if (o < 0) o = 0;
+            long d = (long)units() * (WHOLE / m);
+            if (d == 0) { noLen = true; continue; }
+            if (!voice) { voice = 1; r.play += "v1"; }
+            if (o != octave) { r.play += "o" + std::to_string(o); octave = o; }
+            for (const auto& [n, l] : LEN)
+                if (d >= n || n == 72) { lengthTo(l); r.play += note; d -= std::min<long>(d, n); break; }
+            restOf(d);
+            r.play += "m ";
+            continue;
+        }
+        // a rest (Z and a character), or anything else (X: a separator) for its units
+        if (c == "z" && i + 1 < t.size()) i++;
+        long d = (long)units() * (WHOLE / m);
+        if (d > 0) {
+            if (!voice) { voice = 1; r.play += "v1"; }
+            restOf(d);
+            r.play += "m ";
+        }
+    }
+    while (!r.play.empty() && r.play.back() == ' ') r.play.pop_back();
+    if (noLen) r.warnings.push_back("MUSIC: a note with no length (a jiffy in Simons' BASIC) left out");
+    if (sync) r.warnings.push_back("MUSIC: {clear}T (the sync bit) left out");
+    if (restart) r.warnings.push_back("MUSIC: {clear}R (start again) left out: the music plays once");
+    if (high) r.warnings.push_back("MUSIC: octaves above 6 played in octave 6 (BASIC 65's highest)");
+    return r;
+}
+
 // Wait until the voices are free: RPLAY(v) while BASIC 65 still has string
 // left for v, and its voice counter (b65.src `voices`, $125D + 2 * (v - 1):
 // bit 7 of the high byte set when idle) while the last note sounds
@@ -267,8 +375,6 @@ const std::map<std::string, std::string>& v7Differ() {
 // BASIC 7.0 keywords with no BASIC 65 counterpart, and why
 const std::map<std::string, std::string>& v7Missing() {
     static const std::map<std::string, std::string> m = {
-        {"RGR", "BASIC 65's RGRAPHIC(screen, parameter) reads a screen's settings, not the GRAPHIC mode"},
-        {"SCALE", "BASIC 65's coordinates are the screen's pixels"},
         {"SSHAPE", "BASIC 65 copies screen areas with GCOPY / CUT / PASTE"},
         {"GSHAPE", "BASIC 65 copies screen areas with GCOPY / CUT / PASTE"},
         {"WIDTH", "BASIC 65's lines are one pixel wide"},
@@ -447,6 +553,20 @@ void convertV7(std::vector<DecompiledLine>& lines, const BasicDecompileOptions& 
     };
     bool csNamed = false;   // (Simons': the program sets the colour sources itself)
     const std::string CS = fresh(), PX = fresh(), PY = fresh();
+    // RGR(x): the last GRAPHIC mode, kept in a variable
+    bool rgr = false;
+    for (const auto& l : lines)
+        for (const auto& pc : l.pieces)
+            if (pc.isKw && pc.text == "RGR") rgr = true;
+    const std::string GM = rgr ? fresh() : "";
+    // SCALE: the coordinates times the scale's factors (1 until a SCALE)
+    bool scale = false;
+    for (const auto& l : lines)
+        for (const auto& pc : l.pieces)
+            if (pc.isKw && pc.text == "SCALE") scale = true;
+    const std::string SX = scale ? fresh() : "", SY = scale ? fresh() : "";
+    auto sx = [&](const std::string& x) { return scale && !x.empty() ? "(" + x + ") * " + SX : x; };
+    auto sy = [&](const std::string& y) { return scale && !y.empty() ? "(" + y + ") * " + SY : y; };
     for (auto& l : lines)
         for (auto& pc : l.pieces)
             if (!pc.isKw)
@@ -617,11 +737,18 @@ void convertV7(std::vector<DecompiledLine>& lines, const BasicDecompileOptions& 
                 } else {
                     warn(line.num, "RDOT( of an expression: BASIC 65 has PIXEL(x, y); the pixel cursor is " + PX + ", " + PY);
                 }
+            } else if (k == "RGR") {
+                size_t close;
+                Args a = fnArgs(close);
+                if (a.list.size() == 1) {
+                    p.erase(p.begin() + (long)i + 1, p.begin() + (long)close + 1);
+                    p[i] = {false, GM};
+                } else warn(line.num, "RGR: arguments not understood, left as written");
             } else if (auto it = v7Missing().find(k); it != v7Missing().end()) {
                 warn(line.num, k + " has no BASIC 65 counterpart (" + it->second + "): left as written");
             } else if (auto it = v7Differ().find(k); it != v7Differ().end()) {
                 warn(line.num, k + ": " + it->second);
-            } else if (!b65Keywords().count(k) && k != "DRAW" && k != "LOCATE" && k != "SLOW" && k != "__PEN" && k != "__MODE" &&
+            } else if (!b65Keywords().count(k) && k != "DRAW" && k != "LOCATE" && k != "SLOW" && k != "__PEN" && k != "__MODE" && k != "__PLAYWAIT" && k != "__TEMPO" && k != "SCALE" &&
                        k != "FETCH" && k != "STASH" && k != "SWAP") {
                 warn(line.num, k + " has no BASIC 65 counterpart: left as written");
             }
@@ -754,7 +881,17 @@ void convertV7(std::vector<DecompiledLine>& lines, const BasicDecompileOptions& 
                 i = from - 1;   // (from > 0 here, or the loop's i++ makes it 0)
             };
             auto then = [](Pieces a, const Pieces& b) { a.push_back({false, ":"}); a.insert(a.end(), b.begin(), b.end()); return a; };
-            if (k == "__PEN") {
+            if (k == "__TEMPO") {
+                // (Simons' MUSIC: BASIC 65's TEMPO already)
+                anyTempo = true;
+                p[i] = {true, "TEMPO"};
+            } else if (k == "__PLAYWAIT") {
+                // (Simons' PLAY 1: until the music has played; the voices it uses after it)
+                std::string vs = i + 1 < e ? p[i + 1].text : "123";
+                std::vector<int> voices;
+                for (char c : vs) voices.push_back(c - '0');
+                replacePieces(gosub(helper("play" + vs, {playWait(voices) + " return"})));
+            } else if (k == "__PEN") {
                 // (Simons' TEXT: the pen of a colour source)
                 std::string t = pen(p[i + 1].text);
                 usedState = true;
@@ -814,11 +951,12 @@ void convertV7(std::vector<DecompiledLine>& lines, const BasicDecompileOptions& 
                     continue;
                 }
                 mode = std::stoi(m);
+                Pieces setMode = rgr ? Pieces{{false, ":"}, {false, GM + " = " + m}} : Pieces{};
                 if (mode == 0 || mode == 5) {
                     // the text screen: 40 columns (the VIC's) or 80 (the VDC's)
-                    replacePieces(then(gosub(closeScreen()), gosub(columns(mode == 5 ? 80 : 40))));
+                    replacePieces(cat({then(gosub(closeScreen()), gosub(columns(mode == 5 ? 80 : 40))), setMode}));
                 } else {
-                    replacePieces(then(gosub(closeScreen()), {{false, "screen 320, 200, 4"}}));   // 16 colours, cleared
+                    replacePieces(cat({then(gosub(closeScreen()), {{false, "screen 320, 200, 4"}}), setMode}));   // 16 colours, cleared
                     if (mode == 2 || mode == 4) warn(line.num, "GRAPHIC " + m + ": BASIC 65 has no split screen");
                     if (mode >= 3) warn(line.num, "GRAPHIC " + m + " (multicolour, x 0-159): the x coordinates are doubled");
                     if (a.list.size() > 1 && a.list[1] == "0") warn(line.num, "GRAPHIC ..., 0 (keep the bit map): SCREEN clears it");
@@ -852,7 +990,16 @@ void convertV7(std::vector<DecompiledLine>& lines, const BasicDecompileOptions& 
                 else { replace(CS + "(" + s + ") = " + c); warn(line.num, "COLOR of a source expression: kept as " + CS + "(source)"); }
             } else if (k == "LOCATE") {
                 Args a = splitArgs(p, i + 1, e);
-                if (a.list.size() == 2) { replace(PX + " = " + times(a.list[0], mode >= 3 ? 2 : 1) + " : " + PY + " = " + a.list[1]); usedState = true; }
+                if (a.list.size() == 2) { replace(PX + " = " + times(sx(a.list[0]), mode >= 3 ? 2 : 1) + " : " + PY + " = " + sy(a.list[1])); usedState = true; }
+            } else if (k == "SCALE") {
+                // SCALE n [, xmax, ymax]: coordinates 0 to xmax / ymax (default 1023) across the screen
+                Args a = splitArgs(p, i + 1, e);
+                auto at = [&](size_t q) { return q < a.list.size() ? a.list[q] : std::string(); };
+                std::string n = at(0), xm = at(1).empty() ? "1023" : at(1), ym = at(2).empty() ? "1023" : at(2);
+                std::string w = mode >= 3 ? "160" : "320";
+                if (n == "0") replace(SX + " = 1 : " + SY + " = 1");
+                else if (isNumber(n)) replace(SX + " = " + w + " / (" + xm + " + 1) : " + SY + " = 200 / (" + ym + " + 1)");
+                else replace(SX + " = 1 + ((" + n + ") <> 0) * (1 - " + w + " / (" + xm + " + 1)) : " + SY + " = 1 + ((" + n + ") <> 0) * (1 - 200 / (" + ym + " + 1))");
             } else if (k == "DRAW") {
                 Args a = splitArgs(p, i + 1, e);
                 // [source], x1, y1 [TO x2, y2] ...  or  [source] TO x, y
@@ -861,7 +1008,7 @@ void convertV7(std::vector<DecompiledLine>& lines, const BasicDecompileOptions& 
                 size_t j = 1;
                 if (a.list.size() > 1 && a.afterTo[1]) { pts.push_back(PX); pts.push_back(PY); }   // from the pixel cursor
                 for (; j < a.list.size(); j++)   // (x, y pairs: an x doubled in multicolour)
-                    pts.push_back(pts.size() % 2 == 0 ? times(a.list[j], mode >= 3 ? 2 : 1) : a.list[j]);
+                    pts.push_back(pts.size() % 2 == 0 ? times(sx(a.list[j]), mode >= 3 ? 2 : 1) : sy(a.list[j]));
                 if (pts.size() < 2 || pts.size() % 2) { warn(line.num, "DRAW: arguments not understood, left as written"); continue; }
                 std::string coords;
                 for (size_t q = 0; q < pts.size(); q++) coords += (q ? ", " : "") + pts[q];
@@ -876,16 +1023,16 @@ void convertV7(std::vector<DecompiledLine>& lines, const BasicDecompileOptions& 
                 usedState = true;
                 if (at(5).empty() || at(5) == "0") {
                     // not rotated: its four corners
-                    std::string x1 = times(at(1), f), y1 = at(2);
-                    std::string x2 = at(3).empty() ? PX : times(at(3), f), y2 = at(4).empty() ? PY : at(4);
+                    std::string x1 = times(sx(at(1)), f), y1 = sy(at(2));
+                    std::string x2 = at(3).empty() ? PX : times(sx(at(3)), f), y2 = at(4).empty() ? PY : sy(at(4));
                     replace(pen(at(0)) + "box " + x1 + ", " + y1 + ", " + x2 + ", " + y1 + ", " + x2 + ", " + y2 + ", " +
                             x1 + ", " + y2 + ", " + solid + " : " + PX + " = " + x2 + " : " + PY + " = " + y2);
                 } else {
                     // rotated: BASIC 7.0's corners, by a subroutine
                     std::string un = f == 2 ? " / 2" : "";
-                    std::string x2 = at(3).empty() ? "(" + PX + ")" + un : at(3), y2 = at(4).empty() ? PY : at(4);
+                    std::string x2 = at(3).empty() ? "(" + PX + ")" + un : sx(at(3)), y2 = at(4).empty() ? PY : sy(at(4));
                     uint16_t sub = boxSub();
-                    std::string args = argName(0) + " = " + at(1) + " : " + argName(1) + " = " + at(2) + " : " + argName(2) + " = " +
+                    std::string args = argName(0) + " = " + sx(at(1)) + " : " + argName(1) + " = " + sy(at(2)) + " : " + argName(2) + " = " +
                                        x2 + " : " + argName(3) + " = " + y2 + " : " + argName(4) + " = " + at(5) + " : " +
                                        argName(5) + " = " + solid + " : " + argName(6) + " = " + std::to_string(f);
                     std::string pn = pen(at(0));
@@ -904,7 +1051,7 @@ void convertV7(std::vector<DecompiledLine>& lines, const BasicDecompileOptions& 
                 int f = mode >= 3 ? 2 : 1;
                 usedState = true;
                 // (an omitted y radius: the x radius, doubled in multicolour as BASIC 7.0 does)
-                std::string yr = at(4).empty() ? times(at(3), f) : at(4);
+                std::string yr = at(4).empty() ? times(sx(at(3)), f) : sy(at(4));
                 bool circle = at(4).empty() || at(4) == at(3);
                 auto num = [&](size_t q, double dflt, double& v) {
                     if (at(q).empty()) { v = dflt; return true; }
@@ -920,8 +1067,8 @@ void convertV7(std::vector<DecompiledLine>& lines, const BasicDecompileOptions& 
                 if (literal && circle) { S += ro; E += ro; }
                 if (literal && E <= S) E += 360;
                 bool turned = literal && ro != 0 && !circle;
-                std::string x = at(1).empty() ? PX : times(at(1), f), y = at(2).empty() ? PY : at(2);
-                std::string xr = times(at(3), f);
+                std::string x = at(1).empty() ? PX : times(sx(at(1)), f), y = at(2).empty() ? PY : sy(at(2));
+                std::string xr = times(sx(at(3)), f);
                 auto endCursor = [&](double end) {
                     // the pixel cursor at the arc's last point
                     double sb = std::sin(end * M_PI / 180), cb = std::cos(end * M_PI / 180);
@@ -950,10 +1097,10 @@ void convertV7(std::vector<DecompiledLine>& lines, const BasicDecompileOptions& 
                     // anything else (a turned ellipse, an arc between steps, expressions): BASIC 7.0's own
                     // algorithm, by a subroutine
                     std::string un = f == 2 ? " / 2" : "";
-                    std::string cx = at(1).empty() ? "(" + PX + ")" + un : at(1), cy = at(2).empty() ? PY : at(2);
-                    std::string yr7 = at(4).empty() ? times(at(3), f) : at(4);
+                    std::string cx = at(1).empty() ? "(" + PX + ")" + un : sx(at(1)), cy = at(2).empty() ? PY : sy(at(2));
+                    std::string yr7 = at(4).empty() ? times(sx(at(3)), f) : sy(at(4));
                     uint16_t sub = circleSub();
-                    std::string args = argName(0) + " = " + cx + " : " + argName(1) + " = " + cy + " : " + argName(2) + " = " + at(3) +
+                    std::string args = argName(0) + " = " + cx + " : " + argName(1) + " = " + cy + " : " + argName(2) + " = " + sx(at(3)) +
                                        " : " + argName(3) + " = " + yr7 + " : " + argName(4) + " = " + (at(5).empty() ? "0" : at(5)) +
                                        " : " + argName(5) + " = " + (at(6).empty() ? "0" : at(6)) + " : " + argName(6) + " = " +
                                        (at(7).empty() ? "0" : at(7)) + " : " + argName(7) + " = " + (at(8).empty() ? "2" : at(8)) +
@@ -970,7 +1117,7 @@ void convertV7(std::vector<DecompiledLine>& lines, const BasicDecompileOptions& 
             } else if (k == "PAINT") {
                 Args a = splitArgs(p, i + 1, e);
                 auto at = [&](size_t q) { return q < a.list.size() ? a.list[q] : std::string(); };
-                std::string x = at(1).empty() ? PX : times(at(1), mode >= 3 ? 2 : 1), y = at(2).empty() ? PY : at(2);
+                std::string x = at(1).empty() ? PX : times(sx(at(1)), mode >= 3 ? 2 : 1), y = at(2).empty() ? PY : sy(at(2));
                 warn(line.num, "PAINT: BASIC 65 fills the area of (x, y)'s colour; BASIC 7.0 fills up to the source's colour (mode 0) "
                                "or any non-background (mode 1): check");
                 replace("paint " + x + ", " + y + ", 0, " + src(at(0)));
@@ -1103,6 +1250,10 @@ void convertV7(std::vector<DecompiledLine>& lines, const BasicDecompileOptions& 
         prologue += (prologue.empty() ? "" : " : ") + g;
         notes.push_back(CS + "(): BASIC 7.0's colour sources (0-6, colours 0-15), " + PX + ", " + PY + ": its pixel cursor");
     }
+    if (scale) {
+        prologue += (prologue.empty() ? "" : " : ") + SX + " = 1 : " + SY + " = 1";
+        notes.push_back(SX + ", " + SY + ": SCALE's factors");
+    }
     if (!soundFactor.empty()) {
         // the SID's counts per Hz, by the MEGA65's video mode ($D06F bit 7: NTSC), as BASIC 65's note tables
         prologue += (prologue.empty() ? "" : " : ") + soundFactor + " = 16.519 : if peek(53359) and 128 then " + soundFactor + " = 16.404";
@@ -1149,18 +1300,12 @@ void convertV7(std::vector<DecompiledLine>& lines, const BasicDecompileOptions& 
 // Simons' keywords with no BASIC 65 counterpart, and why
 const std::map<std::string, std::string>& simonsMissing() {
     static const std::map<std::string, std::string> m = {
-        {"LOCAL", "BASIC 65 has no local variables"}, {"GLOBAL", "BASIC 65 has no local variables"},
-        {"ROT", "a shape string (DRAW / ROT)"}, {"DRAW", "a shape string (DRAW / ROT)"},
         {"BFLASH", "the C64's border flashing"},
-        {"DUP", "a string repeated (no BASIC 65 function)"}, {"BCKGNDS", "the VIC-II's extended background colours"},
-        {"DETECT", "the collision registers (BASIC 65: BUMP / COLLISION)"}, {"CHECK", "the collision registers (BASIC 65: BUMP / COLLISION)"},
-        {"CHAR", "a glyph by its screen code"}, {"SCRSV", "the text screen saved in its own format"},
-        {"SCRLD", "the text screen loaded in its own format"}, {"ON KEY", "keys checked between statements"},
+        {"ON KEY", "keys checked between statements"},
         {"DISABLE", "keys checked between statements (ON KEY)"}, {"RESUME", "RESUME after ON KEY"},
-        {"MUSIC", "a music string in Simons' notation (BASIC 65: PLAY's)"}, {"PLAY", "a music string in Simons' notation (BASIC 65: PLAY's)"},
-        {"FETCH", "a filtered input"}, {"INKEY", "the function key held"}, {"OUT", "the error message"},
-        {"OLD", "a direct-mode command"}, {"COLD", "a direct-mode command"}, {"SECURE", "a direct-mode command"},
-        {"DISAPA", "lines hidden from LIST"}, {"DUMP", "a direct-mode command"}, {"MEM", "the C64's memory map"},
+        {"INKEY", "the function key held"},
+        {"OLD", "a direct-mode command"}, {"SECURE", "a direct-mode command"},
+        {"DISAPA", "lines hidden from LIST"}, {"DUMP", "a direct-mode command"}, 
         {"HRDCPY", "the MPS 801 printer"}, {"COPY", "the MPS 801 printer"}, {"OPTION", "LIST's display"},
         {"PAGE", "LIST's display"}, {"DELAY", "LIST's speed"},
     };
@@ -1308,20 +1453,70 @@ void convertSimons(std::vector<DecompiledLine>& lines, const BasicDecompileOptio
     };
     bool multi = false;     // MULTI's mode (in program order): x 0-159
     bool anyXorWarn = false;
+    std::set<uint32_t> quiet;   // lines the conversion added whose plot type is a variable on purpose
+    // LOCAL: each one's variables saved (and a flag set); GLOBAL restores them, latest first
+    std::vector<std::string> locals;
+    uint16_t globalAt = 0;
+    bool ecm = false;           // BCKGNDS used: NRM turns the extended background colours off
+    // MUSIC tempo, "string" (literals): converted first, PLAY plays the last one MUSIC set
+    std::vector<SimonsMusic> musics;
+    std::vector<int> musicAt;   // the program's MUSIC statements, in order: musics' index (-1: not literals)
+    size_t musicSeen = 0;
+    for (const auto& l : lines) {
+        const auto& p = l.pieces;
+        for (size_t i = 0; i < p.size(); i++) {
+            if (p[i].isKw && p[i].text == "REM") break;
+            if (!(p[i].isKw && p[i].text == "MUSIC")) continue;
+            Args a = splitArgs(p, i + 1, statementEnd(p, i + 1));
+            musicAt.push_back(-1);
+            if (a.list.size() != 2 || !isNumber(a.list[0]) || a.list[1].size() < 2 || a.list[1].front() != '"' || a.list[1].back() != '"') continue;
+            int T = std::stoi(a.list[0]);
+            musicAt.back() = (int)musics.size();
+            musics.push_back(simonsMusic(a.list[1].substr(1, a.list[1].size() - 2), T == 0 ? 256 : T));
+        }
+    }
+    for (const auto& l : lines)
+        for (const auto& pc : l.pieces)
+            if (pc.isKw && pc.text == "BCKGNDS") ecm = true;
+    // Simons' functions (the other keywords are statements: only at a statement's start)
+    static const std::set<std::string> FUNCTIONS = {"PENX", "PENY", "JOY", "SOUND", "GRAPHICS", "EXOR", "MOD", "DIV", "FRAC", "INST",
+                                                    "INSERT", "PLACE", "POT", "TEST", "ERR", "DUP", "CHECK", "INKEY", "AT(", "LIN",
+                                                    "NRM", "D!"};
+    int doDepth = 0;            // TSB's IF ... THEN DO blocks open (program order)
+    std::map<int, std::string> scrDef;   // SCRLD / SCRSV DEF: the address (high byte) for even / odd channels
+    bool nrmWarned = false;
+    // SOUND and GRAPHICS as values (TSB has statements of those names): their numbers
+    for (auto& l : lines)
+        for (size_t i = 0; i < l.pieces.size(); i++) {
+            auto& p = l.pieces;
+            if (!p[i].isKw || (p[i].text != "SOUND" && p[i].text != "GRAPHICS")) continue;
+            bool start = i == 0 || (!p[i - 1].isKw && p[i - 1].text == ":") || (p[i - 1].isKw && (p[i - 1].text == "THEN" || p[i - 1].text == "ELSE"));
+            if (!start) p[i] = {false, p[i].text == "SOUND" ? "54272" : "53248"};
+        }
+    // TSB's $$n: n as two (four) hex digits
+    for (auto& l : lines)
+        for (auto& pc : l.pieces)
+            if (!pc.isKw && pc.text.size() > 2 && pc.text.rfind("$$", 0) == 0) {
+                std::string x = pc.text.substr(2);
+                pc.text = "right$(hex$(" + x + "), 2 - 2 * ((" + x + ") > 255))";
+            }
     const std::string G0 = "@@g0", G1 = "@@g1", G2 = "@@g2", G3 = "@@g3";   // (named below)
     for (size_t li = 0; li < lines.size(); li++) {
         auto& line = lines[li];
         auto& p = line.pieces;
         bool data = false;
-        size_t split = 0;   // the statements from here on go to a line of their own (after an IF made here)
-        for (size_t i = 0; i < p.size() && !split; i++) {
+        bool split = false;   // the statements after an IF made here go to a line of their own
+        Pieces rest;
+        for (size_t i = 0; i < p.size(); i++) {
             if (p[i].isKw && p[i].text == "DATA") data = true;
             if (!p[i].isKw && p[i].text == ":") data = false;
             if (!data && !p[i].isKw && (i == 0 || p[i - 1].text == ":" || (p[i - 1].isKw && (p[i - 1].text == "THEN" || p[i - 1].text == "ELSE"))) &&
-                statementEnd(p, i) == i + 1 && procs.count(procName(p, i, i + 1))) {
-                // TSB: a procedure's name alone is EXEC name
-                warn(line.num, p[i].text + ": a PROC's name alone (TSB's EXEC) -> GOSUB");
-                std::string at = std::to_string(procs[procName(p, i, i + 1)]);
+                statementEnd(p, i) > i && procs.count(procName(p, i, statementEnd(p, i)))) {
+                // TSB: a procedure's name alone is EXEC name (keywords may be part of it: .RESET, UNFLASH)
+                warn(line.num, "a PROC's name alone (TSB's EXEC) -> GOSUB");
+                size_t end = statementEnd(p, i);
+                std::string at = std::to_string(procs[procName(p, i, end)]);
+                p.erase(p.begin() + (long)i + 1, p.begin() + (long)end);
                 p[i] = {true, "GOSUB"};
                 p.insert(p.begin() + (long)i + 1, {false, at});
                 i++;
@@ -1330,6 +1525,22 @@ void convertSimons(std::vector<DecompiledLine>& lines, const BasicDecompileOptio
             if (data || !p[i].isKw) continue;
             std::string k = p[i].text;
             if (k == "REM") break;
+            // TSB: AT(a, b) in front of CENTRE's, USE's or FETCH's text: the cursor moved first
+            if ((k == "CENTRE" || k == "USE" || k == "FETCH") && i + 1 < p.size() && p[i + 1].isKw && p[i + 1].text == "AT(") {
+                size_t close = i + 1;
+                int d = 1;
+                for (size_t m = i + 2; m < p.size(); m++) {
+                    if (p[m].text == "(" || (p[m].text.size() > 1 && p[m].text.back() == '(')) d++;
+                    if (p[m].text == ")" && --d == 0) { close = m; break; }
+                }
+                Args c = splitArgs(p, i + 2, close);
+                if (close > i + 1 && c.list.size() == 2) {
+                    std::string col = o.tsbneo ? c.list[1] : c.list[0], row = o.tsbneo ? c.list[0] : c.list[1];
+                    p.erase(p.begin() + (long)i + 1, p.begin() + (long)close + 1);
+                    p.insert(p.begin() + (long)i, {{false, "cursor " + col + ", " + row}, {false, ":"}});
+                    i += 2;
+                }
+            }
             size_t e = statementEnd(p, i + 1);
             auto replace = [&](const std::string& text) {
                 p.erase(p.begin() + (long)i + 1, p.begin() + (long)e);
@@ -1392,15 +1603,166 @@ void convertSimons(std::vector<DecompiledLine>& lines, const BasicDecompileOptio
                     stmt[1].text = "5";
                     return then(then({{false, "dmode 0, 1, 0, 0, 1"}}, stmt), {{false, "dmode 0, 0, 0, 0, 1"}});
                 }
-                if (!isNumber(f) && !anyXorWarn) {
+                if (!isNumber(f) && !anyXorWarn && !quiet.count(line.num)) {
                     warn(line.num, "a plot type of an expression: its invert (" + inv + ") is drawn as a colour, not inverted");
                     anyXorWarn = true;
                 }
                 return stmt;
             };
             auto xs = [&](const std::string& x) { return x; };   // (BASIC 7.0's conversion doubles MULTI's x)
+            // a statement keyword in an expression (TSB uses some as functions): left as written
+            bool stmtStart = i == 0 || (!p[i - 1].isKw && p[i - 1].text == ":") ||
+                             (p[i - 1].isKw && (p[i - 1].text == "THEN" || p[i - 1].text == "ELSE"));
+            if (!stmtStart && isSimonsKeyword(k) && !FUNCTIONS.count(k) && k != "ELSE") {
+                warn(line.num, k + " inside a statement (not Simons' BASIC's form): left as written");
+                p[i] = {false, lower(k)};
+                continue;
+            }
+            // the start of the statement (for what goes in front of it)
+            size_t stmtAt = i;
+            while (stmtAt > 0 && !(!p[stmtAt - 1].isKw && p[stmtAt - 1].text == ":") &&
+                   !(p[stmtAt - 1].isKw && (p[stmtAt - 1].text == "THEN" || p[stmtAt - 1].text == "ELSE")))
+                stmtAt--;
             // ---- program structure
-            if (k == "PRINT") {
+            // ---- TSB's own (Tuned Simons' BASIC)
+            if (k == "CLS" || (k == "DIV" && stmtStart && !(i + 1 < p.size() && p[i + 1].text == "("))) {
+                replace("print chr$(147);");
+            } else if (k == "DO") {
+                // IF c THEN DO ... [ELSE (alone at a line's end) ...] DONE: BASIC 65's BEGIN / BEND
+                std::string next = i + 1 < p.size() && !p[i + 1].isKw ? lower(p[i + 1].text) : "";
+                if (next.rfind("ne", 0) == 0) {
+                    // DONE: the rest of its line is not run
+                    if (doDepth > 0) doDepth--;
+                    p.resize(i);
+                    p.push_back({false, "bend"});
+                    break;
+                }
+                if (next.rfind("null", 0) == 0) {
+                    // DO NULL: waits for a key
+                    p.resize(i);
+                    p.push_back({false, "getkey " + var("key") + "$"});
+                    break;
+                }
+                size_t t = i;
+                while (t > 0 && !(p[t - 1].isKw && p[t - 1].text == "THEN")) t--;
+                if (t == 0) { leave("a DO not after IF ... THEN"); continue; }
+                // (statements between THEN and DO never run)
+                p.resize(t);
+                p.push_back({false, "begin"});
+                doDepth++;
+                break;
+            } else if (k == "ELSE" && doDepth > 0 && i + 1 == p.size()) {
+                // an ELSE alone at the end of a line in a DO block: its else part
+                p[i] = {false, "bend : else begin"};
+            } else if (k == "D!") {
+                // D!PEEK(a) / D!POKE a, v: 16 bits, low byte first; D! alone deletes lines
+                if (i + 1 < p.size() && p[i + 1].isKw && (p[i + 1].text == "PEEK" || p[i + 1].text == "POKE")) {
+                    bool peek = p[i + 1].text == "PEEK";
+                    p.erase(p.begin() + (long)i + 1);
+                    if (peek && i + 1 < p.size() && p[i + 1].text == "(") {
+                        p.erase(p.begin() + (long)i + 1);
+                        p[i] = {false, "wpeek("};
+                        if (i + 1 < p.size() && isNumber(p[i + 1].text) && std::stoi(p[i + 1].text) < 256)
+                            warn(line.num, "D!PEEK(" + p[i + 1].text + "): the C64's zero page (BASIC 65's differs)");
+                    } else p[i] = {false, peek ? "wpeek" : "wpoke"};
+                } else {
+                    warn(line.num, "D! (TSB: deletes program lines): dropped");
+                    drop();
+                }
+            } else if (k == "CHECK" && stmtStart && !(i + 1 < p.size() && p[i + 1].text == "(")) {
+                drop();   // (TSB: indexes the PROCs, a speed-up)
+            } else if (k == "NRM" && i + 1 < p.size() && p[i + 1].text == "(") {
+                // NRM(x$): a hex string (TSB; 8 or 16 characters: binary, not converted)
+                size_t close;
+                Args f = fnArgs(close);
+                if (f.list.size() != 1) { warn(line.num, "NRM(: arguments not understood, left as written"); p[i] = {false, "nrm"}; continue; }
+                std::string x = f.list[0];
+                if (!nrmWarned) warn(line.num, "NRM(x$) -> DEC(): hex strings (a binary string of 8 or 16 digits is not converted)");
+                nrmWarned = true;
+                replaceFn(close, "dec(mid$(" + x + ", 1 - (left$(" + x + ", 1) = \"$\")))");
+            } else if (k == "MEM") {
+                if (i + 1 < e && p[i + 1].isKw && p[i + 1].text == "CLR") {
+                    // MEM CLR address, length [, byte]: memory filled
+                    Args m = splitArgs(p, i + 2, e);
+                    if (m.list.size() < 2 || m.list.size() > 3) { leave("MEM CLR's arguments"); continue; }
+                    std::string I = var("i");
+                    replace("for " + I + " = 0 to (" + m.list[1] + ") - 1 : poke " + m.list[0] + " + " + I + ", " +
+                            (m.list.size() == 3 ? m.list[2] : std::string("0")) + " : next");
+                } else if (e == i + 1) {
+                    // (BASIC 65's CHAR DEF changes its character set itself)
+                    if (!names.count("memNote")) {
+                        names["memNote"] = "1";
+                        notes.push_back("MEM (the character set copied to RAM) dropped: CHAR DEF changes BASIC 65's own");
+                    }
+                    drop();
+                } else leave("MEM's other forms (the C64's RAM expansion)");
+            } else if (k == "SOUND" && stmtStart) {
+                // SOUND voice, frequency (TSB): the SID's registers; voice 4: the filter's cutoff
+                if (!argc(2)) continue;
+                if (at(0) == "4") replace("poke 54293, (" + at(1) + ") and 7 : poke 54294, int((" + at(1) + ") / 8) and 255");
+                else {
+                    std::string reg = "54272 + 7 * ((" + at(0) + ") - 1)";
+                    replace("poke " + reg + ", (" + at(1) + ") and 255 : poke " + reg + " + 1, int((" + at(1) + ") / 256)");
+                }
+            } else if (k == "INSERT" && stmtStart) {
+                // INSERT frame$, row, column, width, height, colour (TSB): a box of the 9 characters, its colour
+                if (!argc(6)) continue;
+                std::string F = var("frame") + "$", R = var("r"), C = var("c"), W = var("w"), H = var("h"), A = var("a");
+                std::string I = var("i"), J = var("j"), RR = var("framer"), P = var("framep"), S = var("frames");
+                if (!names.count("subINSERT")) {
+                    std::string cell = "(" + R + " + " + J + ") * 40 + " + C + " + " + I;
+                    uint16_t n0 = addLine({{false, "for " + J + " = 0 to " + H + " - 1 : " + RR + " = 3 * (-(" + J + " > 0) - (" + J + " = " + H +
+                                                       " - 1)) : for " + I + " = 0 to " + W + " - 1 : " + P + " = asc(mid$(" + F + ", " + RR + " + 2 + (" +
+                                                       I + " = 0) - (" + I + " = " + W + " - 1), 1))"}});
+                    addLine({{false, S + " = (" + P + " and 63) - (" + P + " > 95) * (((" + P + " and 127) or 64) - (" + P + " and 63)) - 128 * (" + P +
+                                         " > 223) : poke 2048 + " + cell + ", " + S + " : poke 55296 + " + cell + ", " + A + " : next : next : return"}});
+                    names["subINSERT"] = std::to_string(n0);
+                }
+                replacePieces({{false, F + " = " + at(0) + " : " + R + " = " + at(1) + " : " + C + " = " + at(2) + " : " + W + " = " + at(3) + " : " + H +
+                                           " = " + at(4) + " : " + A + " = " + at(5)}, {false, ":"}, {true, "GOSUB"}, {false, names["subINSERT"]}});
+            } else if (k == "MULTI" && (a.list.size() == 1 || (i + 1 < e && p[i + 1].isKw && (p[i + 1].text == "ON" || p[i + 1].text == "OFF")))) {
+                // TSB's MULTI ON / OFF / n: the mode only (x 0-159 from here on, as TSB's)
+                multi = true;
+                replacePieces(v7("__MODE", {"3"}));
+            } else if (k == "MOB OFF") {
+                // MOB OFF n; TSB: MOB [OFF] n, MOB ON n (MOB and OFF tokens of their own)
+                bool on = false;
+                if (i + 1 < e && p[i + 1].isKw && (p[i + 1].text == "OFF" || p[i + 1].text == "ON")) {
+                    on = p[i + 1].text == "ON";
+                    p.erase(p.begin() + (long)i + 1);
+                    e--;
+                }
+                replace("sprite " + joinPieces(p, i + 1, e) + ", " + (on ? "1" : "0"));
+            } else if (k == "DISAPA" && a.list.size() == 2 && !at(0).empty()) {
+                replace("sprite " + at(0) + ", , " + at(1));   // (TSBneo's MOBCOL n, colour)
+            } else if (k == "COLD") {
+                // (TSB / Simons': a cold start, the program erased)
+                warn(line.num, "COLD (a cold start: the program erased) -> END");
+                replace("end");
+            } else if (k == "KEY" && i + 1 < e && p[i + 1].isKw && p[i + 1].text == "GET") {
+                replace("getkey " + joinPieces(p, i + 2, e));   // (TSB's KEY GET v$)
+            } else if (k == "VOL" && i + 1 < e && p[i + 1].isKw && (p[i + 1].text == "ON" || p[i + 1].text == "OFF")) {
+                replace(p[i + 1].text == "ON" ? "vol 10" : "vol 0");   // (TSBneo)
+            } else if (k == "FLASH" && i + 1 < e && p[i + 1].isKw && p[i + 1].text == "OFF") {
+                p.erase(p.begin() + (long)i + 1);
+                p[i] = {true, "OFF"};
+                i--;
+                continue;
+            } else if (k == "ERR" && i + 1 < p.size() && p[i + 1].isKw && p[i + 1].text == "OR") {
+                replace("print ds$");   // (TSB's ERROR: the drive's error channel)
+            } else if ((k == "SCRLD" || k == "SCRSV") && i + 1 < e && p[i + 1].isKw && (p[i + 1].text == "DEF" || p[i + 1].text == "RESTORE")) {
+                // TSB: DEF high byte, pages, mode, channel (the next SCRLD / SCRSV of a channel that parity: a binary file there); RESTORE
+                if (p[i + 1].text == "RESTORE") scrDef.clear();
+                else {
+                    Args d = splitArgs(p, i + 2, e);
+                    if (d.list.size() == 4 && isNumber(d.list[3])) {
+                        if (d.list[0] == "0") scrDef.erase(std::stoi(d.list[3]) & 1);
+                        else scrDef[std::stoi(d.list[3]) & 1] = d.list[0] + "," + d.list[1];
+                    } else warn(line.num, k + " DEF: arguments not understood");
+                }
+                drop();
+            }
+            else if (k == "PRINT") {
                 // PRINT AT(column, row) items ... -> CURSOR column, row : PRINT items (each AT)
                 std::vector<size_t> ats;
                 int depth = 0;
@@ -1430,7 +1792,8 @@ void convertSimons(std::vector<DecompiledLine>& lines, const BasicDecompileOptio
                     Args c = splitArgs(p, j + 1, close);
                     if (close == j || c.list.size() != 2) { ok = false; break; }
                     if (!out.empty()) out.push_back({false, ":"});
-                    out.push_back({false, "cursor " + c.list[0] + ", " + c.list[1]});
+                    // (TSBneo: AT(row, column))
+                    out.push_back({false, "cursor " + c.list[o.tsbneo ? 1 : 0] + ", " + c.list[o.tsbneo ? 0 : 1]});
                     size_t next = q + 1 < ats.size() ? ats[q + 1] : e;
                     items(close + 1, next, q + 1 == ats.size());
                 }
@@ -1451,14 +1814,21 @@ void convertSimons(std::vector<DecompiledLine>& lines, const BasicDecompileOptio
                 if (it == procs.end()) { warn(line.num, k + " " + n.substr(5) + ": no PROC of that name, left as written"); p[i] = {false, lower(k)}; continue; }
                 replacePieces({{true, k == "CALL" ? "GOTO" : "GOSUB"}, {false, std::to_string(it->second)}});
             } else if (k == "REPEAT") replace("do");
-            else if (k == "UNTIL") replace("loop until " + joinPieces(p, i + 1, e));
+            else if (k == "UNTIL") p[i] = {false, "loop until"};   // (its condition's keywords converted after it)
             else if (k == "LOOP") replace("do");
             else if (k == "END LOOP") replace("loop");
             else if (k == "EXIT") {
                 // EXIT IF c: out of the LOOP; statements after it on the line get a line of their own
                 if (i + 1 < e && p[i + 1].isKw && p[i + 1].text == "IF") {
-                    replace("if " + joinPieces(p, i + 2, e) + " then exit");
-                    if (i + 2 < p.size() && p[i + 1].text == ":") split = i + 2;
+                    p.insert(p.begin() + (long)e, {false, "then exit"});
+                    p.erase(p.begin() + (long)i + 1);
+                    p[i] = {false, "if"};
+                    e = statementEnd(p, i + 1);
+                    if (e + 1 < p.size() && p[e].text == ":") {
+                        split = true;
+                        rest.assign(p.begin() + (long)e + 1, p.end());
+                        p.erase(p.begin() + (long)e, p.end());
+                    }
                 } else {
                     replace("exit");
                 }
@@ -1516,7 +1886,7 @@ void convertSimons(std::vector<DecompiledLine>& lines, const BasicDecompileOptio
 
             else if (k == "PENX") p[i] = {false, "lpen(0)"};
             else if (k == "PENY") p[i] = {false, "lpen(1)"};
-            else if (k == "JOY") p[i] = {false, "joy(2)"};
+            else if (k == "JOY") p[i] = {false, i + 1 < p.size() && p[i + 1].text == "(" ? "joy" : "joy(2)"};   // (TSB: JOY(port))
             else if (k == "SOUND") p[i] = {false, "54272"};
             else if (k == "GRAPHICS") p[i] = {false, "53248"};
             else if (k == "EXOR" || k == "MOD" || k == "DIV" || k == "FRAC" || k == "INST" || k == "INSERT" || k == "PLACE" || k == "POT" || k == "TEST") {
@@ -1565,11 +1935,21 @@ void convertSimons(std::vector<DecompiledLine>& lines, const BasicDecompileOptio
                 replace(multi ? "@@cs(0) = " + G0 + " : @@cs(1) = " + G1 + " : @@cs(2) = " + G2 + " : @@cs(3) = " + G3 + " : @@cs(5) = (" + G1 + " xor " + G2 + ")"
                               : "@@cs(0) = " + G0 + " : @@cs(1) = " + G1 + " : @@cs(5) = (" + G0 + " xor " + G1 + ")");
             } else if (k == "COLOUR") {
-                // COLOUR border, background (TSB: [, the text's colour])
-                std::string fg = a.list.size() == 3 ? " : foreground " + at(2) : "";
-                if (a.list.size() == 3) a.list.resize(2);
-                if (!argc(2)) continue;
-                replace("border " + at(0) + " : background " + at(1) + (multi ? " : " + G0 + " = " + at(1) + " : @@cs(0) = " + G0 : std::string()) + fg);
+                // COLOUR border, background (TSB: [, the text's colour]; any of them left out; TSBneo: one is the border's)
+                if (a.list.empty() || a.list.size() > 3 || (a.list.size() == 1 && at(0).empty())) { argc(2); continue; }
+                if (a.list.size() == 2 && at(0).empty()) a.list = {"", "", at(1)};   // (TSB: COLOUR , c is the text's colour)
+                std::vector<std::string> st;
+                std::string bg = a.list.size() == 1 && !o.tsbneo ? at(0) : at(1);
+                if (!at(0).empty() && !(a.list.size() == 1 && !o.tsbneo)) st.push_back("border " + at(0));
+                if (!bg.empty()) {
+                    st.push_back("background " + bg);
+                    if (multi) st.push_back(G0 + " = " + bg + " : @@cs(0) = " + G0);
+                }
+                if (!at(2).empty()) st.push_back("foreground " + at(2));
+                if (a.list.size() == 1) warn(line.num, std::string("COLOUR with one colour: ") + (o.tsbneo ? "the border (TSBneo)" : "the background (TSB)"));
+                std::string t;
+                for (const auto& x : st) t += (t.empty() ? "" : " : ") + x;
+                replace(t);
             } else if (k == "PLOT") {
                 if (!argc(3)) continue;
                 replacePieces(draw(at(2), v7("DRAW", {at(2), xs(at(0)), at(1)})));
@@ -1615,22 +1995,71 @@ void convertSimons(std::vector<DecompiledLine>& lines, const BasicDecompileOptio
                 if (n == "2") { warn(line.num, "CSET 2 (the graphics screen shown again): BASIC 65 closed it; left as written"); p[i] = {false, "cset"}; continue; }
                 if (!isNumber(n)) { warn(line.num, "CSET of an expression: left as written"); p[i] = {false, "cset"}; continue; }
                 multi = false;
-                replacePieces(then(v7("GRAPHIC", {"0"}), {{false, n == "1" ? "print chr$(14);" : "print chr$(142);"}}));
+                replacePieces(then(v7("GRAPHIC", {"0"}), {{false, std::string(n == "1" ? "print chr$(14);" : "print chr$(142);") +
+                                                                     (ecm ? " : poke 53265, peek(53265) and 191" : "")}}));
             }
             // ---- text screen
             else if (k == "CENTRE") {
-                std::string x = joinPieces(p, i + 1, e);
-                replace("print spc(int((40 - len(" + x + ")) / 2)); " + x + ";");
+                // CENTRE s$ [, width (TSB)]: from the cursor's column, no new line
+                if (a.list.size() > 2 || at(0).empty()) { argc(1); continue; }
+                std::string x = at(0), pad = !at(1).empty() && at(1) != "40" ? "int(((" + at(1) + ") - len(" + x + ")) / 2)"
+                                                                           : "int((40 - pos(0) - len(" + x + ")) / 2)";
+                replace("print spc(" + pad + " * -(" + pad + " > 0)); " + x + ";");
             } else if (k == "PAUSE") {
                 // PAUSE ["text",] seconds: RETURN ends it early
                 std::string t = a.list.size() == 2 ? "print " + at(0) + " : " : "";
                 std::string n = a.list.size() == 2 ? at(1) : at(0);
-                replace(t + var("pause") + " = ti : do : get " + var("key") + "$ : loop until " + var("key") + "$ = chr$(13) or ti - " +
-                        var("pause") + " >= " + n);
+                replace(t + var("pause") + " = ti : do : get " + var("key") + "$ : loop until " + var("key") + (o.tsbneo ? "$ <> \"\"" : "$ = chr$(13)") +
+                        " or ti - " + var("pause") + " >= " + n);
             } else if (k == "USE") {
-                if (!argc(2)) continue;
-                replace("print using " + at(0) + "; val(" + at(1) + ");");
-                warn(line.num, "USE -> PRINT USING: BASIC 65 rounds, Simons' BASIC truncates");
+                // USE f$, s$ (Simons': a string's number, truncated); TSB: USE f$, n1 [, n2 ...] [;] (rounded, a new line
+                // unless ';'); USE n (TSB: the drive)
+                size_t to = e;
+                bool semi = to > i + 1 && p[to - 1].text == ";";
+                if (semi) to--;
+                Args u = splitArgs(p, i + 1, to);
+                if (u.list.size() == 1 && isNumber(u.list[0])) { drop(); continue; }
+                if (u.list.size() < 2) { argc(2); continue; }
+                bool strings = true;
+                std::string vals;
+                for (size_t q = 1; q < u.list.size(); q++) {
+                    const std::string& v = u.list[q];
+                    bool str = !v.empty() && v.back() == '$';
+                    strings = strings && str;
+                    vals += (q > 1 ? ", " : "") + (str ? "val(" + v + ")" : v);
+                }
+                const std::string& fmt = u.list[0];
+                if (u.list.size() > 2 && fmt.size() >= 2 && fmt.front() == '"' && fmt.back() == '"') {
+                    // several values: BASIC 65's USING formats one, so a PRINT USING per field (a field: a run of
+                    // # * + - , . as TSB reads them), the text between printed as it is
+                    std::vector<std::string> parts;   // text, field, text, field, ..., text
+                    std::string cur;
+                    bool inField = false;
+                    std::string body = fmt.substr(1, fmt.size() - 2);
+                    for (size_t q = 0; q < body.size(); q++) {
+                        std::string unit(1, body[q]);
+                        if (body[q] == '{') {
+                            size_t c = body.find('}', q);
+                            if (c != std::string::npos) { unit = body.substr(q, c - q + 1); q = c; }
+                        }
+                        bool f = unit.size() == 1 && std::string("#*+-,.").find(unit[0]) != std::string::npos;
+                        if (f != inField) { parts.push_back(cur); cur.clear(); inField = f; }
+                        cur += unit;
+                    }
+                    parts.push_back(cur);
+                    if (inField) parts.push_back("");
+                    std::string t;
+                    size_t vi = 1;
+                    for (size_t q = 0; q < parts.size(); q++) {
+                        if (q % 2 == 0) { if (!parts[q].empty()) t += (t.empty() ? "" : " : ") + std::string("print \"") + parts[q] + "\";"; continue; }
+                        if (vi >= u.list.size()) break;
+                        const std::string& v = u.list[vi++];
+                        t += (t.empty() ? "" : " : ") + std::string("print using \"") + parts[q] + "\"; " + (!v.empty() && v.back() == '$' ? "val(" + v + ")" : v) + ";";
+                    }
+                    if (!(strings || semi)) t += " : print";
+                    replace(t);
+                } else replace("print using " + u.list[0] + "; " + vals + (strings || semi ? ";" : ""));
+                if (strings) warn(line.num, "USE -> PRINT USING: BASIC 65 rounds, Simons' BASIC truncates");
             } else if (k == "DIR") {
                 std::string x = at(0);
                 if (x == "\"$\"" || x.empty()) replace("dir");
@@ -1660,16 +2089,18 @@ void convertSimons(std::vector<DecompiledLine>& lines, const BasicDecompileOptio
                 // MMOB n, x1, y1, x2, y2, size, speed (RLOCMOB n, x2, y2, size, speed: from where it is): the program waits
                 bool from = k == "MMOB";
                 if (from && a.list.size() == 3) { replace("movspr " + at(0) + ", " + at(1) + ", " + at(2)); continue; }   // (TSB: placed)
-                if (!argc(from ? 7 : 5)) continue;
+                // (TSB: the size and speed may be left out: the sprite's own)
+                size_t full = from ? 7 : 5;
+                if (a.list.size() + 2 != full && a.list.size() + 1 != full && !argc(full)) continue;
                 std::string n = at(0), sz = at(from ? 5 : 3), sp = at(from ? 6 : 4);
                 std::string x1 = from ? at(1) : "rsppos(" + n + ", 0)", y1 = from ? at(2) : "rsppos(" + n + ", 1)";
                 std::string x2 = at(from ? 3 : 1), y2 = at(from ? 4 : 2);
                 std::string xe = isNumber(sz) ? std::to_string(std::stoi(sz) & 1) : "(" + sz + ") and 1";
                 std::string ye = isNumber(sz) ? std::to_string((std::stoi(sz) >> 1) & 1) : "-(((" + sz + ") and 2) > 0)";
                 // (Simons' speed is a delay per pixel, BASIC 65's a speed 1-15)
-                std::string sp65 = isNumber(sp) ? std::to_string(std::max(1L, std::min(15L, 15 - std::lround(std::stod(sp) / 18)))) : "8";
-                replace("sprite " + n + ", , , , " + xe + ", " + ye + " : movspr " + n + ", " + x1 + ", " + y1 + " to " + x2 + ", " + y2 + ", " + sp65 +
-                        " : do while rsppos(" + n + ", 2) : loop");
+                std::string sp65 = isNumber(sp) ? std::to_string(std::max(1L, std::min(15L, 15 - std::lround(std::stod(sp) / 18)))) : sp.empty() ? "8" : "8";
+                replace((sz.empty() ? std::string() : "sprite " + n + ", , , , " + xe + ", " + ye + " : ") + "movspr " + n + ", " + x1 + ", " + y1 + " to " + x2 +
+                        ", " + y2 + ", " + sp65 + " : do while rsppos(" + n + ", 2) : loop");
                 warn(line.num, k + ": the speed is approximate (Simons' BASIC waits per pixel, BASIC 65 moves at a speed 1-15)");
             } else if (k == "CMOB") {
                 if (!argc(2)) continue;
@@ -1774,12 +2205,13 @@ void convertSimons(std::vector<DecompiledLine>& lines, const BasicDecompileOptio
             }
             // ---- the SID's registers (the MEGA65's first SID is at $D400 too)
             else if (k == "WAVE") {
-                // WAVE voice, 8 binary digits: the voice's control register
-                if (!argc(2)) continue;
-                std::string v = at(1);
+                // WAVE voice, 8 binary digits (TSB: or a value) [, pulse width (TSB)]: the voice's registers
+                if (a.list.size() != 2 && a.list.size() != 3) { argc(2); continue; }
+                std::string v = at(1), reg = "54272 + 7 * ((" + at(0) + ") - 1)";
                 bool bin = v.size() == 8 && v.find_first_not_of("01") == std::string::npos;
                 std::string x = bin ? std::to_string(std::stoi(v, nullptr, 2)) : v;
-                replace("poke 54272 + 7 * ((" + at(0) + ") - 1) + 4, " + x);
+                std::string pw = a.list.size() == 3 ? " : poke " + reg + " + 2, (" + at(2) + ") and 255 : poke " + reg + " + 3, int((" + at(2) + ") / 256)" : "";
+                replace("poke " + reg + " + 4, " + x + pw);
             } else if (k == "ENVELOPE") {
                 // ENVELOPE voice, attack, decay, sustain, release: the voice's AD and SR registers
                 if (!argc(5)) continue;
@@ -1804,6 +2236,191 @@ void convertSimons(std::vector<DecompiledLine>& lines, const BasicDecompileOptio
                 warn(line.num, k + ": the blink attribute on the characters now in that colour (characters printed later do not flash; "
                                "the speed is the MEGA65's)");
             }
+            // ---- more functions
+            else if (k == "DUP") {
+                // DUP(s$, n): the string built in front of the statement
+                size_t close;
+                Args f = fnArgs(close);
+                if (f.list.size() != 2) { warn(line.num, "DUP: arguments not understood, left as written"); p[i] = {false, "dup"}; continue; }
+                std::string d = var("dup" + std::to_string(i)) + "$", I = var("i");
+                replaceFn(close, d);
+                Pieces pre{{false, d + " = \"\" : for " + I + " = 1 to " + f.list[1] + " : " + d + " = " + d + " + " + f.list[0] + " : next"}, {false, ":"}};
+                p.insert(p.begin() + (long)stmtAt, pre.begin(), pre.end());
+                i += pre.size();
+            } else if (k == "DETECT") {
+                // DETECT 0 (sprite - sprite) / 1 (sprite - background): the collisions so far, read (and cleared) now
+                if (!argc(1)) continue;
+                std::string t = isNumber(at(0)) ? std::to_string(std::stoi(at(0)) + 1) : "1 - ((" + at(0) + ") <> 0)";
+                replace(var("detect") + " = bump(" + t + ")");
+            } else if (k == "CHECK") {
+                // CHECK(a, b) / CHECK(a): 0 if the sprites (both) collided at the last DETECT, else 1
+                size_t close;
+                Args f = fnArgs(close);
+                std::string D = var("detect");
+                auto bit = [&](const std::string& n) { return "((" + D + " and 2 ^ (" + n + ")) = 0)"; };
+                if (f.list.size() == 2) replaceFn(close, "(-(" + bit(f.list[0]) + " or " + bit(f.list[1]) + "))");
+                else if (f.list.size() == 1) replaceFn(close, "(-" + bit(f.list[0]) + ")");
+                else { warn(line.num, "CHECK: arguments not understood, left as written"); p[i] = {false, "check"}; }
+            } else if (k == "OUT") {
+                replace("print err$(er)");
+            } else if (k == "LOCAL") {
+                // LOCAL a, b$: saved (a GLOBAL puts them back), then 0 / ""
+                std::string flag = var("localf" + std::to_string(locals.size())), save, restore;
+                for (size_t q = 0; q < a.list.size(); q++) {
+                    const std::string& v = a.list[q];
+                    std::string sfx = !v.empty() && (v.back() == '$' || v.back() == '%') ? v.substr(v.size() - 1) : "";
+                    std::string t = var("local" + std::to_string(locals.size()) + "_" + std::to_string(q)) + sfx;
+                    save += t + " = " + v + " : " + v + " = " + (sfx == "$" ? "\"\"" : "0") + " : ";
+                    restore += v + " = " + t + " : ";
+                }
+                locals.push_back("if " + flag + " then " + restore + flag + " = 0");
+                replace(save + flag + " = 1");
+            } else if (k == "GLOBAL") {
+                if (!globalAt) globalAt = addLine({{false, "@@globalsub"}});
+                replacePieces({{true, "GOSUB"}, {false, std::to_string(globalAt)}});
+            } else if (k == "FETCH") {
+                // FETCH "allowed", length, variable: a GET loop ({home} lower-case letters, {down} digits and
+                // punctuation, {right} all letters)
+                if (!argc(3)) continue;
+                std::string A = var("fetcha") + "$", Z = var("fetchz") + "$", R = var("fetchr") + "$", K = var("key") + "$", N = var("fetchn"), I = var("i");
+                if (!names.count("subFETCH")) {
+                    uint16_t n0 = addLine({{false, R + " = \"\" : " + Z + " = " + A + " : if instr(" + A + ", chr$(19)) then for " + I + " = 65 to 90 : " + Z +
+                                                       " = " + Z + " + chr$(" + I + ") : next"}});
+                    addLine({{false, "if instr(" + A + ", chr$(17)) then for " + I + " = 32 to 64 : " + Z + " = " + Z + " + chr$(" + I + ") : next"}});
+                    addLine({{false, "if instr(" + A + ", chr$(29)) then for " + I + " = 65 to 90 : " + Z + " = " + Z + " + chr$(" + I + ") + chr$(" + I +
+                                         " + 128) : next"}});
+                    uint16_t get = addLine({{false, "getkey " + K + " : if " + K + " = chr$(13) then return"}});
+                    addLine({{false, "if " + K + " = chr$(20) and len(" + R + ") > 0 then " + R + " = left$(" + R + ", len(" + R + ") - 1) : print " + K + ";"},
+                             {false, ":"}, {true, "GOTO"}, {false, std::to_string(get)}});
+                    addLine({{false, "if len(" + R + ") < " + N + " and instr(" + Z + ", " + K + ") > 0 then " + R + " = " + R + " + " + K + " : print " + K + ";"}});
+                    addLine({{true, "GOTO"}, {false, std::to_string(get)}});
+                    names["subFETCH"] = std::to_string(n0);
+                }
+                std::string v = at(2);
+                replacePieces({{false, A + " = " + at(0) + " : " + N + " = " + at(1)}, {false, ":"}, {true, "GOSUB"}, {false, names["subFETCH"]},
+                               {false, ":"}, {false, v + " = " + (!v.empty() && v.back() == '$' ? R : "val(" + R + ")")}});
+            } else if (k == "BCKGNDS") {
+                // the extended background colour mode ($D011 bit 6) and its four colours
+                if (!argc(4)) continue;
+                replace("poke 53265, peek(53265) or 64 : poke 53281, " + at(0) + " : poke 53282, " + at(1) + " : poke 53283, " + at(2) +
+                        " : poke 53284, " + at(3));
+            } else if (k == "ROT") {
+                if (!argc(2)) continue;
+                replace(var("rot") + " = " + at(0) + " : " + var("rotsize") + " = " + at(1));
+            } else if (k == "DRAW") {
+                // DRAW "digits", x, y, f: a subroutine moving (0-3) or drawing (5-8) a ROT step right / up / down / left, turned by ROT
+                if (!argc(4)) continue;
+                std::string S = var("draws") + "$", X = var("drawx"), Y = var("drawy"), F = var("drawf"), U = var("drawu"), V = var("drawv");
+                std::string Q = var("drawq"), I = var("drawi"), C = var("drawc"), K = var("drawk");
+                if (!names.count("subDRAW")) {
+                    std::string inv = multi ? "4" : "2";
+                    uint16_t n0 = addLine({{false, Q + " = " + var("rotsize") + " - 256 * (" + var("rotsize") + " = 0) : " + I + " = 0"}});
+                    uint16_t next = addLine({{false, I + " = " + I + " + 1 : if " + I + " > len(" + S + ") then return"}});
+                    addLine({{false, C + " = asc(mid$(" + S + ", " + I + ", 1)) - 48 : if " + C + " = 9 then return"}});
+                    addLine({{true, "IF"}, {false, C + " < 0 or " + C + " > 8 or " + C + " = 4"}, {true, "THEN"}, {false, std::to_string(next)}});
+                    addLine({{false, K + " = (val(mid$(\"2046\", mod(" + C + ", 5) + 1, 1)) + " + var("rot") + ") and 7 : " + U + " = " + X + " + " + Q +
+                                         " * (val(mid$(\"12221000\", " + K + " + 1, 1)) - 1) : " + V + " = " + Y + " + " + Q +
+                                         " * (val(mid$(\"00122210\", " + K + " + 1, 1)) - 1)"}});
+                    uint16_t mv = addLine({{false, "if " + C + " < 5 then " + X + " = " + U + " : " + Y + " = " + V}, {false, ":"}, {true, "GOTO"}, {false, std::to_string(next)}});
+                    (void)mv;
+                    quiet.insert(addLine({{true, "IF"}, {false, F + " = " + inv}, {true, "THEN"}, {true, "LINE"}, {false, X}, {false, ","}, {false, Y},
+                                          {false, ","}, {false, U}, {false, ","}, {false, V}, {false, ","}, {false, inv}, {false, ":"}, {true, "GOTO"},
+                                          {false, std::to_string(nextNum + 2)}}));
+                    quiet.insert(addLine({{true, "LINE"}, {false, X}, {false, ","}, {false, Y}, {false, ","}, {false, U}, {false, ","}, {false, V},
+                                          {false, ","}, {false, F}}));
+                    addLine({{false, X + " = " + U + " : " + Y + " = " + V}, {false, ":"}, {true, "GOTO"}, {false, std::to_string(next)}});
+                    names["subDRAW"] = std::to_string(n0);
+                }
+                replacePieces({{false, S + " = " + at(0) + " : " + X + " = " + at(1) + " : " + Y + " = " + at(2) + " : " + F + " = " + at(3)}, {false, ":"},
+                               {true, "GOSUB"}, {false, names["subDRAW"]}});
+            } else if (k == "CHAR") {
+                // CHAR x, y, screen code, f, zoom: TEXT of the code's character
+                if (a.list.size() < 3) { argc(5); continue; }
+                std::string c = at(2), ch;
+                if (isNumber(c)) {
+                    int v = std::stoi(c) & 127;
+                    ch = "chr$(" + std::to_string(v < 32 ? v + 64 : v < 64 ? v : v < 96 ? v + 128 : v + 64) + ")";
+                } else {
+                    std::string v = "((" + c + ") and 127)";
+                    ch = "chr$(" + v + " - 64 * (" + v + " < 32) - 128 * (" + v + " > 63 and " + v + " < 96) - 64 * (" + v + " > 95))";
+                }
+                Pieces np = v7("TEXT", {at(0), at(1), ch, at(3).empty() ? "1" : at(3), at(4).empty() ? "1" : at(4)});
+                p.erase(p.begin() + (long)i, p.begin() + (long)e);
+                p.insert(p.begin() + (long)i, np.begin(), np.end());
+                i--;   // (TEXT converts it)
+                continue;
+            } else if (k == "SCRSV" || k == "SCRLD") {
+                // SCRSV / SCRLD file, device, channel, "name": channel 2 the text screen as TSB's file (a load address, then
+                // 1024 pairs: the colour, the screen code); after a DEF for the channel's parity, a binary file
+                if (!argc(4)) continue;
+                std::string I = var("i"), F = at(0), cell = "2048 + " + I, colr = "55296 + " + I;
+                int sa = isNumber(at(2)) ? std::stoi(at(2)) : -1;
+                if (sa >= 0 && scrDef.count(sa & 1)) {
+                    std::string d = scrDef[sa & 1], hi = d.substr(0, d.find(',')), pages = d.substr(d.find(',') + 1);
+                    std::string dev = isNumber(at(1)) ? "u" + at(1) : "u(" + at(1) + ")";
+                    if (k == "SCRLD") replace("bload " + at(3) + ", p((" + hi + ") * 256), " + dev);
+                    else replace("bsave " + at(3) + ", p((" + hi + ") * 256) to p((" + hi + " + " + pages + ") * 256), " + dev);
+                    warn(line.num, k + " after DEF: a binary file at " + hi + " * 256 (BLOAD / BSAVE); C64 code there does not run on the MEGA65");
+                    continue;
+                }
+                if (sa != 2) { leave("the bitmap's (channel " + at(2) + ")"); continue; }
+                if (k == "SCRSV")
+                    replace("open " + F + ", " + at(1) + ", " + at(2) + ", " + at(3) + " : print# " + F + ", chr$(0); chr$(4); : for " + I +
+                            " = 0 to 1023 : print# " + F + ", chr$(peek(" + colr + ") and 15); chr$(peek(" + cell + ")); : next : close " + F);
+                else {
+                    std::string A = var("scra") + "$", B = var("scrb") + "$";
+                    replace("open " + F + ", " + at(1) + ", " + at(2) + ", " + at(3) + " : get# " + F + ", " + A + ", " + A + " : for " + I +
+                            " = 0 to 1023 : get# " + F + ", " + A + ", " + B + " : poke " + colr + ", asc(" + A + ") : poke " + cell + ", asc(" + B +
+                            ") : next : close " + F);
+                }
+            } else if (k == "DISAPA" || k == "SECURE" || k == "OPTION" || k == "PAGE" || k == "DELAY") {
+                // (LIST's: nothing when the program runs)
+                if (!names.count("listNote")) {
+                    names["listNote"] = "1";
+                    notes.push_back("DISAPA / SECURE / OPTION / PAGE / DELAY (LIST's settings) dropped");
+                }
+                drop();
+            }
+            else if (k == "MUSIC") {
+                int at = musicSeen < musicAt.size() ? musicAt[musicSeen] : -1;
+                musicSeen++;
+                if (at < 0) { leave("a music string that is not a literal"); continue; }
+                const SimonsMusic& mu = musics[(size_t)at];
+                for (const auto& w : mu.warnings) warn(line.num, w);
+                Pieces np{{true, "__TEMPO"}, {false, std::to_string(mu.tempo)}};
+                if (musics.size() > 1) np = then({{false, var("music") + " = " + std::to_string(at + 1)}}, np);
+                replacePieces(np);
+            } else if (k == "PLAY") {
+                // PLAY 1 (and wait), 2 (in the background: TSB's PLAY ON), 0 (stop: PLAY OFF)
+                std::string n = at(0);
+                if (i + 1 < e && p[i + 1].isKw && (p[i + 1].text == "ON" || p[i + 1].text == "OFF")) n = p[i + 1].text == "ON" ? "2" : "0";
+                if (musics.empty() || (n != "0" && n != "1" && n != "2")) { leave(musics.empty() ? "no MUSIC string to play" : "PLAY of an expression"); continue; }
+                if (n == "0") { replace("sound clr"); continue; }
+                Pieces np;
+                if (musics.size() == 1) np = {{true, "PLAY"}, {false, "\"" + musics[0].play + "\""}};
+                else {
+                    if (!names.count("subPLAY")) {
+                        uint16_t n0 = 0;
+                        for (size_t q = 0; q < musics.size(); q++) {
+                            uint16_t ln = addLine({{true, "IF"}, {false, var("music") + " = " + std::to_string(q + 1)}, {true, "THEN"}, {true, "PLAY"},
+                                                   {false, "\"" + musics[q].play + "\""}, {false, ":"}, {true, "RETURN"}});
+                            if (!n0) n0 = ln;
+                        }
+                        addLine({{true, "RETURN"}});
+                        names["subPLAY"] = std::to_string(n0);
+                    }
+                    np = {{true, "GOSUB"}, {false, names["subPLAY"]}};
+                }
+                if (n == "1") {
+                    // (only the voices the music uses: an unused voice's counter may never read as idle)
+                    std::string vs;
+                    for (char v : std::string("123"))
+                        for (const auto& mu : musics)
+                            if (mu.play.find(std::string("v") + v) != std::string::npos && vs.find(v) == std::string::npos) vs += v;
+                    np = then(np, {{true, "__PLAYWAIT"}, {false, vs.empty() ? "1" : vs}});
+                }
+                replacePieces(np);
+            }
             // ---- the rest
             else if (auto it = simonsMissing().find(k); it != simonsMissing().end()) leave(it->second);
             else if (isSimonsKeyword(k)) {
@@ -1814,10 +2431,9 @@ void convertSimons(std::vector<DecompiledLine>& lines, const BasicDecompileOptio
             }
         }
         if (split) {
-            DecompiledLine rest{line.num, Pieces(p.begin() + (long)split, p.end())};
-            rest.cont = true;
-            p.erase(p.begin() + (long)split - 1, p.end());
-            lines.insert(lines.begin() + (long)li + 1, rest);
+            DecompiledLine r{line.num, rest};
+            r.cont = true;
+            lines.insert(lines.begin() + (long)li + 1, r);
         }
         flushExtra();
     }
@@ -1838,6 +2454,17 @@ void convertSimons(std::vector<DecompiledLine>& lines, const BasicDecompileOptio
             break;
         }
     }
+    if (globalAt)
+        for (auto& l : lines) {
+            if (l.num != globalAt || l.pieces.size() != 1 || l.pieces[0].text != "@@globalsub") continue;
+            std::vector<DecompiledLine> body;
+            for (size_t q = locals.size(); q-- > 0;) body.push_back({l.num, {{false, locals[q]}}, {}, true});
+            body.push_back({l.num, {{true, "RETURN"}}, {}, true});
+            l.pieces = body[0].pieces;
+            size_t at = (size_t)(&l - &lines[0]);
+            lines.insert(lines.begin() + (long)at + 1, body.begin() + 1, body.end());
+            break;
+        }
     // RCOMP repeats the last IF's result: each IF keeps it in a variable
     if (rcomp)
         for (auto& line : lines) {

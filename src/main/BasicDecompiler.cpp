@@ -133,9 +133,6 @@ BasicDecompileResult decompileBasic(const std::vector<uint8_t>& prg, const Basic
             if (v7 && !ops.count(b) && (b >= 0x80 || (b == 0x64 && cbm == CbmBasic::SIMONS)) &&
                 decodeCbmToken(prg, at, v7kw, cbm)) {
                 // the dialect's token tables (BASIC 7.0's $CE / $FE numbering is not BASIC 65's)
-                if (cbm == CbmBasic::SIMONS && b == 0x64 && prg[p] < 128 && isTsbOnlyToken(prg[p]))
-                    r.warnings.push_back("line " + std::to_string(line.num) + ": " + v7kw +
-                                         " is a TSB (Tuned Simons' BASIC) keyword, not Simons'");
                 flush();
                 p = at;
                 line.pieces.push_back({true, v7kw});
@@ -189,7 +186,28 @@ BasicDecompileResult decompileBasic(const std::vector<uint8_t>& prg, const Basic
 
     // Another dialect: rewritten as BASIC 65
     std::vector<std::string> notes;
-    if (options.source != BasicSource::B65) convertBasicLines(lines, options, r.warnings, notes);
+    if (options.source != BasicSource::B65) {
+        convertBasicLines(lines, options, r.warnings, notes);
+        // the same message on several lines: once, with its lines ("lines 10, 20: ...")
+        std::vector<std::string> order, other;
+        std::map<std::string, std::vector<std::string>> at;
+        for (const auto& w : r.warnings) {
+            size_t colon = w.find(": ");
+            if (w.compare(0, 5, "line ") != 0 || colon == std::string::npos) { other.push_back(w); continue; }
+            std::string num = w.substr(5, colon - 5), msg = w.substr(colon + 2);
+            auto& nums = at[msg];
+            if (nums.empty()) order.push_back(msg);
+            if (std::find(nums.begin(), nums.end(), num) == nums.end()) nums.push_back(num);
+        }
+        r.warnings = other;
+        for (const auto& msg : order) {
+            const auto& nums = at[msg];
+            std::string list;
+            for (size_t q = 0; q < nums.size() && q < 8; q++) list += (q ? ", " : "") + nums[q];
+            if (nums.size() > 8) list += " and " + std::to_string(nums.size() - 8) + " more";
+            r.warnings.push_back((nums.size() > 1 ? "lines " : "line ") + list + ": " + msg);
+        }
+    }
 
     // Line-number references: the numbers after the jump keywords
     std::set<uint16_t> lineNums, targets;

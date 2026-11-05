@@ -654,7 +654,7 @@ done
 echo "Testing test_convert7_xemu.txt (basic45 --convert=basic7)..."
 if ./bin/basic45 --convert=basic7 src/test-resources/test_convert7_xemu.txt -o build/test/test_convert7_xemu.bas >/dev/null 2>&1 &&
    ./bin/basic45 build/test/test_convert7_xemu.bas -o build/test/test_convert7_xemu.prg >/dev/null 2>&1; then
-    run_xemu_test "test_convert7" "build/test/test_convert7_xemu.prg" "C0C0" 13 "01 01 01 01 01 01 01 01 01 01 01 01 AA"
+    run_xemu_test "test_convert7" "build/test/test_convert7_xemu.prg" "C0C0" 14 "01 01 01 01 01 01 01 01 01 01 01 01 01 AA"
 else
     echo "FAIL: test_convert7_xemu.txt (basic45 --convert or the build failed)"
     failed=$((failed + 1))
@@ -673,13 +673,25 @@ fi
 # BASIC 65: procedures, loops, functions, ELSE/RCOMP, ON ERROR, CGOTO, PRINT AT,
 # the graphics (pixels tested), PAUSE, COLOUR, a sprite moved, the text-screen
 # rectangles and scrolls, DESIGN (a character by CHAR DEF, a sprite for MOB SET),
-# the SID registers, FLASH by the blink attribute
+# the SID registers, FLASH by the blink attribute; DUP, LOCAL/GLOBAL, DETECT/CHECK,
+# ROT/DRAW, CHAR, BCKGNDS, MUSIC and PLAY
 echo "Testing test_simons_xemu.txt (basic45 --convert=simons)..."
 if ./bin/basic45 --convert=simons src/test-resources/test_simons_xemu.txt -o build/test/test_simons_xemu.bas >/dev/null 2>&1 &&
    ./bin/basic45 build/test/test_simons_xemu.bas -o build/test/test_simons_xemu.prg >/dev/null 2>&1; then
-    run_xemu_test "test_simons" "build/test/test_simons_xemu.prg" "C0C0" 19 "01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 AA"
+    run_xemu_test "test_simons" "build/test/test_simons_xemu.prg" "C0C0" 25 "01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 AA"
 else
     echo "FAIL: test_simons_xemu.txt (basic45 --convert or the build failed)"
+    failed=$((failed + 1))
+fi
+# basic45 --convert=tsbneo: TSBneo's own forms (IF ... THEN DO / ELSE / DONE, D!PEEK / D!POKE, CLS,
+# MEM CLR, INSERT's box, MOB OFF, COLOUR's forms, AT(row, column) before CENTRE / USE, NRM(, $$n, a PROC
+# named with a keyword called by its name)
+echo "Testing test_tsbneo_xemu.txt (basic45 --convert=tsbneo)..."
+if ./bin/basic45 --convert=tsbneo src/test-resources/test_tsbneo_xemu.txt -o build/test/test_tsbneo_xemu.bas >/dev/null 2>&1 &&
+   ./bin/basic45 build/test/test_tsbneo_xemu.bas -o build/test/test_tsbneo_xemu.prg >/dev/null 2>&1; then
+    run_xemu_test "test_tsbneo" "build/test/test_tsbneo_xemu.prg" "C0C0" 16 "01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 AA"
+else
+    echo "FAIL: test_tsbneo_xemu.txt (basic45 --convert or the build failed)"
     failed=$((failed + 1))
 fi
 # basic45 --data-loader (#370): machine code POKEd from DATA lines and SYSed,

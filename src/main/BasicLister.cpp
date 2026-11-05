@@ -109,13 +109,15 @@ bool isSimonsKeyword(const std::string& name) {
     return false;
 }
 
-bool isTsbOnlyToken(uint8_t xx) { return xx == 34 || xx == 60 || xx == 61 || xx == 62 || xx == 84; }
+bool isTsbOnlyToken(uint8_t xx) { return xx == 34 || xx == 60 || xx == 61 || xx == 62 || xx == 84 || (xx >= 0xB1 && xx <= 0xB3); }
 
 bool decodeCbmToken(const std::vector<uint8_t>& p, size_t& i, std::string& out, CbmBasic d) {
     uint8_t b = p[i];
     if (d == CbmBasic::V7) return decodeV7Token(p, i, out, true);
     if (d == CbmBasic::SIMONS && b == 0x64) {
         if (i + 1 < p.size() && p[i + 1] < 128 && SIMONS[p[i + 1]]) { out = SIMONS[p[i + 1]]; i += 2; return true; }
+        // TSB's slots $3C-$3E are the characters < = >, which BASIC V2's cruncher then turns into its tokens
+        if (i + 1 < p.size() && p[i + 1] >= 0xB1 && p[i + 1] <= 0xB3) { out = SIMONS[0x3C + (0xB3 - p[i + 1])]; i += 2; return true; }
         return false;
     }
     if (d == CbmBasic::V35 && b == 0xCE) { out = "RLUM"; i++; return true; }
@@ -215,7 +217,7 @@ std::vector<uint8_t> crunchV7(const std::string& listing, uint16_t load, std::ve
     return crunchCbm(listing, load, warnings, CbmBasic::V7);
 }
 
-std::vector<uint8_t> crunchCbm(const std::string& listing, uint16_t load, std::vector<std::string>& warnings, CbmBasic d) {
+std::vector<uint8_t> crunchCbm(const std::string& listing, uint16_t load, std::vector<std::string>& warnings, CbmBasic d, bool tsb) {
     // name -> token bytes: V2's and the dialect's, the longest first (Simons' first, in its table's order)
     std::vector<std::pair<std::string, std::vector<uint8_t>>> kws;
     for (int i = 0; i < (int)(sizeof V2 / sizeof V2[0]); i++) kws.push_back({V2[i], {(uint8_t)(0x80 + i)}});
@@ -231,12 +233,19 @@ std::vector<uint8_t> crunchCbm(const std::string& listing, uint16_t load, std::v
     if (d == CbmBasic::SIMONS) {
         std::vector<std::pair<std::string, std::vector<uint8_t>>> s;
         for (int i = 1; i < 128; i++)
-            if (SIMONS[i] && !isTsbOnlyToken((uint8_t)i)) s.push_back({SIMONS[i], {0x64, (uint8_t)i}});
+            if (SIMONS[i] && (tsb || !isTsbOnlyToken((uint8_t)i))) s.push_back({SIMONS[i], {0x64, (uint8_t)i}});
         kws.insert(kws.begin(), s.begin(), s.end());
     }
     std::map<std::string, uint8_t> esc;
     for (const auto& [b, n] : CONTROL) esc[n] = b;
     esc["pound"] = 0x5C; esc["pi"] = 0xFF; esc["shift-space"] = 0xA0; esc["left-arrow"] = 0x5F;
+    // (the decompiler's: shifted and C= letters)
+    static const uint8_t cbmCode[26] = {0xB0, 0xBF, 0xBC, 0xAC, 0xB1, 0xBB, 0xA5, 0xB4, 0xA2, 0xB5, 0xA1, 0xB6, 0xA7,
+                                        0xAA, 0xB9, 0xAF, 0xAB, 0xB2, 0xAE, 0xA3, 0xB8, 0xBE, 0xB3, 0xBD, 0xB7, 0xAD};
+    for (int k = 0; k < 26; k++) {
+        esc[std::string("shift-") + (char)('a' + k)] = (uint8_t)(0xC1 + k);
+        esc[std::string("cbm-") + (char)('a' + k)] = cbmCode[k];
+    }
 
     std::vector<uint8_t> prg = {(uint8_t)(load & 0xFF), (uint8_t)(load >> 8)};
     std::istringstream in(listing);

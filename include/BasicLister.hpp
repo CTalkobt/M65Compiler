@@ -50,4 +50,6 @@ bool isSimonsKeyword(const std::string& name);
 std::vector<uint8_t> crunchV7(const std::string& listing, uint16_t load, std::vector<std::string>& warnings);
 // The same for BASIC 3.5 or Simons' BASIC (whose keywords are matched first,
 // in its table's order, as its tokenizer does)
-std::vector<uint8_t> crunchCbm(const std::string& listing, uint16_t load, std::vector<std::string>& warnings, CbmBasic d);
+// (tsb: TSB's own Simons' keywords too: DO, CLS, X!, MAP, D!)
+std::vector<uint8_t> crunchCbm(const std::string& listing, uint16_t load, std::vector<std::string>& warnings, CbmBasic d,
+                               bool tsb = false);

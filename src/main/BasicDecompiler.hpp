@@ -31,6 +31,7 @@ enum class BasicSource { B65, V7, V35, SIMONS };
 struct BasicDecompileOptions {
     BasicSource source = BasicSource::B65;
     bool ntsc = false;          // the source machine's timing (TEMPO, PLAY): NTSC, else PAL
+    bool tsbneo = false;        // SIMONS: TSBneo's forms (AT(row, column), COLOUR b: the border, PAUSE: any key)
 };
 
 struct BasicDecompileResult {

@@ -65,7 +65,7 @@ Without `-o` the output is the input name with its extension replaced by `.prg` 
 | `--link <file>` | Link a C (`.c`, compiled with `cc45 -c -O2`), assembly (`.s45`) or object (`.o45`) file after the program; repeatable ([Calling C Functions](#calling-c-functions-link)) |
 | `--lib <file>` | The library for `--link` (default: `c45.lib` next to the tools, else `ln45`'s `CC45_LIB` search) |
 | `--decompile` | Turn a tokenized BASIC `.prg` into basic45 source ([Listing, Source Map and Decompiling](#listing-source-map-and-decompiling)) |
-| `--convert=<dialect>` | Another BASIC's `.prg` or text listing as BASIC 65 basic45 source, with warnings for what needs a hand: `basic7` (C128 BASIC 7.0), `basic35` (C16 / Plus/4 BASIC 3.5), `simons` (C64 Simons' BASIC) ([Converting BASIC 7.0 Programs](#converting-basic-70-programs-convertbasic7)) |
+| `--convert=<dialect>` | Another BASIC's `.prg` or text listing as BASIC 65 basic45 source, with warnings for what needs a hand: `basic7` (C128 BASIC 7.0), `basic35` (C16 / Plus/4 BASIC 3.5), `simons` (C64 Simons' BASIC and TSB), `tsbneo` (TSBneo: `AT(row, column)`) ([Converting BASIC 7.0 Programs](#converting-basic-70-programs-convertbasic7)) |
 | `--ntsc`, `--pal` | With `--convert`: the source machine's video timing, for `TEMPO` and BASIC 3.5's `SOUND` (default `--pal`) |
 | `--data-loader` | The input is machine code (a `.prg`, or a binary with `--load-at`): write a BASIC program that POKEs it from `DATA` lines and SYSes it, a type-in listing ([DATA Loaders](#data-loaders-data-loader)); with `--hex`, `--checksum`, `--per-line <n>`, `--start <line>`, `--increment <n>`, `--no-sys`, `--load-at <addr>` |
 | `--list-tokens` | List all keywords with their token values and exit |
@@ -390,7 +390,9 @@ differs — checked against BASIC 65's own source and the C128 System Guide, the
 | `FETCH` / `STASH` / `SWAP` | the RAM expansion (REU) | `EDMA` | `EDMA 0` / `0` / `2` with the REU's banks as attic RAM (`$8000000` + bank × 64 KB) |
 | `TEMPO n` | a whole note: 1152 less n per frame (19.2/n s NTSC, 23.04/n s PAL); default 8 | 1200 (PAL) / 1440 (NTSC) less n per frame: 24/n s; default 12 | n × 1.04 (PAL, the default) or × 1.25 (`--ntsc`); an expression `int((e) * f + .5)`; `TEMPO 0` → 1; BASIC 7.0's default set first when the program plays music and sets none |
 | `PLAY` | one string, voices switched by `V`; waits (in the statement) for a busy voice; `U` 0–15; `M` waits for the measure; octave and length shared (whole notes by default) | a string per voice (`PLAY v1$, v2$, v3$`; no `V`); returns at once, the next `PLAY` restarts the voices; `U` one digit (0–9, a table); `M` modulation; octave and length per voice (quarter notes) | a literal string split by voice, with rests where BASIC 7.0 would hold a voice back, the octave and length written out per voice, `U` mapped to the table (`U15` → `u9`), `M` dropped (the rests do its work); a wait (a subroutine: `RPLAY(v)` and the voice's counter at `$125E` + 2 × (v − 1)) before each `PLAY` |
-| No counterpart | `RGR(`, `SCALE`, `SSHAPE`/`GSHAPE`, `WIDTH`, `PUDEF`, `SPRDEF`, `QUIT` | | left as written, warned |
+| `RGR(n)` | the `GRAPHIC` mode | `RGRAPHIC(screen, parameter)`: a screen's settings | the mode each `GRAPHIC` sets, kept in a variable |
+| `SCALE n [, xmax, ymax]` | coordinates 0–`xmax` / 0–`ymax` (default 1023) across the bit map | the screen's pixels | the drawing statements' coordinates (and radii) times two factors `SCALE` sets (320 or, in multicolour, 160 / (xmax + 1); 200 / (ymax + 1); 1 after `SCALE 0`) |
+| No counterpart | `SSHAPE`/`GSHAPE`, `WIDTH` (BASIC 65's `DMODE` thickness is not implemented), `PUDEF`, `SPRDEF`, `QUIT` | | left as written, warned |
 | Other arguments | `BANK`, `WINDOW`, `RWINDOW(0/1)`, `MOVSPR n, distance;angle`, `PLAY` of a string variable | | warned |
 
 The conversion keeps a little state where BASIC 7.0 has some and BASIC 65 has not, in names the program does not use
@@ -436,8 +438,9 @@ basic45 --convert=simons game.prg -o game.bas      # a C64 program ($0801) using
 ```
 
 Simons' keywords are two bytes, `$64` and an index 1–127 (the table of TSB's source, `tsb_pt1.a`; TSB's own keywords —
-`DO`, `CLS`, `X!`, `MAP`, `D!` — are warned about). A text listing is tokenized as Simons' BASIC does: its keywords first, in
-its table's order, then BASIC V2's. The rules were checked against TSB's sources (Tuned Simons' BASIC, the debugged
+`DO`, `CLS`, `X!`, `MAP`, `D!` — are read too: TSB's `CLS` / `X!` / `MAP` are `$64 $3C`–`$3E`, which BASIC V2's cruncher
+makes `$64 $B3`–`$B1`). A text listing is tokenized as Simons' BASIC does: its keywords first, in its table's order, then
+BASIC V2's (with `--convert=tsbneo`, TSB's own keywords too). Warnings name a message once, with the lines it applies to. The rules were checked against TSB's sources (Tuned Simons' BASIC, the debugged
 superset) and the German C64-Wiki's pages, and run on xemu. BASIC V2's statements, `TI` / `TI$` (1/60 s, `"HHMMSS"`, as
 the C128's) and the variable names are converted as for BASIC 7.0. The graphics are rewritten as BASIC 7.0's
 statements and converted by its rules (above): a plot type is a colour source.
@@ -457,26 +460,59 @@ statements and converted by its rules (above): a plot type is a colour source.
 | `LIN`, `JOY`, `POT(n)`, `PENX` / `PENY`, `SOUND`, `GRAPHICS` | `RCURSOR , v` before the statement and `v`; `JOY(2)`; `POT(1)` / `POT(2)`; `LPEN(0)` / `LPEN(1)`; 54272; 53248 |
 | `%bbbb bbbb`, `$hh hh` | the digits together (BASIC 65 reads both) |
 | `PRINT AT(column, row) …` | `CURSOR column, row : PRINT …` (each `AT`) |
-| `CENTRE s$`; `PAUSE ["text",] n`; `USE f$, s$` | `PRINT SPC((40 - LEN(s$)) / 2); s$;`; a wait of n seconds that RETURN ends (`TI`, `GET`); `PRINT USING f$; VAL(s$);` (BASIC 65 rounds) |
+| `CENTRE s$`; `PAUSE ["text",] n`; `USE f$, s$` | `PRINT SPC((40 - POS(0) - LEN(s$)) / 2); s$;`; a wait of n seconds that RETURN ends (`TI`, `GET`); `PRINT USING f$; VAL(s$);` (BASIC 65 rounds) |
 | `COLOUR border, background` | `BORDER`, `BACKGROUND` |
 | `HIRES ink, paper` / `MULTI c1, c2, c3` / `NRM`, `CSET 0`/`1` | a 320×200 screen, cleared to the paper; the colour sources (0 paper or background, 1 ink or c1, 2 c2, 3 c3); `MULTI` keeps the screen, its x doubled from there on / the screen closed (and the character case) |
 | `LOW COL` / `HI COL` | the colour sources changed / set back (BASIC 65's pixels have their own colours: no cell is recoloured) |
 | `PLOT`, `LINE`, `REC x, y, w, h`, `BLOCK x1, y1, x2, y2`, `CIRCLE x, y, rx, ry`, `ARC x, y, start, end, step, rx, ry`, `ANGL x, y, angle, rx, ry` | `LINE`, `BOX` (outline, filled), `POLYGON` (30 sides: Simons' `CIRCLE` steps 12°) or BASIC 7.0's arc subroutine (0° up, clockwise, as BASIC 7.0's), a `LINE` from the centre; the plot type's colour by `PEN`, invert (2; `MULTI`'s 4) by XOR drawing (`DMODE 0, 1, 0, 0, 1`, the pen the two colours XORed) |
 | `PAINT x, y, f`; `TEXT x, y, s$, f, height, spacing`; `TEST(x, y)` | `PAINT x, y, 1, colour` (the area of (x, y)'s colour); `CHAR` by 8-pixel columns (height kept, other spacings warned); the plot type from `PIXEL()` |
-| `MOB SET n, block, colour, priority, multi`; `MMOB` / `RLOCMOB`; `CMOB`; `MOB OFF n` | `SPRITE` (the data block warned: BASIC 65's sprite data is set with `SPRSAV`); `MOVSPR n, x1, y1 TO x2, y2, speed` and a wait for the move (`RSPPOS(n, 2)`; the speed approximate); `SPRCOLOR`; `SPRITE n, 0` |
+| `MOB SET n, block, colour, priority, multi`; `MMOB` / `RLOCMOB`; `CMOB`; `MOB OFF n`; `DETECT n` / `CHECK(a [, b])` | `SPRITE` (the data block warned: BASIC 65's sprite data is set with `SPRSAV`); `MOVSPR n, x1, y1 TO x2, y2, speed` and a wait for the move (`RSPPOS(n, 2)`; the speed approximate); `SPRCOLOR`; `SPRITE n, 0`; `BUMP(n + 1)` kept in a variable / 0 when the sprites (both) are in it, else 1 |
 | `VOL n`; `DIR "$…"`; `DISK cmd$`; `DISPLAY` | `VOL` (the filter bits warned); `DIR`; `OPEN 15, 8, 15, cmd$ : CLOSE 15`; `KEY` |
 | `FCHR`, `FCOL`, `FILL`, `INV`, `MOVE` (row, column, width, height …); `UPB` / `UPW` / `DOWNB` … `RIGHTW` | a subroutine each (its arguments in variables): loops of `PEEK` / `POKE` on the screen at `$0800` and the colours at `$D800`; the scrolls one character, the row or column that falls off a space (B) or put back at the other end (W) |
 | `DESIGN type, address` and its `@` rows | the bytes computed from the rows when converting: a character (types 2, 3) → `CHAR DEF int(mod(address, 4096) / 8), b1, …, b8` (the C64's 4 KB set as `MEM` copies it: 0–255 upper case, 256–511 lower case, BASIC 65's numbering); a sprite (types 0, 1) → its 63 bytes (as hex) and its address in variables, copied by `MOB SET` to the sprite's data at `$0600` + 64 × n when the block's address (64 × block in text mode's VIC bank, `$C000` + 64 × block in the graphics one) is the `DESIGN`'s; the `@` rows `REM` lines |
 | `WAVE voice, bits`; `ENVELOPE voice, a, d, s, r` | `POKE`s of the voice's control register / AD and SR (the MEGA65's first SID is at `$D400` too) |
+| `MUSIC tempo, s$`; `PLAY 1` / `2` / `0` | a literal string's notes (letter, octave digit — the same octaves as BASIC 65's —, shifted letter sharp, C= letter flat, `Z` rest, `{f1}`–`{f8}` lengths, `{clear}1`–`3` the voice) as BASIC 65 `PLAY` strings, one per voice, rests keeping Simons' one note at a time; `TEMPO` and the unit (a whole note / 16, 8, … chosen so that BASIC 65's `TEMPO` is within 3 %) from the tempo / `PLAY` and a wait until it has played, `PLAY` alone, `SOUND CLR` (several `MUSIC`s: a variable says which) |
+| `DUP(s$, n)`; `OUT` | the string built in front of the statement (a loop); `PRINT ERR$(ER)` |
+| `LOCAL a, b$` / `GLOBAL` | the variables saved (then 0 / `""`) and a flag set / a subroutine putting back what each `LOCAL` saved, the latest first (not a stack: a procedure calling itself shares them) |
+| `FETCH "allowed", length, v` | a subroutine: a `GETKEY` loop taking the allowed characters (`{home}` lower-case letters, `{down}` digits and punctuation, `{right}` all letters) up to the length, DEL, RETURN |
+| `ROT r, size` / `DRAW "digits", x, y, f` | variables / a subroutine: 0–3 move, 5–8 draw a step right, up, down, left, turned by r × 45°; 9 ends |
+| `CHAR x, y, code, f, zoom` | `TEXT` of the screen code's character (reverse codes and the lower-case set not shown) |
+| `BCKGNDS b0, b1, b2, b3` | the extended background colour mode (`$D011` bit 6) and `$D021`–`$D024`; `NRM` turns it off |
+| `SCRSV` / `SCRLD f, dev, 2, name$` | `OPEN` and a loop of `PRINT#` / `GET#`: TSB's file (a load address, then 1024 pairs: the colour, the screen code) |
+| `COLD`; `DISAPA`, `SECURE`, `OPTION`, `PAGE`, `DELAY` | `END` (warned: Simons' erases the program); dropped (LIST's settings) |
 | `FLASH colour [, speed]` / `OFF` | the VIC-III's blink attribute (colour RAM bit 4) set on the characters of that colour / cleared (warned: characters printed later do not flash, the speed is the MEGA65's) |
-| No counterpart (left as written, warned) | `BFLASH`, `BCKGNDS`, `DUP`, `LOCAL`/`GLOBAL`, `DRAW`/`ROT`, `CHAR`, `DETECT`/`CHECK`, `MUSIC`/`PLAY` (its music notation), `ON KEY`/`DISABLE`/`RESUME`, `FETCH`, `INKEY`, `OUT`, `SCRSV`/`SCRLD`, `CSET 2`, the direct-mode and LIST commands (`OLD`, `COLD`, `SECURE`, `DISAPA`, `DUMP`, `MEM`, `OPTION`, `PAGE`, `DELAY`, `HRDCPY`, `COPY`) |
+| No counterpart (left as written, warned) | `BFLASH` (an interrupt's), `ON KEY`/`DISABLE`/`RESUME` (keys checked between statements), `INKEY` (the function key held), `CSET 2` (BASIC 65 closes the graphics screen), `SCRSV`/`SCRLD` of the bitmap, `OLD`, `DUMP`, `HRDCPY`, `COPY`, a `MUSIC` string that is not a literal |
+
+**TSB and TSBneo.** TSB (Tuned Simons' BASIC) and TSBneo are supersets with forms of their own (checked against their
+sources). `--convert=simons` converts them; `--convert=tsbneo` also takes TSBneo's `AT(row, column)` (TSB's and Simons'
+are `AT(column, row)`), its `COLOUR b` (the border; TSB's: the background) and its `PAUSE` that any key ends:
+
+| TSB | The conversion |
+|---|---|
+| `IF c THEN DO` … [`ELSE` alone at a line's end …] `DONE` | `IF c THEN BEGIN` … [`BEND : ELSE BEGIN` …] `BEND` (statements between `THEN` and `DO`, and after `DONE`, never run in TSB: dropped); `DO NULL` → `GETKEY` |
+| `D!PEEK(a)` / `D!POKE a, v`; `D!` alone | `WPEEK(a)` / `WPOKE a, v` (16 bits, low byte first; a zero-page address warned); dropped (it deletes lines) |
+| `CLS`, `DIV` as a statement; `CHECK` as a statement | `PRINT CHR$(147);`; dropped (it indexes the procedures) |
+| `NRM(x$)`; `$$n` | `DEC()` of the hex digits (an 8- or 16-digit binary string is not converted: warned); `RIGHT$(HEX$(n), 2)` (4 digits above 255) |
+| `MEM CLR a, n [, b]`; `MEM` | a `POKE` loop; dropped (`CHAR DEF` changes BASIC 65's own character set) |
+| `SOUND v, f`; `WAVE v, c, pulse` | the voice's frequency registers (voice 4: the filter's cutoff); the control register and the pulse width |
+| `INSERT f$, row, column, width, height, colour` | a subroutine: a box of the 9 characters (corners, edges, the fill) by `POKE`s, its colour |
+| `MULTI ON` / `OFF` / `n`; `MOB [OFF] n`, `MOB ON n`; `MOBCOL n, c` (TSBneo) | the mode only (x 0–159 from there on, as TSB's); `SPRITE n, 0` / `1`; `SPRITE n, , c` |
+| `COLOUR [b] [, p] [, i]` | `BORDER`, `BACKGROUND`, `FOREGROUND` for the colours given (`COLOUR , i`: the text's colour) |
+| `MMOB n, x1, y1, x2, y2` / `RLOCMOB n, x, y` (size, speed left out) | as the full forms, the sprite's size kept |
+| `AT(a, b)` before `CENTRE`'s, `USE`'s or `FETCH`'s text; `CENTRE s$, width` | `CURSOR` first; centred in the width |
+| `USE f$, n1, n2 …[;]` | a `PRINT USING` per field of a literal format (BASIC 65's formats one value), the text between printed; a new line unless `;`; `USE n` (the drive) dropped |
+| `SCRLD` / `SCRSV DEF hi, pages, mode, sa` … `RESTORE` | the next `SCRLD` / `SCRSV` of a channel of that parity: `BLOAD` / `BSAVE` at `hi` × 256 (warned: C64 machine code does not run on the MEGA65) |
+| `KEY GET v$`; `VOL ON` / `OFF`; `FLASH OFF`; `ERROR`; `COLD` | `GETKEY v$`; `VOL 10` / `0`; as `OFF`; `PRINT DS$`; `END` |
+| a procedure's name alone (keywords in it too: `.RESET`); `JOY(port)` | `GOSUB`; `JOY(port)` |
+| Left as written | `X!`, `MAP` (TSB's hooks for extensions), the `DUP` and `MOD` statements, `MEM`'s RAM-expansion forms |
 
 Tests: `src/test/test_basic45.sh`, `src/test-resources/test_simons_xemu.txt` (a Simons' listing run by BASIC 65 on
 xemu: procedures, loops, the functions, `ELSE` / `RCOMP`, `ON ERROR`, `CGOTO`, `PRINT AT` and `LIN`, the graphics by
 their pixels, `PAUSE` and `TI`, `COLOUR`, a sprite moved, the text-screen rectangles and scrolls, `DESIGN` of a character
-and of a sprite, `FLASH`). TSB's example game (`REACTOR TSB`, from its `reactor_tsb.d64`) converts and builds: what is left
-as written is TSB's own forms and `BFLASH`/`SCRLD`/`MEM`/`USE`-like commands. TSB's own forms that are converted: a
-procedure's name alone (its `EXEC`), `MMOB n, x, y`, `MOB SET` with more arguments, `COLOUR`'s text colour.
+and of a sprite, `FLASH`, `DUP`, `LOCAL`/`GLOBAL`, `DETECT`/`CHECK`, `ROT`/`DRAW`, `CHAR`, `BCKGNDS`, `MUSIC` timed),
+`src/test-resources/test_tsbneo_xemu.txt` (TSBneo's forms). TSB's example game (`REACTOR TSB`, from its `reactor_tsb.d64`,
+a TSBneo program) converts with `--convert=tsbneo` and builds; what is warned is what does not carry over (its machine
+code at `$7A00`, `D!PEEK` of the C64's zero page, `CSET 2`, `TEXT`'s spacing).
 
 ## Preprocessor
 
