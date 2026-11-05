@@ -389,8 +389,12 @@ Not as cc65: no loadable driver files; `tgi_geterrormsg(TGI_ERR_INSTALLED)` is "
 ## 12b. Containers
 
 The container library (#409) is assembly, type-erased as `qsort` is: a container keeps its element size, and
-copies elements in and out by it. Nothing here allocates: the storage is the caller's (a static array or
-`malloc`'s). All functions are `__fastcall__` (both libraries), each its own section: a program links what it calls.
+copies elements in and out by it. The fixed-capacity ones (ring buffer, priority queue, bit arrays, lists) never
+allocate: the storage is the caller's; the vector, the sets, the maps and the hash tables grow with `malloc` /
+`realloc` and report running out
+(NULL / -1), never `abort`. All functions are `__fastcall__` (both libraries), each its own section: a program links
+what it calls. They replace `data_structures.h`'s `sprite_vector_*`, `sprite_queue_*` and `sprite_hashmap_*`, which
+no library implemented (the header is gone).
 
 **`<ringbuf.h>`** (#405; `stdlib_asm/ringbuf.s45`): `ringbuf_t` over `cap` elements of `esize` bytes —
 `rb_init(r, buf, esize, cap)`, `rb_push_back`, `rb_push_front`, `rb_pop_front(r, out)`, `rb_pop_back` (0, or -1
@@ -574,7 +578,7 @@ A program that leaves the area writable has it protected again when it ends: crt
 
 ## 14. Headers Without a Library Implementation
 
-These headers declare functions whose sources (`lib/src/*.c`, `lib/stdlib/uart.s`) are not built into any archive, so calls to them fail to link: `uart.h` (`serial.h` is the library's serial port), `audio.h`, `cache_opt.h`, `data_structures.h`, `event_system.h`, `graphics.h`, `graphics_hal.h`, `graphics_particles.h`, `graphics_rrb.h`, `graphics_sprites.h`, `graphics_sprites_advanced.h`, `graphics_text80x50.h`, `hw_audio_mixer.h`, `hw_io.h`, `hw_peripherals.h`, `hw_raster.h`, `hw_scroll.h`, `lightpen.h`, `mega65_version.h`, `mem_pool.h`, `paddle_mouse.h`, `persistence.h`, `procedural_content.h`, `resource_manager.h`, `scripting.h`, `simd.h`, `sprite_*.h`, `test_harness.h`, `ui.h`, `world.h`. `sincos.h` and `sincos16.h` contain only `static` code and tables and work without the library.
+These headers declare functions whose sources (`lib/src/*.c`, `lib/stdlib/uart.s`) are not built into any archive, so calls to them fail to link: `uart.h` (`serial.h` is the library's serial port), `audio.h`, `cache_opt.h`, `event_system.h`, `graphics.h`, `graphics_hal.h`, `graphics_particles.h`, `graphics_rrb.h`, `graphics_sprites.h`, `graphics_sprites_advanced.h`, `graphics_text80x50.h`, `hw_audio_mixer.h`, `hw_io.h`, `hw_peripherals.h`, `hw_raster.h`, `hw_scroll.h`, `lightpen.h`, `mega65_version.h`, `mem_pool.h`, `paddle_mouse.h`, `persistence.h`, `procedural_content.h`, `resource_manager.h`, `scripting.h`, `simd.h`, `sprite_*.h`, `test_harness.h`, `ui.h`, `world.h`. `sincos.h` and `sincos16.h` contain only `static` code and tables and work without the library.
 
 ## 15. Runtime Startup (`crt0_zp.s45` / `crt0.s45`)
 
