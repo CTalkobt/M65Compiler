@@ -66,7 +66,7 @@ The C99 prototypes take `restrict` where the standard has it (`<string.h>`: `mem
 | `joystick.h` | cc65's joystick API over `input_joy` ([§12](#12-other-library-backed-headers)) | library (`stdlib_asm/joystick.s45`) |
 | `unistd.h` | `sleep`, `getopt` ([§12](#12-other-library-backed-headers)) | library (`stdlib_asm/sleep.s45`, `stdlib/getopt.c`) |
 | `serial.h` | cc65's serial API on the buffered UART ([§12](#12-other-library-backed-headers)) | library (`stdlib_asm/serial.s45`) |
-| `ringbuf.h`, `pqueue.h`, `vector.h`, `bitset.h`, `list.h` | containers: a ring buffer (deque, queue, stack; a byte queue), a priority queue, a growable array and views, bit arrays, intrusive lists ([§12b](#12b-containers)) | library (`stdlib_asm/ringbuf.s45`, `pqueue.s45`, `vector.s45`, `bitset.s45`, `list.s45`, `container.s45`) |
+| `ringbuf.h`, `pqueue.h`, `vector.h`, `bitset.h`, `list.h`, `set.h`, `map.h`, `hashmap.h` | containers: a ring buffer (deque, queue, stack; a byte queue), a priority queue, a growable array and views, bit arrays, intrusive lists, ordered sets and maps (sorted array, red-black tree), hash sets and maps ([§12b](#12b-containers)) | library (`stdlib_asm/ringbuf.s45`, `pqueue.s45`, `vector.s45`, `bitset.s45`, `list.s45`, `set.s45`, `tset.s45`, `hashmap.s45`, `container.s45`) |
 | `cbm.h` | KERNAL wrappers ([stdcbm.md](stdcbm.md)) | `static` functions in the header |
 | `mega65.h` | hardware register overlays | header (+ `key_pressed` in the library) |
 | `dma.h` | `dma_copy`/`dma_fill` (16-bit, bank 0); `dma_copy_far`/`dma_fill_far` (28-bit); `dma_copy_far_step`/`dma_fill_far_step` (with a step) | compiler builtins; `lib/stdlib_asm/dma_far.s45`, `dma_step.s45` |
@@ -460,11 +460,12 @@ about 17. `dl_sort` (#406's optional merge sort) is not there.
 `set__insert` & co. (`__fastcall__`, defined in assembly). Two kinds with the same methods: **`struct set`**
 (`stdlib_asm/set.s45`, 849 bytes with the map's methods, and `<vector.h>`'s routines: its first fields are a `vec_t`'s) is a sorted array —
 a binary search, insert and erase moving the elements after the place; small, for tens to a few hundred elements;
-**element addresses change** on insert and erase. **`struct tset`** (`stdlib_asm/tset.s45`, 3006 bytes with the map's) is a
-red-black tree of `malloc`'d nodes (two links, the parent, a colour byte, then the element: 7 bytes over the element)
-— O(log n) insert and erase, and an element stays where it is until it is erased; `clear` frees every node. `cmp` is
-called through `__ct_cmp`, as `<pqueue.h>`'s: it must not use a set itself, and the state is in BSS (not from an
-`__interrupt` handler while the program uses a set).
+**element addresses change** on insert and erase. **`struct tset`** (`stdlib_asm/tset.s45`, 1977 bytes with the map's) is a
+red-black tree of `malloc`'d nodes (`struct tset_node`, opaque: two links, the parent, a colour byte, then the element:
+7 bytes over the element) — O(log n) insert and erase, and an element stays where it is until it is erased; `clear`
+frees every node. The tree's working pointers are in the zero page (`$08`–`$2B`, the parameter block: `(ptr),y` to a
+node's fields), kept in BSS around `cmp`, `malloc` and `free`. `cmp` is called through `__ct_cmp`, as `<pqueue.h>`'s:
+it must not use a set itself (not from an `__interrupt` handler while the program uses a set).
 
 **`<map.h>`** (#407): ordered maps, the sets with an element of a key and then a value — `struct map` (on `struct set`)
 and `struct tmap` (on `struct tset`): `m.init(ksize, vsize, cmp)` (`cmp` compares keys; NULL: the key's bytes),
@@ -474,7 +475,7 @@ order), `size`, `clear`, `free`. The code is the sets': a set's `ksize` (offset 
 `set::insert` copies the key's bytes and then a value from its second argument (none in a set), replacing it on an
 element already there; the map's other methods jump to the set's (3 bytes each).
 
-**`<hashmap.h>`** (#407; `stdlib_asm/hashmap.s45`, 1904 bytes): hash tables, open addressing with linear probing.
+**`<hashmap.h>`** (#407; `stdlib_asm/hashmap.s45`, 1593 bytes): hash tables, open addressing with linear probing.
 `struct hashmap`: `m.init(ksize, vsize, cap, hash, cmp)`, `m.put(&key, &val)` (1 / 0 replaced / -1), `m.get(&key)`
 (the value or NULL), `m.find` (the element), `m.erase` (1 / 0; the slot becomes a tombstone), `m.first()` /
 `m.next(e)` (every element, in no order), `m.size()`, `m.rehash(n)` (0 / -1), `clear`, `free`; `struct hashset` is
@@ -485,8 +486,9 @@ twice the elements, without the tombstones — **element addresses change on put
 `ksize` 0 for C strings (the table keeps the pointer: `*(char **)e`; equal text in another buffer finds it). `hash`
 NULL is `hash_bytes(p, n)` / `hash_str(s)` (djb2, `h · 33 ^ byte`, from 5381; both exported); `cmp` NULL compares
 the bytes (strings: equal as `strcmp`); a program's `cmp` returns 0 when the keys are equal (`memcmp`, `strcmp`), and
-is called through `__ct_cmp`, its `hash` through `__ct_hash` (`stdlib/ct_hash.c`): neither may use a hash table, and
-the state is in BSS (not reentrant).
+is called through `__ct_cmp`, its `hash` through `__ct_hash` (`stdlib/ct_hash.c`): neither may use a hash table. The
+state is in the zero page (`$10`–`$2F`), kept in BSS around the program's functions, `calloc` and `free` (not
+reentrant).
 
 Shared (`stdlib_asm/container.s45`): an element's address (`base + i·esize`: shifts for a power of two, else the
 hardware multiplier; 96 bytes), copying (33), swapping (45) and comparing bytes (40). Tests: `test_ringbuf_xemu.c`

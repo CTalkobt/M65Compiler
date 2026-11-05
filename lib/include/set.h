@@ -35,6 +35,10 @@
 
 typedef int (*set_cmp_t)(const void *, const void *);
 
+/* a tree's node (tset.s45's layout: link[0], link[1], parent, a colour
+ * byte, then the element); its fields are the library's */
+struct tset_node;
+
 struct set {
     unsigned char *data;
     size_t len;         /* elements */
@@ -63,7 +67,7 @@ struct set {
 typedef struct set set_t;
 
 struct tset {
-    void *root;         /* the root node (tset.s45's layout) */
+    struct tset_node *root;
     size_t len;
     size_t esize;
     set_cmp_t cmp;
