@@ -12,6 +12,13 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   docker`) failed. Checked with Alpine 3.20 (GCC 13.2) and the latest
   (GCC 15.2): the tools, the libraries and the image build.
 
+### Containers: the old declarations retired (#409)
+
+- `lib/include/data_structures.h` (`sprite_vector_*`, `sprite_queue_*`,
+  `sprite_hashmap_*`, never implemented) and its unbuilt
+  `lib/src/data_structures.c` are removed: `<vector.h>`, `<ringbuf.h>`,
+  `<set.h>`, `<map.h>` and `<hashmap.h>` are the library's containers.
+
 ### Containers: maps and hash tables (#407)
 
 - `<map.h>`: `struct map` (on the sorted-array set) and `struct tmap` (on
