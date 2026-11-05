@@ -46,11 +46,17 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   `PLACE` finds, as the TSB sources show), `PRINT AT`, `CENTRE`, `PAUSE`,
   sprites (`MMOB` waiting for the move); the graphics rewritten as BASIC
   7.0's statements (plot types as colour sources, invert by XOR drawing,
-  `MULTI`'s x doubled); the rest left as written and warned.
+  `MULTI`'s x doubled); what a real program (TSB's REACTOR) needs of the
+  rest: `DESIGN` (characters by `CHAR DEF`, sprites copied by `MOB SET`;
+  the bytes computed from the `@` rows), the text-screen rectangles and
+  scrolls (subroutines), `WAVE` / `ENVELOPE` (the SID's registers),
+  `FLASH` / `OFF` (the blink attribute); the rest left as written and
+  warned.
 - Fixed: BASIC 7.0's `XOR(a, b)` (BASIC 65's `XOR` is an operator, its
   old function LOG10) → `((a) XOR (b))`; `--decompile` wrote a line
   starting with a word and `:` (`print : goto 10`), which basic45 reads as
-  a label: it starts with `:` now.
+  a label: it starts with `:` now; a control byte outside a string (an
+  unknown token's argument) is `{$xx}`, not a line break in the source.
 
 ### deploy45: programs and disk images to a MEGA65 or an Ultimate 64 (#145)
 

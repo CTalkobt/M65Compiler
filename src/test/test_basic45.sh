@@ -216,11 +216,19 @@ grep -q 'screen 320, 200, 4 : \([a-z][a-z0-9]\) = 0 : \([a-z][a-z0-9]\) = 1 : zc
 grep -q 'pen 0, zc(1) : line 1, 2 : ' "$D/cs.bas" && grep -q 'dmode 0, 1, 0, 0, 1 : pen 0, zc(5) : line 0, 0, 9, 9 : .* : dmode 0, 0, 0, 0, 1' "$D/cs.bas" &&
 grep -q 'polygon 50, 50, 20, 10, 30, 30, 0, 90, 0' "$D/cs.bas" && grep -q 'polygon 50, 50, 20, 20, 36, 9, 0, 0, 0' "$D/cs.bas" &&
 grep -q 'pen 0, zc(3) : line 20, 10' "$D/cs.bas" && grep -q 'char 4, 8, 2, 2, 2, "a"' "$D/cs.bas" &&
-grep -q 'movspr 1, 24, 50 to 100, 60, 15 : do while rsppos(1, 2) : loop' "$D/cs.bas" && grep -q 'WAVE has no BASIC 65 counterpart' "$D/cs.err" &&
-    pass "--convert=simons: HIRES/MULTI -> SCREEN and colour sources, PLOT/LINE/REC/BLOCK/CIRCLE/ARC as BASIC 7.0's (invert by XOR, MULTI x doubled), TEXT -> CHAR, MMOB waits, WAVE warned" ||
+grep -q 'movspr 1, 24, 50 to 100, 60, 15 : do while rsppos(1, 2) : loop' "$D/cs.bas" && grep -q 'poke 54272 + 7 \* ((1) - 1) + 4, 33' "$D/cs.bas" &&
+    pass "--convert=simons: HIRES/MULTI -> SCREEN and colour sources, PLOT/LINE/REC/BLOCK/CIRCLE/ARC as BASIC 7.0's (invert by XOR, MULTI x doubled), TEXT -> CHAR, MMOB waits, WAVE -> the SID's control register" ||
     fail "--convert=simons graphics: $(cat "$D/cs.bas" "$D/cs.err")"
 $B "$D/cs.bas" -o "$D/cs.prg" > "$D/csb.log" 2>&1 && pass "--convert=simons: the result builds with basic45" ||
     fail "--convert=simons result does not build: $(cat "$D/csb.log")"
+convs '10 DESIGN 2,$E000+65*8' '11 @BBBBBBBB' '12 @B  B' '20 DESIGN 1,$C000+64*13' '21 @BCD' '30 MOB SET 1,13,2,0,1:FCHR 1,2,3,4,65:UPW 0,0,5,5'
+grep -q 'char def int(mod(\$e000 + 65 \* 8, 4096) / 8), 255, 144, 0, 0, 0, 0, 0, 0' "$D/cs.bas" && grep -q '^  rem @bbbbbbbb$' "$D/cs.bas" &&
+grep -q '[a-z][a-z0-9]\$ = "6C0000' "$D/cs.bas" &&
+grep -q '[a-z][a-z0-9] = 13 : [a-z][a-z0-9] = 1 : gosub l[0-9]* : sprite 1, 1, 2, 0, , , 1' "$D/cs.bas" &&
+grep -q 'poke 1536 + 64 \* [a-z][a-z0-9] + [a-z][a-z0-9], dec(mid\$(' "$D/cs.bas" &&
+grep -q '= 1 : [a-z][a-z0-9] = 2 : [a-z][a-z0-9] = 3 : [a-z][a-z0-9] = 4 : [a-z][a-z0-9] = 65 : gosub l[0-9]*' "$D/cs.bas" &&
+    pass "--convert=simons: DESIGN of a character -> CHAR DEF (bytes from its @ rows), of a sprite -> data MOB SET copies to \$0600; FCHR and the scrolls by subroutines" ||
+    fail "--convert=simons DESIGN / rectangles: $(cat "$D/cs.bas" "$D/cs.err")"
 # a .prg: $64 $01 is HIRES; $64 $22 (TSB's DO) warned
 printf '\x01\x08\x10\x08\x0a\x00\x64\x01\x31\x2c\x30\x3a\x64\x22\x00\x00\x00' > "$D/s.prg"
 $B --convert=simons "$D/s.prg" -o "$D/s.bas" 2> "$D/s.err" && grep -q 'screen 320, 200, 4' "$D/s.bas" && grep -q 'DO is a TSB' "$D/s.err" &&

@@ -100,6 +100,14 @@ BasicDecompileResult decompileBasic(const std::vector<uint8_t>& prg, const Basic
         enum { NORMAL, REM, DATA } mode = NORMAL;
         std::string text;
         auto flush = [&]() { if (!text.empty()) { line.pieces.push_back({false, text}); text.clear(); } };
+        if (cbm == CbmBasic::SIMONS && v7 && p < prg.size() && prg[p] == '@') {
+            // a Simons' @ row (DESIGN's): its text as it is, spaces and all
+            while (p < prg.size() && prg[p] != 0) {
+                uint8_t b = prg[p++];
+                text += (b >= 0x41 && b <= 0x5A) ? (char)(b + 32) : (b >= 0x20 && b < 0x80) ? (char)b : '.';
+            }
+            flush();
+        }
         while (p < prg.size() && prg[p] != 0) {
             uint8_t b = prg[p++];
             if (mode == REM) { text += textChar(b, false); continue; }
@@ -163,6 +171,8 @@ BasicDecompileResult decompileBasic(const std::vector<uint8_t>& prg, const Basic
                 line.pieces.push_back({false, std::string(1, (char)b)});
             } else if (b == ' ') {
                 flush();
+            } else if (b < 0x20) {
+                text += hexEscape(b);   // (a control byte outside a string: not a line break in the source)
             } else {
                 text += (b >= 0x41 && b <= 0x5A) ? (char)(b + 32) : (char)b;
             }

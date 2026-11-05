@@ -258,7 +258,8 @@ std::vector<uint8_t> crunchCbm(const std::string& listing, uint16_t load, std::v
         last = num;
         while (i < text.size() && text[i] == ' ') i++;
         std::vector<uint8_t> body;
-        bool inString = false, rem = false, data = false;
+        // (a Simons' @ row: not tokenized)
+        bool inString = false, rem = d == CbmBasic::SIMONS && i < text.size() && text[i] == '@', data = false;
         while (i < text.size()) {
             char c = text[i];
             if (c == '"' && !rem) { inString = !inString; body.push_back(0x22); i++; continue; }

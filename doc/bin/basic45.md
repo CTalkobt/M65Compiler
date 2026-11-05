@@ -465,12 +465,18 @@ statements and converted by its rules (above): a plot type is a colour source.
 | `PAINT x, y, f`; `TEXT x, y, s$, f, height, spacing`; `TEST(x, y)` | `PAINT x, y, 1, colour` (the area of (x, y)'s colour); `CHAR` by 8-pixel columns (height kept, other spacings warned); the plot type from `PIXEL()` |
 | `MOB SET n, block, colour, priority, multi`; `MMOB` / `RLOCMOB`; `CMOB`; `MOB OFF n` | `SPRITE` (the data block warned: BASIC 65's sprite data is set with `SPRSAV`); `MOVSPR n, x1, y1 TO x2, y2, speed` and a wait for the move (`RSPPOS(n, 2)`; the speed approximate); `SPRCOLOR`; `SPRITE n, 0` |
 | `VOL n`; `DIR "$…"`; `DISK cmd$`; `DISPLAY` | `VOL` (the filter bits warned); `DIR`; `OPEN 15, 8, 15, cmd$ : CLOSE 15`; `KEY` |
-| `@` rows | `REM` lines |
-| No counterpart (left as written, warned) | the window scrolls (`UPB` …), `FCHR`/`FCOL`/`FILL`/`MOVE`/`INV`, `FLASH`/`BFLASH`/`OFF`, `BCKGNDS`, `DUP`, `LOCAL`/`GLOBAL`, `DRAW`/`ROT`, `CHAR`, `DESIGN`, `DETECT`/`CHECK`, `MUSIC`/`PLAY`/`WAVE`/`ENVELOPE` (its music notation), `ON KEY`/`DISABLE`/`RESUME`, `FETCH`, `INKEY`, `OUT`, `SCRSV`/`SCRLD`, `CSET 2`, the direct-mode and LIST commands (`OLD`, `COLD`, `SECURE`, `DISAPA`, `DUMP`, `MEM`, `OPTION`, `PAGE`, `DELAY`, `HRDCPY`, `COPY`) |
+| `FCHR`, `FCOL`, `FILL`, `INV`, `MOVE` (row, column, width, height …); `UPB` / `UPW` / `DOWNB` … `RIGHTW` | a subroutine each (its arguments in variables): loops of `PEEK` / `POKE` on the screen at `$0800` and the colours at `$D800`; the scrolls one character, the row or column that falls off a space (B) or put back at the other end (W) |
+| `DESIGN type, address` and its `@` rows | the bytes computed from the rows when converting: a character (types 2, 3) → `CHAR DEF int(mod(address, 4096) / 8), b1, …, b8` (the C64's 4 KB set as `MEM` copies it: 0–255 upper case, 256–511 lower case, BASIC 65's numbering); a sprite (types 0, 1) → its 63 bytes (as hex) and its address in variables, copied by `MOB SET` to the sprite's data at `$0600` + 64 × n when the block's address (64 × block in text mode's VIC bank, `$C000` + 64 × block in the graphics one) is the `DESIGN`'s; the `@` rows `REM` lines |
+| `WAVE voice, bits`; `ENVELOPE voice, a, d, s, r` | `POKE`s of the voice's control register / AD and SR (the MEGA65's first SID is at `$D400` too) |
+| `FLASH colour [, speed]` / `OFF` | the VIC-III's blink attribute (colour RAM bit 4) set on the characters of that colour / cleared (warned: characters printed later do not flash, the speed is the MEGA65's) |
+| No counterpart (left as written, warned) | `BFLASH`, `BCKGNDS`, `DUP`, `LOCAL`/`GLOBAL`, `DRAW`/`ROT`, `CHAR`, `DETECT`/`CHECK`, `MUSIC`/`PLAY` (its music notation), `ON KEY`/`DISABLE`/`RESUME`, `FETCH`, `INKEY`, `OUT`, `SCRSV`/`SCRLD`, `CSET 2`, the direct-mode and LIST commands (`OLD`, `COLD`, `SECURE`, `DISAPA`, `DUMP`, `MEM`, `OPTION`, `PAGE`, `DELAY`, `HRDCPY`, `COPY`) |
 
 Tests: `src/test/test_basic45.sh`, `src/test-resources/test_simons_xemu.txt` (a Simons' listing run by BASIC 65 on
 xemu: procedures, loops, the functions, `ELSE` / `RCOMP`, `ON ERROR`, `CGOTO`, `PRINT AT` and `LIN`, the graphics by
-their pixels, `PAUSE` and `TI`, `COLOUR`, a sprite moved).
+their pixels, `PAUSE` and `TI`, `COLOUR`, a sprite moved, the text-screen rectangles and scrolls, `DESIGN` of a character
+and of a sprite, `FLASH`). TSB's example game (`REACTOR TSB`, from its `reactor_tsb.d64`) converts and builds: what is left
+as written is TSB's own forms and `BFLASH`/`SCRLD`/`MEM`/`USE`-like commands. TSB's own forms that are converted: a
+procedure's name alone (its `EXEC`), `MMOB n, x, y`, `MOB SET` with more arguments, `COLOUR`'s text colour.
 
 ## Preprocessor
 

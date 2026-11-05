@@ -1151,19 +1151,13 @@ const std::map<std::string, std::string>& simonsMissing() {
     static const std::map<std::string, std::string> m = {
         {"LOCAL", "BASIC 65 has no local variables"}, {"GLOBAL", "BASIC 65 has no local variables"},
         {"ROT", "a shape string (DRAW / ROT)"}, {"DRAW", "a shape string (DRAW / ROT)"},
-        {"UPB", "a window scroll"}, {"UPW", "a window scroll"}, {"DOWNB", "a window scroll"}, {"DOWNW", "a window scroll"},
-        {"LEFTB", "a window scroll"}, {"LEFTW", "a window scroll"}, {"RIGHTB", "a window scroll"}, {"RIGHTW", "a window scroll"},
-        {"FLASH", "the C64's colour flashing"}, {"BFLASH", "the C64's border flashing"}, {"OFF", "the C64's colour flashing"},
-        {"DUP", "a string repeated (no BASIC 65 function)"}, {"FCHR", "a text-screen rectangle"}, {"FCOL", "a text-screen rectangle"},
-        {"FILL", "a text-screen rectangle"}, {"MOVE", "a text-screen rectangle"}, {"INV", "a text-screen rectangle"},
-        {"BCKGNDS", "the VIC-II's extended background colours"}, {"DESIGN", "@ rows of a sprite or character"},
+        {"BFLASH", "the C64's border flashing"},
+        {"DUP", "a string repeated (no BASIC 65 function)"}, {"BCKGNDS", "the VIC-II's extended background colours"},
         {"DETECT", "the collision registers (BASIC 65: BUMP / COLLISION)"}, {"CHECK", "the collision registers (BASIC 65: BUMP / COLLISION)"},
         {"CHAR", "a glyph by its screen code"}, {"SCRSV", "the text screen saved in its own format"},
         {"SCRLD", "the text screen loaded in its own format"}, {"ON KEY", "keys checked between statements"},
         {"DISABLE", "keys checked between statements (ON KEY)"}, {"RESUME", "RESUME after ON KEY"},
         {"MUSIC", "a music string in Simons' notation (BASIC 65: PLAY's)"}, {"PLAY", "a music string in Simons' notation (BASIC 65: PLAY's)"},
-        {"WAVE", "the SID's control register (BASIC 65: ENVELOPE / PLAY)"},
-        {"ENVELOPE", "a voice's ADSR for MUSIC (BASIC 65's ENVELOPE sets PLAY's tunes)"},
         {"FETCH", "a filtered input"}, {"INKEY", "the function key held"}, {"OUT", "the error message"},
         {"OLD", "a direct-mode command"}, {"COLD", "a direct-mode command"}, {"SECURE", "a direct-mode command"},
         {"DISAPA", "lines hidden from LIST"}, {"DUMP", "a direct-mode command"}, {"MEM", "the C64's memory map"},
@@ -1299,6 +1293,19 @@ void convertSimons(std::vector<DecompiledLine>& lines, const BasicDecompileOptio
         }
     }
 
+    // sprite DESIGNs (types 0 / 1): their data and address variables, filled as the pass reaches them;
+    // the subroutine MOB SET calls lists them all, so count them first
+    std::vector<std::pair<std::string, std::string>> designs;
+    size_t designCount = 0;
+    for (const auto& l : lines)
+        for (size_t q = 0; q + 1 < l.pieces.size(); q++)
+            if (l.pieces[q].isKw && l.pieces[q].text == "DESIGN" && (l.pieces[q + 1].text == "0" || l.pieces[q + 1].text == "1")) designCount++;
+    uint16_t designAt = 0;
+    std::string designBody;   // (built when the pass is done: every DESIGN known)
+    auto designSub = [&]() -> uint16_t {
+        if (!designAt) designAt = addLine({{false, "@@designsub"}});
+        return designAt;
+    };
     bool multi = false;     // MULTI's mode (in program order): x 0-159
     bool anyXorWarn = false;
     const std::string G0 = "@@g0", G1 = "@@g1", G2 = "@@g2", G3 = "@@g3";   // (named below)
@@ -1640,8 +1647,15 @@ void convertSimons(std::vector<DecompiledLine>& lines, const BasicDecompileOptio
                     a.list.resize(5);
                 }
                 if (!argc(5)) continue;
-                replace("sprite " + at(0) + ", 1, " + at(2) + ", " + at(3) + ", , , " + at(4));
-                warn(line.num, "MOB SET: the sprite's data block (" + at(1) + ") is the C64's: give BASIC 65 the data (SPRSAV / SPRDEF)");
+                if (designCount) {
+                    // the DESIGN at the block's address (in text mode's VIC bank or the graphics one) to the sprite's data
+                    std::string sub = std::to_string(designSub());
+                    replacePieces({{false, var("mobblock") + " = " + at(1) + " : " + var("mobn") + " = " + at(0)}, {false, ":"}, {true, "GOSUB"},
+                                   {false, sub}, {false, ":"}, {false, "sprite " + at(0) + ", 1, " + at(2) + ", " + at(3) + ", , , " + at(4)}});
+                } else {
+                    replace("sprite " + at(0) + ", 1, " + at(2) + ", " + at(3) + ", , , " + at(4));
+                    warn(line.num, "MOB SET: the sprite's data block (" + at(1) + ") is the C64's: give BASIC 65 the data (SPRSAV / SPRDEF)");
+                }
             } else if (k == "MMOB" || k == "RLOCMOB") {
                 // MMOB n, x1, y1, x2, y2, size, speed (RLOCMOB n, x2, y2, size, speed: from where it is): the program waits
                 bool from = k == "MMOB";
@@ -1667,6 +1681,129 @@ void convertSimons(std::vector<DecompiledLine>& lines, const BasicDecompileOptio
                 if (isNumber(x) && std::stoi(x) > 15) warn(line.num, "VOL " + x + ": the SID's filter bits are not BASIC 65's VOL");
                 replace("vol " + (isNumber(x) ? std::to_string(std::stoi(x) & 15) : "(" + x + ") and 15"));
             }
+            // ---- text-screen rectangles (row, column, width, height): the screen at $0800, colours at $D800
+            else if (k == "FCHR" || k == "FCOL" || k == "FILL" || k == "INV" || k == "MOVE" || k == "UPB" || k == "UPW" ||
+                     k == "DOWNB" || k == "DOWNW" || k == "LEFTB" || k == "LEFTW" || k == "RIGHTB" || k == "RIGHTW") {
+                // a subroutine per command, its arguments in variables: R, C, W, H [, A [, B]]
+                bool rect = k == "FCHR" || k == "FCOL" || k == "FILL" || k == "INV" || k == "MOVE";
+                size_t n = k == "FILL" || k == "MOVE" ? 6 : k == "FCHR" || k == "FCOL" ? 5 : 4;
+                if (!argc(n)) continue;
+                std::string R = var("r"), C = var("c"), W = var("w"), H = var("h"), A = var("a"), B = var("b");
+                std::string I = var("i"), J = var("j"), T = var("t"), U = var("u");
+                auto scr = [](const std::string& rr, const std::string& cc) { return "2048 + (" + rr + ") * 40 + " + cc; };
+                auto col = [](const std::string& rr, const std::string& cc) { return "55296 + (" + rr + ") * 40 + " + cc; };
+                if (!names.count("sub" + k)) {
+                    std::string body;
+                    if (rect) {
+                        std::string r = R + " + " + I, c = C + " + " + J;
+                        if (k == "FCHR") body = "poke " + scr(r, c) + ", " + A;
+                        else if (k == "FCOL") body = "poke " + col(r, c) + ", " + A;
+                        else if (k == "FILL") body = "poke " + scr(r, c) + ", " + A + " : poke " + col(r, c) + ", " + B;
+                        else if (k == "INV") body = "poke " + scr(r, c) + ", (peek(" + scr(r, c) + ") xor 128)";
+                        else body = "poke " + scr(A + " + " + I, B + " + " + J) + ", peek(" + scr(r, c) + ") : poke " + col(A + " + " + I, B + " + " + J) +
+                                    ", peek(" + col(r, c) + ")";
+                        body = "for " + I + " = 0 to " + H + " - 1 : for " + J + " = 0 to " + W + " - 1 : " + body + " : next : next : return";
+                    } else {
+                        // one character: column by column (UP / DOWN) or row by row (LEFT / RIGHT), the one
+                        // that falls off put back at the other end (W) or a space (B)
+                        bool wrap = k.back() == 'W';
+                        std::string d = k.substr(0, k.size() - 1);
+                        bool vert = d == "UP" || d == "DOWN", fwd = d == "UP" || d == "LEFT";
+                        std::string len = vert ? H : W;
+                        auto cell = [&](const std::string& along, bool colour) {
+                            std::string rr = vert ? R + " + " + along : R + " + " + J;
+                            std::string cc = vert ? C + " + " + J : C + " + " + along;
+                            return colour ? col(rr, cc) : scr(rr, cc);
+                        };
+                        std::string first = fwd ? "0" : len + " - 1", last = fwd ? len + " - 1" : "0";
+                        std::string loop = fwd ? "for " + I + " = 0 to " + len + " - 2" : "for " + I + " = " + len + " - 2 to 0 step -1";
+                        std::string from = fwd ? "(" + I + " + 1)" : I, to = fwd ? I : "(" + I + " + 1)";
+                        addLine({{false, "for " + J + " = 0 to " + (vert ? W : H) + " - 1 : " + T + " = peek(" + cell(first, false) + ") : " + U + " = peek(" +
+                                         cell(first, true) + ")"}});
+                        addLine({{false, "if " + len + " > 1 then " + loop + " : poke " + cell(to, false) + ", peek(" + cell(from, false) + ") : poke " +
+                                         cell(to, true) + ", peek(" + cell(from, true) + ") : next"}});
+                        body = "poke " + cell(last, false) + ", " + (wrap ? T + " : poke " + cell(last, true) + ", " + U : std::string("32")) + " : next : return";
+                    }
+                    names["sub" + k] = std::to_string(rect ? addLine({{false, body}}) : nextNum - 2);
+                    if (!rect) addLine({{false, body}});
+                }
+                std::string args = R + " = " + at(0) + " : " + C + " = " + at(1) + " : " + W + " = " + at(2) + " : " + H + " = " + at(3);
+                if (n >= 5) args += " : " + A + " = " + at(4);
+                if (n >= 6) args += " : " + B + " = " + at(5);
+                replacePieces({{false, args}, {false, ":"}, {true, "GOSUB"}, {false, names["sub" + k]}});
+            }
+            // ---- DESIGN: sprite / character data from the @ rows after it (computed here)
+            else if (k == "DESIGN") {
+                if (!argc(2)) continue;
+                int type = isNumber(at(0)) ? std::stoi(at(0)) : -1;
+                if (type < 0 || type > 3) { warn(line.num, "DESIGN of type " + at(0) + ": left as written"); p[i] = {false, "design"}; continue; }
+                bool sprite = type < 2, mc = type % 2 == 1;
+                int rows = sprite ? 21 : 8, chars = sprite ? (mc ? 12 : 24) : (mc ? 4 : 8);
+                std::vector<int> bytes;
+                size_t got = 0;
+                for (size_t q = li + 1; q < lines.size() && got < (size_t)rows; q++) {
+                    const auto& rp = lines[q].pieces;
+                    if (rp.size() != 2 || !rp[0].isKw || rp[0].text != "REM" || rp[1].text.empty() || rp[1].text[0] != '@') break;
+                    std::string row = rp[1].text.substr(1);
+                    row.resize((size_t)chars, ' ');
+                    uint32_t bits = 0;
+                    for (int x = 0; x < chars; x++) {
+                        char ch = (char)std::toupper((unsigned char)row[(size_t)x]);
+                        if (mc) bits = bits << 2 | (ch == 'B' ? 1u : ch == 'C' ? 2u : ch == 'D' ? 3u : 0u);
+                        else bits = bits << 1 | (ch == 'B' ? 1u : 0u);
+                    }
+                    for (int b = (sprite ? 2 : 0); b >= 0; b--) bytes.push_back((int)((bits >> (8 * b)) & 255));
+                    got++;
+                }
+                if (got < (size_t)rows) warn(line.num, "DESIGN: " + std::to_string(got) + " @ rows of " + std::to_string(rows) + " (the rest empty)");
+                bytes.resize((size_t)(rows * (sprite ? 3 : 1)), 0);
+                if (!sprite) {
+                    // a character: CHAR DEF into the VIC's set (0-255 upper case, 256-511 lower case: the C64's 4 KB as MEM copies it)
+                    std::string t = "char def int(mod(" + at(1) + ", 4096) / 8)";
+                    for (int b : bytes) t += ", " + std::to_string(b);
+                    replace(t);
+                } else {
+                    // a sprite: kept (as hex) with its address, for MOB SET
+                    std::string hex;
+                    char hb[4];
+                    for (int b : bytes) { std::snprintf(hb, sizeof hb, "%02X", b); hex += hb; }
+                    std::string sv = var("design" + std::to_string(line.num) + "_" + std::to_string(i)), av = var("designat" + std::to_string(line.num) + "_" + std::to_string(i));
+                    designs.push_back({sv, av});
+                    replace(sv + "$ = \"" + hex + "\" : " + av + " = " + at(1));
+                }
+            }
+            // ---- the SID's registers (the MEGA65's first SID is at $D400 too)
+            else if (k == "WAVE") {
+                // WAVE voice, 8 binary digits: the voice's control register
+                if (!argc(2)) continue;
+                std::string v = at(1);
+                bool bin = v.size() == 8 && v.find_first_not_of("01") == std::string::npos;
+                std::string x = bin ? std::to_string(std::stoi(v, nullptr, 2)) : v;
+                replace("poke 54272 + 7 * ((" + at(0) + ") - 1) + 4, " + x);
+            } else if (k == "ENVELOPE") {
+                // ENVELOPE voice, attack, decay, sustain, release: the voice's AD and SR registers
+                if (!argc(5)) continue;
+                std::string reg = "54272 + 7 * ((" + at(0) + ") - 1)";
+                auto pair = [&](const std::string& hi, const std::string& lo) {
+                    if (isNumber(hi) && isNumber(lo)) return std::to_string(std::stoi(hi) * 16 + std::stoi(lo));
+                    return "(" + hi + ") * 16 + (" + lo + ")";
+                };
+                replace("poke " + reg + " + 5, " + pair(at(1), at(2)) + " : poke " + reg + " + 6, " + pair(at(3), at(4)));
+            }
+            // ---- FLASH colour [, speed] / OFF: the VIC-III's blink attribute (colour RAM bit 4) on the characters of that colour
+            else if (k == "FLASH" || k == "OFF") {
+                std::string I = var("i");
+                if (k == "FLASH" && a.list.empty()) { argc(1); continue; }
+                std::string cell = "55296 + " + I;
+                // (no IF in the loop: a false IF would skip its NEXT; true is -1)
+                if (k == "FLASH")
+                    replace("for " + I + " = 0 to 999 : poke " + cell + ", peek(" + cell + ") or (-16 * ((peek(" + cell + ") and 15) = (" + at(0) +
+                            "))) : next");
+                else
+                    replace("for " + I + " = 0 to 999 : poke " + cell + ", peek(" + cell + ") and 239 : next");
+                warn(line.num, k + ": the blink attribute on the characters now in that colour (characters printed later do not flash; "
+                               "the speed is the MEGA65's)");
+            }
             // ---- the rest
             else if (auto it = simonsMissing().find(k); it != simonsMissing().end()) leave(it->second);
             else if (isSimonsKeyword(k)) {
@@ -1683,6 +1820,23 @@ void convertSimons(std::vector<DecompiledLine>& lines, const BasicDecompileOptio
             lines.insert(lines.begin() + (long)li + 1, rest);
         }
         flushExtra();
+    }
+    if (designAt) {
+        std::string B = var("mobblock"), N = var("mobn"), D = var("mobdata"), I = var("i");
+        for (auto& l : lines) {
+            if (l.num != designAt || l.pieces.size() != 1 || l.pieces[0].text != "@@designsub") continue;
+            std::vector<DecompiledLine> body;
+            l.pieces = {{false, D + "$ = \"\""}};
+            for (const auto& [sv, av] : designs)
+                body.push_back({l.num, {{true, "IF"}, {false, av + " > 0 and (" + B + " * 64 = " + av + " or " + B + " * 64 + 49152 = " + av + ")"},
+                                       {true, "THEN"}, {false, D + "$ = " + sv + "$"}}, {}, true});
+            body.push_back({l.num, {{false, "if " + D + "$ = \"\" then return"}}, {}, true});
+            body.push_back({l.num, {{false, "for " + I + " = 0 to 62 : poke 1536 + 64 * " + N + " + " + I + ", dec(mid$(" + D + "$, " + I +
+                                                " * 2 + 1, 2)) : next : return"}}, {}, true});
+            size_t at = (size_t)(&l - &lines[0]);
+            lines.insert(lines.begin() + (long)at + 1, body.begin(), body.end());
+            break;
+        }
     }
     // RCOMP repeats the last IF's result: each IF keeps it in a variable
     if (rcomp)
