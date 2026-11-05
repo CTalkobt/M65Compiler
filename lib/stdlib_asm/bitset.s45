@@ -1,0 +1,634 @@
+; bitset.s45 — arrays of bits indexed at run time (<bitset.h>, #408)
+;
+; A bitset is bytes, bit i in byte i >> 3, bit i & 7 (BITSET(name, nbits)).
+; The bits past nbits in the last byte stay 0: the functions over all of it
+; keep them so (bs_set_all, bs_not), and count / any / find rely on it.
+;
+;   void __bs_set(b, i), __bs_clear(b, i), __bs_toggle(b, i)    $10 $12
+;   int  __bs_test(b, i)                                        0 or 1
+;   void bs_set_all(b, nbits), bs_clear_all(b, nbits), bs_not(b, nbits)
+;   void bs_set_range(b, from, n), bs_clear_range(b, from, n)   $10 $12 $14
+;   unsigned bs_count(b, nbits); int bs_any(b, nbits)
+;   int  bs_find_first_set(b, nbits, from), bs_find_first_clear(...)   the index or -1
+;   void bs_and(dst, src, nbits), bs_or(...), bs_xor(...)       dst op= src
+;
+; Zero page only (no BSS), no multiplier: callable from an __interrupt
+; handler on bitsets the program does not change meanwhile.
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.global ___bs_set, ___bs_clear, ___bs_toggle, ___bs_test
+.global _bs_set_all, _bs_clear_all, _bs_not, _bs_set_range, _bs_clear_range
+.global _bs_count, _bs_any, _bs_find_first_set, _bs_find_first_clear
+.global _bs_and, _bs_or, _bs_xor
+.global __bs_at, __bs_lowmask
+
+BS_T = $08      ; an index / count (16 bits)
+BS_N = $0A      ; a count (16 bits)
+BS_P = $0C      ; a byte's address
+BS_Q = $0E      ; another
+BS_M = $F6      ; a mask
+BS_V = $F7      ; set ($FF) or clear (0)
+BS_C = $F8      ; a count (16 bits)
+
+.segment "code"
+
+; BS_P = b ($10) + (A/X) >> 3, A = BS_M = the bit's mask, Y = 0
+proc __bs_at
+    sta BS_T
+    stx BS_T+1
+    and #7
+    tay
+    lda @masks,y
+    sta BS_M
+    lsr BS_T+1
+    ror BS_T
+    lsr BS_T+1
+    ror BS_T
+    lsr BS_T+1
+    ror BS_T
+    clc
+    lda BS_T
+    adc $10
+    sta BS_P
+    lda BS_T+1
+    adc $11
+    sta BS_P+1
+    ldy #0
+    lda BS_M
+    rts
+@masks:
+    .byte $01, $02, $04, $08, $10, $20, $40, $80
+endproc
+
+; A = the bits below bit A & 7 of a byte: (1 << (A & 7)) - 1 (Y = 0)
+proc __bs_lowmask
+    and #7
+    tay
+    lda @low,y
+    ldy #0
+    rts
+@low:
+    .byte $00, $01, $03, $07, $0F, $1F, $3F, $7F
+endproc
+
+proc ___bs_set
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    lda $12
+    ldx $13
+    jsr __bs_at
+    ora (BS_P),y
+    sta (BS_P),y
+    rts
+    .func_flags zp_call
+endproc
+
+proc ___bs_clear
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    lda $12
+    ldx $13
+    jsr __bs_at
+    eor #$FF
+    and (BS_P),y
+    sta (BS_P),y
+    rts
+    .func_flags zp_call
+endproc
+
+proc ___bs_toggle
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    lda $12
+    ldx $13
+    jsr __bs_at
+    eor (BS_P),y
+    sta (BS_P),y
+    rts
+    .func_flags zp_call
+endproc
+
+proc ___bs_test
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    lda $12
+    ldx $13
+    jsr __bs_at
+    ldx #0
+    and (BS_P),y
+    beq @zero
+    lda #1
+@zero:
+    rts
+    .func_flags zp_call
+endproc
+
+; the whole bytes of nbits ($12) -> BS_N, the bits over -> A (Z set when none);
+; BS_P = b
+proc __bs_split
+    lda $10
+    sta BS_P
+    lda $11
+    sta BS_P+1
+    lda $13
+    sta BS_N+1
+    lda $12
+    sta BS_N
+    lsr BS_N+1
+    ror BS_N
+    lsr BS_N+1
+    ror BS_N
+    lsr BS_N+1
+    ror BS_N
+    and #7
+    rts
+endproc
+
+; the BS_N bytes at BS_P set to A (BS_P past them, Y = 0)
+proc __bs_fill
+    ldx BS_N+1
+    ldy #0
+    beq @whole
+@page:
+    sta (BS_P),y
+    iny
+    bne @page
+    inc BS_P+1
+@whole:
+    dex
+    bpl @page
+    ldx BS_N
+    beq @done
+@byte:
+    sta (BS_P),y
+    iny
+    dex
+    bne @byte
+@done:
+    tax
+    tya                 ; BS_P past them
+    clc
+    adc BS_P
+    sta BS_P
+    bcc @1
+    inc BS_P+1
+@1:
+    txa
+    ldy #0
+    rts
+endproc
+
+; void bs_set_all(b, nbits)
+proc _bs_set_all
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    jsr __bs_split
+    pha
+    lda #$FF
+    jsr __bs_fill
+    pla
+    beq @done
+    jsr __bs_lowmask    ; the last byte: its bits below nbits
+    sta (BS_P),y
+@done:
+    rts
+    .func_flags zp_call
+endproc
+
+; void bs_clear_all(b, nbits)
+proc _bs_clear_all
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    jsr __bs_split
+    pha
+    lda #0
+    jsr __bs_fill
+    pla
+    beq @done
+    lda #0
+    sta (BS_P),y
+@done:
+    rts
+    .func_flags zp_call
+endproc
+
+; void bs_not(b, nbits)
+proc _bs_not
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    jsr __bs_split
+    sta BS_M
+    ldy #0
+@loop:
+    lda BS_N
+    ora BS_N+1
+    beq @last
+    lda (BS_P),y
+    eor #$FF
+    sta (BS_P),y
+    inc BS_P
+    bne @1
+    inc BS_P+1
+@1:
+    lda BS_N
+    bne @2
+    dec BS_N+1
+@2:
+    dec BS_N
+    bra @loop
+@last:
+    lda BS_M
+    beq @done
+    jsr __bs_lowmask
+    eor (BS_P),y
+    sta (BS_P),y
+@done:
+    rts
+    .func_flags zp_call
+endproc
+
+; bs_set_range / bs_clear_range: n ($14) bits from ($12), set (BS_V $FF) or
+; cleared (0): bit by bit up to a byte boundary, whole bytes, the rest
+proc __bs_range
+    lda $12
+    sta BS_C
+    lda $13
+    sta BS_C+1
+@loop:
+    lda $14
+    ora $15
+    beq @done
+    lda BS_C            ; on a byte boundary with 8 or more to go: the byte
+    and #7
+    bne @bit
+    lda $15
+    bne @byte
+    lda $14
+    cmp #8
+    bcc @bit
+@byte:
+    lda BS_C
+    ldx BS_C+1
+    jsr __bs_at
+    lda BS_V
+    sta (BS_P),y
+    clc
+    lda BS_C
+    adc #8
+    sta BS_C
+    bcc @b1
+    inc BS_C+1
+@b1:
+    sec
+    lda $14
+    sbc #8
+    sta $14
+    bcs @loop
+    dec $15
+    bra @loop
+@bit:
+    lda BS_C
+    ldx BS_C+1
+    jsr __bs_at
+    ldx BS_V
+    bne @set
+    eor #$FF
+    and (BS_P),y
+    bra @store
+@set:
+    ora (BS_P),y
+@store:
+    sta (BS_P),y
+    inc BS_C
+    bne @c1
+    inc BS_C+1
+@c1:
+    lda $14
+    bne @n1
+    dec $15
+@n1:
+    dec $14
+    bra @loop
+@done:
+    rts
+endproc
+
+; void bs_set_range(b, from, n)
+proc _bs_set_range
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .zp_clobbers $14, $15
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    lda #$FF
+    sta BS_V
+    jmp __bs_range
+    .func_flags zp_call
+endproc
+
+; void bs_clear_range(b, from, n)
+proc _bs_clear_range
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .zp_clobbers $14, $15
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    lda #0
+    sta BS_V
+    jmp __bs_range
+    .func_flags zp_call
+endproc
+
+; unsigned bs_count(b, nbits): the bits set (a nibble table)
+proc _bs_count
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    jsr __bs_split
+    sta BS_M            ; (the last byte's bits)
+    lda #0
+    sta BS_C
+    sta BS_C+1
+@loop:
+    lda BS_N
+    ora BS_N+1
+    beq @last
+    ldy #0
+    lda (BS_P),y
+    jsr @add
+    inc BS_P
+    bne @1
+    inc BS_P+1
+@1:
+    lda BS_N
+    bne @2
+    dec BS_N+1
+@2:
+    dec BS_N
+    bra @loop
+@last:
+    lda BS_M
+    beq @done
+    ldy #0
+    lda (BS_P),y        ; (its bits past nbits are 0)
+    jsr @add
+@done:
+    lda BS_C
+    ldx BS_C+1
+    rts
+@add:                   ; BS_C += the bits set in A
+    pha
+    and #$0F
+    tay
+    lda @nib,y
+    clc
+    adc BS_C
+    sta BS_C
+    bcc @a1
+    inc BS_C+1
+@a1:
+    pla
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    tay
+    lda @nib,y
+    clc
+    adc BS_C
+    sta BS_C
+    bcc @a2
+    inc BS_C+1
+@a2:
+    rts
+@nib:
+    .byte 0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4
+    .func_flags zp_call
+endproc
+
+; int bs_any(b, nbits): 1 when a bit is set
+proc _bs_any
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    jsr __bs_split
+    beq @1
+    inc BS_N            ; the last byte too (its bits past nbits are 0)
+    bne @1
+    inc BS_N+1
+@1:
+    ldy #0
+@loop:
+    lda BS_N
+    ora BS_N+1
+    beq @none
+    lda (BS_P),y
+    bne @some
+    inc BS_P
+    bne @2
+    inc BS_P+1
+@2:
+    lda BS_N
+    bne @3
+    dec BS_N+1
+@3:
+    dec BS_N
+    bra @loop
+@some:
+    lda #1
+    ldx #0
+    rts
+@none:
+    lda #0
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+; find: the first bit from ($14) below nbits ($12) that is set (BS_V 0) or
+; clear (BS_V $FF); whole bytes of the other kind skipped
+proc __bs_find
+    lda $14
+    sta BS_C
+    lda $15
+    sta BS_C+1
+@loop:
+    lda BS_C+1          ; at nbits: none
+    cmp $13
+    bcc @in
+    bne @none
+    lda BS_C
+    cmp $12
+    bcs @none
+@in:
+    lda BS_C
+    ldx BS_C+1
+    jsr __bs_at
+    lda BS_C            ; on a byte boundary: a byte of none of them skipped
+    and #7
+    bne @bit
+    lda (BS_P),y
+    eor BS_V
+    bne @bit
+    clc
+    lda BS_C
+    adc #8
+    sta BS_C
+    bcc @loop
+    inc BS_C+1
+    bra @loop
+@bit:
+    lda (BS_P),y
+    eor BS_V
+    and BS_M
+    bne @found
+    inc BS_C
+    bne @loop
+    inc BS_C+1
+    bra @loop
+@found:
+    lda BS_C
+    ldx BS_C+1
+    rts
+@none:
+    lda #$FF
+    tax
+    rts
+endproc
+
+; int bs_find_first_set(b, nbits, from)
+proc _bs_find_first_set
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    lda #0
+    sta BS_V
+    jmp __bs_find
+    .func_flags zp_call
+endproc
+
+; int bs_find_first_clear(b, nbits, from)
+proc _bs_find_first_clear
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    lda #$FF
+    sta BS_V
+    jmp __bs_find
+    .func_flags zp_call
+endproc
+
+; the bytes of nbits ($14), the last one too -> BS_N; BS_P = dst, BS_Q = src
+proc __bs_two
+    lda $10
+    sta BS_P
+    lda $11
+    sta BS_P+1
+    lda $12
+    sta BS_Q
+    lda $13
+    sta BS_Q+1
+    clc                 ; (nbits + 7) >> 3
+    lda $14
+    adc #7
+    sta BS_N
+    lda $15
+    adc #0
+    lsr a
+    ror BS_N
+    lsr a
+    ror BS_N
+    lsr a
+    ror BS_N
+    sta BS_N+1
+    ldy #0
+    rts
+endproc
+
+; BS_P, BS_Q one byte on, BS_N one fewer: Z set when none are left
+proc __bs_step
+    inc BS_P
+    bne @1
+    inc BS_P+1
+@1:
+    inc BS_Q
+    bne @2
+    inc BS_Q+1
+@2:
+    lda BS_N
+    bne @3
+    dec BS_N+1
+@3:
+    dec BS_N
+    lda BS_N
+    ora BS_N+1
+    rts
+endproc
+
+; void bs_and(dst, src, nbits)
+proc _bs_and
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    jsr __bs_two
+    lda BS_N
+    ora BS_N+1
+    beq @done
+@loop:
+    lda (BS_P),y
+    and (BS_Q),y
+    sta (BS_P),y
+    jsr __bs_step
+    bne @loop
+@done:
+    rts
+    .func_flags zp_call
+endproc
+
+; void bs_or(dst, src, nbits)
+proc _bs_or
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    jsr __bs_two
+    lda BS_N
+    ora BS_N+1
+    beq @done
+@loop:
+    lda (BS_P),y
+    ora (BS_Q),y
+    sta (BS_P),y
+    jsr __bs_step
+    bne @loop
+@done:
+    rts
+    .func_flags zp_call
+endproc
+
+; void bs_xor(dst, src, nbits)
+proc _bs_xor
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    jsr __bs_two
+    lda BS_N
+    ora BS_N+1
+    beq @done
+@loop:
+    lda (BS_P),y
+    eor (BS_Q),y
+    sta (BS_P),y
+    jsr __bs_step
+    bne @loop
+@done:
+    rts
+    .func_flags zp_call
+endproc

@@ -1,0 +1,403 @@
+; list.s45 — intrusive linked lists (<list.h>, #406): the links are in the
+; program's own structs; nothing is allocated.
+;
+;   dlist (circular, a sentinel head; dlink: next (0), prev (2)):
+;   void dl_init(dlist *l)                                  $10
+;   void dl_insert_after(dlink *pos, dlink *n)              $10 $12
+;   void dl_push_front(dlist *l, dlink *n), dl_push_back(dlist *l, dlink *n)
+;   void dl_remove(dlink *n)                                $10   (no list needed)
+;   dlink *dl_pop_front(dlist *l), *dl_pop_back(dlist *l)   NULL when empty
+;   void dl_splice(dlist *dst, dlist *src)                  src's nodes to dst's end
+;
+;   slist (slink: next (0); slist: first (0)):
+;   void sl_push(slist *l, slink *n); slink *sl_pop(slist *l)
+;   int  sl_remove(slist *l, slink *n)                      1, or 0 when not in it
+;   void sl_reverse(slist *l)
+;
+; Zero page only, no multiplier: callable from an __interrupt handler on a
+; list the program does not change meanwhile.
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.global _dl_init, _dl_insert_after, _dl_push_front, _dl_push_back, _dl_remove
+.global _dl_pop_front, _dl_pop_back, _dl_splice
+.global _sl_push, _sl_pop, _sl_remove, _sl_reverse
+
+L_A = $08       ; nodes
+L_B = $0A
+L_C = $0C
+L_D = $0E
+
+.segment "code"
+
+; void dl_init(dlist *l): next = prev = l
+proc _dl_init
+    .zp_uses $10, $11
+    .reg_clobbers A, Y
+    .flag_clobbers N, Z
+    ldy #0
+    lda $10
+    sta ($10),y
+    ldy #2
+    sta ($10),y
+    lda $11
+    ldy #1
+    sta ($10),y
+    ldy #3
+    sta ($10),y
+    rts
+    .func_flags zp_call
+endproc
+
+; n after pos ($10, $12): n.next = pos.next, n.prev = pos, pos.next.prev = n, pos.next = n
+proc _dl_insert_after
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, Y
+    .flag_clobbers N, Z
+    ldy #0
+    lda ($10),y         ; pos.next -> L_A, n.next
+    sta L_A
+    sta ($12),y
+    iny
+    lda ($10),y
+    sta L_A+1
+    sta ($12),y
+    iny                 ; n.prev = pos
+    lda $10
+    sta ($12),y
+    sta L_B             ; (pos, for the low byte below)
+    iny
+    lda $11
+    sta ($12),y
+    ldy #2              ; pos.next.prev = n
+    lda $12
+    sta (L_A),y
+    iny
+    lda $13
+    sta (L_A),y
+    ldy #0              ; pos.next = n
+    lda $12
+    sta ($10),y
+    iny
+    lda $13
+    sta ($10),y
+    rts
+    .func_flags zp_call
+endproc
+
+; void dl_push_front(dlist *l, dlink *n): after the head
+proc _dl_push_front
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, Y
+    .flag_clobbers N, Z
+    jmp _dl_insert_after
+    .func_flags zp_call
+endproc
+
+; void dl_push_back(dlist *l, dlink *n): after the last (the head's prev)
+proc _dl_push_back
+    .zp_uses $10, $11, $12, $13
+    .zp_clobbers $10, $11
+    .reg_clobbers A, Y
+    .flag_clobbers N, Z
+    ldy #2
+    lda ($10),y
+    tax
+    iny
+    lda ($10),y
+    sta $11
+    stx $10
+    jmp _dl_insert_after
+    .func_flags zp_call
+endproc
+
+; void dl_remove(dlink *n): n.prev.next = n.next, n.next.prev = n.prev
+proc _dl_remove
+    .zp_uses $10, $11
+    .reg_clobbers A, Y
+    .flag_clobbers N, Z
+    ldy #0
+    lda ($10),y         ; L_A = next
+    sta L_A
+    iny
+    lda ($10),y
+    sta L_A+1
+    iny
+    lda ($10),y         ; L_B = prev
+    sta L_B
+    iny
+    lda ($10),y
+    sta L_B+1
+    ldy #0              ; prev.next = next
+    lda L_A
+    sta (L_B),y
+    iny
+    lda L_A+1
+    sta (L_B),y
+    ldy #2              ; next.prev = prev
+    lda L_B
+    sta (L_A),y
+    iny
+    lda L_B+1
+    sta (L_A),y
+    rts
+    .func_flags zp_call
+endproc
+
+; dlink *dl_pop_front(dlist *l): the first, out; NULL when empty
+proc _dl_pop_front
+    .zp_uses $10, $11
+    .zp_clobbers $10, $11
+    .reg_clobbers A, X, Y
+    .flag_clobbers N, Z
+    ldy #0
+    jmp __dl_pop
+    .func_flags zp_call
+endproc
+
+; dlink *dl_pop_back(dlist *l): the last, out; NULL when empty
+proc _dl_pop_back
+    .zp_uses $10, $11
+    .zp_clobbers $10, $11
+    .reg_clobbers A, X, Y
+    .flag_clobbers N, Z
+    ldy #2
+    jmp __dl_pop
+    .func_flags zp_call
+endproc
+
+; the node at field Y of the list $10 out (the list itself: empty, NULL)
+proc __dl_pop
+    lda ($10),y
+    tax
+    iny
+    lda ($10),y
+    cmp $11
+    bne @some
+    cpx $10
+    beq @none
+@some:
+    sta $11
+    stx $10
+    pha
+    jsr _dl_remove
+    pla
+    tax                 ; A/X = the node
+    lda $10
+    rts
+@none:
+    lda #0
+    tax
+    rts
+endproc
+
+; void dl_splice(dlist *dst, dlist *src): src's nodes after dst's last, src empty
+proc _dl_splice
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, Y
+    .flag_clobbers N, Z
+    ldy #0              ; L_A = src's first
+    lda ($12),y
+    sta L_A
+    iny
+    lda ($12),y
+    sta L_A+1
+    cmp $13             ; src empty: nothing
+    bne @some
+    lda L_A
+    cmp $12
+    beq @done
+@some:
+    iny                 ; L_B = src's last
+    lda ($12),y
+    sta L_B
+    iny
+    lda ($12),y
+    sta L_B+1
+    ldy #2              ; L_C = dst's last
+    lda ($10),y
+    sta L_C
+    iny
+    lda ($10),y
+    sta L_C+1
+    ldy #0              ; dst's last.next = first
+    lda L_A
+    sta (L_C),y
+    iny
+    lda L_A+1
+    sta (L_C),y
+    ldy #2              ; first.prev = dst's last
+    lda L_C
+    sta (L_A),y
+    iny
+    lda L_C+1
+    sta (L_A),y
+    ldy #0              ; last.next = dst
+    lda $10
+    sta (L_B),y
+    iny
+    lda $11
+    sta (L_B),y
+    ldy #2              ; dst.prev = last
+    lda L_B
+    sta ($10),y
+    iny
+    lda L_B+1
+    sta ($10),y
+    ldy #0              ; src empty: its links to itself
+    lda $12
+    sta ($12),y
+    ldy #2
+    sta ($12),y
+    lda $13
+    ldy #1
+    sta ($12),y
+    ldy #3
+    sta ($12),y
+@done:
+    rts
+    .func_flags zp_call
+endproc
+
+; void sl_push(slist *l, slink *n): n first
+proc _sl_push
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, Y
+    .flag_clobbers N, Z
+    ldy #0
+    lda ($10),y
+    sta ($12),y
+    lda $12
+    sta ($10),y
+    iny
+    lda ($10),y
+    sta ($12),y
+    lda $13
+    sta ($10),y
+    rts
+    .func_flags zp_call
+endproc
+
+; slink *sl_pop(slist *l): the first, out; NULL when empty
+proc _sl_pop
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y
+    .flag_clobbers N, Z
+    ldy #0
+    lda ($10),y
+    sta L_A
+    iny
+    lda ($10),y
+    sta L_A+1
+    ora L_A
+    beq @none
+    dey                 ; l.first = n.next
+    lda (L_A),y
+    sta ($10),y
+    iny
+    lda (L_A),y
+    sta ($10),y
+    lda L_A
+    ldx L_A+1
+    rts
+@none:
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+; int sl_remove(slist *l, slink *n): from the list (a walk); 1, or 0 when not in it
+proc _sl_remove
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers N, Z
+    lda $10             ; L_A: the link before (the list's first is a next)
+    sta L_A
+    lda $11
+    sta L_A+1
+@walk:
+    ldy #0
+    lda (L_A),y
+    tax
+    iny
+    lda (L_A),y
+    cmp $13
+    bne @next
+    cpx $12
+    beq @found
+@next:
+    sta L_B+1
+    stx L_B
+    ora L_B
+    beq @none           ; the end
+    lda L_B
+    sta L_A
+    lda L_B+1
+    sta L_A+1
+    bra @walk
+@found:
+    ldy #0              ; before.next = n.next
+    lda ($12),y
+    sta (L_A),y
+    iny
+    lda ($12),y
+    sta (L_A),y
+    lda #1
+    ldx #0
+    rts
+@none:
+    lda #0
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+; void sl_reverse(slist *l)
+proc _sl_reverse
+    .zp_uses $10, $11
+    .reg_clobbers A, Y
+    .flag_clobbers N, Z
+    ldy #0
+    lda ($10),y         ; L_A = cur
+    sta L_A
+    iny
+    lda ($10),y
+    sta L_A+1
+    lda #0              ; L_B = prev = NULL
+    sta L_B
+    sta L_B+1
+@loop:
+    lda L_A
+    ora L_A+1
+    beq @done
+    ldy #0              ; L_C = cur.next; cur.next = prev
+    lda (L_A),y
+    sta L_C
+    lda L_B
+    sta (L_A),y
+    iny
+    lda (L_A),y
+    sta L_C+1
+    lda L_B+1
+    sta (L_A),y
+    lda L_A             ; prev = cur, cur = next
+    sta L_B
+    lda L_A+1
+    sta L_B+1
+    lda L_C
+    sta L_A
+    lda L_C+1
+    sta L_A+1
+    bra @loop
+@done:
+    ldy #0              ; l.first = prev
+    lda L_B
+    sta ($10),y
+    iny
+    lda L_B+1
+    sta ($10),y
+    rts
+    .func_flags zp_call
+endproc

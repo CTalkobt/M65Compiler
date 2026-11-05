@@ -66,7 +66,7 @@ The C99 prototypes take `restrict` where the standard has it (`<string.h>`: `mem
 | `joystick.h` | cc65's joystick API over `input_joy` ([§12](#12-other-library-backed-headers)) | library (`stdlib_asm/joystick.s45`) |
 | `unistd.h` | `sleep`, `getopt` ([§12](#12-other-library-backed-headers)) | library (`stdlib_asm/sleep.s45`, `stdlib/getopt.c`) |
 | `serial.h` | cc65's serial API on the buffered UART ([§12](#12-other-library-backed-headers)) | library (`stdlib_asm/serial.s45`) |
-| `ringbuf.h`, `pqueue.h`, `vector.h` | containers: a ring buffer (deque, queue, stack; a byte queue), a priority queue, a growable array and views ([§12b](#12b-containers-ringbufh-pqueueh-vectorh)) | library (`stdlib_asm/ringbuf.s45`, `pqueue.s45`, `vector.s45`, `container.s45`) |
+| `ringbuf.h`, `pqueue.h`, `vector.h`, `bitset.h`, `list.h` | containers: a ring buffer (deque, queue, stack; a byte queue), a priority queue, a growable array and views, bit arrays, intrusive lists ([§12b](#12b-containers)) | library (`stdlib_asm/ringbuf.s45`, `pqueue.s45`, `vector.s45`, `bitset.s45`, `list.s45`, `container.s45`) |
 | `cbm.h` | KERNAL wrappers ([stdcbm.md](stdcbm.md)) | `static` functions in the header |
 | `mega65.h` | hardware register overlays | header (+ `key_pressed` in the library) |
 | `dma.h` | `dma_copy`/`dma_fill` (16-bit, bank 0); `dma_copy_far`/`dma_fill_far` (28-bit); `dma_copy_far_step`/`dma_fill_far_step` (with a step) | compiler builtins; `lib/stdlib_asm/dma_far.s45`, `dma_step.s45` |
@@ -386,7 +386,7 @@ The first two are 320x200 with 256 colours (`tgi_getcolorcount` returns 0, cc65'
 
 Not as cc65: no loadable driver files; `tgi_geterrormsg(TGI_ERR_INSTALLED)` is "A driver is already installed" (cc65's table gives "Unknown error"); `tgi_gettextheight` of the bitmap font is the scaled height's whole pixels (cc65's returns the 8.8 value's low byte); `tgi_install` while a driver is installed returns `TGI_ERR_INSTALLED`; circles, ellipses and arcs are the curve's pixels (midpoint), not cc65's polygons, so they differ from cc65's by a pixel here and there. Tests: `test_tgi_xemu.c` (the driver's numbers, the page layout, clipping, lines, bars, arcs, bitmap and vector text, errors, the palette, text mode back, the memory freed, two pages) and `test_tgi_vfn_xemu.c` (`.vfn` files on a D81), both conventions; `examples/c/tgi_demo`. Speed: `src/test/bench_tgi.sh` (not in `make test`) runs `benchmark_tgi.c` in xemu and prints the frames each workload takes (pixels, long and short lines, circles, text at 1x and 2x, bars) with a checksum of the page it drew, so a faster version must give the same checksums.
 
-## 12b. Containers (`ringbuf.h`, `pqueue.h`, `vector.h`)
+## 12b. Containers
 
 The container library (#409) is assembly, type-erased as `qsort` is: a container keeps its element size, and
 copies elements in and out by it. Nothing here allocates: the storage is the caller's (a static array or
@@ -427,13 +427,37 @@ across them in BSS (not reentrant). Sizes: `vec_push` with what it uses 394 byte
 (`span_of`, `span_of_vec`, `span_sub`, `span_at`) and `strview_t` (`sv_make`, `sv_from`, `sv_eq`,
 `sv_starts_with`, `sv_find` (by `memchr`), `sv_sub`; a sub-view is cut to the view).
 
+**`<bitset.h>`** (#408; `stdlib_asm/bitset.s45`): arrays of bits indexed at run time (cc45's `__bit`/`__bits` are
+for named flags). `BITSET(name, nbits)` declares the bytes (bit `i` in byte `i >> 3`, bit `i & 7`); `bs_set`,
+`bs_clear`, `bs_toggle`, `bs_test`, `bs_assign` are macros: a constant index is an expression on its byte (by
+`__builtin_constant_p`), another calls the library (`__bs_set` …: the byte by shifts, the bit by an 8-byte table).
+Over all of it, given the number of bits: `bs_set_all`, `bs_clear_all`, `bs_not`, `bs_set_range(b, from, n)`,
+`bs_clear_range` (bit by bit to a byte boundary, then whole bytes), `bs_count` (a nibble table), `bs_any`,
+`bs_none`, `bs_find_first_set(b, nbits, from)` / `bs_find_first_clear` (the index or -1; whole bytes of the other
+kind skipped), `bs_and` / `bs_or` / `bs_xor(dst, src, nbits)`. The bits past `nbits` in the last byte stay 0
+(start with `bs_clear_all` or a zeroed array); up to 32767 bits. Zero page only, no multiplier. Sizes: the bit
+operations 105 bytes with `__bs_at`, all of it 772.
+
+**`<list.h>`** (#406; `stdlib_asm/list.s45`): intrusive linked lists — the links are members of the program's
+structs (`container_of(ptr, type, member)` gets the struct back), nothing is allocated. `dlist`: circular with a
+sentinel head (`dl_init`, `dl_push_front`, `dl_push_back`, `dl_insert_after(pos, n)`, `dl_remove(n)` without the
+list, `dl_pop_front` / `dl_pop_back` (NULL when empty), `dl_splice(dst, src)`, `dl_empty`, `dl_first`, `dl_last`,
+`dl_foreach(it, l)`, `dl_foreach_safe(it, tmp, l)` to remove while iterating); `slist`: NULL-terminated (`sl_init`,
+`sl_push`, `sl_pop`, `sl_remove` (a walk: 1 / 0), `sl_reverse`, `sl_empty`, `sl_foreach`) — a stack, or a free
+list over a pool. Zero page only. Sizes: the dlist 281 bytes (`dl_insert_after` 50, `dl_remove` 44), the slist
+186. Calls beat inline functions here: cc45's C for `dl_remove` is 73 bytes and for the insert 65, and a call site
+about 17. `dl_sort` (#406's optional merge sort) is not there.
+
 Shared (`stdlib_asm/container.s45`): an element's address (`base + i·esize`: shifts for a power of two, else the
 hardware multiplier; 96 bytes), copying (33), swapping (45) and comparing bytes (40). Tests: `test_ringbuf_xemu.c`
 (random operations against an array model for 1- and 3-byte elements, a 300-byte element, the byte queue, and a
 raster interrupt producing bytes and words while the program takes them: 3000 of each in order, the queues full now
 and then), `test_pqueue_xemu.c` (against sorting and a sorted-array model; with and without `cmp`, a 5-byte struct),
 `test_vec_xemu.c` (1500 random push / pop / insert / erase / erase_unordered against an array model, reserve and
-shrink, sorting and searching, running out of memory, the views).
+shrink, sorting and searching, running out of memory, the views), `test_bitset_xemu.c` (random bit operations,
+constant indices, ranges, find from every place, and/or/xor, all against a byte-per-bit model),
+`test_list_xemu.c` (2000 random dlist operations against an array of ids, walked both ways; iteration with
+removal, splicing; slist operations and a free list).
 
 ## 13. MEGA65 Hardware (`mega65.h`) and DMA (`dma.h`)
 
