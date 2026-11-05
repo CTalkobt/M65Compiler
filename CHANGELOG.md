@@ -4,6 +4,14 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Build: Alpine (musl)
+
+- objdump45's terminal tree (`objdump45_tree.cpp`) includes `<sys/select.h>`
+  and `<sys/time.h>` for `select` / `fd_set` / `timeval`: glibc declares
+  them through other headers, musl does not, so the Alpine build (`make
+  docker`) failed. Checked with Alpine 3.20 (GCC 13.2) and the latest
+  (GCC 15.2): the tools, the libraries and the image build.
+
 ### Containers: the old declarations retired (#409)
 
 - `lib/include/data_structures.h` (`sprite_vector_*`, `sprite_queue_*`,

@@ -16,6 +16,8 @@
 #include <string>
 #include <vector>
 #include <sys/ioctl.h>
+#include <sys/select.h>   // select, fd_set (glibc has them through other headers; musl does not)
+#include <sys/time.h>
 #include <termios.h>
 #include <unistd.h>
 #include "MiniJson.hpp"
