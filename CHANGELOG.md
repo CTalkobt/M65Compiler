@@ -4,6 +4,16 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Containers: a growable array and views (#404)
+
+- `<vector.h>`: `vec_t` with `vec_push`, `vec_pop`, `vec_at`, `vec_back`,
+  `vec_insert`, `vec_erase`, `vec_erase_unordered`, `vec_reserve`,
+  `vec_shrink`, `vec_clear`, `vec_free`, `vec_sort` / `vec_bsearch` (qsort,
+  bsearch); doubling growth by realloc. Assembly (`stdlib_asm/vector.s45`),
+  a section per function.
+- Views in the header (`static inline`): `span_t` and `strview_t` (`sv_from`,
+  `sv_eq`, `sv_starts_with`, `sv_find`, `sv_sub`).
+
 ### cc45: typedef'd function pointers and function types (#402)
 
 - A parameter of a typedef'd function-pointer type may go without a name in

@@ -1,0 +1,644 @@
+; vector.s45 — a growable array (<vector.h>, #404)
+;
+;   void  vec_init(vec_t *v, size_t esize)                 $10 $12
+;   int   vec_reserve(vec_t *v, size_t n)                  $10 $12   0, or -1 (no memory)
+;   void  vec_shrink(vec_t *v), vec_clear(vec_t *v), vec_free(vec_t *v)
+;   void *vec_push(vec_t *v, const void *e)                $10 $12   the new element, or NULL
+;   int   vec_pop(vec_t *v, void *out)                     $10 $12   0, or -1 when empty
+;   void *vec_at(vec_t *v, size_t i), *vec_back(vec_t *v)            NULL past the end
+;   void *vec_insert(vec_t *v, size_t i, const void *e)    $10 $12 $14
+;   int   vec_erase(vec_t *v, size_t i), vec_erase_unordered(vec_t *v, size_t i)
+;
+; vec_t: data (0), size (2), cap (4), esize (6). Growth doubles the capacity
+; (4 at first) with realloc; elements move when it grows. e NULL in vec_push
+; and vec_insert: the place is made, not filled. Sizes in bytes are 16 bits:
+; cap * esize must stay below 64 KB. The state kept across the calls of
+; realloc / free / memmove is in BSS (not reentrant).
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+.global _vec_init, _vec_reserve, _vec_shrink, _vec_clear, _vec_free
+.global _vec_push, _vec_pop, _vec_at, _vec_back, _vec_insert, _vec_erase, _vec_erase_unordered
+.extern __ct_addr, __ct_copy, _realloc, _free, _memmove
+
+CT_BASE = $08
+CT_ES   = $0A
+CT_P    = $0C
+CT_Q    = $0E
+V_SIZE  = $F6
+V_CAP   = $F8
+
+.segment "bss"
+__vec_v:    .res 2      ; the vector, across calls
+__vec_i:    .res 2      ; an index / count
+__vec_e:    .res 2      ; the element given
+__vec_p:    .res 2      ; the element's address (the result)
+
+.segment "code"
+
+; the vector at $10: data, esize -> CT_BASE, CT_ES; size, cap -> V_SIZE, V_CAP
+proc __vec_load
+    ldy #0
+    lda ($10),y
+    sta CT_BASE
+    iny
+    lda ($10),y
+    sta CT_BASE+1
+    iny
+    lda ($10),y
+    sta V_SIZE
+    iny
+    lda ($10),y
+    sta V_SIZE+1
+    iny
+    lda ($10),y
+    sta V_CAP
+    iny
+    lda ($10),y
+    sta V_CAP+1
+    iny
+    lda ($10),y
+    sta CT_ES
+    iny
+    lda ($10),y
+    sta CT_ES+1
+    rts
+endproc
+
+; A/X stored at the field Y (2 size, 4 cap, 0 data) of the vector at $10
+proc __vec_put
+    sta ($10),y
+    iny
+    txa
+    sta ($10),y
+    rts
+endproc
+
+; A/X = (A/X) * esize (bytes; CT_BASE kept)
+proc __vec_bytes
+    jsr __ct_addr
+    sec
+    sbc CT_BASE
+    tay
+    txa
+    sbc CT_BASE+1
+    tax
+    tya
+    rts
+endproc
+
+; the capacity made A/X (more than it is): C set when there was no memory.
+; $10 kept; CT_*, V_* loaded again
+proc __vec_grow
+    sta __vec_i
+    stx __vec_i+1
+    lda $10
+    sta __vec_v
+    lda $11
+    sta __vec_v+1
+    lda __vec_i
+    ldx __vec_i+1
+    jsr __vec_bytes
+    sta $12             ; realloc(data, bytes)
+    stx $13
+    lda CT_BASE
+    sta $10
+    lda CT_BASE+1
+    sta $11
+    jsr _realloc
+    tay
+    lda __vec_v
+    sta $10
+    lda __vec_v+1
+    sta $11
+    tya
+    bne @ok
+    cpx #0
+    bne @ok
+    jsr __vec_load
+    sec
+    rts
+@ok:
+    ldy #0
+    jsr __vec_put       ; data
+    lda __vec_i
+    ldx __vec_i+1
+    ldy #4
+    jsr __vec_put       ; cap
+    jsr __vec_load
+    clc
+    rts
+endproc
+
+; room for one more: C set when there was no memory
+proc __vec_room
+    lda V_SIZE
+    cmp V_CAP
+    bne @room
+    lda V_SIZE+1
+    cmp V_CAP+1
+    bne @room
+    lda V_CAP           ; twice the capacity, 4 at first
+    ora V_CAP+1
+    bne @double
+    lda #4
+    ldx #0
+    jmp __vec_grow
+@double:
+    lda V_CAP
+    asl a
+    tay
+    lda V_CAP+1
+    rol a
+    tax
+    tya
+    jmp __vec_grow
+@room:
+    clc
+    rts
+endproc
+
+; void vec_init(vec_t *v, size_t esize)
+proc _vec_init
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, Y
+    .flag_clobbers N, Z
+    lda #0
+    ldy #5
+@z:
+    sta ($10),y
+    dey
+    bpl @z
+    ldy #6
+    lda $12
+    sta ($10),y
+    iny
+    lda $13
+    sta ($10),y
+    rts
+    .func_flags zp_call
+endproc
+
+; int vec_reserve(vec_t *v, size_t n)
+proc _vec_reserve
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr __vec_load
+    lda V_CAP+1         ; n <= cap: there
+    cmp $13
+    bcc @grow
+    bne @ok
+    lda V_CAP
+    cmp $12
+    bcs @ok
+@grow:
+    lda $12
+    ldx $13
+    jsr __vec_grow
+    bcs @fail
+@ok:
+    lda #0
+    tax
+    rts
+@fail:
+    lda #$FF
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+; void vec_shrink(vec_t *v): the capacity down to the size
+proc _vec_shrink
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr __vec_load
+    lda V_SIZE
+    cmp V_CAP
+    bne @shrink
+    lda V_SIZE+1
+    cmp V_CAP+1
+    beq @done
+@shrink:
+    lda V_SIZE
+    ora V_SIZE+1
+    bne @realloc
+    jsr _vec_free       ; (empty: no memory at all)
+    rts
+@realloc:
+    lda V_SIZE
+    ldx V_SIZE+1
+    jsr __vec_grow      ; (realloc to the size; on failure it stays)
+@done:
+    rts
+    .func_flags zp_call
+endproc
+
+; void vec_free(vec_t *v): the memory back, empty
+proc _vec_free
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr __vec_load
+    lda $10
+    sta __vec_v
+    lda $11
+    sta __vec_v+1
+    lda CT_BASE
+    sta $10
+    lda CT_BASE+1
+    sta $11
+    jsr _free
+    lda __vec_v
+    sta $10
+    lda __vec_v+1
+    sta $11
+    lda #0
+    ldy #5
+@z:
+    sta ($10),y
+    dey
+    bpl @z
+    rts
+    .func_flags zp_call
+endproc
+
+; void vec_clear(vec_t *v): empty, the memory kept
+proc _vec_clear
+    .zp_uses $10, $11
+    .reg_clobbers A, Y
+    .flag_clobbers N, Z
+    lda #0
+    ldy #2
+    sta ($10),y
+    iny
+    sta ($10),y
+    rts
+    .func_flags zp_call
+endproc
+
+; void *vec_push(vec_t *v, const void *e)
+proc _vec_push
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $12
+    sta __vec_e
+    lda $13
+    sta __vec_e+1
+    jsr __vec_load
+    jsr __vec_room
+    bcs @fail
+    lda V_SIZE
+    ldx V_SIZE+1
+    jsr __ct_addr
+    sta __vec_p
+    stx __vec_p+1
+    lda __vec_e
+    ora __vec_e+1
+    beq @size
+    lda __vec_e
+    sta CT_Q
+    lda __vec_e+1
+    sta CT_Q+1
+    jsr __ct_copy
+@size:
+    clc
+    lda V_SIZE
+    adc #1
+    pha
+    lda V_SIZE+1
+    adc #0
+    tax
+    pla
+    ldy #2
+    jsr __vec_put
+    lda __vec_p
+    ldx __vec_p+1
+    rts
+@fail:
+    lda #0
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+; int vec_pop(vec_t *v, void *out)
+proc _vec_pop
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    jsr __vec_load
+    lda V_SIZE
+    ora V_SIZE+1
+    beq @empty
+    lda V_SIZE          ; size - 1
+    bne @lo
+    dec V_SIZE+1
+@lo:
+    dec V_SIZE
+    lda V_SIZE
+    ldx V_SIZE+1
+    ldy #2
+    jsr __vec_put
+    lda $12
+    ora $13
+    beq @ok
+    lda V_SIZE
+    ldx V_SIZE+1
+    jsr __ct_addr
+    sta CT_Q
+    stx CT_Q+1
+    lda $12
+    sta CT_P
+    lda $13
+    sta CT_P+1
+    jsr __ct_copy
+@ok:
+    lda #0
+    tax
+    rts
+@empty:
+    lda #$FF
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+; void *vec_at(vec_t *v, size_t i)
+proc _vec_at
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    jsr __vec_load
+    lda $13             ; i < size
+    cmp V_SIZE+1
+    bcc @in
+    bne @none
+    lda $12
+    cmp V_SIZE
+    bcs @none
+@in:
+    lda $12
+    ldx $13
+    jmp __ct_addr
+@none:
+    lda #0
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+; void *vec_back(vec_t *v)
+proc _vec_back
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    jsr __vec_load
+    lda V_SIZE
+    ora V_SIZE+1
+    beq @none
+    sec
+    lda V_SIZE
+    sbc #1
+    pha
+    lda V_SIZE+1
+    sbc #0
+    tax
+    pla
+    jmp __ct_addr
+@none:
+    lda #0
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+; void *vec_insert(vec_t *v, size_t i, const void *e): i <= size
+proc _vec_insert
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $12
+    sta __vec_i
+    lda $13
+    sta __vec_i+1
+    lda $14
+    sta __vec_e
+    lda $15
+    sta __vec_e+1
+    jsr __vec_load
+    lda V_SIZE+1        ; i > size: none
+    cmp __vec_i+1
+    bcc @fail
+    bne @fits
+    lda V_SIZE
+    cmp __vec_i
+    bcc @fail
+@fits:
+    lda __vec_i         ; (__vec_grow uses __vec_i)
+    pha
+    lda __vec_i+1
+    pha
+    jsr __vec_room
+    pla
+    sta __vec_i+1
+    pla
+    sta __vec_i
+    bcs @fail
+    lda $10
+    sta __vec_v
+    lda $11
+    sta __vec_v+1
+    sec                 ; (size - i) * esize bytes up one element
+    lda V_SIZE
+    sbc __vec_i
+    tay
+    lda V_SIZE+1
+    sbc __vec_i+1
+    tax
+    tya
+    jsr __vec_bytes
+    sta $14
+    stx $15
+    lda __vec_i
+    ldx __vec_i+1
+    jsr __ct_addr
+    sta __vec_p
+    stx __vec_p+1
+    sta $12             ; src: element i
+    stx $13
+    clc                 ; dest: one element on
+    adc CT_ES
+    sta $10
+    txa
+    adc CT_ES+1
+    sta $11
+    lda $14
+    ora $15
+    beq @moved
+    jsr _memmove
+@moved:
+    lda __vec_v
+    sta $10
+    lda __vec_v+1
+    sta $11
+    jsr __vec_load
+    lda __vec_e
+    ora __vec_e+1
+    beq @size
+    lda __vec_p
+    sta CT_P
+    lda __vec_p+1
+    sta CT_P+1
+    lda __vec_e
+    sta CT_Q
+    lda __vec_e+1
+    sta CT_Q+1
+    jsr __ct_copy
+@size:
+    clc
+    lda V_SIZE
+    adc #1
+    pha
+    lda V_SIZE+1
+    adc #0
+    tax
+    pla
+    ldy #2
+    jsr __vec_put
+    lda __vec_p
+    ldx __vec_p+1
+    rts
+@fail:
+    lda #0
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+; int vec_erase(vec_t *v, size_t i): the elements after it down one
+proc _vec_erase
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    lda $12
+    sta __vec_i
+    lda $13
+    sta __vec_i+1
+    jsr __vec_load
+    lda __vec_i+1       ; i >= size: none
+    cmp V_SIZE+1
+    bcc @in
+    bne @fail
+    lda __vec_i
+    cmp V_SIZE
+    bcs @fail
+@in:
+    lda $10
+    sta __vec_v
+    lda $11
+    sta __vec_v+1
+    clc                 ; (size - i - 1) * esize bytes
+    lda V_SIZE
+    sbc __vec_i         ; (C clear: - 1 more)
+    tay
+    lda V_SIZE+1
+    sbc __vec_i+1
+    tax
+    tya
+    jsr __vec_bytes
+    sta $14
+    stx $15
+    lda __vec_i
+    ldx __vec_i+1
+    jsr __ct_addr
+    sta $10             ; dest: element i
+    stx $11
+    clc                 ; src: the next
+    adc CT_ES
+    sta $12
+    txa
+    adc CT_ES+1
+    sta $13
+    lda $14
+    ora $15
+    beq @moved
+    jsr _memmove
+@moved:
+    lda __vec_v
+    sta $10
+    lda __vec_v+1
+    sta $11
+    jsr __vec_load
+    lda V_SIZE          ; size - 1
+    bne @lo
+    dec V_SIZE+1
+@lo:
+    dec V_SIZE
+    lda V_SIZE
+    ldx V_SIZE+1
+    ldy #2
+    jsr __vec_put
+    lda #0
+    tax
+    rts
+@fail:
+    lda #$FF
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+; int vec_erase_unordered(vec_t *v, size_t i): the last element into its place
+proc _vec_erase_unordered
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    jsr __vec_load
+    lda $13             ; i >= size: none
+    cmp V_SIZE+1
+    bcc @in
+    bne @fail
+    lda $12
+    cmp V_SIZE
+    bcs @fail
+@in:
+    lda V_SIZE          ; size - 1: the last
+    bne @lo
+    dec V_SIZE+1
+@lo:
+    dec V_SIZE
+    lda V_SIZE
+    ldx V_SIZE+1
+    ldy #2
+    jsr __vec_put
+    lda $12             ; i the last: nothing to move
+    cmp V_SIZE
+    bne @move
+    lda $13
+    cmp V_SIZE+1
+    beq @ok
+@move:
+    lda V_SIZE
+    ldx V_SIZE+1
+    jsr __ct_addr
+    sta CT_Q
+    stx CT_Q+1
+    lda $12
+    ldx $13
+    jsr __ct_addr       ; (CT_P: element i)
+    jsr __ct_copy
+@ok:
+    lda #0
+    tax
+    rts
+@fail:
+    lda #$FF
+    tax
+    rts
+    .func_flags zp_call
+endproc

@@ -66,7 +66,7 @@ The C99 prototypes take `restrict` where the standard has it (`<string.h>`: `mem
 | `joystick.h` | cc65's joystick API over `input_joy` ([§12](#12-other-library-backed-headers)) | library (`stdlib_asm/joystick.s45`) |
 | `unistd.h` | `sleep`, `getopt` ([§12](#12-other-library-backed-headers)) | library (`stdlib_asm/sleep.s45`, `stdlib/getopt.c`) |
 | `serial.h` | cc65's serial API on the buffered UART ([§12](#12-other-library-backed-headers)) | library (`stdlib_asm/serial.s45`) |
-| `ringbuf.h`, `pqueue.h` | containers: a ring buffer (deque, queue, stack; a byte queue) and a priority queue ([§12b](#12b-containers-ringbufh-pqueueh)) | library (`stdlib_asm/ringbuf.s45`, `pqueue.s45`, `container.s45`) |
+| `ringbuf.h`, `pqueue.h`, `vector.h` | containers: a ring buffer (deque, queue, stack; a byte queue), a priority queue, a growable array and views ([§12b](#12b-containers-ringbufh-pqueueh-vectorh)) | library (`stdlib_asm/ringbuf.s45`, `pqueue.s45`, `vector.s45`, `container.s45`) |
 | `cbm.h` | KERNAL wrappers ([stdcbm.md](stdcbm.md)) | `static` functions in the header |
 | `mega65.h` | hardware register overlays | header (+ `key_pressed` in the library) |
 | `dma.h` | `dma_copy`/`dma_fill` (16-bit, bank 0); `dma_copy_far`/`dma_fill_far` (28-bit); `dma_copy_far_step`/`dma_fill_far_step` (with a step) | compiler builtins; `lib/stdlib_asm/dma_far.s45`, `dma_step.s45` |
@@ -386,7 +386,7 @@ The first two are 320x200 with 256 colours (`tgi_getcolorcount` returns 0, cc65'
 
 Not as cc65: no loadable driver files; `tgi_geterrormsg(TGI_ERR_INSTALLED)` is "A driver is already installed" (cc65's table gives "Unknown error"); `tgi_gettextheight` of the bitmap font is the scaled height's whole pixels (cc65's returns the 8.8 value's low byte); `tgi_install` while a driver is installed returns `TGI_ERR_INSTALLED`; circles, ellipses and arcs are the curve's pixels (midpoint), not cc65's polygons, so they differ from cc65's by a pixel here and there. Tests: `test_tgi_xemu.c` (the driver's numbers, the page layout, clipping, lines, bars, arcs, bitmap and vector text, errors, the palette, text mode back, the memory freed, two pages) and `test_tgi_vfn_xemu.c` (`.vfn` files on a D81), both conventions; `examples/c/tgi_demo`. Speed: `src/test/bench_tgi.sh` (not in `make test`) runs `benchmark_tgi.c` in xemu and prints the frames each workload takes (pixels, long and short lines, circles, text at 1x and 2x, bars) with a checksum of the page it drew, so a faster version must give the same checksums.
 
-## 12b. Containers (`ringbuf.h`, `pqueue.h`)
+## 12b. Containers (`ringbuf.h`, `pqueue.h`, `vector.h`)
 
 The container library (#409) is assembly, type-erased as `qsort` is: a container keeps its element size, and
 copies elements in and out by it. Nothing here allocates: the storage is the caller's (a static array or
@@ -414,11 +414,26 @@ NULL compares the bytes, unsigned, the first first (a big-endian key). `cmp` is 
 itself, and the queue keeps its state in BSS (not from an `__interrupt` handler while the program uses one).
 869 bytes with what it uses.
 
+**`<vector.h>`** (#404; `stdlib_asm/vector.s45`): `vec_t` (`data`, `size`, `cap`, `esize`) — `vec_init(v, esize)`,
+`vec_push(v, e)` (the new element's address, NULL without memory; `e` NULL makes the place without filling it),
+`vec_pop(v, out)`, `vec_at`, `vec_back` (NULL past the end), `vec_insert(v, i, e)` (`i` ≤ size), `vec_erase(v, i)`
+(the rest moved down by `memmove`), `vec_erase_unordered(v, i)` (the last element into the hole), `vec_reserve(v,
+n)` (0 / -1), `vec_shrink`, `vec_clear` (the memory kept), `vec_free`; `vec_sort` / `vec_bsearch` are `qsort` /
+`bsearch` on the elements (macros), `vec_size`, `vec_empty`, `vec_data`. It grows by doubling (4 at first) with
+`realloc`: **element addresses change when it grows**. `cap · esize` stays below 64 KB. It calls `malloc`'s
+functions and `memmove` directly (all `__fastcall__` assembly: no thunks in either library) and keeps what it needs
+across them in BSS (not reentrant). Sizes: `vec_push` with what it uses 394 bytes (not counting `realloc`),
+`vec_at` 166, the whole vector 1062. The views are `static inline` in the header, no library code: `span_t`
+(`span_of`, `span_of_vec`, `span_sub`, `span_at`) and `strview_t` (`sv_make`, `sv_from`, `sv_eq`,
+`sv_starts_with`, `sv_find` (by `memchr`), `sv_sub`; a sub-view is cut to the view).
+
 Shared (`stdlib_asm/container.s45`): an element's address (`base + i·esize`: shifts for a power of two, else the
 hardware multiplier; 96 bytes), copying (33), swapping (45) and comparing bytes (40). Tests: `test_ringbuf_xemu.c`
 (random operations against an array model for 1- and 3-byte elements, a 300-byte element, the byte queue, and a
 raster interrupt producing bytes and words while the program takes them: 3000 of each in order, the queues full now
-and then), `test_pqueue_xemu.c` (against sorting and a sorted-array model; with and without `cmp`, a 5-byte struct).
+and then), `test_pqueue_xemu.c` (against sorting and a sorted-array model; with and without `cmp`, a 5-byte struct),
+`test_vec_xemu.c` (1500 random push / pop / insert / erase / erase_unordered against an array model, reserve and
+shrink, sorting and searching, running out of memory, the views).
 
 ## 13. MEGA65 Hardware (`mega65.h`) and DMA (`dma.h`)
 

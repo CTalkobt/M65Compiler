@@ -1298,6 +1298,13 @@ for ctmode in "zp|" "stack|-fno-zpcall"; do
     xemu_case "FAIL: test_pqueue_xemu.c $ctname (compilation/linking failed)" "src/test-resources/test_pqueue_xemu.c" "build/test/test_pqueue_${ctname}_xemu.prg" "$ctflags" -- "test_pqueue_$ctname" "build/test/test_pqueue_${ctname}_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
 done
 
+# Test: <vector.h> (#404): the vector against an array model, the views
+for vvmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r vvname vvflags <<< "$vvmode"
+    echo "Testing test_vec_xemu.c ($vvname)..."
+    xemu_case "FAIL: test_vec_xemu.c $vvname (compilation/linking failed)" "src/test-resources/test_vec_xemu.c" "build/test/test_vec_${vvname}_xemu.prg" "$vvflags" -- "test_vec_$vvname" "build/test/test_vec_${vvname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
+done
+
 # Test: (*p)[i][j] through a pointer to a 2-D array (each subscript's stride)
 for pamode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r paname paflags <<< "$pamode"
