@@ -58,7 +58,7 @@ struct map {
 typedef struct map map_t;
 
 struct tmap {
-    void *root;
+    struct tset_node *root;
     size_t len;
     size_t esize;
     set_cmp_t cmp;
