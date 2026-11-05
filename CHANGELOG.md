@@ -4,6 +4,13 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Containers: the old declarations retired (#409)
+
+- `lib/include/data_structures.h` (`sprite_vector_*`, `sprite_queue_*`,
+  `sprite_hashmap_*`, never implemented) and its unbuilt
+  `lib/src/data_structures.c` are removed: `<vector.h>`, `<ringbuf.h>`,
+  `<set.h>`, `<map.h>` and `<hashmap.h>` are the library's containers.
+
 ### Containers: ordered sets (#403)
 
 - `<set.h>`: `struct set` (a sorted array over `<vector.h>`) and `struct tset`
