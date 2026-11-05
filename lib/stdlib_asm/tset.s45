@@ -7,7 +7,11 @@
 ;   void *tset::first(), *tset::next(void *e)            in order; NULL at the end
 ;   size_t tset::size(); void tset::clear(), tset::free()   (both free every node)
 ;
-; struct tset: root (0), len (2), esize (4), cmp (6). A node (malloc,
+; struct tset: root (0), len (2), esize (4), cmp (6), ksize (8: the key's
+; bytes; esize in a set). struct tmap (#407) is a tset whose element is the
+; key and then the value: insert copies ksize bytes from the key and the
+; rest from the value at $14, and on an element already there copies the
+; value over it (tmap::put is tset::insert). A node (malloc,
 ; 7 + esize bytes): link[0] (0, the lower side), link[1] (2), parent (4),
 ; colour (6: 0 black, 1 red), the element (7). A direction is the link's
 ; offset, 0 or 2 (the other: d ^ 2), so each pair of mirrored cases is one:
@@ -15,11 +19,13 @@
 ; move elements: an element stays where it is until it is erased.
 ; cmp is called through __ct_cmp (stdlib/ct_shim.c): it may change any
 ; zero-page byte, so the state is in BSS (not reentrant), and cmp must not
-; use a set. cmp NULL compares the bytes, unsigned, the first first.
+; use a set. cmp NULL compares the key's bytes, unsigned, the first first.
 
 .global _tset__init, _tset__insert, _tset__erase, _tset__find, _tset__lower_bound
 .global _tset__first, _tset__next, _tset__size, _tset__clear, _tset__free
 .global __ts_compare
+.global _tmap__init, _tmap__put, _tmap__get, _tmap__erase, _tmap__find, _tmap__lower_bound
+.global _tmap__first, _tmap__next, _tmap__size, _tmap__clear, _tmap__free
 .extern __ct_copy, __ct_bytecmp, ___ct_cmp, ___ct_cmpf, _malloc, _free
 
 ; the comparison through __ct_cmp (a C function: ln45's call graph knows it)
@@ -38,6 +44,8 @@ N_KEY   = 7
 .segment "bss"
 __ts_this:  .res 2
 __ts_es:    .res 2
+__ts_ks:    .res 2      ; the key's size
+__ts_val:   .res 2      ; the value (a map's insert)
 __ts_cmp:   .res 2
 __ts_key:   .res 2
 __ts_v:     .res 2      ; a value to store
@@ -229,6 +237,16 @@ proc __ts_load
     sta __ts_key
     lda $13
     sta __ts_key+1
+    lda $14
+    sta __ts_val
+    lda $15
+    sta __ts_val+1
+    ldy #8
+    lda ($10),y
+    sta __ts_ks
+    iny
+    lda ($10),y
+    sta __ts_ks+1
     ldy #4
     lda ($10),y
     sta __ts_es
@@ -263,9 +281,9 @@ proc __ts_compare
     sta CT_P
     lda __ts_key+1
     sta CT_P+1
-    lda __ts_es
+    lda __ts_ks
     sta CT_ES
-    lda __ts_es+1
+    lda __ts_ks+1
     sta CT_ES+1
     jsr __ct_bytecmp
     beq @eq
@@ -422,8 +440,43 @@ proc _tset__init
     iny
     lda $15
     sta ($10),y
+    iny
+    lda $12             ; ksize = esize
+    sta ($10),y
+    iny
+    lda $13
+    sta ($10),y
     rts
     .func_flags zp_call
+endproc
+
+; the value (esize - ksize bytes from __ts_val) into node A/X's element
+; after its key: nothing in a set
+proc __ts_value
+    clc
+    adc #N_KEY
+    bcc @1
+    inx
+@1:
+    clc
+    adc __ts_ks
+    sta CT_P
+    txa
+    adc __ts_ks+1
+    sta CT_P+1
+    sec
+    lda __ts_es
+    sbc __ts_ks
+    sta CT_ES
+    lda __ts_es+1
+    sbc __ts_ks+1
+    sta CT_ES+1
+    ora CT_ES
+    beq @none
+    mov16 CT_Q, __ts_val
+    jmp __ct_copy
+@none:
+    rts
 endproc
 
 ; len += A (1 or $FF)
@@ -451,14 +504,17 @@ endproc
 
 ; int tset::insert(const void *key)
 proc _tset__insert
-    .zp_uses $10, $11, $12, $13
+    .zp_uses $10, $11, $12, $13, $14, $15
     .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z, V
     jsr __ts_load
     jsr __ts_search
     cmp #0
     bne @new
-    lda #0              ; there already
+    lda __ts_n          ; there already (a map's value replaced)
+    ldx __ts_n+1
+    jsr __ts_value
+    lda #0
     tax
     rts
 @new:
@@ -509,8 +565,11 @@ proc _tset__insert
     adc #0
     sta CT_P+1
     mov16 CT_Q, __ts_key
-    mov16 CT_ES, __ts_es
+    mov16 CT_ES, __ts_ks
     jsr __ct_copy
+    lda __ts_z
+    ldx __ts_z+1
+    jsr __ts_value
     isnull __ts_p       ; under p on side d, or the root
     bne @under
     setf __ts_this, 0, __ts_z
@@ -998,5 +1057,138 @@ proc _tset__free
     .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z, V
     jmp _tset__clear
+    .func_flags zp_call
+endproc
+
+; ---- struct tmap: the tset's methods -----------------------------------
+
+; void tmap::init(size_t ksize, size_t vsize, int (*cmp)(...))   $12, $14, $16
+proc _tmap__init
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17
+    .reg_clobbers A, Y
+    .flag_clobbers C, N, Z
+    ldy #8              ; ksize
+    lda $12
+    sta ($10),y
+    iny
+    lda $13
+    sta ($10),y
+    ldy #6              ; cmp
+    lda $16
+    sta ($10),y
+    iny
+    lda $17
+    sta ($10),y
+    ldy #4              ; esize = ksize + vsize
+    clc
+    lda $12
+    adc $14
+    sta ($10),y
+    iny
+    lda $13
+    adc $15
+    sta ($10),y
+    lda #0              ; empty
+    ldy #3
+@z:
+    sta ($10),y
+    dey
+    bpl @z
+    rts
+    .func_flags zp_call
+endproc
+
+; void *tmap::get(const void *key): the value, or NULL
+proc _tmap__get
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr _tset__find
+    cmp #0
+    bne @in
+    cpx #0
+    beq @none
+@in:
+    clc
+    adc __ts_ks
+    pha
+    txa
+    adc __ts_ks+1
+    tax
+    pla
+@none:
+    rts
+    .func_flags zp_call
+endproc
+
+proc _tmap__put
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jmp _tset__insert
+    .func_flags zp_call
+endproc
+
+proc _tmap__erase
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jmp _tset__erase
+    .func_flags zp_call
+endproc
+
+proc _tmap__find
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jmp _tset__find
+    .func_flags zp_call
+endproc
+
+proc _tmap__lower_bound
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jmp _tset__lower_bound
+    .func_flags zp_call
+endproc
+
+proc _tmap__first
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jmp _tset__first
+    .func_flags zp_call
+endproc
+
+proc _tmap__next
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jmp _tset__next
+    .func_flags zp_call
+endproc
+
+proc _tmap__size
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jmp _tset__size
+    .func_flags zp_call
+endproc
+
+proc _tmap__clear
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jmp _tset__clear
+    .func_flags zp_call
+endproc
+
+proc _tmap__free
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jmp _tset__free
     .func_flags zp_call
 endproc
