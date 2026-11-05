@@ -19,6 +19,7 @@
 #include "Version.hpp"
 #include "BasicStructured.hpp"
 #include "BasicDecompiler.hpp"
+#include "BasicLister.hpp"
 #include "BasicDataLoader.hpp"
 #include "BasicFormatter.hpp"
 #include <filesystem>
@@ -60,6 +61,8 @@ struct Options {
     std::string emulatorPath;     // xemu-xmega65 binary ("" searches PATH)
     bool listing = false;         // --list: BASIC lines next to their source
     bool decompile = false;       // --decompile: .prg -> basic45 source
+    std::string convert;          // --convert=basic7: another dialect's .prg -> BASIC 65 source
+    bool ntsc = false;            // --ntsc: the source machine's timing (TEMPO, PLAY)
     bool keepNames = false;       // --keep-names: no variable renaming
     std::string diskImage;        // --disk: add the program to this image
     std::string diskName;         // --disk-name: its name there
@@ -205,6 +208,9 @@ static void printUsage(const char* progName) {
     std::cout << "                      after the program; SYS {name} calls its function name" << std::endl;
     std::cout << "  --lib <file>        The C library for --link (default: c45.lib)" << std::endl;
     std::cout << "  --decompile         Turn a BASIC .prg into basic45 source (also for a .prg input)" << std::endl;
+    std::cout << "  --convert=basic7    A BASIC 7.0 (C128) .prg as BASIC 65 basic45 source: keywords renamed," << std::endl;
+    std::cout << "                      TEMPO scaled, PLAY strings split per voice; warnings for the rest" << std::endl;
+    std::cout << "  --ntsc, --pal       --convert: the source machine's timing for TEMPO (default --pal)" << std::endl;
     std::cout << "  --data-loader       The input (machine code: a .prg, or a binary with --load-at) as a" << std::endl;
     std::cout << "                      BASIC program that POKEs it from DATA lines and SYSes it; -o x.bas" << std::endl;
     std::cout << "                      or -o - writes the source. With --hex, --checksum, --per-line <n>," << std::endl;
@@ -294,6 +300,17 @@ static Options parseArgs(int argc, char* argv[]) {
             opts.keepNames = true;
         } else if (arg == "--decompile") {
             opts.decompile = true;
+        } else if (arg.rfind("--convert=", 0) == 0 || (arg == "--convert" && i + 1 < argc)) {
+            opts.convert = arg == "--convert" ? argv[++i] : arg.substr(10);
+            if (opts.convert != "basic7") {
+                std::cerr << "basic45: --convert=" << opts.convert << ": not a dialect it converts (basic7)" << std::endl;
+                exit(1);
+            }
+            opts.decompile = true;
+        } else if (arg == "--ntsc") {
+            opts.ntsc = true;
+        } else if (arg == "--pal") {
+            opts.ntsc = false;
         } else if (arg == "--disk" && i + 1 < argc) {
             opts.diskImage = argv[++i];
         } else if (arg == "--disk-name" && i + 1 < argc) {
@@ -615,7 +632,24 @@ int main(int argc, char* argv[]) {
 
     // --decompile: a tokenized program back to basic45 source
     if (opts.decompile) {
-        auto r = decompileBasic(readBinary(opts.inputFile));
+        BasicDecompileOptions dopts;
+        if (opts.convert == "basic7") dopts.source = BasicSource::V7;
+        dopts.ntsc = opts.ntsc;
+        bool isPrg = opts.inputFile.size() > 4 && (opts.inputFile.compare(opts.inputFile.size() - 4, 4, ".prg") == 0 ||
+                                                   opts.inputFile.compare(opts.inputFile.size() - 4, 4, ".PRG") == 0);
+        std::vector<uint8_t> prg;
+        if (dopts.source == BasicSource::V7 && !isPrg) {
+            // a text listing: tokenized as BASIC 7.0 first
+            std::vector<std::string> cw;
+            prg = crunchV7(readFile(opts.inputFile), 0x1C01, cw);
+            for (const auto& w : cw) std::cerr << opts.inputFile << ": warning: " << w << std::endl;
+        } else {
+            prg = readBinary(opts.inputFile);
+        }
+        if (dopts.source == BasicSource::V7 && prg.size() >= 2 && (prg[0] | (prg[1] << 8)) != 0x1C01)
+            std::cerr << opts.inputFile << ": warning: loads at $" << std::hex << (prg[0] | (prg[1] << 8)) << std::dec
+                      << ", not BASIC 7.0's $1C01" << std::endl;
+        auto r = decompileBasic(prg, dopts);
         for (const auto& w : r.warnings) std::cerr << opts.inputFile << ": warning: " << w << std::endl;
         if (!r.ok) {
             std::cerr << opts.inputFile << ": error: " << r.error << std::endl;

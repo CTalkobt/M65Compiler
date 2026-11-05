@@ -3,6 +3,10 @@
 #include <cstdio>
 #include <map>
 #include <set>
+#include <sstream>
+#include <algorithm>
+#include <cctype>
+#include <cstdlib>
 
 namespace {
 
@@ -65,6 +69,21 @@ std::string textChar(uint8_t b) {
 }
 
 }  // namespace
+
+bool decodeV7Token(const std::vector<uint8_t>& p, size_t& i, std::string& out, bool v7) {
+    uint8_t b = p[i];
+    if (b == 0xFF) { out = "{pi}"; i++; return true; }
+    if (b >= 0x80 && b <= 0xCB) { out = V2[b - 0x80]; i++; return true; }
+    if (!v7) return false;
+    if ((b == 0xCE || b == 0xFE) && i + 1 < p.size()) {
+        const auto& m = b == 0xCE ? V7CE : V7FE;
+        auto it = m.find(p[i + 1]);
+        if (it != m.end()) { out = it->second; i += 2; return true; }
+        return false;
+    }
+    if (b >= 0xCC && b <= 0xFD && V7[b - 0xCC]) { out = V7[b - 0xCC]; i++; return true; }
+    return false;
+}
 
 const char* basicDialectName(BasicDialect d) {
     switch (d) {
@@ -153,4 +172,106 @@ BasicListing listBasic(const std::vector<uint8_t>& prg, BasicDialect dialect) {
     }
     r.ok = true;
     return r;
+}
+
+std::vector<uint8_t> crunchV7(const std::string& listing, uint16_t load, std::vector<std::string>& warnings) {
+    // name -> token bytes, V2 and V7
+    std::vector<std::pair<std::string, std::vector<uint8_t>>> kws;
+    for (int i = 0; i < (int)(sizeof V2 / sizeof V2[0]); i++) kws.push_back({V2[i], {(uint8_t)(0x80 + i)}});
+    for (int i = 0; i < (int)(sizeof V7 / sizeof V7[0]); i++)
+        if (V7[i]) kws.push_back({V7[i], {(uint8_t)(0xCC + i)}});
+    for (const auto& [b, n] : V7CE) kws.push_back({n, {0xCE, b}});
+    for (const auto& [b, n] : V7FE) kws.push_back({n, {0xFE, b}});
+    std::stable_sort(kws.begin(), kws.end(), [](const auto& a, const auto& b) { return a.first.size() > b.first.size(); });
+    std::map<std::string, uint8_t> esc;
+    for (const auto& [b, n] : CONTROL) esc[n] = b;
+    esc["pound"] = 0x5C; esc["pi"] = 0xFF; esc["shift-space"] = 0xA0; esc["left-arrow"] = 0x5F;
+
+    std::vector<uint8_t> prg = {(uint8_t)(load & 0xFF), (uint8_t)(load >> 8)};
+    std::istringstream in(listing);
+    std::string text;
+    long last = -1;
+    while (std::getline(in, text)) {
+        if (!text.empty() && text.back() == '\r') text.pop_back();
+        size_t i = 0;
+        while (i < text.size() && (text[i] == ' ' || text[i] == '\t')) i++;
+        if (i == text.size()) continue;
+        if (!std::isdigit((unsigned char)text[i])) {
+            warnings.push_back("a line without a number is left out: " + text.substr(0, 40));
+            continue;
+        }
+        long num = 0;
+        while (i < text.size() && std::isdigit((unsigned char)text[i])) num = num * 10 + (text[i++] - '0');
+        if (num > 63999) { warnings.push_back("line " + std::to_string(num) + ": over 63999, left out"); continue; }
+        if (num <= last) warnings.push_back("line " + std::to_string(num) + ": not after line " + std::to_string(last));
+        last = num;
+        while (i < text.size() && text[i] == ' ') i++;
+        std::vector<uint8_t> body;
+        bool inString = false, rem = false, data = false;
+        while (i < text.size()) {
+            char c = text[i];
+            if (c == '"' && !rem) { inString = !inString; body.push_back(0x22); i++; continue; }
+            if ((inString || rem || data) && c == '{') {
+                size_t e = text.find('}', i);
+                if (e != std::string::npos) {
+                    std::string n = text.substr(i + 1, e - i - 1);
+                    for (auto& ch : n) ch = (char)std::tolower((unsigned char)ch);
+                    int times = 1;
+                    if (size_t star = n.find('*'); star != std::string::npos) {
+                        times = std::max(1, std::atoi(n.c_str() + star + 1));
+                        n = n.substr(0, star);
+                    }
+                    int byte = -1;
+                    if (n.size() == 3 && n[0] == '$') byte = (int)std::strtol(n.c_str() + 1, nullptr, 16);
+                    else if (auto it = esc.find(n); it != esc.end()) byte = it->second;
+                    if (byte >= 0) {
+                        for (int k = 0; k < times; k++) body.push_back((uint8_t)byte);
+                        i = e + 1;
+                        continue;
+                    }
+                    warnings.push_back("line " + std::to_string(num) + ": unknown escape {" + n + "}");
+                }
+            }
+            if (inString || rem) {
+                body.push_back((uint8_t)(std::isalpha((unsigned char)c) ? std::toupper((unsigned char)c) : c));
+                i++;
+                continue;
+            }
+            if (data) {
+                if (c == ':') data = false;
+                body.push_back((uint8_t)(std::isalpha((unsigned char)c) ? std::toupper((unsigned char)c) : c));
+                i++;
+                continue;
+            }
+            if (c == '?') { body.push_back(0x99); i++; continue; }   // PRINT
+            bool matched = false;
+            for (const auto& [name, tok] : kws) {
+                if (name.size() > text.size() - i) continue;
+                bool eq = true;
+                for (size_t k = 0; k < name.size() && eq; k++)
+                    eq = std::toupper((unsigned char)text[i + k]) == (unsigned char)name[k];
+                if (!eq) continue;
+                body.insert(body.end(), tok.begin(), tok.end());
+                i += name.size();
+                if (name == "REM") rem = true;
+                if (name == "DATA") data = true;
+                matched = true;
+                break;
+            }
+            if (matched) continue;
+            body.push_back((uint8_t)(std::isalpha((unsigned char)c) ? std::toupper((unsigned char)c) : c));
+            i++;
+        }
+        uint16_t addr = (uint16_t)(load + prg.size() - 2);
+        uint16_t next = (uint16_t)(addr + 4 + body.size() + 1);
+        prg.push_back((uint8_t)(next & 0xFF));
+        prg.push_back((uint8_t)(next >> 8));
+        prg.push_back((uint8_t)(num & 0xFF));
+        prg.push_back((uint8_t)(num >> 8));
+        prg.insert(prg.end(), body.begin(), body.end());
+        prg.push_back(0);
+    }
+    prg.push_back(0);
+    prg.push_back(0);
+    return prg;
 }

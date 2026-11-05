@@ -16,6 +16,7 @@
 - **Assembly and binary data** — `asm` … `endasm`, `incbin`, `datainc` ([Assembly and Binary Data](#assembly-and-binary-data))
 - **Calling C** — `--link file.c`: C functions called with `SYS {name}` ([Calling C Functions](#calling-c-functions-link))
 - **Listing, source map, decompiler** — `--list`, `--source-map`, `--decompile` ([Listing, Source Map and Decompiling](#listing-source-map-and-decompiling))
+- **Converting other dialects** — `--convert=basic7`: a BASIC 7.0 (C128) program as BASIC 65 source ([Converting BASIC 7.0 Programs](#converting-basic-70-programs-convertbasic7))
 - **Disk image, emulator, hardware** — `--disk`, `--emulator` (xemu), `--send` (a MEGA65), `--watch`
 - **Formatting** — `--format` ([Formatting](#formatting))
 - **Markdown documentation** of labeled sections (`--docs`)
@@ -27,6 +28,7 @@ See [Known Problems](#known-problems) for the remaining limits.
 ```bash
 basic45 [options] <input.bas> [-o <output.prg>]
 basic45 --decompile <program.prg> [-o <output.bas>]
+basic45 --convert=basic7 [--ntsc] <program.prg|listing.txt> [-o <output.bas>]
 ```
 
 Without `-o` the output is the input name with its extension replaced by `.prg` (`.bas` when decompiling; `-o -` writes the source to standard output). A `.prg` input is decompiled. With no input file, the usage text is printed and the exit status is 1. Unrecognised options starting with `-` are ignored silently.
@@ -63,6 +65,8 @@ Without `-o` the output is the input name with its extension replaced by `.prg` 
 | `--link <file>` | Link a C (`.c`, compiled with `cc45 -c -O2`), assembly (`.s45`) or object (`.o45`) file after the program; repeatable ([Calling C Functions](#calling-c-functions-link)) |
 | `--lib <file>` | The library for `--link` (default: `c45.lib` next to the tools, else `ln45`'s `CC45_LIB` search) |
 | `--decompile` | Turn a tokenized BASIC `.prg` into basic45 source ([Listing, Source Map and Decompiling](#listing-source-map-and-decompiling)) |
+| `--convert=basic7` | A BASIC 7.0 (C128) `.prg` or text listing as BASIC 65 basic45 source, with warnings for what needs a hand ([Converting BASIC 7.0 Programs](#converting-basic-70-programs-convertbasic7)) |
+| `--ntsc`, `--pal` | With `--convert`: the source machine's video timing, for `TEMPO` (default `--pal`) |
 | `--data-loader` | The input is machine code (a `.prg`, or a binary with `--load-at`): write a BASIC program that POKEs it from `DATA` lines and SYSes it, a type-in listing ([DATA Loaders](#data-loaders-data-loader)); with `--hex`, `--checksum`, `--per-line <n>`, `--start <line>`, `--increment <n>`, `--no-sys`, `--load-at <addr>` |
 | `--list-tokens` | List all keywords with their token values and exit |
 | `-v`, `--verbose` (… `-vvvv`, `-v0`) | Log on stderr as `[basic45:LEVEL] …` (the toolchain's format, `include/Logger.hpp`); cumulative, at most `-vvvv`; `-v0` off: the files, load address, included files, the ca45/ln45 commands of `--link`, the variable renames (`--list` prints those on stdout instead); notes for unused labels |
@@ -346,6 +350,60 @@ basic45 --data-loader --load-at 7000 code.bin -o -      # a raw binary, to stdou
 `--source-map <file>` writes the same mapping as JSON (`compiledLine`, `sourceLine`, `sourceFile`, `sourceCode` per line), to find the source of `?SYNTAX ERROR IN 230`.
 
 `--decompile` (or a `.prg` input) turns a tokenized BASIC program back into basic45 source: keywords and names in lower case, strings with `{name}` escapes (`{name*n}` for runs, `{$xx}` for a byte without a name), and labels `l<number>` on the lines that `GOTO`, `GOSUB`, `ON ... GOTO`, `THEN`, `ELSE`, `RESTORE`, `TRAP`, `RESUME` or `RUN` refer to. Building the result with basic45 gives the same program (with `--keep-names` if the original's names were long).
+
+## Converting BASIC 7.0 Programs (`--convert=basic7`)
+
+```bash
+basic45 --convert=basic7 game.prg -o game.bas      # a C128 program ($1C01)
+basic45 --convert=basic7 listing.txt -o game.bas   # a text listing (10 PRINT ..., any case)
+basic45 game.bas -o game65.prg                     # after reading the warnings
+```
+
+A separate, explicit step (basic45 never converts while building): it writes basic45 source for review, the
+`GOTO`/`GOSUB`/`THEN` targets as labels (as `--decompile`), comments at the top naming what the conversion did, and a
+warning on stderr, by line number, for everything that needs a hand. A `.prg` is read with BASIC 7.0's token tables
+(its `$CE xx` / `$FE xx` numbers are not BASIC 65's: `$CE $08` is `XOR` there, `LOG10` here); a text listing is
+tokenized as the C128 would (keywords anywhere outside strings, `REM` and `DATA` — a name like `TOTAL` holds `TO`,
+as on the C128; strings may use basic45's `{name}` / `{$xx}` escapes).
+
+BASIC 65 descends from BASIC 7.0, and most keywords are kept as they are (`DO`/`LOOP`, `TRAP`, the disk commands,
+`SOUND`, `ENVELOPE`, `FILTER`, `VOL`, `COLLISION`, `BUMP`, `POT`, `JOY`, `XOR`, `INSTR`, `SLEEP`, `KEY`, …). What
+differs — checked against BASIC 65's own source and the C128 System Guide, the rules run on xemu:
+
+| | BASIC 7.0 (C128) | BASIC 65 | The conversion |
+|---|---|---|---|
+| Variable names | two letters count (`BASEX` and `BASEY` are one variable) | the same, but basic45 keeps long names apart | names that are one C128 variable are written as their two letters (a comment lists them) |
+| `DT$` | a variable | the date, a reserved name (`?RESERVED NAME` when assigned) | `DT$` (and `DT…$`) renamed, with a warning |
+| `TI` | 1/60 s | seconds (a 1 MHz timer) | `TI` → `int(ti * 60)` |
+| `TI$` | `"HHMMSS"`, settable | `"HH:MM:SS"` from the real-time clock, not settable | read: its colons left out; `TI$ = "000000"` → `CLR TI`; other assignments warned |
+| Colours | 1–16 | 0–15 | `COLOR`, `SPRITE`, `SPRCOLOR` take one less; `RCLR(`, `RSPCOLOR(`, `RSPRITE(n, 1)` give one more |
+| `COLOR source, c` | sources 0 background, 1 foreground, 2/3 multicolour, 4 border, 5 characters, 6 the 80-column background | `BACKGROUND`, `BORDER`, `FOREGROUND`, `PEN` | 0 → `BACKGROUND`, 4 → `BORDER`, 5 → `FOREGROUND`, 1–3 kept for the drawing statements (below); 6 dropped |
+| `RCLR(n)` | the colour of source n | `RCOLOR(n)`: 0 background, 1 text, 2 highlight, 3 border | renumbered (0 → 0, 4 → 3, 5 → 1; 1–3 from the kept sources) |
+| Sprites | 1–8 | 0–7 | `SPRITE`, `MOVSPR`, `SPRSAV`, `RSPRITE(`, `RSPPOS(` take one less |
+| Text screen | 40 columns (the VIC's); `GRAPHIC 5` the VDC's 80 | 80 columns at power-up; ESC X switches | 40 columns at the start (when the screen is in 80); `GRAPHIC 0` / `5` switch to 40 / 80 |
+| Graphics | `GRAPHIC 1`–`4`: 320×200, two colours per 8×8 cell (multicolour 160×200, four); a colour source per drawing statement; a pixel cursor | screens of bitplanes (`SCREEN`), a colour per pixel from `PEN` | `GRAPHIC 1`–`4` → `SCREEN 320, 200, 4` (16 colours; multicolour x doubled; no split screen); `DRAW` → `LINE`; `BOX` and `CIRCLE` as below; `PAINT` → `PAINT x, y, 0, colour` (BASIC 65 fills the area of (x, y)'s colour: warned); `CHAR` → `CHAR` with the row in pixels (in text mode: `CURSOR` and `PRINT`); `LOCATE` and `RDOT(0/1)` → the kept pixel cursor; `RDOT(2)` → `PIXEL()` (a colour, not a source: warned) |
+| `BOX [s], x1, y1 [, x2, y2] [, angle] [, paint]` | a rectangle by two corners, turned `angle` degrees clockwise about its centre (`box.src`) | `BOX` by four corners (any quadrangle) | unturned: its four corners; turned: a subroutine with BASIC 7.0's corners (the half sides rotated about the centre, rounded as the C128 does) |
+| `CIRCLE [s], x, y, xr [, yr] [, sa] [, ea] [, angle] [, inc]` | an ellipse or arc from `sa` to `ea` (0° at the top, clockwise; an end not after the start + 360), turned by `angle`, drawn as segments every `inc` degrees (2): `inc` 120 is a triangle, 90 a diamond (`circle.src`) | `ELLIPSE` (whole, upright); `POLYGON x, y, xr, yr, sides, drawn, centre lines, angle, solid` (0° at 3 o'clock, anticlockwise — the argument order is the ROM's, not the MEGA65 Book's) | the default steps, a whole ellipse: `ELLIPSE`; steps dividing 360 and an arc of whole steps (a circle's rotation folded into it): `POLYGON` with BASIC 7.0's vertices (t = 90 − b); anything else (a turned ellipse, an arc between steps, expressions): a subroutine running BASIC 7.0's algorithm (its point formula, steps, last point at the end); the pixel cursor at the last point; in multicolour an omitted y radius is twice the x radius, as on the C128 |
+| `SCNCLR n` | n: the screen mode | n: a colour to fill the graphics screen with | 0 / 5 → `SCNCLR`; 1–4 → `SCNCLR` with the background colour (dropped when no screen is open) |
+| `SLOW` / `FAST` | 1 / 2 MHz | `SPEED 1`; `SPEED` alone is 40 MHz; `FAST` 3.5 MHz | `SLOW` → `SPEED 1`; `FAST` kept |
+| `PEN(n)` | the light pen | `LPEN(0/1)` | renamed (`PEN(2..4)`, the 80-column screen's and the trigger, warned) |
+| `FETCH` / `STASH` / `SWAP` | the RAM expansion (REU) | `EDMA` | `EDMA 0` / `0` / `2` with the REU's banks as attic RAM (`$8000000` + bank × 64 KB) |
+| `TEMPO n` | a whole note: 1152 less n per frame (19.2/n s NTSC, 23.04/n s PAL); default 8 | 1200 (PAL) / 1440 (NTSC) less n per frame: 24/n s; default 12 | n × 1.04 (PAL, the default) or × 1.25 (`--ntsc`); an expression `int((e) * f + .5)`; `TEMPO 0` → 1; BASIC 7.0's default set first when the program plays music and sets none |
+| `PLAY` | one string, voices switched by `V`; waits (in the statement) for a busy voice; `U` 0–15; `M` waits for the measure; octave and length shared (whole notes by default) | a string per voice (`PLAY v1$, v2$, v3$`; no `V`); returns at once, the next `PLAY` restarts the voices; `U` one digit (0–9, a table); `M` modulation; octave and length per voice (quarter notes) | a literal string split by voice, with rests where BASIC 7.0 would hold a voice back, the octave and length written out per voice, `U` mapped to the table (`U15` → `u9`), `M` dropped (the rests do its work); a wait (a subroutine: `RPLAY(v)` and the voice's counter at `$125E` + 2 × (v − 1)) before each `PLAY` |
+| No counterpart | `RGR(`, `SCALE`, `SSHAPE`/`GSHAPE`, `WIDTH`, `PUDEF`, `SPRDEF`, `QUIT` | | left as written, warned |
+| Other arguments | `BANK`, `WINDOW`, `RWINDOW(0/1)`, `MOVSPR n, distance;angle`, `PLAY` of a string variable | | warned |
+
+The conversion keeps a little state where BASIC 7.0 has some and BASIC 65 has not, in names the program does not use
+(two letters, as `zc`, `zx`, `zy`): the colour sources 0–6 (`zc(n)`, colours 0–15, set by `COLOR`, used by the drawing
+statements' `PEN`) and the pixel cursor. Its subroutines — the waits before `PLAY`, the 40 / 80 columns, closing a
+graphics screen, a turned `BOX`, a `CIRCLE` that `ELLIPSE` and `POLYGON` cannot draw — go after an `END` at the program's end.
+Shapes match the C128's within a pixel: the C128 computes with an integer sine table (interpolated every 10°) and
+rounds, BASIC 65's `POLYGON` truncates (`SIN(90)` is a hair under 1, so a vertex can land one pixel inside). Not converted: the hardware (`POKE`/`PEEK`/`SYS` to C128
+addresses, the VDC 80-column screen's registers, the MMU).
+
+Tests: `src/test/test_basic45.sh` (the rules), `src/test-resources/test_convert7_xemu.txt` (a C128 listing converted
+and run by BASIC 65 on xemu: its music timed in frames, the variables, `TI`, the graphics statements, sprite and colour
+numbers, the 40 columns).
 
 ## Preprocessor
 

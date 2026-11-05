@@ -648,6 +648,17 @@ for bsmode in "plain|" "minify|--minify" "spaces|--preserve-spaces"; do
         failed=$((failed + 1))
     fi
 done
+# basic45 --convert=basic7 (#368): a BASIC 7.0 listing converted, built and
+# run by BASIC 65: PLAY's voices and waits timed in frames; variables, TI, the graphics
+# statements, sprite and colour numbers, 40 columns
+echo "Testing test_convert7_xemu.txt (basic45 --convert=basic7)..."
+if ./bin/basic45 --convert=basic7 src/test-resources/test_convert7_xemu.txt -o build/test/test_convert7_xemu.bas >/dev/null 2>&1 &&
+   ./bin/basic45 build/test/test_convert7_xemu.bas -o build/test/test_convert7_xemu.prg >/dev/null 2>&1; then
+    run_xemu_test "test_convert7" "build/test/test_convert7_xemu.prg" "C0C0" 13 "01 01 01 01 01 01 01 01 01 01 01 01 AA"
+else
+    echo "FAIL: test_convert7_xemu.txt (basic45 --convert or the build failed)"
+    failed=$((failed + 1))
+fi
 # basic45 --data-loader (#370): machine code POKEd from DATA lines and SYSed,
 # as decimal with a checksum per line and as hex; a mistyped DATA value
 # stops the loader before the SYS (the results stay 0)
