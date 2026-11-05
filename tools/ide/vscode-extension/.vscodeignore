@@ -6,6 +6,7 @@ src/**
 
 # Config files
 .eslintrc.json
+eslint.config.mjs
 tsconfig.json
 Makefile
 .nycrc*
