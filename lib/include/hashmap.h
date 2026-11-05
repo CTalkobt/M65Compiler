@@ -42,11 +42,11 @@ __fastcall__ unsigned int hash_str(const char *s);
 
 struct hashmap {
     unsigned char *slots;
-    size_t cap;
     size_t len;         /* elements */
     size_t used;        /* elements and erased slots */
     size_t ksize;       /* 0: C strings */
     size_t vsize;
+    size_t cap;         /* slots (before the first put: the number asked for) */
     hash_fn_t hash;
     hash_cmp_t cmp;
 
@@ -73,11 +73,11 @@ typedef struct hashmap hashmap_t;
 
 struct hashset {
     unsigned char *slots;
-    size_t cap;
     size_t len;
     size_t used;
     size_t ksize;
     size_t vsize;       /* 0 */
+    size_t cap;
     hash_fn_t hash;
     hash_cmp_t cmp;
 

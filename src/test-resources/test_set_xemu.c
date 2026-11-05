@@ -45,7 +45,7 @@ static int black_height(struct node *n, struct node *parent) {
 }
 
 static int rb_ok(struct tset *t) {
-    struct node *root = t->root;
+    struct node *root = (struct node *)t->root;
     bad = 0;
     if (root && root->red) bad = 1;
     black_height(root, NULL);

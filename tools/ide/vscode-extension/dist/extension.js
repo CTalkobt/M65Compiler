@@ -5,12 +5,24 @@ var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __typeError = (msg) => {
+  throw TypeError(msg);
+};
 var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
-var __esm = (fn, res) => function __init() {
-  return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+var __esm = (fn, res, err) => function __init() {
+  if (err) throw err[0];
+  try {
+    return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+  } catch (e) {
+    throw err = [e], e;
+  }
 };
 var __commonJS = (cb, mod) => function __require() {
-  return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+  try {
+    return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+  } catch (e) {
+    throw mod = 0, e;
+  }
 };
 var __export = (target, all) => {
   for (var name in all)
@@ -33,32 +45,20 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
-var __publicField = (obj, key, value) => {
-  __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
-  return value;
-};
-var __accessCheck = (obj, member, msg) => {
-  if (!member.has(obj))
-    throw TypeError("Cannot " + msg);
-};
-var __privateGet = (obj, member, getter) => {
-  __accessCheck(obj, member, "read from private field");
-  return getter ? getter.call(obj) : member.get(obj);
-};
-var __privateAdd = (obj, member, value) => {
-  if (member.has(obj))
-    throw TypeError("Cannot add the same private member more than once");
-  member instanceof WeakSet ? member.add(obj) : member.set(obj, value);
-};
-var __privateSet = (obj, member, value, setter) => {
-  __accessCheck(obj, member, "write to private field");
-  setter ? setter.call(obj, value) : member.set(obj, value);
-  return value;
-};
-var __privateMethod = (obj, member, method) => {
-  __accessCheck(obj, member, "access private method");
-  return method;
-};
+var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
+var __accessCheck = (obj, member, msg) => member.has(obj) || __typeError("Cannot " + msg);
+var __privateGet = (obj, member, getter) => (__accessCheck(obj, member, "read from private field"), getter ? getter.call(obj) : member.get(obj));
+var __privateAdd = (obj, member, value) => member.has(obj) ? __typeError("Cannot add the same private member more than once") : member instanceof WeakSet ? member.add(obj) : member.set(obj, value);
+var __privateSet = (obj, member, value, setter) => (__accessCheck(obj, member, "write to private field"), setter ? setter.call(obj, value) : member.set(obj, value), value);
+var __privateMethod = (obj, member, method) => (__accessCheck(obj, member, "access private method"), method);
+var __privateWrapper = (obj, member, setter, getter) => ({
+  set _(value) {
+    __privateSet(obj, member, value, setter);
+  },
+  get _() {
+    return __privateGet(obj, member, getter);
+  }
+});
 
 // ../node_modules/vscode-languageclient/lib/common/utils/is.js
 var require_is = __commonJS({
@@ -156,9 +156,8 @@ var require_is2 = __commonJS({
 var require_messages = __commonJS({
   "../node_modules/vscode-jsonrpc/lib/common/messages.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -166,40 +165,34 @@ var require_messages = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.Message = exports2.NotificationType9 = exports2.NotificationType8 = exports2.NotificationType7 = exports2.NotificationType6 = exports2.NotificationType5 = exports2.NotificationType4 = exports2.NotificationType3 = exports2.NotificationType2 = exports2.NotificationType1 = exports2.NotificationType0 = exports2.NotificationType = exports2.RequestType9 = exports2.RequestType8 = exports2.RequestType7 = exports2.RequestType6 = exports2.RequestType5 = exports2.RequestType4 = exports2.RequestType3 = exports2.RequestType2 = exports2.RequestType1 = exports2.RequestType = exports2.RequestType0 = exports2.AbstractMessageSignature = exports2.ParameterStructures = exports2.ResponseError = exports2.ErrorCodes = void 0;
     var is = __importStar(require_is2());
@@ -1117,9 +1110,8 @@ var require_events = __commonJS({
 var require_cancellation = __commonJS({
   "../node_modules/vscode-jsonrpc/lib/common/cancellation.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -1127,40 +1119,34 @@ var require_cancellation = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     var __importDefault = exports2 && exports2.__importDefault || function(mod) {
       return mod && mod.__esModule ? mod : { "default": mod };
     };
@@ -1412,9 +1398,8 @@ var require_semaphore = __commonJS({
 var require_messageReader = __commonJS({
   "../node_modules/vscode-jsonrpc/lib/common/messageReader.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -1422,40 +1407,34 @@ var require_messageReader = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     var __importDefault = exports2 && exports2.__importDefault || function(mod) {
       return mod && mod.__esModule ? mod : { "default": mod };
     };
@@ -1661,9 +1640,8 @@ ${JSON.stringify(Object.fromEntries(headers))}`));
 var require_messageWriter = __commonJS({
   "../node_modules/vscode-jsonrpc/lib/common/messageWriter.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -1671,40 +1649,34 @@ var require_messageWriter = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     var __importDefault = exports2 && exports2.__importDefault || function(mod) {
       return mod && mod.__esModule ? mod : { "default": mod };
     };
@@ -1856,46 +1828,45 @@ var require_messageBuffer = __commonJS({
         let chunkIndex = 0;
         let offset = 0;
         let chunkBytesRead = 0;
-        row:
-          while (chunkIndex < this._chunks.length) {
-            const chunk = this._chunks[chunkIndex];
-            offset = 0;
-            while (offset < chunk.length) {
-              const value = chunk[offset];
-              switch (value) {
-                case CR:
-                  switch (state) {
-                    case 0:
-                      state = 1;
-                      break;
-                    case 2:
-                      state = 3;
-                      break;
-                    default:
-                      state = 0;
-                  }
-                  break;
-                case LF:
-                  switch (state) {
-                    case 1:
-                      state = 2;
-                      break;
-                    case 3:
-                      state = 4;
-                      offset++;
-                      break row;
-                    default:
-                      state = 0;
-                  }
-                  break;
-                default:
-                  state = 0;
-              }
-              offset++;
+        row: while (chunkIndex < this._chunks.length) {
+          const chunk = this._chunks[chunkIndex];
+          offset = 0;
+          while (offset < chunk.length) {
+            const value = chunk[offset];
+            switch (value) {
+              case CR:
+                switch (state) {
+                  case 0:
+                    state = 1;
+                    break;
+                  case 2:
+                    state = 3;
+                    break;
+                  default:
+                    state = 0;
+                }
+                break;
+              case LF:
+                switch (state) {
+                  case 1:
+                    state = 2;
+                    break;
+                  case 3:
+                    state = 4;
+                    offset++;
+                    break row;
+                  default:
+                    state = 0;
+                }
+                break;
+              default:
+                state = 0;
             }
-            chunkBytesRead += chunk.byteLength;
-            chunkIndex++;
+            offset++;
           }
+          chunkBytesRead += chunk.byteLength;
+          chunkIndex++;
+        }
         if (state !== 4) {
           return void 0;
         }
@@ -1978,9 +1949,8 @@ ${header}`);
 var require_connection = __commonJS({
   "../node_modules/vscode-jsonrpc/lib/common/connection.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -1988,40 +1958,34 @@ var require_connection = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     var __importDefault = exports2 && exports2.__importDefault || function(mod) {
       return mod && mod.__esModule ? mod : { "default": mod };
     };
@@ -2687,7 +2651,8 @@ ${JSON.stringify(message, null, 4)}`);
               }
             }
           }
-          tracer.log(`Sending response '${method} - (${message.id})'. Processing request took ${Date.now() - startTime}ms`, data);
+          const error = message.error ? ` Request failed: ${message.error.message} (${message.error.code}).` : "";
+          tracer.log(`Sending response '${method} - (${message.id})'. Processing request took ${Date.now() - startTime}ms.${error}`, data);
         } else {
           logLSPMessage("send-response", message);
         }
@@ -3027,7 +2992,6 @@ ${JSON.stringify(message, null, 4)}`);
               responsePromises.delete(id);
               responsePromise.reject(new messages_1.ResponseError(messages_1.ErrorCodes.MessageWriteError, error.message ? error.message : "Unknown reason"));
               logger.error(`Sending request failed.`);
-              throw error;
             }
           });
         },
@@ -5537,9 +5501,8 @@ var require_protocol_inlayHint = __commonJS({
 var require_protocol_diagnostic = __commonJS({
   "../node_modules/vscode-languageserver-protocol/lib/common/protocol.diagnostic.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -5547,40 +5510,34 @@ var require_protocol_diagnostic = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.DiagnosticRefreshRequest = exports2.WorkspaceDiagnosticRequest = exports2.DocumentDiagnosticRequest = exports2.DocumentDiagnosticReportKind = exports2.DiagnosticServerCancellationData = void 0;
     var vscode_jsonrpc_1 = require_api();
@@ -5629,9 +5586,8 @@ var require_protocol_diagnostic = __commonJS({
 var require_protocol_notebook = __commonJS({
   "../node_modules/vscode-languageserver-protocol/lib/common/protocol.notebook.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -5639,40 +5595,34 @@ var require_protocol_notebook = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.DidCloseNotebookDocumentNotification = exports2.DidSaveNotebookDocumentNotification = exports2.DidChangeNotebookDocumentNotification = exports2.NotebookCellArrayChange = exports2.DidOpenNotebookDocumentNotification = exports2.NotebookDocumentSyncRegistrationType = exports2.NotebookDocument = exports2.NotebookCell = exports2.ExecutionSummary = exports2.NotebookCellKind = void 0;
     var vscode_languageserver_types_1 = (init_main(), __toCommonJS(main_exports));
@@ -5902,9 +5852,8 @@ var require_protocol_textDocumentContent = __commonJS({
 var require_protocol = __commonJS({
   "../node_modules/vscode-languageserver-protocol/lib/common/protocol.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -5912,40 +5861,34 @@ var require_protocol = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.CodeActionRequest = exports2.DocumentSymbolRequest = exports2.DocumentHighlightRequest = exports2.ReferencesRequest = exports2.DefinitionRequest = exports2.SignatureHelpRequest = exports2.SignatureHelpTriggerKind = exports2.HoverRequest = exports2.CompletionResolveRequest = exports2.CompletionRequest = exports2.CompletionTriggerKind = exports2.PublishDiagnosticsNotification = exports2.WatchKind = exports2.GlobPattern = exports2.RelativePattern = exports2.FileChangeType = exports2.DidChangeWatchedFilesNotification = exports2.WillSaveTextDocumentWaitUntilRequest = exports2.WillSaveTextDocumentNotification = exports2.TextDocumentSaveReason = exports2.DidSaveTextDocumentNotification = exports2.DidCloseTextDocumentNotification = exports2.DidChangeTextDocumentNotification = exports2.TextDocumentContentChangeEvent = exports2.DidOpenTextDocumentNotification = exports2.TextDocumentSyncKind = exports2.TelemetryEventNotification = exports2.LogMessageNotification = exports2.ShowMessageRequest = exports2.ShowMessageNotification = exports2.MessageType = exports2.DidChangeConfigurationNotification = exports2.ExitNotification = exports2.ShutdownRequest = exports2.InitializedNotification = exports2.InitializeErrorCodes = exports2.InitializeRequest = exports2.WorkDoneProgressOptions = exports2.TextDocumentRegistrationOptions = exports2.StaticRegistrationOptions = exports2.PositionEncodingKind = exports2.RegularExpressionEngineKind = exports2.FailureHandlingKind = exports2.ResourceOperationKind = exports2.UnregistrationRequest = exports2.RegistrationRequest = exports2.DocumentSelector = exports2.NotebookCellTextDocumentFilter = exports2.NotebookDocumentFilter = exports2.TextDocumentFilter = void 0;
     exports2.UniquenessLevel = exports2.WillDeleteFilesRequest = exports2.DidDeleteFilesNotification = exports2.WillRenameFilesRequest = exports2.DidRenameFilesNotification = exports2.WillCreateFilesRequest = exports2.DidCreateFilesNotification = exports2.FileOperationPatternKind = exports2.LinkedEditingRangeRequest = exports2.ShowDocumentRequest = exports2.SemanticTokensRegistrationType = exports2.SemanticTokensRefreshRequest = exports2.SemanticTokensRangeRequest = exports2.SemanticTokensDeltaRequest = exports2.SemanticTokensRequest = exports2.TokenFormat = exports2.CallHierarchyPrepareRequest = exports2.CallHierarchyOutgoingCallsRequest = exports2.CallHierarchyIncomingCallsRequest = exports2.WorkDoneProgressCancelNotification = exports2.WorkDoneProgressCreateRequest = exports2.WorkDoneProgress = exports2.SelectionRangeRequest = exports2.DeclarationRequest = exports2.FoldingRangeRefreshRequest = exports2.FoldingRangeRequest = exports2.ColorPresentationRequest = exports2.DocumentColorRequest = exports2.ConfigurationRequest = exports2.DidChangeWorkspaceFoldersNotification = exports2.WorkspaceFoldersRequest = exports2.TypeDefinitionRequest = exports2.ImplementationRequest = exports2.ApplyWorkspaceEditRequest = exports2.ExecuteCommandRequest = exports2.PrepareRenameRequest = exports2.RenameRequest = exports2.PrepareSupportDefaultBehavior = exports2.DocumentOnTypeFormattingRequest = exports2.DocumentRangesFormattingRequest = exports2.DocumentRangeFormattingRequest = exports2.DocumentFormattingRequest = exports2.DocumentLinkResolveRequest = exports2.DocumentLinkRequest = exports2.CodeLensRefreshRequest = exports2.CodeLensResolveRequest = exports2.CodeLensRequest = exports2.WorkspaceSymbolResolveRequest = exports2.WorkspaceSymbolRequest = exports2.CodeActionResolveRequest = void 0;
@@ -6653,9 +6596,8 @@ var require_connection2 = __commonJS({
 var require_api2 = __commonJS({
   "../node_modules/vscode-languageserver-protocol/lib/common/api.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -6663,15 +6605,12 @@ var require_api2 = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
+    }));
     var __exportStar = exports2 && exports2.__exportStar || function(m, exports3) {
-      for (var p in m)
-        if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports3, p))
-          __createBinding(exports3, m, p);
+      for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports3, p)) __createBinding(exports3, m, p);
     };
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.LSPErrorCodes = exports2.createProtocolConnection = void 0;
@@ -6987,9 +6926,8 @@ var require_async = __commonJS({
 var require_protocolCompletionItem = __commonJS({
   "../node_modules/vscode-languageclient/lib/common/protocolCompletionItem.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -6997,40 +6935,34 @@ var require_protocolCompletionItem = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     var code = __importStar(require("vscode"));
     var ProtocolCompletionItem = class extends code.CompletionItem {
@@ -7052,9 +6984,8 @@ var require_protocolCompletionItem = __commonJS({
 var require_protocolCodeLens = __commonJS({
   "../node_modules/vscode-languageclient/lib/common/protocolCodeLens.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -7062,40 +6993,34 @@ var require_protocolCodeLens = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     var code = __importStar(require("vscode"));
     var ProtocolCodeLens = class extends code.CodeLens {
@@ -7112,9 +7037,8 @@ var require_protocolCodeLens = __commonJS({
 var require_protocolDocumentLink = __commonJS({
   "../node_modules/vscode-languageclient/lib/common/protocolDocumentLink.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -7122,40 +7046,34 @@ var require_protocolDocumentLink = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     var code = __importStar(require("vscode"));
     var ProtocolDocumentLink = class extends code.DocumentLink {
@@ -7172,9 +7090,8 @@ var require_protocolDocumentLink = __commonJS({
 var require_protocolCodeAction = __commonJS({
   "../node_modules/vscode-languageclient/lib/common/protocolCodeAction.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -7182,40 +7099,34 @@ var require_protocolCodeAction = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     var vscode2 = __importStar(require("vscode"));
     var ProtocolCodeAction = class extends vscode2.CodeAction {
@@ -7233,9 +7144,8 @@ var require_protocolCodeAction = __commonJS({
 var require_protocolDiagnostic = __commonJS({
   "../node_modules/vscode-languageclient/lib/common/protocolDiagnostic.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -7243,40 +7153,34 @@ var require_protocolDiagnostic = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.ProtocolDiagnostic = exports2.DiagnosticCode = void 0;
     var vscode2 = __importStar(require("vscode"));
@@ -7306,9 +7210,8 @@ var require_protocolDiagnostic = __commonJS({
 var require_protocolCallHierarchyItem = __commonJS({
   "../node_modules/vscode-languageclient/lib/common/protocolCallHierarchyItem.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -7316,40 +7219,34 @@ var require_protocolCallHierarchyItem = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     var code = __importStar(require("vscode"));
     var ProtocolCallHierarchyItem = class extends code.CallHierarchyItem {
@@ -7369,9 +7266,8 @@ var require_protocolCallHierarchyItem = __commonJS({
 var require_protocolTypeHierarchyItem = __commonJS({
   "../node_modules/vscode-languageclient/lib/common/protocolTypeHierarchyItem.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -7379,40 +7275,34 @@ var require_protocolTypeHierarchyItem = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     var code = __importStar(require("vscode"));
     var ProtocolTypeHierarchyItem = class extends code.TypeHierarchyItem {
@@ -7432,9 +7322,8 @@ var require_protocolTypeHierarchyItem = __commonJS({
 var require_protocolWorkspaceSymbol = __commonJS({
   "../node_modules/vscode-languageclient/lib/common/protocolWorkspaceSymbol.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -7442,40 +7331,34 @@ var require_protocolWorkspaceSymbol = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     var code = __importStar(require("vscode"));
     var WorkspaceSymbol2 = class extends code.SymbolInformation {
@@ -7498,9 +7381,8 @@ var require_protocolWorkspaceSymbol = __commonJS({
 var require_protocolInlayHint = __commonJS({
   "../node_modules/vscode-languageclient/lib/common/protocolInlayHint.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -7508,40 +7390,34 @@ var require_protocolInlayHint = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     var code = __importStar(require("vscode"));
     var ProtocolInlayHint = class extends code.InlayHint {
@@ -7558,9 +7434,8 @@ var require_protocolInlayHint = __commonJS({
 var require_codeConverter = __commonJS({
   "../node_modules/vscode-languageclient/lib/common/codeConverter.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -7568,40 +7443,34 @@ var require_codeConverter = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     var __importDefault = exports2 && exports2.__importDefault || function(mod) {
       return mod && mod.__esModule ? mod : { "default": mod };
     };
@@ -8493,9 +8362,8 @@ var require_codeConverter = __commonJS({
 var require_protocolConverter = __commonJS({
   "../node_modules/vscode-languageclient/lib/common/protocolConverter.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -8503,40 +8371,34 @@ var require_protocolConverter = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     var __importDefault = exports2 && exports2.__importDefault || function(mod) {
       return mod && mod.__esModule ? mod : { "default": mod };
     };
@@ -9770,9 +9632,8 @@ var require_uuid = __commonJS({
 var require_progressPart = __commonJS({
   "../node_modules/vscode-languageclient/lib/common/progressPart.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -9780,40 +9641,34 @@ var require_progressPart = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.ProgressPart = void 0;
     var vscode_1 = require("vscode");
@@ -9920,9 +9775,8 @@ var require_progressPart = __commonJS({
 var require_features = __commonJS({
   "../node_modules/vscode-languageclient/lib/common/features.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -9930,40 +9784,34 @@ var require_features = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.DefaultDiagnosticCollectionProvider = exports2.DiagnosticCollectionSource = exports2.WorkspaceFeature = exports2.TextDocumentLanguageFeature = exports2.TextDocumentEventFeature = exports2.DynamicDocumentFeature = exports2.DynamicFeature = exports2.StaticFeature = exports2.LSPCancellationError = void 0;
     exports2.ensure = ensure;
@@ -10344,7 +10192,7 @@ var require_commonjs2 = __commonJS({
   "../node_modules/brace-expansion/dist/commonjs/index.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.EXPANSION_MAX = void 0;
+    exports2.EXPANSION_MAX_REWRITES = exports2.EXPANSION_MAX_DEPTH = exports2.EXPANSION_MAX_LENGTH = exports2.EXPANSION_MAX = void 0;
     exports2.expand = expand;
     var balanced_match_1 = require_commonjs();
     var escSlash = "\0SLASH" + Math.random() + "\0";
@@ -10363,6 +10211,9 @@ var require_commonjs2 = __commonJS({
     var commaPattern = /\\,/g;
     var periodPattern = /\\\./g;
     exports2.EXPANSION_MAX = 1e5;
+    exports2.EXPANSION_MAX_LENGTH = 4e6;
+    exports2.EXPANSION_MAX_DEPTH = 1e3;
+    exports2.EXPANSION_MAX_REWRITES = 1e3;
     function numeric(str) {
       return !isNaN(str) ? parseInt(str, 10) : str.charCodeAt(0);
     }
@@ -10372,36 +10223,44 @@ var require_commonjs2 = __commonJS({
     function unescapeBraces(str) {
       return str.replace(escSlashPattern, "\\").replace(escOpenPattern, "{").replace(escClosePattern, "}").replace(escCommaPattern, ",").replace(escPeriodPattern, ".");
     }
+    function pushAll(target, items) {
+      for (let i = 0; i < items.length; i++) {
+        target.push(items[i]);
+      }
+    }
     function parseCommaParts(str) {
-      if (!str) {
-        return [""];
-      }
       const parts = [];
-      const m = (0, balanced_match_1.balanced)("{", "}", str);
-      if (!m) {
-        return str.split(",");
+      let carry = "";
+      for (; ; ) {
+        const m = (0, balanced_match_1.balanced)("{", "}", str);
+        if (!m) {
+          const tail = str.split(",");
+          tail[0] = carry + tail[0];
+          pushAll(parts, tail);
+          return parts;
+        }
+        const { pre, body, post } = m;
+        const p = pre.split(",");
+        p[0] = carry + p[0];
+        p[p.length - 1] += "{" + body + "}";
+        if (!post.length) {
+          pushAll(parts, p);
+          return parts;
+        }
+        carry = p.pop();
+        pushAll(parts, p);
+        str = post;
       }
-      const { pre, body, post } = m;
-      const p = pre.split(",");
-      p[p.length - 1] += "{" + body + "}";
-      const postParts = parseCommaParts(post);
-      if (post.length) {
-        ;
-        p[p.length - 1] += postParts.shift();
-        p.push.apply(p, postParts);
-      }
-      parts.push.apply(parts, p);
-      return parts;
     }
     function expand(str, options = {}) {
       if (!str) {
         return [];
       }
-      const { max = exports2.EXPANSION_MAX } = options;
+      const { max = exports2.EXPANSION_MAX, maxLength = exports2.EXPANSION_MAX_LENGTH, maxDepth = exports2.EXPANSION_MAX_DEPTH, maxRewrites = exports2.EXPANSION_MAX_REWRITES } = options;
       if (str.slice(0, 2) === "{}") {
         str = "\\{\\}" + str.slice(2);
       }
-      return expand_(escapeBraces(str), max, true).map(unescapeBraces);
+      return expand_(escapeBraces(str), max, maxLength, maxDepth, 0, maxRewrites, true).map(unescapeBraces);
     }
     function embrace(str) {
       return "{" + str + "}";
@@ -10415,100 +10274,972 @@ var require_commonjs2 = __commonJS({
     function gte(i, y) {
       return i >= y;
     }
-    function expand_(str, max, isTop) {
-      const expansions = [];
+    function combine(acc, pre, values, max, maxLength, dropEmpties) {
+      const out = [];
+      let length = 0;
+      for (let a = 0; a < acc.length; a++) {
+        for (let v = 0; v < values.length; v++) {
+          if (out.length >= max)
+            return out;
+          const expansion = acc[a] + pre + values[v];
+          if (dropEmpties && !expansion)
+            continue;
+          if (length + expansion.length > maxLength)
+            return out;
+          out.push(expansion);
+          length += expansion.length;
+        }
+      }
+      return out;
+    }
+    function expandSequence(body, isAlphaSequence, max, maxLength) {
+      const n = body.split(/\.\./);
+      const N = [];
+      if (n[0] === void 0 || n[1] === void 0) {
+        return N;
+      }
+      const x = numeric(n[0]);
+      const y = numeric(n[1]);
+      const width = Math.max(n[0].length, n[1].length);
+      let incr = n.length === 3 && n[2] !== void 0 ? Math.max(Math.abs(numeric(n[2])), 1) : 1;
+      let test = lte;
+      const reverse = y < x;
+      if (reverse) {
+        incr *= -1;
+        test = gte;
+      }
+      const pad = n.some(isPadded);
+      let length = 0;
+      for (let i = x; test(i, y) && N.length < max; i += incr) {
+        let c;
+        if (isAlphaSequence) {
+          c = String.fromCharCode(i);
+          if (c === "\\") {
+            c = "";
+          }
+        } else {
+          c = String(i);
+          if (pad) {
+            const need = width - c.length;
+            if (need > 0) {
+              const z = new Array(need + 1).join("0");
+              if (i < 0) {
+                c = "-" + z + c.slice(1);
+              } else {
+                c = z + c;
+              }
+            }
+          }
+        }
+        if (length + c.length > maxLength)
+          break;
+        N.push(c);
+        length += c.length;
+      }
+      return N;
+    }
+    function expand_(str, max, maxLength, maxDepth, depth, maxRewrites, isTop) {
+      if (depth > maxDepth) {
+        return [str];
+      }
+      let acc = [""];
+      let rewrites = 0;
+      let dropEmpties = false;
+      let firstGroup = true;
       for (; ; ) {
         const m = (0, balanced_match_1.balanced)("{", "}", str);
-        if (!m)
-          return [str];
+        if (!m) {
+          return combine(acc, str, [""], max, maxLength, dropEmpties);
+        }
         const pre = m.pre;
-        if (/\$$/.test(m.pre)) {
-          const post2 = m.post.length ? expand_(m.post, max, false) : [""];
-          for (let k = 0; k < post2.length && k < max; k++) {
-            const expansion = pre + "{" + m.body + "}" + post2[k];
-            expansions.push(expansion);
-          }
-          return expansions;
+        if (/\$$/.test(pre)) {
+          acc = combine(acc, pre + "{" + m.body + "}", [""], max, maxLength, dropEmpties && !m.post.length);
+          firstGroup = false;
+          if (!m.post.length)
+            break;
+          str = m.post;
+          continue;
         }
         const isNumericSequence = /^-?\d+\.\.-?\d+(?:\.\.-?\d+)?$/.test(m.body);
         const isAlphaSequence = /^[a-zA-Z]\.\.[a-zA-Z](?:\.\.-?\d+)?$/.test(m.body);
         const isSequence = isNumericSequence || isAlphaSequence;
         const isOptions = m.body.indexOf(",") >= 0;
         if (!isSequence && !isOptions) {
-          if (m.post.match(/,(?!,).*\}/)) {
+          if (rewrites < maxRewrites && m.post.match(/,(?!,).*\}/)) {
+            rewrites++;
             str = m.pre + "{" + m.body + escClose + m.post;
             isTop = true;
             continue;
           }
-          return [str];
+          return combine(acc, pre + "{" + m.body + "}" + m.post, [""], max, maxLength, dropEmpties);
         }
-        const post = m.post.length ? expand_(m.post, max, false) : [""];
-        let n;
+        if (firstGroup) {
+          dropEmpties = isTop && !isSequence;
+          firstGroup = false;
+        }
+        let values;
         if (isSequence) {
-          n = m.body.split(/\.\./);
+          values = expandSequence(m.body, isAlphaSequence, max, maxLength);
         } else {
-          n = parseCommaParts(m.body);
+          let n = parseCommaParts(m.body);
           if (n.length === 1 && n[0] !== void 0) {
-            n = expand_(n[0], max, false).map(embrace);
+            n = expand_(n[0], max, maxLength, maxDepth, depth + 1, maxRewrites, false).map(embrace);
             if (n.length === 1) {
-              return post.map((p) => m.pre + n[0] + p);
+              acc = combine(acc, pre + n[0], [""], max, maxLength, dropEmpties && !m.post.length);
+              if (!m.post.length)
+                break;
+              str = m.post;
+              continue;
+            }
+          }
+          let dropsEmpties = dropEmpties && !m.post.length && !pre;
+          for (let d = 0; dropsEmpties && d < acc.length; d++) {
+            if (acc[d]) {
+              dropsEmpties = false;
+            }
+          }
+          values = [];
+          let valuesLength = 0;
+          outer: for (let j = 0; j < n.length; j++) {
+            const expanded = expand_(n[j], max, maxLength, maxDepth, depth + 1, maxRewrites, false);
+            for (let k = 0; k < expanded.length; k++) {
+              const v = expanded[k];
+              if (dropsEmpties && !v)
+                continue;
+              if (values.length >= max || valuesLength + v.length > maxLength) {
+                break outer;
+              }
+              values.push(v);
+              valuesLength += v.length;
             }
           }
         }
-        let N;
-        if (isSequence && n[0] !== void 0 && n[1] !== void 0) {
-          const x = numeric(n[0]);
-          const y = numeric(n[1]);
-          const width = Math.max(n[0].length, n[1].length);
-          let incr = n.length === 3 && n[2] !== void 0 ? Math.max(Math.abs(numeric(n[2])), 1) : 1;
-          let test = lte;
-          const reverse = y < x;
-          if (reverse) {
-            incr *= -1;
-            test = gte;
+        acc = combine(acc, pre, values, max, maxLength, dropEmpties && !m.post.length);
+        if (!m.post.length)
+          break;
+        str = m.post;
+      }
+      return acc;
+    }
+  }
+});
+
+// ../node_modules/@isaacs/nonrecursive-glob-match/dist/commonjs/parse-class.js
+var require_parse_class = __commonJS({
+  "../node_modules/@isaacs/nonrecursive-glob-match/dist/commonjs/parse-class.js"(exports2) {
+    "use strict";
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.parseClass = void 0;
+    var posixClasses = {
+      "[:alnum:]": ["\\p{L}\\p{Nl}\\p{Nd}"],
+      "[:alpha:]": ["\\p{L}\\p{Nl}"],
+      "[:ascii:]": ["\\x00-\\x7f"],
+      "[:blank:]": ["\\p{Zs}\\t"],
+      "[:cntrl:]": ["\\p{Cc}"],
+      "[:digit:]": ["\\p{Nd}"],
+      "[:graph:]": ["\\p{Z}\\p{C}", true],
+      "[:lower:]": ["\\p{Ll}"],
+      "[:print:]": ["\\p{C}", true],
+      "[:punct:]": ["\\p{P}\\p{S}"],
+      "[:space:]": ["\\p{Z}\\t\\r\\n\\v\\f"],
+      "[:upper:]": ["\\p{Lu}"],
+      "[:word:]": ["\\p{L}\\p{Nl}\\p{Nd}\\p{Pc}"],
+      "[:xdigit:]": ["A-Fa-f0-9"]
+    };
+    var braceEscape = (s) => s.replace(/[[\]\\-]/g, "\\$&");
+    var noMatch = /$./;
+    var parseClass = (glob, position, nocase = false, form) => {
+      const norm = (c) => {
+        const n = form ? c.normalize(form) : c;
+        return [...n].length === 1 ? n : c;
+      };
+      const pos = position;
+      if (glob.charAt(pos) !== "[") {
+        throw new Error("not in a brace expression");
+      }
+      const ranges = [];
+      const negs = [];
+      let i = pos + 1;
+      let sawStart = false;
+      let escaping = false;
+      let negate = false;
+      let endPos = pos;
+      let rangeStart = "";
+      WHILE: while (i < glob.length) {
+        const c = String.fromCodePoint(glob.codePointAt(i));
+        if ((c === "!" || c === "^") && i === pos + 1) {
+          negate = true;
+          i++;
+          continue;
+        }
+        if (c === "]" && sawStart && !escaping) {
+          endPos = i + 1;
+          break;
+        }
+        sawStart = true;
+        if (c === "\\") {
+          if (!escaping) {
+            escaping = true;
+            i++;
+            continue;
           }
-          const pad = n.some(isPadded);
-          N = [];
-          for (let i = x; test(i, y) && N.length < max; i += incr) {
-            let c;
-            if (isAlphaSequence) {
-              c = String.fromCharCode(i);
-              if (c === "\\") {
-                c = "";
+        }
+        if (c === "[" && !escaping) {
+          for (const [cls, [unip, neg]] of Object.entries(posixClasses)) {
+            if (glob.startsWith(cls, i)) {
+              if (rangeStart) {
+                return [noMatch, glob.length - pos];
               }
-            } else {
-              c = String(i);
-              if (pad) {
-                const need = width - c.length;
-                if (need > 0) {
-                  const z = new Array(need + 1).join("0");
-                  if (i < 0) {
-                    c = "-" + z + c.slice(1);
-                  } else {
-                    c = z + c;
-                  }
-                }
-              }
+              i += cls.length;
+              if (neg)
+                negs.push(unip);
+              else
+                ranges.push(unip);
+              continue WHILE;
             }
-            N.push(c);
+          }
+        }
+        escaping = false;
+        const n = norm(c);
+        if (rangeStart) {
+          if (n.codePointAt(0) > rangeStart.codePointAt(0)) {
+            ranges.push(braceEscape(rangeStart) + "-" + braceEscape(n));
+          } else if (n === rangeStart) {
+            ranges.push(braceEscape(n));
+          }
+          rangeStart = "";
+          i += c.length;
+          continue;
+        }
+        if (glob.startsWith("-]", i + c.length)) {
+          ranges.push(braceEscape(n + "-"));
+          i += c.length + 1;
+          continue;
+        }
+        if (glob.startsWith("-", i + c.length)) {
+          rangeStart = n;
+          i += c.length + 1;
+          continue;
+        }
+        ranges.push(braceEscape(n));
+        i += c.length;
+      }
+      if (endPos < i) {
+        return [noMatch, 0];
+      }
+      if (!ranges.length && !negs.length) {
+        return [noMatch, glob.length - pos];
+      }
+      const sranges = "[" + (negate ? "^" : "") + ranges.join("") + "]";
+      const snegs = "[" + (negate ? "" : "^") + negs.join("") + "]";
+      const comb = "^" + (ranges.length && negs.length ? "(" + sranges + "|" + snegs + ")" : ranges.length ? sranges : snegs);
+      return [new RegExp(comb, nocase ? "iu" : "u"), endPos - pos];
+    };
+    exports2.parseClass = parseClass;
+  }
+});
+
+// ../node_modules/@isaacs/nonrecursive-glob-match/dist/commonjs/index.js
+var require_commonjs3 = __commonJS({
+  "../node_modules/@isaacs/nonrecursive-glob-match/dist/commonjs/index.js"(exports2) {
+    "use strict";
+    Object.defineProperty(exports2, "__esModule", { value: true });
+    exports2.Matcher = void 0;
+    var parse_class_js_1 = require_parse_class();
+    var MATCH = { t: "match", id: 0 };
+    var extTypes = "!?+*@";
+    var lit = (ch) => ({ t: "lit", ch });
+    var reEscape = (s) => s.replace(/[\\^$.*+?()[\]{}|/]/g, "\\$&");
+    var newFoldRe = (s) => new RegExp(`^${reEscape(s)}$`, "iu");
+    var foldCache = /* @__PURE__ */ new Map();
+    var foldRe = (ch) => {
+      let re = foldCache.get(ch);
+      if (!re) {
+        re = newFoldRe(ch);
+        if (foldCache.size >= 1e3)
+          foldCache.clear();
+        foldCache.set(ch, re);
+      }
+      return re;
+    };
+    var litMatch = (l, c) => {
+      if (c === l.ch)
+        return true;
+      if (!l.re)
+        return false;
+      const code = c.charCodeAt(0);
+      if (code >= 128)
+        return l.re.test(c);
+      const ascii = l.ascii ?? (l.ascii = new Uint8Array(128));
+      ascii[code] || (ascii[code] = l.re.test(c) ? 1 : 2);
+      return ascii[code] === 1;
+    };
+    var tokenize = (p, nocase, noext, form) => {
+      const toks = [];
+      for (let i = 0; i < p.length; ) {
+        const c = String.fromCodePoint(p.codePointAt(i));
+        if (c === "\\") {
+          const e = p.codePointAt(i + 1);
+          const ch = e === void 0 ? c : String.fromCodePoint(e);
+          toks.push(lit(ch));
+          i += 1 + ch.length;
+          continue;
+        }
+        if (c === "[") {
+          const [re, consumed] = (0, parse_class_js_1.parseClass)(p, i, nocase, form);
+          if (consumed) {
+            toks.push({ t: "class", re });
+            i += consumed;
+            continue;
+          }
+        }
+        if (!noext && extTypes.includes(c) && p[i + 1] === "(") {
+          toks.push({ t: "open", type: c });
+          i += 2;
+          continue;
+        }
+        toks.push(!noext && c === "|" ? { t: "bar" } : !noext && c === ")" ? { t: "close" } : c === "*" ? { t: "star" } : c === "?" ? { t: "any" } : lit(c));
+        i += c.length;
+      }
+      return toks;
+    };
+    var pair = (toks) => {
+      const pairs = /* @__PURE__ */ new Map();
+      const stack = [];
+      toks.forEach((tok, i) => {
+        if (tok.t === "open")
+          stack.push(i);
+        else if (tok.t === "close" && stack.length)
+          pairs.set(stack.pop(), i);
+      });
+      return pairs;
+    };
+    var build = (toks, pairs, start, end, top) => {
+      let seq = [];
+      const alts = [seq];
+      for (let i = start; i < end; i++) {
+        const tok = toks[i];
+        const close = pairs.get(i);
+        if (tok.t === "open" && close !== void 0) {
+          const sub = build(toks, pairs, i + 1, close, false);
+          seq.push({ t: "ext", type: tok.type, alts: sub });
+          i = close;
+        } else if (tok.t === "bar" && !top) {
+          alts.push(seq = []);
+        } else if (tok.t === "open") {
+          seq.push(lit(tok.type), lit("("));
+        } else if (tok.t === "bar") {
+          seq.push(lit("|"));
+        } else if (tok.t === "close") {
+          seq.push(lit(")"));
+        } else {
+          seq.push(tok);
+        }
+      }
+      return alts;
+    };
+    var normalize = (items, form) => {
+      const out = [];
+      let run = "";
+      const flush = () => {
+        for (const ch of run.normalize(form))
+          out.push(lit(ch));
+        run = "";
+      };
+      for (const it of items) {
+        if (it.t === "lit") {
+          run += it.ch;
+          continue;
+        }
+        flush();
+        out.push(it.t === "ext" ? { ...it, alts: it.alts.map((a) => normalize(a, form)) } : it);
+      }
+      flush();
+      return out;
+    };
+    var compile = (items, nocase) => {
+      let id = 1;
+      const split = (out) => ({ t: "split", id: id++, out });
+      const seq = (items2, next) => items2.reduceRight((next2, it) => item(it, next2), next);
+      const item = (it, next) => {
+        switch (it.t) {
+          case "lit":
+            const re = nocase ? foldRe(it.ch) : void 0;
+            return { t: "lit", id: id++, ch: it.ch, re, next };
+          case "any":
+          case "star":
+            return { t: it.t, id: id++, next };
+          case "class":
+            return { t: "class", id: id++, re: it.re, next };
+        }
+        const alts = (next2) => it.alts.map((a) => seq(a, next2));
+        switch (it.type) {
+          case "@":
+            return split(alts(next));
+          case "?":
+            return split([next, ...alts(next)]);
+          case "!":
+            return { t: "neg", id: id++, sub: split(alts(MATCH)), next };
+        }
+        const after = split([]);
+        const entry = split(alts(after));
+        after.out.push(next, entry);
+        return it.type === "*" ? after : entry;
+      };
+      const start = seq(items, MATCH);
+      return [start, id];
+    };
+    var show = (start) => {
+      const lines = [];
+      const seen = /* @__PURE__ */ new Set();
+      const ref = (n) => n.t === "match" ? "match" : String(n.id);
+      const walk = (n, indent) => {
+        if (n.t === "match" || seen.has(n))
+          return;
+        seen.add(n);
+        const line = (desc) => lines.push(`${indent}${n.id}: ${desc}`);
+        switch (n.t) {
+          case "split":
+            line(`split -> ${n.out.map(ref).join(", ")}`);
+            for (const o of n.out)
+              walk(o, indent);
+            return;
+          case "neg":
+            line(`!(${ref(n.sub)}) -> ${ref(n.next)}`);
+            walk(n.sub, indent + "  ");
+            return walk(n.next, indent);
+          case "lit":
+            line(`${JSON.stringify(n.ch)} -> ${ref(n.next)}`);
+            break;
+          case "class":
+            line(`${n.re} -> ${ref(n.next)}`);
+            break;
+          default:
+            line(`${n.t === "any" ? "?" : "*"} -> ${ref(n.next)}`);
+        }
+        walk(n.next, indent);
+      };
+      walk(start, "");
+      return [`start -> ${ref(start)}`, ...lines].join("\n");
+    };
+    var State = class {
+      constructor(gen) {
+        // set by the Sim, to mark the nodes that this state has
+        __publicField(this, "gen");
+        __publicField(this, "threads", []);
+        __publicField(this, "match", false);
+        __publicField(this, "runs", []);
+        // the sorted ids of the threads, with 0 for a match, once the
+        // state is done
+        __publicField(this, "ids", []);
+        this.gen = gen;
+      }
+      // no threads, so nothing more can match
+      get dead() {
+        return !this.threads.length && !this.match && !this.runs.length;
+      }
+    };
+    var sameState = (a, b) => {
+      if (a.ids.length !== b.ids.length)
+        return false;
+      if (a.runs.length !== b.runs.length)
+        return false;
+      if (a.ids.some((id, i) => id !== b.ids[i]))
+        return false;
+      return a.runs.every((r) => b.runs.some((o) => o.neg === r.neg && sameState(o.state, r.state)));
+    };
+    var marks = (size) => ({
+      has: new Float64Array(size),
+      seen: new Float64Array(size),
+      gen: 0
+    });
+    var _marks, _Sim_instances, visit_fn, addThread_fn;
+    var Sim = class {
+      constructor(dots, dotStart, marks2) {
+        __privateAdd(this, _Sim_instances);
+        // `.` and `..` only match literal dots, even with `dot:true`
+        __publicField(this, "dots");
+        // the string starts with `.`, and `dot:true` is not set
+        __publicField(this, "dotStart");
+        __privateAdd(this, _marks);
+        this.dots = dots;
+        this.dotStart = dotStart;
+        __privateSet(this, _marks, marks2);
+      }
+      state() {
+        return new State(++__privateGet(this, _marks).gen);
+      }
+      // sort the ids of a state, once it has all of its threads
+      done(state) {
+        state.ids = state.threads.map((n) => n.id).sort((a, b) => a - b);
+        if (state.match)
+          state.ids.unshift(MATCH.id);
+        return state;
+      }
+      // wildcards only match a leading dot if `dot:true`. In a negated
+      // sub-pattern, this does not apply, because the negation itself
+      // can not match a leading dot.
+      restricted(i, top) {
+        return top && (this.dots || this.dotStart && i === 0);
+      }
+      add(state, node, i, top) {
+        switch (node.t) {
+          case "split":
+            if (!__privateMethod(this, _Sim_instances, visit_fn).call(this, state, node))
+              return;
+            for (const o of node.out)
+              this.add(state, o, i, top);
+            return;
+          case "neg":
+            if (!__privateMethod(this, _Sim_instances, visit_fn).call(this, state, node))
+              return;
+            const sub = this.state();
+            this.add(sub, node.sub, i, false);
+            this.done(sub);
+            return this.addRun(state, { t: "run", neg: node, state: sub }, i, top);
+          case "star":
+            if (this.restricted(i, top))
+              return;
+            if (__privateMethod(this, _Sim_instances, addThread_fn).call(this, state, node))
+              this.add(state, node.next, i, top);
+            return;
+          case "match":
+            state.match = true;
+            return;
+          default:
+            __privateMethod(this, _Sim_instances, addThread_fn).call(this, state, node);
+        }
+      }
+      addRun(state, run, i, top) {
+        for (const r of state.runs) {
+          if (r.neg === run.neg && sameState(r.state, run.state))
+            return;
+        }
+        state.runs.push(run);
+        if (!run.state.match) {
+          this.add(state, run.neg.next, i, top);
+        }
+      }
+      // the threads after char `c`, at index `i`
+      step(state, c, i, top) {
+        const next = this.state();
+        for (const th of state.threads) {
+          switch (th.t) {
+            case "lit":
+              if (litMatch(th, c)) {
+                this.add(next, th.next, i + 1, top);
+              }
+              break;
+            case "any":
+              if (!this.restricted(i, top))
+                this.add(next, th.next, i + 1, top);
+              break;
+            case "class":
+              if (!this.restricted(i, top) && th.re.test(c)) {
+                this.add(next, th.next, i + 1, top);
+              }
+              break;
+            case "star":
+              if (!this.restricted(i, top))
+                this.add(next, th, i + 1, top);
+          }
+        }
+        if (!this.restricted(i, top)) {
+          for (const run of state.runs) {
+            if (run.state.dead) {
+              this.addRun(next, run, i + 1, top);
+              continue;
+            }
+            const sub = this.step(run.state, c, i, false);
+            this.addRun(next, { t: "run", neg: run.neg, state: sub }, i + 1, top);
+          }
+        }
+        return this.done(next);
+      }
+    };
+    _marks = new WeakMap();
+    _Sim_instances = new WeakSet();
+    // true the first time that the state walks through the node, so
+    // that loops in the graph stop
+    visit_fn = function(state, node) {
+      const { seen } = __privateGet(this, _marks);
+      if (seen[node.id] === state.gen)
+        return false;
+      seen[node.id] = state.gen;
+      return true;
+    };
+    addThread_fn = function(state, node) {
+      const { has } = __privateGet(this, _marks);
+      if (has[node.id] === state.gen)
+        return false;
+      has[node.id] = state.gen;
+      state.threads.push(node);
+      return true;
+    };
+    var stateKey = (state) => {
+      const ids = state.ids.join();
+      if (!state.runs.length)
+        return ids;
+      const runs = state.runs.map((r) => `${r.neg.id}(${stateKey(r.state)})`);
+      return `${ids}|${runs.sort().join("|")}`;
+    };
+    var DFA_BUDGET = 1 << 18;
+    var _start, _states, _size, _plain, _dotStart, _sim, _dotSim, _Dfa_instances, make_fn, intern_fn, clear_fn;
+    var Dfa = class {
+      constructor(start, marks2) {
+        __privateAdd(this, _Dfa_instances);
+        __privateAdd(this, _start);
+        __privateAdd(this, _states, /* @__PURE__ */ new Map());
+        __privateAdd(this, _size, 0);
+        __privateAdd(this, _plain);
+        __privateAdd(this, _dotStart);
+        __privateAdd(this, _sim);
+        __privateAdd(this, _dotSim);
+        __privateSet(this, _start, start);
+        __privateSet(this, _sim, new Sim(false, false, marks2));
+        __privateSet(this, _dotSim, new Sim(false, true, marks2));
+      }
+      start(dotStart) {
+        if (dotStart) {
+          if (__privateGet(this, _dotStart))
+            return __privateGet(this, _dotStart);
+          const state2 = __privateGet(this, _dotSim).state();
+          __privateGet(this, _dotSim).add(state2, __privateGet(this, _start), 0, true);
+          return __privateSet(this, _dotStart, __privateMethod(this, _Dfa_instances, make_fn).call(this, __privateGet(this, _dotSim).done(state2)));
+        }
+        if (__privateGet(this, _plain))
+          return __privateGet(this, _plain);
+        const state = __privateGet(this, _sim).state();
+        __privateGet(this, _sim).add(state, __privateGet(this, _start), 0, true);
+        return __privateSet(this, _plain, __privateMethod(this, _Dfa_instances, intern_fn).call(this, __privateGet(this, _sim).done(state)));
+      }
+      // the next state, after a miss in `d.ascii`
+      next(d, c) {
+        const code = c.charCodeAt(0);
+        const found = code < 128 ? void 0 : d.next.get(c);
+        if (found)
+          return found;
+        const n = d === __privateGet(this, _dotStart) ? __privateMethod(this, _Dfa_instances, intern_fn).call(this, __privateGet(this, _dotSim).step(d.state, c, 0, true)) : __privateMethod(this, _Dfa_instances, intern_fn).call(this, __privateGet(this, _sim).step(d.state, c, 1, true));
+        if (code < 128) {
+          if (!d.ascii) {
+            d.ascii = new Array(128);
+            __privateSet(this, _size, __privateGet(this, _size) + 128);
+          }
+          d.ascii[code] = n;
+        } else {
+          d.next.set(c, n);
+        }
+        __privateWrapper(this, _size)._++;
+        return n;
+      }
+    };
+    _start = new WeakMap();
+    _states = new WeakMap();
+    _size = new WeakMap();
+    _plain = new WeakMap();
+    _dotStart = new WeakMap();
+    _sim = new WeakMap();
+    _dotSim = new WeakMap();
+    _Dfa_instances = new WeakSet();
+    make_fn = function(state) {
+      return {
+        state,
+        match: state.match,
+        dead: state.dead,
+        next: /* @__PURE__ */ new Map()
+      };
+    };
+    intern_fn = function(state) {
+      const key = stateKey(state);
+      const found = __privateGet(this, _states).get(key);
+      if (found)
+        return found;
+      if (__privateGet(this, _size) > DFA_BUDGET)
+        __privateMethod(this, _Dfa_instances, clear_fn).call(this);
+      const d = __privateMethod(this, _Dfa_instances, make_fn).call(this, state);
+      __privateGet(this, _states).set(key, d);
+      __privateSet(this, _size, __privateGet(this, _size) + (key.length + 1));
+      return d;
+    };
+    clear_fn = function() {
+      __privateGet(this, _states).clear();
+      __privateSet(this, _size, 0);
+      __privateSet(this, _plain, void 0);
+      __privateSet(this, _dotStart, void 0);
+    };
+    var linear = (start) => {
+      const nodes = [];
+      for (let n = start; n.t !== "match"; n = n.next) {
+        if (n.t === "split" || n.t === "neg")
+          return void 0;
+        nodes.push(n);
+      }
+      return nodes;
+    };
+    var testLinear = (nodes, chars, start, end) => {
+      let ni = 0;
+      let ci = start;
+      let starNi = -1;
+      let starCi = 0;
+      while (ci < end) {
+        const n = nodes[ni];
+        if (n?.t === "star") {
+          starNi = ni++;
+          starCi = ci;
+          continue;
+        }
+        const c = chars[ci];
+        if (n && (n.t === "any" || n.t === "lit" && litMatch(n, c) || n.t === "class" && n.re.test(c))) {
+          ni++;
+          ci++;
+          continue;
+        }
+        if (starNi === -1)
+          return false;
+        ni = starNi + 1;
+        ci = ++starCi;
+      }
+      while (nodes[ni]?.t === "star")
+        ni++;
+      return ni === nodes.length;
+    };
+    var lengths = (items) => {
+      let min = 0;
+      let max = 0;
+      for (const it of items) {
+        const [lo, hi] = itemLengths(it);
+        min += lo;
+        max += hi;
+      }
+      return [min, max];
+    };
+    var itemLengths = (it) => {
+      if (it.t === "star")
+        return [0, Infinity];
+      if (it.t !== "ext")
+        return [1, 1];
+      if (it.type === "!")
+        return [0, Infinity];
+      const alts = it.alts.map(lengths);
+      const min = Math.min(...alts.map((a) => a[0]));
+      const max = Math.max(...alts.map((a) => a[1]));
+      const loop = max === 0 ? 0 : Infinity;
+      return it.type === "@" ? [min, max] : it.type === "?" ? [0, max] : it.type === "*" ? [0, loop] : [min, loop];
+    };
+    var hasAffix = (lits, chars, start) => {
+      for (let j = 0; j < lits.length; j++) {
+        if (!litMatch(lits[j], chars[start + j]))
+          return false;
+      }
+      return true;
+    };
+    var slashOrSurrogate = /[/\ud800-\udfff]/;
+    var surrogate = /[\ud800-\udfff]/;
+    var codePoints = (s) => surrogate.test(s) ? [...s] : s;
+    var noSlash = (s) => {
+      if (s.includes("/")) {
+        throw new Error("can only match a single path portion, got: " + s);
+      }
+    };
+    var _start2, _size2, _marks2, _dotsSim, _literal, _literalFold, _literalRe, _linear, _wild, _min, _max, _prefix, _suffix, _prefixStr, _suffixStr, _affix, _dfa, _form, _Matcher_instances, test_fn;
+    var Matcher = class {
+      constructor(pattern, options = {}) {
+        __privateAdd(this, _Matcher_instances);
+        __publicField(this, "pattern");
+        __publicField(this, "options");
+        __privateAdd(this, _start2);
+        // the number of node ids
+        __privateAdd(this, _size2);
+        __privateAdd(this, _marks2);
+        // the Sim for strings that are only `.` or `..`
+        __privateAdd(this, _dotsSim);
+        // the string to compare, if the pattern has no magic. With
+        // `nocase:true`, the RegExp that folds case is made when it is
+        // first used.
+        __privateAdd(this, _literal);
+        __privateAdd(this, _literalFold, false);
+        __privateAdd(this, _literalRe);
+        // the nodes between the prefix and suffix, if the graph is a
+        // single chain
+        __privateAdd(this, _linear);
+        // the linear nodes are only `*` and `?`, so the length bounds and
+        // the prefix and suffix decide the match
+        __privateAdd(this, _wild, false);
+        // the least and most chars that a match can have
+        __privateAdd(this, _min, 0);
+        __privateAdd(this, _max, Infinity);
+        // the literals that a match must start and end with. Each one
+        // matches exactly one char, and they are distinct items in the
+        // pattern, so a string that does not have them can not match.
+        __privateAdd(this, _prefix, []);
+        __privateAdd(this, _suffix, []);
+        // the prefix and suffix as strings, if they do not fold case
+        __privateAdd(this, _prefixStr);
+        __privateAdd(this, _suffixStr);
+        // there is a prefix or suffix to check
+        __privateAdd(this, _affix, false);
+        __privateAdd(this, _dfa);
+        __privateAdd(this, _form);
+        if (pattern.includes("/")) {
+          throw new Error("can only match a single path portion, got pattern: " + pattern);
+        }
+        this.pattern = pattern;
+        this.options = options;
+        const { nocase = false, noext = false, normalize: n } = options;
+        __privateSet(this, _form, n === true ? "NFC" : n || void 0);
+        const literal = /^[?*+@]\(\)$/.test(pattern);
+        const toks = tokenize(pattern, nocase, noext || literal, __privateGet(this, _form));
+        let [items] = build(toks, pair(toks), 0, toks.length, true);
+        if (__privateGet(this, _form))
+          items = normalize(items, __privateGet(this, _form));
+        const [start, size] = compile(items, nocase);
+        __privateSet(this, _start2, start);
+        __privateSet(this, _size2, size);
+        if (items.every((it) => it.t === "lit")) {
+          __privateSet(this, _literal, items.map((it) => it.ch).join(""));
+          __privateSet(this, _literalFold, nocase);
+        } else {
+          const lit2 = (it) => it.t !== "lit" ? void 0 : nocase ? { ch: it.ch, re: foldRe(it.ch) } : { ch: it.ch };
+          for (const it of items) {
+            const l = lit2(it);
+            if (!l)
+              break;
+            __privateGet(this, _prefix).push(l);
+          }
+          for (let j = items.length - 1; j >= 0; j--) {
+            const l = lit2(items[j]);
+            if (!l)
+              break;
+            __privateGet(this, _suffix).unshift(l);
+          }
+          __privateSet(this, _affix, !!(__privateGet(this, _prefix).length || __privateGet(this, _suffix).length));
+          if (!nocase) {
+            __privateSet(this, _prefixStr, __privateGet(this, _prefix).map((l) => l.ch).join(""));
+            __privateSet(this, _suffixStr, __privateGet(this, _suffix).map((l) => l.ch).join(""));
+          }
+          __privateSet(this, _linear, linear(__privateGet(this, _start2))?.slice(__privateGet(this, _prefix).length, -__privateGet(this, _suffix).length || void 0));
+          __privateSet(this, _wild, !!__privateGet(this, _linear)?.every((n2) => n2.t === "star" || n2.t === "any"));
+          const [min, max] = lengths(items);
+          __privateSet(this, _min, min);
+          __privateSet(this, _max, max);
+        }
+      }
+      test(s) {
+        if (__privateGet(this, _form)) {
+          noSlash(s);
+          return __privateMethod(this, _Matcher_instances, test_fn).call(this, s.normalize(__privateGet(this, _form)));
+        }
+        if (slashOrSurrogate.test(s)) {
+          noSlash(s);
+          return __privateMethod(this, _Matcher_instances, test_fn).call(this, s, [...s]);
+        }
+        return __privateMethod(this, _Matcher_instances, test_fn).call(this, s, s);
+      }
+      /**
+       * The same as {@link Matcher#test}, but the string is not checked
+       * for `/` chars, so the result for a string that has one is not
+       * defined. Only use it for a string that is known to be one path
+       * portion, such as a part of a path that was split on `/`. It can
+       * be faster, because some patterns do not need to look at each char
+       * of the string.
+       */
+      testUnchecked(s) {
+        return __privateMethod(this, _Matcher_instances, test_fn).call(this, __privateGet(this, _form) ? s.normalize(__privateGet(this, _form)) : s);
+      }
+      /** a readable listing of the state machine */
+      toString() {
+        return show(__privateGet(this, _start2));
+      }
+    };
+    _start2 = new WeakMap();
+    _size2 = new WeakMap();
+    _marks2 = new WeakMap();
+    _dotsSim = new WeakMap();
+    _literal = new WeakMap();
+    _literalFold = new WeakMap();
+    _literalRe = new WeakMap();
+    _linear = new WeakMap();
+    _wild = new WeakMap();
+    _min = new WeakMap();
+    _max = new WeakMap();
+    _prefix = new WeakMap();
+    _suffix = new WeakMap();
+    _prefixStr = new WeakMap();
+    _suffixStr = new WeakMap();
+    _affix = new WeakMap();
+    _dfa = new WeakMap();
+    _form = new WeakMap();
+    _Matcher_instances = new WeakSet();
+    // Test a string that has no `/`. `chars` indexes it by code point.
+    // If it is not given, it is only found if a step needs it.
+    test_fn = function(s, chars) {
+      if (__privateGet(this, _literal) !== void 0) {
+        return __privateGet(this, _literalFold) ? (__privateGet(this, _literalRe) ?? __privateSet(this, _literalRe, newFoldRe(__privateGet(this, _literal)))).test(s) : s === __privateGet(this, _literal);
+      }
+      const min = __privateGet(this, _min);
+      const max = __privateGet(this, _max);
+      if (chars === void 0) {
+        const most = s.length;
+        const least = most + 1 >> 1;
+        if (most < min || least > max)
+          return false;
+        if (least < min || most > max)
+          chars = codePoints(s);
+      }
+      if (chars !== void 0 && (chars.length < min || chars.length > max)) {
+        return false;
+      }
+      const prefix = __privateGet(this, _prefix).length;
+      if (__privateGet(this, _affix)) {
+        if (__privateGet(this, _prefixStr) !== void 0 && __privateGet(this, _suffixStr) !== void 0) {
+          if (!s.startsWith(__privateGet(this, _prefixStr)) || !s.endsWith(__privateGet(this, _suffixStr))) {
+            return false;
           }
         } else {
-          N = [];
-          for (let j = 0; j < n.length; j++) {
-            N.push.apply(N, expand_(n[j], max, false));
+          chars ?? (chars = codePoints(s));
+          const end = chars.length - __privateGet(this, _suffix).length;
+          if (!hasAffix(__privateGet(this, _prefix), chars, 0) || !hasAffix(__privateGet(this, _suffix), chars, end)) {
+            return false;
           }
         }
-        for (let j = 0; j < N.length; j++) {
-          for (let k = 0; k < post.length && expansions.length < max; k++) {
-            const expansion = pre + N[j] + post[k];
-            if (!isTop || isSequence || expansion) {
-              expansions.push(expansion);
-            }
-          }
-        }
-        return expansions;
       }
-    }
+      const dotStart = !this.options.dot && s.startsWith(".");
+      if (__privateGet(this, _linear)) {
+        if (s === "." || s === "..")
+          return false;
+        if (dotStart && !prefix)
+          return false;
+        if (__privateGet(this, _wild))
+          return true;
+        chars ?? (chars = codePoints(s));
+        const end = chars.length - __privateGet(this, _suffix).length;
+        return testLinear(__privateGet(this, _linear), chars, prefix, end);
+      }
+      chars ?? (chars = codePoints(s));
+      if (s === "." || s === "..") {
+        __privateGet(this, _marks2) ?? __privateSet(this, _marks2, marks(__privateGet(this, _size2)));
+        const sim = __privateGet(this, _dotsSim) ?? __privateSet(this, _dotsSim, new Sim(true, false, __privateGet(this, _marks2)));
+        const start = sim.state();
+        sim.add(start, __privateGet(this, _start2), 0, true);
+        let state = sim.done(start);
+        for (let i = 0; i < chars.length; i++) {
+          state = sim.step(state, chars[i], i, true);
+        }
+        return state.match;
+      }
+      __privateGet(this, _marks2) ?? __privateSet(this, _marks2, marks(__privateGet(this, _size2)));
+      const dfa = __privateGet(this, _dfa) ?? __privateSet(this, _dfa, new Dfa(__privateGet(this, _start2), __privateGet(this, _marks2)));
+      let d = dfa.start(dotStart);
+      const str = chars === s;
+      for (let i = 0; i < chars.length; i++) {
+        if (d.dead)
+          return false;
+        const code = str ? s.charCodeAt(i) : chars[i].charCodeAt(0);
+        d = d.ascii?.[code] ?? dfa.next(d, chars[i]);
+      }
+      return d.match;
+    };
+    exports2.Matcher = Matcher;
   }
 });
 
@@ -10531,121 +11262,19 @@ var require_assert_valid_pattern = __commonJS({
   }
 });
 
-// ../node_modules/minimatch/dist/commonjs/brace-expressions.js
-var require_brace_expressions = __commonJS({
-  "../node_modules/minimatch/dist/commonjs/brace-expressions.js"(exports2) {
+// ../node_modules/minimatch/dist/commonjs/escape.js
+var require_escape = __commonJS({
+  "../node_modules/minimatch/dist/commonjs/escape.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.parseClass = void 0;
-    var posixClasses = {
-      "[:alnum:]": ["\\p{L}\\p{Nl}\\p{Nd}", true],
-      "[:alpha:]": ["\\p{L}\\p{Nl}", true],
-      "[:ascii:]": ["\\x00-\\x7f", false],
-      "[:blank:]": ["\\p{Zs}\\t", true],
-      "[:cntrl:]": ["\\p{Cc}", true],
-      "[:digit:]": ["\\p{Nd}", true],
-      "[:graph:]": ["\\p{Z}\\p{C}", true, true],
-      "[:lower:]": ["\\p{Ll}", true],
-      "[:print:]": ["\\p{C}", true],
-      "[:punct:]": ["\\p{P}", true],
-      "[:space:]": ["\\p{Z}\\t\\r\\n\\v\\f", true],
-      "[:upper:]": ["\\p{Lu}", true],
-      "[:word:]": ["\\p{L}\\p{Nl}\\p{Nd}\\p{Pc}", true],
-      "[:xdigit:]": ["A-Fa-f0-9", false]
+    exports2.escape = void 0;
+    var escape = (s, { windowsPathsNoEscape = false, magicalBraces = false } = {}) => {
+      if (magicalBraces) {
+        return windowsPathsNoEscape ? s.replace(/[?*()[\]{}]/g, "[$&]") : s.replace(/[?*()[\]\\{}]/g, "\\$&");
+      }
+      return windowsPathsNoEscape ? s.replace(/[?*()[\]]/g, "[$&]") : s.replace(/[?*()[\]\\]/g, "\\$&");
     };
-    var braceEscape = (s) => s.replace(/[[\]\\-]/g, "\\$&");
-    var regexpEscape = (s) => s.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&");
-    var rangesToString = (ranges) => ranges.join("");
-    var parseClass = (glob, position) => {
-      const pos = position;
-      if (glob.charAt(pos) !== "[") {
-        throw new Error("not in a brace expression");
-      }
-      const ranges = [];
-      const negs = [];
-      let i = pos + 1;
-      let sawStart = false;
-      let uflag = false;
-      let escaping = false;
-      let negate = false;
-      let endPos = pos;
-      let rangeStart = "";
-      WHILE:
-        while (i < glob.length) {
-          const c = glob.charAt(i);
-          if ((c === "!" || c === "^") && i === pos + 1) {
-            negate = true;
-            i++;
-            continue;
-          }
-          if (c === "]" && sawStart && !escaping) {
-            endPos = i + 1;
-            break;
-          }
-          sawStart = true;
-          if (c === "\\") {
-            if (!escaping) {
-              escaping = true;
-              i++;
-              continue;
-            }
-          }
-          if (c === "[" && !escaping) {
-            for (const [cls, [unip, u, neg]] of Object.entries(posixClasses)) {
-              if (glob.startsWith(cls, i)) {
-                if (rangeStart) {
-                  return ["$.", false, glob.length - pos, true];
-                }
-                i += cls.length;
-                if (neg)
-                  negs.push(unip);
-                else
-                  ranges.push(unip);
-                uflag = uflag || u;
-                continue WHILE;
-              }
-            }
-          }
-          escaping = false;
-          if (rangeStart) {
-            if (c > rangeStart) {
-              ranges.push(braceEscape(rangeStart) + "-" + braceEscape(c));
-            } else if (c === rangeStart) {
-              ranges.push(braceEscape(c));
-            }
-            rangeStart = "";
-            i++;
-            continue;
-          }
-          if (glob.startsWith("-]", i + 1)) {
-            ranges.push(braceEscape(c + "-"));
-            i += 2;
-            continue;
-          }
-          if (glob.startsWith("-", i + 1)) {
-            rangeStart = c;
-            i += 2;
-            continue;
-          }
-          ranges.push(braceEscape(c));
-          i++;
-        }
-      if (endPos < i) {
-        return ["", false, 0, false];
-      }
-      if (!ranges.length && !negs.length) {
-        return ["$.", false, glob.length - pos, true];
-      }
-      if (negs.length === 0 && ranges.length === 1 && /^\\?.$/.test(ranges[0]) && !negate) {
-        const r = ranges[0].length === 2 ? ranges[0].slice(-1) : ranges[0];
-        return [regexpEscape(r), false, endPos - pos, false];
-      }
-      const sranges = "[" + (negate ? "^" : "") + rangesToString(ranges) + "]";
-      const snegs = "[" + (negate ? "" : "^") + rangesToString(negs) + "]";
-      const comb = ranges.length && negs.length ? "(" + sranges + "|" + snegs + ")" : ranges.length ? sranges : snegs;
-      return [comb, uflag, endPos - pos, true];
-    };
-    exports2.parseClass = parseClass;
+    exports2.escape = escape;
   }
 });
 
@@ -10665,727 +11294,15 @@ var require_unescape = __commonJS({
   }
 });
 
-// ../node_modules/minimatch/dist/commonjs/ast.js
-var require_ast = __commonJS({
-  "../node_modules/minimatch/dist/commonjs/ast.js"(exports2) {
-    "use strict";
-    var _a;
-    Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.AST = void 0;
-    var brace_expressions_js_1 = require_brace_expressions();
-    var unescape_js_1 = require_unescape();
-    var types = /* @__PURE__ */ new Set(["!", "?", "+", "*", "@"]);
-    var isExtglobType = (c) => types.has(c);
-    var isExtglobAST = (c) => isExtglobType(c.type);
-    var adoptionMap = /* @__PURE__ */ new Map([
-      ["!", ["@"]],
-      ["?", ["?", "@"]],
-      ["@", ["@"]],
-      ["*", ["*", "+", "?", "@"]],
-      ["+", ["+", "@"]]
-    ]);
-    var adoptionWithSpaceMap = /* @__PURE__ */ new Map([
-      ["!", ["?"]],
-      ["@", ["?"]],
-      ["+", ["?", "*"]]
-    ]);
-    var adoptionAnyMap = /* @__PURE__ */ new Map([
-      ["!", ["?", "@"]],
-      ["?", ["?", "@"]],
-      ["@", ["?", "@"]],
-      ["*", ["*", "+", "?", "@"]],
-      ["+", ["+", "@", "?", "*"]]
-    ]);
-    var usurpMap = /* @__PURE__ */ new Map([
-      ["!", /* @__PURE__ */ new Map([["!", "@"]])],
-      [
-        "?",
-        /* @__PURE__ */ new Map([
-          ["*", "*"],
-          ["+", "*"]
-        ])
-      ],
-      [
-        "@",
-        /* @__PURE__ */ new Map([
-          ["!", "!"],
-          ["?", "?"],
-          ["@", "@"],
-          ["*", "*"],
-          ["+", "+"]
-        ])
-      ],
-      [
-        "+",
-        /* @__PURE__ */ new Map([
-          ["?", "*"],
-          ["*", "*"]
-        ])
-      ]
-    ]);
-    var startNoTraversal = "(?!(?:^|/)\\.\\.?(?:$|/))";
-    var startNoDot = "(?!\\.)";
-    var addPatternStart = /* @__PURE__ */ new Set(["[", "."]);
-    var justDots = /* @__PURE__ */ new Set(["..", "."]);
-    var reSpecials = new Set("().*{}+?[]^$\\!");
-    var regExpEscape = (s) => s.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&");
-    var qmark = "[^/]";
-    var star = qmark + "*?";
-    var starNoEmpty = qmark + "+?";
-    var ID = 0;
-    var _root, _hasMagic, _uflag, _parts, _parent, _parentIndex, _negs, _filledNegs, _options, _toString, _emptyExt, _fillNegs, fillNegs_fn, _parseAST, parseAST_fn, _canAdoptWithSpace, canAdoptWithSpace_fn, _canAdopt, canAdopt_fn, _canAdoptType, canAdoptType_fn, _adoptWithSpace, adoptWithSpace_fn, _adopt, adopt_fn, _canUsurpType, canUsurpType_fn, _canUsurp, canUsurp_fn, _usurp, usurp_fn, _flatten, flatten_fn, _partsToRegExp, partsToRegExp_fn, _parseGlob, parseGlob_fn;
-    var AST = class {
-      constructor(type, parent, options = {}) {
-        __privateAdd(this, _fillNegs);
-        __privateAdd(this, _canAdoptWithSpace);
-        __privateAdd(this, _canAdopt);
-        __privateAdd(this, _canAdoptType);
-        __privateAdd(this, _adoptWithSpace);
-        __privateAdd(this, _adopt);
-        __privateAdd(this, _canUsurpType);
-        __privateAdd(this, _canUsurp);
-        __privateAdd(this, _usurp);
-        __privateAdd(this, _flatten);
-        __privateAdd(this, _partsToRegExp);
-        __publicField(this, "type");
-        __privateAdd(this, _root, void 0);
-        __privateAdd(this, _hasMagic, void 0);
-        __privateAdd(this, _uflag, false);
-        __privateAdd(this, _parts, []);
-        __privateAdd(this, _parent, void 0);
-        __privateAdd(this, _parentIndex, void 0);
-        __privateAdd(this, _negs, void 0);
-        __privateAdd(this, _filledNegs, false);
-        __privateAdd(this, _options, void 0);
-        __privateAdd(this, _toString, void 0);
-        // set to true if it's an extglob with no children
-        // (which really means one child of '')
-        __privateAdd(this, _emptyExt, false);
-        __publicField(this, "id", ++ID);
-        this.type = type;
-        if (type)
-          __privateSet(this, _hasMagic, true);
-        __privateSet(this, _parent, parent);
-        __privateSet(this, _root, __privateGet(this, _parent) ? __privateGet(__privateGet(this, _parent), _root) : this);
-        __privateSet(this, _options, __privateGet(this, _root) === this ? options : __privateGet(__privateGet(this, _root), _options));
-        __privateSet(this, _negs, __privateGet(this, _root) === this ? [] : __privateGet(__privateGet(this, _root), _negs));
-        if (type === "!" && !__privateGet(__privateGet(this, _root), _filledNegs))
-          __privateGet(this, _negs).push(this);
-        __privateSet(this, _parentIndex, __privateGet(this, _parent) ? __privateGet(__privateGet(this, _parent), _parts).length : 0);
-      }
-      get depth() {
-        return (__privateGet(this, _parent)?.depth ?? -1) + 1;
-      }
-      [Symbol.for("nodejs.util.inspect.custom")]() {
-        return {
-          "@@type": "AST",
-          id: this.id,
-          type: this.type,
-          root: __privateGet(this, _root).id,
-          parent: __privateGet(this, _parent)?.id,
-          depth: this.depth,
-          partsLength: __privateGet(this, _parts).length,
-          parts: __privateGet(this, _parts)
-        };
-      }
-      get hasMagic() {
-        if (__privateGet(this, _hasMagic) !== void 0)
-          return __privateGet(this, _hasMagic);
-        for (const p of __privateGet(this, _parts)) {
-          if (typeof p === "string")
-            continue;
-          if (p.type || p.hasMagic)
-            return __privateSet(this, _hasMagic, true);
-        }
-        return __privateGet(this, _hasMagic);
-      }
-      // reconstructs the pattern
-      toString() {
-        return __privateGet(this, _toString) !== void 0 ? __privateGet(this, _toString) : !this.type ? __privateSet(this, _toString, __privateGet(this, _parts).map((p) => String(p)).join("")) : __privateSet(this, _toString, this.type + "(" + __privateGet(this, _parts).map((p) => String(p)).join("|") + ")");
-      }
-      push(...parts) {
-        for (const p of parts) {
-          if (p === "")
-            continue;
-          if (typeof p !== "string" && !(p instanceof _a && __privateGet(p, _parent) === this)) {
-            throw new Error("invalid part: " + p);
-          }
-          __privateGet(this, _parts).push(p);
-        }
-      }
-      toJSON() {
-        const ret = this.type === null ? __privateGet(this, _parts).slice().map((p) => typeof p === "string" ? p : p.toJSON()) : [this.type, ...__privateGet(this, _parts).map((p) => p.toJSON())];
-        if (this.isStart() && !this.type)
-          ret.unshift([]);
-        if (this.isEnd() && (this === __privateGet(this, _root) || __privateGet(__privateGet(this, _root), _filledNegs) && __privateGet(this, _parent)?.type === "!")) {
-          ret.push({});
-        }
-        return ret;
-      }
-      isStart() {
-        if (__privateGet(this, _root) === this)
-          return true;
-        if (!__privateGet(this, _parent)?.isStart())
-          return false;
-        if (__privateGet(this, _parentIndex) === 0)
-          return true;
-        const p = __privateGet(this, _parent);
-        for (let i = 0; i < __privateGet(this, _parentIndex); i++) {
-          const pp = __privateGet(p, _parts)[i];
-          if (!(pp instanceof _a && pp.type === "!")) {
-            return false;
-          }
-        }
-        return true;
-      }
-      isEnd() {
-        if (__privateGet(this, _root) === this)
-          return true;
-        if (__privateGet(this, _parent)?.type === "!")
-          return true;
-        if (!__privateGet(this, _parent)?.isEnd())
-          return false;
-        if (!this.type)
-          return __privateGet(this, _parent)?.isEnd();
-        const pl = __privateGet(this, _parent) ? __privateGet(__privateGet(this, _parent), _parts).length : 0;
-        return __privateGet(this, _parentIndex) === pl - 1;
-      }
-      copyIn(part) {
-        if (typeof part === "string")
-          this.push(part);
-        else
-          this.push(part.clone(this));
-      }
-      clone(parent) {
-        const c = new _a(this.type, parent);
-        for (const p of __privateGet(this, _parts)) {
-          c.copyIn(p);
-        }
-        return c;
-      }
-      static fromGlob(pattern, options = {}) {
-        var _a2;
-        const ast = new _a(null, void 0, options);
-        __privateMethod(_a2 = _a, _parseAST, parseAST_fn).call(_a2, pattern, ast, 0, options, 0);
-        return ast;
-      }
-      // returns the regular expression if there's magic, or the unescaped
-      // string if not.
-      toMMPattern() {
-        if (this !== __privateGet(this, _root))
-          return __privateGet(this, _root).toMMPattern();
-        const glob = this.toString();
-        const [re, body, hasMagic, uflag] = this.toRegExpSource();
-        const anyMagic = hasMagic || __privateGet(this, _hasMagic) || __privateGet(this, _options).nocase && !__privateGet(this, _options).nocaseMagicOnly && glob.toUpperCase() !== glob.toLowerCase();
-        if (!anyMagic) {
-          return body;
-        }
-        const flags = (__privateGet(this, _options).nocase ? "i" : "") + (uflag ? "u" : "");
-        return Object.assign(new RegExp(`^${re}$`, flags), {
-          _src: re,
-          _glob: glob
-        });
-      }
-      get options() {
-        return __privateGet(this, _options);
-      }
-      // returns the string match, the regexp source, whether there's magic
-      // in the regexp (so a regular expression is required) and whether or
-      // not the uflag is needed for the regular expression (for posix classes)
-      // TODO: instead of injecting the start/end at this point, just return
-      // the BODY of the regexp, along with the start/end portions suitable
-      // for binding the start/end in either a joined full-path makeRe context
-      // (where we bind to (^|/), or a standalone matchPart context (where
-      // we bind to ^, and not /).  Otherwise slashes get duped!
-      //
-      // In part-matching mode, the start is:
-      // - if not isStart: nothing
-      // - if traversal possible, but not allowed: ^(?!\.\.?$)
-      // - if dots allowed or not possible: ^
-      // - if dots possible and not allowed: ^(?!\.)
-      // end is:
-      // - if not isEnd(): nothing
-      // - else: $
-      //
-      // In full-path matching mode, we put the slash at the START of the
-      // pattern, so start is:
-      // - if first pattern: same as part-matching mode
-      // - if not isStart(): nothing
-      // - if traversal possible, but not allowed: /(?!\.\.?(?:$|/))
-      // - if dots allowed or not possible: /
-      // - if dots possible and not allowed: /(?!\.)
-      // end is:
-      // - if last pattern, same as part-matching mode
-      // - else nothing
-      //
-      // Always put the (?:$|/) on negated tails, though, because that has to be
-      // there to bind the end of the negated pattern portion, and it's easier to
-      // just stick it in now rather than try to inject it later in the middle of
-      // the pattern.
-      //
-      // We can just always return the same end, and leave it up to the caller
-      // to know whether it's going to be used joined or in parts.
-      // And, if the start is adjusted slightly, can do the same there:
-      // - if not isStart: nothing
-      // - if traversal possible, but not allowed: (?:/|^)(?!\.\.?$)
-      // - if dots allowed or not possible: (?:/|^)
-      // - if dots possible and not allowed: (?:/|^)(?!\.)
-      //
-      // But it's better to have a simpler binding without a conditional, for
-      // performance, so probably better to return both start options.
-      //
-      // Then the caller just ignores the end if it's not the first pattern,
-      // and the start always gets applied.
-      //
-      // But that's always going to be $ if it's the ending pattern, or nothing,
-      // so the caller can just attach $ at the end of the pattern when building.
-      //
-      // So the todo is:
-      // - better detect what kind of start is needed
-      // - return both flavors of starting pattern
-      // - attach $ at the end of the pattern when creating the actual RegExp
-      //
-      // Ah, but wait, no, that all only applies to the root when the first pattern
-      // is not an extglob. If the first pattern IS an extglob, then we need all
-      // that dot prevention biz to live in the extglob portions, because eg
-      // +(*|.x*) can match .xy but not .yx.
-      //
-      // So, return the two flavors if it's #root and the first child is not an
-      // AST, otherwise leave it to the child AST to handle it, and there,
-      // use the (?:^|/) style of start binding.
-      //
-      // Even simplified further:
-      // - Since the start for a join is eg /(?!\.) and the start for a part
-      // is ^(?!\.), we can just prepend (?!\.) to the pattern (either root
-      // or start or whatever) and prepend ^ or / at the Regexp construction.
-      toRegExpSource(allowDot) {
-        const dot = allowDot ?? !!__privateGet(this, _options).dot;
-        if (__privateGet(this, _root) === this) {
-          __privateMethod(this, _flatten, flatten_fn).call(this);
-          __privateMethod(this, _fillNegs, fillNegs_fn).call(this);
-        }
-        if (!isExtglobAST(this)) {
-          const noEmpty = this.isStart() && this.isEnd() && !__privateGet(this, _parts).some((s) => typeof s !== "string");
-          const src = __privateGet(this, _parts).map((p) => {
-            var _a2;
-            const [re, _, hasMagic, uflag] = typeof p === "string" ? __privateMethod(_a2 = _a, _parseGlob, parseGlob_fn).call(_a2, p, __privateGet(this, _hasMagic), noEmpty) : p.toRegExpSource(allowDot);
-            __privateSet(this, _hasMagic, __privateGet(this, _hasMagic) || hasMagic);
-            __privateSet(this, _uflag, __privateGet(this, _uflag) || uflag);
-            return re;
-          }).join("");
-          let start2 = "";
-          if (this.isStart()) {
-            if (typeof __privateGet(this, _parts)[0] === "string") {
-              const dotTravAllowed = __privateGet(this, _parts).length === 1 && justDots.has(__privateGet(this, _parts)[0]);
-              if (!dotTravAllowed) {
-                const aps = addPatternStart;
-                const needNoTrav = (
-                  // dots are allowed, and the pattern starts with [ or .
-                  dot && aps.has(src.charAt(0)) || // the pattern starts with \., and then [ or .
-                  src.startsWith("\\.") && aps.has(src.charAt(2)) || // the pattern starts with \.\., and then [ or .
-                  src.startsWith("\\.\\.") && aps.has(src.charAt(4))
-                );
-                const needNoDot = !dot && !allowDot && aps.has(src.charAt(0));
-                start2 = needNoTrav ? startNoTraversal : needNoDot ? startNoDot : "";
-              }
-            }
-          }
-          let end = "";
-          if (this.isEnd() && __privateGet(__privateGet(this, _root), _filledNegs) && __privateGet(this, _parent)?.type === "!") {
-            end = "(?:$|\\/)";
-          }
-          const final2 = start2 + src + end;
-          return [
-            final2,
-            (0, unescape_js_1.unescape)(src),
-            __privateSet(this, _hasMagic, !!__privateGet(this, _hasMagic)),
-            __privateGet(this, _uflag)
-          ];
-        }
-        const repeated = this.type === "*" || this.type === "+";
-        const start = this.type === "!" ? "(?:(?!(?:" : "(?:";
-        let body = __privateMethod(this, _partsToRegExp, partsToRegExp_fn).call(this, dot);
-        if (this.isStart() && this.isEnd() && !body && this.type !== "!") {
-          const s = this.toString();
-          const me = this;
-          __privateSet(me, _parts, [s]);
-          me.type = null;
-          __privateSet(me, _hasMagic, void 0);
-          return [s, (0, unescape_js_1.unescape)(this.toString()), false, false];
-        }
-        let bodyDotAllowed = !repeated || allowDot || dot || !startNoDot ? "" : __privateMethod(this, _partsToRegExp, partsToRegExp_fn).call(this, true);
-        if (bodyDotAllowed === body) {
-          bodyDotAllowed = "";
-        }
-        if (bodyDotAllowed) {
-          body = `(?:${body})(?:${bodyDotAllowed})*?`;
-        }
-        let final = "";
-        if (this.type === "!" && __privateGet(this, _emptyExt)) {
-          final = (this.isStart() && !dot ? startNoDot : "") + starNoEmpty;
-        } else {
-          const close = this.type === "!" ? (
-            // !() must match something,but !(x) can match ''
-            "))" + (this.isStart() && !dot && !allowDot ? startNoDot : "") + star + ")"
-          ) : this.type === "@" ? ")" : this.type === "?" ? ")?" : this.type === "+" && bodyDotAllowed ? ")" : this.type === "*" && bodyDotAllowed ? `)?` : `)${this.type}`;
-          final = start + body + close;
-        }
-        return [
-          final,
-          (0, unescape_js_1.unescape)(body),
-          __privateSet(this, _hasMagic, !!__privateGet(this, _hasMagic)),
-          __privateGet(this, _uflag)
-        ];
-      }
-    };
-    _root = new WeakMap();
-    _hasMagic = new WeakMap();
-    _uflag = new WeakMap();
-    _parts = new WeakMap();
-    _parent = new WeakMap();
-    _parentIndex = new WeakMap();
-    _negs = new WeakMap();
-    _filledNegs = new WeakMap();
-    _options = new WeakMap();
-    _toString = new WeakMap();
-    _emptyExt = new WeakMap();
-    _fillNegs = new WeakSet();
-    fillNegs_fn = function() {
-      if (this !== __privateGet(this, _root))
-        throw new Error("should only call on root");
-      if (__privateGet(this, _filledNegs))
-        return this;
-      this.toString();
-      __privateSet(this, _filledNegs, true);
-      let n;
-      while (n = __privateGet(this, _negs).pop()) {
-        if (n.type !== "!")
-          continue;
-        let p = n;
-        let pp = __privateGet(p, _parent);
-        while (pp) {
-          for (let i = __privateGet(p, _parentIndex) + 1; !pp.type && i < __privateGet(pp, _parts).length; i++) {
-            for (const part of __privateGet(n, _parts)) {
-              if (typeof part === "string") {
-                throw new Error("string part in extglob AST??");
-              }
-              part.copyIn(__privateGet(pp, _parts)[i]);
-            }
-          }
-          p = pp;
-          pp = __privateGet(p, _parent);
-        }
-      }
-      return this;
-    };
-    _parseAST = new WeakSet();
-    parseAST_fn = function(str, ast, pos, opt, extDepth) {
-      var _a2, _b, _c, _d;
-      const maxDepth = opt.maxExtglobRecursion ?? 2;
-      let escaping = false;
-      let inBrace = false;
-      let braceStart = -1;
-      let braceNeg = false;
-      if (ast.type === null) {
-        let i2 = pos;
-        let acc2 = "";
-        while (i2 < str.length) {
-          const c = str.charAt(i2++);
-          if (escaping || c === "\\") {
-            escaping = !escaping;
-            acc2 += c;
-            continue;
-          }
-          if (inBrace) {
-            if (i2 === braceStart + 1) {
-              if (c === "^" || c === "!") {
-                braceNeg = true;
-              }
-            } else if (c === "]" && !(i2 === braceStart + 2 && braceNeg)) {
-              inBrace = false;
-            }
-            acc2 += c;
-            continue;
-          } else if (c === "[") {
-            inBrace = true;
-            braceStart = i2;
-            braceNeg = false;
-            acc2 += c;
-            continue;
-          }
-          const doRecurse = !opt.noext && isExtglobType(c) && str.charAt(i2) === "(" && extDepth <= maxDepth;
-          if (doRecurse) {
-            ast.push(acc2);
-            acc2 = "";
-            const ext = new _a(c, ast);
-            i2 = __privateMethod(_a2 = _a, _parseAST, parseAST_fn).call(_a2, str, ext, i2, opt, extDepth + 1);
-            ast.push(ext);
-            continue;
-          }
-          acc2 += c;
-        }
-        ast.push(acc2);
-        return i2;
-      }
-      let i = pos + 1;
-      let part = new _a(null, ast);
-      const parts = [];
-      let acc = "";
-      while (i < str.length) {
-        const c = str.charAt(i++);
-        if (escaping || c === "\\") {
-          escaping = !escaping;
-          acc += c;
-          continue;
-        }
-        if (inBrace) {
-          if (i === braceStart + 1) {
-            if (c === "^" || c === "!") {
-              braceNeg = true;
-            }
-          } else if (c === "]" && !(i === braceStart + 2 && braceNeg)) {
-            inBrace = false;
-          }
-          acc += c;
-          continue;
-        } else if (c === "[") {
-          inBrace = true;
-          braceStart = i;
-          braceNeg = false;
-          acc += c;
-          continue;
-        }
-        const doRecurse = !opt.noext && isExtglobType(c) && str.charAt(i) === "(" && /* c8 ignore start - the maxDepth is sufficient here */
-        (extDepth <= maxDepth || ast && __privateMethod(_b = ast, _canAdoptType, canAdoptType_fn).call(_b, c));
-        if (doRecurse) {
-          const depthAdd = ast && __privateMethod(_c = ast, _canAdoptType, canAdoptType_fn).call(_c, c) ? 0 : 1;
-          part.push(acc);
-          acc = "";
-          const ext = new _a(c, part);
-          part.push(ext);
-          i = __privateMethod(_d = _a, _parseAST, parseAST_fn).call(_d, str, ext, i, opt, extDepth + depthAdd);
-          continue;
-        }
-        if (c === "|") {
-          part.push(acc);
-          acc = "";
-          parts.push(part);
-          part = new _a(null, ast);
-          continue;
-        }
-        if (c === ")") {
-          if (acc === "" && __privateGet(ast, _parts).length === 0) {
-            __privateSet(ast, _emptyExt, true);
-          }
-          part.push(acc);
-          acc = "";
-          ast.push(...parts, part);
-          return i;
-        }
-        acc += c;
-      }
-      ast.type = null;
-      __privateSet(ast, _hasMagic, void 0);
-      __privateSet(ast, _parts, [str.substring(pos - 1)]);
-      return i;
-    };
-    _canAdoptWithSpace = new WeakSet();
-    canAdoptWithSpace_fn = function(child) {
-      return __privateMethod(this, _canAdopt, canAdopt_fn).call(this, child, adoptionWithSpaceMap);
-    };
-    _canAdopt = new WeakSet();
-    canAdopt_fn = function(child, map = adoptionMap) {
-      if (!child || typeof child !== "object" || child.type !== null || __privateGet(child, _parts).length !== 1 || this.type === null) {
-        return false;
-      }
-      const gc = __privateGet(child, _parts)[0];
-      if (!gc || typeof gc !== "object" || gc.type === null) {
-        return false;
-      }
-      return __privateMethod(this, _canAdoptType, canAdoptType_fn).call(this, gc.type, map);
-    };
-    _canAdoptType = new WeakSet();
-    canAdoptType_fn = function(c, map = adoptionAnyMap) {
-      return !!map.get(this.type)?.includes(c);
-    };
-    _adoptWithSpace = new WeakSet();
-    adoptWithSpace_fn = function(child, index) {
-      const gc = __privateGet(child, _parts)[0];
-      const blank = new _a(null, gc, this.options);
-      __privateGet(blank, _parts).push("");
-      gc.push(blank);
-      __privateMethod(this, _adopt, adopt_fn).call(this, child, index);
-    };
-    _adopt = new WeakSet();
-    adopt_fn = function(child, index) {
-      const gc = __privateGet(child, _parts)[0];
-      __privateGet(this, _parts).splice(index, 1, ...__privateGet(gc, _parts));
-      for (const p of __privateGet(gc, _parts)) {
-        if (typeof p === "object")
-          __privateSet(p, _parent, this);
-      }
-      __privateSet(this, _toString, void 0);
-    };
-    _canUsurpType = new WeakSet();
-    canUsurpType_fn = function(c) {
-      const m = usurpMap.get(this.type);
-      return !!m?.has(c);
-    };
-    _canUsurp = new WeakSet();
-    canUsurp_fn = function(child) {
-      if (!child || typeof child !== "object" || child.type !== null || __privateGet(child, _parts).length !== 1 || this.type === null || __privateGet(this, _parts).length !== 1) {
-        return false;
-      }
-      const gc = __privateGet(child, _parts)[0];
-      if (!gc || typeof gc !== "object" || gc.type === null) {
-        return false;
-      }
-      return __privateMethod(this, _canUsurpType, canUsurpType_fn).call(this, gc.type);
-    };
-    _usurp = new WeakSet();
-    usurp_fn = function(child) {
-      const m = usurpMap.get(this.type);
-      const gc = __privateGet(child, _parts)[0];
-      const nt = m?.get(gc.type);
-      if (!nt)
-        return false;
-      __privateSet(this, _parts, __privateGet(gc, _parts));
-      for (const p of __privateGet(this, _parts)) {
-        if (typeof p === "object") {
-          __privateSet(p, _parent, this);
-        }
-      }
-      this.type = nt;
-      __privateSet(this, _toString, void 0);
-      __privateSet(this, _emptyExt, false);
-    };
-    _flatten = new WeakSet();
-    flatten_fn = function() {
-      var _a2, _b;
-      if (!isExtglobAST(this)) {
-        for (const p of __privateGet(this, _parts)) {
-          if (typeof p === "object") {
-            __privateMethod(_a2 = p, _flatten, flatten_fn).call(_a2);
-          }
-        }
-      } else {
-        let iterations = 0;
-        let done = false;
-        do {
-          done = true;
-          for (let i = 0; i < __privateGet(this, _parts).length; i++) {
-            const c = __privateGet(this, _parts)[i];
-            if (typeof c === "object") {
-              __privateMethod(_b = c, _flatten, flatten_fn).call(_b);
-              if (__privateMethod(this, _canAdopt, canAdopt_fn).call(this, c)) {
-                done = false;
-                __privateMethod(this, _adopt, adopt_fn).call(this, c, i);
-              } else if (__privateMethod(this, _canAdoptWithSpace, canAdoptWithSpace_fn).call(this, c)) {
-                done = false;
-                __privateMethod(this, _adoptWithSpace, adoptWithSpace_fn).call(this, c, i);
-              } else if (__privateMethod(this, _canUsurp, canUsurp_fn).call(this, c)) {
-                done = false;
-                __privateMethod(this, _usurp, usurp_fn).call(this, c);
-              }
-            }
-          }
-        } while (!done && ++iterations < 10);
-      }
-      __privateSet(this, _toString, void 0);
-    };
-    _partsToRegExp = new WeakSet();
-    partsToRegExp_fn = function(dot) {
-      return __privateGet(this, _parts).map((p) => {
-        if (typeof p === "string") {
-          throw new Error("string type in extglob ast??");
-        }
-        const [re, _, _hasMagic2, uflag] = p.toRegExpSource(dot);
-        __privateSet(this, _uflag, __privateGet(this, _uflag) || uflag);
-        return re;
-      }).filter((p) => !(this.isStart() && this.isEnd()) || !!p).join("|");
-    };
-    _parseGlob = new WeakSet();
-    parseGlob_fn = function(glob, hasMagic, noEmpty = false) {
-      let escaping = false;
-      let re = "";
-      let uflag = false;
-      let inStar = false;
-      for (let i = 0; i < glob.length; i++) {
-        const c = glob.charAt(i);
-        if (escaping) {
-          escaping = false;
-          re += (reSpecials.has(c) ? "\\" : "") + c;
-          continue;
-        }
-        if (c === "*") {
-          if (inStar)
-            continue;
-          inStar = true;
-          re += noEmpty && /^[*]+$/.test(glob) ? starNoEmpty : star;
-          hasMagic = true;
-          continue;
-        } else {
-          inStar = false;
-        }
-        if (c === "\\") {
-          if (i === glob.length - 1) {
-            re += "\\\\";
-          } else {
-            escaping = true;
-          }
-          continue;
-        }
-        if (c === "[") {
-          const [src, needUflag, consumed, magic] = (0, brace_expressions_js_1.parseClass)(glob, i);
-          if (consumed) {
-            re += src;
-            uflag = uflag || needUflag;
-            i += consumed - 1;
-            hasMagic = hasMagic || magic;
-            continue;
-          }
-        }
-        if (c === "?") {
-          re += qmark;
-          hasMagic = true;
-          continue;
-        }
-        re += regExpEscape(c);
-      }
-      return [re, (0, unescape_js_1.unescape)(glob), !!hasMagic, uflag];
-    };
-    __privateAdd(AST, _parseAST);
-    __privateAdd(AST, _parseGlob);
-    exports2.AST = AST;
-    _a = AST;
-  }
-});
-
-// ../node_modules/minimatch/dist/commonjs/escape.js
-var require_escape = __commonJS({
-  "../node_modules/minimatch/dist/commonjs/escape.js"(exports2) {
-    "use strict";
-    Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.escape = void 0;
-    var escape = (s, { windowsPathsNoEscape = false, magicalBraces = false } = {}) => {
-      if (magicalBraces) {
-        return windowsPathsNoEscape ? s.replace(/[?*()[\]{}]/g, "[$&]") : s.replace(/[?*()[\]\\{}]/g, "\\$&");
-      }
-      return windowsPathsNoEscape ? s.replace(/[?*()[\]]/g, "[$&]") : s.replace(/[?*()[\]\\]/g, "\\$&");
-    };
-    exports2.escape = escape;
-  }
-});
-
 // ../node_modules/minimatch/dist/commonjs/index.js
-var require_commonjs3 = __commonJS({
+var require_commonjs4 = __commonJS({
   "../node_modules/minimatch/dist/commonjs/index.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
-    exports2.unescape = exports2.escape = exports2.AST = exports2.Minimatch = exports2.match = exports2.makeRe = exports2.braceExpand = exports2.defaults = exports2.filter = exports2.GLOBSTAR = exports2.sep = exports2.minimatch = void 0;
+    exports2.unescape = exports2.escape = exports2.Minimatch = exports2.match = exports2.braceExpand = exports2.defaults = exports2.filter = exports2.GLOBSTAR = exports2.sep = exports2.minimatch = void 0;
     var brace_expansion_1 = require_commonjs2();
+    var nonrecursive_glob_match_1 = require_commonjs3();
     var assert_valid_pattern_js_1 = require_assert_valid_pattern();
-    var ast_js_1 = require_ast();
     var escape_js_1 = require_escape();
     var unescape_js_1 = require_unescape();
     var minimatch = (p, pattern, options = {}) => {
@@ -11393,72 +11310,34 @@ var require_commonjs3 = __commonJS({
       if (!options.nocomment && pattern.charAt(0) === "#") {
         return false;
       }
-      return new Minimatch(pattern, options).match(p);
+      return cachedMinimatch(pattern, options).match(p);
     };
     exports2.minimatch = minimatch;
-    var starDotExtRE = /^\*+([^+@!?*[(]*)$/;
-    var starDotExtTest = (ext2) => (f) => !f.startsWith(".") && f.endsWith(ext2);
-    var starDotExtTestDot = (ext2) => (f) => f.endsWith(ext2);
-    var starDotExtTestNocase = (ext2) => {
-      ext2 = ext2.toLowerCase();
-      return (f) => !f.startsWith(".") && f.toLowerCase().endsWith(ext2);
+    var cache = /* @__PURE__ */ new Map();
+    var cacheMax = 256;
+    var cachedMinimatch = (pattern, options) => {
+      const key = pattern + "\0" + JSON.stringify(options);
+      let mm = cache.get(key);
+      if (mm) {
+        cache.delete(key);
+      } else {
+        mm = new Minimatch(pattern, { ...options });
+        if (cache.size >= cacheMax) {
+          cache.delete(cache.keys().next().value);
+        }
+      }
+      cache.set(key, mm);
+      return mm;
     };
-    var starDotExtTestNocaseDot = (ext2) => {
-      ext2 = ext2.toLowerCase();
-      return (f) => f.toLowerCase().endsWith(ext2);
-    };
-    var starDotStarRE = /^\*+\.\*+$/;
-    var starDotStarTest = (f) => !f.startsWith(".") && f.includes(".");
-    var starDotStarTestDot = (f) => f !== "." && f !== ".." && f.includes(".");
-    var dotStarRE = /^\.\*+$/;
-    var dotStarTest = (f) => f !== "." && f !== ".." && f.startsWith(".");
-    var starRE = /^\*+$/;
-    var starTest = (f) => f.length !== 0 && !f.startsWith(".");
-    var starTestDot = (f) => f.length !== 0 && f !== "." && f !== "..";
-    var qmarksRE = /^\?+([^+@!?*[(]*)?$/;
-    var qmarksTestNocase = ([$0, ext2 = ""]) => {
-      const noext = qmarksTestNoExt([$0]);
-      if (!ext2)
-        return noext;
-      ext2 = ext2.toLowerCase();
-      return (f) => noext(f) && f.toLowerCase().endsWith(ext2);
-    };
-    var qmarksTestNocaseDot = ([$0, ext2 = ""]) => {
-      const noext = qmarksTestNoExtDot([$0]);
-      if (!ext2)
-        return noext;
-      ext2 = ext2.toLowerCase();
-      return (f) => noext(f) && f.toLowerCase().endsWith(ext2);
-    };
-    var qmarksTestDot = ([$0, ext2 = ""]) => {
-      const noext = qmarksTestNoExtDot([$0]);
-      return !ext2 ? noext : (f) => noext(f) && f.endsWith(ext2);
-    };
-    var qmarksTest = ([$0, ext2 = ""]) => {
-      const noext = qmarksTestNoExt([$0]);
-      return !ext2 ? noext : (f) => noext(f) && f.endsWith(ext2);
-    };
-    var qmarksTestNoExt = ([$0]) => {
-      const len = $0.length;
-      return (f) => f.length === len && !f.startsWith(".");
-    };
-    var qmarksTestNoExtDot = ([$0]) => {
-      const len = $0.length;
-      return (f) => f.length === len && f !== "." && f !== "..";
-    };
-    var defaultPlatform = typeof process === "object" && process ? typeof process.env === "object" && process.env && process.env.__MINIMATCH_TESTING_PLATFORM__ || process.platform : "posix";
+    var defaultPlatform = typeof process === "object" && process ? process.env?.__MINIMATCH_TESTING_PLATFORM__ || process.platform : "posix";
     var path2 = {
       win32: { sep: "\\" },
       posix: { sep: "/" }
     };
     exports2.sep = defaultPlatform === "win32" ? path2.win32.sep : path2.posix.sep;
     exports2.minimatch.sep = exports2.sep;
-    exports2.GLOBSTAR = Symbol("globstar **");
+    exports2.GLOBSTAR = /* @__PURE__ */ Symbol("globstar **");
     exports2.minimatch.GLOBSTAR = exports2.GLOBSTAR;
-    var qmark = "[^/]";
-    var star = qmark + "*?";
-    var twoStarDot = "(?:(?!(?:\\/|^)(?:\\.{1,2})($|\\/)).)*?";
-    var twoStarNoDot = "(?:(?!(?:\\/|^)\\.).)*?";
     var filter = (pattern, options = {}) => (p) => (0, exports2.minimatch)(p, pattern, options);
     exports2.filter = filter;
     exports2.minimatch.filter = exports2.filter;
@@ -11478,21 +11357,10 @@ var require_commonjs3 = __commonJS({
             return orig.defaults(ext(def, options)).Minimatch;
           }
         },
-        AST: class AST extends orig.AST {
-          /* c8 ignore start */
-          constructor(type, parent, options = {}) {
-            super(type, parent, ext(def, options));
-          }
-          /* c8 ignore stop */
-          static fromGlob(pattern, options = {}) {
-            return orig.AST.fromGlob(pattern, ext(def, options));
-          }
-        },
         unescape: (s, options = {}) => orig.unescape(s, ext(def, options)),
         escape: (s, options = {}) => orig.escape(s, ext(def, options)),
         filter: (pattern, options = {}) => orig.filter(pattern, ext(def, options)),
         defaults: (options) => orig.defaults(ext(def, options)),
-        makeRe: (pattern, options = {}) => orig.makeRe(pattern, ext(def, options)),
         braceExpand: (pattern, options = {}) => orig.braceExpand(pattern, ext(def, options)),
         match: (list, pattern, options = {}) => orig.match(list, pattern, ext(def, options)),
         sep: orig.sep,
@@ -11510,9 +11378,6 @@ var require_commonjs3 = __commonJS({
     };
     exports2.braceExpand = braceExpand;
     exports2.minimatch.braceExpand = exports2.braceExpand;
-    var makeRe = (pattern, options = {}) => new Minimatch(pattern, options).makeRe();
-    exports2.makeRe = makeRe;
-    exports2.minimatch.makeRe = exports2.makeRe;
     var match = (list, pattern, options = {}) => {
       const mm = new Minimatch(pattern, options);
       list = list.filter((f) => mm.match(f));
@@ -11524,15 +11389,126 @@ var require_commonjs3 = __commonJS({
     exports2.match = match;
     exports2.minimatch.match = exports2.match;
     var globMagic = /[?*]|[+@!]\(.*?\)|\[|\]/;
-    var regExpEscape = (s) => s.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&");
-    var _matchGlobstar, matchGlobstar_fn, _matchGlobStarBodySections, matchGlobStarBodySections_fn, _matchOne, matchOne_fn;
+    var classEnd = (pattern, start) => {
+      let i = start + 1;
+      if (pattern.charAt(i) === "!" || pattern.charAt(i) === "^")
+        i++;
+      let sawStart = false;
+      for (; i < pattern.length; i++) {
+        const c = pattern.charAt(i);
+        if (c === "]" && sawStart)
+          return i;
+        sawStart = true;
+        if (c === "\\")
+          i++;
+      }
+      return -1;
+    };
+    var literal = (pattern, noext) => {
+      if (!noext && (pattern === "+()" || pattern === "@()"))
+        return pattern;
+      let lit = "";
+      for (let i = 0; i < pattern.length; i++) {
+        const c = pattern.charAt(i);
+        if (c === "\\") {
+          lit += pattern.charAt(++i) || c;
+        } else if (c === "*" || c === "?") {
+          return void 0;
+        } else if (c === "[") {
+          const close = classEnd(pattern, i);
+          if (close === -1) {
+            lit += c;
+            continue;
+          }
+          let body = pattern.slice(i + 1, close);
+          if (body.startsWith("\\"))
+            body = body.slice(1);
+          if ([...body].length !== 1 || "!^".includes(pattern.charAt(i + 1))) {
+            return void 0;
+          }
+          lit += body;
+          i = close;
+        } else if (!noext && "+@!".includes(c) && pattern.charAt(i + 1) === "(" && pattern.includes(")", i + 2)) {
+          return void 0;
+        } else {
+          lit += c;
+        }
+      }
+      return lit;
+    };
+    var extSafe = (pattern) => {
+      if (/^[?*+@]\(\)$/.test(pattern) || pattern.includes("[:"))
+        return false;
+      let depth = 0;
+      for (let i = 0; i < pattern.length; i++) {
+        const c = pattern.charAt(i);
+        if (c === "\\") {
+          if (++i === pattern.length)
+            return false;
+        } else if (c === "[") {
+          const close = classEnd(pattern, i);
+          if (close !== -1)
+            i = close;
+        } else if ("+@!?*".includes(c) && pattern.charAt(i + 1) === "(") {
+          depth++;
+          i++;
+        } else if (c === ")") {
+          if (!depth--)
+            return false;
+        } else if (c === "|" && !depth) {
+          return false;
+        }
+      }
+      return !depth;
+    };
+    var lastSplit;
+    var lastChecked;
+    var portionMatch = (p, f) => typeof p === "string" ? f === p : f !== "" && p.testUnchecked(f);
+    var endIndex = (p, last, lastStart, prev, prevStart) => portionMatch(p, last) ? lastStart : prev !== void 0 && portionMatch(p, prev) ? prevStart : -1;
+    var isDots = (p) => p === "." || p === "..";
+    var isDrive = (p) => typeof p === "string" && /^[a-z]:$/i.test(p);
+    var isLongUNC = (p) => typeof p === "string" && /^unc$/i.test(p);
+    var uncHost = (p) => {
+      if (p[0] !== "" || p[1] !== "")
+        return -1;
+      const h = p[2] !== "?" ? 2 : isLongUNC(p[3]) ? 4 : -1;
+      const host = p[h];
+      const share = p[h + 1];
+      return h !== -1 && host !== void 0 && host !== "" && host !== exports2.GLOBSTAR && share !== void 0 && share !== "" && share !== exports2.GLOBSTAR ? h : -1;
+    };
+    var walkable = (p, dot) => !isDots(p) && (dot || !p.startsWith("."));
+    var dotPortion = (f, start, end, dot, sep) => {
+      for (let k = start; k < end; ) {
+        if (f.charCodeAt(k) === 46) {
+          if (!dot)
+            return true;
+          const n = f.charCodeAt(k + 1) === 46 ? k + 2 : k + 1;
+          if (n >= end || isSep(f.charCodeAt(n), sep))
+            return true;
+        }
+        const s = nextSep(f, k, sep);
+        if (s === -1)
+          return false;
+        k = s + 1;
+        while (k < end && isSep(f.charCodeAt(k), sep))
+          k++;
+      }
+      return false;
+    };
+    var isSep = (c, sep) => sep === "/" ? c === 47 : sep === "\\" ? c === 92 : c === 47 || c === 92;
+    var nextSep = (f, from, sep) => {
+      if (sep !== "both")
+        return f.indexOf(sep, from);
+      const s = f.indexOf("/", from);
+      const b = f.indexOf("\\", from);
+      return s === -1 ? b : b === -1 ? s : Math.min(s, b);
+    };
+    var lastSep = (f, from, sep) => sep !== "both" ? f.lastIndexOf(sep, from) : Math.max(f.lastIndexOf("/", from), f.lastIndexOf("\\", from));
+    var PENDING = {};
+    var _endCheck, _literalCheck, _level2, _form, _literals, _shapes, _endRows, _matchers, _pending, _globstarParts, _Minimatch_instances, norm_fn, rootIndex_fn, canMatch_fn, matchShape_fn, walk_fn, cachedSplit_fn, split_fn, levelTwoFileOptimize_fn, matchRow_fn, matchGlobstar_fn, getGlobstarParts_fn, matchGlobStarBodySections_fn, matchOne_fn, slashSplit_fn;
     var Minimatch = class {
       constructor(pattern, options = {}) {
-        __privateAdd(this, _matchGlobstar);
-        // return false for "nope, not matching"
-        // return null for "not matching, cannot keep trying"
-        __privateAdd(this, _matchGlobStarBodySections);
-        __privateAdd(this, _matchOne);
+        __privateAdd(this, _Minimatch_instances);
         __publicField(this, "options");
         __publicField(this, "set");
         __publicField(this, "pattern");
@@ -11550,7 +11526,27 @@ var require_commonjs3 = __commonJS({
         __publicField(this, "platform");
         __publicField(this, "windowsNoMagicRoot");
         __publicField(this, "maxGlobstarRecursion");
-        __publicField(this, "regexp");
+        // the path can be checked against the last portion, and the string
+        // portions, of each row before it is split. See #canMatch.
+        __privateAdd(this, _endCheck);
+        __privateAdd(this, _literalCheck);
+        // level 2 resolves `.` and `..` portions in the path
+        __privateAdd(this, _level2);
+        // the unicode normalization form, if any
+        __privateAdd(this, _form);
+        // the string portions of each row in the set
+        __privateAdd(this, _literals, []);
+        // the rows that #canMatch can match without splitting the path
+        __privateAdd(this, _shapes, []);
+        // the rows whose last portion can be checked against the path's
+        __privateAdd(this, _endRows, []);
+        // brace expansion can make the same portion in many rows, so they
+        // share one Matcher, and the states that it caches
+        __privateAdd(this, _matchers, /* @__PURE__ */ new Map());
+        // parse() returns PENDING in place of a Matcher
+        __privateAdd(this, _pending, false);
+        // the GlobstarParts of each pattern row, by start index and partial
+        __privateAdd(this, _globstarParts, /* @__PURE__ */ new WeakMap());
         (0, assert_valid_pattern_js_1.assertValidPattern)(pattern);
         options = options || {};
         this.options = options;
@@ -11564,7 +11560,6 @@ var require_commonjs3 = __commonJS({
           this.pattern = this.pattern.replace(/\\/g, "/");
         }
         this.preserveMultipleSlashes = !!options.preserveMultipleSlashes;
-        this.regexp = null;
         this.negate = false;
         this.nonegate = !!options.nonegate;
         this.comment = false;
@@ -11575,7 +11570,39 @@ var require_commonjs3 = __commonJS({
         this.globSet = [];
         this.globParts = [];
         this.set = [];
+        __privateSet(this, _endCheck, !this.preserveMultipleSlashes);
+        __privateSet(this, _level2, (options.optimizationLevel ?? 1) >= 2);
+        const n = options.normalize;
+        __privateSet(this, _form, n === true ? "NFC" : n || void 0);
         this.make();
+        const drives = this.set.map((row) => __privateMethod(this, _Minimatch_instances, rootIndex_fn).call(this, row));
+        __privateSet(this, _endRows, this.set.map((row, r) => __privateGet(this, _endCheck) && row.length - 1 > drives[r]));
+        __privateSet(this, _literals, this.set.map((row, r) => {
+          const end = __privateGet(this, _endRows)[r] ? row.length - 1 : row.length;
+          const lits = row.slice(drives[r] + 1, end).filter((p) => typeof p === "string" && !!p);
+          return [...new Set(lits)];
+        }));
+        __privateSet(this, _literalCheck, __privateGet(this, _literals).some((l) => l.length));
+        __privateSet(this, _shapes, this.set.map((row, r) => {
+          const [p0, p1, p2] = row;
+          if (__privateGet(this, _endRows)[r] && row.length === 2) {
+            if (p0 === exports2.GLOBSTAR && p1 !== exports2.GLOBSTAR)
+              return "tail";
+          }
+          if (__privateGet(this, _endRows)[r] && options.matchBase && row.length === 1 && p0 !== exports2.GLOBSTAR && p0 !== "") {
+            return "base";
+          }
+          if (!__privateGet(this, _endCheck) || drives[r] !== -1)
+            return void 0;
+          if (row.length === 3 && p0 === exports2.GLOBSTAR && p2 === exports2.GLOBSTAR && p1 !== exports2.GLOBSTAR && p1 !== "" && // the portion between is only matched below this limit
+          this.maxGlobstarRecursion > 0) {
+            return "mid";
+          }
+          if (row.length === 2 && p1 === exports2.GLOBSTAR && p0 !== exports2.GLOBSTAR && p0 !== "") {
+            return "head";
+          }
+          return void 0;
+        }));
       }
       hasMagic() {
         if (this.options.magicalBraces && this.set.length > 1) {
@@ -11588,8 +11615,6 @@ var require_commonjs3 = __commonJS({
           }
         }
         return false;
-      }
-      debug(..._) {
       }
       make() {
         const pattern = this.pattern;
@@ -11604,39 +11629,93 @@ var require_commonjs3 = __commonJS({
         }
         this.parseNegate();
         this.globSet = [...new Set(this.braceExpand())];
-        if (options.debug) {
-          this.debug = (...args) => console.error(...args);
-        }
-        this.debug(this.pattern, this.globSet);
-        const rawGlobParts = this.globSet.map((s) => this.slashSplit(s));
+        const rawGlobParts = this.globSet.map((s) => __privateMethod(this, _Minimatch_instances, slashSplit_fn).call(this, s));
         this.globParts = this.preprocess(rawGlobParts);
-        this.debug(this.pattern, this.globParts);
+        __privateSet(this, _pending, true);
         let set = this.globParts.map((s, _, __) => {
           if (this.isWindows && this.windowsNoMagicRoot) {
-            const isUNC = s[0] === "" && s[1] === "" && (s[2] === "?" || !globMagic.test(s[2])) && !globMagic.test(s[3]);
-            const isDrive = /^[a-z]:/i.test(s[0]);
+            const n = s[2] === "?" && isLongUNC(s[3]) ? 6 : 4;
+            const isUNC = s[0] === "" && s[1] === "" && (s[2] === "?" || !globMagic.test(s[2])) && s.slice(3, n).every((p) => !globMagic.test(p));
+            const isDrive2 = /^[a-z]:/i.test(s[0]);
             if (isUNC) {
               return [
-                ...s.slice(0, 4),
-                ...s.slice(4).map((ss) => this.parse(ss))
+                ...s.slice(0, n).map((p) => __privateMethod(this, _Minimatch_instances, norm_fn).call(this, p)),
+                ...s.slice(n).map((ss) => this.parse(ss))
               ];
-            } else if (isDrive) {
-              return [s[0], ...s.slice(1).map((ss) => this.parse(ss))];
+            } else if (isDrive2) {
+              return [
+                __privateMethod(this, _Minimatch_instances, norm_fn).call(this, s[0]),
+                ...s.slice(1).map((ss) => this.parse(ss))
+              ];
             }
           }
           return s.map((ss) => this.parse(ss));
         });
-        this.debug(this.pattern, set);
         this.set = set.filter((s) => s.indexOf(false) === -1);
         if (this.isWindows) {
           for (let i = 0; i < this.set.length; i++) {
             const p = this.set[i];
-            if (p[0] === "" && p[1] === "" && this.globParts[i][2] === "?" && typeof p[3] === "string" && /^[a-z]:$/i.test(p[3])) {
+            if (p[0] === "" && p[1] === "" && this.globParts[i][2] === "?" && (isDrive(p[3]) || isLongUNC(this.globParts[i][3]))) {
+              if (isLongUNC(this.globParts[i][3]))
+                p[3] = "UNC";
               p[2] = "?";
             }
           }
         }
-        this.debug(this.pattern, this.set);
+        if (!options.noext)
+          this.mergeRows();
+        __privateSet(this, _pending, false);
+        this.set.forEach((row, i) => {
+          for (let k = 0; k < row.length; k++) {
+            if (row[k] === PENDING) {
+              row[k] = this.parse(this.globParts[i][k]);
+            }
+          }
+        });
+      }
+      // Merge rows that only differ in one portion, where each of them
+      // is a Matcher, into one row that matches any of them with
+      // `@(a|b|...)`. Then a path is only walked once for all of them,
+      // for example with `**/*.{js,ts}`.
+      mergeRows() {
+        let merged = true;
+        while (merged) {
+          merged = false;
+          const len = Math.max(0, ...this.set.map((r) => r.length));
+          for (let k = 0; k < len; k++) {
+            const groups = /* @__PURE__ */ new Map();
+            this.set.forEach((row, i) => {
+              if (!(row[k] instanceof nonrecursive_glob_match_1.Matcher || row[k] === PENDING) || !extSafe(this.globParts[i][k])) {
+                return;
+              }
+              const parts = [...this.globParts[i]];
+              parts[k] = "";
+              const key = `${row.length}/${parts.join("/")}`;
+              const g = groups.get(key);
+              if (g)
+                g.push(i);
+              else
+                groups.set(key, [i]);
+            });
+            const drop = /* @__PURE__ */ new Set();
+            for (const g of groups.values()) {
+              if (g.length < 2)
+                continue;
+              const [first, ...rest] = g;
+              const alts = g.map((i) => this.globParts[i][k]);
+              const glob = `@(${alts.join("|")})`;
+              this.globParts[first][k] = glob;
+              this.set[first][k] = this.parse(glob);
+              for (const i of rest)
+                drop.add(i);
+            }
+            if (drop.size) {
+              merged = true;
+              this.set = this.set.filter((_, i) => !drop.has(i));
+              this.globParts = this.globParts.filter((_, i) => !drop.has(i));
+            }
+          }
+        }
       }
       // various transforms to equivalent pattern sets that are
       // faster to process in a filesystem walk.  The goal is to
@@ -11683,13 +11762,14 @@ var require_commonjs3 = __commonJS({
       // get rid of adjascent ** and resolve .. portions
       levelOneOptimize(globParts) {
         return globParts.map((parts) => {
+          const root = __privateMethod(this, _Minimatch_instances, rootIndex_fn).call(this, parts) + 1;
           parts = parts.reduce((set, part) => {
             const prev = set[set.length - 1];
             if (part === "**" && prev === "**") {
               return set;
             }
             if (part === "..") {
-              if (prev && prev !== ".." && prev !== "." && prev !== "**") {
+              if (set.length > root && prev && prev !== ".." && prev !== "." && prev !== "**") {
                 set.pop();
                 return set;
               }
@@ -11699,41 +11779,6 @@ var require_commonjs3 = __commonJS({
           }, []);
           return parts.length === 0 ? [""] : parts;
         });
-      }
-      levelTwoFileOptimize(parts) {
-        if (!Array.isArray(parts)) {
-          parts = this.slashSplit(parts);
-        }
-        let didSomething = false;
-        do {
-          didSomething = false;
-          if (!this.preserveMultipleSlashes) {
-            for (let i = 1; i < parts.length - 1; i++) {
-              const p = parts[i];
-              if (i === 1 && p === "" && parts[0] === "")
-                continue;
-              if (p === "." || p === "") {
-                didSomething = true;
-                parts.splice(i, 1);
-                i--;
-              }
-            }
-            if (parts[0] === "." && parts.length === 2 && (parts[1] === "." || parts[1] === "")) {
-              didSomething = true;
-              parts.pop();
-            }
-          }
-          let dd = 0;
-          while (-1 !== (dd = parts.indexOf("..", dd + 1))) {
-            const p = parts[dd - 1];
-            if (p && p !== "." && p !== ".." && p !== "**" && !(this.isWindows && /^[a-z]:$/i.test(p))) {
-              didSomething = true;
-              parts.splice(dd - 1, 2);
-              dd -= 2;
-            }
-          }
-        } while (didSomething);
-        return parts.length === 0 ? [""] : parts;
       }
       // First phase: single-pattern processing
       // <pre> is 1 or more portions
@@ -11754,6 +11799,7 @@ var require_commonjs3 = __commonJS({
       // **/*/<rest> -> */**/<rest> <== not valid because ** doesn't follow
       // this WOULD be allowed if ** did follow symlinks, or * didn't
       firstPhasePreProcess(globParts) {
+        const { braceExpandMax = 1e5 } = this.options;
         let didSomething = false;
         do {
           didSomething = false;
@@ -11772,7 +11818,7 @@ var require_commonjs3 = __commonJS({
               const p2 = parts[gs + 3];
               if (next !== "..")
                 continue;
-              if (!p || p === "." || p === ".." || !p2 || p2 === "." || p2 === "..") {
+              if (!p || p === "." || p === ".." || !p2 || p2 === "." || p2 === ".." || globParts.length >= braceExpandMax) {
                 continue;
               }
               didSomething = true;
@@ -11798,7 +11844,8 @@ var require_commonjs3 = __commonJS({
                 parts.pop();
               }
             }
-            let dd = 0;
+            const root = __privateMethod(this, _Minimatch_instances, rootIndex_fn).call(this, parts) + 1;
+            let dd = root;
             while (-1 !== (dd = parts.indexOf("..", dd + 1))) {
               const p = parts[dd - 1];
               if (p && p !== "." && p !== ".." && p !== "**") {
@@ -11808,7 +11855,7 @@ var require_commonjs3 = __commonJS({
                 parts.splice(dd - 1, 2, ...splin);
                 if (parts.length === 0)
                   parts.push("");
-                dd -= 2;
+                dd = Math.max(dd - 2, root);
               }
             }
           }
@@ -11823,6 +11870,8 @@ var require_commonjs3 = __commonJS({
       // {<pre>/**/<rest>,<pre>/**/<p>/<rest>} -> <pre>/**/<rest>
       // ^-- not valid because ** doens't follow symlinks
       secondPhasePreProcess(globParts) {
+        if (globParts.length > 1e3)
+          return globParts;
         for (let i = 0; i < globParts.length - 1; i++) {
           for (let j = i + 1; j < globParts.length; j++) {
             const matched = this.partsMatch(globParts[i], globParts[j], !this.preserveMultipleSlashes);
@@ -11885,42 +11934,6 @@ var require_commonjs3 = __commonJS({
           this.pattern = pattern.slice(negateOffset);
         this.negate = negate;
       }
-      // set partial to true to test if, for example,
-      // "/a/b" matches the start of "/*/b/*/d"
-      // Partial means, if you run out of file before you run
-      // out of pattern, then that's fine, as long as all
-      // the parts match.
-      matchOne(file, pattern, partial = false) {
-        let fileStartIndex = 0;
-        let patternStartIndex = 0;
-        if (this.isWindows) {
-          const fileDrive = typeof file[0] === "string" && /^[a-z]:$/i.test(file[0]);
-          const fileUNC = !fileDrive && file[0] === "" && file[1] === "" && file[2] === "?" && /^[a-z]:$/i.test(file[3]);
-          const patternDrive = typeof pattern[0] === "string" && /^[a-z]:$/i.test(pattern[0]);
-          const patternUNC = !patternDrive && pattern[0] === "" && pattern[1] === "" && pattern[2] === "?" && typeof pattern[3] === "string" && /^[a-z]:$/i.test(pattern[3]);
-          const fdi = fileUNC ? 3 : fileDrive ? 0 : void 0;
-          const pdi = patternUNC ? 3 : patternDrive ? 0 : void 0;
-          if (typeof fdi === "number" && typeof pdi === "number") {
-            const [fd, pd] = [
-              file[fdi],
-              pattern[pdi]
-            ];
-            if (fd.toLowerCase() === pd.toLowerCase()) {
-              pattern[pdi] = fd;
-              patternStartIndex = pdi;
-              fileStartIndex = fdi;
-            }
-          }
-        }
-        const { optimizationLevel = 1 } = this.options;
-        if (optimizationLevel >= 2) {
-          file = this.levelTwoFileOptimize(file);
-        }
-        if (pattern.includes(exports2.GLOBSTAR)) {
-          return __privateMethod(this, _matchGlobstar, matchGlobstar_fn).call(this, file, pattern, partial, fileStartIndex, patternStartIndex);
-        }
-        return __privateMethod(this, _matchOne, matchOne_fn).call(this, file, pattern, partial, fileStartIndex, patternStartIndex);
-      }
       braceExpand() {
         return (0, exports2.braceExpand)(this.pattern, this.options);
       }
@@ -11931,98 +11944,21 @@ var require_commonjs3 = __commonJS({
           return exports2.GLOBSTAR;
         if (pattern === "")
           return "";
-        let m;
-        let fastTest = null;
-        if (m = pattern.match(starRE)) {
-          fastTest = options.dot ? starTestDot : starTest;
-        } else if (m = pattern.match(starDotExtRE)) {
-          fastTest = (options.nocase ? options.dot ? starDotExtTestNocaseDot : starDotExtTestNocase : options.dot ? starDotExtTestDot : starDotExtTest)(m[1]);
-        } else if (m = pattern.match(qmarksRE)) {
-          fastTest = (options.nocase ? options.dot ? qmarksTestNocaseDot : qmarksTestNocase : options.dot ? qmarksTestDot : qmarksTest)(m);
-        } else if (m = pattern.match(starDotStarRE)) {
-          fastTest = options.dot ? starDotStarTestDot : starDotStarTest;
-        } else if (m = pattern.match(dotStarRE)) {
-          fastTest = dotStarTest;
+        const { nocase, nocaseMagicOnly, noext = false, dot, normalize } = options;
+        const lit = literal(pattern, noext);
+        if (lit !== void 0 && !(nocase && !nocaseMagicOnly && pattern.toUpperCase() !== pattern.toLowerCase())) {
+          return __privateMethod(this, _Minimatch_instances, norm_fn).call(this, lit);
         }
-        const re = ast_js_1.AST.fromGlob(pattern, this.options).toMMPattern();
-        if (fastTest && typeof re === "object") {
-          Reflect.defineProperty(re, "test", { value: fastTest });
+        if (__privateGet(this, _pending))
+          return PENDING;
+        let m = __privateGet(this, _matchers).get(pattern);
+        if (!m) {
+          m = new nonrecursive_glob_match_1.Matcher(pattern, { nocase, noext, dot, normalize });
+          __privateGet(this, _matchers).set(pattern, m);
         }
-        return re;
-      }
-      makeRe() {
-        if (this.regexp || this.regexp === false)
-          return this.regexp;
-        const set = this.set;
-        if (!set.length) {
-          this.regexp = false;
-          return this.regexp;
-        }
-        const options = this.options;
-        const twoStar = options.noglobstar ? star : options.dot ? twoStarDot : twoStarNoDot;
-        const flags = new Set(options.nocase ? ["i"] : []);
-        let re = set.map((pattern) => {
-          const pp = pattern.map((p) => {
-            if (p instanceof RegExp) {
-              for (const f of p.flags.split(""))
-                flags.add(f);
-            }
-            return typeof p === "string" ? regExpEscape(p) : p === exports2.GLOBSTAR ? exports2.GLOBSTAR : p._src;
-          });
-          pp.forEach((p, i) => {
-            const next = pp[i + 1];
-            const prev = pp[i - 1];
-            if (p !== exports2.GLOBSTAR || prev === exports2.GLOBSTAR) {
-              return;
-            }
-            if (prev === void 0) {
-              if (next !== void 0 && next !== exports2.GLOBSTAR) {
-                pp[i + 1] = "(?:\\/|" + twoStar + "\\/)?" + next;
-              } else {
-                pp[i] = twoStar;
-              }
-            } else if (next === void 0) {
-              pp[i - 1] = prev + "(?:\\/|\\/" + twoStar + ")?";
-            } else if (next !== exports2.GLOBSTAR) {
-              pp[i - 1] = prev + "(?:\\/|\\/" + twoStar + "\\/)" + next;
-              pp[i + 1] = exports2.GLOBSTAR;
-            }
-          });
-          const filtered = pp.filter((p) => p !== exports2.GLOBSTAR);
-          if (this.partial && filtered.length >= 1) {
-            const prefixes = [];
-            for (let i = 1; i <= filtered.length; i++) {
-              prefixes.push(filtered.slice(0, i).join("/"));
-            }
-            return "(?:" + prefixes.join("|") + ")";
-          }
-          return filtered.join("/");
-        }).join("|");
-        const [open, close] = set.length > 1 ? ["(?:", ")"] : ["", ""];
-        re = "^" + open + re + close + "$";
-        if (this.partial) {
-          re = "^(?:\\/|" + open + re.slice(1, -1) + close + ")$";
-        }
-        if (this.negate)
-          re = "^(?!" + re + ").+$";
-        try {
-          this.regexp = new RegExp(re, [...flags].join(""));
-        } catch {
-          this.regexp = false;
-        }
-        return this.regexp;
-      }
-      slashSplit(p) {
-        if (this.preserveMultipleSlashes) {
-          return p.split("/");
-        } else if (this.isWindows && /^\/\/[^/]+/.test(p)) {
-          return ["", ...p.split(/\/+/)];
-        } else {
-          return p.split(/\/+/);
-        }
+        return m;
       }
       match(f, partial = this.partial) {
-        this.debug("match", f, this.pattern);
         if (this.comment) {
           return false;
         }
@@ -12033,25 +11969,31 @@ var require_commonjs3 = __commonJS({
           return true;
         }
         const options = this.options;
-        if (this.isWindows) {
-          f = f.split("\\").join("/");
+        let split = __privateMethod(this, _Minimatch_instances, cachedSplit_fn).call(this, f);
+        if (!split) {
+          if (!partial && !__privateGet(this, _form) && (__privateGet(this, _endCheck) || __privateGet(this, _literalCheck)) && lastChecked !== f) {
+            lastChecked = f;
+            const can = __privateMethod(this, _Minimatch_instances, canMatch_fn).call(this, f);
+            if (can === "no")
+              return options.flipNegate ? false : this.negate;
+            if (can === "yes")
+              return options.flipNegate ? true : !this.negate;
+          }
+          split = __privateMethod(this, _Minimatch_instances, split_fn).call(this, f);
         }
-        const ff = this.slashSplit(f);
-        this.debug(this.pattern, "split", ff);
+        const ff = split.parts;
+        const resolved = __privateGet(this, _level2) ? split.resolved ?? (split.resolved = __privateMethod(this, _Minimatch_instances, levelTwoFileOptimize_fn).call(this, ff)) : ff;
         const set = this.set;
-        this.debug(this.pattern, "set", set);
         let filename = ff[ff.length - 1];
         if (!filename) {
           for (let i = ff.length - 2; !filename && i >= 0; i--) {
             filename = ff[i];
           }
         }
-        for (const pattern of set) {
-          let file = ff;
-          if (options.matchBase && pattern.length === 1) {
-            file = [filename];
-          }
-          const hit = this.matchOne(file, pattern, partial);
+        for (let r = 0; r < set.length; r++) {
+          const pattern = set[r];
+          const shape = partial ? void 0 : __privateGet(this, _shapes)[r];
+          const hit = shape === "base" ? portionMatch(pattern[0], filename) : shape ? __privateMethod(this, _Minimatch_instances, matchShape_fn).call(this, resolved, pattern, shape) : options.matchBase && pattern.length === 1 ? __privateMethod(this, _Minimatch_instances, matchRow_fn).call(this, [filename], [filename], pattern, partial) : __privateMethod(this, _Minimatch_instances, matchRow_fn).call(this, ff, resolved, pattern, partial);
           if (hit) {
             if (options.flipNegate) {
               return true;
@@ -12068,22 +12010,300 @@ var require_commonjs3 = __commonJS({
         return exports2.minimatch.defaults(def).Minimatch;
       }
     };
-    _matchGlobstar = new WeakSet();
+    _endCheck = new WeakMap();
+    _literalCheck = new WeakMap();
+    _level2 = new WeakMap();
+    _form = new WeakMap();
+    _literals = new WeakMap();
+    _shapes = new WeakMap();
+    _endRows = new WeakMap();
+    _matchers = new WeakMap();
+    _pending = new WeakMap();
+    _globstarParts = new WeakMap();
+    _Minimatch_instances = new WeakSet();
+    // a string portion of a pattern, normalized if the option is set
+    norm_fn = function(p) {
+      return __privateGet(this, _form) ? p.normalize(__privateGet(this, _form)) : p;
+    };
+    // On Windows, the index of the last root portion of a row, as
+    // #matchRow finds it: 0 for `c:/...`, 3 for `//?/c:/...` and
+    // `//host/share/...`, and 5 for `//?/UNC/host/share/...`. Otherwise
+    // -1.
+    rootIndex_fn = function(row) {
+      if (!this.isWindows)
+        return -1;
+      if (isDrive(row[0]))
+        return 0;
+      const uncDrive = row[0] === "" && row[1] === "" && row[2] === "?" && isDrive(row[3]);
+      if (uncDrive)
+        return 3;
+      const h = uncHost(row);
+      return h === -1 ? -1 : h + 1;
+    };
+    // Check the path against each row before it is split. 'no' if no
+    // row can match, so it does not need to be split. 'yes' if a row of
+    // `**` and one more portion matches. 'maybe' if it must be split to
+    // know. None of this applies with partial, where the path can end
+    // before the row does.
+    //
+    // On Windows, `\` is a separator in the path too, and the portions of
+    // a row up to its drive letter or UNC share are not checked (see
+    // #rootIndex).
+    //
+    // Each string portion of a row must be a portion of the path, so the
+    // path must contain it. Level 2 can only take portions out of the
+    // path, so this is still true then.
+    //
+    // The last portion of a row must match the last portion of the path,
+    // or the one before a trailing `/` (as a/* and a/**/* match a/b/).
+    // This does not apply to rows that end in **, rows that end in a
+    // root, or preserveMultipleSlashes (which can leave more
+    // than one '' at the end). At level 2, it does not apply if that
+    // portion is `.` or `..`, which can be
+    // resolved away. Level 2 only takes other portions out of the
+    // middle of the path.
+    //
+    // A row of `**/x` then matches if the ** can walk the portions
+    // before the one that x matches, the same as #matchGlobstar. At
+    // level 2, this is only known if none of them are `.` or `..`, so
+    // that the path does not change when it is resolved.
+    canMatch_fn = function(f) {
+      const sep = !this.isWindows || !f.includes("\\") ? "/" : f.includes("/") ? "both" : "\\";
+      let ends = __privateGet(this, _endCheck) ? 0 : -1;
+      let last = "";
+      let lastStart = 0;
+      let prev;
+      let prevStart = 0;
+      const dot = !!this.options.dot;
+      ROWS: for (let r = 0; r < this.set.length; r++) {
+        const row = this.set[r];
+        const p = row[row.length - 1];
+        let end = ends !== -1 && __privateGet(this, _endRows)[r] && p !== exports2.GLOBSTAR;
+        if (end && ends === 0) {
+          const i = lastSep(f, f.length, sep);
+          lastStart = i + 1;
+          last = f.slice(lastStart);
+          if (last === "" && i >= 0) {
+            let j = i;
+            while (j > 0 && isSep(f.charCodeAt(j - 1), sep))
+              j--;
+            prevStart = j === 0 ? 0 : lastSep(f, j - 1, sep) + 1;
+            prev = f.slice(prevStart, j);
+          }
+          const resolves = __privateGet(this, _level2) && (isDots(last) || last === "" && prev !== void 0 && isDots(prev));
+          ends = resolves ? -1 : 1;
+          end = !resolves;
+        }
+        let tailStart = -1;
+        if (end && typeof p === "string") {
+          tailStart = endIndex(p, last, lastStart, prev, prevStart);
+          if (tailStart === -1)
+            continue;
+        }
+        if (__privateGet(this, _literalCheck)) {
+          for (const l of __privateGet(this, _literals)[r]) {
+            if (!f.includes(l))
+              continue ROWS;
+          }
+        }
+        if (end && typeof p === "object") {
+          tailStart = endIndex(p, last, lastStart, prev, prevStart);
+          if (tailStart === -1)
+            continue;
+        }
+        const shape = __privateGet(this, _shapes)[r];
+        if (shape === "base" && end)
+          return "yes";
+        if (shape === "tail" && end) {
+          if (__privateGet(this, _level2) && dotPortion(f, 0, tailStart, true, sep)) {
+            return "maybe";
+          }
+          if (!dotPortion(f, 0, tailStart, dot, sep))
+            return "yes";
+          continue;
+        }
+        if (shape === "mid" || shape === "head") {
+          const m = __privateMethod(this, _Minimatch_instances, walk_fn).call(this, f, row, shape === "head", dot, sep);
+          if (m !== "no")
+            return m;
+          continue;
+        }
+        return "maybe";
+      }
+      return "no";
+    };
+    // Match a row of a known shape against the split path, the same as
+    // #matchGlobstar and #matchGlobStarBodySections do. None of these
+    // rows have a drive letter, so they start at the first portion.
+    matchShape_fn = function(file, row, shape) {
+      const dot = !!this.options.dot;
+      const n = file.length;
+      if (shape === "head") {
+        if (n < 2 || !portionMatch(row[0], file[0])) {
+          return false;
+        }
+        for (let i = 1; i < n; i++)
+          if (!walkable(file[i], dot))
+            return false;
+        return true;
+      }
+      const x = row[1];
+      if (shape === "tail") {
+        let t = n - 1;
+        if (!portionMatch(x, file[t])) {
+          if (file[t] !== "" || n === 1 || !portionMatch(x, file[--t])) {
+            return false;
+          }
+        }
+        for (let i = 0; i < t; i++)
+          if (!walkable(file[i], dot))
+            return false;
+        return true;
+      }
+      for (let k = 0; k < n; k++) {
+        if (portionMatch(x, file[k]) && k + 1 < n) {
+          let i = k + 1;
+          while (i < n && walkable(file[i], dot))
+            i++;
+          if (i === n)
+            return true;
+        }
+        if (!walkable(file[k], dot))
+          return false;
+      }
+      return false;
+    };
+    // Match a row of `**/x/**` or `x/**` against the path, the same as
+    // #matchGlobstar and #matchGlobStarBodySections do once it is split.
+    // x must match a portion (the first one, for `x/**`), the ** before
+    // it must be able to walk the portions before that one, and there
+    // must be a portion after it, which the ** after it can walk. At
+    // level 2, this is only known if no portion is `.` or `..`.
+    walk_fn = function(f, row, head, dot, sep) {
+      if (__privateGet(this, _level2) && dotPortion(f, 0, f.length, true, sep))
+        return "maybe";
+      const x = row[head ? 0 : 1];
+      let s = 0;
+      for (let e = nextSep(f, s, sep); e !== -1; e = nextSep(f, s, sep)) {
+        let next = e + 1;
+        while (next < f.length && isSep(f.charCodeAt(next), sep))
+          next++;
+        const hit = typeof x === "string" ? e - s === x.length && f.startsWith(x, s) : e > s && x.testUnchecked(f.slice(s, e));
+        if (hit && !dotPortion(f, next, f.length, dot, sep))
+          return "yes";
+        if (head || dotPortion(f, s, next, dot, sep))
+          return "no";
+        s = next;
+      }
+      return "no";
+    };
+    // the last split, if it was the same path with the same split
+    // settings
+    cachedSplit_fn = function(f) {
+      const last = lastSplit;
+      return last?.f === f && last.isWindows === this.isWindows && last.preserveMultipleSlashes === this.preserveMultipleSlashes && last.normalize === __privateGet(this, _form) ? last : void 0;
+    };
+    // split a path for match(), and keep the parts for the next call
+    split_fn = function(f) {
+      const { isWindows, preserveMultipleSlashes } = this;
+      let parts = __privateMethod(this, _Minimatch_instances, slashSplit_fn).call(this, isWindows ? f.split("\\").join("/") : f);
+      const normalize = __privateGet(this, _form);
+      if (normalize)
+        parts = parts.map((p) => p.normalize(normalize));
+      lastSplit = {
+        f,
+        isWindows,
+        preserveMultipleSlashes,
+        normalize,
+        parts
+      };
+      return lastSplit;
+    };
+    // resolve `.` and `..` portions of a path, for level 2
+    levelTwoFileOptimize_fn = function(file) {
+      const parts = [...file];
+      let didSomething = false;
+      do {
+        didSomething = false;
+        if (!this.preserveMultipleSlashes) {
+          for (let i = 1; i < parts.length - 1; i++) {
+            const p = parts[i];
+            if (i === 1 && p === "" && parts[0] === "")
+              continue;
+            if (p === "." || p === "") {
+              didSomething = true;
+              parts.splice(i, 1);
+              i--;
+            }
+          }
+          if (parts[0] === "." && parts.length === 2 && (parts[1] === "." || parts[1] === "")) {
+            didSomething = true;
+            parts.pop();
+          }
+        }
+        const root = __privateMethod(this, _Minimatch_instances, rootIndex_fn).call(this, parts) + 1;
+        let dd = root;
+        while (-1 !== (dd = parts.indexOf("..", dd + 1))) {
+          const p = parts[dd - 1];
+          if (p && p !== "." && p !== ".." && p !== "**") {
+            didSomething = true;
+            parts.splice(dd - 1, 2);
+            dd = Math.max(dd - 2, root);
+          }
+        }
+      } while (didSomething);
+      return parts.length === 0 ? [""] : parts;
+    };
+    // Match the parts of a path against one row of the set. `resolved`
+    // is the parts after level 2 resolves `.` and `..` in them, or the
+    // same parts below level 2. Set partial to true to test if, for
+    // example, "/a/b" matches the start of "/*/b/*/d". Partial means, if
+    // you run out of file before you run out of pattern, then that's
+    // fine, as long as all the parts match.
+    matchRow_fn = function(file, resolved, pattern, partial) {
+      let fileStartIndex = 0;
+      let patternStartIndex = 0;
+      const fh = this.isWindows ? uncHost(resolved) : -1;
+      const ph = fh === -1 ? -1 : uncHost(pattern);
+      if (ph !== -1) {
+        const host = pattern[ph];
+        const share = pattern[ph + 1];
+        if (typeof host !== "string" || typeof share !== "string") {
+          fileStartIndex = fh;
+          patternStartIndex = ph;
+        } else if (resolved[fh].toLowerCase() === host.toLowerCase() && resolved[fh + 1].toLowerCase() === share.toLowerCase()) {
+          fileStartIndex = fh + 2;
+          patternStartIndex = ph + 2;
+        }
+      } else if (this.isWindows) {
+        const fileDrive = typeof file[0] === "string" && /^[a-z]:$/i.test(file[0]);
+        const fileUNC = !fileDrive && file[0] === "" && file[1] === "" && file[2] === "?" && /^[a-z]:$/i.test(file[3]);
+        const patternDrive = typeof pattern[0] === "string" && /^[a-z]:$/i.test(pattern[0]);
+        const patternUNC = !patternDrive && pattern[0] === "" && pattern[1] === "" && pattern[2] === "?" && typeof pattern[3] === "string" && /^[a-z]:$/i.test(pattern[3]);
+        const fdi = fileUNC ? 3 : fileDrive ? 0 : void 0;
+        const pdi = patternUNC ? 3 : patternDrive ? 0 : void 0;
+        if (typeof fdi === "number" && typeof pdi === "number") {
+          const [fd, pd] = [
+            file[fdi],
+            pattern[pdi]
+          ];
+          if (fd.toLowerCase() === pd.toLowerCase()) {
+            patternStartIndex = pdi + 1;
+            fileStartIndex = fdi + 1;
+          }
+        }
+      }
+      file = resolved;
+      if (pattern.includes(exports2.GLOBSTAR)) {
+        return __privateMethod(this, _Minimatch_instances, matchGlobstar_fn).call(this, file, pattern, partial, fileStartIndex, patternStartIndex);
+      }
+      return __privateMethod(this, _Minimatch_instances, matchOne_fn).call(this, file, pattern, partial, fileStartIndex, patternStartIndex);
+    };
     matchGlobstar_fn = function(file, pattern, partial, fileIndex, patternIndex) {
-      const firstgs = pattern.indexOf(exports2.GLOBSTAR, patternIndex);
-      const lastgs = pattern.lastIndexOf(exports2.GLOBSTAR);
-      const [head, body, tail] = partial ? [
-        pattern.slice(patternIndex, firstgs),
-        pattern.slice(firstgs + 1),
-        []
-      ] : [
-        pattern.slice(patternIndex, firstgs),
-        pattern.slice(firstgs + 1, lastgs),
-        pattern.slice(lastgs + 1)
-      ];
+      const { head, body, tail, segments } = __privateMethod(this, _Minimatch_instances, getGlobstarParts_fn).call(this, pattern, partial, patternIndex);
       if (head.length) {
-        const fileHead = file.slice(fileIndex, fileIndex + head.length);
-        if (!__privateMethod(this, _matchOne, matchOne_fn).call(this, fileHead, head, partial, 0, 0)) {
+        const headEnd = fileIndex + head.length;
+        if (!__privateMethod(this, _Minimatch_instances, matchOne_fn).call(this, file, head, partial, fileIndex, 0, headEnd)) {
           return false;
         }
         fileIndex += head.length;
@@ -12094,14 +12314,14 @@ var require_commonjs3 = __commonJS({
         if (tail.length + fileIndex > file.length)
           return false;
         let tailStart = file.length - tail.length;
-        if (__privateMethod(this, _matchOne, matchOne_fn).call(this, file, tail, partial, tailStart, 0)) {
+        if (__privateMethod(this, _Minimatch_instances, matchOne_fn).call(this, file, tail, partial, tailStart, 0)) {
           fileTailMatch = tail.length;
         } else {
           if (file[file.length - 1] !== "" || fileIndex + tail.length === file.length) {
             return false;
           }
           tailStart--;
-          if (!__privateMethod(this, _matchOne, matchOne_fn).call(this, file, tail, partial, tailStart, 0)) {
+          if (!__privateMethod(this, _Minimatch_instances, matchOne_fn).call(this, file, tail, partial, tailStart, 0)) {
             return false;
           }
           fileTailMatch = tail.length + 1;
@@ -12109,8 +12329,8 @@ var require_commonjs3 = __commonJS({
       }
       if (!body.length) {
         let sawSome = !!fileTailMatch;
-        for (let i2 = fileIndex; i2 < file.length - fileTailMatch; i2++) {
-          const f = String(file[i2]);
+        for (let i = fileIndex; i < file.length - fileTailMatch; i++) {
+          const f = String(file[i]);
           sawSome = true;
           if (f === "." || f === ".." || !this.options.dot && f.startsWith(".")) {
             return false;
@@ -12118,32 +12338,57 @@ var require_commonjs3 = __commonJS({
         }
         return partial || sawSome;
       }
-      const bodySegments = [[[], 0]];
-      let currentBody = bodySegments[0];
+      return !!__privateMethod(this, _Minimatch_instances, matchGlobStarBodySections_fn).call(this, file, segments, file.length - fileTailMatch, fileIndex, 0, partial, 0, !!fileTailMatch, /* @__PURE__ */ new Set());
+    };
+    // Split the pattern into head, tail, and middle of ** delimited
+    // parts. The tail has to be at the end, and the others just have to
+    // be found in order from the head. These only depend on the pattern
+    // row, so they are kept for the next path.
+    getGlobstarParts_fn = function(pattern, partial, patternIndex) {
+      let byStart = __privateGet(this, _globstarParts).get(pattern);
+      if (!byStart) {
+        byStart = [];
+        __privateGet(this, _globstarParts).set(pattern, byStart);
+      }
+      const key = patternIndex * 2 + (partial ? 1 : 0);
+      const found = byStart[key];
+      if (found)
+        return found;
+      const firstgs = pattern.indexOf(exports2.GLOBSTAR, patternIndex);
+      const lastgs = pattern.lastIndexOf(exports2.GLOBSTAR);
+      const head = pattern.slice(patternIndex, firstgs);
+      const body = pattern.slice(firstgs + 1, partial ? void 0 : lastgs);
+      const tail = partial ? [] : pattern.slice(lastgs + 1);
+      const segments = [[[], 0]];
+      let current = segments[0];
       let nonGsParts = 0;
       const nonGsPartsSums = [0];
       for (const b of body) {
         if (b === exports2.GLOBSTAR) {
           nonGsPartsSums.push(nonGsParts);
-          currentBody = [[], 0];
-          bodySegments.push(currentBody);
+          current = [[], 0];
+          segments.push(current);
         } else {
-          currentBody[0].push(b);
+          current[0].push(b);
           nonGsParts++;
         }
       }
-      let i = bodySegments.length - 1;
-      const fileLength = file.length - fileTailMatch;
-      for (const b of bodySegments) {
-        b[1] = fileLength - (nonGsPartsSums[i--] + b[0].length);
-      }
-      return !!__privateMethod(this, _matchGlobStarBodySections, matchGlobStarBodySections_fn).call(this, file, bodySegments, fileIndex, 0, partial, 0, !!fileTailMatch);
+      segments.forEach((b, i) => {
+        b[1] = nonGsParts - nonGsPartsSums[i];
+      });
+      const parts = { head, body, tail, segments };
+      byStart[key] = parts;
+      return parts;
     };
-    _matchGlobStarBodySections = new WeakSet();
-    matchGlobStarBodySections_fn = function(file, bodySegments, fileIndex, bodyIndex, partial, globStarDepth, sawTail) {
+    // return false for "nope, not matching"
+    // return null for "not matching, cannot keep trying"
+    matchGlobStarBodySections_fn = function(file, bodySegments, fileLength, fileIndex, bodyIndex, partial, globStarDepth, sawTail, tried) {
       const bs = bodySegments[bodyIndex];
       if (!bs) {
-        for (let i = fileIndex; i < file.length; i++) {
+        if (partial) {
+          return fileIndex >= fileLength || fileIndex === fileLength - 1 && file[fileIndex] === "";
+        }
+        for (let i = fileIndex; i < fileLength; i++) {
           sawTail = true;
           const f = file[i];
           if (f === "." || f === ".." || !this.options.dot && f.startsWith(".")) {
@@ -12152,15 +12397,22 @@ var require_commonjs3 = __commonJS({
         }
         return sawTail;
       }
-      const [body, after] = bs;
+      const [body, need] = bs;
+      const after = partial ? fileLength : fileLength - need;
       while (fileIndex <= after) {
-        const m = __privateMethod(this, _matchOne, matchOne_fn).call(this, file.slice(0, fileIndex + body.length), body, partial, fileIndex, 0);
+        const key = bodyIndex * (file.length + 1) + fileIndex;
+        if (tried.has(key))
+          return false;
+        tried.add(key);
+        const m = __privateMethod(this, _Minimatch_instances, matchOne_fn).call(this, file, body, partial, fileIndex, 0, fileIndex + body.length);
         if (m && globStarDepth < this.maxGlobstarRecursion) {
-          const sub = __privateMethod(this, _matchGlobStarBodySections, matchGlobStarBodySections_fn).call(this, file, bodySegments, fileIndex + body.length, bodyIndex + 1, partial, globStarDepth + 1, sawTail);
+          const sub = __privateMethod(this, _Minimatch_instances, matchGlobStarBodySections_fn).call(this, file, bodySegments, fileLength, fileIndex + body.length, bodyIndex + 1, partial, globStarDepth + 1, sawTail, tried);
           if (sub !== false) {
             return sub;
           }
         }
+        if (fileIndex === after)
+          break;
         const f = file[fileIndex];
         if (f === "." || f === ".." || !this.options.dot && f.startsWith(".")) {
           return false;
@@ -12169,29 +12421,18 @@ var require_commonjs3 = __commonJS({
       }
       return partial || null;
     };
-    _matchOne = new WeakSet();
-    matchOne_fn = function(file, pattern, partial, fileIndex, patternIndex) {
+    matchOne_fn = function(file, pattern, partial, fileIndex, patternIndex, fileEnd = file.length) {
       let fi;
       let pi;
       let pl;
       let fl;
-      for (fi = fileIndex, pi = patternIndex, fl = file.length, pl = pattern.length; fi < fl && pi < pl; fi++, pi++) {
-        this.debug("matchOne loop");
+      for (fi = fileIndex, pi = patternIndex, fl = Math.min(fileEnd, file.length), pl = pattern.length; fi < fl && pi < pl; fi++, pi++) {
         let p = pattern[pi];
         let f = file[fi];
-        this.debug(pattern, p, f);
         if (p === false || p === exports2.GLOBSTAR) {
           return false;
         }
-        let hit;
-        if (typeof p === "string") {
-          hit = f === p;
-          this.debug("string match", p, f, hit);
-        } else {
-          hit = p.test(f);
-          this.debug("pattern match", p, f, hit);
-        }
-        if (!hit)
+        if (!portionMatch(p, f))
           return false;
       }
       if (fi === fl && pi === pl) {
@@ -12204,11 +12445,16 @@ var require_commonjs3 = __commonJS({
         throw new Error("wtf?");
       }
     };
+    slashSplit_fn = function(p) {
+      if (this.preserveMultipleSlashes) {
+        return p.split("/");
+      } else if (this.isWindows && /^\/\/[^/]+/.test(p)) {
+        return ["", ...p.split(/\/+/)];
+      } else {
+        return p.split(/\/+/);
+      }
+    };
     exports2.Minimatch = Minimatch;
-    var ast_js_2 = require_ast();
-    Object.defineProperty(exports2, "AST", { enumerable: true, get: function() {
-      return ast_js_2.AST;
-    } });
     var escape_js_2 = require_escape();
     Object.defineProperty(exports2, "escape", { enumerable: true, get: function() {
       return escape_js_2.escape;
@@ -12217,7 +12463,6 @@ var require_commonjs3 = __commonJS({
     Object.defineProperty(exports2, "unescape", { enumerable: true, get: function() {
       return unescape_js_2.unescape;
     } });
-    exports2.minimatch.AST = ast_js_1.AST;
     exports2.minimatch.Minimatch = Minimatch;
     exports2.minimatch.escape = escape_js_1.escape;
     exports2.minimatch.unescape = unescape_js_1.unescape;
@@ -12228,9 +12473,8 @@ var require_commonjs3 = __commonJS({
 var require_globPattern = __commonJS({
   "../node_modules/vscode-languageclient/lib/common/utils/globPattern.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -12238,43 +12482,37 @@ var require_globPattern = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.matchGlobPattern = matchGlobPattern;
-    var minimatch = __importStar(require_commonjs3());
+    var minimatch = __importStar(require_commonjs4());
     var vscode_1 = require("vscode");
     function matchGlobPattern(pattern, resource) {
       let miniMatchPattern;
@@ -12419,6 +12657,7 @@ var require_diagnostic = __commonJS({
         __publicField(this, "provider");
         __publicField(this, "diagnostics");
         __publicField(this, "openRequests");
+        __publicField(this, "pendingDocumentForgets");
         __publicField(this, "documentStates");
         __publicField(this, "workspaceErrorCounter");
         __publicField(this, "workspaceCancellation");
@@ -12431,6 +12670,7 @@ var require_diagnostic = __commonJS({
         this.provider = this.createProvider();
         this.diagnostics = this.createDiagnosticCollection();
         this.openRequests = /* @__PURE__ */ new Map();
+        this.pendingDocumentForgets = /* @__PURE__ */ new Map();
         this.documentStates = new DocumentPullStateTracker();
         this.workspaceErrorCounter = 0;
       }
@@ -12460,6 +12700,9 @@ var require_diagnostic = __commonJS({
       }
       forget(kind, document) {
         this.documentStates.unTrack(kind, document);
+      }
+      cancelPendingForget(document) {
+        this.pendingDocumentForgets.delete(DocumentOrUri.asKey(document));
       }
       pull(document, cb) {
         if (this.isDisposed) {
@@ -12545,8 +12788,13 @@ var require_diagnostic = __commonJS({
           if (request !== void 0) {
             this.openRequests.set(key, { state: RequestStateKind.reschedule, document });
           } else {
+            const pendingForget = /* @__PURE__ */ Symbol();
+            this.pendingDocumentForgets.set(key, pendingForget);
             this.pull(document, () => {
-              this.forget(PullState.document, document);
+              if (this.pendingDocumentForgets.get(key) === pendingForget) {
+                this.pendingDocumentForgets.delete(key);
+                this.forget(PullState.document, document);
+              }
             });
           }
           this.forget(PullState.workspace, document);
@@ -12910,10 +13158,11 @@ var require_diagnostic = __commonJS({
         const openFeature = client2.getFeature(vscode_languageserver_protocol_1.DidOpenTextDocumentNotification.method);
         disposables.push(openFeature.onNotificationSent((event) => {
           const textDocument = event.textDocument;
-          if (this.diagnosticRequestor.knowsSameVersion(PullState.document, textDocument)) {
-            return;
-          }
           if (matches(textDocument)) {
+            this.diagnosticRequestor.cancelPendingForget(textDocument);
+            if (this.diagnosticRequestor.knowsSameVersion(PullState.document, textDocument)) {
+              return;
+            }
             this.diagnosticRequestor.pull(textDocument, () => {
               addToBackgroundIfNeeded(textDocument);
             });
@@ -12923,6 +13172,7 @@ var require_diagnostic = __commonJS({
         disposables.push(notebookFeature.onOpenNotificationSent((event) => {
           for (const cell of event.getCells()) {
             if (matchesCell(cell)) {
+              this.diagnosticRequestor.cancelPendingForget(cell.document);
               this.diagnosticRequestor.pull(cell.document, () => {
                 addToBackgroundIfNeeded(cell.document);
               });
@@ -13118,9 +13368,8 @@ var require_diagnostic = __commonJS({
 var require_notebook = __commonJS({
   "../node_modules/vscode-languageclient/lib/common/notebook.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -13128,40 +13377,34 @@ var require_notebook = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.NotebookDocumentSyncFeature = void 0;
     var vscode2 = __importStar(require("vscode"));
@@ -13923,7 +14166,7 @@ var require_notebook = __commonJS({
       filterCells(notebookDocument, cells, cellSelector) {
         const filtered = cellSelector !== void 0 ? cells.filter((cell) => {
           const cellLanguage = cell.document.languageId;
-          return cellSelector.some((filter) => filter.language === "*" || cellLanguage === filter.language);
+          return cellSelector.some(((filter) => filter.language === "*" || cellLanguage === filter.language));
         }) : cells;
         return typeof this.client.clientOptions.notebookDocumentOptions?.filterCells === "function" ? this.client.clientOptions.notebookDocumentOptions.filterCells(notebookDocument, filtered) : filtered;
       }
@@ -14108,9 +14351,8 @@ var require_notebook = __commonJS({
 var require_configuration = __commonJS({
   "../node_modules/vscode-languageclient/lib/common/configuration.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -14118,40 +14360,34 @@ var require_configuration = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.SyncConfigurationFeature = exports2.ConfigurationFeature = void 0;
     exports2.toJSONObject = toJSONObject;
@@ -14350,7 +14586,7 @@ var require_configuration = __commonJS({
   }
 });
 
-// ../node_modules/vscode-languageserver-textdocument/lib/esm/main.js
+// ../node_modules/vscode-languageclient/node_modules/vscode-languageserver-textdocument/lib/esm/main.js
 var main_exports2 = {};
 __export(main_exports2, {
   TextDocument: () => TextDocument2
@@ -14416,7 +14652,7 @@ function getWellformedEdit(textEdit) {
 }
 var FullTextDocument2, TextDocument2;
 var init_main2 = __esm({
-  "../node_modules/vscode-languageserver-textdocument/lib/esm/main.js"() {
+  "../node_modules/vscode-languageclient/node_modules/vscode-languageserver-textdocument/lib/esm/main.js"() {
     "use strict";
     FullTextDocument2 = class _FullTextDocument {
       constructor(uri, languageId, version, content) {
@@ -14611,9 +14847,8 @@ var init_main2 = __esm({
 var require_textSynchronization = __commonJS({
   "../node_modules/vscode-languageclient/lib/common/textSynchronization.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -14621,40 +14856,34 @@ var require_textSynchronization = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.DidSaveTextDocumentFeature = exports2.WillSaveWaitUntilFeature = exports2.WillSaveFeature = exports2.DidChangeTextDocumentFeature = exports2.DidCloseTextDocumentFeature = exports2.DidOpenTextDocumentFeature = void 0;
     var vscode_1 = require("vscode");
@@ -14743,9 +14972,9 @@ var require_textSynchronization = __commonJS({
             for (const uri of opened) {
               const document = this._pendingOpenNotifications.get(uri.toString());
               if (document !== void 0) {
-                super.callback(document).catch((error) => {
+                super.callback(document).catch(((error) => {
                   this._client.error(`Sending document notification ${this._type.method} failed`, error);
-                });
+                }));
                 this._pendingOpenNotifications.delete(uri.toString());
               }
             }
@@ -15291,9 +15520,8 @@ var require_textSynchronization = __commonJS({
 var require_completion = __commonJS({
   "../node_modules/vscode-languageclient/lib/common/completion.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -15301,40 +15529,34 @@ var require_completion = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.CompletionItemFeature = void 0;
     var vscode_1 = require("vscode");
@@ -15463,9 +15685,8 @@ var require_completion = __commonJS({
 var require_hover = __commonJS({
   "../node_modules/vscode-languageclient/lib/common/hover.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -15473,40 +15694,34 @@ var require_hover = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.HoverFeature = void 0;
     var vscode_1 = require("vscode");
@@ -15565,9 +15780,8 @@ var require_hover = __commonJS({
 var require_definition = __commonJS({
   "../node_modules/vscode-languageclient/lib/common/definition.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -15575,40 +15789,34 @@ var require_definition = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.DefinitionFeature = void 0;
     var vscode_1 = require("vscode");
@@ -15664,9 +15872,8 @@ var require_definition = __commonJS({
 var require_signatureHelp = __commonJS({
   "../node_modules/vscode-languageclient/lib/common/signatureHelp.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -15674,40 +15881,34 @@ var require_signatureHelp = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.SignatureHelpFeature = void 0;
     var vscode_1 = require("vscode");
@@ -15779,9 +15980,8 @@ var require_signatureHelp = __commonJS({
 var require_documentHighlight = __commonJS({
   "../node_modules/vscode-languageclient/lib/common/documentHighlight.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -15789,40 +15989,34 @@ var require_documentHighlight = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.DocumentHighlightFeature = void 0;
     var vscode_1 = require("vscode");
@@ -15873,9 +16067,8 @@ var require_documentHighlight = __commonJS({
 var require_documentSymbol = __commonJS({
   "../node_modules/vscode-languageclient/lib/common/documentSymbol.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -15883,40 +16076,34 @@ var require_documentSymbol = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.DocumentSymbolFeature = exports2.SupportedSymbolTags = exports2.SupportedSymbolKinds = void 0;
     var vscode_1 = require("vscode");
@@ -16018,9 +16205,8 @@ var require_documentSymbol = __commonJS({
 var require_workspaceSymbol = __commonJS({
   "../node_modules/vscode-languageclient/lib/common/workspaceSymbol.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -16028,40 +16214,34 @@ var require_workspaceSymbol = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.WorkspaceSymbolFeature = void 0;
     var vscode_1 = require("vscode");
@@ -16137,9 +16317,8 @@ var require_workspaceSymbol = __commonJS({
 var require_reference = __commonJS({
   "../node_modules/vscode-languageclient/lib/common/reference.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -16147,40 +16326,34 @@ var require_reference = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.ReferencesFeature = void 0;
     var vscode_1 = require("vscode");
@@ -16415,9 +16588,8 @@ var require_colorProvider = __commonJS({
 var require_codeAction = __commonJS({
   "../node_modules/vscode-languageclient/lib/common/codeAction.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -16425,40 +16597,34 @@ var require_codeAction = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.CodeActionFeature = void 0;
     var vscode_1 = require("vscode");
@@ -16566,9 +16732,8 @@ var require_codeAction = __commonJS({
 var require_codeLens = __commonJS({
   "../node_modules/vscode-languageclient/lib/common/codeLens.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -16576,40 +16741,34 @@ var require_codeLens = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.CodeLensFeature = void 0;
     var vscode_1 = require("vscode");
@@ -16686,9 +16845,8 @@ var require_codeLens = __commonJS({
 var require_formatting = __commonJS({
   "../node_modules/vscode-languageclient/lib/common/formatting.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -16696,40 +16854,34 @@ var require_formatting = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.DocumentOnTypeFormattingFeature = exports2.DocumentRangeFormattingFeature = exports2.DocumentFormattingFeature = void 0;
     var vscode_1 = require("vscode");
@@ -16906,9 +17058,8 @@ var require_formatting = __commonJS({
 var require_rename = __commonJS({
   "../node_modules/vscode-languageclient/lib/common/rename.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -16916,40 +17067,34 @@ var require_rename = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.RenameFeature = void 0;
     var vscode_1 = require("vscode");
@@ -17062,9 +17207,8 @@ var require_rename = __commonJS({
 var require_documentLink = __commonJS({
   "../node_modules/vscode-languageclient/lib/common/documentLink.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -17072,40 +17216,34 @@ var require_documentLink = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.DocumentLinkFeature = void 0;
     var vscode_1 = require("vscode");
@@ -17173,9 +17311,8 @@ var require_documentLink = __commonJS({
 var require_executeCommand = __commonJS({
   "../node_modules/vscode-languageclient/lib/common/executeCommand.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -17183,40 +17320,34 @@ var require_executeCommand = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.ExecuteCommandFeature = void 0;
     var vscode_1 = require("vscode");
@@ -17563,9 +17694,8 @@ var require_callHierarchy = __commonJS({
 var require_semanticTokens = __commonJS({
   "../node_modules/vscode-languageclient/lib/common/semanticTokens.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -17573,40 +17703,34 @@ var require_semanticTokens = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.SemanticTokensFeature = void 0;
     var vscode2 = __importStar(require("vscode"));
@@ -17776,9 +17900,8 @@ var require_semanticTokens = __commonJS({
 var require_linkedEditingRange = __commonJS({
   "../node_modules/vscode-languageclient/lib/common/linkedEditingRange.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -17786,40 +17909,34 @@ var require_linkedEditingRange = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.LinkedEditingFeature = void 0;
     var code = __importStar(require("vscode"));
@@ -18118,9 +18235,8 @@ var require_inlayHint = __commonJS({
 var require_workspaceFolder = __commonJS({
   "../node_modules/vscode-languageclient/lib/common/workspaceFolder.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -18128,40 +18244,34 @@ var require_workspaceFolder = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.WorkspaceFoldersFeature = void 0;
     exports2.arrayDiff = arrayDiff;
@@ -18307,9 +18417,8 @@ var require_workspaceFolder = __commonJS({
 var require_fileOperations = __commonJS({
   "../node_modules/vscode-languageclient/lib/common/fileOperations.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -18317,44 +18426,38 @@ var require_fileOperations = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.WillDeleteFilesFeature = exports2.WillRenameFilesFeature = exports2.WillCreateFilesFeature = exports2.DidDeleteFilesFeature = exports2.DidRenameFilesFeature = exports2.DidCreateFilesFeature = void 0;
     var code = __importStar(require("vscode"));
-    var minimatch = __importStar(require_commonjs3());
+    var minimatch = __importStar(require_commonjs4());
     var proto = __importStar(require_api2());
     var UUID = __importStar(require_uuid());
     function ensure(target, key) {
@@ -18665,9 +18768,8 @@ var require_fileOperations = __commonJS({
 var require_inlineCompletion = __commonJS({
   "../node_modules/vscode-languageclient/lib/common/inlineCompletion.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -18675,40 +18777,34 @@ var require_inlineCompletion = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.InlineCompletionItemFeature = void 0;
     var vscode_1 = require("vscode");
@@ -18763,9 +18859,8 @@ var require_inlineCompletion = __commonJS({
 var require_textDocumentContent = __commonJS({
   "../node_modules/vscode-languageclient/lib/common/textDocumentContent.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -18773,40 +18868,34 @@ var require_textDocumentContent = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.TextDocumentContentFeature = void 0;
     var vscode2 = __importStar(require("vscode"));
@@ -19065,9 +19154,8 @@ var require_progress = __commonJS({
 var require_client = __commonJS({
   "../node_modules/vscode-languageclient/lib/common/client.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -19075,40 +19163,34 @@ var require_client = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.ProposedFeatures = exports2.LanguageClient = exports2.BaseLanguageClient = exports2.ShutdownMode = exports2.MessageTransports = exports2.SuspendMode = exports2.State = exports2.CloseAction = exports2.ErrorAction = exports2.RevealOutputChannelOn = void 0;
     var vscode_1 = require("vscode");
@@ -20362,7 +20444,7 @@ ${this.data2String(data)}` : message;
           this.handleConnectionClosed().catch((error) => this.error(`Handling connection close failed`, error));
         };
         const transports = await this.createMessageTransports(this._clientOptions.stdioEncoding || "utf8");
-        this._connection = createConnection(transports.reader, transports.writer, errorHandler, closeHandler, this._clientOptions.connectionOptions);
+        this._connection = createConnection(transports.reader, transports.writer, errorHandler, closeHandler, this, this._clientOptions.connectionOptions);
         return this._connection;
       }
       async handleConnectionClosed() {
@@ -20779,8 +20861,26 @@ ${error.message}`, void 0, handlerResult.handled === true ? false : "force");
         (0, vscode_languageserver_protocol_1.RAL)().console.log(message);
       }
     };
-    function createConnection(input, output, errorHandler, closeHandler, options) {
-      const logger = new ConsoleLogger();
+    var OutputChannelLogger = class {
+      constructor(channelProvider) {
+        __publicField(this, "channelProvider");
+        this.channelProvider = channelProvider;
+      }
+      error(message) {
+        this.channelProvider.error(message, void 0, false);
+      }
+      warn(message) {
+        this.channelProvider.warn(message, void 0, false);
+      }
+      info(message) {
+        this.channelProvider.info(message, void 0, false);
+      }
+      log(message) {
+        this.channelProvider.info(message, void 0, false);
+      }
+    };
+    function createConnection(input, output, errorHandler, closeHandler, channelProvider, options) {
+      const logger = channelProvider !== void 0 ? new OutputChannelLogger(channelProvider) : new ConsoleLogger();
       const connection = (0, vscode_languageserver_protocol_1.createProtocolConnection)(input, output, logger, options);
       connection.onError((data) => {
         errorHandler(data[0], data[1], data[2]);
@@ -20837,9 +20937,8 @@ ${error.message}`, void 0, handlerResult.handled === true ? false : "force");
 var require_processes = __commonJS({
   "../node_modules/vscode-languageclient/lib/node/processes.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -20847,40 +20946,34 @@ var require_processes = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.terminate = terminate;
     var cp = __importStar(require("child_process"));
@@ -21096,9 +21189,8 @@ var require_ril = __commonJS({
 var require_main = __commonJS({
   "../node_modules/vscode-jsonrpc/lib/node/main.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -21106,44 +21198,36 @@ var require_main = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     var __exportStar = exports2 && exports2.__exportStar || function(m, exports3) {
-      for (var p in m)
-        if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports3, p))
-          __createBinding(exports3, m, p);
+      for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports3, p)) __createBinding(exports3, m, p);
     };
     var __importDefault = exports2 && exports2.__importDefault || function(mod) {
       return mod && mod.__esModule ? mod : { "default": mod };
@@ -21359,7 +21443,14 @@ var require_main = __commonJS({
         server.on("error", reject);
         server.listen(port, "127.0.0.1", () => {
           server.removeListener("error", reject);
+          const address = server.address();
+          if (address === null || typeof address === "string") {
+            reject(new Error(`Unexpected server address: ${address}`));
+            return;
+          }
+          const boundPort = address.port;
           resolve({
+            port: () => boundPort,
             onConnected: () => {
               return connected;
             }
@@ -21400,9 +21491,8 @@ var require_main = __commonJS({
 var require_main2 = __commonJS({
   "../node_modules/vscode-languageserver-protocol/lib/node/main.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -21410,15 +21500,12 @@ var require_main2 = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
+    }));
     var __exportStar = exports2 && exports2.__exportStar || function(m, exports3) {
-      for (var p in m)
-        if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports3, p))
-          __createBinding(exports3, m, p);
+      for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports3, p)) __createBinding(exports3, m, p);
     };
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.createProtocolConnection = createProtocolConnection;
@@ -21451,6 +21538,33 @@ var require_constants = __commonJS({
     9007199254740991;
     var MAX_SAFE_COMPONENT_LENGTH = 16;
     var MAX_SAFE_BUILD_LENGTH = MAX_LENGTH - 6;
+    var WHITESPACE_CHARACTERS = [
+      "	",
+      "\n",
+      "\v",
+      "\f",
+      "\r",
+      " ",
+      "\xA0",
+      "\u1680",
+      "\u2000",
+      "\u2001",
+      "\u2002",
+      "\u2003",
+      "\u2004",
+      "\u2005",
+      "\u2006",
+      "\u2007",
+      "\u2008",
+      "\u2009",
+      "\u200A",
+      "\u2028",
+      "\u2029",
+      "\u202F",
+      "\u205F",
+      "\u3000",
+      "\uFEFF"
+    ];
     var RELEASE_TYPES = [
       "major",
       "premajor",
@@ -21465,6 +21579,7 @@ var require_constants = __commonJS({
       MAX_SAFE_COMPONENT_LENGTH,
       MAX_SAFE_BUILD_LENGTH,
       MAX_SAFE_INTEGER,
+      WHITESPACE_CHARACTERS,
       RELEASE_TYPES,
       SEMVER_SPEC_VERSION,
       FLAG_INCLUDE_PRERELEASE: 1,
@@ -21811,6 +21926,8 @@ var require_semver = __commonJS({
             this.inc("patch", identifier, identifierBase);
             this.inc("pre", identifier, identifierBase);
             break;
+          // If the input is a non-prerelease version, this acts the same as
+          // prepatch.
           case "prerelease":
             if (this.prerelease.length === 0) {
               this.inc("patch", identifier, identifierBase);
@@ -21844,6 +21961,8 @@ var require_semver = __commonJS({
             }
             this.prerelease = [];
             break;
+          // This probably shouldn't be used publicly.
+          // 1.0.0 'pre' would become 1.0.0-0 which is the wrong direction.
           case "pre": {
             const base = Number(identifierBase) ? 1 : 0;
             if (this.prerelease.length === 0) {
@@ -22077,7 +22196,7 @@ var require_cmp = __commonJS({
 var require_comparator = __commonJS({
   "../node_modules/semver/classes/comparator.js"(exports2, module2) {
     "use strict";
-    var ANY = Symbol("SemVer ANY");
+    var ANY = /* @__PURE__ */ Symbol("SemVer ANY");
     var Comparator = class _Comparator {
       static get ANY() {
         return ANY;
@@ -22186,6 +22305,197 @@ var require_comparator = __commonJS({
   }
 });
 
+// ../node_modules/semver/internal/trim-comparator-whitespace.js
+var require_trim_comparator_whitespace = __commonJS({
+  "../node_modules/semver/internal/trim-comparator-whitespace.js"(exports2, module2) {
+    "use strict";
+    var {
+      MAX_LENGTH,
+      MAX_SAFE_BUILD_LENGTH,
+      WHITESPACE_CHARACTERS
+    } = require_constants();
+    var whitespace = new Uint8Array(65536);
+    for (const char of WHITESPACE_CHARACTERS) {
+      whitespace[char.charCodeAt(0)] = 1;
+    }
+    var isWhitespace = (char) => char !== void 0 && whitespace[char.charCodeAt(0)] === 1;
+    var isVersionPrefix = (char) => char === "v" || char === "=" || isWhitespace(char);
+    var isDigit = (char) => char !== void 0 && char >= "0" && char <= "9";
+    var isLetter = (char) => char !== void 0 && (char >= "a" && char <= "z" || char >= "A" && char <= "Z");
+    var isIdentifierCharacter = (char) => isDigit(char) || isLetter(char) || char === "-";
+    var isVersionStart = (char) => isDigit(char) || char === "x" || char === "X" || char === "*";
+    var findDigitsEndIndex = (range, start, limit, digitRuns) => {
+      if (!isDigit(range[start])) {
+        return start;
+      }
+      if (start >= digitRuns.start && start < digitRuns.end) {
+        return Math.min(start + limit, digitRuns.end);
+      }
+      if (start >= digitRuns.previousStart && start < digitRuns.previousEnd) {
+        return Math.min(start + limit, digitRuns.previousEnd);
+      }
+      let end = start + 1;
+      while (isDigit(range[end])) {
+        end++;
+      }
+      digitRuns.previousStart = digitRuns.start;
+      digitRuns.previousEnd = digitRuns.end;
+      digitRuns.start = start;
+      digitRuns.end = end;
+      return Math.min(start + limit, end);
+    };
+    var findVersionNumberEndIndex = (range, start, loose, digitRuns) => {
+      if (!loose && range[start] === "0") {
+        return start + 1;
+      }
+      return findDigitsEndIndex(range, start, loose ? MAX_LENGTH : MAX_LENGTH + 1, digitRuns);
+    };
+    var findPrereleaseIdentifierEndIndex = (range, start, loose, digitRuns) => {
+      const digitsEnd = findDigitsEndIndex(range, start, MAX_LENGTH, digitRuns);
+      if (isLetter(range[digitsEnd]) || range[digitsEnd] === "-") {
+        let end = digitsEnd + 1;
+        const limit = end + MAX_SAFE_BUILD_LENGTH;
+        while (end < limit && isIdentifierCharacter(range[end])) {
+          end++;
+        }
+        return end;
+      }
+      return findVersionNumberEndIndex(range, start, loose, digitRuns);
+    };
+    var findPrereleaseEndIndex = (range, start, loose, digitRuns) => {
+      const hyphen = range[start] === "-";
+      if (!loose && !hyphen) {
+        return start;
+      }
+      const identifierStart = start + (hyphen ? 1 : 0);
+      let end = findPrereleaseIdentifierEndIndex(range, identifierStart, loose, digitRuns);
+      if (end === identifierStart) {
+        if (!loose || !hyphen) {
+          return start;
+        }
+        end = findPrereleaseIdentifierEndIndex(range, start, loose, digitRuns);
+      }
+      while (range[end] === ".") {
+        const next = findPrereleaseIdentifierEndIndex(range, end + 1, loose, digitRuns);
+        if (next === end + 1) {
+          break;
+        }
+        end = next;
+      }
+      return end;
+    };
+    var findBuildIdentifierEndIndex = (range, start) => {
+      let end = start;
+      while (end - start < MAX_SAFE_BUILD_LENGTH && isIdentifierCharacter(range[end])) {
+        end++;
+      }
+      return end;
+    };
+    var findBuildEndIndex = (range, start) => {
+      if (range[start] !== "+") {
+        return start;
+      }
+      let end = findBuildIdentifierEndIndex(range, start + 1);
+      if (end === start + 1) {
+        return start;
+      }
+      while (range[end] === ".") {
+        const next = findBuildIdentifierEndIndex(range, end + 1);
+        if (next === end + 1) {
+          break;
+        }
+        end = next;
+      }
+      return end;
+    };
+    var findLooseFullVersionEndIndex = (range, start, digitRuns) => {
+      let end = start;
+      for (let component = 0; component < 3; component++) {
+        const next = findVersionNumberEndIndex(range, end, true, digitRuns);
+        if (next === end) {
+          return start;
+        }
+        end = next;
+        if (component < 2) {
+          if (range[end] !== ".") {
+            return start;
+          }
+          end++;
+        }
+      }
+      const prereleaseEnd = findPrereleaseEndIndex(range, end, true, digitRuns);
+      return findBuildEndIndex(range, prereleaseEnd);
+    };
+    var findPartialVersionComponentEndIndex = (range, start, digitRuns) => {
+      if (isDigit(range[start])) {
+        return findVersionNumberEndIndex(range, start, false, digitRuns);
+      }
+      return isVersionStart(range[start]) ? start + 1 : start;
+    };
+    var findPartialVersionEndIndex = (range, start, digitRuns) => {
+      let end = findPartialVersionComponentEndIndex(range, start, digitRuns);
+      for (let component = 0; component < 2; component++) {
+        if (range[end] !== ".") {
+          return end;
+        }
+        const next = findPartialVersionComponentEndIndex(range, end + 1, digitRuns);
+        if (next === end + 1) {
+          return end;
+        }
+        end = next;
+      }
+      const prereleaseEnd = findPrereleaseEndIndex(range, end, false, digitRuns);
+      return findBuildEndIndex(range, prereleaseEnd);
+    };
+    var findVersionEndIndex = (range, start, digitRuns) => {
+      const fullVersionEnd = findLooseFullVersionEndIndex(range, start, digitRuns);
+      return fullVersionEnd !== start ? fullVersionEnd : findPartialVersionEndIndex(range, start, digitRuns);
+    };
+    var findRemovableWhitespaceIndex = (range, matchStart) => {
+      let position = matchStart;
+      if (isWhitespace(range[position])) {
+        position++;
+      }
+      if (range[position] === "<" || range[position] === ">") {
+        position++;
+      }
+      if (range[position] === "=") {
+        position++;
+      }
+      return isWhitespace(range[position]) ? position : -1;
+    };
+    var trimComparatorWhitespace = (range) => {
+      let result = "";
+      let copyFrom = 0;
+      let cursor = 0;
+      const digitRuns = { start: -1, end: -1, previousStart: -1, previousEnd: -1 };
+      while (cursor < range.length) {
+        const matchStart = cursor;
+        if (range[cursor] === "<" || range[cursor] === ">") {
+          cursor++;
+        } else if (!isVersionPrefix(range[cursor]) && !isVersionStart(range[cursor])) {
+          cursor++;
+          continue;
+        }
+        while (cursor < range.length && isVersionPrefix(range[cursor])) {
+          cursor++;
+        }
+        if (!isVersionStart(range[cursor])) {
+          continue;
+        }
+        const whitespacePosition = findRemovableWhitespaceIndex(range, matchStart);
+        if (whitespacePosition !== -1) {
+          result += range.slice(copyFrom, whitespacePosition);
+          copyFrom = whitespacePosition + 1;
+        }
+        cursor = findVersionEndIndex(range, cursor, digitRuns);
+      }
+      return result + range.slice(copyFrom);
+    };
+    module2.exports = trimComparatorWhitespace;
+  }
+});
+
 // ../node_modules/semver/classes/range.js
 var require_range = __commonJS({
   "../node_modules/semver/classes/range.js"(exports2, module2) {
@@ -22267,7 +22577,7 @@ var require_range = __commonJS({
         const hr = loose ? re[t.HYPHENRANGELOOSE] : re[t.HYPHENRANGE];
         range = range.replace(hr, hyphenReplace(this.options.includePrerelease));
         debug2("hyphen replace", range);
-        range = range.replace(re[t.COMPARATORTRIM], comparatorTrimReplace);
+        range = trimComparatorWhitespace(range);
         debug2("comparator trim", range);
         range = range.replace(re[t.TILDETRIM], tildeTrimReplace);
         debug2("tilde trim", range);
@@ -22337,11 +22647,11 @@ var require_range = __commonJS({
     var Comparator = require_comparator();
     var debug2 = require_debug();
     var SemVer = require_semver();
+    var trimComparatorWhitespace = require_trim_comparator_whitespace();
     var {
       safeRe: re,
       src,
       t,
-      comparatorTrimReplace,
       tildeTrimReplace,
       caretTrimReplace
     } = require_re();
@@ -22592,9 +22902,8 @@ var require_satisfies = __commonJS({
 var require_api3 = __commonJS({
   "../node_modules/vscode-languageclient/lib/common/api.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -22602,15 +22911,12 @@ var require_api3 = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
+    }));
     var __exportStar = exports2 && exports2.__exportStar || function(m, exports3) {
-      for (var p in m)
-        if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports3, p))
-          __createBinding(exports3, m, p);
+      for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports3, p)) __createBinding(exports3, m, p);
     };
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.DiagnosticPullMode = exports2.vsdiag = void 0;
@@ -22631,9 +22937,8 @@ var require_api3 = __commonJS({
 var require_main3 = __commonJS({
   "../node_modules/vscode-languageclient/lib/node/main.js"(exports2) {
     "use strict";
-    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       var desc = Object.getOwnPropertyDescriptor(m, k);
       if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
         desc = { enumerable: true, get: function() {
@@ -22641,44 +22946,36 @@ var require_main3 = __commonJS({
         } };
       }
       Object.defineProperty(o, k2, desc);
-    } : function(o, m, k, k2) {
-      if (k2 === void 0)
-        k2 = k;
+    }) : (function(o, m, k, k2) {
+      if (k2 === void 0) k2 = k;
       o[k2] = m[k];
-    });
-    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? function(o, v) {
+    }));
+    var __setModuleDefault = exports2 && exports2.__setModuleDefault || (Object.create ? (function(o, v) {
       Object.defineProperty(o, "default", { enumerable: true, value: v });
-    } : function(o, v) {
+    }) : function(o, v) {
       o["default"] = v;
     });
-    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ function() {
+    var __importStar = exports2 && exports2.__importStar || /* @__PURE__ */ (function() {
       var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function(o2) {
           var ar = [];
-          for (var k in o2)
-            if (Object.prototype.hasOwnProperty.call(o2, k))
-              ar[ar.length] = k;
+          for (var k in o2) if (Object.prototype.hasOwnProperty.call(o2, k)) ar[ar.length] = k;
           return ar;
         };
         return ownKeys(o);
       };
       return function(mod) {
-        if (mod && mod.__esModule)
-          return mod;
+        if (mod && mod.__esModule) return mod;
         var result = {};
         if (mod != null) {
-          for (var k = ownKeys(mod), i = 0; i < k.length; i++)
-            if (k[i] !== "default")
-              __createBinding(result, mod, k[i]);
+          for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
         }
         __setModuleDefault(result, mod);
         return result;
       };
-    }();
+    })();
     var __exportStar = exports2 && exports2.__exportStar || function(m, exports3) {
-      for (var p in m)
-        if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports3, p))
-          __createBinding(exports3, m, p);
+      for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports3, p)) __createBinding(exports3, m, p);
     };
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.SettingMonitor = exports2.LanguageClient = exports2.TransportKind = void 0;
@@ -22766,11 +23063,30 @@ var require_main3 = __commonJS({
         }
         super(id, name, clientOptions);
         __publicField(this, "_serverOptions");
+        __publicField(this, "_stdioOptions");
         __publicField(this, "_forceDebug");
         __publicField(this, "_serverProcess");
         __publicField(this, "_isDetached");
         __publicField(this, "_isInDebugMode");
         this._serverOptions = serverOptions;
+        this._stdioOptions = clientOptions.stdioOptions ?? {
+          stdout: (input, outputChannel) => {
+            readline.createInterface({
+              input,
+              crlfDelay: Infinity,
+              terminal: false,
+              historySize: 0
+            }).on("line", (data) => outputChannel.info(data));
+          },
+          stderr: (input, outputChannel) => {
+            readline.createInterface({
+              input,
+              crlfDelay: Infinity,
+              terminal: false,
+              historySize: 0
+            }).on("line", (data) => outputChannel.error(data));
+          }
+        };
         this._forceDebug = forceDebug;
         this._isInDebugMode = forceDebug;
         try {
@@ -22877,22 +23193,8 @@ var require_main3 = __commonJS({
             throw new Error("Process created without stdio streams");
           }
         }
-        function pipeStdoutToLogOutputChannel(input, outputChannel) {
-          readline.createInterface({
-            input,
-            crlfDelay: Infinity,
-            terminal: false,
-            historySize: 0
-          }).on("line", (data) => outputChannel.info(data));
-        }
-        function pipeStderrToLogOutputChannel(input, outputChannel) {
-          readline.createInterface({
-            input,
-            crlfDelay: Infinity,
-            terminal: false,
-            historySize: 0
-          }).on("line", (data) => outputChannel.error(data));
-        }
+        const pipeStdout = this._stdioOptions.stdout;
+        const pipeStderr = this._stdioOptions.stderr;
         const server = this._serverOptions;
         if (Is2.func(server)) {
           return server().then((result) => {
@@ -22911,7 +23213,7 @@ var require_main3 = __commonJS({
                 cp2 = result;
                 this._isDetached = false;
               }
-              pipeStderrToLogOutputChannel(cp2.stderr, this.outputChannel);
+              pipeStderr(cp2.stderr, this.outputChannel);
               return { reader: new node_1.StreamMessageReader(cp2.stdout), writer: new node_1.StreamMessageWriter(cp2.stdin) };
             }
           });
@@ -22956,8 +23258,6 @@ var require_main3 = __commonJS({
               } else if (transport === TransportKind2.pipe) {
                 pipeName = (0, node_1.generateRandomPipeName)();
                 args.push(`--pipe=${pipeName}`);
-              } else if (Transport.isSocket(transport)) {
-                args.push(`--socket=${transport.port}`);
               }
               args.push(`--clientProcessId=${process.pid.toString()}`);
               if (transport === TransportKind2.ipc || transport === TransportKind2.stdio) {
@@ -22966,9 +23266,9 @@ var require_main3 = __commonJS({
                   return handleChildProcessStartError(serverProcess, `Launching server using runtime ${runtime} failed.`);
                 }
                 this._serverProcess = serverProcess;
-                pipeStderrToLogOutputChannel(serverProcess.stderr, this.outputChannel);
+                pipeStderr(serverProcess.stderr, this.outputChannel);
                 if (transport === TransportKind2.ipc) {
-                  pipeStdoutToLogOutputChannel(serverProcess.stdout, this.outputChannel);
+                  pipeStdout(serverProcess.stdout, this.outputChannel);
                   return Promise.resolve({ reader: new node_1.IPCMessageReader(serverProcess), writer: new node_1.IPCMessageWriter(serverProcess) });
                 } else {
                   return Promise.resolve({ reader: new node_1.StreamMessageReader(serverProcess.stdout), writer: new node_1.StreamMessageWriter(serverProcess.stdin) });
@@ -22980,21 +23280,22 @@ var require_main3 = __commonJS({
                     return handleChildProcessStartError(process2, `Launching server using runtime ${runtime} failed.`);
                   }
                   this._serverProcess = process2;
-                  pipeStderrToLogOutputChannel(process2.stderr, this.outputChannel);
-                  pipeStdoutToLogOutputChannel(process2.stdout, this.outputChannel);
+                  pipeStderr(process2.stderr, this.outputChannel);
+                  pipeStdout(process2.stdout, this.outputChannel);
                   return transport2.onConnected().then((protocol) => {
                     return { reader: protocol[0], writer: protocol[1] };
                   });
                 });
               } else if (Transport.isSocket(transport)) {
                 return (0, node_1.createClientSocketTransport)(transport.port).then((transport2) => {
+                  args.push(`--socket=${transport2.port()}`);
                   const process2 = cp.spawn(runtime, args, execOptions);
                   if (!process2 || !process2.pid) {
                     return handleChildProcessStartError(process2, `Launching server using runtime ${runtime} failed.`);
                   }
                   this._serverProcess = process2;
-                  pipeStderrToLogOutputChannel(process2.stderr, this.outputChannel);
-                  pipeStdoutToLogOutputChannel(process2.stdout, this.outputChannel);
+                  pipeStderr(process2.stderr, this.outputChannel);
+                  pipeStdout(process2.stdout, this.outputChannel);
                   return transport2.onConnected().then((protocol) => {
                     return { reader: protocol[0], writer: protocol[1] };
                   });
@@ -23011,8 +23312,6 @@ var require_main3 = __commonJS({
                 } else if (transport === TransportKind2.pipe) {
                   pipeName = (0, node_1.generateRandomPipeName)();
                   args.push(`--pipe=${pipeName}`);
-                } else if (Transport.isSocket(transport)) {
-                  args.push(`--socket=${transport.port}`);
                 }
                 args.push(`--clientProcessId=${process.pid.toString()}`);
                 const options = node.options ? { ...node.options } : /* @__PURE__ */ Object.create(null);
@@ -23024,9 +23323,9 @@ var require_main3 = __commonJS({
                   const sp = cp.fork(node.module, args || [], options);
                   assertStdio(sp);
                   this._serverProcess = sp;
-                  pipeStderrToLogOutputChannel(sp.stderr, this.outputChannel);
+                  pipeStderr(sp.stderr, this.outputChannel);
                   if (transport === TransportKind2.ipc) {
-                    pipeStdoutToLogOutputChannel(sp.stdout, this.outputChannel);
+                    pipeStdout(sp.stdout, this.outputChannel);
                     resolve({ reader: new node_1.IPCMessageReader(this._serverProcess), writer: new node_1.IPCMessageWriter(this._serverProcess) });
                   } else {
                     resolve({ reader: new node_1.StreamMessageReader(sp.stdout), writer: new node_1.StreamMessageWriter(sp.stdin) });
@@ -23036,19 +23335,20 @@ var require_main3 = __commonJS({
                     const sp = cp.fork(node.module, args || [], options);
                     assertStdio(sp);
                     this._serverProcess = sp;
-                    pipeStderrToLogOutputChannel(sp.stderr, this.outputChannel);
-                    pipeStdoutToLogOutputChannel(sp.stdout, this.outputChannel);
+                    pipeStderr(sp.stderr, this.outputChannel);
+                    pipeStdout(sp.stdout, this.outputChannel);
                     transport2.onConnected().then((protocol) => {
                       resolve({ reader: protocol[0], writer: protocol[1] });
                     }, reject);
                   }, reject);
                 } else if (Transport.isSocket(transport)) {
                   (0, node_1.createClientSocketTransport)(transport.port).then((transport2) => {
+                    args.push(`--socket=${transport2.port()}`);
                     const sp = cp.fork(node.module, args || [], options);
                     assertStdio(sp);
                     this._serverProcess = sp;
-                    pipeStderrToLogOutputChannel(sp.stderr, this.outputChannel);
-                    pipeStdoutToLogOutputChannel(sp.stdout, this.outputChannel);
+                    pipeStderr(sp.stderr, this.outputChannel);
+                    pipeStdout(sp.stdout, this.outputChannel);
                     transport2.onConnected().then((protocol) => {
                       resolve({ reader: protocol[0], writer: protocol[1] });
                     }, reject);
@@ -23066,8 +23366,6 @@ var require_main3 = __commonJS({
             } else if (transport === TransportKind2.pipe) {
               pipeName = (0, node_1.generateRandomPipeName)();
               args.push(`--pipe=${pipeName}`);
-            } else if (Transport.isSocket(transport)) {
-              args.push(`--socket=${transport.port}`);
             } else if (transport === TransportKind2.ipc) {
               throw new Error(`Transport kind ipc is not support for command executable`);
             }
@@ -23078,7 +23376,7 @@ var require_main3 = __commonJS({
               if (!serverProcess || !serverProcess.pid) {
                 return handleChildProcessStartError(serverProcess, `Launching server using command ${command.command} failed.`);
               }
-              pipeStderrToLogOutputChannel(serverProcess.stderr, this.outputChannel);
+              pipeStderr(serverProcess.stderr, this.outputChannel);
               this._serverProcess = serverProcess;
               this._isDetached = !!options.detached;
               return Promise.resolve({ reader: new node_1.StreamMessageReader(serverProcess.stdout), writer: new node_1.StreamMessageWriter(serverProcess.stdin) });
@@ -23090,22 +23388,23 @@ var require_main3 = __commonJS({
                 }
                 this._serverProcess = serverProcess;
                 this._isDetached = !!options.detached;
-                pipeStderrToLogOutputChannel(serverProcess.stderr, this.outputChannel);
-                pipeStdoutToLogOutputChannel(serverProcess.stdout, this.outputChannel);
+                pipeStderr(serverProcess.stderr, this.outputChannel);
+                pipeStdout(serverProcess.stdout, this.outputChannel);
                 return transport2.onConnected().then((protocol) => {
                   return { reader: protocol[0], writer: protocol[1] };
                 });
               });
             } else if (Transport.isSocket(transport)) {
               return (0, node_1.createClientSocketTransport)(transport.port).then((transport2) => {
+                args.push(`--socket=${transport2.port()}`);
                 const serverProcess = cp.spawn(command.command, args, options);
                 if (!serverProcess || !serverProcess.pid) {
                   return handleChildProcessStartError(serverProcess, `Launching server using command ${command.command} failed.`);
                 }
                 this._serverProcess = serverProcess;
                 this._isDetached = !!options.detached;
-                pipeStderrToLogOutputChannel(serverProcess.stderr, this.outputChannel);
-                pipeStdoutToLogOutputChannel(serverProcess.stdout, this.outputChannel);
+                pipeStderr(serverProcess.stderr, this.outputChannel);
+                pipeStdout(serverProcess.stdout, this.outputChannel);
                 return transport2.onConnected().then((protocol) => {
                   return { reader: protocol[0], writer: protocol[1] };
                 });
@@ -23283,8 +23582,7 @@ async function activate(context) {
   context.subscriptions.push(disposable);
   const place = async (method) => {
     const editor = vscode.window.activeTextEditor;
-    if (!editor)
-      return;
+    if (!editor) return;
     const r = await client.sendRequest(method, {
       uri: editor.document.uri.toString(),
       line: editor.selection.active.line

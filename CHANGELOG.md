@@ -21,6 +21,20 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   (33 checks: the commands run, against stand-ins, and the requests sent,
   against a local server standing in for the U64).
 
+### Containers: the tree set and the hash table smaller
+
+- `struct tset` / `struct tmap` (`tset.s45`): 1977 bytes (was 3006). The
+  working pointers are in the zero page (the parameter block), so a node's
+  fields are `(ptr),y` with no helper call; they are kept in BSS around
+  the comparator, `malloc` and `free`. The tree's root is `struct
+  tset_node *` (an opaque type), now that cc45 takes pointers to structs
+  it never sees defined.
+- `struct hashmap` / `struct hashset` (`hashmap.s45`): 1593 bytes (was
+  1904): the state in the zero page the same way; the built-in hashes no
+  longer use `$10`–`$13`; the fields reordered (`slots`, `len`, `used`,
+  `ksize`, `vsize`, `cap`, `hash`, `cmp`) so `init` copies its arguments
+  in one loop.
+
 ### IDE: outline, references, members, C to assembly (#198)
 
 - The language server (`tools/ide/lsp-server`): the file's outline (C
