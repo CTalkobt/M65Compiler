@@ -9,9 +9,15 @@
 ;   size_t set::size(); void set::clear(), set::free()
 ;
 ; struct set: data (0), len (2), cap (4), esize (6) — a vec_t's layout: the
-; array is grown, inserted into and erased from by the vector's routines —
-; and cmp (8). cmp(a, b) < 0 when a comes before b; NULL compares the bytes,
-; unsigned, the first first. A binary search; insert and erase move the
+; array is grown, inserted into and erased from by the vector's routines —,
+; cmp (8) and ksize (10: the key's bytes, esize in a set). cmp(a, b) < 0 when
+; a comes before b; NULL compares the key's bytes, unsigned, the first first.
+;
+; struct map (#407) is a set whose element is the key and then the value
+; (esize = ksize + vsize); cmp sees the key. insert copies ksize bytes from
+; the key and the rest from the value at $14, and on an element already
+; there copies the value over it: map::put is set::insert. The map's other
+; methods are the set's (each its own section, a jmp). A binary search; insert and erase move the
 ; elements after it (memmove). cmp is called through __ct_cmp
 ; (stdlib/ct_shim.c): it may change any zero-page byte, so the state is in
 ; BSS (not reentrant), and cmp must not use a set.
@@ -19,7 +25,9 @@
 .global _set__init, _set__insert, _set__erase, _set__find, _set__lower_bound
 .global _set__first, _set__next, _set__size, _set__clear, _set__free
 .global __set_compare
-.extern __ct_addr, __ct_bytecmp, ___ct_cmp, ___ct_cmpf
+.global _map__init, _map__put, _map__get, _map__erase, _map__find, _map__lower_bound
+.global _map__first, _map__next, _map__size, _map__clear, _map__free
+.extern __ct_addr, __ct_bytecmp, __ct_copy, ___ct_cmp, ___ct_cmpf
 .extern _vec_init, _vec_insert, _vec_erase, _vec_free
 
 ; the comparison through __ct_cmp (a C function: ln45's call graph knows it)
@@ -43,6 +51,8 @@ __set_hi:   .res 2
 __set_mid:  .res 2
 __set_pa:   .res 2      ; the element compared with the key
 __set_eq:   .res 1      ; the search found it
+__set_ks:   .res 2      ; the key's size
+__set_val:  .res 2      ; the value (a map's insert)
 __set_t:    .res 1
 
 .segment "code"
@@ -57,6 +67,16 @@ proc __set_load
     sta __set_key
     lda $13
     sta __set_key+1
+    lda $14
+    sta __set_val
+    lda $15
+    sta __set_val+1
+    ldy #10
+    lda ($10),y
+    sta __set_ks
+    iny
+    lda ($10),y
+    sta __set_ks+1
     ldy #0
     lda ($10),y
     sta __set_data
@@ -115,9 +135,9 @@ proc __set_compare
     sta CT_Q
     lda __set_key+1
     sta CT_Q+1
-    lda __set_es
+    lda __set_ks
     sta CT_ES
-    lda __set_es+1
+    lda __set_ks+1
     sta CT_ES+1
     jsr __ct_bytecmp    ; (Z equal, C clear lower)
     beq @eq
@@ -251,27 +271,32 @@ proc _set__init
     iny
     lda $15
     sta ($10),y
+    iny
+    lda $12             ; ksize = esize
+    sta ($10),y
+    iny
+    lda $13
+    sta ($10),y
     rts
     .func_flags zp_call
 endproc
 
 ; int set::insert(const void *key)
 proc _set__insert
-    .zp_uses $10, $11, $12, $13
+    .zp_uses $10, $11, $12, $13, $14, $15
     .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z, V
     jsr __set_load
     jsr __set_search
     lda __set_eq
     bne @there
-    jsr __set_this      ; vec_insert(s, lo, key)
+    jsr __set_this      ; vec_insert(s, lo, NULL): the place
     lda __set_lo
     sta $12
     lda __set_lo+1
     sta $13
-    lda __set_key
+    lda #0
     sta $14
-    lda __set_key+1
     sta $15
     jsr _vec_insert
     cmp #0
@@ -282,14 +307,57 @@ proc _set__insert
     tax
     rts
 @ok:
+    sta __set_pa
+    stx __set_pa+1
+    sta CT_P            ; the key
+    stx CT_P+1
+    lda __set_key
+    sta CT_Q
+    lda __set_key+1
+    sta CT_Q+1
+    lda __set_ks
+    sta CT_ES
+    lda __set_ks+1
+    sta CT_ES+1
+    jsr __ct_copy
+    jsr __set_value
     lda #1
     ldx #0
     rts
 @there:
+    jsr __set_value     ; (a map's value replaced)
     lda #0
     tax
     rts
     .func_flags zp_call
+endproc
+
+; the value (esize - ksize bytes from __set_val) into the element at __set_pa
+; after its key: nothing in a set
+proc __set_value
+    sec
+    lda __set_es
+    sbc __set_ks
+    sta CT_ES
+    lda __set_es+1
+    sbc __set_ks+1
+    sta CT_ES+1
+    ora CT_ES
+    beq @none
+    clc
+    lda __set_pa
+    adc __set_ks
+    sta CT_P
+    lda __set_pa+1
+    adc __set_ks+1
+    sta CT_P+1
+    lda __set_val
+    sta CT_Q
+    lda __set_val+1
+    sta CT_Q+1
+    jmp __ct_copy
+@none:
+    rts
 endproc
 
 ; int set::erase(const void *key)
@@ -464,5 +532,135 @@ proc _set__free
     .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z, V
     jmp _vec_free
+    .func_flags zp_call
+endproc
+
+; ---- struct map: the set's methods ------------------------------------
+
+; void map::init(size_t ksize, size_t vsize, int (*cmp)(...))   $12, $14, $16
+proc _map__init
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    lda $12             ; set::init(ksize + vsize, cmp), then ksize
+    pha
+    lda $13
+    pha
+    clc
+    adc $15
+    sta $13
+    lda $12
+    adc $14
+    sta $12
+    bcc @1
+    inc $13
+@1:
+    lda $16
+    sta $14
+    lda $17
+    sta $15
+    jsr _set__init
+    ldy #11
+    pla
+    sta ($10),y
+    dey
+    pla
+    sta ($10),y
+    rts
+    .func_flags zp_call
+endproc
+
+; void *map::get(const void *key): the value, or NULL
+proc _map__get
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr _set__find
+    cmp #0
+    bne @in
+    cpx #0
+    beq @none
+@in:
+    clc
+    adc __set_ks
+    pha
+    txa
+    adc __set_ks+1
+    tax
+    pla
+@none:
+    rts
+    .func_flags zp_call
+endproc
+
+proc _map__put
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jmp _set__insert
+    .func_flags zp_call
+endproc
+
+proc _map__erase
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jmp _set__erase
+    .func_flags zp_call
+endproc
+
+proc _map__find
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jmp _set__find
+    .func_flags zp_call
+endproc
+
+proc _map__lower_bound
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jmp _set__lower_bound
+    .func_flags zp_call
+endproc
+
+proc _map__first
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jmp _set__first
+    .func_flags zp_call
+endproc
+
+proc _map__next
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jmp _set__next
+    .func_flags zp_call
+endproc
+
+proc _map__size
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jmp _set__size
+    .func_flags zp_call
+endproc
+
+proc _map__clear
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jmp _set__clear
+    .func_flags zp_call
+endproc
+
+proc _map__free
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jmp _set__free
     .func_flags zp_call
 endproc

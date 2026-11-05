@@ -1,0 +1,1067 @@
+; hashmap.s45 — hash tables: struct hashmap's and struct hashset's methods
+; (<hashmap.h>, #407), and the built-in hashes hash_bytes / hash_str
+;
+;   void  hashmap::init(size_t ksize, size_t vsize, size_t cap, hash, cmp)
+;                                       this $10, $12, $14, $16, $18, $1A
+;   int   hashmap::put(const void *key, const void *val)   1 new, 0 replaced, -1 no memory
+;   void *hashmap::get(key)             the value, or NULL
+;   void *hashmap::find(key)            the element (its key), or NULL
+;   int   hashmap::erase(key)           1 erased, 0 not there
+;   void *hashmap::first(), *hashmap::next(void *e)   the elements, in no order
+;   size_t hashmap::size(); int hashmap::rehash(size_t n); clear(); free()
+;   struct hashset: the same with no value (init(ksize, cap, hash, cmp), insert)
+;
+; struct hashmap: slots (0), cap (2: before the first put, the size asked
+; for), len (4), used (6: len and the erased slots), ksize (8; 0: the key is a
+; C string, the table keeps its pointer), vsize (10), hash (12), cmp (14).
+; Open addressing, linear probing: cap slots, a power of two (8 at least),
+; each a state byte and the element (the key, ksize bytes or the string's
+; pointer, then the value). State 0: empty; 1: erased (a tombstone); $80 |
+; the hash's high 7 bits: used — the probe compares it before the key. A put
+; that would fill more than 3/4 (with tombstones) rehashes to twice the
+; elements (at least 8 slots), dropping the tombstones.
+; hash NULL: hash_bytes over ksize bytes (hash_str for strings); cmp NULL:
+; the bytes compared (strings: strcmp's equality). The program's hash and cmp
+; (0 when equal) are called through __ct_hash / __ct_cmp (stdlib/ct_hash.c,
+; ct_shim.c): they may change any zero-page byte, so the state is in BSS
+; (not reentrant), and they must not use a hash table.
+
+.global _hashmap__init, _hashmap__put, _hashmap__get, _hashmap__find, _hashmap__erase
+.global _hashmap__first, _hashmap__next, _hashmap__size, _hashmap__rehash
+.global _hashmap__clear, _hashmap__free
+.global _hashset__init, _hashset__insert, _hashset__find, _hashset__erase
+.global _hashset__first, _hashset__next, _hashset__size, _hashset__rehash
+.global _hashset__clear, _hashset__free
+.global _hash_bytes, _hash_str
+.global __hm_hashk, __hm_equal
+.extern __ct_addr, __ct_bytecmp, __ct_copy, ___ct_cmp, ___ct_cmpf, ___ct_hash, ___ct_hashf
+.extern _calloc, _free
+
+; the hash and the comparison through __ct_hash / __ct_cmp (C functions)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+CT_BASE = $08
+CT_ES   = $0A
+CT_P    = $0C
+CT_Q    = $0E
+HH      = $F6       ; the hash
+HT      = $F8       ; a temp
+TP      = $FA       ; a slot, for (TP),y
+
+.macro mov16 dst, src
+    lda src
+    sta dst
+    lda src+1
+    sta dst+1
+.endmacro
+
+.macro isnull var
+    lda var
+    ora var+1
+.endmacro
+
+.segment "bss"
+__hm_slots: .res 2      ; the struct's fields, in its order (__hm_load)
+__hm_cap:   .res 2
+__hm_len:   .res 2
+__hm_used:  .res 2
+__hm_ks:    .res 2
+__hm_vs:    .res 2
+__hm_hash:  .res 2
+__hm_cmp:   .res 2
+__hm_this:  .res 2
+__hm_key:   .res 2
+__hm_val:   .res 2
+__hm_kse:   .res 2      ; the key's bytes in a slot (2 for a string)
+__hm_ss:    .res 2      ; a slot's bytes
+__hm_end:   .res 2      ; slots + cap * ss
+__hm_h:     .res 2      ; the hash
+__hm_p:     .res 2      ; a slot
+__hm_ins:   .res 2      ; where a new key goes
+__hm_old:   .res 2      ; rehash: the old slots
+__hm_oend:  .res 2
+__hm_ofree: .res 2
+__hm_ncap:  .res 2
+__hm_n:     .res 2
+__hm_tag:   .res 1
+__hm_t:     .res 1
+
+.segment "code"
+
+; ---- the built-in hashes ------------------------------------------------
+
+; HH = HH * 33 ^ A
+proc __hm_mix
+    pha
+    lda HH
+    sta HT
+    lda HH+1
+    sta HT+1
+    ldx #5
+@sh:
+    asl HH
+    rol HH+1
+    dex
+    bne @sh
+    clc
+    lda HH
+    adc HT
+    sta HH
+    lda HH+1
+    adc HT+1
+    sta HH+1
+    pla
+    eor HH
+    sta HH
+    rts
+endproc
+
+; unsigned hash_bytes(const void *p, size_t n)
+proc _hash_bytes
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    lda #$05            ; 5381
+    sta HH
+    lda #$15
+    sta HH+1
+@loop:
+    lda $12
+    ora $13
+    beq @done
+    ldy #0
+    lda ($10),y
+    jsr __hm_mix
+    inc $10
+    bne @1
+    inc $11
+@1:
+    lda $12
+    bne @2
+    dec $13
+@2:
+    dec $12
+    bra @loop
+@done:
+    lda HH
+    ldx HH+1
+    rts
+    .func_flags zp_call
+endproc
+
+; unsigned hash_str(const char *s)
+proc _hash_str
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    lda #$05
+    sta HH
+    lda #$15
+    sta HH+1
+@loop:
+    ldy #0
+    lda ($10),y
+    beq @done
+    jsr __hm_mix
+    inc $10
+    bne @loop
+    inc $11
+    bra @loop
+@done:
+    lda HH
+    ldx HH+1
+    rts
+    .func_flags zp_call
+endproc
+
+; ---- the table ----------------------------------------------------------
+
+; the table at $10 (the key at $12, the value at $14) into BSS
+proc __hm_load
+    mov16 __hm_this, $10
+    mov16 __hm_key, $12
+    mov16 __hm_val, $14
+    ldy #0
+@copy:
+    lda ($10),y
+    sta __hm_slots,y
+    iny
+    cpy #16
+    bne @copy
+    isnull __hm_ks
+    bne @fixed
+    lda #2
+    sta __hm_kse
+    lda #0
+    sta __hm_kse+1
+    bra @es
+@fixed:
+    mov16 __hm_kse, __hm_ks
+@es:
+    sec                 ; ss = kse + vs + 1
+    lda __hm_kse
+    adc __hm_vs
+    sta __hm_ss
+    lda __hm_kse+1
+    adc __hm_vs+1
+    sta __hm_ss+1
+    jmp __hm_setend
+endproc
+
+; __hm_end = slots + cap * ss
+proc __hm_setend
+    mov16 CT_BASE, __hm_slots
+    mov16 CT_ES, __hm_ss
+    lda __hm_cap
+    ldx __hm_cap+1
+    jsr __ct_addr
+    sta __hm_end
+    stx __hm_end+1
+    rts
+endproc
+
+; slots, cap, len, used back into the table
+proc __hm_save
+    mov16 TP, __hm_this
+    ldy #7
+@copy:
+    lda __hm_slots,y
+    sta (TP),y
+    dey
+    bpl @copy
+    rts
+endproc
+
+; the hash of key A/X -> __hm_h, __hm_tag ($80 | its high 7 bits)
+; (global, with its record: ln45 bridges its call of __ct_hash in c45_stack.lib)
+proc __hm_hashk
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    sta $10
+    stx $11
+    isnull __hm_hash
+    bne @fn
+    isnull __hm_ks
+    bne @bytes
+    jsr _hash_str
+    bra @got
+@bytes:
+    mov16 $12, __hm_ks
+    jsr _hash_bytes
+    bra @got
+@fn:
+    mov16 ___ct_hashf, __hm_hash
+    jsr ___ct_hash
+@got:
+    sta __hm_h
+    stx __hm_h+1
+    txa
+    ora #$80
+    sta __hm_tag
+    rts
+    .func_flags zp_call
+endproc
+
+; the key against slot __hm_p's: A = 0 (Z) when equal
+; (global, with its record: ln45 bridges its call of __ct_cmp in c45_stack.lib)
+proc __hm_equal
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    clc                 ; CT_Q = the slot's key
+    lda __hm_p
+    adc #1
+    sta CT_Q
+    lda __hm_p+1
+    adc #0
+    sta CT_Q+1
+    isnull __hm_ks
+    bne @fixed
+    ldy #0              ; a string: its pointer
+    lda (CT_Q),y
+    tax
+    iny
+    lda (CT_Q),y
+    stx CT_Q
+    sta CT_Q+1
+    isnull __hm_cmp
+    bne @fn
+    mov16 CT_P, __hm_key
+    ldy #0
+@str:
+    lda (CT_P),y
+    cmp (CT_Q),y
+    bne @ne
+    cmp #0
+    beq @eq
+    iny
+    bne @str
+    inc CT_P+1
+    inc CT_Q+1
+    bra @str
+@fixed:
+    isnull __hm_cmp
+    bne @fn
+    mov16 CT_P, __hm_key
+    mov16 CT_ES, __hm_ks
+    jsr __ct_bytecmp
+    beq @eq
+@ne:
+    lda #1
+    rts
+@fn:
+    mov16 ___ct_cmpf, __hm_cmp
+    mov16 $10, __hm_key
+    mov16 $12, CT_Q
+    jsr ___ct_cmp
+    stx __hm_t
+    ora __hm_t
+    bne @ne
+@eq:
+    lda #0
+    rts
+    .func_flags zp_call
+endproc
+
+; __hm_p = the slot the hash goes to: slots + (h & (cap - 1)) * ss
+proc __hm_home
+    mov16 CT_BASE, __hm_slots
+    sec
+    lda __hm_cap
+    sbc #1
+    and __hm_h
+    pha
+    lda __hm_cap+1
+    sbc #0
+    and __hm_h+1
+    tax
+    pla
+    jmp __hm_slot
+endproc
+
+; __hm_p = slots + A/X * ss (CT_BASE = slots)
+proc __hm_slot
+    pha
+    mov16 CT_ES, __hm_ss
+    pla
+    jsr __ct_addr
+    sta __hm_p
+    stx __hm_p+1
+    rts
+endproc
+
+; __hm_p on to the next slot (round to the first)
+proc __hm_step
+    clc
+    lda __hm_p
+    adc __hm_ss
+    sta __hm_p
+    lda __hm_p+1
+    adc __hm_ss+1
+    sta __hm_p+1
+    cmp __hm_end+1
+    bne @r
+    lda __hm_p
+    cmp __hm_end
+    bne @r
+    mov16 __hm_p, __hm_slots
+@r:
+    rts
+endproc
+
+; the key's slot: C set and __hm_p when it is there; C clear and __hm_ins
+; (the first tombstone or the empty slot the probe ended at) when not
+proc __hm_lookup
+    lda __hm_key
+    ldx __hm_key+1
+    jsr __hm_hashk
+    lda #0
+    sta __hm_ins
+    sta __hm_ins+1
+    jsr __hm_home
+@loop:
+    mov16 TP, __hm_p
+    ldy #0
+    lda (TP),y
+    beq @empty
+    cmp #1
+    beq @tomb
+    cmp __hm_tag
+    bne @next
+    jsr __hm_equal
+    cmp #0
+    bne @next
+    sec
+    rts
+@tomb:
+    isnull __hm_ins
+    bne @next
+    mov16 __hm_ins, __hm_p
+@next:
+    jsr __hm_step
+    bra @loop
+@empty:
+    isnull __hm_ins
+    bne @r
+    mov16 __hm_ins, __hm_p
+@r:
+    clc
+    rts
+endproc
+
+; the table rebuilt with room for A/X slots (a power of two, at least 8,
+; more while len would fill over 3/4); the tombstones dropped.
+; C clear done; C set no memory (the table as it was)
+proc __hm_resize
+    sta __hm_n
+    stx __hm_n+1
+    lda #8
+    sta __hm_ncap
+    lda #0
+    sta __hm_ncap+1
+@want:
+    lda __hm_ncap+1     ; ncap < n: double
+    cmp __hm_n+1
+    bcc @dbl
+    bne @room
+    lda __hm_ncap
+    cmp __hm_n
+    bcs @room
+@dbl:
+    asl __hm_ncap
+    rol __hm_ncap+1
+    bcc @want
+    jmp @fail
+@room:
+    lda __hm_ncap+1     ; len >= ncap - ncap / 4: double
+    lsr a
+    sta HT+1
+    lda __hm_ncap
+    ror a
+    sta HT
+    lsr HT+1
+    ror HT
+    sec
+    lda __hm_ncap
+    sbc HT
+    sta HT
+    lda __hm_ncap+1
+    sbc HT+1
+    sta HT+1
+    lda __hm_len+1
+    cmp HT+1
+    bcc @size
+    bne @dbl
+    lda __hm_len
+    cmp HT
+    bcs @dbl
+@size:
+    mov16 HH, __hm_ss   ; bytes = ss * ncap (a power of two): shifts
+    mov16 HT, __hm_ncap
+@sh:
+    lsr HT+1
+    ror HT
+    isnull HT
+    beq @alloc
+    asl HH
+    rol HH+1
+    bcc @sh
+    jmp @fail
+@alloc:
+    mov16 $10, HH       ; calloc(bytes, 1): every state empty
+    lda #1
+    sta $12
+    lda #0
+    sta $13
+    jsr _calloc
+    sta HT
+    stx HT+1
+    isnull HT
+    bne @got
+    jmp @fail
+@got:
+    mov16 __hm_old, __hm_slots
+    mov16 __hm_ofree, __hm_slots
+    mov16 __hm_oend, __hm_end
+    mov16 __hm_slots, HT
+    mov16 __hm_cap, __hm_ncap
+    mov16 __hm_used, __hm_len
+    jsr __hm_setend
+    isnull __hm_old
+    bne @move
+    jmp @done
+@move:
+    lda __hm_old        ; the old slots, each used one to its new place
+    cmp __hm_oend
+    bne @slot
+    lda __hm_old+1
+    cmp __hm_oend+1
+    bne @slot
+    jmp @free
+@slot:
+    mov16 TP, __hm_old
+    ldy #0
+    lda (TP),y
+    bpl @skip
+    clc                 ; its key: the element, or the string's pointer
+    lda TP
+    adc #1
+    sta HT
+    lda TP+1
+    adc #0
+    sta HT+1
+    isnull __hm_ks
+    bne @hash
+    ldy #1
+    lda (TP),y
+    sta HT
+    iny
+    lda (TP),y
+    sta HT+1
+@hash:
+    lda HT
+    ldx HT+1
+    jsr __hm_hashk
+    jsr __hm_home
+@probe:
+    mov16 TP, __hm_p
+    ldy #0
+    lda (TP),y
+    beq @put
+    jsr __hm_step
+    bra @probe
+@put:
+    mov16 CT_P, __hm_p
+    mov16 CT_Q, __hm_old
+    mov16 CT_ES, __hm_ss
+    jsr __ct_copy
+@skip:
+    clc
+    lda __hm_old
+    adc __hm_ss
+    sta __hm_old
+    lda __hm_old+1
+    adc __hm_ss+1
+    sta __hm_old+1
+    jmp @move
+@free:
+    mov16 $10, __hm_ofree
+    jsr _free
+@done:
+    jsr __hm_save
+    clc
+    rts
+@fail:
+    sec
+    rts
+endproc
+
+; the value (vs bytes from __hm_val) into slot __hm_p after its key
+proc __hm_value
+    isnull __hm_vs
+    beq @none
+    sec                 ; p + 1 + kse
+    lda __hm_p
+    adc __hm_kse
+    sta CT_P
+    lda __hm_p+1
+    adc __hm_kse+1
+    sta CT_P+1
+    mov16 CT_Q, __hm_val
+    mov16 CT_ES, __hm_vs
+    jmp __ct_copy
+@none:
+    rts
+endproc
+
+; void hashmap::init(size_t ksize, size_t vsize, size_t cap, hash, cmp)
+proc _hashmap__init
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $1A, $1B
+    .reg_clobbers A, Y
+    .flag_clobbers N, Z
+    lda #0
+    ldy #0
+    sta ($10),y
+    iny
+    sta ($10),y
+    ldy #4
+    sta ($10),y
+    iny
+    sta ($10),y
+    iny
+    sta ($10),y
+    iny
+    sta ($10),y
+    ldy #2
+    lda $16
+    sta ($10),y
+    iny
+    lda $17
+    sta ($10),y
+    ldy #8
+    lda $12
+    sta ($10),y
+    iny
+    lda $13
+    sta ($10),y
+    iny
+    lda $14
+    sta ($10),y
+    iny
+    lda $15
+    sta ($10),y
+    iny
+    lda $18
+    sta ($10),y
+    iny
+    lda $19
+    sta ($10),y
+    iny
+    lda $1A
+    sta ($10),y
+    iny
+    lda $1B
+    sta ($10),y
+    rts
+    .func_flags zp_call
+endproc
+
+; int hashmap::put(const void *key, const void *val)
+proc _hashmap__put
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr __hm_load
+    isnull __hm_slots
+    bne @have
+    lda __hm_cap        ; the first: the size asked for
+    ldx __hm_cap+1
+    jsr __hm_resize
+    bcs @nomem
+    bra @look
+@have:
+    lda __hm_cap+1      ; used + 1 > cap - cap / 4: rehash
+    lsr a
+    sta HT+1
+    lda __hm_cap
+    ror a
+    sta HT
+    lsr HT+1
+    ror HT
+    sec
+    lda __hm_cap
+    sbc HT
+    sta HT
+    lda __hm_cap+1
+    sbc HT+1
+    sta HT+1
+    lda __hm_used+1
+    cmp HT+1
+    bcc @look
+    bne @grow
+    lda __hm_used
+    cmp HT
+    bcc @look
+@grow:
+    lda __hm_len        ; to 2 * (len + 1)
+    clc
+    adc #1
+    sta HT
+    lda __hm_len+1
+    adc #0
+    asl HT
+    rol a
+    tax
+    lda HT
+    jsr __hm_resize
+    bcs @nomem
+@look:
+    jsr __hm_lookup
+    bcs @found
+    mov16 __hm_p, __hm_ins
+    mov16 TP, __hm_p
+    ldy #0
+    lda (TP),y
+    tax
+    lda __hm_tag
+    sta (TP),y
+    txa
+    bne @len            ; (a tombstone: used already counts it)
+    inc __hm_used
+    bne @len
+    inc __hm_used+1
+@len:
+    inc __hm_len
+    bne @key
+    inc __hm_len+1
+@key:
+    clc
+    lda __hm_p
+    adc #1
+    sta CT_P
+    lda __hm_p+1
+    adc #0
+    sta CT_P+1
+    isnull __hm_ks
+    bne @copy
+    ldy #0              ; a string: its pointer
+    lda __hm_key
+    sta (CT_P),y
+    iny
+    lda __hm_key+1
+    sta (CT_P),y
+    bra @val
+@copy:
+    mov16 CT_Q, __hm_key
+    mov16 CT_ES, __hm_ks
+    jsr __ct_copy
+@val:
+    jsr __hm_value
+    jsr __hm_save
+    lda #1
+    ldx #0
+    rts
+@found:
+    jsr __hm_value
+    lda #0
+    tax
+    rts
+@nomem:
+    lda #$FF
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+; C set and __hm_p: the key's slot (the table loaded)
+proc __hm_findp
+    jsr __hm_load
+    isnull __hm_slots
+    beq @none
+    jmp __hm_lookup
+@none:
+    clc
+    rts
+endproc
+
+; void *hashmap::find(const void *key)
+proc _hashmap__find
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr __hm_findp
+    bcc @none
+    clc
+    lda __hm_p
+    adc #1
+    pha
+    lda __hm_p+1
+    adc #0
+    tax
+    pla
+    rts
+@none:
+    lda #0
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+; void *hashmap::get(const void *key): the value
+proc _hashmap__get
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr __hm_findp
+    bcc @none
+    sec                 ; p + 1 + kse
+    lda __hm_p
+    adc __hm_kse
+    pha
+    lda __hm_p+1
+    adc __hm_kse+1
+    tax
+    pla
+    rts
+@none:
+    lda #0
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+; int hashmap::erase(const void *key)
+proc _hashmap__erase
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr __hm_findp
+    bcc @none
+    mov16 TP, __hm_p    ; a tombstone
+    ldy #0
+    lda #1
+    sta (TP),y
+    lda __hm_len
+    bne @1
+    dec __hm_len+1
+@1:
+    dec __hm_len
+    jsr __hm_save
+    lda #1
+    ldx #0
+    rts
+@none:
+    lda #0
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+; the first used slot from __hm_p on: its element, or NULL
+proc __hm_scan
+    isnull __hm_slots
+    beq @none
+@loop:
+    lda __hm_p
+    cmp __hm_end
+    bne @in
+    lda __hm_p+1
+    cmp __hm_end+1
+    beq @none
+@in:
+    mov16 TP, __hm_p
+    ldy #0
+    lda (TP),y
+    bmi @used
+    clc
+    lda __hm_p
+    adc __hm_ss
+    sta __hm_p
+    lda __hm_p+1
+    adc __hm_ss+1
+    sta __hm_p+1
+    bra @loop
+@used:
+    clc
+    lda TP
+    adc #1
+    pha
+    lda TP+1
+    adc #0
+    tax
+    pla
+    rts
+@none:
+    lda #0
+    tax
+    rts
+endproc
+
+; void *hashmap::first()
+proc _hashmap__first
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr __hm_load
+    mov16 __hm_p, __hm_slots
+    jmp __hm_scan
+    .func_flags zp_call
+endproc
+
+; void *hashmap::next(void *e): the element after e (e - 1 + ss)
+proc _hashmap__next
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr __hm_load
+    clc
+    lda __hm_key
+    adc __hm_ss
+    sta __hm_p
+    lda __hm_key+1
+    adc __hm_ss+1
+    sta __hm_p+1
+    lda __hm_p
+    bne @1
+    dec __hm_p+1
+@1:
+    dec __hm_p
+    jmp __hm_scan
+    .func_flags zp_call
+endproc
+
+; size_t hashmap::size()
+proc _hashmap__size
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y
+    .flag_clobbers N, Z
+    ldy #5
+    lda ($10),y
+    tax
+    dey
+    lda ($10),y
+    rts
+    .func_flags zp_call
+endproc
+
+; int hashmap::rehash(size_t n): 0, or -1 no memory
+proc _hashmap__rehash
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr __hm_load
+    lda __hm_key
+    ldx __hm_key+1
+    jsr __hm_resize
+    lda #0
+    bcc @ok
+    lda #$FF
+@ok:
+    tax
+    rts
+    .func_flags zp_call
+endproc
+
+; void hashmap::clear(): empty, the memory kept
+proc _hashmap__clear
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr __hm_load
+    mov16 __hm_p, __hm_slots
+@loop:
+    lda __hm_p
+    cmp __hm_end
+    bne @slot
+    lda __hm_p+1
+    cmp __hm_end+1
+    beq @done
+@slot:
+    mov16 TP, __hm_p
+    ldy #0
+    tya
+    sta (TP),y
+    clc
+    lda __hm_p
+    adc __hm_ss
+    sta __hm_p
+    lda __hm_p+1
+    adc __hm_ss+1
+    sta __hm_p+1
+    bra @loop
+@done:
+    lda #0
+    sta __hm_len
+    sta __hm_len+1
+    sta __hm_used
+    sta __hm_used+1
+    jmp __hm_save
+    .func_flags zp_call
+endproc
+
+; void hashmap::free(): empty, the memory freed
+proc _hashmap__free
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jsr __hm_load
+    mov16 $10, __hm_slots
+    jsr _free
+    ldy #7
+    lda #0
+@z:
+    sta __hm_slots,y
+    dey
+    bpl @z
+    jmp __hm_save
+    .func_flags zp_call
+endproc
+
+; ---- struct hashset: the hashmap's with no value -----------------------
+
+; void hashset::init(size_t ksize, size_t cap, hash, cmp)   $12, $14, $16, $18
+proc _hashset__init
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
+    .reg_clobbers A, Y
+    .flag_clobbers N, Z
+    mov16 $1A, $18
+    mov16 $18, $16
+    mov16 $16, $14
+    lda #0
+    sta $14
+    sta $15
+    jmp _hashmap__init
+    .func_flags zp_call
+endproc
+
+proc _hashset__insert
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jmp _hashmap__put
+    .func_flags zp_call
+endproc
+
+proc _hashset__find
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jmp _hashmap__find
+    .func_flags zp_call
+endproc
+
+proc _hashset__erase
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jmp _hashmap__erase
+    .func_flags zp_call
+endproc
+
+proc _hashset__first
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jmp _hashmap__first
+    .func_flags zp_call
+endproc
+
+proc _hashset__next
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jmp _hashmap__next
+    .func_flags zp_call
+endproc
+
+proc _hashset__size
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jmp _hashmap__size
+    .func_flags zp_call
+endproc
+
+proc _hashset__rehash
+    .zp_uses $10, $11, $12, $13
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jmp _hashmap__rehash
+    .func_flags zp_call
+endproc
+
+proc _hashset__clear
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jmp _hashmap__clear
+    .func_flags zp_call
+endproc
+
+proc _hashset__free
+    .zp_uses $10, $11
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    jmp _hashmap__free
+    .func_flags zp_call
+endproc

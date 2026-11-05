@@ -25,6 +25,8 @@
  *
  * struct tset: a red-black tree of nodes (malloc), O(log n) insert and erase;
  * an element stays where it is until it is erased. Assembly: stdlib_asm/tset.s45.
+ *
+ * Maps on them (a key and a value): <map.h>.
  */
 #ifndef _SET_H
 #define _SET_H
@@ -39,6 +41,7 @@ struct set {
     size_t cap;
     size_t esize;
     set_cmp_t cmp;
+    size_t ksize;       /* the bytes cmp NULL compares: esize (a map's key) */
 
     __fastcall__ void init(size_t esize, set_cmp_t cmp);
     /* 1 inserted, 0 there already, -1 no memory */
@@ -64,6 +67,7 @@ struct tset {
     size_t len;
     size_t esize;
     set_cmp_t cmp;
+    size_t ksize;
 
     __fastcall__ void init(size_t esize, set_cmp_t cmp);
     __fastcall__ int insert(const void *key);
