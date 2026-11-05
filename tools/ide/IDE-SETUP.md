@@ -63,9 +63,27 @@ This guide covers setup of the MEGA65 C Compiler (cc45) and Assembler (ca45) Lan
 |--------|----------|
 | Go to Definition | **F12** |
 | Peek Definition | **Ctrl+Shift+F10** |
+| Find All References | **Shift+F12** |
+| Go to Symbol in File (outline) | **Ctrl+Shift+O** |
 | Go to Symbol in Workspace | **Ctrl+T** |
 | Hover for Documentation | Hover mouse |
 | Trigger Autocomplete | **Ctrl+Space** |
+| M65: Show Assembly (a C file's cc45 -S, beside it, at the cursor's line) | Command Palette / editor menu |
+| M65: Show C Source (in cc45's assembly: the line its `.loc` names) | Command Palette / editor menu |
+
+### Build Tasks
+
+The extension contributes problem matchers, so a task's cc45, ca45 and ln45 errors land in the Problems pane:
+`$cc45` (`file:line:col: error: …`), `$ca45`, `$ca45-line` (`file: line N: …`) and `$m65` (any of the tools).
+
+```json
+{
+  "label": "build",
+  "type": "shell",
+  "command": "make",
+  "problemMatcher": ["$m65"]
+}
+```
 
 ---
 
@@ -161,7 +179,7 @@ This guide covers setup of the MEGA65 C Compiler (cc45) and Assembler (ca45) Lan
 - ✅ Hover documentation with "Ctrl+Q"
 - ✅ Goto Definition (**Ctrl+B** or **Cmd+B**)
 - ✅ Find Usages (**Alt+F7** / **Opt+F7**)
-- ✅ Rename (**Shift+F6**)
+- ✅ File structure / outline (**Ctrl+F12**)
 - ✅ Symbol Search (**Ctrl+Alt+O** / **Cmd+Opt+O**)
 - ✅ Code Completion (**Ctrl+Space**)
 
@@ -172,7 +190,7 @@ This guide covers setup of the MEGA65 C Compiler (cc45) and Assembler (ca45) Lan
 | Go to Definition | **Ctrl+B** (Windows/Linux), **Cmd+B** (Mac) |
 | Quick Documentation | **Ctrl+Q** (Windows/Linux), **F1** (Mac) |
 | Find Symbol | **Ctrl+Alt+O** (Windows/Linux), **Cmd+Opt+O** (Mac) |
-| Rename Symbol | **Shift+F6** |
+| Find Usages | **Alt+F7** |
 | Go to Type | **Ctrl+Shift+B** (Windows/Linux), **Cmd+Shift+B** (Mac) |
 
 ### Debugging Integration
@@ -181,7 +199,7 @@ For C code debugging, configure native debugger:
 - Settings → Build, Execution, Deployment → Debugger
 - Use GDB/LLDB configured for your platform
 - Set breakpoints in LSP-highlighted code
-- Note: 45GS02 emulator debugging not yet supported (Issue #200)
+- 45GS02 debugging in xemu: VS Code's `cc45` debug type (dbg45 `--dap`, [doc/bin/dbg45.md](../../doc/bin/dbg45.md)); JetBrains IDEs can run the same adapter with a DAP plugin
 
 ---
 
@@ -219,8 +237,8 @@ For C code debugging, configure native debugger:
    " Go to references
    nmap <buffer> gr <Plug>(coc-references)
    
-   " Rename symbol
-   nmap <buffer> <leader>rn <Plug>(coc-rename)
+   " Outline of the file
+   nmap <buffer> <leader>o :CocList outline<CR>
    
    " Show hover documentation
    nnoremap <buffer> K :call CocActionAsync('doHover')<CR>
@@ -244,7 +262,7 @@ For C code debugging, configure native debugger:
 - ✅ Hover documentation (**K**)
 - ✅ Goto Definition (**gd**)
 - ✅ Find References (**gr**)
-- ✅ Rename (**<leader>rn**)
+- ✅ Outline (**:CocList outline**)
 - ✅ Autocomplete (**Ctrl+Space**)
 
 ### Alternative: vim-lsp
@@ -307,7 +325,7 @@ augroup END
 - ✅ Hover documentation (**M-x lsp-describe-thing-at-point**)
 - ✅ Goto Definition (**M-.**)
 - ✅ Find References (**M-x lsp-find-references**)
-- ✅ Rename (**M-x lsp-rename**)
+- ✅ Outline (**M-x imenu** / lsp-treemacs-symbols)
 - ✅ Autocomplete (company-lsp)
 
 ### Installation Notes
@@ -382,7 +400,7 @@ augroup END
 - ✅ Hover documentation (**Ctrl+K Ctrl+I**)
 - ✅ Goto Definition (**F12**)
 - ✅ Symbol Search (**Ctrl+T**)
-- ✅ Rename (**Ctrl+Shift+R**)
+- ✅ Find References (**Shift+F12**), outline (**Ctrl+R**)
 - ✅ Autocomplete
 
 ---
@@ -391,7 +409,8 @@ augroup END
 
 ### Common Settings (all IDEs)
 
-After connecting, configure via IDE settings or `.m65-lsp.json`:
+After connecting, configure through the IDE's settings for the server (VS Code: the `m65.*` settings; other
+editors: the server's `initializationOptions` or `workspace/configuration` section `m65`):
 
 ```json
 {
@@ -402,7 +421,7 @@ After connecting, configure via IDE settings or `.m65-lsp.json`:
       "debounceMs": 500
     },
     "indexer": {
-      "exclude": ["node_modules", ".git", "bin", "obj", "build", "*.o45"]
+      "exclude": ["node_modules", ".git", "bin", "obj", "build"]
     }
   }
 }
@@ -410,21 +429,29 @@ After connecting, configure via IDE settings or `.m65-lsp.json`:
 
 ### Compiler Configuration
 
-By default, the LSP server runs:
-- **C files**: `cc45 <file> -o <temp>.s45`
-- **Assembly files**: `ca45 <file> -o <temp>.bin`
+For diagnostics the server runs, on a copy of the text being edited:
+- **C files**: `cc45 -c <copy> -o <temp>.o45 -I <the file's directory>`
+- **Assembly files**: `ca45 -c <copy> -o <temp>.o45` (the copy beside the file, so `.include` finds its neighbours)
 
-To pass custom flags, create `cc45.flags` or `ca45.flags` in workspace root:
+Options come from the tools' own configuration: `~/.config/m65/cc45.conf`, `ca45.conf` / `.ca45rc`
+([doc/bin/CONFIGURATION.md](../../doc/bin/CONFIGURATION.md)).
 
-```bash
-# cc45.flags
--O2
--Wall
--std=c99
+The library's headers (`lib/include`, found beside cc45: `bin/../lib/include`, or an installed
+`bin/../include/cc45`; `CC45_INCLUDE` first) are indexed with the workspace: go to definition reaches
+`<stdio.h>` and `<mega65.h>`, hover shows a macro such as `VREG_BORDER` with the comment above it, and
+`vic4->` completes the members of `struct vic4_regs`.
 
-# ca45.flags
--cpu 45gs02
-```
+### Requests for other editors
+
+Besides the LSP's own, the server answers two requests (VS Code's "M65: Show Assembly" / "Show C Source"):
+
+- `m65/assembly` `{ uri, line }` (a C document, a 0-based line): the document compiled with `cc45 -S` to
+  `<tmp>/m65-lsp-asm/<name>.s45`; the result `{ uri, line }` is that file and the line of the C line's code
+  (its `.loc`), or `{ error }` (cc45's first message)
+- `m65/source` `{ uri, line }` (cc45's assembly): the C place the `.loc` before that line names, `{ uri, line }`
+  or `{ error }`
+
+Go to definition on a `.loc` line goes to the C line too.
 
 ### Troubleshooting
 
@@ -454,7 +481,12 @@ To pass custom flags, create `cc45.flags` or `ca45.flags` in workspace root:
 | Go to Definition | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Autocomplete | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Symbol Search | ✅ | ⚠️ | ✅ | ✅ | ✅ | ✅ |
-| Rename | ✅ | ⚠️ | ✅ | ✅ | ✅ | ✅ |
+| Find References | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Outline (document symbols) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Member completion (`.`, `->`) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| C ↔ assembly (Show Assembly) | ✅ | ❌ | ❌ | ⚠️ (`m65/assembly`) | ⚠️ (`m65/assembly`) | ❌ |
+| Problem matchers (build tasks) | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Rename | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Syntax Highlighting (Assembly) | ✅ | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ⚠️ |
 | Integrated Debugging | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
 | Setup Difficulty | Easy | Medium | Medium | Hard | Hard | Medium |
@@ -465,10 +497,9 @@ To pass custom flags, create `cc45.flags` or `ca45.flags` in workspace root:
 
 - **Test in your IDE**: Open a sample project from `examples/c/` or `examples/asm/`
 - **Report issues**: https://github.com/CTalkobt/M65Compiler/issues
-- **Future work**: 
-  - Debug adapter (DAP) for stepping through code (#200)
-  - Source mapping for C↔assembly navigation (#202)
-  - Multi-error collection in compiler
+- **Future work**:
+  - Rename and scope-aware references (symbols are found by patterns, not by the compiler)
+  - Multi-error collection in the compiler (cc45 stops at its first error)
 
 ---
 

@@ -4,6 +4,25 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### IDE: outline, references, members, C to assembly (#198)
+
+- The language server (`tools/ide/lsp-server`): the file's outline (C
+  functions, structs with their members, enums, typedefs, variables,
+  `#define`s; assembly procs with their labels, macros, constants), find
+  references (by name, outside comments and strings), members after `.` and
+  `->` (from the declarations: locals, parameters, typedefs, casts, chains,
+  macros such as `<mega65.h>`'s `vic4`) with hover and go to definition on
+  them; cc45's headers (`lib/include`) indexed with the workspace, so hover
+  shows a register macro and the comment above it. Requests `m65/assembly`
+  (the document through `cc45 -S`, at the cursor's line) and `m65/source`
+  (back from a `.loc`).
+- The VS Code extension: **M65: Show Assembly** / **Show C Source**, and
+  problem matchers `$cc45`, `$ca45`, `$ca45-line`, `$m65` for build tasks.
+- The C scanner rewritten (braces, comments and declarations, not one regex
+  per line); this repository (1,848 files) is indexed in under a second.
+- `IDE-SETUP.md` corrected: no `.m65-lsp.json` or `cc45.flags` files, no
+  rename; what the server runs.
+
 ### cc45: casts to a pointer to a pointer; incomplete structs
 
 - `*(T **)e` loaded `T`'s size instead of a pointer: `*(unsigned char **)(b

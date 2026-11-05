@@ -1307,8 +1307,8 @@ var require_semaphore = __commonJS({
         this._waiting = [];
       }
       lock(thunk) {
-        return new Promise((resolve2, reject) => {
-          this._waiting.push({ thunk, resolve: resolve2, reject });
+        return new Promise((resolve4, reject) => {
+          this._waiting.push({ thunk, resolve: resolve4, reject });
           this.runNext();
         });
       }
@@ -2955,9 +2955,9 @@ ${JSON.stringify(message, null, 4)}`);
           if (typeof cancellationStrategy.sender.enableCancellation === "function") {
             cancellationStrategy.sender.enableCancellation(requestMessage);
           }
-          return new Promise(async (resolve2, reject) => {
+          return new Promise(async (resolve4, reject) => {
             const resolveWithCleanup = (r) => {
-              resolve2(r);
+              resolve4(r);
               cancellationStrategy.sender.cleanup(id);
               disposable?.dispose();
             };
@@ -3449,7 +3449,7 @@ var init_main = __esm({
       }
       Position2.is = is;
     })(Position || (Position = {}));
-    (function(Range2) {
+    (function(Range3) {
       function create(one, two, three, four) {
         if (Is.uinteger(one) && Is.uinteger(two) && Is.uinteger(three) && Is.uinteger(four)) {
           return { start: Position.create(one, two), end: Position.create(three, four) };
@@ -3459,12 +3459,12 @@ var init_main = __esm({
           throw new Error(`Range#create called with invalid arguments[${one}, ${two}, ${three}, ${four}]`);
         }
       }
-      Range2.create = create;
+      Range3.create = create;
       function is(value) {
         const candidate = value;
         return Is.objectLiteral(candidate) && Position.is(candidate.start) && Position.is(candidate.end);
       }
-      Range2.is = is;
+      Range3.is = is;
     })(Range || (Range = {}));
     (function(Location2) {
       function create(uri, range) {
@@ -8630,8 +8630,8 @@ var require_server = __commonJS({
         if (value instanceof Promise) {
           return value;
         } else if (Is2.thenable(value)) {
-          return new Promise((resolve2, reject) => {
-            value.then((resolved) => resolve2(resolved), (error) => reject(error));
+          return new Promise((resolve4, reject) => {
+            value.then((resolved) => resolve4(resolved), (error) => reject(error));
           });
         } else {
           return Promise.resolve(value);
@@ -8919,13 +8919,13 @@ var require_files = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.FileSystem = void 0;
     exports2.uriToFilePath = uriToFilePath;
-    exports2.resolve = resolve2;
+    exports2.resolve = resolve4;
     exports2.resolveGlobalNodePath = resolveGlobalNodePath;
     exports2.resolveGlobalYarnPath = resolveGlobalYarnPath;
     exports2.resolveModulePath = resolveModulePath;
     var url = __importStar(require("url"));
-    var path5 = __importStar(require("path"));
-    var fs6 = __importStar(require("fs"));
+    var path7 = __importStar(require("path"));
+    var fs8 = __importStar(require("fs"));
     var child_process_1 = require("child_process");
     function uriToFilePath(uri) {
       const parsed = url.parse(uri);
@@ -8943,12 +8943,12 @@ var require_files = __commonJS({
           segments.shift();
         }
       }
-      return path5.normalize(segments.join("/"));
+      return path7.normalize(segments.join("/"));
     }
     function isWindows() {
       return process.platform === "win32";
     }
-    function resolve2(moduleName, nodePath, cwd, tracer) {
+    function resolve4(moduleName, nodePath, cwd, tracer) {
       const nodePathKey = "NODE_PATH";
       const app = [
         "var p = process;",
@@ -8967,13 +8967,13 @@ var require_files = __commonJS({
         "}",
         "});"
       ].join("");
-      return new Promise((resolve3, reject) => {
+      return new Promise((resolve5, reject) => {
         const env = process.env;
         const newEnv = /* @__PURE__ */ Object.create(null);
         Object.keys(env).forEach((key) => newEnv[key] = env[key]);
-        if (nodePath && fs6.existsSync(nodePath)) {
+        if (nodePath && fs8.existsSync(nodePath)) {
           if (newEnv[nodePathKey]) {
-            newEnv[nodePathKey] = nodePath + path5.delimiter + newEnv[nodePathKey];
+            newEnv[nodePathKey] = nodePath + path7.delimiter + newEnv[nodePathKey];
           } else {
             newEnv[nodePathKey] = nodePath;
           }
@@ -8999,7 +8999,7 @@ var require_files = __commonJS({
             if (message2.c === "r") {
               cp.send({ c: "e" });
               if (message2.s) {
-                resolve3(message2.r);
+                resolve5(message2.r);
               } else {
                 reject(new Error(`Failed to resolve module: ${moduleName}`));
               }
@@ -9045,9 +9045,9 @@ var require_files = __commonJS({
         }
         if (prefix.length > 0) {
           if (isWindows()) {
-            return path5.join(prefix, "node_modules");
+            return path7.join(prefix, "node_modules");
           } else {
-            return path5.join(prefix, "lib", "node_modules");
+            return path7.join(prefix, "lib", "node_modules");
           }
         }
         return void 0;
@@ -9086,7 +9086,7 @@ var require_files = __commonJS({
           try {
             const yarn = JSON.parse(line);
             if (yarn.type === "log") {
-              return path5.join(yarn.data, "node_modules");
+              return path7.join(yarn.data, "node_modules");
             }
           } catch (e) {
           }
@@ -9108,36 +9108,36 @@ var require_files = __commonJS({
         if (process.platform === "win32") {
           _isCaseSensitive = false;
         } else {
-          _isCaseSensitive = !fs6.existsSync(__filename.toUpperCase()) || !fs6.existsSync(__filename.toLowerCase());
+          _isCaseSensitive = !fs8.existsSync(__filename.toUpperCase()) || !fs8.existsSync(__filename.toLowerCase());
         }
         return _isCaseSensitive;
       }
       FileSystem2.isCaseSensitive = isCaseSensitive;
       function isParent(parent, child) {
         if (isCaseSensitive()) {
-          return path5.normalize(child).indexOf(path5.normalize(parent)) === 0;
+          return path7.normalize(child).indexOf(path7.normalize(parent)) === 0;
         } else {
-          return path5.normalize(child).toLowerCase().indexOf(path5.normalize(parent).toLowerCase()) === 0;
+          return path7.normalize(child).toLowerCase().indexOf(path7.normalize(parent).toLowerCase()) === 0;
         }
       }
       FileSystem2.isParent = isParent;
     })(FileSystem || (exports2.FileSystem = FileSystem = {}));
     function resolveModulePath(workspaceRoot, moduleName, nodePath, tracer) {
       if (nodePath) {
-        if (!path5.isAbsolute(nodePath)) {
-          nodePath = path5.join(workspaceRoot, nodePath);
+        if (!path7.isAbsolute(nodePath)) {
+          nodePath = path7.join(workspaceRoot, nodePath);
         }
-        return resolve2(moduleName, nodePath, nodePath, tracer).then((value) => {
+        return resolve4(moduleName, nodePath, nodePath, tracer).then((value) => {
           if (FileSystem.isParent(nodePath, value)) {
             return value;
           } else {
             return Promise.reject(new Error(`Failed to load ${moduleName} from node path location.`));
           }
         }).then(void 0, (_error) => {
-          return resolve2(moduleName, resolveGlobalNodePath(tracer), workspaceRoot, tracer);
+          return resolve4(moduleName, resolveGlobalNodePath(tracer), workspaceRoot, tracer);
         });
       } else {
-        return resolve2(moduleName, resolveGlobalNodePath(tracer), workspaceRoot, tracer);
+        return resolve4(moduleName, resolveGlobalNodePath(tracer), workspaceRoot, tracer);
       }
     }
   }
@@ -9219,10 +9219,10 @@ var require_ril = __commonJS({
         return api_1.Disposable.create(() => this.stream.off("end", listener));
       }
       write(data, encoding) {
-        return new Promise((resolve2, reject) => {
+        return new Promise((resolve4, reject) => {
           const callback = (error) => {
             if (error === void 0 || error === null) {
-              resolve2();
+              resolve4();
             } else {
               reject(error);
             }
@@ -9367,9 +9367,9 @@ var require_main = __commonJS({
     exports2.createMessageConnection = createMessageConnection;
     var ril_1 = __importDefault(require_ril());
     ril_1.default.install();
-    var path5 = __importStar(require("path"));
+    var path7 = __importStar(require("path"));
     var os2 = __importStar(require("os"));
-    var fs6 = __importStar(require("fs"));
+    var fs8 = __importStar(require("fs"));
     var crypto_1 = require("crypto");
     var net_1 = require("net");
     var api_1 = require_api();
@@ -9510,7 +9510,7 @@ var require_main = __commonJS({
       }
       let randomLength = 32;
       const fixedLength = "/lsp-.sock".length;
-      const tmpDir = fs6.realpathSync(XDG_RUNTIME_DIR ?? os2.tmpdir());
+      const tmpDir = fs8.realpathSync(XDG_RUNTIME_DIR ?? os2.tmpdir());
       const limit = safeIpcPathLengths.get(process.platform);
       if (limit !== void 0) {
         randomLength = Math.min(limit - tmpDir.length - fixedLength, randomLength);
@@ -9519,14 +9519,14 @@ var require_main = __commonJS({
         throw new Error(`Unable to generate a random pipe name with ${randomLength} characters.`);
       }
       const randomSuffix = (0, crypto_1.randomBytes)(Math.floor(randomLength / 2)).toString("hex");
-      return path5.join(tmpDir, `lsp-${randomSuffix}.sock`);
+      return path7.join(tmpDir, `lsp-${randomSuffix}.sock`);
     }
     function createClientPipeTransport(pipeName, encoding = "utf-8") {
       let connectResolve;
-      const connected = new Promise((resolve2, _reject) => {
-        connectResolve = resolve2;
+      const connected = new Promise((resolve4, _reject) => {
+        connectResolve = resolve4;
       });
-      return new Promise((resolve2, reject) => {
+      return new Promise((resolve4, reject) => {
         const server = (0, net_1.createServer)((socket) => {
           server.close();
           connectResolve([
@@ -9537,7 +9537,7 @@ var require_main = __commonJS({
         server.on("error", reject);
         server.listen(pipeName, () => {
           server.removeListener("error", reject);
-          resolve2({
+          resolve4({
             onConnected: () => {
               return connected;
             }
@@ -9554,10 +9554,10 @@ var require_main = __commonJS({
     }
     function createClientSocketTransport(port, encoding = "utf-8") {
       let connectResolve;
-      const connected = new Promise((resolve2, _reject) => {
-        connectResolve = resolve2;
+      const connected = new Promise((resolve4, _reject) => {
+        connectResolve = resolve4;
       });
-      return new Promise((resolve2, reject) => {
+      return new Promise((resolve4, reject) => {
         const server = (0, net_1.createServer)((socket) => {
           server.close();
           connectResolve([
@@ -9568,7 +9568,7 @@ var require_main = __commonJS({
         server.on("error", reject);
         server.listen(port, "127.0.0.1", () => {
           server.removeListener("error", reject);
-          resolve2({
+          resolve4({
             onConnected: () => {
               return connected;
             }
@@ -9979,7 +9979,9 @@ ${stack}`);
 
 // src/server.ts
 var import_node5 = __toESM(require_main3());
-var import_url3 = require("url");
+var import_url4 = require("url");
+var fs7 = __toESM(require("fs"));
+var path6 = __toESM(require("path"));
 
 // src/documents.ts
 var import_node = __toESM(require_main3());
@@ -10323,7 +10325,7 @@ function problem(file, message) {
   return { file, line: 1, column: 1, severity: "error", message };
 }
 function exec(tool, args, cwd) {
-  return new Promise((resolve2) => {
+  return new Promise((resolve4) => {
     (0, import_child_process.execFile)(
       tool,
       args,
@@ -10331,10 +10333,10 @@ function exec(tool, args, cwd) {
       (err, stdout, stderr) => {
         const e = err;
         if (e && (e.killed || typeof e.code === "string")) {
-          resolve2({ code: null, out: `${stderr}${stdout}`, err: e });
+          resolve4({ code: null, out: `${stderr}${stdout}`, err: e });
           return;
         }
-        resolve2({ code: e ? typeof e.code === "number" ? e.code : 1 : 0, out: `${stderr}
+        resolve4({ code: e ? typeof e.code === "number" ? e.code : 1 : 0, out: `${stderr}
 ${stdout}` });
       }
     );
@@ -10399,10 +10401,57 @@ async function runTool(kind, toolPath, filePath, text) {
     }
   }
 }
+async function compileToAssembly(toolPath, filePath, text) {
+  if (!toolPath || !fs.existsSync(toolPath))
+    return { error: `cc45 not found${toolPath ? ` at ${toolPath}` : ""}` };
+  const dir = path.dirname(filePath);
+  const base = path.basename(filePath);
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "m65lsp-"));
+  const outDir = path.join(os.tmpdir(), "m65-lsp-asm");
+  try {
+    fs.mkdirSync(outDir, { recursive: true });
+    const src = path.join(tmp, base);
+    fs.writeFileSync(src, text);
+    const out = path.join(outDir, base.replace(/\.[^.]*$/, "") + ".s45");
+    const r = await exec(toolPath, ["-S", src, "-o", out, "-I", dir], fs.existsSync(dir) ? dir : tmp);
+    if (r.err)
+      return { error: `could not run cc45: ${r.err.message}` };
+    if (r.code !== 0 || !fs.existsSync(out)) {
+      const first = parseDiagnostics(r.out)[0];
+      return { error: first ? `cc45: ${first.line}:${first.column}: ${first.message}` : `cc45 failed (exit status ${r.code})` };
+    }
+    const asm = fs.readFileSync(out, "utf-8").split(`"${src}"`).join(`"${filePath}"`);
+    fs.writeFileSync(out, asm);
+    return { asmPath: out };
+  } finally {
+    try {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    } catch {
+    }
+  }
+}
+function asmLineFor(asm, filePath, cLine) {
+  const lines = asm.split("\n");
+  let after = null;
+  let before2 = null;
+  for (let i = 0; i < lines.length; i++) {
+    const m = /^\s*\.loc\s+"([^"]+)"\s*,\s*(\d+)/.exec(lines[i]);
+    if (!m || path.resolve(m[1]) !== path.resolve(filePath))
+      continue;
+    const c = parseInt(m[2], 10) - 1;
+    if (c === cLine)
+      return i;
+    if (c > cLine && (!after || c < after.c))
+      after = { asm: i, c };
+    if (c < cLine && (!before2 || c > before2.c))
+      before2 = { asm: i, c };
+  }
+  return after?.asm ?? before2?.asm ?? 0;
+}
 
 // src/documents.ts
 var DocumentManager = class {
-  constructor(connection2, cc45Path, ca45Path, debounceMs, workspacePath2) {
+  constructor(connection2, cc45Path2, ca45Path, debounceMs, workspacePath2) {
     this.docState = /* @__PURE__ */ new Map();
     /** called when a document's text changed (the workspace index) */
     this.onContent = null;
@@ -10410,7 +10459,7 @@ var DocumentManager = class {
     this.onClose = null;
     this.documents = new import_node.TextDocuments(TextDocument2);
     this.connection = connection2;
-    this.cc45Path = cc45Path;
+    this.cc45Path = cc45Path2;
     this.ca45Path = ca45Path;
     this.debounceMs = debounceMs;
     this.workspacePath = workspacePath2;
@@ -10424,9 +10473,9 @@ var DocumentManager = class {
     return this.documents;
   }
   /** New settings: the tools' paths and the debounce; open documents checked again */
-  setConfig(cc45Path, ca45Path, debounceMs) {
-    const changed = cc45Path !== this.cc45Path || ca45Path !== this.ca45Path;
-    this.cc45Path = cc45Path;
+  setConfig(cc45Path2, ca45Path, debounceMs) {
+    const changed = cc45Path2 !== this.cc45Path || ca45Path !== this.ca45Path;
+    this.cc45Path = cc45Path2;
     this.ca45Path = ca45Path;
     this.debounceMs = debounceMs;
     if (changed) {
@@ -10620,124 +10669,683 @@ Flags: ${o.flags.join(" ")}`;
   }
   return s;
 }
+function identAt(line, column, asm) {
+  const ch = asm ? /[A-Za-z0-9_.@]/ : /[A-Za-z0-9_]/;
+  let start = Math.min(column, line.length);
+  let end = start;
+  while (start > 0 && ch.test(line[start - 1]))
+    start--;
+  while (end < line.length && ch.test(line[end]))
+    end++;
+  let w = line.substring(start, end).replace(/^\.+|\.+$/g, "");
+  if (!w || /^\d/.test(w))
+    return null;
+  if (asm && w.startsWith("."))
+    w = w.slice(1);
+  return w;
+}
 
 // src/indexer/workspaceIndex.ts
 var fs3 = __toESM(require("fs"));
 var path3 = __toESM(require("path"));
 var import_url2 = require("url");
 
-// src/indexer/cSymbolScanner.ts
-var CSymbolScanner = class {
-  scanFile(uri, content) {
-    const symbols = [];
-    const lines = content.split("\n");
-    const functionDefPattern = /^\s*(?:static\s+|extern\s+)?(?:inline\s+)?(?:const\s+)?(?:volatile\s+)?[\w*\s]+\s+(\w+)\s*\([^)]*\)\s*\{/;
-    const typedefPattern = /^\s*typedef\s+(?:struct|union|enum)?\s*(\w+)/;
-    const structPattern = /^\s*(?:typedef\s+)?struct\s+(\w+)\s*\{?/;
-    const enumPattern = /^\s*(?:typedef\s+)?enum\s+(\w+)\s*\{?/;
-    const definePattern = /^\s*#define\s+(\w+)/;
-    for (let lineNum = 0; lineNum < lines.length; lineNum++) {
-      const line = lines[lineNum];
-      const funcMatch = line.match(functionDefPattern);
-      if (funcMatch) {
-        symbols.push(this.createSymbol(funcMatch[1], 12 /* Function */, uri, lineNum));
-        continue;
-      }
-      const typedefMatch = line.match(typedefPattern);
-      if (typedefMatch) {
-        symbols.push(this.createSymbol(typedefMatch[1], 23 /* Struct */, uri, lineNum));
-        continue;
-      }
-      const structMatch = line.match(structPattern);
-      if (structMatch && !line.includes("typedef")) {
-        symbols.push(this.createSymbol(structMatch[1], 23 /* Struct */, uri, lineNum));
-        continue;
-      }
-      const enumMatch = line.match(enumPattern);
-      if (enumMatch && !line.includes("typedef")) {
-        symbols.push(this.createSymbol(enumMatch[1], 10 /* Enum */, uri, lineNum));
-        continue;
-      }
-      const defineMatch = line.match(definePattern);
-      if (defineMatch) {
-        symbols.push(this.createSymbol(defineMatch[1], 14 /* Constant */, uri, lineNum));
-        continue;
-      }
+// src/indexer/text.ts
+function cleanC(text) {
+  const out = text.split("");
+  let i = 0;
+  const n = text.length;
+  const blank = (from, to) => {
+    for (let k = from; k < to && k < n; k++)
+      if (out[k] !== "\n")
+        out[k] = " ";
+  };
+  while (i < n) {
+    const c = text[i];
+    if (c === "/" && text[i + 1] === "/") {
+      let j = i;
+      while (j < n && text[j] !== "\n")
+        j++;
+      blank(i, j);
+      i = j;
+    } else if (c === "/" && text[i + 1] === "*") {
+      const e = text.indexOf("*/", i + 2);
+      const j = e < 0 ? n : e + 2;
+      blank(i, j);
+      i = j;
+    } else if (c === '"' || c === "'") {
+      let j = i + 1;
+      while (j < n && text[j] !== c && text[j] !== "\n")
+        j += text[j] === "\\" ? 2 : 1;
+      blank(i + 1, j);
+      i = j + 1;
+    } else {
+      i++;
     }
-    return symbols;
   }
-  createSymbol(name, kind, uri, line) {
-    return {
-      name,
-      kind,
-      location: {
-        uri,
-        range: {
-          start: { line, character: 0 },
-          end: { line, character: 80 }
-        }
-      },
-      isDefinition: true,
-      scope: "global"
-    };
+  return out.join("");
+}
+function cleanAsm(text) {
+  const out = text.split("");
+  let inStr = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === "\n") {
+      inStr = false;
+      continue;
+    }
+    if (inStr) {
+      if (c === '"')
+        inStr = false;
+      else
+        out[i] = " ";
+      continue;
+    }
+    if (c === '"') {
+      inStr = true;
+      continue;
+    }
+    if (c === ";") {
+      let j = i;
+      while (j < text.length && text[j] !== "\n")
+        out[j++] = " ";
+      i = j - 1;
+    }
+  }
+  return out.join("");
+}
+var Positions = class {
+  constructor(text) {
+    this.starts = [0];
+    for (let i = 0; i < text.length; i++)
+      if (text[i] === "\n")
+        this.starts.push(i + 1);
+  }
+  at(offset) {
+    let lo = 0;
+    let hi = this.starts.length - 1;
+    while (lo < hi) {
+      const mid = lo + hi + 1 >> 1;
+      if (this.starts[mid] <= offset)
+        lo = mid;
+      else
+        hi = mid - 1;
+    }
+    return { line: lo, character: offset - this.starts[lo] };
+  }
+  offset(line, character) {
+    return (this.starts[Math.min(line, this.starts.length - 1)] ?? 0) + character;
   }
 };
+function words(clean) {
+  const s = /* @__PURE__ */ new Set();
+  for (const m of clean.matchAll(/[A-Za-z_@][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*/g)) {
+    s.add(m[0]);
+    if (m[0].includes("."))
+      for (const part of m[0].split("."))
+        s.add(part);
+  }
+  return s;
+}
+function escapeRegex(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// src/indexer/cSymbolScanner.ts
+var NOT_NAMES = /* @__PURE__ */ new Set([
+  "if",
+  "while",
+  "for",
+  "switch",
+  "return",
+  "sizeof",
+  "do",
+  "else",
+  "case",
+  "default",
+  "goto",
+  "break",
+  "continue",
+  "_Alignof",
+  "typedef",
+  "struct",
+  "union",
+  "enum",
+  "_Static_assert",
+  "static_assert",
+  "__builtin_offsetof",
+  "offsetof",
+  "repeat"
+]);
+var QUALIFIERS = /\b(static|extern|register|auto|inline|__inline__|__inline|const|volatile|restrict|__restrict|__restrict__|_Thread_local|__zp|__interrupt|__naked|__fastcall__|__regparm|__noescape|__pure|_Noreturn|__far|__near|__striped|signed_default|virtual|final|override|__unpacked)\b/g;
+var ATTRIBUTE_CALLS = /\b(__attribute__|_Alignas|__section|__bank|__asm__|__declspec|__cpu|__flags)\s*\(/g;
+function blankCalls(t) {
+  const out = t.split("");
+  for (const m of t.matchAll(ATTRIBUTE_CALLS)) {
+    let i = (m.index ?? 0) + m[0].length - 1;
+    const start = m.index ?? 0;
+    let depth = 0;
+    for (; i < t.length; i++) {
+      if (t[i] === "(")
+        depth++;
+      else if (t[i] === ")" && --depth === 0)
+        break;
+    }
+    for (let k = start; k <= i && k < t.length; k++)
+      if (out[k] !== "\n")
+        out[k] = " ";
+  }
+  return out.join("");
+}
+function matchBrace(t, open) {
+  let depth = 0;
+  for (let i = open; i < t.length; i++) {
+    if (t[i] === "{")
+      depth++;
+    else if (t[i] === "}" && --depth === 0)
+      return i;
+  }
+  return t.length - 1;
+}
+var oneLine = (s, max = 160) => {
+  const r = s.replace(/\s+/g, " ").trim();
+  return r.length > max ? r.slice(0, max - 3) + "..." : r;
+};
+function functionName(header) {
+  const h = header.trimEnd();
+  if (!h.endsWith(")"))
+    return null;
+  let depth = 0;
+  let i = h.length - 1;
+  for (; i >= 0; i--) {
+    if (h[i] === ")")
+      depth++;
+    else if (h[i] === "(" && --depth === 0)
+      break;
+  }
+  if (i <= 0)
+    return null;
+  const m = /([A-Za-z_]\w*)$/.exec(h.slice(0, i).trimEnd());
+  if (!m || NOT_NAMES.has(m[1]))
+    return null;
+  const before2 = h.slice(0, m.index);
+  if (/\(\s*\*?$/.test(before2.trimEnd()))
+    return null;
+  if (/[=]/.test(before2))
+    return null;
+  return { name: m[1], index: m.index };
+}
+function splitTop(p, sep2) {
+  const out = [];
+  let depth = 0;
+  let from = 0;
+  for (let i = 0; i <= p.text.length; i++) {
+    const c = p.text[i];
+    if (c === "(" || c === "[" || c === "{")
+      depth++;
+    else if (c === ")" || c === "]" || c === "}")
+      depth--;
+    if (i === p.text.length || c === sep2 && depth === 0) {
+      out.push({ text: p.text.slice(from, i), map: p.map.slice(from, i) });
+      from = i + 1;
+    }
+  }
+  return out;
+}
+function declarator(p) {
+  let t = p.text;
+  let depth = 0;
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i];
+    if (c === "(" || c === "[" || c === "{")
+      depth++;
+    else if (c === ")" || c === "]" || c === "}")
+      depth--;
+    else if ((c === "=" || c === ":") && depth === 0) {
+      t = t.slice(0, i);
+      break;
+    }
+  }
+  const fp = /\(\s*(\*+)\s*([A-Za-z_]\w*)\s*\)/.exec(t);
+  if (fp) {
+    return {
+      decl: { name: fp[2], nameAt: p.map[fp.index + fp[0].indexOf(fp[2])], ptr: fp[1].length, array: false, fnptr: true },
+      before: t.slice(0, fp.index)
+    };
+  }
+  let array = false;
+  let s = t.trimEnd();
+  while (s.endsWith("]")) {
+    const o = s.lastIndexOf("[");
+    if (o < 0)
+      break;
+    s = s.slice(0, o).trimEnd();
+    array = true;
+  }
+  const m = /([A-Za-z_]\w*)$/.exec(s);
+  if (!m)
+    return null;
+  const before2 = s.slice(0, m.index);
+  return {
+    decl: { name: m[1], nameAt: p.map[m.index], ptr: (before2.match(/\*/g) || []).length, array, fnptr: false },
+    before: before2
+  };
+}
+function baseOf(before2) {
+  return before2.replace(/\*/g, " ").replace(QUALIFIERS, " ").replace(/\s+/g, " ").trim();
+}
+function declarators(p, base) {
+  const parts = splitTop(p, ",");
+  const list = [];
+  let b = base ?? "";
+  parts.forEach((part, k) => {
+    const d = declarator(part);
+    if (!d)
+      return;
+    if (k === 0 && base === void 0) {
+      b = baseOf(d.before);
+      if (!b)
+        return;
+    }
+    if (NOT_NAMES.has(d.decl.name) || /^(int|char|long|short|unsigned|signed|void|float|double)$/.test(d.decl.name))
+      return;
+    list.push(d.decl);
+  });
+  return { base: b, list };
+}
+var CSymbolScanner = class {
+  scanFile(uri, content) {
+    return this.scan(uri, content).symbols;
+  }
+  scan(uri, content) {
+    const pos = new Positions(content);
+    const types = { aggregates: [], typedefs: /* @__PURE__ */ new Map(), vars: /* @__PURE__ */ new Map(), macros: /* @__PURE__ */ new Map() };
+    const symbols = [];
+    let t = cleanC(content);
+    {
+      const out = t.split("");
+      const lines = t.split("\n");
+      let off = 0;
+      for (let li = 0; li < lines.length; li++) {
+        const line = lines[li];
+        if (/^\s*#/.test(line)) {
+          let end = off + line.length;
+          let text = line;
+          let lj = li;
+          while (/\\\s*$/.test(lines[lj]) && lj + 1 < lines.length) {
+            lj++;
+            text += "\n" + lines[lj];
+            end += 1 + lines[lj].length;
+          }
+          const d = /^(\s*#\s*define\s+)([A-Za-z_]\w*)(\()?/.exec(text);
+          if (d) {
+            const nameOff = off + d[1].length;
+            const body = text.slice(d[0].length - (d[3] ? 1 : 0)).replace(/\\\n/g, " ");
+            types.macros.set(d[2], body.trim());
+            symbols.push(this.sym(d[2], d[3] ? 12 /* Function */ : 14 /* Constant */, uri, pos, nameOff, {
+              detail: oneLine(`#define ${d[2]}${body}`),
+              full: [off, end]
+            }));
+          }
+          for (let k = off; k < end; k++)
+            if (out[k] !== "\n")
+              out[k] = " ";
+          off = end + 1;
+          li = lj;
+          continue;
+        }
+        off += line.length + 1;
+      }
+      t = out.join("");
+    }
+    t = blankCalls(t);
+    let stmt = { text: "", map: [] };
+    let start = -1;
+    let pending = null;
+    const reset = () => {
+      stmt = { text: "", map: [] };
+      start = -1;
+      pending = null;
+    };
+    for (let i = 0; i < t.length; i++) {
+      const c = t[i];
+      if (start < 0) {
+        if (c === " " || c === "\n" || c === "	" || c === "\r")
+          continue;
+        start = i;
+      }
+      if (c === "{") {
+        const end = matchBrace(t, i);
+        const fn = pending ? null : functionName(stmt.text);
+        if (fn && !/^\s*typedef\b/.test(stmt.text)) {
+          const header = stmt.text;
+          symbols.push(this.sym(fn.name, 12 /* Function */, uri, pos, stmt.map[fn.index], {
+            detail: oneLine(header),
+            full: [start, end + 1]
+          }));
+          reset();
+          i = end;
+          continue;
+        }
+        const agg = /\b(struct|union|enum)(?:\s+([A-Za-z_]\w*))?$/.exec(stmt.text.trimEnd());
+        if (agg && !pending) {
+          const tagAt = agg[2] ? stmt.map[agg.index + agg[0].lastIndexOf(agg[2])] : i;
+          pending = this.aggregate(agg[1], agg[2] ?? "", t, i, end, uri, pos, tagAt, start, types);
+        }
+        for (let k = 0; k < 4; k++) {
+          stmt.text += k === 1 ? "{" : k === 2 ? "}" : " ";
+          stmt.map.push(i);
+        }
+        i = end;
+        continue;
+      }
+      if (c === ";") {
+        this.declaration(stmt, pending, uri, pos, start, i + 1, symbols, types);
+        reset();
+        continue;
+      }
+      if (c === "}") {
+        reset();
+        continue;
+      }
+      stmt.text += c;
+      stmt.map.push(i);
+    }
+    if (pending)
+      this.declaration(stmt, pending, uri, pos, start, t.length, symbols, types);
+    return { symbols, types };
+  }
+  /** struct/union/enum NAME { ... }: its symbol and members */
+  aggregate(kind, tag, t, open, close, uri, pos, tagAt, start, types) {
+    const children = [];
+    let agg;
+    if (kind === "enum") {
+      const body = { text: t.slice(open + 1, close), map: [] };
+      for (let k = open + 1; k < close; k++)
+        body.map.push(k);
+      for (const part of splitTop(body, ",")) {
+        const m = /^\s*([A-Za-z_]\w*)/.exec(part.text);
+        if (m) {
+          children.push(this.sym(m[1], 22 /* EnumMember */, uri, pos, part.map[m.index + m[0].indexOf(m[1])], {
+            detail: oneLine(part.text)
+          }));
+        }
+      }
+    } else {
+      agg = { tag, kind, members: [], uri, line: pos.at(tagAt).line };
+      this.members(t, open + 1, close, agg, children, uri, pos, types);
+      if (tag)
+        types.aggregates.push(agg);
+    }
+    const sym = this.sym(tag || `(anonymous ${kind})`, kind === "enum" ? 10 /* Enum */ : 23 /* Struct */, uri, pos, tagAt, {
+      detail: `${kind} ${tag}`.trim(),
+      full: [start < 0 ? open : start, close + 1],
+      children
+    });
+    return { sym, agg, kind, tag };
+  }
+  /** the members of a struct/union body (nested ones: anonymous members hoisted) */
+  members(t, from, to, agg, children, uri, pos, types) {
+    let cur = { text: "", map: [] };
+    let nested = null;
+    const flush = () => {
+      const text = cur.text;
+      if (text.trim()) {
+        const fn = functionName(text);
+        if (fn && !nested) {
+          const before2 = text.slice(0, fn.index);
+          const m = {
+            name: fn.name,
+            base: baseOf(before2),
+            ptr: (before2.match(/\*/g) || []).length,
+            method: true,
+            decl: oneLine(text),
+            ...pos.at(cur.map[fn.index])
+          };
+          agg.members.push(m);
+          children.push(this.sym(fn.name, 6 /* Method */, uri, pos, cur.map[fn.index], { detail: m.decl }));
+        } else if (nested) {
+          const rest = { text: text.slice(text.lastIndexOf("}") + 1), map: cur.map.slice(text.lastIndexOf("}") + 1) };
+          const ntag = nested.tag || `${agg.tag}.${nested.kind}@${nested.sym.location.range.start.line}`;
+          if (nested.agg && !nested.tag) {
+            nested.agg.tag = ntag;
+            types.aggregates.push(nested.agg);
+          }
+          const { list } = declarators(rest, `${nested.kind} ${ntag}`);
+          if (list.length === 0 && nested.agg) {
+            agg.members.push(...nested.agg.members);
+            children.push(...nested.sym.children ?? []);
+          }
+          for (const d of list)
+            this.member(d, `${nested.kind} ${ntag}`, text, agg, children, uri, pos);
+        } else {
+          const { base, list } = declarators(cur);
+          for (const d of list)
+            this.member(d, base, text, agg, children, uri, pos);
+        }
+      }
+      cur = { text: "", map: [] };
+      nested = null;
+    };
+    for (let i = from; i < to; i++) {
+      const c = t[i];
+      if (c === "{") {
+        const end = matchBrace(t, i);
+        const fn = nested ? null : functionName(cur.text);
+        if (fn) {
+          flush();
+          i = end;
+          continue;
+        }
+        const m = /\b(struct|union|enum)(?:\s+([A-Za-z_]\w*))?$/.exec(cur.text.trimEnd());
+        if (m && !nested) {
+          const tagAt = m[2] ? cur.map[m.index + m[0].lastIndexOf(m[2])] : i;
+          nested = this.aggregate(m[1], m[2] ?? "", t, i, end, uri, pos, tagAt, i, types);
+        }
+        cur.text += " {} ";
+        for (let k = 0; k < 4; k++)
+          cur.map.push(i);
+        i = end;
+        continue;
+      }
+      if (c === ";") {
+        flush();
+        continue;
+      }
+      cur.text += c;
+      cur.map.push(i);
+    }
+    flush();
+  }
+  member(d, base, text, agg, children, uri, pos) {
+    const m = {
+      name: d.name,
+      base,
+      ptr: d.ptr + (d.array ? 1 : 0),
+      method: false,
+      decl: oneLine(text.includes("{}") ? `${base} ${"*".repeat(d.ptr)}${d.name}${d.array ? "[]" : ""}` : text),
+      ...pos.at(d.nameAt)
+    };
+    agg.members.push(m);
+    children.push(this.sym(d.name, 8 /* Field */, uri, pos, d.nameAt, { detail: m.decl }));
+  }
+  /** a file-scope declaration ending at ; */
+  declaration(stmt, pending, uri, pos, start, end, symbols, types) {
+    const text = stmt.text;
+    const isTypedef = /^\s*typedef\b/.test(text);
+    const extern = /^\s*extern\b/.test(text);
+    let rest = stmt;
+    let base;
+    if (pending) {
+      const k = text.indexOf("{}");
+      rest = { text: text.slice(k + 2), map: stmt.map.slice(k + 2) };
+      base = `${pending.kind} ${pending.tag}`;
+    }
+    if (isTypedef) {
+      if (!pending)
+        rest = { text: text.replace(/^\s*typedef\b/, (m) => " ".repeat(m.length)), map: stmt.map };
+      const { base: b2, list: list2 } = declarators(rest, base);
+      if (pending && !pending.tag && list2.length > 0) {
+        pending.tag = list2[0].name;
+        if (pending.agg) {
+          pending.agg.tag = list2[0].name;
+          types.aggregates.push(pending.agg);
+        }
+        pending.sym.name = list2[0].name;
+      }
+      if (pending)
+        symbols.push(pending.sym);
+      const typeBase = pending ? `${pending.kind} ${pending.tag}` : b2;
+      for (const d of list2) {
+        types.typedefs.set(d.name, { base: typeBase, ptr: d.ptr });
+        if (pending && d.name === pending.tag && d.ptr === 0)
+          continue;
+        symbols.push(this.sym(d.name, pending && pending.kind !== "enum" ? 23 /* Struct */ : 26 /* TypeParameter */, uri, pos, d.nameAt, {
+          detail: oneLine(text.replace("{}", "{ ... }")),
+          full: [start, end]
+        }));
+      }
+      return;
+    }
+    if (pending)
+      symbols.push(pending.sym);
+    if (!pending) {
+      const fn = functionName(text);
+      if (fn) {
+        symbols.push(this.sym(fn.name, 12 /* Function */, uri, pos, stmt.map[fn.index], {
+          detail: oneLine(text),
+          full: [start, end],
+          definition: false
+        }));
+        return;
+      }
+    }
+    const { base: b, list } = declarators(rest, base);
+    for (const d of list) {
+      types.vars.set(d.name, { base: b, ptr: d.ptr + (d.array ? 1 : 0) });
+      symbols.push(this.sym(d.name, 13 /* Variable */, uri, pos, d.nameAt, {
+        detail: oneLine(pending ? `${b} ${"*".repeat(d.ptr)}${d.name}` : text),
+        full: [start, end],
+        definition: !extern,
+        scope: extern ? "extern" : "global"
+      }));
+    }
+  }
+  sym(name, kind, uri, pos, at, o = {}) {
+    const s = pos.at(at);
+    const range = { start: s, end: { line: s.line, character: s.character + name.length } };
+    const sym = {
+      name,
+      kind,
+      location: { uri, range },
+      isDefinition: o.definition ?? true,
+      scope: o.scope ?? "global"
+    };
+    if (o.detail)
+      sym.detail = o.detail;
+    if (o.full)
+      sym.fullRange = { start: pos.at(o.full[0]), end: pos.at(Math.max(o.full[0], o.full[1])) };
+    if (o.children && o.children.length)
+      sym.children = o.children;
+    return sym;
+  }
+};
+function aggregateOf(type, find, typedef) {
+  let base = type.base;
+  let ptr = type.ptr;
+  for (let k = 0; k < 8; k++) {
+    const m = /^(struct|union)\s+(\S+)$/.exec(base);
+    if (m) {
+      const a = find(m[2]);
+      return a ? { agg: a, ptr } : null;
+    }
+    const td = typedef(base.split(" ").pop() || base);
+    if (!td)
+      return null;
+    base = td.base;
+    ptr += td.ptr;
+  }
+  return null;
+}
 
 // src/indexer/asmSymbolScanner.ts
 var AsmSymbolScanner = class {
   scanFile(uri, content) {
     const symbols = [];
-    const lines = content.split("\n");
-    const labelPattern = /^([a-zA-Z_@][a-zA-Z0-9_:]*)\s*:/;
-    const globalPattern = /\.global\s+(\w+)/;
-    const externPattern = /\.extern\s+(\w+)/;
-    const equatePattern = /^(\w+)\s*=/;
-    let globalSymbols = /* @__PURE__ */ new Set();
-    let externSymbols = /* @__PURE__ */ new Set();
-    for (const line of lines) {
-      const globalMatch = line.match(globalPattern);
-      if (globalMatch) {
-        globalSymbols.add(globalMatch[1]);
-      }
-      const externMatch = line.match(externPattern);
-      if (externMatch) {
-        externSymbols.add(externMatch[1]);
+    const lines = cleanAsm(content).split("\n");
+    const rawLines = content.split("\n");
+    const globals = /* @__PURE__ */ new Set();
+    const externs = [];
+    for (let i = 0; i < lines.length; i++) {
+      for (const m of lines[i].matchAll(/\.(global|globl|export|extern|import)\s+([^\n]*)/gi)) {
+        const names = m[2].split(",").map((s) => s.trim()).filter((s) => /^[A-Za-z_][\w.]*$/.test(s));
+        for (const n of names) {
+          if (/global|globl|export/i.test(m[1]))
+            globals.add(n);
+          else
+            externs.push({ name: n, line: i, col: lines[i].indexOf(n, (m.index ?? 0) + m[1].length + 1) });
+        }
       }
     }
-    for (let lineNum = 0; lineNum < lines.length; lineNum++) {
-      const line = lines[lineNum];
-      const labelMatch = line.match(labelPattern);
-      if (labelMatch) {
-        const name = labelMatch[1];
-        const scope = globalSymbols.has(name) ? "global" : name.startsWith("@") ? "local" : "global";
-        symbols.push(this.createSymbol(name, 12 /* Function */, uri, lineNum, scope));
+    let proc = null;
+    const add = (s) => {
+      if (proc)
+        (proc.children ??= []).push(s);
+      symbols.push(s);
+    };
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const raw = rawLines[i] ?? "";
+      let m;
+      if (m = /^\s*proc\s+([A-Za-z_][\w.]*)/i.exec(line)) {
+        const col = line.indexOf(m[1], m[0].length - m[1].length);
+        proc = this.sym(m[1], 12 /* Function */, uri, i, col, "global", raw.trim());
+        proc.fullRange = { start: { line: i, character: 0 }, end: { line: i, character: line.length } };
+        symbols.push(proc);
         continue;
       }
-      const equateMatch = line.match(equatePattern);
-      if (equateMatch && !line.includes(".")) {
-        symbols.push(
-          this.createSymbol(equateMatch[1], 14 /* Constant */, uri, lineNum, "global")
-        );
+      if (/^\s*endproc\b/i.test(line)) {
+        if (proc && proc.fullRange)
+          proc.fullRange.end = { line: i, character: line.length };
+        proc = null;
+        continue;
+      }
+      if (m = /^\s*\.macro\s+([A-Za-z_][\w.]*)/i.exec(line)) {
+        const s = this.sym(m[1], 12 /* Function */, uri, i, line.indexOf(m[1]), "global", raw.trim());
+        let j = i;
+        while (j + 1 < lines.length && !/^\s*\.endmacro\b|^\s*\.endm\b/i.test(lines[j]))
+          j++;
+        s.fullRange = { start: { line: i, character: 0 }, end: { line: j, character: (lines[j] || "").length } };
+        symbols.push(s);
+        continue;
+      }
+      if (m = /^\s*([A-Za-z_@][\w.]*)\s*:(?!=)/.exec(line)) {
+        const name = m[1];
+        const scope = name.startsWith("@") ? "local" : "global";
+        add(this.sym(name, 12 /* Function */, uri, i, line.indexOf(name), globals.has(name) || scope === "global" ? scope : "local", raw.trim()));
+        continue;
+      }
+      if ((m = /^\s*([A-Za-z_][\w.]*)\s*(?:=|\.equ\b|\.set\b|equ\b)/i.exec(line)) && !/^\s*\./.test(line)) {
+        add(this.sym(m[1], 14 /* Constant */, uri, i, line.indexOf(m[1]), "global", raw.trim()));
+        continue;
+      }
+      if (m = /^\s*\.(?:var|set|equ|define)\s+([A-Za-z_][\w.]*)/i.exec(line)) {
+        add(this.sym(m[1], 14 /* Constant */, uri, i, line.indexOf(m[1], line.indexOf(".") + 2), "global", raw.trim()));
       }
     }
-    for (const name of externSymbols) {
-      symbols.push(this.createSymbol(name, 12 /* Function */, uri, 0, "extern"));
+    for (const e of externs) {
+      symbols.push(this.sym(e.name, 12 /* Function */, uri, e.line, Math.max(0, e.col), "extern", `.extern ${e.name}`));
     }
     return symbols;
   }
-  createSymbol(name, kind, uri, line, scope) {
+  sym(name, kind, uri, line, col, scope, detail) {
     return {
       name,
       kind,
-      location: {
-        uri,
-        range: {
-          start: { line, character: 0 },
-          end: { line, character: 80 }
-        }
-      },
+      location: { uri, range: { start: { line, character: col }, end: { line, character: col + name.length } } },
       isDefinition: scope !== "extern",
-      scope
+      scope,
+      detail
     };
   }
 };
@@ -10749,6 +11357,7 @@ var WorkspaceIndex = class _WorkspaceIndex {
     this.symbolsByName = /* @__PURE__ */ new Map();
     this.cScanner = new CSymbolScanner();
     this.asmScanner = new AsmSymbolScanner();
+    this.libraryDirs = [];
     // m65.indexer.exclude: directory names (node_modules) or globs over the
     // path from the workspace (build/**, **/*.gen.c)
     this.excludePatterns = ["node_modules", ".git", "bin", "obj", "build", "dist"];
@@ -10766,15 +11375,26 @@ var WorkspaceIndex = class _WorkspaceIndex {
   setExclude(patterns) {
     this.excludePatterns = patterns;
   }
-  scan(uri, content, asm) {
-    return asm ? this.asmScanner.scanFile(uri, content) : this.cScanner.scanFile(uri, content);
+  static isAsmPath(p) {
+    return !/\.(c|h)$/i.test(p);
+  }
+  build(uri, content, asm, library = false) {
+    if (asm) {
+      return { uri, symbols: this.asmScanner.scanFile(uri, content), timestamp: Date.now(), words: words(cleanAsm(content)), library };
+    }
+    const r = this.cScanner.scan(uri, content);
+    if (library)
+      for (const s of r.symbols)
+        s.library = true;
+    return { uri, symbols: r.symbols, types: r.types, timestamp: Date.now(), words: words(cleanC(content)), library };
   }
   /** A file on disk indexed again (created or changed outside the editor) */
   indexFile(fsPath) {
     const ext = path3.extname(fsPath).toLowerCase();
     if (!_WorkspaceIndex.EXTENSIONS.includes(ext))
       return;
-    if (this.isExcluded(path3.relative(this.workspacePath, fsPath)))
+    const library = this.libraryDirs.some((d) => fsPath.startsWith(d + path3.sep));
+    if (!library && this.isExcluded(path3.relative(this.workspacePath, fsPath)))
       return;
     let content;
     try {
@@ -10787,138 +11407,203 @@ var WorkspaceIndex = class _WorkspaceIndex {
       return;
     }
     const uri = (0, import_url2.pathToFileURL)(fsPath).toString();
-    this.indexedFiles.set(uri, { uri, symbols: this.scan(uri, content, ext !== ".c" && ext !== ".h"), timestamp: Date.now() });
+    this.indexedFiles.set(uri, this.build(uri, content, _WorkspaceIndex.isAsmPath(fsPath), library));
     this.rebuildSymbolIndex();
   }
   static uriToPath(uri) {
     return uri.startsWith("file:") ? (0, import_url2.fileURLToPath)(uri) : uri;
   }
-  /**
-   * Index a single document (called on open/save)
-   */
+  /** An open document (its text as edited) */
   indexDocument(document) {
     const uri = document.uri;
-    const content = document.getText();
-    let symbols = [];
-    const ext = path3.extname(uri);
-    if (document.languageId === "c" || document.languageId === "h" || ext === ".c" || ext === ".h") {
-      symbols = this.cScanner.scanFile(uri, content);
-    } else if (document.languageId === "m65-asm" || ext === ".s45" || ext === ".asm") {
-      symbols = this.asmScanner.scanFile(uri, content);
-    }
-    this.indexedFiles.set(uri, {
-      uri,
-      symbols,
-      timestamp: Date.now()
-    });
+    const c = document.languageId === "c" || document.languageId === "h" || /\.(c|h)$/i.test(uri);
+    const asm = document.languageId === "m65-asm" || /\.(s45|asm|inc|s)$/i.test(uri);
+    if (!c && !asm)
+      return;
+    const prev = this.indexedFiles.get(uri);
+    this.indexedFiles.set(uri, this.build(uri, document.getText(), !c, prev?.library ?? false));
     this.rebuildSymbolIndex();
   }
-  /**
-   * Find all symbols matching a name (substring search)
-   */
+  /** The compiler's headers (lib/include): definitions, types and macros, not the workspace's symbols */
+  setLibraryDirs(dirs) {
+    const keep = dirs.filter((d) => fs3.existsSync(d));
+    if (keep.join("\n") === this.libraryDirs.join("\n"))
+      return;
+    for (const [uri, f] of this.indexedFiles)
+      if (f.library)
+        this.indexedFiles.delete(uri);
+    this.libraryDirs = keep;
+    for (const dir of keep) {
+      const scan = (d) => {
+        for (const e of fs3.readdirSync(d, { withFileTypes: true })) {
+          const p = path3.join(d, e.name);
+          if (e.isDirectory())
+            scan(p);
+          else if (/\.h$/i.test(e.name)) {
+            try {
+              const uri = (0, import_url2.pathToFileURL)(p).toString();
+              const had = this.indexedFiles.get(uri);
+              const f = this.build(uri, fs3.readFileSync(p, "utf-8"), false, !had);
+              this.indexedFiles.set(uri, f);
+            } catch {
+            }
+          }
+        }
+      };
+      try {
+        scan(dir);
+      } catch (err) {
+        console.error(`[WorkspaceIndex] ${dir}: ${err}`);
+      }
+    }
+    this.rebuildSymbolIndex();
+    console.error(`[WorkspaceIndex] library headers: ${keep.join(", ") || "(none)"}`);
+  }
+  /** The workspace's symbols matching a query (substring), not the library's */
   findSymbols(query) {
     const lowerQuery = query.toLowerCase();
     const results = [];
     for (const [name, symbols] of this.symbolsByName) {
-      if (name.toLowerCase().includes(lowerQuery)) {
-        results.push(...symbols);
-      }
+      if (name.toLowerCase().includes(lowerQuery))
+        results.push(...symbols.filter((s) => !s.library));
+      if (results.length >= 200)
+        break;
     }
-    return results.slice(0, 50);
+    return results.slice(0, 200);
   }
-  /**
-   * Find all definitions of a symbol by exact name
-   */
+  /** All definitions of a name (the workspace's first, then the library's) */
   findDefinitions(name) {
-    return (this.symbolsByName.get(name) || []).filter((s) => s.isDefinition);
+    const all = (this.symbolsByName.get(name) || []).filter((s) => s.isDefinition);
+    return [...all.filter((s) => !s.library), ...all.filter((s) => s.library)];
   }
-  /**
-   * Get all workspace symbols
-   */
   getAllSymbols() {
     const all = [];
-    for (const symbols of this.symbolsByName.values()) {
+    for (const symbols of this.symbolsByName.values())
       all.push(...symbols);
-    }
     return all;
   }
-  /**
-   * Get symbols in a specific file
-   */
   getFileSymbols(uri) {
     const indexed = this.indexedFiles.get(uri);
     return indexed ? indexed.symbols : [];
   }
-  /**
-   * Remove index for a document (called on close)
-   */
+  /** the indexed files that use a word (the files a reference search reads) */
+  filesWithWord(word) {
+    const out = [];
+    for (const f of this.indexedFiles.values())
+      if (f.words?.has(word))
+        out.push(f.uri);
+    return out;
+  }
+  isLibrary(uri) {
+    return this.indexedFiles.get(uri)?.library ?? false;
+  }
+  // ---- C types (member completion): a document's own scan first, then the index
+  typesIn(first) {
+    const out = [];
+    if (first)
+      out.push(first);
+    for (const f of this.indexedFiles.values())
+      if (f.types)
+        out.push(f.types);
+    return out;
+  }
+  findAggregate(tag, first) {
+    for (const t of this.typesIn(first)) {
+      const a = t.aggregates.find((x) => x.tag === tag && x.members.length > 0);
+      if (a)
+        return a;
+    }
+    for (const t of this.typesIn(first)) {
+      const a = t.aggregates.find((x) => x.tag === tag);
+      if (a)
+        return a;
+    }
+    return void 0;
+  }
+  findTypedef(name, first) {
+    for (const t of this.typesIn(first)) {
+      const v = t.typedefs.get(name);
+      if (v)
+        return v;
+    }
+    return void 0;
+  }
+  findVar(name, first) {
+    for (const t of this.typesIn(first)) {
+      const v = t.vars.get(name);
+      if (v)
+        return v;
+    }
+    return void 0;
+  }
+  findMacro(name, first) {
+    for (const t of this.typesIn(first)) {
+      const v = t.macros.get(name);
+      if (v !== void 0)
+        return v;
+    }
+    return void 0;
+  }
   removeDocument(uri) {
     this.indexedFiles.delete(uri);
     this.rebuildSymbolIndex();
   }
-  /**
-   * Rebuild the symbol name→location map from all indexed files
-   */
+  /** name → symbols (enumerators are names of the file too; members are not) */
   rebuildSymbolIndex() {
     this.symbolsByName.clear();
+    const add = (s) => {
+      let l = this.symbolsByName.get(s.name);
+      if (!l)
+        this.symbolsByName.set(s.name, l = []);
+      l.push(s);
+    };
     for (const indexed of this.indexedFiles.values()) {
       for (const symbol of indexed.symbols) {
-        if (!this.symbolsByName.has(symbol.name)) {
-          this.symbolsByName.set(symbol.name, []);
-        }
-        this.symbolsByName.get(symbol.name).push(symbol);
+        add(symbol);
+        if (symbol.kind === 10 /* Enum */)
+          for (const c of symbol.children ?? [])
+            add({ ...c, library: symbol.library });
       }
     }
   }
-  /**
-   * Perform initial workspace scan (optional, for initialization)
-   */
+  /** The workspace's files indexed (at start) */
   scanWorkspace() {
     console.error("[WorkspaceIndex] Starting workspace scan...");
     const startTime = Date.now();
     let fileCount = 0;
     const scanDir = (dir) => {
+      let entries;
       try {
-        const entries = fs3.readdirSync(dir, { withFileTypes: true });
-        for (const entry of entries) {
-          const fullPath = path3.join(dir, entry.name);
-          const relPath = path3.relative(this.workspacePath, fullPath);
-          if (this.isExcluded(relPath)) {
-            continue;
-          }
-          if (entry.isDirectory()) {
-            scanDir(fullPath);
-          } else if (entry.isFile()) {
-            const ext = path3.extname(entry.name);
-            if (_WorkspaceIndex.EXTENSIONS.includes(ext.toLowerCase()) && fileCount < _WorkspaceIndex.MAX_FILES) {
-              try {
-                if (fs3.statSync(fullPath).size > _WorkspaceIndex.MAX_SIZE)
-                  continue;
-                const content = fs3.readFileSync(fullPath, "utf-8");
-                const uri = (0, import_url2.pathToFileURL)(fullPath).toString();
-                const symbols = this.scan(uri, content, ext !== ".c" && ext !== ".h");
-                this.indexedFiles.set(uri, {
-                  uri,
-                  symbols,
-                  timestamp: Date.now()
-                });
-                fileCount++;
-              } catch (err) {
-                console.error(`[WorkspaceIndex] Error scanning ${fullPath}: ${err}`);
-              }
-            }
-          }
-        }
+        entries = fs3.readdirSync(dir, { withFileTypes: true });
       } catch (err) {
         console.error(`[WorkspaceIndex] Error reading directory ${dir}: ${err}`);
+        return;
+      }
+      for (const entry of entries) {
+        const fullPath = path3.join(dir, entry.name);
+        if (this.isExcluded(path3.relative(this.workspacePath, fullPath)))
+          continue;
+        if (entry.isDirectory()) {
+          scanDir(fullPath);
+        } else if (entry.isFile()) {
+          const ext = path3.extname(entry.name).toLowerCase();
+          if (!_WorkspaceIndex.EXTENSIONS.includes(ext) || fileCount >= _WorkspaceIndex.MAX_FILES)
+            continue;
+          try {
+            if (fs3.statSync(fullPath).size > _WorkspaceIndex.MAX_SIZE)
+              continue;
+            const uri = (0, import_url2.pathToFileURL)(fullPath).toString();
+            this.indexedFiles.set(uri, this.build(uri, fs3.readFileSync(fullPath, "utf-8"), _WorkspaceIndex.isAsmPath(fullPath)));
+            fileCount++;
+          } catch (err) {
+            console.error(`[WorkspaceIndex] Error scanning ${fullPath}: ${err}`);
+          }
+        }
       }
     };
     scanDir(this.workspacePath);
     this.rebuildSymbolIndex();
-    const elapsed = Date.now() - startTime;
-    console.error(
-      `[WorkspaceIndex] Scanned ${fileCount} files in ${elapsed}ms, ${this.symbolsByName.size} symbols indexed`
-    );
+    console.error(`[WorkspaceIndex] Scanned ${fileCount} files in ${Date.now() - startTime}ms, ${this.symbolsByName.size} symbols indexed`);
   }
   isExcluded(relPath) {
     const rel = relPath.split(path3.sep).join("/");
@@ -10955,24 +11640,173 @@ var WorkspaceIndex = class _WorkspaceIndex {
   }
 };
 
+// src/providers/cTypes.ts
+var TypeResolver = class {
+  constructor(index, doc) {
+    this.index = index;
+    this.doc = doc;
+  }
+  aggOf(t) {
+    if (!t)
+      return null;
+    const r = aggregateOf(t, (tag) => this.index.findAggregate(tag, this.doc), (n) => this.index.findTypedef(n, this.doc));
+    return r ? r.agg : null;
+  }
+  /** the struct whose members complete at offset (after "x." / "p->" and a partial name) */
+  memberSite(clean, offset) {
+    const from = Math.max(0, offset - 256);
+    const before2 = clean.slice(from, offset);
+    const m = /(\.|->)[ \t]*([A-Za-z_]\w*)?$/.exec(before2);
+    if (!m)
+      return null;
+    const lead = before2.slice(0, m.index).trimEnd();
+    if (m[1] === "." && /\d$/.test(lead) && !/[A-Za-z_]\w*$/.test(lead))
+      return null;
+    const agg = this.aggOf(this.exprType(clean, from + m.index));
+    return agg ? { agg, prefix: m[2] ?? "" } : null;
+  }
+  /** the member a name at [start, end) names, when it follows . or -> */
+  memberAt(clean, start, name) {
+    const site = this.memberSite(clean, start);
+    if (!site)
+      return null;
+    const member = site.agg.members.find((x) => x.name === name);
+    return member ? { agg: site.agg, member } : null;
+  }
+  /** the type of the expression ending at end (exclusive) */
+  exprType(clean, end) {
+    let i = end;
+    const skipWs = () => {
+      while (i > 0 && /\s/.test(clean[i - 1]))
+        i--;
+    };
+    const chain = [];
+    let head = null;
+    for (let guard = 0; guard < 64; guard++) {
+      skipWs();
+      const c = clean[i - 1];
+      if (c === "]") {
+        let depth = 0;
+        for (i--; i >= 0; i--) {
+          if (clean[i] === "]")
+            depth++;
+          else if (clean[i] === "[" && --depth === 0)
+            break;
+        }
+        continue;
+      }
+      if (c === ")") {
+        let depth = 0;
+        let j = i - 1;
+        for (; j >= 0; j--) {
+          if (clean[j] === ")")
+            depth++;
+          else if (clean[j] === "(" && --depth === 0)
+            break;
+        }
+        const inner = clean.slice(j + 1, i - 1);
+        if (/[A-Za-z_]\w*$/.test(clean.slice(Math.max(0, j - 256), j).trimEnd()))
+          return null;
+        head = this.parenType(inner, clean, j + 1);
+        break;
+      }
+      const id = /([A-Za-z_]\w*)$/.exec(clean.slice(0, i));
+      if (!id)
+        return null;
+      i -= id[1].length;
+      skipWs();
+      if (clean.slice(0, i).endsWith("->")) {
+        chain.push(id[1]);
+        i -= 2;
+        continue;
+      }
+      if (clean[i - 1] === ".") {
+        chain.push(id[1]);
+        i -= 1;
+        continue;
+      }
+      head = this.identType(id[1], clean, i);
+      break;
+    }
+    let t = head;
+    for (let k = chain.length - 1; k >= 0 && t; k--) {
+      const agg = this.aggOf(t);
+      const mem = agg?.members.find((x) => x.name === chain[k]);
+      t = mem ? { base: mem.base, ptr: mem.ptr } : null;
+    }
+    return t;
+  }
+  /** (cast)expr, (*p), (expr) */
+  parenType(inner, clean, at) {
+    const cast = /^\s*\(\s*((?:struct|union)\s+[A-Za-z_]\w*|[A-Za-z_]\w*)((?:\s|\*|\bconst\b|\bvolatile\b)*)\)/.exec(inner);
+    if (cast) {
+      const base = cast[1].replace(/\s+/g, " ");
+      return { base, ptr: (cast[2].match(/\*/g) || []).length };
+    }
+    const deref = /^\s*\*+\s*/.exec(inner);
+    const t = this.exprType(clean, at + inner.trimEnd().length);
+    if (!t)
+      return null;
+    return deref ? { base: t.base, ptr: Math.max(0, t.ptr - (deref[0].match(/\*/g) || []).length) } : t;
+  }
+  /** a name's declared type: the last declaration before here, a variable, a macro */
+  identType(name, clean, at) {
+    const re = new RegExp(
+      `(?:\\b(struct|union)\\s+([A-Za-z_]\\w*)|\\b([A-Za-z_]\\w*))((?:\\s|\\*|\\bconst\\b|\\bvolatile\\b|\\b__far\\b|\\b__near\\b|\\brestrict\\b)*)\\b${escapeRegex(name)}\\b(?=\\s*(?:\\[|=|;|,|\\)))`,
+      "g"
+    );
+    let found = null;
+    for (const m of clean.slice(0, at).matchAll(re)) {
+      const t = { base: m[1] ? `${m[1]} ${m[2]}` : m[3], ptr: (m[4].match(/\*/g) || []).length };
+      if (this.aggOf(t))
+        found = t;
+    }
+    if (found)
+      return found;
+    const v = this.index.findVar(name, this.doc);
+    if (v && this.aggOf(v))
+      return v;
+    const body = this.index.findMacro(name, this.doc);
+    if (body) {
+      const deref = /^\s*\(?\s*\*\s*\(/.test(body) ? 1 : 0;
+      const s = /\b(struct|union)\s+([A-Za-z_]\w*)\s*(\**)/.exec(body);
+      if (s)
+        return { base: `${s[1]} ${s[2]}`, ptr: Math.max(0, s[3].length - deref) };
+      const a = /\(\s*(?:(?:volatile|const)\s+)*([A-Za-z_]\w*)\s*(\*+)\s*\)/.exec(body);
+      if (a && this.aggOf({ base: a[1], ptr: 0 }))
+        return { base: a[1], ptr: Math.max(0, a[2].length - deref) };
+    }
+    return null;
+  }
+};
+
 // src/providers/hover.ts
-var HoverProvider = class {
-  constructor(data, index) {
+var HoverProvider = class _HoverProvider {
+  constructor(data, index, open = () => void 0) {
     this.data = data;
     this.index = index;
+    this.open = open;
+    this.scanner = new CSymbolScanner();
   }
   onHover(params, document) {
     const { position } = params;
     const line = document.getText({ start: { line: position.line, character: 0 }, end: { line: position.line + 1, character: 0 } }).replace(/\r?\n$/, "");
+    const asm = isAsm(document.languageId, document.uri);
     const w = wordAt(line, position.character);
     if (!w)
       return null;
     const range = { start: { line: position.line, character: w.start }, end: { line: position.line, character: w.end } };
-    const md = isAsm(document.languageId, document.uri) ? this.asm(w.word) : this.c(line, w.word);
-    const text = md ?? this.symbol(w.word, document.uri);
-    if (!text)
+    let md = asm ? this.asm(w.word) : this.c(line, w.word);
+    if (!md && !asm)
+      md = this.member(document, position, line);
+    if (!md) {
+      const id = identAt(line, position.character, asm);
+      if (id)
+        md = this.symbol(id, document.uri);
+    }
+    if (!md)
       return null;
-    return { contents: { kind: import_node2.MarkupKind.Markdown, value: text }, range };
+    return { contents: { kind: import_node2.MarkupKind.Markdown, value: md }, range };
   }
   asm(word) {
     const lw = word.toLowerCase();
@@ -11010,22 +11844,82 @@ ${f.signature}
 ${f.doc ? f.doc + "\n\n" : ""}<${f.header}>`;
     return null;
   }
-  /** A symbol of the workspace: its defining line */
+  /** x.name / p->name: the member's declaration */
+  member(document, position, line) {
+    let s = Math.min(position.character, line.length);
+    let e = s;
+    while (s > 0 && /\w/.test(line[s - 1]))
+      s--;
+    while (e < line.length && /\w/.test(line[e]))
+      e++;
+    if (s === e)
+      return null;
+    const name = line.slice(s, e);
+    const text = document.getText();
+    const start = document.offsetAt({ line: position.line, character: s });
+    const r = new TypeResolver(this.index, this.scanner.scan(document.uri, text).types).memberAt(cleanC(text), start, name);
+    if (!r)
+      return null;
+    const file = decodeURIComponent(r.agg.uri.split("/").pop() || "");
+    return `\`\`\`c
+${r.member.decl}
+\`\`\`
+${r.member.method ? "method" : "member"} of ${r.agg.kind} ${r.agg.tag} (${file}:${r.member.line + 1})`;
+  }
+  /** A symbol of the workspace or the library's headers: its declaration and the comment above it */
   symbol(word, uri) {
     const defs = this.index.findDefinitions(word);
     if (defs.length === 0)
       return null;
     const d = defs.find((s) => s.location.uri === uri) ?? defs[0];
-    let text = "";
-    try {
-      const lines = fs4.readFileSync(WorkspaceIndex.uriToPath(d.location.uri), "utf-8").split("\n");
-      text = (lines[d.location.range.start.line] || "").trim();
-    } catch {
-    }
+    const lines = this.lines(d.location.uri);
+    const at = d.location.range.start.line;
+    const text = d.detail ?? (lines[at] || "").trim();
+    const comment = lines.length ? _HoverProvider.commentAbove(lines, _HoverProvider.declStart(d, lines)) : "";
     const file = decodeURIComponent(d.location.uri.split("/").pop() || "");
-    return `${text ? "```\n" + text + "\n```\n" : `**${word}**
+    const where = d.library ? `<${file}>` : `${file}:${at + 1}`;
+    return `${text ? "```" + (isAsm("", d.location.uri) ? "" : "c") + "\n" + text + "\n```\n" : `**${word}**
 
-`}${file}:${d.location.range.start.line + 1}` + (defs.length > 1 ? ` (and ${defs.length - 1} more)` : "");
+`}${comment ? comment + "\n\n" : ""}${where}` + (defs.length > 1 ? ` (and ${defs.length - 1} more)` : "");
+  }
+  lines(uri) {
+    const doc = this.open(uri);
+    if (doc)
+      return doc.getText().split("\n");
+    try {
+      return fs4.readFileSync(WorkspaceIndex.uriToPath(uri), "utf-8").split("\n");
+    } catch {
+      return [];
+    }
+  }
+  static declStart(d, lines) {
+    const l = d.fullRange?.start.line ?? d.location.range.start.line;
+    return Math.min(l, d.location.range.start.line, lines.length);
+  }
+  /** the // or block comment just above a line (or at its end), as text */
+  static commentAbove(lines, line) {
+    const out = [];
+    const trail = /\/\/\s?(.*)$|\/\*\s*(.*?)\s*\*\/\s*$/.exec(lines[line] ?? "");
+    let i = line - 1;
+    if (i >= 0 && /\*\/\s*$/.test(lines[i])) {
+      const end = i;
+      while (i >= 0 && !/\/\*/.test(lines[i]))
+        i--;
+      if (i < 0)
+        return "";
+      for (let k = i; k <= end; k++) {
+        out.push(lines[k].replace(/^\s*\/\*+\s?/, "").replace(/\s*\*+\/\s*$/, "").replace(/^\s*\*\s?/, ""));
+      }
+    } else {
+      while (i >= 0 && /^\s*\/\//.test(lines[i]))
+        i--;
+      for (let k = i + 1; k < line; k++)
+        out.push(lines[k].replace(/^\s*\/\/+\s?/, ""));
+    }
+    const text = out.join("\n").trim();
+    if (text)
+      return text;
+    return trail ? (trail[1] ?? trail[2] ?? "").trim() : "";
   }
 };
 
@@ -11039,6 +11933,7 @@ var CompletionProvider = class {
     this.asmItems = [];
     this.directiveItems = [];
     this.pragmaItems = [];
+    this.scanner = new CSymbolScanner();
     for (const k of data.keywords.values()) {
       this.cItems.push({
         label: k.name,
@@ -11103,11 +11998,30 @@ var CompletionProvider = class {
       }
       if (/^\s*#\s*\w*$/.test(line))
         return [];
+      const text = document.getText();
+      const clean = cleanC(text);
+      const offset = document.offsetAt(position);
+      if (/(\.|->)\s*[A-Za-z_]*\w*$/.test(clean.slice(Math.max(0, offset - 64), offset))) {
+        const types = this.scanner.scan(document.uri, text).types;
+        const site = new TypeResolver(this.index, types).memberSite(clean, offset);
+        if (site) {
+          return this.filter(site.agg.members.map((m) => ({
+            label: m.name,
+            kind: m.method ? import_node3.CompletionItemKind.Method : import_node3.CompletionItemKind.Field,
+            detail: m.decl,
+            documentation: `${site.agg.kind} ${site.agg.tag}`
+          })), site.prefix, false);
+        }
+        if (params.context?.triggerCharacter === "." || params.context?.triggerCharacter === ">")
+          return [];
+      }
+      if (params.context?.triggerCharacter === ">")
+        return [];
       items = [...this.cItems, ...this.symbols(document.uri, false)];
     }
     return this.filter(items, prefix);
   }
-  filter(items, prefix) {
+  filter(items, prefix, sort = true) {
     const p = prefix.toLowerCase();
     const seen = /* @__PURE__ */ new Set();
     const out = [];
@@ -11118,7 +12032,8 @@ var CompletionProvider = class {
       seen.add(key);
       out.push(it);
     }
-    out.sort((a, b) => a.label.localeCompare(b.label));
+    if (sort)
+      out.sort((a, b) => a.label.localeCompare(b.label));
     return out.slice(0, MAX_ITEMS);
   }
   /** The workspace's symbols of the language (this file's first) */
@@ -11130,11 +12045,12 @@ var CompletionProvider = class {
         continue;
       if (s.scope === "local" && s.location.uri !== uri)
         continue;
+      const file = decodeURIComponent(s.location.uri.split("/").pop() || "");
       out.push({
         label: s.name,
-        kind: s.kind === 12 /* Function */ ? import_node3.CompletionItemKind.Function : s.kind === 23 /* Struct */ ? import_node3.CompletionItemKind.Struct : s.kind === 14 /* Constant */ ? import_node3.CompletionItemKind.Constant : import_node3.CompletionItemKind.Variable,
-        detail: decodeURIComponent(s.location.uri.split("/").pop() || ""),
-        sortText: (s.location.uri === uri ? "0" : "1") + s.name
+        kind: s.kind === 12 /* Function */ ? import_node3.CompletionItemKind.Function : s.kind === 23 /* Struct */ ? import_node3.CompletionItemKind.Struct : s.kind === 10 /* Enum */ ? import_node3.CompletionItemKind.Enum : s.kind === 22 /* EnumMember */ ? import_node3.CompletionItemKind.EnumMember : s.kind === 26 /* TypeParameter */ ? import_node3.CompletionItemKind.TypeParameter : s.kind === 14 /* Constant */ ? import_node3.CompletionItemKind.Constant : import_node3.CompletionItemKind.Variable,
+        detail: s.detail ? `${s.detail}  (${s.library ? "<" + file + ">" : file})` : file,
+        sortText: (s.location.uri === uri ? "0" : s.library ? "2" : "1") + s.name
       });
     }
     return out;
@@ -11142,39 +12058,50 @@ var CompletionProvider = class {
 };
 
 // src/providers/definition.ts
+var import_url3 = require("url");
+var path4 = __toESM(require("path"));
+function locTarget(line, asmPath) {
+  const m = /^\s*\.loc\s+"([^"]+)"\s*,\s*(\d+)/.exec(line);
+  if (!m)
+    return null;
+  const file = path4.isAbsolute(m[1]) ? m[1] : path4.resolve(path4.dirname(asmPath), m[1]);
+  const l = Math.max(0, parseInt(m[2], 10) - 1);
+  return { uri: (0, import_url3.pathToFileURL)(file).toString(), range: { start: { line: l, character: 0 }, end: { line: l, character: 0 } } };
+}
 var DefinitionProvider = class {
-  constructor(connection2, index) {
-    this.connection = connection2;
+  constructor(index) {
     this.index = index;
+    this.scanner = new CSymbolScanner();
   }
-  async onDefinition(params, document) {
+  onDefinition(params, document) {
     const { position } = params;
-    const line = document.getText().split("\n")[position.line] || "";
-    const word = this.getWordAtPosition(line, position.character);
-    if (!word) {
+    const line = document.getText({ start: { line: position.line, character: 0 }, end: { line: position.line + 1, character: 0 } }).replace(/\r?\n$/, "");
+    const asm = isAsm(document.languageId, document.uri);
+    if (asm) {
+      const loc = locTarget(line, WorkspaceIndex.uriToPath(document.uri));
+      if (loc)
+        return [loc];
+    }
+    const word = identAt(line, position.character, asm);
+    if (!word)
       return null;
+    if (!asm) {
+      let s = Math.min(position.character, line.length);
+      while (s > 0 && /\w/.test(line[s - 1]))
+        s--;
+      const text = document.getText();
+      const r = new TypeResolver(this.index, this.scanner.scan(document.uri, text).types).memberAt(cleanC(text), document.offsetAt({ line: position.line, character: s }), word);
+      if (r) {
+        const at = { line: r.member.line, character: r.member.character };
+        return [{ uri: r.agg.uri, range: { start: at, end: { line: at.line, character: at.character + word.length } } }];
+      }
     }
     const definitions = this.index.findDefinitions(word);
-    if (definitions.length === 0) {
+    if (definitions.length === 0)
       return null;
-    }
-    return definitions.map((sym) => ({
-      uri: sym.location.uri,
-      range: sym.location.range
-    }));
-  }
-  getWordAtPosition(line, column) {
-    const wordStart = Math.max(0, column - 1);
-    let start = wordStart;
-    let end = column;
-    while (start > 0 && /[a-zA-Z0-9_.:@]/.test(line[start - 1])) {
-      start--;
-    }
-    while (end < line.length && /[a-zA-Z0-9_]/.test(line[end])) {
-      end++;
-    }
-    const word = line.substring(start, end);
-    return word.length > 0 ? word : null;
+    const own = word.startsWith("@") ? definitions.filter((d) => d.location.uri === document.uri) : definitions;
+    const work = own.filter((d) => !d.library);
+    return (work.length ? work : own).map((sym) => ({ uri: sym.location.uri, range: sym.location.range }));
   }
 };
 
@@ -11235,17 +12162,103 @@ var WorkspaceSymbolProvider = class {
   }
 };
 
-// src/config.ts
+// src/providers/documentSymbol.ts
+var before = (a, b) => a.line < b.line || a.line === b.line && a.character <= b.character;
+function toDocumentSymbol(s) {
+  const sel = s.location.range;
+  let range = s.fullRange ?? sel;
+  if (!before(range.start, sel.start) || !before(sel.end, range.end)) {
+    range = {
+      start: before(range.start, sel.start) ? range.start : sel.start,
+      end: before(sel.end, range.end) ? range.end : sel.end
+    };
+  }
+  const d = {
+    name: s.name,
+    kind: s.kind,
+    range,
+    selectionRange: sel
+  };
+  if (s.detail)
+    d.detail = s.detail;
+  if (s.children?.length)
+    d.children = s.children.map(toDocumentSymbol);
+  return d;
+}
+var DocumentSymbolProvider = class {
+  constructor() {
+    this.c = new CSymbolScanner();
+    this.asm = new AsmSymbolScanner();
+  }
+  onDocumentSymbol(document) {
+    if (isAsm(document.languageId, document.uri)) {
+      const all = this.asm.scanFile(document.uri, document.getText()).filter((s) => s.scope !== "extern");
+      const inner = /* @__PURE__ */ new Set();
+      for (const s of all)
+        for (const c of s.children ?? [])
+          inner.add(c);
+      return all.filter((s) => !inner.has(s)).map(toDocumentSymbol);
+    }
+    return this.c.scan(document.uri, document.getText()).symbols.map(toDocumentSymbol);
+  }
+};
+
+// src/providers/references.ts
 var fs5 = __toESM(require("fs"));
-var path4 = __toESM(require("path"));
+var MAX = 5e3;
+var ReferencesProvider = class {
+  constructor(index, open) {
+    this.index = index;
+    this.open = open;
+  }
+  onReferences(params, document) {
+    const p = params.position;
+    const line = document.getText({ start: { line: p.line, character: 0 }, end: { line: p.line + 1, character: 0 } });
+    const word = identAt(line.replace(/\r?\n$/, ""), p.character, isAsm(document.languageId, document.uri));
+    if (!word)
+      return [];
+    const uris = word.startsWith("@") ? [document.uri] : Array.from(/* @__PURE__ */ new Set([document.uri, ...this.index.filesWithWord(word)]));
+    const re = new RegExp(`(?<![\\w@])${escapeRegex(word)}(?!\\w)`, "g");
+    const defs = params.context.includeDeclaration ? null : new Set(this.index.findDefinitions(word).map((d) => `${d.location.uri}:${d.location.range.start.line}:${d.location.range.start.character}`));
+    const out = [];
+    for (const uri of uris) {
+      let text;
+      const doc = this.open(uri) ?? (uri === document.uri ? document : void 0);
+      if (doc)
+        text = doc.getText();
+      else {
+        try {
+          text = fs5.readFileSync(WorkspaceIndex.uriToPath(uri), "utf-8");
+        } catch {
+          continue;
+        }
+      }
+      const clean = isAsm("", uri) ? cleanAsm(text) : cleanC(text);
+      const pos = new Positions(text);
+      for (const m of clean.matchAll(re)) {
+        const s = pos.at(m.index ?? 0);
+        if (defs?.has(`${uri}:${s.line}:${s.character}`))
+          continue;
+        out.push({ uri, range: { start: s, end: { line: s.line, character: s.character + word.length } } });
+        if (out.length >= MAX)
+          return out;
+      }
+    }
+    return out;
+  }
+};
+
+// src/config.ts
+var fs6 = __toESM(require("fs"));
+var path5 = __toESM(require("path"));
 var DEFAULT_EXCLUDE = ["node_modules", ".git", "bin", "obj", "build"];
 function onPath(name) {
-  for (const d of (process.env.PATH || "").split(path4.delimiter)) {
+  for (const d of (process.env.PATH || "").split(path5.delimiter)) {
     if (!d)
       continue;
-    const p = path4.join(d, name);
+    const p = path5.join(d, name);
     try {
-      if (fs5.statSync(p).isFile())
+      if (fs6.statSync(p).isFile())
         return p;
     } catch {
     }
@@ -11256,18 +12269,18 @@ function resolveTool(setting, tool, workspace) {
   const expand = (p) => {
     let s = p.replace(/\$\{workspaceFolder\}|\$\{workspaceRoot\}/g, workspace);
     if (s.startsWith("~/"))
-      s = path4.join(process.env.HOME || "", s.slice(2));
-    return path4.isAbsolute(s) ? s : path4.join(workspace, s);
+      s = path5.join(process.env.HOME || "", s.slice(2));
+    return path5.isAbsolute(s) ? s : path5.join(workspace, s);
   };
   if (setting && setting.trim()) {
     const p = expand(setting.trim());
-    if (fs5.existsSync(p))
+    if (fs6.existsSync(p))
       return p;
     if (!/\$\{workspace(Folder|Root)\}\/bin\//.test(setting) && setting.trim() !== `bin/${tool}`)
       return p;
   }
-  const local = path4.join(workspace, "bin", tool);
-  if (fs5.existsSync(local))
+  const local = path5.join(workspace, "bin", tool);
+  if (fs6.existsSync(local))
     return local;
   return onPath(tool) || local;
 }
@@ -11291,6 +12304,9 @@ var hoverProvider;
 var completionProvider;
 var definitionProvider;
 var workspaceSymbolProvider;
+var documentSymbolProvider;
+var referencesProvider;
+var cc45Path = "";
 var workspaceIndex;
 var workspacePath = process.cwd();
 var hasConfiguration = false;
@@ -11307,12 +12323,33 @@ async function applySettings() {
   const r = resolveSettings(s, workspacePath);
   documentManager.setConfig(r.cc45Path, r.ca45Path, r.debounceMs);
   workspaceIndex.setExclude(r.exclude);
+  cc45Path = r.cc45Path;
+  workspaceIndex.setLibraryDirs(libraryDirs(r.cc45Path));
   console.error(`[LSP Server] cc45=${r.cc45Path} ca45=${r.ca45Path} debounce=${r.debounceMs}ms`);
+}
+function libraryDirs(cc45) {
+  const out = [];
+  if (process.env.CC45_INCLUDE)
+    out.push(process.env.CC45_INCLUDE);
+  let real = cc45;
+  try {
+    real = fs7.realpathSync(cc45);
+  } catch {
+  }
+  for (const bin of /* @__PURE__ */ new Set([path6.dirname(cc45), path6.dirname(real)])) {
+    for (const d of [path6.join(bin, "..", "lib", "include"), path6.join(bin, "..", "include", "cc45")]) {
+      if (fs7.existsSync(d)) {
+        out.push(path6.resolve(d));
+        break;
+      }
+    }
+  }
+  return Array.from(new Set(out));
 }
 connection.onInitialize((params) => {
   const root = params.workspaceFolders?.[0]?.uri ?? params.rootUri;
   if (root && root.startsWith("file:"))
-    workspacePath = (0, import_url3.fileURLToPath)(root);
+    workspacePath = (0, import_url4.fileURLToPath)(root);
   else if (params.rootPath)
     workspacePath = params.rootPath;
   hasConfiguration = !!params.capabilities.workspace?.configuration;
@@ -11327,18 +12364,24 @@ connection.onInitialize((params) => {
   documentManager.onContent = (doc) => workspaceIndex.indexDocument(doc);
   documentManager.onClose = (uri) => {
     if (uri.startsWith("file:"))
-      workspaceIndex.indexFile((0, import_url3.fileURLToPath)(uri));
+      workspaceIndex.indexFile((0, import_url4.fileURLToPath)(uri));
   };
-  hoverProvider = new HoverProvider(data, workspaceIndex);
+  const open = (uri) => documentManager.textDocuments.get(uri);
+  hoverProvider = new HoverProvider(data, workspaceIndex, open);
   completionProvider = new CompletionProvider(data, workspaceIndex);
-  definitionProvider = new DefinitionProvider(connection, workspaceIndex);
+  definitionProvider = new DefinitionProvider(workspaceIndex);
   workspaceSymbolProvider = new WorkspaceSymbolProvider(connection, workspaceIndex);
+  documentSymbolProvider = new DocumentSymbolProvider();
+  referencesProvider = new ReferencesProvider(workspaceIndex, open);
+  cc45Path = r.cc45Path;
   const capabilities = {
     textDocumentSync: import_node5.TextDocumentSyncKind.Full,
     hoverProvider: true,
-    completionProvider: { resolveProvider: false, triggerCharacters: [".", "#", " "] },
+    completionProvider: { resolveProvider: false, triggerCharacters: [".", ">", "#", " "] },
     definitionProvider: true,
-    workspaceSymbolProvider: true
+    workspaceSymbolProvider: true,
+    documentSymbolProvider: true,
+    referencesProvider: true
   };
   return { capabilities, serverInfo: { name: "MEGA65 CC45/CA45 Language Server", version: "0.2.0" } };
 });
@@ -11347,7 +12390,10 @@ connection.onInitialized(() => {
     connection.client.register(import_node5.DidChangeConfigurationNotification.type, { section: "m65" }).catch(() => void 0);
   }
   applySettings().catch((err) => console.error(`[LSP Server] settings: ${err}`));
-  setTimeout(() => workspaceIndex.scanWorkspace(), 0);
+  setTimeout(() => {
+    workspaceIndex.scanWorkspace();
+    workspaceIndex.setLibraryDirs(libraryDirs(cc45Path));
+  }, 0);
 });
 connection.onDidChangeConfiguration((change) => {
   if (!hasConfiguration)
@@ -11367,11 +12413,38 @@ connection.onDefinition((params) => {
   return doc ? definitionProvider.onDefinition(params, doc) : null;
 });
 connection.onWorkspaceSymbol((params) => workspaceSymbolProvider.onWorkspaceSymbol(params));
+connection.onDocumentSymbol((params) => {
+  const doc = documentManager.textDocuments.get(params.textDocument.uri);
+  return doc ? documentSymbolProvider.onDocumentSymbol(doc) : [];
+});
+connection.onReferences((params) => {
+  const doc = documentManager.textDocuments.get(params.textDocument.uri);
+  return doc ? referencesProvider.onReferences(params, doc) : [];
+});
+connection.onRequest("m65/assembly", async (p) => {
+  const doc = documentManager.textDocuments.get(p.uri);
+  const file = (0, import_url4.fileURLToPath)(p.uri);
+  const text = doc ? doc.getText() : fs7.readFileSync(file, "utf-8");
+  const r = await compileToAssembly(cc45Path, file, text);
+  if (!r.asmPath)
+    return { error: r.error };
+  return { uri: (0, import_url4.pathToFileURL)(r.asmPath).toString(), line: asmLineFor(fs7.readFileSync(r.asmPath, "utf-8"), file, p.line) };
+});
+connection.onRequest("m65/source", (p) => {
+  const doc = documentManager.textDocuments.get(p.uri);
+  const lines = (doc ? doc.getText() : fs7.readFileSync((0, import_url4.fileURLToPath)(p.uri), "utf-8")).split("\n");
+  for (let i = Math.min(p.line, lines.length - 1); i >= 0; i--) {
+    const m = /^\s*\.loc\s+"([^"]+)"\s*,\s*(\d+)/.exec(lines[i]);
+    if (m)
+      return { uri: (0, import_url4.pathToFileURL)(path6.resolve(path6.dirname((0, import_url4.fileURLToPath)(p.uri)), m[1])).toString(), line: parseInt(m[2], 10) - 1 };
+  }
+  return { error: "no .loc line before here (not cc45 output, or compiled without line information)" };
+});
 connection.onDidChangeWatchedFiles((params) => {
   for (const c of params.changes) {
     if (!c.uri.startsWith("file:") || documentManager.textDocuments.get(c.uri))
       continue;
-    const p = (0, import_url3.fileURLToPath)(c.uri);
+    const p = (0, import_url4.fileURLToPath)(c.uri);
     if (/\/\.[^/]*\.m65lsp\./.test(p))
       continue;
     if (c.type === import_node5.FileChangeType.Deleted)

@@ -14,13 +14,23 @@ Language Server Protocol (LSP) server and VS Code extension for the MEGA65 C com
   - Hover and completion: C keywords and cc45's extensions, the library's functions (the
     prototypes of `lib/include/*.h` that `c45.lib` defines), `#pragma`s; ca45's instructions (their
     modes, bytes and cycles at 40 MHz), simulated instructions and directives; the workspace's symbols
-  - Go to definition and workspace symbols: the workspace's C and assembly files, indexed at start
-    and again when files change
+    and the library headers' (their declaration and the comment above it)
+  - Members after `.` and `->`: the expression's struct from its declaration (locals, parameters,
+    globals, typedefs, casts, chains `a.b->c`, macros such as `<mega65.h>`'s `vic4`); hover and go to
+    definition on a member
+  - Go to definition, find references (by name, outside comments and strings), the file's outline
+    (functions, structs with their members, enums, typedefs, variables, `#define`s; assembly procs with
+    their labels, macros, constants) and workspace symbols: the workspace's C and assembly files and
+    cc45's headers (`lib/include`, beside cc45), indexed at start and again when files change
+  - C ↔ assembly: `m65/assembly` compiles the document with `cc45 -S` and gives the line of the
+    cursor's code; `m65/source` and go to definition on a `.loc` line go back to the C
 - **`vscode-extension/`** — VS Code client extension
   - Bundles the server (`dist/server.js`, `dist/data/`)
   - Contributes the `cc45` debug type: `dbg45 --dap` runs the program in xemu (breakpoints, stepping, the call stack, variables; [dbg45](../../doc/bin/dbg45.md))
   - Registers language support for `.c`, `.h`, `.s45`, `.asm` files
   - Contributes syntax highlighting and the `m65.*` settings
+  - Commands **M65: Show Assembly** (beside the C file, at the cursor's line) and **M65: Show C Source**
+  - Problem matchers `$cc45`, `$ca45`, `$ca45-line`, `$m65` for build tasks
 
 ## Building
 
@@ -57,8 +67,9 @@ Set breakpoints in the extension or LSP server code. The debugger will pause and
 
 - Diagnostics: cc45 stops at its first error, so one error at a time; a header alone (`.h`) is not
   checked (the files including it report its errors)
-- Symbols are found by patterns (ctags-like), not by the compiler: no types of expressions, no
-  references or rename
+- Symbols are found by scanning the text, not by the compiler: references are by name (a local
+  variable's name matches the same name elsewhere), no rename; member completion knows declared types,
+  not the types of calls' results
 - The debugger (`cc45` debug type) needs `dbg45` (`m65.dbg45Path`) and an xemu with the monitor's breakpoint list ([doc/bin/dbg45.md](../../doc/bin/dbg45.md))
 
 ## Notes

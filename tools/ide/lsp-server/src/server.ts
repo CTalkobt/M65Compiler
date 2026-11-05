@@ -8,13 +8,18 @@ import {
   ServerCapabilities,
   TextDocumentSyncKind,
 } from 'vscode-languageserver/node';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
+import * as fs from 'fs';
+import * as path from 'path';
 
 import { DocumentManager } from './documents';
 import { HoverProvider } from './providers/hover';
 import { CompletionProvider } from './providers/completion';
 import { DefinitionProvider } from './providers/definition';
 import { WorkspaceSymbolProvider } from './providers/workspaceSymbol';
+import { DocumentSymbolProvider } from './providers/documentSymbol';
+import { ReferencesProvider } from './providers/references';
+import { asmLineFor, compileToAssembly } from './diagnostics/runTool';
 import { WorkspaceIndex } from './indexer/workspaceIndex';
 import { findDataDir, loadReferenceData } from './providers/data';
 import { M65Settings, resolveSettings } from './config';
@@ -33,6 +38,9 @@ let hoverProvider: HoverProvider;
 let completionProvider: CompletionProvider;
 let definitionProvider: DefinitionProvider;
 let workspaceSymbolProvider: WorkspaceSymbolProvider;
+let documentSymbolProvider: DocumentSymbolProvider;
+let referencesProvider: ReferencesProvider;
+let cc45Path = '';
 let workspaceIndex: WorkspaceIndex;
 let workspacePath = process.cwd();
 let hasConfiguration = false;
@@ -50,7 +58,23 @@ async function applySettings(): Promise<void> {
   const r = resolveSettings(s, workspacePath);
   documentManager.setConfig(r.cc45Path, r.ca45Path, r.debounceMs);
   workspaceIndex.setExclude(r.exclude);
+  cc45Path = r.cc45Path;
+  workspaceIndex.setLibraryDirs(libraryDirs(r.cc45Path));
   console.error(`[LSP Server] cc45=${r.cc45Path} ca45=${r.ca45Path} debounce=${r.debounceMs}ms`);
+}
+
+/** cc45's headers: CC45_INCLUDE, else beside the compiler (bin/../lib/include, an installed bin/../include/cc45) */
+function libraryDirs(cc45: string): string[] {
+  const out: string[] = [];
+  if (process.env.CC45_INCLUDE) out.push(process.env.CC45_INCLUDE);
+  let real = cc45;
+  try { real = fs.realpathSync(cc45); } catch { /* not there */ }
+  for (const bin of new Set([path.dirname(cc45), path.dirname(real)])) {
+    for (const d of [path.join(bin, '..', 'lib', 'include'), path.join(bin, '..', 'include', 'cc45')]) {
+      if (fs.existsSync(d)) { out.push(path.resolve(d)); break; }
+    }
+  }
+  return Array.from(new Set(out));
 }
 
 connection.onInitialize((params: InitializeParams): InitializeResult => {
@@ -71,17 +95,23 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
   documentManager.onClose = (uri) => {
     if (uri.startsWith('file:')) workspaceIndex.indexFile(fileURLToPath(uri));
   };
-  hoverProvider = new HoverProvider(data, workspaceIndex);
+  const open = (uri: string) => documentManager.textDocuments.get(uri);
+  hoverProvider = new HoverProvider(data, workspaceIndex, open);
   completionProvider = new CompletionProvider(data, workspaceIndex);
-  definitionProvider = new DefinitionProvider(connection, workspaceIndex);
+  definitionProvider = new DefinitionProvider(workspaceIndex);
   workspaceSymbolProvider = new WorkspaceSymbolProvider(connection, workspaceIndex);
+  documentSymbolProvider = new DocumentSymbolProvider();
+  referencesProvider = new ReferencesProvider(workspaceIndex, open);
+  cc45Path = r.cc45Path;
 
   const capabilities: ServerCapabilities = {
     textDocumentSync: TextDocumentSyncKind.Full,
     hoverProvider: true,
-    completionProvider: { resolveProvider: false, triggerCharacters: ['.', '#', ' '] },
+    completionProvider: { resolveProvider: false, triggerCharacters: ['.', '>', '#', ' '] },
     definitionProvider: true,
     workspaceSymbolProvider: true,
+    documentSymbolProvider: true,
+    referencesProvider: true,
   };
   return { capabilities, serverInfo: { name: 'MEGA65 CC45/CA45 Language Server', version: '0.2.0' } };
 });
@@ -91,8 +121,12 @@ connection.onInitialized(() => {
     connection.client.register(DidChangeConfigurationNotification.type, { section: 'm65' }).catch(() => undefined);
   }
   applySettings().catch((err) => console.error(`[LSP Server] settings: ${err}`));
-  // the workspace's symbols for go to definition and workspace symbols
-  setTimeout(() => workspaceIndex.scanWorkspace(), 0);
+  // the workspace's symbols for go to definition and workspace symbols, and
+  // the compiler's headers
+  setTimeout(() => {
+    workspaceIndex.scanWorkspace();
+    workspaceIndex.setLibraryDirs(libraryDirs(cc45Path));
+  }, 0);
 });
 
 connection.onDidChangeConfiguration((change) => {
@@ -116,6 +150,42 @@ connection.onDefinition((params) => {
 });
 
 connection.onWorkspaceSymbol((params) => workspaceSymbolProvider.onWorkspaceSymbol(params));
+
+connection.onDocumentSymbol((params) => {
+  const doc = documentManager.textDocuments.get(params.textDocument.uri);
+  return doc ? documentSymbolProvider.onDocumentSymbol(doc) : [];
+});
+
+connection.onReferences((params) => {
+  const doc = documentManager.textDocuments.get(params.textDocument.uri);
+  return doc ? referencesProvider.onReferences(params, doc) : [];
+});
+
+// m65/assembly {uri, line}: the C document compiled to assembly (cc45 -S)
+// and the line of its code there — {uri, line} or {error}; the editor opens
+// it ("M65: Show Assembly")
+interface Place { uri?: string; line?: number; error?: string }
+
+connection.onRequest('m65/assembly', async (p: { uri: string; line: number }): Promise<Place> => {
+  const doc = documentManager.textDocuments.get(p.uri);
+  const file = fileURLToPath(p.uri);
+  const text = doc ? doc.getText() : fs.readFileSync(file, 'utf-8');
+  const r = await compileToAssembly(cc45Path, file, text);
+  if (!r.asmPath) return { error: r.error };
+  return { uri: pathToFileURL(r.asmPath).toString(), line: asmLineFor(fs.readFileSync(r.asmPath, 'utf-8'), file, p.line) };
+});
+
+// m65/source {uri, line}: in cc45's assembly, the C line the code at line
+// comes from (the .loc before it) — {uri, line} or {error}
+connection.onRequest('m65/source', (p: { uri: string; line: number }): Place => {
+  const doc = documentManager.textDocuments.get(p.uri);
+  const lines = (doc ? doc.getText() : fs.readFileSync(fileURLToPath(p.uri), 'utf-8')).split('\n');
+  for (let i = Math.min(p.line, lines.length - 1); i >= 0; i--) {
+    const m = /^\s*\.loc\s+"([^"]+)"\s*,\s*(\d+)/.exec(lines[i]);
+    if (m) return { uri: pathToFileURL(path.resolve(path.dirname(fileURLToPath(p.uri)), m[1])).toString(), line: parseInt(m[2], 10) - 1 };
+  }
+  return { error: 'no .loc line before here (not cc45 output, or compiled without line information)' };
+});
 
 // files changed outside the editor (a checkout, a generator): indexed again
 connection.onDidChangeWatchedFiles((params) => {

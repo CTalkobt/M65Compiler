@@ -3482,7 +3482,7 @@ var init_main = __esm({
       }
       uinteger2.is = is;
     })(uinteger || (uinteger = {}));
-    (function(Position2) {
+    (function(Position3) {
       function create(line, character) {
         if (line === Number.MAX_VALUE) {
           line = uinteger.MAX_VALUE;
@@ -3492,14 +3492,14 @@ var init_main = __esm({
         }
         return { line, character };
       }
-      Position2.create = create;
+      Position3.create = create;
       function is(value) {
         const candidate = value;
         return Is.objectLiteral(candidate) && Is.uinteger(candidate.line) && Is.uinteger(candidate.character);
       }
-      Position2.is = is;
+      Position3.is = is;
     })(Position || (Position = {}));
-    (function(Range2) {
+    (function(Range3) {
       function create(one, two, three, four) {
         if (Is.uinteger(one) && Is.uinteger(two) && Is.uinteger(three) && Is.uinteger(four)) {
           return { start: Position.create(one, two), end: Position.create(three, four) };
@@ -3509,12 +3509,12 @@ var init_main = __esm({
           throw new Error(`Range#create called with invalid arguments[${one}, ${two}, ${three}, ${four}]`);
         }
       }
-      Range2.create = create;
+      Range3.create = create;
       function is(value) {
         const candidate = value;
         return Is.objectLiteral(candidate) && Position.is(candidate.start) && Position.is(candidate.end);
       }
-      Range2.is = is;
+      Range3.is = is;
     })(Range || (Range = {}));
     (function(Location2) {
       function create(uri, range) {
@@ -22144,12 +22144,12 @@ var require_comparator = __commonJS({
           if (this.value === "") {
             return true;
           }
-          return new Range2(comp.value, options).test(this.value);
+          return new Range3(comp.value, options).test(this.value);
         } else if (comp.operator === "") {
           if (comp.value === "") {
             return true;
           }
-          return new Range2(this.value, options).test(comp.semver);
+          return new Range3(this.value, options).test(comp.semver);
         }
         options = parseOptions(options);
         if (options.includePrerelease && (this.value === "<0.0.0-0" || comp.value === "<0.0.0-0")) {
@@ -22182,7 +22182,7 @@ var require_comparator = __commonJS({
     var cmp = require_cmp();
     var debug2 = require_debug();
     var SemVer = require_semver();
-    var Range2 = require_range();
+    var Range3 = require_range();
   }
 });
 
@@ -22191,7 +22191,7 @@ var require_range = __commonJS({
   "../node_modules/semver/classes/range.js"(exports2, module2) {
     "use strict";
     var SPACE_CHARACTERS = /\s+/g;
-    var Range2 = class _Range {
+    var Range3 = class _Range {
       constructor(range, options) {
         options = parseOptions(options);
         if (range instanceof _Range) {
@@ -22330,7 +22330,7 @@ var require_range = __commonJS({
         return false;
       }
     };
-    module2.exports = Range2;
+    module2.exports = Range3;
     var LRU = require_lrucache();
     var cache = new LRU();
     var parseOptions = require_parse_options();
@@ -22575,10 +22575,10 @@ var require_range = __commonJS({
 var require_satisfies = __commonJS({
   "../node_modules/semver/functions/satisfies.js"(exports2, module2) {
     "use strict";
-    var Range2 = require_range();
+    var Range3 = require_range();
     var satisfies = (version, range, options) => {
       try {
-        range = new Range2(range, options);
+        range = new Range3(range, options);
       } catch (er) {
         return false;
       }
@@ -23281,6 +23281,29 @@ async function activate(context) {
   );
   const disposable = { dispose: () => client.stop() };
   context.subscriptions.push(disposable);
+  const place = async (method) => {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor)
+      return;
+    const r = await client.sendRequest(method, {
+      uri: editor.document.uri.toString(),
+      line: editor.selection.active.line
+    });
+    if (!r.uri) {
+      vscode.window.showWarningMessage(r.error ?? "nothing to show");
+      return;
+    }
+    const doc = await vscode.workspace.openTextDocument(vscode.Uri.parse(r.uri));
+    const at = new vscode.Position(r.line ?? 0, 0);
+    await vscode.window.showTextDocument(doc, {
+      viewColumn: method === "m65/assembly" ? vscode.ViewColumn.Beside : vscode.ViewColumn.One,
+      selection: new vscode.Range(at, at)
+    });
+  };
+  context.subscriptions.push(
+    vscode.commands.registerCommand("m65.showAssembly", () => place("m65/assembly")),
+    vscode.commands.registerCommand("m65.showSource", () => place("m65/source"))
+  );
   client.start().then(() => {
     console.log("[Extension] Language Server initialized");
   }).catch((err) => {

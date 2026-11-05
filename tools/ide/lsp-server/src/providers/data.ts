@@ -80,3 +80,16 @@ export function opcodeMarkdown(o: OpcodeInfo): string {
   }
   return s;
 }
+
+/** The identifier at a column: C names; in assembly also @local labels and dotted names (cc45.bptop) */
+export function identAt(line: string, column: number, asm: boolean): string | null {
+  const ch = asm ? /[A-Za-z0-9_.@]/ : /[A-Za-z0-9_]/;
+  let start = Math.min(column, line.length);
+  let end = start;
+  while (start > 0 && ch.test(line[start - 1])) start--;
+  while (end < line.length && ch.test(line[end])) end++;
+  let w = line.substring(start, end).replace(/^\.+|\.+$/g, '');
+  if (!w || /^\d/.test(w)) return null;
+  if (asm && w.startsWith('.') ) w = w.slice(1);
+  return w;
+}
