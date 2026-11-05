@@ -15,6 +15,7 @@ bash src/test/test_const_assembler.sh|bash src/test/test_const_assembler.sh
 Running restrict qualifier tests...|bash src/test/test_restrict.sh
 Running register keyword tests...|bash src/test/test_register.sh
 Running cast fold type preservation tests...|bash src/test/test_cast_fold.sh
+Running incomplete struct type tests...|bash src/test/test_incomplete_types.sh
 Running inline control tests...|bash src/test/test_inline_control.sh
 Running optimization switch tests...|bash src/test/test_optimizations.sh
 Running tune45 tests...|bash src/test/test_tune45.sh

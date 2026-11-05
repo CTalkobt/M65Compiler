@@ -533,6 +533,7 @@ private:
         // 0: not known), so *p of a char ** is a char *, and **p a char
         int ptrDepth = 0;
     };
+    bool completePointee(const IRTypeInfo& ti, const std::string& file, int line, int col);
 
     IRTypeInfo getExprTypeInfo(Expression* expr);
     static IRTypeInfo fixedInfo(int code);   // a fixed-point type's (IRBuilderFixed.cpp)

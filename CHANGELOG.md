@@ -4,6 +4,18 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### cc45: casts to a pointer to a pointer; incomplete structs
+
+- `*(T **)e` loaded `T`'s size instead of a pointer: `*(unsigned char **)(b
+  + 2)` read one byte (a linked-list walk lost the next pointer's high
+  byte). A cast, or an integer address cast, to `T **` now points to a
+  pointer, so `*`, `[i]` and `+ n` on it load and step over 16 bits.
+- A pointer to a struct the file never defines (`struct opaque *p`, an
+  opaque handle) failed to compile ("Unknown struct/union type") as soon
+  as it was used; it can now be declared, assigned, compared, passed and
+  cast. Pointer arithmetic on it is an error ("arithmetic on a pointer to
+  an incomplete type"), as are `*p`, `p->m` and `sizeof`.
+
 ### Build: Alpine (musl)
 
 - objdump45's terminal tree (`objdump45_tree.cpp`) includes `<sys/select.h>`
