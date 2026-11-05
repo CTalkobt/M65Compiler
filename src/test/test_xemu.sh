@@ -1218,6 +1218,13 @@ for rsmode in "zp|" "stack|-fno-zpcall" "zp_O0|-O0"; do
     xemu_case "FAIL: test_restrict_xemu.c $rsname (compilation/linking failed)" "src/test-resources/test_restrict_xemu.c" "build/test/test_restrict_${rsname}_xemu.prg" "$rsflags" -- "test_restrict_$rsname" "build/test/test_restrict_${rsname}_xemu.prg" "C0C0" 10 "01 01 01 01 01 01 01 01 01 AA"
 done
 
+# Test: *(T **)e loads a pointer; pointers to structs never defined
+for cpmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r cpname cpflags <<< "$cpmode"
+    echo "Testing test_cast_ptrptr_xemu.c ($cpname)..."
+    xemu_case "FAIL: test_cast_ptrptr_xemu.c $cpname (compilation/linking failed)" "src/test-resources/test_cast_ptrptr_xemu.c" "build/test/test_cast_ptrptr_${cpname}_xemu.prg" "$cpflags" -- "test_cast_ptrptr_$cpname" "build/test/test_cast_ptrptr_${cpname}_xemu.prg" "C0C0" 4 "01 01 01 AA"
+done
+
 # Test: CSE keeps variables across stores through pointers and calls only
 # when their address is never taken (address taken, kept in a global,
 # nested functions, arrays, structs: reloaded)
