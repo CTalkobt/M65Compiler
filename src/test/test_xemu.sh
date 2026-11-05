@@ -659,6 +659,29 @@ else
     echo "FAIL: test_convert7_xemu.txt (basic45 --convert or the build failed)"
     failed=$((failed + 1))
 fi
+# basic45 --convert=basic35: a BASIC 3.5 (Plus/4) listing converted and run by
+# BASIC 65: SOUND waiting for its voice and its frequency, TED colours, TI, graphics
+echo "Testing test_convert35_xemu.txt (basic45 --convert=basic35)..."
+if ./bin/basic45 --convert=basic35 src/test-resources/test_convert35_xemu.txt -o build/test/test_convert35_xemu.bas >/dev/null 2>&1 &&
+   ./bin/basic45 build/test/test_convert35_xemu.bas -o build/test/test_convert35_xemu.prg >/dev/null 2>&1; then
+    run_xemu_test "test_convert35" "build/test/test_convert35_xemu.prg" "C0C0" 9 "01 01 01 01 01 01 01 01 AA"
+else
+    echo "FAIL: test_convert35_xemu.txt (basic45 --convert or the build failed)"
+    failed=$((failed + 1))
+fi
+# basic45 --convert=simons: a Simons' BASIC (C64) listing converted and run by
+# BASIC 65: procedures, loops, functions, ELSE/RCOMP, ON ERROR, CGOTO, PRINT AT,
+# the graphics (pixels tested), PAUSE, COLOUR, a sprite moved, the text-screen
+# rectangles and scrolls, DESIGN (a character by CHAR DEF, a sprite for MOB SET),
+# the SID registers, FLASH by the blink attribute
+echo "Testing test_simons_xemu.txt (basic45 --convert=simons)..."
+if ./bin/basic45 --convert=simons src/test-resources/test_simons_xemu.txt -o build/test/test_simons_xemu.bas >/dev/null 2>&1 &&
+   ./bin/basic45 build/test/test_simons_xemu.bas -o build/test/test_simons_xemu.prg >/dev/null 2>&1; then
+    run_xemu_test "test_simons" "build/test/test_simons_xemu.prg" "C0C0" 19 "01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 AA"
+else
+    echo "FAIL: test_simons_xemu.txt (basic45 --convert or the build failed)"
+    failed=$((failed + 1))
+fi
 # basic45 --data-loader (#370): machine code POKEd from DATA lines and SYSed,
 # as decimal with a checksum per line and as hex; a mistyped DATA value
 # stops the loader before the SYS (the results stay 0)

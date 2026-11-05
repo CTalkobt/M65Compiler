@@ -20,11 +20,13 @@ struct DecompiledPiece {
 struct DecompiledLine {
     uint16_t num;
     std::vector<DecompiledPiece> pieces;
+    std::string label = {};     // its label when not l<num> (a converted program's procedures)
+    bool cont = false;          // the rest of the line before it (split by a conversion): no number of its own
 };
 
 // The program's dialect: BASIC 65 (decompiled as it is), or another one
-// converted to BASIC 65 (--convert=basic7)
-enum class BasicSource { B65, V7 };
+// converted to BASIC 65 (--convert=basic7 / basic35 / simons)
+enum class BasicSource { B65, V7, V35, SIMONS };
 
 struct BasicDecompileOptions {
     BasicSource source = BasicSource::B65;

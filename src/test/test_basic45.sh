@@ -161,9 +161,78 @@ grep -q 'ellipse 20, 10, 10, 10' "$D/c7.bas" &&
     fail "--convert BOX / CIRCLE: $(cat "$D/c7.bas")"
 # a .prg: BASIC 7.0's $CE $08 is XOR (BASIC 65's LOG10), $FE $04 PLAY
 printf '\x01\x1c\x10\x1c\x0a\x00\x41\xb2\xce\x08\x28\x31\x2c\x32\x29\x00\x00\x00' > "$D/x.prg"
-$B --convert=basic7 "$D/x.prg" -o "$D/x.bas" 2> /dev/null && grep -q 'a = xor(1, 2)' "$D/x.bas" &&
-    pass "--convert=basic7: a .prg read with BASIC 7.0's tables (\$CE \$08 is XOR, not LOG10)" ||
+$B --convert=basic7 "$D/x.prg" -o "$D/x.bas" 2> /dev/null && grep -q 'a = ((1) xor (2))' "$D/x.bas" &&
+    pass "--convert=basic7: a .prg read with BASIC 7.0's tables (\$CE \$08 is XOR, not LOG10; BASIC 65's XOR an operator)" ||
     fail "--convert .prg: $(cat "$D/x.bas")"
+
+# --convert=basic35: BASIC 3.5 (C16 / Plus/4), BASIC 7.0's rules plus the TED's colours and sound
+conv35() { printf '%s\n' "$@" > "$D/c35.txt"; $B --convert=basic35 $CONV_OPTS "$D/c35.txt" -o "$D/c35.bas" 2> "$D/c35.err"; }
+conv35 '10 COLOR 0,2,7:COLOR 4,2,2:COLOR 1,12:COLOR 1,C,3:A=RLUM(1)' '20 PRINT "{light-red}{$82}X{$84}";CHR$(154):VOL 8'
+grep -q 'background 1 : border 12 : [a-z][a-z0-9](1) = 10 : [a-z][a-z0-9](1) = val(mid\$("00010203040506070809131003140613", (c) \* 2 - 1, 2))' "$D/c35.bas" &&
+grep -q 'print "{light-green}{flash}x{flash-off}"; chr\$(31) : vol 15' "$D/c35.bas" &&
+grep -q 'line 10: RLUM has no BASIC 65 counterpart' "$D/c35.err" && grep -q 'luminance of an expression' "$D/c35.err" &&
+grep -q 'converted from BASIC 3.5' "$D/c35.bas" &&
+    pass "--convert=basic35: TED colours and luminances (white's greys, pink -> light red, an expression by a table), colour codes and flash in strings, CHR\$ codes, VOL 0-8 -> 0-15, RLUM warned" ||
+    fail "--convert=basic35 colours: $(cat "$D/c35.bas" "$D/c35.err")"
+conv35 '10 SOUND 1,810,30:SOUND 3,600,10:SOUND V,F,D' '20 GRAPHIC 1:CIRCLE 1,100,100,30:SCNCLR:GRAPHIC 0:SCNCLR'
+grep -q 'do while peek(4804) < 128 : loop : sound 1, int(517.946 \* \([a-z][a-z0-9]\)), 30 : do while peek(4805) < 128 : loop : sound 2, int(261.416 \* \1), 10, 0, 0, 0, 3' "$D/c35.bas" &&
+grep -q 'sound (v + (v = 3)), int(110840.4375 / (1024 - (f)) \* [a-z][a-z0-9]), d' "$D/c35.bas" &&
+grep -q '[a-z][a-z0-9] = 16.519 : if peek(53359) and 128 then [a-z][a-z0-9] = 16.404' "$D/c35.bas" &&
+grep -q 'ellipse 100, 100, 30, 30' "$D/c35.bas" && grep -q ': scnclr [a-z][a-z0-9](0) : ' "$D/c35.bas" && grep -q 'gosub l[0-9]* : scnclr$' "$D/c35.bas" &&
+    pass "--convert=basic35: SOUND (TED frequencies as the SID's, voice 3 noise on voice 2, waiting for the voice), SCNCLR the bit map in graphics" ||
+    fail "--convert=basic35 sound: $(cat "$D/c35.bas" "$D/c35.err")"
+CONV_OPTS=--ntsc conv35 '10 SOUND 1,810,30'
+grep -q 'sound 1, int(522.714 \* [a-z][a-z0-9]), 25' "$D/c35.bas" &&
+    pass "--convert=basic35 --ntsc: the NTSC TED clock, durations in 1/60 s" || fail "--convert=basic35 --ntsc: $(cat "$D/c35.bas")"
+$B "$D/c35.bas" -o "$D/c35.prg" > "$D/c35b.log" 2>&1 && pass "--convert=basic35: the result builds with basic45" ||
+    fail "--convert=basic35 result does not build: $(cat "$D/c35b.log")"
+# a .prg at $1001: $CE is RLUM (BASIC 7.0's prefix), $E7 COLOR
+printf '\x01\x10\x0c\x10\x0a\x00\x41\xb2\xce\x28\x31\x29\x00\x00\x00' > "$D/p4.prg"
+$B --convert=basic35 "$D/p4.prg" -o "$D/p4.bas" 2> "$D/p4.err" && grep -q 'a = rlum(1)' "$D/p4.bas" && ! grep -q 'loads at' "$D/p4.err" &&
+    pass "--convert=basic35: a .prg read with BASIC 3.5's tables (\$CE is RLUM)" || fail "--convert=basic35 .prg: $(cat "$D/p4.bas" "$D/p4.err")"
+
+# --convert=simons: Simons' BASIC (C64)
+convs() { printf '%s\n' "$@" > "$D/cs.txt"; $B --convert=simons "$D/cs.txt" -o "$D/cs.bas" 2> "$D/cs.err"; }
+convs '10 EXEC SUB:CALL SUB' '20 REPEAT:A=A+1:UNTIL A>3:LOOP:B=B+1:EXIT IF B=5:C=1:END LOOP' '30 END' '40 PROC SUB' '50 TRACE 10:RETRACE:END PROC'
+grep -q '^  gosub proc_sub : goto proc_sub$' "$D/cs.bas" && grep -q '^proc_sub:' "$D/cs.bas" &&
+grep -q ': do : a = a + 1 : loop until a > 3 : do : b = b + 1 : if b = 5 then exit$' "$D/cs.bas" && grep -q '^  c = 1 : loop$' "$D/cs.bas" &&
+grep -q 'tron : return' "$D/cs.bas" && grep -q 'RETRACE' "$D/cs.err" &&
+    pass "--convert=simons: PROC -> a label, EXEC/CALL -> GOSUB/GOTO, END PROC -> RETURN, REPEAT/UNTIL and LOOP/EXIT IF/END LOOP -> DO/LOOP (statements after EXIT IF on a line of their own), TRACE" ||
+    fail "--convert=simons structure: $(cat "$D/cs.bas" "$D/cs.err")"
+convs '10 A=DIV(7,2)+MOD(7,3)+FRAC(X)+EXOR(5,3)+PLACE("B",A$)+POT(0)+JOY+%0000 0101' '20 B$=INST("X",A$,1)+INSERT("X",A$,1):R=LIN'
+grep -q 'a = int(int(7) / int(2)) + mod(int(7), int(3)) + (sgn(x) \* (abs(x) - int(abs(x)))) + ((5) xor (3)) + instr(a\$, "b") + pot(1) + joy(2) + %00000101' "$D/cs.bas" &&
+grep -q 'b\$ = (left\$(a\$, 1) + "x" + mid\$(a\$, (1) + len("x") + 1)) + (left\$(a\$, 1) + "x" + mid\$(a\$, (1) + 1)) : rcursor , \([a-z][a-z0-9]\) : r = \1' "$D/cs.bas" &&
+    pass "--convert=simons: DIV, MOD, FRAC, EXOR (an operator), PLACE, POT, JOY, a spaced %binary literal, INST (overwrites), INSERT, LIN (by RCURSOR)" ||
+    fail "--convert=simons functions: $(cat "$D/cs.bas" "$D/cs.err")"
+convs '10 ON ERROR:GOTO 50' '20 IF A THEN PRINT 1:ELSE:PRINT 2' '30 RCOMP PRINT 3:ELSE:PRINT 4:CGOTO X' '40 ON ERROR:PRINT ERRN;ERRLN:END' '50 NO ERROR:PRINT AT(5,3)"HI";AT(0,1)"X":CENTRE "C":PAUSE "P",2'
+grep -q '^l10: trap l50$' "$D/cs.bas" && grep -q '\([a-z][a-z0-9]\) = ((a) <> 0) : if \1 then print 1 : else print 2' "$D/cs.bas" &&
+grep -q 'if [a-z][a-z0-9] then print 3 : else print 4 : [a-z][a-z0-9] = x : goto l[0-9]*' "$D/cs.bas" &&
+grep -q 'if [a-z][a-z0-9] = 30 then l30' "$D/cs.bas" && grep -q 'trap l[0-9]*$' "$D/cs.bas" && grep -q 'print er; el : end' "$D/cs.bas" &&
+grep -q 'trap : cursor 5, 3 : print "hi"; : cursor 0, 1 : print "x" : print spc(int((40 - len("c")) / 2)); "c"; : print "p" : [a-z][a-z0-9] = ti : do : get' "$D/cs.bas" &&
+    pass "--convert=simons: ON ERROR -> TRAP (a GOTO, or its line as a handler), ELSE, RCOMP (the IF's result kept), CGOTO (a table of lines), ERRN/ERRLN, PRINT AT -> CURSOR, CENTRE, PAUSE" ||
+    fail "--convert=simons errors / text: $(cat "$D/cs.bas" "$D/cs.err")"
+convs '10 HIRES 1,0:PLOT 1,2,1:LINE 0,0,9,9,2:REC 1,1,5,5,1:BLOCK 0,0,4,4,1:CIRCLE 50,50,20,10,1:ARC 50,50,0,90,10,20,20,1' '20 MULTI 2,5,7:PLOT 10,10,3:TEXT 16,8,"A",1,2,8:A=TEST(1,1):NRM:MOB SET 1,13,2,0,0:MMOB 1,24,50,100,60,1,0:WAVE 1,00100001'
+grep -q 'screen 320, 200, 4 : \([a-z][a-z0-9]\) = 0 : \([a-z][a-z0-9]\) = 1 : zc(0) = \1 : zc(1) = \2 : zc(5) = (\1 xor \2) : scnclr \1' "$D/cs.bas" &&
+grep -q 'pen 0, zc(1) : line 1, 2 : ' "$D/cs.bas" && grep -q 'dmode 0, 1, 0, 0, 1 : pen 0, zc(5) : line 0, 0, 9, 9 : .* : dmode 0, 0, 0, 0, 1' "$D/cs.bas" &&
+grep -q 'polygon 50, 50, 20, 10, 30, 30, 0, 90, 0' "$D/cs.bas" && grep -q 'polygon 50, 50, 20, 20, 36, 9, 0, 0, 0' "$D/cs.bas" &&
+grep -q 'pen 0, zc(3) : line 20, 10' "$D/cs.bas" && grep -q 'char 4, 8, 2, 2, 2, "a"' "$D/cs.bas" &&
+grep -q 'movspr 1, 24, 50 to 100, 60, 15 : do while rsppos(1, 2) : loop' "$D/cs.bas" && grep -q 'poke 54272 + 7 \* ((1) - 1) + 4, 33' "$D/cs.bas" &&
+    pass "--convert=simons: HIRES/MULTI -> SCREEN and colour sources, PLOT/LINE/REC/BLOCK/CIRCLE/ARC as BASIC 7.0's (invert by XOR, MULTI x doubled), TEXT -> CHAR, MMOB waits, WAVE -> the SID's control register" ||
+    fail "--convert=simons graphics: $(cat "$D/cs.bas" "$D/cs.err")"
+$B "$D/cs.bas" -o "$D/cs.prg" > "$D/csb.log" 2>&1 && pass "--convert=simons: the result builds with basic45" ||
+    fail "--convert=simons result does not build: $(cat "$D/csb.log")"
+convs '10 DESIGN 2,$E000+65*8' '11 @BBBBBBBB' '12 @B  B' '20 DESIGN 1,$C000+64*13' '21 @BCD' '30 MOB SET 1,13,2,0,1:FCHR 1,2,3,4,65:UPW 0,0,5,5'
+grep -q 'char def int(mod(\$e000 + 65 \* 8, 4096) / 8), 255, 144, 0, 0, 0, 0, 0, 0' "$D/cs.bas" && grep -q '^  rem @bbbbbbbb$' "$D/cs.bas" &&
+grep -q '[a-z][a-z0-9]\$ = "6C0000' "$D/cs.bas" &&
+grep -q '[a-z][a-z0-9] = 13 : [a-z][a-z0-9] = 1 : gosub l[0-9]* : sprite 1, 1, 2, 0, , , 1' "$D/cs.bas" &&
+grep -q 'poke 1536 + 64 \* [a-z][a-z0-9] + [a-z][a-z0-9], dec(mid\$(' "$D/cs.bas" &&
+grep -q '= 1 : [a-z][a-z0-9] = 2 : [a-z][a-z0-9] = 3 : [a-z][a-z0-9] = 4 : [a-z][a-z0-9] = 65 : gosub l[0-9]*' "$D/cs.bas" &&
+    pass "--convert=simons: DESIGN of a character -> CHAR DEF (bytes from its @ rows), of a sprite -> data MOB SET copies to \$0600; FCHR and the scrolls by subroutines" ||
+    fail "--convert=simons DESIGN / rectangles: $(cat "$D/cs.bas" "$D/cs.err")"
+# a .prg: $64 $01 is HIRES; $64 $22 (TSB's DO) warned
+printf '\x01\x08\x10\x08\x0a\x00\x64\x01\x31\x2c\x30\x3a\x64\x22\x00\x00\x00' > "$D/s.prg"
+$B --convert=simons "$D/s.prg" -o "$D/s.bas" 2> "$D/s.err" && grep -q 'screen 320, 200, 4' "$D/s.bas" && grep -q 'DO is a TSB' "$D/s.err" &&
+    pass "--convert=simons: a .prg read with Simons' tokens (\$64 xx; TSB's own warned)" || fail "--convert=simons .prg: $(cat "$D/s.bas" "$D/s.err")"
 
 echo "basic45 tests: $passed passed, $failed failed"
 [ $failed -eq 0 ]

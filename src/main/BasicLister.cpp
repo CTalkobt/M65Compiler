@@ -38,6 +38,24 @@ const std::map<uint8_t, const char*> V7FE = {
     {0x1B, "BOOT"}, {0x1C, "WIDTH"}, {0x1D, "SPRDEF"}, {0x1E, "QUIT"}, {0x1F, "STASH"},
     {0x21, "FETCH"}, {0x23, "SWAP"}, {0x24, "OFF"}, {0x25, "FAST"}, {0x26, "SLOW"}};
 
+// Simons' BASIC: $64 xx, xx 1-127, as TSB's table (tsb_pt1.a, tabbef) has
+// them; nullptr: the operators' slots (no keyword). TSB's own keywords
+// (not Simons'): DO, CLS, X!, MAP, D!
+const char* const SIMONS[128] = {
+    nullptr, "HIRES", "PLOT", "LINE", "BLOCK", "FCHR", "FCOL", "FILL", "REC", "ROT", "DRAW", "CHAR",
+    "HI COL", "INV", "FRAC", "MOVE", "PLACE", "UPB", "UPW", "LEFTW", "LEFTB", "DOWNB", "DOWNW",
+    "RIGHTB", "RIGHTW", "MULTI", "COLOUR", "MMOB", "BFLASH", "MOB SET", "MUSIC", "FLASH", "REPEAT",
+    "PLAY", "DO", "CENTRE", "ENVELOPE", "CGOTO", "WAVE", "FETCH", "AT(", "UNTIL", nullptr, nullptr,
+    "USE", nullptr, "GLOBAL", nullptr, "RESET", "PROC", "CALL", "EXEC", "END PROC", "EXIT",
+    "END LOOP", "ON KEY", "DISABLE", "RESUME", "LOOP", "DELAY", "CLS", "X!", "MAP", nullptr,
+    "SECURE", "DISAPA", "CIRCLE", "ON ERROR", "NO ERROR", "LOCAL", "RCOMP", "ELSE", "RETRACE",
+    "TRACE", "DIR", "PAGE", "DUMP", "FIND", "OPTION", "AUTO", "OLD", "JOY", "MOD", "DIV", "D!",
+    "DUP", "INKEY", "INST", "TEST", "LIN", "EXOR", "INSERT", "POT", "PENX", nullptr, "PENY",
+    "SOUND", "GRAPHICS", "DESIGN", "RLOCMOB", "CMOB", "BCKGNDS", "PAUSE", "NRM", "MOB OFF", "OFF",
+    "ANGL", "ARC", "COLD", "SCRSV", "SCRLD", "TEXT", "CSET", "VOL", "DISK", "HRDCPY", "KEY",
+    "PAINT", "LOW COL", "COPY", "MERGE", "RENUMBER", "MEM", "DETECT", "CHECK", "DISPLAY", "ERR",
+    "OUT"};
+
 // Control codes in strings: their {name} escapes
 const std::map<uint8_t, const char*> CONTROL = {
     {0x90, "black"}, {0x05, "white"}, {0x1C, "red"}, {0x9F, "cyan"}, {0x9C, "purple"},
@@ -83,6 +101,25 @@ bool decodeV7Token(const std::vector<uint8_t>& p, size_t& i, std::string& out, b
     }
     if (b >= 0xCC && b <= 0xFD && V7[b - 0xCC]) { out = V7[b - 0xCC]; i++; return true; }
     return false;
+}
+
+bool isSimonsKeyword(const std::string& name) {
+    for (int i = 1; i < 128; i++)
+        if (SIMONS[i] && name == SIMONS[i]) return true;
+    return false;
+}
+
+bool isTsbOnlyToken(uint8_t xx) { return xx == 34 || xx == 60 || xx == 61 || xx == 62 || xx == 84; }
+
+bool decodeCbmToken(const std::vector<uint8_t>& p, size_t& i, std::string& out, CbmBasic d) {
+    uint8_t b = p[i];
+    if (d == CbmBasic::V7) return decodeV7Token(p, i, out, true);
+    if (d == CbmBasic::SIMONS && b == 0x64) {
+        if (i + 1 < p.size() && p[i + 1] < 128 && SIMONS[p[i + 1]]) { out = SIMONS[p[i + 1]]; i += 2; return true; }
+        return false;
+    }
+    if (d == CbmBasic::V35 && b == 0xCE) { out = "RLUM"; i++; return true; }
+    return decodeV7Token(p, i, out, d == CbmBasic::V35);
 }
 
 const char* basicDialectName(BasicDialect d) {
@@ -175,14 +212,28 @@ BasicListing listBasic(const std::vector<uint8_t>& prg, BasicDialect dialect) {
 }
 
 std::vector<uint8_t> crunchV7(const std::string& listing, uint16_t load, std::vector<std::string>& warnings) {
-    // name -> token bytes, V2 and V7
+    return crunchCbm(listing, load, warnings, CbmBasic::V7);
+}
+
+std::vector<uint8_t> crunchCbm(const std::string& listing, uint16_t load, std::vector<std::string>& warnings, CbmBasic d) {
+    // name -> token bytes: V2's and the dialect's, the longest first (Simons' first, in its table's order)
     std::vector<std::pair<std::string, std::vector<uint8_t>>> kws;
     for (int i = 0; i < (int)(sizeof V2 / sizeof V2[0]); i++) kws.push_back({V2[i], {(uint8_t)(0x80 + i)}});
-    for (int i = 0; i < (int)(sizeof V7 / sizeof V7[0]); i++)
-        if (V7[i]) kws.push_back({V7[i], {(uint8_t)(0xCC + i)}});
-    for (const auto& [b, n] : V7CE) kws.push_back({n, {0xCE, b}});
-    for (const auto& [b, n] : V7FE) kws.push_back({n, {0xFE, b}});
+    if (d == CbmBasic::V7 || d == CbmBasic::V35)
+        for (int i = 0; i < (int)(sizeof V7 / sizeof V7[0]); i++)
+            if (V7[i]) kws.push_back({V7[i], {(uint8_t)(0xCC + i)}});
+    if (d == CbmBasic::V35) kws.push_back({"RLUM", {0xCE}});
+    if (d == CbmBasic::V7) {
+        for (const auto& [b, n] : V7CE) kws.push_back({n, {0xCE, b}});
+        for (const auto& [b, n] : V7FE) kws.push_back({n, {0xFE, b}});
+    }
     std::stable_sort(kws.begin(), kws.end(), [](const auto& a, const auto& b) { return a.first.size() > b.first.size(); });
+    if (d == CbmBasic::SIMONS) {
+        std::vector<std::pair<std::string, std::vector<uint8_t>>> s;
+        for (int i = 1; i < 128; i++)
+            if (SIMONS[i] && !isTsbOnlyToken((uint8_t)i)) s.push_back({SIMONS[i], {0x64, (uint8_t)i}});
+        kws.insert(kws.begin(), s.begin(), s.end());
+    }
     std::map<std::string, uint8_t> esc;
     for (const auto& [b, n] : CONTROL) esc[n] = b;
     esc["pound"] = 0x5C; esc["pi"] = 0xFF; esc["shift-space"] = 0xA0; esc["left-arrow"] = 0x5F;
@@ -207,7 +258,8 @@ std::vector<uint8_t> crunchV7(const std::string& listing, uint16_t load, std::ve
         last = num;
         while (i < text.size() && text[i] == ' ') i++;
         std::vector<uint8_t> body;
-        bool inString = false, rem = false, data = false;
+        // (a Simons' @ row: not tokenized)
+        bool inString = false, rem = d == CbmBasic::SIMONS && i < text.size() && text[i] == '@', data = false;
         while (i < text.size()) {
             char c = text[i];
             if (c == '"' && !rem) { inString = !inString; body.push_back(0x22); i++; continue; }

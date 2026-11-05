@@ -16,7 +16,7 @@
 - **Assembly and binary data** — `asm` … `endasm`, `incbin`, `datainc` ([Assembly and Binary Data](#assembly-and-binary-data))
 - **Calling C** — `--link file.c`: C functions called with `SYS {name}` ([Calling C Functions](#calling-c-functions-link))
 - **Listing, source map, decompiler** — `--list`, `--source-map`, `--decompile` ([Listing, Source Map and Decompiling](#listing-source-map-and-decompiling))
-- **Converting other dialects** — `--convert=basic7`: a BASIC 7.0 (C128) program as BASIC 65 source ([Converting BASIC 7.0 Programs](#converting-basic-70-programs-convertbasic7))
+- **Converting other dialects** — `--convert=basic7`, `basic35`, `simons`: a BASIC 7.0 (C128), BASIC 3.5 (C16 / Plus/4) or Simons' BASIC (C64) program as BASIC 65 source ([Converting BASIC 7.0 Programs](#converting-basic-70-programs-convertbasic7))
 - **Disk image, emulator, hardware** — `--disk`, `--emulator` (xemu), `--send` (a MEGA65), `--watch`
 - **Formatting** — `--format` ([Formatting](#formatting))
 - **Markdown documentation** of labeled sections (`--docs`)
@@ -28,7 +28,7 @@ See [Known Problems](#known-problems) for the remaining limits.
 ```bash
 basic45 [options] <input.bas> [-o <output.prg>]
 basic45 --decompile <program.prg> [-o <output.bas>]
-basic45 --convert=basic7 [--ntsc] <program.prg|listing.txt> [-o <output.bas>]
+basic45 --convert=basic7|basic35|simons [--ntsc] <program.prg|listing.txt> [-o <output.bas>]
 ```
 
 Without `-o` the output is the input name with its extension replaced by `.prg` (`.bas` when decompiling; `-o -` writes the source to standard output). A `.prg` input is decompiled. With no input file, the usage text is printed and the exit status is 1. Unrecognised options starting with `-` are ignored silently.
@@ -65,8 +65,8 @@ Without `-o` the output is the input name with its extension replaced by `.prg` 
 | `--link <file>` | Link a C (`.c`, compiled with `cc45 -c -O2`), assembly (`.s45`) or object (`.o45`) file after the program; repeatable ([Calling C Functions](#calling-c-functions-link)) |
 | `--lib <file>` | The library for `--link` (default: `c45.lib` next to the tools, else `ln45`'s `CC45_LIB` search) |
 | `--decompile` | Turn a tokenized BASIC `.prg` into basic45 source ([Listing, Source Map and Decompiling](#listing-source-map-and-decompiling)) |
-| `--convert=basic7` | A BASIC 7.0 (C128) `.prg` or text listing as BASIC 65 basic45 source, with warnings for what needs a hand ([Converting BASIC 7.0 Programs](#converting-basic-70-programs-convertbasic7)) |
-| `--ntsc`, `--pal` | With `--convert`: the source machine's video timing, for `TEMPO` (default `--pal`) |
+| `--convert=<dialect>` | Another BASIC's `.prg` or text listing as BASIC 65 basic45 source, with warnings for what needs a hand: `basic7` (C128 BASIC 7.0), `basic35` (C16 / Plus/4 BASIC 3.5), `simons` (C64 Simons' BASIC) ([Converting BASIC 7.0 Programs](#converting-basic-70-programs-convertbasic7)) |
+| `--ntsc`, `--pal` | With `--convert`: the source machine's video timing, for `TEMPO` and BASIC 3.5's `SOUND` (default `--pal`) |
 | `--data-loader` | The input is machine code (a `.prg`, or a binary with `--load-at`): write a BASIC program that POKEs it from `DATA` lines and SYSes it, a type-in listing ([DATA Loaders](#data-loaders-data-loader)); with `--hex`, `--checksum`, `--per-line <n>`, `--start <line>`, `--increment <n>`, `--no-sys`, `--load-at <addr>` |
 | `--list-tokens` | List all keywords with their token values and exit |
 | `-v`, `--verbose` (… `-vvvv`, `-v0`) | Log on stderr as `[basic45:LEVEL] …` (the toolchain's format, `include/Logger.hpp`); cumulative, at most `-vvvv`; `-v0` off: the files, load address, included files, the ca45/ln45 commands of `--link`, the variable renames (`--list` prints those on stdout instead); notes for unused labels |
@@ -404,6 +404,79 @@ addresses, the VDC 80-column screen's registers, the MMU).
 Tests: `src/test/test_basic45.sh` (the rules), `src/test-resources/test_convert7_xemu.txt` (a C128 listing converted
 and run by BASIC 65 on xemu: its music timed in frames, the variables, `TI`, the graphics statements, sprite and colour
 numbers, the 40 columns).
+
+### BASIC 3.5 (`--convert=basic35`)
+
+```bash
+basic45 --convert=basic35 game.prg -o game.bas     # a C16 / Plus/4 program ($1001)
+```
+
+BASIC 3.5 is BASIC 7.0's ancestor: its tokens are BASIC 7.0's `$CC`–`$FD` (`$CE` is `RLUM`, not a prefix), and its
+graphics statements (`GRAPHIC` 0–4, `COLOR`, `DRAW`, `BOX`, `CIRCLE`, `PAINT`, `CHAR`, `LOCATE`, `RDOT`), `TI` / `TI$`
+(60 per second on PAL too: the KERNAL adds a tick every fifth frame), variable names and reserved names are BASIC 7.0's,
+converted by the rules above. It has no sprites, `PLAY` or `TEMPO`. What the TED makes different:
+
+| | BASIC 3.5 (C16 / Plus/4) | BASIC 65 | The conversion |
+|---|---|---|---|
+| Colours | the TED's 16 hues (1–16) × 8 luminances (`COLOR source, colour [, luminance]`) | 16 colours (0–15) | the nearest: hues 1–10 the same, yellow-green and light green → light green, pink → light red, blue-green → cyan, dark blue → blue; white's luminances the greys (0–1 dark, 2–4 middle, 5–6 light, 7 white), red's, green's and blue's 5–7 their light colours; a colour expression through a table (`val(mid$("0001…", c * 2 - 1, 2))`, its luminance warned) |
+| Colour codes in strings | `$96`–`$9B`: yellow-green, pink, blue-green, light blue, dark blue, light green; `$82` / `$84` flash on / off | light red, dark grey, grey, light green, light blue, light grey; `$82` underline off; flash `$0F` / `$8F` | rewritten to the nearest colour's code, the flash codes to BASIC 65's (`CHR$(n)` of a literal too) |
+| `RLUM(n)` | a source's luminance | — | left as written, warned |
+| `SOUND v, f, d` | voices 1–2 tones, 3 noise (on voice 2); f the TED's register (Hz = 110840.4375 / (1024 − f) on PAL, 111860.781 on NTSC); waits while the voice still sounds | voices 1–6, the SID's frequency (16.519 counts per Hz on PAL, 16.404 on NTSC: the clock of `b65.src`'s note tables); returns at once | the frequency converted (by the MEGA65's video mode, `$D06F` bit 7, read at the start), voice 3 → noise (waveform 3) on voice 2, a wait for the voice first (`SOUND`'s counter at `$12C4` + v − 1, busy below 128); `--ntsc`: durations × 5/6 |
+| `VOL n` | 0–8 | 0–15 | n × 15/8 |
+| `SCNCLR` | clears the screen in use (the bit map in graphics) | `SCNCLR colour` clears a graphics screen | `SCNCLR` with a screen open → `SCNCLR` with the background colour |
+| The colour sources | background white, foreground black | | the kept sources start as the Plus/4's |
+
+Tests: `src/test/test_basic45.sh`, `src/test-resources/test_convert35_xemu.txt` (a Plus/4 listing run by BASIC 65 on
+xemu: a second `SOUND` waiting for the first, the frequency in BASIC 65's sound table, the colours, `TI`, graphics).
+
+### Simons' BASIC (`--convert=simons`)
+
+```bash
+basic45 --convert=simons game.prg -o game.bas      # a C64 program ($0801) using Simons' BASIC
+```
+
+Simons' keywords are two bytes, `$64` and an index 1–127 (the table of TSB's source, `tsb_pt1.a`; TSB's own keywords —
+`DO`, `CLS`, `X!`, `MAP`, `D!` — are warned about). A text listing is tokenized as Simons' BASIC does: its keywords first, in
+its table's order, then BASIC V2's. The rules were checked against TSB's sources (Tuned Simons' BASIC, the debugged
+superset) and the German C64-Wiki's pages, and run on xemu. BASIC V2's statements, `TI` / `TI$` (1/60 s, `"HHMMSS"`, as
+the C128's) and the variable names are converted as for BASIC 7.0. The graphics are rewritten as BASIC 7.0's
+statements and converted by its rules (above): a plot type is a colour source.
+
+| Simons' BASIC | The conversion |
+|---|---|
+| `PROC name` / `EXEC name` / `CALL name` / `END PROC` | a label `proc_name:` / `GOSUB` / `GOTO` / `RETURN` (the name: the rest of the line, or up to a `:` as TSB allows) |
+| `REPEAT` … `UNTIL c`; `LOOP` … `EXIT IF c` … `END LOOP` | `DO` … `LOOP UNTIL c`; `DO` … `IF c THEN EXIT` … `LOOP` (statements after the `EXIT IF` on a line of their own: BASIC 65 has no `EXIT IF`, and an `ELSE` there breaks the loop) |
+| `IF c THEN a : ELSE : b` | `IF c THEN a : ELSE b` |
+| `RCOMP a : ELSE : b` (the last `IF`'s result again) | each `IF`'s condition kept in a variable, `IF v THEN a : ELSE b` |
+| `CGOTO e` | `GOTO n` for a number; else a table of the program's lines after the `END` (`IF v = 10 THEN 10` …): BASIC 65's `GOTO` takes a number only |
+| `ON ERROR: handler` / `NO ERROR` / `ERRN` / `ERRLN` | `TRAP line` (a `GOTO` handler's line, or the handler moved to a line after the `END`) / `TRAP` / `ER` / `EL` (basic45 numbers the lines: `EL` is the new number) |
+| `TRACE 10` / `TRACE n` / `RETRACE` | `TRON` / `TROFF` / dropped (it shows the traced lines again) |
+| `RESET line` | `RESTORE line` |
+| `DIV(a, b)`, `MOD(a, b)`, `FRAC(x)`, `EXOR(a, b)` | `INT(INT(a) / INT(b))`, `MOD(INT(a), INT(b))`, `SGN(x) * (ABS(x) - INT(ABS(x)))`, `((a) XOR (b))` (BASIC 65's `XOR` is an operator; also BASIC 7.0's `XOR(a, b)`) |
+| `INST(n$, o$, p)` (overwrites), `INSERT(n$, o$, p)` (0-based), `PLACE(f$, s$)` | `LEFT$`/`MID$` expressions, `INSTR(s$, f$)` |
+| `LIN`, `JOY`, `POT(n)`, `PENX` / `PENY`, `SOUND`, `GRAPHICS` | `RCURSOR , v` before the statement and `v`; `JOY(2)`; `POT(1)` / `POT(2)`; `LPEN(0)` / `LPEN(1)`; 54272; 53248 |
+| `%bbbb bbbb`, `$hh hh` | the digits together (BASIC 65 reads both) |
+| `PRINT AT(column, row) …` | `CURSOR column, row : PRINT …` (each `AT`) |
+| `CENTRE s$`; `PAUSE ["text",] n`; `USE f$, s$` | `PRINT SPC((40 - LEN(s$)) / 2); s$;`; a wait of n seconds that RETURN ends (`TI`, `GET`); `PRINT USING f$; VAL(s$);` (BASIC 65 rounds) |
+| `COLOUR border, background` | `BORDER`, `BACKGROUND` |
+| `HIRES ink, paper` / `MULTI c1, c2, c3` / `NRM`, `CSET 0`/`1` | a 320×200 screen, cleared to the paper; the colour sources (0 paper or background, 1 ink or c1, 2 c2, 3 c3); `MULTI` keeps the screen, its x doubled from there on / the screen closed (and the character case) |
+| `LOW COL` / `HI COL` | the colour sources changed / set back (BASIC 65's pixels have their own colours: no cell is recoloured) |
+| `PLOT`, `LINE`, `REC x, y, w, h`, `BLOCK x1, y1, x2, y2`, `CIRCLE x, y, rx, ry`, `ARC x, y, start, end, step, rx, ry`, `ANGL x, y, angle, rx, ry` | `LINE`, `BOX` (outline, filled), `POLYGON` (30 sides: Simons' `CIRCLE` steps 12°) or BASIC 7.0's arc subroutine (0° up, clockwise, as BASIC 7.0's), a `LINE` from the centre; the plot type's colour by `PEN`, invert (2; `MULTI`'s 4) by XOR drawing (`DMODE 0, 1, 0, 0, 1`, the pen the two colours XORed) |
+| `PAINT x, y, f`; `TEXT x, y, s$, f, height, spacing`; `TEST(x, y)` | `PAINT x, y, 1, colour` (the area of (x, y)'s colour); `CHAR` by 8-pixel columns (height kept, other spacings warned); the plot type from `PIXEL()` |
+| `MOB SET n, block, colour, priority, multi`; `MMOB` / `RLOCMOB`; `CMOB`; `MOB OFF n` | `SPRITE` (the data block warned: BASIC 65's sprite data is set with `SPRSAV`); `MOVSPR n, x1, y1 TO x2, y2, speed` and a wait for the move (`RSPPOS(n, 2)`; the speed approximate); `SPRCOLOR`; `SPRITE n, 0` |
+| `VOL n`; `DIR "$…"`; `DISK cmd$`; `DISPLAY` | `VOL` (the filter bits warned); `DIR`; `OPEN 15, 8, 15, cmd$ : CLOSE 15`; `KEY` |
+| `FCHR`, `FCOL`, `FILL`, `INV`, `MOVE` (row, column, width, height …); `UPB` / `UPW` / `DOWNB` … `RIGHTW` | a subroutine each (its arguments in variables): loops of `PEEK` / `POKE` on the screen at `$0800` and the colours at `$D800`; the scrolls one character, the row or column that falls off a space (B) or put back at the other end (W) |
+| `DESIGN type, address` and its `@` rows | the bytes computed from the rows when converting: a character (types 2, 3) → `CHAR DEF int(mod(address, 4096) / 8), b1, …, b8` (the C64's 4 KB set as `MEM` copies it: 0–255 upper case, 256–511 lower case, BASIC 65's numbering); a sprite (types 0, 1) → its 63 bytes (as hex) and its address in variables, copied by `MOB SET` to the sprite's data at `$0600` + 64 × n when the block's address (64 × block in text mode's VIC bank, `$C000` + 64 × block in the graphics one) is the `DESIGN`'s; the `@` rows `REM` lines |
+| `WAVE voice, bits`; `ENVELOPE voice, a, d, s, r` | `POKE`s of the voice's control register / AD and SR (the MEGA65's first SID is at `$D400` too) |
+| `FLASH colour [, speed]` / `OFF` | the VIC-III's blink attribute (colour RAM bit 4) set on the characters of that colour / cleared (warned: characters printed later do not flash, the speed is the MEGA65's) |
+| No counterpart (left as written, warned) | `BFLASH`, `BCKGNDS`, `DUP`, `LOCAL`/`GLOBAL`, `DRAW`/`ROT`, `CHAR`, `DETECT`/`CHECK`, `MUSIC`/`PLAY` (its music notation), `ON KEY`/`DISABLE`/`RESUME`, `FETCH`, `INKEY`, `OUT`, `SCRSV`/`SCRLD`, `CSET 2`, the direct-mode and LIST commands (`OLD`, `COLD`, `SECURE`, `DISAPA`, `DUMP`, `MEM`, `OPTION`, `PAGE`, `DELAY`, `HRDCPY`, `COPY`) |
+
+Tests: `src/test/test_basic45.sh`, `src/test-resources/test_simons_xemu.txt` (a Simons' listing run by BASIC 65 on
+xemu: procedures, loops, the functions, `ELSE` / `RCOMP`, `ON ERROR`, `CGOTO`, `PRINT AT` and `LIN`, the graphics by
+their pixels, `PAUSE` and `TI`, `COLOUR`, a sprite moved, the text-screen rectangles and scrolls, `DESIGN` of a character
+and of a sprite, `FLASH`). TSB's example game (`REACTOR TSB`, from its `reactor_tsb.d64`) converts and builds: what is left
+as written is TSB's own forms and `BFLASH`/`SCRLD`/`MEM`/`USE`-like commands. TSB's own forms that are converted: a
+procedure's name alone (its `EXEC`), `MMOB n, x, y`, `MOB SET` with more arguments, `COLOUR`'s text colour.
 
 ## Preprocessor
 

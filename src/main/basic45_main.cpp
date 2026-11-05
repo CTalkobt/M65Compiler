@@ -208,9 +208,11 @@ static void printUsage(const char* progName) {
     std::cout << "                      after the program; SYS {name} calls its function name" << std::endl;
     std::cout << "  --lib <file>        The C library for --link (default: c45.lib)" << std::endl;
     std::cout << "  --decompile         Turn a BASIC .prg into basic45 source (also for a .prg input)" << std::endl;
-    std::cout << "  --convert=basic7    A BASIC 7.0 (C128) .prg as BASIC 65 basic45 source: keywords renamed," << std::endl;
-    std::cout << "                      TEMPO scaled, PLAY strings split per voice; warnings for the rest" << std::endl;
-    std::cout << "  --ntsc, --pal       --convert: the source machine's timing for TEMPO (default --pal)" << std::endl;
+    std::cout << "  --convert=<dialect> Another BASIC's program (a .prg, or a text listing) as BASIC 65 basic45" << std::endl;
+    std::cout << "                      source: keywords renamed, statements rewritten, warnings for the rest;" << std::endl;
+    std::cout << "                      basic7 (C128 BASIC 7.0), basic35 (C16 / Plus/4 BASIC 3.5), simons" << std::endl;
+    std::cout << "                      (C64 Simons' BASIC)" << std::endl;
+    std::cout << "  --ntsc, --pal       --convert: the source machine's timing (TEMPO, SOUND; default --pal)" << std::endl;
     std::cout << "  --data-loader       The input (machine code: a .prg, or a binary with --load-at) as a" << std::endl;
     std::cout << "                      BASIC program that POKEs it from DATA lines and SYSes it; -o x.bas" << std::endl;
     std::cout << "                      or -o - writes the source. With --hex, --checksum, --per-line <n>," << std::endl;
@@ -302,8 +304,9 @@ static Options parseArgs(int argc, char* argv[]) {
             opts.decompile = true;
         } else if (arg.rfind("--convert=", 0) == 0 || (arg == "--convert" && i + 1 < argc)) {
             opts.convert = arg == "--convert" ? argv[++i] : arg.substr(10);
-            if (opts.convert != "basic7") {
-                std::cerr << "basic45: --convert=" << opts.convert << ": not a dialect it converts (basic7)" << std::endl;
+            if (opts.convert != "basic7" && opts.convert != "basic35" && opts.convert != "simons") {
+                std::cerr << "basic45: --convert=" << opts.convert << ": not a dialect it converts (basic7, basic35, simons)"
+                          << std::endl;
                 exit(1);
             }
             opts.decompile = true;
@@ -634,21 +637,28 @@ int main(int argc, char* argv[]) {
     if (opts.decompile) {
         BasicDecompileOptions dopts;
         if (opts.convert == "basic7") dopts.source = BasicSource::V7;
+        if (opts.convert == "basic35") dopts.source = BasicSource::V35;
+        if (opts.convert == "simons") dopts.source = BasicSource::SIMONS;
+        // the dialect's tokens and its machine's BASIC start
+        const CbmBasic cbm = dopts.source == BasicSource::V35 ? CbmBasic::V35
+                           : dopts.source == BasicSource::SIMONS ? CbmBasic::SIMONS : CbmBasic::V7;
+        const uint16_t start = cbm == CbmBasic::V35 ? 0x1001 : cbm == CbmBasic::SIMONS ? 0x0801 : 0x1C01;
+        const char* dialectName = cbm == CbmBasic::V35 ? "BASIC 3.5's" : cbm == CbmBasic::SIMONS ? "the C64's" : "BASIC 7.0's";
         dopts.ntsc = opts.ntsc;
         bool isPrg = opts.inputFile.size() > 4 && (opts.inputFile.compare(opts.inputFile.size() - 4, 4, ".prg") == 0 ||
                                                    opts.inputFile.compare(opts.inputFile.size() - 4, 4, ".PRG") == 0);
         std::vector<uint8_t> prg;
-        if (dopts.source == BasicSource::V7 && !isPrg) {
-            // a text listing: tokenized as BASIC 7.0 first
+        if (dopts.source != BasicSource::B65 && !isPrg) {
+            // a text listing: tokenized as the dialect first
             std::vector<std::string> cw;
-            prg = crunchV7(readFile(opts.inputFile), 0x1C01, cw);
+            prg = crunchCbm(readFile(opts.inputFile), start, cw, cbm);
             for (const auto& w : cw) std::cerr << opts.inputFile << ": warning: " << w << std::endl;
         } else {
             prg = readBinary(opts.inputFile);
         }
-        if (dopts.source == BasicSource::V7 && prg.size() >= 2 && (prg[0] | (prg[1] << 8)) != 0x1C01)
-            std::cerr << opts.inputFile << ": warning: loads at $" << std::hex << (prg[0] | (prg[1] << 8)) << std::dec
-                      << ", not BASIC 7.0's $1C01" << std::endl;
+        if (dopts.source != BasicSource::B65 && prg.size() >= 2 && (prg[0] | (prg[1] << 8)) != start)
+            std::cerr << opts.inputFile << ": warning: loads at $" << std::hex << (prg[0] | (prg[1] << 8)) << ", not "
+                      << dialectName << " $" << start << std::dec << std::endl;
         auto r = decompileBasic(prg, dopts);
         for (const auto& w : r.warnings) std::cerr << opts.inputFile << ": warning: " << w << std::endl;
         if (!r.ok) {
