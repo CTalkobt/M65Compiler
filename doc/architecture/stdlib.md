@@ -454,13 +454,35 @@ about 17. `dl_sort` (#406's optional merge sort) is not there.
 0), `s.find(&key)` (the element or NULL), `s.lower_bound(&key)` (the first element not before key, or NULL),
 `s.first()` / `s.next(e)` (in order, NULL at the end), `s.size()`, `s.clear()`, `s.free()` — the functions are
 `set__insert` & co. (`__fastcall__`, defined in assembly). Two kinds with the same methods: **`struct set`**
-(`stdlib_asm/set.s45`, 637 bytes, and `<vector.h>`'s routines: its first fields are a `vec_t`'s) is a sorted array —
+(`stdlib_asm/set.s45`, 849 bytes with the map's methods, and `<vector.h>`'s routines: its first fields are a `vec_t`'s) is a sorted array —
 a binary search, insert and erase moving the elements after the place; small, for tens to a few hundred elements;
-**element addresses change** on insert and erase. **`struct tset`** (`stdlib_asm/tset.s45`, 2804 bytes) is a
+**element addresses change** on insert and erase. **`struct tset`** (`stdlib_asm/tset.s45`, 3006 bytes with the map's) is a
 red-black tree of `malloc`'d nodes (two links, the parent, a colour byte, then the element: 7 bytes over the element)
 — O(log n) insert and erase, and an element stays where it is until it is erased; `clear` frees every node. `cmp` is
 called through `__ct_cmp`, as `<pqueue.h>`'s: it must not use a set itself, and the state is in BSS (not from an
 `__interrupt` handler while the program uses a set).
+
+**`<map.h>`** (#407): ordered maps, the sets with an element of a key and then a value — `struct map` (on `struct set`)
+and `struct tmap` (on `struct tset`): `m.init(ksize, vsize, cmp)` (`cmp` compares keys; NULL: the key's bytes),
+`m.put(&key, &val)` (1 inserted, 0 the value replaced, -1 no memory), `m.get(&key)` (the value or NULL), `m.erase`,
+`m.find` (the element: the key, the value `ksize` bytes on), `m.lower_bound`, `m.first()` / `m.next(e)` (in key
+order), `size`, `clear`, `free`. The code is the sets': a set's `ksize` (offset 10 / 8) is its `esize`, and
+`set::insert` copies the key's bytes and then a value from its second argument (none in a set), replacing it on an
+element already there; the map's other methods jump to the set's (3 bytes each).
+
+**`<hashmap.h>`** (#407; `stdlib_asm/hashmap.s45`, 1904 bytes): hash tables, open addressing with linear probing.
+`struct hashmap`: `m.init(ksize, vsize, cap, hash, cmp)`, `m.put(&key, &val)` (1 / 0 replaced / -1), `m.get(&key)`
+(the value or NULL), `m.find` (the element), `m.erase` (1 / 0; the slot becomes a tombstone), `m.first()` /
+`m.next(e)` (every element, in no order), `m.size()`, `m.rehash(n)` (0 / -1), `clear`, `free`; `struct hashset` is
+the same without a value (`init(ksize, cap, hash, cmp)`, `insert`). A slot is a state byte (0 empty, 1 erased, `$80`
+\| the hash's high 7 bits: used, compared before the key) and the element; `cap` slots, a power of two of at least 8,
+allocated by the first put; a put that would fill more than 3/4 of them (with tombstones) rebuilds the table for
+twice the elements, without the tombstones — **element addresses change on put**. Keys: `ksize` bytes copied in, or
+`ksize` 0 for C strings (the table keeps the pointer: `*(char **)e`; equal text in another buffer finds it). `hash`
+NULL is `hash_bytes(p, n)` / `hash_str(s)` (djb2, `h · 33 ^ byte`, from 5381; both exported); `cmp` NULL compares
+the bytes (strings: equal as `strcmp`); a program's `cmp` returns 0 when the keys are equal (`memcmp`, `strcmp`), and
+is called through `__ct_cmp`, its `hash` through `__ct_hash` (`stdlib/ct_hash.c`): neither may use a hash table, and
+the state is in BSS (not reentrant).
 
 Shared (`stdlib_asm/container.s45`): an element's address (`base + i·esize`: shifts for a power of two, else the
 hardware multiplier; 96 bytes), copying (33), swapping (45) and comparing bytes (40). Tests: `test_ringbuf_xemu.c`
@@ -473,7 +495,10 @@ constant indices, ranges, find from every place, and/or/xor, all against a byte-
 `test_list_xemu.c` (2000 random dlist operations against an array of ids, walked both ways; iteration with
 removal, splicing; slist operations and a free list), `test_set_xemu.c` (1500 random inserts and erases on each kind against a presence
 table, the tree's red-black rules checked after each; erasing every kind of tree node, addresses kept; struct elements,
-`cmp` NULL; running out of memory).
+`cmp` NULL; running out of memory), `test_map_xemu.c` (1500 random puts and erases with values against a table
+for each map; replacing in place; struct values, `cmp` NULL; running out of memory), `test_hashmap_xemu.c` (2000
+random puts / erases / gets against a table, with the built-in hash and with a program's 4-valued one; string keys;
+a set of 5-byte keys, `rehash`, `clear`, reuse after `free`; running out of memory).
 
 ## 13. MEGA65 Hardware (`mega65.h`) and DMA (`dma.h`)
 

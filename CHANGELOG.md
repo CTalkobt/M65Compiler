@@ -12,6 +12,18 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   docker`) failed. Checked with Alpine 3.20 (GCC 13.2) and the latest
   (GCC 15.2): the tools, the libraries and the image build.
 
+### Containers: maps and hash tables (#407)
+
+- `<map.h>`: `struct map` (on the sorted-array set) and `struct tmap` (on
+  the red-black tree): `init(ksize, vsize, cmp)`, `put` (insert or
+  replace), `get`, `erase`, `find`, `lower_bound`, `first` / `next`,
+  `size`, `clear`, `free`. The sets' code: a set now has a key size.
+- `<hashmap.h>`: `struct hashmap` and `struct hashset`, open addressing
+  with linear probing, a tag byte per slot, tombstones, growth at 3/4;
+  fixed-size or C string keys; `hash_bytes` / `hash_str` built in, or the
+  program's hash and comparison (`stdlib/ct_hash.c`). Assembly
+  (`stdlib_asm/hashmap.s45`).
+
 ### Containers: ordered sets (#403)
 
 - `<set.h>`: `struct set` (a sorted array over `<vector.h>`) and `struct tset`
