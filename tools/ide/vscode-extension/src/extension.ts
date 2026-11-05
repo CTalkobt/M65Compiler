@@ -65,6 +65,30 @@ export async function activate(context: vscode.ExtensionContext) {
   const disposable = { dispose: () => client.stop() };
   context.subscriptions.push(disposable);
 
+  // M65: Show Assembly (a C file: cc45 -S, opened beside it at the cursor's
+  // line) and M65: Show C Source (cc45's assembly: the line its .loc names)
+  const place = async (method: string) => {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) return;
+    const r = await client.sendRequest<{ uri?: string; line?: number; error?: string }>(method, {
+      uri: editor.document.uri.toString(), line: editor.selection.active.line,
+    });
+    if (!r.uri) {
+      vscode.window.showWarningMessage(r.error ?? 'nothing to show');
+      return;
+    }
+    const doc = await vscode.workspace.openTextDocument(vscode.Uri.parse(r.uri));
+    const at = new vscode.Position(r.line ?? 0, 0);
+    await vscode.window.showTextDocument(doc, {
+      viewColumn: method === 'm65/assembly' ? vscode.ViewColumn.Beside : vscode.ViewColumn.One,
+      selection: new vscode.Range(at, at),
+    });
+  };
+  context.subscriptions.push(
+    vscode.commands.registerCommand('m65.showAssembly', () => place('m65/assembly')),
+    vscode.commands.registerCommand('m65.showSource', () => place('m65/source')),
+  );
+
   client.start().then(() => {
     console.log('[Extension] Language Server initialized');
   }).catch(err => {

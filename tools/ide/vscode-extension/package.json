@@ -190,6 +190,113 @@
           }
         ]
       }
+    ],
+    "commands": [
+      {
+        "command": "m65.showAssembly",
+        "title": "Show Assembly",
+        "category": "M65"
+      },
+      {
+        "command": "m65.showSource",
+        "title": "Show C Source",
+        "category": "M65"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "m65.showAssembly",
+          "when": "editorLangId == c",
+          "group": "navigation@90"
+        },
+        {
+          "command": "m65.showSource",
+          "when": "editorLangId == m65-asm",
+          "group": "navigation@90"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "m65.showAssembly",
+          "when": "editorLangId == c"
+        },
+        {
+          "command": "m65.showSource",
+          "when": "editorLangId == m65-asm"
+        }
+      ]
+    },
+    "problemMatchers": [
+      {
+        "name": "cc45",
+        "owner": "cc45",
+        "source": "cc45",
+        "fileLocation": [
+          "autoDetect",
+          "${workspaceFolder}"
+        ],
+        "pattern": {
+          "regexp": "^(?:Compilation error:\\s*)?(.+?):(\\d+):(\\d+):\\s*(error|warning|note):\\s*(.*)$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "severity": 4,
+          "message": 5
+        }
+      },
+      {
+        "name": "ca45",
+        "owner": "ca45",
+        "source": "ca45",
+        "fileLocation": [
+          "autoDetect",
+          "${workspaceFolder}"
+        ],
+        "pattern": [
+          {
+            "regexp": "^(.+?):(\\d+):(\\d+):\\s*(error|warning|note):\\s*(.*)$",
+            "file": 1,
+            "line": 2,
+            "column": 3,
+            "severity": 4,
+            "message": 5
+          }
+        ]
+      },
+      {
+        "name": "ca45-line",
+        "owner": "ca45",
+        "source": "ca45",
+        "fileLocation": [
+          "autoDetect",
+          "${workspaceFolder}"
+        ],
+        "pattern": {
+          "regexp": "^(.+?): line (\\d+):\\s*(?:(error|warning):\\s*)?(.*)$",
+          "file": 1,
+          "line": 2,
+          "severity": 3,
+          "message": 4
+        }
+      },
+      {
+        "name": "m65",
+        "owner": "m65",
+        "source": "m65",
+        "fileLocation": [
+          "autoDetect",
+          "${workspaceFolder}"
+        ],
+        "pattern": {
+          "regexp": "^(?:Compilation error:\\s*)?(?:(?:cc45|ca45|ln45):\\s*)?(.+?\\.(?:c|h|s45|asm|inc|s)):(\\d+)(?::(\\d+))?:\\s*(error|warning|note):\\s*(.*)$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "severity": 4,
+          "message": 5
+        }
+      }
     ]
   },
   "devDependencies": {

@@ -100,3 +100,55 @@ export async function runTool(kind: ToolKind, toolPath: string, filePath: string
     try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* left */ }
   }
 }
+
+export interface AssemblyRun {
+  /** the assembly file (cc45 -S), its .loc lines naming the document */
+  asmPath?: string;
+  error?: string;
+}
+
+/**
+ * The document's text as cc45's assembly (-S, the standalone form), for
+ * reading beside the C: written to <tmp>/m65-lsp-asm/<name>.s45, the .loc
+ * lines naming the document (not the copy compiled).
+ */
+export async function compileToAssembly(toolPath: string, filePath: string, text: string): Promise<AssemblyRun> {
+  if (!toolPath || !fs.existsSync(toolPath)) return { error: `cc45 not found${toolPath ? ` at ${toolPath}` : ''}` };
+  const dir = path.dirname(filePath);
+  const base = path.basename(filePath);
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'm65lsp-'));
+  const outDir = path.join(os.tmpdir(), 'm65-lsp-asm');
+  try {
+    fs.mkdirSync(outDir, { recursive: true });
+    const src = path.join(tmp, base);
+    fs.writeFileSync(src, text);
+    const out = path.join(outDir, base.replace(/\.[^.]*$/, '') + '.s45');
+    const r = await exec(toolPath, ['-S', src, '-o', out, '-I', dir], fs.existsSync(dir) ? dir : tmp);
+    if (r.err) return { error: `could not run cc45: ${r.err.message}` };
+    if (r.code !== 0 || !fs.existsSync(out)) {
+      const first = parseDiagnostics(r.out)[0];
+      return { error: first ? `cc45: ${first.line}:${first.column}: ${first.message}` : `cc45 failed (exit status ${r.code})` };
+    }
+    const asm = fs.readFileSync(out, 'utf-8').split(`"${src}"`).join(`"${filePath}"`);
+    fs.writeFileSync(out, asm);
+    return { asmPath: out };
+  } finally {
+    try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* left */ }
+  }
+}
+
+/** the assembly line of a C line: its .loc (that line, else the next one with code, else the last before) */
+export function asmLineFor(asm: string, filePath: string, cLine: number): number {
+  const lines = asm.split('\n');
+  let after: { asm: number; c: number } | null = null;
+  let before: { asm: number; c: number } | null = null;
+  for (let i = 0; i < lines.length; i++) {
+    const m = /^\s*\.loc\s+"([^"]+)"\s*,\s*(\d+)/.exec(lines[i]);
+    if (!m || path.resolve(m[1]) !== path.resolve(filePath)) continue;
+    const c = parseInt(m[2], 10) - 1;
+    if (c === cLine) return i;
+    if (c > cLine && (!after || c < after.c)) after = { asm: i, c };
+    if (c < cLine && (!before || c > before.c)) before = { asm: i, c };
+  }
+  return after?.asm ?? before?.asm ?? 0;
+}

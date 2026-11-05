@@ -9,6 +9,9 @@ import { TextDocument } from 'vscode-languageserver-textdocument';
 import { ReferenceData, isAsm, opcodeMarkdown } from './data';
 import { WorkspaceIndex } from '../indexer/workspaceIndex';
 import { SymbolKind } from '../indexer/symbolTypes';
+import { CSymbolScanner } from '../indexer/cSymbolScanner';
+import { cleanC } from '../indexer/text';
+import { TypeResolver } from './cTypes';
 
 const MAX_ITEMS = 200;
 
@@ -17,6 +20,7 @@ export class CompletionProvider {
   private asmItems: CompletionItem[] = [];
   private directiveItems: CompletionItem[] = [];
   private pragmaItems: CompletionItem[] = [];
+  private scanner = new CSymbolScanner();
 
   constructor(data: ReferenceData, private index: WorkspaceIndex) {
     for (const k of data.keywords.values()) {
@@ -87,12 +91,31 @@ export class CompletionProvider {
           .map((p) => ({ ...p, insertText: typed.includes(' ') ? p.label.slice(p.label.lastIndexOf(' ') + 1) : p.label }));
       }
       if (/^\s*#\s*\w*$/.test(line)) return [];
+      // x. / p-> : the struct's members
+      const text = document.getText();
+      const clean = cleanC(text);
+      const offset = document.offsetAt(position);
+      if (/(\.|->)\s*[A-Za-z_]*\w*$/.test(clean.slice(Math.max(0, offset - 64), offset))) {
+        const types = this.scanner.scan(document.uri, text).types;
+        const site = new TypeResolver(this.index, types).memberSite(clean, offset);
+        if (site) {
+          return this.filter(site.agg.members.map((m) => ({
+            label: m.name,
+            kind: m.method ? CompletionItemKind.Method : CompletionItemKind.Field,
+            detail: m.decl,
+            documentation: `${site.agg.kind} ${site.agg.tag}`,
+          })), site.prefix, false);
+        }
+        // (a . or -> whose struct is not known: nothing rather than everything)
+        if (params.context?.triggerCharacter === '.' || params.context?.triggerCharacter === '>') return [];
+      }
+      if (params.context?.triggerCharacter === '>') return [];
       items = [...this.cItems, ...this.symbols(document.uri, false)];
     }
     return this.filter(items, prefix);
   }
 
-  private filter(items: CompletionItem[], prefix: string): CompletionItem[] {
+  private filter(items: CompletionItem[], prefix: string, sort = true): CompletionItem[] {
     const p = prefix.toLowerCase();
     const seen = new Set<string>();
     const out: CompletionItem[] = [];
@@ -102,7 +125,7 @@ export class CompletionProvider {
       seen.add(key);
       out.push(it);
     }
-    out.sort((a, b) => a.label.localeCompare(b.label));
+    if (sort) out.sort((a, b) => a.label.localeCompare(b.label));
     return out.slice(0, MAX_ITEMS);
   }
 
@@ -113,14 +136,18 @@ export class CompletionProvider {
     for (const s of this.index.getAllSymbols()) {
       if (!s.isDefinition || !ext.test(s.location.uri)) continue;
       if (s.scope === 'local' && s.location.uri !== uri) continue;
+      const file = decodeURIComponent(s.location.uri.split('/').pop() || '');
       out.push({
         label: s.name,
         kind: s.kind === SymbolKind.Function ? CompletionItemKind.Function
           : s.kind === SymbolKind.Struct ? CompletionItemKind.Struct
+          : s.kind === SymbolKind.Enum ? CompletionItemKind.Enum
+          : s.kind === SymbolKind.EnumMember ? CompletionItemKind.EnumMember
+          : s.kind === SymbolKind.TypeParameter ? CompletionItemKind.TypeParameter
           : s.kind === SymbolKind.Constant ? CompletionItemKind.Constant
           : CompletionItemKind.Variable,
-        detail: decodeURIComponent(s.location.uri.split('/').pop() || ''),
-        sortText: (s.location.uri === uri ? '0' : '1') + s.name,
+        detail: s.detail ? `${s.detail}  (${s.library ? '<' + file + '>' : file})` : file,
+        sortText: (s.location.uri === uri ? '0' : s.library ? '2' : '1') + s.name,
       });
     }
     return out;
