@@ -31,6 +31,27 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
     back, octave and length per voice, `U` 0-15 → BASIC 65's 0-9 table, `M`
     dropped, and a wait before each `PLAY` (BASIC 65's returns at once).
 
+### basic45 --convert=basic35 and --convert=simons: BASIC 3.5 and Simons' BASIC (#368)
+
+- `--convert=basic35`: C16 / Plus/4 programs (`$1001`; `$CE` is `RLUM`),
+  by BASIC 7.0's rules plus the TED's: colours with luminances to the
+  nearest of the MEGA65's 16 (in `COLOR`, strings' colour codes and
+  `CHR$`), flash codes, `SOUND` (TED frequencies as the SID's, by the
+  clock BASIC 65's note tables imply; voice 3 noise; a wait for the voice,
+  as the Plus/4 does), `VOL` 0-8 → 0-15, `SCNCLR` of a bit map.
+- `--convert=simons`: C64 Simons' BASIC (`$64 xx` tokens, from TSB's
+  table; a listing tokenized as Simons' does): procedures as labels,
+  `REPEAT`/`LOOP`/`EXIT IF` as `DO`/`LOOP`, `ELSE`, `RCOMP`, `CGOTO` (a
+  line table), `ON ERROR` → `TRAP`, the functions (`INST` overwrites and
+  `PLACE` finds, as the TSB sources show), `PRINT AT`, `CENTRE`, `PAUSE`,
+  sprites (`MMOB` waiting for the move); the graphics rewritten as BASIC
+  7.0's statements (plot types as colour sources, invert by XOR drawing,
+  `MULTI`'s x doubled); the rest left as written and warned.
+- Fixed: BASIC 7.0's `XOR(a, b)` (BASIC 65's `XOR` is an operator, its
+  old function LOG10) → `((a) XOR (b))`; `--decompile` wrote a line
+  starting with a word and `:` (`print : goto 10`), which basic45 reads as
+  a label: it starts with `:` now.
+
 ### deploy45: programs and disk images to a MEGA65 or an Ultimate 64 (#145)
 
 - `deploy45 m65ether <prog>` (Ethernet: etherload), `deploy45 m65serial
