@@ -2436,7 +2436,10 @@ int AssemblerParser::calculateInstructionSize(const Instruction& instr, uint32_t
                 // Try scoped name first, then bare name
                 if (!symbolTable.count(symName)) symName = tokens[instr.operandTokenIndex].value;
                 // (a "zp" segment label is a base-page address, relocated in the base page)
-                if (isRelocatableSymbol(symName) &&
+                // (an @label after a plain label outside a proc is "label:@name":
+                // resolved as the operand is, #369)
+                if ((isRelocatableSymbol(symName) ||
+                     isRelocatableSymbolIn(tokens[instr.operandTokenIndex].value, scopePrefix)) &&
                     !isZpSegmentSymbolIn(tokens[instr.operandTokenIndex].value, scopePrefix)) forceAbs = true;
             }
 

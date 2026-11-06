@@ -1457,6 +1457,21 @@ else
     failed=$((failed + 1))
 fi
 
+# an @label after a plain label (outside a proc) below 256 in a relocatable
+# object: absolute and relocated, not a base-page operand (sta @ld+1 was sta $0A)
+C=build/test/autolocal
+mkdir -p $C
+printf 'f:\n    sta @ld+1\n    sta @ld\n    sta xx+1\n@ld:\n    lda $FFFF,y\nxx: rts\n' > $C/a.s45
+if $AS -c -o $C/a.o45 $C/a.s45 >/dev/null 2>&1 &&
+   [ "$(./bin/nm45 -r $C/a.o45 | grep -c 'R_WORD *TEXT')" = 3 ] &&
+   ./bin/objdump45 -d $C/a.o45 | grep -q '8d 0a 00'; then
+    echo "SUCCESS: @labels after a plain label are relocated addresses"
+    passed=$((passed + 1))
+else
+    echo "FAIL: @label after a plain label: $(./bin/objdump45 -d $C/a.o45 2>&1 | grep sta | tr '\n' ' ')"
+    failed=$((failed + 1))
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All assembler feature tests passed!"
     exit 0

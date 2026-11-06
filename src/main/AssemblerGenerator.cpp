@@ -276,7 +276,8 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                                 parser->tokens[stmt->instr.operandTokenIndex].type == AssemblerTokenType::IDENTIFIER) {
                                 std::string symName = stmt->scopePrefix + parser->tokens[stmt->instr.operandTokenIndex].value;
                                 if (!parser->symbolTable.count(symName)) symName = parser->tokens[stmt->instr.operandTokenIndex].value;
-                                if (parser->isRelocatableSymbol(symName) &&
+                                if ((parser->isRelocatableSymbol(symName) ||
+                                     parser->isRelocatableSymbolIn(parser->tokens[stmt->instr.operandTokenIndex].value, stmt->scopePrefix)) &&
                                     !parser->isZpSegmentSymbolIn(parser->tokens[stmt->instr.operandTokenIndex].value, stmt->scopePrefix))
                                     forceAbs = true;
                             }
