@@ -1704,6 +1704,7 @@ void IRCodeGen::emitStackCleanup(int frameSize) {
 
 void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode, bool zpCallMode, bool emitReasons, bool staticAllocMode, bool sacDebugMode, uint32_t prgBase) {
     currentModule_ = &mod;
+    fastFloat_ = mod.fastFloat;
     dataAlign_ = bssAlign_ = 1;
     textAlign_ = 1;
     emitReasons_ = emitReasons;
@@ -2181,12 +2182,8 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
         if (hasFloat) {
             emit(".extern __float_a");
             emit(".extern __float_b");
-            emit(".extern __float_add");
-            emit(".extern __float_sub");
-            emit(".extern __float_mul");
-            emit(".extern __float_div");
+            for (const char* op : {"add", "sub", "mul", "div", "cmp"}) emit(".extern " + floatOp(op));
             emit(".extern __float_neg");
-            emit(".extern __float_cmp");
             emit(".extern __float_itof");
             emit(".extern __float_utof");
             emit(".extern __float_ltof");
@@ -9459,10 +9456,10 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                 auto s2 = alloc_.getAlloc(inst.src2.vregId);
                 emitFloatToAbs(s1, inst.src1.vregId, "__float_a");
                 emitFloatToAbs(s2, inst.src2.vregId, "__float_b");
-                if (inst.op == ir::Op::FADD) emit("jsr __float_add");
-                else if (inst.op == ir::Op::FSUB) emit("jsr __float_sub");
-                else if (inst.op == ir::Op::FMUL) emit("jsr __float_mul");
-                else emit("jsr __float_div");
+                if (inst.op == ir::Op::FADD) emit("jsr " + floatOp("add"));
+                else if (inst.op == ir::Op::FSUB) emit("jsr " + floatOp("sub"));
+                else if (inst.op == ir::Op::FMUL) emit("jsr " + floatOp("mul"));
+                else emit("jsr " + floatOp("div"));
                 auto da = alloc_.getAlloc(inst.dest.vregId);
                 emitAbsToFloat("__float_a", da, inst.dest.vregId);
             } else if (inst.op == ir::Op::FNEG) {
@@ -9476,7 +9473,7 @@ void IRCodeGen::emitInstBody(const ir::Inst& inst) {
                 auto s2 = alloc_.getAlloc(inst.src2.vregId);
                 emitFloatToAbs(s1, inst.src1.vregId, "__float_a");
                 emitFloatToAbs(s2, inst.src2.vregId, "__float_b");
-                emit("jsr __float_cmp");
+                emit("jsr " + floatOp("cmp"));
                 auto da = alloc_.getAlloc(inst.dest.vregId);
                 if (da.loc == VRegAllocator::IN_ZP) {
                     emit("sta $" + hex8((uint8_t)da.offset));

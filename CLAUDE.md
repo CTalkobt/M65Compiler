@@ -28,7 +28,8 @@ dependencies (SQLite and FUSE only for disk45):
 - **basic45** — BASIC 65 program generator (label-based source, PETSCII tokenizer, preprocessor,
   long variable names, block IF / proc, `--link` C functions, `--decompile`, `--disk`, `--emulator`;
   `--compile`: the program to machine code through cc45's IR and code generator, a subset of BASIC 65 so far,
-  `src/main/BasicCompiler.cpp`, run time `lib/stdlib_asm/basic_rt.s45` / `lib/stdlib/basic_str.c`, #369)
+  `src/main/BasicCompiler.cpp`, run time `lib/stdlib_asm/basic_rt.s45` / `lib/stdlib/basic_str.c`, #369;
+  integer narrowing of whole-number float variables; `--speed`: the RAM float routines)
 - **disk45** — CBM disk/tape/archive image utility (25 formats, FUSE mount, SQLite catalog)
 - **asmCvt45** — assembler source converter between 7 dialects
 - **pack45** — packs data into a stream the library's `unpack()` (`<unpack.h>`) unpacks by DMA to any 28-bit
@@ -291,7 +292,8 @@ totals code bytes by IR operation).
 ## Language (details: `doc/bin/cc45.md`)
 
 - **Types**: `char`(1), `short`/`int`(2), `long`(4), `float`/`double`/`long double`
-  (CBM 40-bit, 5 bytes, computed by the BASIC 65 ROM), `_Bool`, `__bit` (file-scope booleans packed 8 to a byte;
+  (CBM 40-bit, 5 bytes, computed by the BASIC 65 ROM; `+ - * /` and comparisons by RAM routines with
+  `-ffast-float` / `-Ospeed`, `stdlib_asm/float_fast.s45`), `_Bool`, `__bit` (file-scope booleans packed 8 to a byte;
   `__zp __bit` in the base page: smb/rmb/bbs), `__fixed(I, F)` (fixed point, I + F = 16 or 32; `__fixed8_8`, `__fixed16_16`; #72), pointers (2), far pointers (`T __far *p`, 4 bytes, a 28-bit address read and
   written with `[bp],z`; cc45's scalar type `"__farp T"`, `IRBuilderFar.cpp`, IR `far_load`/`far_store`; #68), near
   pointers (`T __near *p`, 1 byte, a base-page offset, `$00,x`; `"__nearp T"`, IR `near_load`/`near_store`/`near_addr`),

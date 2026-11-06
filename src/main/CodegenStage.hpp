@@ -64,6 +64,7 @@ public:
     void setFunctionSections(bool on) { functionSections_ = on; }
     bool errorsPrinted() const { return errorsPrinted_; }
     void setBssFill(int v) { bssFill_ = v; }
+    void setFastFloat(bool on) { fastFloat_ = on; }   // -ffast-float: Module::fastFloat
     void setStackSize(int v) { stackSize_ = v; }
     void setOverlay(const std::string& v) { overlay_ = v; }
     // -f<opt>/-fno-<opt> (catalog name -> on/off), --future, -Roptir
@@ -93,6 +94,7 @@ private:
     bool functionSections_ = false;
     bool errorsPrinted_ = false;
     int bssFill_ = -1;
+    bool fastFloat_ = false;
     int stackSize_ = -1;
     std::string overlay_;
     bool staticAlloc_;

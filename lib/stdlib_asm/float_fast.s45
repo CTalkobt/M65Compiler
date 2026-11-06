@@ -1,0 +1,549 @@
+; float_fast.s45 — float + - * / and comparisons in RAM (cc45 -ffast-float,
+; -Ospeed; basic45 --compile --speed)
+;
+; The same interface as float_rom.s45's __float_add ... __float_cmp: the
+; operands in __float_a and __float_b (CBM 40-bit packed floats), the result
+; in __float_a (__ffast_cmp: A = $FF, 0, 1 as a <, =, > b). No ROM calls:
+; no JSRFAR, no switch to the ROM's base page, no ROM ROUND.
+;
+; The results are those of the BASIC 65 ROM with its float rounding fixed
+; (mega65-rom, "Option A": fmultt / fdivt correctly rounded); the ROM of
+; release 920413 rounds some products, quotients and sums 1 bit differently.
+;   add / sub: as the ROM's FADDT: the operand with the smaller exponent
+;     shifted right into an 8-bit guard byte (the bits below it lost); with
+;     the same signs, the carry the ROM's shift leaves (its last bit out, or
+;     1 after whole bytes) is added to the guard; a difference left only in
+;     the guard byte is 0 (the ROM's NORMAL).
+;   mul: the 64-bit product of the mantissas (the hardware multiplier at
+;     $D770), its top 32 bits, normalised by at most one bit.
+;   div: the hardware divider's 32 fraction bits, checked (and corrected)
+;     with the remainder from the multiplier; the rounding bit 2 R >= b.
+;   then rounded half up on the guard byte's bit 7.
+; Out of range: a result too large is the largest float (its sign kept), as
+; float_rom.s45 gives; too small is 0. Division by 0: the largest float (0/0: 0).
+
+; no calls through pointers here (ln45's call graph)
+.weak cc45.icallinfo
+cc45.icallinfo = 1
+
+    .cpu 45gs02
+
+.extern __float_a
+.extern __float_b
+
+MULTINA = $D770
+MULTINB = $D774
+PRODUCT = $D778
+MATHBUSY = $D70F
+DIVREMA = $D768
+DIVQUOT = $D76C
+
+; ===========================================================================
+; Both operands unpacked: exponent, sign (bit 7), mantissa LSB first with
+; its top bit (the hidden 1) set
+; ===========================================================================
+    .split "__ff_unpack"
+.global __ff_unpack
+__ff_unpack:
+    lda __float_a
+    sta __ff_ea
+    lda __float_a+1
+    sta __ff_sa
+    ora #$80
+    sta __ff_ma+3
+    lda __float_a+2
+    sta __ff_ma+2
+    lda __float_a+3
+    sta __ff_ma+1
+    lda __float_a+4
+    sta __ff_ma
+    lda __float_b
+    sta __ff_eb
+    lda __float_b+1
+    sta __ff_sb
+    ora #$80
+    sta __ff_mb+3
+    lda __float_b+2
+    sta __ff_mb+2
+    lda __float_b+3
+    sta __ff_mb+1
+    lda __float_b+4
+    sta __ff_mb
+    rts
+
+; ===========================================================================
+; __float_a := the result: mantissa __ff_r, guard __ff_g, exponent __ff_e
+; (16 bits, signed), sign __ff_s (bit 7 only); rounded half up
+; ===========================================================================
+    .split "__ff_pack"
+.global __ff_pack
+.global __ff_zero
+.global __ff_sat
+__ff_pack:
+    lda __ff_g
+    bpl @exp
+    ldq __ff_r
+    clc
+    adcq __ff_one
+    stq __ff_r
+    bcc @exp
+    lda #$80                ; (all ones + 1: 1.0, one exponent up)
+    sta __ff_r+3
+    inc __ff_e
+    bne @exp
+    inc __ff_e+1
+@exp:
+    lda __ff_e+1
+    bmi __ff_zero
+    bne __ff_sat
+    lda __ff_e
+    beq __ff_zero
+    sta __float_a
+    lda __ff_r+3
+    and #$7F
+    ora __ff_s
+    sta __float_a+1
+    lda __ff_r+2
+    sta __float_a+2
+    lda __ff_r+1
+    sta __float_a+3
+    lda __ff_r
+    sta __float_a+4
+    rts
+__ff_zero:
+    lda #0
+    sta __float_a
+    sta __float_a+1
+    sta __float_a+2
+    sta __float_a+3
+    sta __float_a+4
+    rts
+; the largest float, the sign __ff_s
+__ff_sat:
+    lda #$FF
+    sta __float_a
+    sta __float_a+2
+    sta __float_a+3
+    sta __float_a+4
+    lda __ff_s
+    ora #$7F
+    sta __float_a+1
+    rts
+__ff_one:
+    .dword 1
+
+; ===========================================================================
+; __ffast_add: a + b; __ffast_sub: a - b
+; ===========================================================================
+    .split "__ffast_add"
+.global __ffast_add
+.global __ffast_sub
+__ffast_sub:
+    jsr __ff_unpack
+    lda __ff_sb
+    eor #$80
+    sta __ff_sb
+    bra __ff_addcore
+__ffast_add:
+    jsr __ff_unpack
+__ff_addcore:
+    lda __ff_eb
+    bne @bnz
+    rts                     ; b = 0: a
+@bnz:
+    lda #0
+    sta __ff_e+1
+    sta __ff_g
+    sta __ff_c
+    lda __ff_ea
+    bne @both
+    ; a = 0: (-)b
+    ldq __ff_mb
+    stq __ff_r
+    lda __ff_eb
+    sta __ff_e
+    lda __ff_sb
+    and #$80
+    sta __ff_s
+    jmp __ff_pack
+@both:
+    sec
+    sbc __ff_eb             ; ea - eb
+    bcc @bbig
+    sta __ff_n              ; a's exponent the larger (or equal): b shifted
+    ldq __ff_ma
+    stq __ff_r
+    ldq __ff_mb
+    stq __ff_t
+    lda __ff_ea
+    sta __ff_e
+    lda __ff_sa
+    bra @shift
+@bbig:
+    neg a
+    sta __ff_n              ; b's the larger: a shifted (ldq sets X: the count in memory)
+    ldq __ff_mb
+    stq __ff_r
+    ldq __ff_ma
+    stq __ff_t
+    lda __ff_eb
+    sta __ff_e
+    lda __ff_sb
+@shift:
+    and #$80
+    sta __ff_s
+    ldx __ff_n
+    bne @sh
+    inc __ff_c              ; (equal exponents: the ROM's carry is 1)
+    bra @op
+@sh:
+    cpx #40
+    bcc @bytes
+    lda #0                  ; all of it shifted out
+    sta __ff_t
+    sta __ff_t+1
+    sta __ff_t+2
+    sta __ff_t+3
+    bra @op
+@bytes:
+    cpx #8
+    bcc @bits
+    lda __ff_t
+    sta __ff_g
+    lda __ff_t+1
+    sta __ff_t
+    lda __ff_t+2
+    sta __ff_t+1
+    lda __ff_t+3
+    sta __ff_t+2
+    lda #0
+    sta __ff_t+3
+    txa
+    sec
+    sbc #8
+    tax
+    bne @bytes
+    inc __ff_c              ; (whole bytes: the ROM's carry is 1)
+    bra @op
+@bits:
+    lda __ff_g
+    and #1
+    sta __ff_c              ; (the ROM's carry: the last bit out of the guard)
+    lsrq __ff_t
+    ror __ff_g
+    dex
+    bne @bits
+@op:
+    lda __ff_sa
+    eor __ff_sb
+    bmi @diff
+    ; the same signs: r + t, the guard + the carry
+    lda __ff_g
+    clc
+    adc __ff_c
+    sta __ff_g
+    ldq __ff_r
+    adcq __ff_t
+    stq __ff_r
+    bcc @pk
+    rorq __ff_r             ; (C = 1: the top bit)
+    ror __ff_g
+    inc __ff_e
+    bne @pk
+    inc __ff_e+1
+@pk:
+    jmp __ff_pack
+@diff:
+    ; different signs: r:0 - t:g (40 bits)
+    lda #0
+    sec
+    sbc __ff_g
+    sta __ff_g
+    ldq __ff_r
+    sbcq __ff_t
+    stq __ff_r
+    bcs @norm
+    ; negative: negated, the other sign
+    lda #0
+    sec
+    sbc __ff_g
+    sta __ff_g
+    lda #0
+    tax
+    tay
+    taz
+    sbcq __ff_r
+    stq __ff_r
+    lda __ff_s
+    eor #$80
+    sta __ff_s
+@norm:
+    ; normalised: whole bytes (the guard after them), then bits
+    ldx #0
+@nb:
+    lda __ff_r+3
+    bne @nbits
+    lda __ff_r+2
+    sta __ff_r+3
+    lda __ff_r+1
+    sta __ff_r+2
+    lda __ff_r
+    sta __ff_r+1
+    lda __ff_g
+    sta __ff_r
+    lda #0
+    sta __ff_g
+    txa
+    clc
+    adc #8
+    tax
+    cpx #32
+    bne @nb
+    jmp __ff_zero           ; (as the ROM: 0 after four bytes)
+@nbits:
+    bmi @ndone
+    asl __ff_g
+    rolq __ff_r
+    inx
+    lda __ff_r+3
+    bra @nbits
+@ndone:
+    stx __ff_c
+    lda __ff_e
+    sec
+    sbc __ff_c
+    sta __ff_e
+    lda __ff_e+1
+    sbc #0
+    sta __ff_e+1
+    jmp __ff_pack
+
+; ===========================================================================
+; __ffast_mul: a * b
+; ===========================================================================
+    .split "__ffast_mul"
+.global __ffast_mul
+__ffast_mul:
+    jsr __ff_unpack
+    lda __ff_ea
+    beq @zero
+    lda __ff_eb
+    beq @zero
+    ldq __ff_ma
+    stq MULTINA
+    ldq __ff_mb
+    stq MULTINB
+    ldq PRODUCT+4
+    stq __ff_r
+    lda PRODUCT+3
+    sta __ff_g
+    ; exponent ea + eb - 128
+    lda __ff_ea
+    clc
+    adc __ff_eb
+    sta __ff_e
+    lda #0
+    adc #0
+    sta __ff_e+1
+    lda __ff_e
+    sec
+    sbc #128
+    sta __ff_e
+    lda __ff_e+1
+    sbc #0
+    sta __ff_e+1
+    ; a product below 0.5: one bit left
+    lda __ff_r+3
+    bmi @sign
+    asl __ff_g
+    rolq __ff_r
+    lda __ff_e
+    bne @dec
+    dec __ff_e+1
+@dec:
+    dec __ff_e
+@sign:
+    lda __ff_sa
+    eor __ff_sb
+    and #$80
+    sta __ff_s
+    jmp __ff_pack
+@zero:
+    jmp __ff_zero
+
+; ===========================================================================
+; __ffast_div: a / b
+; ===========================================================================
+    .split "__ffast_div"
+.global __ffast_div
+__ffast_div:
+    jsr __ff_unpack
+    lda __ff_sa
+    eor __ff_sb
+    and #$80
+    sta __ff_s
+    lda __ff_eb
+    bne @bnz
+    lda __ff_ea
+    beq @zero               ; 0 / 0: 0
+    jmp __ff_sat            ; x / 0: the largest float
+@bnz:
+    lda __ff_ea
+    bne @go
+@zero:
+    jmp __ff_zero
+@go:
+    ; exponent ea - eb + 128 (+ 1 for a quotient >= 1)
+    sec
+    sbc __ff_eb
+    sta __ff_e
+    lda #0
+    sbc #0
+    sta __ff_e+1
+    lda __ff_e
+    clc
+    adc #128
+    sta __ff_e
+    lda __ff_e+1
+    adc #0
+    sta __ff_e+1
+    ; the hardware divider: a's mantissa / b's, 32 fraction bits (exact, or
+    ; 1 too large: the cores differ); the remainder from the multiplier
+    ldq __ff_ma
+    stq MULTINA
+    ldq __ff_mb
+    stq MULTINB
+@busy:
+    bit MATHBUSY
+    bmi @busy
+    lda DIVQUOT
+    sta __ff_c              ; the whole part: 0 or 1
+    ldq DIVREMA
+    stq __ff_r              ; F: the fraction
+    stq MULTINA             ; F * b
+    ; R = a * 2^32 - (whole * 2^32 + F) * b: its low 32 bits -(F * b),
+    ; its sign from the high part a - (F * b) >> 32 - whole * b - borrow
+    lda #0
+    tax
+    tay
+    taz
+    sec
+    sbcq PRODUCT
+    stq __ff_t              ; R's low 32 bits
+    ldq __ff_ma
+    sbcq PRODUCT+4
+    stq __ff_h              ; R's high 32 bits (0 or -1) without the whole part
+    lda __ff_c
+    beq @nowhole
+    ldq __ff_h
+    sec
+    sbcq __ff_mb
+    stq __ff_h
+@nowhole:
+    lda __ff_h+3
+    bpl @rbit               ; R >= 0: F is the quotient
+    ; F one too large: F - 1, R + b
+    ldq __ff_r
+    sec
+    sbcq __ff_one
+    stq __ff_r
+    bcs @f1
+    dec __ff_c              ; (1.00000000 - 1: the whole part 0)
+@f1:
+    ldq __ff_t
+    clc
+    adcq __ff_mb
+    stq __ff_t
+@rbit:
+    ; the rounding bit: 2 R >= b
+    ldq __ff_t
+    aslq
+    bcs @r1
+    sec
+    sbcq __ff_mb
+    bcs @r1
+    clc
+@r1:
+    lda #0
+    ror a
+    sta __ff_g
+    lda __ff_c
+    beq @pk
+    ; a quotient >= 1: 1.F shifted right, F's last bit the rounding bit
+    sec
+    rorq __ff_r
+    ror __ff_g
+    inc __ff_e
+    bne @pk
+    inc __ff_e+1
+@pk:
+    jmp __ff_pack
+
+; ===========================================================================
+; __ffast_cmp: A = $FF, 0, 1 as a <, =, > b
+; ===========================================================================
+    .split "__ffast_cmp"
+.global __ffast_cmp
+__ffast_cmp:
+    lda __float_a
+    bne @anz
+    lda __float_b
+    beq @eq                 ; both 0
+    lda __float_b+1         ; a = 0: less than a positive b
+    bmi @gt
+    bra @lt
+@anz:
+    lda __float_b
+    bne @both
+    lda __float_a+1         ; b = 0: a positive is greater
+    bmi @lt
+    bra @gt
+@both:
+    lda __float_a+1
+    eor __float_b+1
+    bpl @same
+    lda __float_a+1         ; different signs: the negative one is less
+    bmi @lt
+    bra @gt
+@same:
+    ldx #0
+@byte:
+    lda __float_a,x
+    cmp __float_b,x
+    bne @diff
+    inx
+    cpx #5
+    bne @byte
+@eq:
+    lda #0
+    rts
+@diff:
+    bcc @smaller            ; |a| < |b|
+    lda __float_a+1
+    bmi @lt
+    bra @gt
+@smaller:
+    lda __float_a+1
+    bmi @gt
+@lt:
+    lda #$FF
+    rts
+@gt:
+    lda #1
+    rts
+
+.segment "bss"
+__ff_ma: .res 4
+__ff_mb: .res 4
+__ff_r: .res 4
+__ff_t: .res 4
+__ff_ea: .res 1
+__ff_eb: .res 1
+__ff_sa: .res 1
+__ff_sb: .res 1
+__ff_s: .res 1
+__ff_g: .res 1
+__ff_c: .res 1
+__ff_e: .res 2
+__ff_n: .res 1
+__ff_h: .res 4

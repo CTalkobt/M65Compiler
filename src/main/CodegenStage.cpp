@@ -117,6 +117,7 @@ void CodegenStage::generateIR() {
     // A #pragma cc45 no_stack16 / stack_top in the source wins over the flag
     if (irModule_->stackTop < 0) irModule_->stackTop = stackTop_;
     if (irModule_->bssFill < 0) irModule_->bssFill = bssFill_;
+    if (fastFloat_) irModule_->fastFloat = true;
     if (irModule_->stackSize < 0) irModule_->stackSize = stackSize_;
     if (irModule_->overlay.empty()) irModule_->overlay = overlay_;
 

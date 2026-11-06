@@ -298,5 +298,14 @@ $CC -c $T/noopt.c -o $T/noopt.o45 2>&1 | grep -q "unknown directive" && fail "ca
 dis=$(./bin/objdump45 -d $T/noopt.o45 | grep -E "^\s+[0-9a-f]{4}:" | cut -f3- | tr '\n' ';')
 case "$dis" in *"ldx	#\$00;ldx	#\$00;"*) pass ;; *) fail "ca45 changed an optimize(off) function" ;; esac
 
+# -ffast-float / -Ospeed: float + - * / and comparisons by the RAM routines
+# (__ffast_*); -fno-fast-float after -Ospeed, plain -O3: the ROM's
+printf 'float f(float a, float b) { return a < b ? a * b + a / b : a - b; }\n' > $T/ff.c
+ffs() { ./bin/cc45 "$@" -S $T/ff.c -o $T/ff.s 2>/dev/null && grep -c 'jsr __ffast_' $T/ff.s; }
+[ "$(ffs -O2 -ffast-float)" = 5 ] && pass || fail "-ffast-float: not all five operations by __ffast_*"
+[ "$(ffs -Ospeed)" = 5 ] && pass || fail "-Ospeed does not use the RAM float routines"
+[ "$(ffs -Ospeed -fno-fast-float)" = 0 ] && pass || fail "-Ospeed -fno-fast-float still uses them"
+[ "$(ffs -O3)" = 0 ] && pass || fail "-O3 uses the RAM float routines"
+
 echo "Optimization switch tests: $passed passed, $failed failed"
 [ $failed -eq 0 ]

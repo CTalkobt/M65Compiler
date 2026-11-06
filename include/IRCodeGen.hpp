@@ -594,6 +594,9 @@ private:
     // Current function, block, and instruction index for peephole lookahead
     const ir::Function* currentFn_ = nullptr;
     const ir::Module* currentModule_ = nullptr;
+    // the float routine name: __float_<op>, or __ffast_<op> (Module::fastFloat)
+    bool fastFloat_ = false;
+    std::string floatOp(const char* op) const { return std::string(fastFloat_ ? "__ffast_" : "__float_") + op; }
     bool vregUsedOutside(uint32_t id, const ir::Inst* a, const ir::Inst* b) const;
     // Instructions consumed by a fused sequence: emitInst skips them up to
     // and including this one

@@ -239,6 +239,7 @@ CompilationResult CompilationPipeline::compile() {
         codegenStage.setStackTop(config_.stackTop);
         codegenStage.setFunctionSections(config_.functionSections);
         codegenStage.setBssFill(config_.bssFill);
+        codegenStage.setFastFloat(config_.fastFloat == 1);
         codegenStage.setStackSize(config_.stackSize);
         codegenStage.setOverlay(config_.overlayName);
         codegenStage.setEmitReasons(config_.emitReasons);

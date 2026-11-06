@@ -4,6 +4,26 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### Faster float arithmetic in RAM: cc45 -ffast-float / -Ospeed, basic45 --speed
+
+- `lib/stdlib_asm/float_fast.s45`: `__ffast_add`, `__ffast_sub`,
+  `__ffast_mul`, `__ffast_div`, `__ffast_cmp`, the interface of
+  `float_rom.s45`'s routines without the ROM (no JSRFAR, no base-page switch,
+  no ROM ROUND): the hardware multiplier and divider, about twice as fast
+  (10,000 operations: add 19 → 11 frames, multiply 20 → 10, divide 19 → 12,
+  compare 16 → 7).
+- The results are bit for bit those of the BASIC 65 ROM with its float
+  rounding fixed (mega65-rom's "Option A": correctly rounded products and
+  quotients; sums as FADDT, the carry its shift leaves added to the guard
+  byte), checked against that ROM in xemu on random operands; the 920413
+  ROM rounds some products, quotients and sums differently in the last bit.
+- cc45 `-ffast-float` / `-fno-fast-float` (`Module::fastFloat`); `-Ospeed`
+  is `-O3 -ffast-float`. basic45 `--compile --speed` (`-Ospeed`): `-O3` and
+  the RAM routines; without it the ROM's.
+- Tests: `test_float_fast_xemu.c` (bit-exact results, both conventions), the
+  float tests (`test_float`, `_range`, `_limits`, `_conv`, `_func`) also with
+  `-ffast-float`, `test_basic_compile_xemu.bas` with `--speed`.
+
 ### basic45 --compile: integer narrowing (#369)
 
 - A float variable that only ever holds whole numbers below 2^31 is compiled

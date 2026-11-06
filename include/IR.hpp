@@ -318,6 +318,9 @@ struct Module {
     std::vector<DebugGlobal> debugGlobals;
     std::vector<std::string> debugTypes;
     bool saveZP = true;
+    // + - * / and comparisons of floats by the RAM routines (float_fast.s45:
+    // __ffast_*), not the ROM's (cc45 -ffast-float / -Ospeed, basic45 --speed)
+    bool fastFloat = false;
     // A float passed as a variadic (or unprototyped) argument: link the
     // %f-aware printf (_printf_float), and sprintf (_sprintf_float)
     bool floatVarArg = false;

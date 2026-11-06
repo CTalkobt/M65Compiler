@@ -82,6 +82,7 @@ struct Options {
     bool compile = false;                 // --compile: machine code (#369)
     std::string asmFile;                  // --asm: --compile's assembly, kept
     int optLevel = 2;                     // -O<n> for --compile
+    bool speed = false;                   // --speed / -Ospeed: -O3, the RAM float routines
 };
 
 class SymbolTable {
@@ -216,6 +217,8 @@ static void printUsage(const char* progName) {
     std::cout << "  --compile           Compile the program to machine code (a .prg run with RUN); the" << std::endl;
     std::cout << "                      input can also be a tokenized BASIC 65 .prg. -O0 .. -O4 (default -O2)" << std::endl;
     std::cout << "  --asm <file>        --compile: also write the generated ca45 assembly" << std::endl;
+    std::cout << "  --speed, -Ospeed    --compile: -O3 and float + - * / and comparisons by RAM routines" << std::endl;
+    std::cout << "                      (faster than the ROM's; its rounding fixes, see the docs)" << std::endl;
     std::cout << "  --convert=<dialect> Another BASIC's program (a .prg, or a text listing) as BASIC 65 basic45" << std::endl;
     std::cout << "                      source: keywords renamed, statements rewritten, warnings for the rest;" << std::endl;
     std::cout << "                      basic7 (C128 BASIC 7.0), basic35 (C16 / Plus/4 BASIC 3.5), simons" << std::endl;
@@ -316,6 +319,9 @@ static Options parseArgs(int argc, char* argv[]) {
             opts.asmFile = argv[++i];
         } else if (arg.size() == 3 && arg[0] == '-' && arg[1] == 'O' && arg[2] >= '0' && arg[2] <= '4') {
             opts.optLevel = arg[2] - '0';
+        } else if (arg == "--speed" || arg == "-Ospeed") {
+            opts.speed = true;
+            opts.optLevel = 3;
         } else if (arg.rfind("--convert=", 0) == 0 || (arg == "--convert" && i + 1 < argc)) {
             opts.convert = arg == "--convert" ? argv[++i] : arg.substr(10);
             if (opts.convert != "basic7" && opts.convert != "basic35" && opts.convert != "simons" && opts.convert != "tsbneo") {
@@ -512,7 +518,7 @@ static void printTokens() {
 static bool compileToMachineCode(const Options& opts, const char* argv0, std::vector<uint8_t>& binary,
                                  const std::function<std::string(int)>& where) {
     std::string name = fs::path(opts.inputFile).filename().string();
-    auto ir = compileBasicToIR(binary, name);
+    auto ir = compileBasicToIR(binary, name, opts.speed);
     if (!ir.ok) {
         for (const auto& [line, msg] : ir.errors)
             std::cerr << where(line) << ": error: " << msg << std::endl;
