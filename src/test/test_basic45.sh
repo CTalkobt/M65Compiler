@@ -114,6 +114,12 @@ conv '10 TEMPO 24' '20 PLAY "V1QC U0 C U8 C V2 O5 .ID#E V3 M S$B"'
 grep -q 'play "o4 qc u0 c u5 c", "hr o5 i.d#e", "h.r sr o5 \$b"' "$D/c7.bas" &&
     pass "--convert=basic7: U (0-15 -> BASIC 65's table), the octave per voice, M as rests, dotted and sharp/flat notes" ||
     fail "--convert PLAY state: $(cat "$D/c7.bas")"
+conv '10 POKE 53265,PEEK(53265)OR16:IF A THEN POKE 53265,PEEK(53265)AND239:B=1' '20 POKE 53265,155'
+# ($D011 bit 7 written 0: the raster compare's bit 8; the MEGA65's KERNAL runs on the raster IRQ at line 255)
+grep -q 'poke 53265, (peek(53265) or 16) and 127 : if a then poke 53265, (peek(53265) and 239) and 127 : b = 1' "$D/c7.bas" &&
+grep -q 'poke 53265, 27$' "$D/c7.bas" &&
+    pass "--convert=basic7: POKE 53265 keeps bit 7 (the raster compare's bit 8) 0" ||
+    fail "--convert POKE 53265: $(cat "$D/c7.bas")"
 conv '10 TEMPO 24:TEMPO X+1:TEMPO 0'
 grep -q 'tempo 25 : tempo int((x + 1) \* 1.042 + .5) : tempo 1' "$D/c7.bas" && grep -q 'TEMPO 0' "$D/c7.err" &&
     pass "--convert=basic7: TEMPO scaled (PAL), an expression wrapped, TEMPO 0 warned" ||

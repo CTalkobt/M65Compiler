@@ -619,6 +619,23 @@ void convertV7(std::vector<DecompiledLine>& lines, const BasicDecompileOptions& 
                 if (auto it = codes.find(std::stoi(p[i + 2].text)); it != codes.end()) p[i + 2].text = std::to_string(it->second);
                 continue;
             }
+            if (p[i].isKw && p[i].text == "POKE" && i + 2 < p.size() && !p[i + 1].isKw && !p[i + 2].isKw && p[i + 2].text == "," &&
+                (p[i + 1].text == "53265" || lower(p[i + 1].text) == "$d011")) {
+                // $D011 bit 7: read, the raster line's bit 8; written, the raster compare's. The C64's KERNAL
+                // runs on a CIA timer, the MEGA65's on the raster IRQ at line 255: a PEEK(53265) written back
+                // while the raster is past line 255 moves the compare to 511, a line that never comes, and
+                // every IRQ stops (the music, TI, the keyboard). Bit 7 is written 0.
+                size_t e = statementEnd(p, i);
+                if (e == i + 4 && isNumber(p[i + 3].text)) {
+                    p[i + 3].text = std::to_string(std::stoi(p[i + 3].text) & 127);
+                } else if (e > i + 3) {
+                    if (!p[e - 1].isKw) p[e - 1].text += ") and 127";
+                    else p.insert(p.begin() + (long)e, DecompiledPiece{false, ") and 127"});
+                    if (!p[i + 3].isKw) p[i + 3].text = "(" + p[i + 3].text;
+                    else p.insert(p.begin() + (long)i + 3, DecompiledPiece{false, "("});
+                }
+                continue;
+            }
             if (!p[i].isKw && (p[i].text == "ti" || p[i].text == "ti$")) {
                 // TI: BASIC 7.0 counts 1/60 s, BASIC 65 seconds (its 1 MHz timer). TI$: BASIC 7.0's
                 // "HHMMSS" (settable), BASIC 65's "HH:MM:SS" from the clock (reserved: not settable)
@@ -1996,7 +2013,7 @@ void convertSimons(std::vector<DecompiledLine>& lines, const BasicDecompileOptio
                 if (!isNumber(n)) { warn(line.num, "CSET of an expression: left as written"); p[i] = {false, "cset"}; continue; }
                 multi = false;
                 replacePieces(then(v7("GRAPHIC", {"0"}), {{false, std::string(n == "1" ? "print chr$(14);" : "print chr$(142);") +
-                                                                     (ecm ? " : poke 53265, peek(53265) and 191" : "")}}));
+                                                                     (ecm ? " : poke 53265, peek(53265) and 63" : "")}}));
             }
             // ---- text screen
             else if (k == "CENTRE") {
@@ -2301,8 +2318,10 @@ void convertSimons(std::vector<DecompiledLine>& lines, const BasicDecompileOptio
                                {false, ":"}, {false, v + " = " + (!v.empty() && v.back() == '$' ? R : "val(" + R + ")")}});
             } else if (k == "BCKGNDS") {
                 // the extended background colour mode ($D011 bit 6) and its four colours
+                // ($D011 bit 7 is read as the raster line's bit 8 and written as the raster compare's: kept 0, or
+                // the KERNAL's raster IRQ at line 255 never comes again: see POKE 53265 in convertV7)
                 if (!argc(4)) continue;
-                replace("poke 53265, peek(53265) or 64 : poke 53281, " + at(0) + " : poke 53282, " + at(1) + " : poke 53283, " + at(2) +
+                replace("poke 53265, (peek(53265) and 127) or 64 : poke 53281, " + at(0) + " : poke 53282, " + at(1) + " : poke 53283, " + at(2) +
                         " : poke 53284, " + at(3));
             } else if (k == "ROT") {
                 if (!argc(2)) continue;

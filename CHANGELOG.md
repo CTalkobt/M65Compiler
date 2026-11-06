@@ -23,8 +23,16 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
   `CENTRE`/`USE`/`FETCH`, `USE` with several fields, `SCRLD DEF`
   (`BLOAD`), `KEY GET`, procedure names holding keywords; TSB's
   `$64 $B1`–`$B3` tokens read. Listings may use `{shift-x}` / `{cbm-x}`.
+- `POKE 53265, v` (`$D011`) written with bit 7 0 (`(v) and 127`), and the
+  conversion's own `$D011` writes (Simons' `BCKGNDS`, `NRM`): bit 7 is the
+  raster compare's bit 8, and a `PEEK(53265)` written back while the raster
+  was past line 255 moved the compare to 511, a line that never comes. The
+  MEGA65's KERNAL runs on the raster IRQ, so every IRQ stopped: a `PLAY`
+  never ended (the hang the Simons' test saw after `BCKGNDS`), `TI`'s clock
+  and the keyboard stood still.
 - Tests: `test_simons_xemu.txt` grows to 24 checks,
-  `test_convert7_xemu.txt` 13, a new `test_tsbneo_xemu.txt` (15).
+  `test_convert7_xemu.txt` 14 (`$D011` past line 255), a new
+  `test_tsbneo_xemu.txt` (15).
 
 ### basic45 --convert=basic7: BASIC 7.0 (C128) programs as BASIC 65 (#368)
 

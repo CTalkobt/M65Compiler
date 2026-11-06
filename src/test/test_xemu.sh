@@ -654,7 +654,7 @@ done
 echo "Testing test_convert7_xemu.txt (basic45 --convert=basic7)..."
 if ./bin/basic45 --convert=basic7 src/test-resources/test_convert7_xemu.txt -o build/test/test_convert7_xemu.bas >/dev/null 2>&1 &&
    ./bin/basic45 build/test/test_convert7_xemu.bas -o build/test/test_convert7_xemu.prg >/dev/null 2>&1; then
-    run_xemu_test "test_convert7" "build/test/test_convert7_xemu.prg" "C0C0" 14 "01 01 01 01 01 01 01 01 01 01 01 01 01 AA"
+    run_xemu_test "test_convert7" "build/test/test_convert7_xemu.prg" "C0C0" 15 "01 01 01 01 01 01 01 01 01 01 01 01 01 01 AA"
 else
     echo "FAIL: test_convert7_xemu.txt (basic45 --convert or the build failed)"
     failed=$((failed + 1))
