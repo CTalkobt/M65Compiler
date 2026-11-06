@@ -13,7 +13,8 @@
 // Values: floats (F32), integers known exactly (I32, a bound on their size:
 // narrowed float variables (see compileBasicToIR),
 // % variables, whole literals, their + - *), the 0/1 results of comparisons,
-// strings (a pointer to a length byte and the characters). The arithmetic of
+// strings (a pointer to a length byte and the characters), arrays (a pointer
+// to a heap block: __bas_aref, basic_str.c). The arithmetic of
 // floats is the library's float runtime (the BASIC 65 ROM's routines, as the
 // interpreter computes); BASIC's checks (division by zero, ranges) and
 // messages are the runtime's (basic_rt.s45, basic_str.c).
@@ -39,7 +40,7 @@ namespace {
 
 // Single-byte tokens the compiler names (BASIC 65's table, as BasicTokenizer)
 enum : int {
-    T_END = 0x80, T_FOR = 0x81, T_NEXT = 0x82, T_DATA = 0x83, T_LET = 0x88, T_GOTO = 0x89,
+    T_END = 0x80, T_FOR = 0x81, T_NEXT = 0x82, T_DATA = 0x83, T_DIM = 0x86, T_LET = 0x88, T_GOTO = 0x89,
     T_IF = 0x8B, T_GOSUB = 0x8D, T_RETURN = 0x8E, T_REM = 0x8F, T_STOP = 0x90, T_ON = 0x91,
     T_POKE = 0x97, T_PRINT = 0x99, T_TAB = 0xA3, T_TO = 0xA4, T_SPC = 0xA6, T_THEN = 0xA7,
     T_NOT = 0xA8, T_STEP = 0xA9, T_PLUS = 0xAA, T_MINUS = 0xAB, T_MUL = 0xAC, T_DIV = 0xAD,
@@ -261,12 +262,15 @@ private:
 
     std::map<int, size_t> lineIndex_;            // line number -> index
     std::map<std::string, ir::Type> vars_;       // global -> type
+    std::set<std::string> arrays_;               // the arrays' globals (a pointer: 0 or the block)
     std::map<std::string, std::string> strLits_; // text -> global
     std::vector<ForInfo> fors_;
     std::map<std::pair<size_t, size_t>, int> forAt_;   // (line, statement) -> its FOR
     std::map<std::string, int> forVarIndex_;
     std::set<std::string> externs_;
     std::set<int> errBlocks_;
+    std::set<int> stepBlocks_;                   // the FOR loops whose step block a NEXT uses
+    void stepBlock(const ForInfo& f);
 
     [[noreturn]] void fail(const std::string& m) { throw CompileError(m); }
 
@@ -292,7 +296,7 @@ private:
     std::string afterLine(size_t li) { return li + 1 < lines_.size() ? lineLabel(li + 1) : "Lend"; }
 
     ir::Operand global(const std::string& name) {
-        if (!vars_.count(name)) externs_.insert(name);
+        if (!vars_.count(name) && !arrays_.count(name)) externs_.insert(name);
         return ir::Operand::global(name);
     }
     void br(const std::string& l) {
@@ -428,6 +432,132 @@ private:
         }
         return v;
     }
+    // --- arrays ---
+    // An array's global (BASIC 65 tells arrays apart from scalars, and by
+    // their first two characters and $ / %): a pointer to its block
+    std::string arrayGlobal(const std::string& name, VK& kind) {
+        char suffix = name.back();
+        std::string base = name;
+        if (suffix == '$' || suffix == '%') base.pop_back();
+        std::string g = "__ba_" + base.substr(0, 2);
+        if (suffix == '$') { kind = VK::S; g += "_s"; }
+        else if (suffix == '%') { kind = VK::I; g += "_i"; }
+        else kind = VK::F;
+        arrays_.insert(g);
+        return g;
+    }
+    static int elemSize(VK k) { return k == VK::F ? 5 : 2; }
+    // A subscript 0..65535 (BASIC's: ?ILLEGAL QUANTITY outside it): I16
+    ir::Operand toIndex(const Val& v) {
+        if (v.k == VK::S) fail("a number expected, not a string (?TYPE MISMATCH)");
+        if ((v.k == VK::I || v.k == VK::F) && v.isConst) {
+            double f = std::floor(v.cval);
+            if (f < 0 || f > 65535) { raiseNow(14); return iconst(ir::Type::I16, 0); }
+            return iconst(ir::Type::I16, (int64_t)f);
+        }
+        if (v.k == VK::I) {
+            checkRange(v.op, 0, 65535);
+            return trunc(v.op, ir::Type::I16);
+        }
+        if (v.k == VK::B) {
+            raiseIf(v.op, 14);              // (-1)
+            return iconst(ir::Type::I16, 0);
+        }
+        store(ir::Type::F32, toF(v), global("__float_a"));
+        call("__bas_getadr");
+        return load(ir::Type::I16, global("__bas_n"));
+    }
+    ir::Operand addrGlobal(const std::string& g) {
+        auto a = vreg(ir::Type::PTR);
+        ir::Inst in; in.op = ir::Op::ADDR_GLOBAL; in.dest = a; in.src1 = global(g);
+        in.resultType = ir::Type::PTR; emit(in);
+        return a;
+    }
+    ir::Operand addrElem(ir::Operand base, ir::Operand idx, int size) {
+        auto a = vreg(ir::Type::PTR);
+        ir::Inst in; in.op = ir::Op::ADDR_ELEM; in.dest = a; in.src1 = base; in.src2 = idx;
+        in.args.push_back(ir::Operand::imm(size, ir::Type::I16)); in.resultType = ir::Type::PTR; emit(in);
+        return a;
+    }
+    void copyTo(ir::Operand d, ir::Operand x) {
+        ir::Inst in; in.op = ir::Op::COPY; in.dest = d; in.src1 = x; in.resultType = d.type; emit(in);
+    }
+    // __bas_aref: the subscripts in __bas_sub, their number, the element's size and flags
+    void arefCall(const std::string& g, const std::vector<ir::Operand>& subs, int m) {
+        for (size_t k = 0; k < subs.size(); k++)
+            store(ir::Type::I16, subs[k], addrElem(addrGlobal("__bas_sub"), ir::Operand::imm((int)k, ir::Type::I16), 2));
+        store(ir::Type::I16, iconst(ir::Type::I16, (int64_t)subs.size()), global("__bas_n"));
+        store(ir::Type::I16, iconst(ir::Type::I16, m), global("__bas_m"));
+        store(ir::Type::PTR, addrGlobal(g), global("__bas_sa"));
+        call("__bas_aref");
+    }
+    std::vector<ir::Operand> subscripts() {
+        expectCh('(');
+        std::vector<ir::Operand> subs;
+        do {
+            if (subs.size() == 8) fail("more than 8 subscripts are not supported by --compile");
+            subs.push_back(toIndex(expr()));
+        } while (acceptCh(','));
+        expectCh(')');
+        return subs;
+    }
+    // The address of the element name(...) (the '(' next): PTR. One
+    // subscript: the element reached here when the array exists with one
+    // dimension and the index is in it; else (and for more) __bas_aref, which
+    // makes the array (11 elements a dimension) or raises the error
+    ir::Operand elemAddr(const std::string& name, VK& kind) {
+        std::string g = arrayGlobal(name, kind);
+        auto subs = subscripts();
+        int es = elemSize(kind);
+        int m = es | (kind == VK::S ? 0x40 : 0);
+        auto r = vreg(ir::Type::PTR);
+        if (subs.size() == 1) {
+            std::string slow = newLabel("aslow"), c1 = newLabel("achk"), c2 = newLabel("achk"),
+                        fast = newLabel("afast"), done = newLabel("adone");
+            auto p = load(ir::Type::PTR, global(g));
+            brCond(bin(ir::Op::CMP_EQ, ir::Type::I8, p, ir::Operand::imm(0, ir::Type::PTR)), slow, c1);
+            block(c1);
+            auto nd = load(ir::Type::I8, p);
+            brCond(bin(ir::Op::CMP_NE, ir::Type::I8, nd, ir::Operand::imm(1, ir::Type::I8)), slow, c2);
+            block(c2);
+            auto sz = load(ir::Type::I16, addrElem(p, ir::Operand::imm(1, ir::Type::I16), 1));
+            brCond(bin(ir::Op::CMP_GEU, ir::Type::I8, subs[0], sz), slow, fast);
+            block(fast);
+            copyTo(r, addrElem(addrElem(p, subs[0], es), ir::Operand::imm(3, ir::Type::I16), 1));
+            br(done);
+            block(slow);
+            arefCall(g, subs, m);
+            copyTo(r, load(ir::Type::PTR, global("__bas_sr")));
+            br(done);
+            block(done);
+        } else {
+            arefCall(g, subs, m);
+            copyTo(r, load(ir::Type::PTR, global("__bas_sr")));
+        }
+        return r;
+    }
+    Val loadElem(const std::string& name) {
+        VK k;
+        auto a = elemAddr(name, k);
+        Val v; v.k = k;
+        if (k == VK::F) v.op = load(ir::Type::F32, a);
+        else if (k == VK::S) v.op = load(ir::Type::PTR, a);
+        else { v.op = sext(load(ir::Type::I16, a), ir::Type::I16); v.bound = 32768; }
+        return v;
+    }
+    void dimStmt() {
+        do {
+            auto t = peek();
+            if (!t || t->k != TK::Name) fail("an array expected after DIM");
+            p_++;
+            if (!isCh('(')) fail("DIM " + t->text + " without subscripts is not supported by --compile");
+            VK k;
+            std::string g = arrayGlobal(t->text, k);
+            auto subs = subscripts();
+            arefCall(g, subs, elemSize(k) | (k == VK::S ? 0x40 : 0) | 0x80);
+        } while (acceptCh(','));
+    }
+
     ir::Operand sext(ir::Operand x, ir::Type from) {
         auto d = vreg(ir::Type::I32);
         ir::Inst in; in.op = ir::Op::SEXT; in.dest = d; in.src1 = x; in.resultType = ir::Type::I32;
@@ -824,7 +954,7 @@ private:
         if (t->k == TK::Str) { p_++; return strLit(t->text); }
         if (t->k == TK::Name) {
             p_++;
-            if (isCh('(')) fail("arrays (" + t->text + "(...)) are not supported by --compile yet");
+            if (isCh('(')) return loadElem(t->text);
             return loadVar(t->text);
         }
         if (t->k == TK::Ch && t->ch == '(') return parenExpr();
@@ -1070,7 +1200,50 @@ std::shared_ptr<ir::Module> Compiler::run() {
     return mod_;
 }
 
+void Compiler::stepBlock(const ForInfo& f) {
+    // N<id>: the loop's variable + step; not past the limit: the body again
+    // (F<id>), else the loop's entry popped and on after the NEXT (__bas_nret)
+    block("N" + std::to_string(f.id));
+    std::string id = std::to_string(f.id);
+    ir::Operand c;
+    if (narrow_.count(f.var)) {
+        // a narrowed variable: integer addition and comparison (the
+        // bound allows for the step: no overflow)
+        ir::Type t = narrowType(narrow_.at(f.var));
+        auto ld = [&](ir::Operand a) { auto x = load(t, a); return t == ir::Type::I32 ? x : sext(x, t); };
+        auto v = ld(ir::Operand::global(f.var));
+        ir::Operand step = f.stepConst ? iconst(ir::Type::I32, (int64_t)f.step) : ld(global("__bas_fs" + id));
+        auto v2 = bin(ir::Op::ADD, ir::Type::I32, v, step);
+        store(t, t == ir::Type::I32 ? v2 : trunc(v2, t), ir::Operand::global(f.var));
+        auto lim = ld(global("__bas_fl" + id));
+        auto gt = bin(ir::Op::CMP_GT, ir::Type::I8, v2, lim);
+        auto lt = bin(ir::Op::CMP_LT, ir::Type::I8, v2, lim);
+        c = bin(ir::Op::SUB, ir::Type::I8, gt, lt);
+    } else {
+        auto v = load(ir::Type::F32, ir::Operand::global(f.var));
+        ir::Operand step = f.stepConst ? fconst(f.step) : load(ir::Type::F32, global("__bas_fs" + id));
+        auto v2 = bin(ir::Op::FADD, ir::Type::F32, v, step);
+        store(ir::Type::F32, v2, ir::Operand::global(f.var));
+        c = bin(ir::Op::FCMP, ir::Type::I8, v2, load(ir::Type::F32, global("__bas_fl" + id)));
+    }
+    ir::Operand fin;
+    if (f.stepConst) {
+        int sg = f.step > 0 ? 1 : f.step < 0 ? 0xFF : 0;
+        fin = bin(ir::Op::CMP_EQ, ir::Type::I8, c, ir::Operand::imm(sg, ir::Type::I8));
+    } else {
+        fin = bin(ir::Op::CMP_EQ, ir::Type::I8, c, load(ir::Type::I8, global("__bas_fg" + id)));
+    }
+    std::string pop = "P" + id;
+    brCond(fin, pop, "F" + id);
+    block(pop);
+    auto sp = load(ir::Type::I8, global("__bas_sp"));
+    store(ir::Type::I8, bin(ir::Op::SUB, ir::Type::I8, sp, ir::Operand::imm(1, ir::Type::I8)), global("__bas_sp"));
+    auto r = load(ir::Type::PTR, global("__bas_nret"));
+    ir::Inst in; in.op = ir::Op::BR_INDIRECT; in.src1 = r; emit(in);
+}
+
 void Compiler::finish() {
+    for (int id : stepBlocks_) stepBlock(fors_[id - 1]);
     // the errors' blocks
     for (int n : errBlocks_) {
         block("Err" + std::to_string(n));
@@ -1095,6 +1268,16 @@ void Compiler::finish() {
     for (const auto& [g, t] : vars_) {
         ir::Module::GlobalVar gv;
         gv.name = g; gv.type = t; gv.size = ir::typeSize(t);
+        mod_->globals.push_back(gv);
+    }
+    {
+        ir::Module::GlobalVar gv;
+        gv.name = "__bas_nret"; gv.type = ir::Type::I16; gv.size = 2;
+        mod_->globals.push_back(gv);
+    }
+    for (const auto& g : arrays_) {
+        ir::Module::GlobalVar gv;
+        gv.name = g; gv.type = ir::Type::PTR; gv.size = 2;
         mod_->globals.push_back(gv);
     }
     for (int s = 0; s < maxSlots_; s++) {
@@ -1147,6 +1330,7 @@ void Compiler::statement() {
     }
     case T_REM: p_ = toks_->size(); return;
     case T_DATA: return;
+    case T_DIM: dimStmt(); return;
     case T_PRINT: printStmt(); return;
     case T_IF: ifStmt(); return;
     case T_GOTO: br(lineLabel(lineTarget())); block(newLabel("dead")); return;
@@ -1193,7 +1377,26 @@ void Compiler::statement() {
 }
 
 void Compiler::assignment(const std::string& name) {
-    if (isCh('(')) fail("arrays (" + name + "(...)) are not supported by --compile yet");
+    if (isCh('(')) {
+        // an element: its address first (the subscripts, the array made), as BASIC's LET
+        VK k;
+        auto a = elemAddr(name, k);
+        expectKw(T_EQ);
+        Val v = expr();
+        if (k == VK::S) {
+            needS(v);
+            store(ir::Type::PTR, v.op, global("__bas_sa"));
+            store(ir::Type::PTR, a, global("__bas_sr"));
+            call("__bas_sset");
+            freeVal(v);
+        } else if (k == VK::F) {
+            store(ir::Type::F32, toF(v), a);
+        } else {
+            Val x = toI16(v);
+            store(ir::Type::I16, trunc(x.op, ir::Type::I16), a);
+        }
+        return;
+    }
     expectKw(T_EQ);
     VK k;
     std::string g = varGlobal(name, k);
@@ -1443,6 +1646,11 @@ void Compiler::nextStmt() {
             if (!var || f.var == *var) cands.push_back(&f);
         if (cands.empty()) fail("NEXT " + (var ? *var : std::string()) + " has no FOR (?NEXT WITHOUT FOR)");
         std::string loop = newLabel("nloop"), done = newLabel("ndone");
+        {
+            auto r = vreg(ir::Type::I16);
+            ir::Inst in; in.op = ir::Op::ADDR_LABEL; in.dest = r; in.src1 = ir::Operand::label(done); emit(in);
+            store(ir::Type::I16, r, global("__bas_nret"));
+        }
         br(loop);
         block(loop);
         auto sp = load(ir::Type::I8, global("__bas_sp"));
@@ -1463,43 +1671,12 @@ void Compiler::nextStmt() {
         raiseIf(bin(ir::Op::CMP_GEU, ir::Type::I8, e, ir::Operand::imm(256, ir::Type::I16)), 10);
         store(ir::Type::I8, sp1, global("__bas_sp"));
         br(loop);
+        // a match: the loop's step block (shared by its NEXTs), which goes
+        // on at F<id> or, done, pops it and goes on here (__bas_nret)
         for (size_t i = 0; i < cands.size(); i++) {
-            const ForInfo& f = *cands[i];
             block(cases[i]);
-            std::string id = std::to_string(f.id);
-            ir::Operand c;
-            if (narrow_.count(f.var)) {
-                // a narrowed variable: integer addition and comparison (the
-                // bound allows for the step: no overflow)
-                ir::Type t = narrowType(narrow_.at(f.var));
-                auto ld = [&](ir::Operand a) { auto x = load(t, a); return t == ir::Type::I32 ? x : sext(x, t); };
-                auto v = ld(ir::Operand::global(f.var));
-                ir::Operand step = f.stepConst ? iconst(ir::Type::I32, (int64_t)f.step) : ld(global("__bas_fs" + id));
-                auto v2 = bin(ir::Op::ADD, ir::Type::I32, v, step);
-                store(t, t == ir::Type::I32 ? v2 : trunc(v2, t), ir::Operand::global(f.var));
-                auto lim = ld(global("__bas_fl" + id));
-                auto gt = bin(ir::Op::CMP_GT, ir::Type::I8, v2, lim);
-                auto lt = bin(ir::Op::CMP_LT, ir::Type::I8, v2, lim);
-                c = bin(ir::Op::SUB, ir::Type::I8, gt, lt);
-            } else {
-                auto v = load(ir::Type::F32, ir::Operand::global(f.var));
-                ir::Operand step = f.stepConst ? fconst(f.step) : load(ir::Type::F32, global("__bas_fs" + id));
-                auto v2 = bin(ir::Op::FADD, ir::Type::F32, v, step);
-                store(ir::Type::F32, v2, ir::Operand::global(f.var));
-                c = bin(ir::Op::FCMP, ir::Type::I8, v2, load(ir::Type::F32, global("__bas_fl" + id)));
-            }
-            ir::Operand fin;
-            if (f.stepConst) {
-                int sg = f.step > 0 ? 1 : f.step < 0 ? 0xFF : 0;
-                fin = bin(ir::Op::CMP_EQ, ir::Type::I8, c, ir::Operand::imm(sg, ir::Type::I8));
-            } else {
-                fin = bin(ir::Op::CMP_EQ, ir::Type::I8, c, load(ir::Type::I8, global("__bas_fg" + id)));
-            }
-            std::string pop = newLabel("npop");
-            brCond(fin, pop, "F" + id);
-            block(pop);
-            store(ir::Type::I8, sp1, global("__bas_sp"));
-            br(done);
+            br("N" + std::to_string(cands[i]->id));
+            stepBlocks_.insert(cands[i]->id);
         }
         block(done);
     };

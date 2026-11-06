@@ -567,6 +567,10 @@ __bas_msgs:
     .text "overflow"
     .byte 0, 16
     .text "out of memory"
+    .byte 0, 18
+    .text "bad subscript"
+    .byte 0, 19
+    .text "redimensioned array"
     .byte 0, 20
     .text "division by zero"
     .byte 0, 23

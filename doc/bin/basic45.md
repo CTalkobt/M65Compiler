@@ -333,8 +333,8 @@ status at `$FD`/`$FE` is the error number), after which BASIC's `READY.` follows
 
 | | |
 |---|---|
-| Statements | `LET` and assignments, `PRINT` (`;`, `,`, `TAB(`, `SPC(`), `IF` … `THEN` / `GOTO` (a line number or statements), `ELSE`, `BEGIN` / `BEND`, `GOTO`, `GO TO`, `GOSUB`, `RETURN`, `ON` … `GOTO` / `GOSUB`, `FOR` … `TO` … `STEP` / `NEXT` (a float variable; `NEXT a, b`), `POKE`, `END`, `STOP`, `REM`, `DATA` (skipped) |
-| Values | floats, `%` integers (-32768..32767), strings (up to 255 characters); scalars only (no arrays yet) |
+| Statements | `LET` and assignments, `PRINT` (`;`, `,`, `TAB(`, `SPC(`), `IF` … `THEN` / `GOTO` (a line number or statements), `ELSE`, `BEGIN` / `BEND`, `GOTO`, `GO TO`, `GOSUB`, `RETURN`, `ON` … `GOTO` / `GOSUB`, `FOR` … `TO` … `STEP` / `NEXT` (a float variable; `NEXT a, b`), `POKE`, `DIM`, `END`, `STOP`, `REM`, `DATA` (skipped) |
+| Values | floats, `%` integers (-32768..32767), strings (up to 255 characters); arrays of each (`DIM a(n, m)`, up to 8 subscripts; sizes at run time) |
 | Operators | `+ - * / ^`, unary `-`, `= <> < > <= >=` (numbers and strings), `AND`, `OR`, `NOT` |
 | Functions | `ABS`, `INT`, `SGN`, `SQR`, `SIN`, `COS`, `TAN`, `ATN`, `LOG`, `EXP`, `PEEK`, `LEN`, `ASC`, `CHR$`, `STR$`, `LEFT$`, `RIGHT$`, `MID$`, π |
 
@@ -354,8 +354,16 @@ in that bound (a step past them at most, once for each loop of the variable on B
 found by compiling until they hold; a variable whose bound keeps growing (`n = n + 1`, `s = s + i`) or that
 is given a fraction (`/`, `SQR`, a number with a point) stays a float. BASIC's floats are exact for such
 values, so the results are the interpreter's. Variables are told apart by their first two characters (and `$` / `%`), as in BASIC 65.
+**Arrays** are blocks on the heap (`malloc`): the number of dimensions, each one's size, the elements (floats
+5 bytes, integers 2, strings a pointer). As in BASIC 65, a subscript is 0..65535 (`?ILLEGAL QUANTITY` outside
+it), one past the `DIM` or a wrong number of subscripts is `?BAD SUBSCRIPT`, a second `DIM` of an array
+`?REDIMENSIONED ARRAY`, and an array used before a `DIM` gets 11 elements in each dimension. An element of a
+one-dimensional array is reached inline when the array exists and the subscript is in range; anything else
+(making the array, more subscripts, the errors) is `__bas_aref` (`basic_str.c`). Arrays and scalars of the same
+name are different variables; array elements are not narrowed (a float array holds floats).
+
 The run-time support is `lib/stdlib_asm/basic_rt.s45` (PRINT, the errors, BASIC's checks on numbers) and
-`lib/stdlib/basic_str.c` (strings on the heap, the stack of `GOSUB` and `FOR`).
+`lib/stdlib/basic_str.c` (strings on the heap, arrays, the stack of `GOSUB` and `FOR`).
 
 **Differences from the interpreter**:
 
@@ -366,6 +374,9 @@ The run-time support is `lib/stdlib_asm/basic_rt.s45` (PRINT, the errors, BASIC'
 - A float result too large gives the largest float, not `?OVERFLOW ERROR` (except for `EXP` and `^`).
 - `PEEK` of `$C000`-`$CFFF` reads RAM; the interpreter reads the ROM there.
 - An error cannot be caught (`TRAP` is not compiled yet).
+- Arrays and strings share the program's heap, from the end of the program to the stack's share below `$B000`
+  (some 15–30 KB, as large as the program is not); the interpreter keeps them in bank 1 (about 60 KB). A `DIM` that does not fit is
+  `?OUT OF MEMORY`.
 - With `--speed`, `+ - * /` and comparisons are the library's RAM routines (`lib/stdlib_asm/float_fast.s45`,
   cc45's `-ffast-float`): their results are those of the BASIC 65 ROM with its float rounding fixed
   (correctly rounded products and quotients). The ROM of release 920413 rounds some products, quotients and
@@ -381,13 +392,14 @@ The run-time support is `lib/stdlib_asm/basic_rt.s45` (PRINT, the errors, BASIC'
 | `n% = n% + 1 : c% = c% + (n% and 1)` (`i` narrowed) | 41 | 3 | 3 |
 | string `LEFT$` / `CHR$` / `+` (300 times) | 5 | 5 | 5 |
 | `gosub` / `x = x + 1` / `return` (300 times) | 2 | 1 | 0 |
+| sieve of Eratosthenes to 3000 (a `%` array) | 75 | 8 | 7 |
+| `a(i) = a(i) + i`, 5 × 501 elements (a float array) | 23 | 10 | 8 |
 
 Integer code is more than ten times as fast. Float arithmetic is not much faster: through the ROM each
 operation calls it with `JSRFAR` (and once more to round the result); the RAM routines of `--speed` take about
 half the time of that, but a float operation is still hundreds of cycles, as much as the interpreter's own. The
-compiled program is about ten times the size of the tokenized one (`test_basic_compile_xemu.bas`: 2 KB →
-20 KB). The next steps (#369):
-arrays, `INPUT` / `GET`, `DO` / `LOOP`, `TI`, `RND`.
+compiled program is about ten times the size of the tokenized one (`test_basic_compile_xemu.bas`: 2.6 KB →
+26 KB). The next steps (#369): `INPUT` / `GET`, `DO` / `LOOP`, `TI`, `RND`, `READ` / `DATA`.
 
 `test_basic_compile_xemu.bas` is run interpreted and compiled (`-O2`, `-O0`, `--speed`) on xemu with the same results;
 `test_basic45.sh` checks the output, the errors and a `.prg` input.

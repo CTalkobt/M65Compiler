@@ -4,6 +4,21 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile: arrays (#369)
+
+- `DIM` (sizes at run time, up to 8 subscripts) and elements of float, `%`
+  and `$` arrays, read and assigned; arrays on the heap; BASIC 65's rules:
+  subscripts 0..65535, `?BAD SUBSCRIPT` (past the DIM, the wrong number of
+  subscripts), `?REDIMENSIONED ARRAY`, 11 elements a dimension without a DIM.
+  One-dimensional elements reached inline, the rest by `__bas_aref`
+  (`basic_str.c`). A sieve to 3000: 75 frames interpreted, 8 compiled.
+- `NEXT`: each FOR loop's step (the increment, the limit, the pop) is one
+  block its NEXTs share (on after the NEXT through `__bas_nret`), no longer a
+  copy in every NEXT for every loop of the variable: the code grew with
+  NEXTs × FORs (the test program 30 KB → 19 KB).
+- Tests: arrays in `test_basic_compile_xemu.bas` (interpreted, -O2, -O0,
+  --speed), `?BAD SUBSCRIPT`'s exit status.
+
 ### Faster float arithmetic in RAM: cc45 -ffast-float / -Ospeed, basic45 --speed
 
 - `lib/stdlib_asm/float_fast.s45`: `__ffast_add`, `__ffast_sub`,
