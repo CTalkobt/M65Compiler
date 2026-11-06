@@ -233,6 +233,9 @@ struct ForInfo {
     int varIndex;            // for __bas_forvar
     bool stepConst = true;
     double step = 1;
+    size_t li = 0, si = 0;   // where it is
+    bool lead = false;       // the first token of its statement
+    bool counted = false;    // a counted loop: no entry on BASIC's stack (countedLoops)
 };
 
 class Compiler {
@@ -269,6 +272,11 @@ private:
     std::map<std::string, std::string> strLits_; // text -> global
     std::vector<ForInfo> fors_;
     std::map<std::pair<size_t, size_t>, int> forAt_;   // (line, statement) -> its FOR
+    // a counted loop's NEXT: (line, statement, the variable's place in its
+    // list, -1 for none) -> the loop
+    std::map<std::tuple<size_t, size_t, int>, int> countedNext_;
+    void countedLoops();
+    ir::Operand stepDone(const ForInfo& f);
     std::map<std::string, int> forVarIndex_;
     std::set<std::string> externs_;
     std::set<int> errBlocks_;
@@ -1237,10 +1245,117 @@ void Compiler::prescan() {
                     if (q + 1 == t.size() && t[q].k == TK::Num) f.step = sign * t[q].num;
                     else f.stepConst = false;
                 }
+                f.li = li;
+                f.si = si;
+                f.lead = k == 0;
                 forAt_[{li, si * 1000 + k}] = f.id;
                 fors_.push_back(f);
             }
         }
+    countedLoops();
+}
+
+// A FOR loop compiled as a counted loop (its NEXT an inline step, no entry
+// on BASIC's stack) does what BASIC's stack would when nothing can reach
+// the stack's view of it: the FOR and its NEXT statements of their own
+// (not after THEN), the NEXT the first one matching it in the text (nested
+// loops' NEXTs before it), and in between no way out of the loop or into it:
+// no GOTO, GOSUB, ON, RETURN, DO / LOOP / EXIT, BEGIN / BEND, THEN / ELSE
+// with a line number, no FOR of the same variable, no line a jump goes to,
+// no IF before the NEXT in its line (its false branch would skip it), and
+// only counted loops inside.
+void Compiler::countedLoops() {
+    // the lines jumps go to
+    std::set<size_t> targets;
+    for (size_t li = 0; li < lines_.size(); li++)
+        for (const auto& sg : lines_[li].segs) {
+            const auto& t = sg.toks;
+            for (size_t k = 0; k + 1 < t.size(); k++) {
+                if (t[k].k != TK::Kw) continue;
+                int kw = t[k].kw;
+                bool goTo = kw == T_TO && k > 0 && t[k - 1].k == TK::Kw && t[k - 1].kw == T_GO;
+                if (kw == T_GOTO || kw == T_GOSUB || kw == T_THEN || kw == T_ELSE || goTo || kw == T_RESTORE) {
+                    // (ON n GOTO a, b, c: every number of the list)
+                    for (size_t j = k + 1; j < t.size(); j++) {
+                        if (t[j].k == TK::Num) {
+                            auto it = lineIndex_.find((int)t[j].num);
+                            if (it != lineIndex_.end()) targets.insert(it->second);
+                        } else if (!(t[j].k == TK::Ch && t[j].ch == ',')) break;
+                    }
+                }
+            }
+        }
+    auto key = [](const std::string& name) { return "__bv_" + name.substr(0, 2); };
+    std::vector<std::tuple<size_t, size_t, int>> nextOf(fors_.size() + 1);
+    std::vector<std::vector<int>> inner(fors_.size() + 1);
+    for (auto& f : fors_) {
+        if (!f.lead) continue;
+        std::vector<std::string> nest;     // the loops opened inside, innermost last
+        bool ok = true, found = false;
+        size_t l = f.li, s = f.si + 1;
+        for (; ok && !found && l < lines_.size(); l++, s = 0) {
+            if (l > f.li && targets.count(l)) { ok = false; break; }
+            bool ifSeen = false;
+            for (; ok && !found && s < lines_[l].segs.size(); s++) {
+                const auto& t = lines_[l].segs[s].toks;
+                if (t.empty()) continue;
+                for (size_t k = 0; k < t.size() && ok; k++) {
+                    if (t[k].k != TK::Kw) continue;
+                    switch (t[k].kw) {
+                    case T_GOTO: case T_GO: case T_GOSUB: case T_ON: case T_RETURN: case T_DO: case T_LOOP:
+                    case T_EXIT: case T_BEGIN: case T_BEND:
+                        ok = false; break;
+                    case T_THEN: case T_ELSE:
+                        if (k + 1 < t.size() && t[k + 1].k == TK::Num) ok = false;
+                        if (t[k].kw == T_THEN) ifSeen = true;
+                        break;
+                    case T_IF: ifSeen = true; break;
+                    case T_FOR:
+                        if (k != 0 || k + 1 >= t.size() || t[k + 1].k != TK::Name || key(t[k + 1].text) == f.var) ok = false;
+                        else {
+                            nest.push_back(key(t[k + 1].text));
+                            auto it = forAt_.find({l, s * 1000});
+                            if (it != forAt_.end()) inner[f.id].push_back(it->second);
+                        }
+                        break;
+                    case T_NEXT: {
+                        if (k != 0) { ok = false; break; }
+                        // its variables (none: the innermost loop's)
+                        std::vector<std::string> vs;
+                        for (size_t j = 1; j < t.size(); j++)
+                            if (t[j].k == TK::Name) vs.push_back(key(t[j].text));
+                        if (vs.empty()) vs.push_back("");
+                        for (size_t j = 0; j < vs.size() && ok && !found; j++) {
+                            if (!nest.empty()) {
+                                if (!vs[j].empty() && vs[j] != nest.back()) ok = false;
+                                else nest.pop_back();
+                            } else if (vs[j].empty() || vs[j] == f.var) {
+                                if (ifSeen) ok = false;
+                                else { found = true; nextOf[f.id] = {l, s, t.size() > 1 ? (int)j : -1}; }
+                            } else ok = false;
+                        }
+                        k = t.size();
+                        break;
+                    }
+                    default: break;
+                    }
+                }
+            }
+            if (found) break;
+        }
+        f.counted = ok && found;
+    }
+    // only counted loops inside a counted one
+    for (bool changed = true; changed;) {
+        changed = false;
+        for (auto& f : fors_) {
+            if (!f.counted) continue;
+            for (int in : inner[f.id])
+                if (!fors_[in - 1].counted) { f.counted = false; changed = true; break; }
+        }
+    }
+    for (const auto& f : fors_)
+        if (f.counted) countedNext_[nextOf[f.id]] = f.id;
 }
 
 std::shared_ptr<ir::Module> Compiler::run() {
@@ -1292,15 +1407,11 @@ std::shared_ptr<ir::Module> Compiler::run() {
     return mod_;
 }
 
-void Compiler::stepBlock(const ForInfo& f) {
-    // N<id>: the loop's variable + step; not past the limit: the body again
-    // (F<id>), else the loop's entry popped and on after the NEXT (__bas_nret)
-    block("N" + std::to_string(f.id));
+ir::Operand Compiler::stepDone(const ForInfo& f) {
+    // the loop's variable + step: true when past the limit
     std::string id = std::to_string(f.id);
     ir::Operand c;
     if (narrow_.count(f.var)) {
-        // a narrowed variable: integer addition and comparison (the
-        // bound allows for the step: no overflow)
         // (in the variable's type: its bound allows for the step)
         ir::Type t = narrowType(narrow_.at(f.var));
         auto v = load(t, ir::Operand::global(f.var));
@@ -1308,6 +1419,8 @@ void Compiler::stepBlock(const ForInfo& f) {
         auto v2 = bin(ir::Op::ADD, t, v, step);
         store(t, v2, ir::Operand::global(f.var));
         auto lim = load(t, global("__bas_fl" + id));
+        if (f.stepConst && f.step != 0)
+            return bin(f.step > 0 ? ir::Op::CMP_GT : ir::Op::CMP_LT, ir::Type::I8, v2, lim);
         auto gt = bin(ir::Op::CMP_GT, ir::Type::I8, v2, lim);
         auto lt = bin(ir::Op::CMP_LT, ir::Type::I8, v2, lim);
         c = bin(ir::Op::SUB, ir::Type::I8, gt, lt);
@@ -1318,16 +1431,21 @@ void Compiler::stepBlock(const ForInfo& f) {
         store(ir::Type::F32, v2, ir::Operand::global(f.var));
         c = bin(ir::Op::FCMP, ir::Type::I8, v2, load(ir::Type::F32, global("__bas_fl" + id)));
     }
-    ir::Operand fin;
     if (f.stepConst) {
         int sg = f.step > 0 ? 1 : f.step < 0 ? 0xFF : 0;
-        fin = bin(ir::Op::CMP_EQ, ir::Type::I8, c, ir::Operand::imm(sg, ir::Type::I8));
-    } else {
-        fin = bin(ir::Op::CMP_EQ, ir::Type::I8, c, load(ir::Type::I8, global("__bas_fg" + id)));
+        return bin(ir::Op::CMP_EQ, ir::Type::I8, c, ir::Operand::imm(sg, ir::Type::I8));
     }
-    std::string pop = "P" + id;
-    brCond(fin, pop, "F" + id);
-    block(pop);
+    return bin(ir::Op::CMP_EQ, ir::Type::I8, c, load(ir::Type::I8, global("__bas_fg" + id)));
+}
+
+void Compiler::stepBlock(const ForInfo& f) {
+    // N<id>: the step; not past the limit: the body again (F<id>), else the
+    // loop's entry popped and on after the NEXT (__bas_nret)
+    block("N" + std::to_string(f.id));
+    std::string id = std::to_string(f.id);
+    ir::Operand fin = stepDone(f);
+    brCond(fin, "P" + id, "F" + id);
+    block("P" + id);
     auto sp = load(ir::Type::I8, global("__bas_sp"));
     store(ir::Type::I8, bin(ir::Op::SUB, ir::Type::I8, sp, ir::Operand::imm(2, ir::Type::I8)), global("__bas_sp"));
     auto r = load(ir::Type::PTR, global("__bas_nret"));
@@ -1995,6 +2113,12 @@ void Compiler::forStmt() {
             }
         }
     }
+    if (f.counted) {
+        // a counted loop: nothing on BASIC's stack, its NEXT steps it
+        block("F" + std::to_string(f.id));
+        entry();
+        return;
+    }
     store(ir::Type::I16, iconst(ir::Type::I16, f.id), global("__bas_n"));
     {
         // (the entry holds the loop's step code: NEXT goes there)
@@ -2012,7 +2136,17 @@ void Compiler::nextStmt() {
     // __bas_next finds the loop (of the variable, or any) on BASIC's stack and
     // gives its step code's address; that goes on at its FOR's body or, done,
     // pops it and comes back here (__bas_nret)
+    int place = 0;
     auto one = [&](const std::string* var) {
+        // a counted loop's NEXT: its step, back to the body or on
+        auto cn = countedNext_.find({li_, si_, var ? place : -1});
+        if (cn != countedNext_.end()) {
+            const ForInfo& f = fors_[cn->second - 1];
+            std::string on = newLabel("ncon");
+            brCond(stepDone(f), on, "F" + std::to_string(f.id));
+            block(on);
+            return;
+        }
         int vi = 0;
         if (var) {
             auto it = forVarIndex_.find(*var);
@@ -2040,6 +2174,7 @@ void Compiler::nextStmt() {
         std::string g = varGlobal(t->text, k);
         if (k != VK::F) fail("NEXT " + t->text + ": FOR needs a numeric variable");
         one(&g);
+        place++;
     } while (acceptCh(','));
 }
 

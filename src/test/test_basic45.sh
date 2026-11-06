@@ -319,6 +319,15 @@ if $B --compile --speed --asm "$D/cs.s45" "$D/cs.bas" -o "$D/cs.prg" > "$D/cs.lo
 else
     fail "--compile --speed: $(cat "$D/cs.log" "$D/cs2.log")"
 fi
+# counted loops: a FOR whose body nothing can leave or enter puts nothing
+# on BASIC's stack (no __bas_forpush); one with a GOTO in its body does
+printf '10 for i=1 to 3:print i:next\n20 for j=1 to 2:if j=3 then 40\n30 next\n40 end\n' > "$D/cf.bas"
+if $B --compile --asm "$D/cf.s45" "$D/cf.bas" -o "$D/cf.prg" > "$D/cf.log" 2>&1 &&
+   [ "$(grep -c 'jsr __bas_forpush' "$D/cf.s45")" = 1 ]; then
+    pass "--compile: a FOR loop nothing leaves or enters is a counted loop"
+else
+    fail "--compile counted loops: $(grep -c 'jsr __bas_forpush' "$D/cf.s45") forpush $(cat "$D/cf.log")"
+fi
 printf '10 goto 30\n' > "$D/cg.bas"
 ! $B --compile "$D/cg.bas" -o "$D/cg.prg" > "$D/cg.log" 2>&1 && grep -q 'line 30 does not exist' "$D/cg.log" &&
     pass "--compile: GOTO to a missing line is an error" || fail "--compile GOTO 30: $(cat "$D/cg.log")"
