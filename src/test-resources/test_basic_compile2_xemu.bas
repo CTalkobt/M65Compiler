@@ -1,7 +1,7 @@
 1 rem test_basic_compile2_xemu -- basic45 --compile (#369): run compiled and interpreted (the
 2 rem same results). results at $c0c0 (49344): 1 = pass
 3 rem [0] input, get, the keys put in the keyboard buffer (688, its count 208); [1] do / loop / exit
-4 rem [2] rnd (a seeded sequence), ti, ti$; [3] read / data / restore; [4] $aa
+4 rem [2] rnd (a seeded sequence), ti, ti$; [3] read / data / restore; [4] counted for loops; [5] $aa
 160 poke 688,52:poke 689,44:poke 690,72:poke 691,13:poke 692,88:poke 208,5:input "";n,h$:get k$:get z:get e$
 161 poke 688,65:poke 689,13:poke 690,57:poke 691,13:poke 208,4:input m:if n=4 and h$="h" and k$="x" and z=0 then 163
 162 goto 170
@@ -15,4 +15,8 @@
 190 read a,b$,c:x=0:restore 196:read d,e$:if a=1.5 and b$="two" and c=-3 and d=-3 and e$=" sp " then poke 49347,1
 195 data 1.5,two
 196 data -3," sp "
-199 poke 49348,170:end
+197 n=0:for i=1 to 5:if i=3 then n=n+100:next
+198 a=n:b=i:n=0:for i=1 to 3:for j=1 to 2:n=n+i*j:next j,i:s=0:for x=0 to 1 step .25:s=s+x:next:if a=0 and b=1 then 200
+199 goto 210
+200 t=0:for k=10 to 1 step -2:t=t+k:next:if n=18 and i=4 and j=3 and s=2.5 and x=1.25 and t=30 and k=0 then poke 49348,1
+210 poke 49349,170:end

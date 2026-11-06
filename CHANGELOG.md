@@ -4,6 +4,17 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile: counted FOR loops (#369)
+
+- A FOR loop nothing can leave or enter (no GOTO, GOSUB, ON, RETURN,
+  DO / LOOP, BEGIN / BEND or THEN / ELSE with a line number in its body, no
+  line in it a jump goes to, no IF before its NEXT in that line, its NEXT the
+  first matching one, only counted loops inside) puts nothing on BASIC's
+  stack: its NEXT is an inline step and compare. The test program 19.8 KB →
+  18 KB; an integer loop 3 → 2 frames.
+- Test: counted loops in `test_basic_compile2_xemu.bas` (an IF skipping the
+  NEXT, `NEXT j, i`, float and negative steps).
+
 ### basic45 --compile: smaller code (#369)
 
 - `test_basic_compile_xemu.bas` compiles to 20 KB, from 27 KB:
