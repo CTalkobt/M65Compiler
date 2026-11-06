@@ -271,7 +271,9 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
                     parser.tokens[stmt->instr.operandTokenIndex].type == AssemblerTokenType::IDENTIFIER) {
                     std::string symName = stmt->scopePrefix + parser.tokens[stmt->instr.operandTokenIndex].value;
                     if (!parser.symbolTable.count(symName)) symName = parser.tokens[stmt->instr.operandTokenIndex].value;
-                    if (parser.isRelocatableSymbol(symName) &&
+                    // (an @label after a plain label outside a proc: "label:@name")
+                    if ((parser.isRelocatableSymbol(symName) ||
+                         parser.isRelocatableSymbolIn(parser.tokens[stmt->instr.operandTokenIndex].value, stmt->scopePrefix)) &&
                         !parser.isZpSegmentSymbolIn(parser.tokens[stmt->instr.operandTokenIndex].value, stmt->scopePrefix))
                         forceAbs = true;
                 }

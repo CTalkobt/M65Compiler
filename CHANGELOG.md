@@ -4,6 +4,13 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### ca45: an @label after a plain label is a relocated address
+
+- In a relocatable object, an `@label` scoped by a plain label (not a `proc`)
+  at an offset below 256 was taken for a base-page operand without a
+  relocation (`sta @ld+1` assembled as `sta $0A`); it is absolute and
+  relocated now, as it was inside a `proc` (`test_assembler.sh`).
+
 ### basic45 --compile: BASIC 65 programs to machine code, a first subset (#369)
 
 - `basic45 --compile` builds the program, compiles its tokenized lines to
