@@ -370,8 +370,9 @@ line `n`. `RND` is the ROM's (the interpreter's seed and sequence), `TI` CIA 2's
 5 bytes, integers 2, strings a pointer). As in BASIC 65, a subscript is 0..65535 (`?ILLEGAL QUANTITY` outside
 it), one past the `DIM` or a wrong number of subscripts is `?BAD SUBSCRIPT`, a second `DIM` of an array
 `?REDIMENSIONED ARRAY`, and an array used before a `DIM` gets 11 elements in each dimension. An element of a
-one-dimensional array is reached inline when the array exists and the subscript is in range; anything else
-(making the array, more subscripts, the errors) is `__bas_aref` (`basic_str.c`). Arrays and scalars of the same
+one-dimensional array is reached by `__bas_ael1` (inline with `--speed`) when the array exists and the
+subscript is in range; anything else (making the array, more subscripts, the errors) is `__bas_aref`
+(`basic_str.c`). Arrays and scalars of the same
 name are different variables; array elements are not narrowed (a float array holds floats).
 
 The run-time support is `lib/stdlib_asm/basic_rt.s45` (PRINT, the errors, BASIC's checks on numbers) and
@@ -406,14 +407,17 @@ The run-time support is `lib/stdlib_asm/basic_rt.s45` (PRINT, the errors, BASIC'
 | `n% = n% + 1 : c% = c% + (n% and 1)` (`i` narrowed) | 41 | 3 | 3 |
 | string `LEFT$` / `CHR$` / `+` (300 times) | 5 | 5 | 5 |
 | `gosub` / `x = x + 1` / `return` (300 times) | 2 | 1 | 0 |
-| sieve of Eratosthenes to 3000 (a `%` array) | 75 | 8 | 7 |
+| sieve of Eratosthenes to 3000 (a `%` array) | 75 | 11 | 8 |
 | `a(i) = a(i) + i`, 5 × 501 elements (a float array) | 23 | 10 | 8 |
 
 Integer code is more than ten times as fast. Float arithmetic is not much faster: through the ROM each
 operation calls it with `JSRFAR` (and once more to round the result); the RAM routines of `--speed` take about
 half the time of that, but a float operation is still hundreds of cycles, as much as the interpreter's own. The
-compiled program is about ten times the size of the tokenized one (`test_basic_compile_xemu.bas`: 2.6 KB →
-26 KB). The next steps (#369): `FOR` loops as counted loops where the program allows it, smaller code.
+compiled program is about seven times the size of the tokenized one (`test_basic_compile_xemu.bas`: 2.7 KB →
+20 KB): integers in 16 bits when their bounds allow, float constants as data and floats read and written in
+place (cc45's code generator), `__bas_line` stored only where a line that can raise an error is entered,
+`NEXT` one call (`__bas_next`: a FOR's entry holds its step code's address), conditions of comparisons
+compiled as jumps where nothing in them has an effect. The next steps (#369): `FOR` loops as counted loops where the program allows it, smaller code.
 
 `test_basic_compile_xemu.bas` and `test_basic_compile2_xemu.bas` (input, loops, RND, DATA) are run interpreted and compiled (`-O2`, `-O0`, `--speed`) on xemu with the same results;
 `test_basic45.sh` checks the output, the errors and a `.prg` input.

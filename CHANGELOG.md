@@ -4,6 +4,27 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased]
 
+### basic45 --compile: smaller code (#369)
+
+- `test_basic_compile_xemu.bas` compiles to 20 KB, from 27 KB:
+  - integers in 16 bits where their bounds allow (they were all 32), range
+    checks only where a bound can pass them;
+  - cc45's code generator reads and writes 5-byte floats in place: a float
+    constant's only definition becomes 5 bytes of data, a load of a global
+    used once by the next float operation is read there, a result stored
+    once right after it is written there (C programs too);
+  - the vreg pool's dead stores are found through calls and float copy loops;
+  - a one-dimensional array element is `__bas_ael1` (inline with --speed);
+  - `NEXT` is one call (`__bas_next`): a FOR's stack entry holds its step
+    code's address, no longer a compare for every FOR of the variable;
+  - `__bas_line` only where a line that can raise an error is entered;
+  - IF conditions of comparisons joined by AND / OR, with nothing that has an
+    effect, compiled as jumps.
+- Fixed: an error after NEXT went back to a FOR's body in another line, after
+  RETURN came back into a line, or LOOP back to a DO, named the line the
+  jump came from (`?DIVISION BY ZERO ERROR IN 20` for line 10).
+- SGN of an integer above 32767 raised ?ILLEGAL QUANTITY.
+
 ### basic45 --compile: INPUT, GET, DO / LOOP, TI, RND, READ / DATA (#369)
 
 - `INPUT` (a prompt with `;` or `,`, several variables, elements too) and

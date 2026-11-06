@@ -112,8 +112,9 @@ static std::string hex32(uint32_t val) {
 IRCodeGen::IRCodeGen(std::ostream& out) : out_(out) {}
 
 void IRCodeGen::emitF32Byte(const std::string& op, uint32_t vregId, int i) {
-    auto a = alloc_.getAlloc(vregId);
     std::string idx = "+" + std::to_string(i);
+    if (auto al = f32Alias_.find(vregId); al != f32Alias_.end()) { emit(op + " " + al->second + idx); return; }
+    auto a = alloc_.getAlloc(vregId);
     if (a.loc == VRegAllocator::IN_ZP) {
         emit(op + " $" + hex8((uint8_t)a.offset) + idx);
     } else if (currentFunctionUseSAC_) {
@@ -509,6 +510,7 @@ std::map<uint32_t, IRCodeGen::ByteJoin> IRCodeGen::findByteJoins(const ir::Funct
 }
 
 bool IRCodeGen::f32AbsBase(uint32_t vregId, std::string& base) {
+    if (auto al = f32Alias_.find(vregId); al != f32Alias_.end()) { base = al->second; return true; }
     auto a = alloc_.getAlloc(vregId);
     if (a.loc == VRegAllocator::IN_ZP) { base = "$" + hex8((uint8_t)a.offset); return true; }
     if (!currentFunctionUseSAC_) return false;
@@ -520,6 +522,100 @@ bool IRCodeGen::f32AbsBase(uint32_t vregId, std::string& base) {
         base = currentFunctionName_ + "__local_" + std::to_string(vregId);
     }
     return true;
+}
+
+void IRCodeGen::planF32Aliases(const ir::Function& fn) {
+    f32Alias_.clear();
+    f32Skip_.clear();
+    std::map<uint32_t, int> defs, uses;
+    std::map<uint32_t, std::vector<const ir::Inst*>> users;
+    for (const auto& b : fn.blocks)
+        for (const auto& in : b.insts) {
+            if (in.dest.isVreg() && in.op != ir::Op::STORE && in.op != ir::Op::BR_COND) defs[in.dest.vregId]++;
+            auto use = [&](const ir::Operand& o) { if (o.isVreg()) { uses[o.vregId]++; users[o.vregId].push_back(&in); } };
+            use(in.src1);
+            use(in.src2);
+            for (const auto& a : in.args) use(a);
+            if (in.op == ir::Op::STORE && in.dest.isVreg()) use(in.dest);
+        }
+    auto isFloatOp = [](ir::Op op) {
+        return op == ir::Op::FADD || op == ir::Op::FSUB || op == ir::Op::FMUL || op == ir::Op::FDIV ||
+               op == ir::Op::FCMP || op == ir::Op::FNEG || op == ir::Op::FTOI;
+    };
+    // v read only as a float operand, or as the value a float store writes
+    auto readsInPlace = [&](const ir::Inst* u, uint32_t v) {
+        if (isFloatOp(u->op))
+            return (u->src1.isVreg() && u->src1.vregId == v) || (u->src2.isVreg() && u->src2.vregId == v);
+        return u->op == ir::Op::STORE && u->resultType == ir::Type::F32 && u->src1.isVreg() && u->src1.vregId == v &&
+               !(u->src2.isVreg() && u->src2.vregId == v) && u->args.empty();
+    };
+    auto allInPlace = [&](uint32_t v) {
+        for (const ir::Inst* u : users[v]) if (!readsInPlace(u, v)) return false;
+        return true;
+    };
+    for (const auto& b : fn.blocks) {
+        const auto& is = b.insts;
+        for (size_t k = 0; k < is.size(); k++) {
+            const ir::Inst& in = is[k];
+            if (!in.dest.isVreg() || defs[in.dest.vregId] != 1) continue;
+            uint32_t v = in.dest.vregId;
+            if (in.op == ir::Op::FCONST && in.resultType == ir::Type::F32 && allInPlace(v)) {
+                // the constant's bytes in data (one copy of each value)
+                int64_t bits = in.src1.immVal; double val;
+                std::memcpy(&val, &bits, sizeof(double));
+                uint8_t cbm[5]; doubleToCBM40(val, cbm);
+                std::string key;
+                for (uint8_t c : cbm) key += hex8(c);
+                auto it = f32Konst_.find(key);
+                if (it == f32Konst_.end()) {
+                    std::string lbl = "__fk" + std::to_string(f32KonstList_.size());
+                    it = f32Konst_.emplace(key, lbl).first;
+                    f32KonstList_.push_back({lbl, key});
+                }
+                f32Alias_[v] = it->second;
+                f32Skip_.insert(&in);
+                continue;
+            }
+            if (in.op == ir::Op::LOAD && in.resultType == ir::Type::F32 && in.src1.kind == ir::OperandKind::GLOBAL &&
+                in.args.empty() && uses[v] == 1) {
+                // its one use later in the block, with only loads and constants between
+                for (size_t j = k + 1; j < is.size(); j++) {
+                    const ir::Inst& u = is[j];
+                    bool uses_v = (u.src1.isVreg() && u.src1.vregId == v) || (u.src2.isVreg() && u.src2.vregId == v);
+                    if (uses_v) {
+                        if (readsInPlace(&u, v)) { f32Alias_[v] = in.src1.name; f32Skip_.insert(&in); }
+                        break;
+                    }
+                    if (u.op != ir::Op::LOAD && u.op != ir::Op::FCONST && u.op != ir::Op::CONST &&
+                        u.op != ir::Op::ADDR_GLOBAL && u.op != ir::Op::NOP) break;
+                }
+                continue;
+            }
+            if ((in.op == ir::Op::FADD || in.op == ir::Op::FSUB || in.op == ir::Op::FMUL || in.op == ir::Op::FDIV ||
+                 in.op == ir::Op::FNEG) && uses[v] == 1 && k + 1 < is.size()) {
+                // the result straight into the variable the next instruction stores it to
+                const ir::Inst& st = is[k + 1];
+                if (st.op == ir::Op::STORE && st.resultType == ir::Type::F32 && st.src1.isVreg() && st.src1.vregId == v &&
+                    st.src2.kind == ir::OperandKind::GLOBAL && st.args.empty()) {
+                    f32Alias_[v] = st.src2.name;
+                    f32Skip_.insert(&st);
+                }
+            }
+        }
+    }
+}
+
+void IRCodeGen::emitF32Konsts() {
+    if (f32KonstList_.empty()) return;
+    emitBlank();
+    if (relocMode_) emit(".segment \"data\"");
+    for (const auto& [lbl, key] : f32KonstList_) {
+        emitSplit(lbl);
+        emitLabel(lbl);
+        std::string line = ".byte ";
+        for (int i = 0; i < 5; i++) line += (i ? ", $" : "$") + key.substr(i * 2, 2);
+        emit(line);
+    }
 }
 
 void IRCodeGen::emitF32CopyAbs(const std::string& src, const std::string& dst) {
@@ -1704,6 +1800,8 @@ void IRCodeGen::emitStackCleanup(int frameSize) {
 
 void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode, bool zpCallMode, bool emitReasons, bool staticAllocMode, bool sacDebugMode, uint32_t prgBase) {
     currentModule_ = &mod;
+    f32Konst_.clear();
+    f32KonstList_.clear();
     fastFloat_ = mod.fastFloat;
     dataAlign_ = bssAlign_ = 1;
     textAlign_ = 1;
@@ -2302,6 +2400,7 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
 
     // Emit string data
     emitStrings(mod);
+    emitF32Konsts();
 
     // Aligned data/BSS: tell ln45 to start this object's part on that boundary
     if (relocMode) {
@@ -3167,7 +3266,10 @@ std::string IRCodeGen::pruneDeadPoolStores(const std::string& text) {
         addr = poolAddr(ln.operand, 0, &end);
         return addr >= 0 && end == ln.operand.size() ? w : 0;
     };
-    // the pool bytes a line reads (false: it reaches bytes it does not name)
+    // the pool bytes a line reads (false: it reaches bytes it does not name).
+    // bpIndex: the bytes an indexed operand reaches ($30,x), as the .bpindex
+    // before it says (emitF32CopyAbs's copy loop: 5); 0 unknown
+    int bpIndex = 0;
     auto readsOf = [&](const Line& ln, std::set<int>& rd) -> bool {
         // ([bp],z: a 32-bit pointer, #68)
         bool indirect32 = ln.operand.find('[') != std::string::npos;
@@ -3183,19 +3285,32 @@ std::string IRCodeGen::pruneDeadPoolStores(const std::string& text) {
             bool indexed = !indirect && end < ln.operand.size() && ln.operand[end] == ',';
             size_t h = ln.operand.find_last_not_of("<> ", i ? i - 1 : 0);
             bool immediate = i > 0 && h != std::string::npos && ln.operand[h] == '#';
+            if (indexed && bpIndex > 0 && !immediate && ln.mn != ".") {
+                // (a store writes them; a read reads all of them)
+                if (ln.mn != "sta" && ln.mn != "stx" && ln.mn != "sty" && ln.mn != "stz")
+                    for (int k = 0; k < bpIndex; k++) rd.insert(v + k);
+                i = end - 1;
+                continue;
+            }
             if (indexed || immediate || ln.mn == ".") return false;
             for (int k = 0; k < w; k++) rd.insert(v + k);
             i = end - 1;
         }
         return true;
     };
+    // (.bpindex N: the indexed accesses that follow reach N bytes)
+    auto noteBpIndex = [&](const Line& ln) {
+        if (ln.mn == "." && ln.operand.compare(0, 9, ".bpindex ") == 0) bpIndex = std::atoi(ln.operand.c_str() + 9);
+    };
     std::set<int> read;
     for (const auto& ln : lines) {
         if (ln.mn.empty()) continue;
+        noteBpIndex(ln);
         int a;
         if (plainStore(ln, a)) continue;
         if (!readsOf(ln, read)) return text;
     }
+    bpIndex = 0;
     std::vector<bool> drop(lines.size(), false);
     for (size_t i = 0; i < lines.size(); i++) {
         int a, w = lines[i].mn.empty() ? 0 : plainStore(lines[i], a);
@@ -3206,7 +3321,9 @@ std::string IRCodeGen::pruneDeadPoolStores(const std::string& text) {
     // A store whose bytes are all stored again further on in the same
     // straight-line code, none read before: dead (a temp computed, stored
     // to a global and overwritten: sta $30 / sta g / lda #5 / sta $30; #293).
-    // Labels, branches, calls and simulated instructions end the run.
+    // Labels, branches and simulated instructions end the run; a call does
+    // not (a callee never reads the caller's pool bytes: a read after it
+    // still counts).
     for (size_t i = 0; i < lines.size(); i++) {
         int a, w = drop[i] || lines[i].mn.empty() ? 0 : plainStore(lines[i], a);
         if (!w) continue;
@@ -3215,10 +3332,12 @@ std::string IRCodeGen::pruneDeadPoolStores(const std::string& text) {
         for (size_t j = i + 1; j < lines.size() && !pending.empty(); j++) {
             const Line& ln = lines[j];
             if (ln.mn.empty()) continue;
+            noteBpIndex(ln);
             const std::string& m = ln.mn;
-            if (m == "." || m[0] == 'b' || m == "jmp" || m == "jsr" || m == "rts" || m == "rti" ||
+            if (m == "." || m[0] == 'b' || m == "jmp" || m == "rts" || m == "rti" ||
                 m == "brk" || m.find('.') != std::string::npos)
                 break;
+            if (m == "jsr") continue;
             int b, wb = plainStore(ln, b);
             if (wb) {
                 for (int k = 0; k < wb; k++) pending.erase(b + k);
@@ -3244,6 +3363,7 @@ std::string IRCodeGen::pruneDeadPoolStores(const std::string& text) {
 void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMainWithZPSave) {
     emitComment("function " + fn.name);
     zpBitAlias_.clear();
+    planF32Aliases(fn);
 
     // Set current function context (used by loadVreg/storeVreg for SAC addressing)
     currentFunctionName_ = fn.name;
@@ -5363,6 +5483,8 @@ bool IRCodeGen::frameAddrUsedAfterCall() const {
 }
 
 void IRCodeGen::emitInst(const ir::Inst& inst) {
+    // a float constant, load or store done in place (planF32Aliases)
+    if (!f32Skip_.empty() && f32Skip_.count(&inst)) return;
     // (measure/opsize: CC45_OPMARK=1 marks each instruction's code, for
     // ca45 --source-map to attribute bytes to IR operations)
     static const bool opmark = getenv("CC45_OPMARK") != nullptr;

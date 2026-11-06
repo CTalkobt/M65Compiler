@@ -741,6 +741,19 @@ else
     echo "FAIL: test_basic_compile2_xemu.bas (basic45 or basic45 --compile failed)"
     failed=$((failed + 1))
 fi
+# an error after NEXT went back into a line, or after RETURN came back into
+# one, names that line ("?DIVISION BY ZERO ERROR IN 10": its "10" on the
+# screen at $086B, the message on row 1 after the screen is cleared)
+printf '10 print chr$(147);:for i=0 to 3:x=1/(i-2)\n20 next\n' > build/test/test_basic_compile_ln1.bas
+printf '10 print chr$(147);:gosub 100:x=1/0\n20 end\n100 return\n' > build/test/test_basic_compile_ln2.bas
+for ln in ln1 ln2; do
+    if ./bin/basic45 --compile build/test/test_basic_compile_$ln.bas -o build/test/test_basic_compile_$ln.prg >/dev/null 2>&1; then
+        run_xemu_test "test_basic_compile_$ln" "build/test/test_basic_compile_$ln.prg" "086B" 2 "31 30"
+    else
+        echo "FAIL: test_basic_compile_$ln (basic45 --compile failed)"
+        failed=$((failed + 1))
+    fi
+done
 # an array subscript past its DIM: ?BAD SUBSCRIPT (18)
 printf '10 dim a(5):a(5)=1:print a(6):poke 49344,1\n' > build/test/test_basic_compile_bs.bas
 if ./bin/basic45 --compile build/test/test_basic_compile_bs.bas -o build/test/test_basic_compile_bs.prg >/dev/null 2>&1; then

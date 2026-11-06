@@ -594,6 +594,17 @@ private:
     // Current function, block, and instruction index for peephole lookahead
     const ir::Function* currentFn_ = nullptr;
     const ir::Module* currentModule_ = nullptr;
+    // 5-byte floats read and written in place (planF32Aliases): a vreg whose
+    // only definition is a float constant (its value in data, f32Konst_), or a
+    // load of a global used once by the next float operation, or a float
+    // operation's result stored once right after it: the vreg is that symbol;
+    // the instructions in f32Skip_ emit nothing
+    std::map<uint32_t, std::string> f32Alias_;
+    std::set<const ir::Inst*> f32Skip_;
+    std::map<std::string, std::string> f32Konst_;            // the 5 bytes (hex) -> label
+    std::vector<std::pair<std::string, std::string>> f32KonstList_;   // label, the 5 bytes (hex)
+    void planF32Aliases(const ir::Function& fn);
+    void emitF32Konsts();
     // the float routine name: __float_<op>, or __ffast_<op> (Module::fastFloat)
     bool fastFloat_ = false;
     std::string floatOp(const char* op) const { return std::string(fastFloat_ ? "__ffast_" : "__float_") + op; }

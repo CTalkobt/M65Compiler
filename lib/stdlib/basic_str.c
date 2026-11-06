@@ -109,27 +109,46 @@ void _bas_str(void) {
     _bas_sr[0] = n;
 }
 
-/* BASIC's stack: a GOSUB's return address (256 and up), a FOR loop's number
- * (1..255), a DO loop's entry (its DO's address, then 0); __bas_forvar[n]:
- * loop n's variable (basic45 makes it) */
+/* BASIC's stack: a GOSUB's return address (256 and up); a FOR loop's entry
+ * (its step code's address, then its number 1..255); a DO loop's entry (its
+ * DO's address, then 0); __bas_forvar[n]: loop n's variable (basic45 makes it) */
 unsigned int _bas_stk[128];
 unsigned char _bas_sp;
 extern unsigned char _bas_forvar[];
 
-/* FOR loop __bas_n: a loop of the same variable on the stack (above the
- * last GOSUB) goes, with the entries above it (as BASIC's FOR) */
+/* FOR loop __bas_n (its step code at __bas_m): a loop of the same variable
+ * on the stack (above the last GOSUB or DO) goes, with the entries above it
+ * (as BASIC's FOR) */
 void _bas_forpush(void) {
     unsigned char id = (unsigned char)_bas_n;
     unsigned char v = _bas_forvar[id];
     unsigned char i = _bas_sp;
-    while (i) {
+    while (i >= 2) {
         unsigned int e = _bas_stk[i - 1];
         if (e >= 256 || e == 0) break;    /* (a GOSUB's or a DO's: the search ends) */
-        if (_bas_forvar[e] == v) { _bas_sp = i - 1; break; }
-        i--;
+        if (_bas_forvar[e] == v) { _bas_sp = i - 2; break; }
+        i -= 2;
     }
-    if (_bas_sp >= 128) raise(16);
+    if (_bas_sp >= 127) raise(16);
+    _bas_stk[_bas_sp++] = (unsigned int)_bas_m;
     _bas_stk[_bas_sp++] = id;
+}
+
+/* NEXT of the variable number __bas_n (0: any): the loop on top of the stack
+ * that is one of it (the FOR loops above it dropped); __bas_n := its step
+ * code's address. A GOSUB's or a DO's entry first, or none: ?NEXT WITHOUT FOR */
+void _bas_next(void) {
+    unsigned char v = (unsigned char)_bas_n;
+    while (_bas_sp >= 2) {
+        unsigned int e = _bas_stk[_bas_sp - 1];
+        if (e >= 256 || e == 0) break;
+        if (!v || _bas_forvar[e] == v) {
+            _bas_n = (int)_bas_stk[_bas_sp - 2];
+            return;
+        }
+        _bas_sp -= 2;
+    }
+    raise(10);
 }
 
 /* Arrays. A variable holds 0 (no array yet) or a block: the number of
@@ -210,4 +229,20 @@ void _bas_dopop(void) {
         i--;
     }
     raise(33);
+}
+
+/* An element of a one-dimensional array (basic45's code for one subscript):
+ * __bas_sa the variable, __bas_n the subscript, __bas_m as _bas_aref's; its
+ * address. The array there with one dimension and the subscript in it: the
+ * address computed here; else _bas_aref (which makes the array or raises the
+ * error). */
+unsigned char *_bas_ael1(void) {
+    unsigned char *a = *(unsigned char **)_bas_sa;
+    unsigned int i = (unsigned int)_bas_n;
+    if (a && a[0] == 1 && i < *(unsigned int *)(a + 1))
+        return a + 3 + i * (unsigned char)(_bas_m & 0x3F);
+    _bas_sub[0] = i;
+    _bas_n = 1;
+    _bas_aref();
+    return _bas_sr;
 }
