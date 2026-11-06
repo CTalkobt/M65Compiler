@@ -1,5 +1,6 @@
 #include <iostream>
 #include "Logger.hpp"
+#include <functional>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -22,6 +23,7 @@
 #include "BasicLister.hpp"
 #include "BasicDataLoader.hpp"
 #include "BasicFormatter.hpp"
+#include "BasicCompiler.hpp"
 #include <filesystem>
 #include <map>
 #include <memory>
@@ -77,6 +79,9 @@ struct Options {
     bool dataLoader = false;              // --data-loader: machine code as a DATA loader (#370)
     DataLoaderOptions loader;             // its options
     int loaderStart = -1;                 // --start
+    bool compile = false;                 // --compile: machine code (#369)
+    std::string asmFile;                  // --asm: --compile's assembly, kept
+    int optLevel = 2;                     // -O<n> for --compile
 };
 
 class SymbolTable {
@@ -208,6 +213,9 @@ static void printUsage(const char* progName) {
     std::cout << "                      after the program; SYS {name} calls its function name" << std::endl;
     std::cout << "  --lib <file>        The C library for --link (default: c45.lib)" << std::endl;
     std::cout << "  --decompile         Turn a BASIC .prg into basic45 source (also for a .prg input)" << std::endl;
+    std::cout << "  --compile           Compile the program to machine code (a .prg run with RUN); the" << std::endl;
+    std::cout << "                      input can also be a tokenized BASIC 65 .prg. -O0 .. -O4 (default -O2)" << std::endl;
+    std::cout << "  --asm <file>        --compile: also write the generated ca45 assembly" << std::endl;
     std::cout << "  --convert=<dialect> Another BASIC's program (a .prg, or a text listing) as BASIC 65 basic45" << std::endl;
     std::cout << "                      source: keywords renamed, statements rewritten, warnings for the rest;" << std::endl;
     std::cout << "                      basic7 (C128 BASIC 7.0), basic35 (C16 / Plus/4 BASIC 3.5), simons" << std::endl;
@@ -302,6 +310,12 @@ static Options parseArgs(int argc, char* argv[]) {
             opts.keepNames = true;
         } else if (arg == "--decompile") {
             opts.decompile = true;
+        } else if (arg == "--compile") {
+            opts.compile = true;
+        } else if (arg == "--asm" && i + 1 < argc) {
+            opts.asmFile = argv[++i];
+        } else if (arg.size() == 3 && arg[0] == '-' && arg[1] == 'O' && arg[2] >= '0' && arg[2] <= '4') {
+            opts.optLevel = arg[2] - '0';
         } else if (arg.rfind("--convert=", 0) == 0 || (arg == "--convert" && i + 1 < argc)) {
             opts.convert = arg == "--convert" ? argv[++i] : arg.substr(10);
             if (opts.convert != "basic7" && opts.convert != "basic35" && opts.convert != "simons" && opts.convert != "tsbneo") {
@@ -349,9 +363,10 @@ static Options parseArgs(int argc, char* argv[]) {
         }
     }
 
-    // a .prg input is decompiled (not the machine code of --data-loader)
-    if (!opts.dataLoader && opts.inputFile.size() > 4 &&
-        opts.inputFile.compare(opts.inputFile.size() - 4, 4, ".prg") == 0)
+    // a .prg input is decompiled (not the machine code of --data-loader, nor
+    // a program to --compile)
+    bool prgInput = opts.inputFile.size() > 4 && opts.inputFile.compare(opts.inputFile.size() - 4, 4, ".prg") == 0;
+    if (!opts.dataLoader && !opts.compile && prgInput)
         opts.decompile = true;
 
     if (opts.outputFile.empty() && !opts.inputFile.empty()) {
@@ -360,7 +375,8 @@ static Options parseArgs(int argc, char* argv[]) {
         if (dot != std::string::npos) {
             opts.outputFile = opts.outputFile.substr(0, dot);
         }
-        opts.outputFile += opts.decompile ? ".bas" : opts.dataLoader ? "-loader.prg" : ".prg";
+        opts.outputFile += opts.decompile ? ".bas" : opts.dataLoader ? "-loader.prg"
+                         : opts.compile && prgInput ? "-compiled.prg" : ".prg";
     }
 
     return opts;
@@ -487,6 +503,65 @@ static void printTokens() {
         if (++col % 3 == 0) std::cout << std::endl;
     }
     if (col % 3 != 0) std::cout << std::endl;
+}
+
+
+// --compile (#369): the tokenized program to machine code: basic45's IR,
+// cc45's passes and code generator, ca45, ln45 -basic with c45.lib. The
+// program is replaced by the linked one. where(n): the source of BASIC line n
+static bool compileToMachineCode(const Options& opts, const char* argv0, std::vector<uint8_t>& binary,
+                                 const std::function<std::string(int)>& where) {
+    std::string name = fs::path(opts.inputFile).filename().string();
+    auto ir = compileBasicToIR(binary, name);
+    if (!ir.ok) {
+        for (const auto& [line, msg] : ir.errors)
+            std::cerr << where(line) << ": error: " << msg << std::endl;
+        std::cerr << "Compilation failed: " << ir.errors.size() << " error(s)" << std::endl;
+        return false;
+    }
+    std::string asmText;
+    try {
+        asmText = basicIRToAssembly(ir.module, opts.optLevel, name);
+    } catch (const std::exception& e) {
+        std::cerr << "basic45: --compile: the code generator failed: " << e.what() << std::endl;
+        return false;
+    }
+    if (!opts.asmFile.empty()) {
+        std::ofstream a(opts.asmFile);
+        if (!a) { std::cerr << "Error: Could not write " << opts.asmFile << std::endl; return false; }
+        a << asmText;
+    }
+    std::string tools = toolDir(argv0);
+    fs::path tmp = fs::temp_directory_path() / ("basic45_compile_" + std::to_string(getpid()));
+    fs::create_directories(tmp);
+    {
+        std::ofstream a(tmp / "prog.s45");
+        a << asmText;
+    }
+    std::string log;
+    auto step = [&](const std::string& cmd, const std::string& what) {
+        if (opts.verbose) Logger::stream(LogLevel::INFO) << "  " << cmd << std::endl;
+        if (runCommand(cmd, &log) != 0) {
+            std::cerr << "basic45: " << what << " failed:\n" << log;
+            return false;
+        }
+        return true;
+    };
+    std::string lib = opts.linkLib;
+    if (lib.empty()) {
+        for (const char* rel : {"/../lib/build/c45.lib", "/../lib/cc45/c45.lib"})
+            if (fs::exists(tools + rel)) { lib = tools + rel; break; }
+        if (lib.empty()) lib = "c45.lib";   // ln45 searches CC45_LIB
+    }
+    std::string obj = (tmp / "prog.o45").string(), prg = (tmp / "prog.prg").string();
+    bool ok = step(shellQuote(tools + "/ca45") + " -c " + shellQuote((tmp / "prog.s45").string()) + " -o " + shellQuote(obj),
+                   "assembling the compiled program") &&
+              step(shellQuote(tools + "/ln45") + " -basic -o " + shellQuote(prg) + " " + shellQuote(obj) + " " + shellQuote(lib),
+                   "linking the compiled program");
+    if (ok) binary = readBinary(prg);
+    if (!getenv("BASIC45_KEEP_TMP")) fs::remove_all(tmp);
+    if (ok && opts.verbose) Logger::stream(LogLevel::INFO) << "Compiled: " << binary.size() << " bytes" << std::endl;
+    return ok;
 }
 
 
@@ -675,6 +750,20 @@ int main(int argc, char* argv[]) {
             if (opts.verbose) Logger::stream(LogLevel::INFO) << "Source written to: " << opts.outputFile << std::endl;
         }
         return 0;
+    }
+
+    // --compile of a tokenized BASIC 65 program
+    if (opts.compile) {
+        std::string in = opts.inputFile;
+        for (auto& c : in) c = (char)std::tolower((unsigned char)c);
+        if (in.size() > 4 && in.compare(in.size() - 4, 4, ".prg") == 0) {
+            auto binary = readBinary(opts.inputFile);
+            if (!compileToMachineCode(opts, argv[0], binary, [&](int line) {
+                    return opts.inputFile + ": line " + std::to_string(line); }))
+                return 1;
+            writeFile(opts.outputFile, binary);
+            return 0;
+        }
     }
 
     if (opts.verbose) {
@@ -1020,6 +1109,24 @@ int main(int argc, char* argv[]) {
             for (const auto& n : sysTargets)
                 Logger::stream(LogLevel::INFO) << "  SYS {" << n << "}: thunk __bas_" << n << std::endl;
         }
+    }
+
+    // --compile: machine code
+    if (opts.compile) {
+        if (linking) {
+            std::cerr << "basic45: --compile does not go with --link or asm blocks yet" << std::endl;
+            return 1;
+        }
+        std::map<int, int> sourceOf;   // BASIC line -> parsed text line
+        for (const auto& el : result.emitter->getEmittedLines()) sourceOf[el.lineNumber] = el.sourceLine;
+        if (!compileToMachineCode(opts, argv[0], binary, [&](int line) {
+                auto it = sourceOf.find(line);
+                if (it == sourceOf.end() || !it->second) return opts.inputFile + ": line " + std::to_string(line);
+                auto o = originOf(result, it->second);
+                return (o.first.empty() ? opts.inputFile : o.first) + ":" + std::to_string(o.second ? o.second : 1) +
+                       ":1: (line " + std::to_string(line) + ")";
+            }))
+            return 1;
     }
 
     // Dry-run mode: report actions without writing files

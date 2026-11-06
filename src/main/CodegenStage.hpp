@@ -50,6 +50,10 @@ public:
     // Get IR output (assembly-ready)
     std::string getIROutput() const { return irOutput_; }
 
+    // A module built elsewhere (basic45 --compile, #369): execute() then
+    // runs the IR passes and the code generator on it (no AST)
+    void setIRModule(std::shared_ptr<ir::Module> m) { irModule_ = std::move(m); }
+
     // Phase 102: Set typedef information from parser
     // Map: typedef_name → struct/union base type name
     void setMaxInlineIRSize(int n) { maxInlineIRSize_ = n; }

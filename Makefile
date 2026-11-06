@@ -182,7 +182,7 @@ $(LIB_DIR)/lib45-basic.a: $(addprefix $(OBJ_DIR)/, \
     SymbolExpressionEvaluator.o BasicMinifier.o BasicTooling.o \
     BasicCharacterMap.o BasicDocumentationGenerator.o BasicStructures.o \
     BasicArchiveSupport.o BasicStandardLibrary.o BasicVarRenamer.o BasicStructured.o \
-    BasicDecompiler.o BasicConvert.o BasicFormatter.o BasicLister.o BasicDataLoader.o)
+    BasicDecompiler.o BasicConvert.o BasicFormatter.o BasicLister.o BasicDataLoader.o BasicCompiler.o)
 	@mkdir -p $(LIB_DIR)
 	@rm -f $@
 	$(AR) rcs $@ $^
@@ -345,11 +345,16 @@ $(ASMCVT45_TARGET): $(LIB_DIR)/lib45-tools.a $(LIB_DIR)/lib45-codegen.a \
 	@mkdir -p $(BIN_DIR)
 	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/asmCvt45_main.o $(LIB_DIR)/lib45-tools.a $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-common.a
 
-# BASIC Compiler (basic45) - uses basic + tools + common
-$(BASIC_TARGET): $(OBJ_DIR)/basic45_main.o | $(LIB_DIR)
-$(BASIC_TARGET): $(LIB_DIR)/lib45-basic.a $(LIB_DIR)/lib45-tools.a $(LIB_DIR)/lib45-common.a
+# BASIC Compiler (basic45) - uses basic + tools + common; --compile (#369)
+# cc45's IR passes and code generator too
+$(BASIC_TARGET): $(OBJ_DIR)/basic45_main.o $(OBJ_DIR)/CodegenStage.o | $(LIB_DIR)
+$(BASIC_TARGET): $(LIB_DIR)/lib45-basic.a $(LIB_DIR)/lib45-tools.a $(LIB_DIR)/lib45-common.a \
+                 $(LIB_DIR)/lib45-opt.a $(LIB_DIR)/lib45-ir.a $(LIB_DIR)/lib45-c-compile.a $(LIB_DIR)/lib45-codegen.a
 	@mkdir -p $(BIN_DIR)
-	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/basic45_main.o $(LIB_DIR)/lib45-basic.a $(LIB_DIR)/lib45-tools.a $(LIB_DIR)/lib45-common.a
+	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/basic45_main.o $(OBJ_DIR)/CodegenStage.o $(LIB_DIR)/lib45-basic.a \
+	  $(LIB_DIR)/lib45-opt.a $(LIB_DIR)/lib45-ir.a $(LIB_DIR)/lib45-c-compile.a $(LIB_DIR)/lib45-codegen.a \
+	  $(LIB_DIR)/lib45-opt.a $(LIB_DIR)/lib45-ir.a \
+	  $(LIB_DIR)/lib45-tools.a $(LIB_DIR)/lib45-common.a
 
 # ============================================================================
 # COMPILATION RULES
